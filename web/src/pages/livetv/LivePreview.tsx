@@ -6,7 +6,7 @@ import { t } from "../../i18n";
 import { API_BASE, errorMessage, sessionXhrSetup } from "../../lib/api";
 import { formatBitrate } from "../../lib/format";
 import { ChannelLogo } from "./ChannelLogo";
-import { tv, type Channel, type ChannelSummary, type PreviewSession } from "./model";
+import { tv, type Channel, type PreviewSession } from "./model";
 
 type Phase = "tuning" | "playing" | "error";
 type HlsLike = {
@@ -28,7 +28,7 @@ export function LivePreview({
   viewer,
   onClose,
 }: {
-  channel: Channel | ChannelSummary;
+  channel: Channel;
   viewer?: string;
   onClose: () => void;
 }) {

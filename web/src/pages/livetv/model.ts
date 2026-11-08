@@ -17,7 +17,6 @@ export type Item = {
   episodeTitle?: string;
   genres?: string[];
   premiere?: boolean;
-  live?: boolean;
   showKey?: number;
   season?: number;
   episode?: number;
@@ -437,7 +436,14 @@ export const tv = {
     ),
   channels: (signal?: AbortSignal) => apiFetch<Channel[]>("/livetv/channels", { signal }),
   channelPage: (
-    q: { offset?: number; limit?: number; q?: string; filter?: string; source?: string },
+    q: {
+      offset?: number;
+      limit?: number;
+      q?: string;
+      filter?: string;
+      source?: string;
+      group?: string;
+    },
     signal?: AbortSignal,
   ) => {
     const p = new URLSearchParams();
@@ -446,6 +452,7 @@ export const tv = {
     if (q.q?.trim()) p.set("q", q.q.trim());
     if (q.filter) p.set("filter", q.filter);
     if (q.source) p.set("source", q.source);
+    if (q.group) p.set("group", q.group);
     return apiFetch<ChannelPage>(`/livetv/channels/page?${p}`, { signal });
   },
   channel: (id: string, signal?: AbortSignal) =>

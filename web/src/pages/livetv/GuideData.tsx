@@ -448,16 +448,6 @@ export function GuideWorkbench({
               <Button variant="outline" onClick={() => onEditSource(source.id)}>
                 <Pencil size={14} /> {t("Edit")}
               </Button>
-              <Button onClick={() => void propose()} disabled={busy || coverage === null}>
-                <Wand2 size={14} /> {t("Auto-match")}
-              </Button>
-              <GuideAIAction
-                channels={channels}
-                sources={sources}
-                coverage={coverage}
-                sourceId={source.id}
-                onApplied={onReload}
-              />
             </div>
             {source.lastError ? (
               <p
@@ -513,20 +503,7 @@ export function GuideWorkbench({
             <span className="text-xs text-fg-muted">
               {t("Matched by guide id, then by channel name.")}
             </span>
-            <div className="ml-auto flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (accepted.size === proposals.length) {
-                    setAccepted(new Set());
-                  } else {
-                    setAccepted(new Set(proposals.map((p) => p.channelId)));
-                  }
-                }}
-              >
-                {accepted.size === proposals.length ? t("Deselect all") : t("Select all")}
-              </Button>
+            <div className="ml-auto flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => setProposals(null)}>
                 {t("Dismiss")}
               </Button>
@@ -540,6 +517,25 @@ export function GuideWorkbench({
             {" · "}
             {t("Region conflicts: {count}", { count: formatNumber(matchCounts.regionRejected) })}
           </p>
+          {proposals.length > 1 ? (
+            <label className="flex w-fit cursor-pointer items-center gap-3 px-3 text-xs font-medium text-fg-muted">
+              <input
+                type="checkbox"
+                checked={accepted.size === proposals.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = accepted.size > 0 && accepted.size < proposals.length;
+                }}
+                onChange={() =>
+                  setAccepted(
+                    accepted.size === proposals.length
+                      ? new Set()
+                      : new Set(proposals.map((p) => p.channelId)),
+                  )
+                }
+              />
+              {t("Select all")}
+            </label>
+          ) : null}
           <ul className="max-h-80 space-y-1 overflow-y-auto">
             {proposals.map((p) => {
               const c = byId.get(p.channelId);

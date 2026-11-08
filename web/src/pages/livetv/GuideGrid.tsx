@@ -1,5 +1,5 @@
 import { programmeArtwork } from "./model";
-import { Badge, Button, Checkbox, cn } from "@braedonsaunders/appkit-ui";
+import { Badge, Button, Checkbox, Spinner, cn } from "@braedonsaunders/appkit-ui";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -21,19 +21,20 @@ import {
   type ReactNode,
 } from "react";
 import { Segmented } from "../../components/fields";
+import { ToolbarPicker, type ToolbarOption } from "../../components/ToolbarPicker";
 import { Artwork } from "../../components/Artwork";
-import { getLocale, t } from "../../i18n";
+import { getLocale, t, tn } from "../../i18n";
 import { unit } from "../../lib/format";
 import type { ChannelSelection } from "./ChannelBulkBar";
 import { ChannelLogo } from "./ChannelLogo";
 import {
   MINUTE,
   clock,
+  dayClock,
   hueOf,
   onNow,
   progress,
   type Channel,
-  type ChannelSummary,
   type Programme,
 } from "./model";
 
@@ -45,6 +46,50 @@ const LINEUP_MIN = 260;
 const ZOOM = { wide: 5, normal: 3.5, tight: 2.2 } as const;
 export type Zoom = keyof typeof ZOOM;
 const HOUR = 60 * MINUTE;
+/** The furthest ahead the day picker reaches, even for virtual channels. */
+const MAX_DAYS = 7;
+/** How much of the past a jump leaves visible before its target. */
+const LEAD = 30 * MINUTE;
+
+/** Local midnight `days` after the day containing `ms` (DST-safe). */
+function midnight(ms: number, days = 0): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d.getTime();
+}
+
+/** Calendar days from the day containing `now` to the day containing `ms`. */
+export function guideDayOffset(ms: number, now: number): number {
+  return Math.round((midnight(ms) - midnight(now)) / (24 * HOUR));
+}
+
+/** Days the picker offers: today through the last day with listings. */
+export function guideDayCount(now: number, guideUntil?: number): number {
+  if (guideUntil === undefined) return MAX_DAYS;
+  if (guideUntil <= now) return 1;
+  return Math.min(MAX_DAYS, Math.max(1, guideDayOffset(guideUntil - 1, now) + 1));
+}
+
+/**
+ * `hour`:00 on day `offset` (never before today), or the day after when that
+ * hour has already finished airing.
+ */
+export function guideHourTarget(now: number, offset: number, hour: number): number {
+  const at = (days: number) => {
+    const d = new Date(midnight(now, days));
+    d.setHours(hour);
+    return d.getTime();
+  };
+  const day = Math.max(0, offset);
+  const target = at(day);
+  return target + HOUR <= now ? at(day + 1) : target;
+}
+
+const JUMPS = [
+  { value: "prime", hour: 20, label: () => t("Prime time") },
+  { value: "late", hour: 23, label: () => t("Late night") },
+] as const;
 
 /**
  * The classic EPG grid, done properly: channels down the left, time across
@@ -60,23 +105,22 @@ export function GuideGrid({
   selected,
   onSelect,
   onShift,
-  onSetShift,
   onNow: jumpNow,
   onRange,
   loading,
   head,
   covered,
   onToggleFavorite,
+  onInspect,
+  onPlay,
+  onMapGuide,
+  guideUntil,
   emptyHint,
   selection,
   bulkActions,
-  onSelectProgramme,
-  onPlayChannel,
-  onMapGuide,
-  daysCount = 7,
 }: {
   /** Sparse by design: only rows near the viewport have been fetched. */
-  channels: (Channel | ChannelSummary | undefined)[];
+  channels: (Channel | undefined)[];
   guide: Map<string, Programme[]>;
   from: Date;
   until: Date;
@@ -84,7 +128,6 @@ export function GuideGrid({
   selected: string | null;
   onSelect: (id: string) => void;
   onShift: (hours: number) => void;
-  onSetShift: (hours: number) => void;
   onNow: () => void;
   onRange?: (first: number, last: number) => void;
   loading: boolean;
@@ -95,20 +138,24 @@ export function GuideGrid({
    * row level with its listings.
    */
   head?: ReactNode;
-  covered?: (c: Channel | ChannelSummary) => boolean | undefined;
-  onToggleFavorite?: (c: Channel | ChannelSummary) => void;
-  onSelectProgramme?: (channel: Channel | ChannelSummary, programme: Programme) => void;
-  onPlayChannel?: (channel: Channel | ChannelSummary) => void;
-  onMapGuide?: (channel: Channel | ChannelSummary) => void;
+  covered?: (c: Channel) => boolean | undefined;
+  onToggleFavorite?: (c: Channel) => void;
+  /** Opens a programme's details; without it a programme selects its channel. */
+  onInspect?: (c: Channel, p: Programme) => void;
+  /** Plays a channel in the preview player. */
+  onPlay?: (c: Channel) => void;
+  /** Opens guide matching for an IPTV channel without listings. */
+  onMapGuide?: (c: Channel) => void;
+  /** When listings run out (ms); undefined when some channel never runs out. */
+  guideUntil?: number;
   /** Shown instead of the default when there are no rows. */
   emptyHint?: ReactNode;
   selection?: ChannelSelection;
   bulkActions?: ReactNode;
-  daysCount?: number;
 }) {
   const lineup = head !== undefined;
   const loadedChannels = useMemo(
-    () => channels.filter((c): c is Channel | ChannelSummary => c !== undefined),
+    () => channels.filter((c): c is Channel => c !== undefined),
     [channels],
   );
   const [zoom, setZoom] = useState<Zoom>("normal");
@@ -122,61 +169,33 @@ export function GuideGrid({
   const x = (ms: number) => ((ms - start) / MINUTE) * ppm;
   const nowX = x(now);
   const nowVisible = now >= start && now <= until.getTime();
-  const nowInViewport = nowVisible && nowX >= view.left && nowX <= view.left + view.width;
 
-  const scrollGuideTo = useCallback((left: number, smooth = false) => {
+  const scrollTo = useCallback((left: number, smooth = false) => {
     const el = scroller.current;
     if (!el) return;
     if (typeof el.scrollTo === "function")
-      el.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
-    else el.scrollLeft = left;
+      el.scrollTo({ left: Math.max(0, left), behavior: smooth ? "smooth" : "auto" });
+    else el.scrollLeft = Math.max(0, left);
   }, []);
-
   const scrollToNow = useCallback(
-    (smooth = false) => {
-      scrollGuideTo(Math.max(0, nowX - 45 * ppm), smooth);
-    },
-    [nowX, ppm, scrollGuideTo],
+    (smooth = false) => scrollTo(nowX - 45 * ppm, smooth),
+    [nowX, ppm, scrollTo],
   );
-
-  const activeDayOffset = useMemo(() => {
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
-    const focused = new Date(start + HOUR);
-    focused.setHours(0, 0, 0, 0);
-    return Math.round((focused.getTime() - today.getTime()) / (24 * HOUR));
-  }, [now, start]);
-
-  const formatDayLabel = useCallback(
-    (off: number) => {
-      if (off === 0) return t("Today");
-      if (off === 1) return t("Tomorrow");
-      const d = new Date(now);
-      d.setDate(d.getDate() + off);
-      return d.toLocaleDateString(getLocale(), {
-        weekday: "short",
-        month: "numeric",
-        day: "numeric",
-      });
-    },
-    [now],
-  );
-
-  const dayOffsets = useMemo(
-    () => Array.from({ length: Math.max(1, Math.min(7, daysCount)) }, (_, i) => i),
-    [daysCount],
-  );
-  const pendingScrollRef = useRef<{ left: number; smooth?: boolean } | null>(null);
-
-  // Land on "now" or pending target whenever the window or zoom changes.
+  // A day or time jump that needs a new window lands once that window renders.
+  const pendingFocus = useRef<number | null>(null);
+  // The time at the listings' left edge, so zooming keeps the viewer's place.
+  const leftEdge = useRef<number | null>(null);
+  const lastZoom = useRef(zoom);
+  // Land on "now" when the window moves, keep the place when zooming, and
+  // land on a jump's target once its window renders.
   useLayoutEffect(() => {
-    if (pendingScrollRef.current) {
-      const { left, smooth } = pendingScrollRef.current;
-      pendingScrollRef.current = null;
-      scrollGuideTo(left, smooth);
-    } else {
-      scrollToNow();
-    }
+    const focus = pendingFocus.current;
+    const zoomed = lastZoom.current !== zoom;
+    pendingFocus.current = null;
+    lastZoom.current = zoom;
+    if (focus !== null) scrollTo(x(focus - LEAD));
+    else if (zoomed && leftEdge.current !== null) scrollTo(x(leftEdge.current));
+    else scrollToNow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, zoom]);
 
@@ -209,6 +228,81 @@ export function GuideGrid({
       out.push(tick);
     return out;
   }, [start, until]);
+
+  const dayLabel = new Date(Math.max(start, now)).toLocaleDateString(getLocale(), {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+
+  // The day being looked at follows the scroll position, not the window.
+  const focusedDay = guideDayOffset(start + (view.left / ppm) * MINUTE + LEAD, now);
+  const days = guideDayCount(now, guideUntil);
+  const today = midnight(now);
+  // Show `focus`: scroll there when the window holds it, otherwise move the
+  // window to start at `windowStart` and land on `focus` once it renders.
+  const show = (focus: number, windowStart: number) => {
+    const hours = Math.round((windowStart - start) / HOUR);
+    if ((focus >= start && focus <= until.getTime() - 3 * HOUR) || hours === 0) {
+      scrollTo(x(focus - LEAD), true);
+      return;
+    }
+    pendingFocus.current = focus;
+    onShift(hours);
+  };
+  const pickDay = (offset: number) => {
+    if (offset === 0) {
+      jumpNow();
+      scrollToNow(true);
+      return;
+    }
+    // The same time of day on that day, with the whole day in the window.
+    const at = new Date(now);
+    at.setDate(at.getDate() + offset);
+    show(at.getTime(), midnight(now, offset));
+  };
+  const jump = (hour: number) => {
+    const target = guideHourTarget(now, focusedDay, hour);
+    show(target, target - 2 * HOUR);
+  };
+  const locale = getLocale();
+  const jumpTargets = JUMPS.map((j) => guideHourTarget(now, focusedDay, j.hour));
+  const jumpKey = jumpTargets.join(",");
+  const dayMenu = useMemo(() => {
+    const date = new Intl.DateTimeFormat(locale, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    const label = (offset: number) =>
+      offset === 0
+        ? t("Today")
+        : offset === 1
+          ? t("Tomorrow")
+          : offset === -1
+            ? t("Yesterday")
+            : date.format(midnight(today, offset));
+    const options: ToolbarOption<string>[] = Array.from({ length: days }, (_, i) => ({
+      value: `day:${i}`,
+      label: label(i),
+      group: t("Day"),
+    }));
+    JUMPS.forEach((j, i) => {
+      const target = jumpTargets[i]!;
+      if (guideUntil !== undefined && target >= guideUntil) return;
+      options.push({
+        value: `jump:${j.value}`,
+        label: j.label(),
+        hint:
+          guideDayOffset(target, today) === Math.max(0, focusedDay)
+            ? clock(new Date(target))
+            : dayClock(new Date(target)),
+        group: t("Go to"),
+      });
+    });
+    return { options, label };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale, today, days, focusedDay, guideUntil, jumpKey]);
 
   // Full screen shows only the guide: the browser's Fullscreen API on this
   // element, or a window-filling overlay where that API is missing.
@@ -271,62 +365,51 @@ export function GuideGrid({
           ) : null}
           <div
             className={cn(
-              "flex min-w-0 flex-col justify-center gap-1.5 bg-surface px-3 py-1.5",
+              "flex min-w-0 flex-wrap items-center gap-1 bg-surface px-2 py-1.5",
               channels.length === 0 && "max-sm:hidden",
               lineup
-                ? "ml-auto shrink-0 border-l border-border"
+                ? "ml-auto w-44 shrink-0 content-center justify-center border-l border-border"
                 : "flex-1 border-b border-border sm:px-4",
             )}
           >
-            {/* Row 1: Day selector */}
-            <div className="flex items-center gap-1.5 overflow-x-auto app-scroll">
-              <span className="text-xs font-semibold text-fg shrink-0 mr-1">{t("Guide")}</span>
-              {loading ? (
-                <span className="text-xs text-fg-subtle shrink-0">{t("Updating…")}</span>
-              ) : null}
-              <div
-                className="flex items-center gap-0.5 rounded-lg bg-bg-subtle p-0.5"
-                role="tablist"
-                aria-label={t("Day selector")}
-              >
-                {dayOffsets.map((offset) => {
-                  const active = activeDayOffset === offset;
-                  return (
-                    <button
-                      key={offset}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => {
-                        if (offset === 0) {
-                          pendingScrollRef.current = {
-                            left: Math.max(0, nowX - 45 * ppm),
-                            smooth: true,
-                          };
-                          onSetShift(0);
-                          scrollToNow(true);
-                        } else {
-                          pendingScrollRef.current = { left: 0, smooth: true };
-                          onSetShift(offset * 24);
-                          scrollGuideTo(0, true);
-                        }
-                      }}
-                      className={cn(
-                        "rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors whitespace-nowrap",
-                        active
-                          ? "bg-surface text-fg shadow-xs font-semibold"
-                          : "text-fg-muted hover:text-fg hover:bg-surface/50",
-                      )}
-                    >
-                      {formatDayLabel(offset)}
-                    </button>
-                  );
+            <div
+              className={cn(
+                "flex min-w-0 items-center gap-2",
+                lineup ? "w-full justify-center" : "mr-auto",
+              )}
+            >
+              <h2 className={cn("text-sm font-semibold text-fg", lineup && "sr-only")}>
+                {t("Guide")}
+              </h2>
+              <span className={cn("text-xs text-fg-muted", lineup && "sr-only")}>
+                {tn(channels.length, "{day} · {count} channel", "{day} · {count} channels", {
+                  day: dayLabel,
                 })}
-              </div>
+              </span>
+              <ToolbarPicker
+                ariaLabel={t("Day")}
+                value={`day:${focusedDay}`}
+                trigger={<span className="min-w-0 truncate">{dayMenu.label(focusedDay)}</span>}
+                options={dayMenu.options}
+                searchable={false}
+                // Sized like the heading it replaces, so the toolbar keeps its height.
+                className="h-5 max-w-[9rem] border-transparent bg-transparent px-1 text-sm font-semibold shadow-none"
+                menuClassName="w-56"
+                onChange={(v) => {
+                  if (v.startsWith("day:")) return pickDay(Number(v.slice(4)));
+                  const j = JUMPS.find((o) => `jump:${o.value}` === v);
+                  if (j) jump(j.hour);
+                }}
+              />
+              {loading ? (
+                lineup ? (
+                  <Spinner size={12} label={t("Updating…")} />
+                ) : (
+                  <span className="text-xs text-fg-subtle">{t("Updating…")}</span>
+                )
+              ) : null}
             </div>
-
-            {/* Row 2: Time presets, Zoom, Fullscreen */}
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
@@ -349,66 +432,30 @@ export function GuideGrid({
                 </span>
                 {t("Now")}
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs font-medium"
-                title={t("Jump to 8:00 PM Prime Time")}
-                onClick={() => {
-                  const targetDay = Math.max(0, activeDayOffset);
-                  const nowDate = new Date(now);
-                  const nowHour = nowDate.getHours();
-                  const targetShift = targetDay * 24 + (20 - nowHour);
-                  pendingScrollRef.current = { left: Math.max(0, 60 * ppm), smooth: true };
-                  onSetShift(targetShift);
-                  scrollGuideTo(Math.max(0, 60 * ppm), true);
-                }}
-              >
-                {t("8 PM")}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs font-medium"
-                title={t("Jump to 11:00 PM Late Night")}
-                onClick={() => {
-                  const targetDay = Math.max(0, activeDayOffset);
-                  const nowDate = new Date(now);
-                  const nowHour = nowDate.getHours();
-                  const targetShift = targetDay * 24 + (23 - nowHour);
-                  pendingScrollRef.current = { left: Math.max(0, 60 * ppm), smooth: true };
-                  onSetShift(targetShift);
-                  scrollGuideTo(Math.max(0, 60 * ppm), true);
-                }}
-              >
-                {t("11 PM")}
-              </Button>
               <Button variant="ghost" size="sm" aria-label={t("Later")} onClick={() => onShift(3)}>
                 <ChevronRight size={15} />
               </Button>
-              <div className="ml-auto flex items-center gap-1">
-                <Segmented
-                  ariaLabel={t("Zoom")}
-                  size="sm"
-                  value={zoom}
-                  onChange={setZoom}
-                  options={[
-                    { value: "tight", label: unit(6, "hour") },
-                    { value: "normal", label: unit(4, "hour") },
-                    { value: "wide", label: unit(3, "hour") },
-                  ]}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={full ? t("Exit full screen") : t("Full screen guide")}
-                  aria-pressed={full}
-                  onClick={() => void toggleFull()}
-                >
-                  {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                </Button>
-              </div>
             </div>
+            <Segmented
+              ariaLabel={t("Zoom")}
+              size="sm"
+              value={zoom}
+              onChange={setZoom}
+              options={[
+                { value: "tight", label: unit(6, "hour") },
+                { value: "normal", label: unit(4, "hour") },
+                { value: "wide", label: unit(3, "hour") },
+              ]}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={full ? t("Exit full screen") : t("Full screen guide")}
+              aria-pressed={full}
+              onClick={() => void toggleFull()}
+            >
+              {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </Button>
           </div>
         </div>
       </div>
@@ -418,14 +465,15 @@ export function GuideGrid({
         role="grid"
         aria-label={t("Programme guide")}
         aria-rowcount={channels.length}
-        onScroll={(e) =>
+        onScroll={(e) => {
+          leftEdge.current = start + (e.currentTarget.scrollLeft / ppm) * MINUTE;
           setView({
             top: e.currentTarget.scrollTop,
             height: e.currentTarget.clientHeight,
             left: e.currentTarget.scrollLeft,
             width: e.currentTarget.clientWidth,
-          })
-        }
+          });
+        }}
         className="app-scroll relative min-h-0 flex-1 overflow-auto bg-bg"
       >
         {channels.length > 0 ? (
@@ -550,7 +598,7 @@ export function GuideGrid({
                       now={now}
                       width={chCol}
                       onSelect={onSelect}
-                      onPlayChannel={onPlayChannel}
+                      onPlay={onPlay}
                       onToggleFavorite={onToggleFavorite}
                       selection={selection}
                     />
@@ -599,23 +647,25 @@ export function GuideGrid({
                   <div className="relative" style={{ width }}>
                     {ps.length === 0 ? (
                       <div
-                        className="absolute inset-1 flex items-center gap-2 rounded-md border border-dashed border-border px-3 text-xs text-fg-subtle"
+                        className="absolute inset-1 flex items-center rounded-md border border-dashed border-border px-3 text-xs text-fg-subtle"
                         style={{ paddingLeft: Math.max(12, view.left + 12) }}
                       >
-                        <span>
-                          {c.kind === "iptv"
-                            ? t("No guide data — map a guide channel in Guide data")
-                            : t("No guide data — no programming")}
-                        </span>
                         {c.kind === "iptv" && onMapGuide ? (
-                          <button
-                            type="button"
-                            onClick={() => onMapGuide(c)}
-                            className="inline-flex items-center gap-1 rounded bg-surface px-2 py-0.5 text-[11px] font-medium text-primary shadow-xs hover:bg-surface-hover hover:underline"
-                          >
-                            <Link2 size={11} /> {t("Map guide")}
-                          </button>
-                        ) : null}
+                          <>
+                            <span>{t("No guide data")}</span>
+                            <button
+                              type="button"
+                              onClick={() => onMapGuide(c)}
+                              className="ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                            >
+                              <Link2 size={11} aria-hidden /> {t("Map guide")}
+                            </button>
+                          </>
+                        ) : c.kind === "iptv" ? (
+                          t("No guide data — map a guide channel in Guide data")
+                        ) : (
+                          t("No guide data — no programming")
+                        )}
                       </div>
                     ) : null}
                     {ps.map((p) => {
@@ -643,10 +693,7 @@ export function GuideGrid({
                           key={p.id}
                           type="button"
                           role="gridcell"
-                          onClick={() => {
-                            if (onSelectProgramme) onSelectProgramme(c, p);
-                            else onSelect(c.id);
-                          }}
+                          onClick={() => (onInspect ? onInspect(c, p) : onSelect(c.id))}
                           aria-label={t("{channel}: {title}, {start} to {end}", {
                             channel: c.name,
                             title: p.item.title,
@@ -696,11 +743,12 @@ export function GuideGrid({
                                 )}
                               >
                                 {p.item.title || t("Untitled")}
-                                {p.item.season !== undefined &&
-                                p.item.episode !== undefined &&
-                                p.item.season > 0 ? (
+                                {p.item.season && p.item.episode ? (
                                   <span className="ml-1.5 text-[11px] font-normal text-fg-subtle">
-                                    S{p.item.season}E{p.item.episode}
+                                    {t("S{season} E{episode}", {
+                                      season: p.item.season,
+                                      episode: p.item.episode,
+                                    })}
                                   </span>
                                 ) : null}
                               </span>
@@ -749,30 +797,6 @@ export function GuideGrid({
           </div>
         ) : null}
       </div>
-      {!nowInViewport ? (
-        <div
-          className={cn(
-            "absolute z-40 animate-in fade-in",
-            selection?.ids.size ? "bottom-20 right-4" : "bottom-4 right-4",
-          )}
-        >
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 rounded-full border-danger/40 bg-surface/95 shadow-lg backdrop-blur"
-            onClick={() => {
-              jumpNow();
-              scrollGuideTo(Math.max(0, nowX - view.width / 3), true);
-            }}
-          >
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-danger/60" />
-              <span className="relative inline-flex size-2 rounded-full bg-danger" />
-            </span>
-            <span className="text-xs font-semibold text-fg">{t("Jump to Live")}</span>
-          </Button>
-        </div>
-      ) : null}
       {bulkActions ? (
         <div className="pointer-events-none absolute inset-x-3 bottom-3 z-40 flex justify-center">
           {bulkActions}
@@ -791,19 +815,19 @@ function LineupCell({
   now,
   width,
   onSelect,
-  onPlayChannel,
+  onPlay,
   onToggleFavorite,
   selection,
 }: {
-  channel: Channel | ChannelSummary;
+  channel: Channel;
   live: Programme | undefined;
   hasGuide: boolean | undefined;
   on: boolean;
   now: number;
   width: number;
   onSelect: (id: string) => void;
-  onPlayChannel?: (c: Channel | ChannelSummary) => void;
-  onToggleFavorite?: (c: Channel | ChannelSummary) => void;
+  onPlay?: (c: Channel) => void;
+  onToggleFavorite?: (c: Channel) => void;
   selection?: ChannelSelection;
 }) {
   const checked = selection?.ids.has(c.id) ?? false;
@@ -889,34 +913,37 @@ function LineupCell({
           />
         ) : null}
       </button>
-      {onPlayChannel && c.enabled ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPlayChannel(c);
-          }}
-          aria-label={t("Watch {channel}", { channel: c.name })}
-          title={t("Watch now")}
-          className="absolute right-8 top-1/2 hidden -translate-y-1/2 rounded-full bg-primary p-1 text-white shadow-sm hover:scale-110 focus-visible:block group-hover:block"
-        >
-          <Play size={11} className="fill-current ml-0.5" />
-        </button>
-      ) : null}
-      {onToggleFavorite ? (
-        <button
-          type="button"
-          onClick={() => onToggleFavorite(c)}
-          aria-label={
-            c.favorite
-              ? t("Unfavourite {channel}", { channel: c.name })
-              : t("Favourite {channel}", { channel: c.name })
-          }
-          aria-pressed={c.favorite}
-          className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-md bg-surface p-1 text-fg-subtle shadow-sm hover:text-warning focus-visible:block group-hover:block"
-        >
-          <Star size={13} className={cn(c.favorite && "fill-warning text-warning")} />
-        </button>
+      {(onPlay && c.enabled) || onToggleFavorite ? (
+        // Hover actions stay in the tab order (opacity, not display), so a
+        // keyboard reaches them from the channel button.
+        <div className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+          {onPlay && c.enabled ? (
+            <button
+              type="button"
+              onClick={() => onPlay(c)}
+              aria-label={t("Play {name}", { name: c.name })}
+              title={t("Play")}
+              className="rounded-md bg-surface p-1 text-fg-subtle shadow-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <Play size={13} className="fill-current" aria-hidden />
+            </button>
+          ) : null}
+          {onToggleFavorite ? (
+            <button
+              type="button"
+              onClick={() => onToggleFavorite(c)}
+              aria-label={
+                c.favorite
+                  ? t("Unfavourite {channel}", { channel: c.name })
+                  : t("Favourite {channel}", { channel: c.name })
+              }
+              aria-pressed={c.favorite}
+              className="rounded-md bg-surface p-1 text-fg-subtle shadow-sm hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <Star size={13} className={cn(c.favorite && "fill-warning text-warning")} />
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -929,7 +956,7 @@ export function OnNowStrip({
   now,
   onSelect,
 }: {
-  channels: (Channel | ChannelSummary)[];
+  channels: Channel[];
   guide: Map<string, Programme[]>;
   now: number;
   onSelect: (id: string) => void;
@@ -938,7 +965,7 @@ export function OnNowStrip({
     const live = channels
       .filter((c) => c.enabled)
       .map((c) => ({ c, p: onNow(guide.get(c.id), now) }))
-      .filter((x): x is { c: Channel | ChannelSummary; p: Programme } => Boolean(x.p));
+      .filter((x): x is { c: Channel; p: Programme } => Boolean(x.p));
     live.sort(
       (a, b) =>
         Number(b.c.favorite) - Number(a.c.favorite) ||

@@ -1,221 +1,165 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { GuideGrid } from "../pages/livetv/GuideGrid";
+import {
+  GuideGrid,
+  guideDayCount,
+  guideDayOffset,
+  guideHourTarget,
+} from "../pages/livetv/GuideGrid";
 import { ProgrammeInspector } from "../pages/livetv/ProgrammeInspector";
 import type { Channel, Programme } from "../pages/livetv/model";
 
-describe("GuideGrid navigation controls", () => {
-  const dummyChannel: Channel = {
-    id: "ch1",
-    number: "1.1",
-    name: "News Channel",
-    kind: "iptv",
-    enabled: true,
-    favorite: false,
-    group: "News",
-    streamUrl: "http://example.com/stream.m3u8",
-    epoch: "2026-01-01T00:00:00Z",
-    seed: 0,
-    shuffle: false,
-    items: [],
-  };
+const HOUR = 60 * 60_000;
+// Local times, so the day maths runs in whatever zone the suite uses.
+const at = (day: number, hour: number, minute = 0) =>
+  new Date(2026, 10, day, hour, minute).getTime();
 
-  it("calls onSetShift with 24h when clicking Tomorrow tab", () => {
-    const onSetShift = vi.fn();
-    const onShift = vi.fn();
-    const now = new Date("2026-11-07T12:00:00Z").getTime();
-    const from = new Date("2026-11-07T11:00:00Z");
-    const until = new Date("2026-11-08T11:00:00Z");
+const channel: Channel = {
+  id: "ch1",
+  number: "1.1",
+  name: "News Channel",
+  kind: "iptv",
+  enabled: true,
+  favorite: false,
+  group: "News",
+  streamUrl: "http://example.com/stream.m3u8",
+  epoch: "2026-01-01T00:00:00Z",
+  seed: 0,
+  shuffle: false,
+  items: [],
+};
 
-    render(
-      <GuideGrid
-        channels={[dummyChannel]}
-        guide={new Map()}
-        from={from}
-        until={until}
-        now={now}
-        selected={null}
-        onSelect={vi.fn()}
-        onShift={onShift}
-        onSetShift={onSetShift}
-        onNow={vi.fn()}
-        loading={false}
-      />,
-    );
-
-    const tomorrowTab = screen.getByRole("tab", { name: /Tomorrow/i });
-    expect(tomorrowTab).toBeInTheDocument();
-    expect(tomorrowTab).toHaveAttribute("aria-selected", "false");
-
-    fireEvent.click(tomorrowTab);
-    expect(onSetShift).toHaveBeenCalledWith(24);
+describe("guide day maths", () => {
+  it("offers today through the last day with listings, at most a week", () => {
+    const now = at(7, 10);
+    expect(guideDayCount(now)).toBe(7);
+    expect(guideDayCount(now, now - HOUR)).toBe(1);
+    expect(guideDayCount(now, at(8, 16))).toBe(2);
+    // Listings ending exactly at midnight do not open an empty day.
+    expect(guideDayCount(now, at(9, 0))).toBe(2);
+    expect(guideDayCount(now, at(30, 0))).toBe(7);
+    expect(guideDayOffset(at(9, 23, 59), now)).toBe(2);
   });
 
-  it("correctly highlights active day based on from window", () => {
-    const onSetShift = vi.fn();
-    const now = new Date("2026-11-07T12:00:00Z").getTime();
-    // 24 hours ahead
-    const fromTomorrow = new Date("2026-11-08T11:00:00Z");
-    const untilTomorrow = new Date("2026-11-09T11:00:00Z");
-
-    render(
-      <GuideGrid
-        channels={[dummyChannel]}
-        guide={new Map()}
-        from={fromTomorrow}
-        until={untilTomorrow}
-        now={now}
-        selected={null}
-        onSelect={vi.fn()}
-        onShift={vi.fn()}
-        onSetShift={onSetShift}
-        onNow={vi.fn()}
-        loading={false}
-      />,
-    );
-
-    const todayTab = screen.getByRole("tab", { name: /Today/i });
-    const tomorrowTab = screen.getByRole("tab", { name: /Tomorrow/i });
-    expect(todayTab).toHaveAttribute("aria-selected", "false");
-    expect(tomorrowTab).toHaveAttribute("aria-selected", "true");
-  });
-
-  it("calls onSetShift with absolute target hour for 8 PM jump", () => {
-    const onSetShift = vi.fn();
-    const now = new Date("2026-11-07T14:00:00").getTime();
-    const from = new Date("2026-11-07T13:00:00");
-    const until = new Date("2026-11-08T13:00:00");
-
-    render(
-      <GuideGrid
-        channels={[dummyChannel]}
-        guide={new Map()}
-        from={from}
-        until={until}
-        now={now}
-        selected={null}
-        onSelect={vi.fn()}
-        onShift={vi.fn()}
-        onSetShift={onSetShift}
-        onNow={vi.fn()}
-        loading={false}
-      />,
-    );
-
-    const primeBtn = screen.getByRole("button", { name: /8 PM/i });
-    fireEvent.click(primeBtn);
-
-    const nowHour = new Date(now).getHours();
-    expect(onSetShift).toHaveBeenCalledWith(20 - nowHour);
-  });
-
-  it("handles day 2 switch, Later shift, and 8 PM jump calculation accurately", () => {
-    const onSetShift = vi.fn();
-    const onShift = vi.fn();
-    const now = new Date("2026-11-07T12:00:00").getTime();
-    // Focused on Day 2 (48h ahead)
-    const fromDay2 = new Date("2026-11-09T11:00:00");
-    const untilDay2 = new Date("2026-11-10T11:00:00");
-
-    render(
-      <GuideGrid
-        channels={[dummyChannel]}
-        guide={new Map()}
-        from={fromDay2}
-        until={untilDay2}
-        now={now}
-        selected={null}
-        onSelect={vi.fn()}
-        onShift={onShift}
-        onSetShift={onSetShift}
-        onNow={vi.fn()}
-        loading={false}
-      />,
-    );
-
-    // Later button nudges by +3h
-    const laterBtn = screen.getByRole("button", { name: /Later/i });
-    fireEvent.click(laterBtn);
-    expect(onShift).toHaveBeenCalledWith(3);
-
-    // Earlier button nudges by -3h
-    const earlierBtn = screen.getByRole("button", { name: /Earlier/i });
-    fireEvent.click(earlierBtn);
-    expect(onShift).toHaveBeenCalledWith(-3);
-
-    // 8 PM jump on Day 2 targets Day 2's 8 PM (48 + (20 - 12) = 56 hours)
-    const primeBtn = screen.getByRole("button", { name: /8 PM/i });
-    fireEvent.click(primeBtn);
-    expect(onSetShift).toHaveBeenCalledWith(48 + (20 - 12));
-
-    // 11 PM jump on Day 2 targets Day 2's 11 PM (48 + (23 - 12) = 59 hours)
-    const lateBtn = screen.getByRole("button", { name: /11 PM/i });
-    fireEvent.click(lateBtn);
-    expect(onSetShift).toHaveBeenCalledWith(48 + (23 - 12));
+  it("jumps to tonight's hour, or tomorrow's once it has aired", () => {
+    expect(guideHourTarget(at(7, 12), 0, 20)).toBe(at(7, 20));
+    expect(guideHourTarget(at(7, 20, 30), 0, 20)).toBe(at(7, 20));
+    expect(guideHourTarget(at(7, 21, 30), 0, 20)).toBe(at(8, 20));
+    expect(guideHourTarget(at(7, 21, 30), 0, 23)).toBe(at(7, 23));
+    expect(guideHourTarget(at(7, 12), 2, 23)).toBe(at(9, 23));
+    // A day before today (scrolled back) still jumps forward.
+    expect(guideHourTarget(at(7, 12), -1, 20)).toBe(at(7, 20));
   });
 });
 
-describe("ProgrammeInspector clipboard copy", () => {
-  const dummyChannel: Channel = {
-    id: "ch1",
-    number: "1.1",
-    name: "News Channel",
-    kind: "iptv",
-    enabled: true,
-    favorite: false,
-    group: "News",
-    streamUrl: "http://example.com/stream.m3u8",
-    epoch: "2026-01-01T00:00:00Z",
-    seed: 0,
-    shuffle: false,
-    items: [],
+describe("GuideGrid day picker", () => {
+  const renderGrid = (props: Partial<Parameters<typeof GuideGrid>[0]> = {}) => {
+    const now = at(7, 12);
+    const from = new Date(at(7, 11));
+    const onShift = vi.fn();
+    render(
+      <GuideGrid
+        channels={[channel]}
+        guide={new Map()}
+        from={from}
+        until={new Date(from.getTime() + 24 * HOUR)}
+        now={now}
+        selected={null}
+        onSelect={vi.fn()}
+        onShift={onShift}
+        onNow={vi.fn()}
+        loading={false}
+        head={<div />}
+        {...props}
+      />,
+    );
+    const open = () => fireEvent.click(screen.getByRole("button", { name: "Day" }));
+    return { onShift, open };
   };
 
-  const dummyProgramme: Programme = {
+  it("moves the window to the whole of the picked day", () => {
+    const { onShift, open } = renderGrid();
+    expect(screen.getByRole("button", { name: "Day" })).toHaveTextContent("Today");
+    open();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Tomorrow" }));
+    // 11:00 today to midnight tomorrow.
+    expect(onShift).toHaveBeenCalledWith(13);
+  });
+
+  it("scrolls to prime time without moving a window that already holds it", () => {
+    const { onShift, open } = renderGrid();
+    open();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^Prime time/ }));
+    expect(onShift).not.toHaveBeenCalled();
+  });
+
+  it("only offers days and jumps the guide has listings for", () => {
+    const { open } = renderGrid({ guideUntil: at(7, 22) });
+    open();
+    const menu = screen.getByRole("menu", { name: "Day" });
+    expect(
+      within(menu)
+        .getAllByRole("menuitemradio")
+        .map((b) => b.textContent),
+    ).toEqual(["Today", expect.stringMatching(/^Prime time/)]);
+  });
+});
+
+describe("ProgrammeInspector", () => {
+  const programme: Programme = {
     id: "p1",
     channelId: "ch1",
-    start: "2026-11-07T12:00:00Z",
-    end: "2026-11-07T13:00:00Z",
+    start: new Date(at(7, 12)).toISOString(),
+    end: new Date(at(7, 13)).toISOString(),
     item: {
       key: 1,
-      durationMs: 3600000,
+      durationMs: HOUR,
       title: "Evening News",
       summary: "Top stories of the day",
+      season: 3,
+      episode: 4,
     },
   };
 
-  it("copies stream URL via fallback when navigator.clipboard is unavailable", async () => {
-    const originalClipboard = navigator.clipboard;
-    // Simulate HTTP environment without navigator.clipboard
-    Object.defineProperty(navigator, "clipboard", {
-      value: undefined,
-      configurable: true,
-      writable: true,
-    });
-
-    const execCommandMock = vi.fn().mockReturnValue(true);
-    document.execCommand = execCommandMock;
-
+  it("opens as a drawer with the channel's actions", () => {
+    const onPlay = vi.fn();
     render(
       <ProgrammeInspector
-        channel={dummyChannel}
-        programme={dummyProgramme}
-        now={Date.now()}
+        open
+        inspected={{ channel, programme }}
+        now={at(7, 12, 30)}
         onClose={vi.fn()}
+        onPlay={onPlay}
       />,
     );
+    const drawer = screen.getByRole("dialog", { name: "Evening News" });
+    expect(within(drawer).getByText("Top stories of the day")).toBeInTheDocument();
+    expect(within(drawer).getByText("S3 E4")).toBeInTheDocument();
+    expect(within(drawer).getByText("On now")).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("button", { name: /Watch/ }));
+    expect(onPlay).toHaveBeenCalledWith(channel);
+  });
 
-    const copyBtn = screen.getByRole("button", { name: /Copy link/i });
-    expect(copyBtn).toBeInTheDocument();
-
-    fireEvent.click(copyBtn);
-    expect(execCommandMock).toHaveBeenCalledWith("copy");
-
-    delete (document as any).execCommand;
-    Object.defineProperty(navigator, "clipboard", {
-      value: originalClipboard,
-      configurable: true,
-      writable: true,
-    });
+  it("copies the stream link over plain HTTP, where the Clipboard API is missing", () => {
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    const exec = vi.fn().mockReturnValue(true);
+    document.execCommand = exec;
+    try {
+      render(
+        <ProgrammeInspector
+          open
+          inspected={{ channel, programme }}
+          now={at(7, 12, 30)}
+          onClose={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Copy link/ }));
+      expect(exec).toHaveBeenCalledWith("copy");
+    } finally {
+      delete (document as { execCommand?: unknown }).execCommand;
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
   });
 });
