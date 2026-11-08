@@ -77,6 +77,11 @@ type liveResult struct {
 	// HostLoad is the 1-minute load average at the row's start and end;
 	// timing rows measured on a saturated host are not comparable.
 	HostLoad [2]float64 `json:"hostLoad"`
+	// WS3 rows: the other viewer session (capacity rows), the decisions the
+	// row asserts on, and the source history after the prime session.
+	Others  []liveResult    `json:"otherSessions,omitempty"`
+	Checks  []string        `json:"ws3Checks,omitempty"`
+	History json.RawMessage `json:"sourceHistory,omitempty"`
 }
 
 type liveReport struct {
@@ -167,7 +172,12 @@ func runLive(o liveOptions) error {
 			startMu.Unlock()
 			work := filepath.Join(root, strings.ReplaceAll(row.ID(), "/", "_"))
 			_ = os.MkdirAll(work, 0o700)
-			res := runLiveRow(ctx, o, row, fixtures, player, work)
+			var res liveResult
+			if row.Scenario.WS3 != "" {
+				res = runHistoryRow(ctx, o, row, fixtures, player, work)
+			} else {
+				res = runLiveRow(ctx, o, row, fixtures, player, work)
+			}
 			if o.Keep != "" {
 				_ = os.MkdirAll(o.Keep, 0o700)
 				_ = os.Rename(work, filepath.Join(o.Keep, filepath.Base(work)))
@@ -352,24 +362,52 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 	}
 	defer ether.Close()
 	res.Applied = ether.Stability
-	tuneStart := time.Now()
-	playlist, _, err := ether.tunePlex(ctx, o.Client, ch.ID)
-	res.TuneS = time.Since(tuneStart).Seconds()
-	res.Path = ether.selectedPath()
+	w := watchSession(ctx, o, sc, ether, ch.ID, "", work, player, o.Observe, false)
+	res.TuneS, res.Path, res.Protocol, res.Player, res.Viewer, res.Error = w.TuneS, w.Path, w.Protocol, w.Player, w.Viewer, w.Error
 	if res.Path == "" && row.Mode == "steady" {
 		res.Path = "broadcast"
 	}
-	if err != nil {
-		res.Error = "tune: " + err.Error()
-		res.Viewer.ClientErrors = append(res.Viewer.ClientErrors, "tune failed")
-		res.Provider = primary.Stats()
+	res.Provider = primary.Stats()
+	if backup != nil {
+		s := backup.Stats()
+		res.Backup = &s
+	}
+	if w.tuneFailed {
 		return
+	}
+	scoreRow(sc, o.Preset, liveStuckFactor[o.Client], &res, w.av)
+	return
+}
+
+// watched is one viewer session: tuned, watched by the protocol judge and
+// AVPlayer, and (with keep) left running for the caller to stop.
+type watched struct {
+	liveResult
+	av         *avResult
+	tuneFailed bool
+	playlist   string
+}
+
+func watchSession(ctx context.Context, o liveOptions, sc liveScenario, ether *liveEther, channelID, clientID, work, player string, observe time.Duration, keep bool) (w watched) {
+	tuneStart := time.Now()
+	playlist, _, err := ether.tunePlexAs(ctx, o.Client, clientID, channelID)
+	w.TuneS = time.Since(tuneStart).Seconds()
+	w.Path = ether.selectedPath()
+	w.playlist = playlist
+	if err != nil {
+		w.Error = "tune: " + err.Error()
+		w.Viewer.ClientErrors = append(w.Viewer.ClientErrors, "tune failed")
+		w.tuneFailed = true
+		return
+	}
+	if !keep {
+		defer func() { _ = ether.stopSession(context.Background(), playlist) }()
 	}
 	segDir := filepath.Join(work, "segments")
 	_ = os.MkdirAll(segDir, 0o700)
 	judge := newProtocolJudge(ctx, o.FF, o.FP, playlist, segDir, tuneStart, ether.handledSeconds)
 	judge.sync = sc.Sync
-	observeCtx, stop := context.WithTimeout(ctx, o.Observe)
+	observeCtx, stop := context.WithTimeout(ctx, observe)
 	defer stop()
 	var playerOut []byte
 	var playerErr error
@@ -383,37 +421,30 @@ func runLiveRow(parent context.Context, o liveOptions, row liveRow, fixtures map
 		pwg.Add(1)
 		go func() {
 			defer pwg.Done()
-			cmd := exec.CommandContext(ctx, player, playerURL, fmt.Sprint(int(o.Observe/time.Second)))
+			cmd := exec.CommandContext(ctx, player, playerURL, fmt.Sprint(int(observe/time.Second)))
 			playerOut, playerErr = cmd.Output()
 		}()
 	}
 	judge.Run(observeCtx)
 	pwg.Wait()
-	res.Protocol = judge.Finish(time.Since(tuneStart).Seconds())
-	res.Provider = primary.Stats()
-	if backup != nil {
-		s := backup.Stats()
-		res.Backup = &s
+	w.Protocol = judge.Finish(time.Since(tuneStart).Seconds())
+	if w.Path == "" {
+		w.Path = ether.selectedPath()
 	}
-	if res.Path == "" {
-		res.Path = ether.selectedPath()
-	}
-	var av *avResult
 	if player != "" {
 		if playerErr != nil {
-			res.Error = "avprobe: " + playerErr.Error()
+			w.Error = "avprobe: " + playerErr.Error()
 		} else {
-			av = &avResult{}
-			if err := json.Unmarshal(playerOut, av); err != nil {
-				res.Error = "avprobe output: " + err.Error()
-				av = nil
+			w.av = &avResult{}
+			if err := json.Unmarshal(playerOut, w.av); err != nil {
+				w.Error = "avprobe output: " + err.Error()
+				w.av = nil
 			} else {
-				res.Player = json.RawMessage(compactJSON(playerOut))
+				w.Player = json.RawMessage(compactJSON(playerOut))
 			}
 		}
 	}
-	res.Viewer = summarise(res.Protocol, av, res.TuneS)
-	scoreRow(sc, o.Preset, liveStuckFactor[o.Client], &res, av)
+	w.Viewer = summarise(w.Protocol, w.av, w.TuneS)
 	return
 }
 
