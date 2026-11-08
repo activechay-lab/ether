@@ -168,13 +168,12 @@ func PlanCompact(ctx context.Context, db *sql.DB) (CompactPlan, error) {
 // auto_vacuum=INCREMENTAL so daily maintenance returns free space from then
 // on. It runs only when the owner asks (never at startup) and only when
 // PlanCompact is ready. Readers keep reading the last committed state
-// throughout (WAL). Writers wait on SQLite's lock while the VACUUM runs
-// (not its checkpoint), so a write that waits past busy_timeout (10 s)
-// fails as contention: outboxed writes (watch progress, resume points,
-// plays) are held and replayed, others report an error. Measured on the
-// 1.05 GB lab copy with 4 readers and 2 writers on a heavily loaded Mac:
-// reads p99 7.9 ms, max 120 ms, no errors; the VACUUM held writers 69 s
-// (9.5 s on an idle machine).
+// throughout (WAL). This process's writers queue on the write gate while
+// the VACUUM runs (not its checkpoint), for up to twice the estimate plus
+// a minute; a write still waiting then fails as contention. Measured on the
+// 1.05 GB lab copy with 4 readers and 2 writers: VACUUM 15.5 s; reads p99
+// 2.6 ms, max 100 ms; all 60 writes succeeded, the longest after 15.5 s.
+// Before the gate pause, 6 of 186 writes failed on busy_timeout.
 func Compact(ctx context.Context, db *sql.DB) (CompactPlan, error) {
 	p, err := PlanCompact(ctx, db)
 	if err != nil {
@@ -183,7 +182,10 @@ func Compact(ctx context.Context, db *sql.DB) (CompactPlan, error) {
 	if !p.Ready {
 		return p, fmt.Errorf("%w: %s", ErrCompactBlocked, p.Blocked)
 	}
-	if err := vacuumIncremental(ctx, db); err != nil {
+	// Writers queue for the estimate twice over plus a minute (a loaded
+	// machine ran 6x slower than idle), then fail as before.
+	until := time.Now().Add(2*time.Duration(p.EstimateSeconds)*time.Second + time.Minute)
+	if err := vacuumIncremental(ctx, db, until); err != nil {
 		return p, err
 	}
 	return PlanCompact(ctx, db)
@@ -196,12 +198,21 @@ func sqlitePath(ctx context.Context, db *sql.DB) (string, error) {
 	return path, err
 }
 
-func vacuumIncremental(ctx context.Context, db *sql.DB) error {
+func vacuumIncremental(ctx context.Context, db *sql.DB, until time.Time) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	var gate *writeGate
+	if err := conn.Raw(func(dc any) error {
+		if c, ok := dc.(*stmtConn); ok {
+			gate = c.gate
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	// VACUUM builds its copy in a temp database; on this connection that is
 	// RAM (temp_store=MEMORY) unless switched to a file first.
 	if _, err := conn.ExecContext(ctx, `PRAGMA temp_store=FILE`); err != nil {
@@ -211,8 +222,19 @@ func vacuumIncremental(ctx context.Context, db *sql.DB) error {
 	if _, err := conn.ExecContext(ctx, `PRAGMA auto_vacuum=INCREMENTAL`); err != nil {
 		return err
 	}
+	// SQLite holds its write lock for the whole VACUUM. Holding this
+	// process's write gate too makes Ether's own writers queue on it until
+	// the VACUUM ends (up to until) instead of failing on busy_timeout.
+	resume := func() {}
+	if gate != nil {
+		if resume, err = gate.pause(ctx, until); err != nil {
+			return err
+		}
+	}
 	start := time.Now()
-	if _, err := conn.ExecContext(ctx, `VACUUM`); err != nil {
+	_, err = conn.ExecContext(ctx, `VACUUM`)
+	resume()
+	if err != nil {
 		return err
 	}
 	vacuumed := time.Now()

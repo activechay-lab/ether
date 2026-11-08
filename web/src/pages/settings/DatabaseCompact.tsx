@@ -131,7 +131,7 @@ export function DatabaseCompact() {
                 <p>
                   {t("Started")}: {formatDateTime(s.started)} · {minutes(s.estimateSeconds)}
                 </p>
-                <p>{t("Browsing keeps working. Changes made meanwhile may wait or fail and need repeating.")}</p>
+                <p>{t("Browsing keeps working. Changes made meanwhile wait and are saved when it finishes.")}</p>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -148,7 +148,7 @@ export function DatabaseCompact() {
                 </p>
                 <p>
                   {t(
-                    "Browsing and playback keep working. Saving changes pauses until it finishes: watch progress is kept and saved afterwards, other changes made meanwhile may fail and need repeating.",
+                    "Browsing and playback keep working. Saving changes pauses until it finishes, then everything made meanwhile is saved; an app may show a timeout while it waits.",
                   )}
                 </p>
                 {blockedText(s.blocked) ? <p className="font-medium">{blockedText(s.blocked)}</p> : null}
