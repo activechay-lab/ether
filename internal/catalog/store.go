@@ -787,6 +787,12 @@ type upsertItem struct {
 // upsertItems stores items in one transaction, each with its own options,
 // then runs after (more writes of the same transaction).
 func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...func(context.Context, *sql.Tx) error) error {
+	return c.upsertItemsBudget(ctx, items, 0, after...)
+}
+
+// upsertItemsBudget starts the execution budget only after writer admission.
+// Waiting behind another transaction must not consume our execution allowance.
+func (c *Catalog) upsertItemsBudget(ctx context.Context, items []upsertItem, budget time.Duration, after ...func(context.Context, *sql.Tx) error) error {
 	if len(items) == 0 && len(after) == 0 {
 		return nil
 	}
@@ -795,6 +801,11 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...
 		return err
 	}
 	defer tx.Rollback()
+	if budget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, budget)
+		defer cancel()
+	}
 	now := c.now().Unix()
 	region := c.config().Region
 	cuts := c.ratingCuts()
@@ -854,6 +865,9 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...
 		if err := f(ctx, tx); err != nil {
 			return err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err

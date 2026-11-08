@@ -19,6 +19,12 @@ import (
 // retried title by title, so one bad title fails only its own write.
 const detailBatchMax = 32
 
+// Keep a detail transaction well below the store's ten-second admission
+// timeout. On a slow disk (especially with upgrade capture triggers), retry
+// a rolled-back group as smaller transactions so queued viewer writes get
+// their turn. This bounds SQL execution, not an uninterruptible OS fsync.
+const detailWriteBudget = 2 * time.Second
+
 type detailWrites struct {
 	mu       sync.Mutex
 	pending  []detailWrite
@@ -83,12 +89,21 @@ func (c *Catalog) flushDetailsLoop() {
 }
 
 func (c *Catalog) flushDetails(batch []detailWrite) {
+	c.flushDetailsBudget(batch, detailWriteBudget)
+}
+
+func (c *Catalog) flushDetailsBudget(batch []detailWrite, budget time.Duration) {
+	if len(batch) == 0 {
+		return
+	}
 	// Not cancelled with any one caller: a cancelled request must not fail
 	// the others' writes. The first writer's values (its query stats) see
 	// the batch's work. Bounded like a background refresh.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(batch[0].ctx), time.Minute)
 	defer cancel()
 	write := func(ws []detailWrite, withExtra bool) error {
+		// upsertItemsBudget gives every attempt a fresh execution budget,
+		// without extending this group's original one-minute lifetime.
 		var items []upsertItem
 		var after []func(context.Context, *sql.Tx) error
 		for _, w := range ws {
@@ -104,20 +119,32 @@ func (c *Catalog) flushDetails(batch []detailWrite) {
 				}
 			}
 		}
-		return c.upsertItems(ctx, items, after...)
+		return c.upsertItemsBudget(ctx, items, budget, after...)
 	}
-	if err := write(batch, true); err == nil {
-		for _, w := range batch {
-			w.done <- nil
+	var flush func([]detailWrite)
+	flush = func(ws []detailWrite) {
+		err := write(ws, true)
+		if err == nil {
+			for _, w := range ws {
+				w.done <- nil
+			}
+			return
 		}
-		return
-	}
-	// One title at a time; extras are a bonus that must not fail the title.
-	for _, w := range batch {
-		err := write([]detailWrite{w}, true)
-		if err != nil && w.extra != nil {
-			err = write([]detailWrite{w}, false)
+		if len(ws) > 1 {
+			// upsertItems has rolled back and released admission before
+			// this split. Never replay a partially committed group.
+			n := len(ws) / 2
+			flush(ws[:n])
+			flush(ws[n:])
+			return
 		}
+		w := ws[0]
+		if w.extra != nil {
+			err = write(ws, false)
+		}
+		// A failed primary write is reported; it is never counted as a
+		// successful touch or silently discarded.
 		w.done <- err
 	}
+	flush(batch)
 }
