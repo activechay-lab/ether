@@ -277,8 +277,12 @@ type tallyShape struct {
 	types   []string
 	genre   string
 	country string // a single country filter, answered by catalog_facet_tally
-	ranked  bool
-	lo, hi  int
+	// years is a year range (yearLo..yearHi, 0 for open), answered by
+	// catalog_facet_tally's year rows.
+	years          bool
+	yearLo, yearHi int
+	ranked         bool
+	lo, hi         int
 }
 
 // tallyShape reports whether f's predicate, outside the titles tallyTotal
@@ -330,6 +334,12 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	case len(f.Countries) == 1:
 		s.country = f.Countries[0]
 	}
+	if f.YearFrom > 0 || f.YearTo > 0 {
+		if s.genre != "" || s.country != "" {
+			return s, false
+		}
+		s.years, s.yearLo, s.yearHi = true, f.YearFrom, f.YearTo
+	}
 	s.lo, s.hi = 0, int(^uint(0)>>1)
 	if f.MaxContentRating != "" {
 		level := contentrating.LevelOf(f.MaxContentRating)
@@ -358,6 +368,7 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	}
 	rest := f
 	rest.Type, rest.Genres, rest.Kids, rest.Countries = "", nil, false, nil
+	rest.YearFrom, rest.YearTo = 0, 0
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
 	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.AvailabilityKeepKeys = false, false, nil
@@ -424,10 +435,23 @@ func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, a
 		return 0, false, nil
 	}
 	table, dims, dimArgs, member, memberArgs := "catalog_browse_tally", "", []any(nil), "", []any(nil)
-	if s.country != "" {
+	switch {
+	case s.country != "":
 		table = "catalog_facet_tally"
 		dims, dimArgs, member, memberArgs = s.facetDims("country", s.country)
-	} else {
+	case s.years:
+		// A year or decade filter: the year rows in the range.
+		table = "catalog_facet_tally"
+		dims, dimArgs, member, memberArgs = s.facetDims("year", "")
+		lo, hi := max(s.yearLo, 1), s.yearHi
+		if hi <= 0 {
+			hi = int(^uint32(0) >> 1)
+		}
+		dims += ` AND CAST(value AS INTEGER)>=? AND CAST(value AS INTEGER)<=?`
+		dimArgs = append(dimArgs, lo, hi)
+		member += ` AND t.year>=? AND t.year<=? AND t.year>0`
+		memberArgs = append(memberArgs, lo, hi)
+	default:
 		dims, dimArgs, member, memberArgs = s.genreDims()
 	}
 	unsettled, unsettledArgs := c.tallyUnsettled(s, f)
