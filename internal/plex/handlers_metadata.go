@@ -75,11 +75,25 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		if s.d.PlexGUID == nil {
 			return nil, errors.New("no keys")
 		}
-		k, err := s.d.PlexGUID.ExactKey(ctx, raw)
-		if err != nil {
-			return nil, err
+		// A list of plex.tv identities (Infuse resolves its Watchlist row
+		// this way) names the library titles that have one; the others
+		// are skipped, as unknown keys in a key list are.
+		guids := strings.Split(raw, ",")
+		var keys []core.RatingKey
+		for _, guid := range guids {
+			k, err := s.d.PlexGUID.ExactKey(ctx, strings.TrimSpace(guid))
+			if err != nil {
+				if len(guids) == 1 {
+					return nil, err
+				}
+				continue
+			}
+			keys = append(keys, k)
 		}
-		return []core.RatingKey{k}, nil
+		if len(keys) == 0 {
+			return nil, core.ErrNotFound
+		}
+		return keys, nil
 	}
 	keys, err := parseKeys(raw)
 	if err != nil {
@@ -91,6 +105,18 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		}
 	}
 	return keys, nil
+}
+
+// handleMetadataGUIDPath answers /library/metadata/plex://{type}/{id}[,...]:
+// the identities' slashes keep the path off the {key} route.
+func (s *Server) handleMetadataGUIDPath(w http.ResponseWriter, r *http.Request) {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	rctx.URLParams.Add("key", strings.TrimPrefix(r.URL.Path, "/library/metadata/"))
+	s.handleMetadata(w, r)
 }
 
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
