@@ -643,6 +643,38 @@ func (e *Engine) RecentActivity(ctx context.Context, userID int64, limit int) ([
 		}
 		en.completed = en.completed || h.Completed
 	}
+	// Plex records resume positions independently of completed viewing history.
+	// Include those positions in owner activity without manufacturing a Plex
+	// history event or marking the title watched.
+	progressing, err := e.state.InProgress(ctx, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	for _, ws := range progressing {
+		if ws.ViewOffset <= 0 {
+			continue
+		}
+		en := byKey[ws.Key]
+		if en == nil {
+			en = &entry{}
+			byKey[ws.Key] = en
+			order = append(order, ws.Key)
+		}
+		if !ws.LastViewedAt.Before(en.at) {
+			en.at = ws.LastViewedAt
+			en.completed = false
+		}
+	}
+	sort.Slice(order, func(i, j int) bool {
+		a, b := byKey[order[i]].at, byKey[order[j]].at
+		if a.Equal(b) {
+			return order[i] < order[j]
+		}
+		return a.After(b)
+	})
+	if len(order) > limit {
+		order = order[:limit]
+	}
 	statuses, err := e.state.GetMany(ctx, userID, order)
 	if err != nil {
 		return nil, err
