@@ -263,7 +263,9 @@ export const AWAY: FieldGroup[] = localized(() => [
         key: "publicHost",
         label: t("Public host name"),
         kind: "text",
-        help: t("Optional. Leave empty to detect your public address."),
+        help: t(
+          "Optional. Enter a name like plex.example.com, or the full https:// address of your reverse proxy. Leave empty to detect your public address.",
+        ),
       },
       {
         key: "publicPort",

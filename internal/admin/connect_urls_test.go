@@ -57,6 +57,22 @@ func TestConsoleConnectURLsPlexUsesTheBrowserHost(t *testing.T) {
 	}
 }
 
+// A console opened through a reverse proxy or the public host name must not
+// make that route (or an http:// guess for it) the Plex at-home address.
+func TestConsoleConnectURLsPlexNeverUsesThePublicRouteAtHome(t *testing.T) {
+	lan := []string{"http://192.168.1.5:32400"}
+	proxied := httptestRequest("ether.example.com")
+	proxied.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if got := consoleConnectURLs(proxied, "plex", lan, config.Config{}, nil); len(got) != 1 || got[0] != lan[0] {
+		t.Fatalf("proxied connect URLs = %#v", got)
+	}
+	cfg := config.Config{Plex: config.Plex{PublicHost: "https://ether.example.com"}}
+	direct := httptestRequest("ether.example.com:32400")
+	if got := consoleConnectURLs(direct, "plex", lan, cfg, nil); len(got) != 1 || got[0] != lan[0] {
+		t.Fatalf("public host connect URLs = %#v", got)
+	}
+}
+
 func TestConsoleConnectURLsTrustForwardedHostFromLoopback(t *testing.T) {
 	r := httptestRequest("127.0.0.1:32400")
 	r.RemoteAddr = "127.0.0.1:9"
