@@ -14,7 +14,6 @@ func init() {
 	store.Register("release_observations", 1, `CREATE TABLE release_observations (parent_key INTEGER NOT NULL, source_hash TEXT NOT NULL, observed_ns INTEGER NOT NULL, PRIMARY KEY(parent_key,source_hash));`)
 	store.RegisterAfter("release_observations_retired", "release_observations")
 	store.Register("release_observations_retired", 1, `DROP TABLE release_observations;`)
-	store.RegisterRetiredTable("release_observations")
 }
 
 // VersionOffer is one candidate without protocol fields. ID is the existing

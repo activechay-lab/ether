@@ -46,7 +46,6 @@ CREATE TABLE availability_source_yield (source_id TEXT PRIMARY KEY, searches INT
 	// times from earlier versions would each trigger one more search.
 	// polled_at is a feed's last scheduled head poll; checked_at also moves
 	// with the gap pages between polls.
-	store.RegisterRetiredTable("availability_source_yield")
 	store.Register("availability_coverage", 3, `
 DROP TABLE availability_source_yield;
 ALTER TABLE availability_feeds DROP COLUMN covered_since;
