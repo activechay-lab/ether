@@ -44,6 +44,9 @@ def check(docs, persistent=False):
         assert s['template']['metadata']['labels']['ether.plex/media'] == str(role in ('full','delivery')).lower()
         assert [v['metadata']['name'] for v in s['volumeClaimTemplates']] == (['data','cache'] if persistent else ['data'])
         assert len([v for v in pod['volumes'] if 'secret' in v]) == 3
+        if role in ('full','server') and 'nvidia.com/gpu' not in c['resources'].get('limits',{}):
+            # Search pods build the long-tail index daily (~600 MiB transient).
+            assert c['resources']['limits']['memory'] == '2Gi', (role, c['resources'])
         if 'nvidia.com/gpu' in c['resources'].get('limits',{}):
             assert next(e for e in c['env'] if e['name']=='NVIDIA_DRIVER_CAPABILITIES')['value']=='compute,video,utility'
     for d in docs:

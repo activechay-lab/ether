@@ -22,7 +22,7 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `secrets.authority.certKey` | `"ca.crt"` | Key inside the existing Secret; only this file is mounted. |
 | `secrets.authority.privateKey` | `"ca.key"` | Key inside the existing Secret; only this file is mounted. |
 | `secrets.authority.rootsKey` | `"roots.pem"` | Key inside the existing Secret; only this file is mounted. |
-| `data.size` | `"1Gi"` | Identity/config PVC request per pod. |
+| `data.size` | `"1Gi"` | Identity/config PVC request per pod. Full and server pods also keep the catalogue long-tail index here (about 300 MB steady, 650 MB while rebuilding); use `2Gi` for new installs. Immutable after install: expand existing PVCs in place. |
 | `data.storageClass` | `""` | StorageClass; empty omits field and uses cluster default. |
 | `data.accessModes` | `["ReadWriteOnce"]` | Config PVC access modes. Unique PVC per ordinal even for RWX. |
 | `cache.type` | `"emptyDir"` | emptyDir or persistent. |
@@ -71,7 +71,7 @@ Each `pools.full`, `pools.server`, `pools.source`, and `pools.transcode` / `pool
 | `bootstrap` | full true; others false | Seed-or-verify database; true permitted only for full/server. |
 | `capacity` | runtime.capacity | Runtime capacity, 1–4096. |
 | `resourceScope` | runtime node ID | Optional physical resource capacity scope. Use consistently for workers sharing a device. |
-| `resources` | global, except full has 250m/512Mi requests and 2Gi memory limit | Complete requests/limits override. |
+| `resources` | global, except full and server have 250m/512Mi requests and a 2Gi memory limit (both build the catalogue long-tail index daily) | Complete requests/limits override. |
 | `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints` | global | Nonempty pool setting overrides the corresponding global object/list. |
 | `runtimeClassName` | global | Nonempty pool class overrides global class. |
 | `podAnnotations` | global | Merges keys over global annotations. |

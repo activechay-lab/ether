@@ -40,6 +40,12 @@ pools:
   server:
     replicas: 0
     bootstrap: false
+    # Full and server pods build the catalogue long-tail index daily: about
+    # 600 MiB of transient heap on top of the app's own (measured at 1Gi:
+    # completes with 100 MiB of other heap, OOM-killed with 200 MiB).
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {memory: 2Gi}
   source:
     replicas: 0
     bootstrap: false
