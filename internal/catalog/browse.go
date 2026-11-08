@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -179,15 +181,18 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
 				hint = c.indexedBy("catalog_titles_console_language_votes_page")
 			} else if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
-				hint = c.indexedBy("catalog_titles_console_pop_page")
+				hint = c.indexHint("catalog_titles_console_pop_page")
 			}
 			if q.Sort == core.SortYear && q.Desc && len(q.SecondarySorts) == 1 && q.SecondarySorts[0].Sort == core.SortTitle && !q.SecondarySorts[0].Desc {
-				hint = c.indexedBy("catalog_titles_console_year_title_page")
+				hint = c.indexHint("catalog_titles_console_year_title_page")
 			}
 		}
 		// Sort/filter only narrow covering-index keys, then hydrate the page.
 		// This avoids reading large title payloads while rejecting candidates.
 		query = `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT t.key AS page_key FROM catalog_titles t` + hint + ` WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY ` + order + `,t.key ASC`
+	}
+	if rq, ok := c.rankPageQuery(ctx, q, pageWhere); ok && !computedAdded {
+		query = rq
 	}
 	if computedAdded {
 		// The computed date added has no index, so the whole filtered set is
@@ -1232,6 +1237,9 @@ type sortedKey struct {
 // query's order (browseOrder, then key), from one indexed page per type.
 // The sort column is numeric: text would merge by the database's collation.
 func (c *Catalog) mergedTypeKeys(ctx context.Context, where string, args []any, q core.BrowseQuery, offset, limit int) ([]core.RatingKey, error) {
+	if keys, ok, err := c.rankMergedKeys(ctx, where, args, q, offset, limit); ok || err != nil {
+		return keys, err
+	}
 	order := browseOrder(q)
 	col, dir, _ := strings.Cut(order, " ")
 	desc := dir == "DESC"
@@ -1239,7 +1247,7 @@ func (c *Catalog) mergedTypeKeys(ctx context.Context, where string, args []any, 
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
 		hint := ""
 		if q.Filter.LocalOnly && q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 && store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
-			hint = c.indexedBy("catalog_titles_console_pop_page")
+			hint = c.indexHint("catalog_titles_console_pop_page")
 		}
 		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
 		if err != nil {
@@ -1333,4 +1341,146 @@ func (c *Catalog) titlesInKeyOrder(ctx context.Context, keys []core.RatingKey) (
 	}
 	slices.SortFunc(titles, func(a, b core.Title) int { return at[a.Key] - at[b.Key] })
 	return titles, nil
+}
+
+// rankPageQuery is a popularity-ordered page of one type read off the rank
+// (rank.go): a walk of a catalog_rank index, the title rows joined by key,
+// then only the page's rows read in full. The order is rk then key, most
+// popular first, deterministic for paging. Filters that make a rank walk
+// long (people, keywords, collections and the other sparse console
+// candidates) keep the filter-driven plan.
+func (c *Catalog) rankPageQuery(ctx context.Context, q core.BrowseQuery, pageWhere string) (string, bool) {
+	if q.Filter.Type != core.TypeMovie && q.Filter.Type != core.TypeShow {
+		return "", false
+	}
+	keys, dir, ok := c.rankKeysQuery(ctx, q, pageWhere, q.Filter.Type)
+	if !ok {
+		return "", false
+	}
+	return `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (` + keys + `) p ON t.key=p.page_key ORDER BY p.page_rk ` + dir + `, p.page_key ASC`, true
+}
+
+// rankKeysQuery selects (page_key, page_rk) of typ's titles matching where,
+// in popularity order, with LIMIT ? OFFSET ? placeholders after where's
+// arguments. dir is the rk direction.
+func (c *Catalog) rankKeysQuery(ctx context.Context, q core.BrowseQuery, where string, typ core.MediaType) (string, string, bool) {
+	if !c.rankReady.Load() || q.SortLastViewed || len(q.SecondarySorts) > 0 {
+		return "", "", false
+	}
+	if q.Sort != core.SortPopularity && q.Sort != "" {
+		return "", "", false
+	}
+	if typ != core.TypeMovie && typ != core.TypeShow {
+		return "", "", false
+	}
+	if consoleHasSparseCandidates(q.Filter) {
+		return "", "", false
+	}
+	// Upcoming movies are listed without being browsable: walk every movie
+	// of the type in rank order (the non-browsable ones of a library are
+	// the few titles viewers touched below the bar).
+	upcoming := c.config().ShowUpcomingMovies && q.Filter.RuleVisibility == ""
+	dir := "ASC" // rk is the negated popularity: ascending is most popular first
+	if q.Sort == core.SortPopularity && !q.Desc {
+		dir = "DESC"
+	}
+	// A page after a known title seeks on (rk, key) instead of skipping:
+	// deep pages cost what the first one does.
+	if q.AfterKey > 0 {
+		var rk float64
+		if err := c.db.QueryRowContext(ctx, `SELECT rk FROM catalog_rank WHERE key=?`, int64(q.AfterKey)).Scan(&rk); err != nil {
+			return "", "", false
+		}
+		op := ">"
+		if dir == "DESC" {
+			op = "<"
+		}
+		v := strconv.FormatFloat(rk, 'g', -1, 64)
+		where = "(t.rk" + op + v + " OR (t.rk=" + v + " AND t.key>" + strconv.FormatInt(int64(q.AfterKey), 10) + ")) AND " + where
+		if !rankOnly(where) {
+			return "", "", false
+		}
+	}
+	// Ties keep the catalogue's key order either way, as browseOrder's.
+	// When every column the filter reads is a rank column, the filter runs
+	// on the rank alone (no title row is read until the page's own).
+	if rankOnly(where) && !upcoming {
+		return `SELECT t.key AS page_key, t.rk AS page_rk FROM catalog_rank t WHERE t.type='` + string(typ) + `' AND ` + where +
+			` ORDER BY t.rk ` + dir + `, t.key ASC LIMIT ? OFFSET ?`, dir, true
+	}
+	// CROSS JOIN keeps the rank as SQLite's outer loop; PostgreSQL's
+	// planner chooses from statistics.
+	join := "CROSS JOIN"
+	if store.DialectOf(c.db) == store.Postgres {
+		join = "JOIN"
+	}
+	driver := " AND r.browsable=1"
+	if upcoming {
+		driver = ""
+	}
+	return `SELECT r.key AS page_key, r.rk AS page_rk FROM catalog_rank r ` + join + ` catalog_titles t ON t.key=r.key WHERE r.type='` + string(typ) + `'` + driver + ` AND r.adult=0 AND ` + where +
+		` ORDER BY r.rk ` + dir + `, r.key ASC LIMIT ? OFFSET ?`, dir, true
+}
+
+// rankMergedKeys is a movies-and-series popularity page from each type's
+// rank walk, merged on rk then key.
+func (c *Catalog) rankMergedKeys(ctx context.Context, where string, args []any, q core.BrowseQuery, offset, limit int) ([]core.RatingKey, bool, error) {
+	var all []sortedKey
+	desc := false
+	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
+		sqlQ, dir, ok := c.rankKeysQuery(ctx, q, where, typ)
+		if !ok {
+			return nil, false, nil
+		}
+		desc = dir == "DESC"
+		rows, err := c.db.QueryContext(ctx, sqlQ, append(append([]any{}, args...), offset+limit, 0)...)
+		if err != nil {
+			return nil, true, err
+		}
+		for rows.Next() {
+			var key int64
+			var rk float64
+			if err := rows.Scan(&key, &rk); err != nil {
+				rows.Close()
+				return nil, true, err
+			}
+			all = append(all, sortedKey{key: core.RatingKey(key), val: rk})
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, true, err
+		}
+	}
+	slices.SortStableFunc(all, func(a, b sortedKey) int {
+		if c := compareSQL(a.val, b.val); c != 0 {
+			if desc {
+				return -c
+			}
+			return c
+		}
+		return cmp.Compare(a.key, b.key)
+	})
+	if offset >= len(all) {
+		return nil, true, nil
+	}
+	out := make([]core.RatingKey, 0, limit)
+	for _, a := range all[offset:min(offset+limit, len(all))] {
+		out = append(out, a.key)
+	}
+	return out, true, nil
+}
+
+var rankRefs = regexp.MustCompile(`\bt\.([a-z_]+)`)
+
+// rankOnly reports whether where reads only columns the rank carries.
+func rankOnly(where string) bool {
+	for _, m := range rankRefs.FindAllStringSubmatch(where, -1) {
+		switch m[1] {
+		case "key", "type", "browsable", "adult", "release_known", "released_ts", "year", "language", "runtime_sec", "status", "rk":
+		default:
+			return false
+		}
+	}
+	return true
 }

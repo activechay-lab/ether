@@ -23,5 +23,16 @@ func (c *Catalog) indexedBy(index string) string {
 	if c.db == nil || store.DialectOf(c.db) == store.Postgres || c.tier.hintsOff.Load() {
 		return ""
 	}
+	if c.titleIndexesSwapped.Load() {
+		for _, s := range titleIndexSwaps {
+			if s.old == index {
+				index = s.replacement
+				break
+			}
+		}
+	}
+	if index == "" {
+		return ""
+	}
 	return " INDEXED BY " + index + " "
 }

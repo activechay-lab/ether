@@ -70,22 +70,35 @@ func TestSearchWalkMatchesSortedQuery(t *testing.T) {
 		}
 		return out
 	}
-	for _, query := range []string{"star", "a", "st", "Thing"} {
-		for _, unfiltered := range []bool{false, true} {
-			for _, n := range []int{1, 20, 60} {
-				got, ok, err := c.searchByPopularity(ctx, query, n, unfiltered)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !ok {
-					t.Fatalf("%q n=%d unfiltered=%v: the walk declined a dense term", query, n, unfiltered)
-				}
-				if want := sorted(query, n, unfiltered); !slices.Equal(got, want) {
-					t.Fatalf("%q n=%d unfiltered=%v:\n got %v\nwant %v", query, n, unfiltered, got, want)
+	check := func() {
+		for _, query := range []string{"star", "a", "st", "Thing"} {
+			for _, unfiltered := range []bool{false, true} {
+				for _, n := range []int{1, 20, 60} {
+					got, ok, err := c.searchByPopularity(ctx, query, n, unfiltered)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !ok {
+						t.Fatalf("%q n=%d unfiltered=%v: the walk declined a dense term", query, n, unfiltered)
+					}
+					if want := sorted(query, n, unfiltered); !slices.Equal(got, want) {
+						t.Fatalf("%q n=%d unfiltered=%v:\n got %v\nwant %v", query, n, unfiltered, got, want)
+					}
 				}
 			}
 		}
 	}
+	check()
+	// The same picks off the popularity rank, once the title indexes no
+	// longer hold popularity.
+	if _, err := c.RebuildRank(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.swapTitleIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	c.SetRankReady(false)
 	// A sparse term keeps the sorted query.
 	if _, ok, _ := c.searchByPopularity(ctx, "Thing 4242", 20, false); ok {
 		t.Fatal("walked a sparse term")

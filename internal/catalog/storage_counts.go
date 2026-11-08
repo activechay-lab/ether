@@ -26,7 +26,8 @@ func StorageCounts(ctx context.Context, q Queryer) ([]StorageCount, error) {
 	var out []StorageCount
 	for _, stmt := range []string{
 		`SELECT type, browsable, -1, COUNT(*) FROM catalog_titles GROUP BY type, browsable`,
-		`SELECT '', browsable, detail, COUNT(*) FROM catalog_titles GROUP BY browsable, detail`,
+		// Undetailed browsable titles: the warm-up queue's own index.
+		`SELECT '', 1, 0, COUNT(*) FROM catalog_titles WHERE detail=0 AND browsable=1 AND adult=0`,
 	} {
 		rows, err := q.QueryContext(ctx, stmt)
 		if err != nil {

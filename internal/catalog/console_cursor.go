@@ -38,8 +38,22 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 	if len(specs) > 3 {
 		return core.Page{}, fmt.Errorf("catalog: too many cursor sorts")
 	}
+	// Popularity order alone reads the rank (rank.go): the boundary row's
+	// rk, and seeks on (rk, key) per type. rk is the negated popularity, so
+	// the direction flips.
+	useRank := c.rankReady.Load() && len(specs) == 1 && specs[0].Sort == core.SortPopularity &&
+		!(c.config().ShowUpcomingMovies && q.Filter.RuleVisibility == "") && !consoleHasSparseCandidates(q.Filter)
+	if useRank {
+		specs = []core.SortSpec{{Sort: core.SortPopularity, Desc: !specs[0].Desc}}
+	}
 	var after []any
-	if q.AfterKey != 0 {
+	if useRank && q.AfterKey != 0 {
+		var rk float64
+		if err := c.db.QueryRowContext(ctx, `SELECT rk FROM catalog_rank WHERE key=?`, int64(q.AfterKey)).Scan(&rk); err != nil {
+			return core.Page{}, fmt.Errorf("catalog: cursor title unavailable; restart browsing: %w", err)
+		}
+		after = []any{rk}
+	} else if q.AfterKey != 0 {
 		columns := make([]string, len(specs))
 		for i, s := range specs {
 			columns[i] = sortColumn("t", s.Sort)
@@ -86,20 +100,36 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 			}
 			orders[i] = columns[i] + " " + dir
 		}
+		from := "catalog_titles t"
+		if useRank {
+			if rankOnly(where) {
+				from, columns[0] = "catalog_rank t", "t.rk"
+			} else {
+				from, columns[0] = "catalog_rank r CROSS JOIN catalog_titles t ON t.key=r.key", "r.rk"
+				if store.DialectOf(c.db) == store.Postgres {
+					from = "catalog_rank r JOIN catalog_titles t ON t.key=r.key"
+				}
+				where += " AND r.type='" + string(typ) + "' AND r.browsable=1 AND r.adult=0"
+			}
+			orders[0] = columns[0] + " ASC"
+			if specs[0].Desc {
+				orders[0] = columns[0] + " DESC"
+			}
+		}
 		hint := ""
 		// Availability projections can be much smaller than the title domain;
 		// let the planner drive those key sets before ordering the candidates.
 		selectiveEvidence := typed.Playable != "" || typed.DebridCached != "" || len(typed.Qualities) > 0 || typed.ReleaseGate != ""
-		if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence && !consoleHasSparseCandidates(typed) {
+		if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence && !consoleHasSparseCandidates(typed) && !useRank {
 			if specs[0].Sort == core.SortPopularity && specs[0].Desc && len(specs) == 1 {
-				hint = c.indexedBy("catalog_titles_console_pop_page")
+				hint = c.indexHint("catalog_titles_console_pop_page")
 			}
 			if len(specs) == 2 && specs[0].Sort == core.SortYear && specs[0].Desc && specs[1].Sort == core.SortTitle && !specs[1].Desc {
-				hint = c.indexedBy("catalog_titles_console_year_title_page")
+				hint = c.indexHint("catalog_titles_console_year_title_page")
 			}
 		}
 		for _, seek := range consoleSeekRanges(columns, specs, after, q.AfterKey) {
-			if store.DialectOf(c.db) != store.Postgres && consolePositiveEvidence(typed) && len(specs) == 1 && specs[0].Sort == core.SortPopularity && specs[0].Desc && !c.config().ShowUpcomingMovies {
+			if !useRank && store.DialectOf(c.db) != store.Postgres && consolePositiveEvidence(typed) && len(specs) == 1 && specs[0].Sort == core.SortPopularity && specs[0].Desc && !c.config().ShowUpcomingMovies && c.indexHint("catalog_titles_console_pop_page") != "" {
 				matches, complete, err := c.consoleEvidencePilot(ctx, typ, where, args, seek, limit)
 				if err != nil {
 					return core.Page{}, err
@@ -114,7 +144,7 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 			sqlArgs := append(append([]any{}, args...), string(typ))
 			sqlArgs = append(sqlArgs, seek.args...)
 			sqlArgs = append(sqlArgs, limit)
-			rows, err := c.db.QueryContext(ctx, `SELECT t.key,`+strings.Join(columns, ",")+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=?`+seek.predicate+` ORDER BY `+strings.Join(orders, ",")+`,t.key ASC LIMIT ?`, sqlArgs...)
+			rows, err := c.db.QueryContext(ctx, `SELECT t.key,`+strings.Join(columns, ",")+` FROM `+from+hint+` WHERE `+where+` AND t.type=?`+seek.predicate+` ORDER BY `+strings.Join(orders, ",")+`,t.key ASC LIMIT ?`, sqlArgs...)
 			if err != nil {
 				return core.Page{}, err
 			}

@@ -165,9 +165,62 @@ func (g *writeGate) release() {
 	g.holder, g.started = "", time.Time{}
 	g.mu.Unlock()
 	<-g.slot
-	if elapsed := time.Since(started); !started.IsZero() && elapsed >= time.Second {
+	elapsed := time.Since(started)
+	if !started.IsZero() {
+		writeGateHolds.add(elapsed)
+	}
+	if !started.IsZero() && elapsed >= time.Second {
 		slog.Warn("sqlite writer held", "holder", label, "duration", elapsed)
 	}
+}
+
+// WriteGateHolds is how often and how long this process's SQLite writers
+// held the write gate, for benchmarks (etherperf syncbench). Buckets count
+// holds under 1, 5, 20, 100 and 1000 ms and over.
+type WriteGateHolds struct {
+	Holds   int64
+	Held    time.Duration
+	Max     time.Duration
+	Buckets [6]int64
+}
+
+var writeGateHolds gateHoldStats
+
+type gateHoldStats struct {
+	mu sync.Mutex
+	s  WriteGateHolds
+}
+
+var gateHoldBounds = [5]time.Duration{time.Millisecond, 5 * time.Millisecond, 20 * time.Millisecond, 100 * time.Millisecond, time.Second}
+
+func (g *gateHoldStats) add(d time.Duration) {
+	b := len(gateHoldBounds)
+	for i, bound := range gateHoldBounds {
+		if d < bound {
+			b = i
+			break
+		}
+	}
+	g.mu.Lock()
+	g.s.Holds++
+	g.s.Held += d
+	g.s.Max = max(g.s.Max, d)
+	g.s.Buckets[b]++
+	g.mu.Unlock()
+}
+
+// ResetWriteGateHolds starts the counts again.
+func ResetWriteGateHolds() {
+	writeGateHolds.mu.Lock()
+	writeGateHolds.s = WriteGateHolds{}
+	writeGateHolds.mu.Unlock()
+}
+
+// ReadWriteGateHolds returns the write-gate holds since the last reset.
+func ReadWriteGateHolds() WriteGateHolds {
+	writeGateHolds.mu.Lock()
+	defer writeGateHolds.mu.Unlock()
+	return writeGateHolds.s
 }
 
 // writes reports whether a statement modifies the database (and so takes

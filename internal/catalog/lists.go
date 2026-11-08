@@ -625,7 +625,13 @@ func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, 
 	if unfiltered {
 		adult = "adult=0 AND "
 	}
-	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE ` + adult + `type IN (` + types + `) AND ` + match + ` ORDER BY CASE WHEN ?>0 AND year=? THEN 0 ELSE 1 END, popularity DESC LIMIT ?`
+	// With the rank built, movies and shows order by its popularity
+	// snapshot, as the popularity walk does.
+	pop := "popularity"
+	if c.rankReady.Load() {
+		pop = "COALESCE((SELECT -r.rk FROM catalog_rank r WHERE r.key=catalog_titles.key), popularity)"
+	}
+	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE ` + adult + `type IN (` + types + `) AND ` + match + ` ORDER BY CASE WHEN ?>0 AND year=? THEN 0 ELSE 1 END, ` + pop + ` DESC LIMIT ?`
 	args = append(args, year, year, n)
 	if deferFacts {
 		return c.querySearchRows(ctx, unfiltered, q, args...)
