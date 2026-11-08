@@ -178,7 +178,7 @@ func universeCatalog(t *testing.T, u *universeTMDB, cfg config.Catalog, exports 
 	return c
 }
 
-func storedKeys(t *testing.T, c *Catalog, where string) map[int64]bool {
+func universeKeys(t *testing.T, c *Catalog, where string) map[int64]bool {
 	t.Helper()
 	rows, err := c.db.Query(`SELECT key FROM catalog_titles WHERE type='movie' ` + where)
 	if err != nil {
@@ -241,12 +241,12 @@ func TestExportAndDiscoverSyncAgree(t *testing.T) {
 		if err := export.Sync(ctx); err != nil {
 			t.Fatal(err)
 		}
-		a, b := storedKeys(t, discover, "AND browsable=1"), storedKeys(t, export, "AND browsable=1")
+		a, b := universeKeys(t, discover, "AND browsable=1"), universeKeys(t, export, "AND browsable=1")
 		if len(a) == 0 || fmt.Sprint(sortedIDs(a)) != fmt.Sprint(sortedIDs(b)) {
 			t.Fatalf("%+v: discover browsable %d, export browsable %d", cfg, len(a), len(b))
 		}
 		minPop, minVotes := cfg.Bars()
-		for id := range storedKeys(t, export, "") {
+		for id := range universeKeys(t, export, "") {
 			m := u.movies[id-1]
 			if m.pop < minPop && m.votes < minVotes {
 				t.Fatalf("%+v: long-tail title %d (pop %v, votes %d) stored as a row", cfg, id, m.pop, m.votes)

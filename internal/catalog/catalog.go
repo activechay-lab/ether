@@ -272,10 +272,11 @@ type Catalog struct {
 	listMu       sync.Mutex
 	listCache    map[string]listEntry
 
-	syncing    atomic.Bool
-	syncBatch  atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
-	progress   SyncProgress
-	progressMu sync.RWMutex
+	syncing      atomic.Bool
+	syncBatch    atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
+	detailWrites detailWrites // batched detail writes (detail_writer.go)
+	progress     SyncProgress
+	progressMu   sync.RWMutex
 
 	yearMu         sync.RWMutex
 	yearRunning    atomic.Bool

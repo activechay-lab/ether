@@ -202,7 +202,7 @@ func (c *Catalog) fetchMovieDetails(ctx context.Context, id int64) error {
 		return err
 	}
 	t := c.movieDetailsToTitle(ctx, d)
-	if err := c.upsert(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}); err != nil {
+	if err := c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}); err != nil {
 		return err
 	}
 	c.harvestMovieCrowd(ctx, core.MovieKey(id), d.Recommendations)
@@ -244,7 +244,7 @@ func (c *Catalog) storeShowDetails(ctx context.Context, t core.Title, d *tmdb.TV
 	}
 	// Upsert show as detail; seasons as non-detail summaries in same call would
 	// mark them detail too, so split.
-	if err := c.upsert(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true}); err != nil {
+	if err := c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true}); err != nil {
 		return err
 	}
 	if len(seasons) > 0 {
