@@ -728,13 +728,9 @@ func (s *Server) takeTermination(tid string) (string, bool) {
 }
 
 func (s *Server) expireTerminations(now time.Time, ttl time.Duration) {
+	s.decisionArms.Expire(now)
 	s.termMu.Lock()
 	defer s.termMu.Unlock()
-	for id, arm := range s.decisionArms {
-		if now.Sub(arm.at) > 3*time.Minute {
-			delete(s.decisionArms, id)
-		}
-	}
 	for tid, t := range s.terms {
 		if now.Sub(t.at) > ttl {
 			delete(s.terms, tid)

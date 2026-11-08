@@ -247,11 +247,9 @@ type Server struct {
 
 	// Owner stream kills, delivered on the client's next timeline; the
 	// janitor drops those whose client never reports again.
-	termMu             sync.Mutex
-	terms              map[string]termination
-	decisionArms       map[string]decisionArm
-	decisionWriterOnce sync.Once
-	decisionWriter     chan decisionArmWrite
+	termMu       sync.Mutex
+	terms        map[string]termination
+	decisionArms *sessions.DecisionArms
 
 	// Stalled-start watches and Dolby Vision base-layer fallbacks.
 	starts sessions.StartGuard
@@ -351,6 +349,11 @@ func NewServer(d Deps) *Server {
 	if d.ArtworkPalettes != nil {
 		s.ultra = d.ArtworkPalettes
 	}
+	node := "standalone"
+	if s.cl != nil {
+		node = s.cl.self
+	}
+	s.decisionArms = sessions.NewDecisionArms(s.ctx, d.DB, s.now, node, s.log, &s.wg)
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
