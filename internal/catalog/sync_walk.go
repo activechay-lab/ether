@@ -40,6 +40,17 @@ type walkSpec struct {
 	// both bars: nothing later in it meets the popularity bar, and the
 	// vote walk reads the vote-qualified rest.
 	stopBelow bool
+	// keep picks the titles the walk passes on; nil is the browse bar.
+	keep func(core.Title) bool
+}
+
+// walkSink receives a walk's titles: the sync's writer, or the tail's
+// names collector.
+type walkSink interface {
+	add(ctx context.Context, t core.Title, browsable bool) error
+	pending() int
+	flush(ctx context.Context) error
+	setFlushHook(func(context.Context) error)
 }
 
 // walkCursor is a walk's resume point: every slice starting on or after
@@ -187,7 +198,7 @@ func (c *Catalog) discoverPage(ctx context.Context, tv bool, p tmdb.DiscoverPara
 
 // walkDiscover reads one walk to the end, storing the titles that meet
 // the browse bar through w. The resume point moves only past stored pages.
-func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w *syncWriter) (err error) {
+func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w walkSink) (err error) {
 	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
 	passKey := fmt.Sprintf("%t/%s", spec.tv, spec.pass)
 	var cur walkCursor
@@ -202,14 +213,18 @@ func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w *syncWriter
 	}
 	// The cursor saved with a batch describes what that batch completes.
 	saved := cur
-	w.onFlush = func(ctx context.Context) error {
+	keep := spec.keep
+	if keep == nil {
+		keep = c.meetsThreshold
+	}
+	w.setFlushHook(func(ctx context.Context) error {
 		if r == nil {
 			return nil
 		}
 		r.Walks[passKey] = saved
 		return c.saveSyncResume(ctx)
-	}
-	defer func() { w.onFlush = nil }()
+	})
+	defer w.setFlushHook(nil)
 	typ := "movie"
 	if spec.tv {
 		typ = "tv"
@@ -266,7 +281,7 @@ func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w *syncWriter
 					stop = true
 					break
 				}
-				if c.meetsThreshold(t) {
+				if keep(t) {
 					if err := w.add(ctx, t, true); err != nil {
 						return fmt.Errorf("catalog: store %s %s before page %d: %w", typ, key, page, err)
 					}

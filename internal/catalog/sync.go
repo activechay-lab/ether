@@ -45,6 +45,8 @@ type Stats struct {
 	Sync               SyncProgress      `json:"sync"`
 	YearCorrection     MovieYearProgress `json:"yearCorrection"`
 	TierMigration      TierMigration     `json:"tierMigration,omitzero"`
+	// Tail is this node's long-tail search index.
+	Tail TailStatus `json:"tail"`
 }
 
 func cloneStats(s Stats) Stats {
@@ -84,6 +86,7 @@ func (c *Catalog) finishStats(ctx context.Context, s Stats, yearPending int) Sta
 	}
 	s.YearCorrection = c.movieYearProgressFrom(yearPending)
 	s.TierMigration = c.TierMigrationStatus(ctx)
+	s.Tail = c.TailStatus()
 	return s
 }
 

@@ -86,6 +86,26 @@ func (u *universeTMDB) MovieSummary(_ context.Context, id int64) (*tmdb.MovieDet
 	return nil, fmt.Errorf("%w: %d", core.ErrNotFound, id)
 }
 
+func (u *universeTMDB) MovieDetails(ctx context.Context, id int64) (*tmdb.MovieDetails, error) {
+	return u.MovieSummary(ctx, id)
+}
+
+func (u *universeTMDB) SearchMulti(context.Context, string, int) (*tmdb.Paged[tmdb.MultiResult], error) {
+	return &tmdb.Paged[tmdb.MultiResult]{}, nil
+}
+func (u *universeTMDB) SearchMovies(context.Context, string, int) (*tmdb.Paged[tmdb.Movie], error) {
+	return &tmdb.Paged[tmdb.Movie]{}, nil
+}
+func (u *universeTMDB) SearchTV(context.Context, string, int) (*tmdb.Paged[tmdb.TVShow], error) {
+	return &tmdb.Paged[tmdb.TVShow]{}, nil
+}
+func (u *universeTMDB) MovieSimilar(context.Context, int64, int) (*tmdb.Paged[tmdb.Movie], error) {
+	return &tmdb.Paged[tmdb.Movie]{}, nil
+}
+func (u *universeTMDB) MovieRecommendations(context.Context, int64, int) (*tmdb.Paged[tmdb.Movie], error) {
+	return &tmdb.Paged[tmdb.Movie]{}, nil
+}
+
 func (u *universeTMDB) TVSummary(context.Context, int64) (*tmdb.TVDetails, error) {
 	return nil, core.ErrNotFound
 }
@@ -108,6 +128,10 @@ func (u *universeTMDB) TrendingTV(context.Context, string, int) (*tmdb.Paged[tmd
 }
 func (u *universeTMDB) TrendingAll(context.Context, string, int) (*tmdb.Paged[tmdb.MultiResult], error) {
 	return &tmdb.Paged[tmdb.MultiResult]{}, nil
+}
+
+func (u *universeTMDB) EachNamed(ctx context.Context, kind tmdb.ExportKind, fn func(tmdb.ExportRow, string) error) (tmdb.ExportInfo, error) {
+	return u.Each(ctx, kind, func(r tmdb.ExportRow) error { return fn(r, fmt.Sprintf("Movie %d", r.ID)) })
 }
 
 // Each serves the universe as a daily export (movies only).

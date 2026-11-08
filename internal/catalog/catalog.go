@@ -292,6 +292,10 @@ type Catalog struct {
 	// from /discover alone.
 	exports ExportSource
 	fill    fillState // per-ID fill backlog (sync_fill.go)
+	tail    tailState // the long-tail search index (tail_index.go)
+	// posterPrefetch, when set, starts poster lookups for long-tail search
+	// hits while the search waits for TMDB (posters, L).
+	posterPrefetch func(context.Context, []core.Title)
 
 	// High-speed in-memory read caches, invalidated atomically on writes.
 	writeGen    atomic.Uint64

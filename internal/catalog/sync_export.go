@@ -36,6 +36,8 @@ import (
 // ExportSource streams TMDB's daily ID exports; *tmdb.Exports is one.
 type ExportSource interface {
 	Each(ctx context.Context, kind tmdb.ExportKind, fn func(tmdb.ExportRow) error) (tmdb.ExportInfo, error)
+	// EachNamed is Each with each row's original title or name.
+	EachNamed(ctx context.Context, kind tmdb.ExportKind, fn func(tmdb.ExportRow, string) error) (tmdb.ExportInfo, error)
 }
 
 // WithExports syncs the title list from TMDB's daily ID exports. Without
