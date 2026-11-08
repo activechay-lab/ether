@@ -209,6 +209,9 @@ func (s *source) read(ctx context.Context, p []byte, off int64, prio core.Priori
 // readPlan reads video bytes through the plan's layout, verifying volumes
 // before serving from them.
 func readPlan(ctx context.Context, e *Engine, rel *release, p *plan, buf []byte, off int64, prio core.Priority, fo fetchOpts) (int, error) {
+	if len(p.sub) > 0 {
+		return readSub(ctx, e, rel, p, buf, off, prio, fo)
+	}
 	if p.encrypted != nil {
 		return readEncryptedPlan(ctx, e, rel, p, buf, off, prio, fo)
 	}

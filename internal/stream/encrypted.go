@@ -73,6 +73,21 @@ func (b *builder) encryptedPlan(ctx context.Context, kind planKind, member *arch
 	if _, err := r.ReadAt(head, 0); err != nil {
 		return nil, err
 	}
+	if isISOName(p.name) {
+		// A disc image has no video signature; its volume descriptors are the
+		// check (ISO 9660 "CD001", or UDF's "BEA01", at sector 16).
+		sig := make([]byte, 6)
+		if p.size < 16*2048+6 {
+			return nil, fmt.Errorf("stream: decrypted archive member is too small for a disc image: %w", ErrCorrupt)
+		}
+		if _, err := r.ReadAt(sig, 16*2048); err != nil {
+			return nil, err
+		}
+		if s := string(sig[1:]); s != "CD001" && s != "BEA01" {
+			return nil, fmt.Errorf("stream: decrypted archive member is not a disc image (incorrect password or damaged content): %w", ErrCorrupt)
+		}
+		return p, nil
+	}
 	if !looksLikeVideo(head) {
 		return nil, fmt.Errorf("stream: decrypted archive member has no supported video signature (incorrect password or damaged content): %w", ErrCorrupt)
 	}

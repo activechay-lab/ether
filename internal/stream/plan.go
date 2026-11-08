@@ -111,6 +111,9 @@ type plan struct {
 	// bytes end and how far its timestamps are from a continuous timeline.
 	clips []clipBoundary
 	spans []clipSpan // clips as byte ranges, built with the plan
+	// sub, for a feature from an encrypted disc image, is where each stretch is
+	// read from: the image's own plan, which decrypts it.
+	sub []subRange
 
 	// PAR2 verification verdict of the first volume (see verifyPar2).
 	par2Done bool

@@ -6,6 +6,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/iso"
@@ -49,12 +50,13 @@ type disc struct {
 // the other discs of a release.
 const maxDiscSiblings = 8
 
+// isoAnalyzeTimeout bounds reading one disc image's structure, so a degraded
+// provider cannot stall starting playback for minutes.
+const isoAnalyzeTimeout = 90 * time.Second
+
 // analyzeDisc reads the structure of the disc image of p. The image's layout
 // must be exact for the remap that follows, so every volume is verified first.
 func (b *builder) analyzeDisc(ctx context.Context, p *plan) (*disc, error) {
-	if p.encrypted != nil {
-		return nil, fmt.Errorf("stream: encrypted disc image %s: %w", p.name, ErrUnsupported)
-	}
 	all := make([]int, len(p.vols))
 	for k := range all {
 		all[k] = k
@@ -62,11 +64,16 @@ func (b *builder) analyzeDisc(ctx context.Context, p *plan) (*disc, error) {
 	if err := p.ensure(ctx, verifier{e: b.e, prio: b.prio, fo: b.fo}, all); err != nil {
 		return nil, err
 	}
-	rd := planReader{ctx: ctx, e: b.e, rel: b.rel, p: p, prio: b.prio, fo: b.fo}
-	an, err := iso.Analyze(ctx, rd, p.size, nil)
+	actx, cancel := context.WithTimeout(ctx, isoAnalyzeTimeout)
+	defer cancel()
+	rd := planReader{ctx: actx, e: b.e, rel: b.rel, p: p, prio: b.prio, fo: b.fo}
+	an, err := iso.Analyze(actx, rd, p.size, nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if actx.Err() != nil {
+			return nil, fmt.Errorf("stream: reading disc image %s timed out: %w", p.name, actx.Err())
 		}
 		if IsRejection(err) || isMissing(err) {
 			return nil, err
@@ -224,6 +231,11 @@ func (b *builder) isoPlan(group []*disc, name string, files []isoFile) (*plan, e
 		inner += n
 	}
 	var clips []clipBoundary
+	var sub []subRange
+	encrypted := false
+	for _, d := range group {
+		encrypted = encrypted || d.p.encrypted != nil
+	}
 	var base0, cum int64 = -1, 0
 	timed, mismatch := false, false
 	for _, f := range files {
@@ -241,6 +253,10 @@ func (b *builder) isoPlan(group []*disc, name string, files []isoFile) (*plan, e
 			for _, pc := range src.pieces(x.Offset, x.Length) {
 				add(volBase[f.disc]+pc.vol, pc.off, pc.n)
 				covered += pc.n
+			}
+			if encrypted {
+				// The bytes must be decrypted by their own image's plan.
+				sub = append(sub, subRange{start: inner - covered, size: covered, src: d.p, srcOff: x.Offset})
 			}
 			if covered != x.Length {
 				return nil, fmt.Errorf("stream: %s extent is not mapped by the image: %w", f.Path, ErrCorrupt)
@@ -270,6 +286,7 @@ func (b *builder) isoPlan(group []*disc, name string, files []isoFile) (*plan, e
 	np := newPlan(b.rel, group[0].p.kind, name, inner, vols, info, verified)
 	np.member = group[0].p.member
 	np.lay = lay
+	np.sub = sub
 	// The continuous-timeline table needs MPLS timing for every clip and clip
 	// boundaries that add up to the whole file.
 	if timed && !mismatch && len(clips) == len(files) {
@@ -277,4 +294,35 @@ func (b *builder) isoPlan(group []*disc, name string, files []isoFile) (*plan, e
 		np.spans = clipSpans(clips)
 	}
 	return np, nil
+}
+
+// subRange is a stretch of a composed plan that is read through another plan:
+// the disc image it comes from, which does its own decryption.
+type subRange struct {
+	start, size int64 // in the composed plan
+	src         *plan
+	srcOff      int64 // in src
+}
+
+// readSub reads a composed plan through the plans of the images it is made of.
+func readSub(ctx context.Context, e *Engine, rel *release, p *plan, buf []byte, off int64, prio core.Priority, fo fetchOpts) (int, error) {
+	i := sort.Search(len(p.sub), func(i int) bool { return p.sub[i].start+p.sub[i].size > off })
+	var done int
+	for ; i < len(p.sub) && done < len(buf); i++ {
+		r := p.sub[i]
+		at := off + int64(done)
+		if at < r.start {
+			return done, fmt.Errorf("stream: %s has a gap at %d: %w", p.name, at, ErrCorrupt)
+		}
+		take := int(min(int64(len(buf)-done), r.start+r.size-at))
+		n, err := readPlan(ctx, e, rel, r.src, buf[done:done+take], r.srcOff+(at-r.start), prio, fo)
+		done += n
+		if err != nil {
+			return done, err
+		}
+		if n < take {
+			return done, errEOF
+		}
+	}
+	return done, nil
 }

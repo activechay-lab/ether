@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/archive"
 	"github.com/braedonsaunders/ether/internal/archive/archivetest"
 	"github.com/braedonsaunders/ether/internal/iso/isotest"
 )
@@ -163,4 +164,44 @@ func TestISODifferentTitlesAreNotJoined(t *testing.T) {
 	if src.Size() != int64(len(c1)) {
 		t.Fatalf("plays %d bytes, want only the larger disc's %d", src.Size(), len(c1))
 	}
+}
+
+// A disc image inside a password-protected archive plays its main feature,
+// decrypted a range at a time; the image is never extracted.
+func TestISOInEncryptedArchive(t *testing.T) {
+	packed := readFixture(t, "iso-crypto/disc.7z")
+	want := readFixture(t, "iso-crypto/feature.bin")
+	for _, tc := range []struct {
+		name string
+		vols [][]byte
+	}{{"single volume", [][]byte{packed}}, {"multi volume", cut(packed, 17_003)}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeFetcher()
+			raw := postVolumes(t, f, 997, tc.vols, func(i int) string { return fmt.Sprintf("disc.7z.%03d", i+1) })
+			doc := passwordNZB(raw, "Secret")
+			e := newTestEngine(t, f, nil, Options{ReadAheadMin: 1, ReadAheadMax: 1})
+			if ok, err := e.Check(t.Context(), doc); err != nil || !ok {
+				t.Fatalf("Check: %v %v", ok, err)
+			}
+			if _, err := e.Open(t.Context(), "iso-nopass", raw); !errors.Is(err, archive.ErrPasswordRequired) {
+				t.Fatalf("Open without the password = %v", err)
+			}
+			src := openSource(t, e, "iso-crypto", doc)
+			if src.Name() != "disc.m2ts" || src.Size() != int64(len(want)) {
+				t.Fatalf("plays %q (%d bytes), want disc.m2ts (%d bytes)", src.Name(), src.Size(), len(want))
+			}
+			checkRandomReads(t, src, want, 17, 100)
+			if got := readAll(t, src, 4001); !bytes.Equal(got, want) {
+				t.Fatal("decrypted main feature differs")
+			}
+		})
+	}
+	t.Run("wrong password", func(t *testing.T) {
+		f := newFakeFetcher()
+		raw := postVolumes(t, f, 997, [][]byte{packed}, func(i int) string { return "disc.7z.001" })
+		e := newTestEngine(t, f, nil, Options{})
+		if _, err := e.Open(t.Context(), "iso-bad", passwordNZB(raw, "wrong")); err == nil {
+			t.Fatal("a wrong password opened the disc")
+		}
+	})
 }
