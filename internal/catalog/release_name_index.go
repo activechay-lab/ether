@@ -111,12 +111,21 @@ func insertReleaseNames(ctx context.Context, tx *sql.Tx, key int64, names ...str
 // (most of a catalogue sync) cost nothing here, and an unchanged title is not
 // rewritten.
 func updateReleaseNames(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType) error {
+	return updateReleaseNamesOf(ctx, tx, key, typ, false)
+}
+
+// updateReleaseNamesOf skips reading the stored names when fresh: the key's
+// row was inserted by this transaction, so it has none.
+func updateReleaseNamesOf(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType, fresh bool) error {
 	if typ != core.TypeMovie && typ != core.TypeShow {
 		return nil
 	}
 	var title, original string
 	if err := tx.QueryRowContext(ctx, `SELECT title,original_title FROM catalog_titles WHERE key=?`, key).Scan(&title, &original); err != nil {
 		return err
+	}
+	if fresh {
+		return insertReleaseNames(ctx, tx, key, title, original)
 	}
 	want := map[string]bool{}
 	for _, name := range []string{title, original} {

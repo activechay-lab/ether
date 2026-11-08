@@ -630,6 +630,10 @@ type upsertOpts struct {
 	// ratingCuts, set by upsertMany, limits rating, vote and popularity
 	// wobbles to the writes rating_drift.go keeps.
 	ratingCuts *ratingCuts
+	// stored, set by upsertMany, holds the batch's keys that already had a
+	// row; a key it lacks is inserted by this upsert, so the probes for
+	// what an existing row holds (ratings, release names) are skipped.
+	stored map[int64]bool
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
@@ -692,6 +696,9 @@ func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertO
 	o.region = c.config().Region
 	cuts := c.ratingCuts()
 	o.ratingCuts = &cuts
+	if o.stored, err = storedKeys(ctx, tx, titles); err != nil {
+		return err
+	}
 	for _, t := range titles {
 		if err := upsertOne(ctx, tx, t, o, now); err != nil {
 			return err
@@ -743,6 +750,41 @@ const materialTitleChangeSQL = `(
  excluded.browsable>catalog_titles.browsable OR
  excluded.detail>catalog_titles.detail
 )`
+
+type noRows struct{}
+
+func (noRows) LastInsertId() (int64, error) { return 0, nil }
+func (noRows) RowsAffected() (int64, error) { return 0, nil }
+
+// storedKeys reads which of titles' keys already have a row, 500 a statement.
+func storedKeys(ctx context.Context, tx *sql.Tx, titles []core.Title) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(titles))
+	for start := 0; start < len(titles); start += 500 {
+		part := titles[start:min(start+500, len(titles))]
+		args := make([]any, len(part))
+		for i, t := range part {
+			args[i] = int64(t.Key)
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var k int64
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[k] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
 
 func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now int64) error {
 	if t.Key == 0 {
@@ -856,16 +898,24 @@ ON CONFLICT(key) DO UPDATE SET
 	// index on a column an UPDATE assigns (37 on catalog_titles), which made
 	// a popularity-only refresh 33 WAL pages a title. After a full upsert
 	// the values match and this matches no row.
-	// Small wobbles are written only per rating_drift.go.
+	fresh := o.stored != nil && !o.stored[int64(t.Key)]
+	if o.stored != nil {
+		o.stored[int64(t.Key)] = true // a repeat in the batch updates it
+	}
+	// Small wobbles are written only per rating_drift.go. A row this upsert
+	// inserted already holds the exact values.
 	drift, driftArgs := "", []any(nil)
 	if !o.detail && o.ratingCuts != nil && !ratingExact(t.Key, time.Unix(now, 0)) {
 		drift, driftArgs = ratingDriftSQL(*o.ratingCuts, t.Popularity, t.VoteCount, t.Rating)
 		drift = " AND " + drift
 	}
-	jitter, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`+drift,
-		append([]any{t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt}, driftArgs...)...)
-	if err != nil {
-		return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
+	var jitter sql.Result = noRows{}
+	if !fresh {
+		jitter, err = tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`+drift,
+			append([]any{t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt}, driftArgs...)...)
+		if err != nil {
+			return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
+		}
 	}
 	if o.preserveDetailed {
 		n, err := result.RowsAffected()
@@ -899,7 +949,7 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: detail freshness %d: %w", t.Key, err)
 		}
 	}
-	if err := updateReleaseNames(ctx, tx, int64(t.Key), t.Type); err != nil {
+	if err := updateReleaseNamesOf(ctx, tx, int64(t.Key), t.Type, fresh); err != nil {
 		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
