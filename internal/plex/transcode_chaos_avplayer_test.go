@@ -83,6 +83,10 @@ func TestTranscodeChaosAVPlayer(t *testing.T) {
 			if strings.HasPrefix(name, "input-") {
 				paths, scenarios = []string{"hls"}, []string{"damaged-copy-play"}
 			}
+			if os.Getenv("CHAOS_AVTRANSCODE") != "" {
+				// The live-priority row: a sustained full transcode only.
+				paths, scenarios = []string{"hls"}, []string{"transcode-play"}
+			}
 			for _, path := range paths {
 				t.Run(path, func(t *testing.T) {
 					for _, scenario := range scenarios {
@@ -208,6 +212,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		return srv.URL + "/video/:/transcode/universal/start.m3u8?" + q
 	}
 	d := duration.Seconds()
+	firstURL := start(0, "")
 	var script []string
 	run := 22.0
 	switch scenario {
@@ -219,6 +224,11 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 	case "pause-resume-eos":
 		script = []string{"6|pause", "9|play", "12|seek|end-3"}
 		run = 20
+	case "transcode-play":
+		// A sustained 1080p re-encode (tone-mapped for HDR sources), watched
+		// straight through: the VOD side of the live-priority row.
+		run = min(max(d+4, 20), 75)
+		firstURL = start(0, "&directStream=0&maxVideoBitrate=8000&videoResolution=1920x1080")
 	case "damaged-copy-play":
 		// Watch the damaged title straight through, then seek back once.
 		run = min(max(d+4, 12), 40)
@@ -249,7 +259,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(run+30)*time.Second)
 	defer cancel()
 	// The client asks for a decision first; Ether only starts armed sessions.
-	if dr, err := http.Get(strings.Replace(start(0, ""), "/universal/start.m3u8", "/universal/decision", 1)); err == nil {
+	if dr, err := http.Get(strings.Replace(firstURL, "/universal/start.m3u8", "/universal/decision", 1)); err == nil {
 		_, _ = io.Copy(io.Discard, dr.Body)
 		dr.Body.Close()
 		line.Requests = append(line.Requests[:0:0], append([]string{fmt.Sprintf("preflight decision -> %d", dr.StatusCode)}, line.Requests...)...)
@@ -262,7 +272,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 			t.Logf("preflight %d %s url=%s", resp.StatusCode, b, start(0, ""))
 		}
 	}
-	cmd := exec.CommandContext(ctx, probe, start(0, ""), fmt.Sprintf("%.0f", run), line.Script)
+	cmd := exec.CommandContext(ctx, probe, firstURL, fmt.Sprintf("%.0f", run), line.Script)
 	b, err := cmd.Output()
 	if err != nil {
 		line.Error = "avvod: " + err.Error()

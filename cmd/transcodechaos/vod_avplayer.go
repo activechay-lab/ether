@@ -27,6 +27,9 @@ import (
 
 type vodOptions struct {
 	FF, FP, Fixtures, Cache, Report, Markdown, Only, Keep, RepoRoot, Label string
+	// Transcode runs only the sustained full-transcode case per asset (the
+	// VOD side of the live-priority row).
+	Transcode bool
 }
 
 const (
@@ -165,9 +168,16 @@ func runVODAVPlayer(o vodOptions) error {
 		keep = filepath.Join(work, "keep")
 	}
 	started := time.Now()
-	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/plex", "-run", "^TestTranscodeChaos(CorpusScenarios|AVPlayer)$", "-count=1", "-timeout=170m", "-json")
+	pattern := "^TestTranscodeChaos(CorpusScenarios|AVPlayer)$"
+	if o.Transcode {
+		pattern = "^TestTranscodeChaosAVPlayer$"
+	}
+	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/plex", "-run", pattern, "-count=1", "-timeout=170m", "-json")
 	cmd.Dir = o.RepoRoot
 	cmd.Env = append(os.Environ(), "CHAOS_FFMPEG="+o.FF, "CHAOS_FFPROBE="+o.FP, "CHAOS_CORPUS="+o.Fixtures, "CHAOS_AVVOD="+probe, "CHAOS_AVREPORT="+jsonl, "CHAOS_AVKEEP="+keep, "CHAOS_AVONLY="+o.Only, "GOMAXPROCS=2")
+	if o.Transcode {
+		cmd.Env = append(cmd.Env, "CHAOS_AVTRANSCODE=1")
+	}
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
