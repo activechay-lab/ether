@@ -45,6 +45,7 @@ import (
 //	ETHER_SEARCH_GATE_REPORT=<file>  write the per-query report (JSON)
 //	ETHER_SEARCH_GATE_ONLY=<substr>  run only queries containing substr (debugging)
 //	ETHER_SEARCH_GATE_LATENCY=1      also time warm searches (p50/p95) and count rows read
+//	ETHER_SEARCH_GATE_BAR=15,500     library = pop >= 15 or votes >= 500 (the Most preset), rest in the tail; report only
 
 const searchGateDir = "testdata/searchgate"
 
@@ -357,6 +358,14 @@ func newSearchGate(t testing.TB) *searchGate {
 	}
 	c.setNow(func() time.Time { return searchGateNow })
 	lib := loadGateLibrary(t)
+	if bar := os.Getenv("ETHER_SEARCH_GATE_BAR"); bar != "" {
+		// A smaller library (for example "15,500", the Most preset): the
+		// rest of the Some library moves to the tail. Not baseline-checked.
+		pop, votes, _ := strings.Cut(bar, ",")
+		p, _ := strconv.ParseFloat(pop, 64)
+		v, _ := strconv.Atoi(votes)
+		lib = slices.DeleteFunc(lib, func(ti core.Title) bool { return ti.Popularity < p && ti.VoteCount < v })
+	}
 	g := &searchGate{c: c, fake: fake, library: make(map[core.RatingKey]core.Title, len(lib))}
 	for _, ti := range lib {
 		g.library[ti.Key] = ti
@@ -604,7 +613,7 @@ func TestSearchQualityGate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if only != "" {
+	if only != "" || os.Getenv("ETHER_SEARCH_GATE_BAR") != "" {
 		return
 	}
 	ranks := map[string]int{}
