@@ -71,7 +71,7 @@ it("renders setup bundles and their real template previews in the selected langu
     expect(await screen.findByText(t(bundle.name))).toBeInTheDocument();
     expect(screen.getByText(t(bundle.description))).toBeInTheDocument();
   }
-  fireEvent.click(screen.getAllByRole("button", { name: t("Preview bundle") })[0]);
-  const first = TEMPLATES.find((item) => item.id === TEMPLATE_BUNDLES[0].templateIds[0])!;
+  fireEvent.click(screen.getAllByRole("button", { name: t("Preview bundle") })[0]!);
+  const first = TEMPLATES.find((item) => item.id === TEMPLATE_BUNDLES[0]!.templateIds[0])!;
   expect(await screen.findByText(t(first.name))).toBeInTheDocument();
 });
