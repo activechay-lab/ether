@@ -652,7 +652,7 @@ export const UPDATES: FieldGroup[] = localized(() => [
         key: "enabled",
         label: t("Check for updates"),
         kind: "bool",
-        help: t("Checks the signed release feed once a day."),
+        help: t("Checks the signed release feed every few hours."),
       },
       {
         key: "channel",

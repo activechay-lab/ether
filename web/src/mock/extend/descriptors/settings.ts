@@ -1242,7 +1242,7 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                   source: "Check for updates",
                 },
                 help: {
-                  source: "Checks the signed release feed once a day.",
+                  source: "Checks the signed release feed every few hours.",
                 },
                 kind: "bool",
               },

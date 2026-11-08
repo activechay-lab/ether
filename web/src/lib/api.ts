@@ -417,6 +417,7 @@ export const api = {
   checkUpdates: () => post<UpdateStatus>("/updates/check", {}),
   updateStatus: () => apiFetch<UpdateStatus>("/updates/"),
   updateNow: (force = false) => post<UpdateStatus>("/updates/apply", { force }),
+  dismissInstalledUpdate: () => post<UpdateStatus>("/updates/dismiss-installed", {}),
 
   // ---- Cluster ---------------------------------------------------------------------
   clusterSetupStatus: (signal?: AbortSignal) =>

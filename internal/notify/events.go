@@ -37,6 +37,8 @@ func builtinEventKinds() []eventKind {
 		{ID: "cache.full", Label: extend.T("Cache full"), Description: extend.T("The segment cache reaches its configured budget."), Order: 140, Automatic: true, Critical: true},
 		{ID: "cert.renewed", Label: extend.T("Certificate renewed"), Description: apiOnly, Order: 150},
 		{ID: "update.available", Label: extend.T("Update available"), Description: extend.T("A new Ether release is published; one alert per version."), Order: 160, Automatic: true},
+		{ID: "update.installed", Label: extend.T("Update installed"), Description: extend.T("Ether installed an update by itself and it is running well; one alert per version."), Order: 161, Automatic: true},
+		{ID: "update.rolledback", Label: extend.T("Update rolled back"), Description: extend.T("An update did not run properly, so Ether went back to the previous version and will skip it."), Order: 162, Automatic: true, Critical: true},
 		{ID: "backup.failed", Label: extend.T("Backup failed"), Description: extend.T("A scheduled backup fails; one alert until a backup succeeds again."), Order: 170, Automatic: true, Critical: true},
 		{ID: "user.joined", Label: extend.T("Viewer joined"), Description: apiOnly, Order: 180},
 		{ID: "title.available", Label: extend.T("Watchlist title available"), Description: extend.T("A monitored watchlist title becomes available."), Order: 190, Automatic: true},

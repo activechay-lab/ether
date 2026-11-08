@@ -140,3 +140,41 @@ func TestOpenRejectsTrailingData(t *testing.T) {
 		}
 	}
 }
+
+// Automatic updates are on for a new install only: stored settings that do
+// not set autoUpdate (written while the default was off) stay manual, and
+// an owner's explicit choice always survives.
+func TestAutoUpdateDefaultsOnForNewInstallsOnly(t *testing.T) {
+	open := func(doc string) Config {
+		t.Helper()
+		dir := t.TempDir()
+		if doc != "" {
+			if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(doc), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Get()
+	}
+	if !open("").Updates.AutoUpdate {
+		t.Fatal("new install: automatic updates off")
+	}
+	for doc, want := range map[string]bool{
+		`{"server":{"machineIdentifier":"m"}}`:                       false,
+		`{"updates":{"enabled":true,"channel":"stable"}}`:            false,
+		`{"updates":{"autoUpdate":false}}`:                           false,
+		`{"updates":{"autoUpdate":true,"maintenanceStart":"02:00"}}`: true,
+	} {
+		if got := open(doc).Updates.AutoUpdate; got != want {
+			t.Errorf("%s: autoUpdate = %v, want %v", doc, got, want)
+		}
+	}
+	// A cluster's shared settings follow the same rule.
+	shared, err := MergeShared(Defaults(t.TempDir()), []byte(`{"updates":{"channel":"stable"}}`))
+	if err != nil || shared.Updates.AutoUpdate {
+		t.Fatalf("shared settings without autoUpdate: %v %v", shared.Updates.AutoUpdate, err)
+	}
+}

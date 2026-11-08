@@ -39,3 +39,33 @@ func TestKeygenWritesOwnerOnlyFile(t *testing.T) {
 		}
 	}
 }
+
+// The manifest carries the staged rollout: a day for stable, none for beta,
+// none for a critical fix.
+func TestManifestRolloutDefaults(t *testing.T) {
+	dir := t.TempDir()
+	art := filepath.Join(dir, "ether-linux-amd64")
+	if err := os.WriteFile(art, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		args     []string
+		hours    int
+		critical bool
+	}{
+		{[]string{"-channel", "stable"}, 24, false},
+		{[]string{"-channel", "beta"}, 0, false},
+		{[]string{"-channel", "stable", "-rollout-hours", "6"}, 6, false},
+		{[]string{"-channel", "stable", "-critical"}, 0, true},
+	} {
+		out := filepath.Join(dir, "m.json")
+		args := append([]string{"-version", "1.2.0", "-artifact", art + ":linux:amd64:binary:https://example.invalid/ether", "-out", out}, c.args...)
+		if err := cmdManifest(args); err != nil {
+			t.Fatal(err)
+		}
+		m, _, err := readManifest(out)
+		if err != nil || m.RolloutHours != c.hours || m.Critical != c.critical {
+			t.Fatalf("%v: rollout=%d critical=%v err=%v", c.args, m.RolloutHours, m.Critical, err)
+		}
+	}
+}

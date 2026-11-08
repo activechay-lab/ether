@@ -96,7 +96,10 @@ func Defaults(dataDir string) Config {
 			Expiry:               Duration(24 * time.Hour),
 			MaxHeight:            1080,
 		},
-		Updates: Updates{Enabled: true, Channel: "stable", AutoUpdate: false, MaintenanceStart: "03:00", MaintenanceEnd: "06:00"},
+		// AutoUpdate is on for new installs. A stored config.json written
+		// before it was (it may lack the key) keeps updates manual: see
+		// keepStoredAutoUpdate.
+		Updates: Updates{Enabled: true, Channel: "stable", AutoUpdate: true, MaintenanceStart: "03:00", MaintenanceEnd: "06:00"},
 	}
 }
 

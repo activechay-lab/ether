@@ -118,6 +118,7 @@ func newHarness(t *testing.T, mutate func(*ManagerOptions)) *harness {
 		RequestRestart: func(r string) { h.restarts = append(h.restarts, r) },
 		Now:            h.clock.Now,
 		Location:       time.UTC,
+		Rand:           func() float64 { return 0.5 }, // no poll jitter
 		ApplyBinary: func(newPath, target string) error {
 			h.applied = append(h.applied, newPath)
 			return ApplyBinary(newPath, target)
@@ -392,7 +393,8 @@ func TestManagerStaleDownloadRemovedAndCorruptStageRedownloaded(t *testing.T) {
 	if err := os.WriteFile(staged, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h.run(15*time.Hour - 5*time.Minute) // exactly 03:00, idle since noon
+	// 03:00 idle since noon re-reads the feed first; 03:00:30 verifies.
+	h.run(15*time.Hour - 5*time.Minute + DefaultTick)
 	if len(h.applied) != 0 {
 		t.Fatal("applied a file that failed verification")
 	}
@@ -456,11 +458,13 @@ func TestStartupConfirmAfterHealthPeriod(t *testing.T) {
 		t.Fatalf("startup = %+v", res)
 	}
 	h.checker.upd = nil // feed says up to date
+	var heard []InstalledUpdate
 	m2 := NewManager(ManagerOptions{
 		NewClient: func(config.Updates) (Checker, error) { return h.checker, nil },
 		Config:    func() config.Updates { return h.cfg }, CurrentVersion: "2.0.0",
 		Dir: h.dir, Target: h.target, SelfApply: true, Boot: res,
 		Now: h.clock.Now, Location: time.UTC, Logger: quietLog(),
+		OnInstalled: func(u InstalledUpdate) error { heard = append(heard, u); return nil },
 	})
 	m2.begin()
 	h.clock.Advance(DefaultHealthPeriod - time.Minute)
@@ -480,6 +484,17 @@ func TestStartupConfirmAfterHealthPeriod(t *testing.T) {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("%s should be gone after confirmation", p)
 		}
+	}
+	// The finished update is announced once and shown until dismissed.
+	if len(heard) != 1 || heard[0].From != "1.0.0" || heard[0].To != "2.0.0" {
+		t.Fatalf("announced %+v", heard)
+	}
+	m2.step(context.Background())
+	if st := m2.Status(); len(heard) != 1 || st.Installed == nil || st.Installed.To != "2.0.0" {
+		t.Fatalf("installed note %+v, announced %d times", st.Installed, len(heard))
+	}
+	if err := m2.DismissInstalled(); err != nil || m2.Status().Installed != nil {
+		t.Fatalf("dismiss: %v %+v", err, m2.Status().Installed)
 	}
 }
 
@@ -558,7 +573,7 @@ func TestStartupRollsBackAfterCrashLoopAndSkipsVersion(t *testing.T) {
 		NewClient: func(config.Updates) (Checker, error) { return h.checker, nil },
 		Config:    func() config.Updates { return h.cfg }, CurrentVersion: "1.0.0",
 		Dir: h.dir, Target: h.target, SelfApply: true, Boot: res,
-		Now: h.clock.Now, Location: time.UTC, Logger: quietLog(),
+		Now: h.clock.Now, Location: time.UTC, Logger: quietLog(), PollJitter: -1,
 	})
 	m.begin()
 	h.clock.Advance(DefaultFirstCheckDelay)

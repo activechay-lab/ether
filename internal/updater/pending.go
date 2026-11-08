@@ -13,8 +13,9 @@ import (
 
 // Marker files inside the updates directory (<dataDir>/updates).
 const (
-	pendingFile = "pending.json"
-	failedFile  = "failed.json"
+	pendingFile   = "pending.json"
+	failedFile    = "failed.json"
+	installedFile = "installed.json"
 
 	// DefaultMaxStartAttempts is how many starts of a freshly installed
 	// version may happen without it confirming health before the previous
@@ -48,9 +49,18 @@ type FailedUpdate struct {
 	ReportPending bool `json:"reportPending,omitempty"`
 }
 
-// PendingPath / FailedPath locate the marker files inside dir.
-func PendingPath(dir string) string { return filepath.Join(dir, pendingFile) }
-func FailedPath(dir string) string  { return filepath.Join(dir, failedFile) }
+// InstalledUpdate records the last self-update that confirmed healthy, so
+// the console can say "Updated to X" once until the owner dismisses it.
+type InstalledUpdate struct {
+	From string    `json:"from"`
+	To   string    `json:"to"`
+	At   time.Time `json:"at"`
+}
+
+// PendingPath / FailedPath / InstalledPath locate the marker files inside dir.
+func PendingPath(dir string) string   { return filepath.Join(dir, pendingFile) }
+func FailedPath(dir string) string    { return filepath.Join(dir, failedFile) }
+func InstalledPath(dir string) string { return filepath.Join(dir, installedFile) }
 
 // readJSON loads path into v. ok is false (with a nil error) when the file
 // does not exist.
