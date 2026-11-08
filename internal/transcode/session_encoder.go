@@ -240,6 +240,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		s.fallbackRTXLocked("selected soft subtitle requires a shared encoder output", seg)
 		rp.decision = s.trackDecisionLocked(s.wantTrack)
 	}
+	s.boundHLSRateLocked(&rp)
 	s.seekRampSeg = -1
 	rampClock := len(s.rungs) <= 1 && s.plan != nil && s.plan.rampSegs > 0
 	spec := runSpec{

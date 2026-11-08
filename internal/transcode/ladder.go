@@ -270,27 +270,10 @@ func (s *Session) Rungs() []core.HLSRung {
 	if v := s.info.Video(); v != nil {
 		fr = v.FrameRate
 	}
-	// RFC 8216 section 4.1 defines peak over contiguous segment sets
-	// lasting 0.5–1.5 target durations, not over an arbitrarily short tail.
-	// Compute the shared window once, outside the rung loop.
-	target := s.segDur
-	if s.plan != nil {
-		target = s.plan.TargetDuration()
-	}
-	if target <= 0 {
-		target = DefaultSegmentDuration
-	}
-	duration := ((target + time.Second - 1) / time.Second * time.Second) / 2
+
 	out := make([]core.HLSRung, 0, len(s.rungs))
 	for t, r := range s.rungs {
-		peak := r.peakKbps
-		// Keep encoded-rung estimates calibrated to representative output;
-		// advertising the entire VBV reservoir here makes ABR abandon a
-		// healthy rung. Copy ramps are different: the copy average may be
-		// below even the encoder's minimum bitrate, so include that ramp.
-		if !s.isDASH() && t == 0 && s.plan != nil && s.plan.rampSegs > 0 && s.rampTranscodesLocked() {
-			peak = max(peak, encodedHLSPeakKbps(s.info, fastStartDecision(r.decision, s.info, s.adapt), rateControl{}, duration))
-		}
+		peak := s.rungPeakKbpsLocked(t)
 
 		out = append(out, core.HLSRung{
 			ID: r.id, Bandwidth: peak * 1000, AverageBandwidth: r.avgKbps * 1000,
@@ -298,6 +281,27 @@ func (s *Session) Rungs() []core.HLSRung {
 		})
 	}
 	return out
+}
+
+// hlsPeakWindowLocked is the shortest RFC8216 peak measurement window.
+func (s *Session) hlsPeakWindowLocked() time.Duration {
+	target := s.segDur
+	if s.plan != nil {
+		target = s.plan.TargetDuration()
+	}
+	if target <= 0 {
+		target = DefaultSegmentDuration
+	}
+	return ((target + time.Second - 1) / time.Second * time.Second) / 2
+}
+
+func (s *Session) rungPeakKbpsLocked(t int) int {
+	r := s.rungs[t]
+	peak := r.peakKbps
+	if !s.isDASH() && t == 0 && s.plan != nil && s.plan.rampSegs > 0 && s.rampTranscodesLocked() {
+		peak = max(peak, encodedHLSPeakKbps(s.info, fastStartDecision(r.decision, s.info, s.adapt), rateControl{}, s.hlsPeakWindowLocked()))
+	}
+	return peak
 }
 
 // ServeRungPlaylist implements core.HLSLadderSession.
