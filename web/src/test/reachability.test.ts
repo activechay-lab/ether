@@ -61,6 +61,23 @@ describe("app reachability copy", () => {
     );
   });
 
+  it("names the public route away from home and never calls a failed self-check unreachable", () => {
+    const ok = awaySummary({
+      wan: "reachable",
+      wanReason: "self_check",
+      wanAddress: "https://ether.example.com",
+    });
+    expect(ok.address).toBe("https://ether.example.com");
+    expect(ok.detail).toMatch(/Checked from this server/);
+    const failed = awaySummary({
+      wan: "unknown",
+      wanReason: "self_check_failed",
+      wanAddress: "https://ether.example.com",
+    });
+    expect(failed.label).toBe("Not confirmed");
+    expect(failed.detail).toMatch(/could not reach https:\/\/ether\.example\.com/);
+  });
+
   it("keeps home-network apps from sounding like a failed remote check", () => {
     expect(awaySummary({ wan: "unknown" }, { homeNetwork: true }).detail).toMatch(/home network/);
   });

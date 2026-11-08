@@ -481,10 +481,15 @@ func (r *frontendRuntime) plexStatus(ctx context.Context) frontend.Status {
 	}
 	if r.app.registrar != nil {
 		remote := r.app.registrar.Status()
+		// ConnectURLs are the at-home addresses. The public host, custom
+		// outside routes and the WAN address belong to Away from home.
 		for _, connection := range remote.Connections {
-			st.ConnectURLs = append(st.ConnectURLs, connection.URI)
+			if connection.Local {
+				st.ConnectURLs = append(st.ConnectURLs, connection.URI)
+			}
 		}
-		st.WAN = remote.WANState()
+		wan := remote.WANCheck()
+		st.WAN, st.WANReason, st.WANAddress, st.WANCheckedAt = wan.State, wan.Reason, wan.Address, wan.CheckedAt
 	}
 	if snapshot, ok := ctx.Value(frontendStreamCountsKey{}).(frontendStreamCounts); ok {
 		st.LiveStreams, st.LiveStreamsKnown = snapshot.counts["plex"], snapshot.known

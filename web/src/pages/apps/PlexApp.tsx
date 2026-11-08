@@ -393,7 +393,13 @@ export function PlexApp({
         }
       >
         <HomeStatusRow status={status} />
-        <ConnectionStatusRow state={status?.wan} title={away.title} detail={away.detail} />
+        <ConnectionStatusRow
+          state={status?.wan}
+          title={away.title}
+          detail={away.detail}
+          address={away.address}
+          label={away.label}
+        />
         <PlexAccount
           config={config.data}
           onChanged={async () => {

@@ -184,6 +184,9 @@ type Registrar struct {
 	// claimedToken is the server token while claimed; a switch to
 	// unclaimed releases it (releaseClaim).
 	claimedToken string
+
+	// reachTargets is the URI set the last self-check probed.
+	reachTargets []string
 }
 
 // rejectedRetry spaces out friend syncs while plex.tv rejects the token.
@@ -461,23 +464,95 @@ func (r *Registrar) Status() Status {
 	return st
 }
 
-// WANState never resurrects an older failed check after newer client evidence
-// expires. Without a fresh positive observation that state is unknown.
-func (st Status) WANState() string {
-	if st.RemoteClientReachable || (st.PlexReachable != nil && *st.PlexReachable) {
-		return "reachable"
+// WANCheck is the away-from-home verdict the console shows. Reason names
+// the evidence: "outside_client" (an authenticated client connected from
+// outside within five minutes), "plex_tv" (plex.tv's connectivity check),
+// "self_check" (this server fetched its own /identity through the published
+// address), "self_check_failed", "wrong_identity" (the address answers as
+// another server) or "not_checked". Address is the published route the
+// verdict is about, when it is a specific one.
+type WANCheck struct {
+	State     string    `json:"state"`
+	Reason    string    `json:"reason,omitempty"`
+	Address   string    `json:"address,omitempty"`
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
+}
+
+// WANState is WANCheck().State.
+func (st Status) WANState() string { return st.WANCheck().State }
+
+// WANCheck never resurrects an older failed check after newer client
+// evidence expires, and never calls a route reachable without a positive
+// observation. The self-check is a real request through the published
+// address, but it starts inside the network (NAT loopback, split DNS): its
+// failure is "unknown", not "unreachable", unless another server answered.
+func (st Status) WANCheck() WANCheck {
+	if st.RemoteClientReachable {
+		return WANCheck{State: "reachable", Reason: "outside_client", CheckedAt: st.RemoteClientLastSeen}
+	}
+	if st.PlexReachable != nil && *st.PlexReachable {
+		return WANCheck{State: "reachable", Reason: "plex_tv", CheckedAt: st.PlexReachableCheckedAt}
 	}
 	// A plex.tv verdict does not identify which published route it tested.
-	// A reverse proxy can work while the direct public port is closed.
+	// A reverse proxy can work while the direct public port is closed, so a
+	// published outside custom route is judged by its own self-check.
+	var custom []string
 	for _, c := range st.Connections {
-		if c.Custom && c.URI != "" && slices.Contains(st.PublishedURIs, c.URI) {
-			return "unknown"
+		if c.Custom && !c.Local && c.URI != "" && slices.Contains(st.PublishedURIs, c.URI) && !slices.Contains(custom, c.URI) {
+			custom = append(custom, c.URI)
 		}
 	}
-	if st.PlexReachable != nil && (st.RemoteClientLastSeen.IsZero() || !st.PlexReachableCheckedAt.Before(st.RemoteClientLastSeen)) {
-		return "unreachable"
+	if len(custom) > 0 {
+		if check, ok := st.selfCheck(custom); ok {
+			return check
+		}
+		return WANCheck{State: "unknown", Reason: "not_checked", Address: custom[0]}
 	}
-	return "unknown"
+	if st.PlexReachable != nil && (st.RemoteClientLastSeen.IsZero() || !st.PlexReachableCheckedAt.Before(st.RemoteClientLastSeen)) {
+		return WANCheck{State: "unreachable", Reason: "plex_tv", CheckedAt: st.PlexReachableCheckedAt}
+	}
+	// No custom route: every self-probe target is the direct public route.
+	if st.Reachability != nil {
+		var uris []string
+		for _, pr := range st.Reachability.Results {
+			uris = append(uris, pr.URI)
+		}
+		if check, ok := st.selfCheck(uris); ok && check.State == "reachable" {
+			return check
+		}
+	}
+	return WANCheck{State: "unknown"}
+}
+
+// selfCheck is the latest self-probe verdict among uris: a success first,
+// then another server answering, then a plain failure.
+func (st Status) selfCheck(uris []string) (WANCheck, bool) {
+	if st.Reachability == nil {
+		return WANCheck{}, false
+	}
+	var wrong, failed string
+	for _, pr := range st.Reachability.Results {
+		if pr.URI == "" || !slices.Contains(uris, pr.URI) {
+			continue
+		}
+		switch {
+		case pr.OK:
+			return WANCheck{State: "reachable", Reason: "self_check", Address: pr.URI, CheckedAt: st.Reachability.Checked}, true
+		case strings.Contains(pr.Error, "different server"):
+			if wrong == "" {
+				wrong = pr.URI
+			}
+		case failed == "":
+			failed = pr.URI
+		}
+	}
+	if wrong != "" {
+		return WANCheck{State: "unreachable", Reason: "wrong_identity", Address: wrong, CheckedAt: st.Reachability.Checked}, true
+	}
+	if failed != "" {
+		return WANCheck{State: "unknown", Reason: "self_check_failed", Address: failed, CheckedAt: st.Reachability.Checked}, true
+	}
+	return WANCheck{}, false
 }
 
 // ObserveRemoteClient is called only after Plex authentication. It performs
@@ -590,8 +665,18 @@ func (r *Registrar) runDue(ctx context.Context) {
 			r.schedule(taskOwner, r.o.Now().Add(10*time.Minute))
 		}
 	}
-	if cfg.Plex.RemoteAccess && r.due(taskReach, r.o.ReachabilityInterval) {
-		r.CheckReachability(ctx)
+	// Custom URLs are published with remote access off too; check them, and
+	// re-check at once when the public routes change (a new public host).
+	if cfg.Plex.RemoteAccess || len(cfg.Plex.CustomURLs) > 0 {
+		uris := r.reachURIs(cfg)
+		r.mu.Lock()
+		if !slices.Equal(uris, r.reachTargets) {
+			r.next[taskReach] = time.Time{}
+		}
+		r.mu.Unlock()
+		if r.due(taskReach, r.o.ReachabilityInterval) {
+			r.CheckReachability(ctx)
+		}
 	}
 }
 
@@ -674,8 +759,8 @@ func (r *Registrar) refreshAddresses(ctx context.Context, cfg config.Config) {
 	wan, wanErr := "", ""
 	if plexAppsEnabled(cfg) && cfg.Plex.RemoteAccess {
 		switch {
-		case cfg.Plex.PublicHost != "":
-			wan = cfg.Plex.PublicHost
+		case strings.TrimSpace(cfg.Plex.PublicHost) != "":
+			wan = strings.TrimSpace(cfg.Plex.PublicHost)
 		default:
 			if m := r.o.Mapper.Status(); m.Active && m.ExternalIP != "" && remote.IsPublicIP(net.ParseIP(m.ExternalIP)) {
 				wan = m.ExternalIP
@@ -717,26 +802,13 @@ func (r *Registrar) connections(cfg config.Config) []remote.Connection {
 	if wanS != "" {
 		if ip := net.ParseIP(wanS); ip != nil {
 			wan = ip
-		} else if strings.HasPrefix(wanS, "https://") || strings.HasPrefix(wanS, "http://") {
-			// PublicHost supplied as a full URL (e.g. https://plex.example.com).
-			extraURLs = append(extraURLs, wanS)
 		} else {
-			// PublicHost is a DNS name: publish it as a custom URL, using https
-			// when a custom TLS certificate is installed, port 443 is used, or
-			// secure connections are required.
-			port := r.wanPort(cfg)
-			hostPort := net.JoinHostPort(wanS, fmt.Sprint(port))
-			customCert := r.o.Certs != nil && r.o.Certs.Info().Present && r.o.Certs.Info().Custom && !r.o.Certs.Info().SelfSigned
-			if cfg.Plex.SecureConnections != remote.SecureDisabled && (customCert || port == 443 || cfg.Plex.SecureConnections == remote.SecureRequired) {
-				if port == 443 {
-					extraURLs = append(extraURLs, "https://"+wanS)
-				} else {
-					extraURLs = append(extraURLs, "https://"+hostPort)
-				}
+			customCert := false
+			if r.o.Certs != nil {
+				info := r.o.Certs.Info()
+				customCert = info.Present && info.Custom && !info.SelfSigned
 			}
-			if cfg.Plex.SecureConnections != remote.SecureRequired && port != 443 {
-				extraURLs = append(extraURLs, "http://"+hostPort)
-			}
+			extraURLs = append(extraURLs, publicHostURLs(wanS, r.wanPort(cfg), cfg.Plex.SecureConnections, customCert)...)
 		}
 	}
 	hash := cfg.Plex.CertHash
@@ -751,6 +823,43 @@ func (r *Registrar) connections(cfg config.Config) []remote.Connection {
 		LAN: lan, WAN: wan, LocalPort: serverPort(cfg), PublicPort: r.wanPort(cfg),
 		CertHash: hash, Secure: cfg.Plex.SecureConnections, CustomURLs: extraURLs,
 	})
+}
+
+// publicHostURLs turns the owner's public host name into connection URLs.
+// A typed scheme is honoured exactly (case-insensitively, surrounding space
+// ignored), so https://plex.example.com is never downgraded. A bare DNS name
+// (optionally host:port) reaches Ether's own listener, whose certificate
+// only names plex.direct hosts: https is used when a custom certificate is
+// installed, the port is 443, or secure connections are required; plain
+// http is added unless secure connections are required or the port is 443.
+func publicHostURLs(host string, port int, secure string, customCert bool) []string {
+	host = strings.TrimSpace(host)
+	if scheme, rest, ok := strings.Cut(host, "://"); ok {
+		scheme = strings.ToLower(scheme)
+		if scheme != "http" && scheme != "https" {
+			return nil
+		}
+		return []string{scheme + "://" + strings.TrimSuffix(rest, "/")}
+	}
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 && n <= 65535 {
+			host, port = h, n
+		}
+	}
+	host = strings.TrimSuffix(host, "/")
+	var out []string
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	if secure != remote.SecureDisabled && (customCert || port == 443 || secure == remote.SecureRequired) {
+		if port == 443 {
+			out = append(out, "https://"+host)
+		} else {
+			out = append(out, "https://"+hostPort)
+		}
+	}
+	if secure != remote.SecureRequired && port != 443 {
+		out = append(out, "http://"+hostPort)
+	}
+	return out
 }
 
 // publishable is the URI list sent to plex.tv. Like PMS, every address goes
@@ -1063,6 +1172,28 @@ func (r *Registrar) SyncFriendsOnUnknownToken(ctx context.Context) error {
 // CheckReachability probes the WAN connections and records the result.
 func (r *Registrar) CheckReachability(ctx context.Context) remote.Reachability {
 	cfg := r.o.Config.Get()
+	uris := r.reachURIs(cfg)
+	res := r.o.Reach.Check(ctx, uris, cfg.Server.MachineIdentifier)
+	r.mu.Lock()
+	r.st.Reachability = &res
+	r.reachTargets = uris
+	r.mu.Unlock()
+	return res
+}
+
+// RequestReachabilityCheck asks the loop to run the self-check now (the
+// owner's "run checks again").
+func (r *Registrar) RequestReachabilityCheck() {
+	r.schedule(taskReach, time.Time{})
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+// reachURIs is what the self-check probes: the public plex.direct name and
+// every outside custom route (the first direct WAN URI when neither exists).
+func (r *Registrar) reachURIs(cfg config.Config) []string {
 	var uris []string
 	// PMS checks its own public plex.direct name on the mapped public port,
 	// even when the local listener uses a different port.
@@ -1085,11 +1216,7 @@ func (r *Registrar) CheckReachability(ctx context.Context) remote.Reachability {
 			uris = append(uris, c.URI)
 		}
 	}
-	res := r.o.Reach.Check(ctx, uris, cfg.Server.MachineIdentifier)
-	r.mu.Lock()
-	r.st.Reachability = &res
-	r.mu.Unlock()
-	return res
+	return uris
 }
 
 // RenewCertificate runs the certificate manager; force bypasses the

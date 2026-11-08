@@ -41,19 +41,21 @@ type options struct {
 	detectHW       bool
 	idleTimeout    time.Duration
 	segmentTimeout time.Duration
-	stallTimeout   time.Duration
-	restartAhead   time.Duration
-	maxAhead       time.Duration
-	keepBehind     time.Duration
-	pollInterval   time.Duration
-	segmentURI     func(n int, container string) string
-	dashURLs       DASHURLs
-	manifestWait   time.Duration
-	onFailure      func(sessionID string, at time.Duration, err error)
-	onInputFailure func(sessionID, inputURL string, at time.Duration, err error)
-	onRunStart     func(inputURL string, from, to time.Duration)
-	onEncoder      func(sessionID string, started bool, excerpt string)
-	tracePlayback  bool
+	// segmentPadLimit bounds padding a slow segment (segment_padding.go).
+	segmentPadLimit time.Duration
+	stallTimeout    time.Duration
+	restartAhead    time.Duration
+	maxAhead        time.Duration
+	keepBehind      time.Duration
+	pollInterval    time.Duration
+	segmentURI      func(n int, container string) string
+	dashURLs        DASHURLs
+	manifestWait    time.Duration
+	onFailure       func(sessionID string, at time.Duration, err error)
+	onInputFailure  func(sessionID, inputURL string, at time.Duration, err error)
+	onRunStart      func(inputURL string, from, to time.Duration)
+	onEncoder       func(sessionID string, started bool, excerpt string)
+	tracePlayback   bool
 	// rungDwell is how long a run keeps producing its rung before a
 	// request on another rung may replace it (see Session.rungDwellLocked).
 	rungDwell time.Duration
@@ -64,19 +66,20 @@ type options struct {
 
 func defaultOptions() options {
 	return options{
-		runner:         ExecRunner{},
-		detectHW:       true,
-		idleTimeout:    2 * time.Minute,
-		segmentTimeout: 45 * time.Second,
-		stallTimeout:   30 * time.Second,
-		restartAhead:   24 * time.Second,
-		maxAhead:       2 * time.Minute,
-		keepBehind:     3 * time.Minute,
-		pollInterval:   150 * time.Millisecond,
-		segmentURI:     SegmentName,
-		dashURLs:       PlexDASHURLs,
-		manifestWait:   15 * time.Second,
-		rungDwell:      8 * time.Second,
+		runner:          ExecRunner{},
+		detectHW:        true,
+		idleTimeout:     2 * time.Minute,
+		segmentTimeout:  45 * time.Second,
+		segmentPadLimit: segmentPadMax,
+		stallTimeout:    30 * time.Second,
+		restartAhead:    24 * time.Second,
+		maxAhead:        2 * time.Minute,
+		keepBehind:      3 * time.Minute,
+		pollInterval:    150 * time.Millisecond,
+		segmentURI:      SegmentName,
+		dashURLs:        PlexDASHURLs,
+		manifestWait:    15 * time.Second,
+		rungDwell:       8 * time.Second,
 
 		audioMatchBudget: defaultAudioMatchBudget,
 	}
@@ -99,6 +102,10 @@ func WithIdleTimeout(d time.Duration) Option { return func(o *options) { o.idleT
 // WithSegmentTimeout bounds how long ServeSegment waits for ffmpeg
 // (default 45s).
 func WithSegmentTimeout(d time.Duration) Option { return func(o *options) { o.segmentTimeout = d } }
+
+// WithSegmentPadLimit bounds how long a slow segment's response is padded
+// before the request aborts (default segmentPadMax).
+func WithSegmentPadLimit(d time.Duration) Option { return func(o *options) { o.segmentPadLimit = d } }
 
 // WithStallTimeout sets the no-progress timeout for an actively requested
 // on-demand segment. Zero disables the watchdog.
@@ -456,6 +463,14 @@ func probeState(f features) string {
 	return "filters unread"
 }
 
+// ToneMapsDolbyVisionProfile5 reports whether this ffmpeg can reshape a
+// Dolby Vision profile 5 (IPTPQc2) picture through its RPU and tone-map it
+// to SDR. Profile 5 has no HDR10 base, so without it a video conversion of
+// such a source is refused.
+func (m *Manager) ToneMapsDolbyVisionProfile5() bool {
+	return m != nil && m.feat.hasFilter("tonemapx")
+}
+
 // HWAccel implements core.Transcoder.
 func (m *Manager) HWAccel() core.HWAccel {
 	hw := m.hw
@@ -632,7 +647,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	v := req.Info.Video()
 	// Profile 5 has no HDR10 fallback. Refuse when this ffmpeg cannot reshape
 	// IPTPQc2 through the RPU, rather than delivering a green/purple encode.
-	if v != nil && v.DolbyVision && v.DolbyVisionProfile == 5 && !d.VideoCopy && !m.feat.hasFilter("tonemapx") {
+	if v != nil && v.DolbyVision && v.DolbyVisionProfile == 5 && !d.VideoCopy && !m.ToneMapsDolbyVisionProfile5() {
 		return nil, errors.New("transcode: DoVi (Profile 5) color space is not supported")
 	}
 	if v == nil {
@@ -784,7 +799,17 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		}
 		// Recovery reconstructs the original plan; segment numbers are not
 		// steady-grid offsets while FastStart is enabled.
-		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || d.Container == ContainerMPEGTS)
+		//
+		// A TS copy's ramp is encoded, and the copy can only take over at a
+		// source keyframe: the ramp runs to the first indexed one at or
+		// after its nominal end. Without a keyframe index that handover
+		// is a guess. Copy cannot start mid-GOP, the keyframe before it is
+		// already inside the encoded ramp, so the copy resumed at the next
+		// keyframe: the media between was skipped (and A/V shifted against
+		// the playlist clock), or with no later keyframe the copy published
+		// nothing and the playlist's tail failed. An unindexed copy keeps one
+		// copy plan from its first segment instead, like fMP4 and Matroska.
+		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || (d.Container == ContainerMPEGTS && len(req.Info.Keyframes) > 0))
 		plan = buildTimeline(span, segDur, timelineOptions{
 			steadyMode: steadyMode,
 			fastStart:  fastStart,

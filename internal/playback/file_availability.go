@@ -29,7 +29,9 @@ var errFileCheckInconclusive = errors.New("playback: file check inconclusive")
 // or it opened with zero size. Auto (release "") is never reported missing:
 // play time resolves past any one bad candidate, so an Auto check only primes
 // the source. A different preferred release, an empty or unfinished warm-up
-// search, a timeout or a busy slot are all inconclusive.
+// search, a timeout or a busy slot are all inconclusive. So is an add-on
+// stream: opening its link makes the add-on fetch the release, which a
+// detail page must not cause (core.WithoutOnDemandStreams).
 func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps, release string) (bool, error) {
 	if user == nil {
 		return false, core.ErrUnauthorized
@@ -37,7 +39,7 @@ func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, ke
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(core.WithoutOnDemandStreams(ctx), 2*time.Second)
 	defer cancel()
 	if release != "" {
 		if checker, ok := m.deps.Resolver.(core.ReleaseBlockChecker); ok {
@@ -76,7 +78,7 @@ func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, ke
 				return result{err: errFileCheckInconclusive}
 			}
 			res, err := m.deps.Resolver.Resolve(core.WithIndexerPurpose(ctx, core.IndexerPurposeWarmup), core.ResolveRequest{Title: title, Client: caps, User: &u, Prefer: release})
-			if err != nil || res == nil || release != "" && res.Release.ID != release {
+			if err != nil || res == nil || release != "" && res.Release.ID != release || res.Release.OpensOnDemand() {
 				// Nothing found yet, or the resolver prefers another release
 				// (this one may simply be outside the bounded warm-up search).
 				return result{err: errFileCheckInconclusive}

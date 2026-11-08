@@ -264,6 +264,23 @@ func (c *Catalog) Sync(ctx context.Context) error {
 	return err
 }
 
+// clearSyncError forgets the previous attempt's error once this sync has
+// stored a page: a retry that makes progress is no longer failing. The
+// error comes back if this attempt fails too.
+func (c *Catalog) clearSyncError(ctx context.Context) {
+	cleared := false
+	c.setProgress(func(p *SyncProgress) {
+		if p.LastError != "" {
+			p.LastError, cleared = "", true
+		}
+	})
+	if cleared {
+		if _, err := c.db.ExecContext(ctx, `DELETE FROM catalog_meta WHERE k='sync_error'`); err != nil {
+			c.log.Warn("catalog: clear sync error", "err", err)
+		}
+	}
+}
+
 func (c *Catalog) syncLocked(ctx context.Context) error {
 	for _, tv := range []bool{false, true} {
 		// Pass 1: popularity-sorted; stop once popularity drops below threshold
@@ -400,12 +417,15 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 			}
 		}
 		if len(batch) > 0 {
-			if err := store.CheckWALBudget(ctx, c.db); err != nil {
+			// Back-pressure, not failure: wait for a long read to finish and
+			// the checkpoint to drain, then carry on from this page.
+			if err := store.WaitWALBudget(ctx, c.db); err != nil {
 				return totalPages, err
 			}
 			if err := c.upsertMany(ctx, batch, upsertOpts{browsable: true}); err != nil {
 				return totalPages, fmt.Errorf("catalog: store tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
 			}
+			c.clearSyncError(ctx)
 		}
 		added := len(batch)
 		c.setProgress(func(pr *SyncProgress) {

@@ -27,6 +27,18 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 		http.NotFound(w, r)
 		return
 	}
+	// A long wait keeps bytes flowing to the player (segment_padding.go).
+	var pw *paddedSegmentWriter
+	var padC <-chan time.Time
+	if unit := segmentPadding(s.container); unit != nil && !s.isDASH() && r.Method == http.MethodGet && r.Header.Get("Range") == "" {
+		pw = &paddedSegmentWriter{ResponseWriter: w, unit: unit}
+		w = pw
+		defer pw.finish()
+		tick := time.NewTicker(segmentPadEvery)
+		defer tick.Stop()
+		padC = tick.C
+	}
+	waitStart := time.Now()
 	timeout := time.NewTimer(s.m.opts.segmentTimeout)
 	defer timeout.Stop()
 	restarts := 0
@@ -80,6 +92,7 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 			s.pruneLocked()
 			s.mu.Unlock()
 			if s.serveFiles(w, r, paths, t, n) {
+				pw.delivered(paths)
 				return
 			}
 			s.mu.Lock()
@@ -188,17 +201,32 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 		if dwell != nil {
 			dwellC = dwell.C
 		}
-		select {
-		case <-ch:
-		case <-dwellC:
-		case <-r.Context().Done():
-			stopTimer(dwell)
-			return
-		case <-timeout.C:
-			stopTimer(dwell)
-			s.log.Warn("timed out waiting for segment", "segment", n)
-			http.Error(w, "timed out waiting for segment", http.StatusGatewayTimeout)
-			return
+		for padded := true; padded; {
+			padded = false
+			select {
+			case <-ch:
+			case <-dwellC:
+			case <-padC:
+				// Padding is not progress: keep waiting for the same change.
+				waited := time.Since(waitStart)
+				if pw.committed && waited >= s.m.opts.segmentPadLimit {
+					stopTimer(dwell)
+					s.log.Warn("segment still not ready after padding; aborting the request", "segment", n, "waited", waited)
+					return // finish aborts the committed response
+				}
+				if pw.committed || waited >= segmentPadAfter {
+					pw.pad(s)
+				}
+				padded = true
+			case <-r.Context().Done():
+				stopTimer(dwell)
+				return
+			case <-timeout.C:
+				stopTimer(dwell)
+				s.log.Warn("timed out waiting for segment", "segment", n)
+				http.Error(w, "timed out waiting for segment", http.StatusGatewayTimeout)
+				return
+			}
 		}
 		stopTimer(dwell)
 	}

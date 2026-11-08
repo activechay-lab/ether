@@ -603,6 +603,11 @@ func (s *Service) Resolve(ctx context.Context, req core.ResolveRequest) (*core.R
 					// caller's answer. Resolve again.
 					continue
 				}
+				if f.err != nil && errors.Is(f.err, core.ErrForegroundOnly) && ctx.Err() == nil && core.OnDemandStreamsAllowed(ctx) {
+					// A warm-up or background check stopped at a source
+					// only a Play may open; this caller may open it.
+					continue
+				}
 				return f.res, f.err
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -885,6 +890,11 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	cands = s.prepareSources(ctx, cands, req.Title, &trace, &checks)
 	trace.SourcePreparationDuration = time.Since(prepareStart)
 	if rcfg.OptimisticStart && !preferTried {
+		if cands[0].rel.OpensOnDemand() && !core.OnDemandStreamsAllowed(ctx) {
+			// Nothing ranked below the add-on stream may stand in for it.
+			trace.Err = errOnDemandForeground.Error()
+			return nil, errOnDemandForeground
+		}
 		at := time.Now()
 		nzb, err := s.indexer.FetchNZB(ctx, cands[0].rel)
 		trace.Candidates[cands[0].trace].Attempted = true
