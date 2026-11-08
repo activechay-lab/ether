@@ -396,6 +396,9 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 		if !allFiles || !holdsAll(replicas[d.digest], ids) {
 			continue
 		}
+		if had {
+			s.warmRow(ctx, d.digest)
+		}
 		start := time.Now()
 		n, e := s.emptyRow(ctx, d.digest, ids)
 		st.wrote(start)
@@ -489,6 +492,19 @@ func holdsAll(have map[string]bool, ids []string) bool {
 		}
 	}
 	return len(ids) > 0
+}
+
+// warmRow reads a row's bytes before it is emptied. SQLite frees a blob by
+// walking its overflow chain page by page inside the write transaction; with
+// the pages cold that held the write lock for 1.35 s per 32 MB on the test
+// Mac, warm it took 33 ms. Reading them first, outside any write, keeps the
+// lock short. Rows just copied to a file were read already.
+func (s *Service) warmRow(ctx context.Context, d string) {
+	if store.DialectOf(s.db) == store.Postgres {
+		return
+	}
+	var n sql.NullInt64
+	_ = s.db.QueryRowContext(ctx, "SELECT length(substr(content,-1,1)) FROM onair_assets WHERE digest=? AND stored='db'", d).Scan(&n)
 }
 
 // emptyRow drops a row's bytes from the database once the replicas of every

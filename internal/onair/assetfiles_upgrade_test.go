@@ -62,6 +62,7 @@ func TestAssetMoveOutUpgrade(t *testing.T) {
 		if err != nil || st.Copied != 0 || st.Emptied != len(want) {
 			t.Fatalf("restored backup move-out: %+v %v", st, err)
 		}
+		t.Logf("restored v0.3.5 backup, moved out again: %+v", st)
 		checkReads(t, s, want)
 		db.Close()
 	})
