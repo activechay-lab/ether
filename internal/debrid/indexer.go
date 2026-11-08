@@ -276,7 +276,8 @@ func (x *Indexer) UsenetReady() bool { return x.usenetReady == nil || x.usenetRe
 
 // playable adapts a search result to what this server can stream, or
 // reports false: torrents need an enabled debrid provider (or else play
-// through the addon link they came with), Usenet needs a Usenet provider,
+// through the addon link they came with), Usenet needs a Usenet provider
+// (or likewise its addon link),
 // and with cached-only on an HTTP link the addon labels only as uncached
 // is left out.
 func (x *Indexer) playable(r core.Release) (core.Release, bool) {
@@ -299,7 +300,16 @@ func (x *Indexer) playable(r core.Release) (core.Release, bool) {
 		}
 		return r, true
 	case core.ProtocolUsenet:
-		return r, x.usenetReady == nil || x.usenetReady()
+		if x.usenetReady == nil || x.usenetReady() {
+			return r, true
+		}
+		// An add-on Usenet stream that also gave its own play link plays
+		// through it, as a torrent does without a debrid provider.
+		if r.StreamURL == "" {
+			return r, false
+		}
+		r.Protocol = core.ProtocolHTTP
+		return r, true
 	}
 	return r, true
 }
