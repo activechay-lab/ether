@@ -387,7 +387,12 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 	sections := parseSectionList(q.Get("contentDirectoryID"))
 	directory := strings.TrimSpace(q.Get("contentDirectoryID"))
 	perDirectory := directory != "" && !strings.Contains(directory, ",")
-	first := strings.TrimSpace(strings.Split(q.Get("pinnedContentDirectoryID"), ",")[0])
+	shelves := promotedOnly && perDirectory && directory != "playlists" && s.wantsCollectionShelves(pr)
+	pinned := q.Get("pinnedContentDirectoryID")
+	if shelves && strings.TrimSpace(pinned) == "" {
+		pinned = s.defaultPinnedDirectories(pr.User)
+	}
+	first := strings.TrimSpace(strings.Split(pinned, ",")[0])
 	if first == "" {
 		first = directory
 	}
@@ -409,7 +414,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 	if perDirectory {
 		var err error
 		var filter *homefilter.Snapshot
-		hubs, sharedDiscovery, filter, err = s.sharedHome(ctx, pr, hc, directory, q.Get("pinnedContentDirectoryID"), s.saferFetchCount(pr.User, count), count)
+		hubs, sharedDiscovery, filter, err = s.sharedHome(ctx, pr, hc, directory, pinned, s.saferFetchCount(pr.User, count), count)
 		if filter != nil {
 			ctx = homefilter.With(ctx, filter)
 		}
@@ -573,6 +578,15 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			}
 		}
 		mc.Hub = stableHomeHubs(filtered)
+		if shelves {
+			var renamed map[string]string
+			mc.Hub, renamed = collectionShelves(mc.Hub, directorySection.ID)
+			for id, own := range renamed {
+				if h, ok := served[own]; ok {
+					served[id] = h
+				}
+			}
+		}
 	} else {
 		mc.Hub = heroReadyHomeHubs(stableHomeHubs(rows))
 	}

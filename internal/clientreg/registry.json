@@ -614,6 +614,16 @@
           {"field": "platform", "op": "equals", "value": "android"}
         ]
       }
+    },
+    {
+      "id": "plex-promoted-rows-as-collections",
+      "role": "quirk",
+      "quirks": ["plex-promoted-rows-as-collections"],
+      "match": {
+        "any": [
+          {"field": "product", "op": "contains", "value": "infuse"}
+        ]
+      }
     }
   ]
 }
