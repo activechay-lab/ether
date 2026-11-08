@@ -91,9 +91,6 @@ func (s *Server) liveTVProvider(ctx context.Context, u *core.User) *model.MediaP
 		{Type: "content", Key: liveProviderPath, Directory: []model.ProviderDirectory{{ID: "livetv", Key: liveProviderPath + "/lineups/dvr/channels", HubKey: liveProviderPath + "/hubs", Title: "Live TV", Type: "livetv"}}},
 		{Type: "universalsearch", Key: liveProviderPath + "/library/search"},
 		{Type: "grid", Key: liveProviderPath + "/grid"}, {Type: "metadata", Key: liveProviderPath + "/metadata"}, {Type: "livetv", Key: "/livetv/dvrs"},
-		// Native clients load a provider's artwork (guide channel logos,
-		// programme art) only through the image transcoder it advertises.
-		{Type: "imagetranscoder", Key: "/photo/:/transcode"},
 	}}
 }
 
@@ -487,18 +484,7 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 		if id := chi.URLParam(r, "programme"); id != "" && p.ID != id {
 			continue
 		}
-		md := liveProgrammeMetadata(byID[p.ChannelID], p)
-		// The guide's channel column draws each airing's channelThumb, so
-		// clients that load guide thumbnails as standalone URLs need the
-		// same absolute, authenticated logo as the lineup's thumb.
-		if c, ok := byID[p.ChannelID]; ok {
-			for i, a := range md.Media[0].Extra {
-				if a.Name == "channelThumb" {
-					md.Media[0].Extra[i].Value = s.liveGuideLogo(r, c)
-				}
-			}
-		}
-		out = append(out, md)
+		out = append(out, liveProgrammeMetadata(byID[p.ChannelID], p))
 		if captured != nil {
 			*captured = append(*captured, p)
 		}
