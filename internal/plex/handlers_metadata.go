@@ -410,34 +410,7 @@ func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []core.
 		return nil
 	}
 	now := s.now()
-	st := s.stateFor(ctx, pr, eps)
-	lastWatched := -1
-	for i := range eps {
-		if eps[i].Type != core.TypeEpisode || (!eps[i].Released.IsZero() && eps[i].Released.After(now)) {
-			continue
-		}
-		ws := st[eps[i].Key]
-		if ws.ViewOffset > 0 && ws.ViewCount == 0 {
-			return &eps[i]
-		}
-		if ws.ViewCount > 0 {
-			lastWatched = i
-		}
-	}
-	for i := lastWatched + 1; i < len(eps); i++ {
-		if eps[i].Type != core.TypeEpisode || (!eps[i].Released.IsZero() && eps[i].Released.After(now)) {
-			continue
-		}
-		if st[eps[i].Key].ViewCount == 0 && !s.sameDayUnavailable(ctx, pr, &eps[i]) {
-			return &eps[i]
-		}
-	}
-	for i := range eps {
-		if eps[i].Type == core.TypeEpisode && (eps[i].Released.IsZero() || !eps[i].Released.After(now)) && !s.sameDayUnavailable(ctx, pr, &eps[i]) {
-			return &eps[i]
-		}
-	}
-	return nil
+	return experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
 }
 
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
