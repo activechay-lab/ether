@@ -58,6 +58,10 @@ type perfObserver struct {
 	trace    *os.File
 	encoder  *json.Encoder
 	alloc    bool
+	// settleTrace is set only by the performance gate, under mu. A blocking
+	// hydration can retain request statistics after its handler stops waiting.
+	// Settle that work before freezing a tagged trace; production leaves nil.
+	settleTrace func(context.Context)
 }
 
 func newPerfObserver(log *slog.Logger) *perfObserver {
@@ -132,6 +136,7 @@ func (p *perfObserver) wrap(surface string, next http.Handler) http.Handler {
 		var recorder middleware.WrapResponseWriter
 		p.mu.Lock()
 		tracing := p.encoder != nil
+		settleTrace := p.settleTrace
 		p.mu.Unlock()
 		if tracing {
 			recorder = middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -143,6 +148,9 @@ func (p *perfObserver) wrap(surface string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 		elapsed := time.Since(start)
+		if tracing && settleTrace != nil && r.Header.Get(PerfTagHeader) != "" {
+			settleTrace(ctx)
+		}
 		if tracing {
 			var after runtime.MemStats
 			if p.alloc && r.Header.Get(PerfTagHeader) != "" {

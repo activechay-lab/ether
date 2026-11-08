@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/store"
@@ -86,5 +88,58 @@ func TestPerfObserverTracesAndLogsChattyRequests(t *testing.T) {
 	}
 	if strings.Contains(out, "secret") {
 		t.Fatal("budget log carries the request's token")
+	}
+}
+
+// Blocking hydration preserves request values after the HTTP handler gives up
+// waiting. Its database work must finish before the measured trace is frozen.
+func TestPerfObserverRetainsLateRequestWork(t *testing.T) {
+	trace := filepath.Join(t.TempDir(), "late.jsonl")
+	t.Setenv(PerfTraceEnv, trace)
+	db, err := store.OpenPath(t.Context(), filepath.Join(t.TempDir(), "late.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p := newPerfObserver(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	defer p.close()
+	defer store.CaptureCallSites(false)
+	release, done := make(chan struct{}), make(chan struct{})
+	var released sync.Once
+	var queryErr error
+	finish := func() { released.Do(func() { close(release) }); <-done }
+	// Also release/join the worker if the observer stops invoking the hook.
+	defer finish()
+	p.settleTrace = func(context.Context) { finish() }
+	handler := p.wrap("plex", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Same retained values as catalog.startHydration's blocking path. The
+		// barrier represents a fetch still running when its wait expires.
+		ctx := context.WithoutCancel(r.Context())
+		go func() {
+			<-release
+			var one int
+			queryErr = db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+			close(done)
+		}()
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/late", nil)
+	req.Header.Set(PerfTagHeader, "late")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	finish()
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	p.close()
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec PerfTraceRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Queries != 1 || rec.Rows != 1 {
+		t.Fatalf("late request work lost: queries=%d rows=%d", rec.Queries, rec.Rows)
 	}
 }

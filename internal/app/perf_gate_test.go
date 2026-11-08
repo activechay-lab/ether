@@ -447,6 +447,17 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	// Each request starts once the work earlier requests left behind them
 	// (catalogue refreshes, Home rebuilds, viewer models) is done, so its
 	// statements do not depend on that work's timing.
+	// Pre-request idle alone cannot stabilize a trace: a blocking hydration
+	// may retain the request's stats after its bounded wait expires. Finish
+	// that work before the observer snapshots it, without changing the recorded
+	// response duration or discarding any attributed database work.
+	a.perf.mu.Lock()
+	a.perf.settleTrace = func(ctx context.Context) {
+		if !a.quiesce(ctx, 30*time.Second) {
+			t.Errorf("%s: invalid performance measurement: background work did not settle before its trace snapshot", name)
+		}
+	}
+	a.perf.mu.Unlock()
 	quiesceMisses := 0
 	r.SetBefore(func(ctx context.Context) {
 		if !a.quiesce(ctx, 30*time.Second) {
