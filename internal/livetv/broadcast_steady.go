@@ -110,14 +110,29 @@ func steadyShapeFor(info *core.MediaInfo) steadyShape {
 	return steadyShape{format: transcode.RawFormat{Width: width, Height: height, FPSNum: num, FPSDen: den, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}, bitrateKbps: bitrate}
 }
 
-// steadyRefusal says why a probed source must not use Steady, or "".
-func steadyRefusal(info *core.MediaInfo) string {
+// Steady refusal codes, kept in session.steadyRefused. The direct paths read
+// them: a session refused only for capacity or strain may later be handed
+// off to Steady (steadyAllowed); the others never are.
+const (
+	steadyRefusedCapacity     = "capacity"
+	steadyRefusedClean        = "clean-yields-last-slot"
+	steadyRefusedStrain       = "strain"
+	steadyRefusedHDR          = "hdr"
+	steadyRefusedUHD          = "uhd"
+	steadyRefusedAudioOnly    = "audio-only"
+	steadyRefusedVideoOnly    = "video-only"
+	steadyRefusedNoTranscoder = "no-transcoder"
+)
+
+// steadyRefusal says why a probed source must not use Steady (a code and a
+// log detail), or "".
+func steadyRefusal(info *core.MediaInfo) (string, string) {
 	if info == nil {
-		return ""
+		return "", ""
 	}
 	v := info.Video()
 	if v == nil {
-		return ""
+		return "", ""
 	}
 	audio := false
 	for _, st := range info.Streams {
@@ -125,15 +140,31 @@ func steadyRefusal(info *core.MediaInfo) string {
 	}
 	if !audio {
 		// The continuous decoder pairs every picture with its sound.
-		return "source without audio plays direct"
+		return steadyRefusedVideoOnly, "source without audio plays direct"
 	}
 	if v.Height > 1080 || v.Width > 1920 {
-		return "source above 1080p stays direct"
+		return steadyRefusedUHD, "source above 1080p stays direct"
 	}
 	if v.DolbyVision || v.ColorTransfer == "smpte2084" || v.ColorTransfer == "arib-std-b67" {
-		return "HDR source stays direct"
+		return steadyRefusedHDR, "HDR source stays direct"
 	}
-	return ""
+	return "", ""
+}
+
+// steadyAllowed reports a session Steady could still take over: it was never
+// refused, or refused only because capacity was short at the time.
+func (s *Service) steadyAllowed(ss *session) bool {
+	ss.mu.Lock()
+	c, refused := ss.info.Channel, ss.steadyRefused
+	ss.mu.Unlock()
+	if !s.useBroadcast(c) || c.Kind != "iptv" {
+		return false
+	}
+	switch refused {
+	case "", steadyRefusedCapacity, steadyRefusedClean, steadyRefusedStrain:
+		return true
+	}
+	return false
 }
 
 // steadyLoad is the estimated CPU of every running continuous output.
@@ -232,25 +263,26 @@ type steadyAdmission struct {
 	shape steadyShape
 	link  *steadyLink
 	info  *core.MediaInfo
+	class string // allocation class of its source
 }
 
 // admitSteady probes the best input of channel c through a relay grant that
 // the output's first decoder then reuses, so the decoder starts from the
 // bytes the probe already read on the same provider connection. It returns
 // a refusal reason when the tune must take a direct path.
-func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission, string) {
+func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission, string, string) {
 	if _, ok := s.o.Transcoder.(continuousBudget); !ok {
-		return nil, "transcoder runs no continuous outputs"
+		return nil, steadyRefusedNoTranscoder, "transcoder runs no continuous outputs"
 	}
 	if s.broadcasts.steadyStrained() {
-		return nil, "running channels are falling behind real time"
+		return nil, steadyRefusedStrain, "running channels are falling behind real time"
 	}
 	rockSolid := s.stabilityPreset(c) == stabilityRockSolid
 	// Refuse before touching the provider when not even the smallest
 	// broadcast shape would fit.
 	smallest := transcode.RawFormat{Width: 1024, Height: 576, FPSNum: 25, FPSDen: 1}
 	if ok, load, budget := s.steadyCapacity(smallest); !ok && !rockSolid {
-		return nil, "encode capacity in use (" + formatCores(load) + " of " + formatCores(budget) + " cores)"
+		return nil, steadyRefusedCapacity, "encode capacity in use (" + formatCores(load) + " of " + formatCores(budget) + " cores)"
 	}
 	var probed *steadyAdmission
 	candidates := s.orderedSourceCandidates(c)
@@ -277,7 +309,7 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 		if err == nil && info != nil && info.Video() == nil && len(info.Streams) > 0 {
 			// Radio: Steady renders pictures; an audio-only source plays direct.
 			link.close(s)
-			return nil, "audio-only source plays direct"
+			return nil, steadyRefusedAudioOnly, "audio-only source plays direct"
 		}
 		if err != nil || info == nil || info.Video() == nil {
 			if err == nil {
@@ -296,17 +328,23 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 		// reconnecting screen and its ladder keeps trying every input.
 		probed = &steadyAdmission{shape: steadyShapeFor(nil)}
 	}
-	if reason := steadyRefusal(probed.info); reason != "" {
+	if code, detail := steadyRefusal(probed.info); code != "" {
 		probed.link.close(s)
-		return nil, reason
+		return nil, code, detail
 	}
-	if !rockSolid {
-		if ok, load, budget := s.steadyCapacity(probed.shape.format); !ok {
-			probed.link.close(s)
-			return nil, "encode capacity in use (" + formatCores(load) + " of " + formatCores(budget) + " cores)"
-		}
+	src := StreamSource{}
+	if probed.link != nil {
+		src = probed.link.src
+	} else if len(candidates) > 0 {
+		src = candidates[0]
 	}
-	return probed, ""
+	class, code, detail := s.steadyAllocation(c, src, probed.shape.format)
+	probed.class = class
+	if code != "" {
+		probed.link.close(s)
+		return nil, code, detail
+	}
+	return probed, "", ""
 }
 
 func formatCores(v float64) string {
@@ -352,11 +390,7 @@ func steadyInputFormat(info *core.MediaInfo) string {
 // cachedInputFormat reads the demuxer of a granted input from the probe
 // cache without probing; a recovery never waits for ffprobe.
 func (s *Service) cachedInputFormat(ss *session) string {
-	key := ss.inputURL
-	if len(ss.inputHeaders) != 0 {
-		encoded, _ := json.Marshal(ss.inputHeaders)
-		key = stableID(ss.inputURL, string(encoded))
-	}
+	key := probeCacheKey(ss)
 	s.probeMu.Lock()
 	defer s.probeMu.Unlock()
 	if entry, ok := s.probeCache[key]; ok {
@@ -386,4 +420,56 @@ func (s *Service) reserveDirectViewer(u *core.User, caps core.ClientCaps, ss *se
 		return err
 	}
 	return nil
+}
+
+// probeCacheKey is the live probe cache key of a granted input (upstream URL
+// and headers, never the per-tune relay token).
+func probeCacheKey(ss *session) string {
+	key := ss.inputURL
+	if len(ss.inputHeaders) != 0 {
+		encoded, _ := json.Marshal(ss.inputHeaders)
+		key = stableID(ss.inputURL, string(encoded))
+	}
+	return key
+}
+
+// Allocation classes of a source, from its recorded history.
+const (
+	steadyClassFlaky   = "flaky"
+	steadyClassClean   = "clean"
+	steadyClassUnknown = "unknown"
+)
+
+// steadyAllocation decides whether one more output of format f may start for
+// source src of channel c: when slots are scarce, flaky (and unknown) sources
+// get them, and a clean source, which plays well direct, does not take the
+// last one. Running outputs are never touched. It returns the source's class
+// and a refusal code and detail, or "".
+func (s *Service) steadyAllocation(c Channel, src StreamSource, f transcode.RawFormat) (string, string, string) {
+	class := s.steadyClass(c, src)
+	if s.broadcasts.steadyStrained() {
+		return class, steadyRefusedStrain, "running channels are falling behind real time"
+	}
+	if s.stabilityPreset(c) == stabilityRockSolid {
+		return class, "", ""
+	}
+	if _, ok := s.o.Transcoder.(continuousBudget); !ok {
+		return class, steadyRefusedNoTranscoder, "transcoder runs no continuous outputs"
+	}
+	budget, hardware := s.continuousBudget()
+	load := s.broadcasts.steadyLoad(hardware)
+	switch allocateSteady(class, load, steadyCost(f, hardware), budget) {
+	case steadyRefusedCapacity:
+		return class, steadyRefusedCapacity, "encode capacity in use (" + formatCores(load) + " of " + formatCores(budget) + " cores)"
+	case steadyRefusedClean:
+		return class, steadyRefusedClean, "a clean source plays direct and leaves the last Steady slot to a flaky one"
+	}
+	return class, "", ""
+}
+
+func (s *Service) continuousBudget() (float64, bool) {
+	if source, ok := s.o.Transcoder.(continuousBudget); ok {
+		return source.ContinuousBudget()
+	}
+	return 0, false
 }
