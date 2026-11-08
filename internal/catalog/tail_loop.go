@@ -234,21 +234,29 @@ func (c *Catalog) buildTail(ctx context.Context) error {
 			c.log.Warn("catalog: tail names", "err", err)
 		}
 	}
-	t := b.build(names)
-	b = nil
+	day := b.day
 	seq := 1
 	for _, p := range tailFiles(dir) {
-		if strings.HasPrefix(filepath.Base(p), "tail-"+t.day.UTC().Format("2006-01-02")+"-") {
+		if strings.HasPrefix(filepath.Base(p), "tail-"+day.UTC().Format("2006-01-02")+"-") {
 			var n int
 			fmt.Sscanf(filepath.Base(p)[len("tail-2006-01-02-"):], "%03d", &n)
 			seq = max(seq, n+1)
 		}
 	}
-	path, err := writeTailFile(dir, t, seq)
+	w, err := newTailFileWriter(dir)
 	if err != nil {
 		return fmt.Errorf("write long-tail index: %w", err)
 	}
-	t = nil
+	n, err := b.write(names, w)
+	b = nil
+	if err != nil {
+		w.abort()
+		return fmt.Errorf("write long-tail index: %w", err)
+	}
+	path, err := w.finish(day, n, seq)
+	if err != nil {
+		return fmt.Errorf("write long-tail index: %w", err)
+	}
 	runtime.GC() // the build's heap goes before the mapped version arrives
 	mapped, unmap, err := openTailFile(path)
 	if err != nil {
