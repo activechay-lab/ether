@@ -834,6 +834,9 @@ func (s *surfaceExperience) LibraryItems(ctx context.Context, viewer *core.Viewe
 }
 
 func (s *surfaceExperience) Search(ctx context.Context, viewer *core.Viewer, device core.Device, query string, options frontend.ItemQuery) (frontend.SearchPage, error) {
+	if s.protocol == "stremio" {
+		ctx = core.WithSearchSummaryFacts(ctx)
+	}
 	page, err := s.Service.Search(ctx, viewer, device, query, options)
 	if err == nil {
 		s.warmArtwork(page.Page.Items, device)

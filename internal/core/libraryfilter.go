@@ -161,3 +161,24 @@ func SearchListFacts(ctx context.Context) bool {
 	v, _ := ctx.Value(searchListFactsKey{}).(bool)
 	return v
 }
+
+type searchSummaryFactsKey struct{}
+
+// WithSearchSummaryFacts marks movie/show searches rendered using scalar title
+// metadata and posters only. Visibility and query-filter facets are still read;
+// credits and other detail facts are not needed. Partial titles must not enter
+// the full-title cache. Searches without this opt-in retain full results.
+func WithSearchSummaryFacts(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchSummaryFactsKey{}, true)
+}
+
+func SearchSummaryFacts(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(searchSummaryFactsKey{}).(bool)
+	return v
+}

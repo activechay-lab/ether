@@ -226,6 +226,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	localKeys := make(map[core.RatingKey]bool)
 	remoteKeys := make(map[core.RatingKey]bool)
 	deferredLocal := false
+	summaryLocal := false
 	hydrateLocalLate := false
 	finish := func(items []core.Title) ([]core.Title, error) {
 		if !unfiltered {
@@ -277,7 +278,29 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 					keys = append(keys, t.Key)
 				}
 			}
-			if core.SearchListFacts(ctx) {
+			if summaryLocal {
+				// Scalar rows already contain the displayed summary. When the
+				// catalogue policy is passive, still load the retained titles'
+				// facets for downstream viewer policy and query filters. Active
+				// catalogue policy read those before ranking. Never cache these
+				// partial titles as full details.
+				if deferredLocal {
+					var local []core.Title
+					var positions []int
+					for i, title := range items {
+						if localKeys[title.Key] {
+							local = append(local, title)
+							positions = append(positions, i)
+						}
+					}
+					if err := c.hydrateVisibilityFacts(ctx, local); err != nil {
+						return nil, err
+					}
+					for i, position := range positions {
+						items[position] = local[i]
+					}
+				}
+			} else if core.SearchListFacts(ctx) {
 				// Shown as list items: the facts a list shows, not cached.
 				loaded, err := c.searchListRows(ctx, keys)
 				if err != nil {
@@ -375,6 +398,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	// every type until the index's first build, from the literal match.
 	var localErr error
 	ix := c.searchIndex(ctx, true)
+	summaryLocal = core.SearchSummaryFacts(ctx) && !wantSeason && !wantEpisode
 	deferredLocal = year == 0 && !wantSeason && !wantEpisode && (unfiltered || (c.visibilityFor(ctx).Passive() && c.config().ReleaseMode != config.ModeDigital))
 	if ix != nil && (wantMovie || wantTV) {
 		keys, scores := c.searchKeys(ix, sq, wantMovie, wantTV, max(limit*3, 30))
@@ -1213,7 +1237,7 @@ func (c *Catalog) querySearchRows(ctx context.Context, unfiltered bool, query st
 		if t.Adult || (!unfiltered && !t.IsReleased(c.now()) && !c.upcomingMovie(&t)) {
 			continue
 		}
-		if !unfiltered {
+		if !unfiltered && !core.SearchSummaryFacts(ctx) {
 			if cached, ok := c.cachedStored(t.Key, gen, minute); ok {
 				t = cached
 			}
