@@ -18,8 +18,15 @@ import (
 var update = flag.Bool("update", false, "rewrite golden files")
 
 // request performs a request against the fixture server.
+// requestHook, when set (by the transcodechaos build), runs before every
+// fixture request; it lets the chaos suites behave like real clients.
+var requestHook func(f *fixture, method, target string, hdr map[string]string)
+
 func (f *fixture) request(t *testing.T, method, target string, hdr map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
+	if requestHook != nil {
+		requestHook(f, method, target, hdr)
+	}
 	req := httptest.NewRequest(method, target, nil)
 	req.RemoteAddr = "192.168.1.50:51000"
 	for k, v := range hdr {

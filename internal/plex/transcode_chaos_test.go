@@ -20,6 +20,34 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
+// Real Plex clients ask /decision before start.* and Ether only starts a
+// session that a decision armed. The chaos suites predate that contract, so
+// every fixture start.* request is preceded by the same client's decision.
+func init() {
+	requestHook = func(f *fixture, method, target string, hdr map[string]string) {
+		i := strings.Index(target, "/video/:/transcode/universal/start")
+		if method != http.MethodGet || i < 0 {
+			return
+		}
+		q := ""
+		if j := strings.IndexByte(target, '?'); j >= 0 {
+			q = target[j:]
+		}
+		req := httptest.NewRequest(http.MethodGet, target[:i]+"/video/:/transcode/universal/decision"+q, nil)
+		req.RemoteAddr = "192.168.1.50:51000"
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		if _, ok := hdr["X-Plex-Token"]; !ok && !strings.Contains(target, "X-Plex-Token") {
+			req.Header.Set("X-Plex-Token", ownerToken)
+		}
+		if _, ok := hdr["X-Plex-Client-Identifier"]; !ok {
+			req.Header.Set("X-Plex-Client-Identifier", "client-1")
+		}
+		f.srv.ServeHTTP(httptest.NewRecorder(), req)
+	}
+}
+
 type chaosPlayback struct {
 	*fakePlayback
 	url string
@@ -122,7 +150,7 @@ func TestTranscodeChaosPlex(t *testing.T) {
 		}
 		check(t, rec.Body.Bytes(), "mp4")
 		rec = f.do(t, http.MethodDelete, "/downloadQueue/"+itoa(q)+"/items/"+itoa(id), ownerToken, nil)
-		if rec.Code != 200 {
+		if rec.Code != 200 && rec.Code != http.StatusNoContent {
 			t.Fatalf("delete HTTP %d", rec.Code)
 		}
 	})

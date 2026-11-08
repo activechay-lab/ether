@@ -57,7 +57,19 @@ func main() {
 	liveClient := flag.String("live-client", "plex-appletv", "client identity to tune as: plex-appletv (AVPlayer judge) or plex-firetv (ExoPlayer stuck rule, protocol judge)")
 	liveRender := flag.Bool("live-render", false, "rewrite -live-markdown from the existing -report JSON (with -live-baseline) and exit")
 	liveRescore := flag.Bool("live-rescore", false, "re-judge the existing -report JSON with the current pass criteria, rewrite it (and -live-markdown) and exit")
+	vodAV := flag.Bool("vod-avplayer", false, "play the corpus client sequences in AVPlayer next to ffmpeg -xerror (macOS; needs -fixture-dir with a staged corpus)")
+	vodOnly := flag.String("vod-only", "", "substring of asset/path/scenario cases to run with -vod-avplayer")
+	vodKeep := flag.String("vod-keep", "", "keep the media segments the player fetched under this directory")
+	vodMarkdown := flag.String("vod-markdown", "", "also write a Markdown summary of -vod-avplayer here")
 	flag.Parse()
+	if *vodAV {
+		root, _ := os.Getwd()
+		if err := runVODAVPlayer(vodOptions{FF: *ff, FP: *fp, Fixtures: *fixtures, Cache: *cache, Report: *report, Markdown: *vodMarkdown, Only: *vodOnly, Keep: *vodKeep, RepoRoot: root, Label: *liveLabel}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *liveRescore {
 		if err := rescoreLive(*report, *liveMarkdown, *liveBaseline); err != nil {
 			fmt.Fprintln(os.Stderr, err)
