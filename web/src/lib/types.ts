@@ -501,12 +501,6 @@ export interface QualityProfile {
   pluginScores?: Record<string, Record<string, unknown>> | null;
   /** Qualities best first, as in Radarr/Sonarr; qualities in one item rank equally. */
   qualityOrder?: QualityItem[] | null;
-  /**
-   * Converted from an older ranking order that ranked something above
-   * resolution: one group of every resolution, resolution scored as formats,
-   * ranking exactly as before. Cleared once the qualities are edited.
-   */
-  convertedRanking?: boolean;
   name: string;
   maxHeight: number;
   minHeight: number;
