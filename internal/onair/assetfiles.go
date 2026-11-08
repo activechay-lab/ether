@@ -71,6 +71,9 @@ const (
 	assetSweepInterval = time.Hour
 	// assetOrphanAge protects a file being recorded from the sweep.
 	assetOrphanAge = time.Hour
+	// assetReleaseBytes of emptied rows are returned to the filesystem at
+	// a time during a move-out.
+	assetReleaseBytes = 64 << 20
 	// assetFetchWait bounds how long a read waits for a peer to put an
 	// asset's bytes back into the database.
 	assetFetchWait = 15 * time.Second
@@ -323,8 +326,10 @@ func (st *AssetPassStats) wrote(start time.Time) {
 }
 
 // moveAssets is one move-out pass: copy 'db' rows into this node's blob
-// store, empty the rows every member holds, and put back the bytes of
-// 'file' rows a member lacks. Every step is one short statement per asset.
+// store, empty each row as soon as every member holds it, and put back the
+// bytes of 'file' rows a member lacks. Every write is one short statement
+// per asset, and emptied pages go back to the filesystem every
+// assetReleaseBytes, so the extra disk the move needs stays near one asset.
 func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	var st AssetPassStats
 	ms, e := s.members(ctx)
@@ -340,12 +345,24 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	if e != nil {
 		return st, e
 	}
+	replicas, e := s.replicaHolders(ctx)
+	if e != nil {
+		return st, e
+	}
+	unreleased := int64(0)
+	release := func() {
+		n, e := store.ReleaseFreePages(ctx, s.db)
+		st.Released += n
+		if e != nil && ctx.Err() == nil {
+			s.o.Logger.Warn("onair: freed asset pages not returned yet; daily maintenance retries", "err", e)
+		}
+		unreleased = 0
+	}
 	for _, d := range dbRows {
 		if ctx.Err() != nil {
 			return st, ctx.Err()
 		}
 		had := s.blobs.Has(d.digest, d.size)
-		start := time.Now()
 		ok, e := s.materialize(ctx, d.digest)
 		if errors.Is(e, ErrNotFound) {
 			continue
@@ -354,29 +371,24 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 			s.o.Logger.Warn("onair asset not copied to a file", "asset", d.digest, "err", e)
 			continue
 		}
-		if ok && !had {
-			st.Copied++
-			st.CopiedBytes += d.size
-			s.o.Logger.Debug("onair asset copied to a file", "asset", d.digest, "bytes", d.size, "took", time.Since(start))
-		}
-	}
-	replicas, e := s.replicaHolders(ctx)
-	if e != nil {
-		return st, e
-	}
-	for _, d := range dbRows {
-		if !s.blobs.Has(d.digest, d.size) {
+		if !ok {
 			continue
 		}
-		// Make sure this node's own replica is recorded even when the
-		// file arrived another way (a restore, an earlier crashed pass).
+		if !had {
+			st.Copied++
+			st.CopiedBytes += d.size
+		}
+		if replicas[d.digest] == nil {
+			replicas[d.digest] = map[string]bool{}
+		}
 		if !replicas[d.digest][s.nodeID] {
+			// The file may have arrived another way (a restore, a pass
+			// that crashed after the rename): record it.
+			start := time.Now()
 			if e = s.recordReplica(ctx, s.db, d.digest); e != nil {
 				return st, e
 			}
-			if replicas[d.digest] == nil {
-				replicas[d.digest] = map[string]bool{}
-			}
+			st.wrote(start)
 			replicas[d.digest][s.nodeID] = true
 		}
 		if !allFiles || !holdsAll(replicas[d.digest], ids) {
@@ -391,7 +403,13 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 		if n > 0 {
 			st.Emptied++
 			st.EmptiedBytes += d.size
+			if unreleased += d.size; unreleased >= assetReleaseBytes {
+				release()
+			}
 		}
+	}
+	if unreleased > 0 {
+		release()
 	}
 	if len(ms) > 1 || !allFiles {
 		fileRows, e := s.assetDigests(ctx, "file")
@@ -413,13 +431,7 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 			}
 		}
 	}
-	if st.Emptied > 0 {
-		st.Released, e = store.ReleaseFreePages(ctx, s.db)
-		if e != nil {
-			s.o.Logger.Warn("onair: freed asset pages not returned yet; daily maintenance retries", "err", e)
-		}
-	}
-	if st.Emptied+st.Restored > 0 {
+	if st.Copied+st.Emptied+st.Restored > 0 {
 		s.o.Logger.Info("onair assets moved", "copied", st.Copied, "emptied", st.Emptied, "restored", st.Restored, "emptiedBytes", st.EmptiedBytes, "longestWrite", st.LongestWrite, "releasedPages", st.Released)
 	}
 	return st, nil
