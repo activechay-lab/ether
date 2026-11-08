@@ -309,6 +309,9 @@ type Catalog struct {
 
 	// rankReady is set once the popularity rank (rank.go) has been built.
 	rankReady atomic.Bool
+	// titleIndexesSwapped is set once popularity left the title indexes
+	// (titleidx.go).
+	titleIndexesSwapped atomic.Bool
 }
 
 // SaferRatingSQL is the optional Plex overlay predicate for viewer limits.
@@ -439,6 +442,7 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	}
 	c.ensureSortTitlesFolded(ctx)
 	c.loadRankReady(ctx)
+	c.loadTitleIndexState(ctx)
 	c.startupContext = nil
 	return c, nil
 }

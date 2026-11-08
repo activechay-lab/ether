@@ -26,10 +26,10 @@ func (c *Catalog) consoleMergedKeys(ctx context.Context, where string, args []an
 	hint := ""
 	if store.DialectOf(c.db) != store.Postgres && !consolePositiveEvidence(q.Filter) && !consoleHasSparseCandidates(q.Filter) {
 		if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
-			hint = " INDEXED BY catalog_titles_console_pop_page"
+			hint = c.indexHint("catalog_titles_console_pop_page")
 		}
 		if q.Sort == core.SortYear && q.Desc && len(q.SecondarySorts) == 1 && q.SecondarySorts[0].Sort == core.SortTitle && !q.SecondarySorts[0].Desc {
-			hint = " INDEXED BY catalog_titles_console_year_title_page"
+			hint = c.indexHint("catalog_titles_console_year_title_page")
 		}
 	}
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {

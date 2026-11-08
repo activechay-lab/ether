@@ -152,3 +152,77 @@ func TestRankPagesMatchTitleOrder(t *testing.T) {
 		}
 	}
 }
+
+// Replacing the popularity-bearing title indexes must leave every sorted
+// page and the console cursor pages as they were, and every query that
+// named an old index must name its replacement or none.
+func TestTitleIndexSwapKeepsPages(t *testing.T) {
+	c := newChunkTestCatalog(t)
+	ctx := context.Background()
+	rel := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	var titles []core.Title
+	for i := int64(1); i <= 120; i++ {
+		titles = append(titles, core.Title{Key: core.MovieKey(i), Type: core.TypeMovie, Title: fmt.Sprint("M", i), Released: rel.AddDate(-int(i%30), 0, 0),
+			Popularity: float64((i * 31) % 53), Runtime: time.Duration(60+i%40) * time.Minute, Language: []string{"en", "fr"}[i%2], Genres: []string{"Drama"}})
+	}
+	if err := c.upsertMany(ctx, titles, upsertOpts{browsable: true}); err != nil {
+		t.Fatal(err)
+	}
+	queries := []core.BrowseQuery{
+		{Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortPopularity, Desc: true, Limit: 25},
+		{Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortYear, Desc: true, Limit: 25},
+		{Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortDuration, Limit: 25},
+		{Filter: core.Filter{Type: core.TypeMovie, Languages: []string{"fr"}}, Sort: core.SortPopularity, Desc: true, Limit: 25},
+		{Filter: core.Filter{Type: core.TypeMovie, LocalOnly: true}, Sort: core.SortPopularity, Desc: true, Limit: 25, NoTotal: true},
+	}
+	pages := func() string {
+		c.writeGen.Add(1)
+		var out []string
+		for _, q := range queries {
+			p, err := c.Browse(ctx, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var keys []string
+			for _, it := range p.Items {
+				keys = append(keys, fmt.Sprint(it.Key))
+			}
+			out = append(out, strings.Join(keys, ","))
+		}
+		// The console cursor: two pages by popularity, the second after
+		// the first's last key.
+		cq := core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie, LocalOnly: true}, Sort: core.SortPopularity, Desc: true, Limit: 30}
+		first, err := c.consoleCursorPage(ctx, cq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cq.AfterKey = first.Items[len(first.Items)-1].Key
+		second, err := c.consoleCursorPage(ctx, cq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []core.Page{first, second} {
+			var keys []string
+			for _, it := range p.Items {
+				keys = append(keys, fmt.Sprint(it.Key))
+			}
+			out = append(out, strings.Join(keys, ","))
+		}
+		if _, err := c.WarmDetails(ctx, 5); err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(out, "\n")
+	}
+	before := pages()
+	if _, err := c.RebuildRank(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ranked := pages()
+	if err := c.swapTitleIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	swapped := pages()
+	if before != ranked || before != swapped {
+		t.Fatalf("pages changed:\nbefore\n%s\nranked\n%s\nswapped\n%s", before, ranked, swapped)
+	}
+}

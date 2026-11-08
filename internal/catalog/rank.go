@@ -232,6 +232,9 @@ func (c *Catalog) rankLoop(ctx context.Context) {
 				c.log.Info("catalog: popularity rank rebuilt", "titles", r.Rows, "took", r.Took.Round(time.Millisecond))
 			}
 		}
+		if err := c.swapTitleIndexes(ctx); err != nil && ctx.Err() == nil {
+			c.log.Warn("catalog: replace popularity indexes", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return

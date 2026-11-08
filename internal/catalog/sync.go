@@ -515,7 +515,7 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 	}{
 		{`SELECT key FROM catalog_titles WHERE detail=0 AND` + eligible + ` AND released_ts>=?
 			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{now.Unix(), recentCutoff}},
-		{`SELECT key FROM catalog_titles INDEXED BY catalog_titles_browse_warm WHERE detail=0 AND` + eligible + `
+		{`SELECT key FROM catalog_titles` + c.indexHint("catalog_titles_browse_warm") + ` WHERE detail=0 AND` + eligible + `
 			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{now.Unix()}},
 		{`SELECT key FROM catalog_titles INDEXED BY catalog_titles_warm_stale WHERE type='show' AND status='Returning Series' AND detail=1 AND detail_at>0 AND detail_at<? AND` + eligible + `
 			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{staleCutoff, now.Unix()}},
@@ -525,7 +525,7 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 		}
 		stmt := q.sql
 		if store.DialectOf(c.db) == store.Postgres {
-			stmt = strings.NewReplacer(" INDEXED BY catalog_titles_browse_warm", "", " INDEXED BY catalog_titles_warm_stale", "").Replace(stmt)
+			stmt = strings.NewReplacer(" INDEXED BY catalog_titles_warm_stale", "").Replace(stmt)
 		}
 		// The full limit each time: the recent releases come round again
 		// in the popularity read.
