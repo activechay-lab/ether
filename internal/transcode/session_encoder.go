@@ -397,7 +397,11 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		r.progressMu.Lock()
 		r.progress = p
 		r.progressMu.Unlock()
-		if time.Since(lastLog) > 15*time.Second {
+		interval := 15 * time.Second
+		if s.traceOn() {
+			interval = time.Second
+		}
+		if time.Since(lastLog) > interval {
 			lastLog = time.Now()
 			runLog.Debug("ffmpeg progress", "outTime", p.OutTime, "speed", p.Speed, "fps", p.FPS)
 		}

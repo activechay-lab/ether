@@ -199,6 +199,20 @@ func (s *Session) progressedLocked(r *run) {
 	s.maybeGovernLocked()
 	s.chainOrHoldLocked(r)
 	s.throttleLocked()
+	if s.traceOn() && s.cur == r && time.Since(r.traceBufferAt) >= time.Second {
+		r.traceBufferAt = time.Now()
+		r.progressMu.Lock()
+		p := r.progress
+		r.progressMu.Unlock()
+		readyLead := time.Duration(0)
+		if r.produced > 0 {
+			readyLead = max(0, s.segStart(r.maxDone+1)-s.segStart(s.lastReq))
+		}
+		s.log.Debug("encoder buffer trace", "run", r.seq, "track", r.track, "playheadSegment", s.lastReq,
+			"maxDone", r.maxDone, "readyLeadSeconds", readyLead.Seconds(), "paused", r.paused,
+			"wallSeconds", time.Since(r.started).Seconds(), "runStartSeconds", r.spec.Start.Seconds(),
+			"outTimeSeconds", p.OutTime.Seconds(), "frame", p.Frame, "speed", p.Speed, "fps", p.FPS)
+	}
 	s.broadcastLocked()
 }
 
