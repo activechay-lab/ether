@@ -198,15 +198,16 @@ that stayed flat so they can be removed; the list only shrinks.
 ```sh
 ETHER_PERF_GATE=1 go test ./internal/app -run TestPerformanceGate -v -timeout 60m
 ETHER_PERF_GATE=quick go test ./internal/app -run TestPerformanceGate -v   # a 5k/54k pair, not ratcheted
-ETHER_PERF_GATE=xlarge go test ./internal/app -run TestPerformanceGate -v -timeout 150m   # 80k/800k titles
+ETHER_PERF_GATE=xlarge go test ./internal/app -run TestPerformanceGate -v -timeout 290m   # 128k/1.28M titles
 ```
 
-The `xlarge` pair is the size of a household that mirrors TMDB's long tail
-with "Hide obscure titles" off: 800,000 titles, 70% of them movies (560k
-movies, 240k series, 1.76M catalogue rows), against a tenth of it. It takes
-too long for every push, so `.github/workflows/perf-nightly.yml` runs it
-nightly on main and on demand (`workflow_dispatch`, any ref). It uses the
-same debt file and thresholds.
+The `xlarge` pair is a full TMDB mirror, the design target: 1,278,768
+dated, non-adult titles (1,073,442 movies and 205,326 series), every series
+with its seasons and the episodes of the 300 series a household opened
+(the catalogue stores episodes when a season is opened), 1.69M catalogue
+rows in all, against a tenth of it. It takes too long for every push, so
+`.github/workflows/perf-nightly.yml` runs it nightly on main and on demand
+(`workflow_dispatch`, any ref). It uses the same debt file and thresholds.
 
 `go run ./cmd/etherperf fixture -scale large -out DIR` (also `quick`,
 `small`, `xsmall`, `xlarge`) writes a gate library as a data directory

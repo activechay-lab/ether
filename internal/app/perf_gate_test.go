@@ -54,7 +54,7 @@ func TestPerformanceGate(t *testing.T) {
 		// A faster pair, also 10× apart, for iterating locally.
 		smallScale, largeScale = perfharness.SmallScale.Divide(10), perfharness.SmallScale
 	case "xlarge":
-		// The nightly pair: 80k and 800k titles, a long-tail mirror's size.
+		// The nightly pair: a full TMDB mirror (1.28M titles) and a tenth.
 		// Too slow for every push (docs/performance.md).
 		smallScale, largeScale = perfharness.XLargeScale.Divide(10), perfharness.XLargeScale
 	}
