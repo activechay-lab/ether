@@ -138,15 +138,15 @@ type Options struct {
 	// IndexTimeout bounds the background container keyframe-index read
 	// after a generation is published (default 60s). Play never waits on it.
 	IndexTimeout time.Duration
-	// SpeedCheckInterval is how often source fetch speed is compared with
-	// media bitrate (default 2s). SpeedGrace after a start, seek or
-	// failover is ignored (default 20s). A session whose fetch rate stays
+	// SpeedCheckInterval is how often effective source-read delivery is compared
+	// with media bitrate (default 2s). Speed checks during SpeedGrace after
+	// a start, seek or failover are ignored (default 20s). Delivery staying
 	// below SpeedThreshold (default 0.8) of its media bitrate for
 	// SpeedSlowChecks consecutive checks (default 3) down-fails over, at
 	// most MaxDownFailovers times (default 2; negative disables). A try
 	// that finds no lower-bitrate release counts the same as a swap. When
-	// the cap is a run of misses, the session stops so the client stream
-	// ends instead of playing on forever at a crawl.
+	// the cap is reached, adaptation stops and the current source remains.
+	// HLS replacements must copy video into the existing stream contract.
 	SpeedCheckInterval time.Duration
 	SpeedGrace         time.Duration
 	SpeedThreshold     float64

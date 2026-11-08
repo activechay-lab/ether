@@ -914,6 +914,11 @@ func (f *Fetcher) MaxConnections() int {
 	return n
 }
 
+// PipelineDepth is the normal read-ahead BODY depth ceiling per connection.
+// Background fetches use one; repair bursts may use the configured larger depth.
+// This is a policy diagnostic, not current socket occupancy.
+func (f *Fetcher) PipelineDepth() int { return min(f.o.BodyPipelineDepth, 2) }
+
 // SetConnectionShare divides provider connection limits among cluster
 // nodes: share receives a provider's configured connection count (the
 // account-wide limit) and returns this node's part of it, clamped to
