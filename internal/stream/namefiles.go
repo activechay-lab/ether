@@ -44,8 +44,15 @@ func (e *Engine) NameFiles(ctx context.Context, releaseID string, nzbData []byte
 	if _, _, err := b.probeObfuscated(ctx, unknown, set); err != nil {
 		return nil, fmt.Errorf("naming pack files: %w", err)
 	}
-	rel.infoMu.RLock()
-	defer rel.infoMu.RUnlock()
+	rel.infoMu.Lock()
+	defer rel.infoMu.Unlock()
+	// An obfuscated PAR2 file found by its head keeps a name that says
+	// nothing; give it a .par2 one so a later parse still classifies it.
+	for _, f := range rel.doc.Files {
+		if f.Info.Kind == nzb.KindPar2 && nzb.Classify(f.Name).Kind != nzb.KindPar2 {
+			f.Name = fmt.Sprintf("pack-%d.par2", f.Index)
+		}
+	}
 	out, ok := rel.doc.Subset(func(*nzb.File) bool { return true })
 	if !ok {
 		return nzbData, nil
