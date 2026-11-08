@@ -209,46 +209,6 @@ func (s *Service) keepStoredUploads(ctx context.Context, src *Source) error {
 	return nil
 }
 
-// replaceGuideChannels stores a source's XMLTV channels inside the import
-// transaction. Programme channel ids without a <channel> entry are kept too.
-func replaceGuideChannels(ctx context.Context, tx *sql.Tx, sourceID string, g XMLGuide) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM livetv_guide_channels WHERE source_id=?`, sourceID); err != nil {
-		return err
-	}
-	for id, c := range g.Channels {
-		if id == "" {
-			continue
-		}
-		names := g.Names[id]
-		if names == nil {
-			names = []string{}
-		}
-		b, err := json.Marshal(names)
-		if err != nil {
-			return err
-		}
-		name := strings.TrimSpace(c.Name)
-		if name == "" {
-			name = id
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_guide_channels(source_id,guide_id,name,logo,names) VALUES(?,?,?,?,?)
-			ON CONFLICT(source_id,guide_id) DO UPDATE SET name=excluded.name, logo=excluded.logo, names=excluded.names`, sourceID, id, name, c.Logo, string(b)); err != nil {
-			return err
-		}
-	}
-	seen := map[string]bool{}
-	for _, p := range g.Programmes {
-		if _, ok := g.Channels[p.ChannelID]; ok || seen[p.ChannelID] || p.ChannelID == "" {
-			continue
-		}
-		seen[p.ChannelID] = true
-		if _, err := tx.ExecContext(ctx, `INSERT INTO livetv_guide_channels(source_id,guide_id,name) VALUES(?,?,?) ON CONFLICT DO NOTHING`, sourceID, p.ChannelID, p.ChannelID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // changedStreams lists previously imported channels whose stream changed or
 // which no longer exist after an import.
 func changedStreams(old map[string]Channel, cs []Channel) []string {
@@ -1120,6 +1080,9 @@ func nextRefresh(src Source, horizon *time.Time) (time.Time, bool) {
 // channel uses, ignoring channels whose listings had already ended when the
 // source was last imported (refreshing would not extend them).
 func (s *Service) planRefresh(ctx context.Context, srcs []Source) error {
+	if err := s.overlayRefreshStamps(ctx, srcs); err != nil {
+		return err
+	}
 	cs, err := s.Channels(ctx)
 	if err != nil {
 		return err
