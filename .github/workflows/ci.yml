@@ -484,12 +484,26 @@ jobs:
           CGO_ENABLED: "0"
           ETHER_PERF_GATE: "1"
           ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate.md
+          ETHER_PERF_GATE_KEEP: ${{ runner.temp }}/perf-gate-private
         run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 60m -v
       - name: Publish the gate report
         if: always()
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/perf-gate.md" ]; then cat "$RUNNER_TEMP/perf-gate.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Prepare sanitized performance evidence
+        if: always()
+        run: python3 scripts/perf-gate-artifacts.py "$RUNNER_TEMP"
+      - name: Retain performance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          # Never upload the private KEEP directory: it contains databases
+          # and raw request paths, including synthetic Stremio credentials.
+          path: ${{ runner.temp }}/perf-gate-artifacts/
+          retention-days: 14
+          if-no-files-found: error
 
   web:
     name: Web UI

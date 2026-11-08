@@ -400,6 +400,21 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 
 	trace := filepath.Join(dir, "trace.jsonl")
+	if keep := os.Getenv("ETHER_PERF_GATE_KEEP"); keep != "" {
+		if err := os.MkdirAll(keep, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// Write outside TempDir from the start: a failed replay or test
+		// timeout must leave its partial trace available for attribution.
+		trace = filepath.Join(keep, name+"-trace.jsonl")
+		f, err := os.OpenFile(trace, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			t.Fatal(err) // Never append a new run to retained evidence.
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv(PerfTraceEnv, trace)
 	var appLog bytes.Buffer
 	a, err := New(ctx, Options{DataDir: dir, Logger: slog.New(slog.NewTextHandler(&appLog, &slog.HandlerOptions{Level: slog.LevelWarn}))})
@@ -538,10 +553,6 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 		if err := os.MkdirAll(keep, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := moveFile(trace, filepath.Join(keep, name+"-trace.jsonl")); err != nil {
-			t.Fatal(err)
-		}
-		trace = filepath.Join(keep, name+"-trace.jsonl")
 		for _, suffix := range []string{"", "-wal", "-shm"} {
 			if err := moveFile(filepath.Join(dir, "ether.db"+suffix), filepath.Join(keep, name+".db"+suffix)); err != nil && !os.IsNotExist(err) {
 				t.Fatal(err)
