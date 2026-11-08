@@ -44,7 +44,8 @@ type viewerFile struct {
 
 func runBaseline(ctx context.Context, args []string) error {
 	f := flag.NewFlagSet("baseline", flag.ExitOnError)
-	target := f.String("url", "", "the server's base URL, e.g. http://172.22.0.2:32400")
+	target := f.String("url", "", "the server's base URL, e.g. http://172.22.0.2:32400 (default: the container's address on its network, read after every start, and -port)")
+	portFlag := f.Int("port", 32400, "the server's Plex port when -url is not given")
 	container := f.String("container", "", "the server's Docker container (restarted for each cold step; its cgroup is the probe)")
 	label := f.String("label", "", "label for the report")
 	viewerPath := f.String("viewer", "", "viewer JSON from etherperf fixture (default: no token, for a server that trusts this network)")
@@ -56,16 +57,19 @@ func runBaseline(ctx context.Context, args []string) error {
 	settleMax := f.Duration("settle-max", 3*time.Minute, "longest wait for the server to go idle after a start")
 	out := f.String("out", "", "output directory")
 	_ = f.Parse(args)
-	if *target == "" || *container == "" || *out == "" {
-		return errors.New("-url, -container and -out are required")
+	if *container == "" || *out == "" {
+		return errors.New("-container and -out are required")
 	}
-	u, err := url.Parse(*target)
-	if err != nil || u.Hostname() == "" {
-		return fmt.Errorf("bad -url %q", *target)
-	}
-	port, err := strconv.Atoi(u.Port())
-	if err != nil {
-		return fmt.Errorf("-url needs a port: %q", *target)
+	port, fixedHost := *portFlag, ""
+	if *target != "" {
+		u, err := url.Parse(*target)
+		if err != nil || u.Hostname() == "" {
+			return fmt.Errorf("bad -url %q", *target)
+		}
+		if port, err = strconv.Atoi(u.Port()); err != nil {
+			return fmt.Errorf("-url needs a port: %q", *target)
+		}
+		fixedHost = u.Hostname()
 	}
 	if err := os.MkdirAll(*out, 0o700); err != nil {
 		return err
@@ -98,7 +102,7 @@ func runBaseline(ctx context.Context, args []string) error {
 	default:
 		cold = perfharness.Only(cs, strings.Split(*coldClients, ","))
 	}
-	d := &dockerServer{name: *container, base: strings.TrimRight(*target, "/"), settleMax: *settleMax, log: log}
+	d := &dockerServer{name: *container, host: fixedHost, port: port, settleMax: *settleMax, log: log}
 	if *drop != "" {
 		d.drop = strings.Split(*drop, ",")
 	}
@@ -112,6 +116,10 @@ func runBaseline(ctx context.Context, args []string) error {
 	d.self = self
 
 	meta := []string{fmt.Sprintf("container %s, image %s", *container, d.image), "host load before: " + loadavg()}
+	defer func() {
+		// Leave nothing running: the next server measured must be alone.
+		_ = docker(context.Background(), "stop", "-t", "60", d.name)
+	}()
 	log("restart, then discover %s's ids", *label)
 	if err := d.restart(ctx); err != nil {
 		return err
@@ -122,7 +130,9 @@ func runBaseline(ctx context.Context, args []string) error {
 	meta = append(meta, fmt.Sprintf("idle CPU: %.1f ms/s over 5 s", float64(idleCPU)/float64(time.Millisecond)))
 
 	r := perfharness.NewRunner(port, false, []perfharness.Viewer{viewer})
-	r.SetHost(u.Hostname())
+	r.SetHost(d.host)
+	// A container may come back on another address after a restart.
+	d.moved = r.SetHost
 	r.SetTimeout(2 * time.Minute)
 	r.Measure(perfharness.CgroupProbe{Dir: d.cgroup})
 	r.Sequential(ctx, "discover", []perfharness.Viewer{viewer}, cs)
@@ -210,6 +220,10 @@ func runCompare(args []string) error {
 // dockerServer restarts a containerized server between cold steps.
 type dockerServer struct {
 	name, base, image, id, cgroup, self string
+	host                                string // fixed by -url, or read after each start
+	fixedHost                           bool
+	port                                int
+	moved                               func(host string)
 	drop                                []string
 	settleMax                           time.Duration
 	lastReady, lastSettle               time.Duration
@@ -226,6 +240,30 @@ func (d *dockerServer) inspect(ctx context.Context) error {
 		return fmt.Errorf("docker inspect %s: %q", d.name, out)
 	}
 	d.id, d.image = fields[0], fields[1]
+	d.fixedHost = d.host != ""
+	d.setBase()
+	return nil
+}
+
+func (d *dockerServer) setBase() { d.base = "http://" + d.host + ":" + strconv.Itoa(d.port) }
+
+// address reads the running container's address on its (first) network.
+func (d *dockerServer) address(ctx context.Context) error {
+	out, err := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", d.name).Output()
+	if err != nil {
+		return fmt.Errorf("docker inspect %s: %w", d.name, err)
+	}
+	ips := strings.Fields(string(out))
+	if len(ips) == 0 {
+		return fmt.Errorf("%s has no network address", d.name)
+	}
+	if ips[0] != d.host {
+		d.host = ips[0]
+		d.setBase()
+		if d.moved != nil {
+			d.moved(d.host)
+		}
+	}
 	return nil
 }
 
@@ -253,6 +291,11 @@ func (d *dockerServer) restart(ctx context.Context) error {
 		return err
 	}
 	d.cgroup = cg
+	if !d.fixedHost {
+		if err := d.address(ctx); err != nil {
+			return err
+		}
+	}
 	if err := d.waitReady(ctx); err != nil {
 		return err
 	}
@@ -331,7 +374,7 @@ func (d *dockerServer) identity(ctx context.Context) string {
 	var parts []string
 	for _, attr := range []string{"version", "claimed", "machineIdentifier"} {
 		// The root element's attributes; not the XML declaration's version.
-		if m := regexp.MustCompile(`\s` + attr + `="([^"]*)"`).FindAllSubmatch(b, -1); m != nil {
+		if m := regexp.MustCompile(`\s`+attr+`="([^"]*)"`).FindAllSubmatch(b, -1); m != nil {
 			m := m[len(m)-1]
 			v := string(m[1])
 			if attr == "machineIdentifier" && len(v) > 8 {
@@ -404,13 +447,15 @@ func runFixture(ctx context.Context, args []string) error {
 			return fmt.Errorf("build: %w", err)
 		}
 	}
-	if err := setBind(filepath.Join(dir, "config.json"), "127.0.0.1"); err != nil {
+	if err := setServer(filepath.Join(dir, "config.json"), "127.0.0.1", *port+100); err != nil {
 		return err
 	}
 	if _, err := migrateCopy(ctx, server, dir, *port+100, absPath(*out)); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	if err := setBind(filepath.Join(dir, "config.json"), "0.0.0.0"); err != nil {
+	// The migrating start saved its loopback listener; serve on the
+	// container's network and the Plex port.
+	if err := setServer(filepath.Join(dir, "config.json"), "0.0.0.0", *port); err != nil {
 		return err
 	}
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "ether.db")+"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)")
@@ -430,7 +475,7 @@ func runFixture(ctx context.Context, args []string) error {
 	return writeJSON(filepath.Join(absPath(*out), "viewer.json"), viewerFile{ID: viewers[0].ID, Username: viewers[0].Username, Token: viewers[0].PlexToken})
 }
 
-func setBind(path, addr string) error {
+func setServer(path, addr string, port int) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -444,6 +489,7 @@ func setBind(path, addr string) error {
 		return errors.New("config has no server section")
 	}
 	server["bindAddress"] = addr
+	server["port"] = port
 	out, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
