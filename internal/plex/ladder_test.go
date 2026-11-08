@@ -153,3 +153,16 @@ func testLadderPlaylistTraversalWithoutPlexHeaders(t *testing.T, container strin
 		}
 	}
 }
+
+func TestStartHLSSingleRungUsesSessionBandwidth(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
+	f.trans.rungs = []core.HLSRung{{ID: "base", Bandwidth: 421000}}
+	path := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=single-peak&protocol=hls&directStream=1"
+	f.get(t, decisionPath(path))
+	rec := f.get(t, path)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "PROGRAM-ID=1,BANDWIDTH=421000,") {
+		t.Fatalf("single-rung master: %d %s", rec.Code, rec.Body.String())
+	}
+}

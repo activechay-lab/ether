@@ -1397,8 +1397,13 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 	// ABR (AVPlayer, hls.js) steps between them and the session starts a
 	// rung's encoder lazily on its first segment request. The primary
 	// rung keeps the historic "base" URI.
+	baseBandwidth := 0
 	if ls, ok := hs.(core.HLSLadderSession); ok {
-		if rungs := ls.Rungs(); len(rungs) > 1 {
+		rungs := ls.Rungs()
+		if len(rungs) == 1 {
+			baseBandwidth = rungs[0].Bandwidth
+		}
+		if len(rungs) > 1 {
 			var b strings.Builder
 			b.WriteString("#EXTM3U\n")
 			for _, rg := range rungs {
@@ -1441,6 +1446,11 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 		bw = transcode.HLSCopyPeakKbps(info, segDur)
 	} else if dec.BitrateKbps > 0 {
 		bw = dec.BitrateKbps
+	}
+	// A single-rung session still owns measured copy peaks and ramp rate
+	// controls. Keep the legacy attribute layout but use its actual budget.
+	if baseBandwidth > 0 {
+		bw = (baseBandwidth + 999) / 1000
 	}
 	if bw <= 0 {
 		bw = 8000
