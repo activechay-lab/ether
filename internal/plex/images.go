@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -53,8 +54,67 @@ func resizeTMDBURL(u string, width int) string {
 // artPath picks the TMDB path for an item's element.
 type refreshingArtworkCatalog struct{ core.Catalog }
 
+// memoryTitles is the catalogue's read of titles held without a row
+// (catalog.MemoryTitle).
+type memoryTitles interface {
+	MemoryTitle(context.Context, core.RatingKey) (*core.Title, bool, error)
+}
+
+// StoredTitle reads a stored title through Get, which refreshes a stale
+// row. A search or list hit without a row is read from memory: fetching its
+// thumbnail must not promote it into the library (Get would).
 func (c refreshingArtworkCatalog) StoredTitle(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+	if m, ok := c.Catalog.(memoryTitles); ok {
+		t, stored, err := m.MemoryTitle(ctx, key)
+		switch {
+		case err != nil:
+			return nil, err
+		case t != nil:
+			return t, nil
+		case !stored:
+			return nil, core.ErrNotFound
+		}
+	}
 	return c.Get(ctx, key)
+}
+
+// serveGeneratedPoster serves Ether's poster for a movie or show the viewer
+// may see that has no artwork. Seasons and episodes point at their show's
+// thumb, so they reach this through the show.
+func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, key core.RatingKey, element string, width int) bool {
+	if s.d.GeneratedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != core.KindMovie && key.Kind() != core.KindShow) {
+		return false
+	}
+	ctx := r.Context()
+	t, err := (refreshingArtworkCatalog{s.d.Catalog}).StoredTitle(ctx, key)
+	if err != nil || t == nil || t.Key != key || t.Adult || t.IsFutureRelease(s.now()) || !s.visibleTitle(ctx, FromContext(ctx).User, t) {
+		return false
+	}
+	p, ok := artwork.ForTitle(t)
+	if !ok {
+		return false
+	}
+	p.Width = width
+	data, ct, err := s.d.GeneratedPosters.Title(ctx, p)
+	if err != nil {
+		return false
+	}
+	if data, ct, err = s.androidPhotoFormat(r, data, ct); err != nil {
+		return false
+	}
+	h := w.Header()
+	setArtworkHeaders(h, ct)
+	if plexAndroidClient(FromContext(ctx)) {
+		h.Add("Vary", "X-Plex-Product")
+	}
+	h.Set("Cache-Control", "max-age=604800, private")
+	h.Add("Vary", "X-Plex-Token")
+	h.Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(data)
+	}
+	return true
 }
 func (s *Server) artPath(ctx context.Context, key core.RatingKey, element string) (string, int, error) {
 	source := (FrontendArtwork{Server: s}).source()
@@ -101,7 +161,7 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key core
 			t, e = s.scheduledEpisode(r.Context(), FromContext(r.Context()), key)
 		}
 		if e != nil {
-			if s.servePlexOverlayImage(w, r, key, element) {
+			if s.servePlexOverlayImage(w, r, key, element) || (raw == "" && s.serveGeneratedPoster(w, r, key, element, width)) {
 				return
 			}
 			writeHTTPError(w, http.StatusNotFound)
@@ -118,7 +178,7 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key core
 			path = ""
 		}
 		if path == "" {
-			if s.servePlexOverlayImage(w, r, key, element) {
+			if s.servePlexOverlayImage(w, r, key, element) || (raw == "" && s.serveGeneratedPoster(w, r, key, element, width)) {
 				return
 			}
 			writeHTTPError(w, http.StatusNotFound)

@@ -231,6 +231,7 @@ type Catalog struct {
 	consoleGateGen atomic.Uint64
 	listSummaryMu  sync.Mutex
 	listSummaries  map[core.RatingKey]listSummary
+	posters        posterResolver // posters.go
 
 	startupContext    context.Context
 	metadataMu        sync.RWMutex

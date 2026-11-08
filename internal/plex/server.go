@@ -88,9 +88,14 @@ type SessionToucher interface {
 type Deps struct {
 	// PlexEncoder optionally dispatches authenticated universal playback through
 	// the shared broker; nil preserves the existing local encoder path.
-	PlexEncoder         PlexEncoder
-	ArtworkImages       *artworkservice.RemoteCache
-	ArtworkPalettes     *artworkservice.PaletteCache
+	PlexEncoder     PlexEncoder
+	ArtworkImages   *artworkservice.RemoteCache
+	ArtworkPalettes *artworkservice.PaletteCache
+	// GeneratedPosters draws Ether's poster for a movie or show with no
+	// artwork; nil leaves such titles without a thumb.
+	GeneratedPosters interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 	SessionCoordination *sessions.Coordination
 	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []core.Title) []core.Title

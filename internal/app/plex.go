@@ -176,6 +176,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	if a.artwork != nil {
 		deps.ArtworkImages = a.artwork.Images
 		deps.ArtworkPalettes = a.artwork.Palettes
+		deps.GeneratedPosters = a.artwork.Generated
 	}
 	if !cfg.Spike.Enabled && a.db != nil {
 		db := a.db

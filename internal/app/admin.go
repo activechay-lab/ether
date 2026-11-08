@@ -203,10 +203,11 @@ func (a *App) buildAdmin() http.Handler {
 		CatalogVisibility: func(ctx context.Context, specs []core.LibraryExclusion, fallback string) (any, error) {
 			return a.catalog.PreviewVisibilityPolicy(ctx, specs, fallback)
 		},
-		Images:      a.images,
-		PlexWatch:   a.plexWatchAPI(),
-		PlexServers: a.plexServersAPI(),
-		Prerolls:    a.prerollAdmin(),
+		Images:       a.images,
+		TitlePosters: a.titlePosters(),
+		PlexWatch:    a.plexWatchAPI(),
+		PlexServers:  a.plexServersAPI(),
+		Prerolls:     a.prerollAdmin(),
 	}
 	// Optional role-owned dependencies stay absent until a real local or private
 	// service supplies them. This preserves console/auth/config/catalog without

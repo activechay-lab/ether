@@ -67,6 +67,7 @@ func (h *Handler) collectionRoutes(mux *http.ServeMux, api func(string, http.Han
 	api("GET /api/catalog/title/{key}/season/{season}", h.handleCatalogTitleSeason)
 	api("GET /api/catalog/title/{key}/releases", h.handleCatalogTitleReleases)
 	mux.HandleFunc("GET /api/image", h.handleImage)
+	mux.HandleFunc("GET /api/image/generated", h.handleGeneratedImage)
 }
 
 // collectionView is a spec plus browser-loadable artwork.

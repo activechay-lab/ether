@@ -867,10 +867,16 @@ func (i *instance) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hints := make([]any, 0, len(result.Page.Items))
+	// Hints carry the poster grant as PrimaryImageTag, as Jellyfin's do;
+	// without it clients draw every result as a blank card.
+	images := i.gridListImages(r, result.Page.Items)
 	for _, t := range result.Page.Items {
 		id := ids.RatingKeyGUID(t.Key)
 		kind := map[frontend.MediaType]string{"movie": "Movie", "show": "Series", "season": "Season", "episode": "Episode"}[t.Type]
 		hint := map[string]any{"Id": id, "ItemId": id, "Name": t.Title, "Type": kind, "ProductionYear": t.Year, "IsFolder": t.Type == "show" || t.Type == "season"}
+		if tags, ok := images[t.Key]["ImageTags"].(map[string]string); ok && tags["Primary"] != "" {
+			hint["PrimaryImageTag"] = tags["Primary"]
+		}
 		if i.protocol == "jellyfin" {
 			if t.Type == "movie" || t.Type == "episode" {
 				hint["MediaType"] = "Video"
