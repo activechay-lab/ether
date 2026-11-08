@@ -90,3 +90,62 @@ func TestInputHealthNeverWaitsOnInputLocks(t *testing.T) {
 		t.Fatalf("health during the reconnect: %+v", h)
 	}
 }
+
+// A program change is published in the health snapshot as soon as the tap
+// parses it at the live edge.
+func TestInputHealthPublishesFormatGeneration(t *testing.T) {
+	g := &tsGen{cc: map[int]byte{}, dts: 900000, gop: 12}
+	var before, after []byte
+	for range 24 {
+		before = append(before, g.next()...)
+	}
+	g.ac3 = true
+	for range 24 {
+		after = append(after, g.next()...)
+	}
+	release := make(chan struct{})
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp2t")
+		w.Write(before)
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Write(after)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer up.Close()
+	s := testService(t, Options{HTTPClient: up.Client()})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ss := &session{ctx: ctx, cancel: cancel, info: SessionInfo{ID: "fmt", Channel: Channel{ID: "fmt", Kind: "iptv"}}}
+	if err := s.grantInput(ss, StreamSource{ID: "a", URL: up.URL + "/live.ts"}, http.Header{}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.revokeInput(ss)
+	input, _ := s.relayInput(ss)
+	res, err := http.Get(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	go io.Copy(io.Discard, res.Body)
+	wait := func(want uint64) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if h, ok := s.inputHealth(ss); ok && h.FormatGeneration == want {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		h, _ := s.inputHealth(ss)
+		t.Fatalf("format generation %d, want %d", h.FormatGeneration, want)
+	}
+	wait(1)
+	close(release)
+	wait(2)
+}
