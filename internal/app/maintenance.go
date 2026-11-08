@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/mcp"
 	"github.com/braedonsaunders/ether/internal/schedule"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -57,6 +58,7 @@ func (a *App) pruners() []pruner {
 	add("experience", a.db != nil, func(ctx context.Context) (int64, error) { return experience.PruneRowViews(ctx, a.db) })
 	add("mcp", a.db != nil, func(ctx context.Context) (int64, error) { return mcp.PruneOAuth(ctx, a.db) })
 	add("sessions", a.frontends != nil && a.frontends.broker != nil, func(ctx context.Context) (int64, error) { return a.frontends.broker.Prune(ctx) })
+	add("sessions_version_ids", a.db != nil, func(ctx context.Context) (int64, error) { return sessions.PruneVersionIDs(ctx, a.db, time.Now()) })
 	add("segcache", a.cache != nil, func(ctx context.Context) (int64, error) { return a.cache.Prune(ctx) })
 	add("watchlist", a.watchlist != nil, func(ctx context.Context) (int64, error) { return a.watchlist.Prune(ctx) })
 	add("notify", a.notifications != nil, func(ctx context.Context) (int64, error) { return a.notifications.Prune(ctx) })
