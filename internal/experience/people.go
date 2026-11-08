@@ -715,6 +715,107 @@ func (s *Service) personCredit(ctx context.Context, viewer *core.Viewer, _ core.
 
 var _ frontend.PeopleReader = (*Service)(nil)
 
+// PersonCreditRef names one person's credit on one title.
+type PersonCreditRef struct {
+	Item core.RatingKey
+	TMDB int64
+}
+
+// WithPersonCredits is WithPersonCredit for several credits in one policy
+// proof: one people read, the credited titles read in one batch before and
+// once after the callbacks (the same recheck WithPersonCredit makes per
+// credit). read is called for each credit that is current and visible, in
+// order; a credit that is not is skipped (skip reports which).
+func (s *Service) WithPersonCredits(ctx context.Context, viewer *core.Viewer, device core.Device, refs []PersonCreditRef, read func(i int, current *core.User, person frontend.PersonDetail, title core.Title) error) (skipped []bool, err error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
+	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
+	defer cancel()
+	if read == nil {
+		return nil, core.ErrNotAvailable
+	}
+	skipped = make([]bool, len(refs))
+	err = s.readPeople(ctx, viewer, func(snapshot *Service) error {
+		current, err := snapshot.viewer(ctx, viewer)
+		if err != nil {
+			return err
+		}
+		resolve := func() (map[core.RatingKey]core.Title, Visibility, error) {
+			keys := make([]core.RatingKey, 0, len(refs))
+			seen := map[core.RatingKey]bool{}
+			for _, r := range refs {
+				if !seen[r.Item] {
+					seen[r.Item] = true
+					keys = append(keys, r.Item)
+				}
+			}
+			titles, err := snapshot.d.CachedGetMany(ctx, keys)
+			if err != nil {
+				return nil, Visibility{}, err
+			}
+			visibility, err := snapshot.peopleVisibility(ctx, titles)
+			return titles, visibility, err
+		}
+		credit := func(titles map[core.RatingKey]core.Title, visibility Visibility, r PersonCreditRef) (frontend.PersonDetail, core.Title, bool, error) {
+			title, ok := titles[r.Item]
+			if !ok || title.Key != r.Item || r.TMDB <= 0 || !peopleTitleVisible(ctx, current, &title, visibility) {
+				return frontend.PersonDetail{}, core.Title{}, false, nil
+			}
+			var best visiblePerson
+			for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
+				for _, c := range group {
+					if c.TMDB == r.TMDB && c.Name != "" {
+						if best, err = mergeVisiblePerson(best, c, title.Key); err != nil {
+							return frontend.PersonDetail{}, core.Title{}, false, err
+						}
+					}
+				}
+			}
+			if best.detail.ID != facetID("person", strconv.FormatInt(r.TMDB, 10)) {
+				return frontend.PersonDetail{}, core.Title{}, false, nil
+			}
+			return best.detail, title, true, nil
+		}
+		titles, visibility, err := resolve()
+		if err != nil {
+			return err
+		}
+		ids := make([]string, len(refs))
+		for i, r := range refs {
+			person, title, ok, err := credit(titles, visibility, r)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				skipped[i] = true
+				continue
+			}
+			ids[i] = person.ID
+			if err := read(i, current, person, title); err != nil {
+				return err
+			}
+		}
+		// The recheck: every credit read is still current.
+		titles, visibility, err = resolve()
+		if err != nil {
+			return err
+		}
+		for i, r := range refs {
+			if skipped[i] {
+				continue
+			}
+			person, _, ok, err := credit(titles, visibility, r)
+			if err != nil {
+				return err
+			}
+			if !ok || person.ID != ids[i] {
+				return core.ErrNotFound
+			}
+		}
+		return nil
+	})
+	return skipped, err
+}
+
 // WithPersonCredit keeps a host's cache-only descriptor read in the same
 // durable policy proof as the exact current credit. The callback must not
 // publish data; its output is valid only after this method returns success.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -79,13 +80,54 @@ func (s *surfaceExperience) People(ctx context.Context, viewer *frontend.Viewer,
 	if err != nil {
 		return nil, err
 	}
+	// Every person's portrait in one policy proof (one people read and two
+	// batched title reads), not a read per person.
+	refs := make([]experience.PersonCreditRef, len(people))
 	for n, person := range people {
-		people[n], err = s.personArtwork(ctx, viewer, device, person)
-		if err != nil {
-			return nil, err
+		refs[n] = experience.PersonCreditRef{Item: person.ArtworkItem, TMDB: person.TMDB}
+	}
+	out := make([]frontend.PersonDetail, len(people))
+	skipped, err := s.Service.WithPersonCredits(ctx, viewer, device, refs, func(n int, current *core.User, credit frontend.PersonDetail, title core.Title) error {
+		if credit.ID != people[n].ID {
+			return core.ErrNotFound
+		}
+		var err error
+		out[n], err = s.withPersonImage(ctx, current, device, credit, title)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for n := range skipped {
+		if skipped[n] {
+			// As personArtwork: a credit that is no longer current fails the read.
+			return nil, core.ErrNotFound
 		}
 	}
-	return people, nil
+	return out, nil
+}
+
+// withPersonImage adds the person's portrait descriptor to credit.
+func (s *surfaceExperience) withPersonImage(ctx context.Context, current *core.User, device frontend.Device, credit frontend.PersonDetail, title core.Title) (frontend.PersonDetail, error) {
+	artwork, ok := s.artwork.(frontend.PersonArtwork)
+	if !ok {
+		return credit, nil
+	}
+	images, err := artwork.PersonImages(ctx, frontend.ArtworkRequest{Viewer: current, Device: device, Item: credit.ArtworkItem}, title)
+	if errors.Is(err, core.ErrUnauthorized) || errors.Is(err, core.ErrNotFound) {
+		return frontend.PersonDetail{}, core.ErrNotFound
+	}
+	if err != nil {
+		return credit, nil
+	}
+	subject := "tmdb:" + strconv.FormatInt(credit.TMDB, 10)
+	for _, image := range images {
+		if image.Kind == frontend.ImagePerson && image.Subject == subject && image.Path != "" {
+			credit.Images = append(credit.Images, image)
+			break
+		}
+	}
+	return credit, nil
 }
 func (s *surfaceExperience) Person(ctx context.Context, viewer *frontend.Viewer, device frontend.Device, id string, options frontend.PersonReadOptions) (frontend.PersonDetail, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
