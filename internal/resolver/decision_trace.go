@@ -126,7 +126,7 @@ func decisionRank(winner string, c CandidateTrace) int {
 }
 
 func ceilingRejection(reason string) bool {
-	switch NormalizeReason(reason) {
+	switch reason {
 	case ReasonAboveProfileMaxResolution, ReasonAboveClientMaxResolution, "dolby vision not allowed for client", "size too large for runtime":
 		return true
 	default:
