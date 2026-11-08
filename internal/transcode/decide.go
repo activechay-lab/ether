@@ -629,6 +629,12 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 			caps: caps, heightCap: heightCap, bitrateCap: bitrateCap, burn: burn, audioFilters: d.AudioFilters,
 		})
 	}
+	// Native tvOS accepts MP3 files but rejects MP3 in our TS/fMP4 HLS
+	// output (AVPlayer -11848). Preserve direct play and other clients.
+	if a != nil && a.Codec == "mp3" && outputContainer(caps, opts, "h264", a.Codec) != ContainerMatroska &&
+		clientreg.HasQuirk(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: caps.Device, Version: caps.Version}, "plex-appletv-hls-mp3-to-aac") {
+		audioIssues = append(audioIssues, "native Apple TV HLS requires MP3 audio conversion")
+	}
 	// A nonseekable Matroska header cannot acquire AAC AudioSpecificConfig
 	// from later ADTS packets, even with aac_adtstoasc. Convert that track
 	// so the encoder supplies the header before streamed output starts

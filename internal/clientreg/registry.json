@@ -497,7 +497,7 @@
     {
       "id": "plex-appletv-hdr10-base",
       "role": "quirk",
-      "quirks": ["plex-appletv-hdr10-base"],
+      "quirks": ["plex-appletv-hdr10-base", "plex-appletv-hls-mp3-to-aac"],
       "match": {
         "all": [
           {"field": "product", "op": "contains", "value": "plex"},
