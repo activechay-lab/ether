@@ -209,6 +209,25 @@ rows in all, against a tenth of it. It takes too long for every push, so
 `.github/workflows/perf-nightly.yml` runs it nightly on main and on demand
 (`workflow_dispatch`, any ref). It uses the same debt file and thresholds.
 
+The nightly workflow runs the same pair on PostgreSQL too
+(`ETHER_PERF_GATE_PG=postgres://…`): each library is copied into a schema
+of its own as `ether cluster init` does, analysed, and replayed with the
+same steps and thresholds.
+
+On every push the PostgreSQL CI job also runs `TestPostgresHotPlans`
+(`internal/app/perf_pg_plans_test.go`, about a minute): it replays Home,
+Continue Watching and On Deck, sorted and filtered section pages, search
+and detail against a 2k-movie library on PostgreSQL 14, and explains every
+read those requests ran as a generic plan, twice: with the statistics
+ANALYZE leaves (a catalogue small next to a heavy viewer's history, where
+PostgreSQL likes to hash a whole catalogue subquery), and with every
+catalogue table's planner statistics scaled to a 1.3M-title mirror and the
+watch tables' to a large household (`pg_class.reltuples`). It fails on a
+hashed subplan over a catalogue table in either state, and at mirror scale
+on a sequential scan of a catalogue or watch table or a bitmap heap scan
+without an index condition. Writes, and statements PostgreSQL cannot
+prepare without parameter types, are listed as not checked.
+
 `go run ./cmd/etherperf fixture -scale large -out DIR` (also `quick`,
 `small`, `xsmall`, `xlarge`) writes a gate library as a data directory
 that `etherperf real -source DIR` replays.

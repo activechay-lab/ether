@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/perfharness"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -27,6 +30,10 @@ import (
 // PerfGateEnv runs TestPerformanceGate. CI sets it in its own job; see
 // docs/performance.md.
 const PerfGateEnv = "ETHER_PERF_GATE"
+
+// PerfGatePGEnv, a postgres:// URL, runs each scale of the gate on
+// PostgreSQL instead of SQLite.
+const PerfGatePGEnv = "ETHER_PERF_GATE_PG"
 
 // gateClients are replayed against both scales: one client per protocol.
 // Plex Web replays its own short sequence (webSequence). Clients run in
@@ -353,6 +360,15 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 	db.Close()
 	t.Logf("%s: generated %d catalogue rows in %s", name, scale.Rows(), time.Since(start).Round(time.Millisecond))
+	if pg := os.Getenv(PerfGatePGEnv); pg != "" {
+		// The same library on PostgreSQL: copied in as `ether cluster init`
+		// does, into a schema of its own, and analysed as daily maintenance
+		// leaves it.
+		copied := time.Now()
+		drop := perfGatePostgres(t, ctx, dir, name, pg)
+		defer drop()
+		t.Logf("%s: copied into PostgreSQL in %s", name, time.Since(copied).Round(time.Millisecond))
+	}
 
 	trace := filepath.Join(dir, "trace.jsonl")
 	t.Setenv(PerfTraceEnv, trace)
@@ -483,6 +499,39 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 	t.Logf("%s: replayed in %s", name, time.Since(start).Round(time.Millisecond))
 	return rows
+}
+
+// perfGatePostgres copies the generated library in dir into a new schema on
+// the PostgreSQL server at rawURL and points dir's settings at it, as `ether
+// cluster init` does. The returned function drops the schema.
+func perfGatePostgres(t *testing.T, ctx context.Context, dir, name, rawURL string) func() {
+	t.Helper()
+	admin, err := sql.Open(store.PostgresDriverName, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := fmt.Sprintf("ether_gate_%s_%d", name, time.Now().UnixNano())
+	if _, err := admin.ExecContext(ctx, `CREATE SCHEMA `+schema); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	if err := clusterconfig.Init(ctx, clusterconfig.InitOptions{DataDir: dir, DatabaseURL: u.String()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.ExecContext(ctx, `SET search_path TO `+schema+`; ANALYZE`); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		_, _ = admin.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+		admin.Close()
+	}
 }
 
 // moveFile renames src to dst, copying across filesystems (a temp dir on

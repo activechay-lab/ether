@@ -47,3 +47,47 @@ jobs:
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/perf-gate-xlarge.md" ]; then cat "$RUNNER_TEMP/perf-gate-xlarge.md" >> "$GITHUB_STEP_SUMMARY"; fi
+
+  # The same pair on PostgreSQL: each library is copied in as `ether cluster
+  # init` does and analysed, then replayed with the same steps and the same
+  # flat-work rule. PostgreSQL plans the same SQL differently, and a plan that
+  # is an index seek on SQLite can read the catalogue whole there.
+  performance-full-mirror-postgres:
+    name: Full-mirror (1.3M titles) performance gate on PostgreSQL 14
+    timeout-minutes: 340
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: ether
+          POSTGRES_PASSWORD: ether
+          POSTGRES_DB: ether
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ether -d ether"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Performance gate on PostgreSQL (128k / 1.28M titles)
+        env:
+          CGO_ENABLED: "0"
+          ETHER_PERF_GATE: xlarge
+          ETHER_PERF_GATE_PG: postgres://ether:ether@127.0.0.1:5432/ether?sslmode=disable
+          ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate-xlarge-postgres.md
+        run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 330m -v
+      - name: Publish the gate report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/perf-gate-xlarge-postgres.md" ]; then cat "$RUNNER_TEMP/perf-gate-xlarge-postgres.md" >> "$GITHUB_STEP_SUMMARY"; fi
