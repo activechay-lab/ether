@@ -46,6 +46,8 @@ func main() {
 		err = runSizes(ctx, os.Args[2:])
 	case "syncbench":
 		err = runSyncBench(ctx, os.Args[2:])
+	case "tailbench":
+		err = runTailBench(ctx, os.Args[2:])
 	case "pgcopy":
 		err = runPGCopy(ctx, os.Args[2:])
 	default:

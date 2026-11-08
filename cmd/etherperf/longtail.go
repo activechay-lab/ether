@@ -230,3 +230,27 @@ func runSyncBench(ctx context.Context, args []string) error {
 	}
 	return nil
 }
+
+// runTailBench measures compact long-tail layouts built from TMDB's daily
+// id exports: see perfharness.RunTailBench.
+func runTailBench(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("tailbench", flag.ExitOnError)
+	movies := f.String("movies", "", "movie_ids_MM_DD_YYYY.json.gz")
+	shows := f.String("shows", "", "tv_series_ids_MM_DD_YYYY.json.gz")
+	dir := f.String("out", "", "directory for the SQLite layouts")
+	pgURL := f.String("pg", "", "also measure PostgreSQL layouts in this (scratch) database")
+	_ = f.Parse(args)
+	if *movies == "" || *shows == "" || *dir == "" {
+		return fmt.Errorf("-movies, -shows and -out are required")
+	}
+	if err := os.MkdirAll(*dir, 0o755); err != nil {
+		return err
+	}
+	rows, err := perfharness.LoadTailExports(*movies, *shows)
+	if err != nil {
+		return err
+	}
+	vs, err := perfharness.RunTailBench(ctx, rows, *dir, *pgURL)
+	perfharness.WriteTailBench(os.Stdout, len(rows), vs)
+	return err
+}
