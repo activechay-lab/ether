@@ -205,6 +205,8 @@ type Server struct {
 	shelfRefMu       sync.Mutex
 	shelfRefs        map[string]shelfRef
 	shelfRefRebuilt  time.Time
+	guidResolveMu    sync.Mutex
+	guidResolving    map[string]bool
 	home             *homeCache
 
 	d      Deps

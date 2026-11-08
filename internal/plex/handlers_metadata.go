@@ -80,16 +80,22 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		// are skipped, as unknown keys in a key list are.
 		guids := strings.Split(raw, ",")
 		var keys []core.RatingKey
+		var unknown []string
 		for _, guid := range guids {
-			k, err := s.d.PlexGUID.ExactKey(ctx, strings.TrimSpace(guid))
+			guid = strings.TrimSpace(guid)
+			k, err := s.d.PlexGUID.ExactKey(ctx, guid)
 			if err != nil {
 				if len(guids) == 1 {
 					return nil, err
+				}
+				if errors.Is(err, core.ErrNotFound) {
+					unknown = append(unknown, guid)
 				}
 				continue
 			}
 			keys = append(keys, k)
 		}
+		s.resolveGUIDsLater(unknown)
 		if len(keys) == 0 {
 			return nil, core.ErrNotFound
 		}
