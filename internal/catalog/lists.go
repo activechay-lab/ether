@@ -241,7 +241,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 			f := c.visibilityFor(ctx)
 			for _, item := range items {
 				if localKeys[item.Key] {
-					if c.visibleWith(f, &item) {
+					if c.visibleFor(ctx, f, &item) {
 						filtered = append(filtered, item)
 					}
 				} else if visible, ok := remoteVisible[item.Key]; ok {
@@ -1037,7 +1037,7 @@ func (c *Catalog) byExternalID(ctx context.Context, source, id string, typ core.
 func (c *Catalog) releasedTitles(ctx context.Context, items []core.Title) []core.Title {
 	out := make([]core.Title, 0, len(items))
 	for _, t := range items {
-		if !t.Adult && t.IsReleased(c.now()) && c.visibleWith(c.visibilityFor(ctx), &t) {
+		if !t.Adult && t.IsReleased(c.now()) && c.visibleFor(ctx, c.visibilityFor(ctx), &t) {
 			out = append(out, t)
 		}
 	}

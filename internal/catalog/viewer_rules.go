@@ -193,13 +193,55 @@ func (c *Catalog) viewerFilter(id int64, search bool) *libraryfilter.Filter {
 	}
 	return c.visibilityFilter()
 }
+
+// strictViewer reports a viewer whose catalogue rules must fail closed on
+// titles they cannot judge: one with their own ("custom") rule set, or a
+// restricted one (a rating cap or section limits). The owner, inheriting and
+// exempted profiles keep the fail-open behaviour.
+func (c *Catalog) strictViewer(id int64, restricted bool) bool {
+	if restricted {
+		return true
+	}
+	if id == 0 {
+		return false
+	}
+	c.viewerRules.RLock()
+	v, ok := c.viewerRules.entries[id]
+	c.viewerRules.RUnlock()
+	return ok && v.document.Mode == "custom"
+}
+
+func userRestricted(u *core.User) bool {
+	return u != nil && (u.MaxContentRating != "" || len(u.AllowedSections) > 0)
+}
+
+// undecided reports a title f cannot judge that the catalogue holds no
+// details for: a remote summary, or a stored row whose details were never
+// fetched. One indexed point read, only for titles that are undecidable.
+func (c *Catalog) undecided(f *libraryfilter.Filter, t *core.Title) bool {
+	if f.Passive() || f.Decidable(t) {
+		return false
+	}
+	var detail int
+	err := c.db.QueryRowContext(context.Background(), `SELECT detail FROM catalog_titles WHERE key=?`, int64(t.Key)).Scan(&detail)
+	return err != nil || detail == 0
+}
+
+// strictVisible is visibleWith plus the fail-closed rule for strict viewers.
+func (c *Catalog) strictVisible(f *libraryfilter.Filter, strict bool, t *core.Title) bool {
+	if strict && c.undecided(f, t) {
+		return false
+	}
+	return c.visibleWith(f, t)
+}
+
 func (c *Catalog) VisibleForViewer(u *core.User, t *core.Title) bool {
 	var id int64
 	if u != nil {
 		id = u.ID
 	}
 	// Direct lookup and playback retain browsing-only titles.
-	return c.visibleWith(c.viewerFilter(id, true), t)
+	return c.strictVisible(c.viewerFilter(id, true), c.strictViewer(id, userRestricted(u)), t)
 }
 func (c *Catalog) viewerPaging(ctx context.Context, f core.Filter) core.Filter {
 	f.CatalogCandidates = core.CatalogCandidates(ctx)
@@ -233,7 +275,7 @@ func (c *Catalog) DiscoveryVisibleForViewer(u *core.User, t *core.Title) bool {
 	if u != nil {
 		id = u.ID
 	}
-	return c.visibleWith(c.viewerFilter(id, false), t)
+	return c.strictVisible(c.viewerFilter(id, false), c.strictViewer(id, userRestricted(u)), t)
 }
 
 // RefreshViewerRules follows viewer removal or merge after the lifecycle transaction.
