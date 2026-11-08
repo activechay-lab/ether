@@ -139,22 +139,31 @@ func TestWALBudgetWaitsForPinnedReader(t *testing.T) {
 	if over, _, err := walOverBudget(ctx, db, 64<<10); err != nil || over {
 		t.Fatalf("reader released, bulk writer still paused: over=%v %v", over, err)
 	}
-	// An announced long read holds bulk writers until it ends, and one that
-	// outlasts walWaitMax is reported by name.
+	// An announced long read holds bulk writers until it ends, however
+	// long that is (walWaitMax bounds only readers we do not know of).
 	defer func(d time.Duration) { walWaitMax = d }(walWaitMax)
-	walWaitMax = 200 * time.Millisecond
+	walWaitMax = 50 * time.Millisecond
 	end := BeginLongRead(db, "integrity check")
-	var blocked *WALBlockedError
-	if err := WaitWALBudget(ctx, db); !errors.As(err, &blocked) || blocked.Reader != "integrity check" {
-		t.Fatalf("long read did not hold the bulk writer: %v", err)
-	}
-	walWaitMax = 10 * time.Second
-	go func() { time.Sleep(200 * time.Millisecond); end() }()
+	go func() { time.Sleep(300 * time.Millisecond); end() }()
 	started := time.Now()
 	if err := WaitWALBudget(ctx, db); err != nil {
 		t.Fatalf("long read ended, bulk writer still paused: %v", err)
 	}
-	if time.Since(started) < 150*time.Millisecond {
+	if time.Since(started) < 250*time.Millisecond {
 		t.Fatal("bulk writer did not wait for the long read")
+	}
+	// A reader we do not know of is reported once walWaitMax has passed.
+	if _, err := reader.ExecContext(ctx, `BEGIN`); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.QueryRowContext(ctx, `SELECT COUNT(*) FROM wal_budget`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO wal_budget SELECT zeroblob(1048576) FROM (SELECT 1 UNION ALL SELECT 2) x, (SELECT 1 UNION ALL SELECT 2) y, (SELECT 1 UNION ALL SELECT 2) z, (SELECT 1 UNION ALL SELECT 2) w, (SELECT 1 UNION ALL SELECT 2) v, (SELECT 1 UNION ALL SELECT 2) u, (SELECT 1 UNION ALL SELECT 2) q`); err != nil {
+		t.Fatal(err)
+	}
+	var blocked *WALBlockedError
+	if err := WaitWALBudget(ctx, db); !errors.As(err, &blocked) {
+		t.Fatalf("pinned WAL past journal_size_limit not reported: %v", err)
 	}
 }
