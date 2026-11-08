@@ -67,6 +67,8 @@ type StreamSourceStatus struct {
 	LastPlayed  time.Time `json:"lastPlayed,omitempty"`
 	RetryAfter  time.Time `json:"retryAfter,omitempty"`
 	LastError   string    `json:"lastError,omitempty"`
+	// Learned is what the source's history says about its media.
+	Learned *LearnedSourceHealth `json:"learned,omitempty"`
 }
 
 type streamSourceHealth struct {
@@ -256,7 +258,9 @@ func (s *Service) StreamSourceStatuses(ctx context.Context, channelID string) ([
 	}
 	out := make([]StreamSourceStatus, 0, len(c.StreamSources))
 	for _, src := range c.StreamSources {
-		out = append(out, s.sourceStatus(c.ID, src))
+		st := s.sourceStatus(c.ID, src)
+		st.Learned = s.learnedHealth(c.ID, src)
+		out = append(out, st)
 	}
 	return out, nil
 }

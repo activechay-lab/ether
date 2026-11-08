@@ -1311,6 +1311,7 @@
   "m_0553642f9a45aa": "Nooit boven positie",
   "m_0554ee071cc108": "Het wekelijks rapport e-mailen",
   "m_055538c0f7d2c4": "Voeg onder Meer opties een bron voor definities toe om trackersites te doorzoeken",
+  "m_0555a0f1209710": "keyframes ver uit elkaar",
   "m_0555e8f56bb436": "TMDB API-sleutel",
   "m_05579bd20cb8e9": "Er wordt niets geïmporteerd. Neem minstens één groep op.",
   "m_055a2ecff5a79a": "Installatie voorbereid voor jouw goedkeuring",
@@ -3634,6 +3635,7 @@
   },
   "m_0ee883b536fd73": "Geen groepen gevonden.",
   "m_0ee88d90b1c907": "Toegevoegd bij de laatste synchronisatie",
+  "m_0ee993ff04e4e4": "start geconverteerd voor een schoon beeld",
   "m_0eefa80957450e": "Dit gidskanaal heeft de komende {count} uur niets gepland.",
   "m_0ef1993442fea0": "Bronnen verbeteren tot",
   "m_0ef1b410be60af": "Bitratelimiet",
@@ -4120,6 +4122,7 @@
   "m_10cf99d2baac75": "Browserpush vereist HTTPS (of localhost), een ondersteunde browser en toestemming voor meldingen. Installeer Ether op iPhone of iPad op je beginscherm en open het daar.",
   "m_10d1c3a6096e59": "De serie kon niet worden vergeten",
   "m_10d1c4dca0d133": "Nog niet gecontroleerd: externe toegang staat uit.",
+  "m_10d31415ce0d33": "beeldschade gezien",
   "m_10d3afaf9a99c4": "De programma's voor {channel} komen van het gidskanaal dat je kiest.",
   "m_10d5152b10c948": "Opslag: {size}",
   "m_10d709cc7b697b": "Server toevoegen",
@@ -5788,6 +5791,10 @@
   },
   "m_178d316181b924": "Herstarten…",
   "m_178dc1fcbddc99": "Rijen die Plex zelf levert",
+  "m_178e5f518f2efb": {
+    "one": "{count} formaatwijziging",
+    "other": "{count} formaatwijzigingen"
+  },
   "m_178e82b68358b3": "stappen",
   "m_17907beac3a219": "Een debrid-account toevoegen",
   "m_1790f3628a5db7": "Recente aanroepen",
@@ -6614,6 +6621,10 @@
   "m_1ac946fceccf3d": "Streamstabiliteit ingesteld op {name}",
   "m_1ac96195e626ad": "Ether-ontwerp",
   "m_1acae0294a1669": "Regel {n} slepen",
+  "m_1acbb68bd15774": {
+    "one": "{count} onderbreking per uur",
+    "other": "{count} onderbrekingen per uur"
+  },
   "m_1acca9e3e215d8": "Posters van een XRDB-server.",
   "m_1accac7df48579": "Maak daarna een join-token om je volgende machine toe te voegen.",
   "m_1ace5c1441b2b7": "Serverstatus: {status}",

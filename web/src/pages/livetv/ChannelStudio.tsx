@@ -952,6 +952,7 @@ function SourceHealth({ status }: { status?: SourceStatus }) {
     label: status.state,
     className: "bg-bg-subtle text-fg-subtle",
   };
+  const learned = status.learned;
   const detail = [
     status.failures ? tn(status.failures, "{count} failure", "{count} failures") : "",
     played ? t("played {when}", { when: relativeTime(played) }) : "",
@@ -959,6 +960,15 @@ function SourceHealth({ status }: { status?: SourceStatus }) {
       ? t("retry {when}", { when: relativeTime(retry) })
       : "",
     status.lastError ?? "",
+    learned?.damage ? t("picture damage seen") : "",
+    learned?.longGop ? t("keyframes far apart") : "",
+    learned?.stallsPerHour
+      ? tn(learned.stallsPerHour, "{count} stall per hour", "{count} stalls per hour")
+      : "",
+    learned?.formatChanges
+      ? tn(learned.formatChanges, "{count} format change", "{count} format changes")
+      : "",
+    learned?.startsConverted ? t("starts converted for a clean picture") : "",
   ]
     .filter(Boolean)
     .join(" · ");

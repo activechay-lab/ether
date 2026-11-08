@@ -48,6 +48,9 @@ type ownedShared struct {
 	cancel context.CancelFunc
 	refs   int
 	linger *time.Timer
+	// sessions are the viewers on this timeline (guarded by the registry
+	// lock); a hand-off to Steady runs under one of them.
+	sessions map[*session]struct{}
 }
 
 // ownedLease is a session's hold on a timeline.
@@ -100,6 +103,14 @@ func (s *Service) acquirePassthrough(ss *session) *ownedLease {
 			src: ss.inputSource, raw: ss.inputURL, headers: ss.inputHeaders.Clone(), suggest: make(chan sourceChoice, 1)}
 		sh = &ownedShared{key: key, tl: tl, p: p, ctx: ctx, cancel: cancel}
 		st.channels[key] = sh
+		p.viewer = func() *session {
+			st.mu.Lock()
+			defer st.mu.Unlock()
+			for v := range sh.sessions {
+				return v
+			}
+			return nil
+		}
 		go tl.run(ctx)
 		go p.run(ctx)
 		log.Info("owned passthrough timeline created", "reserve", tl.reserve, "class", key)
@@ -112,12 +123,21 @@ func (s *Service) acquirePassthrough(ss *session) *ownedLease {
 		}
 	}
 	sh.refs++
+	if sh.sessions == nil {
+		sh.sessions = map[*session]struct{}{}
+	}
+	sh.sessions[ss] = struct{}{}
 	if sh.linger != nil {
 		sh.linger.Stop()
 		sh.linger = nil
 	}
 	st.mu.Unlock()
-	return &ownedLease{tl: sh.tl, source: sh.p.sourceID, release: func() { s.releaseShared(sh, capped) }}
+	return &ownedLease{tl: sh.tl, source: sh.p.sourceID, release: func() {
+		st.mu.Lock()
+		delete(sh.sessions, ss)
+		st.mu.Unlock()
+		s.releaseShared(sh, capped)
+	}}
 }
 
 func (s *Service) releaseShared(sh *ownedShared, capped bool) {
@@ -225,6 +245,22 @@ type passthroughProducer struct {
 	errs       int
 	reresolved bool
 	healthAt   time.Time
+	// stalls counts ladder episodes since the last history report.
+	stalls     int64
+	reportedAt time.Time
+	// viewer returns a session on this timeline; the Steady hand-off fields
+	// are guarded by steadyMu (the loop and the hand-off goroutine share
+	// them).
+	viewer        func() *session
+	steadyMu      sync.Mutex
+	steady        SteadyFeed
+	steadyReady   SteadyFeed
+	steadyBusy    bool
+	steadyRetryAt time.Time
+	steadyClass   string
+	churnAt       []time.Time
+	seenSplices   int
+	seenSkipped   int64
 }
 
 // open points the producer at a source: it selects the variant (keeping a
@@ -297,7 +333,22 @@ func (p *passthroughProducer) run(ctx context.Context) {
 	}
 	warmed := false
 	backoff := 250 * time.Millisecond
+	defer p.reportHistory()
+	defer p.closeSteady()
 	for ctx.Err() == nil {
+		if p.takeSteady() {
+			continue
+		}
+		if p.onSteady() {
+			// Steady owns recovery for the whole channel now; the
+			// timeline's deadline and slate still guard it.
+			p.ingest.step(ctx)
+			sleepCtx(ctx, 250*time.Millisecond)
+			continue
+		}
+		if time.Since(p.reportedAt) >= 30*time.Second {
+			p.reportHistory()
+		}
 		if p.ingest == nil {
 			if !sleepCtx(ctx, 2*time.Second) || !p.failover(ctx) {
 				continue
@@ -307,6 +358,7 @@ func (p *passthroughProducer) run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		p.watchChurn(ctx)
 		now := time.Now()
 		if progress {
 			p.errs, p.reresolved, p.rounds, backoff = 0, false, 0, 250*time.Millisecond
@@ -355,6 +407,8 @@ func (p *passthroughProducer) run(ctx context.Context) {
 			// Second rung: re-resolve the same source (fresh tokens,
 			// redirects and plugin/Xtream resolution).
 			p.reresolved = true
+			p.stalls++
+			p.churn(ctx, "stall")
 			p.log.Warn("owned passthrough re-resolving source", "stale", stale, "errors", p.errs, "err", errString(err))
 			if rerr := p.reresolve(ctx); rerr != nil {
 				p.log.Warn("owned passthrough re-resolution failed", Diagnose("source_resolve", rerr).LogAttrs()...)
@@ -399,6 +453,23 @@ type sourceChoice struct {
 	src     StreamSource
 	raw     string
 	headers http.Header
+}
+
+// reportHistory hands what the passthrough received since the last report
+// to the source's history: media, skipped segments, stall episodes. Owned
+// passthrough reads the provider directly, not through the input relay that
+// records the other paths.
+func (p *passthroughProducer) reportHistory() {
+	p.reportedAt = time.Now()
+	if p.ingest == nil {
+		return
+	}
+	ev := SourceEvidence{Media: p.ingest.media, DamageEvents: p.ingest.skipped, Stalls: p.stalls}
+	p.ingest.media, p.ingest.skipped, p.stalls = 0, 0, 0
+	if ev == (SourceEvidence{}) {
+		return
+	}
+	p.s.noteSourceEvidence(p.c.ID, p.src, ev)
 }
 
 func (p *passthroughProducer) reresolve(ctx context.Context) error {

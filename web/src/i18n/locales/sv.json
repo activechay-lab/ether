@@ -1311,6 +1311,7 @@
   "m_0553642f9a45aa": "Aldrig högre upp än plats",
   "m_0554ee071cc108": "Skicka veckorapporten via e-post",
   "m_055538c0f7d2c4": "Lägg till en definitionskälla under Fler alternativ för att söka på trackerwebbplatser",
+  "m_0555a0f1209710": "nyckelbilder långt isär",
   "m_0555e8f56bb436": "TMDB API-nyckel",
   "m_05579bd20cb8e9": "Inget importeras. Ta med minst en grupp.",
   "m_055a2ecff5a79a": "Förberedde installationen för ditt godkännande",
@@ -3634,6 +3635,7 @@
   },
   "m_0ee883b536fd73": "Inga grupper matchar.",
   "m_0ee88d90b1c907": "Tillagda vid senaste synkroniseringen",
+  "m_0ee993ff04e4e4": "startar konverterad för en ren bild",
   "m_0eefa80957450e": "Den här guidekanalen har inget schemalagt de närmaste {count} timmarna.",
   "m_0ef1993442fea0": "Förbättra källor upp till",
   "m_0ef1b410be60af": "Bitrategräns",
@@ -4120,6 +4122,7 @@
   "m_10cf99d2baac75": "Webbläsarpush kräver HTTPS (eller localhost), en webbläsare som stöds och behörighet för notiser. På iPhone eller iPad installerar du Ether på hemskärmen och öppnar det därifrån.",
   "m_10d1c3a6096e59": "Det gick inte att glömma serien",
   "m_10d1c4dca0d133": "Inte kontrollerat ännu: fjärråtkomst är av.",
+  "m_10d31415ce0d33": "bildfel upptäckta",
   "m_10d3afaf9a99c4": "Programinformation för {channel} kommer från den guidekanal du väljer.",
   "m_10d5152b10c948": "Lagring: {size}",
   "m_10d709cc7b697b": "Lägg till server",
@@ -5788,6 +5791,10 @@
   },
   "m_178d316181b924": "Startar om…",
   "m_178dc1fcbddc99": "Rader som Plex själv tillhandahåller",
+  "m_178e5f518f2efb": {
+    "one": "{count} formatbyte",
+    "other": "{count} formatbyten"
+  },
   "m_178e82b68358b3": "steg",
   "m_17907beac3a219": "Lägg till ett debrid-konto",
   "m_1790f3628a5db7": "Senaste anrop",
@@ -6614,6 +6621,10 @@
   "m_1ac946fceccf3d": "Strömstabilitet inställd på {name}",
   "m_1ac96195e626ad": "Ether-design",
   "m_1acae0294a1669": "Dra regel {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} avbrott per timme",
+    "other": "{count} avbrott per timme"
+  },
   "m_1acca9e3e215d8": "Affischer från en XRDB-server.",
   "m_1accac7df48579": "Skapa sedan en anslutningstoken för att lägga till nästa maskin.",
   "m_1ace5c1441b2b7": "Serverstatus: {status}",

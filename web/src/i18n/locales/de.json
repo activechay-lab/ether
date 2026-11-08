@@ -1311,6 +1311,7 @@
   "m_0553642f9a45aa": "Nie über Position",
   "m_0554ee071cc108": "Wochenbericht per E-Mail senden",
   "m_055538c0f7d2c4": "Füge unter Weitere Optionen eine Definitionsquelle hinzu, um Tracker-Seiten zu durchsuchen",
+  "m_0555a0f1209710": "Schlüsselbilder weit auseinander",
   "m_0555e8f56bb436": "TMDB-API-Schlüssel",
   "m_05579bd20cb8e9": "Es wird nichts importiert. Nimm mindestens eine Gruppe auf.",
   "m_055a2ecff5a79a": "Installation zur Freigabe vorbereitet",
@@ -3634,6 +3635,7 @@
   },
   "m_0ee883b536fd73": "Keine passenden Gruppen.",
   "m_0ee88d90b1c907": "In der letzten Synchronisierung hinzugefügt",
+  "m_0ee993ff04e4e4": "startet umgewandelt für ein sauberes Bild",
   "m_0eefa80957450e": "Für diesen Programmkanal ist in den nächsten {count} Stunden nichts geplant.",
   "m_0ef1993442fea0": "Quellen verbessern bis",
   "m_0ef1b410be60af": "Bitrate-Limit",
@@ -4120,6 +4122,7 @@
   "m_10cf99d2baac75": "Browser-Push benötigt HTTPS (oder localhost), einen unterstützten Browser und die Berechtigung für Benachrichtigungen. Installiere Ether auf iPhone oder iPad auf dem Home-Bildschirm und öffne es dort.",
   "m_10d1c3a6096e59": "Die Serie konnte nicht vergessen werden",
   "m_10d1c4dca0d133": "Noch nicht geprüft: Fernzugriff ist aus.",
+  "m_10d31415ce0d33": "Bildstörungen erkannt",
   "m_10d3afaf9a99c4": "Die Programmeinträge für {channel} stammen vom gewählten Programmkanal.",
   "m_10d5152b10c948": "Speicher: {size}",
   "m_10d709cc7b697b": "Server hinzufügen",
@@ -5788,6 +5791,10 @@
   },
   "m_178d316181b924": "Wird neu gestartet…",
   "m_178dc1fcbddc99": "Reihen, die Plex selbst bereitstellt",
+  "m_178e5f518f2efb": {
+    "one": "{count} Formatwechsel",
+    "other": "{count} Formatwechsel"
+  },
   "m_178e82b68358b3": "Schritte",
   "m_17907beac3a219": "Ein Debrid-Konto hinzufügen",
   "m_1790f3628a5db7": "Letzte Aufrufe",
@@ -6614,6 +6621,10 @@
   "m_1ac946fceccf3d": "Stream-Stabilität auf {name} gesetzt",
   "m_1ac96195e626ad": "Ether-Design",
   "m_1acae0294a1669": "Regel {n} ziehen",
+  "m_1acbb68bd15774": {
+    "one": "{count} Aussetzer pro Stunde",
+    "other": "{count} Aussetzer pro Stunde"
+  },
   "m_1acca9e3e215d8": "Poster von einem XRDB-Server.",
   "m_1accac7df48579": "Erstelle danach ein Beitritts-Token, um deinen nächsten Rechner hinzuzufügen.",
   "m_1ace5c1441b2b7": "Serverzustand: {status}",

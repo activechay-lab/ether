@@ -184,6 +184,14 @@ export type SourceStatus = {
   lastPlayed?: string;
   retryAfter?: string;
   lastError?: string;
+  /** What the source's history says about its media. */
+  learned?: {
+    damage?: boolean;
+    longGop?: boolean;
+    stallsPerHour?: number;
+    formatChanges?: number;
+    startsConverted?: boolean;
+  };
 };
 export type PreviewSession = {
   id: string;
