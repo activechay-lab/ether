@@ -122,3 +122,15 @@ func swapNames() []string {
 	}
 	return out
 }
+
+// ReplacePopularityIndexes runs the post-start index swap now (benchmarks
+// and tools; Run does it once the rank is built).
+func (c *Catalog) ReplacePopularityIndexes(ctx context.Context) error { return c.swapTitleIndexes(ctx) }
+
+// SetRankReady turns the rank's read paths on or off, so a benchmark can
+// compare the same pages both ways. Production sets it by building the
+// rank.
+func (c *Catalog) SetRankReady(on bool) {
+	c.rankReady.Store(on)
+	c.writeGen.Add(1)
+}

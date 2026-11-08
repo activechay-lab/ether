@@ -254,3 +254,29 @@ func runTailBench(ctx context.Context, args []string) error {
 	perfharness.WriteTailBench(os.Stdout, len(rows), vs)
 	return err
 }
+
+// runRankBench measures the popularity rank on a catalogue copy: see
+// perfharness.RunRankBench.
+func runRankBench(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("rankbench", flag.ExitOnError)
+	path := f.String("db", "", "SQLite catalogue copy (modified)")
+	pgURL := f.String("pg", "", "PostgreSQL catalogue copy instead (modified)")
+	_ = f.Parse(args)
+	if (*path == "") == (*pgURL == "") {
+		return fmt.Errorf("exactly one of -db or -pg is required")
+	}
+	var db *sql.DB
+	var err error
+	if *pgURL != "" {
+		db, _, err = store.OpenWith(ctx, store.Options{URL: *pgURL})
+	} else {
+		db, err = store.OpenPath(ctx, *path)
+	}
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	steps, pages, err := perfharness.RunRankBench(ctx, db, *path)
+	perfharness.WriteRankBench(os.Stdout, steps, pages)
+	return err
+}
