@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	_ "github.com/braedonsaunders/ether/internal/catalog"
+	"github.com/braedonsaunders/ether/internal/core"
 	_ "github.com/braedonsaunders/ether/internal/favorites"
 	_ "github.com/braedonsaunders/ether/internal/livetv"
 	_ "github.com/braedonsaunders/ether/internal/safety"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 )
