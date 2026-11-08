@@ -184,3 +184,43 @@ func TestDownFailoverCopyContractAcrossCandidatePaths(t *testing.T) {
 		})
 	}
 }
+
+type rejectedSpeedSwapHLS struct{ *fakeHLS }
+
+func (h *rejectedSpeedSwapHLS) SwapInput(context.Context, string, core.MediaInfo, time.Duration) error {
+	return core.ErrNotAvailable
+}
+
+func TestDownFailoverRejectedSwapConsumesAttempt(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) {
+		speedOpts(o)
+		o.MaxDownFailovers = 1
+	})
+	ps := h.prepare(owner, movieKey, "rejected-swap")
+	s := h.m.lookup(ps.ID)
+	old := s.current()
+	f := &rejectedSpeedSwapHLS{h.tr.addHLS(ps.ID)}
+	h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
+	_, err := h.m.failoverWith(t.Context(), s, old, time.Second, failoverOpts{down: true})
+	if err == nil || s.current() != old || s.isClosed() {
+		t.Fatalf("rejected swap: err=%v closed=%v", err, s.isClosed())
+	}
+	s.mu.Lock()
+	misses := s.downMisses
+	s.mu.Unlock()
+	if misses != 1 {
+		t.Fatalf("rejected swap consumed %d attempts, want 1", misses)
+	}
+	h.clock.Advance(2 * time.Second)
+	feedFetches(s, 10, 64<<10, 200*time.Millisecond, h.clock.Now())
+	h.m.checkSpeeds()
+	s.speedMu.Lock()
+	checks := s.slowChecks
+	s.speedMu.Unlock()
+	if checks != 0 {
+		t.Fatal("speed monitor continued adaptation after attempt cap")
+	}
+	if h.resolver.isBad("A") || h.resolver.isBad("B") {
+		t.Fatal("rejected speed swap marked a release bad")
+	}
+}

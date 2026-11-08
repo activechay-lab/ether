@@ -21,7 +21,9 @@ import (
 // endpoint. A reader pulls each title as fast as the source delivers, like a
 // remux to HLS, and the delivered rate is reported against real time.
 //
-// This short synthetic transfer does not establish sustained 80 Mbit/s playback.
+// At 24 connections the raw ceiling is 12 MB/s before latency/encoding,
+// below the two readers' aggregate 20 MB/s target. A target miss is not a
+// regression. This short transfer does not establish sustained playback.
 // It is a measurement, not a gate: it moves 40 MiB through loopback sockets
 // and runs only with ETHER_MEASURE_USENET=1.
 func TestMeasureLatencyBoundStreamThroughput(t *testing.T) {
@@ -93,7 +95,7 @@ func TestMeasureLatencyBoundStreamThroughput(t *testing.T) {
 					}
 				}
 				took := time.Since(start)
-				// The steady rate excludes the first warmup bytes: connection
+				// The post-warmup rate excludes the initial bytes: connection
 				// set-up and the first per-fetch measurement.
 				rates[i] = float64(off-warmOff) / time.Since(warmAt).Seconds()
 				diag := ""

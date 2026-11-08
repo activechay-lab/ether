@@ -66,6 +66,13 @@ The normal pipeline ceiling was two. Final adaptive budgets were 9 and 18
 articles and maximum 26 accepted handler lifetimes for the configured 24-slot
 pool. That fixture count includes handler teardown; it does not prove the
 provider cap or live-connection fairness. No baseline comparison was run.
+The configured aggregate raw ceiling is 24 × 500,000 = 12,000,000 bytes/s
+before reply latency and encoding/framing overhead. The two nominal 10 MB/s
+targets total 20 MB/s and cannot both be met by this fixture. Missing that
+target is not regression evidence; increasing pools to satisfy it would change
+the experiment. The 1 MiB warmup and 8 MiB titles are too short to establish
+steady state. No raw-wire rate is measured by decoded-fetch counters.
+
 The tiny synthetic transfer does **not** sustain the 10 MB/s target, establish
 any speed improvement, or substitute for a real provider/player acceptance.
 

@@ -1202,6 +1202,10 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 			}
 			if changed {
 				m.Stop(s.id) // never leave an encoder pointed at a revoked input
+			} else if fo.down {
+				// Rejected handoffs are attempts too. Keep the original input,
+				// but do not retry an uncommittable replacement indefinitely.
+				m.noteFailedDownFailover(s, append(tried, g.releaseID()))
 			}
 			log.Error("hls input swap failed", "err", err)
 			return cur, fmt.Errorf("playback: swap hls input: %w", err)
