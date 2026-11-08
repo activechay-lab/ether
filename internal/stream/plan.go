@@ -110,6 +110,7 @@ type plan struct {
 	// clips, for a Blu-ray main feature of several clips, is where each clip's
 	// bytes end and how far its timestamps are from a continuous timeline.
 	clips []clipBoundary
+	spans []clipSpan // clips as byte ranges, built with the plan
 
 	// PAR2 verification verdict of the first volume (see verifyPar2).
 	par2Done bool

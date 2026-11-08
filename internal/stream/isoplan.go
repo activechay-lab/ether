@@ -274,6 +274,7 @@ func (b *builder) isoPlan(group []*disc, name string, files []isoFile) (*plan, e
 	// boundaries that add up to the whole file.
 	if timed && !mismatch && len(clips) == len(files) {
 		np.clips = clips
+		np.spans = clipSpans(clips)
 	}
 	return np, nil
 }
