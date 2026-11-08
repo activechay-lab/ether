@@ -5,6 +5,7 @@ import (
 	"context"
 	"image"
 	"image/png"
+	"os"
 	"testing"
 	"time"
 
@@ -20,6 +21,14 @@ import (
 func TestUnpersistedArtworkNeverQueuesRetentionTouch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	db := store.OpenTest(t)
+	wantDialect := store.SQLite
+	if os.Getenv(store.TestPostgresEnv) != "" {
+		wantDialect = store.Postgres
+	}
+	if got := store.DialectOf(db); got != wantDialect {
+		t.Fatalf("database dialect = %s, want %s", got, wantDialect)
+	}
+	t.Logf("database dialect: %s", store.DialectOf(db))
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 8, 6))); err != nil {
 		t.Fatal(err)

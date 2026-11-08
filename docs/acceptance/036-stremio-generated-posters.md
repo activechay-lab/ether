@@ -24,6 +24,12 @@ owner's requirement that every title have a poster.
   from PATH; standard Android home directories were absent. This does not
   establish device availability on other hosts. Coordinator device access
   and automation approval are pending; no devices or builds were started.
+- Coordinator inventory: Mac AVD definitions `plexcap` and
+  `ether_xtream_acceptance` describe ARM64 Android 34 Pixel 6 devices, but
+  SDK tools and system images are absent. The remaining SDK root is
+  `/opt/homebrew/share/android-commandlinetools`. Definitions alone do not
+  provide an executable native runtime. Do not recreate/download these AVDs
+  or repeat generic SDK searches. Provisioning is an explicit prerequisite.
 
 ## Bounded device verification
 
@@ -34,6 +40,46 @@ a conventional HTTPS image control, and an invalid-image negative control.
 Record app version, device/runtime, payload hash/size, view, screenshot, and
 image-loader errors. Repeat after cache clearing or unique synthetic IDs.
 Verify the generated title text is visible, not merely a placeholder.
+
+### Portable fixture and HTTP procedure (prepared, not executed)
+
+`scripts/stremio-poster-fixture/main.go` uses Ether's generated-poster renderer
+and writes a static addon with three synthetic titles: the actual JPEG as a
+data URI, the same JPEG over HTTPS, and an invalid JPEG negative control.
+The manifest exposes only catalog and meta resources, never playable media.
+`evidence.json` records payload SHA256 and size and starts with native rendering
+and HTTPS reachability explicitly unverified. The output directory must not
+already exist. No credentials or production metadata are required.
+
+Only after coordinator build and device approval, from the pinned source SHA:
+
+```sh
+go run ./scripts/stremio-poster-fixture \
+  -out /approved/scratch/poster-proof-run01 \
+  -run-id run01 \
+  -https-base https://approved-lab.example/poster-proof-run01
+```
+
+The HTTPS address is a placeholder: the coordinator must supply an existing
+approved lab mapping to that directory, reachable by the device. Do not deploy
+or change a public proxy to satisfy this example. If a local static listener
+is needed, explicitly approve its port/lifetime, bind it to loopback behind
+that mapping, serve JSON/JPEG with their correct content types, and enable
+`Access-Control-Allow-Origin: *` only for this synthetic fixture. Shut down
+the listener at the end. No listener is started by the generator.
+
+Before device use, fetch `manifest.json`,
+`catalog/movie/ether-poster-proof.json`, all three `meta/movie/*.json` paths,
+and `poster-run01.jpg` through the approved mapping. Check 200 responses,
+valid JSON, matching catalog/meta IDs, a decodable 200x300 JPEG under 48KiB,
+and the JPEG hash in `evidence.json`. This establishes HTTP/payload delivery
+only. Install the manifest on the isolated client, inspect the catalog and
+all detail views, capture each control, then remove the synthetic addon.
+Use a fresh run ID per platform/repeat to avoid old poster-cache results.
+Record source SHA, build command/result, runtime/app version, image hash,
+HTTPS control result, data-URI result, invalid control result, screenshots,
+and image-loader logs. A Pixel 6 AVD is a mobile runtime; do not call it
+Android TV proof merely because a TV APK can be installed.
 
 ## Reachable fallback design if data URIs fail
 
@@ -66,3 +112,8 @@ Row-count assertions alone miss UPDATEs against nonexistent rows.
 `TestUnpersistedArtworkNeverQueuesRetentionTouch` observes the undrained
 touch queue after real background hashing and repeated reads, and uses an
 old persisted row as a positive control for the retention path.
+The test uses `store.OpenTest`, which honors `ETHER_TEST_POSTGRES`; it now
+asserts and logs the selected dialect. PostgreSQL execution remains pending
+an approved backend. Its existing helper sweeps `ether_test_*` schemas older
+than two hours, so read-only preflight must find no eligible schemas before
+the approved one-test command can run. Do not drop another worker's schema.
