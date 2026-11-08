@@ -50,6 +50,9 @@ type Runner struct {
 	viewers []Viewer
 	owner   Viewer
 
+	// before, when set, runs before each request (the gate's quiesce).
+	before func(context.Context)
+
 	mu       sync.Mutex
 	results  []Result
 	sessions map[string]*session // viewer/client
@@ -132,6 +135,9 @@ func (r *Runner) runClient(ctx context.Context, phase string, c Client, v Viewer
 }
 
 func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st Step) {
+	if r.before != nil {
+		r.before(ctx)
+	}
 	now := time.Now()
 	r.mu.Lock()
 	s.vars["now"] = strconv.FormatInt(now.Unix(), 10)
@@ -203,6 +209,11 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 	r.saveBody(res, buf)
 	r.record(res)
 }
+
+// SetBefore runs fn before each request: the gate waits there for the
+// server's background work to finish, so every request starts from the
+// same state.
+func (r *Runner) SetBefore(fn func(context.Context)) { r.before = fn }
 
 // SetTimeout caps each request (60 s by default).
 func (r *Runner) SetTimeout(d time.Duration) { r.http.Timeout = d }

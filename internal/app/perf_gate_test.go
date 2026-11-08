@@ -444,6 +444,26 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	r := perfharness.NewRunner(port, true, viewers)
 	// A request this slow has already failed the ceiling; do not wait longer.
 	r.SetTimeout(15 * time.Second)
+	// Each request starts once the work earlier requests left behind them
+	// (catalogue refreshes, Home rebuilds, viewer models) is done, so its
+	// statements do not depend on that work's timing.
+	// Pre-request idle alone cannot stabilize a trace: a blocking hydration
+	// may retain the request's stats after its bounded wait expires. Finish
+	// that work before the observer snapshots it, without changing the recorded
+	// response duration or discarding any attributed database work.
+	a.perf.mu.Lock()
+	a.perf.settleTrace = func(ctx context.Context) {
+		if !a.quiesce(ctx, 30*time.Second) {
+			t.Errorf("%s: invalid performance measurement: background work did not settle before its trace snapshot", name)
+		}
+	}
+	a.perf.mu.Unlock()
+	quiesceMisses := 0
+	r.SetBefore(func(ctx context.Context) {
+		if !a.quiesce(ctx, 30*time.Second) {
+			quiesceMisses++
+		}
+	})
 	if path := os.Getenv("ETHER_PERF_GATE_CPUPROFILE"); path != "" && name == "large" {
 		// The large replay alone, without the fixture's generation.
 		if f, err := os.Create(path); err == nil {
@@ -514,6 +534,12 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 				t.Fatal(err)
 			}
 		}
+	}
+	if quiesceMisses > 0 {
+		// These measurements did not start from the promised idle state.
+		// Performance debt may excuse a known slow row, never an invalid
+		// measurement; fail independently of the debt comparison below.
+		t.Errorf("%s: invalid performance measurements: background work was still running before %d requests after 30 s", name, quiesceMisses)
 	}
 	byTag, _, err := perfharness.ReadTrace(trace)
 	if err != nil {
