@@ -89,7 +89,7 @@ func TestDetailAdmissionRollsBackAndYields(t *testing.T) {
 func TestTierCopyFailureKeepsCanonicalAndResumes(t *testing.T) {
 	c := admissionCatalog(t)
 	ctx := context.Background()
-	item := upsertItem{t: core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "touched"}, o: upsertOpts{detail: true}}
+	item := upsertItem{t: core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "touched"}, o: upsertOpts{detail: false}}
 	if err := c.upsertItems(ctx, []upsertItem{item}); err != nil {
 		t.Fatal(err)
 	}
