@@ -707,7 +707,13 @@ export function createFakeServer(opts: FakeOptions = {}) {
     plexDefaults: {} as Record<number, Record<string, unknown>>,
     clustered: opts.cluster ?? false,
     joinTokens: [] as JoinTokenInfo[],
-    backupSettings: { intervalHours: 24, retain: 7, lastRun: 0, sharedDir: "" },
+    backupSettings: {
+      intervalHours: 24,
+      retain: 7,
+      lastRun: 0,
+      sharedDir: "",
+      skipOnAirMedia: false,
+    },
     backups: [] as {
       name: string;
       size: number;
@@ -3382,7 +3388,12 @@ export function createFakeServer(opts: FakeOptions = {}) {
           warning: "",
         });
       case "POST /adoption/backups/settings": {
-        const next = body as { intervalHours: number; retain: number; sharedDir?: string };
+        const next = body as {
+          intervalHours: number;
+          retain: number;
+          sharedDir?: string;
+          skipOnAirMedia?: boolean;
+        };
         if (next.sharedDir && !state.clustered)
           return err(
             400,
@@ -3393,6 +3404,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
           ...state.backupSettings,
           intervalHours: next.intervalHours,
           retain: next.retain,
+          skipOnAirMedia: !!next.skipOnAirMedia,
           ...(next.sharedDir !== undefined ? { sharedDir: next.sharedDir } : {}),
         };
         return json({ ok: true });

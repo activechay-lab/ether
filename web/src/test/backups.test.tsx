@@ -116,7 +116,11 @@ describe("Backups & import", () => {
     );
     const save = calls.find((c) => c.url.endsWith("/adoption/backups/settings"))!;
     expect(save.init?.method).toBe("POST");
-    expect(JSON.parse(String(save.init?.body))).toEqual({ intervalHours: 12, retain: 7 });
+    expect(JSON.parse(String(save.init?.body))).toEqual({
+      intervalHours: 12,
+      retain: 7,
+      skipOnAirMedia: false,
+    });
   });
 
   it("keeps snapshots and imports on separate tabs", async () => {

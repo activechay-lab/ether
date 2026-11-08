@@ -351,7 +351,9 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	}
 	unreleased := int64(0)
 	release := func() {
+		start := time.Now()
 		n, e := store.ReleaseFreePages(ctx, s.db)
+		s.o.Logger.Debug("onair asset pages released", "pages", n, "took", time.Since(start))
 		st.Released += n
 		if e != nil && ctx.Err() == nil {
 			s.o.Logger.Warn("onair: freed asset pages not returned yet; daily maintenance retries", "err", e)
@@ -400,6 +402,7 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 		if e != nil {
 			return st, e
 		}
+		s.o.Logger.Debug("onair asset row emptied", "asset", d.digest, "bytes", d.size, "took", time.Since(start))
 		if n > 0 {
 			st.Emptied++
 			st.EmptiedBytes += d.size
