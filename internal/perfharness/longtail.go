@@ -213,7 +213,8 @@ type LongTailReport struct {
 	Universe       int
 	Browsable      int // titles in the universe meeting the default bar
 	Synced         time.Duration
-	Filled         int // released titles past the sync's year caps, stored through Get
+	Filled         int // released titles detailed through Get after the sync
+	FillWaited     int // of those, Gets that returned before their fetch landed
 	FillTook       time.Duration
 	Warmed         int
 	WarmTook       time.Duration
@@ -284,13 +285,15 @@ func GenerateLongTail(ctx context.Context, db *sql.DB, cfg LongTailConfig) (Long
 	// A discover year slice stops at 10,000 titles. A universe larger than
 	// that (the whole of TMDB) reaches the mirror through Get, the path a
 	// title outside the synced set takes when it is opened or searched: it
-	// is fetched in full and stored, browsable under the bar.
+	// is fetched in full and stored, browsable under the bar. The synced
+	// titles are detailed the same way, concurrently.
 	start = time.Now()
 	if !cfg.HideObscure {
 		if err := fillUnsynced(ctx, db, c, u, progress, &rep); err != nil {
 			return rep, err
 		}
 	}
+	c.WaitRefreshes()
 	rep.FillTook = time.Since(start)
 
 	start = time.Now()
@@ -400,13 +403,15 @@ func LoadTMDBYearCounts(raw []byte, capped bool) ([2]map[int]int, error) {
 	return out, nil
 }
 
-// fillUnsynced stores every released universe title the sync did not, with
-// four concurrent readers (the catalogue's writes still take turns).
+// fillUnsynced details every released universe title the sync did not
+// store or has not detailed yet, through Get (the path WarmDetails takes),
+// eight at a time (the catalogue's writes still take turns); WarmDetails
+// then finds nothing left.
 func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTailTMDB, progress func(string, int), rep *LongTailReport) error {
 	work := make(chan core.RatingKey, 256)
 	var failed atomic.Int64
 	var wg sync.WaitGroup
-	for range 4 {
+	for range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -430,7 +435,7 @@ func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTa
 			if len(keys) == 0 {
 				continue
 			}
-			rows, err := db.QueryContext(ctx, `SELECT key FROM catalog_titles WHERE key IN (`+strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")+`)`, keys...)
+			rows, err := db.QueryContext(ctx, `SELECT key FROM catalog_titles WHERE detail=1 AND key IN (`+strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")+`)`, keys...)
 			if err != nil {
 				return err
 			}
@@ -457,9 +462,10 @@ func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTa
 			progress("fill", rep.Filled)
 		}
 	}
-	if n := failed.Load(); n > 0 {
-		return fmt.Errorf("fill: %d titles failed", n)
-	}
+	// A Get that waited out its read budget leaves its fetch running
+	// detached; WaitRefreshes and the WarmDetails pass after this finish
+	// any that did not land.
+	rep.FillWaited = int(failed.Load())
 	return nil
 }
 
