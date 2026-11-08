@@ -30,7 +30,7 @@ func TestReleaseMatchIndexedOnLargeCatalogue(t *testing.T) {
 		q, index string
 		arg      any
 	}{
-		{releaseMatchCols + `JOIN catalog_release_names n ON n.key=t.key WHERE n.name=? LIMIT ?`, "sqlite_autoindex_catalog_release_names_1", "film 4321"},
+		{releaseMatchCols + `JOIN catalog_release_names n ON n.key=t.key WHERE n.name=? LIMIT ?`, "SEARCH n USING PRIMARY KEY (name=?)", "film 4321"},
 		{releaseMatchCols + `WHERE t.tmdb_id=? LIMIT ?`, "catalog_titles_tmdb", int64(4321)},
 		{releaseMatchCols + `WHERE t.imdb=? LIMIT ?`, "catalog_titles_imdb", "tt4321"},
 		{releaseMatchCols + `WHERE t.tvdb=? LIMIT ?`, "catalog_titles_tvdb", int64(4321)},
