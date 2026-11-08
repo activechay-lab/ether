@@ -718,6 +718,7 @@ func (ix *titleIndex) search(q searchQuery, wantMovie, wantShow bool, n int) []i
 			return ix.search(*r, wantMovie, wantShow, n)
 		}
 	}
+	ix.liftFranchise(q, hits, &scratch)
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].score != hits[j].score {
 			return hits[i].score > hits[j].score
@@ -728,6 +729,74 @@ func (ix *titleIndex) search(q searchQuery, wantMovie, wantShow bool, n int) []i
 		hits = hits[:n]
 	}
 	return hits
+}
+
+// searchFranchiseVotes is how many times the exact title's votes a title
+// the query begins needs to rank above it, for a query of two or more
+// words: "lord of the rings" is The Fellowship of the Ring (27k votes),
+// not the 1978 film called The Lord of the Rings (1.1k); "big bang" is The
+// Big Bang Theory (12.9k), not The Big Bang (152). The Godfather (21k)
+// keeps "the godfather" from Part II (13k), Mad Max (1979, 5.5k) keeps
+// "mad max" from Fury Road (23k).
+const (
+	searchFranchiseVotes    = 10
+	searchFranchiseMinVotes = 1000
+)
+
+// liftFranchise ranks a title the query begins just above the exact
+// titles when it has searchFranchiseVotes times the votes of every one.
+func (ix *titleIndex) liftFranchise(q searchQuery, hits []indexHit, scratch *[]int) {
+	content := 0
+	for _, w := range q.words {
+		if !isSearchFiller(w) {
+			content++
+		}
+	}
+	if content < 2 || q.relaxed || len(hits) < 2 {
+		return
+	}
+	exactVotes, exactScore := uint32(0), 0.0
+	for _, h := range hits {
+		if words := strings.Fields(ix.name(ix.nameAt[h.title])); scoreName(q, words, scratch) >= 0.96 {
+			exactVotes, exactScore = max(exactVotes, ix.votes[h.title]), max(exactScore, h.score)
+		}
+	}
+	if exactScore == 0 {
+		return
+	}
+	for i, h := range hits {
+		v := ix.votes[h.title]
+		if v < searchFranchiseMinVotes || v < searchFranchiseVotes*exactVotes || h.score >= exactScore {
+			continue
+		}
+		if titleBegins(q, strings.Fields(ix.name(ix.nameAt[h.title]))) {
+			// Above the exact titles, keeping these titles' own order.
+			hits[i].score = exactScore + 0.001 + h.score*0.001
+		}
+	}
+}
+
+// titleBegins reports whether q begins words (a title's own name) on a
+// word boundary, give or take a leading article, without being all of it.
+func titleBegins(q searchQuery, words []string) bool {
+	if len(words) == 0 || len(q.words) == 0 {
+		return false
+	}
+	join := strings.Join(words, "")
+	last := q.words[len(q.words)-1]
+	n := len(q.runes)
+	switch {
+	case join == q.join:
+		return false
+	case strings.HasPrefix(join, q.join):
+		return prefixScore(words, len(q.join)-len(last), last, 1, n) == 1
+	case q.noArticle != "" && strings.HasPrefix(join, q.noArticle) && join != q.noArticle:
+		return prefixScore(words, len(q.noArticle)-len(last), last, 1, n) == 1
+	case len(words) > 1 && isSearchArticle(words[0]):
+		na := strings.Join(words[1:], "")
+		return na != q.join && strings.HasPrefix(na, q.join) && prefixScore(words[1:], len(q.join)-len(last), last, 1, n) == 1
+	}
+	return false
 }
 
 // popularityPrior is up to 0.10 for how well known a title is: mostly its
