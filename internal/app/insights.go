@@ -44,6 +44,22 @@ func (a *App) buildInsights() {
 			return ""
 		}
 		return u.Username
+	}, Debrid: func() []stats.DebridSample {
+		if a.debrid == nil {
+			return nil
+		}
+		ps := a.debrid.Stats()
+		out := make([]stats.DebridSample, 0, len(ps))
+		for _, p := range ps {
+			out = append(out, stats.DebridSample{ID: p.ID, Requests: p.Requests, Failures: p.Failures, Cached: p.Cached, NotCached: p.NotCached, Blocked: p.Blocked, LinksRefreshed: p.LinksRefreshed, Reused: p.Reused})
+		}
+		return out
+	}, Stream: func() (stats.StreamSample, bool) {
+		if a.media == nil {
+			return stats.StreamSample{}, false
+		}
+		e := a.media.Stats()
+		return stats.StreamSample{MemoryHits: e.MemoryHits, DiskHits: e.DiskHits, BlocksFetched: e.BlocksFetched, BytesFetched: e.BytesFetched, Hedges: e.Hedges, HedgeWins: e.HedgeWins, LinkRefreshes: e.LinkRefreshes, Errors: e.Errors}, true
 	}, Newsletter: func(ctx context.Context, html string) error {
 		return a.notifications.Emit(ctx, notify.Event{Kind: "newsletter.weekly", Title: "Your week on Ether", Message: "Weekly viewing summary", HTML: html})
 	}})

@@ -84,12 +84,19 @@ type Options struct {
 	MetadataType func(core.RatingKey) int
 	// AccountName labels a user on Dashboard media rows.
 	AccountName func(int64) string
+	// Debrid and Stream report this node's cumulative debrid account and
+	// streaming-engine counters; the sampler keeps their daily growth.
+	Debrid func() []DebridSample
+	Stream func() (StreamSample, bool)
 }
 type Service struct {
 	db       *sql.DB
 	opts     Options
 	mu       sync.Mutex
 	previous map[string]usenet.ProviderStats
+	// prevDebrid and prevStream are the last debrid samples (under mu).
+	prevDebrid map[string]DebridSample
+	prevStream StreamSample
 	// vmu serializes play records: viewings maps playback sessions onto
 	// history rows, and a row's writes must land in observation order.
 	vmu      sync.Mutex
@@ -349,6 +356,18 @@ func (s *Service) Sample(ctx context.Context) {
 	if s.opts.Indexers != nil {
 		if v, err := s.opts.Indexers(ctx); err == nil {
 			s.snapshot(ctx, "indexers", v)
+		}
+	}
+	if s.opts.Debrid != nil {
+		if err := s.SnapshotDebrid(ctx, s.opts.Debrid()); err != nil {
+			s.opts.Logger.Warn("sample debrid stats", "err", err)
+		}
+	}
+	if s.opts.Stream != nil {
+		if v, ok := s.opts.Stream(); ok {
+			if err := s.SnapshotStream(ctx, v); err != nil {
+				s.opts.Logger.Warn("sample stream stats", "err", err)
+			}
 		}
 	}
 }

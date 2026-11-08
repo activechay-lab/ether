@@ -2,7 +2,7 @@ package stats
 
 import "context"
 
-// dailyRetentionDays bounds the per-day indexer and provider counters. The
+// dailyRetentionDays bounds the per-day indexer, provider and debrid counters. The
 // admin UI reads the current month; two years keeps year-over-year
 // comparisons possible without letting the tables grow forever. Plays
 // (stats_plays) are user history and are never pruned here.
@@ -16,6 +16,8 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 	for _, q := range []string{
 		`DELETE FROM stats_indexer_days WHERE day<?`,
 		`DELETE FROM stats_provider_days WHERE day<?`,
+		`DELETE FROM stats_debrid_days WHERE day<?`,
+		`DELETE FROM stats_stream_days WHERE day<?`,
 	} {
 		res, err := s.db.ExecContext(ctx, q, cutoff)
 		if err != nil {
