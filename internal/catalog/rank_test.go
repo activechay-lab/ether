@@ -11,10 +11,10 @@ import (
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-// The rank copies must always hold exactly the stored movies and shows,
-// with their browse columns: through inserts, changes, deletes and a
-// rebuild, on both copies (the live one and the one the next rebuild
-// replaces). A popularity change reaches the rank only at a rebuild.
+// The live rank copy must always hold exactly the stored movies and
+// shows, with their browse columns: through inserts, changes, deletes,
+// writes during a rebuild and the swap. A popularity change reaches the
+// rank only at a rebuild.
 func TestRankTracksCatalogue(t *testing.T) {
 	c := newChunkTestCatalog(t)
 	ctx := context.Background()
@@ -33,7 +33,11 @@ func TestRankTracksCatalogue(t *testing.T) {
 	}
 	check := func(label string) {
 		t.Helper()
-		for _, side := range []string{"a", "b"} {
+		var live string
+		if err := c.db.QueryRowContext(ctx, `SELECT v FROM catalog_meta WHERE k='rank_side'`).Scan(&live); err != nil {
+			t.Fatal(err)
+		}
+		for _, side := range []string{live} {
 			var missing, extra, differ int
 			q := `SELECT
  (SELECT COUNT(*) FROM catalog_titles t WHERE t.type IN ('movie','show') AND NOT EXISTS (SELECT 1 FROM catalog_rank_` + side + ` r WHERE r.key=t.key)),
