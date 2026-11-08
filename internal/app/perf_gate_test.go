@@ -525,7 +525,10 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 		}
 	}
 	if quiesceMisses > 0 {
-		t.Logf("%s: background work was still running before %d requests after 30 s", name, quiesceMisses)
+		// These measurements did not start from the promised idle state.
+		// Performance debt may excuse a known slow row, never an invalid
+		// measurement; fail independently of the debt comparison below.
+		t.Errorf("%s: invalid performance measurements: background work was still running before %d requests after 30 s", name, quiesceMisses)
 	}
 	byTag, _, err := perfharness.ReadTrace(trace)
 	if err != nil {
