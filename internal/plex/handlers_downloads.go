@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // Offline downloads (PMS Download Queue API). Each queue belongs to one
@@ -835,105 +836,79 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		s.downloads.mu.Unlock()
 	}
 
-	caps := it.caps
-	caps.Download = true
-	// A dedicated client identity keeps the download's playback session
-	// from colliding with a live stream of the same title on this
-	// device; it still counts against stream limits (it holds Usenet
-	// connections for the whole file). The run number keeps each job on
-	// its own session: Playback reuses a session per (user, client,
-	// title), so a restarted job, or a second queued copy of the title at
-	// another quality, would otherwise share it and be cut off by the
-	// other job's deferred Stop.
-	caps.ClientID = it.caps.ClientID + "/download/" + strconv.FormatInt(run, 10)
-	ps, err := s.d.Playback.Prepare(ctx, it.user, it.key, caps)
 	noRelease := func(err error) bool {
 		return err != nil && errors.Is(err, core.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
 	}
-	// The requested resolution describes the output, not the source. Try
-	// successively larger source ceilings only after the requested tier is
-	// exhausted, so the closest available tier still wins.
-	for _, height := range []int{1080, 2160} {
-		if !noRelease(err) || ctx.Err() != nil || caps.MaxHeight <= 0 || height <= caps.MaxHeight {
-			continue
-		}
-		sourceCaps := caps
-		sourceCaps.DownloadSourceMaxHeight = height
-		ps, err = s.d.Playback.Prepare(ctx, it.user, it.key, sourceCaps)
-	}
-	if err != nil {
-		if ctx.Err() != nil {
-			return
-		}
-		s.log.Warn("download preparation failed", "key", it.key, "err", err)
-		if noRelease(err) {
-			fail("No release available for download at this quality.")
-		} else {
-			fail(playbackMessage(err))
-		}
-		return
-	}
-	defer s.d.Playback.Stop(ps.ID)
-
-	s.downloads.mu.Lock()
-	if ctx.Err() != nil {
-		// Deleted or restarted while preparing: the item belongs to the
-		// next run now.
-		s.downloads.mu.Unlock()
-		return
-	}
-	it.status = downloadWaiting
-	it.duration = ps.Info.Duration
-	if v := ps.Info.Video(); v != nil {
-		it.videoCodec = v.Codec
-	}
-	for _, st := range ps.Info.Streams {
-		if st.Type == "audio" {
-			it.audioCodec = st.Codec
-			break
-		}
-	}
-	s.downloads.mu.Unlock()
-
-	var viewerID int64
-	if it.user != nil {
-		viewerID = it.user.ID
-	}
-	subtitle := -1
-	sel := resolveSelection(s.selections.get(viewerID, int64(it.key)), ps.Info)
-	if title, err := s.d.Catalog.Get(ctx, it.key); err == nil && title != nil {
-		sel = s.preferredSelection(ctx, it.user, it.key, ps.Info, title.Language, sel)
-	}
-	if sel.subtitleSet && sel.subtitle >= 0 && sel.subtitle < len(ps.Info.Streams) {
-		st := ps.Info.Streams[sel.subtitle]
-		if st.Type == "subtitle" && !st.External {
-			subtitle = st.Index
-		}
-	}
-	p, size, err := s.d.Downloads.RemuxDownload(ctx, core.DownloadRemuxRequest{
-		InputURL:    s.d.Playback.InputURL(ps.ID),
-		Info:        ps.Info,
-		AudioStream: -1,
-		ViewerID:    viewerID,
-		Caps:        caps,
-		Options: core.DecideOptions{
-			DirectPlay: false, DirectStream: true,
-			MaxBitrateKbps: it.bandwidth, MaxHeight: caps.MaxHeight, AudioStream: -1, SubtitleStream: subtitle,
-			BurnSubtitles: it.burn,
-		},
-	}, func(f float64) {
-		s.downloads.mu.Lock()
-		if ctx.Err() != nil {
+	job := sessions.DownloadJob{Playback: s.d.Playback, Remuxer: s.d.Downloads}
+	p, size, err := job.Run(ctx, sessions.DownloadRequest{Viewer: it.user, Item: it.key, Caps: it.caps, Run: run, NoRelease: noRelease,
+		Prepared: func(ps *core.PlaySession) (core.DecideOptions, error) {
+			s.downloads.mu.Lock()
+			if ctx.Err() != nil {
+				// Deleted or restarted while preparing: the item belongs to the
+				// next run now.
+				s.downloads.mu.Unlock()
+				return core.DecideOptions{}, ctx.Err()
+			}
+			it.status = downloadWaiting
+			it.duration = ps.Info.Duration
+			if v := ps.Info.Video(); v != nil {
+				it.videoCodec = v.Codec
+			}
+			for _, st := range ps.Info.Streams {
+				if st.Type == "audio" {
+					it.audioCodec = st.Codec
+					break
+				}
+			}
 			s.downloads.mu.Unlock()
+
+			var viewerID int64
+			if it.user != nil {
+				viewerID = it.user.ID
+			}
+			subtitle := -1
+			sel := resolveSelection(s.selections.get(viewerID, int64(it.key)), ps.Info)
+			if title, err := s.d.Catalog.Get(ctx, it.key); err == nil && title != nil {
+				sel = s.preferredSelection(ctx, it.user, it.key, ps.Info, title.Language, sel)
+			}
+			if sel.subtitleSet && sel.subtitle >= 0 && sel.subtitle < len(ps.Info.Streams) {
+				st := ps.Info.Streams[sel.subtitle]
+				if st.Type == "subtitle" && !st.External {
+					subtitle = st.Index
+				}
+			}
+			return core.DecideOptions{
+				DirectPlay: false, DirectStream: true,
+				MaxBitrateKbps: it.bandwidth, MaxHeight: it.caps.MaxHeight, AudioStream: -1, SubtitleStream: subtitle,
+				BurnSubtitles: it.burn,
+			}, nil
+		}, Progress: func(f float64) {
+			s.downloads.mu.Lock()
+			if ctx.Err() != nil {
+				s.downloads.mu.Unlock()
+				return
+			}
+			it.progress = f
+			if it.status == downloadWaiting {
+				it.status = downloadProcessing
+			}
+			s.downloads.mu.Unlock()
+		}})
+
+	if err != nil {
+		var preparation *sessions.DownloadPreparationError
+		if errors.As(err, &preparation) {
+			if ctx.Err() != nil {
+				return
+			}
+			s.log.Warn("download preparation failed", "key", it.key, "err", err)
+			if noRelease(err) {
+				fail("No release available for download at this quality.")
+			} else {
+				fail(playbackMessage(err))
+			}
 			return
 		}
-		it.progress = f
-		if it.status == downloadWaiting {
-			it.status = downloadProcessing
-		}
-		s.downloads.mu.Unlock()
-	})
-	if err != nil {
 		if ctx.Err() == nil {
 			s.log.Warn("download processing failed", "key", it.key, "err", err)
 		}
