@@ -287,14 +287,17 @@ type Catalog struct {
 	syncYears      [2]int // 0,0 = 1900..now+2
 
 	// High-speed in-memory read caches, invalidated atomically on writes.
-	writeGen    atomic.Uint64
-	cacheMu     sync.RWMutex
-	titleCache  map[core.RatingKey]cachedStoredTitle
-	countCache  map[string]cachedCount
-	browseCache map[string]cachedBrowse
-	grandCache  map[core.RatingKey]cachedBrowse
-	facetCache  map[string]cachedFacet
-	statsCache  cachedStats
+	writeGen atomic.Uint64
+	// frozenMinute drops the wall-clock minute from cache keys
+	// (FreezeCacheMinute).
+	frozenMinute atomic.Bool
+	cacheMu      sync.RWMutex
+	titleCache   map[core.RatingKey]cachedStoredTitle
+	countCache   map[string]cachedCount
+	browseCache  map[string]cachedBrowse
+	grandCache   map[core.RatingKey]cachedBrowse
+	facetCache   map[string]cachedFacet
+	statsCache   cachedStats
 
 	personMu       sync.Mutex
 	personHydrated map[int64]time.Time

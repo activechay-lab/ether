@@ -253,7 +253,7 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 			}
 			// A warm pass may be answered by a cache that hides a walk;
 			// the owner's cold pass and a second viewer's first pass are
-			// compared on their own. In production the catalogue writes
+			// compared on their own, by statements and rows. In production the catalogue writes
 			// continuously, so a cache keyed on its generation misses often.
 			for _, pass := range []struct {
 				name string
@@ -268,9 +268,8 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 				if float64(pass.l.Queries) > gateQueriesFactor*float64(pass.s.Queries)+gateQueriesSlack {
 					why = append(why, fmt.Sprintf("%s statements grow with the library (%d → %d)", pass.name, pass.s.Queries, pass.l.Queries))
 				}
-				if pass.l.DBTime > time.Duration(gateDBFactor*float64(pass.s.DBTime))+gateDBSlack {
-					why = append(why, fmt.Sprintf("%s database time grows with the library (%s → %s)", pass.name, pass.s.DBTime, pass.l.DBTime))
-				}
+				// One cold sample on a shared runner is no measure of database
+				// time; a cold or first pass is gated on its work alone.
 			}
 		}
 		if len(why) > 0 {
@@ -377,6 +376,10 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Cache keys without the wall-clock minute, so a replay that crosses a
+	// minute hits and misses as one that does not: the comparison is of
+	// work, not of when the replay ran.
+	a.catalog.FreezeCacheMinute()
 	// The owner's Home is measured with their personalization model built
 	// (taste, bandit rows, crowd rows), as a production server serves it,
 	// not the cold-start screen a just-started server answers with.

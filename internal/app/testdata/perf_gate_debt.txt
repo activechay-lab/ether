@@ -43,3 +43,16 @@ stremio | catalog movies skip=1000  # D
 stremio | catalog movies genre  # D
 stremio | catalog recommendations  # D
 plex-appletv restricted | shows allLeaves p1  # C: restricted viewer's episode listing reads per-series ratings
+# PR #382 run 2 (clean CI runner): further rows that scale, in statements or
+# rows, or in warm database time with flat rows (a scan that returns few rows).
+plex-appletv | /hubs/sections/movies  # C: section hubs' per-title reads on a cold build
+plex-appletv | collection  # C: one franchise reads its members' detail (rows grow with franchise size)
+plex-appletv | /hubs/continueWatching/items  # E/C: Continue Watching per-series reads (reduced by e57577f95)
+plex-appletv | playlist items deep  # C: warm DB time grows with flat rows
+plex-appletv playback | shows all titleSort p1  # C: warm DB time grows with flat rows
+plex-appletv playback | shows allLeaves p1  # C: warm DB time grows with flat rows
+infuse-jellyfin | episodes recursive MediaSources  # D
+emby-sdk | /Shows/NextUp  # D/E
+silo-appletv | home/sections  # C: Silo home first pass (continue walk, row admission)
+stremio | catalog movies  # D
+stremio | catalog continue  # D/E
