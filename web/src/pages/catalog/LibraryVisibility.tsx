@@ -23,6 +23,7 @@ import { formatNumber } from "../../lib/format";
 import type { Rule, RuleField } from "../../lib/contract";
 import { useAsync, useDebouncedValue } from "../../lib/hooks";
 import { describeRule, fieldMeta, isRuleComplete, type FieldMeta } from "../../lib/rules";
+import { titlePosterURL } from "../../lib/titles";
 import { RuleRow } from "../collections/RuleRow";
 
 export type VisibilityRule = {
@@ -537,10 +538,7 @@ function PosterRow({
         {items.slice(0, 24).map((item) => (
           <Artwork
             key={item.key}
-            src={
-              item.poster ??
-              (item.posterPath ? `https://image.tmdb.org/t/p/w185${item.posterPath}` : undefined)
-            }
+            src={item.poster ?? titlePosterURL(item, 185)}
             alt={item.title}
             className="aspect-[2/3] w-14 shrink-0 rounded-md"
           />

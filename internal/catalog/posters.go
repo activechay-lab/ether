@@ -35,8 +35,9 @@ const (
 	// posterLookupsPerPage caps the TMDB requests one search page starts.
 	posterLookupsPerPage = 8
 	// posterLookupWorkers bounds concurrent poster lookups across all
-	// requests, well inside TMDB's 40 requests a second at ~200 ms each.
-	posterLookupWorkers = 4
+	// requests: one page's lookups run in one round trip. The client's
+	// shared limiter (40 a second) still paces them against the sync.
+	posterLookupWorkers = posterLookupsPerPage
 	// posterQueueWait is how long a lookup waits for a worker before it
 	// gives up; the title keeps its generated poster and a later page asks
 	// again.

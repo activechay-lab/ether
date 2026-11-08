@@ -129,6 +129,7 @@ const maxQueryTitle = 200
 
 // Query encodes p for a URL whose request fully describes the image (the
 // owner console's image route): the same title always yields the same URL.
+// The key says movie or show.
 func (p TitlePoster) Query() url.Values {
 	q := url.Values{"k": {p.Key}, "t": {p.Title}}
 	if p.OriginalTitle != "" && p.OriginalTitle != p.Title {
@@ -137,16 +138,13 @@ func (p TitlePoster) Query() url.Values {
 	if p.Year > 0 {
 		q.Set("y", strconv.Itoa(p.Year))
 	}
-	if p.Show {
-		q.Set("s", "1")
-	}
 	return q
 }
 
 // TitlePosterFromQuery is Query's inverse; ok is false for a request no
 // Query call could have made.
 func TitlePosterFromQuery(q url.Values) (TitlePoster, bool) {
-	p := TitlePoster{Key: q.Get("k"), Title: q.Get("t"), OriginalTitle: q.Get("o"), Show: q.Get("s") == "1"}
+	p := TitlePoster{Key: q.Get("k"), Title: q.Get("t"), OriginalTitle: q.Get("o")}
 	if y := q.Get("y"); y != "" {
 		n, err := strconv.Atoi(y)
 		if err != nil || n < 1800 || n > 2200 {
@@ -154,8 +152,10 @@ func TitlePosterFromQuery(q url.Values) (TitlePoster, bool) {
 		}
 		p.Year = n
 	}
-	if _, err := strconv.ParseInt(p.Key, 10, 64); err != nil || len(p.Title) > maxQueryTitle || len(p.OriginalTitle) > maxQueryTitle {
+	key, err := core.ParseRatingKey(p.Key)
+	if err != nil || (key.Kind() != core.KindMovie && key.Kind() != core.KindShow) || len(p.Title) > maxQueryTitle || len(p.OriginalTitle) > maxQueryTitle {
 		return TitlePoster{}, false
 	}
+	p.Show = key.Kind() == core.KindShow
 	return p, true
 }
