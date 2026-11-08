@@ -426,7 +426,7 @@ func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error
 	if err != nil {
 		return nil, fmt.Errorf("stream: zip %s: %w", vols[0].Name(), err)
 	}
-	m := chooseMember(members)
+	m := b.chooseMember(members)
 	if m == nil {
 		return nil, fmt.Errorf("%w: zip %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}

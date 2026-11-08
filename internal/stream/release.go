@@ -134,8 +134,15 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("%w: nothing recognisable among %d files", ErrNoPlayableFile, len(b.rel.files))
 	}
-	if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
-		return nil, err
+	// A season held in archives (an nzb.MetaEpisode hint) may list the sets
+	// of other episodes too: one of them being broken or protected says
+	// nothing about the wanted episode's set, so every set is tried.
+	_, hinted := b.rel.doc.EpisodeHint()
+	hinted = hinted && len(cands) > 1
+	if !hinted {
+		if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
+			return nil, err
+		}
 	}
 	if b.candidateReady != nil {
 		b.candidateReady(cands[0].files)
@@ -159,7 +166,15 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		// Only fall through to smaller candidates when this one simply had
 		// no video; a broken or protected main archive rejects the release.
 		if !errors.Is(err, ErrNoPlayableFile) {
-			return nil, err
+			if !hinted || !IsRejection(err) {
+				return nil, err
+			}
+			// Report the set's real fault over another set's "no such
+			// episode" when nothing plays.
+			if firstErr == nil || errors.Is(firstErr, ErrNoPlayableFile) {
+				firstErr = err
+			}
+			continue
 		}
 		if firstErr == nil {
 			firstErr = err
