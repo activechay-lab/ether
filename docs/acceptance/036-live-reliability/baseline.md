@@ -17,6 +17,17 @@ go run ./cmd/transcodechaos -live full -live-parallel 4 \
 
 Run it outside any sandbox on macOS, or AVPlayer fails every item with -9405. The quick subset is `-live quick -live-parallel 6`; its result is `baseline-quick.{json,md}`. To compare a later run with this baseline, add `-live-baseline docs/acceptance/036-live-reliability/baseline.json`.
 
+## Judge corrections since this baseline
+
+The measurements below were made before these harness fixes. The JSON is left exactly as recorded; re-judging it with `-live-rescore` and the current criteria still gives 6 of 66.
+
+- **First-connect burst (fixed in `2017a22f0`).** The fake provider clamped a raw TS burst on the first connection to what it had produced since it started, about 1.5 s, instead of 8 s; bursts on reconnect were correct. `ts-stall-8s-burst8` (stalls on its first connection) therefore never received its burst, and `ts-rst-burst8` received it only after the reset. The finding that v0.3.5 has no reserve still holds, but these two rows did not test the burst on first join.
+- **First playlist versus target duration (rule added in `778f529e7`).** AVFoundation leaves a live item stuck for good, with no error, when the first media playlist response takes a whole target duration. `ts-long-gop-10s/relay-copy` "player never showed the channel" is this: its first playlist arrived 9.8 s after the tune against TD 4. The verdict stands; the cause was the startup hold, not the GOP. The protocol judge now fails this on any host.
+- **Playlist polling 0.5 s → 0.2 s (`4fd28b991`).** Longest no-new-segment figures here can read up to 0.5 s high. Only `hls-rst/steady` (6.0 s against a 6.0 s limit) is within that error, and it also fails on silence.
+- **Owner no-slowdown criteria for raw TS outage rows (`43a58c6a7`).** Under them, `ts-stall-8s`, `ts-stall-8s-burst8` and `ts-refuse-*` still fail on v0.3.5. The reasons are -12888 errors, 13–16 s freezes, and 15–20 s of slate against 10–12 s allowed.
+- **INVALID rows (`78a49a950`)** need the per-second player samples added after this baseline; no row here can be voided.
+- Rows added later (`hls-video-drop`, the 5.1 AC-3 variants) have no baseline.
+
 ## What the baseline shows
 
 - **Steady on raw TS:** about 20 s of "Reconnecting..." at every tune; TTFF is 22.5-22.9 s on every raw-TS Steady row. The broadcast startup burst writes a 16 s lead while the provider decoder prepares (4 s). HLS sources start in 2.7-3.6 s.

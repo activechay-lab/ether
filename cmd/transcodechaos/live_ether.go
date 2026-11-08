@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -72,64 +74,121 @@ type channelSetup struct {
 }
 
 func startLiveEther(ctx context.Context, ff, fp, work string, setup channelSetup) (*liveEther, livetv.Channel, error) {
-	e := &liveEther{work: work}
-	var err error
-	if e.logFile, err = os.Create(filepath.Join(work, "ether.log")); err != nil {
+	e, chs, err := startLiveEtherWith(ctx, ff, fp, work, []channelSetup{setup}, etherOptions{})
+	if err != nil {
 		return nil, livetv.Channel{}, err
 	}
+	return e, chs[0], nil
+}
+
+// etherOptions are the WS3 harness rows' extras: a store on disk that
+// survives a service restart (Reuse opens it again without importing), and a
+// Steady encode budget in cores (0 = the host's).
+type etherOptions struct {
+	DBPath string
+	Reuse  bool
+	Budget float64
+}
+
+// budgetTranscoder reports a fixed continuous-output budget so a row can
+// make Steady capacity scarce on any host.
+type budgetTranscoder struct {
+	*transcode.Manager
+	cores float64
+}
+
+func (b budgetTranscoder) ContinuousBudget() (float64, bool) { return b.cores, false }
+
+func startLiveEtherWith(ctx context.Context, ff, fp, work string, setups []channelSetup, eo etherOptions) (*liveEther, []livetv.Channel, error) {
+	e := &liveEther{work: work}
+	var err error
+	if e.logFile, err = os.OpenFile(filepath.Join(work, "ether.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err != nil {
+		return nil, nil, err
+	}
 	log := slog.New(slog.NewTextHandler(e.logFile, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	fail := func(err error) (*liveEther, livetv.Channel, error) { e.Close(); return nil, livetv.Channel{}, err }
+	fail := func(err error) (*liveEther, []livetv.Channel, error) { e.Close(); return nil, nil, err }
 	e.manager, err = transcode.New(config.Transcode{FFmpegPath: ff, FFprobePath: fp, HWAccel: "none", TempDir: filepath.Join(work, "transcode")}, log)
 	if err != nil {
 		return fail(err)
 	}
-	if e.db, err = store.OpenMemory(ctx); err != nil {
+	if eo.DBPath != "" {
+		e.db, err = store.OpenPath(ctx, eo.DBPath)
+	} else {
+		e.db, err = store.OpenMemory(ctx)
+	}
+	if err != nil {
 		return fail(err)
 	}
-	opts := livetv.Options{Transcoder: e.manager, DB: e.db, HTTPClient: &http.Client{}, Logger: log.With("component", "livetv"), HealthSweepMinutes: func() int { return -1 }}
-	e.Stability = applyStability(&opts, nil, setup.Stability)
+	var transcoder core.Transcoder = e.manager
+	if eo.Budget > 0 {
+		transcoder = budgetTranscoder{e.manager, eo.Budget}
+	}
+	opts := livetv.Options{Transcoder: transcoder, DB: e.db, HTTPClient: &http.Client{}, Logger: log.With("component", "livetv"), HealthSweepMinutes: func() int { return -1 }}
+	e.Stability = applyStability(&opts, nil, setups[0].Stability)
 	e.service, err = livetv.New(opts)
 	if err != nil {
 		return fail(err)
 	}
-	m3u := fmt.Sprintf("#EXTM3U\n#EXTINF:-1 tvg-id=\"chaos\" tvg-chno=\"7\",Chaos\n%s\n", setup.Primary)
-	if _, err = e.service.ImportSource(ctx, livetv.Source{Name: "Chaos provider", Playlist: m3u}); err != nil {
-		return fail(fmt.Errorf("import: %w", err))
-	}
 	channels, err := e.service.Channels(ctx)
-	if err != nil || len(channels) != 1 {
-		return fail(fmt.Errorf("fixture channel missing: %v", err))
+	if err != nil {
+		return fail(err)
 	}
-	ch := channels[0]
-	switch setup.Mode {
-	case "passthrough", "relay-copy":
-		// IPTV defaults to Steady; a channel without a no-signal screen plays direct.
-		ch.Screens = &livetv.ChannelScreens{NoSignal: "error"}
-	case "relay-transcode":
-		ch.Transcode = true
-		ch.Screens = &livetv.ChannelScreens{NoSignal: "error"}
-	case "steady":
-		ch.Transcode = true
-		ch.Screens = &livetv.ChannelScreens{NoSignal: "card"}
-	default:
-		return fail(fmt.Errorf("unknown mode %q", setup.Mode))
-	}
-	if len(setup.Backups) > 0 {
-		sources := append([]livetv.StreamSource(nil), ch.StreamSources...)
-		if len(sources) == 0 {
-			sources = []livetv.StreamSource{{ID: "primary", Name: "Primary", URL: setup.Primary, Enabled: true, Priority: 0}}
+	if !eo.Reuse || len(channels) == 0 {
+		var m3u strings.Builder
+		m3u.WriteString("#EXTM3U\n")
+		for i, setup := range setups {
+			fmt.Fprintf(&m3u, "#EXTINF:-1 tvg-id=\"chaos%d\" tvg-chno=\"%d\",Chaos %d\n%s\n", i, 7+i, i, setup.Primary)
 		}
-		for i, u := range setup.Backups {
-			sources = append(sources, livetv.StreamSource{ID: fmt.Sprintf("backup-%d", i+1), Name: fmt.Sprintf("Backup %d", i+1), URL: u, Enabled: true, Priority: i + 1})
+		if _, err = e.service.ImportSource(ctx, livetv.Source{Name: "Chaos provider", Playlist: m3u.String()}); err != nil {
+			return fail(fmt.Errorf("import: %w", err))
 		}
-		ch.StreamSources = sources
+		if channels, err = e.service.Channels(ctx); err != nil {
+			return fail(err)
+		}
 	}
-	if e.Stability == "" {
-		e.Stability = applyStability(nil, &ch, setup.Stability)
+	if len(channels) != len(setups) {
+		return fail(fmt.Errorf("fixture channels: %d, want %d", len(channels), len(setups)))
 	}
-	if ch, err = e.service.SaveChannel(ctx, ch); err != nil {
-		return fail(fmt.Errorf("save channel: %w", err))
+	sort.Slice(channels, func(i, j int) bool { return channels[i].Number < channels[j].Number })
+	if eo.Reuse {
+		return e.servePlex(log, channels)
 	}
+	for i, setup := range setups {
+		ch := channels[i]
+		switch setup.Mode {
+		case "passthrough", "relay-copy":
+			// IPTV defaults to Steady; a channel without a no-signal screen plays direct.
+			ch.Screens = &livetv.ChannelScreens{NoSignal: "error"}
+		case "relay-transcode":
+			ch.Transcode = true
+			ch.Screens = &livetv.ChannelScreens{NoSignal: "error"}
+		case "steady":
+			ch.Transcode = true
+			ch.Screens = &livetv.ChannelScreens{NoSignal: "card"}
+		default:
+			return fail(fmt.Errorf("unknown mode %q", setup.Mode))
+		}
+		if len(setup.Backups) > 0 {
+			sources := append([]livetv.StreamSource(nil), ch.StreamSources...)
+			if len(sources) == 0 {
+				sources = []livetv.StreamSource{{ID: "primary", Name: "Primary", URL: setup.Primary, Enabled: true, Priority: 0}}
+			}
+			for i, u := range setup.Backups {
+				sources = append(sources, livetv.StreamSource{ID: fmt.Sprintf("backup-%d", i+1), Name: fmt.Sprintf("Backup %d", i+1), URL: u, Enabled: true, Priority: i + 1})
+			}
+			ch.StreamSources = sources
+		}
+		if e.Stability == "" || strings.HasPrefix(e.Stability, "channel:") {
+			e.Stability = applyStability(nil, &ch, setup.Stability)
+		}
+		if channels[i], err = e.service.SaveChannel(ctx, ch); err != nil {
+			return fail(fmt.Errorf("save channel: %w", err))
+		}
+	}
+	return e.servePlex(log, channels)
+}
+
+func (e *liveEther) servePlex(log *slog.Logger, channels []livetv.Channel) (*liveEther, []livetv.Channel, error) {
 	cfg := config.Config{}
 	cfg.Server.Port = 32400
 	cfg.Server.FriendlyName = "Ether chaos"
@@ -149,7 +208,7 @@ func startLiveEther(ctx context.Context, ff, fp, work string, setup channelSetup
 			e.handled.Store(id, time.Since(began).Seconds())
 		}
 	}))
-	return e, ch, nil
+	return e, channels, nil
 }
 
 // handledSeconds is how long Ether spent serving a judge request, so the
@@ -228,7 +287,19 @@ var liveStuckFactor = map[string]float64{"plex-appletv": 1.5, "plex-firetv": 3.5
 // tunePlex performs the native live tune and returns the client playlist URL
 // the app plays, plus the session id.
 func (e *liveEther) tunePlex(ctx context.Context, client string, channelID string) (string, string, error) {
-	hdr := liveClients[client]
+	return e.tunePlexAs(ctx, client, "", channelID)
+}
+
+// tunePlexAs tunes as a distinct device of the same client type, so two
+// concurrent viewers are two players, not one player switching channels.
+func (e *liveEther) tunePlexAs(ctx context.Context, client, clientID, channelID string) (string, string, error) {
+	hdr := map[string]string{}
+	for k, v := range liveClients[client] {
+		hdr[k] = v
+	}
+	if clientID != "" {
+		hdr["X-Plex-Client-Identifier"] = clientID
+	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.server.URL+"/livetv/dvrs/1/channels/"+url.PathEscape(channelID)+"/tune", nil)
 	for k, v := range hdr {
 		req.Header.Set(k, v)
@@ -274,6 +345,64 @@ func (e *liveEther) tunePlex(ctx context.Context, client string, channelID strin
 		q.Set(k, v)
 	}
 	return e.server.URL + key + "?" + q.Encode(), grab.ID, nil
+}
+
+// stopSession ends the viewer session a client playlist belongs to, as a
+// client does when the viewer leaves the channel.
+func (e *liveEther) stopSession(ctx context.Context, playlist string) error {
+	u, err := url.Parse(playlist)
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/livetv/sessions/"), "/")
+	if len(parts) == 0 || parts[0] == "" || !strings.HasPrefix(u.Path, "/livetv/sessions/") {
+		return fmt.Errorf("no session in %s", u.Path)
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, e.server.URL+"/livetv/sessions/"+parts[0], nil)
+	req.Header.Set("X-Plex-Token", liveOwnerToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("stop HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// logMark is the current size of the Ether log; pathLines(mark) reads the
+// path decisions logged after it.
+func (e *liveEther) logMark() int64 {
+	st, err := os.Stat(filepath.Join(e.work, "ether.log"))
+	if err != nil {
+		return 0
+	}
+	return st.Size()
+}
+
+// pathLine is one "live playback path selected" decision as key=value pairs.
+type pathLine map[string]string
+
+var logKV = regexp.MustCompile(`([A-Za-z_]+)=("(?:[^"\\]|\\.)*"|\S*)`)
+
+func (e *liveEther) pathLines(mark int64) []pathLine {
+	b, err := os.ReadFile(filepath.Join(e.work, "ether.log"))
+	if err != nil || int64(len(b)) < mark {
+		return nil
+	}
+	var out []pathLine
+	for _, line := range strings.Split(string(b[mark:]), "\n") {
+		if !strings.Contains(line, "playback path selected") {
+			continue
+		}
+		kv := pathLine{}
+		for _, m := range logKV.FindAllStringSubmatch(line, -1) {
+			kv[m[1]] = strings.Trim(m[2], `"`)
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // activeSessionPath is the live playback path Ether chose, from its log.

@@ -35,6 +35,11 @@ type liveScenario struct {
 	// stays the ideal and is reported alongside. See ownerAllowance.
 	Outage          time.Duration `json:"outage,omitempty"`
 	OwnerNoSlowdown bool          `json:"ownerNoSlowdown,omitempty"`
+	// WS3 rows run more than one session (live_history.go): "retune" and
+	// "restart" (prime, then measure the same channel), or a capacity order.
+	// Second is the other channel's provider in capacity rows.
+	WS3    string          `json:"ws3,omitempty"`
+	Second *providerConfig `json:"second,omitempty"`
 }
 
 // liveBudget is what a viewer may see. Screen is freeze + non-content
@@ -93,6 +98,12 @@ func liveMatrix() []liveScenario {
 		{Name: "hls-playlist-stall-8s", Summary: "Provider playlist stops advancing for 8 s, then catches up", Source: hlsSource(at(faultPlaylistStall, 8*time.Second, 0)), Modes: allHLS, Quick: []string{"passthrough"}, Budget: blip, Recoverable: true},
 		{Name: "ts-stall-8s", Summary: "Raw TS body sends nothing for 8 s on an open connection", Source: tsSource(at(faultTSStall, 8*time.Second, 0)), Modes: allTS, Quick: []string{"steady"}, Budget: blip, Recoverable: true, Outage: 8 * time.Second, OwnerNoSlowdown: true},
 		{Name: "hls-video-drop", Summary: "2.5 s of video missing inside one provider HLS segment, audio intact; A/V sync must hold", Source: providerConfig{Name: "primary", HLS: true, Backlog: 6, Fixture: "sync", Faults: []liveFault{at(faultVideoDrop, 4*time.Second, 0)}}, Modes: allHLS, Budget: map[string]liveBudget{"fastest": {ScreenS: 3.5}, "balanced": {ScreenS: 3.5}, "rocksolid": {ScreenS: 3.5}}, Recoverable: true, Sync: true},
+		{Name: "history-retune-damage", Summary: "Damaged raw TS, re-tuned: the second session starts re-encoded from history", Source: tsSource(at(faultCorrupt, 0, 0)), Modes: []string{"relay-copy"}, Budget: budget(0, 0, 0, 0), Recoverable: true, WS3: "retune"},
+		{Name: "history-retune-keyframe", Summary: "10 s GOP raw TS, re-tuned: the second session starts re-encoded from history", Source: providerConfig{Name: "primary", Fixture: "longgop"}, Modes: []string{"relay-copy"}, Budget: budget(0, 0, 0, 0), Recoverable: true, WS3: "retune"},
+		{Name: "history-restart-damage", Summary: "Damaged raw TS, Ether restarted, re-tuned: history survives the restart", Source: tsSource(at(faultCorrupt, 0, 0)), Modes: []string{"relay-copy"}, Budget: budget(0, 0, 0, 0), Recoverable: true, WS3: "restart"},
+		{Name: "capacity-flaky-first", Summary: "Steady budget 1: flaky channel tuned, then a clean one: flaky gets Steady, clean plays Direct", Source: tsSource(at(faultRST, 0, 0)), Second: &providerConfig{Name: "second"}, Modes: []string{"steady"}, Budget: budget(0, 0, 0, 0), Recoverable: true, WS3: "capacity-flaky-first"},
+		{Name: "capacity-clean-first", Summary: "Steady budget 1: clean channel tuned and kept, then a flaky one: clean yields the last slot", Source: tsSource(at(faultRST, 0, 0)), Second: &providerConfig{Name: "second"}, Modes: []string{"steady"}, Budget: budget(0, 0, 0, 0), Recoverable: true, WS3: "capacity-clean-first"},
+		{Name: "capacity-unknown-first", Summary: "Steady budget 1: a channel with no history tuned first keeps Steady; the flaky one is not given a running viewer's slot", Source: tsSource(at(faultRST, 0, 0)), Second: &providerConfig{Name: "second"}, Modes: []string{"steady"}, Budget: budget(0, 0, 0, 0), Recoverable: true, WS3: "capacity-unknown-first"},
 		{Name: "hls-segment-404", Summary: "One provider segment returns 404", Source: hlsSource(at(faultSegmentError, 4*time.Second, 404)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-503", Summary: "Two provider segments return 503", Source: hlsSource(at(faultSegmentError, 8*time.Second, 503)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
 		{Name: "hls-segment-slow-8s", Summary: "Provider segment responses wait 8 s", Source: hlsSource(at(faultSegmentSlow, 8*time.Second, 0)), Modes: []string{"passthrough", "steady"}, Budget: blip, Recoverable: true},
