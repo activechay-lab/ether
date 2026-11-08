@@ -263,4 +263,3 @@ func (c *Catalog) buildTail(ctx context.Context) error {
 		"bytes", mapped.bytes(), "names", names.len(), "took", time.Since(started).Round(time.Millisecond))
 	return nil
 }
-

@@ -14,7 +14,6 @@ type listSummary struct {
 
 const listSummaryLimit = 4096
 
-//
 // After the in-memory list summaries it asks this node's long-tail index,
 // so a title found by search on one node opens at once on any other: Get
 // serves the summary and fetches the details behind it (the promotion). A

@@ -224,7 +224,7 @@ func (b *blobBuilder) add(s string) uint32 {
 	b.b = append(b.b, s...)
 	return at
 }
-func (b *blobBuilder) end() uint32     { return uint32(len(b.b)) }
+func (b *blobBuilder) end() uint32    { return uint32(len(b.b)) }
 func (b *blobBuilder) String() string { return string(b.b) }
 
 // exportName decodes the name fields ExportRow leaves out.
