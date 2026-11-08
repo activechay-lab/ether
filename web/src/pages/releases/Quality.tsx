@@ -34,7 +34,7 @@ import { SettingsRow } from "../../components/SettingsRow";
 import { DragHandle, SortableList, type DragHandleProps } from "../../components/Sortable";
 import { localized, t, tn, tx } from "../../i18n";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
-import { api } from "../../lib/api";
+import { ApiError, api } from "../../lib/api";
 import { isPluginDescriptor, textOf } from "../../lib/extend";
 import { relativeTime } from "../../lib/format";
 import {
@@ -282,6 +282,22 @@ function withRenamedProfile(
     );
   });
   return next;
+}
+
+/**
+ * The server names a refused profile by its position in the list sent. Name
+ * the profile instead, so a change blocked by another profile (removing one
+ * while two others clash) says which one to fix.
+ */
+function withProfileNames(e: unknown, sent: QualityProfile[]): unknown {
+  if (!(e instanceof ApiError) || !e.fields?.length) return e;
+  const fields = e.fields.map((f) => {
+    const at = /^quality\.profiles\[(\d+)\]/.exec(f.field);
+    const p = at ? sent[Number(at[1])] : undefined;
+    if (!p) return f;
+    return { ...f, field: t("{name} ({media})", { name: p.name, media: mediaLabel(p.mediaType) }) };
+  });
+  return new ApiError(e.status, e.code, e.message, fields);
 }
 
 /**
@@ -1270,7 +1286,7 @@ function ProfileList({
       setEditing(null);
       setScoring(null);
     } catch (e) {
-      setError(e);
+      setError(withProfileNames(e, list));
       setErrors(recordErrors(e, `quality.profiles[${index}].`));
     } finally {
       setSaving(false);
@@ -1337,7 +1353,7 @@ function ProfileList({
       await commit(next, t("Profile removed"));
       setEditing(null);
     } catch (e) {
-      setError(e);
+      setError(withProfileNames(e, rest));
     } finally {
       setSaving(false);
     }
