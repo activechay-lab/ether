@@ -515,11 +515,15 @@ func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx 
 
 func (c *Catalog) hydrateShows(ctx context.Context, items []core.Title) error {
 	shows := map[core.RatingKey]*seriesIdentity{}
+	needsSeasonCounts := map[core.RatingKey]bool{}
 	var showArgs []any
 	for i := range items {
 		if k := items[i].ShowKey; k != 0 && shows[k] == nil {
 			shows[k] = &seriesIdentity{}
 			showArgs = append(showArgs, int64(k))
+		}
+		if items[i].Type == core.TypeEpisode && items[i].Season > 1 && items[i].Episode > 0 {
+			needsSeasonCounts[items[i].ShowKey] = true
 		}
 		if items[i].Type == core.TypeEpisode && items[i].Season == 1 && items[i].Episode > 0 {
 			items[i].AbsoluteEpisode = items[i].Episode
@@ -538,14 +542,27 @@ SELECT 'id' AS tag, key, imdb AS a, CAST(tvdb AS TEXT) AS b, CAST(year AS TEXT) 
 UNION ALL
 SELECT 'kw', key, keyword, '', '', '', '', '' FROM catalog_keywords WHERE key IN (` + ph + `)
 UNION ALL
-SELECT 'alt', key, title, '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (` + ph + `)
-UNION ALL
-SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', '', '', '' FROM catalog_titles WHERE type='season' AND season>0 AND show_key IN (` + ph + `)
-) AS show_facts`
+SELECT 'alt', key, title, '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (` + ph + `)`
 		bound := make([]any, 0, len(part)*4)
-		for i := 0; i < 4; i++ {
+		for i := 0; i < 3; i++ {
 			bound = append(bound, part...)
 		}
+		// Only later episodes use sibling season counts to calculate their
+		// absolute number. Season pages still inherit every parent policy
+		// and display fact, without reading unrendered sibling seasons.
+		var countArgs []any
+		for _, arg := range part {
+			if needsSeasonCounts[core.RatingKey(arg.(int64))] {
+				countArgs = append(countArgs, arg)
+			}
+		}
+		if len(countArgs) > 0 {
+			q += `
+UNION ALL
+SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', '', '', '' FROM catalog_titles WHERE type='season' AND season>0 AND show_key IN (` + placeholders(len(countArgs)) + `)`
+			bound = append(bound, countArgs...)
+		}
+		q += "\n) AS show_facts"
 		rows, err := c.db.QueryContext(ctx, q, bound...)
 		if err != nil {
 			return err
