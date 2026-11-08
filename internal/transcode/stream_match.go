@@ -10,10 +10,12 @@ import (
 // matchReplacementStream finds the stream in info that best matches prev across
 // release failovers and version switches:
 //   - Protects main dialogue audio from accidentally swapping onto commentary
-//     or audio-description tracks that share the same language tag.
-//   - Preserves intentionally selected commentary or audio-description roles
-//     when the replacement release carries a compatible track in that role,
-//     falling back to same-language main dialogue only when the role is absent.
+//     or audio-description tracks that share the same language tag (and fails
+//     closed to nil when the replacement release contains only commentary/AD
+//     audio tracks).
+//   - Preserves intentionally selected commentary or audio-description roles,
+//     failing closed to nil when the replacement release lacks a track with
+//     that role so an intentional special role is never silently lost.
 //   - Evaluates extended BCP-47 language rank (including stream title language
 //     inference for "und"/"mul"/blank tags and regional/script refinements).
 //   - Breaks audio ties by codec compatibility, channel-count proximity,
@@ -50,11 +52,11 @@ func matchReplacementStream(info core.MediaInfo, prev *core.StreamInfo, typ stri
 		if defMain != nil {
 			return defMain
 		}
-		if def != nil {
-			return def
-		}
 		if firstMain != nil {
 			return firstMain
+		}
+		if def != nil {
+			return def
 		}
 		return first
 	}
@@ -98,29 +100,14 @@ func matchReplacementStream(info core.MediaInfo, prev *core.StreamInfo, typ stri
 		}
 
 		candRole := streamRole(s)
-		roleBonus := 0
-		if prevRole == langtag.RoleMain {
-			if candRole != langtag.RoleMain {
-				// Never swap main dialogue onto commentary or audio description
-				// as a language match.
-				continue
-			}
-			roleBonus = 10000
-		} else {
-			switch candRole {
-			case prevRole:
-				roleBonus = 10000
-			case langtag.RoleMain:
-				// Acceptable fallback if the replacement release has no track
-				// with the same special role in this language.
-				roleBonus = 0
-			default:
-				// Do not swap commentary onto audio description or vice versa.
-				continue
-			}
+		if candRole != prevRole {
+			// Never swap main dialogue onto commentary/AD, and never silently
+			// replace an intentionally selected commentary or AD role with a
+			// different role.
+			continue
 		}
 
-		score := roleBonus + langRank*1000
+		score := 10000 + langRank*1000
 		if s.Codec == prev.Codec && s.Forced == prev.Forced {
 			score += 250
 		}
@@ -148,16 +135,18 @@ func matchReplacementStream(info core.MediaInfo, prev *core.StreamInfo, typ stri
 	if typ == "subtitle" {
 		return nil // never invent subtitles the user did not pick
 	}
+	// If the viewer intentionally selected a special role (commentary or audio
+	// description) and no compatible track in that role exists in the replacement
+	// release, fail closed rather than silently losing the selected role.
+	if prevRole != langtag.RoleMain {
+		return nil
+	}
+	// For main dialogue, fall back only to a main-dialogue default/first track,
+	// never to commentary or audio description.
 	if defMain != nil {
 		return defMain
 	}
-	if firstMain != nil {
-		return firstMain
-	}
-	if def != nil {
-		return def
-	}
-	return first
+	return firstMain
 }
 
 func streamRole(s *core.StreamInfo) string {

@@ -37,15 +37,35 @@ func TestMatchStreamProtectsMainDialogueAndPreservesSpecialRoles(t *testing.T) {
 		t.Fatalf("selected audio description swapped onto %+v, want index 2 (AD)", gotAD)
 	}
 
-	// 4. When commentary is absent in the replacement release, commentary falls back
-	// to same-language main dialogue (never to AD).
+	// 4. When commentary is absent in the replacement release, intentionally selected
+	// commentary fails closed (nil) rather than silently replacing the role with AD or main dialogue.
 	noCommReplacement := core.MediaInfo{Streams: []core.StreamInfo{
 		{Index: 1, Type: "audio", Codec: "ac3", Language: "eng", Channels: 2, Title: "English Audio Description (AD)", VisualImpaired: &viTrue},
-		{Index: 2, Type: "audio", Codec: "eac3", Language: "eng", Channels: 6, Title: "English 5.1"},
+		{Index: 2, Type: "audio", Codec: "eac3", Language: "eng", Channels: 6, Title: "English 5.1", Default: true},
 	}}
-	gotFallback := matchStream(noCommReplacement, prevComm, "audio")
-	if gotFallback == nil || gotFallback.Index != 2 {
-		t.Fatalf("commentary fallback swapped onto %+v, want index 2 (main dialogue)", gotFallback)
+	if gotFallback := matchStream(noCommReplacement, prevComm, "audio"); gotFallback != nil {
+		t.Fatalf("missing commentary role swapped onto %+v, want nil (no silent role loss)", gotFallback)
+	}
+
+	// 5. When all replacement audio tracks are special roles (commentary/AD), main
+	// dialogue fails closed (nil) rather than falling back to def/first commentary/AD.
+	onlySpecialRoles := core.MediaInfo{Streams: []core.StreamInfo{
+		{Index: 1, Type: "audio", Codec: "ac3", Language: "eng", Channels: 2, Title: "Director's Commentary", Commentary: &commTrue, Default: true},
+		{Index: 2, Type: "audio", Codec: "ac3", Language: "eng", Channels: 2, Title: "English Audio Description (AD)", VisualImpaired: &viTrue},
+	}}
+	if gotSpecialOnly := matchStream(onlySpecialRoles, prevMain, "audio"); gotSpecialOnly != nil {
+		t.Fatalf("main dialogue swapped onto special-only replacement %+v, want nil", gotSpecialOnly)
+	}
+
+	// 6. Prior fallback contract preserved when main-dialogue language is absent but
+	// replacement has a main-dialogue default/first track.
+	foreignMainOnly := core.MediaInfo{Streams: []core.StreamInfo{
+		{Index: 1, Type: "audio", Codec: "ac3", Language: "fra", Channels: 2, Title: "Commentaire Audio", Commentary: &commTrue, Default: true},
+		{Index: 2, Type: "audio", Codec: "eac3", Language: "fra", Channels: 6, Title: "Français 5.1"},
+	}}
+	gotMainFallback := matchStream(foreignMainOnly, prevMain, "audio")
+	if gotMainFallback == nil || gotMainFallback.Index != 2 {
+		t.Fatalf("main dialogue cross-language fallback picked %+v, want index 2 (firstMain)", gotMainFallback)
 	}
 }
 
