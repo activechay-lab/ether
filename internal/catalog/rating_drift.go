@@ -17,18 +17,22 @@ import (
 //
 //   - always on a new title, a detail fetch and a material upsert;
 //   - when a value moves far enough to change an ordering by it
-//     (popularity 10%, votes 5% and at least one, rating 0.1);
+//     (popularity 10% and at least 0.5, votes 5% and at least one,
+//     rating 0.1). TMDB's long tail (popularity under 1) moves more than
+//     10% almost every day: on two consecutive real exports a relative
+//     rule alone still wrote 74% of 1.27M movies;
 //   - when a value crosses a threshold something decides by: the browse
 //     bar, the new-release bar, and every numeric bound of an owner or
 //     viewer catalogue rule, so no rule reads a value on the wrong side;
 //   - and exactly once every ratingReconcileDays for every title the sync
-//     sees (by key, a 1/ratingReconcileDays share each day), so no stored
-//     value is older than that.
+//     sees (by key, a 1/ratingReconcileDays share each day, about 50k a
+//     day at 1.5M titles), so no stored value is older than that.
 const (
 	popularityDrift     = 0.10
+	popularityFloor     = 0.5
 	votesDrift          = 0.05
 	ratingDrift         = 0.1
-	ratingReconcileDays = 7
+	ratingReconcileDays = 30
 )
 
 // ratingCuts are the thresholds a stored rating, vote count or popularity
@@ -105,8 +109,8 @@ func ratingExact(key core.RatingKey, now time.Time) bool {
 func ratingDriftSQL(cuts ratingCuts, pop float64, votes int, rating float64) (string, []any) {
 	const f = `CAST(? AS DOUBLE PRECISION)`
 	var b strings.Builder
-	fmt.Fprintf(&b, `(ABS(popularity-%[1]s)>=%[2]g*popularity OR ABS(vote_count-%[1]s)>=CASE WHEN %[3]g*vote_count>1 THEN %[3]g*vote_count ELSE 1 END OR ABS(rating-%[1]s)>=%[4]g`, f, popularityDrift, votesDrift, ratingDrift)
-	args := []any{pop, float64(votes), rating}
+	fmt.Fprintf(&b, `((ABS(popularity-%[1]s)>=%[2]g*popularity AND ABS(popularity-%[1]s)>=%[5]g) OR ABS(vote_count-%[1]s)>=CASE WHEN %[3]g*vote_count>1 THEN %[3]g*vote_count ELSE 1 END OR ABS(rating-%[1]s)>=%[4]g`, f, popularityDrift, votesDrift, ratingDrift, popularityFloor)
+	args := []any{pop, pop, float64(votes), rating}
 	for _, group := range []struct {
 		col  string
 		cuts []float64
