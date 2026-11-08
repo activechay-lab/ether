@@ -6101,6 +6101,7 @@
     "one": "{count} off",
     "other": "{count} off"
   },
+  "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet releases stream from your Usenet providers.",
   "m_18ca1c5dc775ca": "This viewer no longer has server access. Their history is retained.",
   "m_18cac20f7cbd3e": "Downloads at once per viewer",
