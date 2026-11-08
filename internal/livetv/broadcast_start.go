@@ -147,7 +147,7 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	if !ok {
 		if c.Kind == "iptv" && refused == "" {
 			ss.mu.Lock()
-			ss.steadyRefused = "no continuous transcoder"
+			ss.steadyRefused = steadyRefusedNoTranscoder
 			ss.mu.Unlock()
 			return fmt.Errorf("%w: no continuous transcoder", errSteadyRefused)
 		}
@@ -169,14 +169,14 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 		if running := s.broadcasts.running(key); running != nil {
 			format, full = running.format, running.steadyBitrate
 		} else {
-			var reason string
-			admitted, reason = s.admitSteady(ctx, c)
-			if reason != "" {
-				s.sessionLog(ss).Info("live playback path selected", "path", "direct", "reason", reason)
+			var code, detail string
+			admitted, code, detail = s.admitSteady(ctx, c)
+			if code != "" {
+				s.sessionLog(ss).Info("live playback path selected", "path", "direct", "reason", code, "detail", detail)
 				ss.mu.Lock()
-				ss.steadyRefused = reason
+				ss.steadyRefused = code
 				ss.mu.Unlock()
-				return fmt.Errorf("%w: %s", errSteadyRefused, reason)
+				return fmt.Errorf("%w: %s", errSteadyRefused, detail)
 			}
 			format, full = admitted.shape.format, admitted.shape.bitrateKbps
 		}
@@ -210,6 +210,48 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 			}
 		}
 	}
+	var attrs []any
+	if admitted != nil {
+		attrs = []any{"allocation", admitted.class}
+	}
+	lease, info, err := s.launchBroadcast(ctx, ss, broadcastLaunch{channel: c, user: user, caps: caps, key: key, runner: runner, format: format, outputHeight: outputHeight, bitrate: bitrate, admitted: admitted, logAttrs: attrs})
+	if err != nil {
+		return err
+	}
+	ss.mu.Lock()
+	if ss.closed {
+		ss.mu.Unlock()
+		lease.close()
+		return core.ErrNotFound
+	}
+	ss.broadcast = lease
+	ss.info.MediaInfo = &info
+	ss.mu.Unlock()
+	awaitBroadcastCushion(ctx, lease, c.Kind == "iptv")
+	return nil
+}
+
+// broadcastLaunch is everything a viewer's continuous output needs: the
+// working format, the viewer's rendition and, for a new provider output, its
+// admitted first input.
+type broadcastLaunch struct {
+	channel      Channel
+	user         core.User
+	caps         core.ClientCaps
+	key          broadcastKey
+	runner       transcode.ContinuousRunner
+	format       transcode.RawFormat
+	outputHeight int
+	bitrate      int
+	admitted     *steadyAdmission
+	logAttrs     []any
+}
+
+// launchBroadcast starts (or joins) the output and attaches one rendition
+// lease for the viewer. It owns admitted's link: consumed by a new output,
+// closed otherwise.
+func (s *Service) launchBroadcast(ctx context.Context, ss *session, l broadcastLaunch) (*broadcastLease, core.MediaInfo, error) {
+	c, user, caps, key, runner, format, outputHeight, bitrate, admitted := l.channel, l.user, l.caps, l.key, l.runner, l.format, l.outputHeight, l.bitrate, l.admitted
 	consumed := false
 	defer func() {
 		if admitted != nil && !consumed {
@@ -241,7 +283,7 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	if c.Personal == nil && s.o.InputUser != nil {
 		owner, err := s.o.InputUser(ctx)
 		if err != nil {
-			return err
+			return nil, core.MediaInfo{}, err
 		}
 		inputUser = *owner
 	}
@@ -274,23 +316,13 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 		id += "-viewer-" + strconv.FormatInt(user.ID, 10)
 	}
 	if c.Kind == "iptv" {
-		s.sessionLog(ss).Info("live playback path selected", "path", "steady", "width", format.Width, "height", format.Height, "fps", rate, "rendition_height", outputHeight, "bitrate_kbps", bitrate)
+		s.sessionLog(ss).Info("live playback path selected", append([]any{"path", "steady", "width", format.Width, "height", format.Height, "fps", rate, "rendition_height", outputHeight, "bitrate_kbps", bitrate}, l.logAttrs...)...)
 	}
 	lease, err := s.broadcasts.acquire(ctx, key, id, decision, create)
 	if err != nil {
-		return err
+		return nil, core.MediaInfo{}, err
 	}
-	ss.mu.Lock()
-	if ss.closed {
-		ss.mu.Unlock()
-		lease.close()
-		return core.ErrNotFound
-	}
-	ss.broadcast = lease
-	ss.info.MediaInfo = &info
-	ss.mu.Unlock()
-	awaitBroadcastCushion(ctx, lease, c.Kind == "iptv")
-	return nil
+	return lease, info, nil
 }
 
 // steadyRendition is one viewer's rendition of a Steady output: the source

@@ -637,3 +637,38 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 		})
 	}
 }
+
+// An MPEG-TS source has no keyframe index and its timestamp seek lands
+// inside a GOP. A copy started there must still open on the keyframe before
+// the start point, mid-title (not a GOP late) and inside the title's last GOP
+// (where there is no next keyframe at all).
+func TestIntegrationUnindexedTSCopyStartsOnKeyframeBefore(t *testing.T) {
+	e := newRealEnv(t, WithoutHWDetection(), WithBuffering(4*time.Second, 0, 0))
+	e.gen(t, "noindex-4s.ts", 14, "-c:v", "libx264", "-preset", "ultrafast", "-g", "96", "-keyint_min", "96", "-sc_threshold", "0", "-c:a", "aac", "-f", "mpegts")
+	info, err := e.m.Probe(t.Context(), e.url("noindex-4s.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info.Keyframes) != 0 {
+		t.Fatal("probe produced a keyframe index; this test needs none")
+	}
+	for _, c := range []struct {
+		at, key time.Duration
+	}{{6 * time.Second, 4 * time.Second}, {13 * time.Second, 12 * time.Second}} {
+		t.Run(c.at.String(), func(t *testing.T) {
+			d := core.Decision{Kind: core.DecisionRemux, Container: ContainerMPEGTS, VideoCopy: true, AudioCopy: true, AudioStream: 1}
+			hs, err := e.m.StartHLS(context.Background(), core.HLSRequest{SessionID: "noindex-ts-" + c.at.String(), InputURL: e.url("noindex-4s.ts"), Info: *info, Decision: d, StartOffset: c.at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer hs.Close()
+			name := "start-" + c.at.String()
+			seg := fetch(t, hs, 0)
+			first, _, key := e.videoSpanKey(t, ContainerMPEGTS, nil, seg, name)
+			if !key || math.Abs(first-c.key.Seconds()) > 0.1 {
+				t.Fatalf("%s opens on video at %.3f (keyframe %v), want the keyframe at %v", name, first, key, c.key)
+			}
+			e.decodesAlone(t, ContainerMPEGTS, nil, seg, name)
+		})
+	}
+}
