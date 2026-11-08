@@ -988,6 +988,10 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 		s.writeErr(w, r, err)
 		return
 	}
+	if !c.Upcoming && !k.IsEphemeral() {
+		s.collectionMemberPage(w, r, c, k)
+		return
+	}
 	offset, size := pr.pageOf(0)
 	recovering := shelfToken(r.URL.RawQuery) != ""
 	buildOffset, buildSize := offset, size
@@ -1031,6 +1035,46 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 	}
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(offset, page.Total)
+	s.write(w, r, mc)
+}
+
+// Stored collection grids use the same scoped membership generations as shelf rows.
+// Ephemeral search collections have a separately paged catalogue source.
+// Admission and duplicate removal happen before offsets; decoration is limited
+// to the requested page. A missing title must never shorten a raw source page
+// while leaving the client to advance through a different offset space.
+func (s *Server) collectionMemberPage(w http.ResponseWriter, r *http.Request, c *core.Collection, k core.RatingKey) {
+	ctx := withStoredPolicy(r.Context())
+	pr := FromContext(ctx)
+	selected, _, err := s.shelfSnapshotResult(ctx, pr, core.Hub{ID: "collection.grid." + k.String(), Key: k}, hubCtx{}, func() ([]core.Title, []model.Metadata, error) {
+		page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), 0, int(^uint(0)>>1))
+		if err != nil {
+			return nil, nil, err
+		}
+		members := s.openableTitles(ctx, pr.User, page.Items, false)
+		identities := make([]model.Metadata, 0, len(members))
+		for _, title := range members {
+			identities = append(identities, model.Metadata{RatingKey: title.Key.String()})
+		}
+		return members, identities, nil
+	})
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
+	// Retain the discovery cut, but recheck current authorization before paging.
+	selected = s.openableTitles(ctx, pr.User, selected, true)
+	offset, size := pr.pageOf(0)
+	total := len(selected)
+	offset = min(offset, total)
+	end := offset + min(size, total-offset)
+	mc := s.collectionItemsContainer(c, k)
+	if strings.HasPrefix(r.URL.Path, "/library/metadata/") {
+		mc.SetSyncProjection(true)
+	}
+	mc.Metadata = s.renderTitles(ctx, pr, selected[offset:end], renderOpts{media: true, availabilityInSQL: true})
+	mc.Size = len(mc.Metadata)
+	mc.SetPage(offset, total)
 	s.write(w, r, mc)
 }
 
