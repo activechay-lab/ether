@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/diagnostics"
+	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -135,56 +137,26 @@ func fileSet(pattern string) diagnostics.FileSetFact {
 	return out
 }
 
-// catalogCounts counts catalogue rows by type and browsable state, then by
-// browsable and detail state. Each grouping reads one narrow covering
-// index (type,browsable,… and browsable,detail,…), never the table.
 func catalogCounts(ctx context.Context, tx *sql.Tx) ([]diagnostics.CatalogCountFact, string) {
-	var out []diagnostics.CatalogCountFact
-	for _, q := range []string{
-		`SELECT type, browsable, -1, COUNT(*) FROM catalog_titles GROUP BY type, browsable`,
-		`SELECT '', browsable, detail, COUNT(*) FROM catalog_titles GROUP BY browsable, detail`,
-	} {
-		rows, err := tx.QueryContext(ctx, q)
-		if err != nil {
-			return nil, "unavailable"
-		}
-		for rows.Next() {
-			var c diagnostics.CatalogCountFact
-			var browsable, detail int
-			if err := rows.Scan(&c.Type, &browsable, &detail, &c.Rows); err != nil {
-				rows.Close()
-				return nil, "unavailable"
-			}
-			c.Browsable = browsable != 0
-			if detail >= 0 {
-				d := detail != 0
-				c.Detailed = &d
-			}
-			out = append(out, c)
-		}
-		rows.Close()
-		if rows.Err() != nil {
-			return nil, "unavailable"
-		}
+	counts, err := catalog.StorageCounts(ctx, tx)
+	if err != nil {
+		return nil, "unavailable"
+	}
+	out := make([]diagnostics.CatalogCountFact, len(counts))
+	for i, c := range counts {
+		out[i] = diagnostics.CatalogCountFact{Type: supportToken(c.Type), Browsable: c.Browsable, Detailed: c.Detail, Rows: c.Rows}
 	}
 	return out, "complete"
 }
 
 func onAirAssetKinds(ctx context.Context, tx *sql.Tx) []diagnostics.AssetKindFact {
-	// size precedes the content column, so this reads no blob pages.
-	rows, err := tx.QueryContext(ctx, `SELECT kind, COUNT(*), COALESCE(SUM(size),0) FROM onair_assets GROUP BY kind ORDER BY 3 DESC LIMIT 20`)
+	totals, err := onair.AssetKindTotals(ctx, tx)
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-	var out []diagnostics.AssetKindFact
-	for rows.Next() {
-		var a diagnostics.AssetKindFact
-		if rows.Scan(&a.Kind, &a.Count, &a.Bytes) != nil {
-			return nil
-		}
-		a.Kind = supportToken(a.Kind)
-		out = append(out, a)
+	out := make([]diagnostics.AssetKindFact, len(totals))
+	for i, a := range totals {
+		out[i] = diagnostics.AssetKindFact{Kind: supportToken(a.Kind), Count: a.Count, Bytes: a.Bytes}
 	}
 	return out
 }
