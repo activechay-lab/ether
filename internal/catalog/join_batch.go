@@ -55,13 +55,14 @@ func (b *joinBatch) add(ctx context.Context, tx *sql.Tx, t core.Title, now int64
 	if !hasJoins(&t) {
 		return nil
 	}
-	if b.keys == nil {
-		b.keys = map[int64]bool{}
-	}
 	if b.keys[int64(t.Key)] {
 		if err := b.flush(ctx, tx, now); err != nil {
 			return err
 		}
+	}
+	// flush clears keys, so (re)create the set after it.
+	if b.keys == nil {
+		b.keys = map[int64]bool{}
 	}
 	b.titles = append(b.titles, t)
 	b.keys[int64(t.Key)] = true
