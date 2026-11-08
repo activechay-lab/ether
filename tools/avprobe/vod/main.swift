@@ -227,6 +227,25 @@ final class VOD {
         if t - lastSampleAt >= 0.5 {
             lastSampleAt = t
             var s: [String: Any] = ["at": t, "item": itemIndex, "itemTime": time.seconds.isFinite ? time.seconds : -1]
+            // The contiguous loaded range containing the playhead is the player
+            // runway; a later disconnected range must not hide a buffer hole.
+            var runway = 0.0
+            var loaded: [[String: Double]] = []
+            for value in it.loadedTimeRanges {
+                let range = value.timeRangeValue
+                let start = range.start.seconds
+                let end = CMTimeRangeGetEnd(range).seconds
+                if start.isFinite && end.isFinite {
+                    loaded.append(["start": start, "end": end])
+                    if time.seconds.isFinite && start <= time.seconds && end >= time.seconds {
+                        runway = max(runway, end - time.seconds)
+                    }
+                }
+            }
+            s["bufferAheadSeconds"] = runway
+            s["loadedRanges"] = loaded
+            s["bufferEmpty"] = it.isPlaybackBufferEmpty
+
             switch player.timeControlStatus {
             case .playing: s["control"] = "playing"
             case .paused: s["control"] = "paused"
@@ -280,6 +299,7 @@ final class VOD {
         }
         let result: [String: Any] = [
             "durationSeconds": end,
+            "startedUnixSeconds": started.timeIntervalSince1970,
             "frames": frames,
             "framesPerSecond": framesPerSecond,
             "items": items,

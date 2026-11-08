@@ -63,7 +63,19 @@ func TestTranscodeChaosAVPlayer(t *testing.T) {
 	if hw := os.Getenv("CHAOS_HWACCEL"); hw != "" {
 		tc.HWAccel = hw
 	}
-	m, err := transcode.New(tc, slog.New(slog.NewTextHandler(io.Discard, nil)), transcode.WithSegmentTimeout(15*time.Second))
+	var logWriter io.Writer = io.Discard
+	logOptions := &slog.HandlerOptions{}
+	if path := os.Getenv("CHAOS_AVLOG"); path != "" {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = file.Close() })
+		logWriter = file
+		logOptions.Level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewJSONHandler(logWriter, logOptions))
+	m, err := transcode.New(tc, log, transcode.WithSegmentTimeout(15*time.Second), transcode.WithTracePlayback(os.Getenv("ETHER_TRACE_PLAYBACK") == "1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +107,7 @@ func TestTranscodeChaosAVPlayer(t *testing.T) {
 							if only != "" && !strings.Contains(id, only) {
 								t.Skip("not selected")
 							}
-							line := avplayerCase(t, m, source.URL, name, path, scenario, *info, probe, keep)
+							line := avplayerCase(t, m, log, source.URL, name, path, scenario, *info, probe, keep)
 							b, _ := json.Marshal(line)
 							if _, err := out.Write(append(b, '\n')); err != nil {
 								t.Fatal(err)
@@ -149,7 +161,7 @@ var avplayerTD = regexp.MustCompile(`#EXT-X-TARGETDURATION:([0-9.]+)`)
 
 var avplayerMedia = regexp.MustCompile(`/session/[^/]+/[^/]+/(init\.mp4|\d+\.(ts|m4s))$`)
 
-func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, scenario string, info core.MediaInfo, probe, keep string) avplayerLine {
+func avplayerCase(t *testing.T, m *transcode.Manager, log *slog.Logger, sourceURL, name, path, scenario string, info core.MediaInfo, probe, keep string) avplayerLine {
 	f := newFixture()
 	defer f.srv.Close()
 	duration := info.Duration
@@ -165,6 +177,9 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		headers["X-Plex-Client-Profile-Extra"] = "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=h264,hevc&audioCodec=aac)"
 	}
 	line := avplayerLine{Case: name + "/" + path + "/" + scenario, Asset: name, Path: path, Scenario: scenario, Duration: duration.Seconds()}
+	log = log.With("case", line.Case)
+	log.Info("AVPlayer case started")
+	defer log.Info("AVPlayer case finished")
 	var dir string
 	if keep != "" {
 		dir = filepath.Join(keep, strings.ReplaceAll(line.Case, "/", "_"))
@@ -190,6 +205,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		}
 		began := time.Now()
 		f.srv.ServeHTTP(rw, r)
+		log.Debug("AVPlayer request served", "path", r.URL.Path, "started", began, "seconds", time.Since(began).Seconds(), "status", rw.status, "bytes", rw.n)
 		mu.Lock()
 		entry := fmt.Sprintf("%s %s -> %d %dB %.3fs", r.Method, r.URL.Path, rw.status, rw.n, time.Since(began).Seconds())
 		if rw.status != 200 && rw.capture != nil {
@@ -284,7 +300,9 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		}
 	}
 	cmd := exec.CommandContext(ctx, probe, firstURL, fmt.Sprintf("%.0f", run), line.Script)
+	log.Info("AVPlayer process starting")
 	b, err := cmd.Output()
+	log.Info("AVPlayer process finished", "error", err)
 	if err != nil {
 		line.Error = "avvod: " + err.Error()
 	} else {
