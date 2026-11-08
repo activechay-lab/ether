@@ -80,6 +80,21 @@ func TestCandidateComposerContinueSkipsHomeRanking(t *testing.T) {
 	}
 }
 
+func TestCandidateComposerRecommendationsKeepRankingWithoutResume(t *testing.T) {
+	rank := &candidateRankerFake{rows: []RankedCandidate{{ID: "taste", Purpose: frontend.RowRecommendation, Items: []core.Title{{Key: core.MovieKey(4)}}}}}
+	resume := &resumeCandidatesFake{err: errors.New("unrelated continuation failed")}
+	composer := CandidateComposer{Ranker: rank, Resume: resume, Restricted: func(*core.User) bool { return true }}
+	req := frontend.RowRequest{Viewer: &core.User{ID: 1}, Placement: frontend.PlacementHome, Purpose: frontend.RowRecommendation, Limit: 5}
+	got, err := composer.Rows(context.Background(), req, core.HomeSituation{})
+	if err != nil || rank.calls != 1 || rank.allow == nil || resume.calls != 0 || !reflect.DeepEqual(got, rank.rows) {
+		t.Fatalf("recommendations=%+v rankCalls=%d policy=%v resumeCalls=%d err=%v", got, rank.calls, rank.allow != nil, resume.calls, err)
+	}
+	rank.err = errors.New("ranking failed")
+	if _, err := composer.Rows(context.Background(), req, core.HomeSituation{}); !errors.Is(err, rank.err) {
+		t.Fatalf("ranking error lost: %v", err)
+	}
+}
+
 func TestCandidateComposerLibraryAndErrors(t *testing.T) {
 	ctx := context.Background()
 	rank := &candidateRankerFake{}

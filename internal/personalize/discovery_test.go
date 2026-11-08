@@ -2,9 +2,11 @@ package personalize
 
 import (
 	"context"
+	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/store"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -172,5 +174,80 @@ func TestHistoryTitleBatchAvoidsPerTitleReads(t *testing.T) {
 	missing := core.MovieKey(999999)
 	if _, err := historyTitle(ctx, cat, cache, missing); err != core.ErrNotFound || cat.callCount("get") != 1 {
 		t.Fatal("missing mirror entry did not use ordinary lookup")
+	}
+}
+
+// rediscoverState fixes the history order so batching must preserve selection,
+// show deduplication, exclusions, and the early page limit.
+type rediscoverState struct {
+	core.State
+	entries []core.WatchStatus
+}
+
+func (s rediscoverState) InProgress(context.Context, int64, int) ([]core.WatchStatus, error) {
+	return s.entries, nil
+}
+
+func TestRediscoverBatchesMirroredTitlesWithoutChangingSelection(t *testing.T) {
+	ctx := context.Background()
+	for _, limit := range []int{3, 100} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			cat := newFakeCatalog(testNow)
+			st := rediscoverState{}
+			old := testNow.Add(-40 * 24 * time.Hour)
+			for n := 1; n <= 80; n++ {
+				key := core.MovieKey(int64(10000 + n))
+				title := core.Title{Key: key, Type: core.TypeMovie, ContentRating: "PG"}
+				status := core.WatchStatus{Key: key, LastViewedAt: old}
+				switch n {
+				case 1, 2:
+					title.Key, title.Type, title.ShowKey = core.EpisodeKey(9001, 1, n), core.TypeEpisode, core.ShowKey(9001)
+					status.Key = title.Key
+					cat.set(core.Title{Key: title.ShowKey, Type: core.TypeShow, ContentRating: "PG"})
+				case 3:
+					title.Adult = true
+				case 4:
+					status.LastViewedAt = testNow
+				case 5:
+					status.ViewCount = 1
+				case 6:
+					title.ContentRating = "R"
+				case 7:
+					status.LastViewedAt = time.Time{}
+				}
+				cat.set(title)
+				st.entries = append(st.entries, status)
+			}
+			viewer := &core.User{ID: 1, MaxContentRating: "PG"}
+			makeDiscovery := func(c core.Catalog) *Discovery {
+				d := NewDiscovery(nil, c, st, nil)
+				d.now = func() time.Time { return testNow }
+				d.NotInterested = func(context.Context, *core.User) ([]NotInterestedSignal, error) {
+					return []NotInterestedSignal{{Key: core.MovieKey(10008)}}, nil
+				}
+				return d
+			}
+			want, err := makeDiscovery(cat).Rediscover(ctx, viewer, limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := cat.callCount("get")
+			batch := &batchedHistoryCatalog{fakeCatalog: cat}
+			got, err := makeDiscovery(batch).Rediscover(ctx, viewer, limit)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("batch changed selection: got=%+v want=%+v err=%v", got, want, err)
+			}
+			t.Logf("limit=%d items=%d: individual reads %d -> %d; batch reads=%d", limit, len(got.Items), before, cat.callCount("get")-before, batch.batches)
+			wantBatches := 1
+			if limit == 100 {
+				wantBatches = 2
+			}
+			if batch.batches != wantBatches || cat.callCount("get") != before {
+				t.Fatalf("batches=%d want=%d individual reads=%d", batch.batches, wantBatches, cat.callCount("get")-before)
+			}
+			if len(got.Items) < 3 || got.Items[0].Key != core.ShowKey(9001) || got.Items[1].Key != core.MovieKey(10009) || got.Items[2].Key != core.MovieKey(10010) {
+				t.Fatalf("lost ordered policy-filtered selection: %+v", got.Items)
+			}
+		})
 	}
 }
