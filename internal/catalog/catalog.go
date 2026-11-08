@@ -306,6 +306,9 @@ type Catalog struct {
 
 	// searchIx is the in-memory title search index (search_titles.go).
 	searchIx searchIndexState
+
+	// rankReady is set once the popularity rank (rank.go) has been built.
+	rankReady atomic.Bool
 }
 
 // SaferRatingSQL is the optional Plex overlay predicate for viewer limits.
@@ -435,6 +438,7 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 		ctx = context.Background()
 	}
 	c.ensureSortTitlesFolded(ctx)
+	c.loadRankReady(ctx)
 	c.startupContext = nil
 	return c, nil
 }

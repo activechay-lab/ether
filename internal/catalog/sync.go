@@ -131,6 +131,7 @@ func (c *Catalog) Run(ctx context.Context) {
 	go c.refreshShowAddedLoop(ctx)
 	go c.foldLibraryTalliesLoop(ctx)
 	go c.correctMovieYears(ctx)
+	go c.rankLoop(ctx)
 	full := schedule.New(c.now(), c.untilDue(ctx))
 	// Preserve the existing resume behavior while the gate is off. If the
 	// owner enables it during the wait, start background backfill promptly.
