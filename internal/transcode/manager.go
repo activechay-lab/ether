@@ -41,19 +41,21 @@ type options struct {
 	detectHW       bool
 	idleTimeout    time.Duration
 	segmentTimeout time.Duration
-	stallTimeout   time.Duration
-	restartAhead   time.Duration
-	maxAhead       time.Duration
-	keepBehind     time.Duration
-	pollInterval   time.Duration
-	segmentURI     func(n int, container string) string
-	dashURLs       DASHURLs
-	manifestWait   time.Duration
-	onFailure      func(sessionID string, at time.Duration, err error)
-	onInputFailure func(sessionID, inputURL string, at time.Duration, err error)
-	onRunStart     func(inputURL string, from, to time.Duration)
-	onEncoder      func(sessionID string, started bool, excerpt string)
-	tracePlayback  bool
+	// segmentPadLimit bounds padding a slow segment (segment_padding.go).
+	segmentPadLimit time.Duration
+	stallTimeout    time.Duration
+	restartAhead    time.Duration
+	maxAhead        time.Duration
+	keepBehind      time.Duration
+	pollInterval    time.Duration
+	segmentURI      func(n int, container string) string
+	dashURLs        DASHURLs
+	manifestWait    time.Duration
+	onFailure       func(sessionID string, at time.Duration, err error)
+	onInputFailure  func(sessionID, inputURL string, at time.Duration, err error)
+	onRunStart      func(inputURL string, from, to time.Duration)
+	onEncoder       func(sessionID string, started bool, excerpt string)
+	tracePlayback   bool
 	// rungDwell is how long a run keeps producing its rung before a
 	// request on another rung may replace it (see Session.rungDwellLocked).
 	rungDwell time.Duration
@@ -64,19 +66,20 @@ type options struct {
 
 func defaultOptions() options {
 	return options{
-		runner:         ExecRunner{},
-		detectHW:       true,
-		idleTimeout:    2 * time.Minute,
-		segmentTimeout: 45 * time.Second,
-		stallTimeout:   30 * time.Second,
-		restartAhead:   24 * time.Second,
-		maxAhead:       2 * time.Minute,
-		keepBehind:     3 * time.Minute,
-		pollInterval:   150 * time.Millisecond,
-		segmentURI:     SegmentName,
-		dashURLs:       PlexDASHURLs,
-		manifestWait:   15 * time.Second,
-		rungDwell:      8 * time.Second,
+		runner:          ExecRunner{},
+		detectHW:        true,
+		idleTimeout:     2 * time.Minute,
+		segmentTimeout:  45 * time.Second,
+		segmentPadLimit: segmentPadMax,
+		stallTimeout:    30 * time.Second,
+		restartAhead:    24 * time.Second,
+		maxAhead:        2 * time.Minute,
+		keepBehind:      3 * time.Minute,
+		pollInterval:    150 * time.Millisecond,
+		segmentURI:      SegmentName,
+		dashURLs:        PlexDASHURLs,
+		manifestWait:    15 * time.Second,
+		rungDwell:       8 * time.Second,
 
 		audioMatchBudget: defaultAudioMatchBudget,
 	}
@@ -99,6 +102,10 @@ func WithIdleTimeout(d time.Duration) Option { return func(o *options) { o.idleT
 // WithSegmentTimeout bounds how long ServeSegment waits for ffmpeg
 // (default 45s).
 func WithSegmentTimeout(d time.Duration) Option { return func(o *options) { o.segmentTimeout = d } }
+
+// WithSegmentPadLimit bounds how long a slow segment's response is padded
+// before the request aborts (default segmentPadMax).
+func WithSegmentPadLimit(d time.Duration) Option { return func(o *options) { o.segmentPadLimit = d } }
 
 // WithStallTimeout sets the no-progress timeout for an actively requested
 // on-demand segment. Zero disables the watchdog.
