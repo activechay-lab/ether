@@ -339,6 +339,8 @@ func (w *syncWriter) add(ctx context.Context, t core.Title, browsable bool) erro
 
 func (w *syncWriter) pending() int { return len(w.show) + len(w.hide) }
 
+func (w *syncWriter) setFlushHook(fn func(context.Context) error) { w.onFlush = fn }
+
 func (w *syncWriter) flush(ctx context.Context) error {
 	n := len(w.show) + len(w.hide)
 	if n > 0 {

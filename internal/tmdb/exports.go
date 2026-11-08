@@ -148,6 +148,15 @@ func (e *Exports) kindLock(kind ExportKind) *sync.Mutex {
 // two weeks old. The file is verified (complete gzip, at most 1% malformed
 // lines) before any row is passed on. fn's error stops the stream.
 func (e *Exports) Each(ctx context.Context, kind ExportKind, fn func(ExportRow) error) (ExportInfo, error) {
+	return e.each(ctx, kind, func(r io.Reader) (int, int, error) { return ParseExport(r, fn) })
+}
+
+// EachNamed is Each with each row's original title or name.
+func (e *Exports) EachNamed(ctx context.Context, kind ExportKind, fn func(ExportRow, string) error) (ExportInfo, error) {
+	return e.each(ctx, kind, func(r io.Reader) (int, int, error) { return ParseExportNamed(r, fn) })
+}
+
+func (e *Exports) each(ctx context.Context, kind ExportKind, parse func(io.Reader) (int, int, error)) (ExportInfo, error) {
 	path, info, err := e.latest(ctx, kind)
 	if err != nil {
 		return info, err
@@ -157,7 +166,7 @@ func (e *Exports) Each(ctx context.Context, kind ExportKind, fn func(ExportRow) 
 		return info, err
 	}
 	defer f.Close()
-	rows, bad, err := ParseExport(f, fn)
+	rows, bad, err := parse(f)
 	info.Rows, info.Malformed = rows, bad
 	return info, err
 }
@@ -334,6 +343,26 @@ var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 // corrupt gzip stream is an error (the gzip trailer's CRC and length are
 // checked at the end). Memory is bounded by one line.
 func ParseExport(r io.Reader, fn func(ExportRow) error) (rows, malformed int, err error) {
+	var named func(ExportRow, string) error
+	if fn != nil {
+		named = func(row ExportRow, _ string) error { return fn(row) }
+	}
+	return parseExport(r, named, false)
+}
+
+// ParseExportNamed is ParseExport that also passes each row's original
+// title (movies) or original name (series).
+func ParseExportNamed(r io.Reader, fn func(ExportRow, string) error) (rows, malformed int, err error) {
+	return parseExport(r, fn, true)
+}
+
+type exportLine struct {
+	ExportRow
+	OriginalTitle string `json:"original_title"`
+	OriginalName  string `json:"original_name"`
+}
+
+func parseExport(r io.Reader, fn func(ExportRow, string) error, names bool) (rows, malformed int, err error) {
 	zr, err := gzip.NewReader(r)
 	if err != nil {
 		return 0, 0, fmt.Errorf("export: %w", err)
@@ -361,13 +390,23 @@ func ParseExport(r io.Reader, fn func(ExportRow) error) (rows, malformed int, er
 		}
 		line = bytes.TrimPrefix(bytes.TrimSpace(line), utf8BOM)
 		if len(line) > 0 {
-			var row ExportRow
-			if json.Unmarshal(line, &row) != nil || row.ID <= 0 {
+			var row exportLine
+			var derr error
+			if names {
+				derr = json.Unmarshal(line, &row)
+			} else {
+				derr = json.Unmarshal(line, &row.ExportRow)
+			}
+			if derr != nil || row.ID <= 0 {
 				malformed++
 			} else {
 				rows++
 				if fn != nil {
-					if err := fn(row); err != nil {
+					name := row.OriginalTitle
+					if name == "" {
+						name = row.OriginalName
+					}
+					if err := fn(row.ExportRow, name); err != nil {
 						return rows, malformed, err
 					}
 				}

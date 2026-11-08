@@ -401,6 +401,31 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 			}
 		}
 	}
+	// The long tail (tail_index.go): every other title in TMDB's export,
+	// from this node's own index. Hits are summaries, never stored; the
+	// visibility pass treats them as remote. A title whose date is not
+	// known yet is let through; a confirmed undated or future one is not,
+	// as for library titles.
+	if wantMovie || wantTV {
+		hits, scores := c.searchTail(sq, wantMovie, wantTV, max(limit*3, 30))
+		tail := make([]core.Title, 0, len(hits))
+		for _, e := range hits {
+			t := e.Title
+			if seen[t.Key] || (!unfiltered && !e.DateUnknown && !t.IsReleased(c.now())) {
+				continue
+			}
+			tail = append(tail, t)
+		}
+		if len(tail) > 0 {
+			if prefetch := c.posterPrefetch; prefetch != nil {
+				prefetch(ctx, tail) // posters (L), overlapping the TMDB wait
+			}
+			out = mergeTailHits(out, tail, scores, limit)
+			for _, t := range out {
+				seen[t.Key] = true
+			}
+		}
+	}
 	// A missing or failing metadata service must not fail the request.
 	// Context cancellation still aborts. A local query error is returned
 	// only when there is nothing else to answer with.
@@ -460,9 +485,9 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 				remote = append(remote, c.tvToTitle(ctx, s))
 			}
 		}
-		if err := c.mirrorListSummaries(ctx, "search:"+kinds+":"+strconv.Itoa(limit)+":"+query, remote, true); err != nil {
-			return nil, err
-		}
+		// Search hits are summaries in memory only: a title is stored when
+		// someone opens it (Get), never because it matched a search.
+		c.rememberListSummaries(remote)
 		return remote, nil
 	}
 	wait := searchRemoteWait

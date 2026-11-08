@@ -738,6 +738,8 @@ func (a *App) Run(ctx context.Context) error {
 	// Every node serves search: build its title index now, in the
 	// background, so the first search does not fall back to SQL.
 	a.catalog.WarmSearch(ctx)
+	// Every node that serves search keeps its own long-tail index.
+	background.start(func() { a.catalog.RunTail(ctx) })
 	if parityRunCatalogueWorkers() {
 		background.start(func() { a.cluster.RunAsLeader(ctx, "catalogue sync", a.catalog.Run) })
 		background.start(func() { a.cluster.RunAsLeader(ctx, "trending charts", a.catalog.RunTrends) })

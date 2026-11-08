@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -29,8 +30,21 @@ type searchLexicon struct {
 	runes   []uint8  // key i's length in runes (capped at 255)
 	docs    []uint32 // titles containing key i
 	surface map[uint32][]string
-	grams   map[uint64][2]uint32 // trigram -> posting range in posts
-	posts   []uint32
+	// Trigram g's keys are posts[gramAt[i]:gramAt[i+1]] where
+	// gramKeys[i] == g; gramKeys is sorted. Flat arrays rather than a map,
+	// so a lexicon can be written to a file and memory-mapped (tail index).
+	gramKeys []uint64
+	gramAt   []uint32
+	posts    []uint32
+}
+
+// gram returns trigram g's posting list.
+func (lx *searchLexicon) gram(g uint64) ([]uint32, bool) {
+	i, ok := slices.BinarySearch(lx.gramKeys, g)
+	if !ok {
+		return nil, false
+	}
+	return lx.posts[lx.gramAt[i]:lx.gramAt[i+1]], true
 }
 
 // lexiconMaxSurfaces bounds the spellings kept per key.
@@ -100,19 +114,23 @@ func (b *lexiconBuilder) build() *searchLexicon {
 	lx.offs[len(keys)] = uint32(sb.Len())
 	lx.blob = sb.String()
 	// Lay the posting lists out back to back, each in key order.
-	lx.grams = make(map[uint64][2]uint32, len(gramCount))
-	total := uint32(0)
-	for g, n := range gramCount {
-		lx.grams[g] = [2]uint32{total, total}
-		total += n
+	lx.gramKeys = make([]uint64, 0, len(gramCount))
+	for g := range gramCount {
+		lx.gramKeys = append(lx.gramKeys, g)
 	}
-	lx.posts = make([]uint32, total)
+	slices.Sort(lx.gramKeys)
+	lx.gramAt = make([]uint32, len(lx.gramKeys)+1)
+	fill := make([]uint32, len(lx.gramKeys))
+	for i, g := range lx.gramKeys {
+		lx.gramAt[i+1] = lx.gramAt[i] + gramCount[g]
+		fill[i] = lx.gramAt[i]
+	}
+	lx.posts = make([]uint32, lx.gramAt[len(lx.gramKeys)])
 	for i, k := range keys {
 		forEachGram(k, func(g uint64) {
-			r := lx.grams[g]
-			lx.posts[r[1]] = uint32(i)
-			r[1]++
-			lx.grams[g] = r
+			j, _ := slices.BinarySearch(lx.gramKeys, g)
+			lx.posts[fill[j]] = uint32(i)
+			fill[j]++
 		})
 	}
 	return lx
@@ -174,8 +192,8 @@ func (lx *searchLexicon) near(key string, maxDist, limit int) []approxMatch {
 	grams := 0
 	forEachGram(key, func(g uint64) {
 		grams++
-		if r, ok := lx.grams[g]; ok {
-			lists = append(lists, lx.posts[r[0]:r[1]])
+		if l, ok := lx.gram(g); ok {
+			lists = append(lists, l)
 		}
 	})
 	// One edit changes at most three of a word's trigrams (four for a

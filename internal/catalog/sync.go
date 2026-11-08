@@ -44,6 +44,8 @@ type Stats struct {
 	LastSync           time.Time         `json:"lastSync,omitempty"`
 	Sync               SyncProgress      `json:"sync"`
 	YearCorrection     MovieYearProgress `json:"yearCorrection"`
+	// Tail is this node's long-tail search index.
+	Tail TailStatus `json:"tail"`
 }
 
 func cloneStats(s Stats) Stats {
@@ -82,6 +84,7 @@ func (c *Catalog) finishStats(ctx context.Context, s Stats, yearPending int) Sta
 		s.Sync.LastError = c.getMeta(ctx, "sync_error")
 	}
 	s.YearCorrection = c.movieYearProgressFrom(yearPending)
+	s.Tail = c.TailStatus()
 	return s
 }
 
