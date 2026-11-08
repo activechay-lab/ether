@@ -16,8 +16,7 @@ func TestVariantPruneKeepsHeldIDsAndNeverReusesOne(t *testing.T) {
 	ctx := context.Background()
 	db := store.OpenTest(t)
 	clock := time.Now()
-	r := newVariantIDRegistry(db)
-	r.now = func() time.Time { return clock }
+	r := newVariantIDRegistryAt(db, func() time.Time { return clock })
 	day := 24 * time.Hour
 
 	live := variantRef{key: fightClub.Key, releaseID: "rel-live"}
@@ -27,11 +26,6 @@ func TestVariantPruneKeepsHeldIDsAndNeverReusesOne(t *testing.T) {
 	// squatter holds old's hash slot, so old was probed past it.
 	squatter := variantRef{key: bbE2.Key, releaseID: "rel-squatter"}
 	slot := variantHash(old.key, old.releaseID)
-	r.mu.Lock()
-	r.loadLocked()
-	r.byID[slot] = variantEntry{ref: squatter, seen: clock.Unix()}
-	r.byPair[squatter] = slot
-	r.mu.Unlock()
 	if _, err := db.ExecContext(ctx, `INSERT INTO variants_ids(media_id, rating_key, release_id, last_seen) VALUES (?,?,?,?)`, slot, int64(squatter.key), squatter.releaseID, clock.Unix()); err != nil {
 		t.Fatal(err)
 	}
