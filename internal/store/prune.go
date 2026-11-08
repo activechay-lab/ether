@@ -17,6 +17,8 @@ const pruneYield = 5 * time.Millisecond
 
 // PruneBatched runs a retention delete in batches until a batch removes
 // fewer than PruneBatch rows or ctx ends, and reports the rows removed.
+// Between batches it yields to queued writers and waits out WaitWALBudget
+// (SQLite; PostgreSQL returns at once).
 // del's last placeholder is the batch limit; the statement must pick its
 // rows through an index, the same way on SQLite and PostgreSQL:
 //
@@ -43,6 +45,11 @@ func PruneBatched(ctx context.Context, db *sql.DB, del string, args ...any) (int
 		case <-ctx.Done():
 			return total, ctx.Err()
 		case <-time.After(pruneYield):
+		}
+		// A long read (integrity check, backup copy) pins the WAL; wait
+		// for it rather than growing the WAL past its budget.
+		if err := WaitWALBudget(ctx, db); err != nil {
+			return total, err
 		}
 	}
 }

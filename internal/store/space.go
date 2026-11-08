@@ -83,6 +83,9 @@ func ReleaseFreePages(ctx context.Context, db *sql.DB) (int64, error) {
 			return released, ctx.Err()
 		case <-time.After(vacuumStepPause):
 		}
+		if err := WaitWALBudget(ctx, db); err != nil {
+			return released, err
+		}
 	}
 }
 
