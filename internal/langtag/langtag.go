@@ -30,8 +30,13 @@ var iso6392to1 = map[string]string{
 	"ron": "ro", "bul": "bg", "hrv": "hr", "srp": "sr", "slo": "sk", "slk": "sk",
 	"slv": "sl", "est": "et", "lav": "lv", "lit": "lt", "per": "fa", "fas": "fa",
 	"may": "ms", "msa": "ms", "tam": "ta", "tel": "te", "ice": "is", "isl": "is",
-	"cat": "ca", "baq": "eu", "eus": "eu", "glg": "gl", "mkd": "mk", "sqi": "sq",
-	"hye": "hy", "kat": "ka", "bos": "bs",
+	"cat": "ca", "baq": "eu", "eus": "eu", "glg": "gl", "mkd": "mk", "mac": "mk",
+	"sqi": "sq", "alb": "sq", "hye": "hy", "arm": "hy", "kat": "ka", "geo": "ka",
+	"bos": "bs", "ben": "bn", "mar": "mr", "guj": "gu", "kan": "kn", "mal": "ml",
+	"pan": "pa", "urd": "ur", "nep": "ne", "swa": "sw", "kaz": "kk", "uzb": "uz",
+	"mon": "mn", "aze": "az", "mya": "my", "bur": "my", "khm": "km", "lao": "lo",
+	"amh": "am", "zul": "zu", "lat": "la", "epo": "eo", "cym": "cy", "wel": "cy",
+	"gle": "ga", "afr": "af",
 }
 
 func isAlpha(s string) bool {
@@ -192,4 +197,158 @@ func MatchTier(want, track string) int {
 	default:
 		return 0
 	}
+}
+
+// Extended BCP-47 match ranks returned by MatchRank (higher is better, 0 = no match).
+const (
+	RankNoMatch         = 0
+	RankRegionalVariant = 2 // Different region of same language with no script conflict (e.g. es-419 × es-ES, fr-CA × fr-FR)
+	RankBareCandidate   = 3 // Regional/scripted want matched against a bare primary track (e.g. es-419 × es, pt-BR × pt)
+	RankMatchingSubtag  = 4 // Generic want × regional/scripted track, or matching script/region when one side is more specific
+	RankExact           = 5 // Exact primary + script + region match (including implied Chinese script/region pairs)
+)
+
+// ParseCompatible parses a BCP-47 tag or a known display-name alias
+// (such as "Brazilian Portuguese" or "Latin American Spanish") into a Tag.
+// Undetermined ("und") and multiple ("mul") return ok = false.
+func ParseCompatible(raw string) (Tag, bool) {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return Tag{}, false
+	}
+	if mapped, ok := displayLanguageAliases[trimmed]; ok {
+		trimmed = mapped
+	}
+	t, ok := ParseBCP47(trimmed)
+	if !ok || t.Primary == "und" || t.Primary == "mul" {
+		return Tag{}, false
+	}
+	return t, true
+}
+
+// CanonicalBCP47 returns the normalized BCP-47 string preserving script and region
+// subtags across all languages (e.g. "es-419", "fr-CA", "sr-Latn", "pt-BR", "zh-Hant-TW").
+func CanonicalBCP47(raw string) string {
+	t, ok := ParseCompatible(raw)
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(t.Primary)
+	if t.Script != "" {
+		b.WriteByte('-')
+		b.WriteString(strings.ToUpper(t.Script[:1]) + t.Script[1:])
+	}
+	if t.Region != "" {
+		b.WriteByte('-')
+		b.WriteString(strings.ToUpper(t.Region))
+	}
+	return b.String()
+}
+
+// likelyScript returns the implied script for a primary+region pair when
+// no explicit script subtag was given.
+func likelyScript(t Tag) string {
+	if t.Script != "" {
+		return t.Script
+	}
+	switch t.Primary {
+	case "zh":
+		switch t.Region {
+		case "cn", "sg", "my":
+			return "hans"
+		case "tw", "hk", "mo":
+			return "hant"
+		}
+	case "sr":
+		if t.Region == "me" {
+			return "latn"
+		}
+	}
+	return ""
+}
+
+// likelyRegion returns the implied region for Chinese script subtags when
+// no explicit region was given.
+func likelyRegion(t Tag) string {
+	if t.Region != "" {
+		return t.Region
+	}
+	if t.Primary == "zh" {
+		switch t.Script {
+		case "hans":
+			return "cn"
+		case "hant":
+			return "tw"
+		}
+	}
+	return ""
+}
+
+// MatchRank scores how well a candidate track tag satisfies a wanted language
+// preference using full BCP-47 primary, script, and region subtags across all
+// languages (higher is better, 0 = incompatible):
+//
+//   - 5 (RankExact): Exact match on primary + effective script + effective region
+//     (e.g. es-419 × es-419, sr-Latn × sr-Latn, zh-TW × zh-Hant-TW, en × eng).
+//   - 4 (RankMatchingSubtag): Generic want × regional/scripted track (es × es-419,
+//     pt × pt-BR), or matching script/region when one side is more specific
+//     (sr-Latn × sr-Latn-RS, zh-Hant × zh-Hant-HK).
+//   - 3 (RankBareCandidate): Regional/scripted want × bare primary candidate
+//     (es-419 × es, pt-BR × por, sr-Latn × sr, zh-TW × zh).
+//   - 2 (RankRegionalVariant): Sibling region with no script conflict (es-419 × es-ES,
+//     fr-CA × fr-FR, en-GB × en-US). Portuguese (pt-BR vs pt-PT) and Chinese
+//     (zh-CN vs zh-TW) remain 0 because viewers treat them as distinct languages.
+//   - 0 (RankNoMatch): Different primary language, empty/undetermined tag, or
+//     conflicting script (sr-Latn × sr-Cyrl, zh-Hans × zh-Hant, uz-Latn × uz-Cyrl).
+func MatchRank(want, candidate string) int {
+	w, okW := ParseCompatible(want)
+	c, okC := ParseCompatible(candidate)
+	if !okW || !okC || w.Primary != c.Primary {
+		return RankNoMatch
+	}
+
+	wScript, cScript := likelyScript(w), likelyScript(c)
+	wRegion, cRegion := likelyRegion(w), likelyRegion(c)
+
+	// Explicit or implied script conflict (e.g. sr-Latn vs sr-Cyrl, zh-Hans vs zh-Hant).
+	if wScript != "" && cScript != "" && wScript != cScript {
+		return RankNoMatch
+	}
+
+	wBare := w.Script == "" && w.Region == ""
+	cBare := c.Script == "" && c.Region == ""
+	if wBare && cBare {
+		return RankExact
+	}
+	if wBare && !cBare {
+		return RankMatchingSubtag
+	}
+	if !wBare && cBare {
+		return RankBareCandidate
+	}
+
+	// Both sides carry at least one script or region subtag and have no script conflict.
+	sameScript := wScript != "" && cScript != "" && wScript == cScript
+	sameRegion := wRegion != "" && cRegion != "" && wRegion == cRegion
+
+	if sameScript && sameRegion {
+		return RankExact
+	}
+	if (wScript == cScript || wScript == "" || cScript == "") && sameRegion && (w.Script == c.Script || w.Primary == "zh") {
+		return RankExact
+	}
+	if sameScript && wRegion == "" && cRegion == "" {
+		return RankExact
+	}
+	if sameScript || sameRegion {
+		return RankMatchingSubtag
+	}
+
+	// Distinct regions with no script conflict. Portuguese (pt-br vs pt-pt) and
+	// Chinese (zh-cn vs zh-tw / zh-hk) do not cross-match across regions.
+	if w.Primary == "pt" || w.Primary == "zh" {
+		return RankNoMatch
+	}
+	return RankRegionalVariant
 }
