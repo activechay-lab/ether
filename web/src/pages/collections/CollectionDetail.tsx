@@ -114,7 +114,7 @@ export function CollectionDetail({
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
                 {template
-                  ? t("{category} template", { category: template.category })
+                  ? t("{category} template", { category: t(template.category) })
                   : spec.builtIn
                     ? t("Managed by Ether")
                     : t("Collection preview")}

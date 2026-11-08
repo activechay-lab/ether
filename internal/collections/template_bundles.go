@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/extend"
 )
 
 // TemplateBundle groups a curated set of collection template IDs that an owner
@@ -64,9 +65,9 @@ type BundleStudio interface {
 var templateBundleDefs = []TemplateBundle{
 	{
 		ID:          "core-defaults",
-		Name:        "Core Defaults",
-		Description: "Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.",
-		Category:    "Starter",
+		Name:        extend.T("Core Defaults").Source,
+		Description: extend.T("Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.").Source,
+		Category:    extend.T("Starter").Source,
 		TemplateIDs: []string{
 			"top-trending",
 			"top-popular-movies",
@@ -84,9 +85,9 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "streaming-originals",
-		Name:        "Streaming Originals",
-		Description: "Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
-		Category:    "Streaming",
+		Name:        extend.T("Streaming Originals").Source,
+		Description: extend.T("Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.").Source,
+		Category:    extend.T("Streaming").Source,
 		TemplateIDs: []string{
 			"streaming-apple-tv-originals",
 			"streaming-disney-plus-originals",
@@ -100,9 +101,9 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "awards-and-yearly",
-		Name:        "Awards & Yearly Picks",
-		Description: "Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.",
-		Category:    "Editorial",
+		Name:        extend.T("Awards & Yearly Picks").Source,
+		Description: extend.T("Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.").Source,
+		Category:    extend.T("Editorial").Source,
 		TemplateIDs: []string{
 			"awards-oscar-winners",
 			"awards-golden-globes-winners",
@@ -117,9 +118,9 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "seasonal",
-		Name:        "Seasonal & Holidays",
-		Description: "Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.",
-		Category:    "Seasonal",
+		Name:        extend.T("Seasonal & Holidays").Source,
+		Description: extend.T("Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.").Source,
+		Category:    extend.T("Seasonal").Source,
 		TemplateIDs: []string{
 			"seasonal-halloween",
 			"seasonal-halloween-family",
@@ -135,9 +136,9 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "franchises",
-		Name:        "Franchises & Universes",
-		Description: "Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.",
-		Category:    "Franchises",
+		Name:        extend.T("Franchises & Universes").Source,
+		Description: extend.T("Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.").Source,
+		Category:    extend.T("Franchises").Source,
 		TemplateIDs: []string{
 			"star-wars",
 			"middle-earth",

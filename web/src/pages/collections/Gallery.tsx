@@ -95,7 +95,9 @@ export default function CollectionsGallery({
   );
   const categories = [...new Set((templates.data ?? []).map((tpl) => tpl.category))];
   const shownTemplates = (templates.data ?? []).filter(
-    (tpl) => match(tpl) && (category === "all" || tpl.category === category),
+    (tpl) =>
+      match({ name: t(tpl.name), description: t(tpl.description) }) &&
+      (category === "all" || tpl.category === category),
   );
   const template =
     tab === "templates"
@@ -351,7 +353,7 @@ export default function CollectionsGallery({
                     onChange={setCategory}
                     options={[
                       { value: "all", label: t("All categories") },
-                      ...categories.map((c) => ({ value: c, label: c })),
+                      ...categories.map((c) => ({ value: c, label: t(c) })),
                     ]}
                   />
                 ) : null}
@@ -509,7 +511,7 @@ export default function CollectionsGallery({
                       <li key={tpl.id}>
                         <button
                           type="button"
-                          aria-label={t("Preview template {name}", { name: tpl.name })}
+                          aria-label={t("Preview template {name}", { name: t(tpl.name) })}
                           aria-current={template?.id === tpl.id ? "true" : undefined}
                           onClick={() => select("template", tpl.id)}
                           className={cn(ROW, template?.id === tpl.id ? ACTIVE : INACTIVE)}
@@ -518,9 +520,11 @@ export default function CollectionsGallery({
                             <LayoutTemplate size={18} />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">{tpl.name}</span>
+                            <span className="block truncate text-sm font-medium">
+                              {t(tpl.name)}
+                            </span>
                             <span className="mt-0.5 block text-[11px] text-fg-muted">
-                              {tpl.category} · {mediaLabel(tpl.spec)}
+                              {t(tpl.category)} · {mediaLabel(tpl.spec)}
                             </span>
                           </span>
                           <ArrowRight size={14} className="shrink-0 text-fg-subtle" />
@@ -663,8 +667,8 @@ export default function CollectionsGallery({
                 template
                   ? normalizeSpec({
                       ...template.spec,
-                      name: template.name,
-                      description: template.description,
+                      name: t(template.name),
+                      description: t(template.description),
                     })
                   : selected!
               }
@@ -673,7 +677,7 @@ export default function CollectionsGallery({
                 template ? (
                   <Button
                     size="sm"
-                    aria-label={t("Use template {name}", { name: template.name })}
+                    aria-label={t("Use template {name}", { name: t(template.name) })}
                     onClick={() => navigate(newCollectionHref({ template: template.id }))}
                   >
                     <Plus size={14} /> {t("Use template")}

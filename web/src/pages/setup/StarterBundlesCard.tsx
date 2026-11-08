@@ -1,52 +1,16 @@
 import { Badge, Button, toast } from "@braedonsaunders/appkit-ui";
 import { Check, LayoutTemplate, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { msg, t, tn } from "../../i18n";
+import { t, tn } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
-import type {
-  CollectionTemplateBundle,
-  CollectionTemplateBundlePreview,
-} from "../../lib/contract";
-
-const BUNDLE_COPY: Record<string, { name: string; description: string }> = {
-  "core-defaults": {
-    name: msg("Core Defaults"),
-    description: msg(
-      "Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.",
-    ),
-  },
-  "streaming-originals": {
-    name: msg("Streaming Originals"),
-    description: msg(
-      "Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
-    ),
-  },
-  "awards-and-yearly": {
-    name: msg("Awards & Yearly Picks"),
-    description: msg(
-      "Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.",
-    ),
-  },
-  seasonal: {
-    name: msg("Seasonal & Holidays"),
-    description: msg(
-      "Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.",
-    ),
-  },
-  franchises: {
-    name: msg("Franchises & Universes"),
-    description: msg(
-      "Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.",
-    ),
-  },
-};
+import type { CollectionTemplateBundle, CollectionTemplateBundlePreview } from "../../lib/contract";
 
 export function bundleTitle(b: CollectionTemplateBundle): string {
-  return t(BUNDLE_COPY[b.id]?.name ?? b.name);
+  return t(b.name);
 }
 
 export function bundleDescription(b: CollectionTemplateBundle): string {
-  return t(BUNDLE_COPY[b.id]?.description ?? b.description);
+  return t(b.description);
 }
 
 /**

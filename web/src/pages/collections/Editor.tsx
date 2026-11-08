@@ -127,7 +127,14 @@ export default function CollectionEditor() {
     if (templateId) {
       const tpl = (await api.templates()).find((x) => x.id === templateId);
       if (!tpl) throw new ApiError(404, "not_found", t("That template no longer exists."));
-      return normalizeSpec({ ...tpl.spec, id: undefined, enabled: false, templateId: tpl.id });
+      return normalizeSpec({
+        ...tpl.spec,
+        name: t(tpl.spec.name),
+        description: t(tpl.spec.description ?? tpl.description),
+        id: undefined,
+        enabled: false,
+        templateId: tpl.id,
+      });
     }
     if (pluginSource?.startsWith("plugin:")) {
       return { ...blankSpec(), name: pluginName, sources: [{ kind: pluginSource } as Source] };
