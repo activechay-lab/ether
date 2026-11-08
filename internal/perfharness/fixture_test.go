@@ -166,7 +166,7 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 	}
 	// Live tallies sit in their delta tables until the catalogue folds
 	// them; compare the sums a read takes.
-	for name, dims := range map[string]string{"catalog_browse_tally": "type,genre,rating_rank", "catalog_stats_tally": "kind,browsable,home,year_pending"} {
+	for name, dims := range map[string]string{"catalog_browse_tally": "type,genre,rating_rank", "catalog_stats_tally": "kind,browsable,home,year_pending", "catalog_facet_tally": "type,facet,value,rating_rank"} {
 		delete(tables, name+"_delta")
 		tables[name] = `SELECT ` + dims + `,SUM(n) FROM (SELECT ` + dims + `,n FROM ` + name + ` UNION ALL SELECT ` + dims + `,d FROM ` + name + `_delta) GROUP BY ` + dims + ` HAVING SUM(n)<>0`
 	}

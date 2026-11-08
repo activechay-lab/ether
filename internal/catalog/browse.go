@@ -1093,6 +1093,18 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	if err != nil {
 		return nil, err
 	}
+	var tallied []core.FacetValue
+	if facet == "firstCharacter" {
+		// The jump bar from its tally: a few rows, not every title.
+		var ok bool
+		if tallied, ok, err = c.jumpBarFromTally(ctx, f, base, args); err != nil {
+			return nil, err
+		} else if !ok {
+			tallied = nil
+		} else if tallied == nil {
+			tallied = []core.FacetValue{}
+		}
+	}
 	var q string
 	switch facet {
 	case "tag":
@@ -1125,16 +1137,37 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	default:
 		return nil, fmt.Errorf("catalog: unknown facet %q", facet)
 	}
-	rows, err := c.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var out []core.FacetValue
-	for rows.Next() {
-		var v core.FacetValue
-		if err := rows.Scan(&v.Key, &v.Count); err != nil {
+	next := func() (core.FacetValue, bool, error) {
+		if len(tallied) == 0 {
+			return core.FacetValue{}, false, nil
+		}
+		v := tallied[0]
+		tallied = tallied[1:]
+		return v, true, nil
+	}
+	if tallied == nil {
+		rows, err := c.db.QueryContext(ctx, q, args...)
+		if err != nil {
 			return nil, err
+		}
+		defer rows.Close()
+		next = func() (core.FacetValue, bool, error) {
+			var v core.FacetValue
+			if !rows.Next() {
+				return v, false, rows.Err()
+			}
+			err := rows.Scan(&v.Key, &v.Count)
+			return v, err == nil, err
+		}
+	}
+	for {
+		v, ok, err := next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
 		}
 		v.Title = v.Key
 		switch {
@@ -1147,9 +1180,6 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	}
 	if out == nil {
 		out = []core.FacetValue{}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	// Stamped with the generation it started at, as countBrowse does: a
 	// write during the count makes the next read recount, and storing it
