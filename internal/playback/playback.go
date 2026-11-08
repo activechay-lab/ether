@@ -842,6 +842,7 @@ func (m *Manager) PrepareWithin(ctx context.Context, wait time.Duration, user *c
 }
 
 func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, user *core.User, key core.RatingKey, caps core.ClientCaps, prefer string, exact, deferSupersession bool) (*core.PlaySession, core.SourceRetirement, error) {
+	prepareStarted := time.Now()
 	if user == nil {
 		return nil, nil, core.ErrUnauthorized
 	}
@@ -897,7 +898,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 					s.mu.Unlock()
 				}
 				m.reg.poke()
-				return s.snapshot(now), s.sources, nil
+				return m.snapshotForAdmission(ctx, s, caps, prepareStarted, wait)
 			}
 			old := s.id
 			m.mu.Unlock()
@@ -965,7 +966,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 			f.sess.exp.noteRequest(arrived)
 			f.sess.mu.Unlock()
 		}
-		return f.sess.snapshot(m.now()), f.sess.sources, nil
+		return m.snapshotForAdmission(ctx, f.sess, caps, prepareStarted, wait)
 	case <-ctx.Done():
 		m.mu.Lock()
 		if f.waiters--; f.waiters == 0 && !f.detached {
