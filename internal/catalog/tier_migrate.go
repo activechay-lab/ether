@@ -34,12 +34,14 @@ import (
 //     franchise) and every title the touch sources name (tier_sources.go).
 //  2. It waits for a backup taken since the upgrade (TierBackupFunc takes
 //     one when none exists). Nothing is removed before.
-//  3. It removes the rest in key order, a show with its seasons and
-//     episodes, a batch a transaction behind store.WaitWALBudget. Each
+//  3. It removes the rest. On PostgreSQL in key order, a show with its
+//     seasons and episodes, a batch a transaction (row locks only); each
 //     batch re-reads its titles' stored facts and the Tier A sources for
 //     its key range in the same transaction, so a title touched while the
-//     job ran is kept. Triggers keep the search index and the tallies
-//     right row by row; a cursor in catalog_meta resumes after a restart.
+//     job ran is kept, and triggers keep the search index and the tallies
+//     right row by row. On SQLite it copies the keepers into a fresh table
+//     and swaps it in (tier_swap.go), with the same per-batch re-check. A
+//     cursor in catalog_meta resumes either after a restart.
 //  4. It re-reads every touch source and stores again, through Get, any
 //     touched title that has no row (a PostgreSQL touch committed between a
 //     batch's re-check and its delete, or a scanned source edited during

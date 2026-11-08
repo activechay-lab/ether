@@ -24,23 +24,27 @@ import (
 //
 // Online throughout:
 //
-//   - copy: catalog_titles_keep (the same definition) and its FTS table
-//     catalog_titles_fts_keep are filled in key-order chunks behind
-//     WaitWALBudget, each chunk re-checking its key range's Tier A
-//     touches in its transaction. Capture triggers on catalog_titles
-//     mirror every later write to a row already behind the copy cursor:
-//     inserts always, updates of kept rows and of rows Get just opened
-//     (detail=1), deletes.
-//   - index: the indexes are built on the copy under temporary names, one
-//     transaction each.
-//   - swap: one short transaction renames the tables (the old one aside),
-//     moves the triggers, builds the few indexes queries name in INDEXED BY
-//     under their own names, and recounts the tallies. Readers see the old
-//     table or the new one, never neither.
+//   - copy: catalog_titles_keep (the same definition, with every index
+//     under a temporary name, built while it is empty) and its FTS table
+//     catalog_titles_fts_keep are filled in key-order chunks behind the WAL
+//     budget, each chunk re-checking its key range's Tier A touches in its
+//     transaction. Capture triggers on catalog_titles mirror every later
+//     write to a row already behind the copy cursor: inserts always,
+//     updates of kept rows and of rows Get just opened (detail=1),
+//     deletes. The schema does not change while they run.
+//   - swap: queries stop pinning indexes (c.indexedBy); one short
+//     transaction re-reads every Tier A key, renames the tables (the old
+//     one aside), moves the triggers and recounts the tallies. Readers see
+//     the old table or the new one, never neither.
 //   - cleanup: each temporary index is replaced by one under its real name
-//     (dropping the old table's index of that name first), the old FTS
-//     table and the old rows are dropped in bounded steps, and dependent
-//     rows of removed titles are deleted.
+//     (the pinned ones first, then pins come back), and the old FTS table
+//     and the old table are dropped, each read first so its drop walks
+//     cached pages. Then the dependent rows of removed titles are deleted
+//     a page of keys a transaction.
+//
+// Between batches the job runs a TRUNCATE checkpoint when the WAL file has
+// passed its budget: readers that never pause keep SQLite from restarting
+// the WAL on its own.
 //
 // The file keeps its size: SQLite returns freed pages to its freelist and
 // reuses them for later writes. auto_vacuum is off, so shrinking it needs
