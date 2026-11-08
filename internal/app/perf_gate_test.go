@@ -444,6 +444,15 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	r := perfharness.NewRunner(port, true, viewers)
 	// A request this slow has already failed the ceiling; do not wait longer.
 	r.SetTimeout(15 * time.Second)
+	// Each request starts once the work earlier requests left behind them
+	// (catalogue refreshes, Home rebuilds, viewer models) is done, so its
+	// statements do not depend on that work's timing.
+	quiesceMisses := 0
+	r.SetBefore(func(ctx context.Context) {
+		if !a.quiesce(ctx, 30*time.Second) {
+			quiesceMisses++
+		}
+	})
 	if path := os.Getenv("ETHER_PERF_GATE_CPUPROFILE"); path != "" && name == "large" {
 		// The large replay alone, without the fixture's generation.
 		if f, err := os.Create(path); err == nil {
@@ -514,6 +523,9 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 				t.Fatal(err)
 			}
 		}
+	}
+	if quiesceMisses > 0 {
+		t.Logf("%s: background work was still running before %d requests after 30 s", name, quiesceMisses)
 	}
 	byTag, _, err := perfharness.ReadTrace(trace)
 	if err != nil {
