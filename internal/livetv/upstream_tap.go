@@ -238,14 +238,21 @@ type upstreamTap struct {
 	body    io.Closer
 
 	// Reserve state; ts is nil for an input that is not a transport stream.
-	ts         *tsSplicer
-	marks      []tsMark
-	active     map[*tapReader]struct{}
-	resume     map[*inputGrant]tapResume // where each grant's last reader started and stopped
-	paces      map[*inputGrant]*tapPace
-	lastData   time.Time
-	dataAt     atomic.Int64 // lastData for lock-free health (unix nanoseconds)
-	published  int          // format generation last published
+	ts        *tsSplicer
+	marks     []tsMark
+	active    map[*tapReader]struct{}
+	resume    map[*inputGrant]tapResume // where each grant's last reader started and stopped
+	paces     map[*inputGrant]*tapPace
+	lastData  time.Time
+	dataAt    atomic.Int64 // lastData for lock-free health (unix nanoseconds)
+	published int          // format generation last published
+	// Source-history reporting: what was last reported, the stall count and
+	// the connect burst of the current connection.
+	rep        tapReport
+	stallCount int64
+	burstDone  bool
+	burst      time.Duration
+	burstNew   bool
 	epochStart time.Time
 	epochClock int64 // splicer clock when the current connection started
 	stalled    bool
@@ -314,6 +321,10 @@ func (r *tapRegistry) release(g *inputGrant) {
 	for _, t := range r.byKey {
 		t.mu.Lock()
 		if _, ok := t.refs[g]; ok {
+			// The session ends: its last evidence goes to history first.
+			if ev := t.evidenceLocked(); !ev.empty() {
+				g.noteEvidence(ev)
+			}
 			delete(t.refs, g)
 			delete(t.resume, g)
 			delete(t.paces, g)
@@ -1204,12 +1215,18 @@ func (t *upstreamTap) watch() {
 		stall := !t.stalled && t.body != nil && time.Since(t.lastData) >= tapStallAfter
 		if stall {
 			t.stalled = true
+			t.stallCount++
 			cut, t.body = t.body, nil
 		}
+		t.measureBurstLocked()
+		due := time.Since(t.rep.at) >= historyReportEvery
 		t.mu.Unlock()
 		if stall {
 			t.emit(InputStalled, errors.New("provider stopped delivering"))
 			cut.Close()
+		}
+		if stall || due {
+			t.report()
 		}
 	}
 }
@@ -1221,6 +1238,9 @@ func (t *upstreamTap) watch() {
 func (s *Service) reconnectTap(t *upstreamTap, raw string, cause error) (io.Reader, error) {
 	t.mu.Lock()
 	raiseStall := !t.stalled
+	if raiseStall {
+		t.stallCount++
+	}
 	t.stalled = true
 	// A connection that ended before delivering tapHealthy of media is a
 	// failed attempt too: a source that accepts and drops at once must not
@@ -1374,6 +1394,7 @@ func (s *Service) reopenTap(ctx context.Context, t *upstreamTap, g *inputGrant, 
 	t.epochClock = t.ts.clock
 	t.reconnects++
 	t.refusals = 0
+	t.burstDone = false
 	t.ts.reconnect(t.minDepthLocked() >= tapDedupeDepth)
 	t.mu.Unlock()
 	return body, nil
@@ -1547,4 +1568,71 @@ func (r *tapRegistry) externalCount(id string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.external[id]
+}
+
+// tapReport is what a tap last reported to the source history.
+type tapReport struct {
+	at         time.Time
+	clock      int64
+	damage     int64
+	format     int
+	reconnects int
+	stalls     int64
+}
+
+// tapBurstProbe is how long into a connection the connect burst is read.
+const tapBurstProbe = 1500 * time.Millisecond
+
+// measureBurstLocked records how much media the current connection
+// delivered beyond real time in its first tapBurstProbe.
+func (t *upstreamTap) measureBurstLocked() {
+	if t.ts == nil || t.burstDone || t.epochStart.IsZero() || time.Since(t.epochStart) < tapBurstProbe {
+		return
+	}
+	t.burstDone = true
+	got := time.Duration(t.ts.clock-t.epochClock) * time.Second / tsClockHz
+	t.burst, t.burstNew = max(0, got-tapBurstProbe), true
+}
+
+// evidenceLocked is what the tap observed since its last report.
+func (t *upstreamTap) evidenceLocked() SourceEvidence {
+	ev := SourceEvidence{
+		Stalls:     t.stallCount - t.rep.stalls,
+		Reconnects: int64(t.reconnects - t.rep.reconnects),
+	}
+	t.rep.stalls, t.rep.reconnects, t.rep.at = t.stallCount, t.reconnects, time.Now()
+	if t.ts == nil {
+		return ev
+	}
+	ev.Media = time.Duration(t.ts.clock-t.rep.clock) * time.Second / tsClockHz
+	ev.DamageEvents = t.ts.damage - t.rep.damage
+	ev.FormatChanges = int64(t.ts.format - t.rep.format)
+	ev.KeyframeGap, t.ts.maxGap = t.ts.maxGap, 0
+	if t.burstNew {
+		ev.ConnectBurst, ev.burstMeasured, t.burstNew = t.burst, true, false
+	}
+	t.rep.clock, t.rep.damage, t.rep.format = t.ts.clock, t.ts.damage, t.ts.format
+	return ev
+}
+
+// report sends the tap's new evidence to the history of each distinct
+// source reading it (several grants of one source count once).
+func (t *upstreamTap) report() {
+	t.mu.Lock()
+	ev := t.evidenceLocked()
+	seen := map[string]bool{}
+	var grants []*inputGrant
+	for g := range t.refs {
+		if key := sourceHealthKey(g.histChannel, g.histSrc); !seen[key] {
+			seen[key] = true
+			grants = append(grants, g)
+		}
+	}
+	t.mu.Unlock()
+	if ev.empty() {
+		return
+	}
+	for _, g := range grants {
+		g.noteEvidence(ev)
+	}
 }

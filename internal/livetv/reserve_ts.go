@@ -1,5 +1,7 @@
 package livetv
 
+import "time"
+
 // The reserve keeps a raw MPEG-TS input as packet-aligned bytes with a media
 // clock beside them, so a reader can be held N seconds behind the live edge
 // and a provider reconnect can be spliced in without the reader noticing.
@@ -99,6 +101,11 @@ type tsSplicer struct {
 	prevVideo int
 	prevPES   map[int]bool
 
+	// Evidence for the source history, as the provider sent it.
+	inputCC map[int]byte // last continuity counter seen per PID, this connection
+	damage  int64        // continuity breaks, transport-error packets, lost sync
+	lastKey int64        // clock of the last committed keyframe, -1 none
+	maxGap  time.Duration
 	// Index.
 	clock     int64 // continuous media clock, 90 kHz
 	lastPCR   int64 // last committed PCR base, -1 none
@@ -111,7 +118,8 @@ type tsSplicer struct {
 func newTSSplicer() *tsSplicer {
 	return &tsSplicer{pmtPID: tsNoPID, pcrPID: tsNoPID, videoPID: tsNoPID, pesPIDs: map[int]bool{},
 		ccOff: map[int]byte{}, lastCC: map[int]byte{}, guard: map[int]int64{}, dropPES: map[int]bool{},
-		lastDTS: map[int]int64{}, lastStep: map[int]int64{}, maxPTS: -1, lastPCR: -1, lastPAT: -1, frameDur: 3600}
+		lastDTS: map[int]int64{}, lastStep: map[int]int64{}, maxPTS: -1, lastPCR: -1, lastPAT: -1, frameDur: 3600,
+		inputCC: map[int]byte{}, lastKey: -1}
 }
 
 // looksTS reports whether b starts (after at most one packet of junk) with
@@ -146,6 +154,8 @@ func (s *tsSplicer) reconnect(dedupe bool) {
 	s.pesPIDs = map[int]bool{}
 	s.ccOff = map[int]byte{}
 	s.dropPES = map[int]bool{}
+	s.inputCC = map[int]byte{}
+	s.lastKey = -1
 }
 
 // feed consumes upstream bytes and appends what the ring should receive to
@@ -166,6 +176,14 @@ func (s *tsSplicer) feed(p []byte, out []byte, at int64) ([]byte, []tsMark) {
 			out = append(out, pkt...)
 			if s.haveClock && (h.key || !s.marked || s.clock-s.lastMark >= tsMarkEvery) {
 				m := tsMark{off: off, entry: off, clock: s.clock, key: h.key, format: h.format}
+				if h.key {
+					if s.lastKey >= 0 {
+						if gap := time.Duration(s.clock-s.lastKey) * time.Second / tsClockHz; gap > 0 && gap <= time.Minute {
+							s.maxGap = max(s.maxGap, gap)
+						}
+					}
+					s.lastKey = s.clock
+				}
 				if h.key && s.lastPAT >= 0 && s.lastPAT <= off {
 					m.entry = s.lastPAT
 				}
@@ -207,6 +225,9 @@ func (s *tsSplicer) feed(p []byte, out []byte, at int64) ([]byte, []tsMark) {
 	}
 	for len(data) > 0 {
 		if !s.synced || data[0] != 0x47 {
+			if s.synced {
+				s.damage++ // lost sync mid-connection
+			}
 			i := syncAt(data)
 			if i < 0 {
 				s.pend = s.pend[:0]
@@ -266,6 +287,7 @@ func (s *tsSplicer) packet(in []byte, queue func([]byte, bool)) {
 	id := pid(pkt)
 	pusi := pkt[1]&0x40 != 0
 	pl := payloadAt(pkt)
+	s.inspect(pkt, id)
 	switch {
 	case id == 0:
 		if pusi && pl >= 0 {
@@ -705,4 +727,22 @@ func (s *tsSplicer) observe(pkt []byte) {
 			}
 		}
 	}
+}
+
+// inspect counts provider damage for the source history: transport-error
+// packets and continuity-counter breaks the provider did not announce with
+// a discontinuity indicator. Duplicates (a repeated counter) are legal.
+func (s *tsSplicer) inspect(pkt []byte, id int) {
+	if pkt[1]&0x80 != 0 {
+		s.damage++
+	}
+	if id == 0x1fff || (pkt[3]>>4)&1 == 0 {
+		return
+	}
+	cc := pkt[3] & 0x0f
+	announced := (pkt[3]>>4)&2 != 0 && pkt[4] > 0 && pkt[5]&0x80 != 0
+	if last, ok := s.inputCC[id]; ok && !announced && cc != last && cc != (last+1)&0x0f {
+		s.damage++
+	}
+	s.inputCC[id] = cc
 }

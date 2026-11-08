@@ -316,6 +316,7 @@ func (s *Service) recordSourceHealth(channelID string, src StreamSource, err err
 		}
 	}
 	s.sourceHealth[key] = h
+	s.noteSourceOpen(channelID, src, err, played, h.RetryAfter)
 }
 
 // ResolveStreamSource resolves a channel's stream input at tune time. HTTP(S)
