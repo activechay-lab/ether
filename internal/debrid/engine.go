@@ -385,6 +385,28 @@ func (e *Engine) CheckRelease(ctx context.Context, releaseID string, payload []b
 		body.Close()
 		return true, nil
 	}
+	// Playback probes the winner right after Resolve; waiting for block 0
+	// here would put one CDN first byte (0.3-0.9 s on the lab) before the
+	// probe even starts. Confirm the link, start the same head fetch, and let
+	// the probe's first read join it: a link that does not serve fails the
+	// probe, and playback opens the next candidate. Add-on links are not
+	// deferred: each open there is the add-on's work.
+	if d := core.HealthDeferralFrom(ctx); d != nil && !p.IsDirect() {
+		d.Defer()
+		e.mu.Lock()
+		f.refs++
+		e.mu.Unlock()
+		runBlocks := max(1, pinnedHeadBytes/f.e.block)
+		go func() {
+			defer e.releaseFile(f)
+			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deferredHeadTimeout)
+			defer cancel()
+			if _, err := f.block(fetchCtx, 0, fetchDurable, runBlocks, nil); err != nil && fetchCtx.Err() == nil {
+				f.e.log.Debug("deferred health head fetch failed", "release", p.Release, "err", err)
+			}
+		}()
+		return true, nil
+	}
 	// The check waits for block 0 only, but its one request covers the
 	// pinned head: the probe and the first media read need the next blocks
 	// right after, and on a fresh link each new request costs a CDN first
@@ -395,6 +417,10 @@ func (e *Engine) CheckRelease(ctx context.Context, releaseID string, payload []b
 	}
 	return true, nil
 }
+
+// deferredHeadTimeout bounds a deferred check's head fetch once nobody is
+// waiting on it (the probe normally joins it within milliseconds).
+const deferredHeadTimeout = 20 * time.Second
 
 // healthKey is the file key used without a caller-supplied release id.
 func healthKey(p Payload) string {

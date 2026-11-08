@@ -36,6 +36,9 @@ type validation struct {
 	healthy, healthChecked        bool
 	healthCached                  bool // answered by the verified cache, not a check
 	fetchDuration, healthDuration time.Duration
+	// healthDeferred: the health check handed its byte proof to the
+	// caller's probe (core.ProbeFollows); healthy means the link answered.
+	healthDeferred bool
 }
 
 const (
@@ -182,6 +185,7 @@ func (s *Service) validateCandidates(ctx context.Context, cands []candidate, tr 
 			ct.FetchDuration = v.fetchDuration
 			ct.HealthDuration = v.healthDuration
 			ct.HealthChecked = v.healthChecked
+			ct.HealthDeferred = v.healthDeferred
 			ct.Healthy = v.healthy && v.err == nil
 			if ctx.Err() != nil {
 				cancel()
@@ -190,7 +194,7 @@ func (s *Service) validateCandidates(ctx context.Context, cands []candidate, tr 
 				return -1, nil, ctx.Err()
 			}
 			if ct.Healthy {
-				if v.healthChecked && !v.healthCached {
+				if v.healthChecked && !v.healthCached && !v.healthDeferred {
 					// A real check always counts, even when a coarse clock
 					// (Windows) measured it as taking no time.
 					s.noteStartup(cands[v.index].rel, max(v.fetchDuration+v.healthDuration, time.Microsecond))

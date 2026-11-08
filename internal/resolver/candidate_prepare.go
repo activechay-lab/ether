@@ -58,8 +58,14 @@ func (s *Service) validateOne(ctx context.Context, rel core.Release) validation 
 		if s.health != nil {
 			v.healthChecked = true
 			at = time.Now()
-			v.healthy, v.healthCached, v.err = s.checkHealthCached(ctx, rel.ID, v.nzb)
-			if v.healthy && v.err == nil && !v.healthCached && s.observed != nil {
+			hctx := ctx
+			var deferral *core.HealthDeferral
+			if core.ProbeFollows(ctx) {
+				hctx, deferral = core.WithHealthDeferral(ctx)
+			}
+			v.healthy, v.healthCached, v.err = s.checkHealthCached(hctx, rel.ID, v.nzb)
+			v.healthDeferred = deferral.Deferred()
+			if v.healthy && v.err == nil && !v.healthCached && !v.healthDeferred && s.observed != nil {
 				if title, ok := ctx.Value(observationTitleKey{}).(*core.Title); ok {
 					s.observed(ctx, title, rel)
 				}
