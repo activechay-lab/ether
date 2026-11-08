@@ -70,6 +70,10 @@ type SyncBenchPhase struct {
 	WALPerTitle     float64              `json:"walPerTitle,omitempty"`
 	PeakWAL         int64                `json:"peakWal,omitempty"`
 	Gate            store.WriteGateHolds `json:"gate"`
+	// Detail operations are counted individually. List sync is one bulk call
+	// and does not expose per-title outcomes, so its Operations is absent.
+	Operations *SyncBenchOperations `json:"operations,omitempty"`
+	Error      string               `json:"error,omitempty"`
 }
 
 // RunSyncBench runs the four phases against db, which holds a catalogue
@@ -102,7 +106,7 @@ func RunSyncBench(ctx context.Context, db *sql.DB, cfg SyncBenchConfig) ([]SyncB
 	go store.RunCheckpointer(cpCtx, db, func() bool { return true }, nil)
 
 	pg := store.DialectOf(db) == store.Postgres
-	measure := func(name string, titles int, tmdb *LongTailTMDB, run func(context.Context) error) (SyncBenchPhase, error) {
+	measure := func(name string, titles int, tmdb *LongTailTMDB, run func(context.Context) (*SyncBenchOperations, error)) (SyncBenchPhase, error) {
 		if cfg.Progress != nil {
 			cfg.Progress(name)
 		}
@@ -140,18 +144,22 @@ func RunSyncBench(ctx context.Context, db *sql.DB, cfg SyncBenchConfig) ([]SyncB
 		tmdb0 := tmdb.fetchNanos.Load()
 		qctx, stats := store.WithQueryStats(ctx)
 		start := time.Now()
-		err := run(qctx)
+		operations, err := run(qctx)
+		p.Operations = operations
 		c.WaitRefreshes()
 		p.Wall = time.Since(start)
 		stopSample()
 		sampled.Wait()
-		if err != nil {
-			return p, fmt.Errorf("%s: %w", name, err)
-		}
 		p.TMDB = time.Duration(tmdb.fetchNanos.Load() - tmdb0)
-		p.TitlesPerSec = float64(titles) / p.Wall.Seconds()
+		completed := titles
+		if operations != nil {
+			completed = operations.Succeeded
+		} else if err != nil {
+			completed = 0 // A failed bulk sync does not expose its success count.
+		}
+		p.TitlesPerSec = float64(completed) / p.Wall.Seconds()
 		if bound := p.Wall - p.TMDB; bound > 0 {
-			p.DBBound = float64(titles) / bound.Seconds()
+			p.DBBound = float64(completed) / bound.Seconds()
 		}
 		p.DBTime, p.Statements, p.LockWait = stats.DBTime(), stats.Queries(), stats.LockWait()
 		p.DBPerTitle = p.DBTime / time.Duration(max(titles, 1))
@@ -167,25 +175,27 @@ func RunSyncBench(ctx context.Context, db *sql.DB, cfg SyncBenchConfig) ([]SyncB
 		}
 		p.PeakWAL = peak.Load()
 		p.Gate = store.ReadWriteGateHolds()
+		if err != nil {
+			p.Error = err.Error()
+			return p, fmt.Errorf("%s: %w", name, err)
+		}
 		return p, nil
 	}
 
 	universe := len(u.movies) + len(u.shows)
 	var phases []SyncBenchPhase
 	add := func(p SyncBenchPhase, err error) error {
-		if err != nil {
-			return err
-		}
 		phases = append(phases, p)
-		return nil
+		return err
 	}
-	if err := add(measure("list fill", universe, u, c.Sync)); err != nil {
+	syncList := func(ctx context.Context) (*SyncBenchOperations, error) { return nil, c.Sync(ctx) }
+	if err := add(measure("list fill", universe, u, syncList)); err != nil {
 		return phases, err
 	}
 	moved := NewLongTailTMDB(ucfg)
 	moved.base, moved.jitter = cfg.IDBase, 1
 	c.SetTMDB(moved)
-	if err := add(measure("list refresh", universe, moved, c.Sync)); err != nil {
+	if err := add(measure("list refresh", universe, moved, syncList)); err != nil {
 		return phases, err
 	}
 	c.SetTMDB(u)
@@ -200,42 +210,17 @@ func RunSyncBench(ctx context.Context, db *sql.DB, cfg SyncBenchConfig) ([]SyncB
 			}
 		}
 	}
-	parallel := func(ctx context.Context, fn func(context.Context, core.RatingKey) error) error {
-		work := make(chan core.RatingKey)
-		var wg sync.WaitGroup
-		var failed atomic.Int64
-		for range 8 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for k := range work {
-					if fn(ctx, k) != nil {
-						failed.Add(1)
-					}
-				}
-			}()
-		}
-		for _, k := range keys {
-			work <- k
-		}
-		close(work)
-		wg.Wait()
-		if n := failed.Load(); n > len64(keys)/100 {
-			return fmt.Errorf("%d of %d titles failed", n, len(keys))
-		}
-		return nil
-	}
-	if err := add(measure("detail fill", len(keys), u, func(ctx context.Context) error {
-		return parallel(ctx, func(ctx context.Context, k core.RatingKey) error { _, err := c.Get(ctx, k); return err })
+	if err := add(measure("detail fill", len(keys), u, func(ctx context.Context) (*SyncBenchOperations, error) {
+		return runSyncBenchOperations(ctx, len(keys), func(ctx context.Context, i int) error { _, err := c.Get(ctx, keys[i]); return err })
 	})); err != nil {
 		return phases, err
 	}
 	refreshed := NewLongTailTMDB(ucfg)
 	refreshed.base, refreshed.jitter = cfg.IDBase, 2
 	c.SetTMDB(refreshed)
-	if err := add(measure("detail refresh", len(keys), refreshed, func(ctx context.Context) error {
-		return parallel(ctx, func(ctx context.Context, k core.RatingKey) error {
-			_, err := c.RefreshTitle(ctx, k, true)
+	if err := add(measure("detail refresh", len(keys), refreshed, func(ctx context.Context) (*SyncBenchOperations, error) {
+		return runSyncBenchOperations(ctx, len(keys), func(ctx context.Context, i int) error {
+			_, err := c.RefreshTitle(ctx, keys[i], true)
 			return err
 		})
 	})); err != nil {
@@ -243,8 +228,6 @@ func RunSyncBench(ctx context.Context, db *sql.DB, cfg SyncBenchConfig) ([]SyncB
 	}
 	return phases, nil
 }
-
-func len64(keys []core.RatingKey) int64 { return int64(len(keys)) }
 
 // WriteSyncBench renders phases as a table.
 func WriteSyncBench(w io.Writer, phases []SyncBenchPhase) {
@@ -254,5 +237,11 @@ func WriteSyncBench(w io.Writer, phases []SyncBenchPhase) {
 		fmt.Fprintf(w, "| %s | %d | %.0f | %.0f | %.2f | %.1f | %.1f | %.1f | %.0f | %d %v | %s | %s |\n",
 			p.Name, p.Titles, p.TitlesPerSec, p.DBBound, float64(p.DBPerTitle.Microseconds())/1000, p.StmtsTitle,
 			p.WrittenPerTitle/1024, p.WALPerTitle/1024, float64(p.PeakWAL)/1e6, p.Gate.Holds, p.Gate.Buckets, p.Gate.Max.Round(time.Millisecond), p.LockWait.Round(time.Millisecond))
+		if p.Operations != nil {
+			fmt.Fprintf(w, "%s operations: attempted=%d succeeded=%d rejected=%d\n", p.Name, p.Operations.Attempted, p.Operations.Succeeded, p.Operations.Rejected)
+		}
+		if p.Error != "" {
+			fmt.Fprintf(w, "%s error: %s\n", p.Name, p.Error)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -218,17 +219,16 @@ func runSyncBench(ctx context.Context, args []string) error {
 		},
 	})
 	perfharness.WriteSyncBench(os.Stdout, phases)
-	if err != nil {
-		return err
-	}
 	if *report != "" {
-		b, err := json.MarshalIndent(phases, "", "  ")
-		if err != nil {
-			return err
+		// Preserve the failed phase and its operation counts as well as the
+		// original run error; report output must not turn failure into success.
+		b, reportErr := json.MarshalIndent(phases, "", "  ")
+		if reportErr == nil {
+			reportErr = os.WriteFile(*report, b, 0o644)
 		}
-		return os.WriteFile(*report, b, 0o644)
+		return errors.Join(err, reportErr)
 	}
-	return nil
+	return err
 }
 
 // runTailBench measures compact long-tail layouts built from TMDB's daily
