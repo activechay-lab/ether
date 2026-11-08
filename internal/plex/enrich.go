@@ -261,3 +261,21 @@ func (s *Server) rememberTitle(t *core.Title) {
 		}
 	}
 }
+
+// enrichFetch reads the detail a rendered title's gaps are filled from. A
+// search or list hit with no row is read from memory: rendering a search
+// page must not open (promote) every hit on it, only opening a title does.
+func (s *Server) enrichFetch(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+	if m, ok := s.d.Catalog.(memoryTitles); ok {
+		t, stored, err := m.MemoryTitle(ctx, key)
+		switch {
+		case err != nil:
+			return nil, err
+		case !stored && t != nil:
+			return t, nil
+		case !stored:
+			return nil, core.ErrNotFound
+		}
+	}
+	return s.d.Catalog.Get(ctx, key)
+}

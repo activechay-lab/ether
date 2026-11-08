@@ -123,6 +123,9 @@ func (c *Catalog) SyncProgress() SyncProgress {
 // WithResumeSchedule the initial sync waits until the interval has passed
 // since the last recorded sync.
 func (c *Catalog) Run(ctx context.Context) {
+	// Everything Run starts is bulk work: it yields TMDB's budget to
+	// viewer-facing requests (tmdb.Background).
+	ctx = tmdb.Background(ctx)
 	if err := c.rankRatings(ctx); err != nil && ctx.Err() == nil {
 		c.log.Error("catalog: re-rank content ratings", "err", err)
 	}
@@ -223,6 +226,7 @@ func (c *Catalog) untilDue(ctx context.Context) time.Duration {
 var ErrSyncInProgress = fmt.Errorf("catalog: sync already in progress")
 
 func (c *Catalog) Sync(ctx context.Context) error {
+	ctx = tmdb.Background(ctx)
 	if !c.syncing.CompareAndSwap(false, true) {
 		return ErrSyncInProgress
 	}

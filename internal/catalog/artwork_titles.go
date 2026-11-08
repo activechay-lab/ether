@@ -39,15 +39,8 @@ func (c *Catalog) heldTitle(key core.RatingKey) (t core.Title, dateUnknown, ok b
 		return core.Title{}, false, false
 	}
 	if looked {
-		if t.PosterPath == "" {
-			t.PosterPath = info.Path
-		}
-		if t.Released.IsZero() && !info.title.Released.IsZero() {
-			t.Released, dateUnknown = info.title.Released, false
-			if t.Year == 0 {
-				t.Year = t.Released.Year()
-			}
-		}
+		info.applyTo(&t)
+		dateUnknown = dateUnknown && t.Released.IsZero()
 	}
 	return t, dateUnknown, true
 }
@@ -126,4 +119,19 @@ func (c *Catalog) MemoryTitle(ctx context.Context, key core.RatingKey) (t *core.
 		return &mem, false, nil
 	}
 	return nil, false, nil
+}
+
+// PersistsArtwork reports whether facts derived from key's artwork
+// (blurhashes, UltraBlur colours) may be written: yes for a stored title
+// and for every key that is not a title; no for a movie, show, season or
+// episode with no row. Search and list hits are read-only: their artwork
+// facts stay in memory, or every search typed would add rows.
+func (c *Catalog) PersistsArtwork(ctx context.Context, key core.RatingKey) bool {
+	switch key.Kind() {
+	case core.KindMovie, core.KindShow, core.KindSeason, core.KindEpisode:
+	default:
+		return true
+	}
+	_, err := c.loadByKey(ctx, key)
+	return err == nil
 }

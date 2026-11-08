@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -186,5 +187,68 @@ func TestTailSearchFillsPosters(t *testing.T) {
 	var rows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM catalog_titles`).Scan(&rows); err != nil || rows != 0 {
 		t.Fatalf("catalog_titles rows = %d (err %v), want 0", rows, err)
+	}
+}
+
+// A long-tail hit known only by a name the poster fonts cannot set (CJK,
+// Thai) shows the localised title the poster lookup returned, and Ether's
+// generated poster draws it, in search and in artwork alike.
+func TestLookupTitleDrawsPosterForCJKHit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/movie/129":
+			fmt.Fprint(w, `{"id":129,"title":"Spirited Away","original_title":"千と千尋の神隠し","release_date":"2001-07-20","poster_path":null}`)
+		case "/search/multi", "/search/movie", "/search/tv":
+			fmt.Fprint(w, `{"page":1,"results":[],"total_pages":1,"total_results":0}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	db, err := store.OpenMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	client := tmdb.New("k", slog.Default(), tmdb.WithBaseURL(srv.URL), tmdb.WithCacheTTL(0))
+	defer client.Close()
+	c, err := New(db, client, config.Catalog{Language: "en-US", Region: "US"}, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix, err := buildTailIndex(gzLines(t, `{"adult":false,"id":129,"original_title":"千と千尋の神隠し","popularity":1.2,"video":false}`), gzLines(t), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.setTailIndex(ix)
+	key := core.MovieKey(129)
+	hit := func() core.Title {
+		items, err := c.Search(context.Background(), "千と千尋", []core.MediaType{core.TypeMovie}, 10)
+		if err != nil || len(items) == 0 || items[0].Key != key {
+			t.Fatalf("search = %+v, %v", items, err)
+		}
+		return items[0]
+	}
+	got := hit()
+	if got.Title != "Spirited Away" {
+		for deadline := time.Now().Add(5 * time.Second); c.posters.flights.Len() > 0 && time.Now().Before(deadline); {
+			time.Sleep(5 * time.Millisecond)
+		}
+		got = hit()
+	}
+	if got.Title != "Spirited Away" || got.OriginalTitle != "千と千尋の神隠し" || got.PosterPath != "" {
+		t.Fatalf("hit = %q / %q poster %q", got.Title, got.OriginalTitle, got.PosterPath)
+	}
+	held, _, ok := c.heldTitle(key)
+	for _, tt := range []core.Title{got, held} {
+		p, isGen := artwork.ForTitle(&tt)
+		if !ok || !isGen || p.Request().Title != "Spirited Away" {
+			t.Fatalf("generated poster draws %q (ok %v %v), want the localised title", p.Request().Title, ok, isGen)
+		}
+	}
+	pa, _ := artwork.ForTitle(&got)
+	pb, _ := artwork.ForTitle(&held)
+	if a, b := pa.Stamp(), pb.Stamp(); a != b {
+		t.Fatalf("search and artwork disagree on the generated poster: %q vs %q", a, b)
 	}
 }

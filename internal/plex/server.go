@@ -342,7 +342,7 @@ func NewServer(d Deps) *Server {
 	if !d.DisableEnrichment && d.Catalog != nil {
 		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
 		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
-		s.titles = newTitleCache(s.titleJobs, s.now, s.log, d.Catalog.Get)
+		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
 		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key core.RatingKey, path string) (artworkservice.Palette, error) {
 			var art artworkservice.CollectionArt
 			if c, ok := s.d.Collections.(artworkservice.CollectionArt); ok {
@@ -350,6 +350,11 @@ func NewServer(d Deps) *Server {
 			}
 			return artworkservice.ComputeItemPalette(ctx, s.images, s.d.ImageURL, key, path, s.now(), art)
 		})
+	}
+	if p, ok := d.Catalog.(interface {
+		PersistsArtwork(context.Context, core.RatingKey) bool
+	}); ok && s.ultra != nil {
+		s.ultra.PersistFor(p.PersistsArtwork)
 	}
 	if d.ArtworkPalettes != nil {
 		s.ultra = d.ArtworkPalettes
