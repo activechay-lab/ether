@@ -103,7 +103,7 @@ func (s *Server) dropTranscode(id string) {
 
 	s.revokeReadCapability(id)
 	s.transcodes.remove(id)
-	s.starts.forget(id)
+	s.starts.Forget(id)
 }
 
 func readCapURL(raw, token string) string {

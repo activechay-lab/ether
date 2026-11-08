@@ -257,7 +257,7 @@ type Server struct {
 	decisionWriter     chan decisionArmWrite
 
 	// Stalled-start watches and Dolby Vision base-layer fallbacks.
-	starts startGuard
+	starts sessions.StartGuard
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -607,7 +607,7 @@ func (s *Server) janitor() {
 			s.extraPlay.expire(now, 2*time.Hour)
 			s.expireTerminations(now, terminationTTL)
 			s.refreshDecisionArms(now)
-			s.starts.expire(now)
+			s.starts.Expire(now)
 			expired := s.sessions.expire(now, 3*time.Minute)
 			for _, e := range expired {
 				s.notifyPlaying(e, "stopped")
