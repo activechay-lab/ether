@@ -836,14 +836,25 @@ func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now 
 	if o.preserveDetailed {
 		preserveInt = 1
 	}
+	// A new movie row takes its year source at insert (what
+	// saveMovieYearSource would write to a row that has none); the
+	// conflict path leaves both columns to saveMovieYearSource.
+	insertYearSource, insertPrimary := "", int64(0)
+	if t.Type == core.TypeMovie && t.YearSource != "" {
+		insertYearSource = t.YearSource
+		if !t.PrimaryReleased.IsZero() {
+			insertPrimary = t.PrimaryReleased.Unix()
+		}
+	}
 	// Keep richer existing fields when a summary upsert would blank them:
 	// handled per-field with CASE in ON CONFLICT for a few detail-only fields.
 	result, err := tx.ExecContext(ctx, `
 INSERT INTO catalog_titles (key,type,tmdb_id,imdb,tvdb,show_key,show_tmdb,show_title,season_title,season,episode,
  title,original_title,sort_title,tagline,summary,year,released_ts,runtime_sec,status,language,
  content_rating,content_rating_rank,content_rating_source,rating,vote_count,popularity,poster,backdrop,still,logo,
- collection_id,collection_name,child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,detail_at,last_air_ts)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ collection_id,collection_name,child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,detail_at,last_air_ts,
+ year_source,primary_released_ts)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(key) DO UPDATE SET
  type=excluded.type, tmdb_id=excluded.tmdb_id, adult=excluded.adult,
  imdb=CASE WHEN excluded.imdb<>'' THEN excluded.imdb ELSE catalog_titles.imdb END,
@@ -888,6 +899,7 @@ ON CONFLICT(key) DO UPDATE SET
 		t.Title, t.OriginalTitle, t.SortTitle, t.Tagline, t.Summary, t.Year, releasedTS, int64(t.Runtime.Seconds()), t.Status, t.Language,
 		t.ContentRating, int(contentrating.LevelOf(t.ContentRating)), t.ContentRatingSource, t.Rating, t.VoteCount, t.Popularity, t.PosterPath, t.BackdropPath, t.StillPath, t.LogoPath,
 		t.CollectionID, t.CollectionName, t.ChildCount, t.LeafCount, browsableInt, addedAtFor(browsableInt, now), now, detailInt, t.Adult, detailAtFor(detailInt, now), lastAirTS,
+		insertYearSource, insertPrimary,
 		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, preserveInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
@@ -949,7 +961,13 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: detail freshness %d: %w", t.Key, err)
 		}
 	}
-	if err := updateReleaseNamesOf(ctx, tx, int64(t.Key), t.Type, fresh); err != nil {
+	updateNames := updateReleaseNames
+	if fresh {
+		updateNames = func(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType) error {
+			return insertFreshReleaseNames(ctx, tx, key, typ, t.Title, t.OriginalTitle)
+		}
+	}
+	if err := updateNames(ctx, tx, int64(t.Key), t.Type); err != nil {
 		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
@@ -967,8 +985,10 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: upsert %d air date: %w", t.Key, err)
 		}
 	}
-	if err := saveMovieYearSource(ctx, tx, t, detailInt); err != nil {
-		return err
+	if !fresh {
+		if err := saveMovieYearSource(ctx, tx, t, detailInt); err != nil {
+			return err
+		}
 	}
 	// Replace join rows only when the incoming title carries that facet, so
 	// summary upserts don't wipe detail-fetched genres/credits.
