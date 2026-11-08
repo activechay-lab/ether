@@ -10,6 +10,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -1126,39 +1127,60 @@ func replaceCredits(ctx context.Context, tx *sql.Tx, t core.Title) (bool, error)
 	if err := rows.Err(); err != nil {
 		return false, err
 	}
-	changed := false
-	for _, k := range stale {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=? AND person_tmdb=? AND kind=? AND role=?`, int64(t.Key), k.person, k.kind, k.role); err != nil {
+	changed := len(stale) > 0
+	// Removals and additions are one statement each, in chunks that stay
+	// well inside both engines' bound-parameter limits.
+	const chunk = 200
+	for start := 0; start < len(stale); start += chunk {
+		part := stale[start:min(start+chunk, len(stale))]
+		args := []any{int64(t.Key)}
+		var conds []string
+		for _, k := range part {
+			conds = append(conds, "(person_tmdb=? AND kind=? AND role=?)")
+			args = append(args, k.person, k.kind, k.role)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=? AND (`+strings.Join(conds, " OR ")+`)`, args...); err != nil {
 			return false, err
 		}
-		changed = true
 	}
+	var added []any
 	for _, k := range order {
 		w := want[k]
 		switch {
 		case w.inserted:
-			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
-				int64(t.Key), k.person, w.name, k.role, k.kind, w.ord, w.thumb, w.provider); err != nil {
-				return false, err
-			}
+			added = append(added, int64(t.Key), k.person, w.name, k.role, k.kind, w.ord, w.thumb, w.provider)
 		case w.update:
 			if _, err := tx.ExecContext(ctx, `UPDATE catalog_credits SET name=?,ord=?,thumb=?,provider_id=? WHERE key=? AND person_tmdb=? AND kind=? AND role=?`,
 				w.name, w.ord, w.thumb, w.provider, int64(t.Key), k.person, k.kind, k.role); err != nil {
 				return false, err
 			}
-		default:
-			continue
+			changed = true
+		}
+	}
+	for start := 0; start < len(added); start += chunk * 8 {
+		part := added[start:min(start+chunk*8, len(added))]
+		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES `+valueRows(len(part)/8, 8)+` ON CONFLICT DO NOTHING`, part...); err != nil {
+			return false, err
 		}
 		changed = true
 	}
 	if !changed {
 		return false, nil
 	}
+	// One upsert of every credited person's IMDb id. A person appears once:
+	// PostgreSQL refuses to update a row twice in one statement.
+	var people []any
+	seen := map[int64]bool{}
 	for _, k := range order {
-		if w := want[k]; w.imdb != "" {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES(?,?) ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb WHERE catalog_people.imdb<>excluded.imdb`, k.person, w.imdb); err != nil {
-				return false, err
-			}
+		if w := want[k]; w.imdb != "" && !seen[k.person] {
+			seen[k.person] = true
+			people = append(people, k.person, w.imdb)
+		}
+	}
+	for start := 0; start < len(people); start += chunk * 2 {
+		part := people[start:min(start+chunk*2, len(people))]
+		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES `+valueRows(len(part)/2, 2)+` ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb WHERE catalog_people.imdb<>excluded.imdb`, part...); err != nil {
+			return false, err
 		}
 	}
 	return true, nil
@@ -1233,24 +1255,45 @@ func replacePairs(ctx context.Context, tx *sql.Tx, table, col string, key int64,
 	if err := rows.Err(); err != nil {
 		return false, err
 	}
-	changed := false
-	for _, v := range stale {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=? AND `+col+`=?`, key, v); err != nil {
+	// One statement for the removals and one for the additions, whatever
+	// their number: a first detail fill adds a dozen keywords.
+	if len(stale) > 0 {
+		args := []any{key}
+		for _, v := range stale {
+			args = append(args, v)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=? AND `+col+` IN (`+placeholders(len(stale))+`)`, args...); err != nil {
 			return false, err
 		}
-		changed = true
 	}
+	var added []any
 	for _, v := range vals {
 		if v == "" || have[v] {
 			continue
 		}
 		have[v] = true
-		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES(?,?) ON CONFLICT DO NOTHING`, key, v); err != nil {
+		added = append(added, key, v)
+	}
+	if len(added) > 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES `+valueRows(len(added)/2, 2)+` ON CONFLICT DO NOTHING`, added...); err != nil {
 			return false, err
 		}
-		changed = true
 	}
-	return changed, nil
+	return len(stale) > 0 || len(added) > 0, nil
+}
+
+// valueRows is n parenthesised rows of cols placeholders: "(?,?),(?,?)".
+func valueRows(n, cols int) string {
+	row := "(" + placeholders(cols) + ")"
+	var b strings.Builder
+	b.Grow(n * (len(row) + 1))
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(row)
+	}
+	return b.String()
 }
 
 func (c *Catalog) queryTitles(ctx context.Context, q string, args ...any) ([]core.Title, error) {

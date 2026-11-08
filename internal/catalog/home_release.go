@@ -144,8 +144,13 @@ func saveHomeReleases(ctx context.Context, tx *sql.Tx, t core.Title, dates *tmdb
 		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_home_release_dates WHERE key=?`, int64(t.Key)); err != nil {
 			return err
 		}
+		var args []any
 		for d := range want {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_home_release_dates(key,country,kind,released_ts) VALUES(?,?,?,?) ON CONFLICT DO NOTHING`, int64(t.Key), d.country, d.kind, d.ts); err != nil {
+			args = append(args, int64(t.Key), d.country, d.kind, d.ts)
+		}
+		for start := 0; start < len(args); start += 800 {
+			part := args[start:min(start+800, len(args))]
+			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_home_release_dates(key,country,kind,released_ts) VALUES `+valueRows(len(part)/4, 4)+` ON CONFLICT DO NOTHING`, part...); err != nil {
 				return err
 			}
 		}
