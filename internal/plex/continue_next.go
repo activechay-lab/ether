@@ -105,6 +105,15 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 			return !ok || s.canSeeSection(u, sec.ID)
 		},
 		OnError: func(err error) { s.log.Warn("load in-progress", "err", err) }}
+	// Checking a selected episode's visibility loads its parent series. Read
+	// those parents together before walking the history candidates; otherwise
+	// a cold cache hydrates each show's facts, counts and dates separately.
+	// Keep Get's normal freshness and policy checks after this stored preload.
+	if pre, ok := s.d.Catalog.(interface {
+		PreloadStored(context.Context, []core.RatingKey)
+	}); ok {
+		c.PrefetchTitles = pre.PreloadStored
+	}
 	if s.d.Discovery != nil && s.d.Discovery.Personal != nil {
 		c.Filter = s.d.Discovery.Personal.FilterContinue
 	}
