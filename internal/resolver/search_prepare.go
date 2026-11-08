@@ -308,10 +308,15 @@ func (p *searchPreparation) searchLive(ctx context.Context, indexer core.Streami
 		defer p.svc.bgWG.Done()
 		defer cancel()
 		r, e := indexer.SearchWith(searchCtx, req, p.arrived)
-		done <- answer{r, e}
-		if p.partial.Load() && e == nil && len(r) > 0 && !coverage.Incomplete() {
+		// Publish every complete answer before notifying the caller. Completion
+		// can race with the early-play ticker: checking partial here could
+		// miss an early return chosen just after the check, losing the cache.
+		// Normalizing before send also keeps the caller from mutating the
+		// same release slice while this worker writes the cache.
+		if e == nil && len(r) > 0 && !coverage.Incomplete() {
 			p.svc.rememberSearchResults(req, r)
 		}
+		done <- answer{r, e}
 	}()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
