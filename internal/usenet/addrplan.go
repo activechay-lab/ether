@@ -86,10 +86,10 @@ func (ap *addrPlan) candidates(ctx context.Context) ([]netip.Addr, error) {
 				ap.mu.Lock()
 				cached := slices.Clone(ap.addrs)
 				ap.mu.Unlock()
-				if len(cached) > 0 {
-					return cached, nil
+				if len(cached) == 0 {
+					return nil, err
 				}
-				return nil, err
+				ips = cached
 			}
 			var clean []netip.Addr
 			for _, ip := range ips {
@@ -157,7 +157,7 @@ func (ap *addrPlan) dialContext(ctx context.Context, network, _ string) (net.Con
 	portStr := strconv.Itoa(ap.port)
 	if len(cands) == 1 {
 		c, derr := ap.dial(ctx, network, net.JoinHostPort(cands[0].String(), portStr))
-		if derr != nil {
+		if derr != nil && ctx.Err() == nil {
 			ap.noteFamilyFailure(cands)
 		}
 		return c, derr
@@ -210,6 +210,14 @@ func (ap *addrPlan) race(ctx context.Context, network string, cands []netip.Addr
 				}
 			}(len(cands) - 1 - i)
 			ap.mu.Lock()
+			if ctx.Err() == nil {
+				if v4Tried > 0 && v4Fails == v4Tried {
+					ap.v4DeadUntil = ap.now().Add(addrRefreshTTL)
+				}
+				if v6Tried > 0 && v6Fails == v6Tried {
+					ap.v6DeadUntil = ap.now().Add(addrRefreshTTL)
+				}
+			}
 			if !ap.preferred.IsValid() {
 				ap.preferred = r.ip
 			}
@@ -222,6 +230,9 @@ func (ap *addrPlan) race(ctx context.Context, network string, cands []netip.Addr
 		} else {
 			v6Fails++
 		}
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	now := ap.now()
 	ap.mu.Lock()
