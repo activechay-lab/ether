@@ -22,6 +22,13 @@ const broadcastStall = 1500 * time.Millisecond
 // quarter of the client's margin at 2 s segments.
 const broadcastStallReport = 250 * time.Millisecond
 
+// A live output at least liveWaitLead ahead of the wall clock waits up to
+// liveWaitMax for a late picture before holding.
+const (
+	liveWaitLead = time.Second
+	liveWaitMax  = 300 * time.Millisecond
+)
+
 // gcSummary is the Go runtime's recent collection cost, to tell a process
 // pause from an encoder stall.
 func gcSummary() string {
@@ -220,8 +227,10 @@ type broadcast struct {
 	burstNoWait  bool
 	burstPicture time.Time // wall time of the last fresh picture
 	// segment is the published segment duration (the target duration).
-	segment     time.Duration
-	clockWarned time.Time
+	segment       time.Duration
+	clockWarned   time.Time
+	liveWaitSince time.Time
+	liveWaitSpent time.Duration
 	// steadyBitrate is a provider output's full-quality bitrate ceiling,
 	// shared by every viewer that joins it.
 	steadyBitrate int
@@ -933,6 +942,22 @@ func (b *broadcast) step(now time.Time) bool {
 	coldWaiting := b.current != nil && b.current.lastFrameAt.IsZero() && !b.current.openedAt.IsZero() && time.Since(b.current.openedAt) >= 250*time.Millisecond
 	if b.bursting && now.After(time.Now()) && frame.Video == nil && !introActive && b.current != nil && !coldWaiting && !momentFallback {
 		return false
+	}
+	// A live output well ahead of the wall clock waits briefly for a picture
+	// that is merely late (decode latency at the end of a startup burst)
+	// rather than holding a tick, which carries no sound. The wait is spent
+	// from its lead and bounded, so publication slips at most liveWaitMax.
+	if fresh || b.current == nil {
+		b.liveWaitSince, b.liveWaitSpent = time.Time{}, 0
+	} else if frame.Video == nil && b.burstNoWait && !b.bursting && !introActive && !b.current.lastFrameAt.IsZero() && b.lead > liveWaitLead {
+		if b.liveWaitSince.IsZero() {
+			b.liveWaitSince = time.Now()
+		}
+		if waited := time.Since(b.liveWaitSince); waited < liveWaitMax {
+			b.lead = max(liveWaitLead, b.lead-waited+b.liveWaitSpent)
+			b.liveWaitSpent = waited
+			return false
+		}
 	}
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
 		frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
