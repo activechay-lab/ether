@@ -234,10 +234,16 @@ func (idx *index) lookupCour(req core.SearchRequest) (int, int, bool) {
 	}
 	best, bestRank := -1, 3
 	var bestEntries []entry
-	offsets := map[int]bool{0: true}
+	offsets := map[int]bool{}
+	seasonRank := 2
+	for _, e := range entries {
+		if e.season == req.Season && rank(e.kind) < seasonRank {
+			seasonRank = rank(e.kind)
+		}
+	}
 	for _, e := range entries {
 		r := rank(e.kind)
-		if e.season != req.Season || r == 2 {
+		if e.season != req.Season || r == 2 || r != seasonRank {
 			continue
 		}
 		offsets[e.offset] = true
@@ -251,7 +257,7 @@ func (idx *index) lookupCour(req core.SearchRequest) (int, int, bool) {
 			bestEntries = append(bestEntries, e)
 		}
 	}
-	if best <= 0 || len(bestEntries) == 0 {
+	if best <= 0 || len(bestEntries) == 0 || !offsets[0] {
 		return 0, 0, false
 	}
 	for _, db := range []string{Kitsu, MAL, AniList, AniDB} {

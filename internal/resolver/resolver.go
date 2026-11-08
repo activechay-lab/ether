@@ -1749,7 +1749,7 @@ func episodeMatchesRequest(info core.ReleaseInfo, sreq core.SearchRequest) bool 
 		if sreq.Cour == info.Cour && sreq.CourEpisode > 0 && releaseparse.EpisodeMatches(info, sreq.Season, sreq.CourEpisode) {
 			return true
 		}
-		return releaseparse.EpisodeMatchesAbsolute(info, absoluteEpisode(sreq))
+		return false
 	}
 	return releaseparse.EpisodeMatches(info, sreq.Season, sreq.Episode) ||
 		releaseparse.EpisodeMatchesAbsolute(info, absoluteEpisode(sreq))
@@ -1762,7 +1762,7 @@ func packCoversSeasonCour(info core.ReleaseInfo, sreq core.SearchRequest) bool {
 	if info.Cour > 1 && sreq.Cour > 0 && info.Cour != sreq.Cour {
 		return false
 	}
-	if info.Cour > 1 && sreq.Cour == 0 && sreq.Episode <= 12 {
+	if info.Cour > 1 && (sreq.Cour == 0 || sreq.CourEpisode <= 0) {
 		return false
 	}
 	if info.Cour == 1 && sreq.Cour > 1 {
