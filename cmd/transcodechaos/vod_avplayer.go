@@ -13,8 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -108,6 +110,7 @@ type vodLine struct {
 		TD      float64 `json:"targetDuration"`
 		Start   bool    `json:"start"`
 		Status  int     `json:"status"`
+		Body    string  `json:"body"`
 	} `json:"playlists"`
 }
 
@@ -124,13 +127,16 @@ type vodResult struct {
 	TTFF     float64  `json:"ttffSeconds"`
 	// The slowest first media playlist after a start (cold start, restart),
 	// against its target duration, and the slowest start.m3u8.
-	FirstPlaylistS  float64       `json:"firstPlaylistSeconds"`
-	FirstPlaylistTD float64       `json:"firstPlaylistTargetDuration"`
-	StartS          float64       `json:"startSeconds"`
-	Seeks           []vodSeek     `json:"seeks,omitempty"`
-	Sync            *avSyncReport `json:"avSync,omitempty"`
-	Decisions       []string      `json:"decisions"`
-	Line            vodLine       `json:"raw"`
+	FirstPlaylistS  float64 `json:"firstPlaylistSeconds"`
+	FirstPlaylistTD float64 `json:"firstPlaylistTargetDuration"`
+	StartS          float64 `json:"startSeconds"`
+	// Advertised BANDWIDTH of each start's variant against the highest
+	// measured segment bit rate it served (bytes over EXTINF), kbit/s.
+	Bandwidth []string      `json:"bandwidth,omitempty"`
+	Seeks     []vodSeek     `json:"seeks,omitempty"`
+	Sync      *avSyncReport `json:"avSync,omitempty"`
+	Decisions []string      `json:"decisions"`
+	Line      vodLine       `json:"raw"`
 }
 
 type vodSeek struct {
@@ -304,6 +310,12 @@ func judgeVOD(ctx context.Context, ff string, l vodLine) vodResult {
 		}
 	}
 	sync := l.Asset == vodSyncName
+	r.Bandwidth = bandwidthCheck(l)
+	for _, b := range r.Bandwidth {
+		if strings.HasPrefix(b, "UNDER: ") {
+			r.Warnings = append(r.Warnings, "BANDWIDTH below a served segment's rate: "+strings.TrimPrefix(b, "UNDER: "))
+		}
+	}
 	// First-playlist rule, as for live: AVPlayer leaves an item stuck for good
 	// when its first media playlist takes a whole target duration.
 	expectFirst := false
@@ -464,6 +476,57 @@ func judgeVOD(ctx context.Context, ff string, l vodLine) vodResult {
 		r.Verdict = "PASS"
 	}
 	return r
+}
+
+var (
+	reBandwidth = regexp.MustCompile(`BANDWIDTH=(\d+)`)
+	reExtinf    = regexp.MustCompile(`#EXTINF:([0-9.]+),?[^\n]*\n([^#\s][^\n]*)`)
+	reReqSize   = regexp.MustCompile(`GET (\S+) -> 200 (\d+)B`)
+)
+
+// bandwidthCheck pairs each start's advertised BANDWIDTH with the peak
+// segment rate of the media it then served.
+func bandwidthCheck(l vodLine) []string {
+	sizes := map[string]int{}
+	for _, q := range l.Requests {
+		if m := reReqSize.FindStringSubmatch(q); m != nil {
+			n, _ := strconv.Atoi(m[2])
+			base := filepath.Base(m[1])
+			sizes[base] = max(sizes[base], n)
+		}
+	}
+	var out []string
+	adv := 0
+	for _, pl := range l.Playlists {
+		if pl.Start {
+			adv = 0
+			if m := reBandwidth.FindStringSubmatch(pl.Body); m != nil {
+				adv, _ = strconv.Atoi(m[1])
+			}
+			continue
+		}
+		if adv == 0 {
+			continue
+		}
+		peak, at := 0.0, ""
+		for _, m := range reExtinf.FindAllStringSubmatch(pl.Body, -1) {
+			d, _ := strconv.ParseFloat(m[1], 64)
+			if n := sizes[filepath.Base(strings.TrimSpace(m[2]))]; n > 0 && d > 0 {
+				if k := float64(n) * 8 / d / 1000; k > peak {
+					peak, at = k, filepath.Base(strings.TrimSpace(m[2]))
+				}
+			}
+		}
+		if peak > 0 {
+			mark := ""
+			if peak > float64(adv)/1000 {
+				mark = "UNDER: "
+			}
+			out = append(out, fmt.Sprintf("%sadvertised %d, peak %.0f kbit/s (%s)", mark, adv/1000, peak, at))
+		}
+		adv = 0
+	}
+	return out
 }
 
 func deref(f *float64) float64 {

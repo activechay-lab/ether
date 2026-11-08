@@ -132,6 +132,17 @@ type avplayerPlaylist struct {
 	TD      float64 `json:"targetDuration,omitempty"`
 	Start   bool    `json:"start,omitempty"`
 	Status  int     `json:"status"`
+	// Body is the playlist text without query strings (BANDWIDTH, EXTINF).
+	Body string `json:"body,omitempty"`
+}
+
+var avplayerQuery = regexp.MustCompile(`\?[^\s"]*`)
+
+func avplayerSanitize(s string) string {
+	if len(s) > 64<<10 {
+		s = s[:64<<10]
+	}
+	return avplayerQuery.ReplaceAllString(s, "")
 }
 
 var avplayerTD = regexp.MustCompile(`#EXT-X-TARGETDURATION:([0-9.]+)`)
@@ -190,10 +201,10 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 			if m := avplayerTD.FindStringSubmatch(rw.capture.String()); m != nil {
 				fmt.Sscan(m[1], &td)
 			}
-			line.Playlists = append(line.Playlists, avplayerPlaylist{At: time.Since(caseStart).Seconds(), Seconds: time.Since(began).Seconds(), TD: td, Status: rw.status})
+			line.Playlists = append(line.Playlists, avplayerPlaylist{At: time.Since(caseStart).Seconds(), Seconds: time.Since(began).Seconds(), TD: td, Status: rw.status, Body: avplayerSanitize(rw.capture.String())})
 		}
 		if !strings.Contains(r.URL.Path, "/session/") && strings.Contains(r.URL.Path, "/universal/start") {
-			line.Playlists = append(line.Playlists, avplayerPlaylist{At: time.Since(caseStart).Seconds(), Seconds: time.Since(began).Seconds(), Start: true, Status: rw.status})
+			line.Playlists = append(line.Playlists, avplayerPlaylist{At: time.Since(caseStart).Seconds(), Seconds: time.Since(began).Seconds(), Start: true, Status: rw.status, Body: avplayerSanitize(rw.capture.String())})
 		}
 		if media != nil && dir != "" && rw.status == 200 {
 			fetched++
