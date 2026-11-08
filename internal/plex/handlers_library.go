@@ -79,8 +79,8 @@ func (s *Server) onDeckSince() time.Time { return s.now().Add(-plexOnDeckWindow)
 // the window (st carries the show's latest view for a next-up episode), or
 // a season premiere, episode 1 of a later season, that aired within it.
 func inOnDeckWindow(t *core.Title, st core.WatchStatus, since time.Time) bool {
-	if st.LastViewedAt.IsZero() || !st.LastViewedAt.Before(since) {
-		return true // an undated view (an import) is not known to be old
+	if st.LastViewedAt.Unix() <= 0 || !st.LastViewedAt.Before(since) {
+		return true // an undated view is not known to be old (the deck query's latest<=0)
 	}
 	return t.Type == core.TypeEpisode && t.Episode == 1 && t.Season > 1 && !t.Released.IsZero() && !t.Released.Before(since)
 }
