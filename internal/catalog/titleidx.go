@@ -59,6 +59,13 @@ func (c *Catalog) loadTitleIndexState(ctx context.Context) {
 // is idempotent: each step is IF [NOT] EXISTS, and a PostgreSQL build a
 // crash left INVALID is dropped and built again.
 func (c *Catalog) swapTitleIndexes(ctx context.Context) error {
+	c.schemaWorkMu.Lock()
+	defer c.schemaWorkMu.Unlock()
+	// A paused/failed copy retains its schema snapshot across restarts.
+	// Do not change canonical index names until cleanup has replayed it.
+	if c.tierSchemaPending(ctx) {
+		return nil
+	}
 	if c.titleIndexesSwapped.Load() || !c.rankReady.Load() {
 		return nil
 	}

@@ -177,6 +177,17 @@ const rankChunk = 5000
 // own transactions, its indexes built one at a time, and the pending keys
 // applied in the short transaction that swaps the view.
 func (c *Catalog) RebuildRank(ctx context.Context) (RankRebuild, error) {
+	c.schemaWorkMu.Lock()
+	defer c.schemaWorkMu.Unlock()
+	if c.tierSchemaPending(ctx) {
+		return RankRebuild{}, fmt.Errorf("catalog: rank rebuild deferred until tier copy/swap completes")
+	}
+	return c.rebuildRank(ctx)
+}
+
+// rebuildRank requires schemaWorkMu. Tier migration also calls it after
+// cleanup, before reporting completion, to replace its invalidated rank.
+func (c *Catalog) rebuildRank(ctx context.Context) (RankRebuild, error) {
 	start := c.now()
 	began := time.Now()
 	var out RankRebuild

@@ -98,6 +98,8 @@ const tierCursorSQL = `(SELECT CAST(v AS INTEGER) FROM catalog_meta WHERE k='` +
 
 // swapTiers runs (or resumes) the SQLite copy-and-swap.
 func (c *Catalog) swapTiers(ctx context.Context, touched *tierTouched, p *TierMigration) error {
+	c.schemaWorkMu.Lock()
+	defer c.schemaWorkMu.Unlock()
 	for {
 		phase := c.getMeta(ctx, tierMetaPhase)
 		var err error
@@ -107,10 +109,25 @@ func (c *Catalog) swapTiers(ctx context.Context, touched *tierTouched, p *TierMi
 		case "swap":
 			err = c.tierSwap(ctx, p)
 		case "cleanup":
+			// Restore bounded rank reads before the potentially long orphan
+			// cleanup, using only the newly installed library-tier titles.
+			if !c.rankReady.Load() {
+				if _, err := c.rebuildRank(ctx); err != nil {
+					return err
+				}
+			}
 			err = c.tierCleanup(ctx, p)
 		case "orphans":
 			err = c.tierDeleteOrphans(ctx, p)
 		case "swept":
+			// Renaming the kept titles bypassed the old table's DELETE
+			// triggers. Rebuild in bounded transactions, outside the swap,
+			// before completing migration. A failed rebuild is resumable.
+			if !c.rankReady.Load() {
+				if _, err := c.rebuildRank(ctx); err != nil {
+					return err
+				}
+			}
 			return nil
 		default:
 			return fmt.Errorf("catalog: tier migration: unknown phase %q", phase)
@@ -119,6 +136,13 @@ func (c *Catalog) swapTiers(ctx context.Context, touched *tierTouched, p *TierMi
 			return err
 		}
 	}
+}
+
+// tierSchemaPending also covers a crash after saving the index snapshot
+// but before creating the copy. The durable snapshot, not just an in-memory
+// mutex, protects resume from a concurrently started rank/index job.
+func (c *Catalog) tierSchemaPending(ctx context.Context) bool {
+	return store.DialectOf(c.db) == store.SQLite && c.getMeta(ctx, tierMetaIndex) != "" && c.getMeta(ctx, tierMetaPhase) != "swept"
 }
 
 func (c *Catalog) setTierPhase(ctx context.Context, q execer, phase string) error {
@@ -554,6 +578,10 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 	if err := c.setTierHintsOff(ctx, true); err != nil {
 		return err
 	}
+	// Stop selecting rank-backed paths before the rename. Keep the durable
+	// marker until commit so a rolled-back swap still describes the old DB.
+	c.rankReady.Store(false)
+	c.writeGen.Add(1)
 	if !waitGap(ctx, tierHintGrace) {
 		return ctx.Err()
 	}
@@ -638,6 +666,11 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 		return err
 	}
 	tallyTook := time.Since(tallyBegan)
+	// The rank still describes the pre-swap catalogue. Persist invalidation
+	// atomically with the rename so a restart cannot serve it as ready.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_meta WHERE k='rank_built'`); err != nil {
+		return err
+	}
 	if err := c.setTierPhase(ctx, tx, "cleanup"); err != nil {
 		return err
 	}

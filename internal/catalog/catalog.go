@@ -324,6 +324,10 @@ type Catalog struct {
 	// searchIx is the in-memory title search index (search_titles.go).
 	searchIx searchIndexState
 
+	// schemaWorkMu serializes background rank/index work with SQLite tier
+	// copy/swap. Request reads and writes never take this mutex.
+	schemaWorkMu sync.Mutex
+
 	// tier is the one-off library-tier migration (tier_migrate.go).
 	tier tierMigrationState
 	// rankReady is set once the popularity rank (rank.go) has been built.
