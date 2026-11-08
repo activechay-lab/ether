@@ -78,6 +78,14 @@ func (c refreshingArtworkCatalog) StoredTitle(ctx context.Context, key core.Rati
 	return c.Get(ctx, key)
 }
 
+// UndatedSearchHit forwards catalog.UndatedSearchHit to the artwork source.
+func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key core.RatingKey) bool {
+	u, ok := c.Catalog.(interface {
+		UndatedSearchHit(context.Context, core.RatingKey) bool
+	})
+	return ok && u.UndatedSearchHit(ctx, key)
+}
+
 // serveGeneratedPoster serves Ether's poster for a movie or show the viewer
 // may see that has no artwork. Seasons and episodes point at their show's
 // thumb, so they reach this through the show.

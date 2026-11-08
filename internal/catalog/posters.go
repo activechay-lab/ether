@@ -218,3 +218,30 @@ func artworkSummary(t core.Title) core.Title {
 		Released: t.Released, Adult: t.Adult, PosterPath: t.PosterPath, BackdropPath: t.BackdropPath,
 		IDs: core.IDs{TMDB: t.IDs.TMDB}}
 }
+
+// tailPosterUnknown reports a search hit nobody has a poster answer for: a
+// long-tail title without a row whose names-file entry has no poster and is
+// not marked as having none. TMDB search hits (held as list summaries) and
+// stored rows carry TMDB's own answer, so they are never looked up.
+func (c *Catalog) tailPosterUnknown(ctx context.Context, t *core.Title) bool {
+	c.listSummaryMu.Lock()
+	_, held := c.listSummaries[t.Key]
+	c.listSummaryMu.Unlock()
+	if held {
+		return false
+	}
+	e, ok := c.tailEntry(t.Key)
+	if !ok || e.Title.PosterPath != "" || e.PosterNone {
+		return false
+	}
+	_, err := c.loadByKey(ctx, t.Key)
+	return errors.Is(err, core.ErrNotFound)
+}
+
+// prefetchTailPosters starts poster lookups for the best long-tail hits as
+// soon as the tail is searched, so they run while the search waits for
+// TMDB; the final page's FillPosters then mostly finds them cached. Hits
+// whose poster is already cached get it here.
+func (c *Catalog) prefetchTailPosters(ctx context.Context, hits []core.Title) {
+	c.FillPosters(ctx, hits, func(t *core.Title) bool { return c.tailPosterUnknown(ctx, t) }, 0)
+}

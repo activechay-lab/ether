@@ -305,6 +305,10 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 				}
 			}
 		}
+		// Posters last, on the final page: ranking never sees them. A long-
+		// tail hit whose poster is unknown is looked up under posterWait;
+		// one that misses it shows Ether's generated poster this time.
+		c.FillPosters(ctx, items, func(t *core.Title) bool { return !localKeys[t.Key] && c.tailPosterUnknown(ctx, t) }, posterWait)
 		return items, nil
 	}
 	wantMovie, wantTV, wantSeason, wantEpisode := true, true, false, false

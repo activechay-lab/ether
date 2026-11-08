@@ -249,7 +249,7 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 				ctx = context.WithValue(ctx, artworkVirtualSeasonKey{}, title)
 			}
 		}
-		if err != nil || title == nil || title.Key != req.Item || (virtualSeason == nil && !title.IsReleased(s.now())) || !s.visible(ctx, req.Viewer, title) {
+		if err != nil || title == nil || title.Key != req.Item || (virtualSeason == nil && !title.IsReleased(s.now()) && !s.undatedSearchHit(ctx, title.Key)) || !s.visible(ctx, req.Viewer, title) {
 			return nil, false, core.ErrNotFound
 		}
 	}
@@ -434,4 +434,14 @@ func (a Source) generatedPoster(t, virtualSeason *core.Title, kind string) (artw
 		return artwork.TitlePoster{}, false
 	}
 	return artwork.ForTitle(t)
+}
+
+// undatedSearchHit reports a long-tail search hit whose release date is not
+// known yet (catalog.UndatedSearchHit): search shows it, so its artwork is
+// served although it is not known to be released.
+func (a Source) undatedSearchHit(ctx context.Context, key core.RatingKey) bool {
+	u, ok := a.Catalog.(interface {
+		UndatedSearchHit(context.Context, core.RatingKey) bool
+	})
+	return ok && u.UndatedSearchHit(ctx, key)
 }

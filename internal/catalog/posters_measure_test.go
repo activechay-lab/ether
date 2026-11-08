@@ -345,11 +345,23 @@ func TestPosterMeasure(t *testing.T) {
 					}
 					titles[n] = core.Title{Key: it.key, Type: typ, Title: it.title.Title, PosterPath: known(it)}
 				}
-				before := c.PosterLookups()
+				// The TMDB requests this page starts: uncached titles with an
+				// unknown poster, at most posterLookupsPerPage.
+				var asks int64
+				for n := range titles {
+					tt := &titles[n]
+					if _, cached := c.posters.get(tt.Key, c.now()); tt.PosterPath == "" && unknown(tt) && !cached && asks < posterLookupsPerPage {
+						asks++
+					}
+				}
+				if pass == "cold" {
+					// Searches arrive at search-as-you-type pace.
+					time.Sleep(300 * time.Millisecond)
+				}
 				t0 := time.Now()
 				c.FillPosters(context.Background(), titles, unknown, run.wait)
 				added = append(added, time.Since(t0))
-				lookups = append(lookups, c.PosterLookups()-before)
+				lookups = append(lookups, asks)
 				for _, tt := range titles {
 					if tt.PosterPath != "" {
 						real++
