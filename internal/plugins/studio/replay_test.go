@@ -134,7 +134,7 @@ func TestRankingReplayPrefersDubAndNeutralIsUnchanged(t *testing.T) {
 			"runtime": { "kind": "hosted", "entry": "plugin.js" },
 			"contributes": {
 				"rankingSteps": [
-					{ "key": "prefer_dub", "label": "Prefer dubbed audio", "defaultPosition": 0 }
+					{ "key": "prefer_dub", "label": "Prefer dubbed audio" }
 				]
 			}
 		}

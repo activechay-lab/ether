@@ -320,7 +320,6 @@
                   "label": { "type": "string", "maxLength": 40 },
                   "hint": { "type": "string", "maxLength": 120 },
                   "editor": true,
-                  "defaultPosition": { "type": "integer" },
                   "budget": true
                 }
               }

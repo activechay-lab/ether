@@ -61,7 +61,6 @@ interface RankingStepMeta {
   choices?: DescriptorOption[];
   required?: boolean;
   canMove: boolean;
-  defaultPosition: number;
   configKey?: string;
   hint?: string;
 }

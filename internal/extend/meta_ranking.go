@@ -88,11 +88,6 @@ type RankingStepMeta struct {
 	// CanMove is false for steps the ladder renders as Automatic: the owner
 	// cannot reorder them.
 	CanMove bool `json:"canMove"`
-	// DefaultPosition is the step's 0-based place in the default ladder.
-	// "Add a step" inserts a step ahead of the first ladder step with a
-	// larger DefaultPosition. Plugin steps are never auto-inserted; this
-	// only says where one lands when the owner adds it.
-	DefaultPosition int `json:"defaultPosition"`
 	// ConfigKey names the QualityProfile field the editor edits for
 	// built-in steps (preferredLanguages, preferredSources,
 	// preferredCodecs, preferredAudio, preferLargest, heightRange, hdr,

@@ -18,7 +18,7 @@ func TestServiceRegistryValidation(t *testing.T) {
 	step := extend.Descriptor{
 		Kind: extend.KindRankingStep, ID: pluginStep, Owner: "example.dub",
 		Label: extend.PluginText("example.dub", "step.lang"),
-	}.WithMeta(extend.RankingStepMeta{Editor: extend.RankingEditorNone, CanMove: true, DefaultPosition: 1})
+	}.WithMeta(extend.RankingStepMeta{Editor: extend.RankingEditorNone, CanMove: true})
 	field := extend.Descriptor{
 		Kind: extend.KindRuleField, ID: "plugin:example.dub/dub_lang", Owner: "example.dub",
 		Label: extend.PluginText("example.dub", "field.dub_lang"),

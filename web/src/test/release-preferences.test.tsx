@@ -245,7 +245,7 @@ it("edits and saves a plugin step's configuration", async () => {
     id: "plugin:test.example/dub",
     owner: "test.example",
     label: { source: "Dub preference" },
-    meta: { editor: { kind: "toggle" }, canMove: true, defaultPosition: 0 },
+    meta: { editor: { kind: "toggle" }, canMove: true },
   };
   rankingDescriptors.push(descriptor);
   try {
