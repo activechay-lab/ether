@@ -101,8 +101,9 @@ const generatedPosterWidth = 200
 
 // directPoster is a poster URL a Stremio client loads without reaching
 // Ether: TMDB's CDN for a real poster, else Ether's generated poster as a
-// data: URI. stremio-core parses poster as a URL (data: is one) and the
-// clients draw it as an image source. Both come only for titles the
+// data: URI. stremio-core accepts the URL and stremio-web uses an image
+// source; native Android TV/mobile rendering still needs device proof.
+// Both come only for titles the
 // experience already returned to this viewer; the generated one is read
 // through the same artwork authorization as every other frontend.
 func (i *instance) directPoster(r *http.Request, viewer *frontend.Viewer, device frontend.Device, title frontend.Title) string {

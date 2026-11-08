@@ -32,8 +32,9 @@ func (s storedTitles) StoredTitle(_ context.Context, key core.RatingKey) (*core.
 
 // Owner rule: no title anywhere without a poster. With no secure portal and
 // no loopback address a Stremio client cannot load an Ether image URL, yet
-// every catalog item and meta still carries a poster it can load: TMDB's
-// CDN for a real poster, Ether's generated poster as a small data: URI.
+// every catalog item and meta carries a poster payload: TMDB's CDN for a
+// real poster, Ether's generated poster as a small data: URI. Decoding this
+// payload in Go does not prove native Android TV/mobile rendering.
 func TestStremioPostersWithoutReachableAddress(t *testing.T) {
 	released := time.Date(2001, 2, 3, 0, 0, 0, 0, time.UTC)
 	real := core.Title{Key: core.MovieKey(42), Type: core.TypeMovie, Title: "Has Poster", PosterPath: "/real.jpg", Released: released}
