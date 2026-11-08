@@ -137,7 +137,7 @@ func TestPlexTimelineQueueResolutionAndPlaylistTrack(t *testing.T) {
 	defer f.srv.Close()
 	watch := state.New(store.OpenTest(t), state.Options{})
 	f.srv.d.State = watch
-	q, err := f.srv.queues.createWith(ownerUser.ID, "client-1", []core.RatingKey{fightClub.Key, alien.Key}, fixedNow, nil)
+	q, err := f.srv.queues.CreateWith(ownerUser.ID, "client-1", []core.RatingKey{fightClub.Key, alien.Key}, fixedNow, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,24 +149,24 @@ func TestPlexTimelineQueueResolutionAndPlaylistTrack(t *testing.T) {
 		}
 	}
 	beat(fightClub.Key, 3000, "")
-	beat(fightClub.Key, 920000, fmt.Sprintf("&playQueueItemID=%d", q.items[1].id))
+	beat(fightClub.Key, 920000, fmt.Sprintf("&playQueueItemID=%d", q.Items[1].ID))
 	a, _ := watch.Get(context.Background(), ownerUser.ID, fightClub.Key)
 	b, _ := watch.Get(context.Background(), ownerUser.ID, alien.Key)
 	if a.ViewCount != 0 || b.ViewCount != 1 {
 		t.Fatalf("queue resolution: A=%+v B=%+v", a, b)
 	}
-	selected, _ := f.srv.queues.get(q.id, ownerUser.ID)
-	if selected.selected != 1 || selected.version != q.version {
+	selected, _ := f.srv.queues.Get(q.ID, ownerUser.ID)
+	if selected.Selected != 1 || selected.Version != q.Version {
 		t.Fatalf("selection/version: %+v", selected)
 	}
 	beat(fightClub.Key, 70000, "")
-	selected, _ = f.srv.queues.get(q.id, ownerUser.ID)
-	if selected.selected != 0 {
+	selected, _ = f.srv.queues.Get(q.ID, ownerUser.ID)
+	if selected.Selected != 0 {
 		t.Fatal("omitted selector did not follow owning client")
 	}
 	beat(alien.Key, 70000, "&playQueueItemID=")
-	selected, _ = f.srv.queues.get(q.id, ownerUser.ID)
-	if selected.selected != 0 {
+	selected, _ = f.srv.queues.Get(q.ID, ownerUser.ID)
+	if selected.Selected != 0 {
 		t.Fatal("empty selector changed selection")
 	}
 	pl, err := f.pls.Create(context.Background(), ownerUser.ID, "Timeline list", []core.RatingKey{fightClub.Key})

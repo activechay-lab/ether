@@ -84,7 +84,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	key = s.queues.timelineQueue(pr.User.ID, pr.ClientID, key, q.Get("playQueueItemID"), q.Has("playQueueItemID"))
+	key = s.queues.TimelineQueue(pr.User.ID, pr.ClientID, key, q.Get("playQueueItemID"), q.Has("playQueueItemID"))
 	offsetCheck, durationCheck := msParam(q.Get("time")), msParam(q.Get("duration"))
 	if durationCheck > 0 && offsetCheck > durationCheck {
 		writeHTTPError(w, http.StatusBadRequest)

@@ -90,10 +90,8 @@ func TestResilienceMixedClientLifecycles(t *testing.T) {
 	if n := len(f.srv.sessions.list()); n != 0 {
 		t.Fatalf("%d client sessions leaked", n)
 	}
-	f.srv.queues.expire(fixedNow.Add(7*time.Hour), 6*time.Hour)
-	f.srv.queues.mu.Lock()
-	remaining := len(f.srv.queues.queues)
-	f.srv.queues.mu.Unlock()
+	f.srv.queues.Expire(fixedNow.Add(7*time.Hour), 6*time.Hour)
+	remaining := f.srv.queues.Len()
 	if remaining != 0 {
 		t.Fatalf("%d abandoned queues leaked", remaining)
 	}

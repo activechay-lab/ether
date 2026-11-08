@@ -666,22 +666,8 @@ func (s *Server) handleExtraPart(w http.ResponseWriter, r *http.Request) bool {
 // Trailer's feature), else the extra's own parent when playable.
 func (s *Server) featureForExtra(pr *Request, e extras.Extra) core.RatingKey {
 	if pr.User != nil && s.queues != nil {
-		s.queues.mu.Lock()
-		defer s.queues.mu.Unlock()
-		for _, q := range s.queues.queues {
-			if q.userID != pr.User.ID {
-				continue
-			}
-			for i, it := range q.items {
-				if it.key != e.Key {
-					continue
-				}
-				for _, later := range q.items[i+1:] {
-					if isPlayableKey(later.key) {
-						return later.key
-					}
-				}
-			}
+		if key := s.queues.FollowingPlayable(pr.User.ID, e.Key, isPlayableKey); key != 0 {
+			return key
 		}
 	}
 	if isPlayableKey(e.ParentKey) {

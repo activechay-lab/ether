@@ -460,9 +460,9 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 	} else if pqID, err := strconv.ParseInt(q.Get("playQueueID"), 10, 64); err == nil {
-		if pq, ok := s.queues.get(pqID, pr.User.ID); ok {
-			for _, it := range pq.items {
-				keys = append(keys, it.key)
+		if pq, ok := s.queues.Get(pqID, pr.User.ID); ok {
+			for _, it := range pq.Items {
+				keys = append(keys, it.Key)
 			}
 		}
 	}

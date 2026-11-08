@@ -322,15 +322,15 @@ func NewServer(d Deps) *Server {
 	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
-	s.queues.now = d.Now
+	s.queues.Configure(d.Now, nil)
 	if d.DB != nil && d.Cluster == nil {
 		// Standalone queues share the durable store without starting cluster sessions.
-		s.queues.cl = newClusterState(s, d.DB, clusterbus.NewHub().Node("standalone-queues"))
+		s.queues.Configure(d.Now, newClusterState(s, d.DB, clusterbus.NewHub().Node("standalone-queues")).queuePersistence())
 	}
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
 		s.versionFlows = newVersionFlowStore(s, d.DB)
-		s.queues.cl = s.cl
+		s.queues.Configure(d.Now, s.cl.queuePersistence())
 	}
 	if !d.DisableEnrichment && d.Catalog != nil {
 		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
@@ -593,7 +593,7 @@ func (s *Server) janitor() {
 			now := s.now()
 
 			s.expireDownloads(now)
-			s.queues.expire(now, 6*time.Hour)
+			s.queues.Expire(now, 6*time.Hour)
 			s.playIDs.expire(now, s.playIdentityAlive)
 			s.expireTranscodes(now, 2*time.Hour)
 			s.playbackOwners.Expire(now, 2*time.Hour)

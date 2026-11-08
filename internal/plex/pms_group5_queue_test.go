@@ -54,7 +54,7 @@ func TestPMSGroup5QueueTransitions(t *testing.T) {
 	}
 	rows := q["Metadata"].([]any)
 	last := rows[2].(map[string]any)["playQueueItemID"].(float64)
-	f.srv.queues.selectItem(ownerUser.ID, int64(last))
+	f.srv.queues.SelectItem(ownerUser.ID, int64(last))
 	r = f.request(t, "DELETE", fmt.Sprintf("%s/items/%.0f", path, last), headers)
 	deleted := decodeJSON(t, r)
 	if r.Code != 200 || deleted["size"] != float64(0) || deleted["playQueueTotalCount"] != float64(3) || deleted["playQueueVersion"] != float64(2) || deleted["playQueueSelectedItemOffset"] != float64(0) {
@@ -115,20 +115,20 @@ func TestPMSGroup5QueueFlagsAndShuffle(t *testing.T) {
 func TestPMSGroup5QueueDurableRestart(t *testing.T) {
 	db := store.OpenTest(t)
 	a := newFixture(func(d *Deps) { d.DB = db; d.DisableEnrichment = true })
-	q, err := a.srv.queues.createWith(ownerUser.ID, "persistent", []core.RatingKey{fightClub.Key, bbE1.Key}, fixedNow, nil)
+	q, err := a.srv.queues.CreateWith(ownerUser.ID, "persistent", []core.RatingKey{fightClub.Key, bbE1.Key}, fixedNow, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.srv.queues.selectItem(ownerUser.ID, q.items[1].id)
+	a.srv.queues.SelectItem(ownerUser.ID, q.Items[1].ID)
 	a.srv.Close()
 	b := newFixture(func(d *Deps) { d.DB = db; d.DisableEnrichment = true })
 	defer b.srv.Close()
-	restored, ok := b.srv.queues.get(q.id, ownerUser.ID)
-	if !ok || restored.selected != 1 || restored.items[1].id != q.items[1].id {
+	restored, ok := b.srv.queues.Get(q.ID, ownerUser.ID)
+	if !ok || restored.Selected != 1 || restored.Items[1].ID != q.Items[1].ID {
 		t.Fatalf("restart lost queue: %+v", restored)
 	}
-	fresh, err := b.srv.queues.createWith(ownerUser.ID, "other", []core.RatingKey{alien.Key}, fixedNow, nil)
-	if err != nil || fresh.id <= q.id || fresh.items[0].id <= q.items[1].id {
+	fresh, err := b.srv.queues.CreateWith(ownerUser.ID, "other", []core.RatingKey{alien.Key}, fixedNow, nil)
+	if err != nil || fresh.ID <= q.ID || fresh.Items[0].ID <= q.Items[1].ID {
 		t.Fatal("counters reset", fresh, err)
 	}
 }
