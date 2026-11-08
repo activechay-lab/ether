@@ -235,6 +235,8 @@ Dial your storage footprint from **Pass-through (0 GiB)** to **Everyday (32 GiB)
 | **Linux** | [`.deb` / `.rpm`](https://github.com/braedonsaunders/ether/releases/latest) (`amd64`, `arm64`) | Dedicated `ether` systemd service, hardware transcoding group setup (`render`/`video`), bundled FFmpeg. |
 | **Docker** | `ghcr.io/braedonsaunders/ether:latest` | Multi-arch (`amd64`, `arm64`). Ready-made templates for **Unraid, TrueNAS SCALE, and Proxmox**, plus Synology instructions, in [`packaging/community`](packaging/community/README.md). |
 
+PR previews (`linux/amd64` only) are published for PRs whose author has write access to this repository, from a branch here or in the author's own fork, as `ghcr.io/braedonsaunders/ether:pr-<number>`. **Previews are unreviewed PR code: only run one if you trust its author, and never in place of a release.** The `pr-<number>` tag moves with each new head. A second tag, `pr-<number>-<branch>-<12-char head SHA>`, is never replaced; for a strictly immutable reference, pull by the digest shown in the publish run. Eligibility is checked again before every publication, previews remain after a PR closes, and preview tags never collide with release tags.
+
 ```yaml
 services:
   ether:

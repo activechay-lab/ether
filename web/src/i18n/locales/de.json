@@ -6105,6 +6105,7 @@
     "one": "{count} aus",
     "other": "{count} aus"
   },
+  "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-Releases werden von deinen Usenet-Anbietern gestreamt.",
   "m_18ca1c5dc775ca": "Dieser Zuschauer hat keinen Serverzugriff mehr. Sein Verlauf bleibt erhalten.",
   "m_18cac20f7cbd3e": "Gleichzeitige Downloads pro Zuschauer",

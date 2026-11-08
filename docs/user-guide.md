@@ -203,6 +203,13 @@ A result needs a release name and one of these, tried in order:
   range requests is skipped for now and tried again later. With **Cached torrents
   only** on, links the addon labels only as uncached are left out.
 
+  Opening an addon's link usually makes the addon fetch that release (resolve
+  it on its debrid account, or download and import an NZB), so Ether opens one
+  link per Play: the next one only after the first fails, and none while it is
+  still being prepared. **Concurrent checks** does not apply to these links.
+  Detail pages, warm-ups, next-episode prefetch and availability checks never
+  open them, so an addon-only title starts without a prepared opening.
+
 External-player links and YouTube IDs have nothing Ether can stream.
 
 HTTP and NZB links may point at the addon's own address, even on your network.

@@ -6105,6 +6105,7 @@
     "one": "{count} av",
     "other": "{count} av"
   },
+  "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-releaser streamas från dina Usenet-leverantörer.",
   "m_18ca1c5dc775ca": "Den här tittaren har inte längre serveråtkomst. Deras historik behålls.",
   "m_18cac20f7cbd3e": "Samtidiga nedladdningar per tittare",

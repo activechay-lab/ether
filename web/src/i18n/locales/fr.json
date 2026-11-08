@@ -6275,6 +6275,7 @@
     "many": "{count} de désactivées",
     "other": "{count} désactivées"
   },
+  "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Les releases Usenet sont diffusées depuis vos fournisseurs Usenet.",
   "m_18ca1c5dc775ca": "Ce spectateur n’a plus accès au serveur. Son historique est conservé.",
   "m_18cac20f7cbd3e": "Téléchargements simultanés par spectateur",
