@@ -429,6 +429,8 @@ func collectIssues(info core.MediaInfo, v, a, sub *core.StreamInfo, ctx issueCon
 		}
 		if ctx.heightCap > 0 && v.Height > ctx.heightCap {
 			videoIssues = append(videoIssues, fmt.Sprintf("%dp exceeds %dp limit", v.Height, ctx.heightCap))
+		} else if h := caps.VideoMaxHeights[v.Codec]; h > 0 && v.Height > h {
+			videoIssues = append(videoIssues, fmt.Sprintf("%dp exceeds the client's %dp %s decoder", v.Height, h, v.Codec))
 		}
 		if r := rangeOK(v, caps); r != "" {
 			videoIssues = append(videoIssues, r)
@@ -768,6 +770,9 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 			break
 		}
 	}
+
+	// A per-decoder bound limits only the output codec it names.
+	heightCap = minPositive(heightCap, caps.VideoMaxHeights[codec])
 
 	audioCopy, audioCodec, audioKbps, audioNote = pceAudioPlan(a, caps, opts, info.Container, codec, audioCopy, audioCodec, audioKbps, audioNote)
 	d.AudioCopy, d.AudioCodec = audioCopy, audioCodec

@@ -260,6 +260,11 @@ type ClientCaps struct {
 	// when a later layer (a client direct-play profile) lists them again
 	// (additive).
 	ConvertSurroundAudio bool `json:"convertSurroundAudio,omitempty"`
+
+	// VideoMaxHeights bounds one decoder, such as a legacy Plex
+	// videoDecoders=h264{resolution:1080} declaration. MaxHeight stays the
+	// ceiling of the tallest codec the client decodes (additive).
+	VideoMaxHeights map[string]int `json:"videoMaxHeights,omitempty"`
 }
 
 // AudioLimit applies to one audio codec, or all codecs when Codec is "*".

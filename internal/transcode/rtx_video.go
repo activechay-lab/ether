@@ -216,7 +216,7 @@ func (m *Manager) enhanceDecision(info core.MediaInfo, caps core.ClientCaps, opt
 	if profiles := caps.VideoProfiles["h264"]; len(profiles) > 0 && !contains(profiles, "high") {
 		return reject("ineligible", "client does not support the H.264 high profile")
 	}
-	height := even(minPositive(c.TargetMaxHeight, caps.MaxHeight, opts.MaxHeight))
+	height := even(minPositive(c.TargetMaxHeight, caps.MaxHeight, caps.VideoMaxHeights["h264"], opts.MaxHeight))
 	if height <= v.Height {
 		return reject("ineligible", "target/client resolution cap leaves no upscale")
 	}
