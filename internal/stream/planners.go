@@ -767,6 +767,7 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 	named := map[*postedFile]bool{}
 	type rarVol struct {
 		pf     *postedFile
+		format archive.Format
 		number int // -1 unknown
 	}
 	var rars []rarVol
@@ -796,7 +797,7 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 			continue
 		}
 		head := pr.seg.data
-		switch archive.Detect(head) {
+		switch f := archive.Detect(head); f {
 		case archive.FormatRAR4, archive.FormatRAR5:
 			num := -1
 			if v, err := b.readCachedRARVolume(ctx, pf, head); err == nil {
@@ -806,7 +807,7 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 					num = 0
 				}
 			}
-			rars = append(rars, rarVol{pf, num})
+			rars = append(rars, rarVol{pf: pf, format: f, number: num})
 		case archive.Format7z:
 			b.rel.setFileInfo(func() {
 				pf.file.Info = nzb.FileInfo{Kind: nzb.KindSevenZip, Ext: "7z", Volume: 0, SetName: fmt.Sprintf("\x00obfuscated-7z-%d", pf.idx)}
@@ -821,6 +822,61 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 	}
 	if len(rars) == 0 {
 		return named, unreadable, nil
+	}
+	if set == nil && len(rars) > 3 {
+		// Wait until the leading volume's cached head passes checkRARVolume before
+		// issuing any RAR4 tail probes, so compressed or encrypted sets still
+		// fast-fail without extra segment fetches.
+		canProbeTails := true
+		for _, r := range rars {
+			if seg, ok := b.e.hot.get(segKey{b.rel.digest, r.pf.segBase}); ok && seg != nil && seg.begin == 0 {
+				if v, err := b.readCachedRARVolume(ctx, r.pf, seg.data); err != nil || b.checkRARVolume(v) != nil {
+					canProbeTails = false
+					break
+				}
+			}
+		}
+		// RAR4 continuation volumes record their volume number in the trailing
+		// 0x7b end block rather than the main header. Once the full probe wave
+		// runs without PAR2 or [i/N] subject counters (identifyObfuscated's
+		// initial no-PAR2 wave has at most 3 files), probe the final segment
+		// of unnumbered RAR4 volumes to recover their exact volume numbers.
+		hasSubjectOrder := true
+		var needTail []int
+		for i, r := range rars {
+			if r.pf.file.SubjectIndex <= 0 {
+				hasSubjectOrder = false
+			}
+			if r.format == archive.FormatRAR4 && r.number < 0 {
+				if r.pf.numSlots() == 1 {
+					if seg, ok := b.e.hot.get(segKey{b.rel.digest, r.pf.segBase}); ok && seg != nil {
+						if n := archive.ReadRAR4TailVolumeNumber(seg.data); n >= 0 {
+							rars[i].number = n
+						}
+					}
+				} else if r.pf.numSlots() > 1 {
+					needTail = append(needTail, i)
+				}
+			}
+		}
+		if canProbeTails && !hasSubjectOrder && len(needTail) > 0 {
+			_ = b.parallel(ctx, len(needTail), func(ctx context.Context, k int) error {
+				idx := needTail[k]
+				pf := rars[idx].pf
+				slot := pf.numSlots() - 1
+				msgID := pf.msgID(slot)
+				if msgID == "" {
+					return nil
+				}
+				data, _, err := b.e.bodyPart(ctx, pf, msgID, b.prio, b.fo)
+				if err == nil && len(data) > 0 {
+					if n := archive.ReadRAR4TailVolumeNumber(data); n >= 0 {
+						rars[idx].number = n
+					}
+				}
+				return nil
+			})
+		}
 	}
 	allNumbered := true
 	for _, r := range rars {
