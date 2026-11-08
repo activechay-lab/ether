@@ -61,6 +61,11 @@ const viewModeList = 65592
 // defaultUnpagedLimit bounds list responses for clients that don't page.
 const defaultUnpagedLimit = 500
 
+// plexOnDeckLimit bounds On Deck (Continue Watching) at PMS's OnDeckLimit
+// default: "Maximum number of Continue Watching items which will appear."
+// /:/prefs reports it.
+const plexOnDeckLimit = 40
+
 // sectionPrefs is /library/sections/{id}/prefs: the library settings the
 // apps read (visibility, collection mode, episode sorting and ordering,
 // season display), with the values Ether actually behaves by. PMS types
@@ -1578,11 +1583,16 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		}
 		child := filter
 		filter.ChildVisibility = &child
-		page, err := paged.PlexOnDeckPage(ctx, pr.User.ID, max(pr.Start, 0), size, filter, r.URL.Path == "/hubs/home/onDeck")
+		// The deck is bounded by PMS's OnDeckLimit; a page past it is
+		// empty and still carries the bounded total.
+		start := max(pr.Start, 0)
+		size = max(min(size, plexOnDeckLimit-start), 0)
+		page, err := paged.PlexOnDeckPage(ctx, pr.User.ID, start, size, filter, r.URL.Path == "/hubs/home/onDeck")
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
 		}
+		page.Total = min(page.Total, plexOnDeckLimit)
 		state := s.stateFor(ctx, pr, page.Items)
 		for key, anchor := range page.Anchors {
 			status := state[key]
@@ -1632,6 +1642,7 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 	// whole row and slicing it produced.
 	items = s.takeVisible(pr.User, items, len(items))
 	items = s.openableTitles(withStoredPolicy(ctx), pr.User, items, shelfContainsAll(ctx, items))
+	items = items[:min(len(items), plexOnDeckLimit)]
 	total := len(items)
 	start := min(max(pr.Start, 0), total)
 	_, size := pr.pageOf(0)
