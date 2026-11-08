@@ -28,12 +28,12 @@ func mapFile(path string) ([]byte, func() error, error) {
 	}
 	h, err := windows.CreateFileMapping(windows.Handle(f.Fd()), nil, windows.PAGE_READONLY, uint32(size>>32), uint32(size), nil)
 	if err != nil {
-		return readFile(path)
+		return nil, nil, err
 	}
 	addr, err := windows.MapViewOfFile(h, windows.FILE_MAP_READ, 0, 0, uintptr(size))
 	windows.CloseHandle(h)
 	if err != nil {
-		return readFile(path)
+		return nil, nil, err
 	}
 	data := unsafe.Slice((*byte)(unsafe.Pointer(addr)), int(size))
 	return data, func() error { return windows.UnmapViewOfFile(addr) }, nil

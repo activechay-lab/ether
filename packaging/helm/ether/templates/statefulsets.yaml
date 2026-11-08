@@ -80,7 +80,7 @@ spec:
               # Let the Go runtime collect before the container limit, not at
               # it: anonymous heap (for example the daily catalogue-index
               # build) is what the kernel cannot reclaim. Mapped index pages
-              # are clean page cache and are reclaimed instead of OOM-killing.
+              # are reclaimable page cache; the build still needs heap headroom.
               if [ -z "${GOMEMLIMIT:-}" ] && [ "${ETHER_MEMORY_LIMIT_MIB:-0}" -gt 0 ]; then
                 export GOMEMLIMIT="$((ETHER_MEMORY_LIMIT_MIB * 9 / 10))MiB"
               fi

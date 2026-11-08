@@ -245,22 +245,28 @@ existing release expand each `data-*` PVC in place (StorageClass with
 The first build runs in the background after startup and never delays
 readiness. Until it finishes (`TailStatus` not ready in the catalogue status),
 search answers from the library index plus TMDB's live search, with no errors.
+The public export builds without a TMDB API key. Localized names, dates and
+posters require authenticated enrichment; cached enrichment is retained when
+the key is absent. Live TMDB search also requires a working API client.
 A pod whose data directory is lost (a recreated PVC, or a non-chart deployment
 on ephemeral storage) simply rebuilds on start. With NetworkPolicy enabled, allow
 egress to `files.tmdb.org:443` (and TMDB's API for live search).
 
-Mapped index pages are clean, file-backed page cache. Under the pod's memory
-limit the kernel reclaims them instead of OOM-killing the container, so the
-index itself cannot OOM the pod. Measured with the real index at a 512 MiB limit
+Mapped index pages are clean, file-backed page cache that the kernel can reclaim
+under memory pressure. On Linux and Windows, a failed mapping keeps the previous
+index or leaves search using its library/live fallback; it never loads the whole
+file into heap. This does not guarantee that the entire app fits any memory
+limit. Measured with the real index at a 512 MiB limit
 beside 200 MiB of heap, the pod's cgroup stayed pinned at its limit for the whole
 run with no OOM kill, but searches slowed once the index no longer fit in what
 was left (p50 from 2.5 ms to about 1 s on a busy disk); at 1 GiB the whole index
-stays resident (p50 1.5 ms, p99 8 ms). Size memory for speed, not for safety:
-the app's heap plus about 250 MiB. The daily build streams the index to its file
-section by section; its live heap is about 250–300 MiB above the app's own,
+stays resident (p50 1.5 ms, p99 8 ms). Budget the app's heap plus about 250 MiB
+for a resident index, and additional headroom for the build and runtime. The
+daily build streams the index to its file section by section; its live heap is
+about 250–300 MiB above the app's own,
 which the kernel cannot reclaim. The chart exports `GOMEMLIMIT` at 90% of the
-container memory limit, and that is what keeps the build inside the pod: at a
-1 GiB limit the build completed beside up to 600 MiB of other live heap with
+container memory limit. In the measured workload, at a 1 GiB limit the build
+completed beside up to 600 MiB of other live heap with
 `GOMEMLIMIT`, and was OOM-killed beside 500 MiB without it. Full and server pools
 default to a 2 GiB limit for headroom; keep `GOMEMLIMIT` (or set your own) if you
 override their `resources`.

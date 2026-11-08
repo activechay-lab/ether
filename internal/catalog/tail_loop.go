@@ -58,18 +58,25 @@ func (c *Catalog) RunTail(ctx context.Context) {
 	}
 	c.loadNewestTail()
 	for ctx.Err() == nil {
-		if c.tmdb() != nil {
-			if k, ok := c.tmdb().(interface{ HasKey() bool }); !ok || k.HasKey() {
-				if err := c.refreshTail(ctx); err != nil && ctx.Err() == nil {
-					c.log.Warn("catalog: long-tail index", "err", err)
-				}
-			}
+		if err := c.refreshTail(ctx); err != nil && ctx.Err() == nil {
+			c.log.Warn("catalog: long-tail index", "err", err)
 		}
 		c.reapTailFiles()
 		if !schedule.Wait(ctx, c.now, time.Hour) {
 			return
 		}
 	}
+}
+
+// Public exports need no API key. Only optional name/date/poster enrichment
+// uses the authenticated client; cached names remain usable without it.
+func (c *Catalog) canEnrichTail() bool {
+	client := c.tmdb()
+	if client == nil {
+		return false
+	}
+	k, ok := client.(interface{ HasKey() bool })
+	return !ok || k.HasKey()
 }
 
 func (c *Catalog) setTailError(err error) {
@@ -96,7 +103,12 @@ func (c *Catalog) loadNewestTail() {
 		t, unmap, err := openTailFile(path)
 		if err != nil {
 			c.log.Warn("catalog: long-tail index file rejected", "file", filepath.Base(path), "err", err)
-			_ = os.Remove(path)
+			// A transient mapping/access failure does not make a valid index
+			// corrupt. Keep it for a later startup instead of destroying it.
+			if errors.Is(err, errTailFile) {
+				_ = os.Remove(path)
+			}
+			c.setTailError(err)
 			continue
 		}
 		c.installTail(c.tailHandle(t, unmap, path))
@@ -105,6 +117,7 @@ func (c *Catalog) loadNewestTail() {
 		}
 		c.tail.mu.Lock()
 		c.tail.path = path
+		c.tail.lastErr = ""
 		c.tail.mu.Unlock()
 		return
 	}
@@ -157,6 +170,9 @@ func (c *Catalog) refreshTail(ctx context.Context) error {
 			c.setTailError(err)
 			return err
 		}
+	}
+	if !c.canEnrichTail() {
+		return nil
 	}
 	walked, _ := time.Parse(time.RFC3339, c.getMeta(ctx, "tail_names_walked"))
 	if c.now().Sub(walked) >= tailNamesEvery {

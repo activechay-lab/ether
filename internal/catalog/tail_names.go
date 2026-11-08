@@ -302,7 +302,7 @@ const tailNamesBudget = 20000
 // first, and adds them to the names file. Before the first names walk it
 // does nothing: that walk reads them 20 a request.
 func (c *Catalog) fillNewNames(ctx context.Context, dir string, names *tailNames, missing []core.RatingKey) (*tailNames, error) {
-	if names.len() == 0 || len(missing) == 0 || c.tmdb() == nil {
+	if names.len() == 0 || len(missing) == 0 || !c.canEnrichTail() {
 		return names, nil
 	}
 	slices.SortFunc(missing, func(a, b core.RatingKey) int { return int(b.TMDB() - a.TMDB()) })
