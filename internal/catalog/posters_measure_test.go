@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -300,7 +301,11 @@ func TestPosterMeasure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	for _, names := range []bool{false, true} {
+	for _, run := range []struct {
+		names bool
+		wait  time.Duration
+	}{{false, 0}, {false, posterWait}, {false, 100 * time.Millisecond}, {true, 0}, {true, posterWait}, {true, 100 * time.Millisecond}} {
+		names := run.names
 		db, err := store.OpenMemory(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -342,7 +347,7 @@ func TestPosterMeasure(t *testing.T) {
 				}
 				before := c.PosterLookups()
 				t0 := time.Now()
-				c.FillPosters(context.Background(), titles, unknown, posterWait)
+				c.FillPosters(context.Background(), titles, unknown, run.wait)
 				added = append(added, time.Since(t0))
 				lookups = append(lookups, c.PosterLookups()-before)
 				for _, tt := range titles {
@@ -359,8 +364,8 @@ func TestPosterMeasure(t *testing.T) {
 			for _, n := range lookups {
 				total += n
 			}
-			t.Logf("names file %v, %s: added latency p50 %v p95 %v max %v; TMDB requests per search mean %.2f p95 %d max %d; shown with a real poster %d, with Ether's generated poster %d, without any 0",
-				names, pass, added[len(added)/2].Round(time.Microsecond), added[len(added)*95/100].Round(time.Microsecond), added[len(added)-1].Round(time.Microsecond),
+			t.Logf("names file %v, wait %v, %s: added latency p50 %v p95 %v max %v; TMDB requests per search mean %.2f p95 %d max %d; shown with a real poster %d, with Ether's generated poster %d, without any 0",
+				names, run.wait, pass, added[len(added)/2].Round(time.Microsecond), added[len(added)*95/100].Round(time.Microsecond), added[len(added)-1].Round(time.Microsecond),
 				float64(total)/float64(len(lookups)), lookups[len(lookups)*95/100], lookups[len(lookups)-1], real, generated)
 			if pass == "cold" {
 				// Let detached lookups land, as they would between searches.
@@ -372,5 +377,35 @@ func TestPosterMeasure(t *testing.T) {
 		}
 		client.Close()
 		db.Close()
+	}
+
+	// Ether's generated poster: the cost of drawing one (no disk cache) at
+	// the width Plex and Jellyfin grids ask for, for the tail hits TMDB has
+	// no poster for.
+	r := artwork.NewRenderer(nil, "", nil)
+	var draws []time.Duration
+	seen := map[core.RatingKey]bool{}
+	for _, page := range pages {
+		for _, it := range page {
+			if !it.tail || seen[it.key] || lean[it.key].Poster != "" || len(draws) >= 300 {
+				continue
+			}
+			seen[it.key] = true
+			tt := core.Title{Key: it.key, Type: core.TypeMovie, Title: lean[it.key].Title, OriginalTitle: it.title.Title}
+			if it.title.Kind == "tv" {
+				tt.Type = core.TypeShow
+			}
+			p, _ := artwork.ForTitle(&tt)
+			p.Width = 342
+			t0 := time.Now()
+			if _, _, err := r.Title(context.Background(), p); err != nil {
+				t.Fatal(err)
+			}
+			draws = append(draws, time.Since(t0))
+		}
+	}
+	sort.Slice(draws, func(a, b int) bool { return draws[a] < draws[b] })
+	if len(draws) > 0 {
+		t.Logf("generated poster at w342, %d titles, uncached: p50 %v p95 %v", len(draws), draws[len(draws)/2].Round(time.Microsecond), draws[len(draws)*95/100].Round(time.Microsecond))
 	}
 }
