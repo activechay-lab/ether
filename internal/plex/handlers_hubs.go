@@ -260,6 +260,11 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 		return selection{items, state, more}, nil
 	})
 	items, state, more := append([]core.Title(nil), picked.items...), maps.Clone(picked.state), picked.more
+	if windowed := s.onDeckWindowed(items, state); len(windowed) < len(items) {
+		// Newest first: the window cut the tail, and the overflow
+		// candidate behind it is older still.
+		items, more = windowed, false
+	}
 	if v == cwSection && sec.Type == core.TypeShow && pr.User != nil {
 		if gate, ok := s.d.State.(interface {
 			PlaybackCompletedShows(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)

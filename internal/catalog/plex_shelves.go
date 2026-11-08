@@ -59,6 +59,14 @@ func (c *Catalog) PlexRecentPage(ctx context.Context, q core.BrowseQuery, kinds 
 // PlexOnDeckPage starts with the viewer's indexed watch rows, chooses one
 // candidate per show, applies catalogue policy, and pages before hydration.
 func (c *Catalog) PlexOnDeckPage(ctx context.Context, uid int64, offset, limit int, f core.Filter, episodesOnly bool) (core.WatchPage, error) {
+	return c.PlexOnDeckPageSince(ctx, uid, offset, limit, f, episodesOnly, time.Time{})
+}
+
+// PlexOnDeckPageSince is PlexOnDeckPage within a window (PMS's
+// OnDeckWindow): a show or movie last watched before since is left out,
+// except a season premiere (episode 1 of a season after the first) that
+// aired since then. A zero since keeps every row.
+func (c *Catalog) PlexOnDeckPageSince(ctx context.Context, uid int64, offset, limit int, f core.Filter, episodesOnly bool, since time.Time) (core.WatchPage, error) {
 	if episodesOnly && f.Type == core.TypeMovie {
 		return core.WatchPage{}, nil
 	}
@@ -80,14 +88,15 @@ func (c *Catalog) PlexOnDeckPage(ctx context.Context, uid int64, offset, limit i
  SELECT w.*,CASE WHEN w.rating_key>=4000000000000000 AND w.rating_key<5000000000000000 THEN 2000000000000000+(w.rating_key-4000000000000000)/10000000 ELSE w.rating_key END AS entity
  FROM state_watch w WHERE w.user_id=? AND ((w.rating_key>=1000000000000000 AND w.rating_key<2000000000000000) OR (w.rating_key>=4000000000000000 AND w.rating_key<5000000000000000)) AND (w.view_offset_ns>0 OR w.view_count>0) AND /*activeVisible*/
 ), ranked AS (
- SELECT active.*,ROW_NUMBER() OVER(PARTITION BY entity ORDER BY CASE WHEN view_offset_ns>0 AND view_count=0 THEN 0 ELSE 1 END,last_viewed_at DESC,rating_key DESC) AS n
+ SELECT active.*,ROW_NUMBER() OVER(PARTITION BY entity ORDER BY CASE WHEN view_offset_ns>0 AND view_count=0 THEN 0 ELSE 1 END,last_viewed_at DESC,rating_key DESC) AS n,
+ MAX(last_viewed_at) OVER(PARTITION BY entity) AS latest
  FROM active
 ), chosen AS MATERIALIZED (
  SELECT CASE WHEN entity<2000000000000000 OR (view_offset_ns>0 AND view_count=0) THEN rating_key ELSE (
  SELECT e.key FROM catalog_titles e CROSS JOIN catalog_titles t WHERE t.key=e.show_key AND e.show_key=ranked.entity AND e.type='episode' AND e.season>0 AND e.episode>0 AND e.key>ranked.rating_key
  AND (e.released_ts=0 OR e.released_ts<=?)
  AND NOT EXISTS(SELECT 1 FROM state_watch watched WHERE watched.user_id=? AND watched.rating_key=e.key AND watched.view_count>0)
- AND /*nextVisible*/ ORDER BY e.key LIMIT 1) END AS key,last_viewed_at AS stamp,updated_at AS updated,entity
+ AND /*nextVisible*/ ORDER BY e.key LIMIT 1) END AS key,last_viewed_at AS stamp,updated_at AS updated,entity,latest
  FROM ranked WHERE n=1 AND (entity>=2000000000000000 OR view_offset_ns>0)
  AND NOT EXISTS(SELECT 1 FROM state_continue_hidden hidden WHERE hidden.user_id=? AND hidden.item_key=ranked.entity)
  AND NOT EXISTS(SELECT 1 FROM personalize_discovery_hidden hidden WHERE hidden.user_id=? AND hidden.item_key=ranked.entity)
@@ -101,12 +110,23 @@ func (c *Catalog) PlexOnDeckPage(ctx context.Context, uid int64, offset, limit i
 	args = append(args, uid)
 	personalArgIndex := len(args)
 	args = append(args, uid)
+	movieWindow, episodeWindow := "", ""
+	var movieWindowArgs, episodeWindowArgs []any
+	if !since.IsZero() {
+		// The show's latest view of any episode (a movie's own) dates it;
+		// an undated view (an import) is not known to be old.
+		movieWindow, movieWindowArgs = `(chosen.latest>=? OR chosen.latest<=0) AND `, []any{since.UnixNano()}
+		episodeWindow = `(chosen.latest>=? OR chosen.latest<=0 OR (e.episode=1 AND e.season>1 AND e.released_ts>=?)) AND `
+		episodeWindowArgs = []any{since.UnixNano(), since.Unix()}
+	}
 	if !episodesOnly && f.Type != core.TypeEpisode {
-		branches = append(branches, `SELECT chosen.key,chosen.stamp,chosen.updated FROM chosen CROSS JOIN catalog_titles t WHERE t.key=chosen.key AND `+mw)
+		branches = append(branches, `SELECT chosen.key,chosen.stamp,chosen.updated FROM chosen CROSS JOIN catalog_titles t WHERE t.key=chosen.key AND `+movieWindow+mw)
+		args = append(args, movieWindowArgs...)
 		args = append(args, ma...)
 	}
 	if f.Type != core.TypeMovie {
-		branches = append(branches, `SELECT chosen.key,chosen.stamp,chosen.updated FROM chosen CROSS JOIN catalog_titles e CROSS JOIN catalog_titles t WHERE e.key=chosen.key AND t.key=e.show_key AND e.type='episode' AND `+ew)
+		branches = append(branches, `SELECT chosen.key,chosen.stamp,chosen.updated FROM chosen CROSS JOIN catalog_titles e CROSS JOIN catalog_titles t WHERE e.key=chosen.key AND t.key=e.show_key AND e.type='episode' AND `+episodeWindow+ew)
+		args = append(args, episodeWindowArgs...)
 		args = append(args, ea...)
 	}
 	prefix := cte + strings.Join(branches, ` UNION ALL `) + `) `

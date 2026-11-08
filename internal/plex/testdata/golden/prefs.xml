@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<MediaContainer size="14">
+<MediaContainer size="16">
 <Setting id="FriendlyName" label="Friendly name" summary="This name will be used to identify this media server to other computers on your network." type="text" default="" value="Ether Test" hidden="0" advanced="0" group="general" />
+<Setting id="OnDeckWindow" label="Weeks to consider for Continue Watching" summary="Media that has not been watched in this many weeks will not appear in Continue Watching." type="int" default="16" value="16" hidden="0" advanced="1" group="library" />
 <Setting id="OnDeckLimit" label="Maximum number of Continue Watching items which will appear." summary="Limits the number of shows which will appear Continue Watching. Setting it too high can affect performance." type="int" default="40" value="40" hidden="0" advanced="1" group="library" />
+<Setting id="OnDeckIncludePremieres" label="Include season premieres in Continue Watching" summary="New season premieres will always appear no matter how many weeks have passed since watching." type="bool" default="1" value="1" hidden="0" advanced="1" group="library" />
 <Setting id="MachineIdentifier" label="" summary="" type="text" default="" value="0123456789abcdef0123456789abcdef01234567" hidden="1" advanced="0" group="" />
 <Setting id="PublishServerOnPlexOnlineKey" label="Publish server on Plex Online" summary="" type="bool" default="0" value="0" hidden="0" advanced="0" group="network" />
 <Setting id="ManualPortMappingMode" label="Manually specify public port" summary="" type="bool" default="0" value="0" hidden="0" advanced="0" group="network" />
