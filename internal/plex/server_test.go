@@ -357,7 +357,9 @@ func TestStartHLS(t *testing.T) {
 		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.HasPrefix(body, "#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=7600000,RESOLUTION=1920x1080") || !strings.Contains(body, "session/abc-123/base/index.m3u8?X-Ether-Stream-Token=") {
+	// A copy advertises its peak segment rate, not the 7600 kbit/s
+	// container average (no keyframe index here: 1.5x + 64).
+	if !strings.HasPrefix(body, "#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=11464000,RESOLUTION=1920x1080") || !strings.Contains(body, "session/abc-123/base/index.m3u8?X-Ether-Stream-Token=") {
 		t.Fatalf("master: %q", body)
 	}
 	if rec.Header().Get("Content-Type") != "application/vnd.apple.mpegurl" {
