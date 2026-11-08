@@ -1,0 +1,133 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/perfharness"
+	"github.com/braedonsaunders/ether/internal/store"
+)
+
+// runLongTail mirrors a synthetic long-tail TMDB into a fresh database
+// through the real catalogue sync and detail paths.
+//
+//	etherperf longtail -out /tmp/lt/ether.db -titles 800000
+//	etherperf longtail -pg postgres://… -titles 100000
+func runLongTail(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("longtail", flag.ExitOnError)
+	out := f.String("out", "", "SQLite database file to create")
+	pgURL := f.String("pg", "", "empty PostgreSQL database to fill instead")
+	titles := f.Int("titles", 800_000, "movies plus shows in the TMDB universe")
+	share := f.Float64("movie-share", 0.7, "movies' share of the titles")
+	seed := f.Uint64("seed", 1, "universe seed")
+	hide := f.Bool("hide-obscure", false, "keep the default browsable bar (popularity 5 or 100 votes); off mirrors everything")
+	openShows := f.Int("open-shows", 0, "most popular shows whose seasons a household opened (0 = 300, -1 = none)")
+	limit := f.Int("detail-limit", 0, "stop after this many detail fetches (0 = all)")
+	report := f.String("report", "", "write the generation report and sizes as JSON here")
+	_ = f.Parse(args)
+	if (*out == "") == (*pgURL == "") {
+		return fmt.Errorf("exactly one of -out or -pg is required")
+	}
+	var db *sql.DB
+	var err error
+	if *pgURL != "" {
+		db, _, err = store.OpenWith(ctx, store.Options{URL: *pgURL})
+	} else {
+		if _, statErr := os.Stat(*out); statErr == nil {
+			return fmt.Errorf("%s exists; choose a fresh -out", *out)
+		}
+		if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
+			return err
+		}
+		db, err = store.OpenPath(ctx, *out)
+	}
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	started := time.Now()
+	logf := func(format string, a ...any) {
+		fmt.Fprintf(os.Stderr, "etherperf longtail %s: "+format+"\n", append([]any{time.Since(started).Round(time.Second)}, a...)...)
+	}
+	last := map[string]time.Time{}
+	rep, err := perfharness.GenerateLongTail(ctx, db, perfharness.LongTailConfig{
+		Titles: *titles, MovieShare: *share, Seed: *seed, HideObscure: *hide,
+		OpenShows: *openShows, DetailLimit: *limit,
+		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		Progress: func(phase string, n int) {
+			if time.Since(last[phase]) > 30*time.Second {
+				last[phase] = time.Now()
+				var pages, pageSize int64
+				if *pgURL == "" {
+					_ = db.QueryRowContext(ctx, `PRAGMA page_count`).Scan(&pages)
+					_ = db.QueryRowContext(ctx, `PRAGMA page_size`).Scan(&pageSize)
+				}
+				logf("%s %d (database %.0f MB)", phase, n, float64(pages*pageSize)/1e6)
+			}
+		},
+	})
+	if err != nil {
+		return err
+	}
+	logf("done: universe %d (%d meet the default bar), sync %s, %d details in %s, %d seasons opened",
+		rep.Universe, rep.Browsable, rep.Synced.Round(time.Second), rep.Warmed, rep.WarmTook.Round(time.Second), rep.SeasonsOpened)
+	sizes, err := perfharness.MeasureSizes(ctx, db, true)
+	if err != nil {
+		return err
+	}
+	var detailed int64
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles WHERE detail=1 AND type IN ('movie','show')`).Scan(&detailed)
+	perfharness.WriteSizeReport(os.Stdout, sizes, detailed, 1<<20)
+	if *report != "" {
+		b, err := json.MarshalIndent(map[string]any{"generation": rep, "detailedTitles": detailed, "sizes": sizes}, "", "  ")
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(*report, b, 0o644)
+	}
+	return nil
+}
+
+// runSizes reports a database's per-table and per-index sizes.
+func runSizes(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("sizes", flag.ExitOnError)
+	path := f.String("db", "", "SQLite database file (opened read-only)")
+	pgURL := f.String("pg", "", "PostgreSQL database URL")
+	rows := f.Bool("rows", true, "count each table's rows")
+	min := f.Int64("min", 1<<20, "omit tables smaller than this many bytes")
+	asJSON := f.Bool("json", false, "print JSON instead of a table")
+	_ = f.Parse(args)
+	var db *sql.DB
+	var err error
+	switch {
+	case *pgURL != "":
+		db, err = sql.Open(store.PostgresDriverName, *pgURL)
+	case *path != "":
+		db, err = sql.Open("sqlite", "file:"+*path+"?mode=ro")
+	default:
+		return fmt.Errorf("-db or -pg is required")
+	}
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	sizes, err := perfharness.MeasureSizes(ctx, db, *rows)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return json.NewEncoder(os.Stdout).Encode(sizes)
+	}
+	var detailed int64
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles WHERE detail=1 AND type IN ('movie','show')`).Scan(&detailed)
+	fmt.Printf("detailed movies and shows: %d\n\n", detailed)
+	perfharness.WriteSizeReport(os.Stdout, sizes, detailed, *min)
+	return nil
+}
