@@ -111,7 +111,7 @@ func ApplyPageBound(rows []*Row, results []Result, trace map[string]TraceRecord,
 	}
 	for _, res := range results {
 		r := byKey[res.Client+"\x00"+res.Step]
-		if r == nil || len(res.Items) == 0 {
+		if r == nil || len(res.RenderedItems) == 0 {
 			continue
 		}
 		tr, ok := trace[res.Tag]
@@ -119,7 +119,7 @@ func ApplyPageBound(rows []*Row, results []Result, trace map[string]TraceRecord,
 			continue
 		}
 		bound, items := int64(pageRowsSlack), 0
-		for typ, n := range res.Items {
+		for typ, n := range res.RenderedItems {
 			items += n
 			bound += int64(n * caps[typ])
 		}
