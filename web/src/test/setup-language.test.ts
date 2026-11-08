@@ -102,5 +102,20 @@ describe("setup language choice", () => {
     const rules = projectHouseholdRules(normalizeRules({}), saved);
     expect(rules.audioLanguages).toEqual(["es-419"]);
     expect(rules.subtitleLanguages).toEqual(["zh-Hant"]);
+    for (const [tag, canonical] of [["fr-fr", "fr-FR"], ["zh-hant-tw", "zh-Hant-TW"], ["de-AT", "de-AT"]]) {
+      const custom = savedHouseholdLanguage({
+        remembered: "en",
+        catalogLanguage: "en-US",
+        catalogRegion: "US",
+        audioLanguages: [tag!],
+        subtitleLanguages: [tag!],
+        preferOriginal: false,
+      });
+      expect(custom.audio).toBe(canonical);
+      expect(custom.subtitle).toBe(canonical);
+      const savedRules = projectHouseholdRules(normalizeRules({}), custom);
+      expect(savedRules.audioLanguages).toEqual([canonical]);
+      expect(savedRules.subtitleLanguages).toEqual([canonical]);
+    }
   });
 });

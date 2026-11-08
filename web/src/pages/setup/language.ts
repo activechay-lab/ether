@@ -18,6 +18,7 @@ export const REGIONAL_TRACK_TAGS = [
   "pt-BR",
   "pt-PT",
   "fr-CA",
+  "fr-FR",
   "zh-Hans",
   "zh-Hant",
   "sr-Latn",
@@ -28,9 +29,12 @@ export function normalizeTrackLanguage(tag: string): string {
   const trimmed = tag.trim();
   if (!trimmed) return "";
   if (trimmed === ORIGINAL_AUDIO) return ORIGINAL_AUDIO;
-  const exact = REGIONAL_TRACK_TAGS.find((item) => item.toLowerCase() === trimmed.toLowerCase());
-  if (exact) return exact;
-  return baseLanguage(trimmed);
+  try {
+    return Intl.getCanonicalLocales(trimmed)[0] ?? trimmed;
+  } catch {
+    // Keep an existing custom preference intact when editing other defaults.
+    return trimmed;
+  }
 }
 
 /**

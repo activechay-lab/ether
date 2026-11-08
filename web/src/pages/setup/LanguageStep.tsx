@@ -23,15 +23,7 @@ function displayName(locale: string, type: "language" | "region" | "script", cod
 }
 
 function metadataLabel(locale: string, tag: string) {
-  const [lang, sub] = tag.split("-");
-  const name = lang ? displayName(locale, "language", lang) : tag;
-  if (!sub) return name;
-  if (/^[A-Za-z]{4}$/.test(sub)) {
-    const script = displayName(locale, "script", sub);
-    return script && script !== sub ? `${name} (${script})` : `${name} (${sub})`;
-  }
-  const country = displayName(locale, "region", sub);
-  return country && country !== sub ? `${name} (${country})` : `${name} (${sub})`;
+  return displayName(locale, "language", tag);
 }
 
 function withCurrent(options: { value: string; label: string }[], current: string, label?: string) {
