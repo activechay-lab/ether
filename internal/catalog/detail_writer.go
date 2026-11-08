@@ -26,6 +26,7 @@ type detailWrites struct {
 }
 
 type detailWrite struct {
+	ctx  context.Context // the writer's, for its values (query stats)
 	item upsertItem
 	// extra rides in the same transaction when it can (the recommendations
 	// a detail fetch carried); a failure of extra never fails item.
@@ -42,7 +43,7 @@ type detailExtra struct {
 // writeDetail stores one fetched title, batched with concurrent detail
 // writes. It returns once the title's transaction committed (or failed).
 func (c *Catalog) writeDetail(ctx context.Context, t core.Title, o upsertOpts, extra ...*detailExtra) error {
-	w := detailWrite{item: upsertItem{t: t, o: o}, done: make(chan error, 1)}
+	w := detailWrite{ctx: ctx, item: upsertItem{t: t, o: o}, done: make(chan error, 1)}
 	if len(extra) > 0 {
 		w.extra = extra[0]
 	}
@@ -82,9 +83,10 @@ func (c *Catalog) flushDetailsLoop() {
 }
 
 func (c *Catalog) flushDetails(batch []detailWrite) {
-	// Detached from any one caller: a cancelled request must not fail the
-	// others' writes. Bounded like a background refresh.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// Not cancelled with any one caller: a cancelled request must not fail
+	// the others' writes. The first writer's values (its query stats) see
+	// the batch's work. Bounded like a background refresh.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(batch[0].ctx), time.Minute)
 	defer cancel()
 	write := func(ws []detailWrite, withExtra bool) error {
 		var items []upsertItem
