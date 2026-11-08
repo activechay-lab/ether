@@ -27,13 +27,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/episodeorder"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/stats"
 )
 
 // DefaultPMSVersion is reported when Identity.Version is empty. Clients gate
@@ -180,9 +178,9 @@ type Deps struct {
 	// Dashboard is this node's in-memory Plex Web Dashboard store. Nil is
 	// replaced with a process-local store at NewServer. Statistics are not
 	// clustered; a client reads the node it connected to.
-	Dashboard *stats.Dashboard
+	Dashboard frontend.Dashboard
 	// Resources is this node's host sample ring for /statistics/resources.
-	Resources *hoststat.Resources
+	Resources frontend.ResourceStatistics
 	// Support records neutral request and playback facts. Nil leaves playback unchanged.
 	Support *diagnostics.Recorder
 	// HomeCache serves Plex Home from memory (home_cache.go); nil builds
@@ -285,12 +283,7 @@ func NewServer(d Deps) *Server {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	if d.Dashboard == nil {
-		d.Dashboard = stats.NewDashboard(stats.DashboardOptions{Now: d.Now})
-	}
-	if d.Resources == nil {
-		d.Resources = hoststat.NewResources(hoststat.Options{Now: d.Now})
-	}
+	d.Dashboard, d.Resources = experience.Statistics(d.Dashboard, d.Resources, d.Now)
 	ctx, cancel := context.WithCancel(context.Background())
 	coord := d.SessionCoordination
 	if coord == nil || coord.Owners == nil || coord.Gates == nil {

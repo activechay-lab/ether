@@ -8,15 +8,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/hoststat"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/stats"
 )
 
 var (
-	bandwidthSpans = []int{hoststat.SpanYear, hoststat.SpanMonth, hoststat.SpanWeek, hoststat.SpanDay, hoststat.SpanHour, hoststat.SpanSec}
-	mediaSpans     = []int{hoststat.SpanYear, hoststat.SpanMonth, hoststat.SpanWeek, hoststat.SpanDay, hoststat.SpanHour}
-	resourceSpans  = []int{hoststat.SpanSec}
+	bandwidthSpans = []int{frontend.StatisticsYear, frontend.StatisticsMonth, frontend.StatisticsWeek, frontend.StatisticsDay, frontend.StatisticsHour, frontend.StatisticsSecond}
+	mediaSpans     = []int{frontend.StatisticsYear, frontend.StatisticsMonth, frontend.StatisticsWeek, frontend.StatisticsDay, frontend.StatisticsHour}
+	resourceSpans  = []int{frontend.StatisticsSecond}
 
 	bandwidthSort = map[string]bool{"at": true, "accountID": true, "deviceID": true, "timespan": true, "lan": true, "bytes": true}
 	mediaSort     = map[string]bool{"at": true, "accountID": true, "deviceID": true, "timespan": true, "count": true, "duration": true}
@@ -46,7 +45,7 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &model.MediaContainer{Size: 1, Device: []model.Device{modelDevice(dev)}})
 }
 
-func modelDevice(d stats.Device) model.Device {
+func modelDevice(d frontend.StatisticsDevice) model.Device {
 	return model.Device{ID: d.ID, Name: d.Name, Platform: d.Platform, ClientIdentifier: d.ClientIdentifier, CreatedAt: d.CreatedAt}
 }
 
@@ -89,9 +88,9 @@ func (s *Server) handleStatisticsResources(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	var rows []hoststat.Sample
-	if len(q.Timespans) == 1 && q.Timespans[0] == hoststat.SpanSec {
-		rows = s.d.Resources.Query(hoststat.SpanSec, q.AtMin, q.AtMax, q.ExactAt, q.HasExact, q.HasAtMin, q.HasAtMax)
+	var rows []frontend.ResourceSample
+	if len(q.Timespans) == 1 && q.Timespans[0] == frontend.StatisticsSecond {
+		rows = s.d.Resources.Query(frontend.StatisticsSecond, q.AtMin, q.AtMax, q.ExactAt, q.HasExact, q.HasAtMin, q.HasAtMax)
 	}
 	sortResources(rows, q.Sort, q.Desc)
 	total := len(rows)
@@ -111,7 +110,7 @@ func (s *Server) handleStatisticsResources(w http.ResponseWriter, r *http.Reques
 	mc := statisticsContainer(total, len(rows), q.Offset)
 	for _, row := range rows {
 		mc.StatisticsResources = append(mc.StatisticsResources, model.StatisticsResources{
-			Timespan: hoststat.SpanSec, At: row.At.Unix(), HostCPU: row.HostCPU, ProcessCPU: row.ProcessCPU, HostMemory: row.HostMem, ProcessMem: row.ProcessMem,
+			Timespan: frontend.StatisticsSecond, At: row.At.Unix(), HostCPU: row.HostCPU, ProcessCPU: row.ProcessCPU, HostMemory: row.HostMem, ProcessMem: row.ProcessMem,
 		})
 	}
 	s.write(w, r, mc)
@@ -123,7 +122,7 @@ func statisticsContainer(total, size, offset int) *model.MediaContainer {
 	return mc
 }
 
-func appendLookups(mc *model.MediaContainer, page stats.Page) {
+func appendLookups(mc *model.MediaContainer, page frontend.StatisticsPage) {
 	for _, d := range page.Devices {
 		mc.Device = append(mc.Device, modelDevice(d))
 	}
@@ -132,8 +131,8 @@ func appendLookups(mc *model.MediaContainer, page stats.Page) {
 	}
 }
 
-func (s *Server) parseStatQuery(w http.ResponseWriter, r *http.Request, kept []int, keys map[string]bool) (stats.Query, bool) {
-	var q stats.Query
+func (s *Server) parseStatQuery(w http.ResponseWriter, r *http.Request, kept []int, keys map[string]bool) (frontend.StatisticsQuery, bool) {
+	var q frontend.StatisticsQuery
 	values := r.URL.Query()
 	if raw, present := firstQuery(values, "timespan"); present {
 		n, ok := parseWhole32(raw)
@@ -145,11 +144,11 @@ func (s *Server) parseStatQuery(w http.ResponseWriter, r *http.Request, kept []i
 			return q, true
 		}
 		q.Timespans = []int{int(n)}
-	} else if kept[0] == hoststat.SpanSec && len(kept) == 1 {
+	} else if kept[0] == frontend.StatisticsSecond && len(kept) == 1 {
 		// resources with no timespan: empty
 	} else {
 		for _, span := range kept {
-			if span != hoststat.SpanSec {
+			if span != frontend.StatisticsSecond {
 				q.Timespans = append(q.Timespans, span)
 			}
 		}
@@ -288,7 +287,7 @@ func parseSort(s string) (field string, desc bool, ok bool) {
 	return field, desc, true
 }
 
-func sortResources(rows []hoststat.Sample, key string, desc bool) {
+func sortResources(rows []frontend.ResourceSample, key string, desc bool) {
 	if key == "" || key == "at" && !desc {
 		return
 	}
