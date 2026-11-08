@@ -132,6 +132,7 @@ func (f *fixtureEncoder) StartHLS(c context.Context, q core.HLSRequest) (core.HL
 	s, _, e := f.StartHLSOwned(c, q)
 	return s, e
 }
+
 // Session and Stop read the session under mu: playback's speed checker
 // polls Session concurrently with a worker start.
 func (f *fixtureEncoder) Session(string) (core.HLSSession, bool) {
