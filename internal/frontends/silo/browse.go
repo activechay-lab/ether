@@ -721,6 +721,11 @@ func (i *instance) detail(w http.ResponseWriter, r *http.Request) {
 	if (d.Title.Type == "movie" || d.Title.Type == "episode") && i.host.Sessions != nil && i.host.Capabilities != nil {
 		dev := device(r)
 		capability, e := i.host.Capabilities.Build(i.identityContext(r), frontend.CapabilityRequest{Viewer: v, Device: caps.DeviceInfo{Protocol: "silo", ClientID: dev.ID, Product: dev.Client, Version: dev.Version}, UserAgent: r.UserAgent()})
+		if warmer, ok := i.host.Sessions.(frontend.DetailWarmer); ok && e == nil {
+			// The broker warms with this device's last declared play caps,
+			// never these generic ones (which supply network locality only).
+			warmer.WarmDetail(i.identityContext(r), frontend.PlanRequest{Viewer: v, Device: dev, Protocol: "silo", Item: key, Caps: capability.Client})
+		}
 		if e == nil {
 			versions, offers, e := i.sourceVersions(r, frontend.VersionScope{Viewer: v, Device: dev, Protocol: "silo", Caps: capability.Client}, d)
 			if e != nil {

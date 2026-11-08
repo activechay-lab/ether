@@ -498,7 +498,13 @@ type PlayIntent struct {
 	// PreferRemux asks for a copy-only remux when source changes would
 	// otherwise disrupt the client. The broker still decides whether it applies.
 	PreferRemux bool
-	Plex        *PlexHints
+	// DeclaredCaps marks Caps built from this request's complete device
+	// declaration (a Jellyfin/Emby PlaybackInfo DeviceProfile, a Silo
+	// capability body). The broker keeps the latest such caps per device so
+	// a later detail page can warm the title with exactly what Play sends
+	// (DetailWarmer); generic caps are never remembered.
+	DeclaredCaps bool
+	Plex         *PlexHints
 }
 
 // PlexHints carries Plex-specific selections that cannot be represented by

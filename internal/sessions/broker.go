@@ -177,6 +177,7 @@ type Broker struct {
 	lazyCleanupCancel   context.CancelFunc
 	lazyCleanupDone     chan struct{}
 	devices             map[deviceKey]frontend.SessionCapabilities
+	playCapsByDevice    map[deviceKey]rememberedPlayCaps
 	owners              *PlaybackOwners
 	gates               *Lifecycle
 	bindings            *BindingTable[frontend.PlayIntent]
@@ -218,7 +219,7 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 	if limit > 4096 {
 		return nil, errors.New("sessions: max pending starts exceeds 4096")
 	}
-	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlexActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewPlexStreamTable()}
+	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlexActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), playCapsByDevice: make(map[deviceKey]rememberedPlayCaps), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewPlexStreamTable()}
 	if d, ok := b.deps.DistributedHLS.(interface {
 		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
 	}); ok {
@@ -411,22 +412,13 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 	v = confirmed
 	viewerCopy := *v
 	req.Viewer = &viewerCopy
-	req.Caps.Protocol = req.Protocol
-	req.Caps.ClientID = clientKey(req.Protocol, req.Device)
-	applySubtitleProfiles(&req.Caps)
-	if req.Caps.Remote && b.deps.RemoteBitrateLimit != nil {
-		if limit := b.deps.RemoteBitrateLimit(); limit > 0 && (req.Caps.MaxBitrateKbps == 0 || limit < req.Caps.MaxBitrateKbps) {
-			req.Caps.MaxBitrateKbps = limit
-		}
+	if req.Intent.DeclaredCaps && req.Item != 0 {
+		b.rememberPlayCaps(v, req.Protocol, req.Device, req.Item, req.Caps)
 	}
+	req.Caps = b.playCaps(v, req.Protocol, req.Device, req.Caps)
 	if b.deps.BitrateLimit != nil {
-		if limit := b.deps.BitrateLimit(v); limit > 0 {
-			if req.Caps.MaxBitrateKbps == 0 || limit < req.Caps.MaxBitrateKbps {
-				req.Caps.MaxBitrateKbps = limit
-			}
-			if req.Intent.Options.MaxBitrateKbps == 0 || limit < req.Intent.Options.MaxBitrateKbps {
-				req.Intent.Options.MaxBitrateKbps = limit
-			}
+		if limit := b.deps.BitrateLimit(v); limit > 0 && (req.Intent.Options.MaxBitrateKbps == 0 || limit < req.Intent.Options.MaxBitrateKbps) {
+			req.Intent.Options.MaxBitrateKbps = limit
 		}
 	}
 	if req.Channel != "" {

@@ -233,6 +233,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed := queryBool(r, "EnableTranscoding", boolValue(body.EnableTranscoding, true))
 	intent := frontend.PlayIntent{Estimate: !playback, Options: opts, Position: time.Duration(body.StartTimeTicks) * 100 * time.Nanosecond, AllowTranscoding: &allowed, AudioSet: audioSet, SubtitleSet: subtitleSet}
+	// A posted DeviceProfile is this device's real declaration; detail pages
+	// warm with it later (frontend.DetailWarmer).
+	intent.DeclaredCaps = channel == "" && (len(body.DeviceProfile.DirectPlayProfiles) > 0 || len(body.DeviceProfile.TranscodingProfiles) > 0)
 	sourceID := body.MediaSourceId
 	idsQuery := route.Query(r.URL.Query(), "MediaSourceId")
 	if len(idsQuery) > 1 {

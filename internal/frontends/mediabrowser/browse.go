@@ -457,6 +457,9 @@ func (i *instance) browseRoutes() error {
 			http.NotFound(w, r)
 			return
 		}
+		if d.Collection == nil && d.Playlist == nil && versionID == "" && (d.Title.Type == "movie" || d.Title.Type == "episode") {
+			i.warmDetail(r, v, key)
+		}
 		if d.Collection != nil || d.Playlist != nil {
 			dto, ok := i.containerDTO(d, key)
 			if !ok {

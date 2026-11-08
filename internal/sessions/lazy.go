@@ -96,7 +96,9 @@ func (s *lazyStreams) Warm(ctx context.Context, credential string, req frontend.
 	if err != nil || title == nil || title.Key != req.Item || (!title.Released.IsZero() && title.Released.After(s.broker.deps.Now())) {
 		return
 	}
-	warm.Prewarm(context.WithoutCancel(ctx), viewer, req.Item, req.Caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
+	// Plan keys and profiles the later Prepare with the broker's caps, not
+	// the declaration; warm with the same caps or Play never finds the entry.
+	warm.Prewarm(context.WithoutCancel(ctx), viewer, req.Item, s.broker.playCaps(viewer, req.Protocol, req.Device, req.Caps), core.PrewarmOptions{Reason: core.PrewarmDetail})
 }
 
 func (s *lazyStreams) issue(ctx context.Context, credential string, req frontend.PlanRequest, stable bool) (string, error) {

@@ -531,6 +531,25 @@ func (m *Manager) findWarmEntryLocked(user *core.User, caps core.ClientCaps, key
 	return nil
 }
 
+// DiscardWarm drops and cancels the warm entry for this user/client/key, so
+// the next Prepare resolves afresh. The broker calls it when a device's caps
+// widened after a detail page warmed the title with its earlier caps.
+func (m *Manager) DiscardWarm(user *core.User, caps core.ClientCaps, key core.RatingKey) {
+	if user == nil || caps.ClientID == "" {
+		return
+	}
+	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: playbackSurface(string(caps.Protocol))}
+	m.mu.Lock()
+	e := m.warm[id]
+	if e != nil {
+		delete(m.warm, id)
+	}
+	m.mu.Unlock()
+	if e != nil {
+		e.abort()
+	}
+}
+
 // WarmProbeInfo returns the probed media info of a completed warm-up for
 // this user/client/key, for metadata/play-queue rendering before Play
 // (core.WarmProber). It never blocks on a warm-up still in flight and never
