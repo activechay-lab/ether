@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -155,10 +156,17 @@ func runVODAVPlayer(o vodOptions) error {
 	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/plex", "-run", "^TestTranscodeChaos(CorpusScenarios|AVPlayer)$", "-count=1", "-timeout=170m", "-json")
 	cmd.Dir = o.RepoRoot
 	cmd.Env = append(os.Environ(), "CHAOS_FFMPEG="+o.FF, "CHAOS_FFPROBE="+o.FP, "CHAOS_CORPUS="+o.Fixtures, "CHAOS_AVVOD="+probe, "CHAOS_AVREPORT="+jsonl, "CHAOS_AVKEEP="+keep, "CHAOS_AVONLY="+o.Only, "GOMAXPROCS=2")
-	stdout, err := cmd.StdoutPipe()
+	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
 	}
+	// Keep the raw go test events beside the report.
+	raw, err := os.Create(strings.TrimSuffix(o.Report, ".json") + ".gotest.jsonl")
+	if err != nil {
+		return err
+	}
+	defer raw.Close()
+	stdout := io.TeeReader(pipe, raw)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return err
@@ -339,7 +347,9 @@ func judgeVOD(ctx context.Context, ff string, l vodLine) vodResult {
 			case a.Content != nil:
 				s.Landing, s.By = *a.Content-s.Target, "content"
 				limit = vodLandingMaxS
-			case a.ItemTime != nil:
+			case a.ItemTime != nil && a.Action == "seek":
+				// A Plex restart's playlist starts at the offset, so only an
+				// in-item seek can be judged on the playhead.
 				s.Landing, s.By = *a.ItemTime-s.Target, "playhead"
 			}
 			if a.Action == "replace" {

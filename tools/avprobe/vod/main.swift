@@ -160,6 +160,7 @@ final class VOD {
             if s.arg.hasPrefix("end-"), let back = Double(s.arg.dropFirst(4)), item.duration.seconds.isFinite {
                 target = item.duration.seconds - back
             }
+            target = max(0, target)
             a["target"] = target
             actions.append(a)
             let p = actions.count - 1
@@ -169,6 +170,8 @@ final class VOD {
                 self.actions[p]["completedAt"] = self.now()
                 self.actions[p]["finished"] = done
                 if self.pending == p { self.pendingReady = true }
+                // A client resumes after a seek, also from the end of the item.
+                if done && !self.paused { self.player.play() }
             }
         case "pause":
             paused = true
