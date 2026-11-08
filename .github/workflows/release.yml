@@ -332,9 +332,19 @@ jobs:
           add feed/ether-windows-arm64.exe    windows arm64     binary    "$base/ether-windows-arm64.exe"
           add "artifacts/macos-dmg/Ether-$VERSION.dmg"              darwin  universal installer "$base/Ether-$VERSION.dmg"
           add "artifacts/windows-installer/EtherSetup-$VERSION.exe" windows amd64     installer "$base/EtherSetup-$VERSION.exe"
+          # Staged rollout: automatic installs spread over 24h on stable,
+          # none on beta (ether-release-sign defaults). A security fix is
+          # marked in its release notes with the line
+          #   <!-- ether-update: critical -->
+          # and then installs everywhere at the next quiet moment.
+          rollout=()
+          if grep -qs '<!-- ether-update: critical -->' "release-notes/v$VERSION.md"; then
+            rollout=(-critical)
+            echo "::notice::critical update: no staged rollout, installs at the next quiet moment"
+          fi
           go run ./cmd/ether-release-sign manifest \
             -version "$VERSION" -channel "$CHANNEL" -notes "$notes" \
-            "${args[@]}" -out "$CHANNEL.json"
+            "${rollout[@]}" "${args[@]}" -out "$CHANNEL.json"
           go run ./cmd/ether-release-sign sign -in "$CHANNEL.json" -detached
           go run ./cmd/ether-release-sign verify -in "$CHANNEL.json" -sig "$CHANNEL.json.sig"
           cat "$CHANNEL.json"

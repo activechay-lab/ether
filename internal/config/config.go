@@ -573,8 +573,11 @@ type LLM struct {
 
 type Updates struct {
 	// Enabled controls automatic release-feed checks (default true).
-	Enabled    bool   `json:"enabled"`
-	Channel    string `json:"channel"` // "stable", "beta"
+	Enabled bool   `json:"enabled"`
+	Channel string `json:"channel"` // "stable", "beta"
+	// AutoUpdate installs updates on their own, at night once nobody is
+	// watching (default true for new installs; existing settings without
+	// the key keep updates manual).
 	AutoUpdate bool   `json:"autoUpdate"`
 	FeedURL    string `json:"feedUrl"`
 	// MaintenanceStart/End bound the local-time window ("HH:MM") in which
@@ -823,10 +826,27 @@ func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
 		delete(plex, "disableVersionTracking")
 	}
 	stripRetiredLiveTV(file)
+	keepStoredAutoUpdate(file)
 	doc := toDoc(defaults)
 	mergeDoc(doc, file)
 	cfg, err := fromDoc(doc)
 	return cfg, false, err
+}
+
+// keepStoredAutoUpdate keeps automatic installs off for stored settings
+// that do not say: they predate the on-by-default switch (v0.3.5 and
+// earlier defaulted to off), so the new default must not reach an existing
+// install through a missing key. Only a brand-new install (no stored
+// settings at all) starts with automatic installs on.
+func keepStoredAutoUpdate(file map[string]any) {
+	updates, ok := file["updates"].(map[string]any)
+	if !ok {
+		updates = map[string]any{}
+		file["updates"] = updates
+	}
+	if _, set := updates["autoUpdate"]; !set {
+		updates["autoUpdate"] = false
+	}
 }
 
 // decodeStartupConfig decodes the stored config over defaults. The
@@ -854,6 +874,7 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 	if stripRetiredLiveTV(file) {
 		dropped = true
 	}
+	keepStoredAutoUpdate(file)
 	if server, ok := file["plex"].(map[string]any); ok {
 		if _, exists := server["disableVersionTracking"]; exists {
 			delete(server, "disableVersionTracking")

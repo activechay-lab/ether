@@ -69,6 +69,56 @@ describe("update availability confidence", () => {
   });
 });
 
+describe("automatic update schedule", () => {
+  const staged = { version: "0.3.6", kind: "binary", staged: true };
+
+  it("says when a staged update installs", async () => {
+    await show({ autoUpdate: true, state: "waiting-for-window", available: staged });
+    expect(
+      screen.getByText("Installs tonight between 03:00 and 05:00, once nobody is watching."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Ether installs updates by itself at night, once nobody is watching."),
+    ).toBeInTheDocument();
+  });
+
+  it("explains a staged rollout wait", async () => {
+    await show({
+      autoUpdate: true,
+      state: "waiting-for-rollout",
+      available: { ...staged, staged: false, installAfter: "2026-11-09T10:00:00Z" },
+    });
+    expect(screen.getByText(/New releases reach servers a few at a time/)).toBeInTheDocument();
+  });
+
+  it("quietly suggests automatic updates when they are off", async () => {
+    await show({ autoUpdate: false });
+    expect(
+      screen.getByText(/Off\. Turn on “Install updates automatically” below/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a finished update until dismissed", async () => {
+    await show({ installed: { from: "0.3.5", to: "0.2.32", at: "2026-11-08T03:12:00Z" } });
+    expect(screen.getByText("Updated to 0.2.32")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  });
+
+  it("gives a container the exact pull commands", async () => {
+    await show({
+      capability: "notify-only",
+      notifyKind: "container",
+      channel: "stable",
+      available: { version: "0.3.6", kind: "binary", staged: false },
+    });
+    expect(screen.getByText("docker compose pull && docker compose up -d")).toBeInTheDocument();
+    expect(
+      screen.getByText("docker pull ghcr.io/braedonsaunders/ether:latest"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Watchtower/)).toBeInTheDocument();
+  });
+});
+
 describe("update startup progress", () => {
   it("shows a neutral startup phase", async () => {
     vi.stubGlobal(
