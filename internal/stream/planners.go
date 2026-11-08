@@ -76,7 +76,7 @@ func (b *builder) planSplit(ctx context.Context, vols []*postedFile) (*plan, err
 		return nil, fmt.Errorf("stream: %s archive split into plain volumes: %w", f, ErrUnsupported)
 	}
 	ext := vols[0].file.Info.Ext
-	if !nzb.IsVideoExt(ext) && !looksLikeVideo(head) {
+	if !nzb.IsVideoExt(ext) && !strings.EqualFold(ext, "iso") && !looksLikeVideo(head) {
 		return nil, fmt.Errorf("%w: split set %s is not a video", ErrNoPlayableFile, vols[0].Name())
 	}
 	name := vols[0].Name()
@@ -562,7 +562,7 @@ func (b *builder) checkCachedRAR(ctx context.Context, c candidate) error {
 // is not a sample or extra; failing that (obfuscated inner names), the
 // largest file without a known non-video type if it dominates the archive.
 func chooseMember(members []archive.Member) *archive.Member {
-	var best, anon *archive.Member
+	var best, disc, anon *archive.Member
 	var total int64
 	for i := range members {
 		m := &members[i]
@@ -576,6 +576,10 @@ func chooseMember(members []archive.Member) *archive.Member {
 			if best == nil || m.Size > best.Size {
 				best = m
 			}
+		case info.Kind == nzb.KindISO:
+			if disc == nil || m.Size > disc.Size {
+				disc = m
+			}
 		case info.Kind == nzb.KindUnknown:
 			if anon == nil || m.Size > anon.Size {
 				anon = m
@@ -584,6 +588,9 @@ func chooseMember(members []archive.Member) *archive.Member {
 	}
 	if best != nil {
 		return best
+	}
+	if disc != nil {
+		return disc // no video, but a disc image: its main feature plays
 	}
 	if anon != nil && (anon.Size*2 >= total || (anon.Size < 0 && total == 0)) {
 		return anon
