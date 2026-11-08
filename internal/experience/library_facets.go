@@ -9,9 +9,10 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// sqlFacets are the facets the catalogue counts in SQL. People are not: a
-// credit facet would read every credit, so it keeps the library walk.
-var sqlFacets = map[string]bool{"genre": true, "studio": true, "country": true, "year": true, "decade": true, "contentRating": true}
+// sqlFacets maps the facets the catalogue counts in SQL to its facet name
+// (studios and countries unlimited: the walk listed every value). People are
+// not counted in SQL: a credit facet would read every credit.
+var sqlFacets = map[string]string{"genre": "genre", "studio": "studioAll", "country": "countryAll", "year": "year", "decade": "decade", "contentRating": "contentRating"}
 
 // indexedFacets counts a library's facet values in SQL over the titles the
 // viewer may see (the same exclusions an indexed page folds in), instead of
@@ -19,7 +20,7 @@ var sqlFacets = map[string]bool{"genre": true, "studio": true, "country": true, 
 // may open. ok is false when the walk must answer: no SQL facet, or
 // exclusions too large for one predicate.
 func (s *Service) indexedFacets(ctx context.Context, viewer *core.Viewer, viewID, name string) ([]core.FacetValue, bool, error) {
-	if s.d.FacetFilter == nil || s.d.PageExclusions == nil || !sqlFacets[name] {
+	if s.d.FacetFilter == nil || s.d.PageExclusions == nil || sqlFacets[name] == "" {
 		return nil, false, nil
 	}
 	v, err := s.viewer(ctx, viewer)
@@ -51,7 +52,7 @@ func (s *Service) indexedFacets(ctx context.Context, viewer *core.Viewer, viewID
 		if none {
 			continue
 		}
-		vals, err := s.d.FacetFilter(ctx, filter, name)
+		vals, err := s.d.FacetFilter(ctx, filter, sqlFacets[name])
 		if err != nil {
 			return nil, false, err
 		}

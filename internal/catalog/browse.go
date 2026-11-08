@@ -1078,6 +1078,22 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 		// continuously would recount them on every read.
 		return append([]core.FacetValue(nil), ent.vals...), nil
 	}
+	if !cached && facet != "firstCharacter" {
+		// Availability generations and session keep-keys move with the
+		// catalogue's evidence, and each new value was a new key that
+		// counted the whole browse set on the request. The same filter's
+		// counts under the previous generation stand in while it recounts.
+		c.cacheMu.RLock()
+		ent, cached = c.facetCache[facetFamilyKey(f, facet)+c.consoleGateKey(f)]
+		c.cacheMu.RUnlock()
+		if cached {
+			_ = c.hydrate(ctx, "facet:"+fkey, 0, func(ctx context.Context) error {
+				_, err := c.countFacet(ctx, f, facet)
+				return err
+			})
+			return append([]core.FacetValue(nil), ent.vals...), nil
+		}
+	}
 	if cached && facet != "firstCharacter" {
 		// Library-wide counts walk every title. Serve the last counts and
 		// recount behind the read, at most once per recountEvery.
@@ -1090,6 +1106,15 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 		return append([]core.FacetValue(nil), ent.vals...), nil
 	}
 	return c.countFacet(ctx, f, facet)
+}
+
+// facetFamilyKey is a facet's cache key without the fields that move with
+// availability evidence rather than with the filter: hidden-set
+// generations and the viewer's playing titles.
+func facetFamilyKey(f core.Filter, facet string) string {
+	f.HiddenMovieGeneration, f.HiddenShowGeneration, f.HiddenEpisodeGeneration = "", "", ""
+	f.AvailabilityKeepKeys = nil
+	return "family|" + fmt.Sprintf("%+v|%s", f, facet)
 }
 
 // jumpBarRecountEvery is the most a jump bar's counts lag the catalogue.
@@ -1120,6 +1145,11 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 		q = `SELECT s.studio, COUNT(*) FROM catalog_studios s JOIN catalog_titles t ON t.key=s.key WHERE ` + base + ` GROUP BY s.studio ORDER BY COUNT(*) DESC, s.studio ASC LIMIT 200`
 	case "country":
 		q = `SELECT co.country, COUNT(*) FROM catalog_countries co JOIN catalog_titles t ON t.key=co.key WHERE ` + base + ` GROUP BY co.country ORDER BY COUNT(*) DESC, co.country ASC LIMIT 200`
+	case "studioAll":
+		// Every studio, for clients that list and resolve them all.
+		q = `SELECT s.studio, COUNT(*) FROM catalog_studios s JOIN catalog_titles t ON t.key=s.key WHERE ` + base + ` GROUP BY s.studio ORDER BY s.studio ASC`
+	case "countryAll":
+		q = `SELECT co.country, COUNT(*) FROM catalog_countries co JOIN catalog_titles t ON t.key=co.key WHERE ` + base + ` GROUP BY co.country ORDER BY co.country ASC`
 	case "year":
 		q = `SELECT CAST(t.year AS TEXT), COUNT(*) FROM catalog_titles t WHERE ` + base + ` AND t.year>0 GROUP BY t.year ORDER BY t.year DESC`
 	case "decade":
@@ -1173,7 +1203,11 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	if len(c.facetCache) >= 512 {
 		c.facetCache = map[string]cachedFacet{}
 	}
-	c.facetCache[fkey] = cachedFacet{vals: append([]core.FacetValue(nil), out...), gen: gen, minute: minBucket, counted: time.Now()}
+	entry := cachedFacet{vals: append([]core.FacetValue(nil), out...), gen: gen, minute: minBucket, counted: time.Now()}
+	c.facetCache[fkey] = entry
+	if family := facetFamilyKey(f, facet) + c.consoleGateKey(f); family != fkey {
+		c.facetCache[family] = entry
+	}
 	c.cacheMu.Unlock()
 	return out, nil
 }
