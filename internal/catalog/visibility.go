@@ -16,6 +16,11 @@ func (c *Catalog) visibilityFilter() *libraryfilter.Filter {
 	return c.visibility
 }
 
+// visibleFor is visibleWith for ctx's viewer, failing closed for a strict one.
+func (c *Catalog) visibleFor(ctx context.Context, f *libraryfilter.Filter, t *core.Title) bool {
+	return c.strictVisible(f, c.strictViewer(core.CatalogViewerID(ctx), core.CatalogViewerRestricted(ctx)), t)
+}
+
 // visibilityFor picks the precompiled filter for ctx. An explicit search
 // skips rules the owner limited to browsing; everything else browses.
 func (c *Catalog) visibilityFor(ctx context.Context) *libraryfilter.Filter {
@@ -46,7 +51,9 @@ func (c *Catalog) visibleWith(f *libraryfilter.Filter, t *core.Title) bool {
 }
 
 // FilterVisibility enriches remote summaries with already-known local facets;
-// there are no detail fetches or indexer calls. Unknown metadata stays unknown.
+// there are no detail fetches or indexer calls. Unknown metadata stays unknown,
+// and for a restricted viewer an undetailed summary their rules cannot judge
+// is dropped (fail closed).
 // An explicit search context (core.WithExplicitSearch) skips rules the owner
 // limited to browsing.
 func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.Title {
@@ -104,6 +111,23 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 			return nil
 		}
 	}
+	// A restricted viewer's rules must not wave through a summary they
+	// cannot judge: a condition on an unknown field answers "no match", so
+	// "hide rated R and above" would show an uncertified search hit. Titles
+	// the catalogue holds details for are judged on those details, as
+	// browsing judges them; anything else that is undecidable is dropped.
+	strict := !f.Passive() && c.strictViewer(core.CatalogViewerID(ctx), core.CatalogViewerRestricted(ctx))
+	detailed := map[int]bool{}
+	if strict {
+		for chunk := range store.Chunks(ts, batch) {
+			part := chunk
+			if err := c.scanPairs(ctx, "SELECT key, '1' FROM catalog_titles WHERE key IN ("+placeholders(len(part))+") AND detail<>0", keyArgs(part), func(i int, _ string) {
+				detailed[i] = true
+			}, idx); err != nil {
+				return nil
+			}
+		}
+	}
 	if c.config().ReleaseMode == config.ModeDigital {
 		if err := c.hydrateHomeRelease(ctx, out); err != nil {
 			return nil
@@ -111,6 +135,9 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 	}
 	keep := out[:0]
 	for i := range out {
+		if strict && !detailed[i] && !f.Decidable(&out[i]) {
+			continue
+		}
 		if !f.Hidden(&out[i]) && (c.upcomingMovie(&out[i]) || !(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&out[i], c.now())) {
 			keep = append(keep, out[i])
 		}

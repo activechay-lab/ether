@@ -563,6 +563,13 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		q, a := policy.SQLHidden()
 		conds = append(conds, "NOT ("+q+")")
 		args = append(args, a...)
+		// A strict viewer's rules fail closed on rows without details whose
+		// fields they cannot judge, as FilterVisibility and safety do.
+		if !policy.Passive() && c.strictViewer(f.CatalogViewerID, f.MaxContentRating != "") {
+			if u := policy.SQLUndecidable(); u != "0=1" {
+				conds = append(conds, "NOT (t.detail=0 AND "+u+")")
+			}
+		}
 	}
 	// Rule browsing gates like everything else: its totals must match the
 	// titles queryTitles hands back, which never include ungated movies.
