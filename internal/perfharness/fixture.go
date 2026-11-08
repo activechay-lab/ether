@@ -84,7 +84,7 @@ func Generate(ctx context.Context, db *sql.DB, s Scale, now time.Time) error {
 // generation) would dominate the load. Generate sets them aside and
 // rebuilds what they maintain once, from the same rows; the history
 // triggers stay on, they cost little.
-var fixtureTriggerTables = []string{"catalog_titles", "catalog_genres", "catalog_countries", "catalog_credits", "catalog_person_names", "catalog_keywords", "catalog_alt_titles", "catalog_studios", "catalog_collections", "catalog_home_release"}
+var fixtureTriggerTables = []string{"catalog_titles", "catalog_genres", "catalog_countries", "catalog_credits", "catalog_person_names", "catalog_keywords", "catalog_alt_titles", "catalog_studios", "catalog_studio_names", "catalog_collections", "catalog_home_release"}
 
 // generate is Generate; live keeps every trigger on instead, as production
 // writes, so a test can prove the rebuild matches it.
@@ -146,6 +146,10 @@ func rebuildDerived(ctx context.Context, db *sql.DB) error {
 		`INSERT INTO catalog_person_names(person_tmdb,name,credits) SELECT person_tmdb, MAX(name), COUNT(*) FROM catalog_credits WHERE person_tmdb>0 GROUP BY person_tmdb`,
 		`INSERT INTO catalog_person_names_fts(catalog_person_names_fts) VALUES('rebuild')`,
 		`INSERT INTO catalog_alt_titles_fts(catalog_alt_titles_fts) VALUES('rebuild')`,
+		// The studio vocabulary and its search index.
+		`DELETE FROM catalog_studio_names`,
+		`INSERT INTO catalog_studio_names(studio,titles) SELECT studio, COUNT(*) FROM catalog_studios GROUP BY studio`,
+		`INSERT INTO catalog_studio_names_fts(catalog_studio_names_fts) VALUES('rebuild')`,
 		`INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild')`,
 		// Every catalogue write advances the viewer-policy generation.
 		`UPDATE viewer_policy_epoch SET generation=generation+1 WHERE id=1`,

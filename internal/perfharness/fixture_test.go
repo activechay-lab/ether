@@ -177,6 +177,7 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 		"catalog_titles_fts":       `SELECT rowid FROM catalog_titles_fts WHERE catalog_titles_fts MATCH 'pisode'`,
 		"catalog_alt_titles_fts":   `SELECT rowid FROM catalog_alt_titles_fts WHERE catalog_alt_titles_fts MATCH 'ren'`,
 		"catalog_person_names_fts": `SELECT rowid FROM catalog_person_names_fts WHERE catalog_person_names_fts MATCH 'ka*'`,
+		"catalog_studio_names_fts": `SELECT n.studio FROM catalog_studio_names_fts f JOIN catalog_studio_names n ON n.rowid=f.rowid WHERE f.studio LIKE '%ren%'`,
 	} {
 		tables[name] = q
 		if _, err := rebuilt.ExecContext(ctx, `INSERT INTO `+name+`(`+name+`) VALUES('integrity-check')`); err != nil {

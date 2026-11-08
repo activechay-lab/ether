@@ -185,6 +185,11 @@ const (
 	gateDBFactor      = 5.0
 	gateDBSlack       = 100 * time.Millisecond
 	gateWallCeiling   = 2 * time.Second
+	// gateColdRowsSlack: a cold or first pass hydrates its page's detail
+	// rows (genres, keywords, credits: up to tens per title), which an
+	// earlier step may already have cached on the smaller library. A walk
+	// reads tens of thousands of rows on the larger one.
+	gateColdRowsSlack = 2000
 )
 
 func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateFailure {
@@ -250,7 +255,7 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 				if pass.l.Queries == 0 || pass.s.Queries == 0 {
 					continue
 				}
-				if l.RowsBound == 0 && float64(pass.l.Rows) > gateRowsFactor*float64(pass.s.Rows)+gateRowsSlack {
+				if l.RowsBound == 0 && float64(pass.l.Rows) > gateRowsFactor*float64(pass.s.Rows)+gateColdRowsSlack {
 					why = append(why, fmt.Sprintf("%s rows grow with the library (%d → %d)", pass.name, pass.s.Rows, pass.l.Rows))
 				}
 				if float64(pass.l.Queries) > gateQueriesFactor*float64(pass.s.Queries)+gateQueriesSlack {

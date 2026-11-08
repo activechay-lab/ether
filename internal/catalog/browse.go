@@ -873,16 +873,22 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "t.key"+op+"(SELECT key FROM catalog_credits WHERE "+predicate+")")
 		args = append(args, creditArgs...)
 	}
+	// Positive studio filters name their studios from the vocabulary
+	// (studio_names.go) and find the titles from catalog_studios' (studio,
+	// key) index, never asking every title for its studios.
+	byStudio := func(names string, nameArgs []any) {
+		conds = append(conds, `t.key IN (SELECT s.key FROM catalog_studios s WHERE s.studio IN (`+names+`))`)
+		args = append(args, nameArgs...)
+	}
 	if f.Studio != "" && len(f.StudioFilters) == 0 {
-		conds = append(conds, `EXISTS (SELECT 1 FROM catalog_studios bs WHERE bs.key=t.key AND bs.studio=?)`)
+		conds = append(conds, `t.key IN (SELECT bs.key FROM catalog_studios bs WHERE bs.studio=?)`)
 		args = append(args, f.Studio)
 	}
 	for _, sf := range f.StudioFilters {
 		val := strings.ToLower(sf.Value)
 		switch sf.Op {
 		case "==":
-			conds = append(conds, `EXISTS (SELECT 1 FROM catalog_studios s WHERE s.key=t.key AND LOWER(s.studio)=?)`)
-			args = append(args, val)
+			byStudio(`SELECT n.studio FROM catalog_studio_names n WHERE n.titles>0 AND LOWER(n.studio)=?`, []any{val})
 		case "!==":
 			conds = append(conds, `NOT EXISTS (SELECT 1 FROM catalog_studios s WHERE s.key=t.key AND LOWER(s.studio)=?)`)
 			args = append(args, val)
@@ -890,14 +896,11 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			conds = append(conds, `NOT EXISTS (SELECT 1 FROM catalog_studios s WHERE s.key=t.key AND LOWER(s.studio) LIKE ? ESCAPE '\')`)
 			args = append(args, "%"+escapeLike(val)+"%")
 		case "<=":
-			conds = append(conds, `EXISTS (SELECT 1 FROM catalog_studios s WHERE s.key=t.key AND LOWER(s.studio) LIKE ? ESCAPE '\')`)
-			args = append(args, escapeLike(val)+"%")
+			byStudio(c.studioNamesLike(escapeLike(val)+"%", val))
 		case ">=":
-			conds = append(conds, `EXISTS (SELECT 1 FROM catalog_studios s WHERE s.key=t.key AND LOWER(s.studio) LIKE ? ESCAPE '\')`)
-			args = append(args, "%"+escapeLike(val))
+			byStudio(c.studioNamesLike("%"+escapeLike(val), val))
 		default: // "="
-			conds = append(conds, `EXISTS (SELECT 1 FROM catalog_studios s WHERE s.key=t.key AND LOWER(s.studio) LIKE ? ESCAPE '\')`)
-			args = append(args, "%"+escapeLike(val)+"%")
+			byStudio(c.studioNamesLike("%"+escapeLike(val)+"%", val))
 		}
 	}
 	if fc := strings.TrimSpace(f.FirstCharacter); fc != "" {
