@@ -1,10 +1,10 @@
 //go:build !windows
 
-package admin
+package datafs
 
 import "syscall"
 
-func diskUsage(path string) (total, free int64, err error) {
+func usage(path string) (total, free int64, err error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, 0, err

@@ -278,6 +278,8 @@ type App struct {
 	// integrity is the database's last integrity check (SQLite).
 	integrity         atomic.Pointer[store.Integrity]
 	integrityChecking atomic.Bool
+	// compaction is the owner's "Compact database" action (dbcompact.go).
+	compaction databaseCompaction
 	// restart is an owner-requested restart (restart.go).
 	restart restartState
 	// Extensibility (docs/extend/SPEC.md). Each runtime type lives in its own

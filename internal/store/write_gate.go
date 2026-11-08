@@ -20,10 +20,13 @@ import (
 // wait on it. Another process writing the same file is still handled by
 // SQLite's busy_timeout.
 type writeGate struct {
-	slot    chan struct{}
-	mu      sync.Mutex
-	holder  string
-	started time.Time
+	slot chan struct{}
+	// pausedUntil, while a maintenance rewrite holds the gate (pause),
+	// is how long a writer waits for it instead of writeGateWait.
+	pausedUntil time.Time
+	mu          sync.Mutex
+	holder      string
+	started     time.Time
 }
 
 // writeGateWait matches busy_timeout: a writer that waits longer fails the
@@ -82,8 +85,9 @@ func (g *writeGate) acquire(ctx context.Context) error {
 	}
 	g.mu.Lock()
 	prior, priorStart := g.holder, g.started
+	wait := max(writeGateWait, time.Until(g.pausedUntil))
 	g.mu.Unlock()
-	t := time.NewTimer(writeGateWait)
+	t := time.NewTimer(wait)
 	defer t.Stop()
 	select {
 	case g.slot <- struct{}{}:
@@ -99,6 +103,28 @@ func (g *writeGate) acquire(ctx context.Context) error {
 		g.logHolder(time.Since(start))
 		return errWriteGateTimeout
 	}
+}
+
+// pause takes the gate for a whole-database rewrite (Compact) that SQLite
+// runs under its own write lock: this process's writers then queue on the
+// gate, in order, for up to until, instead of failing on busy_timeout
+// after 10 s. release ends the pause.
+func (g *writeGate) pause(ctx context.Context, until time.Time) (release func(), err error) {
+	select {
+	case g.slot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	g.held()
+	g.mu.Lock()
+	g.pausedUntil = until
+	g.mu.Unlock()
+	return func() {
+		g.mu.Lock()
+		g.pausedUntil = time.Time{}
+		g.mu.Unlock()
+		g.release()
+	}, nil
 }
 
 func (g *writeGate) held() {

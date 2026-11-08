@@ -33,6 +33,13 @@ CREATE TABLE segcache_files (file TEXT PRIMARY KEY, created INTEGER NOT NULL);
 ALTER TABLE segcache_releases ADD COLUMN file TEXT NOT NULL DEFAULT '';
 ALTER TABLE segcache_releases ADD COLUMN provenance TEXT NOT NULL DEFAULT '';
 `)
+	// Retention and the heartbeat orphan scan. The partial index holds only
+	// releases with no cached segments, so segment writes never maintain it.
+	store.Register("segcache", 3, `
+CREATE INDEX segcache_releases_empty ON segcache_releases(touched) WHERE segments=0;
+CREATE INDEX segcache_segments_file ON segcache_segments(file);
+CREATE INDEX segcache_files_created ON segcache_files(created);
+`)
 	// Evicted bytes whose files are still being unlinked (one row per
 	// eviction pass), so free-space measurements on any node count them as
 	// free. Its own component keeps the segcache numbering independent.
@@ -430,7 +437,9 @@ func (s *sharedCache) recordProvenance(p core.CacheProvenance) {
 			n = 1
 			at = now.Unix()
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO segcache_releases(release_id,title,size,plays,played,file,provenance) VALUES(?,?,?,?,?,?,?) ON CONFLICT(release_id) DO UPDATE SET title=CASE WHEN excluded.title<>'' THEN excluded.title ELSE segcache_releases.title END,size=CASE WHEN excluded.size>0 THEN excluded.size ELSE segcache_releases.size END,plays=segcache_releases.plays+excluded.plays,played=CASE WHEN excluded.played>0 THEN excluded.played ELSE segcache_releases.played END,file=CASE WHEN excluded.file<>'' THEN excluded.file ELSE segcache_releases.file END,provenance=excluded.provenance`, p.ReleaseID, p.Title, p.Size, n, at, p.File, string(body))
+		// touched also marks a release without segments as recently described,
+		// so Prune keeps it until its first segment lands.
+		_, err = tx.ExecContext(ctx, `INSERT INTO segcache_releases(release_id,title,size,plays,played,file,provenance,touched) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(release_id) DO UPDATE SET touched=CASE WHEN segcache_releases.segments=0 THEN excluded.touched ELSE segcache_releases.touched END,title=CASE WHEN excluded.title<>'' THEN excluded.title ELSE segcache_releases.title END,size=CASE WHEN excluded.size>0 THEN excluded.size ELSE segcache_releases.size END,plays=segcache_releases.plays+excluded.plays,played=CASE WHEN excluded.played>0 THEN excluded.played ELSE segcache_releases.played END,file=CASE WHEN excluded.file<>'' THEN excluded.file ELSE segcache_releases.file END,provenance=excluded.provenance`, p.ReleaseID, p.Title, p.Size, n, at, p.File, string(body), now.Unix())
 		return err
 	})
 	s.log(err)
@@ -653,6 +662,25 @@ func (s *sharedCache) heartbeat() {
 	for _, f := range files {
 		s.unlink(f)
 	}
+}
+
+// releaseRetention is how long a shared release row outlives its last
+// segment. It matches the replay-boost window, so pruning never changes an
+// eviction score.
+const releaseRetention = 30 * 24 * time.Hour
+
+// Prune deletes shared release rows that have no cached segments, no pins,
+// and neither a touch nor a play within releaseRetention. A local cache keeps
+// no rows and returns 0. The outer predicates are rechecked against a row a
+// concurrent Put just refilled.
+func (c *Cache) Prune(ctx context.Context) (int64, error) {
+	if c == nil || c.shared == nil {
+		return 0, nil
+	}
+	c.mu.Lock()
+	cutoff := c.now().Add(-releaseRetention).Unix()
+	c.mu.Unlock()
+	return store.PruneBatched(ctx, c.shared.db, `DELETE FROM segcache_releases WHERE segments=0 AND bytes=0 AND touched<? AND release_id IN (SELECT r.release_id FROM segcache_releases r WHERE r.segments=0 AND r.touched<? AND r.bytes=0 AND r.played<? AND NOT EXISTS(SELECT 1 FROM segcache_pins p WHERE p.release_id=r.release_id) ORDER BY r.touched LIMIT ?)`, cutoff, cutoff, cutoff)
 }
 
 // Shared reports whether this cache uses the cluster's NAS pool.

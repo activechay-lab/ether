@@ -46,14 +46,14 @@ func TestReceiptMaintenanceRecoversAbandonedDeviceQuotaAndPreservesLive(t *testi
 		t.Fatal(err)
 	}
 	now = now.Add(30 * time.Second)
-	h := capability.Header{HeaderScope: capability.HeaderScope{Namespace: ReceiptCapabilityNamespace, ViewerID: 7, Surface: "jellyfin", DeviceID: "fresh"}, Digest: strings.Repeat("f", 64), ExpiresMillis: now.Add(time.Minute).UnixMilli()}
-	admit := func() error {
+	admit := func(limits capability.Limits, digest string) error {
+		h := capability.Header{HeaderScope: capability.HeaderScope{Namespace: ReceiptCapabilityNamespace, ViewerID: 7, Surface: "jellyfin", DeviceID: "fresh"}, Digest: strings.Repeat(digest, 64), ExpiresMillis: now.Add(time.Minute).UnixMilli()}
 		tx, e := db.BeginTx(ctx, nil)
 		if e != nil {
 			return e
 		}
 		defer tx.Rollback()
-		e = capability.AdmitHeadersInTx(ctx, db, tx, []capability.Header{h}, capability.Limits{PerScope: 42, PerShard: 42})
+		e = capability.AdmitHeadersInTx(ctx, db, tx, []capability.Header{h}, limits)
 		if e != nil {
 			return e
 		}
@@ -63,18 +63,17 @@ func TestReceiptMaintenanceRecoversAbandonedDeviceQuotaAndPreservesLive(t *testi
 		}
 		return tx.Commit()
 	}
+	// Charge-all limits keep the abandoned device's expired rows charged;
+	// receipts charge only live rows, so the backlog never blocks issuance.
 	var capacity *capability.CapacityError
-	if e := admit(); !errors.As(e, &capacity) {
-		t.Fatalf("abandoned device did not retain quota: %v", e)
+	if e := admit(capability.Limits{PerScope: 42, PerShard: 42}, "f"); !errors.As(e, &capacity) {
+		t.Fatalf("charge-all admission ignored expired rows: %v", e)
 	}
-	if n, e := PruneReceiptShard(ctx, db, now, 7); e != nil || n != capability.HeaderBatchMax {
-		t.Fatalf("bounded maintenance %d %v", n, e)
+	if e := admit(capability.Limits{PerScope: 42, PerShard: 42, LiveAfterMillis: now.Unix() * 1000}, "e"); e != nil {
+		t.Fatalf("expired backlog charged against live admission: %v", e)
 	}
-	if e := admit(); e != nil {
-		t.Fatalf("quota not recovered: %v", e)
-	}
-	if n, e := PruneReceiptShard(ctx, db, now, 7); e != nil || n != 1 {
-		t.Fatalf("remaining expiry %d %v", n, e)
+	if n, e := PruneReceiptShard(ctx, db, now, 7); e != nil || n != capability.HeaderBatchMax+1 {
+		t.Fatalf("backlog not drained in one visit %d %v", n, e)
 	}
 	if n, e := PruneReceiptShard(ctx, db, now, 7); e != nil || n != 0 {
 		t.Fatalf("live rows touched %d %v", n, e)

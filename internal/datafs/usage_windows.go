@@ -1,6 +1,6 @@
 //go:build windows
 
-package admin
+package datafs
 
 import (
 	"syscall"
@@ -9,7 +9,7 @@ import (
 
 var procGetDiskFreeSpaceExW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetDiskFreeSpaceExW")
 
-func diskUsage(path string) (total, free int64, err error) {
+func usage(path string) (total, free int64, err error) {
 	p, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return 0, 0, err

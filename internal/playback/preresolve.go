@@ -677,8 +677,9 @@ func (m *Manager) takeWarmResolution(ctx context.Context, id identity, profile c
 // InvalidateTitle drops the warm (pre-resolved) entries for a title, from
 // both the detail and speculative budgets, so the next Play resolves
 // afresh — after the owner pins, unpins, blocks or unblocks a release, or
-// forgets a title's search. Stored source choices are invalidated too;
-// watch progress and container indexes remain intact. A show or season key
+// forgets a title's search. Stored source choices are invalidated too,
+// with their keyframe indexes and probes; watch progress remains intact.
+// A show or season key
 // also drops its episodes' entries. A warm-up still in flight finishes into
 // nothing. It returns how many warm entries were dropped.
 func (m *Manager) InvalidateTitle(key core.RatingKey) int {
@@ -699,7 +700,13 @@ func (m *Manager) InvalidateTitle(key core.RatingKey) int {
 	if m.resume != nil {
 		ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
 		defer cancel()
-		if err := m.resume.invalidateTitle(ctx, key); err != nil {
+		sessions := map[resumeKey]bool{}
+		m.mu.Lock()
+		for _, s := range m.sessions {
+			sessions[resumeKey{s.ident.userID, s.ident.key}] = true
+		}
+		m.mu.Unlock()
+		if err := m.resume.invalidateTitle(ctx, key, sessions); err != nil {
 			m.log.Warn("invalidate remembered source", "key", key, "err", err)
 		}
 	}

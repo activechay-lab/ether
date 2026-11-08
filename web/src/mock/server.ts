@@ -4198,6 +4198,24 @@ export function createFakeServer(opts: FakeOptions = {}) {
     if (seg[0] === "auth" && seg[1] === "pin" && seg[2])
       return json({ done: true, token: "mock-owner-token" });
     if (seg[0] === "plex" && seg[1] === "pin" && seg[2]) return json({ done: true });
+    if (seg.join("/") === "status/database/compact") {
+      return json({
+        value: {
+          supported: true,
+          incremental: false,
+          databaseBytes: 1_103_679_488,
+          reclaimableBytes: 0,
+          needBytes: 1_372_114_944,
+          diskFreeBytes: 58_090_143_744,
+          tempNeedBytes: 1_372_114_944,
+          tempFreeBytes: 58_090_143_744,
+          estimateSeconds: 48,
+          ready: true,
+          running: method === "POST",
+          ...(method === "POST" ? { started: new Date().toISOString() } : {}),
+        },
+      });
+    }
     if (method === "POST" && seg.join("/") === "status/database/check") {
       const value = dashboard().sections.database;
       if (value.integrity) value.integrity.checked = new Date().toISOString();

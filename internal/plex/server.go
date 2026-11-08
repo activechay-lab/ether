@@ -321,6 +321,7 @@ func NewServer(d Deps) *Server {
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
+	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
 	s.queues.now = d.Now
