@@ -9,6 +9,9 @@ import (
 	"math"
 	"math/rand/v2"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/catalog"
@@ -112,8 +115,15 @@ func LongTailShape(rng *rand.Rand, typ core.MediaType) Shape {
 	s.Language = longTailLanguages[rng.IntN(len(longTailLanguages))]
 	switch typ {
 	case core.TypeShow:
-		s.Seasons = 1 + min(39, poisson(rng, 0.4+7*t*t))
+		// Fitted to the lab's detailed shows: 7.1 seasons and 313 episodes
+		// at popularity 12 and up, 3.1 and 83 between 5 and 12, 1.9 and 36
+		// for vote-only shows. Daily shows (soaps, talk, news) run hundreds
+		// of episodes a season.
+		s.Seasons = 1 + min(60, poisson(rng, 0.2+2*t+4*math.Pow(t, 6)))
 		s.EpisodesPerSeason = 4 + poisson(rng, 3+9*t)
+		if rng.Float64() < 0.08*t {
+			s.EpisodesPerSeason = 60 + rng.IntN(240)
+		}
 		s.Returning = rng.Float64() < 0.1+0.3*t
 		s.Cast = poisson(rng, 2+12*t)
 		// Long shows credit many directors and writers; a soap opera
@@ -203,6 +213,8 @@ type LongTailReport struct {
 	Universe       int
 	Browsable      int // titles in the universe meeting the default bar
 	Synced         time.Duration
+	Filled         int // released titles past the sync's year caps, stored through Get
+	FillTook       time.Duration
 	Warmed         int
 	WarmTook       time.Duration
 	SeasonsOpened  int
@@ -268,6 +280,18 @@ func GenerateLongTail(ctx context.Context, db *sql.DB, cfg LongTailConfig) (Long
 		return rep, fmt.Errorf("sync: %w", err)
 	}
 	rep.Synced = time.Since(start)
+
+	// A discover year slice stops at 10,000 titles. A universe larger than
+	// that (the whole of TMDB) reaches the mirror through Get, the path a
+	// title outside the synced set takes when it is opened or searched: it
+	// is fetched in full and stored, browsable under the bar.
+	start = time.Now()
+	if !cfg.HideObscure {
+		if err := fillUnsynced(ctx, db, c, u, progress, &rep); err != nil {
+			return rep, err
+		}
+	}
+	rep.FillTook = time.Since(start)
 
 	start = time.Now()
 	for cfg.DetailLimit <= 0 || rep.Warmed < cfg.DetailLimit {
@@ -335,26 +359,113 @@ func GenerateLongTail(ctx context.Context, db *sql.DB, cfg LongTailConfig) (Long
 }
 
 // LoadTMDBYearCounts reads per-year TMDB discover totals ({"movie":{"years":
-// {"2024":[total,released]}},"tv":…}) and caps each year at the 10,000
+// {"2024":[total,released]}},"tv":…}). Capped, each year keeps the 10,000
 // titles a discover slice returns, which is what a catalogue sync with
 // "Hide obscure titles" off can mirror.
-func LoadTMDBYearCounts(raw []byte) ([2]map[int]int, error) {
-	var doc map[string]struct {
-		Years map[string][]int `json:"years"`
+//
+// Uncapped, it is the whole of TMDB: a probe that stopped at 20,001 is
+// replaced by the exact count in movie_exact_truncated_years.
+func LoadTMDBYearCounts(raw []byte, capped bool) ([2]map[int]int, error) {
+	var doc struct {
+		Movie, TV struct {
+			Years map[string][]int `json:"years"`
+		}
+		Exact map[string]int `json:"movie_exact_truncated_years"`
 	}
 	var out [2]map[int]int
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return out, err
 	}
-	for kind, name := range []string{"movie", "tv"} {
+	for kind, years := range []map[string][]int{doc.Movie.Years, doc.TV.Years} {
 		out[kind] = map[int]int{}
-		for y, v := range doc[name].Years {
+		for y, v := range years {
 			year, err := strconv.Atoi(y)
 			if err != nil || len(v) == 0 {
-				return out, fmt.Errorf("tmdb counts: %s year %q", name, y)
+				return out, fmt.Errorf("tmdb counts: year %q", y)
 			}
-			out[kind][year] = min(v[0], 10000)
+			n := v[0]
+			if n >= 20001 {
+				exact, ok := doc.Exact[y]
+				if !ok || kind != ltMovie {
+					return out, fmt.Errorf("tmdb counts: year %s has no exact count", y)
+				}
+				n = exact
+			}
+			if capped {
+				n = min(n, 10000)
+			}
+			out[kind][year] = n
 		}
 	}
 	return out, nil
+}
+
+// fillUnsynced stores every released universe title the sync did not, with
+// four concurrent readers (the catalogue's writes still take turns).
+func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTailTMDB, progress func(string, int), rep *LongTailReport) error {
+	work := make(chan core.RatingKey, 256)
+	var failed atomic.Int64
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := range work {
+				if _, err := c.Get(ctx, k); err != nil {
+					failed.Add(1)
+				}
+			}
+		}()
+	}
+	defer func() { close(work); wg.Wait() }()
+	for kind, list := range [][]ltEntry{u.movies, u.shows} {
+		for from := 0; from < len(list); from += 500 {
+			to := min(len(list), from+500)
+			keys := make([]any, 0, to-from)
+			for i := from; i < to; i++ {
+				if !u.date(list[i]).After(u.now) {
+					keys = append(keys, int64(ltKey(kind, int64(i+1))))
+				}
+			}
+			if len(keys) == 0 {
+				continue
+			}
+			rows, err := db.QueryContext(ctx, `SELECT key FROM catalog_titles WHERE key IN (`+strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")+`)`, keys...)
+			if err != nil {
+				return err
+			}
+			have := map[int64]bool{}
+			for rows.Next() {
+				var k int64
+				if err := rows.Scan(&k); err != nil {
+					rows.Close()
+					return err
+				}
+				have[k] = true
+			}
+			rows.Close()
+			for _, k := range keys {
+				if !have[k.(int64)] {
+					select {
+					case work <- core.RatingKey(k.(int64)):
+						rep.Filled++
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+			}
+			progress("fill", rep.Filled)
+		}
+	}
+	if n := failed.Load(); n > 0 {
+		return fmt.Errorf("fill: %d titles failed", n)
+	}
+	return nil
+}
+
+func ltKey(kind int, id int64) core.RatingKey {
+	if kind == ltShow {
+		return core.ShowKey(id)
+	}
+	return core.MovieKey(id)
 }

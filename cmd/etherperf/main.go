@@ -44,6 +44,8 @@ func main() {
 		err = runLongTail(ctx, os.Args[2:])
 	case "sizes":
 		err = runSizes(ctx, os.Args[2:])
+	case "pgcopy":
+		err = runPGCopy(ctx, os.Args[2:])
 	default:
 		usage()
 	}

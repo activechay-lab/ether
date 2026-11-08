@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ func runLongTail(ctx context.Context, args []string) error {
 	limit := f.Int("detail-limit", 0, "stop after this many detail fetches (0 = all)")
 	report := f.String("report", "", "write the generation report and sizes as JSON here")
 	countsFile := f.String("tmdb-counts", "", "per-year TMDB discover totals (JSON); sizes the universe as a real sync would mirror it, replacing -titles")
+	uncapped := f.Bool("uncapped", false, "with -tmdb-counts: the whole of TMDB, not the 10,000 per year a sync reaches")
 	_ = f.Parse(args)
 	if (*out == "") == (*pgURL == "") {
 		return fmt.Errorf("exactly one of -out or -pg is required")
@@ -42,7 +44,7 @@ func runLongTail(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if yearCounts, err = perfharness.LoadTMDBYearCounts(raw); err != nil {
+		if yearCounts, err = perfharness.LoadTMDBYearCounts(raw, !*uncapped); err != nil {
 			return err
 		}
 	}
@@ -87,8 +89,8 @@ func runLongTail(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	logf("done: universe %d (%d meet the default bar), sync %s, %d details in %s, %d seasons opened",
-		rep.Universe, rep.Browsable, rep.Synced.Round(time.Second), rep.Warmed, rep.WarmTook.Round(time.Second), rep.SeasonsOpened)
+	logf("done: universe %d (%d meet the default bar), sync %s, %d past the year caps filled in %s, %d details in %s, %d seasons opened",
+		rep.Universe, rep.Browsable, rep.Synced.Round(time.Second), rep.Filled, rep.FillTook.Round(time.Second), rep.Warmed, rep.WarmTook.Round(time.Second), rep.SeasonsOpened)
 	sizes, err := perfharness.MeasureSizes(ctx, db, true)
 	if err != nil {
 		return err
@@ -140,5 +142,39 @@ func runSizes(ctx context.Context, args []string) error {
 	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles WHERE detail=1 AND type IN ('movie','show')`).Scan(&detailed)
 	fmt.Printf("detailed movies and shows: %d\n\n", detailed)
 	perfharness.WriteSizeReport(os.Stdout, sizes, detailed, *min)
+	return nil
+}
+
+// runPGCopy copies a SQLite database into an empty PostgreSQL database the
+// way ether cluster init does (a logical dump, triggers suspended while it
+// loads), so one generated catalogue can be measured on both engines.
+func runPGCopy(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("pgcopy", flag.ExitOnError)
+	path := f.String("db", "", "SQLite database file")
+	pgURL := f.String("pg", "", "empty PostgreSQL database URL")
+	_ = f.Parse(args)
+	if *path == "" || *pgURL == "" {
+		return fmt.Errorf("-db and -pg are required")
+	}
+	src, err := store.OpenPath(ctx, *path)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, _, err := store.OpenWith(ctx, store.Options{URL: *pgURL})
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	started := time.Now()
+	r, w := io.Pipe()
+	go func() { w.CloseWithError(store.ExportLogical(ctx, src, w)) }()
+	if err := store.ImportLogical(ctx, dst, r); err != nil {
+		return err
+	}
+	if _, err := dst.ExecContext(ctx, `ANALYZE`); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "etherperf pgcopy: copied in %s\n", time.Since(started).Round(time.Second))
 	return nil
 }
