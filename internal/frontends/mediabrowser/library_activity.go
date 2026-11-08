@@ -55,7 +55,14 @@ func (i *instance) libraryActivity(w http.ResponseWriter, r *http.Request, lates
 		http.NotFound(w, r)
 		return
 	}
-	offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", 50)
+	defaultLimit := 50
+	if latest {
+		// Jellyfin's and Emby's Latest answer 20 rows when no Limit is sent
+		// (Jellyfin's GetLatestMedia "int limit = 20", its OpenAPI default;
+		// Emby's GetLatestMedia sets Limit = 20).
+		defaultLimit = 20
+	}
+	offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", defaultLimit)
 	if limit == 0 {
 		if latest {
 			i.replyItems(w, r, []any{})

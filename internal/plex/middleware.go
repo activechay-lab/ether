@@ -553,6 +553,12 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 		}
 		return model.MarshalWithExclusions(v, pr.Format, names("excludeFields"), elements)
 	}
+	if mc, ok := v.(*model.MediaContainer); ok {
+		if fields, elements := responseExclusions(r); len(fields) > 0 || len(elements) > 0 {
+			substituteExcludedCounts(mc, elements)
+			return model.MarshalWithExclusions(v, pr.Format, fields, elements)
+		}
+	}
 	return model.Marshal(v, pr.Format)
 
 }

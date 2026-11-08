@@ -230,6 +230,10 @@ const (
 
 // continueHub builds a Continue Watching hub.
 func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec Section, count int) hubSpec {
+	// Continue Watching is PMS's On Deck, bounded by its OnDeckLimit: a
+	// row or page asking for more answers the whole bounded deck.
+	bounded := count >= plexOnDeckLimit
+	count = min(count, plexOnDeckLimit)
 	t := core.MediaType("")
 	if sec.ID != 0 {
 		t = sec.Type
@@ -256,6 +260,11 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 		return selection{items, state, more}, nil
 	})
 	items, state, more := append([]core.Title(nil), picked.items...), maps.Clone(picked.state), picked.more
+	if windowed := s.onDeckWindowed(items, state); len(windowed) < len(items) {
+		// Newest first: the window cut the tail, and the overflow
+		// candidate behind it is older still.
+		items, more = windowed, false
+	}
 	if v == cwSection && sec.Type == core.TypeShow && pr.User != nil {
 		if gate, ok := s.d.State.(interface {
 			PlaybackCompletedShows(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
@@ -307,7 +316,7 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 			hs.ID, hs.Context, hs.Type = "movie.inprogress."+id, "hub.movie.inprogress", core.TypeMovie
 		}
 	}
-	hs.More = more
+	hs.More = more && !bounded
 	hs.Items = items
 	return hs
 }

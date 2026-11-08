@@ -640,12 +640,16 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "t.fetched_at<=? AND t.fetched_at>0")
 		args = append(args, f.UpdatedBefore)
 	}
+	// The series date predicates below sit inside an OR. LIMIT 1 OFFSET 0
+	// keeps each EXISTS a per-row probe on PostgreSQL, which otherwise
+	// hashes it: reads every aired episode of the catalogue per request.
+	// SQLite probes by key either way and needs the LIMIT for the OFFSET.
 	if f.AddedAfter != 0 {
 		if f.Type == core.TypeMovie {
 			conds = append(conds, "t.released_ts>=?")
 			args = append(args, f.AddedAfter)
 		} else {
-			conds = append(conds, `(t.released_ts>=? OR (t.type='show' AND EXISTS (SELECT 1 FROM catalog_titles ae WHERE ae.show_key=t.key AND ae.type='episode' AND ae.release_known=1 AND ae.adult=0 AND ae.released_ts>=? AND ae.released_ts<=?)))`)
+			conds = append(conds, `(t.released_ts>=? OR (t.type='show' AND EXISTS (SELECT 1 FROM catalog_titles ae WHERE ae.show_key=t.key AND ae.type='episode' AND ae.release_known=1 AND ae.adult=0 AND ae.released_ts>=? AND ae.released_ts<=? LIMIT 1 OFFSET 0)))`)
 			args = append(args, f.AddedAfter, f.AddedAfter, nowTS)
 		}
 	}
@@ -654,7 +658,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			conds = append(conds, "t.released_ts<=?")
 			args = append(args, f.AddedBefore)
 		} else {
-			conds = append(conds, `(t.released_ts<=? AND (t.type<>'show' OR NOT EXISTS (SELECT 1 FROM catalog_titles ae WHERE ae.show_key=t.key AND ae.type='episode' AND ae.release_known=1 AND ae.adult=0 AND ae.released_ts>? AND ae.released_ts<=?)))`)
+			conds = append(conds, `(t.released_ts<=? AND (t.type<>'show' OR NOT EXISTS (SELECT 1 FROM catalog_titles ae WHERE ae.show_key=t.key AND ae.type='episode' AND ae.release_known=1 AND ae.adult=0 AND ae.released_ts>? AND ae.released_ts<=? LIMIT 1 OFFSET 0)))`)
 			args = append(args, f.AddedBefore, f.AddedBefore, nowTS)
 		}
 	}

@@ -367,6 +367,27 @@ the library walk; a page end is remembered for the next page. It applies
 when that order is the sorted order and the episode set is the
 catalogue's. Before, it refreshed every series' seasons on the request.
 
+### Send what the client asked for
+
+Clients ask for less, and the reference servers answer less; Ether does the
+same, and builds less.
+
+- **Plex.** `excludeFields=` and PMS's allow-listed `excludeElements=`
+  (Media, Part, Genre, Country, Guid, Rating, Director, Writer, Role,
+  Producer) apply to every library container except a transcode decision;
+  Media leaves `mediaCount`, Part leaves `Media@partCount`. Plex for Apple TV
+  and Plex Web send `excludeFields=summary` on hubs and section pages. A
+  light list row whose Media is excluded does not build it, nor read what it
+  is drawn from (`internal/plex/response_shaping.go`; a test proves the
+  bytes match building it and leaving it out). On Deck and Continue
+  Watching are bounded by PMS's defaults: 40 rows (`OnDeckLimit`), watched
+  within 16 weeks (`OnDeckWindow`), new season premieres exempt
+  (`OnDeckIncludePremieres`).
+- **Jellyfin and Emby.** List rows carry the fields `Fields=` asks for.
+  Lists called without `Limit` answer the reference server's default
+  (Latest 20; movie recommendations five categories of eight; Similar 50),
+  and Ether's own bounded page where the reference has none.
+
 ### Caches
 
 - The catalogue keeps generation-stamped in-memory caches (titles, counts,
