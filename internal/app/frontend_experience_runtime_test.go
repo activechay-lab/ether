@@ -5,16 +5,20 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"reflect"
 	"testing"
 	"time"
 
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/tmdb"
 )
 
@@ -337,8 +341,35 @@ func TestSurfaceHomeRowsEnforceRestrictedCandidatePolicy(t *testing.T) {
 }
 
 func TestPersonImageBatchStopsWhenViewerLosesTitleAccess(t *testing.T) {
-	a := setupTestApp(t, true)
 	ctx := context.Background()
+	wantDialect := store.SQLite
+	if raw := os.Getenv(store.TestPostgresEnv); raw != "" {
+		// Keep the app and its policy/grant stores on the same isolated schema.
+		// setupTestApp alone seeds SQLite, regardless of ETHER_TEST_POSTGRES.
+		schemaDB, err := store.OpenTestPostgres(ctx, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { schemaDB.Close() })
+		var schema string
+		if err := schemaDB.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+			t.Fatal(err)
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal("invalid test database URL")
+		}
+		q := u.Query()
+		q.Set("search_path", schema)
+		u.RawQuery = q.Encode()
+		t.Setenv(config.DatabaseURLEnv, u.String())
+		wantDialect = store.Postgres
+	}
+	a := setupTestApp(t, true)
+	if got := store.DialectOf(a.db); got != wantDialect {
+		t.Fatalf("database dialect = %s, want %s", got, wantDialect)
+	}
+	t.Logf("person image authorization backend: %s", store.DialectOf(a.db))
 	if err := a.users.SyncFriends(ctx, []plextv.Friend{{PlexID: 333, Username: "viewer", AllLibs: true}}); err != nil {
 		t.Fatal(err)
 	}
