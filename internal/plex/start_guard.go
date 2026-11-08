@@ -1,11 +1,9 @@
 package plex
 
 import (
-	"context"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -14,13 +12,6 @@ const (
 	stallTextDV    = "This version couldn't start in Dolby Vision on this device. Play it again to watch it in HDR10, or choose another version, such as 1080p."
 	stallTextOther = "This version can't play on this device. Choose another version, such as 1080p."
 )
-
-// stallSession is the live transcode session the guard reads.
-type stallSession interface {
-	core.PlaybackPosition
-	Decision() core.Decision
-	Info() core.MediaInfo
-}
 
 // guardedStart reports whether stalled-start protection covers a session:
 // Dolby Vision sources on any client, and Plex for iOS on any source. Other
@@ -50,22 +41,9 @@ func (s *Server) checkStartStall(pr *Request, key core.RatingKey, state string, 
 			s.starts.Forget(id)
 			continue
 		}
-		live, ok := out.(stallSession)
+		live, ok := sessions.ObserveStart(s.ctx, out, id)
 		if !ok {
-			observer, supported := out.(interface {
-				Observe(context.Context) (*remotetranscode.ObservedSession, error)
-			})
-			if !supported {
-				continue
-			}
-			ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
-			sample, err := observer.Observe(ctx)
-			cancel()
-			// No cached/zero fallback on errors, old samples or a different execution.
-			if err != nil || sample == nil || sample.Identity().Session != id || sample.Identity().Generation == 0 || sample.RequestStarted().IsZero() || time.Since(sample.RequestStarted()) > 2*time.Second || time.Since(sample.RequestStarted()) < 0 {
-				continue
-			}
-			live = sample
+			continue
 		}
 		info := live.Info()
 		v := info.Video()
