@@ -40,6 +40,8 @@ func main() {
 		code, err = runReal(ctx, os.Args[2:])
 	case "audit":
 		err = runAudit(ctx, os.Args[2:])
+	case "fixture":
+		err = runFixture(ctx, os.Args[2:])
 	default:
 		usage()
 	}
@@ -51,7 +53,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL)")
+	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL) | etherperf fixture -scale NAME -out DIR")
 	os.Exit(2)
 }
 

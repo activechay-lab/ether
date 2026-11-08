@@ -45,9 +45,14 @@ func TestPerformanceGate(t *testing.T) {
 		t.Skip("set " + PerfGateEnv + "=1 (or -args -perf-gate=1) to run the library-scale performance gate (docs/performance.md)")
 	}
 	smallScale, largeScale := perfharness.SmallScale, perfharness.LargeScale
-	if mode == "quick" {
+	switch mode {
+	case "quick":
 		// A faster pair, also 10× apart, for iterating locally.
 		smallScale, largeScale = perfharness.SmallScale.Divide(10), perfharness.SmallScale
+	case "xlarge":
+		// The nightly pair: 80k and 800k titles, a long-tail mirror's size.
+		// Too slow for every push (docs/performance.md).
+		smallScale, largeScale = perfharness.XLargeScale.Divide(10), perfharness.XLargeScale
 	}
 	small := runPerfScale(t, "small", smallScale)
 	large := runPerfScale(t, "large", largeScale)
@@ -158,8 +163,8 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 		bySmall[r.Client+" "+r.Step] = r
 	}
 	var failures []gateFailure
-	fmt.Fprintln(w, "| client | step | queries S max→L min | rows S max→L min | db S→L | warm p50 S→L | verdict |")
-	fmt.Fprintln(w, "|---|---|---:|---:|---:|---:|---|")
+	fmt.Fprintln(w, "| client | step | queries S max→L min | rows S max→L min | db S→L | warm p50 S→L | L owner cold q/rows/db | L viewer first q/rows/db | verdict |")
+	fmt.Fprintln(w, "|---|---|---:|---:|---:|---:|---:|---:|---|")
 	for _, l := range large {
 		s := bySmall[l.Client+" "+l.Step]
 		if s == nil || l.Class == "playback" {
@@ -204,13 +209,32 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 			if l.WarmP50 > gateWallCeiling {
 				why = append(why, fmt.Sprintf("warm p50 %s over %s", l.WarmP50, gateWallCeiling))
 			}
+			// The second viewer's first pass, on its own.
+			sf, lf := s.FirstWork, l.FirstWork
+			if lf.Queries > 0 && sf.Queries > 0 {
+				if l.RowsBound == 0 && float64(lf.Rows) > gateRowsFactor*float64(sf.Rows)+gateRowsSlack {
+					why = append(why, fmt.Sprintf("a second viewer's first-pass rows grow with the library (%d → %d)", sf.Rows, lf.Rows))
+				}
+				if float64(lf.Queries) > gateQueriesFactor*float64(sf.Queries)+gateQueriesSlack {
+					why = append(why, fmt.Sprintf("a second viewer's first-pass statements grow with the library (%d → %d)", sf.Queries, lf.Queries))
+				}
+				if lf.DBTime > time.Duration(gateDBFactor*float64(sf.DBTime))+gateDBSlack {
+					why = append(why, fmt.Sprintf("a second viewer's first-pass database time grows with the library (%s → %s)", sf.DBTime, lf.DBTime))
+				}
+			}
 		}
 		if len(why) > 0 {
 			verdict = "FAIL: " + strings.Join(why, "; ")
 			failures = append(failures, gateFailure{key: l.Client + " | " + l.Step, why: strings.Join(why, "; ")})
 		}
-		fmt.Fprintf(w, "| %s | %s | %d → %d | %d → %d | %s → %s | %s → %s | %s |\n", l.Client, l.Step, s.QueriesMax, l.QueriesMin, s.RowsMax, l.RowsMin,
-			s.DBTime.Round(time.Microsecond*100), l.DBTime.Round(time.Microsecond*100), s.WarmP50.Round(time.Microsecond*100), l.WarmP50.Round(time.Microsecond*100), verdict)
+		work := func(w perfharness.Work) string {
+			if w.Queries == 0 {
+				return "–"
+			}
+			return fmt.Sprintf("%d / %d / %s", w.Queries, w.Rows, w.DBTime.Round(time.Microsecond*100))
+		}
+		fmt.Fprintf(w, "| %s | %s | %d → %d | %d → %d | %s → %s | %s → %s | %s | %s | %s |\n", l.Client, l.Step, s.QueriesMax, l.QueriesMin, s.RowsMax, l.RowsMin,
+			s.DBTime.Round(time.Microsecond*100), l.DBTime.Round(time.Microsecond*100), s.WarmP50.Round(time.Microsecond*100), l.WarmP50.Round(time.Microsecond*100), work(l.ColdWork), work(l.FirstWork), verdict)
 	}
 	return failures
 }
@@ -326,7 +350,10 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	for range 2 {
 		r.Sequential(ctx, "warm", viewers[:1], cs)
 	}
-	r.Sequential(ctx, "warm", viewers[1:2], viewing)
+	// A second viewer's first pass: the server is warm, that viewer's
+	// caches are cold. Reported and gated on its own, so a per-viewer cost
+	// that scales shows up beside the owner's.
+	r.Sequential(ctx, "first", viewers[1:2], viewing)
 	// A restricted viewer's whole-library episode and season listings page
 	// in SQL with their rating cap and plex.tv share filter, not by walking
 	// the library.

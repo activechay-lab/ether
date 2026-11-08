@@ -94,14 +94,28 @@ type Row struct {
 	// compares the large library's least work with the small one's most.
 	QueriesMin, QueriesMax, RowsMin, RowsMax int64
 	DBTime, LockWait                         time.Duration
-	Status                                   string
-	Fails                                    []string
-	Skipped                                  string
-	Errors                                   []string
-	samples                                  map[string][]time.Duration
-	queries, writes, rowsRead                []int64
-	allocBytes, allocs                       []int64
-	dbTimes, lockWaits                       []time.Duration
+	// Cold is the owner's first pass after the start, First another
+	// viewer's first pass (that viewer's caches cold, the server's warm);
+	// the most work one request of each took.
+	ColdWork, FirstWork       Work
+	Status                    string
+	Fails                     []string
+	Skipped                   string
+	Errors                    []string
+	samples                   map[string][]time.Duration
+	queries, writes, rowsRead []int64
+	allocBytes, allocs        []int64
+	dbTimes, lockWaits        []time.Duration
+}
+
+// Work is the database work of one request.
+type Work struct {
+	Queries, Rows int64
+	DBTime        time.Duration
+}
+
+func (w *Work) max(tr TraceRecord) {
+	w.Queries, w.Rows, w.DBTime = max(w.Queries, tr.Queries), max(w.Rows, tr.Rows), max(w.DBTime, tr.DBTime)
 }
 
 func percentile(ds []time.Duration, p float64) time.Duration {
@@ -157,6 +171,14 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 			continue
 		}
 		r.samples[res.Phase] = append(r.samples[res.Phase], res.Dur)
+		if tr, ok := trace[res.Tag]; ok {
+			switch res.Phase {
+			case "cold":
+				r.ColdWork.max(tr)
+			case "first":
+				r.FirstWork.max(tr)
+			}
+		}
 		if tr, ok := trace[res.Tag]; ok && (res.Phase == "warm" || res.Phase == "cold") {
 			r.queries = append(r.queries, tr.Queries)
 			r.writes = append(r.writes, tr.Writes)
