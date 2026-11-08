@@ -88,34 +88,46 @@ type vodPlayer struct {
 }
 
 type vodLine struct {
-	Case     string          `json:"case"`
-	Asset    string          `json:"asset"`
-	Path     string          `json:"path"`
-	Scenario string          `json:"scenario"`
-	Duration float64         `json:"durationSeconds"`
-	Script   string          `json:"script"`
-	Decision []string        `json:"decisions"`
-	Player   json.RawMessage `json:"player,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	Kept     string          `json:"kept,omitempty"`
-	Requests []string        `json:"requests"`
+	Case      string          `json:"case"`
+	Asset     string          `json:"asset"`
+	Path      string          `json:"path"`
+	Scenario  string          `json:"scenario"`
+	Duration  float64         `json:"durationSeconds"`
+	Script    string          `json:"script"`
+	Decision  []string        `json:"decisions"`
+	Player    json.RawMessage `json:"player,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Kept      string          `json:"kept,omitempty"`
+	Requests  []string        `json:"requests"`
+	Playlists []struct {
+		At      float64 `json:"at"`
+		Seconds float64 `json:"seconds"`
+		TD      float64 `json:"targetDuration"`
+		Start   bool    `json:"start"`
+		Status  int     `json:"status"`
+	} `json:"playlists"`
 }
 
 type vodResult struct {
-	Case      string        `json:"case"`
-	Asset     string        `json:"asset"`
-	Path      string        `json:"path"`
-	Scenario  string        `json:"scenario"`
-	Verdict   string        `json:"verdict"` // PASS | FAIL | INVALID
-	FFmpeg    string        `json:"ffmpeg"`  // the same sequence decoded with ffmpeg -xerror: PASS | FAIL | SKIP | n/a
-	Class     string        `json:"class,omitempty"`
-	Reasons   []string      `json:"reasons,omitempty"`
-	Warnings  []string      `json:"warnings,omitempty"`
-	TTFF      float64       `json:"ttffSeconds"`
-	Seeks     []vodSeek     `json:"seeks,omitempty"`
-	Sync      *avSyncReport `json:"avSync,omitempty"`
-	Decisions []string      `json:"decisions"`
-	Line      vodLine       `json:"raw"`
+	Case     string   `json:"case"`
+	Asset    string   `json:"asset"`
+	Path     string   `json:"path"`
+	Scenario string   `json:"scenario"`
+	Verdict  string   `json:"verdict"` // PASS | FAIL | INVALID
+	FFmpeg   string   `json:"ffmpeg"`  // the same sequence decoded with ffmpeg -xerror: PASS | FAIL | SKIP | n/a
+	Class    string   `json:"class,omitempty"`
+	Reasons  []string `json:"reasons,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+	TTFF     float64  `json:"ttffSeconds"`
+	// The slowest first media playlist after a start (cold start, restart),
+	// against its target duration, and the slowest start.m3u8.
+	FirstPlaylistS  float64       `json:"firstPlaylistSeconds"`
+	FirstPlaylistTD float64       `json:"firstPlaylistTargetDuration"`
+	StartS          float64       `json:"startSeconds"`
+	Seeks           []vodSeek     `json:"seeks,omitempty"`
+	Sync            *avSyncReport `json:"avSync,omitempty"`
+	Decisions       []string      `json:"decisions"`
+	Line            vodLine       `json:"raw"`
 }
 
 type vodSeek struct {
@@ -218,6 +230,9 @@ func runVODAVPlayer(o vodOptions) error {
 		if r.Verdict == "FAIL" && r.FFmpeg == "PASS" {
 			r.Class = "avplayer-only"
 		}
+		if l.Scenario == "damaged-copy-play" {
+			r.Class = strings.TrimSpace("damaged-copy " + r.Class)
+		}
 		if r.Verdict == "FAIL" && r.FFmpeg == "FAIL" {
 			r.Class = "both"
 			r.Warnings = append(r.Warnings, "ffmpeg: "+strings.Join(ffOut[l.Case], " | "))
@@ -279,6 +294,28 @@ func judgeVOD(ctx context.Context, ff string, l vodLine) vodResult {
 		}
 	}
 	sync := l.Asset == vodSyncName
+	// First-playlist rule, as for live: AVPlayer leaves an item stuck for good
+	// when its first media playlist takes a whole target duration.
+	expectFirst := false
+	for _, pl := range l.Playlists {
+		if pl.Start {
+			expectFirst = true
+			r.StartS = math.Max(r.StartS, pl.Seconds)
+			continue
+		}
+		if !expectFirst {
+			continue
+		}
+		expectFirst = false
+		if pl.TD > 0 && pl.Seconds/pl.TD > r.FirstPlaylistS/math.Max(r.FirstPlaylistTD, 1e-9) {
+			r.FirstPlaylistS, r.FirstPlaylistTD = pl.Seconds, pl.TD
+		}
+		if pl.TD > 0 && pl.Seconds >= pl.TD {
+			fail("first media playlist took %.2fs >= TD %.0fs (AVFoundation never starts the item)", pl.Seconds, pl.TD)
+		} else if pl.TD > 0 && pl.Seconds >= pl.TD/2 {
+			r.Warnings = append(r.Warnings, fmt.Sprintf("first media playlist took %.2fs, over half TD %.0fs", pl.Seconds, pl.TD))
+		}
+	}
 	for _, e := range p.Failures {
 		fail("item failed %d %s", e.Code, e.Msg)
 	}
@@ -488,18 +525,19 @@ func vodMarkdown(label, commit, ff string, results []vodResult) string {
 		}
 	}
 	fmt.Fprintf(&b, "- **%d of %d cases pass**; %d fail, %d of them where ffmpeg -xerror passes the same sequence; %d invalid (host stall).\n\n", counts["PASS"], len(results), counts["FAIL"], counts["only"], counts["INVALID"])
-	b.WriteString("| Case | AVPlayer | ffmpeg -xerror | TTFF s | Seeks: resume s / landing s | Decision | Reasons |\n|---|---|---|---:|---|---|---|\n")
+	b.WriteString("| Case | AVPlayer | ffmpeg -xerror | TTFF s | First playlist s / TD | Seeks: resume s / landing s | Decision | Reasons |\n|---|---|---|---:|---|---|---|---|\n")
 	for _, r := range results {
 		var seeks []string
 		for _, s := range r.Seeks {
 			seeks = append(seeks, fmt.Sprintf("%s %.1f: %.2f / %+.2f%s", s.Action, s.Target, s.Resume, s.Landing, map[string]string{"content": "", "playhead": "p", "": "?"}[s.By]))
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %.1f | %s | %s | %s |\n", r.Case, r.Verdict, r.FFmpeg, r.TTFF, mdEscape(strings.Join(seeks, "<br>")), mdEscape(strings.Join(r.Decisions, "<br>")), mdEscape(strings.Join(r.Reasons, "; ")))
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %.1f | %.2f / %.0f | %s | %s | %s |\n", r.Case, r.Verdict, r.FFmpeg, r.TTFF, r.FirstPlaylistS, r.FirstPlaylistTD, mdEscape(strings.Join(seeks, "<br>")), mdEscape(strings.Join(r.Decisions, "<br>")), mdEscape(strings.Join(r.Reasons, "; ")))
 	}
 	b.WriteString("\n## How it is judged\n\n")
 	b.WriteString("- AVPlayer (tools/avprobe/vod) plays Ether's start.m3u8 after a /decision, as a Plex client does, and runs the scripted client sequence: exact seeks inside the item, pause and play, seeking near the end, and Plex-style restarts at an offset for track and quality changes.\n")
 	fmt.Fprintf(&b, "- Fails: any item failure or CoreMedia error-log entry (warnings excluded); first frame after %.0f s; a seek or restart resuming after %.0f s (warning after %.0f s); a seek landing over %.2f s from its target on the picture actually shown (sync fixture: frame-counter barcode), or %.1f s on the playhead (other media); a restart landing over %.1f s from its offset; over 1 s of stalls outside seeks and pauses; the picture jumping while playing (more than 3 frames, or backwards); the picture drifting against its timestamps by over %.1f s within an item; not reaching the end after seeking near it; and, on the sync fixture, lip sync outside ITU-R BT.1359 (audio 45 ms early / 125 ms late) in the segments the player fetched.\n", vodTTFFMaxS, vodResumeMaxS, vodResumeWarnS, vodLandingMaxS, vodItemLandingMaxS, vodRestartMaxS, vodOffsetSpreadMax)
-	b.WriteString("- ffmpeg -xerror is TestTranscodeChaosCorpusScenarios on the same asset, path and sequence; `avplayer-only` marks cases where it passes and AVPlayer fails.\n")
+	b.WriteString("- First playlist: the slowest first media playlist after each start or restart, against its TARGETDURATION; 1x TD fails (AVPlayer then never starts the item), 0.5x warns. damaged-copy rows play a damaged library title (the generated input-* fixtures) through the copy path and record what AVPlayer shows.\n")
+	b.WriteString("- ffmpeg -xerror is TestTranscodeChaosCorpusScenarios on the same asset, path and sequence (as Plex Web; the AVPlayer cases tune as Plex for Apple TV); `avplayer-only` marks cases where it passes and AVPlayer fails.\n")
 	b.WriteString("- Audio inside the player is not measured; lip sync is measured on the published segments.\n")
 	return b.String()
 }
