@@ -101,6 +101,12 @@ func (r *Runtime) terminalOperation(ctx context.Context, peer nodewire.Identity,
 		r.mu.Lock()
 		source := r.sources[key]
 		r.mu.Unlock()
+		if source == nil && r.generationTerminal(ctx, q.Fence.Session, q.Fence.Generation) {
+			// Forgotten after durable terminal state (forgetTerminal): its
+			// retirement was proven before the ledger retired the generation.
+			reply.State = remotetranscode.TerminalRetired
+			return reply, nil
+		}
 		if source == nil && q.Stop {
 			ps, ok := r.o.Playback.Session(route.PlayID)
 			life, owned := r.o.Playback.SourceRetirement(route.PlayID)
