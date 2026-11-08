@@ -698,9 +698,10 @@ type upsertItem struct {
 	o upsertOpts
 }
 
-// upsertItems stores items in one transaction, each with its own options.
-func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem) error {
-	if len(items) == 0 {
+// upsertItems stores items in one transaction, each with its own options,
+// then runs after (more writes of the same transaction).
+func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...func(context.Context, *sql.Tx) error) error {
+	if len(items) == 0 && len(after) == 0 {
 		return nil
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -723,6 +724,11 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem) error {
 		o := it.o
 		o.region, o.ratingCuts, o.stored = region, &cuts, stored
 		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
+			return err
+		}
+	}
+	for _, f := range after {
+		if err := f(ctx, tx); err != nil {
 			return err
 		}
 	}
