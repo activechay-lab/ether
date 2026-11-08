@@ -3,6 +3,8 @@ package nzb
 import (
 	"bytes"
 	"encoding/xml"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -12,6 +14,12 @@ import (
 // file names, segments and repost alternates as the originals. ok is false
 // when no file is kept.
 func (n *NZB) Subset(keep func(*File) bool) (data []byte, ok bool) {
+	return n.SubsetMeta(keep, nil)
+}
+
+// SubsetMeta is Subset with extra <meta> values added (type -> value). The
+// extra values make the subset a different document, with its own digest.
+func (n *NZB) SubsetMeta(keep func(*File) bool, extra map[string]string) (data []byte, ok bool) {
 	var files []*File
 	for _, f := range n.Files {
 		if keep(f) {
@@ -23,12 +31,21 @@ func (n *NZB) Subset(keep func(*File) bool) (data []byte, ok bool) {
 	}
 	var b bytes.Buffer
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n")
-	if len(n.Meta) > 0 {
+	if len(n.Meta) > 0 || len(extra) > 0 {
 		b.WriteString("<head>\n")
-		for typ, vals := range n.Meta {
-			for _, v := range vals {
+		// Sorted, so one input always gives the same bytes: the stream
+		// engine keys release state, plans and cached segments by the
+		// digest of the document.
+		for _, typ := range slices.Sorted(maps.Keys(n.Meta)) {
+			if _, replaced := extra[typ]; replaced {
+				continue
+			}
+			for _, v := range n.Meta[typ] {
 				b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(v) + "</meta>\n")
 			}
+		}
+		for _, typ := range slices.Sorted(maps.Keys(extra)) {
+			b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(extra[typ]) + "</meta>\n")
 		}
 		b.WriteString("</head>\n")
 	}

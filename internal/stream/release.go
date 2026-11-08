@@ -113,6 +113,9 @@ type builder struct {
 	prio           core.Priority
 	fo             fetchOpts
 	candidateReady func([]*postedFile)
+	// memberISOs are the other disc images of the archive planFor just planned,
+	// the further discs of a multi-disc release.
+	memberISOs []*plan
 }
 
 // candidate is something that may hold the main video.
@@ -134,15 +137,28 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("%w: nothing recognisable among %d files", ErrNoPlayableFile, len(b.rel.files))
 	}
-	if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
-		return nil, err
+	// A season held in archives (an nzb.MetaEpisode hint) may list the sets
+	// of other episodes too: one of them being broken or protected says
+	// nothing about the wanted episode's set, so every set is tried.
+	_, hinted := b.rel.doc.EpisodeHint()
+	hinted = hinted && len(cands) > 1
+	if !hinted {
+		if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
+			return nil, err
+		}
 	}
 	if b.candidateReady != nil {
 		b.candidateReady(cands[0].files)
 	}
 	var firstErr error
-	for _, c := range cands {
+	for i, c := range cands {
+		b.memberISOs = nil
 		p, err := b.planFor(ctx, c)
+		if err == nil && isISOName(p.name) {
+			// A disc image, plain, split or inside an archive: play its
+			// main feature, not the image. Further discs of the release join it.
+			p, err = b.expandISO(ctx, p, b.isoSiblings(cands, i))
+		}
 		if err == nil {
 			b.e.log.Debug("stream plan", "kind", p.kind, "name", p.name, "size", p.size, "volumes", len(p.vols))
 			// A PAR2 index already loaded (obfuscated post, or a health
@@ -159,7 +175,15 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		// Only fall through to smaller candidates when this one simply had
 		// no video; a broken or protected main archive rejects the release.
 		if !errors.Is(err, ErrNoPlayableFile) {
-			return nil, err
+			if !hinted || !IsRejection(err) {
+				return nil, err
+			}
+			// Report the set's real fault over another set's "no such
+			// episode" when nothing plays.
+			if firstErr == nil || errors.Is(firstErr, ErrNoPlayableFile) {
+				firstErr = err
+			}
+			continue
 		}
 		if firstErr == nil {
 			firstErr = err
@@ -179,8 +203,8 @@ func (b *builder) candidates(files []*postedFile) []candidate {
 		f := pf.file
 		byFile[f] = pf
 		switch {
-		case f.Info.Kind == nzb.KindVideo && !f.Info.Sample && !f.Info.Extra:
-			out = append(out, candidate{kind: nzb.KindVideo, files: []*postedFile{pf}, bytes: f.Bytes()})
+		case (f.Info.Kind == nzb.KindVideo || f.Info.Kind == nzb.KindISO) && !f.Info.Sample && !f.Info.Extra:
+			out = append(out, candidate{kind: f.Info.Kind, files: []*postedFile{pf}, bytes: f.Bytes()})
 		case f.Info.Kind.IsArchive():
 			vols = append(vols, f)
 		}
@@ -188,7 +212,7 @@ func (b *builder) candidates(files []*postedFile) []candidate {
 	for _, s := range nzb.GroupSets(vols) {
 		if s.Kind == nzb.KindSplit && len(s.Volumes) > 0 {
 			switch nzb.Classify("x." + s.Volumes[0].Info.Ext).Kind {
-			case nzb.KindVideo, nzb.KindUnknown, nzb.KindSplit:
+			case nzb.KindVideo, nzb.KindISO, nzb.KindUnknown, nzb.KindSplit:
 			default:
 				continue // e.g. a split .iso; "name.2024.001" stays (sniffed)
 			}
@@ -219,7 +243,7 @@ func (b *builder) planFor(ctx context.Context, c candidate) (*plan, error) {
 		}
 	}
 	switch c.kind {
-	case nzb.KindVideo:
+	case nzb.KindVideo, nzb.KindISO:
 		return b.planPlain(ctx, c.files[0])
 	case nzb.KindRAR:
 		return b.planRAR(ctx, c.files)

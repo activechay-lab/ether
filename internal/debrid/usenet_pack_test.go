@@ -129,3 +129,43 @@ func TestEpisodeNZBPrefersTheEpisodesOwnPar2Index(t *testing.T) {
 		t.Fatalf("files = %+v", doc.Files)
 	}
 }
+
+func TestEpisodeNZBKeepsOpaqueArchiveSetWithEpisodeHint(t *testing.T) {
+	data := packNZB(
+		`&quot;q9Zr7Tb2Wc8Hn4Jd.part001.rar&quot; yEnc (1/1)`,
+		`&quot;q9Zr7Tb2Wc8Hn4Jd.part002.rar&quot; yEnc (1/1)`,
+		`&quot;q9Zr7Tb2Wc8Hn4Jd.par2&quot; yEnc (1/1)`,
+		`&quot;q9Zr7Tb2Wc8Hn4Jd.vol000+01.par2&quot; yEnc (1/1)`,
+	)
+	out, err := EpisodeNZB(data, &core.ReleaseTarget{Season: 3, Episode: 4, AbsoluteEpisode: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := nzb.Parse(out)
+	if len(doc.Files) != 3 {
+		t.Fatalf("want both volumes and the index, got %d files", len(doc.Files))
+	}
+	h, ok := doc.EpisodeHint()
+	if !ok || h.Season != 3 || h.Episode != 4 || h.Absolute != 24 {
+		t.Fatalf("hint = %+v %v", h, ok)
+	}
+	if doc.Password() != "pw" {
+		t.Fatalf("password lost: %q", doc.Password())
+	}
+	// A different episode is a different document, so a separate release.
+	other, _ := EpisodeNZB(data, &core.ReleaseTarget{Season: 3, Episode: 5})
+	if string(other) == string(out) {
+		t.Fatal("episode hints did not change the document")
+	}
+}
+
+func TestEpisodeNZBNamedSetsNeverFallBackToOpaqueArchive(t *testing.T) {
+	// Every set names its episode, so a missing episode stays missing.
+	data := packNZB(
+		`&quot;Show.S01E01.part1.rar&quot; yEnc (1/1)`,
+		`&quot;Show.S01E02.part1.rar&quot; yEnc (1/1)`,
+	)
+	if _, err := EpisodeNZB(data, &core.ReleaseTarget{Season: 1, Episode: 7}); err == nil {
+		t.Fatal("expected error")
+	}
+}

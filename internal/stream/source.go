@@ -201,12 +201,23 @@ func (s *source) readAtWithPriority(parent context.Context, p []byte, off int64,
 
 // read fills p (within the video) at off.
 func (s *source) read(ctx context.Context, p []byte, off int64, prio core.Priority) (int, error) {
-	return s.readWithDamageRecovery(ctx, p, off, prio)
+	n, err := s.readWithDamageRecovery(ctx, p, off, prio)
+	if len(s.plan.spans) > 0 && n > 0 {
+		// A multi-clip Blu-ray feature gets one continuous timeline.
+		raw := func(dst []byte, from int64) (int, error) { return s.readWithDamageRecovery(ctx, dst, from, prio) }
+		if rerr := remux(s.plan.spans, p[:n], off, raw); rerr != nil {
+			return 0, rerr // p holds timestamps only partly rewritten
+		}
+	}
+	return n, err
 }
 
 // readPlan reads video bytes through the plan's layout, verifying volumes
 // before serving from them.
 func readPlan(ctx context.Context, e *Engine, rel *release, p *plan, buf []byte, off int64, prio core.Priority, fo fetchOpts) (int, error) {
+	if len(p.sub) > 0 {
+		return readSub(ctx, e, rel, p, buf, off, prio, fo)
+	}
 	if p.encrypted != nil {
 		return readEncryptedPlan(ctx, e, rel, p, buf, off, prio, fo)
 	}

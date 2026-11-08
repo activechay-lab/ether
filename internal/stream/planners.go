@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/archive"
 	"github.com/braedonsaunders/ether/internal/nzb"
 	"github.com/braedonsaunders/ether/internal/par2"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
 // planPlain maps a posted video file directly.
@@ -40,7 +41,7 @@ func (b *builder) planPlain(ctx context.Context, pf *postedFile) (*plan, error) 
 	if (pf.file.Obfuscated || name == "" || nzb.IsObfuscated(name)) && seg.name != "" && !nzb.IsObfuscated(seg.name) {
 		name = path.Base(seg.name)
 	}
-	if !nzb.IsVideoExt(strings.TrimPrefix(path.Ext(name), ".")) {
+	if !nzb.IsVideoExt(strings.TrimPrefix(path.Ext(name), ".")) && !isISOName(name) {
 		ext := pf.file.Info.Ext
 		if ext == "" {
 			ext = sniffVideoExt(seg.data)
@@ -75,7 +76,7 @@ func (b *builder) planSplit(ctx context.Context, vols []*postedFile) (*plan, err
 		return nil, fmt.Errorf("stream: %s archive split into plain volumes: %w", f, ErrUnsupported)
 	}
 	ext := vols[0].file.Info.Ext
-	if !nzb.IsVideoExt(ext) && !looksLikeVideo(head) {
+	if !nzb.IsVideoExt(ext) && !strings.EqualFold(ext, "iso") && !looksLikeVideo(head) {
 		return nil, fmt.Errorf("%w: split set %s is not a video", ErrNoPlayableFile, vols[0].Name())
 	}
 	name := vols[0].Name()
@@ -101,6 +102,12 @@ func (b *builder) planRAR(ctx context.Context, vols []*postedFile) (*plan, error
 		return nil, err
 	}
 	n := len(vols)
+	if _, ok := b.rel.doc.EpisodeHint(); ok && n > 1 {
+		// A season in one archive: the wanted episode is not the member that
+		// spans the set from volume 1, so the uniform-layout shortcut below
+		// does not apply. Read every volume's headers.
+		return b.rarFullScan(ctx, vols)
+	}
 	var v0 *archive.RARVolume
 	if n == 1 || vols[0].SizeKnown() {
 		if err := b.heads(ctx, vols[:1]); err != nil {
@@ -264,37 +271,61 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 	if err != nil {
 		return nil, fmt.Errorf("stream: rar %s: %w", vols[0].Name(), err)
 	}
-	m := chooseMember(members)
+	m := b.chooseMember(members)
 	if m == nil {
 		return nil, fmt.Errorf("%w: rar %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
-	if m.Encrypted && b.rel.doc.Password() == "" {
-		return nil, archive.ErrPasswordRequired
-	}
-	if err := m.Streamable(); err != nil {
-		return nil, fmt.Errorf("stream: rar %s: %s: %w", vols[0].Name(), m.Name, err)
-	}
-	info := make([]volInfo, len(vols))
-	verified := make([]bool, len(vols))
-	for k := range vols {
-		info[k] = volInfo{size: vols[k].Size()}
-		verified[k] = true
-	}
-	if m.Encryption != nil {
-		return b.encryptedPlan(ctx, kindRAR, m, vols, info)
-	}
-	for _, x := range m.Extents {
-		if x.Volume < 0 || x.Volume >= len(vols) {
-			return nil, fmt.Errorf("stream: rar extent in volume %d of %d: %w", x.Volume, len(vols), ErrCorrupt)
+	plan := func(m *archive.Member) (*plan, error) {
+		if m.Encrypted && b.rel.doc.Password() == "" {
+			return nil, archive.ErrPasswordRequired
 		}
-		if info[x.Volume].dataSize != 0 {
-			return nil, fmt.Errorf("stream: rar member %s has two extents in volume %d: %w", m.Name, x.Volume, ErrUnsupported)
+		if err := m.Streamable(); err != nil {
+			return nil, fmt.Errorf("stream: rar %s: %s: %w", vols[0].Name(), m.Name, err)
 		}
-		info[x.Volume].dataOff, info[x.Volume].dataSize = x.Offset, x.Size
+		info := make([]volInfo, len(vols))
+		verified := make([]bool, len(vols))
+		for k := range vols {
+			info[k] = volInfo{size: vols[k].Size()}
+			verified[k] = true
+		}
+		if m.Encryption != nil {
+			return b.encryptedPlan(ctx, kindRAR, m, vols, info)
+		}
+		for _, x := range m.Extents {
+			if x.Volume < 0 || x.Volume >= len(vols) {
+				return nil, fmt.Errorf("stream: rar extent in volume %d of %d: %w", x.Volume, len(vols), ErrCorrupt)
+			}
+			if info[x.Volume].dataSize != 0 {
+				return nil, fmt.Errorf("stream: rar member %s has two extents in volume %d: %w", m.Name, x.Volume, ErrUnsupported)
+			}
+			info[x.Volume].dataOff, info[x.Volume].dataSize = x.Offset, x.Size
+		}
+		p := newPlan(b.rel, kindRAR, path.Base(m.Name), m.Size, vols, info, verified)
+		p.member = m.Name
+		return p, p.init()
 	}
-	p := newPlan(b.rel, kindRAR, path.Base(m.Name), m.Size, vols, info, verified)
-	p.member = m.Name
-	return p, p.init()
+	p, err := plan(m)
+	if err == nil && isISOName(p.name) {
+		b.stashDiscs(members, m, plan)
+	}
+	return p, err
+}
+
+// stashDiscs plans the archive's other disc images, the further discs of a
+// multi-disc release, for expandISO to join.
+func (b *builder) stashDiscs(members []archive.Member, chosen *archive.Member, plan func(*archive.Member) (*plan, error)) {
+	for i := range members {
+		m := &members[i]
+		if len(b.memberISOs) >= maxDiscSiblings {
+			return
+		}
+		if m.Dir || m.Name == chosen.Name || nzb.Classify(m.Name).Kind != nzb.KindISO || m.Size <= 0 {
+			continue
+		}
+		if p, err := plan(m); err == nil {
+			b.memberISOs = append(b.memberISOs, p)
+		}
+	}
 }
 
 // plan7z maps the main video inside a copy-method 7z set.
@@ -368,19 +399,26 @@ func (b *builder) plan7z(ctx context.Context, vols []*postedFile) (*plan, error)
 	if err != nil {
 		return nil, fmt.Errorf("stream: 7z %s: %w", vols[0].Name(), err)
 	}
-	m := chooseMember(members)
+	m := b.chooseMember(members)
 	if m == nil {
 		return nil, fmt.Errorf("%w: 7z %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
-	if err := m.Streamable(); err != nil {
-		return nil, fmt.Errorf("stream: 7z %s: %s: %w", vols[0].Name(), m.Name, err)
+	plan := func(m *archive.Member) (*plan, error) {
+		if err := m.Streamable(); err != nil {
+			return nil, fmt.Errorf("stream: 7z %s: %s: %w", vols[0].Name(), m.Name, err)
+		}
+		if m.Encryption != nil {
+			return b.encryptedPlan(ctx, kind7z, m, vols, info)
+		}
+		p := newPlan(b.rel, kind7z, path.Base(m.Name), m.Size, vols, info, verified)
+		p.concatExt = m.Extents
+		return p, p.init()
 	}
-	if m.Encryption != nil {
-		return b.encryptedPlan(ctx, kind7z, m, vols, info)
+	p, err := plan(m)
+	if err == nil && isISOName(p.name) {
+		b.stashDiscs(members, m, plan)
 	}
-	p := newPlan(b.rel, kind7z, path.Base(m.Name), m.Size, vols, info, verified)
-	p.concatExt = m.Extents
-	return p, p.init()
+	return p, err
 }
 
 // planZIP maps the main video inside a store-mode ZIP or ZIP64 set (.zip,
@@ -419,7 +457,7 @@ func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error
 	if err != nil {
 		return nil, fmt.Errorf("stream: zip %s: %w", vols[0].Name(), err)
 	}
-	m := chooseMember(members)
+	m := b.chooseMember(members)
 	if m == nil {
 		return nil, fmt.Errorf("%w: zip %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
@@ -429,6 +467,26 @@ func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error
 	p := newPlan(b.rel, kindZIP, path.Base(m.Name), m.Size, vols, info, verified)
 	p.concatExt = m.Extents
 	return p, p.init()
+}
+
+// chooseMember is chooseMember restricted to the episode the NZB asks for
+// (nzb.MetaEpisode), when it names one. A member that is not that episode is
+// never played in its place.
+func (b *builder) chooseMember(members []archive.Member) *archive.Member {
+	h, ok := b.rel.doc.EpisodeHint()
+	if !ok {
+		return chooseMember(members)
+	}
+	var matching []archive.Member
+	for _, m := range members {
+		info := releaseparse.Parse(path.Base(strings.ReplaceAll(m.Name, `\`, "/")))
+		if releaseparse.EpisodeMatches(info, h.Season, h.Episode) ||
+			(h.Absolute > 0 && releaseparse.EpisodeMatchesAbsolute(info, h.Absolute)) ||
+			(len(info.Episodes) == 0 && releaseparse.ClassicPackEpisodeMatches(m.Name, h.Season, h.Episode)) {
+			matching = append(matching, m)
+		}
+	}
+	return chooseMember(matching)
 }
 
 // pickRARFile chooses the likely video among the file headers of a volume.
@@ -535,7 +593,7 @@ func (b *builder) checkCachedRAR(ctx context.Context, c candidate) error {
 // is not a sample or extra; failing that (obfuscated inner names), the
 // largest file without a known non-video type if it dominates the archive.
 func chooseMember(members []archive.Member) *archive.Member {
-	var best, anon *archive.Member
+	var best, disc, anon *archive.Member
 	var total int64
 	for i := range members {
 		m := &members[i]
@@ -549,6 +607,10 @@ func chooseMember(members []archive.Member) *archive.Member {
 			if best == nil || m.Size > best.Size {
 				best = m
 			}
+		case info.Kind == nzb.KindISO:
+			if disc == nil || m.Size > disc.Size {
+				disc = m
+			}
 		case info.Kind == nzb.KindUnknown:
 			if anon == nil || m.Size > anon.Size {
 				anon = m
@@ -557,6 +619,9 @@ func chooseMember(members []archive.Member) *archive.Member {
 	}
 	if best != nil {
 		return best
+	}
+	if disc != nil {
+		return disc // no video, but a disc image: its main feature plays
 	}
 	if anon != nil && (anon.Size*2 >= total || (anon.Size < 0 && total == 0)) {
 		return anon

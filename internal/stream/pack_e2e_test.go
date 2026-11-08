@@ -3,9 +3,13 @@ package stream
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"path"
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/archive/archivetest"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/debrid"
 	"github.com/braedonsaunders/ether/internal/par2/par2test"
@@ -89,4 +93,133 @@ func TestSeasonPackEndToEnd(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A season posted as one RAR set holds every episode as a member, and the set's
+// name (often obfuscated) says nothing about them. The episode NZB keeps the
+// set whole and hints the wanted episode; the engine plays that member.
+func TestSeasonInOneArchiveEndToEnd(t *testing.T) {
+	members := []archivetest.RARFile{
+		{Name: "Show 1x01 First (GRP).mkv", Data: mkvBytes(81, 700_000)},
+		{Name: "Show 1x02 Second (GRP).mkv", Data: mkvBytes(82, 900_000)},
+		{Name: "Show 1x03 Third (GRP).mkv", Data: mkvBytes(83, 800_000)},
+	}
+	vols := buildRAR(t, members, archivetest.RAROptions{Version: 5, VolumeSize: 300_000})
+	var files []postFile
+	for k, v := range vols {
+		files = append(files, postFile{name: fmt.Sprintf("q9Zr7Tb2Wc8Hn4Jd.part%03d.rar", k+1), data: v})
+	}
+	pack := post(t, newFakeFetcher(), 50_000, files...) // names only; articles are posted per case below
+
+	for _, tc := range []struct {
+		episode int
+		want    int // index into members, -1 for none
+	}{{1, 0}, {2, 1}, {3, 2}, {9, -1}} {
+		t.Run(fmt.Sprintf("episode %d", tc.episode), func(t *testing.T) {
+			f := newFakeFetcher()
+			post(t, f, 50_000, files...)
+			doc, err := debrid.EpisodeNZB(pack, &core.ReleaseTarget{Season: 1, Episode: tc.episode})
+			if err != nil {
+				t.Fatalf("EpisodeNZB: %v", err)
+			}
+			e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+			if tc.want < 0 {
+				if _, err := e.Open(context.Background(), "season", doc); !errors.Is(err, ErrNoPlayableFile) {
+					t.Fatalf("Open = %v, want ErrNoPlayableFile (never another episode)", err)
+				}
+				return
+			}
+			src := openSource(t, e, "season", doc)
+			want := members[tc.want]
+			if src.Name() != want.Name || src.Size() != int64(len(want.Data)) {
+				t.Fatalf("played %q (%d bytes), want %q (%d bytes)", src.Name(), src.Size(), want.Name, len(want.Data))
+			}
+			got, err := io.ReadAll(io.NewSectionReader(src, 0, src.Size()))
+			if err != nil || !bytes.Equal(got, want.Data) {
+				t.Fatalf("content differs from the member: %v", err)
+			}
+		})
+	}
+}
+
+// archiveSeason builds a pack NZB from archives of the given member names and
+// returns the episode NZB cut for season 3, episode ep, with its fetcher.
+func archiveSeason(t *testing.T, names []string, ep int, perEpisodeSets []string, sevenZip bool) (*fakeFetcher, []byte, [][]byte) {
+	t.Helper()
+	f := newFakeFetcher()
+	data := make([][]byte, len(names))
+	for i := range names {
+		data[i] = mkvBytes(uint64(90+i), 600_000+i*50_000)
+	}
+	var files []postFile
+	switch {
+	case sevenZip:
+		var ms []archivetest.SevenZipFile
+		for i, n := range names {
+			ms = append(ms, archivetest.SevenZipFile{Name: n, Data: data[i]})
+		}
+		for k, v := range cut(archivetest.Build7zCopy(ms, false), 250_000) {
+			files = append(files, postFile{name: fmt.Sprintf("q9Zr7Tb2Wc8Hn4Jd.7z.%03d", k+1), data: v})
+		}
+	case len(perEpisodeSets) > 0:
+		for i, n := range names {
+			vols := buildRAR(t, []archivetest.RARFile{{Name: n, Data: data[i]}}, archivetest.RAROptions{Version: 5, VolumeSize: 250_000})
+			for k, v := range vols {
+				files = append(files, postFile{name: fmt.Sprintf("%s.part%03d.rar", perEpisodeSets[i], k+1), data: v})
+			}
+		}
+	default:
+		var ms []archivetest.RARFile
+		for i, n := range names {
+			ms = append(ms, archivetest.RARFile{Name: n, Data: data[i]})
+		}
+		for k, v := range buildRAR(t, ms, archivetest.RAROptions{Version: 5, VolumeSize: 250_000}) {
+			files = append(files, postFile{name: fmt.Sprintf("q9Zr7Tb2Wc8Hn4Jd.part%03d.rar", k+1), data: v})
+		}
+	}
+	pack := post(t, f, 50_000, files...)
+	doc, err := debrid.EpisodeNZB(pack, &core.ReleaseTarget{Season: 3, Episode: ep})
+	if err != nil {
+		t.Fatalf("EpisodeNZB: %v", err)
+	}
+	return f, doc, data
+}
+
+// The member naming styles a season held in archives uses, and the layouts
+// around them: each must play the requested episode's own member.
+func TestSeasonArchiveScenarios(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		members  []string
+		sets     []string // one obfuscated set per episode
+		sevenZip bool
+	}{
+		{name: "one set, 3x02 names", members: []string{"Show 3x01 A.mkv", "Show 3x02 B.mkv", "Show 3x03 C.mkv"}},
+		{name: "one set, SxxExx in a folder", members: []string{"Show.S03/Show.S03E01.mkv", "Show.S03/Show.S03E02.mkv", "Show.S03/Show.S03E03.mkv"}},
+		{name: "one set, bare E02 in a season folder", members: []string{"Temporada 3/E01.mkv", "Temporada 3/E02.mkv", "Temporada 3/E03.mkv"}},
+		{name: "one set, classic numbering in a season folder", members: []string{"Season 3/01 - A.mkv", "Season 3/02 - B.mkv", "Season 3/03 - C.mkv"}},
+		{name: "one obfuscated set per episode", members: []string{"Show 3x01 A.mkv", "Show 3x02 B.mkv", "Show 3x03 C.mkv"}, sets: []string{"aZ1xQ9wE", "bK2yR8vF", "cL3zS7uG"}},
+		{name: "7z season", members: []string{"Show 3x01 A.mkv", "Show 3x02 B.mkv", "Show 3x03 C.mkv"}, sevenZip: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, doc, data := archiveSeason(t, tc.members, 2, tc.sets, tc.sevenZip)
+			e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+			src := openSource(t, e, "season", doc)
+			if src.Name() != path.Base(tc.members[1]) || src.Size() != int64(len(data[1])) {
+				t.Fatalf("played %q (%d bytes), want %q (%d bytes)", src.Name(), src.Size(), path.Base(tc.members[1]), len(data[1]))
+			}
+			if got := readAll(t, src, 32<<10); !bytes.Equal(got, data[1]) {
+				t.Fatal("content is not episode 2's")
+			}
+		})
+	}
+
+	// Numbering the members do not state is never guessed: no wrong episode.
+	t.Run("unnumbered members are rejected, not guessed", func(t *testing.T) {
+		f, doc, _ := archiveSeason(t, []string{"Show 301.mkv", "Show 302.mkv", "Show 303.mkv"}, 2, nil, false)
+		e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+		if _, err := e.Open(context.Background(), "season", doc); !errors.Is(err, ErrNoPlayableFile) {
+			t.Fatalf("Open = %v, want ErrNoPlayableFile", err)
+		}
+	})
 }
