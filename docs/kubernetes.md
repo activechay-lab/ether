@@ -163,19 +163,22 @@ is the enforcement boundary. Diagnostics alone never grant authority.
 ## Durable ledger quota
 
 `runtime.capacity` limits concurrent work at a node/resource scope (1–4096).
-`runtime.ledgerCapacity` is the separate cluster-lifetime quota for durable
-session-generation floors: default 1000000, range 4096–10000000. It is at least
-both concurrent capacity and the fixed 4096 boot-history bound. Every replica
-must use the same ledger value. This chart requires the runtime version that
-implements this field; earlier staging candidates reject it as unknown.
+`runtime.ledgerCapacity` is the separate fleet quota on **live** (unretired)
+placement sessions: default 1000000, range 4096–10000000. It is at least
+concurrent capacity. Retired sessions never count against it, so retained
+history can never close admission. Every replica must use the same ledger value.
+This chart requires the runtime version that implements this field; earlier
+staging candidates reject it as unknown.
 
 Placement seeds or verifies a persisted fleet policy under its transaction lock.
 Each new Reserve checks equality with that policy in the same transaction.
-Changing Helm configuration alone never silently raises the quota. When the
-ledger fills, preserve its generation floors; there is no TTL deletion or
-compaction that makes an old generation safe to reuse. Admission status and
-transition logs expose exhaustion. Existing work must remain serviceable when
-new allocations fail closed.
+Changing Helm configuration alone never silently raises the quota. The cluster
+leader compacts terminal sessions (retired, no displaced generation, deadline and
+retirement both older than 24 hours) into one cluster-wide generation floor, so
+the ledger stays proportional to live work plus a day of history, and a compacted
+generation is never issued again. Admission status and transition logs expose
+exhaustion. Existing work must remain serviceable when new allocations fail
+closed.
 
 To raise the quota, first use the trusted local administrative command on one
 healthy pod (example raises 1000000 to 2000000):
@@ -192,7 +195,8 @@ A mismatch or attempted decrease fails. After raising, update the same fleet
 value and use the sequential drain/replacement procedure below. During the
 transition, stale coordinators keep existing work but reject new allocations
 until their configured quota matches. Do not try to bypass the policy by editing
-rows or deleting generation history. Plan this admission interruption before
+rows or deleting generation history by hand: only the leader's compaction raises
+the generation floor that makes deletion safe. Plan this admission interruption before
 raising the quota.
 
 ## Storage, probes and transport

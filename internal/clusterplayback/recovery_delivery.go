@@ -233,13 +233,14 @@ func (s *recoverySession) EncoderDone() <-chan struct{} {
 	if x := s.r.executions[s.route.Fence.Session]; x != nil {
 		return x.done
 	}
-	return s.Session.EncoderDone()
+	// Only a retired execution ever leaves the map (see forgetTerminal).
+	return alreadyDone
 }
 func (s *recoverySession) EncoderErr() error {
 	s.r.mu.Lock()
 	defer s.r.mu.Unlock()
-	if x := s.r.executions[s.route.Fence.Session]; x != nil && x.retired {
-		return nil
+	if x := s.r.executions[s.route.Fence.Session]; x == nil || x.retired {
+		return nil // only a retired execution ever leaves the map
 	}
 	return core.ErrEncoderPending
 }

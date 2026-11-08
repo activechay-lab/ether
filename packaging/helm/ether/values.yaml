@@ -8,7 +8,8 @@ imagePullSecrets: []
 clusterDomain: cluster.local
 runtime:
   capacity: 1
-  # Durable cluster-lifetime generation floors, NOT simultaneous encoder slots.
+  # Fleet quota on live (unretired) placement sessions, NOT simultaneous
+  # encoder slots; retired history never counts and is compacted after 24h.
   # All replicas must agree with the persisted fleet policy.
   ledgerCapacity: 1000000
   # Set true only after verifying synchronized clocks and the stated bound.
