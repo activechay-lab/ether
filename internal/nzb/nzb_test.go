@@ -214,7 +214,7 @@ func TestClassify(t *testing.T) {
 		"Movie.2024.sfv":            {KindSFV, -1, "movie.2024", "sfv", false},
 		"Movie.2024.en.srt":         {KindSubtitle, -1, "movie.2024.en", "srt", false},
 		"cover.jpg":                 {KindImage, -1, "cover", "jpg", false},
-		"Movie.2024.iso":            {KindOther, -1, "movie.2024", "iso", false},
+		"Movie.2024.iso":            {KindISO, -1, "movie.2024", "iso", false},
 		"a1b2c3d4e5f6":              {KindUnknown, -1, "a1b2c3d4e5f6", "", false},
 		"Movie.2024.M2TS":           {KindVideo, -1, "movie.2024", "m2ts", false},
 		"Show.S01E02.720p.HDTV.ts":  {KindVideo, -1, "show.s01e02.720p.hdtv", "ts", false},

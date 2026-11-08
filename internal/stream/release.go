@@ -138,6 +138,11 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 	var firstErr error
 	for _, c := range cands {
 		p, err := b.planFor(ctx, c)
+		if err == nil && isISOName(p.name) {
+			// A disc image, plain, split or inside an archive: play its
+			// main feature, not the image.
+			p, err = b.expandISO(ctx, p)
+		}
 		if err == nil {
 			b.e.log.Debug("stream plan", "kind", p.kind, "name", p.name, "size", p.size, "volumes", len(p.vols))
 			// A PAR2 index already loaded (obfuscated post, or a health
@@ -174,8 +179,8 @@ func (b *builder) candidates(files []*postedFile) []candidate {
 		f := pf.file
 		byFile[f] = pf
 		switch {
-		case f.Info.Kind == nzb.KindVideo && !f.Info.Sample && !f.Info.Extra:
-			out = append(out, candidate{kind: nzb.KindVideo, files: []*postedFile{pf}, bytes: f.Bytes()})
+		case (f.Info.Kind == nzb.KindVideo || f.Info.Kind == nzb.KindISO) && !f.Info.Sample && !f.Info.Extra:
+			out = append(out, candidate{kind: f.Info.Kind, files: []*postedFile{pf}, bytes: f.Bytes()})
 		case f.Info.Kind.IsArchive():
 			vols = append(vols, f)
 		}
@@ -183,7 +188,7 @@ func (b *builder) candidates(files []*postedFile) []candidate {
 	for _, s := range nzb.GroupSets(vols) {
 		if s.Kind == nzb.KindSplit && len(s.Volumes) > 0 {
 			switch nzb.Classify("x." + s.Volumes[0].Info.Ext).Kind {
-			case nzb.KindVideo, nzb.KindUnknown, nzb.KindSplit:
+			case nzb.KindVideo, nzb.KindISO, nzb.KindUnknown, nzb.KindSplit:
 			default:
 				continue // e.g. a split .iso; "name.2024.001" stays (sniffed)
 			}
@@ -214,7 +219,7 @@ func (b *builder) planFor(ctx context.Context, c candidate) (*plan, error) {
 		}
 	}
 	switch c.kind {
-	case nzb.KindVideo:
+	case nzb.KindVideo, nzb.KindISO:
 		return b.planPlain(ctx, c.files[0])
 	case nzb.KindRAR:
 		return b.planRAR(ctx, c.files)

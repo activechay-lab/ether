@@ -21,10 +21,11 @@ const (
 	KindSFV
 	KindSubtitle
 	KindImage
-	KindOther // known but irrelevant (.txt, .nzb, .srr, .iso, ...)
+	KindOther // known but irrelevant (.txt, .nzb, .srr, ...)
+	KindISO   // a disc image (.iso), played by its main feature
 )
 
-var kindNames = [...]string{"unknown", "video", "rar", "7z", "split", "par2", "nfo", "sfv", "subtitle", "image", "other"}
+var kindNames = [...]string{"unknown", "video", "rar", "7z", "split", "par2", "nfo", "sfv", "subtitle", "image", "other", "iso"}
 
 func (k Kind) String() string {
 	if int(k) < len(kindNames) {
@@ -65,7 +66,7 @@ var videoExts = map[string]bool{
 var subtitleExts = map[string]bool{"srt": true, "sub": true, "idx": true, "ass": true, "ssa": true, "vtt": true, "sup": true}
 var imageExts = map[string]bool{"jpg": true, "jpeg": true, "png": true, "gif": true, "bmp": true, "webp": true}
 var otherExts = map[string]bool{
-	"txt": true, "nzb": true, "srr": true, "iso": true, "img": true, "url": true, "exe": true,
+	"txt": true, "nzb": true, "srr": true, "img": true, "url": true, "exe": true,
 	"zip": true, "md5": true, "sha1": true, "db": true, "log": true, "cue": true, "nfo2": true,
 }
 
@@ -147,6 +148,8 @@ func Classify(name string) FileInfo {
 		info.Kind = KindUnknown
 	case videoExts[ext]:
 		info.Kind = KindVideo
+	case ext == "iso":
+		info.Kind = KindISO
 	case ext == "nfo":
 		info.Kind = KindNFO
 	case ext == "sfv":
