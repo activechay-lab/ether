@@ -306,6 +306,7 @@ func hashFile(path string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
 // Create takes a snapshot with everything, On Air media included.
 func (s *Service) Create(ctx context.Context) (Snapshot, error) { return s.create(ctx, true) }
 
