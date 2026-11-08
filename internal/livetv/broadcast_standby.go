@@ -145,9 +145,6 @@ func (p *providerBroadcastPlanner) watchStandby(ctx context.Context) {
 		}
 		stressed := a.decoder.stressed(now)
 		h, healthy := p.s.inputHealth(a.link.ss)
-		p.mu.Lock()
-		p.health, p.healthOK, p.healthFrom = h, healthy, a
-		p.mu.Unlock()
 		if healthy && (!h.Connected || h.Stalled || h.Failed || h.DataAge > steadyStress) {
 			stressed = true
 		}

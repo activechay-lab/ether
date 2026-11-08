@@ -193,6 +193,7 @@ func (c *Catalog) Run(ctx context.Context) {
 	}()
 	go c.refreshRatingsLoop(ctx)
 	go c.refreshShowAddedLoop(ctx)
+	go c.foldBrowseTallyLoop(ctx)
 	go c.correctMovieYears(ctx)
 	full := schedule.New(c.now(), c.untilDue(ctx))
 	// Preserve the existing resume behavior while the gate is off. If the

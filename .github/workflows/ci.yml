@@ -135,6 +135,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 45
+    env:
+      GOEXPERIMENT: simd
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -260,6 +262,45 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build ./...
+      - name: Build Windows ARM64 with portable yEnc fallback
+        if: runner.os == 'Linux' && matrix.shard == 'rest'
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: simd
+          GOOS: windows
+          GOARCH: arm64
+        run: go build ./...
+      - name: Test yEnc portable SWAR fallback
+        if: matrix.shard == 'rest' || matrix.shard == 'all'
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: ""
+        run: go test ./internal/yenc ./internal/usenet
+      - name: Test RapidYenc pure-Go SIMD response path
+        if: matrix.shard == 'rest' || matrix.shard == 'all'
+        env:
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./internal/usenet -run '^TestRapid'
+      - name: Race-check RapidYenc pure-Go SIMD response path
+        if: runner.os == 'macOS' && matrix.shard == 'all'
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: simd
+        run: go test -race -count=1 -timeout=8m ./internal/usenet ./internal/yenc ./internal/stream
+      - name: Fuzz RapidYenc pure-Go SIMD response path
+        if: runner.os == 'Linux' && matrix.shard == 'rest'
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: simd
+        run: go test ./internal/usenet -run '^$' -fuzz '^FuzzRapidDifferential$' -fuzztime=100000x -parallel=2 -timeout=3m
+      - name: Test yEnc without AVX2
+        if: runner.os == 'Linux' && matrix.shard == 'rest'
+        env:
+          CGO_ENABLED: "0"
+          GODEBUG: cpu.avx2=off
+        run: |
+          go test -count=1 ./internal/yenc
+          go test -count=1 ./internal/usenet -run '^TestRapid'
       - name: Verify bundled TMDB linker symbol
         if: matrix.shard == 'rest' || matrix.shard == 'all'
         env:
@@ -277,9 +318,9 @@ jobs:
           CGO_ENABLED: "1"
         run: go vet ./cmd/ether-tray/
       - name: Test (Linux race shard)
-        # -race needs CGO; the code under test is identical to the CGO=0
-        # build except the macOS tray GUI file, which is excluded here on
-        # macOS by CGO_ENABLED=0 for the test step below instead.
+        # Linux -race needs CGO, so these runs use the SWAR decoder.
+        # Pure-Go SIMD race coverage runs separately on macOS above.
+        # macOS uses CGO_ENABLED=0 below to exclude the tray GUI.
         if: runner.os == 'Linux'
         shell: bash
         env:

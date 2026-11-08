@@ -37,21 +37,7 @@ type providerBroadcastPlanner struct {
 	retryAt    time.Time
 	lastStress time.Time
 	retry      func() // asks the clock to replace the current input now
-	// health is the current attempt's upstream health, sampled off the frame
-	// clock by watchStandby: reading it takes relay and tap locks that
-	// upstream I/O can hold, and the clock must never wait on those.
-	health     UpstreamHealth
-	healthOK   bool
-	healthFrom *steadyAttempt
-	waiting    bool // failed() scheduled a later retry than now
-}
-
-// cachedHealth is the last health sample of attempt a.
-func (p *providerBroadcastPlanner) cachedHealthLocked(a *steadyAttempt) (UpstreamHealth, bool) {
-	if a == nil || p.healthFrom != a {
-		return UpstreamHealth{}, false
-	}
-	return p.health, p.healthOK
+	waiting    bool   // failed() scheduled a later retry than now
 }
 
 // steadyLink is one granted provider input: the relay grant (and with it the
@@ -148,10 +134,11 @@ func (p *providerBroadcastPlanner) plans(now time.Time) (broadcastPlan, *broadca
 // never stops publishing, so the 3 s (1.5x target) client limit holds.
 func (p *providerBroadcastPlanner) coldWait() time.Duration { return 4 * time.Second }
 func (p *providerBroadcastPlanner) startupLead() time.Duration {
-	// A transport stream's only reserve is what its provider sends on
-	// connect: spend at most one segment of it on the client's cushion, so
-	// a cold tune stays under five seconds. A playlist input joins its
-	// reserve plus the cushion deeper (grantSteadyInputLead), so it bursts.
+	// A playlist input joined steadyStartLead deeper than its reserve, so the
+	// burst spends that backlog, not the reserve. A transport stream's reserve
+	// is only what its provider sent on connect, which no deeper join can
+	// extend: it spends one segment of it, and without a backlog the cushion
+	// builds in real time while the tune waits for it.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.primed != nil && p.primed.format == "mpegts" {
@@ -195,8 +182,12 @@ func (p *providerBroadcastPlanner) keepStalled(stalledFor time.Duration) bool {
 		return false
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	h, ok := p.cachedHealthLocked(p.attempt)
+	a := p.attempt
+	p.mu.Unlock()
+	if a == nil {
+		return false
+	}
+	h, ok := p.s.inputHealth(a.link.ss)
 	return ok && !h.Failed
 }
 
@@ -222,7 +213,7 @@ func (p *providerBroadcastPlanner) failed(err error) time.Time {
 	// readers saw the end, so the ladder skips straight to the next source.
 	tapped := a.link.format == "mpegts"
 	failover := false
-	if h, ok := p.cachedHealthLocked(a); ok {
+	if h, ok := p.s.inputHealth(a.link.ss); ok {
 		tapped = h.Kind == "ts"
 		failover = h.Failed
 	}
@@ -231,6 +222,11 @@ func (p *providerBroadcastPlanner) failed(err error) time.Time {
 		p.s.recordSourceHealth(p.channel.ID, a.src, err, false)
 	}
 	at := p.ladder.failed(a.src.ID, err, aired, failover, sourceIDs(candidates), now)
+	if failover && p.ladder.next == a.src.ID {
+		// The tap gave up on this source and its readers ended: what it
+		// buffered has aired. Rejoin at the live edge rather than re-decode it.
+		p.ladder.liveEdge = true
+	}
 	if sb := p.standby; sb != nil && !changed && sb.src.ID != a.src.ID && sb.ready() {
 		// Hot standby: the backup is already decoding at its live edge.
 		p.ladder.next, p.ladder.liveEdge = sb.src.ID, false
@@ -280,16 +276,22 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 				src = candidate
 			}
 		}
+		// Closing a link can close an upstream connection synchronously;
+		// never do that under p.mu, which the frame clock also takes.
+		var retired []*steadyLink
 		if sb := p.standby; sb != nil && sb.src.ID == id && sb.ready() {
 			p.standby = nil
 			if p.link != sb.link {
-				p.link.close(p.s)
+				retired = append(retired, p.link)
 			}
 			p.link = sb.link
 			p.ladder.opened(id, now)
 			decoder := p.wrap(ctx, src, nil, sb.adopt(), 0)
 			p.attempt = &steadyAttempt{src: src, link: sb.link, decoder: decoder}
 			p.mu.Unlock()
+			for _, l := range retired {
+				l.close(p.s)
+			}
 			p.logger().Info("live input switched to standby", "input", id)
 			return decoder, nil, nil
 		}
@@ -299,18 +301,21 @@ func (p *providerBroadcastPlanner) open(ctx context.Context) (transcode.Decoder,
 			if primed.src.ID == id && link == nil {
 				link = primed
 			} else {
-				primed.close(p.s)
+				retired = append(retired, primed)
 			}
 		}
 		if link != nil && (link.src.ID != id || link.src.URL != src.URL || link.uses >= steadyMaxLinkUses) {
 			// One provider connection per account while one is live: release
 			// the previous input before reserving another. A link used for every
 			// opening rung is re-resolved, refreshing expiring provider URLs.
-			link.close(p.s)
+			retired = append(retired, link)
 			link = nil
 		}
 		p.link = link
 		p.mu.Unlock()
+		for _, l := range retired {
+			l.close(p.s)
+		}
 		if link == nil {
 			var err error
 			link, err = p.s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID, 0)

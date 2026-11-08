@@ -230,10 +230,10 @@ type hlsInput struct {
 	segs    map[string]int64    // upstream segment URL -> sequence
 	polling map[string]bool
 	// Steady prefetch (reserve_hls_prefetch.go).
-	fetches map[string]*hlsFetch
-	slots   chan struct{}
-	extra   int // fetches running on an extra account slot
-	held    int
+	fetches           map[string]*hlsFetch
+	queue             []*hlsFetch // waiting, in playlist order
+	fetching, helping bool        // the own fetcher and the extra-slot helper are running
+	held              int
 }
 
 // hlsList is the state of one provider media playlist.

@@ -379,7 +379,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 				if source, ok := encoder.(interface{ Diagnostics() string }); ok {
 					details = source.Diagnostics()
 				}
-				b.logger.Warn("broadcast encoder stopped accepting pictures", "rendition", id, "blocked", blocked, "encoder", details, "gc", gcSummary())
+				b.logger.Warn("broadcast encoder stopped accepting pictures", "rendition", id, "blocked", blocked, "schedLate", transcode.SchedulerLate(blocked+time.Second), "encoder", details, "gc", gcSummary())
 			}
 		}
 	}()
@@ -665,7 +665,7 @@ func (b *broadcast) run() {
 		}
 		if late := time.Since(scheduled.Add(-b.lead)); !b.bursting && late >= broadcastStallReport && time.Since(b.clockWarned) > 10*time.Second {
 			b.clockWarned = time.Now()
-			b.logger.Warn("broadcast frame clock late", "late", late, "tick", b.tick, "gc", gcSummary())
+			b.logger.Warn("broadcast frame clock late", "late", late, "schedLate", transcode.SchedulerLate(late+time.Second), "tick", b.tick, "gc", gcSummary())
 		}
 		b.tick++
 		next := b.origin.Add(time.Duration(b.tick) * time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)).Add(-b.lead)

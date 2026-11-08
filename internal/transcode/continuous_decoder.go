@@ -32,6 +32,15 @@ type continuousDecoder struct {
 	waitingSince atomic.Int64
 	otherStream  atomic.Int64 // reads index of the stream not waited for
 	otherAtWait  atomic.Int64 // its buffers read when the wait began
+	errorLines   atomic.Int64 // decoder error lines on stderr
+	errorsAtWait atomic.Int64
+}
+
+// StarvingErrors is Starving plus whether the decoders reported errors
+// during the wait: a codec change floods them, interleave jitter does not.
+func (d *continuousDecoder) StarvingErrors() (time.Duration, bool) {
+	starved := d.Starving()
+	return starved, starved > 0 && d.errorLines.Load() > d.errorsAtWait.Load()
 }
 
 // Starving reports how long one elementary stream has delivered nothing
@@ -147,6 +156,9 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 	p, e := m.startContinuous(ctx, args, "", true, sockets, nil, nil, func(line string) {
 		if !r.Live {
 			return
+		}
+		if !strings.Contains(line, "showinfo") && (strings.Contains(line, "rror") || strings.Contains(line, "Invalid data")) {
+			d.errorLines.Add(1)
 		}
 		if strings.Contains(line, "Parsed_ashowinfo") {
 			if at, ok := liveFramePTS(line); ok && at >= 0 {
@@ -304,6 +316,7 @@ func (d *continuousDecoder) receive(p *continuousProcess, ch, other chan []byte,
 		}
 		d.otherStream.Store(stream)
 		d.otherAtWait.Store(d.reads[stream].Load())
+		d.errorsAtWait.Store(d.errorLines.Load())
 		d.waitingSince.Store(time.Now().UnixNano())
 		defer d.waitingSince.Store(0)
 	}
