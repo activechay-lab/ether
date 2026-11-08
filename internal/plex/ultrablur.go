@@ -3,7 +3,7 @@ package plex
 import (
 	"context"
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -16,7 +16,7 @@ func wirePalette(p artworkservice.Palette) model.UltraBlurColors {
 	return model.UltraBlurColors{TopLeft: p.TopLeft, TopRight: p.TopRight, BottomLeft: p.BottomLeft, BottomRight: p.BottomRight}
 }
 
-func (s *Server) ultraBlurFor(key core.RatingKey, backdrop string) *model.UltraBlurColors {
+func (s *Server) ultraBlurFor(key frontend.RatingKey, backdrop string) *model.UltraBlurColors {
 	if s.ultra == nil || backdrop == "" {
 		return nil
 	}
@@ -27,7 +27,7 @@ func (s *Server) ultraBlurFor(key core.RatingKey, backdrop string) *model.UltraB
 	result := wirePalette(*p)
 	return &result
 }
-func (s *Server) preloadUltraBlur(ctx context.Context, titles []core.Title) {
+func (s *Server) preloadUltraBlur(ctx context.Context, titles []frontend.Title) {
 	if s.ultra == nil {
 		return
 	}
@@ -39,4 +39,6 @@ func (s *Server) preloadUltraBlur(ctx context.Context, titles []core.Title) {
 	}
 	s.ultra.Preload(ctx, wants)
 }
-func ultraBlurType(t core.MediaType) bool { return t == core.TypeMovie || t == core.TypeShow }
+func ultraBlurType(t frontend.MediaType) bool {
+	return t == frontend.TypeMovie || t == frontend.TypeShow
+}

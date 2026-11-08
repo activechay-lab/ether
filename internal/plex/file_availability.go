@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
 type fileAvailabilityChecker interface {
-	CheckFileAvailability(context.Context, *core.User, core.RatingKey, core.ClientCaps, string) (bool, error)
+	CheckFileAvailability(context.Context, *frontend.Viewer, frontend.RatingKey, frontend.ClientCaps, string) (bool, error)
 }
 
 // fileCheckBudget bounds one response's file checks; fileCheckParallel bounds
@@ -41,7 +41,7 @@ func (s *Server) projectFileAvailability(r *http.Request, mc *model.MediaContain
 		return
 	}
 	type target struct {
-		key     core.RatingKey
+		key     frontend.RatingKey
 		release string
 	}
 	parts := map[target][]*model.Part{}

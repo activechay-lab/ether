@@ -3,7 +3,7 @@ package plex
 import (
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -16,7 +16,7 @@ const (
 // guardedStart reports whether stalled-start protection covers a session:
 // Dolby Vision sources on any client, and Plex for iOS on any source. Other
 // clients and sources keep their behaviour unchanged.
-func guardedStart(pr *Request, v *core.StreamInfo) bool {
+func guardedStart(pr *Request, v *frontend.StreamInfo) bool {
 	if v != nil && v.DolbyVision {
 		return true
 	}
@@ -26,7 +26,7 @@ func guardedStart(pr *Request, v *core.StreamInfo) bool {
 // checkStartStall feeds one timeline to the guard. It returns the
 // termination text when this client's start stalled, after remembering a
 // Dolby Vision HDR10-base fallback for the next start.
-func (s *Server) checkStartStall(pr *Request, key core.RatingKey, state string, offset time.Duration, tids []string) string {
+func (s *Server) checkStartStall(pr *Request, key frontend.RatingKey, state string, offset time.Duration, tids []string) string {
 	if s.d.Transcoder == nil || pr == nil || pr.User == nil {
 		return ""
 	}
@@ -68,6 +68,6 @@ func (s *Server) checkStartStall(pr *Request, key core.RatingKey, state string, 
 }
 
 // dvBaseOnly reports a remembered Dolby Vision stall for this start.
-func (s *Server) dvBaseOnly(pr *Request, key core.RatingKey) bool {
+func (s *Server) dvBaseOnly(pr *Request, key frontend.RatingKey) bool {
 	return pr != nil && pr.User != nil && s.starts.BaseOnly(sessions.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID, Key: key}, s.now())
 }

@@ -5,7 +5,6 @@ import (
 	"net/url"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -14,8 +13,8 @@ import (
 type plexMetaCtxKey struct{}
 
 type plexMetaBatch struct {
-	rows  map[core.RatingKey]frontend.CachedMetadataOverlay
-	guids map[core.RatingKey]string
+	rows  map[frontend.RatingKey]frontend.CachedMetadataOverlay
+	guids map[frontend.RatingKey]string
 }
 
 func (s *Server) plexMetaOn() bool {
@@ -26,14 +25,14 @@ func (s *Server) plexMetaOn() bool {
 	return cfg.Plex.Claimed && cfg.Plex.UsePlexMetadata
 }
 
-func (s *Server) withPlexMeta(ctx context.Context, keys []core.RatingKey, guids map[core.RatingKey]string) context.Context {
+func (s *Server) withPlexMeta(ctx context.Context, keys []frontend.RatingKey, guids map[frontend.RatingKey]string) context.Context {
 	if !s.plexMetaOn() {
 		return ctx
 	}
 	cached := s.d.PlexMeta.CachedMany(ctx, keys)
 	now := s.now()
-	refresh := make([]core.RatingKey, 0, len(keys))
-	seen := map[core.RatingKey]bool{}
+	refresh := make([]frontend.RatingKey, 0, len(keys))
+	seen := map[frontend.RatingKey]bool{}
 	for _, k := range keys {
 		if k == 0 || seen[k] {
 			continue
@@ -52,7 +51,7 @@ func (s *Server) withPlexMeta(ctx context.Context, keys []core.RatingKey, guids 
 	return context.WithValue(ctx, plexMetaCtxKey{}, plexMetaBatch{rows: cached, guids: guids})
 }
 
-func (s *Server) plexMetaCached(ctx context.Context, k core.RatingKey) (frontend.CachedMetadataOverlay, bool) {
+func (s *Server) plexMetaCached(ctx context.Context, k frontend.RatingKey) (frontend.CachedMetadataOverlay, bool) {
 	if !s.plexMetaOn() || k == 0 {
 		return frontend.CachedMetadataOverlay{}, false
 	}
@@ -76,11 +75,11 @@ func (s *Server) plexMetaCached(ctx context.Context, k core.RatingKey) (frontend
 	return row, true
 }
 
-func (s *Server) plexMetaOverlay(ctx context.Context, k core.RatingKey) (frontend.CachedMetadataOverlay, bool) {
+func (s *Server) plexMetaOverlay(ctx context.Context, k frontend.RatingKey) (frontend.CachedMetadataOverlay, bool) {
 	return s.plexMetaCached(ctx, k)
 }
 
-func (s *Server) plexMetaRatingAllowed(u *core.User, t *core.Title) bool {
+func (s *Server) plexMetaRatingAllowed(u *frontend.Viewer, t *frontend.Title) bool {
 	if !s.needPlexRatingFilter(u) || t == nil {
 		return true
 	}
@@ -88,18 +87,18 @@ func (s *Server) plexMetaRatingAllowed(u *core.User, t *core.Title) bool {
 	return s.plexMetaRatingOK(u, t, row, ok)
 }
 
-func (s *Server) needPlexRatingFilter(u *core.User) bool {
+func (s *Server) needPlexRatingFilter(u *frontend.Viewer) bool {
 	return u != nil && u.MaxContentRating != "" && s.plexMetaOn()
 }
 
-func (s *Server) plexMetaRatingOK(u *core.User, t *core.Title, row frontend.CachedMetadataOverlay, ok bool) bool {
+func (s *Server) plexMetaRatingOK(u *frontend.Viewer, t *frontend.Title, row frontend.CachedMetadataOverlay, ok bool) bool {
 	if !ok || row.ContentRating == "" {
 		return true
 	}
 	return !contentrating.Exceeds(experience.SaferMetadataRating(t.ContentRating, row.ContentRating), u.MaxContentRating)
 }
 
-func (s *Server) plexMetaRatingAllowedCached(u *core.User, t *core.Title, rows map[core.RatingKey]frontend.CachedMetadataOverlay, guids map[core.RatingKey]string) bool {
+func (s *Server) plexMetaRatingAllowedCached(u *frontend.Viewer, t *frontend.Title, rows map[frontend.RatingKey]frontend.CachedMetadataOverlay, guids map[frontend.RatingKey]string) bool {
 	if !s.needPlexRatingFilter(u) || t == nil {
 		return true
 	}
@@ -111,9 +110,9 @@ func (s *Server) plexMetaRatingAllowedCached(u *core.User, t *core.Title, rows m
 	return s.plexMetaRatingOK(u, t, row, true)
 }
 
-func (s *Server) plexMetaRemoteImage(ctx context.Context, key core.RatingKey, element string) string {
+func (s *Server) plexMetaRemoteImage(ctx context.Context, key frontend.RatingKey, element string) string {
 	switch key.Kind() {
-	case core.KindMovie, core.KindShow, core.KindSeason, core.KindEpisode:
+	case frontend.KindMovie, frontend.KindShow, frontend.KindSeason, frontend.KindEpisode:
 	default:
 		return ""
 	}
@@ -150,23 +149,23 @@ func overlayPeople(o frontend.CachedMetadataOverlay, kind string) []frontend.Met
 	return nil
 }
 
-func applyPlexMetaTitle(t *core.Title, o frontend.MetadataOverlay) *core.Title {
+func applyPlexMetaTitle(t *frontend.Title, o frontend.MetadataOverlay) *frontend.Title {
 	cp := *t
 	experience.ApplyMetadataDisplay(&cp, o)
 	return &cp
 }
 
-func applyPlexMetaDates(t *core.Title, m *model.Metadata, o frontend.MetadataOverlay) {
+func applyPlexMetaDates(t *frontend.Title, m *model.Metadata, o frontend.MetadataOverlay) {
 	if o.AvailableAt.IsZero() && o.Year == 0 {
 		return
 	}
-	if t.Type == core.TypeSeason {
+	if t.Type == frontend.TypeSeason {
 		return
 	}
 	if !o.AvailableAt.IsZero() {
 		m.OriginallyAvailableAt = o.AvailableAt.Format("2006-01-02")
 	}
-	if t.Type == core.TypeEpisode {
+	if t.Type == frontend.TypeEpisode {
 		return
 	}
 	if o.Year > 0 {

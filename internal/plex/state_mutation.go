@@ -2,7 +2,7 @@ package plex
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"net/http"
 	"strconv"
@@ -14,7 +14,7 @@ func writeStateMutationOK(w http.ResponseWriter) {
 }
 
 // mutationKey implements the legacy writers' bare-key and refusal order.
-func (s *Server) mutationKey(w http.ResponseWriter, r *http.Request, integer bool) (core.RatingKey, bool) {
+func (s *Server) mutationKey(w http.ResponseWriter, r *http.Request, integer bool) (frontend.RatingKey, bool) {
 	q := r.URL.Query()
 	raw := q.Get("key")
 	pr := FromContext(r.Context())
@@ -35,17 +35,17 @@ func (s *Server) mutationKey(w http.ResponseWriter, r *http.Request, integer boo
 		writeHTTPError(w, 404)
 		return 0, false
 	}
-	key := core.RatingKey(n)
+	key := frontend.RatingKey(n)
 	if err != nil || key == 0 || pr.User == nil || s.d.State == nil {
 		writeHTTPError(w, 404)
 		return 0, false
 	}
-	if key.Kind() == core.KindPlaylist && s.d.Playlists != nil {
+	if key.Kind() == frontend.KindPlaylist && s.d.Playlists != nil {
 		if _, err := s.d.Playlists.Get(r.Context(), pr.User.ID, key); err != nil {
 			s.writeErr(w, r, err)
 			return 0, false
 		}
-	} else if key.Kind() == core.KindCollection || key.Kind() == core.KindSmart {
+	} else if key.Kind() == frontend.KindCollection || key.Kind() == frontend.KindSmart {
 		if _, err := s.collectionRaw(r.Context(), pr.User, key); err != nil {
 			s.writeErr(w, r, err)
 			return 0, false
@@ -65,7 +65,7 @@ func (s *Server) mutationKey(w http.ResponseWriter, r *http.Request, integer boo
 }
 
 // List watch state belongs to the list, never to its members.
-func (s *Server) applyListWatch(ctx context.Context, m *model.Metadata, key core.RatingKey) {
+func (s *Server) applyListWatch(ctx context.Context, m *model.Metadata, key frontend.RatingKey) {
 	pr := FromContext(ctx)
 	if pr == nil || pr.User == nil || s.d.State == nil {
 		return

@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -14,7 +13,7 @@ import (
 
 type plexTimelineWriter = frontend.PlexTimelineWriter
 
-func (s *Server) timelineWatch(ctx context.Context, pr *Request, key core.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *frontend.TimelinePersistenceResult, error) {
+func (s *Server) timelineWatch(ctx context.Context, pr *Request, key frontend.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *frontend.TimelinePersistenceResult, error) {
 	if suppressTimelineWatch(ctx) {
 		return frontend.WithTimelineStored(ctx), nil, nil
 	}

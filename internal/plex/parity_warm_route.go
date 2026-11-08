@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // handleParityWarmSettled is the harness hook. With no ratingKey it waits
@@ -41,13 +41,13 @@ func (s *Server) handleParityWarmSettled(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	settle, ok := s.d.Playback.(interface {
-		ParitySettleWarm(context.Context, *core.User, core.RatingKey, core.ClientCaps) error
+		ParitySettleWarm(context.Context, *frontend.Viewer, frontend.RatingKey, frontend.ClientCaps) error
 	})
 	if !ok || s.d.Playback == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	if err := settle.ParitySettleWarm(r.Context(), pr.User, core.RatingKey(key), s.clientCaps(pr)); err != nil {
+	if err := settle.ParitySettleWarm(r.Context(), pr.User, frontend.RatingKey(key), s.clientCaps(pr)); err != nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -68,7 +68,7 @@ func (s *Server) handleParityWarmProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	probe, ok := s.d.Playback.(interface {
-		ParityProbeNow(context.Context, *core.User, core.RatingKey, core.ClientCaps) error
+		ParityProbeNow(context.Context, *frontend.Viewer, frontend.RatingKey, frontend.ClientCaps) error
 	})
 	if !ok || s.d.Playback == nil {
 		writeHTTPError(w, http.StatusNotFound)
@@ -83,7 +83,7 @@ func (s *Server) handleParityWarmProbe(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
 		}
-		if err := probe.ParityProbeNow(r.Context(), pr.User, core.RatingKey(key), caps); err != nil {
+		if err := probe.ParityProbeNow(r.Context(), pr.User, frontend.RatingKey(key), caps); err != nil {
 			writeHTTPError(w, http.StatusServiceUnavailable)
 			return
 		}

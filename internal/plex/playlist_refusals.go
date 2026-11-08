@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -14,7 +14,7 @@ import (
 // API. Keep the measured refusals distinct from an absent media item.
 func (s *Server) handlePlaylistMetadataRefusal(w http.ResponseWriter, r *http.Request) {
 	k, err := keyParam(r)
-	if err != nil || k.Kind() != core.KindPlaylist || s.d.Playlists == nil {
+	if err != nil || k.Kind() != frontend.KindPlaylist || s.d.Playlists == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -46,7 +46,7 @@ func (s *Server) handlePlaylistUpload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePlaylistArtworkCandidates(w http.ResponseWriter, r *http.Request) {
 	k, err := keyParam(r)
-	if err != nil || k.Kind() != core.KindPlaylist || s.d.Playlists == nil {
+	if err != nil || k.Kind() != frontend.KindPlaylist || s.d.Playlists == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -69,7 +69,7 @@ func (s *Server) handlePlaylistArtworkCandidates(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handlePlaylistExtras(w http.ResponseWriter, r *http.Request) {
-	if k, err := keyParam(r); err == nil && k.Kind() == core.KindPlaylist {
+	if k, err := keyParam(r); err == nil && k.Kind() == frontend.KindPlaylist {
 		s.handlePlaylistMetadataRefusal(w, r)
 		return
 	}

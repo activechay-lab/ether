@@ -4,13 +4,11 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"time"
-
-	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // SupportViewer is a bounded snapshot at archive creation, not a replay of
 // policy decisions made when an earlier response was generated.
-func (s *Server) SupportViewer(ctx context.Context, user *core.User) (frontend.DiagnosticViewerFacts, error) {
+func (s *Server) SupportViewer(ctx context.Context, user *frontend.Viewer) (frontend.DiagnosticViewerFacts, error) {
 	var out frontend.DiagnosticViewerFacts
 	for _, sec := range s.userSections(user) {
 		if len(out.Sections) >= 128 {
@@ -32,22 +30,22 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (frontend.D
 		out.CandidatesTruncated = true
 		states = states[:200]
 	}
-	keys := make([]core.RatingKey, 0, len(states))
+	keys := make([]frontend.RatingKey, 0, len(states))
 	for _, st := range states {
 		keys = append(keys, st.Key)
 	}
 	titles := s.getTitles(ctx, keys)
-	byKey := map[core.RatingKey]core.Title{}
+	byKey := map[frontend.RatingKey]frontend.Title{}
 	for _, ti := range titles {
 		byKey[ti.Key] = ti
 	}
 	selected, _, _ := s.continueExperience(pr).Shelf(ctx, user, "", 200)
 	visible := s.takeVisible(user, selected, 200)
-	selectedSet := map[core.RatingKey]bool{}
+	selectedSet := map[frontend.RatingKey]bool{}
 	for _, ti := range visible {
 		selectedSet[ti.Key] = true
 	}
-	seen := map[core.RatingKey]bool{}
+	seen := map[frontend.RatingKey]bool{}
 	for _, st := range states {
 		ti, ok := byKey[st.Key]
 		c := frontend.DiagnosticViewerCandidate{Key: int64(st.Key), OffsetMS: st.ViewOffset.Milliseconds()}
@@ -55,7 +53,7 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (frontend.D
 		case !ok:
 			c.Reason = "not returned by the catalogue: missing or filtered by catalogue or release rules"
 			if source, yes := s.d.Catalog.(interface {
-				SupportVisibility(context.Context, core.RatingKey) (*core.Title, string, error)
+				SupportVisibility(context.Context, frontend.RatingKey) (*frontend.Title, string, error)
 			}); yes {
 				title, reason, err := source.SupportVisibility(ctx, st.Key)
 				if err == nil {
@@ -99,7 +97,7 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (frontend.D
 	if err != nil {
 		return out, err
 	}
-	var completed []core.RatingKey
+	var completed []frontend.RatingKey
 	for _, h := range history {
 		if h.Completed && !seen[h.Key] {
 			seen[h.Key] = true

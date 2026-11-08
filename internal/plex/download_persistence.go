@@ -2,13 +2,13 @@ package plex
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"time"
 )
 
 func (s *Server) downloadPersistence() sessions.DownloadQueuePersistence {
-	var users func(context.Context) ([]core.User, error)
+	var users func(context.Context) ([]frontend.Viewer, error)
 	if s.d.Auth != nil {
 		users = s.d.Auth.Users
 	}

@@ -3,14 +3,14 @@ package plex
 import (
 	"context"
 	"database/sql"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"sync"
 	"time"
 )
 
 type variantRef struct {
-	key       core.RatingKey
+	key       frontend.RatingKey
 	releaseID string
 }
 type variantIDRegistry struct{ shared *sessions.VariantIDs }
@@ -19,8 +19,10 @@ func newVariantIDRegistry(db *sql.DB) *variantIDRegistry { return newVariantIDRe
 func newVariantIDRegistryAt(db *sql.DB, now func() time.Time) *variantIDRegistry {
 	return &variantIDRegistry{shared: sessions.NewVariantIDs(db, now)}
 }
-func variantHash(key core.RatingKey, release string) int64 { return sessions.VariantHash(key, release) }
-func (r *variantIDRegistry) idFor(key core.RatingKey, release string) int64 {
+func variantHash(key frontend.RatingKey, release string) int64 {
+	return sessions.VariantHash(key, release)
+}
+func (r *variantIDRegistry) idFor(key frontend.RatingKey, release string) int64 {
 	return r.shared.IDFor(key, release)
 }
 func (r *variantIDRegistry) lookup(id int64) (variantRef, bool) {

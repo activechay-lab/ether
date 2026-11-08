@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -17,9 +17,9 @@ func (s *Server) searchPlaylists(ctx context.Context, pr *Request, query, direct
 	if s.d.Playlists == nil || pr.User == nil || query == "" {
 		return nil
 	}
-	var lists []core.Playlist
+	var lists []frontend.Playlist
 	if headers, ok := s.d.Playlists.(interface {
-		ListHeaders(context.Context, int64) ([]core.Playlist, error)
+		ListHeaders(context.Context, int64) ([]frontend.Playlist, error)
 	}); ok {
 		// Read only the playlists whose titles match, not every item of
 		// every playlist the viewer has.
@@ -68,7 +68,7 @@ func (s *Server) searchPlaylists(ctx context.Context, pr *Request, query, direct
 	return out
 }
 
-func (s *Server) playlistInDirectories(pl *core.Playlist, raw string) bool {
+func (s *Server) playlistInDirectories(pl *frontend.Playlist, raw string) bool {
 	wants := strings.Split(raw, ",")
 	matches := func(id int) bool {
 		for _, want := range wants {
@@ -94,12 +94,12 @@ func (s *Server) playlistInDirectories(pl *core.Playlist, raw string) bool {
 		}
 	}
 	for _, key := range pl.Items {
-		var typ core.MediaType
+		var typ frontend.MediaType
 		switch key.Kind() {
-		case core.KindMovie:
-			typ = core.TypeMovie
-		case core.KindShow, core.KindSeason, core.KindEpisode:
-			typ = core.TypeShow
+		case frontend.KindMovie:
+			typ = frontend.TypeMovie
+		case frontend.KindShow, frontend.KindSeason, frontend.KindEpisode:
+			typ = frontend.TypeShow
 		}
 		if sec, ok := s.sectionFor(typ); ok && matches(sec.ID) {
 			return true

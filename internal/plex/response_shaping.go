@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -91,7 +91,7 @@ func substituteExcludedCounts(mc *model.MediaContainer, elements map[string]bool
 				// As applyExcludedElements: a playable row whose Media
 				// was not built still has its one version.
 				count := len(m.Media)
-				if count == 0 && isPlayable(core.MediaType(m.Type)) {
+				if count == 0 && isPlayable(frontend.MediaType(m.Type)) {
 					count = 1
 				}
 				if count > 0 {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
 )
@@ -84,7 +84,7 @@ func treeStream(st model.Stream) metadataTreeStream {
 
 func (s *Server) handleMetadataTree(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(r.Context())
-	key, err := core.ParseRatingKey(chi.URLParam(r, "key"))
+	key, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -95,7 +95,7 @@ func (s *Server) handleMetadataTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node := metadataTreeItem{ID: int64(key), Title: title.Title}
-	if title.Type == core.TypeSeason {
+	if title.Type == frontend.TypeSeason {
 		node.Title = ""
 		node.ParentTitle = title.ShowTitle
 	}
@@ -105,7 +105,7 @@ func (s *Server) handleMetadataTree(w http.ResponseWriter, r *http.Request) {
 			tm := metadataTreeMedia{ID: m.ID}
 			for _, p := range m.Part {
 				tp := metadataTreePart{ID: p.ID}
-				if title.Type == core.TypeEpisode {
+				if title.Type == frontend.TypeEpisode {
 					tp.MetadataType = model.Ptr(4)
 				}
 				for _, st := range p.Stream {
@@ -117,9 +117,9 @@ func (s *Server) handleMetadataTree(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Episode reads describe exactly their ancestor chain, never siblings.
-	if title.Type == core.TypeEpisode {
-		season := metadataTreeItem{ID: int64(core.SeasonKey(key.TMDB(), key.Season())), MetadataItem: []metadataTreeItem{node}}
-		node = metadataTreeItem{ID: int64(core.ShowKey(key.TMDB())), Title: title.ShowTitle, MetadataItem: []metadataTreeItem{season}}
+	if title.Type == frontend.TypeEpisode {
+		season := metadataTreeItem{ID: int64(frontend.SeasonKey(key.TMDB(), key.Season())), MetadataItem: []metadataTreeItem{node}}
+		node = metadataTreeItem{ID: int64(frontend.ShowKey(key.TMDB())), Title: title.ShowTitle, MetadataItem: []metadataTreeItem{season}}
 	}
 	s.write(w, r, metadataTree{Size: 1, MetadataItem: []metadataTreeItem{node}})
 }

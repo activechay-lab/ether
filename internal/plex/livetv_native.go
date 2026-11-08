@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
@@ -81,7 +81,7 @@ func (s *Server) liveSubscriptionSession(r *http.Request, key string) (livetv.Se
 				return info, nil
 			}
 		}
-		return livetv.SessionInfo{}, core.ErrNotFound
+		return livetv.SessionInfo{}, frontend.ErrNotFound
 	}
 	return s.d.LiveTV.Session(r.Context(), key, user)
 }

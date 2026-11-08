@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/clusterbus"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -186,9 +186,9 @@ type sharedEntry struct {
 	DecisionSeen bool                 `json:"decisionSeen,omitempty"`
 	ID           string               `json:"id"`
 	SessionKey   int                  `json:"sessionKey"`
-	User         core.User            `json:"user"`
+	User         frontend.Viewer      `json:"user"`
 	Client       sharedClient         `json:"client"`
-	Key          core.RatingKey       `json:"key"`
+	Key          frontend.RatingKey   `json:"key"`
 	State        string               `json:"state"`
 	OffsetMS     int64                `json:"offset"`
 	DurationMS   int64                `json:"duration"`
