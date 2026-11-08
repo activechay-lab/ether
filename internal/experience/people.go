@@ -486,37 +486,9 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		keys, err := s.d.PersonCredits(ctx, candidate.TMDB, types, personCreditLimit)
+		best, err := s.visibleCredit(ctx, v, types, candidate.TMDB)
 		if err != nil {
 			return nil, err
-		}
-		if len(keys) == 0 {
-			continue
-		}
-		titles, err := s.d.CachedGetMany(ctx, keys)
-		if err != nil {
-			return nil, err
-		}
-		visibility, err := s.peopleVisibility(ctx, titles)
-		if err != nil {
-			return nil, err
-		}
-		var best visiblePerson
-		for _, key := range keys {
-			title, ok := titles[key]
-			if !ok || title.Key != key || !peopleTitleVisible(ctx, v, &title, visibility) {
-				continue
-			}
-			for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
-				for _, person := range group {
-					if person.TMDB != candidate.TMDB || strings.TrimSpace(person.Name) == "" {
-						continue
-					}
-					if best, err = mergeVisiblePerson(best, person, title.Key); err != nil {
-						return nil, err
-					}
-				}
-			}
 		}
 		if best.detail.ID == "" {
 			continue
@@ -533,12 +505,78 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 	return result, nil
 }
 
+// visibleCredit is a person's credit on the most popular of their credited
+// titles the viewer may see, from the credit index; empty when none is.
+func (s *Service) visibleCredit(ctx context.Context, v *core.User, types []core.MediaType, tmdb int64) (visiblePerson, error) {
+	var best visiblePerson
+	keys, err := s.d.PersonCredits(ctx, tmdb, types, personCreditLimit)
+	if err != nil || len(keys) == 0 {
+		return best, err
+	}
+	titles, err := s.d.CachedGetMany(ctx, keys)
+	if err != nil {
+		return best, err
+	}
+	visibility, err := s.peopleVisibility(ctx, titles)
+	if err != nil {
+		return best, err
+	}
+	for _, key := range keys {
+		title, ok := titles[key]
+		if !ok || title.Key != key || !peopleTitleVisible(ctx, v, &title, visibility) {
+			continue
+		}
+		for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
+			for _, person := range group {
+				if person.TMDB != tmdb || strings.TrimSpace(person.Name) == "" {
+					continue
+				}
+				if best, err = mergeVisiblePerson(best, person, title.Key); err != nil {
+					return best, err
+				}
+			}
+		}
+	}
+	return best, nil
+}
+
+// visiblePerson is one person by TMDB id, when the viewer can see one of
+// their most popular credited titles. It needs the credit index.
+func (s *Service) visiblePerson(ctx context.Context, viewer *core.Viewer, tmdb int64) (frontend.PersonDetail, error) {
+	if s.d.PersonCredits == nil || s.d.CachedGetMany == nil {
+		return frontend.PersonDetail{}, core.ErrNotAvailable
+	}
+	v, err := s.viewer(ctx, viewer)
+	if err != nil {
+		return frontend.PersonDetail{}, err
+	}
+	types, err := peopleTypes(frontend.PeopleAll)
+	if err != nil {
+		return frontend.PersonDetail{}, err
+	}
+	best, err := s.visibleCredit(ctx, v, types, tmdb)
+	if err != nil {
+		return frontend.PersonDetail{}, err
+	}
+	if best.detail.ID == "" {
+		return frontend.PersonDetail{}, core.ErrNotFound
+	}
+	return s.currentPerson(ctx, viewer, best.detail)
+}
+
 func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.Device, id string, _ frontend.PersonReadOptions) (frontend.PersonDetail, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
 	defer cancel()
 	if id == "" || len(id) > 128 {
 		return frontend.PersonDetail{}, core.ErrNotFound
+	}
+	// An id Ether handed out resolves through the credit index; only an
+	// unknown one walks the library's credits.
+	if tmdb, ok := personFacets.tmdb(id); ok {
+		if person, err := s.visiblePerson(ctx, viewer, tmdb); err == nil && person.ID == id {
+			return person, nil
+		}
 	}
 	var found visiblePerson
 	err := s.visitPeople(ctx, viewer, device, frontend.PeopleAll, true, func(person core.Person, item core.RatingKey) error {
