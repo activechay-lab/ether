@@ -5,16 +5,23 @@
 
 TITLES is the number of library titles: 70% movies, 30% shows. Shows get a
 realistic spread of seasons (1-10, mean about 3) and episodes per season
-(6-13, mean about 10). Episodes, posters and fanart are hard links to the
-few-second sample files in BASE_DIR; each movie is its own MP4 so it can
-carry embedded tags (title, year, genres, summary), which PMS reads offline
-with the library's "prefer local metadata" (respectTags) setting. Movies are
-written by tag-movies.sh from OUT_DIR/movies.tsv.
+(6-13, mean about 10).
+
+Every media file must be distinct: PMS fingerprints a part by its size and
+content, and takes two identical files for one file that moved. Each
+episode is a copy of a few-second sample from BASE_DIR with a trailing
+padding element of its own length (an MP4 "free" box, a Matroska Void
+element), so its size and bytes are unique and it stays a valid file. Each
+movie is its own MP4 with embedded tags (title, year, genres, summary),
+which PMS reads offline with the library's "prefer local metadata"
+(respectTags) setting; tag-movies.sh writes them from OUT_DIR/movies.tsv.
+Posters and fanart are hard links (PMS does not fingerprint them).
 
 The output is deterministic for a given TITLES.
 """
 import os
 import random
+import struct
 import sys
 
 WORDS = ["Star", "Night", "River", "Empire", "Shadow", "Garden", "Signal", "Harbor", "Winter", "Glass",
@@ -46,6 +53,23 @@ def unique_titles(rng, n, used):
     return out
 
 
+def padding(ext, n):
+    """A trailing element of n + header bytes that parsers skip."""
+    if ext == ".mp4":
+        return struct.pack(">I", 8 + n) + b"free" + bytes(n)
+    # Matroska Void (0xEC) with an 8-byte EBML size.
+    return b"\xec\x01" + n.to_bytes(7, "big") + bytes(n)
+
+
+def write_episode(sample, ext, n, dst):
+    if os.path.exists(dst):
+        return
+    with open(dst + ".tmp", "wb") as f:
+        f.write(sample)
+        f.write(padding(ext, n))
+    os.rename(dst + ".tmp", dst)
+
+
 def link(src, dst):
     if not os.path.exists(dst):
         os.link(src, dst)
@@ -70,6 +94,7 @@ def main():
             summary = f"{title} follows {rng.choice(WORDS).lower()} and {rng.choice(WORDS).lower()} across {year}."
             tsv.write("\t".join([weighted(rng, MOVIE_VARIANTS), f"movies/{name}/{name}.mp4", title, str(year), genres, summary]) + "\n")
     episodes = seasons_total = 0
+    samples = {}
     for title, year in unique_titles(rng, shows, used):
         name = f"{title} ({year})"
         d = os.path.join(out, "shows", name)
@@ -78,13 +103,14 @@ def main():
         link(fanart, os.path.join(d, "fanart.jpg"))
         variant = weighted(rng, EPISODE_VARIANTS)
         ext = os.path.splitext(variant)[1]
+        sample = samples.setdefault(variant, open(os.path.join(base, variant), "rb").read())
         for s in range(1, weighted(rng, SEASONS) + 1):
             sd = os.path.join(d, f"Season {s:02d}")
             os.makedirs(sd, exist_ok=True)
             seasons_total += 1
             for e in range(1, rng.randint(6, 13) + 1):
-                link(os.path.join(base, variant), os.path.join(sd, f"{name} - s{s:02d}e{e:02d}{ext}"))
                 episodes += 1
+                write_episode(sample, ext, episodes, os.path.join(sd, f"{name} - s{s:02d}e{e:02d}{ext}"))
     print(f"{movies} movies, {shows} shows, {seasons_total} seasons, {episodes} episodes")
 
 

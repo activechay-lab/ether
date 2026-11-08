@@ -330,7 +330,9 @@ func (d *dockerServer) identity(ctx context.Context) string {
 	b, _ := io.ReadAll(resp.Body)
 	var parts []string
 	for _, attr := range []string{"version", "claimed", "machineIdentifier"} {
-		if m := regexp.MustCompile(`\b` + attr + `="([^"]*)"`).FindSubmatch(b); m != nil {
+		// The root element's attributes; not the XML declaration's version.
+		if m := regexp.MustCompile(`\s` + attr + `="([^"]*)"`).FindAllSubmatch(b, -1); m != nil {
+			m := m[len(m)-1]
 			v := string(m[1])
 			if attr == "machineIdentifier" && len(v) > 8 {
 				v = v[:8] + "…"

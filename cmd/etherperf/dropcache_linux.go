@@ -11,12 +11,17 @@ import (
 )
 
 // runDropCache evicts every regular file under the given paths from the page
-// cache (flushing it first, so dirty pages can go too) and reports how much
+// cache (flushing each filesystem first, so dirty pages can go too) and reports how much
 // was resident before and after. It runs inside a helper container that
 // shares the measured server's mounts and image.
 func runDropCache(args []string) error {
 	var files, before, after int64
 	for _, root := range args {
+		// One flush per filesystem, so dirty pages can be evicted too.
+		if fd, err := unix.Open(root, unix.O_RDONLY|unix.O_CLOEXEC, 0); err == nil {
+			_ = unix.Syncfs(fd)
+			unix.Close(fd)
+		}
 		err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
 			if err != nil || !e.Type().IsRegular() {
 				return nil
@@ -30,7 +35,6 @@ func runDropCache(args []string) error {
 			defer unix.Close(fd)
 			files++
 			before += resident(fd)
-			_ = unix.Fdatasync(fd)
 			_ = unix.Fadvise(fd, 0, 0, unix.FADV_DONTNEED)
 			after += resident(fd)
 			return nil
