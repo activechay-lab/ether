@@ -2,6 +2,7 @@ package viewerpolicy_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -27,6 +28,13 @@ func TestCatalogRefreshLeavesPolicyEpochAlone(t *testing.T) {
 	title := core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, IDs: core.IDs{TMDB: 1}, Title: "M", ContentRating: "PG", Released: now.AddDate(-1, 0, 0),
 		Popularity: 10, VoteCount: 100, Genres: []string{"Drama"}, Countries: []string{"US"}, Cast: []core.Person{{TMDB: 7, Name: "Actor"}}}
 	if err := c.UpsertTitle(ctx, title, true); err != nil {
+		t.Fatal(err)
+	}
+	// Startup replaces the migration's conservative seed with what the
+	// (here: no) rules read.
+	none := func(context.Context, *sql.Tx) (viewerpolicy.Inputs, error) { return viewerpolicy.Inputs{}, nil }
+	if err := viewerpolicy.RebuildInputs(ctx, db, viewerpolicy.Rebuild{Source: viewerpolicy.SourceConfig, Read: none},
+		viewerpolicy.Rebuild{Source: viewerpolicy.SourceSafety, Read: none}, viewerpolicy.Rebuild{Source: viewerpolicy.SourceRules, Read: none}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := viewerpolicy.Read(ctx, db)

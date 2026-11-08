@@ -77,7 +77,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/trickplay"
 	"github.com/braedonsaunders/ether/internal/updater"
 	"github.com/braedonsaunders/ether/internal/usenet"
-	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 	"github.com/braedonsaunders/ether/internal/watchlist"
 	"log/slog"
 	"net/http"
@@ -443,7 +442,7 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		a.Close() // libera o instance lock (o db não foi aberto)
 		return nil, startFail(openFailure(err, dbCfg.IsPostgres()), fmt.Errorf("database: %w", err))
 	}
-	a.cfg.SetPolicyEpoch(func() error { return viewerpolicy.Bump(context.Background(), a.db) })
+	a.cfg.SetPolicyEpoch(a.publishPolicyConfig)
 	if err := a.checkRestoredIntegrity(ctx); err != nil {
 		return nil, err
 	}
@@ -565,7 +564,7 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 	for _, build := range []func(context.Context, config.Config) error{
 		a.buildCatalogue, func(context.Context, config.Config) error {
 			a.safety.SetCatalogPolicy(a.catalog.VisibleForViewer, a.catalog.DiscoveryVisibleForViewer)
-			return nil
+			return a.rebuildPolicyInputs(ctx)
 		}, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
 		a.buildSources, a.buildPlayback, a.buildClusterPlayback, a.buildPrefetch, a.buildIntegrations,
 	} {
