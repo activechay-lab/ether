@@ -1015,40 +1015,27 @@ ON CONFLICT(key) DO UPDATE SET
 	// Replace join rows only when the incoming title carries that facet, so
 	// summary upserts don't wipe detail-fetched genres/credits.
 	joinChanged := false
-	if t.Genres != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_genres", "genre", int64(t.Key), t.Genres)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
+	facets := [][]string{t.Genres, t.Keywords, t.AlternativeTitles, t.Studios, t.Countries}
+	anyFacet := false
+	for _, f := range facets {
+		anyFacet = anyFacet || f != nil
 	}
-	if t.Keywords != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_keywords", "keyword", int64(t.Key), t.Keywords)
+	if anyFacet {
+		// Read even for a new row: facet rows may outlive a deleted title.
+		stored, err := storedFacets(ctx, tx, int64(t.Key))
 		if err != nil {
 			return err
 		}
-		joinChanged = joinChanged || changed
-	}
-	if t.AlternativeTitles != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_alt_titles", "title", int64(t.Key), t.AlternativeTitles)
-		if err != nil {
-			return err
+		for i, f := range facetTables {
+			if facets[i] == nil {
+				continue
+			}
+			changed, err := replaceStoredPairs(ctx, tx, f.table, f.col, int64(t.Key), facets[i], stored[f.table])
+			if err != nil {
+				return err
+			}
+			joinChanged = joinChanged || changed
 		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Studios != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_studios", "studio", int64(t.Key), t.Studios)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Countries != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_countries", "country", int64(t.Key), t.Countries)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
 	}
 	if t.Cast != nil || t.Directors != nil || t.Writers != nil || t.Crew != nil {
 		changed, err := replaceCredits(ctx, tx, t)
@@ -1223,37 +1210,57 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// replacePairs makes key's stored values in table exactly vals, writing only
-// the difference. A refresh usually brings the same values, and one that
-// adds a genre should not rewrite the others: every row written fires the
-// search, tally and viewer-policy triggers and touches each index.
-func replacePairs(ctx context.Context, tx *sql.Tx, table, col string, key int64, vals []string) (bool, error) {
+// facetTables are the one-value-per-row facets a title upsert replaces.
+var facetTables = []struct{ table, col string }{
+	{"catalog_genres", "genre"}, {"catalog_keywords", "keyword"}, {"catalog_alt_titles", "title"},
+	{"catalog_studios", "studio"}, {"catalog_countries", "country"},
+}
+
+// storedFacets reads key's stored values of every facet table in one
+// statement, by table name.
+func storedFacets(ctx context.Context, tx *sql.Tx, key int64) (map[string][]string, error) {
+	var parts []string
+	args := make([]any, 0, len(facetTables))
+	for i, f := range facetTables {
+		parts = append(parts, fmt.Sprintf(`SELECT %d, %s FROM %s WHERE key=?`, i, f.col, f.table))
+		args = append(args, key)
+	}
+	rows, err := tx.QueryContext(ctx, strings.Join(parts, " UNION ALL "), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var i int
+		var v string
+		if err := rows.Scan(&i, &v); err != nil {
+			return nil, err
+		}
+		out[facetTables[i].table] = append(out[facetTables[i].table], v)
+	}
+	return out, rows.Err()
+}
+
+// replaceStoredPairs makes key's values in table exactly vals, given the
+// stored ones, writing only the difference. A refresh usually brings the
+// same values, and one that adds a genre should not rewrite the others:
+// every row written fires the search, tally and viewer-policy triggers and
+// touches each index.
+func replaceStoredPairs(ctx context.Context, tx *sql.Tx, table, col string, key int64, vals, stored []string) (bool, error) {
 	want := make(map[string]bool, len(vals))
 	for _, v := range vals {
 		if v != "" {
 			want[v] = true
 		}
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT `+col+` FROM `+table+` WHERE key=?`, key)
-	if err != nil {
-		return false, err
-	}
 	var stale []string
-	have := map[string]bool{}
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			rows.Close()
-			return false, err
-		}
+	have := make(map[string]bool, len(stored))
+	for _, v := range stored {
 		have[v] = true
 		if !want[v] {
 			stale = append(stale, v)
 		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, err
 	}
 	// One statement for the removals and one for the additions, whatever
 	// their number: a first detail fill adds a dozen keywords.
