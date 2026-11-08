@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 )
 
 // appCandidateRanker translates the neutral situation into the existing
@@ -118,7 +120,43 @@ func (a *App) experienceContinue(ctx context.Context, viewer *core.User, librari
 	if a.playback != nil {
 		sessions = a.playback.Sessions
 	}
-	visibility := experienceVisibility(a.safety, a.catalog.CachedGet, filter, sessions, libraries)
+	// Visibility reads each episode's show; the walk prefetches its shows in
+	// one batch and the request memo answers those reads.
+	type visibleTitle struct {
+		t   *core.Title
+		err error
+	}
+	memoKey := func(key core.RatingKey) string { return "app:visible-title:" + key.String() }
+	cachedGet := func(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+		v, err := reqmemo.Do(ctx, memoKey(key), func() (visibleTitle, error) {
+			t, err := a.catalog.CachedGet(ctx, key)
+			if err != nil && !errors.Is(err, core.ErrNotFound) {
+				return visibleTitle{}, err
+			}
+			return visibleTitle{t, err}, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return v.t, v.err
+	}
+	prefetch := func(ctx context.Context, keys []core.RatingKey) {
+		if !reqmemo.Active(ctx) {
+			return
+		}
+		found, err := a.catalog.CachedGetMany(ctx, keys)
+		if err != nil {
+			return
+		}
+		for _, key := range keys {
+			v := visibleTitle{err: core.ErrNotFound}
+			if t, ok := found[key]; ok && t.Key == key {
+				v = visibleTitle{t: &t}
+			}
+			_, _ = reqmemo.Do(ctx, memoKey(key), func() (visibleTitle, error) { return v, nil })
+		}
+	}
+	visibility := experienceVisibility(a.safety, cachedGet, filter, sessions, libraries)
 	getTitles := func(ctx context.Context, keys []core.RatingKey) []core.Title {
 		if len(keys) == 0 {
 			return nil
@@ -147,7 +185,7 @@ func (a *App) experienceContinue(ctx context.Context, viewer *core.User, librari
 		return a.catalog.Grandchildren(ctx, key)
 	}
 	var loadErr error
-	c := experience.Continue{State: a.state, Now: time.Now, FavoriteShows: a.favoriteShows, GetTitles: getTitles, Grandchildren: grandchildren, NextEpisode: a.catalog.NextStoredEpisode, NextEpisodes: a.catalog.NextStoredEpisodes, Visible: visibility.Visible,
+	c := experience.Continue{State: a.state, Now: time.Now, FavoriteShows: a.favoriteShows, GetTitles: getTitles, PrefetchTitles: prefetch, Grandchildren: grandchildren, NextEpisode: a.catalog.NextStoredEpisode, NextEpisodes: a.catalog.NextStoredEpisodes, Visible: visibility.Visible,
 		SameDayUnavailable: func(ctx context.Context, title *core.Title) bool {
 			var source core.AvailabilitySource
 			if a.resolver != nil {

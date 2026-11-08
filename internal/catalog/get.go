@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/store"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -824,30 +825,60 @@ func (c *Catalog) NextStoredEpisodes(ctx context.Context, episodes []core.Rating
 		cands []core.Title
 	}
 	now := c.now()
-	var open []*window
+	// Every show's window (its next eight episodes, so an undated or future
+	// one can give way to the next aired) is read in one statement of
+	// per-show index seeks, chunked so a statement stays small.
+	var order []*window
 	for _, episode := range episodes {
 		if episode.Kind() != core.KindEpisode {
 			continue
 		}
-		showKey := int64(core.ShowKey(episode.TMDB()))
-		// The window lets an undated or future episode give way to the
-		// next aired one.
-		query := `SELECT ` + titleCols + ` FROM catalog_titles WHERE type='episode' AND show_key=? AND season>0 AND (season>? OR (season=? AND episode>?)) ORDER BY season ASC, episode ASC LIMIT 8`
-		args := []any{showKey, episode.Season(), episode.Season(), episode.Episode()}
-		if episode.Season() <= 0 {
-			query = `SELECT ` + titleCols + ` FROM catalog_titles WHERE type='episode' AND show_key=? AND season>0 ORDER BY season ASC, episode ASC LIMIT 8`
-			args = []any{showKey}
+		order = append(order, &window{from: episode})
+	}
+	const showsPerStatement = 50
+	for start := 0; start < len(order); start += showsPerStatement {
+		part := order[start:min(start+showsPerStatement, len(order))]
+		branches := make([]string, 0, len(part))
+		var args []any
+		for i, w := range part {
+			show := int64(core.ShowKey(w.from.TMDB()))
+			cond := `season>0 AND (season>? OR (season=? AND episode>?))`
+			wargs := []any{show, w.from.Season(), w.from.Season(), w.from.Episode()}
+			if w.from.Season() <= 0 {
+				cond, wargs = `season>0`, []any{show}
+			}
+			branches = append(branches, `SELECT * FROM (SELECT `+titleCols+`,`+strconv.Itoa(start+i)+` AS w FROM catalog_titles WHERE type='episode' AND show_key=? AND `+cond+` ORDER BY season ASC, episode ASC LIMIT 8) AS n`+strconv.Itoa(i))
+			args = append(args, wargs...)
 		}
-		rows, err := c.scanTitleKeys(ctx, query, args...)
+		rows, err := c.db.QueryContext(ctx, strings.Join(branches, ` UNION ALL `), args...)
 		if err != nil {
 			return nil, err
 		}
-		w := &window{from: episode}
-		for _, t := range rows {
-			if !t.Adult && t.IsReleased(now) {
-				w.cands = append(w.cands, t)
+		for rows.Next() {
+			var at int
+			st, err := scanTitle(extraScan{rows, []any{&at}})
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if at >= 0 && at < len(order) && !st.t.Adult && st.t.IsReleased(now) {
+				order[at].cands = append(order[at].cands, st.t)
 			}
 		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	var open []*window
+	for _, w := range order {
+		slices.SortFunc(w.cands, func(a, b core.Title) int {
+			if a.Season != b.Season {
+				return a.Season - b.Season
+			}
+			return a.Episode - b.Episode
+		})
 		if len(w.cands) > 0 {
 			open = append(open, w)
 		}

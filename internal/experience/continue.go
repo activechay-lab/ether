@@ -15,6 +15,9 @@ type Continue struct {
 	// PrepareShowOnDeck batches the history candidates before selection. It
 	// must preserve ShowOnDeck's per-show state and episode ordering.
 	PrepareShowOnDeck func(context.Context, []core.RatingKey)
+	// PrefetchTitles, when set, loads titles Visible will look up (the
+	// walk's shows) in one batch for the rest of the request.
+	PrefetchTitles func(context.Context, []core.RatingKey)
 
 	Filter       func(context.Context, *core.User, []core.Title) []core.Title
 	State        core.State
@@ -63,6 +66,9 @@ func (c Continue) appendNext(ctx context.Context, viewer *core.User, titles []co
 		if len(recent) >= min(max(limit, 1), 50) {
 			break
 		}
+	}
+	if c.PrefetchTitles != nil && len(shows) > 0 {
+		c.PrefetchTitles(ctx, shows)
 	}
 	if c.ShowOnDeck != nil {
 		if c.PrepareShowOnDeck != nil {
