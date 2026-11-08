@@ -1491,14 +1491,14 @@ func (s *Server) getTitles(ctx context.Context, keys []core.RatingKey) []core.Ti
 			return out
 		}
 	}
-	if cached, ok := s.d.Catalog.(interface {
-		CachedGetMany(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	if pre, ok := s.d.Catalog.(interface {
+		PreloadStored(context.Context, []core.RatingKey)
 	}); ok && len(keys) > 4 {
-		// Read the stored titles in batches first: each Get below then
-		// finds its title in the catalogue's title cache instead of reading
-		// it and its facts alone (a 3000-item playlist read 300 titles one
-		// by one per page).
-		_, _ = cached.CachedGetMany(ctx, keys)
+		// Read the stored titles in batches first, cached exactly as Get
+		// reads them (detail time included): each Get below then finds its
+		// title in the catalogue's title cache instead of reading it and its
+		// facts alone (a 3000-item playlist read 2,810 titles one by one).
+		pre.PreloadStored(ctx, keys)
 	}
 	res := make([]*core.Title, len(keys))
 	sem := make(chan struct{}, 8)
