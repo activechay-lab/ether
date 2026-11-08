@@ -33,6 +33,8 @@ type Result struct {
 	Dur     time.Duration `json:"dur"`
 	Err     string        `json:"err,omitempty"`
 	Skipped string        `json:"skipped,omitempty"`
+	// Items counts the titles a listing response rendered, by type.
+	Items map[string]int `json:"items,omitempty"`
 }
 
 // requestTimeout caps one replayed request; a path that scales with the
@@ -189,6 +191,9 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 		res.Err = err.Error()
 	} else if resp.StatusCode >= 400 && st.Class != classPlayback {
 		res.Err = strings.TrimSpace(string(bytes.ToValidUTF8(buf[:min(len(buf), 160)], nil)))
+	}
+	if st.Class == classBrowse && resp.StatusCode < 300 {
+		res.Items = renderedTitles(buf)
 	}
 	if st.Discover != nil && resp.StatusCode < 300 {
 		r.mu.Lock()

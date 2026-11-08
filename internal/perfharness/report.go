@@ -98,7 +98,12 @@ type Row struct {
 	// Cold is the owner's first pass after the start, First another
 	// viewer's first pass (that viewer's caches cold, the server's warm);
 	// the most work one request of each took.
-	ColdWork, FirstWork       Work
+	ColdWork, FirstWork Work
+	// The page bound of a listing (ApplyPageBound): its worst request's
+	// rows, the rows its rendered titles account for, and their number.
+	PageCounted               bool
+	PageRows, PageBound       int64
+	PageItems                 int
 	Status                    string
 	Fails                     []string
 	Skipped                   string

@@ -183,10 +183,26 @@ libraries, the second viewer's first pass on its own.
 
 | an endpoint fails when, on the 10× library | threshold |
 |---|---|
-| rows read grow | more than 2× + 200 |
-| statements grow | more than 1.5× + 20 |
-| database time grows | more than 5× + 100 ms |
+| rows read grow (steps other than listings) | more than 2× + 200 (cold and first passes: 2× + 2000) |
+| a listing reads more than its titles render | any request: rows > Σ titles rendered × that type's most detail rows in the fixture + 200 |
+| statements grow (every pass) | more than 1.5× + 20 |
+| database time grows (warm median only) | more than 5× + 100 ms |
 | warm p50 | over 2 s |
+
+A listing step (browse class) whose response names its titles (Plex
+`Metadata`, Jellyfin and Emby `Items`, Silo `items`, Stremio `metas`) is
+held to what it renders rather than to the rows ratio: a page deep in a
+popularity order is famous titles on the large library and obscure ones on
+the small, and famous titles carry far more detail rows. The per-type cap
+is computed from the generated library (`perfharness.DetailCaps`: the most
+genre, keyword, alternative title, studio, country, credit and
+home-release rows any title of the type has, plus two rows per season for
+a series and ten for the title itself). A walk of the library breaks the
+bound at once; `TestPerfGateCatchesAPageWalk` proves it by injecting one.
+Cold and first passes are compared by statements and rows only: one cold
+sample on a shared runner is no measure of database time. The gate freezes
+the catalogue cache's wall-clock minute (`Catalog.FreezeCacheMinute`), so a
+replay crossing a minute counts the same statements.
 
 An indexed path does about the same work on both libraries. A path that
 walks the catalogue does ten times the work, so the gate does not depend on

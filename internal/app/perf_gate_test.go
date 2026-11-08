@@ -153,6 +153,9 @@ func restrictedListings(cs []perfharness.Client) []perfharness.Client {
 	return nil
 }
 
+// perfAppStarted, when set, learns each scale's App (the gate's own proof).
+var perfAppStarted func(*App)
+
 var perfGateFlag = flag.String("perf-gate", "", "run TestPerformanceGate (1, or quick for a smaller pair)")
 
 // perfDebtFile lists the endpoints known to scale with the library, one
@@ -226,7 +229,17 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 			// minute bucket can turn over between passes), so the large
 			// library's least work is compared with the small one's most: a
 			// path that walks the catalogue does more work on every pass.
+			// A listing whose titles are countable is held to what they
+			// render (perfharness.ApplyPageBound) instead of the rows ratio,
+			// on every pass and both libraries.
+			page := l.PageCounted && s.PageCounted
 			switch {
+			case page:
+				for _, r := range []*perfharness.Row{s, l} {
+					if over, ok := r.PageOver(); ok {
+						why = append(why, over)
+					}
+				}
 			case l.RowsBound > 0:
 				if l.RowsMax > int64(l.RowsBound) {
 					why = append(why, fmt.Sprintf("rows read %d over the step's bound %d", l.RowsMax, l.RowsBound))
@@ -262,7 +275,7 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 				if pass.l.Queries == 0 || pass.s.Queries == 0 {
 					continue
 				}
-				if l.RowsBound == 0 && float64(pass.l.Rows) > gateRowsFactor*float64(pass.s.Rows)+gateColdRowsSlack {
+				if l.RowsBound == 0 && !page && float64(pass.l.Rows) > gateRowsFactor*float64(pass.s.Rows)+gateColdRowsSlack {
 					why = append(why, fmt.Sprintf("%s rows grow with the library (%d → %d)", pass.name, pass.s.Rows, pass.l.Rows))
 				}
 				if float64(pass.l.Queries) > gateQueriesFactor*float64(pass.s.Queries)+gateQueriesSlack {
@@ -353,6 +366,13 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 			}
 		}
 	}
+	// The most detail rows a title of each type has: what a listing's
+	// titles may read (perfharness.ApplyPageBound).
+	caps, err := perfharness.DetailCaps(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%s: detail rows per title at most %v", name, caps)
 	viewers, err := perfharness.MintCredentials(ctx, db, perfharness.RestrictedViewer+1)
 	if err != nil {
 		t.Fatal(err)
@@ -375,6 +395,9 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	a, err := New(ctx, Options{DataDir: dir, Logger: slog.New(slog.NewTextHandler(&appLog, &slog.HandlerOptions{Level: slog.LevelWarn}))})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if perfAppStarted != nil {
+		perfAppStarted(a)
 	}
 	// Cache keys without the wall-clock minute, so a replay that crosses a
 	// minute hits and misses as one that does not: the comparison is of
@@ -497,6 +520,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 		t.Fatal(err)
 	}
 	rows := perfharness.Summarize(r.Results(), byTag, cs)
+	perfharness.ApplyPageBound(rows, r.Results(), byTag, caps)
 	if t.Failed() {
 		t.Log(appLog.String())
 	}
@@ -609,4 +633,48 @@ func ownerHomeRows(t *testing.T, port int, token string) int {
 		}
 	}
 	return n
+}
+
+// TestPerfGateCatchesAPageWalk proves the listing page bound bites: a
+// section page that also reads every title's genre rows (a walk of the
+// library on every request) fails it, at the quick pair.
+func TestPerfGateCatchesAPageWalk(t *testing.T) {
+	if os.Getenv(PerfGateEnv) == "" {
+		t.Skip("set " + PerfGateEnv + " to run the gate's own proof")
+	}
+	t.Setenv("ETHER_PERF_GATE_CLIENTS", "plex-appletv")
+	t.Setenv("ETHER_PERF_GATE_STEPS", "/library/sections,movies all titleSort p1")
+	perfTestRequest = func(ctx context.Context, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/all") && r.URL.Query().Get("sort") == "titleSort" && r.URL.Query().Get("X-Plex-Container-Start") == "0" {
+			rows, err := perfWalkApp.db.QueryContext(ctx, `SELECT key, genre FROM catalog_genres`)
+			if err != nil {
+				return
+			}
+			for rows.Next() {
+			}
+			rows.Close()
+		}
+	}
+	defer func() { perfTestRequest = nil }()
+	scale := perfharness.SmallScale.Divide(10)
+	var failures []gateFailure
+	small := runPerfScaleHook(t, "small", scale)
+	large := runPerfScaleHook(t, "large", perfharness.SmallScale)
+	failures = comparePerfScales(&bytes.Buffer{}, small, large)
+	for _, f := range failures {
+		if f.key == "plex-appletv | movies all titleSort p1" && strings.Contains(f.why, "titles render") {
+			t.Logf("caught: %s", f.why)
+			return
+		}
+	}
+	t.Fatalf("the walk was not caught: %+v", failures)
+}
+
+// perfWalkApp is the App the running scale serves, for the walk.
+var perfWalkApp *App
+
+func runPerfScaleHook(t *testing.T, name string, scale perfharness.Scale) []*perfharness.Row {
+	perfAppStarted = func(a *App) { perfWalkApp = a }
+	defer func() { perfAppStarted = nil }()
+	return runPerfScale(t, name, scale)
 }

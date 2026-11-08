@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -107,6 +108,11 @@ type PerfTraceRecord struct {
 	Statements []store.StatementStat `json:"statements,omitempty"`
 }
 
+// perfTestRequest, set only by the performance gate's own test, runs inside
+// a measured request before its handler (to prove the gate catches work a
+// path should not do).
+var perfTestRequest func(context.Context, *http.Request)
+
 // wrap measures next as surface. Without a trace file the response writer
 // is passed through untouched.
 func (p *perfObserver) wrap(surface string, next http.Handler) http.Handler {
@@ -116,6 +122,9 @@ func (p *perfObserver) wrap(surface string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, stats := store.WithQueryStats(r.Context())
 		ctx = catalog.WithReadWaitBudget(ctx, requestProviderWait)
+		if perfTestRequest != nil {
+			perfTestRequest(ctx, r)
+		}
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			ctx = reqmemo.With(ctx)
 		}
