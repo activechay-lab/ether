@@ -833,7 +833,7 @@ ON CONFLICT(key) DO UPDATE SET
  detail=CASE WHEN excluded.detail>catalog_titles.detail THEN excluded.detail ELSE catalog_titles.detail END,
  detail_at=CASE WHEN excluded.detail=1 THEN excluded.detail_at ELSE catalog_titles.detail_at END
  WHERE (`+materialTitleChangeSQL+` OR
- catalog_titles.rating<>excluded.rating OR catalog_titles.vote_count<>excluded.vote_count OR catalog_titles.popularity<>excluded.popularity OR
+ (catalog_titles.added_at=0 AND excluded.browsable=1) OR
  catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) OR
  catalog_titles.content_rating_rank<>(`+ratingPrecedence("content_rating_rank")+`) OR
  catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`)) AND (catalog_titles.detail=0 OR excluded.detail=1 OR ?=0)`,
@@ -845,12 +845,27 @@ ON CONFLICT(key) DO UPDATE SET
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
 	}
+	// TMDB's rating, votes and popularity move on nearly every sync. When
+	// nothing else changed, update only those three columns: the upsert
+	// above assigns every column, and SQLite rewrites the entry of every
+	// index on a column an UPDATE assigns (37 on catalog_titles), which made
+	// a popularity-only refresh 33 WAL pages a title. After a full upsert
+	// the values match and this matches no row.
+	jitter, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`,
+		t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt)
+	if err != nil {
+		return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
+	}
 	if o.preserveDetailed {
 		n, err := result.RowsAffected()
 		if err != nil {
 			return err
 		}
-		if n == 0 {
+		m, err := jitter.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n+m == 0 {
 			var detailed int
 			if err := tx.QueryRowContext(ctx, `SELECT detail FROM catalog_titles WHERE key=?`, int64(t.Key)).Scan(&detailed); err != nil {
 				return err
