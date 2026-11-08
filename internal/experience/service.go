@@ -54,6 +54,12 @@ type ServiceDeps struct {
 	CachedGet func(context.Context, core.RatingKey) (*core.Title, error)
 	// CachedGetMany reads current cached rows in bounded batches without refresh.
 	CachedGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	// ArtworkGet and ArtworkGetMany are CachedGet and CachedGetMany for
+	// image grants: they also admit search and list hits held in memory
+	// without a row, so those hits keep their poster. Nil uses the cached
+	// readers.
+	ArtworkGet     func(context.Context, core.RatingKey) (*core.Title, error)
+	ArtworkGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// ParentTitles resolves distinct parents using the same semantics as GetTitle.
 	ParentTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// CachedVirtualSeason resolves a viewer's already-computed episode layout.
@@ -869,10 +875,14 @@ func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, ke
 	if err != nil {
 		return nil, err
 	}
-	if s.d.CachedGetMany == nil {
+	getMany := s.d.ArtworkGetMany
+	if getMany == nil {
+		getMany = s.d.CachedGetMany
+	}
+	if getMany == nil {
 		return nil, core.ErrNotAvailable
 	}
-	titles, err := s.d.CachedGetMany(ctx, keys)
+	titles, err := getMany(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +907,11 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 			return nil, err
 		}
 	} else if s.d.CachedGet != nil {
-		title, err := s.d.CachedGet(ctx, key)
+		get := s.d.ArtworkGet
+		if get == nil {
+			get = s.d.CachedGet
+		}
+		title, err := get(ctx, key)
 		if errors.Is(err, core.ErrNotFound) && s.d.CachedVirtualSeason != nil {
 			title, err = s.d.CachedVirtualSeason(ctx, v, key)
 		}

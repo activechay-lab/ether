@@ -231,6 +231,7 @@ type Catalog struct {
 	consoleGateGen atomic.Uint64
 	listSummaryMu  sync.Mutex
 	listSummaries  map[core.RatingKey]listSummary
+	posters        posterResolver // posters.go
 
 	startupContext    context.Context
 	metadataMu        sync.RWMutex
@@ -435,6 +436,7 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 		personHydrated: map[int64]time.Time{}, listMirrored: map[string]time.Time{}}
 	c.setNow(time.Now)
 	c.SetTMDB(client)
+	c.posterPrefetch = c.prefetchTailPosters
 	for _, fn := range opts {
 		fn(c)
 	}

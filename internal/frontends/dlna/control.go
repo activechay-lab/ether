@@ -211,9 +211,7 @@ func (i *instance) addResources(r *http.Request, viewer *frontend.Viewer, device
 		}
 	}
 	for n := range objects {
-		if objects[n].XMLName.Local != "item" {
-			continue
-		}
+		// Shows and seasons are containers; they carry their poster too.
 		key, err := objectKey(objects[n].ID)
 		if err != nil {
 			continue
@@ -229,7 +227,7 @@ func (i *instance) addResources(r *http.Request, viewer *frontend.Viewer, device
 			artURL.RawQuery = "v=" + url.QueryEscape(version)
 			objects[n].AlbumArtURI = artURL.String()
 		}
-		if !profileOK {
+		if !profileOK || objects[n].XMLName.Local != "item" {
 			continue
 		}
 		path, err := i.host.LANStreams.IssueLAN(ctx, r, frontend.PlanRequest{Viewer: viewer, Device: device, Protocol: "dlna", Item: key, Caps: profile.Client, Intent: frontend.PlayIntent{Options: frontend.DecideOptions{DirectPlay: true}}})

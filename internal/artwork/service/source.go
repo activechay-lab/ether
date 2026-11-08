@@ -43,6 +43,11 @@ type Source struct {
 	}
 	Raster   *artwork.SVGRasterizer
 	Collages *LibraryCollageCache
+	// Generated draws Ether's poster for a movie or show with no artwork
+	// (*artwork.Renderer). Nil leaves such titles without a poster entry.
+	Generated interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 }
 type artworkVirtualSeasonKey struct{}
 
@@ -137,6 +142,7 @@ type frontendArtworkEntry struct {
 	channelNumber, channelName    string
 	ultra                         *Palette
 	virtualSeason                 *core.Title
+	generated                     *artwork.TitlePoster
 }
 
 func artworkReference(req frontend.ArtworkRequest, kind, source string) string {
@@ -243,7 +249,7 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 				ctx = context.WithValue(ctx, artworkVirtualSeasonKey{}, title)
 			}
 		}
-		if err != nil || title == nil || title.Key != req.Item || (virtualSeason == nil && !title.IsReleased(s.now())) || !s.visible(ctx, req.Viewer, title) {
+		if err != nil || title == nil || title.Key != req.Item || (virtualSeason == nil && !title.IsReleased(s.now()) && !s.undatedSearchHit(ctx, title.Key)) || !s.visible(ctx, req.Viewer, title) {
 			return nil, false, core.ErrNotFound
 		}
 	}
@@ -277,6 +283,9 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 			continue
 		}
 		if (err != nil || path == "") && !generated {
+			if p, ok := a.generatedPoster(title, virtualSeason, item.kind); ok {
+				add(item.kind, "generated\x00"+p.Stamp(), frontendArtworkEntry{generated: &p})
+			}
 			continue
 		}
 		add(item.kind, item.element+"\x00"+path+"\x00"+collectionVersion, frontendArtworkEntry{element: item.element})
@@ -419,3 +428,20 @@ func (a Source) List(ctx context.Context, req frontend.ArtworkRequest) ([]fronte
 }
 
 var _ frontend.Artwork = Source{}
+
+func (a Source) generatedPoster(t, virtualSeason *core.Title, kind string) (artwork.TitlePoster, bool) {
+	if a.Generated == nil || virtualSeason != nil || (kind != frontend.ImagePoster && kind != frontend.ImageThumb) {
+		return artwork.TitlePoster{}, false
+	}
+	return artwork.ForTitle(t)
+}
+
+// undatedSearchHit reports a long-tail search hit whose release date is not
+// known yet (catalog.UndatedSearchHit): search shows it, so its artwork is
+// served although it is not known to be released.
+func (a Source) undatedSearchHit(ctx context.Context, key core.RatingKey) bool {
+	u, ok := a.Catalog.(interface {
+		UndatedSearchHit(context.Context, core.RatingKey) bool
+	})
+	return ok && u.UndatedSearchHit(ctx, key)
+}

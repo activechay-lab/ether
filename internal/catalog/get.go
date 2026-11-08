@@ -124,7 +124,7 @@ func (c *Catalog) StoredTitle(ctx context.Context, key core.RatingKey) (*core.Ti
 	st, err := c.loadByKey(ctx, key)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
-			if summary, ok := c.listSummary(key); ok {
+			if summary, ok := c.summaryTitle(key); ok {
 				return &summary, nil
 			}
 		}

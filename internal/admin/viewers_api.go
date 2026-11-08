@@ -425,6 +425,9 @@ func homeCard(t core.Title) homeTitleCard {
 	if c.Backdrop == "" && t.StillPath != "" {
 		c.Backdrop = adminImageURL(t.StillPath, 780)
 	}
+	if c.Poster == "" {
+		c.Poster = GeneratedPosterURL(&t, 342)
+	}
 	return c
 }
 

@@ -70,6 +70,7 @@ func (a *App) newSharedArtwork(ctx context.Context) (*artworkservice.Source, fun
 	source.Metadata = metadata.Get
 	source.BindMetadata(metadata)
 	source.Collages = &artworkservice.LibraryCollageCache{Dir: filepath.Join(a.opts.DataDir, "cache", "library-collages")}
+	source.Generated = a.titlePosters()
 	return source, func() { variants.Wait(); metadata.Wait(); workers.Wait() }
 }
 
@@ -80,4 +81,18 @@ func serverLibraries(cfg config.Config) []experience.Library {
 		out = append(out, experience.Library{ID: 2, Name: "TV Shows", Type: core.TypeShow})
 	}
 	return out
+}
+
+// titlePosters draws Ether's generated poster for a title with no artwork.
+// It draws only type, so it needs no image source; its disk cache keeps
+// each title's image, so a page of fallbacks is drawn once.
+func (a *App) titlePosters() *artwork.Renderer {
+	a.titlePosterOnce.Do(func() {
+		dir := ""
+		if a.opts.DataDir != "" {
+			dir = filepath.Join(a.opts.DataDir, "cache", "title-posters")
+		}
+		a.titlePosterRenderer = artwork.NewRenderer(nil, dir, a.log.With("component", "artwork"))
+	})
+	return a.titlePosterRenderer
 }

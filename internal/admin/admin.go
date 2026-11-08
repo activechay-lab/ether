@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/diagnostics"
@@ -240,6 +241,11 @@ type Deps struct {
 	WaitingReleaseKeys func(context.Context) []core.RatingKey
 	// Images backs the TMDB image proxy at /api/image.
 	Images ImageProxy
+	// TitlePosters draws Ether's poster for a title with no artwork, at
+	// /api/image/generated. Nil leaves such cards without a poster.
+	TitlePosters interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 
 	// PlexWatch is the per-viewer Plex account watch-state integration.
 	// Nil hides the routes.
