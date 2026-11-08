@@ -117,6 +117,26 @@ type PlaybackPosition interface{ RequestedPosition() time.Duration }
 // BufferedSource reports contiguous bytes downloaded ahead of the reader.
 type BufferedSource interface{ BufferedAhead() int64 }
 
+// SourceDelivery accounts decoded article-fetch completions owned by this source,
+// including demand, near read-ahead and disk play-ahead. Engine cache hits and
+// joined engine flights do not count. Fetcher-level coalescing can share wire work;
+// these bytes must not be summed across sources as unique provider traffic.
+// Difference Bytes across snapshots and divide by elapsed wall time for delivery.
+// Busy excludes idle gaps, includes queue wait, and is diagnostic only.
+type SourceDelivery struct {
+	Bytes   int64         // decoded bytes fetched from the network
+	Fetches int64         // completed network fetches
+	Busy    time.Duration // wall time with at least one fetch outstanding
+	// Diagnostics of the moment.
+	InFlight      int     // fetches outstanding now, including source/pool queue wait
+	Parallel      int     // shared speculative fetch budget (not sockets)
+	PipelineDepth int     // normal (non-burst) read-ahead BODY depth ceiling
+	PerFetchBps   float64 // recent fetch completion rate including queue wait
+}
+
+// SourceDeliveryReporter exposes the optional SourceDelivery capability.
+type SourceDeliveryReporter interface{ SourceDelivery() SourceDelivery }
+
 // PlaybackPreparer warms a title without reserving playback or changing history.
 type PlaybackPreparer interface {
 	PreResolve(context.Context, *User, RatingKey, ClientCaps) bool

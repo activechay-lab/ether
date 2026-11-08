@@ -61,6 +61,10 @@ type Options struct {
 	TeardownDelay time.Duration
 	// Latency delays every reply.
 	Latency time.Duration
+	// BytesPerSecond paces what one connection sends (0 = unlimited), like
+	// a provider link whose per-connection throughput is bandwidth-delay
+	// bound. Read when a connection is accepted.
+	BytesPerSecond int64
 	// LineLength for yEnc encoding (0 = 128).
 	LineLength int
 	// Addr to listen on (default "127.0.0.1:0").
@@ -508,7 +512,14 @@ func (s *Server) handle(c net.Conn) {
 		}()
 	}()
 	r := bufio.NewReader(c)
-	w := bufio.NewWriterSize(c, 64<<10)
+	s.mu.Lock()
+	rate := s.opts.BytesPerSecond
+	s.mu.Unlock()
+	var out io.Writer = c
+	if rate > 0 {
+		out = &pacedWriter{w: c, rate: rate, stop: s.stop}
+	}
+	w := bufio.NewWriterSize(out, 64<<10)
 	var sess session
 	s.reply(w, 200, "nntptest ready (posting ok)")
 	if w.Flush() != nil {
@@ -558,6 +569,7 @@ func (s *Server) command(w *bufio.Writer, r *bufio.Reader, c net.Conn, sess *ses
 	if d := latency + f.Delay; d > 0 {
 		time.Sleep(d)
 	}
+
 	if f.Drop {
 		return false
 	}
@@ -767,4 +779,44 @@ func selfSigned() (server, client *tls.Config, err error) {
 	}
 	client = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	return server, client, nil
+}
+
+// pacedWriter sends at most rate bytes per second, in small slices so a
+// reply's first bytes are not held back behind its last.
+type pacedWriter struct {
+	stop <-chan struct{}
+	w    io.Writer
+	rate int64
+	next time.Time
+}
+
+func (p *pacedWriter) Write(b []byte) (int, error) {
+	const slice = 16 << 10
+	n := 0
+	for n < len(b) {
+		k := min(len(b)-n, slice)
+		now := time.Now()
+		if p.next.Before(now) {
+			p.next = now
+		}
+		p.next = p.next.Add(time.Duration(float64(k) / float64(p.rate) * float64(time.Second)))
+		m, err := p.w.Write(b[n : n+k])
+		n += m
+		if m < k && err == nil {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			return n, err
+		}
+		if d := time.Until(p.next); d > 0 {
+			timer := time.NewTimer(d)
+			select {
+			case <-timer.C:
+			case <-p.stop:
+				timer.Stop()
+				return n, net.ErrClosed
+			}
+		}
+	}
+	return n, nil
 }
