@@ -19,11 +19,9 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 	allowed := map[string]bool{
 		"github.com/braedonsaunders/ether/internal/artwork":                true,
 		"github.com/braedonsaunders/ether/internal/artwork/service":        true,
-		"github.com/braedonsaunders/ether/internal/auth":                   true,
 		"github.com/braedonsaunders/ether/internal/clusterbus":             true,
 		"github.com/braedonsaunders/ether/internal/config":                 true,
 		"github.com/braedonsaunders/ether/internal/core":                   true,
-		"github.com/braedonsaunders/ether/internal/streamgrant":            true,
 		"github.com/braedonsaunders/ether/internal/plexmeta":               true,
 		"github.com/braedonsaunders/ether/internal/reqmemo":                true,
 		"github.com/braedonsaunders/ether/internal/contentrating":          true,

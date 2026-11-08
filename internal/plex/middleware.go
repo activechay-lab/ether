@@ -13,22 +13,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 type acceptanceContextKey struct{}
 
-func withAcceptance(ctx context.Context, a auth.Acceptance) context.Context {
+func withAcceptance(ctx context.Context, a frontend.CredentialAcceptance) context.Context {
 	return context.WithValue(ctx, acceptanceContextKey{}, a)
 }
 
-func acceptanceFrom(ctx context.Context) (auth.Acceptance, bool) {
-	a, ok := ctx.Value(acceptanceContextKey{}).(auth.Acceptance)
+func acceptanceFrom(ctx context.Context) (frontend.CredentialAcceptance, bool) {
+	a, ok := ctx.Value(acceptanceContextKey{}).(frontend.CredentialAcceptance)
 	return a, ok && a.Valid()
 }
 
@@ -354,17 +354,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
-type tokenAcceptor interface {
-	Accept(context.Context, string) (*core.User, auth.Acceptance, error)
-	ReceiptCurrent(context.Context, auth.Acceptance) error
-}
+type tokenAcceptor = frontend.CredentialAcceptor
 
-func (s *Server) acceptToken(ctx context.Context, token string) (*core.User, auth.Acceptance, error) {
+func (s *Server) acceptToken(ctx context.Context, token string) (*core.User, frontend.CredentialAcceptance, error) {
 	if acc, ok := s.d.Auth.(tokenAcceptor); ok {
 		return acc.Accept(ctx, token)
 	}
 	u, err := s.d.Auth.Authenticate(ctx, token)
-	return u, auth.Acceptance{}, err
+	return u, frontend.CredentialAcceptance{}, err
 }
 
 // acceptanceCurrent rechecks a receipt minted for this request. Requests that
