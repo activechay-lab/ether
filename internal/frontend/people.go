@@ -59,3 +59,21 @@ type PeopleImageReader interface {
 type PersonArtwork interface {
 	PersonImages(context.Context, ArtworkRequest, Title) ([]Image, error)
 }
+
+// PersonImageTarget binds a portrait to its current credited title.
+type PersonImageTarget struct {
+	Item  RatingKey
+	Image Image
+}
+
+// PeopleImageBatchReader validates exact descriptors and current credits in
+// one host policy proof. Output is usable only on success; false entries deny.
+type PeopleImageBatchReader interface {
+	AuthorizePersonImages(context.Context, *Viewer, Device, []PersonImageTarget) ([]bool, error)
+}
+
+// PersonImageGrantBatch issues independently revocable portrait capabilities.
+// Results align with input, with empty secrets for denied portraits.
+type PersonImageGrantBatch interface {
+	IssuePersonImages(context.Context, string, Device, []PersonImageTarget) ([]string, error)
+}

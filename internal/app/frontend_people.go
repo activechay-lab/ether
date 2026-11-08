@@ -145,3 +145,44 @@ func (s *surfaceExperience) Person(ctx context.Context, viewer *frontend.Viewer,
 }
 
 var _ frontend.PeopleReader = (*surfaceExperience)(nil)
+
+// AuthorizePersonImages shares the policy/credit proof across the entire page.
+func (s *surfaceExperience) AuthorizePersonImages(ctx context.Context, viewer *frontend.Viewer, device frontend.Device, targets []frontend.PersonImageTarget) ([]bool, error) {
+	if len(targets) > 100 {
+		return nil, frontend.ErrImageBatchLimit
+	}
+	refs := make([]experience.PersonCreditRef, len(targets))
+	for n, target := range targets {
+		raw, prefix := strings.CutPrefix(target.Image.Subject, "tmdb:")
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if target.Item == 0 || target.Image.Kind != frontend.ImagePerson || !prefix || err != nil || id <= 0 || strconv.FormatInt(id, 10) != raw {
+			return nil, core.ErrUnauthorized
+		}
+		refs[n] = experience.PersonCreditRef{Item: target.Item, TMDB: id}
+	}
+	allowed := make([]bool, len(targets))
+	artwork, ok := s.artwork.(frontend.PersonArtwork)
+	if !ok {
+		return nil, core.ErrNotAvailable
+	}
+	_, err := s.Service.WithPersonCredits(ctx, viewer, device, refs, func(n int, current *core.User, _ frontend.PersonDetail, title core.Title) error {
+		images, err := artwork.PersonImages(ctx, frontend.ArtworkRequest{Viewer: current, Device: device, Item: targets[n].Item}, title)
+		if errors.Is(err, core.ErrUnauthorized) || errors.Is(err, core.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		for _, image := range images {
+			if frontend.SameImage(image, targets[n].Image) {
+				allowed[n] = true
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return allowed, nil
+}
