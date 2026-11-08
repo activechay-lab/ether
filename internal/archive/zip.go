@@ -150,7 +150,7 @@ func ListZIP(vols []Volume) ([]Member, error) {
 
 	var members []Member
 	pos := 0
-	for i := uint64(0); i < numRecords && pos < len(cd); i++ {
+	for i := uint64(0); i < numRecords; i++ {
 		if len(cd)-pos < zipCDHeaderMinLen || !bytes.Equal(cd[pos:pos+4], sigZIPCD) {
 			return nil, fmt.Errorf("archive: zip central directory entry %d corrupt: %w", i, ErrCorrupt)
 		}
@@ -187,7 +187,7 @@ func ListZIP(vols []Volume) ([]Member, error) {
 
 		name := strings.ReplaceAll(string(nameBytes), `\`, "/")
 		isDir := strings.HasSuffix(name, "/") || (extAttrs&zipAttrDirectory != 0 && uncompSize == 0)
-		encrypted := (flags & 0x01) != 0 || method == 99
+		encrypted := (flags&0x01) != 0 || method == 99
 		stored := method == 0 && !encrypted && compSize == uncompSize
 
 		m := Member{
@@ -218,6 +218,9 @@ func ListZIP(vols []Volume) ([]Member, error) {
 		}
 		if !bytes.Equal(lfh[:4], sigZIPLocal) {
 			return nil, fmt.Errorf("archive: zip member %q missing local header signature: %w", name, ErrCorrupt)
+		}
+		if binary.LittleEndian.Uint16(lfh[8:10]) != method || binary.LittleEndian.Uint16(lfh[6:8]) != flags {
+			return nil, fmt.Errorf("archive: zip member %q local flags or method disagree with directory: %w", name, ErrCorrupt)
 		}
 		lfhNameLen := int64(binary.LittleEndian.Uint16(lfh[26:28]))
 		lfhExtraLen := int64(binary.LittleEndian.Uint16(lfh[28:30]))

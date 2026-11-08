@@ -146,7 +146,10 @@ func decodeUU(lr LineReader, firstLine []byte, o DecodeOptions) (*Part, error) {
 			return nil, err
 		}
 	}
-	wireBudget := o.MaxSize*2 + MaxPreambleSize
+	if int64(len(dst)) > o.MaxSize {
+		return nil, fmt.Errorf("%w: more than %d bytes", ErrTooLarge, o.MaxSize)
+	}
+	wireBudget := min(o.MaxSize, (int64(^uint64(0)>>1)-MaxPreambleSize)/2)*2 + MaxPreambleSize
 	for {
 		line, err := lr.ReadLine()
 		if err != nil {
