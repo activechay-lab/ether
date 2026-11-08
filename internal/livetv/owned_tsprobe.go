@@ -125,6 +125,12 @@ type tsStream struct {
 	pes   []byte // first PES payload (bounded)
 	open  bool
 	done  bool
+	// later is an audio frame, after the first PES, whose header names
+	// another codec: a source switch inside this segment. It counts once two
+	// such frames agree.
+	later      []byte
+	laterCodec string
+	laterSeen  int
 }
 
 // tsVideoSpan measures a segment's media length from its video PTS: last
@@ -213,7 +219,24 @@ func inspectTS(b []byte) mediaFormat {
 			}
 		default:
 			st := streams[pid]
-			if st == nil || st.done {
+			if st == nil {
+				continue
+			}
+			if st.done {
+				// Audio: every frame start is checked, so a codec switch
+				// part-way through a segment is seen, not only at its head.
+				if pusi && st.kind == "audio" && st.laterSeen < 2 {
+					if h := pesHeaderLen(payload); h > 0 && h < len(payload) {
+						c := sniffAudioCodec(payload[h:])
+						switch {
+						case c == "" || c == sniffAudioCodec(st.pes):
+						case c == st.laterCodec:
+							st.laterSeen++
+						default:
+							st.later, st.laterCodec, st.laterSeen = append([]byte(nil), payload[h:]...), c, 1
+						}
+					}
+				}
 				continue
 			}
 			if pusi {
@@ -258,10 +281,17 @@ func inspectTS(b []byte) mediaFormat {
 			}
 		case "audio":
 			a := audioFormat{pid: st.pid, codec: st.codec}
-			if sniffed := sniffAudioCodec(st.pes); sniffed != "" && sniffed != a.codec {
+			es := st.pes
+			if st.laterSeen >= 2 {
+				// The segment ends in another codec than it starts with:
+				// describe what follows, which is what the source now sends.
+				es = st.later
+			}
+			if sniffed := sniffAudioCodec(es); sniffed != "" && sniffed != a.codec {
 				a.codec = sniffed
 				f.mislabeled = true
 			}
+			st.pes = es
 			switch a.codec {
 			case "aac":
 				a.rate, a.channels = adtsParams(st.pes)
@@ -689,17 +719,29 @@ var ac3Rates = []int{48000, 44100, 32000, 0}
 // ac3Channels is the full-bandwidth channel count of each AC-3 acmod.
 var ac3Channels = []int{2, 1, 2, 3, 3, 4, 4, 5}
 
-// ac3Params returns the AC-3/E-AC-3 sample rate and full-bandwidth channel
-// count (LFE is not counted).
+// ac3Params returns the AC-3/E-AC-3 sample rate and channel count, LFE
+// included (5.1 is 6).
 func ac3Params(es []byte) (int, int) {
 	for i := 0; i+8 <= len(es); i++ {
 		if es[i] != 0x0b || es[i+1] != 0x77 {
 			continue
 		}
-		if es[i+5]>>3 > 10 { // E-AC-3: fscod and acmod in byte 4
-			return ac3Rates[es[i+4]>>6], ac3Channels[es[i+4]>>1&7]
+		if es[i+5]>>3 > 10 { // E-AC-3: fscod, numblkscod, acmod, lfeon in byte 4
+			return ac3Rates[es[i+4]>>6], ac3Channels[es[i+4]>>1&7] + int(es[i+4]&1)
 		}
-		return ac3Rates[es[i+4]>>6], ac3Channels[es[i+6]>>5]
+		// AC-3: acmod, then the mix levels it implies, then lfeon.
+		r := &bitReader{b: es[i+6 : min(len(es), i+8)]}
+		acmod := r.bits(3)
+		if acmod&1 != 0 && acmod != 1 {
+			r.bits(2) // cmixlev
+		}
+		if acmod&4 != 0 {
+			r.bits(2) // surmixlev
+		}
+		if acmod == 2 {
+			r.bits(2) // dsurmod
+		}
+		return ac3Rates[es[i+4]>>6], ac3Channels[acmod] + int(r.bit())
 	}
 	return 0, 0
 }
