@@ -1114,30 +1114,43 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	}
 	pr.versionFlowKey = selItem.key
 	pr.versionItemKey = selItem.key
+	// The rows a client pages through are the items that render; a page
+	// renders only its own rows, never the whole queue.
+	type queueRow struct {
+		it    pqItem
+		t     *core.Title
+		extra *model.Metadata
+	}
+	var rows []queueRow
 	for _, it := range slice {
 		if it.id == pq.suppressItem {
 			continue
 		}
 		if it.key.Kind() == core.KindExtra {
 			if md, ok := s.extraMetadataByKey(ctx, pr, it.key); ok {
-				md.PlayQueueItemID = it.id
-				mc.Metadata = append(mc.Metadata, md)
+				rows = append(rows, queueRow{it: it, extra: &md})
 			}
 			continue
 		}
-		t, ok := byKey[it.key]
-		if !ok {
-			continue
+		if t, ok := byKey[it.key]; ok {
+			rows = append(rows, queueRow{it: it, t: t})
 		}
-		md := s.metadata(ctx, pr, t, renderOpts{detail: true, media: true, state: state})
-		md.PlayQueueItemID = it.id
+	}
+	if pr.HasPage {
+		lo, hi := pr.window(len(rows))
+		rows = rows[lo:hi]
+	}
+	for _, row := range rows {
+		var md model.Metadata
+		if row.extra != nil {
+			md = *row.extra
+		} else {
+			md = s.metadata(ctx, pr, row.t, renderOpts{detail: true, media: true, state: state})
+		}
+		md.PlayQueueItemID = row.it.id
 		mc.Metadata = append(mc.Metadata, md)
 	}
 	applyExcludedElements(mc.Metadata, excludedElements(q))
-	if pr.HasPage {
-		lo, hi := pr.window(len(mc.Metadata))
-		mc.Metadata = mc.Metadata[lo:hi]
-	}
 	mc.Size = len(mc.Metadata)
 	s.write(w, r, mc)
 }
