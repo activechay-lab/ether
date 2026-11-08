@@ -453,6 +453,8 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 		age = now.Sub(plan.start)
 	}
 	b.logger.Debug("broadcast decoder prepare started", "input", plan.id, "offsetAge", age)
+	// The run loop slides origin during a cold start; the preparer reads a copy.
+	origin := b.origin
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -472,7 +474,7 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 				result.input = newBroadcastInput(b.ctx, plan, d, release, b.format)
 				result.input.logger = b.logger
 				result.input.openedAt = began
-				result.input.outputOrigin = b.origin
+				result.input.outputOrigin = origin
 			}
 		}
 		if err != nil {
@@ -587,7 +589,7 @@ func (b *broadcast) unwatched(now time.Time) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	// A brand-new output has no viewer until acquire attaches its rendition.
-	return b.viewers == 0 && !b.closed && now.Sub(b.origin) >= 2*time.Second
+	return b.viewers == 0 && !b.closed && now.Sub(b.created) >= 2*time.Second
 }
 func (b *broadcast) run() {
 	defer func() {
