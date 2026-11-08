@@ -234,3 +234,31 @@ func (f *mappedLogoFetcher) GetUntrustedURL(_ context.Context, u string) ([]byte
 	}
 	return nil, "", errors.New("unknown url")
 }
+
+// Plex for Apple TV draws the guide's channel column from each airing's
+// channelThumb and loads it as a standalone URL (#391): the grid must carry
+// the same authenticated logo as the lineup. Other clients keep the path.
+func TestAppleTVGuideGridChannelThumbIsStandalone(t *testing.T) {
+	f, _, channel := liveFixture(t)
+	thumb := func(hdr ...string) string {
+		args := append([]string{"Accept", "application/json"}, hdr...)
+		grid := decodeJSON(t, f.get(t, liveProviderPath+"/grid?date=2026-10-18", args...))
+		media := grid["Metadata"].([]any)[0].(map[string]any)["Media"].([]any)[0].(map[string]any)
+		return media["channelThumb"].(string)
+	}
+	got := thumb("X-Plex-Product", "Plex for Apple TV", "X-Plex-Platform", "tvOS")
+	logo, err := url.Parse(got)
+	if err != nil || logo.Scheme != "http" || logo.Host != "example.com" || logo.Path != liveLogo(channel) || logo.Query().Get("X-Plex-Token") != ownerToken {
+		t.Fatalf("Apple TV grid channelThumb is not standalone: %q", got)
+	}
+	lineup := decodeJSON(t, f.get(t, liveProviderPath+"/lineups/dvr/channels", "Accept", "application/json", "X-Plex-Product", "Plex for Apple TV", "X-Plex-Platform", "tvOS"))
+	if want := lineup["Channel"].([]any)[0].(map[string]any)["thumb"]; got != want {
+		t.Fatalf("grid %q and lineup %q logos differ", got, want)
+	}
+	if rec := f.get(t, logo.RequestURI()); rec.Code != http.StatusOK {
+		t.Fatalf("logo status: %d", rec.Code)
+	}
+	if got := thumb("X-Plex-Product", "Plex for Windows", "X-Plex-Platform", "Windows"); got != liveLogo(channel) {
+		t.Fatalf("relative-path client changed: %q", got)
+	}
+}
