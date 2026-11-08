@@ -265,41 +265,7 @@ func rangeOfDVBase(v *core.StreamInfo) string {
 	return b
 }
 
-// matchStream finds the stream in info that best matches prev: same
-// language and codec, then same language, then the default/first one.
+// matchStream finds the stream in info that best matches prev across failover.
 func matchStream(info core.MediaInfo, prev *core.StreamInfo, typ string) *core.StreamInfo {
-	var sameLang, first, def *core.StreamInfo
-	for i := range info.Streams {
-		s := &info.Streams[i]
-		if s.Type != typ || s.External {
-			continue
-		}
-		if first == nil {
-			first = s
-		}
-		if s.Default && def == nil {
-			def = s
-		}
-		if prev == nil {
-			continue
-		}
-		if s.Language == prev.Language {
-			if s.Codec == prev.Codec && s.Forced == prev.Forced {
-				return s
-			}
-			if sameLang == nil {
-				sameLang = s
-			}
-		}
-	}
-	if sameLang != nil {
-		return sameLang
-	}
-	if typ == "subtitle" {
-		return nil // never invent subtitles the user did not pick
-	}
-	if def != nil {
-		return def
-	}
-	return first
+	return matchReplacementStream(info, prev, typ)
 }
