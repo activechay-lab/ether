@@ -24,7 +24,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/diagnostics"
-	"github.com/braedonsaunders/ether/internal/episodeorder"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -98,7 +97,7 @@ type Deps struct {
 	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []core.Title) []core.Title
 	PrioritizeAvailable func(context.Context, []core.Title) []core.Title
-	EpisodeOrder        *episodeorder.Service
+	EpisodeOrder        frontend.EpisodeOrder
 	PlexGUID            *plexguid.Service
 	PlexMeta            *plexmeta.Service
 	Discovery           *DiscoveryFeatures

@@ -9,26 +9,19 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/markers"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/trackprefs"
 )
 
 // TrackPreferences is optional. Selections are stream slice positions; saved
 // show choices match language/flags so they survive changes in release order.
-type TrackPreferences interface {
-	Select(context.Context, int64, core.RatingKey, core.MediaInfo, string) (trackprefs.Selection, error)
-	Remember(context.Context, int64, core.RatingKey, string, *core.StreamInfo) error
-	GetRules(context.Context, int64) (trackprefs.Rules, error)
-}
-type MarkerProvider interface {
-	Markers(context.Context, core.RatingKey, core.MediaInfo) ([]markers.Marker, error)
-}
+type TrackPreferences = frontend.PlaybackTrackPreferences
+type MarkerProvider = frontend.MarkerRanges
 
-func (s *Server) trackScope(ctx context.Context, key core.RatingKey) trackprefs.Scope {
-	scope := trackprefs.Scope{Device: FromContext(ctx).ClientID}
+func (s *Server) trackScope(ctx context.Context, key core.RatingKey) frontend.TrackScope {
+	scope := frontend.TrackScope{Device: FromContext(ctx).ClientID}
 	wanted := core.TypeMovie
 	if key.Kind() == core.KindShow || key.Kind() == core.KindSeason || key.Kind() == core.KindEpisode {
 		wanted = core.TypeShow
@@ -155,14 +148,11 @@ func (s *Server) addProbedStreamFeatures(ctx context.Context, key core.RatingKey
 	if len(m.Chapter) > 0 {
 		m.ChapterSource = "media"
 	}
-	ranges := markers.FromChapters(info)
-	if s.d.Markers != nil {
-		var err error
-		ranges, err = s.d.Markers.Markers(ctx, key, info)
-		if err != nil {
-			s.log.Debug("marker provider unavailable", "error", err)
-		}
+	ranges, err := experience.PlaybackMarkerRanges(ctx, s.d.Markers, key, info)
+	if err != nil {
+		s.log.Debug("marker provider unavailable", "error", err)
 	}
+
 	// PMS lists markers in timeline order and puts final="1" only on the
 	// last credits marker (a stinger scene splits credits into several).
 	sort.SliceStable(ranges, func(i, j int) bool { return ranges[i].StartMS < ranges[j].StartMS })

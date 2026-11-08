@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/langtag"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
 	"github.com/braedonsaunders/ether/internal/transcode"
@@ -109,7 +110,7 @@ func TextForImageSubtitle(info core.MediaInfo, pos int) int {
 // SelectScoped applies scoped rules before unscoped preferences. A failed
 // scoped lookup falls back; explicit client choices always retain priority.
 // Plex automatically substitutes a matching text subtitle for an image track.
-func (p TrackPreferences) SelectScoped(ctx context.Context, viewer *core.User, key core.RatingKey, info core.MediaInfo, original string, scope trackprefs.Scope, selected TrackSelection, scopedError func(error)) (TrackSelection, error) {
+func (p TrackPreferences) SelectScoped(ctx context.Context, viewer *core.User, key core.RatingKey, info core.MediaInfo, original string, scope frontend.TrackScope, selected TrackSelection, scopedError func(error)) (TrackSelection, error) {
 	if p.Source == nil || viewer == nil {
 		return selected, nil
 	}
@@ -124,7 +125,7 @@ func (p TrackPreferences) SelectScoped(ctx context.Context, viewer *core.User, k
 	if scoped, ok := p.Source.(interface {
 		SelectScoped(context.Context, int64, core.RatingKey, core.MediaInfo, string, trackprefs.Scope) (trackprefs.Selection, bool, error)
 	}); ok {
-		preferred, applied, err = scoped.SelectScoped(ctx, viewer.ID, key, info, original, scope)
+		preferred, applied, err = scoped.SelectScoped(ctx, viewer.ID, key, info, original, trackprefs.Scope(scope))
 		if err != nil {
 			if scopedError != nil {
 				scopedError(err)
@@ -153,14 +154,14 @@ func (p TrackPreferences) SelectScoped(ctx context.Context, viewer *core.User, k
 
 // ScopedLimits applies positive preference ceilings without raising an existing
 // request or policy ceiling. Missing scoped support leaves options unchanged.
-func (p TrackPreferences) ScopedLimits(ctx context.Context, viewer *core.User, scope trackprefs.Scope, opts core.DecideOptions) (core.DecideOptions, error) {
+func (p TrackPreferences) ScopedLimits(ctx context.Context, viewer *core.User, scope frontend.TrackScope, opts core.DecideOptions) (core.DecideOptions, error) {
 	if p.Source == nil || viewer == nil {
 		return opts, nil
 	}
 	if scoped, ok := p.Source.(interface {
 		ScopedRules(context.Context, int64, trackprefs.Scope) (trackprefs.Rules, bool, error)
 	}); ok {
-		rules, _, err := scoped.ScopedRules(ctx, viewer.ID, scope)
+		rules, _, err := scoped.ScopedRules(ctx, viewer.ID, trackprefs.Scope(scope))
 		if err != nil {
 			return opts, err
 		}

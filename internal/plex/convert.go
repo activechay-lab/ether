@@ -14,7 +14,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/langtag"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -1342,17 +1342,17 @@ var languages = map[string][3]string{
 // primaryLang is the display/code lookup key for a language: the
 // canonical primary subtag from langtag (region and script dropped).
 func primaryLang(code string) string {
-	if t, ok := langtag.ParseBCP47(code); ok {
-		return canonicalLanguagePrimary(t.Primary)
+	if t, ok := frontend.LanguagePrimary(code); ok {
+		return canonicalLanguagePrimary(t)
 	}
 	return strings.ToLower(strings.TrimSpace(code))
 }
 
-// sameLanguage is the symmetric view of langtag.MatchTier: true when
+// sameLanguage is the symmetric view of frontend.LanguageMatchTier: true when
 // the tier is > 0 — exact, or the same primary with at least one
 // generic side (pt × pt-br true; pt-br × pt-pt false).
 func sameLanguage(a, b string) bool {
-	return a != "" && b != "" && langtag.MatchTier(a, b) > 0
+	return a != "" && b != "" && frontend.LanguageMatchTier(a, b) > 0
 }
 
 func languageName(code string) string {

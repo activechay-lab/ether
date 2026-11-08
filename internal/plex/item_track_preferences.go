@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/langtag"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
@@ -40,8 +40,7 @@ func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *core.
 	for _, kind := range []string{"audio", "subtitle"} {
 		var codes []string
 		for _, st := range info.Streams {
-			tag, _ := langtag.ParseBCP47(st.Language)
-			code := tag.Primary
+			code, _ := frontend.LanguagePrimary(st.Language)
 			if st.Type == kind && code != "" && code != "und" && !seen[code] {
 				seen[code] = true
 				codes = append(codes, code)
