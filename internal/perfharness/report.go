@@ -84,6 +84,10 @@ func ReadTrace(path string) (map[string]TraceRecord, []TraceRecord, error) {
 type Row struct {
 	Client, Step, Class     string
 	RowsBound, QueriesBound int
+	// Export and Bytes (the median response size): an export step's work
+	// is compared per response byte (Step.Export).
+	Export bool
+	Bytes  int64
 	// WritesMax is the most statements that wrote in one request.
 	WritesMax                              int64
 	Cold, WarmP50, WarmP95, ConcP95, BgP95 time.Duration
@@ -101,6 +105,7 @@ type Row struct {
 	samples                                  map[string][]time.Duration
 	queries, writes, rowsRead                []int64
 	allocBytes, allocs                       []int64
+	bytes                                    []int64
 	dbTimes, lockWaits                       []time.Duration
 }
 
@@ -136,7 +141,7 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 		for _, st := range steps {
 			k := c.Name + "\x00" + st.Name
 			if rows[k] == nil {
-				rows[k] = &Row{Client: c.Name, Step: st.Name, Class: st.Class, RowsBound: st.RowsBound, QueriesBound: st.QueriesBound, samples: map[string][]time.Duration{}}
+				rows[k] = &Row{Client: c.Name, Step: st.Name, Class: st.Class, RowsBound: st.RowsBound, QueriesBound: st.QueriesBound, Export: st.Export, samples: map[string][]time.Duration{}}
 				keys = append(keys, k)
 			}
 		}
@@ -157,6 +162,7 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 			continue
 		}
 		r.samples[res.Phase] = append(r.samples[res.Phase], res.Dur)
+		r.bytes = append(r.bytes, int64(res.Bytes))
 		if tr, ok := trace[res.Tag]; ok && (res.Phase == "warm" || res.Phase == "cold") {
 			r.queries = append(r.queries, tr.Queries)
 			r.writes = append(r.writes, tr.Writes)
@@ -180,6 +186,7 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 		r.BgP95 = percentile(r.samples["background"], 0.95)
 		r.Queries, r.Writes, r.Rows = median64(r.queries), median64(r.writes), median64(r.rowsRead)
 		r.AllocBytes, r.Allocs = median64(r.allocBytes), median64(r.allocs)
+		r.Bytes = median64(r.bytes)
 		r.QueriesMin, r.QueriesMax = minMax(r.queries)
 		_, r.WritesMax = minMax(r.writes)
 		r.RowsMin, r.RowsMax = minMax(r.rowsRead)

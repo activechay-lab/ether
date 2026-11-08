@@ -26,6 +26,10 @@ type Viewer struct {
 	Restricted bool
 	PlexToken  string
 	Stremio    string
+	// Xtream is an IPTV app password (the username is derived from it);
+	// MCP is a read-scoped MCP grant, minted for the owner only.
+	Xtream string
+	MCP    string
 }
 
 type activeViewers struct{ db *sql.DB }
@@ -90,6 +94,16 @@ func MintCredentials(ctx context.Context, db *sql.DB, max int) ([]Viewer, error)
 		v.Stremio, err = grants.Issue(ctx, v.ID, nil, "stremio", core.Device{ID: "etherperf-stremio-" + v.Username, Client: "stremio", Product: "stremio"})
 		if err != nil {
 			return nil, fmt.Errorf("stremio grant for %s: %w", v.Username, err)
+		}
+		v.Xtream, err = grants.Issue(ctx, v.ID, nil, "xtream", core.Device{ID: "etherperf-xtream-" + v.Username, Client: "IPTV player apps", Product: "Xtream"})
+		if err != nil {
+			return nil, fmt.Errorf("xtream app password for %s: %w", v.Username, err)
+		}
+		if v.Owner {
+			v.MCP, err = grants.IssueScoped(ctx, v.ID, identity.SurfaceMCP, core.Device{ID: "etherperf-mcp", Client: "etherperf", Product: "MCP"}, []string{"read"})
+			if err != nil {
+				return nil, fmt.Errorf("mcp grant for %s: %w", v.Username, err)
+			}
 		}
 	}
 	return viewers, nil

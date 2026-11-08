@@ -27,7 +27,7 @@ import (
 const PerfGateEnv = "ETHER_PERF_GATE"
 
 // gateClients are replayed against both scales: one client per protocol.
-var gateClients = []string{"plex-appletv", "plex-appletv second device", "infuse-jellyfin", "emby-sdk", "silo-appletv", "stremio", "console"}
+var gateClients = []string{"plex-appletv", "plex-appletv second device", "infuse-jellyfin", "swiftfin", "emby-sdk", "silo-appletv", "stremio", "xtream", "console", "mcp"}
 
 // TestPerformanceGate fails when a request path scales with the library.
 // It builds the same synthetic household over a library of SmallScale and
@@ -175,6 +175,13 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 		case l.Status == "ERROR":
 			verdict = "error on both: " + strings.Join(l.Errors, "; ")
 		default:
+			if l.Export && s.Bytes > 0 && l.Bytes > 0 {
+				// An export renders the whole library: compare its work per
+				// response byte, so a page walk that stays flat per row
+				// passes and one that rescans per page does not.
+				f := float64(l.Bytes) / float64(s.Bytes)
+				s = &perfharness.Row{RowsMax: int64(float64(s.RowsMax) * f), QueriesMax: int64(float64(s.QueriesMax) * f), DBTime: time.Duration(float64(s.DBTime) * f), WarmP50: s.WarmP50}
+			}
 			// A pass may or may not be answered by a cache (a generation or
 			// minute bucket can turn over between passes), so the large
 			// library's least work is compared with the small one's most: a
@@ -201,7 +208,7 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 			if l.DBTime > time.Duration(gateDBFactor*float64(s.DBTime))+gateDBSlack {
 				why = append(why, fmt.Sprintf("database time grows with the library (%s → %s)", s.DBTime, l.DBTime))
 			}
-			if l.WarmP50 > gateWallCeiling {
+			if l.WarmP50 > gateWallCeiling && !l.Export {
 				why = append(why, fmt.Sprintf("warm p50 %s over %s", l.WarmP50, gateWallCeiling))
 			}
 		}
@@ -244,7 +251,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	ports := freePorts(t, 3)
 	if err = cfg.Update(func(c *config.Config) error {
 		c.SetupComplete = true
-		c.Frontends = map[string]config.Frontend{"plex": {Enabled: true}, "jellyfin": {Enabled: true}, "emby": {Enabled: true}, "silo": {Enabled: true}, "stremio": {Enabled: true}}
+		c.Frontends = map[string]config.Frontend{"plex": {Enabled: true}, "jellyfin": {Enabled: true}, "emby": {Enabled: true}, "silo": {Enabled: true}, "stremio": {Enabled: true}, "xtream": {Enabled: true}}
 		c.FrontendPorts = map[string]int{"jellyfin": ports[0], "emby": ports[1], "silo": ports[2]}
 		c.Transcode.FFmpegPath = "/not-installed/ffmpeg"
 		c.Server.BindAddress = "127.0.0.1"
@@ -305,7 +312,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 	var viewing []perfharness.Client
 	for _, c := range cs {
-		if c.Surface != "console" {
+		if c.Surface != "console" && c.Surface != "mcp" {
 			viewing = append(viewing, c)
 		}
 	}
