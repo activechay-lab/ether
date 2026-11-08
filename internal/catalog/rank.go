@@ -56,14 +56,26 @@ CREATE INDEX ` + t + `_status ON ` + t + `(type, browsable, adult, status, rk);`
 const rankFill = `SELECT key, type, browsable, adult, release_known, released_ts, year, language, runtime_sec, status, -popularity FROM catalog_titles WHERE type IN ('movie','show')`
 
 // rankUpsert writes src's rank row into one copy when src is a movie or
-// show, keeping that copy's rk (a popularity change waits for the rebuild).
+// show, keeping that copy's rk (a popularity change waits for the
+// rebuild), unless that copy is being rebuilt: then the key goes to
+// catalog_rank_pending and the rebuild applies it before the swap, so a
+// writer never waits on the copy being rebuilt.
 func rankUpsert(side, src string) string {
 	t := "catalog_rank_" + side
 	return `INSERT INTO ` + t + `(` + rankColumns + `) SELECT ` + src + `.key, ` + src + `.type, ` + src + `.browsable, ` + src + `.adult,
  CASE WHEN ` + src + `.released_ts<>0 THEN 1 ELSE 0 END, ` + src + `.released_ts, ` + src + `.year, ` + src + `.language, ` + src + `.runtime_sec, ` + src + `.status, -` + src + `.popularity
- WHERE ` + src + `.type IN ('movie','show')
+ WHERE ` + src + `.type IN ('movie','show') AND NOT EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_building' AND v='` + side + `')
  ON CONFLICT(key) DO UPDATE SET type=excluded.type, browsable=excluded.browsable, adult=excluded.adult, release_known=excluded.release_known,
  released_ts=excluded.released_ts, year=excluded.year, language=excluded.language, runtime_sec=excluded.runtime_sec, status=excluded.status;`
+}
+
+func rankDelete(side, src string) string {
+	return `DELETE FROM catalog_rank_` + side + ` WHERE key=` + src + `.key AND NOT EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_building' AND v='` + side + `');`
+}
+
+// rankPending records src's key while a copy is being rebuilt.
+func rankPending(src string) string {
+	return `INSERT INTO catalog_rank_pending(key) SELECT ` + src + `.key WHERE EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_building' AND v<>'') ON CONFLICT(key) DO NOTHING;`
 }
 
 // rankWatched is every catalog_titles column a rank row copies, popularity
@@ -72,39 +84,52 @@ const rankWatched = `type, browsable, adult, released_ts, year, language, runtim
 
 func init() {
 	sqlite := rankTableSQL("a", "INTEGER") + rankIndexSQL("a") + rankTableSQL("b", "INTEGER") + rankIndexSQL("b") +
-		`CREATE VIEW catalog_rank AS SELECT ` + rankColumns + ` FROM catalog_rank_a;
+		`CREATE TABLE catalog_rank_pending (key INTEGER PRIMARY KEY);
+CREATE VIEW catalog_rank AS SELECT ` + rankColumns + ` FROM catalog_rank_a;
 CREATE TRIGGER catalog_rank_insert AFTER INSERT ON catalog_titles WHEN new.type IN ('movie','show') BEGIN
  ` + rankUpsert("a", "new") + `
  ` + rankUpsert("b", "new") + `
+ ` + rankPending("new") + `
 END;
 CREATE TRIGGER catalog_rank_update AFTER UPDATE OF ` + rankWatched + ` ON catalog_titles WHEN new.type IN ('movie','show') OR old.type IN ('movie','show') BEGIN
- DELETE FROM catalog_rank_a WHERE key=old.key AND new.type NOT IN ('movie','show');
- DELETE FROM catalog_rank_b WHERE key=old.key AND new.type NOT IN ('movie','show');
+ DELETE FROM catalog_rank_a WHERE key=old.key AND new.type NOT IN ('movie','show') AND NOT EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_building' AND v='a');
+ DELETE FROM catalog_rank_b WHERE key=old.key AND new.type NOT IN ('movie','show') AND NOT EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_building' AND v='b');
  ` + rankUpsert("a", "new") + `
  ` + rankUpsert("b", "new") + `
+ ` + rankPending("new") + `
 END;
 CREATE TRIGGER catalog_rank_delete AFTER DELETE ON catalog_titles WHEN old.type IN ('movie','show') BEGIN
- DELETE FROM catalog_rank_a WHERE key=old.key;
- DELETE FROM catalog_rank_b WHERE key=old.key;
+ ` + rankDelete("a", "old") + `
+ ` + rankDelete("b", "old") + `
+ ` + rankPending("old") + `
 END;
-INSERT INTO catalog_meta(k,v) VALUES('rank_side','a') ON CONFLICT(k) DO UPDATE SET v=excluded.v;`
+INSERT INTO catalog_meta(k,v) VALUES('rank_side','a'),('rank_building','') ON CONFLICT(k) DO UPDATE SET v=excluded.v;`
 	store.Register("catalog", 53, sqlite)
-	// PostgreSQL: one row trigger function writes both copies. The view
-	// swap is CREATE OR REPLACE VIEW (an ACCESS EXCLUSIVE lock on the view
-	// only, held to the end of the rebuild's transaction).
+	// PostgreSQL: one row trigger function writes both copies, or records
+	// the key for the copy being rebuilt.
 	pgUpsert := func(side string) string {
 		t := "catalog_rank_" + side
-		return `INSERT INTO ` + t + `(` + rankColumns + `) VALUES (NEW.key, NEW.type, NEW.browsable, NEW.adult,
-  CASE WHEN NEW.released_ts<>0 THEN 1 ELSE 0 END, NEW.released_ts, NEW.year, NEW.language, NEW.runtime_sec, NEW.status, -NEW.popularity)
-  ON CONFLICT(key) DO UPDATE SET type=excluded.type, browsable=excluded.browsable, adult=excluded.adult, release_known=excluded.release_known,
-  released_ts=excluded.released_ts, year=excluded.year, language=excluded.language, runtime_sec=excluded.runtime_sec, status=excluded.status;`
+		return `IF building<>'` + side + `' THEN
+   INSERT INTO ` + t + `(` + rankColumns + `) VALUES (NEW.key, NEW.type, NEW.browsable, NEW.adult,
+   CASE WHEN NEW.released_ts<>0 THEN 1 ELSE 0 END, NEW.released_ts, NEW.year, NEW.language, NEW.runtime_sec, NEW.status, -NEW.popularity)
+   ON CONFLICT(key) DO UPDATE SET type=excluded.type, browsable=excluded.browsable, adult=excluded.adult, release_known=excluded.release_known,
+   released_ts=excluded.released_ts, year=excluded.year, language=excluded.language, runtime_sec=excluded.runtime_sec, status=excluded.status;
+  END IF;`
 	}
 	store.RegisterDialect("catalog", 53, store.Postgres, rankTableSQL("a", "BIGINT")+rankIndexSQL("a")+rankTableSQL("b", "BIGINT")+rankIndexSQL("b")+
-		`CREATE VIEW catalog_rank AS SELECT `+rankColumns+` FROM catalog_rank_a;
-CREATE FUNCTION catalog_rank_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+		`CREATE TABLE catalog_rank_pending (key BIGINT PRIMARY KEY);
+CREATE VIEW catalog_rank AS SELECT `+rankColumns+` FROM catalog_rank_a;
+CREATE FUNCTION catalog_rank_fn() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE building TEXT;
+BEGIN
+ SELECT v INTO building FROM catalog_meta WHERE k='rank_building';
+ building := COALESCE(building, '');
+ IF building<>'' THEN
+  INSERT INTO catalog_rank_pending(key) VALUES (CASE WHEN TG_OP='DELETE' THEN OLD.key ELSE NEW.key END) ON CONFLICT(key) DO NOTHING;
+ END IF;
  IF TG_OP='DELETE' OR (TG_OP='UPDATE' AND NEW.type NOT IN ('movie','show')) THEN
-  DELETE FROM catalog_rank_a WHERE key=OLD.key;
-  DELETE FROM catalog_rank_b WHERE key=OLD.key;
+  IF building<>'a' THEN DELETE FROM catalog_rank_a WHERE key=OLD.key; END IF;
+  IF building<>'b' THEN DELETE FROM catalog_rank_b WHERE key=OLD.key; END IF;
  END IF;
  IF TG_OP<>'DELETE' AND NEW.type IN ('movie','show') THEN
   `+pgUpsert("a")+`
@@ -115,7 +140,7 @@ END $$;
 CREATE TRIGGER catalog_rank_insert AFTER INSERT ON catalog_titles FOR EACH ROW WHEN (NEW.type IN ('movie','show')) EXECUTE FUNCTION catalog_rank_fn();
 CREATE TRIGGER catalog_rank_update AFTER UPDATE OF `+rankWatched+` ON catalog_titles FOR EACH ROW WHEN (NEW.type IN ('movie','show') OR OLD.type IN ('movie','show')) EXECUTE FUNCTION catalog_rank_fn();
 CREATE TRIGGER catalog_rank_delete AFTER DELETE ON catalog_titles FOR EACH ROW WHEN (OLD.type IN ('movie','show')) EXECUTE FUNCTION catalog_rank_fn();
-INSERT INTO catalog_meta(k,v) VALUES('rank_side','a') ON CONFLICT(k) DO UPDATE SET v=excluded.v;`)
+INSERT INTO catalog_meta(k,v) VALUES('rank_side','a'),('rank_building','') ON CONFLICT(k) DO UPDATE SET v=excluded.v;`)
 }
 
 // rankRebuildEvery spaces the rank rebuilds: TMDB publishes popularity
@@ -130,27 +155,42 @@ type RankRebuild struct {
 	Built time.Time
 }
 
+// rankBuildHook, when set (tests), runs while the idle copy is being
+// built, as a concurrent writer would.
+var rankBuildHook func()
+
+// rankChunk is how many titles one fill transaction copies: a writer
+// waits for at most one chunk.
+const rankChunk = 5000
+
 // RebuildRank refreshes every title's rank from its current popularity:
-// it rebuilds the idle copy and makes it the live one.
+// it rebuilds the idle copy and makes it the live one. Writers never wait
+// on it for longer than one short transaction: while the copy is being
+// built the triggers leave it alone and record changed keys in
+// catalog_rank_pending; the copy is filled in key-ordered chunks of their
+// own transactions, its indexes built one at a time, and the pending keys
+// applied in the short transaction that swaps the view.
 func (c *Catalog) RebuildRank(ctx context.Context) (RankRebuild, error) {
 	start := c.now()
 	began := time.Now()
 	var out RankRebuild
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback()
 	pg := store.DialectOf(c.db) == store.Postgres
-	if pg {
-		// One rebuild at a time across a cluster's nodes.
-		if err := store.LockKey(ctx, store.Postgres, tx, "catalog-rank-rebuild"); err != nil {
-			return out, err
+	exec := func(stmts ...string) error {
+		tx, err := c.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
 		}
+		defer tx.Rollback()
+		for _, s := range stmts {
+			if _, err := tx.ExecContext(ctx, s); err != nil {
+				return fmt.Errorf("catalog: rank rebuild: %s: %w", strings.Fields(s)[0], err)
+			}
+		}
+		return tx.Commit()
 	}
 	live := "a"
 	var v string
-	if err := tx.QueryRowContext(ctx, `SELECT v FROM catalog_meta WHERE k='rank_side'`).Scan(&v); err == nil && v == "b" {
+	if err := c.db.QueryRowContext(ctx, `SELECT v FROM catalog_meta WHERE k='rank_side'`).Scan(&v); err == nil && v == "b" {
 		live = "b"
 	}
 	idle := map[string]string{"a": "b", "b": "a"}[live]
@@ -159,43 +199,97 @@ func (c *Catalog) RebuildRank(ctx context.Context) (RankRebuild, error) {
 	if pg {
 		bigint = "BIGINT"
 	}
-	stmts := []string{`DROP TABLE IF EXISTS ` + t, strings.TrimSuffix(rankTableSQL(idle, bigint), ";"),
-		`INSERT INTO ` + t + `(` + rankColumns + `) ` + rankFill + ` ORDER BY key`}
-	stmts = append(stmts, strings.Split(strings.TrimSuffix(rankIndexSQL(idle), ";"), ";\n")...)
-	if !pg {
-		// One transaction: the write gate is held for the rebuild, and a
-		// reader's snapshot holds the old view or the new one.
-		stmts = append(stmts, `DROP VIEW IF EXISTS catalog_rank`, `CREATE VIEW catalog_rank AS SELECT `+rankColumns+` FROM `+t)
-	}
-	for _, s := range stmts {
-		res, err := tx.ExecContext(ctx, s)
+	if pg {
+		// One rebuild at a time across a cluster's nodes.
+		conn, err := c.db.Conn(ctx)
 		if err != nil {
-			return out, fmt.Errorf("catalog: rank rebuild: %w", err)
-		}
-		if strings.HasPrefix(s, "INSERT") {
-			out.Rows, _ = res.RowsAffected()
-		}
-	}
-	if !pg {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('rank_side',?),('rank_built',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, idle, fmt.Sprint(start.Unix())); err != nil {
 			return out, err
 		}
+		defer conn.Close()
+		var got bool
+		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtext('ether:catalog-rank-rebuild'))`).Scan(&got); err != nil {
+			return out, err
+		}
+		if !got {
+			return out, fmt.Errorf("catalog: rank rebuild already running")
+		}
+		defer conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('ether:catalog-rank-rebuild'))`)
 	}
-	if _, err := tx.ExecContext(ctx, `ANALYZE `+t); err != nil {
+	// From here the triggers leave the idle copy alone.
+	if err := exec(`DELETE FROM catalog_rank_pending`, `UPDATE catalog_meta SET v='`+idle+`' WHERE k='rank_building'`); err != nil {
 		return out, err
 	}
-	if err := tx.Commit(); err != nil {
+	abandon := func(err error) (RankRebuild, error) {
+		// The idle copy is incomplete; the next rebuild starts it again.
+		_ = exec(`UPDATE catalog_meta SET v='' WHERE k='rank_building'`)
 		return out, err
+	}
+	if err := exec(`DROP TABLE IF EXISTS `+t, strings.TrimSuffix(rankTableSQL(idle, bigint), ";")); err != nil {
+		return abandon(err)
+	}
+	last := int64(-1 << 62)
+	for {
+		var next sql.NullInt64
+		if err := c.db.QueryRowContext(ctx, `SELECT MAX(key) FROM (SELECT key FROM catalog_titles WHERE type IN ('movie','show') AND key>? ORDER BY key LIMIT ?) s`, last, rankChunk).Scan(&next); err != nil {
+			return abandon(err)
+		}
+		if !next.Valid {
+			break
+		}
+		tx, err := c.db.BeginTx(ctx, nil)
+		if err != nil {
+			return abandon(err)
+		}
+		res, err := tx.ExecContext(ctx, `INSERT INTO `+t+`(`+rankColumns+`) `+rankFill+` AND key>? AND key<=? ORDER BY key`, last, next.Int64)
+		if err == nil {
+			err = tx.Commit()
+		} else {
+			tx.Rollback()
+		}
+		if err != nil {
+			return abandon(fmt.Errorf("catalog: rank fill: %w", err))
+		}
+		n, _ := res.RowsAffected()
+		out.Rows += n
+		last = next.Int64
+	}
+	if rankBuildHook != nil {
+		rankBuildHook()
+	}
+	for _, ix := range strings.Split(strings.TrimSuffix(rankIndexSQL(idle), ";"), ";\n") {
+		if err := exec(ix); err != nil {
+			return abandon(err)
+		}
+	}
+	if err := exec(`ANALYZE ` + t); err != nil {
+		return abandon(err)
+	}
+	// Apply what changed during the build and swap, in one short
+	// transaction. On PostgreSQL a writer whose statement began before
+	// this commits may still record a key; the passes after it apply
+	// those to the now-live copy (which the triggers already write).
+	catchUp := []string{
+		`DELETE FROM ` + t + ` WHERE key IN (SELECT key FROM catalog_rank_pending)`,
+		`INSERT INTO ` + t + `(` + rankColumns + `) ` + rankFill + ` AND key IN (SELECT key FROM catalog_rank_pending)`,
+		`DELETE FROM catalog_rank_pending`,
+	}
+	swap := append(append([]string{}, catchUp...), `UPDATE catalog_meta SET v='' WHERE k='rank_building'`)
+	if !pg {
+		swap = append(swap, `DROP VIEW IF EXISTS catalog_rank`, `CREATE VIEW catalog_rank AS SELECT `+rankColumns+` FROM `+t)
+	}
+	swap = append(swap, `UPDATE catalog_meta SET v='`+idle+`' WHERE k='rank_side'`,
+		`INSERT INTO catalog_meta(k,v) VALUES('rank_built','`+fmt.Sprint(start.Unix())+`') ON CONFLICT(k) DO UPDATE SET v=excluded.v`)
+	if err := exec(swap...); err != nil {
+		return abandon(err)
 	}
 	if pg {
-		// The swap is its own short transaction: CREATE OR REPLACE VIEW
-		// takes an ACCESS EXCLUSIVE lock on the view, which waits for the
-		// rank's current readers and makes new ones queue behind it. A
-		// lock timeout keeps a long reader from building a queue; the copy
-		// is complete and current (both copies take every trigger write),
-		// so a later attempt swaps the same way.
 		if err := c.swapRankViewPG(ctx, t); err != nil {
 			return out, err
+		}
+		for range 3 {
+			if err := exec(catchUp...); err != nil {
+				return out, err
+			}
 		}
 	}
 	c.rankReady.Store(true)
@@ -254,7 +348,6 @@ func (c *Catalog) loadRankReady(ctx context.Context) {
 }
 
 func (c *Catalog) swapRankViewPG(ctx context.Context, table string) error {
-	side := strings.TrimPrefix(table, "catalog_rank_")
 	var err error
 	for attempt := 0; attempt < 5; attempt++ {
 		err = func() error {
@@ -267,9 +360,6 @@ func (c *Catalog) swapRankViewPG(ctx context.Context, table string) error {
 				if _, err := tx.ExecContext(ctx, s); err != nil {
 					return err
 				}
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('rank_side',?),('rank_built',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, side, fmt.Sprint(c.now().Unix())); err != nil {
-				return err
 			}
 			return tx.Commit()
 		}()

@@ -80,12 +80,32 @@ func TestRankTracksCatalogue(t *testing.T) {
 	if got := order(); got[0] != int64(core.MovieKey(40)) {
 		t.Fatalf("popularity alone moved the rank before a rebuild: %v", got)
 	}
-	for range 2 {
+	// Writes while a copy is being rebuilt land in it before the swap.
+	rankBuildHook = func() {
+		if err := c.upsertMany(ctx, []core.Title{{Key: core.MovieKey(900), Type: core.TypeMovie, Title: "During", Released: rel, Popularity: 2000}}, upsertOpts{browsable: true}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.db.ExecContext(ctx, `UPDATE catalog_titles SET language='de' WHERE key=?`, int64(core.MovieKey(4))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.db.ExecContext(ctx, `DELETE FROM catalog_titles WHERE key=?`, int64(core.MovieKey(5))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { rankBuildHook = nil }()
+	for i := range 2 {
 		if _, err := c.RebuildRank(ctx); err != nil {
 			t.Fatal(err)
 		}
+		rankBuildHook = nil
 		check("rebuilt")
-		if got := order(); got[0] != int64(core.MovieKey(1)) {
+		if i == 0 {
+			if got := order(); got[0] != int64(core.MovieKey(900)) {
+				t.Fatalf("a title stored during the rebuild is missing from the new copy: %v", got)
+			}
+			continue
+		}
+		if got := order(); got[0] != int64(core.MovieKey(900)) || got[1] != int64(core.MovieKey(1)) {
 			t.Fatalf("rebuild did not refresh popularity: %v", got)
 		}
 	}
