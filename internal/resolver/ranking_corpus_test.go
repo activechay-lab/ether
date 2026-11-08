@@ -107,7 +107,14 @@ func corpusRelease(rng *rand.Rand, ct corpusTitle, id int) core.Release {
 	}
 	rev := pick("", "", "", "", "", "", "REPACK", "PROPER")
 	group := pick("FLUX", "NTb", "BYNDR", "FraMeSToR", "GRP", "YIFY", "RARBG", "SPARKS", "playWEB", "EDITH")
-	parts := []string{ct.prefix}
+	// A quarter of an episode's releases are season packs, streamed as
+	// torrents (Usenet packs are skipped) and sized for ten episodes.
+	pack := ct.title.Type == core.TypeEpisode && rng.IntN(4) == 0
+	prefix := ct.prefix
+	if pack {
+		prefix = strings.TrimSuffix(prefix, "E03")
+	}
+	parts := []string{prefix}
 	for _, p := range []string{lang, rev, r.tag, source, hdr, audio, codec} {
 		if p != "" {
 			parts = append(parts, p)
@@ -117,12 +124,15 @@ func corpusRelease(rng *rand.Rand, ct corpusTitle, id int) core.Release {
 	quality := 0.25 + rng.Float64()*1.75 // starved through generous
 	mbps := r.mbps * mult * quality
 	size := int64(mbps * 1e6 / 8 * ct.title.Runtime.Seconds())
+	if pack {
+		size *= 10
+	}
 	rel := core.Release{
 		ID: fmt.Sprintf("%s-%03d", ct.name, id), GUID: fmt.Sprintf("g%d", id), Indexer: pick("alpha", "beta"),
 		Name: name, NZBURL: "x", Size: size, Grabs: rng.IntN(400),
 		PubDate: corpusNow.Add(-time.Duration(rng.IntN(2000*24)) * time.Hour),
 	}
-	if rng.IntN(3) == 0 {
+	if rng.IntN(3) == 0 || pack {
 		rel.Protocol = core.ProtocolTorrent
 		rel.InfoHash = fmt.Sprintf("%040x", id+1)
 		rel.Seeders = rng.IntN(2000)
@@ -172,6 +182,7 @@ func corpusConfig(t *testing.T, doc string) config.Config {
 type corpusPick struct {
 	position, cf, height int
 	gates                [3]int // fallback tier, accepted language, connection fit
+	pack                 bool   // a season pack streamed for the episode
 }
 
 // rankCorpus ranks every pool for every profile fixture and client: the
@@ -215,7 +226,7 @@ func rankCorpus(t *testing.T) (map[string][]string, map[string]map[string]corpus
 					if c.langOK {
 						lang = 1
 					}
-					picks[name][ids[i]] = corpusPick{position: c.keys.position, cf: c.cf, height: c.rel.Info.Height, gates: [3]int{-c.policy.Fallback, lang, c.bandwidth}}
+					picks[name][ids[i]] = corpusPick{position: c.keys.position, cf: c.cf, height: c.rel.Info.Height, gates: [3]int{-c.policy.Fallback, lang, c.bandwidth}, pack: c.keys.pack}
 				}
 				out[name] = ids
 			}
@@ -231,6 +242,10 @@ const (
 	// later Radarr/Sonarr key (protocol, indexer, seeders or age, size)
 	// decided where Ether's old soft points (age, grabs, bitrate) did.
 	diffStandardTieBreak = "same quality and score: Radarr's later keys decide"
+	// A season pack and a single-episode release of the same quality and
+	// score: the pack's season size no longer compares, so a later key or
+	// the final single-episode tie-break decides.
+	diffPackSize = "same quality and score: a pack's season size no longer compares"
 	// Same quality; the new pick has the higher custom format score, which
 	// now ranks before age, grabs and bitrate instead of being summed with
 	// them.
@@ -257,6 +272,7 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 	}
 	type tally struct {
 		cases, top, full int
+		packWas, packNow int // first picks that are season packs
 		why              map[string]int
 	}
 	per := map[string]*tally{}
@@ -275,6 +291,12 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 		if strings.Join(w, ",") == strings.Join(g, ",") {
 			tl.full++
 		}
+		if len(w) > 0 && picks[k][w[0]].pack {
+			tl.packWas++
+		}
+		if len(g) > 0 && picks[k][g[0]].pack {
+			tl.packNow++
+		}
 		if len(w) == 0 || w[0] == g[0] {
 			tl.top++
 			continue
@@ -284,6 +306,8 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 		switch {
 		case old.gates != now.gates:
 			why = diffGateBeforeRule
+		case old.position == now.position && old.cf == now.cf && old.pack != now.pack:
+			why = diffPackSize
 		case old.position == now.position && old.cf == now.cf:
 			why = diffStandardTieBreak
 		case old.position == now.position && now.cf > old.cf:
@@ -305,6 +329,7 @@ func TestRankingCorpusMatchesGolden(t *testing.T) {
 	for _, name := range names {
 		tl := per[name]
 		t.Logf("%-17s %4d cases: same first pick %5.1f%%, same full order %5.1f%%", name, tl.cases, 100*float64(tl.top)/float64(tl.cases), 100*float64(tl.full)/float64(tl.cases))
+		t.Logf("%22d × a season pack first (old ranking: %d)", tl.packNow, tl.packWas)
 		for why, n := range tl.why {
 			t.Logf("%22d × %s", n, why)
 		}

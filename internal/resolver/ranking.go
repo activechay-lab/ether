@@ -16,12 +16,18 @@ import (
 //
 //	gates       Only-play fallback tier, accepted audio language, fits the connection
 //	standard    quality position, revision, custom format score, preferred
-//	            protocol, (Sonarr) season pack / episode count / first episode,
-//	            indexer priority, seeders and peers (torrents) or age (Usenet), size
-//	tie-breaks  played fine recently, indexer reliability
+//	            protocol, indexer priority, seeders and peers (torrents) or age
+//	            (Usenet), size
+//	tie-breaks  played fine recently, indexer reliability, a single episode
+//	            over a season pack
 //
-// Source routing (routing.go) then puts the fastest-starting source first
-// among releases this order leaves equivalent.
+// Sonarr's season-pack, episode-count and first-episode keys are left out:
+// Sonarr prefers packs because it downloads whole seasons, while Ether
+// streams one episode. A pack competes with single-episode releases like
+// any release, and its total size, which is not the episode's, never
+// compares. Source routing (routing.go) then puts the fastest-starting
+// source first among releases this order leaves equivalent, packs
+// included.
 
 // rankKeys are a candidate's standard comparer keys.
 type rankKeys struct {
@@ -29,10 +35,7 @@ type rankKeys struct {
 	height      int     // graded height (a starved or upscaled release one step down)
 	revision    int     // Proper/Repack, when the profile prefers revisions
 	protocol    bool    // the owner's preferred source protocol
-	sonarr      bool    // Sonarr's episode rules apply
-	seasonPack  bool    // a full-season release
-	episodes    int     // episode count, signed so that higher is better
-	firstEp     int     // first episode number, negated: lower is better
+	pack        bool    // a season pack streamed for one episode
 	priority    int     // indexer priority: lower is better
 	torrent     bool    // a torrent (seeders and peers compare)
 	usenet      bool    // a Usenet post (age compares)
@@ -70,17 +73,6 @@ func compareCandidates(a, b candidate) bool {
 	if x.protocol != y.protocol {
 		return x.protocol
 	}
-	if x.sonarr && y.sonarr {
-		if x.seasonPack != y.seasonPack {
-			return x.seasonPack
-		}
-		if x.episodes != y.episodes {
-			return x.episodes > y.episodes
-		}
-		if x.firstEp != y.firstEp {
-			return x.firstEp > y.firstEp
-		}
-	}
 	if x.priority != y.priority {
 		return x.priority < y.priority
 	}
@@ -95,14 +87,21 @@ func compareCandidates(a, b candidate) bool {
 	if x.usenet && y.usenet && x.hasAge && y.hasAge && x.age != y.age {
 		return x.age > y.age
 	}
-	if x.size != y.size {
+	// A pack's size is the whole season's, so it compares with no
+	// single-episode release.
+	if x.pack == y.pack && x.size != y.size {
 		return x.size > y.size
 	}
 	// Tie-breaks.
 	if a.verified != b.verified {
 		return a.verified
 	}
-	return x.reliability > y.reliability
+	if x.reliability != y.reliability {
+		return x.reliability > y.reliability
+	}
+	// With nothing else to tell them apart, the single-episode release
+	// goes first: it is the episode's own file, not a season to open.
+	return !x.pack && y.pack
 }
 
 // rankContext is what the keys read besides the release.
@@ -128,17 +127,7 @@ func keysFor(rel core.Release, starved bool, rc rankContext) rankKeys {
 		k.protocol = sourceName(protocolOf(rel)) == rc.preferSource
 	}
 	if rc.title != nil && (rc.title.Type == core.TypeEpisode || rc.title.Key.Kind() == core.KindEpisode) {
-		k.sonarr = true
-		k.seasonPack = info.FullSeason
-		n := max(len(info.Episodes), 1)
-		if isAnime(rc.title) {
-			k.episodes = n
-		} else {
-			k.episodes = -n
-		}
-		if len(info.Episodes) > 0 {
-			k.firstEp = -slices.Min(info.Episodes)
-		}
+		k.pack = info.FullSeason
 	}
 	if p, ok := rc.priority[rel.IndexerID]; ok {
 		k.priority = p

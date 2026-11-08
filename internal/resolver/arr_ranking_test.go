@@ -78,19 +78,31 @@ func TestComparerFollowsDownloadDecisionComparer(t *testing.T) {
 	before(verified, plain, "played fine recently breaks a full tie")
 }
 
-func TestComparerSonarrEpisodeRules(t *testing.T) {
-	profile := core.QualityProfile{QualityOrder: []core.QualityItem{{Qualities: []string{"webdl-1080"}}}}
+// Season packs compete with single-episode releases like any release:
+// Sonarr's pack-first keys are for downloading seasons, not streaming one
+// episode. A single episode wins only the final tie-break.
+func TestComparerSeasonPacksCompeteLikeAnyRelease(t *testing.T) {
+	profile := core.QualityProfile{QualityOrder: []core.QualityItem{{Qualities: []string{"webdl-2160"}}, {Qualities: []string{"webdl-1080"}}}}
 	rc := rankContext{profile: profile, title: episodeTitle(), now: corpusNow}
-	ep := func(name string) candidate {
+	ep := func(name string, cf int, size int64) candidate {
 		rel := parseRelease(name, 0)
-		return candidate{rel: rel, langOK: true, keys: keysFor(rel, false, rc)}
+		rel.Protocol, rel.Size = core.ProtocolTorrent, size<<30
+		return candidate{rel: rel, langOK: true, cf: cf, keys: keysFor(rel, false, rc)}
 	}
-	pack, single, double := ep("Boundary.Bay.S01.1080p.WEB-DL.H.264-GRP"), ep("Boundary.Bay.S01E03.1080p.WEB-DL.H.264-GRP"), ep("Boundary.Bay.S01E03E04.1080p.WEB-DL.H.264-GRP")
-	if !compareCandidates(pack, single) {
-		t.Error("Sonarr ranks a season pack first")
+	single := ep("Boundary.Bay.S01E03.1080p.WEB-DL.H.264-GRP", 10, 2)
+	if pack := ep("Boundary.Bay.S01.2160p.WEB-DL.H.265-GRP", 10, 40); !compareCandidates(pack, single) {
+		t.Error("a pack of a better quality ranks first")
 	}
-	if !compareCandidates(single, double) {
-		t.Error("Sonarr ranks fewer episodes first outside anime")
+	if pack := ep("Boundary.Bay.S01.1080p.WEB-DL.H.264-GRP", 20, 40); !compareCandidates(pack, single) {
+		t.Error("a pack with the higher custom format score ranks first")
+	}
+	pack := ep("Boundary.Bay.S01.1080p.WEB-DL.H.264-GRP", 10, 40)
+	if !compareCandidates(single, pack) || compareCandidates(pack, single) {
+		t.Error("an otherwise equal single episode beats a pack, whose season size never compares")
+	}
+	double := ep("Boundary.Bay.S01E03E04.1080p.WEB-DL.H.264-GRP", 10, 2)
+	if compareCandidates(single, double) || compareCandidates(double, single) {
+		t.Error("episode count is not a key")
 	}
 }
 
