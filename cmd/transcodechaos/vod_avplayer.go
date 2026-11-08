@@ -32,6 +32,9 @@ type vodOptions struct {
 	// Transcode runs only the sustained full-transcode case per asset (the
 	// VOD side of the live-priority row).
 	Transcode bool
+	// PlayerOnly skips the ffmpeg comparison, whose existing results can be reused
+	// for focused fix verification. The report records that comparison as n/a.
+	PlayerOnly bool
 }
 
 const (
@@ -175,7 +178,7 @@ func runVODAVPlayer(o vodOptions) error {
 	}
 	started := time.Now()
 	pattern := "^TestTranscodeChaos(CorpusScenarios|AVPlayer)$"
-	if o.Transcode {
+	if o.Transcode || o.PlayerOnly {
 		pattern = "^TestTranscodeChaosAVPlayer$"
 	}
 	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/plex", "-run", pattern, "-count=1", "-timeout=170m", "-json")
