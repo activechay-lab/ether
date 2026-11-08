@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	_ "github.com/braedonsaunders/ether/internal/catalog"
+	_ "github.com/braedonsaunders/ether/internal/favorites"
+	_ "github.com/braedonsaunders/ether/internal/livetv"
+	_ "github.com/braedonsaunders/ether/internal/safety"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/viewerpolicy"
@@ -77,6 +80,11 @@ func TestPolicyEpochMovesOnlyForRevokingWrites(t *testing.T) {
 	check("share label", true, `UPDATE catalog_titles SET collection_name='Saga' WHERE key=101`)
 	check("title removal", true, `DELETE FROM catalog_titles WHERE key=102`)
 	check("no-op delete", false, `DELETE FROM catalog_titles WHERE key=999`, `DELETE FROM catalog_credits WHERE key=999`)
+	// Statements that change no row of any other policy table move nothing
+	// either (PostgreSQL statement triggers used to fire regardless).
+	check("no-op guide and favorites writes", false, `DELETE FROM livetv_programmes WHERE source_id='none'`,
+		`UPDATE favorites_items SET added_at=1 WHERE viewer_id=-1`, `DELETE FROM safety_policies WHERE user_id=-1`)
+	check("a programme replaced", true, `INSERT INTO livetv_programmes(source_id,channel_id,start_ms,end_ms,data) VALUES('s','c',1,2,'{}')`)
 
 	blocked := viewerpolicy.Inputs{}
 	blocked.Field("genre", "Horror")

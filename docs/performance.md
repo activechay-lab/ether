@@ -326,6 +326,24 @@ those reads to end and for the checkpoint to drain the WAL below
 minutes returns `store.WALBlockedError`, which names the reader when it is
 ours.
 
+### Bulk catalogue writes
+
+The catalogue sync and detail fills write through `upsertItems`: many titles
+per transaction (the sync sizes its batches to about 500 ms of write-lock
+hold, `nextSyncBatch`; detail writes group-commit, `detail_writer.go`).
+Within a transaction:
+
+- a title's rating, votes and popularity wobble is written only when it
+  matters (`rating_drift.go`);
+- facets and credits are read once and written once per table for the
+  whole batch, only the difference (`join_batch.go`);
+- new titles are folded into the title search index, and new credits into
+  person names and their search index, in a statement or two instead of
+  one trigger per row (`fts_fold.go`). The triggers check a marker row
+  (`catalog_fts_bulk`) that exists only inside such a transaction, so every
+  other writer keeps them. `TestFTSFoldMatchesTrigger` and
+  `TestPersonNamesFoldMatchesTrigger` hold the folds equal to the triggers.
+
 ### The viewer-policy epoch
 
 `viewer_policy_epoch` fences authorization snapshots: a fence passes only

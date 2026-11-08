@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 	"time"
 
@@ -25,14 +26,27 @@ type detailWrites struct {
 }
 
 type detailWrite struct {
+	ctx  context.Context // the writer's, for its values (query stats)
 	item upsertItem
-	done chan error
+	// extra rides in the same transaction when it can (the recommendations
+	// a detail fetch carried); a failure of extra never fails item.
+	extra *detailExtra
+	done  chan error
+}
+
+// detailExtra is more writes for a detail write's transaction.
+type detailExtra struct {
+	items []upsertItem
+	after func(context.Context, *sql.Tx) error
 }
 
 // writeDetail stores one fetched title, batched with concurrent detail
 // writes. It returns once the title's transaction committed (or failed).
-func (c *Catalog) writeDetail(ctx context.Context, t core.Title, o upsertOpts) error {
-	w := detailWrite{item: upsertItem{t: t, o: o}, done: make(chan error, 1)}
+func (c *Catalog) writeDetail(ctx context.Context, t core.Title, o upsertOpts, extra ...*detailExtra) error {
+	w := detailWrite{ctx: ctx, item: upsertItem{t: t, o: o}, done: make(chan error, 1)}
+	if len(extra) > 0 {
+		w.extra = extra[0]
+	}
 	dw := &c.detailWrites
 	dw.mu.Lock()
 	dw.pending = append(dw.pending, w)
@@ -69,22 +83,41 @@ func (c *Catalog) flushDetailsLoop() {
 }
 
 func (c *Catalog) flushDetails(batch []detailWrite) {
-	// Detached from any one caller: a cancelled request must not fail the
-	// others' writes. Bounded like a background refresh.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// Not cancelled with any one caller: a cancelled request must not fail
+	// the others' writes. The first writer's values (its query stats) see
+	// the batch's work. Bounded like a background refresh.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(batch[0].ctx), time.Minute)
 	defer cancel()
-	items := make([]upsertItem, len(batch))
-	for i, w := range batch {
-		items[i] = w.item
+	write := func(ws []detailWrite, withExtra bool) error {
+		var items []upsertItem
+		var after []func(context.Context, *sql.Tx) error
+		for _, w := range ws {
+			items = append(items, w.item)
+		}
+		if withExtra {
+			for _, w := range ws {
+				if w.extra != nil {
+					items = append(items, w.extra.items...)
+					if w.extra.after != nil {
+						after = append(after, w.extra.after)
+					}
+				}
+			}
+		}
+		return c.upsertItems(ctx, items, after...)
 	}
-	err := c.upsertItems(ctx, items)
-	if err == nil || len(batch) == 1 {
+	if err := write(batch, true); err == nil {
 		for _, w := range batch {
-			w.done <- err
+			w.done <- nil
 		}
 		return
 	}
+	// One title at a time; extras are a bonus that must not fail the title.
 	for _, w := range batch {
-		w.done <- c.upsertItems(ctx, []upsertItem{w.item})
+		err := write([]detailWrite{w}, true)
+		if err != nil && w.extra != nil {
+			err = write([]detailWrite{w}, false)
+		}
+		w.done <- err
 	}
 }

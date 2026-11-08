@@ -718,6 +718,9 @@ type upsertOpts struct {
 	// row; a key it lacks is inserted by this upsert, so the probes for
 	// what an existing row holds (ratings, release names) are skipped.
 	stored map[int64]bool
+	// joins, set by upsertItems, collects the batch's facet and credit
+	// writes (join_batch.go).
+	joins *joinBatch
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
@@ -781,9 +784,10 @@ type upsertItem struct {
 	o upsertOpts
 }
 
-// upsertItems stores items in one transaction, each with its own options.
-func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem) error {
-	if len(items) == 0 {
+// upsertItems stores items in one transaction, each with its own options,
+// then runs after (more writes of the same transaction).
+func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...func(context.Context, *sql.Tx) error) error {
+	if len(items) == 0 && len(after) == 0 {
 		return nil
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -802,10 +806,52 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem) error {
 	if err != nil {
 		return err
 	}
+	// Fold the new rows into the title search index (fts_fold.go).
+	var fresh []int64
+	seen := map[int64]bool{}
+	for _, t := range titles {
+		if k := int64(t.Key); !stored[k] && !seen[k] {
+			seen[k] = true
+			fresh = append(fresh, k)
+		}
+	}
+	// A bulk transaction (two or more new titles, or credits) sets the
+	// marker the search-index triggers check, and folds instead.
+	anyCredits := false
+	for i := range titles {
+		anyCredits = anyCredits || hasCredits(&titles[i])
+	}
+	// The marker is a write, so it is set only when a fold will run: up
+	// front for new titles, and around the credit inserts themselves for
+	// person names (join_batch.go), so an unchanged refresh writes nothing.
+	bulk := c.ftsFold && len(fresh) >= ftsFoldMin
+	if bulk {
+		if err := beginBulk(ctx, tx); err != nil {
+			return err
+		}
+	}
+	joins := &joinBatch{personFold: c.personFold && anyCredits, bulk: bulk}
 	for _, it := range items {
 		o := it.o
-		o.region, o.ratingCuts, o.stored = region, &cuts, stored
+		o.region, o.ratingCuts, o.stored, o.joins = region, &cuts, stored, joins
 		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
+			return err
+		}
+	}
+	if err := joins.flush(ctx, tx, now); err != nil {
+		return err
+	}
+	if bulk {
+		// With the marker set, the title trigger skipped every new row.
+		if err := foldTitleSearch(ctx, tx, fresh); err != nil {
+			return err
+		}
+		if err := endBulk(ctx, tx); err != nil {
+			return err
+		}
+	}
+	for _, f := range after {
+		if err := f(ctx, tx); err != nil {
 			return err
 		}
 	}
@@ -1096,156 +1142,16 @@ ON CONFLICT(key) DO UPDATE SET
 		}
 	}
 	// Replace join rows only when the incoming title carries that facet, so
-	// summary upserts don't wipe detail-fetched genres/credits.
-	joinChanged := false
-	if t.Genres != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_genres", "genre", int64(t.Key), t.Genres)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
+	// summary upserts don't wipe detail-fetched genres/credits. A batch
+	// writes them together after its titles (join_batch.go).
+	if o.joins != nil {
+		return o.joins.add(ctx, tx, t, now)
 	}
-	if t.Keywords != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_keywords", "keyword", int64(t.Key), t.Keywords)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
+	one := &joinBatch{}
+	if err := one.add(ctx, tx, t, now); err != nil {
+		return err
 	}
-	if t.AlternativeTitles != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_alt_titles", "title", int64(t.Key), t.AlternativeTitles)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Studios != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_studios", "studio", int64(t.Key), t.Studios)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Countries != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_countries", "country", int64(t.Key), t.Countries)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Cast != nil || t.Directors != nil || t.Writers != nil || t.Crew != nil {
-		changed, err := replaceCredits(ctx, tx, t)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if joinChanged {
-		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=? WHERE key=?`, now, int64(t.Key)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-type creditKey struct {
-	person     int64
-	kind, role string
-}
-
-type creditRow struct {
-	name             string
-	ord              int
-	thumb, provider  string
-	imdb             string
-	inserted, update bool
-}
-
-// replaceCredits makes t's stored credits exactly its cast and crew, writing
-// only the difference: a refresh that recasts one part touches one row, not
-// every credit with its person-name upkeep and index entries. The first
-// credit of a (person, kind, role) wins, as the INSERT ... DO NOTHING it
-// replaces kept it.
-func replaceCredits(ctx context.Context, tx *sql.Tx, t core.Title) (bool, error) {
-	want := map[creditKey]*creditRow{}
-	var order []creditKey
-	for _, group := range []struct {
-		people []core.Person
-		kind   string
-	}{{t.Cast, "cast"}, {t.Directors, "director"}, {t.Writers, "writer"}, {t.Crew, "crew"}} {
-		for i, p := range group.people {
-			k := creditKey{p.TMDB, group.kind, p.Role}
-			if want[k] != nil {
-				continue
-			}
-			imdb := ""
-			if p.TMDB > 0 && validPersonIMDB(p.IMDB) {
-				imdb = p.IMDB
-			}
-			want[k] = &creditRow{name: p.Name, ord: i, thumb: p.ThumbPath, provider: p.ID, imdb: imdb, inserted: true}
-			order = append(order, k)
-		}
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT person_tmdb,kind,role,name,ord,thumb,provider_id FROM catalog_credits WHERE key=?`, int64(t.Key))
-	if err != nil {
-		return false, err
-	}
-	var stale []creditKey
-	for rows.Next() {
-		var k creditKey
-		var have creditRow
-		if err := rows.Scan(&k.person, &k.kind, &k.role, &have.name, &have.ord, &have.thumb, &have.provider); err != nil {
-			rows.Close()
-			return false, err
-		}
-		w := want[k]
-		if w == nil {
-			stale = append(stale, k)
-			continue
-		}
-		w.inserted = false
-		w.update = w.name != have.name || w.ord != have.ord || w.thumb != have.thumb || w.provider != have.provider
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	changed := false
-	for _, k := range stale {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=? AND person_tmdb=? AND kind=? AND role=?`, int64(t.Key), k.person, k.kind, k.role); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	for _, k := range order {
-		w := want[k]
-		switch {
-		case w.inserted:
-			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
-				int64(t.Key), k.person, w.name, k.role, k.kind, w.ord, w.thumb, w.provider); err != nil {
-				return false, err
-			}
-		case w.update:
-			if _, err := tx.ExecContext(ctx, `UPDATE catalog_credits SET name=?,ord=?,thumb=?,provider_id=? WHERE key=? AND person_tmdb=? AND kind=? AND role=?`,
-				w.name, w.ord, w.thumb, w.provider, int64(t.Key), k.person, k.kind, k.role); err != nil {
-				return false, err
-			}
-		default:
-			continue
-		}
-		changed = true
-	}
-	if !changed {
-		return false, nil
-	}
-	for _, k := range order {
-		if w := want[k]; w.imdb != "" {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES(?,?) ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb WHERE catalog_people.imdb<>excluded.imdb`, k.person, w.imdb); err != nil {
-				return false, err
-			}
-		}
-	}
-	return true, nil
+	return one.flush(ctx, tx, now)
 }
 
 func detailAtFor(detail int, now int64) int64 {
@@ -1285,56 +1191,18 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// replacePairs makes key's stored values in table exactly vals, writing only
-// the difference. A refresh usually brings the same values, and one that
-// adds a genre should not rewrite the others: every row written fires the
-// search, tally and viewer-policy triggers and touches each index.
-func replacePairs(ctx context.Context, tx *sql.Tx, table, col string, key int64, vals []string) (bool, error) {
-	want := make(map[string]bool, len(vals))
-	for _, v := range vals {
-		if v != "" {
-			want[v] = true
+// valueRows is n parenthesised rows of cols placeholders: "(?,?),(?,?)".
+func valueRows(n, cols int) string {
+	row := "(" + placeholders(cols) + ")"
+	var b strings.Builder
+	b.Grow(n * (len(row) + 1))
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
 		}
+		b.WriteString(row)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT `+col+` FROM `+table+` WHERE key=?`, key)
-	if err != nil {
-		return false, err
-	}
-	var stale []string
-	have := map[string]bool{}
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			rows.Close()
-			return false, err
-		}
-		have[v] = true
-		if !want[v] {
-			stale = append(stale, v)
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	changed := false
-	for _, v := range stale {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=? AND `+col+`=?`, key, v); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	for _, v := range vals {
-		if v == "" || have[v] {
-			continue
-		}
-		have[v] = true
-		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES(?,?) ON CONFLICT DO NOTHING`, key, v); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	return changed, nil
+	return b.String()
 }
 
 func (c *Catalog) queryTitles(ctx context.Context, q string, args ...any) ([]core.Title, error) {

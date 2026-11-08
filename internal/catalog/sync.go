@@ -571,11 +571,19 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 
 // warmDetailsWorkers is how many detail fetches WarmDetails keeps in flight.
 // One at a time, a fill ran at TMDB's round-trip time (5-10 titles a
-// second) instead of its rate limit (40 requests a second); each fetch's
-// write still takes the write gate on its own, briefly.
+// second) instead of its rate limit (40 requests a second). Concurrent
+// writes group-commit (detail_writer.go).
 const warmDetailsWorkers = 8
 
+// warmOnlyKey marks a Get whose caller only wants the details stored:
+// WarmDetails never reads the result, so the title is not reloaded and
+// hydrated after its fetch (a dozen statements a title).
+type warmOnlyKey struct{}
+
+func warmOnly(ctx context.Context) bool { return ctx.Value(warmOnlyKey{}) != nil }
+
 func (c *Catalog) warmKeys(ctx context.Context, keys []core.RatingKey) (int, error) {
+	ctx = context.WithValue(ctx, warmOnlyKey{}, true)
 	var warmed atomic.Int64
 	next := make(chan core.RatingKey)
 	var wg sync.WaitGroup
@@ -584,6 +592,16 @@ func (c *Catalog) warmKeys(ctx context.Context, keys []core.RatingKey) (int, err
 		go func() {
 			defer wg.Done()
 			for k := range next {
+				// Eight workers reading and writing at once leave the
+				// checkpointer no moment without a reader: the WAL reached
+				// 2-2.5 GB in syncbench's detail phases. Each fetch first
+				// waits for the WAL to drain, as the sync's bulk writes do.
+				if err := store.WaitWALBudget(ctx, c.db); err != nil {
+					c.log.Warn("catalog: detail warm paused", "err", err)
+					for range next { // drain: this round ends
+					}
+					return
+				}
 				if _, err := c.Get(ctx, k); err == nil {
 					warmed.Add(1)
 				}

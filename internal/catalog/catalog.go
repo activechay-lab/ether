@@ -276,6 +276,8 @@ type Catalog struct {
 	syncing      atomic.Bool
 	syncBatch    atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
 	detailWrites detailWrites // batched detail writes (detail_writer.go)
+	ftsFold      bool         // bulk writes fold new rows into the title FTS (fts_fold.go)
+	personFold   bool         // and new credits into person names (fts_fold.go)
 	progress     SyncProgress
 	progressMu   sync.RWMutex
 
@@ -462,6 +464,8 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	c.ensureSortTitlesFolded(ctx)
 	c.loadRankReady(ctx)
 	c.loadTitleIndexState(ctx)
+	c.ftsFold = ftsFoldAvailable(ctx, db)
+	c.personFold = personFoldAvailable(ctx, db)
 	c.startupContext = nil
 	return c, nil
 }

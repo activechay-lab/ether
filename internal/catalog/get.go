@@ -181,12 +181,28 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 		}
 		return nil, core.ErrNotFound
 	}
-	fetch := func(ctx context.Context) error { return c.fetchMovieDetails(ctx, id) }
+	var fetched *core.Title
+	fetch := func(ctx context.Context) error {
+		d, err := c.tmdb().MovieDetails(ctx, id)
+		if err != nil {
+			return err
+		}
+		t := c.movieDetailsToTitle(ctx, d)
+		fetched = &t
+		var crowd *detailExtra
+		if d.Recommendations != nil {
+			crowd = c.crowdExtra(ctx, key, movieCrowdTitles(c, ctx, d.Recommendations))
+		}
+		return c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}, crowd)
+	}
 	if ferr := c.hydrate(ctx, movieRefreshKey(id), c.listReadWait(err == nil && st.detail, fromList), fetch); ferr != nil {
 		if err == nil {
 			return &st.t, nil // serve stored details while the refresh runs or after it failed
 		}
 		return nil, ferr
+	}
+	if fetched != nil && warmOnly(ctx) {
+		return fetched, nil
 	}
 	st2, err := c.loadByKey(ctx, key)
 	if err != nil {
@@ -234,7 +250,7 @@ func (c *Catalog) readWait(haveDetails bool) time.Duration {
 
 // storeShowDetails mirrors a show's details and its season summaries, so a
 // season TMDB has added since the last fetch becomes listable.
-func (c *Catalog) storeShowDetails(ctx context.Context, t core.Title, d *tmdb.TVDetails) error {
+func (c *Catalog) storeShowDetails(ctx context.Context, t core.Title, d *tmdb.TVDetails, extra ...*detailExtra) error {
 	var seasons []core.Title
 	for _, s := range d.Seasons {
 		if !episodeKeyFits(s.SeasonNumber, 0) {
@@ -244,7 +260,7 @@ func (c *Catalog) storeShowDetails(ctx context.Context, t core.Title, d *tmdb.TV
 	}
 	// Upsert show as detail; seasons as non-detail summaries in same call would
 	// mark them detail too, so split.
-	if err := c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true}); err != nil {
+	if err := c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true}, extra...); err != nil {
 		return err
 	}
 	if len(seasons) > 0 {
@@ -290,12 +306,28 @@ func (c *Catalog) getShow(ctx context.Context, id int64) (*core.Title, error) {
 		}
 		return nil, core.ErrNotFound
 	}
-	fetch := func(ctx context.Context) error { return c.fetchShowDetails(ctx, id) }
+	var fetched *core.Title
+	fetch := func(ctx context.Context) error {
+		d, err := c.tmdb().TVDetails(ctx, id)
+		if err != nil {
+			return err
+		}
+		t := c.tvDetailsToTitle(ctx, d)
+		fetched = &t
+		var crowd *detailExtra
+		if d.Recommendations != nil {
+			crowd = c.crowdExtra(ctx, key, tvCrowdTitles(c, ctx, d.Recommendations))
+		}
+		return c.storeShowDetails(ctx, t, d, crowd)
+	}
 	if ferr := c.hydrate(ctx, showRefreshKey(id), c.listReadWait(err == nil && st.detail, fromList), fetch); ferr != nil {
 		if err == nil {
 			return &st.t, nil
 		}
 		return nil, ferr
+	}
+	if fetched != nil && warmOnly(ctx) {
+		return fetched, nil
 	}
 	st2, err := c.loadByKey(ctx, key)
 	if err != nil {
