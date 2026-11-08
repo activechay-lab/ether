@@ -98,6 +98,10 @@ func TestForgetBoundsLifetimeStarts(t *testing.T) {
 	if state(t, rpc(w, "stop", kept, true)) != "retired" || w.Records() != 1 {
 		t.Fatal("forgotten identity minted a stop-before-start tombstone")
 	}
+	// The host terminal boundary agrees: retired, no tombstone.
+	if snap, err := w.Terminal(ctx, kept.Identity, true); err != nil || snap.State != TerminalRetired || w.Records() != 1 {
+		t.Fatalf("host Terminal minted a tombstone for a forgotten identity: %+v %v", snap, err)
+	}
 	// A running record is never forgotten, even when marked terminal.
 	mu.Lock()
 	terminal[next.Identity] = true
