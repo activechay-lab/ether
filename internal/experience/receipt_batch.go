@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"database/sql"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -14,6 +15,9 @@ import (
 )
 
 // IssueBatch atomically issues receipts and shared admission in input order.
+// receiptInsertRows bounds one receipt INSERT's rows (11 parameters each).
+const receiptInsertRows = 50
+
 func (s *Receipts) IssueBatch(ctx context.Context, viewer *core.User, device core.Device, protocol core.Protocol, subjects []ReceiptSubject) ([]string, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
 	return s.issueBatchChecked(ctx, viewer, device, protocol, subjects, nil, nil)
@@ -134,9 +138,18 @@ func (s *Receipts) issueBatchAttempt(ctx context.Context, viewer *core.User, dev
 			return nil, err
 		}
 	}
-	for i, subject := range subjects {
-		_, err = tx.ExecContext(ctx, `INSERT INTO experience_receipts(hash,viewer_id,device_id,protocol,expires,kind,subject,purpose,rank,impression,generation) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, hashes[i], viewer.ID, device.ID, string(protocol), expires, subject.Kind, subject.ID, string(subject.Purpose), subject.Rank, snapshots[i], generation)
-		if err != nil {
+	// One multi-row INSERT per receiptInsertRows subjects, not one per
+	// subject: a Silo home section issues a receipt for every card.
+	for start := 0; start < len(subjects); start += receiptInsertRows {
+		end := min(start+receiptInsertRows, len(subjects))
+		q := `INSERT INTO experience_receipts(hash,viewer_id,device_id,protocol,expires,kind,subject,purpose,rank,impression,generation) VALUES ` +
+			strings.TrimSuffix(strings.Repeat(`(?,?,?,?,?,?,?,?,?,?,?),`, end-start), ",")
+		args := make([]any, 0, 11*(end-start))
+		for i := start; i < end; i++ {
+			subject := subjects[i]
+			args = append(args, hashes[i], viewer.ID, device.ID, string(protocol), expires, subject.Kind, subject.ID, string(subject.Purpose), subject.Rank, snapshots[i], generation)
+		}
+		if _, err = tx.ExecContext(ctx, q, args...); err != nil {
 			return nil, err
 		}
 	}
