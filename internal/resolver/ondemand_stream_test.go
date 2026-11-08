@@ -114,7 +114,11 @@ func TestOnDemandAddonStreamsOpenOneLinkPerPlay(t *testing.T) {
 		if got := a.links(); len(got) != 1 || got[0] != res.Release.ID {
 			t.Fatalf("race %d: healthy play opened %v, want only %s", race, got, res.Release.ID)
 		}
-		lead = res.Release.ID
+		if race == 0 {
+			// A health race picks whichever probe answers first, so only
+			// the ranked order names the lead the failover play opens.
+			lead = res.Release.ID
+		}
 	}
 
 	a := newFakeAddon(t)
