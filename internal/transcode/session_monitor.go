@@ -60,6 +60,11 @@ func (s *Session) watch(r *run) {
 		case <-t.C:
 			collect(false)
 			watchdog.check(s, r)
+			if s.traceOn() {
+				s.mu.Lock()
+				s.traceBufferLocked(r)
+				s.mu.Unlock()
+			}
 			s.removals.retry()
 		}
 	}
@@ -199,6 +204,17 @@ func (s *Session) progressedLocked(r *run) {
 	s.maybeGovernLocked()
 	s.chainOrHoldLocked(r)
 	s.throttleLocked()
+
+	s.broadcastLocked()
+}
+
+// chainOrHoldLocked starts the next plan run when this one has reached its
+// mode boundary and the client is close enough to need it. A forced-key
+// cap (maxForcedKeySegments) is the same kind of boundary: reaching it
+// while the player is still minutes behind must not start that far run or
+// the encoder head becomes the only window left on disk.
+// traceBufferLocked also runs while no segment completes, exposing stalls and pauses.
+func (s *Session) traceBufferLocked(r *run) {
 	if s.traceOn() && s.cur == r && time.Since(r.traceBufferAt) >= time.Second {
 		r.traceBufferAt = time.Now()
 		r.progressMu.Lock()
@@ -213,14 +229,8 @@ func (s *Session) progressedLocked(r *run) {
 			"wallSeconds", time.Since(r.started).Seconds(), "runStartSeconds", r.spec.Start.Seconds(),
 			"outTimeSeconds", p.OutTime.Seconds(), "frame", p.Frame, "speed", p.Speed, "fps", p.FPS)
 	}
-	s.broadcastLocked()
 }
 
-// chainOrHoldLocked starts the next plan run when this one has reached its
-// mode boundary and the client is close enough to need it. A forced-key
-// cap (maxForcedKeySegments) is the same kind of boundary: reaching it
-// while the player is still minutes behind must not start that far run or
-// the encoder head becomes the only window left on disk.
 func (s *Session) chainOrHoldLocked(r *run) {
 	if !s.boundaryReadyLocked(r) {
 		return
