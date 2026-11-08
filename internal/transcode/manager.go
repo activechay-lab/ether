@@ -694,6 +694,32 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}
 	atCap := m.cfg.MaxTranscodes > 0 && m.encodingLocked(req.SessionID) >= m.cfg.MaxTranscodes
 	m.mu.Unlock()
+	id := req.SessionID
+	if id == "" {
+		id = randomHex(12)
+	}
+
+	if req.InputLease != nil {
+		if err := life.installInput(req.InputLease); err != nil {
+			return nil, err
+		}
+	}
+	if err := m.claimEncoderID(ctx, id, life); err != nil {
+		return nil, err
+	}
+	healTimestamps := false
+	if !atCap && proto == core.ProtocolHLS && (d.Container == ContainerMPEGTS || d.Container == ContainerFMP4) {
+		if damaged, heal := m.copyDamage(ctx, req, d, life); damaged {
+			healTimestamps = heal
+			d.Kind, d.VideoCopy, d.VideoCodec = core.DecisionTranscode, false, "h264"
+			if heal {
+				d.Reason += "; sampled timestamp discontinuity; healing video clock"
+			} else {
+				d.Reason += "; sampled video corruption; encoding video"
+			}
+			m.log.Info("sampled video damage; encoding video", "session", req.SessionID, "healTimestamps", heal)
+		}
+	}
 	if atCap && d.VideoCopy {
 		// The encoder cap is reached. A copy session still plays, but
 		// plainly: no encoded fast-start ramp, no governor clamps and no
@@ -826,19 +852,6 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		return nil, errors.New("transcode: resume segment outside authored timeline")
 	}
 
-	id := req.SessionID
-	if id == "" {
-		id = randomHex(12)
-	}
-
-	if req.InputLease != nil {
-		if err := life.installInput(req.InputLease); err != nil {
-			return nil, err
-		}
-	}
-	if err := m.claimEncoderID(ctx, id, life); err != nil {
-		return nil, err
-	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -870,6 +883,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		softSubtitleStream = &index
 	}
 	s := &Session{
+		healTimestamps:          healTimestamps,
 		encoder:                 life,
 		id:                      id,
 		m:                       m,

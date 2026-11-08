@@ -15,6 +15,7 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
+	HealTimestamps bool
 	// RampClock keeps every run of a fast-start session on the steady clock.
 	RampClock bool
 	// AuthoredTimeline preserves adaptive sessions with a separate clock.
