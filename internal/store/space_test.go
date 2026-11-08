@@ -3,11 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 )
 
-// A database created before incremental vacuum converts once and then
+// A database created before incremental vacuum converts once, when asked, and then
 // hands freed pages back to the filesystem, keeping its rows.
 func TestConvertAutoVacuumThenReleaseFreePages(t *testing.T) {
 	ctx := context.Background()
@@ -36,7 +37,13 @@ func TestConvertAutoVacuumThenReleaseFreePages(t *testing.T) {
 	if pragma("auto_vacuum") != 0 {
 		t.Fatal("an existing database must not convert on an ordinary open")
 	}
-	convertAutoVacuum(ctx, db, path, nil)
+	plan, err := Compact(ctx, db)
+	if err != nil || !plan.Incremental || plan.Ready {
+		t.Fatalf("compact: %+v %v", plan, err)
+	}
+	if _, err := Compact(ctx, db); !errors.Is(err, ErrCompactBlocked) {
+		t.Fatalf("second compact: %v", err)
+	}
 	if pragma("auto_vacuum") != autoVacuumIncremental {
 		t.Fatalf("auto_vacuum = %d after conversion", pragma("auto_vacuum"))
 	}

@@ -235,9 +235,6 @@ func (a *App) storeProgress(p store.Progress) {
 		a.tracker.Set(startup.PhaseMigrating)
 		a.tracker.Progress(p.Done+1, p.Total)
 		a.upgradeProgress(p.Name, 0, 0)
-	case store.StageCompact:
-		a.tracker.Set(startup.PhaseMigrating)
-		a.upgradeProgress("compacting database", 0, 0)
 	}
 }
 

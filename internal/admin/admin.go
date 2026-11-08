@@ -200,6 +200,10 @@ type Deps struct {
 
 	// DatabaseCheck runs an owner-requested integrity check. Optional for offline consoles.
 	DatabaseCheck StatusFuncE
+	// DatabaseCompactStatus reports what compacting the database would take
+	// and any compaction running; DatabaseCompact starts one. Both optional.
+	DatabaseCompactStatus StatusFuncE
+	DatabaseCompact       StatusFuncE
 
 	// ResolverTraces backs GET /ether/api/traces.
 	ResolverTraces StatusFuncE
@@ -409,6 +413,8 @@ func (h *Handler) routes() *http.ServeMux {
 	api("GET /api/status", h.handleWidget)
 	api("GET /api/status/{name}", h.handleStatus)
 	api("POST /api/status/database/check", h.handleDatabaseCheck)
+	api("GET /api/status/database/compact", h.handleDatabaseCompact)
+	api("POST /api/status/database/compact", h.handleDatabaseCompact)
 	api("GET /api/traces", h.handleTraces)
 	api("GET /api/disk", h.handleDisk)
 

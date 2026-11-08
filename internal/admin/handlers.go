@@ -703,6 +703,31 @@ func DiskFree(path string) (int64, error) { _, free, err := datafs.Usage(path); 
 // DiskUsage reports the size and free bytes of the volume holding path.
 func DiskUsage(path string) (total, free int64, err error) { return datafs.Usage(path) }
 
+// handleDatabaseCompact reports (GET) or starts (POST) the owner's one-time
+// database compaction. POST returns at once; the compaction runs in the
+// background and GET reports it.
+func (h *Handler) handleDatabaseCompact(w http.ResponseWriter, r *http.Request) {
+	access, _ := RequestAccess(r.Context())
+	if !access.Owner {
+		writeError(w, http.StatusForbidden, "owner_required", "sign in as the owner to compact the database")
+		return
+	}
+	fn := h.deps.DatabaseCompactStatus
+	if r.Method == http.MethodPost {
+		fn = h.deps.DatabaseCompact
+	}
+	if fn == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "database compaction is not available")
+		return
+	}
+	value, err := fn(r.Context())
+	if err != nil {
+		writeError(w, http.StatusConflict, "database_compact_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": value})
+}
+
 func (h *Handler) handleDatabaseCheck(w http.ResponseWriter, r *http.Request) {
 	access, _ := RequestAccess(r.Context())
 	if !access.Owner {

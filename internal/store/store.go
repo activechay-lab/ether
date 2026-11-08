@@ -209,8 +209,6 @@ type Progress struct {
 const (
 	StageSnapshot = "snapshot"
 	StageMigrate  = "migrate"
-	// StageCompact is the one-time conversion to incremental vacuum.
-	StageCompact = "compact"
 )
 
 // report calls fn when it is set.
@@ -344,7 +342,6 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 	if err != nil {
 		return nil, err
 	}
-	upgrading := false
 	if path == ":memory:" {
 		db.SetMaxOpenConns(1)
 	} else if ok, err := snapshotBeforeMigrate(ctx, db, path, registered(), files, progress); err != nil {
@@ -353,7 +350,6 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 		slog.Warn("store: could not snapshot the database before migrating", "path", path+PreMigrateSuffix, "err", err)
 	} else if ok {
 		slog.Info("store: snapshot taken before applying database migrations", "path", path+PreMigrateSuffix)
-		upgrading = true
 	}
 	if err := migrateSQLite(ctx, db, progress); err != nil {
 		db.Close()
@@ -362,11 +358,6 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 	if path != ":memory:" {
 		finishPreMigrate(path)
 		warnSchemaAhead(ctx, db, slog.Default(), path+PreMigrateSuffix)
-	}
-	if upgrading {
-		// An upgrade start already pauses for the snapshot; the one-time
-		// conversion rides on that pause instead of a later, serving one.
-		convertAutoVacuum(ctx, db, path, progress)
 	}
 	// Recommended at open by the SQLite docs: analyse tables whose stats are
 	// missing or stale, bounded by the 0x10000 analysis limit so it is cheap.

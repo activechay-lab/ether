@@ -14,8 +14,8 @@ const journalSizeLimit = 64 << 20
 // incremental_vacuum steps (ReleaseFreePages), checkpoints the WAL and
 // truncates it when no request is using the database, then refreshes
 // query-planner statistics. It never runs a full VACUUM, which rewrites the
-// whole file under the write lock; the one-time conversion to incremental
-// vacuum happens at an upgrade start (space.go).
+// whole file under the write lock; converting an older database to
+// incremental vacuum is the owner's Compact action (space.go).
 //
 // On PostgreSQL the server manages its own WAL and autovacuum; Maintain only
 // refreshes planner statistics with ANALYZE.
