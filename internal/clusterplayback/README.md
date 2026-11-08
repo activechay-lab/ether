@@ -329,14 +329,16 @@ final transformed bytes, current authority and fencing contracts.
 ## Private exact-operation gate storage prerequisite
 
 Migration v4 reserves one private operation gate atomically with each NEW
-immutable admission, under the same cluster-wide durable HistoryCapacity.
-Every original boot and retired/replaced generation remains charged. There is
+immutable admission. There is no lifetime admission cap: one admission and one
+gate exist per reserved placement generation, so retained rows are bounded by the
+ledger's live quota plus its retention window. There is
 one accepted-attempt nonce/worker-boot slot, one arm association (at most 16 KiB),
 and one irreversible seal with closed reasons and bounded actor identity.
 Admission digest v1 covers the exact sanitized original record, including the
 explicit keyframes/slate, entire Route, operation hash and exact Start identity
-and hash. No independent attempt history, expiry, eviction or compaction exists.
-Exact historical retries, reads and sealing remain usable at capacity.
+and hash. No independent attempt history, expiry or eviction exists: admissions and gates
+leave only with their session's compacted placement tombstone (see Retention).
+Exact historical retries, reads and sealing remain usable.
 
 Package-private storage methods serialize reservation, claim, seal and arm on the
 same component-owned transaction lock on SQLite and PostgreSQL. Ambiguous writes
@@ -369,3 +371,21 @@ full-fence transaction releases capacity. Expiry, missing membership and an
 unauthenticated replacement row retain the claim. Boot-based retirement logs
 the session, generation and exact old worker/source identities and does not
 fabricate a terminal receipt for history compaction.
+
+## Retention
+
+`Runtime.PruneRetained` is the cluster's only deletion path for this package's
+history. The application runs it on the cluster leader once a minute with a
+bounded deadline. Every per-session table (admissions, operation gates, recovery
+decisions, source recovery/moves, Plex and neutral bindings, neutral stops,
+coordinators, routes) is deleted inside `placement.PruneTombstones`' ledger
+transaction for exactly the sessions whose tombstones it compacts: retired, no
+displaced generation still charged, deadline and retirement both older than
+`DefaultSessionRetention` (24h). A live, recoverable or recently retired session
+keeps every row; the ledger's generation floor fences anything that referred to a
+compacted one. Generation-zero routes with no placement row and no active
+`plex_sessions` row, and preparation receipts (closure caches; a missing receipt
+fails closed and is re-derived from the source boot), age out after
+`DefaultReceiptRetention` (1h). The recovery-event log stays bounded at 256 rows
+per cluster by its writer. Every statement is a batched, index-driven delete in
+its own short transaction.

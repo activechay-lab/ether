@@ -64,8 +64,8 @@ func (r *Runtime) SaveNeutralBinding(ctx context.Context, id, protocol string, v
 	if err != nil {
 		return ErrDenied
 	}
-	// Bound ciphertext and prune expired rows; all live rows are bounded by the
-	// existing cluster-wide durable admission ceiling, never by eviction.
+	// Bound ciphertext and prune expired rows; unexpired rows belong to live
+	// placement sessions and leave with their compacted tombstone.
 	if len(sealed) > 2*maxAdmissionBytes {
 		return ErrDenied
 	}

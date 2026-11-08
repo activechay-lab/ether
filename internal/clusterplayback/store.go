@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/store"
+	"time"
 )
 
 var ErrDenied = errors.New("clusterplayback: denied")
@@ -58,7 +59,7 @@ func (r *Runtime) putRoute(ctx context.Context, route Route) error {
 	if e != nil {
 		return e
 	}
-	result, e := r.o.DB.ExecContext(ctx, `INSERT INTO clusterplayback_routes(session,generation,route) VALUES(?,?,?) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,route=excluded.route WHERE clusterplayback_routes.generation<excluded.generation`, route.Fence.Session, route.Fence.Generation, string(b))
+	result, e := r.o.DB.ExecContext(ctx, `INSERT INTO clusterplayback_routes(session,generation,route,touched_at) VALUES(?,?,?,?) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,route=excluded.route,touched_at=excluded.touched_at WHERE clusterplayback_routes.generation<excluded.generation`, route.Fence.Session, route.Fence.Generation, string(b), time.Now().UnixMilli())
 	if e != nil {
 		return e
 	}

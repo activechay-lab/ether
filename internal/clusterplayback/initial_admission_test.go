@@ -351,13 +351,15 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	scratchRaw, _ := scratch.encode()
+	// Retained history never refuses admission, even far past HistoryCapacity:
+	// one row exists per reserved placement generation, and rows leave with
+	// their session's compacted tombstone (PruneRetained), not through a cap.
 	savedCapacity := front.o.HistoryCapacity
 	front.o.HistoryCapacity = 1
-	if err := front.insertAdmission(ctx, scratch, scratchRaw); !errors.Is(err, ErrPending) {
-		t.Fatal("history quota admitted another record", err)
+	if err := front.insertAdmission(ctx, scratch, scratchRaw); err != nil {
+		t.Fatal("retained history refused admission", err)
 	}
-	// A new controller boot shares the same durable cluster quota; its empty
-	// execution map and fresh boot identity cannot replenish retained history.
+	// A new controller boot writes into the same durable cluster history.
 	newBoot := scratch
 	newBoot.Route.Fence.Session, newBoot.Request.SessionID = "admission-newboot", "admission-newboot"
 	newBoot.Route.Fence.Controller.Boot = replacement.Boot
@@ -367,15 +369,15 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 	}
 	newBootRaw, _ := newBoot.encode()
 	restarted.o.HistoryCapacity = 1
-	if err := restarted.insertAdmission(ctx, newBoot, newBootRaw); !errors.Is(err, ErrPending) {
-		t.Fatal("new controller boot bypassed cluster history quota", err)
+	if err := restarted.insertAdmission(ctx, newBoot, newBootRaw); err != nil {
+		t.Fatal("retained history refused a new controller boot", err)
 	}
 	if err := restarted.insertAdmission(ctx, rawAdmission, encodedAdmission); err != nil {
-		t.Fatal("quota exhaustion blocked exact historical retry", err)
+		t.Fatal("exact historical retry", err)
 	}
 	var retainedRows int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, controller.Cluster).Scan(&retainedRows); err != nil || retainedRows != 1 {
-		t.Fatal("quota rejection changed retained history", retainedRows, err)
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, controller.Cluster).Scan(&retainedRows); err != nil || retainedRows != 3 {
+		t.Fatal("exact retry changed retained history", retainedRows, err)
 	}
 	front.o.HistoryCapacity = savedCapacity
 	if err := front.insertAdmission(ctx, scratch, scratchRaw); err != nil {
@@ -557,7 +559,7 @@ func TestOperationGateDurableInvariant(t *testing.T) {
 		}
 	}
 	// Pre-v4 admission, with no gate: replay must neither backfill nor classify
-	// it as unclaimed. It still consumes the SAME cluster-wide durable quota.
+	// it as unclaimed.
 	legacy := admission("legacy", 1, controller.Boot)
 	legacyRaw, _ := legacy.encode()
 	if e = original.putRoute(ctx, legacy.Route); e != nil {
@@ -577,7 +579,7 @@ func TestOperationGateDurableInvariant(t *testing.T) {
 		t.Fatal("legacy row gained gate", h, e)
 	}
 	// A replacement generation remains alongside its old sealed generation and
-	// every old controller boot. Capacity is 16: 14 originals + legacy + this.
+	// every old controller boot: 14 originals + legacy + this + one past HistoryCapacity.
 	next := first
 	next.Route.Fence.Generation++
 	next.Route.Fence.Controller.Boot = replacement.Boot
@@ -588,11 +590,13 @@ func TestOperationGateDurableInvariant(t *testing.T) {
 	if e = restarted.putRoute(ctx, tooMany.Route); e != nil {
 		t.Fatal(e)
 	}
-	if e = restarted.insertAdmission(ctx, tooMany, tooManyRaw); !errors.Is(e, ErrPending) {
-		t.Fatal("fresh Runtime boot replenished quota", e)
+	// Retained history past HistoryCapacity does not refuse a new admission;
+	// its gate is published atomically with it.
+	if e = restarted.insertAdmission(ctx, tooMany, tooManyRaw); e != nil {
+		t.Fatal("retained history refused admission", e)
 	}
-	if h, e = restarted.readOperationGate(ctx, admissionBinding(tooMany, tooManyRaw).key()); !isAdmissionUnknown(e) || h.State != gateAbsentUnsupported {
-		t.Fatal("quota partially reserved gate", h, e)
+	if h, e = restarted.readOperationGate(ctx, admissionBinding(tooMany, tooManyRaw).key()); e != nil || h.State != gateUnclaimed {
+		t.Fatal("admission without its gate", h, e)
 	}
 	nextRaw, _ := next.encode()
 	if e = restarted.insertAdmission(ctx, next, nextRaw); e != nil {
@@ -624,7 +628,7 @@ func TestOperationGateDurableInvariant(t *testing.T) {
 	if e = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, controller.Cluster).Scan(&admissions); e != nil {
 		t.Fatal(e)
 	}
-	if e = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_operation_gates WHERE cluster=?`, controller.Cluster).Scan(&gates); e != nil || admissions != 16 || gates != 15 {
+	if e = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_operation_gates WHERE cluster=?`, controller.Cluster).Scan(&gates); e != nil || admissions != 17 || gates != 16 {
 		t.Fatal("quota/history changed", admissions, gates, e)
 	}
 }

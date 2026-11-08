@@ -201,8 +201,8 @@ func (r *Runtime) publishPreparationReceipt(ctx context.Context, entry *preparat
 		if count >= r.o.HistoryCapacity {
 			return ErrPending
 		}
-		args := append(preparationArgs(receipt.Source, receipt.Controller, receipt.OperationHash), raw)
-		if _, err = tx.ExecContext(writeCtx, `INSERT INTO clusterplayback_preparation_receipts(cluster,source,source_boot,controller,controller_boot,operation_hash,receipt) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, args...); err != nil {
+		args := append(preparationArgs(receipt.Source, receipt.Controller, receipt.OperationHash), raw, time.Now().UnixMilli())
+		if _, err = tx.ExecContext(writeCtx, `INSERT INTO clusterplayback_preparation_receipts(cluster,source,source_boot,controller,controller_boot,operation_hash,receipt,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, args...); err != nil {
 			return err
 		}
 		if err = tx.Commit(); err != nil {
