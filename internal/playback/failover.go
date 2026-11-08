@@ -877,13 +877,6 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 		remuxSwitch bool
 		lastErr     error
 	)
-	if fo.down {
-		g = m.joinSpeedAlternate(ctx, cur, tried)
-		if g != nil && m.preflightSwap(ctx, s, g) != nil {
-			m.dropGeneration(g)
-			g = nil
-		}
-	}
 	var prepared *core.Resolution
 	if !fo.encoder {
 		prepared = cur.takeDamageResolution(tried)
@@ -895,6 +888,13 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 		}
 		p, ok := hls.(interface{ SwapWouldCopyVideo(core.MediaInfo) bool })
 		return ok && p.SwapWouldCopyVideo(next.infoSnapshot())
+	}
+	if fo.down {
+		g = m.joinSpeedAlternate(ctx, cur, tried)
+		if g != nil && (m.preflightSwap(ctx, s, g) != nil || (!direct && !copyCandidate(g))) {
+			m.dropGeneration(g)
+			g = nil
+		}
 	}
 	var preferCopy func(*generation) bool
 	if !direct && !fo.encoder {
@@ -913,6 +913,9 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 		if fo.down {
 			width = 2
 			accept = func(next *generation) error {
+				if !copyCandidate(next) {
+					return fmt.Errorf("replacement needs video encoding: %w", core.ErrNotAvailable)
+				}
 				bps := mediaBps(next.infoSnapshot(), next.src.Size())
 				if curBps > 0 && (bps <= 0 || bps >= curBps) {
 					return fmt.Errorf("down-failover candidate is not lower bitrate: %w", core.ErrNotAvailable)
@@ -965,7 +968,7 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 				g, err = nil, perr
 			}
 		}
-		if err == nil && fo.encoder && !copyCandidate(g) {
+		if err == nil && (fo.encoder || (fo.down && !direct)) && !copyCandidate(g) {
 			m.dropGeneration(g)
 			g, err = nil, fmt.Errorf("replacement needs video encoding: %w", core.ErrNotAvailable)
 		}
@@ -997,7 +1000,7 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 			err = fmt.Errorf("incompatible direct-play replacement: %w", core.ErrNotAvailable)
 		}
 		if err == nil && fo.down {
-			if bps := mediaBps(g.infoSnapshot(), g.src.Size()); curBps > 0 && bps > 0 && bps >= curBps {
+			if bps := mediaBps(g.infoSnapshot(), g.src.Size()); curBps > 0 && (bps <= 0 || bps >= curBps) {
 				m.dropGeneration(g)
 				g = nil
 				err = fmt.Errorf("down-failover candidate is not lower bitrate: %w", core.ErrNotAvailable)
@@ -1067,7 +1070,7 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 	}
 	if g == nil && fallbackGen != nil && fo.down {
 		// A down-failover only helps with a lower-bitrate fallback.
-		if bps := mediaBps(fallbackGen.infoSnapshot(), fallbackGen.src.Size()); curBps > 0 && bps > 0 && bps >= curBps {
+		if bps := mediaBps(fallbackGen.infoSnapshot(), fallbackGen.src.Size()); curBps > 0 && (bps <= 0 || bps >= curBps) {
 			m.dropGeneration(fallbackGen)
 			fallbackGen = nil
 		}
