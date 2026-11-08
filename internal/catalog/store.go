@@ -253,7 +253,7 @@ func (c *Catalog) hydrateSlice(ctx context.Context, items []core.Title) error {
 	// studios, countries, credits and home-release dates.
 	const batch = 200
 	for chunk := range store.Chunks(keys, batch) {
-		if err := c.hydrateFactBatch(ctx, items, idx, chunk, false); err != nil {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factsFull); err != nil {
 			return err
 		}
 	}
@@ -281,11 +281,42 @@ func (c *Catalog) hydrateVisibilityFacts(ctx context.Context, items []core.Title
 		items[i].HomeReleaseFallbackAdmitted = false
 	}
 	for chunk := range store.Chunks(keys, 200) {
-		if err := c.hydrateFactBatch(ctx, items, idx, chunk, true); err != nil {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factsVisibility); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// hydrateListSlice is hydrateSlice for titles shown as list items
+// (factsList, no trailers). The titles are partial: never cache them.
+func (c *Catalog) hydrateListSlice(ctx context.Context, items []core.Title) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if err := c.airedCounts(ctx, items); err != nil {
+		return err
+	}
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		items[i].HomeReleaseChecked = false
+		items[i].HomeReleased = time.Time{}
+		items[i].HomeReleaseFallbackAdmitted = false
+	}
+	for chunk := range store.Chunks(keys, 200) {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factsList); err != nil {
+			return err
+		}
+	}
+	if err := c.hydrateShows(ctx, items); err != nil {
+		return err
+	}
+	return c.applyHydratedAdded(ctx, items)
 }
 
 func (c *Catalog) hydrateTrailers(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, keys []any) error {
@@ -337,19 +368,37 @@ type creditFact struct {
 // decides by (genres, keywords, studios, countries, home release), not
 // credits or alternative titles: a search ranks a window of candidates
 // three times its page, and only the page needs everything.
-func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, args []any, visibilityOnly bool) error {
+// factSet is which facts hydrateFactBatch reads.
+type factSet int
+
+const (
+	factsFull       factSet = iota
+	factsVisibility         // what visibility rules and the release gate read
+	factsList               // what a list item shows: no keywords or alternative titles, three cast members
+)
+
+// listCast is the cast a list item shows (Plex: three).
+const listCast = 3
+
+func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, args []any, set factSet) error {
 	ph := placeholders(len(args))
 	parts := []string{
 		`SELECT key, 'genre' AS tag, genre AS a, '' AS b, '' AS c, '' AS d, '' AS e, '' AS f, '' AS g, '' AS extra FROM catalog_genres WHERE key IN (` + ph + `)`,
-		`SELECT key, 'keyword', keyword, '', '', '', '', '', '', '' FROM catalog_keywords WHERE key IN (` + ph + `)`,
 		`SELECT key, 'studio', studio, '', '', '', '', '', '', '' FROM catalog_studios WHERE key IN (` + ph + `)`,
 		`SELECT key, 'country', country, '', '', '', '', '', '', '' FROM catalog_countries WHERE key IN (` + ph + `)`,
 		`SELECT h.key, 'home', CAST(h.checked AS TEXT), CAST(h.earliest_ts AS TEXT), CAST(h.fallback_admitted AS TEXT), CAST(t.released_ts AS TEXT), CAST(t.year AS TEXT), '', '', '' FROM catalog_home_release h JOIN catalog_titles t ON t.key=h.key WHERE h.key IN (` + ph + `)`,
 	}
-	if !visibilityOnly {
+	creditSQL := `SELECT c.key, 'credit', c.kind, c.name, c.role, c.thumb, CAST(c.person_tmdb AS TEXT), COALESCE(p.imdb,''), CAST(c.ord AS TEXT), c.provider_id FROM catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)`
+	switch set {
+	case factsFull:
 		parts = append(parts,
+			`SELECT key, 'keyword', keyword, '', '', '', '', '', '', '' FROM catalog_keywords WHERE key IN (`+ph+`)`,
 			`SELECT key, 'alt', title, '', '', '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (`+ph+`)`,
-			`SELECT c.key, 'credit', c.kind, c.name, c.role, c.thumb, CAST(c.person_tmdb AS TEXT), COALESCE(p.imdb,''), CAST(c.ord AS TEXT), c.provider_id FROM catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (`+ph+`)`)
+			creditSQL)
+	case factsVisibility:
+		parts = append(parts, `SELECT key, 'keyword', keyword, '', '', '', '', '', '', '' FROM catalog_keywords WHERE key IN (`+ph+`)`)
+	case factsList:
+		parts = append(parts, creditSQL+` AND (c.kind<>'cast' OR c.ord<`+strconv.Itoa(listCast)+`)`)
 	}
 	q := "SELECT key, tag, a, b, c, d, e, f, g, extra FROM (\n" + strings.Join(parts, "\nUNION ALL\n") + "\n) AS facts"
 	bound := make([]any, 0, len(args)*len(parts))

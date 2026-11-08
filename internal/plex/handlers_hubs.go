@@ -1810,7 +1810,10 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 	// People are searched beside titles; neither waits for the other.
 	peopleDone := make(chan peopleSearchResult, 1)
 	go func() { peopleDone <- s.searchPeople(ctx, pr, query, sectionID, limit, true) }()
-	result, err := s.searchExperience().Resolve(ctx, pr.User, query, s.searchTypes(pr.User, sectionID), fetch, true)
+	// Hub items render as list items (three cast members, directors,
+	// genres): the catalogue reads those facts for the page, not every
+	// credit, keyword and alternative title.
+	result, err := s.searchExperience().Resolve(core.WithSearchListFacts(ctx), pr.User, query, s.searchTypes(pr.User, sectionID), fetch, true)
 	people := <-peopleDone
 	if err != nil {
 		s.writeErr(w, r, err)

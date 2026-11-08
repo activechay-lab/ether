@@ -277,17 +277,31 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 					keys = append(keys, t.Key)
 				}
 			}
-			c.PreloadStored(ctx, keys)
-			for i, t := range items {
-				if !localKeys[t.Key] || (t.Type != core.TypeMovie && t.Type != core.TypeShow) {
-					continue
-				}
-				if st, err := c.loadByKey(ctx, t.Key); err == nil {
-					full := st.t
-					full.SearchScore = t.SearchScore
-					items[i] = full
-				} else if !errors.Is(err, core.ErrNotFound) {
+			if core.SearchListFacts(ctx) {
+				// Shown as list items: the facts a list shows, not cached.
+				loaded, err := c.searchListRows(ctx, keys)
+				if err != nil {
 					return nil, err
+				}
+				for i, t := range items {
+					if full, ok := loaded[t.Key]; ok && localKeys[t.Key] {
+						full.SearchScore = t.SearchScore
+						items[i] = full
+					}
+				}
+			} else {
+				c.PreloadStored(ctx, keys)
+				for i, t := range items {
+					if !localKeys[t.Key] || (t.Type != core.TypeMovie && t.Type != core.TypeShow) {
+						continue
+					}
+					if st, err := c.loadByKey(ctx, t.Key); err == nil {
+						full := st.t
+						full.SearchScore = t.SearchScore
+						items[i] = full
+					} else if !errors.Is(err, core.ErrNotFound) {
+						return nil, err
+					}
 				}
 			}
 		}
@@ -1099,6 +1113,42 @@ func (c *Catalog) releasedTitles(ctx context.Context, items []core.Title) []core
 
 // searchCandidateRows reads the same title rows as searchCandidates without
 // their facts. It retains key order and the ordinary release and cache rules.
+// searchListRows reads keys' rows with their list facts (hydrateListSlice).
+func (c *Catalog) searchListRows(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+	out := make(map[core.RatingKey]core.Title, len(keys))
+	for part := range store.Chunks(keys, 200) {
+		args := make([]any, len(part))
+		for i, k := range part {
+			args[i] = int64(k)
+		}
+		rows, err := c.db.QueryContext(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		var items []core.Title
+		for rows.Next() {
+			st, err := scanTitle(rows)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			items = append(items, st.t)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err := c.hydrateListSlice(ctx, items); err != nil {
+			return nil, err
+		}
+		for _, t := range items {
+			out[t.Key] = t
+		}
+	}
+	return out, nil
+}
+
 func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey, unfiltered bool) ([]core.Title, error) {
 	if len(keys) == 0 {
 		return nil, nil
