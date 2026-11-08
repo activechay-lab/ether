@@ -151,6 +151,9 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 		codecs:  rungCodecs(info, primary, ph),
 	}
 	base.peakKbps = peakKbps(avg)
+	if primary.VideoCopy {
+		base.peakKbps = max(base.peakKbps, HLSCopyPeakKbps(info, 0))
+	}
 	rungs := []rung{base}
 	// Soft encode rungs under a video-copy primary follow abrLadderUnderCopy
 	// (default on for upgrade compatibility with abrLadder). Set it false to

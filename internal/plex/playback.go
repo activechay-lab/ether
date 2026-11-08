@@ -1438,7 +1438,15 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 		}
 	}
 	bw := info.BitrateKbps
-	if !dec.VideoCopy && dec.BitrateKbps > 0 {
+	if dec.VideoCopy {
+		// BANDWIDTH is the peak segment rate; a copy's segments swing
+		// above the container average.
+		var segDur time.Duration
+		if sd, ok := hs.(interface{ SegmentDuration() time.Duration }); ok {
+			segDur = sd.SegmentDuration()
+		}
+		bw = transcode.HLSCopyPeakKbps(info, segDur)
+	} else if dec.BitrateKbps > 0 {
 		bw = dec.BitrateKbps
 	}
 	if bw <= 0 {
