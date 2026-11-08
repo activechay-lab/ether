@@ -32,7 +32,14 @@ const pageItemRows = 10
 // DetailCaps is, for each title type, the most rows a page's hydration of
 // one title of that type reads in the generated library: its detail rows
 // (the facts catalog/store.go hydrateFactBatch reads) plus pageItemRows,
-// and for a series two rows per season (aired counts).
+// and for a series two rows per season (aired counts). Every stored type
+// participates, including titles with no own facts. Children also read
+// their parent's identity, keywords and alternative titles. Later episodes
+// read all positive-season counts for absolute numbering; seasons do not.
+// These are per-title upper bounds: hydration shares a parent's reads when
+// multiple rendered children have the same parent, so repeating its cost
+// is conservative. Parent credits/genres and unrelated shows' seasons are
+// not inherited and must not inflate a child's cap.
 func DetailCaps(ctx context.Context, db *sql.DB) (map[string]int, error) {
 	rows, err := db.QueryContext(ctx, `WITH f(key, n) AS (
  SELECT key, COUNT(*) FROM catalog_genres GROUP BY key
@@ -42,9 +49,28 @@ func DetailCaps(ctx context.Context, db *sql.DB) (map[string]int, error) {
  UNION ALL SELECT key, COUNT(*) FROM catalog_countries GROUP BY key
  UNION ALL SELECT key, COUNT(*) FROM catalog_credits GROUP BY key
  UNION ALL SELECT key, 1 FROM catalog_home_release
-), per AS (SELECT key, SUM(n) AS n FROM f GROUP BY key)
-SELECT t.type, MAX(per.n + CASE WHEN t.type='show' THEN 2*t.child_count ELSE 0 END)
-FROM per JOIN catalog_titles t ON t.key=per.key GROUP BY t.type`)
+), per AS (SELECT key, SUM(n) AS n FROM f GROUP BY key),
+inherited AS (
+ SELECT key, SUM(n) AS n FROM (
+  SELECT key, COUNT(*) AS n FROM catalog_keywords GROUP BY key
+  UNION ALL SELECT key, COUNT(*) AS n FROM catalog_alt_titles GROUP BY key
+ ) AS parent_facts GROUP BY key
+), numbering AS (
+ SELECT show_key, COUNT(*) AS n FROM catalog_titles
+ WHERE type='season' AND season>0 GROUP BY show_key
+)
+SELECT t.type, MAX(COALESCE(per.n,0)
+ + CASE WHEN t.type='show' THEN 2*t.child_count ELSE 0 END
+ + CASE WHEN t.show_key<>0 THEN
+     CASE WHEN parent.key IS NOT NULL THEN 1 ELSE 0 END + COALESCE(inherited.n,0)
+     + CASE WHEN t.type='episode' AND t.season>1 AND t.episode>0 THEN COALESCE(numbering.n,0) ELSE 0 END
+   ELSE 0 END)
+FROM catalog_titles t
+LEFT JOIN per ON per.key=t.key
+LEFT JOIN catalog_titles parent ON parent.key=t.show_key
+LEFT JOIN inherited ON inherited.key=t.show_key
+LEFT JOIN numbering ON numbering.show_key=t.show_key
+GROUP BY t.type`)
 	if err != nil {
 		return nil, err
 	}
