@@ -38,6 +38,7 @@ const (
 // hlsFetch is one prefetched segment; fields are set before done closes.
 type hlsFetch struct {
 	seq    int64
+	url    string
 	done   chan struct{}
 	status int
 	ctype  string
@@ -55,37 +56,96 @@ func (h *hlsInput) prefetchLocked(l *hlsList) {
 	}
 	if h.fetches == nil {
 		h.fetches = map[string]*hlsFetch{}
-		h.slots = make(chan struct{}, 1) // the channel's own connection
 	}
 	for _, sg := range l.last {
 		if sg.seq <= l.served || h.fetches[sg.url] != nil {
 			continue
 		}
 		if h.held >= hlsPrefetchBudget {
-			return
+			break
 		}
-		f := &hlsFetch{seq: sg.seq, done: make(chan struct{})}
+		f := &hlsFetch{seq: sg.seq, url: sg.url, done: make(chan struct{})}
 		h.fetches[sg.url] = f
-		go h.fetch(sg.url, f)
+		h.queue = append(h.queue, f)
+	}
+	// Fetches run strictly in playlist order: the channel's own fetcher,
+	// plus one helper when the account has room for another connection.
+	// Each takes the earliest waiting segment, so a stuck segment holds up
+	// one fetcher, never the order of the rest.
+	if len(h.queue) > 0 && !h.fetching {
+		h.fetching = true
+		go h.work(func() {})
+	}
+	if len(h.queue) > 1 && !h.helping {
+		h.helping = true
+		go h.help()
 	}
 }
 
-func (h *hlsInput) fetch(raw string, f *hlsFetch) {
+// next pops the earliest queued fetch; nil when there is none.
+func (h *hlsInput) next() *hlsFetch {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.queue) == 0 || h.g.ctx.Err() != nil {
+		return nil
+	}
+	f := h.queue[0]
+	h.queue = h.queue[1:]
+	return f
+}
+
+// work fetches queued segments in order until the queue is empty.
+func (h *hlsInput) work(release func()) {
+	defer release()
+	for {
+		f := h.next()
+		if f == nil {
+			h.mu.Lock()
+			if len(h.queue) > 0 {
+				h.mu.Unlock()
+				continue
+			}
+			h.fetching = false
+			h.mu.Unlock()
+			return
+		}
+		h.fetchOne(f)
+	}
+}
+
+// help is the second fetcher, running only on a slot the account's
+// limiter grants (see extraSlot).
+func (h *hlsInput) help() {
+	release := h.extraSlot(h.g.service)
+	if release == nil {
+		h.mu.Lock()
+		h.helping = false
+		h.mu.Unlock()
+		return
+	}
+	defer release()
+	for {
+		f := h.next()
+		if f == nil {
+			h.mu.Lock()
+			h.helping = false
+			h.mu.Unlock()
+			return
+		}
+		h.fetchOne(f)
+	}
+}
+
+func (h *hlsInput) fetchOne(f *hlsFetch) {
 	defer close(f.done)
 	s := h.g.service
 	if s == nil {
 		f.err = errRelayUnsupported
 		return
 	}
-	release, err := h.slot(s)
-	if err != nil {
-		f.err = err
-		return
-	}
-	defer release()
 	ctx, cancel := context.WithTimeout(h.g.ctx, hlsPrefetchTimeout)
 	defer cancel()
-	res, err := s.relayFetchAs(ctx, cancel, h.g, raw, &http.Request{Header: http.Header{}}, true)
+	res, err := s.relayFetchAs(ctx, cancel, h.g, f.url, &http.Request{Header: http.Header{}}, true)
 	if err != nil {
 		f.err = err
 		return
@@ -106,54 +166,22 @@ func (h *hlsInput) fetch(raw string, f *hlsFetch) {
 	h.mu.Unlock()
 }
 
-// slot waits for the grant's own fetch slot, or takes one extra slot when
-// the account's limiter allows another connection now.
-func (h *hlsInput) slot(s *Service) (func(), error) {
-	for {
-		select {
-		case h.slots <- struct{}{}:
-			return func() { <-h.slots }, nil
-		default:
-		}
-		if release := h.extraSlot(s); release != nil {
-			return release, nil
-		}
-		select {
-		case h.slots <- struct{}{}:
-			return func() { <-h.slots }, nil
-		case <-h.g.ctx.Done():
-			return nil, h.g.ctx.Err()
-		}
-	}
-}
-
-// extraSlot grants at most one fetch beyond the channel's own connection,
-// through the account limiter; nil when the account has no room.
+// extraSlot grants a fetch beyond the channel's own connection through the
+// account limiter; nil when the account has no room.
 func (h *hlsInput) extraSlot(s *Service) func() {
-	h.mu.Lock()
-	if h.extra > 0 {
-		h.mu.Unlock()
+	if s == nil {
 		return nil
 	}
-	h.extra++
-	h.mu.Unlock()
-	done := func() {
-		h.mu.Lock()
-		h.extra--
-		h.mu.Unlock()
-	}
 	if h.g.source != "" {
-		limit := s.sourceConnectionLimit(h.g.source)
-		if limit > 0 {
+		if limit := s.sourceConnectionLimit(h.g.source); limit > 0 {
 			release, err := s.reserveVODProvider(h.g.source, limit, false)
 			if err != nil {
-				done()
 				return nil
 			}
-			return func() { release(); done() }
+			return release
 		}
 	}
-	return done
+	return func() {}
 }
 
 // prefetched returns the fetch for a segment, started or finished.
