@@ -13,11 +13,13 @@ import (
 type searchMergeTMDB struct{ TMDB }
 
 func (*searchMergeTMDB) SearchMovies(context.Context, string, int) (*tmdb.Paged[tmdb.Movie], error) {
-	return &tmdb.Paged[tmdb.Movie]{TotalPages: 1, Results: []tmdb.Movie{{ID: 999, Title: "Crater Voyage", ReleaseDate: "2000-01-01", Popularity: 100}}}, nil
+	return &tmdb.Paged[tmdb.Movie]{TotalPages: 1, Results: []tmdb.Movie{{ID: 999, Title: "Crater", ReleaseDate: "2000-01-01", Popularity: 100}}}, nil
 }
 
 // Local and remote candidates must be ranked together before their retained
 // titles are fully hydrated, whether the local index is ready or still warming.
+// The remote title is the exact name and the local ones only hold the word,
+// so the remote one ranks first despite the outside margin.
 func TestSearchMergesAndHydratesRankedCandidates(t *testing.T) {
 	for _, indexed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("indexed=%t", indexed), func(t *testing.T) {
@@ -28,7 +30,7 @@ func TestSearchMergesAndHydratesRankedCandidates(t *testing.T) {
 			c.SetTMDB(&searchMergeTMDB{})
 			var titles []core.Title
 			for i := 1; i <= 15; i++ {
-				titles = append(titles, core.Title{Key: core.MovieKey(int64(i)), Type: core.TypeMovie, Title: fmt.Sprintf("Crater Feature %d", i), Year: 2000, Released: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Popularity: float64(i), Genres: []string{"Drama"}})
+				titles = append(titles, core.Title{Key: core.MovieKey(int64(i)), Type: core.TypeMovie, Title: fmt.Sprintf("Feature %d Crater", i), Year: 2000, Released: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Popularity: float64(i), Genres: []string{"Drama"}})
 			}
 			if err := c.upsertMany(ctx, titles, upsertOpts{browsable: true}); err != nil {
 				t.Fatal(err)
