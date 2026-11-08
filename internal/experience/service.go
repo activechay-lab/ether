@@ -92,8 +92,9 @@ type ServiceDeps struct {
 	// in a few statements. Optional.
 	PersonCreditsMany func(context.Context, []int64, []core.MediaType, int) (map[int64][]core.PersonCredit, error)
 	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
-	peopleVisibleTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
-	AiredEpisodes       func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	peopleVisibleTitles  func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	peoplePortraitTitles func(context.Context, []PersonCreditRef) (map[core.RatingKey]core.Title, error)
+	AiredEpisodes        func(context.Context, core.RatingKey, int, int) (core.Page, error)
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.

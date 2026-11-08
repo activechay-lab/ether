@@ -27,8 +27,11 @@ type PeopleRead struct {
 	// VisibleTitles is Titles for a visibility decision: the same rows and
 	// gates, without credits. Optional.
 	VisibleTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
-	Finish        func(context.Context) error
-	Close         func()
+	// PortraitTitles reads fresh policy facts and only the requested credits.
+	// Partial titles are used only inside WithPersonCredits; never cached.
+	PortraitTitles func(context.Context, []PersonCreditRef) (map[core.RatingKey]core.Title, error)
+	Finish         func(context.Context) error
+	Close          func()
 }
 
 func (s *Service) readPeople(ctx context.Context, viewer *core.User, read func(*Service) error) error {
@@ -66,6 +69,7 @@ func (s *Service) readPeople(ctx context.Context, viewer *core.User, read func(*
 	}
 	snapshot.d.CachedGetMany = access.Titles
 	snapshot.d.peopleVisibleTitles = access.VisibleTitles
+	snapshot.d.peoplePortraitTitles = access.PortraitTitles
 	if err := read(&snapshot); err != nil {
 		return err
 	}
@@ -725,7 +729,9 @@ type PersonCreditRef struct {
 // proof: one people read, the credited titles read in one batch before and
 // once after the callbacks (the same recheck WithPersonCredit makes per
 // credit). read is called for each credit that is current and visible, in
-// order; a credit that is not is skipped (skip reports which).
+// order; a credit that is not is skipped (skip reports which). The callback
+// title may contain only policy facts and the requested portrait credits; it
+// must not be cached or used as a complete title response.
 func (s *Service) WithPersonCredits(ctx context.Context, viewer *core.Viewer, device core.Device, refs []PersonCreditRef, read func(i int, current *core.User, person frontend.PersonDetail, title core.Title) error) (skipped []bool, err error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
 	ctx, cancel := context.WithTimeout(ctx, peopleReadBudget)
@@ -748,7 +754,13 @@ func (s *Service) WithPersonCredits(ctx context.Context, viewer *core.Viewer, de
 					keys = append(keys, r.Item)
 				}
 			}
-			titles, err := snapshot.d.CachedGetMany(ctx, keys)
+			var titles map[core.RatingKey]core.Title
+			var err error
+			if snapshot.d.peoplePortraitTitles != nil {
+				titles, err = snapshot.d.peoplePortraitTitles(ctx, refs)
+			} else {
+				titles, err = snapshot.d.CachedGetMany(ctx, keys)
+			}
 			if err != nil {
 				return nil, Visibility{}, err
 			}

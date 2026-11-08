@@ -83,6 +83,13 @@ func (a *App) beginPeopleRead(ctx context.Context, viewer *core.User) (experienc
 		VisibleTitles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
 			return a.catalog.CachedVisibleTitles(ctx, keys, cfg.Catalog, now)
 		},
+		PortraitTitles: func(ctx context.Context, refs []experience.PersonCreditRef) (map[core.RatingKey]core.Title, error) {
+			subjects := make(map[core.RatingKey][]int64)
+			for _, ref := range refs {
+				subjects[ref.Item] = append(subjects[ref.Item], ref.TMDB)
+			}
+			return a.catalog.CachedPortraitTitles(ctx, subjects, cfg.Catalog, now)
+		},
 		Close: lease.Close,
 		Finish: func(ctx context.Context) error {
 			if !validPeopleReadTimes(started, time.Now()) || !evidence.Current() {
