@@ -311,6 +311,8 @@ func TestObscureTitleEquivalenceAndAliases(t *testing.T) {
 		{"The Office (US)", "The Office US"},
 		{"The Office", "The Office US"},
 		{"Ghosts (UK)", "Ghosts"},
+		{"86", "Eighty-Six"},
+		{"Fate/Zero", "Fate Zero"},
 	}
 	for _, p := range pairs {
 		if !TitlesMatch(p[0], p[1]) || !TitlesMatch(p[1], p[0]) {
@@ -321,8 +323,30 @@ func TestObscureTitleEquivalenceAndAliases(t *testing.T) {
 	if len(aliases) == 0 || aliases[0] != "LA Confidential" {
 		t.Fatalf("TitleAliases(L.A. Confidential) = %v", aliases)
 	}
+	slashAliases := TitleAliases("Fate/Zero")
+	if len(slashAliases) == 0 || slashAliases[0] != "Fate Zero" {
+		t.Fatalf("TitleAliases(Fate/Zero) = %v", slashAliases)
+	}
 	if got := TitleAliases("The Signal"); len(got) != 0 {
 		t.Fatalf("ordinary title produced extra aliases: %v", got)
+	}
+}
+
+func TestRevisionCourAndAnimeFlags(t *testing.T) {
+	v2 := Parse("[SubsPlease] Frieren - S01E05v2 (1080p) [12345678].mkv")
+	if v2.Revision != 2 || !v2.Proper || v2.Repack || !reflect.DeepEqual(v2.Seasons, []int{1}) || !reflect.DeepEqual(v2.Episodes, []int{5}) {
+		t.Fatalf("S01E05v2: rev=%d proper=%v repack=%v seasons=%v episodes=%v", v2.Revision, v2.Proper, v2.Repack, v2.Seasons, v2.Episodes)
+	}
+	v3 := Parse("[Group] Bleach - 12v3 [1080p] [Uncensored] [Subbed]")
+	if v3.Revision != 3 || !v3.Proper || !v3.Uncensored || !v3.Subbed {
+		t.Fatalf("12v3: rev=%d proper=%v uncensored=%v subbed=%v", v3.Revision, v3.Proper, v3.Uncensored, v3.Subbed)
+	}
+	cour := Parse("[SubsPlease] Spy x Family S01 Part 2 - 03 (1080p) [Dubbed]")
+	if cour.Cour != 2 || !reflect.DeepEqual(cour.Seasons, []int{1}) || !reflect.DeepEqual(cour.Episodes, []int{3}) || !cour.Dubbed {
+		t.Fatalf("cour: cour=%d seasons=%v episodes=%v dubbed=%v", cour.Cour, cour.Seasons, cour.Episodes, cour.Dubbed)
+	}
+	if !TitleMatchesAny(Parse("86.S01E01.1080p.WEB-DL"), "Eighty-Six", []string{"86: Eighty-Six"}) {
+		t.Fatal("TitleMatchesAny failed on 86 / Eighty-Six")
 	}
 }
 

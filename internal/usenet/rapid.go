@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 
@@ -45,10 +46,14 @@ func decodeBody(br *BodyReader, opt *yenc.DecodeOptions) (*yenc.Part, error) {
 	complete := g.terminated && guardErr == nil && len(g.pending) == 0 && len(g.suffix) == 0 &&
 		(err == nil || errors.Is(err, rapidyenc.ErrCrcMismatch) || errors.Is(err, rapidyenc.ErrDataCorruption))
 	began, ended := g.began, g.ended
+	uuLine := g.uuFirstLine
 	state.tail = g.tail[:0]
 	state.input = guardedBody{}
 	if complete {
 		wireDecoderPool.Put(state)
+	}
+	if len(uuLine) > 0 {
+		return yenc.DecodeUUFromFirstLine(br, uuLine, opt)
 	}
 	if guardErr != nil {
 		return &result, guardErr
@@ -102,6 +107,7 @@ type guardedBody struct {
 	tail                      []byte
 	pending                   []byte
 	suffix                    string
+	uuFirstLine               []byte
 	err                       error
 }
 
@@ -159,6 +165,11 @@ func (g *guardedBody) Read(dst []byte) (int, error) {
 		}
 		if !g.began {
 			if !bytes.HasPrefix(content, []byte("=ybegin ")) {
+				if yenc.IsUUStartLine(content) {
+					g.uuFirstLine = append([]byte(nil), content...)
+					g.err = io.EOF
+					continue
+				}
 				g.preamble += len(content) + 2
 				if g.preamble > yenc.MaxPreambleSize {
 					g.err = yenc.ErrTooLarge

@@ -170,6 +170,11 @@ type ReleaseInfo struct {
 	// AbsoluteEpisodes are episode numbers counted from the series start,
 	// as anime releases number them ("Show - 1071") (additive).
 	AbsoluteEpisodes []int  `json:"absoluteEpisodes,omitempty"`
+	Revision         int    `json:"revision,omitempty"`
+	Cour             int    `json:"cour,omitempty"`
+	Subbed           bool   `json:"subbed,omitempty"`
+	Dubbed           bool   `json:"dubbed,omitempty"`
+	Uncensored       bool   `json:"uncensored,omitempty"`
 	Proper           bool   `json:"proper,omitempty"`
 	Repack           bool   `json:"repack,omitempty"`
 	Container        string `json:"container,omitempty"`

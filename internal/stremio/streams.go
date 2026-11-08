@@ -112,6 +112,10 @@ func linkIdentity(name string, size int64, link string, s *stream, req core.Sear
 // streamLanguages adds the audio languages a stream's text declares
 // outside its release name: flag emoji (as Torrentio prints them) and
 // "Multi Audio" / "Dual Audio".
+func (s *stream) languages(langs []string, text string) []string {
+	return streamLanguages(langs, text)
+}
+
 func streamLanguages(langs []string, text string) []string {
 	add := func(l string) {
 		for _, x := range langs {
@@ -214,6 +218,17 @@ func DefaultNZBClient() *http.Client {
 // AnimeIDs is the service's anime id mapping, loaded the first time an
 // add-on needs it; installed add-ons share it (internal/plugins/adapters).
 func (s *Service) AnimeIDs() AnimeIDs { return lazyAnime{s} }
+
+// LookupCour maps a multi-cour TMDB season episode to its 1-based cour (part)
+// number within that season and the episode's 1-based number inside that cour.
+func (s *Service) LookupCour(ctx context.Context, req core.SearchRequest) (int, int, bool, error) {
+	if cl, ok := s.animeIDs().(interface {
+		LookupCour(context.Context, core.SearchRequest) (int, int, bool, error)
+	}); ok {
+		return cl.LookupCour(ctx, req)
+	}
+	return 0, 0, false, nil
+}
 
 type lazyAnime struct{ s *Service }
 

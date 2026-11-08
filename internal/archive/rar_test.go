@@ -669,3 +669,16 @@ func TestStreamableOrder(t *testing.T) {
 		t.Fatal("dir last")
 	}
 }
+
+func TestReadRAR4TailVolumeNumber(t *testing.T) {
+	bufs := buildRAR(t, at.RAROptions{Version: 4, VolumeSize: 1000, NewNumbering: true}, sampleFiles())
+	for i, b := range bufs {
+		if got := ReadRAR4TailVolumeNumber(b); got != i {
+			t.Fatalf("vol %d tail number = %d, want %d", i, got, i)
+		}
+	}
+	unnumbered := buildRAR(t, at.RAROptions{Version: 4, VolumeSize: 1000, OmitEndVolumeNumber: true}, sampleFiles())
+	if got := ReadRAR4TailVolumeNumber(unnumbered[0]); got != -1 {
+		t.Fatalf("unnumbered tail = %d, want -1", got)
+	}
+}

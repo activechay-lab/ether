@@ -1,4 +1,4 @@
-// Package archive reads the headers of RAR (4.x and 5.x) and 7z archives and
+// Package archive reads the headers of RAR (4.x and 5.x), 7z and ZIP archives and
 // maps each inner file onto byte ranges (extents) of the archive volumes, so
 // that store-mode members can be streamed (with native decryption when needed)
 // out of the volumes without extracting anything.
@@ -38,9 +38,10 @@ const (
 	FormatRAR4
 	FormatRAR5
 	Format7z
+	FormatZIP
 )
 
-// String returns "unknown", "rar4", "rar5" or "7z".
+// String returns "unknown", "rar4", "rar5", "7z" or "zip".
 func (f Format) String() string {
 	switch f {
 	case FormatRAR4:
@@ -49,15 +50,19 @@ func (f Format) String() string {
 		return "rar5"
 	case Format7z:
 		return "7z"
+	case FormatZIP:
+		return "zip"
 	default:
 		return "unknown"
 	}
 }
 
 var (
-	sigRAR4 = []byte("Rar!\x1a\x07\x00")
-	sigRAR5 = []byte("Rar!\x1a\x07\x01\x00")
-	sig7z   = []byte("7z\xbc\xaf\x27\x1c")
+	sigRAR4     = []byte("Rar!\x1a\x07\x00")
+	sigRAR5     = []byte("Rar!\x1a\x07\x01\x00")
+	sig7z       = []byte("7z\xbc\xaf\x27\x1c")
+	sigZIP      = []byte("PK\x03\x04")
+	sigZIPSplit = []byte("PK\x07\x08")
 )
 
 // SignatureLen is the number of leading bytes Detect needs to recognise every
@@ -74,6 +79,8 @@ func Detect(head []byte) Format {
 		return FormatRAR4
 	case bytes.HasPrefix(head, sig7z):
 		return Format7z
+	case bytes.HasPrefix(head, sigZIP), bytes.HasPrefix(head, sigZIPSplit):
+		return FormatZIP
 	default:
 		return FormatUnknown
 	}

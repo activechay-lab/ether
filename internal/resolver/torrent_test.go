@@ -47,7 +47,6 @@ func torrent(r core.Release) core.Release {
 
 func TestTorrentSeasonPackStreamsTheEpisode(t *testing.T) {
 	idx := &torrentIndexer{fakeIndexer: &fakeIndexer{releases: []core.Release{
-		rel("usenet-pack", "Boundary.Bay.S01.COMPLETE.720p.BluRay.x264-GRP", 10000),
 		torrent(rel("wrong-season", "Boundary.Bay.S02.720p.BluRay.x264-GRP", 10000)),
 		torrent(rel("pack", "Boundary.Bay.S01.720p.BluRay.x264-GRP", 10000)),
 	}}}
@@ -67,10 +66,31 @@ func TestTorrentSeasonPackStreamsTheEpisode(t *testing.T) {
 	for _, c := range svc.Traces()[0].Candidates {
 		reasons[c.ReleaseID] = c.Reason
 	}
-	// The 10 GB pack is not judged against one episode's runtime; Usenet
-	// packs stay skipped.
-	if !strings.Contains(reasons["usenet-pack"], "season pack") || !strings.Contains(reasons[core.TargetReleaseID("wrong-season", core.ReleaseTarget{Season: 1, Episode: 3})], "mismatch") || reasons[want] != "" {
+	// The 10 GB pack is not judged against one episode's runtime.
+	if !strings.Contains(reasons[core.TargetReleaseID("wrong-season", core.ReleaseTarget{Season: 1, Episode: 3})], "mismatch") || reasons[want] != "" {
 		t.Fatalf("reasons %v", reasons)
+	}
+}
+
+// A Usenet pack resolves like a torrent one: it gets a per-episode ID and a
+// target, which the NZB fetch narrows to the episode's files. Alone, so the
+// outcome does not depend on how it ranks against a torrent pack.
+func TestUsenetSeasonPackStreamsTheEpisode(t *testing.T) {
+	idx := &torrentIndexer{fakeIndexer: &fakeIndexer{releases: []core.Release{
+		rel("usenet-pack", "Boundary.Bay.S01.COMPLETE.720p.BluRay.x264-GRP", 10000),
+		rel("wrong-season", "Boundary.Bay.S02.COMPLETE.720p.BluRay.x264-GRP", 10000),
+	}}}
+	svc := New(idx, fakeHealth{}, nil, testCfg(), Options{})
+	res, err := svc.Resolve(context.Background(), core.ResolveRequest{Title: episodeTitle(), Client: webCaps()})
+	if err != nil {
+		t.Fatalf("resolve: %v traces %+v", err, svc.Traces())
+	}
+	want := core.TargetReleaseID("usenet-pack", core.ReleaseTarget{Season: 1, Episode: 3})
+	if res.Release.ID != want || res.Release.Target == nil || res.Release.Target.Episode != 3 {
+		t.Fatalf("release %+v", res.Release)
+	}
+	if got := idx.fetched[len(idx.fetched)-1]; got.Target == nil || got.ID != want {
+		t.Fatalf("fetch saw %+v", got)
 	}
 }
 

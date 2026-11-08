@@ -650,6 +650,9 @@ func cacheKey(c *Client, req core.SearchRequest) string {
 	// every other request stay as they were.
 	if req.Anime {
 		fmt.Fprintf(h, "|anime:%d", req.AbsoluteEpisode)
+		if req.Cour > 0 && req.CourEpisode > 0 {
+			fmt.Fprintf(h, "|cour:%d:%d", req.Cour, req.CourEpisode)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -782,6 +785,21 @@ func (c *Client) searchAttempts(req core.SearchRequest, caps *Caps, id config.Id
 				v.Set("t", "search")
 				v.Set("q", fmt.Sprintf("%s %02d", title, abs))
 				attempts = append(attempts, v)
+			}
+		}
+		// Multi-cour anime seasons ("Show S01 Part 2 - 01") reset episode
+		// numbers per cour; search the mapped cour and relative episode too.
+		if req.Cour > 0 && req.CourEpisode > 0 && req.Season > 0 {
+			for _, title := range titles {
+				for _, q := range []string{
+					fmt.Sprintf("%s S%02d Part %d %02d", title, req.Season, req.Cour, req.CourEpisode),
+					fmt.Sprintf("%s Part %d %02d", title, req.Cour, req.CourEpisode),
+				} {
+					v := base()
+					v.Set("t", "search")
+					v.Set("q", q)
+					attempts = append(attempts, v)
+				}
 			}
 		}
 		// Torznab season-pack and complete-series fallback: older TV shows

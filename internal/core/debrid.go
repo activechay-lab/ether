@@ -27,11 +27,15 @@ const (
 // season pack.
 type ReleaseTarget struct {
 	// AbsoluteEpisode is the verified anime episode number across seasons.
-	AbsoluteEpisode int    `json:"absoluteEpisode,omitempty"`
-	Season          int    `json:"season,omitempty"`
-	Episode         int    `json:"episode,omitempty"`
-	ShowYear        int    `json:"showYear,omitempty"`
-	EpisodeTitle    string `json:"episodeTitle,omitempty"`
+	AbsoluteEpisode int `json:"absoluteEpisode,omitempty"`
+	// Cour and CourEpisode identify the cour (part) and relative episode
+	// within a multi-cour anime season pack (0 when unmapped).
+	Cour         int    `json:"cour,omitempty"`
+	CourEpisode  int    `json:"courEpisode,omitempty"`
+	Season       int    `json:"season,omitempty"`
+	Episode      int    `json:"episode,omitempty"`
+	ShowYear     int    `json:"showYear,omitempty"`
+	EpisodeTitle string `json:"episodeTitle,omitempty"`
 	// ExpectedIDs identify the requested series; ReportedIDs are the
 	// release's indexer-reported series IDs, retained for file validation.
 	ExpectedIDs IDs `json:"expectedIds,omitempty"`

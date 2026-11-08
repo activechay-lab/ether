@@ -386,3 +386,27 @@ func TestParallelRescueBurstFindsObscureAliasAndSeasonPack(t *testing.T) {
 		t.Fatalf("season pack fallback: got %+v err=%v", res, err)
 	}
 }
+
+func TestSearchAnimeCourFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch q.Get("t") {
+		case "caps":
+			fmt.Fprint(w, `<caps><searching><search available="yes" supportedParams="q"/><tv-search available="yes" supportedParams="q,tmdbid,season,ep"/></searching></caps>`)
+		default:
+			if q.Get("q") == "Eighty-Six S01 Part 2 01" {
+				fmt.Fprint(w, `<rss version="2.0"><channel><item><title>[SubsPlease] Eighty-Six S01 Part 2 - 01 (1080p).mkv</title><guid>cour-ep1</guid><link>http://example.com/1.nzb</link><size>1400000000</size></item></channel></rss>`)
+				return
+			}
+			fmt.Fprint(w, `<rss version="2.0"><channel></channel></rss>`)
+		}
+	}))
+	defer srv.Close()
+	c := New(testConfig(srv.URL), nil, Options{SearchCacheTTL: -1})
+	res, err := c.Search(context.Background(), core.SearchRequest{
+		Type: core.TypeEpisode, IDs: core.IDs{TMDB: 1000}, Title: "Eighty-Six", Season: 1, Episode: 13, Cour: 2, CourEpisode: 1, Anime: true,
+	})
+	if err != nil || len(res) != 1 || res[0].Info.Cour != 2 || len(res[0].Info.Episodes) != 1 || res[0].Info.Episodes[0] != 1 {
+		t.Fatalf("cour search fallback: got %+v err=%v", res, err)
+	}
+}
