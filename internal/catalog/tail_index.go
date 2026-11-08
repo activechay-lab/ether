@@ -171,7 +171,6 @@ func (b *tailBuilder) build(names *tailNames) *tailIndex {
 	ix.keys, ix.kinds, ix.pops = make([]int64, n), make([]uint8, n), make([]float32, n)
 	ix.votes, ix.years = make([]uint32, n), make([]uint16, n)
 	var titles, origs, posters blobBuilder
-	ib := newTitleIndexBuilder()
 	for i, r := range rows {
 		ix.keys[i], ix.kinds[i], ix.pops[i] = r.key, r.kind, r.pop
 		t.flags[i] = r.flags
@@ -191,17 +190,23 @@ func (b *tailBuilder) build(names *tailNames) *tailIndex {
 		t.titleAt = append(t.titleAt, titles.add(title))
 		t.origAt = append(t.origAt, origs.add(orig))
 		t.posterAt = append(t.posterAt, posters.add(poster))
-		if orig != "" {
-			ib.add([]string{title, orig})
-		} else {
-			ib.add([]string{title})
-		}
+		rows[i].name = "" // the blobs hold it now
 	}
+	rows = nil
 	t.titleAt = append(t.titleAt, titles.end())
 	t.origAt = append(t.origAt, origs.end())
 	t.posterAt = append(t.posterAt, posters.end())
 	t.titleBlob, t.origBlob, t.posterBlob = titles.String(), origs.String(), posters.String()
-	ib.finish(ix)
+	titles, origs, posters = blobBuilder{}, blobBuilder{}, blobBuilder{}
+	var both [2]string
+	buildLeanTitleIndex(ix, n, func(i int) []string {
+		both[0] = blobAt(t.titleBlob, t.titleAt, i)
+		if o := blobAt(t.origBlob, t.origAt, i); o != "" {
+			both[1] = o
+			return both[:2]
+		}
+		return both[:1]
+	})
 	t.sorted = make([]int64, n)
 	t.sortAt = make([]uint32, n)
 	order := make([]uint32, n)
