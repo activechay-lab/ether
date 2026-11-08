@@ -382,7 +382,12 @@ func (e *Engine) CheckRelease(ctx context.Context, releaseID string, payload []b
 		body.Close()
 		return true, nil
 	}
-	if _, err := f.block(ctx, 0, fetchDurable, 1, nil); err != nil {
+	// The check waits for block 0 only, but its one request covers the
+	// pinned head: the probe and the first media read need the next blocks
+	// right after, and on a fresh link each new request costs a CDN first
+	// byte (0.3–0.7 s on TorBox, measured on the lab). The rest of the run
+	// arrives on the same connection while the resolver finishes.
+	if _, err := f.block(ctx, 0, fetchDurable, max(1, pinnedHeadBytes/f.e.block), nil); err != nil {
 		return false, err
 	}
 	return true, nil
