@@ -112,7 +112,7 @@ type builder struct {
 
 // candidate is something that may hold the main video.
 type candidate struct {
-	kind  nzb.Kind // KindVideo, KindRAR, KindSevenZip, KindSplit
+	kind  nzb.Kind // KindVideo, KindRAR, KindSevenZip, KindZIP, KindSplit
 	files []*postedFile
 	set   *nzb.Set
 	bytes int64
@@ -220,6 +220,8 @@ func (b *builder) planFor(ctx context.Context, c candidate) (*plan, error) {
 		return b.planRAR(ctx, c.files)
 	case nzb.KindSevenZip:
 		return b.plan7z(ctx, c.files)
+	case nzb.KindZIP:
+		return b.planZIP(ctx, c.files)
 	case nzb.KindSplit:
 		return b.planSplit(ctx, c.files)
 	}

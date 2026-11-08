@@ -383,6 +383,54 @@ func (b *builder) plan7z(ctx context.Context, vols []*postedFile) (*plan, error)
 	return p, p.init()
 }
 
+// planZIP maps the main video inside a store-mode ZIP or ZIP64 set (.zip,
+// .zip.001, or .z01+.zip).
+func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error) {
+	if err := b.heads(ctx, vols); err != nil {
+		return nil, err
+	}
+	last := vols[len(vols)-1]
+	if !last.SizeKnown() {
+		slot := last.numSlots() - 1
+		ls, err := b.e.segment(ctx, b.rel, last, slot, b.prio, b.fo)
+		if err != nil {
+			return nil, err
+		}
+		last.learn(slot, ls.begin, ls.end(), ls.end(), 0)
+	}
+	head, err := b.sniff(ctx, vols[0])
+	if err != nil {
+		return nil, err
+	}
+	if archive.Detect(head) != archive.FormatZIP {
+		return nil, fmt.Errorf("stream: %s is not a zip archive: %w", vols[0].Name(), ErrCorrupt)
+	}
+	n := len(vols)
+	info := make([]volInfo, n)
+	verified := make([]bool, n)
+	av := make([]archive.Volume, n)
+	for k, pf := range vols {
+		s := pf.Size()
+		info[k] = volInfo{size: s}
+		verified[k] = true
+		av[k] = archive.Volume{R: b.reader(ctx, pf), Size: s}
+	}
+	members, err := archive.ListZIP(av)
+	if err != nil {
+		return nil, fmt.Errorf("stream: zip %s: %w", vols[0].Name(), err)
+	}
+	m := chooseMember(members)
+	if m == nil {
+		return nil, fmt.Errorf("%w: zip %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
+	}
+	if err := m.Streamable(); err != nil {
+		return nil, fmt.Errorf("stream: zip %s: %s: %w", vols[0].Name(), m.Name, err)
+	}
+	p := newPlan(b.rel, kindZIP, path.Base(m.Name), m.Size, vols, info, verified)
+	p.concatExt = m.Extents
+	return p, p.init()
+}
+
 // pickRARFile chooses the likely video among the file headers of a volume.
 func pickRARFile(files []archive.RARFile, format ...archive.Format) *archive.RARFile {
 	var fmt archive.Format
@@ -811,6 +859,10 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 		case archive.Format7z:
 			b.rel.setFileInfo(func() {
 				pf.file.Info = nzb.FileInfo{Kind: nzb.KindSevenZip, Ext: "7z", Volume: 0, SetName: fmt.Sprintf("\x00obfuscated-7z-%d", pf.idx)}
+			})
+		case archive.FormatZIP:
+			b.rel.setFileInfo(func() {
+				pf.file.Info = nzb.FileInfo{Kind: nzb.KindZIP, Ext: "zip", Volume: 0, SetName: fmt.Sprintf("\x00obfuscated-zip-%d", pf.idx)}
 			})
 		default:
 			if ext := sniffVideoExt(head); ext != "" {

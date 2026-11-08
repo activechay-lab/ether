@@ -15,6 +15,7 @@ const (
 	KindVideo         // a playable container (.mkv, .mp4, ...)
 	KindRAR           // a RAR volume (.rar, .r00, .partNN.rar)
 	KindSevenZip      // a 7z volume (.7z, .7z.001)
+	KindZIP           // a ZIP volume (.zip, .zip.001, .z01)
 	KindSplit         // a plain split volume (.001, .mkv.001)
 	KindPar2
 	KindNFO
@@ -24,7 +25,7 @@ const (
 	KindOther // known but irrelevant (.txt, .nzb, .srr, .iso, ...)
 )
 
-var kindNames = [...]string{"unknown", "video", "rar", "7z", "split", "par2", "nfo", "sfv", "subtitle", "image", "other"}
+var kindNames = [...]string{"unknown", "video", "rar", "7z", "zip", "split", "par2", "nfo", "sfv", "subtitle", "image", "other"}
 
 func (k Kind) String() string {
 	if int(k) < len(kindNames) {
@@ -34,7 +35,9 @@ func (k Kind) String() string {
 }
 
 // IsArchive reports whether the kind is a volume of a multi-file set.
-func (k Kind) IsArchive() bool { return k == KindRAR || k == KindSevenZip || k == KindSplit }
+func (k Kind) IsArchive() bool {
+	return k == KindRAR || k == KindSevenZip || k == KindZIP || k == KindSplit
+}
 
 // FileInfo is what a file name says about a posted file.
 type FileInfo struct {
@@ -66,7 +69,7 @@ var subtitleExts = map[string]bool{"srt": true, "sub": true, "idx": true, "ass":
 var imageExts = map[string]bool{"jpg": true, "jpeg": true, "png": true, "gif": true, "bmp": true, "webp": true}
 var otherExts = map[string]bool{
 	"txt": true, "nzb": true, "srr": true, "iso": true, "img": true, "url": true, "exe": true,
-	"zip": true, "md5": true, "sha1": true, "db": true, "log": true, "cue": true, "nfo2": true,
+	"md5": true, "sha1": true, "db": true, "log": true, "cue": true, "nfo2": true,
 }
 
 // IsVideoExt reports whether ext (without dot, any case) is a video container.
@@ -78,6 +81,9 @@ var (
 	rePlainRAR = regexp.MustCompile(`(?i)^(.*)\.rar$`)
 	re7zVol    = regexp.MustCompile(`(?i)^(.*)\.7z\.(\d{1,4})$`)
 	re7z       = regexp.MustCompile(`(?i)^(.*)\.7z$`)
+	reZipVol   = regexp.MustCompile(`(?i)^(.*)\.zip\.(\d{1,4})$`)
+	reZSplit   = regexp.MustCompile(`(?i)^(.*)\.z(\d{2,4})$`)
+	reZip      = regexp.MustCompile(`(?i)^(.*)\.zip$`)
 	reSplit    = regexp.MustCompile(`(?i)^(.*)\.(\d{3,4})$`)
 	rePar2     = regexp.MustCompile(`(?i)^(.*?)(\.vol\d+[+-]\d+)?\.par2$`)
 	reSample   = regexp.MustCompile(`(?i)(^|[^a-z0-9])(sample|proof)([^a-z0-9]|$)`)
@@ -128,6 +134,21 @@ func Classify(name string) FileInfo {
 		m := re7z.FindStringSubmatch(lower)
 		info.Kind, info.Ext, info.SetName, info.Volume = KindSevenZip, "7z", m[1], 0
 		return info
+	case reZipVol.MatchString(lower):
+		m := reZipVol.FindStringSubmatch(lower)
+		n, _ := strconv.Atoi(m[2])
+		info.Kind, info.Ext, info.SetName, info.Volume = KindZIP, "zip", m[1], n-1
+		return info
+	case reZSplit.MatchString(lower):
+		m := reZSplit.FindStringSubmatch(lower)
+		n, _ := strconv.Atoi(m[2])
+		info.Kind, info.Ext, info.SetName, info.Volume = KindZIP, "zip", m[1], n-1
+		info.NewStyle = true
+		return info
+	case reZip.MatchString(lower):
+		m := reZip.FindStringSubmatch(lower)
+		info.Kind, info.Ext, info.SetName, info.Volume = KindZIP, "zip", m[1], 0
+		return info
 	case reSplit.MatchString(lower):
 		m := reSplit.FindStringSubmatch(lower)
 		n, _ := strconv.Atoi(m[2])
@@ -172,7 +193,7 @@ var (
 	reSegCounter     = regexp.MustCompile(`\(\s*(\d{1,6})\s*/\s*(\d{1,6})\s*\)\s*(?:\d+\s*)?$`)
 	reTrailingYEnc   = regexp.MustCompile(`(?i)\s*(?:-\s*)?(?:yenc)?\s*(?:\(\s*\d+\s*/\s*\d+\s*\))?\s*(?:\d+\s*)?$`)
 	reSizeNoise      = regexp.MustCompile(`(?i)\s+-?\s*\d+(?:[.,]\d+)?\s*[kmgt]i?b\b.*$`)
-	reBareName       = regexp.MustCompile(`([^\s"\[\]()/\\]+\.(?:part\d+\.rar|r\d{2}|7z\.\d{3}|\d{3}|vol\d+[+-]\d+\.par2|[A-Za-z0-9]{2,4}))(?:\s|$)`)
+	reBareName       = regexp.MustCompile(`([^\s"\[\]()/\\]+\.(?:part\d+\.rar|r\d{2}|7z\.\d{3}|zip\.\d{3}|z\d{2}|\d{3}|vol\d+[+-]\d+\.par2|[A-Za-z0-9]{2,4}))(?:\s|$)`)
 )
 
 // NameFromSubject extracts the file name from a Usenet subject line, e.g.
@@ -422,14 +443,17 @@ func looksRandom(s string) bool {
 		prev = cls
 	}
 	kinds := 0
-	for _, c := range []int{upper, lower, digit} {
-		if c > 0 {
-			kinds++
-		}
+	if upper > 0 {
+		kinds++
 	}
-	if kinds >= 3 {
+	if lower > 0 {
+		kinds++
+	}
+	if digit > 0 {
+		kinds++
+	}
+	if kinds == 3 {
 		return true
 	}
-	// Two classes but frequently alternating, e.g. "a8f7e6d5c4b3a2f1e0d9".
-	return kinds == 2 && digit > 0 && transitions*3 >= len(s)
+	return kinds == 2 && digit > 0 && transitions >= 4
 }

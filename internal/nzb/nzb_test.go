@@ -208,6 +208,11 @@ func TestClassify(t *testing.T) {
 		"Movie.2024.7z":             {KindSevenZip, 0, "movie.2024", "7z", false},
 		"Movie.2024.7z.001":         {KindSevenZip, 0, "movie.2024", "7z", false},
 		"Movie.2024.7z.012":         {KindSevenZip, 11, "movie.2024", "7z", false},
+		"Movie.2024.zip":            {KindZIP, 0, "movie.2024", "zip", false},
+		"Movie.2024.zip.001":        {KindZIP, 0, "movie.2024", "zip", false},
+		"Movie.2024.zip.003":        {KindZIP, 2, "movie.2024", "zip", false},
+		"Movie.2024.z01":            {KindZIP, 0, "movie.2024", "zip", true},
+		"Movie.2024.z02":            {KindZIP, 1, "movie.2024", "zip", true},
 		"Movie.2024.mkv.001":        {KindSplit, 0, "movie.2024.mkv", "mkv", false},
 		"Movie.2024.002":            {KindSplit, 1, "movie.2024", "", false},
 		"Movie.2024.par2":           {KindPar2, -1, "movie.2024", "par2", false},
@@ -339,6 +344,25 @@ func TestGroupSets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(names, []string{"rar:movie", "rar:subs", "split:split.mkv", "7z:other"}) {
 		t.Errorf("sets = %v", names)
+	}
+}
+
+func TestGroupSetsZSplit(t *testing.T) {
+	files := []*File{
+		fileNamed("Pack.zip", 50),
+		fileNamed("Pack.z02", 100),
+		fileNamed("Pack.z01", 100),
+	}
+	sets := GroupSets(files)
+	if len(sets) != 1 || !sets[0].Complete() {
+		t.Fatalf("sets = %+v", sets)
+	}
+	var names []string
+	for _, v := range sets[0].Volumes {
+		names = append(names, v.Name)
+	}
+	if !reflect.DeepEqual(names, []string{"Pack.z01", "Pack.z02", "Pack.zip"}) {
+		t.Fatalf("order = %v, want [Pack.z01 Pack.z02 Pack.zip]", names)
 	}
 }
 
