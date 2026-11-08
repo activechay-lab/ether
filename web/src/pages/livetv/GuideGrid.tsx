@@ -4,8 +4,10 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Link2,
   Maximize2,
   Minimize2,
+  Play,
   Star,
   Tv,
 } from "lucide-react";
@@ -20,11 +22,20 @@ import {
 } from "react";
 import { Segmented } from "../../components/fields";
 import { Artwork } from "../../components/Artwork";
-import { getLocale, t, tn } from "../../i18n";
+import { getLocale, t } from "../../i18n";
 import { unit } from "../../lib/format";
 import type { ChannelSelection } from "./ChannelBulkBar";
 import { ChannelLogo } from "./ChannelLogo";
-import { MINUTE, clock, hueOf, onNow, progress, type Channel, type Programme } from "./model";
+import {
+  MINUTE,
+  clock,
+  hueOf,
+  onNow,
+  progress,
+  type Channel,
+  type ChannelSummary,
+  type Programme,
+} from "./model";
 
 const ROW = 60;
 const HEADER = 36;
@@ -33,6 +44,7 @@ const CH_COL = 208;
 const LINEUP_MIN = 260;
 const ZOOM = { wide: 5, normal: 3.5, tight: 2.2 } as const;
 export type Zoom = keyof typeof ZOOM;
+const HOUR = 60 * MINUTE;
 
 /**
  * The classic EPG grid, done properly: channels down the left, time across
@@ -48,6 +60,7 @@ export function GuideGrid({
   selected,
   onSelect,
   onShift,
+  onSetShift,
   onNow: jumpNow,
   onRange,
   loading,
@@ -57,9 +70,13 @@ export function GuideGrid({
   emptyHint,
   selection,
   bulkActions,
+  onSelectProgramme,
+  onPlayChannel,
+  onMapGuide,
+  daysCount = 7,
 }: {
   /** Sparse by design: only rows near the viewport have been fetched. */
-  channels: (Channel | undefined)[];
+  channels: (Channel | ChannelSummary | undefined)[];
   guide: Map<string, Programme[]>;
   from: Date;
   until: Date;
@@ -67,6 +84,7 @@ export function GuideGrid({
   selected: string | null;
   onSelect: (id: string) => void;
   onShift: (hours: number) => void;
+  onSetShift: (hours: number) => void;
   onNow: () => void;
   onRange?: (first: number, last: number) => void;
   loading: boolean;
@@ -77,16 +95,20 @@ export function GuideGrid({
    * row level with its listings.
    */
   head?: ReactNode;
-  covered?: (c: Channel) => boolean | undefined;
-  onToggleFavorite?: (c: Channel) => void;
+  covered?: (c: Channel | ChannelSummary) => boolean | undefined;
+  onToggleFavorite?: (c: Channel | ChannelSummary) => void;
+  onSelectProgramme?: (channel: Channel | ChannelSummary, programme: Programme) => void;
+  onPlayChannel?: (channel: Channel | ChannelSummary) => void;
+  onMapGuide?: (channel: Channel | ChannelSummary) => void;
   /** Shown instead of the default when there are no rows. */
   emptyHint?: ReactNode;
   selection?: ChannelSelection;
   bulkActions?: ReactNode;
+  daysCount?: number;
 }) {
   const lineup = head !== undefined;
   const loadedChannels = useMemo(
-    () => channels.filter((c): c is Channel => c !== undefined),
+    () => channels.filter((c): c is Channel | ChannelSummary => c !== undefined),
     [channels],
   );
   const [zoom, setZoom] = useState<Zoom>("normal");
@@ -100,21 +122,61 @@ export function GuideGrid({
   const x = (ms: number) => ((ms - start) / MINUTE) * ppm;
   const nowX = x(now);
   const nowVisible = now >= start && now <= until.getTime();
+  const nowInViewport = nowVisible && nowX >= view.left && nowX <= view.left + view.width;
+
+  const scrollGuideTo = useCallback((left: number, smooth = false) => {
+    const el = scroller.current;
+    if (!el) return;
+    if (typeof el.scrollTo === "function")
+      el.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+    else el.scrollLeft = left;
+  }, []);
 
   const scrollToNow = useCallback(
     (smooth = false) => {
-      const el = scroller.current;
-      if (!el) return;
-      const left = Math.max(0, nowX - 45 * ppm);
-      if (typeof el.scrollTo === "function")
-        el.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
-      else el.scrollLeft = left;
+      scrollGuideTo(Math.max(0, nowX - 45 * ppm), smooth);
     },
-    [nowX, ppm],
+    [nowX, ppm, scrollGuideTo],
   );
-  // Land on "now" whenever the window or zoom changes.
+
+  const activeDayOffset = useMemo(() => {
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    const focused = new Date(start + HOUR);
+    focused.setHours(0, 0, 0, 0);
+    return Math.round((focused.getTime() - today.getTime()) / (24 * HOUR));
+  }, [now, start]);
+
+  const formatDayLabel = useCallback(
+    (off: number) => {
+      if (off === 0) return t("Today");
+      if (off === 1) return t("Tomorrow");
+      const d = new Date(now);
+      d.setDate(d.getDate() + off);
+      return d.toLocaleDateString(getLocale(), {
+        weekday: "short",
+        month: "numeric",
+        day: "numeric",
+      });
+    },
+    [now],
+  );
+
+  const dayOffsets = useMemo(
+    () => Array.from({ length: Math.max(1, Math.min(7, daysCount)) }, (_, i) => i),
+    [daysCount],
+  );
+  const pendingScrollRef = useRef<{ left: number; smooth?: boolean } | null>(null);
+
+  // Land on "now" or pending target whenever the window or zoom changes.
   useLayoutEffect(() => {
-    scrollToNow();
+    if (pendingScrollRef.current) {
+      const { left, smooth } = pendingScrollRef.current;
+      pendingScrollRef.current = null;
+      scrollGuideTo(left, smooth);
+    } else {
+      scrollToNow();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, zoom]);
 
@@ -147,12 +209,6 @@ export function GuideGrid({
       out.push(tick);
     return out;
   }, [start, until]);
-
-  const dayLabel = new Date(Math.max(start, now)).toLocaleDateString(getLocale(), {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
 
   // Full screen shows only the guide: the browser's Fullscreen API on this
   // element, or a window-filling overlay where that API is missing.
@@ -215,28 +271,62 @@ export function GuideGrid({
           ) : null}
           <div
             className={cn(
-              "flex min-w-0 flex-wrap items-center gap-1 bg-surface px-2 py-1.5",
+              "flex min-w-0 flex-col justify-center gap-1.5 bg-surface px-3 py-1.5",
               channels.length === 0 && "max-sm:hidden",
               lineup
-                ? "ml-auto w-44 shrink-0 content-center justify-center border-l border-border"
+                ? "ml-auto shrink-0 border-l border-border"
                 : "flex-1 border-b border-border sm:px-4",
             )}
           >
-            <div
-              className={cn(
-                "flex min-w-0 items-baseline gap-2",
-                lineup ? "w-full justify-center" : "mr-auto",
-              )}
-            >
-              <h2 className="text-sm font-semibold text-fg">{t("Guide")}</h2>
-              <span className={cn("text-xs text-fg-muted", lineup && "sr-only")}>
-                {tn(channels.length, "{day} · {count} channel", "{day} · {count} channels", {
-                  day: dayLabel,
+            {/* Row 1: Day selector */}
+            <div className="flex items-center gap-1.5 overflow-x-auto app-scroll">
+              <span className="text-xs font-semibold text-fg shrink-0 mr-1">{t("Guide")}</span>
+              {loading ? (
+                <span className="text-xs text-fg-subtle shrink-0">{t("Updating…")}</span>
+              ) : null}
+              <div
+                className="flex items-center gap-0.5 rounded-lg bg-bg-subtle p-0.5"
+                role="tablist"
+                aria-label={t("Day selector")}
+              >
+                {dayOffsets.map((offset) => {
+                  const active = activeDayOffset === offset;
+                  return (
+                    <button
+                      key={offset}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => {
+                        if (offset === 0) {
+                          pendingScrollRef.current = {
+                            left: Math.max(0, nowX - 45 * ppm),
+                            smooth: true,
+                          };
+                          onSetShift(0);
+                          scrollToNow(true);
+                        } else {
+                          pendingScrollRef.current = { left: 0, smooth: true };
+                          onSetShift(offset * 24);
+                          scrollGuideTo(0, true);
+                        }
+                      }}
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors whitespace-nowrap",
+                        active
+                          ? "bg-surface text-fg shadow-xs font-semibold"
+                          : "text-fg-muted hover:text-fg hover:bg-surface/50",
+                      )}
+                    >
+                      {formatDayLabel(offset)}
+                    </button>
+                  );
                 })}
-              </span>
-              {loading ? <span className="text-xs text-fg-subtle">{t("Updating…")}</span> : null}
+              </div>
             </div>
-            <div className="flex items-center gap-1">
+
+            {/* Row 2: Time presets, Zoom, Fullscreen */}
+            <div className="flex flex-wrap items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
@@ -259,30 +349,66 @@ export function GuideGrid({
                 </span>
                 {t("Now")}
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs font-medium"
+                title={t("Jump to 8:00 PM Prime Time")}
+                onClick={() => {
+                  const targetDay = Math.max(0, activeDayOffset);
+                  const nowDate = new Date(now);
+                  const nowHour = nowDate.getHours();
+                  const targetShift = targetDay * 24 + (20 - nowHour);
+                  pendingScrollRef.current = { left: Math.max(0, 60 * ppm), smooth: true };
+                  onSetShift(targetShift);
+                  scrollGuideTo(Math.max(0, 60 * ppm), true);
+                }}
+              >
+                {t("8 PM")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs font-medium"
+                title={t("Jump to 11:00 PM Late Night")}
+                onClick={() => {
+                  const targetDay = Math.max(0, activeDayOffset);
+                  const nowDate = new Date(now);
+                  const nowHour = nowDate.getHours();
+                  const targetShift = targetDay * 24 + (23 - nowHour);
+                  pendingScrollRef.current = { left: Math.max(0, 60 * ppm), smooth: true };
+                  onSetShift(targetShift);
+                  scrollGuideTo(Math.max(0, 60 * ppm), true);
+                }}
+              >
+                {t("11 PM")}
+              </Button>
               <Button variant="ghost" size="sm" aria-label={t("Later")} onClick={() => onShift(3)}>
                 <ChevronRight size={15} />
               </Button>
+              <div className="ml-auto flex items-center gap-1">
+                <Segmented
+                  ariaLabel={t("Zoom")}
+                  size="sm"
+                  value={zoom}
+                  onChange={setZoom}
+                  options={[
+                    { value: "tight", label: unit(6, "hour") },
+                    { value: "normal", label: unit(4, "hour") },
+                    { value: "wide", label: unit(3, "hour") },
+                  ]}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={full ? t("Exit full screen") : t("Full screen guide")}
+                  aria-pressed={full}
+                  onClick={() => void toggleFull()}
+                >
+                  {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </Button>
+              </div>
             </div>
-            <Segmented
-              ariaLabel={t("Zoom")}
-              size="sm"
-              value={zoom}
-              onChange={setZoom}
-              options={[
-                { value: "tight", label: unit(6, "hour") },
-                { value: "normal", label: unit(4, "hour") },
-                { value: "wide", label: unit(3, "hour") },
-              ]}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={full ? t("Exit full screen") : t("Full screen guide")}
-              aria-pressed={full}
-              onClick={() => void toggleFull()}
-            >
-              {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-            </Button>
           </div>
         </div>
       </div>
@@ -424,6 +550,7 @@ export function GuideGrid({
                       now={now}
                       width={chCol}
                       onSelect={onSelect}
+                      onPlayChannel={onPlayChannel}
                       onToggleFavorite={onToggleFavorite}
                       selection={selection}
                     />
@@ -472,12 +599,23 @@ export function GuideGrid({
                   <div className="relative" style={{ width }}>
                     {ps.length === 0 ? (
                       <div
-                        className="absolute inset-1 flex items-center rounded-md border border-dashed border-border px-3 text-xs text-fg-subtle"
+                        className="absolute inset-1 flex items-center gap-2 rounded-md border border-dashed border-border px-3 text-xs text-fg-subtle"
                         style={{ paddingLeft: Math.max(12, view.left + 12) }}
                       >
-                        {c.kind === "iptv"
-                          ? t("No guide data — map a guide channel in Guide data")
-                          : t("No guide data — no programming")}
+                        <span>
+                          {c.kind === "iptv"
+                            ? t("No guide data — map a guide channel in Guide data")
+                            : t("No guide data — no programming")}
+                        </span>
+                        {c.kind === "iptv" && onMapGuide ? (
+                          <button
+                            type="button"
+                            onClick={() => onMapGuide(c)}
+                            className="inline-flex items-center gap-1 rounded bg-surface px-2 py-0.5 text-[11px] font-medium text-primary shadow-xs hover:bg-surface-hover hover:underline"
+                          >
+                            <Link2 size={11} /> {t("Map guide")}
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                     {ps.map((p) => {
@@ -505,7 +643,10 @@ export function GuideGrid({
                           key={p.id}
                           type="button"
                           role="gridcell"
-                          onClick={() => onSelect(c.id)}
+                          onClick={() => {
+                            if (onSelectProgramme) onSelectProgramme(c, p);
+                            else onSelect(c.id);
+                          }}
                           aria-label={t("{channel}: {title}, {start} to {end}", {
                             channel: c.name,
                             title: p.item.title,
@@ -555,6 +696,13 @@ export function GuideGrid({
                                 )}
                               >
                                 {p.item.title || t("Untitled")}
+                                {p.item.season !== undefined &&
+                                p.item.episode !== undefined &&
+                                p.item.season > 0 ? (
+                                  <span className="ml-1.5 text-[11px] font-normal text-fg-subtle">
+                                    S{p.item.season}E{p.item.episode}
+                                  </span>
+                                ) : null}
                               </span>
                               {w > 70 ? (
                                 <span className="block truncate text-[11px] tabular-nums text-fg-muted">
@@ -601,6 +749,30 @@ export function GuideGrid({
           </div>
         ) : null}
       </div>
+      {!nowInViewport ? (
+        <div
+          className={cn(
+            "absolute z-40 animate-in fade-in",
+            selection?.ids.size ? "bottom-20 right-4" : "bottom-4 right-4",
+          )}
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 rounded-full border-danger/40 bg-surface/95 shadow-lg backdrop-blur"
+            onClick={() => {
+              jumpNow();
+              scrollGuideTo(Math.max(0, nowX - view.width / 3), true);
+            }}
+          >
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-danger/60" />
+              <span className="relative inline-flex size-2 rounded-full bg-danger" />
+            </span>
+            <span className="text-xs font-semibold text-fg">{t("Jump to Live")}</span>
+          </Button>
+        </div>
+      ) : null}
       {bulkActions ? (
         <div className="pointer-events-none absolute inset-x-3 bottom-3 z-40 flex justify-center">
           {bulkActions}
@@ -619,17 +791,19 @@ function LineupCell({
   now,
   width,
   onSelect,
+  onPlayChannel,
   onToggleFavorite,
   selection,
 }: {
-  channel: Channel;
+  channel: Channel | ChannelSummary;
   live: Programme | undefined;
   hasGuide: boolean | undefined;
   on: boolean;
   now: number;
   width: number;
   onSelect: (id: string) => void;
-  onToggleFavorite?: (c: Channel) => void;
+  onPlayChannel?: (c: Channel | ChannelSummary) => void;
+  onToggleFavorite?: (c: Channel | ChannelSummary) => void;
   selection?: ChannelSelection;
 }) {
   const checked = selection?.ids.has(c.id) ?? false;
@@ -715,6 +889,20 @@ function LineupCell({
           />
         ) : null}
       </button>
+      {onPlayChannel && c.enabled ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlayChannel(c);
+          }}
+          aria-label={t("Watch {channel}", { channel: c.name })}
+          title={t("Watch now")}
+          className="absolute right-8 top-1/2 hidden -translate-y-1/2 rounded-full bg-primary p-1 text-white shadow-sm hover:scale-110 focus-visible:block group-hover:block"
+        >
+          <Play size={11} className="fill-current ml-0.5" />
+        </button>
+      ) : null}
       {onToggleFavorite ? (
         <button
           type="button"
@@ -741,7 +929,7 @@ export function OnNowStrip({
   now,
   onSelect,
 }: {
-  channels: Channel[];
+  channels: (Channel | ChannelSummary)[];
   guide: Map<string, Programme[]>;
   now: number;
   onSelect: (id: string) => void;
@@ -750,7 +938,7 @@ export function OnNowStrip({
     const live = channels
       .filter((c) => c.enabled)
       .map((c) => ({ c, p: onNow(guide.get(c.id), now) }))
-      .filter((x): x is { c: Channel; p: Programme } => Boolean(x.p));
+      .filter((x): x is { c: Channel | ChannelSummary; p: Programme } => Boolean(x.p));
     live.sort(
       (a, b) =>
         Number(b.c.favorite) - Number(a.c.favorite) ||

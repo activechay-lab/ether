@@ -448,6 +448,16 @@ export function GuideWorkbench({
               <Button variant="outline" onClick={() => onEditSource(source.id)}>
                 <Pencil size={14} /> {t("Edit")}
               </Button>
+              <Button onClick={() => void propose()} disabled={busy || coverage === null}>
+                <Wand2 size={14} /> {t("Auto-match")}
+              </Button>
+              <GuideAIAction
+                channels={channels}
+                sources={sources}
+                coverage={coverage}
+                sourceId={source.id}
+                onApplied={onReload}
+              />
             </div>
             {source.lastError ? (
               <p
@@ -503,7 +513,20 @@ export function GuideWorkbench({
             <span className="text-xs text-fg-muted">
               {t("Matched by guide id, then by channel name.")}
             </span>
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (accepted.size === proposals.length) {
+                    setAccepted(new Set());
+                  } else {
+                    setAccepted(new Set(proposals.map((p) => p.channelId)));
+                  }
+                }}
+              >
+                {accepted.size === proposals.length ? t("Deselect all") : t("Select all")}
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => setProposals(null)}>
                 {t("Dismiss")}
               </Button>
