@@ -29,6 +29,13 @@ import (
 // never learnt its outcome; that controller cannot have retired the row
 // (retirement needs the route it publishes after learning the outcome), so a
 // row it could replay is never terminal and never pruned.
+//
+// Migration lock: placement/5 builds two partial indexes with plain CREATE
+// INDEX inside the migration transaction (the store runs migrations
+// transactionally, so CONCURRENTLY is unavailable). On PostgreSQL that holds a
+// SHARE lock on placement_sessions for the build, about 1 s per million rows:
+// reads continue, Reserve/Renew/Retire wait. ADD COLUMN with a constant
+// default is metadata-only on PostgreSQL 11+. Accepted for 0.3.6.
 func init() {
 	store.Register("placement", 5, `
 ALTER TABLE placement_sessions ADD COLUMN retired_at BIGINT NOT NULL DEFAULT 0;
@@ -38,13 +45,6 @@ CREATE TABLE placement_ledger (id INTEGER PRIMARY KEY CHECK(id=1), generation_fl
 INSERT INTO placement_ledger(id,generation_floor,retained,retained_at) SELECT 1,0,COUNT(*),0 FROM placement_sessions WHERE retired=1;
 `)
 }
-
-// Migration 5 builds two partial indexes with plain CREATE INDEX inside the
-// migration transaction (the store runs migrations transactionally, so
-// CONCURRENTLY is unavailable). On PostgreSQL that holds a SHARE lock on
-// placement_sessions — reads continue, Reserve/Renew/Retire wait — for the
-// build: about a second per million rows. The ADD COLUMN with a constant
-// default is metadata-only on PostgreSQL 11+.
 
 // MinRetention is the shortest tombstone age PruneTombstones accepts. It is
 // far above the maximum lease, the coordinator lease and every in-process
