@@ -567,7 +567,7 @@ func (c *Catalog) seasonEpisodeQuery(ctx context.Context, showID int64, season, 
 	showKey := int64(core.ShowKey(showID))
 	now := c.now().Unix()
 	var total int
-	from := `catalog_titles ` + sqliteIndexedBy(c.db, "catalog_titles_show")
+	from := `catalog_titles` + c.indexedBy("catalog_titles_show")
 	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+from+`WHERE `+airedSeasonEpisodeWhere, showKey, season, now).Scan(&total); err != nil {
 		return core.Page{}, err
 	}

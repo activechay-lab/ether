@@ -321,6 +321,9 @@ type Catalog struct {
 
 	// searchIx is the in-memory title search index (search_titles.go).
 	searchIx searchIndexState
+
+	// tier is the one-off library-tier migration (tier_migrate.go).
+	tier tierMigrationState
 }
 
 // SaferRatingSQL is the optional Plex overlay predicate for viewer limits.
@@ -446,6 +449,7 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	if err := c.reloadViewerRules(context.Background()); err != nil {
 		return nil, err
 	}
+	c.loadTierHints(context.Background())
 	ctx := c.startupContext
 	if ctx == nil {
 		ctx = context.Background()

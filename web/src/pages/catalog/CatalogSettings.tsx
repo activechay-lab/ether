@@ -21,6 +21,7 @@ import { WatchlistAlerts } from "../viewers/sections/WatchlistDefaults";
 import { NewReleasesSettings, useAvailabilityDraft } from "./NewReleasesSettings";
 import { RulesPanel, type VisibilityRule } from "./LibraryVisibility";
 import { TrendingStatus } from "./TrendingStatus";
+import { TierMigrationStatus } from "./TierMigrationStatus";
 import { LevelBadge } from "../../components/status";
 import { SettingsRow } from "../../components/SettingsRow";
 import "./catalog.css";
@@ -270,6 +271,7 @@ export function CatalogSettings() {
                   ) : null}
                 </section>
               ) : null}
+              <TierMigrationStatus />
               <CatalogActivity />
               <TrendingStatus />
             </aside>
