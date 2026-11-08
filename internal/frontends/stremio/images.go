@@ -1,11 +1,13 @@
 package stremio
 
 import (
+	"encoding/base64"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -51,11 +53,18 @@ func (i *instance) imageBase(r *http.Request) *url.URL {
 	return u
 }
 
-func (i *instance) artwork(r *http.Request, credential string, device frontend.Device, titles []frontend.Title) map[frontend.RatingKey]string {
+func (i *instance) artwork(r *http.Request, credential string, viewer *frontend.Viewer, device frontend.Device, titles []frontend.Title) map[frontend.RatingKey]string {
 	result := make(map[frontend.RatingKey]string)
 	batch, ok := i.host.ImageGrants.(frontend.ImageGrantBatch)
 	base := i.imageBase(r)
 	if !ok || base == nil {
+		// No address a Stremio client can load Ether images from (no secure
+		// portal, not on this machine): every title still gets a poster.
+		for _, title := range titles {
+			if poster := i.directPoster(r, viewer, device, title); poster != "" {
+				result[title.Key] = poster
+			}
+		}
 		return result
 	}
 	for start := 0; start < len(titles); start += 50 {
@@ -80,4 +89,43 @@ func (i *instance) artwork(r *http.Request, credential string, device frontend.D
 		}
 	}
 	return result
+}
+
+// tmdbPosterBase serves TMDB's own poster files (~30 KB at w342, inside
+// Stremio's 100 KB poster limit).
+const tmdbPosterBase = "https://image.tmdb.org/t/p/w342"
+
+// generatedPosterWidth keeps Ether's generated poster at about 11 KB
+// (15 KB as a data URI), under Stremio's recommended 50 KB.
+const generatedPosterWidth = 200
+
+// directPoster is a poster URL a Stremio client loads without reaching
+// Ether: TMDB's CDN for a real poster, else Ether's generated poster as a
+// data: URI. stremio-core parses poster as a URL (data: is one) and the
+// clients draw it as an image source. Both come only for titles the
+// experience already returned to this viewer; the generated one is read
+// through the same artwork authorization as every other frontend.
+func (i *instance) directPoster(r *http.Request, viewer *frontend.Viewer, device frontend.Device, title frontend.Title) string {
+	if artwork.ValidPath(title.PosterPath) {
+		return tmdbPosterBase + title.PosterPath
+	}
+	if _, ok := artwork.ForTitle(&title); !ok || i.host.Artwork == nil || viewer == nil {
+		return ""
+	}
+	req := frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: title.Key}
+	images, _, err := i.host.Artwork.List(r.Context(), req)
+	if err != nil {
+		return ""
+	}
+	for _, img := range images {
+		if img.Kind != frontend.ImagePoster {
+			continue
+		}
+		data, ct, err := i.host.Artwork.Read(r.Context(), req, img, frontend.ArtworkTransform{Width: generatedPosterWidth, Format: "jpeg"})
+		if err != nil || len(data) == 0 || len(data) > 48<<10 || !strings.HasPrefix(ct, "image/") {
+			return ""
+		}
+		return "data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(data)
+	}
+	return ""
 }
