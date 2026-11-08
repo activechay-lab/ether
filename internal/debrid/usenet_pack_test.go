@@ -90,3 +90,41 @@ func TestEpisodeNZBNamesObfuscatedPackFirst(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestEpisodeNZBKeepsPackPar2IndexButNoRecoveryVolumes(t *testing.T) {
+	data := packNZB(
+		`&quot;Show.S01E01.mkv&quot; yEnc (1/1)`,
+		`&quot;Show.S01E02.mkv&quot; yEnc (1/1)`,
+		`&quot;Show.S01.par2&quot; yEnc (1/1)`,
+		`&quot;Show.S01.vol000+01.par2&quot; yEnc (1/1)`,
+	)
+	out, err := EpisodeNZB(data, &core.ReleaseTarget{Season: 1, Episode: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := nzb.Parse(out)
+	var names []string
+	for _, f := range doc.Files {
+		names = append(names, f.Name)
+	}
+	if len(names) != 2 || names[0] != "Show.S01E02.mkv" || names[1] != "Show.S01.par2" {
+		t.Fatalf("files = %v", names)
+	}
+}
+
+func TestEpisodeNZBPrefersTheEpisodesOwnPar2Index(t *testing.T) {
+	data := packNZB(
+		`&quot;Show.S01E01.mkv&quot; yEnc (1/1)`,
+		`&quot;Show.S01E01.par2&quot; yEnc (1/1)`,
+		`&quot;Show.S01E02.par2&quot; yEnc (1/1)`,
+		`&quot;Show.S01.par2&quot; yEnc (1/1)`,
+	)
+	out, err := EpisodeNZB(data, &core.ReleaseTarget{Season: 1, Episode: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := nzb.Parse(out)
+	if len(doc.Files) != 2 || doc.Files[1].Name != "Show.S01E01.par2" {
+		t.Fatalf("files = %+v", doc.Files)
+	}
+}

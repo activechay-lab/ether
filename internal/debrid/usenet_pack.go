@@ -56,7 +56,7 @@ func hasUnnamedFiles(data []byte) bool {
 }
 
 // EpisodeNZB narrows the NZB of a Usenet season pack to the files of the
-// wanted episode (its video, or its archive set, plus its own PAR2 files).
+// wanted episode (its video, or its archive set, plus its PAR2 index).
 // The stream engine then plays that episode like any single-episode
 // release. A pack with no file for the episode wraps core.ErrNotAvailable.
 func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
@@ -72,12 +72,22 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 		return nil, fmt.Errorf("usenet season pack has no file for S%02dE%02d: %w", t.Season, t.Episode, core.ErrNotAvailable)
 	}
 	stem := strings.ToLower(chosen.name)
-	out, ok := doc.Subset(func(f *nzb.File) bool {
-		if chosen.files[f] {
-			return true
+	// PAR2 files named after the episode, and the pack's index when the
+	// episode has none of its own. The index also lists the other episodes;
+	// the engine's integrity check looks up the stream's file by name and
+	// never consults those entries. Recovery volumes are never kept: they
+	// span the whole pack and nothing here repairs.
+	own := map[*nzb.File]bool{}
+	ownIndex := false
+	for _, f := range doc.Files {
+		if f.Info.Kind == nzb.KindPar2 && strings.HasPrefix(strings.ToLower(f.Name), stem) {
+			own[f] = true
+			ownIndex = ownIndex || !nzb.IsPar2Volume(f.Name)
 		}
-		// PAR2 files (and other companions) named after the episode.
-		return f.Info.Kind == nzb.KindPar2 && strings.HasPrefix(strings.ToLower(f.Name), stem)
+	}
+	packIndex := nzb.Par2Index(doc.Files)
+	out, ok := doc.Subset(func(f *nzb.File) bool {
+		return chosen.files[f] || own[f] || (!ownIndex && f == packIndex)
 	})
 	if !ok {
 		return nil, fmt.Errorf("usenet season pack has no file for S%02dE%02d: %w", t.Season, t.Episode, core.ErrNotAvailable)
