@@ -27,6 +27,7 @@ var Budgets = map[string]Budget{
 	classSearch:   {Warm: 150 * time.Millisecond, Cold: time.Second, Loaded: 450 * time.Millisecond, Gated: true},
 	classGuide:    {Warm: 150 * time.Millisecond, Cold: time.Second, Loaded: 450 * time.Millisecond, Gated: true},
 	classConsole:  {Warm: 250 * time.Millisecond, Cold: 1500 * time.Millisecond, Loaded: 750 * time.Millisecond, Gated: true},
+	classState:    {Warm: 150 * time.Millisecond, Cold: time.Second, Loaded: 450 * time.Millisecond, Gated: true},
 	classPlayback: {Warm: time.Second, Cold: 3 * time.Second, Loaded: 3 * time.Second},
 }
 
@@ -275,7 +276,7 @@ func WriteReport(w io.Writer, title string, meta []string, rows []*Row) (failed 
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Budgets (p95): ")
-	for _, c := range []string{classStatic, classSignIn, classHome, classBrowse, classDetail, classSearch, classGuide, classConsole, classPlayback} {
+	for _, c := range []string{classStatic, classSignIn, classHome, classBrowse, classDetail, classSearch, classGuide, classConsole, classState, classPlayback} {
 		b := Budgets[c]
 		gate := "gated"
 		if !b.Gated {

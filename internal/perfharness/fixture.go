@@ -301,7 +301,7 @@ func (g *generator) flush() error {
 	// background checkpointer); without one the WAL grows by gigabytes and
 	// every later statement slows down.
 	g.flushes++
-	if g.flushes%20 == 0 {
+	if g.flushes%5 == 0 {
 		_, err = g.db.ExecContext(g.ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	}
 	return err
@@ -507,13 +507,35 @@ func (g *generator) restrict(user, now int64) error {
 	return err
 }
 
+// A viewer's history is drawn from a taste of a fixed size, whatever the
+// library's: up to 8000 movies and the episodes of up to 300 series. A
+// heavy viewer watches a few hundred series, not a share of the catalogue,
+// so the household stays the same when only the library grows.
+const (
+	tasteMovies = 8000
+	tasteShows  = 300
+)
+
+func (g *generator) taste(s Scale) (movies, eps []core.RatingKey) {
+	for _, i := range g.rng.Perm(len(g.movies))[:min(tasteMovies, len(g.movies))] {
+		movies = append(movies, g.movies[i])
+	}
+	if per := s.SeasonsPerShow * s.EpisodesPerSeason; per > 0 {
+		for _, i := range g.rng.Perm(len(g.shows))[:min(tasteShows, len(g.shows))] {
+			eps = append(eps, g.eps[i*per:(i+1)*per]...)
+		}
+	}
+	return movies, eps
+}
+
 func (g *generator) history(user int64, s Scale) error {
 	seen := map[core.RatingKey]bool{}
+	movies, eps := g.taste(s)
 	pick := func() core.RatingKey {
-		if len(g.eps) > 0 && g.rng.IntN(2) == 0 {
-			return g.eps[g.rng.IntN(len(g.eps))]
+		if len(eps) > 0 && g.rng.IntN(2) == 0 {
+			return eps[g.rng.IntN(len(eps))]
 		}
-		return g.movies[g.rng.IntN(len(g.movies))]
+		return movies[g.rng.IntN(len(movies))]
 	}
 	// State times are Unix nanoseconds, as internal/state writes them.
 	now := g.now.UnixNano()

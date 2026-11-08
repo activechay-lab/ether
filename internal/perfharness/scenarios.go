@@ -111,7 +111,7 @@ const infuseFields = "DateCreated%2CEtag%2CGenres%2CMediaSources%2CAlternateMedi
 
 // Clients is every replayed client, in report order.
 func Clients() []Client {
-	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"),
+	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"), plexPlayback(),
 		infuseJellyfin(), swiftfin(), embySDK(), infuseEmby(), siloAppleTV(), stremio(), console()}
 }
 
@@ -152,7 +152,7 @@ func plexSecondDevice() Client {
 
 func plexClient(name, product, platform, device string) Client {
 	page := "&includeCollections=1&includeAdvanced=1&includeMeta=1&excludeFields=summary&X-Plex-Container-Size=60"
-	return Client{Name: name, Surface: "plex", Headers: plexHeaders(product, platform, device), Steps: []Step{
+	return Client{Name: name, Surface: "plex", Headers: plexHeaders(product, platform, device), Steps: append([]Step{
 		{Name: "/identity", Class: classStatic, Path: "/identity"},
 		{Name: "/", Class: classStatic, Path: "/"},
 		{Name: "/library/sections", Class: classBrowse, Path: "/library/sections", Discover: discoverPlexSections},
@@ -165,7 +165,7 @@ func plexClient(name, product, platform, device string) Client {
 		// The shape production logged for Apple TV and Plex Web's Home.
 		{Name: "/hubs/promoted bare", Class: classHome, QueriesBound: homeQueriesBound, Path: "/hubs/promoted?count=12"},
 		{Name: "/library/onDeck", Class: classHome, Path: "/library/onDeck"},
-		{Name: "/hubs/sections/movies", Class: classHome, Path: "/hubs/sections/{movieSection}?count=12&includeMeta=1&excludeFields=summary&includeLibraryPlaylists=1"},
+		{Name: "/hubs/sections/movies", Class: classHome, Path: "/hubs/sections/{movieSection}?count=12&includeMeta=1&excludeFields=summary&includeLibraryPlaylists=1", Discover: discoverPlexHubMore},
 		{Name: "/hubs/sections/shows", Class: classHome, Path: "/hubs/sections/{showSection}?count=12&includeMeta=1&excludeFields=summary"},
 		{Name: "movies all titleSort p1", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&X-Plex-Container-Start=0" + page, Discover: discoverPlexItem("movieKey", "movie")},
 		{Name: "movies all titleSort deep", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&X-Plex-Container-Start=6000" + page},
@@ -195,7 +195,7 @@ func plexClient(name, product, platform, device string) Client {
 		{Name: "/livetv/dvrs", Class: classGuide, Path: "/livetv/dvrs"},
 		{Name: "live guide grid 3h", Class: classGuide, Path: "/tv.plex.providers.epg.xmltv:1/grid?type=1&beginsAt%3C={now3h}&endsAt%3E={now}"},
 		{Name: "live hubs", Class: classGuide, Path: "/tv.plex.providers.epg.xmltv:1/hubs?count=12"},
-	}}
+	}, plexLibrarySteps(page)...)}
 }
 
 func discoverPlexSections(vars map[string]string, body []byte) {
@@ -496,7 +496,7 @@ func siloAppleTV() Client {
 					vars["token"] = r.AccessToken
 				}
 			}},
-		Steps: []Step{
+		Steps: append([]Step{
 			{Name: "system/info", Class: classStatic, Path: "/api/v2/system/info"},
 			{Name: "account/me", Class: classStatic, Path: "/api/v2/account/me"},
 			{Name: "profiles", Class: classStatic, Path: "/api/v2/profiles"},
@@ -513,7 +513,7 @@ func siloAppleTV() Client {
 			{Name: "series seasons", Class: classDetail, Path: "/api/v2/catalog/series/{seriesId}/seasons?include_artwork=false&poster_width=520"},
 			{Name: "series season 1 episodes", Class: classDetail, Path: "/api/v2/catalog/series/{seriesId}/seasons/1/episodes?still_width=720"},
 			{Name: "search people", Class: classSearch, Path: "/api/v2/catalog/people?limit=20&media_scope=video_with_episodes&q=star"},
-		}}
+		}, siloLibrarySteps()...)}
 }
 
 var stremioMetaID = regexp.MustCompile(`"id"\s*:\s*"((?:tmdb:|tt)[^"]+)"`)
