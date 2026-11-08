@@ -422,6 +422,10 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	starting := make(chan struct{})
 	s.starting = starting
 	rtxConfig, runDir, inputLease := s.rtxConfig, s.dir, s.inputLease
+	var stopping <-chan struct{}
+	if s.encoder != nil {
+		stopping = s.encoder.cancel
+	}
 	hint := s.m.opts.onRunStart
 	hintEnd := spec.Start + 2*s.segDur
 	s.mu.Unlock()
@@ -433,6 +437,11 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		err = graphFailure(spec)
 	}
 	if err == nil {
+		if needsCopyKeyframe(spec) {
+			probeCtx, cancelProbe := stopContext(stopping)
+			spec.SeekFrom, spec.HasSeekFrom = s.m.copyKeyframeBefore(probeCtx, spec)
+			cancelProbe()
+		}
 		args = buildArgs(spec)
 		r.spec = spec
 		err = os.MkdirAll(spec.Dir, 0o755)
