@@ -10,6 +10,10 @@ import (
 // Indexes for Prune's inner SELECTs, plus the child-side indexes the
 // ON DELETE CASCADE from a pruned family or grant probes.
 func init() {
+	// The MCP client eviction checks, per candidate client, that no grant
+	// names its device. The store runs migrations in a transaction, so
+	// PostgreSQL cannot build this CONCURRENTLY; the table is small.
+	store.Register("identity_grants", 5, `CREATE INDEX identity_grants_device_surface ON identity_grants(device_id,surface);`)
 	store.Register("identity_grants", 4, `CREATE INDEX identity_grants_revoked_expires ON identity_grants(revoked,expires); CREATE INDEX identity_grants_revoked_last_used ON identity_grants(revoked,last_used);`)
 	store.Register("identity_refresh", 2, `CREATE INDEX identity_refresh_families_absolute_expiry ON identity_refresh_families(absolute_expiry); CREATE INDEX identity_refresh_families_revoked_idle_expiry ON identity_refresh_families(revoked,idle_expiry); CREATE INDEX identity_refresh_families_access_hash ON identity_refresh_families(access_hash); CREATE INDEX identity_refresh_tokens_family_id ON identity_refresh_tokens(family_id);`)
 	// Its own component: capability_tickets' versions are pinned to the

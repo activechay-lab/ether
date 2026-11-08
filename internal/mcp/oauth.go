@@ -43,7 +43,7 @@ const clientUnusedAge = time.Hour
 // its client until identity's Prune removes the grant a week after it died,
 // so an app re-authorizing with its remembered client_id keeps working.
 // Last placeholder is the batch limit.
-const evictClients = `DELETE FROM mcp_oauth_clients WHERE id IN (SELECT id FROM mcp_oauth_clients WHERE created<? AND id NOT IN (SELECT client_id FROM mcp_oauth_requests WHERE expires>?) AND id NOT IN (SELECT client_id FROM mcp_oauth_codes WHERE expires>?) AND 'mcp-'||id NOT IN (SELECT device_id FROM identity_grants WHERE surface=?) ORDER BY created LIMIT ?)`
+const evictClients = `DELETE FROM mcp_oauth_clients WHERE id IN (SELECT id FROM mcp_oauth_clients WHERE created<? AND id NOT IN (SELECT client_id FROM mcp_oauth_requests WHERE expires>?) AND id NOT IN (SELECT client_id FROM mcp_oauth_codes WHERE expires>?) AND NOT EXISTS (SELECT 1 FROM identity_grants g WHERE g.device_id='mcp-'||mcp_oauth_clients.id AND g.surface=?) ORDER BY created LIMIT ?)`
 
 // PruneOAuth deletes expired authorization requests and codes and evicts
 // unused clients (see evictClients), reporting the rows removed. Requests
