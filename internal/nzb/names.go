@@ -164,13 +164,15 @@ func Classify(name string) FileInfo {
 }
 
 var (
-	reQuoted       = regexp.MustCompile(`"([^"]*)"`)
-	reBracketName  = regexp.MustCompile(`\[\s*(?:\d+/)?([^\[\]"]+\.[A-Za-z0-9]{2,5}(?:\.\d{2,4})?)\s*\]`)
-	reFileCounter  = regexp.MustCompile(`[\[(]\s*(\d{1,5})\s*(?:/|of)\s*(\d{1,5})\s*[\])]`)
-	reSegCounter   = regexp.MustCompile(`\(\s*(\d{1,6})\s*/\s*(\d{1,6})\s*\)\s*(?:\d+\s*)?$`)
-	reTrailingYEnc = regexp.MustCompile(`(?i)\s*(?:-\s*)?(?:yenc)?\s*(?:\(\s*\d+\s*/\s*\d+\s*\))?\s*(?:\d+\s*)?$`)
-	reSizeNoise    = regexp.MustCompile(`(?i)\s+-?\s*\d+(?:[.,]\d+)?\s*[kmgt]i?b\b.*$`)
-	reBareName     = regexp.MustCompile(`([^\s"\[\]()/\\]+\.(?:part\d+\.rar|r\d{2}|7z\.\d{3}|\d{3}|vol\d+[+-]\d+\.par2|[A-Za-z0-9]{2,4}))(?:\s|$)`)
+	reQuoted         = regexp.MustCompile(`"([^"]*)"`)
+	reBracketName    = regexp.MustCompile(`\[\s*(?:\d+/)?([^\[\]"]+\.[A-Za-z0-9]{2,5}(?:\.\d{2,4})?)\s*\]`)
+	rePrivateCounter = regexp.MustCompile(`^\d+(?:/\d+)?$`)
+	reLeadingNumPath = regexp.MustCompile(`^\d+/(.+\.[A-Za-z0-9]{2,5}(?:\.\d{2,4})?)$`)
+	reFileCounter    = regexp.MustCompile(`[\[(]\s*(\d{1,5})\s*(?:/|of)\s*(\d{1,5})\s*[\])]`)
+	reSegCounter     = regexp.MustCompile(`\(\s*(\d{1,6})\s*/\s*(\d{1,6})\s*\)\s*(?:\d+\s*)?$`)
+	reTrailingYEnc   = regexp.MustCompile(`(?i)\s*(?:-\s*)?(?:yenc)?\s*(?:\(\s*\d+\s*/\s*\d+\s*\))?\s*(?:\d+\s*)?$`)
+	reSizeNoise      = regexp.MustCompile(`(?i)\s+-?\s*\d+(?:[.,]\d+)?\s*[kmgt]i?b\b.*$`)
+	reBareName       = regexp.MustCompile(`([^\s"\[\]()/\\]+\.(?:part\d+\.rar|r\d{2}|7z\.\d{3}|\d{3}|vol\d+[+-]\d+\.par2|[A-Za-z0-9]{2,4}))(?:\s|$)`)
 )
 
 // NameFromSubject extracts the file name from a Usenet subject line, e.g.
@@ -198,7 +200,10 @@ func NameFromSubject(subject string) string {
 			return cleanName(q)
 		}
 	}
-	// 2. Bracketed names, as used by WtFnZb-style posters.
+	// 2. Bracketed names, as used by [PRiVATE]-[WtFnZb]-style posters (including nested group brackets).
+	if name := parsePrivateFrame(s); name != "" {
+		return name
+	}
 	if m := reBracketName.FindAllStringSubmatch(s, -1); len(m) > 0 {
 		return cleanName(m[len(m)-1][1])
 	}
@@ -218,6 +223,69 @@ func NameFromSubject(subject string) string {
 		return cleanName(f[len(f)-1])
 	}
 	return cleanName(s)
+}
+
+// parsePrivateFrame extracts the filename section from `[PRiVATE]-[Group]-...`
+// headers, preserving nested bracket tags inside the filename section (such as
+// `[PRiVATE]-[WtFnZb]-[1/5]-[Show_[Group].mkv]`) where a flat `[^\[\]]+` regex fails.
+func parsePrivateFrame(s string) string {
+	idx := strings.Index(strings.ToUpper(s), "[PRIVATE]-")
+	if idx < 0 {
+		return ""
+	}
+	rest := s[idx+len("[PRIVATE]-"):]
+	var sections []string
+	for len(rest) > 0 {
+		rest = strings.TrimLeft(rest, "- \t")
+		if len(rest) == 0 || rest[0] != '[' {
+			break
+		}
+		depth := 0
+		end := -1
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					end = i
+				}
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			break
+		}
+		sections = append(sections, strings.TrimSpace(rest[1:end]))
+		rest = rest[end+1:]
+	}
+	var fallback string
+	for i, sec := range sections {
+		if sec == "" || rePrivateCounter.MatchString(sec) {
+			continue
+		}
+		if m := reLeadingNumPath.FindStringSubmatch(sec); m != nil {
+			sec = m[1]
+		}
+		// The first section after [PRiVATE] is the group tag (e.g. [WtFnZb])
+		// unless it is the only non-counter section and carries an extension.
+		if i == 0 && len(sections) > 1 && Classify(sec).Kind == KindUnknown {
+			continue
+		}
+		if strings.Contains(sec, ".") {
+			cleaned := cleanName(sec)
+			if Classify(cleaned).Kind != KindUnknown {
+				return cleaned
+			}
+			if fallback == "" {
+				fallback = cleaned
+			}
+		}
+	}
+	return fallback
 }
 
 func cleanName(n string) string {
@@ -257,14 +325,15 @@ func subjectSegmentCount(subject string) int {
 }
 
 var (
-	reHex      = regexp.MustCompile(`^[0-9a-fA-F]{24,}$`)
-	reAlnumRnd = regexp.MustCompile(`^[0-9A-Za-z]{16,}$`)
-	reUUIDish  = regexp.MustCompile(`^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$`)
+	reHex       = regexp.MustCompile(`^[0-9a-fA-F]{16,}$`)
+	reAlnumRnd  = regexp.MustCompile(`^[0-9A-Za-z]{16,}$`)
+	reUUIDish   = regexp.MustCompile(`^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$`)
+	reBackupObf = regexp.MustCompile(`(?i)^backup_\d+s\d{1,2}-\d{1,2}$`)
 )
 
 // IsObfuscated reports whether a name carries no information about the
 // content: no extension, a hash/UUID-like base, a long random token, or the
-// "abc.xyz" placeholder some posters use.
+// "abc.xyz" / "b00bs." / "Backup_NNNNNS01-02" placeholders some posters use.
 func IsObfuscated(name string) bool {
 	n := strings.TrimSpace(name)
 	if n == "" {
@@ -276,7 +345,7 @@ func IsObfuscated(name string) bool {
 	}
 	baseName := path.Base(strings.ReplaceAll(n, `\`, "/"))
 	lower := strings.ToLower(baseName)
-	if strings.HasPrefix(lower, "abc.xyz") {
+	if strings.HasPrefix(lower, "abc.xyz") || strings.HasPrefix(lower, "b00bs.") {
 		return true
 	}
 	stem := info.SetName
@@ -291,13 +360,42 @@ func IsObfuscated(name string) bool {
 	if base == "" {
 		return true
 	}
-	if reHex.MatchString(base) || reUUIDish.MatchString(base) {
+	if reHex.MatchString(base) || reUUIDish.MatchString(base) || reBackupObf.MatchString(base) || looksDottedHex(base) {
 		return true
 	}
 	if reAlnumRnd.MatchString(base) && looksRandom(base) {
 		return true
 	}
 	return false
+}
+
+// looksDottedHex recognises obfuscated hex stems split with dots, hyphens or
+// underscores (e.g. "a1b2.c3d4.e5f6.7890.abcd.ef01" or
+// "[Group]-b2.bef89a622e4a23f07b0d3757ad5e8a.a0").
+func looksDottedHex(s string) bool {
+	hexCount := 0
+	allHexOrSep := true
+	runLen, runHex := 0, 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if isHex {
+			hexCount++
+			runLen++
+			runHex++
+		} else if c == '.' {
+			runLen++
+		} else {
+			if c != '-' && c != '_' {
+				allHexOrSep = false
+			}
+			runLen, runHex = 0, 0
+		}
+		if runLen >= 30 && runHex >= 24 {
+			return true
+		}
+	}
+	return allHexOrSep && hexCount >= 16
 }
 
 // looksRandom: a separator-free token mixing digits with both letter cases,

@@ -151,18 +151,20 @@ func TestParseInvalid(t *testing.T) {
 
 func TestNameFromSubject(t *testing.T) {
 	cases := map[string]string{
-		`"Movie.2024.part01.rar" yEnc (1/50)`:                                  "Movie.2024.part01.rar",
-		`[01/42] - "Movie.2024.mkv" yEnc (1/1000)`:                             "Movie.2024.mkv",
-		`Movie 2024 [03/42] - "Movie.2024.r01" yEnc (12/50)`:                   "Movie.2024.r01",
-		`[PRiVATE]-[WtFnZb]-[Movie.2024.mkv]-[1/5] - "" yEnc 1234 (1/40)`:      "Movie.2024.mkv",
-		`[N3wZ] \6aB1c\::[PRiVATE]-[WtFnZb]-[24]-[1/Movie.2024.mkv] - "" yEnc`: "Movie.2024.mkv",
-		`Movie.2024.r00 (1/50)`:                                                "Movie.2024.r00",
-		`Movie.2024.7z.001 yEnc (1/50)`:                                        "Movie.2024.7z.001",
-		`Re: Movie.2024.mkv - 1.2 GB - yEnc (1/50)`:                            "Movie.2024.mkv",
-		`"Movie.2024.vol03+04.par2" yEnc (1/4)`:                                "Movie.2024.vol03+04.par2",
-		`"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" yEnc (1/50)`:                       "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-		`"folder/sub/Movie.mkv" yEnc (1/2)`:                                    "Movie.mkv",
-		`(Movie) "Movie.2024.nfo" yEnc (1/1)`:                                  "Movie.2024.nfo",
+		`"Movie.2024.part01.rar" yEnc (1/50)`:                                       "Movie.2024.part01.rar",
+		`[01/42] - "Movie.2024.mkv" yEnc (1/1000)`:                                  "Movie.2024.mkv",
+		`Movie 2024 [03/42] - "Movie.2024.r01" yEnc (12/50)`:                        "Movie.2024.r01",
+		`[PRiVATE]-[WtFnZb]-[Movie.2024.mkv]-[1/5] - "" yEnc 1234 (1/40)`:           "Movie.2024.mkv",
+		`[N3wZ] \6aB1c\::[PRiVATE]-[WtFnZb]-[24]-[1/Movie.2024.mkv] - "" yEnc`:      "Movie.2024.mkv",
+		`[PRiVATE]-[WtFnZb]-[1/5]-[Show_[SubsPlease]_[1080p].mkv] - "" yEnc (1/40)`: "Show_[SubsPlease]_[1080p].mkv",
+		`[PRiVATE]-[WtFnZb]-[Show_[Group].part01.rar]-[1/10] - "" yEnc (1/40)`:      "Show_[Group].part01.rar",
+		`Movie.2024.r00 (1/50)`:                                                     "Movie.2024.r00",
+		`Movie.2024.7z.001 yEnc (1/50)`:                                             "Movie.2024.7z.001",
+		`Re: Movie.2024.mkv - 1.2 GB - yEnc (1/50)`:                                 "Movie.2024.mkv",
+		`"Movie.2024.vol03+04.par2" yEnc (1/4)`:                                     "Movie.2024.vol03+04.par2",
+		`"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" yEnc (1/50)`:                            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+		`"folder/sub/Movie.mkv" yEnc (1/2)`:                                         "Movie.mkv",
+		`(Movie) "Movie.2024.nfo" yEnc (1/1)`:                                       "Movie.2024.nfo",
 	}
 	for subj, want := range cases {
 		if got := NameFromSubject(subj); got != want {
@@ -253,20 +255,25 @@ func TestClassify(t *testing.T) {
 
 func TestIsObfuscated(t *testing.T) {
 	cases := map[string]bool{
-		"Movie.2024.1080p.WEB-DL.mkv":                 false,
-		"Movie.2024.part01.rar":                       false,
-		"movie.r00":                                   false,
-		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6":            true,
-		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.mkv":        true,
-		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.part01.rar": true,
-		"8f14e45f-ceea-467f-a8c4-2b6a8b2e7c11.mkv":    true,
-		"Xk3Pq9LmZr7Tb2Wc.rar":                        true,
-		"abc.xyz.12345.mkv":                           true,
-		"noextension":                                 true,
-		"":                                            true,
-		"TheMatrixReloaded.mkv":                       false,
-		"Movie2024.mkv":                               false,
-		"Show.S01E01.ts":                              false,
+		"Movie.2024.1080p.WEB-DL.mkv":                            false,
+		"Movie.2024.part01.rar":                                  false,
+		"movie.r00":                                              false,
+		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6":                       true,
+		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.mkv":                   true,
+		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.part01.rar":            true,
+		"a1b2c3d4e5f6a7b8.mkv":                                   true,
+		"a1b2.c3d4.e5f6.7890.abcd.ef01.mkv":                      true,
+		"[Group]-b2.bef89a622e4a23f07b0d3757ad5e8a.a0.mkv":       true,
+		"8f14e45f-ceea-467f-a8c4-2b6a8b2e7c11.mkv":               true,
+		"Xk3Pq9LmZr7Tb2Wc.rar":                                   true,
+		"abc.xyz.12345.mkv":                                      true,
+		"b00bs.12345.mkv":                                        true,
+		"Backup_72019S01-02.mkv":                                 true,
+		"noextension":                                            true,
+		"":                                                       true,
+		"TheMatrixReloaded.mkv":                                  false,
+		"Movie2024.mkv":                                          false,
+		"Show.S01E01.ts":                                         false,
 	}
 	for name, want := range cases {
 		if got := IsObfuscated(name); got != want {

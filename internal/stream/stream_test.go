@@ -550,8 +550,26 @@ func TestObfuscatedContentSniffed(t *testing.T) {
 	if src.Size() != int64(len(data)) {
 		t.Fatalf("size %d", src.Size())
 	}
+	if src.Name() != "c8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3.mkv" {
+		t.Fatalf("name = %q, want .mkv suffix from sniffVideoExt", src.Name())
+	}
 	if got := readAll(t, src, 64<<10); !bytes.Equal(got, data) {
 		t.Fatal("mismatch")
+	}
+}
+
+func TestSniffVideoExt(t *testing.T) {
+	webm := []byte{0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84, 'w', 'e', 'b', 'm', 0x00}
+	if got := sniffVideoExt(webm); got != "webm" {
+		t.Fatalf("webm = %q", got)
+	}
+	mp4 := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}
+	if got := sniffVideoExt(mp4); got != "mp4" {
+		t.Fatalf("mp4 = %q", got)
+	}
+	mov := []byte{0x00, 0x00, 0x00, 0x14, 'f', 't', 'y', 'p', 'q', 't', ' ', ' '}
+	if got := sniffVideoExt(mov); got != "mov" {
+		t.Fatalf("mov = %q", got)
 	}
 }
 
