@@ -44,14 +44,17 @@ func rankTableSQL(side string, bigint string) string {
 }
 
 // rankIndexSQL is a copy's indexes: popularity order alone and within a
-// year, language, runtime or status, each covering the released check.
+// year, language, runtime or status, each covering the released check, and
+// across browsable and non-browsable titles (upcoming-movie listings and
+// search).
 func rankIndexSQL(side string) string {
 	t := "catalog_rank_" + side
 	return `CREATE INDEX ` + t + `_pop ON ` + t + `(type, browsable, adult, rk, release_known, released_ts);
 CREATE INDEX ` + t + `_year ON ` + t + `(type, browsable, adult, year, rk);
 CREATE INDEX ` + t + `_lang ON ` + t + `(type, browsable, adult, language, rk);
 CREATE INDEX ` + t + `_runtime ON ` + t + `(type, browsable, adult, runtime_sec, rk);
-CREATE INDEX ` + t + `_status ON ` + t + `(type, browsable, adult, status, rk);`
+CREATE INDEX ` + t + `_status ON ` + t + `(type, browsable, adult, status, rk);
+CREATE INDEX ` + t + `_all ON ` + t + `(type, adult, rk);`
 }
 
 const rankFill = `SELECT key, type, browsable, adult, release_known, released_ts, year, language, runtime_sec, status, -popularity FROM catalog_titles WHERE type IN ('movie','show')`

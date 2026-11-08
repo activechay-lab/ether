@@ -12,9 +12,10 @@ import (
 // Popularity leaves catalog_titles' indexes (rank.go). Six indexes that
 // carried it as an order or covered column are replaced by ones without
 // it, and catalog_titles_console_pop_page is dropped outright (its paths
-// read the rank). Two keep popularity: catalog_titles_type_browse_pop
-// (the dense-search walk orders every type by popularity) and the partial
-// catalog_titles_movie_year_pending (only movies whose year is unchecked).
+// read the rank). catalog_titles_type_browse_pop becomes a partial index
+// over seasons and episodes (no TMDB popularity, so no churn). One index
+// keeps popularity: the partial catalog_titles_movie_year_pending, whose
+// entries are only the movies whose year is unchecked.
 //
 // The swap runs after start, once the rank is built: each new index is
 // built on its own (PostgreSQL: CREATE INDEX CONCURRENTLY, which takes no
@@ -34,6 +35,9 @@ var titleIndexSwaps = []titleIndexSwap{
 	// The warm-up queue holds only undetailed titles, so a popularity
 	// change of a detailed title writes nothing to it.
 	{"catalog_titles_browse_warm", "catalog_titles_warm_queue", "(popularity DESC, vote_count DESC) WHERE detail=0 AND browsable=1 AND adult=0"},
+	// Seasons and episodes have no TMDB popularity, so their index never
+	// churns; movies and shows are ordered by the rank.
+	{"catalog_titles_type_browse_pop", "catalog_titles_child_pop", "(type, browsable, popularity DESC) WHERE type IN ('season','episode')"},
 	{"catalog_titles_console_pop_page", "", ""},
 }
 

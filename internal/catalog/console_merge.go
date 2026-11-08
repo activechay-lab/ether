@@ -13,6 +13,9 @@ import (
 // ordered index, then merges those bounded lists using every requested sort.
 // This keeps mixed movie/series queries from sorting the whole catalogue.
 func (c *Catalog) consoleMergedKeys(ctx context.Context, where string, args []any, q core.BrowseQuery, offset, limit int) ([]core.RatingKey, error) {
+	if keys, ok, err := c.rankMergedKeys(ctx, where, args, q, offset, limit); ok || err != nil {
+		return keys, err
+	}
 	specs := append([]core.SortSpec{{Sort: q.Sort, Desc: q.Desc}}, q.SecondarySorts...)
 	columns := []string{"t.key"}
 	for _, s := range specs {
