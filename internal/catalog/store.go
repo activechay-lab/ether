@@ -630,6 +630,10 @@ type upsertOpts struct {
 	// ratingCuts, set by upsertMany, limits rating, vote and popularity
 	// wobbles to the writes rating_drift.go keeps.
 	ratingCuts *ratingCuts
+	// stored, set by upsertMany, holds the batch's keys that already had a
+	// row; a key it lacks is inserted by this upsert, so the probes for
+	// what an existing row holds (ratings, release names) are skipped.
+	stored map[int64]bool
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
@@ -680,7 +684,22 @@ func (c *Catalog) upsert(ctx context.Context, t core.Title, o upsertOpts) error 
 }
 
 func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertOpts) error {
-	if len(titles) == 0 {
+	items := make([]upsertItem, len(titles))
+	for i, t := range titles {
+		items[i] = upsertItem{t: t, o: o}
+	}
+	return c.upsertItems(ctx, items)
+}
+
+// upsertItem is one title and its write options.
+type upsertItem struct {
+	t core.Title
+	o upsertOpts
+}
+
+// upsertItems stores items in one transaction, each with its own options.
+func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem) error {
+	if len(items) == 0 {
 		return nil
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -689,11 +708,20 @@ func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertO
 	}
 	defer tx.Rollback()
 	now := c.now().Unix()
-	o.region = c.config().Region
+	region := c.config().Region
 	cuts := c.ratingCuts()
-	o.ratingCuts = &cuts
-	for _, t := range titles {
-		if err := upsertOne(ctx, tx, t, o, now); err != nil {
+	titles := make([]core.Title, len(items))
+	for i := range items {
+		titles[i] = items[i].t
+	}
+	stored, err := storedKeys(ctx, tx, titles)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		o := it.o
+		o.region, o.ratingCuts, o.stored = region, &cuts, stored
+		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
 			return err
 		}
 	}
@@ -743,6 +771,41 @@ const materialTitleChangeSQL = `(
  excluded.browsable>catalog_titles.browsable OR
  excluded.detail>catalog_titles.detail
 )`
+
+type noRows struct{}
+
+func (noRows) LastInsertId() (int64, error) { return 0, nil }
+func (noRows) RowsAffected() (int64, error) { return 0, nil }
+
+// storedKeys reads which of titles' keys already have a row, 500 a statement.
+func storedKeys(ctx context.Context, tx *sql.Tx, titles []core.Title) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(titles))
+	for start := 0; start < len(titles); start += 500 {
+		part := titles[start:min(start+500, len(titles))]
+		args := make([]any, len(part))
+		for i, t := range part {
+			args[i] = int64(t.Key)
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var k int64
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[k] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
 
 func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now int64) error {
 	if t.Key == 0 {
@@ -794,14 +857,25 @@ func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now 
 	if o.preserveDetailed {
 		preserveInt = 1
 	}
+	// A new movie row takes its year source at insert (what
+	// saveMovieYearSource would write to a row that has none); the
+	// conflict path leaves both columns to saveMovieYearSource.
+	insertYearSource, insertPrimary := "", int64(0)
+	if t.Type == core.TypeMovie && t.YearSource != "" {
+		insertYearSource = t.YearSource
+		if !t.PrimaryReleased.IsZero() {
+			insertPrimary = t.PrimaryReleased.Unix()
+		}
+	}
 	// Keep richer existing fields when a summary upsert would blank them:
 	// handled per-field with CASE in ON CONFLICT for a few detail-only fields.
 	result, err := tx.ExecContext(ctx, `
 INSERT INTO catalog_titles (key,type,tmdb_id,imdb,tvdb,show_key,show_tmdb,show_title,season_title,season,episode,
  title,original_title,sort_title,tagline,summary,year,released_ts,runtime_sec,status,language,
  content_rating,content_rating_rank,content_rating_source,rating,vote_count,popularity,poster,backdrop,still,logo,
- collection_id,collection_name,child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,detail_at,last_air_ts)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ collection_id,collection_name,child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,detail_at,last_air_ts,
+ year_source,primary_released_ts)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(key) DO UPDATE SET
  type=excluded.type, tmdb_id=excluded.tmdb_id, adult=excluded.adult,
  imdb=CASE WHEN excluded.imdb<>'' THEN excluded.imdb ELSE catalog_titles.imdb END,
@@ -846,6 +920,7 @@ ON CONFLICT(key) DO UPDATE SET
 		t.Title, t.OriginalTitle, t.SortTitle, t.Tagline, t.Summary, t.Year, releasedTS, int64(t.Runtime.Seconds()), t.Status, t.Language,
 		t.ContentRating, int(contentrating.LevelOf(t.ContentRating)), t.ContentRatingSource, t.Rating, t.VoteCount, t.Popularity, t.PosterPath, t.BackdropPath, t.StillPath, t.LogoPath,
 		t.CollectionID, t.CollectionName, t.ChildCount, t.LeafCount, browsableInt, addedAtFor(browsableInt, now), now, detailInt, t.Adult, detailAtFor(detailInt, now), lastAirTS,
+		insertYearSource, insertPrimary,
 		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, preserveInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
@@ -856,16 +931,24 @@ ON CONFLICT(key) DO UPDATE SET
 	// index on a column an UPDATE assigns (37 on catalog_titles), which made
 	// a popularity-only refresh 33 WAL pages a title. After a full upsert
 	// the values match and this matches no row.
-	// Small wobbles are written only per rating_drift.go.
+	fresh := o.stored != nil && !o.stored[int64(t.Key)]
+	if o.stored != nil {
+		o.stored[int64(t.Key)] = true // a repeat in the batch updates it
+	}
+	// Small wobbles are written only per rating_drift.go. A row this upsert
+	// inserted already holds the exact values.
 	drift, driftArgs := "", []any(nil)
 	if !o.detail && o.ratingCuts != nil && !ratingExact(t.Key, time.Unix(now, 0)) {
 		drift, driftArgs = ratingDriftSQL(*o.ratingCuts, t.Popularity, t.VoteCount, t.Rating)
 		drift = " AND " + drift
 	}
-	jitter, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`+drift,
-		append([]any{t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt}, driftArgs...)...)
-	if err != nil {
-		return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
+	var jitter sql.Result = noRows{}
+	if !fresh {
+		jitter, err = tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`+drift,
+			append([]any{t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt}, driftArgs...)...)
+		if err != nil {
+			return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
+		}
 	}
 	if o.preserveDetailed {
 		n, err := result.RowsAffected()
@@ -899,7 +982,13 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: detail freshness %d: %w", t.Key, err)
 		}
 	}
-	if err := updateReleaseNames(ctx, tx, int64(t.Key), t.Type); err != nil {
+	updateNames := updateReleaseNames
+	if fresh {
+		updateNames = func(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType) error {
+			return insertFreshReleaseNames(ctx, tx, key, typ, t.Title, t.OriginalTitle)
+		}
+	}
+	if err := updateNames(ctx, tx, int64(t.Key), t.Type); err != nil {
 		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
@@ -917,8 +1006,10 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: upsert %d air date: %w", t.Key, err)
 		}
 	}
-	if err := saveMovieYearSource(ctx, tx, t, detailInt); err != nil {
-		return err
+	if !fresh {
+		if err := saveMovieYearSource(ctx, tx, t, detailInt); err != nil {
+			return err
+		}
 	}
 	// Replace join rows only when the incoming title carries that facet, so
 	// summary upserts don't wipe detail-fetched genres/credits.

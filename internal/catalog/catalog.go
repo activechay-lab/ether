@@ -273,10 +273,11 @@ type Catalog struct {
 	listMu       sync.Mutex
 	listCache    map[string]listEntry
 
-	syncing    atomic.Bool
-	syncBatch  atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
-	progress   SyncProgress
-	progressMu sync.RWMutex
+	syncing      atomic.Bool
+	syncBatch    atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
+	detailWrites detailWrites // batched detail writes (detail_writer.go)
+	progress     SyncProgress
+	progressMu   sync.RWMutex
 
 	yearMu         sync.RWMutex
 	yearRunning    atomic.Bool
@@ -485,7 +486,8 @@ func (c *Catalog) config() config.Catalog {
 }
 
 // MeetsThreshold reports whether a title qualifies for the browsable set under
-// cfg: popularity >= MinPopularity OR votes >= MinVotes, and released.
+// cfg: popularity >= MinPopularity OR votes >= MinVotes, and released. A
+// saved 0/0 (Off) means the Off floor (config.Catalog.Bars).
 func MeetsThreshold(cfg config.Catalog, t core.Title, now time.Time) bool {
 	if t.Type != core.TypeMovie && t.Type != core.TypeShow {
 		return false
@@ -494,18 +496,10 @@ func MeetsThreshold(cfg config.Catalog, t core.Title, now time.Time) bool {
 		// A title with no date is treated as unreleased.
 		return false
 	}
-	if cfg.MinPopularity <= 0 && cfg.MinVotes <= 0 {
-		return true
-	}
-	popOK := cfg.MinPopularity > 0 && t.Popularity >= cfg.MinPopularity
-	voteOK := cfg.MinVotes > 0 && t.VoteCount >= cfg.MinVotes
-	if cfg.MinPopularity > 0 && cfg.MinVotes > 0 {
-		return popOK || voteOK
-	}
-	if cfg.MinPopularity > 0 {
-		return popOK
-	}
-	return voteOK
+	minPop, minVotes := cfg.Bars()
+	popOK := minPop > 0 && t.Popularity >= minPop
+	voteOK := minVotes > 0 && t.VoteCount >= minVotes
+	return popOK || voteOK
 }
 
 func (c *Catalog) meetsThreshold(t core.Title) bool {

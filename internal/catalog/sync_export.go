@@ -157,15 +157,13 @@ func exportKinds(tv bool, cfg config.Catalog) []tmdb.ExportKind {
 	return kinds
 }
 
-// exportCandidate reports whether a title the mirror does not hold is
-// worth fetching on its export row alone: under Off every title is, under
-// a popularity bar the ones at or above it. Titles admitted only by votes
-// come from the /discover vote walk.
+// exportCandidate reports whether a title the library does not hold is
+// worth fetching on its export row alone: at or above the popularity bar.
+// Titles admitted only by votes come from the /discover vote walk; the
+// rest of the export is the long tail, found by search, never stored.
 func exportCandidate(cfg config.Catalog, row tmdb.ExportRow) bool {
-	if cfg.MinPopularity <= 0 && cfg.MinVotes <= 0 {
-		return true
-	}
-	return cfg.MinPopularity > 0 && row.Popularity >= cfg.MinPopularity
+	minPop, _ := cfg.Bars()
+	return minPop > 0 && row.Popularity >= minPop
 }
 
 // errNoExport means the export pass could not read today's list; the sync
