@@ -196,3 +196,69 @@ func TestCallbackRevokeAndErrorHold(t *testing.T) {
 	}
 	hold.Release()
 }
+
+// One source boot binds far more than MaxBindings sources over its lifetime:
+// sealed bindings whose fence placement has retired are forgotten, so binding
+// never fails for capacity and retained state stays flat. A sealed binding
+// whose fence is still authoritative is kept, and a forgotten scope can never
+// be bound again because placement never re-authorises a retired fence.
+func TestForgetBoundsLifetimeBindings(t *testing.T) {
+	ctx := context.Background()
+	now := time.Unix(1800000000, 0)
+	db := &lookupFixture{}
+	a, err := New(Options{Lookup: db, Policy: func(context.Context, placement.Target, nodesource.Scope) error { return nil }, Owner: placement.Target{NodeID: "source", Boot: "sb"}, Now: func() time.Time { return now }, ClockBoundKnown: true, ClockSkew: time.Second, MaxLifetime: time.Minute, MaxBindings: 4, MaxGrants: 4, MaxGrantsPerBinding: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := func(i int) nodesource.Scope {
+		return nodesource.Scope{Fence: placement.Fence{Session: fmt.Sprintf("s%d", i), Generation: 1, Controller: placement.Controller{ID: "controller", Boot: "cb"}, Target: placement.Target{NodeID: "worker", Boot: "wb"}}, Viewer: "viewer", Revision: "revision"}
+	}
+	live := func(s nodesource.Scope) placement.Record {
+		return placement.Record{Fence: s.Fence, Role: config.RoleTranscode, Authority: true, Deadline: now.Add(time.Minute)}
+	}
+	for i := 0; i < 10000; i++ {
+		s := scope(i)
+		db.record = live(s)
+		h, err := a.bind(ctx, s, &sourceFixture{active: true}, 10)
+		if err != nil {
+			t.Fatalf("bind %d refused: %v", i, err)
+		}
+		if err = a.Revoke(h); err != nil {
+			t.Fatal(err)
+		}
+		db.record.Retired, db.record.Authority = true, false
+		a.Forget(ctx, 0, 64)
+		if n := a.Bindings(); n != 0 {
+			t.Fatalf("bind %d: %d bindings retained", i, n)
+		}
+		if err = a.Revoke(h); err != nil {
+			t.Fatalf("revoking a forgotten handle: %v", err)
+		}
+	}
+	// A forgotten scope stays unbindable: its fence is retired.
+	if _, err = a.bind(ctx, scope(0), &sourceFixture{active: true}, 10); err == nil {
+		t.Fatal("forgotten retired scope bound again")
+	}
+	// Sealed but still authoritative (for example a lifetime-capped binding of
+	// a live session): retained, so the scope cannot be rebound.
+	s := scope(-1)
+	db.record = live(s)
+	h, err := a.bind(ctx, s, &sourceFixture{active: true}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Revoke(h); err != nil {
+		t.Fatal(err)
+	}
+	if a.Forget(ctx, 0, 64) != 0 || a.Bindings() != 1 {
+		t.Fatal("forgot a binding whose fence is still authoritative")
+	}
+	if _, err = a.bind(ctx, s, &sourceFixture{active: true}, 10); err == nil {
+		t.Fatal("sealed live scope rebound")
+	}
+	// The grace period is honoured.
+	db.record.Retired = true
+	if a.Forget(ctx, time.Hour, 64) != 0 {
+		t.Fatal("forgot inside the grace period")
+	}
+}
