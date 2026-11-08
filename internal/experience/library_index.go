@@ -3,6 +3,11 @@ package experience
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -42,7 +47,8 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 	} else if none {
 		return core.Page{Items: []core.Title{}}, true, nil
 	}
-	page, err := s.d.Browse(ctx, core.BrowseQuery{Filter: filter, Sort: q.Sort, Desc: q.Desc, Offset: max(q.Offset, 0), Limit: q.Limit, NoTotal: q.NoTotal})
+	bq := core.BrowseQuery{Filter: filter, Sort: q.Sort, Desc: q.Desc, Offset: max(q.Offset, 0), Limit: q.Limit, NoTotal: q.NoTotal}
+	page, err := s.browsePageEnd(ctx, v, bq)
 	if err != nil {
 		return core.Page{}, false, err
 	}
@@ -50,6 +56,46 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 		return core.Page{}, false, nil
 	}
 	return page, true, nil
+}
+
+// browsePageEnd reads an indexed page, continuing from the remembered end
+// of the page before it when there is one: Jellyfin and Emby apps page by
+// StartIndex in order (Infuse walks a whole library that way), and an
+// OFFSET re-reads every row before the page, so page n cost n pages. The
+// remembered end is the last title of the previous page; the catalogue
+// seeks past it in the sort order.
+func (s *Service) browsePageEnd(ctx context.Context, v *core.User, q core.BrowseQuery) (core.Page, error) {
+	var key string
+	if s.cursors != nil && q.Limit > 0 && core.BrowseSeekable(q) {
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%d|%+v|%s|%v|%v", v.ID, q.Filter, q.Sort, q.Desc, q.NoTotal)))
+		key = "page|" + hex.EncodeToString(sum[:16]) + "|"
+		if after, ok := s.cursors.get(key + strconv.Itoa(q.Offset)); ok && q.Offset > 0 {
+			seek := q
+			seek.AfterKey, seek.Offset = after, 0
+			page, err := s.d.Browse(ctx, seek)
+			if err == nil {
+				if q.NoTotal {
+					page.Total += q.Offset
+				}
+				s.rememberPageEnd(key, q.Offset, page)
+				return page, nil
+			}
+			if !errors.Is(err, core.ErrSeekUnavailable) {
+				return core.Page{}, err
+			}
+		}
+	}
+	page, err := s.d.Browse(ctx, q)
+	if err == nil && key != "" {
+		s.rememberPageEnd(key, q.Offset, page)
+	}
+	return page, err
+}
+
+func (s *Service) rememberPageEnd(key string, offset int, page core.Page) {
+	if n := len(page.Items); n > 0 {
+		s.cursors.put(key+strconv.Itoa(offset+n), page.Items[n-1].Key)
+	}
 }
 
 // userStateFilter folds a played or favorite filter into the SQL filter:

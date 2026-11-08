@@ -129,6 +129,17 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		}
 		return core.Page{Items: items, Total: total}, nil
 	}
+	if q.AfterKey > 0 && seekableBrowse(q) {
+		items, err := c.seekPage(ctx, q, where, args, offset, limit)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if q.NoTotal {
+			total = offset + len(items)
+		}
+		c.kickMovieYears(items)
+		return core.Page{Items: items, Total: total}, nil
+	}
 	pageWhere, pageArgs := where, args
 	keysetHint := ""
 	if q.Sort == core.SortKey && q.AfterKey > 0 {
@@ -980,10 +991,14 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 	}
 	if f.RuleVisibility == "" {
+		// The unary plus keeps "released by now" (nearly every title) from
+		// steering the plan: without planner statistics SQLite took it as a
+		// selective range on catalog_titles_type_browse_count and sorted the
+		// whole type for every sorted page instead of walking its sort index.
 		if c.config().ShowUpcomingMovies {
-			conds = append(conds, "t.release_known=1 AND (t.type='movie' OR t.released_ts<=?)")
+			conds = append(conds, "t.release_known=1 AND (t.type='movie' OR +t.released_ts<=?)")
 		} else {
-			conds = append(conds, "t.release_known=1 AND t.released_ts<=?")
+			conds = append(conds, "t.release_known=1 AND +t.released_ts<=?")
 		}
 		args = append(args, nowTS)
 	}
