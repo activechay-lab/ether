@@ -123,6 +123,7 @@ Release formats (preferences; the defaults below are the 4K profile's):
 | Repack/Proper | A Repack or Proper | 6 |
 | Low bitrate | Below the bitrate floor for its resolution | −60 |
 | Preferred language, Preferred language (other region), Not a preferred language, Preferred subtitles | The profile's Languages | 5, 2, −25, 2 when Languages are set |
+| 4K, 1080p, 720p, 576p, 480p, 360p | The graded resolution | unused; see "Conversion" |
 
 Streaming formats (context Ether knows and Radarr doesn't):
 
@@ -137,14 +138,17 @@ Streaming formats (context Ether knows and Radarr doesn't):
 | Tone mapping | HDR10 on a device or profile without HDR | −15 |
 | Past retention | Usenet post older than provider retention | −20 |
 
-The device formats keep their defaults on imported profiles too: device fit
-is Ether's job, and at these sizes it only separates releases a pack scores
-alike. Viewer's language is 0 on imports, because language preference is
-the pack's to express.
+A profile's device formats are scored when Ether creates or imports it,
+because device fit is Ether's job; at these sizes they only separate
+releases a pack scores alike. Imports get Series year differs too, but not
+Viewer's language: language preference is the pack's to express.
 
-Prefer rules are formats too: each Prefer rule has a score. Plugin ranking
-steps add the number the plugin returns for a release to its custom format
-score.
+Prefer rules are formats too: each Prefer rule has a score (a new one
+starts above everything else the profile scores). A plugin ranking step
+adds the number the plugin returns for a release to its score.
+
+The minimum score counts only the owner's and imported formats, not
+built-ins, Prefer rules or plugin points.
 
 ## Default profiles
 
@@ -152,14 +156,18 @@ The shipped 4K, 1080p and 720p profiles are standard profiles: a quality
 order with one group per resolution, highest first, inside the profile's
 resolution range, and the built-in format scores above. Grouping by
 resolution and scoring release type as a format is how TRaSH's merged
-"WEB 1080p" and SQP profiles work; it is what lets the viewer's language
-rank above release type within a resolution, as it does today.
+"WEB 1080p" and SQP profiles work. It also lets the viewer's language rank
+above release type within a resolution, as it does today.
 
-Scores are strictly lexicographic: each level is worth more than every
-level below it can add up to (rounded up to 1, 2 or 5 × 10ⁿ). In the 4K
-profile everything below release type adds up to at most 1213, so WEB-DL
-(4000) always beats WEBRip (2000), and HDR (500) only decides between
-releases of the same type.
+Scores are strictly lexicographic: each level is worth more than all the
+levels below it can add up to, rounded up to 1, 2 or 5 × 10ⁿ. In the 4K
+profile everything below HDR adds up to at most 203 and everything below
+release type to 1203. So WEB-DL (4000) always beats WEBRip (2000), and HDR
+(500) only decides between releases of the same type. The 1080p and 720p
+profiles use the same shape at smaller weights (release type 1000 a step,
+Viewer's language 10000, Series year differs −5000). A lasting test
+(`internal/config/quality_ranking_upgrade_test.go`) proves the shipped
+profiles are exactly the conversion of the profiles Ether used to ship.
 
 ## Conversion of existing profiles
 
@@ -168,45 +176,83 @@ cluster's shared settings), deterministically:
 
 1. **Gates.** Audio language and connection fit become gates G2/G3.
    "Played fine recently" becomes tie-break T1.
-2. **Quality order.** If the ladder (ignoring gates, Prefer rules and
-   plugins) starts with Resolution, the order is one group per resolution.
-   If it starts with Release type then Resolution, the order is
-   source-major: Remux-2160p, Remux-1080p, … in the profile's source
-   order, then one group per resolution for the remaining sources.
-3. **Formats.** Every remaining step becomes built-in formats, in ladder
-   order, with lexicographic weights computed from what the levels below
-   can add (the old total score is the bottom level: codec, audio, Atmos,
-   HDR10, compatibility, languages and your own custom format scores at
-   face value). The old score's age, grabs, size and bitrate points map
-   to the standard keys S7–S8; indexer reputation to T2.
+2. **Quality order.** If the ladder (ignoring gates and plugins) starts
+   with Resolution, the order is one group per resolution. If it starts
+   with Release type then Resolution, the order is source-major:
+   Remux-2160p, Remux-1080p, … in the profile's source order, then one
+   group per resolution for the other sources. If anything else ranked
+   above Resolution (a Prefer rule does by default, or an owner moved HDR
+   up), the order is one group of every quality and resolution becomes the
+   built-in resolution formats at the old step's place, so the old order
+   still holds.
+3. **Formats.** Every step becomes built-in formats in ladder order, with
+   lexicographic weights computed from what the levels below can add. The
+   old total score is the bottom level: codec, audio, Atmos, HDR10,
+   compatibility, languages and the owner's custom format scores at face
+   value. The old score's age, grabs, size and bitrate points become the
+   standard keys S7–S8, and indexer reputation becomes T2.
 4. **Scores.** Formats whose score was inherited from the global score
    list or a format's default score are written onto the profile, because
    a profile's score list is now complete, as in Radarr/Sonarr. The global
    score list and global minimum move onto each profile and are removed.
 5. **Removed fields.** `ranking`, `rankingConfig` (→ `pluginScores`),
    `evaluationMode`, `preferredSources`, `preferredCodecs`,
-   `preferredAudio`, `preferLargest`.
+   `preferredAudio`, `preferLargest`. Profiles PR #355 imported in Servarr
+   mode keep their quality order and scores and gain the streaming formats.
 
-Cases the standard order can't express are converted to the nearest
-equivalent and logged at startup, per profile:
+The startup log names, per profile, what the standard order can't keep:
 
-- Prefer rules ranked above everything; they now rank within a quality.
-- A step moved above Resolution (other than Release type) now ranks
-  within a quality.
+- Audio language and connection fit now rank before Prefer rules (the old
+  default ladder ranked Prefer rules first of all).
 - Audio language or Connection fit moved down now always rank first.
 - Played fine recently moved up is now a final tie-break.
 - Larger file (or "prefer larger files") now compares at S8.
+- A step placed after Custom score now ranks above it.
 - A plugin step now adds its points to the custom format score.
 
 ### Proof
 
-`internal/resolver/ranking_corpus_test.go` ranks a deterministic corpus
-(four titles, 160 release pools, four devices, seven stored profile
-shapes: the three shipped profiles, a French-language 4K, a source-first
-ladder, a codec/audio-first ladder and a profile with owner custom
-formats) and compares it with the picks recorded from the old ranking
-before any code changed (`testdata/ranking_corpus_golden.json`). Results
-are in the "Conversion results" section below.
+`internal/resolver/ranking_corpus_test.go` ranks a deterministic corpus:
+four titles (an English film, a Spanish film, an animated film, an
+episode), 160 release pools of 4 to 14 releases, and four devices (Apple
+TV 4K with Dolby Vision, an SDR 4K TV, a 1080p phone, a remote browser at
+8 Mbps). It does this for nine stored profile shapes, which reach the
+ranker through `config.Open` exactly as an upgrading install's do. The
+golden (`testdata/ranking_corpus_golden.json`) was recorded by the old
+ranking before any code changed, at 08f691eed. The test fails on any
+change in the set of accepted releases, on any first-pick difference it
+can't explain, and if a shipped profile keeps fewer than 98% of its first
+picks.
+
+| Stored profile | Same first pick | Same full order | Why the rest differ |
+| --- | ---: | ---: | --- |
+| 4K (shipped) | 98.8% | 95.2% | 8 × same quality, the format score now outranks age, grabs and bitrate |
+| 1080p (shipped) | 99.5% | 96.6% | 3 × same quality and score, Radarr's later keys decide |
+| 720p (shipped) | 99.1% | 95.0% | 3 × score before soft points, 3 × later keys |
+| 4K, French Languages | 99.5% | 97.0% | 3 × score before soft points |
+| 4K, codec and audio above score | 99.5% | 97.8% | 3 × score before soft points |
+| 4K with owner custom formats | 98.4% | 92.2% | 10 × score before soft points |
+| 4K, HDR above resolution | 95.2% | 89.4% | 24 × a release names no resolution, 7 × score before soft points |
+| 4K, release type above resolution | 90.8% | 72.3% | 51 × a release names no resolution, 8 × score before soft points |
+| 4K with a Prefer rule (ranked first) | 83.0% | 70.8% | 73 × gates now rank before the Prefer rule, 34 × no resolution, 2 × score |
+
+640 cases per profile; every accepted set is identical. The differences
+fall into four kinds:
+
+- **Score before soft points.** Same quality; the new pick has the higher
+  custom format score. The old total score added Ether's age penalty,
+  grabs and bitrate points to the format points. Radarr compares the
+  format score first and age, seeders and size after it.
+- **Later keys.** Same quality and score; Radarr's protocol, seeders/age or
+  size key decided where Ether's soft points did.
+- **No resolution.** A release whose name has no resolution ranks below
+  every listed quality, as before, but a ladder that ranked release type or
+  HDR first used to rank it within that type. The corpus overstates this:
+  a fifth of its names carry no resolution, far more than real searches.
+- **Gates before Prefer rules.** The old default ladder ranked Prefer rules
+  above the audio-language check, so a German-only release from a
+  preferred group beat an English one for an English-speaking viewer. The
+  gates now come first.
 
 ## Coming from Radarr, Sonarr or TRaSH
 

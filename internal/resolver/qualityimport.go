@@ -445,7 +445,7 @@ func PlanQualityImport(imp QualityImport, app string, found map[string]core.Cust
 		plan.Formats = append(plan.Formats, f)
 	}
 	if len(existing)+len(plan.Definitions) > 1000 {
-		plan.Warnings = append(plan.Warnings, "Custom scoring is limited to 1,000 formats; remove some from a quality profile's More options before importing this profile.")
+		plan.Warnings = append(plan.Warnings, "Ether keeps at most 1,000 custom formats; remove some under a quality profile's custom format definitions before importing this profile.")
 	}
 	slices.SortStableFunc(plan.Formats, func(a, b ImportFormat) int {
 		if a.Score != b.Score {

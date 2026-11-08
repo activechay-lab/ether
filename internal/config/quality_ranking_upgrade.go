@@ -350,16 +350,22 @@ func convertProfile(p legacyProfile, res legacyResolver) profileConversion {
 			steps = append(steps, s)
 		}
 	}
-	gateMoved := false
+	gateMoved, ruleFirst := false, false
 	for _, g := range []string{stepLanguage, stepConnection} {
 		for _, s := range ladder[:pos[g]] {
-			if !strings.HasPrefix(s, "rule:") && s != stepLanguage && s != stepConnection {
+			switch {
+			case strings.HasPrefix(s, "rule:"):
+				ruleFirst = true
+			case s != stepLanguage && s != stepConnection:
 				gateMoved = true
 			}
 		}
 	}
 	if gateMoved {
 		conv.notes = append(conv.notes, "audio language and connection fit now always rank first")
+	}
+	if ruleFirst {
+		conv.notes = append(conv.notes, "audio language and connection fit now rank before Prefer rules")
 	}
 	if pos[stepVerified] < pos[stepCustomScore] {
 		conv.notes = append(conv.notes, "played fine recently now only breaks ties")

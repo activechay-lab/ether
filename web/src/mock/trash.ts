@@ -5,7 +5,7 @@
  */
 import type { ImportFormat, QualityImportPlan, StarrApp, TrashProfile } from "../lib/releases";
 import { mediaTypeForApp } from "../lib/releases";
-import type { EtherConfig, QualityProfile } from "../lib/types";
+import type { EtherConfig, QualityItem, QualityProfile } from "../lib/types";
 
 type Reply = { status: number; body: unknown };
 
@@ -302,7 +302,7 @@ function plan(
   meta: { id?: string; source?: "trash" | "dictionarry" | "" } = {},
 ): QualityImportPlan | Reply {
   const allowed: string[] = [];
-  const qualityOrder: string[][] = [];
+  const qualityOrder: QualityItem[] = [];
   const sources: string[] = [];
   const skipped: string[] = [];
   let min = 0;
@@ -325,7 +325,7 @@ function plan(
       max = Math.max(max, height);
     }
     sources.push(...group.sort((a, b) => SOURCE_ORDER.indexOf(a) - SOURCE_ORDER.indexOf(b)));
-    if (order.length) qualityOrder.push(order);
+    if (order.length) qualityOrder.push({ name: item.name, qualities: order });
   }
   if (!allowed.length)
     return fail(400, "invalid", "None of its enabled qualities can be streamed.");
@@ -351,16 +351,12 @@ function plan(
     minHeight: min,
     allowHdr: uhd,
     allowDolbyVision: uhd,
-    preferredSources: sources,
-    preferredCodecs: uhd ? ["hevc", "h264"] : ["h264", "hevc"],
-    preferredAudio: ["eac3", "ac3", "aac"],
     minSizeMbPerMin: 5,
     maxSizeMbPerMin: 0,
     preferredLanguages: null,
     allowCam: false,
     allowedQualities: allowed,
     qualityOrder,
-    evaluationMode: qualityOrder.length ? "servarr" : null,
     minCustomFormatScore: native.minFormatScore ?? 0,
     customFormatScores: Object.fromEntries(
       formats

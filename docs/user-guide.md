@@ -663,8 +663,8 @@ add before saving:
 - the qualities the profile allows, its resolution range, source order and
   minimum custom format score;
 - every custom format the profile scores, with its score from the profile's
-  TRaSH score set: **Added** formats join **Custom scoring**, **Already in
-  Custom scoring** ones are reused unchanged, and any Ether can't evaluate
+  TRaSH score set: **Added** formats join the profile's **Custom formats**,
+  **Already saved** ones are reused unchanged, and any Ether can't evaluate
   (indexer flags, for example) are listed but left out;
 - what doesn't carry over. Upgrade and cutoff settings don't apply, because
   Ether picks the best release each time something plays. Qualities with no
@@ -682,8 +682,8 @@ doesn't list.
 Ether reads the profiles from the guide and keeps them for an hour. If the
 guide is unreachable or its request limit is used up, switch to **Paste JSON**
 and paste or upload a profile file. Custom formats Ether can't fetch are
-marked **Not found**; paste them under **Custom scoring** and import the
-profile again. The preview refuses a profile whose minimum format score is
+marked **Not found**; paste them under **Custom format definitions** and
+import the profile again. The preview refuses a profile whose minimum format score is
 higher than the formats it could import, because no release could ever satisfy
 it.
 
@@ -704,26 +704,35 @@ not changed. **Sync now** runs the same update immediately, even while the
 automatic sync is off, for owners who prefer to take guide changes when they
 choose.
 
-## Rank releases by custom score
+## How releases are ranked
 
-A quality profile's **What matters most** list is checked from top to bottom;
-the first step where two releases differ decides which plays first. **Custom
-score** is one of those steps. It ranks the release with the higher total
-score first: Ether's own quality points plus the profile's custom format
-scores (imported from TRaSH Guides, Radarr or Sonarr, or entered under
-**Custom scoring**) plus how well the release suits the app.
+Ether ranks releases the way Radarr and Sonarr do, then adds what only a
+streaming server knows: the device, the viewer and the connection. The full
+model is in [quality-ranking.md](quality-ranking.md).
 
-By default **Custom score** sits just above **Played fine recently**, so your
-language, resolution, release type and HDR preferences come first, and a
-release that already played well only wins among equally scored ones. Drag it
-to change that. For example, put **Resolution** first and **Custom score**
-second to play 4K whenever a 4K release exists and let your scores rank
-everything else. Profiles saved before this step existed rank exactly as they
-did.
+1. A release that can't play here is skipped: a codec the device can't
+   decode, outside the profile's resolution or size range, a **Never play**
+   or **Only play** rule, below the **Minimum score**, or recently broken.
+2. Releases in a language the viewer doesn't accept, and releases the
+   connection can't carry, go after the others.
+3. The rest rank by **Qualities**: a release higher in the list plays
+   first, and qualities in one row rank the same.
+4. Within a quality, the release with the higher **custom format** total
+   plays first. Then come your source preference (Usenet or debrid),
+   indexer priority, seeders or age, and size, as in Radarr. A release that
+   played fine recently breaks a full tie.
 
-**Edit scores** on the step opens the profile's custom scoring editor.
-**Only play** and **Never play** filters still decide which releases are
-allowed at all; the step only orders the ones that pass.
+Edit both on a profile, under **Qualities** and **Custom formats**. Ether's
+own formats (release type, HDR, codecs, audio, the viewer's language, audio
+transcode and the like) score like the formats you import; set any to 0 or
+remove it. A **Prefer** rule is a format too, with its own score. A plugin's
+ranking step adds the points it gives each release. Ether's own formats,
+Prefer rules and plugins don't count toward the minimum score.
+
+Profiles saved before this model are converted once when the server starts,
+so they keep their picks. Where a saved order can't be kept exactly (for
+example a Prefer rule that ranked above the audio language check), the server
+log says what changed.
 
 ## Choose and fix releases
 

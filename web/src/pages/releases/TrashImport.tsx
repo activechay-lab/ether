@@ -24,13 +24,13 @@ import {
   mediaTypeForApp,
   qualityGateLabel,
   releaseConsole,
-  sourceLabel,
   type ImportFormat,
   type QualityImportPlan,
   type QualityImportSource,
   type ProfileMedia,
   type TrashProfileList,
 } from "../../lib/releases";
+import { itemName } from "../../lib/qualityRanking";
 import type { QualityProfile } from "../../lib/types";
 import { RecordDrawer, TextRow } from "../sources/form";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
@@ -483,11 +483,11 @@ function ImportPreview({
           control={<span className="text-sm text-fg">{resolution(p)}</span>}
         />
         <SettingsRow
-          title={t("Sources")}
-          description={t("In order of preference.")}
+          title={t("Quality order")}
+          description={t("Best first, as the profile ranks them.")}
           control={
             <span className="text-sm text-fg">
-              {(p.preferredSources ?? []).map(sourceLabel).join(" › ")}
+              {(p.qualityOrder ?? []).map(itemName).filter(Boolean).join(" › ")}
             </span>
           }
         />

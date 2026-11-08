@@ -24,13 +24,13 @@ import { useLocale } from "../../i18n/react";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { apiFetch, errorMessage, isAbort, uuid } from "../../lib/api";
 import {
-  BUILTIN,
   isPluginDescriptor,
   textOf,
   useRegistry,
   type Descriptor,
   type ExtendText,
 } from "../../lib/extend";
+import { withRuleScores } from "../../lib/qualityRanking";
 import type { QualityProfile, ReleaseCondition, ReleaseRule } from "../../lib/types";
 import type { ConsoleRelease } from "../../lib/releases";
 import { TitlePicker } from "./Search";
@@ -196,121 +196,6 @@ function optionLabel(option: DescriptorOption): string {
   return textOf(option.label) || option.value;
 }
 
-/** Inserts a step ahead of the first ladder step with a larger default position. */
-export function insertStepAtDefaultPosition(
-  ladder: string[],
-  steps: RankingStepDescriptor[],
-  stepId: string,
-): string[] {
-  const positions = new Map(
-    steps.map((s) => [s.id, s.meta?.defaultPosition ?? Number.MAX_SAFE_INTEGER]),
-  );
-  const mine = positions.get(stepId) ?? Number.MAX_SAFE_INTEGER;
-  const without = ladder.filter((s) => s !== stepId);
-  const at = without.findIndex((s) => !s.startsWith("rule:") && (positions.get(s) ?? -1) > mine);
-  return at < 0 ? [...without, stepId] : [...without.slice(0, at), stepId, ...without.slice(at)];
-}
-
-/**
- * The complete ladder for a profile: Prefer rules first by default in their
- * rule order, then the registered built-in steps in registry order. Steps a
- * plugin contributed appear only when the profile already names them; the
- * registry never inserts them on its own. Mirrors core EffectiveRanking.
- */
-export function normalizeRanking(
-  profile: Pick<QualityProfile, "ranking" | "releaseRules">,
-  steps: RankingStepDescriptor[],
-): string[] {
-  const rules = profile.releaseRules ?? [];
-  const preferSteps: string[] = [];
-  const validPrefer = new Set<string>();
-  for (const r of rules) {
-    if (r.action === "prefer" && r.id) {
-      const key = `rule:${r.id}`;
-      if (!validPrefer.has(key)) {
-        validPrefer.add(key);
-        preferSteps.push(key);
-      }
-    }
-  }
-  const defaultSteps = steps.filter((s) => s.owner === BUILTIN).map((s) => s.id);
-  const raw = profile.ranking ?? [];
-  if (raw.length === 0) {
-    return [...preferSteps, ...defaultSteps];
-  }
-  const known = new Set(steps.map((s) => s.id));
-  const seen = new Set<string>();
-  const kept: string[] = [];
-  for (const step of raw) {
-    if (seen.has(step)) continue;
-    if (step.startsWith("rule:")) {
-      if (validPrefer.has(step)) {
-        seen.add(step);
-        kept.push(step);
-      }
-      continue;
-    }
-    // Before the registry answers, keep the saved ladder as it is rather
-    // than dropping every step it cannot vouch for yet.
-    if (steps.length === 0 || known.has(step)) {
-      seen.add(step);
-      kept.push(step);
-    }
-  }
-  const missingPrefer = preferSteps.filter((step) => !seen.has(step));
-  let out = [...missingPrefer, ...kept];
-  for (const step of defaultSteps) {
-    if (seen.has(step)) continue;
-    // A ladder saved before the custom score step existed compared the
-    // score just before verified, so the step goes back exactly there.
-    const verified = out.indexOf("verified");
-    out =
-      step === "customScore" && verified >= 0
-        ? [...out.slice(0, verified), step, ...out.slice(verified)]
-        : insertStepAtDefaultPosition(out, steps, step);
-  }
-  return out;
-}
-
-/** Keeps the relative order of Prefer rules in releaseRules aligned with ranking. */
-export function syncRulesWithRanking(rules: ReleaseRule[], ranking: string[]): ReleaseRule[] {
-  const byId = new Map<string, ReleaseRule>();
-  for (const r of rules) {
-    if (r.action === "prefer" && r.id) {
-      byId.set(r.id, r);
-    }
-  }
-  const orderedPrefer: ReleaseRule[] = [];
-  const used = new Set<string>();
-  for (const step of ranking) {
-    if (!step.startsWith("rule:")) continue;
-    const id = step.slice(5);
-    const r = byId.get(id);
-    if (r && !used.has(id)) {
-      used.add(id);
-      orderedPrefer.push(r);
-    }
-  }
-  for (const r of rules) {
-    if (r.action === "prefer" && !used.has(r.id)) {
-      orderedPrefer.push(r);
-    }
-  }
-  let preferIdx = 0;
-  return rules.map((r) => (r.action === "prefer" ? orderedPrefer[preferIdx++]! : r));
-}
-
-/** Inserts a new Prefer rule at the end of the leading Prefer-rule block in ranking. */
-export function insertPreferRuleInRanking(ranking: string[], ruleId: string): string[] {
-  const key = `rule:${ruleId}`;
-  const without = ranking.filter((s) => s !== key);
-  let insertAt = 0;
-  while (insertAt < without.length && without[insertAt]!.startsWith("rule:")) {
-    insertAt++;
-  }
-  return [...without.slice(0, insertAt), key, ...without.slice(insertAt)];
-}
-
 function fieldDescriptor(
   fields: RuleFieldDescriptor[],
   field: string,
@@ -374,7 +259,7 @@ function retarget(
   return next;
 }
 
-function createRule(
+export function createRule(
   name: string,
   c: ReleaseCondition,
   action: ReleaseRule["action"] = "prefer",
@@ -683,7 +568,7 @@ export function RuleEditorCard({
             ? t("Must match to play.")
             : r.action === "avoid"
               ? t("Matching releases are skipped.")
-              : t("Ranks ahead of lower steps.")}
+              : t("Matching releases score higher.")}
         </span>
       </div>
       {r.conditions[0] && (
@@ -784,7 +669,7 @@ type PreviewBody = { releases?: ConsoleRelease[]; warning?: string; note?: strin
 /**
  * Filter rules (Only play / Never play) plus the rule builder and import/export
  * controls inside Section 1 ("Never play"). Adding a Prefer rule appends it to
- * releaseRules and places its step at the top of the Section 2 ranking ladder.
+ * releaseRules and scores it with the profile's custom formats.
  */
 export function FilterRulesEditor({
   profile,
@@ -792,11 +677,11 @@ export function FilterRulesEditor({
   error,
 }: {
   profile: QualityProfile;
-  onChange: (patch: Pick<QualityProfile, "releaseRules" | "ranking">) => void;
+  onChange: (patch: Pick<QualityProfile, "releaseRules" | "customFormatScores">) => void;
   error?: string;
 }) {
   useLocale();
-  const { steps, fields } = useRankingRegistry();
+  const { fields } = useRankingRegistry();
   const rules = profile.releaseRules ?? [];
   const filterRules = rules.filter((r) => r.action === "require" || r.action === "avoid");
   const [term, setTerm] = useState("");
@@ -811,28 +696,17 @@ export function FilterRulesEditor({
 
   const conflict = releaseRuleConflict(rules, fields);
 
+  /** The rules, with every Prefer rule scored as a custom format. */
+  function commitRules(nextRules: ReleaseRule[], scores = profile.customFormatScores) {
+    onChange({ releaseRules: nextRules, customFormatScores: withRuleScores(nextRules, scores) });
+  }
+
   function updateRule(id: string, patch: Partial<ReleaseRule>) {
-    const nextRules = rules.map((r) => (r.id === id ? { ...r, ...patch } : r));
-    const currentRanking = normalizeRanking(profile, steps);
-    let nextRanking = currentRanking;
-    if (patch.action === "prefer") {
-      nextRanking = insertPreferRuleInRanking(currentRanking, id);
-    } else if (patch.action === "require" || patch.action === "avoid") {
-      nextRanking = currentRanking.filter((s) => s !== `rule:${id}`);
-    }
-    onChange({
-      releaseRules: syncRulesWithRanking(nextRules, nextRanking),
-      ranking: nextRanking,
-    });
+    commitRules(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
   function removeRule(id: string) {
-    const nextRules = rules.filter((r) => r.id !== id);
-    const nextRanking = normalizeRanking(profile, steps).filter((s) => s !== `rule:${id}`);
-    onChange({
-      releaseRules: nextRules,
-      ranking: nextRanking,
-    });
+    commitRules(rules.filter((r) => r.id !== id));
   }
 
   function addTerm() {
@@ -848,15 +722,7 @@ export function FilterRulesEditor({
     } else {
       c.value = value;
     }
-    const added = createRule(value, c, action);
-    const nextRules = [...rules, added];
-    const currentRanking = normalizeRanking(profile, steps);
-    const nextRanking =
-      action === "prefer" ? insertPreferRuleInRanking(currentRanking, added.id) : currentRanking;
-    onChange({
-      releaseRules: syncRulesWithRanking(nextRules, nextRanking),
-      ranking: nextRanking,
-    });
+    commitRules([...rules, createRule(value, c, action)]);
     setTerm("");
   }
 
@@ -879,21 +745,12 @@ export function FilterRulesEditor({
         throw Error(t("Use a rules export with at most 32 rules."));
       const next = data.map((r) => ({ ...r, id: uuid() }));
       const mergedRules = [...currentRules, ...next];
-      let nextRanking = normalizeRanking(profileRef.current, steps);
-      for (const r of next) {
-        if (r.action === "prefer") {
-          nextRanking = insertPreferRuleInRanking(nextRanking, r.id);
-        }
-      }
+      const scores = withRuleScores(mergedRules, profileRef.current.customFormatScores);
       const body = await apiFetch<PreviewBody>("/releases/rules/preview", {
         method: "POST",
         signal: controller.signal,
         body: JSON.stringify({
-          profile: {
-            ...profileRef.current,
-            releaseRules: mergedRules,
-            ranking: nextRanking,
-          },
+          profile: { ...profileRef.current, releaseRules: mergedRules, customFormatScores: scores },
           names: [],
         }),
       });
@@ -903,17 +760,13 @@ export function FilterRulesEditor({
         return;
       }
       if (body.warning) throw Error(body.warning);
-      onChange({
-        releaseRules: syncRulesWithRanking(mergedRules, nextRanking),
-        ranking: nextRanking,
-      });
+      onChange({ releaseRules: mergedRules, customFormatScores: scores });
       setImportError("");
     } catch (e) {
       if (isAbort(e) || controller.signal.aborted) return;
       setImportError(errorMessage(e));
     }
   }
-
   function exportRules() {
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" }),
@@ -931,7 +784,7 @@ export function FilterRulesEditor({
         <h4 className="text-sm font-medium text-fg">{t("Rules")}</h4>
         <p className="text-xs text-fg-muted">
           {t(
-            "Only play and Never play rules filter releases here. Prefer rules become steps in What matters most below.",
+            "Only play and Never play rules filter releases here. Prefer rules are scored with your custom formats below.",
           )}
         </p>
       </div>

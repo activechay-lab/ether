@@ -41,7 +41,7 @@ describe("Quality profile import from guides", () => {
     ).toBeInTheDocument();
     expect(within(drawer).getByText(/Scored with TRaSH's sqp-1-2160p scores/)).toBeInTheDocument();
     expect(within(drawer).getByText("Blu-ray 4K")).toBeInTheDocument();
-    expect(within(drawer).getByText("Blu-ray › WEB-DL › WEBRip")).toBeInTheDocument();
+    expect(within(drawer).getByText("Bluray-2160p › WEB 2160p")).toBeInTheDocument();
     expect(within(drawer).getByText(/Left out SDTV/)).toBeInTheDocument();
     expect(within(drawer).getByText("1,000")).toBeInTheDocument();
     // The drawer names the source profile and the media it applies to.
@@ -71,9 +71,9 @@ describe("Quality profile import from guides", () => {
     // The profile's drawer shows what the import carried over.
     fireEvent.click(screen.getByRole("button", { name: "Edit UHD (TRaSH)" }));
     const editor = await screen.findByRole("dialog", { name: "UHD (TRaSH)" }, WAIT);
-    expect(within(editor).getByText("Imported profile")).toBeInTheDocument();
-    expect(within(editor).getByText("WEB-DL 4K")).toBeInTheDocument();
-    expect(within(editor).getByLabelText("Minimum format score")).toHaveValue(1000);
+    expect(within(editor).getByText("Allowed qualities")).toBeInTheDocument();
+    expect(within(editor).getAllByText("WEB-DL 4K").length).toBeGreaterThan(0);
+    expect(within(editor).getByLabelText("Minimum score")).toHaveValue(1000);
     // The imported profile's media and source are read-only.
     expect(
       within(editor).getByText("Set by the Radarr profile it was imported from."),

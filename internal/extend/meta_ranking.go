@@ -26,8 +26,8 @@ func Options(values ...string) []DescriptorOption {
 	return out
 }
 
-// RankingEditorKind names the inline editor a ranking step offers in the
-// "What matters most" ladder.
+// RankingEditorKind names the inline editor a plugin ranking step offers
+// for its settings on a quality profile.
 type RankingEditorKind string
 
 const (
