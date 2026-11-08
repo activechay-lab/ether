@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -269,17 +270,20 @@ func (s *Session) Rungs() []core.HLSRung {
 	if v := s.info.Video(); v != nil {
 		fr = v.FrameRate
 	}
+	// RFC 8216 section 4.1 defines peak over contiguous segment sets
+	// lasting 0.5–1.5 target durations, not over an arbitrarily short tail.
+	// Compute the shared window once, outside the rung loop.
+	target := s.segDur
+	if s.plan != nil {
+		target = s.plan.TargetDuration()
+	}
+	if target <= 0 {
+		target = DefaultSegmentDuration
+	}
+	duration := ((target + time.Second - 1) / time.Second * time.Second) / 2
 	out := make([]core.HLSRung, 0, len(s.rungs))
 	for t, r := range s.rungs {
 		peak := r.peakKbps
-		duration := s.segDur
-		if s.plan != nil {
-			for _, d := range s.plan.durs {
-				if d > 0 && d < duration {
-					duration = d
-				}
-			}
-		}
 		if !s.isDASH() && !r.decision.VideoCopy {
 			rate := s.vbvRateLocked(t)
 			// A master can be cached for the whole session. A temporary
