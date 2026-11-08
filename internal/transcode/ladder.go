@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -269,10 +270,38 @@ func (s *Session) Rungs() []core.HLSRung {
 	if v := s.info.Video(); v != nil {
 		fr = v.FrameRate
 	}
+	// RFC 8216 section 4.1 defines peak over contiguous segment sets
+	// lasting 0.5–1.5 target durations, not over an arbitrarily short tail.
+	// Compute the shared window once, outside the rung loop.
+	target := s.segDur
+	if s.plan != nil {
+		target = s.plan.TargetDuration()
+	}
+	if target <= 0 {
+		target = DefaultSegmentDuration
+	}
+	duration := ((target + time.Second - 1) / time.Second * time.Second) / 2
 	out := make([]core.HLSRung, 0, len(s.rungs))
-	for _, r := range s.rungs {
+	for t, r := range s.rungs {
+		peak := r.peakKbps
+		if !s.isDASH() && !r.decision.VideoCopy {
+			rate := s.vbvRateLocked(t)
+			// A master can be cached for the whole session. A temporary
+			// goodput cap may later recover, so advertise the full reservoir.
+			if rate.MaxrateKbps > 0 && rate.MaxrateKbps < r.peakKbps {
+				seconds := s.adapt.VBVBufSeconds
+				if seconds <= 0 {
+					seconds = 8
+				}
+				rate.MaxrateKbps = r.peakKbps
+				rate.BufsizeKbps = r.peakKbps * seconds
+			}
+			peak = max(peak, encodedHLSPeakKbps(s.info, r.decision, rate, duration))
+		} else if !s.isDASH() && t == 0 && s.plan != nil && s.plan.rampSegs > 0 && s.rampTranscodesLocked() {
+			peak = max(peak, encodedHLSPeakKbps(s.info, fastStartDecision(r.decision, s.info, s.adapt), rateControl{}, duration))
+		}
 		out = append(out, core.HLSRung{
-			ID: r.id, Bandwidth: r.peakKbps * 1000, AverageBandwidth: r.avgKbps * 1000,
+			ID: r.id, Bandwidth: peak * 1000, AverageBandwidth: r.avgKbps * 1000,
 			Width: r.width, Height: r.height, Codecs: r.codecs, FrameRate: fr,
 		})
 	}
