@@ -139,6 +139,9 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 	if e != nil {
 		return e
 	}
+	// assetMu before the write transaction, the order DeleteAsset uses.
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
@@ -151,6 +154,13 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_reels WHERE id=?", id); e != nil {
+		return e
+	}
+	digests := make([]string, 0, len(r.Clips))
+	for _, c := range r.Clips {
+		digests = append(digests, c.SourceDigest)
+	}
+	if e = s.dropUnusedReelSources(ctx, tx, digests); e != nil {
 		return e
 	}
 	e = tx.Commit()
@@ -449,7 +459,7 @@ func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
 	}
 	for _, c := range r.Clips {
 		if c.ID == id {
-			_, e = s.db.ExecContext(ctx, "DELETE FROM onair_reel_clips WHERE reel_id=? AND id=?", reel, id)
+			e = s.deleteClipRow(ctx, reel, c)
 			if e == nil {
 				s.mu.Lock()
 				delete(s.reelReady, c.ID)
@@ -463,6 +473,57 @@ func (s *Service) DeleteClip(ctx context.Context, reel, id string) error {
 		return nil
 	}
 	return ErrNotFound
+}
+
+// deleteClipRow deletes one clip and, in the same transaction, its source
+// upload once nothing else uses it.
+func (s *Service) deleteClipRow(ctx context.Context, reel string, c ReelClip) error {
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
+	tx, e := s.db.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.ExecContext(ctx, "DELETE FROM onair_reel_clips WHERE reel_id=? AND id=?", reel, c.ID); e != nil {
+		return e
+	}
+	if e = s.dropUnusedReelSources(ctx, tx, []string{c.SourceDigest}); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
+// dropUnusedReelSources deletes the reel source uploads among digests that
+// no clip, look, family or channel uses any more, under the same rules as
+// DeleteAsset. Without it a deleted reel's sources stayed in the database
+// and kept counting against the reel budget. The caller holds assetMu,
+// taken before its transaction.
+func (s *Service) dropUnusedReelSources(ctx context.Context, tx *sql.Tx, digests []string) error {
+	channels, e := s.hasChannelAssets(ctx)
+	if e != nil {
+		return e
+	}
+	query := `DELETE FROM onair_assets WHERE digest=? AND kind='reel' AND NOT EXISTS(SELECT 1 FROM onair_reel_clips WHERE source_digest=?) AND NOT EXISTS(SELECT 1 FROM onair_looks WHERE data LIKE ?) AND NOT EXISTS(SELECT 1 FROM onair_families WHERE data LIKE ?)`
+	if channels {
+		query += ` AND NOT EXISTS(SELECT 1 FROM livetv_channels WHERE data LIKE ?)`
+	}
+	seen := map[string]bool{}
+	for _, d := range digests {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		like := "%" + d + "%"
+		args := []any{d, d, like, like}
+		if channels {
+			args = append(args, like)
+		}
+		if _, e = tx.ExecContext(ctx, query, args...); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 func (s *Service) loadReels() {
