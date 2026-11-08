@@ -259,7 +259,7 @@ type session struct {
 	// later generation swap, so a long session's second independent edge
 	// glitch escalates as before. A per-outage reset would need sustained
 	// healthy progress plus a cumulative starvation cap (issue #169), not
-	// merely a new request. Guarded by failSem; see takeStallContinue.
+	// merely a new request. Guarded by mu; see takeStallContinue.
 	stallContinues   int
 	requiresRemux    bool
 	prefer           string // release ID the viewer picked (PrepareVariant); read-only after creation
