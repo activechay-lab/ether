@@ -143,7 +143,9 @@ Streaming formats (context Ether knows and Radarr doesn't):
 A profile's device formats are scored when Ether creates or imports it,
 because device fit is Ether's job; at these sizes they only separate
 releases a pack scores alike. Imports get Series year differs too, but not
-Viewer's language: language preference is the pack's to express.
+Viewer's language: language preference is the pack's to express. Series
+year differs only matches episodes, so only TV profiles score it and the
+console lists it only on them.
 
 Prefer rules are formats too: each Prefer rule has a score (a new one
 starts above everything else the profile scores). A plugin ranking step

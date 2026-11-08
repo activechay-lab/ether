@@ -22,7 +22,7 @@ import { localized, t, tn } from "../../i18n";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { ApiError, api } from "../../lib/api";
 import { relativeTime } from "../../lib/format";
-import { itemName, resolutionGroups } from "../../lib/qualityRanking";
+import { itemName, resolutionGroups, withMediaFormats } from "../../lib/qualityRanking";
 import {
   MEDIA_MOVIE,
   MEDIA_TV,
@@ -579,7 +579,7 @@ function ProfileList({
     }
     const old = profiles[index];
     const scope = (profileMediaType(draft) || media) as ProfileMedia;
-    draft = { ...draft, mediaType: scope };
+    draft = withMediaFormats({ ...draft, mediaType: scope });
     const list =
       index < profiles.length
         ? profiles.map((p, j) => (j === index ? draft : p))

@@ -566,6 +566,7 @@ func (p QualityImportPlan) Apply(c *config.Config, name string) error {
 	prof := p.Profile
 	prof.Name = name
 	prof.MediaType = media
+	prof.CustomFormatScores = core.ScoresForMedia(prof.CustomFormatScores, media)
 	if p.Source != "" {
 		prof.Import = &core.ProfileImport{
 			Source:   p.Source,

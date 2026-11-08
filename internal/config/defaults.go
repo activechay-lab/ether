@@ -194,6 +194,7 @@ func DefaultQuality() Quality {
 		for _, p := range tiers {
 			c := cloneProfile(p)
 			c.MediaType = media
+			c.CustomFormatScores = core.ScoresForMedia(c.CustomFormatScores, media)
 			q.Profiles = append(q.Profiles, c)
 		}
 	}

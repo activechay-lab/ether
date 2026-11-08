@@ -362,7 +362,6 @@ function defaultConfig(): EtherConfig {
           qualityOrder: resolutionGroups(2160, 1080),
           customFormatScores: {
             "ether:viewer-language": 20000,
-            "ether:series-year-differs": -10000,
             "ether:remux": 6000,
             "ether:bluray": 4000,
             "ether:webdl": 2000,
@@ -392,7 +391,6 @@ function defaultConfig(): EtherConfig {
           qualityOrder: resolutionGroups(1080, 720),
           customFormatScores: {
             "ether:viewer-language": 10000,
-            "ether:series-year-differs": -5000,
             "ether:webdl": 2000,
             "ether:bluray": 1000,
             "ether:codec-h264": 12,

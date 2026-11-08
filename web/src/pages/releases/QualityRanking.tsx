@@ -23,6 +23,7 @@ import {
   allQualities,
   builtinFormat,
   definitionKey,
+  formatApplies,
   isPluginFormat,
   isRuleFormat,
   itemName,
@@ -313,22 +314,25 @@ export function CustomFormatsSection({
     const d = definitions.find((f) => definitionKey(f) === id);
     return (d?.name as string | undefined) || id;
   };
-  const listedBuiltins = BUILTIN_FORMATS.filter((f) => scores[f.id] != null);
+  const builtins = BUILTIN_FORMATS.filter((f) => formatApplies(f, draft.mediaType));
+  const listedBuiltins = builtins.filter((f) => scores[f.id] != null);
   const listedCustom = Object.keys(scores).filter(
     (id) => !id.startsWith("ether:") && !isRuleFormat(id) && !isPluginFormat(id),
   );
   const addable = useMemo(
     () => [
-      ...BUILTIN_FORMATS.filter((f) => scores[f.id] == null).map((f) => ({
-        value: f.id,
-        label: f.kind === "streaming" ? t("{name} (streaming)", { name: f.label }) : f.label,
-      })),
+      ...builtins
+        .filter((f) => scores[f.id] == null)
+        .map((f) => ({
+          value: f.id,
+          label: f.kind === "streaming" ? t("{name} (streaming)", { name: f.label }) : f.label,
+        })),
       ...definitions
         .map((f) => definitionKey(f))
         .filter((id) => id && scores[id] == null)
         .map((id) => ({ value: id, label: defName(id) })),
     ],
-    [scores, definitions, locale],
+    [scores, definitions, locale, draft.mediaType],
   );
   const [toAdd, setToAdd] = useState("");
   const chosen = addable.some((o) => o.value === toAdd) ? toAdd : (addable[0]?.value ?? "");
