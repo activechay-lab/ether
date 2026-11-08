@@ -190,3 +190,27 @@ CREATE VIRTUAL TABLE lg_docs_fts USING fts5(body, content='lg_docs', content_row
 		t.Fatalf("dump misses lg_docs: %v", tables)
 	}
 }
+
+// A backup taken before a migration dropped a table still restores; a table
+// the server never had is still refused.
+func TestLogicalSkipsRetiredTables(t *testing.T) {
+	ctx := context.Background()
+	src := openSQLiteMemory(t)
+	seedLogical(t, src)
+	if _, err := src.ExecContext(ctx, `CREATE TABLE storetest_retired(id INTEGER PRIMARY KEY, v TEXT); INSERT INTO storetest_retired VALUES(1,'gone'),(2,'also gone')`); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := ExportLogical(ctx, src, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if err := ImportLogical(ctx, openSQLiteMemory(t), bytes.NewReader(buf.Bytes())); err == nil {
+		t.Fatal("restored a table this server does not have")
+	}
+	RegisterRetiredTable("storetest_retired")
+	dst := openSQLiteMemory(t)
+	if err := ImportLogical(ctx, dst, bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	checkLogical(t, dst)
+}

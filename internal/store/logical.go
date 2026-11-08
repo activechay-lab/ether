@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -396,6 +397,17 @@ func ImportLogical(ctx context.Context, db *sql.DB, r io.Reader) (err error) {
 				return fmt.Errorf("store: dump trailer mismatch (tables %d/%d, rows %d/%d)", tables, end.Tables, total, end.Rows)
 			}
 			break
+		}
+		if !known[head.Table] && retiredTable(head.Table) {
+			// Dropped by a later migration: a backup from before it
+			// still restores, without the table.
+			n, err := skipRows(dec)
+			if err != nil {
+				return fmt.Errorf("restore %s: %w", head.Table, err)
+			}
+			tables++
+			total += n
+			continue
 		}
 		if !known[head.Table] {
 			return fmt.Errorf("store: backup table %s does not exist on this server", head.Table)
@@ -793,6 +805,38 @@ func (d *logicalDecoder) header() (LogicalHeader, error) {
 		return h, fmt.Errorf("store: unsupported logical dump version %d", h.Version)
 	}
 	return h, nil
+}
+
+var (
+	retiredMu     sync.Mutex
+	retiredTables = map[string]bool{}
+)
+
+// RegisterRetiredTable records a table a migration drops, so restoring a
+// logical backup taken before that migration skips the table's rows instead
+// of refusing the backup. Register it beside the migration that drops it.
+func RegisterRetiredTable(table string) {
+	retiredMu.Lock()
+	defer retiredMu.Unlock()
+	retiredTables[table] = true
+}
+
+func retiredTable(table string) bool {
+	retiredMu.Lock()
+	defer retiredMu.Unlock()
+	return retiredTables[table]
+}
+
+// skipRows reads past the current table's rows and counts them.
+func skipRows(dec *logicalDecoder) (int64, error) {
+	var n int64
+	for {
+		_, ok, err := dec.row()
+		if err != nil || !ok {
+			return n, err
+		}
+		n++
+	}
 }
 
 // next returns the next table header, or the trailer.

@@ -22,6 +22,7 @@ func init() {
 	// then remove the obsolete table and any stored Quick Connect secrets.
 	store.Register("mcp_pairings", 1, `CREATE TABLE mcp_pairings (code TEXT PRIMARY KEY, secret TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', expires INTEGER NOT NULL, token TEXT NOT NULL DEFAULT ''); CREATE INDEX mcp_pairings_expires ON mcp_pairings(expires);`)
 	store.Register("mcp_pairings", 2, `DROP TABLE mcp_pairings;`)
+	store.RegisterRetiredTable("mcp_pairings")
 	store.Register("mcp_oauth", 1, `
 CREATE TABLE mcp_oauth_clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, redirects TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE mcp_oauth_requests (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, state TEXT NOT NULL, challenge TEXT NOT NULL, scope TEXT NOT NULL, resource TEXT NOT NULL, expires INTEGER NOT NULL);
