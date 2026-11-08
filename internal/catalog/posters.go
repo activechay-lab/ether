@@ -132,17 +132,18 @@ func (c *Catalog) FillPosters(ctx context.Context, titles []core.Title, unknown 
 	if len(pending) == 0 || c.tmdb() == nil {
 		return
 	}
-	wctx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
 	type found struct {
 		i    int
 		path string
 	}
+	// Every lookup starts, even with no time to wait for it (a prefetch):
+	// only the waiting is bounded. Late answers go to the buffered channel
+	// and the poster cache, never to titles.
 	results := make(chan found, len(pending))
 	for _, i := range pending {
 		key := titles[i].Key
 		go func() {
-			info, err := c.posters.flights.DoDetached(wctx, key, func(bg context.Context) (posterInfo, error) {
+			info, err := c.posters.flights.DoDetached(ctx, key, func(bg context.Context) (posterInfo, error) {
 				return c.lookupPoster(bg, key)
 			})
 			if err != nil {
@@ -152,10 +153,18 @@ func (c *Catalog) FillPosters(ctx context.Context, titles []core.Title, unknown 
 			results <- found{i, info.Path}
 		}()
 	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
 	for range pending {
-		f := <-results
-		if f.i >= 0 && f.path != "" {
-			titles[f.i].PosterPath = f.path
+		select {
+		case f := <-results:
+			if f.i >= 0 && f.path != "" {
+				titles[f.i].PosterPath = f.path
+			}
+		case <-timer.C:
+			return
+		case <-ctx.Done():
+			return
 		}
 	}
 }
