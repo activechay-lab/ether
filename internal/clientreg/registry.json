@@ -1,5 +1,23 @@
 {
   "version": 1,
+  "devices": [
+    {"name": "Apple TV", "identity": {"product": "Plex for Apple TV", "platform": "tvOS", "device": "Apple TV"}},
+    {"name": "iOS", "identity": {"product": "Plex for iOS", "platform": "iOS", "device": "iPhone"}},
+    {"name": "Android", "identity": {"product": "Plex for Android (Mobile)", "platform": "Android"}},
+    {"name": "Android TV", "identity": {"product": "Plex for Android (TV)", "platform": "Android", "device": "Android TV"}},
+    {"name": "Google TV", "identity": {"product": "Plex for Android (TV)", "platform": "Android", "device": "Google TV"}},
+    {"name": "NVIDIA Shield", "identity": {"product": "Plex for Android (TV)", "platform": "Android", "device": "SHIELD Android TV"}},
+    {"name": "Roku", "identity": {"product": "Roku"}},
+    {"name": "Fire TV", "identity": {"product": "Fire TV"}},
+    {"name": "LG webOS", "identity": {"product": "LG webOS"}},
+    {"name": "Samsung Tizen", "identity": {"product": "Samsung Tizen"}},
+    {"name": "Xbox", "identity": {"product": "Xbox"}},
+    {"name": "PlayStation", "identity": {"product": "PlayStation"}},
+    {"name": "Home theater PC", "identity": {"product": "HTPC"}},
+    {"name": "Kodi", "identity": {"product": "Kodi"}},
+    {"name": "Mac", "identity": {"product": "Plex for Mac", "platform": "macOS"}},
+    {"name": "Browser", "identity": {"product": "Plex Web"}}
+  ],
   "presets": {
     "text": {
       "subtitles": ["srt", "subrip", "webvtt", "vtt", "ass", "ssa"],
@@ -464,6 +482,12 @@
       "role": "playback",
       "preset": "generic",
       "match": {}
+    },
+    {
+      "id": "shield-video",
+      "role": "patch",
+      "video": ["h264", "hevc", "vp9"],
+      "match": {"field": "identity", "op": "contains", "value": "shield"}
     },
     {
       "id": "fire-tv-4k-max",

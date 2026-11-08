@@ -44,7 +44,19 @@ type Result struct {
 	DolbyVisionOff bool
 }
 
+// Device describes a representative catalogue identity, not a capability table.
+// Evaluate it through Playback and Policy just like a runtime client. Actual
+// clients can still declare capabilities or match more specific model rules.
+type Device struct {
+	Name     string   `json:"name"`
+	Identity Identity `json:"identity"`
+}
+
+// Devices returns the registry's catalogue identities in display order.
+func Devices() []Device { return slices.Clone(loaded.Devices) }
+
 type document struct {
+	Devices     []Device          `json:"devices"`
 	Version     int               `json:"version"`
 	Presets     map[string]preset `json:"presets"`
 	Definitions []definition      `json:"definitions"`
@@ -308,6 +320,13 @@ func Playback(id Identity, overrides []core.ClientCapabilityOverride) Result {
 		d := &loaded.Definitions[i]
 		if d.Role != "patch" || !d.Match.ok(id) {
 			continue
+		}
+		if d.Video != nil {
+			// Hardware limits can remove a codec but must not grant one
+			// the app's playback defaults never supported.
+			base.Video = slices.DeleteFunc(base.Video, func(codec string) bool {
+				return !slices.Contains(d.Video, codec)
+			})
 		}
 		if d.PatchHeight != nil {
 			base.MaxHeight = *d.PatchHeight

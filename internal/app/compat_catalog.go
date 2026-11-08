@@ -6,7 +6,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // compatApp is one known client application. Device capability lives on
@@ -23,9 +22,9 @@ type compatApp struct {
 	Certification string   `json:"certification"`
 }
 
-// compatDevice is a piece of hardware. The same Apple TV is an Apple TV
-// whether the app is Plex, Infuse, Swiftfin, or Silo. The numbers are the
-// registry record the engine uses, after owner overrides.
+// compatDevice shows defaults for a representative registry client identity,
+// after owner overrides. Runtime app declarations and model-specific matches
+// can refine these defaults; a row does not certify every model or display.
 type compatDevice struct {
 	ID                  string   `json:"id,omitempty"`
 	Name                string   `json:"name"`
@@ -91,35 +90,23 @@ func builtinApps() []compatApp {
 }
 
 func builtinDevices(overrides []core.ClientCapabilityOverride) []compatDevice {
-	products := []struct{ name, product string }{
-		{"Apple TV", "Apple TV"},
-		{"iOS", "iOS"},
-		{"Android", "Android"},
-		{"Android TV", "Android TV"},
-		{"Google TV", "Google TV"},
-		{"NVIDIA Shield", "NVIDIA Shield"},
-		{"Roku", "Roku"},
-		{"Fire TV", "Fire TV"},
-		{"LG webOS", "LG webOS"},
-		{"Samsung Tizen", "Samsung Tizen"},
-		{"Xbox", "Xbox"},
-		{"PlayStation", "PlayStation"},
-		{"Home theater PC", "HTPC"},
-		{"Kodi", "Kodi"},
-		{"Mac", "Mac"},
-		{"Browser", "Plex Web"},
-	}
-	out := make([]compatDevice, 0, len(products)+1)
-	for _, item := range products {
-		id := clientreg.Identity{Product: item.product}
-		edited := transcode.ResolvePolicy(core.ClientCaps{Product: item.product}, overrides)
+	devices := clientreg.Devices()
+	out := make([]compatDevice, 0, len(devices)+1)
+	for _, item := range devices {
+		id := item.Identity
+		basePolicy := clientreg.Policy(id, nil)
+		edited := clientreg.Policy(id, overrides)
 		playBase := clientreg.Playback(id, nil)
 		play := clientreg.Playback(id, overrides)
+		recordID := basePolicy.ID
+		if recordID == "generic" {
+			recordID = playBase.ID
+		}
 		out = append(out, compatDevice{
-			ID:                  clientreg.Policy(id, nil).ID,
-			Name:                item.name,
+			ID:                  recordID,
+			Name:                item.Name,
 			DolbyVisionProfiles: edited.DolbyVisionProfiles,
-			SubtitleCodecs:      edited.SubtitleCodecs,
+			SubtitleCodecs:      edited.Subtitles,
 			Notes:               edited.Notes,
 			VideoCodecs:         play.Video,
 			MaxHeight:           play.MaxHeight,

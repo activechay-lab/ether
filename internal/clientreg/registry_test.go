@@ -216,3 +216,29 @@ func TestSwiftfinPlaybackIncludesMP3AndAC3(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestShieldVideoDefaultsAndOverrides(t *testing.T) {
+	for _, product := range []string{"Plex for Android (TV)", "Plezy"} {
+		id := Identity{Product: product, Platform: "Android", Device: "SHIELD Android TV"}
+		base := Playback(id, nil)
+		if base.MaxHeight != 2160 || !base.HDR10 || !slices.Equal(base.Video, []string{"h264", "hevc", "vp9"}) {
+			t.Fatalf("%s: %+v", product, base)
+		}
+		// P5/P8 policy permissions do not assert that the attached display
+		// and app advertised DV; runtime declarations still supply that flag.
+		if base.DolbyVision || !slices.Equal(Policy(id, nil).DolbyVisionProfiles, []int{5, 8}) {
+			t.Fatalf("%s: changed DV admission", product)
+		}
+		on := true
+		edited := Playback(id, []core.ClientCapabilityOverride{{ID: "shield", VideoCodecs: []string{"h264", "av1"}, DolbyVision: &on}})
+		if !edited.DolbyVision || !slices.Contains(edited.Video, "av1") {
+			t.Fatalf("%s: owner override lost: %+v", product, edited)
+		}
+	}
+	if got := Playback(Identity{Product: "Plex Web", Device: "SHIELD Android TV"}, nil).Video; !slices.Equal(got, []string{"h264"}) {
+		t.Fatalf("hardware patch granted browser codecs: %v", got)
+	}
+	if !slices.Contains(Playback(Identity{Product: "Plex for Android (TV)", Device: "Google TV"}, nil).Video, "av1") {
+		t.Fatal("Shield patch leaked into Google TV")
+	}
+}
