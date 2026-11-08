@@ -33,6 +33,7 @@ func runLongTail(ctx context.Context, args []string) error {
 	limit := f.Int("detail-limit", 0, "stop after this many detail fetches (0 = all)")
 	report := f.String("report", "", "write the generation report and sizes as JSON here")
 	countsFile := f.String("tmdb-counts", "", "per-year TMDB discover totals (JSON); sizes the universe as a real sync would mirror it, replacing -titles")
+	skipSync := f.Bool("skip-sync", false, "continue an existing -out database: skip the sync and detail what is left")
 	uncapped := f.Bool("uncapped", false, "with -tmdb-counts: the whole of TMDB, not the 10,000 per year a sync reaches")
 	_ = f.Parse(args)
 	if (*out == "") == (*pgURL == "") {
@@ -53,7 +54,7 @@ func runLongTail(ctx context.Context, args []string) error {
 	if *pgURL != "" {
 		db, _, err = store.OpenWith(ctx, store.Options{URL: *pgURL})
 	} else {
-		if _, statErr := os.Stat(*out); statErr == nil {
+		if _, statErr := os.Stat(*out); statErr == nil && !*skipSync {
 			return fmt.Errorf("%s exists; choose a fresh -out", *out)
 		}
 		if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
@@ -71,7 +72,7 @@ func runLongTail(ctx context.Context, args []string) error {
 	}
 	last := map[string]time.Time{}
 	rep, err := perfharness.GenerateLongTail(ctx, db, perfharness.LongTailConfig{
-		Titles: *titles, MovieShare: *share, Seed: *seed, HideObscure: *hide, YearCounts: yearCounts,
+		Titles: *titles, MovieShare: *share, Seed: *seed, HideObscure: *hide, YearCounts: yearCounts, SkipSync: *skipSync,
 		OpenShows: *openShows, DetailLimit: *limit,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Progress: func(phase string, n int) {

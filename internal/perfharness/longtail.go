@@ -201,6 +201,8 @@ type LongTailConfig struct {
 	// so their seasons and episodes are stored (0 = 300, -1 = none). It
 	// does not grow with the universe: viewers open what they watch.
 	OpenShows int
+	// SkipSync goes straight to detailing (a database a sync already filled).
+	SkipSync bool
 	// DetailLimit stops warming after this many detail fetches (0 = all).
 	DetailLimit int
 	// Progress, if set, is called as phases advance.
@@ -275,7 +277,9 @@ func GenerateLongTail(ctx context.Context, db *sql.DB, cfg LongTailConfig) (Long
 			}
 		}
 	}()
-	err = c.Sync(ctx)
+	if !cfg.SkipSync {
+		err = c.Sync(ctx)
+	}
 	syncDone()
 	if err != nil {
 		return rep, fmt.Errorf("sync: %w", err)
@@ -293,7 +297,6 @@ func GenerateLongTail(ctx context.Context, db *sql.DB, cfg LongTailConfig) (Long
 			return rep, err
 		}
 	}
-	c.WaitRefreshes()
 	rep.FillTook = time.Since(start)
 
 	start = time.Now()
@@ -406,23 +409,41 @@ func LoadTMDBYearCounts(raw []byte, capped bool) ([2]map[int]int, error) {
 // fillUnsynced details every released universe title the sync did not
 // store or has not detailed yet, through Get (the path WarmDetails takes),
 // eight at a time (the catalogue's writes still take turns); WarmDetails
-// then finds nothing left.
+// then finds nothing left. It works in rounds of fillRound titles and
+// checkpoints between them: eight readers always in flight keep a WAL
+// checkpoint from ever reaching the end of the log, and the WAL grew past
+// 10 GB on a 128k-title universe.
 func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTailTMDB, progress func(string, int), rep *LongTailReport) error {
-	work := make(chan core.RatingKey, 256)
+	var pending []core.RatingKey
 	var failed atomic.Int64
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for k := range work {
-				if _, err := c.Get(ctx, k); err != nil {
-					failed.Add(1)
+	round := func() error {
+		work := make(chan core.RatingKey)
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for k := range work {
+					if _, err := c.Get(ctx, k); err != nil {
+						failed.Add(1)
+					}
 				}
-			}
-		}()
+			}()
+		}
+		for _, k := range pending {
+			work <- k
+		}
+		close(work)
+		wg.Wait()
+		c.WaitRefreshes()
+		rep.Filled += len(pending)
+		pending = pending[:0]
+		progress("fill", rep.Filled)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return store.Checkpoint(ctx, db, true)
 	}
-	defer func() { close(work); wg.Wait() }()
 	for kind, list := range [][]ltEntry{u.movies, u.shows} {
 		for from := 0; from < len(list); from += 500 {
 			to := min(len(list), from+500)
@@ -451,15 +472,19 @@ func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTa
 			rows.Close()
 			for _, k := range keys {
 				if !have[k.(int64)] {
-					select {
-					case work <- core.RatingKey(k.(int64)):
-						rep.Filled++
-					case <-ctx.Done():
-						return ctx.Err()
-					}
+					pending = append(pending, core.RatingKey(k.(int64)))
 				}
 			}
-			progress("fill", rep.Filled)
+			if len(pending) >= fillRound {
+				if err := round(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if len(pending) > 0 {
+		if err := round(); err != nil {
+			return err
 		}
 	}
 	// A Get that waited out its read budget leaves its fetch running
@@ -468,6 +493,8 @@ func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTa
 	rep.FillWaited = int(failed.Load())
 	return nil
 }
+
+const fillRound = 2000
 
 func ltKey(kind int, id int64) core.RatingKey {
 	if kind == ltShow {
