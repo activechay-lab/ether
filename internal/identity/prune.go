@@ -12,7 +12,10 @@ import (
 func init() {
 	store.Register("identity_grants", 4, `CREATE INDEX identity_grants_revoked_expires ON identity_grants(revoked,expires); CREATE INDEX identity_grants_revoked_last_used ON identity_grants(revoked,last_used);`)
 	store.Register("identity_refresh", 2, `CREATE INDEX identity_refresh_families_absolute_expiry ON identity_refresh_families(absolute_expiry); CREATE INDEX identity_refresh_families_revoked_idle_expiry ON identity_refresh_families(revoked,idle_expiry); CREATE INDEX identity_refresh_families_access_hash ON identity_refresh_families(access_hash); CREATE INDEX identity_refresh_tokens_family_id ON identity_refresh_tokens(family_id);`)
-	store.Register("capability_tickets", 2, `CREATE INDEX capability_tickets_source_hash ON capability_tickets(source_hash);`)
+	// Its own component: capability_tickets' versions are pinned to the
+	// delivered schema boundary.
+	store.Register("capability_tickets_retention", 1, `CREATE INDEX capability_tickets_source_hash ON capability_tickets(source_hash);`)
+	store.RegisterAfter("capability_tickets_retention", "capability_tickets")
 }
 
 // pruneGrace is how long a dead credential is kept after it died.
