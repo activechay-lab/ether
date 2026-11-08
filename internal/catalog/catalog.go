@@ -273,6 +273,7 @@ type Catalog struct {
 	listCache    map[string]listEntry
 
 	syncing    atomic.Bool
+	syncBatch  atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
 	progress   SyncProgress
 	progressMu sync.RWMutex
 

@@ -374,6 +374,10 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 	// titles) shares few of them, so one page per transaction wrote 20 WAL
 	// pages a title. The resume point moves only past stored pages.
 	var pending []core.Title
+	limit := int(c.syncBatch.Load())
+	if limit <= 0 {
+		limit = syncWriteBatch
+	}
 	flush := func(next int) error {
 		if len(pending) > 0 {
 			// Back-pressure, not failure: wait for a long read to finish and
@@ -382,10 +386,13 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 				pending = pending[:0] // the retry fetches them again
 				return err
 			}
+			started := time.Now()
 			if err := c.upsertMany(ctx, pending, upsertOpts{browsable: true}); err != nil {
 				pending = pending[:0]
 				return fmt.Errorf("catalog: store tv=%t pass=%s year=%d before page=%d: %w", tv, pass, year, next, err)
 			}
+			limit = nextSyncBatch(limit, len(pending), time.Since(started))
+			c.syncBatch.Store(int64(limit))
 			added := len(pending)
 			pending = pending[:0]
 			c.setProgress(func(pr *SyncProgress) { pr.TitlesAdded += added })
@@ -464,7 +471,7 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 		switch {
 		case done:
 			return totalPages, flush(501)
-		case len(pending) >= syncWriteBatch:
+		case len(pending) >= limit:
 			if err := flush(page + 1); err != nil {
 				return totalPages, err
 			}
@@ -473,10 +480,32 @@ func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverPa
 	return 500, flush(501)
 }
 
-// syncWriteBatch is how many synced titles one transaction stores. On the
+// syncWriteBatch is the most synced titles one transaction stores. On the
 // lab catalogue: 20 a transaction wrote 20 WAL pages a title, 100 wrote 15,
 // 500 wrote 6.7.
 const syncWriteBatch = 250
+
+// syncWriteHold is the write-lock hold a sync transaction aims for: every
+// other writer (playback progress, receipts) waits behind it. On a large
+// catalogue on a spinning disk a title's index pages are mostly not cached
+// and each costs a seek, so the batch shrinks until one transaction takes
+// about this long, and grows back when the disk keeps up.
+const syncWriteHold = 500 * time.Millisecond
+
+func nextSyncBatch(limit, stored int, took time.Duration) int {
+	if stored <= 0 {
+		return limit
+	}
+	perTitle := took / time.Duration(stored)
+	if perTitle <= 0 {
+		return syncWriteBatch
+	}
+	want := int(syncWriteHold / perTitle)
+	// Move gradually: halve at most, grow by half at most.
+	want = max(want, limit/2, 1)
+	want = min(want, limit+limit/2+1, syncWriteBatch)
+	return want
+}
 
 // qualifiesNewRelease admits a recently released title (last 45 days) that
 // already has real viewer traction even if its cumulative vote count is still
