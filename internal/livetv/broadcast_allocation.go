@@ -28,7 +28,7 @@ func classifySource(h SourceHistory, ok bool) string {
 	}
 	switch {
 	case h.Stalls > 0, h.Reconnects > 0, h.Failures > 0, h.FormatChanges > 0,
-		h.DamagePerHour() > steadyFlakyDamagePerHour, h.MaxKeyframeGap > steadyFlakyKeyframeGap,
+		h.DamagePerHour() > steadyFlakyDamagePerHour, h.MaxKeyframeGap() > steadyFlakyKeyframeGap,
 		h.LastOutcome == "failed", h.LastOutcome == "escalated":
 		return steadyClassFlaky
 	case h.MediaSeconds >= steadyCleanAfter.Seconds():

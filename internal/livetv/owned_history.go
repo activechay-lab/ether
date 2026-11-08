@@ -42,7 +42,7 @@ func (s *Service) historyStart(channelID string, src StreamSource) string {
 	switch {
 	case h.DamageEvents > 0 && h.DamagePerHour() >= historyDamagePerHour:
 		return "damage"
-	case h.MaxKeyframeGap >= historyKeyframeGap:
+	case h.MaxKeyframeGap() >= historyKeyframeGap:
 		return "keyframe"
 	}
 	return ""
@@ -93,7 +93,7 @@ func (s *Service) learnedHealth(channelID string, src StreamSource) *LearnedSour
 	ev := s.historyStart(channelID, src)
 	l := LearnedSourceHealth{
 		Damage:          h.DamageEvents > 0 && h.DamagePerHour() >= historyDamagePerHour,
-		LongGOP:         h.MaxKeyframeGap >= historyKeyframeGap,
+		LongGOP:         h.MaxKeyframeGap() >= historyKeyframeGap,
 		StallsPerHour:   int(h.StallsPerHour() + 0.5),
 		FormatChanges:   int(h.FormatChanges),
 		StartsConverted: ev != "",

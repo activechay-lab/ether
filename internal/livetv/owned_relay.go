@@ -651,6 +651,15 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 	p.overlap = nil
 	p.mu.Unlock()
 	info, dec := p.reopenPlan(f)
+	if overlap == nil {
+		// No program change at the tap: a codec switch only this relay
+		// saw, which the source's history must still count.
+		ss := p.sess.Load()
+		ss.mu.Lock()
+		c, src := ss.info.Channel, ss.inputSource
+		ss.mu.Unlock()
+		p.s.noteSourceEvidence(c.ID, src, SourceEvidence{FormatChanges: 1})
+	}
 	match := overlap != nil && overlap.dec.VideoCopy == dec.VideoCopy && overlap.dec.AudioCopy == dec.AudioCopy && (dec.AudioCopy || overlap.dec.AudioCodec == dec.AudioCodec)
 	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec, "overlapped", match)
 	if overlap != nil {

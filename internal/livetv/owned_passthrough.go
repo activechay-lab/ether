@@ -225,6 +225,9 @@ type passthroughProducer struct {
 	errs       int
 	reresolved bool
 	healthAt   time.Time
+	// stalls counts ladder episodes since the last history report.
+	stalls     int64
+	reportedAt time.Time
 }
 
 // open points the producer at a source: it selects the variant (keeping a
@@ -297,7 +300,11 @@ func (p *passthroughProducer) run(ctx context.Context) {
 	}
 	warmed := false
 	backoff := 250 * time.Millisecond
+	defer p.reportHistory()
 	for ctx.Err() == nil {
+		if time.Since(p.reportedAt) >= 30*time.Second {
+			p.reportHistory()
+		}
 		if p.ingest == nil {
 			if !sleepCtx(ctx, 2*time.Second) || !p.failover(ctx) {
 				continue
@@ -355,6 +362,7 @@ func (p *passthroughProducer) run(ctx context.Context) {
 			// Second rung: re-resolve the same source (fresh tokens,
 			// redirects and plugin/Xtream resolution).
 			p.reresolved = true
+			p.stalls++
 			p.log.Warn("owned passthrough re-resolving source", "stale", stale, "errors", p.errs, "err", errString(err))
 			if rerr := p.reresolve(ctx); rerr != nil {
 				p.log.Warn("owned passthrough re-resolution failed", Diagnose("source_resolve", rerr).LogAttrs()...)
@@ -399,6 +407,23 @@ type sourceChoice struct {
 	src     StreamSource
 	raw     string
 	headers http.Header
+}
+
+// reportHistory hands what the passthrough received since the last report
+// to the source's history: media, skipped segments, stall episodes. Owned
+// passthrough reads the provider directly, not through the input relay that
+// records the other paths.
+func (p *passthroughProducer) reportHistory() {
+	p.reportedAt = time.Now()
+	if p.ingest == nil {
+		return
+	}
+	ev := SourceEvidence{Media: p.ingest.media, DamageEvents: p.ingest.skipped, Stalls: p.stalls}
+	p.ingest.media, p.ingest.skipped, p.stalls = 0, 0, 0
+	if ev == (SourceEvidence{}) {
+		return
+	}
+	p.s.noteSourceEvidence(p.c.ID, p.src, ev)
 }
 
 func (p *passthroughProducer) reresolve(ctx context.Context) error {

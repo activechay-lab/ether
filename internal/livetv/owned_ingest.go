@@ -66,6 +66,11 @@ type hlsIngest struct {
 	// start's first playlist, keyed by URI and range.
 	prefetched map[string][]byte
 
+	// media and skipped count what this ingest delivered and gave up on,
+	// for the source's history (read and reset by the producer).
+	media   time.Duration
+	skipped int64
+
 	lastMSN  int64
 	lastURI  string
 	gapNext  bool // the next ingested segment follows lost media
@@ -242,6 +247,7 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 			}
 			// A segment that keeps failing is skipped; the gap is marked.
 			in.log.Warn("owned live segment skipped after repeated failures", "origin", in.origin.label(), "err", err)
+			in.skipped++
 			in.lastMSN, in.lastURI = s.msn, s.uri
 			in.gapNext = true
 			continue
@@ -260,6 +266,7 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 			part.disc = part.disc || in.gapNext || disc
 			in.gapNext, disc = false, false
 			in.tl.ingest(part)
+			in.media += part.dur
 			progress = true
 		}
 	}
