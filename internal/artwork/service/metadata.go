@@ -118,7 +118,7 @@ func (q *MetadataQueue) Get(ctx context.Context, req frontend.ArtworkRequest, im
 		return img
 	}
 	key := artworkMetadataKey(req, img)
-	stored, have := q.stored(key)
+	stored, have := q.stored(ctx, req, key)
 	if have && stored.thumbhash != "" {
 		return applyArtworkMetadata(img, stored)
 	}
@@ -135,7 +135,7 @@ func (q *MetadataQueue) Get(ctx context.Context, req frontend.ArtworkRequest, im
 	tick := time.NewTicker(5 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if stored, ok := q.stored(key); ok {
+		if stored, ok := q.stored(ctx, req, key); ok {
 			return applyArtworkMetadata(img, stored)
 		}
 		select {
@@ -153,13 +153,13 @@ func applyArtworkMetadata(img frontend.Image, metadata artworkMetadata) frontend
 	return img
 }
 
-func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
+func (q *MetadataQueue) stored(ctx context.Context, req frontend.ArtworkRequest, key string) (artworkMetadata, bool) {
 	q.mu.Lock()
 	if cached, ok := q.cache[key]; ok && cached.thumbhash != "" {
-		if q.touch(key, &cached) {
-			q.cache[key] = cached
-		}
 		q.mu.Unlock()
+		if time.Now().Unix()-cached.usedAt >= int64(metadataTouchEvery/time.Second) {
+			q.remember(ctx, req, key, cached)
+		}
 		return cached, true
 	}
 	if held, ok := q.memory.Get(key); ok {
@@ -174,13 +174,31 @@ func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
 	if err != nil || (metadata.blurhash == "" && metadata.thumbhash == "") {
 		return artworkMetadata{}, false
 	}
-	q.remember(key, metadata)
+	q.remember(ctx, req, key, metadata)
 	return metadata, true
 }
 
-func (q *MetadataQueue) remember(key string, metadata artworkMetadata) {
+func (q *MetadataQueue) remember(ctx context.Context, req frontend.ArtworkRequest, key string, metadata artworkMetadata) {
+	// Metadata can outlive a title removed from the library by tier cleanup.
+	// Check current persistence before refreshing that row, outside the mutex.
+	// Fresh cache hits and memory-only hashes require no additional lookup.
+	if time.Now().Unix()-metadata.usedAt >= int64(metadataTouchEvery/time.Second) {
+		checkCtx, cancel := context.WithTimeout(ctx, 8*time.Millisecond)
+		persist := q.persistable(checkCtx, req)
+		cancel()
+		if !persist {
+			q.mu.Lock()
+			delete(q.cache, key)
+			q.memory.Add(key, metadata)
+			q.mu.Unlock()
+			return
+		}
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if cached, ok := q.cache[key]; ok && cached.usedAt > metadata.usedAt {
+		metadata.usedAt = cached.usedAt
+	}
 	q.touch(key, &metadata)
 	if len(q.cache) >= 4096 {
 		q.cache = map[string]artworkMetadata{}
