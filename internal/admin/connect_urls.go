@@ -44,8 +44,10 @@ func consoleConnectURLs(r *http.Request, id string, urls []string, cfg config.Co
 		add(originURL(advScheme, advHost, prefix))
 	}
 	// Plex is the process the owner already opened. A bridge container's
-	// own address is not "this computer only".
-	if id == "plex" && ok {
+	// own address is not "this computer only". Plex apps at home connect
+	// straight to the server, so a reverse proxy or the public host name is
+	// never the at-home address, nor is the http:// guess for it (#381).
+	if id == "plex" && ok && !viaProxy(r) && !publicRouteHost(cfg, hostOnly(host)) {
 		add(originURL(scheme, host, ""))
 	}
 	if ok && prefix != "" {
@@ -165,6 +167,39 @@ func advertisedOrigin(cfg config.Config) (scheme, host string, ok bool) {
 		return u.Scheme, u.Host, true
 	}
 	return "", "", false
+}
+
+// viaProxy reports whether the request carries reverse-proxy headers, so
+// the browser did not reach Ether's own listener directly.
+func viaProxy(r *http.Request) bool {
+	for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip"} {
+		if r.Header.Get(h) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// publicRouteHost reports whether host is the owner's public host name or
+// the host of an outside custom URL: addresses for away from home.
+func publicRouteHost(cfg config.Config, host string) bool {
+	if host == "" {
+		return false
+	}
+	public := strings.TrimSpace(cfg.Plex.PublicHost)
+	if _, rest, ok := strings.Cut(public, "://"); ok {
+		public = rest
+	}
+	public = strings.TrimSuffix(public, "/")
+	if public != "" && sameHost(public, host) {
+		return true
+	}
+	for _, raw := range cfg.Plex.CustomURLs {
+		if c, err := remote.ParseCustomURL(raw); err == nil && !c.Local && strings.EqualFold(c.Address, host) {
+			return true
+		}
+	}
+	return false
 }
 
 func requestOrigin(r *http.Request, trusted []netip.Prefix) (scheme, host string, ok bool) {

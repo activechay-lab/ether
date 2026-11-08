@@ -40,7 +40,7 @@ func Builtins() []Builtin {
 			}, More: []Field{
 				{Key: "useUpnp", Label: extend.T("Map the port automatically (UPnP)"), Kind: KindBool, Help: extend.T("Asks your router to forward the port.")},
 				{Key: "publicPort", Label: extend.T("Public port"), Kind: KindNumber, Help: extend.T("The port forwarded on your router. 0 uses the server port."), Min: F(0), Max: F(65535), Step: F(1)},
-				{Key: "publicHost", Label: extend.T("Public host name"), Kind: KindText, Help: extend.T("Optional. Leave empty to detect your public address.")},
+				{Key: "publicHost", Label: extend.T("Public host name"), Kind: KindText, Help: extend.T("Optional. Enter a name like plex.example.com, or the full https:// address of your reverse proxy. Leave empty to detect your public address.")},
 				{Key: "customUrls", Label: extend.T("Custom server URLs"), Kind: KindList, Help: extend.T("Extra addresses Plex apps should try, comma-separated."), Placeholder: "https://ether.example.com:443"},
 			}},
 			{ID: "secure", Title: extend.T("Secure connections"), Description: extend.T("How Plex apps encrypt the connection to this server."), Fields: []Field{
