@@ -1404,10 +1404,12 @@ titles TMDB leaves unrated, as Plex Media Server does; Ether looks up a few
 unrated titles every ten minutes so your provider quota stays mostly for
 badges. The title inspector shows where each rating came from.
 
-Library collections and discovery rows are independent. Ether ships movie
-collections by genre and TV collections by locally known networks/studios.
-These match the local catalogue dynamically, and deleting a default keeps it
-deleted. Newly encountered TV networks/studios are added automatically. Use the
+Library collections and discovery rows are independent. A new install creates
+no collections. Add them from **Collections › Templates**, one at a time or as a
+bundle: **Movie genres**, **TV networks** and **Movie studios** build one
+collection per genre, network or studio from your local catalogue, and the
+setup wizard offers the same bundles. Collections an earlier version created
+stay as you left them, and applying a bundle skips them. Use the
 collection editor to change rules, artwork, audience, or publication targets:
 **Collection only**, **Discovery rows**, or **Both**. Shipped trending and other
 feed sources stay available for rows but no longer clutter Plex's Collections tab.

@@ -84,9 +84,6 @@ func (s *Service) Run(ctx context.Context) {
 // RunDue rebuilds every collection that is due and returns how many were
 // built.
 func (s *Service) RunDue(ctx context.Context) int {
-	if err := s.seedLibraryDefaults(ctx); err != nil && ctx.Err() == nil {
-		s.log.Warn("collections: default facets", "err", err)
-	}
 	rows, err := s.loadRows(ctx)
 	if err != nil {
 		s.log.Warn("collections: scheduler", "err", err)

@@ -6462,6 +6462,3012 @@
         "templateId": "any-sci-fi-or-fantasy",
         "itemCount": 0
       }
+    },
+    {
+      "id": "genre-movie-action",
+      "name": "Action Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Action Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Action"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-action",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-adventure",
+      "name": "Adventure Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Adventure Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Adventure"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-adventure",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-animation",
+      "name": "Animated Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Animated Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Animation"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-animation",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-comedy",
+      "name": "Comedy Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Comedy Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Comedy"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-comedy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-crime",
+      "name": "Crime Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Crime Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Crime"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-crime",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-documentary",
+      "name": "Documentaries",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Documentaries",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Documentary"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-documentary",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-drama",
+      "name": "Drama Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Drama Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Drama"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-drama",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-family",
+      "name": "Family Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Family Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Family"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-family",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-fantasy",
+      "name": "Fantasy Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Fantasy Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Fantasy"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-fantasy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-history",
+      "name": "Historical Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Historical Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "History"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-history",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-horror",
+      "name": "Horror Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Horror Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Horror"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-horror",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-music",
+      "name": "Music Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Music Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Music"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-music",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-mystery",
+      "name": "Mystery Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Mystery Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Mystery"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-mystery",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-romance",
+      "name": "Romance Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Romance Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Romance"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-romance",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-science-fiction",
+      "name": "Science Fiction Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Science Fiction Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Science Fiction"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-science-fiction",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-tv-movie",
+      "name": "TV Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "TV Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "TV Movie"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-tv-movie",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-thriller",
+      "name": "Thrillers",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Thrillers",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Thriller"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-thriller",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-war",
+      "name": "War Movies",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "War Movies",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "War"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-war",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "genre-movie-western",
+      "name": "Westerns",
+      "description": "Every film in this genre from your catalogue, most popular first.",
+      "category": "Genres",
+      "spec": {
+        "name": "Westerns",
+        "description": "Every film in this genre from your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "genre",
+            "op": "is",
+            "value": "Western"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "genre-movie-western",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-hbo",
+      "name": "HBO",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "HBO",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "HBO"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-hbo",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-netflix",
+      "name": "Netflix",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Netflix",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Netflix"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-netflix",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-prime-video",
+      "name": "Prime Video",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Prime Video",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Prime Video"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-prime-video",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-disney-plus",
+      "name": "Disney+",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Disney+",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Disney+"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-disney-plus",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-apple-tv",
+      "name": "Apple TV",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Apple TV",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "Apple TV+",
+              "Apple TV"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-apple-tv",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-hulu",
+      "name": "Hulu",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Hulu",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Hulu"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-hulu",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-hbo-max",
+      "name": "HBO Max",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "HBO Max",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "HBO Max",
+              "Max"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-hbo-max",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-paramount-plus",
+      "name": "Paramount+",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Paramount+",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Paramount+"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-paramount-plus",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-peacock",
+      "name": "Peacock",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Peacock",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Peacock"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-peacock",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-amc",
+      "name": "AMC",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "AMC",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "AMC"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-amc",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-fx",
+      "name": "FX",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "FX",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "FX"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-fx",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-showtime",
+      "name": "Showtime",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Showtime",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Showtime"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-showtime",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-starz",
+      "name": "Starz",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Starz",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Starz"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-starz",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-nbc",
+      "name": "NBC",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "NBC",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "NBC"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-nbc",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-cbs",
+      "name": "CBS",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "CBS",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "CBS"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-cbs",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-abc",
+      "name": "ABC",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "ABC",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "ABC"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-abc",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-fox",
+      "name": "FOX",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "FOX",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "FOX"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-fox",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-the-cw",
+      "name": "The CW",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "The CW",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "The CW"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-the-cw",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-pbs",
+      "name": "PBS",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "PBS",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "PBS"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-pbs",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-bbc-one",
+      "name": "BBC One",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "BBC One",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "BBC One"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-bbc-one",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-bbc-two",
+      "name": "BBC Two",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "BBC Two",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "BBC Two"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-bbc-two",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-channel-4",
+      "name": "Channel 4",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Channel 4",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Channel 4"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-channel-4",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-itv",
+      "name": "ITV",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "ITV",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "ITV1",
+              "ITV"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-itv",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-adult-swim",
+      "name": "Adult Swim",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Adult Swim",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Adult Swim"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-adult-swim",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-comedy-central",
+      "name": "Comedy Central",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Comedy Central",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Comedy Central"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-comedy-central",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-cartoon-network",
+      "name": "Cartoon Network",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Cartoon Network",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Cartoon Network"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-cartoon-network",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-nickelodeon",
+      "name": "Nickelodeon",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Nickelodeon",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Nickelodeon"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-nickelodeon",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-disney-channel",
+      "name": "Disney Channel",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Disney Channel",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Disney Channel"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-disney-channel",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-syfy",
+      "name": "Syfy",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Syfy",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Syfy"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-syfy",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-usa-network",
+      "name": "USA Network",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "USA Network",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "USA Network"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-usa-network",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-tnt",
+      "name": "TNT",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "TNT",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "TNT"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-tnt",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-crunchyroll",
+      "name": "Crunchyroll",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Crunchyroll",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Crunchyroll"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-crunchyroll",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-discovery",
+      "name": "Discovery",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "Discovery",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Discovery"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-discovery",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "network-national-geographic",
+      "name": "National Geographic",
+      "description": "Every series from this network in your catalogue, most popular first.",
+      "category": "TV networks",
+      "spec": {
+        "name": "National Geographic",
+        "description": "Every series from this network in your catalogue, most popular first.",
+        "mediaType": "show",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "National Geographic"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "network-national-geographic",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-warner-bros",
+      "name": "Warner Bros.",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Warner Bros.",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Warner Bros. Pictures"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-warner-bros",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-universal",
+      "name": "Universal",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Universal",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Universal Pictures"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-universal",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-paramount",
+      "name": "Paramount",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Paramount",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Paramount Pictures"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-paramount",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-columbia",
+      "name": "Columbia Pictures",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Columbia Pictures",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Columbia Pictures"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-columbia",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-disney",
+      "name": "Walt Disney Pictures",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Walt Disney Pictures",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Walt Disney Pictures"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-disney",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-20th-century",
+      "name": "20th Century Studios",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "20th Century Studios",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "20th Century Fox",
+              "20th Century Studios"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-20th-century",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-marvel",
+      "name": "Marvel Studios",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Marvel Studios",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Marvel Studios"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-marvel",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-lucasfilm",
+      "name": "Lucasfilm",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Lucasfilm",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "Lucasfilm Ltd.",
+              "Lucasfilm"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-lucasfilm",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-dreamworks-animation",
+      "name": "DreamWorks Animation",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "DreamWorks Animation",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "DreamWorks Animation"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-dreamworks-animation",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-illumination",
+      "name": "Illumination",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Illumination",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "Illumination",
+              "Illumination Entertainment"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-illumination",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-legendary",
+      "name": "Legendary Pictures",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Legendary Pictures",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Legendary Pictures"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-legendary",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-new-line",
+      "name": "New Line Cinema",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "New Line Cinema",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "New Line Cinema"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-new-line",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-mgm",
+      "name": "MGM",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "MGM",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Metro-Goldwyn-Mayer"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-mgm",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-lionsgate",
+      "name": "Lionsgate",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Lionsgate",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "Lionsgate",
+              "Lions Gate Films"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-lionsgate",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-blumhouse",
+      "name": "Blumhouse",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Blumhouse",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Blumhouse Productions"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-blumhouse",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-focus-features",
+      "name": "Focus Features",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Focus Features",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Focus Features"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-focus-features",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-searchlight",
+      "name": "Searchlight Pictures",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Searchlight Pictures",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "in",
+            "value": [
+              "Searchlight Pictures",
+              "Fox Searchlight Pictures"
+            ]
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-searchlight",
+        "itemCount": 0
+      }
+    },
+    {
+      "id": "movie-studio-amblin",
+      "name": "Amblin Entertainment",
+      "description": "Every film from this studio in your catalogue, most popular first.",
+      "category": "Studios",
+      "spec": {
+        "name": "Amblin Entertainment",
+        "description": "Every film from this studio in your catalogue, most popular first.",
+        "mediaType": "movie",
+        "sources": [
+          {
+            "kind": "catalog"
+          }
+        ],
+        "match": "all",
+        "rules": [
+          {
+            "field": "studio",
+            "op": "is",
+            "value": "Amblin Entertainment"
+          }
+        ],
+        "exclude": [],
+        "sort": "popularity",
+        "sortDesc": true,
+        "limit": 0,
+        "refresh": "live",
+        "artwork": {
+          "mode": "auto"
+        },
+        "targets": {
+          "collectionsTab": true,
+          "homeRow": false,
+          "sectionRow": false,
+          "users": "all"
+        },
+        "enabled": true,
+        "localOnly": true,
+        "templateId": "movie-studio-amblin",
+        "itemCount": 0
+      }
     }
   ],
   "bundles": [
@@ -6483,6 +9489,104 @@
         "new-releases",
         "new-series",
         "recently-added"
+      ]
+    },
+    {
+      "id": "movie-genres",
+      "name": "Movie genres",
+      "description": "One collection per film genre, from Action to Westerns, built from your own catalogue.",
+      "category": "Library",
+      "templateIds": [
+        "genre-movie-action",
+        "genre-movie-adventure",
+        "genre-movie-animation",
+        "genre-movie-comedy",
+        "genre-movie-crime",
+        "genre-movie-documentary",
+        "genre-movie-drama",
+        "genre-movie-family",
+        "genre-movie-fantasy",
+        "genre-movie-history",
+        "genre-movie-horror",
+        "genre-movie-music",
+        "genre-movie-mystery",
+        "genre-movie-romance",
+        "genre-movie-science-fiction",
+        "genre-movie-tv-movie",
+        "genre-movie-thriller",
+        "genre-movie-war",
+        "genre-movie-western"
+      ]
+    },
+    {
+      "id": "tv-networks",
+      "name": "TV networks",
+      "description": "One collection per major TV network and streaming service, such as HBO, Netflix and the BBC.",
+      "category": "Library",
+      "templateIds": [
+        "network-hbo",
+        "network-netflix",
+        "network-prime-video",
+        "network-disney-plus",
+        "network-apple-tv",
+        "network-hulu",
+        "network-hbo-max",
+        "network-paramount-plus",
+        "network-peacock",
+        "network-amc",
+        "network-fx",
+        "network-showtime",
+        "network-starz",
+        "network-nbc",
+        "network-cbs",
+        "network-abc",
+        "network-fox",
+        "network-the-cw",
+        "network-pbs",
+        "network-bbc-one",
+        "network-bbc-two",
+        "network-channel-4",
+        "network-itv",
+        "network-adult-swim",
+        "network-comedy-central",
+        "network-cartoon-network",
+        "network-nickelodeon",
+        "network-disney-channel",
+        "network-syfy",
+        "network-usa-network",
+        "network-tnt",
+        "network-crunchyroll",
+        "network-discovery",
+        "network-national-geographic"
+      ]
+    },
+    {
+      "id": "movie-studios",
+      "name": "Movie studios",
+      "description": "One collection per major film studio, from Warner Bros. and Universal to Pixar and Studio Ghibli.",
+      "category": "Library",
+      "templateIds": [
+        "movie-studio-warner-bros",
+        "movie-studio-universal",
+        "movie-studio-paramount",
+        "movie-studio-columbia",
+        "movie-studio-disney",
+        "movie-studio-20th-century",
+        "movie-studio-marvel",
+        "movie-studio-lucasfilm",
+        "movie-studio-dreamworks-animation",
+        "movie-studio-illumination",
+        "movie-studio-legendary",
+        "movie-studio-new-line",
+        "movie-studio-mgm",
+        "movie-studio-lionsgate",
+        "movie-studio-blumhouse",
+        "movie-studio-focus-features",
+        "movie-studio-searchlight",
+        "movie-studio-amblin",
+        "pixar",
+        "studio-ghibli",
+        "a24"
       ]
     },
     {

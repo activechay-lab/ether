@@ -57,21 +57,28 @@ func setup(t *testing.T, opts ...collections.Option) (*collections.Service, *cat
 	return svc, cat
 }
 
-func TestSeededSmartEvaluation(t *testing.T) {
+func TestGenreTemplateEvaluation(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := setup(t)
+	for _, tpl := range collections.Templates() {
+		if tpl.ID == "genre-movie-science-fiction" {
+			if _, err := svc.CreateSpec(ctx, tpl.Spec); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	list, err := svc.List(ctx, nil, core.TypeMovie)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var eighties *core.Collection
 	for i := range list {
-		if list[i].Title == "Science Fiction" {
+		if list[i].Title == "Science Fiction Movies" {
 			eighties = &list[i]
 		}
 	}
 	if eighties == nil {
-		t.Fatalf("seeded smart missing in %v", list)
+		t.Fatalf("genre collection missing in %v", list)
 	}
 	page, err := svc.Items(ctx, nil, eighties.Key, 0, 10)
 	if err != nil {
@@ -306,7 +313,7 @@ func TestDamagedStoredRuleSkipsAndWarnsWithoutBreakingHomeRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	svc, err := collections.New(db, cat, slog.Default(), collections.WithoutDefaults(), collections.WithIndexTTL(0), collections.WithLiveTTL(time.Minute))
+	svc, err := collections.New(db, cat, slog.Default(), collections.WithIndexTTL(0), collections.WithLiveTTL(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

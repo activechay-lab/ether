@@ -613,7 +613,7 @@ func newEnv(t *testing.T, eo ...envOpt) *env {
 		}
 	}
 	seeding.Store(false)
-	opts := []collections.Option{collections.WithIndexTTL(0), collections.WithLiveTTL(0), collections.WithoutDefaults(),
+	opts := []collections.Option{collections.WithIndexTTL(0), collections.WithLiveTTL(0),
 		collections.WithCatalogConfig(func() config.Catalog { return cfg }), collections.WithExternalBases(collections.ExternalBases{MDBList: ft.srv.URL})}
 	if client != nil {
 		opts = append(opts, collections.WithTMDB(client))

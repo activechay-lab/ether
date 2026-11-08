@@ -13,6 +13,3 @@ func WithIndexTTL(d time.Duration) Option { return func(s *Service) { s.opts.ind
 // WithLiveTTL sets how long a live collection's evaluation is reused
 // (default 2m).
 func WithLiveTTL(d time.Duration) Option { return func(s *Service) { s.liveTTL = d } }
-
-// WithoutDefaults skips seeding the starter collections (tests).
-func WithoutDefaults() Option { return func(s *Service) { s.opts.noSeed = true } }

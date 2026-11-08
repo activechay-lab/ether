@@ -108,7 +108,6 @@ type options struct {
 	userAgent  string
 	indexTTL   time.Duration
 	bases      *ExternalBases
-	noSeed     bool
 }
 
 // Option customises a Service.
@@ -149,8 +148,8 @@ func WithTraktConfig(fn func() config.Trakt) Option { return func(s *Service) { 
 // WithUserAgent identifies Ether to list sites.
 func WithUserAgent(ua string) Option { return func(s *Service) { s.opts.userAgent = ua } }
 
-// New creates the collection engine, migrating v1 smart collections and
-// seeding built-ins and starter collections.
+// New creates the collection engine and seeds the built-in discovery feeds.
+// It creates no owner collections; owners add them from templates.
 func New(db *sql.DB, cat core.Catalog, log *slog.Logger, opts ...Option) (*Service, error) {
 	if db == nil {
 		return nil, fmt.Errorf("collections: nil *sql.DB")
@@ -194,8 +193,8 @@ func New(db *sql.DB, cat core.Catalog, log *slog.Logger, opts ...Option) (*Servi
 	if err := s.separateDiscoveryCollections(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.seedLibraryDefaults(ctx); err != nil {
-		return nil, fmt.Errorf("collections: defaults: %w", err)
+	if err := s.adoptLibraryDefaultTemplates(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }

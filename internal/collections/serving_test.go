@@ -17,7 +17,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/collections"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // fakeState knows which titles each user has watched or started.
@@ -322,43 +321,6 @@ func TestSchedulerRebuildsWhenDue(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
-	}
-}
-
-func TestDefaultsAreSeededOnce(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.OpenMemory(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	e := newEnv(t)
-	svc, err := collections.New(db, e.cat, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	specs, _ := svc.ListSpecs(ctx)
-	owned := 0
-	for _, s := range specs {
-		if !s.BuiltIn {
-			owned++
-			if err := svc.DeleteSpec(ctx, s.ID); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if owned == 0 {
-		t.Fatal("no starter collections")
-	}
-	svc2, err := collections.New(db, e.cat, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	specs, _ = svc2.ListSpecs(ctx)
-	for _, s := range specs {
-		if !s.BuiltIn {
-			t.Fatalf("defaults re-seeded after the owner deleted them: %s", s.Name)
-		}
 	}
 }
 

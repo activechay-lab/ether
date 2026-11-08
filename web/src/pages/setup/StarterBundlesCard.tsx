@@ -15,8 +15,9 @@ export function bundleDescription(b: CollectionTemplateBundle): string {
 
 /**
  * Starter collection bundles card shown on the Setup Wizard's Catalogue step.
- * Lets owners seed curated rows (Core Defaults, Streaming Originals, Awards,
- * Seasonal, Franchises) with one click or inspect a dry-run preview first.
+ * A fresh install has no collections; owners add curated ones here (Core
+ * Defaults, movie genres, TV networks, studios, …) with one click or inspect a
+ * dry-run preview first.
  */
 export function StarterBundlesCard() {
   const [bundles, setBundles] = useState<CollectionTemplateBundle[]>([]);
