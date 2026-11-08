@@ -7,6 +7,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -599,16 +601,41 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	warmed := 0
+	return c.warmKeys(ctx, keys)
+}
+
+// warmDetailsWorkers is how many detail fetches WarmDetails keeps in flight.
+// One at a time, a fill ran at TMDB's round-trip time (5-10 titles a
+// second) instead of its rate limit (40 requests a second); each fetch's
+// write still takes the write gate on its own, briefly.
+const warmDetailsWorkers = 8
+
+func (c *Catalog) warmKeys(ctx context.Context, keys []core.RatingKey) (int, error) {
+	var warmed atomic.Int64
+	next := make(chan core.RatingKey)
+	var wg sync.WaitGroup
+	for range min(warmDetailsWorkers, len(keys)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := range next {
+				if _, err := c.Get(ctx, k); err == nil {
+					warmed.Add(1)
+				}
+			}
+		}()
+	}
+feed:
 	for _, k := range keys {
-		if ctx.Err() != nil {
-			return warmed, ctx.Err()
-		}
-		if _, err := c.Get(ctx, k); err == nil {
-			warmed++
+		select {
+		case next <- k:
+		case <-ctx.Done():
+			break feed
 		}
 	}
-	return warmed, nil
+	close(next)
+	wg.Wait()
+	return int(warmed.Load()), ctx.Err()
 }
 
 type personCreditsTMDB interface {
