@@ -60,6 +60,9 @@ func walCheckpoint(ctx context.Context, conn *sql.Conn, mode string) (busy, logF
 	case "PASSIVE":
 		query = `PRAGMA wal_checkpoint(PASSIVE)`
 	case "TRUNCATE":
+		// This canonical statement is writer-admitted by writes(). The gate
+		// stays held until QueryRow.Scan closes its rows, including busy=1.
+		// Admission does not make SQLite checkpoint I/O preemptible.
 		query = `PRAGMA wal_checkpoint(TRUNCATE)`
 	default:
 		return 0, 0, 0, fmt.Errorf("wal checkpoint %s: unknown mode", mode)

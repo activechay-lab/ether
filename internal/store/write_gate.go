@@ -224,8 +224,10 @@ func ReadWriteGateHolds() WriteGateHolds {
 }
 
 // writes reports whether a statement modifies the database (and so takes
-// SQLite's write lock outside a transaction). PRAGMAs are not gated: a WAL
-// checkpoint runs beside writers and must never make a commit wait.
+// SQLite's write lock outside a transaction). PASSIVE checkpoints run beside
+// writers. Our canonical TRUNCATE statement takes SQLite's writer lock, so it
+// must use the same admission as writers; otherwise a writer can hold the Go
+// gate while its underlying BEGIN fails behind an untracked checkpoint.
 func writes(query string) bool {
 	q := strings.TrimLeft(query, " \t\r\n(")
 	if len(q) < 6 {
@@ -234,6 +236,8 @@ func writes(query string) bool {
 	switch strings.ToUpper(q[:6]) {
 	case "INSERT", "UPDATE", "DELETE", "REPLAC", "CREATE", "ANALYZ":
 		return true
+	case "PRAGMA":
+		return strings.EqualFold(strings.TrimSuffix(strings.Join(strings.Fields(q), " "), ";"), "PRAGMA wal_checkpoint(TRUNCATE)")
 	}
 	// WITH ... INSERT/UPDATE/DELETE and the like.
 	if strings.EqualFold(q[:4], "WITH") {
