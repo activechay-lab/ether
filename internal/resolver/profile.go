@@ -39,16 +39,6 @@ func defaultCappedAndroidClient(caps core.ClientCaps) bool {
 	return clientreg.HasQuirk(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: clientDevice(caps), Version: caps.Version}, "android-mobile-ceiling")
 }
 
-// IsSurroundAudioCodec reports whether c is a multichannel surround format.
-func IsSurroundAudioCodec(c string) bool { return core.IsSurroundAudioCodec(c) }
-
-// FilterOutSurroundAudio returns codecs without surround audio formats.
-func FilterOutSurroundAudio(codecs []string) []string { return core.FilterOutSurroundAudio(codecs) }
-
-func isSurroundAudioCodec(c string) bool { return core.IsSurroundAudioCodec(c) }
-
-func filterOutSurroundAudio(codecs []string) []string { return core.FilterOutSurroundAudio(codecs) }
-
 // ProfileSource names the layer that picked a client's quality profile.
 type ProfileSource string
 
@@ -202,12 +192,12 @@ func stripSurroundAudioCaps(caps core.ClientCaps) core.ClientCaps {
 			caps.AudioCodecs = []string{"aac", "mp3", "flac", "alac", "opus"}
 		}
 	}
-	caps.AudioCodecs = filterOutSurroundAudio(caps.AudioCodecs)
+	caps.AudioCodecs = core.FilterOutSurroundAudio(caps.AudioCodecs)
 	if len(caps.AudioCodecs) == 0 {
 		caps.AudioCodecs = []string{"aac"}
 	}
 	if len(caps.TranscodeAudioCodecs) > 0 {
-		caps.TranscodeAudioCodecs = filterOutSurroundAudio(caps.TranscodeAudioCodecs)
+		caps.TranscodeAudioCodecs = core.FilterOutSurroundAudio(caps.TranscodeAudioCodecs)
 	}
 	if caps.Profiles != nil {
 		cp := *caps.Profiles
@@ -217,7 +207,7 @@ func stripSurroundAudioCaps(caps core.ClientCaps) core.ClientCaps {
 			if len(base) == 0 {
 				base = caps.AudioCodecs
 			}
-			filtered := filterOutSurroundAudio(base)
+			filtered := core.FilterOutSurroundAudio(base)
 			if len(filtered) == 0 {
 				filtered = []string{"aac"}
 			}
@@ -225,7 +215,7 @@ func stripSurroundAudioCaps(caps core.ClientCaps) core.ClientCaps {
 		}
 		cp.Transcoding = slices.Clone(caps.Profiles.Transcoding)
 		for i := range cp.Transcoding {
-			filtered := filterOutSurroundAudio(cp.Transcoding[i].AudioCodecs)
+			filtered := core.FilterOutSurroundAudio(cp.Transcoding[i].AudioCodecs)
 			if len(filtered) == 0 {
 				filtered = []string{"aac"}
 			}

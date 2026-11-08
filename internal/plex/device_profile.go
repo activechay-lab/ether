@@ -377,16 +377,6 @@ func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySes
 	if !ok {
 		return nil
 	}
-	selectedAudioCodec := ""
-	for _, st := range ps.Info.Streams {
-		if st.Type == "audio" && (p.opts.AudioStream < 0 || st.Index == p.opts.AudioStream) {
-			selectedAudioCodec = st.Codec
-			break
-		}
-	}
-	if p.caps.ConvertSurroundAudio && core.IsSurroundAudioCodec(selectedAudioCodec) {
-		p.opts.DirectPlay = false
-	}
 	if p.mde {
 		if p.opts.DirectPlay {
 			return nil

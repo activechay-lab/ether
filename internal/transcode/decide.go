@@ -233,7 +233,7 @@ func audioTarget(caps core.ClientCaps, src *core.StreamInfo) string {
 	if src != nil && src.Channels > 0 {
 		ch = src.Channels
 	}
-	if ch > 2 && !caps.ConvertSurroundAudio {
+	if ch > 2 {
 		switch {
 		case caps.SupportsAudio("eac3"):
 			return "eac3"

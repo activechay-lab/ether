@@ -255,8 +255,10 @@ type ClientCaps struct {
 	// (additive).
 	DolbyVisionBaseOnly bool `json:"dolbyVisionBaseOnly,omitempty"`
 
-	// ConvertSurroundAudio converts Dolby/DTS/TrueHD audio to AAC for players that
-	// do not decode surround formats.
+	// ConvertSurroundAudio is set by an owner device rule that converts
+	// Dolby/DTS/TrueHD audio to AAC. SupportsAudio refuses those codecs even
+	// when a later layer (a client direct-play profile) lists them again
+	// (additive).
 	ConvertSurroundAudio bool `json:"convertSurroundAudio,omitempty"`
 }
 
@@ -266,7 +268,8 @@ type AudioLimit struct {
 	Value             int
 }
 
-// IsSurroundAudioCodec returns true for multichannel surround formats (Dolby/DTS/TrueHD).
+// IsSurroundAudioCodec reports the Dolby and DTS formats (AC-3, E-AC-3,
+// TrueHD, DTS) that the surround conversion rule replaces with AAC.
 func IsSurroundAudioCodec(c string) bool {
 	switch strings.ToLower(strings.TrimSpace(c)) {
 	case "eac3", "ec3", "e-ac3", "ac3", "dts", "dtshd", "dts-hd", "dtshd_ma", "dca", "dca-ma", "truehd", "mlp":
