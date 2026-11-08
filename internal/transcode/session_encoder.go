@@ -94,6 +94,14 @@ func (s *Session) leadOverLocked(r *run) bool {
 
 // aheadLimit is how many segments ffmpeg may run ahead of the player.
 func (s *Session) aheadLimit() int {
+	// Encoders compete at normal priority while playback needs media. Once
+	// four segments are ready the reversible pause/resume throttle yields
+	// the CPU until only two remain. Renicing a running child back from 5
+	// to 0 requires privileges on Unix; never strand playback at nice 5.
+	// Copies retain the owner's larger read-ahead and background priority.
+	if !s.liveInput && !s.decision.VideoCopy {
+		return 4
+	}
 	limit := int(s.m.opts.maxAhead / s.segDur)
 	if limit < 4 {
 		limit = 4
@@ -474,7 +482,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		}
 	}
 	if err == nil && proc == nil {
-		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr, Background: !s.liveInput})
+		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr, Background: !s.liveInput && spec.Decision.VideoCopy})
 	}
 	s.encoder.fenceProcess(proc)
 	err = redactScopedCommandError(err, spec)
