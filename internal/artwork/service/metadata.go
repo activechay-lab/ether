@@ -40,11 +40,15 @@ type MetadataQueue struct {
 	cache   map[string]artworkMetadata
 	pending map[string]bool
 	retry   map[string]time.Time
+	// touches carries keys whose used_at is a day old (see touch).
+	touches chan string
 }
 type artworkMetadata struct {
 	width, height int
 	blurhash      string
 	thumbhash     string
+	// usedAt is the row's used_at as last read or touched (Unix seconds).
+	usedAt int64
 }
 type artworkMetadataJob struct {
 	key     string
@@ -53,11 +57,13 @@ type artworkMetadataJob struct {
 }
 
 func NewMetadataQueue(ctx context.Context, db *sql.DB, active func(context.Context, int64) (*core.User, error), read func(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error)) *MetadataQueue {
-	q := &MetadataQueue{ctx: ctx, db: db, active: active, read: read, jobs: make(chan artworkMetadataJob, 128), cache: map[string]artworkMetadata{}, pending: map[string]bool{}, retry: map[string]time.Time{}}
+	q := &MetadataQueue{ctx: ctx, db: db, active: active, read: read, jobs: make(chan artworkMetadataJob, 128), cache: map[string]artworkMetadata{}, pending: map[string]bool{}, retry: map[string]time.Time{}, touches: make(chan string, 256)}
 	for i := 0; i < 2; i++ {
 		q.workers.Add(1)
 		go q.run()
 	}
+	q.workers.Add(1)
+	go q.runTouches()
 	return q
 }
 
@@ -126,6 +132,9 @@ func applyArtworkMetadata(img frontend.Image, metadata artworkMetadata) frontend
 func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
 	q.mu.Lock()
 	if cached, ok := q.cache[key]; ok && cached.thumbhash != "" {
+		if q.touch(key, &cached) {
+			q.cache[key] = cached
+		}
 		q.mu.Unlock()
 		return cached, true
 	}
@@ -144,6 +153,7 @@ func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
 func (q *MetadataQueue) remember(key string, metadata artworkMetadata) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.touch(key, &metadata)
 	if len(q.cache) >= 4096 {
 		q.cache = map[string]artworkMetadata{}
 	}
@@ -246,7 +256,7 @@ func (q *MetadataQueue) run() {
 
 func (q *MetadataQueue) load(ctx context.Context, key string) (artworkMetadata, error) {
 	var m artworkMetadata
-	err := q.db.QueryRowContext(ctx, `SELECT width,height,blurhash,thumbhash FROM artwork_image_metadata WHERE image_key=?`, key).Scan(&m.width, &m.height, &m.blurhash, &m.thumbhash)
+	err := q.db.QueryRowContext(ctx, `SELECT width,height,blurhash,thumbhash,used_at FROM artwork_image_metadata WHERE image_key=?`, key).Scan(&m.width, &m.height, &m.blurhash, &m.thumbhash, &m.usedAt)
 	return m, err
 }
 
@@ -313,7 +323,7 @@ func (q *MetadataQueue) compute(ctx context.Context, job artworkMetadataJob) err
 	if err != nil {
 		return err
 	}
-	_, err = q.db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash) VALUES(?,?,?,?,?) ON CONFLICT(image_key) DO UPDATE SET thumbhash=excluded.thumbhash WHERE artwork_image_metadata.thumbhash=''`, job.key, cfg.Width, cfg.Height, hash, base64.StdEncoding.EncodeToString(thumb))
+	_, err = q.db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash,used_at) VALUES(?,?,?,?,?,?) ON CONFLICT(image_key) DO UPDATE SET thumbhash=excluded.thumbhash,used_at=excluded.used_at WHERE artwork_image_metadata.thumbhash=''`, job.key, cfg.Width, cfg.Height, hash, base64.StdEncoding.EncodeToString(thumb), time.Now().Unix())
 	return err
 }
 
