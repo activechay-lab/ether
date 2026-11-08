@@ -167,23 +167,25 @@ func (c *Catalog) noteYearError(ctx context.Context, err error) {
 	c.setYearProgress(func(p *MovieYearProgress) { p.LastError = err.Error() })
 }
 
-func (c *Catalog) movieYearProgress(ctx context.Context) MovieYearProgress {
+// movieYearProgressFrom is the correction's progress with pending, the
+// movies still unmarked as read with the dashboard's counts.
+func (c *Catalog) movieYearProgressFrom(pending int) MovieYearProgress {
 	c.yearMu.RLock()
 	p := c.yearState
 	c.yearMu.RUnlock()
 	if !p.Running && p.Finished && p.Pending == 0 {
 		return p
 	}
-	n, err := c.countPendingMovieYears(ctx)
-	if err == nil {
-		p.Pending = n
-	}
+	p.Pending = pending
 	return p
 }
 
+// countPendingMovieYears counts movies whose year is still to correct, from
+// catalog_stats_tally rather than the movies themselves.
 func (c *Catalog) countPendingMovieYears(ctx context.Context) (int, error) {
 	var n int
-	err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles WHERE type='movie' AND year_source=''`).Scan(&n)
+	err := c.db.QueryRowContext(ctx, `SELECT CAST(COALESCE(SUM(n),0) AS BIGINT) FROM (SELECT n FROM catalog_stats_tally WHERE kind='movie' AND year_pending=1
+ UNION ALL SELECT d FROM catalog_stats_tally_delta WHERE kind='movie' AND year_pending=1) s`).Scan(&n)
 	return n, err
 }
 
