@@ -342,6 +342,23 @@ type Catalog struct {
 	RefreshInterval   Duration                `json:"refreshInterval"`
 }
 
+// The library's floor when the owner turns "Hide obscure titles" off
+// (0/0): every title with a real audience is listed, and every other
+// TMDB title is still found by search (the long-tail index).
+const (
+	OffFloorPopularity = 2.5
+	OffFloorVotes      = 10
+)
+
+// Bars is the browse bar the catalogue applies: the owner's own, or the
+// Off floor for a saved 0/0. No setting lists every TMDB title.
+func (c Catalog) Bars() (minPopularity float64, minVotes int) {
+	if c.MinPopularity <= 0 && c.MinVotes <= 0 {
+		return OffFloorPopularity, OffFloorVotes
+	}
+	return c.MinPopularity, c.MinVotes
+}
+
 type Resolver struct {
 	// HardSubtitles is empty (prefer clean), exclude, or allow.
 	HardSubtitles        string              `json:"hardSubtitles,omitempty"`

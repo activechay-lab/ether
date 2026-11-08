@@ -136,6 +136,7 @@ func newUniverse() *universeTMDB {
 	id := int64(0)
 	add := func(date string, pop float64, votes int) *uMovie {
 		id++
+		pop += 0.01 // every title above a near-zero bar
 		u.movies = append(u.movies, uMovie{id: id, date: date, pop: pop, votes: votes})
 		return &u.movies[len(u.movies)-1]
 	}
@@ -199,7 +200,8 @@ func storedKeys(t *testing.T, c *Catalog, where string) map[int64]bool {
 // a day each exceed what one /discover query can page.
 func TestDiscoverWalkReachesEveryTitleOnce(t *testing.T) {
 	u := newUniverse()
-	c := universeCatalog(t, u, config.Catalog{}, false)
+	// A bar every title in the universe meets, so the walk stores all it reads.
+	c := universeCatalog(t, u, config.Catalog{MinPopularity: 1e-6}, false)
 	ctx := context.Background()
 	seen := map[int64]int{}
 	w := newSyncWriter(c)
@@ -220,12 +222,12 @@ func TestDiscoverWalkReachesEveryTitleOnce(t *testing.T) {
 }
 
 // The export path and the /discover path list the same browsable titles
-// for the same universe and preset; under Off the export path stores
-// every title the export lists (undated and unreleased ones not browsable).
+// for the same universe and preset, and the export path never stores a
+// long-tail title (one no bar admits) as a row.
 func TestExportAndDiscoverSyncAgree(t *testing.T) {
 	ctx := context.Background()
 	for _, cfg := range []config.Catalog{
-		{},                                // Off
+		{},                                // Off: the floor
 		{MinPopularity: 5, MinVotes: 100}, // Some
 		{MinPopularity: 9, MinVotes: 1000},
 		{MinVotes: 100},
@@ -243,12 +245,11 @@ func TestExportAndDiscoverSyncAgree(t *testing.T) {
 		if len(a) == 0 || fmt.Sprint(sortedIDs(a)) != fmt.Sprint(sortedIDs(b)) {
 			t.Fatalf("%+v: discover browsable %d, export browsable %d", cfg, len(a), len(b))
 		}
-		if cfg.MinPopularity == 0 && cfg.MinVotes == 0 {
-			all := storedKeys(t, export, "")
-			for _, m := range u.movies {
-				if !m.video && !m.adult && !all[m.id] {
-					t.Fatalf("Off: export title %d (%q) not stored", m.id, m.date)
-				}
+		minPop, minVotes := cfg.Bars()
+		for id := range storedKeys(t, export, "") {
+			m := u.movies[id-1]
+			if m.pop < minPop && m.votes < minVotes {
+				t.Fatalf("%+v: long-tail title %d (pop %v, votes %d) stored as a row", cfg, id, m.pop, m.votes)
 			}
 		}
 	}
