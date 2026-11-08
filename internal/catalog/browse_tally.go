@@ -399,6 +399,26 @@ func filterUnset(f core.Filter) bool {
 // U is read from three indexes: catalog_plex_shelf_order (type, released_ts),
 // the hidden set's primary key and the titles' own key.
 func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, args []any) (int, bool, error) {
+	if g := f.Group; g != nil && unwatchedOnly(*g) {
+		// Unwatched titles are the listing's titles less the ones the
+		// viewer watched: the tally, less a count over the viewer's own
+		// watch rows, never a walk of the library.
+		all := f
+		all.Group = nil
+		allWhere, allArgs, err := c.browseWhere(all)
+		if err != nil {
+			return 0, false, err
+		}
+		total, ok, err := c.tallyTotal(ctx, all, allWhere, allArgs)
+		if err != nil || !ok {
+			return 0, ok, err
+		}
+		var watched int
+		if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles t WHERE t.key IN (SELECT w.rating_key FROM state_watch w WHERE w.user_id=? AND w.view_count>0) AND `+allWhere, append([]any{g.UserID}, allArgs...)...).Scan(&watched); err != nil {
+			return 0, false, err
+		}
+		return total - watched, true, nil
+	}
 	s, ok := c.tallyShape(f)
 	if !ok {
 		return 0, false, nil
@@ -420,6 +440,13 @@ func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, a
 		return 0, false, err
 	}
 	return total, true, nil
+}
+
+// unwatchedOnly reports whether g is a viewer's "unwatched" state filter
+// and nothing else.
+func unwatchedOnly(g core.FilterGroup) bool {
+	return g.Unwatched != nil && *g.Unwatched && g.UserID > 0 && g.InProgress == nil && g.LastViewedAfter == 0 && g.LastViewedBefore == 0 &&
+		g.OnWatchlist == nil && g.StateField == "" && !g.ParentOnly && g.Operator == "" && g.Filter == nil && len(g.Children) == 0
 }
 
 // genreDims is the browse tally's WHERE for s, and the membership a title

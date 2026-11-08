@@ -106,6 +106,14 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		}
 	}
 	excluded := []core.RatingKey{keys[3], keys[50], keys[150], core.MovieKey(9999)}
+	// The state component owns this table; its columns the filter reads.
+	exec(`CREATE TABLE IF NOT EXISTS state_watch(user_id INTEGER NOT NULL, rating_key INTEGER NOT NULL, view_offset_ns INTEGER NOT NULL DEFAULT 0, view_count INTEGER NOT NULL DEFAULT 0, last_viewed_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, rating_key))`)
+	for i, k := range keys {
+		if i%3 == 0 {
+			exec(`INSERT INTO state_watch(user_id,rating_key,view_count) VALUES(7,?,?) ON CONFLICT DO NOTHING`, int64(k), i%2)
+		}
+	}
+	unwatched := true
 	filters := []core.Filter{
 		{Type: core.TypeMovie},
 		{Type: core.TypeShow},
@@ -123,6 +131,8 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		{Type: core.TypeShow, MinContentRating: "PG", MaxContentRating: "TV-MA", Genres: []string{"Horror"}, ExcludeKeys: excluded},
 		{MaxContentRating: "R", KnownAddedDate: true},
 		{Type: core.TypeMovie, Countries: []string{"US"}},
+		{Type: core.TypeMovie, Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
+		{Type: core.TypeShow, Genres: []string{"Drama"}, MaxContentRating: "TV-14", HiddenShowGeneration: "g-show", Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
 		{Type: core.TypeShow, Countries: []string{"GB"}, MaxContentRating: "TV-14", ExcludeKeys: excluded, HiddenShowGeneration: "g-show"},
 		{Countries: []string{"FR"}, HiddenMovieGeneration: "g-movie"},
 		// Counted directly: these must still agree with their pages.
