@@ -77,6 +77,13 @@ spec:
               done
               mkdir -p /config/ether
               chmod 700 /config/ether
+              # Let the Go runtime collect before the container limit, not at
+              # it: anonymous heap (for example the daily catalogue-index
+              # build) is what the kernel cannot reclaim. Mapped index pages
+              # are clean page cache and are reclaimed instead of OOM-killing.
+              if [ -z "${GOMEMLIMIT:-}" ] && [ "${ETHER_MEMORY_LIMIT_MIB:-0}" -gt 0 ]; then
+                export GOMEMLIMIT="$((ETHER_MEMORY_LIMIT_MIB * 9 / 10))MiB"
+              fi
               sed "s/__ETHER_POD_NAME__/${POD_NAME}/g;s/__ETHER_NAMESPACE__/${POD_NAMESPACE}/g" /etc/ether/deployment.json > /tmp/deployment.json
               exec /usr/lib/ether/ether
           env:
@@ -86,6 +93,9 @@ spec:
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
             - {name: ETHER_DEPLOYMENT_FILE, value: /tmp/deployment.json}
             - {name: ETHER_DATA_DIR, value: /config/ether}
+            # Container memory limit in MiB (node allocatable when unset).
+            - name: ETHER_MEMORY_LIMIT_MIB
+              valueFrom: {resourceFieldRef: {containerName: ether, resource: limits.memory, divisor: 1Mi}}
             - {name: XDG_CACHE_HOME, value: /cache}
             - {name: TMPDIR, value: /scratch}
             - {name: HOME, value: /config/ether}

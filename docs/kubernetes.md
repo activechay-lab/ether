@@ -222,6 +222,49 @@ emptyDir limits are not reservations. Persistent cache changes require planning
 because StatefulSet claim templates are immutable. Select this mode before
 installation or migrate with a controlled drain/recreation retaining data PVCs.
 
+### Catalogue long-tail index
+
+Full and server pods keep a node-local, memory-mapped search index of TMDB's
+public daily ID export (about 1.5M titles) so every title is findable without a
+database row. Each pod downloads the export (about 33 MB, plus 3 MB when adult
+titles are on) and builds its own index in its own data directory,
+`/config/ether/tmdb-exports`, on its own `data` PVC; there is no shared volume
+and nothing is staged in `/tmp` or the read-only root filesystem. Files are
+written under temporary names in that directory, fsynced, verified and renamed;
+a rebuild writes a new versioned file and swaps readers to it, then deletes the
+old one when its last reader finishes. Measured on the 1.5M-title export of
+2026-11-08, one index file is 238 MiB; with the exports (33 MB) and names file
+the directory holds about 300 MB steady and up to about 650 MB while the next
+day's index is built beside the one still mapped. The build checks free space
+first and keeps the previous index when short (catalogue status shows the
+error). The default 1Gi `data` PVC fits this but leaves little room: use
+`data.size: 2Gi` for new installs. Claim templates are immutable, so for an
+existing release expand each `data-*` PVC in place (StorageClass with
+`allowVolumeExpansion`) rather than changing `data.size`.
+
+The first build runs in the background after startup and never delays
+readiness. Until it finishes (`TailStatus` not ready in the catalogue status),
+search answers from the library index plus TMDB's live search, with no errors.
+A pod whose data directory is lost (a recreated PVC, or a non-chart deployment
+on ephemeral storage) simply rebuilds on start. With NetworkPolicy enabled, allow
+egress to `files.tmdb.org:443` (and TMDB's API for live search).
+
+Mapped index pages are clean, file-backed page cache. Under the pod's memory
+limit the kernel reclaims them instead of OOM-killing the container, so the
+index itself cannot OOM the pod. Measured with the real index at a 512 MiB limit
+beside 200 MiB of heap, the pod's cgroup stayed pinned at its limit for the whole
+run with no OOM kill, but searches slowed once the index no longer fit in what
+was left (p50 from 2.5 ms to about 1 s on a busy disk); at 1 GiB the whole index
+stays resident (p50 1.5 ms, p99 8 ms). Size memory for speed, not for safety:
+the app's heap plus about 250 MiB. The daily build streams the index to its file
+section by section; its live heap is about 250–300 MiB above the app's own,
+which the kernel cannot reclaim. The chart exports `GOMEMLIMIT` at 90% of the
+container memory limit, and that is what keeps the build inside the pod: at a
+1 GiB limit the build completed beside up to 600 MiB of other live heap with
+`GOMEMLIMIT`, and was OOM-killed beside 500 MiB without it. Full and server pools
+default to a 2 GiB limit for headroom; keep `GOMEMLIMIT` (or set your own) if you
+override their `resources`.
+
 Private mTLS listens on 32401 and advertises
 `https://POD.RELEASE-ether-private.NAMESPACE.svc.cluster.local:32401`.
 Set `clusterDomain` for other suffixes. The private headless service publishes

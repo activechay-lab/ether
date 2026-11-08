@@ -410,6 +410,11 @@ jobs:
       fail-fast: false
       matrix:
         package: [store, cluster, clusterconfig, clusterbus, clusterplayback, state, livetv, app, artwork/service, auth, backup, debrid, experience, handles/capability, identity, migrate, playback, playbackcontinuity, placement, plexwatch, sessions]
+        include:
+          # The node-local long-tail index on shared PostgreSQL: a node with no
+          # index yet falls back without errors; each node builds its own.
+          - package: catalog
+            run: Tail|ClusterNode
     services:
       postgres:
         # PostgreSQL 14 is Ether's minimum supported server version.
@@ -437,7 +442,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
           ETHER_TEST_POSTGRES: postgres://ether:ether@127.0.0.1:5432/ether?sslmode=disable
-        run: go test -count=1 -timeout 20m ./internal/${{ matrix.package }}/...
+          PACKAGE: ${{ matrix.package }}
+          RUN: ${{ matrix.run }}
+        run: go test -count=1 -timeout 20m ${RUN:+-run "$RUN"} "./internal/$PACKAGE/..."
 
   vulnerabilities:
     name: Go vulnerabilities

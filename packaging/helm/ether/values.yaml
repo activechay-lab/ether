@@ -41,6 +41,13 @@ pools:
   server:
     replicas: 0
     bootstrap: false
+    # Full and server pods build the catalogue long-tail index daily: about
+    # 250-300 MiB of live heap above the app's own. At 1Gi it completed beside
+    # 600 MiB of other heap with the chart's GOMEMLIMIT (OOM-killed beside
+    # 500 MiB without it); 2Gi matches full and leaves headroom.
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {memory: 2Gi}
   source:
     replicas: 0
     bootstrap: false
