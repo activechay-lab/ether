@@ -38,3 +38,17 @@ func TestHLSCopyPeakKbps(t *testing.T) {
 		t.Fatalf("unindexed peak %d under the measured 287 kbit/s segments", got)
 	}
 }
+
+func TestEncodedHLSPeakIncludesReservoirAndVideoFloor(t *testing.T) {
+	info := core.MediaInfo{Streams: []core.StreamInfo{{Index: 1, Type: "audio", Codec: "aac", Channels: 2, BitrateKbps: 64}}}
+	d := core.Decision{VideoCodec: "h264", BitrateKbps: 104, AudioStream: 1, AudioCodec: "aac", AudioCopy: true}
+	// Even this 104 kb/s source encodes at the 200 kb/s video floor:
+	// 300 kb/s maxrate + 400 kbit reservoir / 2 s + 64 kb/s audio.
+	if got, want := encodedHLSPeakKbps(info, d, rateControl{}, 2*time.Second), 637; got != want {
+		t.Fatalf("floor peak %d, want %d", got, want)
+	}
+	rate := rateControl{MaxrateKbps: 1000, BufsizeKbps: 8000, TargetKbps: 800}
+	if got := encodedHLSPeakKbps(info, d, rate, 2*time.Second); got < 5570 {
+		t.Fatalf("reservoir omitted: %d", got)
+	}
+}

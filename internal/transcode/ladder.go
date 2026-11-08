@@ -270,9 +270,34 @@ func (s *Session) Rungs() []core.HLSRung {
 		fr = v.FrameRate
 	}
 	out := make([]core.HLSRung, 0, len(s.rungs))
-	for _, r := range s.rungs {
+	for t, r := range s.rungs {
+		peak := r.peakKbps
+		duration := s.segDur
+		if s.plan != nil {
+			for _, d := range s.plan.durs {
+				if d > 0 && d < duration {
+					duration = d
+				}
+			}
+		}
+		if !s.isDASH() && !r.decision.VideoCopy {
+			rate := s.vbvRateLocked(t)
+			// A master can be cached for the whole session. A temporary
+			// goodput cap may later recover, so advertise the full reservoir.
+			if rate.MaxrateKbps > 0 && rate.MaxrateKbps < r.peakKbps {
+				seconds := s.adapt.VBVBufSeconds
+				if seconds <= 0 {
+					seconds = 8
+				}
+				rate.MaxrateKbps = r.peakKbps
+				rate.BufsizeKbps = r.peakKbps * seconds
+			}
+			peak = max(peak, encodedHLSPeakKbps(s.info, r.decision, rate, duration))
+		} else if !s.isDASH() && t == 0 && s.plan != nil && s.plan.rampSegs > 0 && s.rampTranscodesLocked() {
+			peak = max(peak, encodedHLSPeakKbps(s.info, fastStartDecision(r.decision, s.info, s.adapt), rateControl{}, duration))
+		}
 		out = append(out, core.HLSRung{
-			ID: r.id, Bandwidth: r.peakKbps * 1000, AverageBandwidth: r.avgKbps * 1000,
+			ID: r.id, Bandwidth: peak * 1000, AverageBandwidth: r.avgKbps * 1000,
 			Width: r.width, Height: r.height, Codecs: r.codecs, FrameRate: fr,
 		})
 	}

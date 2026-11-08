@@ -1,6 +1,7 @@
 package transcode
 
 import (
+	"math"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -80,4 +81,26 @@ func indexedPeakKbps(info core.MediaInfo, window time.Duration) (int, bool) {
 		return 0, false
 	}
 	return int(peak + 0.5), true
+}
+
+// encodedHLSPeakKbps bounds a segment by the configured encoder reservoir:
+// maxrate * duration + one full VBV buffer, plus audio and mux overhead.
+// The bitrate floor in videoBitrate matters for low-bitrate copy ramps.
+func encodedHLSPeakKbps(info core.MediaInfo, d core.Decision, rate rateControl, duration time.Duration) int {
+	if duration <= 0 {
+		duration = defaultHLSSegment
+	}
+	video := videoBitrate(info, d)
+	if rate.TargetKbps > 0 {
+		video = rate.TargetKbps
+	}
+	maxrate, buffer := video*3/2, video*2
+	if rate.MaxrateKbps > 0 {
+		maxrate = rate.MaxrateKbps
+	}
+	if rate.BufsizeKbps > 0 {
+		buffer = rate.BufsizeKbps
+	}
+	bits := float64(maxrate+decisionAudioKbps(info, d)) + float64(buffer)/duration.Seconds()
+	return int(math.Ceil(bits*1.1)) + 16
 }
