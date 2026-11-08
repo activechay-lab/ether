@@ -133,8 +133,8 @@ func (r *Runtime) PruneRetained(ctx context.Context, o RetentionOptions) (Retent
 		err = run(&report.Receipts, func() (int, error) { return r.prunePreparationReceipts(ctx, time.Now().Add(-o.ReceiptAge), o.Batch) })
 	}
 	if err == nil && ctx.Err() == nil {
-		// Correct the ledger's display counter at most hourly (an index-only
-		// count bounded by the retention window).
+		// Correct the ledger's display counter at most hourly (one count of
+		// retained tombstones, bounded by the retention window).
 		at, e := r.o.Placement.RetainedReconciledAt(ctx)
 		if e == nil && time.Since(at) > retainedReconcile {
 			e = r.o.Placement.ReconcileRetained(ctx)
@@ -179,9 +179,13 @@ func (r *Runtime) pruneUnreservedRoutes(ctx context.Context, cutoff time.Time, l
 	return affected(result, err)
 }
 
-// prunePreparationReceipts removes closure receipts older than cutoff.
+// prunePreparationReceipts removes the oldest receipts older than cutoff as
+// one range of the created_at index: everything up to the limit-th oldest
+// timestamp (rows sharing that millisecond go together, so a batch can exceed
+// limit by its ties).
 func (r *Runtime) prunePreparationReceipts(ctx context.Context, cutoff time.Time, limit int) (int, error) {
-	result, err := r.o.DB.ExecContext(ctx, `DELETE FROM clusterplayback_preparation_receipts WHERE (cluster,source,source_boot,controller,controller_boot,operation_hash) IN (SELECT cluster,source,source_boot,controller,controller_boot,operation_hash FROM clusterplayback_preparation_receipts WHERE created_at<? ORDER BY created_at LIMIT ?)`, cutoff.UnixMilli(), limit)
+	c := cutoff.UnixMilli()
+	result, err := r.o.DB.ExecContext(ctx, `DELETE FROM clusterplayback_preparation_receipts WHERE created_at<? AND created_at<=COALESCE((SELECT created_at FROM clusterplayback_preparation_receipts WHERE created_at<? ORDER BY created_at LIMIT 1 OFFSET ?),?)`, c, c, limit-1, c)
 	return affected(result, err)
 }
 

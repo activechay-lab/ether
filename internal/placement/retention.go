@@ -123,7 +123,16 @@ func (s *Service) PruneTombstones(ctx context.Context, o PruneOptions) (int, err
 			}
 		}
 		in, args := sessionList(pruned)
-		if _, err = tx.ExecContext(ctx, `DELETE FROM placement_history_receipts WHERE cluster=(SELECT cluster FROM placement_history_namespace WHERE id=1) AND session IN (`+in+`)`, args...); err != nil {
+		// Receipts are keyed (cluster, session, ...): bind the namespace's one
+		// cluster as a value so the planner always uses that primary-key prefix.
+		var cluster string
+		switch err = tx.QueryRowContext(ctx, `SELECT cluster FROM placement_history_namespace WHERE id=1`).Scan(&cluster); err {
+		case nil:
+			if _, err = tx.ExecContext(ctx, `DELETE FROM placement_history_receipts WHERE cluster=? AND session IN (`+in+`)`, append([]any{cluster}, args...)...); err != nil {
+				return err
+			}
+		case sql.ErrNoRows: // no receipt was ever published
+		default:
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `DELETE FROM placement_sessions WHERE retired=1 AND session IN (`+in+`)`, args...)
@@ -148,8 +157,8 @@ func (s *Service) PruneTombstones(ctx context.Context, o PruneOptions) (int, err
 
 // ReconcileRetained recounts retained tombstones under the ledger lock,
 // correcting any drift in the maintained counter (for example from a node
-// that predates it during a rolling upgrade). The count is an index-only scan
-// of the tombstone index: bounded by the retention window, not by history.
+// that predates it during a rolling upgrade). The count covers retained
+// tombstones only, so it is bounded by the retention window, not by history.
 // The counter is display state only; admission never reads it.
 func (s *Service) ReconcileRetained(ctx context.Context) error {
 	return s.transaction(ctx, func(ctx context.Context, tx *sql.Tx) error {
