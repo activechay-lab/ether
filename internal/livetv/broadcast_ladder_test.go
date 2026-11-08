@@ -169,8 +169,8 @@ func TestRefusedSteadyTuneHoldsADirectViewerReservation(t *testing.T) {
 // never takes the last one. Joining or keeping a running output is not an
 // allocation, so nothing here can pre-empt a viewer.
 func TestSteadyAllocationFavoursFlakySources(t *testing.T) {
-	flaky := classifySource(SourceHistory{Stalls: 1, MediaSeconds: 600}, true)
-	clean := classifySource(SourceHistory{MediaSeconds: 600}, true)
+	flaky := classifySource(SourceHistory{Stalls: 1, MediaSeconds: 600, Sessions: 1}, true)
+	clean := classifySource(SourceHistory{MediaSeconds: 600, Sessions: 1}, true)
 	young := classifySource(SourceHistory{MediaSeconds: 10}, true)
 	if flaky != steadyClassFlaky || clean != steadyClassClean || young != steadyClassUnknown || classifySource(SourceHistory{}, false) != steadyClassUnknown {
 		t.Fatalf("classes %s %s %s", flaky, clean, young)
