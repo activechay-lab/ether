@@ -178,7 +178,7 @@ func EpisodeSeriesYear(name string, parsedYear int) int {
 	spaced := spacify(name)
 	cut := -1
 	consider := func(loc []int) {
-		if loc != nil && loc[0] > 0 && (cut < 0 || loc[0] < cut) {
+		if loc != nil && loc[0] >= 0 && (cut < 0 || loc[0] < cut) {
 			cut = loc[0]
 		}
 	}

@@ -23,6 +23,7 @@ func TestRussianOriginalTitleIdentity(t *testing.T) {
 		{"Доктор Краснов / Сезон: 1 / Серии: 1 из 16 [2023 WEBRip-AVC]", 1, 1, core.ProtocolTorrent, ""},
 		{"Доктор Краснов / Сезон: 1 / Серии: 16 из 16 [2023 WEBRip 1080p]", 1, 1, core.ProtocolTorrent, "season/episode mismatch"},
 		{"Доктор Краснов / Сезон: 1 / Серии: 1-16 из 16 [2023 WEBRip]", 1, 1, core.ProtocolTorrent, ""},
+		{"Доктор Краснов / Сезон: 2 / Серии: 1-16 из 16 [2025 WEBRip 1080p]", 1, 2, core.ProtocolTorrent, ""},
 		{"Доктор Краснов / Сезон: 1 / Серии: 1-16 из 16 [2023 WEBRip-AVC]", 16, 1, core.ProtocolTorrent, ""},
 		{"Доктор Краснов / Сезон: 1 / Серии: 3-5 из 16 [2023 WEBRip]", 1, 1, core.ProtocolTorrent, "season/episode mismatch"},
 		{"Доктор Краснов / Сезон: 1 / Серии: 3-5 из 16 [2023 WEBRip]", 4, 1, core.ProtocolTorrent, ""},

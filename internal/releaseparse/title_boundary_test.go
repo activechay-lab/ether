@@ -33,8 +33,19 @@ func TestTitleBoundaryKeywordsAreWholeTokensBeforeYear(t *testing.T) {
 }
 
 func TestEpisodeSeriesYearKeepsSpanStart(t *testing.T) {
-	if got := EpisodeSeriesYear("Show (2005-2013)/Season 1/Show S01E01.mkv", 0); got != 2005 {
-		t.Fatalf("got %d", got)
+	for _, tc := range []struct {
+		name             string
+		parsedYear, want int
+	}{
+		{"Show (2005-2013)/Season 1/Show S01E01.mkv", 0, 2005},
+		{"Доктор Краснов (1985) / Сезон: 2 / Серии: 1-16 из 16 [2025 WEBRip 1080p]", 2025, 1985},
+		{"S01E01.2025.1080p.WEB-DL", 2025, 0},
+		{"Сезон: 2 / Серии: 1-16 из 16 [2025 WEBRip]", 2025, 0},
+		{"Show / Сезон: 2 / 2025 / S02E01.WEB-DL", 2025, 0},
+	} {
+		if got := EpisodeSeriesYear(tc.name, tc.parsedYear); got != tc.want {
+			t.Errorf("%q: got %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }
 
