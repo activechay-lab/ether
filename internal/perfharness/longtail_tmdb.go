@@ -66,7 +66,7 @@ func NewLongTailTMDB(cfg LongTailConfig) *LongTailTMDB {
 	if now.IsZero() {
 		now = time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
 	}
-	u := &LongTailTMDB{seed: cfg.Seed, now: now, people: max(2000, cfg.Titles*5/2)}
+	u := &LongTailTMDB{seed: cfg.Seed, now: now, people: max(2000, cfg.Titles*2)}
 	vr := rand.New(rand.NewPCG(cfg.Seed, 0x766f6361))
 	seen := map[string]bool{}
 	for len(u.vocab) < 6000 {
@@ -279,15 +279,18 @@ func (g ltGen) path(ok bool) string {
 	return ltPath(g.rng, ".jpg")
 }
 
-// person draws a credited person: about half from a recurring pool of
-// working actors and crew, the rest one-off credits.
+// person draws a credited person. A fifth of credits go to one-off people;
+// the rest follow a power law over a pool twice the universe's size. At
+// the lab's 1.08M credits that gives 65% of people one credit, 3.6 credits
+// on average and about 300 at most (the lab: 61%, 2.76, 274); at 800k
+// titles 52%, 2.4 and about 255.
 func (g ltGen) person() (id int64, name, thumb string) {
-	famous := max(1, g.u.people/20)
+	pool := g.u.people
 	var idx int
-	if g.rng.Float64() < 0.5 {
-		idx = int(math.Min(float64(famous-1), math.Floor(float64(famous)*math.Pow(g.rng.Float64(), 2.2))))
+	if g.rng.Float64() < 0.2 {
+		idx = pool + int(g.rng.Uint64()%2_000_000_000)
 	} else {
-		idx = famous + g.rng.IntN(max(1, g.u.people-famous))
+		idx = int(math.Floor(float64(pool) * math.Pow(g.rng.Float64(), 1.45)))
 	}
 	id = int64(idx + 1)
 	pr := rand.New(rand.NewPCG(g.u.seed^0x70656f70, uint64(id)))
@@ -295,7 +298,7 @@ func (g ltGen) person() (id int64, name, thumb string) {
 	cap := func(w string) string { return strings.ToUpper(w[:1]) + w[1:] }
 	name = cap(g.u.vocab[pz.Uint64()]) + " " + cap(g.u.vocab[pz.Uint64()])
 	p := 0.25
-	if idx < famous {
+	if idx < pool/20 {
 		p = 0.8
 	}
 	if pr.Float64() < p {
