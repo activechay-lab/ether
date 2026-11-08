@@ -1,21 +1,26 @@
 # PMS baseline and pending Ether comparison
 
 This is preserved historical measurement evidence, not a release acceptance
-result. The existing Ether 54k run finished on 2026-11-08 at 16:12 UTC; its
-comparison is now included. The live queue and its binaries have not been
-modified by this report work. Ether 540k and 1.3M remain pending.
+result. The existing Ether 54k run finished on 2026-11-08 at 16:12 UTC and
+540k at 17:39:59 UTC; both comparisons are included. Their chain finished at
+17:40 UTC. The queue and its binaries were not modified by this report work.
+Ether 1.3M remains unmeasured.
 
 ## Evidence
 
 - `pms-1k.json` is a byte-for-byte copy of the original `baseline.json`.
 - `pms-1k-report.md` is the original generated report.
 - `comparison.md` renders all 80 client/step rows for PMS 1k and historical
-  Ether 54k, with pending 540k/1.3M columns.
+  Ether 54k/540k, with the 1.3M column pending.
 - `ether-54k.json` and `ether-54k-report.md` preserve the original summary and
   report bytes. `ether-54k-terminal.log` preserves its terminal output.
   `ether-54k-evidence.json` records source artifact hashes, the observed exit
   marker, coverage, and the prior dirty-binary observation. Raw requests remain
   at `/data/036-work/i/ether-036-pms-work/runs/ether-54k/results.json`.
+- The equivalent `ether-540k` JSON/report/terminal/evidence files preserve the
+  completed larger run. Its raw requests remain in the sibling
+  `runs/ether-540k/results.json`. `chain-complete.log` preserves both exit
+  markers and `chain done`. Evidence manifests include SHA-256 hashes.
 - Original directory on bb-worker-server:
   `/data/036-work/i/ether-036-pms-work/runs/pms-1k/`.
   Preserve `results.json` there for individual request observations.
@@ -77,6 +82,46 @@ protocol identity, not Ether source provenance. The prior dirty server/harness
 revisions below still apply as historical observations; no signed-off binary
 manifest or before/after binary hashes exist for this run.
 
+## Historical Ether 540k result and terminal state
+
+The chain records `ether-540k exit 0` followed by `chain done`. The terminal
+log names the completed report, and report/summary/raw artifacts are present.
+Independent inspection of the existing data found the same exact coverage as
+54k: 1,800 raw records, 80 unique client/step pairs, 20 warm samples for every
+pair, one discovery/priming sample per pair, and one cold sample for each
+Apple TV step. Web has no cold samples. All records have probe data; there
+are no skips or transport failures. HTTP coverage is 1,665 responses at 200
+and 135 at 404. Each unsupported Live TV step contributes 45 errors across
+phases/clients. These errors remain excluded from performance acceptance;
+the process exit code does not erase them.
+
+Selected Apple TV 540k measurements:
+
+| Step | Cold ms | Warm p50 / p95 ms | Items / total | Response bytes |
+|---|---:|---:|---:|---:|
+| Home `/hubs` | 134.746 | 3.726 / 4.006 | 10 hubs | 169,536 |
+| `/hubs/search star` | 3182.531 | 67.736 / 83.487 | 17 items | 51,520 |
+| First movie page | 255.899 | 23.545 / 31.137 | 60 / 249,760 | 87,737 |
+| First episode page | 18989.301 | 33.561 / 43.741 | 100 / 239,558 | 178,851 |
+| Movie detail | 278.990 | 7.763 / 10.055 | 1 item | 2,818 |
+
+Warm home and episode-page times remain low, but cold episode paging took
+18.99 seconds and cold search 3.18 seconds. The data do not support a general
+performance victory: cold costs, payload differences, relevance, and metadata
+completeness still matter. Post-warm memory was 2,492 MiB, peak 2,807 MiB;
+initial idle CPU was 339.7 ms/s. Host load changed from 2.64/3.59/4.21 to
+3.71/4.28/4.82. Warm rounds took 76.397 seconds. The same dirty-source and
+missing before/after binary-hash limitations apply; this is historical only.
+
+Collection confirmed PIDs 3687147, 3687149, 3933523 and 3996324 absent, with no
+remaining matching I measurement process. All three named containers were
+stopped with exit 0. Old thread `thr_h2m72vcaxu` has zero queued messages and
+zero active background agents. No live I job dependency remains. Both worker
+threads are ready for coordinator-managed archival after this evidence commit
+is collected. Preserve the unmanaged checkout `env_ars9qn7fdp`, its branch,
+all original outputs under `/data/036-work/i/`, and the old thread history;
+no container/volume cleanup or archive was performed by this collection.
+
 ## Reproduce the comparison without running a benchmark
 
 From the repository root:
@@ -85,6 +130,7 @@ From the repository root:
 python3 scripts/pms-baseline/comparison.py \
   --pms-1k docs/audits/036-pms-baseline/pms-1k.json \
   --ether-54k docs/audits/036-pms-baseline/ether-54k.json \
+  --ether-540k docs/audits/036-pms-baseline/ether-540k.json \
   > docs/audits/036-pms-baseline/comparison.md
 ```
 
@@ -164,11 +210,8 @@ coordinator's focused verification and heavy-slot approval before execution.
 
 ## Remaining work
 
-The 54k evidence is collected. The 540k terminal log remains empty and its
-report directory is absent at this collection. Coordinator observation places
-540k waiter PID 3933523 behind J holder 3695616 and A waiter 3730979; this is
-queue state, not a measurement. Collect its actual outputs when they arrive.
-Obtain
+Both queued measurements are collected; there is no remaining I benchmark
+job. The original release requirement remains unfinished: obtain
 C's existing completed Mac fixture for 1.3M work: 1,278,768 titles and 1,697,220
 catalogue rows, under old coordinator `w-C/gate-1.3m`. It was not published on
 the server at handoff; do not regenerate it. Validate full-row workload and
