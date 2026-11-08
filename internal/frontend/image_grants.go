@@ -84,7 +84,9 @@ type PageArtwork interface {
 }
 
 // ItemArtworkPage authorizes and lists artwork for one grid in a batch.
-// SignPage uses it so a home page does not load each title on its own.
+// Present keys have authoritative listings (including empty listings); missing
+// keys must not be granted. SignPage and IssueBatch use it without falling back
+// to scalar authorization for missing keys or errors.
 type ItemArtworkPage interface {
 	ItemArtworkPage(context.Context, *core.Viewer, core.Device, []core.RatingKey) (map[core.RatingKey][]Image, error)
 }
