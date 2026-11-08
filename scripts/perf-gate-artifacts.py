@@ -10,6 +10,37 @@ import subprocess
 import sys
 
 
+def validate_trace(record):
+    """Accept the real PerfTraceRecord shape, not merely valid JSON."""
+    if not isinstance(record, dict):
+        raise ValueError("trace must be an object")
+    for key in ("surface", "method", "start"):
+        if not isinstance(record.get(key), str) or not record[key]:
+            raise ValueError("missing trace identity")
+    if not isinstance(record.get("path"), str):
+        raise ValueError("missing request path")
+    if "tag" in record and not isinstance(record["tag"], str):
+        raise ValueError("invalid tag")
+    for key in ("status", "bytes", "duration", "queries", "writes", "rows", "dbTime", "lockWait"):
+        if type(record.get(key)) is not int or record[key] < 0:
+            raise ValueError("invalid trace counter")
+    if not 100 <= record["status"] <= 599:
+        raise ValueError("invalid HTTP status")
+    for key in ("allocBytes", "allocs"):
+        if key in record and (type(record[key]) is not int or record[key] < 0):
+            raise ValueError("invalid allocation counter")
+    if not isinstance(record.get("statements", []), list):
+        raise ValueError("statements must be an array")
+    for statement in record.get("statements", []):
+        if not isinstance(statement, dict) or not isinstance(statement.get("sql"), str):
+            raise ValueError("invalid SQL statement")
+        if "site" in statement and not isinstance(statement["site"], str):
+            raise ValueError("invalid call site")
+        for key in ("count", "rows", "time"):
+            if type(statement.get(key)) is not int or statement[key] < 0:
+                raise ValueError("invalid statement counter")
+
+
 def main():
     root = Path(sys.argv[1])
     output = root / "perf-gate-artifacts"
@@ -36,13 +67,19 @@ def main():
     complete = report.is_file()
     for scale in ("small", "large"):
         source = root / "perf-gate-private" / (scale + "-trace.jsonl")
-        status = {"records": 0, "malformed_lines": 0, "present": source.is_file()}
+        status = {"records": 0, "tagged_records": 0, "malformed_lines": 0,
+                  "invalid_records": 0, "present": source.is_file()}
         if source.is_file():
             target = output / source.name
             with source.open() as src, target.open("w") as dst:
                 for line in src:
                     try:
                         record = json.loads(line)
+                    except ValueError:
+                        status["malformed_lines"] += 1
+                        continue
+                    try:
+                        validate_trace(record)
                         safe = {key: record[key] for key in fields if key in record}
                         safe["statements"] = [
                             {"sql": literals.sub("?", st["sql"]),
@@ -52,12 +89,14 @@ def main():
                     except (ValueError, TypeError, KeyError, AttributeError):
                         # A timeout may leave a partial last record. Preserve
                         # valid records, record the loss and fail preparation.
-                        status["malformed_lines"] += 1
+                        status["invalid_records"] += 1
                         continue
                     dst.write(json.dumps(safe) + "\n")
                     status["records"] += 1
+                    status["tagged_records"] += bool(record.get("tag"))
             status["sanitized_sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
-        complete = complete and status["records"] > 0 and status["malformed_lines"] == 0
+        complete = (complete and status["tagged_records"] > 0
+                    and status["malformed_lines"] == 0 and status["invalid_records"] == 0)
         provenance[scale] = status
     provenance["evidence_complete"] = complete
     (output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
