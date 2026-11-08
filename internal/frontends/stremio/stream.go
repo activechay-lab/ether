@@ -67,7 +67,11 @@ func (i *instance) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := frontend.WithClientIP(r.Context(), ip)
-	profile, err := i.host.Capabilities.Build(ctx, frontend.CapabilityRequest{Viewer: viewer, Device: caps.DeviceInfo{Protocol: "stremio", ClientID: device.ID, Product: device.Product}, UserAgent: r.UserAgent()})
+	// The device identity stays per install link; the player identity comes
+	// from this request's agent (stremioClient), so a link shared between
+	// Stremio Web and a native app gets each player's own capabilities.
+	product, platform := stremioClient(r.UserAgent())
+	profile, err := i.host.Capabilities.Build(ctx, frontend.CapabilityRequest{Viewer: viewer, Device: caps.DeviceInfo{Protocol: "stremio", ClientID: device.ID, Product: product, Platform: platform}, UserAgent: r.UserAgent()})
 	if err != nil {
 		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
 		return

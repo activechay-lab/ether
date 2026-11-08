@@ -1460,6 +1460,18 @@ link, add a certificate under **Apps › Away from home › Use your own
 certificate** and try again.
 Catalogue items and streams follow the viewer's library and safety settings.
 
+Stremio sends no device profile, so Ether recognises the app from its
+User-Agent. The Stremio desktop app (mpv), Stremio for Android and Android TV,
+and Nuvio play through their own native players, so they get native-player
+capabilities: HEVC, AV1 and H.264, HDR10 and HLG (the player tone-maps for an
+SDR screen), and E-AC-3/AC-3. The desktop app also gets Dolby Vision (profiles
+5 and 8; profile 7 plays its HDR10 base) and DTS and TrueHD. On Android and
+iOS, Dolby Vision depends on the device's decoder, which Ether cannot see, so
+it stays off and profile 7 and 8.1 releases play their HDR10 base. Turn it on
+for those devices with a client override for `stremio-native-android` or
+`nuvio-ios`. Stremio Web, and desktop builds that report a plain browser
+User-Agent, keep browser-safe capabilities.
+
 ## Read-only WebDAV
 
 After an owner enables **Files** under **Apps**, a viewer can create a WebDAV

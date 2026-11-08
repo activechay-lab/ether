@@ -101,7 +101,7 @@ func (a *App) recordFrontendFamily(ctx context.Context, surface frontend.Protoco
 // playbackFloor copies a recognized client's registry codecs onto empty
 // lists. The generic preset is not a declaration, so an unknown client stays
 // unrestricted. HDR flags stay with the profile: the preset does not certify
-// a display.
+// a display, except for native-player apps (see the quirk below).
 func playbackFloor(declared core.ClientCaps, overrides []core.ClientCapabilityOverride) core.ClientCaps {
 	device := declared.Device
 	if device == "" {
@@ -122,6 +122,14 @@ func playbackFloor(declared core.ClientCaps, overrides []core.ClientCapabilityOv
 	}
 	if declared.MaxHeight == 0 && !declared.ExplicitMaxHeight && defaults.MaxHeight > 0 {
 		declared.MaxHeight = defaults.MaxHeight
+	}
+	// An app that plays through its own native player (registry quirk
+	// native-player-dynamic-range: Stremio desktop/Android, Nuvio) renders
+	// HDR itself and tone-maps for an SDR display, so the record's range
+	// flags are the player's, not a display claim. An explicit refusal wins.
+	if !declared.ExplicitNoHDR && transcode.HasQuirk(declared.Product, declared.Platform, device, "", declared.Version, "native-player-dynamic-range") {
+		declared.HDR10 = declared.HDR10 || defaults.HDR10
+		declared.DolbyVision = declared.DolbyVision || (defaults.DolbyVision && !defaults.DolbyVisionOff)
 	}
 	return declared
 }

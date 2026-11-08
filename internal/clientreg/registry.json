@@ -109,6 +109,45 @@
   },
   "definitions": [
     {
+      "id": "stremio-native-desktop",
+      "role": "policy",
+      "family": "Stremio desktop (mpv)",
+      "preset": "image",
+      "notes": "Stremio's desktop shell plays through mpv, which renders HDR and Dolby Vision itself and tone-maps for an SDR display. Profile 7 plays its HDR10 base.",
+      "dolbyVisionProfiles": [5, 8],
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "stremio"},
+        {"field": "platform", "op": "equals", "value": "desktop"}
+      ]}
+    },
+    {
+      "id": "stremio-native-android",
+      "role": "policy",
+      "family": "Stremio native player (Android)",
+      "preset": "image",
+      "notes": "Stremio Android, Android TV and Nuvio play through ExoPlayer, libVLC or libmpv. Dolby Vision depends on the device decoder, which Ether cannot see, so it is off by default; profile 7 and 8.1 play their HDR10 base.",
+      "dolbyVisionProfiles": [8],
+      "match": {"all": [
+        {"any": [
+          {"field": "product", "op": "equals", "value": "stremio"},
+          {"field": "product", "op": "equals", "value": "nuvio"}
+        ]},
+        {"field": "platform", "op": "equals", "value": "android"}
+      ]}
+    },
+    {
+      "id": "nuvio-ios",
+      "role": "policy",
+      "family": "Nuvio (iOS)",
+      "preset": "text",
+      "notes": "Nuvio on iOS plays HDR10 natively; Dolby Vision stays off by default.",
+      "dolbyVisionProfiles": [8],
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "nuvio"},
+        {"field": "platform", "op": "equals", "value": "ios"}
+      ]}
+    },
+    {
       "id": "pm4k",
       "role": "policy",
       "family": "Kodi",
@@ -253,6 +292,39 @@
       "family": "generic",
       "preset": "text",
       "match": {}
+    },
+    {
+      "id": "stremio-native-desktop",
+      "role": "playback",
+      "preset": "htpc",
+      "dolbyVision": true,
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "stremio"},
+        {"field": "platform", "op": "equals", "value": "desktop"}
+      ]}
+    },
+    {
+      "id": "stremio-native-android",
+      "role": "playback",
+      "preset": "htpc",
+      "audio": ["aac", "ac3", "eac3", "mp3", "flac", "opus", "vorbis", "pcm"],
+      "match": {"all": [
+        {"any": [
+          {"field": "product", "op": "equals", "value": "stremio"},
+          {"field": "product", "op": "equals", "value": "nuvio"}
+        ]},
+        {"field": "platform", "op": "equals", "value": "android"}
+      ]}
+    },
+    {
+      "id": "nuvio-ios",
+      "role": "playback",
+      "preset": "apple",
+      "dolbyVision": false,
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "nuvio"},
+        {"field": "platform", "op": "equals", "value": "ios"}
+      ]}
     },
     {
       "id": "pm4k",
@@ -655,6 +727,28 @@
           {"field": "product", "op": "contains", "value": "infuse"}
         ]
       }
+    },
+    {
+      "id": "native-player-dynamic-range",
+      "role": "quirk",
+      "quirks": ["native-player-dynamic-range"],
+      "notes": "The app plays through its own native player (mpv, ExoPlayer, libVLC, KSPlayer), which renders HDR itself and tone-maps for an SDR display, so the playback record's HDR flags apply without a declared profile.",
+      "match": {"any": [
+        {"all": [
+          {"field": "product", "op": "equals", "value": "stremio"},
+          {"any": [
+            {"field": "platform", "op": "equals", "value": "desktop"},
+            {"field": "platform", "op": "equals", "value": "android"}
+          ]}
+        ]},
+        {"all": [
+          {"field": "product", "op": "equals", "value": "nuvio"},
+          {"any": [
+            {"field": "platform", "op": "equals", "value": "android"},
+            {"field": "platform", "op": "equals", "value": "ios"}
+          ]}
+        ]}
+      ]}
     }
   ]
 }

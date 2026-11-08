@@ -263,3 +263,32 @@ func TestSegmentedAudioRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestStremioNativePlayers(t *testing.T) {
+	for _, c := range []struct {
+		id                Identity
+		record            string
+		hdr10, dv, truehd bool
+		dvProfiles        []int
+	}{
+		{Identity{Product: "Stremio", Platform: "Desktop"}, "stremio-native-desktop", true, true, true, []int{5, 8}},
+		{Identity{Product: "Stremio", Platform: "Android"}, "stremio-native-android", true, false, false, []int{8}},
+		{Identity{Product: "Nuvio", Platform: "Android"}, "stremio-native-android", true, false, false, []int{8}},
+		{Identity{Product: "Nuvio", Platform: "iOS"}, "nuvio-ios", true, false, false, []int{8}},
+	} {
+		got := Playback(c.id, nil)
+		if got.ID != c.record || got.HDR10 != c.hdr10 || got.DolbyVision != c.dv || slices.Contains(got.Audio, "truehd") != c.truehd || !slices.Contains(got.Video, "hevc") || got.MaxHeight != 2160 {
+			t.Errorf("%+v playback: %+v", c.id, got)
+		}
+		if p := Policy(c.id, nil); p.ID != c.record || !slices.Equal(p.DolbyVisionProfiles, c.dvProfiles) {
+			t.Errorf("%+v policy: %+v", c.id, p)
+		}
+		if !HasQuirk(c.id, "native-player-dynamic-range") {
+			t.Errorf("%+v: native player quirk missing", c.id)
+		}
+	}
+	web := Identity{Product: "Stremio"}
+	if got := Playback(web, nil); got.ID != "generic" || HasQuirk(web, "native-player-dynamic-range") {
+		t.Errorf("Stremio Web must stay generic: %+v", got)
+	}
+}
