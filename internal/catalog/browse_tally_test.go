@@ -200,7 +200,117 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 	now = now.Add(30 * time.Hour)
 	check("a day later")
 	exec(`UPDATE catalog_titles SET browsable=1 WHERE key=?`, int64(keys[20]))
-	if err := RebuildBrowseTally(ctx, db); err != nil {
+	if err := RebuildLibraryCounts(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	check("after a rebuild")
+}
+
+// A restricted viewer's whole-library episode total (Plex allLeaves) must be
+// the number of episodes its pages return: the series rating histograms
+// stand in for a join over every episode, so they are pinned to it through
+// episode and series writes, inherited ratings and the clock.
+func TestRestrictedEpisodeTotalsMatchPages(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	c, err := New(db, nil, config.Catalog{}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	c.SetNow(func() time.Time { return now })
+	rng := rand.New(rand.NewPCG(3, 5))
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`CREATE TABLE IF NOT EXISTS availability_hidden(kind TEXT NOT NULL,generation TEXT NOT NULL,rating_key BIGINT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(kind,generation,rating_key))`)
+	ratings := []string{"", "TV-Y", "TV-PG", "TV-14", "TV-MA", "NR", "PG-13"}
+	collections := []string{"", "", "Hidden", " hidden ", "Other"}
+	released := func() int64 {
+		switch rng.IntN(6) {
+		case 0:
+			return 0
+		case 1:
+			return now.Add(time.Duration(rng.IntN(72)) * time.Hour).Unix()
+		default:
+			return now.Add(-time.Duration(rng.IntN(20_000)) * time.Hour).Unix()
+		}
+	}
+	rate := func() (string, int) {
+		r := ratings[rng.IntN(len(ratings))]
+		return r, int(contentrating.LevelOf(r))
+	}
+	var episodes []core.RatingKey
+	for s := int64(1); s <= 25; s++ {
+		r, rank := rate()
+		exec(`INSERT INTO catalog_titles(key,type,title,sort_title,released_ts,browsable,adult,detail,content_rating,content_rating_rank,collection_name) VALUES(?,'show','s','s',?,1,0,1,?,?,?)`,
+			int64(core.ShowKey(s)), now.Add(-time.Hour*24*400).Unix(), r, rank, collections[rng.IntN(len(collections))])
+		for e := 1; e <= 8; e++ {
+			key := core.EpisodeKey(s, 1+e/4, e)
+			r, rank := rate()
+			exec(`INSERT INTO catalog_titles(key,type,title,sort_title,show_key,season,episode,released_ts,browsable,adult,detail,content_rating,content_rating_rank,collection_name) VALUES(?,'episode','e','e',?,?,?,?,0,?,1,?,?,?)`,
+				int64(key), int64(core.ShowKey(s)), 1+e/4, e, released(), flagInt(rng.IntN(12) == 0), r, rank, collections[rng.IntN(len(collections))])
+			episodes = append(episodes, key)
+			if rng.IntN(6) == 0 {
+				exec(`INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES('episode','g-ep',?,0)`, int64(key))
+			}
+		}
+	}
+	share := core.Filter{MaxContentRating: "TV-14", ExcludeContentRatings: []string{"TV-MA", "NR"}, ExcludeCollectionNames: []string{"hidden"}}
+	filters := []core.Filter{
+		{},
+		{ChildVisibility: &core.Filter{MaxContentRating: "TV-14"}, MaxContentRating: "TV-14"},
+		{ChildVisibility: &share, MaxContentRating: "TV-14", ExcludeCollectionNames: []string{"hidden"}, HiddenEpisodeGeneration: "g-ep", ExcludeKeys: []core.RatingKey{episodes[3], episodes[40]}},
+		{ChildVisibility: &core.Filter{MinContentRating: "TV-PG", ContentRatings: []string{"TV-PG", "TV-14", "NR"}, IncludeCollectionNames: []string{"other"}}},
+		{ChildVisibility: &core.Filter{MaxContentRating: "XYZ"}},
+	}
+	check := func(stage string) {
+		t.Helper()
+		c.writeGen.Add(1)
+		for fi, f := range filters {
+			ff := c.viewerPaging(ctx, f)
+			if _, ok, err := c.countStoredEpisodesBySeries(ctx, ff); err != nil || !ok {
+				t.Fatalf("%s filter %d: not counted by series (%v)", stage, fi, err)
+			}
+			total, err := c.CountStoredEpisodes(ctx, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := c.StoredEpisodesByKey(ctx, f, 0, 10_000)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if total != len(page) {
+				t.Errorf("%s filter %d: total %d, episodes %d", stage, fi, total, len(page))
+			}
+		}
+	}
+	check("initial")
+	for i, k := range episodes {
+		switch i % 6 {
+		case 0:
+			r, rank := rate()
+			exec(`UPDATE catalog_titles SET content_rating=?, content_rating_rank=? WHERE key=?`, r, rank, int64(k))
+		case 1:
+			exec(`UPDATE catalog_titles SET collection_name=? WHERE key=?`, collections[rng.IntN(len(collections))], int64(k))
+		case 2:
+			exec(`UPDATE catalog_titles SET released_ts=? WHERE key=?`, released(), int64(k))
+		case 3:
+			exec(`UPDATE catalog_titles SET adult=1-adult WHERE key=?`, int64(k))
+		case 4:
+			exec(`UPDATE catalog_titles SET show_key=? WHERE key=?`, int64(core.ShowKey(int64(1+rng.IntN(25)))), int64(k))
+		}
+	}
+	exec(`DELETE FROM catalog_titles WHERE key IN (?,?)`, int64(episodes[7]), int64(episodes[70]))
+	r, rank := rate()
+	exec(`UPDATE catalog_titles SET content_rating=?, content_rating_rank=? WHERE key=?`, r, rank, int64(core.ShowKey(2)))
+	check("after writes")
+	now = now.Add(48 * time.Hour)
+	check("two days later")
+	if err := RebuildLibraryCounts(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	check("after a rebuild")

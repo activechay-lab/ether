@@ -84,7 +84,7 @@ func Generate(ctx context.Context, db *sql.DB, s Scale, now time.Time) error {
 		return err
 	}
 	// So are the library totals.
-	if err := catalog.RebuildBrowseTally(ctx, db); err != nil {
+	if err := catalog.RebuildLibraryCounts(ctx, db); err != nil {
 		return err
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild')`); err != nil {
