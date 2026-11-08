@@ -407,16 +407,22 @@ func runFixture(ctx context.Context, args []string) error {
 	out := f.String("out", "", "new directory: OUT/data is the data directory, OUT/viewer.json the owner")
 	port := f.Int("port", 32400, "Plex port inside the container")
 	bin := f.String("bin", "", "ether binary that migrates the new database (default: build ./cmd/ether)")
+	from := f.String("from", "", "copy this existing fixture data directory (e.g. the shared 1.3M one) instead of generating")
 	_ = f.Parse(args)
 	scale := map[string]perfharness.Scale{"small": perfharness.SmallScale, "large": perfharness.LargeScale}[*scaleName]
-	if scale.Movies == 0 || *out == "" {
-		return errors.New("-scale small|large and -out are required")
+	if (scale.Movies == 0 && *from == "") || *out == "" {
+		return errors.New("-scale small|large (or -from DATA_DIR) and -out are required")
 	}
 	dir := filepath.Join(absPath(*out), "data")
 	if fileExists(dir) {
 		return fmt.Errorf("%s already exists", dir)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if *from != "" {
+		// A consistent online copy; the measured build migrates it below.
+		if err := copyDataDir(ctx, *from, dir); err != nil {
+			return err
+		}
+	} else if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	cfg, err := config.Open(dir)
@@ -463,15 +469,17 @@ func runFixture(ctx context.Context, args []string) error {
 		return err
 	}
 	defer db.Close()
-	start := time.Now()
-	if err := perfharness.Generate(ctx, db, scale, time.Now()); err != nil {
-		return err
+	if *from == "" {
+		start := time.Now()
+		if err := perfharness.Generate(ctx, db, scale, time.Now()); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "etherperf: %d catalogue rows in %s\n", scale.Rows(), time.Since(start).Round(time.Millisecond))
 	}
 	viewers, err := perfharness.MintCredentials(ctx, db, 1)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "etherperf: %d catalogue rows in %s\n", scale.Rows(), time.Since(start).Round(time.Millisecond))
 	return writeJSON(filepath.Join(absPath(*out), "viewer.json"), viewerFile{ID: viewers[0].ID, Username: viewers[0].Username, Token: viewers[0].PlexToken})
 }
 
