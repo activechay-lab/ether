@@ -85,6 +85,16 @@ type relayProducer struct {
 	// mislabeled segment; formatGen is the program generation in use.
 	overlap   *relayHedge
 	formatGen uint64
+	// steady is a Steady hand-off feed that replaced the relay; steadyReady
+	// one waiting for the run loop to splice it in.
+	steady        SteadyFeed
+	steadyReady   SteadyFeed
+	steadyClass   string
+	steadyBusy    bool
+	steadyRetryAt time.Time
+	// churnAt and slateRuns are the run loop's own (no lock).
+	churnAt   []time.Time
+	slateRuns int
 	// starving is set while a running copy producer is past its next
 	// segment with input flowing; producing while input flows and nothing
 	// is starving. The timeline reads both without locks.
@@ -228,11 +238,13 @@ func (p *relayProducer) adopt(id string, hls core.HLSSession, cancel context.Can
 		return core.ErrNotFound
 	}
 	old, oldCancel := p.hls, p.cancel
+	steady := p.steady
+	p.steady = nil
 	p.hls, p.cancel, p.info, p.dec, p.cut = hls, cancel, info, dec, cut
 	p.starved, p.reformat = false, nil
 	p.startedAt = time.Now()
 	origin := &localRelayOrigin{hls: hls, name: id}
-	if old == nil {
+	if old == nil && steady == nil {
 		p.ingest.origin = origin
 	} else {
 		p.ingest.rebase(origin)
@@ -243,20 +255,31 @@ func (p *relayProducer) adopt(id string, hls core.HLSSession, cancel context.Can
 		oldCancel()
 		old.Close()
 	}
+	if steady != nil {
+		steady.Close()
+	}
 	p.log.Info("owned relay producer started", "producer", id, "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec)
 	return nil
 }
 
 func (p *relayProducer) close() {
+	p.noteRelayEnd()
 	p.mu.Lock()
 	p.closed = true
 	hls, cancel := p.hls, p.cancel
 	p.hls, p.cancel = nil, nil
 	hedge, overlap := p.hedge, p.overlap
 	p.hedge, p.overlap = nil, nil
+	steady, ready := p.steady, p.steadyReady
+	p.steady, p.steadyReady = nil, nil
 	p.mu.Unlock()
 	hedge.close()
 	overlap.close()
+	for _, f := range []SteadyFeed{steady, ready} {
+		if f != nil {
+			f.Close()
+		}
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -370,6 +393,28 @@ func (p *relayProducer) run(ctx context.Context) {
 		if err != nil {
 			failures++
 		}
+		if p.takeSteady() {
+			failures = 0
+			continue
+		}
+		p.mu.Lock()
+		onSteady := p.steady != nil
+		p.mu.Unlock()
+		if onSteady {
+			// Steady owns recovery now (its ladder and reconnect screen);
+			// the deadline and slate still guard this timeline. Only a
+			// feed that ended outright brings the relay back.
+			if errors.Is(err, errOriginEnded) || failures >= 15 {
+				p.recover(ctx, "steady feed ended")
+			}
+			continue
+		}
+		if runs := p.tl.slateRunCount(); runs > p.slateRuns {
+			p.slateRuns = runs
+			if p.churn(now) {
+				p.wantSteady(ctx, "stall")
+			}
+		}
 		h, healthy := p.s.inputHealth(p.sess.Load())
 		p.inputStalled.Store(healthy && (h.Stalled || h.Failed || h.Kind == "ts" && h.DataAge > time.Second))
 		if healthy && h.FormatGeneration != 0 {
@@ -444,6 +489,9 @@ func (p *relayProducer) run(ctx context.Context) {
 		switch {
 		case reformat != nil && now.Sub(reopened) > 10*time.Second:
 			p.reopen(ctx, *reformat)
+			if p.churn(now) {
+				p.wantSteady(ctx, "format")
+			}
 		case ended:
 			p.recover(ctx, "relay ended")
 		case healthy && h.Failed && !cold:
@@ -456,11 +504,17 @@ func (p *relayProducer) run(ctx context.Context) {
 			// plays its buffer, not after the deadline.
 			p.recover(ctx, "input stalled, backup available")
 		case copyMode && !escalated && p.damaged.Load():
+			// Re-encode at once (it conceals); Steady takes over when it
+			// has capacity, sharing one encode across viewers.
+			p.noteRelayEscalation("damage", 0)
+			p.wantSteady(ctx, "damage")
 			p.escalate(ctx, "input damage: re-encoding conceals it")
 		case copyMode && !escalated && (starved || starvedFor > starveLimit):
 			// Copy cannot cut where the source has no keyframe (lost,
 			// or a GOP far longer than the target). Re-encode, which
 			// cuts on its own keyframes.
+			p.noteRelayEscalation("keyframe", max(starvedFor, lastDur))
+			p.wantSteady(ctx, "keyframe")
 			p.escalate(ctx, "copy cannot cut segments from this source")
 		case since > limit:
 			switch {
@@ -571,6 +625,7 @@ func (p *relayProducer) adoptHedge(h *relayHedge) {
 	p.escalated = true
 	info := p.info
 	p.mu.Unlock()
+	p.noteRelayEscalation("keyframe", 0)
 	p.log.Warn("owned relay switching producer to re-encode", "reason", "the re-encode cut first")
 	if err := p.adopt(h.id, h.hls, h.cancel, info, h.dec, relaySegment); err != nil {
 		h.close()

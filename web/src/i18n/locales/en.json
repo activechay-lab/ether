@@ -1314,6 +1314,7 @@
   "m_0553642f9a45aa": "Never above slot",
   "m_0554ee071cc108": "Email the weekly report",
   "m_055538c0f7d2c4": "Add a definitions source under More options to search tracker sites",
+  "m_0555a0f1209710": "keyframes far apart",
   "m_0555e8f56bb436": "TMDB API key",
   "m_05579bd20cb8e9": "Nothing will be imported. Include at least one group.",
   "m_055a2ecff5a79a": "Prepared the install for your approval",
@@ -3643,6 +3644,7 @@
   },
   "m_0ee883b536fd73": "No groups match.",
   "m_0ee88d90b1c907": "Added in last sync",
+  "m_0ee993ff04e4e4": "starts converted for a clean picture",
   "m_0eefa80957450e": "This guide channel has nothing scheduled in the next {count} hours.",
   "m_0ef1993442fea0": "Enhance sources up to",
   "m_0ef1b410be60af": "Bitrate limit",
@@ -4129,6 +4131,7 @@
   "m_10cf99d2baac75": "Browser push needs HTTPS (or localhost), a supported browser and notification permission. On iPhone or iPad, install Ether on your Home Screen and open it there.",
   "m_10d1c3a6096e59": "Couldn't forget the show",
   "m_10d1c4dca0d133": "Not checked yet: remote access is off.",
+  "m_10d31415ce0d33": "picture damage seen",
   "m_10d3afaf9a99c4": "Listings for {channel} come from the guide channel you pick.",
   "m_10d5152b10c948": "Storage: {size}",
   "m_10d709cc7b697b": "Add server",
@@ -5800,6 +5803,10 @@
   },
   "m_178d316181b924": "Restarting…",
   "m_178dc1fcbddc99": "Rows Plex itself provides",
+  "m_178e5f518f2efb": {
+    "one": "{count} format change",
+    "other": "{count} format changes"
+  },
   "m_178e82b68358b3": "steps",
   "m_17907beac3a219": "Add a debrid account",
   "m_1790f3628a5db7": "Recent calls",
@@ -6632,6 +6639,10 @@
   "m_1ac946fceccf3d": "Stream stability set to {name}",
   "m_1ac96195e626ad": "Ether design",
   "m_1acae0294a1669": "Drag rule {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} stall per hour",
+    "other": "{count} stalls per hour"
+  },
   "m_1acca9e3e215d8": "Posters from an XRDB server.",
   "m_1accac7df48579": "Then create a join token to add your next machine.",
   "m_1ace5c1441b2b7": "Server health: {status}",

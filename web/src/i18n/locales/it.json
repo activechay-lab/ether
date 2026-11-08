@@ -1345,6 +1345,7 @@
   "m_0553642f9a45aa": "Mai sopra la posizione",
   "m_0554ee071cc108": "Invia il resoconto settimanale via email",
   "m_055538c0f7d2c4": "Aggiungi una fonte di definizioni in Altre opzioni per cercare sui siti di tracker",
+  "m_0555a0f1209710": "fotogrammi chiave molto distanti",
   "m_0555e8f56bb436": "Chiave API di TMDB",
   "m_05579bd20cb8e9": "Non verrà importato nulla. Includi almeno un gruppo.",
   "m_055a2ecff5a79a": "Installazione preparata per la tua approvazione",
@@ -3729,6 +3730,7 @@
   },
   "m_0ee883b536fd73": "Nessun gruppo corrisponde.",
   "m_0ee88d90b1c907": "Aggiunti nell’ultima sincronizzazione",
+  "m_0ee993ff04e4e4": "parte convertito per un'immagine pulita",
   "m_0eefa80957450e": "Questo canale guida non ha nulla in programma nelle prossime {count} ore.",
   "m_0ef1993442fea0": "Migliora le fonti fino a",
   "m_0ef1b410be60af": "Limite di bitrate",
@@ -4232,6 +4234,7 @@
   "m_10cf99d2baac75": "Il push del browser richiede HTTPS (o localhost), un browser supportato e l'autorizzazione alle notifiche. Su iPhone o iPad, aggiungi Ether alla schermata Home e aprilo da lì.",
   "m_10d1c3a6096e59": "Impossibile dimenticare la serie",
   "m_10d1c4dca0d133": "Non ancora verificato: l'accesso remoto è disattivato.",
+  "m_10d31415ce0d33": "rilevati danni all'immagine",
   "m_10d3afaf9a99c4": "I programmi di {channel} provengono dal canale guida che scegli.",
   "m_10d5152b10c948": "Archiviazione: {size}",
   "m_10d709cc7b697b": "Aggiungi server",
@@ -5947,6 +5950,11 @@
   },
   "m_178d316181b924": "Riavvio in corso…",
   "m_178dc1fcbddc99": "Righe fornite da Plex stesso",
+  "m_178e5f518f2efb": {
+    "one": "{count} cambio di formato",
+    "many": "{count} cambi di formato",
+    "other": "{count} cambi di formato"
+  },
   "m_178e82b68358b3": "passaggi",
   "m_17907beac3a219": "Aggiungi un account debrid",
   "m_1790f3628a5db7": "Chiamate recenti",
@@ -6795,6 +6803,11 @@
   "m_1ac946fceccf3d": "Stabilità dello streaming impostata su {name}",
   "m_1ac96195e626ad": "Design di Ether",
   "m_1acae0294a1669": "Trascina la regola {n}",
+  "m_1acbb68bd15774": {
+    "one": "{count} interruzione all'ora",
+    "many": "{count} interruzioni all'ora",
+    "other": "{count} interruzioni all'ora"
+  },
   "m_1acca9e3e215d8": "Locandine da un server XRDB.",
   "m_1accac7df48579": "Poi crea un token di adesione per aggiungere la tua prossima macchina.",
   "m_1ace5c1441b2b7": "Stato del server: {status}",
