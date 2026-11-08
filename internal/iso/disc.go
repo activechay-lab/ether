@@ -1,3 +1,7 @@
+// Adapted from AltMount (internal/importer/archive/iso_expansion.go),
+// MIT License, Copyright (c) 2025 Javier Blanco.
+// https://github.com/javi11/altmount
+
 package iso
 
 import (
