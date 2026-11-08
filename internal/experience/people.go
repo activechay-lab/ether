@@ -284,7 +284,7 @@ func (s *Service) visitPeople(ctx context.Context, viewer *core.Viewer, device c
 }
 
 func mergeVisiblePerson(old visiblePerson, person core.Person, item core.RatingKey) (visiblePerson, error) {
-	id := facetID("person", strconv.FormatInt(person.TMDB, 10))
+	id := personFacetID(person.TMDB)
 	if old.detail.ID != "" && old.detail.TMDB != person.TMDB {
 		return old, core.ErrNotAvailable
 	}
@@ -472,7 +472,7 @@ func (s *Service) indexedPeople(ctx context.Context, viewer *core.Viewer, q fron
 	candidates := make([]frontend.PersonDetail, 0, len(found))
 	for _, c := range found {
 		if c.TMDB > 0 && personMatches(c.Name, terms) {
-			candidates = append(candidates, frontend.PersonDetail{ID: facetID("person", strconv.FormatInt(c.TMDB, 10)), Name: c.Name, TMDB: c.TMDB})
+			candidates = append(candidates, frontend.PersonDetail{ID: personFacetID(c.TMDB), Name: c.Name, TMDB: c.TMDB})
 		}
 	}
 	sort.Slice(candidates, func(a, b int) bool { return personBefore(candidates[a], candidates[b], exact) })
@@ -538,6 +538,9 @@ func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.D
 	if id == "" || len(id) > 128 {
 		return frontend.PersonDetail{}, core.ErrNotFound
 	}
+	if tmdb, ok := personTMDB(id); ok && s.d.PersonCredits != nil && s.d.CachedGetMany != nil {
+		return s.indexedPerson(ctx, viewer, tmdb)
+	}
 	var found visiblePerson
 	err := s.visitPeople(ctx, viewer, device, frontend.PeopleAll, true, func(person core.Person, item core.RatingKey) error {
 		if facetID("person", strconv.FormatInt(person.TMDB, 10)) != id {
@@ -556,6 +559,54 @@ func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.D
 	return s.currentPerson(ctx, viewer, found.detail)
 }
 
+// personPageCredits bounds the credits a person page reads; it is far above
+// any person's credit count, so the choice below sees all of them.
+const personPageCredits = 5000
+
+// indexedPerson is person for a known TMDB id: the same choice among the
+// person's visible credits as the walk makes, read from the credits index.
+func (s *Service) indexedPerson(ctx context.Context, viewer *core.Viewer, tmdb int64) (frontend.PersonDetail, error) {
+	v, err := s.viewer(ctx, viewer)
+	if err != nil {
+		return frontend.PersonDetail{}, err
+	}
+	keys, err := s.d.PersonCredits(ctx, tmdb, []core.MediaType{core.TypeMovie, core.TypeShow, core.TypeEpisode, core.TypeSeason}, personPageCredits)
+	if err != nil {
+		return frontend.PersonDetail{}, err
+	}
+	var found visiblePerson
+	for start := 0; start < len(keys); start += 128 {
+		titles, err := s.d.CachedGetMany(ctx, keys[start:min(start+128, len(keys))])
+		if err != nil {
+			return frontend.PersonDetail{}, err
+		}
+		visibility, err := s.peopleVisibility(ctx, titles)
+		if err != nil {
+			return frontend.PersonDetail{}, err
+		}
+		for _, key := range keys[start:min(start+128, len(keys))] {
+			title, ok := titles[key]
+			if !ok || title.Key != key || !peopleTitleVisible(ctx, v, &title, visibility) {
+				continue
+			}
+			for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
+				for _, person := range group {
+					if person.TMDB != tmdb || strings.TrimSpace(person.Name) == "" {
+						continue
+					}
+					if found, err = mergeVisiblePerson(found, person, title.Key); err != nil {
+						return frontend.PersonDetail{}, err
+					}
+				}
+			}
+		}
+	}
+	if found.detail.ID == "" {
+		return frontend.PersonDetail{}, core.ErrNotFound
+	}
+	return s.currentPerson(ctx, viewer, found.detail)
+}
+
 // PersonCredit revalidates one cached, title-bound person without playback,
 // provider refresh, or an unfiltered catalogue fallback.
 func (s *Service) personCredit(ctx context.Context, viewer *core.Viewer, _ core.Device, item core.RatingKey, tmdb int64) (frontend.PersonDetail, error) {
@@ -565,7 +616,7 @@ func (s *Service) personCredit(ctx context.Context, viewer *core.Viewer, _ core.
 	if tmdb <= 0 {
 		return frontend.PersonDetail{}, core.ErrNotFound
 	}
-	return s.currentPerson(ctx, viewer, frontend.PersonDetail{ID: facetID("person", strconv.FormatInt(tmdb, 10)), TMDB: tmdb, ArtworkItem: item})
+	return s.currentPerson(ctx, viewer, frontend.PersonDetail{ID: personFacetID(tmdb), TMDB: tmdb, ArtworkItem: item})
 }
 
 var _ frontend.PeopleReader = (*Service)(nil)
