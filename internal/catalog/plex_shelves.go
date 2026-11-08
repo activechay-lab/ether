@@ -110,26 +110,31 @@ func (c *Catalog) PlexOnDeckPageSince(ctx context.Context, uid int64, offset, li
 	args = append(args, uid)
 	personalArgIndex := len(args)
 	args = append(args, uid)
-	movieWindow, episodeWindow := "", ""
-	var movieWindowArgs, episodeWindowArgs []any
+	head := cte
 	if !since.IsZero() {
 		// The show's latest view of any episode (a movie's own) dates it;
-		// an undated view (an import) is not known to be old.
-		movieWindow, movieWindowArgs = `(chosen.latest>=? OR chosen.latest<=0) AND `, []any{since.UnixNano()}
-		episodeWindow = `(chosen.latest>=? OR chosen.latest<=0 OR (e.episode=1 AND e.season>1 AND e.released_ts>=?)) AND `
-		episodeWindowArgs = []any{since.UnixNano(), since.Unix()}
+		// an undated view (an import) is not known to be old. A premiere is
+		// probed by key only for rows outside the window, so the window
+		// filters the chosen rows and never drives a catalogue scan.
+		head = strings.Replace(head, `), qualified AS (`, `), windowed AS MATERIALIZED (
+ SELECT chosen.* FROM chosen WHERE chosen.latest>=? OR chosen.latest<=0
+ OR EXISTS(SELECT 1 FROM catalog_titles p WHERE p.key=chosen.key AND p.type='episode' AND p.episode=1 AND p.season>1 AND p.released_ts>=?)
+), qualified AS (`, 1)
+		args = append(args, since.UnixNano(), since.Unix())
+	}
+	deck := "chosen"
+	if !since.IsZero() {
+		deck = "windowed"
 	}
 	if !episodesOnly && f.Type != core.TypeEpisode {
-		branches = append(branches, `SELECT chosen.key,chosen.stamp,chosen.updated FROM chosen CROSS JOIN catalog_titles t WHERE t.key=chosen.key AND `+movieWindow+mw)
-		args = append(args, movieWindowArgs...)
+		branches = append(branches, `SELECT `+deck+`.key,`+deck+`.stamp,`+deck+`.updated FROM `+deck+` CROSS JOIN catalog_titles t WHERE t.key=`+deck+`.key AND `+mw)
 		args = append(args, ma...)
 	}
 	if f.Type != core.TypeMovie {
-		branches = append(branches, `SELECT chosen.key,chosen.stamp,chosen.updated FROM chosen CROSS JOIN catalog_titles e CROSS JOIN catalog_titles t WHERE e.key=chosen.key AND t.key=e.show_key AND e.type='episode' AND `+episodeWindow+ew)
-		args = append(args, episodeWindowArgs...)
+		branches = append(branches, `SELECT `+deck+`.key,`+deck+`.stamp,`+deck+`.updated FROM `+deck+` CROSS JOIN catalog_titles e CROSS JOIN catalog_titles t WHERE e.key=`+deck+`.key AND t.key=e.show_key AND e.type='episode' AND `+ew)
 		args = append(args, ea...)
 	}
-	prefix := cte + strings.Join(branches, ` UNION ALL `) + `) `
+	prefix := head + strings.Join(branches, ` UNION ALL `) + `) `
 	prefix = strings.Replace(prefix, "/*activeVisible*/", `(EXISTS(SELECT 1 FROM catalog_titles t WHERE t.key=w.rating_key AND `+mw+`) OR EXISTS(SELECT 1 FROM catalog_titles e CROSS JOIN catalog_titles t WHERE e.key=w.rating_key AND t.key=e.show_key AND `+ew+`))`, 1)
 	prefix = strings.Replace(prefix, "/*nextVisible*/", ew, 1)
 	var personal bool
