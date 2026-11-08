@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -277,8 +278,8 @@ func (c *Catalog) namesWalk(ctx context.Context, dir string) error {
 	sink := &namesSink{b: b}
 	cfg := c.config()
 	for _, tv := range []bool{false, true} {
-		spec := walkSpec{tv: tv, pass: "names", keep: func(t core.Title) bool { return !t.Adult || cfg.IncludeAdult },
-			params: tmdb.DiscoverParams{SortBy: "original_title.asc", IncludeAdult: cfg.IncludeAdult}}
+		spec := walkSpec{tv: tv, pass: "names", video: true, keep: func(t core.Title) bool { return !t.Adult || cfg.IncludeAdult },
+			params: tmdb.DiscoverParams{SortBy: "original_title.asc", IncludeAdult: cfg.IncludeAdult, Extra: url.Values{"include_video": {"true"}}}}
 		if err := c.walkDiscover(ctx, spec, sink); err != nil {
 			return err
 		}
@@ -292,8 +293,10 @@ func (c *Catalog) namesWalk(ctx context.Context, dir string) error {
 }
 
 // tailNamesBudget bounds the lean fetches a build makes for ids the names
-// file does not know (new since the walk): about two days of new ids.
-const tailNamesBudget = 2000
+// file does not know: the ids new since the walk (about 670 a day) and the
+// undated ones no /discover query returns (about 230k, read over two
+// weeks). 20,000 is about 8 minutes of TMDB at 40 requests a second.
+const tailNamesBudget = 20000
 
 // fillNewNames lean-fetches export ids the names file lacks, newest ids
 // first, and adds them to the names file. Before the first names walk it

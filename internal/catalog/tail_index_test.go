@@ -217,3 +217,36 @@ func TestTailBuildAndSwap(t *testing.T) {
 	c2.installTail(nil)
 	c.installTail(nil)
 }
+
+// The names walk gives every dated title its display title and date, and
+// the build's lean fetches cover what the walk cannot see (undated titles,
+// video releases), so no entry is left "date unknown".
+func TestTailNamesWalk(t *testing.T) {
+	ctx := context.Background()
+	u := newUniverse()
+	dir := t.TempDir()
+	c := universeCatalog(t, u, config.Catalog{}, true)
+	c.tail.dir = dir
+	if err := c.namesWalk(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.buildTail(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range u.movies {
+		e, ok := c.tailEntry(core.MovieKey(m.id))
+		if m.adult {
+			continue
+		}
+		if !ok {
+			t.Fatalf("movie %d not in the tail", m.id)
+		}
+		if e.DateUnknown {
+			t.Fatalf("movie %d left date-unknown", m.id)
+		}
+		if m.date != "" && e.Title.Released.Format("2006-01-02") != m.date || m.date == "" && !e.Title.Released.IsZero() {
+			t.Fatalf("movie %d (%q): %+v", m.id, m.date, e.Title.Released)
+		}
+	}
+	c.installTail(nil)
+}

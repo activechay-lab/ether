@@ -42,6 +42,8 @@ type walkSpec struct {
 	stopBelow bool
 	// keep picks the titles the walk passes on; nil is the browse bar.
 	keep func(core.Title) bool
+	// video reads video releases too (the names walk: they are findable).
+	video bool
 }
 
 // walkSink receives a walk's titles: the sync's writer, or the tail's
@@ -169,7 +171,7 @@ type discoverPage struct {
 	total      int
 }
 
-func (c *Catalog) discoverPage(ctx context.Context, tv bool, p tmdb.DiscoverParams) (discoverPage, error) {
+func (c *Catalog) discoverPage(ctx context.Context, tv, video bool, p tmdb.DiscoverParams) (discoverPage, error) {
 	var out discoverPage
 	if tv {
 		res, err := c.tmdb().DiscoverTV(ctx, p)
@@ -188,7 +190,7 @@ func (c *Catalog) discoverPage(ctx context.Context, tv bool, p tmdb.DiscoverPara
 	}
 	out.totalPages, out.total = res.TotalPages, res.TotalResults
 	for _, m := range res.Results {
-		if m.Video && !includeVideoReleases {
+		if m.Video && !includeVideoReleases && !video {
 			continue
 		}
 		out.titles = append(out.titles, c.movieToTitle(ctx, m))
@@ -243,7 +245,7 @@ func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w walkSink) (
 		if cur.Leaf == key && cur.Page > 1 {
 			page = cur.Page
 		}
-		first, err := c.discoverPage(ctx, spec.tv, s.params(spec.params, page))
+		first, err := c.discoverPage(ctx, spec.tv, spec.video, s.params(spec.params, page))
 		if err != nil {
 			return fmt.Errorf("catalog: discover %s %s page %d: %w", typ, key, page, err)
 		}
@@ -252,7 +254,7 @@ func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w walkSink) (
 			if spec.stopBelow {
 				// A popularity-sorted slice stops early: if the last
 				// reachable page is already under the bars, it fits.
-				last, err := c.discoverPage(ctx, spec.tv, s.params(spec.params, discoverMaxPages))
+				last, err := c.discoverPage(ctx, spec.tv, spec.video, s.params(spec.params, discoverMaxPages))
 				if err != nil {
 					return fmt.Errorf("catalog: discover %s %s page %d: %w", typ, key, discoverMaxPages, err)
 				}
@@ -296,7 +298,7 @@ func (c *Catalog) walkDiscover(ctx context.Context, spec walkSpec, w walkSink) (
 				break
 			}
 			page++
-			if res, err = c.discoverPage(ctx, spec.tv, s.params(spec.params, page)); err != nil {
+			if res, err = c.discoverPage(ctx, spec.tv, spec.video, s.params(spec.params, page)); err != nil {
 				// The pages already read are stored; the resume point
 				// moves past them.
 				if w.pending() > 0 && ctx.Err() == nil {
