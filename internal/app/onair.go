@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
+	"github.com/braedonsaunders/ether/internal/backup"
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -75,7 +76,7 @@ func (a *App) buildOnAir() error {
 			return 1920, 1080
 		}
 	}
-	o.AssetDir = filepath.Join(a.opts.DataDir, "onair", "assets")
+	o.AssetDir = filepath.Join(a.opts.DataDir, backup.OnAirAssetDir)
 	if a.cluster != nil {
 		o.NodeID = a.cluster.Self().ID
 		if a.cluster.Mode() != cluster.ModeSolo {
