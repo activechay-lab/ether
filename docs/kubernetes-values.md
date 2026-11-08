@@ -10,7 +10,7 @@ Every supported global value is listed below. Kubernetes-native objects accept t
 | `image.pullPolicy` | `"IfNotPresent"` | Always, IfNotPresent or Never. |
 | `imagePullSecrets` | `[]` | Existing registry Secret references. |
 | `clusterDomain` | `"cluster.local"` | Cluster DNS suffix. |
-| `runtime.ledgerCapacity` | `1000000` | Fleet-wide persisted cluster-lifetime ledger quota, 4096–10000000; all replicas must agree. Distinct from simultaneous capacity and boot history. |
+| `runtime.ledgerCapacity` | `1000000` | Fleet-wide persisted quota on live (unretired) placement sessions, 4096–10000000; all replicas must agree. Retired history never counts; the leader compacts it after 24 hours. |
 | `runtime.capacity` | `1` | Default runtime capacity, 1–4096; pool capacity overrides it. |
 | `runtime.clockBoundKnown` | `false` | Must be true only after verifying the clock error bound. |
 | `runtime.clockSkewMillis` | `1000` | Verified maximum clock error, 0–60000 ms. |
