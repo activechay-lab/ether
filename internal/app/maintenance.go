@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/schedule"
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -40,6 +42,18 @@ func (a *App) pruners() []pruner {
 	add("stats", a.stats != nil, func(ctx context.Context) (int64, error) { return a.stats.Prune(ctx) })
 	add("ratings", a.ratings != nil, func(ctx context.Context) (int64, error) { return a.ratings.Prune(ctx) })
 	add("collections", a.collections != nil, func(ctx context.Context) (int64, error) { return a.collections.Prune(ctx) })
+	add("identity", a.db != nil, func(ctx context.Context) (int64, error) {
+		grants, err := identity.NewGrants(a.db, a.users, 30*24*time.Hour, nil)
+		if err != nil {
+			return 0, err
+		}
+		return grants.Prune(ctx)
+	})
+	add("agent", a.agentRT != nil && a.agentRT.svc != nil, func(ctx context.Context) (int64, error) { return a.agentRT.svc.Prune(ctx) })
+	add("plugins", a.pluginsRT != nil && a.pluginsRT.mgr != nil, func(ctx context.Context) (int64, error) { return a.pluginsRT.mgr.Prune(ctx) })
+	add("migrate", a.migration != nil, func(ctx context.Context) (int64, error) { return a.migration.Prune(ctx) })
+	add("debrid", a.debrid != nil, func(ctx context.Context) (int64, error) { return a.debrid.Prune(ctx) })
+	add("experience", a.db != nil, func(ctx context.Context) (int64, error) { return experience.PruneRowViews(ctx, a.db) })
 	return ps
 }
 
