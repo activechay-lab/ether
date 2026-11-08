@@ -43,6 +43,13 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 		}
 		return s.showOnDeck(ctx, pr, show, memo)
 	}, PrepareShowOnDeck: func(ctx context.Context, shows []core.RatingKey) {
+		if pre, ok := s.d.Catalog.(interface {
+			PreloadStored(context.Context, []core.RatingKey)
+		}); ok && len(shows) > 1 {
+			// Each candidate's visibility checks its series: read them all
+			// at once.
+			pre.PreloadStored(ctx, shows)
+		}
 		titles := make([]core.Title, 0, len(shows))
 		for _, show := range shows {
 			titles = append(titles, core.Title{Key: show, Type: core.TypeShow})
