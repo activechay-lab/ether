@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/logredact"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -71,9 +72,39 @@ func (r *rateLimiter) current() (float64, int) {
 	return r.rate, int(r.burst)
 }
 
+// Background marks ctx's requests as bulk work: the catalogue sync, the
+// per-id fill, the names walk and the tail build. They share the client's
+// one request budget with viewer-facing requests (a poster lookup, the
+// detail fetch that promotes a title on open, the live search fallback) but
+// always yield to them: a background request takes a token only while the
+// bucket holds more than a reserve kept for viewer-facing requests, and it
+// never queues a reservation ahead of them. Unmarked requests are
+// viewer-facing.
+func Background(ctx context.Context) context.Context {
+	return context.WithValue(ctx, backgroundKey{}, true)
+}
+
+type backgroundKey struct{}
+
+// IsBackground reports whether ctx carries Background.
+func IsBackground(ctx context.Context) bool {
+	b, _ := ctx.Value(backgroundKey{}).(bool)
+	return b
+}
+
+// reserveLocked is the tokens background requests leave for viewer-facing
+// ones: a quarter of the burst (10 of 40), enough for a search page's
+// poster lookups and an open's detail fetch to start at once.
+func (r *rateLimiter) reserveLocked() float64 {
+	return math.Floor(r.burst / 4)
+}
+
 func (r *rateLimiter) wait(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if IsBackground(ctx) {
+		return r.waitBackground(ctx)
 	}
 	r.mu.Lock()
 	r.refillLocked(time.Now())
@@ -94,6 +125,34 @@ func (r *rateLimiter) wait(ctx context.Context) error {
 		return ctx.Err()
 	case <-t.C:
 		return nil
+	}
+}
+
+// waitBackground takes a token only above the reserve and above every
+// viewer-facing reservation (which drive tokens below zero), polling until
+// one is free.
+func (r *rateLimiter) waitBackground(ctx context.Context) error {
+	for {
+		r.mu.Lock()
+		r.refillLocked(time.Now())
+		floor := r.reserveLocked() + 1
+		if r.tokens >= floor {
+			r.tokens--
+			r.mu.Unlock()
+			return nil
+		}
+		delay := time.Duration((floor - r.tokens) / r.rate * float64(time.Second))
+		r.mu.Unlock()
+		t := time.NewTimer(max(delay, time.Millisecond))
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-r.stop:
+			t.Stop()
+			return ErrUnavailable
+		case <-t.C:
+		}
 	}
 }
 

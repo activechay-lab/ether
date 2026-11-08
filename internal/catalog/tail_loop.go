@@ -47,6 +47,7 @@ func WithTailIndex(dir string, free func(string) (int64, error)) Option {
 // every node that serves search; nodes that never search (source roles)
 // do not, and report the index as disabled.
 func (c *Catalog) RunTail(ctx context.Context) {
+	ctx = tmdb.Background(ctx) // the names walk and lean fetches yield to viewers
 	if c.tail.dir == "" || c.exports == nil {
 		return
 	}
