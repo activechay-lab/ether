@@ -202,6 +202,9 @@ type Server struct {
 	plexEncoder      PlexEncoder
 	homeSharedMu     sync.Mutex
 	homeShared       map[string]*homeSharedEntry
+	shelfRefMu       sync.Mutex
+	shelfRefs        map[string]shelfRef
+	shelfRefRebuilt  time.Time
 	home             *homeCache
 
 	d      Deps

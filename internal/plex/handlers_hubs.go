@@ -579,10 +579,11 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 		}
 		mc.Hub = stableHomeHubs(filtered)
 		if shelves {
-			var renamed map[string]string
+			var renamed map[string]shelfRef
 			mc.Hub, renamed = collectionShelves(mc.Hub, directorySection.ID)
-			for id, own := range renamed {
-				if h, ok := served[own]; ok {
+			s.rememberShelves(renamed)
+			for id, ref := range renamed {
+				if h, ok := served[ref.hub]; ok {
 					served[id] = h
 				}
 			}

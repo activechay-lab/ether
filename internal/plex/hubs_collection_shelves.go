@@ -2,8 +2,13 @@ package plex
 
 import (
 	"hash/fnv"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -43,10 +48,10 @@ func (s *Server) defaultPinnedDirectories(u *core.User) string {
 // so no other row's items are folded into them, every Ether row follows as
 // a promoted collection shelf (its key, items and order unchanged), and
 // rows such a client cannot open (Live TV guide rows) are dropped. renamed
-// maps each new identifier to the row's own one.
-func collectionShelves(rows []model.Hub, section int) (out []model.Hub, renamed map[string]string) {
+// maps each shelf identifier to the row it stands for.
+func collectionShelves(rows []model.Hub, section int) (out []model.Hub, renamed map[string]shelfRef) {
 	var builtIn, shelves, tail []model.Hub
-	renamed = map[string]string{}
+	renamed = map[string]shelfRef{}
 	for _, row := range rows {
 		id := row.HubIdentifier
 		switch {
@@ -59,7 +64,7 @@ func collectionShelves(rows []model.Hub, section int) (out []model.Hub, renamed 
 			n := collectionShelfNumber(row)
 			row.HubIdentifier = "custom.collection." + strconv.Itoa(section) + "." + n + "." + n
 			row.Context = "hub.custom.collection"
-			renamed[row.HubIdentifier] = id
+			renamed[row.HubIdentifier] = shelfRef{hub: id, key: row.Key}
 			shelves = append(shelves, row)
 		}
 	}
@@ -90,4 +95,105 @@ func collectionShelfNumber(row model.Hub) string {
 	h := fnv.New32a()
 	h.Write([]byte(row.HubIdentifier))
 	return strconv.FormatUint(uint64(h.Sum32()), 10)
+}
+
+// shelfRef is the Ether row behind a collection shelf: its identifier and
+// the key it publishes for its items.
+type shelfRef struct {
+	hub string
+	key string
+}
+
+// maxShelfRefs bounds the shelf table; it holds one entry per published
+// row identifier and library, so the bound is only a backstop.
+const maxShelfRefs = 4096
+
+// shelfRebuildEvery limits how often an unknown shelf number triggers a
+// rebuild of the viewer's promoted rows (after a restart, before the
+// client asked for them again).
+const shelfRebuildEvery = 30 * time.Second
+
+// rememberShelves records the rows collectionShelves renamed, so the
+// client's /library/collections/{n}/children for a shelf can be answered.
+func (s *Server) rememberShelves(renamed map[string]shelfRef) {
+	s.shelfRefMu.Lock()
+	defer s.shelfRefMu.Unlock()
+	if s.shelfRefs == nil || len(s.shelfRefs)+len(renamed) > maxShelfRefs {
+		s.shelfRefs = map[string]shelfRef{}
+	}
+	for id, ref := range renamed {
+		parts := strings.Split(id, ".")
+		if !strings.HasPrefix(ref.key, "/hubs/items/") {
+			// Backed by a real collection: its own route answers it.
+			continue
+		}
+		s.shelfRefs[parts[len(parts)-1]] = ref
+	}
+}
+
+func (s *Server) shelfFor(n string) (shelfRef, bool) {
+	s.shelfRefMu.Lock()
+	defer s.shelfRefMu.Unlock()
+	ref, ok := s.shelfRefs[n]
+	return ref, ok
+}
+
+// serveCollectionShelf answers /library/collections/{n}/children for a
+// shelf number collectionShelves published: a client with
+// collectionShelvesQuirk loads each shelf's cards from the collection
+// path its identifier names. The row's items are served exactly as the
+// row's own key serves them (same paging).
+func (s *Server) serveCollectionShelf(w http.ResponseWriter, r *http.Request) bool {
+	pr := FromContext(r.Context())
+	if !s.wantsCollectionShelves(pr) || !strings.HasSuffix(r.URL.Path, "/children") {
+		return false
+	}
+	n := chi.URLParam(r, "key")
+	if v, err := strconv.ParseUint(n, 10, 32); err != nil || strconv.FormatUint(v, 10) != n {
+		return false
+	}
+	ref, ok := s.shelfFor(n)
+	if !ok && s.rebuildShelves(r) {
+		ref, ok = s.shelfFor(n)
+	}
+	if !ok {
+		return false
+	}
+	key, err := url.Parse(ref.key)
+	if err != nil {
+		return false
+	}
+	q := r.URL.Query()
+	for k, v := range key.Query() {
+		q[k] = v
+	}
+	q.Set("identifier", ref.hub)
+	r2 := r.Clone(r.Context())
+	u := *r.URL
+	u.Path, u.RawPath, u.RawQuery = "/hubs/items", "", q.Encode()
+	r2.URL = &u
+	s.handleHubItems(w, r2)
+	return true
+}
+
+// rebuildShelves republishes the viewer's per-library promoted rows (at most
+// every shelfRebuildEvery), refilling the shelf table after a restart.
+func (s *Server) rebuildShelves(r *http.Request) bool {
+	s.shelfRefMu.Lock()
+	if time.Since(s.shelfRefRebuilt) < shelfRebuildEvery {
+		s.shelfRefMu.Unlock()
+		return false
+	}
+	s.shelfRefRebuilt = time.Now()
+	s.shelfRefMu.Unlock()
+	pr := FromContext(r.Context())
+	for _, sec := range s.userSections(pr.User) {
+		r2 := r.Clone(r.Context())
+		u := *r.URL
+		u.Path, u.RawPath = "/hubs/promoted", ""
+		u.RawQuery = url.Values{"contentDirectoryID": {strconv.Itoa(sec.ID)}, "excludeContinueWatching": {"1"}}.Encode()
+		r2.URL = &u
+		s.buildHomeHubs(r2, true)
+	}
+	return true
 }

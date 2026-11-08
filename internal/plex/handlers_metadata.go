@@ -945,6 +945,9 @@ func (s *Server) handleCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
+	if s.serveCollectionShelf(w, r) {
+		return
+	}
 	k, err := keyParam(r)
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)

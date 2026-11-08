@@ -52,8 +52,12 @@ func TestInfusePromotedRowsAreCollectionShelves(t *testing.T) {
 			t.Fatalf("row is not a promoted collection shelf: %+v", row)
 		}
 		titles[row.Title] = true
-		if rec := f.get(t, row.Key, jsonAccept...); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"ratingKey"`) {
-			t.Fatalf("shelf %s key %s: %d", row.Title, row.Key, rec.Code)
+		// Infuse loads a shelf's cards from the collection its identifier names.
+		parts := strings.Split(row.HubIdentifier, ".")
+		for _, path := range []string{row.Key, "/library/collections/" + parts[len(parts)-1] + "/children"} {
+			if rec := f.get(t, path, infuse...); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"ratingKey"`) {
+				t.Fatalf("shelf %s at %s: %d %s", row.Title, path, rec.Code, rec.Body.String())
+			}
 		}
 	}
 	if !titles["Trending Now"] || !titles["Top Rated"] {
