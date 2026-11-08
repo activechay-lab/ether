@@ -181,7 +181,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			out = append(out, frontend.NotInterestedEntry{Key: entry.Key, AddedAt: entry.AddedAt})
 		}
 		return out, nil
-	}, ByExternalID: a.catalog.ByExternalID, Active: a.users.PolicyUser, Libraries: libs, LiveLibraries: a.configuredLibraries, Visibility: vis, State: a.state, Rows: rows, Protocol: protocol, Browse: a.catalog.Browse, PageExclusions: newLibraryPageExclusions(a), CountBrowsable: a.catalog.CountBrowsable, CreditItems: a.catalog.CachedCreditItems, PeopleIndex: a.peopleIndex, PersonCredits: a.catalog.PersonCreditKeys, AiredEpisodes: a.catalog.CachedAiredEpisodes, StoredEpisodes: experience.StoredEpisodeDeps{Page: a.catalog.StoredEpisodesByKey, Count: a.catalog.CountStoredEpisodes, Unranked: a.catalog.EpisodesUnranked, Customized: func(ctx context.Context, u *core.User) (bool, error) {
+	}, ByExternalID: a.catalog.ByExternalID, Active: a.users.PolicyUser, Libraries: libs, LiveLibraries: a.configuredLibraries, Visibility: vis, State: a.state, Rows: rows, Protocol: protocol, Browse: a.catalog.Browse, PageExclusions: newLibraryPageExclusions(a), CountBrowsable: a.catalog.CountBrowsable, CreditItems: a.catalog.CachedCreditItems, PeopleIndex: a.peopleIndex, PersonCredits: a.catalog.PersonCreditKeys, PersonCreditsMany: a.catalog.PersonCreditsMany, AiredEpisodes: a.catalog.CachedAiredEpisodes, StoredEpisodes: experience.StoredEpisodeDeps{Page: a.catalog.StoredEpisodesByKey, Count: a.catalog.CountStoredEpisodes, Unranked: a.catalog.EpisodesUnranked, Customized: func(ctx context.Context, u *core.User) (bool, error) {
 		if a.episodeorder == nil {
 			return false, nil
 		}
@@ -196,7 +196,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			}
 		}
 		return a.catalog.RecentAirFiltered(ctx, typ, f, offset, limit)
-	}, CountUnplayedAired: a.catalog.CountUnplayedAired, SimilarSource: a.catalog.Similar, FilterRecommendations: a.personalize.FilterRecommendations, Collections: a.collections, Playlists: a.playlists, Scheduled: a.scheduledEpisodes, Grouped: a.groupedShows, Search: a.experienceSearch(vis), CachedGet: a.catalog.CachedGet, CachedGetMany: a.catalog.CachedGetMany, ParentTitles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+	}, CountUnplayedAired: a.catalog.CountUnplayedAired, SimilarSource: a.catalog.Similar, FilterRecommendations: a.personalize.FilterRecommendations, Collections: a.collections, Playlists: a.playlists, Scheduled: a.scheduledEpisodes, Grouped: a.groupedShows, Search: a.experienceSearch(vis), CachedGet: a.catalog.CachedGet, CachedGetMany: a.catalog.CachedGetMany, ArtworkGet: a.catalog.ArtworkTitle, ArtworkGetMany: a.catalog.ArtworkTitles, ParentTitles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
 		return a.catalog.ResolveShowParents(ctx, keys)
 	}, Get: func(ctx context.Context, u *core.User, k core.RatingKey) (*core.Title, error) {
 		if a.episodeorder != nil {

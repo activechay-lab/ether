@@ -80,6 +80,9 @@ func (a *App) beginPeopleRead(ctx context.Context, viewer *core.User) (experienc
 		Titles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
 			return a.catalog.CachedCreditTitles(ctx, keys, cfg.Catalog, now)
 		},
+		VisibleTitles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+			return a.catalog.CachedVisibleTitles(ctx, keys, cfg.Catalog, now)
+		},
 		Close: lease.Close,
 		Finish: func(ctx context.Context) error {
 			if !validPeopleReadTimes(started, time.Now()) || !evidence.Current() {

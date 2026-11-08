@@ -147,3 +147,106 @@ func TestTailSearchAndPromotion(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// The lean builder the tail uses builds the same index as the library's
+// builder: every array is identical (surface spellings aside, which no
+// search reads).
+func TestLeanTitleIndexMatchesBuilder(t *testing.T) {
+	names := [][]string{{"The Office"}, {"Spider-Man: No Way Home", "Homem-Aranha"}, {"Amélie", "Le Fabuleux Destin d'Amélie Poulain"},
+		{"Up"}, {"S.W.A.T."}, {"The The"}, {"Don't Look Up"}, {"1917"}, {"Office Space"}}
+	a, b := &titleIndex{}, &titleIndex{}
+	tb := newTitleIndexBuilder()
+	for _, n := range names {
+		tb.add(n)
+	}
+	tb.finish(a)
+	buildLeanTitleIndex(b, len(names), func(i int) []string { return names[i] })
+	a.lx.surface, b.lx.surface = nil, nil
+	if fmt.Sprint(a.lx) != fmt.Sprint(b.lx) {
+		t.Fatalf("lexicon differs:\n%v\n%v", a.lx, b.lx)
+	}
+	a.lx, b.lx = nil, nil
+	if fmt.Sprintf("%+v", *a) != fmt.Sprintf("%+v", *b) {
+		t.Fatalf("index differs:\n%+v\n%+v", *a, *b)
+	}
+}
+
+// A node builds, maps and swaps its tail index: a new version replaces the
+// old one, and the old file is deleted only after its last reader is done.
+func TestTailBuildAndSwap(t *testing.T) {
+	ctx := context.Background()
+	u := newUniverse()
+	dir := t.TempDir()
+	c := universeCatalog(t, u, config.Catalog{}, true)
+	c.tail.dir = dir
+	if st := c.TailStatus(); st.Ready {
+		t.Fatal("ready before a build")
+	}
+	if err := c.buildTail(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := c.TailStatus()
+	if !st.Ready || st.Titles != len(u.movies)-1 { // the adult title is not in the plain export
+		t.Fatalf("status %+v", st)
+	}
+	first := tailFiles(dir)
+	if len(first) != 1 {
+		t.Fatalf("files %v", first)
+	}
+	old, release := c.acquireTail() // a search still reading the first version
+	if err := c.buildTail(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if files := tailFiles(dir); len(files) != 2 {
+		t.Fatalf("old version deleted under a reader: %v", files)
+	}
+	if _, ok := old.find(core.MovieKey(1)); !ok {
+		t.Fatal("old version unreadable while held")
+	}
+	release()
+	if files := tailFiles(dir); len(files) != 1 || files[0] == first[0] {
+		t.Fatalf("after release: %v", files)
+	}
+	// A restart maps the newest valid file.
+	c2 := universeCatalog(t, u, config.Catalog{}, true)
+	c2.tail.dir = dir
+	c2.loadNewestTail()
+	if !c2.TailStatus().Ready {
+		t.Fatal("restart did not load the index")
+	}
+	c2.installTail(nil)
+	c.installTail(nil)
+}
+
+// The names walk gives every dated title its display title and date, and
+// the build's lean fetches cover what the walk cannot see (undated titles,
+// video releases), so no entry is left "date unknown".
+func TestTailNamesWalk(t *testing.T) {
+	ctx := context.Background()
+	u := newUniverse()
+	dir := t.TempDir()
+	c := universeCatalog(t, u, config.Catalog{}, true)
+	c.tail.dir = dir
+	if err := c.namesWalk(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.buildTail(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range u.movies {
+		e, ok := c.tailEntry(core.MovieKey(m.id))
+		if m.adult {
+			continue
+		}
+		if !ok {
+			t.Fatalf("movie %d not in the tail", m.id)
+		}
+		if e.DateUnknown {
+			t.Fatalf("movie %d left date-unknown", m.id)
+		}
+		if m.date != "" && e.Title.Released.Format("2006-01-02") != m.date || m.date == "" && !e.Title.Released.IsZero() {
+			t.Fatalf("movie %d (%q): %+v", m.id, m.date, e.Title.Released)
+		}
+	}
+	c.installTail(nil)
+}

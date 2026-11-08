@@ -114,3 +114,25 @@ func CatalogCandidates(ctx context.Context) bool {
 	v, _ := ctx.Value(catalogCandidatesKey{}).(bool)
 	return v
 }
+
+type searchListFactsKey struct{}
+
+// WithSearchListFacts marks a search whose results are rendered as list
+// items (a Plex search hub: three cast members, the directors, genres,
+// countries, studios): the catalogue reads those facts for its page, not
+// every credit, keyword and alternative title of every result.
+func WithSearchListFacts(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchListFactsKey{}, true)
+}
+
+// SearchListFacts reports WithSearchListFacts.
+func SearchListFacts(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(searchListFactsKey{}).(bool)
+	return v
+}
