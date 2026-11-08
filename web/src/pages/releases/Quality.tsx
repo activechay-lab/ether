@@ -471,7 +471,7 @@ export function QualityTab() {
   if (!quality) return <LoadingRows rows={4} />;
   return (
     <>
-      <div className="space-y-5 rounded-xl border border-primary/30 bg-primary/5 p-5">
+      <div className="space-y-5 rounded-xl border border-border p-5">
         <ProfileList
           quality={quality}
           resolver={config.data?.resolver ?? null}
