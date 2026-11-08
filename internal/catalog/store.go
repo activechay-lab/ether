@@ -684,7 +684,22 @@ func (c *Catalog) upsert(ctx context.Context, t core.Title, o upsertOpts) error 
 }
 
 func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertOpts) error {
-	if len(titles) == 0 {
+	items := make([]upsertItem, len(titles))
+	for i, t := range titles {
+		items[i] = upsertItem{t: t, o: o}
+	}
+	return c.upsertItems(ctx, items)
+}
+
+// upsertItem is one title and its write options.
+type upsertItem struct {
+	t core.Title
+	o upsertOpts
+}
+
+// upsertItems stores items in one transaction, each with its own options.
+func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem) error {
+	if len(items) == 0 {
 		return nil
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -693,14 +708,20 @@ func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertO
 	}
 	defer tx.Rollback()
 	now := c.now().Unix()
-	o.region = c.config().Region
+	region := c.config().Region
 	cuts := c.ratingCuts()
-	o.ratingCuts = &cuts
-	if o.stored, err = storedKeys(ctx, tx, titles); err != nil {
+	titles := make([]core.Title, len(items))
+	for i := range items {
+		titles[i] = items[i].t
+	}
+	stored, err := storedKeys(ctx, tx, titles)
+	if err != nil {
 		return err
 	}
-	for _, t := range titles {
-		if err := upsertOne(ctx, tx, t, o, now); err != nil {
+	for _, it := range items {
+		o := it.o
+		o.region, o.ratingCuts, o.stored = region, &cuts, stored
+		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
 			return err
 		}
 	}
