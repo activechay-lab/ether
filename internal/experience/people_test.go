@@ -474,3 +474,61 @@ func TestIndexedPeopleHonourRestrictedPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestPortraitProofRechecksAndFences(t *testing.T) {
+	for _, mode := range []string{"current", "removed", "fenced"} {
+		t.Run(mode, func(t *testing.T) {
+			s, c := peopleFixture()
+			begin := s.d.BeginPeopleRead
+			calls, finished, closed := 0, 0, 0
+			fenceErr := errors.New("policy changed")
+			s.d.BeginPeopleRead = func(ctx context.Context, v *core.User) (PeopleRead, error) {
+				access, err := begin(ctx, v)
+				fresh := access.Titles
+				access.Titles = func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+					t.Fatal("portrait used full reader")
+					return nil, nil
+				}
+				access.PortraitTitles = func(ctx context.Context, refs []PersonCreditRef) (map[core.RatingKey]core.Title, error) {
+					calls++
+					if len(refs) != 1 || refs[0].TMDB != 10 {
+						t.Fatalf("subjects %+v", refs)
+					}
+					return fresh(ctx, []core.RatingKey{refs[0].Item})
+				}
+				access.Finish = func(context.Context) error {
+					finished++
+					if mode == "fenced" {
+						return fenceErr
+					}
+					return nil
+				}
+				access.Close = func() { closed++ }
+				return access, err
+			}
+			_, err := s.WithPersonCredits(context.Background(), &core.User{ID: 1}, core.Device{}, []PersonCreditRef{{Item: core.MovieKey(1), TMDB: 10}}, func(_ int, _ *core.User, _ frontend.PersonDetail, _ core.Title) error {
+				if mode == "removed" {
+					c.update(core.MovieKey(1), func(t *core.Title) { t.Cast = nil })
+				}
+				return nil
+			})
+			if calls != 2 || closed != 1 {
+				t.Fatalf("fresh reads=%d close=%d", calls, closed)
+			}
+			switch mode {
+			case "current":
+				if err != nil || finished != 1 {
+					t.Fatalf("%v fence=%d", err, finished)
+				}
+			case "removed":
+				if !errors.Is(err, core.ErrNotFound) {
+					t.Fatalf("removed credit accepted: %v", err)
+				}
+			case "fenced":
+				if !errors.Is(err, fenceErr) || finished != 1 {
+					t.Fatalf("fence ignored: %v", err)
+				}
+			}
+		})
+	}
+}
