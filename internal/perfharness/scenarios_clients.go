@@ -17,6 +17,10 @@ import (
 func jellyfinLibrarySteps(f string) []Step {
 	movies := "/Items?excludeLocationTypes=Virtual&fields=" + f + "&includeItemTypes=Movie&limit=50&parentId={moviesView}&recursive=true&userId={userId}"
 	return []Step{
+		// Infuse's library sync pages in order: page 2 follows page 1 (the
+		// remembered page end lets it seek), the jumps below do not.
+		{Name: "movies p2 SortName", Class: classBrowse, Path: movies + "&sortBy=SortName&sortOrder=Ascending&startIndex=50"},
+		{Name: "movies p3 SortName", Class: classBrowse, Path: movies + "&sortBy=SortName&sortOrder=Ascending&startIndex=100"},
 		{Name: "movies very deep SortName", Class: classBrowse, Path: movies + "&sortBy=SortName&sortOrder=Ascending&startIndex=24000"},
 		{Name: "movies deep DateCreated", Class: classBrowse, Path: movies + "&sortBy=DateCreated%2CSortName&sortOrder=Descending&startIndex=12000"},
 		{Name: "movies p1 CommunityRating", Class: classBrowse, Path: movies + "&sortBy=CommunityRating%2CSortName&sortOrder=Descending&startIndex=0"},
