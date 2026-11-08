@@ -61,6 +61,9 @@ func (a *App) pruners() []pruner {
 	add("watchlist", a.watchlist != nil, func(ctx context.Context) (int64, error) { return a.watchlist.Prune(ctx) })
 	add("notify", a.notifications != nil, func(ctx context.Context) (int64, error) { return a.notifications.Prune(ctx) })
 	add("artwork", a.artwork != nil, func(ctx context.Context) (int64, error) { return a.artwork.Prune(ctx) })
+	if plex := a.currentPlexServer(); plex != nil {
+		add("plex", true, plex.Prune)
+	}
 	return ps
 }
 
