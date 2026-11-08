@@ -135,7 +135,12 @@ func fastStartConfig() config.Transcode {
 func TestFastStartCopySessionSwitchesToCopy(t *testing.T) {
 	fr := newFakeRunner()
 	m := newTestManager(t, fr, fastStartConfig())
-	s := startSession(t, m, remuxRequest(t, "fs", 10*time.Minute))
+	// The ramp hands over to the copy at an indexed keyframe (4 s GOPs).
+	req := remuxRequest(t, "fs", 10*time.Minute)
+	for at := time.Duration(0); at < req.Info.Duration; at += 4 * time.Second {
+		req.Info.Keyframes = append(req.Info.Keyframes, core.KeyframePoint{Offset: int64(at / time.Millisecond), Time: at})
+	}
+	s := startSession(t, m, req)
 	if !s.Decision().VideoCopy {
 		t.Fatalf("want a copy session, got %+v", s.Decision())
 	}
@@ -153,7 +158,9 @@ func TestFastStartCopySessionSwitchesToCopy(t *testing.T) {
 	}
 	// First run: quick low-latency transcode of the two ramp segments.
 	first := fr.starts[0]
-	mustContain(t, first, "-hls_time 2.000", "-force_key_frames expr:gte(t,n_forced*2.000)", "scale_vt=w=1280:h=720")
+	// On a keyframe plan it is chunked, with keyframes forced at the ramp's
+	// boundaries (through the handover).
+	mustContain(t, first, "-hls_time 0.500", "-force_key_frames 2.000,4.000", "scale_vt=w=1280:h=720")
 	mustNotContain(t, first, "-c:v copy")
 	if j := joined(first); !strings.Contains(j, "ultrafast") && !strings.Contains(j, "-realtime 1") {
 		t.Errorf("first run is not a low-latency encode: %s", j)
@@ -174,6 +181,21 @@ func TestFastStartCopySessionSwitchesToCopy(t *testing.T) {
 	if r := get(t, s, 2); r.Code != 200 || !strings.Contains(segText(r.Body.Bytes()), "args-ss=4.000") {
 		t.Fatalf("segment 2: %d %q", r.Code, r.Body.String())
 	}
+}
+
+// Without a keyframe index the ramp could not hand over to the copy at a
+// keyframe: an unindexed copy keeps one copy plan.
+func TestFastStartUnindexedCopySessionHasNoRamp(t *testing.T) {
+	fr := newFakeRunner()
+	m := newTestManager(t, fr, fastStartConfig())
+	s := startSession(t, m, remuxRequest(t, "fs-noindex", 10*time.Minute))
+	rec := httptest.NewRecorder()
+	s.ServePlaylist(rec, httptest.NewRequest(http.MethodGet, "/index.m3u8", nil))
+	body := rec.Body.String()
+	if strings.Contains(body, "#EXT-X-DISCONTINUITY") || strings.Contains(body, "#EXTINF:2.000000,") {
+		t.Fatalf("unindexed copy got an encoded ramp:\n%s", body[:300])
+	}
+	mustContain(t, fr.starts[0], "-c:v copy")
 }
 
 func TestFastStartTranscodeSessionNoDiscontinuity(t *testing.T) {

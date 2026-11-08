@@ -799,7 +799,17 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		}
 		// Recovery reconstructs the original plan; segment numbers are not
 		// steady-grid offsets while FastStart is enabled.
-		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || d.Container == ContainerMPEGTS)
+		//
+		// A TS copy's ramp is encoded, and the copy can only take over at a
+		// source keyframe: the ramp runs to the first indexed one at or
+		// after its nominal end. Without a keyframe index that handover
+		// is a guess. Copy cannot start mid-GOP, the keyframe before it is
+		// already inside the encoded ramp, so the copy resumed at the next
+		// keyframe: the media between was skipped (and A/V shifted against
+		// the playlist clock), or with no later keyframe the copy published
+		// nothing and the playlist's tail failed. An unindexed copy keeps one
+		// copy plan from its first segment instead, like fMP4 and Matroska.
+		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || (d.Container == ContainerMPEGTS && len(req.Info.Keyframes) > 0))
 		plan = buildTimeline(span, segDur, timelineOptions{
 			steadyMode: steadyMode,
 			fastStart:  fastStart,
