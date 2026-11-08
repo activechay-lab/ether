@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -107,10 +106,10 @@ const generatedPosterWidth = 200
 // experience already returned to this viewer; the generated one is read
 // through the same artwork authorization as every other frontend.
 func (i *instance) directPoster(r *http.Request, viewer *frontend.Viewer, device frontend.Device, title frontend.Title) string {
-	if artwork.ValidPath(title.PosterPath) {
+	if frontend.ValidArtworkPath(title.PosterPath) {
 		return tmdbPosterBase + title.PosterPath
 	}
-	if _, ok := artwork.ForTitle(&title); !ok || i.host.Artwork == nil || viewer == nil {
+	if !frontend.NeedsGeneratedPoster(&title) || i.host.Artwork == nil || viewer == nil {
 		return ""
 	}
 	req := frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: title.Key}

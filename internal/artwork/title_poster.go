@@ -114,7 +114,7 @@ func drawableTitle(names ...string) string {
 // Seasons and episodes fall back to their show's poster instead, so they
 // have none of their own.
 func ForTitle(t *core.Title) (TitlePoster, bool) {
-	if t == nil || t.PosterPath != "" || (t.Type != core.TypeMovie && t.Type != core.TypeShow) {
+	if !core.NeedsGeneratedPoster(t) {
 		return TitlePoster{}, false
 	}
 	year := t.Year

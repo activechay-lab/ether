@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,11 +38,9 @@ var (
 
 const maxImageBytes = 15 << 20
 
-var pathRe = regexp.MustCompile(`^/[A-Za-z0-9_\-]{1,128}\.(jpg|jpeg|png|webp|svg)$`)
-
 // ValidPath reports whether p is a TMDB image path such as "/abc123.jpg":
 // a single file name, so it can never traverse or address another host.
-func ValidPath(p string) bool { return pathRe.MatchString(p) }
+func ValidPath(p string) bool { return core.ValidArtworkPath(p) }
 
 // tmdbWidths are the widths the TMDB CDN serves.
 var tmdbWidths = []int{92, 154, 185, 300, 342, 500, 780, 1280}
