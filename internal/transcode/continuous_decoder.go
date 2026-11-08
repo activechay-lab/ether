@@ -244,9 +244,15 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 			if r.Live && !paired {
 				// Lock sound to picture at the source: sample 0 must be the
 				// first picture's source time, whatever each stream's start.
-				if err := d.alignAudio(p, aq, vq, &pcm, stamp); err != nil {
+				skip, err := d.alignAudio(p, aq, vq, &pcm, stamp, frameDuration(f))
+				if err != nil {
 					d.readErr = err
 					return
+				}
+				if skip {
+					// Sound starts later: open on the picture that plays with
+					// it rather than on silence.
+					continue
 				}
 			}
 			for len(pcm) < tickPCM(f, ticks) {
@@ -519,11 +525,11 @@ const liveAlignLimit = 2 * time.Second
 
 // alignAudio trims or pads the opening sound so its first sample plays with
 // the first picture: the source's own A/V offset, kept to the sample.
-func (d *continuousDecoder) alignAudio(p *continuousProcess, aq, vq chan []byte, pcm *[]byte, video time.Duration) error {
+func (d *continuousDecoder) alignAudio(p *continuousProcess, aq, vq chan []byte, pcm *[]byte, video, frame time.Duration) (bool, error) {
 	for len(*pcm) == 0 {
 		b, err := d.receive(p, aq, vq, false, 0)
 		if err != nil {
-			return err
+			return false, err
 		}
 		*pcm = append(*pcm, b...)
 	}
@@ -532,29 +538,32 @@ func (d *continuousDecoder) alignAudio(p *continuousProcess, aq, vq chan []byte,
 	}
 	audio := d.audioStart.Load()
 	if audio < 0 || video < 0 {
-		return nil
+		return false, nil
 	}
 	offset := time.Duration(audio) - video
 	if offset > liveAlignLimit || offset < -liveAlignLimit {
-		return nil
+		return false, nil
 	}
-	const frame = 4 // s16le stereo
-	samples := int(offset.Seconds()*48000) * frame
+	if offset >= frame {
+		return true, nil
+	}
+	const bytesPerSample = 4 // s16le stereo
+	samples := int(offset.Seconds()*48000) * bytesPerSample
 	if samples > 0 {
-		// Sound starts after the first picture: lead with silence.
+		// Sound starts within this picture: lead with that much silence.
 		*pcm = append(make([]byte, samples), *pcm...)
-		return nil
+		return false, nil
 	}
 	for drop := -samples; drop > 0; {
 		if len(*pcm) == 0 {
 			b, err := d.receive(p, aq, vq, false, 0)
 			if err != nil {
-				return err
+				return false, err
 			}
 			*pcm = append(*pcm, b...)
 		}
 		n := min(drop, len(*pcm))
 		*pcm, drop = (*pcm)[n:], drop-n
 	}
-	return nil
+	return false, nil
 }

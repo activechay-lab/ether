@@ -187,7 +187,7 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 	}
 	check("after writes")
 
-	if _, err := c.foldBrowseTally(ctx); err != nil {
+	if _, err := c.foldLibraryTallies(ctx); err != nil {
 		t.Fatal(err)
 	}
 	var pending int
