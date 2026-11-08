@@ -12,7 +12,7 @@ import { HealthStrip } from "./form";
 import { IndexerList } from "./Indexers";
 import { NewReleaseBudgetSection } from "../catalog/NewReleasesSettings";
 import { UsenetProviders } from "./Usenet";
-import { SourceUsage } from "./Usage";
+import { SourceStatistics, StatisticsPeriod } from "./statistics/Statistics";
 import { AddSourceGallery, type GalleryChoice } from "./cards";
 import type { DebridKind } from "../../lib/types";
 
@@ -23,7 +23,7 @@ const TABS = localized(
       { key: "usenet", label: t("Usenet") },
       { key: "iptv", label: t("IPTV") },
       { key: "indexers", label: t("Indexers") },
-      { key: "stats", label: t("Stats") },
+      { key: "statistics", label: t("Statistics") },
     ] as const,
 );
 
@@ -31,7 +31,7 @@ type AddDebrid = { nonce: number; kind: DebridKind };
 type AddIndexer = { nonce: number; type: "site" | "newznab" | "stremio" };
 
 /**
- * Where playback comes from: one tab per source type, plus Stats.
+ * Where playback comes from: one tab per source type, plus Statistics.
  * An unknown address opens Debrid.
  * Adding one starts from a gallery, then a drawer.
  */
@@ -73,8 +73,9 @@ export default function Sources() {
       tabs={TABS}
       active={top}
       status={top === "iptv" ? undefined : <HealthStrip ids={["usenet", "indexers"]} />}
+      tabActions={top === "statistics" ? <StatisticsPeriod /> : undefined}
       actions={
-        top !== "stats" ? (
+        top !== "statistics" ? (
           <>
             {top !== "iptv" ? (
               <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
@@ -88,7 +89,7 @@ export default function Sources() {
         ) : null
       }
     >
-      {top !== "stats" && top !== "iptv" ? (
+      {top !== "statistics" && top !== "iptv" ? (
         <p className="text-sm text-fg-muted">
           {t("Drag a card to choose which account Ether tries first.")}
         </p>
@@ -102,7 +103,7 @@ export default function Sources() {
           <NewReleaseBudgetSection />
         </>
       ) : null}
-      {top === "stats" ? <SourceUsage /> : null}
+      {top === "statistics" ? <SourceStatistics /> : null}
       <AddSourceGallery open={gallery} onClose={() => setGallery(false)} onPick={pick} />
       <Drawer
         open={importing}

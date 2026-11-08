@@ -8,7 +8,7 @@ import { usenetProblem } from "../../lib/health";
 import type { DebridKind } from "../../lib/types";
 import { StremioMark, debridMark } from "./marks";
 
-export { PluginSourceCards, PluginSourceUsage } from "./PluginSources";
+export { PluginSourceCards } from "./PluginSources";
 
 /** Where each service shows the token Ether asks for. */
 export const DEBRID_TOKEN_URL: Record<DebridKind, string> = {

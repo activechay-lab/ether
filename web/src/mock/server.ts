@@ -1,4 +1,5 @@
 import { interpretDemo } from "./catalogInterpret";
+import { indexerUsage, infrastructure, saveCost, sourceHistory } from "./source-stats";
 import { matchesCatalogFilter } from "./catalogFilter";
 import { createOnAirMock } from "./onair";
 /**
@@ -254,7 +255,7 @@ function defaultConfig(): EtherConfig {
         name: "Indexer One",
         url: "https://indexer-one.example.com",
         apiKey: "••••",
-        dailyLimit: 200,
+        dailyLimit: 300,
         dailyGrabs: 50,
         priority: 0,
         enabled: true,
@@ -2943,154 +2944,14 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json(state.boot);
       case "GET /dashboard":
         return json(dashboard());
-      case "GET /indexer-usage": {
-        const day = (offset: number) =>
-          new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
-        const days = Array.from({ length: 14 }, (_, i) => ({
-          day: day(13 - i),
-          hits: 40 + ((i * 37) % 55),
-          grabs: i % 4,
-        }));
-        const purposes = (scale: number) => [
-          { purpose: "feed", hits: 30 * scale, grabs: 0 },
-          { purpose: "availability", hits: 18 * scale, grabs: 1 * scale },
-          { purpose: "playback", hits: 9 * scale, grabs: 3 * scale },
-          { purpose: "warmup", hits: 6 * scale, grabs: 1 * scale },
-          { purpose: "rescue", hits: 3 * scale, grabs: 0 },
-          { purpose: "caps", hits: scale, grabs: 0 },
-          { purpose: "test", hits: 2, grabs: 0 },
-        ];
-        const total = (ps: { hits: number; grabs: number }[]) => ({
-          hits: ps.reduce((n, p) => n + p.hits, 0),
-          grabs: ps.reduce((n, p) => n + p.grabs, 0),
-          purposes: ps,
-        });
-        return json({
-          today: day(0),
-          weekStart: day(6),
-          monthStart: day(0).slice(0, 8) + "01",
-          indexers: [
-            {
-              id: "idx-1",
-              name: "Indexer One",
-              enabled: true,
-              torrent: false,
-              dailyLimit: 100,
-              dailyGrabs: 20,
-              today: total(purposes(1)),
-              week: total(purposes(7)),
-              month: total([...purposes(20), { purpose: "unattributed", hits: 240, grabs: 9 }]),
-              days,
-            },
-          ],
-        });
-      }
+      case "GET /indexer-usage":
+        return json(indexerUsage());
+      case "GET /stats/sources":
+        return json(sourceHistory(Math.min(90, Math.max(1, Number(q.get("days")) || 30))));
       case "GET /stats/infrastructure":
-        return json({
-          month: "2026-10",
-          monthPlays: 40,
-          notes: null,
-          snapshots: {
-            providers: {
-              at: 1_762_000_000,
-              data: [
-                {
-                  id: "p1",
-                  name: "Primary news",
-                  host: "news.example.com",
-                  state: "ok",
-                  backfill: false,
-                  avgLatency: 42_000_000,
-                  bytes: 0,
-                  articles: 0,
-                  misses: 0,
-                  errors: 0,
-                },
-                {
-                  id: "p2",
-                  name: "Block account",
-                  host: "block.example.net",
-                  state: "ok",
-                  backfill: true,
-                  avgLatency: 80_000_000,
-                  bytes: 0,
-                  articles: 0,
-                  misses: 0,
-                  errors: 0,
-                },
-              ],
-            },
-            indexers: {
-              at: 1_762_000_000,
-              data: [
-                {
-                  indexer: "Indexer One",
-                  hitsUsed: 12,
-                  hitsRemaining: 88,
-                  grabsUsed: 2,
-                  grabsRemaining: 18,
-                },
-              ],
-            },
-          },
-          providerMonth: [
-            {
-              id: "p1",
-              bytes: 80 * 1073741824,
-              articles: 12000,
-              misses: 40,
-              errors: 1,
-              backfillSaves: 3,
-              bodyMisses: 30,
-              bodyTakedowns: 0,
-            },
-          ],
-          indexerMonth: [
-            {
-              indexer: "Indexer One",
-              searches: 400,
-              successes: 360,
-              grabs: 20,
-              grabSuccess: 18,
-              budgets: 0,
-              latencyMs: 180,
-              ageSeconds: 0,
-              ageSamples: 0,
-            },
-          ],
-          costs: [{ kind: "provider", id: "p1", monthly: 10, currency: "USD" }],
-          failovers: 2,
-          failedPlays: 1,
-          providerDays: [
-            {
-              id: "p1",
-              day: "2026-10-18",
-              bytes: 40 * 1073741824,
-              articles: 6000,
-              misses: 10,
-              errors: 0,
-            },
-            {
-              id: "p1",
-              day: "2026-10-19",
-              bytes: 40 * 1073741824,
-              articles: 6000,
-              misses: 30,
-              errors: 1,
-            },
-          ],
-          indexerDays: [
-            {
-              indexer: "Indexer One",
-              day: "2026-10-19",
-              searches: 400,
-              successes: 360,
-              grabs: 20,
-              latencyMs: 72000,
-            },
-          ],
-        });
+        return json(infrastructure());
       case "PUT /stats/costs":
+        saveCost(body as { kind: string; id: string; monthly: number; currency: string });
         return json({ ok: true });
       case "GET /config":
         return json({ config: state.config });

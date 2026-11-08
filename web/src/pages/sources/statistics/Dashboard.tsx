@@ -1,0 +1,360 @@
+import { DashboardPanel } from "@braedonsaunders/appkit-dashboard/primitives";
+import { DatabaseZap, HardDriveDownload, PlayCircle, Search } from "lucide-react";
+import { RankedBars, SeriesLines, StackedColumns, type Viz } from "../../../components/charts";
+import { Kpi, KpiRow } from "../../../components/Kpi";
+import { t, tn } from "../../../i18n";
+import { fixed, formatNumber, formatPercent } from "../../../lib/format";
+import {
+  daily,
+  dayLabel,
+  formatGB,
+  ratio,
+  sum,
+  windowDays,
+  type SourceRow,
+  type StatsData,
+} from "./data";
+
+/** Fixed colours so each source type reads the same in every chart. */
+const ORIGIN_COLOR: Record<string, Viz> = {
+  Usenet: "viz-1",
+  Debrid: "viz-2",
+  HTTP: "viz-4",
+  Other: "viz-5",
+};
+const SPARE: Viz[] = ["viz-3", "viz-5", "viz-4"];
+
+const pct = (v: number | null) => (v == null ? "—" : formatPercent(v, v > 0.995 && v < 1 ? 1 : 0));
+const gb = (v: number) => fixed(v, v > 0 && v < 10 ? 1 : 0);
+
+/**
+ * A day with no requests has no rate: it keeps the previous day's (or, before
+ * the first, the first measured day's) instead of falling to zero.
+ */
+function holdGaps(values: number[]): number[] {
+  let last = values.find((v) => !Number.isNaN(v)) ?? 0;
+  return values.map((v) => (Number.isNaN(v) ? last : (last = v)));
+}
+
+function Empty() {
+  return (
+    <p className="py-6 text-center text-sm text-fg-muted">
+      {t("Nothing recorded in this period.")}
+    </p>
+  );
+}
+
+/** Statistics › Dashboard: what every source did over the period, day by day. */
+export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceRow[] }) {
+  const h = data.history;
+  const days = windowDays(h);
+  const labels = days.map(dayLabel);
+  const plays = h.plays ?? [];
+  const providers = h.providerDays ?? [];
+  const indexers = h.indexerDays ?? [];
+  const debrid = h.debridDays ?? [];
+  const stream = h.streamDays ?? [];
+
+  const totalPlays = sum(plays, (p) => p.plays);
+  const failovers = sum(plays, (p) => p.failovers);
+  const failed = sum(plays, (p) => p.failed);
+  const usenetBytes = sum(providers, (d) => d.bytes);
+  const debridBytes = sum(stream, (d) => d.bytesFetched);
+  const searches = sum(indexers, (d) => d.searches);
+  const found = sum(indexers, (d) => d.successes);
+  const hits = sum(stream, (d) => d.memoryHits + d.diskHits);
+  const fetched = sum(stream, (d) => d.blocksFetched);
+
+  const origins = [...new Set(plays.map((p) => p.origin))].sort(
+    (a, b) =>
+      sum(
+        plays.filter((p) => p.origin === b),
+        (p) => p.plays,
+      ) -
+      sum(
+        plays.filter((p) => p.origin === a),
+        (p) => p.plays,
+      ),
+  );
+  const originLabel = (o: string) => (o === "Other" ? t("Other") : o);
+
+  const successSeries = [
+    {
+      key: "usenet",
+      label: t("Usenet articles"),
+      color: "viz-1" as Viz,
+      rows: providers.length,
+      values: days.map((day) => {
+        const d = providers.filter((p) => p.day === day);
+        const ok = sum(d, (p) => p.articles);
+        return (ratio(ok, ok + sum(d, (p) => p.misses + p.errors)) ?? NaN) * 100;
+      }),
+    },
+    {
+      key: "indexers",
+      label: t("Indexer searches"),
+      color: "viz-3" as Viz,
+      rows: indexers.length,
+      values: days.map((day) => {
+        const d = indexers.filter((p) => p.day === day);
+        return (
+          (ratio(
+            sum(d, (p) => p.successes),
+            sum(d, (p) => p.searches),
+          ) ?? NaN) * 100
+        );
+      }),
+    },
+    {
+      key: "debrid",
+      label: t("Debrid requests"),
+      color: "viz-2" as Viz,
+      rows: debrid.length,
+      values: days.map((day) => {
+        const d = debrid.filter((p) => p.day === day);
+        const n = sum(d, (p) => p.requests);
+        return (ratio(n - sum(d, (p) => p.failures), n) ?? NaN) * 100;
+      }),
+    },
+  ]
+    .filter((s) => s.rows > 0)
+    .map((s) => ({ ...s, values: holdGaps(s.values) }));
+
+  const busiest = (kind: SourceRow["kind"]) =>
+    rows
+      .filter((r) => r.kind === kind && r.usageSort > 0)
+      .slice()
+      .sort((a, b) => b.usageSort - a.usageSort)
+      .slice(0, 6);
+
+  return (
+    <>
+      <KpiRow>
+        <Kpi
+          label={t("Plays")}
+          value={formatNumber(totalPlays, 0)}
+          detail={
+            totalPlays
+              ? [
+                  tn(failovers, "{count} failover", "{count} failovers"),
+                  tn(failed, "{count} failed play", "{count} failed plays"),
+                ].join(" · ")
+              : undefined
+          }
+          icon={<PlayCircle size={18} />}
+        />
+        <Kpi
+          label={t("Downloaded")}
+          value={formatGB(usenetBytes + debridBytes)}
+          detail={
+            debridBytes
+              ? t("Usenet {usenet} · Debrid {debrid}", {
+                  usenet: formatGB(usenetBytes),
+                  debrid: formatGB(debridBytes),
+                })
+              : t("From Usenet providers")
+          }
+          icon={<HardDriveDownload size={18} />}
+          tone="info"
+        />
+        <Kpi
+          label={t("Search success")}
+          value={pct(ratio(found, searches))}
+          detail={tn(searches, "{count} indexer search", "{count} indexer searches")}
+          icon={<Search size={18} />}
+          tone="success"
+        />
+        <Kpi
+          label={t("Stream cache hits")}
+          value={pct(ratio(hits, hits + fetched))}
+          detail={
+            hits + fetched
+              ? t("{hits} of {total} debrid blocks", {
+                  hits: formatNumber(hits, 0),
+                  total: formatNumber(hits + fetched, 0),
+                })
+              : t("Debrid reads served from cache")
+          }
+          icon={<DatabaseZap size={18} />}
+          tone="info"
+        />
+      </KpiRow>
+
+      <DashboardPanel title={t("Plays by source")}>
+        {totalPlays ? (
+          <SeriesLines
+            ariaLabel={t("Plays each day by source")}
+            labels={labels}
+            valueFormat={(v) => formatNumber(v, 0)}
+            series={origins.slice(0, 4).map((o, i) => ({
+              key: o,
+              label: originLabel(o),
+              color: ORIGIN_COLOR[o] ?? SPARE[i % SPARE.length]!,
+              values: daily(
+                days,
+                plays.filter((p) => p.origin === o),
+                (p) => p.plays,
+              ),
+            }))}
+          />
+        ) : (
+          <Empty />
+        )}
+      </DashboardPanel>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <DashboardPanel title={t("Data downloaded (GB)")}>
+          {usenetBytes + debridBytes ? (
+            <SeriesLines
+              ariaLabel={t("Gigabytes downloaded each day, Usenet and debrid")}
+              labels={labels}
+              valueFormat={gb}
+              series={[
+                {
+                  key: "usenet",
+                  label: t("Usenet"),
+                  color: "viz-1",
+                  values: daily(days, providers, (d) => d.bytes / 1e9),
+                },
+                ...(debridBytes
+                  ? [
+                      {
+                        key: "debrid",
+                        label: t("Debrid"),
+                        color: "viz-2" as Viz,
+                        values: daily(days, stream, (d) => d.bytesFetched / 1e9),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          ) : (
+            <Empty />
+          )}
+        </DashboardPanel>
+        <DashboardPanel title={t("Success rate (%)")}>
+          {successSeries.length ? (
+            <SeriesLines
+              ariaLabel={t("Success rate each day by source type")}
+              labels={labels}
+              valueFormat={(v) => fixed(v, 0)}
+              series={successSeries.map(({ key, label, color, values }) => ({
+                key,
+                label,
+                color,
+                values,
+              }))}
+            />
+          ) : (
+            <Empty />
+          )}
+        </DashboardPanel>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <DashboardPanel title={t("Indexer searches")}>
+          {searches ? (
+            <StackedColumns
+              ariaLabel={t("Indexer searches each day, with and without results")}
+              aLabel={t("Found releases")}
+              bLabel={t("Nothing found")}
+              valueFormat={(v) => formatNumber(v, 0)}
+              data={days.map((day, i) => {
+                const d = indexers.filter((x) => x.day === day);
+                const ok = sum(d, (x) => x.successes);
+                return { key: day, label: labels[i]!, a: ok, b: sum(d, (x) => x.searches) - ok };
+              })}
+            />
+          ) : (
+            <Empty />
+          )}
+        </DashboardPanel>
+        <DashboardPanel title={t("Debrid stream cache")}>
+          {hits + fetched ? (
+            <StackedColumns
+              ariaLabel={t("Debrid blocks each day, from cache and from the service")}
+              aLabel={t("From cache")}
+              bLabel={t("Downloaded")}
+              valueFormat={(v) => formatNumber(v, 0)}
+              data={days.map((day, i) => {
+                const d = stream.filter((x) => x.day === day);
+                return {
+                  key: day,
+                  label: labels[i]!,
+                  a: sum(d, (x) => x.memoryHits + x.diskHits),
+                  b: sum(d, (x) => x.blocksFetched),
+                };
+              })}
+            />
+          ) : (
+            <Empty />
+          )}
+        </DashboardPanel>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <DashboardPanel title={t("Failovers and failed plays")}>
+          {failovers + failed ? (
+            <StackedColumns
+              ariaLabel={t("Failovers and failed plays each day")}
+              aLabel={t("Failovers")}
+              bLabel={t("Failed plays")}
+              height={160}
+              valueFormat={(v) => formatNumber(v, 0)}
+              data={days.map((day, i) => {
+                const d = plays.filter((x) => x.day === day);
+                return {
+                  key: day,
+                  label: labels[i]!,
+                  a: sum(d, (x) => x.failovers),
+                  b: sum(d, (x) => x.failed),
+                };
+              })}
+            />
+          ) : (
+            <p className="py-6 text-center text-sm text-fg-muted">
+              {t("No failovers or failed plays in this period.")}
+            </p>
+          )}
+        </DashboardPanel>
+        <DashboardPanel title={t("Busiest indexers")}>
+          <RankedBars
+            color="viz-3"
+            ariaLabel={t("Busiest indexers")}
+            data={busiest("indexer").map((r) => ({
+              key: r.key,
+              label: r.name,
+              value: r.usageSort,
+              detail:
+                r.success == null ? undefined : t("{percent} found", { percent: pct(r.success) }),
+            }))}
+            valueFormat={(v) => tn(v, "{count} search", "{count} searches")}
+            empty={<Empty />}
+          />
+        </DashboardPanel>
+        <DashboardPanel title={t("Usenet providers")}>
+          <RankedBars
+            color="viz-1"
+            ariaLabel={t("Usenet providers by data downloaded")}
+            data={busiest("usenet").map((r) => ({
+              key: r.key,
+              label: r.name,
+              value: r.usageSort,
+              detail:
+                r.success == null
+                  ? undefined
+                  : t("{percent} articles found", { percent: pct(r.success) }),
+            }))}
+            valueFormat={formatGB}
+            empty={<Empty />}
+          />
+        </DashboardPanel>
+      </div>
+      <p className="text-xs text-fg-muted">
+        {t(
+          "Days follow UTC, like most indexers. Debrid counts start when this version of Ether first ran.",
+        )}
+      </p>
+    </>
+  );
+}

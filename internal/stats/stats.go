@@ -583,6 +583,10 @@ type Cost struct {
 	Currency string  `json:"currency"`
 }
 
+// costKinds are the sources a plan price can belong to: Usenet providers,
+// indexers, debrid accounts and IPTV sources.
+var costKinds = map[string]bool{"provider": true, "indexer": true, "debrid": true, "iptv": true}
+
 func (s *Service) SetCost(ctx context.Context, c Cost) error {
 	c.Currency = strings.ToUpper(c.Currency)
 	validCurrency := len(c.Currency) == 3
@@ -591,7 +595,7 @@ func (s *Service) SetCost(ctx context.Context, c Cost) error {
 			validCurrency = false
 		}
 	}
-	if (c.Kind != "provider" && c.Kind != "indexer") || c.ID == "" || c.Monthly < 0 || c.Monthly > 1000000 || math.IsNaN(c.Monthly) || math.IsInf(c.Monthly, 0) || !validCurrency {
+	if !costKinds[c.Kind] || c.ID == "" || c.Monthly < 0 || c.Monthly > 1000000 || math.IsNaN(c.Monthly) || math.IsInf(c.Monthly, 0) || !validCurrency {
 		return fmt.Errorf("kind, ID, nonnegative price and three-letter currency required")
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO stats_costs(kind,id,monthly,currency) VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET monthly=excluded.monthly,currency=excluded.currency`, c.Kind, c.ID, c.Monthly, c.Currency)

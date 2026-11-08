@@ -6,7 +6,7 @@ import { descriptors as notifyDescriptors } from "../mock/extend/descriptors/not
 import Activity from "../pages/activity/Activity";
 import Notifications from "../pages/notifications/Notifications";
 import { HardwareStatus } from "../pages/playback/Hardware";
-import { SourceUsage } from "../pages/sources/Usage";
+import { SourceStatistics } from "../pages/sources/statistics/Statistics";
 
 const WAIT = { timeout: 4000 };
 const emptySummary = {
@@ -131,6 +131,30 @@ function backend(cluster = false) {
             },
           ],
         };
+      else if (url.includes("/stats/sources"))
+        v = {
+          days: 7,
+          since: "2026-10-28",
+          until: "2026-11-03",
+          plays: [{ day: "2026-11-03", origin: "Usenet", plays: 2, failovers: 1, failed: 0 }],
+          providerDays: [
+            {
+              id: "provider-key",
+              day: "2026-11-03",
+              bytes: 4e9,
+              articles: 900,
+              misses: 10,
+              errors: 0,
+              backfillSaves: 0,
+              bodyMisses: 0,
+              bodyTakedowns: 0,
+              spillovers: 0,
+            },
+          ],
+          indexerDays: [],
+          debridDays: [],
+          streamDays: [],
+        };
       else if (url.endsWith("/stats/infrastructure"))
         v = {
           snapshots: {
@@ -191,7 +215,7 @@ function renderAt(path: string) {
       <Routes>
         <Route path="/activity/:tab?" element={<Activity />} />
         <Route path="/notifications/:tab?" element={<Notifications />} />
-        <Route path="/usage" element={<SourceUsage />} />
+        <Route path="/sources/:tab/:section?" element={<SourceStatistics />} />
         <Route path="/hardware" element={<HardwareStatus />} />
       </Routes>
     </MemoryRouter>,
@@ -362,31 +386,15 @@ describe("Notifications", () => {
   });
 });
 
-describe("Source usage", () => {
-  it("saves provider and indexer prices in place without asking for IDs", async () => {
+describe("Source statistics", () => {
+  it("opens a source from the usage table and saves its plan price in the drawer", async () => {
     const calls = backend();
-    renderAt("/usage");
-    const provider = await screen.findByLabelText("Monthly price for My news provider", {}, WAIT);
+    renderAt("/sources/statistics/usage");
+    fireEvent.click(await screen.findByText("My news provider", {}, WAIT));
+    const price = await screen.findByLabelText("Monthly price for My news provider", {}, WAIT);
     expect(screen.queryByLabelText("Service ID")).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.change(provider, { target: { value: "8.50" } });
-    fireEvent.change(screen.getByLabelText("Monthly price for My indexer"), {
-      target: { value: "4" },
-    });
-    fireEvent.change(screen.getByLabelText("Currency for My indexer"), {
-      target: { value: "eur" },
-    });
-    // Real API hits by purpose, matching the indexer's own counter.
-    expect(screen.getByText("7 of 100")).toBeInTheDocument();
-    const byPurpose = screen.getByRole("list", { name: "API hits by purpose" });
-    expect(byPurpose).toHaveTextContent("Release-feed polls");
-    expect(byPurpose).toHaveTextContent("Playback searches");
-    expect(screen.queryByText("Searches this month")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: "This month" }));
-    expect(screen.getByRole("list", { name: "API hits by purpose" })).toHaveTextContent(
-      "Before this breakdown",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Save prices" }));
+    fireEvent.change(price, { target: { value: "8.50" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save price" }));
     await waitFor(() =>
       expect(
         calls.some(
@@ -399,16 +407,20 @@ describe("Source usage", () => {
         ),
       ).toBe(true),
     );
-    expect(
-      calls.some(
-        (c) =>
-          c.url.endsWith("/stats/costs") &&
-          body(c).kind === "indexer" &&
-          body(c).id === "My indexer" &&
-          body(c).monthly === 4 &&
-          body(c).currency === "EUR",
-      ),
-    ).toBe(true);
+  });
+
+  it("shows an indexer's real API hits by purpose in its drawer", async () => {
+    backend();
+    renderAt("/sources/statistics/usage?source=indexer:My%20indexer");
+    // Real API hits by purpose, matching the indexer's own counter.
+    expect(await screen.findByText("7 of 100", {}, WAIT)).toBeInTheDocument();
+    const byPurpose = screen.getByRole("list", { name: "API hits by purpose" });
+    expect(byPurpose).toHaveTextContent("Release-feed polls");
+    expect(byPurpose).toHaveTextContent("Playback searches");
+    fireEvent.click(screen.getByRole("radio", { name: "This month" }));
+    expect(screen.getByRole("list", { name: "API hits by purpose" })).toHaveTextContent(
+      "Before this breakdown",
+    );
   });
 });
 
