@@ -3,10 +3,12 @@ package perfharness
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"strconv"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/catalog"
@@ -171,6 +173,11 @@ func binomial(rng *rand.Rand, n int, p float64) int {
 type LongTailConfig struct {
 	// Titles is the number of movies plus shows in the TMDB universe.
 	Titles int
+	// YearCounts, when set, fixes how many movies ([0]) and shows ([1]) the
+	// universe has per release year, replacing Titles and MovieShare: for
+	// example TMDB's own counts, capped at the 10,000 a discover year slice
+	// can return (LoadTMDBYearCounts).
+	YearCounts [2]map[int]int
 	// MovieShare is the movies' share of Titles (0 = 0.7).
 	MovieShare float64
 	Seed       uint64
@@ -325,4 +332,29 @@ func GenerateLongTail(ctx context.Context, db *sql.DB, cfg LongTailConfig) (Long
 		}
 	}
 	return rep, nil
+}
+
+// LoadTMDBYearCounts reads per-year TMDB discover totals ({"movie":{"years":
+// {"2024":[total,released]}},"tv":…}) and caps each year at the 10,000
+// titles a discover slice returns, which is what a catalogue sync with
+// "Hide obscure titles" off can mirror.
+func LoadTMDBYearCounts(raw []byte) ([2]map[int]int, error) {
+	var doc map[string]struct {
+		Years map[string][]int `json:"years"`
+	}
+	var out [2]map[int]int
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return out, err
+	}
+	for kind, name := range []string{"movie", "tv"} {
+		out[kind] = map[int]int{}
+		for y, v := range doc[name].Years {
+			year, err := strconv.Atoi(y)
+			if err != nil || len(v) == 0 {
+				return out, fmt.Errorf("tmdb counts: %s year %q", name, y)
+			}
+			out[kind][year] = min(v[0], 10000)
+		}
+	}
+	return out, nil
 }

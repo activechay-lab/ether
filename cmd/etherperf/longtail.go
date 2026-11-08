@@ -31,9 +31,20 @@ func runLongTail(ctx context.Context, args []string) error {
 	openShows := f.Int("open-shows", 0, "most popular shows whose seasons a household opened (0 = 300, -1 = none)")
 	limit := f.Int("detail-limit", 0, "stop after this many detail fetches (0 = all)")
 	report := f.String("report", "", "write the generation report and sizes as JSON here")
+	countsFile := f.String("tmdb-counts", "", "per-year TMDB discover totals (JSON); sizes the universe as a real sync would mirror it, replacing -titles")
 	_ = f.Parse(args)
 	if (*out == "") == (*pgURL == "") {
 		return fmt.Errorf("exactly one of -out or -pg is required")
+	}
+	var yearCounts [2]map[int]int
+	if *countsFile != "" {
+		raw, err := os.ReadFile(*countsFile)
+		if err != nil {
+			return err
+		}
+		if yearCounts, err = perfharness.LoadTMDBYearCounts(raw); err != nil {
+			return err
+		}
 	}
 	var db *sql.DB
 	var err error
@@ -58,7 +69,7 @@ func runLongTail(ctx context.Context, args []string) error {
 	}
 	last := map[string]time.Time{}
 	rep, err := perfharness.GenerateLongTail(ctx, db, perfharness.LongTailConfig{
-		Titles: *titles, MovieShare: *share, Seed: *seed, HideObscure: *hide,
+		Titles: *titles, MovieShare: *share, Seed: *seed, HideObscure: *hide, YearCounts: yearCounts,
 		OpenShows: *openShows, DetailLimit: *limit,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Progress: func(phase string, n int) {

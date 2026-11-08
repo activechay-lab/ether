@@ -66,7 +66,7 @@ func NewLongTailTMDB(cfg LongTailConfig) *LongTailTMDB {
 	if now.IsZero() {
 		now = time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
 	}
-	u := &LongTailTMDB{seed: cfg.Seed, now: now, people: max(2000, cfg.Titles*2)}
+	u := &LongTailTMDB{seed: cfg.Seed, now: now, people: 2000}
 	vr := rand.New(rand.NewPCG(cfg.Seed, 0x766f6361))
 	seen := map[string]bool{}
 	for len(u.vocab) < 6000 {
@@ -87,7 +87,19 @@ func NewLongTailTMDB(cfg LongTailConfig) *LongTailTMDB {
 	counts := [2]int{nm, cfg.Titles - nm}
 	for kind := range 2 {
 		years := ltYears(counts[kind], now)
+		if cfg.YearCounts[kind] != nil {
+			years = years[:0]
+			for y, n := range cfg.YearCounts[kind] {
+				years = append(years, ltYear{y, n})
+			}
+			slices.SortFunc(years, func(a, b ltYear) int { return a.year - b.year })
+			counts[kind] = 0
+			for _, y := range years {
+				counts[kind] += y.n
+			}
+		}
 		list := make([]ltEntry, counts[kind])
+		u.people += counts[kind] * 2
 		id := 0
 		for _, y := range years {
 			for range y.n {
