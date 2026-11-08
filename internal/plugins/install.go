@@ -555,6 +555,13 @@ func (m *Manager) Install(ctx context.Context, p *Preview, opts InstallOptions) 
 	if err := m.store.upsert(ctx, r); err != nil {
 		return Record{}, err
 	}
+	if existing {
+		// Only the current and previous bundles are ever read again
+		// (runtime, rollback); older ones are dead blobs.
+		if err := m.store.dropOtherVersions(ctx, man.ID, r.Version, r.PrevVersion); err != nil {
+			m.log.Warn("plugin install: dropping old artifacts failed", "plugin", man.ID, "err", err)
+		}
+	}
 	// Grants: keep existing picks on update unless new ones were given.
 	g := opts.Grants
 	if existing && g.Viewers == nil && g.Folders == nil && g.Revoked == nil {
@@ -745,6 +752,11 @@ func (m *Manager) Rollback(ctx context.Context, id string) (Record, error) {
 		_ = m.store.putSettings(ctx, id, row)
 	}
 	m.closeRuntime(id)
+	// Rollback is one step: the version rolled back from is no longer
+	// reachable, so its bundle goes.
+	if err := m.store.dropOtherVersions(ctx, id, prev, ""); err != nil {
+		m.log.Warn("plugin rollback: dropping old artifacts failed", "plugin", id, "err", err)
+	}
 	saved, err := m.store.record(ctx, id)
 	if err != nil {
 		return Record{}, err
