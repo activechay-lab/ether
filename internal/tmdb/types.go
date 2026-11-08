@@ -111,7 +111,10 @@ type Movie struct {
 	VoteAverage      float64 `json:"vote_average"`
 	VoteCount        int     `json:"vote_count"`
 	Adult            bool    `json:"adult"`
-	MediaType        string  `json:"media_type"`
+	// Video marks a video release (a recorded concert, a compilation)
+	// rather than a feature. /discover leaves them out unless asked.
+	Video     bool   `json:"video"`
+	MediaType string `json:"media_type"`
 }
 
 type ReleaseDateEntry struct {

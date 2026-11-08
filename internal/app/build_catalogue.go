@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -18,6 +19,11 @@ func (a *App) buildCatalogue(ctx context.Context, cfg config.Config) error {
 	a.closers = append(a.closers, a.tmdb.Close)
 	opts := append(a.catalogOptions(), catalog.WithStartupContext(ctx))
 	opts = append(opts, parityCatalogueOptions()...)
+	if len(parityTMDBOptions()) == 0 {
+		// The daily ID exports are the title list; fixture builds point
+		// TMDB at a fake and walk its /discover instead.
+		opts = append(opts, catalog.WithExports(tmdb.NewExports(filepath.Join(a.opts.DataDir, "tmdb-exports"), log.With("component", "tmdb-exports"))))
+	}
 	if a.catalog, err = catalog.New(a.db, a.tmdb, cfg.Catalog, log.With("component", "catalog"), opts...); err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}

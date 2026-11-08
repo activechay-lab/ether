@@ -285,7 +285,12 @@ type Catalog struct {
 	yearInflight   sync.Map
 	yearInflightN  atomic.Int32
 	yearPauseUntil atomic.Int64
-	syncYears      [2]int // 0,0 = 1900..now+2
+	syncYears      [2]int // 0,0 = 1800..now+2 (the /discover walk's date range)
+
+	// exports is TMDB's daily ID export source (sync_export.go); nil syncs
+	// from /discover alone.
+	exports ExportSource
+	fill    fillState // per-ID fill backlog (sync_fill.go)
 
 	// High-speed in-memory read caches, invalidated atomically on writes.
 	writeGen    atomic.Uint64

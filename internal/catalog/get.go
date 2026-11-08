@@ -181,18 +181,7 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 		}
 		return nil, core.ErrNotFound
 	}
-	fetch := func(ctx context.Context) error {
-		d, err := c.tmdb().MovieDetails(ctx, id)
-		if err != nil {
-			return err
-		}
-		t := c.movieDetailsToTitle(ctx, d)
-		if err := c.upsert(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}); err != nil {
-			return err
-		}
-		c.harvestMovieCrowd(ctx, key, d.Recommendations)
-		return nil
-	}
+	fetch := func(ctx context.Context) error { return c.fetchMovieDetails(ctx, id) }
 	if ferr := c.hydrate(ctx, movieRefreshKey(id), c.listReadWait(err == nil && st.detail, fromList), fetch); ferr != nil {
 		if err == nil {
 			return &st.t, nil // serve stored details while the refresh runs or after it failed
@@ -204,6 +193,34 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 		return nil, err
 	}
 	return &st2.t, nil
+}
+
+// fetchMovieDetails fetches and stores a movie's full details.
+func (c *Catalog) fetchMovieDetails(ctx context.Context, id int64) error {
+	d, err := c.tmdb().MovieDetails(ctx, id)
+	if err != nil {
+		return err
+	}
+	t := c.movieDetailsToTitle(ctx, d)
+	if err := c.upsert(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}); err != nil {
+		return err
+	}
+	c.harvestMovieCrowd(ctx, core.MovieKey(id), d.Recommendations)
+	return nil
+}
+
+// fetchShowDetails fetches and stores a series' full details and seasons.
+func (c *Catalog) fetchShowDetails(ctx context.Context, id int64) error {
+	d, err := c.tmdb().TVDetails(ctx, id)
+	if err != nil {
+		return err
+	}
+	t := c.tvDetailsToTitle(ctx, d)
+	if err := c.storeShowDetails(ctx, t, d); err != nil {
+		return err
+	}
+	c.harvestTVCrowd(ctx, core.ShowKey(id), d.Recommendations)
+	return nil
 }
 
 // readWait is how long a read waits for a TMDB refresh: not at all when it
@@ -273,18 +290,7 @@ func (c *Catalog) getShow(ctx context.Context, id int64) (*core.Title, error) {
 		}
 		return nil, core.ErrNotFound
 	}
-	fetch := func(ctx context.Context) error {
-		d, err := c.tmdb().TVDetails(ctx, id)
-		if err != nil {
-			return err
-		}
-		t := c.tvDetailsToTitle(ctx, d)
-		if err := c.storeShowDetails(ctx, t, d); err != nil {
-			return err
-		}
-		c.harvestTVCrowd(ctx, key, d.Recommendations)
-		return nil
-	}
+	fetch := func(ctx context.Context) error { return c.fetchShowDetails(ctx, id) }
 	if ferr := c.hydrate(ctx, showRefreshKey(id), c.listReadWait(err == nil && st.detail, fromList), fetch); ferr != nil {
 		if err == nil {
 			return &st.t, nil

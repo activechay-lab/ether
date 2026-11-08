@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -132,4 +133,26 @@ func ratingDriftSQL(cuts ratingCuts, pop float64, votes int, rating float64) (st
 	}
 	b.WriteString(`)`)
 	return b.String(), args
+}
+
+// popularityMatters is ratingDriftSQL's popularity rule in Go, for the
+// export pass: it holds every stored popularity in memory, so it decides
+// before issuing an UPDATE rather than in the UPDATE's WHERE clause.
+// exact is ratingExact for the title's key.
+func popularityMatters(cuts ratingCuts, old, cur float64, exact bool) bool {
+	if old == cur {
+		return false
+	}
+	if exact {
+		return true
+	}
+	if d := math.Abs(old - cur); d >= popularityDrift*old && d >= popularityFloor {
+		return true
+	}
+	for _, cut := range cuts.popularity {
+		if cut < 0 || (old < cut) != (cur < cut) {
+			return true
+		}
+	}
+	return false
 }

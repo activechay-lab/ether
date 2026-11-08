@@ -12,7 +12,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/schedule"
-	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/tmdb"
 )
 
@@ -131,6 +130,7 @@ func (c *Catalog) Run(ctx context.Context) {
 	go c.refreshShowAddedLoop(ctx)
 	go c.foldLibraryTalliesLoop(ctx)
 	go c.correctMovieYears(ctx)
+	go c.fillLoop(ctx)
 	full := schedule.New(c.now(), c.untilDue(ctx))
 	// Preserve the existing resume behavior while the gate is off. If the
 	// owner enables it during the wait, start background backfill promptly.
@@ -281,20 +281,74 @@ func (c *Catalog) clearSyncError(ctx context.Context) {
 	}
 }
 
+// syncLocked is one sync pass, per type:
+//
+//  1. the export pass (sync_export.go): today's TMDB id list, popularity
+//     for stored titles, and the backlog of titles to fetch;
+//  2. under a vote bar, the /discover vote walk: the export has no vote
+//     counts, so titles admitted by votes alone come from there;
+//  3. a backlog of bulkFillGap or more (a first sync, a lowered bar) is
+//     read by the /discover popularity walk first, 20 titles a request;
+//  4. the rest of the backlog is fetched by id, most popular first: up to
+//     syncFillBudget here, the remainder by fillLoop.
+//
+// Without an export the sync walks /discover alone, as it did before the
+// exports: the popularity walk and, under a vote bar, the vote walk. That
+// path cannot see undated titles.
+//
+// Then /changes refreshes stored titles TMDB edited, stored titles whose
+// release date has passed are promoted, and the live release feeds run.
 func (c *Catalog) syncLocked(ctx context.Context) error {
+	if k, ok := c.tmdb().(interface{ HasKey() bool }); ok && !k.HasKey() {
+		return tmdb.ErrNoKey // before any download: a fresh install waits for setup
+	}
+	cfg := c.config()
 	for _, tv := range []bool{false, true} {
-		// Pass 1: popularity-sorted; stop once popularity drops below threshold
-		// AND the item also fails the vote bar (sorted desc, so all later fail pop).
-		if err := c.syncPass(ctx, tv, "popularity"); err != nil {
+		typ := "movie"
+		if tv {
+			typ = "tv"
+		}
+		c.setProgress(func(p *SyncProgress) { p.Phase = typ + "/export" })
+		pass, err := c.runExportPass(ctx, tv)
+		if errors.Is(err, errNoExport) {
+			if err := c.walkFallback(ctx, tv); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
 			return err
 		}
-		// Pass 2: vote-count with server-side vote_count.gte catches long-tail
-		// classics whose current popularity is low.
-		if c.config().MinVotes > 0 {
-			if err := c.syncPass(ctx, tv, "votes"); err != nil {
+		stored := map[int64]bool{}
+		note := func(t core.Title) { stored[t.IDs.TMDB] = true }
+		if cfg.MinVotes > 0 {
+			w := newSyncWriter(c)
+			w.onStored = note
+			if err := c.walkDiscover(ctx, c.voteWalk(tv), w); err != nil {
 				return err
 			}
 		}
+		backlog := dropStored(pass.backlog, stored)
+		if len(backlog) >= bulkFillGap {
+			w := newSyncWriter(c)
+			w.onStored = note
+			if err := c.walkDiscover(ctx, c.popularityWalk(tv), w); err != nil {
+				return err
+			}
+			backlog = dropStored(backlog, stored)
+		}
+		now := backlog[:min(len(backlog), syncFillBudget)]
+		c.setProgress(func(p *SyncProgress) { p.Phase = typ + "/fill" })
+		if _, err := c.fillByID(ctx, tv, now); err != nil {
+			return err
+		}
+		c.fill.set(tv, append([]uint64(nil), backlog[len(now):]...))
+	}
+	if err := c.syncChanges(ctx); err != nil {
+		return err
+	}
+	if _, err := c.promoteReleased(ctx); err != nil {
+		return err
 	}
 	c.syncNewReleases(ctx)
 	// Demote browsable titles that no longer meet the (possibly raised) threshold?
@@ -304,180 +358,48 @@ func (c *Catalog) syncLocked(ctx context.Context) error {
 	return nil
 }
 
-func (c *Catalog) syncPass(ctx context.Context, tv bool, pass string) (err error) {
-	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
-	passKey := fmt.Sprintf("%t/%s", tv, pass)
-	if r != nil && r.Passes[passKey] {
-		return nil
+// dropStored removes the ids a walk stored from a fill backlog.
+func dropStored(backlog []uint64, stored map[int64]bool) []uint64 {
+	if len(stored) == 0 {
+		return backlog
 	}
-	defer func() {
-		if err == nil && r != nil {
-			r.Passes[passKey] = true
-			err = c.saveSyncResume(ctx)
-		}
-	}()
-	cfg := c.config()
-	typ := "movie"
-	sortBy := "popularity.desc"
-	if tv {
-		typ = "tv"
-	}
-	params := tmdb.DiscoverParams{SortBy: sortBy, IncludeAdult: cfg.IncludeAdult}
-	if pass == "votes" {
-		params.SortBy = "vote_count.desc"
-		params.VoteCountGTE = cfg.MinVotes
-	}
-	// Probe page 1 unsliced; if TMDB's 500-page cap would bite, slice by year.
-	totalPages, err := c.syncSlice(ctx, tv, params, pass, 0, true)
-	if err != nil {
-		return err
-	}
-	c.setProgress(func(p *SyncProgress) { p.Phase = typ + "/" + pass })
-	// The probe only read total_pages (the real fetch hits the TMDB cache).
-	if totalPages <= 500 {
-		_, err := c.syncSlice(ctx, tv, params, pass, 0, false)
-		return err
-	}
-	from, to := c.syncYears[0], c.syncYears[1]
-	if from <= 0 {
-		from = 1900
-	}
-	if to <= 0 {
-		to = c.now().Year() + 2
-	}
-	for year := to; year >= from; year-- {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		p := params
-		p.Year = year
-		c.setProgress(func(pr *SyncProgress) { pr.Phase = fmt.Sprintf("%s/%s/%d", typ, pass, year) })
-		if _, err := c.syncSlice(ctx, tv, p, pass, year, false); err != nil {
-			return err
+	out := backlog[:0:0]
+	for _, v := range backlog {
+		if !stored[fillID(v)] {
+			out = append(out, v)
 		}
 	}
-	return nil
+	return out
 }
 
-// syncSlice pages one discover slice. In probe mode it fetches only page 1 and
-// returns total_pages without storing anything.
-func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverParams, pass string, year int, probe bool) (_ int, err error) {
+// popularityWalk reads titles by popularity; under a popularity bar each
+// slice stops at the first title under both bars.
+func (c *Catalog) popularityWalk(tv bool) walkSpec {
 	cfg := c.config()
-	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
-	sliceKey := fmt.Sprintf("%t/%s/%d", tv, pass, year)
-	first := 1
-	if !probe && r != nil && r.Pages[sliceKey] > 0 {
-		first = r.Pages[sliceKey]
-	}
-	// Pages are stored syncWriteBatch titles at a time: every transaction
-	// rewrites the index leaves its titles land on, and a TMDB page (20
-	// titles) shares few of them, so one page per transaction wrote 20 WAL
-	// pages a title. The resume point moves only past stored pages.
-	var pending []core.Title
-	limit := int(c.syncBatch.Load())
-	if limit <= 0 {
-		limit = syncWriteBatch
-	}
-	flush := func(next int) error {
-		if len(pending) > 0 {
-			// Back-pressure, not failure: wait for a long read to finish and
-			// the checkpoint to drain, then carry on from this page.
-			if err := store.WaitWALBudget(ctx, c.db); err != nil {
-				pending = pending[:0] // the retry fetches them again
-				return err
-			}
-			started := time.Now()
-			if err := c.upsertMany(ctx, pending, upsertOpts{browsable: true}); err != nil {
-				pending = pending[:0]
-				return fmt.Errorf("catalog: store tv=%t pass=%s year=%d before page=%d: %w", tv, pass, year, next, err)
-			}
-			limit = nextSyncBatch(limit, len(pending), time.Since(started))
-			c.syncBatch.Store(int64(limit))
-			added := len(pending)
-			pending = pending[:0]
-			c.setProgress(func(pr *SyncProgress) { pr.TitlesAdded += added })
-			c.clearSyncError(ctx)
-		}
-		if r != nil {
-			r.Pages[sliceKey] = next
-			return c.saveSyncResume(ctx)
-		}
-		return nil
-	}
-	// A failed fetch keeps the pages already read: they are stored and the
-	// resume point moves past them.
-	buffered := first
-	defer func() {
-		if err != nil && len(pending) > 0 && ctx.Err() == nil {
-			if ferr := flush(buffered); ferr != nil {
-				c.log.Warn("catalog: store synced pages", "err", ferr)
-			}
-		}
-	}()
-	for page := first; page <= 500; page++ {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		p := params
-		p.Page = page
-		var titles []core.Title
-		totalPages := 0
-		if tv {
-			res, err := c.tmdb().DiscoverTV(ctx, p)
-			if err != nil {
-				return 0, fmt.Errorf("catalog: discover tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
-			}
-			totalPages = res.TotalPages
-			if probe {
-				return totalPages, nil
-			}
-			for _, s := range res.Results {
-				titles = append(titles, c.tvToTitle(ctx, s))
-			}
-		} else {
-			res, err := c.tmdb().DiscoverMovies(ctx, p)
-			if err != nil {
-				return 0, fmt.Errorf("catalog: discover tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
-			}
-			totalPages = res.TotalPages
-			if probe {
-				return totalPages, nil
-			}
-			for _, m := range res.Results {
-				titles = append(titles, c.movieToTitle(ctx, m))
-			}
-		}
-		var batch []core.Title
-		stop := false
-		for _, t := range titles {
-			if pass == "popularity" && cfg.MinPopularity > 0 && t.Popularity < cfg.MinPopularity && (cfg.MinVotes <= 0 || t.VoteCount < cfg.MinVotes) {
-				// Popularity-sorted desc: nothing later on this slice qualifies on pop,
-				// but vote-qualifiers are still possible deeper. Only stop early when
-				// there is no vote pass (MinVotes unset) — otherwise finish the slice
-				// cheaply is wrong for huge slices, so stop and let the votes pass catch them.
-				stop = true
-			}
-			if c.meetsThreshold(t) {
-				batch = append(batch, t)
-			}
-		}
-		pending = append(pending, batch...)
-		buffered = page + 1
-		c.setProgress(func(pr *SyncProgress) {
-			pr.PagesDone++
-			pr.TitlesSeen += len(titles)
-		})
-		done := stop || page >= totalPages || len(titles) == 0
-		switch {
-		case done:
-			return totalPages, flush(501)
-		case len(pending) >= limit:
-			if err := flush(page + 1); err != nil {
-				return totalPages, err
-			}
+	return walkSpec{tv: tv, pass: "popularity", stopBelow: cfg.MinPopularity > 0,
+		params: tmdb.DiscoverParams{SortBy: "popularity.desc", IncludeAdult: cfg.IncludeAdult}}
+}
+
+// voteWalk reads every title at or above the vote bar.
+func (c *Catalog) voteWalk(tv bool) walkSpec {
+	cfg := c.config()
+	return walkSpec{tv: tv, pass: "votes",
+		params: tmdb.DiscoverParams{SortBy: "vote_count.desc", VoteCountGTE: cfg.MinVotes, IncludeAdult: cfg.IncludeAdult}}
+}
+
+// walkFallback is the sync without an export: /discover alone. A
+// votes-only bar needs no popularity walk.
+func (c *Catalog) walkFallback(ctx context.Context, tv bool) error {
+	cfg := c.config()
+	if cfg.MinPopularity > 0 || cfg.MinVotes <= 0 {
+		if err := c.walkDiscover(ctx, c.popularityWalk(tv), newSyncWriter(c)); err != nil {
+			return err
 		}
 	}
-	return 500, flush(501)
+	if cfg.MinVotes > 0 {
+		return c.walkDiscover(ctx, c.voteWalk(tv), newSyncWriter(c))
+	}
+	return nil
 }
 
 // syncWriteBatch is the most synced titles one transaction stores. On the
@@ -493,17 +415,23 @@ const syncWriteBatch = 250
 const syncWriteHold = 500 * time.Millisecond
 
 func nextSyncBatch(limit, stored int, took time.Duration) int {
+	return nextBatch(limit, stored, took, syncWriteBatch)
+}
+
+// nextBatch sizes the next write batch so one transaction holds the write
+// lock about syncWriteHold, between 1 and most.
+func nextBatch(limit, stored int, took time.Duration, most int) int {
 	if stored <= 0 {
 		return limit
 	}
 	perTitle := took / time.Duration(stored)
 	if perTitle <= 0 {
-		return syncWriteBatch
+		return most
 	}
 	want := int(syncWriteHold / perTitle)
 	// Move gradually: halve at most, grow by half at most.
 	want = max(want, limit/2, 1)
-	want = min(want, limit+limit/2+1, syncWriteBatch)
+	want = min(want, limit+limit/2+1, most)
 	return want
 }
 
