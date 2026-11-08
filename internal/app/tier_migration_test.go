@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"fmt"
@@ -85,7 +87,6 @@ func TestTierMigrationKeepsEveryTouchedTitle(t *testing.T) {
 		touch
 	)
 	fate := map[core.RatingKey]want{}
-	var tail []core.Title
 	var titles []core.Title
 	for i := int64(1); i <= 3000; i++ {
 		m := core.Title{Key: core.MovieKey(i), Type: core.TypeMovie, IDs: core.IDs{TMDB: i}, Title: fmt.Sprintf("Film %d", i), Released: released, Popularity: 0.5, VoteCount: 1, Genres: []string{"Drama"}}
@@ -200,11 +201,6 @@ func TestTierMigrationKeepsEveryTouchedTitle(t *testing.T) {
 		if k := core.MovieKey(i); fate[k] == gone {
 			stale = append(stale, k)
 			exec(`INSERT INTO frontend_compact_ids(surface,kind,ref,id) VALUES('xtream','item',?,?)`, strconv.FormatInt(int64(k), 10), len(stale))
-		}
-	}
-	for k, f := range fate {
-		if f == gone && k.Kind() == core.KindMovie {
-			tail = append(tail, core.Title{Key: k})
 		}
 	}
 
@@ -339,7 +335,38 @@ func TestTierMigrationKeepsEveryTouchedTitle(t *testing.T) {
 			t.Fatalf("Get(%d) did not store the title again: %d %v", k, n, err)
 		}
 	}
-	_ = tail
+
+	// Every export id is findable: a stored row, or the long-tail index
+	// (which holds every export id, so nothing removed is lost to search).
+	var movieExport, tvExport bytes.Buffer
+	for _, w := range []struct {
+		buf  *bytes.Buffer
+		kind core.KeyKind
+		n    int64
+	}{{&movieExport, core.KindMovie, 3000}, {&tvExport, core.KindShow, 400}} {
+		zw := gzip.NewWriter(w.buf)
+		for i := int64(1); i <= w.n; i++ {
+			name := "original_title"
+			if w.kind == core.KindShow {
+				name = "original_name"
+			}
+			fmt.Fprintf(zw, `{"adult":false,"id":%d,"%s":"Title %d","popularity":0.5,"video":false}`+"\n", i, name, i)
+		}
+		zw.Close()
+	}
+	if err := cat.UseTailExports(&movieExport, &tvExport); err != nil {
+		t.Fatal(err)
+	}
+	for i := int64(1); i <= 3000; i++ {
+		if ok, err := cat.Findable(ctx, core.MovieKey(i)); err != nil || !ok {
+			t.Fatalf("export movie %d not findable after migration: %v", i, err)
+		}
+	}
+	for i := int64(1); i <= 400; i++ {
+		if ok, err := cat.Findable(ctx, core.ShowKey(i)); err != nil || !ok {
+			t.Fatalf("export show %d not findable after migration: %v", i, err)
+		}
+	}
 }
 
 // schemaObjects lists the catalogue's indexes or triggers with their

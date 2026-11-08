@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strconv"
@@ -392,19 +393,7 @@ func (c *Catalog) migrateTiers(ctx context.Context) error {
 
 // tierBars are the bars the library tier keeps on stored values: the
 // preset's, or the Off floor when the preset hides nothing.
-func tierBars(cfg config.Catalog) (minPop float64, minVotes int) {
-	minPop, minVotes = cfg.MinPopularity, cfg.MinVotes
-	if minPop <= 0 && minVotes <= 0 {
-		minPop, minVotes = offFloorPopularity, offFloorVotes
-	}
-	return minPop, minVotes
-}
-
-// The Off preset's floor: "every title with a real audience".
-const (
-	offFloorPopularity = 2.5
-	offFloorVotes      = 10
-)
+func tierBars(cfg config.Catalog) (minPop float64, minVotes int) { return cfg.Bars() }
 
 // tierRow is what the keep rule reads of a stored row.
 type tierRow struct {
@@ -770,3 +759,15 @@ func (c *Catalog) missingKeys(ctx context.Context, keys []core.RatingKey) ([]cor
 // MigrateTiers runs the tier migration once, to completion or the first
 // error (tests and tools; the server runs it from Run, with retries).
 func (c *Catalog) MigrateTiers(ctx context.Context) error { return c.migrateTiers(ctx) }
+
+// UseTailExports builds the long-tail index from TMDB export readers
+// (gzipped JSON lines) and installs it, for tests and tools that check a
+// migrated catalogue's search.
+func (c *Catalog) UseTailExports(movies, tv io.Reader) error {
+	t, err := buildTailIndex(movies, tv, nil, nil)
+	if err != nil {
+		return err
+	}
+	c.setTailIndex(t)
+	return nil
+}
