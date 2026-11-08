@@ -107,6 +107,10 @@ type plan struct {
 	exactErr error
 	exact    chan struct{} // non-nil while an exact rebuild runs
 
+	// clips, for a Blu-ray main feature of several clips, is where each clip's
+	// bytes end and how far its timestamps are from a continuous timeline.
+	clips []clipBoundary
+
 	// PAR2 verification verdict of the first volume (see verifyPar2).
 	par2Done bool
 	par2Err  error
@@ -391,4 +395,10 @@ func (p *plan) rebuildExact(ctx context.Context, v verifier) error {
 	}
 	p.lay = l
 	return nil
+}
+
+// clipBoundary is one clip of a concatenated Blu-ray main feature.
+type clipBoundary struct {
+	byteLen  int64 // the clip's size in the played file
+	delta90k int64 // added to its PTS/DTS/PCR (90 kHz) for a continuous timeline
 }

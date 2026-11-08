@@ -100,3 +100,67 @@ func TestISORejections(t *testing.T) {
 		}
 	})
 }
+
+// blurayDisc builds a disc of one clip, with label and playlist clip name.
+func blurayDisc(label string, seed uint64, size int) (image, clip []byte) {
+	clip = randBytes(seed, size)
+	image = isotest.Build(label, []isotest.File{
+		{Path: "BDMV/PLAYLIST/00000.mpls", Data: isotest.MPLS([]isotest.PlayItem{{Clip: "00001", In: 0, Out: 450000}})},
+		{Path: "BDMV/STREAM/00001.m2ts", Data: clip},
+	})
+	return image, clip
+}
+
+func TestISOMultiDiscMainFeature(t *testing.T) {
+	d1, c1 := blurayDisc("GREAT_MOVIE_DISC_1", 11, 700_000)
+	d2, c2 := blurayDisc("GREAT_MOVIE_DISC_2", 12, 500_000)
+	want := append(append([]byte{}, c1...), c2...)
+	for _, tc := range []struct {
+		name string
+		post func(t *testing.T, f *fakeFetcher) []byte
+	}{
+		{"two iso files", func(t *testing.T, f *fakeFetcher) []byte {
+			// Posted disc 2 first: the label's disc number orders them.
+			return post(t, f, 60_000, postFile{name: "b.iso", data: d2}, postFile{name: "a.iso", data: d1})
+		}},
+		{"two RAR sets", func(t *testing.T, f *fakeFetcher) []byte {
+			var files []postFile
+			for i, d := range [][]byte{d1, d2} {
+				vols := buildRAR(t, []archivetest.RARFile{{Name: fmt.Sprintf("disc%d.iso", i+1), Data: d}}, archivetest.RAROptions{Version: 5, VolumeSize: 400_000})
+				for k, v := range vols {
+					files = append(files, postFile{name: fmt.Sprintf("set%d.part%02d.rar", i+1, k+1), data: v})
+				}
+			}
+			return post(t, f, 60_000, files...)
+		}},
+		{"two iso members of one RAR set", func(t *testing.T, f *fakeFetcher) []byte {
+			vols := buildRAR(t, []archivetest.RARFile{{Name: "disc1.iso", Data: d1}, {Name: "disc2.iso", Data: d2}}, archivetest.RAROptions{Version: 5, VolumeSize: 400_000})
+			return postVolumes(t, f, 60_000, vols, newStyle("movie"))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeFetcher()
+			doc := tc.post(t, f)
+			e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+			src := openSource(t, e, "iso", doc)
+			if src.Name() != "great_movie.m2ts" || src.Size() != int64(len(want)) {
+				t.Fatalf("plays %q (%d bytes), want great_movie.m2ts (%d bytes)", src.Name(), src.Size(), len(want))
+			}
+			if got := readAll(t, src, 64<<10); !bytes.Equal(got, want) {
+				t.Fatal("discs were not joined in order")
+			}
+		})
+	}
+}
+
+func TestISODifferentTitlesAreNotJoined(t *testing.T) {
+	d1, c1 := blurayDisc("FIRST_MOVIE", 21, 600_000)
+	d2, _ := blurayDisc("SECOND_MOVIE", 22, 300_000)
+	f := newFakeFetcher()
+	doc := post(t, f, 60_000, postFile{name: "a.iso", data: d1}, postFile{name: "b.iso", data: d2})
+	e := newTestEngine(t, f, nil, Options{})
+	src := openSource(t, e, "iso", doc)
+	if src.Size() != int64(len(c1)) {
+		t.Fatalf("plays %d bytes, want only the larger disc's %d", src.Size(), len(c1))
+	}
+}

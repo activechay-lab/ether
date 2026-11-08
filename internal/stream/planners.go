@@ -255,33 +255,54 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 	if m == nil {
 		return nil, fmt.Errorf("%w: rar %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
-	if m.Encrypted && b.rel.doc.Password() == "" {
-		return nil, archive.ErrPasswordRequired
-	}
-	if err := m.Streamable(); err != nil {
-		return nil, fmt.Errorf("stream: rar %s: %s: %w", vols[0].Name(), m.Name, err)
-	}
-	info := make([]volInfo, len(vols))
-	verified := make([]bool, len(vols))
-	for k := range vols {
-		info[k] = volInfo{size: vols[k].Size()}
-		verified[k] = true
-	}
-	if m.Encryption != nil {
-		return b.encryptedPlan(ctx, kindRAR, m, vols, info)
-	}
-	for _, x := range m.Extents {
-		if x.Volume < 0 || x.Volume >= len(vols) {
-			return nil, fmt.Errorf("stream: rar extent in volume %d of %d: %w", x.Volume, len(vols), ErrCorrupt)
+	plan := func(m *archive.Member) (*plan, error) {
+		if m.Encrypted && b.rel.doc.Password() == "" {
+			return nil, archive.ErrPasswordRequired
 		}
-		if info[x.Volume].dataSize != 0 {
-			return nil, fmt.Errorf("stream: rar member %s has two extents in volume %d: %w", m.Name, x.Volume, ErrUnsupported)
+		if err := m.Streamable(); err != nil {
+			return nil, fmt.Errorf("stream: rar %s: %s: %w", vols[0].Name(), m.Name, err)
 		}
-		info[x.Volume].dataOff, info[x.Volume].dataSize = x.Offset, x.Size
+		info := make([]volInfo, len(vols))
+		verified := make([]bool, len(vols))
+		for k := range vols {
+			info[k] = volInfo{size: vols[k].Size()}
+			verified[k] = true
+		}
+		if m.Encryption != nil {
+			return b.encryptedPlan(ctx, kindRAR, m, vols, info)
+		}
+		for _, x := range m.Extents {
+			if x.Volume < 0 || x.Volume >= len(vols) {
+				return nil, fmt.Errorf("stream: rar extent in volume %d of %d: %w", x.Volume, len(vols), ErrCorrupt)
+			}
+			if info[x.Volume].dataSize != 0 {
+				return nil, fmt.Errorf("stream: rar member %s has two extents in volume %d: %w", m.Name, x.Volume, ErrUnsupported)
+			}
+			info[x.Volume].dataOff, info[x.Volume].dataSize = x.Offset, x.Size
+		}
+		p := newPlan(b.rel, kindRAR, path.Base(m.Name), m.Size, vols, info, verified)
+		p.member = m.Name
+		return p, p.init()
 	}
-	p := newPlan(b.rel, kindRAR, path.Base(m.Name), m.Size, vols, info, verified)
-	p.member = m.Name
-	return p, p.init()
+	p, err := plan(m)
+	if err == nil && isISOName(p.name) {
+		b.stashDiscs(members, m, plan)
+	}
+	return p, err
+}
+
+// stashDiscs plans the archive's other disc images, the further discs of a
+// multi-disc release, for expandISO to join.
+func (b *builder) stashDiscs(members []archive.Member, chosen *archive.Member, plan func(*archive.Member) (*plan, error)) {
+	for i := range members {
+		m := &members[i]
+		if m.Dir || m.Name == chosen.Name || nzb.Classify(m.Name).Kind != nzb.KindISO || m.Size <= 0 {
+			continue
+		}
+		if p, err := plan(m); err == nil {
+			b.memberISOs = append(b.memberISOs, p)
+		}
+	}
 }
 
 // plan7z maps the main video inside a copy-method 7z set.
@@ -359,15 +380,22 @@ func (b *builder) plan7z(ctx context.Context, vols []*postedFile) (*plan, error)
 	if m == nil {
 		return nil, fmt.Errorf("%w: 7z %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
-	if err := m.Streamable(); err != nil {
-		return nil, fmt.Errorf("stream: 7z %s: %s: %w", vols[0].Name(), m.Name, err)
+	plan := func(m *archive.Member) (*plan, error) {
+		if err := m.Streamable(); err != nil {
+			return nil, fmt.Errorf("stream: 7z %s: %s: %w", vols[0].Name(), m.Name, err)
+		}
+		if m.Encryption != nil {
+			return b.encryptedPlan(ctx, kind7z, m, vols, info)
+		}
+		p := newPlan(b.rel, kind7z, path.Base(m.Name), m.Size, vols, info, verified)
+		p.concatExt = m.Extents
+		return p, p.init()
 	}
-	if m.Encryption != nil {
-		return b.encryptedPlan(ctx, kind7z, m, vols, info)
+	p, err := plan(m)
+	if err == nil && isISOName(p.name) {
+		b.stashDiscs(members, m, plan)
 	}
-	p := newPlan(b.rel, kind7z, path.Base(m.Name), m.Size, vols, info, verified)
-	p.concatExt = m.Extents
-	return p, p.init()
+	return p, err
 }
 
 // pickRARFile chooses the likely video among the file headers of a volume.
