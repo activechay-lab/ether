@@ -32,7 +32,7 @@ func TestSyncPageContinuationSurvivesNewCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.syncPass(resumed, false, "popularity"); err == nil {
+	if err := c.walkDiscover(resumed, c.popularityWalk(false), newSyncWriter(c)); err == nil {
 		t.Fatal("expected late page failure")
 	}
 	f.fail = false
@@ -45,15 +45,15 @@ func TestSyncPageContinuationSurvivesNewCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := next.syncPass(resumed, false, "popularity"); err != nil {
+	if err := next.walkDiscover(resumed, next.popularityWalk(false), newSyncWriter(next)); err != nil {
 		t.Fatal(err)
 	}
-	// Page 1 is only the read-only total-pages probe; page 2 must not recur.
-	if fmt.Sprint(f.calls) != "[1 3]" {
+	// Pages 1 and 2 were stored before the failure; they must not recur.
+	if fmt.Sprint(f.calls) != "[3]" {
 		t.Fatalf("resumed calls %v", f.calls)
 	}
 	f.calls = nil
-	if err := next.syncPass(resumed, false, "popularity"); err != nil || len(f.calls) != 0 {
+	if err := next.walkDiscover(resumed, next.popularityWalk(false), newSyncWriter(next)); err != nil || len(f.calls) != 0 {
 		t.Fatalf("completed pass repeated: %v %v", f.calls, err)
 	}
 	for n, want := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 16 * time.Minute, 32 * time.Minute, time.Hour, time.Hour} {

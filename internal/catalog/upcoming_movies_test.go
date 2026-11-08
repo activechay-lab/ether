@@ -22,7 +22,7 @@ func TestUpcomingMoviesOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	movie := core.Title{Key: core.MovieKey(987654), Type: core.TypeMovie, Title: "Future", Released: now.Add(72 * time.Hour)}
+	movie := core.Title{Key: core.MovieKey(987654), Type: core.TypeMovie, Title: "Future", Released: now.Add(72 * time.Hour), Popularity: 50}
 	if err = c.UpsertTitle(ctx, movie, false); err != nil {
 		t.Fatal(err)
 	}

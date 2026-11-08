@@ -345,11 +345,57 @@ func indexPeopleFixture(s *Service, c *peopleCatalogue) {
 	}
 }
 
-// The name index returns what the credit walk returns, without the walk.
+// pagedPeopleFixture adds the batched credits and visibility titles a
+// paged people search reads, from the same fixture titles.
+func pagedPeopleFixture(s *Service, c *peopleCatalogue) {
+	indexPeopleFixture(s, c)
+	single := s.d.PersonCredits
+	s.d.PersonCreditsMany = func(ctx context.Context, persons []int64, types []core.MediaType, limit int) (map[int64][]core.PersonCredit, error) {
+		out := map[int64][]core.PersonCredit{}
+		for _, p := range persons {
+			keys, err := single(ctx, p, types, limit)
+			if err != nil {
+				return nil, err
+			}
+			c.mu.RLock()
+			for _, k := range keys {
+				title := c.titles[k]
+				for kind, group := range map[string][]core.Person{"cast": title.Cast, "director": title.Directors, "writer": title.Writers, "crew": title.Crew} {
+					for _, person := range group {
+						if person.TMDB == p {
+							out[p] = append(out[p], core.PersonCredit{Key: k, Kind: kind, Person: person})
+						}
+					}
+				}
+			}
+			c.mu.RUnlock()
+		}
+		return out, nil
+	}
+	begin := s.d.BeginPeopleRead
+	s.d.BeginPeopleRead = func(ctx context.Context, viewer *core.User) (PeopleRead, error) {
+		access, err := begin(ctx, viewer)
+		access.VisibleTitles = access.Titles
+		return access, err
+	}
+}
+
+// The name index, read person by person or a page at a time, returns what
+// the credit walk returns, without the walk.
 func TestIndexedPeopleMatchTheCreditWalk(t *testing.T) {
+	for _, paged := range []bool{false, true} {
+		testIndexedPeopleMatchTheCreditWalk(t, paged)
+	}
+}
+
+func testIndexedPeopleMatchTheCreditWalk(t *testing.T, paged bool) {
 	walk, _ := peopleFixture()
 	indexed, c := peopleFixture()
-	indexPeopleFixture(indexed, c)
+	if paged {
+		pagedPeopleFixture(indexed, c)
+	} else {
+		indexPeopleFixture(indexed, c)
+	}
 	ctx := context.Background()
 	viewer := &core.User{ID: 1}
 	for _, q := range []frontend.PeopleQuery{

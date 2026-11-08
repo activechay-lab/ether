@@ -20,6 +20,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 )
 
 func init() {
@@ -173,7 +174,18 @@ func (s *Service) Put(ctx context.Context, id int64, p Policy) error {
 	if err != nil {
 		return err
 	}
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO safety_policies(user_id,policy) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET policy=excluded.policy`, id, string(raw)); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO safety_policies(user_id,policy) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET policy=excluded.policy`, id, string(raw)); err != nil {
+		return err
+	}
+	if err = viewerpolicy.AddInputs(ctx, s.db, tx, viewerpolicy.SourceSafety, PolicyInputs(p)); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -185,6 +197,47 @@ func (s *Service) Put(ctx context.Context, id int64, p Policy) error {
 	s.invalMu.Unlock()
 	iv.Notify(strconv.FormatInt(id, 10))
 	return nil
+}
+
+// PolicyInputs lists the catalogue facts p reads. An episode inherits its
+// show's keywords while it has none of its own, so the set's emptiness
+// counts as well as each blocked value (Inputs.Field records both).
+func PolicyInputs(p Policy) viewerpolicy.Inputs {
+	in := viewerpolicy.Inputs{}
+	if len(p.BlockedGenres) > 0 {
+		in.Field("genre", p.BlockedGenres...)
+	}
+	if len(p.BlockedKeywords) > 0 {
+		in.Field("keyword", p.BlockedKeywords...)
+	}
+	return in
+}
+
+// ReadPolicyInputs is the safety source of a viewer-policy inputs rebuild.
+func ReadPolicyInputs(ctx context.Context, tx *sql.Tx) (viewerpolicy.Inputs, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT policy FROM safety_policies`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	in := viewerpolicy.Inputs{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var p Policy
+		if json.Unmarshal([]byte(raw), &p) != nil {
+			// Unreadable: whatever it blocks, treat both facets as read.
+			in.Field("genre", "\x00")
+			in.Field("keyword", "\x00")
+			continue
+		}
+		for k := range PolicyInputs(p) {
+			in[k] = struct{}{}
+		}
+	}
+	return in, rows.Err()
 }
 
 // SetCatalogPolicy installs viewer-aware direct and discovery catalogue policies during construction.

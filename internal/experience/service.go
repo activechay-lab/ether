@@ -54,6 +54,12 @@ type ServiceDeps struct {
 	CachedGet func(context.Context, core.RatingKey) (*core.Title, error)
 	// CachedGetMany reads current cached rows in bounded batches without refresh.
 	CachedGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	// ArtworkGet and ArtworkGetMany are CachedGet and CachedGetMany for
+	// image grants: they also admit search and list hits held in memory
+	// without a row, so those hits keep their poster. Nil uses the cached
+	// readers.
+	ArtworkGet     func(context.Context, core.RatingKey) (*core.Title, error)
+	ArtworkGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// ParentTitles resolves distinct parents using the same semantics as GetTitle.
 	ParentTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// CachedVirtualSeason resolves a viewer's already-computed episode layout.
@@ -80,7 +86,14 @@ type ServiceDeps struct {
 	// name index instead of walking every credited title. Optional.
 	PeopleIndex   func(context.Context, []string, int) ([]PersonCandidate, error)
 	PersonCredits func(context.Context, int64, []core.MediaType, int) ([]core.RatingKey, error)
-	AiredEpisodes func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	// PersonCreditsMany is PersonCredits for a page of people, with each
+	// person's credit rows (name, role, portrait) on those titles. With it
+	// (and PeopleRead.VisibleTitles) a people search reads a page of people
+	// in a few statements. Optional.
+	PersonCreditsMany func(context.Context, []int64, []core.MediaType, int) (map[int64][]core.PersonCredit, error)
+	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
+	peopleVisibleTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	AiredEpisodes       func(context.Context, core.RatingKey, int, int) (core.Page, error)
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
@@ -869,10 +882,14 @@ func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, ke
 	if err != nil {
 		return nil, err
 	}
-	if s.d.CachedGetMany == nil {
+	getMany := s.d.ArtworkGetMany
+	if getMany == nil {
+		getMany = s.d.CachedGetMany
+	}
+	if getMany == nil {
 		return nil, core.ErrNotAvailable
 	}
-	titles, err := s.d.CachedGetMany(ctx, keys)
+	titles, err := getMany(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +914,11 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 			return nil, err
 		}
 	} else if s.d.CachedGet != nil {
-		title, err := s.d.CachedGet(ctx, key)
+		get := s.d.ArtworkGet
+		if get == nil {
+			get = s.d.CachedGet
+		}
+		title, err := get(ctx, key)
 		if errors.Is(err, core.ErrNotFound) && s.d.CachedVirtualSeason != nil {
 			title, err = s.d.CachedVirtualSeason(ctx, v, key)
 		}

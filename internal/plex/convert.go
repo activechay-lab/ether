@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/langtag"
@@ -155,6 +156,12 @@ func thumbURL(t *core.Title) string {
 
 func stampedThumbURL(t *core.Title, stamp string) string {
 	if t.PosterPath == "" && t.StillPath == "" {
+		// A movie or show with no artwork gets Ether's generated poster.
+		// Its stamp names the drawn image, so the URL changes (and client
+		// caches refetch) when the title gains a real poster.
+		if p, ok := artwork.ForTitle(t); ok {
+			return "/library/metadata/" + t.Key.String() + "/thumb/" + p.Stamp()
+		}
 		return ""
 	}
 	return "/library/metadata/" + t.Key.String() + "/thumb/" + stamp

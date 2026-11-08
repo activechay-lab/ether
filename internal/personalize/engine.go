@@ -249,6 +249,8 @@ type Engine struct {
 	memoMu sync.Mutex
 	memo   map[memoKey]*memoEntry
 
+	shared sharedBrowses // catalogue browses shared by unrestricted viewers
+
 	presentationMu sync.Mutex
 	presentations  map[memoKey]presentation
 
