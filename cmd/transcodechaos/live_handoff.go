@@ -54,6 +54,12 @@ func runHandoffRow(parent context.Context, o liveOptions, row liveRow, fixtures 
 		return
 	}
 	defer ether.Close()
+	// Preserve the default copy-capable fallback while keeping Steady eligible.
+	channels[1].Transcode = false
+	if channels[1], err = ether.service.SaveChannel(ctx, channels[1]); err != nil {
+		res.Error = "target channel: " + err.Error()
+		return
+	}
 	res.Applied = ether.Stability
 	mark := ether.logMark()
 	blocker, _, err := ether.tunePlexAs(ctx, o.Client, "chaos-blocker", channels[0].ID)
@@ -96,7 +102,7 @@ func runHandoffRow(parent context.Context, o liveOptions, row liveRow, fixtures 
 	w = <-done
 	joined = true
 	res.TuneS, res.Protocol, res.Player, res.Viewer, res.Error = w.TuneS, w.Protocol, w.Player, w.Viewer, w.Error
-	res.Path = "direct→steady"
+	res.Path = "direct"
 	priorReasons := append([]string(nil), res.Reasons...)
 	if !w.tuneFailed {
 		scoreRow(sc, o.Preset, liveStuckFactor[o.Client], &res, w.av)
@@ -108,6 +114,9 @@ func runHandoffRow(parent context.Context, o liveOptions, row liveRow, fixtures 
 		handoffs = strings.Count(string(log[mark:]), "owned relay handed off to Steady")
 	}
 	check(handoffs == 1, "same running relay hands off exactly once: got %d", handoffs)
+	if handoffs == 1 {
+		res.Path = "direct→steady"
+	}
 	res.Provider = target.Stats()
 	check(res.Provider.MaxConcurrent == 1, "handoff shares one provider connection: maximum %d", res.Provider.MaxConcurrent)
 	// A stopped handoff session must release its feed/grant without closing Ether.
