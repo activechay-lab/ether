@@ -28,9 +28,12 @@ import (
 // already ordered and limited page.
 
 const (
-	// posterWait is how long a search waits for poster lookups. TMDB's lean
-	// fetch answers in ~100-250 ms, so most lookups miss it and land for the
-	// next request; the search budget (150 ms warm p95) is not spent here.
+	// posterWait is how long a search waits for poster lookups it could not
+	// answer from cache. TMDB's lean fetch measured p50 48 ms, p95 68 ms
+	// (2,484 real tail ids, 2026-11-08), and the prefetch starts lookups
+	// while the search still waits for TMDB's live search, so most land in
+	// time; the rest land for the next request. Only a cold page with
+	// unknown posters waits; a warm one adds microseconds.
 	posterWait = 60 * time.Millisecond
 	// posterLookupsPerPage caps the TMDB requests one search page starts.
 	posterLookupsPerPage = 8
