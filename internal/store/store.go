@@ -463,6 +463,33 @@ func registered() []migration {
 	return ordered
 }
 
+// ceilingKey carries MigrateThrough's per-component version ceiling.
+type ceilingKey struct{}
+
+// WithMigrationCeiling makes opening or migrating with ctx apply only
+// migrations at or below ceiling[component] (components absent from ceiling
+// apply in full). Upgrade tests use it to build an older release's schema
+// through the real migrations, then open again without it to upgrade.
+func WithMigrationCeiling(ctx context.Context, ceiling map[string]int) context.Context {
+	return context.WithValue(ctx, ceilingKey{}, ceiling)
+}
+
+// pendingFor is registered() limited to ctx's migration ceiling, if any.
+func pendingFor(ctx context.Context) []migration {
+	ms := registered()
+	ceiling, _ := ctx.Value(ceilingKey{}).(map[string]int)
+	if ceiling == nil {
+		return ms
+	}
+	out := ms[:0]
+	for _, m := range ms {
+		if top, ok := ceiling[m.component]; !ok || m.version <= top {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		component TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY (component, version))`
 
@@ -487,7 +514,7 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 	// Counted up front for progress; each is checked again right before it
 	// runs, because a migration may record another as applied.
 	var pending []migration
-	for _, m := range registered() {
+	for _, m := range pendingFor(ctx) {
 		done, err := applied(m)
 		if err != nil {
 			return err

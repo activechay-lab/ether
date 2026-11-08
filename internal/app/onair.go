@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
+	"github.com/braedonsaunders/ether/internal/backup"
+	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -74,13 +76,45 @@ func (a *App) buildOnAir() error {
 			return 1920, 1080
 		}
 	}
+	o.AssetDir = filepath.Join(a.opts.DataDir, backup.OnAirAssetDir)
+	if a.cluster != nil {
+		o.NodeID = a.cluster.Self().ID
+		if a.cluster.Mode() != cluster.ModeSolo {
+			o.Members = a.onairMembers
+			o.AssetsChanged = func(ctx context.Context) { _ = a.cluster.Publish(ctx, onairAssetsTopic, nil) }
+		}
+	}
 	svc, e := onair.New(o)
 	if e != nil {
 		return e
 	}
 	a.onair = svc
 	a.closers = append(a.closers, svc.Close)
+	if o.Members != nil {
+		// Another node asked for bytes, or membership changed: run a pass.
+		a.closers = append(a.closers, a.cluster.Subscribe(onairAssetsTopic, func([]byte) { svc.PokeAssets() }), a.cluster.Subscribe(cluster.TopicMembers, func([]byte) { svc.PokeAssets() }))
+	}
 	return nil
+}
+
+// onairAssetsTopic asks every node to run an On Air asset pass.
+const onairAssetsTopic = "onair:assets"
+
+// onairMembers are the nodes that keep On Air assets: every recorded member
+// (dead ones stay recorded for a day) that runs On Air or may be an older
+// full server reading asset bytes from the database.
+func (a *App) onairMembers(ctx context.Context) ([]onair.Member, error) {
+	nodes, err := a.cluster.AllNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]onair.Member, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Caps.OnAirAssets > 0 || n.Caps.Roles.FullServer() {
+			out = append(out, onair.Member{ID: n.ID, Files: n.Caps.OnAirAssets >= onair.AssetFilesVersion})
+		}
+	}
+	return out, nil
 }
 func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time.Time) (any, error) {
 	empty := func() map[string]string {

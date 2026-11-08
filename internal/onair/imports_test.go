@@ -2,6 +2,10 @@ package onair
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +68,12 @@ func TestImportedClipDurationCap(t *testing.T) {
 		return &core.MediaInfo{Duration: 3*time.Minute + time.Second}, nil
 	}})
 	ctx := context.Background()
-	a, e := s.putReelAsset(ctx, "long", []byte("media"))
+	src := filepath.Join(t.TempDir(), "long")
+	if e := os.WriteFile(src, []byte("media"), 0o600); e != nil {
+		t.Fatal(e)
+	}
+	sum := sha256.Sum256([]byte("media"))
+	a, e := s.putReelAsset(ctx, "long", src, hex.EncodeToString(sum[:]), 5)
 	if e != nil {
 		t.Fatal(e)
 	}

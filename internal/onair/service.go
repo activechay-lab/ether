@@ -50,6 +50,16 @@ type Options struct {
 	Artwork     func(context.Context, string) (image.Image, error)
 	// Render is a seam for verifying that Ensure never executes work inline.
 	Render func(context.Context, scene.Document, raster.Bindings, string) error
+	// AssetDir is the blob store for asset bytes (<data>/onair/assets);
+	// empty uses Dir/assets.
+	AssetDir string
+	// NodeID identifies this node in onair_asset_replicas.
+	NodeID string
+	// Members lists every node sharing the database (cluster members seen
+	// in the last day); nil means this node alone.
+	Members func(context.Context) ([]Member, error)
+	// AssetsChanged asks every node to run an asset pass (PokeAssets).
+	AssetsChanged func(context.Context)
 }
 type entry struct {
 	Ref  core.ClipRef
@@ -82,6 +92,11 @@ type Service struct {
 	db             *sql.DB
 	mu             sync.Mutex
 	assetMu        sync.Mutex
+	blobs          blobStore
+	nodeID         string
+	assetPoke      chan struct{}
+	fetchMu        sync.Mutex
+	fetching       map[string]chan struct{}
 	looks          map[string]Look
 	cache          map[string]entry
 	pins           map[string]time.Time
@@ -116,8 +131,14 @@ func New(o Options) (*Service, error) {
 	if e := os.MkdirAll(o.Dir, 0750); e != nil {
 		return nil, e
 	}
+	if o.AssetDir == "" {
+		o.AssetDir = filepath.Join(o.Dir, "assets")
+	}
+	if o.NodeID == "" {
+		o.NodeID = "local"
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
 
 	if e := s.seed(ctx); e != nil {
 		cancel()
@@ -158,10 +179,11 @@ func New(o Options) (*Service, error) {
 func (s *Service) Start() {
 	s.startOnce.Do(func() {
 		if s.ctx.Err() == nil {
-			s.wg.Add(3)
+			s.wg.Add(4)
 			go s.run()
 			go s.watchUpcoming()
 			go s.backfillFacts()
+			go s.runAssets()
 			for range 2 {
 				s.wg.Add(1)
 				go s.runImports()
@@ -832,32 +854,22 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	audio := ""
 
 	var sounds []encode.SoundInput
+	// Scene media is read in place from the immutable asset file.
 	prepare := func(digest, kind string) (string, error) {
-		var b []byte
-		if err := s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind=?", digest, kind).Scan(&b); err != nil {
+		var stored string
+		if err := s.db.QueryRowContext(ctx, "SELECT kind FROM onair_assets WHERE digest=?", digest).Scan(&stored); err != nil {
 			return "", err
 		}
-		f, err := os.CreateTemp(s.o.Dir, ".scene-media-*")
-		if err != nil {
-			return "", err
+		if stored != kind {
+			return "", sql.ErrNoRows
 		}
-		_, err = f.Write(b)
-		closeErr := f.Close()
-		if err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			os.Remove(f.Name())
-			return "", err
-		}
-		return f.Name(), nil
+		return s.assetPath(ctx, digest)
 	}
 	for _, sound := range j.Scene.Sounds {
 		path, err := prepare(sound.AssetDigest, "audio")
 		if err != nil {
 			return err
 		}
-		defer os.Remove(path)
 		sounds = append(sounds, encode.SoundInput{Path: path, At: sound.At, Start: sound.Start, End: sound.End, Volume: sound.Volume, FadeIn: sound.FadeIn, FadeOut: sound.FadeOut})
 	}
 	var background *encode.VideoInput
@@ -866,7 +878,6 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		if err != nil {
 			return err
 		}
-		defer os.Remove(path)
 		background = &encode.VideoInput{Path: path, Fit: v.Fit, Start: v.Start}
 	}
 	if j.AssetDigest != "" {
@@ -993,9 +1004,12 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 			}
 			continue
 		}
-		var b []byte
 		var kind, mime string
-		if e := s.db.QueryRowContext(ctx, "SELECT content,kind,mime FROM onair_assets WHERE digest=?", d).Scan(&b, &kind, &mime); e != nil {
+		if e := s.db.QueryRowContext(ctx, "SELECT kind,mime FROM onair_assets WHERE digest=?", d).Scan(&kind, &mime); e != nil {
+			return e
+		}
+		b, e := s.assetBytes(ctx, d)
+		if e != nil {
 			return e
 		}
 		if kind == "font" {
