@@ -790,6 +790,26 @@ export function createLiveTVMock(titles: FakeTitle[], empty = false) {
       }
       return { body: { ok: true } };
     }
+    if (route === "PATCH /channels/bulk") {
+      const change = body as {
+        ids: string[];
+        enabled?: boolean;
+        favorite?: boolean;
+        group?: string;
+        plexHidden?: boolean;
+      };
+      const ids = new Set(change.ids);
+      const selected = channels.filter((c) => ids.has(c.id));
+      if (selected.length !== ids.size)
+        return { status: 404, body: { error: { code: "livetv", message: "not found" } } };
+      for (const c of selected) {
+        if (change.enabled !== undefined) c.enabled = change.enabled;
+        if (change.favorite !== undefined) c.favorite = change.favorite;
+        if (change.group !== undefined) c.group = change.group;
+        if (change.plexHidden !== undefined) c.plexHidden = change.plexHidden;
+      }
+      return { body: { updated: selected.length } };
+    }
     if (
       (method === "POST" && route === "POST /channels") ||
       (method === "PUT" && seg[1] === "channels" && seg[2])

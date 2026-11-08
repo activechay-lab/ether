@@ -859,6 +859,25 @@ Programme guides can come from separate XMLTV sources, including compressed
 automatically and retain existing listings if a refresh fails; uploaded files
 remain snapshots. Guide coverage shows channels that need a mapping or new data.
 
+For URL sources, **Maximum refresh interval (hours)** sets the normal refresh
+schedule. Ether can refresh sooner when guide coverage is running out. Enable
+**Refresh after inactivity** to refresh in the background when an authenticated
+app returns after five idle minutes and no Live TV session is active. Its chosen
+cooldown limits how often that source refreshes; failures retain the last good
+snapshot and back off. Activity refresh is off by default. Manual sources and
+uploaded files do not refresh because an app connects.
+
+An IPTV app's playlist or guide refresh reads Ether's stored snapshot. It can
+wake the background refresh above, but does not wait for the provider; a later
+app refresh picks up the imported changes. This keeps app startup independent
+of provider latency and availability.
+
+Channel group exclusions apply to all apps. Use **Show in Plex** on a channel,
+or select matching channels and choose **Hide from Plex**, to make Plex's
+lineup smaller without removing those channels from external IPTV apps.
+Disabling a channel still removes it everywhere, and viewer access restrictions
+apply in every app. M3U and Xtream exports retain the imported channel groups.
+
 ## Cluster
 
 **Server › Cluster** shows how this server stores its data. A standalone

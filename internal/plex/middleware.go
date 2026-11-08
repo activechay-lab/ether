@@ -311,6 +311,9 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if s.d.Hooks.OnClientSeen != nil {
 					s.d.Hooks.OnClientSeen(pr.ClientID)
 				}
+				if s.d.LiveTV != nil {
+					s.d.LiveTV.NoteClientActivity()
+				}
 				if pr.Remote && s.d.Hooks.OnRemoteClientSeen != nil {
 					s.d.Hooks.OnRemoteClientSeen(pr.RemoteIP.String())
 				}

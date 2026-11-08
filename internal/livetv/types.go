@@ -192,6 +192,7 @@ type Channel struct {
 	Name          string         `json:"name"`
 	Kind          string         `json:"kind"` // virtual or iptv
 	Enabled       bool           `json:"enabled"`
+	PlexHidden    bool           `json:"plexHidden,omitempty"` // omitted from Plex; retained for other apps
 	Favorite      bool           `json:"favorite"`
 	Logo          string         `json:"logo,omitempty"`
 	LogoMatched   bool           `json:"logoMatched,omitempty"`
@@ -266,6 +267,9 @@ type Source struct {
 	// refresh only. Sources also refresh before mapped listings run out.
 	// Inline uploads never refresh automatically.
 	RefreshHours int `json:"refreshHours,omitempty"`
+	// ActivityRefreshMinutes allows an idle-to-active client visit to refresh
+	// earlier than RefreshHours. Zero disables it; the minimum is 30 minutes.
+	ActivityRefreshMinutes int `json:"activityRefreshMinutes,omitempty"`
 	// LastError/LastErrorAt/RefreshFailures record failed refreshes; a
 	// successful import clears them. Existing data is kept on failure.
 	LastError       string     `json:"lastError,omitempty"`

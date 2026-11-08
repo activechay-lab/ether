@@ -33,6 +33,8 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	activityWake       chan struct{}
+	lastClientActivity time.Time // guarded by mu
 	vodRefreshMu       sync.Mutex
 	maintenance        maintenanceHealth
 	virtualGuide       virtualGuideCache
@@ -115,6 +117,7 @@ func New(o Options) (*Service, error) {
 		kinds = NewKindRegistry()
 	}
 	s := &Service{breakObserved: make(chan breakObservation, 64), observedBreaks: map[core.RatingKey]breakObservation{}, graphicsWake: make(chan struct{}, 1), o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
+	s.activityWake = make(chan struct{}, 1)
 	if o.Picker != nil && o.Users != nil {
 		s.wg.Add(1)
 		go s.personalLoop()
@@ -933,7 +936,7 @@ func (s *Service) withPolicy(ctx context.Context, u *core.User) (context.Context
 }
 
 func (s *Service) allowedWithLookup(ctx context.Context, u *core.User, c Channel, p *Programme, lookup func(context.Context, core.RatingKey) (*core.Title, error), strict bool) bool {
-	if u == nil || !c.Enabled {
+	if u == nil || !c.Enabled || !publishedTo(ctx, c) {
 		return false
 	}
 	if !u.IsOwner && s.sweepState(c) == "unavailable" {
@@ -1853,6 +1856,21 @@ func (s *Service) readURL(ctx context.Context, raw string, max int64) (string, e
 // Owner changes to mapping, enabled state, channel numbering, favourites and
 // restrictions survive refresh.
 func (s *Service) ImportSource(ctx context.Context, src Source) (Source, error) {
+	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
+	defer cancel()
+	if src.ID == "" {
+		src.ID = randomID()
+	}
+	release, err := s.acquireRefresh(ctx, src.ID)
+	if err != nil {
+		return src, err
+	}
+	defer release()
+	return s.importSourceLogged(ctx, src)
+}
+
+// importSourceLogged is called only while the source refresh lease is held.
+func (s *Service) importSourceLogged(ctx context.Context, src Source) (Source, error) {
 	v, err := s.importSource(ctx, src)
 	if err != nil {
 		s.o.Logger.Warn("Live TV source import failed",
@@ -1874,6 +1892,9 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	}
 	if strings.TrimSpace(src.Name) == "" {
 		return src, fmt.Errorf("source needs a name")
+	}
+	if src.RefreshHours < -1 || src.RefreshHours > 24*365 || src.ActivityRefreshMinutes < 0 || src.ActivityRefreshMinutes > 24*60 || (src.ActivityRefreshMinutes > 0 && src.ActivityRefreshMinutes < 30) {
+		return src, fmt.Errorf("invalid source refresh interval")
 	}
 	if src.Kind == legacyStremioKind {
 		return src, errLegacyStremio
@@ -1973,6 +1994,7 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 					c.Number = previous.Number
 				}
 				c.Enabled = previous.Enabled
+				c.PlexHidden = previous.PlexHidden
 				c.Favorite = previous.Favorite
 				c.Rating = previous.Rating
 				c.GuideID = previous.GuideID

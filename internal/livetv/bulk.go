@@ -15,10 +15,11 @@ import (
 // ChannelBatch changes only the named fields, preserving stream credentials,
 // programming and concurrent edits to unrelated fields. All IDs commit together.
 type ChannelBatch struct {
-	IDs      []string `json:"ids"`
-	Enabled  *bool    `json:"enabled,omitempty"`
-	Favorite *bool    `json:"favorite,omitempty"`
-	Group    *string  `json:"group,omitempty"`
+	IDs        []string `json:"ids"`
+	Enabled    *bool    `json:"enabled,omitempty"`
+	PlexHidden *bool    `json:"plexHidden,omitempty"`
+	Favorite   *bool    `json:"favorite,omitempty"`
+	Group      *string  `json:"group,omitempty"`
 }
 
 func (s *Service) UpdateChannels(ctx context.Context, change ChannelBatch) (int, error) {
@@ -26,6 +27,9 @@ func (s *Service) UpdateChannels(ctx context.Context, change ChannelBatch) (int,
 		return 0, fmt.Errorf("select between 1 and 50000 channels")
 	}
 	patch := map[string]any{}
+	if change.PlexHidden != nil {
+		patch["plexHidden"] = *change.PlexHidden
+	}
 	if change.Enabled != nil {
 		patch["enabled"] = *change.Enabled
 	}

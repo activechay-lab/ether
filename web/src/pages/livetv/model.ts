@@ -80,6 +80,7 @@ export type Pin = {
   breaks?: ChannelLook;
 };
 export type Channel = {
+  plexHidden?: boolean;
   pins?: Pin[];
   personal?: PersonalRecipe;
   look?: ChannelLook;
@@ -262,6 +263,7 @@ export type Source = {
   guideUrl?: string;
   updatedAt: string;
   refreshHours?: number;
+  activityRefreshMinutes?: number;
   channelCount?: number;
   guideChannelCount?: number;
   programmeCount?: number;
@@ -293,6 +295,7 @@ export type SourceDraft = {
   playlist: string;
   guide: string;
   refreshHours?: number;
+  activityRefreshMinutes?: number;
   auth?: SourceAuth;
 } & GroupRules &
   SourceLimitRules;
@@ -480,7 +483,7 @@ export const tv = {
   },
   updateChannels: (
     ids: string[],
-    patch: { enabled?: boolean; favorite?: boolean; group?: string },
+    patch: { enabled?: boolean; favorite?: boolean; group?: string; plexHidden?: boolean },
   ) => apiFetch<{ updated: number }>("/livetv/channels/bulk", json("PATCH", { ids, ...patch })),
   saveChannel: (c: Channel) =>
     apiFetch<Channel>(

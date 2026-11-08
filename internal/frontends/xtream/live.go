@@ -19,8 +19,14 @@ func (i *instance) channels(r *http.Request, l login) ([]frontend.LiveChannel, e
 	}
 	for start := 0; start < len(cs); start += 250 {
 		refs := []string{}
+		groups := []string{}
+		seen := map[string]bool{}
 		for _, c := range cs[start:min(start+250, len(cs))] {
 			refs = append(refs, c.ID)
+			if group := strings.TrimSpace(c.Group); group != "" && !seen[group] {
+				groups = append(groups, group)
+				seen[group] = true
+			}
 		}
 		allocated, err := i.host.IDs.CompactBatch(r.Context(), "xtream", "channel", refs)
 		if err != nil {
@@ -29,10 +35,25 @@ func (i *instance) channels(r *http.Request, l login) ([]frontend.LiveChannel, e
 		for ref, id := range allocated {
 			l.channels[ref] = id
 		}
+		if len(groups) > 0 {
+			allocated, err := i.host.IDs.CompactBatch(r.Context(), "xtream", "live-group", groups)
+			if err != nil {
+				return nil, err
+			}
+			for ref, id := range allocated {
+				if id <= 0 || id > 2147483645 {
+					return nil, fmt.Errorf("invalid live group identity")
+				}
+				l.groups[ref] = id + 2 // preserve the existing ungrouped categories 1 and 2
+			}
+		}
 	}
 	return cs, nil
 }
-func liveCategory(c frontend.LiveChannel) string {
+func liveCategory(l login, c frontend.LiveChannel) string {
+	if id := l.groups[strings.TrimSpace(c.Group)]; id > 0 {
+		return strconv.FormatInt(int64(id), 10)
+	}
 	if c.Kind == "iptv" {
 		return "2"
 	}
@@ -48,12 +69,15 @@ func (i *instance) live(w http.ResponseWriter, r *http.Request, l login, action 
 		out := []map[string]any{}
 		seen := map[string]bool{}
 		for _, c := range channels {
-			id := liveCategory(c)
+			id := liveCategory(l, c)
 			if !seen[id] {
 				seen[id] = true
 				name := "On Air"
 				if id == "2" {
 					name = "IPTV"
+				}
+				if group := strings.TrimSpace(c.Group); group != "" {
+					name = group
 				}
 				out = append(out, map[string]any{"category_id": id, "category_name": name, "parent_id": 0})
 			}
@@ -66,7 +90,7 @@ func (i *instance) live(w http.ResponseWriter, r *http.Request, l login, action 
 	first := true
 	num := 0
 	for _, c := range channels {
-		if cat := r.URL.Query().Get("category_id"); cat != "" && cat != "0" && cat != liveCategory(c) {
+		if cat := r.URL.Query().Get("category_id"); cat != "" && cat != "0" && cat != liveCategory(l, c) {
 			continue
 		}
 		if !first {
@@ -74,7 +98,7 @@ func (i *instance) live(w http.ResponseWriter, r *http.Request, l login, action 
 		}
 		first = false
 		num++
-		_ = jsonEncoder(w, map[string]any{"num": num, "name": c.Name, "stream_type": "live", "stream_id": l.channels[c.ID], "stream_icon": i.image(r, l, 0, c.ID, c.Images), "epg_channel_id": c.ID, "added": "0", "category_id": liveCategory(c), "custom_sid": "", "tv_archive": 0, "tv_archive_duration": 0, "direct_source": ""})
+		_ = jsonEncoder(w, map[string]any{"num": num, "name": c.Name, "stream_type": "live", "stream_id": l.channels[c.ID], "stream_icon": i.image(r, l, 0, c.ID, c.Images), "epg_channel_id": c.ID, "added": "0", "category_id": liveCategory(l, c), "custom_sid": "", "tv_archive": 0, "tv_archive_duration": 0, "direct_source": ""})
 	}
 	_, _ = w.Write([]byte("]"))
 }
@@ -184,7 +208,11 @@ func (i *instance) playlist(w http.ResponseWriter, r *http.Request, l login) {
 	w.Header().Set("Content-Type", "audio/x-mpegurl; charset=utf-8")
 	_, _ = fmt.Fprintln(w, "#EXTM3U")
 	for _, c := range cs {
-		_, _ = fmt.Fprintf(w, "#EXTINF:-1 tvg-id=\"%s\" tvg-logo=\"%s\" group-title=\"Live TV\",%s\n%s/live/%s/%s/%d.m3u8\n", cleanM3U(c.ID), cleanM3U(i.image(r, l, 0, c.ID, c.Images)), cleanM3U(c.Name), base, l.username, l.password, l.channels[c.ID])
+		group := strings.TrimSpace(c.Group)
+		if group == "" {
+			group = "Live TV"
+		}
+		_, _ = fmt.Fprintf(w, "#EXTINF:-1 tvg-id=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n%s/live/%s/%s/%d.m3u8\n", cleanM3U(c.ID), cleanM3U(i.image(r, l, 0, c.ID, c.Images)), cleanM3U(group), cleanM3U(c.Name), base, l.username, l.password, l.channels[c.ID])
 	}
 	// Movies are emitted a page at a time; exporting never accumulates the catalogue.
 	if err := i.walk(r, l, "movie", func(t frontend.Title, cat string) error {

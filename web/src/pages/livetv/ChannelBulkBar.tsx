@@ -4,7 +4,12 @@ import { useId, useState } from "react";
 import { t } from "../../i18n";
 import { formatNumber } from "../../lib/format";
 
-export type ChannelPatch = { enabled?: boolean; favorite?: boolean; group?: string };
+export type ChannelPatch = {
+  enabled?: boolean;
+  favorite?: boolean;
+  group?: string;
+  plexHidden?: boolean;
+};
 export type ChannelSelection = {
   ids: ReadonlySet<string>;
   busy: boolean;
@@ -132,6 +137,22 @@ export function ChannelBulkBar({
           </Button>
         </form>
       </Popover>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={busy}
+        onClick={() => void onApply({ plexHidden: false })}
+      >
+        {t("Show in Plex")}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={busy}
+        onClick={() => void onApply({ plexHidden: true })}
+      >
+        {t("Hide from Plex")}
+      </Button>
       <Button
         size="sm"
         variant="ghost"

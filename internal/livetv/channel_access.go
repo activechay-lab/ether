@@ -288,6 +288,10 @@ func (s *Service) VisibleTo(ctx context.Context, u *core.User) bool {
 		trueValue = "'true'"
 	}
 	enabled := store.JSONText(d, "data", "enabled") + "=" + trueValue
+	if plex, _ := ctx.Value(plexLineupKey{}).(bool); plex {
+		hidden := store.JSONText(d, "data", "plexHidden")
+		enabled += " AND (" + hidden + " IS NULL OR " + hidden + "<>" + trueValue + ")"
+	}
 	exists := func(where string, args ...any) bool {
 		var one int
 		return s.o.DB.QueryRowContext(ctx, `SELECT 1 FROM livetv_channels WHERE `+where+` LIMIT 1`, args...).Scan(&one) == nil

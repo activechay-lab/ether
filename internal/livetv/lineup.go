@@ -30,6 +30,7 @@ type ChannelSummary struct {
 	Kind          string `json:"kind"`
 	Private       bool   `json:"private,omitempty"`
 	Enabled       bool   `json:"enabled"`
+	PlexHidden    bool   `json:"plexHidden,omitempty"`
 	Favorite      bool   `json:"favorite"`
 	Rating        string `json:"rating,omitempty"`
 	Logo          string `json:"logo,omitempty"`

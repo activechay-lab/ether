@@ -407,6 +407,17 @@ export function ChannelStudio({
                 onChange={(e) => set({ enabled: e.currentTarget.checked })}
               />
             </label>
+            <label
+              className="flex items-center gap-2 rounded-full border border-border bg-surface py-1 pl-3 pr-1.5 text-sm font-medium"
+              title={t("Only affects Plex. Other apps keep this channel.")}
+            >
+              {t("Show in Plex")}
+              <Switch
+                aria-label={t("Show in Plex")}
+                checked={!c.plexHidden}
+                onChange={(e) => set({ plexHidden: !e.currentTarget.checked })}
+              />
+            </label>
           </div>
         </div>
         <div className="relative space-y-2 px-4 pb-4 sm:px-6">
