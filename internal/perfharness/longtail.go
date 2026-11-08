@@ -450,7 +450,7 @@ func fillUnsynced(ctx context.Context, db *sql.DB, c *catalog.Catalog, u *LongTa
 			keys := make([]any, 0, to-from)
 			for i := from; i < to; i++ {
 				if !u.date(list[i]).After(u.now) {
-					keys = append(keys, int64(ltKey(kind, int64(i+1))))
+					keys = append(keys, int64(ltKey(kind, int64(i+1)+u.base)))
 				}
 			}
 			if len(keys) == 0 {

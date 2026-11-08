@@ -44,6 +44,8 @@ func main() {
 		err = runLongTail(ctx, os.Args[2:])
 	case "sizes":
 		err = runSizes(ctx, os.Args[2:])
+	case "syncbench":
+		err = runSyncBench(ctx, os.Args[2:])
 	case "pgcopy":
 		err = runPGCopy(ctx, os.Args[2:])
 	default:
@@ -57,7 +59,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL) | etherperf longtail (-out FILE | -pg URL) [-titles N] [-hide-obscure] | etherperf sizes (-db FILE | -pg URL)")
+	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL) | etherperf longtail (-out FILE | -pg URL) [-titles N] [-hide-obscure] | etherperf sizes (-db FILE | -pg URL) | etherperf syncbench (-db FILE | -pg URL) [-titles N] [-details N] | etherperf pgcopy -db FILE -pg URL")
 	os.Exit(2)
 }
 

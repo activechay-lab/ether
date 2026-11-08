@@ -30,6 +30,15 @@ type LongTailTMDB struct {
 	people         int
 	vocab          []string
 	details        atomic.Int64
+	// base offsets every TMDB id, so a universe can add titles to a
+	// catalogue that already holds ids 1..base.
+	base int64
+	// jitter, when set, moves every title's popularity and votes by about
+	// 15% and changes one credit and one keyword, as a refresh finds.
+	jitter uint64
+	// fetchNanos is time spent building payloads, so a benchmark can
+	// subtract the fake TMDB's own cost.
+	fetchNanos atomic.Int64
 }
 
 var _ catalog.TMDB = (*LongTailTMDB)(nil)
@@ -221,10 +230,11 @@ func (u *LongTailTMDB) entry(kind int, id int64) (ltEntry, bool) {
 	if kind == ltShow {
 		list = u.shows
 	}
-	if id < 1 || id > int64(len(list)) {
+	i := id - 1 - u.base
+	if i < 0 || i >= int64(len(list)) {
 		return ltEntry{}, false
 	}
-	return list[id-1], true
+	return list[i], true
 }
 
 func (u *LongTailTMDB) date(e ltEntry) time.Time {
@@ -239,7 +249,7 @@ type ltGen struct {
 }
 
 func (u *LongTailTMDB) gen(kind int, id int64) (Shape, ltGen) {
-	rng := u.shapeRNG(kind, id)
+	rng := u.shapeRNG(kind, id-u.base)
 	s := LongTailShape(rng, ltType(kind))
 	return s, ltGen{u: u, rng: rng, zw: rand.NewZipf(rng, 1.07, 2, uint64(len(u.vocab)-1))}
 }
@@ -480,6 +490,9 @@ func (u *LongTailTMDB) movie(id int64) (tmdb.Movie, Shape, ltGen, []tmdb.Genre, 
 	if s.Language != "en" && g.rng.Float64() < 0.7 {
 		m.OriginalTitle = g.words(1+g.rng.IntN(3), true)
 	}
+	if u.jitter != 0 {
+		m.Popularity, m.VoteCount = m.Popularity*1.15, m.VoteCount+m.VoteCount/7+1
+	}
 	gs := g.genres(ltMovie, s.Genres)
 	m.GenreIDs = genreIDs(gs)
 	return m, s, g, gs, true
@@ -506,6 +519,9 @@ func (u *LongTailTMDB) show(id int64) (tmdb.TVShow, Shape, ltGen, []tmdb.Genre, 
 	if s.Language != "en" && g.rng.Float64() < 0.7 {
 		t.OriginalName = g.words(1+g.rng.IntN(3), true)
 	}
+	if u.jitter != 0 {
+		t.Popularity, t.VoteCount = t.Popularity*1.15, t.VoteCount+t.VoteCount/7+1
+	}
 	gs := g.genres(ltShow, s.Genres)
 	t.GenreIDs = genreIDs(gs)
 	t.OriginCountry = []string{ltCountries[int(math.Floor(float64(len(ltCountries))*math.Pow(g.rng.Float64(), 2.5)))].ISO3166}
@@ -524,7 +540,7 @@ func (u *LongTailTMDB) recs(rng *rand.Rand, kind int, self int64, n int) []int64
 		} else {
 			idx = int32(rng.IntN(len(top)))
 		}
-		id := int64(idx) + 1
+		id := int64(idx) + 1 + u.base
 		if id != self && !slices.Contains(out, id) {
 			out = append(out, id)
 		}
@@ -533,6 +549,7 @@ func (u *LongTailTMDB) recs(rng *rand.Rand, kind int, self int64, n int) []int64
 }
 
 func (u *LongTailTMDB) MovieDetails(_ context.Context, id int64) (*tmdb.MovieDetails, error) {
+	defer u.timed(time.Now())
 	summary, s, g, gs, ok := u.movie(id)
 	if !ok {
 		return nil, fmt.Errorf("longtail: %w: movie %d", core.ErrNotFound, id)
@@ -570,10 +587,30 @@ func (u *LongTailTMDB) MovieDetails(_ context.Context, id int64) (*tmdb.MovieDet
 	}
 	rec.TotalResults = len(rec.Results)
 	d.Recommendations = rec
+	u.refreshed(d.Credits, d.Keywords)
 	return d, nil
 }
 
+// refreshed applies the jitter's credit and keyword change.
+func (u *LongTailTMDB) refreshed(cr *tmdb.Credits, kw *tmdb.Keywords) {
+	if u.jitter == 0 {
+		return
+	}
+	if cr != nil && len(cr.Cast) > 0 {
+		cr.Cast[0].Character += " (older)"
+	}
+	if kw != nil {
+		k := tmdb.Keyword{ID: 30001, Name: "refreshed " + strconv.FormatUint(u.jitter, 10)}
+		if kw.Results != nil {
+			kw.Results = append(kw.Results, k)
+		} else {
+			kw.Keywords = append(kw.Keywords, k)
+		}
+	}
+}
+
 func (u *LongTailTMDB) TVDetails(_ context.Context, id int64) (*tmdb.TVDetails, error) {
+	defer u.timed(time.Now())
 	summary, s, g, gs, ok := u.show(id)
 	if !ok {
 		return nil, fmt.Errorf("longtail: %w: tv %d", core.ErrNotFound, id)
@@ -627,7 +664,17 @@ func (u *LongTailTMDB) TVDetails(_ context.Context, id int64) (*tmdb.TVDetails, 
 	}
 	rec.TotalResults = len(rec.Results)
 	d.Recommendations = rec
+	u.refreshed(d.Credits, d.Keywords)
 	return d, nil
+}
+
+// MovieDetailsFresh and TVDetailsFresh serve catalog.RefreshTitle.
+func (u *LongTailTMDB) MovieDetailsFresh(ctx context.Context, id int64) (*tmdb.MovieDetails, error) {
+	return u.MovieDetails(ctx, id)
+}
+
+func (u *LongTailTMDB) TVDetailsFresh(ctx context.Context, id int64) (*tmdb.TVDetails, error) {
+	return u.TVDetails(ctx, id)
 }
 
 func (u *LongTailTMDB) SeasonDetails(_ context.Context, tvID int64, season int) (*tmdb.SeasonDetails, error) {
@@ -701,7 +748,7 @@ func (u *LongTailTMDB) discover(kind int, p tmdb.DiscoverParams) []int32 {
 	return idx
 }
 
-func ltPage[T any](idx []int32, page int, build func(int64) (T, bool)) *tmdb.Paged[T] {
+func ltPage[T any](idx []int32, page int, base int64, build func(int64) (T, bool)) *tmdb.Paged[T] {
 	if page < 1 {
 		page = 1
 	}
@@ -712,19 +759,23 @@ func ltPage[T any](idx []int32, page int, build func(int64) (T, bool)) *tmdb.Pag
 		return res
 	}
 	for i := (page - 1) * 20; i < min(len(idx), page*20); i++ {
-		if t, ok := build(int64(idx[i]) + 1); ok {
+		if t, ok := build(int64(idx[i]) + 1 + base); ok {
 			res.Results = append(res.Results, t)
 		}
 	}
 	return res
 }
 
+func (u *LongTailTMDB) timed(start time.Time) { u.fetchNanos.Add(int64(time.Since(start))) }
+
 func (u *LongTailTMDB) DiscoverMovies(_ context.Context, p tmdb.DiscoverParams) (*tmdb.Paged[tmdb.Movie], error) {
-	return ltPage(u.discover(ltMovie, p), p.Page, u.movieSummary), nil
+	defer u.timed(time.Now())
+	return ltPage(u.discover(ltMovie, p), p.Page, u.base, u.movieSummary), nil
 }
 
 func (u *LongTailTMDB) DiscoverTV(_ context.Context, p tmdb.DiscoverParams) (*tmdb.Paged[tmdb.TVShow], error) {
-	return ltPage(u.discover(ltShow, p), p.Page, u.showSummary), nil
+	defer u.timed(time.Now())
+	return ltPage(u.discover(ltShow, p), p.Page, u.base, u.showSummary), nil
 }
 
 func emptyPage[T any]() *tmdb.Paged[T] { return &tmdb.Paged[T]{Page: 1, TotalPages: 1} }
@@ -741,10 +792,10 @@ func (u *LongTailTMDB) SearchMulti(context.Context, string, int) (*tmdb.Paged[tm
 
 // The live lists are the most popular titles.
 func (u *LongTailTMDB) TrendingMovies(_ context.Context, _ string, page int) (*tmdb.Paged[tmdb.Movie], error) {
-	return ltPage(u.byPop[ltMovie][0][:min(100, len(u.movies))], page, u.movieSummary), nil
+	return ltPage(u.byPop[ltMovie][0][:min(100, len(u.movies))], page, u.base, u.movieSummary), nil
 }
 func (u *LongTailTMDB) TrendingTV(_ context.Context, _ string, page int) (*tmdb.Paged[tmdb.TVShow], error) {
-	return ltPage(u.byPop[ltShow][0][:min(100, len(u.shows))], page, u.showSummary), nil
+	return ltPage(u.byPop[ltShow][0][:min(100, len(u.shows))], page, u.base, u.showSummary), nil
 }
 func (u *LongTailTMDB) TrendingAll(context.Context, string, int) (*tmdb.Paged[tmdb.MultiResult], error) {
 	return emptyPage[tmdb.MultiResult](), nil

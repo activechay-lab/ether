@@ -179,3 +179,54 @@ func runPGCopy(ctx context.Context, args []string) error {
 	fmt.Fprintf(os.Stderr, "etherperf pgcopy: copied in %s\n", time.Since(started).Round(time.Second))
 	return nil
 }
+
+// runSyncBench measures the catalogue's database-bound sync and detail
+// rates on a copy of a catalogue: see perfharness.RunSyncBench.
+//
+//	etherperf syncbench -db /ssd/clone.db
+//	etherperf syncbench -pg postgres://…
+func runSyncBench(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("syncbench", flag.ExitOnError)
+	path := f.String("db", "", "SQLite catalogue to write into (a clone: it is modified)")
+	pgURL := f.String("pg", "", "PostgreSQL catalogue to write into instead (modified)")
+	titles := f.Int("titles", 20_000, "new titles the list phases store")
+	details := f.Int("details", 2_000, "titles the detail phases fetch")
+	base := f.Int64("id-base", 50_000_000, "TMDB ids of the new titles start above this")
+	seed := f.Uint64("seed", 7, "universe seed")
+	report := f.String("report", "", "write the phases as JSON here")
+	_ = f.Parse(args)
+	if (*path == "") == (*pgURL == "") {
+		return fmt.Errorf("exactly one of -db or -pg is required")
+	}
+	var db *sql.DB
+	var err error
+	if *pgURL != "" {
+		db, _, err = store.OpenWith(ctx, store.Options{URL: *pgURL})
+	} else {
+		db, err = store.OpenPath(ctx, *path)
+	}
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	started := time.Now()
+	phases, err := perfharness.RunSyncBench(ctx, db, perfharness.SyncBenchConfig{
+		Titles: *titles, Details: *details, IDBase: *base, Seed: *seed, Path: *path,
+		Log: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
+		Progress: func(p string) {
+			fmt.Fprintf(os.Stderr, "etherperf syncbench %s: %s\n", time.Since(started).Round(time.Second), p)
+		},
+	})
+	perfharness.WriteSyncBench(os.Stdout, phases)
+	if err != nil {
+		return err
+	}
+	if *report != "" {
+		b, err := json.MarshalIndent(phases, "", "  ")
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(*report, b, 0o644)
+	}
+	return nil
+}
