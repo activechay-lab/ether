@@ -127,10 +127,17 @@ func pickPackUnit(units []packUnit, t *core.ReleaseTarget) *packUnit {
 	var best *packUnit
 	for i := range units {
 		u := &units[i]
+		if !fileCourMatchesTarget(u.name+".mkv", t) {
+			continue
+		}
 		info := releaseparse.Parse(u.name)
 		ok := releaseparse.EpisodeMatches(info, t.Season, t.Episode) ||
 			(t.AbsoluteEpisode > 0 && releaseparse.EpisodeMatchesAbsolute(info, t.AbsoluteEpisode)) ||
 			(len(info.Episodes) == 0 && classicPackEpisodeMatches(u.name+".mkv", t.Season, t.Episode))
+		if info.Cour > 0 && t.Cour == info.Cour && t.CourEpisode > 0 {
+			ok = releaseparse.EpisodeMatches(info, t.Season, t.CourEpisode) ||
+				releaseparse.EpisodeMatchesAbsolute(info, t.CourEpisode)
+		}
 		if ok && (best == nil || u.bytes > best.bytes) {
 			best = u
 		}

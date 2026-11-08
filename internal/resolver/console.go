@@ -372,7 +372,7 @@ func (s *Service) SearchReleases(ctx context.Context, t *core.Title, opts Search
 	if err != nil {
 		return nil, err
 	}
-	sreq := searchRequestFor(t)
+	sreq := s.searchRequest(ctx, t)
 	start := time.Now()
 	results, cached, err := s.searchCached(ctx, sreq, opts.Fresh)
 	if err != nil {
