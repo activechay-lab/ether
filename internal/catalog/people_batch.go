@@ -178,3 +178,46 @@ func (c *Catalog) CachedVisibleTitles(ctx context.Context, keys []core.RatingKey
 	}
 	return out, nil
 }
+
+// CachedVisibilityRows is CachedGetMany for a visibility decision: stored
+// rows that pass the list gates, with the facts visibility rules read when
+// they read any, without credits. The partial titles are not cached.
+func (c *Catalog) CachedVisibilityRows(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+	out := make(map[core.RatingKey]core.Title, len(keys))
+	needFacts := !c.visibilityFor(ctx).Passive() || c.config().ReleaseMode == config.ModeDigital
+	for part := range store.Chunks(keys, 200) {
+		args := make([]any, len(part))
+		for i, k := range part {
+			args[i] = int64(k)
+		}
+		rows, err := c.db.QueryContext(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		var items []core.Title
+		for rows.Next() {
+			st, err := scanTitle(rows)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			items = append(items, st.t)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if needFacts {
+			if err := c.hydrateVisibilityFacts(ctx, items); err != nil {
+				return nil, err
+			}
+		}
+		for i := range items {
+			if items[i].Type != core.TypeSeason && c.cachedListVisible(&items[i]) {
+				out[items[i].Key] = items[i]
+			}
+		}
+	}
+	return out, nil
+}

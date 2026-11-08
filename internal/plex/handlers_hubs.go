@@ -1266,6 +1266,13 @@ type peopleSearchCatalog interface {
 	PersonCreditKeys(ctx context.Context, person int64, types []core.MediaType, limit int) ([]core.RatingKey, error)
 }
 
+// peopleBatchCatalog reads every searched person's credits and their
+// titles' visibility rows in a few statements (catalog/people_batch.go).
+type peopleBatchCatalog interface {
+	PersonCreditsMany(ctx context.Context, persons []int64, types []core.MediaType, limit int) (map[int64][]core.PersonCredit, error)
+	CachedVisibilityRows(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error)
+}
+
 type reasonedTitle struct {
 	title       core.Title
 	reason      string
@@ -1488,7 +1495,8 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		return personSearchScore(query, candidates[i].Name) > personSearchScore(query, candidates[j].Name)
 	})
 	walkBudget, partialBudget := limit+limit/2, max(limit/2, 3)
-	var actorTitles, directorTitles []reasonedTitle
+	var walked []core.Person
+	budgetSpent := false
 	for _, cand := range candidates {
 		if !personMatchesTerms(cand.Name, terms) {
 			continue
@@ -1504,16 +1512,85 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 			}
 		}
 		if walkBudget == 0 {
-			out.actorsMore = out.actorsMore || len(out.actors) >= limit
-			out.directorsMore = out.directorsMore || len(out.directors) >= limit
+			budgetSpent = true
 			break
 		}
 		walkBudget--
-		keys, err := ps.PersonCreditKeys(ctx, cand.TMDB, queryTypes, creditLimit)
-		if err != nil || len(keys) == 0 {
+		walked = append(walked, cand)
+	}
+	// Each walked person's credited titles and roles. With the batched
+	// catalogue reads it is a few statements for all of them, and the
+	// titles carry only what their visibility needs; the ones a hub can
+	// show are read in full below.
+	type personTitles struct {
+		titles []core.Title
+		role   func(t *core.Title, kind string) (core.Person, bool)
+	}
+	byPerson := make([]personTitles, len(walked))
+	batch, batched := s.d.Catalog.(peopleBatchCatalog)
+	if batched {
+		ids := make([]int64, len(walked))
+		for i, p := range walked {
+			ids[i] = p.TMDB
+		}
+		credits, err := batch.PersonCreditsMany(ctx, ids, queryTypes, creditLimit)
+		if err != nil {
+			return out
+		}
+		var keys []core.RatingKey
+		seenKey := map[core.RatingKey]bool{}
+		for _, cs := range credits {
+			for _, cr := range cs {
+				if !seenKey[cr.Key] {
+					seenKey[cr.Key] = true
+					keys = append(keys, cr.Key)
+				}
+			}
+		}
+		rows, err := batch.CachedVisibilityRows(withStoredPolicy(ctx), keys)
+		if err != nil {
+			return out
+		}
+		for i, p := range walked {
+			roles := map[core.RatingKey]map[string]core.Person{}
+			var titles []core.Title
+			for _, cr := range credits[p.TMDB] {
+				if roles[cr.Key] == nil {
+					roles[cr.Key] = map[string]core.Person{}
+					if t, ok := rows[cr.Key]; ok {
+						titles = append(titles, t)
+					}
+				}
+				if _, ok := roles[cr.Key][cr.Kind]; !ok {
+					roles[cr.Key][cr.Kind] = cr.Person
+				}
+			}
+			byPerson[i] = personTitles{titles: titles, role: func(t *core.Title, kind string) (core.Person, bool) {
+				person, ok := roles[t.Key][kind]
+				return person, ok
+			}}
+		}
+	} else {
+		for i, p := range walked {
+			keys, err := ps.PersonCreditKeys(ctx, p.TMDB, queryTypes, creditLimit)
+			if err != nil || len(keys) == 0 {
+				continue
+			}
+			tmdbID := p.TMDB
+			byPerson[i] = personTitles{titles: s.getTitles(withStoredPolicy(ctx), keys), role: func(t *core.Title, kind string) (core.Person, bool) {
+				if kind == "cast" {
+					return personInList(t.Cast, tmdbID)
+				}
+				return personInList(t.Directors, tmdbID)
+			}}
+		}
+	}
+	var actorTitles, directorTitles []reasonedTitle
+	for ci, cand := range walked {
+		titles, role := byPerson[ci].titles, byPerson[ci].role
+		if len(titles) == 0 {
 			continue
 		}
-		titles := s.getTitles(withStoredPolicy(ctx), keys)
 		type secHit struct {
 			count     int
 			thumbPath string
@@ -1537,7 +1614,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 				continue
 			}
 			sec, hasSec := s.sectionFor(t.Type)
-			if p, ok := personInList(t.Cast, cand.TMDB); ok {
+			if p, ok := role(&t, "cast"); ok {
 				if hasSec {
 					h := actorSecs[sec.ID]
 					if h == nil {
@@ -1557,7 +1634,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 					reasonTitle: cand.Name,
 				})
 			}
-			if p, ok := personInList(t.Directors, cand.TMDB); ok {
+			if p, ok := role(&t, "director"); ok {
 				if hasSec {
 					h := directorSecs[sec.ID]
 					if h == nil {
@@ -1599,6 +1676,11 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 			}
 		}
 	}
+	if budgetSpent {
+		// More people matched than were walked.
+		out.actorsMore = out.actorsMore || len(out.actors) >= limit
+		out.directorsMore = out.directorsMore || len(out.directors) >= limit
+	}
 	seenByType := map[core.MediaType]map[core.RatingKey]bool{}
 	addReasoned := func(rt reasonedTitle) {
 		seen := seenByType[rt.title.Type]
@@ -1617,6 +1699,31 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 	}
 	for _, rt := range directorTitles {
 		addReasoned(rt)
+	}
+	if batched {
+		// A hub shows at most limit titles of a type: read those in full
+		// (genres, cast, directors for the list), cached as Get caches them.
+		var keys []core.RatingKey
+		for typ, rts := range out.titles {
+			out.titles[typ] = rts[:min(len(rts), limit)]
+			for _, rt := range out.titles[typ] {
+				keys = append(keys, rt.title.Key)
+			}
+		}
+		full := map[core.RatingKey]core.Title{}
+		for _, t := range s.getTitles(withStoredPolicy(ctx), keys) {
+			full[t.Key] = t
+		}
+		for typ, rts := range out.titles {
+			kept := rts[:0]
+			for _, rt := range rts {
+				if t, ok := full[rt.title.Key]; ok {
+					rt.title = t
+					kept = append(kept, rt)
+				}
+			}
+			out.titles[typ] = kept
+		}
 	}
 	return out
 }
