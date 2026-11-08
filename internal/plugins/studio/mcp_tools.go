@@ -502,7 +502,7 @@ func Scaffold(req ScaffoldRequest) (ScaffoldResult, error) {
 			}
 		case plugins.CapRankingStep:
 			m.Ether.Contributes.RankingSteps = []plugins.RankingStepMeta{
-				{Key: "prefer_custom", Label: "Prefer matching releases", DefaultPosition: 0},
+				{Key: "prefer_custom", Label: "Prefer matching releases"},
 			}
 		case plugins.CapRuleCondition:
 			m.Ether.Contributes.RuleConditions = []plugins.RuleConditionMeta{

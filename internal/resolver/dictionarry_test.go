@@ -255,8 +255,8 @@ func TestDictionarryCompilesOrderedOpsAndResolvesProfiles(t *testing.T) {
 	if plan.Profile.Name != "2160p Remux" || *plan.Profile.MinCustomFormatScore != 200000 {
 		t.Fatalf("unexpected 2160p Remux profile: %+v", plan.Profile)
 	}
-	if !plan.Profile.AllowHDR || !plan.Profile.AllowDolbyVision || plan.Profile.PreferredCodecs[0] != "hevc" || plan.Profile.PreferredAudio[0] != "truehd" {
-		t.Fatalf("expected UHD HDR/DV, hevc, and lossless audio on 2160p Remux: %+v", plan.Profile)
+	if !plan.Profile.AllowHDR || !plan.Profile.AllowDolbyVision {
+		t.Fatalf("expected UHD HDR/DV on 2160p Remux: %+v", plan.Profile)
 	}
 	if plan.Profile.CustomFormatScores["dictionarry-radarr-2160p-remux"] != 860000 {
 		t.Fatalf("expected op 1 score 860000 on 2160p Remux, got %v", plan.Profile.CustomFormatScores)
@@ -285,8 +285,8 @@ func TestDictionarryCompilesOrderedOpsAndResolvesProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	planS := PlanQualityImport(impS, AppSonarr, foundS, config.Config{})
-	if !planS.Profile.AllowHDR || !planS.Profile.AllowDolbyVision || planS.Profile.PreferredCodecs[0] != "hevc" {
-		t.Fatalf("expected 1080p Efficient to allow HDR/DV and prefer HEVC: %+v", planS.Profile)
+	if !planS.Profile.AllowHDR || !planS.Profile.AllowDolbyVision {
+		t.Fatalf("expected 1080p Efficient to allow HDR/DV: %+v", planS.Profile)
 	}
 	if planS.Profile.CustomFormatScores["dictionarry-sonarr-x265"] != 25000 {
 		t.Fatalf("expected sonarr score 25000 on x265, got %v", planS.Profile.CustomFormatScores)
@@ -309,7 +309,7 @@ func TestDictionarryCompilesOrderedOpsAndResolvesProfiles(t *testing.T) {
 	if err := plan.Apply(&cfg, ""); err != nil {
 		t.Fatal(err)
 	}
-	scorer, err := NewFormatScorer(cfg.Resolver.CustomFormats, cfg.Quality.Profiles[0].CustomFormatScores)
+	scorer, err := NewFormatScorer(withDefaults(cfg.Resolver.CustomFormats, cfg.Quality.Profiles[0].CustomFormatScores))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestDictionarryCompilesBaseSQLDataset(t *testing.T) {
 			if err := plan.Apply(&cfg, ""); err != nil {
 				t.Fatalf("Apply %s (%s): %v", want, app, err)
 			}
-			if _, err := NewFormatScorer(cfg.Resolver.CustomFormats, cfg.Quality.Profiles[0].CustomFormatScores); err != nil {
+			if _, err := NewFormatScorer(withDefaults(cfg.Resolver.CustomFormats, cfg.Quality.Profiles[0].CustomFormatScores)); err != nil {
 				t.Fatalf("NewFormatScorer %s (%s): %v", want, app, err)
 			}
 		}

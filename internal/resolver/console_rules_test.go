@@ -3,8 +3,10 @@ package resolver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +20,7 @@ func TestPreferencePreviewAndPlaybackAgreeWithoutSaving(t *testing.T) {
 	defer f.svc.Close()
 	p, _, _ := f.svc.consoleProfile("")
 	p.ReleaseRules = []core.ReleaseRule{{ID: "group", Name: "Prefer 720", Action: "prefer", Conditions: []core.ReleaseCondition{{Field: "height", Operator: "range", Min: 720, Max: 720}}}}
+	p = rulesFirst(p)
 	body, _ := json.Marshal(map[string]any{"profile": p, "key": matrixTitle().Key.String()})
 	var preview struct {
 		Releases []ConsoleRelease `json:"releases"`
@@ -98,6 +101,27 @@ func TestFilenamePreviewDoesNotInventUsenet(t *testing.T) {
 	}
 }
 
+// rulesFirst ranks p's Prefer rules before resolution: every quality in
+// one group, and each Prefer rule a score above everything after it.
+func rulesFirst(p core.QualityProfile) core.QualityProfile {
+	item := core.QualityItem{Name: "Every quality"}
+	for _, h := range []int{2160, 1080, 720, 576, 480, 360} {
+		for _, s := range []string{"remux", "bluray", "webdl", "webrip", "hdtv", "dvd", "unknown"} {
+			item.Qualities = append(item.Qualities, fmt.Sprintf("%s-%d", s, h))
+		}
+	}
+	p.QualityOrder = []core.QualityItem{item}
+	p.CustomFormatScores = maps.Clone(p.CustomFormatScores)
+	weight := 1 << 20
+	for _, r := range p.ReleaseRules {
+		if r.Action == "prefer" {
+			p.CustomFormatScores[core.RuleFormatPrefix+r.ID] = weight
+			weight /= 2
+		}
+	}
+	return p
+}
+
 func corfaceRules() []core.ReleaseRule {
 	return []core.ReleaseRule{
 		{
@@ -138,6 +162,7 @@ func TestOriginalAudioPreviewMatchesResolve(t *testing.T) {
 	cfg.Resolver.MaxCandidates = 5
 	for i := range cfg.Quality.Profiles {
 		cfg.Quality.Profiles[i].ReleaseRules = rules
+		cfg.Quality.Profiles[i] = rulesFirst(cfg.Quality.Profiles[i])
 	}
 	svc := New(&fakeIndexer{releases: []core.Release{other, original, nordic}}, fakeHealth{}, openTestDB(t), cfg, Options{})
 	t.Cleanup(func() { svc.Close() })
@@ -149,6 +174,7 @@ func TestOriginalAudioPreviewMatchesResolve(t *testing.T) {
 	t.Cleanup(srv.Close)
 	p, _, _ := svc.consoleProfile("")
 	p.ReleaseRules = rules
+	p = rulesFirst(p)
 	body, _ := json.Marshal(map[string]any{"profile": p, "key": title.Key.String()})
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/rules/preview", strings.NewReader(string(body)))
 	if err != nil {

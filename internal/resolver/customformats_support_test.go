@@ -29,6 +29,6 @@ func ImportCustomFormats(data []byte) ([]core.CustomFormat, error) {
 		}
 		defs = []core.CustomFormat{d}
 	}
-	_, err := NewFormatScorer(defs, nil)
+	_, err := NewFormatScorer(defs)
 	return defs, err
 }

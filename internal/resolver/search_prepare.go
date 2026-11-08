@@ -90,7 +90,7 @@ func (p *searchPreparation) arrived(batch []core.Release) {
 	if len(added) == 0 && !reorder {
 		return
 	}
-	p.ranked = p.svc.orderCandidates(p.ranked, p.profile, p.req.Title, nil)
+	p.ranked = p.svc.orderCandidates(p.ranked, p.req.Title, nil)
 	// Allow concurrent indexers to contribute before spending probe budget.
 	// A completed search proceeds directly to normal ranked validation.
 	if time.Since(p.first) >= discoveryWindow {
@@ -233,7 +233,7 @@ func (p *searchPreparation) readyResultsAfter(window time.Duration) []core.Relea
 		return nil
 	}
 	if len(p.ranked) > 1 {
-		p.ranked = p.svc.orderCandidates(p.ranked, p.profile, p.req.Title, nil)
+		p.ranked = p.svc.orderCandidates(p.ranked, p.req.Title, nil)
 	}
 	p.pumpLocked()
 	margin := p.svc.resolverCfg().SourceScoreMargin

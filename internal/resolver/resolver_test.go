@@ -136,7 +136,7 @@ func TestSelectProfile(t *testing.T) {
 		t.Fatalf("apple tv profile %+v", p)
 	}
 	p = SelectProfile(q, webCaps(), nil)
-	if p.Name != "1080p" || p.MaxHeight != 1080 || p.AllowHDR || len(p.PreferredCodecs) != 1 || p.PreferredCodecs[0] != "h264" {
+	if p.Name != "1080p" || p.MaxHeight != 1080 || p.AllowHDR || p.CustomFormatScores[core.CodecFormat("hevc")] != 0 || p.CustomFormatScores[core.CodecFormat("h264")] == 0 {
 		t.Fatalf("web profile %+v", p)
 	}
 	// Away from home a device rule still wins (Apple TV → 4K); the remote
@@ -872,7 +872,7 @@ func TestHealthCheckCachedUntilTTLOrMarkBad(t *testing.T) {
 	}
 }
 
-func TestEpisodeSizeBoundsAndPreferLargest(t *testing.T) {
+func TestEpisodeSizeBoundsAndLargerFile(t *testing.T) {
 	ctx := context.Background()
 	cfg := testCfg()
 	cfg.Quality.Default = "4K"
@@ -882,16 +882,15 @@ func TestEpisodeSizeBoundsAndPreferLargest(t *testing.T) {
 		MaxHeight:              2160,
 		AllowHDR:               true,
 		AllowDolbyVision:       true,
-		PreferredSources:       []core.Source{core.SourceWEBDL, core.SourceRemux},
-		PreferredCodecs:        []string{"hevc", "h264"},
+		QualityOrder:           config.ResolutionGroups(2160, 1080),
 		MinSizeMBPerMin:        15,
 		MaxSizeMBPerMin:        1000,
 		EpisodeMinSizeMBPerMin: 5,
 		EpisodeMaxSizeMBPerMin: 80,
-		PreferLargest:          true,
 	}}
-	// Movie: 3 GB 2160p WEB-DL vs 84 GB 2160p Remux. Even though WEB-DL is first in PreferredSources,
-	// PreferLargest must pick the 84 GB Remux and the raised 1000 MB/min ceiling must accept it.
+	// Movie: 3 GB 2160p WEB-DL vs 84 GB 2160p Remux in one quality group
+	// with no format scores: the larger file wins (Radarr's size rule), and
+	// the raised 1000 MB/min ceiling must accept it.
 	idx := &fakeIndexer{releases: []core.Release{
 		rel("small-4k", "The.Signal.1999.2160p.WEB-DL.HEVC.AAC-GRP", 3000),
 		rel("remux-4k", "The.Signal.1999.2160p.UHD.BluRay.REMUX.HEVC.TrueHD-GRP", 84000),
@@ -899,7 +898,7 @@ func TestEpisodeSizeBoundsAndPreferLargest(t *testing.T) {
 	svc := New(idx, fakeHealth{}, nil, cfg, Options{})
 	res, err := svc.Resolve(ctx, core.ResolveRequest{Title: matrixTitle(), Client: appleTVCaps()})
 	if err != nil || res.Release.ID != "remux-4k" {
-		t.Fatalf("PreferLargest movie winner = %+v, err = %v", res, err)
+		t.Fatalf("larger-file movie winner = %+v, err = %v", res, err)
 	}
 
 	// Episode: 45-minute episode where EpisodeMaxSizeMBPerMin=80 rejects a 6000 MB (133 MB/min) release
@@ -956,11 +955,11 @@ func TestConvertSurroundAudioDeviceRulePrefersSameTierAAC(t *testing.T) {
 		MaxHeight:        2160,
 		AllowHDR:         true,
 		AllowDolbyVision: true,
-		PreferredSources: []core.Source{core.SourceWEBDL},
-		PreferredCodecs:  []string{"hevc", "h264"},
-		PreferredAudio:   []string{"eac3", "ac3", "aac"},
-		MinSizeMBPerMin:  1,
-		MaxSizeMBPerMin:  200,
+		QualityOrder:     config.ResolutionGroups(2160, 720),
+		CustomFormatScores: map[string]int{core.AudioFormat("eac3"): 12, core.AudioFormat("ac3"): 8, core.AudioFormat("aac"): 4,
+			core.CodecFormat("hevc"): 12, core.CodecFormat("h264"): 6},
+		MinSizeMBPerMin: 1,
+		MaxSizeMBPerMin: 200,
 	}}
 	idx := &fakeIndexer{releases: []core.Release{
 		rel("ddp", "The.Signal.1999.1080p.WEB-DL.DDP5.1.H.264-GRP", 4500),
@@ -980,7 +979,7 @@ func TestConvertSurroundAudioDeviceRulePrefersSameTierAAC(t *testing.T) {
 		}
 	}
 
-	// Without ConvertSurroundAudio: prefers DDP5.1 (eac3) per profile PreferredAudio.
+	// Without ConvertSurroundAudio: prefers DDP5.1 (eac3) per the profile's audio scores.
 	svcOff := New(idx, fakeHealth{}, nil, cfg, Options{})
 	capsOff := ApplyClientRules(cfg.Quality, infuseCaps(), nil)
 	resOff, err := svcOff.Resolve(ctx, core.ResolveRequest{Title: matrixTitle(), Client: capsOff})

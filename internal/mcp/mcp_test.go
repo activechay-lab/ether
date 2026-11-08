@@ -117,9 +117,9 @@ func (s *stubServices) Approval(ctx context.Context, id string) (builtin.Approva
 	return builtin.ApprovalInfo{}, builtin.ErrApprovalNotFound
 }
 func (s *stubServices) Profiles(ctx context.Context) ([]builtin.ProfileInfo, error) {
-	return []builtin.ProfileInfo{{Name: "Default", Ranking: core.DefaultRankingSteps}}, nil
+	return []builtin.ProfileInfo{{Name: "Default"}}, nil
 }
-func (s *stubServices) SetRanking(ctx context.Context, profile, media string, ranking []string) error {
+func (s *stubServices) SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error {
 	return nil
 }
 func (s *stubServices) AddRule(ctx context.Context, profile, media string, rule core.ReleaseRule) error {

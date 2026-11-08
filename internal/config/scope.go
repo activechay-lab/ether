@@ -315,7 +315,8 @@ func MergeShared(local Config, sharedJSON []byte) (Config, error) {
 
 // mergeShared is MergeShared reporting what settling the document's quality
 // profiles changed: a document written by a release that predates
-// per-media profiles is never run as is (see normalizeQualityDocument).
+// per-media profiles or the Radarr/Sonarr-standard ranking is never run as
+// is (see normalizeQualityDocument and resetPreStandardQuality).
 func mergeShared(local Config, sharedJSON []byte) (Config, []string, error) {
 	var shared map[string]any
 	if err := json.Unmarshal(sharedJSON, &shared); err != nil {
@@ -323,6 +324,7 @@ func mergeShared(local Config, sharedJSON []byte) (Config, []string, error) {
 	}
 	stripRetiredLiveTV(shared)
 	keepStoredAutoUpdate(shared)
+	resetPreStandardQuality(shared)
 	settled := normalizeSharedDocument(shared)
 	base, _ := splitDoc(toDoc(Defaults("")))
 	overlayDeep(base, shared)

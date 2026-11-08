@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"strings"
 	"time"
@@ -114,8 +115,8 @@ func builtinToolLabel(name, fallback string) extend.Text {
 		return extend.T("Blocklist a release")
 	case "release_pin":
 		return extend.T("Pin a release")
-	case "ranking_reorder":
-		return extend.T("Reorder release ranking")
+	case "format_scores_set":
+		return extend.T("Change custom format scores")
 	case "rule_add":
 		return extend.T("Add a release rule")
 	case "source_add_stremio":
@@ -657,20 +658,30 @@ func (ps *appProfileService) Profiles(ctx context.Context) ([]builtin.ProfileInf
 	out := make([]builtin.ProfileInfo, 0, len(cfg.Quality.Profiles))
 	for _, p := range cfg.Quality.Profiles {
 		out = append(out, builtin.ProfileInfo{
-			Name:    p.Name,
-			Media:   p.MediaType,
-			Ranking: append([]string(nil), p.Ranking...),
-			Rules:   append([]core.ReleaseRule(nil), p.ReleaseRules...),
+			Name:   p.Name,
+			Media:  p.MediaType,
+			Scores: maps.Clone(p.CustomFormatScores),
+			Rules:  append([]core.ReleaseRule(nil), p.ReleaseRules...),
 		})
 	}
 	return out, nil
 }
 
-func (ps *appProfileService) SetRanking(ctx context.Context, profile, media string, ranking []string) error {
+func (ps *appProfileService) SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error {
 	return ps.a.saveValidated(func(c *config.Config) error {
 		for i := range c.Quality.Profiles {
-			if strings.EqualFold(c.Quality.Profiles[i].Name, profile) && c.Quality.Profiles[i].MediaType == media {
-				c.Quality.Profiles[i].Ranking = append([]string(nil), ranking...)
+			p := &c.Quality.Profiles[i]
+			if strings.EqualFold(p.Name, profile) && p.MediaType == media {
+				if p.CustomFormatScores == nil {
+					p.CustomFormatScores = map[string]int{}
+				}
+				for id, v := range scores {
+					if v == 0 {
+						delete(p.CustomFormatScores, id)
+					} else {
+						p.CustomFormatScores[id] = v
+					}
+				}
 				return nil
 			}
 		}

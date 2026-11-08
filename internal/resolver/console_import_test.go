@@ -59,7 +59,7 @@ func newImportFixtureTree(t *testing.T, save bool, tree map[string]string) *impo
 			if err := mutate(&next); err != nil {
 				return err
 			}
-			if _, err := NewFormatScorer(next.Resolver.CustomFormats, next.Resolver.CustomFormatScores); err != nil {
+			if _, err := NewFormatScorer(next.Resolver.CustomFormats); err != nil {
 				return fmt.Errorf("%w: %v", ErrImportRejected, err)
 			}
 			f.cfg = next

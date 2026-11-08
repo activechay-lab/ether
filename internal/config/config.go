@@ -361,16 +361,16 @@ func (c Catalog) Bars() (minPopularity float64, minVotes int) {
 
 type Resolver struct {
 	// HardSubtitles is empty (prefer clean), exclude, or allow.
-	HardSubtitles        string              `json:"hardSubtitles,omitempty"`
-	HealthRace           int                 `json:"healthRace"`      // 0 = ranked checks; >0 = first healthy of bounded concurrent candidates
-	OptimisticStart      bool                `json:"optimisticStart"` // return top NZB before background health check
-	CustomFormats        []core.CustomFormat `json:"customFormats,omitempty"`
-	CustomFormatScores   map[string]int      `json:"customFormatScores,omitempty"`
-	MinCustomFormatScore *int                `json:"minCustomFormatScore,omitempty"`
-	HealthSamples        int                 `json:"healthSamples"`
-	SearchCacheTTL       Duration            `json:"searchCacheTtl"`
-	UnavailableCooloff   Duration            `json:"unavailableCooloff"` // hide titles with no release this long
-	MaxCandidates        int                 `json:"maxCandidates"`
+	HardSubtitles   string `json:"hardSubtitles,omitempty"`
+	HealthRace      int    `json:"healthRace"`      // 0 = ranked checks; >0 = first healthy of bounded concurrent candidates
+	OptimisticStart bool   `json:"optimisticStart"` // return top NZB before background health check
+	// CustomFormats are the custom format definitions profiles score
+	// (QualityProfile.CustomFormatScores).
+	CustomFormats      []core.CustomFormat `json:"customFormats,omitempty"`
+	HealthSamples      int                 `json:"healthSamples"`
+	SearchCacheTTL     Duration            `json:"searchCacheTtl"`
+	UnavailableCooloff Duration            `json:"unavailableCooloff"` // hide titles with no release this long
+	MaxCandidates      int                 `json:"maxCandidates"`
 	// SameQualityAlternatives is how many other releases of the same cut,
 	// resolution and HDR type a detail page lists after Auto as Play
 	// Versions (0 = none, at most 3; default 1).
@@ -925,6 +925,9 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 			dropped = true
 		}
 	}
+	if resetPreStandardQuality(file) {
+		dropped = true
+	}
 	doc := toDoc(defaults)
 	if av, ok := file["availability"].(map[string]any); ok {
 		if _, present := av["mode"]; !present {
@@ -951,14 +954,6 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 		}
 	}
 	cfg, err := fromDoc(doc)
-	if err == nil {
-		for i := range cfg.Quality.Profiles {
-			if len(cfg.Quality.Profiles[i].Ranking) == 0 {
-				cfg.Quality.Profiles[i].Ranking = core.DefaultRanking(cfg.Quality.Profiles[i].ReleaseRules)
-				dropped = true
-			}
-		}
-	}
 	return cfg, dropped, err
 }
 
