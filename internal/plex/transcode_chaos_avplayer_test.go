@@ -52,7 +52,14 @@ func TestTranscodeChaosAVPlayer(t *testing.T) {
 	defer out.Close()
 	source := httptest.NewServer(http.FileServer(http.Dir(corpus)))
 	defer source.Close()
-	m, err := transcode.New(config.Transcode{FFmpegPath: ff, FFprobePath: fp, HWAccel: "none", TempDir: filepath.Join(t.TempDir(), "work")}, slog.New(slog.NewTextHandler(io.Discard, nil)), transcode.WithSegmentTimeout(15*time.Second))
+	// Shipped transcode defaults (fast start, ABR ladder, VBV), software
+	// encode unless CHAOS_HWACCEL names one: what a viewer's server runs.
+	tc := config.Defaults(t.TempDir()).Transcode
+	tc.FFmpegPath, tc.FFprobePath, tc.HWAccel, tc.TempDir = ff, fp, "none", filepath.Join(t.TempDir(), "work")
+	if hw := os.Getenv("CHAOS_HWACCEL"); hw != "" {
+		tc.HWAccel = hw
+	}
+	m, err := transcode.New(tc, slog.New(slog.NewTextHandler(io.Discard, nil)), transcode.WithSegmentTimeout(15*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

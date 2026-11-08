@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,18 +22,39 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
+var (
+	armedMu sync.Mutex
+	armed   = map[*fixture]map[string]bool{}
+)
+
 // Real Plex clients ask /decision before start.* and Ether only starts a
 // session that a decision armed. The chaos suites predate that contract, so
 // every fixture start.* request is preceded by the same client's decision.
 func init() {
 	requestHook = func(f *fixture, method, target string, hdr map[string]string) {
 		i := strings.Index(target, "/video/:/transcode/universal/start")
-		if method != http.MethodGet || i < 0 {
+		if method != http.MethodGet || i < 0 || hdr["Range"] != "" {
 			return
 		}
 		q := ""
 		if j := strings.IndexByte(target, '?'); j >= 0 {
 			q = target[j:]
+		}
+		// One decision per player session, as a client asks it once; a
+		// reconnect to the same session must not be re-armed.
+		session := ""
+		if u, err := url.Parse(target); err == nil {
+			session = u.Query().Get("session")
+		}
+		armedMu.Lock()
+		if armed[f] == nil {
+			armed[f] = map[string]bool{}
+		}
+		done := armed[f][session]
+		armed[f][session] = true
+		armedMu.Unlock()
+		if done {
+			return
 		}
 		req := httptest.NewRequest(http.MethodGet, target[:i]+"/video/:/transcode/universal/decision"+q, nil)
 		req.RemoteAddr = "192.168.1.50:51000"
@@ -150,7 +173,7 @@ func TestTranscodeChaosPlex(t *testing.T) {
 		}
 		check(t, rec.Body.Bytes(), "mp4")
 		rec = f.do(t, http.MethodDelete, "/downloadQueue/"+itoa(q)+"/items/"+itoa(id), ownerToken, nil)
-		if rec.Code != 200 && rec.Code != http.StatusNoContent {
+		if rec.Code != http.StatusNoContent {
 			t.Fatalf("delete HTTP %d", rec.Code)
 		}
 	})
