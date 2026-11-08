@@ -148,9 +148,27 @@ func (b *tailBuilder) add(tv bool, row tmdb.ExportRow, name string) {
 	b.rows = append(b.rows, r)
 }
 
-// build orders the rows most popular first, joins the names file and
-// builds the search index over each title's names.
+// build builds the index in memory (tests, and the reader-based
+// buildTailIndex): the same sections the file writer streams.
 func (b *tailBuilder) build(names *tailNames) *tailIndex {
+	m := &memSections{}
+	n, err := b.write(names, m)
+	if err != nil {
+		panic(err) // memory sections do not fail
+	}
+	t, err := m.index(b.day, n)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+// write orders the rows most popular first, joins the names file and
+// writes every section of the index to out as soon as it is complete,
+// dropping it from the heap: the build's transient memory is the rows,
+// the names and one section at a time, not the whole index (H measured
+// the whole-index build at ~600 MiB above the app's heap).
+func (b *tailBuilder) write(names *tailNames, out sectionSink) (int, error) {
 	rows := b.rows
 	b.rows = nil
 	// One entry per key (an id can be listed in both the plain and the
@@ -164,55 +182,98 @@ func (b *tailBuilder) build(names *tailNames) *tailIndex {
 		return rows[i].key < rows[j].key
 	})
 	n := len(rows)
-	t := &tailIndex{ix: &titleIndex{}, day: b.day,
-		titleAt: make([]uint32, 0, n+1), origAt: make([]uint32, 0, n+1), posterAt: make([]uint32, 0, n+1),
-		released: make([]int32, n), flags: make([]uint8, n)}
-	ix := t.ix
-	ix.keys, ix.kinds, ix.pops = make([]int64, n), make([]uint8, n), make([]float32, n)
-	ix.votes, ix.years = make([]uint32, n), make([]uint16, n)
-	var titles, origs, posters blobBuilder
-	ib := newTitleIndexBuilder()
+	put := func(sec int, data []byte) error { return out.put(sec, data) }
+
+	// The id -> entry table.
+	order := make([]uint32, n)
+	for i := range order {
+		order[i] = uint32(i)
+	}
+	sort.Slice(order, func(a, b int) bool { return rows[order[a]].key < rows[order[b]].key })
+	sorted := make([]int64, n)
+	for i, at := range order {
+		sorted[i] = rows[at].key
+	}
+	if err := put(secSorted, sliceBytes(sorted)); err != nil {
+		return 0, err
+	}
+	sorted = nil
+	if err := put(secSortAt, sliceBytes(order)); err != nil {
+		return 0, err
+	}
+	order = nil
+
+	keys := make([]int64, n)
+	kinds := make([]uint8, n)
+	pops := make([]float32, n)
 	for i, r := range rows {
-		ix.keys[i], ix.kinds[i], ix.pops[i] = r.key, r.kind, r.pop
-		t.flags[i] = r.flags
-		title, orig := r.name, ""
-		poster := ""
+		keys[i], kinds[i], pops[i] = r.key, r.kind, r.pop
+	}
+	for _, s := range []struct {
+		sec  int
+		data []byte
+	}{{secKeys, sliceBytes(keys)}, {secKinds, kinds}, {secPops, sliceBytes(pops)}, {secVotes, make([]byte, 4*n)}} {
+		if err := put(s.sec, s.data); err != nil {
+			return 0, err
+		}
+	}
+	keys, kinds, pops = nil, nil, nil
+
+	years := make([]uint16, n)
+	released := make([]int32, n)
+	flags := make([]uint8, n)
+	var titles, origs, posters blobBuilder
+	titleAt := make([]uint32, 0, n+1)
+	origAt := make([]uint32, 0, n+1)
+	posterAt := make([]uint32, 0, n+1)
+	for i := range rows {
+		r := &rows[i]
+		flags[i] = r.flags
+		title, orig, poster := r.name, "", ""
 		if nm, ok := names.lookup(core.RatingKey(r.key)); ok {
 			if nm.title != "" && nm.title != r.name {
 				title, orig = nm.title, r.name
 			}
 			poster = nm.poster
-			t.released[i] = nm.released
+			released[i] = nm.released
 			if nm.year > 0 {
-				ix.years[i] = uint16(nm.year)
+				years[i] = uint16(nm.year)
 			}
-			t.flags[i] |= nm.flags & (tailPosterNone | tailUndated)
+			flags[i] |= nm.flags & (tailPosterNone | tailUndated)
 		}
-		t.titleAt = append(t.titleAt, titles.add(title))
-		t.origAt = append(t.origAt, origs.add(orig))
-		t.posterAt = append(t.posterAt, posters.add(poster))
-		if orig != "" {
-			ib.add([]string{title, orig})
-		} else {
-			ib.add([]string{title})
+		titleAt = append(titleAt, titles.add(title))
+		origAt = append(origAt, origs.add(orig))
+		posterAt = append(posterAt, posters.add(poster))
+		r.name = ""
+	}
+	rows = nil
+	titleAt = append(titleAt, titles.end())
+	origAt = append(origAt, origs.end())
+	posterAt = append(posterAt, posters.end())
+	titleBlob, origBlob := titles.String(), origs.String()
+	titles, origs = blobBuilder{}, blobBuilder{}
+	for _, s := range []struct {
+		sec  int
+		data []byte
+	}{{secYears, sliceBytes(years)}, {secReleased, sliceBytes(released)}, {secFlags, flags},
+		{secPosterAt, sliceBytes(posterAt)}, {secPosterBlob, posters.b},
+		{secTitleAt, sliceBytes(titleAt)}, {secTitleBlob, stringBytes(titleBlob)}, {secOrigAt, sliceBytes(origAt)}, {secOrigBlob, stringBytes(origBlob)}} {
+		if err := put(s.sec, s.data); err != nil {
+			return 0, err
 		}
 	}
-	t.titleAt = append(t.titleAt, titles.end())
-	t.origAt = append(t.origAt, origs.end())
-	t.posterAt = append(t.posterAt, posters.end())
-	t.titleBlob, t.origBlob, t.posterBlob = titles.String(), origs.String(), posters.String()
-	ib.finish(ix)
-	t.sorted = make([]int64, n)
-	t.sortAt = make([]uint32, n)
-	order := make([]uint32, n)
-	for i := range order {
-		order[i] = uint32(i)
-	}
-	sort.Slice(order, func(a, b int) bool { return ix.keys[order[a]] < ix.keys[order[b]] })
-	for i, at := range order {
-		t.sorted[i], t.sortAt[i] = ix.keys[at], at
-	}
-	return t
+	years, released, flags, posterAt, posters = nil, nil, nil, nil, blobBuilder{}
+
+	var both [2]string
+	err := writeLeanTitleIndex(n, func(i int) []string {
+		both[0] = blobAt(titleBlob, titleAt, i)
+		if o := blobAt(origBlob, origAt, i); o != "" {
+			both[1] = o
+			return both[:2]
+		}
+		return both[:1]
+	}, out)
+	return n, err
 }
 
 type blobBuilder struct {
