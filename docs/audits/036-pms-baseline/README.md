@@ -102,6 +102,19 @@ path; retain a second manifest after measurement and require unchanged binary
 hashes and container/image identity. A preflight alone is not certification.
 The check is prepared separately and is not installed into the live chain.
 
+Focused enforcement verification passed on 2026-11-08: five Python unittest
+methods cover a clean control plus dirty, missing, and wrong-revision metadata
+for both server and harness, and six mount mismatches (source, writability,
+mount type, destination, absence, and duplicate destination). All external
+commands are mocked; fixtures are tiny non-executable files. No Docker or Go
+process is invoked. This establishes the rejection logic, not an end-to-end
+benchmark or release-head certification. Reproduce with:
+
+```sh
+TMPDIR=/data/036-work/i/tmp PYTHONDONTWRITEBYTECODE=1 \
+  python3 -m unittest discover -s scripts/pms-baseline -p test_provenance.py -v
+```
+
 Future corrected runs must measure both clients cold (omit the existing
 `-cold-clients plex-appletv` restriction), retain 20 warm samples per step,
 and record fixture source/counts and server/harness provenance. Obtain the
