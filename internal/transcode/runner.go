@@ -20,7 +20,7 @@ type Command struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	// Background runs the process below live outputs' scheduling priority
-	// (on-demand playback and background jobs): a real-time Live TV encoder
+	// (copy-only playback and background jobs): a real-time Live TV encoder
 	// must not miss its segment deadline because the host is busy.
 	Background bool
 }
