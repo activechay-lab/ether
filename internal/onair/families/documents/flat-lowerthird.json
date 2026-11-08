@@ -2,53 +2,336 @@
   "v": 1,
   "moment": "lowerthird",
   "duration": 8,
-  "poster": 4,
+  "poster": 3.0,
+  "slots": [
+    "next.time",
+    "next.title",
+    "now.meta",
+    "now.title"
+  ],
   "layers": [
     {
-      "id": "Strap",
-      "type": "rect",
-      "x": 120,
-      "y": 820,
-      "w": 1680,
-      "h": 150,
-      "fill": "{bg}",
-      "name": "Strap"
-    },
-    {
-      "id": "Edge",
-      "type": "rect",
-      "x": 120,
-      "y": 820,
-      "w": 12,
-      "h": 150,
-      "fill": "{accent}",
-      "name": "Edge"
-    },
-    {
-      "id": "Now",
-      "type": "text",
-      "text": "NOW PLAYING",
-      "x": 160,
-      "y": 865,
-      "size": 24,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "name": "Now"
-    },
-    {
-      "id": "Programme",
-      "type": "text",
-      "text": "{now.title}",
-      "x": 160,
-      "y": 935,
-      "size": 55,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "name": "Programme"
+      "id": "lowerthird",
+      "type": "group",
+      "layers": [
+        {
+          "id": "lt-a",
+          "type": "path",
+          "path": "M 0 0 H 900 V 72 H 0 Z",
+          "x": 286,
+          "y": 838,
+          "fill": "{text}",
+          "scaleX": {
+            "keys": [
+              [
+                0.35,
+                0
+              ],
+              [
+                0.8,
+                1,
+                "out"
+              ],
+              [
+                7.2,
+                1
+              ],
+              [
+                7.6,
+                0,
+                "in"
+              ]
+            ]
+          },
+          "name": "Title plate"
+        },
+        {
+          "id": "lt-b",
+          "type": "path",
+          "path": "M 0 0 H 900 V 50 H 0 Z",
+          "x": 286,
+          "y": 910,
+          "fill": "{bg}",
+          "scaleX": {
+            "keys": [
+              [
+                0.5,
+                0
+              ],
+              [
+                0.95,
+                1,
+                "out"
+              ],
+              [
+                7.1,
+                1
+              ],
+              [
+                7.5,
+                0,
+                "in"
+              ]
+            ]
+          },
+          "name": "Detail plate"
+        },
+        {
+          "id": "lt-stripe",
+          "type": "group",
+          "x": 286,
+          "y": 960,
+          "layers": [
+            {
+              "id": "lt-s0",
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 300.0,
+              "h": 6,
+              "fill": "{accent}",
+              "scaleX": {
+                "keys": [
+                  [
+                    0.8,
+                    0
+                  ],
+                  [
+                    1.1,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Stripe 1"
+            },
+            {
+              "id": "lt-s1",
+              "type": "rect",
+              "x": 300.0,
+              "y": 0,
+              "w": 300.0,
+              "h": 6,
+              "fill": "{glow}",
+              "scaleX": {
+                "keys": [
+                  [
+                    0.88,
+                    0
+                  ],
+                  [
+                    1.18,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Stripe 2"
+            },
+            {
+              "id": "lt-s2",
+              "type": "rect",
+              "x": 600.0,
+              "y": 0,
+              "w": 300.0,
+              "h": 6,
+              "fill": "{control.second}",
+              "scaleX": {
+                "keys": [
+                  [
+                    0.96,
+                    0
+                  ],
+                  [
+                    1.26,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Stripe 3"
+            }
+          ],
+          "opacity": {
+            "keys": [
+              [
+                7.0,
+                1
+              ],
+              [
+                7.3,
+                0
+              ]
+            ]
+          },
+          "name": "Signature stripe"
+        },
+        {
+          "id": "lt-title-mask",
+          "type": "group",
+          "clip": "M 286 838 H 1186 V 910 H 286 Z",
+          "layers": [
+            {
+              "id": "lt-title",
+              "type": "text",
+              "y": {
+                "keys": [
+                  [
+                    0.7,
+                    962
+                  ],
+                  [
+                    1.1,
+                    890,
+                    "out"
+                  ]
+                ]
+              },
+              "text": "{now.title}",
+              "x": 314,
+              "size": 44,
+              "weight": 700,
+              "font": "{type.display}",
+              "fill": "{bg}",
+              "maxWidth": 844,
+              "fit": "shrink",
+              "name": "Programme title"
+            }
+          ],
+          "name": "Programme title mask"
+        },
+        {
+          "id": "lt-text",
+          "type": "group",
+          "opacity": {
+            "keys": [
+              [
+                1.0,
+                0
+              ],
+              [
+                1.4,
+                1,
+                "out"
+              ],
+              [
+                7.0,
+                1
+              ],
+              [
+                7.25,
+                0
+              ]
+            ]
+          },
+          "layers": [
+            {
+              "id": "lt-meta",
+              "type": "text",
+              "text": "{now.meta}",
+              "x": 314,
+              "y": 944,
+              "size": 26,
+              "font": "{type.mono}",
+              "fill": "{text}@0.85",
+              "maxWidth": 420,
+              "fit": "shrink",
+              "name": "Programme details"
+            },
+            {
+              "id": "lt-div",
+              "type": "rect",
+              "x": 766,
+              "y": 922,
+              "w": 3,
+              "h": 26,
+              "fill": "{text}@0.25",
+              "name": "Divider"
+            },
+            {
+              "id": "lt-next",
+              "type": "text",
+              "text": "NEXT",
+              "x": 792,
+              "y": 943,
+              "size": 22,
+              "weight": 700,
+              "track": 3,
+              "font": "{type.mono}",
+              "fill": "{glow}",
+              "name": "Next label"
+            },
+            {
+              "id": "lt-next-title",
+              "type": "text",
+              "text": "{next.time}  {next.title}",
+              "x": 876,
+              "y": 944,
+              "size": 26,
+              "font": "{type.mono}",
+              "fill": "{text}",
+              "maxWidth": 286,
+              "fit": "shrink",
+              "name": "Next programme"
+            }
+          ],
+          "name": "Detail text"
+        },
+        {
+          "id": "lt-mark",
+          "type": "group",
+          "x": 216,
+          "y": 902,
+          "layers": [
+            {
+              "id": "lt-mark-tile",
+              "type": "path",
+              "path": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "{accent}",
+              "name": "Tile"
+            },
+            {
+              "id": "lt-mark-shadow",
+              "type": "path",
+              "path": "M 64 0 L 264 200 L 170 254 L -30 54 L 30 54 L 30 0 Z",
+              "clip": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "#000000@0.2",
+              "name": "Long shadow"
+            },
+            {
+              "id": "lt-mark-arrow",
+              "type": "path",
+              "path": "M 0 -64 L 64 0 L 30 0 L 30 54 L -30 54 L -30 0 L -64 0 Z",
+              "fill": "{text}",
+              "name": "Arrow"
+            }
+          ],
+          "name": "Shift mark",
+          "scale": {
+            "keys": [
+              [
+                0.15,
+                0
+              ],
+              [
+                0.6,
+                0.64,
+                "back"
+              ],
+              [
+                7.4,
+                0.64
+              ],
+              [
+                7.75,
+                0,
+                "in"
+              ]
+            ]
+          }
+        }
+      ],
+      "name": "Lower third"
     }
   ]
 }

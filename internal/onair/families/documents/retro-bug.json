@@ -2,54 +2,366 @@
   "v": 1,
   "moment": "bug",
   "duration": 8,
-  "poster": 5.5,
+  "poster": 4.0,
+  "slots": [
+    "channel.name"
+  ],
   "layers": [
     {
       "id": "station-bug",
       "type": "group",
-      "x": 1440,
-      "y": 872,
-      "opacity": 0.3,
+      "name": "Station bug",
       "layers": [
         {
-          "id": "bug-shadow",
-          "type": "text",
-          "text": "{channel.name}",
-          "x": 0,
-          "y": 66,
-          "font": "{type.display}",
-          "size": 48,
-          "weight": 600,
-          "track": 2,
-          "fill": "#000000",
-          "maxWidth": 288,
-          "fit": "shrink",
-          "glow": 0,
-          "blur": 2,
-          "name": "Bug shadow"
+          "id": "bug-stripes",
+          "type": "group",
+          "name": "Bug stripes",
+          "layers": [
+            {
+              "id": "bs-0",
+              "type": "path",
+              "name": "Stripe 1",
+              "path": "M0.0 0L300.0 0L297.0 3L-3.0 3Z",
+              "fill": "{accent}"
+            },
+            {
+              "id": "bs-1",
+              "type": "path",
+              "name": "Stripe 2",
+              "path": "M-5.0 5L295.0 5L292.0 8L-8.0 8Z",
+              "fill": "{control.detail5}"
+            },
+            {
+              "id": "bs-2",
+              "type": "path",
+              "name": "Stripe 3",
+              "path": "M-10.0 10L290.0 10L287.0 13L-13.0 13Z",
+              "fill": "{control.detail3}"
+            },
+            {
+              "id": "bs-3",
+              "type": "path",
+              "name": "Stripe 4",
+              "path": "M-15.0 15L285.0 15L282.0 18L-18.0 18Z",
+              "fill": "{glow}"
+            }
+          ],
+          "x": 1428,
+          "y": 954,
+          "opacity": 0.95
         },
         {
-          "id": "Title",
-          "type": "text",
-          "text": "{channel.name}",
-          "x": 0,
-          "y": 64,
-          "font": "{type.display}",
-          "size": 48,
-          "weight": 600,
-          "track": 2,
-          "fill": "#eeeeee",
-          "maxWidth": 288,
-          "fit": "shrink",
-          "glow": 2,
-          "name": "Channel title"
+          "id": "bug-mark",
+          "type": "group",
+          "name": "Bug mark",
+          "layers": [
+            {
+              "id": "bug-wm",
+              "type": "group",
+              "name": "Chrome wordmark",
+              "layers": [
+                {
+                  "id": "bug-wm-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "bug-wm-halo",
+                      "type": "text",
+                      "name": "Legibility halo",
+                      "x": 0.72,
+                      "y": 0.72,
+                      "fill": "#000000@0.45",
+                      "blur": 8.64,
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-shadow",
+                      "type": "text",
+                      "name": "Drop shadow",
+                      "x": 2.88,
+                      "y": 3.84,
+                      "fill": "#000000@0.55",
+                      "blur": 2.4,
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-x4",
+                      "type": "text",
+                      "name": "Extrusion 1",
+                      "x": 1.44,
+                      "y": 1.44,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -37.44,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-x3",
+                      "type": "text",
+                      "name": "Extrusion 2",
+                      "x": 1.08,
+                      "y": 1.08,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -37.44,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-x2",
+                      "type": "text",
+                      "name": "Extrusion 3",
+                      "x": 0.72,
+                      "y": 0.72,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -37.44,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-x1",
+                      "type": "text",
+                      "name": "Extrusion 4",
+                      "x": 0.36,
+                      "y": 0.36,
+                      "fill": "{accent}",
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-rim",
+                      "type": "text",
+                      "name": "Bevel rim",
+                      "x": -0.38,
+                      "y": -0.38,
+                      "fill": "{control.detail1}@0.85",
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-face",
+                      "type": "text",
+                      "name": "Chrome face",
+                      "fill": {
+                        "linear": [
+                          0,
+                          -37.44,
+                          0,
+                          1.92
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.24,
+                            "{control.detail4}"
+                          ],
+                          [
+                            0.48,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.5,
+                            "{bg}"
+                          ],
+                          [
+                            0.54,
+                            "{control.detail2}"
+                          ],
+                          [
+                            0.78,
+                            "{control.detail3}"
+                          ],
+                          [
+                            1,
+                            "{control.detail1}"
+                          ]
+                        ]
+                      },
+                      "glow": 3,
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    },
+                    {
+                      "id": "bug-wm-glint",
+                      "type": "text",
+                      "name": "Chrome glint",
+                      "fill": {
+                        "linear": [
+                          0,
+                          -37.44,
+                          0,
+                          1.92
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.24,
+                            "{control.detail4}"
+                          ],
+                          [
+                            0.48,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.5,
+                            "{bg}"
+                          ],
+                          [
+                            0.54,
+                            "{control.detail2}"
+                          ],
+                          [
+                            0.78,
+                            "{control.detail3}"
+                          ],
+                          [
+                            1,
+                            "{control.detail1}"
+                          ]
+                        ]
+                      },
+                      "start": 0.0,
+                      "end": 8,
+                      "behave": [
+                        {
+                          "glint": {
+                            "start": 0.0,
+                            "speed": 0.625,
+                            "amplitude": 0.85
+                          }
+                        }
+                      ],
+                      "text": "{channel.name}",
+                      "font": "{type.display}",
+                      "size": 48,
+                      "align": "right",
+                      "maxWidth": 300,
+                      "fit": "shrink",
+                      "track": 1
+                    }
+                  ],
+                  "rotate": 0.835232
+                }
+              ],
+              "rotate": -0.735564,
+              "scaleX": 1.104988,
+              "scaleY": 0.904988
+            }
+          ],
+          "x": 1724,
+          "y": 944
         }
       ],
-      "name": "Station bug"
+      "opacity": 0.92
     }
   ],
-  "post": [],
-  "slots": [
-    "channel.name"
-  ]
+  "post": []
 }
