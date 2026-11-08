@@ -350,6 +350,7 @@ export interface EtherConfig {
     unavailableCooloff: string;
     maxCandidates: number;
     sameQualityAlternatives: number;
+    alternativesPerResolution?: boolean;
     offerHigherVersions?: boolean;
     blockedGroups: string[] | null;
     blockedTerms: string[] | null;

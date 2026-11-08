@@ -605,6 +605,16 @@
             },
             {
               "help": {
+                "source": "Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply."
+              },
+              "key": "alternativesPerResolution",
+              "kind": "bool",
+              "label": {
+                "source": "Offer alternatives at every resolution"
+              }
+            },
+            {
+              "help": {
                 "source": "Version menus can list releases taller than the profile. Off keeps the ceiling you set. HDR and file-size limits still apply."
               },
               "key": "offerHigherVersions",

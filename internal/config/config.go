@@ -375,6 +375,9 @@ type Resolver struct {
 	// resolution and HDR type a detail page lists after Auto as Play
 	// Versions (0 = none, at most 3; default 1).
 	SameQualityAlternatives int `json:"sameQualityAlternatives"`
+	// AlternativesPerResolution distributes the alternative count across
+	// available resolutions while retaining Auto and the shared menu cap.
+	AlternativesPerResolution bool `json:"alternativesPerResolution,omitempty"`
 	// OfferHigherVersions lets Play Version list releases taller than the
 	// profile ceiling (a 4K copy on a 1080p profile). Off, the default,
 	// keeps that ceiling: height, HDR policy and size limits.

@@ -3827,6 +3827,7 @@
   "m_0f838858eafdbb": "Pause zwischen neuen Streams",
   "m_0f8867481ce04f": "Name in Plex. Ein Umbenennen in Plex bleibt nicht.",
   "m_0f8a568f841333": "Auf Kanälen verwenden",
+  "m_0f8a58db9f2668": "Wendet die Anzahl der Alternativen auf jede verfügbare Auflösung an, bis zu sieben Versionen insgesamt. Auto bleibt an erster Stelle; Profil- und Gerätegrenzen gelten weiterhin.",
   "m_0f8ba0bc05e6ee": "Die Notiz wird als Daten gespeichert, nicht als Anweisung. Links und Adressen werden unkenntlich gemacht.",
   "m_0f8c7ccd5758d3": "Keine Kanäle passen zu deiner Suche",
   "m_0f8edfd5434ec0": "Optionen konnten nicht geladen werden: {error}",
@@ -4599,6 +4600,7 @@
     "other": "{name} · {kind} · {count} Episoden"
   },
   "m_12774409dc65c0": "Katalog {score}/100",
+  "m_1277ffe214cca5": "Alternativen für jede Auflösung anbieten",
   "m_1278cb318940fa": "In diesem Zeitraum nichts gemessen",
   "m_1279292be6779b": "Unterstützung wird geprüft",
   "m_127a932a7cd7b3": " · S{season} E{episode}",

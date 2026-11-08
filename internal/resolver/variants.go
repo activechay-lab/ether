@@ -73,7 +73,12 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 			}
 		}
 	}
-	vs := pickVariants(req.Title, req.Client, profile, strict[0].rel, pool, strict, s.sameQualityAlternatives(), max, allowTaller)
+	var vs []core.ReleaseVariant
+	if s.resolverCfg().AlternativesPerResolution {
+		vs = pickResolutionVariants(req.Title, profile, strict[0].rel, pool, s.sameQualityAlternatives(), max, allowTaller)
+	} else {
+		vs = pickVariants(req.Title, req.Client, profile, strict[0].rel, pool, strict, s.sameQualityAlternatives(), max, allowTaller)
+	}
 	labelPlayedAuto(req.Title, vs, req.PlayedRelease, results, s.LookupRelease)
 	return vs, nil
 }

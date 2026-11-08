@@ -3927,6 +3927,7 @@
   "m_0f838858eafdbb": "Espera entre streams nuevos",
   "m_0f8867481ce04f": "Nombre que se ve en Plex. Cambiarlo dentro de Plex no se queda.",
   "m_0f8a568f841333": "Usar en canales",
+  "m_0f8a58db9f2668": "Aplica el número de alternativas a cada resolución disponible, hasta siete versiones en total. Auto sigue primero; se mantienen los límites del perfil y del dispositivo.",
   "m_0f8ba0bc05e6ee": "La nota se guarda como datos, no como instrucciones. Los enlaces y las direcciones se ocultan.",
   "m_0f8c7ccd5758d3": "Ningún canal coincide con tu búsqueda",
   "m_0f8edfd5434ec0": "No se han podido cargar las opciones: {error}",
@@ -4722,6 +4723,7 @@
     "other": "{name} · {kind} · {count} episodios"
   },
   "m_12774409dc65c0": "Catálogo {score}/100",
+  "m_1277ffe214cca5": "Ofrecer alternativas en cada resolución",
   "m_1278cb318940fa": "Nada medido en este periodo",
   "m_1279292be6779b": "Comprobando la compatibilidad",
   "m_127a932a7cd7b3": " · S{season} E{episode}",

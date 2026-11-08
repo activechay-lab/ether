@@ -3836,6 +3836,7 @@
   "m_0f838858eafdbb": "Wait between new streams",
   "m_0f8867481ce04f": "Name shown in Plex. A rename inside Plex does not stick.",
   "m_0f8a568f841333": "Use on channels",
+  "m_0f8a58db9f2668": "Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.",
   "m_0f8ba0bc05e6ee": "The note is saved as data, not instructions. Links and addresses are redacted.",
   "m_0f8c7ccd5758d3": "No channels match your search",
   "m_0f8edfd5434ec0": "Couldn't load the choices: {error}",
@@ -4608,6 +4609,7 @@
     "other": "{name} · {kind} · {count} episodes"
   },
   "m_12774409dc65c0": "Catalogue {score}/100",
+  "m_1277ffe214cca5": "Offer alternatives at every resolution",
   "m_1278cb318940fa": "Nothing measured in this period",
   "m_1279292be6779b": "Checking support",
   "m_127a932a7cd7b3": " · S{season} E{episode}",

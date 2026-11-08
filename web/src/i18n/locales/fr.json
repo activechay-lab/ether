@@ -3927,6 +3927,7 @@
   "m_0f838858eafdbb": "Délai entre les nouveaux flux",
   "m_0f8867481ce04f": "Nom affiché dans Plex. Un renommage dans Plex ne tient pas.",
   "m_0f8a568f841333": "Utiliser sur des chaînes",
+  "m_0f8a58db9f2668": "Appliquer le nombre d’alternatives à chaque résolution disponible, jusqu’à sept versions au total. Auto reste en premier ; les limites du profil et de l’appareil s’appliquent toujours.",
   "m_0f8ba0bc05e6ee": "La note est enregistrée comme donnée, pas comme instruction. Les liens et adresses sont masqués.",
   "m_0f8c7ccd5758d3": "Aucune chaîne ne correspond à votre recherche",
   "m_0f8edfd5434ec0": "Impossible de charger les choix : {error}",
@@ -4722,6 +4723,7 @@
     "other": "{name} · {kind} · {count} épisodes"
   },
   "m_12774409dc65c0": "Catalogue {score}/100",
+  "m_1277ffe214cca5": "Proposer des alternatives à chaque résolution",
   "m_1278cb318940fa": "Rien de mesuré sur cette période",
   "m_1279292be6779b": "Vérification de la prise en charge",
   "m_127a932a7cd7b3": " · S{season} E{episode}",

@@ -366,6 +366,14 @@ export const PLAY_VERSIONS: FieldGroup[] = localized(() => [
         help: t("Listed after Auto in the app's version menu."),
       },
       {
+        key: "alternativesPerResolution",
+        label: t("Offer alternatives at every resolution"),
+        kind: "bool",
+        help: t(
+          "Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.",
+        ),
+      },
+      {
         key: "offerHigherVersions",
         label: t("Offer higher versions"),
         kind: "bool",

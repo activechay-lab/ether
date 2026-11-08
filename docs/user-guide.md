@@ -495,7 +495,17 @@ choice, other releases of the same cut, resolution and HDR type are listed,
 named by quality, audio, size and release group, so you can switch if one
 fails. **Quality › Profiles › Version menu › Same-quality versions to offer** sets
 how many (0 to 3; 1 by default, 0 turns the extra versions off). Choose one with Plex's **Play Version**; otherwise Ether picks the
-best version for the device. After a restart or candidate-cache expiry, an
+best version for the device. Turn on **Offer alternatives at every resolution**
+to distribute that count across the available resolutions instead. With one
+alternative, the menu can show two 4K, two 1080p and two 720p releases when
+eligible results exist. Auto counts as the first release in its resolution,
+stays first in the menu, and the total stays within seven entries. Ether gives
+each resolution a place before filling extra copies, removes duplicate files,
+and preserves profile and device limits. **Offer higher versions** remains a
+separate opt-in for choices above the profile's resolution ceiling. The new
+mode is off by default.
+
+After a restart or candidate-cache expiry, an
 admitted detail-page warm-up that reuses your remembered release also requests a
 background search for versions. Your remembered source does not wait or change;
 a later page load can show alternatives after that search succeeds. Refills

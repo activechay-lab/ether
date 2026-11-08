@@ -644,6 +644,15 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 step: 1,
               },
               {
+                key: "alternativesPerResolution",
+                label: { source: "Offer alternatives at every resolution" },
+                help: {
+                  source:
+                    "Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.",
+                },
+                kind: "bool",
+              },
+              {
                 key: "offerHigherVersions",
                 label: {
                   source: "Offer higher versions",
