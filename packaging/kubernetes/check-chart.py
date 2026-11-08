@@ -23,6 +23,19 @@ def check(docs, persistent=False):
         assert next(e for e in c['env'] if e['name']=='ETHER_DATA_DIR')['value']=='/config/ether'
         assert 'explicit migration required' in c['args'][0]
         assert 'chmod 700 /config/ether' in c['args'][0]
+        # Go collects before the container limit; an explicit GOMEMLIMIT wins.
+        limit = next(e for e in c['env'] if e['name']=='ETHER_MEMORY_LIMIT_MIB')['valueFrom']['resourceFieldRef']
+        assert limit == dict(containerName='ether', resource='limits.memory', divisor='1Mi')
+        assert 'export GOMEMLIMIT="$((ETHER_MEMORY_LIMIT_MIB * 9 / 10))MiB"' in c['args'][0]
+        assert 'if [ -z "${GOMEMLIMIT:-}" ]' in c['args'][0]
+        # The catalogue tail index (<data>/tmdb-exports) is built in the data
+        # dir on the pod's own writable PVC; the root filesystem stays
+        # read-only and nothing is staged in the small /tmp emptyDir.
+        assert c['securityContext']['readOnlyRootFilesystem'] is True
+        mounts = {m['mountPath']: m for m in c['volumeMounts']}
+        assert mounts['/config']['name'] == 'data' and not mounts['/config'].get('readOnly')
+        assert next(e for e in c['env'] if e['name']=='TMPDIR')['value'] == '/scratch'
+        assert not mounts['/scratch'].get('readOnly')
         assert c['readinessProbe']['httpGet']['path'] == ('/admissionz' if role in ('full','server') else '/readyz')
         assert c['startupProbe']['httpGet']['path'] == '/startupz'
         assert c['livenessProbe']['httpGet']['path'] == '/livez'
