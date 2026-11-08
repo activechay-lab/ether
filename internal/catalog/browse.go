@@ -1080,31 +1080,9 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 // jumpBarRecountEvery is the most a jump bar's counts lag the catalogue.
 const jumpBarRecountEvery = 2 * time.Second
 
-// countFacet computes a facet's value counts over the browsable set and
-// caches them.
-func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) ([]core.FacetValue, error) {
-	if facet == "firstCharacter" {
-		f.FirstCharacter = ""
-	}
-	gen := c.writeGen.Load()
-	minBucket := c.minuteBucket()
-	fkey := fmt.Sprintf("%+v|%s", f, facet)
-	base, args, err := c.browseWhere(f)
-	if err != nil {
-		return nil, err
-	}
-	var tallied []core.FacetValue
-	if facet == "firstCharacter" {
-		// The jump bar from its tally: a few rows, not every title.
-		var ok bool
-		if tallied, ok, err = c.jumpBarFromTally(ctx, f, base, args); err != nil {
-			return nil, err
-		} else if !ok {
-			tallied = nil
-		} else if tallied == nil {
-			tallied = []core.FacetValue{}
-		}
-	}
+// facetCountSQL counts a facet's values directly over the titles base
+// admits.
+func (c *Catalog) facetCountSQL(facet, base string) (string, error) {
 	var q string
 	switch facet {
 	case "tag":
@@ -1112,11 +1090,11 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	case "language":
 		q = `SELECT t.language,COUNT(*) FROM catalog_titles t WHERE ` + base + ` AND t.language<>'' GROUP BY t.language ORDER BY COUNT(*) DESC,t.language ASC LIMIT 200`
 	case "genre":
-		q = `SELECT g.genre, COUNT(*) FROM catalog_genres g JOIN catalog_titles t ON t.key=g.key WHERE ` + base + ` GROUP BY g.genre ORDER BY COUNT(*) DESC, g.genre ASC`
+		q = `SELECT g.genre, COUNT(*) FROM catalog_genres g JOIN catalog_titles t ON t.key=g.key WHERE ` + base + ` AND g.genre<>'' GROUP BY g.genre ORDER BY COUNT(*) DESC, g.genre ASC`
 	case "studio":
-		q = `SELECT s.studio, COUNT(*) FROM catalog_studios s JOIN catalog_titles t ON t.key=s.key WHERE ` + base + ` GROUP BY s.studio ORDER BY COUNT(*) DESC, s.studio ASC LIMIT 200`
+		q = `SELECT s.studio, COUNT(*) FROM catalog_studios s JOIN catalog_titles t ON t.key=s.key WHERE ` + base + ` AND s.studio<>'' GROUP BY s.studio ORDER BY COUNT(*) DESC, s.studio ASC LIMIT 200`
 	case "country":
-		q = `SELECT co.country, COUNT(*) FROM catalog_countries co JOIN catalog_titles t ON t.key=co.key WHERE ` + base + ` GROUP BY co.country ORDER BY COUNT(*) DESC, co.country ASC LIMIT 200`
+		q = `SELECT co.country, COUNT(*) FROM catalog_countries co JOIN catalog_titles t ON t.key=co.key WHERE ` + base + ` AND co.country<>'' GROUP BY co.country ORDER BY COUNT(*) DESC, co.country ASC LIMIT 200`
 	case "year":
 		q = `SELECT CAST(t.year AS TEXT), COUNT(*) FROM catalog_titles t WHERE ` + base + ` AND t.year>0 GROUP BY t.year ORDER BY t.year DESC`
 	case "decade":
@@ -1135,7 +1113,36 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 		}
 		q = `SELECT ` + bucket + `, COUNT(*) FROM catalog_titles t WHERE ` + base + ` GROUP BY 1 ORDER BY 1 ASC`
 	default:
-		return nil, fmt.Errorf("catalog: unknown facet %q", facet)
+		return "", fmt.Errorf("catalog: unknown facet %q", facet)
+	}
+	return q, nil
+}
+
+// countFacet computes a facet's value counts over the browsable set and
+// caches them.
+func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) ([]core.FacetValue, error) {
+	if facet == "firstCharacter" {
+		f.FirstCharacter = ""
+	}
+	gen := c.writeGen.Load()
+	minBucket := c.minuteBucket()
+	fkey := fmt.Sprintf("%+v|%s", f, facet)
+	base, args, err := c.browseWhere(f)
+	if err != nil {
+		return nil, err
+	}
+	// The jump bar and the filter lists from their tallies: a few rows per
+	// value, not every title.
+	tallied, ok, err := c.facetFromTally(ctx, f, facet, base, args)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		tallied = nil
+	}
+	q, err := c.facetCountSQL(facet, base)
+	if err != nil {
+		return nil, err
 	}
 	var out []core.FacetValue
 	next := func() (core.FacetValue, bool, error) {

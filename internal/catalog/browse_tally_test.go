@@ -65,6 +65,12 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 				exec(`INSERT INTO catalog_countries(key,country) VALUES(?,?) ON CONFLICT DO NOTHING`, int64(key), co)
 			}
 		}
+		exec(`DELETE FROM catalog_studios WHERE key=?`, int64(key))
+		for _, st := range []string{"Acme", "Banner", "acme", ""} {
+			if rng.IntN(3) == 0 {
+				exec(`INSERT INTO catalog_studios(key,studio) VALUES(?,?) ON CONFLICT DO NOTHING`, int64(key), st)
+			}
+		}
 	}
 	// Sort titles in every jump-bar bucket: digits and punctuation, letters,
 	// accented and past-'z' first characters.
@@ -74,9 +80,9 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 	var keys []core.RatingKey
 	insert := func(key core.RatingKey, typ core.MediaType) {
 		r := ratings[rng.IntN(len(ratings))]
-		exec(`INSERT INTO catalog_titles(key,type,title,sort_title,released_ts,browsable,adult,detail,content_rating,content_rating_rank,popularity,vote_count)
-			VALUES(?,?,?,?,?,?,?,1,?,?,?,?)`, int64(key), string(typ), fmt.Sprint("t", int64(key)), sortTitle(key), released(),
-			flagInt(rng.IntN(5) > 0), flagInt(rng.IntN(10) == 0), r, int(contentrating.LevelOf(r)), float64(rng.IntN(20)), rng.IntN(50))
+		exec(`INSERT INTO catalog_titles(key,type,title,sort_title,released_ts,browsable,adult,detail,content_rating,content_rating_rank,popularity,vote_count,year)
+			VALUES(?,?,?,?,?,?,?,1,?,?,?,?,?)`, int64(key), string(typ), fmt.Sprint("t", int64(key)), sortTitle(key), released(),
+			flagInt(rng.IntN(5) > 0), flagInt(rng.IntN(10) == 0), r, int(contentrating.LevelOf(r)), float64(rng.IntN(20)), rng.IntN(50), []int{0, 1988, 1994, 2003, 2019, 2026}[rng.IntN(6)])
 		setGenres(key)
 		keys = append(keys, key)
 	}
@@ -163,16 +169,26 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 						t.Errorf("%s config %d filter %d: tally total %d, titles %d", stage, ci, fi, got, exact)
 					}
 				}
-				// The jump bar from its tally is the direct count per bucket.
-				if jump, ok, err := c.jumpBarFromTally(ctx, ff, where, args); err != nil {
-					t.Fatalf("%s config %d filter %d: jump bar: %v", stage, ci, fi, err)
-				} else if ok {
+				// The jump bar and filter lists from their tallies are the
+				// direct counts, in the same order.
+				for facet := range tallyFacets {
+					got, ok, err := c.facetFromTally(ctx, ff, facet, where, args)
+					if err != nil {
+						t.Fatalf("%s config %d filter %d: %s: %v", stage, ci, fi, facet, err)
+					}
+					if !ok {
+						continue
+					}
 					tallied++
-					want := []string{}
-					rows, err := db.QueryContext(ctx, `SELECT `+jumpBucketSQL("t.")+`, COUNT(*) FROM catalog_titles t WHERE `+where+` GROUP BY 1 ORDER BY 1`, args...)
+					q, err := c.facetCountSQL(facet, where)
 					if err != nil {
 						t.Fatal(err)
 					}
+					rows, err := db.QueryContext(ctx, q, args...)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var want []string
 					for rows.Next() {
 						var k string
 						var n int
@@ -182,12 +198,12 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 						want = append(want, fmt.Sprint(k, "=", n))
 					}
 					rows.Close()
-					got := []string{}
-					for _, v := range jump {
-						got = append(got, fmt.Sprint(v.Key, "=", v.Count))
+					var have []string
+					for _, v := range got {
+						have = append(have, fmt.Sprint(v.Key, "=", v.Count))
 					}
-					if fmt.Sprint(got) != fmt.Sprint(want) {
-						t.Errorf("%s config %d filter %d: jump bar %v, titles %v", stage, ci, fi, got, want)
+					if fmt.Sprint(have) != fmt.Sprint(want) {
+						t.Errorf("%s config %d filter %d: %s from the tally %v, titles %v", stage, ci, fi, facet, have, want)
 					}
 				}
 				page, err := c.Browse(ctx, core.BrowseQuery{Filter: f, Sort: core.SortTitle, Limit: 500})
@@ -222,7 +238,8 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 			exec(`UPDATE catalog_genres SET genre='Drama' WHERE key=? AND genre='Comedy' AND NOT EXISTS (SELECT 1 FROM catalog_genres d WHERE d.key=catalog_genres.key AND d.genre='Drama')`, int64(k))
 			exec(`UPDATE catalog_countries SET country='US' WHERE key=? AND country='GB' AND NOT EXISTS (SELECT 1 FROM catalog_countries d WHERE d.key=catalog_countries.key AND d.country='US')`, int64(k))
 		case 6:
-			exec(`UPDATE catalog_titles SET sort_title=? WHERE key=?`, sortTitle(k), int64(k))
+			exec(`UPDATE catalog_titles SET sort_title=?, year=year+1 WHERE key=?`, sortTitle(k), int64(k))
+			exec(`UPDATE catalog_studios SET studio='Banner' WHERE key=? AND studio='Acme' AND NOT EXISTS (SELECT 1 FROM catalog_studios d WHERE d.key=catalog_studios.key AND d.studio='Banner')`, int64(k))
 		}
 	}
 	exec(`DELETE FROM catalog_titles WHERE key IN (?,?)`, int64(keys[10]), int64(keys[160]))
