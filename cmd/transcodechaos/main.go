@@ -61,10 +61,11 @@ func main() {
 	vodOnly := flag.String("vod-only", "", "substring of asset/path/scenario cases to run with -vod-avplayer")
 	vodKeep := flag.String("vod-keep", "", "keep the media segments the player fetched under this directory")
 	vodMarkdown := flag.String("vod-markdown", "", "also write a Markdown summary of -vod-avplayer here")
+	vodTranscode := flag.Bool("vod-transcode", false, "with -vod-avplayer: only the sustained full-transcode case per asset (live-priority row)")
 	flag.Parse()
 	if *vodAV {
 		root, _ := os.Getwd()
-		if err := runVODAVPlayer(vodOptions{FF: *ff, FP: *fp, Fixtures: *fixtures, Cache: *cache, Report: *report, Markdown: *vodMarkdown, Only: *vodOnly, Keep: *vodKeep, RepoRoot: root, Label: *liveLabel}); err != nil {
+		if err := runVODAVPlayer(vodOptions{FF: *ff, FP: *fp, Fixtures: *fixtures, Cache: *cache, Report: *report, Markdown: *vodMarkdown, Only: *vodOnly, Keep: *vodKeep, RepoRoot: root, Label: *liveLabel, Transcode: *vodTranscode}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

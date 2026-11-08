@@ -40,6 +40,10 @@ func TestTranscodeChaosAVPlayer(t *testing.T) {
 		t.Skip("set CHAOS_AVVOD and CHAOS_AVREPORT (macOS, outside a sandbox)")
 	}
 	entries, _ := filepath.Glob(filepath.Join(corpus, "corpus-*.good"))
+	// Damaged library titles (the generated input-* fixtures: .good probed,
+	// the damaged .media served) play through the copy path.
+	damaged, _ := filepath.Glob(filepath.Join(corpus, "input-*.good"))
+	entries = append(entries, damaged...)
 	if len(entries) == 0 {
 		t.Skip("no public corpus staged")
 	}
@@ -75,9 +79,17 @@ func TestTranscodeChaosAVPlayer(t *testing.T) {
 			if info.Duration < time.Second {
 				t.Skip("source has no usable duration for seek scenarios")
 			}
-			for _, path := range []string{"hls", "hls-fmp4"} {
+			paths, scenarios := []string{"hls", "hls-fmp4"}, []string{"seek-forward-backward", "scrub-fast-forward", "pause-resume-eos", "track-quality-change"}
+			if strings.HasPrefix(name, "input-") {
+				paths, scenarios = []string{"hls"}, []string{"damaged-copy-play"}
+			}
+			if os.Getenv("CHAOS_AVTRANSCODE") != "" {
+				// The live-priority row: a sustained full transcode only.
+				paths, scenarios = []string{"hls"}, []string{"transcode-play"}
+			}
+			for _, path := range paths {
 				t.Run(path, func(t *testing.T) {
-					for _, scenario := range []string{"seek-forward-backward", "scrub-fast-forward", "pause-resume-eos", "track-quality-change"} {
+					for _, scenario := range scenarios {
 						t.Run(scenario, func(t *testing.T) {
 							id := name + "/" + path + "/" + scenario
 							if only != "" && !strings.Contains(id, only) {
@@ -108,7 +120,21 @@ type avplayerLine struct {
 	Error    string          `json:"error,omitempty"`
 	Kept     string          `json:"kept,omitempty"`
 	Requests []string        `json:"requests"`
+	// Playlists times every start.m3u8 and media playlist response, so the
+	// judge can apply the first-playlist rule (AVPlayer hangs an item whose
+	// first media playlist takes a target duration).
+	Playlists []avplayerPlaylist `json:"playlists"`
 }
+
+type avplayerPlaylist struct {
+	At      float64 `json:"at"`
+	Seconds float64 `json:"seconds"`
+	TD      float64 `json:"targetDuration,omitempty"`
+	Start   bool    `json:"start,omitempty"`
+	Status  int     `json:"status"`
+}
+
+var avplayerTD = regexp.MustCompile(`#EXT-X-TARGETDURATION:([0-9.]+)`)
 
 var avplayerMedia = regexp.MustCompile(`/session/[^/]+/[^/]+/(init\.mp4|\d+\.(ts|m4s))$`)
 
@@ -121,7 +147,9 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 	rec := &chaosTranscoderRecorder{Transcoder: m}
 	f.srv.d.Transcoder = rec
 	id := "avplayer-" + strings.NewReplacer("/", "-", ".", "-").Replace(name+"-"+path+"-"+scenario)
-	headers := map[string]string{"X-Plex-Product": "Plex Web", "X-Plex-Platform": "Chrome", "X-Plex-Token": ownerToken, "X-Plex-Client-Identifier": id}
+	// AVPlayer stands in for an Apple client, so Ether decides for one: the
+	// Plex for Apple TV identity (the ffmpeg sequences use Plex Web's).
+	headers := map[string]string{"X-Plex-Product": "Plex for Apple TV", "X-Plex-Platform": "tvOS", "X-Plex-Platform-Version": "26.0", "X-Plex-Device": "Apple TV", "X-Plex-Model": "AppleTV14,1", "X-Plex-Version": "8.45", "X-Plex-Token": ownerToken, "X-Plex-Client-Identifier": id}
 	if path == "hls-fmp4" {
 		headers["X-Plex-Client-Profile-Extra"] = "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=h264,hevc&audioCodec=aac)"
 	}
@@ -135,6 +163,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 	}
 	var mu sync.Mutex
 	fetched := 0
+	caseStart := time.Now()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for k, v := range headers {
 			if r.Header.Get(k) == "" {
@@ -144,7 +173,8 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		r.RemoteAddr = "192.168.1.50:51000"
 		rw := &avplayerTee{ResponseWriter: w, status: 200}
 		media := avplayerMedia.FindStringSubmatch(r.URL.Path)
-		if media != nil && dir != "" || !strings.Contains(r.URL.Path, "/session/") {
+		playlist := strings.HasSuffix(r.URL.Path, ".m3u8")
+		if media != nil && dir != "" || !strings.Contains(r.URL.Path, "/session/") || playlist {
 			rw.capture = &bytes.Buffer{}
 		}
 		began := time.Now()
@@ -155,6 +185,16 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 			entry += " body=" + strings.TrimSpace(string(rw.capture.Bytes()[:min(200, rw.capture.Len())]))
 		}
 		line.Requests = append(line.Requests, entry)
+		if playlist && strings.Contains(r.URL.Path, "/session/") && rw.capture != nil {
+			td := 0.0
+			if m := avplayerTD.FindStringSubmatch(rw.capture.String()); m != nil {
+				fmt.Sscan(m[1], &td)
+			}
+			line.Playlists = append(line.Playlists, avplayerPlaylist{At: time.Since(caseStart).Seconds(), Seconds: time.Since(began).Seconds(), TD: td, Status: rw.status})
+		}
+		if !strings.Contains(r.URL.Path, "/session/") && strings.Contains(r.URL.Path, "/universal/start") {
+			line.Playlists = append(line.Playlists, avplayerPlaylist{At: time.Since(caseStart).Seconds(), Seconds: time.Since(began).Seconds(), Start: true, Status: rw.status})
+		}
 		if media != nil && dir != "" && rw.status == 200 {
 			fetched++
 			_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("%04d-%s", fetched, strings.ReplaceAll(strings.TrimPrefix(media[0], "/session/"), "/", "_"))), rw.capture.Bytes(), 0o600)
@@ -172,6 +212,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		return srv.URL + "/video/:/transcode/universal/start.m3u8?" + q
 	}
 	d := duration.Seconds()
+	firstURL := start(0, "")
 	var script []string
 	run := 22.0
 	switch scenario {
@@ -183,6 +224,15 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 	case "pause-resume-eos":
 		script = []string{"6|pause", "9|play", "12|seek|end-3"}
 		run = 20
+	case "transcode-play":
+		// A sustained 1080p re-encode (tone-mapped for HDR sources), watched
+		// straight through: the VOD side of the live-priority row.
+		run = min(max(d+4, 20), 75)
+		firstURL = start(0, "&directStream=0&maxVideoBitrate=8000&videoResolution=1920x1080")
+	case "damaged-copy-play":
+		// Watch the damaged title straight through, then seek back once.
+		run = min(max(d+4, 12), 40)
+		script = []string{fmt.Sprintf("%.0f|seek|%.3f", run-6, d/4)}
 	case "track-quality-change":
 		at := 6.0
 		for _, st := range f.playback.info.Streams {
@@ -205,11 +255,11 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 		run = at + 8
 	}
 	line.Script = strings.Join(script, ";")
-	defer f.get(t, "/video/:/transcode/universal/stop?session="+id, "X-Plex-Product", "Plex Web", "X-Plex-Platform", "Chrome")
+	defer f.get(t, "/video/:/transcode/universal/stop?session="+id, "X-Plex-Product", "Plex for Apple TV", "X-Plex-Platform", "tvOS", "X-Plex-Client-Identifier", id)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(run+30)*time.Second)
 	defer cancel()
 	// The client asks for a decision first; Ether only starts armed sessions.
-	if dr, err := http.Get(strings.Replace(start(0, ""), "/universal/start.m3u8", "/universal/decision", 1)); err == nil {
+	if dr, err := http.Get(strings.Replace(firstURL, "/universal/start.m3u8", "/universal/decision", 1)); err == nil {
 		_, _ = io.Copy(io.Discard, dr.Body)
 		dr.Body.Close()
 		line.Requests = append(line.Requests[:0:0], append([]string{fmt.Sprintf("preflight decision -> %d", dr.StatusCode)}, line.Requests...)...)
@@ -222,7 +272,7 @@ func avplayerCase(t *testing.T, m *transcode.Manager, sourceURL, name, path, sce
 			t.Logf("preflight %d %s url=%s", resp.StatusCode, b, start(0, ""))
 		}
 	}
-	cmd := exec.CommandContext(ctx, probe, start(0, ""), fmt.Sprintf("%.0f", run), line.Script)
+	cmd := exec.CommandContext(ctx, probe, firstURL, fmt.Sprintf("%.0f", run), line.Script)
 	b, err := cmd.Output()
 	if err != nil {
 		line.Error = "avvod: " + err.Error()
