@@ -234,6 +234,8 @@ type hlsInput struct {
 	queue             []*hlsFetch // waiting, in playlist order
 	fetching, helping bool        // the own fetcher and the extra-slot helper are running
 	held              int
+	// Media served but not yet reported to the source history.
+	pendMedia time.Duration
 }
 
 // hlsList is the state of one provider media playlist.
@@ -363,6 +365,11 @@ func (h *hlsInput) servedSegment(raw string) {
 	for _, l := range h.lists {
 		for _, sg := range l.last {
 			if sg.url == raw && seq > l.served {
+				h.pendMedia += sg.dur
+				if h.pendMedia >= historyReportEvery {
+					h.g.noteEvidence(SourceEvidence{Media: h.pendMedia})
+					h.pendMedia = 0
+				}
 				l.served = seq
 				h.evictLocked(seq)
 				h.prefetchLocked(l)
@@ -389,6 +396,8 @@ func (h *hlsInput) transitionsLocked(l *hlsList, now time.Time) []UpstreamEvent 
 		kind := InputRecovered
 		if stalled {
 			kind = InputStalled
+			h.g.noteEvidence(SourceEvidence{Stalls: 1, Media: h.pendMedia})
+			h.pendMedia = 0
 		}
 		out = append(out, UpstreamEvent{Kind: kind, At: now})
 	}
@@ -520,5 +529,24 @@ func (h *hlsInput) deliver(events []UpstreamEvent) {
 	for _, ev := range events {
 		ev.Health = health
 		h.g.notify(ev)
+	}
+}
+
+// segmentFailed records a segment the reader could not have (an error, or
+// skipped as stuck) as damage in the source history.
+func (h *hlsInput) segmentFailed() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.g.noteEvidence(SourceEvidence{DamageEvents: 1, Media: h.pendMedia})
+	h.pendMedia = 0
+}
+
+// flushEvidence reports media still pending (the grant is ending).
+func (h *hlsInput) flushEvidence() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.pendMedia > 0 {
+		h.g.noteEvidence(SourceEvidence{Media: h.pendMedia})
+		h.pendMedia = 0
 	}
 }
