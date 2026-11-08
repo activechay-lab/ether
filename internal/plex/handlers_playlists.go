@@ -624,26 +624,23 @@ func (s *Server) handlePlaylistItems(w http.ResponseWriter, r *http.Request) {
 		s.write(w, r, mc)
 		return
 	}
-	rows, types, err := s.playlistItemRows(ctx, pr, pl, q)
+	page, err := s.playlistItemRows(ctx, pr, pl, q)
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
 	}
-	total := len(rows)
-	lo, hi := pr.window(total)
-	mc := &model.MediaContainer{RatingKey: pl.Key.String(), Key: "/playlists/" + pl.Key.String() + "/items", Title1: pl.Title, PlaylistType: "video", Smart: model.Ptr(pl.Smart), LeafCount: model.Ptr(total), Metadata: rows[lo:hi]}
+	total := page.total
+	mc := &model.MediaContainer{RatingKey: pl.Key.String(), Key: "/playlists/" + pl.Key.String() + "/items", Title1: pl.Title, PlaylistType: "video", Smart: model.Ptr(pl.Smart), LeafCount: model.Ptr(total), Metadata: page.rows}
 	if total > 0 {
 		mc.Composite = "/playlists/" + pl.Key.String() + "/composite/" + strconv.FormatInt(unixOrZero(pl.UpdatedAt), 10)
 	}
-	for _, md := range rows {
-		mc.Duration += md.Duration / 1000
-	}
+	mc.Duration = page.durationSec
 	if q.Get("includeMeta") == "1" {
-		mc.Meta = playlistItemsMeta(r, types)
+		mc.Meta = playlistItemsMeta(r, page.types)
 	}
 	mc.Size = len(mc.Metadata)
 	if pr.HasPage {
-		mc.SetPage(lo, total)
+		mc.SetPage(page.lo, total)
 	}
 	s.write(w, r, mc)
 }

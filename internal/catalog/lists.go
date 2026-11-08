@@ -850,45 +850,61 @@ func (c *Catalog) collection(ctx context.Context, tmdbCollection int64) (string,
 	if tmdbCollection <= 0 {
 		return "", nil, core.ErrNotFound
 	}
-	if c.tmdb() != nil {
-		d, err := c.tmdb().CollectionDetails(ctx, tmdbCollection)
-		if err == nil {
-			// The page has the franchise's fields; storing them is behind it.
-			_ = c.hydrate(ctx, fmt.Sprintf("collection-save:%d", d.ID), 0, func(ctx context.Context) error {
-				c.saveCollection(ctx, d.ID, d.Name, d.Overview, d.PosterPath, d.BackdropPath)
-				return nil
-			})
-			var items []core.Title
-			for _, m := range d.Parts {
-				t := c.movieToTitle(ctx, m)
-				t.CollectionID = d.ID
-				t.CollectionName = d.Name
-				items = append(items, t)
-			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Released.Before(items[j].Released) })
-			if err := c.mirrorListSummaries(ctx, fmt.Sprintf("collection:%d", tmdbCollection), items, false); err != nil {
-				return d.Name, nil, err
-			}
-			out := c.reloadSummaries(ctx, items)
-			return d.Name, c.releasedTitles(ctx, out), nil
-		} else if isNotFound(err) {
-			return "", nil, err
-		}
-		// fall through to local on transient errors
-	}
+	// A franchise the mirror holds is served from it; TMDB refreshes it
+	// behind the read at most once a day (new parts land in the mirror for
+	// the next read). A franchise page never waits on TMDB or writes on the
+	// request, except for one the mirror has no parts of yet.
 	var name string
-	_ = c.db.QueryRowContext(ctx, `SELECT name FROM catalog_collections WHERE tmdb_id=?`, tmdbCollection).Scan(&name)
+	var fetchedAt int64
+	_ = c.db.QueryRowContext(ctx, `SELECT name, fetched_at FROM catalog_collections WHERE tmdb_id=?`, tmdbCollection).Scan(&name, &fetchedAt)
 	items, err := c.queryTitles(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE collection_id=? AND type='movie' ORDER BY released_ts ASC`, tmdbCollection)
 	if err != nil {
 		return "", nil, err
 	}
-	if len(items) == 0 {
+	if len(items) > 0 {
+		if c.tmdb() != nil && c.now().Sub(time.Unix(fetchedAt, 0)) > collectionRefreshAfter {
+			_ = c.hydrate(ctx, fmt.Sprintf("collection-refresh:%d", tmdbCollection), 0, func(ctx context.Context) error {
+				_, _, err := c.fetchCollection(ctx, tmdbCollection)
+				return err
+			})
+		}
+		if name == "" {
+			name = items[0].CollectionName
+		}
+		return name, c.releasedTitles(ctx, items), nil
+	}
+	if c.tmdb() != nil {
+		return c.fetchCollection(ctx, tmdbCollection)
+	}
+	return "", nil, core.ErrNotFound
+}
+
+// collectionRefreshAfter spaces a mirrored franchise's TMDB refreshes.
+const collectionRefreshAfter = 24 * time.Hour
+
+// fetchCollection reads a franchise from TMDB and mirrors its parts.
+func (c *Catalog) fetchCollection(ctx context.Context, tmdbCollection int64) (string, []core.Title, error) {
+	d, err := c.tmdb().CollectionDetails(ctx, tmdbCollection)
+	if err != nil {
+		if isNotFound(err) {
+			return "", nil, err
+		}
 		return "", nil, core.ErrNotFound
 	}
-	if name == "" && len(items) > 0 {
-		name = items[0].CollectionName
+	c.saveCollection(ctx, d.ID, d.Name, d.Overview, d.PosterPath, d.BackdropPath)
+	var items []core.Title
+	for _, m := range d.Parts {
+		t := c.movieToTitle(ctx, m)
+		t.CollectionID = d.ID
+		t.CollectionName = d.Name
+		items = append(items, t)
 	}
-	return name, c.releasedTitles(ctx, items), nil
+	sort.Slice(items, func(i, j int) bool { return items[i].Released.Before(items[j].Released) })
+	if err := c.mirrorListSummaries(ctx, fmt.Sprintf("collection:%d", tmdbCollection), items, false); err != nil {
+		return d.Name, nil, err
+	}
+	out := c.reloadSummaries(ctx, items)
+	return d.Name, c.releasedTitles(ctx, out), nil
 }
 
 func isNotFound(err error) bool {

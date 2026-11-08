@@ -184,6 +184,30 @@ func (m *Mirror) Franchises(ctx context.Context) ([]core.Collection, error) {
 	return out, nil
 }
 
+// FranchiseRatedCounts is, per franchise Franchises lists, how many of its
+// browsable movies a viewer capped at level may watch (rated, at or below
+// the cap; contentrating.Exceeds), in one grouped read over the franchises'
+// members.
+func (m *Mirror) FranchiseRatedCounts(ctx context.Context, level int) (map[int64]int, error) {
+	rows, err := m.db.QueryContext(ctx, `SELECT collection_id, COUNT(CASE WHEN content_rating_rank>0 AND content_rating_rank<=? THEN 1 END)
+		FROM catalog_titles WHERE type='movie' AND browsable=1 AND collection_id>0
+		GROUP BY collection_id HAVING COUNT(*)>=2`, level)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
 func (m *Mirror) CollectionArt(ctx context.Context, id int64) (core.Collection, error) {
 	c := core.Collection{Key: core.CollectionKey(id)}
 	err := m.db.QueryRowContext(ctx, `SELECT poster,backdrop,summary FROM catalog_collections WHERE tmdb_id=?`, id).Scan(&c.PosterPath, &c.BackdropPath, &c.Summary)

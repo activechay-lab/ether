@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +75,18 @@ func New(db *sql.DB, source Source, catalog core.Catalog) *Service {
 }
 func (s *Service) Preference(ctx context.Context, user int64, show core.RatingKey) (Preference, error) {
 	p := Preference{Specials: "last"}
+	// A list asks for every listed series' preference; most viewers have
+	// none at all, which one read per request answers for every series.
+	if reqmemo.Active(ctx) {
+		any, err := reqmemo.Do(ctx, "episodeorder:any:"+strconv.FormatInt(user, 10), func() (bool, error) {
+			var any bool
+			err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM episodeorder_preferences WHERE user_id IN (0,?))`, user).Scan(&any)
+			return any, err
+		})
+		if err == nil && !any {
+			return p, nil
+		}
+	}
 	var id int64
 	err := s.db.QueryRowContext(ctx, `SELECT user_id,group_id,specials FROM episodeorder_preferences WHERE show_key=? AND user_id IN (0,?) ORDER BY user_id DESC LIMIT 1`, int64(show), user).Scan(&id, &p.GroupID, &p.Specials)
 	if errors.Is(err, sql.ErrNoRows) {

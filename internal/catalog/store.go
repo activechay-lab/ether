@@ -63,8 +63,17 @@ func cacheStoredTitle(kind core.KeyKind) bool {
 }
 
 func (c *Catalog) minuteBucket() int64 {
+	if c.frozenMinute.Load() {
+		return 0
+	}
 	return c.now().Unix() / 60
 }
+
+// FreezeCacheMinute keys the catalogue's caches by its write generation
+// alone, without the wall-clock minute, so a measured replay hits and
+// misses the same way whenever it crosses a minute (the performance gate).
+// Production never calls it.
+func (c *Catalog) FreezeCacheMinute() { c.frozenMinute.Store(true) }
 
 func (c *Catalog) loadByKey(ctx context.Context, key core.RatingKey) (*storedTitle, error) {
 	gen := c.writeGen.Load()
