@@ -54,6 +54,8 @@ func main() {
 		err = runTailBench(ctx, os.Args[2:])
 	case "pgcopy":
 		err = runPGCopy(ctx, os.Args[2:])
+	case "baseline-fixture":
+		err = runBaselineFixture(ctx, os.Args[2:])
 	case "baseline":
 		err = runBaseline(ctx, os.Args[2:])
 	case "compare":
@@ -73,7 +75,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL) | etherperf fixture -scale NAME -out DIR | etherperf longtail (-out FILE | -pg URL) [-titles N] [-hide-obscure] | etherperf sizes (-db FILE | -pg URL) | etherperf syncbench (-db FILE | -pg URL) [-titles N] [-details N] | etherperf pgcopy -db FILE -pg URL")
-	fmt.Fprintln(os.Stderr, "       etherperf baseline -url URL -container NAME -out DIR [flags] | etherperf compare [-client NAME] baseline.json... | etherperf dropcache PATH...")
+	fmt.Fprintln(os.Stderr, "       etherperf baseline-fixture -scale small|large -out DIR [-from DATA_DIR] | etherperf baseline -url URL -container NAME -out DIR [flags] | etherperf compare [-client NAME] baseline.json... | etherperf dropcache PATH...")
 
 	os.Exit(2)
 }

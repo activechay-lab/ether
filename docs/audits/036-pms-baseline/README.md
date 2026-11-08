@@ -130,3 +130,18 @@ exact source provenance before any release performance claim. Optional PMS
 10k is unmeasured and its old media tree was removed by the previous worker;
 it is not part of the live chain. Preserve named containers/volumes until the
 coordinator approves eventual lifecycle cleanup. Never claim or sign in PMS.
+
+## Integrated harness commands and raw artifacts
+
+Use `etherperf baseline-fixture` for the container-oriented fixture builder
+(`OUT/data` plus `OUT/viewer.json`, with `-from` to reuse a snapshot).
+`etherperf fixture` retains the gate builder's direct data-directory layout.
+Existing queued runs retain their original binaries and commands.
+
+New raw `results.json` records carry `schemaVersion: 2`: `items` is the
+numeric Plex container size in measurement mode; `renderedItems` maps title
+types to counts for the gate's page bound. Older gate records used an object
+in `items`, while older baseline records used a number. Raw consumers must
+distinguish those legacy forms by JSON type; do not treat absent new fields
+as proof of empty results. Existing evidence is preserved without rewriting.
+`baseline.json` summary rows and comparison-tool inputs are unchanged.

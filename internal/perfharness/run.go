@@ -25,19 +25,20 @@ import (
 
 // result is one timed request.
 type Result struct {
-	Phase   string        `json:"phase"`
-	Client  string        `json:"client"`
-	Surface string        `json:"surface"`
-	Step    string        `json:"step"`
-	Class   string        `json:"class"`
-	Viewer  string        `json:"viewer"`
-	Tag     string        `json:"tag"`
-	Status  int           `json:"status"`
-	Bytes   int           `json:"bytes"`
-	BodySHA string        `json:"bodySha256,omitempty"`
-	Dur     time.Duration `json:"dur"`
-	Err     string        `json:"err,omitempty"`
-	Skipped string        `json:"skipped,omitempty"`
+	SchemaVersion int           `json:"schemaVersion,omitempty"`
+	Phase         string        `json:"phase"`
+	Client        string        `json:"client"`
+	Surface       string        `json:"surface"`
+	Step          string        `json:"step"`
+	Class         string        `json:"class"`
+	Viewer        string        `json:"viewer"`
+	Tag           string        `json:"tag"`
+	Status        int           `json:"status"`
+	Bytes         int           `json:"bytes"`
+	BodySHA       string        `json:"bodySha256,omitempty"`
+	Dur           time.Duration `json:"dur"`
+	Err           string        `json:"err,omitempty"`
+	Skipped       string        `json:"skipped,omitempty"`
 	// RenderedItems counts the titles a listing response rendered, by type.
 	RenderedItems map[string]int `json:"renderedItems,omitempty"`
 	// Set when the runner measures (Measure): the bytes on the wire, the
@@ -186,7 +187,7 @@ func (r *Runner) do(ctx context.Context, phase string, c Client, s *session, st 
 	}
 	r.mu.Unlock()
 	tag := phase + "|" + c.Name + "|" + st.Name + "|" + strconv.FormatInt(r.seq.Add(1), 10)
-	res := Result{Phase: phase, Client: c.Name, Surface: c.Surface, Step: st.Name, Class: st.Class, Viewer: s.Viewer.Username, Tag: tag}
+	res := Result{SchemaVersion: 2, Phase: phase, Client: c.Name, Surface: c.Surface, Step: st.Name, Class: st.Class, Viewer: s.Viewer.Username, Tag: tag}
 	path, missing, ok := expand(c.Prefix+st.Path, vars)
 	body, missingBody, okBody := expand(st.Body, vars)
 	if !ok || !okBody {

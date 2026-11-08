@@ -34,7 +34,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/perfharness"
 )
 
-// viewerFile is the measured viewer etherperf fixture writes beside a data
+// viewerFile is the measured viewer etherperf baseline-fixture writes beside a data
 // directory. It holds a minted token for a throwaway copy, never a real one.
 type viewerFile struct {
 	ID       int64  `json:"id"`
@@ -48,7 +48,7 @@ func runBaseline(ctx context.Context, args []string) error {
 	portFlag := f.Int("port", 32400, "the server's Plex port when -url is not given")
 	container := f.String("container", "", "the server's Docker container (restarted for each cold step; its cgroup is the probe)")
 	label := f.String("label", "", "label for the report")
-	viewerPath := f.String("viewer", "", "viewer JSON from etherperf fixture (default: no token, for a server that trusts this network)")
+	viewerPath := f.String("viewer", "", "viewer JSON from etherperf baseline-fixture (default: no token, for a server that trusts this network)")
 	only := f.String("clients", "plex-appletv,plex-web", "comma-separated client names")
 	stepNames := f.String("steps", "", "comma-separated substrings of step names (default all)")
 	rounds := f.Int("rounds", 20, "warm rounds")
@@ -398,11 +398,11 @@ func docker(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// runFixture builds an Ether data directory holding a synthetic library at
+// runBaselineFixture builds an Ether data directory holding a synthetic library at
 // one of the gate's scales, configured to serve on 0.0.0.0 (for a private
 // container network), and writes the owner's minted credentials beside it.
-func runFixture(ctx context.Context, args []string) error {
-	f := flag.NewFlagSet("fixture", flag.ExitOnError)
+func runBaselineFixture(ctx context.Context, args []string) error {
+	f := flag.NewFlagSet("baseline-fixture", flag.ExitOnError)
 	scaleName := f.String("scale", "small", "small (the gate's 54k rows) or large (540k)")
 	out := f.String("out", "", "new directory: OUT/data is the data directory, OUT/viewer.json the owner")
 	port := f.Int("port", 32400, "Plex port inside the container")
