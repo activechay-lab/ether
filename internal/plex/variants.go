@@ -789,22 +789,7 @@ func (s *Server) admittedMedia(p *playRequest) int64 {
 // When the playback manager cannot target a release, it logs and plays
 // the normal choice instead of failing.
 func (s *Server) prepareForRelease(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps, releaseID string) (*core.PlaySession, error) {
-	// Starts and direct part reads can skip decision entirely. Bound their
-	// acquisition wait too; the manager retains the shared source flight.
-	if pw, ok := s.d.Playback.(core.PlaybackPrepareWithin); ok {
-		if _, err := pw.PrepareWithin(ctx, decisionSourceWait, user, key, caps, releaseID, false); err != nil {
-			return nil, err
-		}
-		// Retain normal admission/supersession semantics on success.
-	}
-	if releaseID != "" {
-		if vp, ok := s.d.Playback.(core.VariantPlayback); ok {
-			return vp.PrepareVariant(ctx, user, key, caps, releaseID)
-		}
-		s.log.Info("variant pick ignored: playback manager has no variant support",
-			"key", key, "release", releaseID)
-	}
-	return s.d.Playback.Prepare(ctx, user, key, caps)
+	return s.plexSources().Prepare(ctx, user, key, caps, releaseID, decisionSourceWait)
 }
 
 // variantWatchSchedule is when a detail page rendered with a single version

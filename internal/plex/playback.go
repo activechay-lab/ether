@@ -20,7 +20,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
@@ -1826,24 +1825,9 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
-	anonymousContinuation := false
-	if pr.ClientID == "" {
-		if lookup, supported := s.d.Playback.(interface {
-			PlexSessionForPart(int64, core.RatingKey, string) (*core.PlaySession, bool)
-		}); supported {
-			ps, ok = lookup.PlexSessionForPart(pr.User.ID, key, releaseID)
-			anonymousContinuation = ok && ps != nil
-		}
-	}
-	live := ""
-	if ok && ps != nil {
-		live = ps.ID
-	}
-	// A live session on a different release does not satisfy a variant part.
-	if ok && ps != nil && releaseID != "" && (ps.Resolution == nil || ps.Resolution.Release.ID != releaseID) {
-		ok = false
-	}
+	source := s.plexSources().Part(pr.User.ID, pr.ClientID, key, releaseID)
+	ps, ok := source.Session, source.Matches
+	live, anonymousContinuation := source.PreviousID, source.AnonymousContinuation
 	if anonymousContinuation {
 		if confirm, supported := s.playbackBroker.(interface {
 			ConfirmPlexAdmission(context.Context, *core.Viewer, bool) (*core.Viewer, error)
@@ -1937,7 +1921,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	}
 	unlockOwner()
 	cw := s.newCountWriter(w, r)
-	s.d.Playback.ServeRange(cw, playback.PlexPartRequest(r), ps.ID)
+	s.plexSources().ServePart(cw, r, ps.ID)
 	cw.finish()
 }
 
