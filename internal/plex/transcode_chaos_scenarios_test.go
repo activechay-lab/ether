@@ -101,13 +101,6 @@ func TestTranscodeChaosCorpusScenarios(t *testing.T) {
 								}
 								q := fmt.Sprintf("path=%%2Flibrary%%2Fmetadata%%2F%s&session=%s&directPlay=0&directStream=%s&offset=%.3f%s", fightClub.Key.String(), id, direct, offset.Seconds(), extra)
 								base := "/video/:/transcode/universal/session/" + id + "/"
-								// A player asks for a decision before it starts; the
-								// decision arms the start for that session.
-								protocol := map[string]string{"hls": "hls", "hls-fmp4": "hls", "dash": "dash"}[path]
-								if protocol == "" {
-									protocol = "http"
-								}
-								get("/video/:/transcode/universal/decision?protocol=" + protocol + "&" + q)
 								switch path {
 								case "hls", "hls-fmp4":
 									get("/video/:/transcode/universal/start.m3u8?protocol=hls&" + q)
