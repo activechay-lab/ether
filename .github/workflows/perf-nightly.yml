@@ -1,10 +1,10 @@
-name: Nightly 800k performance gate
+name: Nightly full-mirror performance gate
 
 # The per-push gate (ci.yml, performance) compares a 54k and a 540k row
-# library. This one compares 80k and 800k titles with long-tail detail rows
-# (1.76M catalogue rows), the size of a household mirroring TMDB with
-# "hide obscure titles" off. It takes too long for every push, so it runs
-# nightly on main and on demand (docs/performance.md).
+# library. This one compares a full TMDB mirror (1.28M titles with long-tail
+# detail rows, 1.69M catalogue rows) against a tenth of it. It takes too long
+# for every push, so it runs nightly on main and on demand
+# (docs/performance.md).
 on:
   schedule:
     - cron: '17 7 * * *'
@@ -23,9 +23,9 @@ permissions:
   contents: read
 
 jobs:
-  performance-800k:
-    name: 800k library-scale performance gate
-    timeout-minutes: 150
+  performance-full-mirror:
+    name: Full-mirror (1.3M titles) performance gate
+    timeout-minutes: 300
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -36,14 +36,58 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Performance gate (80k / 800k titles)
+      - name: Performance gate (128k / 1.28M titles)
         env:
           CGO_ENABLED: "0"
           ETHER_PERF_GATE: xlarge
-          ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate-800k.md
-        run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 140m -v
+          ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate-xlarge.md
+        run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 290m -v
       - name: Publish the gate report
         if: always()
         shell: bash
         run: |
-          if [ -f "$RUNNER_TEMP/perf-gate-800k.md" ]; then cat "$RUNNER_TEMP/perf-gate-800k.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$RUNNER_TEMP/perf-gate-xlarge.md" ]; then cat "$RUNNER_TEMP/perf-gate-xlarge.md" >> "$GITHUB_STEP_SUMMARY"; fi
+
+  # The same pair on PostgreSQL: each library is copied in as `ether cluster
+  # init` does and analysed, then replayed with the same steps and the same
+  # flat-work rule. PostgreSQL plans the same SQL differently, and a plan that
+  # is an index seek on SQLite can read the catalogue whole there.
+  performance-full-mirror-postgres:
+    name: Full-mirror (1.3M titles) performance gate on PostgreSQL 14
+    timeout-minutes: 340
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: ether
+          POSTGRES_PASSWORD: ether
+          POSTGRES_DB: ether
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ether -d ether"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Performance gate on PostgreSQL (128k / 1.28M titles)
+        env:
+          CGO_ENABLED: "0"
+          ETHER_PERF_GATE: xlarge
+          ETHER_PERF_GATE_PG: postgres://ether:ether@127.0.0.1:5432/ether?sslmode=disable
+          ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate-xlarge-postgres.md
+        run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 330m -v
+      - name: Publish the gate report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/perf-gate-xlarge-postgres.md" ]; then cat "$RUNNER_TEMP/perf-gate-xlarge-postgres.md" >> "$GITHUB_STEP_SUMMARY"; fi

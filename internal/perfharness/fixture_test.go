@@ -166,7 +166,7 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 	}
 	// Live tallies sit in their delta tables until the catalogue folds
 	// them; compare the sums a read takes.
-	for name, dims := range map[string]string{"catalog_browse_tally": "type,genre,rating_rank", "catalog_stats_tally": "kind,browsable,home,year_pending"} {
+	for name, dims := range map[string]string{"catalog_browse_tally": "type,genre,rating_rank", "catalog_stats_tally": "kind,browsable,home,year_pending", "catalog_facet_tally": "type,facet,value,rating_rank"} {
 		delete(tables, name+"_delta")
 		tables[name] = `SELECT ` + dims + `,SUM(n) FROM (SELECT ` + dims + `,n FROM ` + name + ` UNION ALL SELECT ` + dims + `,d FROM ` + name + `_delta) GROUP BY ` + dims + ` HAVING SUM(n)<>0`
 	}
@@ -177,6 +177,7 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 		"catalog_titles_fts":       `SELECT rowid FROM catalog_titles_fts WHERE catalog_titles_fts MATCH 'pisode'`,
 		"catalog_alt_titles_fts":   `SELECT rowid FROM catalog_alt_titles_fts WHERE catalog_alt_titles_fts MATCH 'ren'`,
 		"catalog_person_names_fts": `SELECT rowid FROM catalog_person_names_fts WHERE catalog_person_names_fts MATCH 'ka*'`,
+		"catalog_studio_names_fts": `SELECT n.studio FROM catalog_studio_names_fts f JOIN catalog_studio_names n ON n.rowid=f.rowid WHERE f.studio LIKE '%ren%'`,
 	} {
 		tables[name] = q
 		if _, err := rebuilt.ExecContext(ctx, `INSERT INTO `+name+`(`+name+`) VALUES('integrity-check')`); err != nil {

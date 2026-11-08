@@ -374,6 +374,24 @@ func TestIndexedPeopleMatchTheCreditWalk(t *testing.T) {
 			}
 		}
 	}
+	// A person page for an identifier search handed out reads the person's
+	// credits by index and chooses the same credit the walk does.
+	for _, q := range []frontend.PeopleQuery{{Query: "scene"}, {Query: "episode", Scope: frontend.PeopleVideoWithEpisodes}, {Query: "series", Scope: frontend.PeopleSeries}} {
+		found, err := indexed.People(ctx, viewer, core.Device{}, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range found {
+			want, err := walk.Person(ctx, viewer, core.Device{}, p.ID, frontend.PersonReadOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := indexed.Person(ctx, viewer, core.Device{}, p.ID, frontend.PersonReadOptions{})
+			if err != nil || got.ID != want.ID || got.Name != want.Name || got.IMDB != want.IMDB || got.ArtworkItem != want.ArtworkItem {
+				t.Fatalf("person %s: indexed %+v %v, walk %+v", p.ID, got, err, want)
+			}
+		}
+	}
 	if n := c.creditCalls.Load(); n != 0 {
 		t.Fatalf("indexed people search walked credits %d times", n)
 	}

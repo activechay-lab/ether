@@ -23,6 +23,11 @@ type Scale struct {
 	Shows             int
 	SeasonsPerShow    int
 	EpisodesPerSeason int
+	// EpisodeShows is how many series have their episodes stored (0: all).
+	// The catalogue stores a series' seasons with its details and its
+	// episodes only once a season is opened, so on a full mirror they are
+	// the household's series, not the catalogue's.
+	EpisodeShows int
 	// Viewers beyond the owner, each with HistoryPerViewer watched titles
 	// and InProgressPerViewer partly watched ones.
 	Viewers             int
@@ -32,7 +37,11 @@ type Scale struct {
 
 // Rows is the number of catalogue rows the scale produces.
 func (s Scale) Rows() int {
-	return s.Movies + s.Shows*(1+s.SeasonsPerShow*(1+s.EpisodesPerSeason))
+	opened := s.Shows
+	if s.EpisodeShows > 0 {
+		opened = min(s.EpisodeShows, s.Shows)
+	}
+	return s.Movies + s.Shows*(1+s.SeasonsPerShow) + opened*s.SeasonsPerShow*s.EpisodesPerSeason
 }
 
 // Divide shrinks the library by n, keeping the household.
@@ -52,10 +61,12 @@ var LargeScale = Scale{Movies: 250_000, Shows: 10_000, SeasonsPerShow: 4, Episod
 // gate compares the two, so only the library differs.
 var SmallScale = LargeScale.Divide(10)
 
-// XLargeScale is the nightly gate's library: 800k titles, 70% of them
-// movies, as a household that mirrors TMDB's long tail holds (1.76M
-// catalogue rows). Its pair is XLargeScale.Divide(10).
-var XLargeScale = Scale{Movies: 560_000, Shows: 240_000, SeasonsPerShow: 1, EpisodesPerSeason: 3, Viewers: 2, HistoryPerViewer: 20_000, InProgressPerViewer: 40}
+// XLargeScale is the nightly gate's library: a full TMDB mirror, 1.28M
+// titles (1,073,442 movies and 205,326 series, TMDB's dated, non-adult
+// counts), each series with two seasons stored and the episodes of 300
+// opened series, as the long-tail universe (longtail.go) mirrors it. Its
+// pair is XLargeScale.Divide(10).
+var XLargeScale = Scale{Movies: 1_073_442, Shows: 205_326, SeasonsPerShow: 2, EpisodesPerSeason: 13, EpisodeShows: 300, Viewers: 2, HistoryPerViewer: 20_000, InProgressPerViewer: 40}
 
 var fixtureGenres = []string{"Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery", "Romance", "Science Fiction", "Thriller", "War", "Western", "TV Movie"}
 
@@ -73,7 +84,7 @@ func Generate(ctx context.Context, db *sql.DB, s Scale, now time.Time) error {
 // generation) would dominate the load. Generate sets them aside and
 // rebuilds what they maintain once, from the same rows; the history
 // triggers stay on, they cost little.
-var fixtureTriggerTables = []string{"catalog_titles", "catalog_genres", "catalog_countries", "catalog_credits", "catalog_person_names", "catalog_keywords", "catalog_alt_titles", "catalog_studios", "catalog_collections", "catalog_home_release"}
+var fixtureTriggerTables = []string{"catalog_titles", "catalog_genres", "catalog_countries", "catalog_credits", "catalog_person_names", "catalog_keywords", "catalog_alt_titles", "catalog_studios", "catalog_studio_names", "catalog_collections", "catalog_home_release"}
 
 // generate is Generate; live keeps every trigger on instead, as production
 // writes, so a test can prove the rebuild matches it.
@@ -84,10 +95,16 @@ func generate(ctx context.Context, db *sql.DB, s Scale, now time.Time, live bool
 	// TMDB's keyword and company vocabularies, as LongTailTMDB draws them.
 	g.keywordPool = rand.NewZipf(rng, 1.05, 1, 30_000)
 	g.studioPool = rand.NewZipf(rng, 1.05, 1, 40_000)
-	restore := func() error { return nil }
+	restore, reindex := func() error { return nil }, func() error { return nil }
 	if !live {
 		var err error
 		if restore, err = suspendTriggers(ctx, db, fixtureTriggerTables...); err != nil {
+			return err
+		}
+		// A bulk load: the secondary indexes are set aside and built once
+		// from the loaded rows, which is several times faster than keeping
+		// 37 indexes of catalog_titles in step row by row.
+		if reindex, err = setAsideIndexes(ctx, db, fixtureTriggerTables...); err != nil {
 			return err
 		}
 	}
@@ -98,6 +115,9 @@ func generate(ctx context.Context, db *sql.DB, s Scale, now time.Time, live bool
 		return fmt.Errorf("ratings: %w", err)
 	}
 	if !live {
+		if err := reindex(); err != nil {
+			return fmt.Errorf("indexes: %w", err)
+		}
 		if err := rebuildDerived(ctx, db); err != nil {
 			return fmt.Errorf("rebuild: %w", err)
 		}
@@ -135,6 +155,10 @@ func rebuildDerived(ctx context.Context, db *sql.DB) error {
 		`INSERT INTO catalog_person_names(person_tmdb,name,credits) SELECT person_tmdb, MAX(name), COUNT(*) FROM catalog_credits WHERE person_tmdb>0 GROUP BY person_tmdb`,
 		`INSERT INTO catalog_person_names_fts(catalog_person_names_fts) VALUES('rebuild')`,
 		`INSERT INTO catalog_alt_titles_fts(catalog_alt_titles_fts) VALUES('rebuild')`,
+		// The studio vocabulary and its search index.
+		`DELETE FROM catalog_studio_names`,
+		`INSERT INTO catalog_studio_names(studio,titles) SELECT studio, COUNT(*) FROM catalog_studios GROUP BY studio`,
+		`INSERT INTO catalog_studio_names_fts(catalog_studio_names_fts) VALUES('rebuild')`,
 		`INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild')`,
 		// Every catalogue write advances the viewer-policy generation.
 		`UPDATE viewer_policy_epoch SET generation=generation+1 WHERE id=1`,
@@ -149,6 +173,46 @@ func rebuildDerived(ctx context.Context, db *sql.DB) error {
 	}
 	// The library totals, the dashboard tally and the per-series ratings.
 	return catalog.RebuildLibraryCounts(ctx, db)
+}
+
+// setAsideIndexes drops the explicit indexes on tables (primary keys and
+// unique constraints stay) and returns a function that recreates them.
+func setAsideIndexes(ctx context.Context, db *sql.DB, tables ...string) (func() error, error) {
+	in := strings.TrimSuffix(strings.Repeat("?,", len(tables)), ",")
+	args := make([]any, len(tables))
+	for i, t := range tables {
+		args[i] = t
+	}
+	rows, err := db.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND tbl_name IN (`+in+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	var names, defs []string
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		names, defs = append(names, name), append(defs, def)
+	}
+	rows.Close()
+	for _, name := range names {
+		if _, err := db.ExecContext(ctx, `DROP INDEX "`+name+`"`); err != nil {
+			return nil, err
+		}
+	}
+	return func() error {
+		for _, def := range defs {
+			if _, err := db.ExecContext(ctx, def); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
 }
 
 // suspendTriggers drops the triggers on tables and returns a function that
@@ -202,6 +266,7 @@ type generator struct {
 	movies  []core.RatingKey
 	shows   []core.RatingKey
 	eps     []core.RatingKey
+	showEps []int // where each opened series' episodes start in eps
 
 	people      personDeck
 	used        map[int32]bool // people already credited on the current title
@@ -301,7 +366,7 @@ func (g *generator) flush() error {
 	// background checkpointer); without one the WAL grows by gigabytes and
 	// every later statement slows down.
 	g.flushes++
-	if g.flushes%20 == 0 {
+	if g.flushes%5 == 0 {
 		_, err = g.db.ExecContext(g.ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	}
 	return err
@@ -387,13 +452,17 @@ func (g *generator) titles(s Scale) error {
 			return err
 		}
 		day := rel
+		opened := s.EpisodeShows == 0 || i <= s.EpisodeShows
+		if opened {
+			g.showEps = append(g.showEps, len(g.eps))
+		}
 		for season := 1; season <= s.SeasonsPerShow; season++ {
 			skey := core.SeasonKey(id, season)
 			stitle := fmt.Sprintf("Season %d", season)
 			if err := g.insert("catalog_titles", titleCols, int64(skey), "season", i, "", 0, int64(key), id, title, stitle, season, 0, stitle, stitle, strings.ToLower(stitle), "", "", day.Year(), day.Unix(), 0, 0, 0, "", "en", "", "", 0, 0, 0, "/s.jpg", "", "", 0, "", s.EpisodesPerSeason, s.EpisodesPerSeason, 0, day.Unix(), fresh, 1, fresh, ""); err != nil {
 				return err
 			}
-			for ep := 1; ep <= s.EpisodesPerSeason; ep++ {
+			for ep := 1; opened && ep <= s.EpisodesPerSeason; ep++ {
 				ekey := core.EpisodeKey(id, season, ep)
 				etitle := fmt.Sprintf("Episode %d", ep)
 				if err := g.insert("catalog_titles", titleCols, int64(ekey), "episode", i, fmt.Sprintf("tt8%03d%02d%02d", i%1000, season, ep), 0, int64(key), id, title, stitle, season, ep, etitle, etitle, strings.ToLower(etitle), "", "", day.Year(), day.Unix(), 0, 0, 2700, "", "en", "", "", 0, 0, 0, "", "", "", 0, "", 0, 0, 0, day.Unix(), fresh, 1, fresh, ""); err != nil {
@@ -486,10 +555,15 @@ func (g *generator) ratings() error {
 		WHERE type IN ('season','episode') AND content_rating=''`); err != nil {
 		return err
 	}
+	// Every rated title's rank, in one pass over the titles.
+	var cases strings.Builder
+	var args []any
 	for _, r := range []string{"G", "PG", "PG-13", "R", "TV-G", "TV-PG", "TV-14", "TV-MA"} {
-		if _, err := g.db.ExecContext(g.ctx, `UPDATE catalog_titles SET content_rating_rank=? WHERE content_rating=?`, int(contentrating.LevelOf(r)), r); err != nil {
-			return err
-		}
+		cases.WriteString(" WHEN ? THEN ?")
+		args = append(args, r, int(contentrating.LevelOf(r)))
+	}
+	if _, err := g.db.ExecContext(g.ctx, `UPDATE catalog_titles SET content_rating_rank=CASE content_rating`+cases.String()+` END WHERE content_rating IN ('G','PG','PG-13','R','TV-G','TV-PG','TV-14','TV-MA')`, args...); err != nil {
+		return err
 	}
 	return nil
 }
@@ -507,13 +581,35 @@ func (g *generator) restrict(user, now int64) error {
 	return err
 }
 
+// A viewer's history is drawn from a taste of a fixed size, whatever the
+// library's: up to 8000 movies and the episodes of up to 300 series. A
+// heavy viewer watches a few hundred series, not a share of the catalogue,
+// so the household stays the same when only the library grows.
+const (
+	tasteMovies = 8000
+	tasteShows  = 300
+)
+
+func (g *generator) taste(s Scale) (movies, eps []core.RatingKey) {
+	for _, i := range g.rng.Perm(len(g.movies))[:min(tasteMovies, len(g.movies))] {
+		movies = append(movies, g.movies[i])
+	}
+	if per := s.SeasonsPerShow * s.EpisodesPerSeason; per > 0 {
+		for _, i := range g.rng.Perm(len(g.showEps))[:min(tasteShows, len(g.showEps))] {
+			eps = append(eps, g.eps[g.showEps[i]:g.showEps[i]+per]...)
+		}
+	}
+	return movies, eps
+}
+
 func (g *generator) history(user int64, s Scale) error {
 	seen := map[core.RatingKey]bool{}
+	movies, eps := g.taste(s)
 	pick := func() core.RatingKey {
-		if len(g.eps) > 0 && g.rng.IntN(2) == 0 {
-			return g.eps[g.rng.IntN(len(g.eps))]
+		if len(eps) > 0 && g.rng.IntN(2) == 0 {
+			return eps[g.rng.IntN(len(eps))]
 		}
-		return g.movies[g.rng.IntN(len(g.movies))]
+		return movies[g.rng.IntN(len(movies))]
 	}
 	// State times are Unix nanoseconds, as internal/state writes them.
 	now := g.now.UnixNano()

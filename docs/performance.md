@@ -155,14 +155,31 @@ twice:
   40,000 seasons and 240,000 episodes, 540k rows in all.
 
 Both carry the same household (three viewers with 20,000 history rows
-each), so only the library differs. Titles are made-up words, one in fifty
-with a common English word, so substring search matches about as sparsely
-as on a real catalogue. The App runs with the background WAL checkpointer,
-as `Run` does.
+each, drawn from a taste of 8,000 movies and 300 series, three playlists
+of 40, 600 and 3,000 items and 55 favourites), so only the library
+differs. Titles are made-up words, one in fifty with a common English
+word, so substring search matches about as sparsely as on a real
+catalogue. Every title carries TMDB-shaped detail in long-tail
+distributions (`LongTailShape` in `internal/perfharness/longtail.go`,
+fitted to a real mirror): credits (cast capped at 30, as the catalogue
+keeps it, plus directors, writers and crew; people dealt by preferential
+attachment, so most have one credit and a few have hundreds), keywords,
+genres, countries, studios, alternative titles, crowd recommendations,
+franchises and home-release checks. The rows go in with the catalogue's
+triggers set aside, and everything those triggers keep (search indexes,
+person names, genre pairs, show dates, episode counts, library tallies)
+is rebuilt from them; `TestGenerateMatchesLiveTriggers` proves the result
+is what a load with every trigger on writes. The App runs with the
+background WAL checkpointer, as `Run` does.
 
 On each library it starts a real App and replays one client per protocol
-(Plex, Infuse on Jellyfin, Emby, Silo, Stremio, the console). Then it
-compares every endpoint across the two libraries.
+(Plex for Apple TV and a second Apple TV, Plex Web, Infuse on Jellyfin,
+Emby, Silo, Stremio, the console) and Apple TV's playback writes (play
+queues, timeline, progress, scrobble, rating). The owner replays cold and
+twice warm; a second viewer replays once with that viewer's caches cold
+(the `first` phase), and the report shows the owner's cold work beside the
+second viewer's first pass. Then it compares every endpoint across the two
+libraries, the second viewer's first pass on its own.
 
 | an endpoint fails when, on the 10× library | threshold |
 |---|---|
@@ -181,7 +198,39 @@ that stayed flat so they can be removed; the list only shrinks.
 ```sh
 ETHER_PERF_GATE=1 go test ./internal/app -run TestPerformanceGate -v -timeout 60m
 ETHER_PERF_GATE=quick go test ./internal/app -run TestPerformanceGate -v   # a 5k/54k pair, not ratcheted
+ETHER_PERF_GATE=xlarge go test ./internal/app -run TestPerformanceGate -v -timeout 290m   # 128k/1.28M titles
 ```
+
+The `xlarge` pair is a full TMDB mirror, the design target: 1,278,768
+dated, non-adult titles (1,073,442 movies and 205,326 series), every series
+with its seasons and the episodes of the 300 series a household opened
+(the catalogue stores episodes when a season is opened), 1.69M catalogue
+rows in all, against a tenth of it. It takes too long for every push, so
+`.github/workflows/perf-nightly.yml` runs it nightly on main and on demand
+(`workflow_dispatch`, any ref). It uses the same debt file and thresholds.
+
+The nightly workflow runs the same pair on PostgreSQL too
+(`ETHER_PERF_GATE_PG=postgres://…`): each library is copied into a schema
+of its own as `ether cluster init` does, analysed, and replayed with the
+same steps and thresholds.
+
+On every push the PostgreSQL CI job also runs `TestPostgresHotPlans`
+(`internal/app/perf_pg_plans_test.go`, about a minute): it replays Home,
+Continue Watching and On Deck, sorted and filtered section pages, search
+and detail against a 2k-movie library on PostgreSQL 14, and explains every
+read those requests ran as a generic plan, twice: with the statistics
+ANALYZE leaves (a catalogue small next to a heavy viewer's history, where
+PostgreSQL likes to hash a whole catalogue subquery), and with every
+catalogue table's planner statistics scaled to a 1.3M-title mirror and the
+watch tables' to a large household (`pg_class.reltuples`). It fails on a
+hashed subplan over a catalogue table in either state, and at mirror scale
+on a sequential scan of a catalogue or watch table or a bitmap heap scan
+without an index condition. Writes, and statements PostgreSQL cannot
+prepare without parameter types, are listed as not checked.
+
+`go run ./cmd/etherperf fixture -scale large -out DIR` (also `quick`,
+`small`, `xsmall`, `xlarge`) writes a gate library as a data directory
+that `etherperf real -source DIR` replays.
 
 To work on one endpoint, narrow and keep the run:
 
@@ -192,6 +241,7 @@ To work on one endpoint, narrow and keep the run:
 | `ETHER_PERF_GATE_KEEP=/tmp/gate` | keep each scale's trace and database for `etherperf audit` |
 | `ETHER_PERF_TRACE_DEPTH=3` | record three callers per traced statement, to find an N+1's caller |
 | `ETHER_PERF_GATE_CPUPROFILE=/tmp/replay.out` | CPU profile of the large replay alone |
+| `ETHER_PERF_GATE_FIXTURES=/tmp/fixtures` | keep each generated library there and clone it on the next run instead of generating it again |
 
 ## Architecture
 

@@ -2,3 +2,38 @@
 # when the gate was introduced (54k vs 540k synthetic rows). One
 # "client | step" per line. Remove a line when its endpoint is fixed; never
 # add one for new code: a new path must stay flat as the library grows.
+
+# First measured by the long-tail detail fixture and the per-viewer cold and
+# first passes (PR #382, 2026-11-08, clean CI runner). Pre-existing: main's
+# code scales on these paths; the new tier exposed them. "owner: cause".
+plex-appletv | episode postplay  # C: postplay hub hydrates related titles' detail per candidate
+plex-appletv | /hubs/search star  # K/J (search): candidate hydration N+1 (visibility Get per series), rows over the window bound
+plex-appletv | movies filter genre deep  # C: deep offset page walks the genre's titles in sort order (keyset wanted)
+plex-appletv | movies filter decade  # C: year-range page and total read every title of the decade
+plex-appletv | movies filter unwatched  # C: unwatched page walks titles in sort order past the viewer's watched ones
+plex-appletv | movies unwatched  # C: /unwatched total counted directly (not the tally-less-watched shape)
+plex-appletv | movies all addedAt 15k  # C: offset 15k page by date added walks the index (keyset wanted)
+plex-appletv | movies studio filter list  # C: studio list sums every studio's tally rows (vocabulary-sized)
+plex-appletv | movies collections type=18  # C: the collections index snapshots the whole catalogue; every franchise is listed
+plex-appletv | movies collection dir  # C: every franchise of the library is listed and counted
+plex-appletv | shows onDeck  # E: section On Deck deck walk
+plex-web | /hubs  # C/E: Home rows' per-series continue and visibility reads on a cold build
+plex-web | /hubs/promoted bare  # C/E: as /hubs
+plex-web | /hubs/sections/movies  # C: section hubs' per-title reads on a cold build
+plex-web | /hubs/search star  # K/J (search): as plex-appletv /hubs/search star
+plex-web | movies collections type=18  # C: as plex-appletv
+plex-web | playlist items  # C: per-item Get of a 3000-item playlist (fixed by 7d270726b, PreloadStored)
+plex-appletv playback | playQueue show continuous  # C: a show queue reads every episode's series and state
+plex-appletv playback | playQueue playlist shuffle  # C: a play queue without window= renders all 3000 items with detail (PMS window semantics: owner question)
+plex-appletv playback | /hubs/continueWatching after scrobble  # E/C: continue rebuild per-series reads (reduced by e57577f95)
+infuse-jellyfin | search items star  # K/J (search): candidate hydration over the window bound
+infuse-jellyfin | search persons  # K/J (search)
+emby-sdk | search  # K/J (search)
+silo-appletv | user/libraries  # C: library cards issue receipts and admit entries per card on a cold build
+silo-appletv | library movies sections  # C: row admission per card (reduced by 664d4e643) and continue walk
+silo-appletv | library series sections  # C: as library movies sections
+silo-appletv | catalog movies title  # C: catalogue page hydration on a viewer's first pass
+silo-appletv | catalog series title  # C: as catalog movies title
+silo-appletv | catalog movies title cursor 15k  # C: cursor is an offset (keyset wanted)
+silo-appletv | catalog search star  # K/J (search): candidate hydration over the window bound
+plex-appletv restricted | shows allLeaves p1  # C: restricted viewer's episode listing reads per-series ratings

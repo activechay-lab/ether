@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -1993,42 +1992,7 @@ func facetID(kind, value string) string {
 	sum := sha256.Sum256([]byte("ether/facet/v1\x00" + kind + "\x00" + value))
 	sum[6] = (sum[6] & 0x0f) | 0x50
 	sum[8] = (sum[8] & 0x3f) | 0x80
-	id := hex.EncodeToString(sum[:16])
-	if kind == "person" {
-		personFacets.remember(id, value)
-	}
-	return id
-}
-
-// personFacets maps the person ids Ether has handed out back to the TMDB id
-// they hash, so a client's PersonIds filter or person page resolves its id
-// with one index read instead of hashing every credited person in the
-// library. It is bounded; a forgotten id falls back to that walk.
-var personFacets = &personFacetMemo{m: map[string]string{}}
-
-type personFacetMemo struct {
-	mu sync.Mutex
-	m  map[string]string
-}
-
-func (p *personFacetMemo) remember(id, tmdb string) {
-	p.mu.Lock()
-	if len(p.m) >= 200_000 {
-		p.m = map[string]string{}
-	}
-	p.m[id] = tmdb
-	p.mu.Unlock()
-}
-
-func (p *personFacetMemo) tmdb(id string) (int64, bool) {
-	p.mu.Lock()
-	v, ok := p.m[id]
-	p.mu.Unlock()
-	if !ok {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	return n, err == nil && n > 0
+	return hex.EncodeToString(sum[:16])
 }
 
 // ResolveFacet only resolves identifiers among the viewer's current visible facets.
@@ -2044,11 +2008,11 @@ func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device 
 		}
 	}
 	if kind == "person" {
-		if tmdb, ok := personFacets.tmdb(id); ok {
+		if tmdb, ok := personTMDB(id); ok && s.d.PersonCredits != nil && s.d.CachedGetMany != nil {
 			var person frontend.PersonDetail
 			err := s.readPeople(ctx, viewer, func(snapshot *Service) error {
 				var e error
-				person, e = snapshot.visiblePerson(ctx, viewer, tmdb)
+				person, e = snapshot.indexedPerson(ctx, viewer, tmdb)
 				return e
 			})
 			if err == nil && person.ID == id {

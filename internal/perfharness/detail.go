@@ -98,8 +98,6 @@ func poolWord(salt string, i int) string {
 	return madeUpWord(h) + " " + strings.ToLower(madeUpWord(splitmix(h)))
 }
 
-var crewRoles = []string{"Composer", "Director of Photography", "Editor", "Producer", "Executive Producer", "Casting", "Production Design", "Costume Design"}
-
 // details queues key's detail rows.
 func (g *generator) details(key core.RatingKey, s Shape, title string) error {
 	k := int64(key)

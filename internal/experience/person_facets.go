@@ -3,7 +3,6 @@ package experience
 import (
 	"context"
 	"errors"
-	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -41,7 +40,7 @@ func (s *Service) PersonFacetIDs(ctx context.Context, viewer *core.Viewer, _ cor
 			if p.TMDB <= 0 || p.Name == "" {
 				continue
 			}
-			id := facetID("person", strconv.FormatInt(p.TMDB, 10))
+			id := personFacetID(p.TMDB)
 			if old, ok := seen[id]; ok && old != p.TMDB {
 				return nil, errors.New("experience: facet identifier collision")
 			}

@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
+	"strings"
 	"time"
 )
 
@@ -90,10 +91,35 @@ func (d *Discovery) FilterContinue(ctx context.Context, u *core.User, titles []c
 	if u == nil {
 		return out
 	}
+	// The viewer's hidden identities among the row's, in one read per 400
+	// titles instead of one per title.
+	hidden := map[core.RatingKey]bool{}
+	ids := make([]any, 0, len(titles))
+	for i := range titles {
+		ids = append(ids, int64(discoveryIdentity(&titles[i])))
+	}
+	for start := 0; start < len(ids); start += 400 {
+		part := ids[start:min(start+400, len(ids))]
+		rows, e := d.db.QueryContext(ctx, `SELECT item_key FROM personalize_discovery_hidden WHERE user_id=? AND item_key IN (?`+strings.Repeat(",?", len(part)-1)+`)`, append([]any{u.ID}, part...)...)
+		if e != nil {
+			return []core.Title{}
+		}
+		for rows.Next() {
+			var k int64
+			if rows.Scan(&k) == nil {
+				hidden[core.RatingKey(k)] = true
+			}
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return []core.Title{}
+		}
+	}
 	seen := map[core.RatingKey]bool{}
 	for _, t := range titles {
 		k := discoveryIdentity(&t)
-		if seen[k] || !d.visible(u, &t) || !d.ContinueAllowed(ctx, u.ID, &t) {
+		if seen[k] || !d.visible(u, &t) || hidden[k] {
 			continue
 		}
 		seen[k] = true

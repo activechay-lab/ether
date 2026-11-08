@@ -17,9 +17,31 @@ func (s *Server) searchPlaylists(ctx context.Context, pr *Request, query, direct
 	if s.d.Playlists == nil || pr.User == nil || query == "" {
 		return nil
 	}
-	lists, err := s.d.Playlists.List(ctx, pr.User.ID)
-	if err != nil {
-		return nil
+	var lists []core.Playlist
+	if headers, ok := s.d.Playlists.(interface {
+		ListHeaders(context.Context, int64) ([]core.Playlist, error)
+	}); ok {
+		// Read only the playlists whose titles match, not every item of
+		// every playlist the viewer has.
+		hs, err := headers.ListHeaders(ctx, pr.User.ID)
+		if err != nil {
+			return nil
+		}
+		for _, h := range hs {
+			if h.UserID != pr.User.ID || playlistSearchScore(h.Title, query) == 0 {
+				continue
+			}
+			pl, err := s.d.Playlists.Get(ctx, pr.User.ID, h.Key)
+			if err != nil {
+				continue
+			}
+			lists = append(lists, *pl)
+		}
+	} else {
+		var err error
+		if lists, err = s.d.Playlists.List(ctx, pr.User.ID); err != nil {
+			return nil
+		}
 	}
 	var out []model.Metadata
 	for i := range lists {

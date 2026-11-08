@@ -3,20 +3,25 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/perfharness"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -26,8 +31,15 @@ import (
 // docs/performance.md.
 const PerfGateEnv = "ETHER_PERF_GATE"
 
+// PerfGatePGEnv, a postgres:// URL, runs each scale of the gate on
+// PostgreSQL instead of SQLite.
+const PerfGatePGEnv = "ETHER_PERF_GATE_PG"
+
 // gateClients are replayed against both scales: one client per protocol.
-var gateClients = []string{"plex-appletv", "plex-appletv second device", "infuse-jellyfin", "swiftfin", "emby-sdk", "silo-appletv", "stremio", "xtream", "console", "mcp"}
+// Plex Web replays its own short sequence (webSequence). Clients run in
+// perfharness.Clients() order, so Apple TV's playback writes follow the
+// second device that measures the first device's cached Home.
+var gateClients = []string{"plex-appletv", "plex-appletv second device", "plex-web", "infuse-jellyfin", "swiftfin", "emby-sdk", "silo-appletv", "stremio", "xtream", "console", "mcp", "plex-appletv playback"}
 
 // TestPerformanceGate fails when a request path scales with the library.
 // It builds the same synthetic household over a library of SmallScale and
@@ -50,7 +62,7 @@ func TestPerformanceGate(t *testing.T) {
 		// A faster pair, also 10× apart, for iterating locally.
 		smallScale, largeScale = perfharness.SmallScale.Divide(10), perfharness.SmallScale
 	case "xlarge":
-		// The nightly pair: 80k and 800k titles, a long-tail mirror's size.
+		// The nightly pair: a full TMDB mirror (1.28M titles) and a tenth.
 		// Too slow for every push (docs/performance.md).
 		smallScale, largeScale = perfharness.XLargeScale.Divide(10), perfharness.XLargeScale
 	}
@@ -93,6 +105,31 @@ func TestPerformanceGate(t *testing.T) {
 			t.Logf("%s stayed flat this run: remove it from %s once it does so reliably", key, perfDebtFile)
 		}
 	}
+}
+
+// webSteps are the requests Plex Web makes that the Apple TV client's
+// sequence does not already measure on the same paths: its Home, a section
+// page, a title, the Cast & Crew page by tagKey, a franchise, a playlist
+// and search (internal/conform/plex captures).
+var webSteps = map[string]bool{"/library/sections": true, "/hubs/promoted bare": true, "/hubs": true, "/hubs/sections/movies": true, "movies all titleSort p1": true,
+	"movies all popularity": true, "popular movie detail": true, "person media tagKey": true, "movies collections type=18": true, "collection children": true,
+	"playlists": true, "playlist items": true, "/hubs/search star": true}
+
+// webSequence trims Plex Web to webSteps.
+func webSequence(cs []perfharness.Client) []perfharness.Client {
+	for i := range cs {
+		if cs[i].Name != "plex-web" {
+			continue
+		}
+		var steps []perfharness.Step
+		for _, st := range cs[i].Steps {
+			if webSteps[st.Name] {
+				steps = append(steps, st)
+			}
+		}
+		cs[i].Steps = steps
+	}
+	return cs
 }
 
 // restrictedListings is the Plex Apple TV client's whole-library listing
@@ -155,6 +192,11 @@ const (
 	gateDBFactor      = 5.0
 	gateDBSlack       = 100 * time.Millisecond
 	gateWallCeiling   = 2 * time.Second
+	// gateColdRowsSlack: a cold or first pass hydrates its page's detail
+	// rows (genres, keywords, credits: up to tens per title), which an
+	// earlier step may already have cached on the smaller library. A walk
+	// reads tens of thousands of rows on the larger one.
+	gateColdRowsSlack = 2000
 )
 
 func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateFailure {
@@ -219,17 +261,25 @@ func comparePerfScales(w *bytes.Buffer, small, large []*perfharness.Row) []gateF
 			if l.WarmP50 > gateWallCeiling && !l.Export {
 				why = append(why, fmt.Sprintf("warm p50 %s over %s", l.WarmP50, gateWallCeiling))
 			}
-			// The second viewer's first pass, on its own.
-			sf, lf := s.FirstWork, l.FirstWork
-			if lf.Queries > 0 && sf.Queries > 0 {
-				if l.RowsBound == 0 && float64(lf.Rows) > gateRowsFactor*float64(sf.Rows)+gateRowsSlack {
-					why = append(why, fmt.Sprintf("a second viewer's first-pass rows grow with the library (%d → %d)", sf.Rows, lf.Rows))
+			// A warm pass may be answered by a cache that hides a walk;
+			// the owner's cold pass and a second viewer's first pass are
+			// compared on their own. In production the catalogue writes
+			// continuously, so a cache keyed on its generation misses often.
+			for _, pass := range []struct {
+				name string
+				s, l perfharness.Work
+			}{{"the owner's cold-pass", s.ColdWork, l.ColdWork}, {"a second viewer's first-pass", s.FirstWork, l.FirstWork}} {
+				if pass.l.Queries == 0 || pass.s.Queries == 0 {
+					continue
 				}
-				if float64(lf.Queries) > gateQueriesFactor*float64(sf.Queries)+gateQueriesSlack {
-					why = append(why, fmt.Sprintf("a second viewer's first-pass statements grow with the library (%d → %d)", sf.Queries, lf.Queries))
+				if l.RowsBound == 0 && float64(pass.l.Rows) > gateRowsFactor*float64(pass.s.Rows)+gateColdRowsSlack {
+					why = append(why, fmt.Sprintf("%s rows grow with the library (%d → %d)", pass.name, pass.s.Rows, pass.l.Rows))
 				}
-				if lf.DBTime > time.Duration(gateDBFactor*float64(sf.DBTime))+gateDBSlack {
-					why = append(why, fmt.Sprintf("a second viewer's first-pass database time grows with the library (%s → %s)", sf.DBTime, lf.DBTime))
+				if float64(pass.l.Queries) > gateQueriesFactor*float64(pass.s.Queries)+gateQueriesSlack {
+					why = append(why, fmt.Sprintf("%s statements grow with the library (%d → %d)", pass.name, pass.s.Queries, pass.l.Queries))
+				}
+				if pass.l.DBTime > time.Duration(gateDBFactor*float64(pass.s.DBTime))+gateDBSlack {
+					why = append(why, fmt.Sprintf("%s database time grows with the library (%s → %s)", pass.name, pass.s.DBTime, pass.l.DBTime))
 				}
 			}
 		}
@@ -286,12 +336,33 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}); err != nil {
 		t.Fatal(err)
 	}
+	cached := ""
+	if fixtures := os.Getenv("ETHER_PERF_GATE_FIXTURES"); fixtures != "" {
+		// Reuse a library generated by an earlier run (cloned, never
+		// modified), so iterating on one endpoint does not regenerate it.
+		cached = filepath.Join(fixtures, fmt.Sprintf("gate-%d.db", scale.Rows()))
+		if _, err := os.Stat(cached); err == nil {
+			if err := cloneFile(cached, filepath.Join(dir, "ether.db")); err != nil {
+				t.Fatal(err)
+			}
+			cached = ""
+		} else {
+			cached += ".new"
+		}
+	}
 	db, err := store.Open(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = perfharness.Generate(ctx, db, scale, time.Now()); err != nil {
-		t.Fatal(err)
+	if n := 0; db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles`).Scan(&n) != nil || n == 0 {
+		if err = perfharness.Generate(ctx, db, scale, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if cached != "" {
+			if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, cached); err == nil {
+				_ = os.Rename(cached, strings.TrimSuffix(cached, ".new"))
+			}
+		}
 	}
 	viewers, err := perfharness.MintCredentials(ctx, db, perfharness.RestrictedViewer+1)
 	if err != nil {
@@ -299,6 +370,15 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 	db.Close()
 	t.Logf("%s: generated %d catalogue rows in %s", name, scale.Rows(), time.Since(start).Round(time.Millisecond))
+	if pg := os.Getenv(PerfGatePGEnv); pg != "" {
+		// The same library on PostgreSQL: copied in as `ether cluster init`
+		// does, into a schema of its own, and analysed as daily maintenance
+		// leaves it.
+		copied := time.Now()
+		drop := perfGatePostgres(t, ctx, dir, name, pg)
+		defer drop()
+		t.Logf("%s: copied into PostgreSQL in %s", name, time.Since(copied).Round(time.Millisecond))
+	}
 
 	trace := filepath.Join(dir, "trace.jsonl")
 	t.Setenv(PerfTraceEnv, trace)
@@ -333,7 +413,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	if only := os.Getenv("ETHER_PERF_GATE_CLIENTS"); only != "" {
 		clients = strings.Split(only, ",")
 	}
-	cs := perfharness.Only(perfharness.Clients(), clients)
+	cs := webSequence(perfharness.Only(perfharness.Clients(), clients))
 	if steps := os.Getenv("ETHER_PERF_GATE_STEPS"); steps != "" {
 		cs = perfharness.OnlySteps(cs, strings.Split(steps, ","))
 	}
@@ -406,11 +486,17 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	a.Close()
 	if keep := os.Getenv("ETHER_PERF_GATE_KEEP"); keep != "" {
 		// Keep the trace and database for etherperf audit.
-		_ = os.MkdirAll(keep, 0o700)
-		_ = os.Rename(trace, filepath.Join(keep, name+"-trace.jsonl"))
+		if err := os.MkdirAll(keep, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := moveFile(trace, filepath.Join(keep, name+"-trace.jsonl")); err != nil {
+			t.Fatal(err)
+		}
 		trace = filepath.Join(keep, name+"-trace.jsonl")
 		for _, suffix := range []string{"", "-wal", "-shm"} {
-			_ = os.Rename(filepath.Join(dir, "ether.db"+suffix), filepath.Join(keep, name+".db"+suffix))
+			if err := moveFile(filepath.Join(dir, "ether.db"+suffix), filepath.Join(keep, name+".db"+suffix)); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
 		}
 	}
 	byTag, _, err := perfharness.ReadTrace(trace)
@@ -423,6 +509,76 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	}
 	t.Logf("%s: replayed in %s", name, time.Since(start).Round(time.Millisecond))
 	return rows
+}
+
+// perfGatePostgres copies the generated library in dir into a new schema on
+// the PostgreSQL server at rawURL and points dir's settings at it, as `ether
+// cluster init` does. The returned function drops the schema.
+func perfGatePostgres(t *testing.T, ctx context.Context, dir, name, rawURL string) func() {
+	t.Helper()
+	admin, err := sql.Open(store.PostgresDriverName, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := fmt.Sprintf("ether_gate_%s_%d", name, time.Now().UnixNano())
+	if _, err := admin.ExecContext(ctx, `CREATE SCHEMA `+schema); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	if err := clusterconfig.Init(ctx, clusterconfig.InitOptions{DataDir: dir, DatabaseURL: u.String()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.ExecContext(ctx, `SET search_path TO `+schema+`; ANALYZE`); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		_, _ = admin.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+		admin.Close()
+	}
+}
+
+// moveFile renames src to dst, copying across filesystems (a temp dir on
+// / and a keep dir on /data).
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil || os.IsNotExist(err) {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
+
+// cloneFile copies src to dst, as an APFS clone where the system has one.
+func cloneFile(src, dst string) error {
+	if exec.Command("cp", "-c", src, dst).Run() == nil {
+		return nil
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o600)
 }
 
 // ownerHomeRows counts the recommender's rows (beyond Continue Watching and

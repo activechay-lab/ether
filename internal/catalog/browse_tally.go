@@ -144,6 +144,9 @@ func RebuildLibraryCounts(ctx context.Context, db *sql.DB) error {
 	if err := rebuildStatsTally(ctx, tx); err != nil {
 		return err
 	}
+	if err := rebuildFacetTally(ctx, tx); err != nil {
+		return err
+	}
 	for _, q := range []string{`DELETE FROM catalog_show_episode_ratings`, showEpisodeRatingsBackfill} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
@@ -170,6 +173,7 @@ type libraryTally struct{ name, dims string }
 var libraryTallies = []libraryTally{
 	{"catalog_browse_tally", "type,genre,rating_rank"},
 	{"catalog_stats_tally", "kind,browsable,home,year_pending"},
+	{"catalog_facet_tally", "type,facet,value,rating_rank"},
 }
 
 // foldLibraryTallies moves every tally's pending deltas into it, one
@@ -270,10 +274,15 @@ func (c *Catalog) foldLibraryTalliesLoop(ctx context.Context) {
 
 // tallyShape is what of a browse filter the tally answers directly.
 type tallyShape struct {
-	types  []string
-	genre  string
-	ranked bool
-	lo, hi int
+	types   []string
+	genre   string
+	country string // a single country filter, answered by catalog_facet_tally
+	// years is a year range (yearLo..yearHi, 0 for open), answered by
+	// catalog_facet_tally's year rows.
+	years          bool
+	yearLo, yearHi int
+	ranked         bool
+	lo, hi         int
 }
 
 // tallyShape reports whether f's predicate, outside the titles tallyTotal
@@ -319,6 +328,18 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 		}
 		s.genre = "Kids"
 	}
+	switch {
+	case len(f.Countries) > 1 || len(f.Countries) == 1 && (f.Countries[0] == "" || s.genre != ""):
+		return s, false
+	case len(f.Countries) == 1:
+		s.country = f.Countries[0]
+	}
+	if f.YearFrom > 0 || f.YearTo > 0 {
+		if s.genre != "" || s.country != "" {
+			return s, false
+		}
+		s.years, s.yearLo, s.yearHi = true, f.YearFrom, f.YearTo
+	}
 	s.lo, s.hi = 0, int(^uint(0)>>1)
 	if f.MaxContentRating != "" {
 		level := contentrating.LevelOf(f.MaxContentRating)
@@ -346,7 +367,8 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 		return s, false
 	}
 	rest := f
-	rest.Type, rest.Genres, rest.Kids = "", nil, false
+	rest.Type, rest.Genres, rest.Kids, rest.Countries = "", nil, false, nil
+	rest.YearFrom, rest.YearTo = 0, 0
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
 	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.AvailabilityKeepKeys = false, false, nil
@@ -388,31 +410,129 @@ func filterUnset(f core.Filter) bool {
 // U is read from three indexes: catalog_plex_shelf_order (type, released_ts),
 // the hidden set's primary key and the titles' own key.
 func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, args []any) (int, bool, error) {
+	if g := f.Group; g != nil && unwatchedOnly(*g) {
+		// Unwatched titles are the listing's titles less the ones the
+		// viewer watched: the tally, less a count over the viewer's own
+		// watch rows, never a walk of the library.
+		all := f
+		all.Group = nil
+		allWhere, allArgs, err := c.browseWhere(all)
+		if err != nil {
+			return 0, false, err
+		}
+		total, ok, err := c.tallyTotal(ctx, all, allWhere, allArgs)
+		if err != nil || !ok {
+			return 0, ok, err
+		}
+		var watched int
+		if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles t WHERE t.key IN (SELECT w.rating_key FROM state_watch w WHERE w.user_id=? AND w.view_count>0) AND `+allWhere, append([]any{g.UserID}, allArgs...)...).Scan(&watched); err != nil {
+			return 0, false, err
+		}
+		return total - watched, true, nil
+	}
 	s, ok := c.tallyShape(f)
 	if !ok {
 		return 0, false, nil
 	}
-	dims := `type IN (` + placeholders(len(s.types)) + `) AND genre=?`
-	var dimArgs []any
+	table, dims, dimArgs, member, memberArgs := "catalog_browse_tally", "", []any(nil), "", []any(nil)
+	switch {
+	case s.country != "":
+		table = "catalog_facet_tally"
+		dims, dimArgs, member, memberArgs = s.facetDims("country", s.country)
+	case s.years:
+		// A year or decade filter: the year rows in the range.
+		table = "catalog_facet_tally"
+		dims, dimArgs, member, memberArgs = s.facetDims("year", "")
+		lo, hi := max(s.yearLo, 1), s.yearHi
+		if hi <= 0 {
+			hi = int(^uint32(0) >> 1)
+		}
+		dims += ` AND CAST(value AS INTEGER)>=? AND CAST(value AS INTEGER)<=?`
+		dimArgs = append(dimArgs, lo, hi)
+		member += ` AND t.year>=? AND t.year<=? AND t.year>0`
+		memberArgs = append(memberArgs, lo, hi)
+	default:
+		dims, dimArgs, member, memberArgs = s.genreDims()
+	}
+	unsettled, unsettledArgs := c.tallyUnsettled(s, f)
+	query := `SELECT (SELECT CAST(COALESCE(SUM(n),0) AS BIGINT) FROM (SELECT n FROM ` + table + ` WHERE ` + dims + ` UNION ALL SELECT d FROM ` + table + `_delta WHERE ` + dims + `) s)
+ + (SELECT COUNT(CASE WHEN ` + where + ` THEN 1 END) - COUNT(CASE WHEN ` + member + ` THEN 1 END) FROM catalog_titles t WHERE t.key IN (` + unsettled + `))`
+	all := make([]any, 0, 2*len(dimArgs)+len(args)+len(memberArgs)+len(unsettledArgs))
+	all = append(append(append(append(append(all, dimArgs...), dimArgs...), args...), memberArgs...), unsettledArgs...)
+	var total int
+	if err := c.db.QueryRowContext(ctx, query, all...).Scan(&total); err != nil {
+		return 0, false, err
+	}
+	return total, true, nil
+}
+
+// unwatchedOnly reports whether g is a viewer's "unwatched" state filter
+// and nothing else.
+func unwatchedOnly(g core.FilterGroup) bool {
+	return g.Unwatched != nil && *g.Unwatched && g.UserID > 0 && g.InProgress == nil && g.LastViewedAfter == 0 && g.LastViewedBefore == 0 &&
+		g.OnWatchlist == nil && g.StateField == "" && !g.ParentOnly && g.Operator == "" && g.Filter == nil && len(g.Children) == 0
+}
+
+// genreDims is the browse tally's WHERE for s, and the membership a title
+// must meet to be counted in it.
+func (s tallyShape) genreDims() (dims string, dimArgs []any, member string, memberArgs []any) {
+	dims = `type IN (` + placeholders(len(s.types)) + `) AND genre=?`
 	for _, typ := range s.types {
 		dimArgs = append(dimArgs, typ)
 	}
 	dimArgs = append(dimArgs, s.genre)
-	member := tallyMemberSQL("t.") + ` AND t.type IN (` + placeholders(len(s.types)) + `)`
-	var memberArgs []any
-	for _, typ := range s.types {
-		memberArgs = append(memberArgs, typ)
-	}
+	member, memberArgs = s.typeMember()
 	if s.genre != "" {
 		member += ` AND EXISTS (SELECT 1 FROM catalog_genres g WHERE g.key=t.key AND g.genre=?)`
 		memberArgs = append(memberArgs, s.genre)
 	}
+	dims, dimArgs, member, memberArgs = s.rankDims(dims, dimArgs, member, memberArgs)
+	return
+}
+
+// facetDims is catalog_facet_tally's WHERE for one facet of s (value "" for
+// every value of it), and the membership a title must meet to be counted.
+func (s tallyShape) facetDims(facet, value string) (dims string, dimArgs []any, member string, memberArgs []any) {
+	dims = `type IN (` + placeholders(len(s.types)) + `) AND facet=?`
+	for _, typ := range s.types {
+		dimArgs = append(dimArgs, typ)
+	}
+	dimArgs = append(dimArgs, facet)
+	member, memberArgs = s.typeMember()
+	if value != "" {
+		dims += ` AND value=?`
+		dimArgs = append(dimArgs, value)
+		if facet == "country" {
+			member += ` AND EXISTS (SELECT 1 FROM catalog_countries co WHERE co.key=t.key AND co.country=?)`
+			memberArgs = append(memberArgs, value)
+		}
+	}
+	dims, dimArgs, member, memberArgs = s.rankDims(dims, dimArgs, member, memberArgs)
+	return
+}
+
+func (s tallyShape) typeMember() (string, []any) {
+	member := tallyMemberSQL("t.") + ` AND t.type IN (` + placeholders(len(s.types)) + `)`
+	var args []any
+	for _, typ := range s.types {
+		args = append(args, typ)
+	}
+	return member, args
+}
+
+func (s tallyShape) rankDims(dims string, dimArgs []any, member string, memberArgs []any) (string, []any, string, []any) {
 	if s.ranked {
 		dims += ` AND rating_rank>=? AND rating_rank<=?`
 		dimArgs = append(dimArgs, s.lo, s.hi)
 		member += ` AND t.content_rating_rank>=? AND t.content_rating_rank<=?`
 		memberArgs = append(memberArgs, s.lo, s.hi)
 	}
+	return dims, dimArgs, member, memberArgs
+}
+
+// tallyUnsettled is U: the titles of s's types where the listing's predicate
+// and the tally's can disagree.
+func (c *Catalog) tallyUnsettled(s tallyShape, f core.Filter) (string, []any) {
 	unsettled := []string{`SELECT key FROM catalog_titles WHERE type IN (` + placeholders(len(s.types)) + `) AND released_ts>?`}
 	var unsettledArgs []any
 	for _, typ := range s.types {
@@ -436,13 +556,5 @@ func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, a
 			unsettledArgs = append(unsettledArgs, k)
 		}
 	}
-	query := `SELECT (SELECT CAST(COALESCE(SUM(n),0) AS BIGINT) FROM (SELECT n FROM catalog_browse_tally WHERE ` + dims + ` UNION ALL SELECT d FROM catalog_browse_tally_delta WHERE ` + dims + `) s)
- + (SELECT COUNT(CASE WHEN ` + where + ` THEN 1 END) - COUNT(CASE WHEN ` + member + ` THEN 1 END) FROM catalog_titles t WHERE t.key IN (` + strings.Join(unsettled, ` UNION `) + `))`
-	all := make([]any, 0, 2*len(dimArgs)+len(args)+len(memberArgs)+len(unsettledArgs))
-	all = append(append(append(append(append(all, dimArgs...), dimArgs...), args...), memberArgs...), unsettledArgs...)
-	var total int
-	if err := c.db.QueryRowContext(ctx, query, all...).Scan(&total); err != nil {
-		return 0, false, err
-	}
-	return total, true, nil
+	return strings.Join(unsettled, ` UNION `), unsettledArgs
 }
