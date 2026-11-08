@@ -71,6 +71,16 @@ func (p *Playlists) List(ctx context.Context, uid int64) ([]core.Playlist, error
 	}
 	return items, nil
 }
+// ListHeaders lists the viewer's playlists without their items (titles
+// and keys only); Get reads one with its items, projected as List does.
+func (p *Playlists) ListHeaders(ctx context.Context, uid int64) ([]core.Playlist, error) {
+	if base, ok := p.Base.(interface {
+		ListHeaders(context.Context, int64) ([]core.Playlist, error)
+	}); ok {
+		return base.ListHeaders(ctx, uid)
+	}
+	return p.List(ctx, uid)
+}
 func (p *Playlists) Get(ctx context.Context, uid int64, key core.RatingKey) (*core.Playlist, error) {
 	pl, err := p.Base.Get(ctx, uid, key)
 	if err != nil {
