@@ -461,10 +461,21 @@ func fillGap(out *[]Programme, c Channel, filler []Item, fromCursor, end, winFro
 		emitSlate(out, c, cursor, end, winFrom, winUntil)
 		return
 	}
-	i := 0
+	// Each day starts further into the filler, so a short gap at the same
+	// time of night is not the same filler every night.
+	i := int((fromCursor.Unix() / 86400) % int64(len(filler)))
 	for cursor.Before(end) && len(*out) < 20000 {
-		item := filler[i%len(filler)]
-		i++
+		// Prefer the next filler that fits whole; cut one only when none does.
+		pick := i % len(filler)
+		for k := 0; k < len(filler); k++ {
+			j := (i + k) % len(filler)
+			if d := time.Duration(filler[j].DurationMS) * time.Millisecond; d > 0 && !cursor.Add(d).After(end) {
+				pick = j
+				break
+			}
+		}
+		item := filler[pick]
+		i = pick + 1
 		dur := time.Duration(item.DurationMS) * time.Millisecond
 		if dur <= 0 {
 			emitSlate(out, c, cursor, end, winFrom, winUntil)

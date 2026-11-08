@@ -228,17 +228,83 @@ func (s *Service) clipRequest(c Channel, p Programme, snapshots ...[]Programme) 
 	} else {
 		upcoming = Schedule(c, p.Start, p.End.Add(24*time.Hour))
 	}
+	listed := 0
 	for _, next := range upcoming {
-		if next.Item.Key != 0 && !next.Start.Before(p.End) {
+		if next.Item.Key == 0 || next.Start.Before(p.End) {
+			continue
+		}
+		at := next.Start.In(zoneOf(c.Timezone)).Format("15:04")
+		if listed == 0 {
 			r.Bind["next.title"] = next.Item.Title
-			r.Bind["next.time"] = next.Start.In(zoneOf(c.Timezone)).Format("15:04")
+			r.Bind["next.time"] = at
+			if p.Item.Slate == "upnext" || p.Item.Slate == "tonight" {
+				r.Bind["next.meta"] = ProgrammeMeta(next.Item)
+				r.Bind["next.logline"] = Logline(next.Item.Summary)
+			}
 			if ref := ArtworkRef(next.Item.Key, next.Item.Thumb, "poster"); ref != "" {
 				r.Art["next.poster"] = ref
 			}
+			if p.Item.Slate != "tonight" {
+				break
+			}
+		}
+		// The coming-up menu lists one row per programme, merging a series'
+		// back-to-back episodes the way a printed listing would.
+		if listed > 0 && r.Bind[fmt.Sprintf("list[%d].title", listed-1)] == next.Item.Title {
+			continue
+		}
+		r.Bind[fmt.Sprintf("list[%d].title", listed)] = next.Item.Title
+		r.Bind[fmt.Sprintf("list[%d].time", listed)] = at
+		r.Bind[fmt.Sprintf("list[%d].meta", listed)] = ProgrammeMeta(next.Item)
+		listed++
+		if listed == 4 {
 			break
 		}
 	}
 	return r
+}
+
+// ProgrammeMeta is the one-line detail under a title: season, episode and
+// episode name for a series; year and running time for a film.
+func ProgrammeMeta(it Item) string {
+	if it.Episode > 0 {
+		meta := fmt.Sprintf("S%d E%d", it.Season, it.Episode)
+		if it.EpisodeTitle != "" && it.EpisodeTitle != it.Title {
+			meta += " · " + it.EpisodeTitle
+		}
+		return meta
+	}
+	var parts []string
+	if it.ReleasedMS > 0 {
+		parts = append(parts, time.UnixMilli(it.ReleasedMS).UTC().Format("2006"))
+	}
+	if it.DurationMS >= 60000 {
+		m := it.DurationMS / 60000
+		if m >= 60 {
+			parts = append(parts, fmt.Sprintf("%dh %02dm", m/60, m%60))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d min", m))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// Logline is a summary's first sentence, bounded for an eight-second card.
+func Logline(summary string) string {
+	summary = strings.TrimSpace(summary)
+	for _, end := range []string{". ", "! ", "? "} {
+		if i := strings.Index(summary, end); i > 0 {
+			summary = summary[:i+1]
+		}
+	}
+	if r := []rune(summary); len(r) > 140 {
+		cut := string(r[:140])
+		if i := strings.LastIndex(cut, " "); i > 80 {
+			cut = cut[:i]
+		}
+		summary = strings.TrimRight(cut, " ,;:") + "…"
+	}
+	return summary
 }
 func (s *Service) graphicsChannel(c Channel) Channel {
 

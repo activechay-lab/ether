@@ -32,3 +32,6 @@ func parityRunCatalogueWorkers() bool { return true }
 func parityRunRegistrar() bool { return true }
 
 func parityConfigureTMDB(*tmdb.Client) {}
+
+// parityShowcase adds the shipped decade channels outside the parity harness.
+func parityShowcase() bool { return true }

@@ -12,7 +12,7 @@ import (
 
 // expandProgramSource runs only while saving or rebuilding background snapshots.
 // Persisted Items are the sole input to the deterministic playout engine.
-func (s *Service) expandProgramSource(ctx context.Context, src ProgramSource, depth int) ([]Item, error) {
+func (s *Service) expandProgramSource(ctx context.Context, src *ProgramSource, depth int) ([]Item, error) {
 	if src.StartSeason < 0 || src.StartEpisode < 0 {
 		return nil, fmt.Errorf("show starting season and episode must not be negative")
 	}
@@ -48,12 +48,15 @@ func (s *Service) expandProgramSource(ctx context.Context, src ProgramSource, de
 			f = *src.Filter
 			f.Type = core.TypeMovie
 		}
-		if len(src.Items) > 0 {
+		if len(src.Items) > 0 && (src.Filter == nil || src.Pool <= 0) {
 			for _, it := range src.Items {
 				if it.ShowKey == 0 && it.MediaType != "episode" {
 					items = append(items, it)
 				}
 			}
+		} else if src.Pool > 0 && src.Collection == 0 {
+			f.ExcludeGenres = append([]string(nil), src.ExcludeGenres...)
+			items, err = s.expandPopularMovies(ctx, f, src.Pool)
 		} else {
 			items, err = s.expandQuery(ctx, src.Collection, &f)
 		}
@@ -100,14 +103,19 @@ func (s *Service) expandProgramSource(ctx context.Context, src ProgramSource, de
 			return nil, fmt.Errorf("plugin segment unavailable")
 		}
 		items = []Item{it}
+	case "lineup":
+		items, err = s.expandLineup(ctx, src)
 	case "mix":
 		parts := make([][]Item, len(src.Sources))
 		weights := make([]int, len(src.Sources))
-		for i, child := range src.Sources {
+		for i := range src.Sources {
+			child := &src.Sources[i]
 			parts[i], err = s.expandProgramSource(ctx, child, depth+1)
-			src.Sources[i].Items = append([]Item(nil), parts[i]...)
 			if err != nil {
 				return nil, err
+			}
+			if child.Kind != "lineup" {
+				child.Items = append([]Item(nil), parts[i]...)
 			}
 			weights[i] = max(1, min(20, child.Weight))
 		}
@@ -120,11 +128,11 @@ func (s *Service) expandProgramSource(ctx context.Context, src ProgramSource, de
 	if err != nil {
 		return nil, err
 	}
-	if src.Kind != "" && src.Kind != "items" && src.Kind != "collection" && src.Kind != "filter" && src.Watched != "" {
+	if src.Kind != "" && src.Kind != "items" && src.Kind != "collection" && src.Kind != "filter" && src.Kind != "lineup" && src.Watched != "" {
 		items, err = s.filterWatched(ctx, items, src.Watched)
 	}
 	for i := range items {
-		if src.ID != "" {
+		if src.ID != "" && src.Kind != "lineup" {
 			items[i].SourceID = src.ID
 		}
 	}
@@ -151,6 +159,12 @@ func validateProgramming(c *Channel, check func([]Item) error) error {
 			}
 			if src.Strip && src.Kind != "show" {
 				return fmt.Errorf("strip requires a show source")
+			}
+			if len(src.ExcludeGenres) > 32 {
+				return fmt.Errorf("too many excluded genres")
+			}
+			if src.Pool < 0 || src.Pool > 200 || src.Shows < 0 || src.Shows > maxLineupPool || src.RotateDays < 0 || src.RotateDays > 365 {
+				return fmt.Errorf("invalid lineup size or rotation")
 			}
 			if err := sources(src.Sources, depth+1); err != nil {
 				return err

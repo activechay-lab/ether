@@ -26,7 +26,16 @@ export type Item = {
 };
 export type ProgramSource = {
   id?: string;
-  kind?: "items" | "show" | "movies" | "collection" | "filter" | "personal" | "plugin" | "mix";
+  kind?:
+    | "items"
+    | "show"
+    | "movies"
+    | "collection"
+    | "filter"
+    | "personal"
+    | "plugin"
+    | "mix"
+    | "lineup";
   showKey?: number;
   startSeason?: number;
   startEpisode?: number;
@@ -42,6 +51,14 @@ export type ProgramSource = {
   collection?: number;
   filter?: Record<string, unknown>;
   watched?: "" | "watched" | "unwatched";
+  /** Lineup and pooled movies: how many of the most popular matches to draw. */
+  pool?: number;
+  /** Lineup: series on air at once. */
+  shows?: number;
+  /** Lineup: broadcast days before the next group of series takes over; 0 never rotates. */
+  rotateDays?: number;
+  /** Lineup and pooled movies: genres to leave out. */
+  excludeGenres?: string[];
 };
 export type Block = {
   id?: string;

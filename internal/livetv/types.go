@@ -78,6 +78,16 @@ type ProgramSource struct {
 	Collection   core.RatingKey  `json:"collection,omitempty"`
 	Filter       *core.Filter    `json:"filter,omitempty"`
 	Watched      string          `json:"watched,omitempty"`
+	// Lineup and pooled movie sources. Pool caps how many titles the smart
+	// filter draws, most popular first. A lineup keeps Shows series on air at
+	// once and, with RotateDays, brings the next group of the pool on air
+	// every RotateDays broadcast days. Each series continues where it left off.
+	Pool       int `json:"pool,omitempty"`
+	Shows      int `json:"shows,omitempty"`
+	RotateDays int `json:"rotateDays,omitempty"`
+	// ExcludeGenres leaves titles with any of these genres out of a lineup
+	// or movie pool (a sitcom lineup without cartoons, say).
+	ExcludeGenres []string `json:"excludeGenres,omitempty"`
 }
 type Block struct {
 	ID     string       `json:"id,omitempty"`
@@ -437,6 +447,8 @@ type Options struct {
 	Sealer config.FieldSealer
 	// Kinds overrides the source-kind registry; nil uses the built-ins.
 	Kinds *KindRegistry
+	// Showcase adds and refreshes the shipped decade channels.
+	Showcase bool
 }
 type SessionInfo struct {
 	ActiveSourceID string `json:"activeSourceId,omitempty"`

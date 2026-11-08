@@ -129,6 +129,10 @@ func New(o Options) (*Service, error) {
 		s.wg.Add(1)
 		go s.breakLoop()
 	}
+	if o.Showcase && o.Catalog != nil {
+		s.wg.Add(1)
+		go s.showcaseLoop()
+	}
 	s.wg.Add(4)
 	go s.vodLoop()
 	go s.maintain()
@@ -398,7 +402,7 @@ func (s *Service) expand(ctx context.Context, c *Channel) error {
 			if source.ID == "" {
 				source.ID = fmt.Sprintf("%s-source-%d", prefix, i)
 			}
-			if source.Strip && source.StartDate == "" {
+			if (source.Strip || source.Kind == "lineup") && source.StartDate == "" {
 				source.StartDate = s.o.Now().In(zoneOf(c.Timezone)).Format("2006-01-02")
 			}
 			prepare(source.Sources, source.ID)
@@ -429,7 +433,15 @@ func (s *Service) expand(ctx context.Context, c *Channel) error {
 	if c.Collection != 0 || c.Filter != nil || len(c.Sources) > 0 || c.Watched != "" {
 		c.Items = items
 	}
-	for i := range c.Blocks {
+	// Prime time picks its series first; a series then has one home slot.
+	ctx = context.WithValue(ctx, claimedSeriesKey{}, map[core.RatingKey]bool{})
+	order := make([]int, len(c.Blocks))
+	for i := range order {
+		order[i] = i
+	}
+	prime := func(b Block) bool { return b.Start >= 19*60 && b.Start < 23*60 }
+	sort.SliceStable(order, func(i, j int) bool { return prime(c.Blocks[order[i]]) && !prime(c.Blocks[order[j]]) })
+	for _, i := range order {
 		b := &c.Blocks[i]
 		if b.Collection == 0 && b.Filter == nil && len(b.Sources) == 0 && b.Watched == "" {
 			continue
@@ -463,11 +475,15 @@ func (s *Service) resolveProgramming(ctx context.Context, existing []Item, colle
 	case len(sources) > 0:
 		parts := make([][]Item, len(sources))
 		weights := make([]int, len(sources))
-		for i, src := range sources {
+		for i := range sources {
+			src := &sources[i]
 			parts[i], err = s.expandProgramSource(ctx, src, 0)
-			sources[i].Items = append([]Item(nil), parts[i]...)
 			if err != nil {
 				return nil, err
+			}
+			if src.Kind != "lineup" {
+				// A lineup's episodes live on its series; its own list is a preview.
+				src.Items = append([]Item(nil), parts[i]...)
 			}
 			weights[i] = src.Weight
 			if weights[i] <= 0 {

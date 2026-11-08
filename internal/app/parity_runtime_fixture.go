@@ -92,3 +92,6 @@ func parityConfigureTMDB(c *tmdb.Client) {
 	cfg.Images.SecureBaseURL = cfg.Images.BaseURL
 	c.SetConfiguration(cfg)
 }
+
+// The parity lineup is a fixture; shipped showcase channels stay out of it.
+func parityShowcase() bool { return false }

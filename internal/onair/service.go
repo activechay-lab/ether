@@ -30,6 +30,8 @@ import (
 )
 
 type Options struct {
+	// Showcase adds the decade looks used by the shipped showcase channels.
+	Showcase bool
 	// Changed runs after an owner style save has committed and locks are released.
 	Changed        func(context.Context) error
 	StyleChannels  func(context.Context) (map[string][]string, error)
@@ -154,6 +156,12 @@ func New(o Options) (*Service, error) {
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
+	}
+	if o.Showcase {
+		if e := s.seedShowcase(ctx); e != nil {
+			cancel()
+			return nil, e
+		}
 	}
 	ls, e := s.Looks(ctx)
 	if e != nil {

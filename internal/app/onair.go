@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/backup"
 	"github.com/braedonsaunders/ether/internal/cluster"
@@ -19,12 +18,11 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
 func (a *App) buildOnAir() error {
-	o := onair.Options{Changed: func(ctx context.Context) error {
+	o := onair.Options{Showcase: parityShowcase(), Changed: func(ctx context.Context) error {
 		if a.livetv != nil {
 			return a.livetv.RefreshGuide(ctx)
 		}
@@ -182,8 +180,8 @@ func (a *App) onairBindings(ctx context.Context, channel, viewer string, at time
 		v := empty()
 		v["title"] = p.Item.Title
 		v["time"] = p.Start.Format("15:04")
-		v["meta"] = fmt.Sprintf("%d min", p.Item.DurationMS/60000)
-		v["logline"] = strings.SplitN(p.Item.Summary, ". ", 2)[0]
+		v["meta"] = livetv.ProgrammeMeta(p.Item)
+		v["logline"] = livetv.Logline(p.Item.Summary)
 		v["backdrop"] = livetv.ArtworkRef(p.Item.Key, p.Item.Art, "art")
 		list = append(list, v)
 		if len(list) == 4 {
