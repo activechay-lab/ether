@@ -14,7 +14,8 @@ import (
 
 // sampleCopyIndex samples packet headers, never decoded pictures, before the
 // first playlist is emitted. A single sample serves peak estimates and seeks.
-// It is not a full-file index and must not be used as a full-title peak bound.
+// Only a sample proven to cover the known title is a full-file index.
+// A partial sample must not be used as a full-title peak bound.
 func (m *Manager) sampleCopyIndex(ctx context.Context, req core.HLSRequest, at time.Duration, life *encoderLifetime) copyPacketSample {
 	if m.ffprobe == "" || req.Info.Video() == nil {
 		return copyPacketSample{}
@@ -36,7 +37,7 @@ func (m *Manager) sampleCopyIndex(ctx context.Context, req core.HLSRequest, at t
 		return copyPacketSample{}
 	}
 	data := out.buf.Bytes()
-	return copyPacketSample{points: parseCopyPacketIndex(data), peakPoints: copySamplePeakPoints(data, req.Info)}
+	return parseCopyPacketSample(data, req.Info)
 }
 
 func parseCopyPacketIndex(data []byte) []core.KeyframePoint {
@@ -132,6 +133,32 @@ func sampledCopyPeakKbps(points []core.KeyframePoint, slot time.Duration) int {
 type copyPacketSample struct {
 	points     []core.KeyframePoint
 	peakPoints []core.KeyframePoint
+	complete   bool // verified beginning and known end within the packet budget
+}
+
+func parseCopyPacketSample(data []byte, info core.MediaInfo) copyPacketSample {
+	sample := copyPacketSample{points: parseCopyPacketIndex(data), peakPoints: copySamplePeakPoints(data, info)}
+	var report struct {
+		Packets []struct {
+			Flags string `json:"flags"`
+		} `json:"packets"`
+	}
+	// An appended endpoint proves the observed tail, but is never itself
+	// a keyframe. Require the opening keyframe and an unexhausted packet
+	// budget too; near-tail samples cannot establish a complete index.
+	if json.Unmarshal(data, &report) != nil {
+		return sample
+	}
+	keyframes := 0
+	for _, p := range report.Packets {
+		if strings.Contains(p.Flags, "K") {
+			keyframes++
+		}
+	}
+	sample.complete = keyframes == len(sample.points) && len(report.Packets) < 1024 &&
+		len(sample.points) > 0 && sample.points[0].Time <= 100*time.Millisecond &&
+		len(sample.peakPoints) == len(sample.points)+1
+	return sample
 }
 
 // A sample reaching the known tail may include its final GOP even though

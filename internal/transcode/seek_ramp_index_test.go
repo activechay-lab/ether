@@ -1,7 +1,9 @@
 package transcode
 
 import (
+	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/core"
+	"strings"
 	"testing"
 	"time"
 )
@@ -42,5 +44,50 @@ func TestCopySampleTailIsNotAHandoverKeyframe(t *testing.T) {
 	}
 	if got := sampledCopyPeakKbps(peak, 4*time.Second); got != 2018 {
 		t.Fatalf("tail peak %d", got)
+	}
+}
+
+func TestCopyPacketSampleCompleteness(t *testing.T) {
+	data := []byte(`{"format":{"start_time":"0"},"packets":[{"pts_time":"0","duration_time":"0.04","size":"100","pos":"0","flags":"K_"},{"pts_time":"5","duration_time":"0.04","size":"100","pos":"10000","flags":"K_"},{"pts_time":"13.76","duration_time":"0.04","size":"100","pos":"20000","flags":"K_"},{"pts_time":"19.96","duration_time":"0.04","size":"100","pos":"30000","flags":"__"}]}`)
+	sample := parseCopyPacketSample(data, core.MediaInfo{Duration: 20 * time.Second})
+	if !sample.complete || len(sample.points) != 3 {
+		t.Fatalf("sample=%+v", sample)
+	}
+	plan := buildTimeline(20*time.Second, 4*time.Second, timelineOptions{steadyMode: ModeCopy, keyframes: sample.points, snap: true})
+	if !plan.Keyframed() || plan.Start(1) != 5*time.Second || plan.Start(2) != 13760*time.Millisecond {
+		t.Fatalf("timeline=%+v", plan)
+	}
+
+	var capped struct {
+		Packets []json.RawMessage `json:"packets"`
+		Format  json.RawMessage   `json:"format"`
+	}
+	if err := json.Unmarshal(data, &capped); err != nil {
+		t.Fatal(err)
+	}
+	for len(capped.Packets) < 1024 {
+		capped.Packets = append(capped.Packets, capped.Packets[3])
+	}
+	cappedData, err := json.Marshal(capped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parseCopyPacketSample(cappedData, core.MediaInfo{Duration: 20 * time.Second}).complete {
+		t.Fatal("exhausted packet budget marked complete")
+	}
+	for _, tc := range []struct {
+		name     string
+		data     []byte
+		duration time.Duration
+	}{
+		{"prefix", data, time.Minute},
+		{"invalid-keyframe", []byte(strings.Replace(string(data), `"pos":"10000"`, `"pos":"bad"`, 1)), 20 * time.Second},
+		{"tail", []byte(strings.Replace(string(data), `"pts_time":"0"`, `"pts_time":"2"`, 1)), 20 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if parseCopyPacketSample(tc.data, core.MediaInfo{Duration: tc.duration}).complete {
+				t.Fatal("partial sample marked complete")
+			}
+		})
 	}
 }

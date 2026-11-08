@@ -860,10 +860,11 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		sample := m.sampleCopyIndex(ctx, req, offset, life)
 		points := sample.points
 		nominal := time.Duration(adapt.RampSegs) * adapt.RampDur
-		if offset > 0 && d.Container == ContainerMPEGTS && adapt.FastStart && hasSampledRampBoundary(points, offset, nominal) {
+		sampledRamp := offset > 0 && d.Container == ContainerMPEGTS && adapt.FastStart && hasSampledRampBoundary(points, offset, nominal)
+		if sample.complete || sampledRamp {
 			req.Info.Keyframes = points
 			plan = buildTimeline(plan.span, segDur, timelineOptions{steadyMode: ModeCopy,
-				fastStart: true, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
+				fastStart: adapt.FastStart && d.Container == ContainerMPEGTS, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
 				keyframes: points, base: base, snap: true})
 			total = plan.Total()
 		}
