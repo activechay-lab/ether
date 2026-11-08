@@ -29,3 +29,25 @@ func TestExcludedMediaSkipAnswersSameBytes(t *testing.T) {
 		}
 	}
 }
+
+// A library listing honours excludeFields and PMS's allow-listed
+// excludeElements: an excluded Part leaves Media@partCount, and names a PMS
+// ignores (Image) are ignored.
+func TestListingHonoursPMSExclusions(t *testing.T) {
+	f := newFixture()
+	full := f.getWarm(t, "/library/sections/1/all", jsonAccept...).Body.String()
+	got := f.getWarm(t, "/library/sections/1/all?excludeFields=summary&excludeElements=Part,Genre,Image", jsonAccept...).Body.String()
+	for _, want := range []string{`"summary"`, `"Part"`, `"Genre"`, `"Image"`} {
+		if !strings.Contains(full, want) {
+			t.Fatalf("the unexcluded listing lacks %s, so the check proves nothing: %s", want, full)
+		}
+	}
+	for _, gone := range []string{`"summary"`, `"Part"`, `"Genre"`} {
+		if strings.Contains(got, gone) {
+			t.Errorf("excluded %s is still sent: %s", gone, got)
+		}
+	}
+	if !strings.Contains(got, `"Image"`) || !strings.Contains(got, `"partCount":1`) {
+		t.Errorf("want Image kept (PMS ignores it) and Media@partCount: %s", got)
+	}
+}
