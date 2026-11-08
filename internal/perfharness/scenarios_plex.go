@@ -37,6 +37,8 @@ func plexLibrarySteps(page string) []Step {
 		{Name: "movies filter director", Class: classBrowse, Path: all + "&director={directorId}"},
 		{Name: "movies filter collection", Class: classBrowse, Path: all + "&collection={collectionId}"},
 		{Name: "movies filter unwatched", Class: classBrowse, Path: all + "&unwatched=1"},
+		// A date filter (Plex's advanced filters: added before a date).
+		{Name: "shows filter addedAt before", Class: classBrowse, Path: "/library/sections/{showSection}/all?type=2&sort=titleSort&addedAt%3C%3C={now}&X-Plex-Container-Start=0" + page},
 		{Name: "movies unwatched", Class: classBrowse, Path: "/library/sections/{movieSection}/unwatched?type=1&X-Plex-Container-Start=0" + page},
 		{Name: "movies all titleSort 15k", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&X-Plex-Container-Start=15000" + page},
 		{Name: "movies all addedAt 15k", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=addedAt:desc&X-Plex-Container-Start=15000" + page},

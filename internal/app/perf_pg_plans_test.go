@@ -38,7 +38,7 @@ var plansSteps = map[string][]string{
 	"plex-appletv": {"/library/sections", "/hubs/continueWatching", "/library/onDeck", "/hubs", "/hubs/sections/movies", "movies all titleSort p1", "movies all titleSort deep", "movies all addedAt", "movies all rating",
 		"movies all popularity", "popular movie detail", "movies filter genre", "movies filter year", "movies filter decade", "movies filter actor", "movies filter director", "movies filter country", "movies filter studio", "movies filter unwatched",
 		"movies jump bar", "movies genre filter list", "shows all titleSort p1", "shows allLeaves p1", "show detail", "show children", "season children", "episode detail", "movie detail",
-		"/hubs/search star", "/library/search star", "person media", "shows onDeck"},
+		"/hubs/search star", "/library/search star", "person media", "shows onDeck", "shows filter addedAt before", "/hubs/promoted"},
 	"infuse-jellyfin": {"/UserItems/Resume", "/Shows/NextUp", "/UserViews", "movies p1 SortName", "search items star"},
 }
 
@@ -91,39 +91,52 @@ func TestPostgresHotPlans(t *testing.T) {
 	pg, schema := plansConn(t, dir)
 	defer pg.Close()
 
-	trace := filepath.Join(dir, "trace.jsonl")
-	t.Setenv(PerfTraceEnv, trace)
-	a, err := New(ctx, Options{DataDir: dir, Logger: slog.New(slog.DiscardHandler)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(a.Handler())
-	a.frontends.start(ctx, server.Listener.Addr())
-	var cs []perfharness.Client
-	for _, c := range perfharness.Only(perfharness.Clients(), []string{"plex-appletv", "infuse-jellyfin"}) {
-		keep := map[string]bool{}
-		for _, n := range plansSteps[c.Name] {
-			keep[n] = true
+	// Each release mode once: the default (playable) and digital, whose
+	// home-release gate adds its own predicates to listings and rows.
+	byTag := map[string]perfharness.TraceRecord{}
+	for _, mode := range []string{config.ModePlayable, config.ModeDigital} {
+		if err := cfg.Update(func(c *config.Config) error {
+			c.Availability.Mode = mode
+			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
-		var steps []perfharness.Step
-		for _, st := range c.Steps {
-			if keep[st.Name] {
-				steps = append(steps, st)
+		trace := filepath.Join(dir, "trace-"+mode+".jsonl")
+		t.Setenv(PerfTraceEnv, trace)
+		a, err := New(ctx, Options{DataDir: dir, Logger: slog.New(slog.DiscardHandler)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := httptest.NewServer(a.Handler())
+		a.frontends.start(ctx, server.Listener.Addr())
+		var cs []perfharness.Client
+		for _, c := range perfharness.Only(perfharness.Clients(), []string{"plex-appletv", "infuse-jellyfin"}) {
+			keep := map[string]bool{}
+			for _, n := range plansSteps[c.Name] {
+				keep[n] = true
 			}
+			var steps []perfharness.Step
+			for _, st := range c.Steps {
+				if keep[st.Name] {
+					steps = append(steps, st)
+				}
+			}
+			c.Steps = steps
+			cs = append(cs, c)
 		}
-		c.Steps = steps
-		cs = append(cs, c)
-	}
-	r := perfharness.NewRunner(server.Listener.Addr().(*net.TCPAddr).Port, true, viewers)
-	r.SetTimeout(30 * time.Second)
-	r.Sequential(ctx, "cold", viewers[:1], cs)
-	r.Sequential(ctx, "warm", viewers[:1], cs)
-	server.Close()
-	a.Close()
-
-	byTag, _, err := perfharness.ReadTrace(trace)
-	if err != nil {
-		t.Fatal(err)
+		r := perfharness.NewRunner(server.Listener.Addr().(*net.TCPAddr).Port, true, viewers)
+		r.SetTimeout(30 * time.Second)
+		r.Sequential(ctx, "cold", viewers[:1], cs)
+		r.Sequential(ctx, "warm", viewers[:1], cs)
+		server.Close()
+		a.Close()
+		got, _, err := perfharness.ReadTrace(trace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for tag, rec := range got {
+			byTag[mode+"|"+tag] = rec
+		}
 	}
 	type stmt struct {
 		sites map[string]bool
@@ -131,7 +144,7 @@ func TestPostgresHotPlans(t *testing.T) {
 	}
 	stmts := map[string]*stmt{}
 	for tag, rec := range byTag {
-		parts := strings.SplitN(tag, "|", 4)
+		parts := strings.SplitN(tag, "|", 5)[1:]
 		if len(parts) < 3 {
 			continue
 		}
@@ -177,6 +190,13 @@ func TestPostgresHotPlans(t *testing.T) {
 			}
 		}
 	}
+	covered := map[string]bool{}
+	for _, e := range stmts {
+		for site := range e.sites {
+			covered[site] = true
+		}
+	}
+	t.Logf("call sites covered: %s", keysOf(covered))
 	t.Logf("checked %d statements of %d steps' requests, %d not explainable", checked, len(byTag), skipped)
 }
 
