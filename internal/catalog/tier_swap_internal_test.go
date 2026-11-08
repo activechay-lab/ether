@@ -9,15 +9,15 @@ import (
 )
 
 // TestTierPinnedIndexesCoverIndexedBy: every catalog_titles index a query
-// names in INDEXED BY must be built under its own name by the tier swap,
-// or that query fails between the swap and the index's rename.
+// pins goes through c.indexedBy (which the tier swap turns off while it
+// rebuilds them) and is in tierPinnedIndexes, rebuilt first.
 func TestTierPinnedIndexesCoverIndexedBy(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct := regexp.MustCompile(`INDEXED BY ([a-z0-9_]+)`)
-	helper := regexp.MustCompile(`sqliteIndexedBy\([^,]+,\s*"([a-z0-9_]+)"\)`)
+	direct := regexp.MustCompile(`(?m)^[^/]*INDEXED BY ([a-z0-9_]+)`)
+	helper := regexp.MustCompile(`indexedBy\("([a-z0-9_]+)"\)`)
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -28,6 +28,9 @@ func TestTierPinnedIndexesCoverIndexedBy(t *testing.T) {
 		}
 		for _, re := range []*regexp.Regexp{direct, helper} {
 			for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+				if re == direct && f != "tier_swap.go" {
+					t.Errorf("%s pins %s with a literal INDEXED BY; use c.indexedBy so the tier swap can unpin it", f, m[1])
+				}
 				if strings.HasPrefix(m[1], "catalog_titles") && !tierPinnedIndexes[m[1]] {
 					t.Errorf("%s names catalog_titles index %s in INDEXED BY; add it to tierPinnedIndexes", f, m[1])
 				}

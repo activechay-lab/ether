@@ -444,6 +444,7 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	if err := c.reloadViewerRules(context.Background()); err != nil {
 		return nil, err
 	}
+	c.loadTierHints(context.Background())
 	ctx := c.startupContext
 	if ctx == nil {
 		ctx = context.Background()

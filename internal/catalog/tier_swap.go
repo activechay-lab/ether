@@ -47,13 +47,17 @@ import (
 // a VACUUM (an owner decision, not part of this job).
 
 const (
-	tierKeepTable  = "catalog_titles_keep"
-	tierKeepFTS    = "catalog_titles_fts_keep"
-	tierOldTable   = "catalog_titles_tierold"
-	tierOldFTS     = "catalog_titles_fts_tierold"
-	tierTempIndex  = "tierkeep_"
-	tierMetaPhase  = "tier_migrate_phase"
-	tierMetaIndex  = "tier_migrate_indexes"
+	tierKeepTable = "catalog_titles_keep"
+	tierKeepFTS   = "catalog_titles_fts_keep"
+	tierOldTable  = "catalog_titles_tierold"
+	tierOldFTS    = "catalog_titles_fts_tierold"
+	tierTempIndex = "tierkeep_"
+	tierMetaPhase = "tier_migrate_phase"
+	tierMetaIndex = "tier_migrate_indexes"
+	tierMetaHints = "tier_migrate_unpinned"
+	// tierHintGrace lets queries that named a pinned index finish before
+	// the swap moves it.
+	tierHintGrace  = 2 * time.Second
 	tierCopyPage   = 2000
 	tierCopyStart  = 1000
 	tierDropChunk  = 5000
@@ -84,8 +88,6 @@ func (c *Catalog) swapTiers(ctx context.Context, touched *tierTouched, p *TierMi
 		switch phase {
 		case "", "copy":
 			err = c.tierCopy(ctx, touched, p)
-		case "index":
-			err = c.tierBuildIndexes(ctx, p)
 		case "swap":
 			err = c.tierSwap(ctx, p)
 		case "cleanup":
@@ -209,7 +211,7 @@ func (c *Catalog) tierCopy(ctx context.Context, touched *tierTouched, p *TierMig
 	if _, err := tx.ExecContext(ctx, `UPDATE catalog_meta SET v=? WHERE k=?`, strconv.FormatInt(math.MaxInt64, 10), tierMetaCursor); err != nil {
 		return err
 	}
-	if err := c.setTierPhase(ctx, tx, "index"); err != nil {
+	if err := c.setTierPhase(ctx, tx, "swap"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -220,6 +222,10 @@ func (c *Catalog) tierCopy(ctx context.Context, touched *tierTouched, p *TierMig
 func (c *Catalog) tierPrepareCopy(ctx context.Context) error {
 	if c.getMeta(ctx, tierMetaPhase) == "copy" {
 		return nil
+	}
+	defs, err := c.tierIndexDefs(ctx)
+	if err != nil {
+		return err
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -295,6 +301,16 @@ func (c *Catalog) tierPrepareCopy(ctx context.Context) error {
 END`,
 		`CREATE TRIGGER catalog_tier_capture_delete AFTER DELETE ON catalog_titles WHEN old.key<=`+tierCursorSQL+` BEGIN DELETE FROM `+tierKeepTable+` WHERE key=old.key; END`,
 	)
+	// Every index goes on the empty copy now, under a temporary name: the
+	// schema never changes again while the capture triggers run (a schema
+	// change under them failed concurrent writes with "no such table").
+	for _, d := range defs {
+		q, err := retargetIndex(d.SQL, tierTempIndex+d.Name, tierKeepTable)
+		if err != nil {
+			return err
+		}
+		stmts = append(stmts, `DROP INDEX IF EXISTS `+tierTempIndex+d.Name, q)
+	}
 	for _, q := range stmts {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("catalog: tier migration: prepare copy: %w (%.120s)", err, q)
@@ -473,37 +489,6 @@ type tierIndexDef struct {
 	SQL  string `json:"sql"`
 }
 
-// tierBuildIndexes records catalog_titles' index definitions and builds
-// each unpinned one on the copy under a temporary name, a transaction
-// each.
-func (c *Catalog) tierBuildIndexes(ctx context.Context, p *TierMigration) error {
-	defs, err := c.tierIndexDefs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, d := range defs {
-		if tierPinnedIndexes[d.Name] {
-			continue
-		}
-		if !c.waitTierUnpaused(ctx, p) {
-			return ctx.Err()
-		}
-		if err := store.WaitWALBudget(ctx, c.db); err != nil {
-			return err
-		}
-		q, err := retargetIndex(d.SQL, tierTempIndex+d.Name, tierKeepTable)
-		if err != nil {
-			return err
-		}
-		q = strings.Replace(q, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
-		q = strings.Replace(q, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ", 1)
-		if _, err := c.db.ExecContext(ctx, q); err != nil {
-			return fmt.Errorf("catalog: tier migration: build %s: %w", d.Name, err)
-		}
-	}
-	return c.setTierPhase(ctx, c.db, "swap")
-}
-
 // tierIndexDefs are catalog_titles' explicit indexes. The first call reads
 // them from the schema and stores them; later calls (after the swap, when
 // the schema holds temporary names) read the stored list.
@@ -547,23 +532,20 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 	if err := store.WaitWALBudget(ctx, c.db); err != nil {
 		return err
 	}
-	defs, err := c.tierIndexDefs(ctx)
-	if err != nil {
+	// The pinned indexes are rebuilt under their names after the swap;
+	// until then queries go unpinned (indexedBy), from a moment before the
+	// swap so no query naming one is in flight when it moves.
+	if err := c.setTierHintsOff(ctx, true); err != nil {
 		return err
+	}
+	if !waitGap(ctx, tierHintGrace) {
+		return ctx.Err()
 	}
 	conn, err := c.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	// Read the pinned indexes once so dropping them in the swap walks
-	// cached pages instead of the disk.
-	for _, d := range defs {
-		if tierPinnedIndexes[d.Name] {
-			var n int64
-			_ = conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles INDEXED BY `+d.Name).Scan(&n)
-		}
-	}
 	// Renaming with legacy_alter_table leaves the other tables' triggers
 	// naming catalog_titles alone, so they follow the name to the copy.
 	if _, err := conn.ExecContext(ctx, `PRAGMA legacy_alter_table=ON`); err != nil {
@@ -583,12 +565,14 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 	// A last Tier A read over every key: a title touched since its page
 	// was copied (an import, a watchlist sync) joins the copy now.
 	late := newTierTouched()
+	lateBegan := time.Now()
 	if err := recheckTierA(ctx, tx, tables, []keyRange{{core.MovieKey(0), core.EpisodeKey(99_999_999, 999, 9999)}}, late); err != nil {
 		return err
 	}
 	if err := c.tierCopyLate(ctx, tx, late); err != nil {
 		return err
 	}
+	lateTook := time.Since(lateBegan)
 	type trig struct{ name, sql string }
 	var saved []trig
 	rows, err := tx.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('catalog_titles', ?) ORDER BY name`, tierKeepTable)
@@ -611,41 +595,33 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	stmts := drops
-	for _, d := range defs {
-		if tierPinnedIndexes[d.Name] {
-			stmts = append(stmts, `DROP INDEX "`+d.Name+`"`)
-		}
-	}
-	stmts = append(stmts,
+	stmts := append(drops,
 		`ALTER TABLE catalog_titles RENAME TO `+tierOldTable,
 		`ALTER TABLE `+tierKeepTable+` RENAME TO catalog_titles`,
 		`ALTER TABLE catalog_titles_fts RENAME TO `+tierOldFTS,
 		`ALTER TABLE `+tierKeepFTS+` RENAME TO catalog_titles_fts`,
 	)
-	for _, d := range defs {
-		if tierPinnedIndexes[d.Name] {
-			q, err := retargetIndex(d.SQL, d.Name, "catalog_titles")
-			if err != nil {
-				return err
-			}
-			stmts = append(stmts, q)
-		}
-	}
 	for _, t := range saved {
 		stmts = append(stmts, t.sql)
 	}
+	slow := map[string]string{}
 	for _, q := range stmts {
+		b := time.Now()
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("catalog: tier migration: swap: %w (%.120s)", err, q)
 		}
+		if d := time.Since(b); d >= 100*time.Millisecond {
+			slow[fmt.Sprintf("%.60s", q)] = d.Round(time.Millisecond).String()
+		}
 	}
+	tallyBegan := time.Now()
 	if err := rebuildBrowseTally(ctx, tx); err != nil {
 		return err
 	}
 	if err := rebuildStatsTally(ctx, tx); err != nil {
 		return err
 	}
+	tallyTook := time.Since(tallyBegan)
 	if err := c.setTierPhase(ctx, tx, "cleanup"); err != nil {
 		return err
 	}
@@ -656,7 +632,7 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 		return err
 	}
 	c.writeGen.Add(1)
-	c.log.Info("catalog: tier migration swapped in the library tier", "hold", time.Since(began).Round(time.Millisecond), "late_touched", len(late.keys))
+	c.log.Info("catalog: tier migration swapped in the library tier", "hold", time.Since(began).Round(time.Millisecond), "late_touched", len(late.keys), "slow", slow, "late_check", lateTook.Round(time.Millisecond), "tallies", tallyTook.Round(time.Millisecond))
 	return nil
 }
 
@@ -705,9 +681,20 @@ func (c *Catalog) tierCleanup(ctx context.Context, p *TierMigration) error {
 	if err != nil {
 		return err
 	}
-	for _, d := range defs {
-		if tierPinnedIndexes[d.Name] {
-			continue
+	// The pinned indexes first: queries are unpinned until they exist.
+	ordered := make([]tierIndexDef, 0, len(defs))
+	for _, pinned := range []bool{true, false} {
+		for _, d := range defs {
+			if tierPinnedIndexes[d.Name] == pinned {
+				ordered = append(ordered, d)
+			}
+		}
+	}
+	for i, d := range ordered {
+		if i > 0 && tierPinnedIndexes[ordered[i-1].Name] && !tierPinnedIndexes[d.Name] {
+			if err := c.setTierHintsOff(ctx, false); err != nil {
+				return err
+			}
 		}
 		if !c.waitTierUnpaused(ctx, p) {
 			return ctx.Err()
@@ -740,6 +727,9 @@ func (c *Catalog) tierCleanup(ctx context.Context, p *TierMigration) error {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+	}
+	if err := c.setTierHintsOff(ctx, false); err != nil {
+		return err
 	}
 	if _, err := c.db.ExecContext(ctx, `DROP TABLE IF EXISTS `+tierOldFTS); err != nil {
 		return err
@@ -849,4 +839,24 @@ func (c *Catalog) tierDeleteOrphans(ctx context.Context, p *TierMigration) error
 	}
 	c.writeGen.Add(1)
 	return c.setTierPhase(ctx, c.db, "swept")
+}
+
+// setTierHintsOff turns INDEXED BY pins off (or on again) for this process
+// and records it, so a restart in the middle keeps them off.
+func (c *Catalog) setTierHintsOff(ctx context.Context, off bool) error {
+	v := ""
+	if off {
+		v = "1"
+		c.tier.hintsOff.Store(true)
+	}
+	if err := c.setMeta(ctx, tierMetaHints, v); err != nil {
+		return err
+	}
+	c.tier.hintsOff.Store(off)
+	return nil
+}
+
+// loadTierHints restores the pin switch a tier migration left off.
+func (c *Catalog) loadTierHints(ctx context.Context) {
+	c.tier.hintsOff.Store(c.getMeta(ctx, tierMetaHints) != "")
 }

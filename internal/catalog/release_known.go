@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"database/sql"
 
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -17,11 +16,13 @@ import (
 // the no-episode series fallback must use this same predicate.
 const knownReleaseSQL = `release_known=1`
 
-// sqliteIndexedBy pins a SQLite query to index. PostgreSQL has no INDEXED BY
-// clause; the same predicate selects the index there.
-func sqliteIndexedBy(db *sql.DB, index string) string {
-	if db == nil || store.DialectOf(db) == store.Postgres {
+// indexedBy pins a SQLite query on catalog_titles to index (" INDEXED BY
+// index "). PostgreSQL has no INDEXED BY clause; the same predicate selects
+// the index there. While the tier migration swaps catalog_titles the pinned
+// indexes are rebuilt under their names, and queries go unpinned.
+func (c *Catalog) indexedBy(index string) string {
+	if c.db == nil || store.DialectOf(c.db) == store.Postgres || c.tier.hintsOff.Load() {
 		return ""
 	}
-	return "INDEXED BY " + index + " "
+	return " INDEXED BY " + index + " "
 }

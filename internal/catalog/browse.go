@@ -137,7 +137,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		// Pin the seek: planner statistics must never turn a keyset page back
 		// into a sort of the type's whole browse set.
 		if q.Filter.Type != "" && store.DialectOf(c.db) != store.Postgres {
-			keysetHint = " INDEXED BY " + keysetIndex
+			keysetHint = c.indexedBy(keysetIndex)
 		}
 	}
 	if q.Sort == core.SortUpdated && q.Filter.UpdatedAfter == 0 {
@@ -172,12 +172,12 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		hint := keysetHint
 		if store.DialectOf(c.db) != store.Postgres && !consolePositiveEvidence(q.Filter) && !consoleHasSparseCandidates(q.Filter) {
 			if len(q.Filter.Languages) == 1 && q.Filter.MinVotes > 0 {
-				hint = " INDEXED BY catalog_titles_console_language_votes_page"
+				hint = c.indexedBy("catalog_titles_console_language_votes_page")
 			} else if q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 {
-				hint = " INDEXED BY catalog_titles_console_pop_page"
+				hint = c.indexedBy("catalog_titles_console_pop_page")
 			}
 			if q.Sort == core.SortYear && q.Desc && len(q.SecondarySorts) == 1 && q.SecondarySorts[0].Sort == core.SortTitle && !q.SecondarySorts[0].Desc {
-				hint = " INDEXED BY catalog_titles_console_year_title_page"
+				hint = c.indexedBy("catalog_titles_console_year_title_page")
 			}
 		}
 		// Sort/filter only narrow covering-index keys, then hydrate the page.
@@ -1183,7 +1183,7 @@ func (c *Catalog) mergedTypeKeys(ctx context.Context, where string, args []any, 
 	for _, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
 		hint := ""
 		if q.Filter.LocalOnly && q.Sort == core.SortPopularity && len(q.SecondarySorts) == 0 && store.DialectOf(c.db) != store.Postgres && !consoleHasSparseCandidates(q.Filter) {
-			hint = " INDEXED BY catalog_titles_console_pop_page"
+			hint = c.indexedBy("catalog_titles_console_pop_page")
 		}
 		rows, err := c.db.QueryContext(ctx, `SELECT t.key, `+col+` FROM catalog_titles t`+hint+` WHERE `+where+` AND t.type=? ORDER BY `+order+`, t.key ASC LIMIT ?`, append(append([]any{}, args...), string(typ), offset+limit)...)
 		if err != nil {

@@ -92,10 +92,10 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 		selectiveEvidence := typed.Playable != "" || typed.DebridCached != "" || len(typed.Qualities) > 0 || typed.ReleaseGate != ""
 		if store.DialectOf(c.db) != store.Postgres && !selectiveEvidence && !consoleHasSparseCandidates(typed) {
 			if specs[0].Sort == core.SortPopularity && specs[0].Desc && len(specs) == 1 {
-				hint = " INDEXED BY catalog_titles_console_pop_page"
+				hint = c.indexedBy("catalog_titles_console_pop_page")
 			}
 			if len(specs) == 2 && specs[0].Sort == core.SortYear && specs[0].Desc && specs[1].Sort == core.SortTitle && !specs[1].Desc {
-				hint = " INDEXED BY catalog_titles_console_year_title_page"
+				hint = c.indexedBy("catalog_titles_console_year_title_page")
 			}
 		}
 		for _, seek := range consoleSeekRanges(columns, specs, after, q.AfterKey) {

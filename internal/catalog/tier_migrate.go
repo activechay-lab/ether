@@ -124,10 +124,13 @@ type TierMigration struct {
 
 type tierMigrationState struct {
 	running atomic.Bool
-	mu      sync.Mutex
-	backup  TierBackupFunc
-	done    func()
-	wake    chan struct{}
+	// hintsOff leaves INDEXED BY pins out while the swap rebuilds the
+	// pinned indexes (indexedBy).
+	hintsOff atomic.Bool
+	mu       sync.Mutex
+	backup   TierBackupFunc
+	done     func()
+	wake     chan struct{}
 }
 
 // SetTierBackup wires the backup check the tier migration waits for.

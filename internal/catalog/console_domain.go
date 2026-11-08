@@ -49,7 +49,7 @@ func (c *Catalog) consoleYearEmpty(ctx context.Context, f core.Filter) (bool, er
 	for _, typ := range types {
 		hint := ""
 		if store.DialectOf(c.db) != store.Postgres {
-			hint = " INDEXED BY catalog_titles_type_browse_year"
+			hint = c.indexedBy("catalog_titles_type_browse_year")
 		}
 		query := `SELECT key FROM catalog_titles` + hint + ` WHERE type=? AND browsable=1 AND adult=0 AND year>=?`
 		args := []any{string(typ), max(1, from)}
