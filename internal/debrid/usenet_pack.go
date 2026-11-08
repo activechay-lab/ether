@@ -80,9 +80,9 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 	own := map[*nzb.File]bool{}
 	ownIndex := false
 	for _, f := range doc.Files {
-		if f.Info.Kind == nzb.KindPar2 && strings.HasPrefix(strings.ToLower(f.Name), stem) {
+		if f.Info.Kind == nzb.KindPar2 && !nzb.IsPar2Volume(f.Name) && strings.HasPrefix(strings.ToLower(f.Name), stem) {
 			own[f] = true
-			ownIndex = ownIndex || !nzb.IsPar2Volume(f.Name)
+			ownIndex = true
 		}
 	}
 	packIndex := nzb.Par2Index(doc.Files)

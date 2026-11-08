@@ -116,6 +116,7 @@ func TestEpisodeNZBPrefersTheEpisodesOwnPar2Index(t *testing.T) {
 	data := packNZB(
 		`&quot;Show.S01E01.mkv&quot; yEnc (1/1)`,
 		`&quot;Show.S01E01.par2&quot; yEnc (1/1)`,
+		`&quot;Show.S01E01.vol000+01.par2&quot; yEnc (1/1)`,
 		`&quot;Show.S01E02.par2&quot; yEnc (1/1)`,
 		`&quot;Show.S01.par2&quot; yEnc (1/1)`,
 	)
