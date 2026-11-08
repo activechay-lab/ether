@@ -79,8 +79,12 @@ const (
 	searchRemoteOnly = 0.3
 )
 
-// searchCorrectionCost is what one spelling correction costs a match.
-const searchCorrectionCost = 0.12
+// searchCorrectionCost is what one spelling correction costs a match;
+// searchSuffixCost, less, one letter typed past the whole title.
+const (
+	searchCorrectionCost = 0.12
+	searchSuffixCost     = 0.10
+)
 
 // searchAffinityBoost lifts a title the viewer has watched, started or
 // rated (core.SearchAffinity) above equally good matches they do not know,
@@ -317,6 +321,15 @@ type titleIndex struct {
 	joinOff   []uint32
 	joinTitle []uint32
 	joinBlob  string
+	// byKey is keys sorted, for holds (library index only; nil otherwise).
+	byKey []int64
+}
+
+// holds reports whether the index has a title with key (false for an index
+// built without byKey).
+func (ix *titleIndex) holds(key int64) bool {
+	_, ok := slices.BinarySearch(ix.byKey, key)
+	return ok
 }
 
 const (
@@ -425,6 +438,8 @@ func (c *Catalog) loadTitleIndex(ctx context.Context) (*titleIndex, error) {
 		b.add(e.names)
 	}
 	b.finish(ix)
+	ix.byKey = slices.Clone(ix.keys)
+	slices.Sort(ix.byKey)
 	return ix, nil
 }
 
@@ -573,6 +588,48 @@ type searchQuery struct {
 	// A final four-digit year ("Dune 2021") is also tried as a filter.
 	year     int
 	yearless *searchQuery
+	// relaxed: the retry of a query of two or more words that found
+	// nothing ("fight clb", "the walking ded"): a three-letter word may be
+	// corrected once too, and each word reads more corrections.
+	relaxed bool
+}
+
+// searchRelaxedNear is the corrections a relaxed query reads per word.
+const searchRelaxedNear = 4 * searchNearPerWord
+
+func isSequelWord(w string) bool {
+	return strings.IndexFunc(w, func(r rune) bool { return !unicode.IsDigit(r) }) < 0 ||
+		(len(w) <= 4 && strings.IndexFunc(w, func(r rune) bool { return r != 'i' && r != 'v' && r != 'x' }) < 0)
+}
+
+// searchRelaxedMax caps a relaxed match below searchConfident: it never
+// answers a search alone, so TMDB's live search is still waited for.
+const searchRelaxedMax = searchConfident - 0.02
+
+// spell is how many edits q's word w may be corrected by.
+func (q *searchQuery) spell(w string) int {
+	d := spellDistance(w)
+	if d == 0 && q.relaxed && utf8.RuneCountInString(w) == 3 && strings.IndexFunc(w, func(r rune) bool { return !unicode.IsDigit(r) }) >= 0 {
+		return 1
+	}
+	return d
+}
+
+// relax is q's relaxed retry, or nil when q cannot be relaxed. A query
+// that ends in a number or a roman numeral ("frozen 2", "rocky iv") is a
+// sequel the library does not hold yet: TMDB answers it, not a correction.
+func (q searchQuery) relax() *searchQuery {
+	if q.relaxed || len(q.words) < 2 || isSequelWord(q.words[len(q.words)-1]) {
+		return nil
+	}
+	r := q
+	r.relaxed = true
+	if q.yearless != nil {
+		yl := *q.yearless
+		yl.relaxed = true
+		r.yearless = &yl
+	}
+	return &r
 }
 
 func parseSearchQuery(query string) searchQuery {
@@ -637,6 +694,9 @@ func (ix *titleIndex) search(q searchQuery, wantMovie, wantShow bool, n int) []i
 			continue
 		}
 		s := ix.scoreTitle(q, t, &scratch)
+		if q.relaxed {
+			s = min(s, searchRelaxedMax)
+		}
 		if q.yearless != nil {
 			ys := ix.scoreTitle(*q.yearless, t, &scratch)
 			if ys > 0 {
@@ -653,6 +713,11 @@ func (ix *titleIndex) search(q searchQuery, wantMovie, wantShow bool, n int) []i
 		}
 		hits = append(hits, indexHit{title: t, score: s + popularityPrior(float64(ix.pops[t]), int(ix.votes[t]))})
 	}
+	if len(hits) == 0 {
+		if r := q.relax(); r != nil {
+			return ix.search(*r, wantMovie, wantShow, n)
+		}
+	}
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].score != hits[j].score {
 			return hits[i].score > hits[j].score
@@ -667,16 +732,25 @@ func (ix *titleIndex) search(q searchQuery, wantMovie, wantShow bool, n int) []i
 
 // popularityPrior is up to 0.10 for how well known a title is: mostly its
 // TMDB vote count (lasting standing: "Noah" is the 2014 film, not a
-// forgotten series of the same name), partly its current popularity
-// (what people are watching now). Both are log scales, topping out at
-// about 20,000 votes and a popularity of 300.
+// forgotten series of the same name; Fargo is the 1996 film, 9.6k votes,
+// before the series, 3.5k, whatever this month's popularity says), a
+// little its current popularity (what people are watching now). Both are
+// log scales, topping out at about 40,000 votes and a popularity of 300.
+// The long tail has no vote counts, so its prior is the popularity part
+// alone: at most 0.006 below the Some bar (popularity 5).
+const (
+	priorPopWeight   = 0.02
+	priorVoteWeight  = 0.08
+	priorVoteDecades = 4.6 // log10(40,000)
+)
+
 func popularityPrior(pop float64, votes int) float64 {
 	p := 0.0
 	if pop > 0 {
-		p += 0.04 * min(1, math.Log10(1+pop)/2.5)
+		p += priorPopWeight * min(1, math.Log10(1+pop)/2.5)
 	}
 	if votes > 0 {
-		p += 0.06 * min(1, math.Log10(1+float64(votes))/4.3)
+		p += priorVoteWeight * min(1, math.Log10(1+float64(votes))/priorVoteDecades)
 	}
 	return p
 }
@@ -709,15 +783,21 @@ func (ix *titleIndex) candidates(q searchQuery, into map[uint32]struct{}) map[ui
 		lit := make([]uint64, nw)
 		ix.orWord(lit, w, last)
 		fz := lit
-		if d := spellDistance(w); d > 0 {
+		if d := q.spell(w); d > 0 {
 			fz = make([]uint64, nw)
 			copy(fz, lit)
-			for _, m := range ix.lx.near(w, d, searchNearPerWord) {
+			near := searchNearPerWord
+			if q.relaxed {
+				near = searchRelaxedNear
+			}
+			for _, m := range ix.lx.near(w, d, near) {
 				ix.orPostings(fz, m.idx)
 				anyFuzzy = true
 			}
 		}
-		if isSearchFiller(w) && len(q.words) > 1 {
+		if (isSearchFiller(w) && len(q.words) > 1) || (last && q.relaxed && len(literal) > 0) {
+			// A relaxed query's last word may be a typo no correction
+			// reaches ("lsit"): the other words find the candidates.
 			optionalLit, optionalFuzzy = append(optionalLit, lit), append(optionalFuzzy, fz)
 			continue
 		}
@@ -892,7 +972,13 @@ func scoreName(q searchQuery, words []string, scratch *[]int) float64 {
 				continue
 			}
 			if e := editDistance(q.runes, cand.r, d, scratch); e > 0 && e <= d {
-				best = max(best, cand.base-searchCorrectionCost*float64(e))
+				cost := searchCorrectionCost * float64(e)
+				if e == 1 && len(q.runes) == len(cand.r)+1 && slices.Equal(q.runes[:len(cand.r)], cand.r) {
+					// The title and one letter more: a plural, a
+					// romanised ending ("Ringu" is Ring), an extra key.
+					cost = searchSuffixCost
+				}
+				best = max(best, cand.base-cost)
 			}
 			// A misspelt beginning: within the title's first word for a
 			// one-word query (so "event" does not begin "even though"),
@@ -916,7 +1002,7 @@ func scoreName(q searchQuery, words []string, scratch *[]int) float64 {
 	if best >= 0.86 {
 		return best
 	}
-	best = max(best, scoreWords(q.words, words, scratch))
+	best = max(best, scoreWords(q, words, scratch))
 	if best == 0 && len(q.runes) >= 4 && strings.Contains(join, q.join) {
 		best = 0.5
 	}
@@ -951,7 +1037,8 @@ func prefixScore(words []string, before int, last string, score float64, queryRu
 // scoreWords matches each query word to a different name word: the same
 // word, a word it begins (free for the last query word, which may still be
 // being typed), or a correction. Filler words may go unmatched.
-func scoreWords(qw, words []string, scratch *[]int) float64 {
+func scoreWords(q searchQuery, words []string, scratch *[]int) float64 {
+	qw := q.words
 	if len(words) > 64 {
 		words = words[:64]
 	}
@@ -961,7 +1048,7 @@ func scoreWords(qw, words []string, scratch *[]int) float64 {
 	for i, w := range qw {
 		last := i == len(qw)-1
 		bestJ, bestC := -1, math.Inf(1)
-		d := spellDistance(w)
+		d := q.spell(w)
 		wr := []rune(w)
 		for j, x := range words {
 			if used&(1<<j) != 0 {
@@ -995,6 +1082,11 @@ func scoreWords(qw, words []string, scratch *[]int) float64 {
 		if bestJ < 0 {
 			if isSearchFiller(w) && len(qw) > 1 {
 				penalty += 0.02
+				continue
+			}
+			if last && q.relaxed && len(positions) > 0 {
+				// Unmatched as two corrections would cost.
+				penalty += 2 * searchCorrectionCost
 				continue
 			}
 			return 0

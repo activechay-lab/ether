@@ -416,16 +416,22 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	// visibility pass treats them as remote. A title whose date is not
 	// known yet is let through; a confirmed undated or future one is not,
 	// as for library titles.
+	// Tail hits rank under the outside margin (search_tail_merge.go); one
+	// that is the exact title answers without waiting for TMDB.
+	tailKeys := map[core.RatingKey]bool{}
+	tailAnswered := false
 	if wantMovie || wantTV {
 		hits, scores := c.searchTail(sq, wantMovie, wantTV, max(limit*3, 30))
 		tail := make([]core.Title, 0, len(hits))
 		for _, e := range hits {
 			t := e.Title
-			if seen[t.Key] || (!unfiltered && !e.DateUnknown && !t.IsReleased(c.now())) {
+			if seen[t.Key] || c.inLibrary(t.Key) || (!unfiltered && !e.DateUnknown && !t.IsReleased(c.now())) {
 				continue
 			}
 			tail = append(tail, t)
+			tailKeys[t.Key] = true
 		}
+		tailAnswered = tailAnswers(tail, scores)
 		if len(tail) > 0 {
 			if prefetch := c.posterPrefetch; prefetch != nil {
 				prefetch(ctx, tail) // posters (L), overlapping the TMDB wait
@@ -502,7 +508,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	}
 	wait := searchRemoteWait
 	switch {
-	case slices.ContainsFunc(out, func(t core.Title) bool { return t.SearchScore >= searchConfident }):
+	case tailAnswered || slices.ContainsFunc(out, func(t core.Title) bool { return t.SearchScore >= searchConfident }):
 		// The mirror holds the title the viewer typed: answer now. TMDB
 		// still runs, detached, and what it finds joins the mirror (and the
 		// search index) for the next search.
@@ -529,6 +535,18 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 			if t.SearchScore = scoreSearchText(sq, &t); t.SearchScore == 0 {
 				// TMDB matched a name the catalogue does not hold.
 				t.SearchScore = searchRemoteOnly + popularityPrior(t.Popularity, t.VoteCount)
+			}
+			if !c.inLibrary(t.Key) {
+				t.SearchScore = outsideScore(t.SearchScore)
+			}
+			if tailKeys[t.Key] {
+				// TMDB's summary of a tail hit: its display title, date,
+				// poster and votes replace the export's name alone.
+				if i := slices.IndexFunc(out, func(o core.Title) bool { return o.Key == t.Key }); i >= 0 {
+					t.SearchScore = max(t.SearchScore, out[i].SearchScore)
+					out[i] = t
+				}
+				continue
 			}
 			wasSeen := seen[t.Key]
 			add([]core.Title{t})
