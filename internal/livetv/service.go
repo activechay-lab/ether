@@ -1924,15 +1924,13 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	if err := s.invalidateVODConnection(ctx, tx, src); err != nil {
 		return src, err
 	}
-	// Writing the source row first takes its row lock, so a concurrent save
-	// of the same source on another node waits here; the owner's channel
-	// edits are then read inside the transaction and cannot be lost.
+	// lockSourceEdits above makes a concurrent save of the same source on
+	// another node wait, so the owner's channel edits read inside this
+	// transaction cannot be lost. The source row itself is written only when
+	// it changed.
 	src.UpdatedAt = s.o.Now()
-	sb, err := s.encodeSource(src)
+	sourceWritten, err := s.writeImportedSource(ctx, tx, src)
 	if err != nil {
-		return src, err
-	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_sources(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, src.ID, sb); err != nil {
 		return src, err
 	}
 	old, err := channels(ctx, tx)
@@ -1954,25 +1952,22 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	if err := assignImportedNumbers(ctx, tx, src.ID, cs, keepNumber, old, s.o.Now()); err != nil {
 		return src, err
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM livetv_programmes WHERE source_id=?`, src.ID); err != nil {
-		return src, err
-	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM livetv_channels WHERE `+store.JSONText(store.DialectOf(s.o.DB), "data", "sourceId")+`=?`, src.ID); err != nil {
-		return src, err
-	}
-	// Insert in batches: one statement per row also fires the database's
+	// Write in batches: one statement per row also fires the database's
 	// per-statement viewer-policy trigger once per row, which made a large
 	// import take many minutes. SQLite's default variable limit is 999.
+	dialect := store.DialectOf(s.o.DB)
 	batch := 1000
-	if store.DialectOf(s.o.DB) == store.SQLite {
+	if dialect == store.SQLite {
 		batch = 150
 	}
+	// Only rows that differ from what is stored are written (guide_import.go):
+	// an unchanged refresh writes nothing and leaves the viewer-policy epoch
+	// alone.
 	stored := make([]Channel, 0, len(cs))
-	for start := 0; start < len(cs); start += batch {
-		end := min(start+batch, len(cs))
-		placeholders := make([]string, 0, end-start)
-		args := make([]any, 0, (end-start)*2)
-		for _, c := range cs[start:end] {
+	ids := make([]string, 0, len(cs))
+	encoded := make([][]byte, 0, len(cs))
+	{
+		for _, c := range cs {
 			if previous, ok := oldByID[c.ID]; ok {
 				if _, keep := keepNumber[c.ID]; keep {
 					c.Number = previous.Number
@@ -2005,55 +2000,46 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 			if e != nil {
 				return src, e
 			}
-			placeholders = append(placeholders, "(?,?)")
-			args = append(args, c.ID, b)
+			ids, encoded = append(ids, c.ID), append(encoded, b)
 			stored = append(stored, c)
 		}
-		q := `INSERT INTO livetv_channels(id,data) VALUES ` + strings.Join(placeholders, ",")
-		if _, err = tx.ExecContext(ctx, q, args...); err != nil {
-			return src, err
-		}
-		if progress != nil {
-			progress.setSavedChannels(end)
-		}
 	}
+	var savedChannels, savedProgrammes func(int)
+	if progress != nil {
+		savedChannels, savedProgrammes = progress.setSavedChannels, progress.setSavedProgrammes
+	}
+	writes, err := writeSourceChannels(ctx, tx, dialect, batch, src.ID, ids, encoded, savedChannels)
+	if err != nil {
+		return src, err
+	}
+	pw, err := writeProgrammes(ctx, tx, batch, src.ID, g.Programmes, savedProgrammes)
+	if err != nil {
+		return src, err
+	}
+	writes.ProgrammesWritten, writes.ProgrammesDeleted, writes.ProgrammesKept = pw.ProgrammesWritten, pw.ProgrammesDeleted, pw.ProgrammesKept
+	gw, err := writeGuideChannels(ctx, tx, src.ID, g)
+	if err != nil {
+		return src, err
+	}
+	writes.GuideChannelsWritten, writes.GuideChannelsDeleted = gw.GuideChannelsWritten, gw.GuideChannelsDeleted
 	if progress != nil {
 		progress.setSavedChannels(len(stored))
-	}
-	for start := 0; start < len(g.Programmes); start += batch {
-		end := min(start+batch, len(g.Programmes))
-		placeholders := make([]string, 0, end-start)
-		args := make([]any, 0, (end-start)*5)
-		for _, p := range g.Programmes[start:end] {
-			b, e := json.Marshal(p)
-			if e != nil {
-				return src, e
-			}
-			placeholders = append(placeholders, "(?,?,?,?,?)")
-			args = append(args, src.ID, p.ChannelID, p.Start.UnixMilli(), p.End.UnixMilli(), b)
-		}
-		q := `INSERT INTO livetv_programmes(source_id,channel_id,start_ms,end_ms,data) VALUES ` + strings.Join(placeholders, ",") + `
-			ON CONFLICT(source_id,channel_id,start_ms) DO UPDATE SET end_ms=excluded.end_ms, data=excluded.data`
-		if _, err = tx.ExecContext(ctx, q, args...); err != nil {
-			return src, err
-		}
-		if progress != nil {
-			progress.setSavedProgrammes(end)
-		}
-	}
-	if progress != nil {
 		progress.setSavedProgrammes(len(g.Programmes))
 	}
-	if err = replaceGuideChannels(ctx, tx, src.ID, g); err != nil {
-		return src, err
+	changed := sourceWritten || writes.changed()
+	if changed {
+		// Guide-only sources change coverage without touching any channel
+		// rows. Publish that change transactionally to every cluster node's
+		// caches.
+		if _, err = tx.ExecContext(ctx, `UPDATE livetv_channel_epoch SET generation=generation+1 WHERE id=1`); err != nil {
+			return src, err
+		}
 	}
-	// Guide-only sources change coverage without touching any channel rows.
-	// Publish that change transactionally to every cluster node's caches.
-	if _, err = tx.ExecContext(ctx, `UPDATE livetv_channel_epoch SET generation=generation+1 WHERE id=1`); err != nil {
-		return src, err
-	}
+	s.logger().Info("live TV source imported", "source", src.ID, "programmes_written", writes.ProgrammesWritten, "programmes_deleted", writes.ProgrammesDeleted,
+		"programmes_unchanged", writes.ProgrammesKept, "channels_written", writes.ChannelsWritten, "channels_deleted", writes.ChannelsDeleted,
+		"guide_channels_written", writes.GuideChannelsWritten, "guide_channels_deleted", writes.GuideChannelsDeleted, "source_written", sourceWritten)
 	err = tx.Commit()
-	if err == nil {
+	if err == nil && changed {
 		if err = s.refreshVirtualGuide(ctx); err != nil {
 			return src, err
 		}
@@ -2311,7 +2297,7 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 		return err
 	}
 	d := store.DialectOf(s.o.DB)
-	for _, q := range []string{`DELETE FROM livetv_channels WHERE ` + store.JSONText(d, "data", "sourceId") + `=?`, `DELETE FROM livetv_programmes WHERE source_id=?`, `DELETE FROM livetv_sources WHERE id=?`, `DELETE FROM xtream_vod WHERE provider=?`, `DELETE FROM xtream_vod_refresh WHERE provider=?`, `DELETE FROM livetv_guide_channels WHERE source_id=?`,
+	for _, q := range []string{`DELETE FROM livetv_channels WHERE ` + store.JSONText(d, "data", "sourceId") + `=?`, `DELETE FROM livetv_programmes WHERE source_id=?`, `DELETE FROM livetv_sources WHERE id=?`, `DELETE FROM livetv_source_refresh WHERE id=?`, `DELETE FROM xtream_vod WHERE provider=?`, `DELETE FROM xtream_vod_refresh WHERE provider=?`, `DELETE FROM livetv_guide_channels WHERE source_id=?`,
 		`UPDATE livetv_channels SET data=` + store.JSONRemove(d, "data", "guideSourceId") + ` WHERE ` + store.JSONText(d, "data", "guideSourceId") + `=?`} {
 		if _, err = tx.ExecContext(ctx, q, id); err != nil {
 			return err
