@@ -173,7 +173,13 @@ func (r *broadcastRegistry) steadyLoad(hardware bool) float64 {
 	defer r.mu.Unlock()
 	load := 0.0
 	for _, b := range r.outputs {
-		load += steadyCost(b.format, hardware)
+		// Stopped outputs can remain in the registry until its next sweep.
+		// They must not reserve capacity for a subsequent tune.
+		b.mu.Lock()
+		if !b.closed {
+			load += steadyCost(b.format, hardware)
+		}
+		b.mu.Unlock()
 	}
 	return load
 }
