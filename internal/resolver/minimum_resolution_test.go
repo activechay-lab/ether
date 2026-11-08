@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -86,6 +87,19 @@ func TestFourKFloorRejectsUnlabelledSDWhenFourKIsUnplayable(t *testing.T) {
 			}
 			if !errors.Is(err, core.ErrNotAvailable) {
 				t.Fatalf("err=%v", err)
+			}
+			traces := s.Traces()
+			if len(traces) == 0 {
+				t.Fatal("expected resolution trace")
+			}
+			var sdTrace *CandidateTrace
+			for i := range traces[0].Candidates {
+				if traces[0].Candidates[i].ReleaseID == "sd" {
+					sdTrace = &traces[0].Candidates[i]
+				}
+			}
+			if sdTrace == nil || sdTrace.Height != 0 || sdTrace.Reason != "below profile min height" || !strings.Contains(sdTrace.CompatibilityReason, "height unknown; conservative 480p floor assumed") {
+				t.Fatalf("expected unknown height 480p floor note in trace, got %+v", sdTrace)
 			}
 		})
 	}

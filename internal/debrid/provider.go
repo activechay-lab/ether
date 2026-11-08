@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -709,6 +710,24 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 		normPath := strings.ReplaceAll(f.Path, "\\", "/")
 		baseInfo := releaseparse.Parse(path.Base(normPath))
 		fullInfo := releaseparse.Parse(strings.ReplaceAll(normPath, "/", " "))
+		fileCour := baseInfo.Cour
+		if fileCour == 0 {
+			fileCour = fullInfo.Cour
+		}
+		if target.Cour > 0 && target.CourEpisode > 0 && fileCour > 0 {
+			seasonOK := (len(baseInfo.Seasons) == 0 && len(fullInfo.Seasons) == 0) ||
+				slices.Contains(baseInfo.Seasons, target.Season) ||
+				slices.Contains(fullInfo.Seasons, target.Season)
+			if fileCour == target.Cour && seasonOK &&
+				(slices.Contains(baseInfo.Episodes, target.CourEpisode) ||
+					releaseparse.EpisodeMatchesAbsolute(baseInfo, target.CourEpisode)) {
+				return f, nil
+			}
+			continue
+		}
+		if fileCour > 1 && target.Cour != fileCour {
+			continue
+		}
 		// Absolute anime numbers are authoritative file identities. Never let
 		// a parent pack's episode range or the single-file fallback override one.
 		if len(baseInfo.AbsoluteEpisodes) > 0 {

@@ -205,6 +205,85 @@ func (s *Service) Lookup(ctx context.Context, req core.SearchRequest, db string)
 	return id, episode, ok, nil
 }
 
+// LookupCour maps a multi-cour TMDB season episode to its 1-based cour (part)
+// number within that season and the episode's 1-based number inside that cour.
+// ok is true only when the season is split into multiple regular entries and
+// req.Episode falls in a subsequent cour (offset > 0).
+func (s *Service) LookupCour(ctx context.Context, req core.SearchRequest) (cour int, episode int, ok bool, err error) {
+	idx, err := s.load(ctx)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	cour, episode, ok = idx.lookupCour(req)
+	return cour, episode, ok, nil
+}
+
+func (idx *index) lookupCour(req core.SearchRequest) (int, int, bool) {
+	if req.Type != core.TypeEpisode || req.IDs.TMDB <= 0 || req.Season <= 0 || req.Episode <= 1 {
+		return 0, 0, false
+	}
+	entries := idx.shows[req.IDs.TMDB]
+	rank := func(kind string) int {
+		switch kind {
+		case "TV":
+			return 0
+		case "ONA", "OVA":
+			return 1
+		}
+		return 2
+	}
+	best, bestRank := -1, 3
+	var bestEntries []entry
+	offsets := map[int]bool{0: true}
+	for _, e := range entries {
+		r := rank(e.kind)
+		if e.season != req.Season || r == 2 {
+			continue
+		}
+		offsets[e.offset] = true
+		if e.offset >= req.Episode {
+			continue
+		}
+		switch {
+		case e.offset > best || (e.offset == best && r < bestRank):
+			best, bestRank, bestEntries = e.offset, r, []entry{e}
+		case e.offset == best && r == bestRank:
+			bestEntries = append(bestEntries, e)
+		}
+	}
+	if best <= 0 || len(bestEntries) == 0 {
+		return 0, 0, false
+	}
+	for _, db := range []string{Kitsu, MAL, AniList, AniDB} {
+		var seen int64
+		for _, e := range bestEntries {
+			if id := e.ids[db]; id > 0 {
+				if seen != 0 && seen != id {
+					return 0, 0, false
+				}
+				seen = id
+			}
+		}
+	}
+	sorted := make([]int, 0, len(offsets))
+	for off := range offsets {
+		sorted = append(sorted, off)
+	}
+	for i := 0; i < len(sorted); i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j] < sorted[i] {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+	for i, off := range sorted {
+		if off == best {
+			return i + 1, req.Episode - best, true
+		}
+	}
+	return 0, 0, false
+}
+
 func (idx *index) lookup(req core.SearchRequest, db string) (int64, int, bool) {
 	if req.IDs.TMDB <= 0 {
 		return 0, 0, false

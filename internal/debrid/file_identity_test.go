@@ -59,3 +59,26 @@ func TestChooseFileInEpisodeRangePackPicksExactEpisode(t *testing.T) {
 		t.Fatalf("want e129 for S01E129, got %+v err=%v", got129, err)
 	}
 }
+
+func TestChooseFileMultiCourAnimePack(t *testing.T) {
+	files := []File{
+		{ID: "p1e1", Path: "[SubsPlease] Eighty-Six S01 Part 1 - 01 (1080p).mkv", Size: 1_500_000_000},
+		{ID: "p2e1", Path: "[SubsPlease] Eighty-Six S01 Part 2 - 01 (1080p).mkv", Size: 1_400_000_000},
+		{ID: "p2e2", Path: "[SubsPlease] Eighty-Six S01 Part 2 - 02 (1080p).mkv", Size: 1_300_000_000},
+	}
+	targetEp13 := &core.ReleaseTarget{Season: 1, Episode: 13, Cour: 2, CourEpisode: 1, ExpectedIDs: core.IDs{TMDB: 1000}, ReportedIDs: core.IDs{TMDB: 1000}}
+	got, err := ChooseFile(files, targetEp13)
+	if err != nil || got.ID != "p2e1" {
+		t.Fatalf("want p2e1 for S01E13 (Cour 2 Ep 1), got %+v err=%v", got, err)
+	}
+	// Cour 1 Episode 1 must not pick Part 2 Episode 1 even when Part 2 is larger.
+	filesPart2Larger := []File{
+		{ID: "p2e1", Path: "[SubsPlease] Eighty-Six S01 Part 2 - 01 (1080p).mkv", Size: 2_000_000_000},
+		{ID: "p1e1", Path: "[SubsPlease] Eighty-Six S01E01 (1080p).mkv", Size: 1_400_000_000},
+	}
+	targetEp1 := &core.ReleaseTarget{Season: 1, Episode: 1, ExpectedIDs: core.IDs{TMDB: 1000}, ReportedIDs: core.IDs{TMDB: 1000}}
+	got1, err := ChooseFile(filesPart2Larger, targetEp1)
+	if err != nil || got1.ID != "p1e1" {
+		t.Fatalf("want p1e1 for S01E01, got %+v err=%v", got1, err)
+	}
+}

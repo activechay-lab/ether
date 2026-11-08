@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -60,6 +61,12 @@ const (
 	unavailableRecheck = 5 * time.Minute
 )
 
+// AnimeCour maps a multi-cour TMDB anime season episode to its 1-based cour
+// (part) number and 1-based episode number within that cour.
+type AnimeCour interface {
+	LookupCour(ctx context.Context, req core.SearchRequest) (cour int, episode int, ok bool, err error)
+}
+
 // Options tunes a Service. Zero values get sensible defaults.
 type Options struct {
 	SearchObserved func(context.Context, *core.Title, []core.Release)
@@ -69,10 +76,13 @@ type Options struct {
 	// SeriesYearConflict reports whether the catalogue holds a different
 	// show titled title that first aired in year (see series_year.go).
 	SeriesYearConflict func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
-	Logger             *slog.Logger
-	Now                func() time.Time
-	MaxTraces          int
-	RetentionDays      int // posts older than this are penalised; 0 = no extra penalty
+	// AnimeCour maps multi-cour TMDB anime season episodes to their cour
+	// and cour-relative episode number; nil disables cour mapping.
+	AnimeCour     AnimeCour
+	Logger        *slog.Logger
+	Now           func() time.Time
+	MaxTraces     int
+	RetentionDays int // posts older than this are penalised; 0 = no extra penalty
 	// HealthTTL is how long a passed health check is trusted before the
 	// release is sampled again (default 6h; negative disables the cache).
 	HealthTTL time.Duration
@@ -190,6 +200,7 @@ type inflight struct {
 type Service struct {
 	years                     seriesYears
 	seriesYearConflict        func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
+	animeCour                 AnimeCour
 	availabilityGeneration    uint64
 	availabilityDeadlines     availabilityDeadlines
 	availabilityDeadlineByKey map[int64]*availabilityDeadline
@@ -261,7 +272,7 @@ var _ core.Resolver = (*Service)(nil)
 // (typically *newznab.Manager); health may be nil (health checks are
 // then skipped); db may be nil (state then lives in memory).
 func New(indexer core.Indexer, health core.HealthChecker, db *sql.DB, cfg config.Config, opts Options) *Service {
-	s := &Service{seriesYearConflict: opts.SeriesYearConflict, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
+	s := &Service{seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
 		indexer: indexer, health: health, db: db,
 		bad: map[string]badMark{}, reps: map[string]reputation{},
 		avail: map[int64]availEntry{}, searchCache: map[string]searchCacheEntry{},
@@ -529,6 +540,16 @@ func searchRequestFor(t *core.Title) core.SearchRequest {
 	return core.SearchRequest{Type: core.TypeMovie, IDs: t.IDs, Title: t.Title, OriginalTitle: t.OriginalTitle, Year: t.Year, Anime: isAnime(t), AlternativeTitles: t.AlternativeTitles, Released: t.Released}
 }
 
+func (s *Service) searchRequest(ctx context.Context, t *core.Title) core.SearchRequest {
+	req := searchRequestFor(t)
+	if s != nil && s.animeCour != nil && req.Anime && req.Type == core.TypeEpisode && req.Season > 0 && req.Episode > 1 && req.IDs.TMDB > 0 {
+		if cour, ep, ok, err := s.animeCour.LookupCour(ctx, req); err == nil && ok {
+			req.Cour, req.CourEpisode = cour, ep
+		}
+	}
+	return req
+}
+
 // isAnime reports a title whose releases follow anime conventions
 // (absolute episode numbers, fansub groups): TMDB's "anime" keyword, or
 // Japanese-language animation.
@@ -658,7 +679,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	}
 
 	ctx, inconclusive := withUnverifiedPool(ctx)
-	sreq := searchRequestFor(t)
+	sreq := s.searchRequest(ctx, t)
 	early := newSearchPreparation(ctx, s, req, sreq, profile, pinID)
 	defer early.close()
 	ctx = context.WithValue(ctx, searchPreparationKey{}, early)
@@ -1396,6 +1417,9 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 				}
 			}
 			ct.Reason = reason
+			if reason == "below profile min height" && rel.Info.Height == 0 && floorHeight(rel.Info) > 0 {
+				ct.CompatibilityReason = fmt.Sprintf("height unknown; conservative %dp floor assumed", floorHeight(rel.Info))
+			}
 			if trace != nil {
 				trace.Candidates = append(trace.Candidates, ct)
 			}
@@ -1676,7 +1700,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		if !releaseparse.SeriesYearMatches(releaseYear, sreq.Year) && (acceptYear == nil || !acceptYear(releaseYear)) {
 			return "series year mismatch"
 		}
-		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !releaseparse.EpisodeTitleMatches(rel.Name, sreq.EpisodeTitle) {
+		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !episodeTitleMatchesRelease(rel, sreq.EpisodeTitle) {
 			return "episode title mismatch"
 		}
 		if rel.Info.FullSeason {
@@ -1685,7 +1709,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 			if rel.Protocol != core.ProtocolTorrent {
 				return "season pack (skipped in v1)"
 			}
-			if !packCoversSeason(rel.Info, sreq.Season) ||
+			if !packCoversSeasonCour(rel.Info, sreq) ||
 				(len(rel.Info.Episodes) > 0 && !slices.Contains(rel.Info.Episodes, sreq.Episode)) {
 				return "season/episode mismatch"
 			}
@@ -1693,8 +1717,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 			if miniseriesPart != sreq.Episode {
 				return "season/episode mismatch"
 			}
-		} else if !releaseparse.EpisodeMatches(rel.Info, sreq.Season, sreq.Episode) &&
-			!releaseparse.EpisodeMatchesAbsolute(rel.Info, absoluteEpisode(sreq)) {
+		} else if !episodeMatchesRequest(rel.Info, sreq) {
 			return "season/episode mismatch"
 		}
 	} else {
@@ -1706,6 +1729,46 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		}
 	}
 	return ""
+}
+
+var reCourEpisodeMarker = regexp.MustCompile(`(?i)\b(?:S\d{1,2}|(?:Season|Saison|Stagione|Temporada)\s*\d{1,2})[\s._-]+(?:Part|Cour)[\s._-]*\d{1,2}(?:[\s._-]+-[\s._-]+|[\s._-]+E?)\d{1,3}(?:v\d)?\b`)
+
+func episodeTitleMatchesRelease(rel core.Release, want string) bool {
+	if rel.Info.Cour > 0 {
+		if rel.Info.FullSeason {
+			return true
+		}
+		name := reCourEpisodeMarker.ReplaceAllString(rel.Name, "S01E01")
+		return releaseparse.EpisodeTitleMatches(name, want)
+	}
+	return releaseparse.EpisodeTitleMatches(rel.Name, want)
+}
+
+func episodeMatchesRequest(info core.ReleaseInfo, sreq core.SearchRequest) bool {
+	if info.Cour > 1 {
+		if sreq.Cour == info.Cour && sreq.CourEpisode > 0 && releaseparse.EpisodeMatches(info, sreq.Season, sreq.CourEpisode) {
+			return true
+		}
+		return releaseparse.EpisodeMatchesAbsolute(info, absoluteEpisode(sreq))
+	}
+	return releaseparse.EpisodeMatches(info, sreq.Season, sreq.Episode) ||
+		releaseparse.EpisodeMatchesAbsolute(info, absoluteEpisode(sreq))
+}
+
+func packCoversSeasonCour(info core.ReleaseInfo, sreq core.SearchRequest) bool {
+	if !packCoversSeason(info, sreq.Season) {
+		return false
+	}
+	if info.Cour > 1 && sreq.Cour > 0 && info.Cour != sreq.Cour {
+		return false
+	}
+	if info.Cour > 1 && sreq.Cour == 0 && sreq.Episode <= 12 {
+		return false
+	}
+	if info.Cour == 1 && sreq.Cour > 1 {
+		return false
+	}
+	return true
 }
 
 func preferenceReason(result releasepolicy.Result) string {
@@ -1905,11 +1968,12 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 		target := *rel.Target
 		target.ShowYear, target.EpisodeTitle = sreq.Year, sreq.EpisodeTitle
 		target.AbsoluteEpisode = releaseparse.AnimeSearchEpisode(sreq)
+		target.Cour, target.CourEpisode = sreq.Cour, sreq.CourEpisode
 		target.ExpectedIDs, target.ReportedIDs = sreq.IDs, rel.TitleIDs
 		rel.Target = &target
 		return rel // enrich cached identities without deriving their ID again
 	}
-	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
+	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Cour: sreq.Cour, CourEpisode: sreq.CourEpisode, Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
 	rel.Target = &target
 	if rel.Info.FullSeason {
 		rel.ID = core.TargetReleaseID(rel.ID, target)

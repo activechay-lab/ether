@@ -482,7 +482,12 @@ type SearchRequest struct {
 	// start (0 = unknown), and Anime marks a series whose releases are
 	// commonly numbered that way (additive).
 	AbsoluteEpisode int
-	Anime           bool
+	// Cour and CourEpisode are the 1-based cour (part) number within Season
+	// and the 1-based episode number within that cour for multi-cour anime
+	// seasons (0 when unmapped or Cour 1).
+	Cour        int
+	CourEpisode int
+	Anime       bool
 	// AlternativeTitles are other names of the movie or series (TMDB
 	// alternative titles) a release name may use; matching only, never
 	// part of a query or cache key (additive).
