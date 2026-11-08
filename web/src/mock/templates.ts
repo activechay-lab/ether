@@ -1,4 +1,9 @@
-import type { CollectionSpec, CollectionTemplate, Rule } from "../lib/contract";
+import type {
+  CollectionSpec,
+  CollectionTemplate,
+  CollectionTemplateBundle,
+  Rule,
+} from "../lib/contract";
 import { blankSpec } from "../lib/rules";
 
 type T = {
@@ -180,6 +185,77 @@ const RAW: T[] = [
         { field: "popularity", op: "lte", value: 40 },
       ],
     },
+  },
+  {
+    id: "acclaim-best-picture",
+    category: "Critically Acclaimed",
+    name: "Academy Award Best Picture Winners",
+    description: "Best Picture winners curated on MDBList.",
+    spec: { rules: [minRating(7.5), minVotes(2000)], sort: "rating" },
+  },
+  {
+    id: "acclaim-imdb-top-250",
+    category: "Critically Acclaimed",
+    name: "IMDb Top 250 Movies",
+    description: "Highest-rated films on IMDb.",
+    spec: { rules: [minRating(8), minVotes(3000)], sort: "rating", limit: 250 },
+  },
+  {
+    id: "acclaim-rt-certified-fresh",
+    category: "Critically Acclaimed",
+    name: "Rotten Tomatoes Certified Fresh",
+    description: "Certified Fresh releases with strong audience scores.",
+    spec: { rules: [minRating(7.3), minVotes(1500)], sort: "rating" },
+  },
+  {
+    id: "acclaim-letterboxd-top-250",
+    category: "Critically Acclaimed",
+    name: "Letterboxd Top 250 Narrative Features",
+    description: "Highest-rated narrative features among cinephiles.",
+    spec: { rules: [minRating(7.8), minVotes(1000)], sort: "rating" },
+  },
+  // Streaming Originals
+  {
+    id: "stream-netflix-movies",
+    category: "Streaming Services",
+    name: "Netflix Original Movies",
+    description: "Original films from Netflix.",
+    spec: { rules: [minRating(6.5)], sort: "popularity" },
+  },
+  {
+    id: "stream-netflix-shows",
+    category: "Streaming Services",
+    name: "Netflix Original Series",
+    description: "Original series from Netflix.",
+    spec: { mediaType: "show", rules: [minRating(6.8)], sort: "popularity" },
+  },
+  {
+    id: "stream-apple-tv-shows",
+    category: "Streaming Services",
+    name: "Apple TV+ Original Series",
+    description: "Original series from Apple TV+.",
+    spec: { mediaType: "show", rules: [minRating(7)], sort: "popularity" },
+  },
+  {
+    id: "stream-max-shows",
+    category: "Streaming Services",
+    name: "HBO & Max Original Series",
+    description: "Prestige series from HBO and Max.",
+    spec: { mediaType: "show", rules: [minRating(7.2)], sort: "rating" },
+  },
+  {
+    id: "stream-disney-plus",
+    category: "Streaming Services",
+    name: "Disney+ Originals",
+    description: "Original films and series on Disney+.",
+    spec: { mediaType: "mixed", rules: [minRating(6.5)], sort: "popularity" },
+  },
+  {
+    id: "stream-prime-video",
+    category: "Streaming Services",
+    name: "Prime Video Originals",
+    description: "Original series and films from Prime Video.",
+    spec: { mediaType: "mixed", rules: [minRating(6.5)], sort: "popularity" },
   },
   // Trending
   {
@@ -426,3 +502,63 @@ export const TEMPLATES: CollectionTemplate[] = RAW.map((t) => {
   };
   return { id: t.id, name: t.name, description: t.description, category: t.category, spec };
 });
+
+export const TEMPLATE_BUNDLES: CollectionTemplateBundle[] = [
+  {
+    id: "core-defaults",
+    name: "Core Defaults",
+    description:
+      "Essential library rows: trending films, popular TV, top-rated classics, family movie night, and viewer-personalized picks.",
+    templateIds: [
+      "trend-week",
+      "trend-popular-tv",
+      "trend-in-cinemas",
+      "acclaim-top-rated",
+      "acclaim-hidden-gems",
+      "mood-feel-good",
+      "short-under-90",
+      "family-night",
+      "personal-for-you",
+    ],
+  },
+  {
+    id: "streaming-originals",
+    name: "Streaming Originals",
+    description:
+      "Curated original films and series from Netflix, Apple TV+, HBO/Max, Disney+, and Prime Video.",
+    templateIds: [
+      "stream-netflix-movies",
+      "stream-netflix-shows",
+      "stream-apple-tv-shows",
+      "stream-max-shows",
+      "stream-disney-plus",
+      "stream-prime-video",
+    ],
+  },
+  {
+    id: "awards-and-yearly",
+    name: "Awards & Critically Acclaimed",
+    description:
+      "Academy Award Best Picture winners, IMDb Top 250, Rotten Tomatoes Certified Fresh, and Letterboxd favourites.",
+    templateIds: [
+      "acclaim-best-picture",
+      "acclaim-imdb-top-250",
+      "acclaim-rt-certified-fresh",
+      "acclaim-letterboxd-top-250",
+      "acclaim-top-rated",
+      "acclaim-cult",
+    ],
+  },
+  {
+    id: "seasonal",
+    name: "Seasonal & Holidays",
+    description: "Scheduled holiday and seasonal rows for Halloween, Summer, and the winter holidays.",
+    templateIds: ["season-halloween", "season-summer", "season-holiday"],
+  },
+  {
+    id: "franchises",
+    name: "Franchises & Universes",
+    description: "Major film sagas and cinematic universes ordered by release.",
+    templateIds: ["franchise-finish", "franchise-sagas"],
+  },
+];

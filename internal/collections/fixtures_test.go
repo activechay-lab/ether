@@ -366,6 +366,11 @@ func (f *fakeTMDB) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		m["external_ids"] = map[string]any{"imdb_id": fmt.Sprintf("tt%07d", x.id)}
 		writeJSONResp(w, m)
+	case len(parts) >= 3 && parts[0] == "lists":
+		writeJSONResp(w, []map[string]any{
+			{"id": 101, "mediatype": "movie", "title": "Space Saga", "release_year": 1977},
+			{"id": 501, "mediatype": "show", "title": "Chemistry Teacher", "release_year": 2008},
+		})
 	case len(parts) == 2 && parts[0] == "find":
 		id := strings.TrimPrefix(parts[1], "tt")
 		n, _ := strconv.ParseInt(id, 10, 64)
@@ -609,7 +614,7 @@ func newEnv(t *testing.T, eo ...envOpt) *env {
 	}
 	seeding.Store(false)
 	opts := []collections.Option{collections.WithIndexTTL(0), collections.WithLiveTTL(0), collections.WithoutDefaults(),
-		collections.WithCatalogConfig(func() config.Catalog { return cfg })}
+		collections.WithCatalogConfig(func() config.Catalog { return cfg }), collections.WithExternalBases(collections.ExternalBases{MDBList: ft.srv.URL})}
 	if client != nil {
 		opts = append(opts, collections.WithTMDB(client))
 	}

@@ -82,6 +82,18 @@ func keywordID(id int64, label string) core.CollectionSource {
 	return core.CollectionSource{Kind: "tmdbKeyword", ID: id, Label: label}
 }
 
+func mdblistSrc(listURL string) []core.CollectionSource {
+	return []core.CollectionSource{{Kind: "mdblist", URL: listURL}}
+}
+
+func mdbTpl(name, media, listURL, color string) core.CollectionSpec {
+	sp := with(tpl(name, media, mdblistSrc(listURL)), sortBy("source", false), refresh(RefreshDaily))
+	if color != "" {
+		sp.Artwork.Accent = color
+	}
+	return sp
+}
+
 func srcs(s ...core.CollectionSource) []core.CollectionSource { return s }
 
 // streaming is a "what's on <service>" collection: the service's most
@@ -156,6 +168,28 @@ var templateDefs = []templateDef{
 		with(tpl("James Bond 007", MediaMovie, srcs(coll(645, "James Bond Collection"))), chronology)},
 	{"jurassic", "Jurassic Park & World", "Life finds a way.", catFranchise,
 		with(tpl("Jurassic Park & World", MediaMovie, srcs(coll(328, "Jurassic Park Collection"))), chronology)},
+	{"fast-and-furious", "Fast & Furious", "Every film in the Fast & Furious saga, in release order.", catFranchise,
+		with(tpl("Fast & Furious", MediaMovie, srcs(coll(9485, "The Fast and the Furious Collection"))), chronology, accent("#ff5722"))},
+	{"mission-impossible", "Mission: Impossible", "Ethan Hunt and the IMF across every Mission: Impossible film.", catFranchise,
+		with(tpl("Mission: Impossible", MediaMovie, srcs(coll(87359, "Mission: Impossible Collection"))), chronology, accent("#b71c1c"))},
+	{"pirates-of-the-caribbean", "Pirates of the Caribbean", "Captain Jack Sparrow's swashbuckling pirate saga.", catFranchise,
+		with(tpl("Pirates of the Caribbean", MediaMovie, srcs(coll(295, "Pirates of the Caribbean Collection"))), chronology, accent("#6d4c41"))},
+	{"monsterverse", "MonsterVerse", "Godzilla and the Titans across Legendary's MonsterVerse.", catFranchise,
+		with(tpl("MonsterVerse", MediaMovie, srcs(coll(535313, "Godzilla Collection"))), chronology, accent("#00acc1"))},
+	{"john-wick", "John Wick", "Every chapter in the John Wick action saga.", catFranchise,
+		with(tpl("John Wick", MediaMovie, srcs(coll(404609, "John Wick Collection"))), chronology, accent("#263238"))},
+	{"the-matrix", "The Matrix", "Every film in The Matrix saga.", catFranchise,
+		with(tpl("The Matrix", MediaMovie, srcs(coll(2344, "The Matrix Collection"))), chronology, accent("#00c853"))},
+	{"alien-saga", "Alien Saga", "In space no one can hear you scream.", catFranchise,
+		with(tpl("Alien Saga", MediaMovie, srcs(coll(8091, "Alien Collection"))), chronology, accent("#1b5e20"))},
+	{"back-to-the-future", "Back to the Future", "The complete time-travelling DeLorean trilogy.", catFranchise,
+		with(tpl("Back to the Future", MediaMovie, srcs(coll(264, "Back to the Future Collection"))), chronology, accent("#ff6f00"))},
+	{"indiana-jones", "Indiana Jones", "Every adventure of Dr. Henry Walton Jones Jr.", catFranchise,
+		with(tpl("Indiana Jones", MediaMovie, srcs(coll(84, "Indiana Jones Collection"))), chronology, accent("#8d6e63"))},
+	{"spider-verse", "Spider-Verse", "Miles Morales across the animated Spider-Verse.", catFranchise,
+		with(tpl("Spider-Verse", MediaMovie, srcs(coll(573436, "Spider-Man: Spider-Verse Collection"))), chronology, accent("#d50000"))},
+	{"dune-saga", "Dune", "Denis Villeneuve's adaptation of Frank Herbert's Dune.", catFranchise,
+		with(tpl("Dune", MediaMovie, srcs(coll(726871, "Dune Collection"))), chronology, accent("#c68400"))},
 	{"pixar", "Pixar", "Every Pixar feature.", catFranchise,
 		with(tpl("Pixar", MediaMovie, srcs(company(3, "Pixar")), mkRule("genre", "is", "Animation"), mkRule("runtime", "gte", 60), mkRule("votes", "gte", 200)), sortBy("released", true), limit(0))},
 	{"studio-ghibli", "Studio Ghibli", "Hand-drawn wonder from Studio Ghibli.", catFranchise,
@@ -209,7 +243,7 @@ var templateDefs = []templateDef{
 	{"decade-2010s", "Best of the 2010s", "Well-loved films from the 2010s.", catDecades,
 		tpl("Best of the 2010s", MediaMovie, catalogSrc(), mkRule("decade", "is", 2010), mkRule("votes", "gte", 1500), mkRule("rating", "gte", 6.8))},
 
-	// --- Critically acclaimed ----------------------------------------------
+	// --- Critically acclaimed & awards -------------------------------------
 	{"acclaimed-movies", "Critically Acclaimed", "Films with outstanding ratings from thousands of viewers.", catAcclaimed,
 		with(tpl("Critically Acclaimed", MediaMovie, catalogSrc(), mkRule("rating", "gte", 7.8), mkRule("votes", "gte", 3000)), sortBy("rating", true))},
 	{"acclaimed-series", "Acclaimed Series", "The best-rated series.", catAcclaimed,
@@ -223,6 +257,36 @@ var templateDefs = []templateDef{
 			sortBy("rating", true), limit(60), rotateDaily(20), excl(mkRule("genre", "in", []string{"Documentary", "Music", "TV Movie"})))},
 	{"modern-classics", "Modern Classics", "Acclaimed films from 2000 to 2015.", catAcclaimed,
 		with(tpl("Modern Classics", MediaMovie, catalogSrc(), mkRule("year", "between", []int{2000, 2015}), mkRule("rating", "gte", 7.8), mkRule("votes", "gte", 3000)), sortBy("rating", true))},
+	{"awards-oscar-winners", "Oscar Winners", "Academy Award winning films across categories, synced from MDBList.", catAcclaimed,
+		with(mdbTpl("Oscar Winners", MediaMovie, "https://mdblist.com/lists/atalante421/oscar-winners/json", "#d4af37"), refresh(RefreshWeekly))},
+	{"awards-golden-globes-winners", "Golden Globes Winners", "Golden Globe winning films across categories, synced from MDBList.", catAcclaimed,
+		with(mdbTpl("Golden Globes Winners", MediaMovie, "https://mdblist.com/lists/atalante421/golden-globe-winners/json", "#c5a028"), refresh(RefreshWeekly))},
+	{"best-of-2023", "Best of 2023", "Top-rated 2023 releases from Rotten Tomatoes end-of-year picks.", catAcclaimed,
+		with(mdbTpl("Best of 2023", MediaMovie, "https://mdblist.com/lists/siskourso/rotten-tomatoes-best-of-2023/json", "#fa320a"), refresh(RefreshWeekly))},
+	{"best-of-2024", "Best of 2024", "Top-rated 2024 releases from Rotten Tomatoes end-of-year picks.", catAcclaimed,
+		with(mdbTpl("Best of 2024", MediaMovie, "https://mdblist.com/lists/siskourso/rotten-tomatoes-best-of-2024-ed84tni24k/json", "#fa320a"), refresh(RefreshWeekly))},
+	{"best-of-2025", "Best of 2025", "Top-rated 2025 releases from Rotten Tomatoes end-of-year picks.", catAcclaimed,
+		with(mdbTpl("Best of 2025", MediaMovie, "https://mdblist.com/lists/siskourso/rotten-tomatoes-best-of-2025/json", "#fa320a"), refresh(RefreshWeekly))},
+	{"criterion-collection", "The Criterion Collection", "Landmark cinema in The Criterion Collection, synced in full from MDBList.", catAcclaimed,
+		with(mdbTpl("The Criterion Collection", MediaMovie, "https://mdblist.com/lists/reptauros/the-criterion-collection/json", "#1c1c1c"), limit(0), refresh(RefreshWeekly))},
+	{"ifc-films", "IFC Films", "Independent cinema distributed by IFC Films, synced from MDBList.", catAcclaimed,
+		with(mdbTpl("IFC Films", MediaMovie, "https://mdblist.com/lists/notamongo5/ifc/json", "#1565c0"), refresh(RefreshWeekly))},
+	{"genre-top-rated-action", "Top Rated Action", "The highest-rated action films with a broad audience.", catAcclaimed,
+		with(tpl("Top Rated Action", MediaMovie, catalogSrc(), mkRule("genre", "is", "Action"), mkRule("rating", "gte", 7.2), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-animation", "Top Rated Animation", "The highest-rated animated features.", catAcclaimed,
+		with(tpl("Top Rated Animation", MediaMovie, catalogSrc(), mkRule("genre", "is", "Animation"), mkRule("rating", "gte", 7.3), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-comedy", "Top Rated Comedy", "The best-rated comedies with lasting appeal.", catAcclaimed,
+		with(tpl("Top Rated Comedy", MediaMovie, catalogSrc(), mkRule("genre", "is", "Comedy"), mkRule("rating", "gte", 7.2), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-crime", "Top Rated Crime", "The most acclaimed crime and heist films.", catAcclaimed,
+		with(tpl("Top Rated Crime", MediaMovie, catalogSrc(), mkRule("genre", "is", "Crime"), mkRule("rating", "gte", 7.3), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-drama", "Top Rated Drama", "Character-led, story-first dramas with top viewer scores.", catAcclaimed,
+		with(tpl("Top Rated Drama", MediaMovie, catalogSrc(), mkRule("genre", "is", "Drama"), mkRule("rating", "gte", 7.5), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-horror", "Top Rated Horror", "The highest-rated horror films with a strong vote floor.", catAcclaimed,
+		with(tpl("Top Rated Horror", MediaMovie, catalogSrc(), mkRule("genre", "is", "Horror"), mkRule("rating", "gte", 7.0), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-scifi", "Top Rated Science Fiction", "Science fiction films at the top of viewer ratings.", catAcclaimed,
+		with(tpl("Top Rated Science Fiction", MediaMovie, catalogSrc(), mkRule("genre", "is", "Science Fiction"), mkRule("rating", "gte", 7.3), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
+	{"genre-top-rated-thriller", "Top Rated Thriller", "Suspense and thriller films with top audience ratings.", catAcclaimed,
+		with(tpl("Top Rated Thriller", MediaMovie, catalogSrc(), mkRule("genre", "is", "Thriller"), mkRule("rating", "gte", 7.3), mkRule("votes", "gte", 1000)), sortBy("rating", true), refresh(RefreshWeekly))},
 
 	// --- Moods ----------------------------------------------------------------
 	{"mood-cosy", "Cosy Nights In", "Warm, gentle comedies, romances and family films under two hours.", catMoods,
@@ -248,7 +312,7 @@ var templateDefs = []templateDef{
 	{"short-under-90", "Short on Time", "Well-reviewed films under 90 minutes.", catMoods,
 		with(tpl("Short on Time", MediaMovie, catalogSrc(), mkRule("runtime", "lte", 90), mkRule("rating", "gte", 6.5), mkRule("votes", "gte", 500)), rotateDaily(30))},
 
-	// --- Streaming services -------------------------------------------------
+	// --- Streaming services & Originals -------------------------------------
 	{"streaming-netflix", "What's on Netflix", "Popular titles streaming on Netflix in your region.", catStreaming,
 		streaming("What's on Netflix", "#e50914", provider(8, "Netflix"))},
 	{"streaming-disney-plus", "What's on Disney+", "Popular titles streaming on Disney+ in your region.", catStreaming,
@@ -263,6 +327,22 @@ var templateDefs = []templateDef{
 		streaming("What's on Hulu", "#1ce783", provider(15, "Hulu"))},
 	{"streaming-paramount-plus", "What's on Paramount+", "Popular titles streaming on Paramount+.", catStreaming,
 		streaming("What's on Paramount+", "#0064ff", provider(2303, "Paramount Plus Premium"), provider(2616, "Paramount Plus Essential"))},
+	{"streaming-apple-tv-originals", "Apple TV+ Originals", "Apple TV+ original films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("Apple TV+ Originals", MediaMixed, "https://mdblist.com/lists/k0meta/appletv-originals/json", "#333333")},
+	{"streaming-disney-plus-originals", "Disney+ Originals", "Disney+ original films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("Disney+ Originals", MediaMixed, "https://mdblist.com/lists/k0meta/disney-originals/json", "#113ccf")},
+	{"streaming-max-originals", "HBO Max Originals", "HBO and Max original films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("HBO Max Originals", MediaMixed, "https://mdblist.com/lists/k0meta/max-originals/json", "#002be7")},
+	{"streaming-hulu-originals", "Hulu Originals", "Hulu original films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("Hulu Originals", MediaMixed, "https://mdblist.com/lists/k0meta/hulu-originals/json", "#1ce783")},
+	{"streaming-netflix-originals", "Netflix Originals", "Netflix-produced films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("Netflix Originals", MediaMixed, "https://mdblist.com/lists/k0meta/netflix-originals/json", "#e50914")},
+	{"streaming-peacock-originals", "Peacock Originals", "Peacock original films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("Peacock Originals", MediaMixed, "https://mdblist.com/lists/k0meta/peacock-originals/json", "#ffb300")},
+	{"streaming-prime-video-originals", "Prime Video Originals", "Amazon Prime Video original films and series, curated by the Kometa team on MDBList.", catStreaming,
+		mdbTpl("Prime Video Originals", MediaMixed, "https://mdblist.com/lists/k0meta/amazon-originals/json", "#00a8e1")},
+	{"streaming-shudder", "Shudder Horror & Thrillers", "Recent horror and thriller titles streaming on Shudder, synced from MDBList.", catStreaming,
+		mdbTpl("Shudder Horror & Thrillers", MediaMovie, "https://mdblist.com/lists/snoak/latest-shudder-movies/json", "#b71c1c")},
 
 	// --- Seasonal -------------------------------------------------------------
 	{"seasonal-halloween", "Halloween", "Spooky-season favourites.", catSeasonal,
@@ -274,12 +354,68 @@ var templateDefs = []templateDef{
 		with(tpl("Christmas Movies", MediaMovie, srcs(keyword("christmas")), mkRule("votes", "gte", 200)), accent("#b3000c"))},
 	{"seasonal-valentines", "Valentine's Day", "Love stories for February 14th.", catSeasonal,
 		with(tpl("Valentine's Day", MediaMovie, srcs(keyword("valentine's day")), mkRule("votes", "gte", 50)), accent("#e91e63"))},
+	{"seasonal-easter", "Easter", "Easter-season family and reflective films, synced from MDBList.", catSeasonal,
+		with(mdbTpl("Easter", MediaMovie, "https://mdblist.com/lists/fuzi0n/easter-movies/json", "#ab47bc"), refresh(RefreshWeekly))},
+	{"seasonal-thanksgiving", "Thanksgiving", "Thanksgiving-themed films for the holiday weekend, synced from MDBList.", catSeasonal,
+		with(mdbTpl("Thanksgiving", MediaMovie, "https://mdblist.com/lists/fuzi0n/thanksgiving-movies/json", "#d84315"), refresh(RefreshWeekly))},
+	{"seasonal-new-year", "New Year's Eve", "Films set around New Year's Eve and the turn of the year.", catSeasonal,
+		with(mdbTpl("New Year's Eve", MediaMovie, "https://mdblist.com/lists/fuzi0n/new-years-movies/json", "#ffd54f"), refresh(RefreshWeekly))},
+	{"seasonal-aapi-heritage", "AAPI Heritage Month", "Films and series highlighting Asian American and Pacific Islander voices (Kometa MDBList).", catSeasonal,
+		with(mdbTpl("AAPI Heritage Month", MediaMixed, "https://mdblist.com/lists/k0meta/asian-american-pacific-islander-heritage-month/json", "#ec407a"), refresh(RefreshWeekly))},
+	{"seasonal-latinx-heritage", "Latinx Heritage Month", "Films and series celebrating Latinx storytellers and themes (Kometa MDBList).", catSeasonal,
+		with(mdbTpl("Latinx Heritage Month", MediaMixed, "https://mdblist.com/lists/k0meta/latinx-heritage-month/json", "#ff7043"), refresh(RefreshWeekly))},
+	{"seasonal-pride-month", "Pride Month", "LGBTQ-led films and series curated for Pride Month.", catSeasonal,
+		with(mdbTpl("Pride Month", MediaMixed, "https://mdblist.com/lists/apollocat/new-in-lgbtq/json", "#7e57c2"), refresh(RefreshWeekly))},
 
-	// --- Top lists ------------------------------------------------------------
+	// --- Top lists & Popular Genres -------------------------------------------
 	{"top-trending", "Trending This Week", "What everyone is watching this week.", catTop,
 		with(tpl("Trending This Week", MediaMixed, srcs(core.CollectionSource{Kind: "tmdbList", List: "trending_week"})), sortBy("source", false), refresh(RefreshHourly), limit(40))},
+	{"top-trending-today", "Trending Today", "Movies and series trending across TMDB in the last 24 hours.", catTop,
+		with(tpl("Trending Today", MediaMixed, srcs(core.CollectionSource{Kind: "tmdbList", List: "trending_day"})), sortBy("source", false), refresh(RefreshHourly), limit(40))},
+	{"top-trending-movies", "Trending Movies This Week", "Top trending movies on TMDB over the past seven days.", catTop,
+		with(tpl("Trending Movies This Week", MediaMovie, srcs(core.CollectionSource{Kind: "tmdbList", List: "trending_week", MediaType: MediaMovie})), sortBy("source", false), refresh(RefreshDaily), limit(60))},
+	{"top-trending-shows", "Trending TV This Week", "Top trending TV shows on TMDB over the past seven days.", catTop,
+		with(tpl("Trending TV This Week", MediaShow, srcs(core.CollectionSource{Kind: "tmdbList", List: "trending_week", MediaType: MediaShow})), sortBy("source", false), refresh(RefreshDaily), limit(60))},
 	{"top-popular-movies", "Popular Right Now", "TMDB's most popular films today.", catTop,
 		with(tpl("Popular Right Now", MediaMovie, srcs(core.CollectionSource{Kind: "tmdbList", List: "popular", MediaType: MediaMovie})), sortBy("source", false), refresh(RefreshHourly), limit(40))},
+	{"top-popular-shows", "Popular TV Right Now", "TMDB's most popular TV series today.", catTop,
+		with(tpl("Popular TV Right Now", MediaShow, srcs(core.CollectionSource{Kind: "tmdbList", List: "popular", MediaType: MediaShow})), sortBy("source", false), refresh(RefreshDaily), limit(60))},
+	{"top-now-playing", "Now Playing in Theaters", "Movies currently in theatrical release.", catTop,
+		with(tpl("Now Playing in Theaters", MediaMovie, srcs(core.CollectionSource{Kind: "tmdbList", List: "now_playing", MediaType: MediaMovie})), sortBy("source", false), refresh(RefreshDaily), limit(60))},
+	{"top-airing-today", "Airing Today", "TV series broadcasting new episodes today.", catTop,
+		with(tpl("Airing Today", MediaShow, srcs(core.CollectionSource{Kind: "tmdbList", List: "airing_today", MediaType: MediaShow})), sortBy("source", false), refresh(RefreshHourly), limit(60))},
+	{"top-on-the-air", "On the Air This Week", "TV series airing new episodes within the week.", catTop,
+		with(tpl("On the Air This Week", MediaShow, srcs(core.CollectionSource{Kind: "tmdbList", List: "on_the_air", MediaType: MediaShow})), sortBy("source", false), refresh(RefreshDaily), limit(60))},
+	{"imdb-top-250-movies", "IMDb Top 250 Movies", "The canonical IMDb Top 250 movies list, kept in sync from MDBList.", catTop,
+		with(mdbTpl("IMDb Top 250 Movies", MediaMovie, "https://mdblist.com/lists/snoak/imdb-top-250-movies/json", "#f5c518"), limit(250), refresh(RefreshWeekly))},
+	{"imdb-top-250-shows", "IMDb Top 250 Shows", "The canonical IMDb Top 250 TV shows list, kept in sync from MDBList.", catTop,
+		with(mdbTpl("IMDb Top 250 Shows", MediaShow, "https://mdblist.com/lists/snoak/imdb-top-250-shows/json", "#f5c518"), limit(250), refresh(RefreshWeekly))},
+	{"imdb-moviemeter-top-100", "IMDb MovieMeter Top 100", "IMDb MovieMeter's 100 most popular movies right now, synced from MDBList.", catTop,
+		with(mdbTpl("IMDb MovieMeter Top 100", MediaMovie, "https://mdblist.com/lists/linaspurinis/imdb-moviemeter-top-100/json", "#e6b800"), limit(100), refresh(RefreshDaily))},
+	{"genre-popular-action", "Popular Action", "Crowd-pleasing action films sorted by current popularity.", catTop,
+		tpl("Popular Action", MediaMovie, catalogSrc(), mkRule("genre", "is", "Action"), mkRule("votes", "gte", 300))},
+	{"genre-popular-adventure", "Popular Adventure", "Trending adventure films driving the most attention right now.", catTop,
+		tpl("Popular Adventure", MediaMovie, catalogSrc(), mkRule("genre", "is", "Adventure"), mkRule("votes", "gte", 300))},
+	{"genre-popular-animation", "Popular Animation", "Popular animated features across family and adult animation.", catTop,
+		tpl("Popular Animation", MediaMovie, catalogSrc(), mkRule("genre", "is", "Animation"), mkRule("votes", "gte", 300))},
+	{"genre-popular-comedy", "Popular Comedy", "Comedies pulling the biggest audience right now.", catTop,
+		tpl("Popular Comedy", MediaMovie, catalogSrc(), mkRule("genre", "is", "Comedy"), mkRule("votes", "gte", 300))},
+	{"genre-popular-crime", "Popular Crime", "Heists, mobsters, and crime thrillers sorted by popularity.", catTop,
+		tpl("Popular Crime", MediaMovie, catalogSrc(), mkRule("genre", "is", "Crime"), mkRule("votes", "gte", 300))},
+	{"genre-popular-drama", "Popular Drama", "Drama films riding the top of popularity charts.", catTop,
+		tpl("Popular Drama", MediaMovie, catalogSrc(), mkRule("genre", "is", "Drama"), mkRule("votes", "gte", 300))},
+	{"genre-popular-fantasy", "Popular Fantasy", "Magic, myths, and quests trending across fantasy cinema.", catTop,
+		tpl("Popular Fantasy", MediaMovie, catalogSrc(), mkRule("genre", "is", "Fantasy"), mkRule("votes", "gte", 300))},
+	{"genre-popular-horror", "Popular Horror", "Horror films drawing the biggest crowds right now.", catTop,
+		tpl("Popular Horror", MediaMovie, catalogSrc(), mkRule("genre", "is", "Horror"), mkRule("votes", "gte", 300))},
+	{"genre-popular-mystery", "Popular Mystery", "Whodunits and mysteries with the most active audience.", catTop,
+		tpl("Popular Mystery", MediaMovie, catalogSrc(), mkRule("genre", "is", "Mystery"), mkRule("votes", "gte", 300))},
+	{"genre-popular-romance", "Popular Romance", "Love stories pulling the most viewers right now.", catTop,
+		tpl("Popular Romance", MediaMovie, catalogSrc(), mkRule("genre", "is", "Romance"), mkRule("votes", "gte", 300))},
+	{"genre-popular-scifi", "Popular Science Fiction", "Sci-fi blockbusters and cult favourites sorted by popularity.", catTop,
+		tpl("Popular Science Fiction", MediaMovie, catalogSrc(), mkRule("genre", "is", "Science Fiction"), mkRule("votes", "gte", 300))},
+	{"genre-popular-thriller", "Popular Thriller", "Tense, fast-moving thrillers ranked by current popularity.", catTop,
+		tpl("Popular Thriller", MediaMovie, catalogSrc(), mkRule("genre", "is", "Thriller"), mkRule("votes", "gte", 300))},
 
 	// --- World cinema ---------------------------------------------------------
 	{"world-korean", "Korean Cinema", "Acclaimed films from South Korea.", catWorld,

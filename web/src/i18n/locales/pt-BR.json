@@ -214,13 +214,13 @@
   "m_00e671231e3913": "Instalar agora mesmo assim",
   "m_00e7746cb47eab": "Removendo…",
   "m_00e7d32aec1d49": {
+    "many": "{count} entradas VOD ignoradas",
     "one": "{count} entrada VOD ignorada",
-    "other": "{count} entradas VOD ignoradas",
-    "many": "{count} entradas VOD ignoradas"
+    "other": "{count} entradas VOD ignoradas"
   },
   "m_00e9cdfefbf383": {
-    "one": "Títulos escolhidos para a estante local na última passagem · {count} espectador ativo considerado",
     "many": "Títulos escolhidos para a estante local na última passagem · {count} espectadores ativos considerados",
+    "one": "Títulos escolhidos para a estante local na última passagem · {count} espectador ativo considerado",
     "other": "Títulos escolhidos para a estante local na última passagem · {count} espectadores ativos considerados"
   },
   "m_00eab1013d53c4": "llm ollama openai resumos pesquisa",
@@ -280,8 +280,8 @@
   "m_0119f7970d9dc6": "Gêneros do TMDB",
   "m_011a0edb7619ad": "Criando. Você pode adicionar mais enquanto isso",
   "m_011cf36fea9385": {
-    "one": "{count} coisa para configurar",
     "many": "{count} coisas para configurar",
+    "one": "{count} coisa para configurar",
     "other": "{count} coisas para configurar"
   },
   "m_011f2cdd284087": "Não foi possível redefinir",
@@ -387,13 +387,14 @@
   "m_01a68a2b5a6e11": "perfil {n}",
   "m_01a7a1d6190393": "Alterar guia",
   "m_01a885aa5d46f9": "Glaciar",
+  "m_01a984fd3bda63": "Aplicar pacote",
   "m_01a985b7b0eceb": "Próximo em uma sequência de exibição da casa",
   "m_01a9d534a0c80c": "Nenhum release é aceitável para este perfil.",
   "m_01aac44b990a0a": "Revise as sugestões da IA. A confiança é uma estimativa.",
   "m_01adfbaf6437be": "Hora inicial",
   "m_01af9435193543": {
-    "one": "Uma vez por hora por espectador",
     "many": "Uma vez a cada {count} horas por espectador",
+    "one": "Uma vez por hora por espectador",
     "other": "Uma vez a cada {count} horas por espectador"
   },
   "m_01b09d0e7e313a": "Pré-carregamento do cache",
@@ -470,6 +471,7 @@
   "m_01f361b7db4a5f": "Reproduções · 30d",
   "m_01f3d3e746f17e": "Salvar canal",
   "m_01f44defeef790": "tamanho da página deste espectador",
+  "m_01f4e62b70fa80": "Pacotes opcionais de coleções em um clique para preencher sua tela inicial e fileiras da biblioteca imediatamente.",
   "m_01f504cbf8c230": "O título não está em nenhuma das coleções dele.",
   "m_01f5527a5dabee": "Funções configuradas",
   "m_01f6826d17c4a1": "Aplicativos e dispositivos",
@@ -509,8 +511,8 @@
   "m_020e4a02bc94f2": "Entrada",
   "m_020ea172d90345": "{own} próprio · {defaults} padrão",
   "m_0210122fad75c1": {
-    "one": "{inherited} de {total} indexadores herdam esta política; {count} tem identidade própria",
     "many": "{inherited} de {total} indexadores herdam esta política; {count} têm identidade própria",
+    "one": "{inherited} de {total} indexadores herdam esta política; {count} tem identidade própria",
     "other": "{inherited} de {total} indexadores herdam esta política; {count} têm identidade própria"
   },
   "m_0210700bb62862": "Token de adesão revogado",
@@ -572,8 +574,8 @@
   "m_024617502ba41a": "Listas de plugins publicadas pelos plugins que você instalou",
   "m_02468c66dcfa9a": "Nenhum selo selecionado disponível · veja Camadas do pôster",
   "m_0247a4c3c77cda": {
-    "one": "{n} campo obrigatório restante",
     "many": "{n} campos obrigatórios restantes",
+    "one": "{n} campo obrigatório restante",
     "other": "{n} campos obrigatórios restantes"
   },
   "m_0248e8791d997f": "Nota TMDB",
@@ -738,8 +740,8 @@
   "m_02e6245e45249d": "A carga não está disponível.",
   "m_02e6f8d54566e7": "Aguardando a janela de manutenção",
   "m_02e79142a8376d": {
-    "one": "{count} reprodução nunca exibiu imagem; o espectador saiu enquanto ela começava.",
     "many": "{count} reproduções nunca exibiram imagem; o espectador saiu enquanto elas começavam.",
+    "one": "{count} reprodução nunca exibiu imagem; o espectador saiu enquanto ela começava.",
     "other": "{count} reproduções nunca exibiram imagem; o espectador saiu enquanto elas começavam."
   },
   "m_02e8d39ed561b2": "Não foi possível reproduzir este áudio.",
@@ -821,8 +823,8 @@
   "m_03367b30427991": "Quatro ou seis pôsteres de membros, com o nome da coleção.",
   "m_0337d07b97899f": "Filme ou episódio (opcional)",
   "m_0338301a1b31c2": {
-    "one": "{count} título no seu catálogo",
     "many": "{count} de títulos no seu catálogo",
+    "one": "{count} título no seu catálogo",
     "other": "{count} títulos no seu catálogo"
   },
   "m_033b4e5ea6b58e": "Restaurar um backup",
@@ -913,6 +915,7 @@
   "m_039df325215824": "Classifica à frente das etapas abaixo.",
   "m_03a031b7685db3": "As pontuações precisam associar IDs de formato a números inteiros.",
   "m_03a0acafe9069b": "Mínimo de {label}",
+  "m_03a1ae2909870d": "Ver prévia do pacote",
   "m_03a248404d1aad": "Definido pelo perfil {app} do qual foi importado.",
   "m_03a43850a13f13": "Aguardando atualização",
   "m_03a4af1de2ae17": "Carregar mais",
@@ -1001,8 +1004,8 @@
   "m_04022e9726e575": "{name} agora recebe a programação de {guide}",
   "m_04029a0d89758e": "Ajustes",
   "m_0404051546df86": {
-    "one": "{count} segundo",
     "many": "{count} segundos",
+    "one": "{count} segundo",
     "other": "{count} segundos"
   },
   "m_0404daecf11702": "Nenhuma coleção para mostrar.",
@@ -1119,8 +1122,8 @@
   "m_046d8520c1d620": "Explorador do cache",
   "m_046ee9555bd023": "Suavização do quadro-chave",
   "m_046f9b8189032a": {
-    "one": "{count} download hoje · sem limite diário definido",
     "many": "{count} de downloads hoje · sem limite diário definido",
+    "one": "{count} download hoje · sem limite diário definido",
     "other": "{count} downloads hoje · sem limite diário definido"
   },
   "m_0470673a4a1224": "Vagas de transcodificação",
@@ -1150,8 +1153,8 @@
   "m_04825abc94b7d2": "{start}–{end} de {total}",
   "m_0483d98a8f1c30": "Uma coleção navegável e uma linha de descoberta são independentes. Escolha uma delas ou publique nos dois lugares.",
   "m_0483f3042f3cf9": {
-    "one": "Permite {count} conexão",
     "many": "Permite {count} conexões",
+    "one": "Permite {count} conexão",
     "other": "Permite {count} conexões"
   },
   "m_0485555820808e": "Adicione a URL de uma imagem",
@@ -1294,8 +1297,8 @@
   "m_0514ca33051f50": "Pré-visualização da coleção",
   "m_05168993cb7592": "Fixar, bloquear ou verificar versões",
   "m_05168f60ac44a9": {
-    "one": "{count} site",
     "many": "{count} sites",
+    "one": "{count} site",
     "other": "{count} sites"
   },
   "m_0516c9fdbc8f6e": "Apenas simulação: drenar {node}, reiniciá-lo e verificar sua nova função ({role}). Nenhuma alteração real é feita.",
@@ -1512,8 +1515,8 @@
   "m_05eef1126de7a7": "O título não tem nenhum dos gêneros dele.",
   "m_05ef1aaad2e058": "Medidas",
   "m_05f13eb41086d7": {
-    "one": "{count} lenta",
     "many": "{count} lentas",
+    "one": "{count} lenta",
     "other": "{count} lentas"
   },
   "m_05f14964aa89e6": "Os outros nós continuam atendendo seus espectadores enquanto este nó reinicia.",
@@ -1577,8 +1580,8 @@
   "m_062da5c5a3a9e4": "Mover {name} para cima",
   "m_063029f8bcba62": "Os dados do cluster estão sendo importados.",
   "m_06308554b3139b": {
-    "one": "Seu provedor permite {count} conexão. Deixe vazio para usá-la, ou informe menos para deixar uma livre para outro app.",
     "many": "Seu provedor permite {count} conexões. Deixe vazio para usar todas, ou informe menos para deixar algumas livres para outros apps.",
+    "one": "Seu provedor permite {count} conexão. Deixe vazio para usá-la, ou informe menos para deixar uma livre para outro app.",
     "other": "Seu provedor permite {count} conexões. Deixe vazio para usar todas, ou informe menos para deixar algumas livres para outros apps."
   },
   "m_06312783cfee0c": "Não encontrado",
@@ -1604,6 +1607,7 @@
   "m_063f68e2d72f6a": "Ele não alterou nada",
   "m_063ff1800d8888": "Última leitura {last} · Último envio {sent} · Próxima {next}",
   "m_06422a9896d898": "Fontes de descoberta",
+  "m_064288c1a9cda7": "Pacotes de modelos em um clique",
   "m_0643a12e17aa72": "Não informado por este hardware",
   "m_0643a740c5f9c9": "O próximo episódio começa rápido numa casa comum.",
   "m_0645266cccce67": "Túnel dividido a funcionar",
@@ -1662,8 +1666,8 @@
   "m_0682629500df7e": "O que aconteceu",
   "m_06833aab41a35d": "Abra a página de aprovação do Simkl e digite o código {code}.",
   "m_068bab67236a91": {
-    "one": "{count} correspondência sugerida",
     "many": "{count} correspondências sugeridas",
+    "one": "{count} correspondência sugerida",
     "other": "{count} correspondências sugeridas"
   },
   "m_068c3c6b417362": "Quais filmes",
@@ -1703,8 +1707,8 @@
   "m_06b3490fd1dd48": "Suas linhas do Estúdio de coleções",
   "m_06b4aaa44ee15c": "O cache de segmentos atinge o limite configurado.",
   "m_06b62f86d761a5": {
-    "one": "Não foi possível corresponder títulos {count}",
     "many": "Não foi possível corresponder títulos {count}",
+    "one": "Não foi possível corresponder títulos {count}",
     "other": "Não foi possível corresponder títulos {count}"
   },
   "m_06b63c85c41f14": "Reordenar fonte",
@@ -1745,8 +1749,8 @@
     "other": "{count} dias por semana"
   },
   "m_06df4abeb859c2": {
-    "one": "{count} canal · ainda não está em uso",
     "many": "{count} canais · nenhum em uso ainda",
+    "one": "{count} canal · ainda não está em uso",
     "other": "{count} canais · nenhum em uso ainda"
   },
   "m_06e1df016b6fba": "Nenhum indexador ativado",
@@ -2300,13 +2304,14 @@
   "m_0924c7aecd05ad": "Chave de API do Prowlarr",
   "m_09259d2f0cc75f": "Permitido",
   "m_09288388fba9ac": "Salvar com segurança",
+  "m_09293b8db49567": "Será criada",
   "m_092a74ec064c93": "Vinhetas, jingles, logotipos e fontes",
   "m_092a782bcbb664": "Crie um bot com o BotFather, envie uma mensagem para ele primeiro e depois informe o token do bot e o ID do chat de destino. IDs de chats em grupo podem ser negativos.",
   "m_092b213bf2afe9": "Rastro {n}",
   "m_092ecbea899281": "Nome da pessoa",
   "m_092ee2a57a7ceb": {
-    "one": "O Ether nunca abre mais de {count} stream ao mesmo tempo com este provedor, e quem assiste ao mesmo canal compartilha um único stream.",
     "many": "O Ether nunca abre mais de {count} streams ao mesmo tempo com este provedor, e quem assiste ao mesmo canal compartilha um único stream.",
+    "one": "O Ether nunca abre mais de {count} stream ao mesmo tempo com este provedor, e quem assiste ao mesmo canal compartilha um único stream.",
     "other": "O Ether nunca abre mais de {count} streams ao mesmo tempo com este provedor, e quem assiste ao mesmo canal compartilha um único stream."
   },
   "m_092f7b7825363d": "Aguardando aprovação.",
@@ -2320,15 +2325,15 @@
   "m_09355d8123252d": "Programação do canal",
   "m_0937a5926d22fb": "Nenhum backup é mantido neste servidor. Envie um que você baixou antes.",
   "m_0939c1d8aa9101": {
-    "one": "{count} troca",
     "many": "{count} trocas",
+    "one": "{count} troca",
     "other": "{count} trocas"
   },
   "m_093a5f7e10e22f": "Página do catálogo: {catalog}",
   "m_093c803b88903e": "Trocar título",
   "m_093d8987687454": {
-    "one": "Visto recentemente por {count} membro da casa",
     "many": "Visto recentemente por {count} membros da casa",
+    "one": "Visto recentemente por {count} membro da casa",
     "other": "Visto recentemente por {count} membros da casa"
   },
   "m_093e1873e30523": "Percorra a configuração de novo sem apagar as configurações deste servidor.",
@@ -2385,8 +2390,8 @@
   "m_097dbfe9bfcf91": "Mostrando {from}–{to} de {total}",
   "m_097f91cbba640b": "Redimensionar ferramentas",
   "m_098066a6376293": {
-    "one": "{type} · {count} canal",
     "many": "{type} · {count} canais",
+    "one": "{type} · {count} canal",
     "other": "{type} · {count} canais"
   },
   "m_098102a5f1b917": "O que impulsiona as reproduções",
@@ -2456,8 +2461,8 @@
   "m_09bcb524cf9150": "Tem erros de compilação",
   "m_09bcf86e4a05a4": "Conexão bem-sucedida",
   "m_09bedf60e4e7b5": {
-    "one": "Aplica-se a {count} linha",
     "many": "Aplica-se a {count} linhas",
+    "one": "Aplica-se a {count} linha",
     "other": "Aplica-se a {count} linhas"
   },
   "m_09bfaed1f837c2": "Definição",
@@ -2465,8 +2470,8 @@
   "m_09c0cf8848587c": "Fins de semana",
   "m_09c133acba55e7": "Sombra",
   "m_09c3094dec2344": {
-    "one": "{count} indexador não tem mais uma tag escolhida",
     "many": "{count} indexadores não têm mais uma tag escolhida",
+    "one": "{count} indexador não tem mais uma tag escolhida",
     "other": "{count} indexadores não têm mais uma tag escolhida"
   },
   "m_09c51d40f9fe36": "Para este servidor e as tarefas em segundo plano dele com segurança. Os streams ativos precisam terminar antes que a configuração prossiga.",
@@ -2508,8 +2513,8 @@
   "m_09f138b73b2072": "Atraso do resumo (minutos)",
   "m_09f245efad9b11": "Editando {layer}. Arraste uma linha para ancorá-la a essa posição somente para este espectador.",
   "m_09f3e9677d5d7c": {
-    "one": "Usado por {count} canal",
     "many": "Usado por {count} canais",
+    "one": "Usado por {count} canal",
     "other": "Usado por {count} canais"
   },
   "m_09f484e8eb8eed": "Em casa, na sua rede.",
@@ -2556,8 +2561,8 @@
     "other": "O código expira às {time}. Aguarde pelo menos {count} segundos entre as verificações."
   },
   "m_0a247d58e26ea6": {
-    "one": "{count} canal no Live TV",
     "many": "{count} canais no Live TV",
+    "one": "{count} canal no Live TV",
     "other": "{count} canais no Live TV"
   },
   "m_0a25a9d23987fb": "Reiniciar coloca sua nova pasta de cache para funcionar.",
@@ -2598,8 +2603,8 @@
   "m_0a57da959424bb": "Link do addon",
   "m_0a5bcbdd19d2fe": "Plano de fundo",
   "m_0a5e0e61e1383c": {
-    "one": "Todos exceto {count} espectador",
     "many": "Todos exceto {count} espectadores",
+    "one": "Todos exceto {count} espectador",
     "other": "Todos exceto {count} espectadores"
   },
   "m_0a5e3659a6ece8": "Filme",
@@ -2713,8 +2718,8 @@
   "m_0abd37a346cd74": "Começar a gravar",
   "m_0abe527dca8fa6": "Ativar",
   "m_0abe86d2db0457": {
-    "one": "{count} acesso",
     "many": "{count} de acessos",
+    "one": "{count} acesso",
     "other": "{count} acessos"
   },
   "m_0abf41a4799823": {
@@ -2744,6 +2749,7 @@
   "m_0ad320c4d8b47a": "Deixe em branco para o Ether escolher um limite diário com base nos seus indexadores.",
   "m_0ad43efafec116": "Política não salva",
   "m_0ad4a0d40e37f8": "Todas as categorias",
+  "m_0ad4ee0628eeb4": "Pacote de modelos aplicado",
   "m_0ad586756281fa": "Nenhum canal ainda",
   "m_0ad72ccf491a1b": "Entre {start} e {end}",
   "m_0adabb2d97b996": "Protegendo credenciais de avaliações…",
@@ -3101,8 +3107,8 @@
   "m_0c76f8262f3dc4": "Precisa da sua aprovação",
   "m_0c7715f4e42bc7": "Esse código expirou. Peça um novo na TV e tente de novo.",
   "m_0c77b9cf7b3711": {
-    "one": "Usado por {count} coleção",
     "many": "Usado por {count} coleções",
+    "one": "Usado por {count} coleção",
     "other": "Usado por {count} coleções"
   },
   "m_0c77cfbda0bd90": "Carregando títulos…",
@@ -3254,6 +3260,7 @@
   "m_0d09a62bdf5737": "Nada vai ao ar hoje.",
   "m_0d0cd8136ac6bf": "Usa o seu modelo de linguagem — conectado ✓",
   "m_0d0dcdcc09062b": "Adicionar som",
+  "m_0d0dd900b39ab3": "Ocultar prévia",
   "m_0d0e4e1beb4a81": "Desativadas. Ative “Instalar atualizações automaticamente” abaixo para receber correções durante a noite, enquanto ninguém assiste.",
   "m_0d0ec4c8965d4c": "Último uso",
   "m_0d0fb1dbf0c85f": "Carregando modelos…",
@@ -3267,8 +3274,8 @@
   "m_0d159977ddbb5a": "Redefinir para Todos",
   "m_0d16871ae393ef": "SSL / TLS",
   "m_0d16c07f2a757f": {
-    "one": "Excluir {count} recurso?",
     "many": "Excluir {count} recursos?",
+    "one": "Excluir {count} recurso?",
     "other": "Excluir {count} recursos?"
   },
   "m_0d176d6ee88276": "Crie uma cópia corrigida de uma legenda baixada. Os arquivos originais são mantidos.",
@@ -3387,8 +3394,8 @@
   "m_0d7c85936eb028": "Ajuste esta linha no rascunho atual do Início. Salve o layout do Início para aplicá-la.",
   "m_0d7cd527eda154": "A prévia do Plex parou: {error}",
   "m_0d7fe06dc811e2": {
-    "one": "{count} alteração aguardando envio",
     "many": "{count} de alterações aguardando envio",
+    "one": "{count} alteração aguardando envio",
     "other": "{count} alterações aguardando envio"
   },
   "m_0d802fce69db5d": "Recuperado",
@@ -3566,8 +3573,8 @@
   "m_0e3ccdb53ff7aa": "Esse código de recuperação não está correto. Confira o recovery-code.txt novamente.",
   "m_0e3de50cec9b21": "Pesquisar estúdios…",
   "m_0e3efb50b408b2": {
-    "one": "{count} aguardando um lançamento",
     "many": "{count} aguardando um lançamento",
+    "one": "{count} aguardando um lançamento",
     "other": "{count} aguardando um lançamento"
   },
   "m_0e3f31d2e6567e": "Livre",
@@ -3579,8 +3586,8 @@
   "m_0e48e13e6de929": "Deslizar da esquerda",
   "m_0e49020940f8a6": "Copie o texto manualmente.",
   "m_0e4b21fe770626": {
-    "one": "{count} nova transmissão nesta hora.",
     "many": "{count} novas transmissões nesta hora.",
+    "one": "{count} nova transmissão nesta hora.",
     "other": "{count} novas transmissões nesta hora."
   },
   "m_0e4d86e3c47baf": "Fuso horário da reprodução",
@@ -3646,8 +3653,8 @@
   "m_0e8ffcb90f0eb1": "Temporadas",
   "m_0e908b2c58c81c": "Rejeitar filtrados",
   "m_0e9109dcd81aac": {
-    "one": "{count} vez, {time}",
     "many": "{count} vezes, {time}",
+    "one": "{count} vez, {time}",
     "other": "{count} vezes, {time}"
   },
   "m_0e9291aef864c6": "Últimas 20 reproduções",
@@ -3675,8 +3682,8 @@
   "m_0ea881a6649ee8": "Território novo",
   "m_0ea8d16ce54df4": "Excluir {name}",
   "m_0ea971f797fb91": {
-    "one": "{count} de {total} grupo incluído",
     "many": "{count} de {total} grupos incluídos",
+    "one": "{count} de {total} grupo incluído",
     "other": "{count} de {total} grupos incluídos"
   },
   "m_0ea9acf71c4a13": "Atualização instalada",
@@ -3734,8 +3741,8 @@
   "m_0edd98c30d638a": "A imagem mais alta que a melhoria pode produzir.",
   "m_0ee17fccc7c2cd": "Este vídeo não pode ser usado",
   "m_0ee274b4a09547": {
-    "one": "{count} pre-roll importado",
     "many": "{count} pre-rolls importados",
+    "one": "{count} pre-roll importado",
     "other": "{count} pre-rolls importados"
   },
   "m_0ee3addde9b8bb": "Restaure um backup que você baixou do Ether ou escolha um instantâneo acima. O Ether o verifica primeiro, mantém seus dados atuais para que você possa desfazer e reinicia sozinho.",
@@ -3743,9 +3750,9 @@
   "m_0ee583d7de0e25": "Monte seu compartilhamento NAS neste servidor e escolha uma pasta dedicada. Seu cache de mídia fica no NAS; o banco de dados dele permanece neste servidor. Não é necessário um cluster. Para que vários servidores Ether usem a mesma pasta de cache, conecte-os primeiro em um cluster.",
   "m_0ee61883b60be2": "Recoloque os dados que este servidor tinha antes da última restauração.",
   "m_0ee6dccdfae2f6": {
+    "many": "{count} alterações desfeitas",
     "one": "{count} alteração desfeita",
-    "other": "{count} alterações desfeitas",
-    "many": "{count} alterações desfeitas"
+    "other": "{count} alterações desfeitas"
   },
   "m_0ee883b536fd73": "Nenhum grupo corresponde.",
   "m_0ee88d90b1c907": "Adicionados na última sincronização",
@@ -3814,8 +3821,8 @@
   "m_0f39f4954e6f34": "{cached} em cache · {notCached} sem cache",
   "m_0f3aa8e8694fc9": "Deixe o Ether buscar pequenas janelas antes do Play. Desative para mídia estritamente sob demanda.",
   "m_0f3aec87e7a48e": {
-    "one": "de {count} reprodução",
     "many": "de {count} reproduções",
+    "one": "de {count} reprodução",
     "other": "de {count} reproduções"
   },
   "m_0f3baa7dcc6267": "Continuar",
@@ -3891,8 +3898,8 @@
   "m_0f77c58b414bda": "Filmes e séries",
   "m_0f7806cac25fa1": "O endereço público que este computador usa para indexadores, debrid e Usenet.",
   "m_0f787b6fd88146": {
-    "one": "{count} alteração em coleções ou no estado de reprodução",
     "many": "{count} alterações em coleções ou no estado de reprodução",
+    "one": "{count} alteração em coleções ou no estado de reprodução",
     "other": "{count} alterações em coleções ou no estado de reprodução"
   },
   "m_0f78c51f68c27b": "Nenhum detalhe armazenado",
@@ -3976,8 +3983,8 @@
   "m_0fd021bc358775": "Pós-produção",
   "m_0fd1b4af557c7f": "Legendas",
   "m_0fd513828cede5": {
-    "one": "{count} linha",
     "many": "{count} linhas",
+    "one": "{count} linha",
     "other": "{count} linhas"
   },
   "m_0fd522122afec7": "Não necessário",
@@ -4066,8 +4073,8 @@
   "m_1032e986506c8f": "Escolha um nível · vale a primeira correspondência",
   "m_1034508bff375f": "Este filme ainda não tem duração. Escolha outro filme ou adicione-o por meio de uma coleção depois que os metadados forem atualizados.",
   "m_10350c59339a4f": {
-    "one": "{count} acesso à API hoje · sem limite diário definido",
     "many": "{count} de acessos à API hoje · sem limite diário definido",
+    "one": "{count} acesso à API hoje · sem limite diário definido",
     "other": "{count} acessos à API hoje · sem limite diário definido"
   },
   "m_10350e64dbe64e": "Escolha as regras do catálogo deste espectador. O controle parental sempre se aplica.",
@@ -4371,6 +4378,7 @@
   "m_1145dfaa9ca07e": "Conexões",
   "m_114627b4d71e94": "Solte vídeos aqui ou escolha arquivos",
   "m_1146aa16dcff44": "Cintilação",
+  "m_114919e78b7076": "Pacotes de modelos",
   "m_114a58aa977247": {
     "many": "{names} e mais {count}",
     "one": "{names} e mais {count}",
@@ -4396,8 +4404,8 @@
   "m_11553fe441eba4": "Nada para importar",
   "m_11556379290211": "Salvo. Deixe como está para mantê-lo ou digite um novo valor para substituí-lo.",
   "m_1155762fbd4728": {
-    "one": "Usado por {count} registro. Remova-o dele primeiro.",
     "many": "Usado por {count} registros. Remova-o deles primeiro.",
+    "one": "Usado por {count} registro. Remova-o dele primeiro.",
     "other": "Usado por {count} registros. Remova-o deles primeiro."
   },
   "m_11576ef6d4715a": "Atualização revertida",
@@ -4776,8 +4784,8 @@
   "m_12b36cfb448aa7": "Esta semana",
   "m_12b6e101ca2a00": "Testar",
   "m_12b7edbc2f6df6": {
-    "one": "{count} indexador herda esta política",
     "many": "Todos os {count} indexadores herdam esta política",
+    "one": "{count} indexador herda esta política",
     "other": "Todos os {count} indexadores herdam esta política"
   },
   "m_12b890709c9f78": "Quique",
@@ -5151,8 +5159,8 @@
   "m_1448c9a0577eb1": "Mostrar pré-visualização da coleção",
   "m_1448f4befa194a": "{hours} h de crédito de repetição",
   "m_14491018ebe9b2": {
-    "one": "{count} fonte",
     "many": "{count} fontes",
+    "one": "{count} fonte",
     "other": "{count} fontes"
   },
   "m_14495ce1679feb": "Dispositivo conhecido",
@@ -5195,8 +5203,8 @@
   "m_146fa5792947bc": "Em operação",
   "m_146fe8be50e593": "Multiplicador de tempo",
   "m_14700d59e00493": {
-    "one": "{count} conta expira em breve",
     "many": "{count} contas expiram em breve",
+    "one": "{count} conta expira em breve",
     "other": "{count} contas expiram em breve"
   },
   "m_1472b7883ebe36": "Padrão redefinido para a ordem de exibição",
@@ -5280,8 +5288,8 @@
   "m_14c996f579d9e2": "Melhora uma imagem suave antes de enviar. Os limites de resolução e de bitrate de quem assiste continuam valendo. Vídeos sem suporte são reproduzidos normalmente.",
   "m_14ceb1918df932": "Imediatamente",
   "m_14d100d6150e75": {
-    "one": "{count} reprodução nunca exibiu imagem. O motivo mais comum: {reason}",
     "many": "{count} reproduções nunca exibiram imagem. O motivo mais comum: {reason}",
+    "one": "{count} reprodução nunca exibiu imagem. O motivo mais comum: {reason}",
     "other": "{count} reproduções nunca exibiram imagem. O motivo mais comum: {reason}"
   },
   "m_14d13f20435259": "Valor do cabeçalho {number}",
@@ -5320,15 +5328,15 @@
   "m_14f427b76a4a9c": "Armazenado em {node}: baixe-o na página de administração desse nó",
   "m_14f7f974fcaad0": "Coleções da biblioteca",
   "m_14f8abc4bf4b71": {
-    "one": "{count} ponto de intervalo detectado",
     "many": "{count} pontos de intervalo detectados",
+    "one": "{count} ponto de intervalo detectado",
     "other": "{count} pontos de intervalo detectados"
   },
   "m_14f8d7a35e3d8b": "Execução indisponível",
   "m_14fc70233d23a0": "Mesclar com outro espectador",
   "m_14fc80cee91114": {
-    "one": "{count} em uso",
     "many": "{count} em uso",
+    "one": "{count} em uso",
     "other": "{count} em uso"
   },
   "m_14fd456ce86d5d": "Quais aplicativos sua família usará para assistir?",
@@ -5353,8 +5361,8 @@
   "m_1516960a2d1d0d": "O Ether não conseguiu carregar as exibições recentes.",
   "m_151769a9fde954": "Configurações",
   "m_1518afa3e7832e": {
-    "one": "Classificação ignorada uma vez",
     "many": "Classificação ignorada {count} vezes",
+    "one": "Classificação ignorada uma vez",
     "other": "Classificação ignorada {count} vezes"
   },
   "m_1519dfb51db68c": "Canais de TV ao vivo",
@@ -5580,6 +5588,11 @@
   "m_15fc56b96fc939": "Qualidade de reprodução: {movies} para filmes, {shows} para séries em casa · alterar",
   "m_15fe790cf8ace4": "Este código já foi usado para entrar em um dispositivo. Se a TV ainda não entrou, comece de novo na TV para obter um código novo.",
   "m_160161cd450358": "Como a qualidade funciona",
+  "m_16022a788e4264": {
+    "many": "{count} coleções criadas ({skipped} já existentes).",
+    "one": "{count} coleção criada ({skipped} já existente).",
+    "other": "{count} coleções criadas ({skipped} já existentes)."
+  },
   "m_1602dbcba0275a": "Tudo o que o usa precisa esperar por ele.",
   "m_1606fc993473b3": "Posição Y",
   "m_16085b241c4dff": "Salvo para {name}.",
@@ -5629,8 +5642,8 @@
   "m_162c7efe448caa": "Status das tendências globais",
   "m_162cb4ce185878": "Mover {name} para baixo",
   "m_162dcc4575526e": {
-    "one": "{count} por velocidade",
     "many": "{count} por velocidade",
+    "one": "{count} por velocidade",
     "other": "{count} por velocidade"
   },
   "m_162e5155ffe27f": "HDR",
@@ -5708,6 +5721,7 @@
   "m_16745cd45e3b9e": "Montadas em torno de séries e temporadas",
   "m_1676025ad38368": "Fora do ar",
   "m_167613b702a707": "Fonte do plugin",
+  "m_16785df9d0d4dc": "Pacotes iniciais de coleções",
   "m_1678fbc8148a35": "Sua senha é {password}.",
   "m_167eae1e01ecfd": "Estatísticas",
   "m_16821abd8a46a1": "O stream retornou HTTP {code}.",
@@ -5760,8 +5774,8 @@
   "m_16ac3b3a51af4e": "Nova",
   "m_16af1c381e0a96": "Failover",
   "m_16b0f4058d2cff": {
-    "one": "{count} site bloqueado",
     "many": "{count} sites bloqueados",
+    "one": "{count} site bloqueado",
     "other": "{count} sites bloqueados"
   },
   "m_16b55d7868e000": "Enviar",
@@ -5977,15 +5991,15 @@
   "m_178a8b8cd59b51": "A partir de modelo",
   "m_178abdd7e115ef": "Enviar um arquivo",
   "m_178c2fe99db7c4": {
-    "one": "{count} consulta recente",
     "many": "{count} consultas recentes",
+    "one": "{count} consulta recente",
     "other": "{count} consultas recentes"
   },
   "m_178d316181b924": "Reiniciando…",
   "m_178dc1fcbddc99": "Linhas fornecidas pelo próprio Plex",
   "m_178e5f518f2efb": {
-    "one": "{count} mudança de formato",
     "many": "{count} mudanças de formato",
+    "one": "{count} mudança de formato",
     "other": "{count} mudanças de formato"
   },
   "m_178e82b68358b3": "etapas",
@@ -6089,8 +6103,8 @@
   "m_17f97d6cd4430b": "Perfil importado",
   "m_17f9e6e2faa1e1": "Cole abaixo. O Ether lê os mesmos arquivos, então eles precisam estar neste servidor.",
   "m_17fb4eb6b730da": {
-    "one": "Tentar novamente {count} alteração com falha",
     "many": "Tentar novamente {count} de alterações com falha",
+    "one": "Tentar novamente {count} alteração com falha",
     "other": "Tentar novamente {count} alterações com falha"
   },
   "m_17fc02b99a0a19": "Mais informações",
@@ -6161,9 +6175,9 @@
   "m_1842bc939bfcba": "Quantidade",
   "m_184412952a7847": "Adicionando…",
   "m_1845d47e574338": {
+    "many": "{count} capturas de tela",
     "one": "{count} captura de tela",
-    "other": "{count} capturas de tela",
-    "many": "{count} capturas de tela"
+    "other": "{count} capturas de tela"
   },
   "m_1846fbb6439b94": "Períodos do dia de {title}",
   "m_1847745b140186": "Mostrar linhas por status",
@@ -6305,8 +6319,8 @@
   },
   "m_18c1f3c0c29c09": "Capturar da tela",
   "m_18c2043580fa97": {
-    "one": "{count} desativada",
     "many": "{count} desativadas",
+    "one": "{count} desativada",
     "other": "{count} desativadas"
   },
   "m_18c2dedfb86736": "{name} ({media})",
@@ -6315,8 +6329,8 @@
   "m_18cac20f7cbd3e": "Downloads simultâneos por espectador",
   "m_18cb5aae13b5b6": "Em espera",
   "m_18ccb52839b045": {
-    "one": "{count} exibido após suas regras",
     "many": "{count} exibidos após suas regras",
+    "one": "{count} exibido após suas regras",
     "other": "{count} exibidos após suas regras"
   },
   "m_18cce9c74cc9f4": "Piloto",
@@ -6331,8 +6345,8 @@
   },
   "m_18d2920c5dd34f": "Ainda não foi possível acessar {host}. Tentando novamente agora…",
   "m_18d2b1abe7586f": {
-    "one": "{count} sessão foi encerrada.",
     "many": "{count} sessões foram encerradas.",
+    "one": "{count} sessão foi encerrada.",
     "other": "{count} sessões foram encerradas."
   },
   "m_18d41fc05d1c56": "Os novos bytes de mídia não passam pelo disco. Os bytes existentes sem proteção são liberados; os bytes em reprodução e os fixados continuam protegidos.",
@@ -6373,8 +6387,8 @@
   "m_18fdbda3ab5383": "ordem da fonte",
   "m_18ff5b7f3cc1a3": "Pessoas e histórias",
   "m_18ffe6d8143d68": {
-    "one": "Guia para {count} canal",
     "many": "Guia para {count} canais",
+    "one": "Guia para {count} canal",
     "other": "Guia para {count} canais"
   },
   "m_190080336327a7": "Não foi possível ler esse perfil",
@@ -6446,8 +6460,8 @@
   "m_19414792f229f6": "{name} adicionado",
   "m_19432d34cf8c6e": "Lista de usuário do TMDB",
   "m_1944f7877cd9b1": {
-    "one": "Experiência no último dia",
     "many": "Experiência nos últimos {count} dias",
+    "one": "Experiência no último dia",
     "other": "Experiência nos últimos {count} dias"
   },
   "m_19489c709b6591": "O plugin instalado permanece como está",
@@ -6841,8 +6855,8 @@
   "m_1ac96195e626ad": "Design do Ether",
   "m_1acae0294a1669": "Arrastar a regra {n}",
   "m_1acbb68bd15774": {
-    "one": "{count} travamento por hora",
     "many": "{count} travamentos por hora",
+    "one": "{count} travamento por hora",
     "other": "{count} travamentos por hora"
   },
   "m_1acca9e3e215d8": "Pôsteres de um servidor XRDB.",
@@ -6994,8 +7008,8 @@
   "m_1b62b520b41339": "Endereço do servidor",
   "m_1b65f23e3c3a4c": "Alterações não salvas de {when} restauradas.",
   "m_1b66f4bbf62559": {
-    "one": "Mostrar {count} verificação aprovada",
     "many": "Mostrar as {count} verificações aprovadas",
+    "one": "Mostrar {count} verificação aprovada",
     "other": "Mostrar as {count} verificações aprovadas"
   },
   "m_1b684664d80b86": "Modo de legendas",
@@ -7174,6 +7188,11 @@
   "m_1c346a442a83ca": "0 = automático. Conta arquivos, não dados de filmes.",
   "m_1c36aaa91c20a0": "Usar {path}",
   "m_1c36f061881f3b": "Os limites de classificação e de biblioteca já existentes deste espectador também valem para o guia e para todos os canais.",
+  "m_1c39eda00efb69": {
+    "many": "{count} pacotes",
+    "one": "{count} pacote",
+    "other": "{count} pacotes"
+  },
   "m_1c3b1d4a7a6c19": "Metade da velocidade",
   "m_1c3de6b19c1c00": "{list} (TV)",
   "m_1c42c43947d5c0": "As exibições recentes pesam mais; a frequência tem limite por espectador. Contam as reproduções concluídas e as importações revisadas, nunca a atividade de pré-carregamento.",
@@ -7181,8 +7200,8 @@
   "m_1c458724c0dcf3": "Reproduções por dia da semana e hora",
   "m_1c460e9ad49e9b": "Criar com o Ether",
   "m_1c47ca778cdf65": {
-    "one": "{count} atualização falhando",
     "many": "{count} atualizações falhando",
+    "one": "{count} atualização falhando",
     "other": "{count} atualizações falhando"
   },
   "m_1c4aa581dd8d8a": "De {pack}",
@@ -7210,8 +7229,8 @@
   "m_1c646d8dbbfc57": "Opacidade",
   "m_1c64ca0d96d10f": "introdução abertura créditos pular capítulos a seguir próximo após reprodução",
   "m_1c6541f57c8e82": {
-    "one": "{count} canal será importado",
     "many": "{count} canais serão importados",
+    "one": "{count} canal será importado",
     "other": "{count} canais serão importados"
   },
   "m_1c6741e5077158": "Remover cabeçalho {number}",
@@ -7264,8 +7283,8 @@
   "m_1c9bb7068c030a": "Centro",
   "m_1c9e9a2e65cc27": "Exibido e pronto para reproduzir",
   "m_1c9eb9b79d1b99": {
-    "one": "Usado por {count}",
     "many": "Usado por {count}",
+    "one": "Usado por {count}",
     "other": "Usado por {count}"
   },
   "m_1ca10c02327944": "Histórico de reproduções",
@@ -7284,8 +7303,8 @@
   "m_1cad377153f4cd": "Precisa de uma chave de API",
   "m_1caed2e2377609": "País de produção",
   "m_1cb0b7a31c3d5c": {
-    "one": "{count} diretório",
     "many": "{count} diretórios",
+    "one": "{count} diretório",
     "other": "{count} diretórios"
   },
   "m_1cb36afd93dbf8": {
@@ -7446,8 +7465,8 @@
   },
   "m_1d43bd5d030d30": "Todos os eventos",
   "m_1d44bf6641ceb0": {
-    "one": "{count} nova transmissão nesta hora, com pelo menos {gap} segundos de intervalo.",
     "many": "{count} novas transmissões nesta hora, com pelo menos {gap} segundos de intervalo.",
+    "one": "{count} nova transmissão nesta hora, com pelo menos {gap} segundos de intervalo.",
     "other": "{count} novas transmissões nesta hora, com pelo menos {gap} segundos de intervalo."
   },
   "m_1d45c91b4b2077": "Nenhum canal foi alterado.",
@@ -7458,8 +7477,8 @@
   "m_1d4e13f718d149": "Usar estilo",
   "m_1d4e443aceaf75": "Aprovar outro dispositivo",
   "m_1d4f88791373a2": {
-    "one": "{count} legenda",
     "many": "{count} legendas",
+    "one": "{count} legenda",
     "other": "{count} legendas"
   },
   "m_1d51b4a31ec42f": "qualidade perfis resolução 4k 1080p remoto fora de casa bitrate cam pontuação lixo formatos personalizados classificação ordem das fontes usenet debrid versões",
@@ -7569,8 +7588,8 @@
   "m_1da82c224dc789": "Não foi possível salvar o canal",
   "m_1daa0975a69c76": "Ano, duração e classificação indicativa do catálogo.",
   "m_1daaa0c5858e21": {
-    "one": "{count} acesso à API",
     "many": "{count} de acessos à API",
+    "one": "{count} acesso à API",
     "other": "{count} acessos à API"
   },
   "m_1dae3b8be355a7": "A restauração não foi concluída",
@@ -7590,9 +7609,9 @@
   "m_1dc5d372006c75": "Conexões por arquivo",
   "m_1dc95d3bbd2668": "Entrada",
   "m_1dcb59132b5942": {
+    "many": "{count} capturas por dia",
     "one": "{count} captura por dia",
-    "other": "{count} capturas por dia",
-    "many": "{count} capturas por dia"
+    "other": "{count} capturas por dia"
   },
   "m_1dcceb3169eb7c": "Reproduções recentes",
   "m_1dcd4db85ef759": "meses",
@@ -7646,9 +7665,9 @@
   "m_1e0e0ba816915f": "Horário da pré-visualização",
   "m_1e0ec5107ed045": "Versão das configurações",
   "m_1e0f9a8eef04d1": {
+    "many": "{count} canais na última importação salva",
     "one": "{count} canal na última importação salva",
-    "other": "{count} canais na última importação salva",
-    "many": "{count} canais na última importação salva"
+    "other": "{count} canais na última importação salva"
   },
   "m_1e10f7aba89da9": "Filtrar releases",
   "m_1e11114f7bbf48": "Não selecionado",
@@ -7748,6 +7767,11 @@
   "m_1e6a40a5a54f04": "Revisão de associações do guia",
   "m_1e6a94c1acbcc8": "Notas da versão",
   "m_1e6ee054299fd6": "Não está na lista do provedor",
+  "m_1e717b7f6c6343": {
+    "many": "{count} para criar ({skipped} já existentes)",
+    "one": "{count} para criar ({skipped} já existente)",
+    "other": "{count} para criar ({skipped} já existentes)"
+  },
   "m_1e720918eae43e": "Operador",
   "m_1e7276f110afe8": "Ano de lançamento",
   "m_1e7307ff134615": "Nunca reproduzir",
@@ -7770,8 +7794,8 @@
   "m_1e821e801fda0d": "Enviar arquivos",
   "m_1e85a1f0a51b63": "Normalizar volume",
   "m_1e864543e3c68b": {
-    "one": "{count} clipe · {duration} no total",
     "many": "{count} clipes · {duration} no total",
+    "one": "{count} clipe · {duration} no total",
     "other": "{count} clipes · {duration} no total"
   },
   "m_1e86afb1b2c61c": "Mostrar camada",
@@ -7951,8 +7975,8 @@
   "m_1f477adb63dd3b": "Verificado {when}",
   "m_1f4942914b0179": "Linha",
   "m_1f49488cb6c834": {
-    "one": "{count} download",
     "many": "{count} de downloads",
+    "one": "{count} download",
     "other": "{count} downloads"
   },
   "m_1f4a661922f433": "por {node}, {when}",
@@ -8137,13 +8161,18 @@
   "m_1ff8accefde7f8": "Abrir o marketplace",
   "m_1ff8af3a3360e2": "Pesquisar espectadores…",
   "m_1ff8d4d1a5f726": {
-    "one": "{count} chamada recente",
     "many": "{count} chamadas recentes",
+    "one": "{count} chamada recente",
     "other": "{count} chamadas recentes"
   },
   "m_1ffb9d60560b3f": "De um cluster",
   "m_1ffceea1081742": "dvd absoluta exibição ordenação",
   "m_1ffd579fb6c1db": "A maior parte é assistida fora de casa ({share}) com taxa de bits alta ({rate}). Defina um {away} ou um limite em Mbps nos {limits} dele.",
   "m_1ffe73d99814f5": "IDs de hub, tipos ou globs",
-  "m_1ffeee0f0cedfc": "URL alternativa do banco de dados (opcional)"
+  "m_1ffeee0f0cedfc": "URL alternativa do banco de dados (opcional)",
+  "m_1ffeff26ceb1db": {
+    "many": "{count} modelos",
+    "one": "{count} modelo",
+    "other": "{count} modelos"
+  }
 }

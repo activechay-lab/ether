@@ -207,6 +207,36 @@ export interface CollectionTemplate {
   spec: CollectionSpec;
 }
 
+export interface CollectionTemplateBundle {
+  id: string;
+  name: string;
+  description: string;
+  templateIds: string[];
+}
+
+export interface CollectionTemplateBundlePreviewItem {
+  templateId: string;
+  name: string;
+  category: string;
+  action: "create" | "skip_existing";
+  existingId?: string;
+}
+
+export interface CollectionTemplateBundlePreview {
+  bundle: CollectionTemplateBundle;
+  items: CollectionTemplateBundlePreviewItem[];
+  willCreate: number;
+  willSkip: number;
+}
+
+export interface CollectionTemplateBundleApplyResult {
+  bundleId: string;
+  created: CollectionSpec[];
+  skipped: CollectionTemplateBundlePreviewItem[];
+  createdCount: number;
+  skippedCount: number;
+}
+
 export type FacetName =
   "tag" | "genre" | "decade" | "contentRating" | "studio" | "country" | "language" | "keyword";
 export interface FacetValue {

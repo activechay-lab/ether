@@ -380,6 +380,7 @@
   "m_01a68a2b5a6e11": "profil {n}",
   "m_01a7a1d6190393": "Ändra guide",
   "m_01a885aa5d46f9": "Glaciär",
+  "m_01a984fd3bda63": "Tillämpa paket",
   "m_01a985b7b0eceb": "Nästa i en tittarsekvens för hushållet",
   "m_01a9d534a0c80c": "Ingen release är godtagbar för den här profilen.",
   "m_01aac44b990a0a": "Granska AI-förslagen. Säkerheten är en uppskattning.",
@@ -460,6 +461,7 @@
   "m_01f361b7db4a5f": "Uppspelningar · 30 d",
   "m_01f3d3e746f17e": "Spara kanal",
   "m_01f44defeef790": "den här tittarens sidlängd",
+  "m_01f4e62b70fa80": "Valfria samlingspaket med ett klick för att fylla Hem och biblioteksrader direkt.",
   "m_01f504cbf8c230": "Titeln finns inte i någon av dess samlingar.",
   "m_01f5527a5dabee": "Konfigurerade roller",
   "m_01f6826d17c4a1": "Appar och enheter",
@@ -890,6 +892,7 @@
   "m_039df325215824": "Rankas före lägre steg.",
   "m_03a031b7685db3": "Poäng måste koppla format-ID:n till heltal.",
   "m_03a0acafe9069b": "Minimum för {label}",
+  "m_03a1ae2909870d": "Förhandsvisa paket",
   "m_03a248404d1aad": "Ställs in av profilen {app} som den importerades från.",
   "m_03a43850a13f13": "Väntar på uppdatering",
   "m_03a4af1de2ae17": "Ladda mer",
@@ -1564,6 +1567,7 @@
   "m_063f68e2d72f6a": "Det har inte ändrat något",
   "m_063ff1800d8888": "Senast läst {last} · Senast skickat {sent} · Nästa {next}",
   "m_06422a9896d898": "Upptäcktskällor",
+  "m_064288c1a9cda7": "Mallpaket med ett klick",
   "m_0643a12e17aa72": "Rapporteras inte av den här hårdvaran",
   "m_0643a740c5f9c9": "Nästa avsnitt startar snabbt i ett vanligt hushåll.",
   "m_0645266cccce67": "Delad tunnel fungerar",
@@ -2246,6 +2250,7 @@
   "m_0924c7aecd05ad": "Prowlarr API-nyckel",
   "m_09259d2f0cc75f": "Tillåtet",
   "m_09288388fba9ac": "Spara säkert",
+  "m_09293b8db49567": "Skapas",
   "m_092a74ec064c93": "Vinjetter, jinglar, logotyper och typsnitt",
   "m_092a782bcbb664": "Skapa en bot med BotFather, skriv först till den och ange sedan dess bot-token och mottagarens chatt-ID. Gruppchatt-ID:n kan vara negativa.",
   "m_092b213bf2afe9": "Spår {n}",
@@ -2673,6 +2678,7 @@
   "m_0ad320c4d8b47a": "Lämna tomt så att Ether väljer en daglig gräns utifrån dina indexerare.",
   "m_0ad43efafec116": "Osparad policy",
   "m_0ad4a0d40e37f8": "Alla kategorier",
+  "m_0ad4ee0628eeb4": "Mallpaket tillämpat",
   "m_0ad586756281fa": "Inga kanaler ännu",
   "m_0ad72ccf491a1b": "Mellan {start} och {end}",
   "m_0adabb2d97b996": "Skyddar inloggningsuppgifter för betyg…",
@@ -3173,6 +3179,7 @@
   "m_0d09a62bdf5737": "Inget sänds i dag.",
   "m_0d0cd8136ac6bf": "Använder din språkmodell — ansluten ✓",
   "m_0d0dcdcc09062b": "Lägg till ljud",
+  "m_0d0dd900b39ab3": "Dölj förhandsvisning",
   "m_0d0e4e1beb4a81": "Av. Slå på ”Installera uppdateringar automatiskt” nedan för att få korrigeringar under natten, medan ingen tittar.",
   "m_0d0ec4c8965d4c": "Senast använd",
   "m_0d0fb1dbf0c85f": "Läser in modeller…",
@@ -4258,6 +4265,7 @@
   "m_1145dfaa9ca07e": "Anslutningar",
   "m_114627b4d71e94": "Släpp videor här eller välj filer",
   "m_1146aa16dcff44": "Flimmer",
+  "m_114919e78b7076": "Mallpaket",
   "m_114a58aa977247": {
     "one": "{names} och {count} till",
     "other": "{names} och {count} till"
@@ -5431,6 +5439,10 @@
   "m_15fc56b96fc939": "Uppspelningskvalitet: {movies} för filmer, {shows} för serier hemma · ändra",
   "m_15fe790cf8ace4": "Den här koden har redan använts för att logga in en enhet. Om tv:n fortfarande inte är inloggad, börja om på tv:n för att få en ny kod.",
   "m_160161cd450358": "Så fungerar kvalitet",
+  "m_16022a788e4264": {
+    "one": "Skapade {count} samling ({skipped} fanns redan).",
+    "other": "Skapade {count} samlingar ({skipped} fanns redan)."
+  },
   "m_1602dbcba0275a": "Allt som använder den får vänta på den.",
   "m_1606fc993473b3": "Y-position",
   "m_16085b241c4dff": "Sparat för {name}.",
@@ -5557,6 +5569,7 @@
   "m_16745cd45e3b9e": "Byggda kring serier och säsonger",
   "m_1676025ad38368": "Ej i sändning",
   "m_167613b702a707": "Plugin-källa",
+  "m_16785df9d0d4dc": "Startpaket med samlingar",
   "m_1678fbc8148a35": "Ditt lösenord är {password}.",
   "m_167eae1e01ecfd": "Statistik",
   "m_16821abd8a46a1": "Strömmen returnerade HTTP {code}.",
@@ -6988,6 +7001,10 @@
   "m_1c346a442a83ca": "0 = automatiskt. Räknar filer, inte filmdata.",
   "m_1c36aaa91c20a0": "Använd {path}",
   "m_1c36f061881f3b": "Den här tittarens befintliga gränser för åldersgräns och bibliotek gäller även guiden och varje kanal.",
+  "m_1c39eda00efb69": {
+    "one": "{count} paket",
+    "other": "{count} paket"
+  },
   "m_1c3b1d4a7a6c19": "Halv hastighet",
   "m_1c3de6b19c1c00": "{list} (TV)",
   "m_1c42c43947d5c0": "Nyligen sett väger tyngre; frekvensen begränsas per tittare. Slutförda titttillfällen och granskade importer bidrar, aldrig förladdningsaktivitet.",
@@ -7547,6 +7564,10 @@
   "m_1e6a40a5a54f04": "Granska guidematchningar",
   "m_1e6a94c1acbcc8": "Versionsanteckningar",
   "m_1e6ee054299fd6": "Finns inte i leverantörens lista",
+  "m_1e717b7f6c6343": {
+    "one": "{count} att skapa ({skipped} finns redan)",
+    "other": "{count} att skapa ({skipped} finns redan)"
+  },
   "m_1e720918eae43e": "Operator",
   "m_1e7276f110afe8": "Utgivningsår",
   "m_1e7307ff134615": "Spela aldrig",
@@ -7929,5 +7950,9 @@
   "m_1ffceea1081742": "dvd absolut sänd ordning",
   "m_1ffd579fb6c1db": "Det mesta ses utanför hemmet ({share}) med hög bithastighet ({rate}). Ange en {away} eller en Mbps-gräns under {limits}.",
   "m_1ffe73d99814f5": "Hub-ID:n, typer eller globmönster",
-  "m_1ffeee0f0cedfc": "Åsidosätt databas-URL (valfritt)"
+  "m_1ffeee0f0cedfc": "Åsidosätt databas-URL (valfritt)",
+  "m_1ffeff26ceb1db": {
+    "one": "{count} mall",
+    "other": "{count} mallar"
+  }
 }

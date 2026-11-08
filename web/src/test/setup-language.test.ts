@@ -87,4 +87,20 @@ describe("setup language choice", () => {
       subtitle: "en",
     });
   });
+
+  it("preserves regional and script BCP-47 track tags in saved defaults and rules", () => {
+    const saved = savedHouseholdLanguage({
+      remembered: "es",
+      catalogLanguage: "es-MX",
+      catalogRegion: "MX",
+      audioLanguages: ["es-419"],
+      subtitleLanguages: ["zh-Hant"],
+      preferOriginal: false,
+    });
+    expect(saved.audio).toBe("es-419");
+    expect(saved.subtitle).toBe("zh-Hant");
+    const rules = projectHouseholdRules(normalizeRules({}), saved);
+    expect(rules.audioLanguages).toEqual(["es-419"]);
+    expect(rules.subtitleLanguages).toEqual(["zh-Hant"]);
+  });
 });

@@ -380,6 +380,7 @@
   "m_01a68a2b5a6e11": "profiel {n}",
   "m_01a7a1d6190393": "Gids wijzigen",
   "m_01a885aa5d46f9": "Gletsjer",
+  "m_01a984fd3bda63": "Bundel toepassen",
   "m_01a985b7b0eceb": "Volgende in een kijkreeks van het huishouden",
   "m_01a9d534a0c80c": "Geen enkele release is acceptabel voor dit profiel.",
   "m_01aac44b990a0a": "Controleer de AI-suggesties. Het vertrouwen is een schatting.",
@@ -460,6 +461,7 @@
   "m_01f361b7db4a5f": "Afspeelacties · 30d",
   "m_01f3d3e746f17e": "Kanaal opslaan",
   "m_01f44defeef790": "paginalengte van deze kijker",
+  "m_01f4e62b70fa80": "Optionele collectiepakketten met één klik om je Home- en bibliotheekrijen direct te vullen.",
   "m_01f504cbf8c230": "De titel zit in geen van zijn collecties.",
   "m_01f5527a5dabee": "Ingestelde rollen",
   "m_01f6826d17c4a1": "Apps en apparaten",
@@ -890,6 +892,7 @@
   "m_039df325215824": "Komt vóór lagere stappen.",
   "m_03a031b7685db3": "Scores moeten formaat-ID's aan gehele getallen koppelen.",
   "m_03a0acafe9069b": "Minimum van {label}",
+  "m_03a1ae2909870d": "Bundel bekijken",
   "m_03a248404d1aad": "Ingesteld door het {app}-profiel waaruit het is geïmporteerd.",
   "m_03a43850a13f13": "Wacht op vernieuwing",
   "m_03a4af1de2ae17": "Laad meer",
@@ -1564,6 +1567,7 @@
   "m_063f68e2d72f6a": "Het heeft niets gewijzigd",
   "m_063ff1800d8888": "Laatst gelezen {last} · Laatst verzonden {sent} · Volgende {next}",
   "m_06422a9896d898": "Ontdekbronnen",
+  "m_064288c1a9cda7": "Sjabloonbundels met één klik",
   "m_0643a12e17aa72": "Niet gerapporteerd door deze hardware",
   "m_0643a740c5f9c9": "De volgende aflevering start snel in een gewoon huishouden.",
   "m_0645266cccce67": "Gesplitste tunnel werkt",
@@ -2246,6 +2250,7 @@
   "m_0924c7aecd05ad": "Prowlarr API-sleutel",
   "m_09259d2f0cc75f": "Toegelaten",
   "m_09288388fba9ac": "Veilig opslaan",
+  "m_09293b8db49567": "Wordt aangemaakt",
   "m_092a74ec064c93": "Bumpers, jingles, logo’s en lettertypen",
   "m_092a782bcbb664": "Maak een bot aan met BotFather, stuur eerst een bericht naar de bot en voer daarna het bottoken en de chat-ID van de bestemming in. Chat-ID's van groepen kunnen negatief zijn.",
   "m_092b213bf2afe9": "Trace {n}",
@@ -2673,6 +2678,7 @@
   "m_0ad320c4d8b47a": "Laat leeg zodat Ether een daglimiet kiest op basis van je indexers.",
   "m_0ad43efafec116": "Niet-opgeslagen beleid",
   "m_0ad4a0d40e37f8": "Alle categorieën",
+  "m_0ad4ee0628eeb4": "Sjabloonbundel toegepast",
   "m_0ad586756281fa": "Nog geen kanalen",
   "m_0ad72ccf491a1b": "Tussen {start} en {end}",
   "m_0adabb2d97b996": "Inloggegevens voor beoordelingen beveiligen…",
@@ -3173,6 +3179,7 @@
   "m_0d09a62bdf5737": "Vandaag wordt er niets uitgezonden.",
   "m_0d0cd8136ac6bf": "Gebruikt je taalmodel — verbonden ✓",
   "m_0d0dcdcc09062b": "Geluid toevoegen",
+  "m_0d0dd900b39ab3": "Voorbeeld verbergen",
   "m_0d0e4e1beb4a81": "Uit. Zet hieronder ‘Updates automatisch installeren’ aan om oplossingen ’s nachts te krijgen, terwijl niemand kijkt.",
   "m_0d0ec4c8965d4c": "Laatst gebruikt",
   "m_0d0fb1dbf0c85f": "Modellen laden…",
@@ -4258,6 +4265,7 @@
   "m_1145dfaa9ca07e": "Verbindingen",
   "m_114627b4d71e94": "Sleep video’s hierheen of kies bestanden",
   "m_1146aa16dcff44": "Flikkering",
+  "m_114919e78b7076": "Sjabloonbundels",
   "m_114a58aa977247": {
     "one": "{names} en nog {count}",
     "other": "{names} en nog {count}"
@@ -5431,6 +5439,10 @@
   "m_15fc56b96fc939": "Afspeelkwaliteit: {movies} voor films, {shows} voor series thuis · wijzigen",
   "m_15fe790cf8ace4": "Deze code is al gebruikt om een apparaat aan te melden. Als de tv nog steeds niet is aangemeld, begin dan opnieuw op de tv om een nieuwe code te krijgen.",
   "m_160161cd450358": "Hoe kwaliteit werkt",
+  "m_16022a788e4264": {
+    "one": "{count} collectie aangemaakt ({skipped} al aanwezig).",
+    "other": "{count} collecties aangemaakt ({skipped} al aanwezig)."
+  },
   "m_1602dbcba0275a": "Alles wat het gebruikt, moet erop wachten.",
   "m_1606fc993473b3": "Y-positie",
   "m_16085b241c4dff": "Opgeslagen voor {name}.",
@@ -5557,6 +5569,7 @@
   "m_16745cd45e3b9e": "Gebouwd rond series en seizoenen",
   "m_1676025ad38368": "Niet in de lucht",
   "m_167613b702a707": "Pluginbron",
+  "m_16785df9d0d4dc": "Startbundels voor collecties",
   "m_1678fbc8148a35": "Je wachtwoord is {password}.",
   "m_167eae1e01ecfd": "Statistieken",
   "m_16821abd8a46a1": "De stream gaf HTTP {code} terug.",
@@ -6988,6 +7001,10 @@
   "m_1c346a442a83ca": "0 = automatisch. Telt bestanden, niet filmgegevens.",
   "m_1c36aaa91c20a0": "{path} gebruiken",
   "m_1c36f061881f3b": "De bestaande classificatie- en bibliotheeklimieten van deze kijker gelden ook voor de gids en elk kanaal.",
+  "m_1c39eda00efb69": {
+    "one": "{count} bundel",
+    "other": "{count} bundels"
+  },
   "m_1c3b1d4a7a6c19": "Halve snelheid",
   "m_1c3de6b19c1c00": "{list} (tv)",
   "m_1c42c43947d5c0": "Recente weergaven tellen zwaarder; de frequentie is per kijker begrensd. Voltooide kijkbeurten en gecontroleerde imports tellen mee, activiteit van vooraf laden nooit.",
@@ -7547,6 +7564,10 @@
   "m_1e6a40a5a54f04": "Gidskoppelingen controleren",
   "m_1e6a94c1acbcc8": "Releasenotities",
   "m_1e6ee054299fd6": "Niet in de lijst van de provider",
+  "m_1e717b7f6c6343": {
+    "one": "{count} aan te maken ({skipped} al aanwezig)",
+    "other": "{count} aan te maken ({skipped} al aanwezig)"
+  },
   "m_1e720918eae43e": "Operator",
   "m_1e7276f110afe8": "Jaar van uitgave",
   "m_1e7307ff134615": "Nooit afspelen",
@@ -7929,5 +7950,9 @@
   "m_1ffceea1081742": "dvd absoluut uitgezonden volgorde",
   "m_1ffd579fb6c1db": "Er wordt vooral buitenshuis gekeken ({share}) met een hoge bitrate ({rate}). Stel een {away} of een Mbps-limiet in bij de {limits}.",
   "m_1ffe73d99814f5": "Hub-ID's, soorten of globs",
-  "m_1ffeee0f0cedfc": "Database-URL overschrijven (optioneel)"
+  "m_1ffeee0f0cedfc": "Database-URL overschrijven (optioneel)",
+  "m_1ffeff26ceb1db": {
+    "one": "{count} sjabloon",
+    "other": "{count} sjablonen"
+  }
 }

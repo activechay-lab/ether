@@ -46,6 +46,7 @@ import { DEBRID_KINDS } from "./sources/Debrid";
 import { DEBRID_TOKEN_URL } from "./sources/cards";
 import { addonUrlHasDebridKey, isStremio, normalizeAddonUrl } from "./sources/Indexers";
 import { LanguageStep } from "./setup/LanguageStep";
+import { StarterBundlesCard } from "./setup/StarterBundlesCard";
 import { SetupReady, connectDevicePath } from "./setup/SetupReady";
 export { connectDevicePath };
 import {
@@ -1729,6 +1730,7 @@ export default function Setup() {
               </div>
             </Field>
           </section>
+          <StarterBundlesCard />
           <p className="text-sm text-fg-muted">
             {tn(
               cfg.catalog.tmdbKey.trim() && cfg.catalog.tmdbKey !== "••••"

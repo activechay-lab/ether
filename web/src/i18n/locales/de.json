@@ -380,6 +380,7 @@
   "m_01a68a2b5a6e11": "Profil {n}",
   "m_01a7a1d6190393": "Guide ändern",
   "m_01a885aa5d46f9": "Gletscher",
+  "m_01a984fd3bda63": "Paket anwenden",
   "m_01a985b7b0eceb": "Nächste in einer Haushalts-Sehreihenfolge",
   "m_01a9d534a0c80c": "Kein Release ist für dieses Profil akzeptabel.",
   "m_01aac44b990a0a": "Prüfen Sie die KI-Vorschläge. Die Konfidenz ist eine Schätzung.",
@@ -460,6 +461,7 @@
   "m_01f361b7db4a5f": "Wiedergaben · 30 T.",
   "m_01f3d3e746f17e": "Kanal speichern",
   "m_01f44defeef790": "Seitenlänge dieses Zuschauers",
+  "m_01f4e62b70fa80": "Optionale Ein-Klick-Sammlungspakete, um Startseite und Bibliotheksreihen sofort zu füllen.",
   "m_01f504cbf8c230": "Der Titel ist in keiner seiner Sammlungen.",
   "m_01f5527a5dabee": "Konfigurierte Rollen",
   "m_01f6826d17c4a1": "Apps und Geräte",
@@ -890,6 +892,7 @@
   "m_039df325215824": "Wird vor nachstehenden Schritten eingestuft.",
   "m_03a031b7685db3": "Wertungen müssen Format-IDs ganzen Zahlen zuordnen.",
   "m_03a0acafe9069b": "Minimum für {label}",
+  "m_03a1ae2909870d": "Paket-Vorschau",
   "m_03a248404d1aad": "Wird durch das {app}-Profil festgelegt, aus dem es importiert wurde.",
   "m_03a43850a13f13": "Wartet auf Aktualisierung",
   "m_03a4af1de2ae17": "Mehr laden",
@@ -1564,6 +1567,7 @@
   "m_063f68e2d72f6a": "Es hat nichts geändert",
   "m_063ff1800d8888": "Zuletzt gelesen {last} · Zuletzt gesendet {sent} · Als Nächstes {next}",
   "m_06422a9896d898": "Entdeckungsquellen",
+  "m_064288c1a9cda7": "Ein-Klick-Vorlagenpakete",
   "m_0643a12e17aa72": "Von dieser Hardware nicht gemeldet",
   "m_0643a740c5f9c9": "Die nächste Folge startet in einem normalen Haushalt schnell.",
   "m_0645266cccce67": "Geteilter Tunnel funktioniert",
@@ -2246,6 +2250,7 @@
   "m_0924c7aecd05ad": "Prowlarr-API-Schlüssel",
   "m_09259d2f0cc75f": "Freigegeben",
   "m_09288388fba9ac": "Sicher speichern",
+  "m_09293b8db49567": "Wird erstellt",
   "m_092a74ec064c93": "Trenner, Jingles, Logos und Schriften",
   "m_092a782bcbb664": "Erstelle einen Bot mit BotFather, schreibe ihm zuerst eine Nachricht und gib dann sein Bot-Token und die Ziel-Chat-ID ein. Gruppen-Chat-IDs können negativ sein.",
   "m_092b213bf2afe9": "Trace {n}",
@@ -2673,6 +2678,7 @@
   "m_0ad320c4d8b47a": "Leer lassen, damit Ether das Tageslimit anhand deiner Indexer wählt.",
   "m_0ad43efafec116": "Nicht gespeicherte Richtlinie",
   "m_0ad4a0d40e37f8": "Alle Kategorien",
+  "m_0ad4ee0628eeb4": "Vorlagenpaket angewendet",
   "m_0ad586756281fa": "Noch keine Kanäle",
   "m_0ad72ccf491a1b": "Zwischen {start} und {end}",
   "m_0adabb2d97b996": "Zugangsdaten für Bewertungen werden geschützt…",
@@ -3173,6 +3179,7 @@
   "m_0d09a62bdf5737": "Heute läuft nichts.",
   "m_0d0cd8136ac6bf": "Nutzt dein Sprachmodell — verbunden ✓",
   "m_0d0dcdcc09062b": "Ton hinzufügen",
+  "m_0d0dd900b39ab3": "Vorschau ausblenden",
   "m_0d0e4e1beb4a81": "Aus. Aktiviere unten „Updates automatisch installieren“, um Korrekturen über Nacht zu erhalten, während niemand zuschaut.",
   "m_0d0ec4c8965d4c": "Zuletzt genutzt",
   "m_0d0fb1dbf0c85f": "Modelle werden geladen…",
@@ -4258,6 +4265,7 @@
   "m_1145dfaa9ca07e": "Verbindungen",
   "m_114627b4d71e94": "Videos hier ablegen oder Dateien wählen",
   "m_1146aa16dcff44": "Flackern",
+  "m_114919e78b7076": "Vorlagenpakete",
   "m_114a58aa977247": {
     "one": "{names} und {count} weiterer",
     "other": "{names} und {count} weitere"
@@ -5431,6 +5439,10 @@
   "m_15fc56b96fc939": "Wiedergabequalität: {movies} für Filme, {shows} für Serien zu Hause · ändern",
   "m_15fe790cf8ace4": "Dieser Code wurde bereits verwendet, um ein Gerät anzumelden. Wenn der Fernseher immer noch nicht angemeldet ist, starten Sie am Fernseher neu, um einen neuen Code zu erhalten.",
   "m_160161cd450358": "So funktioniert Qualität",
+  "m_16022a788e4264": {
+    "one": "{count} Sammlung erstellt ({skipped} bereits vorhanden).",
+    "other": "{count} Sammlungen erstellt ({skipped} bereits vorhanden)."
+  },
   "m_1602dbcba0275a": "Alles, was es nutzt, muss darauf warten.",
   "m_1606fc993473b3": "Y-Position",
   "m_16085b241c4dff": "Für {name} gespeichert.",
@@ -5557,6 +5569,7 @@
   "m_16745cd45e3b9e": "Rund um Serien und Staffeln aufgebaut",
   "m_1676025ad38368": "Nicht auf Sendung",
   "m_167613b702a707": "Plugin-Quelle",
+  "m_16785df9d0d4dc": "Starter-Sammlungspakete",
   "m_1678fbc8148a35": "Dein Passwort ist {password}.",
   "m_167eae1e01ecfd": "Statistiken",
   "m_16821abd8a46a1": "Der Stream lieferte HTTP {code}.",
@@ -6988,6 +7001,10 @@
   "m_1c346a442a83ca": "0 = automatisch. Zählt Dateien, nicht Filmdaten.",
   "m_1c36aaa91c20a0": "{path} verwenden",
   "m_1c36f061881f3b": "Die bestehenden Freigabe- und Mediatheksbeschränkungen dieses Zuschauers gelten auch für das Programm und jeden Kanal.",
+  "m_1c39eda00efb69": {
+    "one": "{count} Paket",
+    "other": "{count} Pakete"
+  },
   "m_1c3b1d4a7a6c19": "Halbe Geschwindigkeit",
   "m_1c3de6b19c1c00": "{list} (TV)",
   "m_1c42c43947d5c0": "Neuere Wiedergaben zählen stärker; die Häufigkeit ist pro Zuschauer begrenzt. Vollständig Gesehenes und geprüfte Importe fließen ein, nie die Vorlade-Aktivität.",
@@ -7547,6 +7564,10 @@
   "m_1e6a40a5a54f04": "Guide-Zuordnungen prüfen",
   "m_1e6a94c1acbcc8": "Versionshinweise",
   "m_1e6ee054299fd6": "Nicht in der Liste des Anbieters",
+  "m_1e717b7f6c6343": {
+    "one": "{count} zu erstellen ({skipped} bereits vorhanden)",
+    "other": "{count} zu erstellen ({skipped} bereits vorhanden)"
+  },
   "m_1e720918eae43e": "Operator",
   "m_1e7276f110afe8": "Erscheinungsjahr",
   "m_1e7307ff134615": "Nie abspielen",
@@ -7929,5 +7950,9 @@
   "m_1ffceea1081742": "dvd absolut ausgestrahlt Reihenfolge",
   "m_1ffd579fb6c1db": "Meist wird außer Haus geschaut ({share}), mit hoher Bitrate ({rate}). Lege ein {away} oder eine Mbps-Grenze in den {limits} fest.",
   "m_1ffe73d99814f5": "Hub-IDs, Arten oder Globs",
-  "m_1ffeee0f0cedfc": "Datenbank-URL überschreiben (optional)"
+  "m_1ffeee0f0cedfc": "Datenbank-URL überschreiben (optional)",
+  "m_1ffeff26ceb1db": {
+    "one": "{count} Vorlage",
+    "other": "{count} Vorlagen"
+  }
 }

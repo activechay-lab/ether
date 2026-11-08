@@ -380,6 +380,7 @@
   "m_01a68a2b5a6e11": "profil {n}",
   "m_01a7a1d6190393": "Endre guide",
   "m_01a885aa5d46f9": "Isbre",
+  "m_01a984fd3bda63": "Bruk pakke",
   "m_01a985b7b0eceb": "Neste i en husstandsvisningssekvens",
   "m_01a9d534a0c80c": "Ingen utgivelse er akseptabel for denne profilen.",
   "m_01aac44b990a0a": "Se gjennom KI-forslagene. Sikkerheten er et anslag.",
@@ -460,6 +461,7 @@
   "m_01f361b7db4a5f": "Avspillinger · 30 d",
   "m_01f3d3e746f17e": "Lagre kanal",
   "m_01f44defeef790": "denne seerens sidelengde",
+  "m_01f4e62b70fa80": "Valgfrie ettklikks samlingspakker for å fylle Hjem og bibliotekrader med en gang.",
   "m_01f504cbf8c230": "Tittelen er ikke i noen av samlingene dens.",
   "m_01f5527a5dabee": "Konfigurerte roller",
   "m_01f6826d17c4a1": "Apper og enheter",
@@ -890,6 +892,7 @@
   "m_039df325215824": "Rangeres foran lavere trinn.",
   "m_03a031b7685db3": "Poeng må koble format-ID-er til heltall.",
   "m_03a0acafe9069b": "Minimum for {label}",
+  "m_03a1ae2909870d": "Forhåndsvis pakke",
   "m_03a248404d1aad": "Angitt av {app}-profilen den ble importert fra.",
   "m_03a43850a13f13": "Venter på oppdatering",
   "m_03a4af1de2ae17": "Last inn mer",
@@ -1564,6 +1567,7 @@
   "m_063f68e2d72f6a": "Det har ikke endret noe",
   "m_063ff1800d8888": "Sist lest {last} · Sist sendt {sent} · Neste {next}",
   "m_06422a9896d898": "Oppdagelseskilder",
+  "m_064288c1a9cda7": "Ettklikks malpakker",
   "m_0643a12e17aa72": "Rapporteres ikke av denne maskinvaren",
   "m_0643a740c5f9c9": "Neste episode starter raskt i en vanlig husholdning.",
   "m_0645266cccce67": "Delt tunnel virker",
@@ -2246,6 +2250,7 @@
   "m_0924c7aecd05ad": "Prowlarr API-nøkkel",
   "m_09259d2f0cc75f": "Tillatt",
   "m_09288388fba9ac": "Lagre sikkert",
+  "m_09293b8db49567": "Vil opprettes",
   "m_092a74ec064c93": "Vignetter, jingler, logoer og skrifttyper",
   "m_092a782bcbb664": "Opprett en bot med BotFather, send den en melding først, og skriv deretter inn bot-tokenet og mål-chat-ID-en. Gruppechat-ID-er kan være negative.",
   "m_092b213bf2afe9": "Spor {n}",
@@ -2673,6 +2678,7 @@
   "m_0ad320c4d8b47a": "La stå tomt så Ether velger en daglig grense ut fra indeksene dine.",
   "m_0ad43efafec116": "Ulagret policy",
   "m_0ad4a0d40e37f8": "Alle kategorier",
+  "m_0ad4ee0628eeb4": "Malpakke brukt",
   "m_0ad586756281fa": "Ingen kanaler ennå",
   "m_0ad72ccf491a1b": "Mellom {start} og {end}",
   "m_0adabb2d97b996": "Sikrer påloggingsopplysninger for vurderinger…",
@@ -3173,6 +3179,7 @@
   "m_0d09a62bdf5737": "Ingenting sendes i dag.",
   "m_0d0cd8136ac6bf": "Bruker språkmodellen din — tilkoblet ✓",
   "m_0d0dcdcc09062b": "Legg til lyd",
+  "m_0d0dd900b39ab3": "Skjul forhåndsvisning",
   "m_0d0e4e1beb4a81": "Av. Slå på «Installer oppdateringer automatisk» nedenfor for å få rettinger i løpet av natten, mens ingen ser på.",
   "m_0d0ec4c8965d4c": "Sist brukt",
   "m_0d0fb1dbf0c85f": "Laster modeller …",
@@ -4258,6 +4265,7 @@
   "m_1145dfaa9ca07e": "Tilkoblinger",
   "m_114627b4d71e94": "Slipp videoer her, eller velg filer",
   "m_1146aa16dcff44": "Flimring",
+  "m_114919e78b7076": "Malpakker",
   "m_114a58aa977247": {
     "one": "{names} og {count} til",
     "other": "{names} og {count} til"
@@ -5431,6 +5439,10 @@
   "m_15fc56b96fc939": "Avspillingskvalitet: {movies} for filmer, {shows} for serier hjemme · endre",
   "m_15fe790cf8ace4": "Denne koden er allerede brukt til å logge på en enhet. Hvis TV-en fortsatt ikke er logget på, start på nytt på TV-en for å få en ny kode.",
   "m_160161cd450358": "Slik fungerer kvalitet",
+  "m_16022a788e4264": {
+    "one": "Opprettet {count} samling ({skipped} fantes allerede).",
+    "other": "Opprettet {count} samlinger ({skipped} fantes allerede)."
+  },
   "m_1602dbcba0275a": "Alt som bruker den, venter på den.",
   "m_1606fc993473b3": "Y-posisjon",
   "m_16085b241c4dff": "Lagret for {name}.",
@@ -5557,6 +5569,7 @@
   "m_16745cd45e3b9e": "Bygget rundt serier og sesonger",
   "m_1676025ad38368": "Ikke på lufta",
   "m_167613b702a707": "Utvidelseskilde",
+  "m_16785df9d0d4dc": "Startpakker for samlinger",
   "m_1678fbc8148a35": "Passordet ditt er {password}.",
   "m_167eae1e01ecfd": "Statistikk",
   "m_16821abd8a46a1": "Strømmen returnerte HTTP {code}.",
@@ -6988,6 +7001,10 @@
   "m_1c346a442a83ca": "0 = automatisk. Teller filer, ikke fildata for filmer.",
   "m_1c36aaa91c20a0": "Bruk {path}",
   "m_1c36f061881f3b": "Denne seerens eksisterende grenser for aldersgrense og bibliotek gjelder også for programguiden og alle kanaler.",
+  "m_1c39eda00efb69": {
+    "one": "{count} pakke",
+    "other": "{count} pakker"
+  },
   "m_1c3b1d4a7a6c19": "Halv hastighet",
   "m_1c3de6b19c1c00": "{list} (TV)",
   "m_1c42c43947d5c0": "Nylige visninger teller mer; hyppighet er begrenset per seer. Fullførte visninger og gjennomgåtte importer bidrar, aldri forhåndslastingsaktivitet.",
@@ -7547,6 +7564,10 @@
   "m_1e6a40a5a54f04": "Gjennomgå guidekoblinger",
   "m_1e6a94c1acbcc8": "Utgivelsesnotater",
   "m_1e6ee054299fd6": "Ikke i leverandørens liste",
+  "m_1e717b7f6c6343": {
+    "one": "{count} opprettes ({skipped} finnes allerede)",
+    "other": "{count} opprettes ({skipped} finnes allerede)"
+  },
   "m_1e720918eae43e": "Operator",
   "m_1e7276f110afe8": "Utgivelsesår",
   "m_1e7307ff134615": "Spill aldri",
@@ -7929,5 +7950,9 @@
   "m_1ffceea1081742": "dvd absolutt sendt rekkefølge",
   "m_1ffd579fb6c1db": "Mesteparten ses borte fra hjemmet ({share}) med høy bithastighet ({rate}). Angi en {away} eller en Mbps-grense under {limits}.",
   "m_1ffe73d99814f5": "Hub-ID-er, typer eller glob-mønstre",
-  "m_1ffeee0f0cedfc": "Overstyring av database-URL (valgfritt)"
+  "m_1ffeee0f0cedfc": "Overstyring av database-URL (valgfritt)",
+  "m_1ffeff26ceb1db": {
+    "one": "{count} mal",
+    "other": "{count} maler"
+  }
 }

@@ -380,6 +380,7 @@
   "m_01a68a2b5a6e11": "profiili {n}",
   "m_01a7a1d6190393": "Vaihda opas",
   "m_01a885aa5d46f9": "Jäätikkö",
+  "m_01a984fd3bda63": "Käytä pakettia",
   "m_01a985b7b0eceb": "Seuraava kotitalouden katselujärjestyksessä",
   "m_01a9d534a0c80c": "Mikään julkaisu ei kelpaa tälle profiilille.",
   "m_01aac44b990a0a": "Tarkista tekoälyn ehdotukset. Luottamus on arvio.",
@@ -460,6 +461,7 @@
   "m_01f361b7db4a5f": "Toistot · 30 pv",
   "m_01f3d3e746f17e": "Tallenna kanava",
   "m_01f44defeef790": "tämän katselijan sivun pituus",
+  "m_01f4e62b70fa80": "Valinnaiset yhden klikkauksen kokoelmapaketit Koti- ja kirjastorivien täyttämiseen heti.",
   "m_01f504cbf8c230": "Nimike ei ole missään sen kokoelmista.",
   "m_01f5527a5dabee": "Määritetyt roolit",
   "m_01f6826d17c4a1": "Sovellukset ja laitteet",
@@ -890,6 +892,7 @@
   "m_039df325215824": "Asetetaan alempien vaiheiden edelle.",
   "m_03a031b7685db3": "Pisteiden on yhdistettävä formaattitunnukset kokonaislukuihin.",
   "m_03a0acafe9069b": "Vähimmäisarvo: {label}",
+  "m_03a1ae2909870d": "Esikatsele paketti",
   "m_03a248404d1aad": "Määrittää profiilin {app}, josta se tuotiin.",
   "m_03a43850a13f13": "Odottaa päivitystä",
   "m_03a4af1de2ae17": "Lataa lisää",
@@ -1564,6 +1567,7 @@
   "m_063f68e2d72f6a": "Se ei ole muuttanut mitään",
   "m_063ff1800d8888": "Luettu viimeksi {last} · Lähetetty viimeksi {sent} · Seuraava {next}",
   "m_06422a9896d898": "Löytölähteet",
+  "m_064288c1a9cda7": "Yhden klikkauksen mallipaketit",
   "m_0643a12e17aa72": "Tämä laitteisto ei ilmoita tätä",
   "m_0643a740c5f9c9": "Seuraava jakso alkaa nopeasti tavallisessa kodissa.",
   "m_0645266cccce67": "Jaettu tunneli toimii",
@@ -2246,6 +2250,7 @@
   "m_0924c7aecd05ad": "Prowlarrin API-avain",
   "m_09259d2f0cc75f": "Hyväksytty",
   "m_09288388fba9ac": "Tallenna turvallisesti",
+  "m_09293b8db49567": "Luodaan",
   "m_092a74ec064c93": "Tunnarit, jinglet, logot ja fontit",
   "m_092a782bcbb664": "Luo botti BotFatherilla, lähetä sille ensin viesti ja anna sitten sen botin token ja kohteen keskustelun tunnus. Ryhmäkeskustelujen tunnukset voivat olla negatiivisia.",
   "m_092b213bf2afe9": "Jälki {n}",
@@ -2673,6 +2678,7 @@
   "m_0ad320c4d8b47a": "Jätä tyhjäksi, niin Ether valitsee päivärajan indeksoijiesi mukaan.",
   "m_0ad43efafec116": "Tallentamaton käytäntö",
   "m_0ad4a0d40e37f8": "Kaikki luokat",
+  "m_0ad4ee0628eeb4": "Mallipaketti otettu käyttöön",
   "m_0ad586756281fa": "Ei vielä kanavia",
   "m_0ad72ccf491a1b": "Välillä {start}–{end}",
   "m_0adabb2d97b996": "Suojataan arviointipalvelun tunnuksia…",
@@ -3173,6 +3179,7 @@
   "m_0d09a62bdf5737": "Tänään ei esitetä mitään.",
   "m_0d0cd8136ac6bf": "Käyttää kielimalliasi — yhdistetty ✓",
   "m_0d0dcdcc09062b": "Lisää ääni",
+  "m_0d0dd900b39ab3": "Piilota esikatselu",
   "m_0d0e4e1beb4a81": "Pois. Ota alta käyttöön ”Asenna päivitykset automaattisesti”, niin saat korjaukset yön aikana, kun kukaan ei katso.",
   "m_0d0ec4c8965d4c": "Viimeksi käytetty",
   "m_0d0fb1dbf0c85f": "Ladataan malleja…",
@@ -4258,6 +4265,7 @@
   "m_1145dfaa9ca07e": "Yhteydet",
   "m_114627b4d71e94": "Pudota videot tähän tai valitse tiedostot",
   "m_1146aa16dcff44": "Välkyntä",
+  "m_114919e78b7076": "Mallipaketit",
   "m_114a58aa977247": {
     "one": "{names} ja {count} muu",
     "other": "{names} ja {count} muuta"
@@ -5431,6 +5439,10 @@
   "m_15fc56b96fc939": "Toistolaatu: {movies} elokuville, {shows} sarjoille kotona · muuta",
   "m_15fe790cf8ace4": "Tätä koodia on jo käytetty laitteen kirjautumiseen. Jos televisio ei vieläkään ole kirjautunut, aloita televisiossa alusta ja hanki uusi koodi.",
   "m_160161cd450358": "Näin laatu toimii",
+  "m_16022a788e4264": {
+    "one": "Luotiin {count} kokoelma ({skipped} oli jo olemassa).",
+    "other": "Luotiin {count} kokoelmaa ({skipped} oli jo olemassa)."
+  },
   "m_1602dbcba0275a": "Kaikki sitä käyttävä odottaa sitä.",
   "m_1606fc993473b3": "Y-sijainti",
   "m_16085b241c4dff": "Tallennettu: {name}.",
@@ -5557,6 +5569,7 @@
   "m_16745cd45e3b9e": "Rakennettu sarjojen ja tuotantokausien ympärille",
   "m_1676025ad38368": "Ei lähetyksessä",
   "m_167613b702a707": "Liitännäislähde",
+  "m_16785df9d0d4dc": "Aloituskokoelmapaketit",
   "m_1678fbc8148a35": "Salasanasi on {password}.",
   "m_167eae1e01ecfd": "Tilastot",
   "m_16821abd8a46a1": "Toisto palautti HTTP {code}.",
@@ -6988,6 +7001,10 @@
   "m_1c346a442a83ca": "0 = automaattinen. Laskee tiedostot, ei elokuvadataa.",
   "m_1c36aaa91c20a0": "Käytä polkua {path}",
   "m_1c36f061881f3b": "Tämän katselijan olemassa olevat ikäraja- ja kirjastorajoitukset koskevat myös opasta ja jokaista kanavaa.",
+  "m_1c39eda00efb69": {
+    "one": "{count} paketti",
+    "other": "{count} pakettia"
+  },
   "m_1c3b1d4a7a6c19": "Puolinopeus",
   "m_1c3de6b19c1c00": "{list} (TV)",
   "m_1c42c43947d5c0": "Viimeaikaiset katselukerrat painavat enemmän; toistuvuus rajataan katselijakohtaisesti. Mukaan lasketaan loppuun katsotut ja tarkistetut tuonnit, ei koskaan esilatauksen toimintaa.",
@@ -7547,6 +7564,10 @@
   "m_1e6a40a5a54f04": "Tarkista opasyhdistämiset",
   "m_1e6a94c1acbcc8": "Julkaisutiedot",
   "m_1e6ee054299fd6": "Ei palveluntarjoajan luettelossa",
+  "m_1e717b7f6c6343": {
+    "one": "{count} luodaan ({skipped} jo olemassa)",
+    "other": "{count} luodaan ({skipped} jo olemassa)"
+  },
   "m_1e720918eae43e": "Operaattori",
   "m_1e7276f110afe8": "Julkaisuvuosi",
   "m_1e7307ff134615": "Älä koskaan toista",
@@ -7929,5 +7950,9 @@
   "m_1ffceea1081742": "dvd absoluuttinen esitys järjestys",
   "m_1ffd579fb6c1db": "Suurin osa katselusta on kodin ulkopuolella ({share}) korkealla bittinopeudella ({rate}). Aseta {away} tai Mbps-raja kohdassa {limits}.",
   "m_1ffe73d99814f5": "Hub-tunnukset, lajit tai glob-mallit",
-  "m_1ffeee0f0cedfc": "Tietokannan URL-osoitteen ohitus (valinnainen)"
+  "m_1ffeee0f0cedfc": "Tietokannan URL-osoitteen ohitus (valinnainen)",
+  "m_1ffeff26ceb1db": {
+    "one": "{count} malli",
+    "other": "{count} mallia"
+  }
 }

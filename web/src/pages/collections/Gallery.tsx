@@ -10,6 +10,7 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import {
   ArrowRight,
+  Check,
   Copy,
   EyeOff,
   Globe2,
@@ -33,7 +34,7 @@ import { ErrorPanel } from "../../components/feedback";
 import { ToolbarPicker } from "../../components/ToolbarPicker";
 import { PanelHead, Workspace } from "../../components/workspace";
 import { api, errorMessage } from "../../lib/api";
-import type { CollectionSpec } from "../../lib/contract";
+import type { CollectionSpec, CollectionTemplateBundlePreview } from "../../lib/contract";
 import { t, tn } from "../../i18n";
 import { relativeTime } from "../../lib/format";
 import { clearDraft, draftKey, listDrafts } from "../../lib/history";
@@ -63,9 +64,12 @@ export default function CollectionsGallery({
   const [category, setCategory] = useState("all");
   const [describe, setDescribe] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [bundleBusy, setBundleBusy] = useState<string | null>(null);
+  const [bundlePreview, setBundlePreview] = useState<CollectionTemplateBundlePreview | null>(null);
   const navigate = useNavigate();
   const collections = useAsync(() => api.collections(), []);
   const templates = useAsync(() => api.templates(), []);
+  const bundles = useAsync(() => api.templateBundles(), []);
   const [drafts, setDrafts] = useState(() =>
     listDrafts<CollectionSpec>("collection").filter((d) => d.id.startsWith("new-")),
   );
@@ -141,6 +145,46 @@ export default function CollectionsGallery({
         },
       },
     });
+  const previewBundle = async (bundleId: string) => {
+    if (bundleBusy) return;
+    if (bundlePreview?.bundle.id === bundleId) {
+      setBundlePreview(null);
+      return;
+    }
+    setBundleBusy(bundleId);
+    try {
+      const res = await api.previewTemplateBundle(bundleId);
+      setBundlePreview(res);
+    } catch (e) {
+      toast.error(t("That didn't work"), { description: errorMessage(e) });
+    } finally {
+      setBundleBusy(null);
+    }
+  };
+  const applyBundle = async (bundleId: string) => {
+    if (bundleBusy) return;
+    setBundleBusy(bundleId);
+    try {
+      const res = await api.applyTemplateBundle(bundleId);
+      await collections.reload();
+      if (bundlePreview?.bundle.id === bundleId) {
+        const nextPreview = await api.previewTemplateBundle(bundleId);
+        setBundlePreview(nextPreview);
+      }
+      toast.success(t("Template bundle applied"), {
+        description: tn(
+          res.createdCount,
+          "Created {count} collection ({skipped} already present).",
+          "Created {count} collections ({skipped} already present).",
+          { skipped: res.skippedCount },
+        ),
+      });
+    } catch (e) {
+      toast.error(t("That didn't work"), { description: errorMessage(e) });
+    } finally {
+      setBundleBusy(null);
+    }
+  };
   const act = async (c: CollectionSpec, action: "publish" | "unpublish" | "rebuild" | "delete") => {
     if (!c.id || busy) return;
     if (
@@ -362,6 +406,100 @@ export default function CollectionsGallery({
                 </div>
               ) : tab === "templates" ? (
                 <>
+                  {bundles.data?.length ? (
+                    <section
+                      aria-label={t("Template bundles")}
+                      className="space-y-2 rounded-xl border border-border bg-surface p-2.5"
+                    >
+                      <div className="flex items-center justify-between px-1">
+                        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+                          {t("One-click template bundles")}
+                        </h2>
+                        <span className="text-[11px] text-fg-muted">
+                          {tn(bundles.data.length, "{count} bundle", "{count} bundles")}
+                        </span>
+                      </div>
+                      <ul className="space-y-1.5">
+                        {bundles.data.map((b) => {
+                          const isPreviewing = bundlePreview?.bundle.id === b.id;
+                          return (
+                            <li
+                              key={b.id}
+                              className="rounded-lg border border-border bg-bg-subtle/60 p-2"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <span className="block text-xs font-semibold text-fg">
+                                    {b.name}
+                                  </span>
+                                  <span className="mt-0.5 block text-[11px] text-fg-muted">
+                                    {b.description}
+                                  </span>
+                                </div>
+                                <Badge variant="secondary">
+                                  {tn(
+                                    b.templateIds.length,
+                                    "{count} template",
+                                    "{count} templates",
+                                  )}
+                                </Badge>
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2.5 text-xs"
+                                  disabled={bundleBusy === b.id}
+                                  onClick={() => void previewBundle(b.id)}
+                                >
+                                  {isPreviewing ? t("Hide preview") : t("Preview bundle")}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-2.5 text-xs"
+                                  disabled={bundleBusy === b.id}
+                                  onClick={() => void applyBundle(b.id)}
+                                >
+                                  <Plus size={12} /> {t("Apply bundle")}
+                                </Button>
+                              </div>
+                              {isPreviewing && bundlePreview ? (
+                                <div className="mt-2 rounded-md border border-border bg-surface p-2 text-[11px]">
+                                  <p className="mb-1 font-medium text-fg">
+                                    {tn(
+                                      bundlePreview.willCreate,
+                                      "{count} to create ({skipped} already present)",
+                                      "{count} to create ({skipped} already present)",
+                                      { skipped: bundlePreview.willSkip },
+                                    )}
+                                  </p>
+                                  <ul className="max-h-32 space-y-1 overflow-y-auto">
+                                    {bundlePreview.items.map((item) => (
+                                      <li
+                                        key={item.templateId}
+                                        className="flex items-center justify-between gap-2 text-fg-muted"
+                                      >
+                                        <span className="truncate">{item.name}</span>
+                                        <span className="shrink-0">
+                                          {item.action === "skip_existing" ? (
+                                            <span className="inline-flex items-center gap-1 text-success">
+                                              <Check size={11} /> {t("Added")}
+                                            </span>
+                                          ) : (
+                                            t("Will create")
+                                          )}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ) : null}
                   <p className="px-2 text-xs text-fg-muted">
                     {t("A starting point for your next collection.")}
                   </p>

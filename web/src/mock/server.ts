@@ -75,7 +75,7 @@ import { createCacheMock } from "./cache";
 import { createCalendarMock } from "./calendar";
 import { createLiveTVMock } from "./livetv";
 import { createExtendMock } from "./extend";
-import { TEMPLATES } from "./templates";
+import { TEMPLATE_BUNDLES, TEMPLATES } from "./templates";
 import { NOT_RATED, RATING_LEVELS, canonicalRating } from "../lib/contentRatings";
 
 /** A few other boards' labels per level, as the server lists them. */
@@ -3466,6 +3466,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json(evaluate(normalizeSpec(body as CollectionSpec)));
       case "GET /collections/templates":
         return json({ templates: TEMPLATES });
+      case "GET /collections/template-bundles":
+        return json({ bundles: TEMPLATE_BUNDLES });
       case "POST /catalog/visibility/preview": {
         const groups =
           (body as { exclusions: { mediaType: string; match: string; rules: Rule[] }[] })
@@ -3815,6 +3817,72 @@ export function createFakeServer(opts: FakeOptions = {}) {
         id: "example.catalog",
         name: "Example catalog",
         catalogs: [{ id: "top", type: "movie", name: "Top movies" }],
+      });
+    }
+
+    if (
+      seg[0] === "collections" &&
+      seg[1] === "template-bundles" &&
+      seg[2] &&
+      (seg[3] === "preview" || seg[3] === "apply") &&
+      method === "POST"
+    ) {
+      const bundleId = decodeURIComponent(seg[2]);
+      const bundle = TEMPLATE_BUNDLES.find((b) => b.id === bundleId);
+      if (!bundle) return err(404, "not_found", "no such template bundle");
+      const items = bundle.templateIds
+        .map((tid) => {
+          const tpl = TEMPLATES.find((t) => t.id === tid);
+          if (!tpl) return null;
+          const existing = state.collections.find(
+            (c) => c.templateId === tid || c.name.toLowerCase() === tpl.name.toLowerCase(),
+          );
+          return {
+            templateId: tid,
+            name: tpl.name,
+            category: tpl.category,
+            action: existing ? ("skip_existing" as const) : ("create" as const),
+            ...(existing?.id ? { existingId: existing.id } : {}),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => Boolean(x));
+      if (seg[3] === "preview") {
+        return json({
+          bundle,
+          items,
+          willCreate: items.filter((i) => i.action === "create").length,
+          willSkip: items.filter((i) => i.action === "skip_existing").length,
+        });
+      }
+      const created: CollectionSpec[] = [];
+      const skipped = items.filter((i) => i.action === "skip_existing");
+      for (const item of items) {
+        if (item.action !== "create") continue;
+        const tpl = TEMPLATES.find((t) => t.id === item.templateId);
+        if (!tpl) continue;
+        const spec = normalizeSpec({
+          ...tpl.spec,
+          name: tpl.name,
+          description: tpl.description,
+          templateId: tpl.id,
+          enabled: true,
+        });
+        const saved: CollectionSpec = {
+          ...spec,
+          id: `c${seq++}`,
+          updatedAt: new Date().toISOString(),
+          lastBuiltAt: new Date().toISOString(),
+          itemCount: evaluate(spec).total,
+        };
+        state.collections.push(saved);
+        created.push(saved);
+      }
+      return json({
+        bundleId,
+        created,
+        skipped,
+        createdCount: created.length,
+        skippedCount: skipped.length,
       });
     }
 

@@ -380,6 +380,7 @@
   "m_01a68a2b5a6e11": "profile {n}",
   "m_01a7a1d6190393": "Change guide",
   "m_01a885aa5d46f9": "Glacier",
+  "m_01a984fd3bda63": "Apply bundle",
   "m_01a985b7b0eceb": "Next in a household viewing sequence",
   "m_01a9d534a0c80c": "No release is acceptable for this profile.",
   "m_01aac44b990a0a": "AI suggestions need your review. Confidence is an estimate.",
@@ -460,6 +461,7 @@
   "m_01f361b7db4a5f": "Plays · 30d",
   "m_01f3d3e746f17e": "Save channel",
   "m_01f44defeef790": "this viewer's page length",
+  "m_01f4e62b70fa80": "Optional one-click collection packs to populate your Home and library rows right away.",
   "m_01f504cbf8c230": "The title isn't in any of its collections.",
   "m_01f5527a5dabee": "Configured roles",
   "m_01f6826d17c4a1": "Apps and devices",
@@ -890,6 +892,7 @@
   "m_039df325215824": "Ranks ahead of lower steps.",
   "m_03a031b7685db3": "Scores must map format IDs to whole numbers.",
   "m_03a0acafe9069b": "{label} minimum",
+  "m_03a1ae2909870d": "Preview bundle",
   "m_03a248404d1aad": "Set by the {app} profile it was imported from.",
   "m_03a43850a13f13": "Awaiting refresh",
   "m_03a4af1de2ae17": "Load more",
@@ -1567,6 +1570,7 @@
   "m_063f68e2d72f6a": "It hasn't changed anything",
   "m_063ff1800d8888": "Last read {last} · Last sent {sent} · Next {next}",
   "m_06422a9896d898": "Discovery sources",
+  "m_064288c1a9cda7": "One-click template bundles",
   "m_0643a12e17aa72": "Not reported by this hardware",
   "m_0643a740c5f9c9": "The next episode starts quickly for a normal household.",
   "m_0645266cccce67": "Split tunnel working",
@@ -2249,6 +2253,7 @@
   "m_0924c7aecd05ad": "Prowlarr API key",
   "m_09259d2f0cc75f": "Admitted",
   "m_09288388fba9ac": "Save securely",
+  "m_09293b8db49567": "Will create",
   "m_092a74ec064c93": "Bumpers, stings, logos and fonts",
   "m_092a782bcbb664": "Create a bot with BotFather, message it first, then enter its bot token and the destination chat ID. Group chat IDs may be negative.",
   "m_092b213bf2afe9": "Trace {n}",
@@ -2679,6 +2684,7 @@
   "m_0ad320c4d8b47a": "Leave empty to let Ether choose a daily limit from your indexers.",
   "m_0ad43efafec116": "Unsaved policy",
   "m_0ad4a0d40e37f8": "All categories",
+  "m_0ad4ee0628eeb4": "Template bundle applied",
   "m_0ad586756281fa": "No channels yet",
   "m_0ad72ccf491a1b": "Between {start} and {end}",
   "m_0adabb2d97b996": "Securing ratings credentials…",
@@ -3182,6 +3188,7 @@
   "m_0d09a62bdf5737": "Nothing airs today.",
   "m_0d0cd8136ac6bf": "Uses your language model — connected ✓",
   "m_0d0dcdcc09062b": "Add sound",
+  "m_0d0dd900b39ab3": "Hide preview",
   "m_0d0e4e1beb4a81": "Off. Turn on “Install updates automatically” below to get fixes overnight, while nobody is watching.",
   "m_0d0ec4c8965d4c": "Last used",
   "m_0d0fb1dbf0c85f": "Loading models…",
@@ -4267,6 +4274,7 @@
   "m_1145dfaa9ca07e": "Connections",
   "m_114627b4d71e94": "Drop videos here, or choose files",
   "m_1146aa16dcff44": "Flicker",
+  "m_114919e78b7076": "Template bundles",
   "m_114a58aa977247": {
     "one": "{names} and {count} more",
     "other": "{names} and {count} more"
@@ -5440,6 +5448,10 @@
   "m_15fc56b96fc939": "Playback quality: {movies} for movies, {shows} for shows at home · change",
   "m_15fe790cf8ace4": "This code has already been used to sign in a device. If the TV still isn't signed in, start again on the TV to get a new code.",
   "m_160161cd450358": "How quality works",
+  "m_16022a788e4264": {
+    "one": "Created {count} collection ({skipped} already present).",
+    "other": "Created {count} collections ({skipped} already present)."
+  },
   "m_1602dbcba0275a": "Anything that uses it waits for it.",
   "m_1606fc993473b3": "Y position",
   "m_16085b241c4dff": "Saved for {name}.",
@@ -5566,6 +5578,7 @@
   "m_16745cd45e3b9e": "Built around shows and seasons",
   "m_1676025ad38368": "Off air",
   "m_167613b702a707": "Plugin source",
+  "m_16785df9d0d4dc": "Starter collection bundles",
   "m_1678fbc8148a35": "Your password is {password}.",
   "m_167eae1e01ecfd": "Stats",
   "m_16821abd8a46a1": "The stream returned HTTP {code}.",
@@ -7006,6 +7019,10 @@
   "m_1c346a442a83ca": "0 = automatic. Counts files, not movie data.",
   "m_1c36aaa91c20a0": "Use {path}",
   "m_1c36f061881f3b": "This viewer's existing rating and library limits also apply to the guide and every channel.",
+  "m_1c39eda00efb69": {
+    "one": "{count} bundle",
+    "other": "{count} bundles"
+  },
   "m_1c3b1d4a7a6c19": "Half speed",
   "m_1c3de6b19c1c00": "{list} (TV)",
   "m_1c42c43947d5c0": "Recent views count more; frequency is capped per viewer. Completed watches and reviewed imports contribute, never preload activity.",
@@ -7568,6 +7585,10 @@
   "m_1e6a40a5a54f04": "Guide match review",
   "m_1e6a94c1acbcc8": "Release notes",
   "m_1e6ee054299fd6": "Not in the provider's list",
+  "m_1e717b7f6c6343": {
+    "one": "{count} to create ({skipped} already present)",
+    "other": "{count} to create ({skipped} already present)"
+  },
   "m_1e720918eae43e": "Operator",
   "m_1e7276f110afe8": "Release year",
   "m_1e7307ff134615": "Never play",
@@ -7950,5 +7971,9 @@
   "m_1ffceea1081742": "dvd absolute aired ordering",
   "m_1ffd579fb6c1db": "Most viewing is away from home ({share}) at a high bitrate ({rate}). Set an {away} or a Mbps cap in their {limits}.",
   "m_1ffe73d99814f5": "Hub ids, kinds or globs",
-  "m_1ffeee0f0cedfc": "Database URL override (optional)"
+  "m_1ffeee0f0cedfc": "Database URL override (optional)",
+  "m_1ffeff26ceb1db": {
+    "one": "{count} template",
+    "other": "{count} templates"
+  }
 }

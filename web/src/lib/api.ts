@@ -3,6 +3,9 @@ import type {
   CollectionPreview,
   CollectionSpec,
   CollectionTemplate,
+  CollectionTemplateBundle,
+  CollectionTemplateBundleApplyResult,
+  CollectionTemplateBundlePreview,
   FacetName,
   FacetValue,
   HomeLayout,
@@ -474,6 +477,20 @@ export const api = {
   templates: async () =>
     (await apiFetch<{ templates: CollectionTemplate[] | null }>("/collections/templates"))
       .templates ?? [],
+  templateBundles: async () =>
+    (
+      await apiFetch<{ bundles: CollectionTemplateBundle[] | null }>(
+        "/collections/template-bundles",
+      )
+    ).bundles ?? [],
+  previewTemplateBundle: (id: string) =>
+    post<CollectionTemplateBundlePreview>(
+      `/collections/template-bundles/${encodeURIComponent(id)}/preview`,
+    ),
+  applyTemplateBundle: (id: string) =>
+    post<CollectionTemplateBundleApplyResult>(
+      `/collections/template-bundles/${encodeURIComponent(id)}/apply`,
+    ),
   artworkUrl: (id: string, w: number, version?: string) =>
     `${API_BASE}/collections/${encodeURIComponent(id)}/artwork${qs({ w, v: version })}`,
 
