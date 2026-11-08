@@ -243,6 +243,21 @@ func (t *ownedTimeline) depthLocked() time.Duration {
 	return d
 }
 
+// codecSpliceCount is how many unannounced format changes were marked.
+func (t *ownedTimeline) codecSpliceCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.codecSplices
+}
+
+// tsOnly reports a timeline of transport stream media (no init sections), so
+// a TS producer can follow it behind a discontinuity.
+func (t *ownedTimeline) tsOnly() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.mapRes == "" || strings.HasPrefix(t.mapRes, "slate-")
+}
+
 // slateRunCount is how many slate episodes the timeline has published.
 func (t *ownedTimeline) slateRunCount() int {
 	t.mu.Lock()

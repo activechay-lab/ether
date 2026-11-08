@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -152,4 +153,85 @@ func (decisionTranscoder) Decide(_ core.MediaInfo, _ core.ClientCaps, o core.Dec
 		return core.Decision{Kind: core.DecisionRemux, Container: "mpegts", VideoCopy: true, AudioCopy: true}
 	}
 	return core.Decision{Kind: core.DecisionTranscode, Container: "mpegts", VideoCodec: "h264", AudioCopy: true}
+}
+
+// A shared passthrough timeline escalates as a whole: once the feed is in,
+// every viewer of the channel reads Steady's segments on the same owned
+// timeline, behind one discontinuity, and the lease ends with the channel.
+func TestPassthroughHandOffToSteadyMovesTheChannel(t *testing.T) {
+	start := time.Now()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".ts") {
+			fmt.Fprint(w, "provider")
+			return
+		}
+		n := 3 + int(time.Since(start)/(2*time.Second))
+		fmt.Fprintf(w, "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:%d\n", n-3)
+		for i := n - 3; i < n; i++ {
+			fmt.Fprintf(w, "#EXTINF:2,\ns%d.ts\n", i)
+		}
+	}))
+	defer up.Close()
+	s := testService(t, Options{HTTPClient: up.Client(), Stability: func() string { return stabilityFastest }})
+	c := Channel{ID: "shared", Kind: "iptv"}
+	src := StreamSource{ID: "p", URL: up.URL + "/live.m3u8", Enabled: true}
+	viewer := func(id string) *session {
+		ss := &session{info: SessionInfo{ID: id, Channel: c}, inputSource: src, inputURL: src.URL, ctx: t.Context()}
+		ss.owned = s.acquirePassthrough(ss)
+		t.Cleanup(ss.owned.close)
+		return ss
+	}
+	a, b := viewer("a"), viewer("b")
+	if a.owned.tl != b.owned.tl {
+		t.Fatal("viewers of one channel do not share its timeline")
+	}
+	if err := a.owned.tl.waitStarted(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	st := s.owned()
+	st.mu.Lock()
+	p := st.channels[func() string {
+		for k := range st.channels {
+			return k
+		}
+		return ""
+	}()].p
+	st.mu.Unlock()
+	feed := &fakeSteadyFeed{}
+	p.steadyMu.Lock()
+	p.steadyReady, p.steadyClass = feed, "stall"
+	p.steadyMu.Unlock()
+	tl := a.owned.tl
+	deadline := time.Now().Add(6 * time.Second)
+	found := false
+	for time.Now().Before(deadline) && !found {
+		time.Sleep(50 * time.Millisecond)
+		tl.mu.Lock()
+		for _, seg := range tl.window {
+			if strings.HasPrefix(string(seg.data), "steady-") {
+				found = true
+				if !seg.disc {
+					t.Error("the hand-off was not marked with a discontinuity")
+				}
+				break
+			}
+		}
+		tl.mu.Unlock()
+	}
+	if !found || !p.onSteady() {
+		t.Fatal("the channel's timeline never moved onto the Steady feed")
+	}
+	a.owned.close()
+	b.owned.close()
+	deadline = time.Now().Add(ownedLinger + 5*time.Second)
+	for time.Now().Before(deadline) {
+		feed.mu.Lock()
+		closed := feed.closed
+		feed.mu.Unlock()
+		if closed {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("the Steady lease outlived the channel's timeline")
 }

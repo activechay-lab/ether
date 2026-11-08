@@ -70,6 +70,8 @@ type hlsIngest struct {
 	// for the source's history (read and reset by the producer).
 	media   time.Duration
 	skipped int64
+	// skippedTotal is never reset: the producer watches it for churn.
+	skippedTotal int64
 
 	lastMSN  int64
 	lastURI  string
@@ -248,6 +250,7 @@ func (in *hlsIngest) step(ctx context.Context) (progress bool, err error) {
 			// A segment that keeps failing is skipped; the gap is marked.
 			in.log.Warn("owned live segment skipped after repeated failures", "origin", in.origin.label(), "err", err)
 			in.skipped++
+			in.skippedTotal++
 			in.lastMSN, in.lastURI = s.msn, s.uri
 			in.gapNext = true
 			continue
