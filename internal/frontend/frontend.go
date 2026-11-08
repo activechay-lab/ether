@@ -53,6 +53,9 @@ type Status struct {
 	LANReason        string    `json:"lanReason,omitempty"`
 	LANCheckedAt     time.Time `json:"lanCheckedAt,omitzero"`
 	WAN              string    `json:"wan"`
+	WANReason        string    `json:"wanReason,omitempty"`
+	WANAddress       string    `json:"wanAddress,omitempty"`
+	WANCheckedAt     time.Time `json:"wanCheckedAt,omitzero"`
 	Clients24h       int       `json:"clients24h"`
 	Clients24hKnown  bool      `json:"clients24hKnown"`
 	LiveStreams      int       `json:"liveStreams"`

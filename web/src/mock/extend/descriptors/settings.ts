@@ -262,7 +262,8 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                   source: "Public host name",
                 },
                 help: {
-                  source: "Optional. Leave empty to detect your public address.",
+                  source:
+                    "Optional. Enter a name like plex.example.com, or the full https:// address of your reverse proxy. Leave empty to detect your public address.",
                 },
                 kind: "text",
               },

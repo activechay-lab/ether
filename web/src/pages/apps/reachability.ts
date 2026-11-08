@@ -8,6 +8,11 @@ export type ReachabilityStatus = {
   lanReason?: string;
   lanCheckedAt?: string;
   wan?: string;
+  /** outside_client, plex_tv, self_check, self_check_failed, wrong_identity or not_checked. */
+  wanReason?: string;
+  /** The published outside route the away verdict is about. */
+  wanAddress?: string;
+  wanCheckedAt?: string;
 };
 
 const UNUSABLE_HOSTS = new Set(["", "localhost", "127.0.0.1", "::1", "0.0.0.0", "::"]);
@@ -89,13 +94,53 @@ export function homeSummary(
 export function awaySummary(
   status: ReachabilityStatus | null | undefined,
   options?: { remoteAccess?: boolean; homeNetwork?: boolean },
-): { title: string; detail: string } {
+): { title: string; detail: string; address?: string; label?: string } {
   const wan = status?.wan || "unknown";
+  const reason = status?.wanReason;
+  const address = status?.wanAddress || undefined;
+  if (address && reason === "self_check" && wan === "reachable") {
+    return {
+      title: t("Away from home"),
+      address,
+      detail: t(
+        "Reachable at {address}. Checked from this server, so devices away from home may differ.",
+        { address },
+      ),
+    };
+  }
   if (wan === "reachable") {
-    return { title: t("Away from home"), detail: t("Reachable away from home.") };
+    return { title: t("Away from home"), address, detail: t("Reachable away from home.") };
+  }
+  if (address && reason === "wrong_identity") {
+    return {
+      title: t("Away from home"),
+      address,
+      detail: t(
+        "{address} is answered by a different server. Check the public host name and your reverse proxy.",
+        { address },
+      ),
+    };
   }
   if (wan === "unreachable") {
     return { title: t("Away from home"), detail: t("Not reachable away from home.") };
+  }
+  if (address && reason === "self_check_failed") {
+    return {
+      title: t("Away from home"),
+      address,
+      label: t("Not confirmed"),
+      detail: t(
+        "Ether could not reach {address} from this server. Some routers block this check, so devices away from home may still connect.",
+        { address },
+      ),
+    };
+  }
+  if (address && reason === "not_checked") {
+    return {
+      title: t("Away from home"),
+      address,
+      detail: t("Not checked yet. Ether checks {address} shortly.", { address }),
+    };
   }
   if (options?.remoteAccess === false) {
     return { title: t("Away from home"), detail: t("Not checked yet: remote access is off.") };
