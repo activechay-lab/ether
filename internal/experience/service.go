@@ -86,7 +86,14 @@ type ServiceDeps struct {
 	// name index instead of walking every credited title. Optional.
 	PeopleIndex   func(context.Context, []string, int) ([]PersonCandidate, error)
 	PersonCredits func(context.Context, int64, []core.MediaType, int) ([]core.RatingKey, error)
-	AiredEpisodes func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	// PersonCreditsMany is PersonCredits for a page of people, with each
+	// person's credit rows (name, role, portrait) on those titles. With it
+	// (and PeopleRead.VisibleTitles) a people search reads a page of people
+	// in a few statements. Optional.
+	PersonCreditsMany func(context.Context, []int64, []core.MediaType, int) (map[int64][]core.PersonCredit, error)
+	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
+	peopleVisibleTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	AiredEpisodes       func(context.Context, core.RatingKey, int, int) (core.Page, error)
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
