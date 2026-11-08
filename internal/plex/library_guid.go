@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/plexguid"
 )
 
 // GUID lookups are exact identity requests, never a fall-through to browsing.
@@ -115,7 +115,7 @@ func (s *Server) guidKeys(ctx context.Context, guid string, typ core.MediaType) 
 		if strings.HasPrefix(cleanGUID, "plex://season/") || strings.HasPrefix(cleanGUID, "plex://episode/") {
 			k, err := s.d.PlexGUID.ExactKey(ctx, cleanGUID)
 			if err != nil {
-				if errors.Is(err, plexguid.ErrAmbiguous) {
+				if errors.Is(err, frontend.ErrAmbiguousLibraryGUID) {
 					return nil, core.ErrNotFound
 				}
 				return nil, err

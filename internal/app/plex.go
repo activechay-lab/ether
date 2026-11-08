@@ -101,14 +101,14 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		}
 		return cfg.Plex.Token
 	}
-	deps.PlexGUID = plexguid.New(a.db, plexguid.Options{
+	guidService := plexguid.New(a.db, plexguid.Options{
 		HTTP:             a.opts.plextvHTTP,
 		Token:            plexToken,
 		ClientIdentifier: clientID,
 		Background:       true,
 	})
-	a.plexGUID = deps.PlexGUID
-	deps.PlexMeta = plexmeta.New(a.db, plexmeta.Options{
+	a.plexGUID, deps.PlexGUID = guidService, guidService
+	metadataService := plexmeta.New(a.db, plexmeta.Options{
 		HTTP:             a.opts.plextvHTTP,
 		Token:            plexToken,
 		ClientIdentifier: clientID,
@@ -124,11 +124,11 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		},
 		Background: true,
 	})
-	a.plexMeta = deps.PlexMeta
+	a.plexMeta, deps.PlexMeta = metadataService, metadataService
 	if err := a.buildPlexWatch(); err != nil {
 		return nil, fmt.Errorf("plex watch state: %w", err)
 	}
-	if !cfg.Spike.Enabled {
+	if !cfg.Spike.Enabled && a.episodeorder != nil {
 		// EpisodeOrder is TMDB-backed (build_integrations.go): metadataTitle
 		// prefers it over Catalog, and the real catalog does not know the
 		// spike catalog's KindLocal keys, so wiring it in spike mode makes
@@ -225,7 +225,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	// Frontend unmount closes the server and the GUID worker. Server.Close is
 	// idempotent, so the app closer may run as well. Watch refresh stays on
 	// the Plex mount (ExplicitWatchOnly in spike), not a second subscription.
-	a.plexClose = func() { srv.Close(); deps.PlexGUID.Close(); deps.PlexMeta.Close() }
+	a.plexClose = func() { srv.Close(); guidService.Close(); metadataService.Close() }
 	a.closers = append(a.closers, func() { srv.Close() })
 	return srv, nil
 }

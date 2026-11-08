@@ -16,7 +16,6 @@ import (
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 )
 
 // setArtworkHeaders keeps remote SVG (or an upstream HTML error page) from
@@ -479,7 +478,7 @@ func (s *Server) isSelfHost(r *http.Request, host string) bool {
 // allowedImageHost limits the proxy to the artwork CDN, so it is not an
 // open proxy.
 func (s *Server) allowedImageHost(host string) bool {
-	if plexmeta.ImageHost(host) {
+	if frontend.MetadataImageHost(host) {
 		return true
 	}
 	ref, err := url.Parse(s.d.ImageURL("/x.jpg", "original"))

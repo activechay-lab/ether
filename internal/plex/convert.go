@@ -16,7 +16,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
@@ -135,15 +134,15 @@ func artIdentityStamp(u string) string {
 	return strconv.FormatUint(uint64(h.Sum32()), 10)
 }
 
-func overlayThumbStamp(t *core.Title, row plexmeta.Cached, ok bool) string {
-	if ok && row.ThumbURL != "" && (t.PosterPath == plexmeta.RemoteArt || t.StillPath == plexmeta.RemoteArt) {
+func overlayThumbStamp(t *core.Title, row frontend.CachedMetadataOverlay, ok bool) string {
+	if ok && row.ThumbURL != "" && (t.PosterPath == frontend.RemoteMetadataArt || t.StillPath == frontend.RemoteMetadataArt) {
 		return artIdentityStamp(row.ThumbURL)
 	}
 	return imageStamp(t)
 }
 
-func overlayArtStamp(t *core.Title, row plexmeta.Cached, ok bool) string {
-	if ok && row.ArtURL != "" && t.BackdropPath == plexmeta.RemoteArt {
+func overlayArtStamp(t *core.Title, row frontend.CachedMetadataOverlay, ok bool) string {
+	if ok && row.ArtURL != "" && t.BackdropPath == frontend.RemoteMetadataArt {
 		return artIdentityStamp(row.ArtURL)
 	}
 	return imageStamp(t)

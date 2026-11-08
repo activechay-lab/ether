@@ -28,8 +28,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/plexguid"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
@@ -98,8 +96,8 @@ type Deps struct {
 	FilterAvailable     func(context.Context, []core.Title) []core.Title
 	PrioritizeAvailable func(context.Context, []core.Title) []core.Title
 	EpisodeOrder        frontend.EpisodeOrder
-	PlexGUID            *plexguid.Service
-	PlexMeta            *plexmeta.Service
+	PlexGUID            frontend.LibraryGUIDs
+	PlexMeta            frontend.LibraryMetadata
 	Discovery           *DiscoveryFeatures
 	// Search is the app's shared search (every frontend's); zero builds it
 	// from this server's own dependencies.
