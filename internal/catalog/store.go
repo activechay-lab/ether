@@ -932,37 +932,12 @@ ON CONFLICT(key) DO UPDATE SET
 		}
 		joinChanged = joinChanged || changed
 	}
-	if (t.Cast != nil || t.Directors != nil || t.Writers != nil || t.Crew != nil) && !creditsUnchanged(ctx, tx, t) {
-		joinChanged = true
-		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=?`, int64(t.Key)); err != nil {
+	if t.Cast != nil || t.Directors != nil || t.Writers != nil || t.Crew != nil {
+		changed, err := replaceCredits(ctx, tx, t)
+		if err != nil {
 			return err
 		}
-		insert := func(ps []core.Person, kind string) error {
-			for i, p := range ps {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
-					int64(t.Key), p.TMDB, p.Name, p.Role, kind, i, p.ThumbPath, p.ID); err != nil {
-					return err
-				}
-				if p.TMDB > 0 && validPersonIMDB(p.IMDB) {
-					if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES(?,?) ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb`, p.TMDB, p.IMDB); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		}
-		if err := insert(t.Cast, "cast"); err != nil {
-			return err
-		}
-		if err := insert(t.Directors, "director"); err != nil {
-			return err
-		}
-		if err := insert(t.Writers, "writer"); err != nil {
-			return err
-		}
-		if err := insert(t.Crew, "crew"); err != nil {
-			return err
-		}
+		joinChanged = joinChanged || changed
 	}
 	if joinChanged {
 		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=? WHERE key=?`, now, int64(t.Key)); err != nil {
@@ -972,38 +947,104 @@ ON CONFLICT(key) DO UPDATE SET
 	return nil
 }
 
-// creditsUnchanged reports whether t's credits are exactly the stored ones,
-// so a refresh that brings the same cast and crew writes nothing.
-func creditsUnchanged(ctx context.Context, tx *sql.Tx, t core.Title) bool {
-	type credit struct {
-		person            int64
-		name, role, kind  string
-		ord               int
-		thumb, providerID string
-	}
-	want := map[credit]bool{}
+type creditKey struct {
+	person     int64
+	kind, role string
+}
+
+type creditRow struct {
+	name             string
+	ord              int
+	thumb, provider  string
+	imdb             string
+	inserted, update bool
+}
+
+// replaceCredits makes t's stored credits exactly its cast and crew, writing
+// only the difference: a refresh that recasts one part touches one row, not
+// every credit with its person-name upkeep and index entries. The first
+// credit of a (person, kind, role) wins, as the INSERT ... DO NOTHING it
+// replaces kept it.
+func replaceCredits(ctx context.Context, tx *sql.Tx, t core.Title) (bool, error) {
+	want := map[creditKey]*creditRow{}
+	var order []creditKey
 	for _, group := range []struct {
 		people []core.Person
 		kind   string
 	}{{t.Cast, "cast"}, {t.Directors, "director"}, {t.Writers, "writer"}, {t.Crew, "crew"}} {
 		for i, p := range group.people {
-			want[credit{p.TMDB, p.Name, p.Role, group.kind, i, p.ThumbPath, p.ID}] = true
+			k := creditKey{p.TMDB, group.kind, p.Role}
+			if want[k] != nil {
+				continue
+			}
+			imdb := ""
+			if p.TMDB > 0 && validPersonIMDB(p.IMDB) {
+				imdb = p.IMDB
+			}
+			want[k] = &creditRow{name: p.Name, ord: i, thumb: p.ThumbPath, provider: p.ID, imdb: imdb, inserted: true}
+			order = append(order, k)
 		}
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT person_tmdb,name,role,kind,ord,thumb,provider_id FROM catalog_credits WHERE key=?`, int64(t.Key))
+	rows, err := tx.QueryContext(ctx, `SELECT person_tmdb,kind,role,name,ord,thumb,provider_id FROM catalog_credits WHERE key=?`, int64(t.Key))
 	if err != nil {
-		return false
+		return false, err
 	}
-	defer rows.Close()
-	n := 0
+	var stale []creditKey
 	for rows.Next() {
-		var c credit
-		if rows.Scan(&c.person, &c.name, &c.role, &c.kind, &c.ord, &c.thumb, &c.providerID) != nil || !want[c] {
-			return false
+		var k creditKey
+		var have creditRow
+		if err := rows.Scan(&k.person, &k.kind, &k.role, &have.name, &have.ord, &have.thumb, &have.provider); err != nil {
+			rows.Close()
+			return false, err
 		}
-		n++
+		w := want[k]
+		if w == nil {
+			stale = append(stale, k)
+			continue
+		}
+		w.inserted = false
+		w.update = w.name != have.name || w.ord != have.ord || w.thumb != have.thumb || w.provider != have.provider
 	}
-	return rows.Err() == nil && n == len(want)
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	changed := false
+	for _, k := range stale {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=? AND person_tmdb=? AND kind=? AND role=?`, int64(t.Key), k.person, k.kind, k.role); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	for _, k := range order {
+		w := want[k]
+		switch {
+		case w.inserted:
+			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+				int64(t.Key), k.person, w.name, k.role, k.kind, w.ord, w.thumb, w.provider); err != nil {
+				return false, err
+			}
+		case w.update:
+			if _, err := tx.ExecContext(ctx, `UPDATE catalog_credits SET name=?,ord=?,thumb=?,provider_id=? WHERE key=? AND person_tmdb=? AND kind=? AND role=?`,
+				w.name, w.ord, w.thumb, w.provider, int64(t.Key), k.person, k.kind, k.role); err != nil {
+				return false, err
+			}
+		default:
+			continue
+		}
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	for _, k := range order {
+		if w := want[k]; w.imdb != "" {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES(?,?) ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb WHERE catalog_people.imdb<>excluded.imdb`, k.person, w.imdb); err != nil {
+				return false, err
+			}
+		}
+	}
+	return true, nil
 }
 
 func detailAtFor(detail int, now int64) int64 {
@@ -1043,53 +1084,56 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
+// replacePairs makes key's stored values in table exactly vals, writing only
+// the difference. A refresh usually brings the same values, and one that
+// adds a genre should not rewrite the others: every row written fires the
+// search, tally and viewer-policy triggers and touches each index.
 func replacePairs(ctx context.Context, tx *sql.Tx, table, col string, key int64, vals []string) (bool, error) {
-	want := map[string]bool{}
+	want := make(map[string]bool, len(vals))
 	for _, v := range vals {
 		if v != "" {
 			want[v] = true
 		}
 	}
-	// A refresh usually brings the same values. Leaving the rows alone keeps
-	// policy triggers (and the search index) from firing for nothing.
-	if same, err := pairsEqual(ctx, tx, table, col, key, want); err != nil || same {
-		return false, err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=?`, key); err != nil {
-		return false, err
-	}
-	seen := map[string]bool{}
-	for _, v := range vals {
-		if v == "" || seen[v] {
-			continue
-		}
-		seen[v] = true
-		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES(?,?) ON CONFLICT DO NOTHING`, key, v); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
-}
-
-// pairsEqual reports whether key's stored values in table are exactly want.
-func pairsEqual(ctx context.Context, tx *sql.Tx, table, col string, key int64, want map[string]bool) (bool, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+col+` FROM `+table+` WHERE key=?`, key)
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
-	n := 0
+	var stale []string
+	have := map[string]bool{}
 	for rows.Next() {
 		var v string
 		if err := rows.Scan(&v); err != nil {
+			rows.Close()
 			return false, err
 		}
+		have[v] = true
 		if !want[v] {
-			return false, rows.Err()
+			stale = append(stale, v)
 		}
-		n++
 	}
-	return n == len(want), rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	changed := false
+	for _, v := range stale {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=? AND `+col+`=?`, key, v); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	for _, v := range vals {
+		if v == "" || have[v] {
+			continue
+		}
+		have[v] = true
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES(?,?) ON CONFLICT DO NOTHING`, key, v); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
 }
 
 func (c *Catalog) queryTitles(ctx context.Context, q string, args ...any) ([]core.Title, error) {
