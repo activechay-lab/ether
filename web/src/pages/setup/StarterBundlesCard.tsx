@@ -1,12 +1,53 @@
 import { Badge, Button, toast } from "@braedonsaunders/appkit-ui";
 import { Check, LayoutTemplate, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { t, tn } from "../../i18n";
+import { msg, t, tn } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import type {
   CollectionTemplateBundle,
   CollectionTemplateBundlePreview,
 } from "../../lib/contract";
+
+const BUNDLE_COPY: Record<string, { name: string; description: string }> = {
+  "core-defaults": {
+    name: msg("Core Defaults"),
+    description: msg(
+      "Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.",
+    ),
+  },
+  "streaming-originals": {
+    name: msg("Streaming Originals"),
+    description: msg(
+      "Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
+    ),
+  },
+  "awards-and-yearly": {
+    name: msg("Awards & Yearly Picks"),
+    description: msg(
+      "Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.",
+    ),
+  },
+  seasonal: {
+    name: msg("Seasonal & Holidays"),
+    description: msg(
+      "Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.",
+    ),
+  },
+  franchises: {
+    name: msg("Franchises & Universes"),
+    description: msg(
+      "Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.",
+    ),
+  },
+};
+
+export function bundleTitle(b: CollectionTemplateBundle): string {
+  return t(BUNDLE_COPY[b.id]?.name ?? b.name);
+}
+
+export function bundleDescription(b: CollectionTemplateBundle): string {
+  return t(BUNDLE_COPY[b.id]?.description ?? b.description);
+}
 
 /**
  * Starter collection bundles card shown on the Setup Wizard's Catalogue step.
@@ -102,12 +143,12 @@ export function StarterBundlesCard() {
             >
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-fg">{b.name}</span>
+                  <span className="text-xs font-semibold text-fg">{bundleTitle(b)}</span>
                   <Badge variant={isDone ? "success" : "secondary"}>
                     {tn(b.templateIds.length, "{count} template", "{count} templates")}
                   </Badge>
                 </div>
-                <p className="mt-1 text-xs text-fg-muted">{b.description}</p>
+                <p className="mt-1 text-xs text-fg-muted">{bundleDescription(b)}</p>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <Button
@@ -145,7 +186,7 @@ export function StarterBundlesCard() {
                         key={item.templateId}
                         className="flex items-center justify-between gap-2 text-fg-muted"
                       >
-                        <span className="truncate">{item.name}</span>
+                        <span className="truncate">{t(item.name)}</span>
                         <span className="shrink-0">
                           {item.action === "skip_existing" ? t("Added") : t("Will create")}
                         </span>

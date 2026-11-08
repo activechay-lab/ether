@@ -46,18 +46,28 @@ func (h *Handler) handleApplyTemplateBundle(w http.ResponseWriter, r *http.Reque
 		h.writeServiceError(w, err)
 		return
 	}
-	if res.CreateCount > 0 {
+	if res.CreatedCount > 0 {
 		h.invalidateOwnerRows()
 	}
 	views := make([]collectionView, 0, len(res.Created))
 	for _, s := range res.Created {
 		views = append(views, viewOf(s))
 	}
+	items := res.Items
+	if items == nil {
+		items = []collections.TemplateBundlePreviewItem{}
+	}
+	skipped := res.Skipped
+	if skipped == nil {
+		skipped = []collections.TemplateBundlePreviewItem{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bundle":      res.Bundle,
-		"items":       res.Items,
-		"created":     views,
-		"createCount": res.CreateCount,
-		"skipCount":   res.SkipCount,
+		"bundleId":     res.BundleID,
+		"bundle":       res.Bundle,
+		"items":        items,
+		"created":      views,
+		"skipped":      skipped,
+		"createdCount": res.CreatedCount,
+		"skippedCount": res.SkippedCount,
 	})
 }

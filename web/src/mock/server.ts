@@ -3879,6 +3879,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
       }
       return json({
         bundleId,
+        bundle,
+        items,
         created,
         skipped,
         createdCount: created.length,

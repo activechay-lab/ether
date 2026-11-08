@@ -211,15 +211,19 @@ export interface CollectionTemplateBundle {
   id: string;
   name: string;
   description: string;
+  category?: string;
   templateIds: string[];
 }
 
 export interface CollectionTemplateBundlePreviewItem {
   templateId: string;
   name: string;
+  description?: string;
   category: string;
+  mediaType?: string;
   action: "create" | "skip_existing";
   existingId?: string;
+  existingName?: string;
 }
 
 export interface CollectionTemplateBundlePreview {
@@ -231,6 +235,8 @@ export interface CollectionTemplateBundlePreview {
 
 export interface CollectionTemplateBundleApplyResult {
   bundleId: string;
+  bundle?: CollectionTemplateBundle;
+  items?: CollectionTemplateBundlePreviewItem[];
   created: CollectionSpec[];
   skipped: CollectionTemplateBundlePreviewItem[];
   createdCount: number;

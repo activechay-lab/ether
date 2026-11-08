@@ -23,7 +23,7 @@ func TestTemplateBundlesPreviewAndIdempotentApply(t *testing.T) {
 		byID[tpl.ID] = tpl
 	}
 	for _, b := range bundles {
-		if b.ID == "" || b.Title == "" || b.Description == "" || len(b.TemplateIDs) == 0 {
+		if b.ID == "" || b.Name == "" || b.Description == "" || len(b.TemplateIDs) == 0 {
 			t.Fatalf("incomplete bundle metadata: %+v", b)
 		}
 		for _, tid := range b.TemplateIDs {
@@ -56,8 +56,8 @@ func TestTemplateBundlesPreviewAndIdempotentApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PreviewTemplateBundle: %v", err)
 	}
-	if preview.SkipCount != 1 || preview.CreateCount != len(preview.Bundle.TemplateIDs)-1 {
-		t.Fatalf("expected 1 skipped and %d to create, got skip=%d create=%d", len(preview.Bundle.TemplateIDs)-1, preview.SkipCount, preview.CreateCount)
+	if preview.WillSkip != 1 || preview.WillCreate != len(preview.Bundle.TemplateIDs)-1 {
+		t.Fatalf("expected 1 skipped and %d to create, got skip=%d create=%d", len(preview.Bundle.TemplateIDs)-1, preview.WillSkip, preview.WillCreate)
 	}
 	var foundSkip bool
 	for _, item := range preview.Items {
@@ -77,7 +77,7 @@ func TestTemplateBundlesPreviewAndIdempotentApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyTemplateBundle first run: %v", err)
 	}
-	if applied.CreateCount != preview.CreateCount || applied.SkipCount != 1 || len(applied.Created) != preview.CreateCount {
+	if applied.BundleID != "streaming-originals" || applied.CreatedCount != preview.WillCreate || applied.SkippedCount != 1 || len(applied.Created) != preview.WillCreate || len(applied.Skipped) != 1 {
 		t.Fatalf("unexpected apply result: %+v", applied)
 	}
 
@@ -86,8 +86,8 @@ func TestTemplateBundlesPreviewAndIdempotentApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyTemplateBundle second run: %v", err)
 	}
-	if secondApply.CreateCount != 0 || secondApply.SkipCount != len(preview.Bundle.TemplateIDs) {
+	if secondApply.CreatedCount != 0 || secondApply.SkippedCount != len(preview.Bundle.TemplateIDs) || len(secondApply.Skipped) != len(preview.Bundle.TemplateIDs) {
 		t.Fatalf("expected second apply to create 0 and skip %d, got create=%d skip=%d",
-			len(preview.Bundle.TemplateIDs), secondApply.CreateCount, secondApply.SkipCount)
+			len(preview.Bundle.TemplateIDs), secondApply.CreatedCount, secondApply.SkippedCount)
 	}
 }

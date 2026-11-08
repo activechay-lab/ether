@@ -1,3 +1,4 @@
+import { msg } from "../i18n";
 import type {
   CollectionSpec,
   CollectionTemplate,
@@ -506,9 +507,11 @@ export const TEMPLATES: CollectionTemplate[] = RAW.map((t) => {
 export const TEMPLATE_BUNDLES: CollectionTemplateBundle[] = [
   {
     id: "core-defaults",
-    name: "Core Defaults",
-    description:
-      "Essential library rows: trending films, popular TV, top-rated classics, family movie night, and viewer-personalized picks.",
+    name: msg("Core Defaults"),
+    description: msg(
+      "Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.",
+    ),
+    category: "Starter",
     templateIds: [
       "trend-week",
       "trend-popular-tv",
@@ -523,9 +526,11 @@ export const TEMPLATE_BUNDLES: CollectionTemplateBundle[] = [
   },
   {
     id: "streaming-originals",
-    name: "Streaming Originals",
-    description:
-      "Curated original films and series from Netflix, Apple TV+, HBO/Max, Disney+, and Prime Video.",
+    name: msg("Streaming Originals"),
+    description: msg(
+      "Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
+    ),
+    category: "Streaming",
     templateIds: [
       "stream-netflix-movies",
       "stream-netflix-shows",
@@ -537,9 +542,11 @@ export const TEMPLATE_BUNDLES: CollectionTemplateBundle[] = [
   },
   {
     id: "awards-and-yearly",
-    name: "Awards & Critically Acclaimed",
-    description:
-      "Academy Award Best Picture winners, IMDb Top 250, Rotten Tomatoes Certified Fresh, and Letterboxd favourites.",
+    name: msg("Awards & Yearly Picks"),
+    description: msg(
+      "Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.",
+    ),
+    category: "Editorial",
     templateIds: [
       "acclaim-best-picture",
       "acclaim-imdb-top-250",
@@ -551,14 +558,20 @@ export const TEMPLATE_BUNDLES: CollectionTemplateBundle[] = [
   },
   {
     id: "seasonal",
-    name: "Seasonal & Holidays",
-    description: "Scheduled holiday and seasonal rows for Halloween, Summer, and the winter holidays.",
+    name: msg("Seasonal & Holidays"),
+    description: msg(
+      "Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.",
+    ),
+    category: "Seasonal",
     templateIds: ["season-halloween", "season-summer", "season-holiday"],
   },
   {
     id: "franchises",
-    name: "Franchises & Universes",
-    description: "Major film sagas and cinematic universes ordered by release.",
+    name: msg("Franchises & Universes"),
+    description: msg(
+      "Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.",
+    ),
+    category: "Franchises",
     templateIds: ["franchise-finish", "franchise-sagas"],
   },
 ];

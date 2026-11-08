@@ -12,9 +12,9 @@ import (
 // Setup Wizard.
 type TemplateBundle struct {
 	ID          string   `json:"id"`
-	Title       string   `json:"title"`
+	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	Category    string   `json:"category"`
+	Category    string   `json:"category,omitempty"`
 	TemplateIDs []string `json:"templateIds"`
 }
 
@@ -23,9 +23,9 @@ type TemplateBundle struct {
 type TemplateBundlePreviewItem struct {
 	TemplateID   string `json:"templateId"`
 	Name         string `json:"name"`
-	Description  string `json:"description"`
+	Description  string `json:"description,omitempty"`
 	Category     string `json:"category"`
-	MediaType    string `json:"mediaType"`
+	MediaType    string `json:"mediaType,omitempty"`
 	Action       string `json:"action"` // "create" or "skip_existing"
 	ExistingID   string `json:"existingId,omitempty"`
 	ExistingName string `json:"existingName,omitempty"`
@@ -34,20 +34,22 @@ type TemplateBundlePreviewItem struct {
 // TemplateBundlePreview is the dry-run summary returned before applying a
 // template bundle.
 type TemplateBundlePreview struct {
-	Bundle      TemplateBundle              `json:"bundle"`
-	Items       []TemplateBundlePreviewItem `json:"items"`
-	CreateCount int                         `json:"createCount"`
-	SkipCount   int                         `json:"skipCount"`
+	Bundle     TemplateBundle              `json:"bundle"`
+	Items      []TemplateBundlePreviewItem `json:"items"`
+	WillCreate int                         `json:"willCreate"`
+	WillSkip   int                         `json:"willSkip"`
 }
 
 // TemplateBundleApplyResult reports the collections created and skipped when a
 // bundle is applied.
 type TemplateBundleApplyResult struct {
-	Bundle      TemplateBundle              `json:"bundle"`
-	Items       []TemplateBundlePreviewItem `json:"items"`
-	Created     []core.CollectionSpec       `json:"created"`
-	CreateCount int                         `json:"createCount"`
-	SkipCount   int                         `json:"skipCount"`
+	BundleID     string                      `json:"bundleId"`
+	Bundle       TemplateBundle              `json:"bundle"`
+	Items        []TemplateBundlePreviewItem `json:"items"`
+	Created      []core.CollectionSpec       `json:"created"`
+	Skipped      []TemplateBundlePreviewItem `json:"skipped"`
+	CreatedCount int                         `json:"createdCount"`
+	SkippedCount int                         `json:"skippedCount"`
 }
 
 // BundleStudio is the subset of the Collection Studio service needed to
@@ -62,7 +64,7 @@ type BundleStudio interface {
 var templateBundleDefs = []TemplateBundle{
 	{
 		ID:          "core-defaults",
-		Title:       "Core Defaults",
+		Name:        "Core Defaults",
 		Description: "Essential trending, popular, top-rated, IMDb Top 250, and new-release shelves across movies and series.",
 		Category:    "Starter",
 		TemplateIDs: []string{
@@ -82,8 +84,8 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "streaming-originals",
-		Title:       "Streaming Originals",
-		Description: "Kometa-curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
+		Name:        "Streaming Originals",
+		Description: "Curated original films and series from Apple TV+, Disney+, HBO Max, Hulu, Netflix, Peacock, Prime Video, and Shudder.",
 		Category:    "Streaming",
 		TemplateIDs: []string{
 			"streaming-apple-tv-originals",
@@ -98,7 +100,7 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "awards-and-yearly",
-		Title:       "Awards & Yearly Picks",
+		Name:        "Awards & Yearly Picks",
 		Description: "Academy Award and Golden Globe winners, Rotten Tomatoes yearly best-of lists, IMDb MovieMeter, Criterion, and A24.",
 		Category:    "Editorial",
 		TemplateIDs: []string{
@@ -115,7 +117,7 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "seasonal",
-		Title:       "Seasonal & Holidays",
+		Name:        "Seasonal & Holidays",
 		Description: "Holiday, observance, and heritage-month shelves for Halloween, Christmas, Valentine's Day, Thanksgiving, and New Year's Eve.",
 		Category:    "Seasonal",
 		TemplateIDs: []string{
@@ -133,7 +135,7 @@ var templateBundleDefs = []TemplateBundle{
 	},
 	{
 		ID:          "franchises",
-		Title:       "Franchises & Universes",
+		Name:        "Franchises & Universes",
 		Description: "Major movie sagas and studio universes in release order, from Star Wars and Middle-earth to the MCU, James Bond, and Dune.",
 		Category:    "Franchises",
 		TemplateIDs: []string{
@@ -243,19 +245,19 @@ func PreviewTemplateBundle(templates []core.CollectionTemplate, existing []core.
 			item.Action = "skip_existing"
 			item.ExistingID = match.ID
 			item.ExistingName = match.Name
-			preview.SkipCount++
+			preview.WillSkip++
 		} else if match, ok := existingByName[bundleNameKey(specName)]; ok {
 			item.Action = "skip_existing"
 			item.ExistingID = match.ID
 			item.ExistingName = match.Name
-			preview.SkipCount++
+			preview.WillSkip++
 		} else if match, ok := existingByName[bundleNameKey(tpl.Name)]; ok {
 			item.Action = "skip_existing"
 			item.ExistingID = match.ID
 			item.ExistingName = match.Name
-			preview.SkipCount++
+			preview.WillSkip++
 		} else {
-			preview.CreateCount++
+			preview.WillCreate++
 		}
 		preview.Items = append(preview.Items, item)
 	}
@@ -281,14 +283,17 @@ func ApplyTemplateBundle(ctx context.Context, studio BundleStudio, bundleID stri
 	}
 
 	result := &TemplateBundleApplyResult{
-		Bundle:    preview.Bundle,
-		Items:     make([]TemplateBundlePreviewItem, 0, len(preview.Items)),
-		Created:   make([]core.CollectionSpec, 0, preview.CreateCount),
-		SkipCount: preview.SkipCount,
+		BundleID:     preview.Bundle.ID,
+		Bundle:       preview.Bundle,
+		Items:        make([]TemplateBundlePreviewItem, 0, len(preview.Items)),
+		Created:      make([]core.CollectionSpec, 0, preview.WillCreate),
+		Skipped:      make([]TemplateBundlePreviewItem, 0, preview.WillSkip),
+		SkippedCount: preview.WillSkip,
 	}
 	for _, item := range preview.Items {
 		if item.Action != "create" {
 			result.Items = append(result.Items, item)
+			result.Skipped = append(result.Skipped, item)
 			continue
 		}
 		tpl, ok := byID[item.TemplateID]
@@ -312,7 +317,7 @@ func ApplyTemplateBundle(ctx context.Context, studio BundleStudio, bundleID stri
 			item.ExistingID = created.ID
 			item.ExistingName = created.Name
 		}
-		result.CreateCount++
+		result.CreatedCount++
 		result.Items = append(result.Items, item)
 	}
 	return result, nil

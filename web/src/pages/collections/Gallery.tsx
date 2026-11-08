@@ -43,6 +43,7 @@ import { normalizeSpec } from "../../lib/rules";
 import { CollectionDetail } from "./CollectionDetail";
 import { DescribeDialog } from "./DescribeDialog";
 import { newCollectionHref } from "./links";
+import { bundleDescription, bundleTitle } from "../setup/StarterBundlesCard";
 
 type Tab = "mine" | "rows" | "templates" | "builtin";
 type Filter = "all" | "live" | "draft";
@@ -430,10 +431,10 @@ export default function CollectionsGallery({
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0 flex-1">
                                   <span className="block text-xs font-semibold text-fg">
-                                    {b.name}
+                                    {bundleTitle(b)}
                                   </span>
                                   <span className="mt-0.5 block text-[11px] text-fg-muted">
-                                    {b.description}
+                                    {bundleDescription(b)}
                                   </span>
                                 </div>
                                 <Badge variant="secondary">
@@ -479,7 +480,7 @@ export default function CollectionsGallery({
                                         key={item.templateId}
                                         className="flex items-center justify-between gap-2 text-fg-muted"
                                       >
-                                        <span className="truncate">{item.name}</span>
+                                        <span className="truncate">{t(item.name)}</span>
                                         <span className="shrink-0">
                                           {item.action === "skip_existing" ? (
                                             <span className="inline-flex items-center gap-1 text-success">
