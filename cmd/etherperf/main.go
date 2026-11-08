@@ -42,6 +42,10 @@ func main() {
 		err = runAudit(ctx, os.Args[2:])
 	case "fixture":
 		err = runFixture(ctx, os.Args[2:])
+	case "longtail":
+		err = runLongTail(ctx, os.Args[2:])
+	case "sizes":
+		err = runSizes(ctx, os.Args[2:])
 	default:
 		usage()
 	}
@@ -53,7 +57,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL) | etherperf fixture -scale NAME -out DIR")
+	fmt.Fprintln(os.Stderr, "usage: etherperf real -source DATA_DIR [flags] | etherperf audit -trace FILE (-db FILE | -pg URL) | etherperf fixture -scale NAME -out DIR | etherperf longtail (-out FILE | -pg URL) [-titles N] [-hide-obscure] | etherperf sizes (-db FILE | -pg URL)")
 	os.Exit(2)
 }
 
