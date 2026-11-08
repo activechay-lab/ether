@@ -31,6 +31,7 @@ import { api, apiFetch, errorMessage } from "../../lib/api";
 import type { Viewer, ViewerDetail } from "../../lib/contract";
 import { formatDateTime, formatPercent, relativeTime } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
+import { titlePosterURL } from "../../lib/titles";
 import { EMPTY_LAYOUT } from "../../lib/layout";
 import { ContextBar, type ViewContext } from "../designer/ContextBar";
 import { HomeCanvas } from "../designer/HomeCanvas";
@@ -92,6 +93,7 @@ export default function ViewerProfile() {
     const result = await apiFetch<{
       items: {
         handle: string;
+        key?: string;
         title?: string;
         year?: number;
         poster?: string;
@@ -102,9 +104,7 @@ export default function ViewerProfile() {
       handle: item.handle,
       title: item.title,
       year: item.year,
-      poster:
-        item.poster ??
-        (item.posterPath ? `https://image.tmdb.org/t/p/w92${item.posterPath}` : undefined),
+      poster: item.poster ?? titlePosterURL(item, 92),
       unavailable: !item.title,
     }));
   }, [id]);

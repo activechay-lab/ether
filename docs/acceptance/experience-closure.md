@@ -22,6 +22,32 @@ client presentation quirks and thin dependency wrappers. Broker orchestration is
 owned by the broker slices; playlist/container/placeholder extraction is owned
 by Experience B (`3a8c9a3bf`, `18846f422`), not duplicated here.
 
+## Posters are mandatory (approved Plex difference)
+
+Owner rule, approved 2026-11-08: no title appears anywhere without a poster.
+A movie or show with no artwork anywhere gets Ether's generated poster
+(`artwork.TitlePoster`: a typographic poster in a colour picked from the
+rating key; a name the bundled fonts cannot set is drawn from the poster
+lookup's localised title, else the year).
+
+- **Plex (intentional difference).** PMS omits `thumb` (and the
+  `coverPoster` `<Image>`) for an item with no artwork. Ether always emits
+  `thumb="/library/metadata/{key}/thumb/g<stamp>"` for such a movie or show,
+  and that route serves the generated poster. The `g` stamp names the drawn
+  image, so the URL changes, and clients refetch, when the title gains real
+  artwork. Seasons and episodes keep pointing at their show's thumb. Fetching
+  a thumbnail never promotes a search hit into the library (row-less titles
+  are read from memory, not through `catalog.Get`). Covered by
+  `TestPosterlessTitleServesGeneratedPoster` (`internal/plex`).
+- Jellyfin/Emby (`ImageTags.Primary`, `/Search/Hints` `PrimaryImageTag`),
+  Silo, Xtream and DLNA (including show and season containers) carry the
+  generated poster through the shared artwork service.
+- Stremio uses Ether grant URLs when a secure portal or a loopback client
+  exists; otherwise TMDB's CDN for a real poster and a 200x300 JPEG `data:`
+  URI for a generated one (`TestStremioPostersWithoutReachableAddress`).
+- The console uses `/ether/api/image/generated?k=&t=&y=&w=`, a URL that
+  describes the whole image.
+
 ## Date contract and approved Plex differences
 
 The owner decision of 2026-10-29, restated on 2026-10-30:

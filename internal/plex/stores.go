@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -190,6 +191,12 @@ func (s *Server) facet(ctx context.Context, t core.MediaType, name string) ([]co
 // facetTitle maps a filter value (a facet key or already a title) to the
 // facet title the catalogue filters on.
 func (s *Server) facetTitle(ctx context.Context, t core.MediaType, name, value string) string {
+	if _, err := strconv.Atoi(value); err != nil {
+		// A facet's values are its titles; only a numeric key can name a
+		// different title. Looking a name up counted the facet over the
+		// whole library on every filtered page the facet cache had not seen.
+		return value
+	}
 	vals, err := s.facet(ctx, t, name)
 	if err != nil {
 		return value

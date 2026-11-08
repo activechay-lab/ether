@@ -876,6 +876,39 @@ func (s *Server) collectionMetadata(c *core.Collection, contexts ...context.Cont
 	return m
 }
 
+// collectionRows renders a listing's collections with their watch state
+// read in one batch, not one read per collection.
+func (s *Server) collectionRows(ctx context.Context, cs []core.Collection) []model.Metadata {
+	if len(cs) == 0 {
+		return nil
+	}
+	var state map[core.RatingKey]core.WatchStatus
+	if pr := FromContext(ctx); pr != nil && pr.User != nil && s.d.State != nil {
+		keys := make([]core.RatingKey, len(cs))
+		for i := range cs {
+			keys[i] = cs[i].Key
+		}
+		var err error
+		if state, err = s.d.State.GetMany(ctx, pr.User.ID, keys); err != nil {
+			state = nil
+		}
+	}
+	out := make([]model.Metadata, 0, len(cs))
+	for i := range cs {
+		m := s.collectionMetadata(&cs[i])
+		if state != nil {
+			st := state[cs[i].Key]
+			m.UserRating = st.UserRating
+			m.ViewOffset = ms(st.ViewOffset)
+			m.ViewCount = st.ViewCount
+			m.LastViewedAt = unixOrZero(st.LastViewedAt)
+			m.LastRatedAt = unixOrZero(st.LastRatedAt)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec Section, sub string) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
@@ -894,9 +927,7 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 	all = s.scopedCollectionCounts(ctx, pr.User, all)
 	all = filterCollectionTitles(all, r.URL.Query())
 	lo, hi := pr.window(len(all))
-	for i := lo; i < hi; i++ {
-		mc.Metadata = append(mc.Metadata, s.collectionMetadata(&all[i], ctx))
-	}
+	mc.Metadata = append(mc.Metadata, s.collectionRows(ctx, all[lo:hi])...)
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(lo, len(all))
 	s.write(w, r, mc)
@@ -915,9 +946,7 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			cs = s.scopedCollectionCounts(ctx, pr.User, cs)
-			for i := range cs {
-				mc.Metadata = append(mc.Metadata, s.collectionMetadata(&cs[i], ctx))
-			}
+			mc.Metadata = append(mc.Metadata, s.collectionRows(ctx, cs)...)
 		}
 	}
 	mc.Size = len(mc.Metadata)

@@ -149,6 +149,10 @@ func (a Source) readEntry(ctx context.Context, req frontend.ArtworkRequest, entr
 		return []byte(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" rx="24" fill="#182d45"/><text x="40" y="125" fill="#64dfc7" font-size="68" font-family="sans-serif">%s</text><text x="40" y="220" fill="white" font-size="30" font-family="sans-serif">%s</text></svg>`, html.EscapeString(c.Number), html.EscapeString(c.Name))), "image/svg+xml", nil
 	case entry.remotePath != "":
 		return a.remote(ctx, entry.remotePath, width)
+	case entry.generated != nil:
+		p := *entry.generated
+		p.Width = width
+		return a.Generated.Title(ctx, p)
 	case entry.discovery:
 		t, err := a.title(ctx, req.Item)
 		if err != nil || req.Viewer == nil || !a.visible(ctx, req.Viewer, t) {

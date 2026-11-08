@@ -105,41 +105,48 @@ const walWaitPoll = time.Second
 
 // WaitWALBudget is the bulk writers' back-pressure: it returns once no long
 // read is running and the WAL is within journalSizeLimit, waiting (and
-// checkpointing) as needed. It is not a failure to wait; it returns
-// WALBlockedError only after walWaitMax, or ctx's error when cancelled.
-// PostgreSQL returns at once.
+// checkpointing) as needed. It is not a failure to wait. A long read this
+// process announced is waited out however long it runs: it ends on its own,
+// and an integrity check of a large database on a slow disk can take more
+// than walWaitMax. Only time held back by a reader we do not know of
+// counts toward walWaitMax, past which it returns WALBlockedError (naming
+// the reader when it is ours, which a long read just ended can still be).
+// Cancelling ctx returns its error. PostgreSQL returns at once.
 func WaitWALBudget(ctx context.Context, db *sql.DB) error {
 	if db == nil || DialectOf(db) == Postgres {
 		return nil
 	}
 	lr := longReadsFor(db)
-	start := time.Now()
+	var blocked time.Duration
+	last := ""
 	for {
 		reader, ended := lr.oldest()
-		pending := 0
-		if reader == nil {
-			over, n, err := walOverBudget(ctx, db, journalSizeLimit)
-			if err != nil || !over {
-				return err
+		if reader != nil {
+			last = reader.label
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ended:
 			}
-			pending = n
+			continue
 		}
-		waited := time.Since(start)
-		if waited >= walWaitMax {
-			e := &WALBlockedError{Pending: pending, Waited: waited}
-			if reader != nil {
-				e.Reader = reader.label
-			}
-			return e
+		over, pending, err := walOverBudget(ctx, db, journalSizeLimit)
+		if err != nil || !over {
+			return err
 		}
-		t := time.NewTimer(min(walWaitPoll, walWaitMax-waited))
+		if blocked >= walWaitMax {
+			return &WALBlockedError{Pending: pending, Waited: blocked, Reader: last}
+		}
+		step := min(walWaitPoll, walWaitMax-blocked)
+		t := time.NewTimer(step)
 		select {
 		case <-ctx.Done():
 			t.Stop()
 			return ctx.Err()
 		case <-ended:
+			t.Stop()
 		case <-t.C:
+			blocked += step
 		}
-		t.Stop()
 	}
 }

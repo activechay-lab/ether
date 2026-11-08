@@ -58,14 +58,15 @@ func TestDeepShelfPagingAndRecentlyWatchedAgreement(t *testing.T) {
 	}
 	f := newFixture(func(d *Deps) { d.Catalog = c; d.State = st })
 	defer f.srv.Close()
-	for _, path := range []string{"/library/recentlyAdded", "/library/onDeck"} {
-		mc := decodeJSON(t, f.get(t, path, "Accept", "application/json", "X-Plex-Container-Start", "220", "X-Plex-Container-Size", "7"))
-		want := 242
-		if path == "/library/onDeck" {
-			want = 240
-		}
-		if mc["totalSize"] != float64(want) || mc["offset"] != float64(220) || mc["size"] != float64(7) {
-			t.Fatalf("%s: %v", path, mc)
+	// On Deck is bounded at PMS's OnDeckLimit (40): it pages within the
+	// bounded deck and reports the bounded total.
+	for _, tc := range []struct {
+		path               string
+		start, total, size int
+	}{{"/library/recentlyAdded", 220, 242, 7}, {"/library/onDeck", 30, 40, 7}, {"/library/onDeck", 36, 40, 4}, {"/library/onDeck", 220, 40, 0}} {
+		mc := decodeJSON(t, f.get(t, tc.path, "Accept", "application/json", "X-Plex-Container-Start", fmt.Sprint(tc.start), "X-Plex-Container-Size", "7"))
+		if mc["totalSize"] != float64(tc.total) || mc["offset"] != float64(tc.start) || mc["size"] != float64(tc.size) {
+			t.Fatalf("%s at %d: %v", tc.path, tc.start, mc)
 		}
 	}
 	auth := f.srv.d.Auth.(*fakeAuth)
@@ -74,7 +75,7 @@ func TestDeepShelfPagingAndRecentlyWatchedAgreement(t *testing.T) {
 	for _, tc := range []struct {
 		token string
 		want  int
-	}{{"movie-viewer", 239}, {"tv-viewer", 1}} {
+	}{{"movie-viewer", 40}, {"tv-viewer", 1}} {
 		mc := decodeJSON(t, f.get(t, "/library/onDeck", "Accept", "application/json", "X-Plex-Token", tc.token, "X-Plex-Container-Size", "500"))
 		if mc["totalSize"] != float64(tc.want) || mc["size"] != float64(tc.want) {
 			t.Fatalf("section policy %s: %v", tc.token, mc)

@@ -10,9 +10,12 @@ import (
 const journalSizeLimit = 64 << 20
 
 // Maintain is the periodic (daily) upkeep for a long-running database: it
-// checkpoints the WAL and truncates it when no request is using the database,
-// then refreshes query-planner statistics. It deliberately never VACUUMs;
-// that rewrites the whole file and is left to the owner.
+// returns free pages beyond a small reuse slack to the filesystem in short
+// incremental_vacuum steps (ReleaseFreePages), checkpoints the WAL and
+// truncates it when no request is using the database, then refreshes
+// query-planner statistics. It never runs a full VACUUM, which rewrites the
+// whole file under the write lock; converting an older database to
+// incremental vacuum is the owner's Compact action (space.go).
 //
 // On PostgreSQL the server manages its own WAL and autovacuum; Maintain only
 // refreshes planner statistics with ANALYZE.
@@ -22,6 +25,9 @@ func Maintain(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("analyze: %w", err)
 		}
 		return nil
+	}
+	if _, err := ReleaseFreePages(ctx, db); err != nil {
+		return err
 	}
 	// Truncate only when the checkpoint finds the database idle. A request
 	// must not wait on TRUNCATE; the background checkpointer is the same gate.

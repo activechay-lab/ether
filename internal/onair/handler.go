@@ -1,7 +1,6 @@
 package onair
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -139,20 +138,7 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		a, e := s.UploadAsset(r.Context(), h.Filename, r.FormValue("kind"), r.FormValue("license"), f)
 		result(w, a, e)
 	})
-	r.Get("/assets/{id}", func(w http.ResponseWriter, r *http.Request) {
-		var b []byte
-		var mime string
-		e := s.db.QueryRowContext(r.Context(), "SELECT content,mime FROM onair_assets WHERE digest=?", chi.URLParam(r, "id")).Scan(&b, &mime)
-		if e != nil {
-			result(w, nil, ErrNotFound)
-			return
-		}
-		w.Header().Set("ETag", `"`+chi.URLParam(r, "id")+`"`)
-		w.Header().Set("Content-Type", mime)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-		http.ServeContent(w, r, "asset", time.Time{}, bytes.NewReader(b))
-	})
+	r.Get("/assets/{id}", func(w http.ResponseWriter, r *http.Request) { s.serveAsset(w, r, chi.URLParam(r, "id")) })
 	r.Delete("/assets/{id}", func(w http.ResponseWriter, r *http.Request) {
 		result(w, nil, s.DeleteAsset(r.Context(), chi.URLParam(r, "id")))
 	})

@@ -42,7 +42,7 @@ type Options struct {
 	OutputBuffer                           *playbackbuffer.Store
 	MaxSegmentBytes                        int64
 	WorkerCapabilities, RemoteCapabilities remotetranscode.Capabilities
-	// HistoryCapacity bounds boot-retained authority tombstones (default4096),
+	// HistoryCapacity bounds live in-memory entries per boot (default 4096); terminal ones are forgotten (forget.go),
 	// independently of concurrent placement resource capacity.
 	HistoryCapacity int
 	// SourcePolicy rechecks live viewer/title/source rights from local facts.
@@ -169,7 +169,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 
 	}
 	if o.Encoder != nil {
-		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{WatchAuthority: r.watchAuthority, Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput})
+		w, e := remotetranscode.NewWorker(remotetranscode.WorkerOptions{WatchAuthority: r.watchAuthority, Capabilities: o.WorkerCapabilities, Boot: o.Self.Boot, Capacity: o.HistoryCapacity, MaxLease: 10 * time.Minute, Encoder: recordingEncoder{r: r}, Security: remotetranscode.Security{Authenticate: r.workerAuthenticate, Authorize: r.authorizeWorker}, Resolve: r.resolveInput, ValidateRenewal: r.renewInput, Terminal: r.workerTerminal})
 
 		if e != nil {
 			return nil, e

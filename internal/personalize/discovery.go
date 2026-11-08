@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
+	"strings"
 	"time"
 )
 
@@ -90,10 +91,35 @@ func (d *Discovery) FilterContinue(ctx context.Context, u *core.User, titles []c
 	if u == nil {
 		return out
 	}
+	// The viewer's hidden identities among the row's, in one read per 400
+	// titles instead of one per title.
+	hidden := map[core.RatingKey]bool{}
+	ids := make([]any, 0, len(titles))
+	for i := range titles {
+		ids = append(ids, int64(discoveryIdentity(&titles[i])))
+	}
+	for start := 0; start < len(ids); start += 400 {
+		part := ids[start:min(start+400, len(ids))]
+		rows, e := d.db.QueryContext(ctx, `SELECT item_key FROM personalize_discovery_hidden WHERE user_id=? AND item_key IN (?`+strings.Repeat(",?", len(part)-1)+`)`, append([]any{u.ID}, part...)...)
+		if e != nil {
+			return []core.Title{}
+		}
+		for rows.Next() {
+			var k int64
+			if rows.Scan(&k) == nil {
+				hidden[core.RatingKey(k)] = true
+			}
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return []core.Title{}
+		}
+	}
 	seen := map[core.RatingKey]bool{}
 	for _, t := range titles {
 		k := discoveryIdentity(&t)
-		if seen[k] || !d.visible(u, &t) || !d.ContinueAllowed(ctx, u.ID, &t) {
+		if seen[k] || !d.visible(u, &t) || hidden[k] {
 			continue
 		}
 		seen[k] = true
@@ -195,31 +221,43 @@ func (d *Discovery) Rediscover(ctx context.Context, u *core.User, limit int) (co
 		return hub, e
 	}
 	seen := map[core.RatingKey]bool{}
-	for _, st := range entries {
-		if st.LastViewedAt.IsZero() || d.now().Sub(st.LastViewedAt) < 30*24*time.Hour || st.ViewCount > 0 {
-			continue
+	// Match review rows: hydrate eligible history in bounded windows, including
+	// parent shows, so a cold mirror does not issue a detail read per title.
+	for start := 0; start < len(entries) && len(hub.Items) < limit; start += 64 {
+		window := entries[start:min(start+64, len(entries))]
+		keys := make([]core.RatingKey, 0, len(window)*2)
+		for _, st := range window {
+			if !st.LastViewedAt.IsZero() && d.now().Sub(st.LastViewedAt) >= 30*24*time.Hour && st.ViewCount <= 0 && !seen[tasteKey(st.Key)] {
+				keys = append(keys, st.Key, tasteKey(st.Key))
+			}
 		}
-		if seen[tasteKey(st.Key)] {
-			continue
-		}
-		t, e := d.catalog.Get(ctx, st.Key)
-		if e != nil || !d.visible(u, t) || excluded.contains(t) {
-			continue
-		}
-		k := discoveryIdentity(t)
-		if seen[k] {
-			continue
-		}
-		if k != t.Key {
-			t, e = d.catalog.Get(ctx, k)
+		cached := mirroredTitles(ctx, d.catalog, keys)
+		for _, st := range window {
+			if st.LastViewedAt.IsZero() || d.now().Sub(st.LastViewedAt) < 30*24*time.Hour || st.ViewCount > 0 {
+				continue
+			}
+			if seen[tasteKey(st.Key)] {
+				continue
+			}
+			t, e := historyTitle(ctx, d.catalog, cached, st.Key)
 			if e != nil || !d.visible(u, t) || excluded.contains(t) {
 				continue
 			}
-		}
-		seen[k] = true
-		hub.Items = append(hub.Items, *t)
-		if len(hub.Items) >= limit {
-			break
+			k := discoveryIdentity(t)
+			if seen[k] {
+				continue
+			}
+			if k != t.Key {
+				t, e = historyTitle(ctx, d.catalog, cached, k)
+				if e != nil || !d.visible(u, t) || excluded.contains(t) {
+					continue
+				}
+			}
+			seen[k] = true
+			hub.Items = append(hub.Items, *t)
+			if len(hub.Items) >= limit {
+				break
+			}
 		}
 	}
 	return hub, nil

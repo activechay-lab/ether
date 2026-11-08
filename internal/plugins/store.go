@@ -20,6 +20,10 @@ import (
 )
 
 func init() {
+	// v4: settled journal rows (undone, or shadow records that were never
+	// applied) are the only ones retention removes; this partial index
+	// finds them by age without walking the live, undoable history.
+	store.Register("plugins", 4, `CREATE INDEX plugins_journal_settled ON plugins_journal(created) WHERE undone=1 OR shadow=1;`)
 	// v3: ranking steps left out because the plugin ran out of time.
 	store.Register("plugins", 3, `ALTER TABLE plugins_health ADD COLUMN ranking_skipped INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE plugins_health ADD COLUMN ranking_skipped_at INTEGER NOT NULL DEFAULT 0;`)
@@ -52,7 +56,10 @@ const (
 	CallsCap       = 200
 	LogsCap        = 200
 	EventLogMaxAge = 7 * 24 * time.Hour
-	MaxFetchBytes  = 10 << 20
+	// JournalSettledMaxAge is how long an undone or shadow journal entry
+	// (one undo can no longer act on) stays in the activity history.
+	JournalSettledMaxAge = 90 * 24 * time.Hour
+	MaxFetchBytes        = 10 << 20
 )
 
 // Grants is what the owner has granted one plugin on top of its manifest
@@ -304,6 +311,13 @@ func (s *storage) putFiles(ctx context.Context, plugin, version string, files ma
 		}
 	}
 	return tx.Commit()
+}
+
+// dropOtherVersions deletes a plugin's artifact files except the current
+// and previous versions, the only two install, runtime and rollback read.
+func (s *storage) dropOtherVersions(ctx context.Context, plugin, current, previous string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM plugins_artifacts WHERE plugin=? AND version<>? AND version<>?`, plugin, current, previous)
+	return err
 }
 
 func (s *storage) file(ctx context.Context, plugin, version, path string) ([]byte, bool) {
@@ -594,6 +608,15 @@ func (s *storage) journalList(ctx context.Context, plugin string, limit int, liv
 func (s *storage) markUndone(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE plugins_journal SET undone=1 WHERE id=?`, id)
 	return err
+}
+
+// pruneJournal deletes settled journal entries older than
+// JournalSettledMaxAge. Live entries (applied, not shadow, not undone) are
+// what "Undo everything" and undo-to-here replay, so they are never pruned.
+func (s *storage) pruneJournal(ctx context.Context) (int64, error) {
+	return store.PruneBatched(ctx, s.db,
+		`DELETE FROM plugins_journal WHERE id IN (SELECT id FROM plugins_journal WHERE (undone=1 OR shadow=1) AND created<? ORDER BY created LIMIT ?)`,
+		s.now().Add(-JournalSettledMaxAge).Unix())
 }
 
 func capRing(ctx context.Context, db *sql.DB, table, plugin string, cap int) {

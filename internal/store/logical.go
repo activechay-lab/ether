@@ -370,6 +370,7 @@ func ImportLogical(ctx context.Context, db *sql.DB, r io.Reader) (err error) {
 			return fmt.Errorf("%w (table %s has rows)", ErrNotEmpty, t)
 		}
 	}
+	history := migrationHistory()
 	known := map[string]bool{}
 	for _, t := range targetTables {
 		known[t] = true
@@ -397,6 +398,17 @@ func ImportLogical(ctx context.Context, db *sql.DB, r io.Reader) (err error) {
 			}
 			break
 		}
+		if !known[head.Table] && history.tables[strings.ToLower(head.Table)] {
+			// Dropped by a later migration: a backup from before it
+			// still restores, without the table.
+			n, err := skipRows(dec)
+			if err != nil {
+				return fmt.Errorf("restore %s: %w", head.Table, err)
+			}
+			tables++
+			total += n
+			continue
+		}
 		if !known[head.Table] {
 			return fmt.Errorf("store: backup table %s does not exist on this server", head.Table)
 		}
@@ -404,7 +416,25 @@ func ImportLogical(ctx context.Context, db *sql.DB, r io.Reader) (err error) {
 			return fmt.Errorf("store: backup holds table %s twice", head.Table)
 		}
 		restored[head.Table] = true
-		kinds, err := targetKinds(ctx, tx, head.Table, head.Columns)
+		server, err := serverColumns(ctx, tx, head.Table)
+		if err != nil {
+			return err
+		}
+		// Columns a later migration dropped are skipped; renamed ones
+		// load under their new name.
+		mapped := make([]int, 0, len(head.Columns))
+		mappedCols := make([]string, 0, len(head.Columns))
+		for i, name := range head.Columns {
+			to, ok := history.column(head.Table, name, server)
+			if !ok {
+				return fmt.Errorf("store: backup column %s.%s does not exist on this server", head.Table, name)
+			}
+			if to != "" {
+				mapped = append(mapped, i)
+				mappedCols = append(mappedCols, to)
+			}
+		}
+		kinds, err := targetKinds(ctx, tx, head.Table, mappedCols)
 		if err != nil {
 			return err
 		}
@@ -412,16 +442,16 @@ func ImportLogical(ctx context.Context, db *sql.DB, r io.Reader) (err error) {
 		if err != nil {
 			return err
 		}
-		keep := make([]int, 0, len(head.Columns))
-		keptCols := make([]string, 0, len(head.Columns))
+		keep := make([]int, 0, len(mapped))
+		keptCols := make([]string, 0, len(mapped))
 		keptKinds := make([]string, 0, len(kinds))
-		for i, name := range head.Columns {
+		for j, name := range mappedCols {
 			if generated[name] {
 				continue
 			}
-			keep = append(keep, i)
+			keep = append(keep, mapped[j])
 			keptCols = append(keptCols, name)
-			keptKinds = append(keptKinds, kinds[i])
+			keptKinds = append(keptKinds, kinds[j])
 		}
 		width := len(head.Columns)
 		head.Columns = keptCols
@@ -473,6 +503,24 @@ func mapValues(m map[Dialect]string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+// serverColumns is the set of table's column names on the server, lower case.
+func serverColumns(ctx context.Context, tx *sql.Tx, table string) (map[string]bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT * FROM `+quoteIdent(table)+` WHERE 1=0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[strings.ToLower(n)] = true
+	}
+	return out, nil
 }
 
 func targetKinds(ctx context.Context, tx *sql.Tx, table string, cols []string) ([]string, error) {
@@ -793,6 +841,18 @@ func (d *logicalDecoder) header() (LogicalHeader, error) {
 		return h, fmt.Errorf("store: unsupported logical dump version %d", h.Version)
 	}
 	return h, nil
+}
+
+// skipRows reads past the current table's rows and counts them.
+func skipRows(dec *logicalDecoder) (int64, error) {
+	var n int64
+	for {
+		_, ok, err := dec.row()
+		if err != nil || !ok {
+			return n, err
+		}
+		n++
+	}
 }
 
 // next returns the next table header, or the trailer.

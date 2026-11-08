@@ -326,3 +326,18 @@ func (s *Store) Audit(ctx context.Context, threadID, tool, principal, status, ma
 	}
 	return nil
 }
+
+// AuditRetention is how long a tool-call audit row is kept.
+const AuditRetention = 90 * 24 * time.Hour
+
+// Prune deletes audit rows older than AuditRetention through
+// agent_audit_created. Nothing reads the audit back, so this only bounds
+// its growth.
+func (s *Store) Prune(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-AuditRetention).UnixMilli()
+	return store.PruneBatched(ctx, s.db,
+		`DELETE FROM agent_audit WHERE id IN (SELECT id FROM agent_audit WHERE created_at<? ORDER BY created_at LIMIT ?)`, cutoff)
+}

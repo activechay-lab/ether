@@ -157,7 +157,7 @@ func Builtins() []Builtin {
 		// UPDATES
 		{ID: "updates", ConfigKey: "updates", Label: extend.T("Release channel"), Schema: Schema{Groups: []Group{
 			{Title: extend.T("Release channel"), Fields: []Field{
-				{Key: "enabled", Label: extend.T("Check for updates"), Kind: KindBool, Help: extend.T("Checks the signed release feed once a day.")},
+				{Key: "enabled", Label: extend.T("Check for updates"), Kind: KindBool, Help: extend.T("Checks the signed release feed every few hours.")},
 				{Key: "channel", Label: extend.T("Channel"), Kind: KindSelect, Options: []Option{{Value: "stable", Label: extend.T("Stable")}, {Value: "beta", Label: extend.T("Beta")}}},
 				{Key: "autoUpdate", Label: extend.T("Install updates automatically"), Kind: KindBool, Help: extend.T("Installs during the maintenance window, once nobody is watching.")},
 			}, More: []Field{

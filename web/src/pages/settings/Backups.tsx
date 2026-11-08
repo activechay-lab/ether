@@ -7,6 +7,7 @@ import {
   SearchSelect,
   Select,
   SettingsSection,
+  Switch,
   toast,
 } from "@braedonsaunders/appkit-ui";
 import { Download, FileUp, Plus, RotateCcw } from "lucide-react";
@@ -32,6 +33,7 @@ import {
 } from "../../lib/api";
 import { listPlexServers } from "../../lib/plex-servers";
 import { useAsync } from "../../lib/hooks";
+import { DatabaseCompact } from "./DatabaseCompact";
 import { DatabaseRecovery } from "./DatabaseRecovery";
 import { formatBytes } from "../../lib/format";
 import type { EtherUser } from "../../lib/types";
@@ -51,7 +53,13 @@ type PreviewStatus = {
   error?: string;
   plan?: Plan;
 };
-type Schedule = { intervalHours: number; retain: number; sharedDir?: string };
+type Schedule = {
+  intervalHours: number;
+  retain: number;
+  sharedDir?: string;
+  /** Scheduled backups leave out Live TV library media (uploaded reels, videos, sounds, images, fonts). */
+  skipOnAirMedia?: boolean;
+};
 type Snapshot = {
   name: string;
   size: number;
@@ -250,6 +258,7 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
       await post("/backups/settings", {
         intervalHours: draft.intervalHours,
         retain: draft.retain,
+        skipOnAirMedia: !!draft.skipOnAirMedia,
         ...(clustered ? { sharedDir: (draft.sharedDir ?? "").trim() } : {}),
       });
       toast.success(t("Settings saved"), { description: t("Automatic backups") });
@@ -265,6 +274,7 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
     <>
       <div hidden={tab !== "backups"} className="space-y-6">
         <DatabaseRecovery />
+        <DatabaseCompact />
         {loadError && !data ? (
           <ErrorPanel error={loadError} onRetry={() => void load()} />
         ) : (
@@ -320,6 +330,21 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
                       />
                     }
                   />
+                  <SettingsRow
+                    title={t("Leave out Live TV media")}
+                    description={t(
+                      "Automatic backups skip the reels, videos, sounds, images and fonts in your Live TV library, so they are smaller. Restoring one on another server loses that media. Snapshots you create here always include it.",
+                    )}
+                    control={
+                      <Switch
+                        aria-label={t("Leave out Live TV media")}
+                        checked={!!draft.skipOnAirMedia}
+                        onChange={(e) =>
+                          setDraft({ ...draft, skipOnAirMedia: e.currentTarget.checked })
+                        }
+                      />
+                    }
+                  />
                   {clustered ? (
                     <SettingsRow
                       stacked
@@ -347,7 +372,7 @@ export function BackupsAndImport({ tab = "backups" }: { tab?: "backups" | "impor
             <Section
               title={t("Snapshots")}
               description={t(
-                "Snapshots hold your settings, database and the key that unlocks saved credentials. Ones kept on this server are readable only by Ether's account; downloads are encrypted with the password below.",
+                "Snapshots hold your settings, database, Live TV media and the key that unlocks saved credentials. Ones kept on this server are readable only by Ether's account; downloads are encrypted with the password below.",
               )}
               actions={
                 <Button

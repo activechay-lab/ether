@@ -77,6 +77,9 @@ CREATE UNIQUE INDEX state_history_imported ON state_history(user_id, rating_key,
 	// A viewer's latest watch-state write is one index probe: Plex Home's
 	// cached rows are stamped with it (experience.HomeRevision).
 	store.Register("state_updated", 1, `CREATE INDEX state_watch_updated ON state_watch(user_id, updated_at);`)
+	// Views without a date (imports) for the On Deck window, which keeps
+	// them; state_watch_last_viewed serves the dated ones.
+	store.Register("state_watch_undated", 1, `CREATE INDEX state_watch_undated ON state_watch(user_id, rating_key) WHERE last_viewed_at<=0;`)
 	store.Register("state", 6, `ALTER TABLE state_playlists ADD COLUMN smart_uri TEXT NOT NULL DEFAULT '';`)
 
 }

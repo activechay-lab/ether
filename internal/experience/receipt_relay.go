@@ -43,7 +43,9 @@ func (s *Receipts) bindHeaders(ctx context.Context, tx *sql.Tx, headers []capabi
 	if s.opts.bindHeaders != nil {
 		return s.opts.bindHeaders(ctx, tx, headers)
 	}
-	return capability.AdmitHeadersInTx(ctx, s.opts.DB, tx, headers, capability.Limits{PerScope: receiptPerScope, PerShard: receiptPerShard})
+	// An expired receipt authorizes nothing and maintenance drains it, so only
+	// live receipts are charged; the admission trigger counts the same way.
+	return capability.AdmitHeadersInTx(ctx, s.opts.DB, tx, headers, capability.Limits{PerScope: receiptPerScope, PerShard: receiptPerShard, LiveAfterMillis: s.opts.Now().Unix() * 1000})
 }
 
 func (s *Receipts) dropHeaders(ctx context.Context, tx *sql.Tx, scope capability.HeaderScope, digests []string) error {

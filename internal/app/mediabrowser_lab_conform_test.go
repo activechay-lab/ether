@@ -1540,7 +1540,7 @@ func labTraceMediaDetail(t *testing.T, a *App, viewer *core.User, protocol, stag
 		capability, capErr := (surfaceCapabilities{app: a, surface: core.Protocol(protocol)}).Build(ctx, frontend.CapabilityRequest{Viewer: viewer, Device: caps.DeviceInfo{Protocol: core.Protocol(protocol), ClientID: deviceID, Product: client, DeviceName: name, Version: version}})
 		if capErr != nil {
 			issueOutcome = "scope_error"
-		} else if handles, handleErr := sessions.NewVersionHandles(a.db, a.frontends.broker, core.Protocol(protocol)); handleErr == nil {
+		} else if handles, handleErr := sessions.NewVersionHandles(a.db, a.frontends.broker, core.Protocol(protocol), []byte("mediabrowser-lab-version-id-key")); handleErr == nil {
 			_, issueErr := handles.Issue(ctx, frontend.VersionScope{Viewer: viewer, Device: dev, Protocol: core.Protocol(protocol), Caps: capability.Client}, core.MovieKey(10378), detail.Versions[0].ID)
 			switch {
 			case issueErr == nil:
@@ -2135,7 +2135,7 @@ func newLabProfileTarget(t *testing.T, listing labReferenceData, dialect, profil
 				// Several probed copies are separate items. The rating-key id
 				// stays on the detail route; the grid lists each copy by handle.
 				var parent int64
-				if err := a.db.QueryRow(`SELECT item_id FROM sessions_version_handles WHERE handle=? AND viewer_id=?`, entry.Id, viewer.ID).Scan(&parent); err == nil && parent == seeded {
+				if err := a.db.QueryRow(`SELECT item_id FROM sessions_version_ids WHERE handle=?`, entry.Id).Scan(&parent); err == nil && parent == seeded {
 					found = true
 					break
 				}

@@ -524,3 +524,22 @@ func (s *Server) warmKey(ctx context.Context, pr *Request, key core.RatingKey) {
 		pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), core.PrewarmOptions{Reason: core.PrewarmBrowse})
 	}
 }
+
+// BackgroundBusy is how many Home screens are queued for or being rebuilt
+// behind a response: the performance gate waits for none before each
+// measured request.
+func (s *Server) BackgroundBusy() int {
+	if s.home == nil {
+		return 0
+	}
+	c := s.home
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := len(c.queue)
+	for _, e := range c.entries {
+		if e.queued || e.flight != nil {
+			n++
+		}
+	}
+	return n
+}

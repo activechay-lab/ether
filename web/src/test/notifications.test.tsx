@@ -173,7 +173,7 @@ describe("Notification setup", () => {
       "ntfy",
       "gotify",
     ]);
-    expect(events).toHaveLength(20);
+    expect(events).toHaveLength(22);
 
     const pluginDescriptor: Descriptor<ChannelKindMeta> = {
       kind: "channelKind",

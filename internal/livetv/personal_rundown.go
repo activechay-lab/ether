@@ -28,7 +28,15 @@ type personalClock struct {
 	cursor                     int64
 	at, timeAway, welcomeUntil time.Time
 	active                     bool
+	// saved is when advancePersonal last stored cursor_ms.
+	saved time.Time
 }
+
+// personalClockSave spaces advancePersonal's writes of a running clock. A
+// crash loses at most this much channel time; endPersonal saves the exact
+// cursor when the viewer leaves.
+const personalClockSave = 15 * time.Second
+
 type personalRow struct {
 	programmes []Programme
 	cursor     int64
@@ -47,11 +55,15 @@ func (s *Service) readPersonal(ctx context.Context, k personalKey) (personalRow,
 	return r, err
 }
 
-func immutablePersonal(old []Programme, now time.Time) ([]Programme, time.Time) {
+// immutablePersonal keeps the frozen part of a rundown: programmes starting
+// by now+30 min, back to since. Before since a programme is history no guide
+// shows and no repeat rule reads; keeping it made every rebuild carry the
+// channel's whole past.
+func immutablePersonal(old []Programme, now, since time.Time) ([]Programme, time.Time) {
 	var keep []Programme
 	end := now
 	for _, p := range old {
-		if !p.Start.After(now.Add(30 * time.Minute)) {
+		if !p.Start.After(now.Add(30*time.Minute)) && p.End.After(since) {
 			keep = append(keep, p)
 			if p.End.After(end) {
 				end = p.End
@@ -64,7 +76,7 @@ func immutablePersonal(old []Programme, now time.Time) ([]Programme, time.Time) 
 // composePersonal preserves all programmes whose start falls in the frozen
 // window, including a programme that straddles its boundary.
 func composePersonal(c Channel, old []Programme, picks []core.PersonalPick, now time.Time) []Programme {
-	out, at := immutablePersonal(old, now)
+	out, at := immutablePersonal(old, now, now.Add(-personalHistory(c)))
 	until := now.Add(48 * time.Hour)
 	last := map[core.RatingKey]time.Time{}
 	showTime := map[string]int64{}
@@ -168,6 +180,31 @@ func composePersonal(c Channel, old []Programme, picks []core.PersonalPick, now 
 	return out
 }
 
+// personalHistory is how far back of the channel clock a rundown keeps
+// programmes: the guide's lookback, or the repeat window when that is
+// longer, since composing reads past starts to avoid repeats. The index
+// only needs the guide's lookback (personalIndexed).
+func personalHistory(c Channel) time.Duration {
+	h := guideLookback
+	if c.Personal != nil {
+		h = max(h, time.Duration(c.Personal.RepeatHours)*time.Hour)
+	}
+	return h
+}
+
+// personalIndexed drops programmes the guide can no longer ask for from the
+// rows indexed for reads.
+func personalIndexed(ps []Programme, cursor time.Time) []Programme {
+	since := cursor.Add(-guideLookback)
+	out := make([]Programme, 0, len(ps))
+	for _, p := range ps {
+		if p.End.After(since) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) error {
 	k := personalKey{u.ID, c.ID}
 	old, err := s.readPersonal(ctx, k)
@@ -236,7 +273,7 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 	if err != nil {
 		return err
 	}
-	records := s.personalIndexRecords(ctx, ps)
+	records := s.personalIndexRecords(ctx, personalIndexed(ps, time.UnixMilli(cursor)))
 	tx, err := s.o.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -255,8 +292,16 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 	if err = s.indexPersonal(ctx, tx, u.ID, c.ID, day, records); err != nil {
 		return err
 	}
+	// Readers take the newest day; earlier days' rundowns are dead copies.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM livetv_personal WHERE viewer_id=? AND channel_id=? AND day<>?`, u.ID, c.ID, day); err != nil {
+		return err
+	}
 	if err = tx.Commit(); err != nil {
 		return err
+	}
+	if err = s.prunePersonalIndex(ctx, u.ID, c.ID, day); err != nil {
+		s.o.Logger.Debug("personal index prune failed", "viewer", u.ID, "channel", c.ID, "error", err)
+		err = nil
 	}
 
 	if err == nil {
@@ -443,12 +488,16 @@ func (s *Service) advancePersonal(now time.Time) {
 			}
 			clock.cursor += now.UnixMilli() - start.UnixMilli()
 		}
-		if clock.active && !active[k] {
+		left := clock.active && !active[k]
+		if left {
 			clock.timeAway = now
 		}
 		clock.active = active[k]
 		clock.at = now
-		_, _ = s.o.DB.ExecContext(s.ctx, `UPDATE livetv_personal SET cursor_ms=?,away_ms=? WHERE viewer_id=? AND channel_id=?`, clock.cursor, now.UnixMilli(), k.viewer, k.channel)
+		if left || now.Sub(clock.saved) >= personalClockSave {
+			clock.saved = now
+			_, _ = s.o.DB.ExecContext(s.ctx, `UPDATE livetv_personal SET cursor_ms=?,away_ms=? WHERE viewer_id=? AND channel_id=?`, clock.cursor, now.UnixMilli(), k.viewer, k.channel)
+		}
 	}
 }
 

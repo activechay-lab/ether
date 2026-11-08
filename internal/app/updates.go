@@ -59,7 +59,7 @@ func (a *App) initUpdates() {
 			exe = resolved
 		}
 	}
-	selfApply, why := updater.SelfApplyCapability(updater.Environment{
+	selfApply, notifyKind, why := updater.SelfApplyMode(updater.Environment{
 		GOOS:        runtime.GOOS,
 		Target:      exe,
 		Dev:         updater.IsDev() || a.opts.Version == "dev",
@@ -67,6 +67,10 @@ func (a *App) initUpdates() {
 		Supervised:  !service.Interactive(),
 	})
 	log := a.log.With("component", "updater")
+	installID := ""
+	if a.cfg != nil {
+		installID = a.cfg.Get().Server.MachineIdentifier
+	}
 	// A clustered node that installs its own updates takes its turn in a
 	// rolling update (rolling.go); notify-only nodes just report.
 	var coord updater.Coordinator
@@ -94,6 +98,9 @@ func (a *App) initUpdates() {
 		RequestRestart: a.requestRestart,
 		Boot:           a.updates.boot,
 		Logger:         log,
+		NotifyKind:     notifyKind,
+		// The server identity only seeds the local staged-rollout hash.
+		InstallID: installID,
 		OnAvailable: func(version string) error {
 			if a.notifications == nil {
 				return nil
@@ -103,6 +110,23 @@ func (a *App) initUpdates() {
 			// Once per version across restarts and cluster nodes; an error
 			// is retried at the next check.
 			return a.notifications.UpdateAvailable(ctx, a.opts.Version, version)
+		},
+		// Once per version across restarts and cluster nodes, like OnAvailable.
+		OnInstalled: func(u updater.InstalledUpdate) error {
+			if a.notifications == nil {
+				return nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return a.notifications.UpdateInstalled(ctx, u.From, u.To)
+		},
+		OnRolledBack: func(f updater.FailedUpdate) error {
+			if a.notifications == nil {
+				return nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return a.notifications.UpdateRolledBack(ctx, f.Version, f.From, f.Reason)
 		},
 	})
 	if a.cfg != nil {
@@ -147,8 +171,10 @@ func (a *App) updateStatus(context.Context) any {
 // updatesHandler serves /ether/api/updates/ (owner auth, LAN and CSRF are
 // enforced by the admin handler):
 //
-//	GET  /       status
-//	POST /apply  {"force": bool} — install as soon as idle (force: now)
+//	GET  /                    status
+//	POST /check               check the feed now
+//	POST /apply               {"force": bool} — install as soon as idle (force: now)
+//	POST /dismiss-installed   hide the "Updated to X" note
 func (a *App) updatesHandler() http.Handler {
 	mux := http.NewServeMux()
 	writeJSON := func(w http.ResponseWriter, code int, v any) {
@@ -172,6 +198,17 @@ func (a *App) updatesHandler() http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusAccepted, a.updates.mgr.Status())
+	})
+	mux.HandleFunc("POST /dismiss-installed", func(w http.ResponseWriter, r *http.Request) {
+		if a.updates == nil || a.updates.mgr == nil {
+			writeError(w, http.StatusServiceUnavailable, "updates_disabled", updater.ErrUpdatesDisabled.Error())
+			return
+		}
+		if err := a.updates.mgr.DismissInstalled(); err != nil {
+			writeError(w, http.StatusInternalServerError, "dismiss_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, a.updates.mgr.Status())
 	})
 	mux.HandleFunc("POST /apply", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

@@ -325,6 +325,7 @@ func reportMarkdown(rows []reportRow, findings []Finding, extra []archived) []by
 				} else if storage.DatabaseEngine == "sqlite" {
 					b.WriteString("Database object allocation was unavailable within the bounded collection window.\n")
 				}
+				writeStorageDetail(&b, storage)
 
 			}
 		case "logs/capture.log":

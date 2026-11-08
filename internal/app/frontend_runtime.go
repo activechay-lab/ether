@@ -217,7 +217,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 			}
 		}
 		lazy, lazyErr := sessions.NewLazyStreams(a.db, r.broker, id, grants, time.Hour, func(req *http.Request) bool { ip, ok := a.frontendClientIP(req); return !ok || !identity.LAN(ip) })
-		versionHandles, handleErr := sessions.NewVersionHandles(a.db, r.broker, id)
+		versionHandles, handleErr := sessions.NewVersionHandles(a.db, r.broker, id, a.cfg.DerivedKey("ether-version-id-v1"))
 		if handleErr != nil {
 			a.log.Error("version handles unavailable", "surface", id, "err", handleErr)
 		}

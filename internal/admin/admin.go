@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/diagnostics"
@@ -185,8 +186,11 @@ type Deps struct {
 	ProvidersStatus StatusFunc // "providers" — Usenet provider health
 	IndexersStatus  StatusFunc // "indexers" — budgets remaining
 	CatalogStatus   StatusFunc // "catalog" — catalogue sync/stats
-	RemoteStatus    StatusFunc // "remote" — remote access
-	HWAccelStatus   StatusFunc // "hwaccel" — transcoding hardware
+	// PauseTierMigration pauses (true) or resumes the one-off library-tier
+	// migration shown in the catalogue status.
+	PauseTierMigration func(ctx context.Context, paused bool) error
+	RemoteStatus       StatusFunc // "remote" — remote access
+	HWAccelStatus      StatusFunc // "hwaccel" — transcoding hardware
 
 	// CacheRestartRequired reports whether the saved folder/storage differs
 	// from the running cache, including changes made during initial setup.
@@ -200,6 +204,10 @@ type Deps struct {
 
 	// DatabaseCheck runs an owner-requested integrity check. Optional for offline consoles.
 	DatabaseCheck StatusFuncE
+	// DatabaseCompactStatus reports what compacting the database would take
+	// and any compaction running; DatabaseCompact starts one. Both optional.
+	DatabaseCompactStatus StatusFuncE
+	DatabaseCompact       StatusFuncE
 
 	// ResolverTraces backs GET /ether/api/traces.
 	ResolverTraces StatusFuncE
@@ -240,6 +248,11 @@ type Deps struct {
 	WaitingReleaseKeys func(context.Context) []core.RatingKey
 	// Images backs the TMDB image proxy at /api/image.
 	Images ImageProxy
+	// TitlePosters draws Ether's poster for a title with no artwork, at
+	// /api/image/generated. Nil leaves such cards without a poster.
+	TitlePosters interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 
 	// PlexWatch is the per-viewer Plex account watch-state integration.
 	// Nil hides the routes.
@@ -409,6 +422,8 @@ func (h *Handler) routes() *http.ServeMux {
 	api("GET /api/status", h.handleWidget)
 	api("GET /api/status/{name}", h.handleStatus)
 	api("POST /api/status/database/check", h.handleDatabaseCheck)
+	api("GET /api/status/database/compact", h.handleDatabaseCompact)
+	api("POST /api/status/database/compact", h.handleDatabaseCompact)
 	api("GET /api/traces", h.handleTraces)
 	api("GET /api/disk", h.handleDisk)
 

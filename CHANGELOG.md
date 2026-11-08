@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (0.3.6)
+
+- **Automatic updates:** on by default for new installs (existing servers keep
+  their setting). Ether checks for updates every few hours, installs at night
+  once nobody is watching, rolls stable releases out over a day, re-checks the
+  feed before installing so a pulled release never installs, installs security
+  fixes at the next quiet moment, and tells you afterwards (*Updated to X*,
+  plus *Update installed* / *Update rolled back* notifications). Docker, macOS
+  and Linux package installs get the exact update steps on the Updates page.
+
 ## 0.3.5 (2026-11-07)
 
 - **On Air:** virtual channels rebuilt as continuous channels, with styles and

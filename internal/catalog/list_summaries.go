@@ -14,15 +14,30 @@ type listSummary struct {
 
 const listSummaryLimit = 4096
 
+// After the in-memory list summaries it asks this node's long-tail index,
+// so a title found by search on one node opens at once on any other: Get
+// serves the summary and fetches the details behind it (the promotion). A
+// tail entry whose date is not known yet is not served: Get waits for the
+// details, which carry the date its visibility needs.
 func (c *Catalog) listSummary(key core.RatingKey) (core.Title, bool) {
 	c.listSummaryMu.Lock()
-	defer c.listSummaryMu.Unlock()
 	entry, ok := c.listSummaries[key]
-	if !ok || !entry.expires.After(c.now()) {
+	if ok && entry.expires.After(c.now()) {
+		t := cloneTitle(entry.title)
+		c.listSummaryMu.Unlock()
+		return t, true
+	}
+	if ok {
 		delete(c.listSummaries, key)
+	}
+	c.listSummaryMu.Unlock()
+	if k := key.Kind(); k != core.KindMovie && k != core.KindShow {
 		return core.Title{}, false
 	}
-	return cloneTitle(entry.title), true
+	if e, ok := c.tailEntry(key); ok && !e.DateUnknown && !e.Title.Released.IsZero() {
+		return e.Title, true
+	}
+	return core.Title{}, false
 }
 
 // RememberListSummaries makes fresh source summaries readable immediately.

@@ -34,6 +34,7 @@ func (a FrontendArtwork) source() artworkservice.Source {
 	if s.d.LiveTV != nil {
 		source.LiveTV = s.d.LiveTV
 	}
+	source.Generated = s.d.GeneratedPosters
 	return source
 }
 func (a FrontendArtwork) List(ctx context.Context, req frontend.ArtworkRequest) ([]frontend.Image, bool, error) {

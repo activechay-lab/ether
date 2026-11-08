@@ -43,7 +43,7 @@ func (i *instance) meta(w http.ResponseWriter, r *http.Request) {
 	if title.Year > 0 {
 		meta["releaseInfo"] = strconv.Itoa(title.Year)
 	}
-	if poster := i.artwork(r, credential, device, []frontend.Title{title})[title.Key]; poster != "" {
+	if poster := i.artwork(r, credential, viewer, device, []frontend.Title{title})[title.Key]; poster != "" {
 		meta["poster"] = poster
 	}
 	if typ == "series" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
+	"time"
 )
 
 // ReopenResponsibility remains owned on every uncertain or post-acquisition error.
@@ -15,6 +16,7 @@ type ReopenResponsibility struct {
 	old               playbackcontinuity.SourceBinding
 	done              chan struct{}
 	retiring, retired bool
+	forgetAt          time.Time // forgetTerminal grace deadline
 }
 
 func (l *ReopenResponsibility) Done() <-chan struct{} { return l.done }

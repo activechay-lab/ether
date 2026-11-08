@@ -10,13 +10,14 @@ import (
 	"time"
 )
 
-// A committed page is the recovery unit. If saving its cursor fails, at most
-// that page is replayed; no completed slice or pass is deliberately restarted.
+// A stored batch is the recovery unit. If saving its cursor fails, at most
+// that batch is replayed; no completed slice or pass is deliberately restarted.
 // The fingerprint invalidates continuation when discovery settings change.
 type syncResume struct {
 	Fingerprint string          `json:"fingerprint"`
-	Pages       map[string]int  `json:"pages"`
 	Passes      map[string]bool `json:"passes"`
+	// Walks are the /discover walks in progress (sync_walk.go).
+	Walks map[string]walkCursor `json:"walks,omitempty"`
 }
 type syncResumeKey struct{}
 
@@ -39,8 +40,11 @@ func (c *Catalog) resumeSync(ctx context.Context) (context.Context, error) {
 			return ctx, fmt.Errorf("catalog: read sync cursor: %w", err)
 		}
 	}
-	if r.Fingerprint != fingerprint || r.Pages == nil || r.Passes == nil {
-		r = &syncResume{Fingerprint: fingerprint, Pages: map[string]int{}, Passes: map[string]bool{}}
+	if r.Fingerprint != fingerprint || r.Passes == nil {
+		r = &syncResume{Fingerprint: fingerprint, Passes: map[string]bool{}}
+	}
+	if r.Walks == nil {
+		r.Walks = map[string]walkCursor{}
 	}
 	return context.WithValue(ctx, syncResumeKey{}, r), nil
 }

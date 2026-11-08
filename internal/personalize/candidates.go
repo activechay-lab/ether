@@ -104,6 +104,9 @@ type builder struct {
 	crowdDone bool
 	crowdG    *crowdGraph
 	buzzM     *buzzMap
+	// policy epoch for shared browses (shared_sources.go), read on first use.
+	epochRead, epochOK bool
+	epoch              int64
 }
 
 type fitMemo struct {
@@ -163,7 +166,18 @@ func (b *builder) browse(q core.BrowseQuery) []core.Title {
 	// whole catalogue once per row.
 	q.NoTotal = true
 	return b.memoized(fmt.Sprintf("browse:%+v", q), func() ([]core.Title, error) {
+		key := b.sharedBrowseKey(q)
+		epoch, ok := b.policyEpoch()
+		now := time.Now()
+		if key != "" && ok {
+			if items, hit := b.e.sharedBrowseGet(key, epoch, now); hit {
+				return items, nil
+			}
+		}
 		page, err := b.e.catalog.Browse(b.ctx, q)
+		if err == nil && key != "" && ok {
+			b.e.sharedBrowsePut(key, epoch, now, page.Items)
+		}
 		return page.Items, err
 	})
 }

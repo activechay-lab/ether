@@ -29,13 +29,28 @@ func (s *Service) putAsset(ctx context.Context, name, kind, license, mime string
 	sum := sha256.Sum256(b)
 	a := Asset{Digest: hex.EncodeToString(sum[:]), Name: name, Kind: kind, License: license, Size: int64(len(b)), MIME: mime, UsedBy: []string{}}
 	a.URL = "/ether/api/onair/assets/" + a.Digest
-	_, e := s.db.ExecContext(ctx, "INSERT INTO onair_assets(digest,kind,name,mime,size,license,content,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(digest) DO NOTHING", a.Digest, kind, name, mime, a.Size, license, b, time.Now().Unix())
+	// The file is durable before its row, and assetMu keeps a concurrent
+	// delete of the same digest from removing it in between.
+	s.assetMu.Lock()
+	if _, _, e := s.blobs.Put(a.Digest, bytes.NewReader(b)); e != nil {
+		s.assetMu.Unlock()
+		return a, e
+	}
+	stored, content, _ := s.newContent(ctx, func() ([]byte, error) { return b, nil })
+	_, e := s.db.ExecContext(ctx, "INSERT INTO onair_assets(digest,kind,name,mime,size,license,content,created_at,stored) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(digest) DO NOTHING", a.Digest, kind, name, mime, a.Size, license, content, time.Now().Unix(), stored)
+	if e == nil {
+		e = s.recordReplica(ctx, s.db, a.Digest)
+	}
+	s.assetMu.Unlock()
 	if e != nil {
 		return a, e
 	}
+	if stored == "db" {
+		s.announceAssets(ctx)
+	}
 	e = s.db.QueryRowContext(ctx, "SELECT name,kind,size,license,mime FROM onair_assets WHERE digest=?", a.Digest).Scan(&a.Name, &a.Kind, &a.Size, &a.License, &a.MIME)
 	if e == nil {
-		a = s.recordFacts(ctx, a, b)
+		a = s.recordFacts(ctx, a, b, s.blobs.path(a.Digest))
 	}
 	return a, e
 }
@@ -239,6 +254,12 @@ func (s *Service) DeleteAsset(ctx context.Context, d string) error {
 		return e
 	}
 	n, e := res.RowsAffected()
+	if e == nil && n > 0 {
+		if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE digest=?", d); e != nil {
+			return e
+		}
+		s.removeUnreferenced(ctx, d)
+	}
 	if e == nil && n == 0 {
 		u, e := s.assetUsage(ctx, d)
 		if e != nil {
@@ -254,9 +275,16 @@ func (s *Service) DeleteAsset(ctx context.Context, d string) error {
 
 // putReelAsset serializes aggregate budget admission across database nodes, not
 // merely goroutines. The singleton row is a write lock on SQLite and PostgreSQL.
-func (s *Service) putReelAsset(ctx context.Context, name string, b []byte) (Asset, error) {
-	sum := sha256.Sum256(b)
-	a := Asset{Digest: hex.EncodeToString(sum[:]), Name: name, Kind: "reel", Size: int64(len(b)), MIME: "video/mp4", UsedBy: []string{}}
+// The upload at path (hashed to digest) moves into the blob store; its bytes
+// are read into memory only when another member still needs them in the row.
+func (s *Service) putReelAsset(ctx context.Context, name, path, digest string, size int64) (Asset, error) {
+	a := Asset{Digest: digest, Name: name, Kind: "reel", Size: size, MIME: "video/mp4", UsedBy: []string{}}
+	s.assetMu.Lock()
+	defer s.assetMu.Unlock()
+	stored, content, e := s.newContent(ctx, func() ([]byte, error) { return os.ReadFile(path) })
+	if e != nil {
+		return a, e
+	}
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return a, e
@@ -278,14 +306,24 @@ func (s *Service) putReelAsset(ctx context.Context, name string, b []byte) (Asse
 	if exists == 0 && used+a.Size > 5<<30 {
 		return a, fmt.Errorf("5 GB reel budget exceeded")
 	}
-	if _, e = tx.ExecContext(ctx, "INSERT INTO onair_assets(digest,kind,name,mime,size,license,content,created_at) VALUES(?,'reel',?,'video/mp4',?,'',?,?) ON CONFLICT(digest) DO UPDATE SET kind='reel'", a.Digest, name, a.Size, b, time.Now().Unix()); e != nil {
+	// The file is in place before the row commits.
+	if e = s.blobs.PutFile(a.Digest, path); e != nil {
+		return a, e
+	}
+	if _, e = tx.ExecContext(ctx, "INSERT INTO onair_assets(digest,kind,name,mime,size,license,content,created_at,stored) VALUES(?,'reel',?,'video/mp4',?,'',?,?,?) ON CONFLICT(digest) DO UPDATE SET kind='reel'", a.Digest, name, a.Size, content, time.Now().Unix(), stored); e != nil {
+		return a, e
+	}
+	if e = s.recordReplica(ctx, tx, a.Digest); e != nil {
 		return a, e
 	}
 	if e = tx.Commit(); e != nil {
 		return a, e
 	}
-	a.Kind = "reel"
-	return s.recordFacts(ctx, a, b), nil
+	content = nil
+	if stored == "db" {
+		s.announceAssets(ctx)
+	}
+	return s.recordFacts(ctx, a, nil, s.blobs.path(a.Digest)), nil
 }
 
 // On Air can run independently of Live TV (including plugin test databases).

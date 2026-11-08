@@ -343,6 +343,10 @@ func (s *Server) handlePrefs(w http.ResponseWriter, r *http.Request) {
 	// as 1/0.
 	settings := []model.Setting{
 		{ID: "FriendlyName", Label: "Friendly name", Summary: "This name will be used to identify this media server to other computers on your network.", Type: "text", Default: "", Value: id.FriendlyName, Group: "general"},
+		// PMS lists these after its general settings, before MachineIdentifier.
+		{ID: "OnDeckWindow", Label: "Weeks to consider for Continue Watching", Summary: "Media that has not been watched in this many weeks will not appear in Continue Watching.", Type: "int", Default: 16, Value: 16, Group: "library", Advanced: true},
+		{ID: "OnDeckLimit", Label: "Maximum number of Continue Watching items which will appear.", Summary: "Limits the number of shows which will appear Continue Watching. Setting it too high can affect performance.", Type: "int", Default: plexOnDeckLimit, Value: plexOnDeckLimit, Group: "library", Advanced: true},
+		{ID: "OnDeckIncludePremieres", Label: "Include season premieres in Continue Watching", Summary: "New season premieres will always appear no matter how many weeks have passed since watching.", Type: "bool", Default: true, Value: true, Group: "library", Advanced: true},
 		{ID: "MachineIdentifier", Label: "", Summary: "", Type: "text", Default: "", Value: id.MachineIdentifier, Hidden: true, Group: ""},
 		{ID: "PublishServerOnPlexOnlineKey", Label: "Publish server on Plex Online", Summary: "", Type: "bool", Default: false, Value: c.Plex.RemoteAccess, Group: "network"},
 		{ID: "ManualPortMappingMode", Label: "Manually specify public port", Summary: "", Type: "bool", Default: false, Value: c.Plex.PublicPort != 0, Group: "network"},

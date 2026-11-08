@@ -61,7 +61,7 @@ func Do[T any](ctx context.Context, key string, load func() (T, error)) (T, erro
 		return v, err
 	}
 	m.mu.Lock()
-	if len(m.m) < 4096 {
+	if len(m.m) < 16384 {
 		m.m[key] = entry{v: v, at: time.Now()}
 	}
 	m.mu.Unlock()

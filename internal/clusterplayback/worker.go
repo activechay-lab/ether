@@ -16,12 +16,13 @@ import (
 )
 
 type workerInput struct {
-	route   Route
-	input   *nodeinput.Input
-	gateway *nodeinput.Gateway
-	client  *nodesource.Client
-	cancel  context.CancelFunc
-	done    chan struct{}
+	route    Route
+	input    *nodeinput.Input
+	gateway  *nodeinput.Gateway
+	client   *nodesource.Client
+	cancel   context.CancelFunc
+	done     chan struct{}
+	forgetAt time.Time // forgetTerminal grace deadline
 }
 
 func remoteIdentity(rt Route) remotetranscode.Identity {

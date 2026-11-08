@@ -169,6 +169,9 @@ var (
 	// ErrPolicyUnconfirmed means the durable policy store could not be read.
 	// Callers may keep an unrestricted cached decision. Restricted viewers fail closed.
 	ErrPolicyUnconfirmed = errors.New("policy store unavailable")
+	// ErrSeekUnavailable means a page's seek title no longer matches its
+	// filter; the caller pages by offset instead.
+	ErrSeekUnavailable = errors.New("seek title unavailable")
 )
 
 // User is a Plex account with access to this server: the owner or a friend

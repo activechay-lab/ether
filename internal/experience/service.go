@@ -54,6 +54,12 @@ type ServiceDeps struct {
 	CachedGet func(context.Context, core.RatingKey) (*core.Title, error)
 	// CachedGetMany reads current cached rows in bounded batches without refresh.
 	CachedGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	// ArtworkGet and ArtworkGetMany are CachedGet and CachedGetMany for
+	// image grants: they also admit search and list hits held in memory
+	// without a row, so those hits keep their poster. Nil uses the cached
+	// readers.
+	ArtworkGet     func(context.Context, core.RatingKey) (*core.Title, error)
+	ArtworkGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// ParentTitles resolves distinct parents using the same semantics as GetTitle.
 	ParentTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// CachedVirtualSeason resolves a viewer's already-computed episode layout.
@@ -69,6 +75,10 @@ type ServiceDeps struct {
 	// content-rating cap, and parsed plex.tv share filters. Nil keeps the
 	// catalogue scan, which still applies filters the SQL page cannot see.
 	PageExclusions func(context.Context, *core.User, core.MediaType) LibraryPageExclusions
+	// FacetFilter counts a facet's values over the browsable titles matching
+	// a filter in SQL. With PageExclusions, library facet lists use it
+	// instead of walking the library. Optional.
+	FacetFilter func(context.Context, core.Filter, string) ([]core.FacetValue, error)
 	// CountBrowsable is the indexed library size. The view list uses it instead
 	// of browsing titles.
 	CountBrowsable func(context.Context, core.MediaType) (int, error)
@@ -80,7 +90,15 @@ type ServiceDeps struct {
 	// name index instead of walking every credited title. Optional.
 	PeopleIndex   func(context.Context, []string, int) ([]PersonCandidate, error)
 	PersonCredits func(context.Context, int64, []core.MediaType, int) ([]core.RatingKey, error)
-	AiredEpisodes func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	// PersonCreditsMany is PersonCredits for a page of people, with each
+	// person's credit rows (name, role, portrait) on those titles. With it
+	// (and PeopleRead.VisibleTitles) a people search reads a page of people
+	// in a few statements. Optional.
+	PersonCreditsMany func(context.Context, []int64, []core.MediaType, int) (map[int64][]core.PersonCredit, error)
+	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
+	peopleVisibleTitles  func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	peoplePortraitTitles func(context.Context, []PersonCreditRef) (map[core.RatingKey]core.Title, error)
+	AiredEpisodes        func(context.Context, core.RatingKey, int, int) (core.Page, error)
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
@@ -108,9 +126,17 @@ type ServiceDeps struct {
 	Rows     *RowsService
 	Protocol core.Protocol
 	// Favorites manages the stable, per-viewer Favorites playlist mapping.
-	Favorites               func(context.Context, *core.User, core.RatingKey, bool) (bool, error)
-	IsFavorite              func(context.Context, *core.User, core.RatingKey) (bool, error)
-	IsFavoriteMany          func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
+	Favorites      func(context.Context, *core.User, core.RatingKey, bool) (bool, error)
+	IsFavorite     func(context.Context, *core.User, core.RatingKey) (bool, error)
+	IsFavoriteMany func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
+	// FavoriteTitleKeys lists up to n of a viewer's favorite titles and
+	// whether that is all of them, so a favorites filter seeks those titles
+	// instead of walking the library. Optional.
+	FavoriteTitleKeys func(context.Context, *core.User, int) ([]core.RatingKey, bool, error)
+	// CountWatched counts the titles matching a filter that a viewer has
+	// played, from their watch rows. Optional; without it a played filter's
+	// total is counted over the whole type.
+	CountWatched            func(context.Context, core.Filter, int64) (int, error)
 	IsNotInterestedMany     func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
 	IsWatchlistedMany       func(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
 	FavoriteMembership      func(context.Context, *core.User, core.RatingKey) (frontend.Membership, error)
@@ -869,10 +895,14 @@ func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, ke
 	if err != nil {
 		return nil, err
 	}
-	if s.d.CachedGetMany == nil {
+	getMany := s.d.ArtworkGetMany
+	if getMany == nil {
+		getMany = s.d.CachedGetMany
+	}
+	if getMany == nil {
 		return nil, core.ErrNotAvailable
 	}
-	titles, err := s.d.CachedGetMany(ctx, keys)
+	titles, err := getMany(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +927,11 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 			return nil, err
 		}
 	} else if s.d.CachedGet != nil {
-		title, err := s.d.CachedGet(ctx, key)
+		get := s.d.ArtworkGet
+		if get == nil {
+			get = s.d.CachedGet
+		}
+		title, err := get(ctx, key)
 		if errors.Is(err, core.ErrNotFound) && s.d.CachedVirtualSeason != nil {
 			title, err = s.d.CachedVirtualSeason(ctx, v, key)
 		}
@@ -1675,6 +1709,9 @@ func (s *Service) Ancestors(ctx context.Context, viewer *core.Viewer, device cor
 // Facets are computed only from titles the viewer may see.
 func (s *Service) Facets(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, name string) ([]core.FacetValue, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if out, ok, err := s.indexedFacets(ctx, viewer, viewID, name); err != nil || ok {
+		return out, err
+	}
 	page, err := s.LibraryItems(ctx, viewer, device, viewID, frontend.ItemQuery{})
 	if err != nil {
 		return nil, err
@@ -1983,6 +2020,29 @@ func facetID(kind, value string) string {
 // ResolveFacet only resolves identifiers among the viewer's current visible facets.
 func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, kind, id string) (core.FacetValue, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if name := sqlFacets[kind]; name != "" && s.d.FacetFilter != nil {
+		// A genre, studio or country id names a value; which titles the
+		// viewer may see under it is the filtered page's business. The id
+		// resolves against the library-wide values, one cached count for
+		// every viewer, not a count of this viewer's whole library.
+		if found, ok, err := s.resolveGlobalFacet(ctx, viewer, viewID, kind, name, id); err != nil || ok {
+			return found, err
+		}
+	}
+	if kind == "person" {
+		if tmdb, ok := personTMDB(id); ok && s.d.PersonCredits != nil && s.d.CachedGetMany != nil {
+			var person frontend.PersonDetail
+			err := s.readPeople(ctx, viewer, func(snapshot *Service) error {
+				var e error
+				person, e = snapshot.indexedPerson(ctx, viewer, tmdb)
+				return e
+			})
+			if err == nil && person.ID == id {
+				key := strconv.FormatInt(tmdb, 10)
+				return core.FacetValue{ID: id, Key: key, Title: person.Name}, nil
+			}
+		}
+	}
 	facets, err := s.Facets(ctx, viewer, device, viewID, kind)
 	if err != nil {
 		return core.FacetValue{}, err

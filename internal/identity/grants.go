@@ -351,7 +351,8 @@ func (g *Grants) GrantReferenceExpiry(ctx context.Context, surface, reference st
 }
 
 // RevokeGrant, RevokeDevice and RevokeViewer invalidate credentials without
-// deleting audit metadata. Only a credential's hash is needed for revocation.
+// deleting their metadata; Prune removes dead grants a week later. Only a
+// credential's hash is needed for revocation.
 func (g *Grants) RevokeGrant(ctx context.Context, viewerID int64, hash string) error {
 	if len(hash) != 64 {
 		return fmt.Errorf("identity: invalid grant hash")

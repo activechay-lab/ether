@@ -613,15 +613,44 @@ export interface UpdateStatus {
     notes?: string;
     publishedAt?: string;
     staged: boolean;
+    /** A security fix: installs at the next quiet moment. */
+    critical?: boolean;
+    /** Staged rollout: installs on its own after this time. */
+    installAfter?: string;
+    /** Missed several maintenance windows: installs at the next long quiet moment. */
+    catchUp?: boolean;
+    /** Notify-only installs: the file to download by hand. */
+    downloadUrl?: string;
+    downloadName?: string;
   };
   capability: "self-apply" | "notify-only" | "disabled";
   capabilityReason?: string;
+  /** How a notify-only install is updated (internal/updater NotifyKind*). */
+  notifyKind?:
+    | "dev"
+    | "macos"
+    | "container"
+    | "deb"
+    | "rpm"
+    | "package"
+    | "unsupervised"
+    | "unwritable"
+    | "unknown"
+    | "installer";
+  channel?: string;
+  arch?: string;
+  catchUpQuietSeconds?: number;
+  /** The last update Ether installed itself, until dismissed. */
+  installed?: { from: string; to: string; at: string };
   state:
     | "idle"
     | "downloading"
     | "staged"
     | "waiting-for-window"
     | "waiting-for-idle"
+    | "waiting-for-rollout"
+    | "waiting-for-turn"
+    | "draining"
     | "applying"
     | "rolled-back";
   autoUpdate: boolean;

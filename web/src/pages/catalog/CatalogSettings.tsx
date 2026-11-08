@@ -21,6 +21,7 @@ import { WatchlistAlerts } from "../viewers/sections/WatchlistDefaults";
 import { NewReleasesSettings, useAvailabilityDraft } from "./NewReleasesSettings";
 import { RulesPanel, type VisibilityRule } from "./LibraryVisibility";
 import { TrendingStatus } from "./TrendingStatus";
+import { TierMigrationStatus } from "./TierMigrationStatus";
 import { LevelBadge } from "../../components/status";
 import { SettingsRow } from "../../components/SettingsRow";
 import "./catalog.css";
@@ -39,7 +40,8 @@ function briefGroup(g: FieldGroup): FieldGroup {
   };
 }
 
-/** Off / Some / Most for catalog.minPopularity + catalog.minVotes. Some is the default. */
+/** Off / Some / Most for catalog.minPopularity + catalog.minVotes. Some is the default. Off (0/0)
+ * is the server's floor, votes >= 10 or popularity >= 2.5 (config.Catalog.Bars). */
 const OBSCURE_PRESETS = {
   off: { minPopularity: 0, minVotes: 0 },
   some: { minPopularity: 5, minVotes: 100 },
@@ -61,7 +63,13 @@ function ObscureTitles({ draft, onChange }: { draft: Obj; onChange: (next: Obj) 
     <SettingsRow
       setting="hide-obscure-titles"
       title={t("Hide obscure titles")}
-      description={preset === "custom" ? t("Custom limits are set under More options.") : undefined}
+      description={
+        preset === "custom"
+          ? t("Custom limits are set under More options.")
+          : preset === "off"
+            ? t("Browse lists every title with a real audience. Everything else is still found by search.")
+            : t("Hidden titles are still found by search.")
+      }
       control={
         <Segmented
           ariaLabel={t("Hide obscure titles")}
@@ -263,6 +271,7 @@ export function CatalogSettings() {
                   ) : null}
                 </section>
               ) : null}
+              <TierMigrationStatus />
               <CatalogActivity />
               <TrendingStatus />
             </aside>

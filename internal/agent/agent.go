@@ -426,3 +426,11 @@ func threadTitle(prompt string) string {
 	}
 	return t
 }
+
+// Prune applies the tool-call audit retention (see Store.Prune).
+func (s *Service) Prune(ctx context.Context) (int64, error) {
+	if s == nil {
+		return 0, nil
+	}
+	return s.store.Prune(ctx)
+}

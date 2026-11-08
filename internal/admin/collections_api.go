@@ -53,6 +53,7 @@ func (h *Handler) collectionRoutes(mux *http.ServeMux, api func(string, http.Han
 	mux.HandleFunc("GET /api/collections/{id}/artwork", h.handleCollectionArtwork)
 
 	api("POST /api/catalog/visibility/preview", h.handleVisibilityPreview)
+	api("POST /api/catalog/tier-migration", h.handleTierMigration)
 	api("GET /api/catalog/browse", h.handleCatalogBrowse)
 	api("GET /api/catalog/interpret", h.handleCatalogInterpretCapability)
 	api("POST /api/catalog/interpret", h.handleCatalogInterpret)
@@ -67,6 +68,7 @@ func (h *Handler) collectionRoutes(mux *http.ServeMux, api func(string, http.Han
 	api("GET /api/catalog/title/{key}/season/{season}", h.handleCatalogTitleSeason)
 	api("GET /api/catalog/title/{key}/releases", h.handleCatalogTitleReleases)
 	mux.HandleFunc("GET /api/image", h.handleImage)
+	mux.HandleFunc("GET /api/image/generated", h.handleGeneratedImage)
 }
 
 // collectionView is a spec plus browser-loadable artwork.
@@ -346,4 +348,25 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		h.log.Warn("admin: collections API", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 	}
+}
+
+// handleTierMigration pauses or resumes the library-tier migration:
+// {"paused": true|false}. Progress is in the catalogue status.
+func (h *Handler) handleTierMigration(w http.ResponseWriter, r *http.Request) {
+	if h.deps.PauseTierMigration == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "the tier migration is not available")
+		return
+	}
+	var body struct {
+		Paused *bool `json:"paused"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Paused == nil {
+		writeError(w, http.StatusBadRequest, "bad_request", `send {"paused": true} or {"paused": false}`)
+		return
+	}
+	if err := h.deps.PauseTierMigration(r.Context(), *body.Paused); err != nil {
+		writeError(w, http.StatusConflict, "tier_migration", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"paused": *body.Paused})
 }

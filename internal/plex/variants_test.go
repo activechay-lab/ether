@@ -402,7 +402,7 @@ func TestVariantIDCollisionProbeAndPartTitle(t *testing.T) {
 	r := newVariantIDRegistry(nil)
 	h := variantHash(fightClub.Key, "rel-x")
 	squatter := variantRef{key: alien.Key, releaseID: "other"}
-	r.byID[h] = squatter
+	r.byID[h] = variantEntry{ref: squatter}
 	r.byPair[squatter] = h
 	got := r.idFor(fightClub.Key, "rel-x")
 	if got == h {

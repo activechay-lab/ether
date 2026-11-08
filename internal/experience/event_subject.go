@@ -44,7 +44,7 @@ func (s *Service) ResolveEventSubject(ctx context.Context, viewer *core.Viewer, 
 		if e != nil || id <= 0 || strconv.FormatInt(id, 10) != raw {
 			return frontend.ResolvedEventSubject{}, core.ErrNotFound
 		}
-		result.PersonFacetID = facetID("person", raw)
+		result.PersonFacetID = personFacetID(id)
 	case frontend.FavoriteCollection:
 		key, e := core.ParseRatingKey(ref.ID)
 		if e != nil || key.String() != ref.ID || (key.Kind() != core.KindCollection && key.Kind() != core.KindSmart) {

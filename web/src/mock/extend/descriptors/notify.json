@@ -638,6 +638,37 @@
   },
   {
     "kind": "eventKind",
+    "id": "update.installed",
+    "owner": "builtin",
+    "label": {
+      "source": "Update installed"
+    },
+    "hint": {
+      "source": "Ether installed an update by itself and it is running well; one alert per version."
+    },
+    "order": 161,
+    "meta": {
+      "automatic": true
+    }
+  },
+  {
+    "kind": "eventKind",
+    "id": "update.rolledback",
+    "owner": "builtin",
+    "label": {
+      "source": "Update rolled back"
+    },
+    "hint": {
+      "source": "An update did not run properly, so Ether went back to the previous version and will skip it."
+    },
+    "order": 162,
+    "meta": {
+      "automatic": true,
+      "critical": true
+    }
+  },
+  {
+    "kind": "eventKind",
     "id": "backup.failed",
     "owner": "builtin",
     "label": {

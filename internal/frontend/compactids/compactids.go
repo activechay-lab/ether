@@ -94,6 +94,22 @@ func (a *Allocator) CompactBatch(ctx context.Context, surface, kind string, refs
 	if len(refs) == 0 {
 		return result, nil
 	}
+	// Identifiers never change once allocated, so a page whose references
+	// all have one is answered by a read. Only a page with new references
+	// takes the write transaction (an export re-read would otherwise wait
+	// for the single writer once per page).
+	for _, ref := range refs {
+		if ref == "" {
+			return nil, errors.New("compact ids: empty reference")
+		}
+	}
+	if err := a.lookupBatch(ctx, a.db, surface, kind, refs, result); err != nil {
+		return nil, err
+	}
+	if len(result) == len(uniqueRefs(refs)) {
+		return result, nil
+	}
+	clear(result)
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -104,33 +120,10 @@ func (a *Allocator) CompactBatch(ctx context.Context, surface, kind string, refs
 	if err != nil {
 		return nil, err
 	}
-	args := []any{surface, kind}
-	marks := make([]string, len(refs))
-	for j, ref := range refs {
-		if ref == "" {
-			return nil, errors.New("compact ids: empty reference")
-		}
-		marks[j] = "?"
-		args = append(args, ref)
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT ref,id FROM frontend_compact_ids WHERE surface=? AND kind=? AND ref IN (`+strings.Join(marks, ",")+`)`, args...)
-	if err != nil {
+	if err = a.lookupBatch(ctx, tx, surface, kind, refs, result); err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var ref string
-		var id int32
-		if err := rows.Scan(&ref, &id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		result[ref] = id
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
+	var args []any
 	missing := []string{}
 	seen := map[string]bool{}
 	for _, ref := range refs {
@@ -162,4 +155,41 @@ func (a *Allocator) CompactBatch(ctx context.Context, surface, kind string, refs
 		return nil, err
 	}
 	return result, nil
+}
+
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// lookupBatch adds the allocated identifiers of refs to into.
+func (a *Allocator) lookupBatch(ctx context.Context, q queryer, surface, kind string, refs []string, into map[string]int32) error {
+	args := make([]any, 0, len(refs)+2)
+	args = append(args, surface, kind)
+	marks := make([]string, len(refs))
+	for j, ref := range refs {
+		marks[j] = "?"
+		args = append(args, ref)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT ref,id FROM frontend_compact_ids WHERE surface=? AND kind=? AND ref IN (`+strings.Join(marks, ",")+`)`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref string
+		var id int32
+		if err := rows.Scan(&ref, &id); err != nil {
+			return err
+		}
+		into[ref] = id
+	}
+	return rows.Err()
+}
+
+func uniqueRefs(refs []string) map[string]bool {
+	out := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		out[ref] = true
+	}
+	return out
 }

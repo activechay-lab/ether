@@ -324,10 +324,12 @@ func OpenPath(ctx context.Context, path string) (*sql.DB, error) {
 func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress func(Progress)) (*sql.DB, error) {
 	// journal_size_limit caps the WAL left on disk after a checkpoint; without
 	// it one large transaction leaves a WAL file that never shrinks.
+	// auto_vacuum=INCREMENTAL takes effect on a new database and on VACUUM
+	// (INTO) copies; see space.go.
 	// wal_autocheckpoint=0 keeps a commit from running a checkpoint. Under
 	// WAL + synchronous=NORMAL the checkpoint is the fsync; a request must
 	// not wait on it. RunCheckpointer does that work in the background.
-	dsn := "file:" + path + "?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=wal_autocheckpoint(0)&_pragma=cache_size(-65536)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)" +
+	dsn := "file:" + path + "?_txlock=immediate&_pragma=auto_vacuum(INCREMENTAL)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=wal_autocheckpoint(0)&_pragma=cache_size(-65536)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)" +
 		fmt.Sprintf("&_pragma=journal_size_limit(%d)", journalSizeLimit)
 	if path == ":memory:" {
 		dsn = memoryDSN
@@ -461,6 +463,33 @@ func registered() []migration {
 	return ordered
 }
 
+// ceilingKey carries MigrateThrough's per-component version ceiling.
+type ceilingKey struct{}
+
+// WithMigrationCeiling makes opening or migrating with ctx apply only
+// migrations at or below ceiling[component] (components absent from ceiling
+// apply in full). Upgrade tests use it to build an older release's schema
+// through the real migrations, then open again without it to upgrade.
+func WithMigrationCeiling(ctx context.Context, ceiling map[string]int) context.Context {
+	return context.WithValue(ctx, ceilingKey{}, ceiling)
+}
+
+// pendingFor is registered() limited to ctx's migration ceiling, if any.
+func pendingFor(ctx context.Context) []migration {
+	ms := registered()
+	ceiling, _ := ctx.Value(ceilingKey{}).(map[string]int)
+	if ceiling == nil {
+		return ms
+	}
+	out := ms[:0]
+	for _, m := range ms {
+		if top, ok := ceiling[m.component]; !ok || m.version <= top {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		component TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY (component, version))`
 
@@ -485,7 +514,7 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 	// Counted up front for progress; each is checked again right before it
 	// runs, because a migration may record another as applied.
 	var pending []migration
-	for _, m := range registered() {
+	for _, m := range pendingFor(ctx) {
 		done, err := applied(m)
 		if err != nil {
 			return err

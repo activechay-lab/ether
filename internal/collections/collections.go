@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/contentrating"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -1023,11 +1024,20 @@ func (s *Service) listFranchises(ctx context.Context, user *core.User) ([]core.C
 		return nil, err
 	}
 	if user != nil && user.MaxContentRating != "" {
-		// Child counts must reflect what this user may watch.
-		for i := range out {
-			if p, err := s.franchiseItems(ctx, user, out[i].Key, 0, 1); err == nil {
-				out[i].ChildCount = p.Total
+		// Child counts must reflect what this user may watch: the
+		// franchises' members in the mirror at or below the cap, counted in
+		// one grouped read (each franchise's titles were read one franchise
+		// at a time, thousands on a full mirror, and from TMDB when it is
+		// configured).
+		level := contentrating.LevelOf(user.MaxContentRating)
+		counts := map[int64]int{}
+		if level != contentrating.Unrated {
+			if counts, err = s.mirror.FranchiseRatedCounts(ctx, int(level)); err != nil {
+				return nil, err
 			}
+		}
+		for i := range out {
+			out[i].ChildCount = counts[out[i].Key.TMDB()]
 		}
 		kept := out[:0]
 		for _, c := range out {

@@ -1170,7 +1170,7 @@
           "fields": [
             {
               "help": {
-                "source": "Checks the signed release feed once a day."
+                "source": "Checks the signed release feed every few hours."
               },
               "key": "enabled",
               "kind": "bool",

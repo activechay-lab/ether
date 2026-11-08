@@ -347,6 +347,48 @@ function yearCorrectionDetail(v: unknown): string {
   return "";
 }
 
+/** The library-tier migration's progress (catalog status tierMigration). */
+export type TierMigration = {
+  state?: string;
+  paused?: boolean;
+  remove?: number;
+  removed?: number;
+  finishedAt?: string;
+  lastError?: string;
+};
+
+/**
+ * One line for the tier migration, or "" when there is nothing to show
+ * (never armed, or finished more than a week ago).
+ */
+export function tierMigrationLine(v: unknown, now = new Date()): string {
+  if (!isPlainObject(v)) return "";
+  const m = v as TierMigration;
+  const state = typeof m.state === "string" ? m.state : "";
+  if (!state) return "";
+  const done = num(m.removed);
+  if (state === "done") {
+    const at = parseTime(m.finishedAt);
+    if (!at || now.getTime() - at.getTime() > 7 * 86400000) return "";
+    return t("Library tidied: {count} long-tail titles moved to search-only", {
+      count: formatNumber(done),
+    });
+  }
+  if (state === "waiting_backup") {
+    return t("Waiting for a backup before tidying the library: {error}", {
+      error: typeof m.lastError === "string" ? m.lastError : "",
+    });
+  }
+  if (state === "error" && typeof m.lastError === "string" && m.lastError) {
+    return t("Tidying the library stopped: {error}", { error: m.lastError });
+  }
+  const line = t("Tidying the library: {done} of {total} long-tail titles moved to search-only", {
+    done: formatNumber(done),
+    total: formatNumber(Math.max(done, num(m.remove))),
+  });
+  return m.paused ? `${line} · ${t("Paused")}` : line;
+}
+
 export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   const base = {
     id: "catalog" as const,
@@ -370,6 +412,8 @@ export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   ];
   const yearLine = yearCorrectionDetail(v.yearCorrection);
   if (yearLine) details.push(yearLine);
+  const tierLine = tierMigrationLine(v.tierMigration, now);
+  if (tierLine) details.push(tierLine);
   if (typeof sync.lastError === "string" && sync.lastError) {
     const message = t("Last sync error: {error}", { error: sync.lastError });
     details.push(message);

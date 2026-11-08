@@ -30,6 +30,10 @@ func TestOpenSetsJournalSizeLimitAndMaintainTruncatesWAL(t *testing.T) {
 	if synchronous != 1 {
 		t.Fatalf("synchronous = %d, want NORMAL (1)", synchronous)
 	}
+	var vacuum int
+	if err := db.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&vacuum); err != nil || vacuum != autoVacuumIncremental {
+		t.Fatalf("auto_vacuum = %d (%v), want INCREMENTAL on a new database", vacuum, err)
+	}
 	var auto int
 	if err := db.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&auto); err != nil {
 		t.Fatal(err)

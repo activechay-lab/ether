@@ -109,6 +109,8 @@ func (a *App) publicRoleHandler() http.Handler {
 }
 func (a *App) startServerWorkers(ctx context.Context, g *backgroundGroup) {
 	a.catalog.WarmSearch(ctx)
+	// Every node that serves search keeps its own long-tail index.
+	g.start(func() { a.catalog.RunTail(ctx) })
 	g.start(func() { a.cluster.RunAsLeader(ctx, "catalogue sync", a.catalog.Run) })
 	g.start(func() { a.cluster.RunAsLeader(ctx, "trending charts", a.catalog.RunTrends) })
 	g.start(func() { a.cluster.RunAsLeader(ctx, "collection refresh", a.collections.Run) })

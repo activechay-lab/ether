@@ -707,7 +707,13 @@ export function createFakeServer(opts: FakeOptions = {}) {
     plexDefaults: {} as Record<number, Record<string, unknown>>,
     clustered: opts.cluster ?? false,
     joinTokens: [] as JoinTokenInfo[],
-    backupSettings: { intervalHours: 24, retain: 7, lastRun: 0, sharedDir: "" },
+    backupSettings: {
+      intervalHours: 24,
+      retain: 7,
+      lastRun: 0,
+      sharedDir: "",
+      skipOnAirMedia: false,
+    },
     backups: [] as {
       name: string;
       size: number;
@@ -3382,7 +3388,12 @@ export function createFakeServer(opts: FakeOptions = {}) {
           warning: "",
         });
       case "POST /adoption/backups/settings": {
-        const next = body as { intervalHours: number; retain: number; sharedDir?: string };
+        const next = body as {
+          intervalHours: number;
+          retain: number;
+          sharedDir?: string;
+          skipOnAirMedia?: boolean;
+        };
         if (next.sharedDir && !state.clustered)
           return err(
             400,
@@ -3393,6 +3404,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
           ...state.backupSettings,
           intervalHours: next.intervalHours,
           retain: next.retain,
+          skipOnAirMedia: !!next.skipOnAirMedia,
           ...(next.sharedDir !== undefined ? { sharedDir: next.sharedDir } : {}),
         };
         return json({ ok: true });
@@ -4198,6 +4210,24 @@ export function createFakeServer(opts: FakeOptions = {}) {
     if (seg[0] === "auth" && seg[1] === "pin" && seg[2])
       return json({ done: true, token: "mock-owner-token" });
     if (seg[0] === "plex" && seg[1] === "pin" && seg[2]) return json({ done: true });
+    if (seg.join("/") === "status/database/compact") {
+      return json({
+        value: {
+          supported: true,
+          incremental: false,
+          databaseBytes: 1_103_679_488,
+          reclaimableBytes: 0,
+          needBytes: 1_372_114_944,
+          diskFreeBytes: 58_090_143_744,
+          tempNeedBytes: 1_372_114_944,
+          tempFreeBytes: 58_090_143_744,
+          estimateSeconds: 48,
+          ready: true,
+          running: method === "POST",
+          ...(method === "POST" ? { started: new Date().toISOString() } : {}),
+        },
+      });
+    }
     if (method === "POST" && seg.join("/") === "status/database/check") {
       const value = dashboard().sections.database;
       if (value.integrity) value.integrity.checked = new Date().toISOString();

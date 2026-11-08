@@ -263,7 +263,19 @@ func playlistItemsMeta(r *http.Request, types map[core.MediaType]bool) *model.Me
 	return out
 }
 
-func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Playlist, q url.Values) ([]model.Metadata, map[core.MediaType]bool, error) {
+// playlistRows is one page of a stored playlist's items: the window's
+// rendered rows, and the totals the container reports for every item.
+type playlistRows struct {
+	rows        []model.Metadata
+	total, lo   int
+	durationSec int64 // the sum of every item's duration in whole seconds
+	types       map[core.MediaType]bool
+}
+
+// playlistItemRows lists a playlist's items and renders only the page the
+// client asked for: a 3000-item playlist read 50 at a time renders 50 rows,
+// not every item for each page.
+func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Playlist, q url.Values) (playlistRows, error) {
 	var titles []core.Title
 	if pl.SmartURI != "" {
 		all := *pr
@@ -271,7 +283,7 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		var err error
 		titles, _, _, err = s.smartPlaylistBrowse(ctx, &all, pl.SmartURI)
 		if err != nil {
-			return nil, nil, err
+			return playlistRows{}, err
 		}
 	} else {
 		titles = s.visibleTitles(pr.User, s.getTitles(ctx, pl.Items))
@@ -335,7 +347,7 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 			br.q.Limit = maxExpand
 			page, err := s.d.Catalog.Browse(ctx, br.q)
 			if err != nil {
-				return nil, nil, err
+				return playlistRows{}, err
 			}
 			for _, t := range page.Items {
 				allowed[t.Key] = true
@@ -349,8 +361,6 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		}
 		selected = kept
 	}
-	state := s.stateFor(ctx, pr, selected)
-	var rows []model.Metadata
 	// Duplicate plain members retain their distinct stable item identities.
 	ids := map[core.RatingKey][]int64{}
 	for i, key := range pl.Items {
@@ -360,15 +370,43 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		}
 		ids[key] = append(ids[key], id)
 	}
-	for i := range selected {
-		md := s.metadata(ctx, pr, &selected[i], renderOpts{media: true, state: state})
-		if pl.SmartURI == "" && want != core.TypeShow && want != core.TypeSeason && len(ids[selected[i].Key]) > 0 {
-			md.PlaylistItemID = ids[selected[i].Key][0]
-			ids[selected[i].Key] = ids[selected[i].Key][1:]
+	itemIDs := make([]int64, len(selected))
+	if pl.SmartURI == "" && want != core.TypeShow && want != core.TypeSeason {
+		for i := range selected {
+			if q := ids[selected[i].Key]; len(q) > 0 {
+				itemIDs[i], ids[selected[i].Key] = q[0], q[1:]
+			}
 		}
-		rows = append(rows, md)
 	}
-	return rows, types, nil
+	out := playlistRows{total: len(selected), types: types}
+	lo, hi := pr.window(len(selected))
+	out.lo = lo
+	page := selected[lo:hi]
+	if len(selected) > 0 {
+		// As the full render was: an empty window of a non-empty list is an
+		// empty, not absent, row list.
+		out.rows = make([]model.Metadata, 0, len(page))
+	}
+	state := s.stateFor(ctx, pr, page)
+	for i := range page {
+		md := s.metadata(ctx, pr, &page[i], renderOpts{media: true, state: state})
+		if id := itemIDs[lo+i]; id != 0 {
+			md.PlaylistItemID = id
+		}
+		out.rows = append(out.rows, md)
+	}
+	// The container's duration covers every item. A title with a runtime
+	// renders it as its duration; only one without needs its media.
+	for i := range selected {
+		if i >= lo && i < hi {
+			out.durationSec += out.rows[i-lo].Duration / 1000
+		} else if selected[i].Runtime > 0 {
+			out.durationSec += ms(selected[i].Runtime) / 1000
+		} else {
+			out.durationSec += s.metadata(ctx, pr, &selected[i], renderOpts{media: true, state: state}).Duration / 1000
+		}
+	}
+	return out, nil
 }
 
 func playlistHasItemFilters(q url.Values) bool {

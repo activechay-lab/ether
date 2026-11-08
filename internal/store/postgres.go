@@ -163,7 +163,7 @@ func migratePostgres(ctx context.Context, db *sql.DB, gate MigrationGate, progre
 	}
 	if gate != nil {
 		var pending []string
-		for _, m := range registered() {
+		for _, m := range pendingFor(ctx) {
 			if key := m.component + "/" + strconv.Itoa(m.version); !applied[key] {
 				pending = append(pending, key)
 			}
@@ -176,12 +176,12 @@ func migratePostgres(ctx context.Context, db *sql.DB, gate MigrationGate, progre
 	}
 	seeded := map[string]bool{}
 	total, done := 0, 0
-	for _, m := range registered() {
+	for _, m := range pendingFor(ctx) {
 		if !applied[m.component+"/"+strconv.Itoa(m.version)] {
 			total++
 		}
 	}
-	for _, m := range registered() {
+	for _, m := range pendingFor(ctx) {
 		key := m.component + "/" + strconv.Itoa(m.version)
 		if applied[key] {
 			continue

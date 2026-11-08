@@ -9,12 +9,18 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/braedonsaunders/ether/internal/datafs"
 )
 
 // PreMigrateSuffix names the snapshot taken next to a SQLite database before
-// pending migrations change its schema (ether.db.pre-migrate.bak). The
-// PreMigrateKeep newest are kept: older ones are renamed .pre-migrate.bak.1,
-// .2 by each upgrade that migrates. Files the caller supplies (the settings
+// pending migrations change its schema (ether.db.pre-migrate.bak). Each is a
+// full copy of the database, so retention is bounded by age and disk: the
+// newest is always kept (the rollback for the latest upgrade); the previous
+// one (.pre-migrate.bak.1) is kept only while it is younger than
+// PreMigrateOlderMaxAge and keeping it leaves at least twice the database
+// size free; nothing older is kept. Scheduled backups cover older states. Files the caller supplies (the settings
 // and credential key that match the database) are stored with each one in a
 // directory named after it plus PreMigrateFilesSuffix.
 //
@@ -23,7 +29,8 @@ import (
 const (
 	PreMigrateSuffix      = ".pre-migrate.bak"
 	PreMigrateFilesSuffix = ".files"
-	PreMigrateKeep        = 3
+	PreMigrateKeep        = 2
+	PreMigrateOlderMaxAge = 7 * 24 * time.Hour
 )
 
 // SnapshotFile is a file stored alongside a pre-migrate snapshot. Name is a
@@ -125,6 +132,15 @@ func snapshotBeforeMigrate(ctx context.Context, db *sql.DB, path string, ms []mi
 	if err := os.RemoveAll(tmpFiles); err != nil {
 		return false, err
 	}
+	// A copy needs the database's size free. When the volume is short,
+	// older generations go first so the rollback for this upgrade fits.
+	if st, err := os.Stat(path); err == nil {
+		if _, free, err := datafs.Usage(filepath.Dir(path)); err == nil && free < st.Size()+256<<20 {
+			for n := 1; n < PreMigrateKeep; n++ {
+				removePreMigrateGen(dst, n)
+			}
+		}
+	}
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return false, err
@@ -178,12 +194,39 @@ func snapshotBeforeMigrate(ctx context.Context, db *sql.DB, path string, ms []mi
 			return true, err
 		}
 	}
+	trimPreMigrate(path, dst, time.Now())
 	// Nothing has migrated yet, so a crash before this marker exists only
 	// means the next start snapshots the same, still unmigrated database.
 	if err := os.WriteFile(dst+preMigrateIncomplete, nil, 0o600); err != nil {
 		return true, err
 	}
 	return true, nil
+}
+
+// trimPreMigrate drops the previous generation once it is older than
+// PreMigrateOlderMaxAge or keeping it would leave less than twice the
+// database size free. Its age is when it was taken (the file's mtime).
+func trimPreMigrate(path, dst string, now time.Time) {
+	older := preMigrateGen(dst, 1)
+	st, err := os.Stat(older)
+	if err != nil {
+		return
+	}
+	keep := now.Sub(st.ModTime()) <= PreMigrateOlderMaxAge
+	if keep {
+		db, err := os.Stat(path)
+		_, free, uerr := datafs.Usage(filepath.Dir(path))
+		keep = err == nil && uerr == nil && free >= 2*db.Size()
+	}
+	if !keep {
+		removePreMigrateGen(dst, 1)
+	}
+}
+
+func removePreMigrateGen(dst string, n int) {
+	gen := preMigrateGen(dst, n)
+	_ = os.Remove(gen)
+	_ = os.RemoveAll(gen + PreMigrateFilesSuffix)
 }
 
 // finishPreMigrate records that migrations for the database at path

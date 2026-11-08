@@ -27,6 +27,7 @@ var Budgets = map[string]Budget{
 	classSearch:   {Warm: 150 * time.Millisecond, Cold: time.Second, Loaded: 450 * time.Millisecond, Gated: true},
 	classGuide:    {Warm: 150 * time.Millisecond, Cold: time.Second, Loaded: 450 * time.Millisecond, Gated: true},
 	classConsole:  {Warm: 250 * time.Millisecond, Cold: 1500 * time.Millisecond, Loaded: 750 * time.Millisecond, Gated: true},
+	classState:    {Warm: 150 * time.Millisecond, Cold: time.Second, Loaded: 450 * time.Millisecond, Gated: true},
 	classPlayback: {Warm: time.Second, Cold: 3 * time.Second, Loaded: 3 * time.Second},
 }
 
@@ -84,6 +85,10 @@ func ReadTrace(path string) (map[string]TraceRecord, []TraceRecord, error) {
 type Row struct {
 	Client, Step, Class     string
 	RowsBound, QueriesBound int
+	// Export and Bytes (the median response size): an export step's work
+	// is compared per response byte (Step.Export).
+	Export bool
+	Bytes  int64
 	// WritesMax is the most statements that wrote in one request.
 	WritesMax                              int64
 	Cold, WarmP50, WarmP95, ConcP95, BgP95 time.Duration
@@ -94,14 +99,34 @@ type Row struct {
 	// compares the large library's least work with the small one's most.
 	QueriesMin, QueriesMax, RowsMin, RowsMax int64
 	DBTime, LockWait                         time.Duration
-	Status                                   string
-	Fails                                    []string
-	Skipped                                  string
-	Errors                                   []string
-	samples                                  map[string][]time.Duration
-	queries, writes, rowsRead                []int64
-	allocBytes, allocs                       []int64
-	dbTimes, lockWaits                       []time.Duration
+	// Cold is the owner's first pass after the start, First another
+	// viewer's first pass (that viewer's caches cold, the server's warm);
+	// the most work one request of each took.
+	ColdWork, FirstWork Work
+	// The page bound of a listing (ApplyPageBound): its worst request's
+	// rows, the rows its rendered titles account for, and their number.
+	PageCounted               bool
+	PageRows, PageBound       int64
+	PageItems                 int
+	Status                    string
+	Fails                     []string
+	Skipped                   string
+	Errors                    []string
+	samples                   map[string][]time.Duration
+	queries, writes, rowsRead []int64
+	allocBytes, allocs        []int64
+	bytes                     []int64
+	dbTimes, lockWaits        []time.Duration
+}
+
+// Work is the database work of one request.
+type Work struct {
+	Queries, Rows int64
+	DBTime        time.Duration
+}
+
+func (w *Work) max(tr TraceRecord) {
+	w.Queries, w.Rows, w.DBTime = max(w.Queries, tr.Queries), max(w.Rows, tr.Rows), max(w.DBTime, tr.DBTime)
 }
 
 func percentile(ds []time.Duration, p float64) time.Duration {
@@ -136,7 +161,7 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 		for _, st := range steps {
 			k := c.Name + "\x00" + st.Name
 			if rows[k] == nil {
-				rows[k] = &Row{Client: c.Name, Step: st.Name, Class: st.Class, RowsBound: st.RowsBound, QueriesBound: st.QueriesBound, samples: map[string][]time.Duration{}}
+				rows[k] = &Row{Client: c.Name, Step: st.Name, Class: st.Class, RowsBound: st.RowsBound, QueriesBound: st.QueriesBound, Export: st.Export, samples: map[string][]time.Duration{}}
 				keys = append(keys, k)
 			}
 		}
@@ -157,6 +182,15 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 			continue
 		}
 		r.samples[res.Phase] = append(r.samples[res.Phase], res.Dur)
+		r.bytes = append(r.bytes, int64(res.Bytes))
+		if tr, ok := trace[res.Tag]; ok {
+			switch res.Phase {
+			case "cold":
+				r.ColdWork.max(tr)
+			case "first":
+				r.FirstWork.max(tr)
+			}
+		}
 		if tr, ok := trace[res.Tag]; ok && (res.Phase == "warm" || res.Phase == "cold") {
 			r.queries = append(r.queries, tr.Queries)
 			r.writes = append(r.writes, tr.Writes)
@@ -180,6 +214,7 @@ func Summarize(results []Result, trace map[string]TraceRecord, order []Client) [
 		r.BgP95 = percentile(r.samples["background"], 0.95)
 		r.Queries, r.Writes, r.Rows = median64(r.queries), median64(r.writes), median64(r.rowsRead)
 		r.AllocBytes, r.Allocs = median64(r.allocBytes), median64(r.allocs)
+		r.Bytes = median64(r.bytes)
 		r.QueriesMin, r.QueriesMax = minMax(r.queries)
 		_, r.WritesMax = minMax(r.writes)
 		r.RowsMin, r.RowsMax = minMax(r.rowsRead)
@@ -253,7 +288,7 @@ func WriteReport(w io.Writer, title string, meta []string, rows []*Row) (failed 
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Budgets (p95): ")
-	for _, c := range []string{classStatic, classSignIn, classHome, classBrowse, classDetail, classSearch, classGuide, classConsole, classPlayback} {
+	for _, c := range []string{classStatic, classSignIn, classHome, classBrowse, classDetail, classSearch, classGuide, classConsole, classState, classPlayback} {
 		b := Budgets[c]
 		gate := "gated"
 		if !b.Gated {

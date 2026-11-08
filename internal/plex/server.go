@@ -88,9 +88,14 @@ type SessionToucher interface {
 type Deps struct {
 	// PlexEncoder optionally dispatches authenticated universal playback through
 	// the shared broker; nil preserves the existing local encoder path.
-	PlexEncoder         PlexEncoder
-	ArtworkImages       *artworkservice.RemoteCache
-	ArtworkPalettes     *artworkservice.PaletteCache
+	PlexEncoder     PlexEncoder
+	ArtworkImages   *artworkservice.RemoteCache
+	ArtworkPalettes *artworkservice.PaletteCache
+	// GeneratedPosters draws Ether's poster for a movie or show with no
+	// artwork; nil leaves such titles without a thumb.
+	GeneratedPosters interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 	SessionCoordination *sessions.Coordination
 	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []core.Title) []core.Title
@@ -321,6 +326,7 @@ func NewServer(d Deps) *Server {
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
+	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
 	s.queues.now = d.Now
@@ -336,7 +342,7 @@ func NewServer(d Deps) *Server {
 	if !d.DisableEnrichment && d.Catalog != nil {
 		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
 		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
-		s.titles = newTitleCache(s.titleJobs, s.now, s.log, d.Catalog.Get)
+		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
 		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key core.RatingKey, path string) (artworkservice.Palette, error) {
 			var art artworkservice.CollectionArt
 			if c, ok := s.d.Collections.(artworkservice.CollectionArt); ok {
@@ -344,6 +350,11 @@ func NewServer(d Deps) *Server {
 			}
 			return artworkservice.ComputeItemPalette(ctx, s.images, s.d.ImageURL, key, path, s.now(), art)
 		})
+	}
+	if p, ok := d.Catalog.(interface {
+		PersistsArtwork(context.Context, core.RatingKey) bool
+	}); ok && s.ultra != nil {
+		s.ultra.PersistFor(p.PersistsArtwork)
 	}
 	if d.ArtworkPalettes != nil {
 		s.ultra = d.ArtworkPalettes

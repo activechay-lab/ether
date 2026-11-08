@@ -322,6 +322,7 @@ func mergeShared(local Config, sharedJSON []byte) (Config, []string, error) {
 		return Config{}, nil, err
 	}
 	stripRetiredLiveTV(shared)
+	keepStoredAutoUpdate(shared)
 	settled := normalizeSharedDocument(shared)
 	base, _ := splitDoc(toDoc(Defaults("")))
 	overlayDeep(base, shared)
