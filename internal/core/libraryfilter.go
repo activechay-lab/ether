@@ -90,14 +90,30 @@ func WithCatalogViewer(ctx context.Context, u *User) context.Context {
 	if u == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, catalogViewerKey{}, u.ID)
+	return context.WithValue(ctx, catalogViewerKey{}, catalogViewer{id: u.ID, restricted: u.MaxContentRating != "" || len(u.AllowedSections) > 0})
 }
+
+type catalogViewer struct {
+	id         int64
+	restricted bool
+}
+
 func CatalogViewerID(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0
 	}
-	id, _ := ctx.Value(catalogViewerKey{}).(int64)
-	return id
+	v, _ := ctx.Value(catalogViewerKey{}).(catalogViewer)
+	return v.id
+}
+
+// CatalogViewerRestricted reports a catalogue viewer with a content rating
+// cap or section limits: catalogue rules fail closed for them.
+func CatalogViewerRestricted(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(catalogViewerKey{}).(catalogViewer)
+	return v.restricted
 }
 
 // WithCatalogCandidates gathers shared collection membership before viewer rules.

@@ -24,7 +24,10 @@ type fakeAddon struct {
 	mu     sync.Mutex
 	opened []string
 	fail   map[string]bool // answer 503, as an add-on whose import failed
-	delay  time.Duration   // time the add-on takes to prepare a release
+	// failFirst answers 503 for the first link opened, whichever it is:
+	// equally ranked releases may be tried in any order.
+	failFirst bool
+	delay     time.Duration // time the add-on takes to prepare a release
 }
 
 func newFakeAddon(t *testing.T) *fakeAddon {
@@ -36,7 +39,7 @@ func newFakeAddon(t *testing.T) *fakeAddon {
 		if !slices.Contains(a.opened, name) {
 			a.opened = append(a.opened, name)
 		}
-		fail, delay := a.fail[name], a.delay
+		fail, delay := a.fail[name] || (a.failFirst && a.opened[0] == name), a.delay
 		a.mu.Unlock()
 		if delay > 0 {
 			select {
@@ -103,7 +106,6 @@ func TestOnDemandAddonStreamsOpenOneLinkPerPlay(t *testing.T) {
 	play := func(s *Service, ctx context.Context) (*core.Resolution, error) {
 		return s.Resolve(ctx, core.ResolveRequest{Title: matrixTitle(), Client: webCaps()})
 	}
-	lead := ""
 	for _, race := range []int{0, 3} {
 		a := newFakeAddon(t)
 		s := addonResolver(t, a, func(c *config.Config) { c.Resolver.HealthRace = race })
@@ -114,22 +116,19 @@ func TestOnDemandAddonStreamsOpenOneLinkPerPlay(t *testing.T) {
 		if got := a.links(); len(got) != 1 || got[0] != res.Release.ID {
 			t.Fatalf("race %d: healthy play opened %v, want only %s", race, got, res.Release.ID)
 		}
-		if race == 0 {
-			// A health race picks whichever probe answers first, so only
-			// the ranked order names the lead the failover play opens.
-			lead = res.Release.ID
-		}
 	}
 
+	// The three releases rank equally, so which one leads is not fixed:
+	// fail whichever link opens first and expect exactly one more.
 	a := newFakeAddon(t)
-	a.fail[lead] = true
+	a.failFirst = true
 	s := addonResolver(t, a, nil)
 	res, err := play(s, context.Background())
-	if err != nil || res == nil || res.Release.ID == lead {
+	if err != nil || res == nil {
 		t.Fatalf("failover play: res=%+v err=%v", res, err)
 	}
-	if got := a.links(); !slices.Equal(got, []string{lead, res.Release.ID}) {
-		t.Fatalf("failover opened %v, want %s then %s", got, lead, res.Release.ID)
+	if got := a.links(); len(got) != 2 || got[1] != res.Release.ID || got[0] == res.Release.ID {
+		t.Fatalf("failover opened %v, want the failed lead then %s", got, res.Release.ID)
 	}
 
 	for name, ctx := range map[string]context.Context{

@@ -321,6 +321,73 @@ func (f *Filter) Hidden(t *core.Title) bool {
 	return f.fallback == "hide"
 }
 
+// Decidable reports whether every condition of every hide rule that applies
+// to t's type can be judged from t's own fields. A condition on an unknown
+// field (no certification, countries, genres...) answers "no match", so a
+// hide rule silently lets such a title through. An unknown field in a show
+// rule can only make a title hidden, never shown, so show rules don't count.
+// Callers that must fail closed (a restricted viewer's rules on a summary the
+// catalogue has no details for) drop titles that are not decidable.
+// Known/unknown conditions and vote counts (0 is a real value) are always
+// decidable.
+func (f *Filter) Decidable(t *core.Title) bool {
+	if f == nil || t == nil || (t.Type != core.TypeMovie && t.Type != core.TypeShow) {
+		return true
+	}
+	for _, g := range f.rules {
+		if g.action != "hide" || (g.typ != "mixed" && g.typ != string(t.Type)) {
+			continue
+		}
+		for _, c := range g.rules {
+			if c.op == "unknown" || c.op == "known" || c.field == "votes" {
+				continue
+			}
+			if !c.known(t) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// SQLUndecidable is Decidable's complement for catalog_titles AS t: true when
+// some condition of an applicable hide rule is on a field the row does not
+// know. "0=1" when every row is decidable.
+func (f *Filter) SQLUndecidable() string {
+	if f == nil {
+		return "0=1"
+	}
+	var parts []string
+	for _, g := range f.rules {
+		if g.action != "hide" {
+			continue
+		}
+		var unknown []string
+		for _, c := range g.rules {
+			if c.op == "unknown" || c.op == "known" || c.field == "votes" {
+				continue
+			}
+			if q := c.knownSQL(); q != "" {
+				unknown = append(unknown, "NOT ("+q+")")
+			}
+		}
+		if len(unknown) == 0 {
+			continue
+		}
+		q := "(" + strings.Join(unknown, " OR ") + ")"
+		if g.typ == "mixed" {
+			q = "(t.type IN ('movie','show') AND " + q + ")"
+		} else {
+			q = "(t.type='" + g.typ + "' AND " + q + ")"
+		}
+		parts = append(parts, q)
+	}
+	if len(parts) == 0 {
+		return "0=1"
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
 func (g rule) hit(t *core.Title) bool {
 	yes := g.match == "all"
 	for _, c := range g.rules {
