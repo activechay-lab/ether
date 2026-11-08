@@ -80,6 +80,11 @@ type relayProducer struct {
 	// hedge is a re-encode started beside a copy producer that is slow to
 	// cut its first segment; whichever cuts first becomes the producer.
 	hedge *relayHedge
+	// overlap is a producer started on the input's new format the moment
+	// the tap saw its program change, before the old producer could cut a
+	// mislabeled segment; formatGen is the program generation in use.
+	overlap   *relayHedge
+	formatGen uint64
 	// starving is set while a running copy producer is past its next
 	// segment with input flowing; producing while input flows and nothing
 	// is starving. The timeline reads both without locks.
@@ -247,10 +252,11 @@ func (p *relayProducer) close() {
 	p.closed = true
 	hls, cancel := p.hls, p.cancel
 	p.hls, p.cancel = nil, nil
-	hedge := p.hedge
-	p.hedge = nil
+	hedge, overlap := p.hedge, p.overlap
+	p.hedge, p.overlap = nil, nil
 	p.mu.Unlock()
 	hedge.close()
+	overlap.close()
 	if cancel != nil {
 		cancel()
 	}
@@ -366,6 +372,16 @@ func (p *relayProducer) run(ctx context.Context) {
 		}
 		h, healthy := p.s.inputHealth(p.sess.Load())
 		p.inputStalled.Store(healthy && (h.Stalled || h.Failed || h.Kind == "ts" && h.DataAge > time.Second))
+		if healthy && h.FormatGeneration != 0 {
+			switch {
+			case p.formatGen == 0:
+				p.formatGen = h.FormatGeneration
+			case h.FormatGeneration != p.formatGen:
+				p.formatGen = h.FormatGeneration
+				p.startOverlap(ctx)
+			}
+		}
+		p.expireOverlap()
 		if healthy && !h.Stalled && !h.Failed && h.DataAge < 2*time.Second {
 			if flowing.IsZero() {
 				flowing = now
@@ -488,6 +504,7 @@ type relayHedge struct {
 	hls    core.HLSSession
 	cancel context.CancelFunc
 	dec    core.Decision
+	at     time.Time
 }
 
 func (h *relayHedge) close() {
@@ -572,7 +589,36 @@ func hedgeCut(ctx context.Context, h *relayHedge) bool {
 func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 	p.mu.Lock()
 	p.reopened = time.Now()
-	info, cut, prev := p.info, p.cut, p.dec
+	cut := p.cut
+	overlap := p.overlap
+	p.overlap = nil
+	p.mu.Unlock()
+	info, dec := p.reopenPlan(f)
+	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec, "overlapped", overlap != nil && overlap.dec.VideoCopy == dec.VideoCopy && overlap.dec.AudioCopy == dec.AudioCopy)
+	if overlap != nil {
+		if overlap.dec.VideoCopy == dec.VideoCopy && overlap.dec.AudioCopy == dec.AudioCopy {
+			// Started when the program changed: its first segment is
+			// already cut, ready at the splice.
+			if err := p.adopt(overlap.id, overlap.hls, overlap.cancel, info, overlap.dec, cut); err != nil {
+				overlap.close()
+			}
+			return
+		}
+		overlap.close()
+	}
+	sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := p.start(sctx, info, dec, cut, true); err != nil {
+		p.log.Warn("owned relay reopen failed", Diagnose("relay_reopen", err).LogAttrs()...)
+		p.recover(ctx, "reopen failed")
+	}
+}
+
+// reopenPlan is the producer's input and decision for the source's new
+// format.
+func (p *relayProducer) reopenPlan(f mediaFormat) (core.MediaInfo, core.Decision) {
+	p.mu.Lock()
+	info, prev := p.info, p.dec
 	prevAudio := prev.AudioCodec
 	if prev.AudioCopy {
 		prevAudio = ""
@@ -613,13 +659,51 @@ func (p *relayProducer) reopen(ctx context.Context, f mediaFormat) {
 			dec = next
 		}
 	}
-	p.log.Warn("owned relay reopening for the source's new format", "format", f.String(), "audio_copy", dec.AudioCopy, "audio_codec", dec.AudioCodec)
-	sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	if err := p.start(sctx, info, dec, cut, true); err != nil {
-		p.log.Warn("owned relay reopen failed", Diagnose("relay_reopen", err).LogAttrs()...)
-		p.recover(ctx, "reopen failed")
+	return info, dec
+}
+
+// startOverlap starts a producer on the input's new program as soon as the
+// tap sees it change, with the current decision (copy stays codec-agnostic).
+// The old producer keeps publishing until its first mislabeled segment;
+// reopen then adopts this one if the new format keeps the same decision.
+func (p *relayProducer) startOverlap(ctx context.Context) {
+	p.mu.Lock()
+	info, dec, cut, busy := p.info, p.dec, p.cut, p.overlap != nil || p.closed
+	p.mu.Unlock()
+	if busy {
+		return
 	}
+	sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	id, hls, hcancel, err := p.launch(sctx, info, dec, cut, true)
+	if err != nil {
+		p.log.Warn("owned relay could not overlap a program change", Diagnose("relay_overlap", err).LogAttrs()...)
+		return
+	}
+	p.mu.Lock()
+	if p.closed || p.overlap != nil {
+		p.mu.Unlock()
+		hcancel()
+		hls.Close()
+		return
+	}
+	p.overlap = &relayHedge{id: id, hls: hls, cancel: hcancel, dec: dec, at: time.Now()}
+	p.mu.Unlock()
+	p.log.Info("owned relay started a producer on the input's new program", "producer", id)
+}
+
+// expireOverlap retires an overlap that no codec change followed (a program
+// change the old producer copes with, such as new PIDs).
+func (p *relayProducer) expireOverlap() {
+	p.mu.Lock()
+	o := p.overlap
+	if o == nil || time.Since(o.at) < 10*time.Second || p.reformat != nil {
+		p.mu.Unlock()
+		return
+	}
+	p.overlap = nil
+	p.mu.Unlock()
+	o.close()
 }
 
 // damageCheckable limits the per-segment decode check to pictures it can

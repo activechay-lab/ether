@@ -61,6 +61,11 @@ func budget(fastest, balanced, rocksolid float64, silence float64) map[string]li
 	}
 }
 
+func withAC3(c providerConfig, fixture string) providerConfig {
+	c.AC3 = fixture
+	return c
+}
+
 func hlsSource(faults ...liveFault) providerConfig {
 	return providerConfig{Name: "primary", HLS: true, Backlog: 6, Faults: faults}
 }
@@ -108,6 +113,10 @@ func liveMatrix() []liveScenario {
 		{Name: "ts-codec-ac3-nobump", Summary: "Audio AAC->AC3, same PID, no PMT version bump", Source: tsSource(at(faultCodecAC3Same, 0, 0)), Modes: []string{"relay-copy", "steady"}, Budget: format, Recoverable: true},
 		{Name: "hls-codec-ac3-untagged", Summary: "Provider HLS switches AAC->AC3 without EXT-X-DISCONTINUITY", Source: hlsSource(at(faultCodecAC3, 0, 0)), Modes: []string{"passthrough", "steady"}, Budget: format, Recoverable: true},
 		{Name: "hls-codec-ac3-tagged", Summary: "Provider HLS switches AAC->AC3 with EXT-X-DISCONTINUITY", Source: withDisc(hlsSource(at(faultCodecAC3, 0, 0))), Modes: []string{"passthrough"}, Budget: format, Recoverable: true},
+		{Name: "ts-codec-ac3-pmt-51", Summary: "Audio AAC stereo->AC3 5.1, same PID, PMT version bumped", Source: withAC3(tsSource(at(faultCodecAC3, 0, 0)), "ac3-51"), Modes: allTS, Budget: format, Recoverable: true},
+		{Name: "ts-codec-ac3-nobump-51", Summary: "Audio AAC stereo->AC3 5.1, same PID, no PMT version bump", Source: withAC3(tsSource(at(faultCodecAC3Same, 0, 0)), "ac3-51"), Modes: []string{"relay-copy", "steady"}, Budget: format, Recoverable: true},
+		{Name: "hls-codec-ac3-untagged-51", Summary: "Provider HLS switches AAC stereo->AC3 5.1 without EXT-X-DISCONTINUITY", Source: withAC3(hlsSource(at(faultCodecAC3, 0, 0)), "ac3-51"), Modes: []string{"passthrough", "steady"}, Budget: format, Recoverable: true},
+		{Name: "hls-codec-ac3-tagged-51", Summary: "Provider HLS switches AAC stereo->AC3 5.1 with EXT-X-DISCONTINUITY", Source: withAC3(withDisc(hlsSource(at(faultCodecAC3, 0, 0))), "ac3-51"), Modes: []string{"passthrough"}, Budget: format, Recoverable: true},
 		{Name: "ts-resolution", Summary: "Video 640x360 -> 1280x720 mid-stream", Source: tsSource(at(faultResolution, 0, 0)), Modes: []string{"relay-copy", "steady"}, Budget: format, Recoverable: true},
 		{Name: "hls-resolution-untagged", Summary: "Provider HLS 640x360 -> 1280x720 without a tag", Source: hlsSource(at(faultResolution, 0, 0)), Modes: []string{"passthrough"}, Budget: format, Recoverable: true},
 		{Name: "ts-clock-jump", Summary: "Timestamps jump +5000 s", Source: tsSource(at(faultClockJump, 0, 0)), Modes: []string{"relay-copy", "steady"}, Budget: format, Recoverable: true},

@@ -29,6 +29,7 @@ type liveVariant struct {
 	Seconds  int // loop period
 	SegFrame int // frames per segment
 	Audio    string
+	Channels int // audio channels (default 2)
 	// Sync adds a lip-sync pulse every whole second of fixture time: a white
 	// flash in a black box in the bottom-right corner for 3 frames, and a
 	// 100 ms 3 kHz beep starting at the same instant over the 440 Hz tone.
@@ -42,6 +43,7 @@ var liveVariants = map[string]liveVariant{
 	"ac3":     {Name: "ac3", Size: "640x360", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "ac3"},
 	"hd":      {Name: "hd", Size: "1280x720", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "aac"},
 	"longgop": {Name: "longgop", Size: "640x360", GOP: 300, Seconds: 80, SegFrame: 300, Audio: "aac"},
+	"ac3-51":  {Name: "ac3-51", Size: "640x360", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "ac3", Channels: 6},
 	"sync":    {Name: "sync", Size: "640x360", GOP: 60, Seconds: 64, SegFrame: 120, Audio: "aac", Sync: true},
 }
 
@@ -63,8 +65,9 @@ func loadLiveFixture(ctx context.Context, ff, cacheDir string, v liveVariant) (*
 	fixtureMu.Lock()
 	defer fixtureMu.Unlock()
 	audio := []string{"-c:a", "aac", "-b:a", "128k"}
+	channels := max(v.Channels, 2)
 	if v.Audio == "ac3" {
-		audio = []string{"-c:a", "ac3", "-b:a", "192k"}
+		audio = []string{"-c:a", "ac3", "-b:a", map[bool]string{true: "384k", false: "192k"}[channels > 2]}
 	}
 	frames := v.Seconds * liveFPS
 	video := fmt.Sprintf("testsrc2=size=%s:rate=%d,drawbox=x=0:y=0:w=iw:h=ih/12:color=0x00FF00:t=fill", v.Size, liveFPS)
@@ -82,7 +85,7 @@ func loadLiveFixture(ctx context.Context, ff, cacheDir string, v liveVariant) (*
 		"-g", fmt.Sprint(v.GOP), "-keyint_min", fmt.Sprint(v.GOP), "-sc_threshold", "0", "-b:v", "1200k", "-maxrate", "1500k", "-bufsize", "3000k",
 	}
 	args = append(args, audio...)
-	args = append(args, "-ac", "2", "-ar", "48000", "-streamid", "0:256", "-streamid", "1:257", "-f", "mpegts", "-pes_payload_size", "0")
+	args = append(args, "-ac", fmt.Sprint(channels), "-ar", "48000", "-streamid", "0:256", "-streamid", "1:257", "-f", "mpegts", "-pes_payload_size", "0")
 	version, _ := mediaprocOutput(ctx, ff, "-version")
 	sum := sha256.Sum256([]byte(strings.Join(args, "\x00") + "\x00" + firstLine(version)))
 	dir := filepath.Join(cacheDir, "live-fixtures")
