@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -80,12 +81,15 @@ type providerStats struct {
 }
 
 type liveProvider struct {
-	cfg      providerConfig
-	server   *httptest.Server
-	url      string
-	started  time.Time
-	fixtures map[string]*liveFixture
-	base     *liveFixture
+	// corruptAfter is an explicitly armed fault for the capacity-release row.
+	// It affects newly produced segments only; configuration stays immutable.
+	corruptAfter atomic.Int64
+	cfg          providerConfig
+	server       *httptest.Server
+	url          string
+	started      time.Time
+	fixtures     map[string]*liveFixture
+	base         *liveFixture
 
 	mu       sync.Mutex
 	produced map[int64][]byte
@@ -167,6 +171,9 @@ func (p *liveProvider) liveEdge(elapsed time.Duration) int64 {
 }
 
 func (p *liveProvider) active(kind string, at time.Duration) (liveFault, bool) {
+	if when := p.corruptAfter.Load(); kind == faultCorrupt && when > 0 && at >= time.Duration(when) {
+		return liveFault{Kind: kind, At: time.Duration(when)}, true
+	}
 	for _, f := range p.cfg.Faults {
 		if f.Kind != kind || at < f.At {
 			continue

@@ -36,6 +36,9 @@ const (
 
 func runHistoryRow(parent context.Context, o liveOptions, row liveRow, fixtures map[string]*liveFixture, player, work string) (res liveResult) {
 	sc := row.Scenario
+	if sc.WS3 == "handoff" {
+		return runHandoffRow(parent, o, row, fixtures, player, work)
+	}
 	res = liveResult{ID: row.ID(), Scenario: sc.Name, Summary: sc.Summary, Mode: row.Mode, Preset: o.Preset, Verdict: "FAIL"}
 	wall := time.Now()
 	res.HostLoad[0] = hostLoad()
