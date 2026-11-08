@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -239,13 +240,7 @@ func (s *State) DeleteHistory(ctx context.Context, userID, id int64) error {
 
 // WithHistoryTitle retains the display identity if the catalog item is later removed.
 func WithHistoryTitle(ctx context.Context, t *core.Title) context.Context {
-	if t == nil {
-		return ctx
-	}
-	snapshot := *t
-	origin := originFrom(ctx)
-	origin.HistoryTitle = &snapshot
-	return WithOrigin(ctx, origin)
+	return frontend.WithHistoryTitle(ctx, t)
 }
 func historySnapshot(ctx context.Context) string {
 	title := originFrom(ctx).HistoryTitle

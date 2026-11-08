@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -132,22 +133,12 @@ type Event struct {
 }
 
 // Origin identifies the surface and client that made a watch-state change.
-type Origin struct {
-	HistoryTitle        *core.Title
-	Surface             core.Protocol
-	SessionID, ClientID string
-	DeviceID            int64
-}
-type originKey struct{}
+type Origin = frontend.WatchOrigin
 
-// WithOrigin attaches the authenticated request origin to committed events.
 func WithOrigin(ctx context.Context, origin Origin) context.Context {
-	return context.WithValue(ctx, originKey{}, origin)
+	return frontend.WithWatchOrigin(ctx, origin)
 }
-func originFrom(ctx context.Context) Origin {
-	origin, _ := ctx.Value(originKey{}).(Origin)
-	return origin
-}
+func originFrom(ctx context.Context) Origin { return frontend.WatchOriginFrom(ctx) }
 
 // Options tune a State. Now is injectable for tests.
 type Options struct {
@@ -728,7 +719,7 @@ func unixTime(ns int64) time.Time {
 // timeout is held and written later (see Options.Availability); it then
 // returns nil.
 func (s *State) Progress(ctx context.Context, userID int64, key core.RatingKey, offset, duration time.Duration, state string) error {
-	if skip, _ := ctx.Value(plexSkipKey{}).(bool); skip {
+	if skip := frontend.TimelineStored(ctx); skip {
 		return nil
 	}
 	if offset < 0 {

@@ -39,7 +39,6 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 		"github.com/braedonsaunders/ether/internal/plex/model":             true,
 		"github.com/braedonsaunders/ether/internal/plexguid":               true,
 		"github.com/braedonsaunders/ether/internal/sessions":               true,
-		"github.com/braedonsaunders/ether/internal/state":                  true,
 		"github.com/braedonsaunders/ether/internal/store":                  true,
 		"github.com/braedonsaunders/ether/internal/subtitles":              true,
 		"github.com/braedonsaunders/ether/internal/tmdb":                   true,
