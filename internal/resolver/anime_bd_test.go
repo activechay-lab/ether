@@ -95,4 +95,16 @@ func TestAnimeMultiCourResolveAndReject(t *testing.T) {
 	if reason := rejectIdentity(withParsed(part2Ep1), &titleEp1, sreqEp1, ""); reason != "season/episode mismatch" {
 		t.Fatalf("expected Part 2 Episode 1 to be rejected for S01E01, got %q", reason)
 	}
+	mapped := svc.searchRequest(context.Background(), titleEp13)
+	firstCour := withParsed(part1Ep1).Info
+	firstCour.Episodes = []int{13}
+	if episodeMatchesRequest(firstCour, mapped) {
+		t.Fatal("first cour matched an episode mapped to the second cour")
+	}
+	pack := withParsed(part2Ep1)
+	pack.Info.FullSeason = true
+	pack.Info.Episodes = []int{1, 2}
+	if reason := rejectIdentity(pack, titleEp13, mapped, ""); reason != "" {
+		t.Fatalf("mapped cour episode range rejected: %s", reason)
+	}
 }

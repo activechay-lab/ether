@@ -1710,8 +1710,12 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 			if rel.Protocol != core.ProtocolTorrent && rel.Protocol != core.ProtocolUsenet {
 				return "season pack (skipped in v1)"
 			}
+			packEpisode := sreq.Episode
+			if rel.Info.Cour > 0 && rel.Info.Cour == sreq.Cour && sreq.CourEpisode > 0 {
+				packEpisode = sreq.CourEpisode
+			}
 			if !packCoversSeasonCour(rel.Info, sreq) ||
-				(len(rel.Info.Episodes) > 0 && !slices.Contains(rel.Info.Episodes, sreq.Episode)) {
+				(len(rel.Info.Episodes) > 0 && !slices.Contains(rel.Info.Episodes, packEpisode)) {
 				return "season/episode mismatch"
 			}
 		} else if miniseriesPart > 0 {
@@ -1746,6 +1750,9 @@ func episodeTitleMatchesRelease(rel core.Release, want string) bool {
 }
 
 func episodeMatchesRequest(info core.ReleaseInfo, sreq core.SearchRequest) bool {
+	if info.Cour == 1 && sreq.Cour > 1 {
+		return false
+	}
 	if info.Cour > 1 {
 		if sreq.Cour == info.Cour && sreq.CourEpisode > 0 && releaseparse.EpisodeMatches(info, sreq.Season, sreq.CourEpisode) {
 			return true
