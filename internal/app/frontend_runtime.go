@@ -326,7 +326,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		srv.UsePlexStreams(sessions.BindPlexStreams(r.broker))
 		srv.UsePlexEncoder(r.broker)
 		return srv, nil
-	}, WatchState: a.state, ExplicitWatchOnly: cfg.Spike.Enabled, StatusFunc: r.plexStatus, ListenersFunc: r.plexListeners}); err != nil {
+	}, WatchRefresh: experiencepkg.BindWatchRefresh(a.state), ExplicitWatchOnly: cfg.Spike.Enabled, StatusFunc: r.plexStatus, ListenersFunc: r.plexListeners}); err != nil {
 		return nil, err
 	}
 	if err := r.registry.Register(mediabrowser.Jellyfin{MachineID: cfg.Server.MachineIdentifier}); err != nil {

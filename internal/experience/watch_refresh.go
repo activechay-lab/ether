@@ -1,11 +1,23 @@
-package plex
+package experience
 
 import (
 	"sync"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/state"
 )
+
+// BindWatchRefresh exposes committed watch changes without leaking state event
+// types into a frontend. Each mount owns its subscription and close fence.
+func BindWatchRefresh(watch *state.State) frontend.WatchRefreshSubscriber {
+	if watch == nil {
+		return nil
+	}
+	return func(refresh func(int64, core.RatingKey), explicitOnly bool) func() {
+		return subscribeWatchRefresh(watch, refresh, explicitOnly)
+	}
+}
 
 // State emits only after committing, including deferred cluster writes. Do not
 // refresh the library on every playing heartbeat: it churns recommendation rows

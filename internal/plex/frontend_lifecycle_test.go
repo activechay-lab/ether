@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -24,7 +25,7 @@ func TestFrontendWatchSubscriptionFollowsMount(t *testing.T) {
 	ctx := context.Background()
 	watch := state.New(store.OpenTest(t), state.Options{})
 	defer watch.Close(ctx)
-	adapter := Frontend{Server: f.srv, WatchState: watch}
+	adapter := Frontend{Server: f.srv, WatchRefresh: experience.BindWatchRefresh(watch)}
 	sub, ok := f.srv.notifier.subscribe([]string{"timeline"}, &ownerUser)
 	if !ok {
 		t.Fatal("notification subscription failed")
