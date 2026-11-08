@@ -9,6 +9,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/handles/capability"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 const deliveryNamespace = "sessions.delivery"
@@ -39,6 +40,33 @@ func reserveDeliveryToken(ctx context.Context, db *sql.DB) (int64, error) {
 		return 0, err
 	}
 	return token, nil
+}
+
+// deliveryTokenKeep is how many of the newest delivery tokens Prune keeps.
+// A token is checked only when its own session publishes, and sessions have
+// no fixed lifetime, so retention counts later plays instead of time: a
+// session would have to outlive 100,000 newer plays to lose its token. A
+// token row is one integer, so the kept window costs about a megabyte.
+const deliveryTokenKeep = 100_000
+
+// Prune deletes delivery tokens older than the newest deliveryTokenKeep,
+// except tokens a delivery authority row still names, and reports the rows
+// removed. Ordering never depends on deleted rows: ids come from an
+// AUTOINCREMENT key (a sequence on PostgreSQL) that never reuses a value,
+// and the newest row is always kept.
+func (b *Broker) Prune(ctx context.Context) (int64, error) {
+	if b == nil || b.deps.DB == nil {
+		return 0, nil
+	}
+	return pruneDeliveryTokens(ctx, b.deps.DB, deliveryTokenKeep)
+}
+
+func pruneDeliveryTokens(ctx context.Context, db *sql.DB, keep int64) (int64, error) {
+	var newest int64
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id),0) FROM sessions_delivery_tokens`).Scan(&newest); err != nil || newest <= keep {
+		return 0, err
+	}
+	return store.PruneBatched(ctx, db, `DELETE FROM sessions_delivery_tokens WHERE id IN (SELECT id FROM sessions_delivery_tokens WHERE id<=? AND id NOT IN (SELECT token FROM sessions_delivery_authority) ORDER BY id LIMIT ?)`, newest-keep)
 }
 
 func (b *Broker) bindDeliveryAuthority(ctx context.Context, s *brokerSession, ps *core.PlaySession) error {
