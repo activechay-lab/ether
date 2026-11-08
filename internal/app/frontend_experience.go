@@ -300,15 +300,6 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 				}
 				result.Versions = append(result.Versions, frontendVersion(title, version))
 			}
-			if len(versions) > 0 {
-				ledger, e := experience.NewFirstObservedLedger(a.db)
-				if e == nil {
-					e = observeVersionOffers(ctx, ledger, title.Key, versions, result.Versions, time.Now())
-				}
-				if e != nil {
-					a.log.Warn("version observation unavailable", "err", e)
-				}
-			}
 			var markerSource experience.MarkerSource
 			if a.markers != nil {
 				markerSource = a.markers
