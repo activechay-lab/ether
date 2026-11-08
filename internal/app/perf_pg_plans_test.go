@@ -265,7 +265,7 @@ func plansSeedStatistics(t *testing.T, ctx context.Context, db *sql.DB, s perfha
 			plansEmpty[table] = true
 			continue
 		}
-		factor := 1.0
+		var factor float64
 		switch {
 		case strings.HasPrefix(table, "catalog_") && !strings.Contains(table, "tally") && !strings.HasPrefix(table, "catalog_meta"):
 			factor = catalogue
