@@ -95,10 +95,16 @@ func generate(ctx context.Context, db *sql.DB, s Scale, now time.Time, live bool
 	// TMDB's keyword and company vocabularies, as LongTailTMDB draws them.
 	g.keywordPool = rand.NewZipf(rng, 1.05, 1, 30_000)
 	g.studioPool = rand.NewZipf(rng, 1.05, 1, 40_000)
-	restore := func() error { return nil }
+	restore, reindex := func() error { return nil }, func() error { return nil }
 	if !live {
 		var err error
 		if restore, err = suspendTriggers(ctx, db, fixtureTriggerTables...); err != nil {
+			return err
+		}
+		// A bulk load: the secondary indexes are set aside and built once
+		// from the loaded rows, which is several times faster than keeping
+		// 37 indexes of catalog_titles in step row by row.
+		if reindex, err = setAsideIndexes(ctx, db, fixtureTriggerTables...); err != nil {
 			return err
 		}
 	}
@@ -109,6 +115,9 @@ func generate(ctx context.Context, db *sql.DB, s Scale, now time.Time, live bool
 		return fmt.Errorf("ratings: %w", err)
 	}
 	if !live {
+		if err := reindex(); err != nil {
+			return fmt.Errorf("indexes: %w", err)
+		}
 		if err := rebuildDerived(ctx, db); err != nil {
 			return fmt.Errorf("rebuild: %w", err)
 		}
@@ -164,6 +173,46 @@ func rebuildDerived(ctx context.Context, db *sql.DB) error {
 	}
 	// The library totals, the dashboard tally and the per-series ratings.
 	return catalog.RebuildLibraryCounts(ctx, db)
+}
+
+// setAsideIndexes drops the explicit indexes on tables (primary keys and
+// unique constraints stay) and returns a function that recreates them.
+func setAsideIndexes(ctx context.Context, db *sql.DB, tables ...string) (func() error, error) {
+	in := strings.TrimSuffix(strings.Repeat("?,", len(tables)), ",")
+	args := make([]any, len(tables))
+	for i, t := range tables {
+		args[i] = t
+	}
+	rows, err := db.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND tbl_name IN (`+in+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	var names, defs []string
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		names, defs = append(names, name), append(defs, def)
+	}
+	rows.Close()
+	for _, name := range names {
+		if _, err := db.ExecContext(ctx, `DROP INDEX "`+name+`"`); err != nil {
+			return nil, err
+		}
+	}
+	return func() error {
+		for _, def := range defs {
+			if _, err := db.ExecContext(ctx, def); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
 }
 
 // suspendTriggers drops the triggers on tables and returns a function that
@@ -506,10 +555,15 @@ func (g *generator) ratings() error {
 		WHERE type IN ('season','episode') AND content_rating=''`); err != nil {
 		return err
 	}
+	// Every rated title's rank, in one pass over the titles.
+	var cases strings.Builder
+	var args []any
 	for _, r := range []string{"G", "PG", "PG-13", "R", "TV-G", "TV-PG", "TV-14", "TV-MA"} {
-		if _, err := g.db.ExecContext(g.ctx, `UPDATE catalog_titles SET content_rating_rank=? WHERE content_rating=?`, int(contentrating.LevelOf(r)), r); err != nil {
-			return err
-		}
+		cases.WriteString(" WHEN ? THEN ?")
+		args = append(args, r, int(contentrating.LevelOf(r)))
+	}
+	if _, err := g.db.ExecContext(g.ctx, `UPDATE catalog_titles SET content_rating_rank=CASE content_rating`+cases.String()+` END WHERE content_rating IN ('G','PG','PG-13','R','TV-G','TV-PG','TV-14','TV-MA')`, args...); err != nil {
+		return err
 	}
 	return nil
 }
