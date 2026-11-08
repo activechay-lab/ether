@@ -113,6 +113,9 @@ type builder struct {
 	prio           core.Priority
 	fo             fetchOpts
 	candidateReady func([]*postedFile)
+	// memberISOs are the other disc images of the archive planFor just planned,
+	// the further discs of a multi-disc release.
+	memberISOs []*plan
 }
 
 // candidate is something that may hold the main video.
@@ -148,12 +151,13 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		b.candidateReady(cands[0].files)
 	}
 	var firstErr error
-	for _, c := range cands {
+	for i, c := range cands {
+		b.memberISOs = nil
 		p, err := b.planFor(ctx, c)
 		if err == nil && isISOName(p.name) {
 			// A disc image, plain, split or inside an archive: play its
-			// main feature, not the image.
-			p, err = b.expandISO(ctx, p)
+			// main feature, not the image. Further discs of the release join it.
+			p, err = b.expandISO(ctx, p, b.isoSiblings(ctx, cands, i))
 		}
 		if err == nil {
 			b.e.log.Debug("stream plan", "kind", p.kind, "name", p.name, "size", p.size, "volumes", len(p.vols))
