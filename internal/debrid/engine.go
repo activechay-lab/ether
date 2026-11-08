@@ -98,6 +98,7 @@ type Engine struct {
 	// limit caps connections per media host across both owned transports;
 	// backoff spaces requests to a host whose connections keep failing.
 	limit   *connCap
+	gate    *hostGate
 	backoff *hostBackoff
 
 	ctx    context.Context
@@ -214,6 +215,8 @@ func NewEngine(svc *Service, opts EngineOptions) *Engine {
 	}
 	limit.log = e.log
 	e.limit = limit
+	e.gate = newHostGate(limit)
+	e.gate.log = e.log
 	e.backoff = newHostBackoff(e.log)
 	if e.now == nil {
 		e.now = time.Now
@@ -877,12 +880,23 @@ func (f *remoteFile) finish(idx int64, fl *blockFlight, data []byte, err error, 
 // fetchRun reads blocks [first, first+len(fls)) with one range request,
 // publishing each block as soon as its bytes arrive.
 func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlight, mode fetchMode, slotHeld bool) {
-	reqCtx := ctx
+	// reqCtx ends when the run is abandoned; httpCtx carries its request.
+	// They differ for background runs, which keep a nearly finished
+	// response going so its connection survives the seek that displaced it.
+	reqCtx, httpCtx := ctx, ctx
+	var remaining atomic.Int64 // response bytes still unread; -1 before the body
+	remaining.Store(-1)
 	if mode == fetchReadAhead || mode == fetchPrefetch {
-		var stop context.CancelFunc
+		var stop, cancelHTTP context.CancelFunc
 		reqCtx, stop = f.yieldCtx(ctx)
 		defer stop()
+		httpCtx, cancelHTTP = context.WithCancel(context.WithoutCancel(ctx))
+		finished := make(chan struct{})
+		defer cancelHTTP()
+		defer close(finished)
+		go f.keepWarmOnYield(reqCtx, finished, &remaining, cancelHTTP)
 	}
+	httpCtx = context.WithValue(httpCtx, fetchModeKey{}, mode)
 	i := 0
 	fail := func(err error) {
 		if reqCtx.Err() != nil {
@@ -918,7 +932,10 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 	start := first * f.e.block
 	end := min((first+int64(len(fls)))*f.e.block, f.size) - 1
 	began := f.e.now()
-	body, tm, err := f.rangeGet(reqCtx, start, end, mode == fetchUrgent || mode == fetchDurable)
+	body, tm, err := f.rangeGet(httpCtx, start, end, mode == fetchUrgent || mode == fetchDurable)
+	if err == nil {
+		remaining.Store(end + 1 - start)
+	}
 	if err == nil && isAnalysisRead(reqCtx) {
 		body = &analysisBody{ReadCloser: body, counters: &f.analysis, totals: &f.e.svc.analysisTotals, ctx: reqCtx}
 	}
@@ -959,7 +976,7 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 				_, gen := f.payload()
 				f.moveFromHost(reqCtx, gen)
 			}
-			body, tm, err = f.rangeGet(reqCtx, idx*f.e.block, end, mode == fetchUrgent || mode == fetchDurable)
+			body, tm, err = f.rangeGet(httpCtx, idx*f.e.block, end, mode == fetchUrgent || mode == fetchDurable)
 			if err != nil {
 				break
 			}
@@ -975,6 +992,7 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 			break
 		}
 		got += int64(len(buf))
+		remaining.Store(max(0, end+1-(idx*f.e.block+int64(len(buf)))))
 		f.e.stats.fetched.Add(1)
 		f.e.stats.bytes.Add(int64(len(buf)))
 		if mode == fetchPrefetch || mode == fetchDurable {
@@ -995,6 +1013,61 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 	}
 	p, _ := f.payload()
 	f.e.svc.RecordStream(p.Provider, tm.connect, tm.ttfb, got, elapsed)
+}
+
+// A background run displaced by a seek reads its last bytes, up to about a
+// quarter second of transfer, when that is all that stands between its
+// connection and the idle pool: the seek's own request then reuses a warm
+// connection instead of paying a new TCP and TLS handshake to the CDN (or
+// waiting under the host cap for a slot). Anything longer is cut off at
+// once, as before, so it never competes with the seek for bandwidth.
+const (
+	minYieldDrainBytes = 1 << 20
+	maxYieldDrainBytes = 4 << 20
+	yieldDrainWait     = 750 * time.Millisecond
+)
+
+type fetchModeKey struct{}
+
+// gateUrgent reports whether a viewer is waiting on the request ctx carries:
+// a foreground read that is not, or is no longer, a warm-up or analysis.
+func gateUrgent(ctx context.Context) bool {
+	mode, ok := ctx.Value(fetchModeKey{}).(fetchMode)
+	if !ok {
+		return true
+	}
+	return (mode == fetchUrgent || mode == fetchDurable || mode == fetchMetadata) && !core.IsSpeculative(ctx) && !isAnalysisRead(ctx)
+}
+
+func (f *remoteFile) yieldDrainBytes() int64 {
+	f.bmu.Lock()
+	tput := f.tput
+	f.bmu.Unlock()
+	return min(int64(maxYieldDrainBytes), max(int64(minYieldDrainBytes), int64(tput/4)))
+}
+
+// keepWarmOnYield ends an abandoned background run's request, unless only a
+// short remainder is left: that is read to the end (and published), so the
+// connection goes back to the pool instead of being torn down mid-response.
+func (f *remoteFile) keepWarmOnYield(abandoned context.Context, finished <-chan struct{}, remaining *atomic.Int64, cancel context.CancelFunc) {
+	select {
+	case <-abandoned.Done():
+	case <-finished:
+		return
+	}
+	if rem := remaining.Load(); rem < 0 || rem > f.yieldDrainBytes() || f.ctx.Err() != nil {
+		cancel()
+		return
+	}
+	t := time.NewTimer(yieldDrainWait)
+	defer t.Stop()
+	select {
+	case <-finished:
+	case <-t.C:
+		cancel()
+	case <-f.ctx.Done():
+		cancel()
+	}
 }
 
 func (f *remoteFile) isRateLimited() bool {
@@ -1327,9 +1400,16 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 			return false
 		}
 	}
-	send := func(c context.Context, hc *http.Client, w *connWatch) (*http.Response, timing, error) {
+	// Owned CDN pools also queue on the host gate (add-on links use the
+	// SSRF-guarded clients, which the gate does not cover).
+	addr := ""
+	if _, direct := ctx.Value(directKey{}).(Payload); !direct {
+		addr = dialAddr(u)
+	}
+	priority := func() bool { return gateUrgent(ctx) }
+	send := func(c context.Context, hc *http.Client, w *connWatch, host func()) (*http.Response, timing, error) {
 		var once sync.Once
-		release := func() { once.Do(func() { <-slots }) }
+		release := func() { once.Do(func() { host(); <-slots }) }
 		c, stop := context.WithCancel(c)
 		resp, tm, err := e.send(c, hc, u, start, end, w)
 		if err != nil {
@@ -1343,8 +1423,13 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	if !acquire(true) {
 		return nil, timing{}, ctx.Err()
 	}
+	host, err := e.gate.acquire(ctx, addr, priority)
+	if err != nil {
+		<-slots
+		return nil, timing{}, err
+	}
 	if !urgent || e.delay < 0 {
-		return send(ctx, e.hc, nil)
+		return send(ctx, e.hc, nil, host)
 	}
 	type result struct {
 		resp   *http.Response
@@ -1355,11 +1440,11 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	}
 	results := make(chan result, 2)
 	var cancels []context.CancelFunc
-	launch := func(hc *http.Client, hedge bool, w *connWatch) {
+	launch := func(hc *http.Client, hedge bool, w *connWatch, host func()) {
 		rctx, cancel := context.WithCancel(ctx)
 		cancels = append(cancels, cancel)
 		go func() {
-			resp, tm, err := send(rctx, hc, w)
+			resp, tm, err := send(rctx, hc, w, host)
 			if err == nil && resp.StatusCode/100 == 2 {
 				br := newPeekBody(resp.Body)
 				if _, perr := br.peek(); perr != nil && perr != io.EOF {
@@ -1377,7 +1462,7 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	// another handshake to the same slow edge: wait for the primary's
 	// connection, then give it the full hedge delay.
 	watch := newConnWatch()
-	launch(e.hc, false, watch)
+	launch(e.hc, false, watch, host)
 	timer := time.NewTimer(e.delay)
 	defer timer.Stop()
 	pending, hedged := 1, false
@@ -1386,8 +1471,13 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	tryHedge := func() {
 		hedged = true
 		if ctx.Err() == nil && e.limit.hedgeAllowed(dialAddr(u)) && acquire(false) {
+			hedgeHost, ok := e.gate.tryAcquire(addr)
+			if !ok {
+				<-slots
+				return
+			}
 			e.stats.hedges.Add(1)
-			launch(e.hedge, true, nil)
+			launch(e.hedge, true, nil, hedgeHost)
 			pending++
 		}
 	}

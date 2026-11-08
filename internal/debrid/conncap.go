@@ -179,3 +179,166 @@ func (c *cappedConn) Close() error {
 	c.once.Do(c.release)
 	return err
 }
+
+// current is addr's effective cap and, while it is reduced, when the
+// reduction ends.
+func (c *connCap) current(addr string) (int, time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.limitLocked(addr)
+}
+
+// hostGate admits media requests to a host up to its connection cap, held
+// until the response body is closed. The dial cap alone cannot order
+// waiters: the transport hands a connection that turns idle to whichever
+// request asked first, so a queued read-ahead could take it ahead of the
+// playback read that is stalling a viewer. The gate decides instead: a
+// waiting urgent read goes before every queued read-ahead and prefetch,
+// and requests of equal priority keep their order.
+type hostGate struct {
+	limit func(addr string) (int, time.Time)
+	now   func() time.Time
+	log   *slog.Logger
+
+	mu      sync.Mutex
+	busy    map[string]int
+	waiters map[string][]*gateWaiter
+}
+
+type gateWaiter struct {
+	urgent  func() bool // evaluated at grant time: a warm-up can turn into Play
+	ready   chan struct{}
+	granted bool
+}
+
+func newHostGate(c *connCap) *hostGate {
+	return &hostGate{limit: c.current, now: func() time.Time { return c.now() }, busy: map[string]int{}, waiters: map[string][]*gateWaiter{}}
+}
+
+// acquire waits for a request slot to addr. urgent reports whether a viewer
+// is waiting on this request; it is consulted again whenever a slot frees.
+func (g *hostGate) acquire(ctx context.Context, addr string, urgent func() bool) (func(), error) {
+	if g == nil || addr == "" {
+		return func() {}, nil
+	}
+	began := time.Now()
+	g.mu.Lock()
+	lim, until := g.limit(addr)
+	if g.busy[addr] < lim && (len(g.waiters[addr]) == 0 || urgent()) {
+		g.busy[addr]++
+		g.mu.Unlock()
+		return g.releaser(addr), nil
+	}
+	w := &gateWaiter{urgent: urgent, ready: make(chan struct{})}
+	g.waiters[addr] = append(g.waiters[addr], w)
+	g.mu.Unlock()
+	defer func() {
+		if wait := time.Since(began); wait > 250*time.Millisecond && g.log != nil {
+			g.log.Info("media request waited for the host cap", "host", addr, "wait", wait, "limit", lim, "urgent", urgent())
+		}
+	}()
+	for {
+		var restored <-chan time.Time
+		var t *time.Timer
+		if !until.IsZero() {
+			// A reduced cap rises when its cooldown ends, even if nothing
+			// releases a slot.
+			t = time.NewTimer(max(0, until.Sub(g.now())))
+			restored = t.C
+		}
+		select {
+		case <-w.ready:
+			if t != nil {
+				t.Stop()
+			}
+			return g.releaser(addr), nil
+		case <-restored:
+			g.mu.Lock()
+			g.dispatchLocked(addr)
+			lim, until = g.limit(addr)
+			g.mu.Unlock()
+		case <-ctx.Done():
+			if t != nil {
+				t.Stop()
+			}
+			g.mu.Lock()
+			if w.granted {
+				g.mu.Unlock()
+				g.release(addr)
+			} else {
+				q := g.waiters[addr]
+				for i, o := range q {
+					if o == w {
+						g.waiters[addr] = append(q[:i:i], q[i+1:]...)
+						break
+					}
+				}
+				if len(g.waiters[addr]) == 0 {
+					delete(g.waiters, addr)
+				}
+				g.mu.Unlock()
+			}
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// tryAcquire takes a spare slot without queueing (speculative hedges).
+func (g *hostGate) tryAcquire(addr string) (func(), bool) {
+	if g == nil || addr == "" {
+		return func() {}, true
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	lim, _ := g.limit(addr)
+	if g.busy[addr] >= lim || len(g.waiters[addr]) > 0 {
+		return nil, false
+	}
+	g.busy[addr]++
+	return g.releaser(addr), true
+}
+
+func (g *hostGate) releaser(addr string) func() {
+	var once sync.Once
+	return func() { once.Do(func() { g.release(addr) }) }
+}
+
+func (g *hostGate) release(addr string) {
+	g.mu.Lock()
+	if g.busy[addr] <= 1 {
+		delete(g.busy, addr)
+	} else {
+		g.busy[addr]--
+	}
+	g.dispatchLocked(addr)
+	g.mu.Unlock()
+}
+
+// dispatchLocked grants free slots: the oldest urgent waiter first, else
+// the oldest waiter.
+func (g *hostGate) dispatchLocked(addr string) {
+	lim, _ := g.limit(addr)
+	for g.busy[addr] < lim {
+		q := g.waiters[addr]
+		if len(q) == 0 {
+			break
+		}
+		pick := 0
+		for i, w := range q {
+			if w.urgent() {
+				pick = i
+				break
+			}
+		}
+		w := q[pick]
+		q = append(q[:pick:pick], q[pick+1:]...)
+		if len(q) == 0 {
+			delete(g.waiters, addr)
+		} else {
+			g.waiters[addr] = q
+		}
+		g.busy[addr]++
+		w.granted = true
+		close(w.ready)
+	}
+}
