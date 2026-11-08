@@ -1,7 +1,6 @@
 package perfharness
 
 import (
-	"math"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -9,94 +8,18 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// A real catalogue is a long tail. Most TMDB titles are obscure (popularity
-// near 1, a handful of votes, a few credits and no keywords); a few are
-// famous (thousands of votes, a hundred credits, dozens of keywords and
-// alternative titles); a long-running series credits up to 1,400 people.
-// The shapes below follow the lab mirror (2026-11-07: 50k detailed titles,
-// 1.08M credits, 389k people of whom 61% have one credit, 7 keywords per
-// popular title from a 30k pool, 3.1 studios, 3.8 alternative titles, 2.0
-// genres and 1.2 countries per title, 10% of movies in a franchise).
+// Detail rows follow LongTailShape (longtail.go), the counts model fitted
+// to the lab mirror that the long-tail generator also mirrors through the
+// real catalogue; the fixture writes the rows it describes directly. A
+// long-running series credits up to 1,400 people.
 
-// titleShape is one title's detail: how popular it is and how many detail
-// rows of each kind it carries.
-type titleShape struct {
-	popularity float64
-	votes      int
-	rating     float64
-	credits    int
-	keywords   int
-	genres     int
-	countries  int
-	studios    int
-	altTitles  int
-	crowd      int
-	collection int // a franchise id, 0 for none
-}
-
-// tier is how famous a title is: 2 for the head (about 1% of titles), 1 for
-// the middle (about 11%), 0 for the tail.
-func (s titleShape) tier() int {
-	switch {
-	case s.popularity >= 20:
-		return 2
-	case s.popularity >= 3:
-		return 1
+// shape draws one title's detail counts.
+func (g *generator) shape(typ core.MediaType) Shape {
+	if typ == core.TypeEpisode {
+		// An episode's guest cast.
+		return Shape{Type: typ, Cast: poisson(g.rng, 4)}
 	}
-	return 0
-}
-
-// popularity draws TMDB's long tail: median 1, one title in ten above 3.4,
-// one in a hundred above 19, one in a thousand above 107.
-func (g *generator) popularity() (float64, int, float64) {
-	pop := min(3000, 0.6*math.Pow(1-g.rng.Float64(), -0.75))
-	votes := int(math.Pow(pop, 1.6) * (0.5 + g.rng.Float64()) * 2)
-	rating := 0.0
-	if votes > 0 {
-		rating = math.Round((3+g.rng.Float64()*6)*10) / 10
-	}
-	return pop, votes, rating
-}
-
-// between draws an int in [lo, hi].
-func (g *generator) between(lo, hi int) int { return lo + g.rng.IntN(hi-lo+1) }
-
-func (g *generator) titleShape(typ string) titleShape {
-	var s titleShape
-	s.popularity, s.votes, s.rating = g.popularity()
-	t := s.tier()
-	pick := func(tail, mid, head [2]int) int {
-		r := [3][2]int{tail, mid, head}[t]
-		return g.between(r[0], r[1])
-	}
-	s.genres = 1 + g.rng.IntN(2)
-	if g.rng.IntN(4) == 0 {
-		s.genres++
-	}
-	s.countries = 1
-	if g.rng.IntN(5) == 0 {
-		s.countries = 2
-	}
-	s.keywords = pick([2]int{0, 3}, [2]int{3, 14}, [2]int{10, 50})
-	s.studios = pick([2]int{0, 2}, [2]int{1, 4}, [2]int{3, 10})
-	s.altTitles = pick([2]int{0, 1}, [2]int{1, 6}, [2]int{5, 35})
-	s.crowd = pick([2]int{0, 20}, [2]int{20, 20}, [2]int{20, 20})
-	switch typ {
-	case "movie":
-		s.credits = pick([2]int{0, 10}, [2]int{10, 50}, [2]int{20, 130})
-		if g.rng.IntN(20) == 0 {
-			s.collection = 1 + g.rng.IntN(max(1, g.franchises))
-		}
-	case "show":
-		s.credits = pick([2]int{0, 8}, [2]int{8, 38}, [2]int{20, 220})
-		if t == 2 && g.rng.IntN(25) == 0 {
-			// A soap or a long-running anthology.
-			s.credits = g.between(600, 1400)
-		}
-	case "episode":
-		s = titleShape{credits: g.rng.IntN(9)}
-	}
-	return s
+	return LongTailShape(g.rng, typ)
 }
 
 // People are dealt to credits by preferential attachment (a Yule-Simon
@@ -178,47 +101,48 @@ func poolWord(salt string, i int) string {
 var crewRoles = []string{"Composer", "Director of Photography", "Editor", "Producer", "Executive Producer", "Casting", "Production Design", "Costume Design"}
 
 // details queues key's detail rows.
-func (g *generator) details(key core.RatingKey, typ string, s titleShape, title string) error {
+func (g *generator) details(key core.RatingKey, s Shape, title string) error {
 	k := int64(key)
 	if err := g.facets(key, s); err != nil {
 		return err
 	}
 	clear(g.used)
-	ords := map[string]int{}
-	for i := 0; i < s.credits; i++ {
-		kind, role := "cast", ""
-		switch {
-		case i == 1 && typ == "movie":
-			kind, role = "director", "Director"
-		case i == 1 && typ == "show":
-			kind, role = "writer", "Creator"
-		case i%10 == 4:
-			kind, role = "writer", []string{"Screenplay", "Writer", "Story", "Novel"}[g.rng.IntN(4)]
-		case i%10 == 7:
-			kind, role = "crew", crewRoles[g.rng.IntN(len(crewRoles))]
-		}
-		p := g.people.next(g.rng, g.used)
-		g.used[p] = true
-		if kind == "cast" {
-			role = madeUpWord(splitmix(uint64(p) ^ uint64(k)))
-			if g.rng.IntN(8) == 0 {
-				role += " (voice)"
+	writers := []string{"Screenplay", "Writer", "Story", "Novel"}
+	crew := []string{"Original Music Composer", "Director of Photography"}
+	if s.Type == core.TypeShow {
+		writers, crew = []string{"Writer", "Teleplay", "Story"}, []string{"Creator", "Original Music Composer", "Director of Photography"}
+	}
+	for _, group := range []struct {
+		kind  string
+		n     int
+		roles []string
+	}{{"cast", min(s.Cast, 30), nil}, {"director", s.Directors, []string{"Director"}}, {"writer", s.Writers, writers}, {"crew", s.Crew, crew}} {
+		for ord := range group.n {
+			p := g.people.next(g.rng, g.used)
+			g.used[p] = true
+			var role string
+			if group.roles == nil {
+				role = madeUpWord(splitmix(uint64(p) ^ uint64(k)))
+				if g.rng.IntN(8) == 0 {
+					role += " (voice)"
+				}
+			} else {
+				role = group.roles[g.rng.IntN(len(group.roles))]
+			}
+			thumb := ""
+			if p%2 == 0 {
+				thumb = "/person" + strconv.Itoa(int(p)) + ".jpg"
+			}
+			if err := g.insert("catalog_credits", "key,person_tmdb,name,role,kind,ord,thumb", k, int64(p), personName(p), role, group.kind, ord, thumb); err != nil {
+				return err
 			}
 		}
-		thumb := ""
-		if p%2 == 0 {
-			thumb = "/person" + strconv.Itoa(int(p)) + ".jpg"
-		}
-		if err := g.insert("catalog_credits", "key,person_tmdb,name,role,kind,ord,thumb", k, int64(p), personName(p), role, kind, ords[kind], thumb); err != nil {
-			return err
-		}
-		ords[kind]++
 	}
-	if typ == "episode" {
+	if s.Type == core.TypeEpisode {
 		return nil
 	}
 	seen := map[string]bool{}
-	for range s.keywords {
+	for range s.Keywords {
 		kw := strings.ToLower(poolWord("keyword", int(g.keywordPool.Uint64())))
 		if seen[kw] {
 			continue
@@ -229,7 +153,7 @@ func (g *generator) details(key core.RatingKey, typ string, s titleShape, title 
 		}
 	}
 	clear(seen)
-	for range s.studios {
+	for range s.Studios {
 		st := poolWord("studio", int(g.studioPool.Uint64()))
 		if seen[st] {
 			continue
@@ -240,7 +164,7 @@ func (g *generator) details(key core.RatingKey, typ string, s titleShape, title 
 		}
 	}
 	clear(seen)
-	for range s.altTitles {
+	for range s.AltTitles {
 		alt := g.word() + " " + g.word()
 		if g.rng.IntN(3) == 0 {
 			alt = title + ": " + g.word()
@@ -253,26 +177,29 @@ func (g *generator) details(key core.RatingKey, typ string, s titleShape, title 
 			return err
 		}
 	}
-	return g.crowd(key, typ, s)
+	return g.crowd(key, s)
 }
 
 // crowd stores the title's TMDB recommendations: keys of titles of the same
 // type, as catalog/crowd.go keeps them.
-func (g *generator) crowd(key core.RatingKey, typ string, s titleShape) error {
+func (g *generator) crowd(key core.RatingKey, s Shape) error {
 	pool := g.movies
-	if typ == "show" {
+	if s.Type == core.TypeShow {
 		pool = g.shows
 	}
+	if s.CrowdRecs == 0 {
+		return nil
+	}
 	var recs []string
-	for range min(s.crowd, len(pool)) {
+	for range min(s.CrowdRecs, len(pool)) {
 		recs = append(recs, strconv.FormatInt(int64(pool[g.rng.IntN(len(pool))]), 10))
 	}
 	return g.insert("catalog_crowd", "key,fetched_at,pages,recs", int64(key), g.now.Unix(), 1, strings.Join(recs, ","))
 }
 
-func (g *generator) facets(key core.RatingKey, s titleShape) error {
+func (g *generator) facets(key core.RatingKey, s Shape) error {
 	first := g.rng.IntN(len(fixtureGenres))
-	for i := range s.genres {
+	for i := range min(s.Genres, 3) {
 		genre := fixtureGenres[(first+i*(1+first%5))%len(fixtureGenres)]
 		if err := g.insert("catalog_genres", "key,genre", int64(key), genre); err != nil {
 			return err
@@ -280,7 +207,7 @@ func (g *generator) facets(key core.RatingKey, s titleShape) error {
 	}
 	countries := []string{"US", "GB", "CA", "FR", "JP", "KR", "DE"}
 	c := g.rng.IntN(len(countries))
-	for i := range s.countries {
+	for i := range min(s.Countries, len(countries)) {
 		if err := g.insert("catalog_countries", "key,country", int64(key), countries[(c+i)%len(countries)]); err != nil {
 			return err
 		}

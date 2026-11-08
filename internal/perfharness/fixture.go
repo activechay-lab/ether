@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,8 +81,9 @@ func generate(ctx context.Context, db *sql.DB, s Scale, now time.Time, live bool
 	rng := rand.New(rand.NewPCG(42, uint64(s.Rows())))
 	g := &generator{ctx: ctx, db: db, rng: rng, now: now, used: map[int32]bool{}}
 	g.franchises = max(1, s.Movies/40)
-	g.keywordPool = rand.NewZipf(rng, 1.1, 20, uint64(min(60_000, max(1000, s.Titles()/8))))
-	g.studioPool = rand.NewZipf(rng, 1.1, 20, uint64(min(50_000, max(500, s.Titles()/10))))
+	// TMDB's keyword and company vocabularies, as LongTailTMDB draws them.
+	g.keywordPool = rand.NewZipf(rng, 1.05, 1, 30_000)
+	g.studioPool = rand.NewZipf(rng, 1.05, 1, 40_000)
 	restore := func() error { return nil }
 	if !live {
 		var err error
@@ -139,6 +141,10 @@ func rebuildDerived(ctx context.Context, db *sql.DB) error {
 	} {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("%.60s: %w", q, err)
+		}
+		// Each rebuild writes a WAL the size of its table.
+		if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			return err
 		}
 	}
 	// The library totals, the dashboard tally and the per-series ratings.
@@ -337,21 +343,25 @@ func (g *generator) titles(s Scale) error {
 		key := core.MovieKey(int64(i))
 		title := g.name(i)
 		rel := g.released()
-		sh := g.titleShape("movie")
+		sh := g.shape(core.TypeMovie)
 		tagline, logo := "", ""
-		if sh.tier() > 0 {
-			tagline, logo = "A synthetic tagline.", "/l.png"
+		if sh.Tier >= 0.5 {
+			tagline = "A synthetic tagline."
 		}
-		collection := ""
-		if sh.collection != 0 {
-			collection = g.franchiseName(sh.collection)
+		if sh.Logo {
+			logo = "/l.png"
+		}
+		franchise, collection := 0, ""
+		if sh.Collection {
+			franchise = 1 + g.rng.IntN(g.franchises)
+			collection = g.franchiseName(franchise)
 		}
 		if err := g.insert("catalog_titles", titleCols, int64(key), "movie", i, fmt.Sprintf("tt%07d", i), 0, 0, 0, "", "", 0, 0, title, title, strings.ToLower(title), tagline, "A synthetic film.", rel.Year(), rel.Unix(), rel.Unix(), 0, 5400+g.rng.IntN(3600), "Released", "en",
-			[]string{"G", "PG", "PG-13", "R"}[g.rng.IntN(4)], "tmdb:US:3", sh.rating, sh.votes, sh.popularity, "/p.jpg", "/b.jpg", logo, sh.collection, collection, 0, 0, 1, rel.Unix(), fresh, 1, fresh, "primary"); err != nil {
+			[]string{"G", "PG", "PG-13", "R"}[g.rng.IntN(4)], "tmdb:US:3", sh.Rating, sh.Votes, sh.Popularity, "/p.jpg", "/b.jpg", logo, franchise, collection, 0, 0, 1, rel.Unix(), fresh, 1, fresh, "primary"); err != nil {
 			return err
 		}
 		g.movies = append(g.movies, key)
-		if err := g.details(key, "movie", sh, title); err != nil {
+		if err := g.details(key, sh, title); err != nil {
 			return err
 		}
 		// The movie's home release was checked: it reached home media six
@@ -365,15 +375,15 @@ func (g *generator) titles(s Scale) error {
 		key := core.ShowKey(id)
 		title := g.name(i)
 		rel := g.released()
-		sh := g.titleShape("show")
+		sh := g.shape(core.TypeShow)
 		leaves := s.SeasonsPerShow * s.EpisodesPerSeason
 		last := rel.AddDate(0, 0, 7*max(0, leaves-1))
 		if err := g.insert("catalog_titles", titleCols, int64(key), "show", i, fmt.Sprintf("tt9%06d", i), 70000+i, 0, 0, "", "", 0, 0, title, title, strings.ToLower(title), "", "A synthetic series.", rel.Year(), rel.Unix(), 0, last.Unix(), 2700, "Ended", "en",
-			[]string{"TV-G", "TV-PG", "TV-14", "TV-MA"}[g.rng.IntN(4)], "tmdb:US", sh.rating, sh.votes, sh.popularity, "/p.jpg", "/b.jpg", "", 0, "", s.SeasonsPerShow, leaves, 1, rel.Unix(), fresh, 1, fresh, ""); err != nil {
+			[]string{"TV-G", "TV-PG", "TV-14", "TV-MA"}[g.rng.IntN(4)], "tmdb:US", sh.Rating, sh.Votes, sh.Popularity, "/p.jpg", "/b.jpg", "", 0, "", s.SeasonsPerShow, leaves, 1, rel.Unix(), fresh, 1, fresh, ""); err != nil {
 			return err
 		}
 		g.shows = append(g.shows, key)
-		if err := g.details(key, "show", sh, title); err != nil {
+		if err := g.details(key, sh, title); err != nil {
 			return err
 		}
 		day := rel
@@ -390,7 +400,7 @@ func (g *generator) titles(s Scale) error {
 					return err
 				}
 				g.eps = append(g.eps, ekey)
-				if err := g.details(ekey, "episode", g.titleShape("episode"), etitle); err != nil {
+				if err := g.details(ekey, g.shape(core.TypeEpisode), etitle); err != nil {
 					return err
 				}
 				day = day.AddDate(0, 0, 7)
@@ -456,6 +466,9 @@ func (g *generator) viewers(s Scale) error {
 			return err
 		}
 		if err := g.playlists(id); err != nil {
+			return err
+		}
+		if err := g.favorites(id); err != nil {
 			return err
 		}
 	}
@@ -527,6 +540,37 @@ func (g *generator) history(user int64, s Scale) error {
 		seen[key] = true
 		at := now - g.rng.Int64N(int64(30*24*time.Hour))
 		if err := g.insert("state_watch", "user_id,rating_key,view_offset_ns,duration_ns,view_count,last_viewed_at,updated_at,watch_at", user, int64(key), int64(20*time.Minute), int64(45*time.Minute), 0, at, at, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// favorites gives the viewer 50 favourite titles and 5 favourite people,
+// newest first as favorites.Service orders them.
+func (g *generator) favorites(user int64) error {
+	var n int
+	if err := g.db.QueryRowContext(g.ctx, `SELECT COUNT(*) FROM sqlite_master WHERE name='favorites_items'`).Scan(&n); err != nil || n == 0 {
+		return err // a test database without the favourites migration
+	}
+	now := g.now.UnixNano()
+	seen := map[string]bool{}
+	for i := range 55 {
+		kind, subject := "title", ""
+		if i < 50 {
+			key := g.movies[g.rng.IntN(len(g.movies))]
+			if len(g.shows) > 0 && i%4 == 0 {
+				key = g.shows[g.rng.IntN(len(g.shows))]
+			}
+			subject = key.String()
+		} else if len(g.people.dealt) > 0 {
+			kind, subject = "person", strconv.Itoa(int(g.people.dealt[g.rng.IntN(len(g.people.dealt))]))
+		}
+		if subject == "" || seen[kind+subject] {
+			continue
+		}
+		seen[kind+subject] = true
+		if err := g.insert("favorites_items", "viewer_id,kind,subject_id,added_at,sort_order", user, kind, subject, now-int64(i)*int64(time.Hour), 0); err != nil {
 			return err
 		}
 	}
