@@ -127,17 +127,22 @@ func logRankingNotes(notes []string) {
 }
 
 // legacyProfileDoc reports whether a stored profile predates the standard
-// model: it still carries a ladder field or preference list, or it has no
-// quality order (or the per-group string lists PR #355 stored).
+// model: it still carries a ladder field or preference list, it has no
+// quality order field at all (this version always stores one, empty
+// included), or its order is the per-group string lists PR #355 stored.
 func legacyProfileDoc(p map[string]any) bool {
 	for _, k := range legacyRankingKeys {
 		if _, ok := p[k]; ok {
 			return true
 		}
 	}
-	order, ok := p["qualityOrder"].([]any)
-	if !ok || len(order) == 0 {
+	raw, ok := p["qualityOrder"]
+	if !ok {
 		return true
+	}
+	order, _ := raw.([]any)
+	if len(order) == 0 {
+		return false
 	}
 	_, nested := order[0].([]any)
 	return nested
@@ -159,6 +164,11 @@ func convertLegacyProfile(doc map[string]any, res legacyResolver) []string {
 		delete(doc, k)
 	}
 	doc["qualityOrder"] = toAny(conv.order)
+	if conv.flat {
+		doc["convertedRanking"] = true
+	} else {
+		delete(doc, "convertedRanking")
+	}
 	if len(conv.scores) > 0 {
 		doc["customFormatScores"] = toAny(conv.scores)
 	} else {
@@ -192,6 +202,7 @@ func toAny(v any) any {
 // profileConversion is a converted profile's ranking definition.
 type profileConversion struct {
 	order   []core.QualityItem
+	flat    bool // the order is ConvertedOrderGroup, resolution scored as formats
 	scores  map[string]int
 	min     *int
 	plugins map[string]json.RawMessage
@@ -389,6 +400,7 @@ func convertProfile(p legacyProfile, res legacyResolver) profileConversion {
 		mode = orderBySource
 	case len(steps) > 0:
 		mode = orderFlat
+		conv.flat = true
 		conv.notes = append(conv.notes, fmt.Sprintf("kept %s above resolution: every quality is one group and resolution is scored as a format", stepName(steps[0])))
 	}
 	sources := knownSources(p.PreferredSources)
@@ -570,6 +582,11 @@ func abs(v int) int {
 	return v
 }
 
+// ConvertedOrderGroup names the one quality group of a profile converted
+// from an order that ranked something above resolution
+// (core.QualityProfile.ConvertedRanking). The console shows it translated.
+const ConvertedOrderGroup = "All resolutions (from your old order)"
+
 // Quality order shapes a conversion produces.
 const (
 	orderByResolution = iota // one group per resolution, highest first
@@ -597,7 +614,7 @@ func qualityOrder(p legacyProfile, preferred []string, mode int) []core.QualityI
 		// Every height, not only the profile's range: resolution formats
 		// rank them, and a starved encode graded below the range must still
 		// rank by its other formats, as it did.
-		item := core.QualityItem{Name: "Any quality"}
+		item := core.QualityItem{Name: ConvertedOrderGroup}
 		for _, h := range core.FormatHeights {
 			if p.MaxHeight > 0 && h > p.MaxHeight {
 				continue

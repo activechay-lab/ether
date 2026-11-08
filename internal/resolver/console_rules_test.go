@@ -105,7 +105,7 @@ func TestFilenamePreviewDoesNotInventUsenet(t *testing.T) {
 // rules ranked first: every quality in one group, and each Prefer rule a
 // score above everything after it.
 func rulesFirst(p core.QualityProfile) core.QualityProfile {
-	item := core.QualityItem{Name: "Any quality"}
+	item := core.QualityItem{Name: "Every quality"}
 	for _, h := range core.FormatHeights {
 		for _, s := range []string{"remux", "bluray", "webdl", "webrip", "hdtv", "dvd", "unknown"} {
 			item.Qualities = append(item.Qualities, fmt.Sprintf("%s-%d", s, h))

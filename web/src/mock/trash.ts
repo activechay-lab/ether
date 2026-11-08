@@ -508,6 +508,9 @@ export function createTrashMock() {
       ];
       return ok({ name, formatsAdded: added.length });
     }
+    if (route === "POST /quality/order-preview") {
+      return ok({ titles: 0, changed: 0, changes: [] });
+    }
     if (route === "POST /quality/sync") {
       const profiles = config.quality.profiles ?? [];
       const imported = profiles.filter((p) => p.import?.source);

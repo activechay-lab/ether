@@ -1,4 +1,6 @@
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
   SearchSelect,
@@ -6,17 +8,18 @@ import {
   Switch,
   Textarea,
 } from "@braedonsaunders/appkit-ui";
-import { ChevronDown, Merge, Plus, Split, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, History, Merge, Plus, Split, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MoreOptions } from "../../components/ConfigSection";
 import { ChipGroup, NumberInput } from "../../components/fields";
 import { SettingsRow } from "../../components/SettingsRow";
-import { t, tx } from "../../i18n";
+import { t, tn, tx } from "../../i18n";
 import { useLocale } from "../../i18n/react";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
+import { errorMessage, isAbort } from "../../lib/api";
 import { isPluginDescriptor, textOf } from "../../lib/extend";
-import { qualityGateLabel } from "../../lib/releases";
+import { type OrderPreview, qualityGateLabel, releaseConsole } from "../../lib/releases";
 import {
   BUILTIN_FORMATS,
   RULE_PREFIX,
@@ -28,6 +31,7 @@ import {
   itemName,
   qualityName,
   withRuleScores,
+  withStandardOrder,
 } from "../../lib/qualityRanking";
 import type { QualityItem, QualityProfile, ReleaseRule } from "../../lib/types";
 import { OrderButtons, swap } from "../sources/form";
@@ -61,7 +65,8 @@ export function QualityOrderSection({ draft, patch }: { draft: QualityProfile; p
   const [toAdd, setToAdd] = useState("");
   const chosen = unlisted.some((o) => o.value === toAdd) ? toAdd : (unlisted[0]?.value ?? "");
   const gates = draft.allowedQualities ?? [];
-  const set = (next: QualityItem[]) => patch({ qualityOrder: next });
+  // Any edit to the qualities makes the order the owner's own.
+  const set = (next: QualityItem[]) => patch({ qualityOrder: next, convertedRanking: false });
 
   const merge = (i: number) => {
     const above = order[i - 1]!;
@@ -94,6 +99,7 @@ export function QualityOrderSection({ draft, patch }: { draft: QualityProfile; p
       )}
     >
       <div className="space-y-3 px-5 py-4">
+        {draft.convertedRanking ? <ConvertedOrderNote draft={draft} patch={patch} /> : null}
         {order.length === 0 ? (
           <p className="text-sm text-fg-muted">
             {t("Every quality ranks the same. Custom formats decide.")}
@@ -216,6 +222,117 @@ export function QualityOrderSection({ draft, patch }: { draft: QualityProfile; p
   );
 }
 
+/**
+ * A converted profile's note: it ranks exactly as the old order did, and the
+ * standard order is one click away, previewed on recent plays before it is
+ * applied.
+ */
+function ConvertedOrderNote({ draft, patch }: { draft: QualityProfile; patch: Patch }) {
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<OrderPreview | null>(null);
+  const [error, setError] = useState("");
+  const serialized = JSON.stringify(draft);
+  useEffect(() => {
+    if (!open) return;
+    const abort = new AbortController();
+    setPreview(null);
+    setError("");
+    const profile = JSON.parse(serialized) as QualityProfile;
+    releaseConsole
+      .previewOrder(profile, withStandardOrder(profile), abort.signal)
+      .then(setPreview)
+      .catch((e) => {
+        if (!isAbort(e)) setError(errorMessage(e));
+      });
+    return () => abort.abort();
+  }, [open, serialized]);
+  const changes = preview?.changes ?? [];
+  return (
+    <Alert variant="info" data-converted-order>
+      <AlertDescription>
+        <div className="space-y-3">
+          <p className="flex items-start gap-2 text-sm">
+            <History size={15} className="mt-0.5 shrink-0" />
+            {t("Converted from your previous ranking order. It ranks exactly as before.")}
+          </p>
+          {!open ? (
+            <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+              {t("Use the standard order")}
+            </Button>
+          ) : (
+            <div className="space-y-3 rounded-lg border border-border bg-surface p-3 text-sm text-fg">
+              <p>
+                {t(
+                  "The standard order ranks resolution first, one row per resolution. What your old order ranked above resolution then only decides between releases of the same resolution.",
+                )}
+              </p>
+              {error ? <p className="text-danger">{error}</p> : null}
+              {!preview && !error ? (
+                <p className="text-fg-muted">{t("Checking recent plays…")}</p>
+              ) : null}
+              {preview && preview.titles === 0 ? (
+                <p className="text-fg-muted">
+                  {t(
+                    "Nothing has played with this profile recently, so there is nothing to compare yet. Picks can change wherever your old order put something above resolution.",
+                  )}
+                </p>
+              ) : null}
+              {preview && preview.titles > 0 ? (
+                <div className="space-y-2">
+                  <p className="font-medium">
+                    {preview.changed === 0
+                      ? tn(
+                          preview.titles,
+                          "The {count} recent title played with this profile would start the same release.",
+                          "All {count} recent titles played with this profile would start the same release.",
+                        )
+                      : tn(
+                          preview.changed,
+                          "{count} of {total} recent titles would start a different release.",
+                          "{count} of {total} recent titles would start a different release.",
+                          { total: preview.titles },
+                        )}
+                  </p>
+                  {changes.length ? (
+                    <ul className="space-y-2">
+                      {changes.map((c) => (
+                        <li key={c.titleKey} className="min-w-0 space-y-0.5">
+                          <p className="font-medium">{c.titleName}</p>
+                          <p className="break-all text-xs text-fg-muted">
+                            {t("Now: {release}", { release: c.before })}
+                          </p>
+                          <p className="break-all text-xs text-fg-muted">
+                            {t("Standard order: {release}", { release: c.after })}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  disabled={!preview && !error}
+                  onClick={() => {
+                    patch(withStandardOrder(draft));
+                    setOpen(false);
+                  }}
+                >
+                  {t("Apply the standard order")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                  {t("Keep my order")}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 /** One scored format row. */
 function ScoreRow({
   label,
@@ -259,10 +376,19 @@ function ScoreRow({
 }
 
 /** A group of score rows under a small heading. */
-function ScoreGroup({ title, children }: { title: string; children: React.ReactNode }) {
+function ScoreGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
       <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-fg-muted">{title}</h4>
+      {description ? <p className="text-xs text-fg-muted">{description}</p> : null}
       <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
         {children}
       </div>
@@ -321,7 +447,12 @@ export function CustomFormatsSection({
     () => [
       ...BUILTIN_FORMATS.filter((f) => scores[f.id] == null).map((f) => ({
         value: f.id,
-        label: f.kind === "streaming" ? t("{name} (streaming)", { name: f.label }) : f.label,
+        label:
+          f.kind === "streaming"
+            ? t("{name} (streaming)", { name: f.label })
+            : f.kind === "resolution"
+              ? t("Resolution: {name}", { name: f.label })
+              : f.label,
       })),
       ...definitions
         .map((f) => definitionKey(f))
@@ -338,7 +469,7 @@ export function CustomFormatsSection({
     ? pluginToAdd
     : (addablePlugins[0]?.id ?? "");
 
-  const builtinRows = (kind: "release" | "streaming") =>
+  const builtinRows = (kind: "resolution" | "release" | "streaming") =>
     listedBuiltins
       .filter((f) => f.kind === kind)
       .map((f) => (
@@ -351,6 +482,7 @@ export function CustomFormatsSection({
           onRemove={() => removeScore(f.id)}
         />
       ));
+  const resolutionRows = builtinRows("resolution");
   const releaseRows = builtinRows("release");
   const streamingRows = builtinRows("streaming");
 
@@ -399,6 +531,22 @@ export function CustomFormatsSection({
                 onRemove={() => removeScore(id)}
               />
             ))}
+          </ScoreGroup>
+        ) : null}
+        {resolutionRows.length ? (
+          <ScoreGroup
+            title={t("Resolution")}
+            description={
+              draft.convertedRanking
+                ? t(
+                    "Ranks the resolutions in your one quality group, at the place your old order gave them.",
+                  )
+                : t(
+                    "Adds to releases of a resolution. The quality order usually ranks resolution already.",
+                  )
+            }
+          >
+            {resolutionRows}
           </ScoreGroup>
         ) : null}
         {releaseRows.length ? <ScoreGroup title={t("Release")}>{releaseRows}</ScoreGroup> : null}

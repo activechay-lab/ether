@@ -65,7 +65,7 @@ func TestOpenConvertsStoredRanking(t *testing.T) {
 	}
 	// The Prefer rule ranked first, above resolution: every quality is one
 	// group and resolution a format below the rule, so nothing reorders.
-	if len(p.QualityOrder) != 1 || p.QualityOrder[0].Name != "Any quality" {
+	if len(p.QualityOrder) != 1 || p.QualityOrder[0].Name != ConvertedOrderGroup || !p.ConvertedRanking {
 		t.Fatalf("quality order = %+v", p.QualityOrder)
 	}
 	rule, uhd, hd := p.CustomFormatScores[core.RuleFormatPrefix+"r1"], p.CustomFormatScores[core.ResolutionFormat(2160)], p.CustomFormatScores[core.ResolutionFormat(1080)]

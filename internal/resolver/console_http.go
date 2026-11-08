@@ -65,6 +65,7 @@ type ConsoleDeps struct {
 //	POST   /quality-import/preview       {app, source, profile | json}
 //	POST   /quality-import               {app, source, profile | json, name}
 //	POST   /quality/sync                 sync imported profiles from their guides
+//	POST   /quality/order-preview        {profile, next}: recent first picks that would change
 func (s *Service) ConsoleHandler(deps ConsoleDeps) http.Handler {
 	if deps.Logger == nil {
 		deps.Logger = s.log
@@ -96,6 +97,7 @@ func (s *Service) ConsoleHandler(deps ConsoleDeps) http.Handler {
 	mux.HandleFunc("POST /quality-import/preview", h.previewImport)
 	mux.HandleFunc("POST /quality-import", h.applyImport)
 	mux.HandleFunc("POST /quality/sync", h.syncQuality)
+	mux.HandleFunc("POST /quality/order-preview", h.previewOrder)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		consoleError(w, http.StatusNotFound, "not_found", "no such release console endpoint")
 	})

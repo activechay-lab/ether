@@ -33,21 +33,24 @@ Releases that pass every filter are sorted by the first key that differs:
 | S2 | Revision (Repack/Proper) | `CompareQuality` | Only when the profile scores no Repack/Proper format: Radarr's "Prefer and upgrade". A profile that scores one (TRaSH, and Ether's defaults) gets "Do not prefer", as TRaSH instructs. |
 | S3 | Custom format score | `CompareCustomFormatScore` | Sum of every matching format's score on this profile. |
 | S4 | Preferred protocol | `CompareProtocol` | The owner's source preference (Usenet or debrid). "Automatic" has none. |
-| S5 | Season pack, episode count, first episode | Sonarr only | Season packs first; fewer episodes (more for anime); lower first episode. |
-| S6 | Indexer priority | `CompareIndexerPriority` | The indexer's Priority setting, lower first. |
-| S7 | Seeders, then peers (both torrents) or age (both Usenet) | `ComparePeersIfTorrent`, `CompareAgeIfUsenet` | Rounded log10 of seeders/peers; Usenet age buckets (< 1 h, ≤ 24 h, ≤ 7 days, then −round(log10 days)). |
-| S8 | Size | `CompareSize` | Larger first, in 200 MB steps. Ether has no quality definitions with a preferred size yet, so this is Radarr's no-preferred-size rule. |
+| S5 | Indexer priority | `CompareIndexerPriority` | The indexer's Priority setting, lower first. |
+| S6 | Seeders, then peers (both torrents) or age (both Usenet) | `ComparePeersIfTorrent`, `CompareAgeIfUsenet` | Rounded log10 of seeders/peers; Usenet age buckets (< 1 h, ≤ 24 h, ≤ 7 days, then −round(log10 days)). |
+| S7 | Size | `CompareSize` | Larger first, in 200 MB steps. Ether has no quality definitions with a preferred size yet, so this is Radarr's no-preferred-size rule. A season pack's size is the whole season's, so it never compares with a single episode's. |
 | T1 | Played fine recently | Ether | A release that streamed without trouble breaks a full tie. |
 | T2 | Indexer reliability | Ether | Learned grab success rate of the indexer. |
-| T3 | Starts fastest | Ether routing | Among equivalent releases, a cached debrid copy or the source with the faster measured startup goes first (`routing.go`). Quality is never traded for speed. |
+| T3 | Single episode over season pack | Ether | Only when nothing above tells them apart. |
+| T4 | Starts fastest | Ether routing | Among equivalent releases, a cached debrid copy or the source with the faster measured startup goes first (`routing.go`), packs included. Quality is never traded for speed. |
 
-S1–S8 follow `DownloadDecisionComparer` in Radarr (`develop`): quality,
+S1–S7 follow `DownloadDecisionComparer` in Radarr (`develop`): quality,
 custom format score, protocol, indexer priority, indexer flags, peers if
-torrent, age if Usenet, size. Sonarr inserts episode count and episode
-number after protocol and has no indexer flags. Ether has no indexer flags
-(Radarr compares them only with "Prefer indexer flags" on) and no delay
-profiles; the owner's source preference stands in for the delay profile's
-preferred protocol. Concepts only: no Radarr/Sonarr code is copied.
+torrent, age if Usenet, size. Sonarr inserts season pack, episode count and
+episode number after protocol and has no indexer flags. Ether leaves
+Sonarr's episode keys out: Sonarr prefers packs because it downloads whole
+seasons, and Ether streams one episode, so a pack competes like any release
+(see Decisions). Ether has no indexer flags (Radarr compares them only with
+"Prefer indexer flags" on) and no delay profiles; the owner's source
+preference stands in for the delay profile's preferred protocol. Concepts
+only: no Radarr/Sonarr code is copied.
 
 ### Grading quality
 
@@ -123,7 +126,7 @@ Release formats (preferences; the defaults below are the 4K profile's):
 | Repack/Proper | A Repack or Proper | 6 |
 | Low bitrate | Below the bitrate floor for its resolution | −60 |
 | Preferred language, Preferred language (other region), Not a preferred language, Preferred subtitles | The profile's Languages | 5, 2, −25, 2 when Languages are set |
-| 4K, 1080p, 720p, 576p, 480p, 360p | The graded resolution | unused; see "Conversion" |
+| Resolution: 4K, 1080p, 720p, 576p, 480p, 360p | The graded resolution | unused; the console lists them as their own Resolution family, used by converted profiles (see "Conversion") |
 
 Streaming formats (context Ether knows and Radarr doesn't):
 
@@ -182,15 +185,17 @@ cluster's shared settings), deterministically:
    Remux-2160p, Remux-1080p, … in the profile's source order, then one
    group per resolution for the other sources. If anything else ranked
    above Resolution (a Prefer rule does by default, or an owner moved HDR
-   up), the order is one group of every quality and resolution becomes the
-   built-in resolution formats at the old step's place, so the old order
-   still holds.
+   up), the order is one group of every quality, named "All resolutions
+   (from your old order)", and resolution becomes the built-in Resolution
+   formats at the old step's place, so the old order still holds. The
+   profile is marked `convertedRanking`; see "Converted orders in the
+   console".
 3. **Formats.** Every step becomes built-in formats in ladder order, with
    lexicographic weights computed from what the levels below can add. The
    old total score is the bottom level: codec, audio, Atmos, HDR10,
    compatibility, languages and the owner's custom format scores at face
    value. The old score's age, grabs, size and bitrate points become the
-   standard keys S7–S8, and indexer reputation becomes T2.
+   standard keys S6–S7, and indexer reputation becomes T2.
 4. **Scores.** Formats whose score was inherited from the global score
    list or a format's default score are written onto the profile, because
    a profile's score list is now complete, as in Radarr/Sonarr. The global
@@ -206,38 +211,63 @@ The startup log names, per profile, what the standard order can't keep:
   default ladder ranked Prefer rules first of all).
 - Audio language or Connection fit moved down now always rank first.
 - Played fine recently moved up is now a final tie-break.
-- Larger file (or "prefer larger files") now compares at S8.
+- Larger file (or "prefer larger files") now compares at S7.
 - A step placed after Custom score now ranks above it.
 - A plugin step now adds its points to the custom format score.
+
+Conversion is idempotent. It runs on every load of `config.json` and the
+cluster's shared settings (also when an older node writes legacy profiles
+back), before profiles are split per media and duplicates settled, so two
+copies of a profile that an older release spelled differently settle as
+one. A converted profile carries no ladder field and always stores its
+quality order (an empty one included), so it is never converted again.
+
+### Converted orders in the console
+
+A profile with `convertedRanking` shows a note in its drawer: "Converted
+from your previous ranking order. It ranks exactly as before." Its
+Resolution formats are listed as their own family in Custom formats.
+**Use the standard order** previews the switch to one group per resolution
+(and drops the then-redundant Resolution formats): it ranks the releases
+each of the profile's recent plays found (resolver history, up to 30
+titles, device-neutral like the rule preview) with both versions and lists
+the titles whose first pick would change. It applies only on confirm, as an
+unsaved drawer change. The note goes away once the owner edits the
+qualities or applies the standard order.
 
 ### Proof
 
 `internal/resolver/ranking_corpus_test.go` ranks a deterministic corpus:
 four titles (an English film, a Spanish film, an animated film, an
-episode), 160 release pools of 4 to 14 releases, and four devices (Apple
+episode, a quarter of whose releases are torrent season packs), 160
+release pools of 4 to 14 releases, and four devices (Apple
 TV 4K with Dolby Vision, an SDR 4K TV, a 1080p phone, a remote browser at
 8 Mbps). It does this for nine stored profile shapes, which reach the
 ranker through `config.Open` exactly as an upgrading install's do. The
 golden (`testdata/ranking_corpus_golden.json`) was recorded by the old
-ranking before any code changed, at 08f691eed. The test fails on any
+ranking before any code changed, at 081e60661 (re-recorded there when the
+season packs were added; its movie cases came out identical). The test
+fails on any
 change in the set of accepted releases, on any first-pick difference it
 can't explain, and if a shipped profile keeps fewer than 98% of its first
 picks.
 
-| Stored profile | Same first pick | Same full order | Why the rest differ |
-| --- | ---: | ---: | --- |
-| 4K (shipped) | 98.8% | 95.2% | 8 × same quality, the format score now outranks age, grabs and bitrate |
-| 1080p (shipped) | 99.5% | 96.6% | 3 × same quality and score, Radarr's later keys decide |
-| 720p (shipped) | 99.1% | 95.0% | 3 × score before soft points, 3 × later keys |
-| 4K, French Languages | 99.5% | 97.0% | 3 × score before soft points |
-| 4K, codec and audio above score | 99.5% | 97.8% | 3 × score before soft points |
-| 4K with owner custom formats | 98.4% | 92.2% | 10 × score before soft points |
-| 4K, HDR above resolution | 95.2% | 89.4% | 24 × a release names no resolution, 7 × score before soft points |
-| 4K, release type above resolution | 90.8% | 72.3% | 51 × a release names no resolution, 8 × score before soft points |
-| 4K with a Prefer rule (ranked first) | 83.0% | 70.8% | 73 × gates now rank before the Prefer rule, 34 × no resolution, 2 × score |
+| Stored profile | Same first pick | Same full order | Pack first (old) | Why the rest differ |
+| --- | ---: | ---: | ---: | --- |
+| 4K (shipped) | 98.4% | 95.5% | 42 (40) | 10 × same quality, the format score now outranks age, grabs and bitrate |
+| 1080p (shipped) | 99.5% | 97.2% | 45 (45) | 3 × same quality and score, Radarr's later keys decide |
+| 720p (shipped) | 99.1% | 94.7% | 44 (44) | 3 × score before soft points, 3 × later keys |
+| 4K, French Languages | 99.4% | 97.8% | 54 (53) | 4 × score before soft points |
+| 4K, codec and audio above score | 100% | 98.3% | 46 (46) | none |
+| 4K with owner custom formats | 98.1% | 92.7% | 42 (41) | 12 × score before soft points |
+| 4K, HDR above resolution | 95.0% | 89.1% | 44 (42) | 24 × a release names no resolution, 8 × score before soft points |
+| 4K, release type above resolution | 90.3% | 69.7% | 43 (44) | 52 × a release names no resolution, 10 × score before soft points |
+| 4K with a Prefer rule (ranked first) | 84.4% | 72.5% | 44 (49) | 61 × gates now rank before the Prefer rule, 36 × no resolution, 3 × score |
 
-640 cases per profile; every accepted set is identical. The differences
-fall into four kinds:
+640 cases per profile; every accepted set is identical. "Pack first" counts
+the cases whose first pick is a season pack, with the old ranking's count
+in brackets: packs win about as often as before, on quality and score. The
+differences fall into five kinds:
 
 - **Score before soft points.** Same quality; the new pick has the higher
   custom format score. The old total score added Ether's age penalty,
@@ -253,6 +283,39 @@ fall into four kinds:
   above the audio-language check, so a German-only release from a
   preferred group beat an English one for an English-speaking viewer. The
   gates now come first.
+- **Pack size.** A season pack and a single episode of the same quality and
+  score: the pack's season size no longer compares, so a later key or the
+  single-episode tie-break decides. (None in the current corpus.)
+
+## Decisions
+
+Owner decisions on this design (v0.3.6):
+
+1. **Gates before Prefer rules:** approved as built (G1–G3 rank before
+   everything, Prefer rules are scored formats).
+2. **Season packs first for episodes:** rejected. Sonarr's season-pack,
+   episode-count and first-episode keys are removed. Packs and
+   single-episode releases compete on quality, custom format score and the
+   later keys like any release; routing evidence (measured startup, cached
+   on debrid) decides between equivalent ones; with no evidence the single
+   episode wins only the final tie-break T3. There is no pack format or
+   penalty, so streaming episodes out of Usenet season packs (#378) can
+   pick a pack when it is the better release.
+3. **Grading upscales and starved encodes on imported TRaSH profiles:**
+   approved.
+4. **Device formats at their default scores on imports:** approved.
+5. **No preferred size yet; larger wins at the last standard key:**
+   approved.
+6. **A release with no resolution in its name ranks last:** approved.
+7. **Plugin `defaultPosition`:** removed from the manifest schema and
+   types, the SDKs, examples and validation. There is no ladder to place a
+   step in; a plugin step adds its points to the custom format score.
+8. **Converted profiles that had a step above resolution:** keep the exact
+   conversion, presented the way TRaSH and Profilarr users recognise: a
+   named "All resolutions (from your old order)" group, the Resolution
+   formats as a visible family, a note in the drawer, and "Use the standard
+   order" with a preview on recent plays, applied only on confirm (see
+   "Converted orders in the console").
 
 ## Coming from Radarr, Sonarr or TRaSH
 

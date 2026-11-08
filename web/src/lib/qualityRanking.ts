@@ -2,12 +2,18 @@
 // mirrored from internal/core/formats.go: a profile's quality order and
 // the formats it scores.
 import { localized, t } from "../i18n";
-import type { CustomFormatDefinition, QualityItem, ReleaseRule } from "./types";
+import type { CustomFormatDefinition, QualityItem, QualityProfile, ReleaseRule } from "./types";
 
 export const BUILTIN_PREFIX = "ether:";
 export const RULE_PREFIX = "rule:";
 
-export type BuiltinKind = "release" | "streaming";
+export type BuiltinKind = "resolution" | "release" | "streaming";
+
+/**
+ * The one quality group of a profile converted from an order that ranked
+ * something above resolution (config.ConvertedOrderGroup); shown translated.
+ */
+export const CONVERTED_ORDER_GROUP = "All resolutions (from your old order)";
 
 export interface BuiltinFormat {
   id: string;
@@ -52,7 +58,7 @@ const SOURCE_NAMES: Record<string, string> = {
 export const BUILTIN_FORMATS: BuiltinFormat[] = localized(() => [
   ...HEIGHTS.map((h) => ({
     id: `${BUILTIN_PREFIX}res-${h}`,
-    kind: "release" as const,
+    kind: "resolution" as const,
     label: h === 2160 ? "4K" : `${h}p`,
     help: t("The release's resolution, one step lower when its bitrate is too low for it."),
   })),
@@ -214,6 +220,7 @@ export function qualityName(q: string): string {
 
 /** An item's display name: its own name, else its quality. */
 export function itemName(item: QualityItem): string {
+  if (item.name === CONVERTED_ORDER_GROUP) return t("All resolutions (from your old order)");
   return item.name || (item.qualities.length === 1 ? qualityName(item.qualities[0] ?? "") : "");
 }
 
@@ -223,12 +230,37 @@ export function allQualities(allowCam: boolean): string[] {
   return HEIGHTS.flatMap((h) => sources.map((s) => `${s}-${h}`));
 }
 
-/** One group per resolution from max down to min (0 for no limit). */
-export function resolutionGroups(maxHeight: number, minHeight: number): QualityItem[] {
+/**
+ * One group per resolution from max down to min (0 for no limit), CAM and
+ * screener copies included when allowCam is set (config.ResolutionGroups).
+ */
+export function resolutionGroups(
+  maxHeight: number,
+  minHeight: number,
+  allowCam = false,
+): QualityItem[] {
+  const sources = [...SOURCES, "unknown", ...(allowCam ? ["cam", "screener"] : [])];
   return HEIGHTS.filter((h) => (maxHeight === 0 || h <= maxHeight) && h >= minHeight).map((h) => ({
     name: h === 2160 ? "2160p" : `${h}p`,
-    qualities: [...SOURCES, "unknown"].map((s) => `${s}-${h}`),
+    qualities: sources.map((s) => `${s}-${h}`),
   }));
+}
+
+/**
+ * A converted profile on the standard order: one group per resolution, so
+ * resolution ranks first, and no resolution formats, which then only repeat
+ * the order.
+ */
+export function withStandardOrder(p: QualityProfile): QualityProfile {
+  const scores = { ...(p.customFormatScores ?? {}) };
+  for (const id of Object.keys(scores))
+    if (builtinFormat(id)?.kind === "resolution") delete scores[id];
+  return {
+    ...p,
+    qualityOrder: resolutionGroups(p.maxHeight, p.minHeight, p.allowCam),
+    customFormatScores: scores,
+    convertedRanking: false,
+  };
 }
 
 /** The smallest 1, 2 or 5 × 10ⁿ that is at least x. */
