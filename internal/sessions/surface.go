@@ -100,6 +100,46 @@ func (s surface) SubtitleURL(ctx context.Context, a frontend.SessionAccess, id s
 	}
 	return s.broker.SubtitleURL(ctx, a, id, index, format)
 }
+func (s surface) HasAuthoredASSSubtitle(ctx context.Context, a frontend.SessionAccess, id string, index int) bool {
+	if a.Protocol != s.protocol {
+		return false
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return false
+	}
+	return artifacts.HasAuthoredASSSubtitle(ctx, a, id, index)
+}
+func (s surface) ServeASSSubtitle(ctx context.Context, a frontend.SessionAccess, id string, index int, syncMS int, requireAuthored bool) (frontend.SubtitleASSArtifact, error) {
+	if a.Protocol != s.protocol {
+		return frontend.SubtitleASSArtifact{}, core.ErrUnauthorized
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return frontend.SubtitleASSArtifact{}, core.ErrNotAvailable
+	}
+	return artifacts.ServeASSSubtitle(ctx, a, id, index, syncMS, requireAuthored)
+}
+func (s surface) SubtitleFontBundle(ctx context.Context, a frontend.SessionAccess, id string, index int) ([]frontend.SubtitleFontBundleItem, error) {
+	if a.Protocol != s.protocol {
+		return nil, core.ErrUnauthorized
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return nil, core.ErrNotAvailable
+	}
+	return artifacts.SubtitleFontBundle(ctx, a, id, index)
+}
+func (s surface) SubtitleFontAttachment(ctx context.Context, a frontend.SessionAccess, id string, index int, fontIndex int) (frontend.SubtitleFontAttachment, error) {
+	if a.Protocol != s.protocol {
+		return frontend.SubtitleFontAttachment{}, core.ErrUnauthorized
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return frontend.SubtitleFontAttachment{}, core.ErrNotAvailable
+	}
+	return artifacts.SubtitleFontAttachment(ctx, a, id, index, fontIndex)
+}
 func (s surface) Markers(ctx context.Context, a frontend.SessionAccess, id string) (frontend.SessionMarkers, error) {
 	if a.Protocol != s.protocol {
 		return frontend.SessionMarkers{}, core.ErrUnauthorized

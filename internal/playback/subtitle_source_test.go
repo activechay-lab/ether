@@ -3,6 +3,7 @@ package playback
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -14,6 +15,22 @@ func TestSubtitleSourceLeaseRequiresPlayingAndFencesRetirement(t *testing.T) {
 	ps := h.prepare(owner, movieKey, "viewer")
 	ctx := context.Background()
 	revision := core.SourceRevision(ps)
+	called := false
+	if err := h.m.WithSourceResource(ctx, ps.ID, revision+"stale", func(context.Context, io.ReaderAt, int64) error {
+		called = true
+		return nil
+	}); !errors.Is(err, core.ErrSourceChanged) || called {
+		t.Fatal("stale resource lease admitted", err)
+	}
+	if err := h.m.WithSourceResource(ctx, ps.ID, revision, func(readCtx context.Context, src io.ReaderAt, size int64) error {
+		if size <= 0 || src == nil || readCtx.Err() != nil {
+			t.Fatal("invalid resource lease")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := h.m.LeaseSubtitleSource(ctx, ps.ID, revision); !errors.Is(err, core.ErrSourceChanged) {
 		t.Fatal("prepare acquired lease", err)
 	}
@@ -68,6 +85,16 @@ func TestSubtitleSourceLeaseRequiresPlayingAndFencesRetirement(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.m.WithSourceResource(ctx, ps.ID, revision, func(readCtx context.Context, src io.ReaderAt, _ int64) error {
+		h.m.Stop(ps.ID)
+		if _, err := src.ReadAt(make([]byte, 1), 0); err == nil {
+			t.Fatal("retired resource still readable")
+		}
+		return nil
+	}); err == nil {
+		t.Fatal("retired artifact published")
+	}
+
 	h.m.Stop(ps.ID)
 	if err := h.m.WithSourceSelection(ctx, ps.ID, revision, func(core.MediaInfo) error { t.Fatal("stopped selection admitted"); return nil }); !errors.Is(err, core.ErrSourceChanged) {
 		t.Fatal(err)
