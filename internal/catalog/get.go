@@ -219,11 +219,11 @@ func (c *Catalog) fetchMovieDetails(ctx context.Context, id int64) error {
 		return err
 	}
 	t := c.movieDetailsToTitle(ctx, d)
-	if err := c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}); err != nil {
-		return err
+	var crowd *detailExtra
+	if d.Recommendations != nil {
+		crowd = c.crowdExtra(ctx, core.MovieKey(id), movieCrowdTitles(c, ctx, d.Recommendations))
 	}
-	c.harvestMovieCrowd(ctx, core.MovieKey(id), d.Recommendations)
-	return nil
+	return c.writeDetail(ctx, t, upsertOpts{browsable: c.meetsThreshold(t), detail: true, releaseDates: d.ReleaseDates}, crowd)
 }
 
 // fetchShowDetails fetches and stores a series' full details and seasons.
@@ -233,11 +233,11 @@ func (c *Catalog) fetchShowDetails(ctx context.Context, id int64) error {
 		return err
 	}
 	t := c.tvDetailsToTitle(ctx, d)
-	if err := c.storeShowDetails(ctx, t, d); err != nil {
-		return err
+	var crowd *detailExtra
+	if d.Recommendations != nil {
+		crowd = c.crowdExtra(ctx, core.ShowKey(id), tvCrowdTitles(c, ctx, d.Recommendations))
 	}
-	c.harvestTVCrowd(ctx, core.ShowKey(id), d.Recommendations)
-	return nil
+	return c.storeShowDetails(ctx, t, d, crowd)
 }
 
 // readWait is how long a read waits for a TMDB refresh: not at all when it

@@ -17,7 +17,7 @@ func TestTierPinnedIndexesCoverIndexedBy(t *testing.T) {
 		t.Fatal(err)
 	}
 	direct := regexp.MustCompile(`(?m)^[^/]*INDEXED BY ([a-z0-9_]+)`)
-	helper := regexp.MustCompile(`indexedBy\("([a-z0-9_]+)"\)`)
+	helper := regexp.MustCompile(`(?:indexedBy|indexHint)\("([a-z0-9_]+)"\)`)
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue

@@ -74,15 +74,25 @@ const (
 // BY (through c.indexedBy). Queries go unpinned from just before the swap
 // until cleanup has rebuilt these, first, under their own names.
 // TestTierPinnedIndexesCoverIndexedBy keeps this list complete.
-var tierPinnedIndexes = map[string]bool{
-	keysetIndex:                                  true,
-	"catalog_titles_console_pop_page":            true,
-	"catalog_titles_console_language_votes_page": true,
-	"catalog_titles_console_year_title_page":     true,
-	"catalog_titles_type_browse_year":            true,
-	"catalog_titles_show":                        true,
-	"catalog_titles_episode_recent":              true,
-}
+var tierPinnedIndexes = func() map[string]bool {
+	indexes := map[string]bool{
+		keysetIndex:                                  true,
+		"catalog_titles_console_pop_page":            true,
+		"catalog_titles_console_language_votes_page": true,
+		"catalog_titles_console_year_title_page":     true,
+		"catalog_titles_type_browse_year":            true,
+		"catalog_titles_show":                        true,
+		"catalog_titles_episode_recent":              true,
+		"catalog_titles_warm_stale":                  true,
+	}
+	for _, swap := range titleIndexSwaps {
+		indexes[swap.old] = true
+		if swap.replacement != "" {
+			indexes[swap.replacement] = true
+		}
+	}
+	return indexes
+}()
 
 const tierCursorSQL = `(SELECT CAST(v AS INTEGER) FROM catalog_meta WHERE k='` + tierMetaCursor + `')`
 
