@@ -44,4 +44,22 @@ func init() {
  IF OLD.namespace='experience.receipt' THEN DELETE FROM experience_receipts WHERE hash=OLD.digest AND viewer_id=OLD.viewer_id AND protocol=OLD.surface AND device_id=OLD.device_id; END IF; RETURN OLD; END $$;
  CREATE TRIGGER experience_receipt_header_retire AFTER DELETE ON capability_headers FOR EACH ROW EXECUTE FUNCTION experience_receipt_header_retire_fn();
 `)
+	// The admission backstop charges only live receipts, matching Go
+	// admission: an expired receipt authorizes nothing and maintenance drains
+	// it, so a heavy viewer's expired backlog cannot exhaust the quota. The
+	// database clock is read at insert, after the issuer's cutoff, so the
+	// trigger never charges a row the issuer did not. Own component:
+	// experience_receipts and capability_headers are pinned to the delivered
+	// schema boundary.
+	store.RegisterAfter("experience_receipts_retention", "experience_receipts")
+	store.Register("experience_receipts_retention", 1, `DROP TRIGGER experience_receipt_admit;
+ CREATE TRIGGER experience_receipt_admit BEFORE INSERT ON experience_receipts BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM capability_headers h WHERE h.namespace='experience.receipt' AND h.digest=NEW.hash AND h.shard=(NEW.viewer_id % 64) AND h.viewer_id=NEW.viewer_id AND h.surface=NEW.protocol AND h.device_id=NEW.device_id AND h.expires=NEW.expires*1000) OR (SELECT COUNT(*) FROM capability_headers WHERE namespace='experience.receipt' AND shard=(NEW.viewer_id % 64) AND viewer_id=NEW.viewer_id AND surface=NEW.protocol AND expires>unixepoch()*1000)>100000 OR (SELECT COUNT(*) FROM capability_headers WHERE namespace='experience.receipt' AND shard=(NEW.viewer_id % 64) AND expires>unixepoch()*1000)>400000 THEN RAISE(ABORT,'receipt admission required') END; END;
+`)
+	store.RegisterDialect("experience_receipts_retention", 1, store.Postgres, `CREATE OR REPLACE FUNCTION experience_receipt_admit_fn() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE live_after BIGINT; BEGIN
+ PERFORM pg_advisory_xact_lock(CAST(`+capability.AdmissionLockSQL(ReceiptCapabilityNamespace, "NEW.viewer_id")+` AS BIGINT));
+ live_after := CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp())) AS BIGINT)*1000;
+ IF NOT EXISTS(SELECT 1 FROM capability_headers h WHERE h.namespace='experience.receipt' AND h.digest=NEW.hash AND h.shard=(NEW.viewer_id % 64) AND h.viewer_id=NEW.viewer_id AND h.surface=NEW.protocol AND h.device_id=NEW.device_id AND h.expires=NEW.expires*1000) OR (SELECT COUNT(*) FROM capability_headers WHERE namespace='experience.receipt' AND shard=(NEW.viewer_id % 64) AND viewer_id=NEW.viewer_id AND surface=NEW.protocol AND expires>live_after)>100000 OR (SELECT COUNT(*) FROM capability_headers WHERE namespace='experience.receipt' AND shard=(NEW.viewer_id % 64) AND expires>live_after)>400000 THEN RAISE EXCEPTION 'receipt admission required'; END IF;
+ RETURN NEW; END $$;
+`)
 }
