@@ -22,6 +22,36 @@ func init() {
 	store.Register("experience_row_views", 1, `CREATE TABLE experience_row_views (id TEXT PRIMARY KEY, scope_hash TEXT NOT NULL UNIQUE, viewer_id INTEGER NOT NULL, device_id TEXT NOT NULL, protocol TEXT NOT NULL, snapshot TEXT NOT NULL, expires INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX experience_row_views_viewer ON experience_row_views(viewer_id,device_id);`)
 	store.Register("experience_row_views", 2, `CREATE TABLE experience_row_view_manifests (scope_hash TEXT PRIMARY KEY, viewer_id INTEGER NOT NULL, device_id TEXT NOT NULL, protocol TEXT NOT NULL, generation TEXT NOT NULL, expires INTEGER NOT NULL, payload TEXT NOT NULL);`)
 	store.Register("experience_row_views", 3, `CREATE UNIQUE INDEX experience_row_views_snapshot ON experience_row_views(snapshot);`)
+	// Retention finds expired visits by expiry, across devices. Its own
+	// component: experience_row_views' versions are pinned to the
+	// delivered schema boundary.
+	store.RegisterAfter("experience_row_views_retention", "experience_row_views")
+	store.Register("experience_row_views_retention", 1, `CREATE INDEX experience_row_views_expires ON experience_row_views(expires); CREATE INDEX experience_row_view_manifests_expires ON experience_row_view_manifests(expires);`)
+}
+
+// rowViewPruneGrace is how long past expiry a row view is kept. An expired
+// visit already answers stale; the grace keeps that answer (rather than
+// not-found) for a client that returns within it. The device's own next
+// build still clears its expired rows at once, as before.
+const rowViewPruneGrace = 7 * 24 * time.Hour
+
+// PruneRowViews deletes row views and manifests expired longer than
+// rowViewPruneGrace, so rows of devices that never come back do not stay
+// forever. Every surface's RowViewService shares these tables, so this
+// runs once per database. Expiry is unix milliseconds.
+func PruneRowViews(ctx context.Context, db *sql.DB) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-rowViewPruneGrace).UnixMilli()
+	total, err := store.PruneBatched(ctx, db,
+		`DELETE FROM experience_row_views WHERE id IN (SELECT id FROM experience_row_views WHERE expires<? ORDER BY expires LIMIT ?)`, cutoff)
+	if err != nil {
+		return total, err
+	}
+	n, err := store.PruneBatched(ctx, db,
+		`DELETE FROM experience_row_view_manifests WHERE scope_hash IN (SELECT scope_hash FROM experience_row_view_manifests WHERE expires<? ORDER BY expires LIMIT ?)`, cutoff)
+	return total + n, err
 }
 
 var ErrRowViewNotFound = fmt.Errorf("experience: row view unavailable: %w", frontend.ErrNotFound)
