@@ -110,6 +110,11 @@ func compareServarr(a, b candidate, profile core.QualityProfile) bool {
 	if x, y := qualityPosition(profile.QualityOrder, a.rel.Info), qualityPosition(profile.QualityOrder, b.rel.Info); x != y {
 		return x > y
 	}
+	// Ether safeguard: within a quality, a correctly labelled series year
+	// beats one accepted only because the differing year names no other show.
+	if a.yearGuessed != b.yearGuessed {
+		return !a.yearGuessed
+	}
 	if x, y := revisionRank(a.rel.Info), revisionRank(b.rel.Info); x != y {
 		return x > y
 	}

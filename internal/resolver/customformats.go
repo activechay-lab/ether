@@ -302,15 +302,20 @@ func (s *FormatScorer) scoreFormats(r core.Release, overrides map[string]int, or
 	}
 	total := 0
 	var matches []FormatMatch
-	byApp := map[string]core.Release{}
+	// Servarr mode matches each app's own release-title form, built once per
+	// app; Ether mode matches the release as it is.
+	var byApp map[string]*core.Release
+	if servarr {
+		byApp = map[string]*core.Release{}
+	}
 	for _, f := range s.formats {
-		in, cached := byApp[f.def.App]
-		if !cached {
-			in = r
-			if servarr {
-				in = titleInput(f.def.App, r)
+		in := &r
+		if servarr {
+			if in = byApp[f.def.App]; in == nil {
+				rel := titleInput(f.def.App, r)
+				in = &rel
+				byApp[f.def.App] = in
 			}
-			byApp[f.def.App] = in
 		}
 		type group struct {
 			requiredOK bool
@@ -323,7 +328,7 @@ func (s *FormatScorer) scoreFormats(r core.Release, overrides map[string]int, or
 				g = &group{requiredOK: true}
 				groups[spec.def.Implementation] = g
 			}
-			match, err := specMatch(spec, in, original)
+			match, err := specMatch(spec, *in, original)
 			if err != nil {
 				return 0, nil, fmt.Errorf("custom format %q: %w", f.def.Name, errFormatTimeout)
 			}

@@ -475,6 +475,7 @@ type replayCandidate struct {
 	verified   bool
 	bandwidth  int
 	starved    bool
+	formats    int // the trace's custom format score (Servarr evaluation mode)
 }
 
 func buildReplayCandidates(row historyRow, prof core.QualityProfile, policy *releasepolicy.Policy) []replayCandidate {
@@ -525,8 +526,14 @@ func buildReplayCandidates(row historyRow, prof core.QualityProfile, policy *rel
 
 		starved := strings.Contains(ct.CompatibilityReason, "ranked one resolution lower")
 
+		formats := 0
+		for _, m := range ct.CustomFormats {
+			formats += m.Score
+		}
+
 		facts := buildCandidateFacts(rel, ct, row.trace.Limits, verified)
 		out = append(out, replayCandidate{
+			formats:    formats,
 			rel:        rel,
 			facts:      facts,
 			policy:     polRes,
@@ -648,7 +655,7 @@ func rankReplayCandidates(cands []replayCandidate, profile core.QualityProfile, 
 		if strings.HasPrefix(pluginStep, core.RankRulePrefix) && c.condMatch {
 			policy.Explanations = append(slices.Clone(policy.Explanations), releasepolicy.Explanation{ID: strings.TrimPrefix(pluginStep, core.RankRulePrefix), Action: "prefer", Outcome: "prefer"})
 		}
-		ranked[i] = resolver.RankingCandidate{Index: i, Release: c.rel, Policy: policy, Verified: c.verified, LanguageOK: c.langOK, LanguageWanted: c.langWanted, Starved: c.starved, Bandwidth: c.bandwidth, PluginKeys: map[string]int64{pluginStep: c.pluginKey}}
+		ranked[i] = resolver.RankingCandidate{Index: i, Release: c.rel, Policy: policy, Verified: c.verified, LanguageOK: c.langOK, LanguageWanted: c.langWanted, Starved: c.starved, Bandwidth: c.bandwidth, CustomFormatScore: c.formats, PluginKeys: map[string]int64{pluginStep: c.pluginKey}}
 	}
 	resolver.SortRankingCandidates(ranked, profile)
 	out := make([]replayCandidate, len(cands))
