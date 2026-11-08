@@ -29,9 +29,12 @@ const (
 // discovered is reported as skipped rather than guessed.
 // searchRowsBound bounds a search step's rows: these searches read at most
 // 100 to 200 candidates (experience's searchWindowMin for a first page,
-// Plex's hub limits), each hydrated with its genres, keywords and credits,
-// however many titles match.
-const searchRowsBound = 1500
+// Plex's hub limits), each hydrated with its genres, keywords, credits,
+// studios, countries and alternative titles, however many titles match.
+// Matches rank by popularity, so the window is the catalogue's best
+// documented titles: about 55 detail rows each in the long-tail fixture (30
+// cast, crew, 9 keywords, 4 alternative titles, 3 studios), 11,000 for 200.
+const searchRowsBound = 12000
 
 type Step struct {
 	Name  string
