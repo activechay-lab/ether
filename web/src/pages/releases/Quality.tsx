@@ -152,15 +152,15 @@ const MEDIA_OPTIONS = localized(() =>
   PROFILE_MEDIA.map((value) => ({ value, label: mediaLabel(value) })),
 );
 
-const EVALUATION_OPTIONS = localized(() => [
-  { value: "servarr" as const, label: t("Servarr") },
-  { value: "ether" as const, label: t("Ether") },
-]);
+/** Whether the profile ranks like Radarr/Sonarr: chosen, and it carries the imported quality order. */
+function servarrMode(p: QualityProfile): boolean {
+  return p.evaluationMode === "servarr" && (p.qualityOrder?.length ?? 0) > 0;
+}
 
-/** The mode a profile runs in: its choice, else Servarr for imported profiles that carry a quality order. */
-function evaluationMode(p: QualityProfile): "servarr" | "ether" {
-  if (p.evaluationMode === "servarr" || p.evaluationMode === "ether") return p.evaluationMode;
-  return p.import && (p.qualityOrder?.length ?? 0) > 0 ? "servarr" : "ether";
+/** The app an imported profile ranks like: its import's app, else its media. */
+function servarrAppName(p: QualityProfile): string {
+  const app = p.import?.app || (p.mediaType === "tv" ? "sonarr" : "radarr");
+  return app === "sonarr" ? "Sonarr" : "Radarr";
 }
 
 /** Movies / Shows badge for a profile (Movies & shows for a rule for every media). */
@@ -861,7 +861,14 @@ function WhatMattersMostSection({
   return (
     <SettingsSection
       title={t("What matters most")}
-      description={t("Checked from top to bottom. Drag or use the arrows to change the order.")}
+      description={
+        servarrMode(draft)
+          ? t(
+              "Ranked like {app}: only Prefer rules, audio language and connection fit come before its quality order.",
+              { app: servarrAppName(draft) },
+            )
+          : t("Checked from top to bottom. Drag or use the arrows to change the order.")
+      }
     >
       <div className="space-y-3 px-5 py-4">
         {rankingError ? (
@@ -1562,27 +1569,33 @@ function ProfileList({
                   )
                 }
               />
-              <SettingsRow
-                title={t("Evaluation mode")}
-                description={
-                  evaluationMode(draft) === "servarr"
-                    ? t(
-                        "Scores and orders releases like Radarr and Sonarr: the profile's quality order first, then custom format score alone. Formats the profile doesn't list score 0, and a release below the minimum format score isn't played.",
-                      )
-                    : t(
-                        "Ether's own scoring: formats the profile doesn't list can keep their shared score, and quality points, size, age and your ranking steps all shape the order.",
-                      )
-                }
-                control={
-                  <Segmented
-                    ariaLabel={t("Evaluation mode")}
-                    size="sm"
-                    value={evaluationMode(draft)}
-                    options={EVALUATION_OPTIONS}
-                    onChange={(mode) => patch({ evaluationMode: mode })}
-                  />
-                }
-              />
+              {draft.qualityOrder?.length ? (
+                <SettingsRow
+                  title={t("Ranking")}
+                  description={
+                    servarrMode(draft)
+                      ? t("Uses {app}'s quality order and custom format scores.", {
+                          app: servarrAppName(draft),
+                        })
+                      : t("Uses the order under What matters most.")
+                  }
+                  control={
+                    <Segmented
+                      ariaLabel={t("Ranking")}
+                      size="sm"
+                      value={servarrMode(draft) ? "servarr" : "ether"}
+                      options={[
+                        {
+                          value: "servarr" as const,
+                          label: t("Like {app}", { app: servarrAppName(draft) }),
+                        },
+                        { value: "ether" as const, label: t("Ether") },
+                      ]}
+                      onChange={(mode) => patch({ evaluationMode: mode })}
+                    />
+                  }
+                />
+              ) : null}
               <SettingsRow
                 title={t("Default for")}
                 description={t(

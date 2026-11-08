@@ -500,7 +500,7 @@ export interface QualityProfile {
   rankingConfig?: Record<string, Record<string, unknown>> | null;
   /** Imported quality ranking, best first: one entry per profile item/group. */
   qualityOrder?: string[][] | null;
-  /** "servarr" | "ether"; empty means servarr for imported profiles with a quality order. */
+  /** "servarr" ranks like Radarr/Sonarr (needs qualityOrder); "ether" or empty is Ether. */
   evaluationMode?: string | null;
   name: string;
   maxHeight: number;

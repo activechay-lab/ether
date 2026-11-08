@@ -360,6 +360,7 @@ function plan(
     allowCam: false,
     allowedQualities: allowed,
     qualityOrder,
+    evaluationMode: qualityOrder.length ? "servarr" : null,
     minCustomFormatScore: native.minFormatScore ?? 0,
     customFormatScores: Object.fromEntries(
       formats
