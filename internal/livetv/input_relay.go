@@ -80,7 +80,12 @@ type inputGrant struct {
 	reserve time.Duration
 	lead    time.Duration // extra join depth for a start window (grantSteadyInputLead); immutable
 	steady  bool          // feeds a real-time consumer (grantSteadyInput); immutable
-	service *Service
+	// histChannel/histSrc name the source in its history (the session's
+	// original source entry, not the resolved URL); immutable.
+	histChannel string
+	histSrc     StreamSource
+	reported    atomic.Bool // the grant's session has been counted in history
+	service     *Service
 
 	mu               sync.Mutex
 	tap              *upstreamTap // the shared connection the root input reads through
@@ -170,7 +175,11 @@ func (s *Service) grantInputFor(ss *session, src StreamSource, headers http.Head
 		lead = 0
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	g := &inputGrant{reserve: reserve, lead: lead, steady: steady, service: s,
+	histSrc := src
+	if ss.inputSource.ID != "" {
+		histSrc = ss.inputSource
+	}
+	g := &inputGrant{reserve: reserve, lead: lead, steady: steady, service: s, histChannel: c.ID, histSrc: histSrc,
 		log:   s.sessionLog(ss).With("input", src.ID),
 		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(), mediaHeaders: redirectMediaHeaders(src.Headers),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, relayConcurrency), source: source,
@@ -229,6 +238,9 @@ func (s *Service) revokeInput(ss *session) {
 
 func (r *inputRelay) dropLocked(ss *session, g *inputGrant) {
 	r.health.CompareAndDelete(ss, g)
+	if h := g.hlsIfAny(); h != nil {
+		h.flushEvidence()
+	}
 	g.cancel()
 	delete(r.grants, tokenKey(g.token))
 	delete(r.bySess, ss)
@@ -395,6 +407,9 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	if err == nil && res.StatusCode >= 400 || err != nil && r.Context().Err() == nil {
 		if h := g.hlsIfAny(); h != nil {
 			h.deliver(h.failedFetch(raw))
+			if segment {
+				h.segmentFailed()
+			}
 		}
 	}
 	if err != nil {
@@ -742,3 +757,15 @@ func (g *inputGrant) finishUpstreamAttempt(failed bool) {
 // joinDepth is how far behind the live edge a new reader of this grant
 // starts: the reserve plus any start window.
 func (g *inputGrant) joinDepth() time.Duration { return g.reserve + g.lead }
+
+// noteEvidence adds evidence to the history of the grant's source, counting
+// the grant's session once it has received media.
+func (g *inputGrant) noteEvidence(ev SourceEvidence) {
+	if g.service == nil || g.histSrc.ID == "" || ev.empty() {
+		return
+	}
+	if ev.Media > 0 && g.reported.CompareAndSwap(false, true) {
+		ev.newSession = true
+	}
+	g.service.noteSourceEvidence(g.histChannel, g.histSrc, ev)
+}

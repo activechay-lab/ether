@@ -254,6 +254,7 @@ wait:
 			// the decoder with its reserve sitting in memory.
 			if h.laterReady(f.seq) {
 				h.servedSegment(raw)
+				h.segmentFailed()
 				http.Error(w, "segment late", http.StatusBadGateway)
 				return true
 			}
@@ -261,6 +262,7 @@ wait:
 	}
 	h.servedSegment(raw)
 	if f.err != nil || f.status != http.StatusOK {
+		h.segmentFailed()
 		code := f.status
 		if code < 400 || code > 599 {
 			code = http.StatusBadGateway
