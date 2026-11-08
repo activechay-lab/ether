@@ -610,7 +610,15 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 // writes group-commit (detail_writer.go).
 const warmDetailsWorkers = 8
 
+// warmOnlyKey marks a Get whose caller only wants the details stored:
+// WarmDetails never reads the result, so the title is not reloaded and
+// hydrated after its fetch (a dozen statements a title).
+type warmOnlyKey struct{}
+
+func warmOnly(ctx context.Context) bool { return ctx.Value(warmOnlyKey{}) != nil }
+
 func (c *Catalog) warmKeys(ctx context.Context, keys []core.RatingKey) (int, error) {
+	ctx = context.WithValue(ctx, warmOnlyKey{}, true)
 	var warmed atomic.Int64
 	next := make(chan core.RatingKey)
 	var wg sync.WaitGroup

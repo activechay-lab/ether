@@ -181,12 +181,14 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 		}
 		return nil, core.ErrNotFound
 	}
+	var fetched *core.Title
 	fetch := func(ctx context.Context) error {
 		d, err := c.tmdb().MovieDetails(ctx, id)
 		if err != nil {
 			return err
 		}
 		t := c.movieDetailsToTitle(ctx, d)
+		fetched = &t
 		var crowd *detailExtra
 		if d.Recommendations != nil {
 			crowd = c.crowdExtra(ctx, key, movieCrowdTitles(c, ctx, d.Recommendations))
@@ -198,6 +200,9 @@ func (c *Catalog) getMovie(ctx context.Context, id int64) (*core.Title, error) {
 			return &st.t, nil // serve stored details while the refresh runs or after it failed
 		}
 		return nil, ferr
+	}
+	if fetched != nil && warmOnly(ctx) {
+		return fetched, nil
 	}
 	st2, err := c.loadByKey(ctx, key)
 	if err != nil {
@@ -273,12 +278,14 @@ func (c *Catalog) getShow(ctx context.Context, id int64) (*core.Title, error) {
 		}
 		return nil, core.ErrNotFound
 	}
+	var fetched *core.Title
 	fetch := func(ctx context.Context) error {
 		d, err := c.tmdb().TVDetails(ctx, id)
 		if err != nil {
 			return err
 		}
 		t := c.tvDetailsToTitle(ctx, d)
+		fetched = &t
 		var crowd *detailExtra
 		if d.Recommendations != nil {
 			crowd = c.crowdExtra(ctx, key, tvCrowdTitles(c, ctx, d.Recommendations))
@@ -290,6 +297,9 @@ func (c *Catalog) getShow(ctx context.Context, id int64) (*core.Title, error) {
 			return &st.t, nil
 		}
 		return nil, ferr
+	}
+	if fetched != nil && warmOnly(ctx) {
+		return fetched, nil
 	}
 	st2, err := c.loadByKey(ctx, key)
 	if err != nil {
