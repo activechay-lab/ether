@@ -1602,12 +1602,6 @@ func (s *Server) applyLeafCounts(ctx context.Context, pr *Request, items []model
 	s.applyLeafCountsWith(ctx, pr, items, ts, memo, nil)
 }
 
-// listEpisodeStore answers many shows' episodes from the mirror at once,
-// exactly as Grandchildren would, for the shows it can (catalog).
-type listEpisodeStore interface {
-	StoredGrandchildren(context.Context, []core.RatingKey) (map[core.RatingKey][]core.Title, error)
-}
-
 // prefetchListEpisodes loads, in a few batched reads, the episodes and
 // watch state a list's shows need for their leaf counts, so the counts do
 // not load each show's episodes and state one show at a time. It covers
@@ -1626,61 +1620,17 @@ func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []cor
 }
 
 func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts []core.Title, selectionOnly bool) (showEpisodes, map[core.RatingKey]core.WatchStatus) {
-	store, ok := s.d.Catalog.(listEpisodeStore)
-	if !ok || s.d.State == nil || pr.User == nil {
-		return nil, nil
-	}
-	withSeasons := map[core.RatingKey]bool{}
-	for i := range ts {
-		if ts[i].Type == core.TypeSeason {
-			withSeasons[core.ShowKey(ts[i].Key.TMDB())] = true
-		}
-	}
-	var shows []core.RatingKey
-	for i := range ts {
-		if ts[i].Type == core.TypeShow && !withSeasons[ts[i].Key] {
-			shows = append(shows, ts[i].Key)
-		}
-	}
-	if len(shows) == 0 {
-		return nil, nil
-	}
+	batch := experience.EpisodeBatch{Catalog: s.d.Catalog, State: s.d.State}
 	if s.d.EpisodeOrder != nil {
-		grouped, err := s.d.EpisodeOrder.Grouped(ctx, pr.User, shows)
-		if err != nil {
-			return nil, nil
-		}
-		kept := shows[:0]
-		for _, k := range shows {
-			if !grouped[k] {
-				kept = append(kept, k)
-			}
-		}
-		shows = kept
+		batch.EpisodeOrder = s.d.EpisodeOrder
 	}
-	load := store.StoredGrandchildren
-	if selectionOnly {
-		if candidates, ok := s.d.Catalog.(interface {
-			StoredEpisodeCandidates(context.Context, []core.RatingKey) (map[core.RatingKey][]core.Title, error)
-		}); ok {
-			load = candidates.StoredEpisodeCandidates
-		}
+	found, states := batch.Load(ctx, pr.User, ts, selectionOnly)
+	if found == nil {
+		return nil, states
 	}
-	found, err := load(ctx, shows)
-	if err != nil || len(found) == 0 {
-		return nil, nil
-	}
-	memo := showEpisodes{}
-	var keys []core.RatingKey
+	memo := make(showEpisodes, len(found))
 	for show, eps := range found {
 		memo[show] = showEpisodeList{eps: eps}
-		for _, e := range eps {
-			keys = append(keys, e.Key)
-		}
-	}
-	states, err := s.d.State.GetMany(ctx, pr.User.ID, keys)
-	if err != nil {
-		return memo, nil
 	}
 	return memo, states
 }
