@@ -36,6 +36,7 @@ type pool struct {
 	cfg           config.UsenetProvider
 	dialGen       uint64 // fetcher dial generation; a bump drops warm connections
 	o             *Options
+	addrs         *addrPlan
 	log           *slog.Logger
 	sem           *prioSem
 	brk           *breaker
@@ -143,6 +144,7 @@ func newPool(key string, cfg config.UsenetProvider, o *Options, log *slog.Logger
 		key:           key,
 		cfg:           cfg,
 		o:             o,
+		addrs:         newAddrPlan(cfg.Host, cfg.Port, cfg.TLS),
 		log:           log.With("provider", providerLabel(cfg)),
 		sem:           newPrioSem(size, prefetchSlots(size, o.PrefetchFraction)),
 		brk:           newBreaker(o.BackoffMin, o.BackoffMax, o.FailThreshold, time.Now),
@@ -181,6 +183,10 @@ func providerLabel(cfg config.UsenetProvider) string {
 
 func (p *pool) dialOptions() DialOptions {
 	connID := p.connSeq.Add(1)
+	dial := p.o.DialContext
+	if dial == nil && p.addrs != nil {
+		dial = p.addrs.dialContext
+	}
 	return DialOptions{
 		Host:            p.cfg.Host,
 		Port:            p.cfg.Port,
@@ -191,7 +197,7 @@ func (p *pool) dialOptions() DialOptions {
 		Timeout:         p.o.DialTimeout,
 		CommandTimeout:  p.o.CommandTimeout,
 		IdleReadTimeout: p.o.IdleReadTimeout,
-		DialContext:     p.o.DialContext,
+		DialContext:     dial,
 		BytesRead:       &p.bytes,
 		OnPhase: func(phase string, d time.Duration) {
 			switch phase {
@@ -215,6 +221,14 @@ func (p *pool) dialOptions() DialOptions {
 				p.log.Debug("nntp command", "connection", connID, "line", line)
 			}
 		},
+	}
+}
+
+// noteBodyTransfer records a warm BODY transfer on c for address-level
+// throughput tracking when the default multi-address dialer is active.
+func (p *pool) noteBodyTransfer(c *Conn, wireBytes int64, d time.Duration) {
+	if p.o.DialContext == nil && p.addrs != nil && c != nil {
+		p.addrs.noteBodyRate(c.RemoteIP(), wireBytes, d)
 	}
 }
 

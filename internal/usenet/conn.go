@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -75,6 +76,7 @@ type Conn struct {
 	broken        bool
 	inBody        bool
 	group         string
+	remoteIP      netip.Addr
 
 	used time.Time // last time a command completed
 	// idleSince is when the pool last got the connection back from a
@@ -126,6 +128,16 @@ func Dial(ctx context.Context, o DialOptions) (*Conn, error) {
 	if tc, ok := raw.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
 	}
+	var remoteIP netip.Addr
+	if ra := raw.RemoteAddr(); ra != nil {
+		if ta, ok := ra.(*net.TCPAddr); ok {
+			if ip, ok := netip.AddrFromSlice(ta.IP); ok {
+				remoteIP = ip.Unmap()
+			}
+		} else if ap, err := netip.ParseAddrPort(ra.String()); err == nil {
+			remoteIP = ap.Addr().Unmap()
+		}
+	}
 	wire := new(atomic.Int64)
 	var nc net.Conn = &countingConn{Conn: raw, n: o.BytesRead, own: wire}
 	if o.TLS {
@@ -169,6 +181,7 @@ func Dial(ctx context.Context, o DialOptions) (*Conn, error) {
 		onPhase:        o.OnPhase,
 		onStatus:       o.OnStatus,
 		onCommand:      o.OnCommand,
+		remoteIP:       remoteIP,
 
 		used: now,
 		wire: wire,
@@ -520,6 +533,9 @@ func (c *Conn) Close() error {
 
 // Broken reports whether the connection failed and must not be reused.
 func (c *Conn) Broken() bool { return c.broken }
+
+// RemoteIP returns the remote IP address of the underlying TCP connection, if known.
+func (c *Conn) RemoteIP() netip.Addr { return c.remoteIP }
 
 // Body issues BODY and returns a reader over the dot-unstuffed body. The
 // reader must be closed (which drains any unread remainder) before the
