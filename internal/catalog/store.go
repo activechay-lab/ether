@@ -635,6 +635,9 @@ type upsertOpts struct {
 	// row; a key it lacks is inserted by this upsert, so the probes for
 	// what an existing row holds (ratings, release names) are skipped.
 	stored map[int64]bool
+	// joins, set by upsertItems, collects the batch's facet and credit
+	// writes (join_batch.go).
+	joins *joinBatch
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
@@ -735,12 +738,16 @@ func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...
 			return err
 		}
 	}
+	joins := &joinBatch{}
 	for _, it := range items {
 		o := it.o
-		o.region, o.ratingCuts, o.stored = region, &cuts, stored
+		o.region, o.ratingCuts, o.stored, o.joins = region, &cuts, stored, joins
 		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
 			return err
 		}
+	}
+	if err := joins.flush(ctx, tx, now); err != nil {
+		return err
 	}
 	if fold {
 		if err := endFTSFold(ctx, tx, fresh); err != nil {
@@ -1039,164 +1046,16 @@ ON CONFLICT(key) DO UPDATE SET
 		}
 	}
 	// Replace join rows only when the incoming title carries that facet, so
-	// summary upserts don't wipe detail-fetched genres/credits.
-	joinChanged := false
-	facets := [][]string{t.Genres, t.Keywords, t.AlternativeTitles, t.Studios, t.Countries}
-	anyFacet := false
-	for _, f := range facets {
-		anyFacet = anyFacet || f != nil
+	// summary upserts don't wipe detail-fetched genres/credits. A batch
+	// writes them together after its titles (join_batch.go).
+	if o.joins != nil {
+		return o.joins.add(ctx, tx, t, now)
 	}
-	if anyFacet {
-		// Read even for a new row: facet rows may outlive a deleted title.
-		stored, err := storedFacets(ctx, tx, int64(t.Key))
-		if err != nil {
-			return err
-		}
-		for i, f := range facetTables {
-			if facets[i] == nil {
-				continue
-			}
-			changed, err := replaceStoredPairs(ctx, tx, f.table, f.col, int64(t.Key), facets[i], stored[f.table])
-			if err != nil {
-				return err
-			}
-			joinChanged = joinChanged || changed
-		}
+	one := &joinBatch{}
+	if err := one.add(ctx, tx, t, now); err != nil {
+		return err
 	}
-	if t.Cast != nil || t.Directors != nil || t.Writers != nil || t.Crew != nil {
-		changed, err := replaceCredits(ctx, tx, t)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if joinChanged {
-		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=? WHERE key=?`, now, int64(t.Key)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-type creditKey struct {
-	person     int64
-	kind, role string
-}
-
-type creditRow struct {
-	name             string
-	ord              int
-	thumb, provider  string
-	imdb             string
-	inserted, update bool
-}
-
-// replaceCredits makes t's stored credits exactly its cast and crew, writing
-// only the difference: a refresh that recasts one part touches one row, not
-// every credit with its person-name upkeep and index entries. The first
-// credit of a (person, kind, role) wins, as the INSERT ... DO NOTHING it
-// replaces kept it.
-func replaceCredits(ctx context.Context, tx *sql.Tx, t core.Title) (bool, error) {
-	want := map[creditKey]*creditRow{}
-	var order []creditKey
-	for _, group := range []struct {
-		people []core.Person
-		kind   string
-	}{{t.Cast, "cast"}, {t.Directors, "director"}, {t.Writers, "writer"}, {t.Crew, "crew"}} {
-		for i, p := range group.people {
-			k := creditKey{p.TMDB, group.kind, p.Role}
-			if want[k] != nil {
-				continue
-			}
-			imdb := ""
-			if p.TMDB > 0 && validPersonIMDB(p.IMDB) {
-				imdb = p.IMDB
-			}
-			want[k] = &creditRow{name: p.Name, ord: i, thumb: p.ThumbPath, provider: p.ID, imdb: imdb, inserted: true}
-			order = append(order, k)
-		}
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT person_tmdb,kind,role,name,ord,thumb,provider_id FROM catalog_credits WHERE key=?`, int64(t.Key))
-	if err != nil {
-		return false, err
-	}
-	var stale []creditKey
-	for rows.Next() {
-		var k creditKey
-		var have creditRow
-		if err := rows.Scan(&k.person, &k.kind, &k.role, &have.name, &have.ord, &have.thumb, &have.provider); err != nil {
-			rows.Close()
-			return false, err
-		}
-		w := want[k]
-		if w == nil {
-			stale = append(stale, k)
-			continue
-		}
-		w.inserted = false
-		w.update = w.name != have.name || w.ord != have.ord || w.thumb != have.thumb || w.provider != have.provider
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	changed := len(stale) > 0
-	// Removals and additions are one statement each, in chunks that stay
-	// well inside both engines' bound-parameter limits.
-	const chunk = 200
-	for start := 0; start < len(stale); start += chunk {
-		part := stale[start:min(start+chunk, len(stale))]
-		args := []any{int64(t.Key)}
-		var conds []string
-		for _, k := range part {
-			conds = append(conds, "(person_tmdb=? AND kind=? AND role=?)")
-			args = append(args, k.person, k.kind, k.role)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=? AND (`+strings.Join(conds, " OR ")+`)`, args...); err != nil {
-			return false, err
-		}
-	}
-	var added []any
-	for _, k := range order {
-		w := want[k]
-		switch {
-		case w.inserted:
-			added = append(added, int64(t.Key), k.person, w.name, k.role, k.kind, w.ord, w.thumb, w.provider)
-		case w.update:
-			if _, err := tx.ExecContext(ctx, `UPDATE catalog_credits SET name=?,ord=?,thumb=?,provider_id=? WHERE key=? AND person_tmdb=? AND kind=? AND role=?`,
-				w.name, w.ord, w.thumb, w.provider, int64(t.Key), k.person, k.kind, k.role); err != nil {
-				return false, err
-			}
-			changed = true
-		}
-	}
-	for start := 0; start < len(added); start += chunk * 8 {
-		part := added[start:min(start+chunk*8, len(added))]
-		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES `+valueRows(len(part)/8, 8)+` ON CONFLICT DO NOTHING`, part...); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	if !changed {
-		return false, nil
-	}
-	// One upsert of every credited person's IMDb id. A person appears once:
-	// PostgreSQL refuses to update a row twice in one statement.
-	var people []any
-	seen := map[int64]bool{}
-	for _, k := range order {
-		if w := want[k]; w.imdb != "" && !seen[k.person] {
-			seen[k.person] = true
-			people = append(people, k.person, w.imdb)
-		}
-	}
-	for start := 0; start < len(people); start += chunk * 2 {
-		part := people[start:min(start+chunk*2, len(people))]
-		if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES `+valueRows(len(part)/2, 2)+` ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb WHERE catalog_people.imdb<>excluded.imdb`, part...); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
+	return one.flush(ctx, tx, now)
 }
 
 func detailAtFor(detail int, now int64) int64 {
@@ -1234,85 +1093,6 @@ func uniqueStrings(in []string) []string {
 		out = appendUnique(out, v)
 	}
 	return out
-}
-
-// facetTables are the one-value-per-row facets a title upsert replaces.
-var facetTables = []struct{ table, col string }{
-	{"catalog_genres", "genre"}, {"catalog_keywords", "keyword"}, {"catalog_alt_titles", "title"},
-	{"catalog_studios", "studio"}, {"catalog_countries", "country"},
-}
-
-// storedFacets reads key's stored values of every facet table in one
-// statement, by table name.
-func storedFacets(ctx context.Context, tx *sql.Tx, key int64) (map[string][]string, error) {
-	var parts []string
-	args := make([]any, 0, len(facetTables))
-	for i, f := range facetTables {
-		parts = append(parts, fmt.Sprintf(`SELECT %d, %s FROM %s WHERE key=?`, i, f.col, f.table))
-		args = append(args, key)
-	}
-	rows, err := tx.QueryContext(ctx, strings.Join(parts, " UNION ALL "), args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string][]string{}
-	for rows.Next() {
-		var i int
-		var v string
-		if err := rows.Scan(&i, &v); err != nil {
-			return nil, err
-		}
-		out[facetTables[i].table] = append(out[facetTables[i].table], v)
-	}
-	return out, rows.Err()
-}
-
-// replaceStoredPairs makes key's values in table exactly vals, given the
-// stored ones, writing only the difference. A refresh usually brings the
-// same values, and one that adds a genre should not rewrite the others:
-// every row written fires the search, tally and viewer-policy triggers and
-// touches each index.
-func replaceStoredPairs(ctx context.Context, tx *sql.Tx, table, col string, key int64, vals, stored []string) (bool, error) {
-	want := make(map[string]bool, len(vals))
-	for _, v := range vals {
-		if v != "" {
-			want[v] = true
-		}
-	}
-	var stale []string
-	have := make(map[string]bool, len(stored))
-	for _, v := range stored {
-		have[v] = true
-		if !want[v] {
-			stale = append(stale, v)
-		}
-	}
-	// One statement for the removals and one for the additions, whatever
-	// their number: a first detail fill adds a dozen keywords.
-	if len(stale) > 0 {
-		args := []any{key}
-		for _, v := range stale {
-			args = append(args, v)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=? AND `+col+` IN (`+placeholders(len(stale))+`)`, args...); err != nil {
-			return false, err
-		}
-	}
-	var added []any
-	for _, v := range vals {
-		if v == "" || have[v] {
-			continue
-		}
-		have[v] = true
-		added = append(added, key, v)
-	}
-	if len(added) > 0 {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES `+valueRows(len(added)/2, 2)+` ON CONFLICT DO NOTHING`, added...); err != nil {
-			return false, err
-		}
-	}
-	return len(stale) > 0 || len(added) > 0, nil
 }
 
 // valueRows is n parenthesised rows of cols placeholders: "(?,?),(?,?)".
