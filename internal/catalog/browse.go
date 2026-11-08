@@ -99,7 +99,12 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		total = cntEnt.total
 	default:
 		if !cacheable {
-			err = c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles t WHERE `+where, args...).Scan(&total)
+			// A viewer's state filter is never cached, but an unwatched
+			// listing's total still comes from the tally (tallyTotal).
+			var ok bool
+			if total, ok, err = c.tallyTotal(ctx, q.Filter, where, args); err == nil && !ok {
+				err = c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles t WHERE `+where, args...).Scan(&total)
+			}
 		} else {
 			total, err = c.countBrowse(ctx, q.Filter, ckey, where, args)
 		}
