@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -185,7 +186,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		// This avoids reading large title payloads while rejecting candidates.
 		query = `SELECT ` + prefixedCols("t") + ` FROM catalog_titles t JOIN (SELECT t.key AS page_key FROM catalog_titles t` + hint + ` WHERE ` + pageWhere + ` ORDER BY ` + order + `, t.key ASC LIMIT ? OFFSET ?) p ON t.key=p.page_key ORDER BY ` + order + `,t.key ASC`
 	}
-	if rq, ok := c.rankPageQuery(q, pageWhere); ok && !computedAdded {
+	if rq, ok := c.rankPageQuery(ctx, q, pageWhere); ok && !computedAdded {
 		query = rq
 	}
 	if computedAdded {
@@ -1289,8 +1290,8 @@ func (c *Catalog) titlesInKeyOrder(ctx context.Context, keys []core.RatingKey) (
 // The order is rk then key, most popular first, deterministic for paging.
 // Filters that make a rank walk long (people, keywords, collections and
 // the other sparse console candidates) keep the filter-driven plan.
-func (c *Catalog) rankPageQuery(q core.BrowseQuery, pageWhere string) (string, bool) {
-	if !c.rankReady.Load() || q.SortLastViewed || len(q.SecondarySorts) > 0 || q.AfterKey > 0 {
+func (c *Catalog) rankPageQuery(ctx context.Context, q core.BrowseQuery, pageWhere string) (string, bool) {
+	if !c.rankReady.Load() || q.SortLastViewed || len(q.SecondarySorts) > 0 {
 		return "", false
 	}
 	if q.Sort != core.SortPopularity && q.Sort != "" {
@@ -1311,6 +1312,23 @@ func (c *Catalog) rankPageQuery(q core.BrowseQuery, pageWhere string) (string, b
 	}
 	// Ties keep the catalogue's key order either way, as browseOrder's.
 	order := "r.rk " + dir + ", r.key ASC"
+	// A page after a known title seeks on (rk, key) instead of skipping:
+	// deep pages cost what the first one does.
+	if q.AfterKey > 0 {
+		var rk float64
+		if err := c.db.QueryRowContext(ctx, `SELECT rk FROM catalog_rank WHERE key=?`, int64(q.AfterKey)).Scan(&rk); err != nil {
+			return "", false
+		}
+		op := ">"
+		if dir == "DESC" {
+			op = "<"
+		}
+		v := strconv.FormatFloat(rk, 'g', -1, 64)
+		pageWhere = "(t.rk" + op + v + " OR (t.rk=" + v + " AND t.key>" + strconv.FormatInt(int64(q.AfterKey), 10) + ")) AND " + pageWhere
+		if !rankOnly(pageWhere) {
+			return "", false
+		}
+	}
 	// When every column the filter reads is a rank column, the filter runs
 	// on the rank alone (no title row is read until the page's own).
 	if rankOnly(pageWhere) {
@@ -1333,7 +1351,7 @@ var rankRefs = regexp.MustCompile(`\bt\.([a-z_]+)`)
 func rankOnly(where string) bool {
 	for _, m := range rankRefs.FindAllStringSubmatch(where, -1) {
 		switch m[1] {
-		case "key", "type", "browsable", "adult", "release_known", "released_ts", "year", "language", "runtime_sec", "status":
+		case "key", "type", "browsable", "adult", "release_known", "released_ts", "year", "language", "runtime_sec", "status", "rk":
 		default:
 			return false
 		}

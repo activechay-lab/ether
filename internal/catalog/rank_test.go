@@ -246,3 +246,48 @@ func TestTitleIndexSwapKeepsPages(t *testing.T) {
 		t.Fatalf("pages changed:\nbefore\n%s\nranked\n%s\nswapped\n%s", before, ranked, swapped)
 	}
 }
+
+// A page after a title seeks the rank and is the page an offset gives.
+func TestRankSeekMatchesOffset(t *testing.T) {
+	c := newChunkTestCatalog(t)
+	ctx := context.Background()
+	rel := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	var titles []core.Title
+	for i := int64(1); i <= 200; i++ {
+		titles = append(titles, core.Title{Key: core.MovieKey(i), Type: core.TypeMovie, Title: fmt.Sprint("M", i), Released: rel, Popularity: float64((i * 13) % 29)})
+	}
+	if err := c.upsertMany(ctx, titles, upsertOpts{browsable: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RebuildRank(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, desc := range []bool{true, false} {
+		q := core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortPopularity, Desc: desc, Limit: 30, NoTotal: true}
+		var seek []core.RatingKey
+		for len(seek) < 200 {
+			p, err := c.Browse(ctx, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.Items) == 0 {
+				break
+			}
+			for _, it := range p.Items {
+				seek = append(seek, it.Key)
+			}
+			q.AfterKey = p.Items[len(p.Items)-1].Key
+		}
+		all, err := c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortPopularity, Desc: desc, Limit: 200, NoTotal: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []core.RatingKey
+		for _, it := range all.Items {
+			want = append(want, it.Key)
+		}
+		if fmt.Sprint(seek) != fmt.Sprint(want) {
+			t.Fatalf("desc=%t: seeking pages differ from one long page:\n%v\n%v", desc, seek, want)
+		}
+	}
+}
