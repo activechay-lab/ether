@@ -14,7 +14,7 @@ import (
 )
 
 // dbMaintenanceInterval is how often derived data is pruned, the SQLite WAL
-// truncated, the planner statistics refreshed and the database checked for
+// passively checkpointed, the planner statistics refreshed and the database checked for
 // damage. The first pass waits
 // dbMaintenanceDelay so it never competes with startup work.
 const (
@@ -90,19 +90,9 @@ func (a *App) checkpointWAL(ctx context.Context) {
 	if a.db == nil || store.DialectOf(a.db) != store.SQLite {
 		return
 	}
-	store.RunCheckpointer(ctx, a.db, a.walTruncateAllowed, func(err error) {
+	store.RunCheckpointer(ctx, a.db, nil, func(err error) {
 		a.log.Warn("wal checkpoint", "err", err)
 	})
-}
-
-// walTruncateAllowed reports whether a TRUNCATE checkpoint is safe. PASSIVE
-// checkpoints still run when this is false. A live playback, or any other
-// connection inside a query, keeps the exclusive truncate off the request.
-func (a *App) walTruncateAllowed() bool {
-	if a.playback != nil && len(a.playback.Sessions()) > 0 {
-		return false
-	}
-	return a.db != nil && a.db.Stats().InUse == 0
 }
 
 // maintainDB prunes derived data and runs store.Maintain daily until ctx

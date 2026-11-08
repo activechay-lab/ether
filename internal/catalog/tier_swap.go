@@ -61,13 +61,10 @@ const (
 	tierMetaHints = "tier_migrate_unpinned"
 	// tierHintGrace lets queries that named a pinned index finish before
 	// the swap moves it.
-	tierHintGrace = 2 * time.Second
-	// tierTruncateWait bounds how long a TRUNCATE checkpoint waits for
-	// readers (writers wait behind it).
-	tierTruncateWait = 250 * time.Millisecond
-	tierCopyPage     = 2000
-	tierCopyStart    = 1000
-	tierOrphanPage   = 2000
+	tierHintGrace  = 2 * time.Second
+	tierCopyPage   = 2000
+	tierCopyStart  = 1000
+	tierOrphanPage = 2000
 )
 
 // tierPinnedIndexes are the catalog_titles indexes queries name in INDEXED
@@ -913,13 +910,11 @@ func (c *Catalog) loadTierHints(ctx context.Context) {
 	c.tier.hintsOff.Store(c.getMeta(ctx, tierMetaHints) != "")
 }
 
-// tierWALBudget is the job's back-pressure between batches: the shared WAL
-// budget, then a TRUNCATE checkpoint when the WAL file has grown past it
-// (steady readers keep it from restarting on its own).
+// tierWALBudget applies shared pending-frame/long-reader backpressure between
+// atomic batches. It never starts a strong checkpoint while requests are live:
+// even an admitted TRUNCATE can hold writers beyond their unchanged deadlines.
+// Allocated/reusable WAL bytes and free-volume reservations are distinct from
+// this pending-frame budget; it does not promise a hard total disk bound.
 func (c *Catalog) tierWALBudget(ctx context.Context) error {
-	if err := store.WaitWALBudget(ctx, c.db); err != nil {
-		return err
-	}
-	_, err := store.TruncateWAL(ctx, c.db, tierTruncateWait)
-	return err
+	return store.WaitWALBudget(ctx, c.db)
 }

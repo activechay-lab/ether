@@ -104,7 +104,7 @@ var walWaitMax = 15 * time.Minute
 const walWaitPoll = time.Second
 
 // WaitWALBudget is the bulk writers' back-pressure: it returns once no long
-// read is running and the WAL is within journalSizeLimit, waiting (and
+// read is running and uncheckpointed frames are within journalSizeLimit, waiting (and
 // checkpointing) as needed. It is not a failure to wait. A long read this
 // process announced is waited out however long it runs: it ends on its own,
 // and an integrity check of a large database on a slow disk can take more

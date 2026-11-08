@@ -322,8 +322,9 @@ func OpenPath(ctx context.Context, path string) (*sql.DB, error) {
 }
 
 func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress func(Progress)) (*sql.DB, error) {
-	// journal_size_limit caps the WAL left on disk after a checkpoint; without
-	// it one large transaction leaves a WAL file that never shrinks.
+	// journal_size_limit trims retained WAL on writer reuse after a full
+	// checkpoint. It does not cap pinned/active frames or bound truncate I/O.
+	// Without it a large transaction can leave its allocation indefinitely.
 	// auto_vacuum=INCREMENTAL takes effect on a new database and on VACUUM
 	// (INTO) copies; see space.go.
 	// wal_autocheckpoint=0 keeps a commit from running a checkpoint. Under

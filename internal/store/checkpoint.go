@@ -17,15 +17,16 @@ import (
 // continuously.
 const walCheckpointInterval = time.Second
 
-// Checkpoint copies WAL frames back into the database. truncate also
-// truncates the WAL, and only when this checkpoint itself found no readers
-// in the way and no other connection is inside a query. TRUNCATE takes
-// locks a request would have to wait on, so callers pass false while the
-// server is busy.
-//
-// PostgreSQL checkpoints in its own background process. There is nothing
-// to run on the client, and this does not issue CHECKPOINT.
-func Checkpoint(ctx context.Context, db *sql.DB, truncate bool) error {
+// Checkpoint copies WAL frames back into the database using PASSIVE only.
+// The truncate argument is retained for source compatibility, but no longer
+// permits a strong checkpoint on a live pool. An idle InUse snapshot cannot
+// fence the next writer, and TRUNCATE may copy/sync for longer than admission
+// deadlines even after a successful PASSIVE. Physical reclamation requires the
+// separate database-generation lifecycle, not a busy-timeout or idle hint.
+// The existing journal_size_limit still bounds retained WAL upon full
+// checkpoint plus subsequent writer reuse; it is not a peak-size/I/O bound.
+// PostgreSQL owns its own checkpoints; no server CHECKPOINT is issued here.
+func Checkpoint(ctx context.Context, db *sql.DB, _ bool) error {
 	if db == nil || DialectOf(db) == Postgres {
 		return nil
 	}
@@ -41,17 +42,8 @@ func Checkpoint(ctx context.Context, db *sql.DB, truncate bool) error {
 	if !strings.EqualFold(mode, "wal") {
 		return nil
 	}
-	busy, logFrames, copied, err := walCheckpoint(ctx, conn, "PASSIVE")
-	if err != nil {
-		return err
-	}
-	if !truncate || busy != 0 || copied != logFrames || logFrames == 0 || db.Stats().InUse > 1 {
-		return nil
-	}
-	if _, _, _, err := walCheckpoint(ctx, conn, "TRUNCATE"); err != nil {
-		return err
-	}
-	return nil
+	_, _, _, err = walCheckpoint(ctx, conn, "PASSIVE")
+	return err
 }
 
 func walCheckpoint(ctx context.Context, conn *sql.Conn, mode string) (busy, logFrames, checkpointed int, err error) {
@@ -74,16 +66,15 @@ func walCheckpoint(ctx context.Context, conn *sql.Conn, mode string) (busy, logF
 	return busy, logFrames, checkpointed, err
 }
 
-// RunCheckpointer PASSIVE-checkpoints until ctx ends. truncate, when it
-// reports true, allows a TRUNCATE on that pass; a nil truncate never
-// truncates. onErr receives checkpoint failures and may be nil.
-func RunCheckpointer(ctx context.Context, db *sql.DB, truncate func() bool, onErr func(error)) {
+// RunCheckpointer PASSIVE-checkpoints until ctx ends. The former truncate
+// callback is retained for compatibility but is not consulted: sampled idle
+// state cannot authorize exclusive maintenance. onErr may be nil.
+func RunCheckpointer(ctx context.Context, db *sql.DB, _ func() bool, onErr func(error)) {
 	if db == nil || DialectOf(db) == Postgres {
 		return
 	}
 	for schedule.Wait(ctx, time.Now, walCheckpointInterval) {
-		allow := truncate != nil && truncate()
-		err := Checkpoint(ctx, db, allow)
+		err := Checkpoint(ctx, db, false)
 		if err != nil && ctx.Err() == nil && onErr != nil {
 			onErr(err)
 		}
