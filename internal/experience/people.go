@@ -386,7 +386,9 @@ func (s *Service) people(ctx context.Context, viewer *core.Viewer, device core.D
 	}
 	terms := peopleTerms(q.Query)
 	exact := strings.Join(peopleWords(q.Query), " ")
-	if len(terms) > 0 && s.d.PeopleIndex != nil && s.d.PersonCredits != nil {
+	// A query with no name lists the most credited people the viewer can
+	// see, from the same index, instead of walking every credited title.
+	if (len(terms) > 0 || strings.TrimSpace(q.Query) == "") && s.d.PeopleIndex != nil && s.d.PersonCredits != nil {
 		return s.indexedPeople(ctx, viewer, q, terms, exact)
 	}
 	// Keep only the requested best people while scanning authorized credits.
