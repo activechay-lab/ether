@@ -1140,6 +1140,20 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		lo, hi := pr.window(len(rows))
 		rows = rows[lo:hi]
 	}
+	// The rows' remembered tracks, languages and backdrop colours in a few
+	// batches, as renderTitles reads them, not per row.
+	if len(rows) > 1 {
+		page := make([]core.Title, 0, len(rows))
+		for _, row := range rows {
+			if row.t != nil {
+				page = append(page, *row.t)
+			}
+		}
+		o := renderOpts{detail: true, media: true}
+		s.preloadUltraBlur(ctx, page)
+		s.preloadShowLanguages(ctx, pr, page, o)
+		s.preloadTrackChoices(ctx, pr, page, o)
+	}
 	for _, row := range rows {
 		var md model.Metadata
 		if row.extra != nil {
