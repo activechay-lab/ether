@@ -13,7 +13,8 @@ import (
 
 // Plex still imports domain packages from the playback files owned by the
 // broker cutover. Until those imports leave, the package cannot use the
-// frontends-only rule above. This ratchet rejects any new internal import.
+// frontends-only rule below. Existing domain allowances may only shrink;
+// pure frontend kit helpers follow the same rule as the other adapters.
 func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 	allowed := map[string]bool{
 		"github.com/braedonsaunders/ether/internal/artwork":                true,
@@ -30,12 +31,10 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 		"github.com/braedonsaunders/ether/internal/discovery":              true,
 		"github.com/braedonsaunders/ether/internal/experience":             true,
 		"github.com/braedonsaunders/ether/internal/extras":                 true,
-		"github.com/braedonsaunders/ether/internal/faillog":                true,
 		"github.com/braedonsaunders/ether/internal/frontend":               true,
 		"github.com/braedonsaunders/ether/internal/homefilter":             true,
 		"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet": true,
 		"github.com/braedonsaunders/ether/internal/livetv":                 true,
-		"github.com/braedonsaunders/ether/internal/lru":                    true,
 		"github.com/braedonsaunders/ether/internal/plex/model":             true,
 		"github.com/braedonsaunders/ether/internal/plexguid":               true,
 		"github.com/braedonsaunders/ether/internal/sessions":               true,
@@ -63,7 +62,7 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if strings.HasPrefix(name, prefix) && !allowed[name] {
+			if strings.HasPrefix(name, prefix) && !allowed[name] && !strings.HasPrefix(name, prefix+"frontend/kit/") {
 				t.Errorf("%s imports %s, which is outside the recorded Plex boundary", path, name)
 			}
 		}

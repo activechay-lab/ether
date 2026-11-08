@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/lru"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/lru"
 )
 
 // ---------------------------------------------------------------------------
