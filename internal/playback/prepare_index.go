@@ -11,7 +11,9 @@ import (
 // generation. It performs no provider or database reads and does not restart
 // indexing. Slow/unsupported indexes retain the ordinary unindexed fallback.
 func (m *Manager) snapshotForAdmission(ctx context.Context, s *session, caps core.ClientCaps, started time.Time, prepareBudget time.Duration) (*core.PlaySession, core.SourceRetirement, error) {
-	if caps.Protocol == core.ProtocolHLS {
+	// Protocol identifies the frontend, not the eventual HLS/DASH delivery.
+	// Plex chooses delivery only after this source snapshot is returned.
+	if caps.Protocol == "plex" {
 		if g := s.current(); g != nil {
 			info := g.infoSnapshot()
 			if info.Video() != nil && len(info.Keyframes) == 0 && (info.Container == "mkv" || info.Container == "matroska" || info.Container == "mp4" || info.Container == "mov") {
