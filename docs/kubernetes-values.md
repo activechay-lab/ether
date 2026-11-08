@@ -71,7 +71,7 @@ Each `pools.full`, `pools.server`, `pools.source`, and `pools.transcode` / `pool
 | `bootstrap` | full true; others false | Seed-or-verify database; true permitted only for full/server. |
 | `capacity` | runtime.capacity | Runtime capacity, 1–4096. |
 | `resourceScope` | runtime node ID | Optional physical resource capacity scope. Use consistently for workers sharing a device. |
-| `resources` | global, except full and server have 250m/512Mi requests and a 2Gi memory limit (both build the catalogue long-tail index daily) | Complete requests/limits override. |
+| `resources` | global, except full and server have 250m/512Mi requests and a 2Gi memory limit (both build the catalogue long-tail index daily) | Complete requests/limits override. The pod exports `GOMEMLIMIT` at 90% of the memory limit unless you set it. |
 | `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints` | global | Nonempty pool setting overrides the corresponding global object/list. |
 | `runtimeClassName` | global | Nonempty pool class overrides global class. |
 | `podAnnotations` | global | Merges keys over global annotations. |

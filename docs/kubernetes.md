@@ -252,13 +252,14 @@ beside 200 MiB of heap, the pod's cgroup stayed pinned at its limit for the whol
 run with no OOM kill, but searches slowed once the index no longer fit in what
 was left (p50 from 2.5 ms to about 1 s on a busy disk); at 1 GiB the whole index
 stays resident (p50 1.5 ms, p99 8 ms). Size memory for speed, not for safety:
-the app's heap plus about 250 MiB. The daily build is different: it holds about
-600 MiB of transient heap on top of the app's own, and the kernel cannot reclaim
-that. At a 1 GiB limit the build completed beside 100 MiB of other heap and was
-OOM-killed beside 200 MiB, so full and server pools default to a 2 GiB limit;
-keep at least that if you override their `resources`. The chart exports
-`GOMEMLIMIT` at 90% of the container memory limit so the Go runtime collects
-before the limit; set `GOMEMLIMIT` yourself only to override that.
+the app's heap plus about 250 MiB. The daily build streams the index to its file
+section by section; its live heap is about 250–300 MiB above the app's own,
+which the kernel cannot reclaim. The chart exports `GOMEMLIMIT` at 90% of the
+container memory limit, and that is what keeps the build inside the pod: at a
+1 GiB limit the build completed beside up to 600 MiB of other live heap with
+`GOMEMLIMIT`, and was OOM-killed beside 500 MiB without it. Full and server pools
+default to a 2 GiB limit for headroom; keep `GOMEMLIMIT` (or set your own) if you
+override their `resources`.
 
 Private mTLS listens on 32401 and advertises
 `https://POD.RELEASE-ether-private.NAMESPACE.svc.cluster.local:32401`.
