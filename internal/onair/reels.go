@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -165,6 +167,7 @@ func (s *Service) DeleteReel(ctx context.Context, id string) error {
 	}
 	e = tx.Commit()
 	if e == nil {
+		s.removeUnreferenced(ctx, digests...)
 		for _, c := range r.Clips {
 			s.mu.Lock()
 			delete(s.reelReady, c.ID)
@@ -215,7 +218,11 @@ func (s *Service) uploadClip(ctx context.Context, reel, name, source, attributio
 		return ReelClip{}, e
 	}
 	defer os.Remove(f.Name())
-	n, e := io.Copy(f, io.LimitReader(r, (500<<20)+1))
+	h := sha256.New()
+	n, e := io.Copy(io.MultiWriter(f, h), io.LimitReader(r, (500<<20)+1))
+	if e == nil {
+		e = f.Sync()
+	}
 	f.Close()
 	if e != nil {
 		return ReelClip{}, e
@@ -223,11 +230,7 @@ func (s *Service) uploadClip(ctx context.Context, reel, name, source, attributio
 	if n == 0 || n > 500<<20 {
 		return ReelClip{}, fmt.Errorf("clip maximum 500 MB")
 	}
-	b, e := os.ReadFile(f.Name())
-	if e != nil {
-		return ReelClip{}, e
-	}
-	a, e := s.putReelAsset(ctx, name, b)
+	a, e := s.putReelAsset(ctx, name, f.Name(), hex.EncodeToString(h.Sum(nil)), n)
 	if e != nil {
 		return ReelClip{}, e
 	}
@@ -264,21 +267,11 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 	if s.o.Probe == nil || s.o.FFmpeg == nil {
 		return fmt.Errorf("media conversion unavailable")
 	}
-	var b []byte
-	if err = s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=?", c.SourceDigest).Scan(&b); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(s.o.Dir, ".reel-*")
+	source, err := s.assetPath(ctx, c.SourceDigest)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
-	_, err = f.Write(b)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	info, err := s.o.Probe(ctx, f.Name())
+	info, err := s.o.Probe(ctx, source)
 	if err != nil {
 		return err
 	}
@@ -300,7 +293,7 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 	trimStart := time.Duration(0)
 	if r.TrimSilence && hasAudio {
 		var trimEnd time.Duration
-		trimStart, trimEnd, err = s.silenceEdges(ctx, f.Name(), info.Duration)
+		trimStart, trimEnd, err = s.silenceEdges(ctx, source, info.Duration)
 		if err != nil {
 			return err
 		}
@@ -326,7 +319,7 @@ func (s *Service) convertClip(ctx context.Context, reel string, c ReelClip) (err
 	scale := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,format=yuv420p", w, h, w, h)
 	tmp := out + ".tmp.mp4"
 	defer os.Remove(tmp)
-	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", strconv.FormatFloat(trimStart.Seconds(), 'f', 6, 64), "-i", f.Name()}
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", strconv.FormatFloat(trimStart.Seconds(), 'f', 6, 64), "-i", source}
 	if !hasAudio {
 		args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
 	}
@@ -491,7 +484,11 @@ func (s *Service) deleteClipRow(ctx context.Context, reel string, c ReelClip) er
 	if e = s.dropUnusedReelSources(ctx, tx, []string{c.SourceDigest}); e != nil {
 		return e
 	}
-	return tx.Commit()
+	if e = tx.Commit(); e != nil {
+		return e
+	}
+	s.removeUnreferenced(ctx, c.SourceDigest)
+	return nil
 }
 
 // dropUnusedReelSources deletes the reel source uploads among digests that
@@ -519,8 +516,14 @@ func (s *Service) dropUnusedReelSources(ctx context.Context, tx *sql.Tx, digests
 		if channels {
 			args = append(args, like)
 		}
-		if _, e = tx.ExecContext(ctx, query, args...); e != nil {
+		res, e := tx.ExecContext(ctx, query, args...)
+		if e != nil {
 			return e
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			if _, e = tx.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE digest=?", d); e != nil {
+				return e
+			}
 		}
 	}
 	return nil

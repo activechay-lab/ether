@@ -73,6 +73,10 @@ type Caps struct {
 	// EgressIP is the public address the node reaches the internet from,
 	// when known (providers may flag one account used from several).
 	EgressIP string `json:"egressIp,omitempty"`
+	// OnAirAssets is the On Air asset file format the node supports
+	// (onair.AssetFilesVersion); 0 means it reads asset bytes from the
+	// database only.
+	OnAirAssets int `json:"onairAssets,omitempty"`
 }
 
 // Node is one cluster member.
