@@ -252,7 +252,9 @@ describe("Collection Studio gallery", () => {
     expect(await screen.findByRole("button", { name: "Unpublish" }, WAIT)).toBeInTheDocument();
     expect(within(row).getByText("Published")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Preview Recently Added" }));
-    expect(await screen.findByRole("heading", { name: "Recently Added" }, WAIT)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Recently Added" }, WAIT),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
