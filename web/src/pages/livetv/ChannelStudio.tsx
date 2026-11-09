@@ -670,7 +670,19 @@ export function ChannelStudio({
             <Field
               label={t("Logo URL")}
               htmlFor="ch-logo"
-              hint={t("Leave blank and Ether draws one from the name.")}
+              hint={
+                <>
+                  {t("Leave blank and Ether draws one from the name.")}
+                  {appleTVNeedsPublicLogo(c) ? (
+                    <>
+                      {" "}
+                      {t(
+                        "Apple TV shows this logo only when remote access is on, or when the logo is a public image link.",
+                      )}
+                    </>
+                  ) : null}
+                </>
+              }
             >
               <div className="flex items-center gap-3">
                 <ChannelLogo name={c.name} logo={c.logo} seed={c.id || c.name} size={36} />
@@ -1190,4 +1202,39 @@ function ViewerAccess({
       </div>
     </section>
   );
+}
+
+/**
+ * Plex for Apple TV draws guide logos only through Plex's cloud, which can
+ * fetch a public PNG or JPEG link but not an upload, an SVG, a generated logo
+ * or a LAN address unless remote access publishes the server. A shipped
+ * channel left blank uses Ether's own public artwork.
+ */
+function appleTVNeedsPublicLogo(c: { id: string; logo?: string }): boolean {
+  const logo = (c.logo || "").trim();
+  if (!logo) return !c.id.startsWith("showcase-");
+  try {
+    const u = new URL(logo);
+    const host = u.hostname.toLowerCase().replace(/\.$/, "");
+    if (!/^https?:$/.test(u.protocol) || u.username || /\.svg$/i.test(u.pathname)) return true;
+    if (!host.includes(".") || host.startsWith("[")) return true;
+    if (/\.(local|lan|home|home\.arpa|internal|localdomain|localhost|corp|intranet)$/.test(host)) {
+      return true;
+    }
+    const ip = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+    if (!ip) return false;
+    const a = Number(ip[1]);
+    const b = Number(ip[2]);
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  } catch {
+    return true;
+  }
 }

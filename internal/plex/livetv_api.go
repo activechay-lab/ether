@@ -899,6 +899,18 @@ func (s *Server) writeChannelLogo(w http.ResponseWriter, r *http.Request, c live
 			return
 		}
 	}
+	if _, shipped, ok := livetv.ShowcaseLogo(c); ok {
+		// A shipped channel's own artwork, the same file Apple TV fetches
+		// from Ether's public repository.
+		data, ct, err = shipped, "image/png", nil
+		if raster && format != "" {
+			data, ct, err = s.images.RasterFormat(r.Context(), data, ct, format, s.now())
+		}
+		if err == nil && len(data) > 0 {
+			write(data, ct)
+			return
+		}
+	}
 	if raster {
 		data, ct, err := s.channelRaster.ChannelLogo(r.Context(), c.ID, c.Number, c.Name, artwork.RasterOptions{Format: rasterFormat})
 		if err != nil {

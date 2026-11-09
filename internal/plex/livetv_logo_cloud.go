@@ -34,11 +34,18 @@ func cloudGuideLogoClient(pr *Request) bool {
 
 // cloudGuideLogo is the logo URL for a client whose guide fetches logos
 // through Plex's cloud: the channel's own logo when that is already public
-// (as PMS publishes XMLTV icons), else this server's signed, token-free logo
-// URL on its public address when remote access publishes one, or on origin.
+// (as PMS publishes XMLTV icons), a shipped channel's logo from Ether's
+// public repository at this build's release, else this server's signed,
+// token-free logo URL on its public address when remote access publishes
+// one, or on origin.
 func (s *Server) cloudGuideLogo(ctx context.Context, c livetv.Channel, origin string) string {
 	if publicLogoURL(c.Logo) {
 		return c.Logo
+	}
+	if path, _, ok := livetv.ShowcaseLogo(c); ok && s.d.RepoFileURL != nil {
+		if u := s.d.RepoFileURL(path); u != "" {
+			return u
+		}
 	}
 	if c.Logo == "" && s.d.LiveTV != nil {
 		if guide := s.d.LiveTV.GuideChannelLogo(ctx, c); publicLogoURL(guide) {

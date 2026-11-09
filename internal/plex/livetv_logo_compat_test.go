@@ -289,3 +289,32 @@ func TestAppleTVGuideLogoIsCloudFetchable(t *testing.T) {
 		}
 	}
 }
+
+// A shipped decade channel's logo is its own artwork from Ether's public
+// repository at this build's source, for Apple TV and every other client.
+// An owner's logo or new name wins.
+func TestShowcaseChannelLogo(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	f.srv.d.RepoFileURL = func(path string) string { return "https://cdn.example/ether@v1/" + path }
+	ctx := context.Background()
+	c := livetv.Channel{ID: "showcase-chroma-80", Name: "CHROMA 80", Kind: "virtual"}
+	if got := f.srv.cloudGuideLogo(ctx, c, "http://example.com"); got != "https://cdn.example/ether@v1/internal/livetv/showcaselogos/v1/chroma-80.png" {
+		t.Fatalf("shipped logo: %q", got)
+	}
+	rec := httptest.NewRecorder()
+	f.srv.writeChannelLogo(rec, httptest.NewRequest("GET", "/livetv/channels/showcase-chroma-80/logo.png", nil), c, true, "private")
+	_, want, _ := livetv.ShowcaseLogo(c)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !bytes.Equal(rec.Body.Bytes(), want) {
+		t.Fatalf("served logo: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	owner := c
+	owner.Logo = "https://cdn.example.org/mine.png"
+	renamed := c
+	renamed.Name = "My 80s"
+	for _, edited := range []livetv.Channel{owner, renamed} {
+		if got := f.srv.cloudGuideLogo(ctx, edited, "http://example.com"); strings.Contains(got, "showcaselogos") {
+			t.Fatalf("owner edit lost: %q", got)
+		}
+	}
+}

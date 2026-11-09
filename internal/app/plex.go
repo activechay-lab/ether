@@ -6,7 +6,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/catalog"
@@ -21,6 +24,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/remote"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/state"
+	"github.com/braedonsaunders/ether/internal/updater"
 )
 
 // buildPlex assembles the PMS-compatible front end. In spike mode the
@@ -99,6 +103,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		}
 		return publicPlexOrigin(a.registrar.Status().Connections)
 	}
+	deps.RepoFileURL = repoFileURL(sourceRef(updater.Version, updater.Commit, buildRevision()))
 	deps.DecisionTraces = a.resolver // latest resolution, for the support capture
 	clientID := func() string {
 		cfg := a.cfg.Read()
@@ -303,6 +308,50 @@ func publicPlexOrigin(connections []remote.Connection) string {
 			if remote.IsPublicIP(ip) {
 				return u.Scheme + "://" + u.Host
 			}
+		}
+	}
+	return ""
+}
+
+// repoFileURL serves files committed to Ether's public repository through
+// jsDelivr, pinned to ref so a published URL never changes under a release.
+func repoFileURL(ref string) func(string) string {
+	return func(path string) string {
+		if ref == "" {
+			return ""
+		}
+		return "https://cdn.jsdelivr.net/gh/braedonsaunders/ether@" + ref + "/" + strings.TrimPrefix(path, "/")
+	}
+}
+
+var commitRef = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// sourceRef names the source this build came from: a release's tag
+// ("v0.3.6"), else the commit a development, PR or local build was made
+// from. "" when neither is known.
+func sourceRef(version, commit, revision string) string {
+	if v := strings.TrimSpace(version); v != "dev" && !strings.ContainsAny(v, "+/ ") {
+		if _, err := updater.ParseVersion(v); err == nil {
+			return "v" + strings.TrimPrefix(v, "v")
+		}
+	}
+	for _, c := range []string{commit, revision} {
+		if c = strings.ToLower(strings.TrimSpace(c)); commitRef.MatchString(c) {
+			return c
+		}
+	}
+	return ""
+}
+
+// buildRevision is the VCS commit Go stamped into this binary, if any.
+func buildRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
 		}
 	}
 	return ""

@@ -177,6 +177,9 @@ type Deps struct {
 	// LiveLogoKey signs token-free channel logo URLs; empty uses a
 	// process-local key.
 	LiveLogoKey []byte
+	// RepoFileURL is a public, immutable URL for a file committed to Ether's
+	// repository at the source this build came from, or "" when unknown.
+	RepoFileURL func(path string) string
 	// Dashboard is this node's in-memory Plex Web Dashboard store. Nil is
 	// replaced with a process-local store at NewServer. Statistics are not
 	// clustered; a client reads the node it connected to.
