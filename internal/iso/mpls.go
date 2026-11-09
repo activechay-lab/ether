@@ -1,3 +1,6 @@
+// Adapted from AltMount (internal/importer/archive/iso/mpls.go), MIT License,
+// Copyright (c) 2025 Javier Blanco. See THIRD_PARTY_NOTICES.md.
+
 package iso
 
 import (

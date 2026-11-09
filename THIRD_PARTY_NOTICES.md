@@ -159,16 +159,34 @@ including the obligation to offer source to users interacting with them
 over a network. Ether's complete source, including `web/`, is public at
 the repository above, which satisfies that offer.
 
-## AltMount (reference only)
+## AltMount
 
 Ether was designed with [AltMount](https://github.com/javi11/altmount)
 as a reference for Usenet-streaming concepts (provider pooling, NZB
-segment indexing). Ether's code is its own.
+segment indexing). Apart from the files listed below, Ether's code is
+its own.
+
+### AltMount code adapted into Ether
+
+Disc-image support was adapted from AltMount's MIT-licensed code. Each
+adapted file carries a header naming its AltMount source, and the MIT
+notice below travels with it.
+
+- `internal/iso/fs.go`, `mpls.go`, `volume.go` and `fs_test.go`,
+  `mpls_test.go`, `volume_test.go` — from AltMount
+  `internal/importer/archive/iso/` (largely unchanged; Ether adds walk
+  limits and descriptor bounds checks).
+- `internal/iso/bluray.go`, `bluray_test.go` — adapted from the same
+  directory.
+- `internal/iso/disc.go` — adapted from AltMount
+  `internal/importer/iso_expansion.go`.
+- `internal/stream/tsremux.go` — adapted from AltMount
+  `internal/nzbfilesystem/tsremux.go`.
+
+The stream engine's tests also use AltMount's MIT-licensed WinRAR RAR5
+fixture files (see below).
 
 > MIT License — Copyright (c) 2025 Javier Blanco
-
-No AltMount code is vendored; the stream engine's tests use AltMount's
-MIT-licensed WinRAR RAR5 fixture files (see below).
 
 ## Stream engine components
 
