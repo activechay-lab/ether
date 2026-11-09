@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/homefilter"
 )
 
@@ -18,21 +18,21 @@ type homeSharedEntry struct {
 	done            chan struct{}
 	seen            map[string]bool
 	expires         time.Time
-	hubs, discovery []core.Hub
+	hubs, discovery []frontend.Hub
 	err             error
 	filter          *homefilter.Snapshot
 }
 
-func (s *Server) sharedHome(ctx context.Context, pr *Request, hc core.HubContext, directory, pinned string, count, discoveryCount int) ([]core.Hub, []core.Hub, *homefilter.Snapshot, error) {
+func (s *Server) sharedHome(ctx context.Context, pr *Request, hc frontend.HubContext, directory, pinned string, count, discoveryCount int) ([]frontend.Hub, []frontend.Hub, *homefilter.Snapshot, error) {
 	filter := &homefilter.Snapshot{}
-	load := func() ([]core.Hub, []core.Hub, error) {
+	load := func() ([]frontend.Hub, []frontend.Hub, error) {
 		ctx := homefilter.With(ctx, filter)
-		var hubs []core.Hub
+		var hubs []frontend.Hub
 		var err error
 		if s.d.Recommender != nil {
 			hubs, err = s.recommendHome(ctx, pr, hc, count)
 		}
-		var discovery []core.Hub
+		var discovery []frontend.Hub
 		for _, spec := range s.discoveryHubs(ctx, pr, discoveryCount) {
 			discovery = append(discovery, spec.Hub)
 		}
@@ -102,7 +102,7 @@ func (s *Server) sharedHome(ctx context.Context, pr *Request, hc core.HubContext
 	}
 	cacheable := err == nil && len(hubs)+len(discovery) <= 64 && size <= 512
 	if cacheable {
-		encoded, encodeErr := json.Marshal([][]core.Hub{hubs, discovery})
+		encoded, encodeErr := json.Marshal([][]frontend.Hub{hubs, discovery})
 		cacheable = encodeErr == nil && len(encoded) <= 1<<20
 	}
 	s.homeSharedMu.Lock()

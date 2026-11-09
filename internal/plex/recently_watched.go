@@ -2,7 +2,7 @@ package plex
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"net/url"
 	"strconv"
 )
@@ -12,12 +12,12 @@ import (
 func (s *Server) recentlyWatchedHub(ctx context.Context, pr *Request, sec Section, count int) (hubSpec, error) {
 	kind := sec.Type
 	prefix, title := "movie", "Recently Watched Movies"
-	if kind == core.TypeShow {
-		kind = core.TypeEpisode
+	if kind == frontend.TypeShow {
+		kind = frontend.TypeEpisode
 		prefix, title = "tv", "Recently Watched Episodes"
 	}
 	q := url.Values{"sort": {"lastViewedAt:desc"}, "unwatched": {"0"}, "viewOffset": {"0"}}
-	if kind == core.TypeEpisode {
+	if kind == frontend.TypeEpisode {
 		q.Set("type", "4")
 	}
 	br := s.parseBrowse(ctx, sec, kind, pr.User, q, q.Encode())
@@ -34,5 +34,5 @@ func (s *Server) recentlyWatchedHub(ctx context.Context, pr *Request, sec Sectio
 		items = items[:max(count, 0)]
 	}
 	id := strconv.Itoa(sec.ID)
-	return hubSpec{Hub: core.Hub{ID: prefix + ".recentlyviewed." + id, Context: "hub." + prefix + ".recentlyviewed", Title: title, Type: kind, Style: "shelf", Items: items, More: more || total > len(items)}, key: "/library/sections/" + id + "/all?" + q.Encode(), noPromoted: true}, nil
+	return hubSpec{Hub: frontend.Hub{ID: prefix + ".recentlyviewed." + id, Context: "hub." + prefix + ".recentlyviewed", Title: title, Type: kind, Style: "shelf", Items: items, More: more || total > len(items)}, key: "/library/sections/" + id + "/all?" + q.Encode(), noPromoted: true}, nil
 }

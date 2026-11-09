@@ -23,6 +23,11 @@ type Decision = core.Decision
 type FacetValue = core.FacetValue
 type User = core.User
 
+// Home hub values stay owned by core. Adapters render hubs through these
+// aliases.
+type Hub = core.Hub
+type HubContext = core.HubContext
+
 // Library browse and history values stay owned by core. Adapters build
 // queries and read results through these aliases.
 type BrowseQuery = core.BrowseQuery
