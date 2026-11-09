@@ -912,7 +912,6 @@ export function computeHealth(
   const s = sections ?? {};
   const plexOn = opts?.plexEnabled !== false;
   const items: HealthItem[] = [
-    debridHealth(s.debrid),
     usenetHealth(s.providers, s.debrid, s.indexers),
     indexersHealth(s.indexers, s.debrid),
     cacheHealth(s.cache),

@@ -15,7 +15,8 @@ import { UsenetProviders } from "./Usenet";
 import { SourceStatistics, StatisticsPeriod } from "./statistics/Statistics";
 import { AddSourceGallery, type GalleryChoice } from "./cards";
 import type { DebridKind } from "../../lib/types";
-import { iptvHealth } from "../../lib/health";
+import { debridHealth, iptvHealth } from "../../lib/health";
+import { useApp } from "../../app-context";
 import { tv, type Source as TVSource } from "../livetv/model";
 
 const TABS = localized(
@@ -89,11 +90,6 @@ export default function Sources() {
       actions={
         !stats ? (
           <>
-            {top !== "iptv" ? (
-              <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
-                {t("Import from Prowlarr")}
-              </Button>
-            ) : null}
             <Button size="sm" onClick={() => setGallery(true)}>
               <Plus size={14} /> {t("Add a source")}
             </Button>
@@ -142,6 +138,10 @@ function SourcesHealth() {
       live = false;
     };
   }, []);
-  const extra = [iptvHealth(iptv)].filter((h) => h !== null);
+  const { dashboard } = useApp();
+  // Debrid health shows here only; it does not count toward server health.
+  const extra = [debridHealth(dashboard?.sections?.debrid), iptvHealth(iptv)].filter(
+    (h) => h !== null,
+  );
   return <HealthStrip ids={["debrid", "usenet", "iptv", "indexers"]} extra={extra} />;
 }
