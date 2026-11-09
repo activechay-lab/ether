@@ -50,6 +50,7 @@ plex-appletv playback | shows all titleSort p1  # C: warm DB time grows with fla
 plex-appletv playback | shows allLeaves p1  # C: warm DB time grows with flat rows
 emby-sdk | /Shows/NextUp  # D/E
 silo-appletv | home/sections  # C: Silo home first pass (continue walk, row admission)
+silo-appletv | home/sections after watched  # C: as home/sections; marking a title watched rebuilds the Home, so this step is that same first pass (identical 424 statements); measured since the Silo replay found its titles again (a3c4e6d41)
 stremio | catalog movies  # D
 stremio | catalog continue  # D/E
 # Quick pair run 3x on one build (598cf482f): rows that failed in only some runs.
@@ -73,5 +74,6 @@ stremio | catalog recent  # D: first-pass statements grow
 # libraries and that failed in only some runs. None is a library-sized path.
 infuse-jellyfin | movies p3 SortName  # noise: 14 statements and ~900 rows on both libraries; failed once on database time (one 369 ms cold sample; 16 ms for the same statements on the viewer pass)
 infuse-jellyfin | movie Similar  # noise: the small library's rows swing between runs (45, 203, 4105) while the large stays near 700-1100; failed once
+silo-appletv | similar movie  # noise: as infuse-jellyfin movie Similar; the work follows the title's related shelves, not the library: in one small run the owner's title read 76 rows and the second viewer's 2,097, the large 1,189-1,889 cold and 14-468 warm by cache state
 infuse-jellyfin | mark series played  # noise: cache state; a season not yet cached reads its 24 episodes one by one on either library (168 statements on the small library's warm pass, 182 on the large first pass)
 silo-appletv | recommendations/discover  # noise: owner's cold-pass statements 100 → 220 on CI only; 96-99 → 105-141 in both local runs
