@@ -467,12 +467,16 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 	if state == showcasePending {
 		if len(c.Blocks) == 0 || filled*10 < len(c.Blocks)*7 {
 			// Not enough of the catalogue yet; keep the channel off the lineup.
+			if row.attempted == 0 {
+				s.o.Logger.Info("showcase channel waiting for the catalogue", "channel", c.Name, "filledBlocks", filled, "blocks", len(c.Blocks))
+			}
 			return s.writeShowcase(ctx, row, raw, c, version, state, false)
 		}
 		if !c.Enabled && untouched {
 			c.Enabled = true
 		}
 		state = showcaseLive
+		s.o.Logger.Info("showcase channel on air", "channel", c.Name, "filledBlocks", filled, "blocks", len(c.Blocks), "enabled", c.Enabled)
 	}
 	return s.writeShowcase(ctx, row, raw, c, version, state, true)
 }
