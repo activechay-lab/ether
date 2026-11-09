@@ -125,7 +125,18 @@ func fetch(t *testing.T, s core.HLSSession, n int) []byte {
 		}
 		t.Fatalf("segment %d: HTTP %d %s", n, rec.Code, rec.Body.String())
 	}
-	return rec.Body.Bytes()
+	// The segment itself: a request that waited for production carries
+	// container padding first (segment_padding.go), which players discard,
+	// so a slow host must not make the same segment compare unequal.
+	body := rec.Body.Bytes()
+	if session, ok := s.(*Session); ok {
+		if unit := segmentPadding(session.container); unit != nil {
+			for bytes.HasPrefix(body, unit) {
+				body = body[len(unit):]
+			}
+		}
+	}
+	return body
 }
 
 func (e *realEnv) writeTemp(t *testing.T, name string, b []byte) string {
