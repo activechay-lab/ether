@@ -810,8 +810,10 @@ func (c *Catalog) tierCleanup(ctx context.Context, p *TierMigration) error {
 		}
 		c.log.Info("catalog: tier migration dropped the old rows", "table", t.table, "rows", n, "hold", time.Since(began).Round(time.Millisecond))
 	}
-	if _, err := c.db.ExecContext(ctx, `PRAGMA analysis_limit=1000`); err == nil {
-		_, _ = c.db.ExecContext(ctx, `ANALYZE catalog_titles`)
+	// Full statistics: a sampled ANALYZE misestimates the type prefix
+	// (analyzeFull).
+	if err := c.analyzeFull(ctx, "catalog_titles"); err != nil {
+		c.log.Warn("catalog: tier migration: statistics", "err", err)
 	}
 	return c.setTierPhase(ctx, c.db, "orphans")
 }

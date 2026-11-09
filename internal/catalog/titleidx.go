@@ -106,7 +106,19 @@ func (c *Catalog) swapTitleIndexes(ctx context.Context) error {
 		return err
 	}
 	if !pg {
-		_, _ = c.db.ExecContext(ctx, `PRAGMA optimize`)
+		// Full statistics for the new indexes alone. PRAGMA optimize here
+		// re-sampled all of catalog_titles (the new indexes had no stats)
+		// and left every type-leading index estimated at a few hundred rows
+		// per type (analyzeFull).
+		var built []string
+		for _, s := range titleIndexSwaps {
+			if s.replacement != "" {
+				built = append(built, s.replacement)
+			}
+		}
+		if err := c.analyzeFull(ctx, built...); err != nil {
+			c.log.Warn("catalog: statistics for the replaced title indexes", "err", err)
+		}
 	}
 	c.log.Info("catalog: popularity left the title indexes", "took", time.Since(started).Round(time.Millisecond), "replaced", strings.Join(swapNames(), ","))
 	return nil
