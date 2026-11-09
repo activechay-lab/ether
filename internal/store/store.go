@@ -378,10 +378,13 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 		finishPreMigrate(path)
 		warnSchemaAhead(ctx, db, slog.Default(), path+PreMigrateSuffix)
 	}
-	// Recommended at open by the SQLite docs: analyse tables whose stats are
-	// missing or stale, bounded by the 0x10000 analysis limit so it is cheap.
+	// Analyse tables whose statistics are missing or stale before the first
+	// request, from every row (RefreshStatistics). Best effort: stale
+	// statistics must not stop the server from starting.
 	WorkProgress(ctx, "optimizing", 0, 0)
-	_, _ = db.ExecContext(ctx, `PRAGMA optimize=0x10002`)
+	if _, err := RefreshStatistics(ctx, db); err != nil {
+		slog.Warn("store: could not refresh planner statistics", "err", err)
+	}
 	if path != ":memory:" {
 		// Opening SQLite re-reads the whole schema. The default idle pool
 		// drops every connection past the second, so a play paid that cost

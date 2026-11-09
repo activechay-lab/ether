@@ -811,8 +811,8 @@ func (c *Catalog) tierCleanup(ctx context.Context, p *TierMigration) error {
 		c.log.Info("catalog: tier migration dropped the old rows", "table", t.table, "rows", n, "hold", time.Since(began).Round(time.Millisecond))
 	}
 	// Full statistics: a sampled ANALYZE misestimates the type prefix
-	// (analyzeFull).
-	if err := c.analyzeFull(ctx, "catalog_titles"); err != nil {
+	// (store.RefreshStatistics).
+	if err := store.AnalyzeFull(ctx, c.db, "catalog_titles"); err != nil {
 		c.log.Warn("catalog: tier migration: statistics", "err", err)
 	}
 	return c.setTierPhase(ctx, c.db, "orphans")

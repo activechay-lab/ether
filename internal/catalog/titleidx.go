@@ -109,14 +109,14 @@ func (c *Catalog) swapTitleIndexes(ctx context.Context) error {
 		// Full statistics for the new indexes alone. PRAGMA optimize here
 		// re-sampled all of catalog_titles (the new indexes had no stats)
 		// and left every type-leading index estimated at a few hundred rows
-		// per type (analyzeFull).
+		// per type (store.RefreshStatistics).
 		var built []string
 		for _, s := range titleIndexSwaps {
 			if s.replacement != "" {
 				built = append(built, s.replacement)
 			}
 		}
-		if err := c.analyzeFull(ctx, built...); err != nil {
+		if err := store.AnalyzeFull(ctx, c.db, built...); err != nil {
 			c.log.Warn("catalog: statistics for the replaced title indexes", "err", err)
 		}
 	}

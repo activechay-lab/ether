@@ -34,8 +34,9 @@ func Maintain(ctx context.Context, db *sql.DB) error {
 	if err := Checkpoint(ctx, db, false); err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, `PRAGMA optimize`); err != nil {
-		return fmt.Errorf("optimize: %w", err)
+	// Never PRAGMA optimize itself: it samples (RefreshStatistics).
+	if _, err := RefreshStatistics(ctx, db); err != nil {
+		return fmt.Errorf("planner statistics: %w", err)
 	}
 	res, err := QuickCheck(ctx, db)
 	if err != nil {
