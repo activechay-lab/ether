@@ -745,6 +745,14 @@ type TrickplayOffer struct {
 	Bandwidth     int
 }
 
+// TrickplayCacheKey binds preview work to the selected item, release and
+// opened source member. The identity stays owned by core.
+func TrickplayCacheKey(s *PlaySession) string { return core.TrickplayCacheKey(s) }
+
+// TrickplayCanceler is the optional capability that cancels preview work
+// for a trickplay cache key.
+type TrickplayCanceler interface{ CancelTrickplay(string) }
+
 // TrickplayTiles serves preview sheets for an item the viewer may play.
 // The broker owns release identity and generation. A false offer means no
 // frame exists yet, which clients render as an empty trickplay map.

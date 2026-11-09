@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
 // parseKeys parses a {key} path parameter that may be a comma list. Lists
 // stop at maxExpand keys: every key costs a catalogue lookup (possibly a
 // TMDB fetch), and hub keys never list more than a hub's 200 items.
-func parseKeys(s string) ([]core.RatingKey, error) {
-	var out []core.RatingKey
+func parseKeys(s string) ([]frontend.RatingKey, error) {
+	var out []frontend.RatingKey
 	for _, p := range strings.Split(s, ",") {
 		p = strings.TrimSpace(p)
 		if p == "" {
@@ -29,7 +29,7 @@ func parseKeys(s string) ([]core.RatingKey, error) {
 		if len(out) == maxExpand {
 			break
 		}
-		k, err := core.ParseRatingKey(p)
+		k, err := frontend.ParseRatingKey(p)
 		if err != nil {
 			return nil, err
 		}
@@ -41,12 +41,12 @@ func parseKeys(s string) ([]core.RatingKey, error) {
 	return out, nil
 }
 
-func keyParam(r *http.Request) (core.RatingKey, error) {
-	return core.ParseRatingKey(chi.URLParam(r, "key"))
+func keyParam(r *http.Request) (frontend.RatingKey, error) {
+	return frontend.ParseRatingKey(chi.URLParam(r, "key"))
 }
 
 // itemContainer is the container for a single-section item response.
-func (s *Server) itemContainer(t core.MediaType) *model.MediaContainer {
+func (s *Server) itemContainer(t frontend.MediaType) *model.MediaContainer {
 	mc := libraryContainer()
 	if sec, ok := s.sectionFor(t); ok {
 		mc.LibrarySectionID = model.Ptr(sec.ID)
@@ -57,7 +57,7 @@ func (s *Server) itemContainer(t core.MediaType) *model.MediaContainer {
 }
 
 // titleVisible reports whether the user may see the title's section.
-func (s *Server) titleVisible(u *core.User, t *core.Title) bool {
+func (s *Server) titleVisible(u *frontend.User, t *frontend.Title) bool {
 	return s.visibility().TitleAllowed(u, t) && s.plexMetaRatingAllowed(u, t)
 }
 
@@ -66,7 +66,7 @@ func (s *Server) titleVisible(u *core.User, t *core.Title) bool {
 // this server for it) resolves through the local mapping. A variant part id
 // resolves to the title that owns that part, so a re-read of the part the
 // client just selected still shows the subtitle.
-func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey, error) {
+func (s *Server) metadataKeys(ctx context.Context, raw string) ([]frontend.RatingKey, error) {
 	raw = strings.TrimSpace(raw)
 	if decoded, err := url.PathUnescape(raw); err == nil && decoded != "" {
 		raw = decoded
@@ -79,7 +79,7 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		// this way) names the library titles that have one; the others
 		// are skipped, as unknown keys in a key list are.
 		guids := strings.Split(raw, ",")
-		var keys []core.RatingKey
+		var keys []frontend.RatingKey
 		var unknown []string
 		for _, guid := range guids {
 			guid = strings.TrimSpace(guid)
@@ -88,7 +88,7 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 				if len(guids) == 1 {
 					return nil, err
 				}
-				if errors.Is(err, core.ErrNotFound) {
+				if errors.Is(err, frontend.ErrNotFound) {
 					unknown = append(unknown, guid)
 				}
 				continue
@@ -97,7 +97,7 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		}
 		s.resolveGUIDsLater(unknown)
 		if len(keys) == 0 {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		return keys, nil
 	}
@@ -150,7 +150,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	for _, k := range keys {
 		var md model.Metadata
 		switch k.Kind() {
-		case core.KindCollection, core.KindSmart:
+		case frontend.KindCollection, frontend.KindSmart:
 			c, err := s.collection(ctx, pr.User, k)
 			if err != nil {
 				if len(keys) == 1 {
@@ -163,7 +163,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			if mc == nil {
 				mc = s.itemContainer(c.Type)
 			}
-		case core.KindPlaylist:
+		case frontend.KindPlaylist:
 			pl, err := s.playlist(ctx, pr.User, k)
 			if err != nil {
 				if len(keys) == 1 {
@@ -179,7 +179,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			if mc == nil {
 				mc = libraryContainer()
 			}
-		case core.KindExtra:
+		case frontend.KindExtra:
 			emd, ok := s.extraMetadataByKey(ctx, pr, k)
 			if !ok {
 				if len(keys) == 1 {
@@ -195,7 +195,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		default:
 			t, err := s.metadataTitle(ctx, pr, k)
 			if err == nil && !s.visibleTitle(ctx, pr.User, t) {
-				err = core.ErrNotFound
+				err = frontend.ErrNotFound
 			}
 			// Policy/storage reads can fail closed on cancellation. Do not turn
 			// that interrupted lookup into a claim that the title disappeared.
@@ -230,7 +230,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 				// admission of the independent playback warm-up. Start it first
 				// so a warm-up that needs a search can join the same work.
 				if pr.User != nil && s.detailSearchAllowed(pr) {
-					if refiller, ok := s.d.Variants.(core.SearchCacheRefiller); ok {
+					if refiller, ok := s.d.Variants.(frontend.SearchCacheRefiller); ok {
 						// Repeated metadata fetches while the same page is being
 						// watched must not retry a failed search on every fetch.
 						watchKey := fmt.Sprintf("%d|%s|%d", pr.User.ID, pr.ClientID, t.Key)
@@ -296,36 +296,36 @@ func metadataOptionOn(raw string) bool {
 }
 
 // detail renders a full item page.
-func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, children, onDeck, related, extras bool, extraTypes string) model.Metadata {
+func (s *Server) detail(ctx context.Context, pr *Request, t *frontend.Title, children, onDeck, related, extras bool, extraTypes string) model.Metadata {
 	s.rememberTitle(t)
 	memo := showEpisodes{}
-	ts := []core.Title{*t}
+	ts := []frontend.Title{*t}
 	items := s.renderTitles(ctx, pr, ts, renderOpts{detail: true, media: true})
 	s.applyLeafCounts(ctx, pr, items, ts, memo)
 	md := items[0]
 	// Per-viewer decision header (#31); detail pages only, never lists.
 	s.decorateDetail(ctx, pr, t, &md)
-	if children && t.Type == core.TypeShow {
+	if children && t.Type == frontend.TypeShow {
 		if kids, err := s.metadataChildren(ctx, pr, t.Key); err == nil {
-			rendered := s.renderTitles(ctx, pr, kids, renderOpts{media: true, inSection: true, skipLeafCounts: t.Type == core.TypeShow})
-			if t.Type == core.TypeShow {
+			rendered := s.renderTitles(ctx, pr, kids, renderOpts{media: true, inSection: true, skipLeafCounts: t.Type == frontend.TypeShow})
+			if t.Type == frontend.TypeShow {
 				s.applyLeafCounts(ctx, pr, rendered, kids, memo)
 			}
 			md.Children = &model.Children{Size: len(rendered), Metadata: rendered}
 		}
 	}
-	if onDeck && (t.Type == core.TypeShow || t.Type == core.TypeSeason) {
+	if onDeck && (t.Type == frontend.TypeShow || t.Type == frontend.TypeSeason) {
 		show := t.Key
-		if t.Type == core.TypeSeason {
-			show = core.ShowKey(t.Key.TMDB())
+		if t.Type == frontend.TypeSeason {
+			show = frontend.ShowKey(t.Key.TMDB())
 		}
-		if ep, st := s.showOnDeck(ctx, pr, show, memo); ep != nil && (t.Type != core.TypeSeason || ep.Season == t.Season) {
+		if ep, st := s.showOnDeck(ctx, pr, show, memo); ep != nil && (t.Type != frontend.TypeSeason || ep.Season == t.Season) {
 			// The show page's Play button plays this episode: resolve,
 			// open and probe it so OnDeck and the following Play have its tracks.
 			if noWarm, _ := ctx.Value(structuralProjectionKey{}).(bool); !noWarm {
 				s.warmDetail(ctx, pr, ep)
 			}
-			if items := s.renderTitles(ctx, pr, []core.Title{*ep}, renderOpts{media: true, state: st}); len(items) > 0 {
+			if items := s.renderTitles(ctx, pr, []frontend.Title{*ep}, renderOpts{media: true, state: st}); len(items) > 0 {
 				if extras {
 					items[0].Extras = &model.Extras{}
 					for _, e := range s.extrasFor(ctx, pr, ep, extraTypes) {
@@ -360,20 +360,20 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *core.Title, childre
 
 // sameDayUnavailable is a local visibility lookup. Merely browsing must never
 // spend search quota trying to discover an upload.
-func (s *Server) sameDayUnavailable(ctx context.Context, pr *Request, t *core.Title) bool {
-	var source core.AvailabilitySource
-	source, _ = s.d.Variants.(core.AvailabilitySource)
+func (s *Server) sameDayUnavailable(ctx context.Context, pr *Request, t *frontend.Title) bool {
+	var source frontend.AvailabilitySource
+	source, _ = s.d.Variants.(frontend.AvailabilitySource)
 	return experience.SameDayUnavailable(ctx, t, s.now(), s.d.FilterAvailable, source)
 }
 
 // showOnDeck picks the episode to resume or start next.
-func (s *Server) showOnDeck(ctx context.Context, pr *Request, show core.RatingKey, memo showEpisodes) (*core.Title, map[core.RatingKey]core.WatchStatus) {
+func (s *Server) showOnDeck(ctx context.Context, pr *Request, show frontend.RatingKey, memo showEpisodes) (*frontend.Title, map[frontend.RatingKey]frontend.WatchStatus) {
 	eps, err := s.episodesOfShow(ctx, pr, memo, show)
 	if err != nil || len(eps) == 0 {
 		return nil, nil
 	}
 	st := s.stateFor(ctx, pr, eps)
-	return experience.ShowOnDeck(eps, st, func(t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
+	return experience.ShowOnDeck(eps, st, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
 }
 
 const detailWarmWaitBudget = 4 * time.Second
@@ -394,12 +394,12 @@ func startDetailPageWait(pr *Request) {
 // budget for its probe when no session, resumed probe or warm probe is ready
 // yet, so the first detail/season/show open renders the file's real audio and
 // subtitle tracks instead of an estimate.
-func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
+func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title) {
 	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
 		return
 	}
 	if plexAndroidClient(pr) {
-		if _, ok := s.d.Playback.(core.MetadataProber); ok {
+		if _, ok := s.d.Playback.(frontend.MetadataProber); ok {
 			// A single wait: do not add speculative warmDetail's four seconds
 			// after the metadata probe's own bounded wait. Errors/timeouts
 			// preserve the normal detail response and background preparation.
@@ -408,10 +408,10 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 		}
 	}
 	caps := s.clientCapsForKey(pr, t.Key)
-	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
+	if warm, ok := s.d.Playback.(frontend.Prewarmer); ok {
 		// Plex builds these caps from the device's own profile: a held
 		// detail page may warm one cached add-on stream (PlayIntent).
-		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail, PlayIntent: true})
+		warm.Prewarm(ctx, pr.User, t.Key, caps, frontend.PrewarmOptions{Reason: frontend.PrewarmDetail, PlayIntent: true})
 	}
 	if pr == nil || pr.User == nil {
 		return
@@ -422,12 +422,12 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 	if _, _, ok := s.resumedTracks(ctx, pr, t); ok {
 		return
 	}
-	if wp, ok := s.d.Playback.(core.WarmProber); ok {
+	if wp, ok := s.d.Playback.(frontend.WarmProber); ok {
 		if _, warm := wp.WarmProbeInfo(pr.User, caps, t.Key); warm {
 			return
 		}
 	}
-	if waiter, ok := s.d.Playback.(core.WarmProbeWaiter); ok {
+	if waiter, ok := s.d.Playback.(frontend.WarmProbeWaiter); ok {
 		budget := detailWarmWaitBudget
 		if !pr.detailWaitUntil.IsZero() {
 			budget = min(budget, time.Until(pr.detailWaitUntil))
@@ -439,12 +439,12 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 // seasonNextEpisode picks the episode a viewer opening a season page is most
 // likely to play first: an in-progress episode, else the episode after the
 // last watched one, else the first aired episode.
-func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []core.Title) *core.Title {
+func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []frontend.Title) *frontend.Title {
 	if len(eps) == 0 {
 		return nil
 	}
 	now := s.now()
-	return experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
+	return experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
 }
 
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
@@ -457,28 +457,28 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch k.Kind() {
-	case core.KindCollection, core.KindSmart:
+	case frontend.KindCollection, frontend.KindSmart:
 		s.collectionItems(w, r, k)
 		return
-	case core.KindPlaylist:
+	case frontend.KindPlaylist:
 		s.handlePlaylistItems(w, r)
 		return
 	}
 	parent, err := s.metadataTitle(ctx, pr, k)
 	if err == nil && !s.visibleTitle(ctx, pr.User, parent) {
-		err = core.ErrNotFound
+		err = frontend.ErrNotFound
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
 	}
-	if parent.Type == core.TypeMovie || parent.Type == core.TypeEpisode {
+	if parent.Type == frontend.TypeMovie || parent.Type == frontend.TypeEpisode {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
 	s.rememberTitle(parent) // seasons render the show's studio/year/logo
 	kids, err := s.metadataChildren(ctx, pr, k)
-	if err != nil && !errors.Is(err, core.ErrNotFound) {
+	if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 		s.writeErr(w, r, err)
 		return
 	}
@@ -489,7 +489,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	mc.Art = artURL(parent)
 	var allLeaves *model.Directory
 	switch parent.Type {
-	case core.TypeShow:
+	case frontend.TypeShow:
 		mc.Summary = parent.Summary
 		mc.ParentIndex = model.Ptr(1)
 		mc.ParentTitle = parent.Title
@@ -502,7 +502,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 			allLeaves = &model.Directory{LeafCount: model.Ptr(parent.LeafCount), Thumb: thumbURL(parent), ViewedLeafCount: model.Ptr(0),
 				Key: "/library/metadata/" + parent.Key.String() + "/allLeaves", Title: "All episodes"}
 		}
-	case core.TypeSeason:
+	case frontend.TypeSeason:
 		show := parent.ShowKey
 		if show == 0 {
 			show = parent.Key.Parent()
@@ -534,7 +534,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		mc.ViewMode = viewModeList
 	}
 	kids = s.visibleTitles(pr.User, kids)
-	if parent.Type == core.TypeShow && r.URL.Query().Has("unwatched") {
+	if parent.Type == frontend.TypeShow && r.URL.Query().Has("unwatched") {
 		if r.URL.Query().Get("unwatched") != "1" {
 			kids = nil
 		} else {
@@ -557,7 +557,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	}
 
 	childQ := r.URL.Query()
-	if parent.Type == core.TypeShow {
+	if parent.Type == frontend.TypeShow {
 		for name := range childQ {
 			if strings.TrimRight(name, "!<>=") == "unwatched" {
 				childQ.Del(name)
@@ -573,23 +573,23 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	kids = appendScheduled(kids, future)
 	lo, hi := pr.window(len(kids))
 	page := kids[lo:hi]
-	if parent.Type == core.TypeSeason {
+	if parent.Type == frontend.TypeSeason {
 		if ep := s.seasonNextEpisode(ctx, pr, page); ep != nil {
 			s.warmDetail(ctx, pr, ep)
 		}
 	}
 	if len(future) == 0 {
-		mc.Metadata = s.renderTitles(ctx, pr, page, renderOpts{media: true, inSection: true, skipLeafCounts: parent.Type == core.TypeShow})
+		mc.Metadata = s.renderTitles(ctx, pr, page, renderOpts{media: true, inSection: true, skipLeafCounts: parent.Type == frontend.TypeShow})
 	} else {
 		// Batch ordinary rendering without ever passing placeholders to media
 		// generation, then restore the canonical episode order.
-		var aired []core.Title
+		var aired []frontend.Title
 		for _, child := range page {
 			if !child.Released.After(s.now()) {
 				aired = append(aired, child)
 			}
 		}
-		rendered := s.renderTitles(ctx, pr, aired, renderOpts{media: true, inSection: true, skipLeafCounts: parent.Type == core.TypeShow})
+		rendered := s.renderTitles(ctx, pr, aired, renderOpts{media: true, inSection: true, skipLeafCounts: parent.Type == frontend.TypeShow})
 		byKey := make(map[string]model.Metadata, len(rendered))
 		for _, md := range rendered {
 			byKey[md.RatingKey] = md
@@ -602,7 +602,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if parent.Type == core.TypeShow {
+	if parent.Type == frontend.TypeShow {
 		s.applyLeafCounts(ctx, pr, mc.Metadata, page, nil)
 		if allLeaves != nil {
 			viewed, leaves := 0, 0
@@ -641,22 +641,22 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 	}
 	parent, err := s.metadataTitle(ctx, pr, k)
 	if err == nil && !s.visibleTitle(ctx, pr.User, parent) {
-		err = core.ErrNotFound
+		err = frontend.ErrNotFound
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
 	}
-	var eps []core.Title
+	var eps []frontend.Title
 	switch parent.Type {
-	case core.TypeShow:
+	case frontend.TypeShow:
 		eps, err = s.metadataGrandchildren(ctx, pr, k)
-	case core.TypeSeason:
+	case frontend.TypeSeason:
 		eps, err = s.metadataChildren(ctx, pr, k)
 	default:
-		eps = []core.Title{*parent}
+		eps = []frontend.Title{*parent}
 	}
-	if err != nil && !errors.Is(err, core.ErrNotFound) {
+	if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 		s.writeErr(w, r, err)
 		return
 	}
@@ -665,7 +665,7 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 	mc.Title1 = parent.Title
 	mc.Title2 = "All Episodes"
 	mc.ViewGroup = "episode"
-	if parent.Type == core.TypeMovie {
+	if parent.Type == frontend.TypeMovie {
 		mc.ViewGroup = "movie"
 	}
 	mc.ViewMode = viewModeList
@@ -713,9 +713,9 @@ func (s *Server) handleParent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	up := k.Parent()
-	if s.d.EpisodeOrder != nil && k.Kind() == core.KindEpisode {
+	if s.d.EpisodeOrder != nil && k.Kind() == frontend.KindEpisode {
 		if n, _, _, ok := s.d.EpisodeOrder.Position(r.Context(), FromContext(r.Context()).User, k); ok {
-			up = core.SeasonKey(k.TMDB(), n)
+			up = frontend.SeasonKey(k.TMDB(), n)
 		}
 	}
 	if strings.HasSuffix(r.URL.Path, "/grandparent") {
@@ -729,12 +729,12 @@ func (s *Server) handleParent(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderSingle writes one item as a detail container.
-func (s *Server) renderSingle(w http.ResponseWriter, r *http.Request, k core.RatingKey) {
+func (s *Server) renderSingle(w http.ResponseWriter, r *http.Request, k frontend.RatingKey) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	t, err := s.metadataTitle(ctx, pr, k)
 	if err == nil && !s.visibleTitle(ctx, pr.User, t) {
-		err = core.ErrNotFound
+		err = frontend.ErrNotFound
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
@@ -758,10 +758,10 @@ func (s *Server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 	if n, _ := strconv.Atoi(r.URL.Query().Get("count")); n > 0 {
 		limit = min(n, 100)
 	}
-	items, err := s.recommendationCandidates(ctx, pr.User, limit, func(ctx context.Context, fetch int) ([]core.Title, error) {
+	items, err := s.recommendationCandidates(ctx, pr.User, limit, func(ctx context.Context, fetch int) ([]frontend.Title, error) {
 		return s.d.Catalog.Similar(ctx, k, fetch)
 	})
-	if err != nil && !errors.Is(err, core.ErrNotFound) {
+	if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 		s.writeErr(w, r, err)
 		return
 	}
@@ -784,10 +784,10 @@ func (s *Server) handleItemOnDeck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mc := libraryContainer()
-	if k.Kind() == core.KindShow {
+	if k.Kind() == frontend.KindShow {
 		show, err := s.metadataTitle(ctx, pr, k)
 		if err == nil && !s.visibleTitle(ctx, pr.User, show) {
-			err = core.ErrNotFound
+			err = frontend.ErrNotFound
 		}
 		if err != nil {
 			s.writeErr(w, r, err)
@@ -795,7 +795,7 @@ func (s *Server) handleItemOnDeck(w http.ResponseWriter, r *http.Request) {
 		}
 		if ep, st := s.showOnDeck(ctx, pr, k, nil); ep != nil {
 			s.warmDetail(ctx, pr, ep)
-			mc.Metadata = s.renderTitles(ctx, pr, []core.Title{*ep}, renderOpts{media: true, state: st})
+			mc.Metadata = s.renderTitles(ctx, pr, []frontend.Title{*ep}, renderOpts{media: true, state: st})
 		}
 	}
 	mc.Size = len(mc.Metadata)
@@ -805,40 +805,40 @@ func (s *Server) handleItemOnDeck(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 // Collections
 
-func (s *Server) collection(ctx context.Context, u *core.User, k core.RatingKey) (*core.Collection, error) {
+func (s *Server) collection(ctx context.Context, u *frontend.User, k frontend.RatingKey) (*frontend.Collection, error) {
 	return s.collectionSelection().Get(ctx, u, k, collectionDevice(ctx), true)
 }
 
-func (s *Server) collectionRaw(ctx context.Context, u *core.User, k core.RatingKey) (*core.Collection, error) {
+func (s *Server) collectionRaw(ctx context.Context, u *frontend.User, k frontend.RatingKey) (*frontend.Collection, error) {
 	return s.collectionSelection().Get(ctx, u, k, "", false)
 }
 
 func collectionDevice(ctx context.Context) string {
 	pr := FromContext(ctx)
-	return core.ClassifyDevice(pr.Product, pr.Platform, pr.Device)
+	return frontend.ClassifyDevice(pr.Product, pr.Platform, pr.Device)
 }
 
 func (s *Server) collectionSelection() experience.ScopedCollection {
-	return experience.ScopedCollection{Collections: s.d.Collections, Visibility: s.visibility(), Now: s.now, Unrestricted: func(viewer *core.User) bool { return !s.viewerRestricted(viewer) }}
+	return experience.ScopedCollection{Collections: s.d.Collections, Visibility: s.visibility(), Now: s.now, Unrestricted: func(viewer *frontend.User) bool { return !s.viewerRestricted(viewer) }}
 }
 
-func (s *Server) lookupPlaceholder(ctx context.Context, pr *Request, key core.RatingKey, raw string) (*core.Title, core.RatingKey, error) {
-	var requested *core.RatingKey
+func (s *Server) lookupPlaceholder(ctx context.Context, pr *Request, key frontend.RatingKey, raw string) (*frontend.Title, frontend.RatingKey, error) {
+	var requested *frontend.RatingKey
 	if raw != "" {
-		collection, err := core.ParseRatingKey(raw)
+		collection, err := frontend.ParseRatingKey(raw)
 		if err != nil {
-			return nil, 0, core.ErrNotFound
+			return nil, 0, frontend.ErrNotFound
 		}
 		requested = &collection
 	}
-	return s.collectionSelection().Placeholder(ctx, pr.User, key, requested, core.ClassifyDevice(pr.Product, pr.Platform, pr.Device))
+	return s.collectionSelection().Placeholder(ctx, pr.User, key, requested, frontend.ClassifyDevice(pr.Product, pr.Platform, pr.Device))
 }
 
-func (s *Server) scopedCollectionCounts(ctx context.Context, u *core.User, cs []core.Collection) []core.Collection {
+func (s *Server) scopedCollectionCounts(ctx context.Context, u *frontend.User, cs []frontend.Collection) []frontend.Collection {
 	return s.collectionSelection().Counts(ctx, u, cs, collectionDevice(ctx))
 }
 
-func (s *Server) collectionMetadata(c *core.Collection, contexts ...context.Context) model.Metadata {
+func (s *Server) collectionMetadata(c *frontend.Collection, contexts ...context.Context) model.Metadata {
 	rk := c.Key.String()
 	m := model.Metadata{
 		RatingKey: rk,
@@ -885,13 +885,13 @@ func (s *Server) collectionMetadata(c *core.Collection, contexts ...context.Cont
 
 // collectionRows renders a listing's collections with their watch state
 // read in one batch, not one read per collection.
-func (s *Server) collectionRows(ctx context.Context, cs []core.Collection) []model.Metadata {
+func (s *Server) collectionRows(ctx context.Context, cs []frontend.Collection) []model.Metadata {
 	if len(cs) == 0 {
 		return nil
 	}
-	var state map[core.RatingKey]core.WatchStatus
+	var state map[frontend.RatingKey]frontend.WatchStatus
 	if pr := FromContext(ctx); pr != nil && pr.User != nil && s.d.State != nil {
-		keys := make([]core.RatingKey, len(cs))
+		keys := make([]frontend.RatingKey, len(cs))
 		for i := range cs {
 			keys[i] = cs[i].Key
 		}
@@ -922,7 +922,7 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 	mc := s.sectionContainer(sec)
 	_, mc.Title2 = sectionTypeTitle(sec)
 	mc.ViewGroup = string(sec.Type)
-	var all []core.Collection
+	var all []frontend.Collection
 	if s.d.Collections != nil {
 		cs, err := s.d.Collections.List(ctx, pr.User, sec.Type)
 		if err != nil {
@@ -990,7 +990,7 @@ func (s *Server) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
 	s.collectionItems(w, r, k)
 }
 
-func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.RatingKey) {
+func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k frontend.RatingKey) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	c, err := s.collectionRaw(ctx, pr.User, k)
@@ -1025,7 +1025,7 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 			if t.IsFutureRelease(s.now()) {
 				mc.Metadata = append(mc.Metadata, s.placeholderMetadata(ctx, pr, t, k))
 			} else {
-				mc.Metadata = append(mc.Metadata, s.renderTitles(ctx, pr, []core.Title{*t}, renderOpts{media: true})...)
+				mc.Metadata = append(mc.Metadata, s.renderTitles(ctx, pr, []frontend.Title{*t}, renderOpts{media: true})...)
 			}
 		}
 	}
@@ -1053,10 +1053,10 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 // Admission and duplicate removal happen before offsets; decoration is limited
 // to the requested page. A missing title must never shorten a raw source page
 // while leaving the client to advance through a different offset space.
-func (s *Server) collectionMemberPage(w http.ResponseWriter, r *http.Request, c *core.Collection, k core.RatingKey) {
+func (s *Server) collectionMemberPage(w http.ResponseWriter, r *http.Request, c *frontend.Collection, k frontend.RatingKey) {
 	ctx := withStoredPolicy(r.Context())
 	pr := FromContext(ctx)
-	selected, _, err := s.shelfSnapshotResult(ctx, pr, core.Hub{ID: "collection.grid." + k.String(), Key: k}, hubCtx{}, func() ([]core.Title, []model.Metadata, error) {
+	selected, _, err := s.shelfSnapshotResult(ctx, pr, frontend.Hub{ID: "collection.grid." + k.String(), Key: k}, hubCtx{}, func() ([]frontend.Title, []model.Metadata, error) {
 		page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), 0, int(^uint(0)>>1))
 		if err != nil {
 			return nil, nil, err
@@ -1088,7 +1088,7 @@ func (s *Server) collectionMemberPage(w http.ResponseWriter, r *http.Request, c 
 	s.write(w, r, mc)
 }
 
-func (s *Server) collectionItemsContainer(c *core.Collection, k core.RatingKey) *model.MediaContainer {
+func (s *Server) collectionItemsContainer(c *frontend.Collection, k frontend.RatingKey) *model.MediaContainer {
 	mc := s.itemContainer(c.Type)
 	mc.Key = k.String()
 	mc.Title1 = c.Title
@@ -1100,7 +1100,7 @@ func (s *Server) collectionItemsContainer(c *core.Collection, k core.RatingKey) 
 	return mc
 }
 
-func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *core.Title, collection core.RatingKey) model.Metadata {
+func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *frontend.Title, collection frontend.RatingKey) model.Metadata {
 	md := s.metadata(ctx, pr, t, renderOpts{})
 	md.Key = "/library/metadata/" + t.Key.String() + "?collection=" + collection.String()
 	// Future placeholders use base TMDB artwork through the collection-scoped
@@ -1120,14 +1120,14 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *core.T
 
 // Prefer exact facts for the TV picker, without making a slow source fail
 // the detail page. Completed background probes are visible on later reads.
-func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *core.Title) error {
+func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *frontend.Title) error {
 	if pr == nil || pr.User == nil || s.d.Playback == nil {
 		return nil
 	}
 	if _, _, exact := s.mediaInfoWithSource(ctx, pr, t); exact {
 		return nil
 	}
-	if prober, ok := s.d.Playback.(core.MetadataProber); ok {
+	if prober, ok := s.d.Playback.(frontend.MetadataProber); ok {
 		if !pr.detailWaitUntil.IsZero() {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithDeadline(ctx, pr.detailWaitUntil)

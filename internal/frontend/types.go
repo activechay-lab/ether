@@ -44,6 +44,19 @@ const (
 
 func IsSurroundAudioCodec(c string) bool { return core.IsSurroundAudioCodec(c) }
 
+// Release and variant-resolution values stay owned by core. Adapters
+// describe and label versions through these aliases.
+type Source = core.Source
+type Release = core.Release
+type ReleaseInfo = core.ReleaseInfo
+type ResolveRequest = core.ResolveRequest
+
+const MaxVariants = core.MaxVariants
+
+func ResolutionTier(w, h int) int { return core.ResolutionTier(w, h) }
+
+func SourceLabel(s Source) string { return core.SourceLabel(s) }
+
 // Library browse and history values stay owned by core. Adapters build
 // queries and read results through these aliases.
 type BrowseQuery = core.BrowseQuery

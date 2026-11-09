@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -69,23 +69,23 @@ func resampleBIF(data []byte, interval time.Duration) []byte {
 	return out
 }
 
-func (s *Server) cancelTrickplayIfIdle(ps *core.PlaySession) {
+func (s *Server) cancelTrickplayIfIdle(ps *frontend.PlaySession) {
 	if ps == nil || ps.Resolution == nil || s.d.Playback == nil {
 		return
 	}
-	releaseID := core.TrickplayCacheKey(ps)
+	releaseID := frontend.TrickplayCacheKey(ps)
 	if releaseID == "" {
 		return
 	}
 	idle := true
 	for _, active := range s.d.Playback.Sessions() {
-		if active != nil && active.Resolution != nil && core.TrickplayCacheKey(active) == releaseID {
+		if active != nil && active.Resolution != nil && frontend.TrickplayCacheKey(active) == releaseID {
 			idle = false
 			break
 		}
 	}
 	if idle {
-		if canceler, ok := s.d.Trickplay.(core.TrickplayCanceler); ok {
+		if canceler, ok := s.d.Trickplay.(frontend.TrickplayCanceler); ok {
 			canceler.CancelTrickplay(releaseID)
 		}
 	}
@@ -118,7 +118,7 @@ func (s *Server) handleIndexFrame(w http.ResponseWriter, r *http.Request) {
 
 // indexPart resolves a virtual part to the active session for this viewer,
 // applying the same title visibility and playback policy as handlePart.
-func (s *Server) indexPart(r *http.Request) (core.RatingKey, string, bool) {
+func (s *Server) indexPart(r *http.Request) (frontend.RatingKey, string, bool) {
 	pr := FromContext(r.Context())
 	id, err := strconv.ParseInt(chi.URLParam(r, "part"), 10, 64)
 	if err != nil || pr.User == nil ||
@@ -133,7 +133,7 @@ func (s *Server) indexPart(r *http.Request) (core.RatingKey, string, bool) {
 	if err != nil || !s.visibleTitle(r.Context(), pr.User, title) {
 		return 0, "", false
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
 		return 0, "", false
 	}
 	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
@@ -143,11 +143,11 @@ func (s *Server) indexPart(r *http.Request) (core.RatingKey, string, bool) {
 	if wantedReleaseID != "" && ps.Resolution.Release.ID != wantedReleaseID {
 		return 0, "", false
 	}
-	cacheKey := core.TrickplayCacheKey(ps)
+	cacheKey := frontend.TrickplayCacheKey(ps)
 	return key, cacheKey, cacheKey != ""
 }
 
-func (s *Server) previewAvailable(pr *Request, key core.RatingKey, release string) bool {
+func (s *Server) previewAvailable(pr *Request, key frontend.RatingKey, release string) bool {
 	if s.d.Trickplay == nil || s.d.Playback == nil || pr.User == nil {
 		return false
 	}
@@ -155,6 +155,6 @@ func (s *Server) previewAvailable(pr *Request, key core.RatingKey, release strin
 	if !ok || ps == nil || ps.Resolution == nil || ps.Resolution.Release.ID != release {
 		return false
 	}
-	id := core.TrickplayCacheKey(ps)
+	id := frontend.TrickplayCacheKey(ps)
 	return id != "" && s.d.Trickplay.TrickplayAvailable(id)
 }
