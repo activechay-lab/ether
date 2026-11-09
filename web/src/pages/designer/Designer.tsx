@@ -6,7 +6,7 @@ import { ErrorPanel } from "../../components/feedback";
 import { useViewers, viewerName } from "../../components/pickers";
 import { t } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
-import type { HomeLayout } from "../../lib/contract";
+import type { HomeLayout, ViewerHome } from "../../lib/contract";
 import { useAsync } from "../../lib/hooks";
 import { Workspace, PanelHead } from "../../components/workspace";
 import {
@@ -47,6 +47,7 @@ export default function Designer() {
   const [nonce, setNonce] = useState(0);
   const [tools, setTools] = useState("layout");
   const [focusRow, setFocusRow] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ViewerHome | null>(null);
 
   const saved = doc.data?.layout ?? EMPTY_LAYOUT;
   // Adopt the stored layout in the render that delivers it; an effect could
@@ -67,6 +68,10 @@ export default function Designer() {
   const viewerId = layer === "global" ? spotCheck : layer;
   const overrideTotal = (viewers ?? []).reduce((n, v) => n + overrideCount(draft, v.id), 0);
   const viewerById = useMemo(() => new Map((viewers ?? []).map((v) => [v.id, v])), [viewers]);
+  const previewWho =
+    viewerId !== null && viewerById.get(viewerId)
+      ? viewerName(viewerById.get(viewerId)!)
+      : t("Typical viewer");
   const layerName =
     layer === "global"
       ? t("everyone's Home")
@@ -210,6 +215,8 @@ export default function Designer() {
                   available={available}
                   focusRow={focusRow}
                   onFocusRow={setFocusRow}
+                  preview={preview}
+                  previewWho={previewWho}
                 />
               )}
               {tools === "tuning" && <TuningPanel {...editing} />}
@@ -236,6 +243,7 @@ export default function Designer() {
           onSpotCheck={setSpotCheck}
           refreshNonce={nonce}
           onChange={setDraft}
+          onPreviewChange={setPreview}
           onEditRow={(row) => {
             setTools("rows");
             setFocusRow(row);

@@ -354,6 +354,7 @@ export interface HomeRow {
   slot?: number;
   anchorSlot?: number;
   placement?: string;
+  hiddenCode?: string;
   hiddenReason?: string;
   policy?: RowPolicy;
   policyLayer?: "global" | "override";

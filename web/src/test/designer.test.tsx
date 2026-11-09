@@ -348,4 +348,61 @@ describe("Home", () => {
     expect(screen.queryByRole("button", { name: /Turn off/ })).toBeNull();
     expect(calls(fake, "GET", "/viewers/2/home")).not.toHaveLength(0);
   });
+
+  it("explains absent Always rows inline and never drops Always rows with titles under page caps", async () => {
+    renderApp("/home");
+    await screen.findByRole("region", { name: "Slot 1: Continue Watching" }, WAIT);
+
+    // Setting a personal row to Always on Everyone explains why Typical viewer hides it,
+    // both on the RowPool card and in the preview's Not on this page list.
+    await setStatus("Top 10 for You", "Always");
+    const top10Card = screen.getByRole("listitem", { name: "Row Top 10 for You" });
+    await waitFor(
+      () =>
+        expect(top10Card).toHaveTextContent(
+          "Hidden for Typical viewer: needs watch history (spot-check a viewer to preview)",
+        ),
+      WAIT,
+    );
+    const hiddenTop10 = await screen.findByRole(
+      "listitem",
+      { name: "Not shown: Top 10 for You" },
+      WAIT,
+    );
+    expect(hiddenTop10).toHaveTextContent(
+      "Hidden for Typical viewer: needs watch history (spot-check a viewer to preview)",
+    );
+    expect(within(hiddenTop10).getByText("Always")).toBeInTheDocument();
+    expect(within(hiddenTop10).queryByRole("button", { name: /Always show/ })).toBeNull();
+
+    // Setting a disabled collection to Always explains why it is absent.
+    await setStatus("Family Movie Night", "Always");
+    const familyCard = screen.getByRole("listitem", { name: "Row Family Movie Night" });
+    await waitFor(
+      () =>
+        expect(familyCard).toHaveTextContent(
+          "Hidden for Typical viewer: collection is disabled in Collections",
+        ),
+      WAIT,
+    );
+
+    // Spot-checking a warm viewer shows Top 10 for You, admits cold-start New & Noteworthy
+    // when Always, and keeps every Always row with titles even when maxRows is 1.
+    await setStatus("New & Noteworthy", "Always");
+    fireEvent.click(screen.getByRole("tab", { name: "Layout" }));
+    fireEvent.change(screen.getByLabelText("Home rows"), { target: { value: "1" } });
+
+    await pickLayer(/Sam Rivera/);
+    await screen.findByRole("region", { name: /Slot \d+: Top 10 for You/ }, WAIT);
+    await screen.findByRole("region", { name: /Slot \d+: New Releases/ }, WAIT);
+    expect(screen.getByRole("region", { name: "Slot 1: Continue Watching" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Rows" }));
+    expect(screen.getByRole("listitem", { name: "Row Top 10 for You" })).not.toHaveTextContent(
+      /Hidden for/,
+    );
+    expect(screen.getByRole("listitem", { name: "Row Family Movie Night" })).toHaveTextContent(
+      "Hidden for Sam Rivera: collection is disabled in Collections",
+    );
+  });
 });

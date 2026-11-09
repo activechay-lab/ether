@@ -27,8 +27,11 @@ import type {
 import {
   collectionIdOf,
   daypartOf,
+  effectivePolicy,
+  matchRank,
   overrideCount,
   pageOf,
+  rowFits,
   tidySchedule,
   whenMatches,
 } from "../lib/layout";
@@ -1350,6 +1353,54 @@ export function createFakeServer(opts: FakeOptions = {}) {
           pickTitles(seed + "t10", 10, media),
         ),
       );
+      const wantsAlways = (stem: string, kind: string) => {
+        const eff = effectivePolicy(layout, userId, section, `${prefix}.${stem}`, kind);
+        return eff?.policy.status === "always" || Boolean(eff?.policy.slot);
+      };
+      if (wantsAlways("newreleases", "new-releases"))
+        rows.push(
+          mk(
+            "newreleases",
+            "New Releases",
+            "new-releases",
+            "The newest notable releases.",
+            0.62,
+            pickTitles(seed + "nr", 12, media),
+          ),
+        );
+      if (wantsAlways("popular.server", "popular-on-server"))
+        rows.push(
+          mk(
+            "popular.server",
+            "Popular on Living Room Ether",
+            "popular-on-server",
+            "What viewers here watched most this month.",
+            0.58,
+            pickTitles(seed + "ps", 12, media),
+          ),
+        );
+      if (wantsAlways("toprated", "top-rated"))
+        rows.push(
+          mk(
+            "toprated",
+            "Top Rated",
+            "top-rated",
+            "Acclaimed titles with trustworthy ratings.",
+            0.5,
+            pickTitles(seed + "tr2", 12, (x) => media(x) && (x.rating ?? 0) > 7.4),
+          ),
+        );
+      if (wantsAlways("trending", "trending"))
+        rows.push(
+          mk(
+            "trending",
+            "Trending This Week",
+            "trending",
+            "What is trending on TMDB this week.",
+            0.46,
+            pickTitles(seed + "trn", 12, media),
+          ),
+        );
     }
     if (section === "home") {
       const cw = userId === null ? [] : pickTitles(seed + "cw", 6, media);
@@ -1458,12 +1509,191 @@ export function createFakeServer(opts: FakeOptions = {}) {
       at,
       defaultRows: DEFAULT_ROWS[sec],
     });
+    rows = appendAbsentAlwaysRows(rows, userId, device, at, sec, layout);
     return {
       rows,
       generatedAt: new Date().toISOString(),
       context: { device, daypart, weekend },
       viewer,
     };
+  }
+
+  const PERSONAL_KINDS = new Set([
+    "favorites",
+    "continue-watching",
+    "up-next",
+    "top-10",
+    "because-you-watched",
+    "more-from-person",
+    "trending-in-your-taste",
+    "fans-also-loved",
+    "trending-with-fans",
+    "hidden-gems",
+    "new-this-week",
+    "comfort-rewatches",
+    "something-different",
+    "playlists",
+    "taste-cluster",
+    "era-favourites",
+    "world-cinema",
+    "occasion",
+    "acclaimed-unseen",
+    "top-rated-in-genre",
+    "new-seasons",
+    "finish-what-you-started",
+    "start-something-new",
+    "more-from-network",
+    "llm",
+    "trakt-recommendations",
+    "trakt-watchlist",
+  ]);
+
+  function appendAbsentAlwaysRows(
+    rows: HomeRow[],
+    userId: number | null,
+    device: string,
+    at: Date,
+    sec: LayoutSection,
+    layout: HomeLayout,
+  ): HomeRow[] {
+    const day = at.getDay();
+    const hour = at.getHours();
+    const prefix = sec === "movies" ? "movie" : sec === "shows" ? "tv" : "home";
+    const availList = availableRows();
+    const active: { pol: LayoutPage["rows"][number]; layer: "global" | "override" }[] = [];
+    if (userId !== null) {
+      for (const pol of pageOf(layout, userId, sec)?.rows ?? []) {
+        if ((pol.status === "always" || pol.slot) && !/[*?[]/.test(pol.row))
+          active.push({ pol, layer: "override" });
+      }
+    }
+    for (const pol of pageOf(layout, "global", sec)?.rows ?? []) {
+      if ((pol.status !== "always" && !pol.slot) || /[*?[]/.test(pol.row)) continue;
+      const colId = collectionIdOf(pol.row);
+      const avail = availList.find((a) => a.hubId === pol.row || a.kind === pol.row);
+      const kind = colId ? `collection:${colId}` : (avail?.kind ?? pol.row);
+      const hubId = colId ? `collection.${colId}` : `${prefix}.${avail?.hubId ?? pol.row}`;
+      const eff = effectivePolicy(layout, userId, sec, hubId, kind);
+      if (
+        !eff ||
+        (eff.policy.status !== "always" && !eff.policy.slot) ||
+        eff.layer !== "global" ||
+        eff.policy.row !== pol.row
+      )
+        continue;
+      active.push({ pol, layer: "global" });
+    }
+    if (!active.length) return rows;
+    const out = [...rows];
+    for (const { pol, layer } of active) {
+      if (out.some((r) => matchRank(pol.row, r.hubId, r.kind) > 0)) continue;
+      const colId = collectionIdOf(pol.row);
+      const col = colId ? state.collections.find((c) => String(c.id) === colId) : undefined;
+      const avail = availList.find((a) => a.hubId === pol.row || a.kind === pol.row);
+      const kind = colId ? `collection:${colId}` : (avail?.kind ?? pol.row);
+      const hubId = colId
+        ? `collection.${colId}`
+        : kind === "playlists"
+          ? "home.playlists"
+          : `${prefix}.${avail?.hubId ?? pol.row}`;
+      const title = col?.name ?? avail?.title ?? pol.row;
+      const source: HomeRow["source"] = colId
+        ? "owner"
+        : ["continue-watching", "recently-added", "playlists"].includes(kind)
+          ? "plex"
+          : "engine";
+      let hiddenCode = "no_matching_titles";
+      let hiddenReason = "No matching titles for this viewer";
+      if (!whenMatches(pol.when, { day, hour, device, date: at })) {
+        hiddenCode = "outside_schedule";
+        hiddenReason = "Outside schedule";
+      } else if (colId) {
+        if (!col) {
+          hiddenCode = "collection_empty";
+          hiddenReason = "Collection has no titles for this viewer";
+        } else if (!col.enabled) {
+          hiddenCode = "collection_disabled";
+          hiddenReason = "Collection is disabled in Collection Studio";
+        } else if (
+          col.targets.users !== "all" &&
+          (userId === null || !col.targets.users.includes(userId))
+        ) {
+          hiddenCode = "collection_not_shared";
+          hiddenReason = "Collection is not shared with this viewer";
+        } else if (
+          (sec === "movies" && col.mediaType === "show") ||
+          (sec === "shows" && col.mediaType === "movie")
+        ) {
+          hiddenCode = "wrong_surface";
+          hiddenReason = "Not available on this page";
+        } else {
+          const s =
+            layout.collectionSchedules && colId in layout.collectionSchedules
+              ? layout.collectionSchedules[colId]
+              : col.targets.schedule;
+          if (
+            !(layer === "override" && pol.when) &&
+            !whenMatches(tidySchedule(s), { day, hour, device, date: at })
+          ) {
+            hiddenCode = "outside_collection_schedule";
+            hiddenReason = "Outside collection schedule";
+          } else {
+            hiddenCode = "collection_empty";
+            hiddenReason = "Collection has no titles for this viewer";
+          }
+        }
+      } else if (avail && !rowFits(avail as { sections?: LayoutSection[] }, sec)) {
+        hiddenCode = "wrong_surface";
+        hiddenReason = "Not available on this page";
+      } else if (userId === null && PERSONAL_KINDS.has(kind)) {
+        hiddenCode = "typical_viewer_personal";
+        hiddenReason = "Hidden for Typical viewer: personal row";
+      } else if (kind === "genre-showcase" && userId !== null && taste(userId).confidence >= 0.35) {
+        hiddenCode = "cold_start_only";
+        hiddenReason = "Only shown for new viewers while learning their taste";
+      } else if (kind === "playlists") {
+        hiddenCode = "no_playlists";
+        hiddenReason = "Viewer has no playlists";
+      } else if (kind === "favorites") {
+        hiddenCode = "no_favorites";
+        hiddenReason = "Viewer has no favorites";
+      } else if (["up-next", "finish-what-you-started", "continue-watching"].includes(kind)) {
+        hiddenCode = "no_in_progress";
+        hiddenReason = "Nothing in progress for this viewer";
+      } else if (kind === "trakt-recommendations" || kind === "trakt-watchlist") {
+        hiddenCode = "needs_trakt";
+        hiddenReason = "No Trakt titles for this viewer";
+      } else if (kind === "llm") {
+        hiddenCode = "ai_unavailable";
+        hiddenReason = "No AI recommendations ready";
+      } else if (PERSONAL_KINDS.has(kind)) {
+        hiddenCode = "needs_watch_history";
+        hiddenReason = "Needs more watch history for this viewer";
+      }
+      out.push({
+        hubId,
+        title,
+        kind,
+        reason: "",
+        score: 0,
+        source,
+        items: [],
+        hidden: true,
+        hiddenCode,
+        hiddenReason,
+        layer,
+        policy: pol,
+        policyLayer: layer,
+        anchorSlot: pol.slot,
+        pinned: Boolean(pol.slot),
+        placement: pol.slot
+          ? `${layer} anchor at slot ${pol.slot}`
+          : layer === "override"
+            ? "Viewer override"
+            : `Always included by ${layer}`,
+      });
+    }
+    return out;
   }
 
   const ROW_META: Record<string, { group: string; sections?: string[] }> = {

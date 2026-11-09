@@ -24,13 +24,16 @@ import type {
   RowStatus,
   TargetSchedule,
   Viewer,
+  ViewerHome,
 } from "../../lib/contract";
 import { api } from "../../lib/api";
 import { localized, t, tn, tx } from "../../i18n";
 import { WEEKDAYS, formatNumber } from "../../lib/format";
 import {
+  CONTINUE,
   FRONT_END_ROWS,
   collectionIdOf,
+  describeHiddenRow,
   collectionSchedule,
   effectivePolicy,
   matchRank,
@@ -141,6 +144,8 @@ export function RowPool({
   available,
   focusRow,
   onFocusRow,
+  preview,
+  previewWho,
 }: {
   draft: HomeLayout;
   onChange: (d: HomeLayout) => void;
@@ -150,6 +155,8 @@ export function RowPool({
   available: AvailableRow[];
   focusRow: string | null;
   onFocusRow: (row: string | null) => void;
+  preview?: ViewerHome | null;
+  previewWho?: string;
 }) {
   const navigate = useNavigate();
   const collectionKinds = useRegistry<CollectionSourceMeta>("collectionSource");
@@ -413,6 +420,8 @@ export function RowPool({
                       layer={layer}
                       section={section}
                       viewers={viewers}
+                      preview={preview}
+                      previewWho={previewWho}
                       open={focusRow === e.row}
                       onToggle={() => onFocusRow(focusRow === e.row ? null : e.row)}
                     />
@@ -563,6 +572,8 @@ function PoolItem({
   layer,
   section,
   viewers,
+  preview,
+  previewWho,
   open,
   onToggle,
 }: {
@@ -579,9 +590,12 @@ function PoolItem({
   layer: LayerKey;
   section: LayoutSection;
   viewers: Viewer[];
+  preview?: ViewerHome | null;
+  previewWho?: string;
   open: boolean;
   onToggle: () => void;
 }) {
+  const { locale } = useLocale();
   const ref = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (open) ref.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
@@ -636,6 +650,34 @@ function PoolItem({
     : layer === "global"
       ? t("Default")
       : t("Reset to Everyone");
+  const who = previewWho || t("Typical viewer");
+  const absenceNote = useMemo(() => {
+    if (!preview || onCreate) return "";
+    const matched = preview.rows.filter((r) => matchRank(entry.row, r.hubId, r.kind) > 0);
+    if (matched.some((r) => !r.hidden && r.items.length > 0)) return "";
+    const hiddenMatch = matched.find((r) => r.hidden);
+    if (effective.status === "always") {
+      if (matched.some((r) => !r.hidden && r.kind === CONTINUE && r.items.length === 0)) {
+        return t("Hidden for {who}: nothing in progress", { who });
+      }
+      if (hiddenMatch) return describeHiddenRow(hiddenMatch, who);
+      return t("Hidden for {who}: no matching titles", { who });
+    }
+    if (
+      effective.status === "eligible" &&
+      hiddenMatch?.hiddenCode &&
+      [
+        "outside_collection_schedule",
+        "collection_disabled",
+        "collection_not_shared",
+        "outside_schedule",
+        "weekly_cap",
+      ].includes(hiddenMatch.hiddenCode)
+    ) {
+      return describeHiddenRow(hiddenMatch, who);
+    }
+    return "";
+  }, [preview, onCreate, entry.row, effective.status, who, locale]);
   return (
     <li
       ref={ref}
@@ -692,6 +734,11 @@ function PoolItem({
                 </Badge>
               ))}
             </div>
+          ) : null}
+          {absenceNote ? (
+            <p className="mt-1.5 rounded-md border border-warning/30 bg-warning-subtle/40 px-2 py-1 text-xs text-fg">
+              {absenceNote}
+            </p>
           ) : null}
         </div>
         {!onCreate && (

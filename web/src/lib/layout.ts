@@ -2,6 +2,7 @@ import type {
   Daypart,
   Device,
   HomeLayout,
+  HomeRow,
   LayoutPage,
   LayoutSection,
   LayoutTuning,
@@ -197,7 +198,7 @@ export function policyIn(
 /** How specifically a policy's row targets a row: 3 full hub id, 2 kind, 1 stem or glob, 0 none. */
 export function matchRank(pattern: string, hubId: string, kind: string): number {
   let stem = hubId;
-  for (const p of ["home.", "movie.", "tv."]) {
+  for (const p of ["home.", "movie.", "tv.", "collection."]) {
     if (hubId.startsWith(p)) {
       stem = hubId.slice(p.length);
       break;
@@ -729,4 +730,59 @@ export function policyChipItems(p: RowPolicy, dayNames: readonly string[]): Poli
 /** Short chips that summarise a policy. */
 export function policyChips(p: RowPolicy, dayNames: readonly string[]): string[] {
   return policyChipItems(p, dayNames).map((c) => c.text);
+}
+
+/** Plain-language explanation for why a hidden or absent row is not shown in the current preview. */
+export function describeHiddenRow(
+  row: Pick<HomeRow, "hiddenCode" | "hiddenReason">,
+  who: string,
+): string {
+  switch (row.hiddenCode) {
+    case "off_global":
+      return t("Off in global layer");
+    case "off_override":
+      return t("Off in override layer");
+    case "outside_schedule":
+      return t("Outside schedule");
+    case "weekly_cap":
+      return t("Weekly frequency cap");
+    case "page_constraints":
+      return t("Page length, frequency cap or position constraints");
+    case "sparse_feed":
+      return t("Hidden for {who}: too few recent additions match their taste", { who });
+    case "wrong_surface":
+      return t("Not available on this page");
+    case "outside_collection_schedule":
+      return t("Hidden for {who}: outside the collection's schedule", { who });
+    case "collection_disabled":
+      return t("Hidden for {who}: collection is disabled in Collections", { who });
+    case "collection_not_shared":
+      return t("Hidden for {who}: collection is not shared with this viewer", { who });
+    case "collection_empty":
+      return t("Hidden for {who}: collection has no titles", { who });
+    case "filtered_by_restrictions":
+      return t("Hidden for {who}: no titles after restrictions", { who });
+    case "filtered_by_availability":
+      return t("Hidden for {who}: no playable titles available right now", { who });
+    case "typical_viewer_personal":
+      return t("Hidden for Typical viewer: needs watch history (spot-check a viewer to preview)");
+    case "cold_start_only":
+      return t("Hidden for {who}: only shown to new viewers while learning their taste", { who });
+    case "needs_trakt":
+      return t("Hidden for {who}: no Trakt titles linked", { who });
+    case "ai_unavailable":
+      return t("Hidden for {who}: no AI recommendations ready", { who });
+    case "no_playlists":
+      return t("Hidden for {who}: no playlists yet", { who });
+    case "no_favorites":
+      return t("Hidden for {who}: no favorites yet", { who });
+    case "no_in_progress":
+      return t("Hidden for {who}: nothing in progress", { who });
+    case "needs_watch_history":
+      return t("Hidden for {who}: needs more watch history", { who });
+    case "no_matching_titles":
+      return t("Hidden for {who}: no matching titles", { who });
+    default:
+      return row.hiddenReason || t("Hidden for {who}: no titles", { who });
+  }
 }
