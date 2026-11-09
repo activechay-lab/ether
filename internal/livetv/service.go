@@ -828,6 +828,9 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 	}
 	_, err = s.o.DB.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, c.ID, b)
 	if err == nil {
+		if !c.Enabled {
+			s.cancelGraphics(c.ID)
+		}
 		s.captureBreakOwner(ctx, c.ID)
 		s.invalidate(c.ID, "")
 		if err = s.refreshVirtualGuide(ctx); err != nil {
@@ -837,9 +840,19 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 	}
 	return c, err
 }
+// cancelGraphics drops a channel's queued and running graphics renders
+// when the graphics service supports it: a disabled or deleted channel
+// must stop rendering at once, not at the next planning tick.
+func (s *Service) cancelGraphics(channelID string) {
+	if c, ok := s.o.Graphics.(interface{ CancelChannel(string) }); ok {
+		c.CancelChannel(channelID)
+	}
+}
+
 func (s *Service) DeleteChannel(ctx context.Context, id string) error {
 	_, err := s.o.DB.ExecContext(ctx, `DELETE FROM livetv_channels WHERE id=?`, id)
 	if err == nil {
+		s.cancelGraphics(id)
 		s.mu.Lock()
 		delete(s.breakOwners, id)
 		s.mu.Unlock()

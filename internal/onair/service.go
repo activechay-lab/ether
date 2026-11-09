@@ -92,6 +92,17 @@ type Service struct {
 	activeCancel   context.CancelFunc
 	activeBoundary time.Time
 	activeHash     string
+	activeChannel  string
+	// unwanted holds channels whose queued renders process must drop: a
+	// disabled, deleted or no-longer-watched channel. A fresh request for
+	// the channel clears it (enqueue).
+	unwanted map[string]bool
+	// hashChannel remembers which channel a pinned hash belongs to, so
+	// cancelling the channel releases its pins. Entries die with their pin.
+	hashChannel map[string]string
+	// wantedChannels is the channel set of the last watchUpcoming tick;
+	// channels that fall out of it are cancelled.
+	wantedChannels map[string]bool
 	resources      string
 	reelReady      map[string]bool
 	o              Options
@@ -176,21 +187,11 @@ func New(o Options) (*Service, error) {
 
 	s.resumeConversions()
 	s.resumeImports()
-	// Warm only styles used by enabled channels. An empty planning result is
-	// not a request to render the entire bundled preview library.
-	for _, l := range ls {
-		l := l
-		if s.o.StaticRequests != nil {
-			s.enqueue(renderJob{Hash: "startup-" + l.ID, prepare: func(ctx context.Context) error {
-				if requests := s.o.StaticRequests(ctx, l.ID); len(requests) > 0 {
-					s.queueLook(l, requests)
-				}
-				return nil
-			}})
-		} else if len(l.ChannelIDs) > 0 {
-			s.queueLook(l, nil)
-		}
-	}
+	// No startup warming: rendering is viewer-driven. Looks render when a
+	// watched channel needs them (watchUpcoming/Ensure) or when the owner
+	// saves one in the console (enqueueLook). Warming every enabled
+	// channel's scenes at boot kept installs that never open Live TV
+	// rendering for hours after an upgrade invalidated the masters.
 	return s, nil
 }
 
@@ -479,10 +480,66 @@ func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
 		}
 	}
 }
+// CancelChannel stops every queued and running render for a channel and
+// releases its pins: the channel was disabled, deleted, or fell out of
+// the requested set. The running render's context is cancelled, which
+// also kills its ffmpeg. Work already in the job channels is dropped by
+// process under the unwanted mark; a later request for the channel
+// clears the mark in enqueue.
+func (s *Service) CancelChannel(channelID string) {
+	if s == nil || channelID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.unwanted == nil {
+		s.unwanted = map[string]bool{}
+	}
+	s.unwanted[channelID] = true
+	kept := s.liveJobs[:0]
+	for _, j := range s.liveJobs {
+		if j.Request.ChannelID == channelID {
+			delete(s.pending, j.Hash)
+			delete(s.pins, j.Hash)
+			delete(s.hashChannel, j.Hash)
+			continue
+		}
+		kept = append(kept, j)
+	}
+	for i := len(kept); i < len(s.liveJobs); i++ {
+		s.liveJobs[i] = renderJob{}
+	}
+	s.liveJobs = kept
+	for h, ch := range s.hashChannel {
+		if ch == channelID {
+			delete(s.pins, h)
+			delete(s.hashChannel, h)
+			if v, ok := s.cache[h]; ok {
+				v.Pin = time.Time{}
+				s.cache[h] = v
+			}
+		}
+	}
+	cancel := s.activeCancel != nil && s.activeChannel == channelID
+	cancelFn := s.activeCancel
+	s.mu.Unlock()
+	if cancel {
+		cancelFn()
+	}
+}
+
 func (s *Service) enqueue(j renderJob) bool {
 	imminent := s.imminent(j)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if ch := j.Request.ChannelID; ch != "" {
+		delete(s.unwanted, ch)
+		if s.hashChannel == nil {
+			s.hashChannel = map[string]string{}
+		}
+		if j.scene() {
+			s.hashChannel[j.Hash] = ch
+		}
+	}
 	if s.pending[j.Hash] {
 		if imminent {
 			return s.queueLiveLocked(j)
@@ -681,7 +738,12 @@ func (s *Service) watchUpcoming() {
 			s.mu.Unlock()
 		}
 		if s.o.Upcoming != nil {
-			for _, r := range s.o.Upcoming(s.ctx) {
+			requests := s.o.Upcoming(s.ctx)
+			wanted := map[string]bool{}
+			for _, r := range requests {
+				if r.ChannelID != "" {
+					wanted[r.ChannelID] = true
+				}
 				j, ok := s.plan(r)
 				if !ok {
 					continue
@@ -689,12 +751,31 @@ func (s *Service) watchUpcoming() {
 				s.mu.Lock()
 				v := s.cache[j.Hash]
 				s.pins[j.Hash] = time.Now().Add(3 * time.Hour)
+				if s.hashChannel == nil {
+					s.hashChannel = map[string]string{}
+				}
+				s.hashChannel[j.Hash] = r.ChannelID
 				v.Pin = s.pins[j.Hash]
 				if v.Ref.Hash != "" {
 					s.cache[j.Hash] = v
 				}
 				s.mu.Unlock()
 				s.enqueue(j)
+			}
+			// A channel that fell out of the request set (disabled,
+			// deleted, or unwatched past its window) stops rendering:
+			// queued and running work is cancelled, pins released.
+			s.mu.Lock()
+			var dropped []string
+			for ch := range s.wantedChannels {
+				if !wanted[ch] {
+					dropped = append(dropped, ch)
+				}
+			}
+			s.wantedChannels = wanted
+			s.mu.Unlock()
+			for _, ch := range dropped {
+				s.CancelChannel(ch)
 			}
 		}
 		select {
@@ -748,7 +829,26 @@ func (s *Service) run() {
 	}
 }
 
+func (s *Service) unwantedChannel(j renderJob) bool {
+	ch := j.Request.ChannelID
+	if ch == "" || !j.scene() {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.unwanted[ch]
+}
+
 func (s *Service) process(j renderJob) {
+	// A cancelled channel's queued work leaves the lane without rendering.
+	if s.unwantedChannel(j) {
+		s.mu.Lock()
+		delete(s.pending, j.Hash)
+		delete(s.pins, j.Hash)
+		delete(s.hashChannel, j.Hash)
+		s.mu.Unlock()
+		return
+	}
 	// Obsolete airings cannot consume a lane ahead of future work. A repeated
 	// content hash will be admitted again with its next scheduled boundary.
 	if !j.Boundary.IsZero() && !j.Boundary.After(time.Now()) {
@@ -769,6 +869,7 @@ func (s *Service) process(j renderJob) {
 	if !j.download {
 		s.activeCancel = cancel
 		s.activeHash = j.Hash
+		s.activeChannel = j.Request.ChannelID
 		s.activeBoundary = time.Time{}
 		if imminent {
 			s.activeBoundary = j.Boundary
@@ -783,12 +884,14 @@ func (s *Service) process(j renderJob) {
 	if !j.download {
 		s.activeCancel = nil
 		s.activeHash = ""
+		s.activeChannel = ""
 		s.activeBoundary = time.Time{}
 	}
 	delete(s.pending, j.Hash)
 	s.refreshProgress(j.Look)
 	s.mu.Unlock()
-	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil && !j.download {
+	// A preempted render re-queues; a channel-cancelled one does not.
+	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil && !j.download && !s.unwantedChannel(j) {
 		s.enqueue(j)
 	}
 	if e != nil && s.ctx.Err() == nil && !errors.Is(e, context.Canceled) && j.scene() {
@@ -962,6 +1065,7 @@ func (s *Service) evict() {
 	for h, until := range s.pins {
 		if until.Before(time.Now()) {
 			delete(s.pins, h)
+			delete(s.hashChannel, h)
 		}
 	}
 	var total int64
