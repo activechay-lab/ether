@@ -177,9 +177,13 @@ func (s *Service) evaluate(ctx context.Context, spIn core.CollectionSpec, opt ev
 	providerTitles := []core.Title{}
 	// Watch-provider rules need the provider's catalogue from TMDB.
 	ec := &evalCtx{now: s.now(), providers: map[*rule]map[core.RatingKey]bool{}}
+	includeProvider := map[*rule]bool{}
+	for _, r := range rules {
+		includeProvider[r] = true
+	}
 	for _, r := range append(append([]*rule{}, rules...), excludes...) {
 		if r.field == "watchProvider" {
-			set, titles := s.providerSet(ctx, &sp, r, warn)
+			set, titles := s.providerSet(ctx, &sp, r, includeProvider[r], rules, warn)
 			ec.providers[r] = set
 			providerTitles = append(providerTitles, titles...)
 			snap, err = s.join(ctx, snap, titles, opt.persist)
@@ -300,6 +304,22 @@ func (s *Service) evaluate(ctx context.Context, spIn core.CollectionSpec, opt ev
 			c.assured = as
 		}
 	}
+
+	externalKeys := map[core.RatingKey]bool{}
+	for _, t := range external {
+		if t.Type == core.TypeShow {
+			externalKeys[t.Key] = true
+		}
+	}
+	for _, t := range providerTitles {
+		if t.Type == core.TypeShow {
+			externalKeys[t.Key] = true
+		}
+	}
+	if err := s.evalAirRules(ctx, &sp, cands, externalKeys, rules, excludes, ec); err != nil {
+		return nil, fmt.Errorf("collections: air-date rules: %w", err)
+	}
+
 	// Release dates are mandatory, including explicit upcoming sources.
 	nowUnix := ec.now.Unix()
 	// With match "any", per-user rules are alternatives to the shared ones:
@@ -680,7 +700,7 @@ func (s *Service) resolveRuleRefs(ctx context.Context, rules []*rule, warn func(
 }
 
 // pushdown queries TMDB discover for the rules the mirror only partly
-// knows. It returns the titles found and, per title, the rules the query
+// knows. It returns the titles found and, per title, the exact rules the query
 // guarantees.
 func (s *Service) pushdown(ctx context.Context, sp *core.CollectionSpec, rules []*rule, warn func(string, ...any)) ([]core.Title, map[core.RatingKey]map[*rule]bool) {
 	var detail []*rule
@@ -737,13 +757,16 @@ func (s *Service) pushdown(ctx context.Context, sp *core.CollectionSpec, rules [
 				continue
 			}
 			extra := url.Values{}
+			okRule, exact := s.translateDiscover(ctx, r, kind, extra)
 			switch {
-			case !s.translate(ctx, r, kind, extra):
+			case !okRule:
 				if r.detailOnly() {
 					ok = false // TMDB can't express it for this kind
 				}
 			case mergeParams(q, extra):
-				covers = append(covers, r)
+				if exact {
+					covers = append(covers, r)
+				}
 			}
 		}
 		if ok && len(covers) > 0 {
@@ -764,6 +787,60 @@ func discoverSort(mode, kind string) string {
 		return "primary_release_date.desc"
 	}
 	return "popularity.desc"
+}
+
+// translateDiscover adds a rule's TMDB discover equivalent to q and reports
+// whether q was narrowed (ok) and whether TMDB's filter is exact enough to
+// skip local evaluation (exact). TV air_date bounds narrow /discover/tv to
+// shows with an episode in the window, while local SQL enforces regular-season
+// premiere and latest-episode semantics (exact=false).
+func (s *Service) translateDiscover(ctx context.Context, r *rule, kind string, q url.Values) (ok bool, exact bool) {
+	if r.airDateRule() {
+		if kind != "tv" {
+			return false, false
+		}
+		now := s.now().UTC()
+		day := func(t time.Time) string { return t.UTC().Format("2006-01-02") }
+		var lo, hi string
+		switch r.op {
+		case "within":
+			lo, hi = day(now.Add(-r.within)), day(now)
+		case "gte":
+			from := r.from.at(now)
+			if from.After(now) {
+				return false, false
+			}
+			lo, hi = day(from), day(now)
+		case "lte":
+			to := r.to.at(now)
+			if to.After(now) {
+				to = now
+			}
+			hi = day(to)
+		case "between":
+			from, to := r.from.at(now), r.to.at(now)
+			if to.After(now) {
+				to = now
+			}
+			if from.After(to) {
+				return false, false
+			}
+			lo, hi = day(from), day(to)
+		default:
+			return false, false
+		}
+		if lo != "" {
+			q.Set("air_date.gte", lo)
+		}
+		if hi != "" {
+			q.Set("air_date.lte", hi)
+		}
+		return true, false
+	}
+	if s.translate(ctx, r, kind, q) {
+		return true, true
+	}
+	return false, false
 }
 
 // translate adds a rule's TMDB discover equivalent to q. It reports false
@@ -1012,7 +1089,7 @@ func countryCode(c string) string {
 
 // providerSet lists what a watch-provider rule's services stream, from
 // TMDB discover (the most popular titles first).
-func (s *Service) providerSet(ctx context.Context, sp *core.CollectionSpec, r *rule, warn func(string, ...any)) (map[core.RatingKey]bool, []core.Title) {
+func (s *Service) providerSet(ctx context.Context, sp *core.CollectionSpec, r *rule, include bool, rules []*rule, warn func(string, ...any)) (map[core.RatingKey]bool, []core.Title) {
 	set := map[core.RatingKey]bool{}
 	if s.api.c == nil {
 		warn("watch-provider rules need TMDB, which is not configured")
@@ -1023,6 +1100,16 @@ func (s *Service) providerSet(ctx context.Context, sp *core.CollectionSpec, r *r
 		q := url.Values{}
 		if !s.translate(ctx, &rule{field: "watchProvider", op: "in", refs: r.refs, region: r.region}, kind, q) {
 			continue
+		}
+		if include && (r.op == "is" || r.op == "in") && sp.Match == MatchAll {
+			for _, other := range rules {
+				if other.airDateRule() {
+					extra := url.Values{}
+					if ok, _ := s.translateDiscover(ctx, other, kind, extra); ok {
+						mergeParams(q, extra)
+					}
+				}
+			}
 		}
 		q.Set("sort_by", "popularity.desc")
 		items, _, err := s.api.discover(ctx, kind, q, 400, 20)

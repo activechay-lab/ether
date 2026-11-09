@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -68,6 +69,45 @@ func (d dateValue) at(now time.Time) time.Time {
 
 // personal reports whether the rule depends on the viewing user.
 func (r *rule) personal() bool { return r.class == classBool }
+
+// airDateRule reports whether the rule filters by a TV show's latest episode
+// or latest season premiere date.
+func (r *rule) airDateRule() bool {
+	return r.field == "latestEpisode" || r.field == "latestSeasonPremiere"
+}
+
+func (r *rule) airDateQuery(now time.Time) catalog.AirDateQuery {
+	q := catalog.AirDateQuery{
+		Now:      now,
+		Premiere: r.field == "latestSeasonPremiere",
+	}
+	loUnix := func(t time.Time) int64 {
+		u := t.Unix()
+		if t.Nanosecond() > 0 {
+			u++
+		}
+		return u
+	}
+	switch r.op {
+	case "within":
+		q.HasLo = true
+		q.Lo = loUnix(now.Add(-r.within))
+		q.HasHi = true
+		q.Hi = now.Unix()
+	case "gte":
+		q.HasLo = true
+		q.Lo = loUnix(r.from.at(now))
+	case "lte":
+		q.HasHi = true
+		q.Hi = r.to.at(now).Unix()
+	case "between":
+		q.HasLo = true
+		q.Lo = loUnix(r.from.at(now))
+		q.HasHi = true
+		q.Hi = r.to.at(now).Unix()
+	}
+	return q
+}
 
 // detailOnly reports whether the catalogue knows this field only for titles
 // whose full TMDB details were fetched (so the engine pushes it down to
@@ -455,6 +495,9 @@ type evalCtx struct {
 	// providers maps a watchProvider rule (by pointer) to the set of keys
 	// streaming there, fetched from TMDB before evaluation.
 	providers map[*rule]map[core.RatingKey]bool
+	// airMatches maps a latestEpisode/latestSeasonPremiere rule (by pointer)
+	// to the set of matching show keys evaluated in SQL before filtering.
+	airMatches map[*rule]map[core.RatingKey]bool
 	// status is per-user watch state for personal rules (nil = unknown).
 	status map[core.RatingKey]core.WatchStatus
 }
@@ -472,6 +515,13 @@ func (r *rule) match(e *entry, ec *evalCtx) bool {
 		v, known := r.numberOf(e)
 		return matchNumber(r.op, r.nums, v, known)
 	case classDate:
+		if r.airDateRule() {
+			if e.typ != core.TypeShow || ec == nil {
+				return false
+			}
+			set := ec.airMatches[r]
+			return set != nil && set[e.key]
+		}
 		var ts int64
 		if r.field == "released" {
 			ts = e.released

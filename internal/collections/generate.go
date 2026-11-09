@@ -57,7 +57,7 @@ const SpecGuide = `- name (short, like a streaming-service row title), descripti
      ops: is (has all), in (any of), isNot / notIn (none of); value: a string or a list of strings
   year, decade (e.g. 1980), rating (TMDB 0-10), votes (vote count), popularity, runtime (minutes)
      ops: gte, lte, between ([lo, hi]), is
-  released: ops within ("90d", "2y") or gte/lte/between with "YYYY-MM-DD" or offsets like "-30d", "+90d"
+  released, latestEpisode (TV), latestSeasonPremiere (TV): ops within ("90d", "2y") or gte/lte/between with "YYYY-MM-DD" or offsets like "-30d", "+90d"
   watched, inProgress: op is, value true/false (per viewer)
 - sort: popularity | rating | released | title | random | personal; sortDesc: true for highest/newest first
 - limit: number of titles (0 = all); use 50-100 unless the request implies otherwise

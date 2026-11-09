@@ -90,13 +90,16 @@ func (s *Service) region(src string) string {
 // discoverInto runs a discover-backed source for one kind. With match
 // "all", the spec's rules are added to the query where TMDB can express
 // them, so the source returns the titles that match (not just the most
-// popular ones) and the rules are guaranteed for what comes back.
+// popular ones) and exact rules are guaranteed for what comes back.
 func (s *Service) discoverInto(ctx context.Context, sp *core.CollectionSpec, kind string, q url.Values, rules []*rule, want int, res *sourceResult, what string) {
 	var covered []*rule
 	if sp.Match == MatchAll {
 		for _, r := range rules {
+			if what == "upcoming discovery" && r.airDateRule() {
+				continue
+			}
 			extra := url.Values{}
-			if s.translate(ctx, r, kind, extra) && mergeParams(q, extra) {
+			if ok, exact := s.translateDiscover(ctx, r, kind, extra); ok && mergeParams(q, extra) && exact {
 				covered = append(covered, r)
 			}
 		}

@@ -63,6 +63,8 @@ const RULE_FIELDS = [
   "runtime",
   "contentRating",
   "released",
+  "latestSeasonPremiere",
+  "latestEpisode",
   "watchProvider",
   "collection",
   "watched",

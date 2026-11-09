@@ -928,6 +928,10 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return [t.contentRating ? canonicalRating(t.contentRating) : NOT_RATED];
       case "released":
         return [t.released];
+      case "latestSeasonPremiere":
+        return t.type === "show" && t.latestSeasonPremiere ? [t.latestSeasonPremiere] : [];
+      case "latestEpisode":
+        return t.type === "show" && t.latestEpisode ? [t.latestEpisode] : [];
       case "addedAt":
         return [t.addedAt.slice(0, 10)];
       case "watchProvider":
@@ -1034,6 +1038,18 @@ export function createFakeServer(opts: FakeOptions = {}) {
       popularity: (a, b) => (a.popularity - b.popularity) * dir,
       rating: (a, b) => ((a.rating ?? 0) - (b.rating ?? 0)) * dir,
       released: (a, b) => a.released.localeCompare(b.released) * dir,
+      latestEpisode: (a, b) => {
+        if (!a.latestEpisode && !b.latestEpisode) return 0;
+        if (!a.latestEpisode) return 1;
+        if (!b.latestEpisode) return -1;
+        return a.latestEpisode.localeCompare(b.latestEpisode) * dir;
+      },
+      latestSeasonPremiere: (a, b) => {
+        if (!a.latestSeasonPremiere && !b.latestSeasonPremiere) return 0;
+        if (!a.latestSeasonPremiere) return 1;
+        if (!b.latestSeasonPremiere) return -1;
+        return a.latestSeasonPremiere.localeCompare(b.latestSeasonPremiere) * dir;
+      },
       added: (a, b) => a.addedAt.localeCompare(b.addedAt) * dir,
       title: (a, b) => a.title.localeCompare(b.title) * dir,
       random: (a, b) =>

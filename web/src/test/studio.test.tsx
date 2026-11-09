@@ -156,6 +156,42 @@ describe("Collection Studio editor", () => {
     ).toBeInTheDocument();
   });
 
+  it("adds TV air-date rules and previews matching returning shows", async () => {
+    const { fake } = renderApp("/collections/new?draft=air-rules");
+    await screen.findByLabelText("Collection name", {}, WAIT);
+    fireEvent.click(screen.getByRole("radio", { name: "TV shows" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Latest season premiere" }));
+    await waitFor(
+      () =>
+        expect(
+          previewBodies(fake).some((s) =>
+            hasRule(
+              s,
+              (r) => r.field === "latestSeasonPremiere" && r.op === "within" && r.value === "30d",
+            ),
+          ),
+        ).toBe(true),
+      WAIT,
+    );
+    expect(screen.getByText("Latest season premiere in the last 30 days")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add rule/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Latest aired episode" }));
+    await waitFor(
+      () =>
+        expect(
+          previewBodies(fake).some((s) =>
+            hasRule(
+              s,
+              (r) => r.field === "latestEpisode" && r.op === "within" && r.value === "30d",
+            ),
+          ),
+        ).toBe(true),
+      WAIT,
+    );
+  });
+
   it("sends each air-date sort and direction to the live preview", async () => {
     const { fake } = renderApp("/collections/new?draft=air-sort");
     await screen.findByLabelText("Collection name", {}, WAIT);

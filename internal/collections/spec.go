@@ -48,7 +48,7 @@ const (
 	classTags   fieldClass = iota + 1 // multi-valued names: genre, country, language, contentRating
 	classRefs                         // TMDB entities by id or name: keyword, person, studio, network, collection, watchProvider
 	classNumber                       // year, decade, rating, votes, popularity, runtime
-	classDate                         // released, addedAt
+	classDate                         // released, addedAt, latestEpisode, latestSeasonPremiere
 	classBool                         // watched, inProgress (per user)
 )
 
@@ -58,7 +58,7 @@ var ruleFields = map[string]fieldClass{
 	"collection": classRefs, "watchProvider": classRefs,
 	"year": classNumber, "decade": classNumber, "rating": classNumber, "votes": classNumber,
 	"popularity": classNumber, "runtime": classNumber,
-	"released": classDate, "addedAt": classDate,
+	"released": classDate, "addedAt": classDate, "latestEpisode": classDate, "latestSeasonPremiere": classDate,
 	"watched": classBool, "inProgress": classBool,
 }
 

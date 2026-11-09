@@ -17,6 +17,8 @@ export interface FakeTitle extends TitleCard {
   popularity: number;
   votes: number;
   released: string;
+  latestSeasonPremiere?: string;
+  latestEpisode?: string;
   addedAt: string;
   country: string;
   language: string;
@@ -235,6 +237,30 @@ export function buildCatalog(count = 180, now = new Date("2026-10-19T12:00:00Z")
     if (relDate > now) relDate.setUTCFullYear(now.getUTCFullYear() - 1);
     const added = new Date(now.getTime() - Math.floor(r() * 400) * 86400000);
     const ci = Math.floor(r() * COUNTRIES.length);
+    const returning = isShow && i % 2 !== 0;
+    const seasons = isShow ? 2 + (i % 6) : 0;
+    let latestSeasonPremiere: string | undefined;
+    let latestEpisode: string | undefined;
+    if (isShow) {
+      if (returning) {
+        const premMs = Math.max(
+          relDate.getTime(),
+          now.getTime() - (7 + ((i * 29) % 200)) * 86400000,
+        );
+        const epMs = Math.min(now.getTime(), premMs + ((i * 7) % 42) * 86400000);
+        latestSeasonPremiere = new Date(premMs).toISOString().slice(0, 10);
+        latestEpisode = new Date(epMs).toISOString().slice(0, 10);
+      } else {
+        const endedPremMs = Math.min(
+          now.getTime() - 450 * 86400000,
+          relDate.getTime() + Math.max(0, seasons - 1) * 365 * 86400000,
+        );
+        const premMs = Math.max(relDate.getTime(), endedPremMs);
+        const epMs = Math.min(now.getTime() - 400 * 86400000, premMs + 56 * 86400000);
+        latestSeasonPremiere = new Date(premMs).toISOString().slice(0, 10);
+        latestEpisode = new Date(Math.max(premMs, epMs)).toISOString().slice(0, 10);
+      }
+    }
     out.push({
       key,
       evidence: {
@@ -248,7 +274,7 @@ export function buildCatalog(count = 180, now = new Date("2026-10-19T12:00:00Z")
         gate: i % 7 === 0 ? "held" : "admitted",
       },
       status: isShow ? (i % 2 === 0 ? "Ended" : "Returning Series") : "Released",
-      seasons: isShow ? 2 + (i % 6) : 0,
+      seasons,
       episodes: isShow ? 12 + (i % 80) : 0,
       type: isShow ? "show" : "movie",
       title,
@@ -263,6 +289,8 @@ export function buildCatalog(count = 180, now = new Date("2026-10-19T12:00:00Z")
       popularity: Math.round(r() * 300 * 10) / 10,
       votes: Math.floor(r() * 25000),
       released: relDate.toISOString().slice(0, 10),
+      latestSeasonPremiere,
+      latestEpisode,
       addedAt: added.toISOString(),
       country: COUNTRIES[ci] as string,
       language: LANGS[ci] as string,

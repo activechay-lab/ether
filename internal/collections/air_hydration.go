@@ -3,12 +3,13 @@ package collections
 import (
 	"context"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/store"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/tmdb"
 )
 
@@ -35,6 +36,23 @@ func (s *Service) hydrateAirDates(ctx context.Context, cs []*cand, mode string, 
 	}
 	if err := s.loadAirDates(ctx, cs, mode, now); err != nil {
 		return 0, 0, err
+	}
+	var missingStored []core.RatingKey
+	for _, c := range cs {
+		if c.e.typ == core.TypeShow && c.airDate == 0 {
+			missingStored = append(missingStored, c.e.key)
+		}
+	}
+	if len(missingStored) > 0 {
+		stored, err := catalog.NewMirror(s.db, nil).ShowAirDates(ctx, missingStored, now, mode == "latestSeasonPremiere")
+		if err != nil {
+			return 0, 0, err
+		}
+		for _, c := range cs {
+			if c.e.typ == core.TypeShow && c.airDate == 0 {
+				c.airDate = stored[c.e.key]
+			}
+		}
 	}
 	records := map[core.RatingKey]airRecord{}
 	keys := make([]any, 0, len(cs))
@@ -145,6 +163,186 @@ func (s *Service) hydrateAirDates(ctx context.Context, cs []*cand, mode string, 
 	return unknown, stale, nil
 }
 
+// evalAirRules precomputes SQL match sets for latestEpisode and
+// latestSeasonPremiere rules and hydrates cold external candidates (such as
+// discover-backed sources on an unwarmed mirror) within airFetchBudget.
+func (s *Service) evalAirRules(ctx context.Context, sp *core.CollectionSpec, cands []*cand, externalKeys map[core.RatingKey]bool, rules, excludes []*rule, ec *evalCtx) error {
+	var airRules []*rule
+	needEpisode, needPremiere := false, false
+	for _, r := range rules {
+		if r.airDateRule() {
+			airRules = append(airRules, r)
+			if r.field == "latestSeasonPremiere" {
+				needPremiere = true
+			} else {
+				needEpisode = true
+			}
+		}
+	}
+	for _, r := range excludes {
+		if r.airDateRule() {
+			airRules = append(airRules, r)
+			if r.field == "latestSeasonPremiere" {
+				needPremiere = true
+			} else {
+				needEpisode = true
+			}
+		}
+	}
+	if len(airRules) == 0 {
+		return nil
+	}
+	ec.airMatches = make(map[*rule]map[core.RatingKey]bool, len(airRules))
+	mirror := catalog.NewMirror(s.db, nil)
+
+	if sp.LocalOnly {
+		for _, r := range airRules {
+			matches, err := mirror.MatchingAirDateShows(ctx, r.airDateQuery(ec.now))
+			if err != nil {
+				return err
+			}
+			ec.airMatches[r] = matches
+		}
+		return nil
+	}
+
+	if s.api != nil && s.api.c != nil && len(externalKeys) > 0 {
+		nowUnix := ec.now.Unix()
+		var extShows []*cand
+		var extKeys []core.RatingKey
+		for _, c := range cands {
+			if c.e.typ != core.TypeShow || !externalKeys[c.e.key] {
+				continue
+			}
+			if c.e.released == 0 || (sp.ReleaseMode == "upcoming" && c.e.released <= nowUnix) ||
+				(c.e.released > nowUnix && (sp.ReleaseMode != "upcoming" && sp.ReleaseMode != "mixed" || c.e.released > ec.now.AddDate(0, 0, sp.LookaheadDays).Unix())) {
+				continue
+			}
+			if sp.Match == MatchAll {
+				ok := true
+				for _, nr := range rules {
+					if !nr.airDateRule() && !c.assured[nr] && !nr.match(c.e, ec) {
+						ok = false
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+			}
+			excluded := false
+			for _, nx := range excludes {
+				if !nx.airDateRule() && nx.match(c.e, ec) {
+					excluded = true
+					break
+				}
+			}
+			if excluded {
+				continue
+			}
+			extShows = append(extShows, c)
+			extKeys = append(extKeys, c.e.key)
+		}
+		if len(extShows) > 0 {
+			stored, err := mirror.ShowsWithStoredAirDates(ctx, extKeys, needPremiere)
+			if err != nil {
+				return err
+			}
+			var cold []*cand
+			for _, c := range extShows {
+				if !stored[c.e.key] {
+					cold = append(cold, c)
+				}
+			}
+			if len(cold) > 0 {
+				mode := "latestEpisode"
+				if needPremiere {
+					mode = "latestSeasonPremiere"
+				}
+				if _, _, err := s.hydrateAirDates(ctx, cold, mode, ec.now, true); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	type cachedAir struct {
+		key                        core.RatingKey
+		episode, premiere, fetched int64
+	}
+	var cached []cachedAir
+	var cachedKeys []core.RatingKey
+	freshWindow := int64(airFreshness.Seconds())
+	nowUnix := ec.now.Unix()
+	rows, err := s.db.QueryContext(ctx, `SELECT show_key,episode_ts,premiere_ts,fetched_at FROM collections_air_dates WHERE fetched_at <> 0`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var row cachedAir
+		if err := rows.Scan(&row.key, &row.episode, &row.premiere, &row.fetched); err != nil {
+			rows.Close()
+			return err
+		}
+		cached = append(cached, row)
+		cachedKeys = append(cachedKeys, row.key)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	var storedEp, storedPrem map[core.RatingKey]int64
+	if len(cachedKeys) > 0 {
+		if needEpisode {
+			if storedEp, err = mirror.ShowAirDates(ctx, cachedKeys, ec.now, false); err != nil {
+				return err
+			}
+		}
+		if needPremiere {
+			if storedPrem, err = mirror.ShowAirDates(ctx, cachedKeys, ec.now, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, r := range airRules {
+		q := r.airDateQuery(ec.now)
+		matches, err := mirror.MatchingAirDateShows(ctx, q)
+		if err != nil {
+			return err
+		}
+		for _, row := range cached {
+			ts := row.episode
+			mirrorTs := storedEp[row.key]
+			if q.Premiere {
+				ts = row.premiere
+				mirrorTs = storedPrem[row.key]
+			}
+			if mirrorTs == 0 {
+				// Mirror has no stored episode/season air date for this show:
+				// collections_air_dates is authoritative when fresh, and a
+				// stale positive date still supplements a cold mirror.
+				if q.MatchTimestamp(ts) {
+					matches[row.key] = true
+				} else if nowUnix-row.fetched < freshWindow {
+					delete(matches, row.key)
+				}
+			} else if nowUnix-row.fetched < freshWindow && ts >= mirrorTs {
+				// Both exist and collections_air_dates is at least as current.
+				if q.MatchTimestamp(ts) {
+					matches[row.key] = true
+				} else {
+					delete(matches, row.key)
+				}
+			}
+		}
+		ec.airMatches[r] = matches
+	}
+	return nil
+}
+
 func (s *Service) fetchAirRecord(ctx context.Context, k core.RatingKey, now time.Time) (airRecord, error) {
 	var d tmdb.TVDetails
 	if err := s.api.get(ctx, fmt.Sprintf("/tv/%d", k.TMDB()), nil, &d); err != nil {
@@ -187,7 +385,7 @@ func (s *Service) fetchAirRecord(ctx context.Context, k core.RatingKey, now time
 	}
 	// A later known aired season without a dated summary must remain unknown,
 	// rather than borrowing the premiere of an older season.
-	if ep := d.LastEpisodeToAir; ep != nil && ep.SeasonNumber > latest && ep.EpisodeNumber > 0 && aired(ep.AirDate) > 0 {
+	if ep := d.LastEpisodeToAir; ep != nil && ep.SeasonNumber > latest && ep.EpisodeNumber > 0 && aired(ep.AirDate) != 0 {
 		r.premiere = 0
 	}
 	return r, nil

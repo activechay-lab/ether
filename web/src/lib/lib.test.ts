@@ -58,6 +58,16 @@ describe("rules", () => {
     expect(newRule("genre")).toEqual({ field: "genre", op: "in", value: [] });
     expect(newRule("rating")).toEqual({ field: "rating", op: "gte", value: 7 });
     expect(newRule("released")).toEqual({ field: "released", op: "within", value: "30d" });
+    expect(newRule("latestSeasonPremiere")).toEqual({
+      field: "latestSeasonPremiere",
+      op: "within",
+      value: "30d",
+    });
+    expect(newRule("latestEpisode")).toEqual({
+      field: "latestEpisode",
+      op: "within",
+      value: "30d",
+    });
     expect(newRule("watched")).toEqual({ field: "watched", op: "is", value: true });
   });
 
@@ -94,6 +104,12 @@ describe("rules", () => {
     );
     expect(describeRule({ field: "released", op: "within", value: "6m" })).toBe(
       "Released in the last 6 months",
+    );
+    expect(describeRule({ field: "latestSeasonPremiere", op: "within", value: "180d" })).toBe(
+      "Latest season premiere in the last 180 days",
+    );
+    expect(describeRule({ field: "latestEpisode", op: "gte", value: "2026-06-01" })).toBe(
+      "Latest aired episode on or after 2026-06-01",
     );
     expect(describeRule({ field: "watched", op: "is", value: false })).toBe(
       "Not watched by the viewer",
