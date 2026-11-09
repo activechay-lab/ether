@@ -4,6 +4,9 @@ name: PR image cleanup
 # pull request closes. Nothing from the pull request is checked out or run:
 # the job only lists and deletes package versions by tag.
 on:
+  # Only lists and deletes package versions by tag; no code from the pull
+  # request is checked out or run.
+  # zizmor: ignore[dangerous-triggers]
   pull_request_target:
     types: [closed]
 
