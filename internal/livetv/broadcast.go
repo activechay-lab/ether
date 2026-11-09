@@ -44,6 +44,11 @@ func gcSummary() string {
 // Resolving/seek/probe may take several round trips before the first picture.
 // Startup waits on the screen; the 1.5 s deadline applies after input is flowing.
 const broadcastStartup = 45 * time.Second
+
+// A cold tune-in's first programme may take minutes to open (a Usenet or
+// debrid resolve plus probe). Until it produces a picture the opening look
+// holds instead of the screen, bounded by broadcastColdProgrammeWait.
+const broadcastColdProgrammeWait = 3 * time.Minute
 const broadcastIdle = 60 * time.Second
 const broadcastDVR = 30 * time.Minute
 
@@ -234,6 +239,12 @@ type broadcast struct {
 	// steadyBitrate is a provider output's full-quality bitrate ceiling,
 	// shared by every viewer that joins it.
 	steadyBitrate int
+	// airedProgramme latches at the first programme picture. Before it, a
+	// cold programme holds the opening look until coldHoldUntil rather
+	// than falling to the screen (whose styled card is the off-air scene).
+	airedProgramme bool
+	coldHoldUntil  time.Time
+	coldHoldFrame  []byte
 }
 
 func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
@@ -693,19 +704,32 @@ func (b *broadcast) run() {
 		timer.Reset(delay)
 	}
 }
+
+// podExtensionUntil bounds how long a pod holds for its programme: the
+// startup grace normally, the full cold wait for an output's first programme.
+func (b *broadcast) podExtensionUntil(now time.Time) time.Time {
+	if !b.airedProgramme && !b.coldHoldUntil.IsZero() {
+		return b.coldHoldUntil
+	}
+	return now.Add(broadcastStartup)
+}
+
 func (b *broadcast) step(now time.Time) bool {
 	b.burstReady = false
 	fresh := false
 	previousPCM := b.lastFrame.PCM
 	current, next := b.planner.plans(now)
 	if b.plannedID != current.id {
+		if current.programme && !b.airedProgramme {
+			b.coldHoldUntil = now.Add(broadcastColdProgrammeWait)
+		}
 		if current.programme && b.lastPodPlan.id != "" && b.plannedID != "" {
 			b.closeInput(b.continuation)
 			b.continuation = nil
 			b.continuationPlan = b.lastPodPlan
 			b.continuationPlan.id = "pod-fill-" + b.lastPodPlan.id
 			b.continuationPlan.failed = nil
-			b.continuationUntil = now.Add(broadcastStartup)
+			b.continuationUntil = b.podExtensionUntil(now)
 			b.continuationFrame = b.lastPodFrame
 			b.lastPodPlan = broadcastPlan{}
 			b.lastPodFrame = transcode.RawFrame{}
@@ -782,7 +806,7 @@ func (b *broadcast) step(now time.Time) bool {
 			b.continuationPlan = b.current.plan
 			b.continuationPlan.id = "pod-fill-" + b.current.plan.id
 			b.continuationPlan.failed = nil
-			b.continuationUntil = now.Add(broadcastStartup)
+			b.continuationUntil = b.podExtensionUntil(now)
 			b.continuationFrame = b.lastFrame
 			retained = true
 		}
@@ -871,6 +895,9 @@ func (b *broadcast) step(now time.Time) bool {
 				if b.current.lastFrameAt.IsZero() && current.programme {
 					b.logger.Debug("broadcast programme first aired", "input", current.id, "prepareLatency", now.Sub(b.current.started), "sinceOutputStart", now.Sub(b.origin))
 				}
+				if current.programme {
+					b.airedProgramme = true
+				}
 				if current.interstitial && current.element != "offair" {
 					b.lastPodPlan = current
 					b.lastPodFrame = frame
@@ -921,7 +948,11 @@ func (b *broadcast) step(now time.Time) bool {
 	if fresh {
 		b.burstPicture = time.Now()
 	}
-	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= broadcastStartup
+	startupWait := broadcastStartup
+	if !b.airedProgramme && current.programme {
+		startupWait = broadcastColdProgrammeWait
+	}
+	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= startupWait
 	stalled := b.current != nil && !b.current.lastFrameAt.IsZero() && now.Sub(b.current.lastFrameAt) >= broadcastStall
 	// An input whose own transport is reconnecting stays open behind the
 	// screen: its media resumes on the same timeline without a reopen.
@@ -1001,6 +1032,33 @@ func (b *broadcast) step(now time.Time) bool {
 				}
 			}
 		default:
+		}
+	}
+	// A cold tune-in never reaches the screen before its first programme:
+	// the styled screen card is the look's off-air scene. Hold the opening
+	// look (the live ident plate, or the last opening picture) until the
+	// programme airs or the cold bound expires. A scheduled off-air
+	// element is not a programme, so it still airs as itself.
+	if frame.Video == nil && !b.airedProgramme && current.programme && now.Before(b.coldHoldUntil) {
+		if b.momentCard != nil {
+			select {
+			case f, ok := <-b.momentCard.frames:
+				if ok && validRawFrame(b.format, f) {
+					frame = f
+					b.momentCardFrame = f.Video
+				}
+			default:
+			}
+		}
+		if frame.Video == nil && b.coldHoldFrame != nil {
+			frame = transcode.RawFrame{Video: b.coldHoldFrame}
+		}
+		if frame.Video == nil && b.momentCardFrame != nil {
+			frame = transcode.RawFrame{Video: b.momentCardFrame}
+		}
+		if frame.Video != nil {
+			mode = "cold-hold"
+			b.burstReady = true
 		}
 	}
 	if momentFallback && !introActive && b.momentCardPlan.id != "" {
@@ -1091,6 +1149,8 @@ func (b *broadcast) step(now time.Time) bool {
 			if element == "" {
 				element = "screen"
 			}
+		} else if mode == "cold-hold" {
+			element = "ident"
 		} else if mode == "hold" {
 			element = "hold"
 		} else if element == "" && current.programme {
@@ -1121,6 +1181,9 @@ func (b *broadcast) step(now time.Time) bool {
 	// otherwise the ident can leave an already-playing client at a bare edge.
 	b.burstReady = b.burstReady || (introActive && !b.intro.fill) || (mode == "screen" && frame.Video != nil && time.Since(b.origin) >= 250*time.Millisecond)
 	frame.OutputTime = now
+	if !b.airedProgramme && mode != "screen" && frame.Video != nil {
+		b.coldHoldFrame = frame.Video
+	}
 	b.lastFrame = frame
 	b.mu.Lock()
 	for id, r := range b.renditions {
