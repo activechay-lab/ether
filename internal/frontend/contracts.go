@@ -15,6 +15,10 @@ import (
 // Protocol identifies a surface independently of client product or platform.
 type Protocol = core.Protocol
 
+// ProtocolHTTP is the release protocol for a stream URL read with HTTP
+// range requests. Its value stays owned by core.
+const ProtocolHTTP = core.ProtocolHTTP
+
 // Placement identifies where rows are rendered.
 type Placement string
 
@@ -307,6 +311,12 @@ const (
 	PrerollBeforeTrailers = core.PrerollBeforeTrailers
 	PrerollAfterTrailers  = core.PrerollAfterTrailers
 )
+
+// Pre-roll request, clip and play values stay owned by core. Adapters
+// exchange them through these aliases.
+type PrerollRequest = core.PrerollRequest
+type PrerollClip = core.PrerollClip
+type PrerollPlay = core.PrerollPlay
 
 // Prerolls are the owner's pre-rolls (#298), served as the first intro of
 // a fresh movie or episode play. Intro reports the pre-roll before an item

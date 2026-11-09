@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -83,7 +82,7 @@ type liveContainer struct {
 }
 
 func (s *Server) liveTVEnabled() bool { return s.d.LiveTV != nil && s.identity().MyPlexSubscription }
-func (s *Server) liveTVProvider(ctx context.Context, u *core.User) *model.MediaProvider {
+func (s *Server) liveTVProvider(ctx context.Context, u *frontend.User) *model.MediaProvider {
 	if !s.liveTVEnabled() || !s.d.LiveTV.VisibleTo(ctx, u) {
 		return nil
 	}
@@ -106,7 +105,7 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 				return
 			}
 			pr := FromContext(r.Context())
-			if p, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
+			if p, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
 				writeHTTPError(w, 403)
 				return
 			}
@@ -216,7 +215,7 @@ func (s *Server) handleLiveDVRs(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &liveContainer{Size: 1, Identifier: livetv.Provider, DVR: []liveDVR{{EPGIdentifier: livetv.Provider, Key: "1", Language: "eng", Lineup: "lineup://" + livetv.Provider + "/dvr", UUID: s.identity().MachineIdentifier + "-livetv", RefreshedAt: s.liveLineupRefreshedAtFor(FromContext(r.Context()).User), Device: devices}}})
 }
 
-func (s *Server) liveLineupRefreshedAtFor(u *core.User) int64 {
+func (s *Server) liveLineupRefreshedAtFor(u *frontend.User) int64 {
 	if s.d.LiveTV != nil {
 		if at := s.d.LiveTV.LineupChangedFor(u); !at.IsZero() {
 			return at.Unix()
@@ -233,7 +232,7 @@ func (s *Server) NotifyLiveLineup() {
 
 // NotifyLiveLineupFor confines personal guide invalidation to its viewer.
 func (s *Server) NotifyLiveLineupFor(viewer int64) {
-	now := s.liveLineupRefreshedAtFor(&core.User{ID: viewer})
+	now := s.liveLineupRefreshedAtFor(&frontend.User{ID: viewer})
 	s.publishNotification(model.NotificationContainer{
 		Type: "activity",
 		Size: 1,
@@ -431,11 +430,11 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 	if id := chi.URLParam(r, "programme"); id != "" {
 		dash := strings.LastIndexByte(id, '-')
 		if dash <= 0 {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		ms, err := strconv.ParseInt(id[dash+1:], 10, 64)
 		if err != nil {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		// Programme keys are channelID-startMS. Detail requests must stay
 		// channel-scoped too, even when a client omits channelGridKey.
@@ -461,7 +460,7 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 	byID := map[string]livetv.Channel{}
 	if gridKey != "" {
 		c, err := s.d.LiveTV.ChannelForViewer(r.Context(), FromContext(r.Context()).User, gridKey)
-		if errors.Is(err, core.ErrNotFound) {
+		if errors.Is(err, frontend.ErrNotFound) {
 			return []model.Metadata{}, nil
 		}
 		if err != nil {
@@ -541,7 +540,7 @@ func (s *Server) handleLiveGuide(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.log.Debug("live guide response", attrs...)
 	}
-	if errors.Is(err, core.ErrNotAvailable) {
+	if errors.Is(err, frontend.ErrNotAvailable) {
 		w.Header().Set("Retry-After", "1")
 		writeHTTPError(w, 503)
 		return
@@ -650,7 +649,7 @@ func (s *Server) liveChannelMetadata(r *http.Request, c livetv.Channel) model.Me
 }
 func (s *Server) handleLiveChannel(w http.ResponseWriter, r *http.Request) {
 	c, err := s.d.LiveTV.AllowedChannel(r.Context(), FromContext(r.Context()).User, chi.URLParam(r, "channel"))
-	if errors.Is(err, core.ErrNotFound) {
+	if errors.Is(err, frontend.ErrNotFound) {
 		writeHTTPError(w, 404)
 		return
 	}
@@ -680,7 +679,7 @@ func (s *Server) liveSessionMetadata(info livetv.SessionInfo) model.Metadata {
 	if info.MediaInfo != nil && info.MediaInfo.Video() != nil {
 		md.Extra = []model.Attr{model.A("live", true), model.A("genuineMediaAnalysis", true)}
 		live := md.Media[0]
-		m := buildMedia(&core.Title{Title: info.Channel.Name}, *info.MediaInfo, info.StartedAt.Unix())
+		m := buildMedia(&frontend.Title{Title: info.Channel.Name}, *info.MediaInfo, info.StartedAt.Unix())
 		m.Extra = live.Extra
 		m.Protocol = "hls"
 		m.Container = "mpegts"
@@ -700,7 +699,7 @@ func (s *Server) handleLiveTune(w http.ResponseWriter, r *http.Request) {
 	}
 	pr := FromContext(r.Context())
 	c, err := s.d.LiveTV.AllowedChannel(r.Context(), pr.User, chi.URLParam(r, "channel"))
-	if errors.Is(err, core.ErrNotFound) {
+	if errors.Is(err, frontend.ErrNotFound) {
 		writeHTTPError(w, 404)
 		return
 	}
@@ -750,7 +749,7 @@ func (s *Server) handleLiveTVPlayback(w http.ResponseWriter, r *http.Request) bo
 		return true
 	}
 	pr := FromContext(r.Context())
-	if p, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
+	if p, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
 		writeHTTPError(w, 403)
 		return true
 	}
@@ -774,7 +773,7 @@ func (s *Server) handleLiveTVPlayback(w http.ResponseWriter, r *http.Request) bo
 		}
 		return true
 	}
-	if strings.HasSuffix(r.URL.Path, "/start") && r.URL.Query().Get("protocol") == core.ProtocolHTTP {
+	if strings.HasSuffix(r.URL.Path, "/start") && r.URL.Query().Get("protocol") == frontend.ProtocolHTTP {
 		if err := s.d.LiveTV.ServeHTTP(w, r, id, pr.User); err != nil {
 			s.writeErr(w, r, err)
 		}
@@ -798,7 +797,7 @@ func (s *Server) writeLiveDASHError(w http.ResponseWriter, r *http.Request, info
 	msg := "This live channel cannot be played as DASH."
 	if dashErr.Message != "" {
 		msg = dashErr.Message
-	} else if dashErr.Err != nil && !errors.Is(dashErr.Err, core.ErrNotAvailable) {
+	} else if dashErr.Err != nil && !errors.Is(dashErr.Err, frontend.ErrNotAvailable) {
 		msg = playbackMessage(dashErr.Err)
 	}
 	s.write(w, r, &model.MediaContainer{
@@ -828,12 +827,12 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 		writeHTTPError(w, 404)
 		return
 	}
-	if p, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
+	if p, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !p.CanPlay(pr.User, pr.Remote, s.now()) {
 		writeHTTPError(w, 403)
 		return
 	}
 	c, err := s.d.LiveTV.AllowedChannel(r.Context(), pr.User, id)
-	if errors.Is(err, core.ErrNotFound) {
+	if errors.Is(err, frontend.ErrNotFound) {
 		writeHTTPError(w, 404)
 		return
 	}

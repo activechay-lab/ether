@@ -1,7 +1,7 @@
 package plex
 
 import (
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"net/http"
 	"net/url"
 	"path"
@@ -12,7 +12,7 @@ import (
 func (s *Server) remoteArtworkAllowed(r *http.Request, u *url.URL) bool {
 	viewer := FromContext(r.Context()).User
 	restricted := viewer == nil || viewer.MaxContentRating != "" || len(viewer.AllowedSections) > 0
-	if policy, ok := s.d.AccessPolicy.(core.ArtworkAccessPolicy); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.ArtworkAccessPolicy); ok {
 		restricted = restricted || policy.Restricted(viewer)
 	}
 	if !restricted {
@@ -26,9 +26,9 @@ func (s *Server) remoteArtworkAllowed(r *http.Request, u *url.URL) bool {
 	if err != nil {
 		return false
 	}
-	var keys []core.RatingKey
+	var keys []frontend.RatingKey
 	for rows.Next() {
-		var key core.RatingKey
+		var key frontend.RatingKey
 		if rows.Scan(&key) != nil {
 			rows.Close()
 			return false

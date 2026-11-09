@@ -3,7 +3,15 @@ package frontend
 import (
 	"context"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
+
+// ClassifyDevice maps a client's product, platform and device strings to a
+// device class. The classification table stays owned by core.
+func ClassifyDevice(product, platform, device string) string {
+	return core.ClassifyDevice(product, platform, device)
+}
 
 // DeviceIdentity optionally validates a credential against its stored device
 // and returns the grant's current absolute expiry. This read-only operation

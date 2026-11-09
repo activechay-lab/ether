@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/artwork"
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 
@@ -15,9 +14,9 @@ import (
 // server. Shared runtime constructs artworkservice.Source directly.
 type FrontendArtwork struct {
 	Server        *Server
-	Variants      func(*core.Title, string) (*tmdb.Images, bool)
+	Variants      func(*frontend.Title, string) (*tmdb.Images, bool)
 	Metadata      func(context.Context, frontend.ArtworkRequest, frontend.Image) frontend.Image
-	VirtualSeason func(context.Context, *core.User, core.RatingKey) (*core.Title, error)
+	VirtualSeason func(context.Context, *frontend.User, frontend.RatingKey) (*frontend.Title, error)
 	URLImages     interface {
 		GetUntrustedURL(context.Context, string) ([]byte, string, error)
 	}
@@ -29,7 +28,7 @@ func (a FrontendArtwork) source() artworkservice.Source {
 		return artworkservice.Source{}
 	}
 	s := a.Server
-	stored, _ := s.d.Catalog.(core.StoredTitleLookup)
+	stored, _ := s.d.Catalog.(frontend.StoredTitleLookup)
 	source := artworkservice.Source{Catalog: stored, Collections: s.d.Collections, Playlists: s.d.Playlists, Visibility: s.visibility(), Discovery: s.d.Discovery, Images: s.images, ImageURL: s.d.ImageURL, Palettes: s.ultra, Now: s.now, Variants: a.Variants, Metadata: a.Metadata, VirtualSeason: a.VirtualSeason, URLImages: a.URLImages, Raster: a.Raster}
 	if s.d.LiveTV != nil {
 		source.LiveTV = s.d.LiveTV
@@ -39,18 +38,18 @@ func (a FrontendArtwork) source() artworkservice.Source {
 }
 func (a FrontendArtwork) List(ctx context.Context, req frontend.ArtworkRequest) ([]frontend.Image, bool, error) {
 	if a.Server == nil {
-		return nil, false, core.ErrUnauthorized
+		return nil, false, frontend.ErrUnauthorized
 	}
 	return a.source().List(ctx, req)
 }
 func (a FrontendArtwork) Read(ctx context.Context, req frontend.ArtworkRequest, img frontend.Image, tr frontend.ArtworkTransform) ([]byte, string, error) {
 	if a.Server == nil {
-		return nil, "", core.ErrUnauthorized
+		return nil, "", frontend.ErrUnauthorized
 	}
 	return a.source().Read(ctx, req, img, tr)
 }
-func (a FrontendArtwork) Warm(t core.Title, d core.Device) { a.source().Warm(t, d) }
-func (a FrontendArtwork) ChannelImage(v *core.Viewer, c livetv.Channel) frontend.Image {
+func (a FrontendArtwork) Warm(t frontend.Title, d frontend.Device) { a.source().Warm(t, d) }
+func (a FrontendArtwork) ChannelImage(v *frontend.Viewer, c livetv.Channel) frontend.Image {
 	return a.source().ChannelImage(v, c)
 }
 
@@ -67,10 +66,10 @@ func withStoredPolicy(ctx context.Context) context.Context {
 
 // Ordinary Plex routes retain their existing catalogue Get refresh behavior.
 // Hub lists use the mirrored show for the playable check.
-func (s *Server) artworkTitle(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+func (s *Server) artworkTitle(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 	if ctx != nil && ctx.Value(storedPolicyKey{}) != nil {
 		if cached, ok := s.d.Catalog.(interface {
-			CachedGet(context.Context, core.RatingKey) (*core.Title, error)
+			CachedGet(context.Context, frontend.RatingKey) (*frontend.Title, error)
 		}); ok {
 			return cached.CachedGet(ctx, key)
 		}

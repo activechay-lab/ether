@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -28,14 +28,14 @@ func (s *Server) applyHubDetailOptions(ctx context.Context, mc *model.MediaConta
 			if err != nil {
 				continue
 			}
-			title := s.titles.get(core.RatingKey(n))
+			title := s.titles.get(frontend.RatingKey(n))
 			if title == nil {
 				// Cache eviction must not erase a requested block. Production
 				// adapters use a local point read without remote discovery.
-				if stored, ok := s.d.Catalog.(core.StoredTitleLookup); ok {
-					title, _ = stored.StoredTitle(ctx, core.RatingKey(n))
+				if stored, ok := s.d.Catalog.(frontend.StoredTitleLookup); ok {
+					title, _ = stored.StoredTitle(ctx, frontend.RatingKey(n))
 				} else {
-					title, _ = s.d.Catalog.Get(ctx, core.RatingKey(n))
+					title, _ = s.d.Catalog.Get(ctx, frontend.RatingKey(n))
 				}
 			}
 			if title == nil {

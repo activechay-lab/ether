@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -63,11 +62,11 @@ func (s *Server) refuseCapability(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-func (s *Server) activeViewer(ctx context.Context, id int64) *core.User {
+func (s *Server) activeViewer(ctx context.Context, id int64) *frontend.User {
 	if s.d.Auth == nil {
 		return nil
 	}
-	if a, ok := s.d.Auth.(core.ActiveUserSource); ok {
+	if a, ok := s.d.Auth.(frontend.ActiveUserSource); ok {
 		u, err := a.ActiveUser(ctx, id)
 		if err == nil {
 			return u
@@ -108,10 +107,10 @@ func (s *Server) authenticateStreamGrant(r *http.Request, pr *Request) bool {
 	if !ok {
 		return false
 	}
-	if policy, ok := s.d.AccessPolicy.(core.UserPolicySource); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
 		u = policy.UserPolicy(u)
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
 		return false
 	}
 
@@ -153,10 +152,10 @@ func (s *Server) authenticateSessionRead(r *http.Request, pr *Request) bool {
 	if u == nil {
 		return false
 	}
-	if policy, ok := s.d.AccessPolicy.(core.UserPolicySource); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
 		u = policy.UserPolicy(u)
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
 		return false
 	}
 	pr.User = u
