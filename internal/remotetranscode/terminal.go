@@ -49,15 +49,31 @@ type TerminalSnapshot struct {
 // requestStop seals only this exact execution using its retained owned session
 // and inputs. It neither calls Encoder.Stop(publicID) nor starts/renews/resolves
 // sources. Status-only absence is unknown. A stop-before-start can attest local
-// retirement only after installing the permanent bounded tombstone and highest
-// generation floor in this never-compacted, unique worker boot. Closed/capacity
-// rejection cannot supply that proof. All late starts/producers remain charged.
+// retirement only after installing the bounded tombstone and highest generation
+// floor in this unique worker boot; Forget removes them only once the generation
+// is durably terminal, and a forgotten identity then reports retired without a
+// new tombstone. Closed/capacity rejection cannot supply that proof. All late
+// starts/producers remain charged.
 func (w *Worker) Terminal(ctx context.Context, id Identity, requestStop bool) (TerminalSnapshot, error) {
 	if ctx == nil || !validIdentity(id) || id.Worker != w.opts.Boot {
 		return TerminalSnapshot{}, ErrUnsupported
 	}
 	if err := ctx.Err(); err != nil {
 		return TerminalSnapshot{}, err
+	}
+	w.mu.Lock()
+	known := w.records[id] != nil
+	w.mu.Unlock()
+	if !known && w.opts.Terminal != nil && w.opts.Terminal(ctx, id) {
+		// Forgotten after durable terminal state (Forget): report it retired
+		// rather than minting a stop-before-start tombstone, which would claim
+		// a generation that may have run never started.
+		w.mu.Lock()
+		known = w.records[id] != nil
+		w.mu.Unlock()
+		if !known {
+			return TerminalSnapshot{Identity: id, State: TerminalRetired, Stopped: true}, nil
+		}
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()

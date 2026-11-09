@@ -2,11 +2,15 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +27,9 @@ const (
 	StateWaitingIdle   = "waiting-for-idle"
 	StateApplying      = "applying"
 	StateRolledBack    = "rolled-back"
+	// StateWaitingRollout: a staged rollout holds this server's automatic
+	// install until Status().InstallAfter.
+	StateWaitingRollout = "waiting-for-rollout"
 	// Clustered nodes only (see Coordinator).
 	StateWaitingTurn = "waiting-for-turn" // another node holds the update lease
 	StateDraining    = "draining"         // lease held; waiting for this node's sessions to end
@@ -37,7 +44,13 @@ const (
 
 // Manager defaults.
 const (
-	DefaultPollInterval    = 24 * time.Hour
+	// DefaultPollInterval: the feed is one small static signed file, so
+	// checking every few hours costs nothing and lets a fix (or a pulled
+	// release) reach servers the same day.
+	DefaultPollInterval = 6 * time.Hour
+	// DefaultPollJitter spreads checks of servers that started together
+	// (a power cut, a fleet reboot) so they never stampede the feed.
+	DefaultPollJitter      = 30 * time.Minute
 	DefaultFirstCheckDelay = 5 * time.Minute
 	DefaultRetryInterval   = time.Hour
 	DefaultQuietPeriod     = 10 * time.Minute
@@ -47,6 +60,20 @@ const (
 	DefaultWindowEnd       = "06:00"
 	// DefaultMaxDrain bounds a clustered node's drain before an install.
 	DefaultMaxDrain = 30 * time.Minute
+	// DefaultMissedWindows: an automatic install that found no quiet
+	// moment in this many maintenance windows (a server busy every night)
+	// may install at the next long quiet moment outside the window.
+	DefaultMissedWindows = 3
+	// DefaultCatchUpQuiet is that long quiet moment.
+	DefaultCatchUpQuiet = 30 * time.Minute
+	// DefaultRecheckBefore: an automatic install first re-reads the feed
+	// when the last good check is older than this, so a release pulled
+	// meanwhile is never installed.
+	DefaultRecheckBefore = time.Hour
+	// installedNoticeFor bounds how long Status reports a finished update.
+	installedNoticeFor = 7 * 24 * time.Hour
+	// bootNoticeFor: a record older than this at start is not announced.
+	bootNoticeFor = 24 * time.Hour
 )
 
 var (
@@ -130,15 +157,37 @@ type ManagerOptions struct {
 	// is not called for that version again in this process; an error makes
 	// the next check that finds the version call it again.
 	OnAvailable func(version string) error
+	// OnInstalled / OnRolledBack, when set, hear an update confirmed
+	// healthy and a rolled-back one, without the manager's lock held. An
+	// error retries on the next step; implementations dedupe by version.
+	OnInstalled  func(u InstalledUpdate) error
+	OnRolledBack func(f FailedUpdate) error
+	// InstallID is a stable identity of this server (its machine
+	// identifier). It is hashed locally into the staged-rollout bucket and
+	// never sent anywhere. Empty: bucket 0 (no rollout wait).
+	InstallID string
+	// NotifyKind classifies a notify-only install (see SelfApplyMode) so
+	// the console can show the exact way to update it.
+	NotifyKind string
+	// GOOS/GOARCH pick the download shown to notify-only installs
+	// (default: runtime).
+	GOOS, GOARCH string
 
 	Now             func() time.Time
 	Location        *time.Location // maintenance window zone (default time.Local)
 	PollInterval    time.Duration
+	PollJitter      time.Duration // < 0: none
 	FirstCheckDelay time.Duration
 	RetryInterval   time.Duration
 	QuietPeriod     time.Duration
 	HealthPeriod    time.Duration
 	Tick            time.Duration
+	MissedWindows   int
+	CatchUpQuiet    time.Duration
+	RecheckBefore   time.Duration
+	// Rand returns a uniform value in [0,1) for poll jitter (default
+	// math/rand/v2).
+	Rand func() float64
 	// ApplyBinary / CleanupOld default to the package functions.
 	ApplyBinary func(newPath, target string) error
 	CleanupOld  func(target string) error
@@ -168,7 +217,13 @@ type Manager struct {
 	requested      bool
 	force          bool
 	lastCheck      time.Time
+	lastOK         time.Time // last check that read the feed
 	nextCheck      time.Time
+	autoSince      time.Time // automatic installs on since (this process)
+	bucket         float64   // staged-rollout position in [0,1)
+	installed      *InstalledUpdate
+	announceDone   *InstalledUpdate // still to report through OnInstalled
+	announceFailed *FailedUpdate    // still to report through OnRolledBack
 	downloadAfter  time.Time
 	applyAfter     time.Time
 	lastErr        string
@@ -221,6 +276,26 @@ func NewManager(opts ManagerOptions) *Manager {
 	def(&opts.QuietPeriod, DefaultQuietPeriod)
 	def(&opts.HealthPeriod, DefaultHealthPeriod)
 	def(&opts.Tick, DefaultTick)
+	def(&opts.CatchUpQuiet, DefaultCatchUpQuiet)
+	def(&opts.RecheckBefore, DefaultRecheckBefore)
+	switch {
+	case opts.PollJitter == 0:
+		opts.PollJitter = DefaultPollJitter
+	case opts.PollJitter < 0:
+		opts.PollJitter = 0
+	}
+	if opts.MissedWindows <= 0 {
+		opts.MissedWindows = DefaultMissedWindows
+	}
+	if opts.Rand == nil {
+		opts.Rand = rand.Float64
+	}
+	if opts.GOOS == "" {
+		opts.GOOS = runtime.GOOS
+	}
+	if opts.GOARCH == "" {
+		opts.GOARCH = runtime.GOARCH
+	}
 	if opts.ApplyBinary == nil {
 		opts.ApplyBinary = ApplyBinary
 	}
@@ -233,7 +308,8 @@ func NewManager(opts ManagerOptions) *Manager {
 	if opts.SelfApply && opts.Target == "" {
 		opts.SelfApply, opts.NotifyReason = false, "cannot locate the running executable"
 	}
-	m := &Manager{opts: opts, log: opts.Logger, kick: make(chan struct{}, 1), state: StateIdle}
+	m := &Manager{opts: opts, log: opts.Logger, kick: make(chan struct{}, 1), state: StateIdle,
+		bucket: RolloutBucket(opts.InstallID)}
 	if opts.Boot.Confirming == nil {
 		m.confirmed = true
 	}
@@ -243,6 +319,22 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 	if opts.Boot.RolledBack != nil {
 		m.failed = opts.Boot.RolledBack
+	}
+	var inst InstalledUpdate
+	if ok, _ := readJSON(InstalledPath(opts.Dir), &inst); ok && sameVersion(inst.To, opts.CurrentVersion) {
+		m.installed = &inst
+	}
+	// Re-announce recent outcomes a previous process may not have
+	// delivered (it restarted, or the rollback process exited at once);
+	// the hooks dedupe by version.
+	now := opts.Now()
+	if m.installed != nil && now.Sub(m.installed.At) < bootNoticeFor {
+		cp := *m.installed
+		m.announceDone = &cp
+	}
+	if m.failed != nil && now.Sub(m.failed.At) < bootNoticeFor {
+		cp := *m.failed
+		m.announceFailed = &cp
 	}
 	if opts.NewClient == nil {
 		m.disabledReason = ErrUpdatesDisabled.Error()
@@ -353,6 +445,7 @@ func (m *Manager) wake() {
 func (m *Manager) step(ctx context.Context) {
 	now := m.opts.Now().Round(0)
 	m.confirmIfHealthy(now)
+	m.announce()
 	m.coordinate(ctx)
 	cfg := m.opts.Config()
 	feedKey := clientKey(cfg)
@@ -362,6 +455,12 @@ func (m *Manager) step(ctx context.Context) {
 	}
 	m.mu.Lock()
 	m.lastActive = active
+	switch {
+	case !cfg.AutoUpdate:
+		m.autoSince = time.Time{}
+	case m.autoSince.IsZero():
+		m.autoSince = now
+	}
 	if active > 0 {
 		m.idleSince = time.Time{}
 	} else if m.idleSince.IsZero() {
@@ -422,15 +521,63 @@ func (m *Manager) confirmIfHealthy(now time.Time) {
 	cleanupLeftovers(target, m.opts.CleanupOld, m.log)
 	m.cleanDownloads(keep)
 	forgetFailedIfSuperseded(m.opts.Dir, m.opts.CurrentVersion, m.log)
+	inst := &InstalledUpdate{From: p.From, To: p.To, At: p.AppliedAt}
+	if inst.At.IsZero() {
+		inst.At = now
+	}
+	if err := writeJSONAtomic(InstalledPath(m.opts.Dir), inst); err != nil {
+		m.log.Warn("updater: record the finished update", "err", err)
+	}
 	m.mu.Lock()
 	if m.failed != nil && !Newer(m.failed.Version, m.opts.CurrentVersion) {
 		m.failed = nil
 	}
+	m.installed = inst
+	cp := *inst
+	m.announceDone = &cp
 	if m.opts.Coordinator != nil {
 		m.releasePending = true // the next node may update now
 	}
 	m.mu.Unlock()
 	m.log.Info("updater: update confirmed healthy", "from", p.From, "version", p.To)
+}
+
+// announce reports a finished or rolled-back update through the owner's
+// notification hooks; a failed delivery is retried on the next step.
+func (m *Manager) announce() {
+	m.mu.Lock()
+	done, failed := m.announceDone, m.announceFailed
+	m.mu.Unlock()
+	if done != nil && m.opts.OnInstalled != nil {
+		if err := m.opts.OnInstalled(*done); err != nil {
+			m.log.Debug("updater: announce finished update", "version", done.To, "err", err)
+		} else {
+			m.mu.Lock()
+			if m.announceDone == done {
+				m.announceDone = nil
+			}
+			m.mu.Unlock()
+		}
+	}
+	if failed != nil && m.opts.OnRolledBack != nil {
+		if err := m.opts.OnRolledBack(*failed); err != nil {
+			m.log.Debug("updater: announce rolled-back update", "version", failed.Version, "err", err)
+		} else {
+			m.mu.Lock()
+			if m.announceFailed == failed {
+				m.announceFailed = nil
+			}
+			m.mu.Unlock()
+		}
+	}
+}
+
+// DismissInstalled hides the "Updated to X" note in Status.
+func (m *Manager) DismissInstalled() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.installed = nil
+	return removeIfExists(InstalledPath(m.opts.Dir))
 }
 
 func (m *Manager) check(ctx context.Context, now time.Time) {
@@ -494,7 +641,8 @@ func (m *Manager) check(ctx context.Context, now time.Time) {
 		m.nextCheck = now.Add(m.opts.RetryInterval)
 		return
 	}
-	m.nextCheck = now.Add(m.opts.PollInterval)
+	m.nextCheck = now.Add(m.pollDelay())
+	m.lastOK = now
 	m.lastErr = ""
 
 	if upd != nil && m.failed != nil && sameVersion(upd.Version(), m.failed.Version) {
@@ -517,7 +665,23 @@ func (m *Manager) check(ctx context.Context, now time.Time) {
 	m.available = upd
 }
 
+// pollDelay is the poll interval with random jitter, never shorter than
+// half the interval.
+func (m *Manager) pollDelay() time.Duration {
+	d := m.opts.PollInterval
+	if j := m.opts.PollJitter; j > 0 {
+		d += time.Duration((m.opts.Rand()*2 - 1) * float64(j))
+	}
+	return max(d, m.opts.PollInterval/2)
+}
+
+// resetAvailableLocked forgets the offered release. A download staged for
+// it is deleted: the feed no longer offers it (pulled, or superseded), so
+// it must never be installed.
 func (m *Manager) resetAvailableLocked() {
+	if m.staged != "" {
+		_ = os.Remove(m.staged)
+	}
 	m.available = nil
 	m.staged, m.stagedVersion = "", ""
 	m.downloadAfter, m.applyAfter = time.Time{}, time.Time{}
@@ -546,6 +710,14 @@ func (m *Manager) advance(ctx context.Context, now time.Time) {
 	}
 	if ok, _ := m.selfApplicableLocked(upd); !ok || !(cfg.AutoUpdate || m.requested) {
 		m.state = StateIdle
+		m.mu.Unlock()
+		m.stopDrain(ctx)
+		return
+	}
+	// A staged rollout holds this server's automatic install (and its
+	// download, so a release pulled meanwhile is never fetched).
+	if !m.requested && now.Before(m.installAfter(upd)) {
+		m.state = StateWaitingRollout
 		m.mu.Unlock()
 		m.stopDrain(ctx)
 		return
@@ -592,15 +764,18 @@ func (m *Manager) advance(ctx context.Context, now time.Time) {
 		m.advanceCoordinated(ctx, now, cfg, upd, staged)
 		return
 	}
+	pl := m.planLocked(now, cfg, upd)
 	switch {
-	case !m.requested && !inWindow(now.In(m.opts.Location), cfg):
+	case !pl.open && !pl.early:
 		m.state = StateWaitingWindow
 	case !m.confirmed:
 		// Never stack a second update on one still being confirmed.
 		m.state = StateWaitingIdle
-	case !(m.requested && m.force) && (m.lastActive > 0 || m.idleSince.IsZero() || now.Sub(m.idleSince) < m.opts.QuietPeriod):
+	case !(m.requested && m.force) && !m.quietForLocked(now, pl.quiet):
 		m.state = StateWaitingIdle
 	case now.Before(m.applyAfter):
+		m.state = StateStaged
+	case m.needsRecheckLocked(now):
 		m.state = StateStaged
 	default:
 		m.state = StateApplying
@@ -610,6 +785,103 @@ func (m *Manager) advance(ctx context.Context, now time.Time) {
 		return
 	}
 	m.mu.Unlock()
+}
+
+// installPlan is when a staged update may install.
+type installPlan struct {
+	// open: inside the maintenance window, or the owner asked.
+	open bool
+	// early: outside the window, but a critical release or one that has
+	// waited through MissedWindows windows may install once quiet.
+	early   bool
+	catchUp bool
+	// quiet is how long the server must have been idle.
+	quiet time.Duration
+}
+
+func (m *Manager) planLocked(now time.Time, cfg config.Updates, upd *Update) installPlan {
+	p := installPlan{quiet: m.opts.QuietPeriod}
+	p.open = m.requested || inWindow(now.In(m.opts.Location), cfg)
+	switch {
+	case p.open:
+	case upd.Manifest.Critical:
+		p.early = true
+	case m.missedWindowsLocked(now, cfg, upd) >= m.opts.MissedWindows:
+		p.early, p.catchUp, p.quiet = true, true, m.opts.CatchUpQuiet
+	}
+	return p
+}
+
+// quietForLocked reports whether nothing has played for d.
+func (m *Manager) quietForLocked(now time.Time, d time.Duration) bool {
+	return m.lastActive == 0 && !m.idleSince.IsZero() && now.Sub(m.idleSince) >= d
+}
+
+// missedWindowsLocked counts the maintenance windows that ended while the
+// update was due to install automatically: after it cleared the rollout,
+// with automatic installs on in this process.
+func (m *Manager) missedWindowsLocked(now time.Time, cfg config.Updates, upd *Update) int {
+	from := m.installAfter(upd)
+	if m.autoSince.After(from) {
+		from = m.autoSince
+	}
+	return windowEndsBetween(from, now, cfg, m.opts.Location)
+}
+
+// needsRecheckLocked holds an automatic install until the feed has been
+// read within RecheckBefore, so a release pulled since the last check is
+// never installed. It schedules that check at most once per RecheckBefore,
+// so an unreachable feed is not hammered.
+func (m *Manager) needsRecheckLocked(now time.Time) bool {
+	if m.requested || now.Sub(m.lastOK) <= m.opts.RecheckBefore {
+		return false
+	}
+	if now.Sub(m.lastCheck) > m.opts.RecheckBefore && m.nextCheck.After(now) {
+		m.nextCheck = now
+		m.wake()
+	}
+	return true
+}
+
+// installAfter is when the staged rollout lets this server install upd on
+// its own: PublishedAt plus its bucket's share of RolloutHours. Zero when
+// the release is critical or not staged.
+func (m *Manager) installAfter(upd *Update) time.Time {
+	mf := upd.Manifest
+	if mf.Critical || mf.RolloutHours <= 0 || mf.PublishedAt.IsZero() {
+		return time.Time{}
+	}
+	span := time.Duration(min(mf.RolloutHours, MaxRolloutHours)) * time.Hour
+	return mf.PublishedAt.Add(time.Duration(m.bucket * float64(span)))
+}
+
+// RolloutBucket maps an install identity to a stable position in [0,1)
+// for staged rollouts. Only a local hash is used; nothing leaves the server.
+func RolloutBucket(id string) float64 {
+	if id == "" {
+		return 0
+	}
+	sum := sha256.Sum256([]byte("ether-update-rollout:" + id))
+	return float64(binary.BigEndian.Uint64(sum[:8])>>11) / (1 << 53)
+}
+
+// windowEndsBetween counts maintenance-window ends in (from, to].
+func windowEndsBetween(from, to time.Time, cfg config.Updates, loc *time.Location) int {
+	s, e := windowBounds(cfg)
+	start, _ := parseClock(s)
+	end, _ := parseClock(e)
+	if start == end || from.IsZero() || !to.After(from) {
+		return 0 // an always-open window cannot be missed
+	}
+	from, to = from.In(loc), to.In(loc)
+	n := 0
+	for d := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, loc); !d.After(to) && n < 100; d = d.AddDate(0, 0, 1) {
+		t := time.Date(d.Year(), d.Month(), d.Day(), end/60, end%60, 0, 0, loc)
+		if t.After(from) && !t.After(to) {
+			n++
+		}
+	}
+	return n
 }
 
 func (m *Manager) apply(now time.Time, upd *Update, staged string) {
@@ -724,18 +996,26 @@ func maxDrain(cfg config.Updates) time.Duration {
 func (m *Manager) advanceCoordinated(ctx context.Context, now time.Time, cfg config.Updates, upd *Update, staged string) {
 	c := m.opts.Coordinator
 	m.mu.Lock()
-	inWin := m.requested || inWindow(now.In(m.opts.Location), cfg)
+	pl := m.planLocked(now, cfg, upd)
+	inWin := pl.open
+	// Outside the window (a critical release, or one that missed its
+	// windows) a node installs only once it has been quiet: it never
+	// drains or interrupts anyone in the daytime.
+	early := !inWin && pl.early
+	quiet := m.quietForLocked(now, pl.quiet)
 	confirmed := m.confirmed
 	force := m.requested && m.force
 	retryWait := now.Before(m.applyAfter)
+	// Re-read the feed before taking the lease, not mid-drain.
+	recheck := !m.draining && (inWin || (early && quiet)) && confirmed && !retryWait && m.needsRecheckLocked(now)
 	m.mu.Unlock()
-	if !inWin || !confirmed || retryWait {
+	if !(inWin || early) || !confirmed || retryWait || (early && !quiet) || recheck {
 		m.stopDrain(ctx)
 		m.mu.Lock()
 		switch {
-		case !inWin:
+		case !(inWin || early):
 			m.state = StateWaitingWindow
-		case !confirmed:
+		case !confirmed, early && !quiet:
 			m.state = StateWaitingIdle
 		default:
 			m.state = StateStaged
@@ -789,6 +1069,14 @@ func (m *Manager) advanceCoordinated(ctx context.Context, now time.Time, cfg con
 		m.log.Info("updater: holding the cluster update lease; draining this node before installing",
 			"version", upd.Version(), "activeSessions", active, "maxDrain", maxDrain(cfg))
 		c.SetDraining(true)
+	}
+	if early && active > 0 {
+		// Someone started watching: outside the window wait for quiet again.
+		m.stopDrain(ctx)
+		m.mu.Lock()
+		m.state = StateWaitingIdle
+		m.mu.Unlock()
+		return
 	}
 	if !force && active > 0 && now.Sub(drainStart) < maxDrain(cfg) {
 		m.mu.Lock()
@@ -846,7 +1134,7 @@ func (m *Manager) cleanDownloads(keep string) {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || name == pendingFile || name == failedFile || strings.HasSuffix(name, ".json.tmp") {
+		if e.IsDir() || name == pendingFile || name == failedFile || name == installedFile || strings.HasSuffix(name, ".json.tmp") {
 			continue
 		}
 		p := filepath.Join(m.opts.Dir, name)
@@ -905,6 +1193,18 @@ type AvailableUpdate struct {
 	Notes       string     `json:"notes,omitempty"`
 	PublishedAt *time.Time `json:"publishedAt,omitempty"`
 	Staged      bool       `json:"staged"`
+	// Critical: a security fix that installs at the next quiet moment.
+	Critical bool `json:"critical,omitempty"`
+	// InstallAfter is when the staged rollout lets this server install it
+	// on its own (set while that is still ahead).
+	InstallAfter *time.Time `json:"installAfter,omitempty"`
+	// CatchUp: it found no quiet moment in several maintenance windows and
+	// installs the next time nobody has watched for CatchUpQuietSeconds.
+	CatchUp bool `json:"catchUp,omitempty"`
+	// DownloadURL / DownloadName: what a notify-only install downloads (the
+	// macOS DMG, the .deb/.rpm package, the platform installer).
+	DownloadURL  string `json:"downloadUrl,omitempty"`
+	DownloadName string `json:"downloadName,omitempty"`
 }
 
 // ManagerStatus is the admin-facing snapshot.
@@ -931,6 +1231,16 @@ type ManagerStatus struct {
 	FailedVersion      string           `json:"failedVersion,omitempty"`
 	FailedReason       string           `json:"failedReason,omitempty"`
 	Note               string           `json:"note,omitempty"`
+	Channel            string           `json:"channel"`
+	// NotifyKind says how a notify-only install is updated (NotifyKind*
+	// constants), so the console can show the exact steps.
+	NotifyKind string `json:"notifyKind,omitempty"`
+	Arch       string `json:"arch"`
+	// CatchUpQuietSeconds is the quiet time a catch-up install waits for.
+	CatchUpQuietSeconds int `json:"catchUpQuietSeconds"`
+	// Installed is the last update that installed and confirmed healthy,
+	// until the owner dismisses it (or a week passes).
+	Installed *InstalledUpdate `json:"installed,omitempty"`
 	// Cluster is the rolling-update state of a clustered node.
 	Cluster *ClusterUpdateStatus `json:"cluster,omitempty"`
 }
@@ -975,6 +1285,17 @@ func (m *Manager) Status() ManagerStatus {
 		QuietPeriodSeconds: int(m.opts.QuietPeriod / time.Second),
 		Confirming:         !m.confirmed,
 		Note:               m.opts.Boot.Note,
+		Channel:            cfg.Channel,
+		Arch:               m.opts.GOARCH,
+
+		CatchUpQuietSeconds: int(m.opts.CatchUpQuiet / time.Second),
+	}
+	if st.Channel == "" {
+		st.Channel = ChannelStable
+	}
+	if m.installed != nil && now.Sub(m.installed.At) < installedNoticeFor {
+		cp := *m.installed
+		st.Installed = &cp
 	}
 	tp := func(t time.Time) *time.Time {
 		if t.IsZero() {
@@ -1004,6 +1325,12 @@ func (m *Manager) Status() ManagerStatus {
 			pub := mf.PublishedAt
 			st.Available.PublishedAt = &pub
 		}
+		st.Available.Critical = mf.Critical
+		if at := m.installAfter(m.available); now.Before(at) {
+			st.Available.InstallAfter = &at
+		} else if cfg.AutoUpdate && !m.requested {
+			st.Available.CatchUp = m.planLocked(now, cfg, m.available).catchUp
+		}
 	}
 	switch ok, why := m.selfApplicableLocked(m.available); {
 	case !enabled:
@@ -1012,6 +1339,13 @@ func (m *Manager) Status() ManagerStatus {
 		st.Capability = CapabilitySelfApply
 	default:
 		st.Capability, st.CapabilityReason = CapabilityNotifyOnly, why
+		st.NotifyKind = m.opts.NotifyKind
+		if m.opts.SelfApply { // the release ships only an installer here
+			st.NotifyKind = NotifyKindInstaller
+		}
+		if st.Available != nil {
+			st.Available.DownloadURL, st.Available.DownloadName = m.manualDownload(st.NotifyKind)
+		}
 	}
 	if m.failed != nil {
 		st.FailedVersion, st.FailedReason = m.failed.Version, m.failed.Reason
@@ -1020,6 +1354,42 @@ func (m *Manager) Status() ManagerStatus {
 		}
 	}
 	return st
+}
+
+// manualDownload picks the file a notify-only install downloads by hand.
+func (m *Manager) manualDownload(kind string) (url, name string) {
+	upd := m.available
+	if upd == nil {
+		return "", ""
+	}
+	mf := upd.Manifest
+	switch kind {
+	case NotifyKindMacOS, NotifyKindInstaller, NotifyKindUnsupervised, NotifyKindUnwritable:
+		if a, err := mf.ArtifactFor(m.opts.GOOS, m.opts.GOARCH, KindInstaller); err == nil {
+			return a.URL, artifactName(a)
+		}
+	case NotifyKindDeb, NotifyKindRPM:
+		// Packages sit beside the bare binaries on the release; the
+		// manifest lists only the binaries.
+		a, err := mf.ArtifactFor(m.opts.GOOS, m.opts.GOARCH, KindBinary)
+		if err != nil {
+			return "", ""
+		}
+		i := strings.LastIndex(a.URL, "/")
+		if i < 0 {
+			return "", ""
+		}
+		name := fmt.Sprintf("ether_%s_%s_%s.%s", strings.TrimPrefix(mf.Version, "v"), m.opts.GOOS, m.opts.GOARCH, kind)
+		return a.URL[:i+1] + name, name
+	}
+	return "", ""
+}
+
+func artifactName(a *Artifact) string {
+	if a.Filename != "" {
+		return a.Filename
+	}
+	return filepath.Base(strings.Split(a.URL, "?")[0])
 }
 
 // parseClock parses "HH:MM" into minutes past midnight.
@@ -1071,32 +1441,71 @@ type Environment struct {
 	Supervised bool
 	// DirWritable probes the executable's directory (default: DirWritable).
 	DirWritable func(dir string) bool
+	// Exists reports whether a path exists (default: os.Stat); it tells a
+	// Debian-family package install from an RPM one.
+	Exists func(path string) bool
 }
+
+// Notify-only install kinds (SelfApplyMode, ManagerStatus.NotifyKind).
+const (
+	NotifyKindDev          = "dev"
+	NotifyKindMacOS        = "macos"
+	NotifyKindContainer    = "container"
+	NotifyKindDeb          = "deb"
+	NotifyKindRPM          = "rpm"
+	NotifyKindPackage      = "package" // another package manager (snap, ...)
+	NotifyKindUnsupervised = "unsupervised"
+	NotifyKindUnwritable   = "unwritable"
+	NotifyKindUnknown      = "unknown"
+	// NotifyKindInstaller: the release ships only an installer for this
+	// platform.
+	NotifyKindInstaller = "installer"
+)
 
 // SelfApplyCapability decides whether this install may replace its own
 // binary. Anything owned by something else — a package manager, a
 // container image, a signed macOS app bundle — is notify-only.
 func SelfApplyCapability(env Environment) (bool, string) {
+	ok, _, why := SelfApplyMode(env)
+	return ok, why
+}
+
+// SelfApplyMode is SelfApplyCapability plus the NotifyKind of a
+// notify-only install.
+func SelfApplyMode(env Environment) (ok bool, kind, reason string) {
 	if env.DirWritable == nil {
 		env.DirWritable = DirWritable
 	}
+	if env.Exists == nil {
+		env.Exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
+	}
 	switch {
 	case env.Dev:
-		return false, "development build"
+		return false, NotifyKindDev, "development build"
 	case env.GOOS == "darwin":
-		return false, "the macOS app is updated with its installer"
+		return false, NotifyKindMacOS, "the macOS app is updated with its installer"
 	case env.InContainer:
-		return false, "running in a container; pull the new image instead"
+		return false, NotifyKindContainer, "running in a container; pull the new image instead"
 	case env.Target == "":
-		return false, "cannot locate the running executable"
+		return false, NotifyKindUnknown, "cannot locate the running executable"
 	case env.GOOS == "linux" && packageManaged(env.Target):
-		return false, "installed by the system package manager; update with it"
+		kind := NotifyKindPackage
+		switch {
+		case strings.HasPrefix(env.Target, "/snap/"):
+		case env.Exists("/var/lib/dpkg/info/ether.list"):
+			kind = NotifyKindDeb
+		case env.Exists("/usr/bin/rpm"):
+			kind = NotifyKindRPM
+		case env.Exists("/usr/bin/dpkg"):
+			kind = NotifyKindDeb
+		}
+		return false, kind, "installed by the system package manager; update with it"
 	case !env.Supervised:
-		return false, "not running as a service, so nothing would restart Ether after an update"
+		return false, NotifyKindUnsupervised, "not running as a service, so nothing would restart Ether after an update"
 	case !env.DirWritable(filepath.Dir(env.Target)):
-		return false, "the install directory is not writable by the Ether service"
+		return false, NotifyKindUnwritable, "the install directory is not writable by the Ether service"
 	}
-	return true, ""
+	return true, "", ""
 }
 
 func packageManaged(target string) bool {

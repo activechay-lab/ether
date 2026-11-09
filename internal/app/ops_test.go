@@ -92,9 +92,9 @@ func waitPhase(t *testing.T, base string, phase startup.Phase) (startup.Status, 
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	st, raw := fetchStatus(t, base)
+	_, raw := fetchStatus(t, base)
 	t.Fatalf("phase %q never reached; last %s", phase, raw)
-	return st, raw
+	return startup.Status{}, raw
 }
 
 // A clustered node whose PostgreSQL server is down answers only its

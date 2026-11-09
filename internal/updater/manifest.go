@@ -65,6 +65,17 @@ type Manifest struct {
 	// update directly to this release (older installs must reinstall).
 	MinVersion string     `json:"minVersion,omitempty"`
 	Artifacts  []Artifact `json:"artifacts"`
+	// RolloutHours staggers automatic installs: each install waits a
+	// stable, per-server share of this many hours after PublishedAt
+	// before installing on its own, so a bad release reaches few servers
+	// before it can be pulled. 0 installs everywhere at once. "Update now"
+	// ignores it. Zero values are omitted, keeping older manifests'
+	// canonical encoding (and signatures) unchanged.
+	RolloutHours int `json:"rolloutHours,omitempty"`
+	// Critical marks a security or data-safety fix: automatic installs
+	// skip the rollout and the maintenance window and install at the next
+	// quiet moment (still never while anyone is watching).
+	Critical bool `json:"critical,omitempty"`
 	// Signature is base64 ed25519 over SigningBytes(). Empty when the
 	// signature is detached (served from "<manifest URL>.sig").
 	Signature string `json:"signature,omitempty"`
@@ -82,6 +93,19 @@ var (
 // ManifestLifetime bounds replay to 30 days. The publisher refreshes the
 // signature weekly without changing the release, artifacts, or publication date.
 const ManifestLifetime = 30 * 24 * time.Hour
+
+// MaxRolloutHours bounds a manifest's staged rollout to one week.
+const MaxRolloutHours = 7 * 24
+
+// DefaultRolloutHours is the staged rollout ether-release-sign writes for
+// a channel when none is given: a day for stable, none for beta (beta
+// testers want the build now).
+func DefaultRolloutHours(channel string) int {
+	if channel == ChannelStable {
+		return 24
+	}
+	return 0
+}
 
 // RenewFreshness updates the timestamps before signing. Never call this on
 // unverified downloaded content: renewal is a release-publisher operation.
@@ -198,6 +222,9 @@ func (m *Manifest) Validate() error {
 		if _, err := ParseVersion(m.MinVersion); err != nil {
 			return fmt.Errorf("updater: manifest minVersion: %w", err)
 		}
+	}
+	if m.RolloutHours < 0 || m.RolloutHours > MaxRolloutHours {
+		return fmt.Errorf("updater: manifest rolloutHours %d (want 0..%d)", m.RolloutHours, MaxRolloutHours)
 	}
 	if len(m.Artifacts) == 0 {
 		return errors.New("updater: manifest has no artifacts")

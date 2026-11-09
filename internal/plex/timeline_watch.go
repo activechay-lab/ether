@@ -6,18 +6,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	watchstate "github.com/braedonsaunders/ether/internal/state"
 )
 
-type plexTimelineWriter interface {
-	PlexTimeline(context.Context, int64, core.RatingKey, time.Duration, time.Duration, string, string, *int) (watchstate.PlexTimelineResult, error)
-}
+type plexTimelineWriter = frontend.PlexTimelineWriter
 
-func (s *Server) timelineWatch(ctx context.Context, pr *Request, key core.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *watchstate.PlexTimelineResult, error) {
+func (s *Server) timelineWatch(ctx context.Context, pr *Request, key frontend.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *frontend.TimelinePersistenceResult, error) {
 	if suppressTimelineWatch(ctx) {
-		return watchstate.WithPlexTimelineStored(ctx), nil, nil
+		return frontend.WithTimelineStored(ctx), nil, nil
 	}
 	writer, ok := s.d.State.(plexTimelineWriter)
 	if !ok {
@@ -31,30 +29,13 @@ func (s *Server) timelineWatch(ctx context.Context, pr *Request, key core.Rating
 		}
 		offline = &n
 	}
-	result, err := writer.PlexTimeline(ctx, pr.User.ID, key, offset, duration, status, r.URL.Query().Get("playQueueItemID"), offline)
-	if err != nil {
-		return ctx, nil, err
+	persist := experience.PlexTimeline{Writer: writer, Now: s.now}
+	if s.d.Discovery != nil && s.d.Discovery.Personal != nil {
+		persist.RestoreContinue = s.d.Discovery.Personal.RestoreContinue
 	}
-	if result.Changed && (result.PlaybackState == "complete" || result.ViewOffset > time.Minute) {
-		if parents, ok := s.d.State.(interface {
-			PlexTouchParents(context.Context, int64, core.RatingKey, time.Time, bool) error
-		}); ok {
-			_ = parents.PlexTouchParents(ctx, pr.User.ID, key, s.now(), result.Completed)
-		}
-	}
-	if result.Changed {
-		if restore, ok := s.d.State.(interface {
-			RestoreContinue(context.Context, int64, core.RatingKey) error
-		}); ok {
-			_ = restore.RestoreContinue(ctx, pr.User.ID, key)
-		}
-	}
-	if result.Changed && s.d.Discovery != nil && s.d.Discovery.Personal != nil {
-		_ = s.d.Discovery.Personal.RestoreContinue(ctx, pr.User.ID, key)
-	}
-	return watchstate.WithPlexTimelineStored(ctx), &result, nil
+	return persist.Store(ctx, pr.User.ID, key, offset, duration, status, r.URL.Query().Get("playQueueItemID"), offline)
 }
-func timelineWatchAttrs(mc *model.MediaContainer, result *watchstate.PlexTimelineResult) {
+func timelineWatchAttrs(mc *model.MediaContainer, result *frontend.TimelinePersistenceResult) {
 	if result == nil {
 		return
 	}

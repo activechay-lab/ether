@@ -13,6 +13,8 @@ export type HealthLevel = "ok" | "warn" | "error" | "off" | "unknown";
 
 export interface HealthItem {
   id:
+    | "debrid"
+    | "iptv"
     | "usenet"
     | "indexers"
     | "cache"
@@ -220,6 +222,85 @@ export function usenetHealth(v: unknown, debrid?: unknown, indexers?: unknown): 
   };
 }
 
+/**
+ * Debrid accounts from the "debrid" status section. Null when no account is
+ * configured, so pages show only the sources the owner uses.
+ */
+export function debridHealth(v: unknown): HealthItem | null {
+  const base = { id: "debrid" as const, label: t("Debrid"), href: "/sources/debrid" };
+  const err = errorOf(v);
+  if (err) return { ...base, level: "error", summary: err, details: [] };
+  if (!isPlainObject(v) || !Array.isArray(v.providers)) return null;
+  const accounts = v.providers.filter(isPlainObject).filter((p) => str(p.state) !== "disabled");
+  if (accounts.length === 0) return null;
+  const bad = accounts.filter((p) => str(p.state) !== "ok");
+  const details = accounts.map((p) =>
+    t("{name}: {state}", {
+      name: str(p.name) || str(p.id),
+      state: str(p.state) === "ok" ? t("healthy") : str(p.lastError) || str(p.state),
+    }),
+  );
+  if (bad.length === 0)
+    return {
+      ...base,
+      level: "ok",
+      summary: tn(accounts.length, "{count} account healthy", "{count} accounts healthy"),
+      details,
+    };
+  return {
+    ...base,
+    level: bad.length === accounts.length ? "error" : "warn",
+    summary:
+      accounts.length === 1
+        ? str(bad[0]!.lastError) || t("Account needs attention")
+        : tn(
+            accounts.length,
+            "{bad} of {count} account needs attention",
+            "{bad} of {count} accounts need attention",
+            {
+              bad: bad.length,
+            },
+          ),
+    details,
+    statusLabel: t("Needs attention"),
+  };
+}
+
+/**
+ * IPTV channel sources (Live TV sources list). Null when none is configured.
+ */
+export function iptvHealth(
+  sources: { name?: string; lastError?: string }[] | null,
+): HealthItem | null {
+  if (!sources || sources.length === 0) return null;
+  const base = { id: "iptv" as const, label: t("IPTV"), href: "/sources/iptv" };
+  const bad = sources.filter((s) => !!s.lastError);
+  const details = sources.map((s) =>
+    t("{name}: {state}", { name: s.name ?? "", state: s.lastError || t("healthy") }),
+  );
+  if (bad.length === 0)
+    return {
+      ...base,
+      level: "ok",
+      summary: tn(sources.length, "{count} source healthy", "{count} sources healthy"),
+      details,
+    };
+  return {
+    ...base,
+    level: bad.length === sources.length ? "error" : "warn",
+    summary: tn(
+      sources.length,
+      "{bad} of {count} source failing to refresh",
+      "{bad} of {count} sources failing to refresh",
+      {
+        bad: bad.length,
+      },
+    ),
+    details,
+    statusLabel: t("Needs attention"),
+  };
+}
+
 /** A debrid account is enabled (from the "debrid" status section). */
 function debridOn(v: unknown): boolean {
   return isPlainObject(v) && v.enabled === true;
@@ -347,6 +428,48 @@ function yearCorrectionDetail(v: unknown): string {
   return "";
 }
 
+/** The library-tier migration's progress (catalog status tierMigration). */
+export type TierMigration = {
+  state?: string;
+  paused?: boolean;
+  remove?: number;
+  removed?: number;
+  finishedAt?: string;
+  lastError?: string;
+};
+
+/**
+ * One line for the tier migration, or "" when there is nothing to show
+ * (never armed, or finished more than a week ago).
+ */
+export function tierMigrationLine(v: unknown, now = new Date()): string {
+  if (!isPlainObject(v)) return "";
+  const m = v as TierMigration;
+  const state = typeof m.state === "string" ? m.state : "";
+  if (!state) return "";
+  const done = num(m.removed);
+  if (state === "done") {
+    const at = parseTime(m.finishedAt);
+    if (!at || now.getTime() - at.getTime() > 7 * 86400000) return "";
+    return t("Library tidied: {count} long-tail titles moved to search-only", {
+      count: formatNumber(done),
+    });
+  }
+  if (state === "waiting_backup") {
+    return t("Waiting for a backup before tidying the library: {error}", {
+      error: typeof m.lastError === "string" ? m.lastError : "",
+    });
+  }
+  if (state === "error" && typeof m.lastError === "string" && m.lastError) {
+    return t("Tidying the library stopped: {error}", { error: m.lastError });
+  }
+  const line = t("Tidying the library: {done} of {total} long-tail titles moved to search-only", {
+    done: formatNumber(done),
+    total: formatNumber(Math.max(done, num(m.remove))),
+  });
+  return m.paused ? `${line} · ${t("Paused")}` : line;
+}
+
 export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   const base = {
     id: "catalog" as const,
@@ -370,6 +493,8 @@ export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   ];
   const yearLine = yearCorrectionDetail(v.yearCorrection);
   if (yearLine) details.push(yearLine);
+  const tierLine = tierMigrationLine(v.tierMigration, now);
+  if (tierLine) details.push(tierLine);
   if (typeof sync.lastError === "string" && sync.lastError) {
     const message = t("Last sync error: {error}", { error: sync.lastError });
     details.push(message);

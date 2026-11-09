@@ -367,7 +367,7 @@ func finishCrowd(g *crowdGraph) {
 		} else {
 			for _, v := range ce.hop2Votes {
 				sum += v.w
-				votes = append(votes, sv{v.w, v.seed})
+				votes = append(votes, sv(v))
 			}
 			ce.consensus = len(ce.hop2Votes)
 		}

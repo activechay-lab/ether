@@ -89,7 +89,8 @@ func hevcVUITail(r *bitReader, maxSub int, width, height, subWidth, subHeight ui
 		}
 	}
 	if r.flag() { // timing information
-		if r.u(32) == 0 || r.u(32) == 0 {
+		numUnitsInTick := r.u(32)
+		if numUnitsInTick == 0 || r.u(32) == 0 { // num_units_in_tick, time_scale
 			r.err = errBits
 		}
 		if r.flag() {

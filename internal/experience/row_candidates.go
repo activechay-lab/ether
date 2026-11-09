@@ -69,6 +69,11 @@ func (c CandidateComposer) Rows(ctx context.Context, req frontend.RowRequest, si
 		if err != nil {
 			return nil, err
 		}
+		// A purpose-specific request will discard Continue rows. Do not
+		// walk the viewer's history again to replace a row it cannot return.
+		if req.Purpose != "" {
+			return hubs, nil
+		}
 		if c.Resume == nil {
 			return nil, core.ErrNotFound
 		}

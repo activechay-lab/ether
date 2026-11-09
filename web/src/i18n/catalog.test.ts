@@ -1,3 +1,4 @@
+import templates from "../mock/templates.json";
 import { describe, expect, it } from "vitest";
 import {
   checkCatalog,
@@ -18,6 +19,19 @@ describe("translation catalogues", () => {
 
   it("finds the console's messages", () => {
     expect(messages.size).toBeGreaterThan(50);
+  });
+
+  it("registers every real template and bundle title, description and category", () => {
+    for (const item of [...templates.templates, ...templates.bundles]) {
+      for (const copy of [item.name, item.description, item.category]) {
+        if (copy) expect(messages.has(copy), copy).toBe(true);
+      }
+    }
+    for (const item of templates.templates) {
+      for (const copy of [item.spec.name, item.spec.description]) {
+        if (copy) expect(messages.has(copy), copy).toBe(true);
+      }
+    }
   });
 
   it("keeps the English reference catalogue current", () => {

@@ -6,22 +6,16 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // PlexTimelineResult describes persistence, rather than echoing the playhead.
-type PlexTimelineResult struct {
-	PlaybackState string
-	ViewOffset    time.Duration
-	ViewCount     int
-	Changed       bool
-	Completed     bool
-}
-type plexSkipKey struct{}
+type PlexTimelineResult = frontend.TimelinePersistenceResult
 type plexStatusKey struct{}
 
 // WithPlexTimelineStored keeps broker liveness reporting from writing a second watch update.
 func WithPlexTimelineStored(ctx context.Context) context.Context {
-	return context.WithValue(ctx, plexSkipKey{}, true)
+	return frontend.WithTimelineStored(ctx)
 }
 
 type plexPlayID struct {

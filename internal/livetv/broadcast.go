@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,29 @@ import (
 
 const broadcastPrewarm = 20 * time.Second
 const broadcastStall = 1500 * time.Millisecond
+
+// broadcastStallReport is a pipeline delay worth naming in the log: a
+// quarter of the client's margin at 2 s segments.
+const broadcastStallReport = 250 * time.Millisecond
+
+// A live output at least liveWaitLead ahead of the wall clock waits up to
+// liveWaitMax for a late picture before holding.
+const (
+	liveWaitLead = time.Second
+	liveWaitMax  = 300 * time.Millisecond
+)
+
+// gcSummary is the Go runtime's recent collection cost, to tell a process
+// pause from an encoder stall.
+func gcSummary() string {
+	var stats debug.GCStats
+	debug.ReadGCStats(&stats)
+	last := time.Duration(0)
+	if len(stats.Pause) > 0 {
+		last = stats.Pause[0]
+	}
+	return fmt.Sprintf("num=%d lastPause=%s totalPause=%s", stats.NumGC, last, stats.PauseTotal)
+}
 
 // Resolving/seek/probe may take several round trips before the first picture.
 // Startup waits on the screen; the 1.5 s deadline applies after input is flowing.
@@ -194,6 +218,22 @@ type broadcast struct {
 	// yieldIdle asks the registry to close outputs nobody is watching when
 	// this output hits the stream limit (see broadcastRegistry.yieldIdle).
 	yieldIdle func(except *broadcast) bool
+	// created is when the output was made; a cold provider tune may hold its
+	// first tick up to coldWait for the first real picture.
+	created  time.Time
+	coldWait time.Duration
+	// burstNoWait marks a live input: its startup burst only runs over
+	// pictures already decoded and ends at the first tick without one.
+	burstNoWait  bool
+	burstPicture time.Time // wall time of the last fresh picture
+	// segment is the published segment duration (the target duration).
+	segment       time.Duration
+	clockWarned   time.Time
+	liveWaitSince time.Time
+	liveWaitSpent time.Duration
+	// steadyBitrate is a provider output's full-quality bitrate ceiling,
+	// shared by every viewer that joins it.
+	steadyBitrate int
 }
 
 func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
@@ -205,7 +245,19 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	b.created = b.origin
+	b.segment = segmentDuration
+	if source, ok := planner.(interface{ segmentDuration() time.Duration }); ok {
+		b.segment = source.segmentDuration()
+	}
 	b.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	if source, ok := planner.(interface{ coldWait() time.Duration }); ok {
+		b.coldWait = source.coldWait()
+		b.burstNoWait = true
+	}
+	if source, ok := planner.(interface{ bindRetry(func()) }); ok {
+		source.bindRetry(b.requestRetry)
+	}
 	b.later = map[string]*broadcastInput{}
 	b.future = map[string]broadcastPlan{}
 	if source, ok := planner.(interface{ startupLead() time.Duration }); ok {
@@ -285,7 +337,7 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 	b.mu.Unlock()
 	lifetime, cancel := context.WithCancel(b.ctx)
 	stop := context.AfterFunc(ctx, cancel)
-	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: 4 * time.Second, DVRWindow: b.dvr})
+	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr, LiveSource: b.burstNoWait})
 	stop()
 	if err != nil {
 		cancel()
@@ -323,10 +375,20 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 			if !ok {
 				return
 			}
+			began := time.Now()
 			if err := write(lifetime, frame); err != nil {
 				b.logger.Warn("broadcast rendition write stopped", "rendition", id, "reason", err)
 				b.dropRendition(id, r)
 				return
+			}
+			// A live client allows one segment of lateness: name the stage
+			// whenever the encoder itself stops taking pictures.
+			if blocked := time.Since(began); blocked >= broadcastStallReport {
+				details := ""
+				if source, ok := encoder.(interface{ Diagnostics() string }); ok {
+					details = source.Diagnostics()
+				}
+				b.logger.Warn("broadcast encoder stopped accepting pictures", "rendition", id, "blocked", blocked, "schedLate", transcode.SchedulerLate(blocked+time.Second), "encoder", details, "gc", gcSummary())
 			}
 		}
 	}()
@@ -400,6 +462,8 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 		age = now.Sub(plan.start)
 	}
 	b.logger.Debug("broadcast decoder prepare started", "input", plan.id, "offsetAge", age)
+	// The run loop slides origin during a cold start; the preparer reads a copy.
+	origin := b.origin
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -419,7 +483,7 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 				result.input = newBroadcastInput(b.ctx, plan, d, release, b.format)
 				result.input.logger = b.logger
 				result.input.openedAt = began
-				result.input.outputOrigin = b.origin
+				result.input.outputOrigin = origin
 			}
 		}
 		if err != nil {
@@ -534,7 +598,7 @@ func (b *broadcast) unwatched(now time.Time) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	// A brand-new output has no viewer until acquire attaches its rendition.
-	return b.viewers == 0 && !b.closed && now.Sub(b.origin) >= 2*time.Second
+	return b.viewers == 0 && !b.closed && now.Sub(b.created) >= 2*time.Second
 }
 func (b *broadcast) run() {
 	defer func() {
@@ -585,9 +649,16 @@ func (b *broadcast) run() {
 			return
 		}
 		scheduled := b.origin.Add(time.Duration(b.tick) * time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum))
-		b.bursting = !b.startupUntil.IsZero() && now.Before(b.startupUntil) && !b.startupOutputReady(now)
+		// A live input's burst spends its provider backlog, the server
+		// reserve: it stops at its target lead, not at a published edge
+		// that trails the encoder.
+		headroom := b.startupTarget + 4*time.Second
+		if b.burstNoWait {
+			headroom = b.startupTarget
+		}
+		b.bursting = !b.startupUntil.IsZero() && now.Before(b.startupUntil) && !b.startupOutputReady(now) && (!b.burstNoWait || scheduled.Sub(now) < headroom)
 		if !b.startupUntil.IsZero() && !b.bursting {
-			b.lead = max(0, min(b.startupTarget+4*time.Second, scheduled.Sub(now)))
+			b.lead = max(0, min(headroom, scheduled.Sub(now)))
 			b.startupUntil = time.Time{}
 			b.logger.Info("broadcast startup burst finished", "lead", b.lead, "elapsed", now.Sub(b.origin))
 		}
@@ -595,13 +666,17 @@ func (b *broadcast) run() {
 		// healthy fast encoder into a video-degradation event through queue growth.
 		// Due ticks still enter the continuous PCM queue: pacing those behind a
 		// slow encoder would prevent the queue's picture degradation from helping.
-		if b.bursting && scheduled.After(now) && (scheduled.After(now.Add(b.startupTarget+4*time.Second)) || b.startupQueueFull()) {
+		if b.bursting && scheduled.After(now) && (scheduled.After(now.Add(headroom)) || b.startupQueueFull()) {
 			timer.Reset(2 * time.Millisecond)
 			continue
 		}
 		if !b.step(scheduled) {
 			timer.Reset(2 * time.Millisecond)
 			continue
+		}
+		if late := time.Since(scheduled.Add(-b.lead)); !b.bursting && late >= broadcastStallReport && time.Since(b.clockWarned) > 10*time.Second {
+			b.clockWarned = time.Now()
+			b.logger.Warn("broadcast frame clock late", "late", late, "schedLate", transcode.SchedulerLate(late+time.Second), "tick", b.tick, "gc", gcSummary())
 		}
 		b.tick++
 		next := b.origin.Add(time.Duration(b.tick) * time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)).Add(-b.lead)
@@ -824,8 +899,35 @@ func (b *broadcast) step(now time.Time) bool {
 			}
 		}
 	}
+	// A cold provider tune holds the output start, never a published tick,
+	// for its first real picture: the viewer starts on the channel rather
+	// than on the reconnecting screen. The probe already read those bytes.
+	if frame.Video == nil && b.tick == 0 && b.coldWait > 0 && !introActive && time.Since(b.created) < b.coldWait {
+		b.origin = time.Now()
+		return false
+	}
+	// A live input cannot be read ahead of its provider. Its startup burst
+	// ends at the first tick without a decoded picture instead of waiting for
+	// one (publication must not pause) or running a screen ahead of the clock.
+	if b.burstNoWait && b.bursting && !fresh && now.After(time.Now()) {
+		// A backlog decodes faster than real time but not instantly: keep
+		// bursting while pictures keep arriving, end it once they pause.
+		if time.Since(b.burstPicture) < 150*time.Millisecond {
+			return false
+		}
+		b.startupUntil = time.Now()
+		return false
+	}
+	if fresh {
+		b.burstPicture = time.Now()
+	}
 	startupExpired := b.current != nil && b.current.lastFrameAt.IsZero() && now.Sub(b.current.started) >= broadcastStartup
 	stalled := b.current != nil && !b.current.lastFrameAt.IsZero() && now.Sub(b.current.lastFrameAt) >= broadcastStall
+	// An input whose own transport is reconnecting stays open behind the
+	// screen: its media resumes on the same timeline without a reopen.
+	if stalled && !startupExpired && b.keepStalled(now.Sub(b.current.lastFrameAt)) {
+		stalled = false
+	}
 	if frame.Video == nil && !introActive && b.current != nil && (startupExpired || stalled) {
 		b.noteFailure(current, fmt.Errorf("decoder stalled"), now)
 		b.closeInput(b.current)
@@ -840,6 +942,22 @@ func (b *broadcast) step(now time.Time) bool {
 	coldWaiting := b.current != nil && b.current.lastFrameAt.IsZero() && !b.current.openedAt.IsZero() && time.Since(b.current.openedAt) >= 250*time.Millisecond
 	if b.bursting && now.After(time.Now()) && frame.Video == nil && !introActive && b.current != nil && !coldWaiting && !momentFallback {
 		return false
+	}
+	// A live output well ahead of the wall clock waits briefly for a picture
+	// that is merely late (decode latency at the end of a startup burst)
+	// rather than holding a tick, which carries no sound. The wait is spent
+	// from its lead and bounded, so publication slips at most liveWaitMax.
+	if fresh || b.current == nil {
+		b.liveWaitSince, b.liveWaitSpent = time.Time{}, 0
+	} else if frame.Video == nil && b.burstNoWait && !b.bursting && !introActive && !b.current.lastFrameAt.IsZero() && b.lead > liveWaitLead {
+		if b.liveWaitSince.IsZero() {
+			b.liveWaitSince = time.Now()
+		}
+		if waited := time.Since(b.liveWaitSince); waited < liveWaitMax {
+			b.lead = max(liveWaitLead, b.lead-waited+b.liveWaitSpent)
+			b.liveWaitSpent = waited
+			return false
+		}
 	}
 	if frame.Video == nil && !introActive && !b.freshAt.IsZero() && now.Sub(b.freshAt) < broadcastStall {
 		frame = transcode.RawFrame{Video: b.lastFrame.Video, PolicyTags: b.lastFrame.PolicyTags}
@@ -1042,6 +1160,11 @@ func newBroadcastInput(parent context.Context, plan broadcastPlan, d transcode.D
 		input.fpsDen = decoder.format.FPSDen
 	}
 	return input
+}
+
+func (b *broadcast) keepStalled(stalledFor time.Duration) bool {
+	source, ok := b.planner.(interface{ keepStalled(time.Duration) bool })
+	return ok && source.keepStalled(stalledFor)
 }
 
 func (b *broadcast) requestRetry() {

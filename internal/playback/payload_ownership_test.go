@@ -174,8 +174,7 @@ func TestPayloadHeaderPruningKeepsActualOwner(t *testing.T) {
 	p := payloadFixture(t)
 	ctx := context.Background()
 	o := payloadReserve(t, p, nzbHash([]byte("owned")))
-	var free capability.Header
-	free = o.header
+	free := o.header
 	free.Digest = randomID(32)
 	free.ExpiresMillis = time.Now().Add(-time.Hour).UnixMilli()
 	tx, err := p.db.BeginTx(ctx, nil)

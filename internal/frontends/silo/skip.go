@@ -156,15 +156,6 @@ func (i *instance) skipIntroAtStart(r *http.Request, viewer *frontend.Viewer, sc
 	return settings.seekPastMarkers(position, markers)
 }
 
-func seekPastIntro(position time.Duration, markers []frontend.Marker) time.Duration {
-	for _, marker := range markers {
-		if marker.Type == "intro" && position >= marker.Start && position < marker.End {
-			return marker.End
-		}
-	}
-	return position
-}
-
 func (s skipSettings) seekPastMarkers(position time.Duration, markers []frontend.Marker) time.Duration {
 	for range len(markers) {
 		previous := position

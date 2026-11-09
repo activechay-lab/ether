@@ -16,13 +16,16 @@ import (
 
 func TestPlaylistEscapesChannelMetadataAndRejectsUnsafeURLs(t *testing.T) {
 	var out bytes.Buffer
-	err := writePlaylist(&out, []playlistEntry{{ID: "channel\"\n#EXTINF:bad", Name: "News\r\nInjected", StreamURL: "https://ether.example/m3u/scoped"}})
+	err := writePlaylist(&out, []playlistEntry{{ID: "channel\"\n#EXTINF:bad", Name: "News\r\nInjected", Group: "News\"\r\nWeather", StreamURL: "https://ether.example/m3u/scoped"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	if len(lines) != 3 || lines[2] != "https://ether.example/m3u/scoped" || strings.Contains(lines[1], "\r") {
 		t.Fatalf("unexpected playlist: %q", out.String())
+	}
+	if !strings.Contains(lines[1], `group-title="News   Weather"`) {
+		t.Fatalf("group not escaped: %s", lines[1])
 	}
 	for _, bad := range []string{"https://ether.example/a\nhttp://evil.example", "https://user:pass@ether.example/a", "file:///tmp/media", "/relative"} {
 		out.Reset()

@@ -1,5 +1,23 @@
 {
   "version": 1,
+  "devices": [
+    {"name": "Apple TV", "identity": {"product": "Plex for Apple TV", "platform": "tvOS", "device": "Apple TV"}},
+    {"name": "iOS", "identity": {"product": "Plex for iOS", "platform": "iOS", "device": "iPhone"}},
+    {"name": "Android", "identity": {"product": "Plex for Android (Mobile)", "platform": "Android"}},
+    {"name": "Android TV", "identity": {"product": "Plex for Android (TV)", "platform": "Android", "device": "Android TV"}},
+    {"name": "Google TV", "identity": {"product": "Plex for Android (TV)", "platform": "Android", "device": "Google TV"}},
+    {"name": "NVIDIA Shield", "identity": {"product": "Plex for Android (TV)", "platform": "Android", "device": "SHIELD Android TV"}},
+    {"name": "Roku", "identity": {"product": "Roku"}},
+    {"name": "Fire TV", "identity": {"product": "Fire TV"}},
+    {"name": "LG webOS", "identity": {"product": "LG webOS"}},
+    {"name": "Samsung Tizen", "identity": {"product": "Samsung Tizen"}},
+    {"name": "Xbox", "identity": {"product": "Xbox"}},
+    {"name": "PlayStation", "identity": {"product": "PlayStation"}},
+    {"name": "Home theater PC", "identity": {"product": "HTPC"}},
+    {"name": "Kodi", "identity": {"product": "Kodi"}},
+    {"name": "Mac", "identity": {"product": "Plex for Mac", "platform": "macOS"}},
+    {"name": "Browser", "identity": {"product": "Plex Web"}}
+  ],
   "presets": {
     "text": {
       "subtitles": ["srt", "subrip", "webvtt", "vtt", "ass", "ssa"],
@@ -90,6 +108,45 @@
     }
   },
   "definitions": [
+    {
+      "id": "stremio-native-desktop",
+      "role": "policy",
+      "family": "Stremio desktop (mpv)",
+      "preset": "image",
+      "notes": "Stremio's desktop shell plays through mpv, which renders HDR and Dolby Vision itself and tone-maps for an SDR display. Profile 7 plays its HDR10 base.",
+      "dolbyVisionProfiles": [5, 8],
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "stremio"},
+        {"field": "platform", "op": "equals", "value": "desktop"}
+      ]}
+    },
+    {
+      "id": "stremio-native-android",
+      "role": "policy",
+      "family": "Stremio native player (Android)",
+      "preset": "image",
+      "notes": "Stremio Android, Android TV and Nuvio play through ExoPlayer, libVLC or libmpv. Dolby Vision depends on the device decoder, which Ether cannot see, so it is off by default; profile 7 and 8.1 play their HDR10 base.",
+      "dolbyVisionProfiles": [8],
+      "match": {"all": [
+        {"any": [
+          {"field": "product", "op": "equals", "value": "stremio"},
+          {"field": "product", "op": "equals", "value": "nuvio"}
+        ]},
+        {"field": "platform", "op": "equals", "value": "android"}
+      ]}
+    },
+    {
+      "id": "nuvio-ios",
+      "role": "policy",
+      "family": "Nuvio (iOS)",
+      "preset": "text",
+      "notes": "Nuvio on iOS plays HDR10 natively; Dolby Vision stays off by default.",
+      "dolbyVisionProfiles": [8],
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "nuvio"},
+        {"field": "platform", "op": "equals", "value": "ios"}
+      ]}
+    },
     {
       "id": "pm4k",
       "role": "policy",
@@ -235,6 +292,39 @@
       "family": "generic",
       "preset": "text",
       "match": {}
+    },
+    {
+      "id": "stremio-native-desktop",
+      "role": "playback",
+      "preset": "htpc",
+      "dolbyVision": true,
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "stremio"},
+        {"field": "platform", "op": "equals", "value": "desktop"}
+      ]}
+    },
+    {
+      "id": "stremio-native-android",
+      "role": "playback",
+      "preset": "htpc",
+      "audio": ["aac", "ac3", "eac3", "mp3", "flac", "opus", "vorbis", "pcm"],
+      "match": {"all": [
+        {"any": [
+          {"field": "product", "op": "equals", "value": "stremio"},
+          {"field": "product", "op": "equals", "value": "nuvio"}
+        ]},
+        {"field": "platform", "op": "equals", "value": "android"}
+      ]}
+    },
+    {
+      "id": "nuvio-ios",
+      "role": "playback",
+      "preset": "apple",
+      "dolbyVision": false,
+      "match": {"all": [
+        {"field": "product", "op": "equals", "value": "nuvio"},
+        {"field": "platform", "op": "equals", "value": "ios"}
+      ]}
     },
     {
       "id": "pm4k",
@@ -466,6 +556,12 @@
       "match": {}
     },
     {
+      "id": "shield-video",
+      "role": "patch",
+      "video": ["h264", "hevc", "vp9"],
+      "match": {"field": "identity", "op": "contains", "value": "shield"}
+    },
+    {
       "id": "fire-tv-4k-max",
       "role": "patch",
       "patchHeight": 2160,
@@ -497,7 +593,7 @@
     {
       "id": "plex-appletv-hdr10-base",
       "role": "quirk",
-      "quirks": ["plex-appletv-hdr10-base"],
+      "quirks": ["plex-appletv-hdr10-base", "plex-appletv-hls-mp3-to-aac"],
       "match": {
         "all": [
           {"field": "product", "op": "contains", "value": "plex"},
@@ -567,6 +663,37 @@
       }
     },
     {
+      "id": "plex-android-mobile",
+      "role": "segmented-audio",
+      "notes": "Plex for Android (Mobile), also the app uncertified Android boxes run, lists E-AC-3, AC-3 and DTS in its HLS target whatever the device decodes. Segmented Matroska with copied E-AC-3 froze after the first segment on Pixel phones (PR #395) and plays converted to AAC. Direct play of the original file is the app's own decision and is untouched.",
+      "audio": ["eac3", "ac3", "dts", "dca", "dtshd", "truehd", "mlp"],
+      "match": {
+        "all": [
+          {"field": "product", "op": "contains", "value": "plex for android"},
+          {"field": "product", "op": "notContains", "value": "tv"},
+          {"field": "device", "op": "notContains", "value": "shield"},
+          {"field": "device", "op": "notContains", "value": "tv"}
+        ]
+      }
+    },
+    {
+      "id": "google-tv-no-dts",
+      "role": "segmented-audio",
+      "notes": "Chromecast with Google TV and onn. Google TV devices are Dolby-licensed but have no DTS or TrueHD decoder or passthrough; DTS is converted to E-AC-3 surround for them.",
+      "audio": ["dts", "dca", "dtshd", "truehd", "mlp"],
+      "match": {
+        "all": [
+          {"field": "product", "op": "contains", "value": "plex for android"},
+          {
+            "any": [
+              {"field": "device", "op": "prefix", "value": "chromecast"},
+              {"field": "device", "op": "prefix", "value": "onn"}
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "probe-hls-without-codecs",
       "role": "quirk",
       "quirks": ["probe-hls-without-codecs"],
@@ -590,6 +717,38 @@
           {"field": "platform", "op": "equals", "value": "android"}
         ]
       }
+    },
+    {
+      "id": "plex-promoted-rows-as-collections",
+      "role": "quirk",
+      "quirks": ["plex-promoted-rows-as-collections"],
+      "match": {
+        "any": [
+          {"field": "product", "op": "contains", "value": "infuse"}
+        ]
+      }
+    },
+    {
+      "id": "native-player-dynamic-range",
+      "role": "quirk",
+      "quirks": ["native-player-dynamic-range"],
+      "notes": "The app plays through its own native player (mpv, ExoPlayer, libVLC, KSPlayer), which renders HDR itself and tone-maps for an SDR display, so the playback record's HDR flags apply without a declared profile.",
+      "match": {"any": [
+        {"all": [
+          {"field": "product", "op": "equals", "value": "stremio"},
+          {"any": [
+            {"field": "platform", "op": "equals", "value": "desktop"},
+            {"field": "platform", "op": "equals", "value": "android"}
+          ]}
+        ]},
+        {"all": [
+          {"field": "product", "op": "equals", "value": "nuvio"},
+          {"any": [
+            {"field": "platform", "op": "equals", "value": "android"},
+            {"field": "platform", "op": "equals", "value": "ios"}
+          ]}
+        ]}
+      ]}
     }
   ]
 }

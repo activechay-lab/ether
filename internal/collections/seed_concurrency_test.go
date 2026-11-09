@@ -13,7 +13,7 @@ import (
 )
 
 // Cluster nodes starting together on a fresh database must not fail on the
-// built-ins' ids or seed the starter collections more than once.
+// built-ins' ids, and a fresh install has no owner collections.
 func TestConcurrentStartupSeedsOnce(t *testing.T) {
 	ctx := context.Background()
 	db := store.OpenTest(t)
@@ -41,7 +41,7 @@ func TestConcurrentStartupSeedsOnce(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collections_specs WHERE builtin=0`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 19 {
-		t.Fatalf("starter collections = %d, want 19", n)
+	if n != 0 {
+		t.Fatalf("fresh install created %d collections", n)
 	}
 }

@@ -62,6 +62,11 @@ func (b *Broker) Command(ctx context.Context, actor *core.Viewer, id string, cmd
 		if target.ViewerID != v.ID && !owner {
 			return core.ErrUnauthorized
 		}
+		if cmd.Kind == frontend.CommandSetSubtitle || cmd.Kind == frontend.CommandSetAudio {
+			if err := b.recordTrackCommand(ctx, v, owner, target, cmd); err != nil {
+				return err
+			}
+		}
 		event := frontend.Event{Type: "SessionCommand", ViewerID: target.ViewerID, ActorViewerID: v.ID, SessionID: id, TargetProtocol: target.Protocol, TargetDeviceID: target.Device.ID, Command: &cmd}
 		publishErr := b.deps.Events.Publish(ctx, event)
 		if cmd.Kind == frontend.CommandStop {

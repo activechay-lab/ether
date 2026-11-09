@@ -73,10 +73,20 @@ func (s *Server) shelfScope(ctx context.Context, pr *Request) (string, string, b
 }
 
 func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc hubCtx, build func() ([]core.Title, []model.Metadata)) ([]core.Title, string) {
+	titles, generation, _ := s.shelfSnapshotResult(ctx, pr, h, hc, func() ([]core.Title, []model.Metadata, error) {
+		titles, metadata := build()
+		return titles, metadata, nil
+	})
+	return titles, generation
+}
+
+// shelfSnapshotResult never publishes an incomplete generation after a source
+// read fails. Existing hub builders have already handled their source errors.
+func (s *Server) shelfSnapshotResult(ctx context.Context, pr *Request, h core.Hub, hc hubCtx, build func() ([]core.Title, []model.Metadata, error)) ([]core.Title, string, error) {
 	scope, viewerRevision, ok := s.shelfScope(ctx, pr)
 	if !ok {
 		// Without the authorization revision a retained row cannot be served.
-		return nil, ""
+		return nil, "", core.ErrNotAvailable
 	}
 	identity := fmt.Sprintf("%s|%d|%d|%s", scope, hc.section, hc.related, h.ID)
 	s.shelfMu.Lock()
@@ -84,11 +94,14 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 	if cut, ok := s.shelfCuts[identity]; ok && cut.revision == viewerRevision && now.Sub(cut.at) < 5*time.Minute && !now.Before(cut.at) {
 		if gen, ok := s.shelfGenerations[cut.generation]; ok {
 			s.shelfMu.Unlock()
-			return gen.items, cut.generation
+			return gen.items, cut.generation, nil
 		}
 	}
 	s.shelfMu.Unlock()
-	titles, items := build()
+	titles, items, err := build()
+	if err != nil {
+		return nil, "", err
+	}
 	// Wire identities, including duplicates from a producer, are canonicalized
 	// BEFORE calculating counts or cutting any page.
 	seen := map[string]bool{}
@@ -117,7 +130,7 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 	if cut, ok := s.shelfCuts[identity]; ok && cut.revision == viewerRevision && now.Sub(cut.at) < 5*time.Minute && !now.Before(cut.at) {
 		if gen, ok := s.shelfGenerations[cut.generation]; ok {
 			s.shelfMu.Unlock()
-			return gen.items, cut.generation
+			return gen.items, cut.generation, nil
 		}
 	}
 	if s.shelfCuts == nil {
@@ -159,7 +172,7 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 		s.stageShelf(ctx, shelfWrite{generation: generation, scope: g.scope, path: g.path, keys: g.keys, expires: now.Add(shelfRetention).Unix()})
 	}
 
-	return g.items, generation
+	return g.items, generation, nil
 }
 
 func (s *Server) shelfURL(raw, generation string) string {

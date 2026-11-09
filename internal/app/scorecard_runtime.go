@@ -74,3 +74,6 @@ func parityConfigureTMDB(c *tmdb.Client) {
 	cfg.Images.SecureBaseURL = cfg.Images.BaseURL
 	c.SetConfiguration(cfg)
 }
+
+// Scorecard lineups are fixtures; shipped showcase channels stay out of them.
+func parityShowcase() bool { return false }

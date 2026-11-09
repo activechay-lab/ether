@@ -37,6 +37,14 @@ func (s *Service) indexPersonal(ctx context.Context, tx *sql.Tx, viewer int64, c
 	return nil
 }
 
+// prunePersonalIndex deletes the indexed programmes of days other than the
+// one readers use, in short batches after the build's transaction: a
+// channel that rolled over many days may carry a long history.
+func (s *Service) prunePersonalIndex(ctx context.Context, viewer int64, channel, day string) error {
+	_, err := store.PruneBatched(ctx, s.o.DB, `DELETE FROM livetv_personal_programmes WHERE (viewer_id,channel_id,day,start_ms) IN (SELECT viewer_id,channel_id,day,start_ms FROM livetv_personal_programmes WHERE viewer_id=? AND channel_id=? AND day<>? LIMIT ?)`, viewer, channel, day)
+	return err
+}
+
 func (s *Service) personalIndexRecords(ctx context.Context, ps []Programme) []personalProgrammeRecord {
 	facts := map[core.RatingKey]*core.Title{}
 	records := make([]personalProgrammeRecord, 0, len(ps))

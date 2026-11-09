@@ -140,7 +140,6 @@ func guideAIMessyMeasurement(t *testing.T) {
 	if added == 0 || correct != added {
 		t.Fatalf("AI precision %d/%d", correct, added)
 	}
-	calls := f.calls
 	cached, e := s.MatchGuides(ctx, GuideMatchRequest{AI: "propose"})
 	if e != nil {
 		t.Fatal(e)
@@ -152,7 +151,7 @@ func guideAIMessyMeasurement(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	calls = f.calls
+	calls := f.calls
 	_, e = s.MatchGuides(ctx, GuideMatchRequest{AI: "propose"})
 	if e != nil || f.calls != calls {
 		t.Fatalf("cache rerun: %v calls %d -> %d", e, calls, f.calls)

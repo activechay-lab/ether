@@ -138,15 +138,15 @@ type Options struct {
 	// IndexTimeout bounds the background container keyframe-index read
 	// after a generation is published (default 60s). Play never waits on it.
 	IndexTimeout time.Duration
-	// SpeedCheckInterval is how often source fetch speed is compared with
-	// media bitrate (default 2s). SpeedGrace after a start, seek or
-	// failover is ignored (default 20s). A session whose fetch rate stays
+	// SpeedCheckInterval is how often effective source-read delivery is compared
+	// with media bitrate (default 2s). Speed checks during SpeedGrace after
+	// a start, seek or failover are ignored (default 20s). Delivery staying
 	// below SpeedThreshold (default 0.8) of its media bitrate for
 	// SpeedSlowChecks consecutive checks (default 3) down-fails over, at
 	// most MaxDownFailovers times (default 2; negative disables). A try
 	// that finds no lower-bitrate release counts the same as a swap. When
-	// the cap is a run of misses, the session stops so the client stream
-	// ends instead of playing on forever at a crawl.
+	// the cap is reached, adaptation stops and the current source remains.
+	// HLS replacements must copy video into the existing stream contract.
 	SpeedCheckInterval time.Duration
 	SpeedGrace         time.Duration
 	SpeedThreshold     float64
@@ -268,8 +268,12 @@ type Manager struct {
 	lastCaps       map[int64]core.ClientCaps
 	warm           map[identity]*warmEntry
 	warmRequests   map[warmBudgetKey][]time.Time
-	warmMisses     map[identity]time.Time       // warm-ups that ended without a source (warmMissTTL)
-	stalePrefers   map[stalePreferKey]time.Time // picked releases that fell back (stalePreferTTL)
+	warmMisses     map[identity]time.Time // warm-ups that ended without a source (warmMissTTL)
+	// onDemandWarmAt / onDemandWarmByAddon budget add-on streams opened
+	// by warm-ups (onDemandWarmAdmit); lazily created under mu.
+	onDemandWarmAt      map[int64]time.Time
+	onDemandWarmByAddon map[string][]time.Time
+	stalePrefers        map[stalePreferKey]time.Time // picked releases that fell back (stalePreferTTL)
 
 	pinMu        sync.Mutex
 	livePins     map[string]int
@@ -842,6 +846,7 @@ func (m *Manager) PrepareWithin(ctx context.Context, wait time.Duration, user *c
 }
 
 func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, user *core.User, key core.RatingKey, caps core.ClientCaps, prefer string, exact, deferSupersession bool) (*core.PlaySession, core.SourceRetirement, error) {
+	prepareStarted := time.Now()
 	if user == nil {
 		return nil, nil, core.ErrUnauthorized
 	}
@@ -897,7 +902,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 					s.mu.Unlock()
 				}
 				m.reg.poke()
-				return s.snapshot(now), s.sources, nil
+				return m.snapshotForAdmission(ctx, s, caps, prepareStarted, wait)
 			}
 			old := s.id
 			m.mu.Unlock()
@@ -965,7 +970,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 			f.sess.exp.noteRequest(arrived)
 			f.sess.mu.Unlock()
 		}
-		return f.sess.snapshot(m.now()), f.sess.sources, nil
+		return m.snapshotForAdmission(ctx, f.sess, caps, prepareStarted, wait)
 	case <-ctx.Done():
 		m.mu.Lock()
 		if f.waiters--; f.waiters == 0 && !f.detached {

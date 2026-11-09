@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/textutil"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/agent/tools"
@@ -29,7 +30,6 @@ func propose(category, description string, details []tools.ProposalDetail, input
 }
 
 func writeTools(d Deps) []tools.Tool {
-	steps := strings.Join(core.DefaultRankingSteps, ", ")
 	return []tools.Tool{
 		tool(tools.Tool{
 			Name: "livetv_guide_match", Title: "Match with AI", OpenWorld: true,
@@ -275,42 +275,47 @@ func writeTools(d Deps) []tools.Tool {
 			},
 		}),
 		tool(tools.Tool{
-			Name: "ranking_reorder", Title: "Reorder release ranking",
-			Description: fmt.Sprintf("Propose a new order for a quality profile's ranking steps. Send the full list. Built-in steps: %s. Prefer-rule steps look like rule:<id>. The list must include connection and verified. Omit profile for the first (default) profile.", steps),
+			Name: "format_scores_set", Title: "Change custom format scores",
+			Description: "Propose custom format scores for a quality profile. Releases rank by quality first, then by the sum of their custom format scores, as in Radarr and Sonarr. Keys are custom format ids: the owner's or imported formats, Ether's built-in formats (ether:remux, ether:hdr, ether:codec-hevc, ether:audio-truehd, ether:viewer-language, ether:audio-transcode and the rest) or Prefer rules (rule:<id>). A score of 0 removes the format from the profile. Omit profile for the first (default) profile.",
 			InputSchema: schema(map[string]any{
 				"profile": pString("Profile name; defaults to the first profile", 80),
 				"media":   pEnum("Which media's profile, when a movie and a TV profile share the name", "movie", "tv"),
-				"ranking": pStrings("The full ranking order, most important first", 32, 80),
-			}, "ranking"),
+				"scores": map[string]any{"type": "object", "minProperties": 1, "maxProperties": 64,
+					"description":          "Custom format id → score",
+					"additionalProperties": map[string]any{"type": "integer", "minimum": -1000000000, "maximum": 1000000000}},
+			}, "scores"),
 			Execute: func(ctx context.Context, _ tools.Principal, in map[string]any) (tools.Result, error) {
-				ranking, err := stringsArg(in, "ranking", 32, 80)
-				if err != nil {
-					return tools.Result{}, err
+				raw, _ := in["scores"].(map[string]any)
+				if len(raw) == 0 || len(raw) > 64 {
+					return tools.Result{}, tools.Userf("scores must set 1 to 64 formats")
 				}
-				if len(ranking) == 0 {
-					return tools.Result{}, tools.Userf("ranking is required")
+				scores := map[string]int{}
+				for id, v := range raw {
+					f, ok := v.(float64)
+					if !ok || f != float64(int(f)) || f < -1e9 || f > 1e9 || len(id) == 0 || len(id) > 200 {
+						return tools.Result{}, tools.Userf("score for %q must be a whole number", id)
+					}
+					scores[id] = int(f)
 				}
 				profile, err := d.profile(ctx, in)
 				if err != nil {
 					return tools.Result{}, err
 				}
-				if err := core.ValidateRanking(ranking, profile.Rules); err != nil {
-					return tools.Result{}, tools.Userf("that ranking is not valid: %s", err.Error())
+				ids := make([]string, 0, len(scores))
+				for id := range scores {
+					ids = append(ids, id)
 				}
-				current := profile.Ranking
-				if len(current) == 0 {
-					current = core.DefaultRanking(profile.Rules)
+				sort.Strings(ids)
+				details := []tools.ProposalDetail{{Label: "Profile", Value: profile.Name}}
+				for _, id := range ids {
+					details = append(details, tools.ProposalDetail{Label: id, Value: fmt.Sprintf("%d → %d", profile.Scores[id], scores[id])})
 				}
-				return propose("Reorder release ranking",
-					fmt.Sprintf("Change what matters most on the %s profile.", profile.Name),
-					[]tools.ProposalDetail{
-						{Label: "Profile", Value: profile.Name},
-						{Label: "Now", Value: strings.Join(current, " → ")},
-						{Label: "Proposed", Value: strings.Join(ranking, " → ")},
-					},
-					map[string]any{"profile": profile.Name, "ranking": ranking},
+				return propose("Change custom format scores",
+					fmt.Sprintf("Change custom format scores on the %s profile.", profile.Name),
+					details,
+					map[string]any{"profile": profile.Name, "scores": scores},
 					func(ctx context.Context) (tools.Result, error) {
-						if err := d.Profiles.SetRanking(ctx, profile.Name, profile.Media, ranking); err != nil {
+						if err := d.Profiles.SetFormatScores(ctx, profile.Name, profile.Media, scores); err != nil {
 							return tools.Result{}, err
 						}
 						return tools.Result{Data: map[string]any{"updated": true, "profile": profile.Name},

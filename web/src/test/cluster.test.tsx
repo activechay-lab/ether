@@ -490,6 +490,7 @@ describe("Cluster details elsewhere", () => {
       intervalHours: 24,
       retain: 7,
       sharedDir: "/mnt/backups/ether",
+      skipOnAirMedia: false,
     });
   });
 

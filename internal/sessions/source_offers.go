@@ -124,12 +124,13 @@ func (s *sourceOffers) selector(ctx context.Context, tx *sql.Tx, scope frontend.
 		if reference == "" || target.ETag != "" {
 			return offerSelector{}, 0, core.ErrNotFound
 		}
-		digest := sha256.Sum256([]byte(reference))
 		var release string
-		err := tx.QueryRowContext(ctx, `SELECT v.item_id,v.release_id,h.expires FROM sessions_version_handles v JOIN capability_headers h ON h.namespace='sessions.version' AND h.digest=? AND h.viewer_id=v.viewer_id AND h.surface=v.surface AND h.device_id=v.device_id WHERE v.handle=? AND v.viewer_id=? AND v.surface=? AND v.device_id=? AND h.expires>?`, hex.EncodeToString(digest[:]), reference, scope.Viewer.ID, string(s.protocol), scope.Device.ID, now).Scan(&item, &release, &expires)
+		err := tx.QueryRowContext(ctx, `SELECT item_id,release_id FROM sessions_version_ids WHERE handle=? AND surface=?`, reference, string(s.protocol)).Scan(&item, &release)
 		if err != nil {
 			return offerSelector{}, 0, offerLookupError(err)
 		}
+		// Version ids do not expire; the offer's own TTL bounds it.
+		expires = until
 		if !allowed[release] {
 			return offerSelector{}, 0, core.ErrNotFound
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 	"sync"
+	"time"
 )
 
 // PrepareRequest contains authenticated frontend choices, never provider paths.
@@ -45,6 +46,7 @@ type preparation struct {
 	life             core.SourceRetirement
 	finished         bool
 	running          bool
+	forgetAt         time.Time // forgetTerminal grace deadline
 }
 
 func (r *Runtime) PrepareSource(ctx context.Context, owner nodewire.Identity, q PrepareRequest) (PreparedSource, error) {
@@ -69,6 +71,15 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	}
 	r.mu.Lock()
 	previous := r.preparations[key]
+	if previous == nil {
+		// A forgotten preparation stays sealed through its durable receipt.
+		r.mu.Unlock()
+		if r.preparationSealed(ctx, peer, q.Operation) {
+			return sourceResponse{}, ErrDenied
+		}
+		r.mu.Lock()
+		previous = r.preparations[key]
+	}
 	if previous != nil {
 		if previous.peer != peer || previous.hash != hash || previous.retiring {
 			r.mu.Unlock()
@@ -231,6 +242,14 @@ func (r *Runtime) retirePreparation(ctx context.Context, peer nodewire.Identity,
 	r.mu.Lock()
 	entry := r.preparations[key]
 	if entry == nil {
+		r.mu.Unlock()
+		if r.preparationSealed(ctx, peer, q.Operation) {
+			return sourceResponse{Retired: true, Phase: "retired"}, nil // forgotten after its durable receipt
+		}
+		r.mu.Lock()
+		entry = r.preparations[key]
+	}
+	if entry == nil {
 		// An authenticated retirement seals the operation before a delayed Prepare
 		// can start. Absence alone is never returned as proof without this barrier.
 		if len(r.preparations) >= r.o.HistoryCapacity {
@@ -313,6 +332,9 @@ func (r *Runtime) preparationStatus(ctx context.Context, peer nodewire.Identity,
 	entry := r.preparations[key]
 	if entry == nil || entry.peer != peer {
 		r.mu.Unlock()
+		if entry == nil && r.preparationSealed(ctx, peer, operation) {
+			return sourceResponse{Retired: true, Phase: "retired"}, nil // forgotten after its durable receipt
+		}
 		return sourceResponse{Phase: "unknown"}, nil
 	}
 	running, life, retiring, finished, result := entry.running || entry.operations != 0, entry.life, entry.retiring, entry.finished, entry.result

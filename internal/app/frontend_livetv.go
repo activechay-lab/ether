@@ -18,6 +18,7 @@ var errLiveQuery = errors.New("invalid live guide query")
 
 type surfaceLiveTV struct {
 	app            *App
+	surface        string // the app this lineup is for; the owner's per-app visibility applies
 	channelArtwork func(*core.Viewer, livetv.Channel) frontend.Image
 	artwork        frontend.Artwork
 }
@@ -33,7 +34,7 @@ func (s surfaceLiveTV) viewer(ctx context.Context, v *core.Viewer) (*core.User, 
 	return s.app.safety.UserPolicy(viewer), nil
 }
 func (s surfaceLiveTV) liveChannel(viewer *core.Viewer, c livetv.Channel) frontend.LiveChannel {
-	result := frontend.LiveChannel{ID: c.ID, Number: c.Number, Name: c.Name, Kind: c.Kind, Rating: c.Rating, Favorite: c.Favorite}
+	result := frontend.LiveChannel{ID: c.ID, Number: c.Number, Name: c.Name, Kind: c.Kind, Rating: c.Rating, Favorite: c.Favorite, Group: c.Group}
 	if s.channelArtwork != nil {
 		if image := s.channelArtwork(viewer, c); image.Path != "" {
 			result.Images = []frontend.Image{image}
@@ -42,6 +43,7 @@ func (s surfaceLiveTV) liveChannel(viewer *core.Viewer, c livetv.Channel) fronte
 	return result
 }
 func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend.LiveChannel, error) {
+	ctx = core.WithLiveApp(ctx, s.surface)
 	viewer, err := s.viewer(ctx, v)
 	if err != nil {
 		return nil, err
@@ -50,6 +52,9 @@ func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend
 		return nil, core.ErrNotAvailable
 	}
 	channels, err := s.app.livetv.AllowedChannels(ctx, viewer)
+	if err == nil {
+		s.app.livetv.NoteClientActivity()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +65,7 @@ func (s surfaceLiveTV) Channels(ctx context.Context, v *core.Viewer) ([]frontend
 	return out, nil
 }
 func (s surfaceLiveTV) Guide(ctx context.Context, v *core.Viewer, q frontend.LiveGuideQuery) ([]frontend.LiveProgramme, error) {
+	ctx = core.WithLiveApp(ctx, s.surface)
 	if !q.Until.After(q.From) || q.Until.Sub(q.From) > 7*24*time.Hour || q.Limit < 0 || q.Limit > maxLiveProgrammes {
 		return nil, errLiveQuery
 	}
@@ -70,6 +76,7 @@ func (s surfaceLiveTV) Guide(ctx context.Context, v *core.Viewer, q frontend.Liv
 	if s.app.livetv == nil {
 		return nil, core.ErrNotAvailable
 	}
+	s.app.livetv.NoteClientActivity()
 	var permitted []livetv.Channel
 	if len(q.Channels) > 0 {
 		permitted, err = s.app.livetv.AllowedChannelsForIDs(ctx, viewer, q.Channels)
@@ -146,6 +153,7 @@ func normalizeLiveGUID(raw string, kind ids.Kind) (string, error) {
 	return ids.GUID(kind, n)
 }
 func (s surfaceLiveTV) ResolveChannelGUID(ctx context.Context, v *core.Viewer, guid string) (frontend.LiveChannel, error) {
+	ctx = core.WithLiveApp(ctx, s.surface)
 	normalized, err := normalizeLiveGUID(guid, ids.Channel)
 	if err != nil {
 		return frontend.LiveChannel{}, err

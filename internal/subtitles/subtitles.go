@@ -185,6 +185,13 @@ func (s *Service) send(ctx context.Context, mk func() (*http.Request, error)) (*
 		if err != nil {
 			return nil, err
 		}
+		if automaticBudget(ctx) != nil {
+			if err := s.automaticPause(ctx, resp); err != nil {
+				resp.Body.Close()
+				return nil, err
+			}
+			return resp, nil // automatic requests never replay after an uncertain outcome
+		}
 		if resp.StatusCode != http.StatusTooManyRequests || attempt > 0 {
 			return resp, nil
 		}
@@ -587,7 +594,7 @@ func (s *Service) requestLink(ctx context.Context, c Candidate) (string, error) 
 			had := s.token != ""
 			s.token = ""
 			s.mu.Unlock()
-			if had {
+			if had && automaticBudget(ctx) == nil {
 				continue
 			}
 			return "", fmt.Errorf("opensubtitles download: %s", resp.Status)
@@ -604,6 +611,14 @@ func (s *Service) requestLink(ctx context.Context, c Candidate) (string, error) 
 			s.mu.Lock()
 			s.quotaTill = till
 			s.mu.Unlock()
+			if budget := automaticBudget(ctx); budget != nil {
+				pauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), automaticStatusTimeout)
+				pauseErr := budget.Pause(pauseCtx, till)
+				cancel()
+				if pauseErr != nil {
+					return "", pauseErr
+				}
+			}
 			s.log.Warn("opensubtitles download quota exhausted", "resets", till.UTC().Format(time.RFC3339))
 			return "", ErrQuota
 		case resp.StatusCode != http.StatusOK:

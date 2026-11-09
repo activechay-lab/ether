@@ -14,7 +14,7 @@ import (
 var prismCandidateMigrations = map[string]int{
 	"sessions":              9,
 	"sessions_samples":      1,
-	"viewer_policy":         5,
+	"viewer_policy":         7,
 	"availability":          6,
 	"capability_tickets":    1,
 	"capability_headers":    3,

@@ -405,7 +405,7 @@ const BUILTIN_PAGES: Record<
   calendar: { element: <Calendar />, suffix: "/:view?" },
   catalog: { element: <Catalog />, suffix: "/:tab?" },
   metadata: { element: <Metadata />, suffix: "/:tab?" },
-  sources: { element: <Sources />, suffix: "/:tab?" },
+  sources: { element: <Sources />, suffix: "/:tab?/:section?" },
   releases: { element: <Quality />, suffix: "/:tab?" },
   cache: { element: <Cache />, suffix: "/:tab?" },
   playback: { element: <Playback />, suffix: "/:tab?/:section?" },

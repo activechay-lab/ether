@@ -751,6 +751,8 @@ type fakePlayback struct {
 	stopped  []string
 	touched  []string
 	prepared int
+	// resolution, when set, makes prepared sessions on-demand sources.
+	resolution *core.Resolution
 }
 
 func newFakePlayback(info core.MediaInfo) *fakePlayback {
@@ -774,7 +776,7 @@ func (p *fakePlayback) Prepare(_ context.Context, u *core.User, k core.RatingKey
 	if ps, ok := p.sessions[id]; ok {
 		return ps, nil
 	}
-	ps := &core.PlaySession{ID: id, UserID: u.ID, ClientID: caps.ClientID, Key: k, Info: p.info, StartedAt: fixedNow}
+	ps := &core.PlaySession{ID: id, UserID: u.ID, ClientID: caps.ClientID, Key: k, Info: p.info, StartedAt: fixedNow, Resolution: p.resolution}
 	p.sessions[id] = ps
 	return ps, nil
 }
@@ -877,7 +879,10 @@ type fakeHLS struct {
 	rungs         []core.HLSRung
 	rungReqs      []string
 	rungPlaylist  string
+	encoder       *core.EncoderStatus
 }
+
+func (h *fakeHLS) EncoderStatus() *core.EncoderStatus { return h.encoder }
 
 func (h *fakeHLS) PlaybackState(state string) { h.playbackState = state }
 

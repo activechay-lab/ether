@@ -322,8 +322,12 @@ func OpenPath(ctx context.Context, path string) (*sql.DB, error) {
 }
 
 func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress func(Progress)) (*sql.DB, error) {
-	// journal_size_limit caps the WAL left on disk after a checkpoint; without
-	// it one large transaction leaves a WAL file that never shrinks.
+	// journal_size_limit trims retained WAL on writer reuse after a full
+	// checkpoint. It does not cap pinned/active frames or bound truncate I/O.
+	// Without it a large transaction can leave its allocation indefinitely.
+	// auto_vacuum=INCREMENTAL is set once, on a new database only (below):
+	// as a DSN pragma every new pool connection ran it, and it waits on the
+	// write lock, so a held writer stalled fresh reads for busy_timeout.
 	// wal_autocheckpoint=0 keeps a commit from running a checkpoint. Under
 	// WAL + synchronous=NORMAL the checkpoint is the fsync; a request must
 	// not wait on it. RunCheckpointer does that work in the background.
@@ -335,6 +339,28 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 		return nil, err
 	} else if err := protectDBFiles(path); err != nil {
 		return nil, err
+	}
+	fresh := false
+	if path != ":memory:" {
+		if st, err := os.Stat(path); errors.Is(err, os.ErrNotExist) || (err == nil && st.Size() == 0) {
+			fresh = true
+		}
+	}
+	if fresh {
+		// Create the file with auto_vacuum set before journal_mode=WAL
+		// writes the header, through a one-off handle, so the pool's
+		// connections never run the pragma.
+		init, err := sql.Open("sqlite-cached", "file:"+path+"?_pragma=auto_vacuum(INCREMENTAL)&_pragma=journal_mode(WAL)")
+		if err != nil {
+			return nil, err
+		}
+		_, err = init.ExecContext(ctx, `PRAGMA user_version`)
+		if cerr := init.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	db, err := sql.Open("sqlite-cached", dsn)
 	if err != nil {
@@ -461,6 +487,33 @@ func registered() []migration {
 	return ordered
 }
 
+// ceilingKey carries MigrateThrough's per-component version ceiling.
+type ceilingKey struct{}
+
+// WithMigrationCeiling makes opening or migrating with ctx apply only
+// migrations at or below ceiling[component] (components absent from ceiling
+// apply in full). Upgrade tests use it to build an older release's schema
+// through the real migrations, then open again without it to upgrade.
+func WithMigrationCeiling(ctx context.Context, ceiling map[string]int) context.Context {
+	return context.WithValue(ctx, ceilingKey{}, ceiling)
+}
+
+// pendingFor is registered() limited to ctx's migration ceiling, if any.
+func pendingFor(ctx context.Context) []migration {
+	ms := registered()
+	ceiling, _ := ctx.Value(ceilingKey{}).(map[string]int)
+	if ceiling == nil {
+		return ms
+	}
+	out := ms[:0]
+	for _, m := range ms {
+		if top, ok := ceiling[m.component]; !ok || m.version <= top {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		component TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY (component, version))`
 
@@ -485,7 +538,7 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 	// Counted up front for progress; each is checked again right before it
 	// runs, because a migration may record another as applied.
 	var pending []migration
-	for _, m := range registered() {
+	for _, m := range pendingFor(ctx) {
 		done, err := applied(m)
 		if err != nil {
 			return err

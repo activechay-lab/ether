@@ -46,10 +46,14 @@ type Step struct {
 	// must write nothing: a read that loops over its titles or rows, or
 	// saves what it shows, breaks it before the scale comparison would.
 	QueriesBound int
-	Method       string
-	Path         string
-	Body         string
-	Discover     func(vars map[string]string, body []byte)
+	// Export marks a step whose response is the whole library by design
+	// (an IPTV app's VOD list): its work grows with what it renders, so
+	// the gate compares work per response byte instead of per request.
+	Export   bool
+	Method   string
+	Path     string
+	Body     string
+	Discover func(vars map[string]string, body []byte)
 }
 
 // Statement ceilings for Plex Home, detail, post-play and search. Measured
@@ -111,8 +115,8 @@ const infuseFields = "DateCreated%2CEtag%2CGenres%2CMediaSources%2CAlternateMedi
 
 // Clients is every replayed client, in report order.
 func Clients() []Client {
-	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"),
-		infuseJellyfin(), swiftfin(), embySDK(), infuseEmby(), siloAppleTV(), stremio(), console()}
+	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"), plexPlayback(),
+		infuseJellyfin(), swiftfin(), embySDK(), infuseEmby(), siloAppleTV(), stremio(), console(), xtream(), mcpClient()}
 }
 
 func plexHeaders(product, platform, device string) func(*session) http.Header {
@@ -133,7 +137,11 @@ func plexDeviceHeaders(product, platform, device, suffix string) func(*session) 
 		h.Set("X-Plex-Device-Name", "etherperf")
 		h.Set("X-Plex-Client-Identifier", "etherperf-"+strings.ReplaceAll(strings.ToLower(product), " ", "-")+"-"+strconv.FormatInt(s.Viewer.ID, 10)+suffix)
 		h.Set("X-Plex-Provides", "player,controller")
-		h.Set("X-Plex-Token", s.Viewer.PlexToken)
+		// A server that trusts the replaying network (an unclaimed PMS
+		// with allowedNetworks) is driven without a token.
+		if s.Viewer.PlexToken != "" {
+			h.Set("X-Plex-Token", s.Viewer.PlexToken)
+		}
 		return h
 	}
 }
@@ -152,7 +160,7 @@ func plexSecondDevice() Client {
 
 func plexClient(name, product, platform, device string) Client {
 	page := "&includeCollections=1&includeAdvanced=1&includeMeta=1&excludeFields=summary&X-Plex-Container-Size=60"
-	return Client{Name: name, Surface: "plex", Headers: plexHeaders(product, platform, device), Steps: []Step{
+	return Client{Name: name, Surface: "plex", Headers: plexHeaders(product, platform, device), Steps: append([]Step{
 		{Name: "/identity", Class: classStatic, Path: "/identity"},
 		{Name: "/", Class: classStatic, Path: "/"},
 		{Name: "/library/sections", Class: classBrowse, Path: "/library/sections", Discover: discoverPlexSections},
@@ -165,7 +173,7 @@ func plexClient(name, product, platform, device string) Client {
 		// The shape production logged for Apple TV and Plex Web's Home.
 		{Name: "/hubs/promoted bare", Class: classHome, QueriesBound: homeQueriesBound, Path: "/hubs/promoted?count=12"},
 		{Name: "/library/onDeck", Class: classHome, Path: "/library/onDeck"},
-		{Name: "/hubs/sections/movies", Class: classHome, Path: "/hubs/sections/{movieSection}?count=12&includeMeta=1&excludeFields=summary&includeLibraryPlaylists=1"},
+		{Name: "/hubs/sections/movies", Class: classHome, Path: "/hubs/sections/{movieSection}?count=12&includeMeta=1&excludeFields=summary&includeLibraryPlaylists=1", Discover: discoverPlexHubMore},
 		{Name: "/hubs/sections/shows", Class: classHome, Path: "/hubs/sections/{showSection}?count=12&includeMeta=1&excludeFields=summary"},
 		{Name: "movies all titleSort p1", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&X-Plex-Container-Start=0" + page, Discover: discoverPlexItem("movieKey", "movie")},
 		{Name: "movies all titleSort deep", Class: classBrowse, Path: "/library/sections/{movieSection}/all?type=1&sort=titleSort&X-Plex-Container-Start=6000" + page},
@@ -195,7 +203,7 @@ func plexClient(name, product, platform, device string) Client {
 		{Name: "/livetv/dvrs", Class: classGuide, Path: "/livetv/dvrs"},
 		{Name: "live guide grid 3h", Class: classGuide, Path: "/tv.plex.providers.epg.xmltv:1/grid?type=1&beginsAt%3C={now3h}&endsAt%3E={now}"},
 		{Name: "live hubs", Class: classGuide, Path: "/tv.plex.providers.epg.xmltv:1/hubs?count=12"},
-	}}
+	}, plexLibrarySteps(page)...)}
 }
 
 func discoverPlexSections(vars map[string]string, body []byte) {
@@ -344,7 +352,7 @@ func discoverMBItem(name, typ string) func(map[string]string, []byte) {
 
 func infuseJellyfin() Client {
 	f := infuseFields
-	return Client{Name: "infuse-jellyfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Infuse-Library", "8.1", "Apple TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
+	return Client{Name: "infuse-jellyfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Infuse-Library", "8.1", "Apple TV", false), SignIn: mediaBrowserSignIn(), Steps: append([]Step{
 		{Name: "/System/Info/Public", Class: classStatic, Path: "/System/Info/Public"},
 		{Name: "/Users/{id}", Class: classStatic, Path: "/Users/{userId}?userId={userId}"},
 		{Name: "/UserItems/Resume", Class: classHome, Path: "/UserItems/Resume?fields=" + f + "&limit=40&mediaTypes=Video&userId={userId}"},
@@ -371,7 +379,7 @@ func infuseJellyfin() Client {
 		{Name: "search items star", Class: classSearch, RowsBound: searchRowsBound, Path: "/Items?fields=" + f + "&includeItemTypes=Movie%2CSeries&limit=24&recursive=true&searchTerm=star&userId={userId}"},
 		{Name: "search persons", Class: classSearch, Path: "/Persons?imageTypeLimit=1&limit=24&recursive=true&searchTerm=star&userId={userId}"},
 		{Name: "movie PlaybackInfo", Class: classPlayback, Method: http.MethodPost, Path: "/Items/{movieId}/PlaybackInfo?userId={userId}", Body: `{}`},
-	}}
+	}, jellyfinLibrarySteps(f)...)}
 }
 
 func swiftfin() Client {
@@ -387,7 +395,7 @@ func swiftfin() Client {
 }
 
 func embySDK() Client {
-	return Client{Name: "emby-sdk", Surface: "emby", Port: 2, SharedPrefix: "/emby", Headers: mediaBrowserHeaders("Emby Theater", "4.8", "etherperf", true), SignIn: mediaBrowserSignIn(), Steps: []Step{
+	return Client{Name: "emby-sdk", Surface: "emby", Port: 2, SharedPrefix: "/emby", Headers: mediaBrowserHeaders("Emby Theater", "4.8", "etherperf", true), SignIn: mediaBrowserSignIn(), Steps: append([]Step{
 		{Name: "/System/Info/Public", Class: classStatic, Path: "/System/Info/Public"},
 		{Name: "/Users/{id}/Views", Class: classHome, Path: "/Users/{userId}/Views", Discover: discoverViews},
 		{Name: "/Users/{id}/Items/Resume", Class: classHome, Path: "/Users/{userId}/Items/Resume?Limit=12&MediaTypes=Video&Fields=PrimaryImageAspectRatio"},
@@ -400,7 +408,7 @@ func embySDK() Client {
 		{Name: "series Seasons", Class: classDetail, Path: "/Shows/{seriesId}/Seasons?UserId={userId}", Discover: discoverMBItem("seasonId", "Season")},
 		{Name: "season Episodes", Class: classDetail, Path: "/Shows/{seriesId}/Episodes?SeasonId={seasonId}&UserId={userId}"},
 		{Name: "search", Class: classSearch, Path: "/Users/{userId}/Items?SearchTerm=star&Recursive=true&IncludeItemTypes=Movie%2CSeries&Limit=24"},
-	}}
+	}, embyLibrarySteps()...)}
 }
 
 func infuseEmby() Client {
@@ -496,7 +504,7 @@ func siloAppleTV() Client {
 					vars["token"] = r.AccessToken
 				}
 			}},
-		Steps: []Step{
+		Steps: append([]Step{
 			{Name: "system/info", Class: classStatic, Path: "/api/v2/system/info"},
 			{Name: "account/me", Class: classStatic, Path: "/api/v2/account/me"},
 			{Name: "profiles", Class: classStatic, Path: "/api/v2/profiles"},
@@ -513,7 +521,7 @@ func siloAppleTV() Client {
 			{Name: "series seasons", Class: classDetail, Path: "/api/v2/catalog/series/{seriesId}/seasons?include_artwork=false&poster_width=520"},
 			{Name: "series season 1 episodes", Class: classDetail, Path: "/api/v2/catalog/series/{seriesId}/seasons/1/episodes?still_width=720"},
 			{Name: "search people", Class: classSearch, Path: "/api/v2/catalog/people?limit=20&media_scope=video_with_episodes&q=star"},
-		}}
+		}, siloLibrarySteps()...)}
 }
 
 var stremioMetaID = regexp.MustCompile(`"id"\s*:\s*"((?:tmdb:|tt)[^"]+)"`)
@@ -523,7 +531,7 @@ func stremio() Client {
 		h := http.Header{}
 		h.Set("Accept", "application/json")
 		return h
-	}, Steps: []Step{
+	}, Steps: append([]Step{
 		{Name: "manifest", Class: classStatic, Path: "/manifest.json"},
 		{Name: "catalog movies", Class: classBrowse, Path: "/catalog/movie/ether-movies.json", Discover: discoverRegexp("movieMeta", stremioMetaID)},
 		{Name: "catalog movies skip=1000", Class: classBrowse, Path: "/catalog/movie/ether-movies/skip=1000.json"},
@@ -535,7 +543,7 @@ func stremio() Client {
 		{Name: "catalog search", Class: classSearch, RowsBound: searchRowsBound, Path: "/catalog/movie/ether-movies/search=star.json"},
 		{Name: "meta movie", Class: classDetail, Path: "/meta/movie/{movieMeta}.json"},
 		{Name: "meta series", Class: classDetail, Path: "/meta/series/{seriesMeta}.json"},
-	}}
+	}, stremioLibrarySteps()...)}
 }
 
 func console() Client {
@@ -544,13 +552,16 @@ func console() Client {
 		h.Set("Accept", "application/json")
 		h.Set("X-Ether-Admin-Token", s.vars["ownerToken"])
 		return h
-	}, Steps: []Step{
+	}, Steps: append([]Step{
 		{Name: "bootstrap", Class: classConsole, Path: "/bootstrap"},
 		{Name: "dashboard", Class: classConsole, Path: "/dashboard"},
 		{Name: "status", Class: classConsole, Path: "/status"},
 		{Name: "system/load", Class: classConsole, Path: "/system/load"},
 		{Name: "catalog browse movies", Class: classConsole, Path: "/catalog/browse?type=movie&offset=0&limit=48"},
-		{Name: "catalog browse deep", Class: classConsole, Path: "/catalog/browse?type=movie&sort=title&offset=4800&limit=48"},
+		// The console browser pages by keyset cursor; a cursor page costs the
+		// same at any depth, and offsets past the first page are refused.
+		{Name: "catalog browse title", Class: classConsole, Path: "/catalog/browse?type=movie&sort=title&limit=48", Discover: discoverConsoleCursor},
+		{Name: "catalog browse deep", Class: classConsole, Path: "/catalog/browse?type=movie&sort=title&limit=48&after={consoleCursor}"},
 		{Name: "catalog facets genre", Class: classConsole, Path: "/catalog/facets?type=movie&facet=genre"},
 		{Name: "catalog facets decade", Class: classConsole, Path: "/catalog/facets?type=movie&facet=decade"},
 		{Name: "catalog search", Class: classConsole, Path: "/catalog/search?q=star&limit=20"},
@@ -561,7 +572,7 @@ func console() Client {
 		{Name: "collections", Class: classConsole, Path: "/collections"},
 		{Name: "frontends", Class: classConsole, Path: "/frontends"},
 		{Name: "layout", Class: classConsole, Path: "/layout"},
-	}}
+	}, consoleLibrarySteps()...)}
 }
 
 // Only keeps the clients named in names (all of them when names is empty).

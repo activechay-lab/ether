@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"net/http"
 	"strings"
 	"time"
@@ -113,13 +114,17 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			return nil, frontend.ErrImageBatchLimit
 		}
 	}
-	viewer, err := s.grants.Resolve(ctx, string(s.surface), req.Credential)
-	if err != nil {
-		return nil, err
-	}
 	source, ok := grantHash(req.Credential)
 	if !ok {
 		return nil, core.ErrUnauthorized
+	}
+	// A listing signs its rows 50 at a time; within one read request the
+	// credential is resolved once (reqmemo's short window), not per batch.
+	viewer, err := reqmemo.Do(ctx, "image-page-grant:"+string(s.surface)+":"+source, func() (*core.Viewer, error) {
+		return s.grants.Resolve(ctx, string(s.surface), req.Credential)
+	})
+	if err != nil {
+		return nil, err
 	}
 	deviceJSON, err := json.Marshal(req.Device)
 	if err != nil || len(deviceJSON) > 4096 {
@@ -295,16 +300,6 @@ func (s *ImageGrantService) pageExpires() int64 {
 	return now - (now % step) + ttl
 }
 
-func pageNonce(key, plain []byte, size int) []byte {
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write(plain)
-	sum := mac.Sum(nil)
-	if size > len(sum) {
-		size = len(sum)
-	}
-	return sum[:size]
-}
-
 func pageRequestKey(master []byte, viewer, expires int64, surface string) []byte {
 	mac := hmac.New(sha256.New, master)
 	var buf [16]byte
@@ -313,28 +308,6 @@ func pageRequestKey(master []byte, viewer, expires int64, surface string) []byte
 	_, _ = mac.Write(buf[:])
 	_, _ = mac.Write([]byte(surface))
 	return mac.Sum(nil)
-}
-
-func sealPageGrant(reqKey []byte, claims pageClaims) (string, error) {
-	block, err := aes.NewCipher(reqKey)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	plain, err := json.Marshal(claims)
-	if err != nil {
-		return "", err
-	}
-	nonce := pageNonce(reqKey, plain, gcm.NonceSize())
-	sealed := gcm.Seal(nonce, nonce, plain, nil)
-	body := make([]byte, 16+len(sealed))
-	binary.BigEndian.PutUint64(body[:8], uint64(claims.Viewer))
-	binary.BigEndian.PutUint64(body[8:16], uint64(claims.Expires))
-	copy(body[16:], sealed)
-	return pageGrantPrefix + base64.RawURLEncoding.EncodeToString(body), nil
 }
 
 func openPageGrant(master []byte, surface, secret string, now int64) (pageClaims, error) {

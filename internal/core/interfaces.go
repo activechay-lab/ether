@@ -160,9 +160,15 @@ type Filter struct {
 	Studio             string         `json:"studio,omitempty"`
 	StudioFilters      []StringFilter `json:"studioFilters,omitempty"`
 	FirstCharacter     string         `json:"firstCharacter,omitempty"`
-	Query              string         `json:"query,omitempty"` // title substring
-	TitleFilters       []StringFilter `json:"titleFilters,omitempty"`
-	ReleasedFilters    []DateFilter   `json:"releasedFilters,omitempty"`
+	// NameStartsWith, NameStartsWithOrGreater and NameLessThan are
+	// Jellyfin and Emby's alphabet jump: bounds on the sort title in the
+	// same order as FirstCharacter's buckets (catalog sort_name.go).
+	NameStartsWith          string         `json:"nameStartsWith,omitempty"`
+	NameStartsWithOrGreater string         `json:"nameStartsWithOrGreater,omitempty"`
+	NameLessThan            string         `json:"nameLessThan,omitempty"`
+	Query                   string         `json:"query,omitempty"` // title substring
+	TitleFilters            []StringFilter `json:"titleFilters,omitempty"`
+	ReleasedFilters         []DateFilter   `json:"releasedFilters,omitempty"`
 	// MinContentRating is an additive share-policy predicate (plex.tv share
 	// filters). It does not replace MaxContentRating or ContentRatings.
 	MinContentRating string `json:"-"`
@@ -173,9 +179,27 @@ type Filter struct {
 	ExcludeCollectionNames []string `json:"-"`
 }
 
+// BrowseSeekable reports whether Browse continues a page after AfterKey in
+// q's sort order: one media type and one sort over a stored column (or the
+// key order). Other queries ignore AfterKey.
+func BrowseSeekable(q BrowseQuery) bool {
+	if q.CursorPage || q.SortLastViewed || len(q.SecondarySorts) > 0 || (q.Filter.Type != TypeMovie && q.Filter.Type != TypeShow) {
+		return false
+	}
+	switch q.Sort {
+	case SortTitle, SortPopularity, SortRating, SortYear, SortReleased, SortDuration, SortAdded:
+		return true
+	}
+	return false
+}
+
 type BrowseQuery struct {
 	// CursorPage selects the console keyset path. AfterKey is also the exclusive
-	// keyset cursor for SortKey exports.
+	// keyset cursor for SortKey exports, and for a single-type page with one
+	// scalar sort (title, popularity, rating, year, released, duration, or
+	// added for movies and series) it continues after that title in the
+	// sort order, with Offset counted from it. A seek whose title no longer
+	// matches fails with ErrSeekUnavailable; the caller pages by offset.
 	CursorPage bool
 	AfterKey   RatingKey
 
@@ -464,7 +488,12 @@ type SearchRequest struct {
 	// start (0 = unknown), and Anime marks a series whose releases are
 	// commonly numbered that way (additive).
 	AbsoluteEpisode int
-	Anime           bool
+	// Cour and CourEpisode are the 1-based cour (part) number within Season
+	// and the 1-based episode number within that cour for multi-cour anime
+	// seasons (0 when unmapped or Cour 1).
+	Cour        int
+	CourEpisode int
+	Anime       bool
 	// AlternativeTitles are other names of the movie or series (TMDB
 	// alternative titles) a release name may use; matching only, never
 	// part of a query or cache key (additive).

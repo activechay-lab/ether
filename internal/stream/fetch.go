@@ -35,12 +35,13 @@ type flight struct {
 type fetchOpts struct {
 	repairProgress func(*postedFile, int, core.RepairEvent) core.RepairWindow
 	burstUntil     time.Time
-	parallel       int         // independent bulk-reader window concurrency
-	repairValid    func() bool // readahead cursor still needs this work
-	deferObserve   bool        // readFile observes assembled segments in file order
-	noRepair       bool        // dependency reads must never recursively enter repair
-	cacheID        string      // release ID for the disk cache; "" = don't use it
-	noHot          bool        // don't fill the hot buffer (background prefetch)
+	parallel       int            // independent bulk-reader window concurrency
+	repairValid    func() bool    // readahead cursor still needs this work
+	deferObserve   bool           // readFile observes assembled segments in file order
+	noRepair       bool           // dependency reads must never recursively enter repair
+	cacheID        string         // release ID for the disk cache; "" = don't use it
+	noHot          bool           // don't fill the hot buffer (background prefetch)
+	meter          *deliveryMeter // the source this fetch delivers for; nil = none
 }
 
 // segmentRaw returns slot i of pf: from the hot buffer, the disk cache, or
@@ -367,11 +368,19 @@ func (e *Engine) bodyPart(ctx context.Context, pf *postedFile, id string, prio c
 	var data []byte
 	var part core.ArticlePart
 	var err error
+	started := fo.meter.begin()
+	release, waitErr := fo.meter.acquire(ctx, prio)
+	if waitErr != nil {
+		fo.meter.end(started, 0, false, prio)
+		return nil, core.ArticlePart{}, waitErr
+	}
+	defer release()
 	if burst, ok := e.fetcher.(core.BurstArticleFetcher); ok && time.Now().Before(fo.burstUntil) {
 		data, part, err = burst.BodyPartBurst(ctx, id, pf.groups, prio, fo.burstUntil)
 	} else {
 		data, part, err = e.fetcher.BodyPart(ctx, id, pf.groups, prio)
 	}
+	fo.meter.end(started, len(data), err == nil, prio)
 	if err == nil {
 		e.repairRate.add(int64(len(data)))
 		e.fetches.Add(1)

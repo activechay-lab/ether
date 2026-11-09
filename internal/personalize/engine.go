@@ -249,6 +249,8 @@ type Engine struct {
 	memoMu sync.Mutex
 	memo   map[memoKey]*memoEntry
 
+	shared sharedBrowses // catalogue browses shared by unrestricted viewers
+
 	presentationMu sync.Mutex
 	presentations  map[memoKey]presentation
 
@@ -945,4 +947,30 @@ func userID(u *core.User) int64 {
 		return 0
 	}
 	return u.ID
+}
+
+// BackgroundBusy is how many viewer models are being rebuilt or waiting on
+// a debounced rebuild: the performance gate waits for none before each
+// measured request.
+func (e *Engine) BackgroundBusy() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.flights) + len(e.debounce)
+}
+
+// FlushDebounced starts every debounced rebuild now instead of after its
+// delay, so the performance gate can wait for it rather than for the timer.
+func (e *Engine) FlushDebounced() {
+	e.mu.Lock()
+	var users []int64
+	for user, t := range e.debounce {
+		if t.Stop() {
+			delete(e.debounce, user)
+			users = append(users, user)
+		}
+	}
+	e.mu.Unlock()
+	for _, user := range users {
+		e.request(user)
+	}
 }

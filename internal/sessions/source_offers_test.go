@@ -145,7 +145,7 @@ func TestSourceOffersBatchQuotaRollbackAndConcurrentIdentity(t *testing.T) {
 	}, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Variants: func(context.Context, *core.Viewer, *core.Title, core.ClientCaps) ([]core.ReleaseVariant, error) {
 		return []core.ReleaseVariant{{ID: "one"}, {ID: "two"}}, nil
 	}}}
-	versionAPI, err := NewVersionHandles(db, b, "silo")
+	versionAPI, err := NewVersionHandles(db, b, "silo", testVersionKey)
 	if err != nil {
 		t.Fatal(err)
 	}

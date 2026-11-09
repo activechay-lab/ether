@@ -26,10 +26,7 @@ func logo(w, h int) *image.NRGBA {
 	return image.NewNRGBA(image.Rect(0, 0, w, h))
 }
 
-var (
-	white = color.NRGBA{255, 255, 255, 255}
-	trans = color.NRGBA{0, 0, 0, 0}
-)
+var white = color.NRGBA{255, 255, 255, 255}
 
 func TestDecide(t *testing.T) {
 	// Sky News: light "sky" wordmark on the left, red plate with white "news"

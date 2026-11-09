@@ -103,15 +103,18 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 	a.media = debrid.NewEngine(a.debrid, debrid.EngineOptions{Inner: eng, Health: eng, Cache: a.cache, Logger: log.With("component", "debrid")})
 	a.closers = append(a.closers, func() { a.media.Close() })
 	a.sources = debrid.NewIndexer(&livetv.VODIndexer{Inner: ss, Service: func() *livetv.Service { return a.livetv }}, a.debrid)
+	a.sources.SetPackNamer(a.engine)
 	a.sources.SetUsenetReady(func() bool {
 		return usenetReady() || a.hasEnabledPluginSources()
 	})
 	indexer := core.Indexer(parityIndexer(a.sources, dataDir))
 	health := core.HealthChecker(parityHealth(a.media, dataDir))
+	animeCour := resolver.AnimeCour(a.addons)
 	if a.opts.FixtureMedia != nil {
 		indexer, health = a.opts.FixtureMedia, a.opts.FixtureMedia
+		animeCour = nil
 	}
-	a.resolver = resolver.New(indexer, health, a.db, cfg, resolver.Options{Now: parityClock(), SearchObserved: a.observeSearch, Discovered: a.discoveredReleases, Observed: a.observeRelease, Invalidated: a.invalidateRelease, SeriesYearConflict: a.seriesYearConflict, Logger: log.With("component", "resolver")})
+	a.resolver = resolver.New(indexer, health, a.db, cfg, resolver.Options{Now: parityClock(), SearchObserved: a.observeSearch, Discovered: a.discoveredReleases, Observed: a.observeRelease, Invalidated: a.invalidateRelease, SeriesYearConflict: a.seriesYearConflict, AnimeCour: animeCour, Logger: log.With("component", "resolver")})
 	a.resolver.SetSourceSignals(a.debrid)
 	a.closers = append(a.closers, func() { a.resolver.Close() })
 

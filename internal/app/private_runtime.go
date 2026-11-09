@@ -18,6 +18,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
+	"github.com/braedonsaunders/ether/internal/clusterplayback"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/nodewire"
@@ -253,6 +254,36 @@ func (a *App) startPrivate(ctx context.Context) (func(), error) {
 			}
 		}
 	})
+	// Cluster retention runs on the leader only, off every request path:
+	// bounded batches of index-driven deletes, each its own short transaction.
+	// A leadership overlap is harmless; every batch re-selects under the
+	// placement ledger lock.
+	if pruner, ok := p.playback.(interface {
+		PruneRetained(context.Context, clusterplayback.RetentionOptions) (clusterplayback.RetentionReport, error)
+	}); ok {
+		launch(func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					if !a.cluster.IsLeader() {
+						continue
+					}
+					op, cancel := context.WithTimeout(runCtx, 10*time.Second)
+					report, err := pruner.PruneRetained(op, clusterplayback.RetentionOptions{})
+					cancel()
+					if err != nil && runCtx.Err() == nil {
+						a.log.Warn("cluster playback retention failed", "err", err)
+					} else if report.Sessions+report.Routes+report.Receipts > 0 {
+						a.log.Info("cluster playback retention", "sessions", report.Sessions, "routes", report.Routes, "receipts", report.Receipts, "more", report.More)
+					}
+				}
+			}
+		})
+	}
 	launch(func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()

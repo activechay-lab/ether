@@ -8,7 +8,8 @@ func TestLogicalPreviewIdentityStillIncludesItem(t *testing.T) {
 	if TrickplayCacheKey(a) == TrickplayCacheKey(b) {
 		t.Fatal("logical descriptors for different items share previews")
 	}
-	if TrickplayCacheKey(a) != TrickplayCacheKey(a) {
+	same := &PlaySession{Key: 1, Resolution: &Resolution{Release: Release{ID: "shared-pack"}}}
+	if TrickplayCacheKey(a) != TrickplayCacheKey(same) {
 		t.Fatal("identity is unstable")
 	}
 }

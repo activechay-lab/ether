@@ -99,9 +99,20 @@ var tokenCanon = map[string]string{
 	"ii": "2", "iii": "3", "iv": "4", "vi": "6", "vii": "7", "viii": "8", "ix": "9",
 	"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
 	"six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+	"eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14", "fifteen": "15",
+	"sixteen": "16", "seventeen": "17", "eighteen": "18", "nineteen": "19", "twenty": "20",
+	"thirty": "30", "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
 	"versus": "vs", "part": "pt", "volume": "vol",
 	"mister": "mr", "doctor": "dr", "saint": "st", "brothers": "bros",
 	"international": "intl",
+}
+
+var tensTokens = map[string]int{
+	"20": 20, "30": 30, "40": 40, "50": 50, "60": 60, "70": 70, "80": 80, "90": 90,
+}
+
+var unitsTokens = map[string]int{
+	"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
 }
 
 var regionalSuffixes = map[string]string{
@@ -153,8 +164,16 @@ func canonicalTokens(norm string) []string {
 			} else {
 				tok = "10"
 			}
-		} else if c, ok := tokenCanon[tok]; ok && (i > 0 || len(collapsed) == 1) {
+		} else if c, ok := tokenCanon[tok]; ok && (i > 0 || len(collapsed) == 1 || tensTokens[c] > 0) {
 			tok = c
+		}
+		if n := len(out); n > 0 {
+			if tens, ok := tensTokens[out[n-1]]; ok {
+				if unit, uok := unitsTokens[tok]; uok {
+					out[n-1] = string(rune('0'+tens/10)) + string(rune('0'+unit))
+					continue
+				}
+			}
 		}
 		out = append(out, tok)
 	}
@@ -335,6 +354,9 @@ func TitleAliases(title string) []string {
 			add(collapsed)
 		}
 	}
+	if strings.Contains(raw, "/") {
+		add(strings.ReplaceAll(raw, "/", " "))
+	}
 	// Strip trailing parenthetical disambiguator, e.g. "The Office (US)" -> "The Office".
 	if i := strings.LastIndex(raw, "("); i > 0 && strings.HasSuffix(raw, ")") {
 		inner := strings.TrimSpace(raw[i+1 : len(raw)-1])
@@ -360,6 +382,20 @@ func TitleAliases(title string) []string {
 // TitleMatches reports whether a parsed release title matches the wanted title.
 func TitleMatches(parsed core.ReleaseInfo, want string) bool {
 	return TitlesMatch(parsed.Title, want)
+}
+
+// TitleMatchesAny reports whether parsed matches want or any of the supplied
+// alternative titles.
+func TitleMatchesAny(parsed core.ReleaseInfo, want string, alts []string) bool {
+	if TitlesMatch(parsed.Title, want) {
+		return true
+	}
+	for _, alt := range alts {
+		if TitlesMatch(parsed.Title, alt) {
+			return true
+		}
+	}
+	return false
 }
 
 // YearMatches reports whether two years agree within ±1 (zero = unknown).

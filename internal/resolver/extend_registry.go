@@ -92,22 +92,3 @@ func (s *Service) fieldLookup() releasepolicy.FieldLookup {
 func (s *Service) compileRules(rules []core.ReleaseRule) (*releasepolicy.Policy, error) {
 	return releasepolicy.CompileWith(rules, s.fieldLookup())
 }
-
-// knownRankingStep accepts built-in steps and plugin steps the registry
-// actually serves. Without a registry it defers to core's structural test.
-func (s *Service) knownRankingStep(step string) bool {
-	if core.IsBuiltinRankingStep(step) {
-		return true
-	}
-	r := s.extendRegistry()
-	if r == nil {
-		return core.IsPluginRankingStep(step)
-	}
-	_, ok := r.Get(extend.KindRankingStep, step)
-	return ok
-}
-
-// validateRanking is core.ValidateRankingWith against the registry.
-func (s *Service) validateRanking(ranking []string, rules []core.ReleaseRule) error {
-	return core.ValidateRankingWith(ranking, rules, s.knownRankingStep)
-}

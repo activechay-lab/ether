@@ -3,8 +3,10 @@ package diagnostics
 import (
 	"fmt"
 	"html"
+	"io"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -280,4 +282,39 @@ func reportTruncated(b bool) string {
 		return " (truncated)"
 	}
 	return ""
+}
+
+// writeStorageDetail renders what grew: tables with their index bytes,
+// catalogue counts, the browsable bar, On Air assets and the files beside
+// the database.
+func writeStorageDetail(b io.Writer, s StorageFact) {
+	if s.DatabaseAutoVacuum != "" || s.DatabaseJournalMode != "" {
+		fmt.Fprintf(b, "Auto-vacuum %s; journal mode %s.\n", strconv.Quote(s.DatabaseAutoVacuum), strconv.Quote(s.DatabaseJournalMode))
+	}
+	if len(s.DatabaseTables) > 0 {
+		fmt.Fprintf(b, "\nTables with their indexes (%s, %d ms; rows are planner estimates unless exact):\n", s.DatabaseTablesStatus, s.DatabaseTablesMillis)
+		for _, t := range s.DatabaseTables {
+			fmt.Fprintf(b, "- %s: %s (table %s, %d indexes %s), %d rows\n", strconv.Quote(t.Name), reportBytes(t.TableBytes+t.IndexBytes), reportBytes(t.TableBytes), t.Indexes, reportBytes(t.IndexBytes), t.Rows)
+		}
+	}
+	if c := s.CatalogSettings; c != nil {
+		fmt.Fprintf(b, "\nCatalogue browsable bar: minimum popularity %g, minimum votes %d, hide obscure titles %t, adult %t, upcoming movies %t.\n", c.MinPopularity, c.MinVotes, c.HideObscure, c.IncludeAdult, c.ShowUpcomingMovies)
+	}
+	if len(s.CatalogCounts) > 0 {
+		io.WriteString(b, "Catalogue rows:\n")
+		for _, c := range s.CatalogCounts {
+			if c.Detailed == nil {
+				fmt.Fprintf(b, "- type %s, browsable %t: %d\n", strconv.Quote(c.Type), c.Browsable, c.Rows)
+			} else {
+				fmt.Fprintf(b, "- browsable %t, detailed %t: %d\n", c.Browsable, *c.Detailed, c.Rows)
+			}
+		}
+	}
+	if len(s.OnAirAssets) > 0 {
+		io.WriteString(b, "On Air assets by kind:\n")
+		for _, a := range s.OnAirAssets {
+			fmt.Fprintf(b, "- %s: %d, %s\n", strconv.Quote(a.Kind), a.Count, reportBytes(a.Bytes))
+		}
+	}
+	fmt.Fprintf(b, "Pre-migrate snapshots: %d files, %s. Backups folder: %d files, %s.\n", s.PreMigrateSnapshots.Files, reportBytes(s.PreMigrateSnapshots.Bytes), s.Backups.Files, reportBytes(s.Backups.Bytes))
 }

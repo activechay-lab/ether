@@ -331,6 +331,30 @@ func (l *encoderLifetime) runWork(encoding bool) ([]*encoderWork, error) {
 	return work, nil
 }
 
+// runEncoderPreflight owns probes started before a Session is published.
+// Supersession cancels them, but retirement still waits for Run to reap the
+// process; cancellation alone is not evidence that an input producer exited.
+func (m *Manager) runEncoderPreflight(ctx context.Context, life *encoderLifetime, cmd Command) error {
+	work, err := life.reserve(1)
+	if err != nil {
+		return err
+	}
+	defer work[0].finish()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if life != nil {
+		go func() {
+			select {
+			case <-life.cancel:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
+	life.markStarted()
+	return m.runner.Run(ctx, cmd)
+}
+
 func (s *Session) encoderRun(ctx context.Context, cmd Command) error {
 	work, err := s.encoder.reserve(1)
 	if err != nil {

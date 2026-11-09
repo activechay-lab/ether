@@ -290,12 +290,10 @@ func (s *QualitySyncer) apply(c *config.Config, name, media string, saved core.P
 	if next.MediaType == "" {
 		next.MediaType = core.MediaTypeForApp(app)
 	}
-	// Ranking and size policy are the owner's tuning, not part of the
-	// guide's definition.
+	// Rules, plugin steps, Ether's own format scores and size policy are
+	// the owner's tuning, not part of the guide's definition.
 	next.ReleaseRules = cur.ReleaseRules
-	next.Ranking = cur.Ranking
-	next.RankingConfig = cur.RankingConfig
-	next.PreferLargest = cur.PreferLargest
+	next.PluginScores = cur.PluginScores
 	next.FallbackBelowMin = cur.FallbackBelowMin
 	next.MinSizeMBPerMin = cur.MinSizeMBPerMin
 	next.MaxSizeMBPerMin = cur.MaxSizeMBPerMin
@@ -303,6 +301,14 @@ func (s *QualitySyncer) apply(c *config.Config, name, media string, saved core.P
 	next.EpisodeMaxSizeMBPerMin = cur.EpisodeMaxSizeMBPerMin
 	next.AllowCam = cur.AllowCam
 	next.CustomFormatScores = maps.Clone(plan.Profile.CustomFormatScores)
+	for id, v := range cur.CustomFormatScores {
+		if strings.HasPrefix(id, core.BuiltinFormatPrefix) || strings.HasPrefix(id, core.RuleFormatPrefix) {
+			if next.CustomFormatScores == nil {
+				next.CustomFormatScores = map[string]int{}
+			}
+			next.CustomFormatScores[id] = v
+		}
+	}
 	if len(next.CustomFormatScores) == 0 {
 		next.CustomFormatScores = nil
 	}
@@ -346,35 +352,14 @@ func (s *QualitySyncer) apply(c *config.Config, name, media string, saved core.P
 			}
 		}
 		if at < 0 {
+			// No other profile lists the new format, so it scores 0 there.
 			c.Resolver.CustomFormats = append(c.Resolver.CustomFormats, def)
-			// Adding a guide format must not change any other profile's scores.
-			for i := range c.Quality.Profiles {
-				p := &c.Quality.Profiles[i]
-				if _, exists := p.CustomFormatScores[id]; !exists {
-					if p.CustomFormatScores == nil {
-						p.CustomFormatScores = map[string]int{}
-					}
-					p.CustomFormatScores[id] = 0
-				}
-			}
 			report.FormatsAdded++
 			continue
 		}
 		if c.Resolver.CustomFormats[at].ManagedBy != "" && !sameFormatDefinition(c.Resolver.CustomFormats[at], def) {
 			c.Resolver.CustomFormats[at] = def
 			report.FormatsUpdated++
-		}
-	}
-	// Imported profiles explicitly opt out of unrelated shared formats while
-	// ordinary sparse owner maps retain their global-score inheritance.
-	if next.CustomFormatScores == nil {
-		next.CustomFormatScores = map[string]int{}
-	}
-	for _, def := range c.Resolver.CustomFormats {
-		if id := formatID(def); id != "" {
-			if _, exists := next.CustomFormatScores[id]; !exists {
-				next.CustomFormatScores[id] = 0
-			}
 		}
 	}
 	if !sameProfileDefinition(cur, next) {

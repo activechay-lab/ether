@@ -245,7 +245,9 @@ func TestIntegrationMatroskaOpenGOPCopyTimeline(t *testing.T) {
 		{"long-gop-mid", 192, 12 * time.Second, openGOPx265(24, "ctu=32:no-sao=1:cbqpoffs=3")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newRealEnv(t, WithoutHWDetection())
+			// The unindexed plan of a feature-length title, which the copy
+			// sample cannot cover whole: long GOPs leave empty Clusters.
+			e := newRealEnv(t, WithoutHWDetection(), withCopySample(64))
 			e.gen(t, "remux.mkv", 24, openGOPx265(tc.keyint, "ctu=64")...)
 			e.gen(t, "web.mkv", 24, tc.other...)
 			gop := float64(tc.keyint) / 24

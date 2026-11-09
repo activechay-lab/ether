@@ -28,6 +28,8 @@ type continuousEncoder struct {
 	workers sync.WaitGroup
 	index   *continuousSegmentIndex
 	stream  *continuousFanout
+	store   *continuousStore
+	m       *Manager
 }
 
 // StartEncoder starts a fixed rendition. Scaling stays in ffmpeg (one scale per
@@ -39,7 +41,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	if r.SegmentDuration == 0 {
 		r.SegmentDuration = 4 * time.Second
 	}
-	if r.SegmentDuration != 4*time.Second || r.DVRWindow < 0 {
+	if (r.SegmentDuration != 4*time.Second && r.SegmentDuration != 2*time.Second) || r.DVRWindow < 0 {
 		return nil, errors.New("transcode: invalid segment or DVR duration")
 	}
 	if r.Decision.VideoCodec != "" && r.Decision.VideoCodec != "h264" && r.Decision.VideoCodec != "hevc" {
@@ -48,6 +50,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	if r.Decision.AudioCodec != "" && r.Decision.AudioCodec != "aac" {
 		return nil, errors.New("transcode: continuous output requires AAC")
 	}
+	startSchedulerWatch(m.log)
 	ctx, release, e := m.AcquireTranscodeSlot(ctx, SlotViewer)
 	if e != nil {
 		return nil, e
@@ -89,9 +92,22 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	if r.SessionID == "" {
 		r.SessionID = randomHex(12)
 	}
-	enc := &continuousEncoder{req: r, dir: dir, frames: make(chan RawFrame, 8), writeMu: make(chan struct{}, 1), stream: newContinuousFanout()}
-	args := m.continuousEncodeArgs(r, sockets, dir)
-	p, e := m.startContinuous(ctx, args, dir, false, sockets, enc.stream, func() { release(); enc.stream.close(); _ = removeAllRetry(dir) }, func(line string) {
+	enc := &continuousEncoder{req: r, dir: dir, frames: make(chan RawFrame, 8), writeMu: make(chan struct{}, 1), stream: newContinuousFanout(), m: m}
+	enc.index = newContinuousSegmentIndex(enc)
+	// Keep about 30 s of each container in memory: the live window clients
+	// read, served without touching the disk.
+	keep := int((30*time.Second + r.SegmentDuration - 1) / r.SegmentDuration)
+	enc.store, e = newContinuousStore(dir, keep, enc.index.kick)
+	if e != nil {
+		return nil, e
+	}
+	defer func() {
+		if !ok {
+			enc.store.close()
+		}
+	}()
+	args := m.continuousEncodeArgs(r, sockets, enc.store.url())
+	p, e := m.startContinuous(ctx, args, dir, false, sockets, enc.stream, func() { release(); enc.stream.close(); enc.store.close(); _ = removeAllRetry(dir) }, func(line string) {
 		if value, ok := strings.CutPrefix(line, "speed="); ok {
 			if speed, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(value), "x"), 64); err == nil && speed > 0 {
 				enc.speed.Store(math.Float64bits(speed))
@@ -102,7 +118,6 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 		return nil, e
 	}
 	enc.continuousProcess = p
-	enc.index = newContinuousSegmentIndex(enc)
 	go enc.index.watch()
 	// Each stream drains independently; probing or mux scheduling cannot deadlock
 	// the other input. Sparse pictures carry output-clock timestamps, PCM is complete.
@@ -194,7 +209,7 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	clean = false
 	return enc, nil
 }
-func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir string) []string {
+func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, base string) []string {
 	f := r.Source
 	rate := fmt.Sprintf("%d/%d", f.FPSNum, f.FPSDen)
 	args := []string{"-hide_banner", "-loglevel", "warning", "-stats_period", "1", "-progress", "pipe:2", "-nostdin", "-y", "-filter_threads", "1"}
@@ -233,13 +248,26 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	// maxrate + buffer <= remaining budget. Keep CRF/mbtree/lookahead intact.
 	budget := max(200, ceiling-max(r.Decision.AudioBitrateKbps, 128)-64)
 	spec.Rate = rateControl{TargetKbps: budget * 9 / 10, MaxrateKbps: budget * 9 / 10, BufsizeKbps: budget / 10}
+	if r.LiveSource {
+		// A segment's average stays under the ceiling; within it, an I-frame
+		// may borrow from the pictures after it.
+		segment := int(r.SegmentDuration / time.Second)
+		spec.Rate = rateControl{TargetKbps: budget, MaxrateKbps: budget, BufsizeKbps: budget * max(1, segment)}
+	}
 
 	args = append(args, planEncodeArgs(spec, picturePlan{w: w, h: h, outRange: rangeSDR}, enc, codec, false)...)
 	if strings.HasSuffix(enc, "_videotoolbox") {
 		args = append(args, "-realtime", "1")
 	}
 	if enc == "libx264" {
-		args = append(args, "-x264-params", "vbv-init=0.1:rc-lookahead=20:sync-lookahead=0:aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15")
+		// A live provider output starts its client one short cushion behind
+		// the first picture; ten frames of lookahead keep mbtree while taking
+		// a third of a second off every segment's publish lag.
+		lookahead := 20
+		if r.LiveSource {
+			lookahead = 10
+		}
+		args = append(args, "-x264-params", fmt.Sprintf("vbv-init=0.1:rc-lookahead=%d:sync-lookahead=0:aq-mode=2:aq-strength=0.8:psy-rd=1.0,0.15", lookahead))
 	}
 	g := int((int64(r.SegmentDuration)*int64(f.FPSNum) + int64(time.Second*time.Duration(f.FPSDen))/2) / int64(time.Second*time.Duration(f.FPSDen)))
 	pix := "yuv420p"
@@ -249,13 +277,18 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, dir str
 	if strings.HasSuffix(enc, "_qsv") || strings.HasSuffix(enc, "_videotoolbox") {
 		pix = "nv12"
 	}
-	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", fmt.Sprintf("expr:if(lt(n,%d),eq(n,0)+eq(n,%d)+eq(n,%d),gte(n,(n_forced-2)*%d))", g, g/4, g/2, g), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
+	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", continuousKeyframeExpr(f, r.SegmentDuration, r.LiveSource), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
 	// Tee encodes once and muxes the identical packets into all delivery forms.
 	duration := float64(g*f.FPSDen) / float64(f.FPSNum)
 	ds := strconv.FormatFloat(duration, 'f', 6, 64)
 	window := continuousWindow(r.DVRWindow, time.Second*time.Duration(g*f.FPSDen)/time.Duration(f.FPSNum)) + 3
 	initial := strconv.FormatFloat(duration/4, 'f', 6, 64)
-	outputs := []string{fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=%s]%s", ds, initial, window, "seg-%09d.ts", "index.m3u8"), fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_segment_type=fmp4:hls_fmp4_init_filename=init.mp4:hls_flags=delete_segments+independent_segments+temp_file:hls_segment_filename=fragment-%%09d.m4s]fragments.m3u8", ds, initial, window)}
+	// Every finished file is PUT to the encoder's in-memory store over
+	// loopback; ffmpeg never writes to (or waits on) a disk. A tee option
+	// value escapes ':' once for the tee and once for the option parser.
+	opt := strings.ReplaceAll(base, ":", `\\\:`)
+	put := "method=PUT:http_persistent=1"
+	outputs := []string{fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_flags=independent_segments:%s:hls_segment_filename=%sseg-%%09d.ts]%sindex.m3u8", ds, initial, window, put, opt, base), fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_segment_type=fmp4:hls_fmp4_init_filename=init.mp4:hls_flags=independent_segments:%s:hls_segment_filename=%sfragment-%%09d.m4s]%sfragments.m3u8", ds, initial, window, put, opt, base)}
 	outputs = append(outputs, "[f=mpegts:mpegts_flags=resend_headers]pipe:1")
 	return append(args, "-f", "tee", strings.Join(outputs, "|"))
 }
@@ -299,7 +332,10 @@ func (e *continuousEncoder) WriteShared(ctx context.Context, f RawFrame) error {
 	}
 }
 func (e *continuousEncoder) Segments() SegmentIndex { return e.index }
-func (e *continuousEncoder) RealtimeSpeed() float64 { return math.Float64frombits(e.speed.Load()) }
+
+// RecentPublishLag is the worst publication lag within about the last minute.
+func (e *continuousEncoder) RecentPublishLag() time.Duration { return e.index.RecentLag() }
+func (e *continuousEncoder) RealtimeSpeed() float64          { return math.Float64frombits(e.speed.Load()) }
 func (e *continuousEncoder) Diagnostics() string {
 	progress := map[string]string{}
 	for line := range strings.SplitSeq(e.stderr.String(), "\n") {
@@ -308,7 +344,8 @@ func (e *continuousEncoder) Diagnostics() string {
 			progress[strings.TrimSpace(key)] = strings.TrimSpace(value)
 		}
 	}
-	return fmt.Sprintf("queued=%d frame=%s fps=%s speed=%s outTimeUS=%s", len(e.frames), progress["frame"], progress["fps"], progress["speed"], progress["out_time_us"])
+	lag, worst := e.index.PublishLag()
+	return fmt.Sprintf("queued=%d frame=%s fps=%s speed=%s outTimeUS=%s publishLag=%s worstLag=%s droppedHistory=%d", len(e.frames), progress["frame"], progress["fps"], progress["speed"], progress["out_time_us"], lag.Round(time.Millisecond), worst.Round(time.Millisecond), e.store.droppedWrites())
 }
 func (e *continuousEncoder) Close() error {
 	e.continuousProcess.close()

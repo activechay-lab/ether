@@ -17,6 +17,7 @@ const (
 	kindPlain planKind = "plain"
 	kindRAR   planKind = "rar"
 	kind7z    planKind = "7z"
+	kindZIP   planKind = "zip"
 	kindSplit planKind = "split"
 )
 
@@ -107,6 +108,14 @@ type plan struct {
 	exactErr error
 	exact    chan struct{} // non-nil while an exact rebuild runs
 
+	// clips, for a Blu-ray main feature of several clips, is where each clip's
+	// bytes end and how far its timestamps are from a continuous timeline.
+	clips []clipBoundary
+	spans []clipSpan // clips as byte ranges, built with the plan
+	// sub, for a feature from an encrypted disc image, is where each stretch is
+	// read from: the image's own plan, which decrypts it.
+	sub []subRange
+
 	// PAR2 verification verdict of the first volume (see verifyPar2).
 	par2Done bool
 	par2Err  error
@@ -158,7 +167,7 @@ func (p *plan) buildLocked(version int) (*layout, error) {
 	}
 	l := &layout{version: version, size: p.size}
 	switch p.kind {
-	case kind7z:
+	case kind7z, kindZIP:
 		starts := make([]int64, len(p.info)+1)
 		for k, vi := range p.info {
 			if vi.size > math.MaxInt64-starts[k] {
@@ -176,7 +185,7 @@ func (p *plan) buildLocked(version int) (*layout, error) {
 			k := sort.Search(len(p.info), func(k int) bool { return starts[k+1] > off })
 			for rem > 0 {
 				if k >= len(p.info) {
-					return nil, fmt.Errorf("stream: 7z member extends past the last volume: %w", ErrCorrupt)
+					return nil, fmt.Errorf("stream: %s member extends past the last volume: %w", p.kind, ErrCorrupt)
 				}
 				take := starts[k+1] - off
 				if take > rem {
@@ -190,7 +199,7 @@ func (p *plan) buildLocked(version int) (*layout, error) {
 			}
 		}
 		if inner != p.size {
-			return nil, fmt.Errorf("stream: 7z extents cover %d of %d bytes: %w", inner, p.size, ErrCorrupt)
+			return nil, fmt.Errorf("stream: %s extents cover %d of %d bytes: %w", p.kind, inner, p.size, ErrCorrupt)
 		}
 	default:
 		var inner int64
@@ -328,7 +337,7 @@ func (p *plan) inspect(ctx context.Context, v verifier, k int) (volInfo, error) 
 			return volInfo{}, fmt.Errorf("stream: rar volume %d (%s): %w", k+1, pf.Name(), m.Streamable())
 		}
 		return volInfo{size: size, dataOff: f.DataOffset, dataSize: f.PackedSize}, nil
-	case kind7z:
+	case kind7z, kindZIP:
 		return volInfo{size: size}, nil
 	default:
 		return volInfo{size: size, dataOff: 0, dataSize: size}, nil
@@ -391,4 +400,10 @@ func (p *plan) rebuildExact(ctx context.Context, v verifier) error {
 	}
 	p.lay = l
 	return nil
+}
+
+// clipBoundary is one clip of a concatenated Blu-ray main feature.
+type clipBoundary struct {
+	byteLen  int64 // the clip's size in the played file
+	delta90k int64 // added to its PTS/DTS/PCR (90 kHz) for a continuous timeline
 }

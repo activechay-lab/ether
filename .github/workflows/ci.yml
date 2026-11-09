@@ -151,6 +151,10 @@ jobs:
           - os: ubuntu-latest
             shard: app-3
           - os: ubuntu-latest
+            shard: transcode-matroska
+          - os: ubuntu-latest
+            shard: transcode-integration
+          - os: ubuntu-latest
             shard: transcode-playback
           - os: ubuntu-latest
             shard: protocols-catalog
@@ -341,8 +345,18 @@ jobs:
             app-3)
               go test -race -timeout 20m ./internal/app -run '^Test[^A-P]'
               ;;
+            # internal/transcode alone outgrew one 20-minute -race budget
+            # (real-ffmpeg integration tests are most of it): three shards
+            # by test name, no cases dropped and no timeout raised.
+            transcode-matroska)
+              go test -race -timeout 20m ./internal/transcode -run '^TestIntegrationMatroska'
+              ;;
+            transcode-integration)
+              go test -race -timeout 20m ./internal/transcode -run '^TestIntegration' -skip '^TestIntegrationMatroska'
+              ;;
             transcode-playback)
-              go test -race -timeout 20m ./internal/transcode/... ./internal/playback/... ./internal/usenet/...
+              go test -race -timeout 20m ./internal/transcode -skip '^TestIntegration'
+              go test -race -timeout 20m ./internal/playback/... ./internal/usenet/...
               ;;
             protocols-catalog)
               go test -race -timeout 20m ./internal/plex/... ./internal/frontends/... ./internal/catalog/... ./internal/resolver/... ./internal/debrid/...
@@ -410,6 +424,11 @@ jobs:
       fail-fast: false
       matrix:
         package: [store, cluster, clusterconfig, clusterbus, clusterplayback, state, livetv, app, artwork/service, auth, backup, debrid, experience, handles/capability, identity, migrate, playback, playbackcontinuity, placement, plexwatch, sessions]
+        include:
+          # The node-local long-tail index on shared PostgreSQL: a node with no
+          # index yet falls back without errors; each node builds its own.
+          - package: catalog
+            run: Tail|ClusterNode
     services:
       postgres:
         # PostgreSQL 14 is Ether's minimum supported server version.
@@ -437,7 +456,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
           ETHER_TEST_POSTGRES: postgres://ether:ether@127.0.0.1:5432/ether?sslmode=disable
-        run: go test -count=1 -timeout 20m ./internal/${{ matrix.package }}/...
+          PACKAGE: ${{ matrix.package }}
+          RUN: ${{ matrix.run }}
+        run: go test -count=1 -timeout 20m ${RUN:+-run "$RUN"} "./internal/$PACKAGE/..."
 
   vulnerabilities:
     name: Go vulnerabilities
@@ -477,12 +498,26 @@ jobs:
           CGO_ENABLED: "0"
           ETHER_PERF_GATE: "1"
           ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate.md
+          ETHER_PERF_GATE_KEEP: ${{ runner.temp }}/perf-gate-private
         run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 60m -v
       - name: Publish the gate report
         if: always()
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/perf-gate.md" ]; then cat "$RUNNER_TEMP/perf-gate.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Prepare sanitized performance evidence
+        if: always()
+        run: python3 scripts/perf-gate-artifacts.py "$RUNNER_TEMP"
+      - name: Retain performance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          # Never upload the private KEEP directory: it contains databases
+          # and raw request paths, including synthetic Stremio credentials.
+          path: ${{ runner.temp }}/perf-gate-artifacts/
+          retention-days: 14
+          if-no-files-found: error
 
   web:
     name: Web UI

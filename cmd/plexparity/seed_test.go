@@ -29,11 +29,11 @@ func TestSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	// Default facet collections are created by the real service constructor;
-	// their timestamps appear in Plex thumbnail URLs and must not use wall time.
+	// Library collections come from the applied template bundles; their
+	// timestamps appear in Plex thumbnail URLs and must not use wall time.
 	var collectionCount, wrongCollectionTimes int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN s.created_at<>? OR s.updated_at<>? THEN 1 ELSE 0 END),0) FROM collections_defaults d JOIN collections_specs s ON s.id=d.spec_id`, fixtureNow.Unix(), fixtureNow.Unix()).Scan(&collectionCount, &wrongCollectionTimes); err != nil || collectionCount == 0 || wrongCollectionTimes != 0 {
-		t.Fatalf("default collection fixture clock: count=%d wrong=%d err=%v", collectionCount, wrongCollectionTimes, err)
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN created_at<>? OR updated_at<>? THEN 1 ELSE 0 END),0) FROM collections_specs WHERE spec_json LIKE '%"templateId":"genre-movie-%' OR spec_json LIKE '%"templateId":"network-%'`, fixtureNow.Unix(), fixtureNow.Unix()).Scan(&collectionCount, &wrongCollectionTimes); err != nil || collectionCount == 0 || wrongCollectionTimes != 0 {
+		t.Fatalf("library collection fixture clock: count=%d wrong=%d err=%v", collectionCount, wrongCollectionTimes, err)
 	}
 	settings, err := watchlist.New(db, watchlist.Options{}).Settings(ctx)
 	if err != nil || !settings.Enabled || settings.Plex || settings.Trakt {

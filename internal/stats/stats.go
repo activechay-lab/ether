@@ -84,12 +84,19 @@ type Options struct {
 	MetadataType func(core.RatingKey) int
 	// AccountName labels a user on Dashboard media rows.
 	AccountName func(int64) string
+	// Debrid and Stream report this node's cumulative debrid account and
+	// streaming-engine counters; the sampler keeps their daily growth.
+	Debrid func() []DebridSample
+	Stream func() (StreamSample, bool)
 }
 type Service struct {
 	db       *sql.DB
 	opts     Options
 	mu       sync.Mutex
 	previous map[string]usenet.ProviderStats
+	// prevDebrid and prevStream are the last debrid samples (under mu).
+	prevDebrid map[string]DebridSample
+	prevStream StreamSample
 	// vmu serializes play records: viewings maps playback sessions onto
 	// history rows, and a row's writes must land in observation order.
 	vmu      sync.Mutex
@@ -351,6 +358,18 @@ func (s *Service) Sample(ctx context.Context) {
 			s.snapshot(ctx, "indexers", v)
 		}
 	}
+	if s.opts.Debrid != nil {
+		if err := s.SnapshotDebrid(ctx, s.opts.Debrid()); err != nil {
+			s.opts.Logger.Warn("sample debrid stats", "err", err)
+		}
+	}
+	if s.opts.Stream != nil {
+		if v, ok := s.opts.Stream(); ok {
+			if err := s.SnapshotStream(ctx, v); err != nil {
+				s.opts.Logger.Warn("sample stream stats", "err", err)
+			}
+		}
+	}
 }
 func (s *Service) snapshot(ctx context.Context, kind string, v any) error {
 	b, err := json.Marshal(v)
@@ -564,6 +583,10 @@ type Cost struct {
 	Currency string  `json:"currency"`
 }
 
+// costKinds are the sources a plan price can belong to: Usenet providers,
+// indexers, debrid accounts and IPTV sources.
+var costKinds = map[string]bool{"provider": true, "indexer": true, "debrid": true, "iptv": true}
+
 func (s *Service) SetCost(ctx context.Context, c Cost) error {
 	c.Currency = strings.ToUpper(c.Currency)
 	validCurrency := len(c.Currency) == 3
@@ -572,7 +595,7 @@ func (s *Service) SetCost(ctx context.Context, c Cost) error {
 			validCurrency = false
 		}
 	}
-	if (c.Kind != "provider" && c.Kind != "indexer") || c.ID == "" || c.Monthly < 0 || c.Monthly > 1000000 || math.IsNaN(c.Monthly) || math.IsInf(c.Monthly, 0) || !validCurrency {
+	if !costKinds[c.Kind] || c.ID == "" || c.Monthly < 0 || c.Monthly > 1000000 || math.IsNaN(c.Monthly) || math.IsInf(c.Monthly, 0) || !validCurrency {
 		return fmt.Errorf("kind, ID, nonnegative price and three-letter currency required")
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO stats_costs(kind,id,monthly,currency) VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET monthly=excluded.monthly,currency=excluded.currency`, c.Kind, c.ID, c.Monthly, c.Currency)

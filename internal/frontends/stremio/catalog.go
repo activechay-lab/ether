@@ -132,7 +132,7 @@ func (i *instance) catalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	metas := make([]map[string]any, 0, len(titles))
-	posters := i.artwork(r, credential, device, titles)
+	posters := i.artwork(r, credential, viewer, device, titles)
 	for _, title := range titles {
 		if title.IDs.TMDB <= 0 {
 			continue

@@ -399,11 +399,13 @@ func TestVariantIDRegistryStablePersisted(t *testing.T) {
 }
 
 func TestVariantIDCollisionProbeAndPartTitle(t *testing.T) {
-	r := newVariantIDRegistry(nil)
+	db := store.OpenTest(t)
+	r := newVariantIDRegistry(db)
 	h := variantHash(fightClub.Key, "rel-x")
 	squatter := variantRef{key: alien.Key, releaseID: "other"}
-	r.byID[h] = squatter
-	r.byPair[squatter] = h
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO variants_ids(media_id,rating_key,release_id,last_seen) VALUES(?,?,?,?)`, h, int64(squatter.key), squatter.releaseID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
 	got := r.idFor(fightClub.Key, "rel-x")
 	if got == h {
 		t.Fatal("collision not probed")

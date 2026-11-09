@@ -151,6 +151,19 @@ func guideSource(c Channel) string {
 	return c.SourceID
 }
 
+// GuideChannelLogo returns the logo URL for the channel's matched guide channel,
+// or empty string if unmapped or not found.
+func (s *Service) GuideChannelLogo(ctx context.Context, c Channel) string {
+	if s.o.DB == nil || c.GuideID == "" {
+		return ""
+	}
+	var logo string
+	_ = s.o.DB.QueryRowContext(ctx,
+		`SELECT logo FROM livetv_guide_channels WHERE source_id=? AND guide_id=?`,
+		guideSource(c), c.GuideID).Scan(&logo)
+	return logo
+}
+
 func msTime(ms int64) *time.Time {
 	t := time.UnixMilli(ms).UTC()
 	return &t
@@ -205,46 +218,6 @@ func (s *Service) keepStoredUploads(ctx context.Context, src *Source) error {
 	}
 	if needGuide && old.GuideURL == "" {
 		src.Guide = old.Guide
-	}
-	return nil
-}
-
-// replaceGuideChannels stores a source's XMLTV channels inside the import
-// transaction. Programme channel ids without a <channel> entry are kept too.
-func replaceGuideChannels(ctx context.Context, tx *sql.Tx, sourceID string, g XMLGuide) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM livetv_guide_channels WHERE source_id=?`, sourceID); err != nil {
-		return err
-	}
-	for id, c := range g.Channels {
-		if id == "" {
-			continue
-		}
-		names := g.Names[id]
-		if names == nil {
-			names = []string{}
-		}
-		b, err := json.Marshal(names)
-		if err != nil {
-			return err
-		}
-		name := strings.TrimSpace(c.Name)
-		if name == "" {
-			name = id
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO livetv_guide_channels(source_id,guide_id,name,logo,names) VALUES(?,?,?,?,?)
-			ON CONFLICT(source_id,guide_id) DO UPDATE SET name=excluded.name, logo=excluded.logo, names=excluded.names`, sourceID, id, name, c.Logo, string(b)); err != nil {
-			return err
-		}
-	}
-	seen := map[string]bool{}
-	for _, p := range g.Programmes {
-		if _, ok := g.Channels[p.ChannelID]; ok || seen[p.ChannelID] || p.ChannelID == "" {
-			continue
-		}
-		seen[p.ChannelID] = true
-		if _, err := tx.ExecContext(ctx, `INSERT INTO livetv_guide_channels(source_id,guide_id,name) VALUES(?,?,?) ON CONFLICT DO NOTHING`, sourceID, p.ChannelID, p.ChannelID); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -1120,6 +1093,9 @@ func nextRefresh(src Source, horizon *time.Time) (time.Time, bool) {
 // channel uses, ignoring channels whose listings had already ended when the
 // source was last imported (refreshing would not extend them).
 func (s *Service) planRefresh(ctx context.Context, srcs []Source) error {
+	if err := s.overlayRefreshStamps(ctx, srcs); err != nil {
+		return err
+	}
 	cs, err := s.Channels(ctx)
 	if err != nil {
 		return err
@@ -1190,11 +1166,39 @@ func (s *Service) planRefresh(ctx context.Context, srcs []Source) error {
 // RefreshSource re-imports a stored source. On failure the existing channels
 // and guide are kept and the error is recorded on the source.
 func (s *Service) RefreshSource(ctx context.Context, id string) (Source, error) {
+	return s.refreshSource(ctx, id, "manual")
+}
+
+func (s *Service) refreshSource(ctx context.Context, id, reason string) (Source, error) {
+	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
+	defer cancel()
+	release, err := s.acquireRefresh(ctx, id)
+	if err != nil {
+		return Source{}, err
+	}
+	defer release()
 	src, err := s.storedSourceByID(ctx, id)
 	if err != nil {
 		return src, err
 	}
-	v, err := s.ImportSource(ctx, src)
+	// Recheck after admission: another node may have completed the refresh
+	// since this worker selected the source.
+	current := []Source{src}
+	if reason != "manual" {
+		if err := s.planRefresh(ctx, current); err != nil {
+			return src, err
+		}
+		src = current[0]
+		due := src.NextRefresh != nil && !s.o.Now().Before(*src.NextRefresh)
+		if reason == "activity" {
+			due = activityRefreshDue(src, s.o.Now())
+		}
+		if !due {
+			return src, nil
+		}
+	}
+	s.o.Logger.Debug("Live TV source refresh", "sourceId", id, "reason", reason)
+	v, err := s.importSourceLogged(ctx, src)
 	if err != nil {
 		at := s.o.Now().UTC().Format(time.RFC3339Nano)
 		msg := err.Error()
@@ -1206,7 +1210,9 @@ func (s *Service) RefreshSource(ctx context.Context, id string) (Source, error) 
 			q = `UPDATE livetv_sources SET data=(data::jsonb || jsonb_build_object('lastError', CAST(? AS TEXT), 'lastErrorAt', CAST(? AS TEXT),
 				'refreshFailures', COALESCE(CAST(data::jsonb->>'refreshFailures' AS BIGINT),0)+1))::text WHERE id=?`
 		}
-		if _, e := s.o.DB.ExecContext(context.WithoutCancel(ctx), q, msg, at, id); e != nil {
+		errCtx, errCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer errCancel()
+		if _, e := s.o.DB.ExecContext(errCtx, q, msg, at, id); e != nil {
 			return v, errors.Join(err, e)
 		}
 	}
@@ -1216,9 +1222,13 @@ func (s *Service) RefreshSource(ctx context.Context, id string) (Source, error) 
 // refreshDueSources refreshes every source whose automatic refresh is due and
 // returns the ids it attempted.
 func (s *Service) refreshDueSources(ctx context.Context) []string {
+	return s.refreshSources(ctx, false)
+}
+
+func (s *Service) refreshSources(ctx context.Context, activity bool) []string {
 	// Only scheduling fields are read; inline uploads can be large.
 	d := store.DialectOf(s.o.DB)
-	rows, err := s.o.DB.QueryContext(ctx, `SELECT id, `+store.JSONText(d, "data", "kind")+`, `+store.JSONText(d, "data", "playlistUrl")+`, `+store.JSONText(d, "data", "guideUrl")+`, `+store.JSONInt(d, "data", "refreshHours")+`, `+store.JSONText(d, "data", "updatedAt")+`, `+store.JSONText(d, "data", "lastErrorAt")+`, `+store.JSONInt(d, "data", "refreshFailures")+` FROM livetv_sources ORDER BY id`)
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT id, `+store.JSONText(d, "data", "kind")+`, `+store.JSONText(d, "data", "playlistUrl")+`, `+store.JSONText(d, "data", "guideUrl")+`, `+store.JSONInt(d, "data", "refreshHours")+`, `+store.JSONText(d, "data", "updatedAt")+`, `+store.JSONText(d, "data", "lastErrorAt")+`, `+store.JSONInt(d, "data", "refreshFailures")+`, `+store.JSONInt(d, "data", "activityRefreshMinutes")+` FROM livetv_sources ORDER BY id`)
 	if err != nil {
 		return nil
 	}
@@ -1226,11 +1236,12 @@ func (s *Service) refreshDueSources(ctx context.Context) []string {
 	for rows.Next() {
 		var id string
 		var kind, playlist, guide, updated, failed sql.NullString
-		var hours, failures sql.NullInt64
-		if rows.Scan(&id, &kind, &playlist, &guide, &hours, &updated, &failed, &failures) != nil {
+		var hours, failures, activityMinutes sql.NullInt64
+		if rows.Scan(&id, &kind, &playlist, &guide, &hours, &updated, &failed, &failures, &activityMinutes) != nil {
 			continue
 		}
 		src := Source{ID: id, Kind: kind.String, PlaylistURL: playlist.String, GuideURL: guide.String, RefreshHours: int(hours.Int64), RefreshFailures: int(failures.Int64)}
+		src.ActivityRefreshMinutes = int(activityMinutes.Int64)
 		src.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated.String)
 		if t, e := time.Parse(time.RFC3339Nano, failed.String); e == nil {
 			src.LastErrorAt = &t
@@ -1244,7 +1255,7 @@ func (s *Service) refreshDueSources(ctx context.Context) []string {
 	now := s.o.Now()
 	var due []string
 	for _, src := range srcs {
-		if src.NextRefresh != nil && !now.Before(*src.NextRefresh) {
+		if (!activity && src.NextRefresh != nil && !now.Before(*src.NextRefresh)) || (activity && activityRefreshDue(src, now)) {
 			due = append(due, src.ID)
 		}
 	}
@@ -1253,7 +1264,11 @@ func (s *Service) refreshDueSources(ctx context.Context) []string {
 			break
 		}
 		rctx, cancel := context.WithTimeout(ctx, refreshBudget)
-		s.RefreshSource(rctx, id)
+		reason := "scheduled"
+		if activity {
+			reason = "activity"
+		}
+		s.refreshSource(rctx, id, reason)
 		cancel()
 	}
 	return due
@@ -1269,6 +1284,8 @@ func (s *Service) refreshLoop() {
 			return
 		case <-t.C:
 			s.refreshDueSources(s.ctx)
+		case <-s.activityWake:
+			s.refreshSources(s.ctx, true)
 		}
 	}
 }

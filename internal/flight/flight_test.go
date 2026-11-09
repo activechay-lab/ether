@@ -77,14 +77,16 @@ func TestDoSharesLeaderErrors(t *testing.T) {
 	}
 }
 
+type detachedValueKey struct{}
+
 func TestDoDetachedOutlivesCallers(t *testing.T) {
 	var g Group[string, int]
-	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), struct{}{}, "v"))
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), detachedValueKey{}, "v"))
 	release := make(chan struct{})
 	finished := make(chan int, 1)
 	fn := func(fctx context.Context) (int, error) {
 		<-release
-		if fctx.Err() != nil || fctx.Value(struct{}{}) != "v" {
+		if fctx.Err() != nil || fctx.Value(detachedValueKey{}) != "v" {
 			finished <- -1
 			return 0, fctx.Err()
 		}

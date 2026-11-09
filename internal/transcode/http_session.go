@@ -215,7 +215,15 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.proc.Stop()
 		s.proc = nil
 	}
+	probe := runSpec{LiveInput: s.req.LiveInput, CopyTimestamps: s.req.CopyTimestamps, InputHeaders: s.req.InputHeaders, Input: s.req.InputURL, Info: s.req.Info, Decision: s.req.Decision, Start: s.req.StartOffset, Protocol: core.ProtocolHTTP}
+	lease := s.req.InputLease
 	s.mu.Unlock()
+	if needsCopyKeyframe(probe) {
+		if scope, err := encoderScopeHeaders(lease, probe.Input); err == nil {
+			probe.InputScopeHeaders = scope
+			probe.SeekFrom, probe.HasSeekFrom = s.m.copyKeyframeBefore(r.Context(), probe)
+		}
+	}
 	silenceAudio := false
 	for attempt := 0; attempt < 2; attempt++ {
 		s.mu.Lock()
@@ -235,6 +243,9 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		spec.InputScopeHeaders = scopeHeaders
+		if probe.HasSeekFrom && spec.Input == probe.Input && spec.Start == probe.Start {
+			spec.SeekFrom, spec.HasSeekFrom = probe.SeekFrom, true
+		}
 		pr, pw := io.Pipe()
 		stderr := newTailBuffer(40)
 		cmd := Command{Path: s.m.ffmpeg, Args: buildArgs(spec), Stdout: pw, Stderr: &lineWriter{fn: stderr.add}}
@@ -247,6 +258,9 @@ func (s *httpSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "transcode failed", http.StatusServiceUnavailable)
 			return
 		}
+		// Progressive encodes run at normal priority; the output pipe
+		// naturally backpressures them when the client has enough media.
+		cmd.Background = !s.req.LiveInput && s.req.Decision.VideoCopy
 		proc, err := s.m.runner.Start(cmd)
 		if err != nil {
 			s.mu.Unlock()

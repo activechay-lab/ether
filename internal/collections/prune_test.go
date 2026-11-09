@@ -24,7 +24,7 @@ func TestPruneDropsStaleLookupRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0)
-	svc, err := collections.New(db, cat, slog.Default(), collections.WithoutDefaults(), collections.WithNow(func() time.Time { return now }))
+	svc, err := collections.New(db, cat, slog.Default(), collections.WithNow(func() time.Time { return now }))
 	if err != nil {
 		t.Fatal(err)
 	}

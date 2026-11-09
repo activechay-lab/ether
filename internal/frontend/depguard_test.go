@@ -13,48 +13,31 @@ import (
 
 // Plex still imports domain packages from the playback files owned by the
 // broker cutover. Until those imports leave, the package cannot use the
-// frontends-only rule above. This ratchet rejects any new internal import.
+// frontends-only rule below. Existing domain allowances may only shrink;
+// pure frontend kit helpers follow the same rule as the other adapters.
 func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 	allowed := map[string]bool{
-		"github.com/braedonsaunders/ether/internal/artwork":         true,
-		"github.com/braedonsaunders/ether/internal/artwork/service": true,
-		"github.com/braedonsaunders/ether/internal/auth":            true,
-		"github.com/braedonsaunders/ether/internal/clusterbus":      true,
-		"github.com/braedonsaunders/ether/internal/config":          true,
-		"github.com/braedonsaunders/ether/internal/conform":         true,
-		"github.com/braedonsaunders/ether/internal/core":            true,
-		"github.com/braedonsaunders/ether/internal/streamgrant":     true,
-		"github.com/braedonsaunders/ether/internal/stats":           true,
-		"github.com/braedonsaunders/ether/internal/plexmeta":        true,
-		"github.com/braedonsaunders/ether/internal/reqmemo":         true,
-		"github.com/braedonsaunders/ether/internal/hoststat":        true,
-		"github.com/braedonsaunders/ether/internal/contentrating":   true,
-		"github.com/braedonsaunders/ether/internal/diagnostics":     true,
-		"github.com/braedonsaunders/ether/internal/discovery":       true,
-		"github.com/braedonsaunders/ether/internal/episodeorder":    true,
-		"github.com/braedonsaunders/ether/internal/experience":      true,
-		"github.com/braedonsaunders/ether/internal/extras":          true,
-		"github.com/braedonsaunders/ether/internal/faillog":         true,
-		"github.com/braedonsaunders/ether/internal/frontend":        true,
-		"github.com/braedonsaunders/ether/internal/homefilter":      true,
-		"github.com/braedonsaunders/ether/internal/identity":        true,
-		"github.com/braedonsaunders/ether/internal/langtag":         true,
-		"github.com/braedonsaunders/ether/internal/livetv":          true,
-		"github.com/braedonsaunders/ether/internal/lru":             true,
-		"github.com/braedonsaunders/ether/internal/markers":         true,
-		"github.com/braedonsaunders/ether/internal/plex/model":      true,
-		// Release's replica playback and stalled-start observation paths.
-		"github.com/braedonsaunders/ether/internal/playback":        true,
-		"github.com/braedonsaunders/ether/internal/remotetranscode": true,
-		"github.com/braedonsaunders/ether/internal/plexguid":        true,
-		"github.com/braedonsaunders/ether/internal/sessions":        true,
-		"github.com/braedonsaunders/ether/internal/state":           true,
-		"github.com/braedonsaunders/ether/internal/store":           true,
-		"github.com/braedonsaunders/ether/internal/subtitles":       true,
-		"github.com/braedonsaunders/ether/internal/tmdb":            true,
-		"github.com/braedonsaunders/ether/internal/trackprefs":      true,
-		"github.com/braedonsaunders/ether/internal/transcode":       true,
-		"github.com/braedonsaunders/ether/internal/trickplay":       true,
+		"github.com/braedonsaunders/ether/internal/artwork":                true,
+		"github.com/braedonsaunders/ether/internal/artwork/service":        true,
+		"github.com/braedonsaunders/ether/internal/clusterbus":             true,
+		"github.com/braedonsaunders/ether/internal/config":                 true,
+		"github.com/braedonsaunders/ether/internal/core":                   true,
+		"github.com/braedonsaunders/ether/internal/reqmemo":                true,
+		"github.com/braedonsaunders/ether/internal/contentrating":          true,
+		"github.com/braedonsaunders/ether/internal/discovery":              true,
+		"github.com/braedonsaunders/ether/internal/experience":             true,
+		"github.com/braedonsaunders/ether/internal/extras":                 true,
+		"github.com/braedonsaunders/ether/internal/frontend":               true,
+		"github.com/braedonsaunders/ether/internal/homefilter":             true,
+		"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet": true,
+		"github.com/braedonsaunders/ether/internal/livetv":                 true,
+		"github.com/braedonsaunders/ether/internal/plex/model":             true,
+		"github.com/braedonsaunders/ether/internal/sessions":               true,
+		"github.com/braedonsaunders/ether/internal/store":                  true,
+		"github.com/braedonsaunders/ether/internal/subtitles":              true,
+		"github.com/braedonsaunders/ether/internal/tmdb":                   true,
+		"github.com/braedonsaunders/ether/internal/transcode":              true,
+		"github.com/braedonsaunders/ether/internal/trickplay":              true,
 	}
 	root := filepath.Join("..", "plex")
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -74,7 +57,7 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if strings.HasPrefix(name, prefix) && !allowed[name] {
+			if strings.HasPrefix(name, prefix) && !allowed[name] && !strings.HasPrefix(name, prefix+"frontend/kit/") {
 				t.Errorf("%s imports %s, which is outside the recorded Plex boundary", path, name)
 			}
 		}

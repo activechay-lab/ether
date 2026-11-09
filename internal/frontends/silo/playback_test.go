@@ -2,6 +2,7 @@ package silo
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"github.com/braedonsaunders/ether/internal/conform/openapi/spectest"
@@ -806,5 +807,236 @@ func TestUnknownPQStaysHDR10WithoutClaimingHDR10Plus(t *testing.T) {
 	stream.HDR10Plus = &positive
 	if got := siloDynamicRange(stream); got != "hdr10_plus" {
 		t.Fatalf("known HDR10+ classified as %q", got)
+	}
+}
+
+type testSubtitleSessions struct {
+	testScopedMedia
+	hasAuthored    func(context.Context, frontend.SessionAccess, string, int) bool
+	serveASS       func(context.Context, frontend.SessionAccess, string, int, int, bool) (frontend.SubtitleASSArtifact, error)
+	fontBundle     func(context.Context, frontend.SessionAccess, string, int) ([]frontend.SubtitleFontBundleItem, error)
+	fontAttachment func(context.Context, frontend.SessionAccess, string, int, int) (frontend.SubtitleFontAttachment, error)
+}
+
+func (s testSubtitleSessions) HasAuthoredASSSubtitle(ctx context.Context, a frontend.SessionAccess, id string, track int) bool {
+	if s.hasAuthored != nil {
+		return s.hasAuthored(ctx, a, id, track)
+	}
+	return false
+}
+
+func (s testSubtitleSessions) ServeASSSubtitle(ctx context.Context, a frontend.SessionAccess, id string, track, syncMS int, requireAuthored bool) (frontend.SubtitleASSArtifact, error) {
+	if s.serveASS != nil {
+		return s.serveASS(ctx, a, id, track, syncMS, requireAuthored)
+	}
+	return frontend.SubtitleASSArtifact{}, frontend.ErrNotAvailable
+}
+
+func (s testSubtitleSessions) SubtitleFontBundle(ctx context.Context, a frontend.SessionAccess, id string, track int) ([]frontend.SubtitleFontBundleItem, error) {
+	if s.fontBundle != nil {
+		return s.fontBundle(ctx, a, id, track)
+	}
+	return nil, frontend.ErrNotAvailable
+}
+
+func (s testSubtitleSessions) SubtitleFontAttachment(ctx context.Context, a frontend.SessionAccess, id string, track, fontIndex int) (frontend.SubtitleFontAttachment, error) {
+	if s.fontAttachment != nil {
+		return s.fontAttachment(ctx, a, id, track, fontIndex)
+	}
+	return frontend.SubtitleFontAttachment{}, frontend.ErrNotAvailable
+}
+
+func TestPlaybackASSSidecarAndFontBundle(t *testing.T) {
+	viewer := &frontend.Viewer{ID: 7}
+	sessionID := "8c2d329e-71d2-4ea1-9b57-95187baeb0aa"
+	assPayload := "[Script Info]\nTitle: Styled Subtitles\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Default,CustomFont,48\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello {\\fnHeaderFont}World\n"
+	fontPayload := []byte("TTF-FONT-PAYLOAD-0123456789")
+	authoredAvailable := true
+
+	mediaInfo := frontend.MediaInfo{
+		Container: "mkv",
+		Duration:  time.Hour,
+		Streams: []frontend.StreamInfo{
+			{Type: "video", Index: 0, Codec: "h264"},
+			{Type: "audio", Index: 1, Codec: "aac", Language: "jpn"},
+			{Type: "subtitle", Index: 5, Codec: "ass", Language: "eng"},
+		},
+	}
+
+	session := frontendtest.Sessions{
+		PlanFunc: func(_ context.Context, r frontend.PlanRequest) (frontend.PlayPlan, error) {
+			return frontend.PlayPlan{
+				ID:       "plan-ass",
+				Media:    mediaInfo,
+				Decision: frontend.Decision{Kind: core.DecisionTranscode, VideoCopy: true, AudioStream: 1, SubtitleStream: 5},
+			}, nil
+		},
+		OpenFunc: func(context.Context, frontend.OpenRequest) (frontend.Session, error) {
+			return frontend.Session{ID: sessionID}, nil
+		},
+		StartStreamFunc: func(_ context.Context, _ frontend.SessionAccess, _ string, _ frontend.StreamRequest) (string, error) {
+			return "/sessions/media/" + sessionID + "/scoped/master.m3u8", nil
+		},
+		SubtitleURLFunc: func(_ context.Context, _ frontend.SessionAccess, id string, track int, format string) (string, error) {
+			return "/sessions/media/" + id + "/scoped/subtitles/" + strconv.Itoa(track) + "." + format, nil
+		},
+		SessionsFunc: func(_ context.Context, _ frontend.SessionAccess) ([]frontend.Session, error) {
+			return []frontend.Session{{ID: sessionID, ViewerID: 7, Protocol: "silo", Device: frontend.Device{ID: "tv"}, Media: &mediaInfo}}, nil
+		},
+		ServeMediaFunc: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	}
+	subSessions := testSubtitleSessions{
+		testScopedMedia: testScopedMedia{session},
+		hasAuthored: func(_ context.Context, a frontend.SessionAccess, id string, track int) bool {
+			t.Fatal("playback startup must not scan subtitle artifacts")
+			return false
+		},
+		serveASS: func(_ context.Context, a frontend.SessionAccess, id string, track, _ int, requireAuthored bool) (frontend.SubtitleASSArtifact, error) {
+			if a.Viewer == nil || a.Viewer.ID != 7 || a.Device.ID != "tv" {
+				return frontend.SubtitleASSArtifact{}, frontend.ErrUnauthorized
+			}
+			if id != sessionID || track != 5 {
+				return frontend.SubtitleASSArtifact{}, frontend.ErrNotFound
+			}
+			if !authoredAvailable {
+				if requireAuthored {
+					return frontend.SubtitleASSArtifact{}, frontend.ErrSubtitleAuthoringUnavailable
+				}
+				return frontend.SubtitleASSArtifact{Data: []byte("[Script Info]\nTitle: Converted\n"), Authored: false}, nil
+			}
+			return frontend.SubtitleASSArtifact{Data: []byte(assPayload), Authored: true}, nil
+		},
+		fontBundle: func(_ context.Context, a frontend.SessionAccess, id string, track int) ([]frontend.SubtitleFontBundleItem, error) {
+			if a.Viewer == nil || a.Viewer.ID != 7 || a.Device.ID != "tv" {
+				return nil, frontend.ErrUnauthorized
+			}
+			if id != sessionID || track != 5 {
+				return nil, frontend.ErrNotFound
+			}
+			return []frontend.SubtitleFontBundleItem{{Name: "CustomFont.ttf", Data: base64.StdEncoding.EncodeToString(fontPayload)}}, nil
+		},
+		fontAttachment: func(_ context.Context, a frontend.SessionAccess, id string, track, fontIndex int) (frontend.SubtitleFontAttachment, error) {
+			if a.Viewer == nil || a.Viewer.ID != 7 || a.Device.ID != "tv" {
+				return frontend.SubtitleFontAttachment{}, frontend.ErrUnauthorized
+			}
+			if id != sessionID || track != 5 || fontIndex != 0 {
+				return frontend.SubtitleFontAttachment{}, frontend.ErrNotFound
+			}
+			return frontend.SubtitleFontAttachment{Index: 0, Name: "CustomFont.ttf", MIMEType: "font/ttf", Data: append([]byte(nil), fontPayload...)}, nil
+		},
+	}
+
+	ident := frontendtest.Identity{ResolveFunc: func(_ context.Context, s string) (*frontend.Viewer, error) {
+		if s != "account-secret" {
+			return nil, errors.New("bad")
+		}
+		return viewer, nil
+	}}
+	experience := frontendtest.Experience{ItemFunc: func(context.Context, frontend.ItemRequest) (frontend.ItemDetail, error) {
+		return frontend.ItemDetail{Versions: []frontend.Version{{ID: "cut", Media: mediaInfo}}}, nil
+	}}
+	inst, err := (Frontend{MachineID: "test"}).Mount(context.Background(), frontend.Host{
+		Identity:       testDeviceIdentity(ident, viewer),
+		Experience:     experience,
+		Sessions:       subSessions,
+		Capabilities:   frontendtest.Capabilities{},
+		VersionHandles: testVersionHandles{},
+		SourceOffers:   testSourceOffers{},
+		IDs:            ids.Codecs{Allocator: fileIDs{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	call := func(method, path, body, token, device string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Silo-Device-Id", device)
+		w := httptest.NewRecorder()
+		inst.Handler().ServeHTTP(w, req)
+		return w
+	}
+
+	startBody := `{"protocol_version":3,"file_id":"101","profile_id":"7","installation_id":"` + inst.(*instance).installationID() + `","playback_attempt_id":"attempt-ass","subtitle_track_index":5,"client_capabilities":{"codecs_video":["h264"]},"client_playback_context":{"deliveries":{"hls":{"enabled":true,"supported_on_device":true,"subtitles":{"ass_styling":true,"font_attachments":true,"sidecar_text":true}}}}}`
+	startRes := call("POST", "/api/v2/playback/start", startBody, "account-secret", "tv")
+	if startRes.Code != http.StatusCreated {
+		t.Fatalf("playback start: %d %s", startRes.Code, startRes.Body.String())
+	}
+	doc := spectest.Document(t, "silo")
+	if doc != nil {
+		if err := doc.Validate("POST", "/api/v2/playback/start", startRes.Code, startRes.Header().Get("Content-Type"), startRes.Body.Bytes()); err != nil {
+			t.Fatalf("POST /api/v2/playback/start spec validation: %v\nbody: %s", err, startRes.Body.String())
+		}
+	}
+	if !strings.Contains(startRes.Body.String(), `"font_bundle_url":"/api/v2/stream/`+sessionID+`/subtitles/5/fonts"`) {
+		t.Fatalf("expected font_bundle_url in subtitle inventory: %s", startRes.Body.String())
+	}
+	if !strings.Contains(startRes.Body.String(), `"url":"/api/v2/stream/`+sessionID+`/subtitles/5.ass"`) || !strings.Contains(startRes.Body.String(), `"ass_styling_preserved":false`) {
+		t.Fatalf("expected deferred .ass artifact without an unverified fidelity claim: %s", startRes.Body.String())
+	}
+
+	// Serve native .ass sidecar.
+	assRes := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/5.ass", "", "account-secret", "tv")
+	if assRes.Code != http.StatusOK || !strings.Contains(assRes.Header().Get("Content-Type"), "text/x-ssa") || !strings.Contains(assRes.Body.String(), "[V4+ Styles]") {
+		t.Fatalf("GET .ass sidecar failed: %d (%s) %s", assRes.Code, assRes.Header().Get("Content-Type"), assRes.Body.String())
+	}
+
+	// Serve MKV font bundle JSON.
+	fontsRes := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/5/fonts", "", "account-secret", "tv")
+	if fontsRes.Code != http.StatusOK {
+		t.Fatalf("GET /fonts failed: %d %s", fontsRes.Code, fontsRes.Body.String())
+	}
+	if doc != nil {
+		if err := doc.Validate("GET", "/api/v2/stream/"+sessionID+"/subtitles/5/fonts", fontsRes.Code, fontsRes.Header().Get("Content-Type"), fontsRes.Body.Bytes()); err != nil {
+			t.Fatalf("GET /fonts spec validation: %v\nbody: %s", err, fontsRes.Body.String())
+		}
+	}
+	var bundle struct {
+		Items []struct {
+			Name string `json:"name"`
+			Data string `json:"data"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(fontsRes.Body.Bytes(), &bundle); err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Items) != 1 || bundle.Items[0].Name != "CustomFont.ttf" || bundle.Items[0].Data != base64.StdEncoding.EncodeToString(fontPayload) {
+		t.Fatalf("unexpected font bundle items: %+v", bundle.Items)
+	}
+
+	// Serve individual binary font attachment by index.
+	fontFileRes := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/5/fonts/0", "", "account-secret", "tv")
+	if fontFileRes.Code != http.StatusOK || fontFileRes.Body.String() != string(fontPayload) {
+		t.Fatalf("GET /fonts/0 failed: %d %s", fontFileRes.Code, fontFileRes.Body.String())
+	}
+
+	// Startup advertises a deferred artifact, never scans media. The artifact
+	// request enforces authored fidelity and fails instead of silently converting.
+	authoredAvailable = false
+	if strictASS := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/5.ass?require_authored_fidelity=1", "", "account-secret", "tv"); strictASS.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 503 when require_authored_fidelity=1 and authored ASS unavailable, got %d %s", strictASS.Code, strictASS.Body.String())
+	}
+	preserveBody := `{"protocol_version":3,"file_id":"101","profile_id":"7","installation_id":"` + inst.(*instance).installationID() + `","playback_attempt_id":"attempt-preserve","subtitle_track_index":5,"subtitle_fidelity_preference":"preserve","client_capabilities":{"codecs_video":["h264"]},"client_playback_context":{"deliveries":{"hls":{"enabled":true,"supported_on_device":true,"subtitles":{"ass_styling":true,"font_attachments":true,"sidecar_text":true}}}}}`
+	if preserveRes := call("POST", "/api/v2/playback/start", preserveBody, "account-secret", "tv"); preserveRes.Code != http.StatusCreated || strings.Contains(preserveRes.Body.String(), `"ass_styling_preserved":true`) {
+		t.Fatalf("expected deferred artifact with no unverified fidelity claim, got %d %s", preserveRes.Code, preserveRes.Body.String())
+	}
+	compatRes := call("POST", "/api/v2/playback/start", startBody, "account-secret", "tv")
+	if compatRes.Code != http.StatusCreated || strings.Contains(compatRes.Body.String(), `"ass_styling_preserved":true`) {
+		t.Fatalf("expected ass_styling_preserved=false when authored ASS unavailable, got %d %s", compatRes.Code, compatRes.Body.String())
+	}
+	authoredAvailable = true
+
+	// Unauthorized device or token must be rejected on both .ass and /fonts.
+	if unauth := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/5/fonts", "", "account-secret", "wrong-device"); unauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on wrong device for /fonts, got %d", unauth.Code)
+	}
+	if unauth := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/5.ass", "", "wrong-token", "tv"); unauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on wrong token for .ass, got %d", unauth.Code)
+	}
+	// Non-ASS subtitle track index must 404.
+	if missing := call("GET", "/api/v2/stream/"+sessionID+"/subtitles/99/fonts", "", "account-secret", "tv"); missing.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on unknown track for /fonts, got %d", missing.Code)
 	}
 }

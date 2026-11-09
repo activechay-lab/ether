@@ -88,7 +88,7 @@ func (p *RemotePlayback) restoreProtocolSource(ctx context.Context, id string, s
 	if p.observed[snapshot.ID] == nil && len(p.observed) >= p.r.o.HistoryCapacity {
 		return ErrPending
 	}
-	p.observed[snapshot.ID] = copyPlaySession(&snapshot)
+	p.observed[snapshot.ID] = &observedSession{session: id, generation: record.Generation, snapshot: copyPlaySession(&snapshot)}
 	return nil
 }
 

@@ -46,7 +46,7 @@ import {
   type StudioDraft,
 } from "./ChannelStudio";
 import { GuideMatchPanel, GuideSourceList, GuideWorkbench } from "./GuideData";
-import { ChannelBulkBar, type ChannelPatch } from "./ChannelBulkBar";
+import { ChannelBulkBar, type ChannelPatch, appStates, patchChannel } from "./ChannelBulkBar";
 import { ChannelDrawerBody } from "./ChannelDrawerBody";
 import { GuideGrid } from "./GuideGrid";
 import { LivePreview } from "./LivePreview";
@@ -951,6 +951,11 @@ export default function LiveTV() {
     () => new Set([...checkedChannels].filter((id) => selectable.has(id))),
     [checkedChannels, selectable],
   );
+  // i18n: memo holds no copy
+  const selectedApps = useMemo(
+    () => appStates(sorted.filter((c) => checked.has(c.id)).map((c) => c.hiddenApps)),
+    [sorted, checked],
+  );
   const selectAllChannels = () => {
     if (!bulkLock.current) setCheckedChannels(new Set(selectable));
   };
@@ -989,25 +994,14 @@ export default function LiveTV() {
     try {
       await tv.updateChannels(ids, patch);
       setAllChannels((cs) =>
-        (cs ?? []).map((c) =>
-          targets.has(c.id)
-            ? { ...c, ...patch, ...(patch.group !== undefined ? { customGroup: true } : {}) }
-            : c,
-        ),
+        (cs ?? []).map((c) => (targets.has(c.id) ? patchChannel(c, patch) : c)),
       );
       setCheckedChannels(new Set());
       selectionAnchor.current = null;
       toast.success(t("Channels updated"));
       setRows(
         (prev) =>
-          new Map(
-            [...prev].map(([i, c]) => [
-              i,
-              targets.has(c.id)
-                ? { ...c, ...patch, ...(patch.group !== undefined ? { customGroup: true } : {}) }
-                : c,
-            ]),
-          ),
+          new Map([...prev].map(([i, c]) => [i, targets.has(c.id) ? patchChannel(c, patch) : c])),
       );
       await reloadAll();
       return true;
@@ -1103,6 +1097,7 @@ export default function LiveTV() {
                 total={filtered.length}
                 busy={bulkBusy}
                 groups={channelGroups}
+                apps={selectedApps}
                 onAll={selectMatches}
                 onClear={clearSelection}
                 onApply={applySelection}

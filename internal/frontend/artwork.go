@@ -34,3 +34,9 @@ type Artwork interface {
 	List(context.Context, ArtworkRequest) (images []Image, complete bool, err error)
 	Read(context.Context, ArtworkRequest, Image, ArtworkTransform) (data []byte, contentType string, err error)
 }
+
+// ValidArtworkPath exposes the shared, pure artwork filename contract.
+func ValidArtworkPath(path string) bool { return core.ValidArtworkPath(path) }
+
+// NeedsGeneratedPoster exposes shared title fallback eligibility without I/O.
+func NeedsGeneratedPoster(title *Title) bool { return core.NeedsGeneratedPoster(title) }

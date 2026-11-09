@@ -354,7 +354,6 @@ func mp4Video(b []byte, e mp4Box, si *core.StreamInfo) error {
 	if dovi == nil {
 		dovi = find("dvwC")
 	}
-	err = nil
 	switch e.typ {
 	case "avc1", "avc3", "dva1", "dvav":
 		err = videoConfig(si, "h264", find("avcC"), transfer, dovi)

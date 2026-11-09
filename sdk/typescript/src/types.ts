@@ -204,7 +204,6 @@ export interface RankingStepMeta {
   label: string;
   hint?: string;
   editor?: unknown;
-  defaultPosition?: number;
   budget?: unknown;
 }
 

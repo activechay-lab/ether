@@ -89,7 +89,7 @@ func TestDirectFailoverFallbackRegressions(t *testing.T) {
 		}
 	})
 
-	t.Run("down: repeated misses stop the session", func(t *testing.T) {
+	t.Run("down: repeated misses retain the source", func(t *testing.T) {
 		h := newHarness(t, rels(), []string{"A", "UHD", "HIGH"}, func(h *harness, o *Options) {
 			o.MaxDownFailovers = 2
 		})
@@ -115,11 +115,11 @@ func TestDirectFailoverFallbackRegressions(t *testing.T) {
 			failoverOpts{reason: "source slower than playback", down: true}); err == nil || !errors.Is(err, core.ErrNotAvailable) {
 			t.Fatalf("second miss err = %v", err)
 		}
-		if _, ok := h.m.Session(ps.ID); ok {
-			t.Fatal("session kept playing after the down-failover cap")
+		if _, ok := h.m.Session(ps.ID); !ok {
+			t.Fatal("session stopped after the down-failover cap")
 		}
-		if !slices.Contains(kinds, "error") || !slices.Contains(kinds, "stop") {
-			t.Fatalf("events = %v, want error and stop", kinds)
+		if !slices.Contains(kinds, "error") || slices.Contains(kinds, "stop") {
+			t.Fatalf("events = %v, want error without stop", kinds)
 		}
 	})
 

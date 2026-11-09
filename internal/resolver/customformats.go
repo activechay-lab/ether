@@ -21,6 +21,9 @@ type FormatMatch struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Score int    `json:"score"`
+	// revision marks a format that recognises Repack/Proper release titles;
+	// the ranking then skips Ether's own built-in revision bonus.
+	revision bool
 }
 
 type compiledSpec struct {
@@ -30,12 +33,12 @@ type compiledSpec struct {
 	sonarr bool
 }
 type compiledFormat struct {
-	def   core.CustomFormat
-	specs []compiledSpec
+	def      core.CustomFormat
+	specs    []compiledSpec
+	revision bool
 }
 type FormatScorer struct {
 	formats []compiledFormat
-	scores  map[string]int
 }
 
 // maxFormatSpecs bounds one format's specifications.
@@ -43,20 +46,19 @@ const maxFormatSpecs = 500
 
 // NewFormatScorer validates every rule before publishing an immutable scorer.
 // .NET lookarounds used by TRaSH are supported; regex execution is time bounded.
-func NewFormatScorer(defs []core.CustomFormat, scores map[string]int) (*FormatScorer, error) {
+func NewFormatScorer(defs []core.CustomFormat) (*FormatScorer, error) {
 	if len(defs) > 1000 {
 		return nil, fmt.Errorf("custom formats: maximum 1000 definitions")
 	}
-	s := &FormatScorer{scores: map[string]int{}}
-	for k, v := range scores {
-		s.scores[k] = v
-	}
+	s := &FormatScorer{}
 	seen := map[string]bool{}
 	for _, d := range defs {
 		if d.ID == "" {
 			d.ID = d.Name
 		}
 		switch {
+		case strings.HasPrefix(d.ID, core.BuiltinFormatPrefix), strings.HasPrefix(d.ID, core.RuleFormatPrefix), core.IsPluginRankingStep(d.ID):
+			return nil, fmt.Errorf("custom format %q: id %q is reserved", d.Name, d.ID)
 		case d.Name == "":
 			return nil, fmt.Errorf("custom format %q: missing name", d.ID)
 		case seen[d.ID]:
@@ -114,6 +116,7 @@ func NewFormatScorer(defs []core.CustomFormat, scores map[string]int) (*FormatSc
 			}
 			f.specs = append(f.specs, c)
 		}
+		f.revision = recognisesRevision(f.specs)
 		s.formats = append(s.formats, f)
 	}
 	return s, nil
@@ -248,26 +251,33 @@ func knownLanguageValue(v int) bool {
 	return ok || v == 0 || v == languageAny || v == languageOriginal
 }
 
-// Score mirrors Starr grouping: every specification type must match; within
-// a type all required rules and at least one rule must match.
-func (s *FormatScorer) Score(r core.Release) (int, []FormatMatch, error) {
-	return s.ScoreWithScores(r, nil)
-}
-
-func (s *FormatScorer) ScoreWithScores(r core.Release, overrides map[string]int) (int, []FormatMatch, error) {
-	return s.ScoreForTitle(r, overrides, "")
-}
-
-// ScoreForTitle scores r for a title whose original language is original
-// (a release-parser language name, "" when unknown), which "Original"
-// language specifications compare against.
-func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, original string) (int, []FormatMatch, error) {
+// ScoreForProfile scores r with a profile's scores for title t, as Radarr
+// and Sonarr do: a format matches when every specification type matches
+// (within a type all required rules and at least one rule), its score is
+// the profile's (a format the profile does not list scores 0), the
+// release's languages are built like Radarr's AggregateLanguages, and each
+// app's formats see that app's form of the release title.
+func (s *FormatScorer) ScoreForProfile(r core.Release, scores map[string]int, t *core.Title) (int, []FormatMatch, error) {
 	if s == nil {
 		return 0, nil, nil
 	}
+	r.Info.Languages = formatLanguages(r, t)
+	return s.scoreFormats(r, scores, originalLanguage(t))
+}
+
+// scoreFormats is the scoring loop.
+func (s *FormatScorer) scoreFormats(r core.Release, scores map[string]int, original string) (int, []FormatMatch, error) {
 	total := 0
 	var matches []FormatMatch
+	// Each app's release-title form, built once per app.
+	byApp := map[string]*core.Release{}
 	for _, f := range s.formats {
+		in := byApp[f.def.App]
+		if in == nil {
+			rel := titleInput(f.def.App, r)
+			in = &rel
+			byApp[f.def.App] = in
+		}
 		type group struct {
 			requiredOK bool
 			anyOK      bool
@@ -279,7 +289,7 @@ func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, o
 				g = &group{requiredOK: true}
 				groups[spec.def.Implementation] = g
 			}
-			match, err := specMatch(spec, r, original)
+			match, err := specMatch(spec, *in, original)
 			if err != nil {
 				return 0, nil, fmt.Errorf("custom format %q: %w", f.def.Name, errFormatTimeout)
 			}
@@ -300,16 +310,46 @@ func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, o
 		if !ok {
 			continue
 		}
-		// Sparse owner maps inherit global scores for formats they do not override.
-		score := f.def.Scores["default"]
-		if v, ok := s.scores[f.def.ID]; ok {
-			score = v
-		}
-		if v, ok := overrides[f.def.ID]; ok {
-			score = v
-		}
+		score := scores[f.def.ID]
 		total += score
-		matches = append(matches, FormatMatch{f.def.ID, f.def.Name, score})
+		matches = append(matches, FormatMatch{ID: f.def.ID, Name: f.def.Name, Score: score, revision: f.revision})
 	}
 	return total, matches, nil
+}
+
+// scoresRevision reports whether a profile scores a format that recognises
+// Repack/Proper titles (TRaSH's "Repack/Proper", Ether's built-in one). Such
+// a profile ranks revisions by that score alone, Radarr/Sonarr's "Do not
+// prefer"; any other ranks a revision above the original of its quality
+// ("Prefer and upgrade").
+func (s *FormatScorer) scoresRevision(scores map[string]int) bool {
+	if scores[core.FormatRepackProper] != 0 {
+		return true
+	}
+	if s == nil {
+		return false
+	}
+	for _, f := range s.formats {
+		if f.revision && scores[f.def.ID] != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// recognisesRevision reports whether a format has a non-negated release-title
+// rule that matches a Repack or Proper tag (TRaSH's "Repack/Proper",
+// "Repack2", "Repack3").
+func recognisesRevision(specs []compiledSpec) bool {
+	for _, c := range specs {
+		if c.def.Implementation != "ReleaseTitleSpecification" || c.def.Negate || c.re == nil {
+			continue
+		}
+		for _, probe := range []string{"Movie.2020.REPACK.1080p", "Movie.2020.PROPER.1080p", "Movie.2020.REPACK2.1080p", "Movie.2020.REPACK3.1080p"} {
+			if ok, _ := c.re.MatchString(probe); ok {
+				return true
+			}
+		}
+	}
+	return false
 }

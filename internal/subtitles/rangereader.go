@@ -23,6 +23,10 @@ type rangeReader struct {
 	size int64
 	seen map[rangeSeg]bool
 	segs int
+	// Optional total I/O budgets for whole-artifact scans. Ordinary metadata
+	// readers retain their existing segment budget.
+	maxReads, reads         int
+	maxReadBytes, readBytes int64
 }
 
 func newRangeReader(ctx context.Context, src io.ReaderAt, size int64) *rangeReader {
@@ -47,6 +51,13 @@ func (r *rangeReader) read(off int64, n int) ([]byte, error) {
 	}
 	if n <= 0 {
 		return nil, io.EOF
+	}
+	if r.maxReads > 0 {
+		if r.reads >= r.maxReads || int64(n) > r.maxReadBytes-r.readBytes {
+			return nil, errRangeBudget
+		}
+		r.reads++
+		r.readBytes += int64(n)
 	}
 	key := rangeSeg{off, int64(n)}
 	if !r.seen[key] {

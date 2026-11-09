@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -12,7 +13,7 @@ import (
 // RawFormat is the switcher's working format. It is fixed for a channel output's life.
 type RawFormat struct {
 	Width, Height  int    // even; the channel's largest rendition size
-	FPSNum, FPSDen int    // 30/1 by default; 30000/1001 and 25/1 also allowed
+	FPSNum, FPSDen int    // a broadcast rate: 24, 25, 30, 50 or 60 (and the /1001 NTSC forms)
 	SampleRate     int    // 48000
 	Channels       int    // 2
 	PixelFormat    string // "yuv420p" (I420, planar, tightly packed: Y then U then V, no row padding)
@@ -51,8 +52,20 @@ type DecoderRequest struct {
 	// PrimeLive reads four provider segments on the first open only. Callers
 	// with an aired source timestamp must leave it false on reconnect.
 	PrimeLive bool
-	Loop      bool // repeat a local cached master seamlessly; incompatible with Live and URLs
+	// ReserveStart starts an HLS live input at the first segment the relay
+	// lists, which is the stability reserve, instead of near the live edge.
+	ReserveStart bool
+	// InputFormat is the probed live container ("hls" or "mpegts"; empty when
+	// unknown). Demuxer-private options are only valid for their own demuxer.
+	InputFormat string
+	Loop        bool // repeat a local cached master seamlessly; incompatible with Live and URLs
 }
+
+// ErrInputChanged reports that a live input changed its codec or stream set
+// mid-stream (a PMT version bump, or another codec on the same PID): one
+// elementary stream keeps flowing while the other can no longer be decoded.
+// The caller reopens the same source at its live edge.
+var ErrInputChanged = errors.New("transcode: live input changed its streams")
 
 // Decoder yields frames already in Format, one per call, paced by the caller.
 // Next blocks until a frame is ready; it returns io.EOF at end of input, and
@@ -72,6 +85,10 @@ type EncoderRequest struct {
 	Decision        core.Decision // output codec, size, bitrate, audio; fixed for life; HW from HWAccel
 	SegmentDuration time.Duration // 4 s; keyframe exactly at every segment start
 	DVRWindow       time.Duration // segments kept on node-local disk for timeshift (30 min default; 0 = live window only)
+	// LiveSource marks a provider (IPTV) channel: rate control may use one
+	// segment of VBV buffer under the ceiling, so keyframes of moving
+	// pictures are not starved. Scheduled channels keep a one-second bound.
+	LiveSource bool
 }
 
 // ContinuousEncoder never restarts and never changes output parameters.

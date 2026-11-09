@@ -98,11 +98,11 @@ func buildRTXArgs(s runSpec) (args []string, keyframes []byte, err error) {
 	}
 	videoKbps := s.Decision.BitrateKbps - decisionAudioKbps(s.Info, s.Decision)
 	bufferKbits := videoKbps * 2
-	if s.Rate.Quality {
+	if s.Rate.MaxrateKbps > 0 {
 		videoKbps = minPositive(videoKbps, s.Rate.MaxrateKbps)
-		if s.Rate.BufsizeKbps > 0 {
-			bufferKbits = s.Rate.BufsizeKbps
-		}
+	}
+	if s.Rate.BufsizeKbps > 0 {
+		bufferKbits = s.Rate.BufsizeKbps
 	}
 	if videoKbps < minRTXVideoKbps(e.Height) {
 		return fail("insufficient video bitrate")

@@ -211,7 +211,7 @@ func TestOAuthRegistrationLimitAndRedirectPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 4093; i++ {
-		if _, err := stmt.Exec(fmt.Sprintf("client-%d", i), "test", `["http://localhost/cb"]`, 0); err != nil {
+		if _, err := stmt.Exec(fmt.Sprintf("client-%d", i), "test", `["http://localhost/cb"]`, time.Now().UnixMilli()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -223,5 +223,34 @@ func TestOAuthRegistrationLimitAndRedirectPolicy(t *testing.T) {
 	}
 	if r := request("127.0.0.2:1234", `{"redirect_uris":["http://localhost/cb"]}`); r.Code != 429 {
 		t.Fatalf("registration cap: %d %s", r.Code, r.Body)
+	}
+	// Once the seeded clients are old, the cap evicts unused ones, but never
+	// a client holding a grant (even an expired one) or a pending request.
+	far := time.Now().Add(time.Hour).UnixMilli()
+	for _, q := range []string{
+		`UPDATE mcp_oauth_clients SET created=0 WHERE id LIKE 'client-%'`,
+		`INSERT INTO auth_users(id,plex_id,is_owner,active,created_at,updated_at) VALUES(1,100,1,1,0,0)`,
+		`INSERT INTO identity_grants(hash,viewer_id,surface,device_id,client,product,version,created,last_used,expires) VALUES('g',1,'mcp','mcp-client-0','test','MCP','',0,0,1)`,
+		fmt.Sprintf(`INSERT INTO mcp_oauth_requests(id,client_id,redirect_uri,state,challenge,scope,resource,expires) VALUES('r','client-1','http://localhost/cb','','','full','',%d)`, far),
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	if r := request("127.0.0.3:1234", `{"redirect_uris":["http://localhost/cb"]}`); r.Code != 201 {
+		t.Fatalf("registration after eviction: %d %s", r.Code, r.Body)
+	}
+	if _, err := mcp.PruneOAuth(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var kept, total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mcp_oauth_clients WHERE id IN ('client-0','client-1')`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mcp_oauth_clients`).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if kept != 2 || total != 6 {
+		t.Fatalf("after prune kept=%d total=%d, want 2 and 6", kept, total)
 	}
 }

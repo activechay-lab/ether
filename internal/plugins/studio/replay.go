@@ -76,8 +76,7 @@ type ReplayParams struct {
 	Operator     string               `json:"operator,omitempty"`
 	Value        json.RawMessage      `json:"value,omitempty"`
 	Action       string               `json:"action,omitempty"`
-	Position     *int                 `json:"position,omitempty"`
-	AfterStep    string               `json:"afterStep,omitempty"`
+	Score        *int                 `json:"score,omitempty"` // a replayed Prefer rule condition's score
 	Config       json.RawMessage      `json:"config,omitempty"`
 	Limit        int                  `json:"limit,omitempty"`
 	Profile      *core.QualityProfile `json:"profile,omitempty"`

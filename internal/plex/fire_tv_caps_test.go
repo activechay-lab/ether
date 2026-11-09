@@ -31,7 +31,7 @@ func TestFireTV4KMaxModelDoesNotUsePhoneHeight(t *testing.T) {
 				}
 				r.Header.Del("X-Plex-Client-Profile-Extra")
 				r.Header.Set("X-Plex-Client-Capabilities", "videoDecoders=h264{resolution:720}")
-				if legacy := ParseRequest(r).ClientCaps(8000); legacy.MaxHeight != 720 || legacy.MaxBitrateKbps != 8000 {
+				if legacy := ParseRequest(r).ClientCaps(8000); legacy.MaxHeight != 2160 || legacy.VideoMaxHeights["h264"] != 720 || legacy.MaxBitrateKbps != 8000 {
 					t.Fatalf("legacy/remote limits lost: %+v", legacy)
 				}
 				caps.Remote = true

@@ -29,8 +29,8 @@ func TestStartupRegeneratesLinkOnDeadCDN(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("dead CDN was retried without a new link: %v", err)
 	}
-	if got := r.provs["realdebrid-0"].callCount("link") - before; got != 1 {
-		t.Fatalf("link calls=%d, want one", got)
+	if got := r.provs["realdebrid-0"].callCount("link") - before; got != rerouteLinks {
+		t.Fatalf("link calls=%d, want one wave of %d", got, rerouteLinks)
 	}
 	src, err := r.eng.Open(context.Background(), r.rel.ID, r.pl)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestCDNOutageRefreshIsBoundedAndTransient(t *testing.T) {
 			t.Fatalf("outage misclassified: ok=%v err=%v", ok, err)
 		}
 	}
-	if got := r.provs["realdebrid-0"].callCount("link") - before; got != 1 {
-		t.Fatalf("outage generated %d links, want one", got)
+	if got := r.provs["realdebrid-0"].callCount("link") - before; got != rerouteLinks {
+		t.Fatalf("outage generated %d links, want one wave of %d", got, rerouteLinks)
 	}
 }

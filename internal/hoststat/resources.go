@@ -42,7 +42,7 @@ type Sample struct {
 
 type cpuSnap struct {
 	total, idle, proc uint64
-	wall              time.Time
+	wall              time.Time //nolint:unused // read by the darwin samplers; Linux builds never touch it
 }
 
 type cpuState struct {

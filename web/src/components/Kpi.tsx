@@ -49,7 +49,11 @@ export function Kpi({
         </div>
         {icon ? (
           <span
-            className={cn("grid size-9 shrink-0 place-items-center rounded-lg", TONE[tone])}
+            className={cn(
+              // Phones keep the width for the value; the chip only decorates.
+              "hidden size-9 shrink-0 place-items-center rounded-lg sm:grid",
+              TONE[tone],
+            )}
             aria-hidden
           >
             {icon}

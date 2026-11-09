@@ -220,10 +220,12 @@ func (s *Store) attachShared(ctx context.Context, b SharedBackend, o SharedOptio
 			break
 		}
 		dropped := stripRetiredLiveTV(stored)
-		// Settle the stored document itself (keeping fields this version
-		// does not know), so every node reads the same profiles.
+		// Reset profiles stored before the Radarr/Sonarr-standard model,
+		// then settle the stored document itself (keeping fields this
+		// version does not know), so every node reads the same profiles.
+		reset := resetPreStandardQuality(stored)
 		settled = normalizeSharedDocument(stored)
-		if !dropped && len(settled) == 0 {
+		if !dropped && !reset && len(settled) == 0 {
 			break
 		}
 		plain, err = json.Marshal(stored)

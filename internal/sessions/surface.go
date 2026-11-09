@@ -73,6 +73,17 @@ func (s surface) ResolveDetailSource(ctx context.Context, scope frontend.Version
 	}
 	return frontend.DetailSourceTarget{}, core.ErrNotAvailable
 }
+
+// WarmDetail forwards a detail-page warm-up for this surface only.
+func (s surface) WarmDetail(ctx context.Context, r frontend.PlanRequest) bool {
+	if r.Protocol != s.protocol {
+		return false
+	}
+	if warmer, ok := s.broker.(frontend.DetailWarmer); ok {
+		return warmer.WarmDetail(ctx, r)
+	}
+	return false
+}
 func (s surface) MatchDetailSession(ctx context.Context, scope frontend.VersionScope, handle, sessionID string) error {
 	if scope.Protocol != s.protocol {
 		return core.ErrUnauthorized
@@ -99,6 +110,46 @@ func (s surface) SubtitleURL(ctx context.Context, a frontend.SessionAccess, id s
 		return "", core.ErrUnauthorized
 	}
 	return s.broker.SubtitleURL(ctx, a, id, index, format)
+}
+func (s surface) HasAuthoredASSSubtitle(ctx context.Context, a frontend.SessionAccess, id string, index int) bool {
+	if a.Protocol != s.protocol {
+		return false
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return false
+	}
+	return artifacts.HasAuthoredASSSubtitle(ctx, a, id, index)
+}
+func (s surface) ServeASSSubtitle(ctx context.Context, a frontend.SessionAccess, id string, index int, syncMS int, requireAuthored bool) (frontend.SubtitleASSArtifact, error) {
+	if a.Protocol != s.protocol {
+		return frontend.SubtitleASSArtifact{}, core.ErrUnauthorized
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return frontend.SubtitleASSArtifact{}, core.ErrNotAvailable
+	}
+	return artifacts.ServeASSSubtitle(ctx, a, id, index, syncMS, requireAuthored)
+}
+func (s surface) SubtitleFontBundle(ctx context.Context, a frontend.SessionAccess, id string, index int) ([]frontend.SubtitleFontBundleItem, error) {
+	if a.Protocol != s.protocol {
+		return nil, core.ErrUnauthorized
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return nil, core.ErrNotAvailable
+	}
+	return artifacts.SubtitleFontBundle(ctx, a, id, index)
+}
+func (s surface) SubtitleFontAttachment(ctx context.Context, a frontend.SessionAccess, id string, index int, fontIndex int) (frontend.SubtitleFontAttachment, error) {
+	if a.Protocol != s.protocol {
+		return frontend.SubtitleFontAttachment{}, core.ErrUnauthorized
+	}
+	artifacts, ok := s.broker.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		return frontend.SubtitleFontAttachment{}, core.ErrNotAvailable
+	}
+	return artifacts.SubtitleFontAttachment(ctx, a, id, index, fontIndex)
 }
 func (s surface) Markers(ctx context.Context, a frontend.SessionAccess, id string) (frontend.SessionMarkers, error) {
 	if a.Protocol != s.protocol {

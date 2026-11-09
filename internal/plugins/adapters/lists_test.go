@@ -153,7 +153,6 @@ func newListTestHarness(t *testing.T) *listTestHarness {
 		db,
 		cat,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		collections.WithoutDefaults(),
 		collections.WithIndexTTL(time.Hour),
 		collections.WithLiveTTL(time.Hour),
 	)

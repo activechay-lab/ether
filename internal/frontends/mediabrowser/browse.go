@@ -457,6 +457,9 @@ func (i *instance) browseRoutes() error {
 			http.NotFound(w, r)
 			return
 		}
+		if d.Collection == nil && d.Playlist == nil && versionID == "" && (d.Title.Type == "movie" || d.Title.Type == "episode") {
+			i.warmDetail(r, v, key)
+		}
 		if d.Collection != nil || d.Playlist != nil {
 			dto, ok := i.containerDTO(d, key)
 			if !ok {
@@ -695,6 +698,13 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 			q.Filter.Studio = names[0]
 		}
 	}
+	// The alphabet jump: NameStartsWith=B for a letter, NameLessThan=A
+	// for "#", NameStartsWithOrGreater=B to start the list there.
+	for name, bound := range map[string]*string{"NameStartsWith": &q.Filter.NameStartsWith, "NameStartsWithOrGreater": &q.Filter.NameStartsWithOrGreater, "NameLessThan": &q.Filter.NameLessThan} {
+		if values := route.Query(r.URL.Query(), name); len(values) == 1 {
+			*bound = values[0]
+		}
+	}
 	if values := route.Query(r.URL.Query(), "SearchTerm"); len(values) == 1 {
 		q.Filter.Query = strings.TrimSpace(values[0])
 	}
@@ -774,6 +784,7 @@ func (i *instance) pageWithCount(w http.ResponseWriter, r *http.Request, v *fron
 				i.shapeJellyfinItem(r, v, item, title)
 				i.jellyfinListFacts(r, item, title)
 				i.jellyfinListFields(r, item, title)
+				i.embyListFields(r, item)
 				i.markUnreleased(item, title)
 				i.applyListedRatings(item, ratingFacts, title.Key)
 				items = append(items, item)
@@ -800,6 +811,7 @@ func (i *instance) pageWithCount(w http.ResponseWriter, r *http.Request, v *fron
 		i.shapeJellyfinItem(r, v, item, title)
 		i.jellyfinListFacts(r, item, title)
 		i.jellyfinListFields(r, item, title)
+		i.embyListFields(r, item)
 		i.markUnreleased(item, title)
 		i.applyListedRatings(item, ratingFacts, title.Key)
 		items = append(items, item)
@@ -867,10 +879,16 @@ func (i *instance) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hints := make([]any, 0, len(result.Page.Items))
+	// Hints carry the poster grant as PrimaryImageTag, as Jellyfin's do;
+	// without it clients draw every result as a blank card.
+	images := i.gridListImages(r, result.Page.Items)
 	for _, t := range result.Page.Items {
 		id := ids.RatingKeyGUID(t.Key)
 		kind := map[frontend.MediaType]string{"movie": "Movie", "show": "Series", "season": "Season", "episode": "Episode"}[t.Type]
 		hint := map[string]any{"Id": id, "ItemId": id, "Name": t.Title, "Type": kind, "ProductionYear": t.Year, "IsFolder": t.Type == "show" || t.Type == "season"}
+		if tags, ok := images[t.Key]["ImageTags"].(map[string]string); ok && tags["Primary"] != "" {
+			hint["PrimaryImageTag"] = tags["Primary"]
+		}
 		if i.protocol == "jellyfin" {
 			if t.Type == "movie" || t.Type == "episode" {
 				hint["MediaType"] = "Video"

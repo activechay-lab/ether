@@ -62,6 +62,12 @@ func (s scorecardSessionWrapper) MatchDetailSession(ctx context.Context, scope f
 	}
 	return core.ErrNotAvailable
 }
+func (s scorecardSessionWrapper) WarmDetail(ctx context.Context, r frontend.PlanRequest) bool {
+	if warmer, ok := s.embeddedScorecardSessions.(frontend.DetailWarmer); ok {
+		return warmer.WarmDetail(ctx, r)
+	}
+	return false
+}
 func (s scorecardSessionWrapper) Open(ctx context.Context, r frontend.OpenRequest) (frontend.Session, error) {
 	v, e := s.embeddedScorecardSessions.Open(ctx, r)
 	s.failure("open", e)

@@ -1,6 +1,7 @@
 package transcode
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -276,4 +277,74 @@ func TestRungSwitchWaitsOutDwell(t *testing.T) {
 		t.Errorf("encoder not switched to the rung after the dwell: starts=%d", fr.startCount())
 	}
 	mustContain(t, fr.lastStart(), "scale_vt=w=1280:h=720", "-start_number 0")
+}
+
+// Rungs are genuine steps down: their class sits visibly below the
+// primary's picture height (798p and 800p are the 720p class, 1036p the
+// 1080p class), they are fitted into the class's 16:9 box so scope
+// pictures shrink by width, and the encoder makes exactly the advertised
+// size.
+func TestBuildRungsByResolutionClass(t *testing.T) {
+	under := adaptiveSettings{Ladder: true, LadderUnderCopy: true}
+	copyPrimary := core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, AudioStream: 1, Container: ContainerMPEGTS}
+	for _, tc := range []struct {
+		w, h int
+		want string
+	}{
+		{1920, 798, "base,480p1500k@852x354,360p800k@640x266"},
+		{1280, 798, "base,480p1500k@770x480,360p800k@576x360"},
+		{1436, 798, "base,480p1500k@852x474,360p800k@636x354"},
+		{1920, 800, "base,480p1500k@850x354,360p800k@638x266"},
+		{1920, 1036, "base,720p4m@1278x690,480p1500k@852x460,360p800k@638x344"},
+		{1920, 1080, "base,720p4m@1280x720,480p1500k@852x480,360p800k@640x360"},
+		{3840, 2160, "base,1080p8m@1920x1080,720p4m@1280x720,480p1500k@852x480,360p800k@640x360"},
+		{3840, 1600, "base,1080p8m@1920x800,720p4m@1276x532,480p1500k@850x354,360p800k@638x266"},
+		{1280, 536, "base,360p800k@640x268"},
+		{1280, 720, "base,480p1500k@852x480,360p800k@640x360"},
+		{854, 480, "base,360p800k@636x358"},
+		{640, 360, "base"},
+	} {
+		info := ladderInfo(tc.h, 40000)
+		info.Streams[0].Width = tc.w
+		var got []string
+		for _, r := range buildRungs(info, copyPrimary, under) {
+			id := r.id
+			if r.id != "base" {
+				id = fmt.Sprintf("%s@%dx%d", r.id, r.width, r.height)
+				if w, h := outputSize(tc.w, tc.h, r.decision.MaxHeight); w != r.width || h != r.height {
+					t.Errorf("%dx%d %s: encoder output %dx%d", tc.w, tc.h, r.id, w, h)
+				}
+			}
+			got = append(got, id)
+		}
+		if strings.Join(got, ",") != tc.want {
+			t.Errorf("%dx%d ladder = %v, want %s", tc.w, tc.h, got, tc.want)
+		}
+	}
+}
+
+// A healthy link must never prefer a rung: each rung is at most two thirds
+// of the variant above it, and a copied original advertises the peak of
+// the bytes it actually sends, not of source audio it drops.
+func TestBuildRungsHealthyLinkKeepsOriginal(t *testing.T) {
+	under := adaptiveSettings{Ladder: true, LadderUnderCopy: true}
+	// A ~5 Mbps 1080p WEB release: a 4 Mbps "720p" rung is no real step down.
+	info := ladderInfo(1080, 5000)
+	copyPrimary := core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, AudioStream: 1, Container: ContainerMPEGTS}
+	var ids []string
+	for _, r := range buildRungs(info, copyPrimary, under) {
+		ids = append(ids, r.id)
+	}
+	if strings.Join(ids, ",") != "base,480p1500k,360p800k" {
+		t.Fatalf("5 Mbps 1080p ladder = %v", ids)
+	}
+	// EAC3 5.1 at 640 kbps re-encoded to stereo AAC: BANDWIDTH drops the
+	// difference instead of advertising the file's peak.
+	info.Streams[1] = core.StreamInfo{Index: 1, Type: "audio", Codec: "eac3", Channels: 6, SampleRate: 48000, BitrateKbps: 640}
+	d := core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCodec: "aac", AudioStream: 1, Container: ContainerMPEGTS}
+	base := buildRungs(info, d, under)[0]
+	file := HLSCopyPeakKbps(info, 0)
+	if dropped := info.BitrateKbps - base.avgKbps; dropped <= 0 || base.peakKbps != file-dropped {
+		t.Fatalf("base peak %d avg %d, file peak %d", base.peakKbps, base.avgKbps, file)
+	}
 }

@@ -28,10 +28,9 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/langtag"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/subtitles"
-	"github.com/braedonsaunders/ether/internal/trackprefs"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -185,38 +184,6 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info core.Me
 	p.opts.SubtitleStream = -1
 }
 
-// textForImageSubtitle is a text track that can stand in for the image
-// subtitle at pos: same language, forced flag and hearing-impaired style,
-// embedded before external. An image track is burned into the video for
-// most clients, a full transcode; a text track rides beside a remux. -1
-// when there is none.
-func textForImageSubtitle(info core.MediaInfo, pos int) int {
-	if pos < 0 || pos >= len(info.Streams) {
-		return -1
-	}
-	img := info.Streams[pos]
-	if img.Type != "subtitle" || !transcode.IsImageSubtitle(img.Codec) || img.Language == "" {
-		return -1
-	}
-	best := -1
-	for i, st := range info.Streams {
-		if st.Type != "subtitle" || !transcode.IsTextSubtitle(st.Codec) || st.Forced != img.Forced ||
-			trackprefs.SDH(st) != trackprefs.SDH(img) || langtag.Normalize(st.Language) != langtag.Normalize(img.Language) {
-			continue
-		}
-		if st.External && st.ExternalURL == "" {
-			continue
-		}
-		if !st.External {
-			return i
-		}
-		if best < 0 {
-			best = i
-		}
-	}
-	return best
-}
-
 // resolvePlaySelection is resolveSelection for a play request.
 func resolvePlaySelection(p *playRequest, info core.MediaInfo) {
 	out, err := experience.TranslatePlexTrackIdentity(experience.PlexIssuedIdentity{
@@ -258,23 +225,6 @@ func subtitleFormat(v string) string {
 		return "vtt"
 	}
 	return "srt"
-}
-
-// subtitleLanguage is the language a subtitle search defaults to: the
-// viewer's first preferred subtitle language, else English.
-func (s *Server) subtitleLanguage(ctx context.Context, u *core.User) string {
-	if u == nil {
-		return "en"
-	}
-	if s.d.TrackPreferences != nil {
-		if rules, err := s.d.TrackPreferences.GetRules(ctx, u.ID); err == nil && len(rules.SubtitleLanguages) > 0 {
-			return rules.SubtitleLanguages[0]
-		}
-	}
-	if len(u.SubtitleLanguages) > 0 {
-		return u.SubtitleLanguages[0]
-	}
-	return "en"
 }
 
 // subtitleTitle resolves the playable title of a /library/metadata/{key}/
@@ -378,7 +328,7 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusInternalServerError)
 		return
 	}
-	lang = langtag.Normalize(lang)
+	lang = frontend.NormalizeLanguage(lang)
 	mc := libraryContainer()
 	searcher, ok := s.d.Subtitles.(SubtitleSearch)
 	if !ok {
@@ -479,6 +429,10 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Closed() {
+		writeHTTPError(w, http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.recordManualSubtitle(r.Context(), pr.User.ID, t.Key, true); err != nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -617,6 +571,10 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
+	if err := s.recordManualSubtitle(ctx, pr.User.ID, t.Key, true); err != nil {
+		writeHTTPError(w, http.StatusServiceUnavailable)
+		return
+	}
 	s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) {
 		sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st
 	})
@@ -707,8 +665,8 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		s.writeEmpty(w, r)
 		return
 	}
-	timeline, ok := s.d.Subtitles.(SubtitleSource)
-	if !ok {
+	timeline := s.d.Subtitles
+	if timeline == nil {
 		s.writeEmpty(w, r)
 		return
 	}

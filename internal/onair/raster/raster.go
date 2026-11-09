@@ -250,7 +250,6 @@ func (r *render) layers(dst *image.RGBA, ls []scene.Layer, parent matrix, opacit
 func (r *render) mask(cs []contour, m matrix, rule string) *image.Alpha {
 	mask := image.NewAlpha(image.Rect(0, 0, r.w, r.h))
 	if rule == "evenodd" { // four vertical samples, analytic horizontal coverage.
-		type edge struct{ x float64 }
 		for yy := 0; yy < r.h; yy++ {
 			coverage := make([]float64, r.w)
 			for sub := 0; sub < 4; sub++ {

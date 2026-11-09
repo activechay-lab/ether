@@ -61,6 +61,42 @@ const viewModeList = 65592
 // defaultUnpagedLimit bounds list responses for clients that don't page.
 const defaultUnpagedLimit = 500
 
+// plexOnDeckLimit bounds On Deck (Continue Watching) at PMS's OnDeckLimit
+// default: "Maximum number of Continue Watching items which will appear."
+// /:/prefs reports it.
+const plexOnDeckLimit = 40
+
+// plexOnDeckWindow is PMS's OnDeckWindow default, 16 weeks: "Media that has
+// not been watched in this many weeks will not appear in Continue
+// Watching." With OnDeckIncludePremieres (default on) a new season premiere
+// appears however long ago the show was watched. /:/prefs reports both.
+const plexOnDeckWindow = 16 * 7 * 24 * time.Hour
+
+// onDeckSince is the start of the On Deck window.
+func (s *Server) onDeckSince() time.Time { return s.now().Add(-plexOnDeckWindow) }
+
+// inOnDeckWindow reports a deck row PMS would still show: watched within
+// the window (st carries the show's latest view for a next-up episode), or
+// a season premiere, episode 1 of a later season, that aired within it.
+func inOnDeckWindow(t *core.Title, st core.WatchStatus, since time.Time) bool {
+	if st.LastViewedAt.Unix() <= 0 || !st.LastViewedAt.Before(since) {
+		return true // an undated view is not known to be old (the deck query's latest<=0)
+	}
+	return t.Type == core.TypeEpisode && t.Episode == 1 && t.Season > 1 && !t.Released.IsZero() && !t.Released.Before(since)
+}
+
+// onDeckWindowed keeps the rows inside the On Deck window, in order.
+func (s *Server) onDeckWindowed(items []core.Title, state map[core.RatingKey]core.WatchStatus) []core.Title {
+	since := s.onDeckSince()
+	out := items[:0]
+	for i := range items {
+		if inOnDeckWindow(&items[i], state[items[i].Key], since) {
+			out = append(out, items[i])
+		}
+	}
+	return out
+}
+
 // sectionPrefs is /library/sections/{id}/prefs: the library settings the
 // apps read (visibility, collection mode, episode sorting and ordering,
 // season display), with the values Ether actually behaves by. PMS types
@@ -1491,6 +1527,15 @@ func (s *Server) getTitles(ctx context.Context, keys []core.RatingKey) []core.Ti
 			return out
 		}
 	}
+	if pre, ok := s.d.Catalog.(interface {
+		PreloadStored(context.Context, []core.RatingKey)
+	}); ok && len(keys) > 4 {
+		// Read the stored titles in batches first, cached exactly as Get
+		// reads them (detail time included): each Get below then finds its
+		// title in the catalogue's title cache instead of reading it and its
+		// facts alone (a 3000-item playlist read 2,810 titles one by one).
+		pre.PreloadStored(ctx, keys)
+	}
 	res := make([]*core.Title, len(keys))
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
@@ -1550,7 +1595,7 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		customOrder = custom || err != nil
 	}
 	if paged, ok := s.d.Catalog.(interface {
-		PlexOnDeckPage(context.Context, int64, int, int, core.Filter, bool) (core.WatchPage, error)
+		PlexOnDeckPageSince(context.Context, int64, int, int, core.Filter, bool, time.Time) (core.WatchPage, error)
 	}); ok && pr.User != nil && !pendingVisible && !customOrder {
 		_, size := pr.pageOf(0)
 		filter := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.plexMetaOn()}
@@ -1578,11 +1623,16 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		}
 		child := filter
 		filter.ChildVisibility = &child
-		page, err := paged.PlexOnDeckPage(ctx, pr.User.ID, max(pr.Start, 0), size, filter, r.URL.Path == "/hubs/home/onDeck")
+		// The deck is bounded by PMS's OnDeckLimit; a page past it is
+		// empty and still carries the bounded total.
+		start := max(pr.Start, 0)
+		size = max(min(size, plexOnDeckLimit-start), 0)
+		page, err := paged.PlexOnDeckPageSince(ctx, pr.User.ID, start, size, filter, r.URL.Path == "/hubs/home/onDeck", s.onDeckSince())
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
 		}
+		page.Total = min(page.Total, plexOnDeckLimit)
 		state := s.stateFor(ctx, pr, page.Items)
 		for key, anchor := range page.Anchors {
 			status := state[key]
@@ -1630,8 +1680,10 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 	// On Deck render costs statements per title. The filter is the one the
 	// render applies, so the total and the page are what rendering the
 	// whole row and slicing it produced.
+	items = s.onDeckWindowed(items, state)
 	items = s.takeVisible(pr.User, items, len(items))
 	items = s.openableTitles(withStoredPolicy(ctx), pr.User, items, shelfContainsAll(ctx, items))
+	items = items[:min(len(items), plexOnDeckLimit)]
 	total := len(items)
 	start := min(max(pr.Start, 0), total)
 	_, size := pr.pageOf(0)

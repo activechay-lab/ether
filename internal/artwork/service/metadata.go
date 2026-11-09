@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/lru"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -40,11 +41,37 @@ type MetadataQueue struct {
 	cache   map[string]artworkMetadata
 	pending map[string]bool
 	retry   map[string]time.Time
+	// touches carries keys whose used_at is a day old (see touch).
+	touches chan string
+	// persist reports whether an item's metadata may be written; nil
+	// writes everything. Titles with no stored row (search and list hits)
+	// keep theirs in memory only: a search page must not write rows.
+	persist func(context.Context, core.RatingKey) bool
+	memory  *lru.Cache[string, artworkMetadata] // unpersisted hashes, guarded by mu
 }
+
+// memoryMetadataEntries bounds the hashes kept for titles with no row
+// (about 200 bytes each).
+const memoryMetadataEntries = 16 << 10
+
+// PersistFor limits database writes to items persist accepts; the rest
+// keep their hashes in a bounded memory cache. Call before serving.
+func (q *MetadataQueue) PersistFor(persist func(context.Context, core.RatingKey) bool) {
+	if q != nil {
+		q.persist = persist
+	}
+}
+
+func (q *MetadataQueue) persistable(ctx context.Context, req frontend.ArtworkRequest) bool {
+	return q.persist == nil || req.Item == 0 || q.persist(ctx, req.Item)
+}
+
 type artworkMetadata struct {
 	width, height int
 	blurhash      string
 	thumbhash     string
+	// usedAt is the row's used_at as last read or touched (Unix seconds).
+	usedAt int64
 }
 type artworkMetadataJob struct {
 	key     string
@@ -53,11 +80,14 @@ type artworkMetadataJob struct {
 }
 
 func NewMetadataQueue(ctx context.Context, db *sql.DB, active func(context.Context, int64) (*core.User, error), read func(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error)) *MetadataQueue {
-	q := &MetadataQueue{ctx: ctx, db: db, active: active, read: read, jobs: make(chan artworkMetadataJob, 128), cache: map[string]artworkMetadata{}, pending: map[string]bool{}, retry: map[string]time.Time{}}
+	q := &MetadataQueue{ctx: ctx, db: db, active: active, read: read, jobs: make(chan artworkMetadataJob, 128), cache: map[string]artworkMetadata{}, pending: map[string]bool{}, retry: map[string]time.Time{}, touches: make(chan string, 256),
+		memory: lru.New(lru.Options[string, artworkMetadata]{MaxEntries: memoryMetadataEntries})}
 	for i := 0; i < 2; i++ {
 		q.workers.Add(1)
 		go q.run()
 	}
+	q.workers.Add(1)
+	go q.runTouches()
 	return q
 }
 
@@ -88,7 +118,7 @@ func (q *MetadataQueue) Get(ctx context.Context, req frontend.ArtworkRequest, im
 		return img
 	}
 	key := artworkMetadataKey(req, img)
-	stored, have := q.stored(key)
+	stored, have := q.stored(ctx, req, key)
 	if have && stored.thumbhash != "" {
 		return applyArtworkMetadata(img, stored)
 	}
@@ -105,7 +135,7 @@ func (q *MetadataQueue) Get(ctx context.Context, req frontend.ArtworkRequest, im
 	tick := time.NewTicker(5 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if stored, ok := q.stored(key); ok {
+		if stored, ok := q.stored(ctx, req, key); ok {
 			return applyArtworkMetadata(img, stored)
 		}
 		select {
@@ -123,11 +153,18 @@ func applyArtworkMetadata(img frontend.Image, metadata artworkMetadata) frontend
 	return img
 }
 
-func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
+func (q *MetadataQueue) stored(ctx context.Context, req frontend.ArtworkRequest, key string) (artworkMetadata, bool) {
 	q.mu.Lock()
 	if cached, ok := q.cache[key]; ok && cached.thumbhash != "" {
 		q.mu.Unlock()
+		if time.Now().Unix()-cached.usedAt >= int64(metadataTouchEvery/time.Second) {
+			q.remember(ctx, req, key, cached)
+		}
 		return cached, true
+	}
+	if held, ok := q.memory.Get(key); ok {
+		q.mu.Unlock()
+		return held, true
 	}
 	q.mu.Unlock()
 	// A free lookup is a cheap join. A locked database must not hold the page.
@@ -137,13 +174,32 @@ func (q *MetadataQueue) stored(key string) (artworkMetadata, bool) {
 	if err != nil || (metadata.blurhash == "" && metadata.thumbhash == "") {
 		return artworkMetadata{}, false
 	}
-	q.remember(key, metadata)
+	q.remember(ctx, req, key, metadata)
 	return metadata, true
 }
 
-func (q *MetadataQueue) remember(key string, metadata artworkMetadata) {
+func (q *MetadataQueue) remember(ctx context.Context, req frontend.ArtworkRequest, key string, metadata artworkMetadata) {
+	// Metadata can outlive a title removed from the library by tier cleanup.
+	// Check current persistence before refreshing that row, outside the mutex.
+	// Fresh cache hits and memory-only hashes require no additional lookup.
+	if time.Now().Unix()-metadata.usedAt >= int64(metadataTouchEvery/time.Second) {
+		checkCtx, cancel := context.WithTimeout(ctx, 8*time.Millisecond)
+		persist := q.persistable(checkCtx, req)
+		cancel()
+		if !persist {
+			q.mu.Lock()
+			delete(q.cache, key)
+			q.memory.Add(key, metadata)
+			q.mu.Unlock()
+			return
+		}
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if cached, ok := q.cache[key]; ok && cached.usedAt > metadata.usedAt {
+		metadata.usedAt = cached.usedAt
+	}
+	q.touch(key, &metadata)
 	if len(q.cache) >= 4096 {
 		q.cache = map[string]artworkMetadata{}
 	}
@@ -211,13 +267,24 @@ func (q *MetadataQueue) run() {
 			return
 		case job := <-q.jobs:
 			ctx, cancel := context.WithTimeout(q.ctx, 30*time.Second)
-			err := q.compute(ctx, job)
-			metadata, loadErr := q.load(ctx, job.key)
-			if err == nil {
-				err = loadErr
+			var metadata artworkMetadata
+			var err, loadErr error
+			persist := q.persistable(ctx, job.request)
+			if persist {
+				err = q.compute(ctx, job)
+				metadata, loadErr = q.load(ctx, job.key)
+				if err == nil {
+					err = loadErr
+				}
+			} else {
+				metadata, err = q.hash(ctx, job)
+				loadErr = err
 			}
 			cancel()
 			q.mu.Lock()
+			if loadErr == nil && !persist {
+				q.memory.Add(job.key, metadata)
+			}
 			delete(q.pending, job.key)
 			if err != nil && q.ctx.Err() == nil {
 				if len(q.retry) >= 1024 {
@@ -233,7 +300,7 @@ func (q *MetadataQueue) run() {
 			} else {
 				delete(q.retry, job.key)
 			}
-			if loadErr == nil {
+			if loadErr == nil && persist {
 				if len(q.cache) >= 4096 {
 					q.cache = map[string]artworkMetadata{}
 				}
@@ -246,7 +313,7 @@ func (q *MetadataQueue) run() {
 
 func (q *MetadataQueue) load(ctx context.Context, key string) (artworkMetadata, error) {
 	var m artworkMetadata
-	err := q.db.QueryRowContext(ctx, `SELECT width,height,blurhash,thumbhash FROM artwork_image_metadata WHERE image_key=?`, key).Scan(&m.width, &m.height, &m.blurhash, &m.thumbhash)
+	err := q.db.QueryRowContext(ctx, `SELECT width,height,blurhash,thumbhash,used_at FROM artwork_image_metadata WHERE image_key=?`, key).Scan(&m.width, &m.height, &m.blurhash, &m.thumbhash, &m.usedAt)
 	return m, err
 }
 
@@ -290,31 +357,50 @@ func (q *MetadataQueue) compute(ctx context.Context, job artworkMetadataJob) err
 	} else if err != nil && err != sql.ErrNoRows {
 		return err
 	}
-	data, _, err := q.read(ctx, job.request, job.image, frontend.ArtworkTransform{})
+	m, err := q.hashImage(ctx, job)
 	if err != nil {
 		return err
 	}
+	_, err = q.db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash,used_at) VALUES(?,?,?,?,?,?) ON CONFLICT(image_key) DO UPDATE SET thumbhash=excluded.thumbhash,used_at=excluded.used_at WHERE artwork_image_metadata.thumbhash=''`, job.key, m.width, m.height, m.blurhash, m.thumbhash, time.Now().Unix())
+	return err
+}
+
+// hash computes an unpersisted item's metadata: the same viewer check and
+// image read, no lease and no write.
+func (q *MetadataQueue) hash(ctx context.Context, job artworkMetadataJob) (artworkMetadata, error) {
+	viewer, err := q.active(ctx, job.request.Viewer.ID)
+	if err != nil || viewer == nil || viewer.ID != job.request.Viewer.ID {
+		return artworkMetadata{}, core.ErrUnauthorized
+	}
+	job.request.Viewer = viewer
+	return q.hashImage(ctx, job)
+}
+
+func (q *MetadataQueue) hashImage(ctx context.Context, job artworkMetadataJob) (artworkMetadata, error) {
+	data, _, err := q.read(ctx, job.request, job.image, frontend.ArtworkTransform{})
+	if err != nil {
+		return artworkMetadata{}, err
+	}
 	if len(data) == 0 || len(data) > 15<<20 {
-		return core.ErrNotAvailable
+		return artworkMetadata{}, core.ErrNotAvailable
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 4000 || cfg.Height > 4000 || int64(cfg.Width)*int64(cfg.Height) > 16_000_000 {
-		return core.ErrNotAvailable
+		return artworkMetadata{}, core.ErrNotAvailable
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return err
+		return artworkMetadata{}, err
 	}
 	hash, err := artwork.BlurHash(decoded, 4, 3)
 	if err != nil {
-		return err
+		return artworkMetadata{}, err
 	}
 	thumb, err := artwork.ThumbHash(decoded)
 	if err != nil {
-		return err
+		return artworkMetadata{}, err
 	}
-	_, err = q.db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash) VALUES(?,?,?,?,?) ON CONFLICT(image_key) DO UPDATE SET thumbhash=excluded.thumbhash WHERE artwork_image_metadata.thumbhash=''`, job.key, cfg.Width, cfg.Height, hash, base64.StdEncoding.EncodeToString(thumb))
-	return err
+	return artworkMetadata{width: cfg.Width, height: cfg.Height, blurhash: hash, thumbhash: base64.StdEncoding.EncodeToString(thumb)}, nil
 }
 
 // Wait joins workers after the owning context is cancelled.

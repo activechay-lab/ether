@@ -1,11 +1,15 @@
 package transcode
 
 import (
-	"github.com/braedonsaunders/ether/internal/core"
+	"bytes"
+	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"sort"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // ServePlaylist implements core.HLSSession: the full-length VOD playlist
@@ -45,6 +49,9 @@ func (s *Session) span() time.Duration {
 // an EVENT playlist fresh each time so reloads see re-planned segments.
 func (s *Session) renderPlaylistLocked(t int) []byte {
 	independent := !s.requireIndependentProof || s.segmentsIndependent
+	if s.liveInput && s.total == 0 && !s.isDASH() {
+		return s.livePlaylistLocked(t, func(n int) bool { return s.discontBeforeLocked(t, n) })
+	}
 	if s.total == 0 {
 		s.log.Warn("using growing HLS playlist", "reason", "source duration unavailable")
 	}
@@ -74,6 +81,86 @@ func (s *Session) renderPlaylistLocked(t int) []byte {
 	}
 	// Unknown duration: list the contiguous completed prefix.
 	return planPlaylist(s.plan, s.container, s.segName, discont, true, s.endSeg >= 0, s.listedLocked(t), independent)
+}
+
+// liveWindow is how many segments a live playlist lists. It slides: a live
+// session runs for hours, and its consumer (Live TV's owned timeline) reads
+// only the newest segments.
+const liveWindow = 10
+
+// livePlaylistLocked renders a live session's sliding playlist: the newest
+// liveWindow segments of the contiguous completed prefix, each with the
+// length ffmpeg actually cut (copy cuts at source keyframes, so lengths
+// vary), and EXT-X-DISCONTINUITY-SEQUENCE counting the discontinuities that
+// slid out (RFC 8216 section 4.3.3.3; Apple authoring rule 8.17).
+func (s *Session) livePlaylistLocked(t int, discont func(int) bool) []byte {
+	listed := s.listedLocked(t)
+	first := max(0, listed-liveWindow)
+	discSeq := 0
+	for n := 1; n < first; n++ {
+		if discont(n) {
+			discSeq++
+		}
+	}
+	target := s.segDur
+	for n := first; n < listed; n++ {
+		target = max(target, s.liveDurationLocked(n))
+	}
+	var b bytes.Buffer
+	version := 3
+	if hasInitSegment(s.container) {
+		version = 7
+	}
+	b.WriteString("#EXTM3U\n")
+	fmt.Fprintf(&b, "#EXT-X-VERSION:%d\n", version)
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", int(math.Ceil(target.Seconds())))
+	fmt.Fprintf(&b, "#EXT-X-MEDIA-SEQUENCE:%d\n", first)
+	fmt.Fprintf(&b, "#EXT-X-DISCONTINUITY-SEQUENCE:%d\n", discSeq)
+	if hasInitSegment(s.container) {
+		fmt.Fprintf(&b, "#EXT-X-MAP:URI=%q\n", initSegmentName(s.container))
+	}
+	for n := first; n < listed; n++ {
+		if n > 0 && discont(n) {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+			if hasInitSegment(s.container) && n > first {
+				fmt.Fprintf(&b, "#EXT-X-MAP:URI=%q\n", initSegmentName(s.container))
+			}
+		}
+		fmt.Fprintf(&b, "#EXTINF:%.6f,\n%s\n", s.liveDurationLocked(n).Seconds(), s.segName(n))
+	}
+	if s.endSeg >= 0 {
+		b.WriteString("#EXT-X-ENDLIST\n")
+	}
+	return b.Bytes()
+}
+
+func (s *Session) liveDurationLocked(n int) time.Duration {
+	if d := s.liveDurations[n]; d > 0 {
+		return d
+	}
+	if s.plan != nil {
+		return s.plan.Dur(n)
+	}
+	return s.segDur
+}
+
+// noteLiveDurationLocked records segment n's real length, keeping only what
+// the sliding window can still list.
+func (s *Session) noteLiveDurationLocked(n int, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	if s.liveDurations == nil {
+		s.liveDurations = map[int]time.Duration{}
+	}
+	s.liveDurations[n] = d
+	if len(s.liveDurations) > 4*liveWindow {
+		for k := range s.liveDurations {
+			if k < n-2*liveWindow {
+				delete(s.liveDurations, k)
+			}
+		}
+	}
 }
 
 // listedLocked advances and returns how many segments track t's

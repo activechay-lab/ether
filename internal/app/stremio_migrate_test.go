@@ -73,7 +73,7 @@ func TestMigrateLegacyStremioCollectionsAndSubtitles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cols, err := collections.New(db, cat, log, collections.WithoutDefaults(), collections.WithSealer(cfg))
+	cols, err := collections.New(db, cat, log, collections.WithSealer(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}

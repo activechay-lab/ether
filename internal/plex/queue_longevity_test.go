@@ -32,11 +32,11 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 			})
 			defer f.srv.Close()
 			qs := f.srv.queues
-			active, err := qs.createWith(ownerUser.ID, "active", []core.RatingKey{bbE1.Key, bbE2.Key}, now(), nil)
+			active, err := qs.CreateWith(ownerUser.ID, "active", []core.RatingKey{bbE1.Key, bbE2.Key}, now(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			idle, err := qs.createWith(ownerUser.ID, "abandoned", []core.RatingKey{alien.Key}, now(), nil)
+			idle, err := qs.CreateWith(ownerUser.ID, "abandoned", []core.RatingKey{alien.Key}, now(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,23 +45,23 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 			for hour := 1; hour <= 24*370; hour++ {
 				clock.Add(int64(time.Hour))
 				if shared {
-					qs.forget(active.id)
+					qs.Forget(active.ID)
 				} // a different/cold node
-				qs.selectItem(ownerUser.ID, active.items[0].id)
-				qs.selectItem(friendUser.ID, idle.items[0].id) // cannot keep another user's queue alive
-				qs.expire(now(), 6*time.Hour)
-				if _, ok := qs.get(active.id, ownerUser.ID); !ok {
+				qs.SelectItem(ownerUser.ID, active.Items[0].ID)
+				qs.SelectItem(friendUser.ID, idle.Items[0].ID) // cannot keep another user's queue alive
+				qs.Expire(now(), 6*time.Hour)
+				if _, ok := qs.Get(active.ID, ownerUser.ID); !ok {
 					t.Fatalf("active queue expired after %d hours of valid timelines", hour)
 				}
 				if hour > 6 {
-					if _, ok := qs.get(idle.id, ownerUser.ID); ok {
+					if _, ok := qs.Get(idle.ID, ownerUser.ID); ok {
 						t.Fatal("abandoned queue retained")
 					}
 				}
 			}
 			clock.Add(int64(7 * time.Hour))
-			qs.expire(now(), 6*time.Hour)
-			if _, ok := qs.get(active.id, ownerUser.ID); ok {
+			qs.Expire(now(), 6*time.Hour)
+			if _, ok := qs.Get(active.ID, ownerUser.ID); ok {
 				t.Fatal("queue retained after timelines stop")
 			}
 		})
@@ -73,23 +73,23 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 // queue that a client has just created.
 func TestQueueCapacityKeepsNewestWhenTimestampsTie(t *testing.T) {
 	qs := newPlayQueueStore()
-	qs.now = func() time.Time { return fixedNow }
+	qs.Configure(func() time.Time { return fixedNow }, nil)
 	for i := 0; i < maxQueues+100; i++ {
-		q, err := qs.createWith(ownerUser.ID, "burst-"+strconv.Itoa(i), []core.RatingKey{alien.Key}, fixedNow, nil)
+		q, err := qs.CreateWith(ownerUser.ID, "burst-"+strconv.Itoa(i), []core.RatingKey{alien.Key}, fixedNow, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := qs.get(q.id, ownerUser.ID); !ok {
+		if _, ok := qs.Get(q.ID, ownerUser.ID); !ok {
 			t.Fatal("new queue immediately lost")
 		}
 	}
 	for id := int64(1); id <= 100; id++ {
-		if _, ok := qs.get(id, ownerUser.ID); ok {
+		if _, ok := qs.Get(id, ownerUser.ID); ok {
 			t.Fatalf("old queue %d kept ahead of newer equal-time queues", id)
 		}
 	}
 	for id := int64(101); id <= int64(maxQueues+100); id++ {
-		if _, ok := qs.get(id, ownerUser.ID); !ok {
+		if _, ok := qs.Get(id, ownerUser.ID); !ok {
 			t.Fatalf("newer queue %d evicted at equal timestamp", id)
 		}
 	}

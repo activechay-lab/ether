@@ -30,6 +30,11 @@ CREATE INDEX clusterplayback_neutral_scope ON clusterplayback_neutral_bindings(p
 CREATE TABLE clusterplayback_neutral_stops(session TEXT PRIMARY KEY);
 
 `)
+	// Tick and every SaveNeutralBinding delete expired bindings by expires
+	// alone; the scope index leads with protocol, so index expires directly.
+	// The table holds only live sessions' bindings (10-minute TTL), so the
+	// in-transaction build's SHARE lock lasts milliseconds.
+	store.Register("clusterplayback", 10, `CREATE INDEX clusterplayback_neutral_expiry ON clusterplayback_neutral_bindings(expires);`)
 }
 
 const neutralBindingTTL = 10 * time.Minute
@@ -64,8 +69,8 @@ func (r *Runtime) SaveNeutralBinding(ctx context.Context, id, protocol string, v
 	if err != nil {
 		return ErrDenied
 	}
-	// Bound ciphertext and prune expired rows; all live rows are bounded by the
-	// existing cluster-wide durable admission ceiling, never by eviction.
+	// Bound ciphertext and prune expired rows; unexpired rows belong to live
+	// placement sessions and leave with their compacted tombstone.
 	if len(sealed) > 2*maxAdmissionBytes {
 		return ErrDenied
 	}

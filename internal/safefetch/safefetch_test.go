@@ -182,9 +182,9 @@ func TestGuardedTransportsPreserveProxyAndSeparatePools(t *testing.T) {
 		}
 		// Direto: DialContext guardado E DialTLSContext próprio (IP +
 		// ServerName original da decisão); Dial/DialTLS legados fora.
-		if pool.direct.DialContext == nil || pool.direct.DialTLSContext == nil || pool.direct.Dial != nil || pool.direct.DialTLS != nil {
+		if pool.direct.DialContext == nil || pool.direct.DialTLSContext == nil || pool.direct.Dial != nil || pool.direct.DialTLS != nil { //nolint:staticcheck // asserts the legacy hooks were cleared
 			t.Errorf("%s direct dial hooks not fully guarded (DialContext=%v DialTLSContext=%v Dial=%v DialTLS=%v)",
-				name, pool.direct.DialContext != nil, pool.direct.DialTLSContext != nil, pool.direct.Dial != nil, pool.direct.DialTLS != nil)
+				name, pool.direct.DialContext != nil, pool.direct.DialTLSContext != nil, pool.direct.Dial != nil, pool.direct.DialTLS != nil) //nolint:staticcheck // asserts the legacy hooks were cleared
 		}
 		// O seletor do dono fica guardado à parte (chamado uma vez em
 		// policyTransport.RoundTrip); a Proxy func interna só consome a

@@ -34,9 +34,9 @@ func TestDecisionCorpusConformsToPMS(t *testing.T) {
 			target := strings.ReplaceAll(rec.Request.Target(), "{{movieKey}}", burbs.Key.String())
 			target = strings.ReplaceAll(target, "{{ratingKey}}", burbs.Key.String())
 			hdr := rec.Request.HeaderMap()
-			httpRec := f.request(t, rec.Request.Method, target, hdr)
+			f.request(t, rec.Request.Method, target, hdr)
 			f.srv.waitBackground()
-			httpRec = f.request(t, rec.Request.Method, target, hdr)
+			httpRec := f.request(t, rec.Request.Method, target, hdr)
 			ours := pmsconform.Response{Status: httpRec.Code, Headers: httpRec.Header(), Body: httpRec.Body.Bytes()}
 			if httpRec.Code != ref.Status {
 				t.Fatalf("status %d want %d: %s", httpRec.Code, ref.Status, httpRec.Body.String())

@@ -115,18 +115,9 @@ func (c *Catalog) childFilterConds(alias string, f core.Filter, childExclude []c
 		conds = append(conds, alias+".runtime_sec>=?")
 		args = append(args, int64(f.MinRuntime.Seconds()))
 	}
-	if fc := strings.TrimSpace(f.FirstCharacter); fc != "" {
-		switch {
-		case fc == "#" || fc == "0":
-			conds = append(conds, alias+".sort_title<>'' AND "+alias+".sort_title < 'a'")
-		case fc == "~" || fc == "…":
-			conds = append(conds, alias+".sort_title >= '{'")
-		case len(fc) == 1 && ((fc[0] >= 'a' && fc[0] <= 'z') || (fc[0] >= 'A' && fc[0] <= 'Z')):
-			lo := strings.ToLower(fc)
-			hi := string(lo[0] + 1)
-			conds = append(conds, alias+".sort_title >= ? AND "+alias+".sort_title < ?")
-			args = append(args, lo, hi)
-		}
+	if cond, condArgs := c.childSortNameCond(alias, sortNameRangeOf(f)); cond != "" {
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
 	}
 	if len(f.Years) > 0 {
 		conds = append(conds, alias+".year IN ("+placeholders(len(f.Years))+")")

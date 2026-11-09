@@ -116,7 +116,11 @@ describe("Backups & import", () => {
     );
     const save = calls.find((c) => c.url.endsWith("/adoption/backups/settings"))!;
     expect(save.init?.method).toBe("POST");
-    expect(JSON.parse(String(save.init?.body))).toEqual({ intervalHours: 12, retain: 7 });
+    expect(JSON.parse(String(save.init?.body))).toEqual({
+      intervalHours: 12,
+      retain: 7,
+      skipOnAirMedia: false,
+    });
   });
 
   it("keeps snapshots and imports on separate tabs", async () => {
@@ -291,7 +295,8 @@ describe("Database recovery context", () => {
     expect(await screen.findByText("Check timed out")).toBeInTheDocument();
     expect(screen.getByText("FTS finding <raw>")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-    expect(await screen.findByText(/No damage found · checked/)).toBeInTheDocument();
+    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(screen.queryByText("Compact database")).not.toBeInTheDocument();
     expect(screen.queryByText("FTS finding <raw>")).not.toBeInTheDocument();
     expect(screen.queryByText("Check timed out")).not.toBeInTheDocument();
     expect(existing.some((c) => c.init?.method === "POST")).toBe(false);

@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -19,11 +20,11 @@ func TestMinimumResolutionIsAProfileGate(t *testing.T) {
 		preferred bool
 		want      string
 	}{
-		{"below minimum", "The.Signal.1999.2160p.WEB-DL.HEVC-GRP", 1080, false, "below profile min height"},
+		{"below minimum", "The.Signal.1999.2160p.WEB-DL.HEVC-GRP", 1080, false, "below profile min resolution"},
 		{"at minimum", "The.Signal.1999.2160p.WEB-DL.HEVC-GRP", 2160, false, ""},
-		{"unlabelled sd web", "The.Signal.1999.WEB-DL.H.264-GRP", 0, false, "below profile min height"},
-		{"unlabelled sd webrip", "The.Signal.1999.WEBRip.x264-GRP", 0, false, "below profile min height"},
-		{"unlabelled xvid rip", "The.Signal.1999.XviD-AFG", 0, false, "below profile min height"},
+		{"unlabelled sd web", "The.Signal.1999.WEB-DL.H.264-GRP", 0, false, "below profile min resolution"},
+		{"unlabelled sd webrip", "The.Signal.1999.WEBRip.x264-GRP", 0, false, "below profile min resolution"},
+		{"unlabelled xvid rip", "The.Signal.1999.XviD-AFG", 0, false, "below profile min resolution"},
 		{"unlabelled legacy hdtv", "The.Signal.1999.HDTV.x264-GRP", 0, false, ""},
 		{"unlabelled dvd rip", "The.Signal.1999.DVDRip.XviD-GRP", 0, false, ""},
 		{"explicit version", "The.Signal.1999.2160p.WEB-DL.HEVC-GRP", 1080, true, ""},
@@ -86,6 +87,19 @@ func TestFourKFloorRejectsUnlabelledSDWhenFourKIsUnplayable(t *testing.T) {
 			}
 			if !errors.Is(err, core.ErrNotAvailable) {
 				t.Fatalf("err=%v", err)
+			}
+			traces := s.Traces()
+			if len(traces) == 0 {
+				t.Fatal("expected resolution trace")
+			}
+			var sdTrace *CandidateTrace
+			for i := range traces[0].Candidates {
+				if traces[0].Candidates[i].ReleaseID == "sd" {
+					sdTrace = &traces[0].Candidates[i]
+				}
+			}
+			if sdTrace == nil || sdTrace.Height != 0 || sdTrace.Reason != ReasonBelowProfileMinResolution || !strings.Contains(sdTrace.CompatibilityReason, "height unknown; conservative 480p floor assumed") {
+				t.Fatalf("expected unknown height 480p floor note in trace, got %+v", sdTrace)
 			}
 		})
 	}

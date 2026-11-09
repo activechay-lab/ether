@@ -1,20 +1,19 @@
 package playback
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
-)
 
-type plexPartKey struct{}
+	"github.com/braedonsaunders/ether/internal/core"
+)
 
 // PlexPartRequest selects the PMS byte-serving contract without changing the
 // representation semantics of other frontends or the encoder loopback.
 func PlexPartRequest(r *http.Request) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), plexPartKey{}, true))
+	return r.WithContext(core.WithPlexPart(r.Context()))
 }
 
 func plexPartMIME(name string) string {

@@ -148,8 +148,9 @@ func (a *App) buildAdmin() http.Handler {
 			}
 			return s
 		},
-		RemoteStatus: func(context.Context) any { return a.registrar.Status() },
-		SystemLoad:   func(context.Context) any { return a.load.Snapshot() },
+		PauseTierMigration: a.catalog.SetTierMigrationPaused,
+		RemoteStatus:       func(context.Context) any { return a.registrar.Status() },
+		SystemLoad:         func(context.Context) any { return a.load.Snapshot() },
 		HWAccelStatus: func(context.Context) any {
 			if a.transcoder == nil {
 				return map[string]string{"error": "ffmpeg not found"}
@@ -175,7 +176,9 @@ func (a *App) buildAdmin() http.Handler {
 			hw["filtersProbed"] = cap.FiltersProbed
 			return hw
 		},
-		DatabaseCheck: a.checkDatabase,
+		DatabaseCheck:         a.checkDatabase,
+		DatabaseCompactStatus: a.compactionStatus,
+		DatabaseCompact:       a.startCompaction,
 		ExtraStatus: map[string]admin.StatusFunc{
 			"stream":   func(context.Context) any { return a.engine.Stats() },
 			"widget":   a.widgetStatus,
@@ -203,10 +206,11 @@ func (a *App) buildAdmin() http.Handler {
 		CatalogVisibility: func(ctx context.Context, specs []core.LibraryExclusion, fallback string) (any, error) {
 			return a.catalog.PreviewVisibilityPolicy(ctx, specs, fallback)
 		},
-		Images:      a.images,
-		PlexWatch:   a.plexWatchAPI(),
-		PlexServers: a.plexServersAPI(),
-		Prerolls:    a.prerollAdmin(),
+		Images:       a.images,
+		TitlePosters: a.titlePosters(),
+		PlexWatch:    a.plexWatchAPI(),
+		PlexServers:  a.plexServersAPI(),
+		Prerolls:     a.prerollAdmin(),
 	}
 	// Optional role-owned dependencies stay absent until a real local or private
 	// service supplies them. This preserves console/auth/config/catalog without

@@ -24,19 +24,20 @@ const (
 // ChannelSummary is the console lineup identity: everything the list, search
 // and guide rows need, without stream URLs, items or programming.
 type ChannelSummary struct {
-	ID            string `json:"id"`
-	Number        string `json:"number"`
-	Name          string `json:"name"`
-	Kind          string `json:"kind"`
-	Private       bool   `json:"private,omitempty"`
-	Enabled       bool   `json:"enabled"`
-	Favorite      bool   `json:"favorite"`
-	Rating        string `json:"rating,omitempty"`
-	Logo          string `json:"logo,omitempty"`
-	SourceID      string `json:"sourceId,omitempty"`
-	GuideID       string `json:"guideId,omitempty"`
-	GuideSourceID string `json:"guideSourceId,omitempty"`
-	Group         string `json:"group,omitempty"`
+	ID            string   `json:"id"`
+	Number        string   `json:"number"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Private       bool     `json:"private,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	HiddenApps    []string `json:"hiddenApps,omitempty"`
+	Favorite      bool     `json:"favorite"`
+	Rating        string   `json:"rating,omitempty"`
+	Logo          string   `json:"logo,omitempty"`
+	SourceID      string   `json:"sourceId,omitempty"`
+	GuideID       string   `json:"guideId,omitempty"`
+	GuideSourceID string   `json:"guideSourceId,omitempty"`
+	Group         string   `json:"group,omitempty"`
 
 	numberKey numberKey
 	sweepKey  string

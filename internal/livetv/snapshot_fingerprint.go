@@ -44,12 +44,6 @@ func snapshotInputFingerprint(c Channel, revision uint64) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// snapshotFingerprint adds only cached dependencies. No provider, rendering,
-// schedule expansion, or catalogue scan is performed while comparing inputs.
-func (s *Service) snapshotFingerprint(c Channel, revision uint64, now time.Time) string {
-	return s.snapshotFingerprintAt(c, revision, s.snapshotAvailabilityEpoch(now))
-}
-
 func (s *Service) snapshotAvailabilityEpoch(now time.Time) uint64 {
 	var availability uint64
 	if source, ok := s.o.Availability.(interface{ AvailabilityEpoch() uint64 }); ok {

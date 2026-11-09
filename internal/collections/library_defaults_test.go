@@ -2,68 +2,63 @@ package collections
 
 import (
 	"context"
+	"testing"
+
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
-	"testing"
-	"time"
 )
 
-func TestLibraryDefaultsStayLocalAndDeletedDefaultsStayDeleted(t *testing.T) {
+// Earlier versions created genre/network collections on install. They stay as
+// the owner left them, and the matching bundle skips them instead of adding
+// duplicates; the library templates still use the facet index.
+func TestEarlierDefaultCollectionsAreKeptAndAdopted(t *testing.T) {
 	ctx := context.Background()
 	db := store.OpenTest(t)
-	now := time.Now()
 	cat, err := catalog.New(db, nil, config.Catalog{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, typ := range []core.MediaType{core.TypeMovie, core.TypeShow} {
-		k := core.MovieKey(1)
-		if typ == core.TypeShow {
-			k = core.ShowKey(2)
-		}
-		tt := core.Title{Key: k, Type: typ, Title: "Local", Year: 2000, Released: now.AddDate(-10, 0, 0), Genres: []string{"Drama"}, Studios: []string{"HBO", "Warner Bros."}, Popularity: float64(i + 10)}
-		if err = cat.UpsertTitle(ctx, tt, true); err != nil {
+	s, err := New(db, cat, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := map[string]string{"ether-default:movie.genre.action": "Action", "ether-default:show.studio.hbo": "HBO"}
+	for tid, name := range legacy {
+		sp := facetTpl(name, MediaMovie, "genre", "Action")
+		sp.Name, sp.TemplateID = name, tid
+		if _, err := s.CreateSpec(ctx, sp); err != nil {
 			t.Fatal(err)
 		}
 	}
-	makeService := func() *Service {
-		s, err := New(db, cat, nil, WithNow(func() time.Time { return now }))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return s
+	if _, err := db.ExecContext(ctx, `DELETE FROM collections_meta WHERE k='library-defaults-templates-v1'`); err != nil {
+		t.Fatal(err)
 	}
-	s := makeService()
+	if s, err = New(db, cat, nil); err != nil {
+		t.Fatal(err)
+	}
 	specs, err := s.ListSpecs(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hbo string
+	adopted := map[string]string{}
 	for _, sp := range specs {
-		if sp.BuiltIn && sp.Targets.CollectionsTab {
-			t.Fatal("discovery source in collections", sp.Name)
-		}
-		if sp.Name == "HBO" {
-			hbo = sp.ID
-			if !sp.LocalOnly || !sp.Targets.CollectionsTab || sp.Targets.HomeRow || sp.ItemCount != 1 {
-				t.Fatalf("default: %+v", sp)
-			}
+		if !sp.BuiltIn {
+			adopted[sp.Name] = sp.TemplateID
 		}
 	}
-	if hbo == "" {
-		t.Fatal("network default missing")
+	if len(adopted) != 2 || adopted["Action"] != "genre-movie-action" || adopted["HBO"] != "network-hbo" {
+		t.Fatalf("adopted: %v", adopted)
 	}
-	if err = s.DeleteSpec(ctx, hbo); err != nil {
-		t.Fatal(err)
+	for bundle, skipped := range map[string]int{"movie-genres": 1, "tv-networks": 1} {
+		p, err := PreviewTemplateBundle(Templates(), specs, bundle)
+		if err != nil || p.WillSkip != skipped || p.WillCreate == 0 {
+			t.Fatalf("%s: %+v %v", bundle, p, err)
+		}
 	}
-	now = now.Add(2 * time.Hour)
-	s = makeService()
-	specs, _ = s.ListSpecs(ctx)
-	for _, sp := range specs {
-		if sp.Name == "HBO" {
-			t.Fatal("deleted default resurrected")
+	for _, d := range libraryTemplateDefs {
+		if _, ok := localFacetSpec(d.spec); d.spec.Rules[0].Op == "is" && !ok {
+			t.Fatalf("%s misses the facet index", d.id)
 		}
 	}
 }

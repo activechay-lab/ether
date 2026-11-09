@@ -1,4 +1,5 @@
 import { interpretDemo } from "./catalogInterpret";
+import { indexerUsage, infrastructure, saveCost, sourceHistory } from "./source-stats";
 import { matchesCatalogFilter } from "./catalogFilter";
 import { createOnAirMock } from "./onair";
 /**
@@ -33,6 +34,7 @@ import {
 } from "../lib/layout";
 import { assemble } from "./assemble";
 import { normalizeSpec } from "../lib/rules";
+import { resolutionGroups } from "../lib/qualityRanking";
 import type {
   Bootstrap,
   LLMProvider,
@@ -75,7 +77,7 @@ import { createCacheMock } from "./cache";
 import { createCalendarMock } from "./calendar";
 import { createLiveTVMock } from "./livetv";
 import { createExtendMock } from "./extend";
-import { TEMPLATES } from "./templates";
+import { TEMPLATE_BUNDLES, TEMPLATES } from "./templates";
 import { NOT_RATED, RATING_LEVELS, canonicalRating } from "../lib/contentRatings";
 
 /** A few other boards' labels per level, as the server lists them. */
@@ -253,7 +255,7 @@ function defaultConfig(): EtherConfig {
         name: "Indexer One",
         url: "https://indexer-one.example.com",
         apiKey: "••••",
-        dailyLimit: 200,
+        dailyLimit: 300,
         dailyGrabs: 50,
         priority: 0,
         enabled: true,
@@ -358,9 +360,23 @@ function defaultConfig(): EtherConfig {
           minHeight: 1080,
           allowHdr: true,
           allowDolbyVision: true,
-          preferredSources: ["remux", "bluray", "webdl"],
-          preferredCodecs: ["hevc", "av1"],
-          preferredAudio: ["truehd", "eac3"],
+          qualityOrder: resolutionGroups(2160, 1080),
+          customFormatScores: {
+            "ether:viewer-language": 20000,
+            "ether:remux": 6000,
+            "ether:bluray": 4000,
+            "ether:webdl": 2000,
+            "ether:dolby-vision": 500,
+            "ether:hdr": 500,
+            "ether:codec-hevc": 12,
+            "ether:codec-av1": 6,
+            "ether:audio-truehd": 8,
+            "ether:audio-eac3": 4,
+            "ether:atmos": 3,
+            "ether:audio-direct": 10,
+            "ether:audio-transcode": -15,
+            "ether:tone-mapping": -15,
+          },
           minSizeMbPerMin: 15,
           maxSizeMbPerMin: 1000,
           preferredLanguages: null,
@@ -373,9 +389,19 @@ function defaultConfig(): EtherConfig {
           minHeight: 720,
           allowHdr: false,
           allowDolbyVision: false,
-          preferredSources: ["webdl", "bluray"],
-          preferredCodecs: ["h264", "hevc"],
-          preferredAudio: ["eac3", "ac3", "aac"],
+          qualityOrder: resolutionGroups(1080, 720),
+          customFormatScores: {
+            "ether:viewer-language": 10000,
+            "ether:webdl": 2000,
+            "ether:bluray": 1000,
+            "ether:codec-h264": 12,
+            "ether:codec-hevc": 6,
+            "ether:audio-eac3": 12,
+            "ether:audio-ac3": 8,
+            "ether:audio-aac": 4,
+            "ether:audio-direct": 10,
+            "ether:audio-transcode": -15,
+          },
           minSizeMbPerMin: 5,
           maxSizeMbPerMin: 150,
           preferredLanguages: null,
@@ -388,9 +414,20 @@ function defaultConfig(): EtherConfig {
           minHeight: 720,
           allowHdr: false,
           allowDolbyVision: false,
-          preferredSources: ["webdl", "bluray"],
-          preferredCodecs: ["h264", "hevc"],
-          preferredAudio: ["eac3", "ac3", "aac"],
+          qualityOrder: resolutionGroups(1080, 720),
+          customFormatScores: {
+            "ether:viewer-language": 10000,
+            "ether:series-year-differs": -5000,
+            "ether:webdl": 2000,
+            "ether:bluray": 1000,
+            "ether:codec-h264": 12,
+            "ether:codec-hevc": 6,
+            "ether:audio-eac3": 12,
+            "ether:audio-ac3": 8,
+            "ether:audio-aac": 4,
+            "ether:audio-direct": 10,
+            "ether:audio-transcode": -15,
+          },
           minSizeMbPerMin: 5,
           maxSizeMbPerMin: 150,
           preferredLanguages: null,
@@ -707,7 +744,13 @@ export function createFakeServer(opts: FakeOptions = {}) {
     plexDefaults: {} as Record<number, Record<string, unknown>>,
     clustered: opts.cluster ?? false,
     joinTokens: [] as JoinTokenInfo[],
-    backupSettings: { intervalHours: 24, retain: 7, lastRun: 0, sharedDir: "" },
+    backupSettings: {
+      intervalHours: 24,
+      retain: 7,
+      lastRun: 0,
+      sharedDir: "",
+      skipOnAirMedia: false,
+    },
     backups: [] as {
       name: string;
       size: number;
@@ -759,10 +802,24 @@ export function createFakeServer(opts: FakeOptions = {}) {
   let seq = 1;
 
   // Seed collections from templates so the gallery isn't empty.
-  for (const id of ["mood-edge-of-seat", "trend-new-to-ether", "family-night", "short-weeknight"]) {
+  for (const id of ["mood-edge-of-your-seat", "recently-added", "family-night", "short-under-90"]) {
     const t = TEMPLATES.find((x) => x.id === id)!;
     const spec = normalizeSpec({
       ...t.spec,
+      // One seeded collection is a scheduled Home row, not a Collections-tab
+      // entry, so the Home designer has a collection schedule to edit. It is
+      // renamed so it does not share a name with the built-in Short on Time row.
+      ...(id === "short-under-90"
+        ? {
+            name: "Weeknight wind-down",
+            targets: {
+              ...t.spec.targets,
+              collectionsTab: false,
+              homeRow: true,
+              schedule: { days: [1, 2, 3, 4], fromHour: 18 },
+            },
+          }
+        : {}),
       id: `c${seq++}`,
       enabled: id !== "family-night",
       updatedAt: NOW().toISOString(),
@@ -2901,154 +2958,14 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json(state.boot);
       case "GET /dashboard":
         return json(dashboard());
-      case "GET /indexer-usage": {
-        const day = (offset: number) =>
-          new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
-        const days = Array.from({ length: 14 }, (_, i) => ({
-          day: day(13 - i),
-          hits: 40 + ((i * 37) % 55),
-          grabs: i % 4,
-        }));
-        const purposes = (scale: number) => [
-          { purpose: "feed", hits: 30 * scale, grabs: 0 },
-          { purpose: "availability", hits: 18 * scale, grabs: 1 * scale },
-          { purpose: "playback", hits: 9 * scale, grabs: 3 * scale },
-          { purpose: "warmup", hits: 6 * scale, grabs: 1 * scale },
-          { purpose: "rescue", hits: 3 * scale, grabs: 0 },
-          { purpose: "caps", hits: scale, grabs: 0 },
-          { purpose: "test", hits: 2, grabs: 0 },
-        ];
-        const total = (ps: { hits: number; grabs: number }[]) => ({
-          hits: ps.reduce((n, p) => n + p.hits, 0),
-          grabs: ps.reduce((n, p) => n + p.grabs, 0),
-          purposes: ps,
-        });
-        return json({
-          today: day(0),
-          weekStart: day(6),
-          monthStart: day(0).slice(0, 8) + "01",
-          indexers: [
-            {
-              id: "idx-1",
-              name: "Indexer One",
-              enabled: true,
-              torrent: false,
-              dailyLimit: 100,
-              dailyGrabs: 20,
-              today: total(purposes(1)),
-              week: total(purposes(7)),
-              month: total([...purposes(20), { purpose: "unattributed", hits: 240, grabs: 9 }]),
-              days,
-            },
-          ],
-        });
-      }
+      case "GET /indexer-usage":
+        return json(indexerUsage());
+      case "GET /stats/sources":
+        return json(sourceHistory(Math.min(90, Math.max(1, Number(q.get("days")) || 30))));
       case "GET /stats/infrastructure":
-        return json({
-          month: "2026-10",
-          monthPlays: 40,
-          notes: null,
-          snapshots: {
-            providers: {
-              at: 1_762_000_000,
-              data: [
-                {
-                  id: "p1",
-                  name: "Primary news",
-                  host: "news.example.com",
-                  state: "ok",
-                  backfill: false,
-                  avgLatency: 42_000_000,
-                  bytes: 0,
-                  articles: 0,
-                  misses: 0,
-                  errors: 0,
-                },
-                {
-                  id: "p2",
-                  name: "Block account",
-                  host: "block.example.net",
-                  state: "ok",
-                  backfill: true,
-                  avgLatency: 80_000_000,
-                  bytes: 0,
-                  articles: 0,
-                  misses: 0,
-                  errors: 0,
-                },
-              ],
-            },
-            indexers: {
-              at: 1_762_000_000,
-              data: [
-                {
-                  indexer: "Indexer One",
-                  hitsUsed: 12,
-                  hitsRemaining: 88,
-                  grabsUsed: 2,
-                  grabsRemaining: 18,
-                },
-              ],
-            },
-          },
-          providerMonth: [
-            {
-              id: "p1",
-              bytes: 80 * 1073741824,
-              articles: 12000,
-              misses: 40,
-              errors: 1,
-              backfillSaves: 3,
-              bodyMisses: 30,
-              bodyTakedowns: 0,
-            },
-          ],
-          indexerMonth: [
-            {
-              indexer: "Indexer One",
-              searches: 400,
-              successes: 360,
-              grabs: 20,
-              grabSuccess: 18,
-              budgets: 0,
-              latencyMs: 180,
-              ageSeconds: 0,
-              ageSamples: 0,
-            },
-          ],
-          costs: [{ kind: "provider", id: "p1", monthly: 10, currency: "USD" }],
-          failovers: 2,
-          failedPlays: 1,
-          providerDays: [
-            {
-              id: "p1",
-              day: "2026-10-18",
-              bytes: 40 * 1073741824,
-              articles: 6000,
-              misses: 10,
-              errors: 0,
-            },
-            {
-              id: "p1",
-              day: "2026-10-19",
-              bytes: 40 * 1073741824,
-              articles: 6000,
-              misses: 30,
-              errors: 1,
-            },
-          ],
-          indexerDays: [
-            {
-              indexer: "Indexer One",
-              day: "2026-10-19",
-              searches: 400,
-              successes: 360,
-              grabs: 20,
-              latencyMs: 72000,
-            },
-          ],
-        });
+        return json(infrastructure());
       case "PUT /stats/costs":
+        saveCost(body as { kind: string; id: string; monthly: number; currency: string });
         return json({ ok: true });
       case "GET /config":
         return json({ config: state.config });
@@ -3382,7 +3299,12 @@ export function createFakeServer(opts: FakeOptions = {}) {
           warning: "",
         });
       case "POST /adoption/backups/settings": {
-        const next = body as { intervalHours: number; retain: number; sharedDir?: string };
+        const next = body as {
+          intervalHours: number;
+          retain: number;
+          sharedDir?: string;
+          skipOnAirMedia?: boolean;
+        };
         if (next.sharedDir && !state.clustered)
           return err(
             400,
@@ -3393,6 +3315,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
           ...state.backupSettings,
           intervalHours: next.intervalHours,
           retain: next.retain,
+          skipOnAirMedia: !!next.skipOnAirMedia,
           ...(next.sharedDir !== undefined ? { sharedDir: next.sharedDir } : {}),
         };
         return json({ ok: true });
@@ -3454,6 +3377,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json(evaluate(normalizeSpec(body as CollectionSpec)));
       case "GET /collections/templates":
         return json({ templates: TEMPLATES });
+      case "GET /collections/template-bundles":
+        return json({ bundles: TEMPLATE_BUNDLES });
       case "POST /catalog/visibility/preview": {
         const groups =
           (body as { exclusions: { mediaType: string; match: string; rules: Rule[] }[] })
@@ -3803,6 +3728,74 @@ export function createFakeServer(opts: FakeOptions = {}) {
         id: "example.catalog",
         name: "Example catalog",
         catalogs: [{ id: "top", type: "movie", name: "Top movies" }],
+      });
+    }
+
+    if (
+      seg[0] === "collections" &&
+      seg[1] === "template-bundles" &&
+      seg[2] &&
+      (seg[3] === "preview" || seg[3] === "apply") &&
+      method === "POST"
+    ) {
+      const bundleId = decodeURIComponent(seg[2]);
+      const bundle = TEMPLATE_BUNDLES.find((b) => b.id === bundleId);
+      if (!bundle) return err(404, "not_found", "no such template bundle");
+      const items = bundle.templateIds
+        .map((tid) => {
+          const tpl = TEMPLATES.find((t) => t.id === tid);
+          if (!tpl) return null;
+          const existing = state.collections.find(
+            (c) => c.templateId === tid || c.name.toLowerCase() === tpl.name.toLowerCase(),
+          );
+          return {
+            templateId: tid,
+            name: tpl.name,
+            category: tpl.category,
+            action: existing ? ("skip_existing" as const) : ("create" as const),
+            ...(existing?.id ? { existingId: existing.id } : {}),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => Boolean(x));
+      if (seg[3] === "preview") {
+        return json({
+          bundle,
+          items,
+          willCreate: items.filter((i) => i.action === "create").length,
+          willSkip: items.filter((i) => i.action === "skip_existing").length,
+        });
+      }
+      const created: CollectionSpec[] = [];
+      const skipped = items.filter((i) => i.action === "skip_existing");
+      for (const item of items) {
+        if (item.action !== "create") continue;
+        const tpl = TEMPLATES.find((t) => t.id === item.templateId);
+        if (!tpl) continue;
+        const spec = normalizeSpec({
+          ...tpl.spec,
+          name: tpl.name,
+          description: tpl.description,
+          templateId: tpl.id,
+          enabled: true,
+        });
+        const saved: CollectionSpec = {
+          ...spec,
+          id: `c${seq++}`,
+          updatedAt: new Date().toISOString(),
+          lastBuiltAt: new Date().toISOString(),
+          itemCount: evaluate(spec).total,
+        };
+        state.collections.push(saved);
+        created.push(saved);
+      }
+      return json({
+        bundleId,
+        bundle,
+        items,
+        created,
+        skipped,
+        createdCount: created.length,
+        skippedCount: skipped.length,
       });
     }
 
@@ -4198,6 +4191,24 @@ export function createFakeServer(opts: FakeOptions = {}) {
     if (seg[0] === "auth" && seg[1] === "pin" && seg[2])
       return json({ done: true, token: "mock-owner-token" });
     if (seg[0] === "plex" && seg[1] === "pin" && seg[2]) return json({ done: true });
+    if (seg.join("/") === "status/database/compact") {
+      return json({
+        value: {
+          supported: true,
+          incremental: false,
+          databaseBytes: 1_103_679_488,
+          reclaimableBytes: 0,
+          needBytes: 1_372_114_944,
+          diskFreeBytes: 58_090_143_744,
+          tempNeedBytes: 1_372_114_944,
+          tempFreeBytes: 58_090_143_744,
+          estimateSeconds: 48,
+          ready: true,
+          running: method === "POST",
+          ...(method === "POST" ? { started: new Date().toISOString() } : {}),
+        },
+      });
+    }
     if (method === "POST" && seg.join("/") === "status/database/check") {
       const value = dashboard().sections.database;
       if (value.integrity) value.integrity.checked = new Date().toISOString();

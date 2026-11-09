@@ -2,21 +2,143 @@
   "v": 1,
   "moment": "bug",
   "duration": 8,
-  "poster": 4,
+  "poster": 2.0,
+  "slots": [
+    "channel.name"
+  ],
   "layers": [
     {
-      "id": "Wordmark",
-      "type": "text",
-      "text": "{channel.name}",
-      "x": 1780,
-      "y": 960,
-      "size": 45,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 400,
-      "align": "right",
-      "name": "Wordmark"
+      "id": "bug",
+      "type": "group",
+      "opacity": 0.92,
+      "layers": [
+        {
+          "id": "bug-name-shadow",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 1730,
+          "y": 962,
+          "size": 34,
+          "weight": 700,
+          "font": "{type.display}",
+          "fill": "#000000@0.55",
+          "align": "right",
+          "maxWidth": 300,
+          "fit": "shrink",
+          "blur": 3,
+          "opacity": {
+            "keys": [
+              [
+                0.35,
+                0
+              ],
+              [
+                0.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Name shadow"
+        },
+        {
+          "id": "bug-name",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 1728,
+          "y": 959,
+          "size": 34,
+          "weight": 700,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "align": "right",
+          "maxWidth": 300,
+          "fit": "shrink",
+          "opacity": {
+            "keys": [
+              [
+                0.35,
+                0
+              ],
+              [
+                0.8,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Channel name"
+        },
+        {
+          "id": "bug-tile-shadow",
+          "type": "path",
+          "x": 1784,
+          "y": 946,
+          "scale": 0.32,
+          "path": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+          "fill": "#000000@0.35",
+          "blur": 4,
+          "opacity": {
+            "keys": [
+              [
+                0.15,
+                0
+              ],
+              [
+                0.5,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Tile shadow"
+        },
+        {
+          "id": "bug-mark",
+          "type": "group",
+          "x": 1782,
+          "y": 944,
+          "layers": [
+            {
+              "id": "bug-mark-tile",
+              "type": "path",
+              "path": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "{accent}",
+              "name": "Tile"
+            },
+            {
+              "id": "bug-mark-shadow",
+              "type": "path",
+              "path": "M 64 0 L 264 200 L 170 254 L -30 54 L 30 54 L 30 0 Z",
+              "clip": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "#000000@0.2",
+              "name": "Long shadow"
+            },
+            {
+              "id": "bug-mark-arrow",
+              "type": "path",
+              "path": "M 0 -64 L 64 0 L 30 0 L 30 54 L -30 54 L -30 0 L -64 0 Z",
+              "fill": "{text}",
+              "name": "Arrow"
+            }
+          ],
+          "name": "Shift mark",
+          "scale": {
+            "keys": [
+              [
+                0.1,
+                0
+              ],
+              [
+                0.55,
+                0.32,
+                "back"
+              ]
+            ]
+          }
+        }
+      ],
+      "name": "Corner logo"
     }
   ]
 }

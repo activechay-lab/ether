@@ -2,22 +2,20 @@ package plex
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"time"
-
-	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/diagnostics"
 )
 
 // SupportViewer is a bounded snapshot at archive creation, not a replay of
 // policy decisions made when an earlier response was generated.
-func (s *Server) SupportViewer(ctx context.Context, user *core.User) (diagnostics.ViewerFacts, error) {
-	var out diagnostics.ViewerFacts
+func (s *Server) SupportViewer(ctx context.Context, user *frontend.Viewer) (frontend.DiagnosticViewerFacts, error) {
+	var out frontend.DiagnosticViewerFacts
 	for _, sec := range s.userSections(user) {
 		if len(out.Sections) >= 128 {
 			out.SectionsTruncated = true
 			break
 		}
-		out.Sections = append(out.Sections, diagnostics.ViewerSection{ID: sec.ID, Type: string(sec.Type), Title: sec.Title})
+		out.Sections = append(out.Sections, frontend.DiagnosticViewerSection{ID: sec.ID, Type: string(sec.Type), Title: sec.Title})
 	}
 	if user == nil || s.d.State == nil || s.d.Catalog == nil {
 		return out, nil
@@ -32,30 +30,30 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (diagnostic
 		out.CandidatesTruncated = true
 		states = states[:200]
 	}
-	keys := make([]core.RatingKey, 0, len(states))
+	keys := make([]frontend.RatingKey, 0, len(states))
 	for _, st := range states {
 		keys = append(keys, st.Key)
 	}
 	titles := s.getTitles(ctx, keys)
-	byKey := map[core.RatingKey]core.Title{}
+	byKey := map[frontend.RatingKey]frontend.Title{}
 	for _, ti := range titles {
 		byKey[ti.Key] = ti
 	}
 	selected, _, _ := s.continueExperience(pr).Shelf(ctx, user, "", 200)
 	visible := s.takeVisible(user, selected, 200)
-	selectedSet := map[core.RatingKey]bool{}
+	selectedSet := map[frontend.RatingKey]bool{}
 	for _, ti := range visible {
 		selectedSet[ti.Key] = true
 	}
-	seen := map[core.RatingKey]bool{}
+	seen := map[frontend.RatingKey]bool{}
 	for _, st := range states {
 		ti, ok := byKey[st.Key]
-		c := diagnostics.ViewerCandidate{Key: int64(st.Key), OffsetMS: st.ViewOffset.Milliseconds()}
+		c := frontend.DiagnosticViewerCandidate{Key: int64(st.Key), OffsetMS: st.ViewOffset.Milliseconds()}
 		switch {
 		case !ok:
 			c.Reason = "not returned by the catalogue: missing or filtered by catalogue or release rules"
 			if source, yes := s.d.Catalog.(interface {
-				SupportVisibility(context.Context, core.RatingKey) (*core.Title, string, error)
+				SupportVisibility(context.Context, frontend.RatingKey) (*frontend.Title, string, error)
 			}); yes {
 				title, reason, err := source.SupportVisibility(ctx, st.Key)
 				if err == nil {
@@ -90,7 +88,7 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (diagnostic
 	}
 	for _, ti := range visible {
 		if !seen[ti.Key] {
-			out.Candidates = append(out.Candidates, diagnostics.ViewerCandidate{Key: int64(ti.Key), Title: ti.Title, Included: true, Reason: "next episode selected from completed viewing history"})
+			out.Candidates = append(out.Candidates, frontend.DiagnosticViewerCandidate{Key: int64(ti.Key), Title: ti.Title, Included: true, Reason: "next episode selected from completed viewing history"})
 		}
 	}
 	// Completed history can yield a next episode even when no resume point
@@ -99,7 +97,7 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (diagnostic
 	if err != nil {
 		return out, err
 	}
-	var completed []core.RatingKey
+	var completed []frontend.RatingKey
 	for _, h := range history {
 		if h.Completed && !seen[h.Key] {
 			seen[h.Key] = true
@@ -115,7 +113,7 @@ func (s *Server) SupportViewer(ctx context.Context, user *core.User) (diagnostic
 	}
 	for _, ti := range s.getTitles(ctx, completed) {
 		if completedStates[ti.Key].ViewCount > 0 {
-			out.Candidates = append(out.Candidates, diagnostics.ViewerCandidate{Key: int64(ti.Key), Title: ti.Title, Reason: "finished; history may supply the next episode"})
+			out.Candidates = append(out.Candidates, frontend.DiagnosticViewerCandidate{Key: int64(ti.Key), Title: ti.Title, Reason: "finished; history may supply the next episode"})
 		}
 	}
 	out.Notes = append(out.Notes, "Snapshot taken when the archive was built; selection may differ from an earlier response. Section IDs and selection follow Plex.")

@@ -251,7 +251,8 @@ func compileDictionarryArchive(ctx context.Context, archiveBytes []byte) (*dicti
 		if entries > dictionarryMaxTarEntries {
 			return nil, fmt.Errorf("%w: archive has too many entries", ErrDictionarryUnavailable)
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		// tar.Reader already normalises legacy TypeRegA headers to TypeReg.
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		clean := path.Clean(strings.TrimLeft(hdr.Name, "/"))
@@ -708,9 +709,9 @@ func buildDictionarryImport(
 		imp.Warnings = append(imp.Warnings, fmt.Sprintf("Excluded language rules (%s) are handled by custom format scoring rather than a hard profile filter.", strings.Join(excludedLangs, ", ")))
 	}
 
-	// Refine HDR, Dolby Vision, codec, and audio preferences from Dictionarry's
-	// profile tags and custom format scores (e.g. 1080p Efficient and
-	// 1080p Quality HDR allow HDR/DV and prefer HEVC at 1080p).
+	// Allow HDR and Dolby Vision where Dictionarry's profile tags or format
+	// scores want them (1080p Quality HDR, the 2160p profiles). Codec and
+	// audio preferences are the profile's own custom format scores.
 	hasTag := func(want string) bool {
 		return slices.ContainsFunc(p.tags, func(t string) bool { return strings.EqualFold(t, want) })
 	}
@@ -720,12 +721,6 @@ func buildDictionarryImport(
 	if scores["Dolby Vision"] > 0 {
 		imp.Profile.AllowHDR = true
 		imp.Profile.AllowDolbyVision = true
-	}
-	if (hasTag("h265") || hasTag("x265") || hasTag("HEVC")) && (!hasTag("h264") && !hasTag("x264") || hasTag("HDR") || imp.Profile.MaxHeight >= 2160) {
-		imp.Profile.PreferredCodecs = []string{"hevc", "h264"}
-	}
-	if hasTag("Lossless Audio") {
-		imp.Profile.PreferredAudio = []string{"truehd", "dts", "eac3", "ac3", "aac"}
 	}
 	return imp, true
 }

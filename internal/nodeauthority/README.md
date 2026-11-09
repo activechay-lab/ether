@@ -57,11 +57,13 @@ bearers keep only their ORIGINAL expiry; a replay of a successful renewal cannot
 mint again. Concurrent renewals commit at most once. MaxGrantsPerBinding includes
 current and unexpired old grants, and MaxGrants caps all retained credentials.
 Expired credential eviction on mint only frees credential slots: no hold release,
-backend Close, binding release or placement.Retire occurs. MaxBindings is a total
-successful-binding limit for this Authority lifetime, including sealed tombstones;
-scopes and source-handle objects cannot be rebound. Exhaustion fails closed. Host
-must plan boot capacity and deliberate quiescent lifecycle rather than replacing a
-live Authority to bypass limits. Maps and scans never exceed explicit caps (4096).
+backend Close, binding release or placement.Retire occurs. MaxBindings bounds live
+bindings plus sealed ones not yet forgotten. Forget(ctx, grace, limit) drops a
+binding only when it is sealed, its acquisition barrier closed, it stayed sealed
+for grace, and a fresh Lookup shows its exact fence retired, superseded or
+compacted, so placement can never re-authorise that scope and it still cannot be
+rebound. Revoke of a forgotten handle is a no-op. Exhaustion of live bindings fails
+closed. Maps and scans never exceed explicit caps (4096).
 No timers, goroutines, unbounded operation history or per-producer work are added.
 
 ClockBoundKnown is a trusted deployment assumption, not a measured guarantee:

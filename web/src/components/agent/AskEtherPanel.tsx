@@ -35,7 +35,7 @@ const KNOWN_TOOLS = [
   "collection_create_from_prompt",
   "release_blocklist",
   "release_pin",
-  "ranking_reorder",
+  "format_scores_set",
   "rule_add",
   "source_add_stremio",
   "source_add_m3u",

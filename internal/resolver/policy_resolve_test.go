@@ -51,6 +51,7 @@ func serviceWithRules(t *testing.T, idx core.Indexer, health core.HealthChecker,
 	cfg := testCfg()
 	for i := range cfg.Quality.Profiles {
 		cfg.Quality.Profiles[i].ReleaseRules = rules
+		cfg.Quality.Profiles[i] = rulesFirst(cfg.Quality.Profiles[i])
 	}
 	s := New(idx, health, nil, cfg, Options{})
 	t.Cleanup(func() { s.Close() })

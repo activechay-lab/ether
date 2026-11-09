@@ -1,0 +1,37 @@
+{
+  "classification": "historical; not release acceptance",
+  "chain_observation": "ether-54k exit 0\n",
+  "artifacts": [
+    {
+      "path": "/data/036-work/i/ether-036-pms-work/runs/ether-54k/baseline.json",
+      "sha256": "cdbcd8022be35e9054edfce84548035186e44097838a6f41aec43cb9c1a63530",
+      "bytes": 37314
+    },
+    {
+      "path": "/data/036-work/i/ether-036-pms-work/runs/ether-54k/report.md",
+      "sha256": "fcf0388821d153239b794e87115a36101029db2d211b1db01f0aceef933d9eb0",
+      "bytes": 10963
+    },
+    {
+      "path": "/data/036-work/i/ether-036-pms-work/runs/ether-54k/results.json",
+      "sha256": "3968a20c35a78d2d671f81d6be90d55535028c7c68199b62edc242714becf545",
+      "bytes": 804565
+    }
+  ],
+  "prior_binary_observation": {
+    "server_revision": "82cd556aef0cbcf96beb347280b9682205fb1bfd",
+    "harness_revision": "8bbd73c139a3add2d417441f1ba0e462d9b82efb",
+    "both_vcs_modified": true,
+    "limitation": "Recorded during recovery before run; no before/after binary hashes. Not a certified source manifest."
+  },
+  "coverage": {
+    "raw_records": 1800,
+    "warm_samples": 1600,
+    "cold_samples": 40,
+    "web_cold_samples": 0,
+    "http_200": 1665,
+    "http_404": 135,
+    "transport_failures": 0,
+    "skipped": 0
+  }
+}

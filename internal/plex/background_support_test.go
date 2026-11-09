@@ -6,22 +6,22 @@ import ()
 // title fetch can queue colour work, so it loops until both are quiet.
 func (s *Server) waitBackground() {
 	if s.titleJobs == nil {
-		if s.d.PlexGUID != nil {
-			s.d.PlexGUID.Wait()
+		if source, ok := s.d.PlexGUID.(interface{ Wait() }); ok {
+			source.Wait()
 		}
-		if s.d.PlexMeta != nil {
-			s.d.PlexMeta.Wait()
+		if source, ok := s.d.PlexMeta.(interface{ Wait() }); ok {
+			source.Wait()
 		}
 		return
 	}
 	for i := 0; i < 4; i++ {
 		s.titleJobs.wait()
 		s.blurJobs.wait()
-		if s.d.PlexGUID != nil {
-			s.d.PlexGUID.Wait()
+		if source, ok := s.d.PlexGUID.(interface{ Wait() }); ok {
+			source.Wait()
 		}
-		if s.d.PlexMeta != nil {
-			s.d.PlexMeta.Wait()
+		if source, ok := s.d.PlexMeta.(interface{ Wait() }); ok {
+			source.Wait()
 		}
 	}
 }

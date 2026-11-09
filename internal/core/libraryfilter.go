@@ -98,6 +98,15 @@ type catalogViewer struct {
 	restricted bool
 }
 
+// WithoutCatalogViewer drops the viewer from ctx, for reads that are the same
+// for every viewer (a facet name's identifier) and must share one cache entry.
+func WithoutCatalogViewer(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithValue(ctx, catalogViewerKey{}, catalogViewer{})
+}
+
 func CatalogViewerID(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0
@@ -128,5 +137,48 @@ func CatalogCandidates(ctx context.Context) bool {
 		return false
 	}
 	v, _ := ctx.Value(catalogCandidatesKey{}).(bool)
+	return v
+}
+
+type searchListFactsKey struct{}
+
+// WithSearchListFacts marks a search whose results are rendered as list
+// items (a Plex search hub: three cast members, the directors, genres,
+// countries, studios): the catalogue reads those facts for its page, not
+// every credit, keyword and alternative title of every result.
+func WithSearchListFacts(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchListFactsKey{}, true)
+}
+
+// SearchListFacts reports WithSearchListFacts.
+func SearchListFacts(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(searchListFactsKey{}).(bool)
+	return v
+}
+
+type searchSummaryFactsKey struct{}
+
+// WithSearchSummaryFacts marks movie/show searches rendered using scalar title
+// metadata and posters only. Visibility and query-filter facets are still read;
+// credits and other detail facts are not needed. Partial titles must not enter
+// the full-title cache. Searches without this opt-in retain full results.
+func WithSearchSummaryFacts(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchSummaryFactsKey{}, true)
+}
+
+func SearchSummaryFacts(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(searchSummaryFactsKey{}).(bool)
 	return v
 }

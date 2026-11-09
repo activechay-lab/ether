@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,50 +117,61 @@ func mustLiveSession(t *testing.T, s *Service, id string, u *core.User) SessionI
 
 type startingLiveRelay struct {
 	core.HLSSession
-	ready bool
+	mu    sync.Mutex
+	polls int
 	fail  bool
-	waits int
 }
 
+// The encoder finishes its first segment after a few playlist polls.
 func (f *startingLiveRelay) ServePlaylist(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.polls++
+	ready := !f.fail && f.polls > 3
+	f.mu.Unlock()
 	fmt.Fprint(w, "#EXTM3U\n#EXT-X-TARGETDURATION:4\n")
-	if f.ready {
+	if ready {
 		fmt.Fprint(w, "#EXTINF:4,\n00000.ts\n")
 	}
 }
 func (f *startingLiveRelay) ServeSegment(w http.ResponseWriter, r *http.Request, n int) {
-	f.waits++
-	if f.fail {
-		http.Error(w, "encoder failed", http.StatusBadGateway)
-		return
-	}
-	f.ready = true
 	fmt.Fprint(w, "segment bytes")
 }
+func (f *startingLiveRelay) Close() error { return nil }
 
+func ownedRelayFixture(t *testing.T, s *Service, ss *session, hls core.HLSSession, dec core.Decision, cut time.Duration) {
+	t.Helper()
+	if ss.ctx == nil {
+		ss.ctx = t.Context()
+	}
+	p := s.newRelayProducer(ss, core.MediaInfo{}, core.ClientCaps{}, dec, cut)
+	if err := p.adopt("relay-fixture", hls, func() {}, core.MediaInfo{}, dec, cut); err != nil {
+		t.Fatal(err)
+	}
+	ss.owned = s.runRelay(ss, p)
+	t.Cleanup(ss.owned.close)
+}
+
+// The first owned playlist waits for the encoder's first segment rather
+// than handing a player an empty live playlist; a producer that never
+// delivers ends that wait with an error, not an empty playlist.
 func TestRelayFirstPlaylistWaitsForMediaAndPropagatesFailure(t *testing.T) {
 	for _, fail := range []bool{false, true} {
+		s := testService(t, Options{})
 		h := &startingLiveRelay{fail: fail}
-		ss := &session{info: SessionInfo{ID: "live-fixture"}, relay: h}
-		s := &Service{}
+		ss := &session{info: SessionInfo{ID: "live-fixture", Channel: Channel{ID: "c"}}}
+		ownedRelayFixture(t, s, ss, h, core.Decision{Container: "mpegts"}, relaySegment)
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 		rec := httptest.NewRecorder()
-		s.serveRelayPlaylist(rec, httptest.NewRequest("GET", "/", nil), ss)
-		if h.waits != 1 {
-			t.Fatalf("initial segment waits = %d", h.waits)
-		}
+		s.serveOwnedPlaylist(rec, httptest.NewRequest("GET", "/", nil).WithContext(ctx), ss)
+		cancel()
 		if fail {
 			if rec.Code != 502 {
-				t.Fatalf("encoder failure returned %d", rec.Code)
+				t.Fatalf("producer failure returned %d", rec.Code)
 			}
 			continue
 		}
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "/relay/0.ts") || strings.Contains(rec.Body.String(), "segment bytes") {
 			t.Fatalf("first playlist unusable: %d %s", rec.Code, rec.Body.String())
-		}
-		rec = httptest.NewRecorder()
-		s.serveRelayPlaylist(rec, httptest.NewRequest("GET", "/", nil), ss)
-		if h.waits != 1 {
-			t.Fatal("ready playlist reread a complete segment")
 		}
 	}
 }

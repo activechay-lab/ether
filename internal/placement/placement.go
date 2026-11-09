@@ -321,14 +321,14 @@ func (s *Service) reserveInTx(ctx context.Context, tx *sql.Tx, r Request, hash s
 	if exists && !old.Retired {
 		return ErrRetirement
 	}
-	if !exists {
-		var n int
-		if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM placement_sessions`).Scan(&n); e != nil {
-			return e
-		}
-		if n >= s.options.MaxSessions {
-			return ErrQuota
-		}
+	// The quota bounds concurrently live generations. Retired tombstones are
+	// compacted by PruneTombstones and never refuse admission.
+	live, e := liveSessions(ctx, tx)
+	if e != nil {
+		return e
+	}
+	if live >= s.options.MaxSessions {
+		return ErrQuota
 	}
 	var boot, rolesJSON, scopesJSON string
 	e = tx.QueryRowContext(ctx, `SELECT boot,roles,scopes FROM placement_targets WHERE node=?`, r.Target.NodeID).Scan(&boot, &rolesJSON, &scopesJSON)
@@ -377,8 +377,19 @@ func (s *Service) reserveInTx(ctx context.Context, tx *sql.Tx, r Request, hash s
 	}
 	claimsData, _ := json.Marshal(r.Claims)
 	generation := r.ExpectedGeneration + 1
+	if !exists {
+		// A session with no row may have been compacted: start above every
+		// generation the ledger has ever forgotten.
+		floor, e := generationFloor(ctx, tx)
+		if e != nil {
+			return e
+		}
+		generation = floor + 1
+	} else if e = adjustRetained(ctx, tx, -1); e != nil {
+		return e
+	}
 	deadline := now + r.Lease.Milliseconds()
-	_, e = tx.ExecContext(ctx, `INSERT INTO placement_sessions(session,generation,operation,fingerprint,controller,controller_boot,node,boot,role,claims,initial_deadline,deadline,retired) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,operation=excluded.operation,fingerprint=excluded.fingerprint,controller=excluded.controller,controller_boot=excluded.controller_boot,node=excluded.node,boot=excluded.boot,role=excluded.role,claims=excluded.claims,initial_deadline=excluded.initial_deadline,deadline=excluded.deadline,retired=0`, r.Session, generation, r.Operation, hash, r.Controller.ID, r.Controller.Boot, r.Target.NodeID, r.Target.Boot, string(r.Role), string(claimsData), deadline, deadline)
+	_, e = tx.ExecContext(ctx, `INSERT INTO placement_sessions(session,generation,operation,fingerprint,controller,controller_boot,node,boot,role,claims,initial_deadline,deadline,retired,retired_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,0) ON CONFLICT(session) DO UPDATE SET generation=excluded.generation,operation=excluded.operation,fingerprint=excluded.fingerprint,controller=excluded.controller,controller_boot=excluded.controller_boot,node=excluded.node,boot=excluded.boot,role=excluded.role,claims=excluded.claims,initial_deadline=excluded.initial_deadline,deadline=excluded.deadline,retired=0,retired_at=0`, r.Session, generation, r.Operation, hash, r.Controller.ID, r.Controller.Boot, r.Target.NodeID, r.Target.Boot, string(r.Role), string(claimsData), deadline, deadline)
 	if e != nil {
 		return e
 	}
@@ -451,33 +462,46 @@ func (s *Service) Retire(ctx context.Context, f Fence, evidence string) error {
 		if r.Fence != f {
 			return ErrFenced
 		}
-		return retireRecord(ctx, tx, r)
+		return s.retireRecord(ctx, tx, r)
 	})
 }
 
 // retireRecord is called only after trusted verification outside the transaction
 // and a full-fence recheck under placement:all. Receipt publication uses the same
 // release operation; ordinary Retire retains its existing verifier semantics.
-func retireRecord(ctx context.Context, tx *sql.Tx, r Record) error {
+func (s *Service) retireRecord(ctx context.Context, tx *sql.Tx, r Record) error {
 	if r.Retired {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM placement_claims WHERE session=?`, r.Session); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE placement_sessions SET retired=1 WHERE session=?`, r.Session)
-	return err
+	// retired_at uses the database clock, like deadline, so the retention age
+	// is measured the same way on every coordinator.
+	now, err := s.now(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE placement_sessions SET retired=1,retired_at=? WHERE session=?`, now, r.Session); err != nil {
+		return err
+	}
+	return adjustRetained(ctx, tx, 1)
 }
 
-// LedgerUsage exposes quota pressure. Retired rows ARE compact tombstones: claims
-// are removed, but the fixed-size fence, generation and operation digest survive
-// forever. There is intentionally no TTL deletion API: discarding a floor would
-// allow an arbitrarily delayed generation-zero replay to resurrect old work.
-// Raise MaxSessions consistently across coordinators or archive/replace the whole
-// cluster namespace under externally established quiescence when quota is reached.
+// LedgerUsage exposes quota pressure: live is the exact number of unretired
+// sessions (what the quota bounds), retired the maintained count of retained
+// tombstones awaiting compaction. Neither scans history: live reads the
+// partial live index, retired one counter row. used = live + retired.
 func (s *Service) LedgerUsage(ctx context.Context) (used, retired int, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(retired),0) FROM placement_sessions`).Scan(&used, &retired)
-	return
+	live, err := liveSessions(ctx, s.db)
+	if err != nil {
+		return 0, 0, err
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT retained FROM placement_ledger WHERE id=1`).Scan(&retired)
+	if err == sql.ErrNoRows {
+		err = nil
+	}
+	return live + retired, retired, err
 }
 
 func (s *Service) authorityTransaction(ctx context.Context, fn func(context.Context, *sql.Tx) error) error {

@@ -495,7 +495,17 @@ choice, other releases of the same cut, resolution and HDR type are listed,
 named by quality, audio, size and release group, so you can switch if one
 fails. **Quality › Profiles › Version menu › Same-quality versions to offer** sets
 how many (0 to 3; 1 by default, 0 turns the extra versions off). Choose one with Plex's **Play Version**; otherwise Ether picks the
-best version for the device. After a restart or candidate-cache expiry, an
+best version for the device. Turn on **Offer alternatives at every resolution**
+to distribute that count across the available resolutions instead. With one
+alternative, the menu can show two 4K, two 1080p and two 720p releases when
+eligible results exist. Auto counts as the first release in its resolution,
+stays first in the menu, and the total stays within seven entries. Ether gives
+each resolution a place before filling extra copies, removes duplicate files,
+and preserves profile and device limits. **Offer higher versions** remains a
+separate opt-in for choices above the profile's resolution ceiling. The new
+mode is off by default.
+
+After a restart or candidate-cache expiry, an
 admitted detail-page warm-up that reuses your remembered release also requests a
 background search for versions. Your remembered source does not wait or change;
 a later page load can show alternatives after that search succeeds. Refills
@@ -663,8 +673,8 @@ add before saving:
 - the qualities the profile allows, its resolution range, source order and
   minimum custom format score;
 - every custom format the profile scores, with its score from the profile's
-  TRaSH score set: **Added** formats join **Custom scoring**, **Already in
-  Custom scoring** ones are reused unchanged, and any Ether can't evaluate
+  TRaSH score set: **Added** formats join the profile's **Custom formats**,
+  **Already saved** ones are reused unchanged, and any Ether can't evaluate
   (indexer flags, for example) are listed but left out;
 - what doesn't carry over. Upgrade and cutoff settings don't apply, because
   Ether picks the best release each time something plays. Qualities with no
@@ -682,8 +692,8 @@ doesn't list.
 Ether reads the profiles from the guide and keeps them for an hour. If the
 guide is unreachable or its request limit is used up, switch to **Paste JSON**
 and paste or upload a profile file. Custom formats Ether can't fetch are
-marked **Not found**; paste them under **Custom scoring** and import the
-profile again. The preview refuses a profile whose minimum format score is
+marked **Not found**; paste them under **Custom format definitions** and
+import the profile again. The preview refuses a profile whose minimum format score is
 higher than the formats it could import, because no release could ever satisfy
 it.
 
@@ -704,26 +714,35 @@ not changed. **Sync now** runs the same update immediately, even while the
 automatic sync is off, for owners who prefer to take guide changes when they
 choose.
 
-## Rank releases by custom score
+## How releases are ranked
 
-A quality profile's **What matters most** list is checked from top to bottom;
-the first step where two releases differ decides which plays first. **Custom
-score** is one of those steps. It ranks the release with the higher total
-score first: Ether's own quality points plus the profile's custom format
-scores (imported from TRaSH Guides, Radarr or Sonarr, or entered under
-**Custom scoring**) plus how well the release suits the app.
+Ether ranks releases the way Radarr and Sonarr do, then adds what only a
+streaming server knows: the device, the viewer and the connection. The full
+model is in [quality-ranking.md](quality-ranking.md).
 
-By default **Custom score** sits just above **Played fine recently**, so your
-language, resolution, release type and HDR preferences come first, and a
-release that already played well only wins among equally scored ones. Drag it
-to change that. For example, put **Resolution** first and **Custom score**
-second to play 4K whenever a 4K release exists and let your scores rank
-everything else. Profiles saved before this step existed rank exactly as they
-did.
+1. A release that can't play here is skipped: a codec the device can't
+   decode, outside the profile's resolution or size range, a **Never play**
+   or **Only play** rule, below the **Minimum score**, or recently broken.
+2. Releases in a language the viewer doesn't accept, and releases the
+   connection can't carry, go after the others.
+3. The rest rank by **Qualities**: a release higher in the list plays
+   first, and qualities in one row rank the same.
+4. Within a quality, the release with the higher **custom format** total
+   plays first. Then come your source preference (Usenet or debrid),
+   indexer priority, seeders or age, and size, as in Radarr. A release that
+   played fine recently breaks a full tie.
 
-**Edit scores** on the step opens the profile's custom scoring editor.
-**Only play** and **Never play** filters still decide which releases are
-allowed at all; the step only orders the ones that pass.
+Edit both on a profile, under **Qualities** and **Custom formats**. Ether's
+own formats (release type, HDR, codecs, audio, the viewer's language, audio
+transcode and the like) score like the formats you import; set any to 0 or
+remove it. A **Prefer** rule is a format too, with its own score. A plugin's
+ranking step adds the points it gives each release. Ether's own formats,
+Prefer rules and plugins don't count toward the minimum score.
+
+Profiles saved before this model are converted once when the server starts,
+so they keep their picks. Where a saved order can't be kept exactly (for
+example a Prefer rule that ranked above the audio language check), the server
+log says what changed.
 
 ## Choose and fix releases
 
@@ -821,8 +840,30 @@ A channel can have several stream sources in priority order. Enable the inputs
 you want and put the preferred one first. If it fails during tuning, Ether tries
 a backup within the same startup budget. Failed inputs cool down briefly before
 being retried. The channel keeps its number, favourites, sharing and programme
-guide when its input changes. A running stream stays on its selected input;
-retuning after an interruption can select a healthy backup.
+guide when its input changes. During playback, Ether can reconnect to the current
+source or switch to an available backup while keeping the viewer's stream open.
+Recovery that outlasts the available buffer can show a reconnecting screen.
+
+**Stream stability** controls how much incoming media Ether keeps in reserve.
+Choose a server default in Live TV & IPTV, or override it in a channel's settings:
+
+- **Fastest** keeps the least delay from the live broadcast.
+- **Balanced**, the default, aims to keep about 12 seconds in reserve.
+- **Rock solid** aims for about 30 seconds and smooths channels when server
+  capacity allows, using more processing power.
+
+These are reserve targets, not guaranteed buffers. Ether uses the provider's
+existing HLS backlog or media delivered faster than real time; it does not slow
+playback or delay tuning to build a reserve. A source that supplies no backlog
+may therefore have little protection against an interruption. The reserve is
+shared by viewers of the same channel. Preset changes apply when the channel
+next starts.
+
+Where capacity permits, Ether decodes and re-encodes IPTV to smooth source
+damage and format changes. Sources above 1080p and HDR sources stay on a direct
+path to preserve their picture format. Source history survives restarts and
+helps allocate limited processing capacity to unreliable sources without
+pre-empting a running viewer.
 
 Who can watch a channel is set on the channel's **Viewers** tab. A viewer
 allowed on all channels also gets channels you add later. Switching them off for
@@ -836,6 +877,44 @@ Programme guides can come from separate XMLTV sources, including compressed
 `.xml.gz` feeds. Map each channel to its matching guide. URL sources refresh
 automatically and retain existing listings if a refresh fails; uploaded files
 remain snapshots. Guide coverage shows channels that need a mapping or new data.
+
+For URL sources, **Maximum refresh interval (hours)** sets the normal refresh
+schedule. Ether can refresh sooner when guide coverage is running out. Enable
+**Refresh after inactivity** to refresh in the background when an authenticated
+app returns after five idle minutes and no Live TV session is active. Its chosen
+cooldown limits how often that source refreshes; failures retain the last good
+snapshot and back off. Activity refresh is off by default. Manual sources and
+uploaded files do not refresh because an app connects.
+
+An IPTV app's playlist or guide refresh reads Ether's stored snapshot. It can
+wake the background refresh above, but does not wait for the provider; a later
+app refresh picks up the imported changes. This keeps app startup independent
+of provider latency and availability.
+
+Channel group exclusions apply to all apps. Every channel appears in every app
+(Plex, Jellyfin, Emby, Silo, Xtream IPTV apps, and M3U & XMLTV) until you turn
+an app off under **Show in apps** on the channel's **Stream** tab (**Details**
+for On Air channels). To change many channels at once, select them and choose
+**Show in apps…**; apps you leave unchanged keep each channel's own setting.
+Disabling a channel still removes it everywhere, and viewer access restrictions
+apply in every app. M3U and Xtream exports retain the imported channel groups.
+
+### Channel logos on Apple TV
+
+Plex for Apple TV shows guide channel logos only when Plex's online image
+service can download them; the app never loads them from your server
+directly. Ether therefore gives Apple TV:
+
+- the channel's own logo address when it is a public web address (an M3U
+  `tvg-logo` or XMLTV icon on the internet), so these logos appear on any
+  server;
+- otherwise a logo link from your server that carries no sign-in token, on
+  your server's public address when remote access is on.
+
+On a server without remote access, Apple TV cannot show logos for virtual
+channels, uploaded logos or logos stored on your local network. To show
+them, turn on remote access or give the channel a logo from a public web
+address. Other Plex apps load logos from your server and are not affected.
 
 ## Cluster
 
@@ -1344,10 +1423,12 @@ titles TMDB leaves unrated, as Plex Media Server does; Ether looks up a few
 unrated titles every ten minutes so your provider quota stays mostly for
 badges. The title inspector shows where each rating came from.
 
-Library collections and discovery rows are independent. Ether ships movie
-collections by genre and TV collections by locally known networks/studios.
-These match the local catalogue dynamically, and deleting a default keeps it
-deleted. Newly encountered TV networks/studios are added automatically. Use the
+Library collections and discovery rows are independent. A new install creates
+no collections. Add them from **Collections › Templates**, one at a time or as a
+bundle: **Movie genres**, **TV networks** and **Movie studios** build one
+collection per genre, network or studio from your local catalogue, and the
+setup wizard offers the same bundles. Collections an earlier version created
+stay as you left them, and applying a bundle skips them. Use the
 collection editor to change rules, artwork, audience, or publication targets:
 **Collection only**, **Discovery rows**, or **Both**. Shipped trending and other
 feed sources stay available for rows but no longer clutter Plex's Collections tab.
@@ -1378,6 +1459,18 @@ Stremio requires an HTTPS address. If the portal cannot create an install
 link, add a certificate under **Apps › Away from home › Use your own
 certificate** and try again.
 Catalogue items and streams follow the viewer's library and safety settings.
+
+Stremio sends no device profile, so Ether recognises the app from its
+User-Agent. The Stremio desktop app (mpv), Stremio for Android and Android TV,
+and Nuvio play through their own native players, so they get native-player
+capabilities: HEVC, AV1 and H.264, HDR10 and HLG (the player tone-maps for an
+SDR screen), and E-AC-3/AC-3. The desktop app also gets Dolby Vision (profiles
+5 and 8; profile 7 plays its HDR10 base) and DTS and TrueHD. On Android and
+iOS, Dolby Vision depends on the device's decoder, which Ether cannot see, so
+it stays off and profile 7 and 8.1 releases play their HDR10 base. Turn it on
+for those devices with a client override for `stremio-native-android` or
+`nuvio-ios`. Stremio Web, and desktop builds that report a plain browser
+User-Agent, keep browser-safe capabilities.
 
 ## Read-only WebDAV
 

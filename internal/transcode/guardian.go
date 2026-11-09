@@ -16,6 +16,9 @@ import (
 const guardianEnv = "ETHER_INTERNAL_ENCODER_GUARDIAN"
 const guardianArg = "--ether-internal-encoder-guardian"
 
+// guardianPriorityEnv=background lowers the encoder below live outputs.
+const guardianPriorityEnv = "ETHER_INTERNAL_ENCODER_PRIORITY"
+
 func init() {
 	if os.Getenv(guardianEnv) != "1" || len(os.Args) < 3 || os.Args[1] != guardianArg {
 		return
@@ -26,6 +29,12 @@ func init() {
 	// a Go scheduler thread retiring must not kill a healthy encoder.
 	// This branch always exits the process below, so it never unlocks.
 	runtime.LockOSThread()
+	if os.Getenv(guardianPriorityEnv) == "background" {
+		// Set on this locked thread before the fork: the encoder and every
+		// thread it creates inherit it.
+		lowerEncoderPriority()
+	}
+	_ = os.Unsetenv(guardianPriorityEnv)
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	ready := make(chan struct{})
 	cmd.Stdout, cmd.Stderr = &guardianOutput{ready: ready}, os.Stderr

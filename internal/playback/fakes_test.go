@@ -310,6 +310,7 @@ type fakeHLS struct {
 	swapC chan swapCall
 }
 
+func (h *fakeHLS) SwapWouldCopyVideo(core.MediaInfo) bool                     { return true }
 func (h *fakeHLS) ID() string                                                 { return h.id }
 func (h *fakeHLS) ServePlaylist(w http.ResponseWriter, r *http.Request)       {}
 func (h *fakeHLS) ServeSegment(w http.ResponseWriter, r *http.Request, n int) {}

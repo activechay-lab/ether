@@ -25,19 +25,6 @@ type soakTiming struct {
 	Sample   time.Duration
 }
 
-func profileTiming(profile string) (soakTiming, error) {
-	switch profile {
-	case "shakedown":
-		return soakTiming{Steady: 8 * time.Minute, Fault: 3 * time.Minute, Followup: 5*time.Minute + 20*time.Second, Cleanup: 5*time.Minute + 15*time.Second, Sample: 10 * time.Second}, nil
-	case "sustained":
-		return soakTiming{Steady: 135 * time.Minute, Fault: 3 * time.Minute, Followup: 5*time.Minute + 20*time.Second, Cleanup: 5*time.Minute + 15*time.Second, Sample: 15 * time.Second}, nil
-	case "heap":
-		return soakTiming{Steady: 8 * time.Minute, Followup: 4 * time.Minute, Cleanup: time.Minute, Sample: 30 * time.Second}, nil
-	default:
-		return soakTiming{}, fmt.Errorf("profile must be shakedown, sustained or heap")
-	}
-}
-
 // SoakConfig selects the Ether listeners and the run clock.
 type SoakConfig struct {
 	Profile   string
@@ -951,9 +938,9 @@ func readPlaylist(ctx context.Context, current, already string, get func(string)
 			return err
 		}
 		data := []byte(already)
-		status := http.StatusOK
-		var err error
 		if depth > 0 || already == "" {
+			var status int
+			var err error
 			data, status, err = get(current)
 			if err != nil || status != http.StatusOK || len(data) == 0 {
 				return fmt.Errorf("hls %d %v", status, err)

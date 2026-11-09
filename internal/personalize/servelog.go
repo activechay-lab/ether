@@ -658,20 +658,26 @@ func finalizeNegatives(ctx context.Context, db *sql.DB, now time.Time) (int64, e
 }
 
 // purgeServes applies serve-log retention: pages older than retention,
-// then the oldest pages beyond maxItems logged items.
+// then the oldest pages beyond maxItems logged items. Every delete runs in
+// store.PruneBatched batches picked through an index (personalize_serves_last
+// or a primary key), items before their pages so no item outlives its page.
 func purgeServes(ctx context.Context, db *sql.DB, now time.Time, retention time.Duration, maxItems int) (int64, error) {
 	var total int64
-	cut := ms(now.Add(-retention))
-	for _, q := range []string{
-		`DELETE FROM personalize_serve_items WHERE serve_id IN (SELECT id FROM personalize_serves WHERE last_at < ?)`,
-		`DELETE FROM personalize_serves WHERE last_at < ?`,
-	} {
-		res, err := db.ExecContext(ctx, q, cut)
-		if err != nil {
-			return total, err
+	run := func(steps []string, arg any) error {
+		for _, q := range steps {
+			n, err := store.PruneBatched(ctx, db, q, arg)
+			total += n
+			if err != nil {
+				return err
+			}
 		}
-		n, _ := res.RowsAffected()
-		total += n
+		return nil
+	}
+	if err := run([]string{
+		`DELETE FROM personalize_serve_items WHERE (serve_id,row_pos,item_pos) IN (SELECT serve_id,row_pos,item_pos FROM personalize_serve_items WHERE serve_id IN (SELECT id FROM personalize_serves WHERE last_at<?) LIMIT ?)`,
+		`DELETE FROM personalize_serves WHERE id IN (SELECT id FROM personalize_serves WHERE last_at<? ORDER BY last_at LIMIT ?)`,
+	}, ms(now.Add(-retention))); err != nil {
+		return total, err
 	}
 	if maxItems <= 0 {
 		return total, nil
@@ -692,18 +698,11 @@ func purgeServes(ctx context.Context, db *sql.DB, now time.Time, retention time.
 	if !cutID.Valid {
 		return total, nil
 	}
-	for _, q := range []string{
-		`DELETE FROM personalize_serve_items WHERE serve_id <= ?`,
-		`DELETE FROM personalize_serves WHERE id <= ?`,
-	} {
-		res, err := db.ExecContext(ctx, q, cutID.Int64)
-		if err != nil {
-			return total, err
-		}
-		n, _ := res.RowsAffected()
-		total += n
-	}
-	return total, nil
+	err = run([]string{
+		`DELETE FROM personalize_serve_items WHERE (serve_id,row_pos,item_pos) IN (SELECT serve_id,row_pos,item_pos FROM personalize_serve_items WHERE serve_id<=? ORDER BY serve_id LIMIT ?)`,
+		`DELETE FROM personalize_serves WHERE id IN (SELECT id FROM personalize_serves WHERE id<=? ORDER BY id LIMIT ?)`,
+	}, cutID.Int64)
+	return total, err
 }
 
 // ---- exposure statistics ---------------------------------------------------------

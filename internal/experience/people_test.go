@@ -345,11 +345,57 @@ func indexPeopleFixture(s *Service, c *peopleCatalogue) {
 	}
 }
 
-// The name index returns what the credit walk returns, without the walk.
+// pagedPeopleFixture adds the batched credits and visibility titles a
+// paged people search reads, from the same fixture titles.
+func pagedPeopleFixture(s *Service, c *peopleCatalogue) {
+	indexPeopleFixture(s, c)
+	single := s.d.PersonCredits
+	s.d.PersonCreditsMany = func(ctx context.Context, persons []int64, types []core.MediaType, limit int) (map[int64][]core.PersonCredit, error) {
+		out := map[int64][]core.PersonCredit{}
+		for _, p := range persons {
+			keys, err := single(ctx, p, types, limit)
+			if err != nil {
+				return nil, err
+			}
+			c.mu.RLock()
+			for _, k := range keys {
+				title := c.titles[k]
+				for kind, group := range map[string][]core.Person{"cast": title.Cast, "director": title.Directors, "writer": title.Writers, "crew": title.Crew} {
+					for _, person := range group {
+						if person.TMDB == p {
+							out[p] = append(out[p], core.PersonCredit{Key: k, Kind: kind, Person: person})
+						}
+					}
+				}
+			}
+			c.mu.RUnlock()
+		}
+		return out, nil
+	}
+	begin := s.d.BeginPeopleRead
+	s.d.BeginPeopleRead = func(ctx context.Context, viewer *core.User) (PeopleRead, error) {
+		access, err := begin(ctx, viewer)
+		access.VisibleTitles = access.Titles
+		return access, err
+	}
+}
+
+// The name index, read person by person or a page at a time, returns what
+// the credit walk returns, without the walk.
 func TestIndexedPeopleMatchTheCreditWalk(t *testing.T) {
+	for _, paged := range []bool{false, true} {
+		testIndexedPeopleMatchTheCreditWalk(t, paged)
+	}
+}
+
+func testIndexedPeopleMatchTheCreditWalk(t *testing.T, paged bool) {
 	walk, _ := peopleFixture()
 	indexed, c := peopleFixture()
-	indexPeopleFixture(indexed, c)
+	if paged {
+		pagedPeopleFixture(indexed, c)
+	} else {
+		indexPeopleFixture(indexed, c)
+	}
 	ctx := context.Background()
 	viewer := &core.User{ID: 1}
 	for _, q := range []frontend.PeopleQuery{
@@ -371,6 +417,24 @@ func TestIndexedPeopleMatchTheCreditWalk(t *testing.T) {
 		for i := range got {
 			if got[i].ID != want[i].ID || got[i].Name != want[i].Name || got[i].IMDB != want[i].IMDB || got[i].ArtworkItem != want[i].ArtworkItem {
 				t.Fatalf("%+v: indexed %+v, walk %+v", q, got, want)
+			}
+		}
+	}
+	// A person page for an identifier search handed out reads the person's
+	// credits by index and chooses the same credit the walk does.
+	for _, q := range []frontend.PeopleQuery{{Query: "scene"}, {Query: "episode", Scope: frontend.PeopleVideoWithEpisodes}, {Query: "series", Scope: frontend.PeopleSeries}} {
+		found, err := indexed.People(ctx, viewer, core.Device{}, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range found {
+			want, err := walk.Person(ctx, viewer, core.Device{}, p.ID, frontend.PersonReadOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := indexed.Person(ctx, viewer, core.Device{}, p.ID, frontend.PersonReadOptions{})
+			if err != nil || got.ID != want.ID || got.Name != want.Name || got.IMDB != want.IMDB || got.ArtworkItem != want.ArtworkItem {
+				t.Fatalf("person %s: indexed %+v %v, walk %+v", p.ID, got, err, want)
 			}
 		}
 	}
@@ -408,5 +472,63 @@ func TestIndexedPeopleHonourRestrictedPolicy(t *testing.T) {
 		if err != nil || len(rows) != 1 || rows[0].TMDB != 10 || rows[0].ArtworkItem != core.EpisodeKey(1, 1, 1) {
 			t.Fatalf("indexed=%v restricted episode credit: %+v %v", indexed, rows, err)
 		}
+	}
+}
+
+func TestPortraitProofRechecksAndFences(t *testing.T) {
+	for _, mode := range []string{"current", "removed", "fenced"} {
+		t.Run(mode, func(t *testing.T) {
+			s, c := peopleFixture()
+			begin := s.d.BeginPeopleRead
+			calls, finished, closed := 0, 0, 0
+			fenceErr := errors.New("policy changed")
+			s.d.BeginPeopleRead = func(ctx context.Context, v *core.User) (PeopleRead, error) {
+				access, err := begin(ctx, v)
+				fresh := access.Titles
+				access.Titles = func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+					t.Fatal("portrait used full reader")
+					return nil, nil
+				}
+				access.PortraitTitles = func(ctx context.Context, refs []PersonCreditRef) (map[core.RatingKey]core.Title, error) {
+					calls++
+					if len(refs) != 1 || refs[0].TMDB != 10 {
+						t.Fatalf("subjects %+v", refs)
+					}
+					return fresh(ctx, []core.RatingKey{refs[0].Item})
+				}
+				access.Finish = func(context.Context) error {
+					finished++
+					if mode == "fenced" {
+						return fenceErr
+					}
+					return nil
+				}
+				access.Close = func() { closed++ }
+				return access, err
+			}
+			_, err := s.WithPersonCredits(context.Background(), &core.User{ID: 1}, core.Device{}, []PersonCreditRef{{Item: core.MovieKey(1), TMDB: 10}}, func(_ int, _ *core.User, _ frontend.PersonDetail, _ core.Title) error {
+				if mode == "removed" {
+					c.update(core.MovieKey(1), func(t *core.Title) { t.Cast = nil })
+				}
+				return nil
+			})
+			if calls != 2 || closed != 1 {
+				t.Fatalf("fresh reads=%d close=%d", calls, closed)
+			}
+			switch mode {
+			case "current":
+				if err != nil || finished != 1 {
+					t.Fatalf("%v fence=%d", err, finished)
+				}
+			case "removed":
+				if !errors.Is(err, core.ErrNotFound) {
+					t.Fatalf("removed credit accepted: %v", err)
+				}
+			case "fenced":
+				if !errors.Is(err, fenceErr) || finished != 1 {
+					t.Fatalf("fence ignored: %v", err)
+				}
+			}
+		})
 	}
 }

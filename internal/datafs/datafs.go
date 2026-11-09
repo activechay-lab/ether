@@ -144,3 +144,7 @@ func networkName(name string) bool {
 	}
 	return false
 }
+
+// Usage reports the size and the bytes free to this process on the volume
+// holding path.
+func Usage(path string) (total, free int64, err error) { return usage(path) }

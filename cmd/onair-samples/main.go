@@ -109,13 +109,12 @@ func render(ctx context.Context, ffmpeg string, s sample, out string, seconds, w
 	for k, v := range s.slots {
 		b.Slots[k] = v
 	}
-	target := filepath.Join(out, s.name+".mp4")
 	height := width * 9 / 16
 	suffix := ""
 	if width == 1280 {
 		suffix = "-720p"
 	}
-	target = filepath.Join(out, s.name+suffix+".mp4")
+	target := filepath.Join(out, s.name+suffix+".mp4")
 	fmt.Printf("START %s %dx%d/30 %ds workers=%d\n", s.name, width, height, seconds, workers)
 	started := time.Now()
 	var decoder *mediaproc.Cmd

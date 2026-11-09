@@ -10,6 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/resolver"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 func TestParseRequestHeadersAndQuery(t *testing.T) {
@@ -154,7 +155,7 @@ func TestLinuxDesktopProfileLimits(t *testing.T) {
 	}{
 		{"desktop default", "", "", 2160},
 		{"profile height limit", "X-Plex-Client-Profile-Extra", "add-limitation(scope=videoCodec&scopeName=h264&type=upperBound&name=video.height&value=1080)", 1080},
-		{"legacy resolution limit", "X-Plex-Client-Capabilities", "videoDecoders=h264{resolution:720}", 720},
+		{"legacy h264 decoder bound is codec-scoped", "X-Plex-Client-Capabilities", "videoDecoders=h264{resolution:720}", 2160},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/library/metadata/1000000000950028", nil)
@@ -205,6 +206,22 @@ func TestLegacyCapabilities(t *testing.T) {
 	c := pr.ClientCaps(0)
 	if !c.SupportsVideo("hevc") || !c.SupportsAudio("ac3") || c.MaxHeight != 720 {
 		t.Fatalf("legacy: %+v", c)
+	}
+	// #394: Plex for Roku declares only an H.264 decoder bound. It limits
+	// H.264, never the 4K HEVC the Roku plays.
+	roku := (&Request{Product: "Plex for Roku", Platform: "Roku", Device: "Roku Ultra", ClientCapabilities: "videoDecoders=h264{profile:high&resolution:1080&level=41}; audioDecoders=aac{channels:2},ac3{channels:6},eac3{channels:8}"}).ClientCaps(0)
+	if roku.MaxHeight != 2160 || roku.ExplicitMaxHeight || roku.VideoMaxHeights["h264"] != 1080 {
+		t.Fatalf("roku: %+v", roku)
+	}
+	src := func(codec string) core.MediaInfo {
+		return core.MediaInfo{Container: "mkv", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: codec, Width: 3840, Height: 2160}, {Index: 1, Type: "audio", Codec: "eac3", Channels: 6}}}
+	}
+	opts := core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: -1}
+	if d := transcode.Decide(src("hevc"), roku, opts, transcode.Policy{}); d.Kind != core.DecisionDirectPlay {
+		t.Fatalf("roku 4K HEVC: %s (%s)", d.Kind, d.Reason)
+	}
+	if d := transcode.Decide(src("h264"), roku, opts, transcode.Policy{}); d.Kind != core.DecisionTranscode || d.MaxHeight > 1080 && d.VideoCodec == "h264" {
+		t.Fatalf("roku 4K H.264: %+v", d)
 	}
 }
 

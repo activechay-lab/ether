@@ -96,6 +96,7 @@ type login struct {
 	artwork            map[frontend.RatingKey]string
 	ids                map[frontend.RatingKey]int32
 	channels           map[string]int32
+	groups             map[string]int32
 }
 
 func (i *instance) authenticate(r *http.Request) (login, error) {
@@ -122,7 +123,7 @@ func (i *instance) authenticate(r *http.Request) (login, error) {
 	if i.host.ClientSeen != nil {
 		i.host.ClientSeen(d.ID)
 	}
-	return login{viewer: v, device: d, password: p, username: u, artwork: make(map[frontend.RatingKey]string), ids: make(map[frontend.RatingKey]int32), channels: make(map[string]int32)}, nil
+	return login{viewer: v, device: d, password: p, username: u, artwork: make(map[frontend.RatingKey]string), ids: make(map[frontend.RatingKey]int32), channels: make(map[string]int32), groups: make(map[string]int32)}, nil
 }
 func jsonResponse(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

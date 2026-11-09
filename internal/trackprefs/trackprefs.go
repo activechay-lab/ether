@@ -267,6 +267,19 @@ func memoryTarget(key core.RatingKey) (int64, bool) {
 	}
 }
 
+func rememberedTrackLanguage(track core.StreamInfo) string {
+	if n := langtag.Normalize(track.Language); n != "" {
+		return n
+	}
+	if eff := langtag.EffectiveLanguages(track.Language, track.Title); len(eff) > 0 {
+		if n := langtag.Normalize(eff[0]); n != "" {
+			return n
+		}
+		return strings.ToLower(eff[0])
+	}
+	return ""
+}
+
 func (s *Service) Remember(ctx context.Context, user int64, key core.RatingKey, kind string, track *core.StreamInfo) error {
 	target, ok := memoryTarget(key)
 	if !ok {
@@ -283,7 +296,7 @@ func (s *Service) Remember(ctx context.Context, user int64, key core.RatingKey, 
 		if track.Type != kind {
 			return errors.New("stream type does not match")
 		}
-		c.Language = langtag.Normalize(track.Language)
+		c.Language = rememberedTrackLanguage(*track)
 		c.Forced = track.Forced
 		c.SDH = sdh(*track)
 	}
@@ -401,14 +414,23 @@ func sdh(t core.StreamInfo) bool {
 	return strings.Contains(v, "sdh") || strings.Contains(v, "hearing impaired") || strings.Contains(v, "[cc]") || v == "cc"
 }
 
-// rankLanguage orders configured language preferences first, match tier
-// second, and leaves space for pick's style/default bonuses last. With at
-// most 20 configured languages plus the original language, the score stays
-// below the 10000-point explicit-choice bonus.
+// rankLanguage orders configured language preferences first, extended BCP-47
+// match rank second, and leaves space for pick's style/default bonuses last.
+// With at most 20 configured languages plus the original language, the score
+// stays below the 10000-point explicit-choice bonus.
 func rankLanguage(code string, want []string) int {
 	for i, v := range want {
-		if tier := langtag.MatchTier(v, code); tier > 0 {
-			return (len(want)-i)*300 + tier*50
+		if rank := langtag.MatchRank(v, code); rank > 0 {
+			return (len(want)-i)*300 + rank*40
+		}
+	}
+	return 0
+}
+
+func rankStreamLanguage(t core.StreamInfo, want []string) int {
+	for i, v := range want {
+		if rank := langtag.BestStreamMatchRank(v, t.Language, t.Title); rank > 0 {
+			return (len(want)-i)*300 + rank*40
 		}
 	}
 	return 0
@@ -420,7 +442,7 @@ func pick(streams []core.StreamInfo, kind string, want []string, style string, f
 		if t.Type != kind || (forcedOnly && !t.Forced) {
 			continue
 		}
-		n := rankLanguage(t.Language, want)
+		n := rankStreamLanguage(t, want)
 		if t.Default {
 			n += 5
 		}
@@ -432,7 +454,7 @@ func pick(streams []core.StreamInfo, kind string, want []string, style string, f
 				n += 10
 			}
 		}
-		if memory != nil && langtag.Normalize(t.Language) == langtag.Normalize(memory.Language) && t.Forced == memory.Forced && sdh(t) == memory.SDH {
+		if memory != nil && rememberedTrackLanguage(t) == langtag.Normalize(memory.Language) && t.Forced == memory.Forced && sdh(t) == memory.SDH {
 			n += 10000
 		}
 		if n > score {
@@ -487,7 +509,7 @@ func (s *Service) selectRules(ctx context.Context, user int64, key core.RatingKe
 		return out, nil
 	}
 	understood := viewerLanguages(r.AudioLanguages, server)
-	foreign := out.Audio >= 0 && len(understood) > 0 && rankLanguage(info.Streams[out.Audio].Language, understood) == 0
+	foreign := out.Audio >= 0 && len(understood) > 0 && rankStreamLanguage(info.Streams[out.Audio], understood) == 0
 	if !hasB && r.SubtitleMode == "off" && !foreign {
 		return out, nil
 	}
@@ -499,7 +521,7 @@ func (s *Service) selectRules(ctx context.Context, user int64, key core.RatingKe
 		if len(known) == 0 {
 			known = viewerLanguages(nil, server)
 		}
-		if len(known) == 0 || (out.Audio >= 0 && rankLanguage(info.Streams[out.Audio].Language, known) > 0) {
+		if len(known) == 0 || (out.Audio >= 0 && rankStreamLanguage(info.Streams[out.Audio], known) > 0) {
 			return out, nil
 		}
 	}
@@ -580,9 +602,9 @@ func AudioOrder(audio []string, server, original string, preferOriginal bool) []
 	for _, lang := range audio {
 		want = appendLanguage(want, lang)
 	}
-	want = appendLanguage(want, server)
+	want = appendLanguageFallback(want, server)
 	if !preferOriginal {
-		want = appendLanguage(want, original)
+		want = appendLanguageFallback(want, original)
 	}
 	return want
 }
@@ -607,6 +629,26 @@ func viewerLanguages(audio []string, server string) []string {
 }
 
 func appendLanguage(have []string, lang string) []string {
+	lang = strings.TrimSpace(lang)
+	if lang == "" {
+		return have
+	}
+	canon := strings.ToLower(langtag.CanonicalBCP47(lang))
+	norm := langtag.Normalize(lang)
+	for _, v := range have {
+		if canon != "" && strings.ToLower(langtag.CanonicalBCP47(v)) == canon && (norm == "" || langtag.Normalize(v) == norm) {
+			return have
+		}
+		if canon == "" && strings.EqualFold(strings.TrimSpace(v), lang) {
+			return have
+		}
+	}
+	return append(have, lang)
+}
+
+// appendLanguageFallback appends a server/original fallback language only when
+// have does not already cover its normalized language family.
+func appendLanguageFallback(have []string, lang string) []string {
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
 		return have

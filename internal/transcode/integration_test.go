@@ -32,6 +32,13 @@ type realEnv struct {
 	m               *Manager
 }
 
+// withCopySample sets the pre-publication copy sample's packet budget.
+// A short fixture is sampled whole and so indexed; a budget below its
+// packet count gives it the unindexed plan of a feature-length title.
+func withCopySample(packets int) Option {
+	return func(o *options) { o.copySamplePackets = packets }
+}
+
 func newRealEnv(t *testing.T, opts ...Option) *realEnv {
 	t.Helper()
 	if testing.Short() {

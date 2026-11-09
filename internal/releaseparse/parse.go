@@ -14,7 +14,7 @@ import (
 
 var (
 	reYear           = regexp.MustCompile(`\b(188[89]|189\d|19\d{2}|20\d{2})\b`)
-	reSE             = regexp.MustCompile(`(?i)\bS(\d{1,2})[\s\p{So}\x{FE0F}\x{200D}-]*E(\d{1,3})((?:\s*E\d{1,3})*)(?:\s*-\s*E?(\d{1,3}))?\b`)
+	reSE             = regexp.MustCompile(`(?i)\bS(\d{1,2})[\s\p{So}\x{FE0F}\x{200D}-]*E(\d{1,3})((?:\s*E\d{1,3})*)(?:\s*-\s*E?(\d{1,3}))?(?:v(\d))?\b`)
 	reSpanishEpisode = regexp.MustCompile(`(?i)\b(?:Cap|Cap[ií]tulo)\s*(\d{3,4})\b`)
 	reSeasonAndEp    = regexp.MustCompile(`(?i)\b(?:Season|Series|Saison|Stagione|Temporada)\s*(\d{1,2})\b[\s-]*\b(?:Episode|Ep)\s*(\d{1,3})\b`)
 	reSeasonOnly     = regexp.MustCompile(`(?i)\bS(\d{1,2})(?:\s*(?:-|to)\s*S?(\d{1,2}))?\b`)
@@ -30,6 +30,11 @@ var (
 	reDashNumber        = regexp.MustCompile(`\s-\s(\d{1,4})(?:v\d{1,2})?\b`)
 	reSeasonShortDashEp = regexp.MustCompile(`(?i)\bS(\d{1,2})\s+-\s+(\d{1,4})(?:v\d{1,2})?\b`)
 	reSeasonDashEp      = regexp.MustCompile(`(?i)\b(?:Season|Saison|Stagione|Temporada)\s*(\d{1,2})\s+-\s+(\d{1,4})(?:v\d{1,2})?\b`)
+	reSeasonCourDashEp  = regexp.MustCompile(`(?i)\b(?:S(\d{1,2})|(?:Season|Saison|Stagione|Temporada)\s*(\d{1,2}))\s+(?:Part|Cour)\s*(\d{1,2})(?:\s+-\s+|\s+E?)(\d{1,3})(?:v(\d))?\b`)
+	reCourToken         = regexp.MustCompile(`(?i)\bCour\s*(\d{1,2})\b`)
+	reSeasonPartToken   = regexp.MustCompile(`(?i)\b(?:S\d{1,2}|(?:Season|Saison|Stagione|Temporada)\s*\d{1,2})\s+(?:Part|Cour)\s*(\d{1,2})\b`)
+	reRevisionSuffix    = regexp.MustCompile(`(?i)(?:\bS\d{1,2}[\s-]*E\d{1,3}|\b\d{1,4})v([2-9])\b`)
+	reStandaloneRev     = regexp.MustCompile(`(?i)(?:^|\s)v([2-9])\b`)
 	reChannels          = regexp.MustCompile(`([257])[\s.]([01])\b`)
 	reRawChannels       = regexp.MustCompile(`\b(5\.1|7\.1|2\.0|2\.1|6\.1)\b`)
 	reGroupTail         = regexp.MustCompile(`-([A-Za-z0-9][A-Za-z0-9_]{1,})$`)
@@ -88,7 +93,7 @@ func Parse(name string) core.ReleaseInfo {
 
 	// Season / episode.
 	absolute, absoluteAt := parseAbsoluteEpisode(stem, spaced)
-	markerAt := -1
+	var markerAt int
 	if absolute > 0 {
 		// Explicit anime numbering must not be reinterpreted as packed chapters.
 		markerAt = parseStandardEpisodes(spaced, upper, &info)
@@ -153,8 +158,18 @@ func Parse(name string) core.ReleaseInfo {
 	}
 	info.Edition = ParseEdition(name)
 	info.HardSubbed = HardSubbed(name)
-	info.Proper = strings.Contains(upper, " PROPER ")
-	info.Repack = strings.Contains(upper, " REPACK ")
+	info.Proper = strings.Contains(upper, " PROPER ") || strings.Contains(upper, " REAL PROPER ")
+	info.Repack = strings.Contains(upper, " REPACK ") || strings.Contains(upper, " RERIP ")
+	info.Revision = parseRevision(spaced, floor)
+	if info.Revision >= 2 && !info.Repack {
+		info.Proper = true
+	}
+	if info.Cour == 0 {
+		info.Cour = parseCour(spaced, floor)
+	}
+	info.Subbed = parseSubbedAfter(spaced, floor)
+	info.Dubbed = parseDubbedAfter(spaced, floor)
+	info.Uncensored = languageTagAfter(spaced, "UNCENSORED", floor) || languageTagAfter(spaced, "UNCUT", floor)
 	// Words of the title itself ("The.French.Dispatch.2021", "The Danish
 	// Girl") are not audio languages.
 	seen := map[string]bool{}
@@ -200,8 +215,63 @@ func Parse(name string) core.ReleaseInfo {
 			info.SubtitleLanguages = append(info.SubtitleLanguages, name)
 		}
 	}
+	if len(info.SubtitleLanguages) > 0 {
+		info.Subbed = true
+	}
 	info.Title = extractTitle(spaced, yearAt, markerAt, floor, &info)
 	return info
+}
+
+func parseRevision(spaced string, floor int) int {
+	if m := reRevisionSuffix.FindStringSubmatch(spaced); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n >= 2 {
+			return n
+		}
+	}
+	if floor >= 0 && floor < len(spaced) {
+		if m := reStandaloneRev.FindStringSubmatch(spaced[floor:]); m != nil {
+			if n, err := strconv.Atoi(m[1]); err == nil && n >= 2 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func parseCour(spaced string, floor int) int {
+	if m := reSeasonPartToken.FindStringSubmatch(spaced); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n >= 1 && n <= 10 {
+			return n
+		}
+	}
+	meta := spaced
+	if floor >= 0 && floor < len(spaced) {
+		meta = spaced[floor:]
+	}
+	if m := reCourToken.FindStringSubmatch(meta); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n >= 1 && n <= 10 {
+			return n
+		}
+	}
+	return 0
+}
+
+func parseSubbedAfter(spaced string, floor int) bool {
+	for _, tag := range []string{"SUBBED", "ESUB", "ESUBS", "MSUB", "MSUBS", "SOFTSUB", "SOFTSUBS"} {
+		if languageTagAfter(spaced, tag, floor) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseDubbedAfter(spaced string, floor int) bool {
+	for _, tag := range []string{"DUB", "DUBBED", "DUBLADO"} {
+		if languageTagAfter(spaced, tag, floor) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseGroup extracts the release group and the container extension from
@@ -371,6 +441,25 @@ func parseStandardEpisodes(spaced, upper string, info *core.ReleaseInfo) int {
 	if containsAny(upper, "СЕЗОН", "СЕРИ") {
 		if at := parseRussianEpisodes(spaced, info); at >= 0 {
 			return at
+		}
+	}
+
+	if containsAny(upper, " PART ", " COUR ") {
+		if loc := reSeasonCourDashEp.FindStringSubmatchIndex(spaced); loc != nil && releaseTagFollows(spaced[loc[1]:]) {
+			m := submatches(spaced, loc)
+			sTok := m[1]
+			if sTok == "" {
+				sTok = m[2]
+			}
+			season, _ := strconv.Atoi(sTok)
+			cour, _ := strconv.Atoi(m[3])
+			episode, _ := strconv.Atoi(m[4])
+			if season >= 1 && season <= 50 && cour >= 1 && cour <= 10 && episode >= 1 {
+				info.Seasons = []int{season}
+				info.Cour = cour
+				info.Episodes = []int{episode}
+				return loc[0]
+			}
 		}
 	}
 
@@ -606,6 +695,9 @@ func parseSeasonDashEpisode(spaced string) (season, episode, at int, ok bool) {
 // end; at is the dash's offset in spaced. Batch ranges ("01-12") and
 // years ("Godzilla - 1954 (1080p)") are not episodes.
 func parseAbsoluteEpisode(stem, spaced string) (episode, at int) {
+	if reSeasonCourDashEp.MatchString(spaced) {
+		return 0, -1
+	}
 	m := reAbsoluteBracket.FindStringSubmatch(stem)
 	if m == nil {
 		if m = reAbsoluteTag.FindStringSubmatch(spaced); m == nil || !releaseTagFollows(spaced[strings.Index(spaced, m[0])+len(m[0]):]) {

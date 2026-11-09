@@ -75,11 +75,31 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		if s.d.PlexGUID == nil {
 			return nil, errors.New("no keys")
 		}
-		k, err := s.d.PlexGUID.ExactKey(ctx, raw)
-		if err != nil {
-			return nil, err
+		// A list of plex.tv identities (Infuse resolves its Watchlist row
+		// this way) names the library titles that have one; the others
+		// are skipped, as unknown keys in a key list are.
+		guids := strings.Split(raw, ",")
+		var keys []core.RatingKey
+		var unknown []string
+		for _, guid := range guids {
+			guid = strings.TrimSpace(guid)
+			k, err := s.d.PlexGUID.ExactKey(ctx, guid)
+			if err != nil {
+				if len(guids) == 1 {
+					return nil, err
+				}
+				if errors.Is(err, core.ErrNotFound) {
+					unknown = append(unknown, guid)
+				}
+				continue
+			}
+			keys = append(keys, k)
 		}
-		return []core.RatingKey{k}, nil
+		s.resolveGUIDsLater(unknown)
+		if len(keys) == 0 {
+			return nil, core.ErrNotFound
+		}
+		return keys, nil
 	}
 	keys, err := parseKeys(raw)
 	if err != nil {
@@ -91,6 +111,18 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]core.RatingKey
 		}
 	}
 	return keys, nil
+}
+
+// handleMetadataGUIDPath answers /library/metadata/plex://{type}/{id}[,...]:
+// the identities' slashes keep the path off the {key} route.
+func (s *Server) handleMetadataGUIDPath(w http.ResponseWriter, r *http.Request) {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	rctx.URLParams.Add("key", strings.TrimPrefix(r.URL.Path, "/library/metadata/"))
+	s.handleMetadata(w, r)
 }
 
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
@@ -377,7 +409,9 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 	}
 	caps := s.clientCapsForKey(pr, t.Key)
 	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
-		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
+		// Plex builds these caps from the device's own profile: a held
+		// detail page may warm one cached add-on stream (PlayIntent).
+		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail, PlayIntent: true})
 	}
 	if pr == nil || pr.User == nil {
 		return
@@ -410,34 +444,7 @@ func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []core.
 		return nil
 	}
 	now := s.now()
-	st := s.stateFor(ctx, pr, eps)
-	lastWatched := -1
-	for i := range eps {
-		if eps[i].Type != core.TypeEpisode || (!eps[i].Released.IsZero() && eps[i].Released.After(now)) {
-			continue
-		}
-		ws := st[eps[i].Key]
-		if ws.ViewOffset > 0 && ws.ViewCount == 0 {
-			return &eps[i]
-		}
-		if ws.ViewCount > 0 {
-			lastWatched = i
-		}
-	}
-	for i := lastWatched + 1; i < len(eps); i++ {
-		if eps[i].Type != core.TypeEpisode || (!eps[i].Released.IsZero() && eps[i].Released.After(now)) {
-			continue
-		}
-		if st[eps[i].Key].ViewCount == 0 && !s.sameDayUnavailable(ctx, pr, &eps[i]) {
-			return &eps[i]
-		}
-	}
-	for i := range eps {
-		if eps[i].Type == core.TypeEpisode && (eps[i].Released.IsZero() || !eps[i].Released.After(now)) && !s.sameDayUnavailable(ctx, pr, &eps[i]) {
-			return &eps[i]
-		}
-	}
-	return nil
+	return experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
 }
 
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
@@ -876,6 +883,39 @@ func (s *Server) collectionMetadata(c *core.Collection, contexts ...context.Cont
 	return m
 }
 
+// collectionRows renders a listing's collections with their watch state
+// read in one batch, not one read per collection.
+func (s *Server) collectionRows(ctx context.Context, cs []core.Collection) []model.Metadata {
+	if len(cs) == 0 {
+		return nil
+	}
+	var state map[core.RatingKey]core.WatchStatus
+	if pr := FromContext(ctx); pr != nil && pr.User != nil && s.d.State != nil {
+		keys := make([]core.RatingKey, len(cs))
+		for i := range cs {
+			keys[i] = cs[i].Key
+		}
+		var err error
+		if state, err = s.d.State.GetMany(ctx, pr.User.ID, keys); err != nil {
+			state = nil
+		}
+	}
+	out := make([]model.Metadata, 0, len(cs))
+	for i := range cs {
+		m := s.collectionMetadata(&cs[i])
+		if state != nil {
+			st := state[cs[i].Key]
+			m.UserRating = st.UserRating
+			m.ViewOffset = ms(st.ViewOffset)
+			m.ViewCount = st.ViewCount
+			m.LastViewedAt = unixOrZero(st.LastViewedAt)
+			m.LastRatedAt = unixOrZero(st.LastRatedAt)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec Section, sub string) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
@@ -894,9 +934,7 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 	all = s.scopedCollectionCounts(ctx, pr.User, all)
 	all = filterCollectionTitles(all, r.URL.Query())
 	lo, hi := pr.window(len(all))
-	for i := lo; i < hi; i++ {
-		mc.Metadata = append(mc.Metadata, s.collectionMetadata(&all[i], ctx))
-	}
+	mc.Metadata = append(mc.Metadata, s.collectionRows(ctx, all[lo:hi])...)
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(lo, len(all))
 	s.write(w, r, mc)
@@ -915,9 +953,7 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			cs = s.scopedCollectionCounts(ctx, pr.User, cs)
-			for i := range cs {
-				mc.Metadata = append(mc.Metadata, s.collectionMetadata(&cs[i], ctx))
-			}
+			mc.Metadata = append(mc.Metadata, s.collectionRows(ctx, cs)...)
 		}
 	}
 	mc.Size = len(mc.Metadata)
@@ -943,6 +979,9 @@ func (s *Server) handleCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
+	if s.serveCollectionShelf(w, r) {
+		return
+	}
 	k, err := keyParam(r)
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
@@ -957,6 +996,10 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 	c, err := s.collectionRaw(ctx, pr.User, k)
 	if err != nil {
 		s.writeErr(w, r, err)
+		return
+	}
+	if !c.Upcoming && !k.IsEphemeral() {
+		s.collectionMemberPage(w, r, c, k)
 		return
 	}
 	offset, size := pr.pageOf(0)
@@ -1002,6 +1045,46 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k core.
 	}
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(offset, page.Total)
+	s.write(w, r, mc)
+}
+
+// Stored collection grids use the same scoped membership generations as shelf rows.
+// Ephemeral search collections have a separately paged catalogue source.
+// Admission and duplicate removal happen before offsets; decoration is limited
+// to the requested page. A missing title must never shorten a raw source page
+// while leaving the client to advance through a different offset space.
+func (s *Server) collectionMemberPage(w http.ResponseWriter, r *http.Request, c *core.Collection, k core.RatingKey) {
+	ctx := withStoredPolicy(r.Context())
+	pr := FromContext(ctx)
+	selected, _, err := s.shelfSnapshotResult(ctx, pr, core.Hub{ID: "collection.grid." + k.String(), Key: k}, hubCtx{}, func() ([]core.Title, []model.Metadata, error) {
+		page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), 0, int(^uint(0)>>1))
+		if err != nil {
+			return nil, nil, err
+		}
+		members := s.openableTitles(ctx, pr.User, page.Items, false)
+		identities := make([]model.Metadata, 0, len(members))
+		for _, title := range members {
+			identities = append(identities, model.Metadata{RatingKey: title.Key.String()})
+		}
+		return members, identities, nil
+	})
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
+	// Retain the discovery cut, but recheck current authorization before paging.
+	selected = s.openableTitles(ctx, pr.User, selected, true)
+	offset, size := pr.pageOf(0)
+	total := len(selected)
+	offset = min(offset, total)
+	end := offset + min(size, total-offset)
+	mc := s.collectionItemsContainer(c, k)
+	if strings.HasPrefix(r.URL.Path, "/library/metadata/") {
+		mc.SetSyncProjection(true)
+	}
+	mc.Metadata = s.renderTitles(ctx, pr, selected[offset:end], renderOpts{media: true, availabilityInSQL: true})
+	mc.Size = len(mc.Metadata)
+	mc.SetPage(offset, total)
 	s.write(w, r, mc)
 }
 

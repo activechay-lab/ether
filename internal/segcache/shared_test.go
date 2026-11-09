@@ -6,6 +6,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/store"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -184,5 +185,52 @@ func TestStandaloneNASReopenAndIndependentServerRejection(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(nas, "ether.db")); !os.IsNotExist(err) {
 		t.Fatalf("database on NAS: %v", err)
+	}
+}
+
+// Prune removes only stale empty release rows: never one with segments, a
+// pin, a recent play, or one just described ahead of its first segment.
+func TestSharedPruneKeepsLiveReleases(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	c, err := OpenShared(t.TempDir(), 1<<20, db, "node-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, id := range []string{"gone", "pinned", "cached", "played", "described"} {
+		if _, err = db.ExecContext(ctx, `INSERT INTO segcache_releases(release_id,touched) VALUES(?,1)`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = c.Pin("pinned", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Put("cached", 0, []byte("bytes")); err != nil {
+		t.Fatal(err)
+	}
+	c.RecordPlay("played", "Played", 1)
+	c.Describe("described", "Described", 1)
+	if _, err = db.ExecContext(ctx, `UPDATE segcache_releases SET touched=1 WHERE release_id IN ('cached','played')`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := c.Prune(ctx); err != nil || n != 1 {
+		t.Fatalf("prune = %d, %v", n, err)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT release_id FROM segcache_releases ORDER BY release_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var kept []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, id)
+	}
+	if got := strings.Join(kept, ","); got != "cached,described,pinned,played" {
+		t.Fatalf("kept %s", got)
 	}
 }

@@ -18,6 +18,10 @@ import (
 const (
 	hostBackoffBase = 500 * time.Millisecond
 	hostBackoffMax  = 30 * time.Second
+	// hostDownAfter consecutive failures within hostDownTTL mark a host as
+	// down: a replacement link on it is not a new route (issue #396).
+	hostDownAfter = 2
+	hostDownTTL   = 2 * time.Minute
 )
 
 type hostBackoff struct {
@@ -32,6 +36,7 @@ type hostBackoff struct {
 type hostBackoffState struct {
 	failures int
 	until    time.Time
+	last     time.Time // latest failure
 }
 
 func newHostBackoff(log *slog.Logger) *hostBackoff {
@@ -82,12 +87,22 @@ func (b *hostBackoff) failure(host string) {
 	}
 	st.failures++
 	d := b.delay(st.failures)
-	st.until = b.now().Add(d)
+	st.last = b.now()
+	st.until = st.last.Add(d)
 	first := st.failures == 1
 	b.mu.Unlock()
 	if first && b.log != nil {
 		b.log.Warn("debrid host backing off", "host", host, "wait", d)
 	}
+}
+
+// down reports a host that failed hostDownAfter times in a row, most
+// recently within hostDownTTL, with no success since.
+func (b *hostBackoff) down(host string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	st := b.hosts[host]
+	return st != nil && st.failures >= hostDownAfter && b.now().Sub(st.last) < hostDownTTL
 }
 
 // success clears host's backoff.
@@ -118,6 +133,15 @@ func isConnReset(err error) bool {
 // without one, by text.
 func isConnRefused(err error) bool {
 	return sockerr.IsConnRefused(err) || (err != nil && strings.Contains(strings.ToLower(err.Error()), "connection refused"))
+}
+
+// urlHost is the host key the backoff records for a URL (as req.URL.Host).
+func urlHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // dialAddr is the host:port the transport dials for a URL (no proxy), the

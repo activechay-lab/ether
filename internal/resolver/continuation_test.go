@@ -84,7 +84,7 @@ func TestVerifiedWorkingSourceIsTriedFirstAfterRestart(t *testing.T) {
 		failure: map[string]error{"source00": core.ErrArticleMissing},
 	}
 	releases := continuationReleases(2)
-	releases[0].Grabs = 1000 // source00 is the higher-scored release
+	releases[0].Size += 2 << 30 // source00 ranks higher (larger, the last Radarr key)
 	idx := &fakeIndexer{releases: releases}
 	req := core.ResolveRequest{Title: matrixTitle(), Client: webCaps()}
 	s := New(idx, h, db, testCfg(), Options{})
@@ -108,14 +108,13 @@ func TestVerifiedWorkingSourceIsTriedFirstAfterRestart(t *testing.T) {
 	if after <= before {
 		t.Fatal("higher-scored source was not retried")
 	}
-	profile := core.QualityProfile{}
-	high := candidate{rel: core.Release{Score: 2806}}
-	known := candidate{rel: core.Release{Score: 129}, verified: true}
-	if !compareCandidates(high, known, profile) || compareCandidates(known, high, profile) {
+	high := candidate{cf: 2806}
+	known := candidate{cf: 129, verified: true}
+	if !compareCandidates(high, known) || compareCandidates(known, high) {
 		t.Fatal("verified lower score outranked higher score")
 	}
-	known.rel.Score = high.rel.Score
-	if !compareCandidates(known, high, profile) || compareCandidates(high, known, profile) {
+	known.cf = high.cf
+	if !compareCandidates(known, high) || compareCandidates(high, known) {
 		t.Fatal("verified source did not break score tie")
 	}
 }

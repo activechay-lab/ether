@@ -243,7 +243,7 @@ func (s *Service) evaluate(ctx context.Context, req core.PrerollRequest, all []P
 	if len(matches) == 0 {
 		return dec
 	}
-	pick := -1
+	var pick int
 	if selection == SelectShuffle {
 		pick = matches[s.rand(len(matches))]
 	} else {

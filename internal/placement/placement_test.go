@@ -188,13 +188,19 @@ func TestExpiryPolicyAndQuota(t *testing.T) {
 	if err = s.Retire(ctx, first.Fence, "authenticated-retirement"); err != nil {
 		t.Fatal(err)
 	}
-	s.options.MaxSessions = 2
+	// The quota bounds live generations ("second"); the retired tombstone
+	// never refuses admission.
+	s.options.MaxSessions = 1
 	if _, err = s.Reserve(ctx, r); !errors.Is(err, ErrQuota) {
 		t.Fatal(err)
 	}
 	used, terminal, err := s.LedgerUsage(ctx)
 	if err != nil || used != 2 || terminal != 1 {
 		t.Fatalf("%d %d %v", used, terminal, err)
+	}
+	s.options.MaxSessions = 2
+	if _, err = s.Reserve(ctx, r); err != nil {
+		t.Fatalf("dead tombstone refused admission: %v", err)
 	}
 }
 func TestAtomicScopesAndAuthoritativePolicy(t *testing.T) {

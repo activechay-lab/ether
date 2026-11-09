@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 func (s *Server) lockPlaybackOwner(ctx context.Context, user int64, client string) (func(), error) {
@@ -28,7 +28,7 @@ func (s *Server) lockEncoder(ctx context.Context, id string) (func(), error) {
 }
 
 // The caller holds the owner gate. Never release the shared playback source.
-func (s *Server) cleanSupersededEncoders(ctx context.Context, user int64, client string, key core.RatingKey, playbackID string) {
+func (s *Server) cleanSupersededEncoders(ctx context.Context, user int64, client string, key frontend.RatingKey, playbackID string) {
 	for _, id := range s.transcodes.forClient(user, client, key) {
 		unlock, err := s.lockEncoder(ctx, id)
 		if err != nil {

@@ -330,3 +330,46 @@ func TestArtworkMetadataHashesInsideTheRequestBudget(t *testing.T) {
 		t.Fatalf("request budget did not hash the poster: %+v", got)
 	}
 }
+
+// A row in use is touched (at most daily) and survives the prune; a row
+// unused past the retention is removed.
+func TestArtworkMetadataPruneKeepsRowsInUse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	db := store.OpenTest(t)
+	req := frontend.ArtworkRequest{Viewer: &core.User{ID: 1}, Item: core.MovieKey(1)}
+	used, unused := frontend.Image{Kind: "poster", Path: "opaque", Tag: "v2"}, frontend.Image{Kind: "poster", Path: "opaque", Tag: "v1"}
+	stale := time.Now().Add(-100 * 24 * time.Hour).Unix()
+	for _, ref := range []frontend.Image{used, unused} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO artwork_image_metadata(image_key,width,height,blurhash,thumbhash,used_at) VALUES(?,8,6,'b','t',?)`, artworkMetadataKey(req, ref), stale); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := NewMetadataQueue(ctx, db, func(_ context.Context, id int64) (*core.User, error) { return &core.User{ID: id}, nil }, func(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error) {
+		return nil, "", core.ErrNotAvailable
+	})
+	if got := q.Get(ctx, req, used); got.ThumbHash != "t" {
+		t.Fatalf("stored metadata was not joined: %+v", got)
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		var at int64
+		if err := db.QueryRowContext(ctx, `SELECT used_at FROM artwork_image_metadata WHERE image_key=?`, artworkMetadataKey(req, used)).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		if at > stale {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("used row was not touched")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	if n, err := (&Source{meta: q}).Prune(ctx); err != nil || n != 1 {
+		t.Fatalf("pruned %d: %v", n, err)
+	}
+	if _, err := q.load(ctx, artworkMetadataKey(req, used)); err != nil {
+		t.Fatalf("row in use was pruned: %v", err)
+	}
+}

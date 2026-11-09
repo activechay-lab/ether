@@ -213,3 +213,73 @@ func testDeliveryAuthority(t *testing.T, db *sql.DB) {
 		t.Fatalf("authority after stale publish %+v ok=%v err=%v", kept, ok, err)
 	}
 }
+
+// Expired grants are retired as new ones are published, so a viewer's
+// distinct titles on a surface never exhaust admission, and a live grant
+// is never retired.
+func TestDeliveryAuthorityRetiresOnlyExpiredGrants(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	t0 := time.UnixMilli(1_800_000_000_000)
+	publish := func(item int64, device string, at time.Time) {
+		t.Helper()
+		token, err := reserveDeliveryToken(ctx, db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ok, err := publishDeliveryAuthority(ctx, db, deliveryAuthority{ViewerID: 8, ItemID: item, Surface: "silo", DeviceID: device,
+			SessionID: "s", Generation: 1, ReleaseID: "r", Revision: "v", Token: token}, at)
+		if err != nil || !ok {
+			t.Fatalf("publish item %d at %v: ok=%v err=%v", item, at, ok, err)
+		}
+	}
+	for item := int64(1); item <= 256; item++ {
+		publish(item, "tv", t0)
+	}
+	live := t0.Add(150 * time.Minute)
+	publish(1000, "phone", live)
+	for item := int64(257); item <= 300; item++ {
+		publish(item, "tv", t0.Add(3*time.Hour))
+	}
+	if _, ok, err := lookupDeliveryAuthority(ctx, db, 8, 1000, "silo", "phone"); err != nil || !ok {
+		t.Fatalf("live grant retired: ok=%v err=%v", ok, err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM capability_headers WHERE namespace=?`, deliveryNamespace).Scan(&n); err != nil || n > 256 {
+		t.Fatalf("headers=%d err=%v", n, err)
+	}
+}
+
+// Prune keeps the newest tokens and any token an authority row names, and
+// a token reserved afterwards still orders after every earlier one.
+func TestDeliveryTokenPruneKeepsReferencedAndNewest(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	var tokens []int64
+	for i := 0; i < 5; i++ {
+		token, err := reserveDeliveryToken(ctx, db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, token)
+	}
+	if ok, err := publishDeliveryAuthority(ctx, db, deliveryAuthority{ViewerID: 8, ItemID: 1, Surface: "silo", DeviceID: "tv",
+		SessionID: "s", Generation: 1, ReleaseID: "r", Revision: "v", Token: tokens[0]}, time.Now()); err != nil || !ok {
+		t.Fatalf("publish: ok=%v err=%v", ok, err)
+	}
+	if n, err := pruneDeliveryTokens(ctx, db, 2); err != nil || n != 2 {
+		t.Fatalf("pruned %d %v, want 2", n, err)
+	}
+	for i, token := range tokens {
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions_delivery_tokens WHERE id=?`, token).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if want := map[bool]int{true: 1, false: 0}[i == 0 || i >= 3]; n != want {
+			t.Fatalf("token %d kept=%d, want %d", i, n, want)
+		}
+	}
+	if next, err := reserveDeliveryToken(ctx, db); err != nil || next <= tokens[4] {
+		t.Fatalf("next token %d after %d: %v", next, tokens[4], err)
+	}
+}

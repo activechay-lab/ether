@@ -219,13 +219,14 @@ function AudioPreview({
 function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boolean }) {
   const [sample, setSample] = useState(t("Aa"));
   const [hovered, setHovered] = useState(false);
+  const ready = !a.status || a.status === "ready";
   const preview = useMediaURL(
     (a as LibraryAsset & { url?: string }).url ?? studio.media(a.digest),
-    a.kind === "image" ? full : a.kind !== "video" || full || hovered,
+    ready && (a.kind === "image" ? full : a.kind !== "video" || full || hovered),
   );
   const thumbnail = useMediaURL(
     (a as LibraryAsset & { thumbnail?: string }).thumbnail ?? studio.thumb(a.digest),
-    a.kind === "image" || a.kind === "video",
+    ready && (a.kind === "image" || a.kind === "video"),
   );
   useEffect(() => {
     if (a.kind !== "font" || !preview) return;
@@ -242,6 +243,19 @@ function Preview({ asset: a, full = false }: { asset: LibraryAsset; full?: boole
       document.fonts.delete(face);
     };
   }, [a.digest, a.kind, preview]);
+  if (!ready) {
+    const Icon = { audio: AudioLines, video: Film, image: Image, font: Type }[a.kind];
+    return (
+      <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 bg-bg-subtle p-4 text-center text-fg-muted">
+        <Icon size={24} aria-hidden />
+        <span className="text-xs">
+          {a.status === "error"
+            ? t("Import failed")
+            : t("Preparing media… {progress}%", { progress: Math.round(a.progress ?? 0) })}
+        </span>
+      </div>
+    );
+  }
   if (a.kind === "video")
     return (
       <video
@@ -477,6 +491,14 @@ export function LibraryGrid({
       setError(errorMessage(e));
     }
   };
+  const cancelOrDismissImport = async (digest: string) => {
+    try {
+      await onair.deleteAsset(digest);
+      await reload();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
   const visible = assets
     .filter(
       (a) =>
@@ -658,13 +680,15 @@ export function LibraryGrid({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {visible.map((a) => {
           const Icon = { audio: AudioLines, video: Film, image: Image, font: Type }[a.kind];
+          const isReady = !a.status || a.status === "ready";
           return (
             <article
               key={a.digest}
               onClick={(e) => {
                 if (!(e.target as HTMLElement).closest("button,input,a,audio,video")) {
-                  if (onPick) onPick(a);
-                  else change("asset", a.digest);
+                  if (onPick) {
+                    if (isReady) onPick(a);
+                  } else change("asset", a.digest);
                 }
               }}
               className="cursor-pointer overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
@@ -677,7 +701,7 @@ export function LibraryGrid({
                   <Icon size={16} aria-hidden />
                   <button
                     className="min-w-0 flex-1 truncate text-left font-medium hover:text-primary focus-visible:ring-2"
-                    onClick={() => (onPick ? onPick(a) : change("asset", a.digest))}
+                    onClick={() => (onPick ? isReady && onPick(a) : change("asset", a.digest))}
                   >
                     {a.name}
                   </button>
@@ -709,11 +733,31 @@ export function LibraryGrid({
                   </span>
                 </div>
                 {a.status && a.status !== "ready" && (
-                  <p role="status" className="text-xs">
-                    {a.status === "error"
-                      ? a.error
-                      : t("Preparing media… {progress}%", { progress: a.progress ?? 0 })}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p
+                      role="status"
+                      className={cn(
+                        "text-xs",
+                        a.status === "error" ? "text-danger" : "text-fg-muted",
+                      )}
+                    >
+                      {a.status === "error"
+                        ? a.error
+                        : t("Preparing media… {progress}%", {
+                            progress: Math.round(a.progress ?? 0),
+                          })}
+                    </p>
+                    {!a.readOnly && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-danger"
+                        onClick={() => void cancelOrDismissImport(a.digest)}
+                      >
+                        {a.status === "error" ? t("Dismiss") : t("Cancel")}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
             </article>

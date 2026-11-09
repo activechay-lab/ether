@@ -145,7 +145,7 @@ func (s *Service) broadcastSegmentAllowed(ctx context.Context, ss *session, seg 
 // Audience admission is independent of the programme's rating. Checking a
 // channel's empty rating first would incorrectly hide a permitted programme.
 func (s *Service) audienceAllowed(ctx context.Context, u *core.User, c Channel) bool {
-	if u == nil || !c.Enabled || (!u.IsOwner && s.sweepState(c) == "unavailable") {
+	if u == nil || !c.Enabled || !publishedTo(ctx, c) || (!u.IsOwner && s.sweepState(c) == "unavailable") {
 		return false
 	}
 	_, pol, err := s.withPolicy(ctx, u)

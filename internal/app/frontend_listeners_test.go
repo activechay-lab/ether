@@ -24,7 +24,7 @@ type listenerFrontend struct {
 
 func (f listenerFrontend) Describe() frontend.Descriptor { return frontend.Descriptor{ID: "test"} }
 func (f listenerFrontend) Mount(context.Context, frontend.Host) (frontend.Instance, error) {
-	return listenerInstance{f.addr, f.closed}, nil
+	return listenerInstance(f), nil
 }
 
 type listenerInstance struct {

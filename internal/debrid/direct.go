@@ -122,7 +122,7 @@ func (s *Service) DirectPayload(ctx context.Context, rel core.Release) ([]byte, 
 	if err != nil || (link.Scheme != "http" && link.Scheme != "https") || link.Host == "" {
 		return nil, fmt.Errorf("debrid: %q has no HTTP stream link: %w", rel.Name, core.ErrReleaseRejected)
 	}
-	if rel.OpensOnDemand() && !core.OnDemandStreamsAllowed(ctx) {
+	if rel.OpensOnDemand() && !core.OnDemandStreamsAllowed(ctx) && !core.OnDemandWarmGranted(ctx, rel) {
 		return nil, fmt.Errorf("debrid: add-on stream %q opens only for Play: %w", rel.Name, core.ErrForegroundOnly)
 	}
 	base := Payload{Key: payloadKey(rel), ReleaseID: rel.ID, Kind: KindHTTP, Link: rel.StreamURL, URL: rel.StreamURL,

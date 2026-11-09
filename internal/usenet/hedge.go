@@ -426,6 +426,10 @@ func (p *pool) hedgeBody(ctx context.Context, id string, groups []string) (*yenc
 	}
 	wire := c.wireBytes() - before
 	rtt := c.lastRTT
+	took := time.Since(start)
+	if err == nil && reused {
+		p.noteBodyTransfer(c, wire, took)
+	}
 	p.put(c, core.PriorityLive)
 	if err != nil {
 		if errors.Is(err, ErrNoSuchArticle) {
@@ -439,7 +443,6 @@ func (p *pool) hedgeBody(ctx context.Context, id string, groups []string) (*yenc
 	}
 	p.brk.success()
 	p.articles.Add(1)
-	took := time.Since(start)
 	p.latMu.Lock()
 	p.latency.add(rtt)
 	p.fetching.add(took)

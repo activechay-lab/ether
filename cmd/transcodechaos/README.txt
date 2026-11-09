@@ -69,3 +69,99 @@ new viewer-initiated request uses CPU; it is not seamless automatic resume.
 
 See reports/corpus-tier2-before.json, reports/corpus-tier2-after.json and the
 accompanying observations for measured results and remaining failures.
+
+Live TV acceptance (v0.3.6 live reliability)
+
+-live runs real Ether against a scripted fake IPTV provider and judges what
+a viewer would see. Nothing leaves the machine: the provider, Ether (Live TV
+service, transcode manager and Plex server, in this process, in-memory
+database) and the players are all loopback and stop when the run ends.
+
+  quick subset (6 rows, about 1.5 minutes):
+    go run ./cmd/transcodechaos -live quick \
+      -ffmpeg $FF/ffmpeg -ffprobe $FF/ffprobe -live-fixture-ffmpeg ffmpeg \
+      -live-parallel 6 -report live-quick.json -live-markdown live-quick.md
+
+  full matrix (66 rows; about 11 minutes with -live-parallel 6, 16 with 4):
+    go run ./cmd/transcodechaos -live full -live-parallel 6 \
+      -ffmpeg $FF/ffmpeg -ffprobe $FF/ffprobe -live-fixture-ffmpeg ffmpeg \
+      -live-baseline docs/acceptance/036-live-reliability/baseline.json \
+      -report live-full.json -live-markdown live-full.md
+
+$FF is the pinned build (scripts/fetch-ffmpeg.sh with FFMPEG_OUT set to a
+directory outside the repository). Fixtures may use any recent ffmpeg; they
+are cached under -cache-dir. -live-only scenario/mode substrings select rows,
+-live-preset fastest|balanced|rocksolid sets and judges the stability preset,
+-live-observe sets the watch time per row, -live-keep keeps each row's Ether
+log and captured segments, -live-client plex-firetv tunes as Fire TV and
+judges with ExoPlayer's 3.5x target-duration rule (protocol judge only), and
+-live-render rewrites the Markdown from an existing JSON report. The v0.3.5
+baseline and how it was produced are in docs/acceptance/036-live-reliability.
+
+Provider (live_provider.go): live HLS (target duration 4 s, 6-segment backlog)
+or real-time raw MPEG-TS, generated from synthetic H.264/AAC fixtures cut at
+keyframes. Their loop period is a whole number of video, AAC and AC3 frames,
+so loops are continuous in timestamps and continuity counters. Faults run on
+a timeline: playlist stall, segment 404/5xx/slow, TCP reset, clean EOF, body
+stall, 403/458/509 refusals, account connection limit, AAC->AC3 on the same
+PID with and without a PMT version bump, resolution change, clock jump and
+reset, 10 s GOP, keyframe loss, corrupt and lost packets, provider HLS with or
+without its own discontinuity tags, and a backup source that is healthy,
+absent or also failing.
+
+Ether is tuned through the Plex native live tune (POST
+/livetv/dvrs/1/channels/{id}/tune with Apple TV headers, the
+plex-native-live-tune quirk path) and the returned client playlist is played.
+Modes: passthrough (provider HLS), relay-copy (raw TS), relay-transcode
+(channel Transcode, no-signal screen "error") and steady (Transcode with the
+"card" no-signal screen, i.e. broadcast mode).
+
+Judges:
+- Protocol (everywhere): polls the client playlist every 0.2 s, downloads
+  every segment, and records the longest time without a new segment, EXTINF
+  and measured segment length against the target duration, codec changes
+  between consecutive segments without EXT-X-DISCONTINUITY (ffprobe), media
+  and discontinuity sequence consistency across the sliding window, the
+  time Ether took to answer the first playlist (a whole target duration
+  fails: AVFoundation then leaves the item stuck with no error and never
+  requests a segment; half of one warns), HTTP
+  errors, decode errors, and per-segment content: the fixture has a green
+  band on top, so frames without it are an Ether screen or black; held frames
+  (freezedetect) and silence (silencedetect). Rows on the sync fixture
+  (hls-video-drop) also measure lip sync: a corner flash and a 3 kHz beep
+  start together every second, and any pulse with audio over 45 ms early
+  or 125 ms late in the published media fails the row (ITU-R BT.1359).
+- AVFoundation (macOS, tools/avprobe, built on demand with swiftc): AVPlayer
+  frame delivery, frames with/without the green band, repeated frames, item
+  failures and CoreMedia error-log codes. Run the harness outside any sandbox
+  or every item fails with -9405. Audio is judged from the published
+  segments; in-player audio taps do not attach to HLS items. With
+  -live-keep, player-http.log records every request the player made and
+  each playlist it received, through a loopback tap (AVPlayer has no access
+  log until an item is ready).
+
+Each row reports freeze, slate (screen), silence, client errors, recovered
+and TTFF (tune to the first provider picture), and passes only when the
+common rules (no client error, recovered, no gap over 1.5x target duration,
+no overlong segment, consistent sequences, first playlist answered within
+one target duration, TTFF <= 5 s) and the scenario's
+per-preset budget in live_scenarios.go all hold.
+
+Raw TS outage rows (ts-stall-8s, ts-stall-8s-burst8, ts-refuse-403/458/509)
+are judged by the owner's decision of 2026-11-07, no playout slowdown and no
+startup wait, so a raw TS reserve exists only as far as the provider bursts
+backlog on connect. Without a burst: slate <= outage + 2 s and freeze <=
+0.5 s. With one: screen <= max(0, outage - (burst - start window)) + 2 s,
+where the burst is measured by the fake provider on the first connect and
+the start window is the media in the first published playlist. Silence may
+run 0.5 s past the allowance. All common rules still apply. The original
+budget is still reported per row as "Ideal" (verdict marked *).
+-live-rescore re-judges an existing -report in place with the current
+criteria (and rewrites -live-markdown), without re-running.
+
+Not covered: the Jellyfin live path. Its stream URL comes from the app's
+session broker, capability builder and identity, which only internal/app
+assembles; driving it needs the full binary with a local viewer. Plex Web,
+the Plex tvOS app itself and Fire TV hardware remain manual device rounds. Rows run in parallel on a
+shared host; slow judge polls are reported and not charged to Ether. Use
+-live-parallel 1 for timing-critical measurements.

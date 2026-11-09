@@ -23,6 +23,10 @@ const (
 	StreamStudioReload  = "studio.reload"
 	StreamAgentApproval = "agent.approval"
 	StreamNotice        = "notice"
+	// StreamSessions says the set of live streams changed. It carries no
+	// list: Overview and Activity both refetch GET /api/status/sessions, so
+	// they always show the same streams.
+	StreamSessions = "sessions.changed"
 )
 
 // KnownStreamType reports whether typ is a console event type.
@@ -34,7 +38,8 @@ func KnownStreamType(typ string) bool {
 		StreamPluginsLog,
 		StreamStudioReload,
 		StreamAgentApproval,
-		StreamNotice:
+		StreamNotice,
+		StreamSessions:
 		return true
 	}
 	return false
@@ -107,6 +112,13 @@ func (h *StreamHub) Publish(typ string, data json.RawMessage) (StreamEvent, erro
 	return ev, nil
 }
 
+// Subscribers is the number of connected consoles.
+func (h *StreamHub) Subscribers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs)
+}
+
 // Subscribe returns every event after lastID (0 delivers nothing old), then
 // live events until cancel runs. The channel is closed on cancel and when
 // the consumer falls behind and is evicted.
@@ -172,7 +184,6 @@ func StreamHandler(hub *StreamHub) http.Handler {
 		fl.Flush()
 
 		serveStreamEvents(w, r, hub, lastID, streamHeartbeat, fl)
-		return
 	})
 }
 

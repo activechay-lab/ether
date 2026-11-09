@@ -48,7 +48,6 @@ type Servers struct {
 	log     *slog.Logger
 	now     func() time.Time
 	enabled func() bool
-	runMu   sync.Mutex
 	// viewerExists confirms a mapping target is a real Ether viewer.
 	viewerExists func(context.Context, int64) (bool, error)
 	closed       chan struct{}

@@ -311,14 +311,10 @@ publish() {
   local existing_branch existing_number
   existing_branch="$(gh pr list --base "$base" --state open --limit 50 --json number,headRefName,title --jq 'map(select(.title | startswith("Drift watch:"))) | .[0].headRefName // ""')"
   existing_number="$(gh pr list --base "$base" --state open --limit 50 --json number,headRefName,title --jq 'map(select(.title | startswith("Drift watch:"))) | .[0].number // ""')"
-  local branch="drift-watch/${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}"
-  if [[ -n "$existing_branch" ]]; then
-    branch="$existing_branch"
-    git fetch origin "$branch"
-    git checkout -B "$branch" "origin/${branch}"
-  else
-    git checkout -B "$branch" "origin/${base}"
-  fi
+  # One fixed branch, rebuilt from the base on every run: a run-scoped name left
+  # a new branch behind each night whenever the pull request could not be opened.
+  local branch="${existing_branch:-drift-watch/latest}"
+  git checkout -B "$branch" "origin/${base}"
   cp "$scratch/compose.yaml" scripts/lab/compose.yaml
   mkdir -p docs/acceptance
   cp "$scratch/report.json" docs/acceptance/drift-watch-report.json
@@ -332,7 +328,7 @@ publish() {
   local committed=0
   if ! git diff --cached --quiet; then
     commit_drift
-    git push origin "HEAD:refs/heads/${branch}"
+    git push --force origin "HEAD:refs/heads/${branch}"
     committed=1
   fi
   if [[ -z "$existing_number" && "$committed" -eq 0 ]]; then
@@ -346,7 +342,10 @@ publish() {
   if [[ -n "$existing_number" ]]; then
     gh pr edit "$existing_number" --title "$title" --body-file "$body"
   else
-    gh pr create --base "$base" --head "$branch" --title "$title" --body-file "$body"
+    # Repositories that do not let Actions open pull requests still get the
+    # branch; the owner opens the pull request from it.
+    gh pr create --base "$base" --head "$branch" --title "$title" --body-file "$body" ||
+      echo "::warning::Drift recorded on ${branch}; open the pull request from that branch."
   fi
   rm -f "$body"
 }

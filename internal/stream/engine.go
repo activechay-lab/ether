@@ -194,6 +194,7 @@ type Engine struct {
 
 	playAhead   atomic.Int64 // time.Duration of playback read-ahead; 0 = off
 	playSources sync.Map     // *source -> struct{}: sources running a playback read-ahead loop
+	sources     sync.Map     // *source -> struct{}: open sources (fair share of connections)
 
 	par2Loaded, par2Failed, par2Skipped, par2Named, par2Saved, par2Verified, par2Mismatches atomic.Int64
 }

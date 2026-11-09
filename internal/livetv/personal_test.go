@@ -114,3 +114,56 @@ func TestPersonalCursorOnlyAdvancesDuringSessions(t *testing.T) {
 		t.Fatal("resume time wrong", row.cursor, err)
 	}
 }
+
+// A personal channel rebuilt hourly for ten simulated days keeps a bounded
+// rundown and index, and the guide still shows what is on now.
+func TestPersonalHistoryStaysBounded(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	clock := &testClock{now: now}
+	s := testService(t, Options{Picker: personalTestPicker{}, Now: clock.Now})
+	ctx := context.Background()
+	c := testChannel()
+	c.Items = nil
+	c.Personal = &PersonalRecipe{Ingredients: []PersonalIngredient{{Kind: "picked", Share: 100, Enabled: true}}}
+	if _, err := s.SaveChannel(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	u := &core.User{ID: 3, Title: "Alice"}
+	count := func(table string) (rows, bytes int) {
+		t.Helper()
+		col := "rundown"
+		if table == "livetv_personal_programmes" {
+			col = "data"
+		}
+		if err := s.o.DB.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(LENGTH(`+col+`)),0) FROM `+table).Scan(&rows, &bytes); err != nil {
+			t.Fatal(err)
+		}
+		return rows, bytes
+	}
+	for h := 0; h <= 10*24; h++ {
+		now = now.Add(time.Hour)
+		clock.Set(now)
+		s.personalMu.Lock()
+		s.personalRecipes = nil
+		s.personalMu.Unlock()
+		if err := s.buildPersonal(ctx, c, u); err != nil {
+			t.Fatal(err)
+		}
+		if h%24 == 0 {
+			r, rb := count("livetv_personal")
+			p, pb := count("livetv_personal_programmes")
+			t.Logf("day %d: rundowns=%d (%d B) programmes=%d (%d B)", h/24, r, rb, p, pb)
+		}
+	}
+	if r, _ := count("livetv_personal"); r != 1 {
+		t.Fatalf("%d rundown rows after ten days", r)
+	}
+	// 24 h of guide lookback plus 48 h ahead of one-hour picks.
+	if p, _ := count("livetv_personal_programmes"); p > 80 {
+		t.Fatalf("%d indexed programmes after ten days", p)
+	}
+	ps, err := s.Guide(ctx, u, now, now.Add(time.Hour))
+	if err != nil || len(ps) == 0 {
+		t.Fatalf("guide after ten days: %v %v", ps, err)
+	}
+}

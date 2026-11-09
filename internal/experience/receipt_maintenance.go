@@ -9,10 +9,17 @@ import (
 	"github.com/braedonsaunders/ether/internal/handles/capability"
 )
 
-// PruneReceiptShard retires at most HeaderBatchMax expired receipts, including
-// abandoned devices. The header DELETE trigger retires typed payloads and
-// claims atomically. It uses the same shard lock as issuance before touching
-// either table; live receipts are never evicted to recover capacity.
+// receiptPruneBatches bounds one shard visit. The app visits each shard once
+// per 64 sweep ticks; a full visit drains 40 batches of HeaderBatchMax.
+const receiptPruneBatches = 40
+
+// PruneReceiptShard retires expired receipts on one shard, including
+// abandoned devices, in HeaderBatchMax-row transactions. It keeps draining
+// while a batch comes back full, up to receiptPruneBatches or ctx expiry, so a
+// heavy viewer's backlog clears in one visit. The header DELETE trigger
+// retires typed payloads and claims atomically. Each batch takes the same
+// shard lock as issuance before touching either table; live receipts are
+// never evicted to recover capacity.
 func PruneReceiptShard(ctx context.Context, db *sql.DB, now time.Time, shard int64) (int64, error) {
 	if db == nil || now.UnixMilli() <= 0 || shard < 0 || shard >= capability.HeaderShardCount {
 		return 0, errors.New("experience: invalid receipt maintenance scope")
@@ -25,6 +32,18 @@ func PruneReceiptShard(ctx context.Context, db *sql.DB, now time.Time, shard int
 	if !hasExpired {
 		return 0, nil
 	}
+	var total int64
+	for range receiptPruneBatches {
+		n, err := pruneReceiptBatch(ctx, db, cutoff, shard)
+		total += n
+		if err != nil || n < capability.HeaderBatchMax || ctx.Err() != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}
+
+func pruneReceiptBatch(ctx context.Context, db *sql.DB, cutoff, shard int64) (int64, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err

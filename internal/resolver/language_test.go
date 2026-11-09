@@ -12,7 +12,7 @@ func TestLanguageRankingRequiresExplicitPreference(t *testing.T) {
 	r := withParsed(rel("language", "The.Signal.1999.1080p.WEB-DL.H264-GRP", 4000))
 	score := func(lang string, prefs ...string) float64 {
 		r.Info.Languages = []string{lang}
-		return s.score(r, core.QualityProfile{PreferredLanguages: prefs}, matrixTitle(), s.now())
+		return s.languageScore(r, core.QualityProfile{PreferredLanguages: prefs}, matrixTitle())
 	}
 	for _, lang := range []string{"french", "german", "japanese", "multi"} {
 		if score(lang) != score("english") {

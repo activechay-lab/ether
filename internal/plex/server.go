@@ -23,17 +23,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/diagnostics"
-	"github.com/braedonsaunders/ether/internal/episodeorder"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/plexguid"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/stats"
 )
 
 // DefaultPMSVersion is reported when Identity.Version is empty. Clients gate
@@ -88,16 +82,21 @@ type SessionToucher interface {
 type Deps struct {
 	// PlexEncoder optionally dispatches authenticated universal playback through
 	// the shared broker; nil preserves the existing local encoder path.
-	PlexEncoder         PlexEncoder
-	ArtworkImages       *artworkservice.RemoteCache
-	ArtworkPalettes     *artworkservice.PaletteCache
+	PlexEncoder     PlexEncoder
+	ArtworkImages   *artworkservice.RemoteCache
+	ArtworkPalettes *artworkservice.PaletteCache
+	// GeneratedPosters draws Ether's poster for a movie or show with no
+	// artwork; nil leaves such titles without a thumb.
+	GeneratedPosters interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 	SessionCoordination *sessions.Coordination
 	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []core.Title) []core.Title
 	PrioritizeAvailable func(context.Context, []core.Title) []core.Title
-	EpisodeOrder        *episodeorder.Service
-	PlexGUID            *plexguid.Service
-	PlexMeta            *plexmeta.Service
+	EpisodeOrder        frontend.EpisodeOrder
+	PlexGUID            frontend.LibraryGUIDs
+	PlexMeta            frontend.LibraryMetadata
 	Discovery           *DiscoveryFeatures
 	// Search is the app's shared search (every frontend's); zero builds it
 	// from this server's own dependencies.
@@ -172,14 +171,23 @@ type Deps struct {
 	SessionHeartbeat time.Duration
 	// Now is the clock (tests).
 	Now func() time.Time
+	// PublicURL is this server's published public address
+	// ("https://<ip>.<hash>.plex.direct:<port>"), or "" without remote access.
+	PublicURL func() string
+	// LiveLogoKey signs token-free channel logo URLs; empty uses a
+	// process-local key.
+	LiveLogoKey []byte
+	// RepoFileURL is a public, immutable URL for a file committed to Ether's
+	// repository at the source this build came from, or "" when unknown.
+	RepoFileURL func(path string) string
 	// Dashboard is this node's in-memory Plex Web Dashboard store. Nil is
 	// replaced with a process-local store at NewServer. Statistics are not
 	// clustered; a client reads the node it connected to.
-	Dashboard *stats.Dashboard
+	Dashboard frontend.Dashboard
 	// Resources is this node's host sample ring for /statistics/resources.
-	Resources *hoststat.Resources
+	Resources frontend.ResourceStatistics
 	// Support records neutral request and playback facts. Nil leaves playback unchanged.
-	Support *diagnostics.Recorder
+	Support frontend.DiagnosticRecorder
 	// HomeCache serves Plex Home from memory (home_cache.go); nil builds
 	// every Home request.
 	HomeCache *HomeCacheSource
@@ -203,6 +211,14 @@ type Server struct {
 	plexEncoder      PlexEncoder
 	homeSharedMu     sync.Mutex
 	homeShared       map[string]*homeSharedEntry
+	shelfRefMu       sync.Mutex
+	shelfRefs        map[string]shelfRef
+	shelfRefRebuilt  time.Time
+	shelfRebuild     chan struct{}
+	guidResolveMu    sync.Mutex
+	liveLogoKeyOnce  sync.Once
+	liveLogoKey      []byte
+	guidResolving    map[string]bool
 	home             *homeCache
 
 	d      Deps
@@ -245,14 +261,12 @@ type Server struct {
 
 	// Owner stream kills, delivered on the client's next timeline; the
 	// janitor drops those whose client never reports again.
-	termMu             sync.Mutex
-	terms              map[string]termination
-	decisionArms       map[string]decisionArm
-	decisionWriterOnce sync.Once
-	decisionWriter     chan decisionArmWrite
+	termMu       sync.Mutex
+	terms        map[string]termination
+	decisionArms *sessions.DecisionArms
 
 	// Stalled-start watches and Dolby Vision base-layer fallbacks.
-	starts startGuard
+	starts sessions.StartGuard
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -280,12 +294,7 @@ func NewServer(d Deps) *Server {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	if d.Dashboard == nil {
-		d.Dashboard = stats.NewDashboard(stats.DashboardOptions{Now: d.Now})
-	}
-	if d.Resources == nil {
-		d.Resources = hoststat.NewResources(hoststat.Options{Now: d.Now})
-	}
+	d.Dashboard, d.Resources = experience.Statistics(d.Dashboard, d.Resources, d.Now)
 	ctx, cancel := context.WithCancel(context.Background())
 	coord := d.SessionCoordination
 	if coord == nil || coord.Owners == nil || coord.Gates == nil {
@@ -321,22 +330,23 @@ func NewServer(d Deps) *Server {
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
+	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
-	s.queues.now = d.Now
+	s.queues.Configure(d.Now, nil)
 	if d.DB != nil && d.Cluster == nil {
 		// Standalone queues share the durable store without starting cluster sessions.
-		s.queues.cl = newClusterState(s, d.DB, clusterbus.NewHub().Node("standalone-queues"))
+		s.queues.Configure(d.Now, newClusterState(s, d.DB, clusterbus.NewHub().Node("standalone-queues")).queuePersistence())
 	}
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
 		s.versionFlows = newVersionFlowStore(s, d.DB)
-		s.queues.cl = s.cl
+		s.queues.Configure(d.Now, s.cl.queuePersistence())
 	}
 	if !d.DisableEnrichment && d.Catalog != nil {
 		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
 		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
-		s.titles = newTitleCache(s.titleJobs, s.now, s.log, d.Catalog.Get)
+		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
 		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key core.RatingKey, path string) (artworkservice.Palette, error) {
 			var art artworkservice.CollectionArt
 			if c, ok := s.d.Collections.(artworkservice.CollectionArt); ok {
@@ -345,13 +355,23 @@ func NewServer(d Deps) *Server {
 			return artworkservice.ComputeItemPalette(ctx, s.images, s.d.ImageURL, key, path, s.now(), art)
 		})
 	}
+	if p, ok := d.Catalog.(interface {
+		PersistsArtwork(context.Context, core.RatingKey) bool
+	}); ok && s.ultra != nil {
+		s.ultra.PersistFor(p.PersistsArtwork)
+	}
 	if d.ArtworkPalettes != nil {
 		s.ultra = d.ArtworkPalettes
 	}
+	node := "standalone"
+	if s.cl != nil {
+		node = s.cl.self
+	}
+	s.decisionArms = sessions.NewDecisionArms(s.ctx, d.DB, s.now, node, s.log, &s.wg)
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
-	go s.writeDownloads()
+	go s.writeDownloads(s.downloadPersistence())
 	s.scheduleDownloads()
 	s.router = s.routes()
 	s.wg.Add(1)
@@ -589,14 +609,14 @@ func (s *Server) janitor() {
 			now := s.now()
 
 			s.expireDownloads(now)
-			s.queues.expire(now, 6*time.Hour)
+			s.queues.Expire(now, 6*time.Hour)
 			s.playIDs.expire(now, s.playIdentityAlive)
 			s.expireTranscodes(now, 2*time.Hour)
 			s.playbackOwners.Expire(now, 2*time.Hour)
 			s.extraPlay.expire(now, 2*time.Hour)
 			s.expireTerminations(now, terminationTTL)
 			s.refreshDecisionArms(now)
-			s.starts.expire(now)
+			s.starts.Expire(now)
 			expired := s.sessions.expire(now, 3*time.Minute)
 			for _, e := range expired {
 				s.notifyPlaying(e, "stopped")
