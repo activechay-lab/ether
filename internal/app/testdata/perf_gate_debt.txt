@@ -72,3 +72,10 @@ plex-web | collection children  # C: as plex-appletv collection children
 plex-appletv | playlist items  # C: 3000-item playlist page sums every item's duration from its stored title (PreloadStored, 7d270726b, reads them in batches)
 silo-appletv | search people  # K/J (search): per-candidate credits and title reads, more candidates match on the larger library
 stremio | catalog recent  # D: first-pass statements grow
+# Runner noise in the 0.3.6 release gate (CI run 42553872012 and two full
+# local runs on one build, 2026-11-08): rows whose work is the same on both
+# libraries and that failed in only some runs. None is a library-sized path.
+infuse-jellyfin | movies p3 SortName  # noise: 14 statements and ~900 rows on both libraries; failed once on database time (one 369 ms cold sample; 16 ms for the same statements on the viewer pass)
+infuse-jellyfin | movie Similar  # noise: the small library's rows swing between runs (45, 203, 4105) while the large stays near 700-1100; failed once
+infuse-jellyfin | mark series played  # noise: cache state; a season not yet cached reads its 24 episodes one by one on either library (168 statements on the small library's warm pass, 182 on the large first pass)
+silo-appletv | recommendations/discover  # noise: owner's cold-pass statements 100 → 220 on CI only; 96-99 → 105-141 in both local runs
