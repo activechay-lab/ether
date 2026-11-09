@@ -27,7 +27,8 @@ import (
 // media and HTTP fakes. It proves live track serving, not a physical client's
 // discovery or automatic selection of a newly introduced track.
 func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Opening a fresh database runs every migration; a loaded runner needs more than 15 s.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	body, err := os.ReadFile("../transcode/testdata/nativeprobe/h264_aac_movtext_faststart.mp4")
 	if err != nil {
