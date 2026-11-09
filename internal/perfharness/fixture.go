@@ -160,6 +160,14 @@ func rebuildDerived(ctx context.Context, db *sql.DB) error {
 		`INSERT INTO catalog_studio_names(studio,titles) SELECT studio, COUNT(*) FROM catalog_studios GROUP BY studio`,
 		`INSERT INTO catalog_studio_names_fts(catalog_studio_names_fts) VALUES('rebuild')`,
 		`INSERT INTO catalog_titles_fts(catalog_titles_fts) VALUES('rebuild')`,
+		// The popularity rank: the triggers keep only the live copy
+		// (catalog 53), each movie and show ranked by its popularity.
+		`DELETE FROM catalog_rank_a WHERE EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_side' AND v='a')`,
+		`INSERT INTO catalog_rank_a(key, type, browsable, adult, release_known, released_ts, year, language, runtime_sec, status, rk)
+		SELECT key, type, browsable, adult, CASE WHEN released_ts<>0 THEN 1 ELSE 0 END, released_ts, year, language, runtime_sec, status, -popularity FROM catalog_titles WHERE type IN ('movie','show') AND EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_side' AND v='a')`,
+		`DELETE FROM catalog_rank_b WHERE EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_side' AND v='b')`,
+		`INSERT INTO catalog_rank_b(key, type, browsable, adult, release_known, released_ts, year, language, runtime_sec, status, rk)
+		SELECT key, type, browsable, adult, CASE WHEN released_ts<>0 THEN 1 ELSE 0 END, released_ts, year, language, runtime_sec, status, -popularity FROM catalog_titles WHERE type IN ('movie','show') AND EXISTS (SELECT 1 FROM catalog_meta WHERE k='rank_side' AND v='b')`,
 		// Every catalogue write advances the viewer-policy generation.
 		`UPDATE viewer_policy_epoch SET generation=generation+1 WHERE id=1`,
 	} {
