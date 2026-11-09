@@ -52,8 +52,8 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 		AllowedTitles: func(ctx context.Context, u *core.User, keys []core.RatingKey) (bool, error) {
 			return a.favoriteTitlesCached(ctx, u, keys, visibility)
 		},
-		Preload: a.catalog.PreloadStored,
-		Changed: func(ctx context.Context, id int64, subject favorites.Subject) { a.favoriteChanged(ctx, id, subject) },
+		PreloadTitles: a.catalog.PreloadStored,
+		Changed:       func(ctx context.Context, id int64, subject favorites.Subject) { a.favoriteChanged(ctx, id, subject) },
 	})
 	if err != nil {
 		return fmt.Errorf("favorites: %w", err)
