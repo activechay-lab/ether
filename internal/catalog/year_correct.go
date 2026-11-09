@@ -190,14 +190,14 @@ func (c *Catalog) countPendingMovieYears(ctx context.Context) (int, error) {
 }
 
 // updateMovieYearsChunked runs one UPDATE of the pending movies
-// (year_source=''). While at most yearChunk movies are pending it is the
+// (year_source=”). While at most yearChunk movies are pending it is the
 // single statement it always was. On a large upgrade sweep it runs in
 // key-ordered windows of yearChunk pending movies, one statement (one
 // write transaction) per window, so the sweep yields the writer between
 // windows instead of holding it for every pending movie at once (#407).
 // update takes the window as `AND key>? AND key<=?` appended here. The
 // predicates it is used with only shrink as rows are written (year_source
-// leaves ''), so no window needs a second pass.
+// leaves ”), so no window needs a second pass.
 const yearChunk = 5000
 
 func (c *Catalog) updateMovieYearsChunked(ctx context.Context, pending int, update string, args ...any) (int64, error) {
