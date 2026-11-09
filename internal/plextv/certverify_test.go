@@ -222,6 +222,42 @@ func TestVerifyTrustDialsOwnListenerFirst(t *testing.T) {
 	}
 }
 
+// Handshake failures recorded before the listener served are forgotten
+// at ListenerReady: the verdict reverts to "checking" and the next check
+// against the live listener decides (#407).
+func TestListenerReadyForgetsPreListenHandshakeMisses(t *testing.T) {
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	const hash = "abc123def456abc123def456abc123de"
+	leaf, pair, pool := testPlexLeaf(t, hash, now, now.Add(180*24*time.Hour))
+	m := &CertManager{o: CertManagerOptions{Now: func() time.Time { return now }}, trustRoots: pool}
+	installLeaf(m, pair, leaf)
+	host := "192-168-1-5." + hash + ".plex.direct"
+	ctx := context.Background()
+	m.setTrustDial(func(_ context.Context, _, _ string, _ *tls.Config) error {
+		return errors.New("connection refused") // listener not up yet
+	})
+	m.VerifyTrust(ctx, hash, host, "127.0.0.1:32400")
+	if ok, reason := m.VerifyTrust(ctx, hash, host, "127.0.0.1:32400"); ok || reason != CertReasonHandshake {
+		t.Fatalf("pre-listen verdict: ok=%v reason=%q, want confirmed handshake failure", ok, reason)
+	}
+	r := &Registrar{o: RegistrarOptions{Certs: m, Now: func() time.Time { return now }}, wake: make(chan struct{}, 1)}
+	r.trustAt, r.trustFP = now, Fingerprint(leaf)
+	r.ListenerReady()
+	if info := m.Info(); info.VerifyReason == CertReasonHandshake {
+		t.Fatalf("after ListenerReady: VerifyReason still %q", info.VerifyReason)
+	}
+	if !r.trustAt.IsZero() || r.trustFP != "" {
+		t.Fatalf("after ListenerReady: trust freshness kept (%v, %q), want re-check due", r.trustAt, r.trustFP)
+	}
+	if !r.next[taskCert].IsZero() {
+		t.Fatalf("after ListenerReady: cert task due at %v, want immediately", r.next[taskCert])
+	}
+	m.setTrustDial(func(_ context.Context, _, _ string, _ *tls.Config) error { return nil })
+	if ok, reason := m.VerifyTrust(ctx, hash, host, "127.0.0.1:32400"); !ok || reason != "" {
+		t.Fatalf("post-listen check: ok=%v reason=%q, want verified", ok, reason)
+	}
+}
+
 func TestRegistrarTrustWithoutAdvertisedHTTPS(t *testing.T) {
 	for _, disabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "no LAN", true: "HTTPS disabled"}[disabled], func(t *testing.T) {

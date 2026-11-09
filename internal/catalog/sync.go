@@ -169,7 +169,11 @@ func (c *Catalog) Run(ctx context.Context) {
 			default:
 				failures++
 				delay = syncRetryDelay(failures)
-				c.log.Error("catalog: refresh sync", "err", err, "retry_after", delay)
+				if store.IsWriteContention(err) {
+					c.log.Warn("catalog: refresh sync waiting on another writer", "err", err, "retry_after", delay)
+				} else {
+					c.log.Error("catalog: refresh sync", "err", err, "retry_after", delay)
+				}
 			}
 			full = schedule.New(c.now(), delay)
 		}
@@ -262,17 +266,29 @@ func (c *Catalog) Sync(ctx context.Context) error {
 		}
 		err = txErr
 	}
-	if err != nil {
+	// A first attempt ended by write contention (startup maintenance
+	// still holding the writer when sync started) is transient: Run
+	// retries in a minute, so it is not recorded as the sync error the
+	// health card alarms on. A second contended attempt in a row, and
+	// every other error, is reported as before (#407).
+	transient := err != nil && store.IsWriteContention(err) && c.syncContend.Add(1) < 2
+	if err == nil || !store.IsWriteContention(err) {
+		c.syncContend.Store(0)
+	}
+	if err != nil && !transient {
 		_ = c.setMeta(ctx, "sync_error", err.Error())
 	}
 	c.setProgress(func(p *SyncProgress) {
 		p.Running = false
 		p.FinishedAt = c.now()
 		p.Phase = ""
-		if err != nil {
-			p.LastError = err.Error()
-		} else {
+		switch {
+		case err == nil:
 			p.LastError = ""
+		case transient:
+			// Keep any earlier recorded error; this attempt adds none.
+		default:
+			p.LastError = err.Error()
 		}
 	})
 	return err

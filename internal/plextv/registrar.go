@@ -431,6 +431,20 @@ func (r *Registrar) Trigger() {
 // that ran before the listener existed (every restart) is then confirmed or
 // cleared at once instead of at the next tick.
 func (r *Registrar) ListenerReady() {
+	// Any certificate handshake checked before the listener served was
+	// bound to fail: forget its misses and freshness so the trust check
+	// runs again on the next tick against the live listener, instead of
+	// keeping a pre-listen verdict until the next scheduled check (#407).
+	if r.o.Certs != nil {
+		r.o.Certs.forgetHandshakeMisses()
+	}
+	r.mu.Lock()
+	r.trustAt, r.trustFP = time.Time{}, ""
+	if r.next == nil {
+		r.next = map[string]time.Time{}
+	}
+	r.next[taskCert] = time.Time{}
+	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
 	default:

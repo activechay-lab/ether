@@ -276,6 +276,7 @@ type Catalog struct {
 
 	syncing      atomic.Bool
 	syncBatch    atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
+	syncContend  atomic.Int32 // consecutive sync attempts ended by write contention (sync.go)
 	detailWrites detailWrites // batched detail writes (detail_writer.go)
 	ftsFold      bool         // bulk writes fold new rows into the title FTS (fts_fold.go)
 	personFold   bool         // and new credits into person names (fts_fold.go)
