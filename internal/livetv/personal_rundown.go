@@ -43,6 +43,15 @@ type personalRow struct {
 	built      time.Time
 }
 
+func (s *Service) wakePersonalLoop() {
+	if s.personalWake != nil {
+		select {
+		case s.personalWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (s *Service) readPersonal(ctx context.Context, k personalKey) (personalRow, error) {
 	var r personalRow
 	var b []byte
@@ -393,6 +402,20 @@ func (s *Service) personalProgrammesLimit(ctx context.Context, c Channel, u *cor
 	return out, nil
 }
 
+func (s *Service) enabledPersonalChannels(ctx context.Context) ([]Channel, error) {
+	cs, err := s.virtualChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []Channel
+	for _, c := range cs {
+		if c.Personal != nil && c.Enabled {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 func (s *Service) personalLoop() {
 	defer s.wg.Done()
 
@@ -402,60 +425,85 @@ func (s *Service) personalLoop() {
 		unsub := source.Subscribe(func(e state.Event) { s.PersonalChanged(e.UserID) })
 		defer unsub()
 	}
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
+	timer := time.NewTimer(time.Second)
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	defer timer.Stop()
 	next := time.Time{}
 	for {
 		now := s.o.Now()
-		s.advancePersonal(now)
-		if !now.Before(next) {
+		clockActive := s.advancePersonal(now)
+		personal, err := s.enabledPersonalChannels(s.ctx)
+		hasPersonal := err == nil && len(personal) > 0
+		if hasPersonal && !now.Before(next) {
 			next = now.Add(time.Minute)
 			users, err := s.o.Users.Users(s.ctx)
 			if err == nil {
-				cs, err := s.virtualChannels(s.ctx)
-				if err == nil {
-					for _, u := range users {
-
-						for _, c := range cs {
-							if c.Personal == nil || !c.Enabled {
-								continue
-							}
-							c = s.personalChannel(s.ctx, c, &u)
-							if !s.allowed(s.ctx, &u, c, nil) {
-								continue
-							}
-							if err := s.buildPersonal(s.ctx, c, &u); err != nil {
-								s.o.Logger.Debug("personal rundown build failed", "viewer", u.ID, "channel", c.ID, "error", err)
-							}
-							if c.Look != nil && s.o.Graphics != nil {
-								r, err := s.readPersonal(s.ctx, personalKey{u.ID, c.ID})
-								if err == nil {
-									for _, p := range r.programmes {
-										if p.Start.UnixMilli() <= r.cursor && p.End.UnixMilli() > r.cursor {
-											minutes := (r.cursor - p.Start.UnixMilli()) / 60000
-											p.Item.Slate = "welcome"
-											p.Item.Summary = strconv.FormatInt(minutes, 10)
-											s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, p))
-											break
-										}
+				for _, u := range users {
+					for _, c := range personal {
+						c = s.personalChannel(s.ctx, c, &u)
+						if !s.allowed(s.ctx, &u, c, nil) {
+							continue
+						}
+						if err := s.buildPersonal(s.ctx, c, &u); err != nil {
+							s.o.Logger.Debug("personal rundown build failed", "viewer", u.ID, "channel", c.ID, "error", err)
+						}
+						if c.Look != nil && s.o.Graphics != nil && len(s.recentlyWatched()) > 0 {
+							r, err := s.readPersonal(s.ctx, personalKey{u.ID, c.ID})
+							if err == nil {
+								for _, p := range r.programmes {
+									if p.Start.UnixMilli() <= r.cursor && p.End.UnixMilli() > r.cursor {
+										minutes := (r.cursor - p.Start.UnixMilli()) / 60000
+										p.Item.Slate = "welcome"
+										p.Item.Summary = strconv.FormatInt(minutes, 10)
+										s.o.Graphics.Ensure(s.ctx, s.clipRequest(c, p))
+										break
 									}
 								}
 							}
-
 						}
 					}
 				}
 			}
 		}
+		var wait time.Duration
+		switch {
+		case clockActive:
+			wait = time.Second
+		case hasPersonal && (s.virtualGuideActive(s.o.Now()) || len(s.recentlyWatched()) > 0):
+			wait = max(time.Second, next.Sub(s.o.Now()))
+		}
+		if wait <= 0 {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.personalWake:
+				next = time.Time{}
+				continue
+			}
+		}
+		timer.Reset(wait)
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-tick.C:
+		case <-timer.C:
+		case <-s.personalWake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			next = time.Time{}
 		}
 	}
 }
 
-func (s *Service) advancePersonal(now time.Time) {
+func (s *Service) advancePersonal(now time.Time) bool {
 	active := map[personalKey]bool{}
 	s.mu.Lock()
 	for _, ss := range s.sessions {
@@ -466,6 +514,9 @@ func (s *Service) advancePersonal(now time.Time) {
 	s.mu.Unlock()
 	s.personalMu.Lock()
 	defer s.personalMu.Unlock()
+	if len(active) == 0 && len(s.personalClocks) == 0 {
+		return false
+	}
 	if s.personalClocks == nil {
 		s.personalClocks = map[personalKey]*personalClock{}
 	}
@@ -477,6 +528,7 @@ func (s *Service) advancePersonal(now time.Time) {
 			}
 		}
 	}
+	anyActive := false
 	for k, clock := range s.personalClocks {
 		if !clock.active {
 			continue
@@ -493,12 +545,16 @@ func (s *Service) advancePersonal(now time.Time) {
 			clock.timeAway = now
 		}
 		clock.active = active[k]
+		if clock.active {
+			anyActive = true
+		}
 		clock.at = now
 		if left || now.Sub(clock.saved) >= personalClockSave {
 			clock.saved = now
 			_, _ = s.o.DB.ExecContext(s.ctx, `UPDATE livetv_personal SET cursor_ms=?,away_ms=? WHERE viewer_id=? AND channel_id=?`, clock.cursor, now.UnixMilli(), k.viewer, k.channel)
 		}
 	}
+	return anyActive
 }
 
 func (s *Service) beginPersonal(c Channel, u *core.User) {
@@ -512,7 +568,6 @@ func (s *Service) beginPersonal(c Channel, u *core.User) {
 		return
 	}
 	s.personalMu.Lock()
-	defer s.personalMu.Unlock()
 	if s.personalClocks == nil {
 		s.personalClocks = map[personalKey]*personalClock{}
 	}
@@ -527,6 +582,7 @@ func (s *Service) beginPersonal(c Channel, u *core.User) {
 		s.personalClocks[k] = clock
 	}
 	if clock.active {
+		s.personalMu.Unlock()
 		return
 	}
 	clock.at = now
@@ -536,6 +592,8 @@ func (s *Service) beginPersonal(c Channel, u *core.User) {
 			clock.welcomeUntil = now.Add(d)
 		}
 	}
+	s.personalMu.Unlock()
+	s.wakePersonalLoop()
 }
 func (s *Service) endPersonal(c Channel, viewer int64) {
 	if c.Personal == nil || !c.Personal.PauseWhenAway {
@@ -615,11 +673,12 @@ func (s *Service) personalWelcome(c Channel, now time.Time) (Programme, bool) {
 // PersonalChanged invalidates only this viewer; recomposition remains throttled.
 func (s *Service) PersonalChanged(viewer int64) {
 	s.personalMu.Lock()
-	defer s.personalMu.Unlock()
 	if s.personalDirty == nil {
 		s.personalDirty = map[int64]uint64{}
 	}
 	s.personalDirty[viewer]++
+	s.personalMu.Unlock()
+	s.wakePersonalLoop()
 }
 
 func personalItem(t core.Title) Item {

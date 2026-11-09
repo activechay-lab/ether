@@ -17,10 +17,11 @@ type broadcastKey struct {
 	viewerID  int64
 }
 type broadcastRegistry struct {
-	mu       sync.Mutex
-	outputs  map[broadcastKey]*broadcast
-	closed   bool
-	yielding atomic.Int32
+	mu        sync.Mutex
+	outputs   map[broadcastKey]*broadcast
+	closed    bool
+	yielding  atomic.Int32
+	onAcquire func()
 }
 type broadcastLease struct {
 	mu        sync.Mutex
@@ -30,6 +31,12 @@ type broadcastLease struct {
 	broadcast *broadcast
 	rendition string
 	once      sync.Once
+}
+
+func (r *broadcastRegistry) hasActive() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.outputs) > 0
 }
 
 func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id string, decision core.Decision, create func() (*broadcast, error)) (*broadcastLease, error) {
@@ -69,6 +76,7 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 		}
 	}
 	running := b != nil
+	onAcquire := r.onAcquire
 	if b == nil {
 		var err error
 		b, err = create()
@@ -81,6 +89,9 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 		b.start()
 	}
 	r.mu.Unlock()
+	if onAcquire != nil {
+		onAcquire()
+	}
 	if _, err := b.addRendition(ctx, id, decision); err != nil {
 		return nil, err
 	}

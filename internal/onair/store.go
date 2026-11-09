@@ -228,6 +228,7 @@ func (s *Service) saveLook(ctx context.Context, l Look) (Look, error) {
 		s.looks[l.ID] = l
 		s.mu.Unlock()
 		s.enqueueLook(l)
+		s.WakeUpcoming()
 	}
 	return l, e
 }
@@ -239,6 +240,7 @@ func (s *Service) DeleteLook(ctx context.Context, id string) error {
 		delete(s.progress, id)
 		delete(s.lookJobs, id)
 		s.mu.Unlock()
+		s.WakeUpcoming()
 	}
 	if e == nil && s.o.Changed != nil {
 		e = s.o.Changed(ctx)
@@ -246,6 +248,10 @@ func (s *Service) DeleteLook(ctx context.Context, id string) error {
 	return e
 }
 func (s *Service) seed(ctx context.Context) error {
+	var existing string
+	if s.db.QueryRowContext(ctx, "SELECT v FROM onair_settings WHERE k='seeded'").Scan(&existing) == nil {
+		return nil
+	}
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e

@@ -10,17 +10,47 @@ import (
 	"github.com/braedonsaunders/ether/internal/markers"
 )
 
+func (s *Service) wakeBreakLoop() {
+	if s.breakWake != nil {
+		select {
+		case s.breakWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *Service) breakLoopActive(now time.Time) bool {
+	return s.virtualGuideActive(now) || len(s.recentlyWatched()) > 0
+}
+
 // breakLoop is the only caller of BreakInput/Analyze. One sequential worker per
 // service/node, with a two-hour lookahead and at most ten minutes per decode.
 // It updates saved programming with compare-and-swap so a concurrent owner save
 // always wins. Requests only consume the resulting immutable item metadata.
 func (s *Service) breakLoop() {
 	defer s.wg.Done()
-	tick := time.NewTicker(time.Minute)
-	defer tick.Stop()
+	timer := time.NewTimer(time.Minute)
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	defer timer.Stop()
 	retry := map[core.RatingKey]time.Time{}
 	var ownerRevision uint64
 	for {
+		if !s.breakLoopActive(s.o.Now()) {
+			select {
+			case <-s.ctx.Done():
+				return
+			case observation := <-s.breakObserved:
+				s.storeBreakObservation(observation)
+				continue
+			case <-s.breakWake:
+				continue
+			}
+		}
 		s.mu.Lock()
 		revision := s.breakOwnerRevision
 		s.mu.Unlock()
@@ -36,14 +66,45 @@ func (s *Service) breakLoop() {
 			}
 		}
 		s.analyzeUpcomingBreaks(retry)
+		timer.Reset(time.Minute)
 		select {
 		case <-s.ctx.Done():
 			return
 		case observation := <-s.breakObserved:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			s.storeBreakObservation(observation)
-		case <-tick.C:
+		case <-s.breakWake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		case <-timer.C:
 		}
 	}
+}
+
+func channelHasNaturalBreakPolicy(c Channel) bool {
+	if naturalBreakPolicy(c.Look) {
+		return true
+	}
+	for _, b := range c.Blocks {
+		if naturalBreakPolicy(b.Breaks) {
+			return true
+		}
+	}
+	for _, p := range c.Pins {
+		if naturalBreakPolicy(p.Breaks) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
@@ -58,7 +119,7 @@ func (s *Service) analyzeUpcomingBreaks(retry map[core.RatingKey]time.Time) {
 	}
 	var pending []breakTask
 	for _, c := range cs {
-		if !c.Enabled {
+		if !c.Enabled || !channelHasNaturalBreakPolicy(c) {
 			continue
 		}
 		eligible := s.channelNaturalBreakKeys(c)
@@ -147,6 +208,9 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 		return
 	}
 	for _, listed := range cs {
+		if !channelHasNaturalBreakPolicy(listed) {
+			continue
+		}
 		var raw string
 		if s.o.DB.QueryRowContext(s.ctx, `SELECT data FROM livetv_channels WHERE id=?`, listed.ID).Scan(&raw) != nil {
 			continue
@@ -213,6 +277,7 @@ func (s *Service) publishBreaks(key core.RatingKey, points []markers.BreakPoint,
 		result, e := s.o.DB.ExecContext(s.ctx, `UPDATE livetv_channels SET data=? WHERE id=? AND CAST(data AS TEXT)=?`, string(b), listed.ID, raw)
 		if e == nil {
 			if n, _ := result.RowsAffected(); n > 0 {
+				_ = s.refreshVirtualGuideIfWarm(s.ctx)
 				s.invalidate(listed.ID, "")
 				s.bumpLineup()
 			}

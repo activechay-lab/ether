@@ -119,9 +119,13 @@ func (s *Service) UpdateChannels(ctx context.Context, change ChannelBatch) (int,
 			s.invalidate(id, "")
 		}
 	}
-	if err = s.refreshVirtualGuide(ctx); err != nil {
+	if err = s.refreshVirtualGuideIfWarm(ctx); err != nil {
 		return 0, err
 	}
+	s.wakeSourceRefresh()
+	s.wakeHealthSweep()
+	s.wakeBreakLoop()
+	s.wakePersonalLoop()
 	s.bumpLineup()
 	return len(ids), nil
 }

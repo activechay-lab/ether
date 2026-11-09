@@ -12,6 +12,12 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
+const (
+	virtualGuideRefreshEvery = 30 * time.Second
+	virtualGuideIdleWindow   = 15 * time.Minute
+	virtualGuideColdWait     = 750 * time.Millisecond
+)
+
 type virtualGuideSnapshot struct {
 	recipe               string
 	built                time.Time
@@ -22,14 +28,117 @@ type virtualGuideSnapshot struct {
 	from, until          time.Time
 	raw, playback, guide *compactProgrammes
 }
+
+type virtualGuideFlight struct {
+	done chan struct{}
+	err  error
+}
+
 type virtualGuideCache struct {
-	mu       sync.RWMutex
-	buildMu  sync.Mutex
-	epoch    int64
-	revision uint64
-	timeline map[string]*virtualGuideSnapshot
-	entries  map[string]*virtualGuideSnapshot
-	wake     chan struct{}
+	mu             sync.RWMutex
+	buildMu        sync.Mutex
+	epoch          int64
+	revision       uint64
+	lastDemand     time.Time
+	timelineDemand time.Time
+	timeline       map[string]*virtualGuideSnapshot
+	entries        map[string]*virtualGuideSnapshot
+	inflight       map[string]*virtualGuideFlight
+	prepOnce       sync.Once
+	prepSem        chan struct{}
+	wake           chan struct{}
+}
+
+func (s *Service) acquirePrepSlot(ctx context.Context) (func(), error) {
+	s.virtualGuide.prepOnce.Do(func() {
+		s.virtualGuide.prepSem = make(chan struct{}, 2)
+	})
+	select {
+	case s.virtualGuide.prepSem <- struct{}{}:
+		return func() { <-s.virtualGuide.prepSem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Service) waitVirtualGuideInflight() {
+	for {
+		s.virtualGuide.mu.RLock()
+		var flight *virtualGuideFlight
+		for _, cur := range s.virtualGuide.inflight {
+			flight = cur
+			break
+		}
+		s.virtualGuide.mu.RUnlock()
+		if flight == nil {
+			return
+		}
+		<-flight.done
+	}
+}
+
+func (s *Service) hasLiveActivity() bool {
+	s.mu.Lock()
+	activeSessions := len(s.sessions) > 0
+	s.mu.Unlock()
+	if activeSessions {
+		return true
+	}
+	return s.broadcasts.hasActive()
+}
+
+func (s *Service) virtualGuideActive(now time.Time) bool {
+	if s.hasLiveActivity() {
+		return true
+	}
+	s.virtualGuide.mu.RLock()
+	last := s.virtualGuide.lastDemand
+	s.virtualGuide.mu.RUnlock()
+	return !last.IsZero() && now.Sub(last) < virtualGuideIdleWindow
+}
+
+func (s *Service) timelineGuideActive(now time.Time) bool {
+	s.virtualGuide.mu.RLock()
+	last := s.virtualGuide.timelineDemand
+	s.virtualGuide.mu.RUnlock()
+	return !last.IsZero() && now.Sub(last) < virtualGuideIdleWindow
+}
+
+func (s *Service) noteVirtualGuideDemand(timeline bool) {
+	now := s.o.Now()
+	s.virtualGuide.mu.Lock()
+	wakeGuide := s.virtualGuide.lastDemand.IsZero() || now.Sub(s.virtualGuide.lastDemand) >= virtualGuideIdleWindow
+	s.virtualGuide.lastDemand = now
+	if timeline {
+		if s.virtualGuide.timelineDemand.IsZero() || now.Sub(s.virtualGuide.timelineDemand) >= virtualGuideIdleWindow {
+			wakeGuide = true
+		}
+		s.virtualGuide.timelineDemand = now
+	}
+	s.virtualGuide.mu.Unlock()
+	if wakeGuide {
+		s.wakeVirtualGuide()
+		s.wakeBreakLoop()
+		s.wakePersonalLoop()
+	}
+}
+
+func (s *Service) evictIdleVirtualGuide(now time.Time) bool {
+	if s.hasLiveActivity() {
+		return false
+	}
+	s.virtualGuide.mu.Lock()
+	defer s.virtualGuide.mu.Unlock()
+	if !s.virtualGuide.lastDemand.IsZero() && now.Sub(s.virtualGuide.lastDemand) < virtualGuideIdleWindow {
+		return false
+	}
+	if !s.virtualGuide.lastDemand.IsZero() {
+		s.virtualGuide.entries = nil
+		s.virtualGuide.timeline = nil
+		s.virtualGuide.lastDemand = time.Time{}
+		s.virtualGuide.timelineDemand = time.Time{}
+	}
+	return true
 }
 
 func (s *Service) wakeVirtualGuide() {
@@ -40,25 +149,178 @@ func (s *Service) wakeVirtualGuide() {
 		}
 	}
 }
+
 func (s *Service) virtualGuideLoop() {
 	defer s.wg.Done()
-	tick := time.NewTicker(30 * time.Second)
-	defer tick.Stop()
+	timer := time.NewTimer(virtualGuideRefreshEvery)
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	defer timer.Stop()
 	for {
+		now := s.o.Now()
+		if !s.virtualGuideActive(now) {
+			s.evictIdleVirtualGuide(now)
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.virtualGuide.wake:
+				continue
+			}
+		}
 		if err := s.refreshVirtualGuide(s.ctx); err != nil && s.ctx.Err() == nil {
 			s.o.Logger.Debug("virtual guide snapshot refresh failed", "error", err)
 		}
-		if err := s.refreshTimelineGuide(s.ctx); err != nil && s.ctx.Err() == nil {
-			s.o.Logger.Debug("timeline snapshot refresh failed", "error", err)
+		if s.timelineGuideActive(s.o.Now()) {
+			if err := s.refreshTimelineGuide(s.ctx); err != nil && s.ctx.Err() == nil {
+				s.o.Logger.Debug("timeline snapshot refresh failed", "error", err)
+			}
 		}
+		timer.Reset(virtualGuideRefreshEvery)
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-tick.C:
+		case <-timer.C:
 		case <-s.virtualGuide.wake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 		}
 	}
 }
+
+func (s *Service) publishVirtualGuideEntry(id string, epoch int64, entry *virtualGuideSnapshot) {
+	published := *entry
+	published.epoch = epoch
+	s.virtualGuide.mu.Lock()
+	if s.virtualGuide.entries == nil {
+		s.virtualGuide.entries = map[string]*virtualGuideSnapshot{}
+	}
+	if epoch > s.virtualGuide.epoch {
+		s.virtualGuide.epoch = epoch
+	}
+	s.virtualGuide.entries[id] = &published
+	s.virtualGuide.mu.Unlock()
+}
+
+func (s *Service) startChannelPrep(c Channel, epoch int64, revision uint64, now time.Time, compiled *guideCompileCache) *virtualGuideFlight {
+	s.virtualGuide.mu.Lock()
+	if f := s.virtualGuide.inflight[c.ID]; f != nil {
+		s.virtualGuide.mu.Unlock()
+		return f
+	}
+	if s.ctx == nil || s.ctx.Err() != nil {
+		s.virtualGuide.mu.Unlock()
+		f := &virtualGuideFlight{done: make(chan struct{}), err: context.Canceled}
+		close(f.done)
+		return f
+	}
+	if s.virtualGuide.inflight == nil {
+		s.virtualGuide.inflight = map[string]*virtualGuideFlight{}
+	}
+	f := &virtualGuideFlight{done: make(chan struct{})}
+	s.virtualGuide.inflight[c.ID] = f
+	s.virtualGuide.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.virtualGuide.mu.Lock()
+			if s.virtualGuide.inflight[c.ID] == f {
+				delete(s.virtualGuide.inflight, c.ID)
+			}
+			close(f.done)
+			s.virtualGuide.mu.Unlock()
+		}()
+		f.err = s.warmSingleVirtualChannel(s.ctx, c, epoch, revision, now, compiled, nil)
+	}()
+	return f
+}
+
+func (s *Service) warmSingleVirtualChannel(ctx context.Context, c Channel, epoch int64, revision uint64, now time.Time, compiled *guideCompileCache, preloadedUsers []core.User) error {
+	s.ensureChannelReels(ctx, c)
+	if c.Personal == nil {
+		if compiled == nil {
+			compiled = &guideCompileCache{}
+		}
+		recipe, reuse := s.virtualGuideFingerprint(c, now, revision, compiled)
+		if reuse {
+			s.virtualGuide.mu.RLock()
+			prior := s.virtualGuide.entries[c.ID]
+			s.virtualGuide.mu.RUnlock()
+			if prior != nil {
+				updated := *prior
+				updated.channel = c
+				updated.playbackChannel = refreshSnapshotMetadata(prior.playbackChannel, c)
+				s.publishVirtualGuideEntry(c.ID, epoch, &updated)
+				if shareableGuide(c) {
+					compiled.remember(recipe, &updated)
+				}
+				return nil
+			}
+		}
+	}
+	release, err := s.acquirePrepSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	if c.Personal != nil {
+		if err := s.backfillPersonalIndex(ctx); err != nil {
+			return err
+		}
+		users := preloadedUsers
+		if users == nil && s.o.Users != nil && s.o.Picker != nil {
+			users, err = s.o.Users.Users(ctx)
+			if err != nil {
+				return err
+			}
+		}
+		for i := range users {
+			user := &users[i]
+			if s.allowed(ctx, user, c, nil) {
+				if err := s.buildPersonal(ctx, s.personalChannel(ctx, c, user), user); err != nil {
+					return err
+				}
+			}
+		}
+		s.publishVirtualGuideEntry(c.ID, epoch, &virtualGuideSnapshot{channel: c, revision: revision, built: now})
+		return nil
+	}
+
+	if compiled == nil {
+		compiled = &guideCompileCache{}
+	}
+	recipe, reuse := s.virtualGuideFingerprint(c, now, revision, compiled)
+	if reuse {
+		s.virtualGuide.mu.RLock()
+		prior := s.virtualGuide.entries[c.ID]
+		s.virtualGuide.mu.RUnlock()
+		if prior != nil {
+			updated := *prior
+			updated.channel = c
+			updated.playbackChannel = refreshSnapshotMetadata(prior.playbackChannel, c)
+			s.publishVirtualGuideEntry(c.ID, epoch, &updated)
+			if shareableGuide(c) {
+				compiled.remember(recipe, &updated)
+			}
+			return nil
+		}
+	}
+	entry, err := s.buildVirtualGuideSnapshot(ctx, c, now, revision, compiled)
+	if err != nil {
+		return err
+	}
+	s.publishVirtualGuideEntry(c.ID, epoch, entry)
+	return nil
+}
+
 func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 	s.virtualGuide.buildMu.Lock()
 	defer s.virtualGuide.buildMu.Unlock()
@@ -72,7 +334,14 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 		return err
 	}
 	var users []core.User
-	if s.o.Users != nil && s.o.Picker != nil {
+	hasPersonal := false
+	for _, c := range cs {
+		if c.Kind == "virtual" && c.Personal != nil {
+			hasPersonal = true
+			break
+		}
+	}
+	if hasPersonal && s.o.Users != nil && s.o.Picker != nil {
 		users, err = s.o.Users.Users(ctx)
 		if err != nil {
 			return err
@@ -86,58 +355,27 @@ func (s *Service) refreshVirtualGuide(ctx context.Context) error {
 		s.virtualGuide.entries = map[string]*virtualGuideSnapshot{}
 	}
 	s.virtualGuide.mu.Unlock()
+	var seenMu sync.Mutex
 	seen := map[string]bool{}
 	expected := map[string]bool{}
 	compiled := &guideCompileCache{}
-	publish := func(id string, entry *virtualGuideSnapshot) {
-		// A compile result can be shared; publication owns its metadata copy.
-		published := *entry
-		published.epoch = epoch
-		s.virtualGuide.mu.Lock()
-		s.virtualGuide.entries[id] = &published
-		seen[id] = true
-		s.virtualGuide.mu.Unlock()
-	}
-	var personalIndex sync.Once
-	var personalIndexErr error
 	warm := func(c Channel) error {
-		if c.Personal != nil {
-			// Indexing a large saved personal rundown occupies one warm worker, not
-			// server startup or the unrelated channel's preparation slot.
-			personalIndex.Do(func() { personalIndexErr = s.backfillPersonalIndex(ctx) })
-			if personalIndexErr != nil {
-				return personalIndexErr
+		s.virtualGuide.mu.RLock()
+		existingFlight := s.virtualGuide.inflight[c.ID]
+		s.virtualGuide.mu.RUnlock()
+		if existingFlight != nil {
+			select {
+			case <-existingFlight.done:
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			for i := range users {
-				user := &users[i]
-				if s.allowed(ctx, user, c, nil) {
-					if err := s.buildPersonal(ctx, s.personalChannel(ctx, c, user), user); err != nil {
-						return err
-					}
-				}
-			}
-			publish(c.ID, &virtualGuideSnapshot{channel: c, revision: revision, built: now})
-			return nil
 		}
-		recipe, reuse := s.virtualGuideFingerprint(c, now, revision, compiled)
-		if reuse {
-			s.virtualGuide.mu.RLock()
-			prior := s.virtualGuide.entries[c.ID]
-			s.virtualGuide.mu.RUnlock()
-			updated := *prior
-			updated.channel = c
-			updated.playbackChannel = refreshSnapshotMetadata(prior.playbackChannel, c)
-			publish(c.ID, &updated)
-			if shareableGuide(c) {
-				compiled.remember(recipe, &updated)
-			}
-			return nil
-		}
-		entry, err := s.buildVirtualGuideSnapshot(ctx, c, now, revision, compiled)
-		if err != nil {
+		if err := s.warmSingleVirtualChannel(ctx, c, epoch, revision, now, compiled, users); err != nil {
 			return err
 		}
-		publish(c.ID, entry)
+		seenMu.Lock()
+		seen[c.ID] = true
+		seenMu.Unlock()
 		return nil
 	}
 	jobs := make(chan Channel, len(cs))
@@ -194,7 +432,11 @@ func (s *Service) virtualProgrammes(c Channel, from, until time.Time, kind strin
 	entry := s.virtualGuide.entries[c.ID]
 	s.virtualGuide.mu.RUnlock()
 	if entry == nil || from.Before(entry.from) || until.After(entry.until) {
-		s.wakeVirtualGuide()
+		if s.ctx != nil {
+			s.noteVirtualGuideDemand(false)
+		} else {
+			s.wakeVirtualGuide()
+		}
 		return nil
 	}
 	ps := entry.playback
@@ -220,6 +462,56 @@ func (s *Service) allowedProgramme(ctx context.Context, u *core.User, c Channel,
 
 type virtualGuideContextKey struct{}
 
+func entryCoversNow(entry *virtualGuideSnapshot, c Channel, epoch int64, revision uint64, now time.Time) bool {
+	if entry == nil || entry.epoch != epoch || entry.revision != revision {
+		return false
+	}
+	if c.Personal == nil && (now.Before(entry.built) || entry.until.Before(now.Add(7*24*time.Hour+time.Hour))) {
+		return false
+	}
+	return true
+}
+
+func (s *Service) prepareVirtualChannels(ctx context.Context, missing []Channel, epoch int64, now time.Time) error {
+	s.virtualGuide.mu.RLock()
+	revision := s.virtualGuide.revision
+	s.virtualGuide.mu.RUnlock()
+	compiled := &guideCompileCache{}
+	flights := make([]*virtualGuideFlight, 0, len(missing))
+	for _, c := range missing {
+		flights = append(flights, s.startChannelPrep(c, epoch, revision, now, compiled))
+	}
+	s.noteVirtualGuideDemand(false)
+
+	waitTimer := time.NewTimer(virtualGuideColdWait)
+	defer waitTimer.Stop()
+	for _, f := range flights {
+		select {
+		case <-f.done:
+			if f.err != nil {
+				return core.ErrNotAvailable
+			}
+		case <-waitTimer.C:
+			return core.ErrNotAvailable
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	s.virtualGuide.mu.RLock()
+	ready := true
+	for _, c := range missing {
+		if !entryCoversNow(s.virtualGuide.entries[c.ID], c, epoch, s.virtualGuide.revision, now) {
+			ready = false
+			break
+		}
+	}
+	s.virtualGuide.mu.RUnlock()
+	if !ready {
+		return core.ErrNotAvailable
+	}
+	return nil
+}
+
 func (s *Service) withVirtualGuide(ctx context.Context, cs []Channel) (context.Context, error) {
 	s.virtualGuide.mu.RLock()
 	hasVirtual := len(s.virtualGuide.entries) > 0
@@ -240,32 +532,73 @@ func (s *Service) withVirtualGuide(ctx context.Context, cs []Channel) (context.C
 			return ctx, err
 		}
 	}
+	now := s.o.Now()
+	if s.ctx != nil {
+		s.evictIdleVirtualGuide(now)
+	}
 	s.virtualGuide.mu.RLock()
-	ready := s.virtualGuide.epoch == epoch
+	var missing []Channel
+	ready := len(cs) > 0 || s.virtualGuide.epoch == epoch
 	for _, c := range cs {
 		if c.Kind == "virtual" && c.Enabled {
 			entry := s.virtualGuide.entries[c.ID]
-			if entry == nil || entry.epoch != epoch || entry.revision != s.virtualGuide.revision {
+			ok := entry != nil && entry.epoch == epoch && entry.revision == s.virtualGuide.revision
+			if s.ctx != nil {
+				ok = entryCoversNow(entry, c, epoch, s.virtualGuide.revision, now)
+			}
+			if !ok {
 				ready = false
+				missing = append(missing, c)
 			}
 		}
 	}
 	s.virtualGuide.mu.RUnlock()
 	if !ready {
-		s.wakeVirtualGuide()
+		if s.ctx != nil && len(missing) > 0 {
+			if err := s.prepareVirtualChannels(ctx, missing, epoch, now); err != nil {
+				return ctx, err
+			}
+			return context.WithValue(ctx, virtualGuideContextKey{}, epoch), nil
+		}
+		if s.ctx != nil {
+			s.noteVirtualGuideDemand(false)
+		} else {
+			s.wakeVirtualGuide()
+		}
 		return ctx, core.ErrNotAvailable
+	}
+	if s.ctx != nil {
+		s.noteVirtualGuideDemand(false)
 	}
 	// Reuse the epoch query within this request, but always check each requested
 	// channel: one warm channel cannot grant readiness to a cold neighbour.
 	return context.WithValue(ctx, virtualGuideContextKey{}, epoch), nil
 }
 
+// refreshVirtualGuideIfWarm updates snapshots when warm or actively demanded,
+// and otherwise refreshes only the lightweight decoded channel cache.
+func (s *Service) refreshVirtualGuideIfWarm(ctx context.Context) error {
+	s.virtualGuide.mu.RLock()
+	warm := len(s.virtualGuide.entries) > 0
+	s.virtualGuide.mu.RUnlock()
+	if !warm && (s.ctx == nil || !s.virtualGuideActive(s.o.Now())) {
+		_, _, err := s.channelSnapshot(ctx)
+		return err
+	}
+	return s.refreshVirtualGuide(ctx)
+}
+
 // RefreshGuide is the owner-save hook for look and schedule changes. Viewer
-// reads never call this method. The background worker also refreshes availability.
+// reads never call this method. When Live TV is cold and idle, bumping the
+// revision invalidates any stale state without materializing snapshots.
 func (s *Service) RefreshGuide(ctx context.Context) error {
 	s.virtualGuide.mu.Lock()
 	s.virtualGuide.revision++
+	warm := len(s.virtualGuide.entries) > 0
 	s.virtualGuide.mu.Unlock()
+	if !warm && (s.ctx == nil || !s.virtualGuideActive(s.o.Now())) {
+		return nil
+	}
 	return s.refreshVirtualGuide(ctx)
 }
 
@@ -291,15 +624,38 @@ func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id strin
 	if err != nil {
 		return nil, err
 	}
+	if s.ctx != nil {
+		s.evictIdleVirtualGuide(s.o.Now())
+	}
 	s.virtualGuide.mu.RLock()
 	entry := s.virtualGuide.entries[id]
 	epoch, revision := s.virtualGuide.epoch, s.virtualGuide.revision
-	if view == SnapshotTimeline && entry != nil && entry.channel.Personal == nil && (from.Before(entry.from) || until.After(entry.until)) {
-		entry = s.virtualGuide.timeline[id]
-	}
 	s.virtualGuide.mu.RUnlock()
+	if entry == nil && s.ctx != nil {
+		if ch, chErr := s.Channel(ctx, id); chErr == nil && ch.Kind == "virtual" && ch.Enabled {
+			if nextCtx, prepErr := s.withVirtualGuide(ctx, []Channel{ch}); prepErr == nil {
+				ctx = nextCtx
+				s.virtualGuide.mu.RLock()
+				entry = s.virtualGuide.entries[id]
+				epoch, revision = s.virtualGuide.epoch, s.virtualGuide.revision
+				s.virtualGuide.mu.RUnlock()
+			}
+		}
+	}
+	extendedTimeline := false
+	if view == SnapshotTimeline && entry != nil && entry.channel.Personal == nil && (from.Before(entry.from) || until.After(entry.until)) {
+		extendedTimeline = true
+		s.virtualGuide.mu.RLock()
+		entry = s.virtualGuide.timeline[id]
+		epoch, revision = s.virtualGuide.epoch, s.virtualGuide.revision
+		s.virtualGuide.mu.RUnlock()
+	}
 	if entry == nil || (view == SnapshotTimeline && (entry.epoch != epoch || entry.revision != revision)) {
-		s.wakeVirtualGuide()
+		if s.ctx != nil {
+			s.noteVirtualGuideDemand(extendedTimeline || view == SnapshotTimeline)
+		} else {
+			s.wakeVirtualGuide()
+		}
 		return nil, core.ErrNotAvailable
 	}
 	c := s.personalChannel(ctx, entry.channel, u)
@@ -307,11 +663,21 @@ func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id strin
 	if err != nil {
 		return nil, err
 	}
+	if !extendedTimeline {
+		s.virtualGuide.mu.RLock()
+		if latest := s.virtualGuide.entries[id]; latest != nil {
+			entry = latest
+		}
+		s.virtualGuide.mu.RUnlock()
+	}
 	var ps []Programme
 	if c.Personal != nil {
 		ps, err = s.personalProgrammes(ctx, c, u, from, until)
 	} else {
 		if from.Before(entry.from) || until.After(entry.until) {
+			if s.ctx != nil && view == SnapshotTimeline {
+				s.noteVirtualGuideDemand(true)
+			}
 			return nil, core.ErrNotAvailable
 		}
 		if view == SnapshotTimeline {
@@ -340,7 +706,11 @@ func (s *Service) checkVirtualWindow(c Channel, from, until time.Time) error {
 	entry := s.virtualGuide.entries[c.ID]
 	s.virtualGuide.mu.RUnlock()
 	if entry == nil || from.Before(entry.from) || until.After(entry.until) {
-		s.wakeVirtualGuide()
+		if s.ctx != nil {
+			s.noteVirtualGuideDemand(false)
+		} else {
+			s.wakeVirtualGuide()
+		}
 		return core.ErrNotAvailable
 	}
 	return nil

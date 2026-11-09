@@ -382,14 +382,19 @@ func (s *Service) trackHoldouts(ctx context.Context, ms []Member) ([]string, err
 // per asset, and emptied pages go back to the filesystem every
 // assetReleaseBytes, so the extra disk the move needs stays near one asset.
 func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
+	st, _, err := s.moveAssetsPass(ctx)
+	return st, err
+}
+
+func (s *Service) moveAssetsPass(ctx context.Context) (AssetPassStats, bool, error) {
 	var st AssetPassStats
 	ms, e := s.members(ctx)
 	if e != nil {
-		return st, e
+		return st, false, e
 	}
 	holdouts, e := s.trackHoldouts(ctx, ms)
 	if e != nil {
-		return st, e
+		return st, false, e
 	}
 	allFiles, ids := len(holdouts) == 0, make([]string, 0, len(ms))
 	for _, m := range ms {
@@ -398,11 +403,14 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	}
 	dbRows, e := s.assetDigests(ctx, "db")
 	if e != nil {
-		return st, e
+		return st, false, e
+	}
+	if len(dbRows) == 0 && len(ms) <= 1 && allFiles {
+		return st, true, nil
 	}
 	replicas, e := s.replicaHolders(ctx)
 	if e != nil {
-		return st, e
+		return st, false, e
 	}
 	unreleased := int64(0)
 	release := func() {
@@ -415,9 +423,10 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 		}
 		unreleased = 0
 	}
+	remainingDB := 0
 	for _, d := range dbRows {
 		if ctx.Err() != nil {
-			return st, ctx.Err()
+			return st, false, ctx.Err()
 		}
 		had := s.blobs.Has(d.digest, d.size)
 		ok, e := s.materialize(ctx, d.digest)
@@ -426,6 +435,7 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 		}
 		if e != nil {
 			s.o.Logger.Warn("onair asset not copied to a file", "asset", d.digest, "err", e)
+			remainingDB++
 			continue
 		}
 		if !ok {
@@ -443,12 +453,13 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 			// that crashed after the rename): record it.
 			start := time.Now()
 			if e = s.recordReplica(ctx, s.db, d.digest); e != nil {
-				return st, e
+				return st, false, e
 			}
 			st.wrote(start)
 			replicas[d.digest][s.nodeID] = true
 		}
 		if !allFiles || !holdsAll(replicas[d.digest], ids) {
+			remainingDB++
 			continue
 		}
 		if had {
@@ -458,7 +469,7 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 		n, e := s.emptyRow(ctx, d.digest, ids)
 		st.wrote(start)
 		if e != nil {
-			return st, e
+			return st, false, e
 		}
 		s.o.Logger.Debug("onair asset row emptied", "asset", d.digest, "bytes", d.size, "took", time.Since(start))
 		if n > 0 {
@@ -475,7 +486,7 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	if len(ms) > 1 || !allFiles {
 		fileRows, e := s.assetDigests(ctx, "file")
 		if e != nil {
-			return st, e
+			return st, false, e
 		}
 		for _, d := range fileRows {
 			if allFiles && holdsAll(replicas[d.digest], ids) || !s.blobs.Has(d.digest, d.size) {
@@ -485,7 +496,7 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 			n, e := s.restoreRow(ctx, d.digest)
 			st.wrote(start)
 			if e != nil {
-				return st, e
+				return st, false, e
 			}
 			if n > 0 {
 				st.Restored++
@@ -495,7 +506,8 @@ func (s *Service) moveAssets(ctx context.Context) (AssetPassStats, error) {
 	if st.Copied+st.Emptied+st.Restored > 0 {
 		s.o.Logger.Info("onair assets moved", "copied", st.Copied, "emptied", st.Emptied, "restored", st.Restored, "emptiedBytes", st.EmptiedBytes, "longestWrite", st.LongestWrite, "releasedPages", st.Released)
 	}
-	return st, nil
+	settled := len(ms) <= 1 && allFiles && remainingDB == 0
+	return st, settled, nil
 }
 
 type assetRef struct {
@@ -610,20 +622,18 @@ func (s *Service) restoreRow(ctx context.Context, d string) (int64, error) {
 // left by a crash) are removed once older than assetOrphanAge, and replica
 // rows of members that left are forgotten.
 func (s *Service) sweepAssets(ctx context.Context) error {
-	mine := map[string]bool{}
-	rows, e := s.db.QueryContext(ctx, "SELECT digest FROM onair_asset_replicas WHERE node_id=?", s.nodeID)
+	replicas, e := s.replicaHolders(ctx)
 	if e != nil {
 		return e
 	}
-	for rows.Next() {
-		var d string
-		if rows.Scan(&d) == nil {
+	mine := map[string]bool{}
+	for d, holders := range replicas {
+		if holders[s.nodeID] {
 			mine[d] = true
 		}
 	}
-	rows.Close()
 	sizes := map[string]int64{}
-	rows, e = s.db.QueryContext(ctx, "SELECT digest,size FROM onair_assets")
+	rows, e := s.db.QueryContext(ctx, "SELECT digest,size FROM onair_assets")
 	if e != nil {
 		return e
 	}
@@ -644,6 +654,7 @@ func (s *Service) sweepAssets(ctx context.Context) error {
 			if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE digest=? AND node_id=?", d, s.nodeID); e != nil {
 				return e
 			}
+			delete(replicas[d], s.nodeID)
 		}
 	}
 	var orphans []string
@@ -665,17 +676,44 @@ func (s *Service) sweepAssets(ctx context.Context) error {
 		s.assetMu.Unlock()
 	}
 	if ms, e := s.members(ctx); e == nil && len(ms) > 0 {
+		knownNodes := make(map[string]bool, len(ms))
 		marks := strings.TrimSuffix(strings.Repeat("?,", len(ms)), ",")
 		args := make([]any, 0, len(ms))
 		for _, m := range ms {
+			knownNodes[m.ID] = true
 			args = append(args, m.ID)
 		}
-		if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE node_id NOT IN ("+marks+")", args...); e != nil {
-			return e
+		hasDeparted := false
+		for _, holders := range replicas {
+			for n := range holders {
+				if !knownNodes[n] {
+					hasDeparted = true
+					break
+				}
+			}
+			if hasDeparted {
+				break
+			}
+		}
+		if hasDeparted {
+			if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE node_id NOT IN ("+marks+")", args...); e != nil {
+				return e
+			}
 		}
 	}
-	if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE NOT EXISTS(SELECT 1 FROM onair_assets WHERE onair_assets.digest=onair_asset_replicas.digest)"); e != nil {
-		return e
+	hasDanglingReplica := false
+	for d, holders := range replicas {
+		if len(holders) > 0 {
+			if _, ok := sizes[d]; !ok {
+				hasDanglingReplica = true
+				break
+			}
+		}
+	}
+	if hasDanglingReplica {
+		if _, e = s.db.ExecContext(ctx, "DELETE FROM onair_asset_replicas WHERE NOT EXISTS(SELECT 1 FROM onair_assets WHERE onair_assets.digest=onair_asset_replicas.digest)"); e != nil {
+			return e
+		}
 	}
 	var holdouts int
 	if e = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM onair_asset_holdouts").Scan(&holdouts); e == nil && holdouts > 0 {
@@ -684,24 +722,60 @@ func (s *Service) sweepAssets(ctx context.Context) error {
 	return e
 }
 
-// runAssets runs move-out passes and sweeps until the service closes.
+// runAssets runs move-out passes and sweeps until the service closes. On a
+// standalone server whose assets are already in files, it sleeps until poked.
 func (s *Service) runAssets() {
 	defer s.wg.Done()
 	sweep := time.Now()
 	if e := s.sweepAssets(s.ctx); e != nil && s.ctx.Err() == nil {
 		s.o.Logger.Warn("onair asset sweep failed", "err", e)
 	}
-	t := time.NewTimer(5 * time.Second)
-	defer t.Stop()
+	_, settled, err := s.moveAssetsPass(s.ctx)
+	if err != nil && s.ctx.Err() == nil {
+		s.o.Logger.Warn("onair asset move-out pass failed; it retries", "err", err)
+	}
+	var t *time.Timer
+	var timerCh <-chan time.Time
+	arm := func(d time.Duration) {
+		if t == nil {
+			t = time.NewTimer(d)
+		} else {
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
+			t.Reset(d)
+		}
+		timerCh = t.C
+	}
+	disarm := func() {
+		if t != nil {
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
+		}
+		timerCh = nil
+	}
+	defer disarm()
+	if s.o.Members != nil || !settled {
+		arm(assetPassInterval)
+	}
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-t.C:
+		case <-timerCh:
 		case <-s.assetPoke:
 		}
-		if _, e := s.moveAssets(s.ctx); e != nil && s.ctx.Err() == nil {
-			s.o.Logger.Warn("onair asset move-out pass failed; it retries", "err", e)
+		_, settled, err = s.moveAssetsPass(s.ctx)
+		if err != nil && s.ctx.Err() == nil {
+			s.o.Logger.Warn("onair asset move-out pass failed; it retries", "err", err)
+			settled = false
 		}
 		if time.Since(sweep) > assetSweepInterval {
 			sweep = time.Now()
@@ -709,13 +783,11 @@ func (s *Service) runAssets() {
 				s.o.Logger.Warn("onair asset sweep failed", "err", e)
 			}
 		}
-		if !t.Stop() {
-			select {
-			case <-t.C:
-			default:
-			}
+		if s.o.Members == nil && settled {
+			disarm()
+		} else {
+			arm(assetPassInterval)
 		}
-		t.Reset(assetPassInterval)
 	}
 }
 

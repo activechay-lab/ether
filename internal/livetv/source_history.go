@@ -269,9 +269,11 @@ func (h *sourceHistoryStore) update(channelID string, src StreamSource, fn func(
 		h.evictLocked()
 	}
 	h.mu.Unlock()
-	select {
-	case h.wake <- struct{}{}:
-	default:
+	if h.wake != nil {
+		select {
+		case h.wake <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -303,8 +305,11 @@ func (h *sourceHistoryStore) start(s *Service) {
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
 	cutoff := s.o.Now().Add(-historyRetention).UnixMilli()
-	if _, err := db.ExecContext(ctx, `DELETE FROM livetv_source_history WHERE updated_ms < ?`, cutoff); err != nil {
-		s.o.Logger.Warn("source history prune failed", "err", err)
+	var stale bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM livetv_source_history WHERE updated_ms < ?)`, cutoff).Scan(&stale); err == nil && stale {
+		if _, err := db.ExecContext(ctx, `DELETE FROM livetv_source_history WHERE updated_ms < ?`, cutoff); err != nil {
+			s.o.Logger.Warn("source history prune failed", "err", err)
+		}
 	}
 	if err := h.load(ctx, db, `SELECT key, updated_ms, data FROM livetv_source_history ORDER BY updated_ms DESC LIMIT ?`, historyLimit); err != nil {
 		s.o.Logger.Warn("source history load failed", "err", err)
@@ -381,20 +386,46 @@ func (h *sourceHistoryStore) seedHealth() {
 
 func (h *sourceHistoryStore) loop(db *sql.DB) {
 	defer h.s.wg.Done()
-	flush := time.NewTicker(historyFlushEvery)
+	flush := time.NewTimer(historyFlushEvery)
+	if !flush.Stop() {
+		select {
+		case <-flush.C:
+		default:
+		}
+	}
 	defer flush.Stop()
-	refresh := time.NewTicker(historyRefreshEvery)
-	defer refresh.Stop()
+	armed := false
+	var refreshC <-chan time.Time
+	if h.pg {
+		refresh := time.NewTicker(historyRefreshEvery)
+		defer refresh.Stop()
+		refreshC = refresh.C
+	}
 	for {
+		var flushC <-chan time.Time
+		if armed {
+			flushC = flush.C
+		}
 		select {
 		case <-h.s.ctx.Done():
 			return
-		case <-flush.C:
-			h.flush(h.s.ctx, db)
-		case <-refresh.C:
-			if h.pg {
-				h.refresh(db)
+		case <-h.wake:
+			if !armed {
+				flush.Reset(historyFlushEvery)
+				armed = true
 			}
+		case <-flushC:
+			armed = false
+			h.flush(h.s.ctx, db)
+			h.mu.Lock()
+			stillDirty := len(h.dirty) > 0
+			h.mu.Unlock()
+			if stillDirty {
+				flush.Reset(historyFlushEvery)
+				armed = true
+			}
+		case <-refreshC:
+			h.refresh(db)
 		}
 	}
 }

@@ -8,13 +8,20 @@ import (
 func (s *Service) refreshTimelineGuide(ctx context.Context) error {
 	s.virtualGuide.buildMu.Lock()
 	defer s.virtualGuide.buildMu.Unlock()
+	var epoch int64
+	if err := s.o.DB.QueryRowContext(ctx, `SELECT generation FROM livetv_channel_epoch WHERE id=1`).Scan(&epoch); err != nil {
+		return err
+	}
 	channels, _, err := s.channelSnapshot(ctx)
 	if err != nil {
 		return err
 	}
-	s.virtualGuide.mu.RLock()
-	epoch, revision := s.virtualGuide.epoch, s.virtualGuide.revision
-	s.virtualGuide.mu.RUnlock()
+	s.virtualGuide.mu.Lock()
+	if epoch > s.virtualGuide.epoch {
+		s.virtualGuide.epoch = epoch
+	}
+	revision := s.virtualGuide.revision
+	s.virtualGuide.mu.Unlock()
 	return s.refreshTimelineSnapshots(ctx, channels, s.o.Now(), epoch, revision)
 }
 
@@ -32,6 +39,7 @@ func (s *Service) refreshTimelineSnapshots(ctx context.Context, channels []Chann
 			return err
 		}
 		seen[c.ID] = true
+		s.ensureChannelReels(ctx, c)
 		recipe := compiled.fingerprint(s, c, revision, now)
 		s.virtualGuide.mu.RLock()
 		prior := s.virtualGuide.timeline[c.ID]

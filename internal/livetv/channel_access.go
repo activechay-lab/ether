@@ -230,9 +230,10 @@ func (s *Service) SetChannelViewers(ctx context.Context, channelID string, chang
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	if err := s.refreshVirtualGuide(ctx); err != nil {
+	if err := s.refreshVirtualGuideIfWarm(ctx); err != nil {
 		return err
 	}
+	s.wakePersonalLoop()
 	s.bumpLineup()
 	return nil
 }

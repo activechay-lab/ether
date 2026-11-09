@@ -327,17 +327,27 @@ func (s *Service) seedShowcase(ctx context.Context) error {
 	for _, a := range added {
 		s.o.Logger.Info("showcase channel added", "channel", a[0], "number", a[1])
 	}
-	s.bumpLineup()
-	s.RefreshGraphics(ctx)
+	if len(added) > 0 {
+		_ = s.refreshVirtualGuideIfWarm(ctx)
+		s.bumpLineup()
+		s.RefreshGraphics(ctx)
+	}
 	return nil
 }
 
 func (s *Service) showcaseLoop() {
 	defer s.wg.Done()
 	seeded := false
-	tick := time.NewTicker(5 * time.Minute)
-	defer tick.Stop()
+	timer := time.NewTimer(5 * time.Minute)
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	defer timer.Stop()
 	for {
+		wait := 5 * time.Minute
 		if !seeded {
 			if err := s.seedShowcase(s.ctx); err != nil {
 				if s.ctx.Err() == nil {
@@ -348,12 +358,13 @@ func (s *Service) showcaseLoop() {
 			}
 		}
 		if seeded {
-			s.refreshShowcase(s.ctx)
+			wait = s.refreshShowcaseNext(s.ctx)
 		}
+		timer.Reset(wait)
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-tick.C:
+		case <-timer.C:
 		}
 	}
 }
@@ -364,10 +375,26 @@ type showcaseRow struct {
 	refreshed, attempted       int64
 }
 
+func (s *Service) showcaseCatalogTotals(ctx context.Context) ([2]int, bool) {
+	if s.o.Catalog == nil {
+		return [2]int{}, false
+	}
+	movies, err1 := s.o.Catalog.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}, Limit: 1})
+	shows, err2 := s.o.Catalog.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeShow}, Limit: 1})
+	if err1 != nil || err2 != nil {
+		return [2]int{}, false
+	}
+	return [2]int{movies.Total, shows.Total}, true
+}
+
 func (s *Service) refreshShowcase(ctx context.Context) {
+	_ = s.refreshShowcaseNext(ctx)
+}
+
+func (s *Service) refreshShowcaseNext(ctx context.Context) time.Duration {
 	rows, err := s.o.DB.QueryContext(ctx, `SELECT id,channel_id,version,recipe_hash,state,refreshed_ms,attempted_ms FROM livetv_showcase ORDER BY id`)
 	if err != nil {
-		return
+		return 5 * time.Minute
 	}
 	var list []showcaseRow
 	for rows.Next() {
@@ -382,6 +409,9 @@ func (s *Service) refreshShowcase(ctx context.Context) {
 		recipes[r.id] = r
 	}
 	now := s.o.Now()
+	nextWait := 24 * time.Hour
+	var totals [2]int
+	totalsLoaded := false
 	for _, row := range list {
 		recipe, ok := recipes[row.id]
 		if !ok || ctx.Err() != nil {
@@ -395,13 +425,61 @@ func (s *Service) refreshShowcase(ctx context.Context) {
 		if row.state == showcasePending {
 			every = 15 * time.Minute
 		}
-		if row.version >= recipe.version && (now.Sub(time.UnixMilli(row.attempted)) < every || now.Sub(time.UnixMilli(row.refreshed)) < every) {
-			continue
+		last := max(row.attempted, row.refreshed)
+		if last > 0 && row.version >= recipe.version {
+			if rem := time.UnixMilli(last).Add(every).Sub(now); rem > 0 {
+				if rem < nextWait {
+					nextWait = rem
+				}
+				continue
+			}
+		}
+		if row.state == showcasePending && row.attempted > 0 && row.version >= recipe.version {
+			if !totalsLoaded {
+				totals, totalsLoaded = s.showcaseCatalogTotals(ctx)
+			}
+			if totalsLoaded {
+				s.mu.Lock()
+				prev, seen := s.showcasePendingTotals[row.id]
+				s.mu.Unlock()
+				if seen && prev == totals {
+					if every < nextWait {
+						nextWait = every
+					}
+					continue
+				}
+			}
 		}
 		if err := s.refreshShowcaseChannel(ctx, row, recipe); err != nil && ctx.Err() == nil {
 			s.o.Logger.Debug("showcase refresh deferred", "channel", row.channelID, "error", err)
+			if 5*time.Minute < nextWait {
+				nextWait = 5 * time.Minute
+			}
+			continue
+		}
+		if totalsLoaded || row.state == showcasePending {
+			if !totalsLoaded {
+				totals, totalsLoaded = s.showcaseCatalogTotals(ctx)
+			}
+			if totalsLoaded {
+				s.mu.Lock()
+				if s.showcasePendingTotals == nil {
+					s.showcasePendingTotals = map[string][2]int{}
+				}
+				s.showcasePendingTotals[row.id] = totals
+				s.mu.Unlock()
+			}
+		}
+		var updatedState string
+		_ = s.o.DB.QueryRowContext(ctx, `SELECT state FROM livetv_showcase WHERE id=?`, row.id).Scan(&updatedState)
+		if updatedState == showcasePending && 15*time.Minute < nextWait {
+			nextWait = 15 * time.Minute
 		}
 	}
+	if nextWait < time.Second {
+		nextWait = time.Second
+	}
+	return nextWait
 }
 
 func (s *Service) channelBusy(id string) bool {
@@ -421,6 +499,99 @@ func (s *Service) channelBusy(id string) bool {
 		}
 	}
 	return false
+}
+
+type savedItemBreakMeta struct {
+	durationMS            int64
+	breakAvailableAfterMS int64
+	breakPoints           []BreakPoint
+	breakPointsMS         []int64
+	breakReleaseID        string
+	breakRevision         string
+}
+
+func collectChannelBreaks(c *Channel) map[core.RatingKey]savedItemBreakMeta {
+	out := map[core.RatingKey]savedItemBreakMeta{}
+	visitItems := func(items []Item) {
+		for _, it := range items {
+			if it.Key == 0 {
+				continue
+			}
+			if len(it.BreakPoints) == 0 && len(it.BreakPointsMS) == 0 && it.BreakReleaseID == "" && it.BreakRevision == "" && it.BreakAvailableAfterMS == 0 {
+				continue
+			}
+			out[it.Key] = savedItemBreakMeta{
+				durationMS:            it.DurationMS,
+				breakAvailableAfterMS: it.BreakAvailableAfterMS,
+				breakPoints:           append([]BreakPoint(nil), it.BreakPoints...),
+				breakPointsMS:         append([]int64(nil), it.BreakPointsMS...),
+				breakReleaseID:        it.BreakReleaseID,
+				breakRevision:         it.BreakRevision,
+			}
+		}
+	}
+	var visitSources func([]ProgramSource)
+	visitSources = func(sources []ProgramSource) {
+		for i := range sources {
+			visitItems(sources[i].Items)
+			visitSources(sources[i].Sources)
+		}
+	}
+	visitItems(c.Items)
+	visitItems(c.Filler)
+	visitItems(c.Fallback)
+	visitSources(c.Sources)
+	for i := range c.Blocks {
+		visitItems(c.Blocks[i].Items)
+		visitItems(c.Blocks[i].Filler)
+		visitSources(c.Blocks[i].Sources)
+	}
+	for i := range c.Pins {
+		visitItems(c.Pins[i].Items)
+		visitSources(c.Pins[i].Sources)
+	}
+	return out
+}
+
+func restoreChannelBreaks(c *Channel, saved map[core.RatingKey]savedItemBreakMeta) {
+	if len(saved) == 0 {
+		return
+	}
+	applyItems := func(items []Item) {
+		for i := range items {
+			meta, ok := saved[items[i].Key]
+			if !ok || meta.durationMS != items[i].DurationMS {
+				continue
+			}
+			if len(items[i].BreakPoints) == 0 && len(items[i].BreakPointsMS) == 0 && items[i].BreakReleaseID == "" {
+				items[i].BreakAvailableAfterMS = meta.breakAvailableAfterMS
+				items[i].BreakPoints = append([]BreakPoint(nil), meta.breakPoints...)
+				items[i].BreakPointsMS = append([]int64(nil), meta.breakPointsMS...)
+				items[i].BreakReleaseID = meta.breakReleaseID
+				items[i].BreakRevision = meta.breakRevision
+			}
+		}
+	}
+	var applySources func([]ProgramSource)
+	applySources = func(sources []ProgramSource) {
+		for i := range sources {
+			applyItems(sources[i].Items)
+			applySources(sources[i].Sources)
+		}
+	}
+	applyItems(c.Items)
+	applyItems(c.Filler)
+	applyItems(c.Fallback)
+	applySources(c.Sources)
+	for i := range c.Blocks {
+		applyItems(c.Blocks[i].Items)
+		applyItems(c.Blocks[i].Filler)
+		applySources(c.Blocks[i].Sources)
+	}
+	for i := range c.Pins {
+		applyItems(c.Pins[i].Items)
+		applySources(c.Pins[i].Sources)
+	}
 }
 
 func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, recipe showcaseRecipe) error {
@@ -451,6 +622,7 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 	if err = json.Unmarshal([]byte(raw), &c); err != nil || c.Kind != "virtual" {
 		return err
 	}
+	savedBreaks := collectChannelBreaks(&c)
 	untouched := showcaseRecipeHash(c) == row.hash
 	version := row.version
 	if row.version < recipe.version {
@@ -483,6 +655,7 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 			}
 		}
 	}
+	restoreChannelBreaks(&c, savedBreaks)
 	filled := 0
 	for _, b := range c.Blocks {
 		if len(b.Items) > 0 {
@@ -492,11 +665,19 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 	state := row.state
 	if state == showcasePending {
 		if len(c.Blocks) == 0 || filled*10 < len(c.Blocks)*7 {
-			// Not enough of the catalogue yet; keep the channel off the lineup.
+			// Not enough of the catalogue yet; keep the channel off the lineup
+			// without rewriting livetv_channels or bumping viewer_policy_epoch.
 			if row.attempted == 0 {
 				s.o.Logger.Info("showcase channel waiting for the catalogue", "channel", c.Name, "filledBlocks", filled, "blocks", len(c.Blocks))
 			}
-			return s.writeShowcase(ctx, row, raw, c, version, state, untouched, false)
+			if version != row.version {
+				// A newer shipped recipe is written in full even while the
+				// channel waits for the catalogue, so its stored definition
+				// and recipe hash stay in step (an untouched channel keeps
+				// receiving later upgrades).
+				return s.writeShowcase(ctx, row, raw, c, version, state, untouched, false)
+			}
+			return nil
 		}
 		if !c.Enabled && untouched {
 			c.Enabled = true
@@ -541,7 +722,7 @@ func (s *Service) writeShowcase(ctx context.Context, row showcaseRow, raw string
 			return fmt.Errorf("channel changed during refresh")
 		}
 		s.invalidate(c.ID, "")
-		if err := s.refreshVirtualGuide(ctx); err != nil {
+		if err := s.refreshVirtualGuideIfWarm(ctx); err != nil {
 			return err
 		}
 		s.bumpLineup()

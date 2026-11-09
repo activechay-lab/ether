@@ -905,7 +905,11 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 			return res, err
 		}
 	}
-	return res, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return res, err
+	}
+	s.wakeSourceRefresh()
+	return res, nil
 }
 
 // channelGuideNames lists the normalized labels a playlist channel can match,
@@ -1226,13 +1230,24 @@ func (s *Service) refreshDueSources(ctx context.Context) []string {
 	return s.refreshSources(ctx, false)
 }
 
-func (s *Service) refreshSources(ctx context.Context, activity bool) []string {
+func (s *Service) wakeSourceRefresh() {
+	s.noActivitySources.Store(false)
+	if s.sourceWake != nil {
+		select {
+		case s.sourceWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *Service) loadScheduledSources(ctx context.Context) ([]Source, error) {
 	// Only scheduling fields are read; inline uploads can be large.
 	d := store.DialectOf(s.o.DB)
 	rows, err := s.o.DB.QueryContext(ctx, `SELECT id, `+store.JSONText(d, "data", "kind")+`, `+store.JSONText(d, "data", "playlistUrl")+`, `+store.JSONText(d, "data", "guideUrl")+`, `+store.JSONInt(d, "data", "refreshHours")+`, `+store.JSONText(d, "data", "updatedAt")+`, `+store.JSONText(d, "data", "lastErrorAt")+`, `+store.JSONInt(d, "data", "refreshFailures")+`, `+store.JSONInt(d, "data", "activityRefreshMinutes")+` FROM livetv_sources ORDER BY id`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	defer rows.Close()
 	var srcs []Source
 	for rows.Next() {
 		var id string
@@ -1249,8 +1264,12 @@ func (s *Service) refreshSources(ctx context.Context, activity bool) []string {
 		}
 		srcs = append(srcs, src)
 	}
-	rows.Close()
-	if rows.Err() != nil || s.planRefresh(ctx, srcs) != nil {
+	return srcs, rows.Err()
+}
+
+func (s *Service) refreshSources(ctx context.Context, activity bool) []string {
+	srcs, err := s.loadScheduledSources(ctx)
+	if err != nil || s.planRefresh(ctx, srcs) != nil {
 		return nil
 	}
 	now := s.o.Now()
@@ -1275,18 +1294,99 @@ func (s *Service) refreshSources(ctx context.Context, activity bool) []string {
 	return due
 }
 
+func (s *Service) nextSourceRefreshWait(ctx context.Context) (time.Duration, bool) {
+	srcs, err := s.loadScheduledSources(ctx)
+	if err != nil {
+		return refreshCheckInterval, true
+	}
+	standalone := store.DialectOf(s.o.DB) == store.SQLite
+	if standalone {
+		anyActivity := false
+		for _, src := range srcs {
+			if _, enabled := refreshInterval(src); enabled && src.ActivityRefreshMinutes > 0 {
+				anyActivity = true
+				break
+			}
+		}
+		s.noActivitySources.Store(!anyActivity)
+		if len(srcs) == 0 {
+			return 0, false
+		}
+	} else if len(srcs) == 0 {
+		return refreshCheckInterval, true
+	}
+	if err := s.planRefresh(ctx, srcs); err != nil {
+		return refreshCheckInterval, true
+	}
+	var earliest time.Time
+	for _, src := range srcs {
+		if src.NextRefresh != nil && (earliest.IsZero() || src.NextRefresh.Before(earliest)) {
+			earliest = *src.NextRefresh
+		}
+	}
+	if earliest.IsZero() {
+		if standalone {
+			return 0, false
+		}
+		return refreshCheckInterval, true
+	}
+	wait := earliest.Sub(s.o.Now())
+	if wait < time.Second {
+		wait = time.Second
+	}
+	if !standalone && wait > refreshCheckInterval {
+		wait = refreshCheckInterval
+	}
+	return wait, true
+}
+
 func (s *Service) refreshLoop() {
 	defer s.wg.Done()
-	t := time.NewTicker(refreshCheckInterval)
-	defer t.Stop()
+	timer := time.NewTimer(refreshCheckInterval)
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	defer timer.Stop()
 	for {
+		wait, armed := s.nextSourceRefreshWait(s.ctx)
+		if !armed {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.sourceWake:
+			case <-s.activityWake:
+				if !s.noActivitySources.Load() {
+					s.refreshSources(s.ctx, true)
+				}
+			}
+			continue
+		}
+		timer.Reset(wait)
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-t.C:
+		case <-timer.C:
 			s.refreshDueSources(s.ctx)
+		case <-s.sourceWake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 		case <-s.activityWake:
-			s.refreshSources(s.ctx, true)
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			if !s.noActivitySources.Load() {
+				s.refreshSources(s.ctx, true)
+			}
 		}
 	}
 }

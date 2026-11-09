@@ -16,11 +16,17 @@ import (
 // fill the render queue ahead of an imminent element.
 // A lookID requests static clips for every channel using that saved look.
 func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.ClipRequest {
+	var recent map[string]bool
+	if lookID == "" {
+		recent = s.recentlyWatched()
+		if len(recent) == 0 {
+			return nil
+		}
+	}
 	cs, e := s.virtualChannels(ctx)
 	if e != nil {
 		return nil
 	}
-	recent := s.recentlyWatched()
 	now := s.o.Now()
 	type scheduled struct {
 		at      time.Time

@@ -12,7 +12,16 @@ func (s *Service) noteWatchedLocked(channelID string) {
 	if s.watched == nil {
 		s.watched = map[string]time.Time{}
 	}
+	_, existed := s.watched[channelID]
 	s.watched[channelID] = s.o.Now()
+	s.wakeMaintenance()
+	s.wakeBreakLoop()
+	s.wakePersonalLoop()
+	if !existed {
+		if w, ok := s.o.Graphics.(interface{ WakeUpcoming() }); ok {
+			w.WakeUpcoming()
+		}
+	}
 }
 
 // recentlyWatched is the set of channels playing now or watched within
@@ -22,7 +31,10 @@ func (s *Service) recentlyWatched() map[string]bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, ss := range s.sessions {
-		s.noteWatchedLocked(ss.info.Channel.ID)
+		if s.watched == nil {
+			s.watched = map[string]time.Time{}
+		}
+		s.watched[ss.info.Channel.ID] = now
 	}
 	out := map[string]bool{}
 	for id, at := range s.watched {

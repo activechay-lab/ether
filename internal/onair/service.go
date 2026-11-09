@@ -100,6 +100,7 @@ type renderJob struct {
 type Service struct {
 	liveJobs       []renderJob
 	liveReady      chan struct{}
+	upcomingWake   chan struct{}
 	activeCancel   context.CancelFunc
 	activeBoundary time.Time
 	activeHash     string
@@ -186,7 +187,7 @@ func New(o Options) (*Service, error) {
 		linkFail.Now = o.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, linkCache: map[string]linkEntry{}, reelClipIndex: map[string]reelClipMeta{}, linkChannels: map[string]map[string]bool{}, linkCancels: map[string]context.CancelFunc{}, manualLink: map[string]bool{}, linkFailLog: linkFail, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), upcomingWake: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, linkCache: map[string]linkEntry{}, reelClipIndex: map[string]reelClipMeta{}, linkChannels: map[string]map[string]bool{}, linkCancels: map[string]context.CancelFunc{}, manualLink: map[string]bool{}, linkFailLog: linkFail, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
 
 	if e := s.seed(ctx); e != nil {
 		cancel()
@@ -218,6 +219,17 @@ func New(o Options) (*Service, error) {
 	// channel's scenes at boot kept installs that never open Live TV
 	// rendering for hours after an upgrade invalidated the masters.
 	return s, nil
+}
+
+// WakeUpcoming signals watchUpcoming when viewer demand or look configuration starts.
+func (s *Service) WakeUpcoming() {
+	if s == nil || s.upcomingWake == nil {
+		return
+	}
+	select {
+	case s.upcomingWake <- struct{}{}:
+	default:
+	}
 }
 
 // Downloader returns the yt-dlp downloader shared with this service.
@@ -484,6 +496,7 @@ func (s *Service) RenderLead(look, moment string) time.Duration {
 }
 
 func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
+	s.WakeUpcoming()
 	if r.ReelClipID != "" {
 		s.ensureReelClip(r)
 		return
@@ -764,23 +777,60 @@ func (s *Service) queueLiveLocked(j renderJob) bool {
 
 func (s *Service) watchUpcoming() {
 	defer s.wg.Done()
-	tick := time.NewTicker(30 * time.Second)
-	defer tick.Stop()
-	for {
-		if ls, e := s.Looks(s.ctx); e == nil {
-			snapshot := map[string]Look{}
-			for _, l := range ls {
-				snapshot[l.ID] = l
+	var t *time.Timer
+	var timerCh <-chan time.Time
+	arm := func(d time.Duration) {
+		if t == nil {
+			t = time.NewTimer(d)
+		} else {
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
 			}
+			t.Reset(d)
+		}
+		timerCh = t.C
+	}
+	disarm := func() {
+		if t != nil {
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
+		}
+		timerCh = nil
+	}
+	defer disarm()
+	for {
+		// On a standalone server, s.looks is loaded in New() and updated by
+		// SaveLook/DeleteLook; only clustered servers need a database reload.
+		if s.o.Members != nil {
+			if ls, e := s.Looks(s.ctx); e == nil {
+				snapshot := map[string]Look{}
+				for _, l := range ls {
+					snapshot[l.ID] = l
+				}
+				s.mu.Lock()
+				s.looks = snapshot
+				s.evict()
+				s.evictLinksLocked("")
+				s.mu.Unlock()
+			}
+		} else {
 			s.mu.Lock()
-			s.looks = snapshot
-			s.evict()
+			if len(s.pins) > 0 {
+				s.evict()
+			}
 			s.evictLinksLocked("")
 			s.mu.Unlock()
 		}
+		wanted := map[string]bool{}
 		if s.o.Upcoming != nil {
 			requests := s.o.Upcoming(s.ctx)
-			wanted := map[string]bool{}
 			for _, r := range requests {
 				if r.ChannelID != "" {
 					wanted[r.ChannelID] = true
@@ -823,10 +873,19 @@ func (s *Service) watchUpcoming() {
 				s.CancelChannel(ch)
 			}
 		}
+		s.mu.Lock()
+		active := len(wanted) > 0 || len(s.pins) > 0 || s.o.Members != nil
+		s.mu.Unlock()
+		if active {
+			arm(30 * time.Second)
+		} else {
+			disarm()
+		}
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-tick.C:
+		case <-timerCh:
+		case <-s.upcomingWake:
 		}
 	}
 }

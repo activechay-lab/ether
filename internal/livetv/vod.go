@@ -93,27 +93,104 @@ type vodBody struct {
 
 func (b *vodBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
 
+func (s *Service) wakeVODLoop() {
+	if s.vodWake != nil {
+		select {
+		case s.vodWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *Service) xtreamVODSources(ctx context.Context) ([]Source, error) {
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT data FROM livetv_sources ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Source
+	for rows.Next() {
+		var b []byte
+		if err = rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		v, _, err := s.decodeSource(b)
+		if err != nil {
+			continue
+		}
+		if v.VOD && v.Auth != nil && v.Auth.Type == "xtream" {
+			out = append(out, v)
+		}
+	}
+	return out, rows.Err()
+}
+
+// waitVOD sleeps until the timer fires. A source-change wake re-arms the
+// timer on the old one-minute cadence instead of running at once: an import
+// must not race the owner's own immediate refresh or edit for the provider's
+// single connection (RefreshVOD's TryLock / the stream limit).
+func (s *Service) waitVOD(timer *time.Timer, d time.Duration) bool {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(d)
+	for {
+		select {
+		case <-s.ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		case <-s.vodWake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(time.Minute)
+		}
+	}
+}
+
 func (s *Service) vodLoop() {
 	defer s.wg.Done()
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
+	select {
+	case <-s.ctx.Done():
+		return
+	case <-timer.C:
+	}
 	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-timer.C:
+		sources, err := s.xtreamVODSources(s.ctx)
+		if err != nil {
+			if s.ctx.Err() != nil {
+				return
+			}
+			if !s.waitVOD(timer, time.Minute) {
+				return
+			}
+			continue
 		}
-		sources, err := s.Sources(s.ctx)
-		if err == nil {
-			for _, v := range sources {
-				if !v.VOD || v.Auth == nil || v.Auth.Type != "xtream" {
-					continue
+		if len(sources) == 0 && store.DialectOf(s.o.DB) == store.SQLite {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.vodWake:
+				if !s.waitVOD(timer, time.Minute) {
+					return
 				}
-				var next int64
-				_ = s.o.DB.QueryRowContext(s.ctx, `SELECT next FROM xtream_vod_refresh WHERE provider=?`, v.ID).Scan(&next)
-				if next > s.o.Now().Unix() {
-					continue
-				}
+				continue
+			}
+		}
+		var earliest int64
+		for _, v := range sources {
+			var next int64
+			_ = s.o.DB.QueryRowContext(s.ctx, `SELECT next FROM xtream_vod_refresh WHERE provider=?`, v.ID).Scan(&next)
+			if next <= s.o.Now().Unix() {
 				ctx, cancel := context.WithTimeout(s.ctx, 10*time.Minute)
 				err = s.RefreshVOD(ctx, v.ID)
 				cancel()
@@ -123,9 +200,20 @@ func (s *Service) vodLoop() {
 						s.recordVODFailure(s.ctx, v.ID, attempt.sourceData)
 					}
 				}
+				next = 0
+				_ = s.o.DB.QueryRowContext(s.ctx, `SELECT next FROM xtream_vod_refresh WHERE provider=?`, v.ID).Scan(&next)
+			}
+			if next > 0 && (earliest == 0 || next < earliest) {
+				earliest = next
 			}
 		}
-		timer.Reset(time.Minute)
+		wait := 5 * time.Minute
+		if earliest > 0 {
+			wait = max(time.Minute, time.Unix(earliest, 0).Sub(s.o.Now()))
+		}
+		if !s.waitVOD(timer, wait) {
+			return
+		}
 	}
 }
 
@@ -528,16 +616,8 @@ func (v *VODIndexer) hasVOD() bool {
 	if s == nil {
 		return false
 	}
-	sources, err := s.Sources(s.ctx)
-	if err != nil {
-		return false
-	}
-	for _, src := range sources {
-		if src.VOD && src.Auth != nil && src.Auth.Type == "xtream" {
-			return true
-		}
-	}
-	return false
+	sources, err := s.xtreamVODSources(s.ctx)
+	return err == nil && len(sources) > 0
 }
 func (v *VODIndexer) MissingSources() error {
 	if v.hasVOD() {
