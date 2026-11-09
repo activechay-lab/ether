@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import { Workspace } from "../../components/workspace";
 import type { AvailableRow, HomeLayout } from "../../lib/contract";
 import { EMPTY_LAYOUT, setPolicy, setStatuses, type LayerKey } from "../../lib/layout";
 import { RowPool } from "./RowPool";
@@ -138,7 +139,56 @@ describe("bulk row editing", () => {
       { row: "trending", status: "off" },
       { row: "fresh", status: "off" },
     ]);
-    expect(screen.queryByRole("toolbar", { name: "Selected rows" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
+  });
+
+  it("floats in the Workspace bottom overlay and clears via Done or Escape", () => {
+    render(
+      <MemoryRouter>
+        <Workspace
+          title="Home"
+          asideLabel="Designer controls"
+          mainLabel="Home preview"
+          aside={
+            <RowPool
+              draft={EMPTY_LAYOUT}
+              onChange={() => {}}
+              layer="global"
+              section="home"
+              viewers={[]}
+              available={picks}
+              focusRow={null}
+              onFocusRow={() => {}}
+            />
+          }
+          main={<div>Preview</div>}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
+    const bar = screen.getByRole("region", { name: "Selected rows" });
+    const aside = screen.getByRole("complementary", { name: "Designer controls" });
+    expect(aside.contains(bar)).toBe(false);
+    expect(within(bar).getByRole("status").textContent).toBe("1 selected");
+
+    // Clicking Done (Clear selection) clears the selection.
+    fireEvent.click(within(bar).getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
+
+    // Pressing Escape clears the selection when no dialog/drawer is open.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
+    expect(screen.getByRole("region", { name: "Selected rows" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
+  });
+
+  it("does not clear the selection on Escape while a drawer is open", () => {
+    render(<Harness initial={EMPTY_LAYOUT} available={picks} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add custom pattern" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("region", { name: "Selected rows" })).toBeTruthy();
   });
 
   it("selects a whole group and resets it to default", () => {
@@ -161,13 +211,13 @@ describe("bulk row editing", () => {
   it("clears the selection when the layer or what the list shows changes", () => {
     const { rerender } = render(<Harness initial={EMPTY_LAYOUT} available={picks} />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
-    expect(screen.getByRole("toolbar", { name: "Selected rows" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Selected rows" })).toBeTruthy();
     const filter = screen.getByRole("radiogroup", { name: "Show rows by status" });
     fireEvent.click(within(filter).getByRole("radio", { name: "Eligible" }));
-    expect(screen.queryByRole("toolbar", { name: "Selected rows" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
     rerender(<Harness initial={EMPTY_LAYOUT} available={picks} layer={7} />);
-    expect(screen.queryByRole("toolbar", { name: "Selected rows" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
   });
 
   it("starts a viewer's bulk overrides from Everyone's policy, like a single edit", () => {
@@ -223,7 +273,7 @@ describe("collection rows", () => {
     render(<Harness initial={EMPTY_LAYOUT} available={picks} />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
     fireEvent.click(screen.getByRole("button", { name: /^Picks for you/ }));
-    expect(screen.queryByRole("toolbar", { name: "Selected rows" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
   });
 
   it("turns a whole Collections group off row by row, without a pattern", () => {
@@ -362,5 +412,5 @@ it("does not bulk edit a selected row hidden by an inline status change", () => 
   fireEvent.click(screen.getByRole("checkbox", { name: "Select Trending" }));
   const status = screen.getByRole("radiogroup", { name: "Status of Trending" });
   fireEvent.click(within(status).getByRole("radio", { name: "Off" }));
-  expect(screen.queryByRole("toolbar", { name: "Selected rows" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Selected rows" })).toBeNull();
 });

@@ -1,8 +1,8 @@
 import { Button, Checkbox, Input, Popover } from "@braedonsaunders/appkit-ui";
-import { AppWindow, FolderInput, Power, PowerOff, Star, StarOff, X } from "lucide-react";
+import { AppWindow, FolderInput, Power, PowerOff, Star, StarOff } from "lucide-react";
 import { useId, useState } from "react";
+import { BulkBar } from "../../components/BulkBar";
 import { t } from "../../i18n";
-import { formatNumber } from "../../lib/format";
 import { LIVE_APPS, type LiveApp, liveAppName } from "./ChannelApps";
 
 export type ChannelPatch = {
@@ -73,21 +73,20 @@ export function ChannelBulkBar({
   const [group, setGroup] = useState("");
   const listId = useId();
   return (
-    <div
-      role="region"
-      aria-label={t("Channel actions")}
-      aria-busy={busy}
-      className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-xl border border-border-strong bg-surface p-2 shadow-xl"
+    <BulkBar
+      count={count}
+      busy={busy}
+      label={t("Channel actions")}
+      floating={false}
+      leading={
+        count < total ? (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onAll}>
+            {t("Select all matches")}
+          </Button>
+        ) : null
+      }
+      onClear={onClear}
     >
-      <span role="status" className="px-2 text-sm font-semibold tabular-nums">
-        {busy ? t("Saving…") : t("{count} selected", { count: formatNumber(count) })}
-      </span>
-      {count < total ? (
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onAll}>
-          {t("Select all matches")}
-        </Button>
-      ) : null}
-      <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
       <Button
         size="sm"
         variant="ghost"
@@ -233,16 +232,6 @@ export function ChannelBulkBar({
           </Button>
         </form>
       </Popover>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={busy}
-        aria-label={t("Clear selection")}
-        onClick={onClear}
-      >
-        <X size={15} />
-        {t("Done")}
-      </Button>
-    </div>
+    </BulkBar>
   );
 }

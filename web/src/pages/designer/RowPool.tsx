@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { newCollectionHref } from "../collections/links";
+import { BulkBar } from "../../components/BulkBar";
 import { Drawer } from "../../components/Drawer";
 import { Badge, Button, Checkbox, Input, cn } from "@braedonsaunders/appkit-ui";
 import {
@@ -10,7 +11,6 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Segmented } from "../../components/fields";
@@ -281,7 +281,10 @@ export function RowPool({
   const filtering = Boolean(needle) || filter !== "all";
   const statuses: RowStatus[] = ["always", "eligible", "off"];
   return (
-    <section className="space-y-2" aria-label={t("Row catalogue")}>
+    <section
+      className={cn("space-y-2", pickedRows.length > 0 && "pb-16")}
+      aria-label={t("Row catalogue")}
+    >
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
           {t("Row catalogue")}
@@ -320,52 +323,6 @@ export function RowPool({
           { value: "changed", label: layer === "global" ? t("Changed") : t("Overridden") },
         ]}
       />
-      {pickedRows.length ? (
-        <div
-          role="toolbar"
-          aria-label={t("Selected rows")}
-          className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-primary/40 bg-surface p-2 shadow-sm"
-        >
-          <span className="text-xs font-medium text-fg">
-            {t("{count} selected", { count: formatNumber(pickedRows.length) })}
-          </span>
-          <span className="flex-1" />
-          {statuses.map((s) => (
-            <Button
-              key={s}
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              aria-label={t("Set the selected rows to {status}", { status: STATUS_LABEL[s] })}
-              onClick={() => bulk(s)}
-            >
-              {STATUS_LABEL[s]}
-            </Button>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            aria-label={
-              layer === "global"
-                ? t("Set the selected rows back to default")
-                : t("Reset the selected rows to Everyone")
-            }
-            onClick={() => bulk(null)}
-          >
-            <RotateCcw size={12} /> {layer === "global" ? t("Default") : t("Reset to Everyone")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("Clear selection")}
-            onClick={() => setPicked(new Set())}
-          >
-            <X size={14} />
-          </Button>
-        </div>
-      ) : null}
       <Link
         to={newCollectionHref({ source: "addonCatalog" })}
         className="block rounded-lg border border-border bg-surface p-3 text-sm text-primary"
@@ -485,6 +442,37 @@ export function RowPool({
       >
         <Plus size={14} /> {t("Add custom pattern")}
       </Button>
+      {pickedRows.length ? (
+        <BulkBar
+          count={pickedRows.length}
+          label={t("Selected rows")}
+          onClear={() => setPicked(new Set())}
+        >
+          {statuses.map((s) => (
+            <Button
+              key={s}
+              variant="ghost"
+              size="sm"
+              aria-label={t("Set the selected rows to {status}", { status: STATUS_LABEL[s] })}
+              onClick={() => bulk(s)}
+            >
+              {STATUS_LABEL[s]}
+            </Button>
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={
+              layer === "global"
+                ? t("Set the selected rows back to default")
+                : t("Reset the selected rows to Everyone")
+            }
+            onClick={() => bulk(null)}
+          >
+            <RotateCcw size={14} /> {layer === "global" ? t("Default") : t("Reset to Everyone")}
+          </Button>
+        </BulkBar>
+      ) : null}
       <Drawer
         open={patternOpen}
         onClose={() => {
