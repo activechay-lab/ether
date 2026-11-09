@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"errors"
@@ -331,4 +332,39 @@ func TestSeasonArchiveCourMatchesThroughAbsoluteNumber(t *testing.T) {
 			t.Fatalf("Open = %v, want ErrNoPlayableFile", err)
 		}
 	})
+}
+
+// A season held in one store-mode ZIP plays the requested episode, not the
+// largest member.
+func TestSeasonInOneZIPPlaysTheRequestedEpisode(t *testing.T) {
+	names := []string{"Show 1x01 A.mkv", "Show 1x02 B.mkv", "Show 1x03 C.mkv"}
+	data := make([][]byte, len(names))
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for i, n := range names {
+		data[i] = mkvBytes(uint64(30+i), 600_000+i*50_000)
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: n, Method: zip.Store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(data[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeFetcher()
+	pack := post(t, f, 50_000, postFile{name: "q9Zr7Tb2Wc8Hn4Jd.zip", data: buf.Bytes()})
+	for ep := 1; ep <= 3; ep++ {
+		doc, err := debrid.EpisodeNZB(pack, &core.ReleaseTarget{Season: 1, Episode: ep})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+		src := openSource(t, e, fmt.Sprintf("zip%d", ep), doc)
+		if src.Name() != names[ep-1] || !bytes.Equal(readAll(t, src, 32<<10), data[ep-1]) {
+			t.Fatalf("episode %d played %q, want %q", ep, src.Name(), names[ep-1])
+		}
+	}
 }
