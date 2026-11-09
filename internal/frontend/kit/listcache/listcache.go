@@ -47,6 +47,14 @@ const (
 	// Revalidate is the age, or a catalogue write, after which a served
 	// listing is rebuilt behind the response.
 	Revalidate = 2 * time.Minute
+	// rebuildFloor is the youngest age at which a catalogue write alone
+	// revalidates a listing. Without it a catalogue scan, whose writes
+	// move the generation under every poll, queues another whole-library
+	// build behind every response for as long as the scan runs.
+	rebuildFloor = 30 * time.Second
+	// maxBuilds bounds listings encoding at once across every slot, so a
+	// burst of cold slots cannot fan out into unbounded parallel builds.
+	maxBuilds = 2
 	// RenewEvery is how often a listing's artwork is re-armed for one
 	// credential. Image grants live ten minutes.
 	RenewEvery = 4 * time.Minute
@@ -132,6 +140,8 @@ type Store struct {
 	busy   atomic.Int64
 	// spec runs one speculative build or compression at a time.
 	spec chan struct{}
+	// builds bounds every encoding build, foreground included.
+	builds chan struct{}
 
 	mu       sync.Mutex
 	ready    map[string]*Entry
@@ -154,7 +164,7 @@ func New(dir string) *Store {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Store{dir: dir, now: time.Now, ctx: ctx, cancel: cancel, spec: make(chan struct{}, 1),
+	return &Store{dir: dir, now: time.Now, ctx: ctx, cancel: cancel, spec: make(chan struct{}, 1), builds: make(chan struct{}, maxBuilds),
 		ready: map[string]*Entry{}, building: map[string]*Entry{}, uses: map[string]*use{}}
 }
 
@@ -264,7 +274,8 @@ func (s *Store) acquire(req Request) (ready, follow *Entry, stale bool) {
 		e.lastUsed = now.At
 		s.servedLocked(req.Slot, now.At)
 		b := s.building[req.Slot]
-		stale = (e.state.Catalog != now.Catalog || now.At.Sub(e.state.At) >= Revalidate) && (b == nil || !followable(b, now))
+		age := now.At.Sub(e.state.At)
+		stale = (age >= Revalidate || (e.state.Catalog != now.Catalog && age >= rebuildFloor)) && (b == nil || !followable(b, now))
 		return e, nil, stale
 	}
 	if b := s.building[req.Slot]; b != nil && followable(b, now) {
@@ -294,7 +305,7 @@ func (s *Store) wanted(req Request) bool {
 	if b := s.building[req.Slot]; b != nil && followable(b, now) {
 		return false
 	}
-	if e := s.ready[req.Slot]; e != nil && servable(e, now) && e.state.Catalog == now.Catalog && now.At.Sub(e.state.At) < Revalidate {
+	if e := s.ready[req.Slot]; e != nil && servable(e, now) && now.At.Sub(e.state.At) < Revalidate && (e.state.Catalog == now.Catalog || now.At.Sub(e.state.At) < rebuildFloor) {
 		return false
 	}
 	u := s.uses[req.Slot]
@@ -345,6 +356,15 @@ func (s *Store) begin(req Request, speculative bool) *Entry {
 		e.removeFiles()
 		return nil
 	}
+	// Single-flight: a concurrent begin may have registered a build this
+	// request can follow while these files were being created. Follow it
+	// instead of orphaning a second whole-library build for the slot.
+	if b := s.building[req.Slot]; b != nil && b != e && followable(b, req.State) {
+		e.closeFiles()
+		e.removeFiles()
+		b.refs++
+		return b
+	}
 	s.building[req.Slot] = e
 	s.busy.Add(1)
 	s.wg.Add(1)
@@ -385,7 +405,16 @@ func (s *Store) run(e *Entry) {
 	ctx, cancel := context.WithTimeout(s.ctx, buildLimit)
 	err := ctx.Err()
 	if err == nil {
-		err = e.safeBuild(reqmemo.With(ctx))
+		// Bound encoding across every slot: followers wait on this
+		// build either way, so queuing here only delays their first
+		// byte when the machine is already saturated.
+		select {
+		case s.builds <- struct{}{}:
+			err = e.safeBuild(reqmemo.With(ctx))
+			<-s.builds
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
 	}
 	cancel()
 	if err == nil {

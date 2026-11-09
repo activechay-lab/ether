@@ -106,8 +106,10 @@ func TestListingLifecycle(t *testing.T) {
 		t.Fatal("served a listing built under another stamp")
 	}
 	settle(t, s)
-	// A catalogue write: an unjudged listing is served within the bound and
-	// rebuilt behind it; past the bound it is not served.
+	// A catalogue write once the listing is past the rebuild floor: an
+	// unjudged listing is served within the bound and rebuilt behind it;
+	// past the bound it is not served.
+	clock.Add(int64(time.Minute))
 	if stale := serve(t, s, req("b", 2, false), nil); stale.Header().Get("ETag") != w.Header().Get("ETag") {
 		t.Fatal("unjudged listing not served within its bound")
 	}
@@ -155,4 +157,129 @@ func TestListingLifecycle(t *testing.T) {
 	if !acceptsGzip("deflate, gzip;q=0.5") || acceptsGzip("gzip;q=0, *") || !acceptsGzip("*") || acceptsGzip("") {
 		t.Fatal("Accept-Encoding negotiation")
 	}
+}
+
+// Catalogue writes during a scan must not queue another whole-library build
+// behind every poll: a listing younger than the rebuild floor is served
+// without revalidating, however often the catalogue generation moves.
+func TestCatalogueChurnDoesNotRebuildHotListing(t *testing.T) {
+	s := New(t.TempDir())
+	t.Cleanup(s.Close)
+	var clock atomic.Int64
+	clock.Store(time.Unix(1_800_000_000, 0).UnixNano())
+	s.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	var built atomic.Int64
+	req := func(catalog uint64) Request {
+		return Request{Slot: "movie", State: State{Stamp: "a", Catalog: catalog, At: s.now()}, Owner: "device",
+			Build: func(_ context.Context, e *Entry) error {
+				built.Add(1)
+				_, err := io.WriteString(e, "[]")
+				return err
+			}}
+	}
+	serve(t, s, req(1), nil)
+	settle(t, s)
+	// The catalogue generation moves under every poll, seconds apart.
+	for gen := uint64(2); gen <= 6; gen++ {
+		clock.Add(int64(5 * time.Second))
+		serve(t, s, req(gen), nil)
+		settle(t, s)
+	}
+	if built.Load() != 1 {
+		t.Fatalf("catalogue churn rebuilt a hot listing: %d builds", built.Load())
+	}
+	// Once the listing is old enough, one write revalidates it once.
+	clock.Add(int64(Revalidate))
+	serve(t, s, req(7), nil)
+	settle(t, s)
+	if built.Load() != 2 {
+		t.Fatalf("aged listing not revalidated: %d builds", built.Load())
+	}
+}
+
+// Concurrent cold requests for one slot follow a single build.
+func TestConcurrentColdServesBuildOnce(t *testing.T) {
+	s := New(t.TempDir())
+	t.Cleanup(s.Close)
+	var built atomic.Int64
+	releaseBuild := make(chan struct{})
+	req := Request{Slot: "movie", State: State{Stamp: "a", Catalog: 1, At: s.now()}, Owner: "device",
+		Build: func(_ context.Context, e *Entry) error {
+			built.Add(1)
+			<-releaseBuild
+			_, err := io.WriteString(e, "[]")
+			return err
+		}}
+	const n = 16
+	done := make(chan *httptest.ResponseRecorder, n)
+	for range n {
+		go func() {
+			w := httptest.NewRecorder()
+			if !s.Serve(w, httptest.NewRequest("GET", "/list", nil), req) {
+				w.Body.WriteString("declined")
+			}
+			done <- w
+		}()
+	}
+	// Let every request reach the build before it can finish.
+	for deadline := time.Now().Add(10 * time.Second); built.Load() == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("no build started")
+		}
+	}
+	close(releaseBuild)
+	for range n {
+		if w := <-done; w.Body.String() != "[]" {
+			t.Fatalf("cold serve body %q", w.Body.String())
+		}
+	}
+	settle(t, s)
+	if built.Load() != 1 {
+		t.Fatalf("concurrent cold serves built %d listings", built.Load())
+	}
+}
+
+// Builds for distinct slots do not all encode at once.
+func TestBuildsAreBounded(t *testing.T) {
+	s := New(t.TempDir())
+	t.Cleanup(s.Close)
+	var live, peak atomic.Int64
+	releaseBuild := make(chan struct{})
+	build := func(_ context.Context, e *Entry) error {
+		cur := live.Add(1)
+		for p := peak.Load(); cur > p && !peak.CompareAndSwap(p, cur); p = peak.Load() {
+		}
+		<-releaseBuild
+		live.Add(-1)
+		_, err := io.WriteString(e, "[]")
+		return err
+	}
+	const n = 6
+	done := make(chan *httptest.ResponseRecorder, n)
+	for i := range n {
+		req := Request{Slot: "slot-" + string(rune('a'+i)), State: State{Stamp: "a", Catalog: 1, At: s.now()}, Owner: "device", Build: build}
+		go func() {
+			w := httptest.NewRecorder()
+			if !s.Serve(w, httptest.NewRequest("GET", "/list", nil), req) {
+				w.Body.WriteString("declined")
+			}
+			done <- w
+		}()
+	}
+	for deadline := time.Now().Add(10 * time.Second); live.Load() == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("no build started")
+		}
+	}
+	// Give queued builds a chance to (wrongly) start, then release all.
+	time.Sleep(50 * time.Millisecond)
+	got := peak.Load()
+	close(releaseBuild)
+	if got > 2 {
+		t.Fatalf("%d builds encoded at once, bound is 2", got)
+	}
+	for range n {
+		<-done
+	}
+	settle(t, s)
 }
