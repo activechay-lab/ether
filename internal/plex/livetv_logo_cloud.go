@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/livetv"
-	"github.com/braedonsaunders/ether/internal/remote"
 )
 
 // Plex for Apple TV draws guide channel logos only from URLs that Plex's
@@ -71,10 +71,10 @@ func publicLogoURL(raw string) bool {
 	}
 	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
 	if ip := net.ParseIP(host); ip != nil {
-		return remote.IsPublicIP(ip)
+		return clientnet.IsPublicIP(ip)
 	}
-	if ip, _, ok := remote.ParsePlexDirectHost(host); ok {
-		return remote.IsPublicIP(ip)
+	if ip, _, ok := clientnet.ParsePlexDirectHost(host); ok {
+		return clientnet.IsPublicIP(ip)
 	}
 	if !strings.Contains(host, ".") {
 		return false

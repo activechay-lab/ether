@@ -9,6 +9,8 @@ import (
 	"net"
 	"sort"
 	"strings"
+
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 )
 
 // virtualPrefixes are interface name prefixes of container bridges, VPN
@@ -176,5 +178,5 @@ func rankIP(ip net.IP) int {
 
 // IsPublicIP reports whether ip is a globally routable unicast address.
 func IsPublicIP(ip net.IP) bool {
-	return ip != nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && UsableLANIP(ip)
+	return clientnet.IsPublicIP(ip)
 }
