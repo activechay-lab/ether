@@ -2,7 +2,6 @@ package experience
 
 import (
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -21,8 +20,8 @@ func SelectCinemaTrailers(feature core.RatingKey, candidates []CinemaCandidate, 
 	if limit <= 0 {
 		return nil
 	}
-	if limit > extras.MaxExtras {
-		limit = extras.MaxExtras
+	if limit > frontend.MaxExtras {
+		limit = frontend.MaxExtras
 	}
 	var out []frontend.Extra
 	checked := 0

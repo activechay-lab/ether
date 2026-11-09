@@ -164,7 +164,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	if a.support != nil {
 		deps.Support = a.support
 	}
-	deps.Extras = a.extras
+	deps.Extras = newPlexExtras(a.extras)
 	deps.Prerolls = a.prerollProvider()
 	deps.Trickplay = a.trickplay.Borrow()
 	a.wirePlexPolicy(&deps)

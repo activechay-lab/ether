@@ -16,35 +16,28 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/extras"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // Extras (trailers and other clips) and Cinema Trailers. Extras never go
 // through the Usenet playback manager: they resolve to a direct URL or a
-// local file (see internal/extras) and are remuxed/transcoded like any
-// other transcode session, or direct-played through the part proxy.
+// local file and are remuxed/transcoded like any other transcode session,
+// or direct-played through the part proxy.
 // While a trailer plays, the feature behind it is prewarmed so it starts
 // instantly when the trailer ends.
 
-// ExtrasProvider is the extras service surface the front end needs
-// (*extras.Service satisfies it).
-type ExtrasProvider interface {
-	Enabled() bool
-	List(ctx context.Context, parent *core.Title, lang string) ([]extras.Extra, error)
-	Lookup(key core.RatingKey) (extras.Extra, bool)
-	Resolve(ctx context.Context, e extras.Extra) (extras.Resolved, error)
-	PrewarmBytes() int64
-}
+// ExtrasProvider is the extras service surface the front end needs.
+type ExtrasProvider = frontend.ExtrasProvider
 
 // extraSession is one resolved extra playback (decision + transcode).
 type extraSession struct {
 	id        string
 	userID    int64
 	clientID  string
-	extra     extras.Extra
-	resolved  extras.Resolved
+	extra     frontend.ExtraClip
+	resolved  frontend.ResolvedExtra
 	info      core.MediaInfo
 	decision  core.Decision
 	caps      core.ClientCaps
@@ -129,7 +122,7 @@ func (s *Server) viewerLanguage(pr *Request) string {
 
 // extrasFor lists a title's playable extras, honouring the extraTypes
 // filter (comma-separated Plex numeric types) when present.
-func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *core.Title, extraTypes string) []extras.Extra {
+func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *core.Title, extraTypes string) []frontend.ExtraClip {
 	want := map[int]bool{}
 	for _, part := range strings.Split(extraTypes, ",") {
 		if n, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
@@ -146,7 +139,7 @@ func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *core.Title,
 
 // extraEstimateInfo is the virtual media info of an extra before (or
 // without) a probe: hosted trailers are overwhelmingly H.264/AAC MP4.
-func extraEstimateInfo(e extras.Extra) core.MediaInfo {
+func extraEstimateInfo(e frontend.ExtraClip) core.MediaInfo {
 	h := e.Size
 	if h <= 0 {
 		h = 720
@@ -163,7 +156,7 @@ func extraEstimateInfo(e extras.Extra) core.MediaInfo {
 
 // extraMetadata renders one extra as PMS does: a clip Video with a
 // subtype and numeric extra type, carrying a single Media/Part.
-func (s *Server) extraMetadata(e extras.Extra, parent *core.Title, withMedia bool) model.Metadata {
+func (s *Server) extraMetadata(e frontend.ExtraClip, parent *core.Title, withMedia bool) model.Metadata {
 	if e.Source == prerollSource {
 		return s.prerollMetadata(e, core.PrerollClip{UpdatedAt: e.PublishedAt}, false)
 	}
@@ -336,7 +329,7 @@ func (s *Server) handleExtraPlayback(w http.ResponseWriter, r *http.Request) boo
 }
 
 // serveExtraPlayback runs an authorized extra's decision or start request.
-func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *Request, key core.RatingKey, e extras.Extra, parent *core.Title) {
+func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *Request, key core.RatingKey, e frontend.ExtraClip, parent *core.Title) {
 	ctx := r.Context()
 	p := s.parseExtraPlayRequest(r, key)
 	if policy, ok := s.d.AccessPolicy.(core.BitrateAccessPolicy); ok {
@@ -364,7 +357,7 @@ func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *
 
 // prepareExtra resolves, probes (when possible) and decides an extra,
 // recording the session for the start endpoints and transcode stop.
-func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, e extras.Extra) (*extraSession, error) {
+func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, e frontend.ExtraClip) (*extraSession, error) {
 	if !s.transcodes.claim(p.sessionID, pr.User.ID, pr.ClientID, s.now()) {
 		return nil, core.ErrUnauthorized
 	}
@@ -412,21 +405,21 @@ func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, 
 
 // resolveExtra returns an extra's playable input; a pre-roll is its
 // converted local MP4.
-func (s *Server) resolveExtra(ctx context.Context, e extras.Extra) (extras.Resolved, error) {
+func (s *Server) resolveExtra(ctx context.Context, e frontend.ExtraClip) (frontend.ResolvedExtra, error) {
 	if e.Source == prerollSource {
 		if s.d.Prerolls == nil {
-			return extras.Resolved{}, core.ErrNotFound
+			return frontend.ResolvedExtra{}, core.ErrNotFound
 		}
 		clip, ok := s.d.Prerolls.Clip(ctx, e.Key)
 		if !ok {
-			return extras.Resolved{}, core.ErrNotFound
+			return frontend.ResolvedExtra{}, core.ErrNotFound
 		}
-		return extras.Resolved{URL: clip.Path, Container: "mp4"}, nil
+		return frontend.ResolvedExtra{URL: clip.Path, Container: "mp4"}, nil
 	}
 	return s.d.Extras.Resolve(ctx, e)
 }
 
-func (s *Server) extraSessionFor(ctx context.Context, pr *Request, p *playRequest, e extras.Extra) (*extraSession, error) {
+func (s *Server) extraSessionFor(ctx context.Context, pr *Request, p *playRequest, e frontend.ExtraClip) (*extraSession, error) {
 	if s.extraPlay != nil {
 		if sess, ok := s.extraPlay.get(p.sessionID); ok && sess.extra.Key == e.Key && sess.userID == pr.User.ID {
 			if sess.resolved.Expires.IsZero() || s.now().Before(sess.resolved.Expires) {
@@ -437,7 +430,7 @@ func (s *Server) extraSessionFor(ctx context.Context, pr *Request, p *playReques
 	return s.prepareExtra(ctx, pr, p, e)
 }
 
-func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e extras.Extra, parent *core.Title) {
+func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *core.Title) {
 	ctx := r.Context()
 	sess, err := s.prepareExtra(ctx, pr, &p, e)
 	if err != nil {
@@ -489,7 +482,7 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 	s.write(w, r, mc)
 }
 
-func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e extras.Extra, parent *core.Title, dash bool) {
+func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *core.Title, dash bool) {
 	ctx := r.Context()
 	if s.d.Transcoder == nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
@@ -664,7 +657,7 @@ func (s *Server) handleExtraPart(w http.ResponseWriter, r *http.Request) bool {
 // featureForExtra finds the feature an extra is masking: the first
 // non-extra playable item after it in the viewer's play queue (a Cinema
 // Trailer's feature), else the extra's own parent when playable.
-func (s *Server) featureForExtra(pr *Request, e extras.Extra) core.RatingKey {
+func (s *Server) featureForExtra(pr *Request, e frontend.ExtraClip) core.RatingKey {
 	if pr.User != nil && s.queues != nil {
 		if key := s.queues.FollowingPlayable(pr.User.ID, e.Key, isPlayableKey); key != 0 {
 			return key
@@ -705,8 +698,8 @@ func (s *Server) cinemaTrailerKeys(ctx context.Context, pr *Request, feature cor
 	if n <= 0 || s.d.Extras == nil || !s.d.Extras.Enabled() || s.d.Catalog == nil {
 		return nil
 	}
-	if n > extras.MaxExtras {
-		n = extras.MaxExtras
+	if n > frontend.MaxExtras {
+		n = frontend.MaxExtras
 	}
 	candidates, err := s.recommendationCandidates(ctx, pr.User, 24, func(ctx context.Context, fetch int) ([]core.Title, error) {
 		items, err := s.d.Catalog.Similar(ctx, feature, fetch)

@@ -6,7 +6,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -16,19 +15,19 @@ import (
 // the feature's startup by pre-buffering it while they play. With no
 // pre-roll configured, nothing here changes a response.
 
-// prerollSource marks an extras.Extra built from a pre-roll.
+// prerollSource marks a frontend.ExtraClip built from a pre-roll.
 const prerollSource = "preroll"
 
 // prerollExtra returns a ready pre-roll as an extra.
-func (s *Server) prerollExtra(ctx context.Context, key frontend.RatingKey) (extras.Extra, frontend.PrerollClip, bool) {
+func (s *Server) prerollExtra(ctx context.Context, key frontend.RatingKey) (frontend.ExtraClip, frontend.PrerollClip, bool) {
 	if s.d.Prerolls == nil || !key.IsPreroll() {
-		return extras.Extra{}, frontend.PrerollClip{}, false
+		return frontend.ExtraClip{}, frontend.PrerollClip{}, false
 	}
 	clip, ok := s.d.Prerolls.Clip(ctx, key)
 	if !ok {
-		return extras.Extra{}, frontend.PrerollClip{}, false
+		return frontend.ExtraClip{}, frontend.PrerollClip{}, false
 	}
-	return extras.Extra{
+	return frontend.ExtraClip{
 		Key: clip.Key, Title: clip.Name, Subtype: "trailer", ExtraType: 1,
 		Duration: clip.Duration, Size: clip.Height, Source: prerollSource,
 		Official: true, PublishedAt: clip.UpdatedAt,
@@ -53,7 +52,7 @@ func prerollStamp(clip frontend.PrerollClip) string {
 
 // prerollMetadata renders a pre-roll as a trailer clip with its own
 // thumbnail; it has no parent.
-func (s *Server) prerollMetadata(e extras.Extra, clip frontend.PrerollClip, withMedia bool) model.Metadata {
+func (s *Server) prerollMetadata(e frontend.ExtraClip, clip frontend.PrerollClip, withMedia bool) model.Metadata {
 	key := e.Key.String()
 	thumb := "/library/metadata/" + key + "/thumb/" + prerollStamp(clip)
 	md := model.Metadata{
@@ -125,7 +124,7 @@ func (s *Server) prerollPart(w http.ResponseWriter, r *http.Request, key fronten
 }
 
 // prerollStarted records the play against the feature it precedes.
-func (s *Server) prerollStarted(ctx context.Context, pr *Request, e extras.Extra) {
+func (s *Server) prerollStarted(ctx context.Context, pr *Request, e frontend.ExtraClip) {
 	if e.Source != prerollSource || s.d.Prerolls == nil || pr.User == nil {
 		return
 	}

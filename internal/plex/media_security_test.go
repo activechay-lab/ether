@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/braedonsaunders/ether/internal/extras"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 func assertPassiveMedia(t *testing.T, rec *httptest.ResponseRecorder) {
@@ -65,7 +65,7 @@ func TestExtraPartActiveContentIsSandboxed(t *testing.T) {
 				_, _ = w.Write([]byte(body))
 			}))
 			defer upstream.Close()
-			ex.resolved = extras.Resolved{URL: upstream.URL + "/trailer.mp4", Container: "mp4"}
+			ex.resolved = frontend.ResolvedExtra{URL: upstream.URL + "/trailer.mp4", Container: "mp4"}
 			rec := f.request(t, http.MethodGet, "/library/parts/"+fightClubTrailer.Key.String()+"/1/file.mp4?X-Plex-Token="+friendToken, map[string]string{"X-Plex-Token": ""})
 			if rec.Code != http.StatusOK || rec.Body.String() != body || rec.Header().Get("Content-Type") != ct {
 				t.Fatalf("extra upstream body not reached: %d %v %q", rec.Code, rec.Header(), rec.Body.String())

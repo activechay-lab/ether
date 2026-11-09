@@ -11,19 +11,19 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/extras"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // fakeExtrasProvider is an in-memory ExtrasProvider for front-end tests.
 type fakeExtrasProvider struct {
 	enabled  bool
-	byParent map[core.RatingKey][]extras.Extra
-	byKey    map[core.RatingKey]extras.Extra
-	resolved extras.Resolved
+	byParent map[core.RatingKey][]frontend.ExtraClip
+	byKey    map[core.RatingKey]frontend.ExtraClip
+	resolved frontend.ResolvedExtra
 }
 
-func newFakeExtras(list ...extras.Extra) *fakeExtrasProvider {
-	f := &fakeExtrasProvider{enabled: true, byParent: map[core.RatingKey][]extras.Extra{}, byKey: map[core.RatingKey]extras.Extra{}}
+func newFakeExtras(list ...frontend.ExtraClip) *fakeExtrasProvider {
+	f := &fakeExtrasProvider{enabled: true, byParent: map[core.RatingKey][]frontend.ExtraClip{}, byKey: map[core.RatingKey]frontend.ExtraClip{}}
 	for _, e := range list {
 		f.byParent[e.ParentKey] = append(f.byParent[e.ParentKey], e)
 		f.byKey[e.Key] = e
@@ -32,17 +32,17 @@ func newFakeExtras(list ...extras.Extra) *fakeExtrasProvider {
 }
 
 func (f *fakeExtrasProvider) Enabled() bool { return f.enabled }
-func (f *fakeExtrasProvider) List(_ context.Context, parent *core.Title, _ string) ([]extras.Extra, error) {
+func (f *fakeExtrasProvider) List(_ context.Context, parent *core.Title, _ string) ([]frontend.ExtraClip, error) {
 	if !f.enabled {
 		return nil, nil
 	}
-	return append([]extras.Extra(nil), f.byParent[parent.Key]...), nil
+	return append([]frontend.ExtraClip(nil), f.byParent[parent.Key]...), nil
 }
-func (f *fakeExtrasProvider) Lookup(k core.RatingKey) (extras.Extra, bool) {
+func (f *fakeExtrasProvider) Lookup(k core.RatingKey) (frontend.ExtraClip, bool) {
 	e, ok := f.byKey[k]
 	return e, ok
 }
-func (f *fakeExtrasProvider) Resolve(_ context.Context, _ extras.Extra) (extras.Resolved, error) {
+func (f *fakeExtrasProvider) Resolve(_ context.Context, _ frontend.ExtraClip) (frontend.ResolvedExtra, error) {
 	return f.resolved, nil
 }
 func (f *fakeExtrasProvider) PrewarmBytes() int64 { return 48 << 20 }
@@ -73,22 +73,22 @@ func (p *warmingPlayback) count() int {
 }
 
 var (
-	fightClubTrailer = extras.Extra{
+	fightClubTrailer = frontend.ExtraClip{
 		Key: core.ExtraKey(101), ParentKey: fightClub.Key, ParentTitle: fightClub.Title,
 		Title: "Fjord Harbor Trailer", Subtype: "trailer", ExtraType: 1,
 		Site: "YouTube", SiteKey: "vKQi3bBA1y8", Language: "en", Official: true,
-		Size: 1080, Duration: 2 * time.Minute, Source: extras.SourceCommand,
+		Size: 1080, Duration: 2 * time.Minute, Source: frontend.ExtraSourceCommand,
 	}
-	fightClubFeaturette = extras.Extra{
+	fightClubFeaturette = frontend.ExtraClip{
 		Key: core.ExtraKey(102), ParentKey: fightClub.Key, ParentTitle: fightClub.Title,
 		Title: "Making Fjord Harbor", Subtype: "featurette", ExtraType: 6,
-		Site: "Vimeo", SiteKey: "123456789", Language: "en", Source: extras.SourceCommand,
+		Site: "Vimeo", SiteKey: "123456789", Language: "en", Source: frontend.ExtraSourceCommand,
 	}
-	alienTrailer = extras.Extra{
+	alienTrailer = frontend.ExtraClip{
 		Key: core.ExtraKey(103), ParentKey: alien.Key, ParentTitle: alien.Title,
 		Title: "Alien Trailer", Subtype: "trailer", ExtraType: 1,
 		Site: "YouTube", SiteKey: "LjLamj-b0I8", Language: "en", Official: true,
-		Size: 720, Duration: time.Minute, Source: extras.SourceCommand,
+		Size: 720, Duration: time.Minute, Source: frontend.ExtraSourceCommand,
 	}
 )
 
@@ -97,7 +97,7 @@ func extrasFixture(t *testing.T) (*fixture, *fakeExtrasProvider, *warmingPlaybac
 	f := newFixture()
 	t.Cleanup(func() { f.srv.Close() })
 	ex := newFakeExtras(fightClubTrailer, fightClubFeaturette, alienTrailer)
-	ex.resolved = extras.Resolved{URL: "https://cdn.example/trailer.mp4", Container: "mp4"}
+	ex.resolved = frontend.ResolvedExtra{URL: "https://cdn.example/trailer.mp4", Container: "mp4"}
 	wp := &warmingPlayback{fakePlayback: f.playback}
 	f.srv.d.Extras = ex
 	f.srv.d.Playback = wp
@@ -237,7 +237,7 @@ func TestExtraPartProxyRange(t *testing.T) {
 		http.ServeContent(w, r, "trailer.mp4", fixedNow, bytes.NewReader(data))
 	}))
 	defer media.Close()
-	ex.resolved = extras.Resolved{URL: media.URL + "/trailer.mp4", Container: "mp4"}
+	ex.resolved = frontend.ResolvedExtra{URL: media.URL + "/trailer.mp4", Container: "mp4"}
 	rec := f.request(t, http.MethodGet, "/library/parts/"+fightClubTrailer.Key.String()+"/1/file.mp4", map[string]string{"Range": "bytes=2-5"})
 	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" {
 		t.Fatalf("range proxy: %d %q", rec.Code, rec.Body.String())
