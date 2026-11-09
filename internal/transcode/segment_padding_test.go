@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,13 +26,19 @@ func TestIntegrationSlowSegmentIsPadded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The source answers its first request late: segment 0 is not ready
-	// for about 2.5 s.
-	var slow atomic.Bool
+	// The source holds every request until the player has seen padding, so
+	// segment 0 cannot be ready before padding starts, however fast the
+	// host. StartHLS's own bounded preflight reads give up on their
+	// deadlines and keep the copy.
+	var release atomic.Pointer[chan struct{}]
 	files := http.FileServer(http.Dir(e.dir))
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if slow.CompareAndSwap(true, false) {
-			time.Sleep(2500 * time.Millisecond)
+		if held := release.Load(); held != nil {
+			select {
+			case <-*held:
+			case <-r.Context().Done():
+				return
+			}
 		}
 		files.ServeHTTP(w, r)
 	}))
@@ -41,7 +48,11 @@ func TestIntegrationSlowSegmentIsPadded(t *testing.T) {
 		unit      []byte
 	}{{ContainerMPEGTS, tsNullPacket}, {ContainerFMP4, fmp4FreeBox}} {
 		t.Run(c.container, func(t *testing.T) {
-			slow.Store(true)
+			held := make(chan struct{})
+			release.Store(&held)
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(held) }) }
+			defer unblock()
 			d := core.Decision{Kind: core.DecisionRemux, Container: c.container, VideoCopy: true, AudioCopy: true, AudioStream: 1}
 			hs, err := e.m.StartHLS(context.Background(), core.HLSRequest{SessionID: "pad-" + c.container, InputURL: source.URL + "/pad.mkv", Info: *info, Decision: d})
 			if err != nil {
@@ -50,7 +61,6 @@ func TestIntegrationSlowSegmentIsPadded(t *testing.T) {
 			defer hs.Close()
 			client := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hs.ServeSegment(w, r, 0) }))
 			defer client.Close()
-			start := time.Now()
 			resp, err := http.Get(client.URL)
 			if err != nil {
 				t.Fatal(err)
@@ -60,9 +70,12 @@ func TestIntegrationSlowSegmentIsPadded(t *testing.T) {
 			if _, err := io.ReadFull(resp.Body, first); err != nil {
 				t.Fatal(err)
 			}
-			if wait := time.Since(start); wait > 2*time.Second || !bytes.Equal(first, c.unit) {
-				t.Fatalf("first bytes after %v: % x", wait, first[:8])
+			if !bytes.Equal(first, c.unit) {
+				t.Fatalf("first bytes while the segment is held: % x", first[:8])
 			}
+			// The player has padding; now let the segment be produced.
+			unblock()
+			release.Store(nil)
 			if resp.StatusCode != 200 || resp.ContentLength != -1 || resp.Header.Get("Accept-Ranges") != "none" {
 				t.Fatalf("padded response: %d length %d ranges %q", resp.StatusCode, resp.ContentLength, resp.Header.Get("Accept-Ranges"))
 			}
