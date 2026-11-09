@@ -83,11 +83,10 @@ func countRowWrites(t *testing.T, db *sql.DB, table string) func() int64 {
 	}
 }
 
-func bigGuide(channels, perChannel int, rating func(ch, i int) string) (string, string) {
+func bigGuide(base time.Time, channels, perChannel int, rating func(ch, i int) string) (string, string) {
 	var m3u, xml strings.Builder
 	m3u.WriteString("#EXTM3U\n")
 	xml.WriteString(`<?xml version="1.0"?><tv>`)
-	base := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
 	for ch := 0; ch < channels; ch++ {
 		fmt.Fprintf(&m3u, "#EXTINF:-1 tvg-id=\"ch%d\",Channel %d\nhttps://owner.invalid/live/%d.ts\n", ch, ch, ch)
 		fmt.Fprintf(&xml, `<channel id="ch%d"><display-name>Channel %d</display-name></channel>`, ch, ch)
@@ -132,7 +131,10 @@ func TestUnchangedGuideReimportWritesNothing(t *testing.T) {
 	}
 	rows := countRowWrites(t, db, "livetv_programmes")
 	pg := func(int, int) string { return "PG" }
-	m3u, first := bigGuide(50, 100, pg)
+	// Relative to now: the importer drops programmes that ended more than
+	// guideLookback ago, so a fixed date stops importing them a day later.
+	base := time.Now().UTC().Truncate(time.Hour)
+	m3u, first := bigGuide(base, 50, 100, pg)
 	guide = first
 	src := Source{ID: "big", Name: "Big guide", Playlist: m3u, GuideURL: up.URL + "/guide.xml"}
 	if _, err := s.ImportSource(ctx, src); err != nil {
@@ -161,7 +163,7 @@ func TestUnchangedGuideReimportWritesNothing(t *testing.T) {
 		t.Fatalf("unchanged re-import: %v, epoch %d -> %d", again, before, epoch())
 	}
 
-	_, changed := bigGuide(50, 100, func(ch, i int) string {
+	_, changed := bigGuide(base, 50, 100, func(ch, i int) string {
 		if ch == 7 && i == 42 {
 			return "R"
 		}
@@ -180,7 +182,7 @@ func TestUnchangedGuideReimportWritesNothing(t *testing.T) {
 		t.Fatalf("a changed rating: %v, epoch %d -> %d", rated, before, epoch())
 	}
 	var data string
-	start := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC).Add(42 * 30 * time.Minute).UnixMilli()
+	start := base.Add(42 * 30 * time.Minute).UnixMilli()
 	if err := db.QueryRowContext(ctx, `SELECT data FROM livetv_programmes WHERE source_id=? AND channel_id=? AND start_ms=?`, "big", "ch7", start).Scan(&data); err != nil || !strings.Contains(data, `"R"`) {
 		t.Fatalf("stored rating: %v %s", err, data)
 	}
