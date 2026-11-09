@@ -6,7 +6,7 @@ import {
   Switch,
   Textarea,
 } from "@braedonsaunders/appkit-ui";
-import { ChevronDown, Merge, Plus, Split, Trash2 } from "lucide-react";
+import { ChevronDown, Merge, Plus, RotateCcw, Split, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MoreOptions } from "../../components/ConfigSection";
@@ -28,9 +28,12 @@ import {
   isRuleFormat,
   itemName,
   qualityName,
+  resolutionGroups,
   withRuleScores,
 } from "../../lib/qualityRanking";
 import type { QualityItem, QualityProfile, ReleaseRule } from "../../lib/types";
+import { LANGUAGE_TAGS } from "../catalog/CatalogPickers";
+import { REGIONAL_TRACK_TAGS, baseLanguage } from "../setup/language";
 import { OrderButtons, swap } from "../sources/form";
 import {
   PluginBadge,
@@ -169,6 +172,18 @@ export function QualityOrderSection({ draft, patch }: { draft: QualityProfile; p
             })}
           </ol>
         )}
+        {order.length > 0 ? (
+          <div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => set(resolutionGroups(draft.maxHeight, draft.minHeight))}
+            >
+              <RotateCcw size={14} />
+              {t("Reset resolution groups")}
+            </Button>
+          </div>
+        ) : null}
         {unlisted.length > 0 ? (
           <MoreOptions label={t("More options: Add a quality")}>
             <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center">
@@ -213,6 +228,73 @@ export function QualityOrderSection({ draft, patch }: { draft: QualityProfile; p
           </span>
         </SettingsRow>
       ) : null}
+    </SettingsSection>
+  );
+}
+
+/**
+ * The profile's audio language, as in Radarr: Original plays each title's
+ * own language, Any plays every language, and a language plays only
+ * releases with that audio.
+ */
+export function LanguageSection({ draft, patch }: { draft: QualityProfile; patch: Patch }) {
+  const locale = useLocale();
+  const stored = draft.language?.trim() || "original";
+  const { options, current } = useMemo(() => {
+    const display = (code: string) => {
+      try {
+        return new Intl.DisplayNames([locale], { type: "language" }).of(code) ?? code;
+      } catch {
+        return code;
+      }
+    };
+    const seen = new Set<string>();
+    const languages: { value: string; label: string }[] = [];
+    for (const tag of LANGUAGE_TAGS) {
+      const code = baseLanguage(tag);
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      languages.push({ value: code, label: display(code) });
+    }
+    for (const tag of REGIONAL_TRACK_TAGS) {
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+      languages.push({ value: tag, label: display(tag) });
+    }
+    languages.sort((a, b) => a.label.localeCompare(b.label, locale));
+    const all = [
+      { value: "original", label: t("Original") },
+      { value: "any", label: t("Any") },
+      ...languages,
+    ];
+    // An imported profile can carry a language name ("french") rather
+    // than a code; keep it selectable as-is.
+    const match = all.find((o) => o.value.toLowerCase() === stored.toLowerCase());
+    if (!match) {
+      all.splice(2, 0, {
+        value: stored,
+        label: stored.charAt(0).toUpperCase() + stored.slice(1),
+      });
+    }
+    return { options: all, current: match ? match.value : stored };
+  }, [locale, stored]);
+  return (
+    <SettingsSection title={t("Language")}>
+      <SettingsRow
+        title={t("Audio language")}
+        description={t(
+          "As in Radarr: Original is each title's own language. A language plays only releases with that audio; releases with several audio tracks always play.",
+        )}
+        control={
+          <SearchSelect
+            {...searchSelectLabels()}
+            ariaLabel={t("Audio language")}
+            value={current}
+            options={options}
+            onChange={(v) => patch({ language: v })}
+          />
+        }
+      />
     </SettingsSection>
   );
 }

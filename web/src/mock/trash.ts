@@ -354,6 +354,7 @@ function plan(
     minSizeMbPerMin: 5,
     maxSizeMbPerMin: 0,
     preferredLanguages: null,
+    language: native.language?.trim().toLowerCase() || null,
     allowCam: false,
     allowedQualities: allowed,
     qualityOrder,
@@ -372,10 +373,6 @@ function plan(
   warnings.push(
     "Upgrade and cutoff settings are left out: Ether picks the best release each time a title plays, so there is nothing to upgrade.",
   );
-  if (native.language === "Original")
-    warnings.push(
-      "Radarr limits this profile to each title's original language. Ether doesn't filter by language; it passes over dubs that don't match the original language, and the profile's language formats still score releases.",
-    );
   const lost = formats.filter((f) => f.status === "unsupported" || f.status === "missing").length;
   if (lost)
     warnings.push(

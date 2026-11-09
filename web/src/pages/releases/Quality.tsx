@@ -51,7 +51,7 @@ import {
   type Errors,
 } from "../sources/form";
 import { FilterRulesEditor, releaseRuleConflict, useRankingRegistry } from "./ReleasePreferences";
-import { CustomFormatsSection, QualityOrderSection } from "./QualityRanking";
+import { CustomFormatsSection, LanguageSection, QualityOrderSection } from "./QualityRanking";
 import {
   formatsJSON,
   mergeCustomFormats,
@@ -1097,6 +1097,8 @@ function ProfileList({
             </SettingsSection>
 
             <QualityOrderSection draft={draft} patch={patch} />
+
+            <LanguageSection draft={draft} patch={patch} />
 
             <CustomFormatsSection
               draft={draft}

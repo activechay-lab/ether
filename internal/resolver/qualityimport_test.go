@@ -72,8 +72,14 @@ func TestImportQualityProfileUHDAndLanguage(t *testing.T) {
 	if !p.AllowHDR || !p.AllowDolbyVision || p.MinHeight != 2160 {
 		t.Fatalf("UHD profile %+v", p)
 	}
-	if !slices.Equal(p.PreferredLanguages, []string{"french"}) || imp.ScoreSet != "french-multi-vf" {
-		t.Fatalf("language %v set %q", p.PreferredLanguages, imp.ScoreSet)
+	if p.Language != "french" || len(p.PreferredLanguages) != 0 || imp.ScoreSet != "french-multi-vf" {
+		t.Fatalf("language %q preferred %v set %q", p.Language, p.PreferredLanguages, imp.ScoreSet)
+	}
+	for lang, want := range map[string]string{"Original": "original", "Any": "any"} {
+		imp, err := ImportQualityProfile([]byte(`{"name":"L","language":"` + lang + `","items":[{"name":"WEBDL-1080p","allowed":true}]}`))
+		if err != nil || imp.Profile.Language != want || len(imp.Warnings) != 0 {
+			t.Fatalf("language %s: %+v %v", lang, imp, err)
+		}
 	}
 	sonarr, err := ImportQualityProfile([]byte(`{"name":"Remux","items":[{"name":"Bluray-1080p Remux","allowed":true}]}`))
 	if err != nil || sonarr.App != AppSonarr || len(sonarr.Warnings) != 0 {

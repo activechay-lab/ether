@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -14,10 +15,61 @@ func (s *Service) catalogLanguage() string {
 	return s.catalogLang
 }
 
+// profileLanguageMode reads a profile's Language (Radarr-style): specific
+// is the one language its releases must be in ("" for none), any accepts
+// every language, and neither is the original behaviour — each title's
+// original language alongside the preferred ones. A language Ether does
+// not recognise keeps the original behaviour rather than rejecting
+// everything.
+func profileLanguageMode(profile core.QualityProfile) (specific string, anyLang bool) {
+	switch strings.ToLower(strings.TrimSpace(profile.Language)) {
+	case "", core.ProfileLanguageOriginal:
+		return "", false
+	case core.ProfileLanguageAny:
+		return "", true
+	}
+	if releaseparse.KnownLanguage(profile.Language) {
+		return releaseparse.LanguageName(profile.Language), false
+	}
+	return "", false
+}
+
+// profileLanguageRejection is the reason a release fails a profile's
+// specific Language, or "" when it passes (or the profile sets none). A
+// release declaring no audio is in the title's original language as far
+// as anyone knows, so it passes when that is the profile's language or
+// unknown; MULTI and DUAL carry more than one track and pass, as in
+// audioAcceptable.
+func profileLanguageRejection(info core.ReleaseInfo, profile core.QualityProfile, t *core.Title) string {
+	lang, _ := profileLanguageMode(profile)
+	if lang == "" {
+		return ""
+	}
+	if len(info.Languages) == 0 {
+		if orig := originalLanguage(t); orig == "" || releaseparse.LanguageMatch(orig, lang) != releaseparse.LanguageNoMatch {
+			return ""
+		}
+		return fmt.Sprintf("audio is not in the profile's language (%s)", lang)
+	}
+	for _, l := range info.Languages {
+		if l == releaseparse.LanguageMulti || l == releaseparse.LanguageDual {
+			return ""
+		}
+		if releaseparse.LanguageMatch(l, lang) != releaseparse.LanguageNoMatch {
+			return ""
+		}
+	}
+	return fmt.Sprintf("audio is not in the profile's language (%s)", lang)
+}
+
 // wantedAudio lists the viewer's own preferred audio languages: the profile's
-// languages when the owner set them, otherwise the viewer's own audio
-// languages, otherwise the server's catalogue language.
+// language when it names one, else its preferred languages when the owner
+// set them, otherwise the viewer's own audio languages, otherwise the
+// server's catalogue language.
 func wantedAudio(profile core.QualityProfile, user *core.User, serverLang string) []string {
+	if lang, _ := profileLanguageMode(profile); lang != "" {
+		return []string{lang}
+	}
 	var out []string
 	switch {
 	case len(profile.PreferredLanguages) > 0:
@@ -34,9 +86,16 @@ func wantedAudio(profile core.QualityProfile, user *core.User, serverLang string
 // acceptedAudio lists the audio languages a release may declare and still
 // rank with the rest: the profile's languages when the owner set them,
 // otherwise the viewer's own audio languages, otherwise the server's
-// language; the title's original language is always accepted. An empty
+// language; the title's original language is always accepted. A profile
+// language of Any accepts everything; a specific profile language accepts
+// only itself (profileLanguageRejection is the hard gate). An empty
 // result accepts everything (nothing is known to ask for).
 func acceptedAudio(profile core.QualityProfile, user *core.User, serverLang string, t *core.Title) []string {
+	if lang, anyLang := profileLanguageMode(profile); anyLang {
+		return nil
+	} else if lang != "" {
+		return []string{lang}
+	}
 	out := wantedAudio(profile, user, serverLang)
 	if len(out) == 0 {
 		return nil

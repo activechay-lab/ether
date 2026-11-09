@@ -28,10 +28,23 @@ func sourceSuitability(r core.Release, t *core.Title, p core.QualityProfile, exp
 			return "screener not allowed"
 		}
 	}
+	// A profile's specific Language is a hard gate, as in Radarr; an
+	// explicitly chosen release (a pin) bypasses it, as it does the
+	// minimum custom format score.
+	if !explicit {
+		if reason := profileLanguageRejection(info, p, t); reason != "" {
+			return reason
+		}
+	}
 	if explicit || !releaseparse.ExplicitDub(r.Name) || len(info.Languages) == 0 {
 		return ""
 	}
 	want := append([]string(nil), p.PreferredLanguages...)
+	// A dub into the profile's own language is what that language asks
+	// for, not a mismatch.
+	if lang, _ := profileLanguageMode(p); lang != "" {
+		want = append(want, lang)
+	}
 	if t != nil && t.Language != "" {
 		want = append(want, assumedLanguage(t))
 	}

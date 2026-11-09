@@ -55,4 +55,17 @@ func TestSelectProfileSelectionKeyIsPreClamp(t *testing.T) {
 	if edited := SelectProfile(mkQuality(2160, rules), tv, nil); edited.SelectionKey == pTV.SelectionKey {
 		t.Fatal("adding release rules kept the selection key")
 	}
+	// The profile language and the minimum custom format score are part
+	// of the definition too.
+	q = mkQuality(2160, nil)
+	q.Profiles[0].Language = "en"
+	if edited := SelectProfile(q, tv, nil); edited.SelectionKey == pTV.SelectionKey {
+		t.Fatal("language edit kept the selection key")
+	}
+	q = mkQuality(2160, nil)
+	minScore := 100
+	q.Profiles[0].MinCustomFormatScore = &minScore
+	if edited := SelectProfile(q, tv, nil); edited.SelectionKey == pTV.SelectionKey {
+		t.Fatal("minimum score edit kept the selection key")
+	}
 }

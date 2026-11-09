@@ -692,7 +692,7 @@ func buildDictionarryImport(
 		"items":                 items,
 		"formatItems":           formatItems,
 	}
-	if lang != "" && !strings.EqualFold(lang, "Any") && !strings.EqualFold(lang, "Unknown") {
+	if lang != "" && !strings.EqualFold(lang, "Unknown") {
 		payload["language"] = lang
 	}
 	raw, err := json.Marshal(payload)

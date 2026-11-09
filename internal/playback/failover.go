@@ -1730,8 +1730,16 @@ func (m *Manager) probedAudioAcceptable(s *session, profile core.QualityProfile,
 	if orig == "" {
 		return true
 	}
+	// The profile's Language (Radarr-style) decides first: Any accepts
+	// every probed track, a specific language is the wanted one.
+	profileLang := strings.ToLower(strings.TrimSpace(profile.Language))
+	if profileLang == core.ProfileLanguageAny {
+		return true
+	}
 	var wanted []string
 	switch {
+	case profileLang != "" && profileLang != core.ProfileLanguageOriginal && releaseparse.KnownLanguage(profileLang):
+		wanted = append(wanted, profileLang)
 	case len(profile.PreferredLanguages) > 0:
 		wanted = append(wanted, profile.PreferredLanguages...)
 	case len(s.user.AudioLanguages) > 0:

@@ -294,6 +294,23 @@ describe("Releases", () => {
     expect(saved4k?.customFormatScores?.["ether:remux"]).toBe(7000);
   });
 
+  it("resets merged resolution groups to the shipped grouping in one click", async () => {
+    const { fake } = renderApp("/quality/profiles");
+    fireEvent.click(await screen.findByRole("button", { name: "Edit 4K" }, WAIT));
+    const drawer = await screen.findByRole("dialog", { name: "4K" });
+    expect(within(drawer).getByText("Audio language")).toBeInTheDocument();
+    fireEvent.click(
+      within(drawer).getByRole("button", { name: "Rank 1080p the same as the row above" }),
+    );
+    fireEvent.click(within(drawer).getByRole("button", { name: "Reset resolution groups" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
+    const body = calls(fake, "PUT", "/config/quality")[0]!.body as EtherConfig["quality"];
+    const saved4k = body.profiles?.find((p) => p.name === "4K");
+    expect(saved4k?.qualityOrder?.map((i) => i.name)).toEqual(["2160p", "1080p"]);
+    expect(saved4k?.qualityOrder?.every((i) => i.qualities.length > 1)).toBe(true);
+  });
+
   it("shows Default at home and Default away badges and updates them from the profile drawer", async () => {
     const { fake } = renderApp("/quality/profiles");
     expect(await screen.findByText("Default at home", {}, WAIT)).toBeInTheDocument();

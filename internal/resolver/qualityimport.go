@@ -13,6 +13,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
 // The Starr apps whose TRaSH Guides data Ether imports.
@@ -202,13 +203,14 @@ func ImportQualityProfile(data []byte) (QualityImport, error) {
 	var language string
 	if json.Unmarshal(native.Language, &language) == nil {
 		switch name := strings.ToLower(strings.TrimSpace(language)); name {
-		case "", "any", "unknown":
-		case "original":
-			imp.Warnings = append(imp.Warnings, "Radarr limits this profile to each title's original language. Ether doesn't filter by language; it passes over dubs that don't match the original language, and the profile's language formats still score releases.")
+		case "", "unknown":
+		case core.ProfileLanguageAny:
+			p.Language = core.ProfileLanguageAny
+		case core.ProfileLanguageOriginal:
+			p.Language = core.ProfileLanguageOriginal
 		default:
-			if knownLanguageName(name) {
-				p.PreferredLanguages = []string{name}
-				imp.Warnings = append(imp.Warnings, fmt.Sprintf("The %s language requirement became a preference: %s releases rank first, but others can still play.", language, language))
+			if knownLanguageName(name) && releaseparse.KnownLanguage(name) {
+				p.Language = name
 			} else {
 				imp.Warnings = append(imp.Warnings, fmt.Sprintf("The %s language requirement is left out: Ether doesn't recognise that language.", language))
 			}

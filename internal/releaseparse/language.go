@@ -147,6 +147,35 @@ func LanguageName(v string) string {
 	return name
 }
 
+// KnownLanguage reports whether v names a language the parser knows, in
+// any form LanguageName accepts.
+func KnownLanguage(v string) bool {
+	name := LanguageName(v)
+	if name == "" || name == LanguageMulti || name == LanguageDual {
+		return false
+	}
+	for _, n := range isoLanguages {
+		if n == name {
+			return true
+		}
+	}
+	for _, l := range languages {
+		if l.name == name {
+			return true
+		}
+	}
+	for _, n := range flagLanguages {
+		if n == name {
+			return true
+		}
+	}
+	switch name {
+	case LanguageSpanishLatino, LanguageSpanishSpain, LanguagePortugueseBrazil, LanguagePortuguesePortugal:
+		return true
+	}
+	return false
+}
+
 // LanguageBase is a language name without its regional variant.
 func LanguageBase(name string) string {
 	base, _, _ := strings.Cut(strings.ToLower(name), "-")

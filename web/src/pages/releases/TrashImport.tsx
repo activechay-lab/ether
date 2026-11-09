@@ -509,6 +509,20 @@ function ImportPreview({
             </span>
           }
         />
+        {p.language ? (
+          <SettingsRow
+            title={t("Audio language")}
+            control={
+              <span className="text-sm capitalize text-fg">
+                {p.language === "original"
+                  ? t("Original")
+                  : p.language === "any"
+                    ? t("Any")
+                    : p.language}
+              </span>
+            }
+          />
+        ) : null}
         {p.preferredLanguages?.length ? (
           <SettingsRow
             title={t("Preferred language")}

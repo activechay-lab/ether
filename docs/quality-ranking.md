@@ -267,6 +267,10 @@ Owner decisions on this design (v0.3.6):
 - **Propers and repacks:** a profile that scores a Repack/Proper format
   (TRaSH's do) works as "Do not prefer"; one that doesn't works as "Prefer
   and upgrade".
-- **Language:** Radarr's profile language becomes the profile's Languages
-  plus the viewer's own audio languages; languages are never a hard
-  filter except for releases dubbed into a language nobody asked for.
+- **Language:** a profile's Language works as in Radarr. Original (the
+  default) accepts each title's original language alongside the profile's
+  Languages and the viewer's own audio languages, and languages are not a
+  hard filter except for releases dubbed into a language nobody asked
+  for. Any accepts every language. A specific language rejects releases
+  whose audio isn't in it — multi/dual-audio releases pass, and a release
+  that declares no audio counts as the title's original language.

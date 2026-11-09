@@ -232,6 +232,12 @@ type ProfileImport struct {
 	SyncedAt time.Time `json:"syncedAt,omitempty"`
 }
 
+// A quality profile's Language values beside a specific language.
+const (
+	ProfileLanguageOriginal = "original" // each title's original language
+	ProfileLanguageAny      = "any"      // every language
+)
+
 // QualityProfile is an owner-editable rule set ranking releases for a class
 // of client.
 type QualityProfile struct {
@@ -276,7 +282,14 @@ type QualityProfile struct {
 	EpisodeMinSizeMBPerMin float64  `json:"episodeMinSizeMbPerMin,omitempty"` // optional TV episode size bounds (0 uses MinSizeMBPerMin/MaxSizeMBPerMin)
 	EpisodeMaxSizeMBPerMin float64  `json:"episodeMaxSizeMbPerMin,omitempty"`
 	PreferredLanguages     []string `json:"preferredLanguages"`
-	AllowCam               bool     `json:"allowCam"` // the only pre-release switch; CAM/TS/TC and screener/R5/workprint copies play only for profiles that allow them
+	// Language is the profile's audio language, as in Radarr: "" or
+	// ProfileLanguageOriginal accepts each title's original language
+	// alongside the preferred ones, ProfileLanguageAny accepts every
+	// language, and any other value names the one language a release's
+	// audio must be in (an ISO code or a language name; multi/dual-audio
+	// releases pass).
+	Language string `json:"language,omitempty"`
+	AllowCam bool   `json:"allowCam"` // the only pre-release switch; CAM/TS/TC and screener/R5/workprint copies play only for profiles that allow them
 	// SelectionKey is the canonical hash of this profile's configured
 	// definition, computed by resolver.SelectProfile from the pristine
 	// configured profile before download reshaping or client-cap
