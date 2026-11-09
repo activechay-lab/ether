@@ -272,6 +272,15 @@ func (s *Service) seedShowcase(ctx context.Context) error {
 		tz = localZoneName()
 	}
 	now := s.o.Now()
+	// One transaction for every missing recipe: livetv_channels is a viewer
+	// policy input, so the seed advances the policy epoch once, not once per
+	// channel.
+	tx, err := s.o.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var added [][2]string
 	for _, r := range missing {
 		number := r.number
 		for n, _ := strconv.Atoi(r.number); used[number]; n++ {
@@ -283,27 +292,26 @@ func (s *Service) seedShowcase(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		tx, err := s.o.DB.BeginTx(ctx, nil)
+		res, err := tx.ExecContext(ctx, `INSERT INTO livetv_showcase(id,channel_id,version,recipe_hash,state) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, r.id, id, r.version, showcaseRecipeHash(c), showcasePending)
 		if err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO livetv_showcase(id,channel_id,version,recipe_hash,state) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, r.id, id, r.version, showcaseRecipeHash(c), showcasePending)
-		if err == nil {
-			var n int64
-			if n, err = res.RowsAffected(); err == nil && n == 1 {
-				_, err = tx.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, id, string(data))
-			}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n != 1 {
+			continue // another node seeded it
 		}
-		if err == nil {
-			err = tx.Commit()
-		} else {
-			_ = tx.Rollback()
-		}
-		if err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO livetv_channels(id,data) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, id, string(data)); err != nil {
 			return err
 		}
 		used[number] = true
-		s.o.Logger.Info("showcase channel added", "channel", r.name, "number", number)
+		added = append(added, [2]string{r.name, number})
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, a := range added {
+		s.o.Logger.Info("showcase channel added", "channel", a[0], "number", a[1])
 	}
 	s.bumpLineup()
 	return nil

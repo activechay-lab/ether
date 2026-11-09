@@ -31,5 +31,12 @@ func parityRunRegistrar() bool { return true }
 
 func parityConfigureTMDB(*tmdb.Client) {}
 
-// parityShowcase adds the shipped decade channels outside the parity harness.
-func parityShowcase() bool { return true }
+// parityShowcase adds the shipped decade channels outside the parity harness
+// and this package's tests (testShowcaseOff).
+func parityShowcase() bool { return !testShowcaseOff }
+
+// testShowcaseOff keeps the shipped decade channels out of this package's
+// tests: their startup seed and refresh write livetv_channels, a viewer
+// policy input, so a test's in-flight snapshot would see the policy move
+// at a moment it did not choose.
+var testShowcaseOff bool

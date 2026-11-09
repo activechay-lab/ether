@@ -112,7 +112,8 @@ var tierTouchSources = []touchSource{
 	{table: "plex_decision_arms", column: "title_key"},
 	{table: "plex_version_flows", column: "title_key"},
 	{table: "playback_live_sessions", column: "data", form: touchScan},
-	{table: "sessions_version_handles", column: "item_id"},
+	{table: "sessions_version_ids", column: "item_id"},
+	{table: "sessions_subtitle_intent", column: "rating_key"},
 	{table: "sessions_detail_sources", column: "item_id"},
 	{table: "sessions_delivery_authority", column: "item_id"},
 	{table: "sessions_source_offers", column: "item_id"},
@@ -169,7 +170,8 @@ var tierUntouchedTables = []string{
 	"cachefill_shared", "plex_ultrablur", "plex_shelf_generations", "onair_", "xtream_vod", "xtream_vod_refresh", "experience_row_",
 	"mediabrowser_personal_home", "frontend_image_grants", "segcache_", "debrid_", "newznab_", "cardigann_",
 	"livetv_programmes", "livetv_guide_", "livetv_numbers", "livetv_sources", "livetv_policies",
-	"livetv_channel_epoch", "livetv_plex_guide_gate", "artwork_image_",
+	"livetv_channel_epoch", "livetv_plex_guide_gate", "livetv_source_history", "artwork_image_",
+	"subtitles_auto_attempts", "subtitles_auto_provider_pause",
 	// Id mappings (see above).
 	"frontend_compact_ids", "frontend_compact_id_counters", "silo_source_offer_ids", "frontend_client_families", "frontend_clients_seen",
 	// Accounts, identity, sessions and devices.
@@ -186,10 +188,12 @@ var tierUntouchedTables = []string{
 	// scanned sources above).
 	"cluster_", "clusterconfig_", "clusterplayback_coordinators", "clusterplayback_neutral_stops",
 	"placement_claims", "placement_displaced", "placement_displaced_claims", "placement_history_", "placement_policy", "placement_pools",
-	"placement_removed_targets", "placement_targets", "playback_payload_",
+	"placement_removed_targets", "placement_targets", "placement_ledger", "playback_payload_",
+	"livetv_refresh_leases", "livetv_source_refresh", "livetv_showcase",
 	// Settings, logs and plugins' own plumbing.
 	"backup_", "notify_channels", "notify_once", "notify_push_keys", "notify_settings", "overlays_settings",
 	"prerolls", "prerolls_settings", "stats_costs", "stats_device_registry", "stats_device_registry_counter", "stats_indexer_days",
+	"stats_debrid_days", "stats_stream_days",
 	"stats_newsletter_", "stats_provider_days", "plugins_artifacts", "plugins_calls", "plugins_catalogue_",
 	"plugins_event_log", "plugins_grants", "plugins_health", "plugins_installed", "plugins_logs",
 	"plugins_proposals", "plugins_settings", "agent_approvals", "agent_audit", "agent_secret_requests",
