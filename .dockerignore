@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/tsconfig.tsbuildinfo
+.pnpm-store
+/.scratch
+/.playwright-cli
+/.claude
+/internal/admin/dist/*
+!/internal/admin/dist/.gitkeep

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/backup"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/plextv"
@@ -121,14 +122,23 @@ func TestServeShowsWaitingForTheDatabase(t *testing.T) {
 			t.Fatalf("GET %s while waiting: %d %v", path, resp.StatusCode, resp.Header)
 		}
 	}
-	// The console itself loads, so it can render the status page.
+	// The console route bypasses startup.Gate (no Retry-After gate error),
+	// serving the built SPA shell or the unbuilt source-checkout placeholder.
 	resp, err := http.Get(base + "/ether/")
 	if err != nil {
 		t.Fatal(err)
 	}
+	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		t.Fatalf("console shell: %d", resp.StatusCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admin.ConsoleBuilt() {
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("console shell: %d", resp.StatusCode)
+		}
+	} else if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") != "" || !strings.Contains(string(body), "Ether console is not built") {
+		t.Fatalf("unbuilt console shell: %d headers=%v body=%s", resp.StatusCode, resp.Header, body)
 	}
 	if err := stop(); err != nil && !errors.Is(err, context.Canceled) {
 		t.Logf("Serve returned %v", err)

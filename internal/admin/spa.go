@@ -7,10 +7,23 @@ import (
 	"strings"
 )
 
+// ConsoleBuilt reports whether this binary was compiled with a built web
+// console bundle in internal/admin/dist (as opposed to the unbuilt placeholder).
+func ConsoleBuilt() bool {
+	sub, err := fs.Sub(distFS, "dist")
+	return err == nil && fileExists(sub, "index.html")
+}
+
 // handleSPA serves the embedded React build. Real files are served
 // directly (fingerprinted assets get immutable caching); any other GET
 // falls back to index.html so client-side routes survive reloads.
-func (h *Handler) handleSPA(w http.ResponseWriter, r *http.Request) { serveSPA(w, r) }
+func (h *Handler) handleSPA(w http.ResponseWriter, r *http.Request) {
+	if h.ui != nil {
+		serveSPAFrom(w, r, h.ui)
+		return
+	}
+	serveSPA(w, r)
+}
 
 // Shell serves the console's static files without its API, for a server
 // whose settings and database are not open yet (internal/startup's status
@@ -31,13 +44,17 @@ func Shell() http.Handler {
 }
 
 func serveSPA(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is supported here")
-		return
-	}
 	sub, err := fs.Sub(distFS, "dist")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "embedded UI unavailable")
+		return
+	}
+	serveSPAFrom(w, r, sub)
+}
+
+func serveSPAFrom(w http.ResponseWriter, r *http.Request, sub fs.FS) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is supported here")
 		return
 	}
 	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
@@ -62,13 +79,13 @@ func fileExists(fsys fs.FS, name string) bool {
 func serveIndex(w http.ResponseWriter, r *http.Request, sub fs.FS) {
 	if !fileExists(sub, "index.html") {
 		// `go build` from a checkout without `pnpm build`: the API still
-		// works; tell the owner how to get the UI rather than 404ing mutely.
+		// works; tell the owner how to build the UI rather than 404ing mutely.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`<!doctype html><title>Ether</title>` +
-			`<body style="font-family:system-ui;background:#0b0e14;color:#e6edf3;padding:2rem">` +
-			`<h1>Ether admin UI is not built</h1><p>The API is running at <code>/ether/api/</code>. ` +
-			`Build the web UI with <code>cd web &amp;&amp; pnpm install &amp;&amp; pnpm build</code>, then restart Ether.</p></body>`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(placeholderHTML)
+		}
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")

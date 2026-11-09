@@ -7,6 +7,7 @@ on:
     # release-notes/*.md, so release notes still run CI on main.
     paths-ignore:
       - 'README.md'
+      - 'CONTRIBUTING.md'
       - 'CHANGELOG.md'
       - 'UPGRADING.md'
       - 'docs/**'
@@ -585,19 +586,24 @@ jobs:
       - name: Build
         working-directory: web
         run: pnpm build
-      - name: Embedded UI is up to date
-        # Contributor PRs omit generated assets; the coordinator rebuilds them.
-        if: github.event_name != 'pull_request'
+      - name: Verify build output and clean git status
         run: |
-          # internal/admin/dist is committed so `go build` works without Node;
-          # it must match a fresh build of web/.
+          test -f internal/admin/dist/index.html || {
+            echo "::error::pnpm build did not produce internal/admin/dist/index.html"; exit 1; }
           git status --porcelain internal/admin/dist
           test -z "$(git status --porcelain internal/admin/dist)" || {
-            echo "::error::internal/admin/dist is stale: run 'pnpm build' in web/ and commit the result"; exit 1; }
+            echo "::error::internal/admin/dist must remain gitignored (only .gitkeep is tracked)"; exit 1; }
+      - name: Upload built console bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: internal/admin/dist/
+          retention-days: 1
+          if-no-files-found: error
 
   packaging:
     name: Packaging checks
-    needs: changes
+    needs: [changes, web]
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 30
     runs-on: ubuntu-latest
@@ -610,6 +616,18 @@ jobs:
           go-version-file: go.mod
           # This job runs a release tool; never restore a shared cache into it.
           cache: false
+      - name: Download built console bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: internal/admin/dist
+      - name: Verify Go embeds built console assets and CSP hashes
+        env:
+          CGO_ENABLED: "0"
+          ETHER_REQUIRE_BUILT_UI: "1"
+        run: |
+          go test -count=1 ./internal/admin -run '^(TestOwnerUIAndEmbeddedAssetsRemainAvailable|TestConsoleScriptPolicyMatchesServedIndex|TestSPAFallbackAndAssets|TestDashboardFramePolicy)$'
+          go build -trimpath -o "$RUNNER_TEMP/ether-ui-check" ./cmd/ether
       - name: Goreleaser config check
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:

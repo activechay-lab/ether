@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ether</title>
+  </head>
+  <body style="font-family:system-ui,-apple-system,sans-serif;background:#0b0e14;color:#e6edf3;padding:2rem;max-width:44rem;line-height:1.5">
+    <h1>Ether console is not built</h1>
+    <p>The server and API (<code>/ether/api/</code>) are running, but this binary was compiled without the web console.</p>
+    <p>Build the console with Node 22+ and pnpm, then recompile Ether:</p>
+    <pre style="background:#161b22;padding:0.75rem 1rem;border-radius:6px;overflow-x:auto"><code>make web &amp;&amp; make build</code></pre>
+    <p>Or directly:</p>
+    <pre style="background:#161b22;padding:0.75rem 1rem;border-radius:6px;overflow-x:auto"><code>pnpm --dir web install --frozen-lockfile &amp;&amp; pnpm --dir web build &amp;&amp; CGO_ENABLED=0 go build ./cmd/ether</code></pre>
+  </body>
+</html>
