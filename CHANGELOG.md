@@ -2,23 +2,23 @@
 
 ## 0.3.7 (2026-11-09)
 
-- **Quality:** client rules that pointed at custom or imported quality profiles
-  removed during the `0.3.6` profile reset now repoint automatically on startup
-  to the media's At home default profile while keeping device matchers and
-  limits intact, instead of blocking console saves and profile imports. Saving
-  or removing a profile or client rule in the console also settles any
-  unrelated dangling rules.
-- **Remote access, shared users and catalogue sync:** background catalogue
-  index, popularity-rank and planner-statistics builds now queue in-process
-  SQLite writers (including `DROP`/`ALTER` DDL) instead of timing them out at 10
-  seconds; `plex.tv` registration starts after library sections are registered
-  and the listener opens; `plex.tv` connectivity logs include the probed inbound
-  address and port; shared-user sync retries promptly on write contention or
-  transient errors and can be triggered on demand from **Viewers** or **Apps ›
-  Plex › Remote access**; and catalogue sync progress keeps the library title
-  count anchored instead of replacing it with scanned row counts (#407).
-
-See the [release notes](release-notes/v0.3.7.md) for upgrade guidance.
+- **Performance:** On Air graphics render only for watched channels, so the
+  decade channels no longer burn CPU unwatched; disabling a channel cancels its
+  renders; faster On Air rasterizing; calmer IPTV listing and availability
+  rebuilds (#409).
+- **Updates and health:** startup and migration work queues background writers
+  instead of failing them after 10 seconds; transient post-start states show as
+  checking, not errors; **Sync shared users**; client rules naming removed
+  quality profiles repair themselves (#407).
+- **Playback:** stopped Plex sessions end even if the player keeps fetching
+  (#410); LG webOS / VIDAA keep Direct Play for 4K HEVC, 1080p fallback
+  transcodes, a single HLS variant (#408); faster QSV HDR tone mapping.
+- **Jellyfin/Emby clients:** lenient device-profile decoding for Litefin (#404);
+  tag-less posters for Moonfin, served only for titles every viewer may see
+  (#405).
+- **Console:** Home designer bottom bulk bar and much faster first load; Cache
+  Explorer **Clear** without blocking (#402); **Latest season premiere** and
+  **Latest aired episode** collection rules (#406).
 
 ## 0.3.6 (2026-11-09)
 
