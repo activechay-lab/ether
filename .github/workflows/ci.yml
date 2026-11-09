@@ -151,6 +151,10 @@ jobs:
           - os: ubuntu-latest
             shard: app-3
           - os: ubuntu-latest
+            shard: transcode-matroska
+          - os: ubuntu-latest
+            shard: transcode-integration
+          - os: ubuntu-latest
             shard: transcode-playback
           - os: ubuntu-latest
             shard: protocols-catalog
@@ -341,8 +345,18 @@ jobs:
             app-3)
               go test -race -timeout 20m ./internal/app -run '^Test[^A-P]'
               ;;
+            # internal/transcode alone outgrew one 20-minute -race budget
+            # (real-ffmpeg integration tests are most of it): three shards
+            # by test name, no cases dropped and no timeout raised.
+            transcode-matroska)
+              go test -race -timeout 20m ./internal/transcode -run '^TestIntegrationMatroska'
+              ;;
+            transcode-integration)
+              go test -race -timeout 20m ./internal/transcode -run '^TestIntegration' -skip '^TestIntegrationMatroska'
+              ;;
             transcode-playback)
-              go test -race -timeout 20m ./internal/transcode/... ./internal/playback/... ./internal/usenet/...
+              go test -race -timeout 20m ./internal/transcode -skip '^TestIntegration'
+              go test -race -timeout 20m ./internal/playback/... ./internal/usenet/...
               ;;
             protocols-catalog)
               go test -race -timeout 20m ./internal/plex/... ./internal/frontends/... ./internal/catalog/... ./internal/resolver/... ./internal/debrid/...
