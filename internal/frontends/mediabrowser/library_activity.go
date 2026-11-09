@@ -263,15 +263,15 @@ func unplayedCountsFrom(r *http.Request) (unplayedCounts, bool) {
 }
 
 // noteLocalUnplayedCounts is attachUnplayedCount for every series and
-// season of a page at once: one batched episode read and one watch-state
-// read instead of both per series. The badge counts are those
-// attachUnplayedCount works out for one series.
+// season of a page at once: the experience counts every badge of the page
+// in a few statements instead of listing each series' episodes. The badge
+// counts are those attachUnplayedCount works out for one series.
 func (i *instance) noteLocalUnplayedCounts(r *http.Request, viewer *frontend.Viewer, titles []frontend.Title) *http.Request {
 	if i == nil || i.protocol != "jellyfin" || r == nil || viewer == nil || i.host.Experience == nil {
 		return r
 	}
 	local, ok := i.host.Experience.(interface {
-		LocalEpisodesMany(context.Context, *frontend.Viewer, []frontend.RatingKey) (map[frontend.RatingKey]frontend.LocalEpisodeList, error)
+		LocalUnplayedCounts(context.Context, *frontend.Viewer, []frontend.RatingKey) (map[frontend.RatingKey]int, error)
 	})
 	if !ok {
 		return r
@@ -285,37 +285,15 @@ func (i *instance) noteLocalUnplayedCounts(r *http.Request, viewer *frontend.Vie
 	if len(keys) == 0 {
 		return r
 	}
-	lists, err := local.LocalEpisodesMany(r.Context(), viewer, keys)
+	n, err := local.LocalUnplayedCounts(r.Context(), viewer, keys)
 	if err != nil {
 		return r
 	}
-	counts := unplayedCounts{n: map[frontend.RatingKey]int{}, absent: map[frontend.RatingKey]bool{}}
-	var episodes []frontend.RatingKey
+	counts := unplayedCounts{n: n, absent: map[frontend.RatingKey]bool{}}
 	for _, key := range keys {
-		list, ok := lists[key]
-		if !ok || !list.Complete {
+		if _, ok := n[key]; !ok {
 			counts.absent[key] = true
-			continue
 		}
-		for _, child := range list.Items {
-			episodes = append(episodes, child.Key)
-		}
-	}
-	states, err := i.host.Experience.UserData(r.Context(), viewer, episodes)
-	if err != nil {
-		return r
-	}
-	for _, key := range keys {
-		if counts.absent[key] {
-			continue
-		}
-		unplayed := 0
-		for _, child := range lists[key].Items {
-			if states[child.Key].ViewCount == 0 {
-				unplayed++
-			}
-		}
-		counts.n[key] = unplayed
 	}
 	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, counts))
 }

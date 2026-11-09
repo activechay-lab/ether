@@ -226,6 +226,25 @@ type Page struct {
 	Total int
 }
 
+// AiredEpisodeTally counts one show's stored, aired episodes for a viewer
+// without reading them.
+type AiredEpisodeTally struct {
+	// Total is every aired episode of the show, the total the aired
+	// episode listing reports.
+	Total int
+	// Seasons counts, by season number, the aired episodes not in Judge and
+	// how many of those the viewer has played.
+	Seasons map[int]EpisodeTally
+	// Judge are the aired episodes the counts leave out: released after the
+	// settled time, or named by the caller.
+	Judge []RatingKey
+}
+
+// EpisodeTally is a count of aired episodes and how many were played.
+type EpisodeTally struct {
+	Aired, Played int
+}
+
 // Catalog is Ether's library: a local mirror of a TMDB slice plus on-demand
 // fetches for anything else.
 type Catalog interface {

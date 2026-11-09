@@ -102,6 +102,15 @@ type ServiceDeps struct {
 	// AiredEpisodesMany is AiredEpisodes(show, 0, limit) for several shows in
 	// a few statements. Optional; without it each show is read alone.
 	AiredEpisodesMany func(context.Context, []core.RatingKey, int) (map[core.RatingKey]core.Page, error)
+	// AiredEpisodeTallies counts each show's aired episodes and the viewer's
+	// plays of them by season (catalog.AiredEpisodeTallies). With it and
+	// EpisodesSettledBefore, unplayed badges are counted, not listed.
+	// Optional.
+	AiredEpisodeTallies func(ctx context.Context, userID int64, shows []core.RatingKey, settled time.Time, judge []core.RatingKey) (map[core.RatingKey]core.AiredEpisodeTally, error)
+	// EpisodesSettledBefore is the release time at or before which
+	// Visibility.FilterAvailable keeps every episode; zero when it keeps
+	// them all. Required with a FilterAvailable for counted badges.
+	EpisodesSettledBefore func(context.Context) time.Time
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
@@ -964,7 +973,7 @@ func (s *Service) LocalEpisodes(ctx context.Context, viewer *core.Viewer, key co
 	if key.Kind() != core.KindShow && key.Kind() != core.KindSeason {
 		return nil, false, core.ErrNotFound
 	}
-	lists, err := s.LocalEpisodesMany(ctx, viewer, []core.RatingKey{key})
+	lists, err := s.localEpisodesMany(ctx, viewer, []core.RatingKey{key})
 	if err != nil {
 		return nil, false, err
 	}

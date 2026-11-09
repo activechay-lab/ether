@@ -926,6 +926,16 @@ func (s *State) WatchSample(ctx context.Context, userID int64, limit int) (sampl
 	return sampled, inProgress, watched, truncated, rows.Err()
 }
 
+// PendingKeys are the keys with a watch write for userID that reads overlay
+// but the database does not hold yet. A count read from the database alone
+// must judge these keys through GetMany or PageUserData.
+func (s *State) PendingKeys(userID int64) []core.RatingKey {
+	if s == nil || s.pending == nil {
+		return nil
+	}
+	return s.pending.userKeys(userID)
+}
+
 // InProgress returns items with a resume point, most recently viewed first.
 func (s *State) InProgress(ctx context.Context, userID int64, limit int) ([]core.WatchStatus, error) {
 	if limit <= 0 {

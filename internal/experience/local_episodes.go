@@ -7,12 +7,20 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-// LocalEpisodesMany is LocalEpisodes for a page of shows and seasons. Every
+// localEpisodeList is the stored, aired episodes of one show or season that
+// a viewer may see, newest first.
+type localEpisodeList struct {
+	Items []core.Title
+	// Complete is false when the show's catalogue page was capped.
+	Complete bool
+}
+
+// localEpisodesMany is LocalEpisodes for a page of shows and seasons. Every
 // show's aired episodes come from one batched read, the series for inherited
 // policy from one more, and availability is judged in one pass, so a list
 // of series costs the same few statements however many it holds. Keys that
 // are not shows or seasons are left out.
-func (s *Service) LocalEpisodesMany(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]frontend.LocalEpisodeList, error) {
+func (s *Service) localEpisodesMany(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]localEpisodeList, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
 	if s == nil || s.d.AiredEpisodes == nil || s.d.Visibility.SectionFor == nil {
 		return nil, core.ErrNotFound
@@ -21,24 +29,8 @@ func (s *Service) LocalEpisodesMany(ctx context.Context, viewer *core.Viewer, ke
 	if err != nil {
 		return nil, err
 	}
-	showOf := func(key core.RatingKey) (core.RatingKey, bool) {
-		switch key.Kind() {
-		case core.KindShow:
-			return key, true
-		case core.KindSeason:
-			return core.ShowKey(key.TMDB()), true
-		}
-		return 0, false
-	}
-	var shows []core.RatingKey
-	seen := map[core.RatingKey]bool{}
-	for _, key := range keys {
-		if show, ok := showOf(key); ok && !seen[show] {
-			seen[show] = true
-			shows = append(shows, show)
-		}
-	}
-	out := make(map[core.RatingKey]frontend.LocalEpisodeList, len(keys))
+	shows := localShows(keys)
+	out := make(map[core.RatingKey]localEpisodeList, len(keys))
 	if len(shows) == 0 {
 		return out, nil
 	}
@@ -80,12 +72,12 @@ func (s *Service) LocalEpisodesMany(ctx context.Context, viewer *core.Viewer, ke
 		shown[title.Key] = true
 	}
 	for _, key := range keys {
-		show, ok := showOf(key)
+		show, ok := localShowOf(key)
 		if !ok {
 			continue
 		}
 		page := pages[show]
-		list := frontend.LocalEpisodeList{Items: make([]core.Title, 0, len(page.Items)), Complete: page.Total == len(page.Items)}
+		list := localEpisodeList{Items: make([]core.Title, 0, len(page.Items)), Complete: page.Total == len(page.Items)}
 		for _, title := range page.Items {
 			if key.Kind() == core.KindSeason && title.Season != key.Season() {
 				continue
@@ -99,9 +91,38 @@ func (s *Service) LocalEpisodesMany(ctx context.Context, viewer *core.Viewer, ke
 	return out, nil
 }
 
-// airedShowEpisodesMany reads at most 500 stored episodes per show. A
-// seasons page asks once per season; the request memo keeps each show to a
-// single read, and the shows it has not seen are read in one batch.
+// localShowOf is the show a show or season key belongs to.
+func localShowOf(key core.RatingKey) (core.RatingKey, bool) {
+	switch key.Kind() {
+	case core.KindShow:
+		return key, true
+	case core.KindSeason:
+		return core.ShowKey(key.TMDB()), true
+	}
+	return 0, false
+}
+
+// localShows are the distinct shows of the show and season keys, in order.
+func localShows(keys []core.RatingKey) []core.RatingKey {
+	var shows []core.RatingKey
+	seen := map[core.RatingKey]bool{}
+	for _, key := range keys {
+		if show, ok := localShowOf(key); ok && !seen[show] {
+			seen[show] = true
+			shows = append(shows, show)
+		}
+	}
+	return shows
+}
+
+// localEpisodeCap is the most stored episodes a show's local list holds; a
+// show with more aired episodes has an incomplete list.
+const localEpisodeCap = 500
+
+// airedShowEpisodesMany reads at most localEpisodeCap stored episodes per
+// show. A seasons page asks once per season; the request memo keeps each
+// show to a single read, and the shows it has not seen are read in one
+// batch.
 func (s *Service) airedShowEpisodesMany(ctx context.Context, shows []core.RatingKey) (map[core.RatingKey]core.Page, error) {
 	out := make(map[core.RatingKey]core.Page, len(shows))
 	memo := frontend.RequestMemoFrom(ctx)
@@ -129,11 +150,11 @@ func (s *Service) airedShowEpisodesMany(ctx context.Context, shows []core.Rating
 	var read map[core.RatingKey]core.Page
 	var err error
 	if s.d.AiredEpisodesMany != nil && len(missing) > 1 {
-		read, err = s.d.AiredEpisodesMany(ctx, missing, 500)
+		read, err = s.d.AiredEpisodesMany(ctx, missing, localEpisodeCap)
 	} else {
 		read = make(map[core.RatingKey]core.Page, len(missing))
 		for _, show := range missing {
-			page, e := s.d.AiredEpisodes(ctx, show, 0, 500)
+			page, e := s.d.AiredEpisodes(ctx, show, 0, localEpisodeCap)
 			if e != nil {
 				err = e
 				break

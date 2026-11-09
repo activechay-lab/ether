@@ -17,14 +17,6 @@ type AiredMemo struct {
 	Err   error
 }
 
-// LocalEpisodeList is the stored, aired episodes of one show or season that
-// a viewer may see, newest first.
-type LocalEpisodeList struct {
-	Items []core.Title
-	// Complete is false when the show's catalogue page was capped.
-	Complete bool
-}
-
 // RequestMemo keeps one viewer snapshot and one visibility decision per title
 // for the rest of a single request.
 type RequestMemo struct {
