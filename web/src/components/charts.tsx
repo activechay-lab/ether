@@ -908,6 +908,20 @@ export function SeriesLines({
               className={VIZ[s.color].stroke}
             />
           ))}
+          {n <= 2
+            ? // One or two points make no visible line; mark each point.
+              series.map((s) =>
+                s.values.map((v, i) => (
+                  <circle
+                    key={`${s.key}-${i}`}
+                    cx={x(i)}
+                    cy={y(v)}
+                    r={4}
+                    className={cn(VIZ[s.color].fill, "pointer-events-none")}
+                  />
+                )),
+              )
+            : null}
           {hover !== null ? (
             <g>
               <line
