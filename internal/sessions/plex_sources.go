@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/playback"
 )
 
 // PlexSources is the trusted source-lifetime boundary used after the adapter's
@@ -75,5 +74,5 @@ func (s PlexSources) Part(viewer int64, client string, key core.RatingKey, relea
 // ServePart preserves the Plex range grammar and request cancellation. The
 // admitted source ID is retained; delivery must not open or supersede a session.
 func (s PlexSources) ServePart(w http.ResponseWriter, r *http.Request, sourceID string) {
-	s.Playback.ServeRange(w, playback.PlexPartRequest(r), sourceID)
+	s.Playback.ServeRange(w, r.WithContext(core.WithPlexPart(r.Context())), sourceID)
 }

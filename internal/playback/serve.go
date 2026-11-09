@@ -61,7 +61,7 @@ func (m *Manager) ServeRange(w http.ResponseWriter, r *http.Request, sessionID s
 		contentType:           s.contentType,
 		deferStatusOnZeroRead: true,
 	}
-	plexPart, _ := r.Context().Value(plexPartKey{}).(bool)
+	plexPart := core.IsPlexPart(r.Context())
 	if plexPart {
 		rep.contentType = plexPartMIME(s.name)
 	}

@@ -73,6 +73,7 @@ func (s surface) ResolveDetailSource(ctx context.Context, scope frontend.Version
 	}
 	return frontend.DetailSourceTarget{}, core.ErrNotAvailable
 }
+
 // WarmDetail forwards a detail-page warm-up for this surface only.
 func (s surface) WarmDetail(ctx context.Context, r frontend.PlanRequest) bool {
 	if r.Protocol != s.protocol {
