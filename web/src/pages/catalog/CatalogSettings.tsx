@@ -67,7 +67,9 @@ function ObscureTitles({ draft, onChange }: { draft: Obj; onChange: (next: Obj) 
         preset === "custom"
           ? t("Custom limits are set under More options.")
           : preset === "off"
-            ? t("Browse lists every title with a real audience. Everything else is still found by search.")
+            ? t(
+                "Browse lists every title with a real audience. Everything else is still found by search.",
+              )
             : t("Hidden titles are still found by search.")
       }
       control={

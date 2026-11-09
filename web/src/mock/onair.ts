@@ -291,9 +291,10 @@ export function createOnAirMock(
             const jobs = urls.map((u) => {
               const clip = {
                 id: "clip-" + ++serial,
-                name: u.includes("youtube.com") || u.includes("youtu.be")
-                  ? "1986 Retro Commercial Spot"
-                  : u.split("/").pop() || "Imported clip",
+                name:
+                  u.includes("youtube.com") || u.includes("youtu.be")
+                    ? "1986 Retro Commercial Spot"
+                    : u.split("/").pop() || "Imported clip",
                 source: u,
                 attribution:
                   u.includes("youtube.com") || u.includes("youtu.be")

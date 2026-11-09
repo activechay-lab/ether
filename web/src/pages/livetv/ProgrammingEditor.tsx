@@ -724,9 +724,7 @@ function Sources({
               </Field>
             </>
           )}
-          {s.kind === "lineup" && (
-            <LineupFields source={s} onChange={(p) => set(i, p)} />
-          )}
+          {s.kind === "lineup" && <LineupFields source={s} onChange={(p) => set(i, p)} />}
           {(s.kind === "items" || (s.kind === "movies" && !s.filter) || !s.kind) && (
             <ProgrammePicker
               label={t("Selected titles")}

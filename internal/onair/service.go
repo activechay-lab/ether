@@ -557,7 +557,7 @@ func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
 	}
 	for channel, base := range channels {
 		for _, sc := range l.Scenes {
-			key := channel + "\x00"+sc.Role
+			key := channel + "\x00" + sc.Role
 			if sc.Enabled && !seen[key] {
 				r := base
 				r.Moment = sc.Role

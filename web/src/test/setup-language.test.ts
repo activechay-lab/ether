@@ -102,7 +102,11 @@ describe("setup language choice", () => {
     const rules = projectHouseholdRules(normalizeRules({}), saved);
     expect(rules.audioLanguages).toEqual(["es-419"]);
     expect(rules.subtitleLanguages).toEqual(["zh-Hant"]);
-    for (const [tag, canonical] of [["fr-fr", "fr-FR"], ["zh-hant-tw", "zh-Hant-TW"], ["de-AT", "de-AT"]]) {
+    for (const [tag, canonical] of [
+      ["fr-fr", "fr-FR"],
+      ["zh-hant-tw", "zh-Hant-TW"],
+      ["de-AT", "de-AT"],
+    ]) {
       const custom = savedHouseholdLanguage({
         remembered: "en",
         catalogLanguage: "en-US",

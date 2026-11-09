@@ -736,11 +736,16 @@ export function LibraryGrid({
                   <div className="flex items-center justify-between gap-2">
                     <p
                       role="status"
-                      className={cn("text-xs", a.status === "error" ? "text-danger" : "text-fg-muted")}
+                      className={cn(
+                        "text-xs",
+                        a.status === "error" ? "text-danger" : "text-fg-muted",
+                      )}
                     >
                       {a.status === "error"
                         ? a.error
-                        : t("Preparing media… {progress}%", { progress: Math.round(a.progress ?? 0) })}
+                        : t("Preparing media… {progress}%", {
+                            progress: Math.round(a.progress ?? 0),
+                          })}
                     </p>
                     {!a.readOnly && (
                       <Button
