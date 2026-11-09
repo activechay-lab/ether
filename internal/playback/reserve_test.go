@@ -2,6 +2,7 @@ package playback
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -280,5 +281,167 @@ func TestBufferedRecoveryAllowsTrailingDurationButRejectsPALMapping(t *testing.T
 				t.Fatalf("preserved=%v want %v", f.preserved, tc.preserve)
 			}
 		})
+	}
+}
+
+type coldStartOnceSource struct {
+	core.MediaSource
+	slowed atomic.Bool
+}
+
+func (c *coldStartOnceSource) ReadAt(p []byte, off int64) (int, error) {
+	if c.slowed.CompareAndSwap(false, true) {
+		time.Sleep(1100 * time.Millisecond)
+	}
+	return c.MediaSource.ReadAt(p, off)
+}
+
+// Cold first-byte reads, seek warm-up reads, and bursts shorter than the
+// minimum observation window must not trigger premature speed down-failover (#385).
+func TestWarmupReadsAndShortWindowDoNotTriggerSpeedFailover(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) { o.SpeedCheckInterval = time.Hour })
+	ps := h.prepare(owner, movieKey, "warmup-window")
+	s := h.m.lookup(ps.ID)
+	f := &repairHLS{fakeHLS: h.tr.addHLS(ps.ID), buffer: core.RecoveryBuffer{Position: 10 * time.Second, ReadyUntil: 12 * time.Second}}
+	h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
+
+	// Cold read #1 (0..512 KiB) takes 3 seconds: noteReadPos marks warmup=true.
+	if !s.noteReadPos(0, 512<<10, h.clock.Now(), h.m.opts.SpeedGrace) {
+		t.Fatal("initial read was not marked warmup")
+	}
+	// Advance past initial SpeedGrace and record 4 slow post-warmup reads inside
+	// a 2-second span (< 6s minObservationWindow).
+	h.clock.Advance(21 * time.Second)
+	for i := int64(0); i < 4; i++ {
+		off := (512 << 10) + i*(64<<10)
+		if s.noteReadPos(off, 64<<10, h.clock.Now(), h.m.opts.SpeedGrace) {
+			t.Fatalf("sequential read %d marked warmup", i)
+		}
+		s.noteFetch(64<<10, 400*time.Millisecond, h.clock.Now())
+	}
+	h.clock.Advance(2 * time.Second)
+	for range 3 {
+		h.m.checkSpeeds()
+	}
+	if s.current().backgroundFailover.Load() {
+		t.Fatal("short post-warmup observation window started failover")
+	}
+	select {
+	case <-f.swapC:
+		t.Fatal("short post-warmup observation window triggered failover")
+	default:
+	}
+
+	// Seeking to a new offset marks warmup=true again and resets evidence.
+	if !s.noteReadPos(40_000_000, 512<<10, h.clock.Now(), h.m.opts.SpeedGrace) {
+		t.Fatal("seek read was not marked warmup")
+	}
+
+	// End-to-end HTTP range read: one 1.1s cold first-byte read followed by
+	// fast sequential chunks must never trigger down-failover.
+	h2 := newHarness(t, []*fakeRelease{mkv("A", 980_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) { speedOpts(o) })
+	ps2 := h2.prepare(owner, movieKey, "cold-http")
+	h2.m.SetDecision(ps2.ID, core.Decision{Kind: core.DecisionRemux})
+	hls2 := h2.tr.addHLS(ps2.ID)
+	s2 := h2.m.lookup(ps2.ID)
+	g2 := s2.current()
+	g2.src = &coldStartOnceSource{MediaSource: g2.src}
+	srv := directPlayServer(t, h2.m, ps2.ID)
+	if _, _, err := get(t, srv.URL, map[string]string{"Range": "bytes=0-4718591"}); err != nil {
+		t.Fatal(err)
+	}
+	h2.clock.Advance(2 * time.Second)
+	for range 4 {
+		h2.m.checkSpeeds()
+	}
+	if g2.backgroundFailover.Load() {
+		t.Fatal("single slow cold read started down-failover")
+	}
+	h2.m.Close()
+	select {
+	case <-hls2.swapC:
+		t.Fatal("single slow cold read swapped HLS input")
+	default:
+	}
+}
+
+type reportingSource struct {
+	core.MediaSource
+	bytes   atomic.Int64
+	fetches atomic.Int64
+}
+
+func (r *reportingSource) SourceDelivery() core.SourceDelivery {
+	return core.SourceDelivery{
+		Bytes:         r.bytes.Load(),
+		Fetches:       r.fetches.Load(),
+		Parallel:      28,
+		InFlight:      12,
+		PipelineDepth: 2,
+	}
+}
+
+// Healthy network delivery reported through SourceDeliveryReporter (including
+// background read-ahead and disk play-ahead) must prevent false speed failover
+// when foreground demand reads briefly look slow (#385).
+func TestSourceDeliveryReporterPreventsFalseSpeedFailover(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) { o.SpeedCheckInterval = time.Hour })
+	ps := h.prepare(owner, movieKey, "net-delivery")
+	s := h.m.lookup(ps.ID)
+	g := s.current()
+	rep := &reportingSource{MediaSource: g.src}
+	g.src = rep
+	f := &repairHLS{fakeHLS: h.tr.addHLS(ps.ID), buffer: core.RecoveryBuffer{Position: 10 * time.Second, ReadyUntil: 12 * time.Second}}
+	h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
+
+	s.recordDelivery(rep.SourceDelivery(), h.clock.Now())
+	h.clock.Advance(14 * time.Second)
+	rep.bytes.Store(18_000_000)
+	rep.fetches.Store(28)
+	s.recordDelivery(rep.SourceDelivery(), h.clock.Now())
+	feedFetches(s, 6, 64<<10, 300*time.Millisecond, h.clock.Now())
+
+	h.clock.Advance(8 * time.Second) // t=22s: 14s..22s span inside 20s window
+	rep.bytes.Store(30_000_000)
+	rep.fetches.Store(45)
+	feedFetches(s, 6, 64<<10, 300*time.Millisecond, h.clock.Now())
+
+	for range 4 {
+		h.m.checkSpeeds()
+	}
+	if g.backgroundFailover.Load() {
+		t.Fatal("down-failover started despite healthy SourceDelivery throughput")
+	}
+	h.m.Close()
+	select {
+	case <-f.swapC:
+		t.Fatal("down-failed despite healthy SourceDelivery throughput")
+	default:
+	}
+}
+
+// A previously built cushion (>= 12s) that drains nearly dry mid-grace may
+// recover urgently before stalling, whereas a cold low buffer never bypasses grace.
+func TestBuiltBufferDrainingDryRecoversInsideGrace(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) { o.SpeedCheckInterval = time.Hour })
+	ps := h.prepare(owner, movieKey, "built-drain")
+	s := h.m.lookup(ps.ID)
+	f := &repairHLS{fakeHLS: h.tr.addHLS(ps.ID), buffer: core.RecoveryBuffer{Position: 0, ReadyUntil: 16 * time.Second}}
+	h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
+
+	// Observe healthy 16s cushion early in grace, then source stalls and cushion drains to 2s.
+	h.clock.Advance(4 * time.Second)
+	feedFetches(s, 6, 64<<10, 300*time.Millisecond, h.clock.Now())
+	h.m.checkSpeeds()
+
+	f.buffer = core.RecoveryBuffer{Position: 14 * time.Second, ReadyUntil: 16 * time.Second}
+	h.clock.Advance(8 * time.Second) // t=12s (< 20s SpeedGrace, >= 6s span from t=4s)
+	feedFetches(s, 6, 64<<10, 300*time.Millisecond, h.clock.Now())
+	h.m.checkSpeeds()
+	h.m.checkSpeeds()
+	select {
+	case <-f.swapC:
+	case <-time.After(3 * time.Second):
+		t.Fatal("draining built buffer did not recover before running dry")
 	}
 }

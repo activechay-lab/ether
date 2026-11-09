@@ -281,9 +281,11 @@ type session struct {
 	// Speed-coupled down-failover state (guarded by speedMu).
 	speedMu           sync.Mutex
 	speed             speedTracker
-	genSince          time.Time // when the current generation started serving
-	graceUntil        time.Time // slow-source checks are ignored before this
-	slowChecks        int       // consecutive slow evaluations
+	delivery          deliveryTracker
+	genSince          time.Time     // when the current generation started serving
+	graceUntil        time.Time     // slow-source checks are ignored before this
+	gracePeakBuffer   time.Duration // highest known buffer observed in current grace window
+	slowChecks        int           // consecutive slow evaluations
 	encoderSampleAt   time.Time
 	encoderRunAt      time.Time
 	encoderSeekAt     time.Time

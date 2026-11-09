@@ -463,8 +463,13 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 			}
 			if n > 0 && g.sess.isRegistered() && g.sess.current() == g && !background {
 				now := m.now()
-				g.sess.noteFetch(n, time.Since(readAt), now)
-				g.sess.noteReadPos(pos, n, now, m.opts.SpeedGrace)
+				warmup := g.sess.noteReadPos(pos, n, now, m.opts.SpeedGrace)
+				if !warmup {
+					g.sess.noteFetch(n, time.Since(readAt), now)
+				}
+				if rep, ok := g.src.(core.SourceDeliveryReporter); ok {
+					g.sess.recordDelivery(rep.SourceDelivery(), now)
+				}
 			}
 			if int64(n) == want && errors.Is(err, io.EOF) {
 				err = nil
