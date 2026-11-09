@@ -134,8 +134,14 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("%w: nothing recognisable among %d files", ErrNoPlayableFile, len(b.rel.files))
 	}
-	if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
-		return nil, err
+	// With an episode hint and several sets, the largest may belong to another
+	// episode: its faults must not reject the wanted one's set.
+	_, hinted := b.rel.doc.EpisodeHint()
+	multi := hinted && len(cands) > 1
+	if !multi {
+		if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
+			return nil, err
+		}
 	}
 	if b.candidateReady != nil {
 		b.candidateReady(cands[0].files)
@@ -158,6 +164,14 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		}
 		// Only fall through to smaller candidates when this one simply had
 		// no video; a broken or protected main archive rejects the release.
+		// With several sets for one episode hint, any rejection moves on and
+		// the first real fault is reported only when no set plays.
+		if multi && IsRejection(err) {
+			if firstErr == nil || errors.Is(firstErr, ErrNoPlayableFile) && !errors.Is(err, ErrNoPlayableFile) {
+				firstErr = err
+			}
+			continue
+		}
 		if !errors.Is(err, ErrNoPlayableFile) {
 			return nil, err
 		}

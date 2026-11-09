@@ -223,3 +223,112 @@ func TestSeasonArchiveScenarios(t *testing.T) {
 		}
 	})
 }
+
+// A larger set that belongs to another episode and is incomplete must not
+// reject the release: the wanted episode's set plays.
+func TestSeasonOtherEpisodesBrokenSetDoesNotBlock(t *testing.T) {
+	names := []string{"Show 3x01 A.mkv", "Show 3x02 B.mkv", "Show 3x03 C.mkv"}
+	sets := []string{"aZ1xQ9wE", "bK2yR8vF", "cL3zS7uG"}
+	data := make([][]byte, len(names))
+	var files []postFile
+	for i, n := range names {
+		data[i] = mkvBytes(uint64(70+i), 600_000+i*50_000)
+		vols := buildRAR(t, []archivetest.RARFile{{Name: n, Data: data[i]}}, archivetest.RAROptions{Version: 5, VolumeSize: 250_000})
+		for k, v := range vols {
+			if i == 2 && k == 1 {
+				continue // the largest set (episode 3) lacks volume 2
+			}
+			files = append(files, postFile{name: fmt.Sprintf("%s.part%03d.rar", sets[i], k+1), data: v})
+		}
+	}
+	f := newFakeFetcher()
+	pack := post(t, f, 50_000, files...)
+	doc, err := debrid.EpisodeNZB(pack, &core.ReleaseTarget{Season: 3, Episode: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+	src := openSource(t, e, "season", doc)
+	if src.Name() != names[0] || !bytes.Equal(readAll(t, src, 32<<10), data[0]) {
+		t.Fatalf("played %q, want %q", src.Name(), names[0])
+	}
+	// With no healthy set for the wanted episode, the real fault is reported.
+	doc, err = debrid.EpisodeNZB(pack, &core.ReleaseTarget{Season: 3, Episode: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Open(context.Background(), "season3", doc); err == nil || errors.Is(err, ErrNoPlayableFile) && !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("Open = %v, want the incomplete-set fault", err)
+	}
+}
+
+// One compressed episode in a season archive must not reject the season when
+// the wanted episode is stored.
+func TestSeasonArchiveWithAnotherCompressedEpisode(t *testing.T) {
+	a, b := mkvBytes(61, 600_000), mkvBytes(62, 650_000)
+	vols := buildRAR(t, []archivetest.RARFile{
+		{Name: "Show 3x01 A.mkv", Data: a, Method: 3},
+		{Name: "Show 3x02 B.mkv", Data: b},
+	}, archivetest.RAROptions{Version: 5, VolumeSize: 250_000})
+	var files []postFile
+	for k, v := range vols {
+		files = append(files, postFile{name: fmt.Sprintf("q9Zr7Tb2Wc8Hn4Jd.part%03d.rar", k+1), data: v})
+	}
+	f := newFakeFetcher()
+	pack := post(t, f, 50_000, files...)
+	doc, err := debrid.EpisodeNZB(pack, &core.ReleaseTarget{Season: 3, Episode: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+	src := openSource(t, e, "season", doc)
+	if src.Name() != "Show 3x02 B.mkv" || !bytes.Equal(readAll(t, src, 32<<10), b) {
+		t.Fatalf("played %q", src.Name())
+	}
+}
+
+// A cour archive whose members carry the franchise-absolute number plays the
+// episode the absolute number names; members numbered from the cour's own
+// start are rejected rather than guessed.
+func TestSeasonArchiveCourMatchesThroughAbsoluteNumber(t *testing.T) {
+	play := func(t *testing.T, members []string, target core.ReleaseTarget) (*fakeFetcher, []byte, [][]byte) {
+		t.Helper()
+		f := newFakeFetcher()
+		data := make([][]byte, len(members))
+		var ms []archivetest.RARFile
+		for i, n := range members {
+			data[i] = mkvBytes(uint64(40+i), 600_000+i*50_000)
+			ms = append(ms, archivetest.RARFile{Name: n, Data: data[i]})
+		}
+		var files []postFile
+		for k, v := range buildRAR(t, ms, archivetest.RAROptions{Version: 5, VolumeSize: 250_000}) {
+			files = append(files, postFile{name: fmt.Sprintf("Show.Part.2.part%03d.rar", k+1), data: v})
+		}
+		pack := post(t, f, 50_000, files...)
+		doc, err := debrid.EpisodeNZB(pack, &target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f, doc, data
+	}
+	for _, target := range []core.ReleaseTarget{
+		{Season: 2, Episode: 1, AbsoluteEpisode: 28},
+		{Season: 1, Episode: 28, AbsoluteEpisode: 28},
+	} {
+		t.Run(fmt.Sprintf("S%dE%d abs %d", target.Season, target.Episode, target.AbsoluteEpisode), func(t *testing.T) {
+			f, doc, data := play(t, []string{"Show - 27.mkv", "Show - 28.mkv", "Show - 29.mkv"}, target)
+			e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+			src := openSource(t, e, "cour", doc)
+			if src.Name() != "Show - 28.mkv" || !bytes.Equal(readAll(t, src, 32<<10), data[1]) {
+				t.Fatalf("played %q, want Show - 28.mkv", src.Name())
+			}
+		})
+	}
+	t.Run("cour-relative members are rejected", func(t *testing.T) {
+		f, doc, _ := play(t, []string{"Show - 01.mkv", "Show - 02.mkv", "Show - 03.mkv"}, core.ReleaseTarget{Season: 2, Episode: 1, AbsoluteEpisode: 28})
+		e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
+		if _, err := e.Open(context.Background(), "cour", doc); !errors.Is(err, ErrNoPlayableFile) {
+			t.Fatalf("Open = %v, want ErrNoPlayableFile", err)
+		}
+	})
+}
