@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Show password",
-  "m_0001a02c518d7c": {
-    "one": "{count} search",
-    "other": "{count} searches"
-  },
   "m_0001e5e9211466": "Any app",
   "m_0003c8ed437167": "At home",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Leave empty when the server does not ask for one.",
   "m_0056fb1883bf95": "These files will be permanently removed from the Library.",
   "m_005801354ed82e": "Favourites",
+  "m_00593bfc6982c9": "API requests",
   "m_0059495ec0560b": "Blocklist",
   "m_0059e245e20cd1": "Editing {layer}. Drag a row to anchor it to that slot for everyone; {viewer}'s overrides still apply here.",
   "m_005a10bd19778c": "Unpin {title}",
@@ -2344,6 +2341,10 @@
   "m_08c7a195b5fbda": "Open Plugins",
   "m_08c85cf69d7b6a": "Recent repeat viewing, shared favourites and genre interests guide the shelf. Older viewing fades; no history falls back to catalogue popularity.",
   "m_08c948d9088f1e": "Same as at home",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API request",
+    "other": "{count} API requests"
+  },
   "m_08cb5d0fa07343": "Alerts on your phone",
   "m_08cd5abd115457": {
     "one": "this node: {share} of {count} connection",
@@ -4891,6 +4892,7 @@
   "m_1211c370104b5b": "Enter a TMDB list ID or a link to a public TMDB list.",
   "m_1212f660fb5847": "Plex watchlist changes stay in Ether. Plex sync may restore removed titles.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "From Ether's cache",
   "m_1215e611ce1e22": "Connection checks",
   "m_121628d4589062": "Shared users synced",
   "m_121693081a5e6c": "{seconds} s",
@@ -6307,6 +6309,7 @@
   "m_1764df37707316": "Sign-in method",
   "m_1765b8761f746d": "Profiles Dictionarry publishes for Profilarr, refreshed hourly.",
   "m_1767a833333ba9": "Use {part}",
+  "m_176919d157131f": "plus {cached} answered from Ether's cache, {limited} held back by your daily limit",
   "m_1769f1a18bbb8f": "Playback fails.",
   "m_176b6e765ee68e": "Drag a card to choose which account Ether tries first.",
   "m_176bb4c7d1a7f3": "Channels are numbered 1, 2, 3… down your group order. Drag a group or use its arrows.",

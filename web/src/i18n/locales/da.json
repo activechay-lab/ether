@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Vis adgangskode",
-  "m_0001a02c518d7c": {
-    "one": "{count} søgning",
-    "other": "{count} søgninger"
-  },
   "m_0001e5e9211466": "Enhver app",
   "m_0003c8ed437167": "Hjemme",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Lad feltet stå tomt, hvis serveren ikke beder om en.",
   "m_0056fb1883bf95": "Disse filer fjernes permanent fra biblioteket.",
   "m_005801354ed82e": "Favoritter",
+  "m_00593bfc6982c9": "API-forespørgsler",
   "m_0059495ec0560b": "Blokeringsliste",
   "m_0059e245e20cd1": "Redigerer {layer}. Træk en række for at forankre den til den plads for alle; {viewer}s tilsidesættelser gælder stadig her.",
   "m_005a10bd19778c": "Frigør {title}",
@@ -2341,6 +2338,10 @@
   "m_08c7a195b5fbda": "Åbn Plugins",
   "m_08c85cf69d7b6a": "Nylig gensyning, fælles favoritter og genreinteresser styrer hylden. Ældre visning fortager sig; uden historik bruges katalogets popularitet.",
   "m_08c948d9088f1e": "Samme som hjemme",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API-forespørgsel",
+    "other": "{count} API-forespørgsler"
+  },
   "m_08cb5d0fa07343": "Advarsler på din telefon",
   "m_08cd5abd115457": {
     "one": "denne node: {share} af {count} forbindelse",
@@ -4882,6 +4883,7 @@
   "m_1211c370104b5b": "Indtast et TMDB-liste-ID eller et link til en offentlig TMDB-liste.",
   "m_1212f660fb5847": "Ændringer til Plex-huskelisten bliver i Ether. Plex-synkronisering kan gendanne fjernede titler.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Fra Ethers cache",
   "m_1215e611ce1e22": "Forbindelsestjek",
   "m_121628d4589062": "Delte brugere synkroniseret",
   "m_121693081a5e6c": "{seconds} s",
@@ -6295,6 +6297,7 @@
   "m_1764df37707316": "Loginmetode",
   "m_1765b8761f746d": "Profiler, som Dictionarry udgiver til Profilarr, opdateret hver time.",
   "m_1767a833333ba9": "Brug {part}",
+  "m_176919d157131f": "plus {cached} besvaret fra Ethers cache, {limited} tilbageholdt af din daglige grænse",
   "m_1769f1a18bbb8f": "Afspilning mislykkes.",
   "m_176b6e765ee68e": "Træk et kort for at vælge, hvilken konto Ether prøver først.",
   "m_176bb4c7d1a7f3": "Kanalerne nummereres 1, 2, 3… efter din grupperækkefølge. Træk en gruppe, eller brug dens pile.",

@@ -25,6 +25,8 @@ import {
   daily,
   dayLabel,
   formatGB,
+  indexerRequestDetail,
+  indexerRequests,
   longDay,
   periodLabel,
   periodOptions,
@@ -169,12 +171,13 @@ function Totals({ h, items, since }: { h: SourceHistory; items: Total[]; since?:
             <dd className="mt-0.5 truncate text-lg font-semibold tabular-nums text-fg">
               {i.value}
             </dd>
+            {i.hint ? (
+              <dd className="mt-0.5 text-xs leading-snug text-fg-subtle">{i.hint}</dd>
+            ) : null}
             {i.lifetime != null ? (
-              <dd className="truncate text-xs tabular-nums text-fg-subtle">
+              <dd className="mt-0.5 truncate text-xs tabular-nums text-fg-subtle">
                 {t("All time {value}", { value: i.lifetime })}
               </dd>
-            ) : i.hint ? (
-              <dd className="text-xs leading-snug text-fg-subtle">{i.hint}</dd>
             ) : null}
           </div>
         ))}
@@ -367,6 +370,8 @@ function IndexerDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: S
   const days = windowDays(h);
   const usage = data.usage?.indexers?.find((u) => u.name === row.id);
   const mine = (h.indexerDays ?? []).filter((d) => d.indexer === row.id);
+  const requests = sum(mine, indexerRequests);
+  const cacheHits = sum(mine, (d) => d.cacheHits ?? 0);
   const searches = sum(mine, (d) => d.searches);
   const successes = sum(mine, (d) => d.successes);
   const grabs = sum(mine, (d) => d.grabs);
@@ -374,6 +379,11 @@ function IndexerDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: S
   const ages = sum(mine, (d) => d.ageSamples);
   const limited = sum(mine, (d) => d.budgets);
   const life = h.lifetime?.indexers?.find((x) => x.indexer === row.id);
+  const lifeRequests = life
+    ? life.requests != null && life.requests >= life.searches + life.grabs
+      ? life.requests
+      : life.searches + life.grabs
+    : undefined;
   return (
     <>
       {usage?.retryAt && usage.retryAt > Date.now() / 1000 ? (
@@ -388,14 +398,20 @@ function IndexerDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: S
         since={life?.firstDay}
         items={[
           {
-            label: t("Searches"),
-            value: count(searches),
-            lifetime: life ? count(life.searches) : undefined,
+            label: t("API requests"),
+            value: count(requests),
+            hint: indexerRequestDetail(cacheHits, limited),
+            lifetime: lifeRequests != null ? count(lifeRequests) : undefined,
           },
           {
             label: t("Search success"),
             value: pct(ratio(successes, searches)),
             lifetime: life ? pct(ratio(life.successes, life.searches)) : undefined,
+          },
+          {
+            label: t("Searches"),
+            value: count(searches),
+            lifetime: life ? count(life.searches) : undefined,
           },
           {
             label: t("Downloads"),
@@ -412,15 +428,14 @@ function IndexerDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: S
             value: ms(searches ? sum(mine, (d) => d.latencyMs) / searches : null),
             hint: t("Average response"),
           },
-          {
-            label: t("Limit reached"),
-            value: count(limited),
-            hint: t("Requests refused by the daily limit"),
-          },
         ]}
       />
       <Block title={t("Details")}>
         <Facts>
+          <Fact label={t("From Ether's cache")}>{count(cacheHits)}</Fact>
+          <Fact label={t("Limit reached")} hint={t("Requests refused by the daily limit")}>
+            {count(limited)}
+          </Fact>
           <Fact label={t("Average release age")}>
             {ages
               ? t("{days} days", { days: fixed(sum(mine, (d) => d.ageSeconds) / ages / 86400, 1) })

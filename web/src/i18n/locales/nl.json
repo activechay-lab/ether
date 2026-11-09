@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Wachtwoord tonen",
-  "m_0001a02c518d7c": {
-    "one": "{count} zoekopdracht",
-    "other": "{count} zoekopdrachten"
-  },
   "m_0001e5e9211466": "Elke app",
   "m_0003c8ed437167": "Thuis",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Laat leeg als de server er geen vraagt.",
   "m_0056fb1883bf95": "Deze bestanden worden definitief uit de bibliotheek verwijderd.",
   "m_005801354ed82e": "Favorieten",
+  "m_00593bfc6982c9": "API-verzoeken",
   "m_0059495ec0560b": "Blokkeerlijst",
   "m_0059e245e20cd1": "Je bewerkt {layer}. Sleep een rij om hem voor iedereen aan die positie vast te zetten; de overschrijvingen van {viewer} blijven hier gelden.",
   "m_005a10bd19778c": "Pin van {title} verwijderen",
@@ -2341,6 +2338,10 @@
   "m_08c7a195b5fbda": "Plugins openen",
   "m_08c85cf69d7b6a": "Recent herhaald kijken, gedeelde favorieten en genrevoorkeuren sturen de plank. Ouder kijkgedrag telt steeds minder mee; zonder geschiedenis wordt teruggevallen op populariteit in de catalogus.",
   "m_08c948d9088f1e": "Zelfde als thuis",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API-verzoek",
+    "other": "{count} API-verzoeken"
+  },
   "m_08cb5d0fa07343": "Meldingen op je telefoon",
   "m_08cd5abd115457": {
     "one": "deze node: {share} van {count} verbinding",
@@ -4882,6 +4883,7 @@
   "m_1211c370104b5b": "Voer een TMDB-lijst-ID of een link naar een openbare TMDB-lijst in.",
   "m_1212f660fb5847": "Wijzigingen aan de Plex-kijklijst blijven in Ether. Plex-synchronisatie kan verwijderde titels herstellen.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Uit de cache van Ether",
   "m_1215e611ce1e22": "Verbindingscontroles",
   "m_121628d4589062": "Gedeelde gebruikers gesynchroniseerd",
   "m_121693081a5e6c": "{seconds} s",
@@ -6295,6 +6297,7 @@
   "m_1764df37707316": "Aanmeldmethode",
   "m_1765b8761f746d": "Profielen die Dictionarry voor Profilarr publiceert, elk uur vernieuwd.",
   "m_1767a833333ba9": "{part} gebruiken",
+  "m_176919d157131f": "plus {cached} beantwoord uit de cache van Ether, {limited} tegengehouden door je dagelijkse limiet",
   "m_1769f1a18bbb8f": "Afspelen mislukt.",
   "m_176b6e765ee68e": "Sleep een kaart om te kiezen welk account Ether eerst probeert.",
   "m_176bb4c7d1a7f3": "Kanalen worden 1, 2, 3… genummerd volgens je groepsvolgorde. Sleep een groep of gebruik de pijlen.",

@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Näytä salasana",
-  "m_0001a02c518d7c": {
-    "one": "{count} haku",
-    "other": "{count} hakua"
-  },
   "m_0001e5e9211466": "Mikä tahansa sovellus",
   "m_0003c8ed437167": "Kotona",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Jätä tyhjäksi, jos palvelin ei pyydä avainta.",
   "m_0056fb1883bf95": "Nämä tiedostot poistetaan kirjastosta pysyvästi.",
   "m_005801354ed82e": "Suosikit",
+  "m_00593bfc6982c9": "API-pyynnöt",
   "m_0059495ec0560b": "Estolista",
   "m_0059e245e20cd1": "Muokataan: {layer}. Ankkuroi rivi tähän paikkaan vetämällä kaikille; katselijan {viewer} ohitukset ovat täällä edelleen voimassa.",
   "m_005a10bd19778c": "Poista kiinnitys: {title}",
@@ -2341,6 +2338,10 @@
   "m_08c7a195b5fbda": "Avaa Lisäosat",
   "m_08c85cf69d7b6a": "Viimeaikainen uudelleenkatselu, yhteiset suosikit ja lajityyppikiinnostukset ohjaavat hyllyä. Vanhempi katselu painaa vähemmän; ilman historiaa käytetään katalogin suosiota.",
   "m_08c948d9088f1e": "Sama kuin kotona",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API-pyyntö",
+    "other": "{count} API-pyyntöä"
+  },
   "m_08cb5d0fa07343": "Hälytykset puhelimeesi",
   "m_08cd5abd115457": {
     "one": "tämä solmu: {share} / {count} yhteydestä",
@@ -4882,6 +4883,7 @@
   "m_1211c370104b5b": "Anna TMDB-listan tunnus tai linkki julkiseen TMDB-listaan.",
   "m_1212f660fb5847": "Plex-katselulistan muutokset jäävät Etheriin. Plex-synkronointi voi palauttaa poistetut nimikkeet.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Etherin välimuistista",
   "m_1215e611ce1e22": "Yhteystarkistukset",
   "m_121628d4589062": "Jaetut käyttäjät synkronoitu",
   "m_121693081a5e6c": "{seconds} s",
@@ -6295,6 +6297,7 @@
   "m_1764df37707316": "Kirjautumistapa",
   "m_1765b8761f746d": "Dictionarryn Profilarrille julkaisemat profiilit, päivitetään tunneittain.",
   "m_1767a833333ba9": "Käytä: {part}",
+  "m_176919d157131f": "sekä {cached} vastattu Etherin välimuistista, {limited} pidätetty päivärajasi vuoksi",
   "m_1769f1a18bbb8f": "Toisto epäonnistuu.",
   "m_176b6e765ee68e": "Vedä korttia valitaksesi, mitä tiliä Ether kokeilee ensin.",
   "m_176bb4c7d1a7f3": "Kanavat numeroidaan 1, 2, 3… ryhmäjärjestyksesi mukaan. Vedä ryhmää tai käytä sen nuolia.",

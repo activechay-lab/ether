@@ -32,10 +32,42 @@ const PROVIDERS = [
   { id: "p2", gb: 2.4, articleKB: 740, miss: 0.08, err: 0.002 },
 ];
 const INDEXERS = [
-  { name: "Indexer One", searches: 160, success: 0.86, latency: 420, grabs: 9 },
-  { name: "Indexer Two", searches: 24, success: 0.71, latency: 910, grabs: 3 },
-  { name: "Torrent Tracker", searches: 70, success: 0.64, latency: 1350, grabs: 0 },
-  { name: "Stream Addon", searches: 95, success: 0.92, latency: 260, grabs: 0 },
+  {
+    name: "Indexer One",
+    searches: 160,
+    feeds: 48,
+    cached: 95,
+    success: 0.86,
+    latency: 420,
+    grabs: 9,
+  },
+  {
+    name: "Indexer Two",
+    searches: 24,
+    feeds: 0,
+    cached: 18,
+    success: 0.71,
+    latency: 910,
+    grabs: 3,
+  },
+  {
+    name: "Torrent Tracker",
+    searches: 70,
+    feeds: 24,
+    cached: 42,
+    success: 0.64,
+    latency: 1350,
+    grabs: 0,
+  },
+  {
+    name: "Stream Addon",
+    searches: 95,
+    feeds: 0,
+    cached: 64,
+    success: 0.92,
+    latency: 260,
+    grabs: 0,
+  },
 ];
 const DEBRID = [
   { id: "rd-1", name: "Real-Debrid", requests: 210, fail: 0.015, cached: 0.78, gb: 26 },
@@ -92,9 +124,13 @@ export function sourceHistory(n: number, withLifetime = true) {
         searches * x.success * (0.92 + 0.16 * noise(`s${x.name}${day}`)),
       );
       const grabs = Math.round(x.grabs * l(`g${x.name}`));
+      const feeds = x.feeds;
+      const cacheHits = Math.round(x.cached * l(`c${x.name}`));
       indexerDays.push({
         indexer: x.name,
         day,
+        requests: searches + grabs + feeds,
+        cacheHits,
         searches,
         successes: Math.min(searches, successes),
         grabs,
@@ -205,10 +241,13 @@ function lifetime() {
     indexers: INDEXERS.map(({ name }) => ({
       indexer: name,
       firstDay: older,
+      requests: 4 * add(x, "indexer", name, "requests"),
+      cacheHits: 4 * add(x, "indexer", name, "cacheHits"),
       searches: 4 * add(x, "indexer", name, "searches"),
       successes: 4 * add(x, "indexer", name, "successes"),
       grabs: 4 * add(x, "indexer", name, "grabs"),
       grabSuccess: 4 * add(x, "indexer", name, "grabSuccess"),
+      budgets: 4 * add(x, "indexer", name, "budgets"),
     })),
     debrid: DEBRID.map(({ id }) => ({
       id,

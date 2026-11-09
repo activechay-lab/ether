@@ -1,6 +1,6 @@
 import { getLocale, localized, t, tn } from "../../../i18n";
 import { api, apiFetch } from "../../../lib/api";
-import { fixed } from "../../../lib/format";
+import { fixed, formatNumber } from "../../../lib/format";
 import { useAsync } from "../../../lib/hooks";
 import type {
   DebridProviderStatus,
@@ -35,6 +35,8 @@ export type ProviderDay = {
 export type IndexerDay = {
   indexer: string;
   day: string;
+  requests?: number;
+  cacheHits?: number;
   searches: number;
   successes: number;
   grabs: number;
@@ -89,10 +91,13 @@ export type Lifetime = {
   indexers: {
     indexer: string;
     firstDay: string;
+    requests?: number;
+    cacheHits?: number;
     searches: number;
     successes: number;
     grabs: number;
     grabSuccess: number;
+    budgets?: number;
   }[];
   debrid: {
     id: string;
@@ -199,7 +204,7 @@ export type SourceRow = {
   detail: string;
   health: Health;
   healthLabel: string;
-  /** Daily activity across the window (bytes, searches or requests). */
+  /** Daily activity across the window (bytes or API requests). */
   series: number[];
   usage: string;
   usageSort: number;
@@ -207,6 +212,17 @@ export type SourceRow = {
   latencyMs: number | null;
   cost?: { kind: CostKind; id: string; price?: Cost };
 };
+
+/** Real HTTP API requests sent to an indexer on a recorded day. */
+export const indexerRequests = (d: IndexerDay): number =>
+  d.requests != null && d.requests >= d.searches + d.grabs ? d.requests : d.searches + d.grabs;
+
+/** Detail under the API requests headline, accounting for cached answers and budget holds. */
+export const indexerRequestDetail = (cacheHits: number, limited: number): string =>
+  t("plus {cached} answered from Ether's cache, {limited} held back by your daily limit", {
+    cached: formatNumber(cacheHits, 0),
+    limited: formatNumber(limited, 0),
+  });
 
 export const PERIODS = ["1", "7", "30", "90"] as const;
 export type Period = (typeof PERIODS)[number];
@@ -426,6 +442,7 @@ export function sourceRows(data: StatsData, plugins: PluginSourceSummary[]): Sou
     budgets.map((b) => ({ name: b.indexer }));
   for (const { name, usage: u } of indexers) {
     const mine = (h.indexerDays ?? []).filter((d) => d.indexer === name);
+    const requests = sum(mine, indexerRequests);
     const searches = sum(mine, (d) => d.searches);
     const limited = Boolean(u?.retryAt && u.retryAt > Date.now() / 1000);
     rows.push({
@@ -437,9 +454,9 @@ export function sourceRows(data: StatsData, plugins: PluginSourceSummary[]): Sou
       health: u && !u.enabled ? "off" : limited ? "warning" : "ok",
       healthLabel:
         u && !u.enabled ? t("Turned off") : limited ? t("Daily limit reached") : t("Healthy"),
-      series: daily(days, mine, (d) => d.searches),
-      usage: tn(searches, "{count} search", "{count} searches"),
-      usageSort: searches,
+      series: daily(days, mine, indexerRequests),
+      usage: tn(requests, "{count} API request", "{count} API requests"),
+      usageSort: requests,
       success: ratio(
         sum(mine, (d) => d.successes),
         searches,

@@ -1,11 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Afficher le mot de passe",
-  "m_0001a02c518d7c": {
-    "one": "{count} recherche",
-    "many": "{count} de recherches",
-    "other": "{count} recherches"
-  },
   "m_0001e5e9211466": "Toute application",
   "m_0003c8ed437167": "À la maison",
   "m_000492b4f38eca": "Dolby Vision",
@@ -87,6 +82,7 @@
   "m_0054cda29f9aff": "Laissez vide si le serveur n’en demande pas.",
   "m_0056fb1883bf95": "Ces fichiers seront définitivement supprimés de la bibliothèque.",
   "m_005801354ed82e": "Favoris",
+  "m_00593bfc6982c9": "Requêtes API",
   "m_0059495ec0560b": "Liste de blocage",
   "m_0059e245e20cd1": "Modification de {layer}. Faites glisser une rangée pour l’ancrer à cette position pour tout le monde ; les remplacements de {viewer} s’appliquent toujours ici.",
   "m_005a10bd19778c": "Désépingler {title}",
@@ -2392,6 +2388,11 @@
   "m_08c7a195b5fbda": "Ouvrir les plugins",
   "m_08c85cf69d7b6a": "Les revisionnages récents, les favoris communs et les genres appréciés guident l’étagère. Les visionnages anciens s’estompent ; sans historique, la popularité du catalogue prend le relais.",
   "m_08c948d9088f1e": "Comme à la maison",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} requête API",
+    "many": "{count} de requêtes API",
+    "other": "{count} requêtes API"
+  },
   "m_08cb5d0fa07343": "Alertes sur votre téléphone",
   "m_08cd5abd115457": {
     "many": "ce nœud : {share} sur {count} de connexions",
@@ -5004,6 +5005,7 @@
   "m_1211c370104b5b": "Saisissez un identifiant de liste TMDB ou un lien vers une liste TMDB publique.",
   "m_1212f660fb5847": "Les modifications de la liste Plex restent dans Ether. La synchronisation Plex peut restaurer les titres retirés.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Depuis le cache d'Ether",
   "m_1215e611ce1e22": "Vérifications de connexion",
   "m_121628d4589062": "Utilisateurs partagés synchronisés",
   "m_121693081a5e6c": "{seconds} s",
@@ -6459,6 +6461,7 @@
   "m_1764df37707316": "Méthode de connexion",
   "m_1765b8761f746d": "Les profils publiés par Dictionarry pour Profilarr, actualisés toutes les heures.",
   "m_1767a833333ba9": "Utiliser {part}",
+  "m_176919d157131f": "plus {cached} servies depuis le cache d'Ether, {limited} retenues par votre limite quotidienne",
   "m_1769f1a18bbb8f": "La lecture échoue.",
   "m_176b6e765ee68e": "Glissez une carte pour choisir quel compte Ether essaie en premier.",
   "m_176bb4c7d1a7f3": "Les chaînes sont numérotées 1, 2, 3… en suivant l’ordre de vos groupes. Faites glisser un groupe ou utilisez ses flèches.",

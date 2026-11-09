@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Visa lösenord",
-  "m_0001a02c518d7c": {
-    "one": "{count} sökning",
-    "other": "{count} sökningar"
-  },
   "m_0001e5e9211466": "Valfri app",
   "m_0003c8ed437167": "Hemma",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Lämna tomt om servern inte ber om en.",
   "m_0056fb1883bf95": "Filerna tas bort permanent från biblioteket.",
   "m_005801354ed82e": "Favoriter",
+  "m_00593bfc6982c9": "API-förfrågningar",
   "m_0059495ec0560b": "Blockeringslista",
   "m_0059e245e20cd1": "Redigerar {layer}. Dra en rad för att förankra den på den platsen för alla; {viewer}s åsidosättningar gäller fortfarande här.",
   "m_005a10bd19778c": "Lossa {title}",
@@ -2341,6 +2338,10 @@
   "m_08c7a195b5fbda": "Öppna Plugin",
   "m_08c85cf69d7b6a": "Nyliga omtittningar, gemensamma favoriter och genreintressen styr hyllan. Äldre tittande tonas ned; utan historik används katalogens popularitet.",
   "m_08c948d9088f1e": "Samma som hemma",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API-förfrågan",
+    "other": "{count} API-förfrågningar"
+  },
   "m_08cb5d0fa07343": "Varningar på din mobil",
   "m_08cd5abd115457": {
     "one": "den här noden: {share} av {count} anslutning",
@@ -4882,6 +4883,7 @@
   "m_1211c370104b5b": "Ange ett TMDB-list-ID eller en länk till en offentlig TMDB-lista.",
   "m_1212f660fb5847": "Ändringar i Plex bevakningslista stannar i Ether. Plex-synkronisering kan återställa borttagna titlar.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Från Ethers cache",
   "m_1215e611ce1e22": "Anslutningskontroller",
   "m_121628d4589062": "Delade användare synkroniserade",
   "m_121693081a5e6c": "{seconds} s",
@@ -6295,6 +6297,7 @@
   "m_1764df37707316": "Inloggningssätt",
   "m_1765b8761f746d": "Profiler som Dictionarry publicerar för Profilarr, uppdateras varje timme.",
   "m_1767a833333ba9": "Använd {part}",
+  "m_176919d157131f": "plus {cached} besvarade från Ethers cache, {limited} hållna tillbaka av din dagsgräns",
   "m_1769f1a18bbb8f": "Uppspelningen misslyckas.",
   "m_176b6e765ee68e": "Dra ett kort för att välja vilket konto Ether provar först.",
   "m_176bb4c7d1a7f3": "Kanalerna numreras 1, 2, 3… efter din gruppordning. Dra en grupp eller använd dess pilar.",

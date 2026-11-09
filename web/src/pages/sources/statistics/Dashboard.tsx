@@ -1,5 +1,5 @@
 import { DashboardPanel } from "@braedonsaunders/appkit-dashboard/primitives";
-import { DatabaseZap, HardDriveDownload, Newspaper, Search } from "lucide-react";
+import { Activity, DatabaseZap, HardDriveDownload, Newspaper, Search } from "lucide-react";
 import {
   RankedBars,
   SeriesLines,
@@ -14,6 +14,8 @@ import {
   daily,
   dayLabel,
   formatGB,
+  indexerRequestDetail,
+  indexerRequests,
   ratio,
   sum,
   windowDays,
@@ -66,6 +68,9 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
   const totalPlays = sum(plays, (p) => p.plays);
   const usenetBytes = sum(providers, (d) => d.bytes);
   const debridBytes = sum(stream, (d) => d.bytesFetched);
+  const requests = sum(indexers, indexerRequests);
+  const cacheHits = sum(indexers, (d) => d.cacheHits ?? 0);
+  const limited = sum(indexers, (d) => d.budgets);
   const searches = sum(indexers, (d) => d.searches);
   const found = sum(indexers, (d) => d.successes);
   const articles = sum(providers, (d) => d.articles);
@@ -137,7 +142,7 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
 
   return (
     <>
-      <KpiRow>
+      <KpiRow className="lg:grid-cols-5">
         <Kpi
           label={t("Data downloaded")}
           value={formatGB(usenetBytes + debridBytes)}
@@ -150,6 +155,24 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
               : t("Nothing recorded in this period.")
           }
           icon={<HardDriveDownload size={18} />}
+        />
+        <Kpi
+          label={t("API requests")}
+          value={formatNumber(requests, 0)}
+          detail={
+            requests + cacheHits + limited
+              ? indexerRequestDetail(cacheHits, limited)
+              : t("Nothing recorded in this period.")
+          }
+          icon={<Activity size={18} />}
+          tone="primary"
+        />
+        <Kpi
+          label={t("Search success")}
+          value={pct(ratio(found, searches))}
+          detail={tn(searches, "{count} indexer search", "{count} indexer searches")}
+          icon={<Search size={18} />}
+          tone="success"
         />
         <Kpi
           label={t("Article success")}
@@ -165,13 +188,6 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
           }
           icon={<Newspaper size={18} />}
           tone="info"
-        />
-        <Kpi
-          label={t("Search success")}
-          value={pct(ratio(found, searches))}
-          detail={tn(searches, "{count} indexer search", "{count} indexer searches")}
-          icon={<Search size={18} />}
-          tone="success"
         />
         <Kpi
           label={t("Stream cache hits")}
@@ -362,7 +378,7 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
               detail:
                 r.success == null ? undefined : t("{percent} found", { percent: pct(r.success) }),
             }))}
-            valueFormat={(v) => tn(v, "{count} search", "{count} searches")}
+            valueFormat={(v) => tn(v, "{count} API request", "{count} API requests")}
             empty={<Empty />}
           />
         </DashboardPanel>

@@ -1,11 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Mostra password",
-  "m_0001a02c518d7c": {
-    "one": "{count} ricerca",
-    "many": "{count} di ricerche",
-    "other": "{count} ricerche"
-  },
   "m_0001e5e9211466": "Qualsiasi app",
   "m_0003c8ed437167": "A casa",
   "m_000492b4f38eca": "Dolby Vision",
@@ -87,6 +82,7 @@
   "m_0054cda29f9aff": "Lascia vuoto se il server non ne chiede una.",
   "m_0056fb1883bf95": "Questi file verranno eliminati definitivamente dalla libreria.",
   "m_005801354ed82e": "Preferiti",
+  "m_00593bfc6982c9": "Richieste API",
   "m_0059495ec0560b": "Lista di blocco",
   "m_0059e245e20cd1": "Modifica di {layer}. Trascina una riga per ancorarla a quella posizione per tutti; le sostituzioni di {viewer} continuano ad applicarsi qui.",
   "m_005a10bd19778c": "Rimuovi {title} dai fissati",
@@ -2392,6 +2388,11 @@
   "m_08c7a195b5fbda": "Apri i plugin",
   "m_08c85cf69d7b6a": "Visioni ripetute recenti, preferiti condivisi e interessi per genere guidano lo scaffale. Le visioni più vecchie perdono peso; senza cronologia si ricorre alla popolarità nel catalogo.",
   "m_08c948d9088f1e": "Come a casa",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} richiesta API",
+    "many": "{count} richieste API",
+    "other": "{count} richieste API"
+  },
   "m_08cb5d0fa07343": "Avvisi sul telefono",
   "m_08cd5abd115457": {
     "many": "questo nodo: {share} di {count} connessioni",
@@ -5004,6 +5005,7 @@
   "m_1211c370104b5b": "Inserisci un ID di lista TMDB o un link a una lista TMDB pubblica.",
   "m_1212f660fb5847": "Le modifiche alla lista Plex restano in Ether. La sincronizzazione Plex può ripristinare i titoli rimossi.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Dalla cache di Ether",
   "m_1215e611ce1e22": "Controlli di connessione",
   "m_121628d4589062": "Utenti condivisi sincronizzati",
   "m_121693081a5e6c": "{seconds} s",
@@ -6459,6 +6461,7 @@
   "m_1764df37707316": "Metodo di accesso",
   "m_1765b8761f746d": "I profili pubblicati da Dictionarry per Profilarr, aggiornati ogni ora.",
   "m_1767a833333ba9": "Usa {part}",
+  "m_176919d157131f": "più {cached} servite dalla cache di Ether, {limited} trattenute dal tuo limite giornaliero",
   "m_1769f1a18bbb8f": "La riproduzione non riesce.",
   "m_176b6e765ee68e": "Trascina una scheda per scegliere quale account Ether prova per primo.",
   "m_176bb4c7d1a7f3": "I canali sono numerati 1, 2, 3… seguendo l’ordine dei tuoi gruppi. Trascina un gruppo o usa le sue frecce.",

@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Parolayı göster",
-  "m_0001a02c518d7c": {
-    "one": "{count} arama",
-    "other": "{count} arama"
-  },
   "m_0001e5e9211466": "Herhangi bir uygulama",
   "m_0003c8ed437167": "Evde",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Sunucu istemiyorsa boş bırakın.",
   "m_0056fb1883bf95": "Bu dosyalar kitaplıktan kalıcı olarak kaldırılacak.",
   "m_005801354ed82e": "Favoriler",
+  "m_00593bfc6982c9": "API istekleri",
   "m_0059495ec0560b": "Engelleme listesi",
   "m_0059e245e20cd1": "{layer} düzenleniyor. Bir satırı herkes için o konuma sabitlemek üzere sürükleyin; {viewer} için geçersiz kılmalar burada yine de geçerlidir.",
   "m_005a10bd19778c": "{title} sabitlemesini kaldır",
@@ -2341,6 +2338,10 @@
   "m_08c7a195b5fbda": "Eklentileri aç",
   "m_08c85cf69d7b6a": "Yakın zamandaki tekrar izlemeler, ortak favoriler ve tür ilgileri rafı yönlendirir. Eski izlemelerin etkisi azalır; geçmiş yoksa katalog popülerliğine geri dönülür.",
   "m_08c948d9088f1e": "Evdekiyle aynı",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API isteği",
+    "other": "{count} API isteği"
+  },
   "m_08cb5d0fa07343": "Telefonunuzda uyarılar",
   "m_08cd5abd115457": {
     "one": "bu düğüm: {count} bağlantıdan {share} tanesi",
@@ -4882,6 +4883,7 @@
   "m_1211c370104b5b": "Bir TMDB liste kimliği veya herkese açık bir TMDB listesi bağlantısı girin.",
   "m_1212f660fb5847": "Plex izleme listesi değişiklikleri Ether’da kalır. Plex eşitlemesi kaldırılan içerikleri geri getirebilir.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Ether önbelleğinden",
   "m_1215e611ce1e22": "Bağlantı denetimleri",
   "m_121628d4589062": "Paylaşılan kullanıcılar eşitlendi",
   "m_121693081a5e6c": "{seconds} sn",
@@ -6295,6 +6297,7 @@
   "m_1764df37707316": "Oturum açma yöntemi",
   "m_1765b8761f746d": "Dictionarry tarafından Profilarr için yayımlanan profiller, saatlik yenilenir.",
   "m_1767a833333ba9": "{part} kullan",
+  "m_176919d157131f": "artı {cached} Ether önbelleğinden yanıtlandı, {limited} günlük sınırınız nedeniyle bekletildi",
   "m_1769f1a18bbb8f": "Oynatma başarısız olur.",
   "m_176b6e765ee68e": "Ether’in önce deneyeceği hesabı seçmek için bir kartı sürükleyin.",
   "m_176bb4c7d1a7f3": "Kanallar grup sıranıza göre 1, 2, 3… diye numaralandırılır. Bir grubu sürükleyin veya oklarını kullanın.",

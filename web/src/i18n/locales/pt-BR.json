@@ -1,11 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Mostrar senha",
-  "m_0001a02c518d7c": {
-    "one": "{count} busca",
-    "many": "{count} buscas",
-    "other": "{count} buscas"
-  },
   "m_0001e5e9211466": "Qualquer aplicativo",
   "m_0003c8ed437167": "Em casa",
   "m_000492b4f38eca": "Dolby Vision",
@@ -87,6 +82,7 @@
   "m_0054cda29f9aff": "Deixe em branco se o servidor não pedir uma.",
   "m_0056fb1883bf95": "Estes arquivos serão removidos permanentemente da biblioteca.",
   "m_005801354ed82e": "Favoritos",
+  "m_00593bfc6982c9": "Solicitações de API",
   "m_0059495ec0560b": "Lista de bloqueio",
   "m_0059e245e20cd1": "Editando {layer}. Arraste uma linha para ancorá-la a essa posição para todos; as substituições de {viewer} ainda valem aqui.",
   "m_005a10bd19778c": "Desafixar {title}",
@@ -2392,6 +2388,11 @@
   "m_08c7a195b5fbda": "Abrir Plugins",
   "m_08c85cf69d7b6a": "O que foi assistido de novo recentemente, os favoritos compartilhados e os interesses por gênero orientam a prateleira. O que foi assistido há mais tempo perde peso; sem histórico, vale a popularidade do catálogo.",
   "m_08c948d9088f1e": "Igual ao de casa",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} solicitação de API",
+    "many": "{count} solicitações de API",
+    "other": "{count} solicitações de API"
+  },
   "m_08cb5d0fa07343": "Alertas no seu celular",
   "m_08cd5abd115457": {
     "many": "este nó: {share} de {count} conexões",
@@ -5004,6 +5005,7 @@
   "m_1211c370104b5b": "Insira um ID de lista do TMDB ou um link para uma lista pública do TMDB.",
   "m_1212f660fb5847": "As alterações da lista Plex ficam no Ether. A sincronização Plex pode restaurar títulos removidos.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Do cache do Ether",
   "m_1215e611ce1e22": "Verificações de conexão",
   "m_121628d4589062": "Usuários compartilhados sincronizados",
   "m_121693081a5e6c": "{seconds} s",
@@ -6459,6 +6461,7 @@
   "m_1764df37707316": "Forma de entrada",
   "m_1765b8761f746d": "Perfis publicados pelo Dictionarry para o Profilarr, atualizados a cada hora.",
   "m_1767a833333ba9": "Usar {part}",
+  "m_176919d157131f": "mais {cached} respondidas pelo cache do Ether, {limited} retidas pelo seu limite diário",
   "m_1769f1a18bbb8f": "A reprodução falha.",
   "m_176b6e765ee68e": "Arraste um cartão para escolher qual conta o Ether tenta primeiro.",
   "m_176bb4c7d1a7f3": "Os canais são numerados 1, 2, 3… seguindo a ordem dos seus grupos. Arraste um grupo ou use as setas dele.",

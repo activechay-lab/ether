@@ -1,10 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Passwort anzeigen",
-  "m_0001a02c518d7c": {
-    "one": "{count} Suche",
-    "other": "{count} Suchen"
-  },
   "m_0001e5e9211466": "Beliebige App",
   "m_0003c8ed437167": "Zu Hause",
   "m_000492b4f38eca": "Dolby Vision",
@@ -85,6 +81,7 @@
   "m_0054cda29f9aff": "Leer lassen, wenn der Server keinen verlangt.",
   "m_0056fb1883bf95": "Diese Dateien werden endgültig aus der Mediathek entfernt.",
   "m_005801354ed82e": "Favoriten",
+  "m_00593bfc6982c9": "API-Anfragen",
   "m_0059495ec0560b": "Sperrliste",
   "m_0059e245e20cd1": "Bearbeitet wird: {layer}. Ziehe eine Reihe, um sie für alle an dieser Position zu verankern; die Überschreibungen von {viewer} gelten hier weiterhin.",
   "m_005a10bd19778c": "{title} lösen",
@@ -2341,6 +2338,10 @@
   "m_08c7a195b5fbda": "Plugins öffnen",
   "m_08c85cf69d7b6a": "Zuletzt wiederholt Gesehenes, gemeinsame Favoriten und Genre-Interessen steuern den Bestand. Ältere Wiedergaben verlieren an Gewicht; ohne Verlauf gilt die Beliebtheit im Katalog.",
   "m_08c948d9088f1e": "Wie zu Hause",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} API-Anfrage",
+    "other": "{count} API-Anfragen"
+  },
   "m_08cb5d0fa07343": "Benachrichtigungen auf deinem Smartphone",
   "m_08cd5abd115457": {
     "one": "dieser Knoten: {share} von {count} Verbindung",
@@ -4882,6 +4883,7 @@
   "m_1211c370104b5b": "Gib eine TMDB-Listen-ID oder einen Link zu einer öffentlichen TMDB-Liste ein.",
   "m_1212f660fb5847": "Änderungen an der Plex-Merkliste bleiben in Ether. Die Plex-Synchronisierung kann entfernte Titel wiederherstellen.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Aus dem Ether-Cache",
   "m_1215e611ce1e22": "Verbindungsprüfungen",
   "m_121628d4589062": "Geteilte Nutzer synchronisiert",
   "m_121693081a5e6c": "{seconds} s",
@@ -6295,6 +6297,7 @@
   "m_1764df37707316": "Anmeldeart",
   "m_1765b8761f746d": "Von Dictionarry für Profilarr veröffentlichte Profile, stündlich aktualisiert.",
   "m_1767a833333ba9": "{part} verwenden",
+  "m_176919d157131f": "plus {cached} aus dem Ether-Cache beantwortet, {limited} durch dein Tageslimit zurückgehalten",
   "m_1769f1a18bbb8f": "Die Wiedergabe schlägt fehl.",
   "m_176b6e765ee68e": "Zieh eine Karte, um zu wählen, welches Konto Ether zuerst fragt.",
   "m_176bb4c7d1a7f3": "Kanäle werden entlang deiner Gruppenreihenfolge mit 1, 2, 3 … nummeriert. Ziehe eine Gruppe oder nutze ihre Pfeile.",

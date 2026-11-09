@@ -1,12 +1,6 @@
 {
   "m_00014734347949": "Torrent (Torznab)",
   "m_00017bdb2a0915": "Zobrazit heslo",
-  "m_0001a02c518d7c": {
-    "one": "{count} hledání",
-    "few": "{count} hledání",
-    "many": "{count} hledání",
-    "other": "{count} hledání"
-  },
   "m_0001e5e9211466": "Libovolná aplikace",
   "m_0003c8ed437167": "Doma",
   "m_000492b4f38eca": "Dolby Vision",
@@ -89,6 +83,7 @@
   "m_0054cda29f9aff": "Nechte prázdné, pokud server žádný nechce.",
   "m_0056fb1883bf95": "Tyto soubory budou z knihovny trvale odstraněny.",
   "m_005801354ed82e": "Oblíbené",
+  "m_00593bfc6982c9": "Požadavky API",
   "m_0059495ec0560b": "Seznam blokovaných",
   "m_0059e245e20cd1": "Úpravy: {layer}. Přetažením řádku ho ukotvíte na dané pozici pro všechny; přepsání diváka {viewer} se tu stále uplatní.",
   "m_005a10bd19778c": "Odepnout {title}",
@@ -2443,6 +2438,12 @@
   "m_08c7a195b5fbda": "Otevřít Pluginy",
   "m_08c85cf69d7b6a": "Polička se řídí nedávným opakovaným sledováním, společnými oblíbenými tituly a zájmem o žánry. Starší sledování slábne; bez historie se použije popularita v katalogu.",
   "m_08c948d9088f1e": "Stejně jako doma",
+  "m_08cadcb30a0aa0": {
+    "one": "{count} požadavek API",
+    "few": "{count} požadavky API",
+    "many": "{count} požadavku API",
+    "other": "{count} požadavků API"
+  },
   "m_08cb5d0fa07343": "Upozornění v telefonu",
   "m_08cd5abd115457": {
     "few": "tento uzel: {share} z {count} připojení",
@@ -5126,6 +5127,7 @@
   "m_1211c370104b5b": "Zadejte ID seznamu TMDB nebo odkaz na veřejný seznam TMDB.",
   "m_1212f660fb5847": "Změny seznamu Plex zůstávají v Etheru. Synchronizace Plex může obnovit odebrané tituly.",
   "m_121396aab9f2be": "Keanu Reeves",
+  "m_12141df21f0d7e": "Z mezipaměti Etheru",
   "m_1215e611ce1e22": "Kontroly připojení",
   "m_121628d4589062": "Sdílení uživatelé synchronizováni",
   "m_121693081a5e6c": "{seconds} s",
@@ -6623,6 +6625,7 @@
   "m_1764df37707316": "Způsob přihlášení",
   "m_1765b8761f746d": "Profily publikované Dictionarry pro Profilarr, obnovované každou hodinu.",
   "m_1767a833333ba9": "Použít {part}",
+  "m_176919d157131f": "plus {cached} zodpovězeno z mezipaměti Etheru, {limited} zadrženo vaším denním limitem",
   "m_1769f1a18bbb8f": "Přehrávání selže.",
   "m_176b6e765ee68e": "Přetáhněte kartu a vyberte, který účet Ether zkusí první.",
   "m_176bb4c7d1a7f3": "Kanály se číslují 1, 2, 3… podle pořadí vašich skupin. Přetáhněte skupinu nebo použijte její šipky.",
