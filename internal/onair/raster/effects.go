@@ -1,11 +1,39 @@
 package raster
 
 import (
+	"runtime"
+	"sync"
+
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"image"
 	"image/color"
 	"math"
 )
+
+// parallelLines runs fn over disjoint [lo,hi) ranges of n lines. Pixel
+// work in this file is per-line independent and exact: splitting lines
+// across cores changes no output byte. Small frames stay on one goroutine.
+func parallelLines(n int, fn func(lo, hi int)) {
+	workers := runtime.GOMAXPROCS(0)
+	if workers <= 1 || n < 256 {
+		fn(0, n)
+		return
+	}
+	if workers > 8 {
+		workers = 8
+	}
+	chunk := (n + workers - 1) / workers
+	var wg sync.WaitGroup
+	for lo := 0; lo < n; lo += chunk {
+		hi := min(n, lo+chunk)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(lo, hi)
+		}()
+	}
+	wg.Wait()
+}
 
 // stroke expands a flattened path into consistently wound polygons.
 func stroke(cs []contour, width float64, join, cap string) []contour {
@@ -104,39 +132,63 @@ func reverse(p []point) {
 		p[i], p[j] = p[j], p[i]
 	}
 }
+// box is one sliding-window pass (edge pixels replicate). The sums are
+// integer and per line, so lines run in parallel with identical output.
 func box(src, dst *image.RGBA, radius int, horizontal bool) {
 	w, h := src.Bounds().Dx(), src.Bounds().Dy()
-	outer, inner := h, w
-	if !horizontal {
-		outer, inner = w, h
-	}
 	n := radius*2 + 1
-	for o := 0; o < outer; o++ {
-		var sum [4]int
-		at := func(v int) int {
-			v = max(0, min(inner-1, v))
-			if horizontal {
-				return o*src.Stride + v*4
+	sp, dp := src.Pix, dst.Pix
+	ss, ds := src.Stride, dst.Stride
+	if horizontal {
+		parallelLines(h, func(lo, hi int) {
+			for y := lo; y < hi; y++ {
+				row := y * ss
+				out := y * ds
+				var sum [4]int
+				for j := -radius; j <= radius; j++ {
+					p := row + max(0, min(w-1, j))*4
+					for c := 0; c < 4; c++ {
+						sum[c] += int(sp[p+c])
+					}
+				}
+				for x := 0; x < w; x++ {
+					p := out + x*4
+					for c := 0; c < 4; c++ {
+						dp[p+c] = uint8(sum[c] / n)
+					}
+					a := row + max(0, min(w-1, x-radius))*4
+					b := row + max(0, min(w-1, x+radius+1))*4
+					for c := 0; c < 4; c++ {
+						sum[c] += int(sp[b+c]) - int(sp[a+c])
+					}
+				}
 			}
-			return v*src.Stride + o*4
-		}
-		for j := -radius; j <= radius; j++ {
-			p := at(j)
-			for c := 0; c < 4; c++ {
-				sum[c] += int(src.Pix[p+c])
-			}
-		}
-		for j := 0; j < inner; j++ {
-			p := at(j)
-			for c := 0; c < 4; c++ {
-				dst.Pix[p+c] = uint8(sum[c] / n)
-			}
-			a, b := at(j-radius), at(j+radius+1)
-			for c := 0; c < 4; c++ {
-				sum[c] += int(src.Pix[b+c]) - int(src.Pix[a+c])
-			}
-		}
+		})
+		return
 	}
+	parallelLines(w, func(lo, hi int) {
+		for x := lo; x < hi; x++ {
+			col := x * 4
+			var sum [4]int
+			for j := -radius; j <= radius; j++ {
+				p := max(0, min(h-1, j))*ss + col
+				for c := 0; c < 4; c++ {
+					sum[c] += int(sp[p+c])
+				}
+			}
+			for y := 0; y < h; y++ {
+				p := y*ds + col
+				for c := 0; c < 4; c++ {
+					dp[p+c] = uint8(sum[c] / n)
+				}
+				a := max(0, min(h-1, y-radius))*ss + col
+				b := max(0, min(h-1, y+radius+1))*ss + col
+				for c := 0; c < 4; c++ {
+					sum[c] += int(sp[b+c]) - int(sp[a+c])
+				}
+			}
+		}
+	})
 }
 func blur(src *image.RGBA, radius float64) *image.RGBA {
 	if radius <= 0 {
@@ -165,7 +217,13 @@ func (r *render) finish(dst, src *image.RGBA, l scene.Layer, alpha float64, clip
 }
 func composite(dst, src *image.RGBA, alpha float64, clip *image.Alpha, mode string) {
 	alpha = max(0, min(1, alpha))
-	for y := 0; y < dst.Rect.Dy(); y++ {
+	parallelLines(dst.Rect.Dy(), func(lo, hi int) {
+		compositeRows(dst, src, alpha, clip, mode, lo, hi)
+	})
+}
+
+func compositeRows(dst, src *image.RGBA, alpha float64, clip *image.Alpha, mode string, lo, hi int) {
+	for y := lo; y < hi; y++ {
 		for x := 0; x < dst.Rect.Dx(); x++ {
 			i := y*src.Stride + x*4
 			j := y*dst.Stride + x*4
@@ -210,29 +268,31 @@ func (r *render) post(dst *image.RGBA, effects []scene.Effect) {
 		amount := r.n(e.Amount, 0)
 		seed := e.Seed + uint32(r.b.Number("seed", 7))
 		frame := int(r.t * 24)
-		for y := 0; y < r.h; y++ {
-			for x := 0; x < r.w; x++ {
-				i := y*dst.Stride + x*4
-				v := 1.0
-				offset := 0.0
-				switch e.Type {
-				case "grain":
-					offset = (random(seed, x+y*r.w+frame*100003) - .5) * min(amount, 1) * 24
-				case "scanlines":
-					if y%3 == 0 {
-						v = 1 - amount
+		parallelLines(r.h, func(lo, hi int) {
+			for y := lo; y < hi; y++ {
+				for x := 0; x < r.w; x++ {
+					i := y*dst.Stride + x*4
+					v := 1.0
+					offset := 0.0
+					switch e.Type {
+					case "grain":
+						offset = (random(seed, x+y*r.w+frame*100003) - .5) * min(amount, 1) * 24
+					case "scanlines":
+						if y%3 == 0 {
+							v = 1 - amount
+						}
+					case "vignette":
+						dx, dy := (float64(x)/float64(r.w)-.5)*1.4, (float64(y)/float64(r.h)-.5)*1.4
+						v = 1 - amount*min(1, dx*dx+dy*dy)
+					case "flicker":
+						v = 1 - amount*random(seed, frame)
 					}
-				case "vignette":
-					dx, dy := (float64(x)/float64(r.w)-.5)*1.4, (float64(y)/float64(r.h)-.5)*1.4
-					v = 1 - amount*min(1, dx*dx+dy*dy)
-				case "flicker":
-					v = 1 - amount*random(seed, frame)
-				}
-				for c := 0; c < 3; c++ {
-					dst.Pix[i+c] = uint8(max(0, min(float64(dst.Pix[i+3]), float64(dst.Pix[i+c])*v+offset)))
+					for c := 0; c < 3; c++ {
+						dst.Pix[i+c] = uint8(max(0, min(float64(dst.Pix[i+3]), float64(dst.Pix[i+c])*v+offset)))
+					}
 				}
 			}
-		}
+		})
 	}
 }
 func bilinear(src image.Image, x, y float64) color.RGBA {
