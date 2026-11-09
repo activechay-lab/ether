@@ -1,10 +1,7 @@
 package subtitles
 
 import (
-	"fmt"
-	"html"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -12,14 +9,12 @@ import (
 
 	"golang.org/x/text/encoding/charmap"
 
+	"github.com/braedonsaunders/ether/internal/frontend/kit/subtext"
 	"github.com/braedonsaunders/ether/internal/langtag"
 )
 
 // Cue is one subtitle cue.
-type Cue struct {
-	Start, End time.Duration
-	Text       string
-}
+type Cue = subtext.Cue
 
 // legacyCharmap is the Windows code page legacy subtitle files in a
 // language are almost always encoded in.
@@ -159,179 +154,31 @@ func decodeUTF16(b []byte, littleEndian bool) string {
 }
 
 var (
-	srtTimeRe = regexp.MustCompile(`(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})`)
-	vttTimeRe = regexp.MustCompile(`(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{1,3})`)
 	tagRe     = regexp.MustCompile(`\{\\[^}]*\}`)
-	// blankLineRe matches the horizontal whitespace of a whitespace-only line.
-	blankLineRe = regexp.MustCompile(`(?m)^[ \t\x{00a0}\x{feff}]+$`)
+	htmlTagRe = regexp.MustCompile(`</?([a-zA-Z]+)[^>]*>`)
 )
-
-func ts(h, m, s, ms string) time.Duration {
-	hi, _ := strconv.Atoi(h)
-	mi, _ := strconv.Atoi(m)
-	si, _ := strconv.Atoi(s)
-	for len(ms) < 3 {
-		ms += "0"
-	}
-	msi, _ := strconv.Atoi(ms[:3])
-	return time.Duration(hi)*time.Hour + time.Duration(mi)*time.Minute + time.Duration(si)*time.Second + time.Duration(msi)*time.Millisecond
-}
 
 // ParseCues parses SRT or WebVTT text (already UTF-8) into cues.
-func ParseCues(text string) ([]Cue, error) {
-	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
-	// A separator line holding only spaces/tabs still ends a cue; without
-	// this the next cue's number and timing would be read as body text.
-	text = blankLineRe.ReplaceAllString(text, "")
-	isVTT := strings.HasPrefix(strings.TrimSpace(text), "WEBVTT")
-	blocks := strings.Split(text, "\n\n")
-	var cues []Cue
-	for _, blk := range blocks {
-		lines := strings.Split(strings.Trim(blk, "\n"), "\n")
-		timeIdx := -1
-		var start, end time.Duration
-		for i, ln := range lines {
-			if isVTT {
-				if m := vttTimeRe.FindStringSubmatch(ln); m != nil {
-					start, end, timeIdx = ts(m[1], m[2], m[3], m[4]), ts(m[5], m[6], m[7], m[8]), i
-					break
-				}
-			} else if m := srtTimeRe.FindStringSubmatch(ln); m != nil {
-				start, end, timeIdx = ts(m[1], m[2], m[3], m[4]), ts(m[5], m[6], m[7], m[8]), i
-				break
-			}
-		}
-		if timeIdx < 0 || timeIdx+1 >= len(lines) {
-			continue
-		}
-		body := strings.TrimSpace(tagRe.ReplaceAllString(strings.Join(lines[timeIdx+1:], "\n"), ""))
-		if body == "" || end <= start {
-			continue
-		}
-		cues = append(cues, Cue{Start: start, End: end, Text: body})
-	}
-	if len(cues) == 0 {
-		return nil, fmt.Errorf("no subtitle cues found")
-	}
-	return cues, nil
-}
-
-func formatTS(d time.Duration, sep byte) string {
-	if d < 0 {
-		d = 0
-	}
-	h := d / time.Hour
-	m := (d % time.Hour) / time.Minute
-	s := (d % time.Minute) / time.Second
-	ms := (d % time.Second) / time.Millisecond
-	return fmt.Sprintf("%02d:%02d:%02d%c%03d", h, m, s, sep, ms)
-}
+func ParseCues(text string) ([]Cue, error) { return subtext.ParseCues(text) }
 
 // RenderSRT renders cues as SubRip.
-func RenderSRT(cues []Cue) string {
-	var sb strings.Builder
-	for i, c := range cues {
-		fmt.Fprintf(&sb, "%d\n%s --> %s\n%s\n\n", i+1, formatTS(c.Start, ','), formatTS(c.End, ','), c.Text)
-	}
-	return sb.String()
-}
-
-var (
-	htmlTagRe = regexp.MustCompile(`</?([a-zA-Z]+)[^>]*>`)
-	entityRe  = regexp.MustCompile(`^&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);`)
-)
-
-// vttText makes SRT cue text valid WebVTT: only <i>, <b> and <u> survive
-// (SRT's <font color> is not VTT), bare "&" and "<" are escaped, and "-->"
-// (forbidden in VTT cue text) is replaced.
-func vttText(s string) string {
-	s = htmlTagRe.ReplaceAllStringFunc(s, func(tag string) string {
-		m := htmlTagRe.FindStringSubmatch(tag)
-		switch strings.ToLower(m[1]) {
-		case "i", "b", "u":
-			if strings.HasPrefix(tag, "</") {
-				return "\x01/" + strings.ToLower(m[1]) + "\x02"
-			}
-			return "\x01" + strings.ToLower(m[1]) + "\x02"
-		}
-		return ""
-	})
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; c {
-		case '&':
-			if entityRe.MatchString(s[i:]) {
-				b.WriteByte('&')
-			} else {
-				b.WriteString("&amp;")
-			}
-		case '<':
-			b.WriteString("&lt;")
-		case '>':
-			b.WriteString("&gt;")
-		default:
-			b.WriteByte(c)
-		}
-	}
-	out := strings.NewReplacer("\x01", "<", "\x02", ">", "--&gt;", "→").Replace(b.String())
-	return out
-}
+func RenderSRT(cues []Cue) string { return subtext.RenderSRT(cues) }
 
 // RenderVTT renders cues as WebVTT.
-func RenderVTT(cues []Cue) string {
-	var sb strings.Builder
-	sb.WriteString("WEBVTT\n\n")
-	for _, c := range cues {
-		fmt.Fprintf(&sb, "%s --> %s\n%s\n\n", formatTS(c.Start, '.'), formatTS(c.End, '.'), vttText(c.Text))
-	}
-	return sb.String()
-}
+func RenderVTT(cues []Cue) string { return subtext.RenderVTT(cues) }
 
 // ASSHeader is the script header RenderASS writes: FFmpeg's own header for
 // a converted text track (PlayRes 384x288, one "Default" style), so a
 // player that restyles "Default" (Plex Web's subtitle colour, size and
 // position settings) treats it like the converted stream PMS sends.
-const ASSHeader = "[Script Info]\n; Script generated by Ether\nScriptType: v4.00+\nPlayResX: 384\nPlayResY: 288\nScaledBorderAndShadow: yes\nYCbCr Matrix: None\n\n" +
-	"[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n" +
-	"Style: Default,Arial,16,&Hffffff,&Hffffff,&H0,&H0,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n" +
-	"[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+const ASSHeader = subtext.ASSHeader
 
 // RenderASS renders cues as an ASS script with ASSHeader: <i>, <b> and <u>
 // become override tags, other markup is dropped and line breaks are \N.
-func RenderASS(cues []Cue) string {
-	var sb strings.Builder
-	sb.WriteString(ASSHeader)
-	for _, c := range cues {
-		fmt.Fprintf(&sb, "Dialogue: 0,%s,%s,Default,,0,0,0,,%s\n", assTS(c.Start), assTS(c.End), assText(c.Text))
-	}
-	return sb.String()
-}
+func RenderASS(cues []Cue) string { return subtext.RenderASS(cues) }
 
 // assTS is an ASS timestamp, H:MM:SS.cc.
-func assTS(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	cs := int64(d / (10 * time.Millisecond))
-	return fmt.Sprintf("%d:%02d:%02d.%02d", cs/360000, cs/6000%60, cs/100%60, cs%100)
-}
-
-func assText(s string) string {
-	s = htmlTagRe.ReplaceAllStringFunc(s, func(tag string) string {
-		m := htmlTagRe.FindStringSubmatch(tag)
-		switch name := strings.ToLower(m[1]); name {
-		case "i", "b", "u":
-			if strings.HasPrefix(tag, "</") {
-				return "{\\" + name + "0}"
-			}
-			return "{\\" + name + "1}"
-		}
-		return ""
-	})
-	s = html.UnescapeString(s)
-	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
-	return strings.ReplaceAll(strings.TrimRight(s, "\n"), "\n", "\\N")
-}
+func assTS(d time.Duration) string { return subtext.FormatASSTimestamp(d) }
 
 // NormalizeLang is Normalize with the subtitle's language, which picks the
 // legacy code page for non-UTF files (Windows-1251 for Russian, …).

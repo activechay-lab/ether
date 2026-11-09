@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/subtext"
 	"github.com/braedonsaunders/ether/internal/langtag"
 )
 
@@ -21,13 +22,7 @@ const (
 
 // AcceptsUploadFormat is the Plex Web upload format check: case-sensitive
 // on the wire. PMS accepts srt/ass/ssa/smi/txt/psb; Ether also accepts vtt.
-func AcceptsUploadFormat(format string) bool {
-	switch format {
-	case "srt", "vtt", "ass", "ssa", "smi", "txt", "psb":
-		return true
-	}
-	return false
-}
+func AcceptsUploadFormat(format string) bool { return subtext.AcceptsUploadFormat(format) }
 
 // StoreUpload saves a viewer-uploaded sidecar as UTF-8 SRT+VTT. It is
 // listed as an upload-sig track and does not overwrite another viewer's

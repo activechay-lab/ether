@@ -28,8 +28,8 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/subtext"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/subtitles"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -558,7 +558,7 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusInternalServerError)
 		return
 	}
-	if format == "vtt" || !subtitles.AcceptsUploadFormat(format) {
+	if format == "vtt" || !subtext.AcceptsUploadFormat(format) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
@@ -698,12 +698,12 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if format == "ass" {
-		cues, perr := subtitles.ParseCues(string(body))
+		cues, perr := subtext.ParseCues(string(body))
 		if perr != nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
-		body, actual = []byte(subtitles.RenderASS(cues)), "ass"
+		body, actual = []byte(subtext.RenderASS(cues)), "ass"
 	}
 	if actual == "vtt" && entry.decision.Container == transcode.ContainerMatroska {
 		body = stampMatroskaVTT(body)
@@ -799,9 +799,9 @@ func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID
 		ctx = transcode.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	if vtt, ok := streamer.CachedSubtitle(ctx, st.Index, st.Codec); ok {
-		if cues, err := subtitles.ParseCues(string(vtt)); err == nil {
+		if cues, err := subtext.ParseCues(string(vtt)); err == nil {
 			w.Header().Set("Content-Type", subtitleContentTypes["ass"])
-			_, _ = io.WriteString(w, subtitles.RenderASS(cues))
+			_, _ = io.WriteString(w, subtext.RenderASS(cues))
 			return true
 		}
 	}
@@ -899,11 +899,11 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st 
 	body := buf.Bytes()
 	if format != "vtt" {
 		// ExtractSubtitle always emits WebVTT; re-render as SRT.
-		cues, perr := subtitles.ParseCues(string(body))
+		cues, perr := subtext.ParseCues(string(body))
 		if perr != nil {
 			return nil, "", false
 		}
-		body = []byte(subtitles.RenderSRT(cues))
+		body = []byte(subtext.RenderSRT(cues))
 		format = "srt"
 	}
 	return body, format, true
