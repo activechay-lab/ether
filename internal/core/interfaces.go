@@ -160,9 +160,15 @@ type Filter struct {
 	Studio             string         `json:"studio,omitempty"`
 	StudioFilters      []StringFilter `json:"studioFilters,omitempty"`
 	FirstCharacter     string         `json:"firstCharacter,omitempty"`
-	Query              string         `json:"query,omitempty"` // title substring
-	TitleFilters       []StringFilter `json:"titleFilters,omitempty"`
-	ReleasedFilters    []DateFilter   `json:"releasedFilters,omitempty"`
+	// NameStartsWith, NameStartsWithOrGreater and NameLessThan are
+	// Jellyfin and Emby's alphabet jump: bounds on the sort title in the
+	// same order as FirstCharacter's buckets (catalog sort_name.go).
+	NameStartsWith          string         `json:"nameStartsWith,omitempty"`
+	NameStartsWithOrGreater string         `json:"nameStartsWithOrGreater,omitempty"`
+	NameLessThan            string         `json:"nameLessThan,omitempty"`
+	Query                   string         `json:"query,omitempty"` // title substring
+	TitleFilters            []StringFilter `json:"titleFilters,omitempty"`
+	ReleasedFilters         []DateFilter   `json:"releasedFilters,omitempty"`
 	// MinContentRating is an additive share-policy predicate (plex.tv share
 	// filters). It does not replace MaxContentRating or ContentRatings.
 	MinContentRating string `json:"-"`

@@ -281,8 +281,13 @@ type tallyShape struct {
 	// catalog_facet_tally's year rows.
 	years          bool
 	yearLo, yearHi int
-	ranked         bool
-	lo, hi         int
+	// first is a sort-name range on jump-bar bucket edges (Plex
+	// firstCharacter, Jellyfin NameStartsWith=B / NameLessThan=A),
+	// answered by catalog_facet_tally's 'first' rows for those buckets.
+	first  []any
+	names  sortNameRange
+	ranked bool
+	lo, hi int
 }
 
 // tallyShape reports whether f's predicate, outside the titles tallyTotal
@@ -340,6 +345,13 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 		}
 		s.years, s.yearLo, s.yearHi = true, f.YearFrom, f.YearTo
 	}
+	if names := sortNameRangeOf(f); names.bounded {
+		buckets, ok := jumpBuckets(names)
+		if !ok || s.genre != "" || s.country != "" || s.years {
+			return s, false
+		}
+		s.first, s.names = buckets, names
+	}
 	s.lo, s.hi = 0, int(^uint(0)>>1)
 	if f.MaxContentRating != "" {
 		level := contentrating.LevelOf(f.MaxContentRating)
@@ -369,6 +381,7 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	rest := f
 	rest.Type, rest.Genres, rest.Kids, rest.Countries = "", nil, false, nil
 	rest.YearFrom, rest.YearTo = 0, 0
+	rest.FirstCharacter, rest.NameStartsWith, rest.NameStartsWithOrGreater, rest.NameLessThan = "", "", "", ""
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
 	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.AvailabilityKeepKeys = false, false, nil
@@ -439,6 +452,15 @@ func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, a
 	case s.country != "":
 		table = "catalog_facet_tally"
 		dims, dimArgs, member, memberArgs = s.facetDims("country", s.country)
+	case s.first != nil:
+		// An alphabet jump: the jump-bar rows of the buckets it spans.
+		table = "catalog_facet_tally"
+		dims, dimArgs, member, memberArgs = s.facetDims("first", "")
+		dims += ` AND value IN (` + placeholders(len(s.first)) + `)`
+		dimArgs = append(dimArgs, s.first...)
+		names, namesArgs := s.names.sql("t.sort_title")
+		member += ` AND ` + names
+		memberArgs = append(memberArgs, namesArgs...)
 	case s.years:
 		// A year or decade filter: the year rows in the range.
 		table = "catalog_facet_tally"

@@ -698,6 +698,13 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 			q.Filter.Studio = names[0]
 		}
 	}
+	// The alphabet jump: NameStartsWith=B for a letter, NameLessThan=A
+	// for "#", NameStartsWithOrGreater=B to start the list there.
+	for name, bound := range map[string]*string{"NameStartsWith": &q.Filter.NameStartsWith, "NameStartsWithOrGreater": &q.Filter.NameStartsWithOrGreater, "NameLessThan": &q.Filter.NameLessThan} {
+		if values := route.Query(r.URL.Query(), name); len(values) == 1 {
+			*bound = values[0]
+		}
+	}
 	if values := route.Query(r.URL.Query(), "SearchTerm"); len(values) == 1 {
 		q.Filter.Query = strings.TrimSpace(values[0])
 	}

@@ -138,6 +138,15 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		{Type: core.TypeShow, Genres: []string{"Drama"}, MaxContentRating: "TV-14", HiddenShowGeneration: "g-show", Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
 		{Type: core.TypeShow, Countries: []string{"GB"}, MaxContentRating: "TV-14", ExcludeKeys: excluded, HiddenShowGeneration: "g-show"},
 		{Countries: []string{"FR"}, HiddenMovieGeneration: "g-movie"},
+		// Alphabet jumps on bucket edges: Plex firstCharacter and Jellyfin's
+		// NameStartsWith=B, NameLessThan=A ("#") and NameStartsWithOrGreater.
+		{Type: core.TypeMovie, FirstCharacter: "B"},
+		{FirstCharacter: "~"},
+		{Type: core.TypeShow, NameStartsWith: "z"},
+		{NameLessThan: "A"},
+		{Type: core.TypeMovie, NameStartsWith: "É"},
+		{Type: core.TypeMovie, NameStartsWithOrGreater: "M", MaxContentRating: "PG-13", ExcludeKeys: excluded, HiddenMovieGeneration: "g-movie"},
+		{Type: core.TypeShow, NameStartsWithOrGreater: "b", NameLessThan: "N", Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
 		// Counted directly: these must still agree with their pages.
 		{Type: core.TypeMovie, Genres: []string{"Drama", "Comedy"}},
 		{Type: core.TypeMovie, ExcludeGenres: []string{"horror"}},
@@ -148,6 +157,10 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		{Type: core.TypeMovie, DigitalDiscovery: true, DigitalDateEvidence: true},
 		{Type: core.TypeMovie, Countries: []string{"US", "GB"}},
 		{Type: core.TypeMovie, Countries: []string{"US"}, Genres: []string{"Drama"}},
+		{Type: core.TypeMovie, NameStartsWith: "al"},
+		{NameStartsWithOrGreater: "ma"},
+		{Type: core.TypeMovie, NameStartsWith: "B", Genres: []string{"Drama"}},
+		{Type: core.TypeMovie, NameStartsWith: "z", NameLessThan: "b"},
 	}
 	configs := []config.Catalog{
 		{},

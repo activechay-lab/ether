@@ -935,18 +935,9 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			byStudio(c.studioNamesLike("%"+escapeLike(val)+"%", val))
 		}
 	}
-	if fc := strings.TrimSpace(f.FirstCharacter); fc != "" {
-		switch {
-		case fc == "#" || fc == "0":
-			conds = append(conds, "t.sort_title < 'a'")
-		case fc == "~" || fc == "…":
-			conds = append(conds, "t.sort_title >= '{'")
-		case len(fc) == 1 && ((fc[0] >= 'a' && fc[0] <= 'z') || (fc[0] >= 'A' && fc[0] <= 'Z')):
-			lo := strings.ToLower(fc)
-			hi := string(lo[0] + 1)
-			conds = append(conds, "t.sort_title >= ? AND t.sort_title < ?")
-			args = append(args, lo, hi)
-		}
+	if cond, condArgs := sortNameRangeOf(f).sql("t.sort_title"); cond != "" {
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
 	}
 	if f.Query != "" {
 		match, matchArgs := c.titleMatch("t.", f.Query)
