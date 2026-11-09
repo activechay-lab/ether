@@ -476,6 +476,16 @@ func (b *builder) addHousehold(g *crowdGraph, isSeed map[core.RatingKey]bool) {
 		}
 		return keys[i] < keys[j]
 	})
+	var look []core.RatingKey
+	for _, k := range keys {
+		if len(look) >= householdTitles {
+			break
+		}
+		if g.items[k] == nil {
+			look = append(look, k)
+		}
+	}
+	preloadTitles(b.ctx, b.e.catalog, look)
 	looked := 0
 	for _, k := range keys {
 		h := house[k] / top

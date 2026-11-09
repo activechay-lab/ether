@@ -13,7 +13,7 @@ import (
 
 // consoleCursorPage never visits the preceding pages: resolve one boundary row
 // by primary key, seek each media type's ordered index, merge at most 2*(sorts+1)*limit
-// narrow rows, then hydrate only the selected keys. Other clients keep Browse's
+// narrow rows, then read only the selected keys' cards. Other clients keep Browse's
 // existing date-added, paging and cache contracts.
 func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
 	if q.Offset != 0 || q.SortLastViewed {
@@ -182,7 +182,7 @@ func (c *Catalog) consoleCursorPage(ctx context.Context, q core.BrowseQuery) (co
 	for _, r := range all[:min(limit, len(all))] {
 		keys = append(keys, r.key)
 	}
-	items, err := c.titlesInKeyOrder(ctx, keys)
+	items, err := c.consoleCards(ctx, keys)
 	if err != nil {
 		return core.Page{}, err
 	}
@@ -232,4 +232,61 @@ func consoleSeekRanges(columns []string, specs []core.SortSpec, values []any, ke
 		ranges = append(ranges, consoleSeekRange{" AND " + strings.Join(parts, " AND "), args})
 	}
 	return ranges
+}
+
+// consoleCards reads the titles of keys, in that order, as the console's
+// browse cards show them (admin.CardFor): the title row and its genres
+// (core.FactGenres). Credits, keywords, studios, trailers and aired counts
+// grow with how much TMDB knows about a title, and no card renders them. A
+// title cached whole for this generation is served as it is; the others are
+// partial and never enter the title cache. The page query already applied
+// every visibility guard in SQL, so nothing is filtered here.
+func (c *Catalog) consoleCards(ctx context.Context, keys []core.RatingKey) ([]core.Title, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	gen, minute := c.writeGen.Load(), c.minuteBucket()
+	byKey := make(map[core.RatingKey]core.Title, len(keys))
+	var missing []any
+	for _, k := range keys {
+		if t, ok := c.cachedStored(k, gen, minute); ok {
+			byKey[k] = t
+			continue
+		}
+		missing = append(missing, int64(k))
+	}
+	if len(missing) > 0 {
+		// A cursor page holds at most 101 keys: one statement.
+		rows, err := c.db.QueryContext(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(missing))+`)`, missing...)
+		if err != nil {
+			return nil, err
+		}
+		var read []core.Title
+		for rows.Next() {
+			st, err := scanTitle(rows)
+			if err != nil {
+				rows.Close()
+				return nil, err
+			}
+			read = append(read, st.t)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err := c.hydrateFacts(ctx, read, core.FactGenres); err != nil {
+			return nil, err
+		}
+		for _, t := range read {
+			byKey[t.Key] = t
+		}
+	}
+	items := make([]core.Title, 0, len(keys))
+	for _, k := range keys {
+		if t, ok := byKey[k]; ok {
+			items = append(items, t)
+		}
+	}
+	return items, nil
 }

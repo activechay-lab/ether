@@ -82,6 +82,13 @@ func (b *builder) genFavorites() []*candRow {
 	if err != nil {
 		return nil
 	}
+	keys := make([]core.RatingKey, 0, len(favorites))
+	for _, favorite := range favorites {
+		if favorite.Key != 0 {
+			keys = append(keys, favorite.Key)
+		}
+	}
+	preloadTitles(b.ctx, b.e.catalog, keys)
 	var items []candItem
 	for _, favorite := range favorites {
 		if favorite.Key == 0 {
@@ -132,6 +139,11 @@ func (e *Engine) continueItems(ctx context.Context, user *core.User, limit int) 
 
 // continueFrom resolves in-progress statuses to Continue Watching items.
 func (e *Engine) continueFrom(ctx context.Context, sts []core.WatchStatus) []candItem {
+	keys := make([]core.RatingKey, len(sts))
+	for i, ws := range sts {
+		keys[i] = ws.Key
+	}
+	preloadTitles(ctx, e.catalog, keys)
 	var out []candItem
 	for i, ws := range sts {
 		t, err := e.catalog.Get(ctx, ws.Key)
@@ -1166,6 +1178,7 @@ func (b *builder) genPopularServer() []*candRow {
 		}
 		return keys[i] < keys[j]
 	})
+	preloadTitles(b.ctx, b.e.catalog, keys[:min(len(keys), 40)])
 	var titles []core.Title
 	for _, k := range keys {
 		if len(titles) >= 40 {
