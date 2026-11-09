@@ -11,7 +11,6 @@ plex-appletv | /hubs/search star  # K/J (search): candidate hydration N+1 (visib
 plex-appletv | movies filter unwatched  # C: unwatched page walks titles in sort order past the viewer's watched ones
 plex-appletv | movies unwatched  # C: /unwatched total counted directly (not the tally-less-watched shape)
 plex-appletv | movies all addedAt 15k  # C: offset 15k page by date added walks the index (keyset wanted)
-plex-appletv | movies studio filter list  # C: studio list sums every studio's tally rows (vocabulary-sized)
 plex-appletv | movies collections type=18  # C: the collections index snapshots the whole catalogue; every franchise is listed
 plex-appletv | movies collection dir  # C: every franchise of the library is listed and counted
 plex-appletv | shows onDeck  # E: section On Deck deck walk; flaky: behind-the-read work; pending quiesce hook
