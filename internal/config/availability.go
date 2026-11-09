@@ -30,6 +30,10 @@ type Availability struct {
 	// show a movie before a playable file has been seen. Theatrical dates
 	// never count.
 	DigitalDateEvidence bool `json:"digitalDateEvidence,omitempty"`
+	// HomeReleaseOffsetDays shifts the digital/physical release admission date
+	// in ModeDigital (negative shows earlier, positive later). Missing-date
+	// fallback and playable-release gating are unchanged.
+	HomeReleaseOffsetDays int `json:"homeReleaseOffsetDays,omitempty"`
 	// Mode is playable, digital, or immediate. Empty is derived from the
 	// gate and date flags so existing configs keep working.
 	Mode string `json:"mode,omitempty"`

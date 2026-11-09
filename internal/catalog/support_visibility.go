@@ -25,7 +25,7 @@ func (c *Catalog) SupportVisibility(ctx context.Context, key core.RatingKey) (*c
 		return t, "excluded by adult-content catalogue rule", nil
 	case !c.upcomingMovie(t) && !t.IsReleased(c.now()):
 		return t, "not yet released", nil
-	case !c.upcomingMovie(t) && c.config().ReleaseMode == config.ModeDigital && !homeReleaseVisible(t, c.now()):
+	case !c.upcomingMovie(t) && c.config().ReleaseMode == config.ModeDigital && !c.homeVisible(t):
 		return t, "excluded by digital release mode", nil
 	case t.Type == core.TypeSeason && !listableSeason(t, c.now()):
 		return t, "season has no listable released episodes", nil

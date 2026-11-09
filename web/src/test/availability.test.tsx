@@ -167,4 +167,30 @@ describe("New release modes", () => {
       screen.queryByRole("switch", { name: "Wait for digital or physical release" }),
     ).not.toBeInTheDocument();
   });
+
+  it("edits and saves Home-release offset (days) alongside On digital release", async () => {
+    const { fake } = renderApp("/catalog/settings");
+    await settleUi(() => {
+      expect(screen.getByRole("radio", { name: /On digital release/ })).toBeVisible();
+    });
+    expect(screen.queryByLabelText("Home-release offset (days)")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /On digital release/ }));
+    const offset = screen.getByLabelText("Home-release offset (days)");
+    expect(offset).toHaveValue(0);
+
+    fireEvent.change(offset, { target: { value: "-21" } });
+    expect(offset).toHaveValue(-21);
+
+    const bar = screen.getByRole("region", { name: "Unsaved changes" });
+    fireEvent.click(within(bar).getByRole("button", { name: "Save changes" }));
+    await settleUi(() => {
+      expect(calls(fake, "PUT", "/config/availability")).toHaveLength(1);
+    });
+    expect(calls(fake, "PUT", "/config/availability")[0]!.body).toMatchObject({
+      mode: "digital",
+      digitalDateEvidence: true,
+      homeReleaseOffsetDays: -21,
+    });
+  });
 });

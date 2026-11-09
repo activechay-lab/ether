@@ -160,6 +160,7 @@ export function settingsIndex(): SettingHit[] {
     ...rows("/catalog/settings", `${catalog} › ${t("New releases")}`, [
       ["when-they-can-play", t("When they can play")],
       ["on-digital-release", t("On digital release")],
+      ["home-release-offset", t("Home-release offset (days)")],
       ["right-away", t("Right away")],
     ]),
     // Sources

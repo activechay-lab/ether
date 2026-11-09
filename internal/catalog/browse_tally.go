@@ -400,7 +400,7 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	rest.FirstCharacter, rest.NameStartsWith, rest.NameStartsWithOrGreater, rest.NameLessThan = "", "", "", ""
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
-	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.AvailabilityKeepKeys = false, false, nil
+	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.HomeReleaseOffsetDays, rest.AvailabilityKeepKeys = false, false, 0, nil
 	rest.HiddenMovieGeneration, rest.HiddenShowGeneration, rest.HiddenEpisodeGeneration = "", "", ""
 	rest.ExcludeKeys, rest.KnownAddedDate = nil, false
 	return s, filterUnset(rest)

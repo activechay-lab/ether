@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -35,7 +36,12 @@ func (c *Catalog) promoteTitles(ctx context.Context, keys []core.RatingKey) (int
 		return 0, nil
 	}
 	slices.Sort(uniq)
-	now := c.now().Unix()
+	nowTime := c.now()
+	now := nowTime.Unix()
+	homeDeadline := now
+	if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital {
+		homeDeadline = homeReleaseDeadline(nowTime, cfg.HomeReleaseOffsetDays)
+	}
 	updated := 0
 	for start := 0; start < len(uniq); start += 500 {
 		chunk := uniq[start:min(start+500, len(uniq))]
@@ -44,7 +50,7 @@ func (c *Catalog) promoteTitles(ctx context.Context, keys []core.RatingKey) (int
 		for _, k := range chunk {
 			args = append(args, int64(k))
 		}
-		args = append(args, now, now)
+		args = append(args, now, homeDeadline)
 		res, err := c.db.ExecContext(ctx, `UPDATE catalog_titles
 SET browsable = 1,
     added_at = CASE WHEN added_at = 0 THEN ? ELSE added_at END

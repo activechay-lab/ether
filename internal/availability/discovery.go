@@ -61,7 +61,8 @@ func evidenceWindow(t core.Title, now time.Time, cfg config.Availability) bool {
 	switch t.Type {
 	case core.TypeMovie:
 		if cfg.EffectiveMode() == config.ModeDigital {
-			return t.HomeReleased.IsZero() || now.Sub(t.HomeReleased) < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
+			adm := catalogHomeReleaseAdmission(t.HomeReleased, cfg.HomeReleaseOffsetDays)
+			return adm.IsZero() || now.Sub(adm) < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 		}
 		return !cfg.DisableMovieEvidenceGate && age < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 	case core.TypeEpisode, core.TypeShow:
@@ -108,7 +109,7 @@ func (s *Service) filterReleaseDiscovery(ctx context.Context, items []core.Title
 		}
 		acceptable := map[core.RatingKey]bool{}
 		if input.availability.DigitalDateEvidence {
-			s.acceptDigitalReleases(ctx, movies, input.now, acceptable)
+			s.acceptDigitalReleases(ctx, movies, input.now, input.availability.HomeReleaseOffsetDays, acceptable)
 		}
 		out := s.filterReleaseEvidence(ctx, rest, input)
 		allowed := map[core.RatingKey]bool{}
@@ -193,7 +194,7 @@ func (s *Service) filterReleaseEvidence(ctx context.Context, items []core.Title,
 		rows.Close()
 	}
 	if input.availability.DigitalDateEvidence {
-		s.acceptDigitalReleases(ctx, keys, input.now, acceptable)
+		s.acceptDigitalReleases(ctx, keys, input.now, input.availability.HomeReleaseOffsetDays, acceptable)
 	}
 	// Close the cursor before policy checks, which may read the same database.
 	var pairs []feedPair
@@ -275,7 +276,9 @@ func (s *Service) recent(ctx context.Context, kind string, input discoverySnapsh
 			if c, ok := s.d.Catalog.(interface {
 				DigitalEvidenceMovies(context.Context, time.Time) ([]core.Title, error)
 			}); ok {
-				ts, err := c.DigitalEvidenceMovies(ctx, input.now.Add(-time.Duration(input.availability.EffectiveMovieEvidenceDays())*24*time.Hour))
+				since := input.now.Add(-time.Duration(input.availability.EffectiveMovieEvidenceDays()) * 24 * time.Hour)
+				since = since.Add(-time.Duration(input.availability.HomeReleaseOffsetDays) * 24 * time.Hour)
+				ts, err := c.DigitalEvidenceMovies(ctx, since)
 				return ts, true, err
 			}
 		}

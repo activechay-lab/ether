@@ -286,6 +286,11 @@ func toDoc(c Config) map[string]any {
 	return doc
 }
 
+func syncDerived(c *Config) {
+	c.Catalog.ReleaseMode = c.Availability.EffectiveMode()
+	c.Catalog.HomeReleaseOffsetDays = c.Availability.HomeReleaseOffsetDays
+}
+
 func fromDoc(doc map[string]any) (Config, error) {
 	b, err := json.Marshal(doc)
 	if err != nil {
@@ -293,7 +298,7 @@ func fromDoc(doc map[string]any) (Config, error) {
 	}
 	var c Config
 	err = json.Unmarshal(b, &c)
-	c.Catalog.ReleaseMode = c.Availability.EffectiveMode()
+	syncDerived(&c)
 	return c, err
 }
 

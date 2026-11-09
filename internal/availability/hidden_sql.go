@@ -96,6 +96,9 @@ func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter,
 	input := s.snapshotFor(ctx)
 	f.DigitalDiscovery = input.availability.EffectiveMode() == config.ModeDigital
 	f.DigitalDateEvidence = input.availability.DigitalDateEvidence
+	if f.DigitalDateEvidence {
+		f.HomeReleaseOffsetDays = input.availability.HomeReleaseOffsetDays
+	}
 	// A tokenless client shares this cut with all requests for the same filter.
 	// Adapters supply a client/section/sort scope; callers without one share
 	// a cut by filter. Policy changes select a new cut immediately.

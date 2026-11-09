@@ -650,14 +650,14 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	}
 	// Rule browsing gates like everything else: its totals must match the
 	// titles queryTitles hands back, which never include ungated movies.
-	if c.config().ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieGeneration != "") {
+	if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieGeneration != "") {
 		gateSQL := homeReleaseSQL("t")
-		if c.config().ShowUpcomingMovies {
+		if cfg.ShowUpcomingMovies {
 			gateSQL = "(t.type='movie' AND t.release_known=1 AND t.released_ts>? OR (" + gateSQL + "))"
 			args = append(args, nowTS)
 		}
 		conds = append(conds, gateSQL)
-		args = append(args, homeReleaseCutoff(c.now()), nowTS)
+		args = append(args, homeReleaseCutoff(c.now()), homeReleaseDeadline(c.now(), cfg.HomeReleaseOffsetDays))
 	}
 	if f.DigitalDiscovery && f.HiddenMovieGeneration == "" {
 		// FilterDiscovery admits digital-mode movies only when a passed
@@ -665,7 +665,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		// that evidence window, as they do in the availability service.
 		digital := "1=0"
 		if f.DigitalDateEvidence {
-			digital = "EXISTS (SELECT 1 FROM catalog_home_release dh WHERE dh.key=t.key AND dh.checked=1 AND dh.earliest_ts>0 AND dh.earliest_ts<=?)"
+			digital = "EXISTS (SELECT 1 FROM catalog_home_release dh WHERE dh.key=t.key AND dh.checked=1 AND dh.earliest_ts<>0 AND dh.earliest_ts<=?)"
 		}
 		if len(f.AvailabilityKeepKeys) > 0 {
 			digital += " OR t.key IN (" + placeholders(len(f.AvailabilityKeepKeys)) + ")"
@@ -673,7 +673,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "(t.type<>'movie' OR (t.key>=? AND t.key<?) OR (t.release_known=1 AND t.released_ts>? AND ?<>0) OR ("+digital+"))")
 		args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, nowTS, flagInt(c.config().ShowUpcomingMovies))
 		if f.DigitalDateEvidence {
-			args = append(args, nowTS)
+			args = append(args, homeReleaseDeadline(c.now(), f.HomeReleaseOffsetDays))
 		}
 		for _, key := range f.AvailabilityKeepKeys {
 			args = append(args, key)

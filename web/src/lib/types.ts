@@ -937,6 +937,7 @@ export interface AvailabilityConfig {
   effort?: string;
   catchUp?: boolean;
   digitalDateEvidence?: boolean;
+  homeReleaseOffsetDays?: number;
   monitor: boolean;
   verify: boolean;
   preferVerified: boolean;

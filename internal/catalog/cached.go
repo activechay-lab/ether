@@ -276,7 +276,7 @@ func (c *Catalog) CachedDiscoveryEpisodes(ctx context.Context, shows []core.Rati
 // CachedGetMany applies CachedGet's visibility gates to bounded local reads.
 // Missing or hidden titles are omitted. It never refreshes or admits fallbacks.
 func (c *Catalog) cachedListVisible(t *core.Title) bool {
-	return !t.Adult && (c.upcomingMovie(t) || (t.IsReleased(c.now()) && (!(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(t, c.now())))) && (t.Type != core.TypeSeason || listableSeason(t, c.now()))
+	return !t.Adult && (c.upcomingMovie(t) || (t.IsReleased(c.now()) && (!(c.config().ReleaseMode == config.ModeDigital) || c.homeVisible(t)))) && (t.Type != core.TypeSeason || listableSeason(t, c.now()))
 }
 
 func (c *Catalog) cachedStored(key core.RatingKey, gen uint64, minute int64) (core.Title, bool) {
@@ -470,5 +470,5 @@ func (c *Catalog) ResolveShowParents(ctx context.Context, keys []core.RatingKey)
 // DigitalEvidenceMovies excludes settled home releases at the database boundary.
 // Unknown and future home dates remain gated, regardless of cinema age.
 func (c *Catalog) DigitalEvidenceMovies(ctx context.Context, since time.Time) ([]core.Title, error) {
-	return c.queryTitlesUnfiltered(ctx, `SELECT `+prefixedCols("t")+` FROM catalog_titles t WHERE t.type='movie' AND t.browsable=1 AND t.release_known=1 AND NOT EXISTS (SELECT 1 FROM catalog_home_release h WHERE h.key=t.key AND h.checked=1 AND h.earliest_ts>0 AND h.earliest_ts<=?) ORDER BY t.key`, since.Unix())
+	return c.queryTitlesUnfiltered(ctx, `SELECT `+prefixedCols("t")+` FROM catalog_titles t WHERE t.type='movie' AND t.browsable=1 AND t.release_known=1 AND NOT EXISTS (SELECT 1 FROM catalog_home_release h WHERE h.key=t.key AND h.checked=1 AND h.earliest_ts<>0 AND h.earliest_ts<=?) ORDER BY t.key`, since.Unix())
 }

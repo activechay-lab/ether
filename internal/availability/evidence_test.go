@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -325,5 +326,104 @@ func TestDigitalModeRequiresHomeDateEvenForOlderMovies(t *testing.T) {
 	x.s.clearVisibility()
 	if got := x.s.FilterDiscovery(t.Context(), []core.Title{title}); len(got) != 1 {
 		t.Fatal("immediate mode gated")
+	}
+}
+
+func TestHomeReleaseOffsetMovesDigitalWindowWithoutUngatingPlayable(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	c, err := catalog.New(x.s.db, nil, config.Catalog{}, nil, catalog.WithNow(func() time.Time { return x.now }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.s.d.Catalog = c
+
+	// Odyssey: in cinemas 10 days ago, digital release 21 days from now.
+	odyssey := core.Title{
+		Key: core.MovieKey(101), Type: core.TypeMovie, Title: "Odyssey",
+		Released:           x.now.Add(-10 * 24 * time.Hour),
+		HomeReleaseChecked: true, HomeReleased: x.now.Add(21 * 24 * time.Hour),
+		Popularity: 80, VoteCount: 400,
+	}
+	// Settled: in cinemas 30 days ago, digital release 7 days ago.
+	settled := core.Title{
+		Key: core.MovieKey(102), Type: core.TypeMovie, Title: "Settled",
+		Released:           x.now.Add(-30 * 24 * time.Hour),
+		HomeReleaseChecked: true, HomeReleased: x.now.Add(-7 * 24 * time.Hour),
+		Popularity: 80, VoteCount: 400,
+	}
+	for _, m := range []core.Title{odyssey, settled} {
+		if err := c.UpsertTitle(ctx, m, true); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := x.s.db.Exec(`INSERT INTO catalog_home_release(key,checked,earliest_ts) VALUES(?,1,?)`, m.Key, m.HomeReleased.Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Owner rule: in ModePlayable, a negative offset NEVER ungates new movies without playable evidence.
+	x.c.Availability.Mode = config.ModePlayable
+	x.c.Availability.HomeReleaseOffsetDays = -30
+	x.c.Availability.ApplyMode()
+	x.s.clearVisibility()
+	if got := x.s.FilterDiscovery(ctx, []core.Title{odyssey, settled}); len(got) != 0 {
+		t.Fatalf("playable mode ungated movies via homeReleaseOffsetDays: %+v", got)
+	}
+	pf, err := x.s.PagingFilter(ctx, core.Filter{Type: core.TypeMovie})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page, err := c.Browse(ctx, core.BrowseQuery{Filter: pf, Limit: 10}); err != nil || page.Total != 0 {
+		t.Fatalf("playable mode SQL paging ungated movies: %+v %v", page, err)
+	}
+
+	// ModeDigital with offset 0: only Settled is visible.
+	x.c.Availability.Mode = config.ModeDigital
+	x.c.Availability.HomeReleaseOffsetDays = 0
+	x.c.Availability.ApplyMode()
+	c.UpdateConfig(config.Catalog{ReleaseMode: config.ModeDigital, HomeReleaseOffsetDays: 0})
+	x.s.clearVisibility()
+	if got := x.s.FilterDiscovery(ctx, []core.Title{odyssey, settled}); len(got) != 1 || got[0].Key != settled.Key {
+		t.Fatalf("digital offset 0 FilterDiscovery: %+v", got)
+	}
+	pf, err = x.s.PagingFilter(ctx, core.Filter{Type: core.TypeMovie})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page, err := c.Browse(ctx, core.BrowseQuery{Filter: pf, Limit: 10}); err != nil || page.Total != 1 || page.Items[0].Key != settled.Key {
+		t.Fatalf("digital offset 0 Browse: %+v %v", page, err)
+	}
+
+	// ModeDigital with offset -21: Odyssey becomes visible in both FilterDiscovery and Plex SQL paging.
+	x.c.Availability.HomeReleaseOffsetDays = -21
+	c.UpdateConfig(config.Catalog{ReleaseMode: config.ModeDigital, HomeReleaseOffsetDays: -21})
+	x.s.clearVisibility()
+	if got := x.s.FilterDiscovery(ctx, []core.Title{odyssey, settled}); len(got) != 2 {
+		t.Fatalf("digital offset -21 FilterDiscovery: %+v", got)
+	}
+	if ex, err := x.s.Explain(ctx, odyssey.Key); err != nil || ex.Code != "digital" {
+		t.Fatalf("digital offset -21 Explain: %+v %v", ex, err)
+	}
+	pf, err = x.s.PagingFilter(ctx, core.Filter{Type: core.TypeMovie})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page, err := c.Browse(ctx, core.BrowseQuery{Filter: pf, Limit: 10}); err != nil || page.Total != 2 {
+		t.Fatalf("digital offset -21 Browse: %+v %v", page, err)
+	}
+
+	// ModeDigital with positive offset +14: Settled (digital 7d ago) is delayed until +7d from now.
+	x.c.Availability.HomeReleaseOffsetDays = 14
+	c.UpdateConfig(config.Catalog{ReleaseMode: config.ModeDigital, HomeReleaseOffsetDays: 14})
+	x.s.clearVisibility()
+	if got := x.s.FilterDiscovery(ctx, []core.Title{odyssey, settled}); len(got) != 0 {
+		t.Fatalf("digital offset +14 FilterDiscovery: %+v", got)
+	}
+	pf, err = x.s.PagingFilter(ctx, core.Filter{Type: core.TypeMovie})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page, err := c.Browse(ctx, core.BrowseQuery{Filter: pf, Limit: 10}); err != nil || page.Total != 0 {
+		t.Fatalf("digital offset +14 Browse: %+v %v", page, err)
 	}
 }

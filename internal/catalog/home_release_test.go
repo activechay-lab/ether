@@ -191,11 +191,11 @@ func TestHomeReleaseGateBackfillAndCorrections(t *testing.T) {
 func TestHomeReleaseBoundary(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	t1 := core.Title{Type: core.TypeMovie, Released: start, HomeReleaseChecked: true}
-	if homeReleaseVisible(&t1, start.Add(120*24*time.Hour)) || !homeReleaseVisible(&t1, start.Add(120*24*time.Hour+time.Second)) {
+	if homeReleaseVisible(&t1, start.Add(120*24*time.Hour), 0) || !homeReleaseVisible(&t1, start.Add(120*24*time.Hour+time.Second), 0) {
 		t.Fatal("cinema age boundary")
 	}
 	t1.HomeReleased = start.Add(100 * 24 * time.Hour)
-	if homeReleaseVisible(&t1, start.Add(90*24*time.Hour)) || !homeReleaseVisible(&t1, t1.HomeReleased) {
+	if homeReleaseVisible(&t1, start.Add(90*24*time.Hour), 0) || !homeReleaseVisible(&t1, t1.HomeReleased, 0) {
 		t.Fatal("dated boundary")
 	}
 }
@@ -244,5 +244,94 @@ func TestCachedGetManyDoesNotFetchOrAdmitFallback(t *testing.T) {
 	}
 	if client.calls != 0 {
 		t.Fatalf("remote calls: %d", client.calls)
+	}
+}
+
+func TestHomeReleaseOffsetDaysAcrossCatalogAndSearch(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	// Movie 1: digital release 2026-11-17 (21 days after now).
+	// Movie 2: no digital date, cinema release 90 days before now (< 120d fallback).
+	// Movie 3: digital release 2026-10-20 (7 days before now), cinema > 200 days before now.
+	// Movie 4: no digital date, cinema release 150 days before now (> 120d fallback).
+	client := &releaseClient{details: map[int64]*tmdb.MovieDetails{
+		1: releaseDetail(t, `{"id":1,"title":"Odyssey","release_date":"2026-09-01","release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"type":4,"release_date":"2026-11-17T00:00:00Z"}]}]}}`),
+		2: releaseDetail(t, `{"id":2,"title":"RecentCinema","release_date":"2026-07-29","release_dates":{"results":[]}}`),
+		3: releaseDetail(t, `{"id":3,"title":"RecentDigital","release_date":"2026-03-01","release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"type":5,"release_date":"2026-10-20T00:00:00Z"}]}]}}`),
+		4: releaseDetail(t, `{"id":4,"title":"OldCinema","release_date":"2026-05-01","release_dates":{"results":[]}}`),
+	}}
+	c, err := New(db, client, config.Catalog{ReleaseMode: config.ModeDigital}, nil, WithNow(func() time.Time { return now }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, rel := range map[int64]string{1: "2026-09-01", 2: "2026-07-29", 3: "2026-03-01", 4: "2026-05-01"} {
+		dt, _ := time.Parse("2006-01-02", rel)
+		if err := c.UpsertTitle(ctx, core.Title{
+			Key: core.MovieKey(id), Type: core.TypeMovie, IDs: core.IDs{TMDB: id},
+			Title: client.details[id].Title, Released: dt, Popularity: 50, VoteCount: 500,
+		}, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := c.BackfillHomeReleases(ctx, 10); err != nil || n != 4 {
+		t.Fatalf("backfill: %d %v", n, err)
+	}
+
+	// Offset 0: only Movie 3 (passed digital) and Movie 4 (120d fallback) are visible.
+	page, err := c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}})
+	if err != nil || page.Total != 2 {
+		t.Fatalf("offset 0 browse: %+v %v", page, err)
+	}
+	if hits, err := c.Search(core.WithExplicitSearch(ctx), "Odyssey", []core.MediaType{core.TypeMovie}, 10); err != nil || len(c.FilterVisibility(core.WithExplicitSearch(ctx), hits)) != 0 {
+		t.Fatalf("offset 0 search admitted future digital date: %+v %v", hits, err)
+	}
+
+	// Offset -20: 2026-11-17 - 20d = 2026-10-28 > 2026-10-27, still hidden.
+	c.UpdateConfig(config.Catalog{ReleaseMode: config.ModeDigital, HomeReleaseOffsetDays: -20})
+	if page, err = c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}}); err != nil || page.Total != 2 {
+		t.Fatalf("offset -20 browse: %+v %v", page, err)
+	}
+
+	// Offset -21: 2026-11-17 - 21d = 2026-10-27 <= now, Movie 1 becomes visible everywhere;
+	// Movie 2 (missing home date, < 120d cinema age) remains hidden (fallback unchanged).
+	c.UpdateConfig(config.Catalog{ReleaseMode: config.ModeDigital, HomeReleaseOffsetDays: -21})
+	page, err = c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}})
+	if err != nil || page.Total != 3 {
+		t.Fatalf("offset -21 browse: %+v %v", page, err)
+	}
+	if _, err := c.Get(ctx, core.MovieKey(1)); err != nil {
+		t.Fatalf("offset -21 Get(1): %v", err)
+	}
+	if _, err := c.Get(ctx, core.MovieKey(2)); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("offset -21 Get(2) should keep 120d fallback unchanged, got %v", err)
+	}
+	hits, err := c.Search(core.WithExplicitSearch(ctx), "Odyssey", []core.MediaType{core.TypeMovie}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vis := c.FilterVisibility(core.WithExplicitSearch(ctx), hits)
+	if len(vis) == 0 || vis[0].Key != core.MovieKey(1) {
+		t.Fatalf("offset -21 Find on TMDB search did not admit Odyssey first: %+v", vis)
+	}
+	many, err := c.CachedGetMany(ctx, []core.RatingKey{core.MovieKey(1), core.MovieKey(2), core.MovieKey(4)})
+	if err != nil || len(many) != 2 || many[core.MovieKey(1)].Key == 0 || many[core.MovieKey(2)].Key != 0 {
+		t.Fatalf("offset -21 CachedGetMany: %+v %v", many, err)
+	}
+	rawPrev, err := c.PreviewVisibility(ctx, nil)
+	if err != nil || rawPrev.(VisibilityPreview).Total != 3 {
+		t.Fatalf("offset -21 PreviewVisibility: %+v %v", rawPrev, err)
+	}
+
+	// Positive offset +14: Movie 3 (2026-10-20 + 14d = 2026-11-03 > now) is delayed and NOT overridden by cinema age;
+	// Movie 4 (missing home date, > 120d cinema age) stays visible (fallback unchanged).
+	c.UpdateConfig(config.Catalog{ReleaseMode: config.ModeDigital, HomeReleaseOffsetDays: 14})
+	page, err = c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Type: core.TypeMovie}})
+	if err != nil || page.Total != 1 || page.Items[0].Key != core.MovieKey(4) {
+		t.Fatalf("offset +14 browse: %+v %v", page, err)
 	}
 }

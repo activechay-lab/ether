@@ -184,7 +184,7 @@ func (c *Catalog) CachedVisibleTitles(ctx context.Context, keys []core.RatingKey
 		for i := range items {
 			t := &items[i]
 			upcoming := cfg.ShowUpcomingMovies && t.Type == core.TypeMovie && !t.Released.IsZero() && t.Released.After(now)
-			if t.Adult || (!upcoming && !t.IsReleased(now)) || (!c.isTitleOrShowOwnerIncluded(t) && filter.Hidden(t)) || (!upcoming && digital && !homeReleaseVisible(t, now)) || (t.Type == core.TypeSeason && !listableSeason(t, now)) {
+			if t.Adult || (!upcoming && !t.IsReleased(now)) || (!c.isTitleOrShowOwnerIncluded(t) && filter.Hidden(t)) || (!upcoming && digital && !homeReleaseVisible(t, now, cfg.HomeReleaseOffsetDays)) || (t.Type == core.TypeSeason && !listableSeason(t, now)) {
 				continue
 			}
 			out[t.Key] = *t

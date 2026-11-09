@@ -486,7 +486,9 @@ func (h *Handler) handleCatalogTitle(w http.ResponseWriter, r *http.Request) {
 		Tagline: t.Tagline, Language: t.Language, Status: t.Status, Studios: t.Studios, Countries: t.Countries,
 		ReleaseDate: airDate(t.Released), HomeRelease: airDate(t.HomeReleased), LastAirDate: airDate(t.LastAirDate),
 		Seasons: t.ChildCount, Episodes: t.LeafCount}
-	d.HomeReleaseAgeAdmitted = h.deps.Config.Get().Availability.EffectiveMode() == config.ModeDigital && catalog.HomeReleaseAgeAdmitted(t, time.Now()) && (!t.HomeReleaseChecked || t.HomeReleased.IsZero() || t.HomeReleased.After(time.Now()))
+	av := h.deps.Config.Get().Availability
+	now := time.Now()
+	d.HomeReleaseAgeAdmitted = av.EffectiveMode() == config.ModeDigital && catalog.HomeReleaseAgeAdmitted(t, now) && (!t.HomeReleaseChecked || t.HomeReleased.IsZero() || catalog.HomeReleaseAdmission(t.HomeReleased, av.HomeReleaseOffsetDays).After(now))
 	if t.OriginalTitle != t.Title {
 		d.OriginalTitle = t.OriginalTitle
 	}

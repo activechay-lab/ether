@@ -307,7 +307,14 @@ func (s *Service) saveTitleCheck(ctx context.Context, key core.RatingKey, state,
 	return err
 }
 
-func (s *Service) acceptDigitalReleases(ctx context.Context, keys []core.RatingKey, now time.Time, acceptable map[core.RatingKey]bool) {
+func catalogHomeReleaseAdmission(earliest time.Time, offsetDays int) time.Time {
+	if earliest.IsZero() || offsetDays == 0 {
+		return earliest
+	}
+	return earliest.Add(time.Duration(offsetDays) * 24 * time.Hour)
+}
+
+func (s *Service) acceptDigitalReleases(ctx context.Context, keys []core.RatingKey, now time.Time, offsetDays int, acceptable map[core.RatingKey]bool) {
 	h, ok := s.d.Catalog.(interface {
 		HomeReleases(context.Context, []core.RatingKey) (map[core.RatingKey]time.Time, error)
 	})
@@ -319,7 +326,7 @@ func (s *Service) acceptDigitalReleases(ctx context.Context, keys []core.RatingK
 		return
 	}
 	for k, at := range got {
-		if !at.IsZero() && !at.After(now) {
+		if !at.IsZero() && !catalogHomeReleaseAdmission(at, offsetDays).After(now) {
 			acceptable[k] = true
 		}
 	}

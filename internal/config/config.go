@@ -323,8 +323,9 @@ type Catalog struct {
 	// ShowUpcomingEpisodes adds metadata-only scheduled episodes to airing seasons.
 	ShowUpcomingEpisodes bool `json:"showUpcomingEpisodes"`
 	ShowUpcomingMovies   bool `json:"showUpcomingMovies"`
-	// ReleaseMode is derived from availability, never an independent persisted setting.
-	ReleaseMode string `json:"-"`
+	// ReleaseMode and HomeReleaseOffsetDays are derived from availability, never independent persisted settings.
+	ReleaseMode           string `json:"-"`
+	HomeReleaseOffsetDays int    `json:"-"`
 	// HideFranchiseCollections hides automatic TMDB groups from Plex's
 	// Collections tab. The zero value preserves existing libraries.
 	HideFranchiseCollections bool `json:"hideFranchiseCollections"`
@@ -1079,6 +1080,7 @@ func (s *Store) update(fn func(*Config) error) error {
 		return err
 	}
 	DropFrontendServerNames(&next)
+	syncDerived(&next)
 	prev := s.cfg
 	s.cfg = next
 	if err := s.save(); err != nil {

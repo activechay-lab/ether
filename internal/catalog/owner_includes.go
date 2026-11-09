@@ -283,7 +283,7 @@ func (c *Catalog) evaluateBrowsability(ctx context.Context, st *storedTitle, t c
 	}
 
 	if released {
-		digitalGated := cfg.ReleaseMode == config.ModeDigital && !homeReleaseVisible(&t, now)
+		digitalGated := cfg.ReleaseMode == config.ModeDigital && !homeReleaseVisible(&t, now, cfg.HomeReleaseOffsetDays)
 		availGated := false
 		if gate := c.releaseGate.Load(); gate != nil && *gate != nil {
 			availGated = !(*gate)(ctx, t)
@@ -376,7 +376,7 @@ func (c *Catalog) hardBlockReason(ctx context.Context, t core.Title) string {
 	if !t.IsReleased(now) {
 		return "This title is not released yet and will appear once a playable release exists"
 	}
-	digitalGated := cfg.ReleaseMode == config.ModeDigital && !homeReleaseVisible(&t, now)
+	digitalGated := cfg.ReleaseMode == config.ModeDigital && !homeReleaseVisible(&t, now, cfg.HomeReleaseOffsetDays)
 	availGated := false
 	if gate := c.releaseGate.Load(); gate != nil && *gate != nil {
 		availGated = !(*gate)(ctx, t)

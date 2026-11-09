@@ -141,6 +141,9 @@ func ValidateConfig(cfg config.Config) []FieldError {
 	if a.MovieEvidenceDays < 0 || a.MovieEvidenceDays > 366 {
 		v.add("availability.movieEvidenceDays", "must be between 1 and 366 days (0 uses the default)")
 	}
+	if a.HomeReleaseOffsetDays < -366 || a.HomeReleaseOffsetDays > 366 {
+		v.add("availability.homeReleaseOffsetDays", "must be between -366 and 366 days")
+	}
 	if a.PollMinutes < 5 || a.PollMinutes > 1440 {
 		v.add("availability.pollMinutes", "must be between 5 and 1440 minutes")
 	}

@@ -1,6 +1,6 @@
 import { Play, CalendarDays, Zap } from "lucide-react";
 import { Input, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MoreOptions } from "../../components/ConfigSection";
 import { SaveBar, useDraft } from "../../components/SaveBar";
@@ -51,6 +51,58 @@ const MODES: {
   },
 ];
 
+function HomeReleaseOffsetRow({
+  availability,
+  onChange,
+}: {
+  availability: AvailabilityConfig;
+  onChange: (next: AvailabilityConfig) => void;
+}) {
+  const stored = availability.homeReleaseOffsetDays ?? 0;
+  const [text, setText] = useState(() => String(stored));
+  useEffect(() => {
+    const trimmed = text.trim();
+    const incomplete = trimmed === "" || trimmed === "-" || trimmed === "+";
+    if (!incomplete && Number(trimmed) !== stored) setText(String(stored));
+  }, [stored, text]);
+
+  return (
+    <SettingsRow
+      setting="home-release-offset"
+      title={t("Home-release offset (days)")}
+      description={t(
+        "Show movies before or after their digital or physical release date, such as -21 for three weeks early.",
+      )}
+      control={
+        <Input
+          aria-label={t("Home-release offset (days)")}
+          type="number"
+          inputMode="numeric"
+          min={-366}
+          max={366}
+          step={1}
+          className="w-24 tabular-nums"
+          value={text}
+          onChange={(e) => {
+            const raw = e.currentTarget.value;
+            setText(raw);
+            const trimmed = raw.trim();
+            if (trimmed === "" || trimmed === "-" || trimmed === "+") {
+              if (stored !== 0) onChange({ ...availability, homeReleaseOffsetDays: 0 });
+              return;
+            }
+            const parsed = Number(trimmed);
+            if (!Number.isFinite(parsed)) return;
+            const days = Math.trunc(parsed);
+            if (days !== stored) onChange({ ...availability, homeReleaseOffsetDays: days });
+          }}
+          onBlur={() => setText(String(availability.homeReleaseOffsetDays ?? 0))}
+        />
+      }
+    />
+  );
+}
+
 /** The three release modes share one availability setting. */
 export function NewReleasesSettings({
   availability,
@@ -95,6 +147,9 @@ export function NewReleasesSettings({
                   >
                     {item.title()}
                   </span>
+                  {item.value === "digital" && mode !== "digital" ? (
+                    <span data-setting="home-release-offset" hidden />
+                  ) : null}
                   {item.recommended ? (
                     <span className="new-release-recommended">{t("Recommended")}</span>
                   ) : null}
@@ -105,6 +160,9 @@ export function NewReleasesSettings({
           );
         })}
       </div>
+      {mode === "digital" ? (
+        <HomeReleaseOffsetRow availability={availability} onChange={onAvailability} />
+      ) : null}
       {mode === "playable" && summary.data ? (
         <p className="new-release-status">
           {tx("{ready} ready · {waiting} · checked {when}", {

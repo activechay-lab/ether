@@ -441,6 +441,7 @@ func (s *Store) updateClustered(fn func(*Config) error) error {
 			return err
 		}
 		DropFrontendServerNames(&next)
+		syncDerived(&next)
 		newShared := SharedJSON(next)
 		if bytes.Equal(newShared, SharedJSON(base)) {
 			break

@@ -151,7 +151,7 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 		if !included && strict && !detailed[i] && !f.Decidable(&out[i]) {
 			continue
 		}
-		if (included || !f.Hidden(&out[i])) && (c.upcomingMovie(&out[i]) || !(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&out[i], c.now())) {
+		if (included || !f.Hidden(&out[i])) && (c.upcomingMovie(&out[i]) || !(c.config().ReleaseMode == config.ModeDigital) || c.homeVisible(&out[i])) {
 			keep = append(keep, out[i])
 		}
 	}
@@ -189,9 +189,9 @@ func (c *Catalog) PreviewVisibilityPolicy(ctx context.Context, specs []core.Libr
 	// The catalogue rules act on: browsable titles, behind the release gate
 	// when "On digital release" is on, the same set browsing and queryTitles see.
 	scope, scopeArgs := mirrorBrowsableWhere, []any(nil)
-	if c.config().ReleaseMode == config.ModeDigital {
+	if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital {
 		scope += " AND " + homeReleaseSQL("t")
-		scopeArgs = []any{homeReleaseCutoff(c.now()), c.now().Unix()}
+		scopeArgs = []any{homeReleaseCutoff(c.now()), homeReleaseDeadline(c.now(), cfg.HomeReleaseOffsetDays)}
 	}
 	err = c.db.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN NOT EXISTS(SELECT 1 FROM catalog_countries co WHERE co.key=t.key) THEN 1 ELSE 0 END),0) FROM catalog_titles t WHERE `+scope, scopeArgs...).Scan(&p.Total, &p.UnknownCountry)
 	if err != nil {

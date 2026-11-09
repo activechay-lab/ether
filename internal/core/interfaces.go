@@ -82,8 +82,9 @@ type Filter struct {
 	Group               *FilterGroup `json:"group,omitempty"`
 	// DigitalDiscovery applies the availability service's digital-date gate
 	// before counting and paging a discovery result.
-	DigitalDiscovery    bool `json:"-"`
-	DigitalDateEvidence bool `json:"-"`
+	DigitalDiscovery      bool `json:"-"`
+	DigitalDateEvidence   bool `json:"-"`
+	HomeReleaseOffsetDays int  `json:"-"`
 	// AvailabilityKeepKeys are the viewer's active playback sessions.
 	AvailabilityKeepKeys []RatingKey `json:"-"`
 	// Availability generations pin one evaluated hidden set across SQL reads.

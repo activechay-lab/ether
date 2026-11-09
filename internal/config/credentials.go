@@ -455,7 +455,7 @@ func clone(c Config) Config {
 	b, _ := json.Marshal(c)
 	var out Config
 	_ = json.Unmarshal(b, &out)
-	out.Catalog.ReleaseMode = out.Availability.EffectiveMode()
+	syncDerived(&out)
 	return out
 }
 
