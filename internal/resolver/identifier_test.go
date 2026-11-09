@@ -21,8 +21,8 @@ func TestReportedIDsDisambiguateWithoutBypassingEpisodeOrYear(t *testing.T) {
 		want          string
 	}{
 		{"translated title with evidence", "Pilote.Spatial.S02E02.Pierre.et.Ciel.1080p.WEB.H264-GRP", core.IDs{TMDB: 123}, ""},
-		{"query ID alone proves nothing", "Pilote.Spatial.S02E02.1080p.WEB.H264-GRP", core.IDs{}, "title mismatch"},
-		{"obfuscated without reported ID", "a1b2c3d4e5f6g7h8.S02E02.1080p.WEB.H264-GRP", core.IDs{}, "title mismatch"},
+		{"query ID alone proves nothing", "Pilote.Spatial.S02E02.1080p.WEB.H264-GRP", core.IDs{}, `title mismatch (parsed "Pilote Spatial"; expected "Space Pilot")`},
+		{"obfuscated without reported ID", "a1b2c3d4e5f6g7h8.S02E02.1080p.WEB.H264-GRP", core.IDs{}, `title mismatch (parsed "a1b2c3d4e5f6g7h8"; expected "Space Pilot")`},
 		{"conflicting ID with exact name", "Space.Pilot.S02E02.1080p.WEB.H264-GRP", core.IDs{TMDB: 456}, "indexer title identifier mismatch"},
 		{"wrong episode despite matching ID", "Space.Pilot.S02E03.1080p.WEB.H264-GRP", core.IDs{TMDB: 123}, "season/episode mismatch"},
 		{"wrong reboot despite matching ID", "Space.Pilot.2023.S02E02.1080p.WEB.H264-GRP", core.IDs{TMDB: 123}, "series year mismatch"},

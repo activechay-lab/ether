@@ -47,6 +47,14 @@ func MiniseriesPart(name string) (seriesTitle string, part int, ok bool) {
 	return prefix, part, true
 }
 
+func isGenericEpisodeLabel(word string) bool {
+	switch word {
+	case "episode", "episodio", "capitulo", "capítulo", "серия", "эпизод", "folge", "épisode":
+		return true
+	}
+	return false
+}
+
 // EpisodeTitleMatches rejects an explicitly different episode title between
 // SxxExx and the technical metadata. Unnamed scene releases remain eligible.
 // A title is only extracted when a recognized metadata boundary follows it.
@@ -55,12 +63,12 @@ func EpisodeTitleMatches(name, want string) bool {
 		return true
 	}
 	generic := strings.Fields(strings.ToLower(want))
-	if len(generic) == 2 && generic[0] == "episode" {
+	if len(generic) == 2 && isGenericEpisodeLabel(generic[0]) {
 		if _, err := strconv.Atoi(generic[1]); err == nil {
 			return true
 		}
 	}
-	spaced := spacify(name)
+	spaced := spacify(normalizeSpanishCapRange(name))
 	usedMiniseriesPart := false
 	loc := reSE.FindStringIndex(spaced)
 	if loc == nil {
@@ -73,7 +81,7 @@ func EpisodeTitleMatches(name, want string) bool {
 		loc = reBareEpisode.FindStringIndex(spaced)
 	}
 	if loc == nil {
-		loc = spanishEpisodeIndex(spaced)
+		loc = spanishEpisodeIndexWithRaw(name, spaced)
 	}
 	if loc == nil {
 		if loc = reMiniseriesPart.FindStringIndex(spaced); loc != nil {
@@ -112,6 +120,7 @@ func EpisodeTitleMatches(name, want string) bool {
 			// Release tags that can precede the resolution; they are not
 			// episode title words ("Show.S01E01.DV.2160p.WEB").
 			"DV", "DOVI", "HDR10PLUS", "SDR", "HYBRID", "RERIP", "REAL", "10BIT", "DUAL", "DL",
+			"SUBT", "SUBTITULADO", "VOSE", "VOS",
 			"AMZN", "NF", "DSNP", "HMAX", "ATVP", "APTV", "APTV+", "PCOK", "HULU", "UNCUT", "REMASTERED", "IMAX":
 			technical = true
 		}
@@ -127,6 +136,13 @@ func EpisodeTitleMatches(name, want string) bool {
 	got := normalizeEpisodeTitle(strings.Join(words, " "))
 	expected := normalizeEpisodeTitle(want)
 	if got == "" || got == "the" || got == "a" || got == "an" {
+		return true
+	}
+	// Russian and P2P releases frequently place the season/air year right
+	// after SxxExx ("Doktor.Krasnov.S01.E01.2023.WEB-DLRip", "s02.E01.(2025).WEBRip").
+	// When the wanted episode title is not itself a year, that bare year is
+	// release metadata rather than a conflicting episode title.
+	if len(words) == 1 && reYear.MatchString(got) && !reYear.MatchString(expected) {
 		return true
 	}
 	if usedMiniseriesPart {
@@ -175,7 +191,7 @@ func normalizeEpisodeTitle(title string) string {
 // an episode title or after a season/episode boundary must not be mistaken
 // for the show's premiere year.
 func EpisodeSeriesYear(name string, parsedYear int) int {
-	spaced := spacify(name)
+	spaced := spacify(normalizeSpanishCapRange(name))
 	cut := -1
 	consider := func(loc []int) {
 		if loc != nil && loc[0] >= 0 && (cut < 0 || loc[0] < cut) {
@@ -185,7 +201,7 @@ func EpisodeSeriesYear(name string, parsedYear int) int {
 	consider(reSE.FindStringIndex(spaced))
 	consider(reSeasonAndEp.FindStringIndex(spaced))
 	consider(reXEpisode.FindStringIndex(spaced))
-	consider(spanishEpisodeIndex(spaced))
+	consider(spanishEpisodeIndexWithRaw(name, spaced))
 	consider(reSeasonOnly.FindStringIndex(spaced))
 	consider(reSeasonWord.FindStringIndex(spaced))
 	consider(reMiniseriesPart.FindStringIndex(spaced))

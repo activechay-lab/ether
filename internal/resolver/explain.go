@@ -44,7 +44,11 @@ func (s *Service) explainCeiling(tr *Trace, profile core.QualityProfile, req cor
 		case c.Rejected && c.Attempted:
 			reasons["failed its check"]++
 		case c.Rejected:
-			reasons[strings.TrimPrefix(c.Reason, "release preference: ")]++
+			reason := strings.TrimPrefix(c.Reason, "release preference: ")
+			if strings.HasPrefix(reason, "title mismatch") {
+				reason = "title mismatch"
+			}
+			reasons[reason]++
 		case strings.Contains(c.CompatibilityReason, "presumed upscale"):
 			reasons["presumed upscale"]++
 		case strings.Contains(c.CompatibilityReason, "too little bitrate"):

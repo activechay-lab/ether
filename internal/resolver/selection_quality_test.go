@@ -292,11 +292,11 @@ func TestAlternativeTitleMatchesRomanizedRelease(t *testing.T) {
 		t.Fatalf("romanized release rejected: %q", got)
 	}
 	other := withParsed(rel("other", "Dungeon.Meshi.S01E01.1080p.BluRay.Remux-GRP", 8<<10))
-	if got := rejectIdentity(other, title, sreq, "en-US"); got != "title mismatch" {
+	if got := rejectIdentity(other, title, sreq, "en-US"); got != `title mismatch (parsed "Dungeon Meshi"; expected "Frieren: Beyond Journey's End", "葬送のフリーレン" or "Frieren")` {
 		t.Fatalf("unrelated release: %q", got)
 	}
 	title.ShowAlternativeTitles = nil
-	if got := rejectIdentity(romaji, title, searchRequestFor(title), "en-US"); got != "title mismatch" {
+	if got := rejectIdentity(romaji, title, searchRequestFor(title), "en-US"); got != `title mismatch (parsed "Sousou no Frieren"; expected "Frieren: Beyond Journey's End" or "葬送のフリーレン")` {
 		t.Fatalf("without alternative titles the romanized release should not match: %q", got)
 	}
 }

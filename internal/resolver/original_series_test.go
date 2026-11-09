@@ -15,7 +15,7 @@ func TestCanonicalOriginalSeriesNameWithoutReportedIDs(t *testing.T) {
 	profile := SelectProfile(cfg.Quality, webCaps(), nil)
 	for _, tt := range []struct{ name, want string }{
 		{"Spectacle.Spatial.2020.S01E02.1080p.WEB.H264-GRP", ""},
-		{"L.Arrivee.2020.S01E02.1080p.WEB.H264-GRP", "title mismatch"},
+		{"L.Arrivee.2020.S01E02.1080p.WEB.H264-GRP", `title mismatch (parsed "L Arrivee"; expected "Space Show" or "Spectacle Spatial")`},
 		{"Spectacle.Spatial.2020.S01E03.1080p.WEB.H264-GRP", "season/episode mismatch"},
 	} {
 		r := rel("r", tt.name, 1500)

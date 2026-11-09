@@ -30,3 +30,24 @@ func DisclaimsDirector(name, director string) bool {
 	}
 	return strings.EqualFold(tail[len(words)+2], "film")
 }
+
+// IsPlaceholderResult reports synthetic "no results" rows returned by
+// Torznab/Jackett/Prowlarr bridges when an indexer refuses a text search
+// (for example, "No results! Make sure to use the IMDb ID to search").
+// Real releases carrying technical metadata, years or episode markers are kept.
+func IsPlaceholderResult(name string) bool {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return false
+	}
+	lower := strings.ToLower(s)
+	placeholder := lower == "no results" ||
+		lower == "no results found" ||
+		strings.HasPrefix(lower, "no results!") ||
+		strings.Contains(lower, "make sure to use the imdb id")
+	if !placeholder {
+		return false
+	}
+	info := Parse(s)
+	return !HasUsableInfo(info) && info.Year == 0 && len(info.Seasons) == 0 && len(info.Episodes) == 0 && !info.FullSeason
+}

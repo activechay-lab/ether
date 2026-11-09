@@ -60,6 +60,9 @@ func (p *searchPreparation) arrived(batch []core.Release) {
 	var added []core.Release
 	reorder := false
 	for _, r := range batch {
+		if releaseparse.IsPlaceholderResult(r.Name) {
+			continue
+		}
 		r = withTarget(r, p.search)
 		if p.seen[r.ID] {
 			if p.svc.knownCached(r) {
@@ -284,7 +287,7 @@ func (p *searchPreparation) readyResultsAfter(window time.Duration) []core.Relea
 func (p *searchPreparation) searchLive(ctx context.Context, indexer core.StreamingIndexer, req core.SearchRequest) ([]core.Release, bool, error) {
 	if p.disabled {
 		r, e := indexer.SearchWith(ctx, req, p.arrived)
-		return r, false, e
+		return filterOutPlaceholders(r), false, e
 	}
 	// Detach from Play cancel so a first healthy hit can start while the
 	// remaining indexers finish into the search cache (better versions and
@@ -308,6 +311,7 @@ func (p *searchPreparation) searchLive(ctx context.Context, indexer core.Streami
 		defer p.svc.bgWG.Done()
 		defer cancel()
 		r, e := indexer.SearchWith(searchCtx, req, p.arrived)
+		r = filterOutPlaceholders(r)
 		// Publish every complete answer before notifying the caller. Completion
 		// can race with the early-play ticker: checking partial here could
 		// miss an early return chosen just after the check, losing the cache.

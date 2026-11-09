@@ -689,7 +689,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	ctx = context.WithValue(ctx, searchPreparationKey{}, early)
 	var discovered []core.Release
 	if s.discovered != nil && pin == nil && req.Prefer == "" && len(req.Exclude) == 0 {
-		discovered = s.discovered(ctx, t)
+		discovered = filterOutPlaceholders(s.discovered(ctx, t))
 		if len(discovered) > 0 {
 			trace.Discovery = append(trace.Discovery, DiscoveryTrace{Path: "feed", Count: len(discovered)})
 		}
@@ -948,24 +948,30 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	// failed. Then it plays, and the trace says why.
 	reference := s.referenceHeight(cands, req.Exclude)
 	primary, downgrades := splitDowngrades(cands, reference)
+	var primaryErr error
+	primaryUncached := false
 	if len(primary) > 0 {
 		index, nzb, err := s.validateCandidates(ctx, primary, &trace, rcfg.HealthRace)
 		if err != nil {
-			if res := s.lastResort(ctx, inconclusive, t.Key, concat(lead, primary, downgrades), &trace); res != nil {
-				return res, nil
-			}
-			// The viewer's own pick (lead) is the one sent to download.
-			tried := concat(lead, primary)
-			if i, payload, uerr, ok := s.uncachedOutcome(ctx, tried, results, &trace); ok {
-				if i >= 0 {
-					return s.acceptResolution(ctx, t.Key, tried, i, payload, &trace), nil
+			if ctx.Err() == nil && !errors.Is(err, errOnDemandForeground) && onlyUncachedOrDead(primary, &trace) {
+				primaryErr = err
+				primaryUncached = true
+			} else {
+				if res := s.lastResort(ctx, inconclusive, t.Key, concat(lead, primary, downgrades), &trace); res != nil {
+					return res, nil
 				}
-				return nil, uerr
+				// The viewer's own pick (lead) is the one sent to download.
+				tried := concat(lead, primary)
+				if i, payload, uerr, ok := s.uncachedOutcome(ctx, tried, results, &trace); ok {
+					if i >= 0 {
+						return s.acceptResolution(ctx, t.Key, tried, i, payload, &trace), nil
+					}
+					return nil, uerr
+				}
+				trace.Err = err.Error()
+				return nil, err
 			}
-			trace.Err = err.Error()
-			return nil, err
-		}
-		if index >= 0 {
+		} else if index >= 0 {
 			return s.acceptResolution(ctx, t.Key, primary, index, nzb, &trace), nil
 		}
 	}
@@ -975,7 +981,8 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	if !rescueTried && searchErr == nil && ctx.Err() == nil && core.SpeculativeIndexerWork(ctx) {
 		rescueSkipped = true
 	} else if !rescueTried && searchErr == nil && ctx.Err() == nil {
-		rescueCands, _, rejected, rerr := s.rescueCandidates(ctx, req, sreq, profile, results, &trace, pinID)
+		rescueCands, updatedResults, rejected, rerr := s.rescueCandidates(ctx, req, sreq, profile, results, &trace, pinID)
+		results = updatedResults
 		clientRejected = clientRejected || rejected
 		if rerr == nil && len(rescueCands) > 0 {
 			var rescueChecks candidateChecks
@@ -1006,10 +1013,28 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 			return s.acceptResolution(ctx, t.Key, downgrades, index, nzb, &trace), nil
 		}
 	}
+	var fallbackCands []candidate
+	if profile.FallbackBelowMin && profile.MinHeight > 0 && ctx.Err() == nil && !hasFallbackCandidates(cands) {
+		fbCands, fbRejected, ferr := s.rankBelowMinFallback(ctx, req, sreq, profile, results, &trace)
+		clientRejected = clientRejected || fbRejected
+		if ferr == nil && len(fbCands) > 0 {
+			var fbChecks candidateChecks
+			defer fbChecks.close()
+			at := time.Now()
+			fbCands = s.prepareSources(ctx, fbCands, req.Title, &trace, &fbChecks)
+			trace.SourcePreparationDuration += time.Since(at)
+			fallbackCands = fbCands
+			cands = append(cands, fbCands...)
+			index, nzb, verr := s.validateCandidates(ctx, fallbackCands, &trace, rcfg.HealthRace)
+			if verr == nil && index >= 0 {
+				return s.acceptResolution(ctx, t.Key, fallbackCands, index, nzb, &trace), nil
+			}
+		}
+	}
 
 	// The resolver's own order: comparable quality (rescue included)
 	// before any drastic downgrade, which are already sorted by quality.
-	if res := s.lastResort(ctx, inconclusive, t.Key, concat(lead, primary, rescuePrimary, downgrades), &trace); res != nil {
+	if res := s.lastResort(ctx, inconclusive, t.Key, concat(lead, primary, rescuePrimary, downgrades, fallbackCands), &trace); res != nil {
 		if slices.ContainsFunc(downgrades, func(c candidate) bool { return c.rel.ID == res.Release.ID }) {
 			trace.Downgrade = downgradeNote(reference, res.Release, len(primary) > 0)
 		}
@@ -1028,12 +1053,25 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	// broken Usenet release): say so, send one to download when the owner
 	// allows it, and do not record the title unavailable (a download may
 	// finish, or the provider may cache it, at any time).
-	all := concat(lead, primary, rescuePrimary, downgrades)
+	all := concat(lead, primary, rescuePrimary, downgrades, fallbackCands)
 	if i, payload, uerr, ok := s.uncachedOutcome(ctx, all, results, &trace); ok {
 		if i >= 0 {
 			return s.acceptResolution(ctx, t.Key, all, i, payload, &trace), nil
 		}
 		return nil, uerr
+	}
+	if primaryUncached {
+		tried := concat(lead, primary)
+		if i, payload, uerr, ok := s.uncachedOutcome(ctx, tried, results, &trace); ok {
+			if i >= 0 {
+				return s.acceptResolution(ctx, t.Key, tried, i, payload, &trace), nil
+			}
+			return nil, uerr
+		}
+		if primaryErr != nil {
+			trace.Err = primaryErr.Error()
+			return nil, primaryErr
+		}
 	}
 	// An occupied provider is temporary; keep the title available and expose
 	// the actionable busy outcome instead of remembering a failed title.
@@ -1113,12 +1151,7 @@ func (s *Service) searchRescue(ctx context.Context, req core.SearchRequest) ([]c
 	if err != nil {
 		return nil, ""
 	}
-	for i := range results {
-		if results[i].Info.Title == "" && results[i].Info.Height == 0 && results[i].Info.Source == core.SourceUnknown {
-			results[i].Info = releaseparse.Parse(results[i].Name)
-		}
-		results[i] = withTarget(results[i], req)
-	}
+	results = s.normalizeSearchResults(req, results)
 	if coverage.Incomplete() {
 		return results, "live-complete"
 	}
@@ -1253,7 +1286,7 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 	if err != nil {
 		return nil, false, err
 	}
-	s.normalizeSearchResults(req, results)
+	results = s.normalizeSearchResults(req, results)
 	if partial || coverage.Incomplete() {
 		// Never cache an incomplete fleet answer: an early Play start,
 		// or an indexer that was paused or did not answer.
@@ -1266,11 +1299,32 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 // rememberSearchResults normalizes a completed fleet answer and writes the
 // search cache. Used when a progressive Play start left discovery running.
 func (s *Service) rememberSearchResults(req core.SearchRequest, results []core.Release) {
-	s.normalizeSearchResults(req, results)
+	results = s.normalizeSearchResults(req, results)
 	s.storeSearchCache(req, results)
 }
 
-func (s *Service) normalizeSearchResults(req core.SearchRequest, results []core.Release) {
+func filterOutPlaceholders(in []core.Release) []core.Release {
+	hasPlaceholder := false
+	for _, r := range in {
+		if releaseparse.IsPlaceholderResult(r.Name) {
+			hasPlaceholder = true
+			break
+		}
+	}
+	if !hasPlaceholder {
+		return in
+	}
+	out := make([]core.Release, 0, len(in)-1)
+	for _, r := range in {
+		if !releaseparse.IsPlaceholderResult(r.Name) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (s *Service) normalizeSearchResults(req core.SearchRequest, results []core.Release) []core.Release {
+	results = filterOutPlaceholders(results)
 	for i := range results {
 		if results[i].Info.Title == "" && results[i].Info.Height == 0 && results[i].Info.Source == core.SourceUnknown {
 			results[i].Info = releaseparse.Parse(results[i].Name)
@@ -1280,6 +1334,7 @@ func (s *Service) normalizeSearchResults(req core.SearchRequest, results []core.
 		// sees the same per-episode release ID.
 		results[i] = withTarget(results[i], req)
 	}
+	return results
 }
 
 func (s *Service) storeSearchCache(req core.SearchRequest, results []core.Release) {
@@ -1360,6 +1415,88 @@ func (s *Service) rankWith(ctx context.Context, env rankEnv, req core.ResolveReq
 	// and imported allowlist. All other gates are evaluated again unchanged.
 	fallback, fallbackRejected, err := s.rankPass(ctx, env, req, sreq, profile, results, trace, pinID, true)
 	return fallback, rejected || fallbackRejected, err
+}
+
+func hasFallbackCandidates(cands []candidate) bool {
+	for _, c := range cands {
+		if c.fallback {
+			return true
+		}
+	}
+	return false
+}
+
+func onlyUncachedOrDead(cands []candidate, tr *Trace) bool {
+	sawUncached := false
+	for _, c := range cands {
+		if c.trace < 0 || c.trace >= len(tr.Candidates) {
+			continue
+		}
+		ct := &tr.Candidates[c.trace]
+		if !ct.Attempted || !ct.Rejected {
+			continue
+		}
+		switch {
+		case ct.err != nil && errors.Is(ct.err, core.ErrNotCached) && protocolOf(c.rel) == core.ProtocolTorrent:
+			sawUncached = true
+		case ct.err == nil || permanentFailure(ct.err):
+		default:
+			return false
+		}
+	}
+	return sawUncached
+}
+
+// rankBelowMinFallback evaluates below-minimum releases after every strict
+// candidate has failed health or debrid-cache checks, updating their existing
+// trace entries in place so no duplicate candidate rows are recorded.
+func (s *Service) rankBelowMinFallback(ctx context.Context, req core.ResolveRequest, sreq core.SearchRequest, profile core.QualityProfile, results []core.Release, trace *Trace) ([]candidate, bool, error) {
+	policy, err := s.compileRules(profile.ReleaseRules)
+	if err != nil {
+		return nil, true, err
+	}
+	env := rankEnv{policy: policy}
+	if usesPluginRanking(profile) {
+		env.hot = s.rankingSession(ctx, req.Client)
+		if env.hot != nil {
+			defer env.hot.Close()
+		}
+	}
+	env.exclude = map[string]bool{}
+	for _, id := range req.Exclude {
+		env.exclude[id] = true
+	}
+	env.rcfg = s.resolverCfg()
+	env.lang = s.catalogLanguage()
+	env.audio(profile, req)
+	if s.db != nil {
+		s.loadRejectionsFor(ctx, req.Title.Key)
+	}
+	s.prepareSeriesYears(ctx, req.Title, sreq, results)
+	var fbTrace Trace
+	fbCands, rejected, err := s.rankPass(ctx, env, req, sreq, profile, results, &fbTrace, "", true)
+	if err != nil || len(fbCands) == 0 {
+		return nil, rejected, err
+	}
+	if trace != nil {
+		for i := range fbCands {
+			fbCT := fbTrace.Candidates[fbCands[i].trace]
+			placed := false
+			for j := range trace.Candidates {
+				if trace.Candidates[j].ReleaseID == fbCands[i].rel.ID && !trace.Candidates[j].Attempted {
+					trace.Candidates[j] = fbCT
+					fbCands[i].trace = j
+					placed = true
+					break
+				}
+			}
+			if !placed {
+				trace.Candidates = append(trace.Candidates, fbCT)
+				fbCands[i].trace = len(trace.Candidates) - 1
+			}
+		}
+	}
+	return fbCands, rejected, nil
 }
 
 func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveRequest, sreq core.SearchRequest, profile core.QualityProfile, results []core.Release, trace *Trace, pinID string, fallback bool) ([]candidate, bool, error) {
@@ -1750,6 +1887,9 @@ func rejectIdentity(rel core.Release, t *core.Title, sreq core.SearchRequest, ca
 // rejectIdentityYears is rejectIdentity where acceptYear may accept a series
 // year that differs from the show's (one that names no other show).
 func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchRequest, catalogLang string, acceptYear func(int) bool) string {
+	if releaseparse.IsPlaceholderResult(rel.Name) {
+		return "indexer placeholder"
+	}
 	isEpisode := sreq.Type == core.TypeEpisode
 	idMatch, idConflict := releaseparse.CompareTitleIDs(rel.TitleIDs, sreq.IDs)
 	if idConflict {
@@ -1793,7 +1933,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		// Querying by ID does not prove that the indexer honored it.
 		// Only identifiers actually reported on this result can establish
 		// an otherwise unreadable or alternate title's identity.
-		return "title mismatch"
+		return formatTitleMismatch(rel.Info.Title, expectedTitlesFor(t, sreq))
 	}
 	if isEpisode {
 		releaseYear := releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year)
@@ -1834,6 +1974,69 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		}
 	}
 	return ""
+}
+
+func expectedTitlesFor(t *core.Title, sreq core.SearchRequest) []string {
+	var out []string
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		for _, existing := range out {
+			if strings.EqualFold(existing, v) {
+				return
+			}
+		}
+		out = append(out, v)
+	}
+	add(sreq.Title)
+	if t != nil {
+		if sreq.Type == core.TypeEpisode {
+			add(t.ShowOriginalTitle)
+		} else {
+			add(t.OriginalTitle)
+		}
+	}
+	for _, alt := range sreq.AlternativeTitles {
+		add(alt)
+	}
+	if t != nil {
+		if sreq.Type == core.TypeEpisode {
+			for _, alt := range t.ShowAlternativeTitles {
+				add(alt)
+			}
+		} else {
+			for _, alt := range t.AlternativeTitles {
+				add(alt)
+			}
+		}
+	}
+	return out
+}
+
+func formatTitleMismatch(parsed string, expected []string) string {
+	parsed = strings.TrimSpace(parsed)
+	if parsed == "" && len(expected) == 0 {
+		return "title mismatch"
+	}
+	quoted := make([]string, 0, min(len(expected), 3))
+	for i, e := range expected {
+		if i == 3 {
+			break
+		}
+		quoted = append(quoted, fmt.Sprintf("%q", e))
+	}
+	switch {
+	case parsed != "" && len(quoted) == 1:
+		return fmt.Sprintf("title mismatch (parsed %q; expected %s)", parsed, quoted[0])
+	case parsed != "" && len(quoted) > 1:
+		return fmt.Sprintf("title mismatch (parsed %q; expected %s)", parsed, strings.Join(quoted[:len(quoted)-1], ", ")+" or "+quoted[len(quoted)-1])
+	case parsed != "":
+		return fmt.Sprintf("title mismatch (parsed %q)", parsed)
+	default:
+		return fmt.Sprintf("title mismatch (expected %s)", strings.Join(quoted, " or "))
+	}
 }
 
 var reCourEpisodeMarker = regexp.MustCompile(`(?i)\b(?:S\d{1,2}|(?:Season|Saison|Stagione|Temporada)\s*\d{1,2})[\s._-]+(?:Part|Cour)[\s._-]*\d{1,2}(?:[\s._-]+-[\s._-]+|[\s._-]+E?)\d{1,3}(?:v\d)?\b`)
