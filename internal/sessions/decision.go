@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -61,6 +62,16 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 		strings.EqualFold(r.Caps.Platform, "Android") && transcode.SupportsDVProfile(r.Caps, v.DolbyVisionProfile) {
 		preferRemux = false
 	}
+	// Keep native file playback when the client Direct Plays the file's video
+	// codec (for example 4K HEVC HDR10 on webOS/VIDAA TVs) while its segmented
+	// streaming target only accepts another codec (such as H.264). Optional
+	// source-change remuxing must not push Direct Play into an unplayable HEVC
+	// HLS copy or an unnecessary 4K transcode (#408). A required remux or an
+	// explicit client rejection of direct play still wins.
+	if v := ps.Info.Video(); v != nil && v.Codec != "" && r.Options.DirectPlay &&
+		len(r.Caps.TranscodeVideoCodecs) > 0 && !slices.Contains(r.Caps.TranscodeVideoCodecs, v.Codec) {
+		preferRemux = false
+	}
 	if (preferRemux || requiresRemux) && r.Options.DirectStream && onDemand && dec.Kind == core.DecisionDirectPlay && transcoder != nil {
 		dec.Kind = core.DecisionRemux
 		dec.VideoCopy, dec.AudioCopy = true, true
@@ -80,9 +91,14 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 			dec.Container = transcode.HLSContainer(r.Caps, videoCodec, audioCodec)
 		}
 		dec.Reason = "Direct stream preserves playback across source changes."
-		if audioCodec != "" && !transcode.SegmentedAudioCopyOK(r.Caps, audioCodec) {
+		videoCopyOK := videoCodec == "" || transcode.SegmentedVideoCopyOK(r.Caps, videoCodec)
+		audioCopyOK := audioCodec == "" || transcode.SegmentedAudioCopyOK(r.Caps, audioCodec)
+		if !videoCopyOK || !audioCopyOK {
 			opts := r.Options
 			opts.DirectPlay = false
+			if !videoCopyOK {
+				opts.DirectStream = false
+			}
 			dec = transcoder.Decide(ps.Info, r.Caps, opts)
 		}
 	}

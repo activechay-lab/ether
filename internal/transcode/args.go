@@ -295,13 +295,14 @@ func buildCodecArgs(s runSpec) []string {
 		container = ContainerMPEGTS
 	}
 	transcodeVideo := v != nil && !d.VideoCopy
+	vp := planVideo(s, v)
 
 	args := []string{"-hide_banner", "-nostdin", "-loglevel", "warning", "-nostats", "-y"}
 	if s.Protocol != core.ProtocolHTTP {
 		args = append(args, "-progress", "pipe:1")
 	}
 	if transcodeVideo {
-		if _, hw := videoEncoder(d.VideoCodec, s.Accel, s.Features); !hw {
+		if _, hw := videoEncoder(d.VideoCodec, s.Accel, s.Features); !hw || (!vp.hwFrames && vp.graph != "") {
 			w, h := outputSize(v.Width, v.Height, d.MaxHeight)
 			args = append(args, "-filter_complex_threads", strconv.Itoa(min(4, softwareThreadBudget(w, h, runtime.GOMAXPROCS(0)))))
 		}
@@ -346,7 +347,6 @@ func buildCodecArgs(s runSpec) []string {
 	if !transcodeVideo && !s.LiveInput {
 		args = append(args, "-fflags", "+genpts")
 	}
-	vp := planVideo(s, v)
 	if _, hw := videoEncoder(s.Decision.VideoCodec, s.Accel, s.Features); hw && s.Accel.Name == AccelQSV && s.Accel.Device != "" && transcodeVideo {
 		args = append(args, "-qsv_device", s.Accel.Device)
 	}
@@ -1001,6 +1001,7 @@ type videoPlan struct {
 	inputArgs  []string
 	graph      string // -filter_complex, output label [vout]
 	encodeArgs []string
+	hwFrames   bool
 	err        error // the graph cannot be built; do not start ffmpeg
 }
 
@@ -1194,8 +1195,8 @@ func planPicture(s runSpec, v *core.StreamInfo, codec string) picturePlan {
 
 // planFilterChain chooses the GPU or software filter chain: hardware
 // decode/scale/tone-map when a pipeline applies, else the software
-// convert/tone-map plus finish. finish sizes/pads/formats software frames.
-func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel string, burn bool, finish func([]string) []string) (inputArgs, chain []string, hwFrames bool) {
+// convert/tone-map plus finish. size/format size, pad and format software frames.
+func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel string, burn bool, size, format func([]string) []string) (inputArgs, chain []string, hwFrames bool) {
 	// Software filters only: GPU scalers neither pad nor convert SDR to
 	// HDR, and only the explicitly probed CUDA path can feed a 10-bit
 	// tone-mapped contract. Tone mappers produce limited-range BT.709.
@@ -1247,6 +1248,8 @@ func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel strin
 		inputArgs = append(inputArgs, "-hwaccel", "videotoolbox")
 	case accel == AccelNVENC && !(v.Codec == "h264" && v.BitDepth > 8):
 		inputArgs = append(inputArgs, "-hwaccel", "cuda")
+	case accel == AccelQSV && s.Features.hwaccels["qsv"] && !(v.Codec == "h264" && v.BitDepth > 8):
+		inputArgs = append(inputArgs, "-hwaccel", "qsv")
 	case accel == AccelVAAPI:
 		dev := s.Accel.Device
 		if dev == "" {
@@ -1269,6 +1272,7 @@ func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel strin
 		if v.Interlaced {
 			chain = append(chain, "yadif=mode=send_frame:parity=auto:deint=all")
 		}
+		preScaled := false
 		switch {
 		case pic.convert != "":
 			chain = append(chain, pic.convert)
@@ -1277,6 +1281,15 @@ func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel strin
 				// Jellyfin's DV-aware mapper consumes 10-bit 4:2:0 and uses
 				// the decoder's RPU side data for IPT reshaping.
 				chain = append(chain, "format=yuv420p10le", "tonemapx=tonemap=hable:desat=0:t=bt709:m=bt709:p=bt709:format=yuv420p:apply_dovi=1")
+			} else if !dv5 && !pic.tenBit && s.Features.hasFilter("tonemapx") {
+				// Jellyfin's SIMD 10-bit YUV tone-mapper avoids single-threaded
+				// float32 RGB conversion on CPU filter paths (such as Windows QSV
+				// HDR->SDR, #408). Scaling 10-bit YUV first cuts pixel work 4x+.
+				if !burn && s.PictureCrop == nil && pic.scaling && (v.Width <= 0 || (pic.w <= v.Width && pic.h <= v.Height)) {
+					chain = size(chain)
+					preScaled = true
+				}
+				chain = append(chain, "format=yuv420p10le", "tonemapx=tonemap=hable:desat=0:t=bt709:m=bt709:p=bt709:format=yuv420p")
 			} else if !dv5 {
 				if filt, ok := cpuToneMap(s.Features); ok {
 					chain = append(chain, filt)
@@ -1284,7 +1297,11 @@ func planFilterChain(s runSpec, v *core.StreamInfo, pic picturePlan, accel strin
 			}
 		}
 		if !burn {
-			chain = finish(chain)
+			if preScaled {
+				chain = format(chain)
+			} else {
+				chain = format(size(chain))
+			}
 		}
 	}
 	return inputArgs, chain, hwFrames
@@ -1542,7 +1559,8 @@ func planVideo(s runSpec, v *core.StreamInfo) videoPlan {
 	finish := func(c []string) []string { return format(size(c)) }
 
 	in := fmt.Sprintf("[0:%d]", v.Index)
-	chainInput, chain, hwFrames := planFilterChain(s, v, pic, accel, burn, finish)
+	chainInput, chain, hwFrames := planFilterChain(s, v, pic, accel, burn, size, format)
+	p.hwFrames = hwFrames
 	// For bitmap burns, scale on VAAPI before downloading for the software
 	// overlay. Upload the result back to the same device for encoding.
 	vaapiBitmap := burn && IsImageSubtitle(sub.Codec) && !sub.External && accel == AccelVAAPI &&
@@ -1550,6 +1568,7 @@ func planVideo(s runSpec, v *core.StreamInfo) videoPlan {
 		pic.w > 0 && pic.h > 0 && s.PictureCrop == nil && !pic.pad && pic.convert == "" && !pic.tonemap && !pic.tenBit && pic.setSAR == ""
 	if vaapiBitmap {
 		chainInput = append(chainInput, "-hwaccel_output_format", "vaapi")
+		p.hwFrames = true
 		chain = []string{fmt.Sprintf("scale_vaapi=w=%d:h=%d:format=nv12", pic.w, pic.h), "hwdownload", "format=nv12"}
 	}
 	if pic.tonemap && !toneMapped(chain, hwFrames) {

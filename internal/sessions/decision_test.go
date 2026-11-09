@@ -102,6 +102,9 @@ func (f *targetDecisionTranscoder) Decide(info core.MediaInfo, caps core.ClientC
 	if opts.DirectPlay {
 		return core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, AudioCodec: "eac3", AudioStream: 7}
 	}
+	if !opts.DirectStream {
+		return core.Decision{Kind: core.DecisionTranscode, VideoCopy: false, VideoCodec: "h264", AudioCopy: false, AudioCodec: "aac", AudioStream: 7}
+	}
 	return core.Decision{Kind: core.DecisionTranscode, VideoCopy: true, AudioCodec: "aac", AudioStream: 7}
 }
 
@@ -127,6 +130,49 @@ func TestDecisionForcedRemuxHonorsAudioTarget(t *testing.T) {
 			}
 			if tc.wantCalls == 2 && (transcoder.options[1].DirectPlay || !transcoder.options[1].DirectStream || transcoder.options[1].AudioStream != 7 || got.AudioCodec != "aac" || !got.VideoCopy) {
 				t.Fatalf("target reconsider lost selected source facts: %+v %+v", got, transcoder.options)
+			}
+		})
+	}
+}
+
+func TestVideoTargetDirectPlaySurvivesOptionalRemux(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		target                []string
+		required, allowDirect bool
+		wantCalls             int
+		wantKind              core.DecisionKind
+	}{
+		{"H264 HLS target keeps native 4K HEVC direct play", []string{"h264"}, false, true, 1, core.DecisionDirectPlay},
+		{"required remux converts when target forbids HEVC copy", []string{"h264"}, true, true, 2, core.DecisionTranscode},
+		{"HEVC HLS target still remuxes Usenet", []string{"h264", "hevc"}, false, true, 1, core.DecisionRemux},
+		{"no video target still remuxes Usenet", nil, false, true, 1, core.DecisionRemux},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ps := &core.PlaySession{
+				RequiresRemux: tc.required,
+				Resolution:    &core.Resolution{Release: core.Release{ID: "usenet:mobland-4k"}},
+				Info: core.MediaInfo{
+					Container: "mkv",
+					Streams: []core.StreamInfo{
+						{Type: "video", Index: 0, Codec: "hevc", Width: 3840, Height: 2160},
+						{Type: "audio", Index: 7, Codec: "eac3"},
+					},
+				},
+			}
+			transcoder := &targetDecisionTranscoder{}
+			got, err := Decide(nil, transcoder, DecisionRequest{
+				Session:     ps,
+				Caps:        core.ClientCaps{Platform: "webOS", Product: "Plex for LG", TranscodeVideoCodecs: tc.target},
+				Options:     core.DecideOptions{DirectPlay: tc.allowDirect, DirectStream: true, AudioStream: 7},
+				PreferRemux: true,
+				Protocol:    core.ProtocolHLS,
+			})
+			if err != nil || got.Kind != tc.wantKind || len(transcoder.options) != tc.wantCalls {
+				t.Fatalf("decision %+v error %v calls %v", got, err, transcoder.options)
+			}
+			if tc.wantCalls == 2 && (transcoder.options[1].DirectPlay || transcoder.options[1].DirectStream || got.VideoCopy || got.VideoCodec != "h264") {
+				t.Fatalf("required remux did not convert HEVC to target H264: %+v %+v", got, transcoder.options)
 			}
 		})
 	}

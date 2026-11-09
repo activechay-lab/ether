@@ -102,7 +102,7 @@ func (s *Server) dropTranscode(id string) {
 	}
 
 	s.revokeReadCapability(id)
-	s.transcodes.remove(id)
+	s.transcodes.retire(id, s.now())
 	s.starts.Forget(id)
 }
 

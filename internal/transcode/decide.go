@@ -625,7 +625,13 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 
 	// File decoding support is not necessarily the segmented player's output
 	// contract. Apply an explicit output target only after direct play was
-	// ruled out, so a valid direct-play soundtrack is never converted for it.
+	// ruled out, so a valid direct-play video or soundtrack is never converted for it.
+	if len(caps.TranscodeVideoCodecs) > 0 {
+		caps.VideoCodecs = caps.TranscodeVideoCodecs
+		videoIssues, _, _ = collectIssues(info, v, a, sub, issueContext{
+			caps: caps, heightCap: heightCap, bitrateCap: bitrateCap, burn: burn, audioFilters: d.AudioFilters,
+		})
+	}
 	if len(caps.TranscodeAudioCodecs) > 0 {
 		caps.AudioCodecs = caps.TranscodeAudioCodecs
 		_, audioIssues, _ = collectIssues(info, v, a, sub, issueContext{
@@ -947,6 +953,12 @@ func hasHDR10Base(v *core.StreamInfo, caps core.ClientCaps) bool {
 
 // HasHDR10Base is hasHDR10Base for callers outside the package.
 func HasHDR10Base(v *core.StreamInfo, caps core.ClientCaps) bool { return hasHDR10Base(v, caps) }
+
+// SegmentedVideoCopyOK reports whether codec may be copied into this
+// client's segmented output when the client declared a streaming target.
+func SegmentedVideoCopyOK(caps core.ClientCaps, codec string) bool {
+	return len(caps.TranscodeVideoCodecs) == 0 || slices.Contains(caps.TranscodeVideoCodecs, codec)
+}
 
 // SegmentedAudioCopyOK reports whether codec may be copied into this
 // client's segmented output: its streaming target lists it, when it declares

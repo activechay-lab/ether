@@ -373,6 +373,9 @@ func (e *profileDecisionError) Error() string { return e.message }
 func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySession, p *playRequest) error {
 	rule, ok := deviceProfile(pr)
 	if !ok {
+		if !p.opts.DirectPlay && pr.ProfileExtra != "" {
+			applyExtraTranscodeTargetLimits(pr.ProfileExtra, p.protocol, nil, ps.Info, p)
+		}
 		return nil
 	}
 	if p.mde {
@@ -384,6 +387,7 @@ func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySes
 			return &profileDecisionError{direct: textDirectPlayDisable, code: 2003, message: "File is unplayable. DoVi (Profile 5) color space is not supported."}
 		}
 		if resolvedPlayerProfile(pr) != "Generic" {
+			applyExtraTranscodeTargetLimits(pr.ProfileExtra, p.protocol, target, ps.Info, p)
 			return nil
 		}
 	}
@@ -464,6 +468,7 @@ func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySes
 		p.caps.TranscodeAudioCodecs = codecs
 	}
 	applyDeviceTargetLimits(rule, target, ps.Info, p)
+	applyExtraTranscodeTargetLimits(pr.ProfileExtra, p.protocol, target, ps.Info, p)
 	return nil
 }
 
@@ -554,6 +559,120 @@ func applyDeviceTargetLimits(rule devicePlaybackRule, target *deviceMediaRule, i
 		case "video.width":
 			if v := info.Video(); v != nil && v.Width > 0 {
 				height = v.Height * n / v.Width
+			}
+		case "video.level":
+			if profileContains(l.codec, "h264") && profileContains(target.video, "h264") {
+				if p.caps.VideoLevels == nil {
+					p.caps.VideoLevels = map[string]int{}
+				}
+				if old := p.caps.VideoLevels["h264"]; old == 0 || n < old {
+					p.caps.VideoLevels["h264"] = n
+				}
+				if h := h264LevelMaxHeight(n); h > 0 {
+					targetCodecs := splitList(target.video)
+					if l.codec == "*" || (len(targetCodecs) == 1 && targetCodecs[0] == "h264") {
+						height = h
+					} else {
+						if p.caps.VideoMaxHeights == nil {
+							p.caps.VideoMaxHeights = map[string]int{}
+						}
+						if old := p.caps.VideoMaxHeights["h264"]; old == 0 || h < old {
+							p.caps.VideoMaxHeights["h264"] = h
+						}
+					}
+				}
+			}
+		case "video.bitrate":
+			if p.caps.MaxBitrateKbps == 0 || n < p.caps.MaxBitrateKbps {
+				p.caps.MaxBitrateKbps = n
+				p.opts.MaxBitrateKbps = n
+			}
+		}
+		if height > 0 && (p.caps.MaxHeight == 0 || height < p.caps.MaxHeight) {
+			p.caps.MaxHeight = height
+			p.caps.ExplicitMaxHeight = true
+		}
+	}
+}
+
+// applyExtraTranscodeTargetLimits applies X-Plex-Client-Profile-Extra
+// videoTranscodeTarget upper bounds when conversion has been selected (#408).
+func applyExtraTranscodeTargetLimits(extra, protocol string, target *deviceMediaRule, info core.MediaInfo, p *playRequest) {
+	targetVideo := "*"
+	if target != nil && target.video != "" {
+		targetVideo = target.video
+	} else if len(p.caps.TranscodeVideoCodecs) > 0 {
+		targetVideo = strings.Join(p.caps.TranscodeVideoCodecs, ",")
+	}
+	for _, d := range ParseProfileExtra(extra) {
+		if d.Verb != "add-limitation" {
+			continue
+		}
+		a := d.Args
+		if a["scope"] != "videoTranscodeTarget" || !strings.EqualFold(a["type"], "upperBound") {
+			continue
+		}
+		if ctx := a["context"]; ctx != "" && ctx != "all" && ctx != "streaming" {
+			continue
+		}
+		if proto := a["protocol"]; proto != "" && proto != protocol {
+			continue
+		}
+		n, err := strconv.Atoi(limitationValue(a))
+		if err != nil || n <= 0 {
+			continue
+		}
+		sn := a["scopeName"]
+		if sn == "" {
+			sn = "*"
+		}
+		matches := sn == "*"
+		for _, codec := range strings.Split(sn, ",") {
+			matches = matches || profileContains(targetVideo, normalizeCodec(codec))
+		}
+		if !matches {
+			continue
+		}
+		height := 0
+		switch a["name"] {
+		case "video.height":
+			height = n
+		case "video.width":
+			if v := info.Video(); v != nil && v.Width > 0 {
+				height = v.Height * n / v.Width
+			} else {
+				switch {
+				case n <= 1280:
+					height = 720
+				case n <= 1920:
+					height = 1080
+				case n <= 3840:
+					height = 2160
+				default:
+					height = n * 9 / 16
+				}
+			}
+		case "video.level":
+			if sn == "*" || profileContains(sn, "h264") {
+				if p.caps.VideoLevels == nil {
+					p.caps.VideoLevels = map[string]int{}
+				}
+				if old := p.caps.VideoLevels["h264"]; old == 0 || n < old {
+					p.caps.VideoLevels["h264"] = n
+				}
+				if h := h264LevelMaxHeight(n); h > 0 {
+					targetCodecs := splitList(targetVideo)
+					if sn == "*" || (len(targetCodecs) == 1 && targetCodecs[0] == "h264") {
+						height = h
+					} else {
+						if p.caps.VideoMaxHeights == nil {
+							p.caps.VideoMaxHeights = map[string]int{}
+						}
+						if old := p.caps.VideoMaxHeights["h264"]; old == 0 || h < old {
+							p.caps.VideoMaxHeights["h264"] = h
+						}
+					}
+				}
 			}
 		case "video.bitrate":
 			if p.caps.MaxBitrateKbps == 0 || n < p.caps.MaxBitrateKbps {

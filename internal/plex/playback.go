@@ -613,6 +613,16 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 			}
 		}
 		s.burnOnlyShownSubtitle(pr, p, ps.Info)
+		p.caps.TranscodeVideoCodecs = streamingVideoTarget(pr.ProfileExtra, p.protocol)
+		if len(p.caps.VideoCodecs) > 0 && len(p.caps.TranscodeVideoCodecs) > 0 {
+			var kept []string
+			for _, c := range p.caps.TranscodeVideoCodecs {
+				if p.caps.SupportsVideo(c) {
+					kept = append(kept, c)
+				}
+			}
+			p.caps.TranscodeVideoCodecs = kept
+		}
 		p.caps.TranscodeAudioCodecs = streamingAudioTarget(pr.ProfileExtra, p.protocol)
 		if len(p.caps.AudioCodecs) > 0 && len(p.caps.TranscodeAudioCodecs) > 0 {
 			var kept []string
@@ -1355,10 +1365,12 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 			}
 		}
-		if dec.AudioCodec != "" && !transcode.SegmentedAudioCopyOK(entry.caps, dec.AudioCodec) {
+		videoOK := dec.VideoCodec == "" || transcode.SegmentedVideoCopyOK(entry.caps, dec.VideoCodec)
+		audioOK := dec.AudioCodec == "" || transcode.SegmentedAudioCopyOK(entry.caps, dec.AudioCodec)
+		if !videoOK || !audioOK {
 			opts := entry.opts
 			opts.DirectPlay = false
-			opts.DirectStream = true
+			opts.DirectStream = videoOK
 			return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 		}
 		return dec
@@ -1393,6 +1405,34 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 	s.writeMasterPlaylist(w, r, p.sessionID, hs, ps.Info, dec)
 }
 
+// singleRungHLSClient reports smart-TV HTML apps (Plex for LG / webOS and
+// Plex for VIDAA) whose native HLS demuxer wedges in a seek loop if ABR
+// switches across shared-encoder TS resolutions mid-stream (#408). Explicit
+// Plex quality-menu changes still renegotiate start.m3u8.
+func singleRungHLSClient(r *http.Request, entry *transcodeEntry) bool {
+	product, platform := "", ""
+	if pr := FromContext(r.Context()); pr != nil {
+		product, platform = pr.Product, pr.Platform
+	}
+	if entry != nil {
+		if product == "" {
+			product = entry.caps.Product
+		}
+		if platform == "" {
+			platform = entry.caps.Platform
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(product)) {
+	case "plex for lg", "plex for vidaa":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "webos", "vidaa":
+		return true
+	}
+	return false
+}
+
 func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, sessionID string, hs core.HLSSession, info core.MediaInfo, dec core.Decision) {
 	if err := s.saveDistributedBinding(r.Context(), sessionID); err != nil {
 		http.Error(w, "playback unavailable", 503)
@@ -1406,6 +1446,9 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 	baseBandwidth := 0
 	if ls, ok := hs.(core.HLSLadderSession); ok {
 		rungs := ls.Rungs()
+		if singleRungHLSClient(r, entry) && len(rungs) > 1 {
+			rungs = rungs[:1]
+		}
 		if len(rungs) == 1 {
 			baseBandwidth = rungs[0].Bandwidth
 		}
@@ -1622,6 +1665,10 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 	id := sanitizeSessionID(r.URL.Query().Get("session"))
 	pr := FromContext(r.Context())
 	if e, ok := s.transcodes.get(id); !ok || e.userID != pr.User.ID {
+		if pr.User != nil && s.transcodes.wasStoppedBy(id, pr.User.ID, s.now()) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}

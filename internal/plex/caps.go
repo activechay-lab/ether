@@ -352,6 +352,32 @@ func applyProfileExtra(c *core.ClientCaps, extra string) profileExtraEvidence {
 	return ev
 }
 
+// streamingVideoTarget keeps segmented video output separate from direct-play
+// decoder support. A smart TV (Plex for LG, VIDAA) Direct Plays 4K HEVC files
+// over HTTP while its HLS transcode target lists only H.264 (#408).
+func streamingVideoTarget(extra, protocol string) []string {
+	var codecs []string
+	for _, d := range ParseProfileExtra(extra) {
+		switch d.Verb {
+		case "add-transcode-target", "add-transcode-target-codec", "append-transcode-target-codec":
+		default:
+			continue
+		}
+		a := d.Args
+		if typ := a["type"]; typ != "" && typ != "videoProfile" {
+			continue
+		}
+		if context := a["context"]; context != "" && context != "all" && context != "streaming" {
+			continue
+		}
+		if target := a["protocol"]; target != "" && target != protocol {
+			continue
+		}
+		codecs = addUnique(codecs, splitList(a["videoCodec"])...)
+	}
+	return codecs
+}
+
 // streamingAudioTarget keeps output capabilities separate from direct-play
 // support. A TV may decode EAC3 files while its DASH player requests AAC.
 // Targets for downloads or another streaming protocol cannot widen this one.
@@ -376,6 +402,24 @@ func streamingAudioTarget(extra, protocol string) []string {
 		codecs = addUnique(codecs, splitList(a["audioCodec"])...)
 	}
 	return codecs
+}
+
+// h264LevelMaxHeight maps an H.264 level*10 upper bound (e.g. 40, 41, 42) to
+// the tallest standard frame height that level's macroblock ceiling supports.
+// Levels >= 5.0 support 4K and return 0 (unbounded).
+func h264LevelMaxHeight(level int) int {
+	switch {
+	case level <= 0:
+		return 0
+	case level <= 30:
+		return 480
+	case level <= 32:
+		return 720
+	case level <= 42:
+		return 1080
+	default:
+		return 0
+	}
 }
 
 func applyLimitation(c *core.ClientCaps, a map[string]string) {
@@ -407,6 +451,30 @@ func applyLimitation(c *core.ClientCaps, a map[string]string) {
 		if c.MaxHeight == 0 || h < c.MaxHeight {
 			c.MaxHeight = h
 			c.ExplicitMaxHeight = true
+		}
+	case scope == "videoCodec" && name == "video.level" && typ == "upperBound" && numErr == nil && n > 0:
+		sn := normalizeCodec(a["scopeName"])
+		if sn != "" && sn != "*" {
+			if c.VideoLevels == nil {
+				c.VideoLevels = map[string]int{}
+			}
+			if old := c.VideoLevels[sn]; old == 0 || n < old {
+				c.VideoLevels[sn] = n
+			}
+			if sn == "h264" {
+				if h := h264LevelMaxHeight(n); h > 0 {
+					if c.VideoMaxHeights == nil {
+						c.VideoMaxHeights = map[string]int{}
+					}
+					if old := c.VideoMaxHeights["h264"]; old == 0 || h < old {
+						c.VideoMaxHeights["h264"] = h
+					}
+					if ceiling := decoderCeiling(*c); ceiling > 0 && (c.MaxHeight == 0 || ceiling < c.MaxHeight) {
+						c.MaxHeight = ceiling
+						c.ExplicitMaxHeight = true
+					}
+				}
+			}
 		}
 	case scope == "videoCodec" && name == "video.bitrate" && typ == "upperBound" && numErr == nil && n > 0:
 		c.DefaultRemoteBitrate = false

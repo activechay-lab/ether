@@ -122,6 +122,30 @@ func TestToneMapGraphs(t *testing.T) {
 	}
 }
 
+func TestQSVHDRToneMapUsesHardwareDecodeAndTonemapx(t *testing.T) {
+	info := mustParse(t, "mkv_hevc_hdr10.json")
+	d := Decide(info, plexWeb, allow(), Policy{})
+	s := baseSpec(info, d)
+	s.Accel = core.HWAccel{Name: AccelQSV, Encoders: []string{"h264_qsv", "hevc_qsv"}}
+	s.Features.hwaccels = map[string]bool{"qsv": true}
+	s.Features.filters["vpp_qsv"] = true
+	s.Features.filters["tonemapx"] = true
+
+	args := buildArgs(s)
+	mustContain(t, args, "-hwaccel qsv", "-filter_complex_threads", "-c:v h264_qsv")
+	mustNotContain(t, args, "-hwaccel_output_format", "vpp_qsv=", "zscale=", "gbrpf32le")
+
+	graph := argValue(args, "-filter_complex")
+	for _, want := range []string{"scale=1920:1080", "format=yuv420p10le", "tonemapx=tonemap=hable:desat=0:t=bt709:m=bt709:p=bt709:format=yuv420p", "format=nv12[vout]"} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("graph %q missing %q", graph, want)
+		}
+	}
+	if strings.Index(graph, "scale=1920:1080") > strings.Index(graph, "tonemapx=") {
+		t.Fatalf("expected downscale before tonemapx on 4K HDR10 -> 1080p QSV graph: %s", graph)
+	}
+}
+
 func TestMissingFilterName(t *testing.T) {
 	for _, stderr := range []string{
 		"No such filter: 'zscale'",

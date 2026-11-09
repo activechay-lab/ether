@@ -76,13 +76,25 @@ type transcodeEntry struct {
 // request that follows it; after that a start resolves afresh.
 const decisionFailureTTL = 15 * time.Second
 
+// stoppedTranscodeTTL bounds how long a session retired by timeline?state=stopped
+// or universal/stop answers a duplicate universal/stop from the same viewer with
+// 200 OK instead of 404 (#408).
+const stoppedTranscodeTTL = 2 * time.Minute
+
+type stoppedTranscode struct {
+	userID int64
+	at     time.Time
+}
+
 type transcodeTable struct {
-	load  func(string) (*transcodeEntry, bool)
-	table *sessions.BindingTable[playRequest]
+	load      func(string) (*transcodeEntry, bool)
+	table     *sessions.BindingTable[playRequest]
+	stoppedMu sync.Mutex
+	stopped   map[string]stoppedTranscode
 }
 
 func newTranscodeTable() *transcodeTable {
-	return &transcodeTable{table: sessions.NewBindingTable[playRequest]()}
+	return &transcodeTable{table: sessions.NewBindingTable[playRequest](), stopped: map[string]stoppedTranscode{}}
 }
 func (e *transcodeEntry) binding() *sessions.Binding[playRequest] {
 	return &sessions.Binding[playRequest]{ID: e.id, StreamToken: e.streamToken, PlayID: e.playID, PlaybackID: e.playbackID, UserID: e.userID, ClientID: e.clientID, Key: e.key, Requested: e.requested, Decision: e.decision, Info: e.info, Subtitle: e.subtitle, Caps: e.caps, Opts: e.opts, Offset: e.offset, Started: e.started, UpdatedAt: e.updatedAt, FailKey: e.failKey, FailErr: e.failErr, FailedAt: e.failedAt}
@@ -94,6 +106,9 @@ func (t *transcodeTable) put(e *transcodeEntry) {
 	b := e.binding()
 	t.table.Put(b)
 	e.streamToken = b.StreamToken
+	t.stoppedMu.Lock()
+	delete(t.stopped, e.id)
+	t.stoppedMu.Unlock()
 }
 func (t *transcodeTable) claim(id string, userID int64, clientID string, now time.Time) bool {
 	return t.table.Claim(id, userID, clientID, now)
@@ -131,6 +146,50 @@ func (t *transcodeTable) takeFailure(id string, userID int64, key core.RatingKey
 }
 func (t *transcodeTable) touch(id string, now time.Time) { t.table.Touch(id, now) }
 func (t *transcodeTable) remove(id string)               { t.table.Remove(id) }
+func (t *transcodeTable) retire(id string, now time.Time) {
+	if b, ok := t.table.Get(id); ok && b.UserID != 0 && id != "" {
+		t.stoppedMu.Lock()
+		if t.stopped == nil {
+			t.stopped = map[string]stoppedTranscode{}
+		}
+		for k, v := range t.stopped {
+			if now.Sub(v.at) >= stoppedTranscodeTTL {
+				delete(t.stopped, k)
+			}
+		}
+		if len(t.stopped) >= 256 {
+			var oldestKey string
+			var oldestAt time.Time
+			for k, v := range t.stopped {
+				if oldestKey == "" || v.at.Before(oldestAt) {
+					oldestKey, oldestAt = k, v.at
+				}
+			}
+			if oldestKey != "" {
+				delete(t.stopped, oldestKey)
+			}
+		}
+		t.stopped[id] = stoppedTranscode{userID: b.UserID, at: now}
+		t.stoppedMu.Unlock()
+	}
+	t.table.Remove(id)
+}
+func (t *transcodeTable) wasStoppedBy(id string, userID int64, now time.Time) bool {
+	if id == "" || userID == 0 {
+		return false
+	}
+	t.stoppedMu.Lock()
+	defer t.stoppedMu.Unlock()
+	st, ok := t.stopped[id]
+	if !ok {
+		return false
+	}
+	if now.Sub(st.at) >= stoppedTranscodeTTL {
+		delete(t.stopped, id)
+		return false
+	}
+	return st.userID == userID
+}
 func (t *transcodeTable) forClient(userID int64, clientID string, key core.RatingKey) []string {
 	return t.table.ForClient(userID, clientID, key)
 }
