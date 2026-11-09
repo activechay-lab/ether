@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 )
 
 // sqlFacets maps the facets the catalogue counts in SQL to its facet name
@@ -27,14 +28,9 @@ func (s *Service) indexedFacets(ctx context.Context, viewer *core.Viewer, viewID
 	if err != nil {
 		return nil, false, err
 	}
-	var libs []Library
-	for _, lib := range s.libraries() {
-		if (viewID == "" || strconv.Itoa(lib.ID) == viewID) && SectionAllowed(v, lib.ID) {
-			libs = append(libs, lib)
-		}
-	}
-	if viewID != "" && len(libs) == 0 {
-		return nil, false, core.ErrNotFound
+	libs, err := s.facetLibraries(v, viewID)
+	if err != nil {
+		return nil, false, err
 	}
 	counts := map[string]int{}
 	for _, lib := range libs {
@@ -103,4 +99,99 @@ func (s *Service) resolveGlobalFacet(ctx context.Context, viewer *core.Viewer, v
 		}
 	}
 	return core.FacetValue{}, false, nil
+}
+
+// facetLibraries are the libraries a facet list of viewID counts: that one,
+// or every library the viewer may open for "".
+func (s *Service) facetLibraries(v *core.User, viewID string) ([]Library, error) {
+	var libs []Library
+	for _, lib := range s.libraries() {
+		if (viewID == "" || strconv.Itoa(lib.ID) == viewID) && SectionAllowed(v, lib.ID) {
+			libs = append(libs, lib)
+		}
+	}
+	if viewID != "" && len(libs) == 0 {
+		return nil, core.ErrNotFound
+	}
+	return libs, nil
+}
+
+// FacetPage is Facets' page [offset, offset+limit) and how many values
+// Facets lists (a negative limit is the rest). One library's studios are
+// paged in SQL (Catalog.FacetPage): a page of names and a kept count of
+// them, never every studio of the library.
+func (s *Service) FacetPage(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, name string, offset, limit int) ([]core.FacetValue, int, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
+	if out, total, ok, err := s.pagedFacets(ctx, viewer, viewID, name, max(offset, 0), limit); err != nil || ok {
+		return out, total, err
+	}
+	facets, err := s.Facets(ctx, viewer, device, viewID, name)
+	if err != nil {
+		return nil, 0, err
+	}
+	return paging.Slice(facets, offset, limit), len(facets), nil
+}
+
+// pagedFacets answers FacetPage from the catalogue when the facet list is
+// one library's and its exclusions fold into the SQL page, as
+// indexedFacets' do. ok is false otherwise.
+func (s *Service) pagedFacets(ctx context.Context, viewer *core.Viewer, viewID, name string, offset, limit int) ([]core.FacetValue, int, bool, error) {
+	if s.d.FacetPage == nil || s.d.PageExclusions == nil || sqlFacets[name] == "" || limit < 0 {
+		return nil, 0, false, nil
+	}
+	v, err := s.viewer(ctx, viewer)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	libs, err := s.facetLibraries(v, viewID)
+	if err != nil || len(libs) != 1 {
+		return nil, 0, false, err
+	}
+	lib := libs[0]
+	ex := s.d.PageExclusions(ctx, v, lib.Type)
+	if ex.Err != nil {
+		return nil, 0, false, ex.Err
+	}
+	if !ex.AvailabilityInSQL {
+		return nil, 0, false, nil
+	}
+	filter, fits, none := viewerBrowseFilter(core.Filter{Type: lib.Type}, v, ex, lib.Type)
+	if !fits {
+		return nil, 0, false, nil
+	}
+	if none {
+		return []core.FacetValue{}, 0, true, nil
+	}
+	vals, total, ok, err := s.d.FacetPage(ctx, filter, sqlFacets[name], offset, limit)
+	if err != nil || !ok {
+		return nil, 0, false, err
+	}
+	for i := range vals {
+		vals[i].ID = facetID(name, vals[i].Key)
+	}
+	return vals, total, true, nil
+}
+
+// resolveStudio names the studio id identifies from the indexed
+// vocabulary. A library the viewer may not open resolves nothing.
+func (s *Service) resolveStudio(ctx context.Context, viewer *core.Viewer, viewID, id string) (core.FacetValue, error) {
+	if viewID != "" {
+		v, err := s.viewer(ctx, viewer)
+		if err != nil {
+			return core.FacetValue{}, err
+		}
+		for _, lib := range s.libraries() {
+			if strconv.Itoa(lib.ID) == viewID && !SectionAllowed(v, lib.ID) {
+				return core.FacetValue{}, core.ErrNotFound
+			}
+		}
+	}
+	studio, ok, err := s.d.StudioByFacetID(ctx, id)
+	if err != nil {
+		return core.FacetValue{}, err
+	}
+	if !ok {
+		return core.FacetValue{}, core.ErrNotFound
+	}
+	return core.FacetValue{ID: id, Key: studio, Title: studio}, nil
 }

@@ -170,6 +170,12 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 		delete(tables, name+"_delta")
 		tables[name] = `SELECT ` + dims + `,SUM(n) FROM (SELECT ` + dims + `,n FROM ` + name + ` UNION ALL SELECT ` + dims + `,d FROM ` + name + `_delta) GROUP BY ` + dims + ` HAVING SUM(n)<>0`
 	}
+	// The facet presence mirrors the folded tally, compared above as the
+	// sums a read takes; the live tally is not folded. Live vocabulary rows
+	// wait in the queue for the catalogue's fold loop to name them.
+	for _, skip := range []string{"catalog_facet_presence", "catalog_facet_counts", "catalog_facet_ids", "catalog_facet_id_queue"} {
+		delete(tables, skip)
+	}
 	// A series' rating that no episode carries any more keeps a zero row.
 	tables["catalog_show_episode_ratings"] = `SELECT * FROM catalog_show_episode_ratings WHERE known<>0`
 	// The search indexes hold the same terms.

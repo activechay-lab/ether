@@ -703,8 +703,17 @@ func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.D
 	if id == "" || len(id) > 128 {
 		return frontend.PersonDetail{}, core.ErrNotFound
 	}
-	if tmdb, ok := personTMDB(id); ok && s.d.PersonCredits != nil && s.d.CachedGetMany != nil {
-		return s.indexedPerson(ctx, viewer, tmdb)
+	if s.d.PersonCredits != nil && s.d.CachedGetMany != nil {
+		tmdb, ok, err := s.personFacetTMDB(ctx, id)
+		if err != nil {
+			return frontend.PersonDetail{}, err
+		}
+		if ok {
+			return s.indexedPerson(ctx, viewer, tmdb)
+		}
+		if s.d.PersonByFacetID != nil {
+			return frontend.PersonDetail{}, core.ErrNotFound
+		}
 	}
 	var found visiblePerson
 	err := s.visitPeople(ctx, viewer, device, frontend.PeopleAll, true, func(person core.Person, item core.RatingKey) error {

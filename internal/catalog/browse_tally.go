@@ -129,7 +129,7 @@ func rebuildBrowseTally(ctx context.Context, db execer) error {
 
 // RebuildLibraryCounts recounts the trigger-kept library totals (the browse
 // and dashboard tallies and the series' episode rating histograms) from the
-// stored titles,
+// stored titles, and the vocabularies' facet identifiers (facet_ids.go),
 // for a bulk load that set the catalogue's triggers aside (the performance
 // fixture).
 func RebuildLibraryCounts(ctx context.Context, db *sql.DB) error {
@@ -151,6 +151,9 @@ func RebuildLibraryCounts(ctx context.Context, db *sql.DB) error {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}
+	}
+	if err := rebuildFacetIDs(ctx, tx); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -263,6 +266,9 @@ func (c *Catalog) foldLibraryTalliesLoop(ctx context.Context) {
 	for {
 		if _, err := c.foldLibraryTallies(ctx); err != nil && ctx.Err() == nil {
 			c.log.Warn("catalog: fold library totals", "err", err)
+		}
+		if _, err := c.nameQueuedFacets(ctx); err != nil && ctx.Err() == nil {
+			c.log.Warn("catalog: name new studios and people", "err", err)
 		}
 		select {
 		case <-ctx.Done():

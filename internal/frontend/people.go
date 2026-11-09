@@ -77,3 +77,10 @@ type PeopleImageBatchReader interface {
 type PersonImageGrantBatch interface {
 	IssuePersonImages(context.Context, string, Device, []PersonImageTarget) ([]string, error)
 }
+
+// FacetPager pages a facet list (Jellyfin and Emby /Studios, /Genres):
+// Facets' values [offset, offset+limit) in its order, and how many it
+// lists, without listing every value of the library.
+type FacetPager interface {
+	FacetPage(ctx context.Context, viewer *Viewer, device Device, viewID, kind string, offset, limit int) ([]FacetValue, int, error)
+}

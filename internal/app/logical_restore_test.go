@@ -59,9 +59,17 @@ func TestLogicalRestoreMatchesRowByRowWrites(t *testing.T) {
 			}
 			got := tableContents(t, dst)
 			for table, rows := range want {
+				// The source's new people wait in the facet identifier
+				// queue for the fold loop; a restore names them at once.
+				if table == "catalog_facet_ids" || table == "catalog_facet_id_queue" {
+					continue
+				}
 				if table != "viewer_policy_epoch" && table != "livetv_channel_epoch" && got[table] != rows {
 					t.Errorf("%s:\n got %q\nwant %q", table, got[table], rows)
 				}
+			}
+			if ids := got["catalog_facet_ids"]; !strings.Contains(ids, "|person|7") || !strings.Contains(ids, "|person|8") || got["catalog_facet_id_queue"] != "" {
+				t.Errorf("facet identifiers after restore: %q, queued %q", ids, got["catalog_facet_id_queue"])
 			}
 			if after := policyEpoch(t, dst); after <= before || after <= policyEpoch(t, src) {
 				t.Errorf("policy epoch %d after restore; target was %d, source %d", after, before, policyEpoch(t, src))

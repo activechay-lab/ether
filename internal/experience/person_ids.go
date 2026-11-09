@@ -1,8 +1,11 @@
 package experience
 
 import (
+	"context"
 	"strconv"
 	"sync"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // A person's facet identifier is a hash of their TMDB id, so a person page
@@ -10,8 +13,10 @@ import (
 // out is minted by personFacetID, which remembers the inverse; a person page
 // then reads that person's own credits by index instead of walking every
 // credited title in the catalogue. The memo is bounded: past personIDsCap
-// entries the older half is dropped, and a page for a forgotten identifier
-// falls back to the walk.
+// entries the older half is dropped. An identifier it forgot, or one a
+// client kept across a restart, is read from the catalogue's person
+// vocabulary, which carries every credited person's identifier under an
+// index (personFacetTMDB).
 const personIDsCap = 1 << 17
 
 var personIDs = struct {
@@ -41,4 +46,22 @@ func personTMDB(id string) (int64, bool) {
 	}
 	tmdb, ok := personIDs.old[id]
 	return tmdb, ok
+}
+
+// personFacetTMDB inverts a person facet identifier: from the memo, else
+// from the indexed person vocabulary (Deps.PersonByFacetID), remembering
+// the answer. ok is false when neither knows it.
+func (s *Service) personFacetTMDB(ctx context.Context, id string) (int64, bool, error) {
+	if tmdb, ok := personTMDB(id); ok {
+		return tmdb, true, nil
+	}
+	if s.d.PersonByFacetID == nil {
+		return 0, false, nil
+	}
+	tmdb, ok, err := s.d.PersonByFacetID(core.WithoutCatalogViewer(ctx), id)
+	if err != nil || !ok {
+		return 0, false, err
+	}
+	personFacetID(tmdb)
+	return tmdb, true, nil
 }

@@ -97,7 +97,7 @@ CREATE TRIGGER catalog_facet_tally_country AFTER INSERT OR DELETE OR UPDATE ON c
 CREATE TRIGGER catalog_facet_tally_studio AFTER INSERT OR DELETE OR UPDATE ON catalog_studios FOR EACH ROW EXECUTE FUNCTION catalog_facet_tally_studio();`)
 	store.RegisterRestore("catalog_facet_tally", func(context.Context, *sql.Tx) (func(context.Context, *sql.Tx) error, error) {
 		return func(ctx context.Context, tx *sql.Tx) error { return rebuildFacetTally(ctx, tx) }, nil
-	}, "catalog_facet_tally", "catalog_facet_tally_delta")
+	}, "catalog_facet_tally", "catalog_facet_tally_delta", "catalog_facet_presence", "catalog_facet_counts")
 }
 
 func rebuildFacetTally(ctx context.Context, db execer) error {
@@ -106,7 +106,8 @@ func rebuildFacetTally(ctx context.Context, db execer) error {
 			return err
 		}
 	}
-	for _, q := range strings.Split(strings.TrimSpace(facetTallyBackfill), ";") {
+	// The presence (facet_presence.go) last: it mirrors the tally.
+	for _, q := range strings.Split(strings.TrimSpace(facetTallyBackfill+presenceRebuild()), ";") {
 		if q = strings.TrimSpace(q); q == "" {
 			continue
 		}
@@ -152,6 +153,13 @@ func (c *Catalog) facetFromTally(ctx context.Context, f core.Filter, facet, wher
 	s, ok := c.tallyShape(f)
 	if !ok || s.genre != "" || s.country != "" || s.years || s.first != nil {
 		return nil, false, nil
+	}
+	if facet == "studio" {
+		// The most-counted studios from the presence's count index, not a
+		// sum over every studio (facet_presence.go).
+		if out, ok, err := c.topFromPresence(ctx, s, f, tf.facet, where, args, 200); err != nil || ok {
+			return out, ok, err
+		}
 	}
 	var dims, member string
 	var dimArgs, memberArgs []any

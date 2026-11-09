@@ -2,8 +2,6 @@ package experience
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"sort"
 	"strconv"
@@ -79,6 +77,16 @@ type ServiceDeps struct {
 	// a filter in SQL. With PageExclusions, library facet lists use it
 	// instead of walking the library. Optional.
 	FacetFilter func(context.Context, core.Filter, string) ([]core.FacetValue, error)
+	// FacetPage is one page of a facet's values, in byte order, over the
+	// browsable titles matching a filter, and how many values there are; ok
+	// is false when the catalogue cannot page that facet or filter, and
+	// FacetFilter counts it whole. Optional.
+	FacetPage func(ctx context.Context, f core.Filter, facet string, offset, limit int) (vals []core.FacetValue, total int, ok bool, err error)
+	// StudioByFacetID and PersonByFacetID invert core.FacetID by index: the
+	// stored studio, or the credited person's TMDB id, a facet identifier
+	// names. ok is false when no title carries it. Optional.
+	StudioByFacetID func(context.Context, string) (string, bool, error)
+	PersonByFacetID func(context.Context, string) (int64, bool, error)
 	// CountBrowsable is the indexed library size. The view list uses it instead
 	// of browsing titles.
 	CountBrowsable func(context.Context, core.MediaType) (int, error)
@@ -1964,16 +1972,18 @@ func (s *Service) SetLikes(ctx context.Context, viewer *core.Viewer, key core.Ra
 	})
 }
 
-func facetID(kind, value string) string {
-	sum := sha256.Sum256([]byte("ether/facet/v1\x00" + kind + "\x00" + value))
-	sum[6] = (sum[6] & 0x0f) | 0x50
-	sum[8] = (sum[8] & 0x3f) | 0x80
-	return hex.EncodeToString(sum[:16])
-}
+func facetID(kind, value string) string { return core.FacetID(kind, value) }
 
 // ResolveFacet only resolves identifiers among the viewer's current visible facets.
 func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, kind, id string) (core.FacetValue, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if kind == "studio" && s.d.StudioByFacetID != nil {
+		// The studio vocabulary carries each name's identifier: one indexed
+		// read, where the list of every studio of the library was hashed
+		// to find it. Which titles the viewer may see under it is the
+		// filtered page's business.
+		return s.resolveStudio(ctx, viewer, viewID, id)
+	}
 	if name := sqlFacets[kind]; name != "" && s.d.FacetFilter != nil {
 		// A genre, studio or country id names a value; which titles the
 		// viewer may see under it is the filtered page's business. The id
@@ -1984,10 +1994,18 @@ func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device 
 		}
 	}
 	if kind == "person" {
-		if tmdb, ok := personTMDB(id); ok {
+		tmdb, ok, err := s.personFacetTMDB(ctx, id)
+		if err != nil {
+			return core.FacetValue{}, err
+		}
+		if ok {
 			if found, ok, err := s.resolvePersonFacet(ctx, viewer, viewID, id, tmdb); err != nil || ok {
 				return found, err
 			}
+		} else if s.d.PersonByFacetID != nil {
+			// The person vocabulary names every credited person: an id it
+			// does not know is no one's.
+			return core.FacetValue{}, core.ErrNotFound
 		}
 	}
 	facets, err := s.Facets(ctx, viewer, device, viewID, kind)
