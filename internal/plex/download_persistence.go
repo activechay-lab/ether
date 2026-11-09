@@ -33,7 +33,14 @@ func (s *Server) downloadStorageID() string {
 	}
 	return id
 }
-func (s *Server) saveDownloads() error     { return s.downloadPersistence().Save() }
-func (s *Server) loadDownloads()           { s.downloadPersistence().Load(s.ctx) }
-func (s *Server) writeDownloads()          { defer s.wg.Done(); s.downloadPersistence().Run(s.ctx) }
+func (s *Server) saveDownloads() error { return s.downloadPersistence().Save() }
+func (s *Server) loadDownloads()       { s.downloadPersistence().Load(s.ctx) }
+
+// writeDownloads runs the queue writer with the dependencies bound when the
+// server was built; reading Server fields from the goroutine itself would race
+// with anything that configures the server after NewServer returns.
+func (s *Server) writeDownloads(p sessions.DownloadQueuePersistence) {
+	defer s.wg.Done()
+	p.Run(s.ctx)
+}
 func (s *Server) stopDownloadsForRestart() { s.downloads.StopForRestart() }

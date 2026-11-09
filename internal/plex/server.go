@@ -371,7 +371,7 @@ func NewServer(d Deps) *Server {
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
-	go s.writeDownloads()
+	go s.writeDownloads(s.downloadPersistence())
 	s.scheduleDownloads()
 	s.router = s.routes()
 	s.wg.Add(1)
