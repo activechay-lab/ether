@@ -109,3 +109,61 @@ func TestWriteGateExtendHeldQueuesWaiterAndHonorsContext(t *testing.T) {
 		t.Fatalf("pausedUntil = %v after release, want zero", g.pausedUntil)
 	}
 }
+
+// A background writer that arrives while startup maintenance holds the
+// gate queues through the hold — across the maintenance work's own
+// acquire/release steps — and succeeds once the work finishes, instead
+// of failing at the plain gate wait. Its own short context still wins.
+func TestWriteGateMaintenanceQueuesBackgroundWriter(t *testing.T) {
+	g := &writeGate{slot: make(chan struct{}, 1)}
+	g.beginMaintenance(time.Now().Add(time.Minute))
+
+	// Maintenance step 1 takes and releases the gate: the hold must
+	// survive that release (release only clears the single-holder pause).
+	if err := g.acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	g.release()
+	g.mu.Lock()
+	refs, until := g.maintRefs, g.maintUntil
+	g.mu.Unlock()
+	if refs != 1 || until.IsZero() {
+		t.Fatalf("after step release: maintRefs=%d maintUntil=%v, want hold intact", refs, until)
+	}
+	if wait := func() time.Duration { g.mu.Lock(); defer g.mu.Unlock(); return g.queueWaitLocked() }(); wait <= writeGateWait {
+		t.Fatalf("queue wait during maintenance = %v, want beyond %v", wait, writeGateWait)
+	}
+
+	// Step 2 holds the gate while a background writer arrives.
+	if err := g.acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	shortCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := g.acquire(shortCtx); err == nil {
+		t.Fatal("expected context deadline error while maintenance held the gate")
+	}
+	done := make(chan error, 1)
+	go func() {
+		if err := g.acquire(context.Background()); err != nil {
+			done <- err
+			return
+		}
+		g.release()
+		done <- nil
+	}()
+	time.Sleep(20 * time.Millisecond)
+	g.release() // step 2 done
+	g.endMaintenance()
+	if err := <-done; err != nil {
+		t.Fatalf("background writer queued through maintenance failed: %v", err)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.maintRefs != 0 || !g.maintUntil.IsZero() {
+		t.Fatalf("after endMaintenance: maintRefs=%d maintUntil=%v, want cleared", g.maintRefs, g.maintUntil)
+	}
+	if wait := g.queueWaitLocked(); wait != writeGateWait {
+		t.Fatalf("queue wait after maintenance = %v, want %v", wait, writeGateWait)
+	}
+}

@@ -24,9 +24,72 @@ type writeGate struct {
 	// pausedUntil, while a maintenance rewrite holds the gate (pause),
 	// is how long a writer waits for it instead of writeGateWait.
 	pausedUntil time.Time
-	mu          sync.Mutex
-	holder      string
-	started     time.Time
+	// maintRefs counts maintenance holds (MaintenanceHold, migration):
+	// startup work that writes through the gate itself in many steps.
+	// While any hold is active, other writers queue until maintUntil
+	// instead of failing at writeGateWait. Unlike pausedUntil it is not
+	// cleared by a holder's release, only when the last hold ends.
+	maintRefs  int
+	maintUntil time.Time
+	mu         sync.Mutex
+	holder     string
+	started    time.Time
+}
+
+// queueWaitLocked is how long a new writer waits for the gate: the plain
+// busy wait, or until a pause/maintenance deadline when one runs longer.
+func (g *writeGate) queueWaitLocked() time.Duration {
+	wait := max(writeGateWait, time.Until(g.pausedUntil))
+	if g.maintRefs > 0 {
+		wait = max(wait, time.Until(g.maintUntil))
+	}
+	return wait
+}
+
+// queueRemainingLocked is how much longer a writer whose wait just
+// elapsed keeps queueing because a pause or maintenance hold is still
+// running; zero once neither deadline is in the future.
+func (g *writeGate) queueRemainingLocked() time.Duration {
+	rem := time.Until(g.pausedUntil)
+	if g.maintRefs > 0 {
+		rem = max(rem, time.Until(g.maintUntil))
+	}
+	return rem
+}
+
+func (g *writeGate) beginMaintenance(until time.Time) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.maintRefs++
+	if until.After(g.maintUntil) {
+		g.maintUntil = until
+	}
+	g.mu.Unlock()
+}
+
+func (g *writeGate) extendMaintenance(until time.Time) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	if g.maintRefs > 0 && until.After(g.maintUntil) {
+		g.maintUntil = until
+	}
+	g.mu.Unlock()
+}
+
+func (g *writeGate) endMaintenance() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.maintRefs--
+	if g.maintRefs <= 0 {
+		g.maintRefs, g.maintUntil = 0, time.Time{}
+	}
+	g.mu.Unlock()
 }
 
 // writeGateWait matches busy_timeout: a writer that waits longer fails the
@@ -85,7 +148,7 @@ func (g *writeGate) acquire(ctx context.Context) error {
 	}
 	g.mu.Lock()
 	prior, priorStart := g.holder, g.started
-	wait := max(writeGateWait, time.Until(g.pausedUntil))
+	wait := g.queueWaitLocked()
 	g.mu.Unlock()
 	t := time.NewTimer(wait)
 	defer t.Stop()
@@ -102,7 +165,7 @@ func (g *writeGate) acquire(ctx context.Context) error {
 			return ctx.Err()
 		case <-t.C:
 			g.mu.Lock()
-			rem := time.Until(g.pausedUntil)
+			rem := g.queueRemainingLocked()
 			g.mu.Unlock()
 			if rem > 0 {
 				t.Reset(rem)

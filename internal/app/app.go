@@ -451,6 +451,15 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		a.Close() // libera o instance lock (o db não foi aberto)
 		return nil, startFail(openFailure(err, dbCfg.IsPostgres()), fmt.Errorf("database: %w", err))
 	}
+	// The rest of construction writes through the gate in startup steps
+	// (restored-dump import, credential sealing, seeding). Hold the gate
+	// in maintenance mode until New returns so anything already writing
+	// beside it queues instead of failing at 10 s (#407).
+	if endHold, herr := store.MaintenanceHold(ctx, a.db); herr != nil {
+		a.log.Warn("startup maintenance hold", "err", herr)
+	} else {
+		defer endHold()
+	}
 	a.cfg.SetPolicyEpoch(a.publishPolicyConfig)
 	if err := a.checkRestoredIntegrity(ctx); err != nil {
 		return nil, err
@@ -711,13 +720,22 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	defer stopPrivate()
-	if err := a.migrateCredentials(ctx); err != nil {
-		return fmt.Errorf("convert stored credentials: %w", err)
-	}
 	// Credential sealing and the startup WAL checkpoint finish before
 	// background workers or the listener start, so neither waits on or
-	// contends with that write.
+	// contends with that write. The maintenance hold also queues the
+	// writers cluster/private startup already launched, for as long as
+	// the checkpoint takes, instead of failing them at 10 s (#407).
+	endHold, holdErr := store.MaintenanceHold(ctx, a.db)
+	if holdErr != nil {
+		a.log.Warn("startup maintenance hold", "err", holdErr)
+		endHold = func() {}
+	}
+	if err := a.migrateCredentials(ctx); err != nil {
+		endHold()
+		return fmt.Errorf("convert stored credentials: %w", err)
+	}
 	a.settleBeforeListen(ctx)
+	endHold()
 	var background backgroundGroup
 	defer background.Wait()
 	defer cancel()

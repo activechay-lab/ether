@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -118,6 +119,36 @@ func AnalyzeFull(ctx context.Context, db *sql.DB, names ...string) error {
 // build on a million-title catalogue is minutes of legitimate work, and a
 // writer that gives up here fails exactly as it did at 10 s before #407.
 const maintenanceHold = 10 * time.Minute
+
+// gateOfDB is db's write gate, or nil where writes are ungated
+// (PostgreSQL, in-memory). The gate outlives the connection used to
+// find it: gates are process-wide per database file.
+func gateOfDB(ctx context.Context, db *sql.DB) *writeGate {
+	if db == nil {
+		return nil
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	return connGate(conn)
+}
+
+// MaintenanceHold marks db as under startup or maintenance work that
+// itself writes through the write gate in many steps (schema migration,
+// credential sealing, the startup WAL checkpoint). While a hold is
+// active, this process's other SQLite writers — background jobs that
+// started around it — queue for the work instead of failing at the
+// 10-second write-gate wait. Call the returned end func when the work
+// finishes. Holds nest. On PostgreSQL and in-memory databases it does
+// nothing.
+func MaintenanceHold(ctx context.Context, db *sql.DB) (func(), error) {
+	gate := gateOfDB(ctx, db)
+	gate.beginMaintenance(time.Now().Add(maintenanceHold))
+	var once sync.Once
+	return func() { once.Do(func() { gate.endMaintenance() }) }, nil
+}
 
 func connGate(conn *sql.Conn) *writeGate {
 	var gate *writeGate
