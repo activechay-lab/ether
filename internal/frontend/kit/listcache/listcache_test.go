@@ -106,10 +106,8 @@ func TestListingLifecycle(t *testing.T) {
 		t.Fatal("served a listing built under another stamp")
 	}
 	settle(t, s)
-	// A catalogue write once the listing is past the rebuild floor: an
-	// unjudged listing is served within the bound and rebuilt behind it;
-	// past the bound it is not served.
-	clock.Add(int64(time.Minute))
+	// A catalogue write: an unjudged listing is served within the bound and
+	// rebuilt behind it; past the bound it is not served.
 	if stale := serve(t, s, req("b", 2, false), nil); stale.Header().Get("ETag") != w.Header().Get("ETag") {
 		t.Fatal("unjudged listing not served within its bound")
 	}
@@ -160,8 +158,8 @@ func TestListingLifecycle(t *testing.T) {
 }
 
 // Catalogue writes during a scan must not queue another whole-library build
-// behind every poll: a listing younger than the rebuild floor is served
-// without revalidating, however often the catalogue generation moves.
+// behind every poll: the first write rebuilds promptly, and the rest of
+// the write stream coalesces until the rebuild floor passes.
 func TestCatalogueChurnDoesNotRebuildHotListing(t *testing.T) {
 	s := New(t.TempDir())
 	t.Cleanup(s.Close)
@@ -185,14 +183,14 @@ func TestCatalogueChurnDoesNotRebuildHotListing(t *testing.T) {
 		serve(t, s, req(gen), nil)
 		settle(t, s)
 	}
-	if built.Load() != 1 {
-		t.Fatalf("catalogue churn rebuilt a hot listing: %d builds", built.Load())
+	if built.Load() != 2 {
+		t.Fatalf("catalogue churn rebuilt a hot listing: %d builds, want the prompt first only", built.Load())
 	}
-	// Once the listing is old enough, one write revalidates it once.
+	// Once the listing ages out, one write revalidates it once.
 	clock.Add(int64(Revalidate))
 	serve(t, s, req(7), nil)
 	settle(t, s)
-	if built.Load() != 2 {
+	if built.Load() != 3 {
 		t.Fatalf("aged listing not revalidated: %d builds", built.Load())
 	}
 }

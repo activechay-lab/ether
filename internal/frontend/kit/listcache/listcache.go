@@ -47,10 +47,12 @@ const (
 	// Revalidate is the age, or a catalogue write, after which a served
 	// listing is rebuilt behind the response.
 	Revalidate = 2 * time.Minute
-	// rebuildFloor is the youngest age at which a catalogue write alone
-	// revalidates a listing. Without it a catalogue scan, whose writes
-	// move the generation under every poll, queues another whole-library
-	// build behind every response for as long as the scan runs.
+	// rebuildFloor paces write-driven revalidation per slot: the first
+	// catalogue write after a listing rebuilds it behind the response,
+	// but further writes within the floor coalesce into one rebuild at
+	// the floor. Without it a catalogue scan, whose writes move the
+	// generation under every poll, queues another whole-library build
+	// behind every response for as long as the scan runs.
 	rebuildFloor = 30 * time.Second
 	// maxBuilds bounds listings encoding at once across every slot, so a
 	// burst of cold slots cannot fan out into unbounded parallel builds.
@@ -263,6 +265,22 @@ func (s *Store) Prepare(req Request) {
 	}
 }
 
+// rebuildDueLocked reports whether listing e should be rebuilt behind a
+// response made under now: it aged out, or the catalogue moved and no
+// rebuild for this listing was triggered within rebuildFloor. The first
+// write after a listing is due at once; a write stream coalesces.
+// s.mu is held.
+func (s *Store) rebuildDueLocked(e *Entry, now State) bool {
+	if now.At.Sub(e.state.At) >= Revalidate {
+		return true
+	}
+	if e.state.Catalog == now.Catalog {
+		return false
+	}
+	u := s.uses[e.slot]
+	return u == nil || u.prepared.Before(e.state.At) || !now.At.Before(u.prepared.Add(rebuildFloor))
+}
+
 // acquire returns a servable listing or a build to follow, each with a
 // reference the caller releases. stale reports a listing to rebuild.
 func (s *Store) acquire(req Request) (ready, follow *Entry, stale bool) {
@@ -274,8 +292,7 @@ func (s *Store) acquire(req Request) (ready, follow *Entry, stale bool) {
 		e.lastUsed = now.At
 		s.servedLocked(req.Slot, now.At)
 		b := s.building[req.Slot]
-		age := now.At.Sub(e.state.At)
-		stale = (age >= Revalidate || (e.state.Catalog != now.Catalog && age >= rebuildFloor)) && (b == nil || !followable(b, now))
+		stale = s.rebuildDueLocked(e, now) && (b == nil || !followable(b, now))
 		return e, nil, stale
 	}
 	if b := s.building[req.Slot]; b != nil && followable(b, now) {
@@ -305,7 +322,7 @@ func (s *Store) wanted(req Request) bool {
 	if b := s.building[req.Slot]; b != nil && followable(b, now) {
 		return false
 	}
-	if e := s.ready[req.Slot]; e != nil && servable(e, now) && now.At.Sub(e.state.At) < Revalidate && (e.state.Catalog == now.Catalog || now.At.Sub(e.state.At) < rebuildFloor) {
+	if e := s.ready[req.Slot]; e != nil && servable(e, now) && !s.rebuildDueLocked(e, now) {
 		return false
 	}
 	u := s.uses[req.Slot]
