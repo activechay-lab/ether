@@ -116,6 +116,11 @@
   "m_006de047107829": "Comment le serveur apparaît dans les applications.",
   "m_006ed7b12b7883": "Mettre en service",
   "m_006f15a2fe0e48": "L’ouverture d’un film ou d’un épisode prépare sa source et ses premiers octets. Les séries préparent leur épisode à suivre lorsque c’est pris en charge.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} compte sur {count} à vérifier",
+    "many": "{bad} comptes sur {count} à vérifier",
+    "other": "{bad} comptes sur {count} à vérifier"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "La connexion a été refusée par {host}. Vérifiez le nom d’utilisateur, le mot de passe et le nom de la base de données dans ETHER_DATABASE_URL.",
   "m_00711572cc0197": "La synchronisation du visionnage est désactivée dans le compte Plex de ce spectateur, donc Ether n'envoie et ne lit rien. Pour l'activer, connectez-vous à Plex en tant que ce spectateur, ouvrez les paramètres du compte et activez « Sync My Watch State and Ratings ». La synchronisation démarre alors d'elle-même et les modifications en attente sont conservées.",
@@ -2872,6 +2877,7 @@
   "m_0a9ab274a9b068": "Impossible de rouvrir la configuration",
   "m_0a9ae3847edba0": "Examiner et installer",
   "m_0a9bff5d1a0f43": "Téléchargements de séries",
+  "m_0a9df09ff45cb2": "{name} : {state}",
   "m_0aa0a1c5d20799": "La version {version} est disponible et demande un nouvel accès.",
   "m_0aa10d8a98759b": "Facultatif. Franchit les vérifications de navigateur Cloudflare pour les sites qui les utilisent. Sans lui, ces sites indiquent qu’ils ont besoin de FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3594,6 +3600,11 @@
   "m_0d59414168b910": "Sans restriction",
   "m_0d5a50945dee0b": "Certains plugins installés publient une liste d’autres plugins, comme le catalogue communautaire de Cinemeta. Choisissez une liste pour voir son contenu, puis examinez chaque plugin avant de l’installer.",
   "m_0d5b16a55abd92": "Nouvelle session après",
+  "m_0d5bbe6074b8c7": {
+    "one": "Échec de l’actualisation pour {bad} source sur {count}",
+    "many": "Échec de l’actualisation pour {bad} sources sur {count}",
+    "other": "Échec de l’actualisation pour {bad} sources sur {count}"
+  },
   "m_0d5d20f3c35585": "Ancrée pour tout le monde",
   "m_0d5dfdfbc169a5": "Rien ne s’afficherait sur cet accueil pour le moment. Activez une rangée ou assouplissez une planification.",
   "m_0d5ece67cd84b7": "règle {n}",
@@ -5528,6 +5539,11 @@
   "m_1439c81a7276c7": "Copier la commande",
   "m_143b6b6831a54a": "Ajoutez au moins un indexeur.",
   "m_143df1590001ae": "Rechercher dans les épingles",
+  "m_143e42d7030e08": {
+    "one": "{count} compte en bonne santé",
+    "many": "{count} de comptes en bonne santé",
+    "other": "{count} comptes en bonne santé"
+  },
   "m_144011db29b6ab": "Activité de préchargement",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "En direct · {time}",
@@ -5633,6 +5649,11 @@
   "m_14a7e82320adce": "Nouvel habillage…",
   "m_14a9006bec8541": "Mois civil, pour les limites de l’abonnement",
   "m_14a95e6dcec81f": "Étiquettes d’indexeur",
+  "m_14ab74d89e2826": {
+    "one": "{count} source en bonne santé",
+    "many": "{count} de sources en bonne santé",
+    "other": "{count} sources en bonne santé"
+  },
   "m_14ab8cefda3cf9": "Descendre",
   "m_14abfc77bc19c2": "Impossible de joindre la base de données",
   "m_14acf641714987": "Durée : {length}",
@@ -7360,6 +7381,7 @@
   "m_1ad1218e8082ce": "Titres sélectionnés",
   "m_1ad19369f27f3b": "Importer un pack",
   "m_1ad1b7ce8c1ebf": "Tous les 7 jours",
+  "m_1ad3083f6a734a": "en bonne santé",
   "m_1ad337bab8b2de": "Rangées d’accueil et de bibliothèque",
   "m_1ad4a4209734b3": "Copie de {name}",
   "m_1ad5b888f120af": "Essai",
@@ -7892,6 +7914,7 @@
   "m_1ce2d3422e4d8c": "Une autre variante régionale de l’une des langues du profil.",
   "m_1ce4d627fecaa1": "Ces réglages ne s’appliquent qu’à cet ordinateur. Tous les autres sont partagés par le cluster.",
   "m_1ce66a9a39dced": "Choisir un autre titre",
+  "m_1ce6ad80bf012a": "Compte à vérifier",
   "m_1ce717392e8146": "Historique importé uniquement ; ce spectateur n’a actuellement pas accès au serveur.",
   "m_1ce80f0ee7ea52": "Temps de récupération",
   "m_1ce8651ae090b0": "Détection de panne du serveur entier",

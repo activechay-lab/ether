@@ -114,6 +114,10 @@
   "m_006de047107829": "How the server appears in apps.",
   "m_006ed7b12b7883": "Make it live",
   "m_006f15a2fe0e48": "Opening a movie or episode prepares its source and opening bytes. Shows warm their On Deck episode when supported.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} of {count} account needs attention",
+    "other": "{bad} of {count} accounts need attention"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "{host} turned Ether away. Check the user name, password and database name in ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Watch sync is turned off in this viewer's Plex account, so Ether sends and reads nothing. To turn it on, sign in to Plex as this viewer, open Account settings and switch on “Sync My Watch State and Ratings”. Sync then starts on its own and waiting changes are kept.",
@@ -2808,6 +2812,7 @@
   "m_0a9ab274a9b068": "Couldn't reopen setup",
   "m_0a9ae3847edba0": "Review and install",
   "m_0a9bff5d1a0f43": "TV downloads",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Version {version} is available and asks for new access.",
   "m_0aa10d8a98759b": "Optional. Passes Cloudflare browser challenges for sites that use them. Without it, those sites report that they need FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3521,6 +3526,10 @@
   "m_0d59414168b910": "Unrestricted",
   "m_0d5a50945dee0b": "Some installed plugins publish a list of other plugins, such as Cinemeta's community catalogue. Pick a list to see what is in it, then review any plugin before installing.",
   "m_0d5b16a55abd92": "New session after",
+  "m_0d5bbe6074b8c7": {
+    "one": "{bad} of {count} source failing to refresh",
+    "other": "{bad} of {count} sources failing to refresh"
+  },
   "m_0d5d20f3c35585": "Anchored for everyone",
   "m_0d5dfdfbc169a5": "Nothing would show on this Home right now. Turn a row on or loosen a schedule.",
   "m_0d5ece67cd84b7": "rule {n}",
@@ -5400,6 +5409,10 @@
   "m_1439c81a7276c7": "Copy command",
   "m_143b6b6831a54a": "Add at least one indexer.",
   "m_143df1590001ae": "Search pins",
+  "m_143e42d7030e08": {
+    "one": "{count} account healthy",
+    "other": "{count} accounts healthy"
+  },
   "m_144011db29b6ab": "Preload activity",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Live · {time}",
@@ -5503,6 +5516,10 @@
   "m_14a7e82320adce": "New style…",
   "m_14a9006bec8541": "Calendar month, for plan limits",
   "m_14a95e6dcec81f": "Indexer tags",
+  "m_14ab74d89e2826": {
+    "one": "{count} source healthy",
+    "other": "{count} sources healthy"
+  },
   "m_14ab8cefda3cf9": "Move down",
   "m_14abfc77bc19c2": "Can't reach the database",
   "m_14acf641714987": "Length: {length}",
@@ -7194,6 +7211,7 @@
   "m_1ad1218e8082ce": "Selected titles",
   "m_1ad19369f27f3b": "Import pack",
   "m_1ad1b7ce8c1ebf": "Every 7 days",
+  "m_1ad3083f6a734a": "healthy",
   "m_1ad337bab8b2de": "Home & library rows",
   "m_1ad4a4209734b3": "{name} copy",
   "m_1ad5b888f120af": "Trial",
@@ -7717,6 +7735,7 @@
   "m_1ce2d3422e4d8c": "Another regional variant of one of the profile's languages.",
   "m_1ce4d627fecaa1": "These apply only to this computer. Every other setting is shared by the cluster.",
   "m_1ce66a9a39dced": "Choose another title",
+  "m_1ce6ad80bf012a": "Account needs attention",
   "m_1ce717392e8146": "Imported history only; this viewer does not currently have server access.",
   "m_1ce80f0ee7ea52": "Recovery time",
   "m_1ce8651ae090b0": "Whole-server outage detection",

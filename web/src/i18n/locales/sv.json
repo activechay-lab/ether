@@ -114,6 +114,10 @@
   "m_006de047107829": "Så servern visas i appar.",
   "m_006ed7b12b7883": "Gör live",
   "m_006f15a2fe0e48": "När du öppnar en film eller ett avsnitt förbereds dess källa och inledande byte. Serier förvärmer sitt On Deck-avsnitt när det stöds.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} av {count} konto kräver uppmärksamhet",
+    "other": "{bad} av {count} konton kräver uppmärksamhet"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "{host} nekade Ether åtkomst. Kontrollera användarnamn, lösenord och databasnamn i ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Synkronisering av tittarstatus är avstängd i den här tittarens Plex-konto, så Ether skickar och läser ingenting. Slå på den genom att logga in på Plex som den här tittaren, öppna kontoinställningarna och slå på ”Sync My Watch State and Ratings”. Synkroniseringen startar sedan av sig själv och väntande ändringar behålls.",
@@ -2805,6 +2809,7 @@
   "m_0a9ab274a9b068": "Det gick inte att öppna installationen igen",
   "m_0a9ae3847edba0": "Granska och installera",
   "m_0a9bff5d1a0f43": "TV-nedladdningar",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Version {version} finns och ber om ny åtkomst.",
   "m_0aa10d8a98759b": "Valfritt. Klarar Cloudflares webbläsarkontroller för webbplatser som använder dem. Utan det rapporterar de webbplatserna att de behöver FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3512,6 +3517,10 @@
   "m_0d59414168b910": "Obegränsad",
   "m_0d5a50945dee0b": "Vissa installerade plugin publicerar en lista över andra plugin, till exempel Cinemetas communitykatalog. Välj en lista för att se vad den innehåller och granska varje plugin innan du installerar.",
   "m_0d5b16a55abd92": "Ny session efter",
+  "m_0d5bbe6074b8c7": {
+    "one": "Uppdatering misslyckas för {bad} av {count} källa",
+    "other": "Uppdatering misslyckas för {bad} av {count} källor"
+  },
   "m_0d5d20f3c35585": "Förankrad för alla",
   "m_0d5dfdfbc169a5": "Inget skulle visas på det här Hem just nu. Slå på en rad eller lätta på ett schema.",
   "m_0d5ece67cd84b7": "regel {n}",
@@ -5391,6 +5400,10 @@
   "m_1439c81a7276c7": "Kopiera kommando",
   "m_143b6b6831a54a": "Lägg till minst en indexerare.",
   "m_143df1590001ae": "Sök fästningar",
+  "m_143e42d7030e08": {
+    "one": "{count} konto fungerar",
+    "other": "{count} konton fungerar"
+  },
   "m_144011db29b6ab": "Förladdningsaktivitet",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Live · {time}",
@@ -5494,6 +5507,10 @@
   "m_14a7e82320adce": "Nytt utseende…",
   "m_14a9006bec8541": "Kalendermånad, för abonnemangsgränser",
   "m_14a95e6dcec81f": "Indexerartaggar",
+  "m_14ab74d89e2826": {
+    "one": "{count} källa fungerar",
+    "other": "{count} källor fungerar"
+  },
   "m_14ab8cefda3cf9": "Flytta ned",
   "m_14abfc77bc19c2": "Kan inte nå databasen",
   "m_14acf641714987": "Längd: {length}",
@@ -7176,6 +7193,7 @@
   "m_1ad1218e8082ce": "Valda titlar",
   "m_1ad19369f27f3b": "Importera paket",
   "m_1ad1b7ce8c1ebf": "Var 7:e dag",
+  "m_1ad3083f6a734a": "fungerar",
   "m_1ad337bab8b2de": "Hem- och biblioteksrader",
   "m_1ad4a4209734b3": "Kopia av {name}",
   "m_1ad5b888f120af": "Provperiod",
@@ -7699,6 +7717,7 @@
   "m_1ce2d3422e4d8c": "En annan regional variant av ett av profilens språk.",
   "m_1ce4d627fecaa1": "Dessa gäller bara den här datorn. Klustret delar alla andra inställningar.",
   "m_1ce66a9a39dced": "Välj en annan titel",
+  "m_1ce6ad80bf012a": "Kontot kräver uppmärksamhet",
   "m_1ce717392e8146": "Endast importerad historik; den här tittaren har inte serveråtkomst just nu.",
   "m_1ce80f0ee7ea52": "Återställningstid",
   "m_1ce8651ae090b0": "Upptäckt av avbrott på hela servern",

@@ -116,6 +116,11 @@
   "m_006de047107829": "Cómo aparece el servidor en las aplicaciones.",
   "m_006ed7b12b7883": "Ponerlo en marcha",
   "m_006f15a2fe0e48": "Al abrir una película o un episodio se prepara su fuente y los bytes iniciales. En las series se precalienta su episodio de En espera (On Deck) cuando es compatible.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} de {count} cuenta requiere atención",
+    "many": "{bad} de {count} cuentas requieren atención",
+    "other": "{bad} de {count} cuentas requieren atención"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "Ether fue rechazado por {host}. Comprueba el nombre de usuario, la contraseña y el nombre de la base de datos en ETHER_DATABASE_URL.",
   "m_00711572cc0197": "La sincronización de lo visto está desactivada en la cuenta de Plex de este espectador, así que Ether no envía ni lee nada. Para activarla, inicia sesión en Plex como este espectador, abre la configuración de la cuenta y activa «Sync My Watch State and Ratings». La sincronización empieza sola y los cambios pendientes se conservan.",
@@ -2872,6 +2877,7 @@
   "m_0a9ab274a9b068": "No se pudo reabrir la configuración",
   "m_0a9ae3847edba0": "Revisar e instalar",
   "m_0a9bff5d1a0f43": "Descargas de series",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "La versión {version} está disponible y pide un nuevo acceso.",
   "m_0aa10d8a98759b": "Opcional. Supera las verificaciones del navegador de Cloudflare en los sitios que las usan. Sin él, esos sitios indican que necesitan FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3594,6 +3600,11 @@
   "m_0d59414168b910": "Sin restricciones",
   "m_0d5a50945dee0b": "Algunos plugins instalados publican una lista de otros plugins, como el catálogo de la comunidad de Cinemeta. Elija una lista para ver su contenido y revise cada plugin antes de instalarlo.",
   "m_0d5b16a55abd92": "Nueva sesión tras",
+  "m_0d5bbe6074b8c7": {
+    "one": "{bad} de {count} fuente no se puede actualizar",
+    "many": "{bad} de {count} fuentes no se pueden actualizar",
+    "other": "{bad} de {count} fuentes no se pueden actualizar"
+  },
   "m_0d5d20f3c35585": "Anclada para todos",
   "m_0d5dfdfbc169a5": "Ahora mismo no se mostraría nada en este Inicio. Activa una fila o flexibiliza una programación.",
   "m_0d5ece67cd84b7": "regla {n}",
@@ -5528,6 +5539,11 @@
   "m_1439c81a7276c7": "Copiar comando",
   "m_143b6b6831a54a": "Añade al menos un indexador.",
   "m_143df1590001ae": "Buscar fijados",
+  "m_143e42d7030e08": {
+    "one": "{count} cuenta correcta",
+    "many": "{count} de cuentas correctas",
+    "other": "{count} cuentas correctas"
+  },
   "m_144011db29b6ab": "Actividad de precarga",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "En vivo · {time}",
@@ -5633,6 +5649,11 @@
   "m_14a7e82320adce": "Nuevo estilo…",
   "m_14a9006bec8541": "Mes natural, para los límites del plan",
   "m_14a95e6dcec81f": "Etiquetas de indexadores",
+  "m_14ab74d89e2826": {
+    "one": "{count} fuente correcta",
+    "many": "{count} de fuentes correctas",
+    "other": "{count} fuentes correctas"
+  },
   "m_14ab8cefda3cf9": "Bajar",
   "m_14abfc77bc19c2": "No se puede acceder a la base de datos",
   "m_14acf641714987": "Duración: {length}",
@@ -7360,6 +7381,7 @@
   "m_1ad1218e8082ce": "Títulos seleccionados",
   "m_1ad19369f27f3b": "Importar paquete",
   "m_1ad1b7ce8c1ebf": "Cada 7 días",
+  "m_1ad3083f6a734a": "correcto",
   "m_1ad337bab8b2de": "Filas de Inicio y de biblioteca",
   "m_1ad4a4209734b3": "Copia de {name}",
   "m_1ad5b888f120af": "Prueba",
@@ -7892,6 +7914,7 @@
   "m_1ce2d3422e4d8c": "Otra variante regional de uno de los idiomas del perfil.",
   "m_1ce4d627fecaa1": "Estos ajustes solo se aplican a este equipo. El clúster comparte todos los demás.",
   "m_1ce66a9a39dced": "Elegir otro título",
+  "m_1ce6ad80bf012a": "La cuenta requiere atención",
   "m_1ce717392e8146": "Solo historial importado; este espectador no tiene actualmente acceso al servidor.",
   "m_1ce80f0ee7ea52": "Tiempo de recuperación",
   "m_1ce8651ae090b0": "Detección de caída total del servidor",

@@ -118,6 +118,12 @@
   "m_006de047107829": "Jak se server ukáže v aplikacích.",
   "m_006ed7b12b7883": "Spustit naostro",
   "m_006f15a2fe0e48": "Otevřením filmu nebo epizody se připraví jeho zdroj a úvodní data. U seriálů se při podpoře předehřeje epizoda Na řadě.",
+  "m_006f296fdf61fe": {
+    "one": "Pozornost vyžaduje {bad} z {count} účtu",
+    "few": "Pozornost vyžaduje {bad} z {count} účtů",
+    "many": "Pozornost vyžaduje {bad} z {count} účtu",
+    "other": "Pozornost vyžaduje {bad} z {count} účtů"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "{host} Ether odmítl. Zkontrolujte uživatelské jméno, heslo a název databáze v ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Synchronizace sledování je v účtu Plex tohoto diváka vypnutá, takže Ether nic neodesílá ani nečte. Zapnete ji tak, že se do Plexu přihlásíte jako tento divák, otevřete nastavení účtu a zapnete „Sync My Watch State and Ratings“. Synchronizace se pak spustí sama a čekající změny zůstanou zachovány.",
@@ -2939,6 +2945,7 @@
   "m_0a9ab274a9b068": "Nastavení se nepodařilo znovu otevřít",
   "m_0a9ae3847edba0": "Zkontrolovat a nainstalovat",
   "m_0a9bff5d1a0f43": "Stahování seriálů",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Verze {version} je k dispozici a žádá o nový přístup.",
   "m_0aa10d8a98759b": "Volitelné. Překonává ověření prohlížeče Cloudflare u webů, které je používají. Bez něj tyto weby hlásí, že potřebují FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3676,6 +3683,12 @@
   "m_0d59414168b910": "Bez omezení",
   "m_0d5a50945dee0b": "Některé nainstalované pluginy zveřejňují seznam dalších pluginů, například komunitní katalog Cinemeta. Vyberte seznam, podívejte se, co obsahuje, a každý plugin před instalací zkontrolujte.",
   "m_0d5b16a55abd92": "Nová relace po",
+  "m_0d5bbe6074b8c7": {
+    "one": "Obnovení selhává u {bad} z {count} zdroje",
+    "few": "Obnovení selhává u {bad} z {count} zdrojů",
+    "many": "Obnovení selhává u {bad} z {count} zdroje",
+    "other": "Obnovení selhává u {bad} z {count} zdrojů"
+  },
   "m_0d5d20f3c35585": "Ukotveno pro všechny",
   "m_0d5dfdfbc169a5": "Na tomto Domů by se teď nic nezobrazilo. Zapněte některý řádek nebo uvolněte plán.",
   "m_0d5ece67cd84b7": "pravidlo {n}",
@@ -5665,6 +5678,12 @@
   "m_1439c81a7276c7": "Kopírovat příkaz",
   "m_143b6b6831a54a": "Přidejte alespoň jeden indexer.",
   "m_143df1590001ae": "Hledat připnutí",
+  "m_143e42d7030e08": {
+    "one": "{count} účet v pořádku",
+    "few": "{count} účty v pořádku",
+    "many": "{count} účtu v pořádku",
+    "other": "{count} účtů v pořádku"
+  },
   "m_144011db29b6ab": "Aktivita předběžného načítání",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Živě · {time}",
@@ -5772,6 +5791,12 @@
   "m_14a7e82320adce": "Nový vzhled…",
   "m_14a9006bec8541": "Kalendářní měsíc, pro limity tarifu",
   "m_14a95e6dcec81f": "Štítky indexerů",
+  "m_14ab74d89e2826": {
+    "one": "{count} zdroj v pořádku",
+    "few": "{count} zdroje v pořádku",
+    "many": "{count} zdroje v pořádku",
+    "other": "{count} zdrojů v pořádku"
+  },
   "m_14ab8cefda3cf9": "Posunout dolů",
   "m_14abfc77bc19c2": "Databáze není dostupná",
   "m_14acf641714987": "Délka: {length}",
@@ -7544,6 +7569,7 @@
   "m_1ad1218e8082ce": "Vybrané tituly",
   "m_1ad19369f27f3b": "Importovat balíček",
   "m_1ad1b7ce8c1ebf": "Každých 7 dní",
+  "m_1ad3083f6a734a": "v pořádku",
   "m_1ad337bab8b2de": "Řádky Domů a knihovny",
   "m_1ad4a4209734b3": "Kopie {name}",
   "m_1ad5b888f120af": "Zkušební verze",
@@ -8085,6 +8111,7 @@
   "m_1ce2d3422e4d8c": "Jiná regionální varianta jednoho z jazyků profilu.",
   "m_1ce4d627fecaa1": "Toto platí jen pro tento počítač. Všechna ostatní nastavení sdílí cluster.",
   "m_1ce66a9a39dced": "Vybrat jiný titul",
+  "m_1ce6ad80bf012a": "Účet vyžaduje pozornost",
   "m_1ce717392e8146": "Pouze importovaná historie; tento divák aktuálně nemá přístup k serveru.",
   "m_1ce80f0ee7ea52": "Doba obnovy",
   "m_1ce8651ae090b0": "Detekce výpadku celého serveru",

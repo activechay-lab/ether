@@ -116,6 +116,11 @@
   "m_006de047107829": "Come il server appare nelle app.",
   "m_006ed7b12b7883": "Rendilo attivo",
   "m_006f15a2fe0e48": "Aprendo un film o un episodio si preparano la sua fonte e i byte iniziali. Per le serie viene preparato l'episodio In corso, se supportato.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} account su {count} richiede attenzione",
+    "many": "{bad} account su {count} richiedono attenzione",
+    "other": "{bad} account su {count} richiedono attenzione"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "Accesso negato: {host} ha respinto Ether. Controlla nome utente, password e nome del database in ETHER_DATABASE_URL.",
   "m_00711572cc0197": "La sincronizzazione della visione è disattivata nell'account Plex di questo spettatore, quindi Ether non invia né legge nulla. Per attivarla, accedi a Plex come questo spettatore, apri le impostazioni dell'account e attiva «Sync My Watch State and Ratings». La sincronizzazione parte da sola e le modifiche in attesa vengono conservate.",
@@ -2872,6 +2877,7 @@
   "m_0a9ab274a9b068": "Impossibile riaprire la configurazione",
   "m_0a9ae3847edba0": "Controlla e installa",
   "m_0a9bff5d1a0f43": "Download TV",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "La versione {version} è disponibile e richiede un nuovo accesso.",
   "m_0aa10d8a98759b": "Facoltativo. Supera le verifiche del browser di Cloudflare per i siti che le usano. Senza, quei siti segnalano di aver bisogno di FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3594,6 +3600,11 @@
   "m_0d59414168b910": "Senza restrizioni",
   "m_0d5a50945dee0b": "Alcuni plugin installati pubblicano un elenco di altri plugin, come il catalogo della community di Cinemeta. Scegli un elenco per vedere cosa contiene, poi controlla ogni plugin prima di installarlo.",
   "m_0d5b16a55abd92": "Nuova sessione dopo",
+  "m_0d5bbe6074b8c7": {
+    "one": "Aggiornamento non riuscito per {bad} fonte su {count}",
+    "many": "Aggiornamento non riuscito per {bad} fonti su {count}",
+    "other": "Aggiornamento non riuscito per {bad} fonti su {count}"
+  },
   "m_0d5d20f3c35585": "Ancorata per tutti",
   "m_0d5dfdfbc169a5": "In questo momento questa Home non mostrerebbe nulla. Attiva una riga o allenta una pianificazione.",
   "m_0d5ece67cd84b7": "regola {n}",
@@ -5528,6 +5539,11 @@
   "m_1439c81a7276c7": "Copia comando",
   "m_143b6b6831a54a": "Aggiungi almeno un indexer.",
   "m_143df1590001ae": "Cerca tra le release fissate",
+  "m_143e42d7030e08": {
+    "one": "{count} account integro",
+    "many": "{count} di account integri",
+    "other": "{count} account integri"
+  },
   "m_144011db29b6ab": "Attività di precaricamento",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "In diretta · {time}",
@@ -5633,6 +5649,11 @@
   "m_14a7e82320adce": "Nuovo stile…",
   "m_14a9006bec8541": "Mese di calendario, per i limiti del piano",
   "m_14a95e6dcec81f": "Tag degli indexer",
+  "m_14ab74d89e2826": {
+    "one": "{count} fonte integra",
+    "many": "{count} di fonti integre",
+    "other": "{count} fonti integre"
+  },
   "m_14ab8cefda3cf9": "Sposta giù",
   "m_14abfc77bc19c2": "Impossibile raggiungere il database",
   "m_14acf641714987": "Durata: {length}",
@@ -7360,6 +7381,7 @@
   "m_1ad1218e8082ce": "Titoli selezionati",
   "m_1ad19369f27f3b": "Importa pacchetto",
   "m_1ad1b7ce8c1ebf": "Ogni 7 giorni",
+  "m_1ad3083f6a734a": "integro",
   "m_1ad337bab8b2de": "Righe della Home e della libreria",
   "m_1ad4a4209734b3": "Copia di {name}",
   "m_1ad5b888f120af": "Prova",
@@ -7892,6 +7914,7 @@
   "m_1ce2d3422e4d8c": "Un'altra variante regionale di una delle lingue del profilo.",
   "m_1ce4d627fecaa1": "Queste impostazioni valgono solo per questo computer. Il cluster condivide tutte le altre.",
   "m_1ce66a9a39dced": "Scegli un altro titolo",
+  "m_1ce6ad80bf012a": "L’account richiede attenzione",
   "m_1ce717392e8146": "Solo cronologia importata; questo spettatore al momento non ha accesso al server.",
   "m_1ce80f0ee7ea52": "Tempo di ripristino",
   "m_1ce8651ae090b0": "Rilevamento dell'interruzione dell'intero server",

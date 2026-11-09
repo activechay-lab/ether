@@ -114,6 +114,10 @@
   "m_006de047107829": "Sådan vises serveren i apps.",
   "m_006ed7b12b7883": "Gør live",
   "m_006f15a2fe0e48": "Når du åbner en film eller episode, forberedes dens kilde og åbningsbytes. Serier forvarmer deres On Deck-episode, når det understøttes.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} af {count} konto kræver opmærksomhed",
+    "other": "{bad} af {count} konti kræver opmærksomhed"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "{host} afviste Ether. Kontrollér brugernavn, adgangskode og databasenavn i ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Synkronisering af visning er slået fra i denne seers Plex-konto, så Ether sender og læser intet. Slå den til ved at logge ind på Plex som denne seer, åbne kontoindstillingerne og slå »Sync My Watch State and Ratings« til. Synkroniseringen starter så af sig selv, og ventende ændringer bevares.",
@@ -2805,6 +2809,7 @@
   "m_0a9ab274a9b068": "Kunne ikke genåbne opsætningen",
   "m_0a9ae3847edba0": "Gennemgå og installer",
   "m_0a9bff5d1a0f43": "TV-downloads",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Version {version} er tilgængelig og beder om ny adgang.",
   "m_0aa10d8a98759b": "Valgfrit. Klarer Cloudflares browserudfordringer for sites, der bruger dem. Uden det melder disse sites, at de har brug for FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3512,6 +3517,10 @@
   "m_0d59414168b910": "Ubegrænset",
   "m_0d5a50945dee0b": "Nogle installerede plugins udgiver en liste over andre plugins, f.eks. Cinemetas fællesskabskatalog. Vælg en liste for at se, hvad der er i den, og gennemgå så hvert plugin, før du installerer det.",
   "m_0d5b16a55abd92": "Ny session efter",
+  "m_0d5bbe6074b8c7": {
+    "one": "Opdatering fejler for {bad} af {count} kilde",
+    "other": "Opdatering fejler for {bad} af {count} kilder"
+  },
   "m_0d5d20f3c35585": "Forankret for alle",
   "m_0d5dfdfbc169a5": "Der ville ikke blive vist noget på dette Hjem lige nu. Slå en række til, eller lemp en tidsplan.",
   "m_0d5ece67cd84b7": "regel {n}",
@@ -5391,6 +5400,10 @@
   "m_1439c81a7276c7": "Kopiér kommando",
   "m_143b6b6831a54a": "Tilføj mindst én indexer.",
   "m_143df1590001ae": "Søg i fastgørelser",
+  "m_143e42d7030e08": {
+    "one": "{count} konto sund",
+    "other": "{count} konti sunde"
+  },
   "m_144011db29b6ab": "Forudindlæsningsaktivitet",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Live · {time}",
@@ -5494,6 +5507,10 @@
   "m_14a7e82320adce": "Nyt udseende…",
   "m_14a9006bec8541": "Kalendermåned, til abonnementsgrænser",
   "m_14a95e6dcec81f": "Indexer-tags",
+  "m_14ab74d89e2826": {
+    "one": "{count} kilde sund",
+    "other": "{count} kilder sunde"
+  },
   "m_14ab8cefda3cf9": "Flyt ned",
   "m_14abfc77bc19c2": "Kan ikke nå databasen",
   "m_14acf641714987": "Længde: {length}",
@@ -7176,6 +7193,7 @@
   "m_1ad1218e8082ce": "Valgte titler",
   "m_1ad19369f27f3b": "Importér pakke",
   "m_1ad1b7ce8c1ebf": "Hver 7. dag",
+  "m_1ad3083f6a734a": "sund",
   "m_1ad337bab8b2de": "Hjem- og biblioteksrækker",
   "m_1ad4a4209734b3": "{name} kopi",
   "m_1ad5b888f120af": "Prøveperiode",
@@ -7699,6 +7717,7 @@
   "m_1ce2d3422e4d8c": "En anden regional variant af et af profilens sprog.",
   "m_1ce4d627fecaa1": "Disse gælder kun denne computer. Alle andre indstillinger deles af clusteret.",
   "m_1ce66a9a39dced": "Vælg en anden titel",
+  "m_1ce6ad80bf012a": "Kontoen kræver opmærksomhed",
   "m_1ce717392e8146": "Kun importeret historik; denne seer har ikke aktuelt adgang til serveren.",
   "m_1ce80f0ee7ea52": "Gendannelsestid",
   "m_1ce8651ae090b0": "Registrering af nedbrud for hele serveren",

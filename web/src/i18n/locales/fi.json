@@ -114,6 +114,10 @@
   "m_006de047107829": "Miten palvelin näkyy sovelluksissa.",
   "m_006ed7b12b7883": "Ota käyttöön oikeasti",
   "m_006f15a2fe0e48": "Elokuvan tai jakson avaaminen valmistelee sen lähteen ja alkutavut. Sarjoissa esilämmitetään niiden Jatka katselua -jakso, kun se on tuettu.",
+  "m_006f296fdf61fe": {
+    "one": "Huomiota vaatii {bad}/{count} tili",
+    "other": "Huomiota vaatii {bad}/{count} tiliä"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "Kohde {host} hylkäsi Etherin yhteyden. Tarkista käyttäjätunnus, salasana ja tietokannan nimi ETHER_DATABASE_URL-muuttujasta.",
   "m_00711572cc0197": "Katselutilan synkronointi on poistettu käytöstä tämän katsojan Plex-tilillä, joten Ether ei lähetä eikä lue mitään. Ota se käyttöön kirjautumalla Plexiin tämän katsojan tilillä, avaamalla tilin asetukset ja kytkemällä päälle ”Sync My Watch State and Ratings”. Synkronointi alkaa sitten itsestään, ja odottavat muutokset säilyvät.",
@@ -2805,6 +2809,7 @@
   "m_0a9ab274a9b068": "Asennuksen avaaminen uudelleen epäonnistui",
   "m_0a9ae3847edba0": "Tarkista ja asenna",
   "m_0a9bff5d1a0f43": "Sarjalataukset",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Versio {version} on saatavilla ja pyytää uutta käyttöoikeutta.",
   "m_0aa10d8a98759b": "Valinnainen. Läpäisee Cloudflaren selaintarkistukset sivustoilla, jotka käyttävät niitä. Ilman sitä nämä sivustot ilmoittavat tarvitsevansa FlareSolverrin.",
   "m_0aa1714760bf49": "Referer",
@@ -3512,6 +3517,10 @@
   "m_0d59414168b910": "Rajoittamaton",
   "m_0d5a50945dee0b": "Jotkin asennetut pluginit julkaisevat luettelon muista plugineista, kuten Cinemetan yhteisöluettelon. Valitse luettelo nähdäksesi, mitä siinä on, ja tarkista jokainen plugin ennen asennusta.",
   "m_0d5b16a55abd92": "Uusi istunto, kun taukoa on",
+  "m_0d5bbe6074b8c7": {
+    "one": "Päivitys epäonnistuu: {bad}/{count} lähde",
+    "other": "Päivitys epäonnistuu: {bad}/{count} lähdettä"
+  },
   "m_0d5d20f3c35585": "Ankkuroitu kaikille",
   "m_0d5dfdfbc169a5": "Tällä etusivulla ei näkyisi nyt mitään. Ota rivi käyttöön tai höllennä aikataulua.",
   "m_0d5ece67cd84b7": "sääntö {n}",
@@ -5391,6 +5400,10 @@
   "m_1439c81a7276c7": "Kopioi komento",
   "m_143b6b6831a54a": "Lisää vähintään yksi indeksoija.",
   "m_143df1590001ae": "Hae kiinnityksiä",
+  "m_143e42d7030e08": {
+    "one": "{count} tili kunnossa",
+    "other": "{count} tiliä kunnossa"
+  },
   "m_144011db29b6ab": "Esilatauksen toiminta",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Live · {time}",
@@ -5494,6 +5507,10 @@
   "m_14a7e82320adce": "Uusi ulkoasu…",
   "m_14a9006bec8541": "Kalenterikuukausi, tilausrajoja varten",
   "m_14a95e6dcec81f": "Indeksoijien tunnisteet",
+  "m_14ab74d89e2826": {
+    "one": "{count} lähde kunnossa",
+    "other": "{count} lähdettä kunnossa"
+  },
   "m_14ab8cefda3cf9": "Siirrä alas",
   "m_14abfc77bc19c2": "Tietokantaan ei saada yhteyttä",
   "m_14acf641714987": "Kesto: {length}",
@@ -7176,6 +7193,7 @@
   "m_1ad1218e8082ce": "Valitut nimikkeet",
   "m_1ad19369f27f3b": "Tuo paketti",
   "m_1ad1b7ce8c1ebf": "7 päivän välein",
+  "m_1ad3083f6a734a": "kunnossa",
   "m_1ad337bab8b2de": "Etusivun ja kirjaston rivit",
   "m_1ad4a4209734b3": "{name} – kopio",
   "m_1ad5b888f120af": "Kokeilu",
@@ -7699,6 +7717,7 @@
   "m_1ce2d3422e4d8c": "Toinen alueellinen muunnelma jostakin profiilin kielestä.",
   "m_1ce4d627fecaa1": "Nämä koskevat vain tätä tietokonetta. Klusteri jakaa kaikki muut asetukset.",
   "m_1ce66a9a39dced": "Valitse toinen nimike",
+  "m_1ce6ad80bf012a": "Tili vaatii huomiota",
   "m_1ce717392e8146": "Vain tuotu historia; tällä katselijalla ei ole tällä hetkellä palvelimen käyttöoikeutta.",
   "m_1ce80f0ee7ea52": "Palautusaika",
   "m_1ce8651ae090b0": "Koko palvelimen katkon havaitseminen",

@@ -116,6 +116,11 @@
   "m_006de047107829": "Como o servidor aparece nos aplicativos.",
   "m_006ed7b12b7883": "Colocar em uso",
   "m_006f15a2fe0e48": "Abrir um filme ou episódio prepara a fonte e os bytes iniciais. As séries aquecem o episódio da fila (Na fila) quando houver suporte.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} de {count} conta requer atenção",
+    "many": "{bad} de {count} contas requerem atenção",
+    "other": "{bad} de {count} contas requerem atenção"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "A conexão do Ether foi recusada por {host}. Verifique o nome de usuário, a senha e o nome do banco de dados na ETHER_DATABASE_URL.",
   "m_00711572cc0197": "A sincronização do que foi assistido está desativada na conta Plex deste espectador, então o Ether não envia nem lê nada. Para ativá-la, entre no Plex como este espectador, abra as configurações da conta e ative “Sync My Watch State and Ratings”. A sincronização começa sozinha e as alterações pendentes são mantidas.",
@@ -2872,6 +2877,7 @@
   "m_0a9ab274a9b068": "Não foi possível reabrir a configuração",
   "m_0a9ae3847edba0": "Revisar e instalar",
   "m_0a9bff5d1a0f43": "Downloads de séries",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "A versão {version} está disponível e pede um novo acesso.",
   "m_0aa10d8a98759b": "Opcional. Resolve os desafios de navegador do Cloudflare nos sites que os usam. Sem ele, esses sites informam que precisam do FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3594,6 +3600,11 @@
   "m_0d59414168b910": "Sem restrição",
   "m_0d5a50945dee0b": "Alguns plugins instalados publicam uma lista de outros plugins, como o catálogo da comunidade do Cinemeta. Escolha uma lista para ver o que há nela e revise cada plugin antes de instalar.",
   "m_0d5b16a55abd92": "Nova sessão após",
+  "m_0d5bbe6074b8c7": {
+    "one": "{bad} de {count} fonte com falha ao atualizar",
+    "many": "{bad} de {count} fontes com falha ao atualizar",
+    "other": "{bad} de {count} fontes com falha ao atualizar"
+  },
   "m_0d5d20f3c35585": "Ancorada para todos",
   "m_0d5dfdfbc169a5": "Nada seria exibido neste Início agora. Ative uma linha ou flexibilize uma programação.",
   "m_0d5ece67cd84b7": "regra {n}",
@@ -5528,6 +5539,11 @@
   "m_1439c81a7276c7": "Copiar comando",
   "m_143b6b6831a54a": "Adicione pelo menos um indexador.",
   "m_143df1590001ae": "Pesquisar fixações",
+  "m_143e42d7030e08": {
+    "one": "{count} conta saudável",
+    "many": "{count} de contas saudáveis",
+    "other": "{count} contas saudáveis"
+  },
   "m_144011db29b6ab": "Atividade de pré-carregamento",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Ao vivo · {time}",
@@ -5633,6 +5649,11 @@
   "m_14a7e82320adce": "Novo visual…",
   "m_14a9006bec8541": "Mês corrente, para os limites do plano",
   "m_14a95e6dcec81f": "Tags dos indexadores",
+  "m_14ab74d89e2826": {
+    "one": "{count} fonte saudável",
+    "many": "{count} de fontes saudáveis",
+    "other": "{count} fontes saudáveis"
+  },
   "m_14ab8cefda3cf9": "Mover para baixo",
   "m_14abfc77bc19c2": "Não foi possível acessar o banco de dados",
   "m_14acf641714987": "Duração: {length}",
@@ -7360,6 +7381,7 @@
   "m_1ad1218e8082ce": "Títulos selecionados",
   "m_1ad19369f27f3b": "Importar pacote",
   "m_1ad1b7ce8c1ebf": "A cada 7 dias",
+  "m_1ad3083f6a734a": "saudável",
   "m_1ad337bab8b2de": "Linhas do Início e da biblioteca",
   "m_1ad4a4209734b3": "Cópia de {name}",
   "m_1ad5b888f120af": "Teste",
@@ -7892,6 +7914,7 @@
   "m_1ce2d3422e4d8c": "Outra variante regional de um dos idiomas do perfil.",
   "m_1ce4d627fecaa1": "Estes valem só para este computador. O cluster compartilha todas as outras configurações.",
   "m_1ce66a9a39dced": "Escolher outro título",
+  "m_1ce6ad80bf012a": "A conta requer atenção",
   "m_1ce717392e8146": "Somente histórico importado; este espectador não tem acesso ao servidor no momento.",
   "m_1ce80f0ee7ea52": "Tempo de recuperação",
   "m_1ce8651ae090b0": "Detecção de queda total do servidor",

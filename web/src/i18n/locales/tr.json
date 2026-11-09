@@ -114,6 +114,10 @@
   "m_006de047107829": "Sunucunun uygulamalarda görünüşü.",
   "m_006ed7b12b7883": "Canlıya al",
   "m_006f15a2fe0e48": "Bir film veya bölümü açmak, kaynağını ve açılış baytlarını hazırlar. Destekleniyorsa diziler Sırada bölümlerini hazırlar.",
+  "m_006f296fdf61fe": {
+    "one": "{count} hesaptan {bad} tanesi dikkat gerektiriyor",
+    "other": "{count} hesaptan {bad} tanesi dikkat gerektiriyor"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "{host}, Ether'in bağlantısını reddetti. ETHER_DATABASE_URL içindeki kullanıcı adını, parolayı ve veritabanı adını kontrol edin.",
   "m_00711572cc0197": "İzleme durumu eşitleme bu izleyicinin Plex hesabında kapalı, bu yüzden Ether hiçbir şey göndermiyor ve okumuyor. Açmak için Plex'e bu izleyici olarak giriş yapın, hesap ayarlarını açın ve “Sync My Watch State and Ratings” seçeneğini açın. Eşitleme ardından kendiliğinden başlar ve bekleyen değişiklikler korunur.",
@@ -2805,6 +2809,7 @@
   "m_0a9ab274a9b068": "Kurulum yeniden açılamadı",
   "m_0a9ae3847edba0": "İncele ve kur",
   "m_0a9bff5d1a0f43": "Dizi indirmeleri",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "{version} sürümü mevcut ve yeni erişim istiyor.",
   "m_0aa10d8a98759b": "İsteğe bağlı. Cloudflare tarayıcı doğrulamalarını kullanan siteler için bunları geçer. Olmadan bu siteler FlareSolverr gerektiğini bildirir.",
   "m_0aa1714760bf49": "Referer",
@@ -3512,6 +3517,10 @@
   "m_0d59414168b910": "Kısıtlamasız",
   "m_0d5a50945dee0b": "Yüklü bazı eklentiler, Cinemeta’nın topluluk kataloğu gibi başka eklentilerin listesini yayınlar. İçindekileri görmek için bir liste seçin, sonra yüklemeden önce her eklentiyi inceleyin.",
   "m_0d5b16a55abd92": "Yeni oturum süresi",
+  "m_0d5bbe6074b8c7": {
+    "one": "{count} kaynaktan {bad} tanesi yenilenemiyor",
+    "other": "{count} kaynaktan {bad} tanesi yenilenemiyor"
+  },
   "m_0d5d20f3c35585": "Herkes için sabitlendi",
   "m_0d5dfdfbc169a5": "Şu anda bu Ana Sayfa'da hiçbir şey görünmez. Bir satırı açın veya bir zamanlamayı gevşetin.",
   "m_0d5ece67cd84b7": "kural {n}",
@@ -5391,6 +5400,10 @@
   "m_1439c81a7276c7": "Komutu kopyala",
   "m_143b6b6831a54a": "En az bir dizinleyici ekleyin.",
   "m_143df1590001ae": "Sabitlemelerde ara",
+  "m_143e42d7030e08": {
+    "one": "{count} hesap sağlıklı",
+    "other": "{count} hesap sağlıklı"
+  },
   "m_144011db29b6ab": "Önyükleme etkinliği",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Canlı · {time}",
@@ -5494,6 +5507,10 @@
   "m_14a7e82320adce": "Yeni görünüm…",
   "m_14a9006bec8541": "Takvim ayı, plan limitleri için",
   "m_14a95e6dcec81f": "İndeksleyici etiketleri",
+  "m_14ab74d89e2826": {
+    "one": "{count} kaynak sağlıklı",
+    "other": "{count} kaynak sağlıklı"
+  },
   "m_14ab8cefda3cf9": "Aşağı taşı",
   "m_14abfc77bc19c2": "Veritabanına ulaşılamıyor",
   "m_14acf641714987": "Süre: {length}",
@@ -7176,6 +7193,7 @@
   "m_1ad1218e8082ce": "Seçili yapımlar",
   "m_1ad19369f27f3b": "Paketi içe aktar",
   "m_1ad1b7ce8c1ebf": "Her 7 günde bir",
+  "m_1ad3083f6a734a": "sağlıklı",
   "m_1ad337bab8b2de": "Ana Sayfa ve kitaplık satırları",
   "m_1ad4a4209734b3": "{name} kopyası",
   "m_1ad5b888f120af": "Deneme",
@@ -7699,6 +7717,7 @@
   "m_1ce2d3422e4d8c": "Profilin dillerinden birinin başka bir bölgesel çeşidi.",
   "m_1ce4d627fecaa1": "Bunlar yalnızca bu bilgisayar için geçerlidir. Diğer her ayarı küme paylaşır.",
   "m_1ce66a9a39dced": "Başka bir başlık seçin",
+  "m_1ce6ad80bf012a": "Hesap dikkat gerektiriyor",
   "m_1ce717392e8146": "Yalnızca içe aktarılan geçmiş; bu izleyicinin şu anda sunucu erişimi yok.",
   "m_1ce80f0ee7ea52": "Kurtarma süresi",
   "m_1ce8651ae090b0": "Tüm sunucu kesintisi algılama",

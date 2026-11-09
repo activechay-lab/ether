@@ -118,6 +118,12 @@
   "m_006de047107829": "Jak serwer wygląda w aplikacjach.",
   "m_006ed7b12b7883": "Uruchom na żywo",
   "m_006f15a2fe0e48": "Otwarcie filmu lub odcinka przygotowuje jego źródło i początkowe dane. Seriale przygotowują odcinek z sekcji Na bieżąco, gdy jest to obsługiwane.",
+  "m_006f296fdf61fe": {
+    "one": "Uwagi wymaga {bad} z {count} konta",
+    "few": "Uwagi wymaga {bad} z {count} kont",
+    "many": "Uwagi wymaga {bad} z {count} kont",
+    "other": "Uwagi wymaga {bad} z {count} konta"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "{host} odrzucił połączenie od Ether. Sprawdź nazwę użytkownika, hasło i nazwę bazy danych w ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Synchronizacja stanu oglądania jest wyłączona na koncie Plex tego widza, więc Ether niczego nie wysyła ani nie odczytuje. Aby ją włączyć, zaloguj się do Plex jako ten widz, otwórz ustawienia konta i włącz „Sync My Watch State and Ratings”. Synchronizacja ruszy wtedy samoczynnie, a oczekujące zmiany zostaną zachowane.",
@@ -2939,6 +2945,7 @@
   "m_0a9ab274a9b068": "Nie udało się ponownie otworzyć konfiguracji",
   "m_0a9ae3847edba0": "Sprawdź i zainstaluj",
   "m_0a9bff5d1a0f43": "Pobierania seriali",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Wersja {version} jest dostępna i prosi o nowy dostęp.",
   "m_0aa10d8a98759b": "Opcjonalne. Przechodzi weryfikacje przeglądarki Cloudflare w serwisach, które ich używają. Bez tego takie serwisy zgłaszają, że potrzebują FlareSolverr.",
   "m_0aa1714760bf49": "Referer",
@@ -3676,6 +3683,12 @@
   "m_0d59414168b910": "Bez ograniczeń",
   "m_0d5a50945dee0b": "Niektóre zainstalowane pluginy publikują listę innych pluginów, na przykład katalog społeczności Cinemeta. Wybierz listę, aby zobaczyć jej zawartość, a przed instalacją sprawdź każdy plugin.",
   "m_0d5b16a55abd92": "Nowa sesja po",
+  "m_0d5bbe6074b8c7": {
+    "one": "Odświeżanie nie działa dla {bad} z {count} źródła",
+    "few": "Odświeżanie nie działa dla {bad} z {count} źródeł",
+    "many": "Odświeżanie nie działa dla {bad} z {count} źródeł",
+    "other": "Odświeżanie nie działa dla {bad} z {count} źródła"
+  },
   "m_0d5d20f3c35585": "Zakotwiczony dla wszystkich",
   "m_0d5dfdfbc169a5": "Na tej stronie głównej nic by się teraz nie wyświetliło. Włącz wiersz lub złagodź harmonogram.",
   "m_0d5ece67cd84b7": "reguła {n}",
@@ -5665,6 +5678,12 @@
   "m_1439c81a7276c7": "Kopiuj polecenie",
   "m_143b6b6831a54a": "Dodaj co najmniej jeden indeksator.",
   "m_143df1590001ae": "Szukaj przypięć",
+  "m_143e42d7030e08": {
+    "one": "{count} konto sprawne",
+    "few": "{count} konta sprawne",
+    "many": "{count} kont sprawnych",
+    "other": "{count} konta sprawnego"
+  },
   "m_144011db29b6ab": "Aktywność wstępnego ładowania",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Na żywo · {time}",
@@ -5772,6 +5791,12 @@
   "m_14a7e82320adce": "Nowa oprawa…",
   "m_14a9006bec8541": "Miesiąc kalendarzowy, dla limitów planu",
   "m_14a95e6dcec81f": "Znaczniki indekserów",
+  "m_14ab74d89e2826": {
+    "one": "{count} źródło sprawne",
+    "few": "{count} źródła sprawne",
+    "many": "{count} źródeł sprawnych",
+    "other": "{count} źródła sprawnego"
+  },
   "m_14ab8cefda3cf9": "Przenieś niżej",
   "m_14abfc77bc19c2": "Brak połączenia z bazą danych",
   "m_14acf641714987": "Długość: {length}",
@@ -7544,6 +7569,7 @@
   "m_1ad1218e8082ce": "Wybrane tytuły",
   "m_1ad19369f27f3b": "Importuj pakiet",
   "m_1ad1b7ce8c1ebf": "Co 7 dni",
+  "m_1ad3083f6a734a": "sprawny",
   "m_1ad337bab8b2de": "Wiersze strony głównej i biblioteki",
   "m_1ad4a4209734b3": "Kopia {name}",
   "m_1ad5b888f120af": "Okres próbny",
@@ -8085,6 +8111,7 @@
   "m_1ce2d3422e4d8c": "Inny wariant regionalny jednego z języków profilu.",
   "m_1ce4d627fecaa1": "Te ustawienia dotyczą tylko tego komputera. Klaster współdzieli wszystkie pozostałe.",
   "m_1ce66a9a39dced": "Wybierz inny tytuł",
+  "m_1ce6ad80bf012a": "Konto wymaga uwagi",
   "m_1ce717392e8146": "Tylko zaimportowana historia; ten widz nie ma obecnie dostępu do serwera.",
   "m_1ce80f0ee7ea52": "Czas odzyskiwania",
   "m_1ce8651ae090b0": "Wykrywanie awarii całego serwera",

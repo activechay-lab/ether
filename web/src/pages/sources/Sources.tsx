@@ -1,7 +1,7 @@
 import { localized, t } from "../../i18n";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { DomainPage } from "../../components/layout";
@@ -15,6 +15,8 @@ import { UsenetProviders } from "./Usenet";
 import { SourceStatistics, StatisticsPeriod } from "./statistics/Statistics";
 import { AddSourceGallery, type GalleryChoice } from "./cards";
 import type { DebridKind } from "../../lib/types";
+import { iptvHealth } from "../../lib/health";
+import { tv, type Source as TVSource } from "../livetv/model";
 
 const TABS = localized(
   () =>
@@ -76,7 +78,7 @@ export default function Sources() {
       base="/sources"
       tabs={TABS}
       active={top}
-      status={top === "iptv" ? undefined : <HealthStrip ids={["usenet", "indexers"]} />}
+      status={<SourcesHealth />}
       tabActions={stats ? <StatisticsPeriod /> : undefined}
       // Statistics and Usage share one period, so switching between them keeps it.
       tabHref={(key) =>
@@ -126,4 +128,20 @@ export default function Sources() {
       </Drawer>
     </DomainPage>
   );
+}
+
+/** Debrid, Usenet, IPTV and indexer health above every Sources tab. */
+function SourcesHealth() {
+  const [iptv, setIptv] = useState<TVSource[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    tv.sources()
+      .then((list) => live && setIptv(list))
+      .catch(() => live && setIptv(null));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const extra = [iptvHealth(iptv)].filter((h) => h !== null);
+  return <HealthStrip ids={["debrid", "usenet", "iptv", "indexers"]} extra={extra} />;
 }

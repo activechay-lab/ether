@@ -114,6 +114,10 @@
   "m_006de047107829": "Hoe de server verschijnt in apps.",
   "m_006ed7b12b7883": "Live zetten",
   "m_006f15a2fe0e48": "Als je een film of aflevering opent, worden de bron en de eerste bytes voorbereid. Series warmen hun On Deck-aflevering op, indien ondersteund.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} van {count} account heeft aandacht nodig",
+    "other": "{bad} van {count} accounts hebben aandacht nodig"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "Ether is geweigerd door {host}. Controleer de gebruikersnaam, het wachtwoord en de databasenaam in ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Synchronisatie van de kijkstatus staat uit in het Plex-account van deze kijker, dus Ether verzendt en leest niets. Zet het aan door je bij Plex aan te melden als deze kijker, de accountinstellingen te openen en ‘Sync My Watch State and Ratings’ in te schakelen. De synchronisatie start dan vanzelf en wachtende wijzigingen blijven bewaard.",
@@ -2805,6 +2809,7 @@
   "m_0a9ab274a9b068": "Installatie opnieuw openen mislukt",
   "m_0a9ae3847edba0": "Bekijken en installeren",
   "m_0a9bff5d1a0f43": "TV-downloads",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Versie {version} is beschikbaar en vraagt nieuwe toegang.",
   "m_0aa10d8a98759b": "Optioneel. Doorstaat Cloudflare-browsercontroles voor sites die deze gebruiken. Zonder FlareSolverr melden die sites dat ze het nodig hebben.",
   "m_0aa1714760bf49": "Referer",
@@ -3512,6 +3517,10 @@
   "m_0d59414168b910": "Onbeperkt",
   "m_0d5a50945dee0b": "Sommige geïnstalleerde plugins publiceren een lijst met andere plugins, zoals de communitycatalogus van Cinemeta. Kies een lijst om te zien wat erin staat en bekijk elke plugin voordat u hem installeert.",
   "m_0d5b16a55abd92": "Nieuwe sessie na",
+  "m_0d5bbe6074b8c7": {
+    "one": "Vernieuwen mislukt voor {bad} van {count} bron",
+    "other": "Vernieuwen mislukt voor {bad} van {count} bronnen"
+  },
   "m_0d5d20f3c35585": "Vastgezet voor iedereen",
   "m_0d5dfdfbc169a5": "Er zou op dit moment niets op deze Home staan. Schakel een rij in of versoepel een planning.",
   "m_0d5ece67cd84b7": "regel {n}",
@@ -5391,6 +5400,10 @@
   "m_1439c81a7276c7": "Opdracht kopiëren",
   "m_143b6b6831a54a": "Voeg minstens één indexer toe.",
   "m_143df1590001ae": "Pins doorzoeken",
+  "m_143e42d7030e08": {
+    "one": "{count} account in orde",
+    "other": "{count} accounts in orde"
+  },
   "m_144011db29b6ab": "Activiteit van vooraf laden",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Live · {time}",
@@ -5494,6 +5507,10 @@
   "m_14a7e82320adce": "Nieuwe vormgeving…",
   "m_14a9006bec8541": "Kalendermaand, voor abonnementslimieten",
   "m_14a95e6dcec81f": "Indexertags",
+  "m_14ab74d89e2826": {
+    "one": "{count} bron in orde",
+    "other": "{count} bronnen in orde"
+  },
   "m_14ab8cefda3cf9": "Omlaag",
   "m_14abfc77bc19c2": "Kan de database niet bereiken",
   "m_14acf641714987": "Duur: {length}",
@@ -7176,6 +7193,7 @@
   "m_1ad1218e8082ce": "Geselecteerde titels",
   "m_1ad19369f27f3b": "Pakket importeren",
   "m_1ad1b7ce8c1ebf": "Elke 7 dagen",
+  "m_1ad3083f6a734a": "in orde",
   "m_1ad337bab8b2de": "Home- en bibliotheekrijen",
   "m_1ad4a4209734b3": "Kopie van {name}",
   "m_1ad5b888f120af": "Proefperiode",
@@ -7699,6 +7717,7 @@
   "m_1ce2d3422e4d8c": "Een andere regionale variant van een van de talen van het profiel.",
   "m_1ce4d627fecaa1": "Deze gelden alleen voor deze computer. Alle andere instellingen deelt het cluster.",
   "m_1ce66a9a39dced": "Kies een andere titel",
+  "m_1ce6ad80bf012a": "Account heeft aandacht nodig",
   "m_1ce717392e8146": "Alleen geïmporteerde geschiedenis; deze kijker heeft momenteel geen servertoegang.",
   "m_1ce80f0ee7ea52": "Hersteltijd",
   "m_1ce8651ae090b0": "Detectie van storingen van de hele server",

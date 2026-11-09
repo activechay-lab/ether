@@ -114,6 +114,10 @@
   "m_006de047107829": "So erscheint der Server in Apps.",
   "m_006ed7b12b7883": "Live schalten",
   "m_006f15a2fe0e48": "Beim Öffnen eines Films oder einer Episode werden Quelle und Anfangs-Bytes vorbereitet. Bei Serien wird, sofern unterstützt, die „On Deck“-Episode vorgewärmt.",
+  "m_006f296fdf61fe": {
+    "one": "{bad} von {count} Konto braucht Aufmerksamkeit",
+    "other": "{bad} von {count} Konten brauchen Aufmerksamkeit"
+  },
   "m_006f34a5d403cd": "Tom Hanks",
   "m_006f59e6b7eecc": "Die Verbindung wurde durch {host} abgelehnt. Prüfe Benutzername, Passwort und Datenbankname in ETHER_DATABASE_URL.",
   "m_00711572cc0197": "Die Synchronisierung des Wiedergabestatus ist im Plex-Konto dieses Zuschauers ausgeschaltet, daher sendet und liest Ether nichts. Zum Einschalten melde dich bei Plex als dieser Zuschauer an, öffne die Kontoeinstellungen und aktiviere „Sync My Watch State and Ratings“. Die Synchronisierung startet dann von selbst, und wartende Änderungen bleiben erhalten.",
@@ -2805,6 +2809,7 @@
   "m_0a9ab274a9b068": "Die Einrichtung konnte nicht erneut geöffnet werden",
   "m_0a9ae3847edba0": "Prüfen und installieren",
   "m_0a9bff5d1a0f43": "TV-Downloads",
+  "m_0a9df09ff45cb2": "{name}: {state}",
   "m_0aa0a1c5d20799": "Version {version} ist verfügbar und fordert neuen Zugriff an.",
   "m_0aa10d8a98759b": "Optional. Löst Cloudflare-Browserprüfungen für Seiten, die sie verwenden. Ohne FlareSolverr melden diese Seiten, dass sie es benötigen.",
   "m_0aa1714760bf49": "Referer",
@@ -3512,6 +3517,10 @@
   "m_0d59414168b910": "Unbeschränkt",
   "m_0d5a50945dee0b": "Einige installierte Plugins veröffentlichen eine Liste weiterer Plugins, etwa den Community-Katalog von Cinemeta. Wähle eine Liste, um zu sehen, was darin ist, und prüfe jedes Plugin vor der Installation.",
   "m_0d5b16a55abd92": "Neue Sitzung nach",
+  "m_0d5bbe6074b8c7": {
+    "one": "Aktualisierung schlägt bei {bad} von {count} Quelle fehl",
+    "other": "Aktualisierung schlägt bei {bad} von {count} Quellen fehl"
+  },
   "m_0d5d20f3c35585": "Für alle verankert",
   "m_0d5dfdfbc169a5": "Auf dieser Startseite würde derzeit nichts angezeigt. Schalte eine Reihe ein oder lockere einen Zeitplan.",
   "m_0d5ece67cd84b7": "Regel {n}",
@@ -5391,6 +5400,10 @@
   "m_1439c81a7276c7": "Befehl kopieren",
   "m_143b6b6831a54a": "Füge mindestens einen Indexer hinzu.",
   "m_143df1590001ae": "Anheftungen durchsuchen",
+  "m_143e42d7030e08": {
+    "one": "{count} Konto gesund",
+    "other": "{count} Konten gesund"
+  },
   "m_144011db29b6ab": "Vorlade-Aktivität",
   "m_14401ac3d0eadc": "Netflix",
   "m_14439765f4ef7d": "Live · {time}",
@@ -5494,6 +5507,10 @@
   "m_14a7e82320adce": "Neuer Look…",
   "m_14a9006bec8541": "Kalendermonat, für Tarifgrenzen",
   "m_14a95e6dcec81f": "Indexer-Tags",
+  "m_14ab74d89e2826": {
+    "one": "{count} Quelle gesund",
+    "other": "{count} Quellen gesund"
+  },
   "m_14ab8cefda3cf9": "Nach unten",
   "m_14abfc77bc19c2": "Datenbank nicht erreichbar",
   "m_14acf641714987": "Länge: {length}",
@@ -7176,6 +7193,7 @@
   "m_1ad1218e8082ce": "Ausgewählte Titel",
   "m_1ad19369f27f3b": "Paket importieren",
   "m_1ad1b7ce8c1ebf": "Alle 7 Tage",
+  "m_1ad3083f6a734a": "gesund",
   "m_1ad337bab8b2de": "Startseiten- und Mediatheksreihen",
   "m_1ad4a4209734b3": "{name} Kopie",
   "m_1ad5b888f120af": "Testzugang",
@@ -7699,6 +7717,7 @@
   "m_1ce2d3422e4d8c": "Eine andere regionale Variante einer der Sprachen des Profils.",
   "m_1ce4d627fecaa1": "Diese gelten nur für diesen Computer. Alle anderen Einstellungen teilt der Cluster.",
   "m_1ce66a9a39dced": "Anderen Titel auswählen",
+  "m_1ce6ad80bf012a": "Konto braucht Aufmerksamkeit",
   "m_1ce717392e8146": "Nur importierter Verlauf; dieser Zuschauer hat derzeit keinen Serverzugriff.",
   "m_1ce80f0ee7ea52": "Wiederherstellungszeit",
   "m_1ce8651ae090b0": "Erkennung von Komplettausfällen des Servers",

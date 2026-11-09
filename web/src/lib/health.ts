@@ -13,6 +13,8 @@ export type HealthLevel = "ok" | "warn" | "error" | "off" | "unknown";
 
 export interface HealthItem {
   id:
+    | "debrid"
+    | "iptv"
     | "usenet"
     | "indexers"
     | "cache"
@@ -217,6 +219,85 @@ export function usenetHealth(v: unknown, debrid?: unknown, indexers?: unknown): 
     details,
     statusLabel: level === "ok" ? undefined : t("Needs attention"),
     fill: configured > 0 ? active / configured : undefined,
+  };
+}
+
+/**
+ * Debrid accounts from the "debrid" status section. Null when no account is
+ * configured, so pages show only the sources the owner uses.
+ */
+export function debridHealth(v: unknown): HealthItem | null {
+  const base = { id: "debrid" as const, label: t("Debrid"), href: "/sources/debrid" };
+  const err = errorOf(v);
+  if (err) return { ...base, level: "error", summary: err, details: [] };
+  if (!isPlainObject(v) || !Array.isArray(v.providers)) return null;
+  const accounts = v.providers.filter(isPlainObject).filter((p) => str(p.state) !== "disabled");
+  if (accounts.length === 0) return null;
+  const bad = accounts.filter((p) => str(p.state) !== "ok");
+  const details = accounts.map((p) =>
+    t("{name}: {state}", {
+      name: str(p.name) || str(p.id),
+      state: str(p.state) === "ok" ? t("healthy") : str(p.lastError) || str(p.state),
+    }),
+  );
+  if (bad.length === 0)
+    return {
+      ...base,
+      level: "ok",
+      summary: tn(accounts.length, "{count} account healthy", "{count} accounts healthy"),
+      details,
+    };
+  return {
+    ...base,
+    level: bad.length === accounts.length ? "error" : "warn",
+    summary:
+      accounts.length === 1
+        ? str(bad[0]!.lastError) || t("Account needs attention")
+        : tn(
+            accounts.length,
+            "{bad} of {count} account needs attention",
+            "{bad} of {count} accounts need attention",
+            {
+              bad: bad.length,
+            },
+          ),
+    details,
+    statusLabel: t("Needs attention"),
+  };
+}
+
+/**
+ * IPTV channel sources (Live TV sources list). Null when none is configured.
+ */
+export function iptvHealth(
+  sources: { name?: string; lastError?: string }[] | null,
+): HealthItem | null {
+  if (!sources || sources.length === 0) return null;
+  const base = { id: "iptv" as const, label: t("IPTV"), href: "/sources/iptv" };
+  const bad = sources.filter((s) => !!s.lastError);
+  const details = sources.map((s) =>
+    t("{name}: {state}", { name: s.name ?? "", state: s.lastError || t("healthy") }),
+  );
+  if (bad.length === 0)
+    return {
+      ...base,
+      level: "ok",
+      summary: tn(sources.length, "{count} source healthy", "{count} sources healthy"),
+      details,
+    };
+  return {
+    ...base,
+    level: bad.length === sources.length ? "error" : "warn",
+    summary: tn(
+      sources.length,
+      "{bad} of {count} source failing to refresh",
+      "{bad} of {count} sources failing to refresh",
+      {
+        bad: bad.length,
+      },
+    ),
+    details,
+    statusLabel: t("Needs attention"),
   };
 }
 
@@ -831,6 +912,7 @@ export function computeHealth(
   const s = sections ?? {};
   const plexOn = opts?.plexEnabled !== false;
   const items: HealthItem[] = [
+    debridHealth(s.debrid),
     usenetHealth(s.providers, s.debrid, s.indexers),
     indexersHealth(s.indexers, s.debrid),
     cacheHealth(s.cache),
