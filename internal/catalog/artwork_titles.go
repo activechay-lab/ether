@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Artwork for titles the catalogue has not stored.
@@ -151,4 +152,94 @@ func (c *Catalog) PersistsArtwork(ctx context.Context, key core.RatingKey) bool 
 	}
 	_, err := c.loadByKey(ctx, key)
 	return err == nil
+}
+
+// ArtworkRows is ArtworkTitles for an artwork request that lists no credited
+// people's portraits (frontend.WithArtworkRows): stored movies and shows come
+// as their rows with the facts the catalogue's policy for ctx's viewer reads
+// and facts, never read in full nor put in the title cache. They are kept as
+// that viewer's partial titles (exportCache) for the image reads that follow
+// a grant; a title already cached in full is served from the cache. Other
+// keys are read as ArtworkTitles reads them.
+func (c *Catalog) ArtworkRows(ctx context.Context, keys []core.RatingKey, facts core.TitleFacts) (map[core.RatingKey]core.Title, error) {
+	gen, minute := c.writeGen.Load(), c.minuteBucket()
+	out := make(map[core.RatingKey]core.Title, len(keys))
+	var rows, other []core.RatingKey
+	for _, key := range keys {
+		if key.Kind() != core.KindMovie && key.Kind() != core.KindShow {
+			other = append(other, key)
+			continue
+		}
+		if t, ok := c.cachedStored(key, gen, minute); ok {
+			if c.cachedListVisible(&t) {
+				out[key] = t
+			}
+			continue
+		}
+		if t, ok := c.exportTitle(ctx, key, gen, minute); ok {
+			if c.cachedListVisible(&t) {
+				out[key] = t
+			}
+			continue
+		}
+		rows = append(rows, key)
+	}
+	facts |= c.viewerPolicyFacts(ctx) | c.policyFacts(c.visibilityFor(ctx))
+	for part := range store.Chunks(rows, 200) {
+		args := make([]any, len(part))
+		for i, k := range part {
+			args[i] = int64(k)
+		}
+		q, err := c.db.QueryContext(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		var items []core.Title
+		for q.Next() {
+			st, err := scanTitle(q)
+			if err != nil {
+				q.Close()
+				return nil, err
+			}
+			items = append(items, st.t)
+		}
+		err = q.Err()
+		q.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err := c.hydrateFacts(ctx, items, facts); err != nil {
+			return nil, err
+		}
+		stored := make(map[core.RatingKey]bool, len(items))
+		visible := items[:0:0]
+		for i := range items {
+			stored[items[i].Key] = true
+			if c.cachedListVisible(&items[i]) {
+				out[items[i].Key] = items[i]
+				visible = append(visible, items[i])
+			}
+		}
+		// The image reads that follow a grant find the rows the grant read.
+		c.rememberExportTitles(ctx, gen, minute, visible)
+		// A key with no row is a search or list hit held in memory.
+		for _, key := range part {
+			if stored[key] {
+				continue
+			}
+			if t, dateUnknown, ok := c.heldTitle(key); ok && (c.cachedListVisible(&t) || (dateUnknown && !t.Adult)) {
+				out[key] = t
+			}
+		}
+	}
+	if len(other) > 0 {
+		full, err := c.ArtworkTitles(ctx, other)
+		if err != nil {
+			return nil, err
+		}
+		for k, t := range full {
+			out[k] = t
+		}
+	}
+	return out, nil
 }

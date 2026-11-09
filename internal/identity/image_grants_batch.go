@@ -71,6 +71,9 @@ func (s *ImageGrantService) IssueBatch(ctx context.Context, req frontend.ImageBa
 	if experience == nil {
 		return nil, core.ErrNotAvailable
 	}
+	// A batch grants a title's own images, never a credited person's
+	// portrait: its titles are read as visibility rows.
+	ctx = frontend.WithArtworkRows(ctx)
 	page, hasPage := experience.(frontend.ItemArtworkPage)
 	var listed map[core.RatingKey][]frontend.Image
 	if hasPage && len(keys) > 0 {

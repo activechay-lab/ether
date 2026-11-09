@@ -59,6 +59,10 @@ type ServiceDeps struct {
 	// readers.
 	ArtworkGet     func(context.Context, core.RatingKey) (*core.Title, error)
 	ArtworkGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	// ArtworkRows is ArtworkGetMany for a request that lists no credited
+	// people's portraits (frontend.WithArtworkRows): movies and shows as
+	// their rows with the facts given, not read in full. Optional.
+	ArtworkRows func(context.Context, []core.RatingKey, core.TitleFacts) (map[core.RatingKey]core.Title, error)
 	// ParentTitles resolves distinct parents using the same semantics as GetTitle.
 	ParentTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// CachedVirtualSeason resolves a viewer's already-computed episode layout.
@@ -909,6 +913,55 @@ func (s *Service) allowTitles(ctx context.Context, v *core.User, titles []core.T
 	return out, nil
 }
 
+// artworkRows reads keys for an artwork request that lists no credited
+// people's portraits (frontend.WithArtworkRows) as rows with what v's policy
+// reads; a title availability judges on its facts is read in full. Nil,
+// nil when the request or the catalogue cannot (read the titles in full).
+func (s *Service) artworkRows(ctx context.Context, v *core.User, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+	if s.d.ArtworkRows == nil || frontend.ArtworkRowsFrom(ctx) == nil {
+		return nil, nil
+	}
+	judge, known := s.d.Visibility.FactJudge(ctx)
+	if !known {
+		return nil, nil
+	}
+	rows, err := s.d.ArtworkRows(ctx, keys, s.d.Visibility.TitleFacts(v))
+	if err != nil {
+		return nil, err
+	}
+	if judge == nil {
+		return rows, nil
+	}
+	var full []core.RatingKey
+	for key, t := range rows {
+		if judge(t) {
+			full = append(full, key)
+		}
+	}
+	if len(full) == 0 {
+		return rows, nil
+	}
+	getMany := s.d.ArtworkGetMany
+	if getMany == nil {
+		getMany = s.d.CachedGetMany
+	}
+	if getMany == nil {
+		return nil, nil
+	}
+	loaded, err := getMany(ctx, full)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range full {
+		if t, ok := loaded[key]; ok {
+			rows[key] = t
+		} else {
+			delete(rows, key)
+		}
+	}
+	return rows, nil
+}
+
 // PageArtworkTitles loads one grid and drops titles this viewer cannot see.
 func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) ([]core.Title, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
@@ -923,9 +976,14 @@ func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, ke
 	if getMany == nil {
 		return nil, core.ErrNotAvailable
 	}
-	titles, err := getMany(ctx, keys)
+	titles, err := s.artworkRows(ctx, v, keys)
 	if err != nil {
 		return nil, err
+	}
+	if titles == nil {
+		if titles, err = getMany(ctx, keys); err != nil {
+			return nil, err
+		}
 	}
 	loaded := make([]core.Title, 0, len(titles))
 	for _, key := range keys {
@@ -952,7 +1010,16 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 		if get == nil {
 			get = s.d.CachedGet
 		}
-		title, err := get(ctx, key)
+		var title *core.Title
+		rows, err := s.artworkRows(ctx, v, []core.RatingKey{key})
+		if err != nil {
+			return nil, err
+		}
+		if t, ok := rows[key]; ok {
+			title = &t
+		} else {
+			title, err = get(ctx, key)
+		}
 		if errors.Is(err, core.ErrNotFound) && s.d.CachedVirtualSeason != nil {
 			title, err = s.d.CachedVirtualSeason(ctx, v, key)
 		}
@@ -968,6 +1035,8 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 		if !ok || !SectionAllowed(v, section) || !visibility.Visible(ctx, v, title) {
 			return nil, core.ErrNotFound
 		}
+		// The image read that follows lists the same title (ArtworkTitle).
+		frontend.ArtworkRowsFrom(ctx).Put(*title)
 	} else if _, err := s.item(ctx, v, key); err != nil {
 		return nil, err
 	}

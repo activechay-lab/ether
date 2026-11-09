@@ -310,7 +310,8 @@ type Catalog struct {
 	titleCache   map[core.RatingKey]cachedStoredTitle
 	// exportCache holds the latest export pages' titles for the viewer
 	// that read them (queryListRows), so the page's image signer, which
-	// reads the same titles right after, does not read them again.
+	// reads the same titles right after, does not read them again; and the
+	// rows an image grant read (ArtworkRows), for the image reads after it.
 	exportCache map[exportCacheKey]cachedStoredTitle
 	countCache  map[string]cachedCount
 	browseCache map[string]cachedBrowse

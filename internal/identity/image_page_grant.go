@@ -682,6 +682,7 @@ func (s *ImageGrantService) serveClaims(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 	}
+	r = artworkRowsRequest(r, img)
 	if err = s.authorized(r.Context(), viewer, device, core.RatingKey(claims.Item), claims.Channel, img); err != nil {
 		http.NotFound(w, r)
 		return
