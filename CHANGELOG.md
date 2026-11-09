@@ -2,13 +2,36 @@
 
 ## Unreleased (0.3.6)
 
-- **Automatic updates:** on by default for new installs (existing servers keep
-  their setting). Ether checks for updates every few hours, installs at night
-  once nobody is watching, rolls stable releases out over a day, re-checks the
-  feed before installing so a pulled release never installs, installs security
-  fixes at the next quiet moment, and tells you afterwards (*Updated to X*,
-  plus *Update installed* / *Update rolled back* notifications). Docker, macOS
-  and Linux package installs get the exact update steps on the Updates page.
+- **Decade channels:** CHROMA 80, RIOT 90, ORBIT 00 and SHIFT 10 ship on every
+  install, with weekly schedules built from your catalogue, rebuilt era
+  graphics and their own Apple TV logos; hidden until the catalogue can fill
+  them, and a deleted one stays deleted.
+- **Live TV:** commercials and bumpers from a link (one-click yt-dlp install),
+  **Show in apps** per channel, stability presets with recovery and backup
+  failover, IPTV refresh controls, guide improvements and Apple TV logos with
+  remote access (#383, #391).
+- **Quality:** profiles ranked the Radarr/Sonarr way with custom formats
+  (builds on #355); optional alternatives at every resolution. Profiles reset
+  to the new defaults on upgrade.
+- **Collections:** none created on fresh installs; genres, networks and
+  studios become templates; more than 200 templates in starter bundles,
+  translated into all 20 languages.
+- **Sources:** Statistics and Usage tabs with per-source drawers; Usenet season
+  packs (#378) and disc images (#393); archive, Usenet and anime fixes; a dead
+  debrid CDN node gets a fresh link (#396).
+- **Playback speed:** detail-page warm-up on Jellyfin, Emby and Silo, Stremio
+  stream-list warm-up, faster debrid starts, HDR/HEVC for native Stremio and
+  Nuvio players, native handling and hedged starts for cached add-on streams.
+- **Apps:** Android phones convert Dolby/DTS when streamed (#395), Plex for
+  Roku 4K (#394), Infuse Direct Mode rows and Watchlist, Plex for LG (#375),
+  Plex desktop downloads (#365), Plex account watch sync, Shield, Google TV
+  and Mac device entries.
+- **Database and console:** faster browsing on large libraries, a leaner
+  catalogue tidied in the background, maintenance that no longer blocks writes,
+  SQLite to PostgreSQL fix (#398), Overview and Activity agree, no false
+  plex.direct warning, automatic updates on by default for new installs.
+
+See the [release notes](release-notes/v0.3.6.md) for upgrade guidance and limits.
 
 ## 0.3.5 (2026-11-07)
 
