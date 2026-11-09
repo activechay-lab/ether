@@ -1,7 +1,11 @@
+// Adapted from AltMount (internal/importer/archive/iso/bluray.go), MIT License,
+// Copyright (c) 2025 Javier Blanco. See THIRD_PARTY_NOTICES.md.
+
 package iso
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"sort"
@@ -246,6 +250,22 @@ func findRun(runs []byteRun, off, end int64) *byteRun {
 	return nil
 }
 
+// playlistExtentBytes is the total length of e's extents, saturating well above
+// the playlist caps so a hostile table cannot overflow it.
+func playlistExtentBytes(e isoFileEntry) int64 {
+	var total int64
+	for _, x := range e.extents {
+		if x.length > maxPlaylistTotalBytes {
+			return maxPlaylistTotalBytes + 1
+		}
+		total += int64(x.length)
+		if total > maxPlaylistTotalBytes {
+			return maxPlaylistTotalBytes + 1
+		}
+	}
+	return total
+}
+
 // readPlaylistsCoalesced reads every entry's bytes using as few sequential
 // streaming reads as possible, returning a map keyed by entry.path. Entries
 // that cannot be fully read (seek/read error in their run, or zero usable
@@ -263,7 +283,18 @@ func readPlaylistsCoalesced(rs io.ReadSeeker, entries []isoFileEntry) map[string
 		length int64
 	}
 	var exts []flatExtent
+	var planned int64
+	accepted := make([]isoFileEntry, 0, len(entries))
 	for _, e := range entries {
+		// Real playlists are a few KiB. Bound by the extents' real total
+		// (the declared size is untrusted): skip an oversized playlist and
+		// stop once the disc's total playlist bytes reach the cap.
+		total := playlistExtentBytes(e)
+		if total == 0 || total > maxPlaylistBytes || planned+total > maxPlaylistTotalBytes {
+			continue
+		}
+		planned += total
+		accepted = append(accepted, e)
 		for _, x := range e.extents {
 			if x.length == 0 {
 				continue
@@ -274,6 +305,7 @@ func readPlaylistsCoalesced(rs io.ReadSeeker, entries []isoFileEntry) map[string
 			})
 		}
 	}
+	entries = accepted
 	if len(exts) == 0 {
 		return map[string][]byte{}
 	}
@@ -313,7 +345,7 @@ func readPlaylistsCoalesced(rs io.ReadSeeker, entries []isoFileEntry) map[string
 	// Reconstruct each entry from the run buffers, preserving extent order.
 	out := make(map[string][]byte, len(entries))
 	for _, e := range entries {
-		data := make([]byte, 0, e.size)
+		data := make([]byte, 0, playlistExtentBytes(e))
 		ok := true
 		for _, x := range e.extents {
 			if x.length == 0 {
@@ -346,7 +378,10 @@ func readPlaylistsCoalesced(rs io.ReadSeeker, entries []isoFileEntry) map[string
 // (~KBs) and almost always single-extent, but multi-extent MPLS is
 // legal so we iterate.
 func readISOFile(rs io.ReadSeeker, e isoFileEntry) ([]byte, error) {
-	out := make([]byte, 0, e.size)
+	if playlistExtentBytes(e) > maxPlaylistBytes {
+		return nil, fmt.Errorf("iso: %s exceeds the %d byte playlist cap", e.path, maxPlaylistBytes)
+	}
+	out := make([]byte, 0, playlistExtentBytes(e))
 	for _, ext := range e.extents {
 		if _, err := rs.Seek(int64(ext.lba)*iso9660SectorSize, io.SeekStart); err != nil {
 			return nil, err
