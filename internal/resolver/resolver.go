@@ -1423,7 +1423,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 				}
 			}
 			ct.Reason = reason
-			if reason == "below profile min height" && rel.Info.Height == 0 && floorHeight(rel.Info) > 0 {
+			if reason == ReasonBelowProfileMinResolution && rel.Info.Height == 0 && floorHeight(rel.Info) > 0 {
 				ct.CompatibilityReason = fmt.Sprintf("height unknown; conservative %dp floor assumed", floorHeight(rel.Info))
 			}
 			if trace != nil {

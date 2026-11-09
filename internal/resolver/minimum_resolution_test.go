@@ -98,7 +98,7 @@ func TestFourKFloorRejectsUnlabelledSDWhenFourKIsUnplayable(t *testing.T) {
 					sdTrace = &traces[0].Candidates[i]
 				}
 			}
-			if sdTrace == nil || sdTrace.Height != 0 || sdTrace.Reason != "below profile min height" || !strings.Contains(sdTrace.CompatibilityReason, "height unknown; conservative 480p floor assumed") {
+			if sdTrace == nil || sdTrace.Height != 0 || sdTrace.Reason != ReasonBelowProfileMinResolution || !strings.Contains(sdTrace.CompatibilityReason, "height unknown; conservative 480p floor assumed") {
 				t.Fatalf("expected unknown height 480p floor note in trace, got %+v", sdTrace)
 			}
 		})
