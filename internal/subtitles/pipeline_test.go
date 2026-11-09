@@ -34,7 +34,7 @@ func TestASSNormalizeAndAlign(t *testing.T) {
 	if err != nil || !strings.Contains(srt, "Hello, world\nNext line") || !strings.Contains(vtt, "00:00:01.500") {
 		t.Fatalf("normalize %q %q %v", srt, vtt, err)
 	}
-	cues := []Cue{{time.Second, 2 * time.Second, "This is the first phrase"}, {3 * time.Second, 4 * time.Second, "This is the second phrase"}, {6 * time.Second, 7 * time.Second, "This is the final phrase"}}
+	cues := []Cue{{Start: time.Second, End: 2 * time.Second, Text: "This is the first phrase"}, {Start: 3 * time.Second, End: 4 * time.Second, Text: "This is the second phrase"}, {Start: 6 * time.Second, End: 7 * time.Second, Text: "This is the final phrase"}}
 	ref, _ := Shift(cues, 2500*time.Millisecond, 1)
 	fit, ok := FitTiming(cues, ref)
 	if !ok || absDuration(fit.Offset-2500*time.Millisecond) > timingFrameSlack {
