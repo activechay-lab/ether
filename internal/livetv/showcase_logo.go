@@ -6,16 +6,18 @@ import (
 	"sync"
 )
 
-// Each shipped decade channel's guide logo is its look's station bug, drawn
-// by onair's TestRenderShowcaseLogos. The files are committed so a published
+// Each shipped decade channel's guide logo is its look's station bug,
+// recomposed for a guide's small channel cell by onair's
+// TestRenderShowcaseLogos. The files are committed so a published
 // URL pinned to a release or commit always resolves (Plex for Apple TV draws
 // guide logos only from public URLs). New artwork goes in a new versioned
-// directory; a published file never changes.
+// directory; a published file never changes, so v1 stays in the repository
+// for the builds that link to it.
 //
-//go:embed showcaselogos/v1/*.png
+//go:embed showcaselogos/v2/*.png
 var showcaseLogoFiles embed.FS
 
-const showcaseLogoDir = "showcaselogos/v1/"
+const showcaseLogoDir = "showcaselogos/v2/"
 
 // showcaseLogoRepoDir is showcaseLogoDir's path in Ether's repository.
 const showcaseLogoRepoDir = "internal/livetv/" + showcaseLogoDir

@@ -299,7 +299,7 @@ func TestShowcaseChannelLogo(t *testing.T) {
 	f.srv.d.RepoFileURL = func(path string) string { return "https://cdn.example/ether@v1/" + path }
 	ctx := context.Background()
 	c := livetv.Channel{ID: "showcase-chroma-80", Name: "CHROMA 80", Kind: "virtual"}
-	if got := f.srv.cloudGuideLogo(ctx, c, "http://example.com"); got != "https://cdn.example/ether@v1/internal/livetv/showcaselogos/v1/chroma-80.png" {
+	if got := f.srv.cloudGuideLogo(ctx, c, "http://example.com"); got != "https://cdn.example/ether@v1/internal/livetv/showcaselogos/v2/chroma-80.png" {
 		t.Fatalf("shipped logo: %q", got)
 	}
 	rec := httptest.NewRecorder()
