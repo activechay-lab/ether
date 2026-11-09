@@ -2,7 +2,12 @@ import { getLocale, localized, t, tn } from "../../../i18n";
 import { api, apiFetch } from "../../../lib/api";
 import { fixed } from "../../../lib/format";
 import { useAsync } from "../../../lib/hooks";
-import type { DebridProviderStatus, DebridStatus } from "../../../lib/types";
+import type {
+  DebridProviderStatus,
+  DebridStatus,
+  EtherConfig,
+  UsenetProvider,
+} from "../../../lib/types";
 import { tv, type Source } from "../../livetv/model";
 import { DEBRID_KINDS } from "../cards";
 import type { UsageReport } from "../IndexerUsage";
@@ -49,6 +54,8 @@ export type DebridDay = {
   blocked: number;
   linksRefreshed: number;
   reused: number;
+  /** Bytes the streaming engine fetched through this account. */
+  bytes?: number;
 };
 export type StreamDay = {
   day: string;
@@ -61,6 +68,42 @@ export type StreamDay = {
   linkRefreshes: number;
   errors: number;
 };
+/** Today's plays in one UTC hour (0..23); only for a one-day window. */
+export type PlayHour = {
+  hour: number;
+  origin: string;
+  plays: number;
+  failovers: number;
+  failed: number;
+};
+/** Every source's totals since its first recorded day. */
+export type Lifetime = {
+  providers: {
+    id: string;
+    firstDay: string;
+    bytes: number;
+    articles: number;
+    misses: number;
+    errors: number;
+  }[];
+  indexers: {
+    indexer: string;
+    firstDay: string;
+    searches: number;
+    successes: number;
+    grabs: number;
+    grabSuccess: number;
+  }[];
+  debrid: {
+    id: string;
+    firstDay: string;
+    requests: number;
+    failures: number;
+    cached: number;
+    notCached: number;
+    bytes: number;
+  }[];
+};
 export type SourceHistory = {
   days: number;
   since: string;
@@ -70,6 +113,8 @@ export type SourceHistory = {
   indexerDays: IndexerDay[] | null;
   debridDays: DebridDay[] | null;
   streamDays: StreamDay[] | null;
+  hours?: PlayHour[] | null;
+  lifetime?: Lifetime | null;
 };
 
 /** One Usenet provider's live sample (usenet.ProviderStats). */
@@ -163,10 +208,21 @@ export type SourceRow = {
   cost?: { kind: CostKind; id: string; price?: Cost };
 };
 
-export const PERIODS = ["7", "30", "90"] as const;
+export const PERIODS = ["1", "7", "30", "90"] as const;
 export type Period = (typeof PERIODS)[number];
 export const periodOf = (v: string | null): Period =>
   (PERIODS as readonly string[]).includes(v ?? "") ? (v as Period) : "30";
+
+/** "Today" or "Last 30 days". */
+export const periodLabel = (days: number | string) =>
+  Number(days) === 1 ? t("Today") : tn(Number(days), "Last {count} day", "Last {count} days");
+
+/** Short labels for the period switches ("Today", "7 days"). */
+export const periodOptions = () =>
+  PERIODS.map((n) => ({
+    value: n,
+    label: n === "1" ? t("Today") : tn(Number(n), "{count} day", "{count} days"),
+  }));
 
 export const KIND_LABEL = localized((): Record<SourceKind, string> => ({
   usenet: t("Usenet"),
@@ -182,7 +238,12 @@ export type StatsData = {
   usage: UsageReport | null;
   debrid: DebridStatus | null;
   iptv: Source[] | null;
+  /** Configured Usenet providers, so every one is listed even with no traffic. */
+  usenet: UsenetProvider[] | null;
 };
+
+const fetchHistory = (days: string | number, signal?: AbortSignal) =>
+  apiFetch<SourceHistory>(`/stats/sources?days=${days}`, { signal });
 
 /**
  * Everything Statistics shows, read in parallel. Only the history is
@@ -191,17 +252,38 @@ export type StatsData = {
 export function useSourceStats(days: Period) {
   return useAsync<StatsData>(
     async (signal) => {
-      const [history, infra, usage, debrid, iptv] = await Promise.all([
-        apiFetch<SourceHistory>(`/stats/sources?days=${days}`, { signal }),
+      const [history, infra, usage, debrid, iptv, config] = await Promise.all([
+        fetchHistory(days, signal),
         apiFetch<Infrastructure>("/stats/infrastructure", { signal }).catch(() => null),
         apiFetch<UsageReport>("/indexer-usage", { signal }).catch(() => null),
         api.debridStatus().catch(() => null),
         tv.sources(signal).catch(() => null),
+        api.getConfig().catch((): EtherConfig | null => null),
       ]);
-      return { history, infra, usage, debrid, iptv: Array.isArray(iptv) ? iptv : null };
+      return {
+        history,
+        infra,
+        usage,
+        debrid,
+        iptv: Array.isArray(iptv) ? iptv : null,
+        usenet: config?.usenet?.providers ?? null,
+      };
     },
     [days],
   );
+}
+
+/**
+ * A drawer's own window: the page's history when the periods match, else
+ * one bounded /stats/sources read for the drawer's period.
+ */
+export function useDrawerHistory(page: SourceHistory | undefined, days: Period) {
+  const same = page != null && String(page.days) === days;
+  const own = useAsync<SourceHistory | null>(
+    (signal) => (same ? Promise.resolve(null) : fetchHistory(days, signal)),
+    [same, days],
+  );
+  return same ? page : (own.data ?? undefined);
 }
 
 /** Every UTC day in the window, oldest first. */
@@ -268,6 +350,38 @@ function iptvHealth(s: Source): [Health, string] {
   return ["ok", t("Healthy")];
 }
 
+/**
+ * Every configured Usenet provider in priority order with its live sample,
+ * so a provider with no traffic (or that the engine is not using) is still
+ * listed. Without the config, the live sample alone.
+ */
+export function usenetProviders(data: StatsData) {
+  const samples = data.infra?.snapshots.providers?.data ?? [];
+  const sampleOf = (id: string, host: string) =>
+    samples.find((s) => (s.id || s.host) === id) ??
+    (id ? undefined : samples.find((s) => s.host === host));
+  if (!data.usenet)
+    return samples.map((s) => ({
+      id: s.id || s.host,
+      name: s.name || s.id || s.host,
+      host: s.host,
+      enabled: true,
+      sample: s as UsenetSample | undefined,
+    }));
+  return [...data.usenet]
+    .sort((a, b) => a.priority - b.priority)
+    .map((p) => {
+      const id = p.id || p.host;
+      return {
+        id,
+        name: p.name || p.host,
+        host: p.host,
+        enabled: p.enabled !== false,
+        sample: sampleOf(id, p.host),
+      };
+    });
+}
+
 /** Every source as one table row, in the order owners set them up. */
 export function sourceRows(data: StatsData, plugins: PluginSourceSummary[]): SourceRow[] {
   const { history: h, infra, usage, debrid, iptv } = data;
@@ -280,25 +394,28 @@ export function sourceRows(data: StatsData, plugins: PluginSourceSummary[]): Sou
   });
   const rows: Omit<SourceRow, "order">[] = [];
 
-  for (const p of infra?.snapshots.providers?.data ?? []) {
-    const id = p.id || p.host;
+  for (const { id, name, host, sample: p, enabled } of usenetProviders(data)) {
     const mine = (h.providerDays ?? []).filter((d) => d.id === id);
     const bytes = sum(mine, (d) => d.bytes);
     const articles = sum(mine, (d) => d.articles);
-    const [health, healthLabel] = usenetHealth(p);
+    const [health, healthLabel]: [Health, string] = !enabled
+      ? ["off", t("Turned off")]
+      : p
+        ? usenetHealth(p)
+        : ["off", t("Idle")];
     rows.push({
       key: `usenet:${id}`,
       kind: "usenet",
       id,
-      name: p.name || p.id || p.host,
-      detail: p.host,
+      name,
+      detail: host,
       health,
       healthLabel,
       series: daily(days, mine, (d) => d.bytes),
       usage: formatGB(bytes),
       usageSort: bytes,
       success: ratio(articles, articles + sum(mine, (d) => d.misses + d.errors)),
-      latencyMs: p.avgLatency ? p.avgLatency / 1e6 : null,
+      latencyMs: p?.avgLatency ? p.avgLatency / 1e6 : null,
       cost: cost("provider", id),
     });
   }
@@ -335,6 +452,7 @@ export function sourceRows(data: StatsData, plugins: PluginSourceSummary[]): Sou
   for (const p of debrid?.providers ?? []) {
     const mine = (h.debridDays ?? []).filter((d) => d.id === p.id);
     const requests = sum(mine, (d) => d.requests);
+    const bytes = sum(mine, (d) => d.bytes ?? 0);
     const [health, healthLabel] = debridHealth(p);
     rows.push({
       key: `debrid:${p.id}`,
@@ -344,9 +462,11 @@ export function sourceRows(data: StatsData, plugins: PluginSourceSummary[]): Sou
       detail: DEBRID_KINDS.find((k) => k.value === p.kind)?.label ?? p.kind,
       health,
       healthLabel,
-      series: daily(days, mine, (d) => d.requests),
-      usage: tn(requests, "{count} request", "{count} requests"),
-      usageSort: requests,
+      // Data streamed is what an account is for; days before per-account
+      // data was recorded fall back to its API requests.
+      series: bytes ? daily(days, mine, (d) => d.bytes ?? 0) : daily(days, mine, (d) => d.requests),
+      usage: bytes ? formatGB(bytes) : tn(requests, "{count} request", "{count} requests"),
+      usageSort: bytes || requests,
       success: ratio(requests - sum(mine, (d) => d.failures), requests),
       latencyMs: p.latency?.samples ? (p.latency.resolveMs ?? null) : null,
       cost: cost("debrid", p.id),
@@ -397,5 +517,42 @@ const GB = 1e9;
 /** Bytes as decimal gigabytes, the unit providers bill in. */
 export function formatGB(bytes: number): string {
   if (bytes >= 1e12) return t("{size} TB", { size: fixed(bytes / 1e12, 2) });
+  if (bytes <= 0) return t("{size} GB", { size: "0" });
   return t("{size} GB", { size: fixed(bytes / GB, bytes >= 100 * GB ? 0 : 1) });
+}
+
+/** Hours of the one-day window so far: 24 for a past day, up to now for today. */
+export function hoursSoFar(h: SourceHistory): number {
+  const start = Date.parse(`${h.since}T00:00:00Z`);
+  return Math.max(1, Math.min(24, Math.floor((Date.now() - start) / 3_600_000) + 1));
+}
+
+/** The window's UTC hours so far as local clock labels ("7 PM"). */
+export function hourLabels(h: SourceHistory): string[] {
+  const start = Date.parse(`${h.since}T00:00:00Z`);
+  return Array.from({ length: hoursSoFar(h) }, (_, i) =>
+    new Date(start + i * 3_600_000).toLocaleTimeString(getLocale(), { hour: "numeric" }),
+  );
+}
+
+/** Sum rows into the window's hours so far. */
+export function hourly(
+  h: SourceHistory,
+  rows: PlayHour[],
+  value: (row: PlayHour) => number,
+): number[] {
+  const n = hoursSoFar(h);
+  const out = Array.from({ length: n }, () => 0);
+  for (const r of rows) if (r.hour >= 0 && r.hour < n) out[r.hour] = out[r.hour]! + value(r);
+  return out;
+}
+
+/** A recorded UTC day as a local date with the year ("Oct 9, 2026"). */
+export function longDay(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString(getLocale(), {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }

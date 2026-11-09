@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { StackedColumns, TimeBars } from "../../../components/charts";
 import { Drawer } from "../../../components/Drawer";
+import { LoadingRows } from "../../../components/feedback";
 import { NumberInput, Segmented } from "../../../components/fields";
 import { getLocale, t, tn } from "../../../i18n";
 import { apiFetch, errorMessage } from "../../../lib/api";
@@ -24,9 +25,16 @@ import {
   daily,
   dayLabel,
   formatGB,
+  longDay,
+  periodLabel,
+  periodOptions,
   ratio,
   sum,
+  useDrawerHistory,
+  usenetProviders,
   windowDays,
+  type Period,
+  type SourceHistory,
   type SourceRow,
   type StatsData,
 } from "./data";
@@ -144,26 +152,107 @@ function PlanPrice({
   );
 }
 
-function UsenetDetail({ row, data }: { row: SourceRow; data: StatsData }) {
-  const h = data.history;
+/** One total: the period's value over the all-time value where Ether has it. */
+type Total = { label: string; value: string; lifetime?: string; hint?: string };
+
+/** The period's totals, each with its all-time figure underneath. */
+function Totals({ h, items, since }: { h: SourceHistory; items: Total[]; since?: string }) {
+  return (
+    <Block title={t("Totals · {period}", { period: periodLabel(h.days) })}>
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {items.map((i) => (
+          <div
+            key={i.label}
+            className="min-w-0 rounded-lg border border-border bg-bg-subtle px-3 py-2.5"
+          >
+            <dt className="truncate text-xs text-fg-muted">{i.label}</dt>
+            <dd className="mt-0.5 truncate text-lg font-semibold tabular-nums text-fg">
+              {i.value}
+            </dd>
+            {i.lifetime != null ? (
+              <dd className="truncate text-xs tabular-nums text-fg-subtle">
+                {t("All time {value}", { value: i.lifetime })}
+              </dd>
+            ) : i.hint ? (
+              <dd className="text-xs leading-snug text-fg-subtle">{i.hint}</dd>
+            ) : null}
+          </div>
+        ))}
+      </dl>
+      {since ? (
+        <p className="text-xs text-fg-muted">
+          {t("All time counts from {date}, the first day Ether recorded for this source.", {
+            date: longDay(since),
+          })}
+        </p>
+      ) : null}
+    </Block>
+  );
+}
+
+/** A daily chart only means something over more than one day. */
+const multiDay = (h: SourceHistory) => h.days > 1;
+
+function Quiet({ children }: { children: ReactNode }) {
+  return <p className="py-4 text-center text-sm text-fg-muted">{children}</p>;
+}
+
+function UsenetDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: SourceHistory }) {
   const days = windowDays(h);
-  const p = data.infra?.snapshots.providers?.data?.find((x) => (x.id || x.host) === row.id);
-  const mine = (h.providerDays ?? []).filter((d) => d.id === row.id);
+  const provider = usenetProviders(data).find((x) => x.id === row.id);
+  const p = provider?.sample;
+  const all = h.providerDays ?? [];
+  const mine = all.filter((d) => d.id === row.id);
   const bytes = sum(mine, (d) => d.bytes);
   const articles = sum(mine, (d) => d.articles);
   const misses = sum(mine, (d) => d.misses);
   const errors = sum(mine, (d) => d.errors);
   const bodyMisses = sum(mine, (d) => d.bodyMisses);
+  const life = h.lifetime?.providers?.find((x) => x.id === row.id);
+  const month = data.infra?.providerMonth?.find((x) => x.id === row.id);
   const at = data.infra?.snapshots.providers?.at;
   return (
     <>
-      <Block title={tn(h.days, "Last {count} day", "Last {count} days")}>
+      <Totals
+        h={h}
+        since={life?.firstDay}
+        items={[
+          {
+            label: t("Downloaded"),
+            value: formatGB(bytes),
+            lifetime: life ? formatGB(life.bytes) : undefined,
+          },
+          {
+            label: t("Articles"),
+            value: count(articles),
+            lifetime: life ? count(life.articles) : undefined,
+          },
+          {
+            label: t("Article success"),
+            value: pct(ratio(articles, articles + misses + errors)),
+            lifetime: life
+              ? pct(ratio(life.articles, life.articles + life.misses + life.errors))
+              : undefined,
+          },
+          {
+            label: t("Share of Usenet"),
+            value: pct(
+              ratio(
+                bytes,
+                sum(all, (d) => d.bytes),
+              ),
+            ),
+            hint: t("Of all Usenet data in this period"),
+          },
+          {
+            label: t("This month"),
+            value: formatGB(month?.bytes ?? 0),
+            hint: t("Calendar month, for plan limits"),
+          },
+        ]}
+      />
+      <Block title={t("Details")}>
         <Facts>
-          <Fact label={t("Downloaded")}>{formatGB(bytes)}</Fact>
-          <Fact label={t("Articles")}>{count(articles)}</Fact>
-          <Fact label={t("Article success")}>
-            {pct(ratio(articles, articles + misses + errors))}
-          </Fact>
           <Fact
             label={t("Body availability")}
             hint={tn(
@@ -184,34 +273,42 @@ function UsenetDetail({ row, data }: { row: SourceRow; data: StatsData }) {
           </Fact>
         </Facts>
       </Block>
-      <DashboardPanel title={t("Downloaded each day (GB)")}>
-        <TimeBars
-          ariaLabel={t("Gigabytes downloaded each day")}
-          height={140}
-          valueFormat={(v) => fixed(v, v > 0 && v < 10 ? 1 : 0)}
-          data={days.map((day, i) => ({
-            key: day,
-            label: dayLabel(day),
-            value: daily(days, mine, (d) => d.bytes / 1e9)[i]!,
-          }))}
-        />
-      </DashboardPanel>
-      {misses + errors ? (
-        <DashboardPanel title={t("Misses and errors")}>
-          <StackedColumns
-            ariaLabel={t("Missing articles and errors each day")}
-            aLabel={t("Misses")}
-            bLabel={t("Errors")}
-            height={140}
-            valueFormat={count}
-            data={days.map((day, i) => ({
-              key: day,
-              label: dayLabel(day),
-              a: daily(days, mine, (d) => d.misses)[i]!,
-              b: daily(days, mine, (d) => d.errors)[i]!,
-            }))}
-          />
-        </DashboardPanel>
+      {multiDay(h) ? (
+        <>
+          <DashboardPanel title={t("Downloaded each day (GB)")}>
+            {bytes ? (
+              <TimeBars
+                ariaLabel={t("Gigabytes downloaded each day")}
+                height={140}
+                valueFormat={(v) => fixed(v, v > 0 && v < 10 ? 1 : 0)}
+                data={days.map((day, i) => ({
+                  key: day,
+                  label: dayLabel(day),
+                  value: daily(days, mine, (d) => d.bytes / 1e9)[i]!,
+                }))}
+              />
+            ) : (
+              <Quiet>{t("Nothing downloaded from this provider in this period.")}</Quiet>
+            )}
+          </DashboardPanel>
+          {misses + errors ? (
+            <DashboardPanel title={t("Misses and errors")}>
+              <StackedColumns
+                ariaLabel={t("Missing articles and errors each day")}
+                aLabel={t("Misses")}
+                bLabel={t("Errors")}
+                height={140}
+                valueFormat={count}
+                data={days.map((day, i) => ({
+                  key: day,
+                  label: dayLabel(day),
+                  a: daily(days, mine, (d) => d.misses)[i]!,
+                  b: daily(days, mine, (d) => d.errors)[i]!,
+                }))}
+              />
+            </DashboardPanel>
+          ) : null}
+        </>
       ) : null}
       {p ? (
         <Block
@@ -252,21 +349,31 @@ function UsenetDetail({ row, data }: { row: SourceRow; data: StatsData }) {
             </Fact>
           </Facts>
         </Block>
-      ) : null}
+      ) : (
+        <p className="text-sm text-fg-muted">
+          {provider && !provider.enabled
+            ? t("This provider is turned off, so Ether is not connecting to it.")
+            : t(
+                "Ether has not connected to this provider yet. Live connection details appear once it is used.",
+              )}
+        </p>
+      )}
     </>
   );
 }
 
-function IndexerDetail({ row, data }: { row: SourceRow; data: StatsData }) {
+function IndexerDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: SourceHistory }) {
   const [period, setPeriod] = useState<UsagePeriod>("today");
-  const h = data.history;
   const days = windowDays(h);
   const usage = data.usage?.indexers?.find((u) => u.name === row.id);
   const mine = (h.indexerDays ?? []).filter((d) => d.indexer === row.id);
   const searches = sum(mine, (d) => d.searches);
+  const successes = sum(mine, (d) => d.successes);
   const grabs = sum(mine, (d) => d.grabs);
+  const grabOk = sum(mine, (d) => d.grabSuccess);
   const ages = sum(mine, (d) => d.ageSamples);
   const limited = sum(mine, (d) => d.budgets);
+  const life = h.lifetime?.indexers?.find((x) => x.indexer === row.id);
   return (
     <>
       {usage?.retryAt && usage.retryAt > Date.now() / 1000 ? (
@@ -276,6 +383,53 @@ function IndexerDetail({ row, data }: { row: SourceRow; data: StatsData }) {
           })}
         </p>
       ) : null}
+      <Totals
+        h={h}
+        since={life?.firstDay}
+        items={[
+          {
+            label: t("Searches"),
+            value: count(searches),
+            lifetime: life ? count(life.searches) : undefined,
+          },
+          {
+            label: t("Search success"),
+            value: pct(ratio(successes, searches)),
+            lifetime: life ? pct(ratio(life.successes, life.searches)) : undefined,
+          },
+          {
+            label: t("Downloads"),
+            value: count(grabs),
+            lifetime: life ? count(life.grabs) : undefined,
+          },
+          {
+            label: t("Grab success"),
+            value: pct(ratio(grabOk, grabs)),
+            lifetime: life ? pct(ratio(life.grabSuccess, life.grabs)) : undefined,
+          },
+          {
+            label: t("Search speed"),
+            value: ms(searches ? sum(mine, (d) => d.latencyMs) / searches : null),
+            hint: t("Average response"),
+          },
+          {
+            label: t("Limit reached"),
+            value: count(limited),
+            hint: t("Requests refused by the daily limit"),
+          },
+        ]}
+      />
+      <Block title={t("Details")}>
+        <Facts>
+          <Fact label={t("Average release age")}>
+            {ages
+              ? t("{days} days", { days: fixed(sum(mine, (d) => d.ageSeconds) / ages / 86400, 1) })
+              : DASH}
+          </Fact>
+          <Fact label={t("Nothing found")}>{count(searches - successes)}</Fact>
+          <Fact label={t("Failed downloads")}>{count(grabs - grabOk)}</Fact>
+        </Facts>
+      </Block>
       {usage ? (
         <Block title={t("API hits")}>
           <Segmented
@@ -288,44 +442,75 @@ function IndexerDetail({ row, data }: { row: SourceRow; data: StatsData }) {
           <IndexerUsageDetails usage={usage} period={period} />
         </Block>
       ) : null}
-      <Block title={tn(h.days, "Last {count} day", "Last {count} days")}>
-        <Facts>
-          <Fact label={t("Searches")}>{count(searches)}</Fact>
-          <Fact label={t("Search success")}>
-            {pct(
-              ratio(
-                sum(mine, (d) => d.successes),
-                searches,
-              ),
+      {multiDay(h) ? (
+        <>
+          <DashboardPanel title={t("Searches")}>
+            {searches ? (
+              <StackedColumns
+                ariaLabel={t("Searches each day, with and without results")}
+                aLabel={t("Found releases")}
+                bLabel={t("Nothing found")}
+                height={140}
+                valueFormat={count}
+                data={days.map((day, i) => {
+                  const ok = daily(days, mine, (d) => d.successes)[i]!;
+                  return {
+                    key: day,
+                    label: dayLabel(day),
+                    a: ok,
+                    b: daily(days, mine, (d) => d.searches)[i]! - ok,
+                  };
+                })}
+              />
+            ) : (
+              <Quiet>{t("No searches in this period.")}</Quiet>
             )}
-          </Fact>
-          <Fact label={t("Search speed")}>
-            {ms(searches ? sum(mine, (d) => d.latencyMs) / searches : null)}
-          </Fact>
-          <Fact label={t("Downloads")}>{count(grabs)}</Fact>
-          <Fact label={t("Grab success")}>
-            {pct(
-              ratio(
-                sum(mine, (d) => d.grabSuccess),
-                grabs,
-              ),
-            )}
-          </Fact>
-          <Fact label={t("Average release age")}>
-            {ages
-              ? t("{days} days", { days: fixed(sum(mine, (d) => d.ageSeconds) / ages / 86400, 1) })
-              : DASH}
-          </Fact>
-          <Fact label={t("Limit reached")} hint={t("Requests refused by the daily limit")}>
-            {count(limited)}
-          </Fact>
-        </Facts>
-      </Block>
+          </DashboardPanel>
+          {searches ? (
+            <DashboardPanel title={t("Search speed (ms)")}>
+              <TimeBars
+                ariaLabel={t("Average search response each day")}
+                height={120}
+                valueFormat={count}
+                data={days.map((day) => {
+                  const d = mine.filter((x) => x.day === day);
+                  const n = sum(d, (x) => x.searches);
+                  return {
+                    key: day,
+                    label: dayLabel(day),
+                    value: n ? sum(d, (x) => x.latencyMs) / n : 0,
+                  };
+                })}
+              />
+            </DashboardPanel>
+          ) : null}
+          {grabs ? (
+            <DashboardPanel title={t("Downloads")}>
+              <StackedColumns
+                ariaLabel={t("Downloads sent each day, succeeded and failed")}
+                aLabel={t("Succeeded")}
+                bLabel={t("Failed")}
+                height={120}
+                valueFormat={count}
+                data={days.map((day, i) => {
+                  const ok = daily(days, mine, (d) => d.grabSuccess)[i]!;
+                  return {
+                    key: day,
+                    label: dayLabel(day),
+                    a: ok,
+                    b: daily(days, mine, (d) => d.grabs)[i]! - ok,
+                  };
+                })}
+              />
+            </DashboardPanel>
+          ) : null}
+        </>
+      ) : null}
       {usage?.days?.length ? (
         <DashboardPanel title={t("API hits each day")}>
           <TimeBars
             ariaLabel={t("API hits each day")}
-            height={140}
+            height={120}
             valueFormat={count}
             data={usage.days.map((d) => ({
               key: d.day,
@@ -336,81 +521,162 @@ function IndexerDetail({ row, data }: { row: SourceRow; data: StatsData }) {
           />
         </DashboardPanel>
       ) : null}
-      {searches ? (
-        <DashboardPanel title={t("Searches")}>
-          <StackedColumns
-            ariaLabel={t("Searches each day, with and without results")}
-            aLabel={t("Found releases")}
-            bLabel={t("Nothing found")}
-            height={140}
-            valueFormat={count}
-            data={days.map((day, i) => {
-              const ok = daily(days, mine, (d) => d.successes)[i]!;
-              return {
-                key: day,
-                label: dayLabel(day),
-                a: ok,
-                b: daily(days, mine, (d) => d.searches)[i]! - ok,
-              };
-            })}
-          />
-        </DashboardPanel>
-      ) : null}
     </>
   );
 }
 
-function DebridDetail({ row, data }: { row: SourceRow; data: StatsData }) {
-  const h = data.history;
+function DebridDetail({ row, data, h }: { row: SourceRow; data: StatsData; h: SourceHistory }) {
   const days = windowDays(h);
   const p = data.debrid?.providers?.find((x) => x.id === row.id);
   const mine = (h.debridDays ?? []).filter((d) => d.id === row.id);
+  // Plays record the account they streamed from by its name.
+  const plays = (h.plays ?? []).filter((x) => x.origin === row.name);
   const requests = sum(mine, (d) => d.requests);
   const failures = sum(mine, (d) => d.failures);
   const cached = sum(mine, (d) => d.cached);
   const notCached = sum(mine, (d) => d.notCached);
+  const bytes = sum(mine, (d) => d.bytes ?? 0);
+  const playCount = sum(plays, (x) => x.plays);
+  const life = h.lifetime?.debrid?.find((x) => x.id === row.id);
   const l = p?.latency;
   return (
     <>
-      <Block title={tn(h.days, "Last {count} day", "Last {count} days")}>
+      <Totals
+        h={h}
+        since={life?.firstDay}
+        items={[
+          {
+            label: t("Data downloaded"),
+            value: formatGB(bytes),
+            lifetime: life ? formatGB(life.bytes) : undefined,
+          },
+          {
+            label: t("Plays"),
+            value: count(playCount),
+            hint: playCount
+              ? tn(
+                  sum(plays, (x) => x.failed),
+                  "{count} failed play",
+                  "{count} failed plays",
+                )
+              : undefined,
+          },
+          {
+            label: t("Requests"),
+            value: count(requests),
+            lifetime: life ? count(life.requests) : undefined,
+          },
+          {
+            label: t("Success"),
+            value: pct(ratio(requests - failures, requests)),
+            lifetime: life ? pct(ratio(life.requests - life.failures, life.requests)) : undefined,
+          },
+          {
+            label: t("Cached when checked"),
+            value: pct(ratio(cached, cached + notCached)),
+            lifetime: life ? pct(ratio(life.cached, life.cached + life.notCached)) : undefined,
+          },
+        ]}
+      />
+      <Block title={t("Details")}>
         <Facts>
-          <Fact label={t("Requests")}>{count(requests)}</Fact>
           <Fact label={t("Failures")}>{count(failures)}</Fact>
-          <Fact label={t("Success")}>{pct(ratio(requests - failures, requests))}</Fact>
           <Fact
-            label={t("Cached when checked")}
+            label={t("Cache checks")}
             hint={t("{cached} cached · {missing} not cached", {
               cached: count(cached),
               missing: count(notCached),
             })}
           >
-            {pct(ratio(cached, cached + notCached))}
+            {count(cached + notCached)}
           </Fact>
           <Fact label={t("Refused files")} hint={t("Cached files the service would not serve")}>
             {count(sum(mine, (d) => d.blocked))}
           </Fact>
           <Fact label={t("Links refreshed")}>{count(sum(mine, (d) => d.linksRefreshed))}</Fact>
           <Fact label={t("Reused from the account")}>{count(sum(mine, (d) => d.reused))}</Fact>
+          <Fact label={t("Failovers")}>{count(sum(plays, (x) => x.failovers))}</Fact>
         </Facts>
       </Block>
-      {requests ? (
-        <DashboardPanel title={t("Requests each day")}>
-          <StackedColumns
-            ariaLabel={t("Debrid requests each day, succeeded and failed")}
-            aLabel={t("Succeeded")}
-            bLabel={t("Failed")}
-            height={140}
-            valueFormat={count}
-            data={days.map((day, i) => {
-              const n = daily(days, mine, (d) => d.requests)[i]!;
-              const bad = daily(days, mine, (d) => d.failures)[i]!;
-              return { key: day, label: dayLabel(day), a: n - bad, b: bad };
-            })}
-          />
-        </DashboardPanel>
-      ) : (
-        <p className="text-sm text-fg-muted">{t("No requests recorded in this period.")}</p>
-      )}
+      {multiDay(h) ? (
+        <>
+          <DashboardPanel title={t("Downloaded each day (GB)")}>
+            {bytes ? (
+              <TimeBars
+                ariaLabel={t("Gigabytes streamed from this account each day")}
+                height={140}
+                valueFormat={(v) => fixed(v, v > 0 && v < 10 ? 1 : 0)}
+                data={days.map((day, i) => ({
+                  key: day,
+                  label: dayLabel(day),
+                  value: daily(days, mine, (d) => (d.bytes ?? 0) / 1e9)[i]!,
+                }))}
+              />
+            ) : (
+              <Quiet>
+                {t(
+                  "No data recorded for this account in this period. Ether records it per account from version 0.3.6.",
+                )}
+              </Quiet>
+            )}
+          </DashboardPanel>
+          {playCount ? (
+            <DashboardPanel title={t("Plays each day")}>
+              <StackedColumns
+                ariaLabel={t("Plays from this account each day, played and failed")}
+                aLabel={t("Played")}
+                bLabel={t("Failed")}
+                height={120}
+                valueFormat={count}
+                data={days.map((day, i) => {
+                  const bad = daily(days, plays, (x) => x.failed)[i]!;
+                  return {
+                    key: day,
+                    label: dayLabel(day),
+                    a: daily(days, plays, (x) => x.plays)[i]! - bad,
+                    b: bad,
+                  };
+                })}
+              />
+            </DashboardPanel>
+          ) : null}
+          <DashboardPanel title={t("Requests each day")}>
+            {requests ? (
+              <StackedColumns
+                ariaLabel={t("Debrid requests each day, succeeded and failed")}
+                aLabel={t("Succeeded")}
+                bLabel={t("Failed")}
+                height={120}
+                valueFormat={count}
+                data={days.map((day, i) => {
+                  const n = daily(days, mine, (d) => d.requests)[i]!;
+                  const bad = daily(days, mine, (d) => d.failures)[i]!;
+                  return { key: day, label: dayLabel(day), a: n - bad, b: bad };
+                })}
+              />
+            ) : (
+              <Quiet>{t("No requests recorded in this period.")}</Quiet>
+            )}
+          </DashboardPanel>
+          {cached + notCached ? (
+            <DashboardPanel title={t("Cache checks each day")}>
+              <StackedColumns
+                ariaLabel={t("Cache checks each day, cached and not cached")}
+                aLabel={t("Cached")}
+                bLabel={t("Not cached")}
+                height={120}
+                valueFormat={count}
+                data={days.map((day, i) => ({
+                  key: day,
+                  label: dayLabel(day),
+                  a: daily(days, mine, (d) => d.cached)[i]!,
+                  b: daily(days, mine, (d) => d.notCached)[i]!,
+                }))}
+              />
+            </DashboardPanel>
+          ) : null}
+        </>
+      ) : null}
       {p ? (
         <Block title={t("Right now")}>
           <LastError message={p.lastError} />
@@ -512,16 +778,27 @@ function PluginDetail({ row }: { row: SourceRow }) {
 export function SourceDrawer({
   row,
   data,
+  days,
   onClose,
   onSaved,
 }: {
   row: SourceRow | null;
   data: StatsData | undefined;
+  /** The page's period; the drawer starts there and can pick its own. */
+  days: Period;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
+  const [period, setPeriod] = useState<Period>(days);
+  useEffect(() => setPeriod(days), [days, row?.key]);
+  const h = useDrawerHistory(data?.history, period);
   const month = data?.infra?.providerMonth?.find((p) => p.id === row?.id);
   const plays = data?.infra?.monthPlays ?? 0;
+  const backfill =
+    row?.kind === "usenet" && data
+      ? usenetProviders(data).find((p) => p.id === row.id)?.sample?.backfill
+      : false;
+  const timed = row ? row.kind !== "iptv" && row.kind !== "plugin" : false;
   return (
     <Drawer
       open={row != null}
@@ -540,15 +817,22 @@ export function SourceDrawer({
         <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-2">
             <HealthLabel health={row.health} label={row.healthLabel} />
-            {row.kind === "usenet" &&
-            data.infra?.snapshots.providers?.data?.find((p) => (p.id || p.host) === row.id)
-              ?.backfill ? (
-              <Badge variant="secondary">{t("Backfill")}</Badge>
+            {backfill ? <Badge variant="secondary">{t("Backfill")}</Badge> : null}
+            {timed ? (
+              <Segmented
+                className="ml-auto"
+                ariaLabel={t("Period for {name}", { name: row.name })}
+                size="sm"
+                value={period}
+                onChange={setPeriod}
+                options={periodOptions()}
+              />
             ) : null}
           </div>
-          {row.kind === "usenet" ? <UsenetDetail row={row} data={data} /> : null}
-          {row.kind === "indexer" ? <IndexerDetail row={row} data={data} /> : null}
-          {row.kind === "debrid" ? <DebridDetail row={row} data={data} /> : null}
+          {timed && !h ? <LoadingRows rows={3} /> : null}
+          {row.kind === "usenet" && h ? <UsenetDetail row={row} data={data} h={h} /> : null}
+          {row.kind === "indexer" && h ? <IndexerDetail row={row} data={data} h={h} /> : null}
+          {row.kind === "debrid" && h ? <DebridDetail row={row} data={data} h={h} /> : null}
           {row.kind === "iptv" ? <IptvDetail row={row} data={data} /> : null}
           {row.kind === "plugin" ? <PluginDetail row={row} /> : null}
           <PlanPrice

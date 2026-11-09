@@ -38,11 +38,13 @@ const INDEXERS = [
   { name: "Stream Addon", searches: 95, success: 0.92, latency: 260, grabs: 0 },
 ];
 const DEBRID = [
-  { id: "rd-1", requests: 210, fail: 0.015, cached: 0.78 },
-  { id: "tb-1", requests: 38, fail: 0.09, cached: 0.52 },
+  { id: "rd-1", name: "Real-Debrid", requests: 210, fail: 0.015, cached: 0.78, gb: 26 },
+  { id: "tb-1", name: "TorBox backup", requests: 38, fail: 0.09, cached: 0.52, gb: 3.5 },
 ];
+/** Per-account data is recorded from a later build than the other debrid counters. */
+const DEBRID_BYTES_DAYS = 9;
 
-export function sourceHistory(n: number) {
+export function sourceHistory(n: number, withLifetime = true) {
   const window = days(n);
   const plays: object[] = [];
   const providerDays: object[] = [];
@@ -53,7 +55,8 @@ export function sourceHistory(n: number) {
     const l = (key: string) => load(day, i, n, key);
     for (const [origin, base] of [
       ["Usenet", 14],
-      ["Debrid", 9],
+      ["Real-Debrid", 8],
+      ["TorBox backup", 1.5],
       ["HTTP", 2],
     ] as const) {
       const count = Math.round(base * l(origin));
@@ -120,6 +123,7 @@ export function sourceHistory(n: number) {
         blocked: noise(`bl${d.id}${day}`) > 0.85 ? 1 : 0,
         linksRefreshed: Math.round(requests * 0.03),
         reused: Math.round(requests * 0.12),
+        bytes: i >= n - DEBRID_BYTES_DAYS ? Math.round(d.gb * 1e9 * l(`b${d.id}`)) : 0,
       });
     }
     const hits = Math.round(blocks * (1.4 + 0.6 * noise(`hit${day}`)));
@@ -135,6 +139,29 @@ export function sourceHistory(n: number) {
       errors: noise(`se${day}`) > 0.9 ? 1 : 0,
     });
   });
+  // Today's plays spread over the UTC hours so far, matching the day's total.
+  const hours: object[] = [];
+  if (n === 1) {
+    const now = new Date().getUTCHours();
+    type P = { origin: string; plays: number; failovers: number; failed: number };
+    for (const p of plays as P[]) {
+      const weights = Array.from({ length: now + 1 }, (_, h) => 0.2 + noise(`h${p.origin}${h}`));
+      const total = weights.reduce((a, w) => a + w, 0);
+      let left = { plays: p.plays, failovers: p.failovers, failed: p.failed };
+      weights.forEach((w, hour) => {
+        const last = hour === now;
+        const take = (k: keyof typeof left) =>
+          last ? left[k] : Math.min(left[k], Math.round((p[k] * w) / total));
+        const row = { plays: take("plays"), failovers: take("failovers"), failed: take("failed") };
+        left = {
+          plays: left.plays - row.plays,
+          failovers: left.failovers - row.failovers,
+          failed: left.failed - row.failed,
+        };
+        if (row.plays) hours.push({ hour, origin: p.origin, ...row });
+      });
+    }
+  }
   return {
     days: n,
     since: window[0],
@@ -144,6 +171,54 @@ export function sourceHistory(n: number) {
     indexerDays,
     debridDays,
     streamDays,
+    hours,
+    lifetime: withLifetime ? lifetime() : null,
+  };
+}
+
+type Row = Record<string, number | string>;
+const add = (rows: Row[], key: string, id: string, field: string) =>
+  rows.filter((r) => r[key] === id).reduce((n, r) => n + Number(r[field] ?? 0), 0);
+const first = (rows: Row[], key: string, id: string) =>
+  rows.filter((r) => r[key] === id && Number(r.requests ?? 1) > 0).map((r) => String(r.day))[0] ??
+  "";
+
+/**
+ * All-time totals: Usenet and indexers have about a year more history than
+ * the 90-day window (four times it); debrid history is all inside it.
+ */
+function lifetime() {
+  const h = sourceHistory(90, false);
+  const p = h.providerDays as Row[];
+  const x = h.indexerDays as Row[];
+  const d = h.debridDays as Row[];
+  const older = iso(Date.now() - 400 * DAY);
+  return {
+    providers: PROVIDERS.map(({ id }) => ({
+      id,
+      firstDay: older,
+      bytes: 4 * add(p, "id", id, "bytes"),
+      articles: 4 * add(p, "id", id, "articles"),
+      misses: 4 * add(p, "id", id, "misses"),
+      errors: 4 * add(p, "id", id, "errors"),
+    })),
+    indexers: INDEXERS.map(({ name }) => ({
+      indexer: name,
+      firstDay: older,
+      searches: 4 * add(x, "indexer", name, "searches"),
+      successes: 4 * add(x, "indexer", name, "successes"),
+      grabs: 4 * add(x, "indexer", name, "grabs"),
+      grabSuccess: 4 * add(x, "indexer", name, "grabSuccess"),
+    })),
+    debrid: DEBRID.map(({ id }) => ({
+      id,
+      firstDay: first(d, "id", id),
+      requests: add(d, "id", id, "requests"),
+      failures: add(d, "id", id, "failures"),
+      cached: add(d, "id", id, "cached"),
+      notCached: add(d, "id", id, "notCached"),
+      bytes: add(d, "id", id, "bytes"),
+    })),
   };
 }
 

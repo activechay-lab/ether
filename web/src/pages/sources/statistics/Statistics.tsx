@@ -3,11 +3,11 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ErrorPanel, LoadingRows } from "../../../components/feedback";
 import { Segmented } from "../../../components/fields";
 import { PageSubtabs } from "../../../components/layout";
-import { localized, t, tn } from "../../../i18n";
+import { localized, t } from "../../../i18n";
 import { useLocale } from "../../../i18n/react";
 import { useInterval } from "../../../lib/hooks";
 import { usePluginSourceSummaries } from "../PluginSources";
-import { PERIODS, periodOf, sourceRows, useSourceStats } from "./data";
+import { periodOf, periodOptions, sourceRows, useSourceStats } from "./data";
 import { SourceDashboard } from "./Dashboard";
 import { SourceDrawer } from "./SourceDrawer";
 import { SourceUsageTable } from "./UsageTable";
@@ -80,6 +80,7 @@ export function SourceStatistics() {
       <SourceDrawer
         row={selected}
         data={stats.data}
+        days={days}
         onClose={() => setSource(null)}
         onSaved={() => stats.reload()}
       />
@@ -105,10 +106,7 @@ export function StatisticsPeriod() {
           { preventScrollReset: true },
         )
       }
-      options={PERIODS.map((n) => ({
-        value: n,
-        label: tn(Number(n), "Last {count} day", "Last {count} days"),
-      }))}
+      options={periodOptions()}
     />
   );
 }

@@ -1,6 +1,12 @@
 import { DashboardPanel } from "@braedonsaunders/appkit-dashboard/primitives";
-import { DatabaseZap, HardDriveDownload, PlayCircle, Search } from "lucide-react";
-import { RankedBars, SeriesLines, StackedColumns, type Viz } from "../../../components/charts";
+import { Cloud, DatabaseZap, Newspaper, Search } from "lucide-react";
+import {
+  RankedBars,
+  SeriesLines,
+  SplitBar,
+  StackedColumns,
+  type Viz,
+} from "../../../components/charts";
 import { Kpi, KpiRow } from "../../../components/Kpi";
 import { t, tn } from "../../../i18n";
 import { fixed, formatNumber, formatPercent } from "../../../lib/format";
@@ -14,6 +20,7 @@ import {
   type SourceRow,
   type StatsData,
 } from "./data";
+import { SourceOverview } from "./Overview";
 
 /** Fixed colours so each source type reads the same in every chart. */
 const ORIGIN_COLOR: Record<string, Viz> = {
@@ -47,6 +54,7 @@ function Empty() {
 /** Statistics › Dashboard: what every source did over the period, day by day. */
 export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceRow[] }) {
   const h = data.history;
+  const today = h.days === 1;
   const days = windowDays(h);
   const labels = days.map(dayLabel);
   const plays = h.plays ?? [];
@@ -56,12 +64,14 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
   const stream = h.streamDays ?? [];
 
   const totalPlays = sum(plays, (p) => p.plays);
-  const failovers = sum(plays, (p) => p.failovers);
-  const failed = sum(plays, (p) => p.failed);
   const usenetBytes = sum(providers, (d) => d.bytes);
   const debridBytes = sum(stream, (d) => d.bytesFetched);
   const searches = sum(indexers, (d) => d.searches);
   const found = sum(indexers, (d) => d.successes);
+  const articles = sum(providers, (d) => d.articles);
+  const missing = sum(providers, (d) => d.misses + d.errors);
+  const requests = sum(debrid, (d) => d.requests);
+  const requestFailures = sum(debrid, (d) => d.failures);
   const hits = sum(stream, (d) => d.memoryHits + d.diskHits);
   const fetched = sum(stream, (d) => d.blocksFetched);
 
@@ -131,30 +141,24 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
     <>
       <KpiRow>
         <Kpi
-          label={t("Plays")}
-          value={formatNumber(totalPlays, 0)}
+          label={t("Article success")}
+          value={pct(ratio(articles, articles + missing))}
           detail={
-            totalPlays
-              ? [
-                  tn(failovers, "{count} failover", "{count} failovers"),
-                  tn(failed, "{count} failed play", "{count} failed plays"),
-                ].join(" · ")
-              : undefined
+            articles + missing
+              ? tn(
+                  missing,
+                  "{count} missing or failed article",
+                  "{count} missing or failed articles",
+                )
+              : t("No Usenet downloads in this period")
           }
-          icon={<PlayCircle size={18} />}
+          icon={<Newspaper size={18} />}
         />
         <Kpi
-          label={t("Downloaded")}
-          value={formatGB(usenetBytes + debridBytes)}
-          detail={
-            debridBytes
-              ? t("Usenet {usenet} · Debrid {debrid}", {
-                  usenet: formatGB(usenetBytes),
-                  debrid: formatGB(debridBytes),
-                })
-              : t("From Usenet providers")
-          }
-          icon={<HardDriveDownload size={18} />}
+          label={t("Debrid success")}
+          value={pct(ratio(requests - requestFailures, requests))}
+          detail={tn(requests, "{count} debrid request", "{count} debrid requests")}
+          icon={<Cloud size={18} />}
           tone="info"
         />
         <Kpi
@@ -180,31 +184,34 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
         />
       </KpiRow>
 
-      <DashboardPanel title={t("Plays by source")}>
-        {totalPlays ? (
-          <SeriesLines
-            ariaLabel={t("Plays each day by source")}
-            labels={labels}
-            valueFormat={(v) => formatNumber(v, 0)}
-            series={origins.slice(0, 4).map((o, i) => ({
-              key: o,
-              label: originLabel(o),
-              color: ORIGIN_COLOR[o] ?? SPARE[i % SPARE.length]!,
-              values: daily(
-                days,
-                plays.filter((p) => p.origin === o),
-                (p) => p.plays,
-              ),
-            }))}
-          />
-        ) : (
-          <Empty />
-        )}
-      </DashboardPanel>
+      <SourceOverview data={data} />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <DashboardPanel title={t("Data downloaded (GB)")}>
-          {usenetBytes + debridBytes ? (
+        <DashboardPanel title={today ? t("Data downloaded") : t("Data downloaded (GB)")}>
+          {!(usenetBytes + debridBytes) ? (
+            <Empty />
+          ) : today ? (
+            <SplitBar
+              ariaLabel={t("Data downloaded by source")}
+              valueFormat={formatGB}
+              data={rows
+                .filter((r) => r.kind === "usenet" || r.kind === "debrid")
+                .map((r) => ({
+                  key: r.key,
+                  label: r.name,
+                  value:
+                    r.kind === "usenet"
+                      ? sum(
+                          providers.filter((d) => d.id === r.id),
+                          (d) => d.bytes,
+                        )
+                      : sum(
+                          debrid.filter((d) => d.id === r.id),
+                          (d) => d.bytes ?? 0,
+                        ),
+                }))}
+            />
+          ) : (
             <SeriesLines
               ariaLabel={t("Gigabytes downloaded each day, Usenet and debrid")}
               labels={labels}
@@ -228,12 +235,23 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
                   : []),
               ]}
             />
-          ) : (
-            <Empty />
           )}
         </DashboardPanel>
-        <DashboardPanel title={t("Success rate (%)")}>
-          {successSeries.length ? (
+        <DashboardPanel title={today ? t("Success rate") : t("Success rate (%)")}>
+          {!successSeries.length ? (
+            <Empty />
+          ) : today ? (
+            <RankedBars
+              color="viz-4"
+              ariaLabel={t("Success rate by source type")}
+              valueFormat={(v) => pct(v / 100)}
+              data={successSeries.map((s) => ({
+                key: s.key,
+                label: s.label,
+                value: s.values[0] ?? 0,
+              }))}
+            />
+          ) : (
             <SeriesLines
               ariaLabel={t("Success rate each day by source type")}
               labels={labels}
@@ -245,15 +263,22 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
                 values,
               }))}
             />
-          ) : (
-            <Empty />
           )}
         </DashboardPanel>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <DashboardPanel title={t("Indexer searches")}>
-          {searches ? (
+          {searches && today ? (
+            <SplitBar
+              ariaLabel={t("Indexer searches, with and without results")}
+              valueFormat={(v) => formatNumber(v, 0)}
+              data={[
+                { key: "found", label: t("Found releases"), value: found, color: "viz-1" },
+                { key: "none", label: t("Nothing found"), value: searches - found, color: "viz-3" },
+              ]}
+            />
+          ) : searches ? (
             <StackedColumns
               ariaLabel={t("Indexer searches each day, with and without results")}
               aLabel={t("Found releases")}
@@ -270,7 +295,16 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
           )}
         </DashboardPanel>
         <DashboardPanel title={t("Debrid stream cache")}>
-          {hits + fetched ? (
+          {hits + fetched && today ? (
+            <SplitBar
+              ariaLabel={t("Debrid blocks from cache and from the service")}
+              valueFormat={(v) => formatNumber(v, 0)}
+              data={[
+                { key: "cache", label: t("From cache"), value: hits, color: "viz-1" },
+                { key: "fetched", label: t("Downloaded"), value: fetched, color: "viz-3" },
+              ]}
+            />
+          ) : hits + fetched ? (
             <StackedColumns
               ariaLabel={t("Debrid blocks each day, from cache and from the service")}
               aLabel={t("From cache")}
@@ -293,28 +327,23 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <DashboardPanel title={t("Failovers and failed plays")}>
-          {failovers + failed ? (
-            <StackedColumns
-              ariaLabel={t("Failovers and failed plays each day")}
-              aLabel={t("Failovers")}
-              bLabel={t("Failed plays")}
-              height={160}
-              valueFormat={(v) => formatNumber(v, 0)}
-              data={days.map((day, i) => {
-                const d = plays.filter((x) => x.day === day);
-                return {
-                  key: day,
-                  label: labels[i]!,
-                  a: sum(d, (x) => x.failovers),
-                  b: sum(d, (x) => x.failed),
-                };
-              })}
+        <DashboardPanel title={t("Plays by source")}>
+          {totalPlays ? (
+            <SplitBar
+              ariaLabel={t("Plays by source")}
+              valueFormat={(v) => tn(v, "{count} play", "{count} plays")}
+              data={origins.map((o, i) => ({
+                key: o,
+                label: originLabel(o),
+                value: sum(
+                  plays.filter((p) => p.origin === o),
+                  (p) => p.plays,
+                ),
+                color: ORIGIN_COLOR[o] ?? SPARE[i % SPARE.length],
+              }))}
             />
           ) : (
-            <p className="py-6 text-center text-sm text-fg-muted">
-              {t("No failovers or failed plays in this period.")}
-            </p>
+            <Empty />
           )}
         </DashboardPanel>
         <DashboardPanel title={t("Busiest indexers")}>

@@ -155,6 +155,29 @@ function backend(cluster = false) {
           debridDays: [],
           streamDays: [],
         };
+      else if (url.endsWith("/config"))
+        v = {
+          config: {
+            usenet: {
+              providers: [
+                {
+                  id: "provider-key",
+                  name: "My news provider",
+                  host: "news.example",
+                  priority: 0,
+                  enabled: true,
+                },
+                {
+                  id: "spare-key",
+                  name: "Spare block",
+                  host: "spare.example",
+                  priority: 1,
+                  enabled: true,
+                },
+              ],
+            },
+          },
+        };
       else if (url.endsWith("/stats/infrastructure"))
         v = {
           snapshots: {
@@ -407,6 +430,16 @@ describe("Source statistics", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("lists a configured Usenet provider that has no traffic or live sample", async () => {
+    backend();
+    renderAt("/sources/statistics/usage");
+    fireEvent.click(await screen.findByText("Spare block", {}, WAIT));
+    expect(await screen.findByText("Totals · Last 7 days", {}, WAIT)).toBeInTheDocument();
+    expect(
+      screen.getByText("Nothing downloaded from this provider in this period."),
+    ).toBeInTheDocument();
   });
 
   it("shows an indexer's real API hits by purpose in its drawer", async () => {

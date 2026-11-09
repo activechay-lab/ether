@@ -1,9 +1,9 @@
 import { EmptyState, PagedTable, cn } from "@braedonsaunders/appkit-ui";
 import { Database } from "lucide-react";
-import { t, tn } from "../../../i18n";
+import { t } from "../../../i18n";
 import { pagedTableLabels } from "../../../i18n/appkit-labels";
 import { fixed, formatNumber, formatPercent } from "../../../lib/format";
-import { KIND_LABEL, type Health, type SourceRow } from "./data";
+import { KIND_LABEL, periodLabel, type Health, type SourceRow } from "./data";
 
 export const HEALTH_DOT: Record<Health, string> = {
   ok: "bg-success",
@@ -127,11 +127,16 @@ export function SourceUsageTable({
             sortValue: (r) => ["danger", "warning", "off", "ok"].indexOf(r.health),
             cell: (r) => <HealthLabel health={r.health} label={r.healthLabel} />,
           },
-          {
-            key: "activity",
-            header: tn(days, "Last {count} day", "Last {count} days"),
-            cell: (r) => <Activity values={r.series} />,
-          },
+          // A one-day window has no daily trend to draw.
+          ...(days > 1
+            ? [
+                {
+                  key: "activity",
+                  header: periodLabel(days),
+                  cell: (r: SourceRow) => <Activity values={r.series} />,
+                },
+              ]
+            : []),
           {
             key: "usage",
             header: t("Usage"),
