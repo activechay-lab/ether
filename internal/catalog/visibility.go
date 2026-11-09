@@ -18,7 +18,11 @@ func (c *Catalog) visibilityFilter() *libraryfilter.Filter {
 
 // visibleFor is visibleWith for ctx's viewer, failing closed for a strict one.
 func (c *Catalog) visibleFor(ctx context.Context, f *libraryfilter.Filter, t *core.Title) bool {
-	return c.strictVisible(f, c.strictViewer(core.CatalogViewerID(ctx), core.CatalogViewerRestricted(ctx)), t)
+	id := core.CatalogViewerID(ctx)
+	if t != nil && !c.hasCustomViewerRules(id) && c.isTitleOrShowOwnerIncluded(t) {
+		return c.visibleWith(nil, t)
+	}
+	return c.strictVisible(f, c.strictViewer(id, core.CatalogViewerRestricted(ctx)), t)
 }
 
 // visibilityFor picks the precompiled filter for ctx. An explicit search
@@ -38,11 +42,17 @@ func (c *Catalog) searchFilter() *libraryfilter.Filter {
 
 // Visible applies every visibility rule, as browsing and recommendations do.
 func (c *Catalog) Visible(t *core.Title) bool {
+	if c.isTitleOrShowOwnerIncluded(t) {
+		return c.visibleWith(nil, t)
+	}
 	return c.visibleWith(c.visibilityFilter(), t)
 }
 
 // SearchVisible skips rules limited to browsing, for explicit search results.
 func (c *Catalog) SearchVisible(t *core.Title) bool {
+	if c.isTitleOrShowOwnerIncluded(t) {
+		return c.visibleWith(nil, t)
+	}
 	return c.visibleWith(c.searchFilter(), t)
 }
 
@@ -116,7 +126,9 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 	// "hide rated R and above" would show an uncertified search hit. Titles
 	// the catalogue holds details for are judged on those details, as
 	// browsing judges them; anything else that is undecidable is dropped.
-	strict := !f.Passive() && c.strictViewer(core.CatalogViewerID(ctx), core.CatalogViewerRestricted(ctx))
+	viewerID := core.CatalogViewerID(ctx)
+	allowIncluded := !c.hasCustomViewerRules(viewerID)
+	strict := !f.Passive() && c.strictViewer(viewerID, core.CatalogViewerRestricted(ctx))
 	detailed := map[int]bool{}
 	if strict {
 		for chunk := range store.Chunks(ts, batch) {
@@ -135,10 +147,11 @@ func (c *Catalog) FilterVisibility(ctx context.Context, ts []core.Title) []core.
 	}
 	keep := out[:0]
 	for i := range out {
-		if strict && !detailed[i] && !f.Decidable(&out[i]) {
+		included := allowIncluded && c.isTitleOrShowOwnerIncluded(&out[i])
+		if !included && strict && !detailed[i] && !f.Decidable(&out[i]) {
 			continue
 		}
-		if !f.Hidden(&out[i]) && (c.upcomingMovie(&out[i]) || !(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&out[i], c.now())) {
+		if (included || !f.Hidden(&out[i])) && (c.upcomingMovie(&out[i]) || !(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&out[i], c.now())) {
 			keep = append(keep, out[i])
 		}
 	}

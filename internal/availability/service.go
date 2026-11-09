@@ -115,6 +115,13 @@ func New(d Deps) (*Service, error) {
 			return hiddenPolicy(hiddenMovies, snap), hiddenPolicy(hiddenShows, snap)
 		})
 	}
+	if c, ok := d.Catalog.(interface {
+		SetReleaseGate(func(context.Context, core.Title) bool)
+	}); ok {
+		c.SetReleaseGate(func(ctx context.Context, t core.Title) bool {
+			return len(s.FilterDiscovery(ctx, []core.Title{t})) == 1
+		})
+	}
 	return s, nil
 }
 

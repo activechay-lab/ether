@@ -245,6 +245,16 @@ func (c *Catalog) viewerFilter(id int64, search bool) *libraryfilter.Filter {
 	return c.visibilityFilter()
 }
 
+func (c *Catalog) hasCustomViewerRules(id int64) bool {
+	if id == 0 {
+		return false
+	}
+	c.viewerRules.RLock()
+	v, ok := c.viewerRules.entries[id]
+	c.viewerRules.RUnlock()
+	return ok && v.document.Mode == "custom"
+}
+
 // strictViewer reports a viewer whose catalogue rules must fail closed on
 // titles they cannot judge: one with their own ("custom") rule set, or a
 // restricted one (a rating cap or section limits). The owner, inheriting and
@@ -253,13 +263,7 @@ func (c *Catalog) strictViewer(id int64, restricted bool) bool {
 	if restricted {
 		return true
 	}
-	if id == 0 {
-		return false
-	}
-	c.viewerRules.RLock()
-	v, ok := c.viewerRules.entries[id]
-	c.viewerRules.RUnlock()
-	return ok && v.document.Mode == "custom"
+	return c.hasCustomViewerRules(id)
 }
 
 func userRestricted(u *core.User) bool {
@@ -290,6 +294,9 @@ func (c *Catalog) VisibleForViewer(u *core.User, t *core.Title) bool {
 	var id int64
 	if u != nil {
 		id = u.ID
+	}
+	if t != nil && !c.hasCustomViewerRules(id) && c.isTitleOrShowOwnerIncluded(t) {
+		return c.visibleWith(nil, t)
 	}
 	// Direct lookup and playback retain browsing-only titles.
 	return c.strictVisible(c.viewerFilter(id, true), c.strictViewer(id, userRestricted(u)), t)
@@ -335,6 +342,9 @@ func (c *Catalog) DiscoveryVisibleForViewer(u *core.User, t *core.Title) bool {
 	var id int64
 	if u != nil {
 		id = u.ID
+	}
+	if t != nil && !c.hasCustomViewerRules(id) && c.isTitleOrShowOwnerIncluded(t) {
+		return c.visibleWith(nil, t)
 	}
 	return c.strictVisible(c.viewerFilter(id, false), c.strictViewer(id, userRestricted(u)), t)
 }

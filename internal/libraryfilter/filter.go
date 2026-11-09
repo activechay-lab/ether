@@ -328,22 +328,36 @@ func (f *Filter) Fallback() string {
 	return f.fallback
 }
 
-func (f *Filter) Hidden(t *core.Title) bool {
+// MatchedHideRule evaluates f's ordered rules against t and reports whether t
+// is hidden, along with the matching hide rule's index (index >= 0) or
+// byFallback == true when no rule matched and the default visibility is hide.
+func (f *Filter) MatchedHideRule(t *core.Title) (hidden bool, index int, byFallback bool) {
 	if f == nil || t == nil {
-		return false
+		return false, -1, false
 	}
 	if t.Type != core.TypeMovie && t.Type != core.TypeShow {
-		return false
+		return false, -1, false
 	}
-	for _, g := range f.rules {
+	for i, g := range f.rules {
 		if g.typ != "mixed" && g.typ != string(t.Type) {
 			continue
 		}
 		if g.hit(t) {
-			return g.action == "hide"
+			if g.action == "hide" {
+				return true, i, false
+			}
+			return false, -1, false
 		}
 	}
-	return f.fallback == "hide"
+	if f.fallback == "hide" {
+		return true, -1, true
+	}
+	return false, -1, false
+}
+
+func (f *Filter) Hidden(t *core.Title) bool {
+	hidden, _, _ := f.MatchedHideRule(t)
+	return hidden
 }
 
 // Decidable reports whether every condition of every hide rule that applies

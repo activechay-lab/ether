@@ -75,6 +75,7 @@ var tierTouchSources = []touchSource{
 	{table: "viewer_episode_seen", column: "episode_key", form: touchKeyText, tierA: true},
 	{table: "viewer_push_claims", column: "episode_key", form: touchKeyText},
 	{table: "catalog_owner_tags", column: "key", tierA: true},
+	{table: "catalog_owner_includes", column: "key", tierA: true},
 	{table: "overlays_artwork", column: "item_key", tierA: true},
 	{table: "resolver_pins", column: "rating_key", tierA: true},
 	{table: "resolver_bad", column: "rating_key", tierA: true, where: "manual=1"},

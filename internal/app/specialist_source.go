@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/auth"
@@ -40,10 +41,30 @@ func (a *App) buildSourceRole(ctx context.Context, cfg config.Config) error {
 		}
 		return safety.PlexShare{FilterMovies: d.FilterMovies, FilterTelevision: d.FilterTelevision, AllowSync: d.AllowSync}
 	})
+	a.catalog.SetOwnerContentPolicy(func(ctx context.Context, t *core.Title) bool {
+		if a.users == nil || a.safety == nil {
+			return true
+		}
+		owner, err := a.users.Owner(ctx)
+		if errors.Is(err, core.ErrNotFound) || owner == nil {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+		return a.safety.PolicyAllowed(owner, t)
+	})
 	bus := a.clusterNode()
 	a.users.SetBus(bus)
 	a.safety.SetBus(bus)
-	a.closers = append(a.closers, func() { a.users.Close(); a.safety.Close() })
+	a.catalog.SetViewerRulesBus(bus)
+	a.catalog.SetIncludesBus(bus)
+	a.closers = append(a.closers, func() {
+		a.users.Close()
+		a.safety.Close()
+		a.catalog.SetViewerRulesBus(nil)
+		a.catalog.SetIncludesBus(nil)
+	})
 	cfg.Cache = cfg.EffectiveCache()
 	if err = a.buildSources(ctx, cfg); err != nil {
 		return err

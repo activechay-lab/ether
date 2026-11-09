@@ -20,6 +20,7 @@ import type {
   TasteProfile,
   TitleCard,
   TitleDetail,
+  TitleLibraryStatus,
   Viewer,
   ViewerDetail,
   ViewerHome,
@@ -526,11 +527,18 @@ export const api = {
       hasMore?: boolean;
       nextCursor?: string;
     }>(`/catalog/browse${qs(params)}`, { signal }),
-  searchCatalog: async (q: string, type?: string, limit = 24, signal?: AbortSignal) =>
+  searchCatalog: async (
+    q: string,
+    type?: string,
+    limit = 24,
+    signal?: AbortSignal,
+    all?: boolean,
+  ) =>
     (
-      await apiFetch<{ items: TitleCard[] | null }>(`/catalog/search${qs({ q, type, limit })}`, {
-        signal,
-      })
+      await apiFetch<{ items: TitleCard[] | null }>(
+        `/catalog/search${qs({ q, type, limit, all: all ? 1 : undefined })}`,
+        { signal },
+      )
     ).items ?? [],
   facets: async (type: string, facet: FacetName) =>
     (await apiFetch<{ values: FacetValue[] | null }>(`/catalog/facets${qs({ type, facet })}`))
@@ -543,6 +551,12 @@ export const api = {
       )
     ).results ?? [],
   title: (key: string) => apiFetch<TitleDetail>(`/catalog/title/${encodeURIComponent(key)}`),
+  titleLibrary: (key: string, signal?: AbortSignal) =>
+    apiFetch<TitleLibraryStatus>(`/catalog/title/${encodeURIComponent(key)}/library`, { signal }),
+  includeTitle: (key: string) =>
+    put<TitleLibraryStatus>(`/catalog/title/${encodeURIComponent(key)}/library`, {}),
+  removeIncludedTitle: (key: string) =>
+    send<TitleLibraryStatus>("DELETE", `/catalog/title/${encodeURIComponent(key)}/library`),
 
   // ---- Viewers -------------------------------------------------------------------
   viewers: async () => (await apiFetch<{ viewers: Viewer[] | null }>("/viewers")).viewers ?? [],

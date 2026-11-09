@@ -271,6 +271,12 @@ func (s *Service) Allowed(u *core.User, t *core.Title) bool {
 	if s.catalogAllowed != nil && !s.catalogAllowed(u, t) {
 		return false
 	}
+	return s.PolicyAllowed(u, t)
+}
+
+// PolicyAllowed evaluates mandatory safety and share restrictions for u without
+// consulting catalogue visibility rules.
+func (s *Service) PolicyAllowed(u *core.User, t *core.Title) bool {
 	if t == nil || t.Adult {
 		return false
 	}

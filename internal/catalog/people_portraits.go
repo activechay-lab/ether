@@ -68,7 +68,7 @@ func (c *Catalog) CachedPortraitTitles(ctx context.Context, subjects map[core.Ra
 		}
 		for _, title := range items {
 			upcoming := cfg.ShowUpcomingMovies && title.Type == core.TypeMovie && !title.Released.IsZero() && title.Released.After(now)
-			if !c.cachedListVisible(&title) || title.Adult || (!upcoming && !title.IsReleased(now)) || filter.Hidden(&title) || (!upcoming && cfg.ReleaseMode == config.ModeDigital && !homeReleaseVisible(&title, now)) {
+			if !c.cachedListVisible(&title) || title.Adult || (!upcoming && !title.IsReleased(now)) || (!c.isTitleOrShowOwnerIncluded(&title) && filter.Hidden(&title)) || (!upcoming && cfg.ReleaseMode == config.ModeDigital && !homeReleaseVisible(&title, now)) {
 				continue
 			}
 			out[title.Key] = title

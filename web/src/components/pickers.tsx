@@ -7,7 +7,7 @@ import {
   SearchSelect,
   cn,
 } from "@braedonsaunders/appkit-ui";
-import { Plus, Search, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Plus, Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { localized, t, tn } from "../i18n";
 import { api, errorMessage, isAbort } from "../lib/api";
@@ -427,21 +427,30 @@ export function LookupPicker({
 
 // ---- Title search -------------------------------------------------------------------
 
-/** Search the catalogue and add titles (hand-picked collections, overrides…). */
+export type TitleSearchAction = "add" | "open" | "select";
+
+/** Search the catalogue to open a title, select one, or add titles to a list. */
 export function TitleSearch({
   onPick,
   type,
   excludeKeys,
+  action,
+  includeUnbrowsable,
   placeholder = t("Search the catalogue…"),
   label,
 }: {
   onPick: (title: TitleCard) => void;
   type?: string;
   excludeKeys?: Set<string>;
+  /** Explicit row affordance: "add" for list builders, "open" for inspector, "select" for single-title pickers. */
+  action?: TitleSearchAction;
+  /** Include non-adult titles currently hidden by catalogue rules or release gates. */
+  includeUnbrowsable?: boolean;
   /** Accessible name for the search box. Defaults to "Search titles". */
   label?: string;
   placeholder?: string;
 }) {
+  const resolvedAction: TitleSearchAction = action ?? (excludeKeys ? "add" : "select");
   const [q, setQ] = useState("");
   const debounced = useDebouncedValue(q, 250);
   const [items, setItems] = useState<TitleCard[]>([]);
@@ -457,7 +466,7 @@ export function TitleSearch({
     setLoading(true);
     setError(null);
     api
-      .searchCatalog(needle, type, 12, ctl.signal)
+      .searchCatalog(needle, type, 12, ctl.signal, includeUnbrowsable)
       .then(setItems)
       .catch((e) => {
         if (!isAbort(e)) setError(errorMessage(e));
@@ -466,7 +475,13 @@ export function TitleSearch({
         if (!ctl.signal.aborted) setLoading(false);
       });
     return () => ctl.abort();
-  }, [debounced, type]);
+  }, [debounced, type, includeUnbrowsable]);
+  const actionHint =
+    resolvedAction === "open"
+      ? t("Open title details")
+      : resolvedAction === "add"
+        ? t("Add to list")
+        : t("Select title");
   return (
     <div className="space-y-2">
       <div className="relative">
@@ -499,6 +514,7 @@ export function TitleSearch({
                 <button
                   type="button"
                   disabled={added}
+                  title={added ? undefined : actionHint}
                   onClick={() => onPick(item)}
                   className="flex w-full items-center gap-2.5 rounded-md p-1.5 text-left text-sm hover:bg-surface-hover disabled:opacity-60"
                 >
@@ -516,8 +532,21 @@ export function TitleSearch({
                   </span>
                   {added ? (
                     <Badge variant="secondary">{t("Added")}</Badge>
+                  ) : resolvedAction === "open" ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-fg-muted">
+                      {t("Open")}
+                      <ArrowUpRight size={14} aria-hidden />
+                    </span>
+                  ) : resolvedAction === "add" ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-fg-muted">
+                      {t("Add")}
+                      <Plus size={14} aria-hidden />
+                    </span>
                   ) : (
-                    <Plus size={14} className="text-fg-subtle" />
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-fg-muted">
+                      {t("Select")}
+                      <ChevronRight size={14} aria-hidden />
+                    </span>
                   )}
                 </button>
               </li>

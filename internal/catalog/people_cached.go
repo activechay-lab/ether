@@ -57,7 +57,7 @@ func (c *Catalog) CachedCreditTitles(ctx context.Context, keys []core.RatingKey,
 	}
 	for _, title := range counts {
 		upcoming := cfg.ShowUpcomingMovies && title.Type == core.TypeMovie && !title.Released.IsZero() && title.Released.After(now)
-		if title.Adult || (!upcoming && !title.IsReleased(now)) || filter.Hidden(title) || (!upcoming && (cfg.ReleaseMode == config.ModeDigital) && !homeReleaseVisible(title, now)) || (title.Type == core.TypeSeason && !listableSeason(title, now)) {
+		if title.Adult || (!upcoming && !title.IsReleased(now)) || (!c.isTitleOrShowOwnerIncluded(title) && filter.Hidden(title)) || (!upcoming && (cfg.ReleaseMode == config.ModeDigital) && !homeReleaseVisible(title, now)) || (title.Type == core.TypeSeason && !listableSeason(title, now)) {
 			delete(titles, title.Key)
 		} else {
 			titles[title.Key] = *title

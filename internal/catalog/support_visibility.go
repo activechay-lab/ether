@@ -29,7 +29,7 @@ func (c *Catalog) SupportVisibility(ctx context.Context, key core.RatingKey) (*c
 		return t, "excluded by digital release mode", nil
 	case t.Type == core.TypeSeason && !listableSeason(t, c.now()):
 		return t, "season has no listable released episodes", nil
-	case c.visibilityFilter().Hidden(t):
+	case !c.isTitleOrShowOwnerIncluded(t) && c.visibilityFilter().Hidden(t):
 		return t, "a catalogue visibility rule matches; selection reason not confirmed", nil
 	default:
 		return t, "catalogue gates passed; selection or availability excluded this item", nil

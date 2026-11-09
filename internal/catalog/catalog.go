@@ -229,6 +229,8 @@ type Catalog struct {
 	// filters read the current sets directly, so it keys their caches
 	// instead of invalidating the whole catalogue.
 	consoleGateGen atomic.Uint64
+	ownerPolicy    atomic.Pointer[func(context.Context, *core.Title) bool]
+	releaseGate    atomic.Pointer[func(context.Context, core.Title) bool]
 	listSummaryMu  sync.Mutex
 	listSummaries  map[core.RatingKey]listSummary
 	remoteSearches remoteSearchCache // search_remote_cache.go
@@ -239,6 +241,7 @@ type Catalog struct {
 	metadataProviders map[string]*metadataRegistration
 	metadataFlights   flight.Group[string, *core.Title]
 	viewerRules       viewerRuleCache
+	ownerIncludes     ownerIncludeCache
 	visibility        *libraryfilter.Filter // every rule: browsing and discovery
 	searchVis         *libraryfilter.Filter // rules scoped everywhere: explicit search
 	db                *sql.DB
@@ -473,6 +476,9 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	if err := c.reloadViewerRules(context.Background()); err != nil {
 		return nil, err
 	}
+	if err := c.reloadOwnerIncludes(context.Background()); err != nil {
+		return nil, err
+	}
 	c.loadTierHints(context.Background())
 	ctx := c.startupContext
 	if ctx == nil {
@@ -536,14 +542,14 @@ func MeetsThreshold(cfg config.Catalog, t core.Title, now time.Time) bool {
 		// A title with no date is treated as unreleased.
 		return false
 	}
-	minPop, minVotes := cfg.Bars()
-	popOK := minPop > 0 && t.Popularity >= minPop
-	voteOK := minVotes > 0 && t.VoteCount >= minVotes
-	return popOK || voteOK
+	return meetsBars(cfg, t)
 }
 
 func (c *Catalog) meetsThreshold(t core.Title) bool {
-	return MeetsThreshold(c.config(), t, c.now())
+	if MeetsThreshold(c.config(), t, c.now()) {
+		return true
+	}
+	return (t.Type == core.TypeMovie || t.Type == core.TypeShow) && !t.Adult && t.IsReleased(c.now()) && c.isOwnerIncluded(t.Key)
 }
 
 // SetTMDB replaces the remote metadata client. Nil answers from the local catalogue only.

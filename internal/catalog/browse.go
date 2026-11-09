@@ -637,8 +637,8 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, "("+clause+")")
 		args = append(args, values...)
 	} else if policy := c.viewerFilter(f.CatalogViewerID, false); !f.CatalogCandidates && policy != nil {
-		q, a := policy.SQLHidden()
-		conds = append(conds, "NOT ("+q+")")
+		clause, a := c.policySQLHidden(f.CatalogViewerID, policy)
+		conds = append(conds, clause)
 		args = append(args, a...)
 		// A strict viewer's rules fail closed on rows without details whose
 		// fields they cannot judge, as FilterVisibility and safety do.

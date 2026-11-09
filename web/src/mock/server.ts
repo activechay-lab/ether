@@ -642,6 +642,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const catalog = buildCatalog();
   const byKey = new Map(catalog.map((t) => [t.key, t]));
   const ownerTags = new Map<string, string[]>();
+  const ownerIncludes = new Set<string>();
   const watchlistChanges = new Map<string, boolean>();
   const savedForViewer = (viewerId: number, key: string) =>
     watchlistChanges.get(`${viewerId}:${key}`) ?? Number(key.slice(-2)) % 4 === 0;
@@ -4107,6 +4108,20 @@ export function createFakeServer(opts: FakeOptions = {}) {
             ),
           ]);
         return json({ tags: ownerTags.get(t.key) || [] });
+      }
+      if (seg[3] === "library") {
+        if (method === "PUT") ownerIncludes.add(t.key);
+        else if (method === "DELETE") ownerIncludes.delete(t.key);
+        const included = ownerIncludes.has(t.key);
+        return json({
+          browsable: true,
+          included,
+          inLibraryTier: true,
+          canInclude: false,
+          releaseGated: false,
+          reasons: [],
+          items: [],
+        });
       }
       return json({
         ...card(t),

@@ -1,14 +1,14 @@
 import { PanelSlots, PluginActionMenu } from "../../viewspec/slots/Slots";
-import { Badge, Spinner, SubtabNav } from "@braedonsaunders/appkit-ui";
+import { Badge, Button, Spinner, SubtabNav } from "@braedonsaunders/appkit-ui";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, Film, Star } from "lucide-react";
 import { Artwork } from "../../components/Artwork";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel } from "../../components/feedback";
-import { getLocale, t } from "../../i18n";
+import { getLocale, t, tn } from "../../i18n";
 import { api, apiFetch } from "../../lib/api";
-import type { TitleDetail } from "../../lib/contract";
+import type { TitleDetail, TitleLibraryReason, TitleLibraryStatus } from "../../lib/contract";
 import { formatRating, ratingSource } from "../../lib/contentRatings";
 import { fixed } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
@@ -40,14 +40,22 @@ export function TitleInspector({
   titleKey,
   onClose,
   watchlistAction,
+  onLibraryChange,
 }: {
   titleKey: string;
   onClose: () => void;
   watchlistAction?: ReactNode;
+  onLibraryChange?: () => void;
 }) {
   const state = useAsync(() => api.title(titleKey), [titleKey]);
   const title = state.data;
   const isShow = title?.type === "show";
+  // Loaded after title details settle so the server reads the cached row and
+  // performs one primary-key lookup against catalog_owner_includes.
+  const library = useAsync(
+    (signal) => (title ? api.titleLibrary(title.key, signal) : Promise.resolve(null)),
+    [title?.key],
+  );
   // One schedule read serves Overview's next-episode card, Episodes and Calendar.
   const schedule = useAsync(
     (signal) => (isShow ? titleScheduleApi.show(titleKey, signal) : Promise.resolve(null)),
@@ -130,6 +138,11 @@ export function TitleInspector({
       ) : (
         <Overview
           title={title}
+          library={library.data ?? null}
+          onLibraryReload={async () => {
+            await library.reload();
+            onLibraryChange?.();
+          }}
           next={schedule.data?.next ?? null}
           last={schedule.data?.last ?? null}
           scheduleLoading={isShow && schedule.loading}
@@ -144,8 +157,127 @@ export function TitleInspector({
   );
 }
 
+export function libraryReasonLine(item: TitleLibraryReason): string {
+  switch (item.code) {
+    case "popularity_floor":
+      return tn(
+        item.votes ?? 0,
+        "Below your popularity floor ({count} vote; floor {floor})",
+        "Below your popularity floor ({count} votes; floor {floor})",
+        { floor: item.minVotes ?? 0 },
+      );
+    case "popularity_only_floor":
+      return t("Below your popularity floor ({popularity} popularity; floor {floor})", {
+        popularity: fixed(item.popularity ?? 0, 1),
+        floor: fixed(item.minPopularity ?? 0, 1),
+      });
+    case "search_only":
+      return t("In the search-only index");
+    case "catalog_rule_named":
+      return t("Excluded by your catalogue rule “{rule}”", { rule: item.rule ?? "" });
+    case "catalog_rule":
+      return t("Excluded by your catalogue rules");
+    case "catalog_default_hide":
+      return t("Hidden by your default catalogue visibility");
+    case "release_gate_movie":
+      return t("Waiting for a playable release (new movie)");
+    case "release_gate_show":
+      return t("Waiting for a playable release");
+    case "unreleased":
+      return t("Not released yet");
+    case "content_policy":
+      return t("Excluded by your content rules");
+    case "adult":
+      return t("Adult titles are off");
+    default:
+      return item.message;
+  }
+}
+
+function LibraryStatusSection({
+  titleKey,
+  status,
+  onChanged,
+}: {
+  titleKey: string;
+  status: TitleLibraryStatus | null;
+  onChanged: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  if (!status || (status.browsable && !status.included)) return null;
+
+  const lines =
+    status.items && status.items.length > 0
+      ? status.items.map(libraryReasonLine)
+      : (status.reasons ?? []);
+
+  const act = async (fn: () => Promise<TitleLibraryStatus>) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await fn();
+      await onChanged();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      aria-label={status.browsable ? t("Library") : t("Not in your library")}
+      className="rounded-lg border border-border bg-elevated/50 p-3.5 space-y-2.5"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="m-0">{status.browsable ? t("Library") : t("Not in your library")}</h3>
+          {status.included ? <Badge variant="secondary">{t("Added to library")}</Badge> : null}
+        </div>
+        {status.canInclude ? (
+          <Button
+            size="sm"
+            disabled={saving}
+            onClick={() => void act(() => api.includeTitle(titleKey))}
+          >
+            {t("Add to library")}
+          </Button>
+        ) : status.included ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={saving}
+            onClick={() => void act(() => api.removeIncludedTitle(titleKey))}
+          >
+            {t("Remove from library")}
+          </Button>
+        ) : null}
+      </div>
+      {error ? <ErrorPanel error={error} onRetry={() => setError(null)} /> : null}
+      {!status.browsable && lines.length > 0 ? (
+        <ul className="list-disc space-y-1 pl-4 text-sm text-fg-muted">
+          {lines.map((line, i) => (
+            <li key={`${i}-${line}`}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {!status.browsable && status.releaseGated ? (
+        <p className="text-xs text-fg-muted">
+          {t("This title will appear automatically once a playable release exists.")}
+        </p>
+      ) : null}
+      {status.browsable && status.included ? (
+        <p className="text-sm text-fg-muted">{t("Included in your browsable library by you.")}</p>
+      ) : null}
+    </section>
+  );
+}
+
 function Overview({
   title,
+  library,
+  onLibraryReload,
   next,
   last,
   scheduleLoading,
@@ -156,6 +288,8 @@ function Overview({
   onClose,
 }: {
   title: TitleDetail;
+  library: TitleLibraryStatus | null;
+  onLibraryReload: () => Promise<void>;
   releases: MovieReleases | null;
   next: ScheduleEpisode | null;
   last: ScheduleEpisode | null;
@@ -207,6 +341,7 @@ function Overview({
         </div>
       </div>
       <div className="catalog-detail-body">
+        <LibraryStatusSection titleKey={title.key} status={library} onChanged={onLibraryReload} />
         {isShow ? (
           <NextEpisodeCard
             status={title.status}

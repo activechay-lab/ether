@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -51,6 +52,21 @@ func (a *App) buildIdentity(ctx context.Context, cfg config.Config) error {
 			}
 			return a.cfg.Get().Downloads.AllowFriends
 		})
+		if a.catalog != nil {
+			a.catalog.SetOwnerContentPolicy(func(ctx context.Context, t *core.Title) bool {
+				if a.users == nil || a.safety == nil {
+					return true
+				}
+				owner, err := a.users.Owner(ctx)
+				if errors.Is(err, core.ErrNotFound) || owner == nil {
+					return true
+				}
+				if err != nil {
+					return false
+				}
+				return a.safety.PolicyAllowed(owner, t)
+			})
+		}
 	}
 	if a.certs, err = plextv.NewCertManager(plextv.CertManagerOptions{
 		Dir:            filepath.Join(dataDir, "certs"),

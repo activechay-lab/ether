@@ -751,10 +751,12 @@ export function CatalogBrowser({
       >
         <p className="mb-5 text-sm text-fg-muted">
           {t(
-            "Look beyond your browsable library. Search for a released movie or show to inspect its metadata.",
+            "Look beyond your browsable library. Open a movie or show to see why it isn’t listed or add it to your library.",
           )}
         </p>
         <TitleSearch
+          action="open"
+          includeUnbrowsable
           placeholder={t("Search movies and shows…")}
           onPick={(title) => {
             setLookupOpen(false);
@@ -767,6 +769,10 @@ export function CatalogBrowser({
           key={selected}
           titleKey={selected}
           onClose={() => update("title", "")}
+          onLibraryChange={() => {
+            void browsed.reload();
+            void count.reload();
+          }}
           watchlistAction={
             <>
               {watchlistPicker()}
