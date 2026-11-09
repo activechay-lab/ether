@@ -1,3 +1,6 @@
+// Adapted from AltMount (internal/nzbfilesystem/tsremux.go), MIT License,
+// Copyright (c) 2025 Javier Blanco. See THIRD_PARTY_NOTICES.md.
+
 package stream
 
 // Continuous-timeline remux core for Blu-ray main-feature virtual files.
@@ -201,6 +204,15 @@ func clipSpans(clips []clipBoundary) []clipSpan {
 // 192-byte BDAV source packets, and every packet's PTS, DTS and PCR gets that
 // clip's delta. The transform preserves length, so offsets and the file size
 // are unchanged. read must fill dst with the file's bytes at [from, from+len(dst)).
+//
+// Packets wholly inside buf are rewritten in place. Only the packets cut by
+// the ends of buf (at most two per clip, 192 bytes each) are read again, whole,
+// because their timestamps may sit in the part outside buf.
+//
+// A window is treated as a transport stream when most of its whole packets
+// start with the sync byte; the few that do not (a zero-filled damaged packet)
+// are skipped on their own, and a window that is not a transport stream is left
+// untouched. On error buf may be partly rewritten and must not be served.
 func remux(spans []clipSpan, buf []byte, off int64, read func(dst []byte, from int64) (int, error)) error {
 	end := off + int64(len(buf))
 	for _, sp := range spans {
@@ -208,34 +220,43 @@ func remux(spans []clipSpan, buf []byte, off int64, read func(dst []byte, from i
 			continue
 		}
 		lo, hi := max(off, sp.start), min(end, sp.end+1)
-		// Widen to whole packets of this clip's grid; the clip's own tail
-		// that is not a whole packet stays as it is.
-		wLo := sp.start + (lo-sp.start)/bdavPacketLen*bdavPacketLen
-		wHi := min(sp.end+1, sp.start+(hi-sp.start+bdavPacketLen-1)/bdavPacketLen*bdavPacketLen)
-		win := buf[lo-off : hi-off]
-		if wLo != lo || wHi != hi {
-			win = make([]byte, wHi-wLo)
-			if n, err := read(win, wLo); err != nil && n < len(win) {
+		clipEnd := sp.end + 1
+		first := (lo - sp.start) / bdavPacketLen
+		last := (hi - 1 - sp.start) / bdavPacketLen
+
+		// A packet is whole in buf, an edge packet, or the clip's partial tail.
+		var whole, withSync int64
+		for k := first; k <= last; k++ {
+			ps := sp.start + k*bdavPacketLen
+			if ps+bdavPacketLen > clipEnd || ps < lo || ps+bdavPacketLen > hi {
+				continue
+			}
+			whole++
+			if buf[ps-off+4] == tsSync {
+				withSync++
+			}
+		}
+		if whole > 0 && withSync*2 <= whole {
+			continue // not a transport stream: rewriting would corrupt bytes
+		}
+
+		for k := first; k <= last; k++ {
+			ps := sp.start + k*bdavPacketLen
+			pe := ps + bdavPacketLen
+			if pe > clipEnd {
+				break // the clip's own tail that is not a whole packet stays as it is
+			}
+			if ps >= lo && pe <= hi {
+				rewritePacket(buf[ps-off:pe-off], bdavPacketLen, sp.delta)
+				continue
+			}
+			var pkt [bdavPacketLen]byte
+			if n, err := read(pkt[:], ps); err != nil && n < len(pkt) {
 				return err
 			}
-		}
-		// Every packet of a real transport stream starts with the sync byte;
-		// a window that does not is not one (wrong data, an unexpected
-		// container), and rewriting it would corrupt bytes.
-		isTS := len(win) >= bdavPacketLen
-		for i := 0; i+bdavPacketLen <= len(win); i += bdavPacketLen {
-			if win[i+4] != tsSync {
-				isTS = false
-				break
-			}
-		}
-		if isTS {
-			for i := 0; i+bdavPacketLen <= len(win); i += bdavPacketLen {
-				rewritePacket(win[i:i+bdavPacketLen], bdavPacketLen, sp.delta)
-			}
-		}
-		if wLo != lo || wHi != hi {
-			copy(buf[lo-off:hi-off], win[lo-wLo:])
+			rewritePacket(pkt[:], bdavPacketLen, sp.delta)
+			cLo, cHi := max(ps, lo), min(pe, hi)
+			copy(buf[cLo-off:cHi-off], pkt[cLo-ps:cHi-ps])
 		}
 	}
 	return nil

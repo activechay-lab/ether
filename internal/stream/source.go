@@ -199,8 +199,9 @@ func (s *source) read(ctx context.Context, p []byte, off int64, prio core.Priori
 	if len(s.plan.spans) > 0 && n > 0 {
 		// A multi-clip Blu-ray feature gets one continuous timeline.
 		raw := func(dst []byte, from int64) (int, error) { return s.readWithDamageRecovery(ctx, dst, from, prio) }
-		if rerr := remux(s.plan.spans, p[:n], off, raw); rerr != nil && err == nil {
-			err = rerr
+		if rerr := remux(s.plan.spans, p[:n], off, raw); rerr != nil {
+			// The bytes may be partly rewritten: serve none of them.
+			return 0, rerr
 		}
 	}
 	return n, err
