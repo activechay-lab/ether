@@ -510,6 +510,7 @@ func (i *instance) routes() error {
 			w.WriteHeader(204)
 		}},
 		{"GET", "/socket", i.socket},
+		{"GET", "/embywebsocket", i.socket},
 		{"POST", "/Users/AuthenticateByName", func(w http.ResponseWriter, r *http.Request) {
 			var body struct{ Username, Pw string }
 			mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))

@@ -65,7 +65,7 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 	}()
 	writeSessions := func() error {
 		if i.host.Sessions == nil {
-			return nil
+			return write(map[string]any{"MessageType": "Sessions", "Data": []any{}})
 		}
 		rows, err := i.sessionRows(ctx, viewer, device(r))
 		if err != nil {
@@ -107,11 +107,12 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if msg == "KeepAlive" {
+			switch msg {
+			case "KeepAlive":
 				if write(map[string]any{"MessageType": "KeepAlive"}) != nil {
 					return
 				}
-			} else if msg == "SessionsStart" {
+			case "SessionsStart":
 				if cancelSessions != nil {
 					cancelSessions()
 					cancelSessions = nil
@@ -129,12 +130,16 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 				if writeSessions() != nil {
 					return
 				}
-			} else if msg == "SessionsStop" {
+			case "SessionsStop":
 				if cancelSessions != nil {
 					cancelSessions()
 					cancelSessions = nil
 				}
 				sessionEvents = nil
+			case "ScheduledTasksInfoStart":
+				if write(map[string]any{"MessageType": "ScheduledTasksInfo", "Data": []any{}}) != nil {
+					return
+				}
 			}
 		case event, ok := <-sessionEvents:
 			if !ok {

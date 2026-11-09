@@ -1,6 +1,8 @@
 package mediabrowser
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -27,6 +29,8 @@ func (i *instance) clientCompatibilityRoutes() error {
 		{"/Items/{id}/ThemeMedia", i.themeMedia}, {"/Items/{id}/ThemeSongs", i.themeMedia}, {"/Items/{id}/ThemeVideos", i.themeMedia},
 		{"/Items/{id}/PlaybackInfo", i.playbackInfo},
 		{"/Localization/Options", i.emptyOptionalArray},
+		{"/System/WakeOnLanInfo", i.emptyOptionalArray},
+		{"/Users/{userId}/HomeSections", i.homeSections},
 		{"/Artists", i.emptyOptionalItems}, {"/Artists/AlbumArtists", i.emptyOptionalItems},
 		{"/Items/{id}/InstantMix", i.emptyItemCompanions},
 		{"/LiveTv/Timers", i.emptyOptionalItems}, {"/LiveTv/SeriesTimers", i.emptyOptionalItems},
@@ -199,6 +203,63 @@ func (i *instance) emptyItemCompanions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonReply(w, i.queryResult([]any{}, 0, 0))
+}
+
+// homeSections is the Emby home layout the native apps request at startup
+// (GET /Users/{userId}/HomeSections, Emby Server 4.10+). Ether has no
+// per-user section editor, so it answers the standard layout: library
+// tiles, Continue Watching, Next Up, then Latest Media per visible library.
+// Known section types carry no DisplayText; the apps label them with their
+// own localized strings. The viewer scope comes from i.viewer, which also
+// rejects a {userId} that is not the caller.
+func (i *instance) homeSections(w http.ResponseWriter, r *http.Request) {
+	v, _, err := i.viewer(r)
+	if err != nil || v == nil {
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	if i.host.Experience == nil {
+		http.Error(w, "Unavailable", 503)
+		return
+	}
+	views, err := i.host.Experience.Views(r.Context(), v)
+	if err != nil {
+		http.Error(w, "Unavailable", 503)
+		return
+	}
+	items := []any{}
+	add := func(sectionType, collectionID string) {
+		section := map[string]any{"Id": homeSectionID(sectionType, collectionID), "SectionType": sectionType}
+		if collectionID != "" {
+			section["CollectionId"] = collectionID
+		}
+		items = append(items, section)
+	}
+	add("SmallLibraryTiles", "")
+	add("Resume", "")
+	add("NextUp", "")
+	for _, view := range views {
+		if view.Type != "movie" && view.Type != "show" {
+			continue
+		}
+		n, err := ids.ParseDecimal(view.ID)
+		if err != nil {
+			continue
+		}
+		id, err := ids.GUID(ids.View, n)
+		if err != nil {
+			continue
+		}
+		add("LatestMedia", id)
+	}
+	jsonReply(w, i.queryResult(items, len(items), 0))
+}
+
+// homeSectionID is a stable GUID-shaped id for one standard section. It is
+// not an item id; nothing in Ether resolves it.
+func homeSectionID(sectionType, collectionID string) string {
+	sum := sha256.Sum256([]byte("ether.homesection." + sectionType + "." + collectionID))
+	return hex.EncodeToString(sum[:16])
 }
 
 func (i *instance) emptyOptionalArray(w http.ResponseWriter, r *http.Request) {

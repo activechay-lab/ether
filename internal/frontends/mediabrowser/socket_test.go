@@ -268,3 +268,41 @@ func TestClosingFrontendClosesSocket(t *testing.T) {
 		t.Fatal("socket remained open")
 	}
 }
+
+func TestEmbyWebsocketAliasSendsEmbyForceKeepAlive(t *testing.T) {
+	viewer := &frontend.Viewer{ID: 1}
+	ident := frontendtest.Identity{ResolveFunc: func(context.Context, string) (*frontend.Viewer, error) { return viewer, nil }}
+	inst, err := (Emby{MachineID: "test"}).Mount(context.Background(), frontend.Host{Identity: ident})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(inst.Handler())
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/embywebsocket?api_key=grant", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	_, b, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var message struct {
+		MessageType string
+		Data        string
+	}
+	if err := json.Unmarshal(b, &message); err != nil {
+		t.Fatal(err)
+	}
+	if message.MessageType != "ForceKeepAlive" || message.Data != "0,30" {
+		t.Fatalf("first message %s", b)
+	}
+	if err = c.Write(ctx, websocket.MessageText, []byte(`{"MessageType":"KeepAlive"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, b, err = c.Read(ctx); err != nil || !strings.Contains(string(b), `"MessageType":"KeepAlive"`) {
+		t.Fatal(string(b), err)
+	}
+}
