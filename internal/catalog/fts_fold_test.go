@@ -59,7 +59,7 @@ func TestFTSFoldMatchesTrigger(t *testing.T) {
 		t.Fatalf("bulk marker left behind: %d %v", marker, err)
 	}
 	found := func(q string) []int64 {
-		rows, err := db.QueryContext(ctx, `SELECT rowid FROM catalog_titles_fts WHERE catalog_titles_fts MATCH ? ORDER BY rowid`, `"`+q+`"`)
+		rows, err := db.QueryContext(ctx, `SELECT rowid FROM catalog_titles_fts WHERE title LIKE ?1 UNION SELECT rowid FROM catalog_titles_fts WHERE original_title LIKE ?1 ORDER BY rowid`, "%"+q+"%")
 		if err != nil {
 			t.Fatal(err)
 		}

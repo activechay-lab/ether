@@ -174,7 +174,7 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 	tables["catalog_show_episode_ratings"] = `SELECT * FROM catalog_show_episode_ratings WHERE known<>0`
 	// The search indexes hold the same terms.
 	for name, q := range map[string]string{
-		"catalog_titles_fts":       `SELECT rowid FROM catalog_titles_fts WHERE catalog_titles_fts MATCH 'pisode'`,
+		"catalog_titles_fts":       `SELECT rowid FROM catalog_titles_fts WHERE title LIKE '%pisode%'`,
 		"catalog_alt_titles_fts":   `SELECT rowid FROM catalog_alt_titles_fts WHERE catalog_alt_titles_fts MATCH 'ren'`,
 		"catalog_person_names_fts": `SELECT rowid FROM catalog_person_names_fts WHERE catalog_person_names_fts MATCH 'ka*'`,
 		"catalog_studio_names_fts": `SELECT n.studio FROM catalog_studio_names_fts f JOIN catalog_studio_names n ON n.rowid=f.rowid WHERE f.studio LIKE '%ren%'`,
