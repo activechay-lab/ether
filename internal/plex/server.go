@@ -171,6 +171,12 @@ type Deps struct {
 	SessionHeartbeat time.Duration
 	// Now is the clock (tests).
 	Now func() time.Time
+	// PublicURL is this server's published public address
+	// ("https://<ip>.<hash>.plex.direct:<port>"), or "" without remote access.
+	PublicURL func() string
+	// LiveLogoKey signs token-free channel logo URLs; empty uses a
+	// process-local key.
+	LiveLogoKey []byte
 	// Dashboard is this node's in-memory Plex Web Dashboard store. Nil is
 	// replaced with a process-local store at NewServer. Statistics are not
 	// clustered; a client reads the node it connected to.
@@ -207,6 +213,8 @@ type Server struct {
 	shelfRefRebuilt  time.Time
 	shelfRebuild     chan struct{}
 	guidResolveMu    sync.Mutex
+	liveLogoKeyOnce  sync.Once
+	liveLogoKey      []byte
 	guidResolving    map[string]bool
 	home             *homeCache
 

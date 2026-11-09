@@ -899,6 +899,23 @@ for On Air channels). To change many channels at once, select them and choose
 Disabling a channel still removes it everywhere, and viewer access restrictions
 apply in every app. M3U and Xtream exports retain the imported channel groups.
 
+### Channel logos on Apple TV
+
+Plex for Apple TV shows guide channel logos only when Plex's online image
+service can download them; the app never loads them from your server
+directly. Ether therefore gives Apple TV:
+
+- the channel's own logo address when it is a public web address (an M3U
+  `tvg-logo` or XMLTV icon on the internet), so these logos appear on any
+  server;
+- otherwise a logo link from your server that carries no sign-in token, on
+  your server's public address when remote access is on.
+
+On a server without remote access, Apple TV cannot show logos for virtual
+channels, uploaded logos or logos stored on your local network. To show
+them, turn on remote access or give the channel a logo from a public web
+address. Other Plex apps load logos from your server and are not affected.
+
 ## Cluster
 
 **Server › Cluster** shows how this server stores its data. A standalone

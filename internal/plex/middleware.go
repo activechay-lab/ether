@@ -257,7 +257,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
-		if publicPaths[trimSlash(r.URL.Path)] {
+		if publicPaths[trimSlash(r.URL.Path)] || strings.HasPrefix(r.URL.Path, signedLogoPrefix) {
 			next.ServeHTTP(w, r)
 			return
 		}

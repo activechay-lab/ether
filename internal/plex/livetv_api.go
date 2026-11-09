@@ -144,6 +144,10 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 	})
 	get("/livetv/channels/{channel}/logo.svg", s.handleLiveLogo)
 	get("/livetv/channels/{channel}/logo.png", s.handleLiveRasterLogo)
+	// No viewer guard: Plex's cloud fetches it without credentials; the
+	// signature is the authorization.
+	r.Get(signedLogoPrefix+"{channel}/{signature}", s.handleSignedLiveLogo)
+	r.Head(signedLogoPrefix+"{channel}/{signature}", s.handleSignedLiveLogo)
 	get("/livetv/sessions", s.handleLiveSessions)
 	get("/livetv/sessions/{session}", s.handleLiveSession)
 	r.Delete("/livetv/sessions/{session}", guard(func(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +308,21 @@ func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
 	if !isStandaloneGuideLogoClient(pr) || r.Host == "" {
 		return path
 	}
+	scheme, host := s.requestOrigin(r)
+	if cloudGuideLogoClient(pr) {
+		return s.cloudGuideLogo(r.Context(), c, scheme+"://"+host)
+	}
 	// These clients load guide thumbnails as standalone URLs without auth headers.
+	u := url.URL{Scheme: scheme, Host: host, Path: "/livetv/channels/" + c.ID + "/logo.png", RawPath: path}
+	q := url.Values{}
+	q.Set("X-Plex-Token", pr.Token)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// requestOrigin is the scheme and host this request reached the server at,
+// honouring forwarding headers only from trusted proxies.
+func (s *Server) requestOrigin(r *http.Request) (string, string) {
 	scheme, host := "http", r.Host
 	if r.TLS != nil {
 		scheme = "https"
@@ -323,11 +341,7 @@ func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
 			host = forwarded
 		}
 	}
-	u := url.URL{Scheme: scheme, Host: host, Path: "/livetv/channels/" + c.ID + "/logo.png", RawPath: path}
-	q := url.Values{}
-	q.Set("X-Plex-Token", pr.Token)
-	u.RawQuery = q.Encode()
-	return u.String()
+	return scheme, host
 }
 
 func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
@@ -484,7 +498,17 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 		if id := chi.URLParam(r, "programme"); id != "" && p.ID != id {
 			continue
 		}
-		out = append(out, liveProgrammeMetadata(byID[p.ChannelID], p))
+		md := liveProgrammeMetadata(byID[p.ChannelID], p)
+		if c, ok := byID[p.ChannelID]; ok && cloudGuideLogoClient(FromContext(r.Context())) {
+			// The Apple TV guide draws airings' channelThumb too: give it the
+			// same fetchable logo as the lineup.
+			for i, a := range md.Media[0].Extra {
+				if a.Name == "channelThumb" {
+					md.Media[0].Extra[i].Value = s.liveGuideLogo(r, c)
+				}
+			}
+		}
+		out = append(out, md)
 		if captured != nil {
 			*captured = append(*captured, p)
 		}
@@ -827,6 +851,13 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 		s.writeErr(w, r, err)
 		return
 	}
+	s.writeChannelLogo(w, r, c, raster, "private, max-age=300")
+}
+
+// writeChannelLogo writes channel c's logo: its source image (or matched
+// guide logo), rasterized when asked, else a generated card.
+func (s *Server) writeChannelLogo(w http.ResponseWriter, r *http.Request, c livetv.Channel, raster bool, cacheControl string) {
+	var err error
 	format := androidPhotoOutputFormat(r)
 	rasterFormat := format
 	if rasterFormat == "" {
@@ -834,7 +865,7 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 	}
 	write := func(data []byte, ct string) {
 		setArtworkHeaders(w.Header(), ct)
-		w.Header().Set("Cache-Control", "private, max-age=300")
+		w.Header().Set("Cache-Control", cacheControl)
 		w.Header().Add("Vary", "X-Plex-Token")
 		w.Header().Add("Vary", "X-Plex-Product")
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -878,7 +909,7 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	setArtworkHeaders(w.Header(), "image/svg+xml")
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Cache-Control", cacheControl)
 	if r.Method != "HEAD" {
 		fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" rx="24" fill="#182d45"/><text x="40" y="125" fill="#64dfc7" font-size="68" font-family="sans-serif">%s</text><text x="40" y="220" fill="white" font-size="30" font-family="sans-serif">%s</text></svg>`, html.EscapeString(c.Number), html.EscapeString(c.Name))
 	}

@@ -234,3 +234,58 @@ func (f *mappedLogoFetcher) GetUntrustedURL(_ context.Context, u string) ([]byte
 	}
 	return nil, "", errors.New("unknown url")
 }
+
+// Plex for Apple TV draws guide logos only through Plex's cloud (#391): it
+// gets the channel's public logo as is, or this server's signed, token-free
+// logo URL (on the public address when remote access publishes one), in both
+// the lineup and the grid. No viewer token may leave in it.
+func TestAppleTVGuideLogoIsCloudFetchable(t *testing.T) {
+	f, _, channel := liveFixture(t)
+	appleTV := []string{"Accept", "application/json", "X-Plex-Product", "Plex for Apple TV", "X-Plex-Platform", "tvOS"}
+	lineupThumb := func() string {
+		return decodeJSON(t, f.get(t, liveProviderPath+"/lineups/dvr/channels", appleTV...))["Channel"].([]any)[0].(map[string]any)["thumb"].(string)
+	}
+	got := lineupThumb()
+	logo, err := url.Parse(got)
+	if err != nil || logo.Scheme != "http" || logo.Host != "example.com" || !strings.HasPrefix(logo.Path, signedLogoPrefix+channel.ID+"/") || strings.Contains(got, "X-Plex-Token") || strings.Contains(got, ownerToken) {
+		t.Fatalf("Apple TV logo is not a signed, token-free URL: %q", got)
+	}
+	grid := decodeJSON(t, f.get(t, liveProviderPath+"/grid?date=2026-10-18", appleTV...))
+	if thumb := grid["Metadata"].([]any)[0].(map[string]any)["Media"].([]any)[0].(map[string]any)["channelThumb"]; thumb != got {
+		t.Fatalf("grid channelThumb %v differs from lineup %q", thumb, got)
+	}
+	// Plex's cloud fetches it with no credentials at all.
+	rec := f.request(t, http.MethodGet, logo.RequestURI(), map[string]string{"X-Plex-Token": "", "X-Plex-Client-Identifier": ""})
+	if _, err := png.Decode(bytes.NewReader(rec.Body.Bytes())); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("signed logo: %d %v", rec.Code, err)
+	}
+	tampered := strings.Replace(logo.RequestURI(), "/"+channel.ID+"/", "/"+channel.ID+"/x", 1)
+	if rec := f.request(t, http.MethodGet, tampered, map[string]string{"X-Plex-Token": ""}); rec.Code != http.StatusNotFound {
+		t.Fatalf("tampered signature: %d", rec.Code)
+	}
+	f.srv.d.PublicURL = func() string { return "https://203-0-113-7.abc123.plex.direct:32400" }
+	if got := lineupThumb(); !strings.HasPrefix(got, "https://203-0-113-7.abc123.plex.direct:32400"+signedLogoPrefix) {
+		t.Fatalf("logo ignores the public address: %q", got)
+	}
+	// Other standalone clients keep the authenticated server URL.
+	web := decodeJSON(t, f.get(t, liveProviderPath+"/lineups/dvr/channels", "Accept", "application/json", "X-Plex-Product", "Plex Web"))
+	if thumb := web["Channel"].([]any)[0].(map[string]any)["thumb"].(string); !strings.Contains(thumb, "X-Plex-Token=") {
+		t.Fatalf("Plex Web logo changed: %q", thumb)
+	}
+
+	ctx := context.Background()
+	for raw, public := range map[string]bool{
+		"https://cdn.example.org/logos/hbo.png": true,
+		"http://images.example.net/a.jpg":       true,
+		"https://cdn.example.org/logos/hbo.svg": false,
+		"http://192.168.1.5:8080/logo.png":      false,
+		"http://tuliprox:8080/logo.png":         false,
+		"https://nas.local/logo.png":            false,
+		"data:image/png;base64,AAAA":            false,
+	} {
+		c := livetv.Channel{ID: "c1", Logo: raw}
+		if out := f.srv.cloudGuideLogo(ctx, c, "http://example.com"); (out == raw) != public {
+			t.Errorf("logo %q: published %q", raw, out)
+		}
+	}
+}

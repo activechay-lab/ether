@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/remote"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/state"
 )
@@ -88,7 +91,14 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		}
 		return a.availability.Prioritize(ctx, items)
 	}
-	deps.Variants = a.resolver       // "Play Version" release picker (cache-only)
+	deps.Variants = a.resolver // "Play Version" release picker (cache-only)
+	deps.LiveLogoKey = a.cfg.DerivedKey("ether-live-logo-v1")
+	deps.PublicURL = func() string {
+		if a.registrar == nil {
+			return ""
+		}
+		return publicPlexOrigin(a.registrar.Status().Connections)
+	}
 	deps.DecisionTraces = a.resolver // latest resolution, for the support capture
 	clientID := func() string {
 		cfg := a.cfg.Read()
@@ -270,4 +280,30 @@ func (a *App) currentPlexServer() *plex.Server {
 	a.plexBuildMu.Lock()
 	defer a.plexBuildMu.Unlock()
 	return a.plexServer
+}
+
+// publicPlexOrigin is the origin of the first published public connection
+// (secure first): a public IP or a plex.direct name for one. Names that would
+// need a DNS lookup are skipped; this runs on request paths.
+func publicPlexOrigin(connections []remote.Connection) string {
+	for _, secure := range []bool{true, false} {
+		for _, c := range connections {
+			if c.Local || c.Relay {
+				continue
+			}
+			u, err := url.Parse(c.URI)
+			if err != nil || u.Host == "" || u.User != nil || (u.Scheme == "https") != secure || (u.Scheme != "https" && u.Scheme != "http") {
+				continue
+			}
+			host := u.Hostname()
+			ip := net.ParseIP(host)
+			if ip == nil {
+				ip, _, _ = remote.ParsePlexDirectHost(host)
+			}
+			if remote.IsPublicIP(ip) {
+				return u.Scheme + "://" + u.Host
+			}
+		}
+	}
+	return ""
 }
