@@ -3,6 +3,8 @@ package nzb
 import (
 	"bytes"
 	"encoding/xml"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -31,15 +33,17 @@ func (n *NZB) SubsetMeta(keep func(*File) bool, extra map[string]string) (data [
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n")
 	if len(n.Meta) > 0 || len(extra) > 0 {
 		b.WriteString("<head>\n")
-		for typ, vals := range n.Meta {
+		// Sorted, so the same subset always has the same bytes (and digest).
+		for _, typ := range slices.Sorted(maps.Keys(n.Meta)) {
 			if _, replaced := extra[typ]; replaced {
 				continue
 			}
-			for _, v := range vals {
+			for _, v := range n.Meta[typ] {
 				b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(v) + "</meta>\n")
 			}
 		}
-		for typ, v := range extra {
+		for _, typ := range slices.Sorted(maps.Keys(extra)) {
+			v := extra[typ]
 			b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(v) + "</meta>\n")
 		}
 		b.WriteString("</head>\n")
