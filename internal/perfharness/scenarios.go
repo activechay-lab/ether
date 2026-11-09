@@ -2,9 +2,11 @@ package perfharness
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -437,10 +439,45 @@ func siloHeaders(s *session) http.Header {
 	return h
 }
 
-var (
-	siloMovieID  = regexp.MustCompile(`"(movie-[a-z]+-[0-9]+)"`)
-	siloSeriesID = regexp.MustCompile(`"(series-[a-z]+-[0-9]+)"`)
-)
+// discoverSiloContent takes the first title of kind ("movie", "series")
+// from a Silo response: its content_id, whatever form the server issues.
+// Every Silo detail, watch and state step needs one; a pattern for an older
+// ID format matched nothing and the gate skipped them all.
+func discoverSiloContent(name, kind string) func(map[string]string, []byte) {
+	return func(vars map[string]string, body []byte) {
+		var r any
+		if json.Unmarshal(body, &r) != nil {
+			return
+		}
+		var walk func(v any) bool
+		walk = func(v any) bool {
+			switch x := v.(type) {
+			case map[string]any:
+				if typ, _ := x["type"].(string); typ == kind {
+					if id := jsonText(x["content_id"]); id != "" {
+						setOnce(vars, name, id)
+						return true
+					}
+				}
+				// In key order: map order would pick a different title on
+				// each run.
+				for _, k := range slices.Sorted(maps.Keys(x)) {
+					if walk(x[k]) {
+						return true
+					}
+				}
+			case []any:
+				for _, c := range x {
+					if walk(c) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		walk(r)
+	}
+}
 
 func discoverRegexp(name string, re *regexp.Regexp) func(map[string]string, []byte) {
 	return func(vars map[string]string, body []byte) {
@@ -510,11 +547,11 @@ func siloAppleTV() Client {
 			{Name: "profiles", Class: classStatic, Path: "/api/v2/profiles"},
 			{Name: "user/libraries", Class: classHome, Path: "/api/v2/user/libraries", Discover: discoverSiloLibraries},
 			{Name: "recommendations/discover", Class: classHome, Path: "/api/v2/recommendations/discover?" + img},
-			{Name: "home/sections", Class: classHome, Path: "/api/v2/home/sections?" + img + "&item_limit=20", Discover: discoverRegexp("movieId", siloMovieID)},
+			{Name: "home/sections", Class: classHome, Path: "/api/v2/home/sections?" + img + "&item_limit=20", Discover: discoverSiloContent("movieId", "movie")},
 			{Name: "library movies sections", Class: classHome, Path: "/api/v2/library/{movieLibrary}/sections?" + img + "&item_limit=20"},
 			{Name: "library series sections", Class: classHome, Path: "/api/v2/library/{seriesLibrary}/sections?" + img + "&item_limit=20"},
-			{Name: "catalog movies title", Class: classBrowse, Path: "/api/v2/catalog?backdrop_width=2688&library_id={movieLibrary}&limit=100&match=all&poster_width=520&sort=title&source=query&type=movie", Discover: discoverRegexp("movieId", siloMovieID)},
-			{Name: "catalog series title", Class: classBrowse, Path: "/api/v2/catalog?backdrop_width=2688&library_id={seriesLibrary}&limit=100&match=all&poster_width=520&sort=title&source=query&type=series", Discover: discoverRegexp("seriesId", siloSeriesID)},
+			{Name: "catalog movies title", Class: classBrowse, Path: "/api/v2/catalog?backdrop_width=2688&library_id={movieLibrary}&limit=100&match=all&poster_width=520&sort=title&source=query&type=movie", Discover: discoverSiloContent("movieId", "movie")},
+			{Name: "catalog series title", Class: classBrowse, Path: "/api/v2/catalog?backdrop_width=2688&library_id={seriesLibrary}&limit=100&match=all&poster_width=520&sort=title&source=query&type=series", Discover: discoverSiloContent("seriesId", "series")},
 			{Name: "catalog item movie", Class: classDetail, Path: "/api/v2/catalog/items/{movieId}?backdrop_width=2688&logo_width=1760&photo_width=400&poster_width=920"},
 			{Name: "watch movie", Class: classDetail, Path: "/api/v2/watch/{movieId}"},
 			{Name: "similar movie", Class: classDetail, Path: "/api/v2/recommendations/similar/{movieId}?backdrop_width=2688&limit=12&poster_width=440"},
