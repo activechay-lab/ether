@@ -30,6 +30,7 @@ var (
 
 	retiredMu      sync.Mutex
 	retiredTables  = map[string]bool{}
+	localTables    = map[string]bool{}
 	retiredColumns = map[string]map[string]bool{}
 )
 
@@ -40,6 +41,21 @@ func RegisterRetiredTable(table string) {
 	retiredMu.Lock()
 	defer retiredMu.Unlock()
 	retiredTables[strings.ToLower(table)] = true
+}
+
+// RegisterLocalTable records a working table that exists only on one engine
+// (a SQLite trigger marker, say). A logical dump never exports it, and a
+// restore skips it when an older dump still carries it.
+func RegisterLocalTable(table string) {
+	retiredMu.Lock()
+	defer retiredMu.Unlock()
+	localTables[strings.ToLower(table)] = true
+}
+
+func isLocalTable(table string) bool {
+	retiredMu.Lock()
+	defer retiredMu.Unlock()
+	return localTables[strings.ToLower(table)]
 }
 
 // RegisterRetiredColumn records a column a migration drops in a way the
@@ -85,6 +101,9 @@ func migrationHistory() schemaHistory {
 	}
 	retiredMu.Lock()
 	for t := range retiredTables {
+		h.tables[t] = true
+	}
+	for t := range localTables {
 		h.tables[t] = true
 	}
 	for t, cs := range retiredColumns {
