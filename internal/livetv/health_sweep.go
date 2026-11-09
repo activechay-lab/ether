@@ -125,6 +125,7 @@ func (s *Service) sweepChannels(ctx context.Context) {
 			}
 		}()
 	}
+feed:
 	for _, c := range cs {
 		if c.Kind != "iptv" || !c.Enabled {
 			continue
@@ -137,7 +138,7 @@ func (s *Service) sweepChannels(ctx context.Context) {
 		select {
 		case jobs <- c:
 		case <-ctx.Done():
-			break
+			break feed
 		}
 	}
 	close(jobs)
