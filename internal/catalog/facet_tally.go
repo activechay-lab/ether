@@ -151,7 +151,7 @@ func (c *Catalog) facetFromTally(ctx context.Context, f core.Filter, facet, wher
 		return nil, false, nil
 	}
 	s, ok := c.tallyShape(f)
-	if !ok || s.genre != "" || s.country != "" || s.years || s.first != nil {
+	if !ok || s.genre != "" || s.country != "" || s.years || s.yearSet != nil || s.first != nil {
 		return nil, false, nil
 	}
 	if facet == "studio" {

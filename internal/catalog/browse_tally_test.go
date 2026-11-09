@@ -136,6 +136,8 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		{Type: core.TypeMovie, YearFrom: 1990, YearTo: 1999},
 		{Type: core.TypeShow, YearFrom: 2003, MaxContentRating: "TV-14", HiddenShowGeneration: "g-show", ExcludeKeys: excluded},
 		{YearTo: 2010},
+		{Type: core.TypeMovie, YearFrom: 1995, YearTo: 1995},
+		{Type: core.TypeMovie, Years: []int{1984, 1999, 2001, 1999}},
 		{Type: core.TypeMovie, Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
 		{Type: core.TypeShow, Genres: []string{"Drama"}, MaxContentRating: "TV-14", HiddenShowGeneration: "g-show", Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
 		{Type: core.TypeShow, Countries: []string{"GB"}, MaxContentRating: "TV-14", ExcludeKeys: excluded, HiddenShowGeneration: "g-show"},
@@ -236,7 +238,7 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 				}
 				// The most-counted studios, cut short, are the direct count's
 				// first ones.
-				if s, ok := c.tallyShape(ff); ok && s.genre == "" && s.country == "" && !s.years && s.first == nil {
+				if s, ok := c.tallyShape(ff); ok && s.genre == "" && s.country == "" && !s.years && s.yearSet == nil && s.first == nil {
 					for _, limit := range []int{1, 3, 6} {
 						got, ok, err := c.topFromPresence(ctx, s, ff, "studio", where, args, limit)
 						if err != nil {

@@ -3,6 +3,7 @@ package mediabrowser
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -676,10 +677,12 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 	if values := route.Query(r.URL.Query(), "Genres"); len(values) == 1 && values[0] != "" {
 		q.Filter.Genres = splitCSV(values[0])
 	}
-	if values := route.Query(r.URL.Query(), "Years"); len(values) == 1 {
-		if year, e := strconv.Atoi(values[0]); e == nil {
-			q.Filter.YearFrom = year
-			q.Filter.YearTo = year
+	queryYears(&q, route.Query(r.URL.Query(), "Years"))
+	for name, op := range map[string]string{"MinPremiereDate": ">=", "MaxPremiereDate": "<="} {
+		if values := route.Query(r.URL.Query(), name); len(values) == 1 {
+			if df, ok := premiereDateFilter(op, values[0]); ok {
+				q.Filter.ReleasedFilters = append(q.Filter.ReleasedFilters, df)
+			}
 		}
 	}
 	if values := route.Query(r.URL.Query(), "MinCommunityRating"); len(values) == 1 {
@@ -1146,4 +1149,44 @@ func (i *instance) episodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	i.pageWithVersion(w, r, v, page, q.Offset, q.StartAt, version)
+}
+
+// queryYears reads Years, which Jellyfin and Emby send as a comma list
+// (a decade is Years=1990,1991,...,1999). A consecutive run is a year
+// range; any other set of years is a list.
+func queryYears(q *frontend.ItemQuery, values []string) {
+	var years []int
+	for _, value := range values {
+		for _, part := range splitCSV(value) {
+			if year, err := strconv.Atoi(part); err == nil && year > 0 {
+				years = append(years, year)
+			}
+		}
+	}
+	if len(years) == 0 {
+		return
+	}
+	slices.Sort(years)
+	years = slices.Compact(years)
+	if years[len(years)-1]-years[0] == len(years)-1 {
+		q.Filter.YearFrom, q.Filter.YearTo = years[0], years[len(years)-1]
+		return
+	}
+	q.Filter.Years = years
+}
+
+// premiereDateFilter is MinPremiereDate (op ">=") or MaxPremiereDate
+// ("<="): an ISO 8601 instant, or a date, which MaxPremiereDate takes
+// through the end of the day.
+func premiereDateFilter(op, raw string) (frontend.DateFilter, bool) {
+	raw = strings.TrimSpace(raw)
+	if tm, err := time.Parse("2006-01-02", raw); err == nil {
+		return frontend.DateFilter{Op: op, Unix: tm.Unix(), SpanDay: true}, true
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.9999999", "2006-01-02T15:04:05"} {
+		if tm, err := time.Parse(layout, raw); err == nil {
+			return frontend.DateFilter{Op: op, Unix: tm.UTC().Unix()}, true
+		}
+	}
+	return frontend.DateFilter{}, false
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -287,6 +288,9 @@ type tallyShape struct {
 	// catalog_facet_tally's year rows.
 	years          bool
 	yearLo, yearHi int
+	// yearSet is a list of years (Jellyfin's Years=1984,1999), answered
+	// by the same year rows.
+	yearSet []int
 	// first is a sort-name range on jump-bar bucket edges (Plex
 	// firstCharacter, Jellyfin NameStartsWith=B / NameLessThan=A),
 	// answered by catalog_facet_tally's 'first' rows for those buckets.
@@ -351,9 +355,15 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 		}
 		s.years, s.yearLo, s.yearHi = true, f.YearFrom, f.YearTo
 	}
+	if len(f.Years) > 0 {
+		if s.genre != "" || s.country != "" || s.years {
+			return s, false
+		}
+		s.yearSet = slices.Compact(slices.Sorted(slices.Values(f.Years)))
+	}
 	if names := sortNameRangeOf(f); names.bounded {
 		buckets, ok := jumpBuckets(names)
-		if !ok || s.genre != "" || s.country != "" || s.years {
+		if !ok || s.genre != "" || s.country != "" || s.years || s.yearSet != nil {
 			return s, false
 		}
 		s.first, s.names = buckets, names
@@ -386,7 +396,7 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	}
 	rest := f
 	rest.Type, rest.Genres, rest.Kids, rest.Countries = "", nil, false, nil
-	rest.YearFrom, rest.YearTo = 0, 0
+	rest.YearFrom, rest.YearTo, rest.Years = 0, 0, nil
 	rest.FirstCharacter, rest.NameStartsWith, rest.NameStartsWithOrGreater, rest.NameLessThan = "", "", "", ""
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
@@ -479,6 +489,15 @@ func (c *Catalog) tallyTotal(ctx context.Context, f core.Filter, where string, a
 		dimArgs = append(dimArgs, lo, hi)
 		member += ` AND t.year>=? AND t.year<=? AND t.year>0`
 		memberArgs = append(memberArgs, lo, hi)
+	case s.yearSet != nil:
+		table = "catalog_facet_tally"
+		dims, dimArgs, member, memberArgs = s.facetDims("year", "")
+		dims += ` AND CAST(value AS INTEGER) IN (` + placeholders(len(s.yearSet)) + `)`
+		member += ` AND t.year IN (` + placeholders(len(s.yearSet)) + `)`
+		for _, y := range s.yearSet {
+			dimArgs = append(dimArgs, y)
+			memberArgs = append(memberArgs, y)
+		}
 	default:
 		dims, dimArgs, member, memberArgs = s.genreDims()
 	}

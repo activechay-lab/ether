@@ -196,7 +196,7 @@ func (c *Catalog) FacetPage(ctx context.Context, f core.Filter, facet string, of
 	offset = max(offset, 0)
 	f = c.viewerPaging(ctx, f)
 	s, ok := c.tallyShape(f)
-	if !ok || s.genre != "" || s.country != "" || s.years || s.first != nil || len(s.types) != 1 {
+	if !ok || s.genre != "" || s.country != "" || s.years || s.yearSet != nil || s.first != nil || len(s.types) != 1 {
 		return nil, 0, false, nil
 	}
 	rr, empty, ok := presenceRange(s)
