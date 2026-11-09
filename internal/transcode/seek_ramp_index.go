@@ -25,19 +25,23 @@ func (m *Manager) sampleCopyIndex(ctx context.Context, req core.HLSRequest, at t
 		return copyPacketSample{}
 	}
 	spec := runSpec{Input: req.InputURL, InputHeaders: req.InputHeaders, InputScopeHeaders: headers}
+	budget := m.opts.copySamplePackets
+	if budget <= 0 {
+		budget = copySamplePackets
+	}
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	args := []string{"-hide_banner", "-v", "error"}
 	args = append(args, inputSafetyArgs(spec.Input, false)...)
 	args = append(args, httpInputArgs(spec.Input, false)...)
 	args = appendInputHeaders(args, spec.commandHeaders())
-	args = append(args, "-select_streams", strconv.Itoa(req.Info.Video().Index), "-read_intervals", "+"+secs(at)+"%+#1024", "-show_entries", "packet=pts_time,duration_time,size,pos,flags:format=start_time", "-of", "json=compact=1", "-i", spec.Input)
+	args = append(args, "-select_streams", strconv.Itoa(req.Info.Video().Index), "-read_intervals", "+"+secs(at)+"%+#"+strconv.Itoa(budget), "-show_entries", "packet=pts_time,duration_time,size,pos,flags:format=start_time", "-of", "json=compact=1", "-i", spec.Input)
 	var out cappedProbeBuffer
 	if m.runEncoderPreflight(ctx, life, Command{Path: m.ffprobe, Args: args, Stdout: &out}) != nil || ctx.Err() != nil {
 		return copyPacketSample{}
 	}
 	data := out.buf.Bytes()
-	return parseCopyPacketSample(data, req.Info)
+	return parseCopyPacketSample(data, req.Info, budget)
 }
 
 func parseCopyPacketIndex(data []byte) []core.KeyframePoint {
@@ -130,13 +134,17 @@ func sampledCopyPeakKbps(points []core.KeyframePoint, slot time.Duration) int {
 	return int(math.Ceil(peak*11/10)) + 16
 }
 
+// copySamplePackets is the copy sample's packet budget: about 40 s of
+// 24 fps video, so only short titles are indexed whole by it.
+const copySamplePackets = 1024
+
 type copyPacketSample struct {
 	points     []core.KeyframePoint
 	peakPoints []core.KeyframePoint
 	complete   bool // verified beginning and known end within the packet budget
 }
 
-func parseCopyPacketSample(data []byte, info core.MediaInfo) copyPacketSample {
+func parseCopyPacketSample(data []byte, info core.MediaInfo, budget int) copyPacketSample {
 	sample := copyPacketSample{points: parseCopyPacketIndex(data), peakPoints: copySamplePeakPoints(data, info)}
 	var report struct {
 		Packets []struct {
@@ -155,7 +163,7 @@ func parseCopyPacketSample(data []byte, info core.MediaInfo) copyPacketSample {
 			keyframes++
 		}
 	}
-	sample.complete = keyframes == len(sample.points) && len(report.Packets) < 1024 &&
+	sample.complete = keyframes == len(sample.points) && len(report.Packets) < budget &&
 		len(sample.points) > 0 && sample.points[0].Time <= 100*time.Millisecond &&
 		len(sample.peakPoints) == len(sample.points)+1
 	return sample

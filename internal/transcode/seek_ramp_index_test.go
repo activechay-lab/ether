@@ -49,7 +49,7 @@ func TestCopySampleTailIsNotAHandoverKeyframe(t *testing.T) {
 
 func TestCopyPacketSampleCompleteness(t *testing.T) {
 	data := []byte(`{"format":{"start_time":"0"},"packets":[{"pts_time":"0","duration_time":"0.04","size":"100","pos":"0","flags":"K_"},{"pts_time":"5","duration_time":"0.04","size":"100","pos":"10000","flags":"K_"},{"pts_time":"13.76","duration_time":"0.04","size":"100","pos":"20000","flags":"K_"},{"pts_time":"19.96","duration_time":"0.04","size":"100","pos":"30000","flags":"__"}]}`)
-	sample := parseCopyPacketSample(data, core.MediaInfo{Duration: 20 * time.Second})
+	sample := parseCopyPacketSample(data, core.MediaInfo{Duration: 20 * time.Second}, copySamplePackets)
 	if !sample.complete || len(sample.points) != 3 {
 		t.Fatalf("sample=%+v", sample)
 	}
@@ -72,7 +72,7 @@ func TestCopyPacketSampleCompleteness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parseCopyPacketSample(cappedData, core.MediaInfo{Duration: 20 * time.Second}).complete {
+	if parseCopyPacketSample(cappedData, core.MediaInfo{Duration: 20 * time.Second}, copySamplePackets).complete {
 		t.Fatal("exhausted packet budget marked complete")
 	}
 	for _, tc := range []struct {
@@ -85,7 +85,7 @@ func TestCopyPacketSampleCompleteness(t *testing.T) {
 		{"tail", []byte(strings.Replace(string(data), `"pts_time":"0"`, `"pts_time":"2"`, 1)), 20 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if parseCopyPacketSample(tc.data, core.MediaInfo{Duration: tc.duration}).complete {
+			if parseCopyPacketSample(tc.data, core.MediaInfo{Duration: tc.duration}, copySamplePackets).complete {
 				t.Fatal("partial sample marked complete")
 			}
 		})

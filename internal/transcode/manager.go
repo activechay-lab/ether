@@ -62,24 +62,28 @@ type options struct {
 	// audioMatchBudget bounds the best-effort loudness analysis before a
 	// source swap (see Session.prepareAudioMatch).
 	audioMatchBudget time.Duration
+	// copySamplePackets is the packet budget of the pre-publication copy
+	// sample (seek_ramp_index.go): a title it covers whole is indexed.
+	copySamplePackets int
 }
 
 func defaultOptions() options {
 	return options{
-		runner:          ExecRunner{},
-		detectHW:        true,
-		idleTimeout:     2 * time.Minute,
-		segmentTimeout:  45 * time.Second,
-		segmentPadLimit: segmentPadMax,
-		stallTimeout:    30 * time.Second,
-		restartAhead:    24 * time.Second,
-		maxAhead:        2 * time.Minute,
-		keepBehind:      3 * time.Minute,
-		pollInterval:    150 * time.Millisecond,
-		segmentURI:      SegmentName,
-		dashURLs:        PlexDASHURLs,
-		manifestWait:    15 * time.Second,
-		rungDwell:       8 * time.Second,
+		runner:            ExecRunner{},
+		detectHW:          true,
+		idleTimeout:       2 * time.Minute,
+		segmentTimeout:    45 * time.Second,
+		segmentPadLimit:   segmentPadMax,
+		copySamplePackets: copySamplePackets,
+		stallTimeout:      30 * time.Second,
+		restartAhead:      24 * time.Second,
+		maxAhead:          2 * time.Minute,
+		keepBehind:        3 * time.Minute,
+		pollInterval:      150 * time.Millisecond,
+		segmentURI:        SegmentName,
+		dashURLs:          PlexDASHURLs,
+		manifestWait:      15 * time.Second,
+		rungDwell:         8 * time.Second,
 
 		audioMatchBudget: defaultAudioMatchBudget,
 	}
@@ -860,11 +864,15 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		sample := m.sampleCopyIndex(ctx, req, offset, life)
 		points := sample.points
 		nominal := time.Duration(adapt.RampSegs) * adapt.RampDur
-		sampledRamp := offset > 0 && d.Container == ContainerMPEGTS && adapt.FastStart && hasSampledRampBoundary(points, offset, nominal)
+		// A TS copy's encoded ramp needs a sampled keyframe to hand over at
+		// (c6add9e4f): a complete sample of a title whose only keyframe
+		// opens it keeps one copy plan, exactly as when it went unsampled.
+		rampBoundary := d.Container == ContainerMPEGTS && adapt.FastStart && hasSampledRampBoundary(points, offset, nominal)
+		sampledRamp := offset > 0 && rampBoundary
 		if sample.complete || sampledRamp {
 			req.Info.Keyframes = points
 			plan = buildTimeline(plan.span, segDur, timelineOptions{steadyMode: ModeCopy,
-				fastStart: adapt.FastStart && d.Container == ContainerMPEGTS, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
+				fastStart: rampBoundary, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
 				keyframes: points, base: base, snap: true})
 			total = plan.Total()
 		}
