@@ -399,7 +399,9 @@ type Policy struct {
 	channelSet map[string]struct{} // Channels as a set for long lists; see indexChannels
 }
 type Options struct {
-	VODChanged func() // provider index or connection changed
+	VODChanged      func() // provider index or connection changed
+	SessionsChanged func() // viewer live sessions started, stopped or expired
+	SourcesChanged  func() // IPTV source health or lineup changed
 	// BreakInput opens an exclusive background playback source, never a viewer session.
 	// The final argument is an identity captured from an admitted save, never
 	// a request context. The callback must revalidate it on each background run.

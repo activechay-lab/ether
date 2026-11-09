@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/spike"
 	"net/http"
 	"time"
 
@@ -11,6 +10,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/cachefill"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/episodeorder"
+	"github.com/braedonsaunders/ether/internal/playback"
+	"github.com/braedonsaunders/ether/internal/spike"
 	"github.com/braedonsaunders/ether/internal/transcode"
 	"github.com/braedonsaunders/ether/internal/trickplay"
 )
@@ -75,6 +76,11 @@ func (a *App) buildIntegrations(ctx context.Context, cfg config.Config) error {
 		a.spikeLibrary, err = spike.New(ctx, a.cfg.Read, spike.Options{Logger: a.log.With("component", "spike")})
 		if err != nil {
 			return fmt.Errorf("local library: %w", err)
+		}
+		if mgr, ok := a.spikeLibrary.Playback().(*playback.Manager); ok && mgr != nil {
+			mgr.Subscribe(func(playback.Event) {
+				a.notifySessionsChanged()
+			})
 		}
 		a.closers = append(a.closers, func() { _ = a.spikeLibrary.Close() })
 	}

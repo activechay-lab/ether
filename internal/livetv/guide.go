@@ -1215,6 +1215,7 @@ func (s *Service) refreshSource(ctx context.Context, id, reason string) (Source,
 		if _, e := s.o.DB.ExecContext(errCtx, q, msg, at, id); e != nil {
 			return v, errors.Join(err, e)
 		}
+		s.notifySourcesChanged()
 	}
 	return v, err
 }

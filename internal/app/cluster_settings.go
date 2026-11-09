@@ -77,6 +77,7 @@ func (a *App) connectClusterHooks() {
 		if up {
 			a.media.RefreshLeases()
 		}
+		a.publishDashboard()
 	})
 	a.closers = append(a.closers, func() {
 		unsubAvail()

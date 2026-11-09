@@ -102,6 +102,8 @@ type Options struct {
 	MaxArticleSize int64
 	// TraceProtocol emits raw NNTP status lines at debug level.
 	TraceProtocol bool
+	// OnStateChange is notified when provider pools or circuit-breaker states change.
+	OnStateChange func()
 
 	// limits paces connection-limit learning and handshake backoff
 	// (defaults in limit.go; tests shorten them).
@@ -319,6 +321,9 @@ func (f *Fetcher) Update(providers []config.UsenetProvider) {
 		}
 	}
 	f.log.Debug("usenet: providers updated", "enabled", len(next))
+	if f.o.OnStateChange != nil {
+		f.o.OnStateChange()
+	}
 }
 
 func buildTiers(pools []*pool) [][]*pool {

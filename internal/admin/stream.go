@@ -257,7 +257,7 @@ func (h *Handler) dashboardBody(r *http.Request) map[string]any {
 	return map[string]any{
 		"sections": sections, "names": names,
 		"setupComplete": complete, "setupSteps": steps, "version": h.version,
-		"plexEnabled": plexEnabled,
+		"plexEnabled": plexEnabled, "serverName": cfg.Server.FriendlyName,
 	}
 }
 

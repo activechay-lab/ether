@@ -6,6 +6,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/config"
 )
 
 // servers.xml lists every live node's LAN address, not only the leader's.
@@ -118,5 +120,32 @@ func TestRegistrarNodeMapping(t *testing.T) {
 	<-done
 	if mapper.Status().Active {
 		t.Fatal("mapping not removed when the node stops")
+	}
+}
+
+func TestRegistrarStatusReflectsConfigImmediately(t *testing.T) {
+	f := newFakePlexTV(t, testMachineID)
+	cfg := testConfig()
+	store := &memConfig{cfg: cfg}
+	r, err := NewRegistrar(RegistrarOptions{
+		Config: store, Client: newServerClient(t, f), WAN: &fakeWAN{ip: "198.51.100.1"}, Mapper: &fakeMapper{},
+		LAN: func() ([]net.IP, error) { return []net.IP{net.ParseIP("192.168.1.5")}, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := r.Status(); st.Claimed || st.RemoteAccess {
+		t.Fatalf("initial status %+v, want unclaimed without remote access", st)
+	}
+	_ = store.Update(func(c *config.Config) error {
+		c.Plex.Claimed = true
+		c.Plex.Token = "server-token-42"
+		c.Plex.OwnerUsername = "alice"
+		c.Plex.RemoteAccess = true
+		return nil
+	})
+	st := r.Status()
+	if !st.Claimed || !st.RemoteAccess || st.OwnerUsername != "alice" {
+		t.Fatalf("status after config update %+v, want immediate Claimed/RemoteAccess/OwnerUsername", st)
 	}
 }

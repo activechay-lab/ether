@@ -200,6 +200,7 @@ func (c *Catalog) SetTierMigrationPaused(ctx context.Context, paused bool) error
 	}
 	c.log.Info("catalog: tier migration "+map[bool]string{true: "paused", false: "resumed"}[paused], "by", "owner")
 	c.wakeTier()
+	c.notifyStatus(false)
 	return nil
 }
 
@@ -228,6 +229,9 @@ func (c *Catalog) saveTierProgress(ctx context.Context, q execer, p TierMigratio
 		return err
 	}
 	_, err = q.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, tierMetaProgress, string(raw))
+	if err == nil && q == c.db {
+		c.notifyStatus(p.State == "running")
+	}
 	return err
 }
 
@@ -237,7 +241,10 @@ func (c *Catalog) runTierMigration(ctx context.Context) {
 	if c == nil || !c.tier.running.CompareAndSwap(false, true) {
 		return
 	}
-	defer c.tier.running.Store(false)
+	defer func() {
+		c.tier.running.Store(false)
+		c.notifyStatus(false)
+	}()
 	for ctx.Err() == nil {
 		err := c.migrateTiers(ctx)
 		if err == nil || ctx.Err() != nil {

@@ -132,6 +132,14 @@ try {
 // Keep the current tab's explicit sign-in/sign-out authoritative in that case.
 let sessionToken = "";
 let sessionOnly = false;
+const tokenListeners = new Set<(token: string) => void>();
+
+export function onTokenChange(fn: (token: string) => void): () => void {
+  tokenListeners.add(fn);
+  return () => {
+    tokenListeners.delete(fn);
+  };
+}
 
 export function getToken(): string {
   if (sessionOnly) return sessionToken;
@@ -143,6 +151,7 @@ export function getToken(): string {
   return sessionToken;
 }
 export function setToken(token: string): void {
+  const prev = getToken();
   sessionToken = token;
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -150,6 +159,15 @@ export function setToken(token: string): void {
     sessionOnly = false;
   } catch {
     sessionOnly = true;
+  }
+  if (token !== prev) {
+    for (const fn of [...tokenListeners]) {
+      try {
+        fn(token);
+      } catch {
+        // Ignore listener errors so credential storage always succeeds.
+      }
+    }
   }
 }
 

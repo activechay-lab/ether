@@ -160,8 +160,9 @@ type ManagerOptions struct {
 	// OnInstalled / OnRolledBack, when set, hear an update confirmed
 	// healthy and a rolled-back one, without the manager's lock held. An
 	// error retries on the next step; implementations dedupe by version.
-	OnInstalled  func(u InstalledUpdate) error
-	OnRolledBack func(f FailedUpdate) error
+	OnInstalled    func(u InstalledUpdate) error
+	OnRolledBack   func(f FailedUpdate) error
+	OnStatusChange func()
 	// InstallID is a stable identity of this server (its machine
 	// identifier). It is hashed locally into the staged-rollout bucket and
 	// never sent anywhere. Empty: bucket 0 (no rollout wait).
@@ -367,8 +368,34 @@ func (m *Manager) Wake() {
 	m.wake()
 }
 
+func (m *Manager) statusSig() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var avail, inst, fail string
+	if m.available != nil {
+		avail = m.available.Version()
+	}
+	if m.installed != nil {
+		inst = m.installed.To
+	}
+	if m.failed != nil {
+		fail = m.failed.Version + "|" + m.failed.Reason
+	}
+	return fmt.Sprintf("%s|%s|%t|%t|%t|%t|%s|%s|%s|%s|%s",
+		m.state, m.lastErr, m.checking, m.checkPending, m.confirmed, m.requested,
+		m.disabledReason, m.staged, avail, inst, fail)
+}
+
+func (m *Manager) notifyStatusChanged(prev string) {
+	if m.opts.OnStatusChange != nil && m.statusSig() != prev {
+		m.opts.OnStatusChange()
+	}
+}
+
 // CheckNow schedules a feed check, coalescing concurrent requests.
 func (m *Manager) CheckNow() error {
+	prev := m.statusSig()
+	defer func() { m.notifyStatusChanged(prev) }()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.opts.Config().Enabled || m.noKey || m.opts.NewClient == nil {
@@ -443,6 +470,8 @@ func (m *Manager) wake() {
 
 // step is one evaluation of the state machine at the injected clock.
 func (m *Manager) step(ctx context.Context) {
+	prev := m.statusSig()
+	defer func() { m.notifyStatusChanged(prev) }()
 	now := m.opts.Now().Round(0)
 	m.confirmIfHealthy(now)
 	m.announce()
@@ -574,6 +603,8 @@ func (m *Manager) announce() {
 
 // DismissInstalled hides the "Updated to X" note in Status.
 func (m *Manager) DismissInstalled() error {
+	prev := m.statusSig()
+	defer func() { m.notifyStatusChanged(prev) }()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.installed = nil
@@ -1149,6 +1180,8 @@ func (m *Manager) cleanDownloads(keep string) {
 // is known) to be installed as soon as the server is idle, ignoring the
 // maintenance window. force also skips the idle wait.
 func (m *Manager) UpdateNow(force bool) error {
+	prev := m.statusSig()
+	defer func() { m.notifyStatusChanged(prev) }()
 	cfg := m.opts.Config()
 	m.mu.Lock()
 	defer m.mu.Unlock()

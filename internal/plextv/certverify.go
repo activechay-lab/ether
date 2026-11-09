@@ -100,8 +100,15 @@ func (m *CertManager) VerifyTrust(ctx context.Context, identityHash, serverName 
 		}
 	}
 	fp := Fingerprint(leaf)
+	var changed bool
+	defer func() {
+		if changed {
+			m.notifyChange()
+		}
+	}()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	prev := m.trust
 	next := certTrust{fingerprint: fp, verified: ok, reason: reason}
 	if reason == CertReasonHandshake {
 		next.misses = 1
@@ -116,6 +123,7 @@ func (m *CertManager) VerifyTrust(ctx context.Context, identityHash, serverName 
 		}
 	}
 	m.trust = next
+	changed = next.fingerprint != prev.fingerprint || next.verified != prev.verified || next.reason != prev.reason
 	return next.verified, next.reason
 }
 

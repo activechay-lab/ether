@@ -20,5 +20,10 @@ func (a *App) catalogOptions() []catalog.Option {
 		opts = append(opts, catalog.WithResumeSchedule())
 	}
 	opts = append(opts, catalog.WithSaferRatingSQL(plexmeta.RatingSQL{}))
+	opts = append(opts, catalog.WithOnStatusChange(func(progressOnly bool) {
+		if !progressOnly || (a.streamRT != nil && a.streamRT.Subscribers() > 0) {
+			a.publishDashboard()
+		}
+	}))
 	return opts
 }

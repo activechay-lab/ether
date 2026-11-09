@@ -100,7 +100,8 @@ func (a *App) initUpdates() {
 		Logger:         log,
 		NotifyKind:     notifyKind,
 		// The server identity only seeds the local staged-rollout hash.
-		InstallID: installID,
+		InstallID:      installID,
+		OnStatusChange: a.publishDashboard,
 		OnAvailable: func(version string) error {
 			if a.notifications == nil {
 				return nil

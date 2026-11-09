@@ -89,6 +89,7 @@ type PresenceOptions struct {
 	// identifier and server token; ok=false while unclaimed.
 	Credentials func() (ownerID int64, machineID, token string, ok bool)
 	OnMessage   func(PubsubMessage)
+	OnChange    func()
 	// StreamClient performs the SSE request; defaults to one verifying TLS
 	// against PubsubTLSName.
 	StreamClient *http.Client
@@ -153,8 +154,13 @@ func (p *Presence) Status() PresenceStatus {
 
 func (p *Presence) set(fn func(*PresenceStatus)) {
 	p.mu.Lock()
+	prev := p.st
 	fn(&p.st)
+	changed := p.st.Connected != prev.Connected || p.st.Host != prev.Host || p.st.LastError != prev.LastError
 	p.mu.Unlock()
+	if changed && p.o.OnChange != nil {
+		p.o.OnChange()
+	}
 }
 
 // Run holds the stream open until ctx ends.

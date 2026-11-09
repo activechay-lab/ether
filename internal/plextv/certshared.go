@@ -155,8 +155,12 @@ func (m *CertManager) SyncShared(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer done()
-	return m.syncSharedLocked(ctx)
+	changed, err := m.syncSharedLocked(ctx)
+	done()
+	if changed {
+		m.notifyChange()
+	}
+	return changed, err
 }
 
 func (m *CertManager) syncSharedLocked(ctx context.Context) (bool, error) {

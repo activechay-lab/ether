@@ -150,6 +150,34 @@ describe("shared stream connection", () => {
     unmount();
   });
 
+  it("recovers from a 401 once setToken stores a new session", async () => {
+    streamBackoff.baseMs = 10;
+    streamBackoff.maxMs = 20;
+    streamBackoff.jitterRatio = 0;
+    const tokens: (string | null)[] = [];
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
+      const tok = new Headers(init?.headers).get("X-Ether-Admin-Token");
+      tokens.push(tok);
+      if (!tok) {
+        return { ok: false, status: 401, body: null } as unknown as Response;
+      }
+      return streamResponse(['id: 9\nevent: dashboard\ndata: {"ok":true}\n\n']) as Response;
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const seen: StreamEvent<{ ok: boolean }>[] = [];
+    const { unmount } = renderHook(() =>
+      useStreamEvent<{ ok: boolean }>("dashboard", (e) => seen.push(e)),
+    );
+    await eventually(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    expect(tokens).toEqual([null]);
+
+    setToken("fresh-session");
+    await eventually(() => expect(seen).toHaveLength(1));
+    expect(tokens).toEqual([null, "fresh-session"]);
+    expect(seen[0]?.data).toEqual({ ok: true });
+    unmount();
+  });
+
   it("one bad subscriber does not break the others", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

@@ -3,13 +3,14 @@ package app
 import (
 	"context"
 	"errors"
+	"time"
+
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/playback"
-	"time"
 )
 
 func (a *App) buildLiveTV() error {
@@ -28,7 +29,7 @@ func (a *App) buildLiveTV() error {
 	if a.transcoder != nil {
 		ffmpeg = a.transcoder.FFmpegPath()
 	}
-	svc, err := livetv.New(livetv.Options{VODChanged: func() {
+	svc, err := livetv.New(livetv.Options{SessionsChanged: a.notifySessionsChanged, SourcesChanged: a.publishDashboard, VODChanged: func() {
 		if a.resolver != nil {
 			a.resolver.SourcesChanged(context.Background())
 		}

@@ -8,7 +8,7 @@
  * last seen event id.
  */
 import { useEffect, useRef } from "react";
-import { API_BASE, getToken, SESSION_HEADER } from "./api";
+import { API_BASE, getToken, onTokenChange, SESSION_HEADER } from "./api";
 
 type StreamEventType =
   | "dashboard"
@@ -104,6 +104,25 @@ let currentAbort: AbortController | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryWake: (() => void) | null = null;
 let visHooked = false;
+
+// Clear any 401/403 lockup and reconnect when the owner signs in (including
+// finishing /setup on the same page without a reload) or signs out.
+onTokenChange((token) => {
+  fatalAuth = false;
+  failures = 0;
+  epoch += 1;
+  currentAbort?.abort();
+  currentAbort = null;
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  retryWake?.();
+  retryWake = null;
+  if (token && hasListeners() && !tabHidden()) {
+    ensureStream();
+  }
+});
 
 function onVisibility(): void {
   if (document.visibilityState === "hidden") {

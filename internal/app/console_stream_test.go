@@ -218,3 +218,46 @@ func TestConsoleStreamAnnouncesSessionChanges(t *testing.T) {
 		t.Fatal("an ended stream was not announced")
 	}
 }
+
+func TestConsoleStreamPublishSessionsTransitions(t *testing.T) {
+	rt := testStreamRuntime(nil)
+	rt.sessionsPrimed = true
+	ctx := context.Background()
+
+	ch, unsubscribe := rt.hub.Subscribe(0)
+	defer unsubscribe()
+
+	if !rt.PublishSessions(ctx, []*core.PlaySession{{ID: "s1", TitleName: "Movie"}}) {
+		t.Fatal("expected PublishSessions to report session start")
+	}
+	ev := <-ch
+	if ev.Type != admin.StreamSessions {
+		t.Fatalf("start event %+v", ev)
+	}
+
+	// Decision transition (Starting -> Direct play) emits sessions.changed.
+	if !rt.PublishSessions(ctx, []*core.PlaySession{{ID: "s1", TitleName: "Movie", Decision: core.DecisionDirectPlay}}) {
+		t.Fatal("expected PublishSessions to report decision change")
+	}
+	if ev = <-ch; ev.Type != admin.StreamSessions {
+		t.Fatalf("decision event %+v", ev)
+	}
+
+	// First playhead arrival emits sessions.changed; steady-state progress ticks do not.
+	off1 := int64(1000)
+	if !rt.PublishSessions(ctx, []*core.PlaySession{{ID: "s1", TitleName: "Movie", Decision: core.DecisionDirectPlay, ViewerState: "playing", ViewOffset: &off1}}) {
+		t.Fatal("expected PublishSessions to report first playhead")
+	}
+	if ev = <-ch; ev.Type != admin.StreamSessions {
+		t.Fatalf("first offset event %+v", ev)
+	}
+	off2 := int64(5000)
+	if rt.PublishSessions(ctx, []*core.PlaySession{{ID: "s1", TitleName: "Movie", Decision: core.DecisionDirectPlay, ViewerState: "playing", ViewOffset: &off2}}) {
+		t.Fatal("steady-state progress tick should not emit sessions.changed")
+	}
+	select {
+	case unexpected := <-ch:
+		t.Fatalf("progress tick should not emit sessions.changed: %+v", unexpected)
+	default:
+	}
+}

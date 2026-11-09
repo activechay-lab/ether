@@ -55,6 +55,7 @@ type options struct {
 	onInputFailure  func(sessionID, inputURL string, at time.Duration, err error)
 	onRunStart      func(inputURL string, from, to time.Duration)
 	onEncoder       func(sessionID string, started bool, excerpt string)
+	onChange        func()
 	tracePlayback   bool
 	// rungDwell is how long a run keeps producing its rung before a
 	// request on another rung may replace it (see Session.rungDwellLocked).
@@ -137,6 +138,9 @@ func WithEncoderObserver(f func(sessionID string, started bool, excerpt string))
 // WithTracePlayback logs Plex HLS playhead decisions and ffmpeg run
 // start/stop reasons. It does not change encoding or delivery.
 func WithTracePlayback(on bool) Option { return func(o *options) { o.tracePlayback = on } }
+
+// WithOnChange is notified when owner-visible transcoder capability state changes.
+func WithOnChange(f func()) Option { return func(o *options) { o.onChange = f } }
 
 // Manager runs ffmpeg for Ether. It implements core.Transcoder.
 type Manager struct {
@@ -404,9 +408,13 @@ func (m *Manager) noteGraphError(err error) {
 		return
 	}
 	m.mu.Lock()
+	changed := m.graphErr != err.Error()
 	m.graphErr = err.Error()
 	m.mu.Unlock()
 	m.log.Warn("transcode graph unavailable", "err", err)
+	if changed && m.opts.onChange != nil {
+		m.opts.onChange()
+	}
 }
 
 func (m *Manager) limitation() string {

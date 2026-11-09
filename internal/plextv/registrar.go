@@ -138,8 +138,9 @@ type RegistrarOptions struct {
 	// plex.direct https variants for clients asking with includeHttps=1.
 	PublishPlexDirect bool
 
-	Logger *slog.Logger
-	Now    func() time.Time
+	Logger   *slog.Logger
+	Now      func() time.Time
+	OnChange func()
 }
 
 // Registrar runs Ether's plex.tv presence: claim, connection publishing,
@@ -286,6 +287,7 @@ func NewRegistrar(o RegistrarOptions) (*Registrar, error) {
 				c.Plex.Token != "" && c.Plex.OwnerPlexID != 0 && c.Server.MachineIdentifier != ""
 		},
 		OnMessage: r.onPubsub,
+		OnChange:  r.notifyChange,
 	})
 	r.refreshConfigStatus(o.Config.Get())
 	return r, nil
@@ -483,11 +485,24 @@ func (r *Registrar) requestPublishLocked() {
 	r.forcePub = true
 }
 
+func (r *Registrar) notifyChange() {
+	if r != nil && r.o.OnChange != nil {
+		r.o.OnChange()
+	}
+}
+
 // Status returns a snapshot for the admin dashboard.
 func (r *Registrar) Status() Status {
 	r.mu.Lock()
 	st := r.st
 	r.mu.Unlock()
+	if r.o.Config != nil {
+		cfg := r.o.Config.Get()
+		st.Claimed = cfg.Plex.Claimed && cfg.Plex.Token != ""
+		st.OwnerUsername = cfg.Plex.OwnerUsername
+		st.MachineIdentifier = cfg.Server.MachineIdentifier
+		st.RemoteAccess = cfg.Plex.RemoteAccess
+	}
 	age := r.o.Now().Sub(st.RemoteClientLastSeen)
 	st.RemoteClientReachable = !st.RemoteClientLastSeen.IsZero() && age >= 0 && age < 5*time.Minute
 	st.LANAddresses = slices.Clone(st.LANAddresses)
@@ -602,12 +617,19 @@ func (r *Registrar) ObserveRemoteClient(address string) {
 	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || remote.IsCGNAT(ip) {
 		return
 	}
+	now := r.o.Now()
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if own := net.ParseIP(r.st.PublicIP); own != nil && own.Equal(ip) {
+		r.mu.Unlock()
 		return
 	}
-	r.st.RemoteClientLastSeen = r.o.Now()
+	age := now.Sub(r.st.RemoteClientLastSeen)
+	wasReachable := !r.st.RemoteClientLastSeen.IsZero() && age >= 0 && age < 5*time.Minute
+	r.st.RemoteClientLastSeen = now
+	r.mu.Unlock()
+	if !wasReachable {
+		r.notifyChange()
+	}
 }
 
 func (r *Registrar) refreshConfigStatus(cfg config.Config) {
@@ -735,11 +757,13 @@ func (r *Registrar) ensureMapping(ctx context.Context, cfg config.Config) {
 			r.mappingOn = false
 			r.requestPublishLocked()
 			r.mu.Unlock()
+			r.notifyChange()
 		}
 		return
 	}
 	prev := r.o.Mapper.Status()
 	st, err := r.o.Mapper.Ensure(ctx, serverPort(cfg), publicPort(cfg))
+	mapChanged := st.Active != prev.Active || st.ExternalPort != prev.ExternalPort || st.ExternalIP != prev.ExternalIP || st.LastError != prev.LastError
 	r.mu.Lock()
 	r.mappingOn = true
 	if st.Active && (st.ExternalPort != prev.ExternalPort || !prev.Active) {
@@ -754,6 +778,9 @@ func (r *Registrar) ensureMapping(ctx context.Context, cfg config.Config) {
 	r.mu.Unlock()
 	if err != nil && ctx.Err() == nil {
 		r.log.Debug("port mapping failed", "err", err)
+	}
+	if mapChanged {
+		r.notifyChange()
 	}
 }
 
@@ -815,7 +842,7 @@ func (r *Registrar) refreshAddresses(ctx context.Context, cfg config.Config) {
 		}
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	addrChanged := !slices.Equal(lan, r.lastLAN) || wan != r.lastWAN || wanErr != r.st.PublicIPErr
 	if !slices.Equal(lan, r.lastLAN) || wan != r.lastWAN {
 		r.st.RemoteClientLastSeen = time.Time{}
 		if r.lastLAN != nil || r.lastWAN != "" {
@@ -827,6 +854,10 @@ func (r *Registrar) refreshAddresses(ctx context.Context, cfg config.Config) {
 	r.st.LANAddresses = lan
 	r.st.PublicIP = wan
 	r.st.PublicIPErr = wanErr
+	r.mu.Unlock()
+	if addrChanged {
+		r.notifyChange()
+	}
 }
 
 // connections builds the connection list from the latest addresses.
@@ -1059,6 +1090,7 @@ func (r *Registrar) PublishNow(ctx context.Context) error {
 		r.st.LastPublish = r.o.Now()
 		r.st.LastPublishError = err.Error()
 		r.mu.Unlock()
+		r.notifyChange()
 		return err
 	}
 	now := r.o.Now()
@@ -1087,6 +1119,7 @@ func (r *Registrar) PublishNow(ctx context.Context) error {
 		r.st.TokenRejected = errors.Is(err, core.ErrUnauthorized)
 		r.mu.Unlock()
 		r.log.Warn("publish connections failed", "err", err)
+		r.notifyChange()
 		return err
 	}
 	r.st.PublishedURIs = uris
@@ -1142,6 +1175,7 @@ func (r *Registrar) PublishNow(ctx context.Context) error {
 	if regErr != nil && ctx.Err() == nil {
 		r.log.Debug("servers.xml registration failed (non-fatal)", "err", regErr)
 	}
+	defer r.notifyChange()
 	res, ferr := r.client.FindServer(ctx, cfg.Plex.Token, cfg.Server.MachineIdentifier)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1172,6 +1206,7 @@ func (r *Registrar) SyncFriendsNow(ctx context.Context) error {
 		fromUsers = true
 		err = r.o.Users.SyncFriends(ctx, friends)
 	}
+	defer r.notifyChange()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.st.LastFriendSync = r.o.Now()
@@ -1247,6 +1282,7 @@ func (r *Registrar) CheckReachability(ctx context.Context) remote.Reachability {
 	r.st.Reachability = &res
 	r.reachTargets = uris
 	r.mu.Unlock()
+	r.notifyChange()
 	return res
 }
 
@@ -1333,6 +1369,7 @@ func (r *Registrar) RenewCertificate(ctx context.Context, force bool) error {
 		r.mu.Unlock()
 	}
 	r.refreshCertTrust(ctx)
+	r.notifyChange()
 	return err
 }
 
@@ -1510,6 +1547,7 @@ func (r *Registrar) Claim(ctx context.Context, userToken string) (*ClaimResult, 
 	r.refreshConfigStatus(r.o.Config.Get())
 	r.log.Info("server claimed", "owner", res.Owner.Username)
 	r.Trigger()
+	r.notifyChange()
 	return res, nil
 }
 
@@ -1630,6 +1668,7 @@ func (r *Registrar) releaseClaim(ctx context.Context, token string) {
 	r.st.TokenRejected = false
 	r.mu.Unlock()
 	r.refreshConfigStatus(r.o.Config.Get())
+	r.notifyChange()
 }
 
 // RefreshOwner re-reads the owner's account (Plex Pass state) and passes it
@@ -1669,6 +1708,7 @@ func (r *Registrar) RefreshOwner(ctx context.Context) error {
 	r.st.OwnerFeatures = ownerFeatures(features, acct.Subscription.Features)
 	r.next[taskOwner] = r.o.Now().Add(r.o.OwnerInterval)
 	r.mu.Unlock()
+	r.notifyChange()
 	if r.o.Users != nil {
 		return r.o.Users.SetOwner(ctx, *acct, cfg.Plex.Token)
 	}
@@ -1690,6 +1730,7 @@ func (r *Registrar) onPubsub(m PubsubMessage) {
 		r.st.PlexReachableCheckedAt = r.o.Now()
 		r.asyncID = ""
 		r.mu.Unlock()
+		r.notifyChange()
 		attrs := []any{"reachable", ok, "direction", "inbound"}
 		if m.Address != "" {
 			attrs = append(attrs, "address", m.Address)

@@ -108,8 +108,15 @@ func (c *Catalog) loadStats(ctx context.Context) (Stats, int, error) {
 
 func (c *Catalog) setProgress(fn func(*SyncProgress)) {
 	c.progressMu.Lock()
+	prev := c.progress
 	fn(&c.progress)
+	cur := c.progress
 	c.progressMu.Unlock()
+	if cur.Running != prev.Running || cur.LastError != prev.LastError || cur.Phase != prev.Phase {
+		c.notifyStatus(false)
+	} else if cur != prev {
+		c.notifyStatus(true)
+	}
 }
 
 // SyncProgress returns the current sync progress snapshot.

@@ -28,7 +28,7 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 	var err error
 	// Usenet, cache, stream engine. The dialer reads the live proxy policy.
 	a.applyOutbound(cfg)
-	a.fetcher = usenet.New(cfg.Usenet.Providers, usenet.Options{Logger: log.With("component", "usenet"), MinIdle: cfg.Usenet.MinIdle, DialContext: egress.Dial})
+	a.fetcher = usenet.New(cfg.Usenet.Providers, usenet.Options{Logger: log.With("component", "usenet"), MinIdle: cfg.Usenet.MinIdle, DialContext: egress.Dial, OnStateChange: a.publishDashboard})
 	a.closers = append(a.closers, func() { a.fetcher.Close() })
 	if cfg.Cache.Storage == "shared" {
 		if cfg.SharedCache == nil {
@@ -79,12 +79,17 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 			return a.sites.Backend(ix)
 		},
 	})
+	a.indexers.Subscribe(func(ev newznab.Event) {
+		if !ev.Success || ev.BudgetExhausted || (a.streamRT != nil && a.streamRT.Subscribers() > 0) {
+			a.publishDashboard()
+		}
+	})
 	a.debrid = debrid.NewService(cfg.Debrid, debrid.Options{AcquireStreamProvider: func(ctx context.Context, id string) (func(), error) {
 		if a.livetv == nil {
 			return nil, core.ErrSourceUnavailable
 		}
 		return a.livetv.AcquireProvider(ctx, id)
-	}, DB: a.db, Logger: log.With("component", "debrid")})
+	}, DB: a.db, Logger: log.With("component", "debrid"), OnChange: a.publishDashboard})
 	ss := a.initStreamSources(a.indexers)
 	ss.SetAnimeIDs(a.addons.AnimeIDs())
 	usenetReady := func() bool {

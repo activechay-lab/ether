@@ -82,6 +82,7 @@ func (a *App) startCompaction(ctx context.Context) (any, error) {
 	}
 	c.running, c.started = true, time.Now()
 	c.mu.Unlock()
+	a.publishDashboard()
 	go func() {
 		res := &compactResult{BeforeBytes: st.DatabaseBytes}
 		after, err := store.Compact(context.WithoutCancel(ctx), a.db)
@@ -95,6 +96,7 @@ func (a *App) startCompaction(ctx context.Context) (any, error) {
 		c.mu.Lock()
 		c.running, c.last = false, res
 		c.mu.Unlock()
+		a.publishDashboard()
 	}()
 	return a.compactionStatus(ctx)
 }

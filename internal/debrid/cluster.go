@@ -219,6 +219,7 @@ func (s *Service) observe(e *entry, err error) {
 	if ev == nil {
 		return
 	}
+	s.notifyChange()
 	node := s.clusterNode()
 	if node == nil {
 		return
@@ -256,6 +257,7 @@ func (s *Service) onBackoff(msg []byte) {
 	s.mu.RUnlock()
 	if e != nil {
 		e.applyRemote(s.now(), ev)
+		s.notifyChange()
 	}
 }
 

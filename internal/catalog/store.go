@@ -985,6 +985,9 @@ func (c *Catalog) upsertItemsBudget(ctx context.Context, items []upsertItem, bud
 	}
 	c.writeGen.Add(1)
 	c.noteSearchWrites(titles)
+	if len(fresh) > 0 {
+		c.notifyStatus(true)
+	}
 	return nil
 }
 

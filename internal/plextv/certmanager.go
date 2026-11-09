@@ -75,6 +75,8 @@ type CertManagerOptions struct {
 	Now    func() time.Time
 	// TrustRoots, when set, replaces the system roots for VerifyTrust.
 	TrustRoots *x509.CertPool
+	// OnChange is notified when certificate or verification state changes.
+	OnChange func()
 }
 
 // CertManager obtains, stores and renews the server's TLS certificate:
@@ -305,6 +307,13 @@ func (m *CertManager) install(pair *tls.Certificate, leaf *x509.Certificate, cer
 	m.cert = pair
 	m.info = info
 	m.mu.Unlock()
+	m.notifyChange()
+}
+
+func (m *CertManager) notifyChange() {
+	if m != nil && m.o.OnChange != nil {
+		m.o.OnChange()
+	}
 }
 
 func isSelfSigned(c *x509.Certificate) bool {
@@ -557,6 +566,7 @@ func (m *CertManager) saveState(st certState) {
 	if err := m.persistState(st); err != nil {
 		m.o.Logger.Warn("save certificate state", "err", err)
 	}
+	m.notifyChange()
 }
 
 func (m *CertManager) persistState(st certState) error {

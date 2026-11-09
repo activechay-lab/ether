@@ -349,6 +349,7 @@ type Catalog struct {
 	// titleIndexesSwapped is set once popularity left the title indexes
 	// (titleidx.go).
 	titleIndexesSwapped atomic.Bool
+	onStatusChange      func(progressOnly bool)
 }
 
 // SaferRatingSQL is the optional Plex overlay predicate for viewer limits.
@@ -443,6 +444,19 @@ func (c *Catalog) now() time.Time {
 // (by any node). A cluster uses it because Run restarts on every leader
 // handoff; with no recorded sync Run still syncs at once.
 func WithResumeSchedule() Option { return func(c *Catalog) { c.resumeSchedule = true } }
+
+// WithOnStatusChange registers a callback invoked when catalogue sync,
+// migration, year-correction or title-tally status changes. progressOnly is
+// true for incremental batch progress while a job is already running.
+func WithOnStatusChange(fn func(progressOnly bool)) Option {
+	return func(c *Catalog) { c.onStatusChange = fn }
+}
+
+func (c *Catalog) notifyStatus(progressOnly bool) {
+	if c != nil && c.onStatusChange != nil {
+		c.onStatusChange(progressOnly)
+	}
+}
 
 // New creates a catalogue. client may be nil (mirror-only / offline mode).
 func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...Option) (*Catalog, error) {

@@ -653,6 +653,7 @@ func (a *App) applyConfig(c config.Config) {
 	// Re-publish section titles when Movies / TV Shows library names change.
 	a.publishLibrarySections()
 	a.registrar.Trigger()
+	a.publishDashboard()
 }
 
 // protectedReleases is every release that must survive cache eviction:

@@ -310,6 +310,7 @@ func (a *App) checkIntegrityLater(ctx context.Context) {
 // once, with what to do about it.
 func (a *App) recordIntegrity(res store.Integrity) {
 	a.integrity.Store(&res)
+	a.publishDashboard()
 	if res.OK {
 		a.log.Info("database integrity check passed", "took", time.Duration(res.Took*float64(time.Second)).Round(time.Millisecond))
 		return

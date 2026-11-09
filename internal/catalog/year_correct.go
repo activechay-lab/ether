@@ -155,8 +155,15 @@ func (c *Catalog) waitMovieYearRetry(ctx context.Context, d time.Duration) bool 
 
 func (c *Catalog) setYearProgress(fn func(*MovieYearProgress)) {
 	c.yearMu.Lock()
+	prev := c.yearState
 	fn(&c.yearState)
+	cur := c.yearState
 	c.yearMu.Unlock()
+	if cur.Running != prev.Running || cur.Finished != prev.Finished || cur.LastError != prev.LastError {
+		c.notifyStatus(false)
+	} else if cur != prev {
+		c.notifyStatus(true)
+	}
 }
 
 func (c *Catalog) noteYearError(ctx context.Context, err error) {

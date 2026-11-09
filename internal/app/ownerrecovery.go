@@ -47,6 +47,7 @@ func readOwnerMirror(dataDir string) (identity.OwnerCredential, bool) {
 
 // syncOwnerRecovery rewrites (or removes) the mirror from the database.
 func (a *App) syncOwnerRecovery(ctx context.Context) {
+	defer a.publishDashboard()
 	if a.db == nil {
 		return
 	}

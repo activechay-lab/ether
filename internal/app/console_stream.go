@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -35,21 +36,49 @@ type consoleStreamRuntime struct {
 	hub *admin.StreamHub
 	log *slog.Logger
 
-	mu          sync.Mutex
-	bus         clusterbus.Bus
-	origin      string
-	linked      bool
-	dashboard   func(context.Context) map[string]any
-	lastDash    time.Time
-	dashPending bool
+	mu              sync.Mutex
+	bus             clusterbus.Bus
+	origin          string
+	linked          bool
+	dashboard       func(context.Context) map[string]any
+	lastDash        time.Time
+	dashPending     bool
+	lastSessionsSig string
+	sessionsPrimed  bool
 }
 
 func (a *App) buildConsoleStream(ctx context.Context, cfg config.Config) (*consoleStreamRuntime, error) {
 	return &consoleStreamRuntime{
-		hub:    admin.NewStreamHub(),
-		log:    a.log.With("component", "console-stream"),
-		origin: clusterbus.NewOrigin(),
+		hub:            admin.NewStreamHub(),
+		log:            a.log.With("component", "console-stream"),
+		origin:         clusterbus.NewOrigin(),
+		sessionsPrimed: true,
 	}, nil
+}
+
+func (a *App) publishDashboard() {
+	if a == nil || a.streamRT == nil {
+		return
+	}
+	a.streamRT.PublishDashboard(context.Background())
+}
+
+func (a *App) notifySessionsChanged() {
+	if a == nil || a.streamRT == nil {
+		return
+	}
+	owner := ownerPlayback{Playback: a.playback, app: a}
+	if a.streamRT.PublishSessions(context.Background(), owner.localSessions()) {
+		a.streamRT.PublishDashboard(context.Background())
+	}
+}
+
+// Subscribers reports how many console SSE clients are currently connected.
+func (r *consoleStreamRuntime) Subscribers() int {
+	if r == nil || r.hub == nil {
+		return 0
+	}
+	return r.hub.Subscribers()
 }
 
 // SetDashboard installs the dashboard payload builder (the admin handler's
@@ -134,6 +163,21 @@ func (r *consoleStreamRuntime) publishDashboardNow(ctx context.Context) {
 	_ = r.Publish(ctx, admin.StreamDashboard, build(ctx))
 }
 
+// PublishSessions announces live-stream changes immediately when the active
+// session signature differs from the last observed snapshot.
+func (r *consoleStreamRuntime) PublishSessions(ctx context.Context, sessions []*core.PlaySession) bool {
+	sig := consoleSessionsSignature(sessions)
+	r.mu.Lock()
+	changed := !r.sessionsPrimed || sig != r.lastSessionsSig
+	r.lastSessionsSig = sig
+	r.sessionsPrimed = true
+	r.mu.Unlock()
+	if changed {
+		_ = r.Publish(ctx, admin.StreamSessions, nil)
+	}
+	return changed
+}
+
 func (r *consoleStreamRuntime) onClusterEvent(payload []byte) {
 	origin, msg := clusterbus.Untag(payload)
 	r.mu.Lock()
@@ -208,10 +252,20 @@ func (a *App) watchConsoleSessions(ctx context.Context) {
 }
 
 func (r *consoleStreamRuntime) watchSessions(ctx context.Context, every time.Duration, list func() []*core.PlaySession) {
+	r.mu.Lock()
+	unprimed := !r.sessionsPrimed
+	r.mu.Unlock()
+	if unprimed {
+		sig := consoleSessionsSignature(list())
+		r.mu.Lock()
+		if !r.sessionsPrimed {
+			r.lastSessionsSig = sig
+			r.sessionsPrimed = true
+		}
+		r.mu.Unlock()
+	}
 	t := time.NewTicker(every)
 	defer t.Stop()
-	var last string
-	primed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -219,25 +273,37 @@ func (r *consoleStreamRuntime) watchSessions(ctx context.Context, every time.Dur
 		case <-t.C:
 		}
 		if r.hub.Subscribers() == 0 {
-			primed = false
 			continue
 		}
-		sig := consoleSessionsSignature(list())
-		if primed && sig != last {
-			_ = r.Publish(ctx, admin.StreamSessions, nil)
+		if r.PublishSessions(ctx, list()) {
+			r.PublishDashboard(ctx)
 		}
-		last, primed = sig, true
 	}
 }
 
-// consoleSessionsSignature identifies a set of live streams by ID.
+// consoleSessionsSignature identifies the visible state of live streams so
+// starts, stops, decision changes, failovers and first playhead updates push
+// immediately without churning on continuous byte counters.
 func consoleSessionsSignature(sessions []*core.PlaySession) string {
-	ids := make([]string, 0, len(sessions))
+	rows := make([]string, 0, len(sessions))
 	for _, s := range sessions {
-		if s != nil {
-			ids = append(ids, s.ID)
+		if s == nil {
+			continue
 		}
+		var chID, chName, chNum string
+		if s.LiveChannel != nil {
+			chID, chName, chNum = s.LiveChannel.ID, s.LiveChannel.Name, s.LiveChannel.Number
+		}
+		var rel string
+		if s.Resolution != nil {
+			rel = s.Resolution.Release.Name
+		}
+		rows = append(rows, fmt.Sprintf("%s\t%d\t%s\t%s\t%s\t%t\t%t\t%s\t%t\t%d\t%s\t%s\t%s\t%s\t%s\t%s",
+			s.ID, s.Key, s.TitleName, s.Decision, s.DecisionReason,
+			s.DecisionVideoCopy, s.DecisionAudioCopy, s.ViewerState,
+			s.ViewOffset != nil, s.Failovers, s.Origin, s.QualityFallback,
+			rel, chID, chName, chNum))
 	}
-	sort.Strings(ids)
-	return strings.Join(ids, "\n")
+	sort.Strings(rows)
+	return strings.Join(rows, "\n")
 }

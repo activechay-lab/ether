@@ -73,6 +73,12 @@ export function AppProvider({
       inflight.current = false;
       setDashboard(data);
       setDashboardError(null);
+      if (
+        (typeof data.setupComplete === "boolean" && data.setupComplete !== boot.setupComplete) ||
+        (typeof data.serverName === "string" && data.serverName !== boot.serverName)
+      ) {
+        void reloadBoot();
+      }
     }
   });
   useStreamEvent("extend.changed", () => invalidateRegistry());

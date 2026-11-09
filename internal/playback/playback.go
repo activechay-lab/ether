@@ -1393,6 +1393,7 @@ func (m *Manager) setSurfacePrepared(id string, prepared bool) bool {
 		s.mu.Unlock()
 		return false
 	}
+	changed := s.preparedOnly != prepared
 	s.preparedOnly = prepared
 	if prepared {
 		s.stoppedBySurface = true
@@ -1407,6 +1408,9 @@ func (m *Manager) setSurfacePrepared(id string, prepared bool) bool {
 	}
 	s.mu.Unlock()
 	m.reg.poke()
+	if changed {
+		m.emitEvent("surface", s, nil)
+	}
 	return true
 }
 

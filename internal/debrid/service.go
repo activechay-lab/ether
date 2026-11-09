@@ -65,6 +65,8 @@ type Options struct {
 	// DirectGuard guards direct HTTP stream requests (tests map fake public
 	// hosts onto local servers); nil uses a zero safefetch.Guard.
 	DirectGuard *safefetch.Guard
+	// OnChange is notified when provider configuration or breaker state changes.
+	OnChange func()
 }
 
 // Service holds the configured debrid providers and applies priority,
@@ -267,7 +269,14 @@ func NewService(cfg config.Debrid, opts Options) *Service {
 
 // UpdateConfig hot-applies an edited debrid section. Providers whose
 // identity and key are unchanged keep their breaker state and counters.
+func (s *Service) notifyChange() {
+	if s != nil && s.opts.OnChange != nil {
+		s.opts.OnChange()
+	}
+}
+
 func (s *Service) UpdateConfig(cfg config.Debrid) {
+	defer s.notifyChange()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	old := map[string]*entry{}
@@ -1112,6 +1121,7 @@ func (s *Service) acquireOn(ctx context.Context, e *entry, base Payload, choose 
 		case errors.Is(err, ErrAddRefused):
 			if duration := e.addRefused(s.now()); duration > 0 {
 				s.log.Warn("debrid provider adds paused", "provider", cleanDiagnostic(displayName(e.cfg), e.cfg.APIKey), "reason", "repeated add refusals", "duration", duration, "release", cleanDiagnostic(base.Release, e.cfg.APIKey), "infohash", cleanDiagnostic(base.InfoHash, e.cfg.APIKey))
+				s.notifyChange()
 			}
 		case err == nil && acq.Added:
 			e.addAccepted()

@@ -128,6 +128,7 @@ export default function Sources() {
 
 /** Debrid, Usenet, IPTV and indexer health above every Sources tab. */
 function SourcesHealth() {
+  const { dashboard } = useApp();
   const [iptv, setIptv] = useState<TVSource[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -137,8 +138,7 @@ function SourcesHealth() {
     return () => {
       live = false;
     };
-  }, []);
-  const { dashboard } = useApp();
+  }, [dashboard]);
   // Debrid health shows here only; it does not count toward server health.
   const extra = [debridHealth(dashboard?.sections?.debrid), iptvHealth(iptv)].filter(
     (h) => h !== null,

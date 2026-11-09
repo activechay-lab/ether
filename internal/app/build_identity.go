@@ -75,6 +75,7 @@ func (a *App) buildIdentity(ctx context.Context, cfg config.Config) error {
 		CustomKeyFile:  cfg.Plex.KeyFile,
 		Shared:         a.sharedCerts(),
 		Logger:         log.With("component", "certs"),
+		OnChange:       a.publishDashboard,
 	}); err != nil {
 		return fmt.Errorf("certificates: %w", err)
 	}
@@ -83,11 +84,12 @@ func (a *App) buildIdentity(ctx context.Context, cfg config.Config) error {
 	// while the bus and the shared store are still open.
 	a.closers = append(a.closers, a.certs.Close)
 	ropts := plextv.RegistrarOptions{
-		Config: a.cfg,
-		Client: a.plextv,
-		Users:  a.users,
-		Certs:  a.certs,
-		Logger: log.With("component", "registrar"),
+		Config:   a.cfg,
+		Client:   a.plextv,
+		Users:    a.users,
+		Certs:    a.certs,
+		Logger:   log.With("component", "registrar"),
+		OnChange: a.publishDashboard,
 	}
 	if a.clustered() {
 		ropts.PeerURIs = a.peers.get // publish the union of every live node

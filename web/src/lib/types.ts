@@ -714,6 +714,7 @@ export interface DashboardData {
   version: string;
   /** False when the Plex app is off. Omitted means Plex is on. */
   plexEnabled?: boolean;
+  serverName?: string;
 }
 
 /** One resolver decision (internal/resolver.Trace). Durations are nanoseconds. */

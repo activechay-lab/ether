@@ -252,6 +252,11 @@ func (a *App) buildAdmin() http.Handler {
 	h := admin.NewHandler(deps)
 	if a.streamRT != nil {
 		a.streamRT.SetDashboard(h.SnapshotDashboard)
+		if a.cfg != nil {
+			a.cfg.Subscribe(func(config.Config) {
+				a.publishDashboard()
+			})
+		}
 	}
 	return sourceOwnerContext(h)
 }

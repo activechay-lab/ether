@@ -198,6 +198,18 @@ func (s *Service) Close() error {
 	return nil
 }
 
+func (s *Service) notifySessionsChanged() {
+	if s != nil && s.o.SessionsChanged != nil {
+		s.o.SessionsChanged()
+	}
+}
+
+func (s *Service) notifySourcesChanged() {
+	if s != nil && s.o.SourcesChanged != nil {
+		s.o.SourcesChanged()
+	}
+}
+
 func (s *Service) invalidate(channelID, sourceID string) {
 	s.broadcasts.invalidate(channelID, sourceID != "")
 	s.mu.Lock()
@@ -212,6 +224,9 @@ func (s *Service) invalidate(channelID, sourceID string) {
 	for _, ss := range stale {
 		s.sessionLog(ss).Info("live session expired")
 		ss.close(s)
+	}
+	if len(stale) > 0 {
+		s.notifySessionsChanged()
 	}
 }
 
@@ -329,6 +344,9 @@ func (s *Service) expireSessions() {
 	for _, ss := range stale {
 		s.sessionLog(ss).Info("live session expired")
 		ss.close(s)
+	}
+	if len(stale) > 0 {
+		s.notifySessionsChanged()
 	}
 }
 func (s *Service) Channels(ctx context.Context) ([]Channel, error) {
@@ -903,6 +921,7 @@ func (s *Service) bumpLineup() {
 	if fn != nil {
 		fn()
 	}
+	s.notifySourcesChanged()
 }
 func (s *Service) Policy(ctx context.Context, userID int64) (Policy, error) {
 	s.policyReads.Add(1)
@@ -2129,6 +2148,7 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 		if e := s.fillSourceStats(ctx, one); e == nil {
 			src = one[0]
 		}
+		s.notifySourcesChanged()
 	}
 	return src, err
 }
@@ -2261,6 +2281,7 @@ func (s *Service) SavePendingSource(ctx context.Context, src Source) (Source, er
 	if e := s.fillSourceStats(ctx, one); e == nil {
 		src = one[0]
 	}
+	s.notifySourcesChanged()
 	return src, nil
 }
 
@@ -2359,6 +2380,7 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 	err = tx.Commit()
 	if err == nil {
 		s.invalidate("", id)
+		s.notifySourcesChanged()
 		if s.o.VODChanged != nil {
 			s.o.VODChanged()
 		}

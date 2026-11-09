@@ -46,6 +46,8 @@ func (p ownerPlayback) localSessions() []*core.PlaySession {
 	if p.app != nil {
 		if p.app.brokerPlayback != nil {
 			backend = p.app.brokerPlayback
+		} else if p.app.spikeLibrary != nil {
+			backend = p.app.spikeLibrary.Playback()
 		}
 	}
 	if manager, ok := backend.(*playback.Manager); ok && manager == nil {
@@ -88,6 +90,8 @@ func (a *App) stopOwnerSession(id string) error {
 	// session still has to stop.
 	if a.brokerPlayback != nil {
 		a.brokerPlayback.Stop(id)
+	} else if a.spikeLibrary != nil {
+		a.spikeLibrary.Playback().Stop(id)
 	} else if a.playback != nil {
 		a.playback.Stop(id)
 	}

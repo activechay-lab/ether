@@ -36,6 +36,7 @@ func (m *Manager) SourcePlaybackProgress(ctx context.Context, id, revision strin
 		s.mu.Unlock()
 		return err
 	}
+	firstPos := s.viewerAt.IsZero() || s.viewerState != state
 	s.viewerPosition = position
 	s.viewerAt = time.Now()
 	s.viewerState = state
@@ -49,6 +50,9 @@ func (m *Manager) SourcePlaybackProgress(ctx context.Context, id, revision strin
 		pausedRelease = s.cur.releaseID()
 	}
 	s.mu.Unlock()
+	if firstPos {
+		m.emitEvent("progress", s, nil)
+	}
 	m.startSubtitleCheck(s)
 	m.noteCause(pausedRelease, core.CacheCausePaused)
 	m.maintainReserve(s, position, state)

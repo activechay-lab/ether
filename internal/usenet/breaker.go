@@ -47,6 +47,7 @@ type breaker struct {
 	failThreshold int
 
 	authMin, authMax time.Duration
+	onChange         func()
 
 	changed      chan struct{}
 	networkProbe bool // at most one dial tests an expired connect backoff
@@ -71,6 +72,21 @@ func newBreaker(minB, maxB time.Duration, threshold int, now func() time.Time) *
 	}
 	return &breaker{now: now, minBackoff: minB, maxBackoff: maxB, failThreshold: threshold,
 		authMin: DefaultAuthRetryMin, authMax: DefaultAuthRetryMax, changed: make(chan struct{})}
+}
+
+func (b *breaker) reportedLocked() (string, string) {
+	var errText string
+	if b.lastErr != nil {
+		errText = b.lastErr.Error()
+	}
+	switch {
+	case b.authErr != nil:
+		return StateAuthFail, errText
+	case b.now().Before(b.blockedUntil()) || b.connectFailures > 0 || b.commandFailures >= b.failThreshold:
+		return StateBackoff, errText
+	default:
+		return StateOK, errText
+	}
 }
 
 // authDisabled reports a credential lockout. That refuses every socket.
@@ -141,7 +157,15 @@ func (b *breaker) releaseProbe() {
 // 430, or BODY) proves the path that a probe dial just opened. It does not
 // forgive command failures on sockets that were already up.
 func (b *breaker) connectOK() {
+	var notify bool
+	defer func() {
+		if notify {
+			b.onChange()
+		}
+	}()
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	prevState, prevErr := b.reportedLocked()
 	b.connectFailures = 0
 	b.connectUntil = time.Time{}
 	b.networkProbe = false
@@ -149,14 +173,23 @@ func (b *breaker) connectOK() {
 		b.cause = tripNone
 	}
 	b.signalLocked()
-	b.mu.Unlock()
+	curState, curErr := b.reportedLocked()
+	notify = b.onChange != nil && (curState != prevState || curErr != prevErr)
 }
 
 // success resets the command ladder after a BODY that actually returned an
 // article. The exchange also proves the provider is reachable, so the
 // connect ladder clears with it.
 func (b *breaker) success() {
+	var notify bool
+	defer func() {
+		if notify {
+			b.onChange()
+		}
+	}()
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	prevState, prevErr := b.reportedLocked()
 	b.commandFailures = 0
 	b.commandUntil = time.Time{}
 	b.connectFailures = 0
@@ -164,7 +197,8 @@ func (b *breaker) success() {
 	b.networkProbe = false
 	b.cause = tripNone
 	b.signalLocked()
-	b.mu.Unlock()
+	curState, curErr := b.reportedLocked()
+	notify = b.onChange != nil && (curState != prevState || curErr != prevErr)
 }
 
 // cappedDouble doubles d, clamped to [lo, hi].
@@ -189,8 +223,19 @@ func (b *breaker) commandFailure(err error) time.Duration {
 }
 
 func (b *breaker) open(failures *int, until *time.Time, cause tripCause, err error) time.Duration {
+	var notify bool
+	defer func() {
+		if notify {
+			b.onChange()
+		}
+	}()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	prevState, prevErr := b.reportedLocked()
+	defer func() {
+		curState, curErr := b.reportedLocked()
+		notify = b.onChange != nil && (curState != prevState || curErr != prevErr)
+	}()
 	*failures++
 	b.lastErr, b.lastAt = err, b.now()
 	if *failures < b.failThreshold {
@@ -212,8 +257,19 @@ func (b *breaker) open(failures *int, until *time.Time, cause tripCause, err err
 // not probing (concurrent dials racing the first one) do not grow the
 // backoff.
 func (b *breaker) authFailure(err error) time.Duration {
+	var notify bool
+	defer func() {
+		if notify {
+			b.onChange()
+		}
+	}()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	prevState, prevErr := b.reportedLocked()
+	defer func() {
+		curState, curErr := b.reportedLocked()
+		notify = b.onChange != nil && (curState != prevState || curErr != prevErr)
+	}()
 	now := b.now()
 	b.lastErr, b.lastAt = err, now
 	if b.authErr != nil && !b.probing {
@@ -226,9 +282,13 @@ func (b *breaker) authFailure(err error) time.Duration {
 	for i := 1; i < b.authFails && d < b.authMax; i++ {
 		d = cappedDouble(d, b.authMin, b.authMax)
 	}
-	d = min(d, b.authMax)
+	d = min(d, b.maxMax())
 	b.authUntil = now.Add(d)
 	return d
+}
+
+func (b *breaker) maxMax() time.Duration {
+	return b.authMax
 }
 
 // authProbeDue reports whether an auth-disabled provider is due a login
@@ -245,9 +305,18 @@ func (b *breaker) authProbeDue() bool {
 
 // authRecovered re-enables the provider after a successful login probe.
 func (b *breaker) authRecovered() {
+	var notify bool
+	defer func() {
+		if notify {
+			b.onChange()
+		}
+	}()
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	prevState, prevErr := b.reportedLocked()
 	b.authErr, b.authFails, b.authUntil, b.probing = nil, 0, time.Time{}, false
-	b.mu.Unlock()
+	curState, curErr := b.reportedLocked()
+	notify = b.onChange != nil && (curState != prevState || curErr != prevErr)
 }
 
 // authProbeInconclusive ends a probe that failed for a reason other than

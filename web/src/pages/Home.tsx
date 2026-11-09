@@ -50,6 +50,7 @@ import {
 } from "../lib/health";
 import { useAsync } from "../lib/hooks";
 import { fetchLiveSessions, useLiveSessionsRefresh } from "../lib/sessions";
+import { useStreamEvent } from "../lib/stream";
 import { useTitle } from "../lib/titles";
 import type { EtherConfig } from "../lib/types";
 import { useLocale } from "../i18n/react";
@@ -72,8 +73,8 @@ function GettingStarted({ sessions }: { sessions: NowPlaying[] }) {
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem(GETTING_STARTED_KEY) === "1",
   );
-  const config = useAsync(() => api.getConfig(), []);
-  const viewers = useAsync(() => api.viewers(), []);
+  const config = useAsync(() => api.getConfig(), [dashboard]);
+  const viewers = useAsync(() => api.viewers(), [dashboard]);
   if (dismissed) return null;
   const cfg = config.data;
   const people = viewers.data;
@@ -179,6 +180,10 @@ export default function Home() {
   // Now playing reads the same live list as Activity, under the same rule.
   const live = useAsync((signal) => fetchLiveSessions(signal), [locale]);
   useLiveSessionsRefresh(live.reload);
+  useStreamEvent("sessions.changed", () => {
+    void activity.reload();
+    void rows.reload();
+  });
   const sessions = live.data ?? [];
   const hw = dashboard?.sections.hwaccel as
     { hwaccel?: { name?: string }; ffmpeg?: string; error?: string } | undefined;

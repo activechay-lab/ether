@@ -35,6 +35,7 @@ func (m *Manager) PlaybackProgress(userID int64, clientID string, key core.Ratin
 	now := m.now()
 	for _, s := range sessions {
 		s.mu.Lock()
+		stateChanged := s.viewerAt.IsZero() || s.viewerState != state
 		s.viewerPosition = max(0, position)
 		s.viewerAt = time.Now()
 		s.viewerState = state
@@ -52,6 +53,9 @@ func (m *Manager) PlaybackProgress(userID int64, clientID string, key core.Ratin
 			pausedRelease = s.cur.releaseID()
 		}
 		s.mu.Unlock()
+		if stateChanged {
+			m.emitEvent("progress", s, nil)
+		}
 		m.startSubtitleCheck(s)
 		m.noteCause(pausedRelease, core.CacheCausePaused)
 		m.maintainReserve(s, position, state)

@@ -290,6 +290,9 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 			s.sessionLog(old).Info("live session superseded", "replacement_session", attemptID)
 			old.close(s)
 		}
+		if len(superseded) > 0 {
+			s.notifySessionsChanged()
+		}
 	}
 	var playbackSessions []*core.PlaySession
 	if s.o.Playback != nil {
@@ -367,6 +370,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	s.sessions[ss.info.ID] = ss
 	s.noteWatchedLocked(c.ID)
 	s.mu.Unlock()
+	s.notifySessionsChanged()
 	s.beginPersonal(c, u)
 	if limiter, ok := s.o.Playback.(channelLimiter); ok {
 		if joined, ok := s.o.Playback.(interface {
@@ -603,6 +607,7 @@ func (s *Service) Stop(ctx context.Context, id string, u *core.User) error {
 	delete(s.sessions, id)
 	s.mu.Unlock()
 	ss.close(s)
+	s.notifySessionsChanged()
 	return nil
 }
 
