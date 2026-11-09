@@ -111,7 +111,7 @@ func (c *stmtConn) prepare(query string) (driver.Stmt, error) {
 		r.used = c.clock
 		c.rank[query] = r
 		c.mu.Unlock()
-		return stmtHold{owner: c, query: query, inner: stmt}, nil
+		return stmtHold{owner: c, query: query, inner: stmt, reused: true}, nil
 	}
 	c.mu.Unlock()
 	// Prepare off the cache lock so one in-flight query cannot block another
@@ -123,7 +123,13 @@ func (c *stmtConn) prepare(query string) (driver.Stmt, error) {
 	return stmtHold{owner: c, query: query, inner: prepared}, nil
 }
 
-func (c *stmtConn) release(query string, stmt driver.Stmt) {
+// release returns stmt to the cache. reused means it was taken from the
+// cache, so the connection's statement memory was measured with it in the
+// cache already: only a newly prepared statement adds memory, and only then
+// is the whole connection measured. SQLite measures by walking every
+// statement the connection holds, which made each query's release cost
+// grow with the cache.
+func (c *stmtConn) release(query string, stmt driver.Stmt, reused bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	status, ok := c.inner.(sqlite.DBStatus)
@@ -169,6 +175,9 @@ func (c *stmtConn) release(query string, stmt driver.Stmt) {
 	r := c.rank[query]
 	r.used = c.clock
 	c.rank[query] = r
+	if reused && c.freeEntries <= stmtCacheEntries {
+		return
+	}
 	for {
 		bytes, _, err := status.Status(sqlite.DBStatusStmtUsed, false)
 		if err == nil && c.freeEntries <= stmtCacheEntries && bytes+c.freeOverhead <= stmtCacheBytes {
@@ -289,13 +298,14 @@ func (c *stmtConn) Close() error {
 }
 
 type stmtHold struct {
-	owner *stmtConn
-	query string
-	inner driver.Stmt
+	owner  *stmtConn
+	query  string
+	inner  driver.Stmt
+	reused bool
 }
 
 func (s stmtHold) Close() error {
-	s.owner.release(s.query, s.inner)
+	s.owner.release(s.query, s.inner, s.reused)
 	return nil
 }
 
