@@ -19,6 +19,71 @@ func (m *Mirror) TitlesIncludingFuture(ctx context.Context, keys []core.RatingKe
 	return m.titles(ctx, keys, true)
 }
 
+// ValidKeys filters keys to stored, non-adult mirror entries matching Titles
+// (or TitlesIncludingFuture when includeFuture is true) in requested order,
+// without hydrating facet or credit join tables.
+func (m *Mirror) ValidKeys(ctx context.Context, keys []core.RatingKey, includeFuture bool) ([]core.RatingKey, error) {
+	if len(keys) == 0 {
+		return []core.RatingKey{}, nil
+	}
+	now := m.now()
+	valid := make(map[core.RatingKey]bool, len(keys))
+	const chunk = 400
+	for start := 0; start < len(keys); start += chunk {
+		end := start + chunk
+		if end > len(keys) {
+			end = len(keys)
+		}
+		part := keys[start:end]
+		args := make([]any, len(part))
+		for i, k := range part {
+			args[i] = int64(k)
+		}
+		ph := placeholders(len(part))
+		rows, err := m.db.QueryContext(ctx, `SELECT key,type,released_ts,adult,
+			COALESCE((SELECT h.checked FROM catalog_home_release h WHERE h.key=catalog_titles.key),0),
+			COALESCE((SELECT h.earliest_ts FROM catalog_home_release h WHERE h.key=catalog_titles.key),0)
+			FROM catalog_titles WHERE key IN (`+ph+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var key, released, home int64
+			var adult, checked int
+			var typ string
+			if err := rows.Scan(&key, &typ, &released, &adult, &checked, &home); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			var t core.Title
+			t.Key = core.RatingKey(key)
+			t.Type = core.MediaType(typ)
+			t.Adult = adult != 0
+			t.HomeReleaseChecked = checked != 0
+			if home != 0 {
+				t.HomeReleased = time.Unix(home, 0).UTC()
+			}
+			if released != 0 {
+				t.Released = time.Unix(released, 0).UTC()
+			}
+			if !t.Adult && (t.IsReleased(now) || includeFuture && !t.Released.IsZero()) {
+				valid[t.Key] = true
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]core.RatingKey, 0, len(keys))
+	for _, k := range keys {
+		if valid[k] {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+
 func (m *Mirror) titles(ctx context.Context, keys []core.RatingKey, includeFuture bool) ([]core.Title, error) {
 	if len(keys) == 0 {
 		return []core.Title{}, nil

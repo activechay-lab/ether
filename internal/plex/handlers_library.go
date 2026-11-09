@@ -1813,6 +1813,13 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 				q.Filter.Group = &frontend.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
 			}
 		}
+		if blocks, ok := s.d.AccessPolicy.(interface {
+			BrowseBlocks(*frontend.User) ([]string, []string)
+		}); ok {
+			q.Filter.ExcludeGenres, q.Filter.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
+		}
+		child := q.Filter
+		q.Filter.ChildVisibility = &child
 		page, err := paged.PlexRecentPage(ctx, q, kinds)
 		if err != nil {
 			s.writeErr(w, r, err)
@@ -1851,6 +1858,7 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].DateAdded(s.now()).After(items[j].DateAdded(s.now()))
 	})
+	items = s.openableTitles(withStoredPolicy(ctx), pr.User, items, shelfContainsAll(ctx, items))
 	total := min(len(items), 200)
 	start := min(max(pr.Start, 0), total)
 	end := start + min(size, total-start)
@@ -1858,7 +1866,7 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	mc := libraryContainer()
 	mc.Title1 = "Recently Added"
 	mc.Mixed = model.Ptr(true)
-	mc.Metadata = s.renderTitles(ctx, pr, items, renderOpts{media: true})
+	mc.Metadata = s.renderTitles(ctx, pr, items, renderOpts{media: true, availabilityInSQL: true})
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(start, total)
 	s.write(w, r, mc)

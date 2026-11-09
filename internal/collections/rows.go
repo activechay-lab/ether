@@ -8,8 +8,46 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// rowItems is how many titles a collection row carries.
+// rowItems is how many titles a collection row carries per media type.
 const rowItems = 24
+
+// rowPageKeys caps keys for a Home or section shelf. Mixed collections keep up
+// to rowItems movies and up to rowItems shows so neither section's shelf is
+// starved when the other media type clusters near the front of the list.
+func rowPageKeys(keys []core.RatingKey, mediaType string) ([]core.RatingKey, bool) {
+	if mediaType != MediaMixed {
+		if len(keys) <= rowItems {
+			return keys, false
+		}
+		return keys[:rowItems], true
+	}
+	var movies, shows int
+	var dropped bool
+	out := make([]core.RatingKey, 0, min(len(keys), rowItems*2))
+	for _, k := range keys {
+		switch k.Kind() {
+		case core.KindMovie:
+			if movies >= rowItems {
+				dropped = true
+				continue
+			}
+			movies++
+		case core.KindShow:
+			if shows >= rowItems {
+				dropped = true
+				continue
+			}
+			shows++
+		default:
+			if len(out) >= rowItems*2 {
+				dropped = true
+				continue
+			}
+		}
+		out = append(out, k)
+	}
+	return out, dropped
+}
 
 // HomeRowsFor returns owner collections promoted to Home or section rows
 // for a user in a context: enabled, targeted at the user, with the user's
@@ -64,17 +102,14 @@ func (s *Service) HomeRowsFor(ctx context.Context, user *core.User, hc core.HubC
 		if len(keys) == 0 {
 			continue
 		}
-		page := keys
-		if len(page) > rowItems {
-			page = page[:rowItems]
-		}
-		items, err := loadTitles(ctx, s.db, page)
+		page, dropped := rowPageKeys(keys, sp.MediaType)
+		items, err := s.mirror.Titles(ctx, page)
 		if err != nil || len(items) == 0 {
 			continue
 		}
 		hub := core.Hub{
 			ID: "collection." + row.publicID(), Title: sp.Name, Style: "shelf",
-			Promoted: sp.Targets.HomeRow, Items: items, More: len(keys) > len(items), Key: row.key(),
+			Promoted: sp.Targets.HomeRow, Items: items, More: dropped || len(keys) > len(items), Key: row.key(),
 		}
 		switch sp.MediaType {
 		case MediaMovie:
@@ -116,14 +151,12 @@ func (s *Service) LayoutRow(ctx context.Context, user *core.User, hc core.HubCon
 		return nil, nil
 	}
 	count := len(keys)
-	if len(keys) > rowItems {
-		keys = keys[:rowItems]
-	}
-	items, err := loadTitles(ctx, s.db, keys)
+	page, dropped := rowPageKeys(keys, row.spec.MediaType)
+	items, err := s.mirror.Titles(ctx, page)
 	if err != nil {
 		return nil, err
 	}
-	hub := core.Hub{ID: "collection." + row.publicID(), Title: row.spec.Name, Style: "shelf", Promoted: true, Items: items, More: count > len(items), Key: row.key(), Context: "hub.home.collection"}
+	hub := core.Hub{ID: "collection." + row.publicID(), Title: row.spec.Name, Style: "shelf", Promoted: true, Items: items, More: dropped || count > len(items), Key: row.key(), Context: "hub.home.collection"}
 	switch row.spec.MediaType {
 	case MediaMovie:
 		hub.Type = core.TypeMovie

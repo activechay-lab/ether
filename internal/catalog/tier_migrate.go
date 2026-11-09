@@ -707,21 +707,23 @@ func (c *Catalog) sweepTierTouched(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(missing) == 0 {
-		return 0, nil
-	}
-	c.log.Warn("catalog: tier migration: touched titles without a row; storing them again", "titles", len(missing))
 	promoted := 0
-	for i, k := range missing {
-		if i >= tierSweepMax || c.tmdb() == nil {
-			break
+	if len(missing) > 0 {
+		c.log.Warn("catalog: tier migration: touched titles without a row; storing them again", "titles", len(missing))
+		for i, k := range missing {
+			if i >= tierSweepMax || c.tmdb() == nil {
+				break
+			}
+			if t, err := c.Get(ctx, k); err == nil && t != nil {
+				promoted++
+			}
+			if !waitGap(ctx, time.Second/tierSweepRate) {
+				return promoted, ctx.Err()
+			}
 		}
-		if t, err := c.Get(ctx, k); err == nil && t != nil {
-			promoted++
-		}
-		if !waitGap(ctx, time.Second/tierSweepRate) {
-			return promoted, ctx.Err()
-		}
+	}
+	if _, err := c.promoteCollectionTouched(ctx); err != nil {
+		return promoted, err
 	}
 	return promoted, nil
 }

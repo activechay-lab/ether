@@ -125,6 +125,24 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 			// Rendering the whole 200-item window here discarded that work and
 			// then repeated it for the cards returned below.
 			sourceItems = build()
+			if h.Key != 0 && !h.Key.IsEphemeral() && s.d.Collections != nil {
+				if c, err := s.collectionRaw(ctx, pr.User, h.Key); err == nil && (hs.Hub.More || c.ChildCount > len(sourceItems)) {
+					if page, err := s.collectionSelection().Page(ctx, pr.User, c, h.Key, collectionDevice(ctx), 0, int(^uint(0)>>1)); err == nil && len(page.Items) > 0 {
+						seen := make(map[core.RatingKey]bool, len(sourceItems)+len(page.Items))
+						for _, item := range sourceItems {
+							seen[item.Key] = true
+						}
+						now := s.now()
+						for _, item := range page.Items {
+							if seen[item.Key] || (h.Type != "" && item.Type != h.Type) || item.IsFutureRelease(now) {
+								continue
+							}
+							seen[item.Key] = true
+							sourceItems = append(sourceItems, item)
+						}
+					}
+				}
+			}
 			members := s.openableTitles(withStoredPolicy(ctx), pr.User, sourceItems, shelfContainsAll(ctx, sourceItems))
 			identities := make([]model.Metadata, 0, len(members))
 			for _, title := range members {

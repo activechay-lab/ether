@@ -15,6 +15,26 @@ type ScopedCollection struct {
 	Now         func() time.Time
 	// Unrestricted is a trusted host capability; nil enforces inherited policy.
 	Unrestricted func(*core.User) bool
+	// TitleAllowed overrides Visibility.TitleAllowed when the host adds
+	// protocol-specific rating checks (e.g. Plex overlay ratings).
+	TitleAllowed func(*core.User, *core.Title) bool
+	// Openable overrides released-member admission with the host's batched
+	// openable-title check so ChildCount and Page share identical filtering.
+	Openable func(context.Context, *core.User, []core.Title) []core.Title
+}
+
+func (s ScopedCollection) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+func (s ScopedCollection) titleAllowed(viewer *core.User, title *core.Title) bool {
+	if s.TitleAllowed != nil {
+		return s.TitleAllowed(viewer, title) && s.Visibility.TitleAllowed(viewer, title)
+	}
+	return s.Visibility.TitleAllowed(viewer, title)
 }
 
 func (s ScopedCollection) Items(ctx context.Context, viewer *core.User, key core.RatingKey, deviceClass string) ([]core.Title, error) {
@@ -27,17 +47,51 @@ func (s ScopedCollection) Items(ctx context.Context, viewer *core.User, key core
 	if err != nil {
 		return nil, err
 	}
-	if s.Unrestricted == nil || !s.Unrestricted(viewer) {
+	unrestricted := s.Unrestricted != nil && s.Unrestricted(viewer)
+	if s.Openable == nil && !unrestricted {
 		return s.Visibility.UpcomingItems(ctx, viewer, page.Items, s.Now), nil
 	}
+	nowVal := s.now()
+	allowed := make([]bool, len(page.Items))
+	future := make([]bool, len(page.Items))
+	var released []core.Title
+	for i := range page.Items {
+		title := &page.Items[i]
+		if title.Released.IsZero() || !s.titleAllowed(viewer, title) {
+			continue
+		}
+		if !unrestricted && !s.Visibility.Playable(ctx, viewer, title) {
+			continue
+		}
+		allowed[i] = true
+		if title.IsFutureRelease(nowVal) {
+			future[i] = true
+		} else {
+			released = append(released, *title)
+		}
+	}
+	availSet := make(map[core.RatingKey]bool, len(released))
+	if len(released) > 0 {
+		var kept []core.Title
+		if s.Openable != nil {
+			kept = s.Openable(ctx, viewer, released)
+		} else {
+			kept = s.Visibility.Available(ctx, viewer, released)
+		}
+		for _, t := range kept {
+			availSet[t.Key] = true
+		}
+	}
+	seen := make(map[core.RatingKey]bool, len(page.Items))
 	out := make([]core.Title, 0, len(page.Items))
-	for _, title := range page.Items {
-		if !s.Visibility.TitleAllowed(viewer, &title) || title.Released.IsZero() {
+	for i, title := range page.Items {
+		if !allowed[i] || seen[title.Key] {
 			continue
 		}
-		if !title.Released.After(s.Now()) && len(s.Visibility.Available(ctx, viewer, []core.Title{title})) == 0 {
+		if !future[i] && !availSet[title.Key] {
 			continue
 		}
+		seen[title.Key] = true
 		out = append(out, title)
 	}
 	return out, nil
@@ -91,8 +145,8 @@ func (s ScopedCollection) Page(ctx context.Context, viewer *core.User, collectio
 	if err != nil {
 		return core.Page{}, err
 	}
-	start := min(offset, len(items))
-	end := min(start+size, len(items))
+	start := min(max(offset, 0), len(items))
+	end := min(start+max(size, 0), len(items))
 	return core.Page{Items: items[start:end], Total: len(items)}, nil
 }
 
@@ -113,7 +167,7 @@ func (s ScopedCollection) Placeholder(ctx context.Context, viewer *core.User, ke
 	} else {
 		title, collection, err = source.FindPlaceholder(ctx, viewer, key, device)
 	}
-	if err != nil || title == nil || !s.Visibility.TitleAllowed(viewer, title) {
+	if err != nil || title == nil || !s.titleAllowed(viewer, title) {
 		return nil, 0, core.ErrNotFound
 	}
 	if _, err = s.Get(ctx, viewer, collection, "", false); err != nil {

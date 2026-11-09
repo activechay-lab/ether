@@ -819,7 +819,16 @@ func collectionDevice(ctx context.Context) string {
 }
 
 func (s *Server) collectionSelection() experience.ScopedCollection {
-	return experience.ScopedCollection{Collections: s.d.Collections, Visibility: s.visibility(), Now: s.now, Unrestricted: func(viewer *frontend.User) bool { return !s.viewerRestricted(viewer) }}
+	return experience.ScopedCollection{
+		Collections:  s.d.Collections,
+		Visibility:   s.visibility(),
+		Now:          s.now,
+		Unrestricted: func(viewer *frontend.User) bool { return !s.viewerRestricted(viewer) },
+		TitleAllowed: s.titleAllowed,
+		Openable: func(ctx context.Context, viewer *frontend.User, items []frontend.Title) []frontend.Title {
+			return s.openableTitles(withStoredPolicy(ctx), viewer, items, false)
+		},
+	}
 }
 
 func (s *Server) lookupPlaceholder(ctx context.Context, pr *Request, key frontend.RatingKey, raw string) (*frontend.Title, frontend.RatingKey, error) {
@@ -1003,46 +1012,81 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k front
 		return
 	}
 	offset, size := pr.pageOf(0)
-	recovering := shelfToken(r.URL.RawQuery) != ""
-	buildOffset, buildSize := offset, size
-	if recovering {
-		buildOffset, buildSize = 0, int(^uint(0)>>1)
-	}
-	page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), buildOffset, buildSize)
-	if err != nil {
-		s.writeErr(w, r, err)
-		return
-	}
 	mc := s.collectionItemsContainer(c, k)
 	if strings.HasPrefix(r.URL.Path, "/library/metadata/") {
 		mc.SetSyncProjection(true)
 	}
 	if !c.Upcoming {
-		mc.Metadata = s.renderTitles(ctx, pr, s.filterAllowed(pr.User, page.Items), renderOpts{media: true})
-	} else {
-		for i := range page.Items {
-			t := &page.Items[i]
-			if t.IsFutureRelease(s.now()) {
-				mc.Metadata = append(mc.Metadata, s.placeholderMetadata(ctx, pr, t, k))
-			} else {
-				mc.Metadata = append(mc.Metadata, s.renderTitles(ctx, pr, []frontend.Title{*t}, renderOpts{media: true})...)
+		sqlAvail, _ := s.d.Catalog.(interface{ BrowseAvailabilityInSQL() bool })
+		if sqlAvail != nil && sqlAvail.BrowseAvailabilityInSQL() && !s.viewerRestricted(pr.User) && shelfToken(r.URL.RawQuery) == "" && !s.plexMetaOn() {
+			page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), offset, size)
+			if err != nil {
+				s.writeErr(w, r, err)
+				return
+			}
+			mc.Metadata = s.renderTitles(ctx, pr, page.Items, renderOpts{media: true, availabilityInSQL: true})
+			total := page.Total
+			if len(mc.Metadata) < len(page.Items) && offset+len(page.Items) >= total {
+				total = max(offset+len(mc.Metadata), 0)
+			}
+			mc.Size = len(mc.Metadata)
+			mc.SetPage(min(offset, total), total)
+			s.write(w, r, mc)
+			return
+		}
+		all, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), 0, 5000)
+		if err != nil {
+			s.writeErr(w, r, err)
+			return
+		}
+		members := s.openableTitles(withStoredPolicy(ctx), pr.User, all.Items, false)
+		seen := make(map[frontend.RatingKey]bool, len(members))
+		uniq := members[:0]
+		for _, item := range members {
+			if !seen[item.Key] {
+				seen[item.Key] = true
+				uniq = append(uniq, item)
 			}
 		}
+		total := len(uniq)
+		offset = min(offset, total)
+		end := offset + min(size, total-offset)
+		mc.Metadata = s.renderTitles(ctx, pr, uniq[offset:end], renderOpts{media: true, availabilityInSQL: true})
+		mc.Size = len(mc.Metadata)
+		mc.SetPage(offset, total)
+		s.write(w, r, mc)
+		return
 	}
-	if recovering {
-		seen := map[string]bool{}
-		unique := mc.Metadata[:0]
-		for _, item := range mc.Metadata {
-			if !seen[item.RatingKey] {
-				seen[item.RatingKey] = true
-				unique = append(unique, item)
-			}
+	page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), offset, size)
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
+	now := s.now()
+	var released []frontend.Title
+	for i := range page.Items {
+		if !page.Items[i].IsFutureRelease(now) {
+			released = append(released, page.Items[i])
 		}
-		page.Total = len(unique)
-		offset = min(offset, page.Total)
-		end := offset + min(size, page.Total-offset)
-		mc.Metadata = unique[offset:end]
 	}
+	var rendered []model.Metadata
+	if len(released) > 0 {
+		rendered = s.renderTitles(ctx, pr, released, renderOpts{media: true, availabilityInSQL: true})
+	}
+	renderedByKey := make(map[string]model.Metadata, len(rendered))
+	for _, md := range rendered {
+		renderedByKey[md.RatingKey] = md
+	}
+	mc.Metadata = make([]model.Metadata, 0, len(page.Items))
+	for i := range page.Items {
+		t := &page.Items[i]
+		if t.IsFutureRelease(now) {
+			mc.Metadata = append(mc.Metadata, s.placeholderMetadata(ctx, pr, t, k))
+		} else if md, ok := renderedByKey[t.Key.String()]; ok {
+			mc.Metadata = append(mc.Metadata, md)
+		}
+	}
+	offset = min(offset, page.Total)
 	mc.Size = len(mc.Metadata)
 	mc.SetPage(offset, page.Total)
 	s.write(w, r, mc)

@@ -3,6 +3,7 @@ package personalize
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"sort"
@@ -950,7 +951,9 @@ func (e *Engine) fetchOwnerRows(key string, user *core.User, hc core.HubContext,
 			}
 			row, err := source.LayoutRow(ctx, user, hc, id)
 			if err != nil {
-				e.log.Debug("personalize: selected collection unavailable", "id", id, "err", err)
+				if !errors.Is(err, core.ErrNotFound) {
+					e.log.Debug("personalize: selected collection unavailable", "id", id, "err", err)
+				}
 				continue
 			}
 			if row != nil {

@@ -174,14 +174,41 @@ func (v Visibility) CollectionAllowed(viewer *core.User, c *core.Collection) boo
 // UpcomingItems retains the existing placeholder discovery rules for a page.
 func (v Visibility) UpcomingItems(ctx context.Context, viewer *core.User, items []core.Title, now func() time.Time) []core.Title {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	nowVal := time.Now()
+	if now != nil {
+		nowVal = now()
+	}
+	allowed := make([]bool, len(items))
+	future := make([]bool, len(items))
+	var released []core.Title
+	for i := range items {
+		title := &items[i]
+		if !v.Playable(ctx, viewer, title) || title.Released.IsZero() {
+			continue
+		}
+		allowed[i] = true
+		if title.IsFutureRelease(nowVal) {
+			future[i] = true
+		} else {
+			released = append(released, *title)
+		}
+	}
+	availSet := make(map[core.RatingKey]bool, len(released))
+	if len(released) > 0 {
+		for _, t := range v.Available(ctx, viewer, released) {
+			availSet[t.Key] = true
+		}
+	}
+	seen := make(map[core.RatingKey]bool, len(items))
 	out := make([]core.Title, 0, len(items))
-	for _, title := range items {
-		if !v.Playable(ctx, viewer, &title) || title.Released.IsZero() {
+	for i, title := range items {
+		if !allowed[i] || seen[title.Key] {
 			continue
 		}
-		if !title.Released.After(now()) && len(v.Available(ctx, viewer, []core.Title{title})) == 0 {
+		if !future[i] && !availSet[title.Key] {
 			continue
 		}
+		seen[title.Key] = true
 		out = append(out, title)
 	}
 	return out

@@ -1929,6 +1929,7 @@ func (s *Service) collectionItems(ctx context.Context, v *core.User, key core.Ra
 		}
 	}
 	var out []core.Title
+	seen := map[core.RatingKey]bool{}
 	for offset := 0; ; {
 		page, err := s.d.Collections.Items(ctx, v, key, offset, 500)
 		if err != nil {
@@ -1937,9 +1938,15 @@ func (s *Service) collectionItems(ctx context.Context, v *core.User, key core.Ra
 		batch := page.Items
 		if upcoming {
 			batch = s.d.Visibility.UpcomingItems(ctx, v, batch, time.Now)
+		} else {
+			batch, err = s.allowTitles(ctx, v, batch)
+			if err != nil {
+				return nil, err
+			}
 		}
 		for i := range batch {
-			if upcoming || s.visible(ctx, v, &batch[i]) {
+			if !seen[batch[i].Key] {
+				seen[batch[i].Key] = true
 				out = append(out, batch[i])
 			}
 		}

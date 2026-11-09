@@ -298,7 +298,7 @@ func (i *instance) browseRoutes() error {
 					return
 				}
 			} else {
-				rows, err := i.host.Experience.Rows(r.Context(), frontend.RowRequest{Viewer: v, Device: device(r), Placement: frontend.PlacementHome, Purpose: purpose, Limit: queryInt(r, "Limit", 0)})
+				rows, err := i.host.Experience.Rows(r.Context(), frontend.RowRequest{Viewer: v, Device: device(r), Placement: frontend.PlacementHome, Purpose: purpose})
 				if err != nil {
 					http.Error(w, "Unavailable", 503)
 					return

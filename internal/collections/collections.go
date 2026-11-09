@@ -93,8 +93,9 @@ type Service struct {
 	flights  flight.Group[buildKey, *memberSet]
 	personal map[string]personalEntry
 
-	invalMu sync.Mutex
-	inval   *clusterbus.Invalidator // nil on a standalone server
+	invalMu       sync.Mutex
+	inval         *clusterbus.Invalidator // nil on a standalone server
+	repairedTiers atomic.Bool
 
 	// settings captured from options before New finishes.
 	opts options
@@ -535,6 +536,7 @@ func (s *Service) buildNow(ctx context.Context, row *specRow) (*memberSet, error
 	if err := s.saveBuild(ctx, row.id, row.rawSpec, resolved, res.keys, res.unshared, res.itemCount(), res.warnings, res.hash, at); err != nil {
 		return nil, err
 	}
+	s.promoteMembers(ctx, res.keys)
 	s.log.Debug("collections: built", "id", row.publicID(), "name", row.spec.Name, "items", res.itemCount(),
 		"warnings", len(res.warnings), "took", time.Since(started).Round(time.Millisecond))
 	ms := &memberSet{keys: res.keys, personal: res.personal, personalX: res.personalX, unshared: res.unshared, spec: row.spec,
@@ -574,28 +576,18 @@ func (s *Service) serve(ctx context.Context, row *specRow, user *core.User, wait
 	if err != nil {
 		return nil, err
 	}
-	snap := s.idx.ready()
-	if snap == nil {
-		if !wait {
-			return nil, errNotBuilt
-		}
-		if snap, err = s.idx.get(ctx); err != nil {
-			return nil, err
+	upcoming := row.spec.ReleaseMode == "upcoming" || row.spec.ReleaseMode == "mixed"
+	snap, err := s.snapshotForServe(ctx, ms.keys, upcoming)
+	if err != nil {
+		return nil, err
+	}
+	present := make([]core.RatingKey, 0, len(ms.keys))
+	for _, k := range ms.keys {
+		if snap.entries[k] != nil {
+			present = append(present, k)
 		}
 	}
-	if row.spec.ReleaseMode == "upcoming" || row.spec.ReleaseMode == "mixed" {
-		titles, err := loadCollectionTitles(ctx, s.db, ms.keys)
-		if err != nil {
-			return nil, err
-		}
-		in := newInterner()
-		entries := make([]*entry, 0, len(titles))
-		for _, t := range titles {
-			entries = append(entries, entryFromTitle(t, in))
-		}
-		snap = mergeEntries(snap, entries)
-	}
-	keys := s.filterForUser(ctx, ms.keys, ms.personalRules(), user, snap)
+	keys := s.filterForUser(ctx, present, ms.personalRules(), user, snap)
 	if row.spec.ReleaseMode == "upcoming" || row.spec.ReleaseMode == "mixed" {
 		now := s.now()
 		filtered := make([]core.RatingKey, 0, len(keys))
@@ -762,6 +754,24 @@ func (s *Service) collectionFor(ctx context.Context, row *specRow, user *core.Us
 			}
 		}
 	}
+	if (c.PosterPath == "" || c.BackdropPath == "" || c.Type == "") && len(keys) > 0 {
+		if ts, err := s.mirror.TitlesIncludingFuture(ctx, keys[:min(len(keys), 4)]); err == nil {
+			for _, mt := range ts {
+				if c.Type == "" {
+					c.Type = mt.Type
+				}
+				if c.PosterPath == "" && mt.PosterPath != "" {
+					c.PosterPath = mt.PosterPath
+				}
+				if c.BackdropPath == "" && mt.BackdropPath != "" {
+					c.BackdropPath = mt.BackdropPath
+				}
+				if c.PosterPath != "" && c.BackdropPath != "" {
+					break
+				}
+			}
+		}
+	}
 	if c.Type == "" {
 		c.Type = core.TypeMovie
 	}
@@ -870,15 +880,21 @@ func (s *Service) Items(ctx context.Context, user *core.User, key core.RatingKey
 			return core.Page{}, err
 		}
 		keys = sectionKeys(keys, section)
+		upcoming := row.spec.ReleaseMode == "upcoming" || row.spec.ReleaseMode == "mixed"
+		keys, err = s.mirror.ValidKeys(ctx, keys, upcoming)
+		if err != nil {
+			return core.Page{}, err
+		}
 		total := len(keys)
 		if offset >= total {
 			return core.Page{Items: []core.Title{}, Total: total}, nil
 		}
 		var items []core.Title
-		if row.spec.ReleaseMode == "upcoming" || row.spec.ReleaseMode == "mixed" {
-			items, err = loadCollectionTitles(ctx, s.db, keys[offset:pageEnd(offset, limit, total)])
+		pageKeys := keys[offset:pageEnd(offset, limit, total)]
+		if upcoming {
+			items, err = s.mirror.TitlesIncludingFuture(ctx, pageKeys)
 		} else {
-			items, err = loadTitles(ctx, s.db, keys[offset:pageEnd(offset, limit, total)])
+			items, err = s.mirror.Titles(ctx, pageKeys)
 		}
 		if err != nil {
 			return core.Page{}, err
