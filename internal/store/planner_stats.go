@@ -111,6 +111,25 @@ func AnalyzeFull(ctx context.Context, db *sql.DB, names ...string) error {
 	return err
 }
 
+// maintenanceHold bounds how long other in-process writers queue behind
+// one analysed index build or ANALYZE. release clears it the moment the
+// build commits, so the bound only bites a stuck build; each waiter's own
+// context deadline still applies. It is generous because a full index
+// build on a million-title catalogue is minutes of legitimate work, and a
+// writer that gives up here fails exactly as it did at 10 s before #407.
+const maintenanceHold = 10 * time.Minute
+
+func connGate(conn *sql.Conn) *writeGate {
+	var gate *writeGate
+	_ = conn.Raw(func(dc any) error {
+		if c, ok := dc.(*stmtConn); ok {
+			gate = c.gate
+		}
+		return nil
+	})
+	return gate
+}
+
 // CreateIndexAnalyzed builds an index with create and analyses it from
 // every row in the same transaction. Other connections see the index and
 // its statistics together, on one schema change. An index committed
@@ -130,11 +149,13 @@ func CreateIndexAnalyzed(ctx context.Context, db *sql.DB, name, create string) e
 		return err
 	}
 	defer conn.Close()
+	gate := connGate(conn)
 	return withFullAnalysis(ctx, conn, func() error {
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
+		gate.extendHeld(time.Now().Add(maintenanceHold))
 		if _, err := tx.ExecContext(ctx, create); err != nil {
 			tx.Rollback()
 			return err
@@ -250,10 +271,20 @@ func analyzeFull(ctx context.Context, conn *sql.Conn, name string) (time.Duratio
 	if len(idx) > 0 {
 		targets = idx
 	}
+	gate := connGate(conn)
 	var longest time.Duration
 	for _, t := range targets {
 		began := time.Now()
-		if _, err := conn.ExecContext(ctx, `ANALYZE `+quoteIdent(t)); err != nil {
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return longest, err
+		}
+		gate.extendHeld(time.Now().Add(maintenanceHold))
+		if _, err := tx.ExecContext(ctx, `ANALYZE `+quoteIdent(t)); err != nil {
+			tx.Rollback()
+			return longest, fmt.Errorf("store: analyze %s: %w", t, err)
+		}
+		if err := tx.Commit(); err != nil {
 			return longest, fmt.Errorf("store: analyze %s: %w", t, err)
 		}
 		longest = max(longest, time.Since(began))
