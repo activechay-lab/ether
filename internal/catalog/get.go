@@ -601,13 +601,13 @@ func (c *Catalog) seasonEpisodeQuery(ctx context.Context, showID int64, season, 
 	now := c.now().Unix()
 	var total int
 	from := `catalog_titles` + c.indexedBy("catalog_titles_show")
-	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+from+`WHERE `+airedSeasonEpisodeWhere, showKey, season, now).Scan(&total); err != nil {
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+from+` WHERE `+airedSeasonEpisodeWhere, showKey, season, now).Scan(&total); err != nil {
 		return core.Page{}, err
 	}
 	if offset >= total {
 		return core.Page{Items: []core.Title{}, Total: total}, nil
 	}
-	items, err := c.queryTitles(ctx, `SELECT `+titleCols+` FROM `+from+`WHERE `+airedSeasonEpisodeWhere+` ORDER BY episode ASC LIMIT ? OFFSET ?`, showKey, season, now, limit, offset)
+	items, err := c.queryTitles(ctx, `SELECT `+titleCols+` FROM `+from+` WHERE `+airedSeasonEpisodeWhere+` ORDER BY episode ASC LIMIT ? OFFSET ?`, showKey, season, now, limit, offset)
 	if err != nil {
 		return core.Page{}, err
 	}
