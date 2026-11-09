@@ -328,8 +328,7 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 			e.originalLanguage = strings.TrimSpace(title.Language)
 		}
 		if res == nil || !releaseMatchesTitle(res.Release, title) || !payloadMatchesTitle(res.NZB, title) {
-			// The warm-up probes the release before publishing it.
-			res, err = m.deps.Resolver.Resolve(core.WithProbeFollows(ctx), core.ResolveRequest{Title: title, Client: caps, User: &u})
+			res, err = m.deps.Resolver.Resolve(ctx, core.ResolveRequest{Title: title, Client: caps, User: &u})
 		} else if reason == core.PrewarmDetail {
 			// Reusing the remembered source skips Resolve/search. Recover only
 			// the picker candidates, without delaying or changing that source.

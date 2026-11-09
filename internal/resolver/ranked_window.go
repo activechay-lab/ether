@@ -194,7 +194,6 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 		ct.FetchDuration = v.fetchDuration
 		ct.HealthDuration = v.healthDuration
 		ct.HealthChecked = v.healthChecked
-		ct.HealthDeferred = v.healthDeferred
 		ct.Healthy = v.healthy && v.err == nil
 		if ct.Healthy {
 			return
@@ -221,7 +220,7 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			ct.Route = strings.TrimPrefix(strings.TrimSpace(ct.Route+"; healthy equivalent after preferred source exceeded grace"), "; ")
 			tr.Candidates[cands[lead].trace].Attempted = true
 		}
-		if v.healthChecked && !v.healthCached && !v.healthDeferred {
+		if v.healthChecked && !v.healthCached {
 			s.markVerified(ctx, cands[v.index].rel.ID)
 			s.noteStartup(cands[v.index].rel, max(v.fetchDuration+v.healthDuration, time.Microsecond))
 		}

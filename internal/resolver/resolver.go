@@ -110,7 +110,6 @@ type CandidateTrace struct {
 	Pinned         bool          `json:"pinned,omitempty"`    // the owner's pin for the title
 	Attempted      bool          `json:"attempted,omitempty"` // fetch or health validation actually ran
 	HealthChecked  bool          `json:"healthChecked"`
-	HealthDeferred bool          `json:"healthDeferred,omitempty"` // proof left to playback's probe
 	Healthy        bool          `json:"healthy"`
 	FetchDuration  time.Duration `json:"fetchDuration"`
 	HealthDuration time.Duration `json:"healthDuration"`
