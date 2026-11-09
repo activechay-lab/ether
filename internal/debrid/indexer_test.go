@@ -124,12 +124,16 @@ func TestIndexerChecksCacheAsIndexersAnswer(t *testing.T) {
 
 type packFallbackInner struct {
 	fakeInner
-	episodeResults []core.Release
-	packResults    []core.Release
+	episodeResults  []core.Release
+	packResults     []core.Release
+	packCalls       int
+	packTorrentOnly bool
 }
 
-func (p *packFallbackInner) Search(_ context.Context, req core.SearchRequest) ([]core.Release, error) {
+func (p *packFallbackInner) Search(ctx context.Context, req core.SearchRequest) ([]core.Release, error) {
 	if req.Episode == 0 {
+		p.packCalls++
+		p.packTorrentOnly = core.TorrentOnlySearch(ctx)
 		return append([]core.Release(nil), p.packResults...), nil
 	}
 	return append([]core.Release(nil), p.episodeResults...), nil
@@ -149,13 +153,25 @@ func TestIndexerRescuesSeasonPackWhenSingleEpisodesUncached(t *testing.T) {
 			{ID: "cached-pack", Name: "Obscure.Show.S02.COMPLETE.1080p.BluRay", Protocol: core.ProtocolTorrent, InfoHash: cachedPackHash, Info: core.ReleaseInfo{Seasons: []int{2}, FullSeason: true}},
 		},
 	}
-	got, err := NewIndexer(inner, h.svc).Search(context.Background(), core.SearchRequest{
-		Type: core.TypeEpisode, Title: "Obscure Show", Season: 2, Episode: 7,
-	})
+	idx := NewIndexer(inner, h.svc)
+	req := core.SearchRequest{Type: core.TypeEpisode, Title: "Obscure Show", Season: 2, Episode: 7}
+
+	// Speculative callers must not fan out into a second Episode=0 season-pack search.
+	sctx, _ := core.WithSpeculative(context.Background())
+	specCtx := core.WithIndexerPurpose(sctx, core.IndexerPurposeWarmup)
+	if _, err := idx.Search(specCtx, req); err != nil {
+		t.Fatal(err)
+	}
+	if inner.packCalls != 0 {
+		t.Fatalf("speculative search ran season-pack rescue: packCalls=%d", inner.packCalls)
+	}
+
+	// Foreground Play still rescues via cached season pack, scoped strictly to torrent indexers.
+	got, err := idx.Search(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "cached-pack" {
-		t.Fatalf("expected cached season pack rescue, got %+v", got)
+	if len(got) != 1 || got[0].ID != "cached-pack" || inner.packCalls != 1 || !inner.packTorrentOnly {
+		t.Fatalf("expected torrent-only cached season pack rescue, got=%+v packCalls=%d torrentOnly=%v", got, inner.packCalls, inner.packTorrentOnly)
 	}
 }

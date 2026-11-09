@@ -17,10 +17,14 @@ type indexerAlert struct {
 // ObserveIndexer alerts once per outage, retrying failed queue writes at most
 // once a minute. Database waits never hold the shared health mutex.
 func (s *Service) ObserveIndexer(e newznab.Event) {
+	if e.Cached || e.Kind == "cache" || e.SpeculativeHeld {
+		return
+	}
+	budget := e.BudgetExhausted || e.RateLimited
 	state := ""
 	if !e.Success {
 		state = "outage"
-		if e.BudgetExhausted {
+		if budget {
 			state = "budget"
 		}
 	}
@@ -55,7 +59,7 @@ func (s *Service) ObserveIndexer(e newznab.Event) {
 	s.healthMu.Unlock()
 	kind := "indexer.outage"
 	message := "An indexer operation failed. See server logs for details."
-	if e.BudgetExhausted {
+	if budget {
 		kind = "indexer.budget"
 		message = "The indexer's daily budget has been exhausted."
 	}

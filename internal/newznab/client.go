@@ -72,6 +72,7 @@ type Options struct {
 	// usageDB records a one-off client's requests in the usage breakdown
 	// without spending budgets (Manager.TestIndexer).
 	usageDB *sql.DB
+	onEvent func(Event)
 }
 
 // Backend searches a site that is not a Newznab API, such as a built-in
@@ -135,7 +136,9 @@ type Client struct {
 	nzbFlightMu sync.Mutex
 	nzbFlights  map[string]*nzbFlight
 
-	cfgMu sync.RWMutex
+	cfgMu   sync.RWMutex
+	eventMu sync.RWMutex
+	onEvent func(Event)
 
 	// Resolved identities the client presents to this indexer, one per
 	// purpose and media, refreshed from the policy on every config reload.
@@ -197,7 +200,7 @@ var _ core.Indexer = (*Client)(nil)
 // New builds a Client for one indexer. db may be nil (budgets and cache
 // then live in memory).
 func New(cfg config.Indexer, db *sql.DB, opts Options) *Client {
-	c := &Client{cfg: cfg, db: db, usageDB: opts.usageDB, nzbDir: opts.NZBDir, backends: opts.Backend}
+	c := &Client{cfg: cfg, db: db, usageDB: opts.usageDB, onEvent: opts.onEvent, nzbDir: opts.NZBDir, backends: opts.Backend}
 	c.http = opts.HTTPClient
 	if c.http == nil {
 		c.http = egress.Client(egress.CapIndexers, defaultHTTPTimeout)
@@ -225,6 +228,76 @@ func New(cfg config.Indexer, db *sql.DB, opts Options) *Client {
 	}
 	c.SetClientIdentity(opts.ClientIdentity)
 	return c
+}
+
+func (c *Client) setOnEvent(fn func(Event)) {
+	c.eventMu.Lock()
+	c.onEvent = fn
+	c.eventMu.Unlock()
+}
+
+func (c *Client) emit(e Event) {
+	c.eventMu.RLock()
+	fn := c.onEvent
+	c.eventMu.RUnlock()
+	if fn == nil {
+		return
+	}
+	if e.Indexer == "" {
+		e.Indexer = c.Name()
+	}
+	if e.At.IsZero() {
+		e.At = c.now()
+	}
+	fn(e)
+}
+
+func searchEventKind(ctx context.Context) string {
+	if core.IndexerPurpose(ctx) == core.IndexerPurposeFeed {
+		return "feed"
+	}
+	return "search"
+}
+
+func averageReleaseAge(results []core.Release, now time.Time) time.Duration {
+	var age time.Duration
+	var dated int
+	for _, r := range results {
+		if !r.PubDate.IsZero() && now.After(r.PubDate) {
+			age += now.Sub(r.PubDate)
+			dated++
+		}
+	}
+	if dated > 0 {
+		age /= time.Duration(dated)
+	}
+	return age
+}
+
+func (c *Client) emitGrab(ctx context.Context, name string, started time.Time, reserved bool, err error, logWarn bool) {
+	if err != nil && (errors.Is(err, context.Canceled) || ctx.Err() == context.Canceled) {
+		return
+	}
+	if !reserved && errors.Is(err, core.ErrReleaseRejected) {
+		return
+	}
+	localBudget := !reserved && errors.Is(err, core.ErrBudgetExhausted)
+	if err != nil && logWarn && !localBudget {
+		c.log.Warn("indexer NZB fetch failed", "indexer", c.Name(), "release", name, "err", err)
+	}
+	var dur time.Duration
+	if !localBudget {
+		dur = time.Since(started)
+	}
+	c.emit(Event{
+		Kind:            "grab",
+		Purpose:         usagePurpose(ctx),
+		Success:         err == nil,
+		BudgetExhausted: localBudget,
+		SpeculativeHeld: localBudget && errors.Is(err, errSpeculativeShare),
+		RateLimited:     reserved && errors.Is(err, core.ErrBudgetExhausted),
+		Duration:        dur,
+	})
 }
 
 // Config returns the indexer's current config.
@@ -882,13 +955,18 @@ func (c *Client) doSearch(ctx context.Context, params url.Values, id config.Iden
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
+	admitted := false
+	reserved := false
 	results, err := c.guardSearch(ctx, true, defaultHTTPTimeout, func(ctx context.Context) ([]core.Release, error) {
+		admitted = true
 		// The hit is reserved once the breaker has admitted the request,
 		// right before it is sent: the budget and the usage breakdown count
 		// HTTP requests the indexer actually receives, as Prowlarr does.
 		if err := c.reserve(ctx, "hit"); err != nil {
 			return nil, err
 		}
+		reserved = true
 		if emit, ok := ctx.Value(searchArrivalKey{}).(func([]core.Release)); ok {
 			return c.getSearchStream(ctx, u, emit, id)
 		}
@@ -905,7 +983,30 @@ func (c *Client) doSearch(ctx context.Context, params url.Values, id config.Iden
 			results[i].Protocol = core.ProtocolTorrent
 		}
 	}
-	return c.feedReleases(results), err
+	out := c.feedReleases(results)
+	if admitted && !(err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, ErrIndexerPaused))) {
+		localBudget := !reserved && errors.Is(err, core.ErrBudgetExhausted)
+		now := c.now()
+		var dur, age time.Duration
+		if !localBudget {
+			dur = time.Since(started)
+			age = averageReleaseAge(out, now)
+		}
+		c.emit(Event{
+			Kind:            searchEventKind(ctx),
+			Purpose:         usagePurpose(ctx),
+			Success:         err == nil,
+			Empty:           err == nil && len(out) == 0,
+			BudgetExhausted: localBudget,
+			SpeculativeHeld: localBudget && errors.Is(err, errSpeculativeShare),
+			RateLimited:     reserved && errors.Is(err, core.ErrBudgetExhausted),
+			Results:         len(out),
+			Duration:        dur,
+			AverageAge:      age,
+			At:              now,
+		})
+	}
+	return out, err
 }
 
 // Search implements core.Indexer.
@@ -914,25 +1015,32 @@ func (c *Client) doSearch(ctx context.Context, params url.Values, id config.Iden
 const primaryMissKey = "|primary-miss"
 
 func (c *Client) Search(ctx context.Context, req core.SearchRequest) ([]core.Release, error) {
-	if cfg := c.Config(); !cfg.Enabled {
+	cfg := c.Config()
+	if !cfg.Enabled {
 		return nil, fmt.Errorf("indexer %q is disabled", c.Name())
+	}
+	if core.TorrentOnlySearch(ctx) && !cfg.IsTorrent() {
+		return nil, nil
 	}
 	key := cacheKey(c, req)
 	ctx = withCacheAge(ctx, req.Released)
 	if cached, ok := c.cacheGet(ctx, key); ok {
+		c.emit(Event{Kind: "cache", Purpose: usagePurpose(ctx), Success: true, Cached: true, Results: len(cached)})
 		return cached, nil
 	}
 	speculative := core.SpeculativeIndexerWork(ctx) || core.IsBackgroundCheck(ctx)
 	if speculative {
 		// A primary query that already missed for speculative work.
 		if cached, ok := c.cacheGet(ctx, key+primaryMissKey); ok {
+			c.emit(Event{Kind: "cache", Purpose: usagePurpose(ctx), Success: true, Cached: true, Results: len(cached)})
 			return cached, nil
 		}
 	}
 	// Exhausted limits prohibit new requests, not reuse of already fetched
 	// results and NZBs. The manager must reach this cache before this check.
 	if c.Exhausted(ctx) {
-		return nil, fmt.Errorf("indexer %q: %w", c.Name(), core.ErrBudgetExhausted)
+		c.emit(Event{Kind: "search", Purpose: usagePurpose(ctx), BudgetExhausted: true})
+		return nil, fmt.Errorf("indexer %q: %w: %w", c.Name(), errLocalBudget, core.ErrBudgetExhausted)
 	}
 	if err := c.searchPaused(); err != nil {
 		return nil, err
@@ -1187,10 +1295,12 @@ func (c *Client) SearchRescue(ctx context.Context, req core.SearchRequest) ([]co
 	key := cacheKey(c, req) + "|rescue"
 	ctx = withCacheAge(ctx, req.Released)
 	if cached, ok := c.cacheGet(ctx, key); ok {
+		c.emit(Event{Kind: "cache", Purpose: usagePurpose(ctx), Success: true, Cached: true, Results: len(cached)})
 		return cached, nil
 	}
 	if c.Exhausted(ctx) {
-		return nil, fmt.Errorf("indexer %q: %w", c.Name(), core.ErrBudgetExhausted)
+		c.emit(Event{Kind: "search", Purpose: usagePurpose(ctx), BudgetExhausted: true})
+		return nil, fmt.Errorf("indexer %q: %w: %w", c.Name(), errLocalBudget, core.ErrBudgetExhausted)
 	}
 	if err := c.searchPaused(); err != nil {
 		return nil, err
@@ -1350,11 +1460,17 @@ func (c *Client) fetchNZBReporting(ctx context.Context, r core.Release) ([]byte,
 	if path := c.nzbDiskPath(r.ID); path != "" {
 		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
 			c.touchNZB(path)
+			c.emit(Event{Kind: "cache", Purpose: usagePurpose(ctx), Success: true, Cached: true})
 			return b, false, nil
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	if r.ID == "" {
-		body, err := c.fetchNZB(ctx, r)
+		started := time.Now()
+		body, reserved, err := c.fetchNZB(ctx, r)
+		c.emitGrab(ctx, r.Name, started, reserved, err, true)
 		return body, true, err
 	}
 	for {
@@ -1376,6 +1492,9 @@ func (c *Client) fetchNZBReporting(ctx context.Context, r core.Release) ([]byte,
 		}
 		if f.err != nil {
 			return nil, leader, f.err
+		}
+		if !leader {
+			c.emit(Event{Kind: "cache", Purpose: usagePurpose(ctx), Success: true, Cached: true})
 		}
 		return body, leader, nil
 	}
@@ -1438,7 +1557,10 @@ func (c *Client) joinNZBFlight(ctx context.Context, r core.Release) (*nzbFlight,
 	c.nzbFlights[r.ID] = f
 	go func() {
 		defer cancel()
-		f.body, f.err = c.fetchNZB(fctx, r)
+		started := time.Now()
+		var reserved bool
+		f.body, reserved, f.err = c.fetchNZB(fctx, r)
+		c.emitGrab(fctx, r.Name, started, reserved, f.err, true)
 		c.nzbFlightMu.Lock()
 		if c.nzbFlights[r.ID] == f {
 			delete(c.nzbFlights, r.ID)
@@ -1450,19 +1572,26 @@ func (c *Client) joinNZBFlight(ctx context.Context, r core.Release) (*nzbFlight,
 }
 
 // fetchNZB downloads r's NZB from the indexer, spending one grab, and
-// keeps it on disk.
-func (c *Client) fetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
+// keeps it on disk. The bool reports whether a grab slot was reserved.
+func (c *Client) fetchNZB(ctx context.Context, r core.Release) ([]byte, bool, error) {
 	if c.Config().UsesBackend() {
 		b, err := c.backend()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		body, err := b.FetchNZB(ctx, r, c.reserve)
+		reserved := false
+		body, err := b.FetchNZB(ctx, r, func(rctx context.Context, kind string) error {
+			if err := c.reserve(rctx, kind); err != nil {
+				return err
+			}
+			reserved = true
+			return nil
+		})
 		if err != nil {
-			return nil, err
+			return nil, reserved, err
 		}
 		c.saveNZB(r.ID, body)
-		return body, nil
+		return body, reserved, nil
 	}
 	id := c.clientIdentityFor(releaseIsTV(r), true)
 	// r.NZBURL comes from the indexer's feed, so it is untrusted data:
@@ -1473,58 +1602,58 @@ func (c *Client) fetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
 	rawURL := r.NZBURL
 	if rawURL == "" {
 		if r.GUID == "" {
-			return nil, fmt.Errorf("newznab: release %q has no NZB URL or GUID", r.Name)
+			return nil, false, fmt.Errorf("newznab: release %q has no NZB URL or GUID: %w", r.Name, core.ErrReleaseRejected)
 		}
 		u, err := c.apiURL(url.Values{"t": {"get"}, "id": {r.GUID}}, id)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		rawURL = u
 	} else if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		base, err := url.Parse(strings.TrimRight(c.Config().URL, "/") + "/")
 		if err != nil {
-			return nil, redactURLError(err)
+			return nil, false, redactURLError(err)
 		}
 		ref, err := url.Parse(rawURL)
 		if err != nil {
-			return nil, redactURLError(err)
+			return nil, false, redactURLError(err)
 		}
 		rawURL = base.ResolveReference(ref).String()
 	}
 	// Reserved right before the request, so a release with no usable URL
 	// spends nothing.
 	if err := c.reserve(ctx, "grab"); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	body, err := c.get(ctx, rawURL, c.maxNZB, id)
 	if err != nil {
-		return nil, err
+		return nil, true, err
 	}
 	// Gzipped NZB payload (magic bytes) — Go's transport only undoes
 	// Content-Encoding, not a stored .nzb.gz body.
 	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
 		gz, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {
-			return nil, fmt.Errorf("newznab: gunzip NZB: %w", err)
+			return nil, true, fmt.Errorf("newznab: gunzip NZB: %w", err)
 		}
 		body, err = io.ReadAll(io.LimitReader(gz, c.maxNZB+1))
 		gz.Close()
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 		if int64(len(body)) > c.maxNZB {
-			return nil, fmt.Errorf("newznab: NZB exceeds %d bytes", c.maxNZB)
+			return nil, true, fmt.Errorf("newznab: NZB exceeds %d bytes", c.maxNZB)
 		}
 	}
 	trimmed := bytes.TrimSpace(body)
 	if !bytes.Contains(bytes.ToLower(trimmed[:min(len(trimmed), 2048)]), []byte("<nzb")) {
 		if _, perr := parseFeed(body, c.Name()); perr != nil {
-			return nil, perr
+			return nil, true, perr
 		}
-		return nil, fmt.Errorf("newznab: response for %q is not an NZB", r.Name)
+		return nil, true, fmt.Errorf("newznab: response for %q is not an NZB", r.Name)
 	}
 	c.saveNZB(r.ID, body)
-	return body, nil
+	return body, true, nil
 }
 
 // saveNZB keeps a fetched NZB on disk so later plays need no grab. Saves
@@ -1561,8 +1690,8 @@ func (c *Client) backendSearch(ctx context.Context, req core.SearchRequest) ([]c
 	if err != nil {
 		return nil, err
 	}
-	return c.stampBackend(ctx, func(ctx context.Context) ([]core.Release, error) {
-		return b.Search(ctx, req, c.reserve)
+	return c.stampBackend(ctx, "search", func(ctx context.Context, reserve func(context.Context, string) error) ([]core.Release, error) {
+		return b.Search(ctx, req, reserve)
 	})
 }
 
@@ -1576,35 +1705,104 @@ func (c *Client) backendRecent(ctx context.Context) ([]core.Release, error) {
 	if !ok {
 		return nil, fmt.Errorf("recent-release feed is not supported by this source")
 	}
-	return c.stampBackend(ctx, func(ctx context.Context) ([]core.Release, error) {
-		return rb.Recent(ctx, c.reserve)
+	return c.stampBackend(ctx, "feed", func(ctx context.Context, reserve func(context.Context, string) error) ([]core.Release, error) {
+		return rb.Recent(ctx, reserve)
 	})
 }
 
 // stampBackend runs a backend request behind the search guard and stamps
 // its results the way Newznab results are stamped.
-func (c *Client) stampBackend(ctx context.Context, run func(context.Context) ([]core.Release, error)) ([]core.Release, error) {
-	results, err := c.guardSearch(ctx, false, 0, run)
+func (c *Client) stampBackend(ctx context.Context, kind string, run func(context.Context, func(context.Context, string) error) ([]core.Release, error)) ([]core.Release, error) {
+	started := time.Now()
+	admitted := false
+	hits := 0
+	var refused error
+	reserve := func(rctx context.Context, rkind string) error {
+		if err := c.reserve(rctx, rkind); err != nil {
+			if errors.Is(err, core.ErrBudgetExhausted) && refused == nil {
+				refused = err
+			}
+			return err
+		}
+		if rkind == "hit" {
+			hits++
+		}
+		return nil
+	}
+	results, err := c.guardSearch(ctx, false, 0, func(ctx context.Context) ([]core.Release, error) {
+		admitted = true
+		return run(ctx, reserve)
+	})
 	if err != nil {
 		var rl *RateLimitError
 		if errors.As(err, &rl) {
-			return nil, c.recordRateLimit(ctx, rl.RetryAfter, err)
+			err = c.recordRateLimit(ctx, rl.RetryAfter, err)
 		}
+	}
+	if err == nil {
+		name, id := c.Name(), c.indexerID()
+		for i := range results {
+			r := &results[i]
+			r.Indexer = name
+			r.IndexerID = id
+			if r.ID == "" {
+				r.ID = releaseID(id, r.GUID, r.NZBURL+r.MagnetURL+r.Name)
+			}
+			if r.Info.Title == "" && r.Name != "" {
+				r.Info = releaseparse.Parse(r.Name)
+			}
+		}
+		c.markOnDemand(results)
+	}
+	if admitted && !(err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, ErrIndexerPaused))) {
+		now := c.now()
+		dur := time.Since(started)
+		age := averageReleaseAge(results, now)
+		purpose := usagePurpose(ctx)
+		for i := 0; i < hits; i++ {
+			success := err == nil || i < hits-1
+			empty := success && len(results) == 0 && i == hits-1
+			stepDur := dur / time.Duration(hits)
+			var stepAge time.Duration
+			var stepRes int
+			if i == hits-1 && err == nil {
+				stepAge = age
+				stepRes = len(results)
+			}
+			c.emit(Event{
+				Kind:        kind,
+				Purpose:     purpose,
+				Success:     success,
+				Empty:       empty,
+				RateLimited: !success && errors.Is(err, core.ErrBudgetExhausted) && !errors.Is(err, errLocalBudget),
+				Results:     stepRes,
+				Duration:    stepDur,
+				AverageAge:  stepAge,
+				At:          now,
+			})
+		}
+		if refused != nil {
+			c.emit(Event{
+				Kind:            kind,
+				Purpose:         purpose,
+				BudgetExhausted: true,
+				SpeculativeHeld: errors.Is(refused, errSpeculativeShare),
+				At:              now,
+			})
+		} else if hits == 0 && err != nil {
+			c.emit(Event{
+				Kind:        kind,
+				Purpose:     purpose,
+				Success:     false,
+				RateLimited: errors.Is(err, core.ErrBudgetExhausted),
+				Duration:    dur,
+				At:          now,
+			})
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
-	name, id := c.Name(), c.indexerID()
-	for i := range results {
-		r := &results[i]
-		r.Indexer = name
-		r.IndexerID = id
-		if r.ID == "" {
-			r.ID = releaseID(id, r.GUID, r.NZBURL+r.MagnetURL+r.Name)
-		}
-		if r.Info.Title == "" && r.Name != "" {
-			r.Info = releaseparse.Parse(r.Name)
-		}
-	}
-	c.markOnDemand(results)
 	return results, nil
 }
 

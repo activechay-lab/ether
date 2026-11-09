@@ -84,6 +84,21 @@ func IndexerSkipped(ctx context.Context, id string) bool {
 	return ids[id]
 }
 
+type torrentOnlySearchKey struct{}
+
+// WithTorrentOnlySearch confines a fleet search to indexers that return
+// torrents (Torznab, Stremio addons, torrent built-in sites), leaving Usenet
+// Newznab indexers untouched when the caller only inspects torrent results.
+func WithTorrentOnlySearch(ctx context.Context) context.Context {
+	return context.WithValue(ctx, torrentOnlySearchKey{}, true)
+}
+
+// TorrentOnlySearch reports whether ctx's search wants only torrent indexers.
+func TorrentOnlySearch(ctx context.Context) bool {
+	v, _ := ctx.Value(torrentOnlySearchKey{}).(bool)
+	return v
+}
+
 type unattendedSearchKey struct{}
 
 // WithUnattendedSearch marks a search nobody is waiting on (a watchlist

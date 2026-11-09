@@ -9,8 +9,13 @@ import (
 type Event struct {
 	Indexer         string
 	Kind            string
+	Purpose         string
 	Success         bool
-	BudgetExhausted bool
+	Empty           bool // network search succeeded with zero releases
+	Cached          bool // answered from Ether's cache without an HTTP request
+	BudgetExhausted bool // held back locally by Ether's budget or rate-limit pause
+	SpeculativeHeld bool // held back specifically by the background speculative share
+	RateLimited     bool // remote indexer answered HTTP 429 or quota error to a sent request
 	Results         int
 	Duration        time.Duration
 	AverageAge      time.Duration

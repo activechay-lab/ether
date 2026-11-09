@@ -247,20 +247,23 @@ func (s *Service) infrastructure(w http.ResponseWriter, r *http.Request) {
 	type IndexerDay struct {
 		Indexer   string `json:"indexer"`
 		Day       string `json:"day"`
+		Requests  int64  `json:"requests"`
+		CacheHits int64  `json:"cacheHits"`
 		Searches  int64  `json:"searches"`
 		Successes int64  `json:"successes"`
 		Grabs     int64  `json:"grabs"`
+		Budgets   int64  `json:"budgets"`
 		LatencyMs int64  `json:"latencyMs"`
 	}
 	indexerDays := []IndexerDay{}
-	rows, err = s.db.QueryContext(r.Context(), `SELECT indexer,day,searches,successes,grabs,latency_ms FROM stats_indexer_days WHERE day>=? ORDER BY day,indexer`, month)
+	rows, err = s.db.QueryContext(r.Context(), `SELECT indexer,day,CASE WHEN requests>=searches+grabs THEN requests ELSE searches+grabs END,cache_hits,searches,successes,grabs,budgets,latency_ms FROM stats_indexer_days WHERE day>=? ORDER BY day,indexer`, month)
 	if err != nil {
 		fail(w, 500, "Indexer history unavailable")
 		return
 	}
 	for rows.Next() {
 		var d IndexerDay
-		if rows.Scan(&d.Indexer, &d.Day, &d.Searches, &d.Successes, &d.Grabs, &d.LatencyMs) != nil {
+		if rows.Scan(&d.Indexer, &d.Day, &d.Requests, &d.CacheHits, &d.Searches, &d.Successes, &d.Grabs, &d.Budgets, &d.LatencyMs) != nil {
 			rows.Close()
 			fail(w, 500, "Indexer history unavailable")
 			return
@@ -277,7 +280,7 @@ func (s *Service) infrastructure(w http.ResponseWriter, r *http.Request) {
 		"monthPlays": monthPlays, "failovers": failovers, "failedPlays": failedPlays,
 		"snapshots": snapshots, "providerMonth": usage, "providerDays": providerDays,
 		"indexerDays": indexerDays, "costs": costs, "indexerMonth": indexerMonth, "month": month,
-		"notes": []string{"Provider totals accumulate observed counters; daily boundaries use sample time.", "Latency is the provider's live EWMA. Article success is not title completion.", "Plays are counted for the server, not split by source. Cache hits are not stored here."},
+		"notes": []string{"Provider totals accumulate observed counters; daily boundaries use sample time.", "Latency is the provider's live EWMA. Article success is not title completion.", "Plays are counted for the server, not split by source."},
 	})
 }
 

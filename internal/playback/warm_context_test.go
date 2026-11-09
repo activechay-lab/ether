@@ -76,3 +76,29 @@ func TestWarmPreparationIsSpeculativeUntilPromoted(t *testing.T) {
 		t.Fatal("an ordinary context is speculative")
 	}
 }
+
+type spySpeculativeResolver struct {
+	core.Resolver
+	speculative bool
+	purpose     string
+}
+
+func (s *spySpeculativeResolver) Resolve(ctx context.Context, req core.ResolveRequest) (*core.Resolution, error) {
+	s.speculative = core.IsSpeculative(ctx) && core.SpeculativeIndexerWork(ctx)
+	s.purpose = core.IndexerPurpose(ctx)
+	return s.Resolver.Resolve(ctx, req)
+}
+
+func TestCheckFileAvailabilityRunsAsSpeculativeWarmup(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{{ID: "r1", Name: "Film.mkv", Size: 1 << 20}}, []string{"r1"})
+	defer h.m.Close()
+	spy := &spySpeculativeResolver{Resolver: h.resolver}
+	h.m.deps.Resolver = spy
+	live, err := h.m.CheckFileAvailability(context.Background(), owner, movieKey, defaultCaps("plex-detail"), "r1")
+	if err != nil || !live {
+		t.Fatalf("CheckFileAvailability = (%v, %v), want (true, nil)", live, err)
+	}
+	if !spy.speculative || spy.purpose != core.IndexerPurposeWarmup {
+		t.Fatalf("CheckFileAvailability context: speculative=%v purpose=%q, want true / %q", spy.speculative, spy.purpose, core.IndexerPurposeWarmup)
+	}
+}

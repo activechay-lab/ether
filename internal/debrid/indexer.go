@@ -194,11 +194,11 @@ func (x *Indexer) SearchWith(ctx context.Context, req core.SearchRequest, arrive
 		}
 		kept = append(kept, r)
 	}
-	// When an episode search returned only uncached single-episode torrents
-	// (preventing the indexer's own empty-result fallback from querying
-	// season packs), search for season packs (Episode = 0) and keep cached
-	// packs so older shows whose episodes live only in cached season packs
-	// still resolve.
+	// When a foreground episode search returned only uncached single-episode
+	// torrents (preventing the indexer's own empty-result fallback from querying
+	// season packs), search torrent indexers for season packs (Episode = 0) and
+	// keep cached packs so older shows whose episodes live only in cached season
+	// packs still resolve. Speculative work keeps to the primary query.
 	hasPack := false
 	for _, r := range kept {
 		if r.Info.FullSeason {
@@ -206,7 +206,7 @@ func (x *Indexer) SearchWith(ctx context.Context, req core.SearchRequest, arrive
 			break
 		}
 	}
-	if enabled && !anyCached && !hasPack && len(torrents) > 0 && req.Type == core.TypeEpisode && req.Season > 0 && req.Episode > 0 && ctx.Err() == nil {
+	if enabled && !anyCached && !hasPack && len(torrents) > 0 && !core.SpeculativeIndexerWork(ctx) && req.Type == core.TypeEpisode && req.Season > 0 && req.Episode > 0 && ctx.Err() == nil {
 		packCached, packs := x.searchSeasonPacks(ctx, req)
 		for h, ok := range packCached {
 			if ok {
@@ -314,9 +314,11 @@ func (x *Indexer) playable(r core.Release) (core.Release, bool) {
 	return r, true
 }
 
-// searchSeasonPacks queries inner for season-level releases (Episode = 0)
-// and bulk-checks their debrid cache availability.
+// searchSeasonPacks queries torrent indexers in inner for season-level
+// releases (Episode = 0) and bulk-checks their debrid cache availability.
+// Usenet indexers are skipped because non-torrent results are unused here.
 func (x *Indexer) searchSeasonPacks(ctx context.Context, req core.SearchRequest) (map[string]bool, []core.Release) {
+	ctx = core.WithTorrentOnlySearch(ctx)
 	packReq := req
 	packReq.Episode = 0
 	early := x.earlyCacheChecks(ctx, nil)

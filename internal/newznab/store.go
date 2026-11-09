@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -99,7 +100,7 @@ func (c *Client) reserve(ctx context.Context, kind string) error {
 	if until, err := c.rateLimitUntil(ctx); err != nil {
 		return err
 	} else if c.now().Before(until) {
-		return fmt.Errorf("indexer %q paused until %s: %w", c.Name(), until.UTC().Format(time.RFC3339), core.ErrBudgetExhausted)
+		return fmt.Errorf("indexer %q paused until %s: %w: %w", c.Name(), until.UTC().Format(time.RFC3339), errLocalBudget, core.ErrBudgetExhausted)
 	}
 	cfg := c.Config()
 	limit := 0
@@ -120,10 +121,13 @@ func (c *Client) reserve(ctx context.Context, kind string) error {
 		if limit > 0 {
 			limit = limit * (100 - core.ForegroundReserve(ctx)) / 100
 			if limit == 0 {
-				return core.ErrBudgetExhausted
+				return fmt.Errorf("%w: %w: %w", errLocalBudget, errSpeculativeShare, core.ErrBudgetExhausted)
 			}
 		}
 		if err := core.SpendBackground(ctx, kind, c.indexerID(), 1); err != nil {
+			if errors.Is(err, core.ErrBudgetExhausted) {
+				return fmt.Errorf("%w: %w: %w", errLocalBudget, errSpeculativeShare, err)
+			}
 			return err
 		}
 	}
@@ -139,7 +143,7 @@ func (c *Client) reserve(ctx context.Context, kind string) error {
 			used = c.mem.grabs
 		}
 		if limit > 0 && used >= limit {
-			return fmt.Errorf("indexer %q %s budget: %w", c.Name(), kind, core.ErrBudgetExhausted)
+			return fmt.Errorf("indexer %q %s budget: %w: %w", c.Name(), kind, errLocalBudget, core.ErrBudgetExhausted)
 		}
 		if kind == "hit" {
 			c.mem.hits++
@@ -175,7 +179,7 @@ func (c *Client) reserve(ctx context.Context, kind string) error {
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("indexer %q %s budget: %w", c.Name(), kind, core.ErrBudgetExhausted)
+		return fmt.Errorf("indexer %q %s budget: %w: %w", c.Name(), kind, errLocalBudget, core.ErrBudgetExhausted)
 	}
 	c.recordUsage(ctx, kind)
 	return nil

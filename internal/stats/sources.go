@@ -139,10 +139,13 @@ type SourceProviderTotal struct {
 type SourceIndexerTotal struct {
 	Indexer     string `json:"indexer"`
 	FirstDay    string `json:"firstDay"`
+	Requests    int64  `json:"requests"`
+	CacheHits   int64  `json:"cacheHits"`
 	Searches    int64  `json:"searches"`
 	Successes   int64  `json:"successes"`
 	Grabs       int64  `json:"grabs"`
 	GrabSuccess int64  `json:"grabSuccess"`
+	Budgets     int64  `json:"budgets"`
 }
 
 type SourceDebridTotal struct {
@@ -180,6 +183,8 @@ type SourceProviderDay struct {
 type SourceIndexerDay struct {
 	Indexer     string `json:"indexer"`
 	Day         string `json:"day"`
+	Requests    int64  `json:"requests"`
+	CacheHits   int64  `json:"cacheHits"`
 	Searches    int64  `json:"searches"`
 	Successes   int64  `json:"successes"`
 	Grabs       int64  `json:"grabs"`
@@ -254,9 +259,9 @@ func (s *Service) SourceHistoryFor(ctx context.Context, days int) (SourceHistory
 	}); err != nil {
 		return out, err
 	}
-	if err := scanRows(ctx, s.db, `SELECT indexer,day,searches,successes,grabs,grab_success,budgets,latency_ms,age_seconds,age_samples FROM stats_indexer_days WHERE day>=? ORDER BY day,indexer`, []any{since}, func(r *sql.Rows) error {
+	if err := scanRows(ctx, s.db, `SELECT indexer,day,CASE WHEN requests>=searches+grabs THEN requests ELSE searches+grabs END,cache_hits,searches,successes,grabs,grab_success,budgets,latency_ms,age_seconds,age_samples FROM stats_indexer_days WHERE day>=? ORDER BY day,indexer`, []any{since}, func(r *sql.Rows) error {
 		var d SourceIndexerDay
-		if err := r.Scan(&d.Indexer, &d.Day, &d.Searches, &d.Successes, &d.Grabs, &d.GrabSuccess, &d.Budgets, &d.LatencyMS, &d.AgeSeconds, &d.AgeSamples); err != nil {
+		if err := r.Scan(&d.Indexer, &d.Day, &d.Requests, &d.CacheHits, &d.Searches, &d.Successes, &d.Grabs, &d.GrabSuccess, &d.Budgets, &d.LatencyMS, &d.AgeSeconds, &d.AgeSamples); err != nil {
 			return err
 		}
 		out.IndexerDays = append(out.IndexerDays, d)
@@ -315,9 +320,9 @@ func (s *Service) lifetime(ctx context.Context, out *SourceLifetime) error {
 	}); err != nil {
 		return err
 	}
-	if err := scanRows(ctx, s.db, `SELECT indexer,MIN(day),CAST(SUM(searches) AS BIGINT),CAST(SUM(successes) AS BIGINT),CAST(SUM(grabs) AS BIGINT),CAST(SUM(grab_success) AS BIGINT) FROM stats_indexer_days GROUP BY indexer ORDER BY indexer`, nil, func(r *sql.Rows) error {
+	if err := scanRows(ctx, s.db, `SELECT indexer,MIN(day),CAST(SUM(CASE WHEN requests>=searches+grabs THEN requests ELSE searches+grabs END) AS BIGINT),CAST(SUM(cache_hits) AS BIGINT),CAST(SUM(searches) AS BIGINT),CAST(SUM(successes) AS BIGINT),CAST(SUM(grabs) AS BIGINT),CAST(SUM(grab_success) AS BIGINT),CAST(SUM(budgets) AS BIGINT) FROM stats_indexer_days GROUP BY indexer ORDER BY indexer`, nil, func(r *sql.Rows) error {
 		var d SourceIndexerTotal
-		if err := r.Scan(&d.Indexer, &d.FirstDay, &d.Searches, &d.Successes, &d.Grabs, &d.GrabSuccess); err != nil {
+		if err := r.Scan(&d.Indexer, &d.FirstDay, &d.Requests, &d.CacheHits, &d.Searches, &d.Successes, &d.Grabs, &d.GrabSuccess, &d.Budgets); err != nil {
 			return err
 		}
 		out.Indexers = append(out.Indexers, d)

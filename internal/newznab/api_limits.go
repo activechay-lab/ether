@@ -3,6 +3,7 @@ package newznab
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -25,6 +26,14 @@ func init() {
 var (
 	apiMaxAttr  = regexp.MustCompile(`(?i)apimax\W{0,4}(\d{1,9})`)
 	grabMaxAttr = regexp.MustCompile(`(?i)grabmax\W{0,4}(\d{1,9})`)
+
+	// errLocalBudget marks a request Ether refused locally (daily limit,
+	// background share, or active Retry-After pause) before contacting the
+	// indexer, distinguishing it from a remote HTTP 429 response.
+	errLocalBudget = errors.New("newznab: held back by local budget")
+	// errSpeculativeShare marks a request held back specifically by the
+	// background speculative share while foreground playback budget remains.
+	errSpeculativeShare = errors.New("newznab: background share reached")
 )
 
 // reportedLimits reads the account's daily API request and NZB grab
@@ -145,12 +154,14 @@ const (
 
 // usagePurpose is the purpose a request is recorded and budgeted under: ctx's
 // tag, except that a warm-up a viewer promoted to Play is playback from then
-// on. Unpromoted warm-ups stay warm-ups, so the speculative share counts only
-// speculative requests.
+// on, while unpromoted speculative work never escapes into playback.
 func usagePurpose(ctx context.Context) string {
 	p := core.IndexerPurpose(ctx)
 	if p == core.IndexerPurposeWarmup && !core.IsUnattendedSearch(ctx) {
 		return core.IndexerPurposePlayback
+	}
+	if p == core.IndexerPurposePlayback && core.IsSpeculative(ctx) {
+		return core.IndexerPurposeWarmup
 	}
 	return p
 }
@@ -181,7 +192,7 @@ func (c *Client) speculativeRoom(ctx context.Context, kind string) error {
 		return err
 	}
 	if used >= max(1, c.dailyLimitOrAssumed(kind)*speculativeShare/100) {
-		return fmt.Errorf("indexer %q background %s share: %w", c.Name(), kind, core.ErrBudgetExhausted)
+		return fmt.Errorf("indexer %q background %s share: %w: %w: %w", c.Name(), kind, errLocalBudget, errSpeculativeShare, core.ErrBudgetExhausted)
 	}
 	return nil
 }

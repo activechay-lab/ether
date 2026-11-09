@@ -69,10 +69,10 @@ ON CONFLICT(indexer_id, day, purpose) DO UPDATE SET `+col+`=newznab_usage.`+col+
 }
 
 // TestIndexer is Test, with the requests it makes recorded as manual tests
-// in the usage breakdown. Test hits are real requests the indexer counts,
-// but they never spend the daily budget.
+// in the usage breakdown and statistics. Test hits are real requests the
+// indexer counts, but they never spend the daily budget.
 func (m *Manager) TestIndexer(ctx context.Context, cfg config.Indexer, policy config.ClientIdentity) error {
-	return TestWithOptions(core.WithIndexerPurpose(ctx, core.IndexerPurposeTest), cfg, Options{ClientIdentity: policy, usageDB: m.db})
+	return TestWithOptions(core.WithIndexerPurpose(ctx, core.IndexerPurposeTest), cfg, Options{ClientIdentity: policy, usageDB: m.db, onEvent: m.emitEvent})
 }
 
 // PurposeCount is one purpose's share of a usage window.

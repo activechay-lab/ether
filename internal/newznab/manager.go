@@ -68,6 +68,8 @@ func (m *Manager) Reload(cfgs []config.Indexer) {
 	for _, cl := range m.clients {
 		old[cl.indexerID()] = cl
 	}
+	opts := m.opts
+	opts.onEvent = m.emitEvent
 	next := make([]*Client, 0, len(cfgs))
 	for _, cfg := range cfgs {
 		id := cfg.ID
@@ -77,10 +79,11 @@ func (m *Manager) Reload(cfgs []config.Indexer) {
 		if cl, ok := old[id]; ok {
 			cl.UpdateConfig(cfg)
 			cl.SetClientIdentity(m.opts.ClientIdentity)
+			cl.setOnEvent(m.emitEvent)
 			next = append(next, cl)
 			continue
 		}
-		next = append(next, New(cfg, m.db, m.opts))
+		next = append(next, New(cfg, m.db, opts))
 	}
 	sort.SliceStable(next, func(i, j int) bool {
 		return next[i].Config().Priority < next[j].Config().Priority
@@ -191,7 +194,8 @@ func (m *Manager) SearchRescueWith(ctx context.Context, req core.SearchRequest, 
 	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for i, cl := range clients {
-		if !cl.Config().Enabled {
+		cfg := cl.Config()
+		if !cfg.Enabled || core.IndexerSkipped(ctx, cl.indexerID()) || (core.TorrentOnlySearch(ctx) && !cfg.IsTorrent()) {
 			continue
 		}
 		wg.Add(1)
@@ -259,7 +263,8 @@ func (m *Manager) SearchWith(ctx context.Context, req core.SearchRequest, arrive
 	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for i, cl := range clients {
-		if !cl.Config().Enabled || core.IndexerSkipped(ctx, cl.indexerID()) {
+		cfg := cl.Config()
+		if !cfg.Enabled || core.IndexerSkipped(ctx, cl.indexerID()) || (core.TorrentOnlySearch(ctx) && !cfg.IsTorrent()) {
 			slots[i].skipped = true
 			continue
 		}
@@ -282,24 +287,8 @@ func (m *Manager) SearchWith(ctx context.Context, req core.SearchRequest, arrive
 	wg.Wait()
 	timings := make([]SearchTiming, 0, len(clients))
 	for i, s := range slots {
-		now := time.Now()
-		var age time.Duration
-		var dated int
-		for _, r := range s.results {
-			if !r.PubDate.IsZero() && now.After(r.PubDate) {
-				age += now.Sub(r.PubDate)
-				dated++
-			}
-		}
-		if dated > 0 {
-			age /= time.Duration(dated)
-		}
 		if missingAnswer(s.err) {
 			core.NoteSearchIncomplete(ctx)
-		}
-		// A search the breaker skipped made no request: nothing to report.
-		if (!s.skipped || errors.Is(s.err, core.ErrBudgetExhausted)) && !errors.Is(s.err, context.Canceled) && !errors.Is(s.err, ErrIndexerPaused) {
-			m.emitEvent(Event{Indexer: clients[i].Name(), Kind: "search", Success: s.err == nil, BudgetExhausted: errors.Is(s.err, core.ErrBudgetExhausted), Results: len(s.results), Duration: s.duration, AverageAge: age, At: now})
 		}
 		if !s.skipped {
 			label := clients[i].Name()
@@ -366,22 +355,9 @@ func (m *Manager) SearchWith(ctx context.Context, req core.SearchRequest, arrive
 	return merged, nil
 }
 
-// grabEvent reports one NZB fetch. A fetch Ether cancelled itself (the
-// viewer moved on from a detail page, or another release won a race) says
-// nothing about the indexer: it is neither a success nor a failure, as on
-// the search path, so it cannot raise an indexer outage alert (#271). Real
-// failures are logged, so an outage alert can be traced to its cause.
-func (m *Manager) grabEvent(ctx context.Context, indexer string, r core.Release, started time.Time, err error) {
-	if err != nil && (errors.Is(err, context.Canceled) || ctx.Err() != nil) {
-		return
-	}
-	if err != nil {
-		m.log.Warn("indexer NZB fetch failed", "indexer", indexer, "release", r.Name, "err", err)
-	}
-	m.emitEvent(Event{Indexer: indexer, Kind: "grab", Success: err == nil, BudgetExhausted: errors.Is(err, core.ErrBudgetExhausted), Duration: time.Since(started), At: time.Now()})
-}
-
 // FetchNZB implements core.Indexer by routing to the originating client.
+// Events are emitted by the client at the point of cache hit, budget refusal
+// or HTTP download.
 func (m *Manager) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
 	cl, err := m.releaseClient(r)
 	if err != nil {
@@ -394,11 +370,7 @@ func (m *Manager) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) 
 			r = cl.feedReleases([]core.Release{r})[0]
 		}
 	}
-	started := time.Now()
-	b, asked, err := cl.fetchNZBReporting(ctx, r)
-	if asked {
-		m.grabEvent(ctx, cl.Name(), r, started, err)
-	}
+	b, _, err := cl.fetchNZBReporting(ctx, r)
 	return b, err
 }
 

@@ -77,7 +77,9 @@ func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, ke
 			if err != nil || title == nil {
 				return result{err: errFileCheckInconclusive}
 			}
-			res, err := m.deps.Resolver.Resolve(core.WithIndexerPurpose(ctx, core.IndexerPurposeWarmup), core.ResolveRequest{Title: title, Client: caps, User: &u, Prefer: release})
+			sctx, _ := core.WithSpeculative(ctx)
+			wctx := core.WithIndexerPurpose(sctx, core.IndexerPurposeWarmup)
+			res, err := m.deps.Resolver.Resolve(wctx, core.ResolveRequest{Title: title, Client: caps, User: &u, Prefer: release})
 			if err != nil || res == nil || release != "" && res.Release.ID != release || res.Release.OpensOnDemand() {
 				// Nothing found yet, or the resolver prefers another release
 				// (this one may simply be outside the bounded warm-up search).
@@ -85,7 +87,7 @@ func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, ke
 			}
 			lifetime := newSourceLifetime(u.ID, string(caps.Protocol), caps.ClientID)
 			defer lifetime.seal()
-			src, finish, err := m.openSource(ctx, lifetime, res)
+			src, finish, err := m.openSource(wctx, lifetime, res)
 			if err != nil {
 				if release != "" && permanentSourceFailure(err) {
 					return result{}

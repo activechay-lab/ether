@@ -1183,13 +1183,13 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 				}
 				// A failed detail discovery is not a reason for speculative
 				// playback preparation to immediately spend the quota again.
-				if core.IsSpeculative(ctx) {
+				if core.SpeculativeIndexerWork(ctx) {
 					return nil, false, core.ErrBudgetExhausted
 				}
 			case <-ctx.Done():
 				return nil, false, ctx.Err()
 			}
-		} else if core.IsSpeculative(ctx) && mark.missed && s.now().Before(mark.until) {
+		} else if core.SpeculativeIndexerWork(ctx) && mark.missed && s.now().Before(mark.until) {
 			// Discovery for this title found nothing this cooloff: speculative
 			// playback preparation does not spend the quota asking again.
 			return nil, false, core.ErrBudgetExhausted
