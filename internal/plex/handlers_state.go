@@ -596,7 +596,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			md.TranscodeSession = e.remoteTS
 		} else if e.transcodeID != "" {
 			if te, ok := s.transcodes.get(e.transcodeID); ok {
-				ts := transcodeSessionModel(te)
+				ts := s.servedTranscodeSessionModel(te)
 				md.TranscodeSession = &ts
 			}
 		}

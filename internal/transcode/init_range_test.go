@@ -154,7 +154,7 @@ func TestHLSInitRangeStartsInactiveRung(t *testing.T) {
 	if fr.startCount() != 2 {
 		t.Fatalf("starts = %d, want 2 (rung started by its ranged init)", fr.startCount())
 	}
-	mustContain(t, fr.lastStart(), "scale_vt=w=1146:h=480")
+	mustContain(t, fr.lastStart(), "scale_vt=w=850:h=356")
 }
 
 // The ranged-probe guard still holds where it was designed for: DASH.

@@ -1381,6 +1381,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		Info:               ps.Info,
 		Decision:           dec,
 		StartOffset:        p.offset,
+		Local:              !p.caps.Remote,
 	})
 	if err != nil {
 		s.writeStartErr(w, r, pr, err)
@@ -1705,7 +1706,7 @@ func (s *Server) handleTranscodeSessions(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		if te, ok := s.transcodes.get(e.transcodeID); ok {
-			mc.TranscodeSess = append(mc.TranscodeSess, transcodeSessionModel(te))
+			mc.TranscodeSess = append(mc.TranscodeSess, s.servedTranscodeSessionModel(te))
 		}
 	}
 	mc.Size = len(mc.TranscodeSess)
@@ -1723,7 +1724,28 @@ func (s *Server) handleTranscodeSessionStatus(w http.ResponseWriter, r *http.Req
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	s.write(w, r, &model.MediaContainer{Size: 1, TranscodeSess: []model.TranscodeSess{transcodeSessionModel(te)}})
+	s.write(w, r, &model.MediaContainer{Size: 1, TranscodeSess: []model.TranscodeSess{s.servedTranscodeSessionModel(te)}})
+}
+
+// servedTranscodeSessionModel is the TranscodeSession of what is actually
+// being served. A player that stepped down to an encoded ABR rung of a
+// Direct Stream session is transcoding video, and the Plex dashboard must
+// say so just as Ether's Activity does.
+func (s *Server) servedTranscodeSessionModel(te *transcodeEntry) model.TranscodeSess {
+	ts := transcodeSessionModel(te)
+	hs, ok := s.plexHLSSession(te.id)
+	if !ok || hs == nil {
+		return ts
+	}
+	src, ok := hs.(interface{ EncoderStatus() *core.EncoderStatus })
+	if !ok {
+		return ts
+	}
+	if st := src.EncoderStatus(); st != nil && st.Rung != "" && st.Rung != "base" && !st.Decision.VideoCopy {
+		ts.VideoDecision = "transcode"
+		ts.VideoCodec = plexCodec(st.Decision.VideoCodec)
+	}
+	return ts
 }
 
 func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {

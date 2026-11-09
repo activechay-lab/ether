@@ -228,7 +228,7 @@ func (s *Server) toShared(e playEntry) sharedEntry {
 	}
 	if e.transcodeID != "" {
 		if te, ok := s.transcodes.get(e.transcodeID); ok {
-			ts := transcodeSessionModel(te)
+			ts := s.servedTranscodeSessionModel(te)
 			se.Transcode = &ts
 		}
 	}

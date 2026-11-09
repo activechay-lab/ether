@@ -164,8 +164,15 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 	}
 	audio := decisionAudioKbps(info, primary) // rungs carry the primary's audio
 	below := avg
+	// Rungs are classed like release names, by width and height: a
+	// 1920x798 scope picture is 1080p, 1280x798 or 1436x798 is 720p. A
+	// rung must sit in a lower class than the primary and be visibly
+	// smaller than it; a "720p" re-encode of a 798-line picture is the
+	// same quality at a worse bitrate, never a useful step down.
+	class := core.ResolutionTier(pw, ph)
 	for _, step := range ladderSteps {
-		if ph > 0 && step.height >= ph {
+		w, h := fitRungBox(v.Width, v.Height, step.height)
+		if ph > 0 && (step.height >= class || h*100 > ph*rungMaxHeightPercent) {
 			continue
 		}
 		// Advertise what the rung really sends: its video never drops
@@ -181,7 +188,7 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 		d.Enhancement = core.VideoEnhancement{}
 		d.Kind = core.DecisionTranscode
 		d.VideoCopy = false
-		d.MaxHeight = minPositive(step.height, v.Height)
+		d.MaxHeight = h
 		d.BitrateKbps = total
 		// Keep HDR only when the primary keeps it in HEVC; otherwise the
 		// cheap, universally decoded SDR H.264 encode.
@@ -195,7 +202,6 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 		if enhancementSelected(primary) {
 			d.Reason = "ordinary ABR rung " + step.id + " beneath RTX Video base"
 		}
-		w, h := outputSize(v.Width, v.Height, step.height)
 		rungs = append(rungs, rung{
 			id: step.id, decision: d, width: w, height: h,
 			avgKbps: total, peakKbps: peakKbps(total),
@@ -204,6 +210,22 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 		below = total
 	}
 	return rungs
+}
+
+// rungMaxHeightPercent bounds a rung's height against the primary's: a
+// rung taller than this is a near-duplicate of the picture above it.
+const rungMaxHeightPercent = 85
+
+// fitRungBox fits a w x h picture into the 16:9 box of a ladder class
+// (1280x720 for 720p), never upscaling, so wide scope pictures shrink by
+// width as release naming classes them. The size is what the encoder
+// makes of the returned height (outputSize), so the advertised RESOLUTION
+// matches the rung's bytes.
+func fitRungBox(w, h, boxH int) (int, int) {
+	if w > 0 && h > 0 && w*9 > h*16 { // wider than 16:9: width bound
+		boxH = even(h * boxH * 16 / (w * 9))
+	}
+	return outputSize(w, h, boxH)
 }
 
 func peakKbps(avg int) int {

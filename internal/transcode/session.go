@@ -329,7 +329,14 @@ func (s *Session) EncoderStatus() *core.EncoderStatus {
 		}
 	}
 	b := s.recoveryBufferLocked()
-	return &core.EncoderStatus{Decision: r.spec.Decision, Processor: processor, Filters: filters, Phase: phase, Reason: r.reason, StartedAt: r.started, UpdatedAt: p.Updated, Speed: p.Speed, OutputTime: p.OutTime, ReadyUntil: b.ReadyUntil}
+	rung, i := "", r.track
+	if s.isDASH() {
+		i = rungForDashTrack(i) // DASH track 1 is audio: rung 0
+	}
+	if i > 0 && i < len(s.rungs) {
+		rung = s.rungs[i].id
+	}
+	return &core.EncoderStatus{Decision: r.spec.Decision, Rung: rung, Processor: processor, Filters: filters, Phase: phase, Reason: r.reason, StartedAt: r.started, UpdatedAt: p.Updated, Speed: p.Speed, OutputTime: p.OutTime, ReadyUntil: b.ReadyUntil}
 }
 
 // HWAccelerated reports whether the current run encodes on hardware.

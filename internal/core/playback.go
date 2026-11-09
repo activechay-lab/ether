@@ -45,7 +45,12 @@ type HLSRequest struct {
 	// session can guarantee every advertised segment is independently decodable.
 	// Zero preserves the legacy playlist contract for existing callers.
 	RequireIndependentProof bool
-	SessionID               string
+	// Local marks a viewer on the server's LAN (trusted host composition).
+	// A video-copy session there plays the original alone: lower ABR rungs
+	// serve away bandwidth, and at home a player would only drift onto a
+	// needless re-encode. False keeps the configured ladder.
+	Local     bool
+	SessionID string
 	// ReleaseID identifies the initial source in manifest diagnostics.
 	ReleaseID string
 	InputURL  string // ffmpeg input; Ether serves sources on loopback HTTP with range support
@@ -281,15 +286,18 @@ type EncoderStatus struct {
 	PlayerPosition *time.Duration `json:"playerPosition,omitempty"`
 	Runway         *time.Duration `json:"runway,omitempty"`
 	Decision       Decision       `json:"decision"`
-	Processor      string         `json:"processor"`
-	Filters        string         `json:"filters"`
-	Phase          string         `json:"phase"`
-	Reason         string         `json:"reason,omitempty"`
-	StartedAt      time.Time      `json:"startedAt"`
-	UpdatedAt      time.Time      `json:"updatedAt"`
-	Speed          float64        `json:"speed"`
-	OutputTime     time.Duration  `json:"outputTime"`
-	ReadyUntil     time.Duration  `json:"readyUntil"`
+	// Rung is the ABR rung the active run encodes ("" or "base" for the
+	// session's primary decision).
+	Rung       string        `json:"rung,omitempty"`
+	Processor  string        `json:"processor"`
+	Filters    string        `json:"filters"`
+	Phase      string        `json:"phase"`
+	Reason     string        `json:"reason,omitempty"`
+	StartedAt  time.Time     `json:"startedAt"`
+	UpdatedAt  time.Time     `json:"updatedAt"`
+	Speed      float64       `json:"speed"`
+	OutputTime time.Duration `json:"outputTime"`
+	ReadyUntil time.Duration `json:"readyUntil"`
 }
 
 type Playback interface {

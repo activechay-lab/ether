@@ -71,6 +71,7 @@ type Start struct {
 	Offset             time.Duration
 	SegmentDuration    time.Duration
 	IndependentProof   bool
+	Local              bool `json:",omitempty"`
 }
 
 // Renewal is a compare-and-swap of the execution lease, never a new Start.
@@ -232,7 +233,7 @@ func SupportsRequest(r core.HLSRequest, c Capabilities) bool {
 			return false
 		}
 	}
-	b, err := json.Marshal(Start{Ramp: r.Ramp, Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof})
+	b, err := json.Marshal(Start{Ramp: r.Ramp, Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: r.Info.Keyframes, ReleaseID: r.ReleaseID, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof, Local: r.Local})
 	if err != nil || len(b) > MaxMessage-8192 {
 		return false
 	}

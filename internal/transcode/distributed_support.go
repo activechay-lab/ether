@@ -90,7 +90,11 @@ func (m *Manager) SupportsDistributedRequest(req core.HLSRequest) bool {
 	}
 	decisions := []core.Decision{d}
 	if proto != core.ProtocolHTTP {
-		rungs := buildRungs(req.Info, d, adaptiveFromConfig(cfg))
+		adapt := adaptiveFromConfig(cfg)
+		if req.Local {
+			adapt.LadderUnderCopy = false
+		}
+		rungs := buildRungs(req.Info, d, adapt)
 		if proto == core.ProtocolHLS && d.Container == ContainerMatroska && len(rungs) > 1 {
 			rungs = rungs[:1]
 		}

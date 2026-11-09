@@ -1,6 +1,7 @@
 package transcode
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -276,4 +277,46 @@ func TestRungSwitchWaitsOutDwell(t *testing.T) {
 		t.Errorf("encoder not switched to the rung after the dwell: starts=%d", fr.startCount())
 	}
 	mustContain(t, fr.lastStart(), "scale_vt=w=1280:h=720", "-start_number 0")
+}
+
+// Rungs are classed like release names (width and height): never in the
+// source's class, never a near-duplicate of it, and fitted into the class's
+// 16:9 box so scope pictures shrink by width.
+func TestBuildRungsByResolutionClass(t *testing.T) {
+	under := adaptiveSettings{Ladder: true, LadderUnderCopy: true}
+	copyPrimary := core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, AudioStream: 1, Container: ContainerMPEGTS}
+	for _, tc := range []struct {
+		w, h int
+		want string
+	}{
+		{1920, 798, "base,720p4m@1280x532,480p1500k@852x354,360p800k@640x266"},
+		{1280, 798, "base,480p1500k@770x480,360p800k@576x360"},
+		{1436, 798, "base,480p1500k@852x474,360p800k@636x354"},
+		{1920, 800, "base,720p4m@1276x532,480p1500k@850x354,360p800k@638x266"},
+		{1920, 1036, "base,720p4m@1278x690,480p1500k@852x460,360p800k@638x344"},
+		{1920, 1080, "base,720p4m@1280x720,480p1500k@852x480,360p800k@640x360"},
+		{3840, 2160, "base,1080p8m@1920x1080,720p4m@1280x720,480p1500k@852x480,360p800k@640x360"},
+		{3840, 1600, "base,1080p8m@1920x800,720p4m@1276x532,480p1500k@850x354,360p800k@638x266"},
+		{640, 360, "base"},
+	} {
+		info := ladderInfo(tc.h, 40000)
+		info.Streams[0].Width = tc.w
+		var got []string
+		for _, r := range buildRungs(info, copyPrimary, under) {
+			id := r.id
+			if r.id != "base" {
+				id = fmt.Sprintf("%s@%dx%d", r.id, r.width, r.height)
+				if r.decision.MaxHeight != r.height {
+					t.Errorf("%dx%d %s: MaxHeight %d", tc.w, tc.h, r.id, r.decision.MaxHeight)
+				}
+				if w, h := outputSize(tc.w, tc.h, r.decision.MaxHeight); w != r.width || h != r.height {
+					t.Errorf("%dx%d %s: encoder output %dx%d", tc.w, tc.h, r.id, w, h)
+				}
+			}
+			got = append(got, id)
+		}
+		if strings.Join(got, ",") != tc.want {
+			t.Errorf("%dx%d ladder = %v, want %s", tc.w, tc.h, got, tc.want)
+		}
+	}
 }

@@ -110,7 +110,7 @@ func (a *Adapter) StartHLSOwned(ctx context.Context, r core.HLSRequest) (core.HL
 	if !validIdentity(assignment.Identity) || assignment.Identity.Session != r.SessionID || len(assignment.Grant) == 0 || len(assignment.Grant) > 4096 || !assignment.Expires.After(time.Now()) {
 		return nil, nil, errors.New("remotetranscode: invalid assignment")
 	}
-	start := Start{Ramp: r.Ramp, Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof}
+	start := Start{Ramp: r.Ramp, Resume: cloneResume(r.Resume), RecoveryStart: core.CloneRecoveryStart(r.RecoveryStart), Keyframes: append([]core.KeyframePoint(nil), r.Info.Keyframes...), SoftSubtitleStream: r.SoftSubtitleStream, Protocol: r.Protocol, ReleaseID: r.ReleaseID, Identity: assignment.Identity, Grant: assignment.Grant, Expires: assignment.Expires, Info: r.Info, Decision: r.Decision, Offset: r.StartOffset, SegmentDuration: r.SegmentDuration, IndependentProof: r.RequireIndependentProof, Local: r.Local}
 	b, err := json.Marshal(start)
 	if err != nil || len(b) > MaxMessage-1024 {
 		return nil, nil, ErrUnsupported

@@ -879,7 +879,10 @@ type fakeHLS struct {
 	rungs         []core.HLSRung
 	rungReqs      []string
 	rungPlaylist  string
+	encoder       *core.EncoderStatus
 }
+
+func (h *fakeHLS) EncoderStatus() *core.EncoderStatus { return h.encoder }
 
 func (h *fakeHLS) PlaybackState(state string) { h.playbackState = state }
 
