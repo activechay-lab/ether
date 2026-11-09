@@ -81,6 +81,8 @@ type instance struct {
 
 	sectionsMu    sync.Mutex
 	sectionsCache map[string]siloSectionPage
+	// sectionsGen counts each viewer's own changes (dropViewerSections).
+	sectionsGen map[int64]uint64
 
 	plansMu sync.Mutex
 	plans   map[string]playbackPlan
