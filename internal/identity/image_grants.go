@@ -253,6 +253,46 @@ func (s *ImageGrantService) Revoke(ctx context.Context, credential, secret strin
 	}
 	return err
 }
+
+// ServePublic serves one title image to a request carrying no
+// credential at all (frontend.PublicImageServer, #405). There is no
+// grant to validate; instead the image must currently be public — the
+// title visible to every active viewer (frontend.PublicArtwork) — and
+// img must be one of that title's listed public images, re-checked here
+// exactly as Serve re-authorizes a grant before writing bytes. Person
+// and channel images are never public.
+func (s *ImageGrantService) ServePublic(w http.ResponseWriter, r *http.Request, device core.Device, item core.RatingKey, img frontend.Image) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	switch img.Kind {
+	case frontend.ImagePoster, frontend.ImageBackdrop, frontend.ImageLogo, frontend.ImageThumb, frontend.ImageBanner, frontend.ImageStill:
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	public, ok := s.experience().(frontend.PublicArtwork)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	r = artworkRowsRequest(r, img)
+	images, reader, visible, err := public.PublicArtwork(r.Context(), device, item)
+	if err != nil || !visible || reader == nil {
+		http.NotFound(w, r)
+		return
+	}
+	for _, candidate := range images {
+		if frontend.SameImage(candidate, img) {
+			s.writeGrantedImage(w, r, reader, device, item, "", img, "", "", "")
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
 func (s *ImageGrantService) Serve(w http.ResponseWriter, r *http.Request, secret string) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -387,6 +427,7 @@ func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Req
 }
 
 var _ frontend.ImageGrants = (*ImageGrantService)(nil)
+var _ frontend.PublicImageServer = (*ImageGrantService)(nil)
 
 func grantedImageWidth(r *http.Request, surface frontend.Protocol) int {
 	width, _ := strconv.Atoi(r.URL.Query().Get("w"))

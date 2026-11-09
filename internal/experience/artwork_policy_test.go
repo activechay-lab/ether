@@ -23,6 +23,35 @@ func TestArtworkAuthorizationPropagatesCacheFailure(t *testing.T) {
 	}
 }
 
+// AuthorizeArtworkAs applies the given viewer's restrictions without
+// reloading the active record (AuthorizeArtwork would replace them with
+// the stored ones). Public artwork authorization depends on this: it
+// passes each effective user record in turn.
+func TestAuthorizeArtworkAsUsesGivenViewer(t *testing.T) {
+	title := &core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, ContentRating: "R"}
+	s := &Service{d: ServiceDeps{
+		Active: func(context.Context, int64) (*core.User, error) {
+			t.Fatal("active reload used")
+			return nil, nil
+		},
+		CachedGet:  func(_ context.Context, k core.RatingKey) (*core.Title, error) { return title, nil },
+		Visibility: Visibility{SectionFor: func(core.MediaType) (int, bool) { return 1, true }},
+	}}
+	ctx := context.Background()
+	if err := s.AuthorizeArtworkAs(ctx, &core.User{ID: 2, MaxContentRating: "PG"}, core.Device{}, title.Key); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("restricted viewer allowed: %v", err)
+	}
+	if err := s.AuthorizeArtworkAs(ctx, &core.User{ID: 1, IsOwner: true}, core.Device{}, title.Key); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AuthorizeArtworkAs(ctx, nil, core.Device{}, title.Key); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("nil viewer allowed: %v", err)
+	}
+	if err := s.AuthorizeArtworkAs(ctx, &core.User{ID: 3, AllowedSections: []int{2}}, core.Device{}, title.Key); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("section-restricted viewer allowed: %v", err)
+	}
+}
+
 func TestVirtualSeasonArtworkInheritsShowPolicy(t *testing.T) {
 	show := &core.Title{Key: core.ShowKey(10), Type: core.TypeShow}
 	key := core.SeasonKey(10, 9000)

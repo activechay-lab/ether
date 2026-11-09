@@ -427,6 +427,24 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		return a.catalog.LibraryPosters(ctx, typ, limit)
 	}, modelReady: func(id int64) bool {
 		return a.personalize != nil && a.personalize.ModelReady(id)
+	}, publicUsers: a.users.Users, publicEpoch: func() uint64 {
+		// The policy epoch: any change to accounts, owner content
+		// policy (safety/config) or the catalogue drops cached public
+		// artwork verdicts.
+		var gen uint64
+		if a.users != nil {
+			gen = a.users.Generation()
+		}
+		if a.safety != nil {
+			gen = gen*1099511628211 ^ a.safety.Generation()
+		}
+		if a.cfg != nil {
+			gen = gen*1099511628211 ^ a.cfg.Generation()
+		}
+		if a.catalog != nil {
+			gen = gen*1099511628211 ^ a.catalog.WriteGeneration()
+		}
+		return gen
 	}}, nil
 }
 
@@ -447,6 +465,12 @@ type surfaceExperience struct {
 	rowCache    map[string]rowCacheSlot
 	collageMu   sync.Mutex
 	collage     map[string]collageSlot
+	// Public (unauthenticated) title artwork: the active-user snapshot
+	// and per-item intersection verdicts, cached per policy epoch.
+	publicUsers func(context.Context) ([]core.User, error)
+	publicEpoch func() uint64
+	publicMu    sync.Mutex
+	publicCache publicArtworkCache
 }
 
 type collageSlot struct {

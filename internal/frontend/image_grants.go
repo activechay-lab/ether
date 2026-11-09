@@ -58,6 +58,28 @@ type ImageGrantBatch interface {
 	IssueBatch(context.Context, ImageBatchRequest) ([]ImageBatchItem, error)
 }
 
+// PublicArtwork lists title artwork an unauthenticated image request may
+// be served: artwork of a title visible to every active viewer under
+// current policy (sections, content ratings, the owner's content policy
+// and inherited show rules). ok is false when the title is missing,
+// hidden from any viewer, or not a plain title (collections, playlists
+// and extras are never public). reader is a real active viewer the bytes
+// may be read as — every viewer passed, so any of them may read — and is
+// never a requester identity: there is none. Implementations cache the
+// intersection per policy epoch, so a restriction change takes effect
+// without waiting for a TTL.
+type PublicArtwork interface {
+	PublicArtwork(ctx context.Context, device core.Device, item core.RatingKey) (images []Image, reader *core.Viewer, ok bool, err error)
+}
+
+// PublicImageServer is the optional image-grant extension that serves
+// one PublicArtwork-selected image to a request with no credential. It
+// re-checks public visibility and that the image belongs to the item
+// before writing bytes, mirroring Serve's re-authorization.
+type PublicImageServer interface {
+	ServePublic(http.ResponseWriter, *http.Request, core.Device, core.RatingKey, Image)
+}
+
 // ImagePageRequest signs artwork for titles the caller has already authorized
 // for this page. The signer does not write a grant row.
 type ImagePageRequest struct {

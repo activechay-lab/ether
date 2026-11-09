@@ -289,34 +289,45 @@ func (i *instance) image(w http.ResponseWriter, r *http.Request) {
 
 // serveTaglessImage answers an image request with no tag. A tag is a
 // short-lived capability minted for one viewer after that viewer was
-// shown the item; dropping the requirement outright would let anyone who
-// can guess an item id fetch its artwork and probe for hidden titles.
-// The equivalent that weakens nothing: require the client's own live
-// credential (header or api_key, as Jellyfin clients send on image
-// fetches), resolve the item and image exactly as that viewer, then mint
-// the same scoped grant in-process and serve through it. Grant Issue and
-// Serve re-authorize against current policy, so this path can only ever
-// return artwork the credential holder could already have obtained a tag
-// for. Anonymous requests, unresolvable ids and hidden items all get the
-// same 404, so the endpoint is not an oracle for what exists.
+// shown the item. Two tag-less shapes exist in the wild:
+//
+//   - The request carries the client's own live credential (header or
+//     api_key). Resolve the item and image exactly as that viewer, then
+//     mint the same scoped grant in-process and serve through it. Grant
+//     Issue and Serve re-authorize against current policy, so this path
+//     only returns artwork the credential holder could already have
+//     obtained a tag for.
+//   - The request is fully anonymous. Some clients (Moonfin on Smart
+//     TVs) build image URLs with no tag and load them with a plain
+//     <img>, so no credential can ever arrive; Jellyfin itself serves
+//     these. Ether serves them only via servePublicImage: title artwork
+//     for titles every active viewer may see. Anything hidden from
+//     anyone — and every unresolvable id — stays the same 404, so the
+//     anonymous path is not an oracle for restricted titles.
+//
+// A tag that is present but invalid never reaches here: it goes to
+// Serve and 404s there, so a forged tag cannot fall through to either
+// tag-less path.
 func (i *instance) serveTaglessImage(w http.ResponseWriter, r *http.Request) {
+	wireID, imageType := r.PathValue("itemId"), r.PathValue("imageType")
+	index := 0
+	if raw := r.PathValue("index"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			http.NotFound(w, r)
+			return
+		}
+		index = n
+	}
 	v, token, err := i.authenticate(r)
 	if err != nil || v == nil {
-		http.NotFound(w, r)
+		i.servePublicImage(w, r, wireID, imageType, index)
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), principalKey{}, principal{viewer: v, token: token}))
 	if v, token, err = i.viewer(r); err != nil || v == nil {
 		http.NotFound(w, r)
 		return
-	}
-	wireID, imageType := r.PathValue("itemId"), r.PathValue("imageType")
-	index := 0
-	if raw := r.PathValue("index"); raw != "" {
-		if index, err = strconv.Atoi(raw); err != nil || index < 0 {
-			http.NotFound(w, r)
-			return
-		}
 	}
 	primaryOnly := strings.EqualFold(imageType, "Primary") && index == 0
 	if _, err := ids.ParseGUID(ids.Channel, wireID); err == nil {
@@ -381,6 +392,37 @@ func (i *instance) serveTaglessImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	i.host.ImageGrants.Serve(w, r, grant)
+}
+
+// servePublicImage serves title artwork to a fully anonymous tag-less
+// request. Only plain title items are eligible (person, channel, user
+// and library-view images stay grant-only), the title must be visible
+// to every active viewer (frontend.PublicArtwork), and the bytes are
+// served through the grant service's public path, which re-checks all
+// of that before writing (frontend.PublicImageServer).
+func (i *instance) servePublicImage(w http.ResponseWriter, r *http.Request, wireID, imageType string, index int) {
+	public, experienceOK := i.host.Experience.(frontend.PublicArtwork)
+	server, grantsOK := i.host.ImageGrants.(frontend.PublicImageServer)
+	if !experienceOK || !grantsOK {
+		http.NotFound(w, r)
+		return
+	}
+	key, err := ids.ParseRatingKeyGUID(wireID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	images, _, visible, err := public.PublicArtwork(i.identityContext(r), device(r), key)
+	if err != nil || !visible {
+		http.NotFound(w, r)
+		return
+	}
+	img, ok := taglessImage(images, imageType, index)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	server.ServePublic(w, r, device(r), key, img)
 }
 
 // taglessImage picks the index-th descriptor for a Jellyfin/Emby image

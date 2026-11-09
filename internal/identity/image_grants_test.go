@@ -203,3 +203,60 @@ func TestImageGrantUsesScopedArtworkAndTransforms(t *testing.T) {
 		t.Fatal("hidden artwork reached source", w.Code, source.calls)
 	}
 }
+
+type publicArtworkExperience struct {
+	frontendtest.Experience
+	visible bool
+	image   frontend.Image
+}
+
+func (e publicArtworkExperience) PublicArtwork(_ context.Context, _ core.Device, item core.RatingKey) ([]frontend.Image, *core.Viewer, bool, error) {
+	if !e.visible || item != core.MovieKey(42) {
+		return nil, nil, false, nil
+	}
+	return []frontend.Image{e.image}, &core.Viewer{ID: 1}, true, nil
+}
+
+// ServePublic (#405) writes bytes only for an image the experience
+// currently reports as public (visible to every viewer), matched by
+// full image identity, and never for person artwork.
+func TestServePublicRechecksPublicArtwork(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	if _, err := db.ExecContext(ctx, `INSERT INTO auth_users(id,plex_id,created_at,updated_at) VALUES(1,123,0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100000, 0)
+	clock := func() time.Time { return now }
+	grants, err := identity.NewGrants(db, members{db}, time.Hour, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poster := frontend.Image{Kind: frontend.ImagePoster, Path: "/poster", Tag: "v1"}
+	experience := &publicArtworkExperience{visible: true, image: poster}
+	source := &imageFixture{}
+	s, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serve := func(item core.RatingKey, img frontend.Image) int {
+		w := httptest.NewRecorder()
+		s.ServePublic(w, httptest.NewRequest("GET", "/Items/x/Images/Primary", nil), core.Device{}, item, img)
+		return w.Code
+	}
+	if code := serve(core.MovieKey(42), poster); code != 200 || source.calls != 1 {
+		t.Fatalf("public poster: %d calls=%d", code, source.calls)
+	}
+	other := poster
+	other.Path = "/other-poster"
+	if code := serve(core.MovieKey(42), other); code != 404 || source.calls != 1 {
+		t.Fatalf("unlisted image served: %d calls=%d", code, source.calls)
+	}
+	if code := serve(core.MovieKey(42), frontend.Image{Kind: frontend.ImagePerson, Path: "/poster", Tag: "v1"}); code != 404 {
+		t.Fatalf("person image served publicly: %d", code)
+	}
+	experience.visible = false
+	if code := serve(core.MovieKey(42), poster); code != 404 || source.calls != 1 {
+		t.Fatalf("hidden-from-someone poster served: %d calls=%d", code, source.calls)
+	}
+}
