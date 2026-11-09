@@ -223,3 +223,36 @@ func TestGenerateMatchesLiveTriggers(t *testing.T) {
 	}
 	t.Logf("compared %d tables, %d with rows", len(tables), nonEmpty)
 }
+
+// TestGenerateIgnoresWhenItRuns: a scale is one library whenever it is
+// generated. Only its dates follow the generation time; its titles' shapes
+// and credits must not, or the gate's page bounds (DetailCaps) and every
+// row it compares move from run to run.
+func TestGenerateIgnoresWhenItRuns(t *testing.T) {
+	ctx := context.Background()
+	shape := func(now time.Time) string {
+		db, err := store.Open(ctx, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		s := SmallScale.Divide(50)
+		s.Viewers, s.HistoryPerViewer = 2, 30
+		if err := Generate(ctx, db, s, now); err != nil {
+			t.Fatal(err)
+		}
+		var out string
+		if err := db.QueryRowContext(ctx, `SELECT COALESCE(group_concat(r, ';'), '') FROM (
+ SELECT key || ':' || title || ':' || vote_count || ':' || popularity AS r FROM catalog_titles
+ UNION ALL SELECT key || '/' || kind || '/' || ord || '/' || person_tmdb FROM catalog_credits
+ ORDER BY 1)`).Scan(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	a := shape(time.Date(2026, 11, 8, 23, 10, 0, 0, time.UTC))
+	b := shape(time.Date(2026, 12, 19, 4, 32, 17, 0, time.UTC))
+	if a == "" || a != b {
+		t.Fatalf("the same scale generated at two times built different libraries (%d vs %d bytes of shape)", len(a), len(b))
+	}
+}

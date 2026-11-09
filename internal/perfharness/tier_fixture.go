@@ -313,7 +313,8 @@ func GenerateOffMirror(ctx context.Context, db *sql.DB, o OffMirror) (OffMirrorS
 	countries := []string{"US", "GB", "FR", "JP", "KR", "DE", "IN", "IT", "ES", "CA", "BR", "MX"}
 	released := func() time.Time {
 		span := now.AddDate(0, -2, 0).Sub(time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC))
-		return time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(rng.Int64N(int64(span))))
+		// One draw whatever the span, as generator.released.
+		return time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(rng.Float64() * float64(span)))
 	}
 	type stored struct {
 		key   core.RatingKey

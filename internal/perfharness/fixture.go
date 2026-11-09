@@ -405,9 +405,12 @@ func (g *generator) name(n int) string {
 }
 
 func (g *generator) released() time.Time {
-	// Spread over 1950 to last month.
+	// Spread over 1950 to last month. One draw of a fraction, whatever the
+	// span: Int64N(span) rejects and redraws a span-dependent share of
+	// values, so the generation time would shift every later draw and the
+	// same scale would build a different library on each run.
 	span := g.now.AddDate(0, -1, 0).Sub(time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC))
-	return time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(g.rng.Int64N(int64(span))))
+	return time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(g.rng.Float64() * float64(span)))
 }
 
 func (g *generator) titles(s Scale) error {
