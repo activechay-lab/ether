@@ -99,7 +99,8 @@ describe("Sources", () => {
     expect(
       await screen.findByRole("button", { name: "Edit Indexer One" }, WAIT),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Import from Prowlarr/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a source/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Prowlarr/ }));
     const drawer = await screen.findByRole("dialog", { name: "Import from Prowlarr" });
     expect(within(drawer).getByLabelText("Prowlarr URL")).toBeInTheDocument();
     expect(within(drawer).getByRole("button", { name: "Preview indexers" })).toBeDisabled();

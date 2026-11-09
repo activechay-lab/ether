@@ -181,7 +181,8 @@ describe("Sources › Indexers protocol", () => {
   it("shows each Prowlarr result's protocol", async () => {
     renderApp("/sources/indexers");
     await screen.findByRole("button", { name: "Edit Indexer One" }, WAIT);
-    fireEvent.click(screen.getByRole("button", { name: /Import from Prowlarr/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a source/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Prowlarr/ }));
     const drawer = await screen.findByRole("dialog", { name: "Import from Prowlarr" });
     fireEvent.change(within(drawer).getByLabelText("Prowlarr URL"), {
       target: { value: "http://localhost:9696" },
