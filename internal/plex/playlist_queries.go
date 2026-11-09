@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -59,7 +59,7 @@ func (s *Server) handlePlaylistSorts(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, mc)
 }
 
-func (s *Server) playlistListingMetadata(ctx context.Context, pl *core.Playlist) model.Metadata {
+func (s *Server) playlistListingMetadata(ctx context.Context, pl *frontend.Playlist) model.Metadata {
 	md := s.playlistMetadata(ctx, pl)
 	md.ViewCount = 1
 	md.LastViewedAt = md.AddedAt
@@ -238,22 +238,22 @@ func (s *Server) writePlaylistListing(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, mc)
 }
 
-func playlistKeyMediaType(key core.RatingKey) core.MediaType {
-	if key.Kind() == core.KindMovie {
-		return core.TypeMovie
+func playlistKeyMediaType(key frontend.RatingKey) frontend.MediaType {
+	if key.Kind() == frontend.KindMovie {
+		return frontend.TypeMovie
 	}
-	return core.TypeShow
+	return frontend.TypeShow
 }
 
-func playlistItemsMeta(r *http.Request, types map[core.MediaType]bool) *model.Meta {
+func playlistItemsMeta(r *http.Request, types map[frontend.MediaType]bool) *model.Meta {
 	q := r.URL.Query()
 	selected := q.Get("type")
 	base := r.URL.Path
 	out := &model.Meta{Type: []model.MetaType{{Key: base, Type: "mixed", Title: "All", Active: selected == "" || selected == "-1"}}}
 	for _, tab := range []struct {
-		t     core.MediaType
+		t     frontend.MediaType
 		title string
-	}{{core.TypeMovie, "Movies"}, {core.TypeEpisode, "Episodes"}, {core.TypeSeason, "Seasons"}, {core.TypeShow, "TV Shows"}} {
+	}{{frontend.TypeMovie, "Movies"}, {frontend.TypeEpisode, "Episodes"}, {frontend.TypeSeason, "Seasons"}, {frontend.TypeShow, "TV Shows"}} {
 		if !types[tab.t] {
 			continue
 		}
@@ -269,14 +269,14 @@ type playlistRows struct {
 	rows        []model.Metadata
 	total, lo   int
 	durationSec int64 // the sum of every item's duration in whole seconds
-	types       map[core.MediaType]bool
+	types       map[frontend.MediaType]bool
 }
 
 // playlistItemRows lists a playlist's items and renders only the page the
 // client asked for: a 3000-item playlist read 50 at a time renders 50 rows,
 // not every item for each page.
-func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Playlist, q url.Values) (playlistRows, error) {
-	var titles []core.Title
+func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *frontend.Playlist, q url.Values) (playlistRows, error) {
+	var titles []frontend.Title
 	if pl.SmartURI != "" {
 		all := *pr
 		all.HasPage, all.Start, all.Size = true, 0, maxExpand
@@ -288,27 +288,27 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 	} else {
 		titles = s.visibleTitles(pr.User, s.getTitles(ctx, pl.Items))
 	}
-	types := map[core.MediaType]bool{}
+	types := map[frontend.MediaType]bool{}
 	for _, t := range titles {
 		types[t.Type] = true
-		if t.Type == core.TypeEpisode {
-			types[core.TypeSeason] = true
-			types[core.TypeShow] = true
+		if t.Type == frontend.TypeEpisode {
+			types[frontend.TypeSeason] = true
+			types[frontend.TypeShow] = true
 		}
 	}
 	want := typeFromParam(q.Get("type"))
 	unknown := q.Has("type") && want == "" && q.Get("type") != "-1"
 	// Resolve parent identities once, retaining first appearance rather than sorting membership.
-	selected := make([]core.Title, 0, len(titles))
-	seen := map[core.RatingKey]bool{}
+	selected := make([]frontend.Title, 0, len(titles))
+	seen := map[frontend.RatingKey]bool{}
 	for _, t := range titles {
 		if unknown {
 			continue
 		}
-		if t.Type == core.TypeEpisode && (want == core.TypeShow || want == core.TypeSeason) {
+		if t.Type == frontend.TypeEpisode && (want == frontend.TypeShow || want == frontend.TypeSeason) {
 			key := t.ShowKey
-			if want == core.TypeSeason {
-				key = core.SeasonKey(t.Key.TMDB(), t.Season)
+			if want == frontend.TypeSeason {
+				key = frontend.SeasonKey(t.Key.TMDB(), t.Season)
 			}
 			if seen[key] {
 				continue
@@ -332,8 +332,8 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		filterQuery[key] = vals
 	}
 	if len(filterQuery) > 0 && len(selected) > 0 {
-		allowed := map[core.RatingKey]bool{}
-		groups := map[core.MediaType][]core.RatingKey{}
+		allowed := map[frontend.RatingKey]bool{}
+		groups := map[frontend.MediaType][]frontend.RatingKey{}
 		for _, t := range selected {
 			groups[t.Type] = append(groups[t.Type], t.Key)
 		}
@@ -362,7 +362,7 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		selected = kept
 	}
 	// Duplicate plain members retain their distinct stable item identities.
-	ids := map[core.RatingKey][]int64{}
+	ids := map[frontend.RatingKey][]int64{}
 	for i, key := range pl.Items {
 		id := int64(i + 1)
 		if i < len(pl.ItemIDs) {
@@ -371,7 +371,7 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		ids[key] = append(ids[key], id)
 	}
 	itemIDs := make([]int64, len(selected))
-	if pl.SmartURI == "" && want != core.TypeShow && want != core.TypeSeason {
+	if pl.SmartURI == "" && want != frontend.TypeShow && want != frontend.TypeSeason {
 		for i := range selected {
 			if q := ids[selected[i].Key]; len(q) > 0 {
 				itemIDs[i], ids[selected[i].Key] = q[0], q[1:]
@@ -431,7 +431,7 @@ func (s *Server) smartPlaylistSQLAvailable() bool {
 	return ok && c.BrowsePlaylistInSQL()
 }
 
-func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request, pl *core.Playlist) {
+func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request, pl *frontend.Playlist) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	q := r.URL.Query()
@@ -445,18 +445,18 @@ func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if source.none {
-		source.q.Filter.IncludeKeys = []core.RatingKey{}
+		source.q.Filter.IncludeKeys = []frontend.RatingKey{}
 	}
 	if source.unwatched != nil || source.inProgress != nil || source.lastViewedAfter > 0 || source.lastViewedBefore > 0 {
 		uid := int64(0)
 		if pr.User != nil && s.d.State != nil {
 			uid = pr.User.ID
 		}
-		state := core.FilterGroup{UserID: uid, Unwatched: source.unwatched, InProgress: source.inProgress, LastViewedAfter: source.lastViewedAfter, LastViewedBefore: source.lastViewedBefore}
+		state := frontend.FilterGroup{UserID: uid, Unwatched: source.unwatched, InProgress: source.inProgress, LastViewedAfter: source.lastViewedAfter, LastViewedBefore: source.lastViewedBefore}
 		if source.q.Filter.Group == nil {
 			source.q.Filter.Group = &state
 		} else {
-			source.q.Filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*source.q.Filter.Group, state}}
+			source.q.Filter.Group = &frontend.FilterGroup{Operator: "and", Children: []frontend.FilterGroup{*source.q.Filter.Group, state}}
 		}
 	}
 	if source.sortLastViewed {
@@ -467,17 +467,17 @@ func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request,
 		}
 	}
 
-	if pr.User != nil && source.q.Filter.Type == core.TypeEpisode {
-		policy := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.needPlexRatingFilter(pr.User)}
+	if pr.User != nil && source.q.Filter.Type == frontend.TypeEpisode {
+		policy := frontend.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.needPlexRatingFilter(pr.User)}
 		if blocks, ok := s.d.AccessPolicy.(interface {
-			BrowseBlocks(*core.User) ([]string, []string)
+			BrowseBlocks(*frontend.User) ([]string, []string)
 		}); ok {
 			policy.ExcludeGenres, policy.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
 		}
 		if share, ok := s.d.AccessPolicy.(interface {
-			BrowseShareFilter(*core.User, core.MediaType) core.Filter
+			BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
 		}); ok {
-			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, core.TypeEpisode))
+			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
 		}
 		source.q.Filter.ChildVisibility = &policy
 	}
@@ -506,7 +506,7 @@ func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request,
 		s.writeErr(w, r, err)
 		return
 	}
-	storedOnly := typ == core.TypeEpisode
+	storedOnly := typ == frontend.TypeEpisode
 	sqlAvailability, _ := s.d.Catalog.(interface{ BrowseAvailabilityInSQL() bool })
 	rows := s.renderTitles(ctx, pr, titles, renderOpts{media: true, storedOnly: storedOnly, availabilityInSQL: sqlAvailability != nil && sqlAvailability.BrowseAvailabilityInSQL()})
 	mc := &model.MediaContainer{RatingKey: pl.Key.String(), Title1: pl.Title, PlaylistType: "video", Smart: model.Ptr(true), LeafCount: model.Ptr(total), Metadata: rows, Size: len(rows)}
@@ -517,10 +517,10 @@ func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request,
 		mc.Duration += md.Duration / 1000
 	}
 	if q.Get("includeMeta") == "1" {
-		types := map[core.MediaType]bool{source.q.Filter.Type: true}
-		if source.q.Filter.Type == core.TypeEpisode {
-			types[core.TypeShow] = true
-			types[core.TypeSeason] = true
+		types := map[frontend.MediaType]bool{source.q.Filter.Type: true}
+		if source.q.Filter.Type == frontend.TypeEpisode {
+			types[frontend.TypeShow] = true
+			types[frontend.TypeSeason] = true
 		}
 		mc.Meta = playlistItemsMeta(r, types)
 	}

@@ -34,6 +34,18 @@ func WithRequestMemo(ctx context.Context) context.Context {
 	return context.WithValue(ctx, requestMemoKey{}, &RequestMemo{})
 }
 
+// WithCatalogViewer records the catalogue viewer for this request. The
+// context key stays owned by core.
+func WithCatalogViewer(ctx context.Context, u *User) context.Context {
+	return core.WithCatalogViewer(ctx, u)
+}
+
+// WithLiveApp records the live app name for this request. The context key
+// stays owned by core.
+func WithLiveApp(ctx context.Context, app string) context.Context {
+	return core.WithLiveApp(ctx, app)
+}
+
 // RequestMemoFrom returns the memo installed by WithRequestMemo.
 func RequestMemoFrom(ctx context.Context) *RequestMemo {
 	if ctx == nil {

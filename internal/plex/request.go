@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -49,7 +49,7 @@ type Request struct {
 	RemoteIP     netip.Addr
 	Remote       bool // not on a private/loopback network
 
-	User *core.User
+	User *frontend.User
 
 	// Set only on a single playable detail request. A nil completion means
 	// the refill was not admitted (or the search cache was already warm).
@@ -62,8 +62,8 @@ type Request struct {
 	// session/segment handlers may serve a capability-scoped request.
 	Capability bool
 
-	versionItemKey core.RatingKey // single detail or selected queue item
-	versionFlowKey core.RatingKey // selected pre-play/queue item only
+	versionItemKey frontend.RatingKey // single detail or selected queue item
+	versionFlowKey frontend.RatingKey // selected pre-play/queue item only
 	versionErr     error
 	supportAttempt string // diagnostics-only request correlation; never sent to clients
 }
@@ -79,7 +79,7 @@ func FromContext(ctx context.Context) *Request {
 }
 
 func withRequest(ctx context.Context, pr *Request) context.Context {
-	return context.WithValue(core.WithCatalogViewer(core.WithLiveApp(ctx, "plex"), pr.User), ctxKey{}, pr)
+	return context.WithValue(frontend.WithCatalogViewer(frontend.WithLiveApp(ctx, "plex"), pr.User), ctxKey{}, pr)
 }
 
 // plexParam reads an X-Plex-* value from the header or the query string.

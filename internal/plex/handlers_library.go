@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -26,30 +26,30 @@ const (
 	typeNumEpisode = 4
 )
 
-func typeNumber(t core.MediaType) int {
+func typeNumber(t frontend.MediaType) int {
 	switch t {
-	case core.TypeMovie:
+	case frontend.TypeMovie:
 		return typeNumMovie
-	case core.TypeShow:
+	case frontend.TypeShow:
 		return typeNumShow
-	case core.TypeSeason:
+	case frontend.TypeSeason:
 		return typeNumSeason
-	case core.TypeEpisode:
+	case frontend.TypeEpisode:
 		return typeNumEpisode
 	}
 	return 0
 }
 
-func typeFromParam(s string) core.MediaType {
+func typeFromParam(s string) frontend.MediaType {
 	switch strings.ToLower(s) {
 	case "1", "movie", "movies":
-		return core.TypeMovie
+		return frontend.TypeMovie
 	case "2", "show", "shows", "tv":
-		return core.TypeShow
+		return frontend.TypeShow
 	case "3", "season", "seasons":
-		return core.TypeSeason
+		return frontend.TypeSeason
 	case "4", "episode", "episodes":
-		return core.TypeEpisode
+		return frontend.TypeEpisode
 	case "18", "collection":
 		return "collection"
 	}
@@ -78,15 +78,15 @@ func (s *Server) onDeckSince() time.Time { return s.now().Add(-plexOnDeckWindow)
 // inOnDeckWindow reports a deck row PMS would still show: watched within
 // the window (st carries the show's latest view for a next-up episode), or
 // a season premiere, episode 1 of a later season, that aired within it.
-func inOnDeckWindow(t *core.Title, st core.WatchStatus, since time.Time) bool {
+func inOnDeckWindow(t *frontend.Title, st frontend.WatchStatus, since time.Time) bool {
 	if st.LastViewedAt.Unix() <= 0 || !st.LastViewedAt.Before(since) {
 		return true // an undated view is not known to be old (the deck query's latest<=0)
 	}
-	return t.Type == core.TypeEpisode && t.Episode == 1 && t.Season > 1 && !t.Released.IsZero() && !t.Released.Before(since)
+	return t.Type == frontend.TypeEpisode && t.Episode == 1 && t.Season > 1 && !t.Released.IsZero() && !t.Released.Before(since)
 }
 
 // onDeckWindowed keeps the rows inside the On Deck window, in order.
-func (s *Server) onDeckWindowed(items []core.Title, state map[core.RatingKey]core.WatchStatus) []core.Title {
+func (s *Server) onDeckWindowed(items []frontend.Title, state map[frontend.RatingKey]frontend.WatchStatus) []frontend.Title {
 	since := s.onDeckSince()
 	out := items[:0]
 	for i := range items {
@@ -112,7 +112,7 @@ func sectionPrefs(sec Section) []model.Setting {
 	collections := set("collectionMode", "Collections", "How to display collections on the Library tab.", "int", "2", "2",
 		"0:Hide collections but show their items|1:Hide items which are in collections|2:Show collections and their items")
 	original := set("originalTitles", "Use original titles", "Use the original titles for all items regardless of the library language.", "bool", "false", "false", "")
-	if sec.Type == core.TypeShow {
+	if sec.Type == frontend.TypeShow {
 		return []model.Setting{
 			visibility,
 			set("episodeSort", "Episode sorting", "How to sort the episodes for shows.", "text", "-1", "-1", "0:Oldest first|1:Newest first"),
@@ -137,7 +137,7 @@ func sectionPrefs(sec Section) []model.Setting {
 }
 
 func sectionTypeTitle(sec Section) (typeTitle, all string) {
-	if sec.Type == core.TypeShow {
+	if sec.Type == frontend.TypeShow {
 		return "TV Shows", "All Shows"
 	}
 	return "Movies", "All Movies"
@@ -295,7 +295,7 @@ var filterDefs = []filterDef{
 	{"unwatched", "boolean", "Unwatched"},
 }
 
-func (s *Server) metaType(sec Section, t core.MediaType, activeSort string) model.MetaType {
+func (s *Server) metaType(sec Section, t frontend.MediaType, activeSort string) model.MetaType {
 	id := strconv.Itoa(sec.ID)
 	tn := strconv.Itoa(typeNumber(t))
 	typeTitle, _ := sectionTypeTitle(sec)
@@ -344,7 +344,7 @@ func (s *Server) metaType(sec Section, t core.MediaType, activeSort string) mode
 	return mt
 }
 
-func (s *Server) meta(sec Section, t core.MediaType, activeSort string) *model.Meta {
+func (s *Server) meta(sec Section, t frontend.MediaType, activeSort string) *model.Meta {
 	return &model.Meta{
 		Type: []model.MetaType{s.metaType(sec, t, activeSort)},
 		FieldType: []model.FieldType{
@@ -377,7 +377,7 @@ func parseSortParam(s string) (key, dir string) {
 // Browse
 
 type browseRequest struct {
-	q                core.BrowseQuery
+	q                frontend.BrowseQuery
 	unwatched        *bool // true = unwatched (ViewCount == 0), false = watched (ViewCount > 0)
 	inProgress       *bool // true = in progress (ViewOffset > 0), false = not in progress (ViewOffset == 0)
 	sortLastViewed   bool
@@ -479,10 +479,10 @@ func parseBoolFilter(op, val string) (bool, bool) {
 	return (op == "=" && val == "1") || (op == "!=" && val == "0"), true
 }
 
-func parseDateFilter(op, raw string, now time.Time) (core.DateFilter, bool) {
+func parseDateFilter(op, raw string, now time.Time) (frontend.DateFilter, bool) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
-		return core.DateFilter{}, false
+		return frontend.DateFilter{}, false
 	}
 	if strings.HasPrefix(v, "-") {
 		rel := v[1:]
@@ -490,7 +490,7 @@ func parseDateFilter(op, raw string, now time.Time) (core.DateFilter, bool) {
 			if strings.HasSuffix(rel, unit) {
 				n, err := strconv.Atoi(strings.TrimSuffix(rel, unit))
 				if err != nil || n < 0 {
-					return core.DateFilter{}, false
+					return frontend.DateFilter{}, false
 				}
 				var ts int64
 				switch unit {
@@ -509,20 +509,20 @@ func parseDateFilter(op, raw string, now time.Time) (core.DateFilter, bool) {
 				case "y":
 					ts = now.AddDate(-n, 0, 0).Unix()
 				}
-				return core.DateFilter{Op: op, Unix: ts}, true
+				return frontend.DateFilter{Op: op, Unix: ts}, true
 			}
 		}
 	}
 	if tm, err := time.Parse("2006-01-02", v); err == nil {
-		return core.DateFilter{Op: op, Unix: tm.UTC().Unix(), SpanDay: true}, true
+		return frontend.DateFilter{Op: op, Unix: tm.UTC().Unix(), SpanDay: true}, true
 	}
 	if tm, err := time.Parse(time.RFC3339, v); err == nil {
-		return core.DateFilter{Op: op, Unix: tm.UTC().Unix()}, true
+		return frontend.DateFilter{Op: op, Unix: tm.UTC().Unix()}, true
 	}
 	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return core.DateFilter{Op: op, Unix: n}, true
+		return frontend.DateFilter{Op: op, Unix: n}, true
 	}
-	return core.DateFilter{}, false
+	return frontend.DateFilter{}, false
 }
 
 func parseFilterTime(v string, now time.Time) (ts int64, dateOnly bool, ok bool) {
@@ -570,18 +570,18 @@ func applyTimeFilter(op string, ts int64, dateOnly bool, after, before *int64) {
 }
 
 // parseBrowse converts Plex filter/sort params into a catalogue query.
-func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType, u *core.User, q url.Values, raw ...string) browseRequest {
+func (s *Server) parseBrowse(ctx context.Context, sec Section, t frontend.MediaType, u *frontend.User, q url.Values, raw ...string) browseRequest {
 	br := browseRequest{}
-	var group *core.FilterGroup
+	var group *frontend.FilterGroup
 	if len(raw) > 0 && (q.Has("push") || q.Has("or") || q.Has("pop") || q.Has("and")) {
 		tree := parseQueryTree(raw[0], typeNumber(t), nil)
-		var convert func(*queryRule) *core.FilterGroup
-		convert = func(rule *queryRule) *core.FilterGroup {
+		var convert func(*queryRule) *frontend.FilterGroup
+		convert = func(rule *queryRule) *frontend.FilterGroup {
 			if rule == nil {
 				return nil
 			}
 			if rule.Type == "composite" {
-				g := &core.FilterGroup{Operator: rule.Operator}
+				g := &frontend.FilterGroup{Operator: rule.Operator}
 				for i := range rule.Rule {
 					if child := convert(&rule.Rule[i]); child != nil {
 						g.Children = append(g.Children, *child)
@@ -602,9 +602,9 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				if u != nil && s.d.State != nil {
 					id = u.ID
 				}
-				return &core.FilterGroup{Unwatched: parsed.unwatched, InProgress: parsed.inProgress, LastViewedAfter: parsed.lastViewedAfter, LastViewedBefore: parsed.lastViewedBefore, UserID: id}
+				return &frontend.FilterGroup{Unwatched: parsed.unwatched, InProgress: parsed.inProgress, LastViewedAfter: parsed.lastViewedAfter, LastViewedBefore: parsed.lastViewedBefore, UserID: id}
 			}
-			return &core.FilterGroup{Filter: &parsed.q.Filter}
+			return &frontend.FilterGroup{Filter: &parsed.q.Filter}
 		}
 		group = convert(tree.Rule)
 		// Keep response-shaping arguments, but rules are represented by the tree.
@@ -616,13 +616,13 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 		}
 		q = reduced
 	}
-	f := core.Filter{Type: t, Group: group}
+	f := frontend.Filter{Type: t, Group: group}
 	if u != nil {
 		f.MaxContentRating = u.MaxContentRating
 	}
 
 	if blocks, ok := s.d.AccessPolicy.(interface {
-		BrowseBlocks(*core.User) ([]string, []string)
+		BrowseBlocks(*frontend.User) ([]string, []string)
 	}); ok {
 		f.ExcludeGenres, f.ExcludeKeywords = blocks.BrowseBlocks(u)
 	}
@@ -686,7 +686,7 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				if op == "=" && f.Studio == "" && len(f.StudioFilters) == 0 {
 					f.Studio = name
 				}
-				f.StudioFilters = append(f.StudioFilters, core.StringFilter{Op: op, Value: name})
+				f.StudioFilters = append(f.StudioFilters, frontend.StringFilter{Op: op, Value: name})
 			case "firstCharacter":
 				f.FirstCharacter = v
 			case "language":
@@ -807,17 +807,17 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				if u != nil {
 					id = u.ID
 				}
-				state := core.FilterGroup{UserID: id, StateField: key, StateOperator: op, StateValue: ts}
+				state := frontend.FilterGroup{UserID: id, StateField: key, StateOperator: op, StateValue: ts}
 				if f.Group == nil {
 					f.Group = &state
 				} else {
-					f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*f.Group, state}}
+					f.Group = &frontend.FilterGroup{Operator: "and", Children: []frontend.FilterGroup{*f.Group, state}}
 				}
 			case "collection":
 				var ids []int64
 				for _, p := range splitVals(v) {
 					if id, err := strconv.ParseInt(p, 10, 64); err == nil && id > 0 {
-						if rk := core.RatingKey(id); rk.Kind() == core.KindCollection {
+						if rk := frontend.RatingKey(id); rk.Kind() == frontend.KindCollection {
 							id = rk.TMDB()
 						}
 						ids = append(ids, id)
@@ -854,19 +854,19 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				}
 				if len(ids) > 0 || len(names) > 0 {
 					if isNeg {
-						f.Credits = append(f.Credits, core.CreditFilter{People: ids, Names: names, Kind: kind, Exclude: true})
+						f.Credits = append(f.Credits, frontend.CreditFilter{People: ids, Names: names, Kind: kind, Exclude: true})
 					} else {
 						if len(ids) == 1 && len(names) == 0 && f.Person == 0 {
 							f.Person = ids[0]
 						}
-						f.Credits = append(f.Credits, core.CreditFilter{People: ids, Names: names, Kind: kind})
+						f.Credits = append(f.Credits, frontend.CreditFilter{People: ids, Names: names, Kind: kind})
 					}
 				}
 			case "title":
 				if op == "=" && f.Query == "" && len(f.TitleFilters) == 0 {
 					f.Query = v
 				} else {
-					f.TitleFilters = append(f.TitleFilters, core.StringFilter{Op: op, Value: v})
+					f.TitleFilters = append(f.TitleFilters, frontend.StringFilter{Op: op, Value: v})
 				}
 			case "audienceRating", "rating":
 				switch op {
@@ -947,11 +947,11 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 				if u != nil {
 					id = u.ID
 				}
-				state := core.FilterGroup{UserID: id, StateField: key, StateOperator: op, StateValue: n}
+				state := frontend.FilterGroup{UserID: id, StateField: key, StateOperator: op, StateValue: n}
 				if f.Group == nil {
 					f.Group = &state
 				} else {
-					f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*f.Group, state}}
+					f.Group = &frontend.FilterGroup{Operator: "and", Children: []frontend.FilterGroup{*f.Group, state}}
 				}
 			case "limit":
 				br.limit = atoi(v)
@@ -960,7 +960,7 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 	}
 	br.applySortParam(q.Get("sort"), t)
 	if share, ok := s.d.AccessPolicy.(interface {
-		BrowseShareFilter(*core.User, core.MediaType) core.Filter
+		BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
 	}); ok && u != nil {
 		// The plex.tv share predicate goes into the SQL, so pages fill
 		// and totals count only what this viewer may see.
@@ -970,12 +970,12 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t core.MediaType,
 	return br
 }
 
-func (br *browseRequest) applySortParam(raw string, t core.MediaType) {
+func (br *browseRequest) applySortParam(raw string, t frontend.MediaType) {
 	if strings.TrimSpace(raw) == "" {
-		if t == core.TypeEpisode || t == core.TypeSeason {
+		if t == frontend.TypeEpisode || t == frontend.TypeSeason {
 			br.q.Sort, br.q.Desc = "", false
 		} else {
-			br.q.Sort, br.q.Desc = core.SortTitle, false
+			br.q.Sort, br.q.Desc = frontend.SortTitle, false
 		}
 		return
 	}
@@ -995,56 +995,56 @@ func (br *browseRequest) applySortParam(raw string, t core.MediaType) {
 			if lastViewed {
 				br.sortLastViewed = true
 				br.lastViewedDesc = desc
-				if t == core.TypeEpisode || t == core.TypeSeason {
+				if t == frontend.TypeEpisode || t == frontend.TypeSeason {
 					br.q.Sort, br.q.Desc = "", false
 				} else {
-					br.q.Sort, br.q.Desc = core.SortTitle, false
+					br.q.Sort, br.q.Desc = frontend.SortTitle, false
 				}
 			} else {
 				br.q.Sort, br.q.Desc = so, desc
 			}
 		} else if !lastViewed {
-			br.q.SecondarySorts = append(br.q.SecondarySorts, core.SortSpec{Sort: so, Desc: desc})
+			br.q.SecondarySorts = append(br.q.SecondarySorts, frontend.SortSpec{Sort: so, Desc: desc})
 		}
 	}
-	if len(br.q.SecondarySorts) > 0 && t != core.TypeEpisode && t != core.TypeSeason {
-		hasTitle := br.q.Sort == core.SortTitle
+	if len(br.q.SecondarySorts) > 0 && t != frontend.TypeEpisode && t != frontend.TypeSeason {
+		hasTitle := br.q.Sort == frontend.SortTitle
 		for _, s := range br.q.SecondarySorts {
-			if s.Sort == core.SortTitle {
+			if s.Sort == frontend.SortTitle {
 				hasTitle = true
 				break
 			}
 		}
 		if !hasTitle {
-			br.q.SecondarySorts = append(br.q.SecondarySorts, core.SortSpec{Sort: core.SortTitle, Desc: false})
+			br.q.SecondarySorts = append(br.q.SecondarySorts, frontend.SortSpec{Sort: frontend.SortTitle, Desc: false})
 		}
 	}
 }
 
-func sortSpecFor(key, dir string) (so core.SortOrder, desc, lastViewed, valid bool) {
+func sortSpecFor(key, dir string) (so frontend.SortOrder, desc, lastViewed, valid bool) {
 	def := true // desc
 	valid = true
 	switch key {
 	case "titleSort", "title", "":
-		so, def = core.SortTitle, false
+		so, def = frontend.SortTitle, false
 	case "originallyAvailableAt", "releaseDate":
-		so = core.SortReleased
+		so = frontend.SortReleased
 	case "year":
-		so = core.SortYear
+		so = frontend.SortYear
 	case "rating", "audienceRating", "userRating":
-		so = core.SortRating
+		so = frontend.SortRating
 	case "addedAt", "createdAt":
-		so = core.SortAdded
+		so = frontend.SortAdded
 	case "lastViewedAt", "viewCount":
-		so, lastViewed = core.SortTitle, true
+		so, lastViewed = frontend.SortTitle, true
 	case "updatedAt":
-		so = core.SortUpdated
+		so = frontend.SortUpdated
 	case "duration":
-		so = core.SortDuration
+		so = frontend.SortDuration
 	case "popularity", "random":
-		so = core.SortPopularity
+		so = frontend.SortPopularity
 	default:
-		so = core.SortPopularity
+		so = frontend.SortPopularity
 		valid = false
 	}
 	switch dir {
@@ -1078,7 +1078,7 @@ func (pr *Request) pageOf(limit int) (offset, size int) {
 	return offset, size
 }
 
-func titleSortKey(t core.Title) string {
+func titleSortKey(t frontend.Title) string {
 	if t.SortTitle != "" {
 		return strings.ToLower(t.SortTitle)
 	}
@@ -1086,7 +1086,7 @@ func titleSortKey(t core.Title) string {
 }
 
 // browse runs a catalogue query honouring paging and watch-state filters.
-func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]core.Title, int, int, error) {
+func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]frontend.Title, int, int, error) {
 	offset, size := pr.pageOf(br.limit)
 	if pr.User != nil && s.d.Playback != nil {
 		for _, session := range s.d.Playback.Sessions() {
@@ -1095,17 +1095,17 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]c
 			}
 		}
 	}
-	if pr.User != nil && br.q.Filter.Type == core.TypeEpisode {
-		policy := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.needPlexRatingFilter(pr.User)}
+	if pr.User != nil && br.q.Filter.Type == frontend.TypeEpisode {
+		policy := frontend.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.needPlexRatingFilter(pr.User)}
 		if blocks, ok := s.d.AccessPolicy.(interface {
-			BrowseBlocks(*core.User) ([]string, []string)
+			BrowseBlocks(*frontend.User) ([]string, []string)
 		}); ok {
 			policy.ExcludeGenres, policy.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
 		}
 		if share, ok := s.d.AccessPolicy.(interface {
-			BrowseShareFilter(*core.User, core.MediaType) core.Filter
+			BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
 		}); ok {
-			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, core.TypeEpisode))
+			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
 		}
 		br.q.Filter.ChildVisibility = &policy
 	}
@@ -1121,11 +1121,11 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]c
 		if pr.User != nil && s.d.State != nil {
 			id = pr.User.ID
 		}
-		state := core.FilterGroup{UserID: id, Unwatched: br.unwatched, InProgress: br.inProgress, LastViewedAfter: br.lastViewedAfter, LastViewedBefore: br.lastViewedBefore}
+		state := frontend.FilterGroup{UserID: id, Unwatched: br.unwatched, InProgress: br.inProgress, LastViewedAfter: br.lastViewedAfter, LastViewedBefore: br.lastViewedBefore}
 		if br.q.Filter.Group == nil {
 			br.q.Filter.Group = &state
 		} else {
-			br.q.Filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*br.q.Filter.Group, state}}
+			br.q.Filter.Group = &frontend.FilterGroup{Operator: "and", Children: []frontend.FilterGroup{*br.q.Filter.Group, state}}
 		}
 		br.unwatched, br.inProgress = nil, nil
 		br.lastViewedAfter, br.lastViewedBefore = 0, 0
@@ -1139,7 +1139,7 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]c
 		br.sortLastViewed = false
 	}
 	_, hasBrowseBlocks := s.d.AccessPolicy.(interface {
-		BrowseBlocks(*core.User) ([]string, []string)
+		BrowseBlocks(*frontend.User) ([]string, []string)
 	})
 	needsPostPolicy := s.d.AccessPolicy != nil && !hasBrowseBlocks && s.viewerRestricted(pr.User)
 	if !needsPostPolicy {
@@ -1164,7 +1164,7 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]c
 	}
 	// Custom policies without SQL predicates are evaluated in bounded chunks.
 	const chunk, maxScan = 200, 5000
-	var out []core.Title
+	var out []frontend.Title
 	matched, scanned, total := 0, 0, 0
 	for scanned < maxScan {
 		q := br.q
@@ -1292,8 +1292,8 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	}
 	t := typeFromParam(q.Get("type"))
 	if t == "" {
-		if sub == "allLeaves" && sec.Type == core.TypeShow {
-			t = core.TypeEpisode
+		if sub == "allLeaves" && sec.Type == frontend.TypeShow {
+			t = frontend.TypeEpisode
 		} else {
 			t = sec.Type
 		}
@@ -1301,9 +1301,9 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	if sub == "unwatched" && q.Has("type") && typeFromParam(q.Get("type")) != sec.Type {
 		mc := s.sectionContainer(sec)
 		mc.Title2 = "Unplayed"
-		mc.ViewGroup = string(core.TypeMovie)
-		if sec.Type == core.TypeShow {
-			mc.ViewGroup = string(core.TypeEpisode)
+		mc.ViewGroup = string(frontend.TypeMovie)
+		if sec.Type == frontend.TypeShow {
+			mc.ViewGroup = string(frontend.TypeEpisode)
 		}
 		mc.SetPage(0, 0)
 		s.write(w, r, mc)
@@ -1319,9 +1319,9 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	}
 	switch {
 	case t == sec.Type:
-	case sec.Type == core.TypeShow && t == core.TypeSeason:
+	case sec.Type == frontend.TypeShow && t == frontend.TypeSeason:
 		mc.Title2 = "All Seasons"
-	case sec.Type == core.TypeShow && t == core.TypeEpisode:
+	case sec.Type == frontend.TypeShow && t == frontend.TypeEpisode:
 		mc.Title2 = "All Episodes"
 	default:
 		mc.SetPage(0, 0)
@@ -1331,14 +1331,14 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	br := s.parseBrowse(ctx, sec, t, pr.User, q, r.URL.RawQuery)
 	switch sub {
 	case "unwatched":
-		br.q.Sort, br.q.Desc = core.SortTitle, false
+		br.q.Sort, br.q.Desc = frontend.SortTitle, false
 		br.q.SecondarySorts = nil
 		br.sortLastViewed = false
 		want := true
 		br.unwatched = &want
 		mc.Title2 = "Unplayed"
 	case "newest":
-		br.q.Sort, br.q.Desc = core.SortReleased, true
+		br.q.Sort, br.q.Desc = frontend.SortReleased, true
 		br.q.SecondarySorts = nil
 		br.sortLastViewed = false
 		mc.Title2 = "Recently Released"
@@ -1347,7 +1347,7 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 		br.lastViewedDesc = true
 		br.lastViewedAfter = 1
 	case "recentlyAdded":
-		br.q.Sort, br.q.Desc = core.SortAdded, true
+		br.q.Sort, br.q.Desc = frontend.SortAdded, true
 		br.q.SecondarySorts = nil
 		br.sortLastViewed = false
 		br.q.Filter.KnownAddedDate = true
@@ -1368,7 +1368,7 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 		s.writeErr(w, r, err)
 		return
 	}
-	storedOnly := t == core.TypeSeason || t == core.TypeEpisode
+	storedOnly := t == frontend.TypeSeason || t == frontend.TypeEpisode
 	sqlAvailability, _ := s.d.Catalog.(interface{ BrowseAvailabilityInSQL() bool })
 	mc.Metadata = s.renderTitles(ctx, pr, items, renderOpts{
 		media:             true,
@@ -1395,17 +1395,17 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	s.write(w, r, mc)
 }
 
-func (s *Server) sectionSearch(w http.ResponseWriter, r *http.Request, sec Section, t core.MediaType, query string, mc *model.MediaContainer) {
+func (s *Server) sectionSearch(w http.ResponseWriter, r *http.Request, sec Section, t frontend.MediaType, query string, mc *model.MediaContainer) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	var items []core.Title
+	var items []frontend.Title
 	if strings.TrimSpace(query) != "" {
 		limit := 50
 		if n, _ := strconv.Atoi(r.URL.Query().Get("limit")); n > 0 {
 			limit = min(n, 200)
 		}
 		search := s.searchExperience()
-		res, err := search.Keyword(ctx, pr.User, query, []core.MediaType{t}, limit)
+		res, err := search.Keyword(ctx, pr.User, query, []frontend.MediaType{t}, limit)
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -1419,7 +1419,7 @@ func (s *Server) sectionSearch(w http.ResponseWriter, r *http.Request, sec Secti
 }
 
 // filterAllowed drops titles in sections the user cannot see.
-func (s *Server) filterAllowed(u *core.User, ts []core.Title) []core.Title {
+func (s *Server) filterAllowed(u *frontend.User, ts []frontend.Title) []frontend.Title {
 	return s.visibleTitles(u, ts)
 }
 
@@ -1441,7 +1441,7 @@ func (s *Server) sectionFacet(w http.ResponseWriter, r *http.Request, sec Sectio
 	titles := map[string]string{"genre": "By Genre", "year": "By Year", "decade": "By Decade", "contentRating": "By Content Rating", "country": "By Country", "studio": "By Studio", "firstCharacter": "By First Letter", "categories": ""}
 	mc.Title2 = titles[sub]
 	var (
-		vals []core.FacetValue
+		vals []frontend.FacetValue
 		err  error
 	)
 	if sub == "firstCharacter" {
@@ -1498,23 +1498,23 @@ func (s *Server) sectionFacet(w http.ResponseWriter, r *http.Request, sec Sectio
 // On deck, recently added, recently viewed
 
 // inProgressTitles loads the user's in-progress items and next episodes.
-func (s *Server) inProgressTitles(ctx context.Context, pr *Request, t core.MediaType, limit int) ([]core.Title, map[core.RatingKey]core.WatchStatus) {
+func (s *Server) inProgressTitles(ctx context.Context, pr *Request, t frontend.MediaType, limit int) ([]frontend.Title, map[frontend.RatingKey]frontend.WatchStatus) {
 	return s.continueExperience(pr).InProgress(ctx, pr.User, t, limit)
 }
 
 // getTitles fetches titles concurrently, preserving order and skipping
 // failures.
-func (s *Server) getTitles(ctx context.Context, keys []core.RatingKey) []core.Title {
+func (s *Server) getTitles(ctx context.Context, keys []frontend.RatingKey) []frontend.Title {
 	if ctx != nil && ctx.Value(storedPolicyKey{}) != nil {
 		if cached, ok := s.d.Catalog.(interface {
-			CachedGetMany(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+			CachedGetMany(context.Context, []frontend.RatingKey) (map[frontend.RatingKey]frontend.Title, error)
 		}); ok {
 			got, err := cached.CachedGetMany(ctx, keys)
 			if err != nil || len(got) == 0 {
 				return nil
 			}
-			out := make([]core.Title, 0, len(got))
-			seen := map[core.RatingKey]bool{}
+			out := make([]frontend.Title, 0, len(got))
+			seen := map[frontend.RatingKey]bool{}
 			for _, k := range keys {
 				if seen[k] {
 					continue
@@ -1528,7 +1528,7 @@ func (s *Server) getTitles(ctx context.Context, keys []core.RatingKey) []core.Ti
 		}
 	}
 	if pre, ok := s.d.Catalog.(interface {
-		PreloadStored(context.Context, []core.RatingKey)
+		PreloadStored(context.Context, []frontend.RatingKey)
 	}); ok && len(keys) > 4 {
 		// Read the stored titles in batches first, cached exactly as Get
 		// reads them (detail time included): each Get below then finds its
@@ -1536,7 +1536,7 @@ func (s *Server) getTitles(ctx context.Context, keys []core.RatingKey) []core.Ti
 		// facts alone (a 3000-item playlist read 2,810 titles one by one).
 		pre.PreloadStored(ctx, keys)
 	}
-	res := make([]*core.Title, len(keys))
+	res := make([]*frontend.Title, len(keys))
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 	for i, k := range keys {
@@ -1551,7 +1551,7 @@ func (s *Server) getTitles(ctx context.Context, keys []core.RatingKey) []core.Ti
 		}()
 	}
 	wg.Wait()
-	out := make([]core.Title, 0, len(keys))
+	out := make([]frontend.Title, 0, len(keys))
 	for _, t := range res {
 		if t != nil {
 			out = append(out, *t)
@@ -1595,14 +1595,14 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		customOrder = custom || err != nil
 	}
 	if paged, ok := s.d.Catalog.(interface {
-		PlexOnDeckPageSince(context.Context, int64, int, int, core.Filter, bool, time.Time) (core.WatchPage, error)
+		PlexOnDeckPageSince(context.Context, int64, int, int, frontend.Filter, bool, time.Time) (frontend.WatchPage, error)
 	}); ok && pr.User != nil && !pendingVisible && !customOrder {
 		_, size := pr.pageOf(0)
-		filter := core.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.plexMetaOn()}
+		filter := frontend.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.plexMetaOn()}
 		movieAllowed, episodeAllowed := false, false
 		for _, section := range s.userSections(pr.User) {
-			movieAllowed = movieAllowed || section.Type == core.TypeMovie
-			episodeAllowed = episodeAllowed || section.Type == core.TypeShow
+			movieAllowed = movieAllowed || section.Type == frontend.TypeMovie
+			episodeAllowed = episodeAllowed || section.Type == frontend.TypeShow
 		}
 		if !movieAllowed && !episodeAllowed {
 			mc := libraryContainer()
@@ -1611,13 +1611,13 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !movieAllowed {
-			filter.Type = core.TypeEpisode
+			filter.Type = frontend.TypeEpisode
 		}
 		if !episodeAllowed {
-			filter.Type = core.TypeMovie
+			filter.Type = frontend.TypeMovie
 		}
 		if blocks, ok := s.d.AccessPolicy.(interface {
-			BrowseBlocks(*core.User) ([]string, []string)
+			BrowseBlocks(*frontend.User) ([]string, []string)
 		}); ok {
 			filter.ExcludeGenres, filter.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
 		}
@@ -1670,7 +1670,7 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/hubs/home/onDeck" {
 		episodes := items[:0]
 		for _, item := range items {
-			if item.Type == core.TypeEpisode {
+			if item.Type == frontend.TypeEpisode {
 				episodes = append(episodes, item)
 			}
 		}
@@ -1714,7 +1714,7 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 // onDeckItems renders On Deck the way PMS does: movies as list items,
 // episodes in full (tag ids, Guid, Rating, streams), every item led by its
 // sync flag and section UUID.
-func (s *Server) onDeckItems(ctx context.Context, pr *Request, items []core.Title, state map[core.RatingKey]core.WatchStatus) []model.Metadata {
+func (s *Server) onDeckItems(ctx context.Context, pr *Request, items []frontend.Title, state map[frontend.RatingKey]frontend.WatchStatus) []model.Metadata {
 	// Filter first: renderTitles drops hidden titles, and the loop below
 	// pairs its output with items by index.
 	items = s.takeVisible(pr.User, items, len(items))
@@ -1740,14 +1740,14 @@ func (s *Server) sectionRecentlyViewed(w http.ResponseWriter, r *http.Request, s
 	mc := s.sectionContainer(sec)
 	mc.Title2 = "Recently Viewed"
 	if s.d.State != nil && pr.User != nil {
-		recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *core.User) bool { return !s.viewerRestricted(u) }}
+		recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }}
 		history := s.d.State.History
 		if settings, ok := s.d.State.(interface {
-			RecentlyViewedSettings(context.Context, int64, time.Time, int) ([]core.HistoryEntry, error)
+			RecentlyViewedSettings(context.Context, int64, time.Time, int) ([]frontend.HistoryEntry, error)
 		}); ok {
 			history = settings.RecentlyViewedSettings
 		}
-		items, err := recent.Viewed(ctx, pr.User, sec.ID, history, s.getTitles, func(t core.MediaType) (int, bool) {
+		items, err := recent.Viewed(ctx, pr.User, sec.ID, history, s.getTitles, func(t frontend.MediaType) (int, bool) {
 			section, ok := s.sectionFor(t)
 			return section.ID, ok
 		})
@@ -1764,7 +1764,7 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	_, size := pr.pageOf(0)
 	size = min(size, 200)
-	var items []core.Title
+	var items []frontend.Title
 	rq := r.URL.Query()
 	unwatched := false
 	if rq.Has("unwatched") {
@@ -1792,25 +1792,25 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 	wantType := typeFromParam(rq.Get("type"))
 	wantSection, _ := strconv.Atoi(rq.Get("sectionID"))
 	if paged, ok := s.d.Catalog.(interface {
-		PlexRecentPage(context.Context, core.BrowseQuery, []core.MediaType) (core.Page, error)
+		PlexRecentPage(context.Context, frontend.BrowseQuery, []frontend.MediaType) (frontend.Page, error)
 	}); ok && r.URL.Path == "/library/recentlyAdded" {
-		var kinds []core.MediaType
+		var kinds []frontend.MediaType
 		for _, sec := range s.userSections(pr.User) {
 			if wantSection > 0 && sec.ID != wantSection || wantType != "" && wantType != sec.Type {
 				continue
 			}
 			kind := sec.Type
-			if kind == core.TypeShow {
-				kind = core.TypeEpisode
+			if kind == frontend.TypeShow {
+				kind = frontend.TypeEpisode
 			}
 			kinds = append(kinds, kind)
 		}
 		_, pageSize := pr.pageOf(0)
-		q := core.BrowseQuery{Filter: core.Filter{KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: core.SortAdded, Desc: true, Offset: max(pr.Start, 0), Limit: pageSize}
+		q := frontend.BrowseQuery{Filter: frontend.Filter{KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: frontend.SortAdded, Desc: true, Offset: max(pr.Start, 0), Limit: pageSize}
 		if pr.User != nil {
 			q.Filter.MaxContentRating = pr.User.MaxContentRating
 			if unwatched {
-				q.Filter.Group = &core.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
+				q.Filter.Group = &frontend.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
 			}
 		}
 		page, err := paged.PlexRecentPage(ctx, q, kinds)
@@ -1831,12 +1831,12 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 		if wantSection > 0 && sec.ID != wantSection || wantType != "" && wantType != sec.Type {
 			continue
 		}
-		q := core.BrowseQuery{Filter: core.Filter{Type: sec.Type, KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: core.SortAdded, Desc: true, Limit: 200}
-		if r.URL.Path == "/library/recentlyAdded" && sec.Type == core.TypeShow {
-			q.Filter.Type = core.TypeEpisode
+		q := frontend.BrowseQuery{Filter: frontend.Filter{Type: sec.Type, KnownAddedDate: true, SaferPlexRating: s.plexMetaOn()}, Sort: frontend.SortAdded, Desc: true, Limit: 200}
+		if r.URL.Path == "/library/recentlyAdded" && sec.Type == frontend.TypeShow {
+			q.Filter.Type = frontend.TypeEpisode
 		}
 		if unwatched && pr.User != nil {
-			q.Filter.Group = &core.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
+			q.Filter.Group = &frontend.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
 		}
 		if pr.User != nil {
 			q.Filter.MaxContentRating = pr.User.MaxContentRating

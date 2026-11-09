@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -34,7 +34,7 @@ func (s *Server) wantsCollectionShelves(pr *Request) bool {
 // none would have pinned: every library the viewer can open, in order. A
 // client that asks library by library then sees the Home rows once (with
 // the first library), as Plex's own Home does, instead of once per library.
-func (s *Server) defaultPinnedDirectories(u *core.User) string {
+func (s *Server) defaultPinnedDirectories(u *frontend.User) string {
 	secs := s.userSections(u)
 	ids := make([]string, 0, len(secs))
 	for _, sec := range secs {

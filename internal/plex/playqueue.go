@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/reqmemo"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -52,13 +52,13 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	var keys []core.RatingKey
-	var plKey core.RatingKey
+	var keys []frontend.RatingKey
+	var plKey frontend.RatingKey
 	var plTitle string
 	uri := q.Get("uri")
 	switch {
 	case q.Get("playlistID") != "":
-		k, err := core.ParseRatingKey(q.Get("playlistID"))
+		k, err := frontend.ParseRatingKey(q.Get("playlistID"))
 		if err != nil {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
@@ -82,7 +82,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 		keys, err = s.continuousKeys(ctx, pr, uri, q.Get("continuous") == "1")
 		if path, e := uriPath(uri); e == nil {
 			if m := rePlaylistPath.FindStringSubmatch(path); len(m) > 0 {
-				if k, e := core.ParseRatingKey(m[1]); e == nil {
+				if k, e := frontend.ParseRatingKey(m[1]); e == nil {
 					if pl, e := s.playlist(ctx, pr.User, k); e == nil {
 						plKey, plTitle = pl.Key, pl.Title
 					}
@@ -91,7 +91,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			s.log.Debug("play queue uri", "uri", uri, "err", err)
-			if errors.Is(err, core.ErrNotFound) {
+			if errors.Is(err, frontend.ErrNotFound) {
 				writeHTTPError(w, http.StatusNotFound)
 			} else {
 				writeHTTPError(w, http.StatusBadRequest)
@@ -109,7 +109,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 		if path, err := uriPath(uri); err == nil {
 			path, _, _ = strings.Cut(path, "?")
 			if m := reMetadataPath.FindStringSubmatch(path); len(m) > 0 {
-				if k, err := core.ParseRatingKey(m[1]); err == nil && k.Kind() == core.KindShow {
+				if k, err := frontend.ParseRatingKey(m[1]); err == nil && k.Kind() == frontend.KindShow {
 					filtered := keys[:0]
 					for _, item := range keys {
 						if !s.queueSpecial(ctx, pr, item) {
@@ -139,19 +139,19 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		feature := keys[featureIdx]
-		var prefix []core.RatingKey
-		if cinema && feature.Kind() == core.KindMovie {
+		var prefix []frontend.RatingKey
+		if cinema && feature.Kind() == frontend.KindMovie {
 			prefix = s.cinemaTrailerKeys(ctx, pr, feature, n)
 		}
 		if preroll, order := s.prerollKey(ctx, pr, feature, cinema); preroll != 0 {
-			if order == core.PrerollAfterTrailers {
+			if order == frontend.PrerollAfterTrailers {
 				prefix = append(prefix, preroll)
 			} else {
-				prefix = append([]core.RatingKey{preroll}, prefix...)
+				prefix = append([]frontend.RatingKey{preroll}, prefix...)
 			}
 		}
 		if len(prefix) > 0 {
-			merged := append([]core.RatingKey(nil), keys[:featureIdx]...)
+			merged := append([]frontend.RatingKey(nil), keys[:featureIdx]...)
 			merged = append(append(merged, prefix...), keys[featureIdx:]...)
 			keys = merged
 			prefixAt = featureIdx
@@ -168,7 +168,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 				}
 				kind := "item"
 				sourceKey := keyFromPath(path)
-				if strings.Contains(path, ",") || strings.Contains(path, "/sections/") || strings.HasSuffix(path, "/children") || strings.HasSuffix(path, "/allLeaves") || strings.HasSuffix(path, "/grandchildren") || sourceKey.Kind() == core.KindShow || sourceKey.Kind() == core.KindSeason || sourceKey.Kind() == core.KindCollection {
+				if strings.Contains(path, ",") || strings.Contains(path, "/sections/") || strings.HasSuffix(path, "/children") || strings.HasSuffix(path, "/allLeaves") || strings.HasSuffix(path, "/grandchildren") || sourceKey.Kind() == frontend.KindShow || sourceKey.Kind() == frontend.KindSeason || sourceKey.Kind() == frontend.KindCollection {
 					kind = "directory"
 				}
 				p.SourceURI = "library://" + authority + "/" + kind + "/" + url.QueryEscape(path)
@@ -199,7 +199,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 
 // continuousKeys resolves a play queue URI; with continuous=1 a single
 // episode expands to the remaining episodes in its presented season.
-func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, continuous bool) ([]core.RatingKey, error) {
+func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, continuous bool) ([]frontend.RatingKey, error) {
 	if strings.HasPrefix(uri, "server://") {
 		authority, _, _ := strings.Cut(strings.TrimPrefix(uri, "server://"), "/")
 		if authority != s.identity().MachineIdentifier {
@@ -210,7 +210,7 @@ func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, co
 	if err != nil {
 		return nil, err
 	}
-	if !continuous || len(keys) != 1 || keys[0].Kind() != core.KindEpisode {
+	if !continuous || len(keys) != 1 || keys[0].Kind() != frontend.KindEpisode {
 		return keys, nil
 	}
 	ep := keys[0]
@@ -220,13 +220,13 @@ func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, co
 			season = n
 		}
 	}
-	eps, err := s.metadataChildren(ctx, pr, core.SeasonKey(ep.TMDB(), season))
+	eps, err := s.metadataChildren(ctx, pr, frontend.SeasonKey(ep.TMDB(), season))
 	if err != nil {
 		return keys, nil
 	}
 	for i, e := range eps {
 		if e.Key == ep {
-			candidates := make([]core.Title, 0, len(eps)-i)
+			candidates := make([]frontend.Title, 0, len(eps)-i)
 			for _, candidate := range eps[i+1:] {
 				// Presented seasons: an episode order may place a TMDB special
 				// inside a regular season, where it belongs in the queue.
@@ -236,15 +236,15 @@ func (s *Server) continuousKeys(ctx context.Context, pr *Request, uri string, co
 				candidates = append(candidates, candidate)
 			}
 			candidates = s.availableForViewer(ctx, pr.User, s.visibleTitles(pr.User, candidates))
-			return capKeys(append([]core.RatingKey{ep}, titleKeys(candidates)...)), nil
+			return capKeys(append([]frontend.RatingKey{ep}, titleKeys(candidates)...)), nil
 		}
 	}
 	return keys, nil
 }
 
 // queueSpecial identifies a special outside an explicitly interleaved order.
-func (s *Server) queueSpecial(ctx context.Context, pr *Request, key core.RatingKey) bool {
-	if key.Kind() != core.KindEpisode || key.Season() != 0 {
+func (s *Server) queueSpecial(ctx context.Context, pr *Request, key frontend.RatingKey) bool {
+	if key.Kind() != frontend.KindEpisode || key.Season() != 0 {
 		return false
 	}
 	if s.d.EpisodeOrder != nil {
@@ -256,7 +256,7 @@ func (s *Server) queueSpecial(ctx context.Context, pr *Request, key core.RatingK
 }
 
 // keyFromPath extracts a rating key from "/library/metadata/123" or "123".
-func keyFromPath(p string) core.RatingKey {
+func keyFromPath(p string) frontend.RatingKey {
 	if p == "" {
 		return 0
 	}
@@ -265,14 +265,14 @@ func keyFromPath(p string) core.RatingKey {
 	}
 	p, _, _ = strings.Cut(p, "/")
 	p, _, _ = strings.Cut(p, "?")
-	k, err := core.ParseRatingKey(p)
+	k, err := frontend.ParseRatingKey(p)
 	if err != nil {
 		return 0
 	}
 	return k
 }
 
-func (s *Server) pqParam(w http.ResponseWriter, r *http.Request) (int64, *core.User, bool) {
+func (s *Server) pqParam(w http.ResponseWriter, r *http.Request) (int64, *frontend.User, bool) {
 	u := FromContext(r.Context()).User
 	id, err := strconv.ParseInt(chi.URLParam(r, "pq"), 10, 32)
 	if err != nil {
@@ -335,15 +335,15 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				return
 			}
 		}
-		var addKeys []core.RatingKey
+		var addKeys []frontend.RatingKey
 		if op == "add" {
 			var err error
 			switch {
 			case q.Get("uri") != "":
 				addKeys, err = s.continuousKeys(ctx, pr, q.Get("uri"), q.Get("continuous") == "1")
 			case q.Get("playlistID") != "":
-				var k core.RatingKey
-				if k, err = core.ParseRatingKey(q.Get("playlistID")); err == nil {
+				var k frontend.RatingKey
+				if k, err = frontend.ParseRatingKey(q.Get("playlistID")); err == nil {
 					addKeys, err = s.expandKey(ctx, pr, k)
 				}
 			}
@@ -498,7 +498,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		lo, hi = 0, 0
 	}
 	slice := pq.Items[lo:hi]
-	keys := make([]core.RatingKey, len(slice))
+	keys := make([]frontend.RatingKey, len(slice))
 	for i, it := range slice {
 		keys[i] = it.Key
 	}
@@ -507,7 +507,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		keys = append(keys, pq.Items[pq.Selected].Key)
 	}
 	titles := s.visibleTitles(pr.User, s.getTitles(ctx, dedupeKeys(keys)))
-	byKey := make(map[core.RatingKey]*core.Title, len(titles))
+	byKey := make(map[frontend.RatingKey]*frontend.Title, len(titles))
 	for i := range titles {
 		byKey[titles[i].Key] = &titles[i]
 	}
@@ -533,7 +533,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	if selItem.ID != 0 {
 		mc.Extra = append(mc.Extra, model.A("playQueueSelectedItemID", selItem.ID))
 		selectedVisible := byKey[selItem.Key] != nil
-		if selItem.Key.Kind() == core.KindExtra {
+		if selItem.Key.Kind() == frontend.KindExtra {
 			_, selectedVisible = s.extraMetadataByKey(ctx, pr, selItem.Key)
 		}
 		if selectedVisible && !pq.SuppressMetadata {
@@ -555,7 +555,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	// renders only its own rows, never the whole queue.
 	type queueRow struct {
 		it    pqItem
-		t     *core.Title
+		t     *frontend.Title
 		extra *model.Metadata
 	}
 	var rows []queueRow
@@ -563,7 +563,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		if it.ID == pq.SuppressItem {
 			continue
 		}
-		if it.Key.Kind() == core.KindExtra {
+		if it.Key.Kind() == frontend.KindExtra {
 			if md, ok := s.extraMetadataByKey(ctx, pr, it.Key); ok {
 				rows = append(rows, queueRow{it: it, extra: &md})
 			}
@@ -580,7 +580,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	// The rows' remembered tracks, languages and backdrop colours in a few
 	// batches, as renderTitles reads them, not per row.
 	if len(rows) > 1 {
-		page := make([]core.Title, 0, len(rows))
+		page := make([]frontend.Title, 0, len(rows))
 		for _, row := range rows {
 			if row.t != nil {
 				page = append(page, *row.t)
@@ -606,8 +606,8 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 	s.write(w, r, mc)
 }
 
-func dedupeKeys(ks []core.RatingKey) []core.RatingKey {
-	seen := make(map[core.RatingKey]bool, len(ks))
+func dedupeKeys(ks []frontend.RatingKey) []frontend.RatingKey {
+	seen := make(map[frontend.RatingKey]bool, len(ks))
 	out := ks[:0:0]
 	for _, k := range ks {
 		if !seen[k] {

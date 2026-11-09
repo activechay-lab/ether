@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -39,7 +39,7 @@ import (
 // plex://person guid; person pages reached from Ether's own items work.
 
 type personByIDCatalog interface {
-	PersonByTMDB(ctx context.Context, person int64) (core.Person, []string, core.RatingKey, error)
+	PersonByTMDB(ctx context.Context, person int64) (frontend.Person, []string, frontend.RatingKey, error)
 }
 
 type personKind struct {
@@ -63,9 +63,9 @@ const personMediaCap = 2000
 type resolvedPerson struct {
 	id         int64
 	tagKeyForm bool
-	person     core.Person
+	person     frontend.Person
 	primary    personKind
-	thumbKey   core.RatingKey
+	thumbKey   frontend.RatingKey
 }
 
 // parsePersonID accepts the numeric TMDB id and Ether's tmdb-person-<id>
@@ -94,7 +94,7 @@ func (s *Server) resolvePerson(w http.ResponseWriter, r *http.Request) (resolved
 	}
 	person, kinds, thumbKey, err := cat.PersonByTMDB(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, core.ErrNotFound) {
+		if errors.Is(err, frontend.ErrNotFound) {
 			writeHTTPError(w, http.StatusNotFound)
 		} else {
 			s.writeErr(w, r, err)
@@ -153,7 +153,7 @@ func (s *Server) handleLibraryPersonMedia(w http.ResponseWriter, r *http.Request
 	pr := FromContext(ctx)
 	q := r.URL.Query()
 
-	credit := core.CreditFilter{People: []int64{rp.id}}
+	credit := frontend.CreditFilter{People: []int64{rp.id}}
 	if !rp.tagKeyForm {
 		credit.Kind = rp.primary.credit
 	}
@@ -169,8 +169,8 @@ func (s *Server) handleLibraryPersonMedia(w http.ResponseWriter, r *http.Request
 	fetchPr.Start = 0
 	fetchPr.Size = personMediaCap
 	limit := 0
-	var all []core.Title
-	seenTypes := map[core.MediaType]bool{}
+	var all []frontend.Title
+	seenTypes := map[frontend.MediaType]bool{}
 	for _, sec := range s.userSections(pr.User) {
 		if seenTypes[sec.Type] {
 			continue
@@ -189,7 +189,7 @@ func (s *Server) handleLibraryPersonMedia(w http.ResponseWriter, r *http.Request
 		all = append(all, items...)
 	}
 
-	seenKeys := map[core.RatingKey]bool{}
+	seenKeys := map[frontend.RatingKey]bool{}
 	deduped := all[:0]
 	for _, t := range all {
 		if seenKeys[t.Key] {
@@ -203,7 +203,7 @@ func (s *Server) handleLibraryPersonMedia(w http.ResponseWriter, r *http.Request
 	// size and totalSize count only rows this viewer may see.
 	all = s.visibleTitles(pr.User, all)
 	all = s.availableForViewer(ctx, pr.User, all)
-	slices.SortStableFunc(all, func(a, b core.Title) int {
+	slices.SortStableFunc(all, func(a, b frontend.Title) int {
 		if c := strings.Compare(titleSortKey(a), titleSortKey(b)); c != 0 {
 			return c
 		}
@@ -264,7 +264,7 @@ func applyExcludedElements(rows []model.Metadata, excluded map[string]bool) {
 		m := &rows[i]
 		if excluded["Media"] {
 			count := len(m.Media)
-			if count == 0 && isPlayable(core.MediaType(m.Type)) {
+			if count == 0 && isPlayable(frontend.MediaType(m.Type)) {
 				count = 1 // not rendered, but Ether exposes exactly one version
 			}
 			if count > 0 {

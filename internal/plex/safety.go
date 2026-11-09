@@ -3,14 +3,14 @@ package plex
 import (
 	"context"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // AccessPolicy adds owner-defined restrictions to the mandatory title guard.
 type AccessPolicy = experience.AccessPolicy
 
-func (s *Server) saferFetchCount(u *core.User, want int) int {
+func (s *Server) saferFetchCount(u *frontend.User, want int) int {
 	if want <= 0 || !s.needPlexRatingFilter(u) {
 		return want
 	}
@@ -24,7 +24,7 @@ func (s *Server) saferFetchCount(u *core.User, want int) int {
 	return n
 }
 
-func (s *Server) takeVisible(u *core.User, ts []core.Title, want int) []core.Title {
+func (s *Server) takeVisible(u *frontend.User, ts []frontend.Title, want int) []frontend.Title {
 	out := s.visibleTitles(u, ts)
 	if want > 0 && len(out) > want {
 		return out[:want]
@@ -32,24 +32,24 @@ func (s *Server) takeVisible(u *core.User, ts []core.Title, want int) []core.Tit
 	return out
 }
 
-func (s *Server) catalogBrowse(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+func (s *Server) catalogBrowse(ctx context.Context, q frontend.BrowseQuery) (frontend.Page, error) {
 	if s.plexMetaOn() {
 		q.Filter.SaferPlexRating = true
 	}
 	return s.d.Catalog.Browse(ctx, q)
 }
 
-func (s *Server) visibleTitles(u *core.User, ts []core.Title) []core.Title {
+func (s *Server) visibleTitles(u *frontend.User, ts []frontend.Title) []frontend.Title {
 	out := s.visibility().TitlesAllowed(u, ts)
 	if !s.needPlexRatingFilter(u) || s.d.PlexMeta == nil {
 		return out
 	}
-	keys := make([]core.RatingKey, 0, len(out))
+	keys := make([]frontend.RatingKey, 0, len(out))
 	for i := range out {
 		keys = append(keys, out[i].Key)
 	}
 	rows := s.d.PlexMeta.CachedMany(context.Background(), keys)
-	var guids map[core.RatingKey]string
+	var guids map[frontend.RatingKey]string
 	if s.d.PlexGUID != nil {
 		guids = s.d.PlexGUID.CachedMany(context.Background(), keys)
 	}
@@ -62,13 +62,13 @@ func (s *Server) visibleTitles(u *core.User, ts []core.Title) []core.Title {
 	return kept
 }
 
-func (s *Server) titleAllowed(u *core.User, t *core.Title) bool {
+func (s *Server) titleAllowed(u *frontend.User, t *frontend.Title) bool {
 	return experience.TitleAllowed(s.d.AccessPolicy, u, t) && s.plexMetaRatingAllowed(u, t)
 }
 
 func (s *Server) visibility() experience.Visibility {
 	v := experience.Visibility{Policy: s.d.AccessPolicy, FilterAvailable: s.d.FilterAvailable, JudgedOnFacts: s.d.JudgedOnFacts,
-		SectionFor: func(t core.MediaType) (int, bool) { sec, ok := s.untitledSectionFor(t); return sec.ID, ok }}
+		SectionFor: func(t frontend.MediaType) (int, bool) { sec, ok := s.untitledSectionFor(t); return sec.ID, ok }}
 	if s.d.Catalog != nil {
 		v.GetTitle = s.seriesTitle
 	}
@@ -80,13 +80,13 @@ func (s *Server) visibility() experience.Visibility {
 
 // openableTitles is the common row/detail admission decision. A pinned shelf
 // retains its availability cut, but never bypasses current authorization.
-func (s *Server) openableTitles(ctx context.Context, u *core.User, ts []core.Title, pinned bool) []core.Title {
+func (s *Server) openableTitles(ctx context.Context, u *frontend.User, ts []frontend.Title, pinned bool) []frontend.Title {
 	ts = s.visibleTitles(u, ts)
 	ctx = s.withSeriesRows(ctx, u, ts)
 	if !pinned {
 		ts = s.availableForViewer(ctx, u, ts)
 	}
-	out := make([]core.Title, 0, len(ts))
+	out := make([]frontend.Title, 0, len(ts))
 	for _, t := range ts {
 		if s.admittedTitle(&t) && s.playableTitle(ctx, u, &t) {
 			out = append(out, t)
@@ -95,13 +95,13 @@ func (s *Server) openableTitles(ctx context.Context, u *core.User, ts []core.Tit
 	return out
 }
 
-func (s *Server) visibleTitle(ctx context.Context, u *core.User, t *core.Title) bool {
+func (s *Server) visibleTitle(ctx context.Context, u *frontend.User, t *frontend.Title) bool {
 	return s.visibleTitleWith(ctx, s.visibility(), u, t)
 }
 
 // visibleTitleWith is visibleTitle through vis (s.visibility() with a
 // caller's own show lookup).
-func (s *Server) visibleTitleWith(ctx context.Context, vis experience.Visibility, u *core.User, t *core.Title) bool {
+func (s *Server) visibleTitleWith(ctx context.Context, vis experience.Visibility, u *frontend.User, t *frontend.Title) bool {
 	if t == nil {
 		return false
 	}
@@ -115,24 +115,24 @@ func (s *Server) visibleTitleWith(ctx context.Context, vis experience.Visibility
 }
 
 // admittedTitle shares a cheap predicate over facts the source already loaded.
-func (s *Server) admittedTitle(t *core.Title) bool {
+func (s *Server) admittedTitle(t *frontend.Title) bool {
 	if t == nil || t.IsFutureRelease(s.now()) {
 		return false
 	}
-	if catalog, ok := s.d.Catalog.(interface{ TitleOpenable(*core.Title) bool }); ok {
+	if catalog, ok := s.d.Catalog.(interface{ TitleOpenable(*frontend.Title) bool }); ok {
 		return catalog.TitleOpenable(t)
 	}
 	return !t.Adult
 }
 
-func (s *Server) playableTitle(ctx context.Context, u *core.User, t *core.Title) bool {
+func (s *Server) playableTitle(ctx context.Context, u *frontend.User, t *frontend.Title) bool {
 	return s.visibility().Playable(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
 }
-func (s *Server) availableForViewer(ctx context.Context, u *core.User, ts []core.Title) []core.Title {
+func (s *Server) availableForViewer(ctx context.Context, u *frontend.User, ts []frontend.Title) []frontend.Title {
 	return s.visibility().Available(ctx, u, ts)
 }
 
-func (s *Server) viewerRestricted(u *core.User) bool {
+func (s *Server) viewerRestricted(u *frontend.User) bool {
 	return experience.ViewerRestricted(s.d.AccessPolicy, u)
 }
 
@@ -146,10 +146,10 @@ type seriesRowsKey struct{}
 // a provider refresh of a show. Plex's own detail cache reads the shows it
 // renders in full separately (titleCache). A catalogue without visibility
 // rows preloads the series into its title cache instead.
-func (s *Server) withSeriesRows(ctx context.Context, u *core.User, ts []core.Title) context.Context {
-	have, _ := ctx.Value(seriesRowsKey{}).(map[core.RatingKey]core.Title)
-	var shows []core.RatingKey
-	seen := map[core.RatingKey]bool{}
+func (s *Server) withSeriesRows(ctx context.Context, u *frontend.User, ts []frontend.Title) context.Context {
+	have, _ := ctx.Value(seriesRowsKey{}).(map[frontend.RatingKey]frontend.Title)
+	var shows []frontend.RatingKey
+	seen := map[frontend.RatingKey]bool{}
 	for i := range ts {
 		if k := ts[i].ShowKey; k != 0 && !seen[k] {
 			seen[k] = true
@@ -162,11 +162,11 @@ func (s *Server) withSeriesRows(ctx context.Context, u *core.User, ts []core.Tit
 		return ctx
 	}
 	if rows, ok := s.d.Catalog.(interface {
-		CachedVisibilityRows(context.Context, []core.RatingKey, core.TitleFacts) (map[core.RatingKey]core.Title, error)
+		CachedVisibilityRows(context.Context, []frontend.RatingKey, frontend.TitleFacts) (map[frontend.RatingKey]frontend.Title, error)
 	}); ok {
 		parents, err := rows.CachedVisibilityRows(ctx, shows, s.visibility().TitleFacts(u))
 		if err == nil {
-			merged := make(map[core.RatingKey]core.Title, len(have)+len(parents))
+			merged := make(map[frontend.RatingKey]frontend.Title, len(have)+len(parents))
 			for k, t := range have {
 				merged[k] = t
 			}
@@ -177,7 +177,7 @@ func (s *Server) withSeriesRows(ctx context.Context, u *core.User, ts []core.Tit
 		}
 	}
 	if pre, ok := s.d.Catalog.(interface {
-		PreloadStored(context.Context, []core.RatingKey)
+		PreloadStored(context.Context, []frontend.RatingKey)
 	}); ok && len(shows) > 1 {
 		pre.PreloadStored(ctx, shows)
 	}
@@ -186,8 +186,8 @@ func (s *Server) withSeriesRows(ctx context.Context, u *core.User, ts []core.Tit
 
 // seriesTitle is the series lookup of s.visibility() (Playable): a series
 // withSeriesRows read for this request, else artworkTitle.
-func (s *Server) seriesTitle(ctx context.Context, key core.RatingKey) (*core.Title, error) {
-	if rows, _ := ctx.Value(seriesRowsKey{}).(map[core.RatingKey]core.Title); rows != nil {
+func (s *Server) seriesTitle(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
+	if rows, _ := ctx.Value(seriesRowsKey{}).(map[frontend.RatingKey]frontend.Title); rows != nil {
 		if t, ok := rows[key]; ok {
 			return &t, nil
 		}
