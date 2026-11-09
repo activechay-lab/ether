@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/homefilter"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/homefilter"
 )
 
 // homeSharedEntry carries only candidate hubs, not rendered or authorized wire
