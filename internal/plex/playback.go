@@ -1381,7 +1381,6 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		Info:               ps.Info,
 		Decision:           dec,
 		StartOffset:        p.offset,
-		Local:              !p.caps.Remote,
 	})
 	if err != nil {
 		s.writeStartErr(w, r, pr, err)

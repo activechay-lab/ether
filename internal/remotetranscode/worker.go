@@ -361,7 +361,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 	if backend, ok := w.opts.Encoder.(interface{ SupportsDistributedRequest(core.HLSRequest) bool }); ok {
 		var planStart Start
 		_ = json.Unmarshal(encoded, &planStart)
-		plan := core.HLSRequest{Ramp: planStart.Ramp, Resume: cloneResume(planStart.Resume), RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof, Local: planStart.Local}
+		plan := core.HLSRequest{Ramp: planStart.Ramp, Resume: cloneResume(planStart.Resume), RecoveryStart: core.CloneRecoveryStart(planStart.RecoveryStart), ReleaseID: planStart.ReleaseID, Info: startInfo(planStart), Decision: planStart.Decision, StartOffset: planStart.Offset, SegmentDuration: planStart.SegmentDuration, Protocol: planStart.Protocol, SoftSubtitleStream: planStart.SoftSubtitleStream, RequireIndependentProof: planStart.IndependentProof}
 		if !backend.SupportsDistributedRequest(plan) {
 			http.Error(out, "backend plan unsupported", 422)
 			return
@@ -442,7 +442,7 @@ func (w *Worker) start(out http.ResponseWriter, r *http.Request, peer string, s 
 		// Backend receives separate nested slices/pointers; source renewal and duplicate
 		// starts continue comparing the original immutable payload.
 		backendInfo, backendDecision, backendSoft := startInfo(backendStart), backendStart.Decision, backendStart.SoftSubtitleStream
-		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{Ramp: backendRamp(backendStart.Ramp), Resume: cloneResume(backendStart.Resume), RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, Local: s.Local, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
+		session, retirement, err = w.opts.Encoder.StartHLSOwned(ctx, core.HLSRequest{Ramp: backendRamp(backendStart.Ramp), Resume: cloneResume(backendStart.Resume), RecoveryStart: core.CloneRecoveryStart(backendStart.RecoveryStart), ReleaseID: s.ReleaseID, SessionID: executionID(s.Identity), ManifestSessionID: s.Identity.Session, InputURL: source.URL, InputLease: input, Info: backendInfo, Decision: backendDecision, StartOffset: s.Offset, SegmentDuration: s.SegmentDuration, RequireIndependentProof: s.IndependentProof, SoftSubtitleStream: backendSoft, Protocol: s.Protocol})
 	}
 	if err == nil && session != nil {
 		if w.opts.Capabilities.Controls {

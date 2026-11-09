@@ -153,7 +153,7 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 	}
 	base.peakKbps = peakKbps(avg)
 	if primary.VideoCopy {
-		base.peakKbps = max(base.peakKbps, HLSCopyPeakKbps(info, 0))
+		base.peakKbps = max(base.peakKbps, copyStreamPeakKbps(info, avg))
 	}
 	rungs := []rung{base}
 	// Soft encode rungs under a video-copy primary follow abrLadderUnderCopy
@@ -164,22 +164,23 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 	}
 	audio := decisionAudioKbps(info, primary) // rungs carry the primary's audio
 	below := avg
-	// Rungs are classed like release names, by width and height: a
-	// 1920x798 scope picture is 1080p, 1280x798 or 1436x798 is 720p. A
-	// rung must sit in a lower class than the primary and be visibly
-	// smaller than it; a "720p" re-encode of a 798-line picture is the
-	// same quality at a worse bitrate, never a useful step down.
-	class := core.ResolutionTier(pw, ph)
+	// A rung is a genuine step down or nothing. Its class (720p, 480p…)
+	// must be visibly below the primary's picture: release heights vary
+	// (798, 800, 1036, 1040…), and a "720p" re-encode of a 798-line
+	// picture is the same quality at a worse bitrate. Players switch to a
+	// rung only when throughput cannot carry the variant above it, so a
+	// rung close to that variant's bitrate is just a needless re-encode a
+	// healthy link drifts onto.
 	for _, step := range ladderSteps {
-		w, h := fitRungBox(v.Width, v.Height, step.height)
-		if ph > 0 && (step.height >= class || h*100 > ph*rungMaxHeightPercent) {
+		if ph > 0 && step.height*100 > ph*rungMaxHeightPercent {
 			continue
 		}
+		w, h := fitRungBox(v.Width, v.Height, step.height)
 		// Advertise what the rung really sends: its video never drops
 		// below the encoder floor, so copied lossless or surround audio can
 		// make a "lower" rung no cheaper than the one above it.
 		total := max(step.kbps, minRungVideoKbps+audio)
-		if below > 0 && total >= below {
+		if below > 0 && total*100 > below*rungMaxBitratePercent {
 			continue
 		}
 		d := primary
@@ -212,9 +213,26 @@ func buildRungs(info core.MediaInfo, primary core.Decision, adapt adaptiveSettin
 	return rungs
 }
 
-// rungMaxHeightPercent bounds a rung's height against the primary's: a
-// rung taller than this is a near-duplicate of the picture above it.
+// rungMaxHeightPercent bounds a rung's class height against the
+// primary's picture height; a taller class is a near-duplicate of it.
 const rungMaxHeightPercent = 85
+
+// rungMaxBitratePercent bounds a rung's average bitrate against the
+// variant above it, so a rung only ever answers a real throughput drop.
+const rungMaxBitratePercent = 67
+
+// copyStreamPeakKbps is a copied primary's peak segment rate as the
+// stream carries it: the source file's peak less the bytes the stream
+// does not send (audio tracks it drops or re-encodes smaller), which are
+// near-constant. Advertising the file's peak would overstate BANDWIDTH and
+// push a healthy link onto a lower rung.
+func copyStreamPeakKbps(info core.MediaInfo, streamAvgKbps int) int {
+	peak := HLSCopyPeakKbps(info, 0)
+	if dropped := info.BitrateKbps - streamAvgKbps; dropped > 0 && streamAvgKbps > 0 {
+		peak -= dropped
+	}
+	return peak
+}
 
 // fitRungBox fits a w x h picture into the 16:9 box of a ladder class
 // (1280x720 for 720p), never upscaling, so wide scope pictures shrink by

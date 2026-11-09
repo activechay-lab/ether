@@ -167,29 +167,26 @@ func TestStartHLSSingleRungUsesSessionBandwidth(t *testing.T) {
 	}
 }
 
-// A home Direct Stream session asks the encoder for the original alone, and
-// when an away player steps down to an encoded rung, the Plex dashboard's
-// TranscodeSession reports the video transcode Ether's Activity shows.
-func TestLadderLocalRequestAndServedRungReporting(t *testing.T) {
+// When a player steps down to an encoded rung of a Direct Stream session,
+// the Plex dashboard's TranscodeSession reports the video transcode Ether's
+// Activity shows, and Direct Stream again once it is back on the original.
+func TestLadderServedRungReporting(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCodec: "aac", Container: "mpegts"}
 	f.trans.rungs = []core.HLSRung{{ID: "base", Bandwidth: 9_000_000}, {ID: "720p4m", Bandwidth: 4_800_000}}
-	start := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=lad-local&protocol=hls&directStream=1"
+	start := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=lad-served&protocol=hls&directStream=1"
 	f.get(t, decisionPath(start))
 	if rec := f.get(t, start); rec.Code != http.StatusOK {
 		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
 	}
-	hs := f.trans.sessions["lad-local"]
+	hs := f.trans.sessions["lad-served"]
 	if hs == nil {
 		t.Fatal("no session")
 	}
-	te, ok := f.srv.transcodes.get("lad-local")
+	te, ok := f.srv.transcodes.get("lad-served")
 	if !ok {
 		t.Fatal("no transcode entry")
-	}
-	if hs.req.Local != !te.caps.Remote {
-		t.Fatalf("request Local = %v for remote=%v", hs.req.Local, te.caps.Remote)
 	}
 	if ts := f.srv.servedTranscodeSessionModel(te); ts.VideoDecision != "copy" {
 		t.Fatalf("base: videoDecision %q", ts.VideoDecision)
