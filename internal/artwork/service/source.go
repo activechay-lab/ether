@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/discovery"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -28,7 +27,7 @@ type Source struct {
 	LiveTV           interface {
 		AllowedChannels(context.Context, *core.User) ([]livetv.Channel, error)
 	}
-	Discovery     *discovery.Features
+	Discovery     *frontend.DiscoveryFeatures
 	Images        *RemoteCache
 	ImageURL      core.ImageURLFunc
 	Palettes      *PaletteCache
@@ -262,7 +261,7 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 		entry.virtualSeason = virtualSeason
 		entries = append(entries, entry)
 	}
-	var selected discovery.ArtworkSelection
+	var selected frontend.DiscoveryArtworkSelection
 	if title != nil && virtualSeason == nil && s.Discovery != nil && experience.TitleAllowed(s.Visibility.Policy, req.Viewer, title) {
 		selected = s.Discovery.SelectArtwork(ctx, req.Viewer, title, req.Device.Language)
 	}

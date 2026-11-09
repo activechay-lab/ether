@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/discovery"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -17,8 +16,8 @@ import (
 	"strings"
 )
 
-// DiscoveryFeatures is the shared discovery service adapted by Plex.
-type DiscoveryFeatures = discovery.Features
+// DiscoveryFeatures is the shared discovery contract adapted by Plex.
+type DiscoveryFeatures = frontend.DiscoveryFeatures
 
 func (s *Server) discoveryHubs(ctx context.Context, pr *Request, limit int) []hubSpec {
 	d := s.d.Discovery
@@ -72,7 +71,7 @@ func (s *Server) decorateDiscoveryMetadata(ctx context.Context, pr *Request, t *
 	}
 	selected := d.SelectArtwork(ctx, pr.User, t, pr.Language)
 	localized := selected.Title
-	if localized != t {
+	if localized != nil && localized != t {
 		m.Title = localized.Title
 		m.Summary = localized.Summary
 		m.Tagline = localized.Tagline
@@ -141,13 +140,13 @@ func (s *Server) decorateDiscoveryMetadata(ctx context.Context, pr *Request, t *
 				m.Rating, m.RatingImage = 0, ""
 			}
 			for _, b := range bs {
-				if b.Source == cfg.Critic && b.PlexImage() != "" {
-					m.Rating = b.PlexValue()
-					m.RatingImage = b.PlexImage()
+				if b.Source == cfg.Critic && b.Image != "" {
+					m.Rating = b.Value
+					m.RatingImage = b.Image
 				}
-				if b.Source == cfg.Audience && b.PlexImage() != "" {
-					m.AudienceRating = b.PlexValue()
-					m.AudienceRatingImage = b.PlexImage()
+				if b.Source == cfg.Audience && b.Image != "" {
+					m.AudienceRating = b.Value
+					m.AudienceRatingImage = b.Image
 				}
 			}
 		}
@@ -163,8 +162,7 @@ func (s *Server) decorateDiscoveryMetadata(ctx context.Context, pr *Request, t *
 
 	}
 	if d.LLM != nil && d.Watchlist != nil && (t.Type == frontend.TypeSeason || t.Type == frontend.TypeEpisode) {
-		cfg, _ := d.Watchlist.Settings(ctx)
-		if cfg.Recaps {
+		if d.Watchlist.RecapsEnabled(ctx) {
 			entry := d.CachedRecap(pr.User, t, s.d.State, s.now())
 			if entry != "" {
 				m.Summary = "Previously watched: " + entry + "\n\n" + m.Summary

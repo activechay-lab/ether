@@ -33,7 +33,7 @@ func TestSelectedBackdropResolution(t *testing.T) {
 		fetched = r.URL.Path
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(strings.NewReader("art"))}, nil
 	})})
-	src := Source{Catalog: storedTitle{title: title}, Discovery: &discovery.Features{Overlays: over}, Images: images, ImageURL: func(path, size string) string { return "https://fixture.invalid/" + size + path }}
+	src := Source{Catalog: storedTitle{title: title}, Discovery: (&discovery.Features{Overlays: over}).Frontend(), Images: images, ImageURL: func(path, size string) string { return "https://fixture.invalid/" + size + path }}
 	req := frontend.ArtworkRequest{Viewer: &core.User{ID: 1}, Item: key}
 	list, _, err := src.List(ctx, req)
 	if err != nil {

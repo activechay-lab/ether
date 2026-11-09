@@ -47,7 +47,7 @@ func TestReadReturnsCompositedPosterBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	title := &core.Title{Key: core.MovieKey(9), Type: core.TypeMovie, Title: "Arrival", PosterPath: "/default.jpg", Released: time.Date(2016, 11, 11, 0, 0, 0, 0, time.UTC)}
-	src := Source{Catalog: storedTitle{title: title}, Discovery: &discovery.Features{Overlays: over}, Now: func() time.Time { return time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC) }}
+	src := Source{Catalog: storedTitle{title: title}, Discovery: (&discovery.Features{Overlays: over}).Frontend(), Now: func() time.Time { return time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC) }}
 	viewer := &core.User{ID: 1}
 	imagesListed, _, err := src.List(ctx, frontend.ArtworkRequest{Viewer: viewer, Item: title.Key})
 	if err != nil {

@@ -59,7 +59,7 @@ func (a *App) searchSources() experience.SearchSources {
 		src.Catalog = (&availabilityCatalog{Catalog: a.catalog, availability: a.availability}).Search
 	}
 	if a.discoveryFeatures != nil {
-		src.Natural = experience.DiscoverySearch(a.discoveryFeatures)
+		src.Natural = experience.DiscoverySearch(a.discoveryFeatures.Frontend())
 	}
 	if a.state != nil {
 		src.Familiar = experience.FamiliarFrom(a.state)

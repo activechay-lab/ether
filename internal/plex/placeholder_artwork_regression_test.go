@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/discovery"
 	"github.com/braedonsaunders/ether/internal/overlays"
 )
 
@@ -35,7 +36,7 @@ func TestPlaceholderArtworkAuthorization(t *testing.T) {
 			if err := ov.SaveSettings(context.Background(), overlays.Settings{Enabled: enabled, Localize: true}); err != nil {
 				t.Fatal(err)
 			}
-			f.srv.d.Discovery = &DiscoveryFeatures{Overlays: ov}
+			f.srv.d.Discovery = (&discovery.Features{Overlays: ov}).Frontend()
 			md := f.srv.placeholderMetadata(context.Background(), &Request{User: &ownerUser, Language: "fr-CA"}, &title, ck)
 			for _, path := range []string{md.Thumb, md.Art} {
 				u, err := url.Parse(path)

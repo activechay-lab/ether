@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/discovery"
 	"github.com/braedonsaunders/ether/internal/overlays"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/watchlist"
@@ -33,7 +34,7 @@ func TestSectionHubsOrderAndMixedRows(t *testing.T) {
 	}
 	f.state.set(ownerUser.ID, core.WatchStatus{Key: fightClub.Key, ViewOffset: time.Minute, LastViewedAt: fixedNow})
 	f.state.set(ownerUser.ID, core.WatchStatus{Key: bbE1.Key, ViewOffset: time.Minute, LastViewedAt: fixedNow})
-	f.srv.d.Discovery = &DiscoveryFeatures{Watchlist: wl, Overlays: overlays.New(db, overlays.Options{})}
+	f.srv.d.Discovery = (&discovery.Features{Watchlist: wl, Overlays: overlays.New(db, overlays.Options{})}).Frontend()
 	f.srv.d.Recommender = &fakeRecommender{section: map[core.MediaType][]core.Hub{
 		core.TypeMovie: {
 			{ID: "movie.cluster.thriller.heist", Title: "Heist Thrillers", Type: core.TypeMovie, Context: "hub.movie.cluster", Items: []core.Title{fightClub}},

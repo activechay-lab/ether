@@ -5,14 +5,11 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // ArtworkSelection contains shared selection facts; adapters own image URLs.
-type ArtworkSelection struct {
-	Title                                       *core.Title
-	Enabled                                     bool
-	PosterVersion, BackdropVersion, LogoVersion string
-}
+type ArtworkSelection = frontend.DiscoveryArtworkSelection
 
 // SelectArtwork never waits for localization or remote catalogue/image work.
 func (d *Features) SelectArtwork(ctx context.Context, viewer *core.User, t *core.Title, lang string) ArtworkSelection {

@@ -152,7 +152,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		// queues (which read Catalog directly) keep working.
 		deps.EpisodeOrder = a.episodeorder
 	}
-	deps.Discovery = a.discoveryFeatures
+	deps.Discovery = a.discoveryFeatures.Frontend()
 	deps.LiveTV = a.livetv
 	deps.Subtitles = plexSubtitles{a}
 	deps.TrackPreferences = a.trackprefs

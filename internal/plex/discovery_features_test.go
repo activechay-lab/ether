@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/discovery"
 	"github.com/braedonsaunders/ether/internal/overlays"
 	"github.com/braedonsaunders/ether/internal/personalize"
 	"github.com/braedonsaunders/ether/internal/ratings"
@@ -41,7 +42,7 @@ func TestDiscoveryPlexHubsAndArtworkRespectViewerGuard(t *testing.T) {
 	if e := wl.Remind(ctx, owner, fightClub.Key); e != nil {
 		t.Fatal(e)
 	}
-	f.srv.d.Discovery = &DiscoveryFeatures{Watchlist: wl, Overlays: overlays.New(db, overlays.Options{})}
+	f.srv.d.Discovery = (&discovery.Features{Watchlist: wl, Overlays: overlays.New(db, overlays.Options{})}).Frontend()
 	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	for _, path := range []string{"/hubs", "/library/metadata/" + fightClub.Key.String() + "/discoveryPoster/version"} {
 		r := f.request(t, http.MethodGet, path, map[string]string{"X-Plex-Token": "kid"})
@@ -64,13 +65,13 @@ func TestDiscoveryLocalizedGridQueuesWithoutNetworkWait(t *testing.T) {
 		t.Fatal(e)
 	}
 	var calls atomic.Int64
-	d := &DiscoveryFeatures{Overlays: ov, Localize: func(ctx context.Context, t *core.Title, lang string) (*core.Title, error) {
+	d := &discovery.Features{Overlays: ov, Localize: func(ctx context.Context, t *core.Title, lang string) (*core.Title, error) {
 		calls.Add(1)
 		copy := *t
 		copy.Title = "Titre français"
 		return &copy, nil
 	}}
-	f.srv.d.Discovery = d
+	f.srv.d.Discovery = d.Frontend()
 	pr := &Request{User: &core.User{ID: 1, IsOwner: true}, Language: "fr"}
 	before := time.Now()
 	m := f.srv.metadata(ctx, pr, &fightClub, renderOpts{})
@@ -138,7 +139,7 @@ func TestDiscoveryPlexRatingNormalizationAndStickyDismissal(t *testing.T) {
 		t.Fatal(e)
 	}
 	personal := personalize.NewDiscovery(db, f.catalog, f.srv.d.State, nil)
-	f.srv.d.Discovery = &DiscoveryFeatures{Ratings: rs, Personal: personal}
+	f.srv.d.Discovery = (&discovery.Features{Ratings: rs, Personal: personal}).Frontend()
 	pr := &Request{User: &core.User{ID: 1, IsOwner: true}}
 	md := f.srv.metadata(ctx, pr, &fightClub, renderOpts{})
 	if md.Rating != 9.2 || md.RatingImage != "rottentomatoes://image.rating.ripe" {
@@ -170,7 +171,7 @@ func TestDiscoveryBackdropResolutionValidator(t *testing.T) {
 	defer upstream.Close()
 	f.srv.images = artworkservice.NewRemoteCache(1024, http.DefaultClient)
 	f.srv.d.ImageURL = func(path, size string) string { return upstream.URL + "/" + size + path }
-	f.srv.d.Discovery = &DiscoveryFeatures{Overlays: overlays.New(discoveryDB(t), overlays.Options{})}
+	f.srv.d.Discovery = (&discovery.Features{Overlays: overlays.New(discoveryDB(t), overlays.Options{})}).Frontend()
 	path := "/library/metadata/" + fightClub.Key.String() + "/discoveryPoster/version?kind=backdrop&width=2688"
 	first := f.request(t, "GET", path, nil)
 	if first.Code != 200 || !strings.HasPrefix(fetched, "/original/") || !strings.HasSuffix(first.Header().Get("ETag"), "w2688\"") {

@@ -48,7 +48,7 @@ func (a *App) newSharedArtwork(ctx context.Context) (*artworkservice.Source, fun
 		}
 		return a.playback.Sessions()
 	}, []experience.Library{{ID: 1, Type: core.TypeMovie}, {ID: 2, Type: core.TypeShow}})
-	source := &artworkservice.Source{Catalog: a.catalog, Collections: collections, Playlists: a.playlists, Visibility: visibility, Discovery: a.discoveryFeatures, Images: images, ImageURL: imageURL, Palettes: palettes, Now: now, Raster: artwork.NewSVGRasterizer()}
+	source := &artworkservice.Source{Catalog: a.catalog, Collections: collections, Playlists: a.playlists, Visibility: visibility, Discovery: a.discoveryFeatures.Frontend(), Images: images, ImageURL: imageURL, Palettes: palettes, Now: now, Raster: artwork.NewSVGRasterizer()}
 	if a.livetv != nil {
 		source.LiveTV = a.livetv
 	}
