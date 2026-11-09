@@ -597,16 +597,21 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 // complete statistics: a 1000-row sample estimated just 1001 rows per media
 // type on a 285k-title catalogue, making the planner scan all seasons instead
 // of using its per-show index. A fresh database has no statistics; every index is then
-// estimated alike and nothing is analysed. Empty tables have no statistics
-// either and are skipped the same way.
+// estimated alike and nothing is analysed. Statistics that count no rows
+// are no statistics either. ANALYZE of an empty table records zero counts
+// for its partial indexes only (catalog/43 does that on a new database);
+// its other indexes never gain a row, so every later migration analysed
+// them again and reloaded the whole database's statistics each time.
 func analyseNewIndexes(ctx context.Context, tx *sql.Tx) error {
 	var stats int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_schema WHERE name='sqlite_stat1'`).Scan(&stats); err != nil || stats == 0 {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT i.name FROM sqlite_schema i WHERE i.type='index'
-		AND EXISTS (SELECT 1 FROM sqlite_stat1 s WHERE s.tbl=i.tbl_name)
-		AND NOT EXISTS (SELECT 1 FROM sqlite_stat1 s WHERE s.idx=i.name)`)
+	// Each migration asks, so the question must not cost the schema times
+	// the statistics: the subqueries are uncorrelated and built once.
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_schema WHERE type='index'
+		AND tbl_name IN (SELECT tbl FROM sqlite_stat1 WHERE CAST(stat AS INTEGER) > 0)
+		AND name NOT IN (SELECT idx FROM sqlite_stat1 WHERE idx IS NOT NULL)`)
 	if err != nil {
 		return err
 	}
