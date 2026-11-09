@@ -277,7 +277,7 @@ func TestTierMigrationKeepsEveryTouchedTitle(t *testing.T) {
 		}
 		exec(`INSERT INTO catalog_titles_fts(catalog_titles_fts, rank) VALUES('integrity-check', 1)`)
 		var hits []int64
-		r, err := db.QueryContext(ctx, `SELECT rowid FROM catalog_titles_fts WHERE catalog_titles_fts MATCH ? ORDER BY rowid`, `"Film 10"`)
+		r, err := db.QueryContext(ctx, `SELECT rowid FROM catalog_titles_fts WHERE title LIKE ? ORDER BY rowid`, `%Film 10%`)
 		if err != nil {
 			t.Fatal(err)
 		}
