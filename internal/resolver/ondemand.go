@@ -22,6 +22,10 @@ import (
 //   - work nobody is waiting to watch (core.OnDemandStreamsAllowed) opens
 //     none and stops at the first one, keeping rank order intact.
 //
+//   - except: a foreground check of a stream the add-on marks
+//     debrid-cached (core.OnDemandCached) may be joined by one hedge after
+//     onDemandHedgeDelay, since opening it queues nothing (ranked_window.go).
+//
 // Debrid torrents and Usenet releases are unaffected.
 
 // onDemandBudget is how long one on-demand check may take: an add-on that
@@ -44,7 +48,15 @@ func checkBudget(rel core.Release) time.Duration {
 }
 
 // onDemandSlow reports an on-demand check the add-on did not answer in
-// time: it may still be preparing that release.
+// time: it may still be preparing that release. A stream its add-on marks
+// debrid-cached imports nothing, so a slow answer there holds nothing back.
 func onDemandSlow(rel core.Release, v validation) bool {
-	return rel.OpensOnDemand() && v.err != nil && (errors.Is(v.err, core.ErrPrepareSlow) || checkTimedOut(v.err))
+	return rel.OpensOnDemand() && !core.OnDemandCached(rel) && v.err != nil && (errors.Is(v.err, core.ErrPrepareSlow) || checkTimedOut(v.err))
 }
+
+// onDemandHedgeDelay is how long a foreground check of a debrid-cached
+// add-on stream runs alone before one more candidate (native, or another
+// cached add-on stream) starts beside it. Opening a cached link costs the
+// add-on no import, so a slow or dead lead fails over to a check that is
+// already under way. Usenet-import and unmarked links stay sequential.
+const onDemandHedgeDelay = 2 * time.Second

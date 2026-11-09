@@ -114,6 +114,25 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 	// foregroundOnly: an on-demand candidate was reached by work that may
 	// not open it, so nothing ranked below it may win.
 	onDemandHeld, foregroundOnly, heldSkipped := false, false, false
+	// addonHedge reports whether cands[next] may start beside a lead
+	// add-on stream still being checked: Play is waiting, the lead is the
+	// only check running and its add-on marks it debrid-cached, it has run
+	// onDemandHedgeDelay, and next is native or another cached add-on
+	// stream. The lead still wins when healthy; the hedge only makes its
+	// failure seamless.
+	addonHedge := func(lead int) bool {
+		if lead >= next || done[lead] != nil || inflight != 1 || !core.OnDemandStreamsAllowed(ctx) || !core.OnDemandCached(cands[lead].rel) {
+			return false
+		}
+		if c := cands[next].rel; c.OpensOnDemand() && !core.OnDemandCached(c) {
+			return false
+		}
+		if at := startedAt[lead].Add(onDemandHedgeDelay); time.Now().Before(at) {
+			hedgeAt = at
+			return false
+		}
+		return true
+	}
 	// fill keeps width checks running, but a verified or on-demand lead
 	// runs alone: reusing a known working release must not start
 	// speculative downloads, and each on-demand open makes an add-on fetch
@@ -128,7 +147,7 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			}
 		}
 		for next < limit {
-			if next > lead && lead < limit && (cands[lead].verified || cands[lead].rel.OpensOnDemand()) && done[lead] == nil {
+			if next > lead && lead < limit && (cands[lead].verified || cands[lead].rel.OpensOnDemand()) && done[lead] == nil && !addonHedge(lead) {
 				return
 			}
 			if cands[next].rel.OpensOnDemand() {
@@ -147,7 +166,7 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 					heldSkipped = true
 					continue
 				}
-				if inflight > 0 {
+				if inflight > 0 && !addonHedge(lead) {
 					return // starts once everything ranked above it settled
 				}
 			}
