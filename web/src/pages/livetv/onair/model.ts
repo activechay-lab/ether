@@ -42,6 +42,9 @@ export type ReelClip = {
   size?: number;
   preview?: string;
   thumbnail?: string;
+  link?: boolean;
+  cached?: boolean;
+  tags?: string[];
 };
 export type Reel = {
   id: string;
@@ -137,6 +140,8 @@ export type OnAirAsset = {
   license?: string;
   usedBy: string[];
   url?: string;
+  link?: boolean;
+  tags?: string[];
 };
 export type DownloaderStatus = {
   available: boolean;
@@ -176,6 +181,8 @@ export const onair = {
     write<ReelClip>(`/onair/reels/${enc(id)}/clips/${enc(clip.id)}`, "PUT", clip),
   deleteClip: (id: string, clip: string) =>
     write<void>(`/onair/reels/${enc(id)}/clips/${enc(clip)}`, "DELETE"),
+  resolveClip: (id: string, clip: string) =>
+    write<ReelClip>(`/onair/reels/${enc(id)}/clips/${enc(clip)}/resolve`, "POST"),
   clipPreview: (id: string, clip: string) =>
     `/ether/api/onair/reels/${enc(id)}/clips/${enc(clip)}/preview`,
   assets: () => apiFetch<OnAirAsset[]>("/onair/assets"),

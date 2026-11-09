@@ -4,7 +4,7 @@ import { LinkImport } from "./LinkImport";
 import type { DownloaderStatus } from "./model";
 
 describe("LinkImport", () => {
-  it("offers one-click yt-dlp install and imports reel clips from a link", async () => {
+  it("offers one-click yt-dlp install and supports both link clips and eager imports", async () => {
     let status: DownloaderStatus = {
       available: false,
       source: "none",
@@ -35,7 +35,9 @@ describe("LinkImport", () => {
           return new Response(JSON.stringify(status), { status: 200 });
         }
         if (url.endsWith("/onair/reels/saturday/clips/import") && method === "POST") {
-          return new Response(JSON.stringify([{ id: "c1", status: "queued" }]), { status: 202 });
+          return new Response(JSON.stringify([{ id: "c1", status: "ready", link: true }]), {
+            status: 201,
+          });
         }
         return new Response("{}", { status: 200 });
       }),
@@ -58,17 +60,34 @@ describe("LinkImport", () => {
 
     const textarea = screen.getByLabelText("Media links");
     fireEvent.change(textarea, {
-      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+      target: { value: "https://archive.org/details/retro_ad_1988" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Import$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Add as link$/i }));
 
     await waitFor(() => {
       expect(onImported).toHaveBeenCalledTimes(1);
     });
 
-    const importCall = calls.find((c) => c.url.endsWith("/onair/reels/saturday/clips/import"));
-    expect(importCall?.body).toEqual({
+    const linkCall = calls.find((c) => c.url.endsWith("/onair/reels/saturday/clips/import"));
+    expect(linkCall?.body).toEqual({
+      urls: ["https://archive.org/details/retro_ad_1988"],
+      kind: "video",
+      mode: "link",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Add from link/i }));
+    fireEvent.change(screen.getByLabelText("Media links"), {
+      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Import$/i }));
+
+    await waitFor(() => {
+      expect(onImported).toHaveBeenCalledTimes(2);
+    });
+
+    const importCalls = calls.filter((c) => c.url.endsWith("/onair/reels/saturday/clips/import"));
+    expect(importCalls[1]?.body).toEqual({
       urls: ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
       kind: "video",
     });

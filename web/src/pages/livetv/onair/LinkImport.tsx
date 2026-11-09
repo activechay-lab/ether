@@ -18,13 +18,14 @@ export function LinkImport({
   const [open, setOpen] = useState(false);
   const [links, setLinks] = useState("");
   const [kind, setKind] = useState("video");
-  const [busy, setBusy] = useState(false);
+  const [busyMode, setBusyMode] = useState<"link" | "import" | null>(null);
   const [installing, setInstalling] = useState(false);
   const [status, setStatus] = useState<DownloaderStatus | null>(null);
   const [error, setError] = useState("");
 
   const isReel = Boolean(reelId || ensureReel);
   const needsDownloader = isReel || kind === "video" || kind === "audio";
+  const busy = busyMode !== null;
 
   useEffect(() => {
     if (!open) return;
@@ -50,6 +51,38 @@ export function LinkImport({
       setError(errorMessage(e));
     } finally {
       setInstalling(false);
+    }
+  };
+
+  const submit = async (mode: "link" | "import") => {
+    setBusyMode(mode);
+    setError("");
+    try {
+      const targetReel = ensureReel ? await ensureReel() : reelId;
+      const body: Record<string, unknown> = {
+        urls: links
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+        kind,
+      };
+      if (mode === "link") {
+        body.mode = "link";
+      }
+      await apiFetch(
+        `/onair/${targetReel ? `reels/${encodeURIComponent(targetReel)}/clips` : "assets"}/import`,
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
+      );
+      setLinks("");
+      setOpen(false);
+      await onImported();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusyMode(null);
     }
   };
 
@@ -147,39 +180,23 @@ export function LinkImport({
               {error}
             </p>
           ) : null}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isReel ? (
+              <Button
+                size="sm"
+                disabled={busy || !links.trim()}
+                onClick={() => void submit("link")}
+              >
+                {busyMode === "link" ? t("Adding…") : t("Add as link")}
+              </Button>
+            ) : null}
             <Button
               size="sm"
+              variant={isReel ? "outline" : "default"}
               disabled={busy || !links.trim()}
-              onClick={async () => {
-                setBusy(true);
-                setError("");
-                try {
-                  const targetReel = ensureReel ? await ensureReel() : reelId;
-                  await apiFetch(
-                    `/onair/${targetReel ? `reels/${encodeURIComponent(targetReel)}/clips` : "assets"}/import`,
-                    {
-                      method: "POST",
-                      body: JSON.stringify({
-                        urls: links
-                          .split(/\r?\n/)
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                        kind,
-                      }),
-                    },
-                  );
-                  setLinks("");
-                  setOpen(false);
-                  await onImported();
-                } catch (e) {
-                  setError(errorMessage(e));
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              onClick={() => void submit("import")}
             >
-              {busy ? t("Importing…") : t("Import")}
+              {busyMode === "import" ? t("Importing…") : t("Import")}
             </Button>
             <Button
               size="sm"
