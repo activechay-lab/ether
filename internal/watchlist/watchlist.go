@@ -339,9 +339,14 @@ func (s *Service) Sync(ctx context.Context, u *core.User) error {
 	}
 	if cfg.Plex && s.o.Tokens != nil {
 		token, e := s.o.Tokens(ctx, u.ID)
-		if e != nil {
+		switch {
+		case errors.Is(e, core.ErrUnauthorized):
+			// plex.tv issues the server no token for an account shared from
+			// outside Plex Home (#337): its watchlist can't be read, which is
+			// expected, not a failed sync. Trakt below still syncs.
+		case e != nil:
 			errs = append(errs, errors.New("Plex watchlist requires this viewer's account token"))
-		} else if token != "" {
+		case token != "":
 			ts, e := s.plex(ctx, token)
 			if e == nil {
 				e = s.replace(ctx, u, "plex", ts)
