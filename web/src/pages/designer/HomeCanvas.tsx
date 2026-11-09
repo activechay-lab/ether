@@ -46,6 +46,7 @@ import { ImpactBar } from "./ImpactBar";
  * provenance: where it came from and why it sits at its slot.
  */
 export function HomeCanvas({
+  ready = true,
   draft,
   dirty,
   saved,
@@ -60,6 +61,8 @@ export function HomeCanvas({
   onEditRow,
   readOnly,
 }: {
+  /** Hold row rendering until Designer controls (viewers + layout) finish loading in parallel. */
+  ready?: boolean;
   draft: HomeLayout;
   dirty: boolean;
   saved: HomeLayout;
@@ -127,7 +130,7 @@ export function HomeCanvas({
   const hidden = (home?.rows ?? []).filter((r) => r.hidden);
   const arranged = visible.filter((r) => r.slot);
   const fixed = visible.filter((r) => !r.slot);
-  const stale = key !== request || loading;
+  const stale = key !== request || loading || !ready;
   const editingLayer = <strong className="font-medium text-fg">{layerName}</strong>;
 
   // The policy key an action edits: the row's own policy when it lives in
@@ -244,7 +247,7 @@ export function HomeCanvas({
 
       {error ? (
         <ErrorPanel error={error} />
-      ) : !home ? (
+      ) : !home || !ready ? (
         <div className="space-y-6" role="status" aria-label={t("Loading Home")}>
           {Array.from({ length: 3 }, (_, i) => (
             <div key={i}>

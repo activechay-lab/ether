@@ -47,6 +47,21 @@ func (s *Service) ListSpecs(ctx context.Context) ([]core.CollectionSpec, error) 
 	return out, nil
 }
 
+// ListSpecsLight returns every collection's stored descriptor without waiting
+// on the catalogue index or recomputing facet item counts (used by Home
+// Designer's AvailableRows, which only reads id, name, enabled and mediaType).
+func (s *Service) ListSpecsLight(ctx context.Context) ([]core.CollectionSpec, error) {
+	rows, err := s.loadRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]core.CollectionSpec, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.view())
+	}
+	return out, nil
+}
+
 // GetSpec returns one collection by id (number or built-in slug).
 func (s *Service) GetSpec(ctx context.Context, id string) (*core.CollectionSpec, error) {
 	row, err := s.rowByID(ctx, id)

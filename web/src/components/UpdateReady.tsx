@@ -10,9 +10,15 @@ const POLL_MS = 20_000;
  * waits until they choose to reload — including while a field is focused or
  * a form is dirty.
  */
-export function UpdateReady() {
+export function UpdateReady({ bootVersion }: { bootVersion?: string | null } = {}) {
   const [ready, setReady] = useState(false);
-  const version = useRef<string | null>(null);
+  const version = useRef<string | null>(bootVersion || null);
+
+  useEffect(() => {
+    if (bootVersion && version.current == null) {
+      version.current = bootVersion;
+    }
+  }, [bootVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +38,7 @@ export function UpdateReady() {
         // The server is restarting. Leave the page alone until it answers.
       }
     };
-    void tick();
+    if (bootVersion === undefined) void tick();
     const id = window.setInterval(() => {
       if (document.visibilityState !== "hidden") void tick();
     }, POLL_MS);

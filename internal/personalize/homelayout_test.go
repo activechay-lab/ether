@@ -439,6 +439,26 @@ func TestNeutralHomeLayoutMatchesLegacy(t *testing.T) {
 	}
 }
 
+func TestPreviewLayoutTypicalViewerUsesGenericModel(t *testing.T) {
+	h := newHarness(t, nil)
+	ctx := context.Background()
+	hc := hubContext(testNow, core.DeviceTV)
+	p, err := h.e.PreviewLayout(ctx, &core.User{IsOwner: true}, hc, "home", 12, core.HomeLayout{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Rows) == 0 {
+		t.Fatal("typical viewer preview returned no rows")
+	}
+	h.e.mu.Lock()
+	hasZero := h.e.models[0] != nil
+	hasGeneric := h.e.models[genericID] != nil
+	h.e.mu.Unlock()
+	if hasZero || !hasGeneric {
+		t.Fatalf("models[0]=%v models[genericID]=%v, expected generic model reuse", hasZero, hasGeneric)
+	}
+}
+
 func TestMatchingPolicyRanksLikeTheConsole(t *testing.T) {
 	page := &core.LayoutPage{Section: "home", Rows: []core.RowPolicy{
 		{Row: "because.*", Status: "off"},

@@ -139,6 +139,7 @@ export default function Designer() {
     setFocusRow(null);
   };
 
+  const controlsReady = Boolean(viewers && doc.data);
   const state = viewersError ? (
     <div className="p-6">
       <ErrorPanel error={viewersError} />
@@ -147,11 +148,7 @@ export default function Designer() {
     <div className="p-6">
       <ErrorPanel error={doc.error} onRetry={() => void doc.reload()} />
     </div>
-  ) : !viewers || !doc.data ? (
-    <div className="grid flex-1 place-items-center">
-      <Spinner size={22} label={t("Loading the Home layout")} />
-    </div>
-  ) : viewers.length === 0 ? (
+  ) : viewers && viewers.length === 0 ? (
     <div className="p-6">
       <EmptyState
         icon={<Users />}
@@ -169,7 +166,7 @@ export default function Designer() {
       mainLabel={t("Home preview")}
       mainClassName="p-3 sm:p-6"
       aside={
-        viewers ? (
+        controlsReady && viewers ? (
           <>
             <PanelHead>
               <div
@@ -219,28 +216,31 @@ export default function Designer() {
               {tools === "overrides" && <OverrideList {...editing} onOpenLayer={switchLayer} />}
             </div>
           </>
-        ) : null
+        ) : (
+          <div className="grid flex-1 place-items-center p-6">
+            <Spinner size={22} label={t("Loading the Home layout")} />
+          </div>
+        )
       }
       main={
-        viewers ? (
-          <HomeCanvas
-            draft={draft}
-            dirty={dirty}
-            saved={saved}
-            layer={layer}
-            layerName={layerName}
-            ctx={ctx}
-            viewers={viewers}
-            viewerId={viewerId}
-            onSpotCheck={setSpotCheck}
-            refreshNonce={nonce}
-            onChange={setDraft}
-            onEditRow={(row) => {
-              setTools("rows");
-              setFocusRow(row);
-            }}
-          />
-        ) : null
+        <HomeCanvas
+          ready={controlsReady}
+          draft={draft}
+          dirty={dirty}
+          saved={saved}
+          layer={layer}
+          layerName={layerName}
+          ctx={ctx}
+          viewers={viewers ?? []}
+          viewerId={viewerId}
+          onSpotCheck={setSpotCheck}
+          refreshNonce={nonce}
+          onChange={setDraft}
+          onEditRow={(row) => {
+            setTools("rows");
+            setFocusRow(row);
+          }}
+        />
       }
     >
       {state}

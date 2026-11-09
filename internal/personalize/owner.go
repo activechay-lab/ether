@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 )
 
 // Owner-facing API (internal/admin: viewers, Home Designer, insights).
@@ -301,6 +302,10 @@ func (e *Engine) SetTasteOverrides(ctx context.Context, user *core.User, os []co
 	return e.Taste(ctx, user)
 }
 
+type lightCollectionSpecSource interface {
+	ListSpecsLight(ctx context.Context) ([]core.CollectionSpec, error)
+}
+
 // AvailableRows lists the row kinds layout policies can target, plus owner
 // collection rows recently served, each with the pages it can appear on
 // (Sections) and its designer group.
@@ -318,7 +323,12 @@ func (e *Engine) AvailableRows(ctx context.Context) ([]core.RowDescriptor, error
 		}
 	}
 	if source, ok := e.opts.Collections.(core.CollectionSpecSource); ok {
-		specs, err := source.ListSpecs(ctx)
+		var specs []core.CollectionSpec
+		if light, ok := e.opts.Collections.(lightCollectionSpecSource); ok {
+			specs, err = light.ListSpecsLight(ctx)
+		} else {
+			specs, err = source.ListSpecs(ctx)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -348,8 +358,9 @@ func (e *Engine) AvailableRows(ctx context.Context) ([]core.RowDescriptor, error
 		}
 		hc := core.NewHubContext(e.now(), "", "", "")
 		hc.Device = core.DeviceTV
+		mctx := reqmemo.With(ctx)
 		for _, section := range allSurfaces {
-			for _, hub := range e.extraHomeRows(ctx, &core.User{IsOwner: true}, hc, section, 1) {
+			for _, hub := range e.extraHomeRows(mctx, &core.User{IsOwner: true}, hc, section, 1) {
 				if i, ok := index[hub.ID]; ok {
 					if !slices.Contains(extra[i].Sections, section) {
 						extra[i].Sections = append(extra[i].Sections, section)
@@ -466,6 +477,9 @@ func (e *Engine) activity(ctx context.Context, since time.Time) (*activityResult
 	for _, p := range plays {
 		byUser[p.userID] = append(byUser[p.userID], p)
 	}
+	many, hasMany := e.catalog.(interface {
+		CachedGetMany(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	})
 	for _, u := range users {
 		if e.state == nil {
 			break
@@ -489,17 +503,27 @@ func (e *Engine) activity(ctx context.Context, since time.Time) (*activityResult
 		if in.statuses, err = e.state.GetMany(ctx, u.ID, keys); err != nil {
 			return nil, err
 		}
-		lookups := 0
+		var want []core.RatingKey
+		wantSeen := map[core.RatingKey]bool{}
 		for _, k := range keys {
-			if in.statuses[k].Duration > 0 || lookups >= 300 {
+			if in.statuses[k].Duration > 0 || len(want) >= 300 {
 				continue
 			}
 			tk := tasteKey(k)
-			if _, ok := in.titles[tk]; ok {
+			if wantSeen[tk] {
 				continue
 			}
-			lookups++
-			if t, err := e.catalog.Get(ctx, tk); err == nil && t != nil {
+			wantSeen[tk] = true
+			want = append(want, tk)
+		}
+		var batch map[core.RatingKey]core.Title
+		if hasMany && len(want) > 0 {
+			batch, _ = many.CachedGetMany(ctx, want)
+		}
+		for _, tk := range want {
+			if bt, ok := batch[tk]; ok {
+				in.titles[tk] = bt
+			} else if t, err := e.catalog.Get(ctx, tk); err == nil && t != nil {
 				in.titles[tk] = *t
 			}
 		}

@@ -2,7 +2,10 @@ package experience
 
 import (
 	"context"
+	"fmt"
+
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 )
 
 // PreviewRows composes the owner preview using the same source ordering and section projection.
@@ -16,21 +19,41 @@ type PreviewRows struct {
 }
 
 func (a PreviewRows) Rows(ctx context.Context, u *core.User, hc core.HubContext, section string, limit int) []core.Hub {
-	var out []core.Hub
-	if a.Availability != nil {
-		if a.Filter != nil {
-			out = append(out, PreviewAvailability(ctx, u, limit, a.Availability, a.Filter)...)
-		} else {
-			out = append(out, a.Availability(ctx, limit)...)
+	var uid int64
+	var isOwner bool
+	var maxRating string
+	var allowedSecs []int
+	if u != nil {
+		uid = u.ID
+		isOwner = u.IsOwner
+		maxRating = u.MaxContentRating
+		allowedSecs = u.AllowedSections
+	}
+	base, _ := reqmemo.Do(ctx, fmt.Sprintf("experience:previewBase:%d:%t:%s:%v:%d", uid, isOwner, maxRating, allowedSecs, limit), func() ([]core.Hub, error) {
+		var hubs []core.Hub
+		if a.Availability != nil {
+			if a.Filter != nil {
+				hubs = append(hubs, PreviewAvailability(ctx, u, limit, a.Availability, a.Filter)...)
+			} else {
+				hubs = append(hubs, a.Availability(ctx, limit)...)
+			}
 		}
-	}
-	if a.Watchlist != nil {
-		rows, _ := a.Watchlist(ctx, u, limit)
-		out = append(out, rows...)
-	}
-	if a.Personal != nil {
-		rows, _ := a.Personal(ctx, u, limit)
-		out = append(out, rows...)
+		if a.Watchlist != nil {
+			rows, _ := a.Watchlist(ctx, u, limit)
+			hubs = append(hubs, rows...)
+		}
+		if a.Personal != nil {
+			rows, _ := a.Personal(ctx, u, limit)
+			hubs = append(hubs, rows...)
+		}
+		return hubs, nil
+	})
+	out := make([]core.Hub, len(base))
+	for i, h := range base {
+		if len(h.Items) > 0 {
+			h.Items = append([]core.Title(nil), h.Items...)
+		}
+		out[i] = h
 	}
 	if section == "home" && a.Live != nil && a.LiveEnabled != nil && a.LiveEnabled() {
 		row, err := a.Live(ctx, u, limit)

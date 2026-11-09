@@ -45,7 +45,7 @@ interface PluginActionOutcome {
  */
 export function CommandSearch() {
   const navigate = useNavigate();
-  const { descriptors } = useRegistry("page", "command");
+  const { descriptors } = useRegistry("page", "navItem", "command");
   const live = useRef<Descriptor[]>([]);
   live.current = descriptors;
   const search = useCallback(

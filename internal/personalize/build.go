@@ -182,6 +182,56 @@ func (e *Engine) ModelReady(userID int64) bool {
 // waits for the viewer's own build instead.
 func (e *Engine) modelFor(ctx context.Context, user *core.User, wait bool) *userModel {
 	ctx = core.WithCatalogViewer(ctx, user)
+	if user == nil || user.ID <= 0 {
+		// Unidentified callers and the Home Designer's "Typical viewer"
+		// preview (user.ID == 0) have no personal history: serve the
+		// pre-warmed generic model instead of queuing a separate user 0 build.
+		e.mu.Lock()
+		g := e.models[genericID]
+		stale := g != nil && e.now().Sub(g.builtAt) > e.opts.ModelTTL
+		e.mu.Unlock()
+		if g != nil && !stale {
+			return g
+		}
+		gf := e.request(genericID)
+		if g != nil {
+			return g
+		}
+		if wait {
+			select {
+			case <-gf.done:
+			case <-ctx.Done():
+			}
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			return e.models[genericID]
+		}
+		e.mu.Lock()
+		first := e.coldDeadline.IsZero()
+		if first {
+			e.coldDeadline = time.Unix(1, 0)
+		}
+		e.mu.Unlock()
+		if !first {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			return e.models[genericID]
+		}
+		waitFor := e.opts.ColdWait
+		if waitFor > 50*time.Millisecond {
+			waitFor = 50 * time.Millisecond
+		}
+		t := time.NewTimer(waitFor)
+		defer t.Stop()
+		select {
+		case <-gf.done:
+		case <-t.C:
+		case <-ctx.Done():
+		}
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.models[genericID]
+	}
 	var signature string
 	revisionOK := true
 	if e.opts.NotInterestedSnapshot != nil && user != nil && user.ID > 0 {
