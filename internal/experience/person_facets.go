@@ -3,6 +3,8 @@ package experience
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -51,4 +53,45 @@ func (s *Service) PersonFacetIDs(ctx context.Context, viewer *core.Viewer, _ cor
 		}
 	}
 	return result, nil
+}
+
+// resolvePersonFacet resolves a person facet id whose TMDB id is known, as
+// genres and studios resolve: against the library-wide credits of the
+// libraries the viewer may open, leaving which titles the viewer may see
+// under the person to the filtered page. One statement pair reads the
+// person's most popular credit and the name on it, however many titles
+// credit them; ok is false when the credit index is unavailable.
+func (s *Service) resolvePersonFacet(ctx context.Context, viewer *core.Viewer, viewID, id string, tmdb int64) (core.FacetValue, bool, error) {
+	if s.d.PersonCreditsMany == nil {
+		return core.FacetValue{}, false, nil
+	}
+	v, err := s.viewer(ctx, viewer)
+	if err != nil {
+		return core.FacetValue{}, true, err
+	}
+	var types []core.MediaType
+	for _, lib := range s.libraries() {
+		if (viewID != "" && strconv.Itoa(lib.ID) != viewID) || !SectionAllowed(v, lib.ID) {
+			continue
+		}
+		switch lib.Type {
+		case core.TypeMovie:
+			types = append(types, core.TypeMovie)
+		case core.TypeShow:
+			types = append(types, core.TypeShow, core.TypeSeason, core.TypeEpisode)
+		}
+	}
+	if len(types) == 0 {
+		return core.FacetValue{}, true, core.ErrNotFound
+	}
+	credits, err := s.d.PersonCreditsMany(core.WithoutCatalogViewer(ctx), []int64{tmdb}, types, 1)
+	if err != nil {
+		return core.FacetValue{}, true, err
+	}
+	for _, credit := range credits[tmdb] {
+		if credit.Person.TMDB == tmdb && strings.TrimSpace(credit.Person.Name) != "" {
+			return core.FacetValue{ID: id, Key: strconv.FormatInt(tmdb, 10), Title: credit.Person.Name}, true, nil
+		}
+	}
+	return core.FacetValue{}, true, core.ErrNotFound
 }

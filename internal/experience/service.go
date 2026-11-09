@@ -1975,16 +1975,9 @@ func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device 
 		}
 	}
 	if kind == "person" {
-		if tmdb, ok := personTMDB(id); ok && s.d.PersonCredits != nil && s.d.CachedGetMany != nil {
-			var person frontend.PersonDetail
-			err := s.readPeople(ctx, viewer, func(snapshot *Service) error {
-				var e error
-				person, e = snapshot.indexedPerson(ctx, viewer, tmdb)
-				return e
-			})
-			if err == nil && person.ID == id {
-				key := strconv.FormatInt(tmdb, 10)
-				return core.FacetValue{ID: id, Key: key, Title: person.Name}, nil
+		if tmdb, ok := personTMDB(id); ok {
+			if found, ok, err := s.resolvePersonFacet(ctx, viewer, viewID, id, tmdb); err != nil || ok {
+				return found, err
 			}
 		}
 	}
