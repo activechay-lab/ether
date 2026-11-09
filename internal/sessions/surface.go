@@ -73,6 +73,16 @@ func (s surface) ResolveDetailSource(ctx context.Context, scope frontend.Version
 	}
 	return frontend.DetailSourceTarget{}, core.ErrNotAvailable
 }
+// WarmDetail forwards a detail-page warm-up for this surface only.
+func (s surface) WarmDetail(ctx context.Context, r frontend.PlanRequest) bool {
+	if r.Protocol != s.protocol {
+		return false
+	}
+	if warmer, ok := s.broker.(frontend.DetailWarmer); ok {
+		return warmer.WarmDetail(ctx, r)
+	}
+	return false
+}
 func (s surface) MatchDetailSession(ctx context.Context, scope frontend.VersionScope, handle, sessionID string) error {
 	if scope.Protocol != s.protocol {
 		return core.ErrUnauthorized

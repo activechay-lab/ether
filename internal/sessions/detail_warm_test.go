@@ -72,3 +72,11 @@ func TestDetailWarmUsesDeclaredPlayCaps(t *testing.T) {
 		t.Fatalf("widened caps did not discard the warm entry: %+v", pb.discarded)
 	}
 }
+
+// Frontends reach the broker through the surface binding, which must not
+// hide the warmer.
+func TestSurfaceBindingForwardsDetailWarmer(t *testing.T) {
+	if _, ok := BindSurface(&Broker{}, "jellyfin").(frontend.DetailWarmer); !ok {
+		t.Fatal("BindSurface hides frontend.DetailWarmer")
+	}
+}
