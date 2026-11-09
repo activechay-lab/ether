@@ -21,3 +21,12 @@ func TestGroupKey(t *testing.T) {
 		}
 	}
 }
+
+func TestGroupKeyShortDOnlyTakesDigits(t *testing.T) {
+	if k, d := GroupKey("SHOW_DS", ""); k != "SHOW_DS" || d != 0 {
+		t.Fatalf("SHOW_DS -> %q %d", k, d)
+	}
+	if k, d := GroupKey("SHOW_D2", ""); k != "SHOW" || d != 2 {
+		t.Fatalf("SHOW_D2 -> %q %d", k, d)
+	}
+}

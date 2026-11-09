@@ -295,6 +295,9 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 // multi-disc release, for expandISO to join.
 func (b *builder) stashDiscs(members []archive.Member, chosen *archive.Member, plan func(*archive.Member) (*plan, error)) {
 	for i := range members {
+		if len(b.memberISOs) >= maxDiscSiblings {
+			return // bounded: each planned image costs I/O in an encrypted archive
+		}
 		m := &members[i]
 		if m.Dir || m.Name == chosen.Name || nzb.Classify(m.Name).Kind != nzb.KindISO || m.Size <= 0 {
 			continue

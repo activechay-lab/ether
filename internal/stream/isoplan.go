@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,9 +48,22 @@ type disc struct {
 	num int
 }
 
-// maxDiscSiblings bounds how many further candidates are planned in search of
-// the other discs of a release.
+// maxDiscSiblings bounds the search for the other discs of a release: how many
+// further candidates are planned, how many member ISOs of an archive are
+// planned, and how many sibling images are analysed.
 const maxDiscSiblings = 8
+
+// isoSiblingsBudget is the time all siblings together may take to analyse. Each
+// sibling still has isoAnalyzeTimeout, but a degraded provider cannot stall the
+// open for maxDiscSiblings times that.
+const isoSiblingsBudget = 90 * time.Second
+
+// minDiscFeaturePercent is how large, as a percentage of the first disc's
+// feature, a further disc's feature must be to join it. A bonus disc's longest
+// playlist (a "play all" of extras) is the main-feature candidate of its disc too,
+// and must not be appended to the film. This threshold is a conservative guess,
+// not derived from real releases: see sameFeature.
+const minDiscFeaturePercent = 50
 
 // isoAnalyzeTimeout bounds reading one disc image's structure, so a degraded
 // provider cannot stall starting playback for minutes.
@@ -92,18 +107,25 @@ func (b *builder) analyzeDisc(ctx context.Context, p *plan) (*disc, error) {
 func (b *builder) isoSiblings(ctx context.Context, cands []candidate, self int) func() []*plan {
 	members := b.memberISOs
 	return func() []*plan {
-		out := append([]*plan(nil), members...)
+		out := append([]*plan(nil), members[:min(len(members), maxDiscSiblings)]...)
+		attempts := 0
 		for j, c := range cands {
-			if j == self || len(out) >= maxDiscSiblings {
+			// A plain video file is not a disc image: skip it without planning.
+			if j == self || c.kind == nzb.KindVideo {
 				continue
 			}
+			if len(out) >= maxDiscSiblings || attempts >= maxDiscSiblings {
+				break
+			}
+			attempts++
 			b.memberISOs = nil
 			p, err := b.planFor(ctx, c)
 			if err != nil || !isISOName(p.name) {
 				continue
 			}
 			out = append(out, p)
-			out = append(out, b.memberISOs...)
+			room := max(0, maxDiscSiblings-len(out))
+			out = append(out, b.memberISOs[:min(len(b.memberISOs), room)]...)
 		}
 		b.memberISOs = nil
 		return out
@@ -123,8 +145,13 @@ func (b *builder) expandISO(ctx context.Context, first *plan, siblings func() []
 	}
 	group := []*disc{d0}
 	if len(d0.an.MainFeature) > 0 && siblings != nil {
+		sctx, cancel := context.WithTimeout(ctx, isoSiblingsBudget)
+		defer cancel()
 		for _, sp := range siblings() {
-			ds, err := b.analyzeDisc(ctx, sp)
+			if sctx.Err() != nil {
+				break // the shared budget is spent
+			}
+			ds, err := b.analyzeDisc(sctx, sp)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
@@ -136,6 +163,7 @@ func (b *builder) expandISO(ctx context.Context, first *plan, siblings func() []
 			}
 		}
 		sort.SliceStable(group, func(i, j int) bool { return group[i].num < group[j].num })
+		group = joinableDiscs(group)
 	}
 	if len(group) > 1 {
 		b.e.log.Debug("multi-disc main feature", "key", d0.key, "discs", len(group))
@@ -146,6 +174,42 @@ func (b *builder) expandISO(ctx context.Context, first *plan, siblings func() []
 		return nil, fmt.Errorf("%w: disc image %s holds no video (%d files)", ErrNoPlayableFile, first.name, len(d0.an.Files))
 	}
 	return b.isoPlan(group, name, discFiles(0, files, d0.an))
+}
+
+// joinableDiscs keeps the discs, in order, whose feature is a real part of the
+// first disc's feature, so a bonus disc is not appended to the film.
+func joinableDiscs(group []*disc) []*disc {
+	if len(group) < 2 {
+		return group
+	}
+	out := group[:1:1]
+	for _, d := range group[1:] {
+		if sameFeature(group[0], d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// sameFeature reports whether d's main feature is at least minDiscFeaturePercent
+// of ref's, by authored duration or, when a disc has none, by clip bytes. A film
+// that truly spans discs has parts of similar size; a bonus disc's playlist is
+// usually shorter. The threshold is not backed by real releases, only by the
+// reviewer's guidance; tune it with data.
+func sameFeature(ref, d *disc) bool {
+	r, x := ref.an.DurationTicks, d.an.DurationTicks
+	if r <= 0 || x <= 0 {
+		r, x = featureBytes(ref.an), featureBytes(d.an)
+	}
+	return r > 0 && x*100 >= r*minDiscFeaturePercent
+}
+
+func featureBytes(an *iso.Analysis) int64 {
+	var n int64
+	for _, c := range an.MainFeature {
+		n += c.Size
+	}
+	return n
 }
 
 // isoFile is one file to play, with the disc it is on and its playlist timing.
@@ -192,6 +256,9 @@ func isoFeature(an *iso.Analysis, isoName string) ([]iso.File, string) {
 	var best *iso.File
 	for i := range an.Files {
 		f := &an.Files[i]
+		if isDVDPath(f.Path) {
+			continue // a DVD title set is played whole, below
+		}
 		info := nzb.Classify(f.Path)
 		if info.Kind != nzb.KindVideo || info.Sample || info.Extra {
 			continue
@@ -200,10 +267,61 @@ func isoFeature(an *iso.Analysis, isoName string) ([]iso.File, string) {
 			best = f
 		}
 	}
+	// A DVD's movie is its largest title set: the VTS_nn_1..k.VOB files, each
+	// at most 1 GiB, are one continuous program stream. Playing one of them
+	// alone would stop after 20-30 minutes.
+	vobs, vobBytes := dvdTitleSet(an.Files)
+	if len(vobs) > 0 && (best == nil || vobBytes > best.Size) {
+		return vobs, strings.TrimSuffix(isoName, path.Ext(isoName)) + ".vob"
+	}
 	if best == nil {
 		return nil, ""
 	}
 	return []iso.File{*best}, best.Base()
+}
+
+// dvdVOB matches a title set's VOB: VIDEO_TS/VTS_<title set>_<part>.VOB.
+// Part 0 is the title set's menu.
+var dvdVOB = regexp.MustCompile(`(?i)^VIDEO_TS/VTS_(\d\d)_(\d+)\.VOB$`)
+
+func isDVDPath(p string) bool { return strings.HasPrefix(strings.ToUpper(p), "VIDEO_TS/") }
+
+// dvdTitleSet returns the VOBs of the largest title set, in play order and
+// from part 1 on, up to the first missing part, with their total size.
+func dvdTitleSet(files []iso.File) ([]iso.File, int64) {
+	type part struct {
+		n int
+		f iso.File
+	}
+	sets := map[string][]part{}
+	for _, f := range files {
+		m := dvdVOB.FindStringSubmatch(f.Path)
+		if m == nil || f.Size <= 0 {
+			continue
+		}
+		n, _ := strconv.Atoi(m[2])
+		if n >= 1 {
+			sets[m[1]] = append(sets[m[1]], part{n, f})
+		}
+	}
+	var best []iso.File
+	var bestBytes int64
+	for _, parts := range sets {
+		sort.Slice(parts, func(i, j int) bool { return parts[i].n < parts[j].n })
+		var run []iso.File
+		var total int64
+		for i, pt := range parts {
+			if pt.n != i+1 {
+				break
+			}
+			run = append(run, pt.f)
+			total += pt.f.Size
+		}
+		if total > bestBytes {
+			best, bestBytes = run, total
+		}
+	}
+	return best, bestBytes
 }
 
 // isoPlan maps files (in order) onto the volumes that hold the group's
@@ -268,6 +386,10 @@ func (b *builder) isoPlan(group []*disc, name string, files []isoFile) (*plan, e
 				return nil, fmt.Errorf("stream: %s has no bytes in the image: %w", f.Path, ErrCorrupt)
 			}
 		}
+		// Limitation: a clip plays whole. A PlayItem whose IN/OUT covers only
+		// part of its clip still contributes every packet of the clip, and
+		// InTicks only sets the delta, so packets outside IN/OUT get
+		// overlapping timestamps. Rare for main features.
 		if f.timed {
 			timed = timed || f.inTicks != 0 || f.durationTicks != 0
 			in90k := f.inTicks * 2
