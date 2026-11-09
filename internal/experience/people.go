@@ -2,6 +2,7 @@ package experience
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -737,6 +738,97 @@ func (s *Service) person(ctx context.Context, viewer *core.Viewer, device core.D
 // any person's credit count, so the choice below sees all of them.
 const personPageCredits = 5000
 
+// personPageTypes are the titles a person page chooses its credit among.
+var personPageTypes = []core.MediaType{core.TypeMovie, core.TypeShow, core.TypeEpisode, core.TypeSeason}
+
+// formPerson checks personFormPage credited titles first and doubles the
+// batch up to personFormPageMax: the first title usually decides, and a
+// viewer who may see few of the titles still reads them in few statements.
+const (
+	personFormPage    = 8
+	personFormPageMax = 64
+)
+
+// formPerson makes indexedPerson's choice, the visible credit with the
+// least name, then a portrait, then the least title key, by reading the
+// person's credited titles in that order: each form of their credited
+// name (portrait first), and its titles by key. The first title the viewer
+// may see holds the chosen credit, so a page reads one batch of titles
+// with policy facts and this person's credits, not every credited title in
+// full. currentPerson then reads the chosen credit as indexedPerson does.
+func (s *Service) formPerson(ctx context.Context, viewer *core.Viewer, v *core.User, tmdb int64) (frontend.PersonDetail, error) {
+	forms, err := s.d.PersonCreditForms(ctx, tmdb, personPageTypes)
+	if err != nil {
+		return frontend.PersonDetail{}, err
+	}
+	type group struct {
+		name     string
+		portrait bool
+		forms    []core.PersonCreditForm
+	}
+	var groups []group
+	for _, form := range forms {
+		if strings.TrimSpace(form.Name) == "" {
+			continue
+		}
+		name := strings.Join(peopleWords(form.Name), " ")
+		n := slices.IndexFunc(groups, func(g group) bool { return g.name == name && g.portrait == form.Portrait })
+		if n < 0 {
+			groups = append(groups, group{name: name, portrait: form.Portrait})
+			n = len(groups) - 1
+		}
+		groups[n].forms = append(groups[n].forms, form)
+	}
+	sort.Slice(groups, func(a, b int) bool {
+		if groups[a].name != groups[b].name {
+			return groups[a].name < groups[b].name
+		}
+		return groups[a].portrait && !groups[b].portrait
+	})
+	page := personFormPage
+	for _, g := range groups {
+		for after := core.RatingKey(0); ; page = min(page*2, personFormPageMax) {
+			keys, err := s.d.PersonFormKeys(ctx, tmdb, personPageTypes, g.forms, after, page)
+			if err != nil {
+				return frontend.PersonDetail{}, err
+			}
+			if len(keys) == 0 {
+				break
+			}
+			refs := make([]PersonCreditRef, len(keys))
+			for n, key := range keys {
+				refs[n] = PersonCreditRef{Item: key, TMDB: tmdb}
+			}
+			titles, err := s.d.peoplePortraitTitles(ctx, refs)
+			if err != nil {
+				return frontend.PersonDetail{}, err
+			}
+			visibility, err := s.peopleVisibility(ctx, titles)
+			if err != nil {
+				return frontend.PersonDetail{}, err
+			}
+			for _, key := range keys {
+				title, ok := titles[key]
+				if !ok || title.Key != key || !peopleTitleVisible(ctx, v, &title, visibility) {
+					continue
+				}
+				for _, people := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
+					for _, person := range people {
+						if person.TMDB == tmdb && strings.TrimSpace(person.Name) != "" && (person.ThumbPath != "") == g.portrait && strings.Join(peopleWords(person.Name), " ") == g.name {
+							return s.currentPerson(ctx, viewer, frontend.PersonDetail{ID: personFacetID(tmdb), TMDB: tmdb, ArtworkItem: key})
+						}
+					}
+				}
+			}
+			if len(keys) < page {
+				break
+			}
+			after = keys[len(keys)-1]
+		}
+	}
+	return frontend.PersonDetail{}, core.ErrNotFound
+}
+
 // indexedPerson is person for a known TMDB id: the same choice among the
 // person's visible credits as the walk makes, read from the credits index.
 func (s *Service) indexedPerson(ctx context.Context, viewer *core.Viewer, tmdb int64) (frontend.PersonDetail, error) {
@@ -744,7 +836,10 @@ func (s *Service) indexedPerson(ctx context.Context, viewer *core.Viewer, tmdb i
 	if err != nil {
 		return frontend.PersonDetail{}, err
 	}
-	keys, err := s.d.PersonCredits(ctx, tmdb, []core.MediaType{core.TypeMovie, core.TypeShow, core.TypeEpisode, core.TypeSeason}, personPageCredits)
+	if s.d.PersonCreditForms != nil && s.d.PersonFormKeys != nil && s.d.peoplePortraitTitles != nil {
+		return s.formPerson(ctx, viewer, v, tmdb)
+	}
+	keys, err := s.d.PersonCredits(ctx, tmdb, personPageTypes, personPageCredits)
 	if err != nil {
 		return frontend.PersonDetail{}, err
 	}

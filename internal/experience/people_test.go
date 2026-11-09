@@ -3,6 +3,7 @@ package experience
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -380,20 +381,79 @@ func pagedPeopleFixture(s *Service, c *peopleCatalogue) {
 	}
 }
 
-// The name index, read person by person or a page at a time, returns what
-// the credit walk returns, without the walk.
-func TestIndexedPeopleMatchTheCreditWalk(t *testing.T) {
-	for _, paged := range []bool{false, true} {
-		testIndexedPeopleMatchTheCreditWalk(t, paged)
+// formPeopleFixture adds a person's credit forms and the titles crediting
+// them in some forms, by key, from the same fixture titles; the portrait
+// read is the full title read.
+func formPeopleFixture(s *Service, c *peopleCatalogue) {
+	indexPeopleFixture(s, c)
+	credits := func(person int64, types []core.MediaType, visit func(core.RatingKey, core.Person)) {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		for key, title := range c.titles {
+			if title.Adult || !slices.Contains(types, title.Type) {
+				continue
+			}
+			for _, group := range [][]core.Person{title.Cast, title.Directors, title.Writers, title.Crew} {
+				for _, p := range group {
+					if p.TMDB == person {
+						visit(key, p)
+					}
+				}
+			}
+		}
+	}
+	s.d.PersonCreditForms = func(_ context.Context, person int64, types []core.MediaType) ([]core.PersonCreditForm, error) {
+		var out []core.PersonCreditForm
+		credits(person, types, func(_ core.RatingKey, p core.Person) {
+			if form := (core.PersonCreditForm{Name: p.Name, Portrait: p.ThumbPath != ""}); !slices.Contains(out, form) {
+				out = append(out, form)
+			}
+		})
+		return out, nil
+	}
+	s.d.PersonFormKeys = func(_ context.Context, person int64, types []core.MediaType, forms []core.PersonCreditForm, after core.RatingKey, limit int) ([]core.RatingKey, error) {
+		var keys []core.RatingKey
+		credits(person, types, func(key core.RatingKey, p core.Person) {
+			if key > after && !slices.Contains(keys, key) && slices.Contains(forms, core.PersonCreditForm{Name: p.Name, Portrait: p.ThumbPath != ""}) {
+				keys = append(keys, key)
+			}
+		})
+		slices.Sort(keys)
+		return keys[:min(len(keys), limit)], nil
+	}
+	begin := s.d.BeginPeopleRead
+	s.d.BeginPeopleRead = func(ctx context.Context, viewer *core.User) (PeopleRead, error) {
+		access, err := begin(ctx, viewer)
+		titles := access.Titles
+		access.PortraitTitles = func(ctx context.Context, refs []PersonCreditRef) (map[core.RatingKey]core.Title, error) {
+			keys := make([]core.RatingKey, len(refs))
+			for n, ref := range refs {
+				keys[n] = ref.Item
+			}
+			return titles(ctx, keys)
+		}
+		return access, err
 	}
 }
 
-func testIndexedPeopleMatchTheCreditWalk(t *testing.T, paged bool) {
-	walk, _ := peopleFixture()
+// The name index, read person by person or a page at a time, returns what
+// the credit walk returns, without the walk; a person page read in the
+// order of its credit forms chooses the credit the walk chooses.
+func TestIndexedPeopleMatchTheCreditWalk(t *testing.T) {
+	for _, mode := range []string{"index", "paged", "forms"} {
+		testIndexedPeopleMatchTheCreditWalk(t, mode)
+	}
+}
+
+func testIndexedPeopleMatchTheCreditWalk(t *testing.T, mode string) {
+	walk, w := peopleFixture()
 	indexed, c := peopleFixture()
-	if paged {
+	switch mode {
+	case "paged":
 		pagedPeopleFixture(indexed, c)
-	} else {
+	case "forms":
+		formPeopleFixture(indexed, c)
+	default:
 		indexPeopleFixture(indexed, c)
 	}
 	ctx := context.Background()
@@ -440,6 +500,23 @@ func testIndexedPeopleMatchTheCreditWalk(t *testing.T, paged bool) {
 	}
 	if n := c.creditCalls.Load(); n != 0 {
 		t.Fatalf("indexed people search walked credits %d times", n)
+	}
+	// With the movie's portrait credit hidden by policy, the page falls
+	// back to the credit the walk keeps, on the episode.
+	for _, s := range []*Service{walk, indexed} {
+		s.d.Visibility.Policy = denyRated{rating: "R"}
+	}
+	for _, cat := range []*peopleCatalogue{w, c} {
+		cat.update(core.MovieKey(1), func(title *core.Title) { title.ContentRating = "R" })
+	}
+	id := facetID("person", "10")
+	want, err := walk.Person(ctx, viewer, core.Device{}, id, frontend.PersonReadOptions{})
+	if err != nil || want.ArtworkItem != core.EpisodeKey(1, 1, 1) {
+		t.Fatalf("walk restricted person %+v %v", want, err)
+	}
+	got, err := indexed.Person(ctx, viewer, core.Device{}, id, frontend.PersonReadOptions{})
+	if err != nil || got.ID != want.ID || got.Name != want.Name || got.IMDB != want.IMDB || got.ArtworkItem != want.ArtworkItem {
+		t.Fatalf("%s restricted person %+v %v, walk %+v", mode, got, err, want)
 	}
 }
 

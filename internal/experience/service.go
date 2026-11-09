@@ -112,6 +112,13 @@ type ServiceDeps struct {
 	// (and PeopleRead.VisibleTitles) a people search reads a page of people
 	// in a few statements. Optional.
 	PersonCreditsMany func(context.Context, []int64, []core.MediaType, int) (map[int64][]core.PersonCredit, error)
+	// PersonCreditForms lists the forms (name, portrait) a person's credits
+	// take, and PersonFormKeys pages, by key, the titles crediting them in
+	// some of those forms. With both (and PeopleRead.PortraitTitles) a person
+	// page reads its credited titles in the order its choice prefers them
+	// and stops at the first the viewer may see. Optional.
+	PersonCreditForms func(context.Context, int64, []core.MediaType) ([]core.PersonCreditForm, error)
+	PersonFormKeys    func(context.Context, int64, []core.MediaType, []core.PersonCreditForm, core.RatingKey, int) ([]core.RatingKey, error)
 	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
 	peopleVisibleTitles  func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	peoplePortraitTitles func(context.Context, []PersonCreditRef) (map[core.RatingKey]core.Title, error)

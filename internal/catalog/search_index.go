@@ -273,6 +273,90 @@ func (c *Catalog) PersonCreditKeys(ctx context.Context, person int64, types []co
 	return out, rows.Err()
 }
 
+// PersonCreditForms returns the distinct forms (name, and whether a
+// portrait is attached) a person's credits take on titles of types, with
+// PersonCreditKeys' title gate. It reads the person's own credit index,
+// never the library, and returns a handful of rows however many titles
+// credit them.
+func (c *Catalog) PersonCreditForms(ctx context.Context, person int64, types []core.MediaType) ([]core.PersonCreditForm, error) {
+	if person <= 0 || len(types) == 0 {
+		return nil, nil
+	}
+	in, args := personTypeArgs(person, types)
+	rows, err := c.db.QueryContext(ctx, `SELECT DISTINCT cr.name, CASE WHEN cr.thumb<>'' THEN 1 ELSE 0 END FROM catalog_credits cr JOIN catalog_titles t ON t.key=cr.key
+		WHERE cr.person_tmdb=? AND t.adult=0 AND t.type IN (`+in+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.PersonCreditForm
+	for rows.Next() {
+		var form core.PersonCreditForm
+		var portrait int
+		if err := rows.Scan(&form.Name, &portrait); err != nil {
+			return nil, err
+		}
+		form.Portrait = portrait != 0
+		out = append(out, form)
+	}
+	return out, rows.Err()
+}
+
+// PersonFormKeys returns up to limit keys after after, ascending, of the
+// titles of types that credit person in one of forms, with
+// PersonCreditKeys' title gate.
+func (c *Catalog) PersonFormKeys(ctx context.Context, person int64, types []core.MediaType, forms []core.PersonCreditForm, after core.RatingKey, limit int) ([]core.RatingKey, error) {
+	if person <= 0 || len(types) == 0 || len(forms) == 0 || limit <= 0 {
+		return nil, nil
+	}
+	in, args := personTypeArgs(person, types)
+	var portrait, plain []string
+	var portraitArgs, plainArgs []any
+	for _, form := range forms {
+		if form.Portrait {
+			portrait, portraitArgs = append(portrait, "?"), append(portraitArgs, form.Name)
+		} else {
+			plain, plainArgs = append(plain, "?"), append(plainArgs, form.Name)
+		}
+	}
+	var match []string
+	if len(portrait) > 0 {
+		match = append(match, `(cr.thumb<>'' AND cr.name IN (`+strings.Join(portrait, ",")+`))`)
+		args = append(args, portraitArgs...)
+	}
+	if len(plain) > 0 {
+		match = append(match, `(cr.thumb='' AND cr.name IN (`+strings.Join(plain, ",")+`))`)
+		args = append(args, plainArgs...)
+	}
+	args = append(args, int64(after), limit)
+	rows, err := c.db.QueryContext(ctx, `SELECT DISTINCT cr.key FROM catalog_credits cr JOIN catalog_titles t ON t.key=cr.key
+		WHERE cr.person_tmdb=? AND t.adult=0 AND t.type IN (`+in+`) AND (`+strings.Join(match, " OR ")+`) AND cr.key>?
+		ORDER BY cr.key LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.RatingKey
+	for rows.Next() {
+		var key int64
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out = append(out, core.RatingKey(key))
+	}
+	return out, rows.Err()
+}
+
+func personTypeArgs(person int64, types []core.MediaType) (string, []any) {
+	in := make([]string, 0, len(types))
+	args := []any{person}
+	for _, t := range types {
+		in = append(in, "?")
+		args = append(args, string(t))
+	}
+	return strings.Join(in, ","), args
+}
+
 // PersonByTMDB resolves one TMDB person from their credits: the person's
 // name and portrait, the credit kinds they hold ("cast", "director",
 // "writer", "crew", in that order) and a title key carrying the portrait

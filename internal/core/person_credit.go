@@ -8,3 +8,10 @@ type PersonCredit struct {
 	Kind   string
 	Person Person
 }
+
+// PersonCreditForm is one way a person's credits name them: the name as
+// credited and whether that credit carries a portrait.
+type PersonCreditForm struct {
+	Name     string
+	Portrait bool
+}
