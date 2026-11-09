@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -73,7 +74,7 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 	var extra map[string]string
 	if u := pickPackUnit(units, t); u != nil {
 		chosen = []packUnit{*u}
-	} else if opaque := opaqueArchives(units); len(opaque) > 0 {
+	} else if opaque := opaqueArchives(units, t); len(opaque) > 0 {
 		// No file name carries the episode, but an archive set whose name
 		// says nothing may hold the season. Keep it whole and tell the stream
 		// engine which member to play; it rejects the release if none matches.
@@ -121,13 +122,19 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 
 // opaqueArchives returns the archive sets whose names carry no episode (an
 // obfuscated base name), the ones that may hold a whole season.
-func opaqueArchives(units []packUnit) []packUnit {
+func opaqueArchives(units []packUnit, t *core.ReleaseTarget) []packUnit {
 	var out []packUnit
 	for _, u := range units {
 		info := releaseparse.Parse(u.name)
-		if u.archive && len(info.Episodes) == 0 && len(info.AbsoluteEpisodes) == 0 {
-			out = append(out, u)
+		if !u.archive || len(info.Episodes) != 0 || len(info.AbsoluteEpisodes) != 0 {
+			continue
 		}
+		// A name that gives a season ("Show.S02") is that season's set, not
+		// one that may hold the wanted season.
+		if len(info.Seasons) > 0 && !slices.Contains(info.Seasons, t.Season) {
+			continue
+		}
+		out = append(out, u)
 	}
 	return out
 }
