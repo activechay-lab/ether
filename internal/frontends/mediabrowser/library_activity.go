@@ -242,16 +242,82 @@ func (i *instance) writeListedTitles(w http.ResponseWriter, r *http.Request, vie
 
 type unplayedCountKey struct{}
 
-func withUnplayedCounts(r *http.Request, counts map[frontend.RatingKey]int) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, counts))
+// unplayedCounts are a list's UnplayedItemCount badges, worked out for the
+// whole page before its items are shaped. absent names the series whose
+// badge stays off (a capped or unreadable episode list).
+type unplayedCounts struct {
+	n      map[frontend.RatingKey]int
+	absent map[frontend.RatingKey]bool
 }
 
-func unplayedCountsFrom(r *http.Request) (map[frontend.RatingKey]int, bool) {
+func withUnplayedCounts(r *http.Request, counts map[frontend.RatingKey]int) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, unplayedCounts{n: counts}))
+}
+
+func unplayedCountsFrom(r *http.Request) (unplayedCounts, bool) {
 	if r == nil {
-		return nil, false
+		return unplayedCounts{}, false
 	}
-	counts, ok := r.Context().Value(unplayedCountKey{}).(map[frontend.RatingKey]int)
-	return counts, ok && counts != nil
+	counts, ok := r.Context().Value(unplayedCountKey{}).(unplayedCounts)
+	return counts, ok && counts.n != nil
+}
+
+// noteLocalUnplayedCounts is attachUnplayedCount for every series and
+// season of a page at once: one batched episode read and one watch-state
+// read instead of both per series. The badge counts are those
+// attachUnplayedCount works out for one series.
+func (i *instance) noteLocalUnplayedCounts(r *http.Request, viewer *frontend.Viewer, titles []frontend.Title) *http.Request {
+	if i == nil || i.protocol != "jellyfin" || r == nil || viewer == nil || i.host.Experience == nil {
+		return r
+	}
+	local, ok := i.host.Experience.(interface {
+		LocalEpisodesMany(context.Context, *frontend.Viewer, []frontend.RatingKey) (map[frontend.RatingKey]frontend.LocalEpisodeList, error)
+	})
+	if !ok {
+		return r
+	}
+	var keys []frontend.RatingKey
+	for _, title := range titles {
+		if title.Type == "show" || title.Type == "season" {
+			keys = append(keys, title.Key)
+		}
+	}
+	if len(keys) == 0 {
+		return r
+	}
+	lists, err := local.LocalEpisodesMany(r.Context(), viewer, keys)
+	if err != nil {
+		return r
+	}
+	counts := unplayedCounts{n: map[frontend.RatingKey]int{}, absent: map[frontend.RatingKey]bool{}}
+	var episodes []frontend.RatingKey
+	for _, key := range keys {
+		list, ok := lists[key]
+		if !ok || !list.Complete {
+			counts.absent[key] = true
+			continue
+		}
+		for _, child := range list.Items {
+			episodes = append(episodes, child.Key)
+		}
+	}
+	states, err := i.host.Experience.UserData(r.Context(), viewer, episodes)
+	if err != nil {
+		return r
+	}
+	for _, key := range keys {
+		if counts.absent[key] {
+			continue
+		}
+		unplayed := 0
+		for _, child := range lists[key].Items {
+			if states[child.Key].ViewCount == 0 {
+				unplayed++
+			}
+		}
+		counts.n[key] = unplayed
+	}
+	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, counts))
 }
 
 func (i *instance) noteUnplayedCounts(r *http.Request, viewer *frontend.Viewer, titles []frontend.Title) *http.Request {

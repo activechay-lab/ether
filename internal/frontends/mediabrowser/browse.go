@@ -766,6 +766,7 @@ func (i *instance) pageWithCount(w http.ResponseWriter, r *http.Request, v *fron
 	ratingFacts := i.pageRatingFacts(r, v, page.Items)
 	paths := i.virtualPaths(r, v, keys)
 	r = i.pageEditions(r, v, keys)
+	r = i.noteLocalUnplayedCounts(r, v, page.Items)
 	i.fillSeriesTitles(r, v, page.Items)
 	for _, title := range page.Items {
 		editions := i.jellyfinEditions(r, v, title)

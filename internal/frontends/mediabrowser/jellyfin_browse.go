@@ -360,7 +360,10 @@ func (i *instance) attachUnplayedCount(r *http.Request, viewer *frontend.Viewer,
 		return
 	}
 	if counts, ok := unplayedCountsFrom(r); ok {
-		if n, found := counts[title.Key]; found {
+		if counts.absent[title.Key] {
+			return
+		}
+		if n, found := counts.n[title.Key]; found {
 			data, ok := item["UserData"].(map[string]any)
 			if !ok {
 				return

@@ -99,6 +99,9 @@ type ServiceDeps struct {
 	peopleVisibleTitles  func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	peoplePortraitTitles func(context.Context, []PersonCreditRef) (map[core.RatingKey]core.Title, error)
 	AiredEpisodes        func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	// AiredEpisodesMany is AiredEpisodes(show, 0, limit) for several shows in
+	// a few statements. Optional; without it each show is read alone.
+	AiredEpisodesMany func(context.Context, []core.RatingKey, int) (map[core.RatingKey]core.Page, error)
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
@@ -958,73 +961,15 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 // needs every episode can omit a count instead of inventing one. It does
 // not refresh the show or its seasons.
 func (s *Service) LocalEpisodes(ctx context.Context, viewer *core.Viewer, key core.RatingKey) ([]core.Title, bool, error) {
-	ctx = core.WithCatalogViewer(ctx, viewer)
-	if s == nil || s.d.AiredEpisodes == nil {
+	if key.Kind() != core.KindShow && key.Kind() != core.KindSeason {
 		return nil, false, core.ErrNotFound
 	}
-	v, err := s.viewer(ctx, viewer)
+	lists, err := s.LocalEpisodesMany(ctx, viewer, []core.RatingKey{key})
 	if err != nil {
 		return nil, false, err
 	}
-	show := key
-	season := 0
-	switch key.Kind() {
-	case core.KindShow:
-	case core.KindSeason:
-		show = core.ShowKey(key.TMDB())
-		season = key.Season()
-	default:
-		return nil, false, core.ErrNotFound
-	}
-	page, err := s.airedShowEpisodes(ctx, show)
-	if err != nil {
-		return nil, false, err
-	}
-	complete := page.Total == len(page.Items)
-	out := make([]core.Title, 0, len(page.Items))
-	for i := range page.Items {
-		title := page.Items[i]
-		if season != 0 && title.Season != season {
-			continue
-		}
-		if title.Type == core.TypeEpisode && s.visible(ctx, v, &title) {
-			out = append(out, title)
-		}
-	}
-	return out, complete, nil
-}
-
-// airedShowEpisodes reads at most 500 stored episodes of a show. A seasons
-// page asks once per season; the request memo keeps that to a single read.
-func (s *Service) airedShowEpisodes(ctx context.Context, show core.RatingKey) (core.Page, error) {
-	if memo := frontend.RequestMemoFrom(ctx); memo != nil {
-		memo.Mu.Lock()
-		if hit, ok := memo.Aired[show]; ok {
-			memo.Mu.Unlock()
-			if hit.Err != nil {
-				return core.Page{}, hit.Err
-			}
-			items := append([]core.Title(nil), hit.Items...)
-			return core.Page{Items: items, Total: hit.Total}, nil
-		}
-		memo.Mu.Unlock()
-	}
-	page, err := s.d.AiredEpisodes(ctx, show, 0, 500)
-	if memo := frontend.RequestMemoFrom(ctx); memo != nil {
-		memo.Mu.Lock()
-		if memo.Aired == nil {
-			memo.Aired = map[core.RatingKey]frontend.AiredMemo{}
-		}
-		stored := frontend.AiredMemo{Total: page.Total, Err: err}
-		if err == nil {
-			stored.Items = append([]core.Title(nil), page.Items...)
-		}
-		if _, ok := memo.Aired[show]; !ok {
-			memo.Aired[show] = stored
-		}
-		memo.Mu.Unlock()
-	}
-	return page, err
+	list := lists[key]
+	return list.Items, list.Complete, nil
 }
 
 func (s *Service) Children(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey, q frontend.ItemQuery) (core.Page, error) {
