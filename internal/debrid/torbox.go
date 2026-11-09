@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -47,6 +48,49 @@ func newTorBox(key string, opts ProviderOptions) *torBox {
 }
 
 func (p *torBox) Kind() string { return "torbox" }
+
+// edgePortableLinks: TorBox download links stand on the nexus CDN as a
+// whole. During the 2026-11-09 maintenance window a link minted on the
+// dying nexus-096 returned byte-for-byte 206 answers from nexus-132, -366
+// and -370: same path, same token, no re-mint. A file whose pinned node
+// died may therefore replay its link on a live edge.
+func (p *torBox) edgePortableLinks() bool { return true }
+
+// approvesCDNEdge keeps a link's token inside TorBox's own CDN: the
+// candidate must be the link's own host or another host under the same
+// parent domain (nexus-096.torboxcdn.example -> nexus-132.torboxcdn
+// .example). IP literals match host-to-host only; nothing is a subdomain
+// of 127.0.0.1.
+func (p *torBox) approvesCDNEdge(raw, candidate string) bool {
+	issuedURL, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	issued := strings.ToLower(issuedURL.Hostname())
+	cand := strings.ToLower(cdnHost(candidate))
+	if issued == "" || cand == "" {
+		return false
+	}
+	if cand == issued {
+		return true
+	}
+	if net.ParseIP(issued) != nil || net.ParseIP(cand) != nil {
+		return false
+	}
+	labels := strings.Split(issued, ".")
+	if len(labels) < 3 {
+		return false
+	}
+	return strings.HasSuffix(cand, "."+strings.Join(labels[1:], "."))
+}
+
+// cdnHost strips the port from an edge host key (req.URL.Host form).
+func cdnHost(hostport string) string {
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		return h
+	}
+	return hostport
+}
 
 type tbEnvelope struct {
 	Success bool            `json:"success"`

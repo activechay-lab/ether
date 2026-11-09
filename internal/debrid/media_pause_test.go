@@ -40,7 +40,7 @@ func TestCDNRateLimitFailsFastAndSharesRetryAfterAcrossFiles(t *testing.T) {
 	defer r.eng.releaseFile(f)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	_, _, err = f.rangeGet(ctx, 0, 100, false)
+	_, _, _, err = f.rangeGet(ctx, 0, 100, false)
 	if !errors.Is(err, core.ErrSourceUnavailable) || !errors.Is(err, ErrRateLimited) || calls.Load() != 1 {
 		t.Fatalf("rate limit retried or misclassified: calls=%d err=%v", calls.Load(), err)
 	}
@@ -59,12 +59,12 @@ func TestCDNRateLimitFailsFastAndSharesRetryAfterAcrossFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.eng.releaseFile(other)
-	_, _, err = other.rangeGet(ctx, 0, 100, false)
+	_, _, _, err = other.rangeGet(ctx, 0, 100, false)
 	if !errors.Is(err, ErrRateLimited) || calls.Load() != 1 {
 		t.Fatalf("parallel file ignored Retry-After: %v calls=%d", err, calls.Load())
 	}
 	clock.add(61 * time.Second)
-	_, _, _ = other.rangeGet(ctx, 0, 100, false)
+	_, _, _, _ = other.rangeGet(ctx, 0, 100, false)
 	if calls.Load() != 2 {
 		t.Fatalf("cooldown never recovered: %d", calls.Load())
 	}
@@ -83,14 +83,14 @@ func TestSharedCDNPauseDoesNotInterruptAnEstablishedHealthyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.eng.releaseFile(f)
-	body, _, err := f.rangeGet(t.Context(), 0, 100, false)
+	body, _, _, err := f.rangeGet(t.Context(), 0, 100, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body.Close()
 	p, _ := f.payload()
 	_ = r.eng.pauseMedia(p.Provider, p.URL, http.StatusTooManyRequests, time.Minute)
-	body, _, err = f.rangeGet(t.Context(), 101, 200, false)
+	body, _, _, err = f.rangeGet(t.Context(), 101, 200, false)
 	if err != nil {
 		t.Fatalf("another file's rate limit stopped a healthy viewer: %v", err)
 	}

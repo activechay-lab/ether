@@ -101,6 +101,11 @@ type Engine struct {
 	gate    *hostGate
 	backoff *hostBackoff
 
+	// recent records edges that served completed media blocks, per provider
+	// account, so a file whose provider-pinned edge died can replay its
+	// link on another edge of the same account (see reroute).
+	recent recentEdges
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -387,12 +392,15 @@ func (e *Engine) CheckRelease(ctx context.Context, releaseID string, payload []b
 	if core.IsBackgroundCheck(ctx) {
 		// Keep budget and cancellation on this request instead of starting a
 		// shared durable block fetch with the engine lifetime.
-		body, _, err := f.rangeGet(ctx, 0, min(f.size-1, 65535), false)
+		body, _, served, err := f.rangeGet(ctx, 0, min(f.size-1, 65535), false)
 		if err != nil {
 			return false, err
 		}
 		defer body.Close()
 		_, err = io.CopyN(io.Discard, body, min(f.size, 65536))
+		if err == nil && served.host != "" {
+			f.e.recent.record(served.provider, served.host, f.e.now()) // a sample delivered whole counts
+		}
 		return err == nil, err
 	}
 	// With the head already cached, a 1-byte range request still proves the
@@ -403,7 +411,7 @@ func (e *Engine) CheckRelease(ctx context.Context, releaseID string, payload []b
 	cached := !inFlight && f.presentLocked(0)
 	f.bmu.Unlock()
 	if cached {
-		body, _, err := f.rangeGet(ctx, 0, 0, true)
+		body, _, _, err := f.rangeGet(ctx, 0, 0, true)
 		if err != nil {
 			return false, err
 		}
@@ -712,9 +720,12 @@ const (
 // node that keeps failing, is not a new route, so one wave asks for up to
 // rerouteLinks links and then for the same file on another provider.
 // Readers that failed together share one wave, and waves are spaced per
-// file, so an outage cannot loop on the provider API. It reports whether
-// the file now streams from another node.
-func (f *remoteFile) reroute(ctx context.Context, failed string, gen int) bool {
+// file, so an outage cannot loop on the provider API. When the provider
+// pins the failed node into every regenerated link, the wave's last move
+// is replaying the file's link on a CDN edge the engine has seen live
+// (resumeOnAnotherEdge). It reports whether the file now streams from
+// another node.
+func (f *remoteFile) reroute(ctx context.Context, failed string, gen int, start int64) bool {
 	if f.e.svc == nil || f.e.backoff == nil {
 		return false
 	}
@@ -758,6 +769,15 @@ func (f *remoteFile) reroute(ctx context.Context, failed string, gen int) bool {
 		if moved = usable(np.URL); moved {
 			f.e.log.Info("debrid release moved off a failed media host", "release", f.id,
 				"failedHost", urlHost(failed), "provider", np.Provider, "host", urlHost(np.URL))
+		}
+	}
+	if !moved && wctx.Err() == nil {
+		var replayed bool
+		moved, replayed = f.resumeOnAnotherEdge(wctx, failed, usable, start)
+		if replayed { // moved without replayed: a refresh won the move, not this wave
+			np, _ := f.payload()
+			f.e.log.Info("debrid media link replayed on an edge seen live", "release", f.id,
+				"failedHost", urlHost(failed), "host", urlHost(np.URL))
 		}
 	}
 	wait := rerouteSpacing
@@ -1034,7 +1054,7 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 	start := first * f.e.block
 	end := min((first+int64(len(fls)))*f.e.block, f.size) - 1
 	began := f.e.now()
-	body, tm, err := f.rangeGet(httpCtx, start, end, mode == fetchUrgent || mode == fetchDurable)
+	body, tm, served, err := f.rangeGet(httpCtx, start, end, mode == fetchUrgent || mode == fetchDurable)
 	if err == nil {
 		remaining.Store(end + 1 - start)
 	}
@@ -1078,7 +1098,7 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 				_, gen := f.payload()
 				f.moveFromHost(reqCtx, gen)
 			}
-			body, tm, err = f.rangeGet(httpCtx, idx*f.e.block, end, mode == fetchUrgent || mode == fetchDurable)
+			body, tm, served, err = f.rangeGet(httpCtx, idx*f.e.block, end, mode == fetchUrgent || mode == fetchDurable)
 			if err != nil {
 				break
 			}
@@ -1092,6 +1112,11 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 			}
 			fail(err)
 			break
+		}
+		if served.host != "" {
+			// A block this edge delivered whole is evidence it can carry
+			// a replay (recentEdges); header-only answers never get here.
+			f.e.recent.record(served.provider, served.host, f.e.now())
 		}
 		got += int64(len(buf))
 		remaining.Store(max(0, end+1-(idx*f.e.block+int64(len(buf)))))
@@ -1257,7 +1282,7 @@ type timing struct{ connect, ttfb time.Duration }
 // 404, 410 or expiry. Errors wrap core.ErrSourceUnavailable (transient),
 // core.ErrArticleMissing (the link keeps failing) or core.ErrArticleCorrupt
 // (the file is not what the payload describes).
-func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool) (result io.ReadCloser, measured timing, resultErr error) {
+func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool) (result io.ReadCloser, measured timing, served servedBy, resultErr error) {
 	if isAnalysisRead(ctx) && f.e.svc != nil {
 		totals := &f.e.svc.analysisTotals
 		totals.active.Add(1)
@@ -1273,7 +1298,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		payload, _ := f.payload()
 		readCtx, done, err := f.e.svc.beginAnalysisRange(ctx, payload.Provider)
 		if err != nil {
-			return nil, timing{}, err
+			return nil, timing{}, servedBy{}, err
 		}
 		ctx = readCtx
 		release = done
@@ -1284,34 +1309,34 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		if isAnalysisRead(ctx) {
 			payload, _ := f.payload()
 			if f.e.svc == nil {
-				return nil, timing{}, analysisUnavailable()
+				return nil, timing{}, servedBy{}, analysisUnavailable()
 			}
 			if err := f.e.svc.paceAnalysis(ctx, payload.Provider); err != nil {
-				return nil, timing{}, err
+				return nil, timing{}, servedBy{}, err
 			}
 		}
 		u, gen, err := f.link(ctx, false)
 		if err != nil {
-			return nil, timing{}, err
+			return nil, timing{}, servedBy{}, err
 		}
-		if attempt == 0 && f.e.backoff != nil && f.e.backoff.down(urlHost(u)) && f.reroute(ctx, u, gen) {
+		if attempt == 0 && f.e.backoff != nil && f.e.backoff.down(urlHost(u)) && f.reroute(ctx, u, gen, start) {
 			// The link points at a node other requests just found dead.
 			if u, gen, err = f.link(ctx, false); err != nil {
-				return nil, timing{}, err
+				return nil, timing{}, servedBy{}, err
 			}
 		}
 		payload, _ := f.payload()
 		if isAnalysisRead(ctx) {
 			if err := f.e.svc.checkAnalysisAccount(payload.Provider); err != nil {
-				return nil, timing{}, err
+				return nil, timing{}, servedBy{}, err
 			}
 		}
 		if err := f.checkMediaPause(payload.Provider, u); err != nil {
-			return nil, timing{}, err
+			return nil, timing{}, servedBy{}, err
 		}
 		if attempt > 0 && !rerouted {
 			if err := sleep(ctx, time.Duration(attempt*attempt)*150*time.Millisecond); err != nil {
-				return nil, timing{}, err
+				return nil, timing{}, servedBy{}, err
 			}
 		}
 		rerouted = false
@@ -1332,10 +1357,10 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		}
 		if err != nil {
 			if errors.Is(err, core.ErrBudgetExhausted) {
-				return nil, tm, err
+				return nil, tm, servedBy{}, err
 			}
 			if ctx.Err() != nil {
-				return nil, tm, ctx.Err()
+				return nil, tm, servedBy{}, ctx.Err()
 			}
 			lastErr = err
 			if errors.Is(err, core.ErrStreamLimit) {
@@ -1345,7 +1370,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 			// this range on a fresh link on a live node, for read-ahead and
 			// prefetch too: they meet the dead node first. A network outage
 			// never establishes that the file is missing.
-			if f.reroute(ctx, u, gen) {
+			if f.reroute(ctx, u, gen, start) {
 				rerouted = true
 				continue
 			}
@@ -1360,7 +1385,12 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		case resp.StatusCode == http.StatusPartialContent:
 			if err := checkContentRange(resp.Header.Get("Content-Range"), start, f.size); err != nil {
 				resp.Body.Close()
-				return nil, tm, directMediaError(payload, err)
+				return nil, tm, servedBy{}, directMediaError(payload, err)
+			}
+			if !payload.IsDirect() && !payload.IsPluginProvider() {
+				// This edge answered with the right bytes. It becomes a
+				// replay candidate only when a reader finishes the block.
+				served = servedBy{payload.Provider, resp.Request.URL.Host}
 			}
 			f.mu.Lock()
 			if final := resp.Request.URL.String(); payload.IsDirect() && final != u && f.gen == gen {
@@ -1370,13 +1400,13 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 			f.linkFails = 0
 			f.mediaHealthyKey = mediaPauseKey(payload.Provider, u)
 			f.mu.Unlock()
-			return resp.Body, tm, nil
+			return resp.Body, tm, served, nil
 		case resp.StatusCode == http.StatusOK && start == 0 && resp.ContentLength == f.size:
 			// A server that ignores Range but serves exactly this file.
 			f.mu.Lock()
 			f.mediaHealthyKey = mediaPauseKey(payload.Provider, u)
 			f.mu.Unlock()
-			return readCloser{Reader: io.LimitReader(resp.Body, end+1), Closer: resp.Body}, tm, nil
+			return readCloser{Reader: io.LimitReader(resp.Body, end+1), Closer: resp.Body}, tm, servedBy{}, nil
 		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden ||
 			resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusOK:
 			// A 200 that is not this file (hosters answer dead links with an
@@ -1392,15 +1422,15 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 			fails := f.linkFails
 			f.mu.Unlock()
 			if fails > maxLinkFailures {
-				return nil, tm, directMediaError(payload, fmt.Errorf("debrid: link for %s keeps failing (HTTP %d): %w", f.name(), resp.StatusCode, core.ErrArticleMissing))
+				return nil, tm, servedBy{}, directMediaError(payload, fmt.Errorf("debrid: link for %s keeps failing (HTTP %d): %w", f.name(), resp.StatusCode, core.ErrArticleMissing))
 			}
 			if _, _, err := f.link(ctx, true, gen); err != nil {
-				return nil, tm, err
+				return nil, tm, servedBy{}, err
 			}
 			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
 		case resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
 			drain(resp)
-			return nil, tm, fmt.Errorf("debrid: %s is shorter than expected: %w", f.name(), core.ErrArticleCorrupt)
+			return nil, tm, servedBy{}, fmt.Errorf("debrid: %s is shorter than expected: %w", f.name(), core.ErrArticleCorrupt)
 		case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
 			ra := retryAfter(resp.Header.Get("Retry-After"))
 			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -1423,7 +1453,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 					if attempt == 0 && urgent && ra > 0 && ra <= 3*time.Second {
 						jitter := time.Duration(uint64(start)%250) * time.Millisecond
 						if err := sleep(ctx, ra+jitter); err != nil {
-							return nil, tm, err
+							return nil, tm, servedBy{}, err
 						}
 						continue
 					}
@@ -1440,7 +1470,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 						}
 					}
 				}
-				return nil, tm, pauseErr
+				return nil, tm, servedBy{}, pauseErr
 			}
 			drain(resp)
 		default:
@@ -1449,7 +1479,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		}
 	}
 	f.e.stats.errors.Add(1)
-	return nil, timing{}, fmt.Errorf("debrid: read %s: %w: %v", f.name(), core.ErrSourceUnavailable, lastErr)
+	return nil, timing{}, servedBy{}, fmt.Errorf("debrid: read %s: %w: %v", f.name(), core.ErrSourceUnavailable, lastErr)
 }
 
 type readCloser struct {

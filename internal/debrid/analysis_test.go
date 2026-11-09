@@ -119,7 +119,7 @@ func TestAnalysis429StopsRequestsAcrossFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rig.eng.releaseFile(file)
-	_, _, err = file.rangeGet(AnalysisContext(ctx), 0, 100, false)
+	_, _, _, err = file.rangeGet(AnalysisContext(ctx), 0, 100, false)
 	if err == nil || requests.Load() != 1 {
 		t.Fatal("expected single429", err, requests.Load())
 	}
@@ -129,7 +129,7 @@ func TestAnalysis429StopsRequestsAcrossFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rig.eng.releaseFile(other)
-	_, _, err = other.rangeGet(AnalysisContext(ctx), 0, 100, false)
+	_, _, _, err = other.rangeGet(AnalysisContext(ctx), 0, 100, false)
 	if err == nil || requests.Load() != 1 {
 		t.Fatal("cooldown allowed another account request", err, requests.Load())
 	}

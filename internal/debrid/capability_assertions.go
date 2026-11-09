@@ -11,4 +11,7 @@ var (
 	_ core.MetadataReaderAt  = (*httpSource)(nil)
 	_ core.PrefetchReaderAt  = (*httpSource)(nil)
 	_ core.DirectPlayRetrier = (*httpSource)(nil)
+
+	_ edgePortableLinks = (*torBox)(nil)
+	_ cdnEdgeApprover   = (*torBox)(nil)
 )
