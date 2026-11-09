@@ -40,7 +40,6 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 		"github.com/braedonsaunders/ether/internal/subtitles": true,
 		"github.com/braedonsaunders/ether/internal/tmdb":      true,
 		"github.com/braedonsaunders/ether/internal/transcode": true,
-		"github.com/braedonsaunders/ether/internal/trickplay": true,
 	}
 	root := filepath.Join("..", "plex")
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
