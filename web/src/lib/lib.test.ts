@@ -549,14 +549,34 @@ describe("health", () => {
       catalogHealth({ movies: 0, shows: 0, sync: { running: true, titlesSeen: 2500 } }, now)
         .summary,
     ).toBe("Syncing… 2,500 checked");
-    for (const running of [false, true]) {
-      const failed = catalogHealth(
-        { lastSync: now.toISOString(), sync: { running, lastError: "fixture: page failed" } },
-        now,
-      );
-      expect(failed.level).toBe("warn");
-      expect(failed.details.some((line) => line.includes("fixture: page failed"))).toBe(true);
-    }
+    // A finished attempt's error warns; while its retry is running the
+    // card shows the sync in progress instead of asking for a fix, with
+    // the error kept in the details (#407).
+    const failed = catalogHealth(
+      { lastSync: now.toISOString(), sync: { running: false, lastError: "fixture: page failed" } },
+      now,
+    );
+    expect(failed.level).toBe("warn");
+    expect(failed.details.some((line) => line.includes("fixture: page failed"))).toBe(true);
+    const retrying = catalogHealth(
+      {
+        browsableMovies: 10,
+        browsableShows: 5,
+        lastSync: now.toISOString(),
+        sync: { running: true, titlesSeen: 40, lastError: "fixture: page failed" },
+      },
+      now,
+    );
+    expect(retrying.level).toBe("ok");
+    expect(retrying.summary).toBe("15 titles · syncing (40 checked)");
+    expect(retrying.details.some((line) => line.includes("fixture: page failed"))).toBe(true);
+    // And once that retry succeeds the error is gone entirely.
+    const recovered = catalogHealth(
+      { browsableMovies: 10, browsableShows: 5, lastSync: now.toISOString(), sync: {} },
+      now,
+    );
+    expect(recovered.level).toBe("ok");
+    expect(recovered.details.some((line) => line.includes("fixture: page failed"))).toBe(false);
     const correcting = catalogHealth(
       {
         lastSync: "2026-10-30T00:00:00Z",
