@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -84,10 +87,12 @@ func (i *instance) walk(r *http.Request, l login, kind string, emit func(login, 
 	return nil
 }
 
-// exportPages hands view's export pages to each in order, three stages
-// apart: while each encodes a page, sign signs the next one (into a login of
-// its own) and the reader reads the one after. At most four pages are held.
-// It returns nil only after the last page; both stages stop with each.
+// exportPages hands view's export pages to each in order. While each
+// encodes a page, signers sign the next ones concurrently (each into a login
+// of its own) and the reader reads ahead: at most signers+3 pages are held.
+// Signing a page (compact ids, artwork listing, sealing) is the slowest
+// stage, and pages sign independently. It returns nil only after the last
+// page; every stage stops with each.
 func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login, view string, sign func(frontend.LibraryExportPage) (login, error), each func(frontend.LibraryExportPage, login) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	type result struct {
@@ -95,9 +100,30 @@ func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login
 		l    login
 		err  error
 	}
-	read, signed := make(chan result, 1), make(chan result, 1)
+	signers := max(2, min(4, runtime.GOMAXPROCS(0)))
+	// ordered carries each page's slot in read order; work hands the same
+	// slot to a signer, which fills it.
+	type slot struct {
+		res  result
+		done chan struct{}
+	}
+	ordered, work := make(chan *slot, signers), make(chan *slot)
+	var wg sync.WaitGroup
+	for range signers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sl := range work {
+				if sl.res.err == nil {
+					sl.res.l, sl.res.err = sign(sl.res.page)
+				}
+				close(sl.done)
+			}
+		}()
+	}
 	go func() {
-		defer close(read)
+		defer close(work)
+		defer close(ordered)
 		after := frontend.RatingKey(0)
 		for {
 			page, err := exporter.ExportLibraryPage(ctx, l.viewer, l.device, view, after, pageSize)
@@ -108,9 +134,17 @@ func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login
 			case !page.Done && page.Next <= after:
 				err = errors.New("invalid export cursor")
 			}
+			sl := &slot{res: result{page: page, err: err}, done: make(chan struct{})}
 			select {
-			case read <- result{page: page, err: err}:
+			case ordered <- sl:
 			case <-ctx.Done():
+				return
+			}
+			select {
+			case work <- sl:
+			case <-ctx.Done():
+				sl.res.err = ctx.Err()
+				close(sl.done)
 				return
 			}
 			if err != nil || page.Done {
@@ -119,38 +153,26 @@ func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login
 			after = page.Next
 		}
 	}()
-	go func() {
-		defer close(signed)
-		for res := range read {
-			if res.err == nil {
-				res.l, res.err = sign(res.page)
-			}
-			select {
-			case signed <- res:
-			case <-ctx.Done():
-				return
-			}
-			if res.err != nil {
-				return
-			}
-		}
-	}()
 	defer func() {
-		// Neither stage outlives the request handler.
+		// No stage outlives the request handler.
 		cancel()
-		for range signed {
+		for range ordered {
 		}
-		for range read {
-		}
+		wg.Wait()
 	}()
-	for res := range signed {
-		if res.err != nil {
-			return res.err
+	for sl := range ordered {
+		select {
+		case <-sl.done:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-		if err := each(res.page, res.l); err != nil {
+		if sl.res.err != nil {
+			return sl.res.err
+		}
+		if err := each(sl.res.page, sl.res.l); err != nil {
 			return err
 		}
-		if res.page.Done {
+		if sl.res.page.Done {
 			return nil
 		}
 	}
@@ -248,13 +270,32 @@ func (i *instance) catalog(w http.ResponseWriter, r *http.Request, l login, acti
 			}
 		}
 		jsonResponse(w, out)
+		i.prepareLists(r, l, kind)
 		return
 	}
 	if strings.HasSuffix(action, "info") {
 		i.info(w, r, l, kind)
 		return
 	}
+	l.base, l.hasBase = i.base(r), true
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if i.exports != nil && i.cachedList(w, r, l, kind) {
+		return
+	}
+	n, err := i.writeList(r, l, kind, w)
+	if err != nil {
+		if n == 0 {
+			http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		panic(http.ErrAbortHandler)
+	}
+}
+
+// writeList writes kind's listing (one category, or every one) as a JSON
+// array, and reports how many rows it wrote. Nothing reaches w before the
+// first row; a failure after it leaves the array unterminated.
+func (i *instance) writeList(r *http.Request, l login, kind string, w io.Writer) (int, error) {
 	// A whole library is one response: write it in large chunks, not two
 	// writes per row through the response writer's wrappers.
 	out := bufio.NewWriterSize(w, 64<<10)
@@ -276,17 +317,16 @@ func (i *instance) catalog(w http.ResponseWriter, r *http.Request, l login, acti
 		return err
 	})
 	if err != nil {
-		if n == 0 {
-			http.Error(w, "Unavailable", http.StatusServiceUnavailable)
-			return
+		if n > 0 {
+			_ = out.Flush()
 		}
-		panic(http.ErrAbortHandler)
+		return n, err
 	}
 	if n == 0 {
 		_, _ = out.WriteString("[")
 	}
 	_, _ = out.WriteString("]")
-	_ = out.Flush()
+	return n, out.Flush()
 }
 func (i *instance) info(w http.ResponseWriter, r *http.Request, l login, kind string) {
 	param := "vod_id"
@@ -399,7 +439,10 @@ func (i *instance) pageImages(r *http.Request, l login, titles []frontend.Title)
 		}
 		return nil
 	}
-	base := i.base(r)
+	base := l.base
+	if !l.hasBase {
+		base = i.base(r)
+	}
 	// One signing per export page (pageSize titles).
 	for start := 0; start < len(titles); start += pageSize {
 		page := titles[start:min(start+pageSize, len(titles))]
@@ -407,6 +450,11 @@ func (i *instance) pageImages(r *http.Request, l login, titles []frontend.Title)
 		grants, err := signer.SignPage(frontend.WithoutArtworkMetadata(r.Context()), frontend.ImagePageRequest{Credential: l.password, Device: l.device, Titles: page, Kinds: []string{frontend.ImagePoster}})
 		if err != nil {
 			return err
+		}
+		if l.keep != nil {
+			if err := l.keep(grants); err != nil {
+				return err
+			}
 		}
 		for _, t := range page {
 			l.artwork[t.Key] = ""

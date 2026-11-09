@@ -540,18 +540,46 @@ grow with the library.
    the gate covers it.
 
 
-## Xtream export (v0.3.5)
+## Xtream listings (v0.3.6)
 
-The focused synthetic checks use 100,001 movie titles and 250-row export pages.
-On the development Mac, the HTTP handler wrote 401 pages (about 31 MB JSON) to
-a discard writer in approximately 0.55 seconds. This isolates formatting and
-batched compact-ID allocation; it does not include real artwork signing,
-network transfer or client parsing. A separate first-pass walk of 100,001 rows
-through the real in-memory SQLite catalogue completed in approximately 13.1
-seconds, excluding fixture insertion. The keyset cursor avoids growing offsets
-and count queries. Listing retains a page at a time; series detail has a
-20,000-episode bound.
+IPTV apps download a whole library in one `get_vod_streams` or `get_series`
+response. Ether keeps those listings encoded on disk
+(`internal/frontend/kit/listcache`, under `<data>/cache/frontends/xtream`,
+capped at 1 GiB, emptied at start), so a list request streams a file with an
+`ETag`, `Last-Modified`, range support and a gzip copy instead of reading,
+authorizing, signing and encoding the library again.
 
-Reproduce with `CGO_ENABLED=0 go test ./internal/frontends/xtream -run TestLargeCatalogueExport -v`
-and `CGO_ENABLED=0 go test ./internal/catalog -run TestXtreamLargeCatalogueKeyset -v`.
-These are local synthetic checks, not real IPTV player app playback evidence.
+- **Exact policy.** A listing fills a slot (list kind, category, media origin,
+  viewer). Its stamp is the experience's `ExportPolicy` for each listed view
+  (the active viewer's restrictions, hidden titles, blocked facts, the plex.tv
+  share predicate, the viewer's catalogue rules) and the host's config,
+  account, safety, hidden-title and image-revocation generations. A listing is
+  never served to a request with another stamp.
+- **Bounded staleness.** A catalogue write retires the listing at once when the
+  viewer's policy judges titles on their facts (a rating cap, share filter,
+  blocked genres or keywords, section limits, own or household catalogue
+  rules). Otherwise the listing is served for up to 30 minutes after it was
+  read and rebuilt behind the response after a write, or once it is 2 minutes
+  old.
+- **Never slower than encoding.** With no servable listing a request follows the
+  build as it writes, getting bytes as soon as each page is encoded. Signing in
+  (`player_api`) and listing categories start the build ahead of the list. A
+  slot is not rebuilt speculatively again until its last speculative build was
+  fetched.
+- **Artwork.** Poster URLs are content tags whose claims live ten minutes in
+  memory. A listing keeps the page grants it signed, and serving it re-arms them
+  for the requesting credential (`ImagePageRenewer`) at most every 4 minutes.
+  Serve still rechecks credential, revocation and artwork policy.
+- **Build.** Pages are read in key order, signed by up to four concurrent signers
+  (signing is the slowest stage) and encoded in order.
+
+Performance gate, large tier (249k movies, 128 MB listing), development Mac
+under load from other jobs, `GOMAXPROCS=3`: building the movie listing takes
+8.0–9.0 s (it was 10.5–11 s with one signer). A served `get_vod_streams`
+answers in about 350 ms warm (2 statements), and `get_series` in about 14 ms.
+Before this, every request encoded the library itself and hit the gate's 15 s
+client cap on CI.
+
+Reproduce with `ETHER_PERF_GATE=1 ETHER_PERF_GATE_CLIENTS=xtream go test ./internal/app -run 'TestPerformanceGate$'`.
+The semantics are covered by `TestXtreamListingNeverServesStaleVisibility` and
+`TestListingLifecycle`.

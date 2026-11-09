@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -295,7 +296,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 				return ""
 			}
 			return a.cfg.Get().Catalog.Language
-		}, AudioOrder: trackprefs.AudioOrder, PickAudio: experiencepkg.PickAudio, PersonalHomes: a.personalHomeDisk()}
+		}, AudioOrder: trackprefs.AudioOrder, PickAudio: experiencepkg.PickAudio, PersonalHomes: a.personalHomeDisk(), CacheDir: a.frontendCacheDir(id)}
 	})
 	r.control = newFrontendControl(r.registry, a.cfg)
 	r.control.listeners.log = a.log
@@ -628,6 +629,33 @@ func (r *frontendRuntime) close() {
 
 // browseFreshness is the stamp of a cached Jellyfin or Emby page. Image
 // grants last ten minutes, so the art bucket rotates well inside that.
+// frontendCacheDir is the node-local directory a frontend may fill with
+// files it regenerates (Xtream's whole-library exports), under the data
+// directory's cache, which Kubernetes keeps on the writable data volume.
+func (a *App) frontendCacheDir(id frontend.Protocol) string {
+	if a == nil || a.opts.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(a.opts.DataDir, "cache", "frontends", string(id))
+}
+
+// backgroundBusy counts work mounted frontends run behind their
+// requests (Xtream export builds).
+func (r *frontendRuntime) backgroundBusy() int {
+	if r == nil || r.registry == nil {
+		return 0
+	}
+	busy := 0
+	for _, d := range r.registry.Descriptors() {
+		if inst, ok := r.registry.Instance(d.ID); ok {
+			if b, ok := inst.(interface{ BackgroundBusy() int }); ok {
+				busy += b.BackgroundBusy()
+			}
+		}
+	}
+	return busy
+}
+
 func (a *App) browseFreshness() frontend.PageFreshness {
 	f := frontend.PageFreshness{ArtBucket: time.Now().Unix() / 120}
 	if a == nil {

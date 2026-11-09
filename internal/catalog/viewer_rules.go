@@ -314,6 +314,16 @@ func (c *Catalog) ViewerRulesRevision(u *core.User) int64 {
 	return c.viewerRules.entries[u.ID].revision
 }
 
+// ViewerRulesJudge is u's own rules revision and whether the rules that
+// apply to u (their own, or the household's they inherit) judge titles on
+// their facts, so that a catalogue write can change what u may see.
+func (c *Catalog) ViewerRulesJudge(u *core.User) (int64, bool) {
+	if u == nil {
+		return 0, !c.visibilityFilter().Passive()
+	}
+	return c.ViewerRulesRevision(u), !c.viewerFilter(u.ID, false).Passive()
+}
+
 // ReadViewerRulesRevision is an indexed point read, also used by durable Home snapshots.
 func ReadViewerRulesRevision(ctx context.Context, db *sql.DB, id int64) (int64, error) {
 	var revision int64

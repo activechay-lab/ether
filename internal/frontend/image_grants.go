@@ -73,6 +73,22 @@ type ImagePageSigner interface {
 	SignPage(context.Context, ImagePageRequest) ([]ImageBatchItem, error)
 }
 
+// ImagePageRenewal re-arms images SignPage sealed earlier, for Credential.
+// Items are SignPage results, unchanged.
+type ImagePageRenewal struct {
+	Credential string
+	Device     core.Device
+	Items      []ImageBatchItem
+}
+
+// ImagePageRenewer keeps a cached listing's image URLs valid past the page
+// grant lifetime: each renewal starts a full lifetime for Credential. It
+// authorizes nothing by itself; Serve still rechecks the credential,
+// expiry, revocation and current artwork policy.
+type ImagePageRenewer interface {
+	RenewPage(context.Context, ImagePageRenewal) error
+}
+
 // ItemArtwork is an optional cache-only authorization path for issuing grid
 // artwork without computing playback versions or tracks.
 type ItemArtwork interface {

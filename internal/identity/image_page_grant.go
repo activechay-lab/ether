@@ -199,6 +199,53 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 	return out, nil
 }
 
+// RenewPage gives tags SignPage sealed earlier a full lifetime for
+// req.Credential, as signing the page again would, without listing its
+// artwork again. A tag names the image it was sealed for; Serve still
+// rechecks the credential, revocation and the viewer's artwork policy, so a
+// renewal can only keep serving what that viewer may already see.
+func (s *ImageGrantService) RenewPage(ctx context.Context, req frontend.ImagePageRenewal) error {
+	source, ok := grantHash(req.Credential)
+	if !ok {
+		return core.ErrUnauthorized
+	}
+	viewer, err := reqmemo.Do(ctx, "image-page-grant:"+string(s.surface)+":"+source, func() (*core.Viewer, error) {
+		return s.grants.Resolve(ctx, string(s.surface), req.Credential)
+	})
+	if err != nil {
+		return err
+	}
+	if viewer == nil {
+		return core.ErrUnauthorized
+	}
+	deviceJSON, err := json.Marshal(req.Device)
+	if err != nil || len(deviceJSON) > 4096 {
+		return core.ErrUnauthorized
+	}
+	expires, gen := s.pageExpires(), s.Generation()
+	s.shortMu.Lock()
+	defer s.shortMu.Unlock()
+	if s.short == nil {
+		s.short = map[string]pageClaims{}
+	}
+	for _, item := range req.Items {
+		if item.Item == 0 {
+			continue
+		}
+		for _, g := range item.Images {
+			img := g.Image
+			if !isShortImageTag(g.Secret) || img.Kind == "" || img.Path == "" || len(img.Path) > 1024 || len(img.Kind) > 128 || len(img.Tag) > 256 || len(img.Subject) > 256 {
+				continue
+			}
+			s.short[g.Secret] = pageClaims{
+				Item: int64(item.Item), Kind: img.Kind, Path: img.Path, Tag: img.Tag, Subject: img.Subject,
+				Device: deviceJSON, Source: source, Viewer: viewer.ID, Expires: expires, Gen: gen,
+			}
+		}
+	}
+	return nil
+}
+
 func (s *ImageGrantService) sealPageImages(ctx context.Context, master []byte, source string, deviceJSON []byte, viewer int64, expires int64, key core.RatingKey, images []frontend.Image, complete bool, wanted map[string]bool) (frontend.ImageBatchItem, error) {
 	item := frontend.ImageBatchItem{Item: key, Authoritative: complete}
 	if !complete {

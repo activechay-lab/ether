@@ -78,6 +78,10 @@ type ServiceDeps struct {
 	// content-rating cap, and parsed plex.tv share filters. Nil keeps the
 	// catalogue scan, which still applies filters the SQL page cannot see.
 	PageExclusions func(context.Context, *core.User, core.MediaType) LibraryPageExclusions
+	// ViewerRules is the revision of a viewer's own catalogue rules and
+	// whether the rules that apply to them (their own or the household's)
+	// judge titles on their facts. Optional; ExportPolicy stamps it.
+	ViewerRules func(*core.User) (revision int64, judged bool)
 	// FacetFilter counts a facet's values over the browsable titles matching
 	// a filter in SQL. With PageExclusions, library facet lists use it
 	// instead of walking the library. Optional.

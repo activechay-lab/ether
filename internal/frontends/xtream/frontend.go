@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/listcache"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/mediasafety"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
 )
@@ -27,8 +28,9 @@ func (Frontend) Mount(_ context.Context, host frontend.Host) (frontend.Instance,
 	if _, ok := host.Identity.(frontend.AppPasswordIdentity); !ok || host.Experience == nil || host.LiveTV == nil || host.Sessions == nil {
 		return nil, errors.New("xtream requires app passwords, experience, live TV and sessions")
 	}
-	i := &instance{host: host}
+	i := &instance{host: host, exports: listcache.New(host.CacheDir)}
 	if err := i.registerRoutes(); err != nil {
+		i.exports.Close()
 		return nil, err
 	}
 	return i, nil
@@ -37,6 +39,8 @@ func (Frontend) Mount(_ context.Context, host frontend.Host) (frontend.Instance,
 type instance struct {
 	host   frontend.Host
 	router *route.Router
+	// exports keeps encoded whole-library listings; nil encodes each one.
+	exports *listcache.Store
 }
 
 func (i *instance) registerRoutes() error {
@@ -86,8 +90,14 @@ func (*instance) Discovery() []frontend.Announcer { return nil }
 func (*instance) Status(context.Context) frontend.Status {
 	return frontend.Status{TargetVersion: "Xtream", Conformance: "partial"}
 }
-func (*instance) Close(context.Context) error { return nil }
-func (i *instance) Routes() []route.Route     { return i.router.Routes() }
+func (i *instance) Close(context.Context) error {
+	i.exports.Close()
+	return nil
+}
+func (i *instance) Routes() []route.Route { return i.router.Routes() }
+
+// BackgroundBusy counts listing builds and compressions in flight.
+func (i *instance) BackgroundBusy() int { return i.exports.Busy() }
 
 type login struct {
 	viewer             *frontend.Viewer
@@ -97,6 +107,19 @@ type login struct {
 	ids                map[frontend.RatingKey]int32
 	channels           map[string]int32
 	groups             map[string]int32
+	// base is the request's media origin once hasBase is set; listings sign
+	// artwork under it instead of asking for it again per page.
+	base    string
+	hasBase bool
+	// keep, when set, receives each listing page's signed artwork.
+	keep func([]frontend.ImageBatchItem) error
+}
+
+// detached is l with maps of its own, for work that outlives the request.
+func (l login) detached() login {
+	l.artwork, l.ids = make(map[frontend.RatingKey]string), make(map[frontend.RatingKey]int32)
+	l.channels, l.groups = make(map[string]int32), make(map[string]int32)
+	return l
 }
 
 // forPage is l with artwork and id maps of its own, for one listing page
@@ -199,6 +222,8 @@ func (i *instance) api(w http.ResponseWriter, r *http.Request, l login) {
 		}
 		now := time.Now().UTC()
 		jsonResponse(w, map[string]any{"user_info": map[string]any{"username": l.username, "password": l.password, "auth": 1, "status": "Active", "message": "Ether", "exp_date": nil, "is_trial": "0", "active_cons": strconv.Itoa(i.active(r, l)), "created_at": "0", "max_connections": "1", "allowed_output_formats": []string{"m3u8"}}, "server_info": map[string]any{"url": base.Hostname(), "port": port, "https_port": "443", "server_protocol": base.Scheme, "rtmp_port": "0", "timezone": "UTC", "timestamp_now": now.Unix(), "time_now": now.Format("2006-01-02 15:04:05")}})
+		// Apps sign in, then list categories and whole libraries.
+		i.prepareLists(r, l, "movie", "show")
 	case "get_live_categories", "get_live_streams":
 		i.live(w, r, l, action)
 	case "get_short_epg", "get_simple_data_table":
