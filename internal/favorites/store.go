@@ -48,9 +48,12 @@ type Options struct {
 	Active        func(context.Context, int64) (*core.User, error)
 	Allowed       func(context.Context, *core.User, Subject) bool
 	AllowedTitles func(context.Context, *core.User, []core.RatingKey) (bool, error)
-	Changed       func(context.Context, int64, Subject)
-	Now           func() time.Time
-	Marked        core.TransactionalMarkedPlaylists
+	// Preload, when set, reads the titles a title list is about to check
+	// (Allowed, one at a time) in one batch first. Optional.
+	Preload func(context.Context, []core.RatingKey)
+	Changed func(context.Context, int64, Subject)
+	Now     func() time.Time
+	Marked  core.TransactionalMarkedPlaylists
 }
 type Service struct {
 	o   Options
@@ -342,6 +345,19 @@ func (s *Service) List(ctx context.Context, viewer *core.User, kind Kind, limit 
 	rows.Close()
 	if err != nil {
 		return nil, err
+	}
+	if kind == KindTitle && s.o.Preload != nil && len(candidates) > 1 {
+		keys := make([]core.RatingKey, 0, len(candidates))
+		for _, entry := range candidates {
+			if key, err := core.ParseRatingKey(entry.Subject.ID); err == nil {
+				keys = append(keys, key)
+			}
+		}
+		if limit > 0 && len(keys) > limit {
+			// The first limit are checked first; more only when some fail.
+			keys = keys[:limit]
+		}
+		s.o.Preload(ctx, keys)
 	}
 	out := make([]Entry, 0, len(candidates))
 	for _, entry := range candidates {

@@ -1397,10 +1397,14 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []core.Title,
 		// duration are read alongside.
 		o.media, o.mediaExcluded = false, true
 	}
+	// The rendering's own Playable checks (resumed tracks) read the same
+	// series rows as admission.
+	ctx = s.withSeriesRows(ctx, pr.User, ts)
 	ts = s.openableTitles(ctx, pr.User, ts, o.availabilityInSQL || shelfContainsAll(ctx, ts))
 	if len(ts) == 0 {
 		return nil
 	}
+	s.warmTitleDetails(ts, o.storedOnly)
 	if d := s.d.Discovery; d != nil {
 		if d.Ratings != nil {
 			ctx = d.Ratings.WithSettingsSnapshot(ctx)

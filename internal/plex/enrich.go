@@ -42,16 +42,31 @@ type titleEntry struct {
 
 type titleCache struct {
 	fetch func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error)
-	q     *bgQueue
-	now   func() time.Time
-	log   *slog.Logger
+	// prefetch, when set, reads a list's missing details in one batch
+	// (warm) before they are fetched one by one from what it read, so a
+	// hub of episodes costs a few statements for its shows, not a read each.
+	prefetch func(ctx context.Context, keys []frontend.RatingKey)
+	q        *bgQueue
+	now      func() time.Time
+	log      *slog.Logger
 
-	mu    sync.Mutex
-	items *lru.Cache[frontend.RatingKey, *titleEntry]
+	mu       sync.Mutex
+	items    *lru.Cache[frontend.RatingKey, *titleEntry]
+	batching map[frontend.RatingKey]bool // in a warm batch not yet fetched
 }
 
 func newTitleCache(q *bgQueue, now func() time.Time, log *slog.Logger, fetch func(context.Context, frontend.RatingKey) (*frontend.Title, error)) *titleCache {
 	return &titleCache{fetch: fetch, q: q, now: now, log: log, items: lru.New(lru.Options[frontend.RatingKey, *titleEntry]{MaxEntries: titleCacheEntries})}
+}
+
+// stale reports that key has no entry or an expired one. c.mu is held.
+func (c *titleCache) staleLocked(key frontend.RatingKey) (*frontend.Title, bool) {
+	e, ok := c.items.Get(key)
+	if !ok {
+		return nil, true
+	}
+	age := c.now().Sub(e.fetchedAt)
+	return e.t, (e.t != nil && age >= titleCacheTTL) || (e.t == nil && age >= titleCacheRetry)
 }
 
 // get returns the cached detail for key without blocking. A missing or
@@ -59,18 +74,58 @@ func newTitleCache(q *bgQueue, now func() time.Time, log *slog.Logger, fetch fun
 // returned meanwhile.
 func (c *titleCache) get(key frontend.RatingKey) *frontend.Title {
 	c.mu.Lock()
-	var t *frontend.Title
-	refresh := true
-	if e, ok := c.items.Get(key); ok {
-		t = e.t
-		age := c.now().Sub(e.fetchedAt)
-		refresh = (e.t != nil && age >= titleCacheTTL) || (e.t == nil && age >= titleCacheRetry)
-	}
+	t, refresh := c.staleLocked(key)
+	refresh = refresh && !c.batching[key]
 	c.mu.Unlock()
 	if refresh {
 		c.schedule(key)
 	}
 	return t
+}
+
+// warm schedules one background job for the keys of a list about to be
+// rendered whose detail is missing or expired: their stored titles are
+// read in one batch (prefetch), then each is fetched from what it read.
+// The list's own get calls then schedule nothing for them.
+func (c *titleCache) warm(keys []frontend.RatingKey) {
+	if c.prefetch == nil || len(keys) < 2 {
+		return
+	}
+	c.mu.Lock()
+	var batch []frontend.RatingKey
+	for _, key := range keys {
+		if _, stale := c.staleLocked(key); stale && !c.batching[key] {
+			if c.batching == nil {
+				c.batching = map[frontend.RatingKey]bool{}
+			}
+			c.batching[key] = true
+			batch = append(batch, key)
+		}
+	}
+	c.mu.Unlock()
+	if len(batch) == 0 {
+		return
+	}
+	done := func() {
+		c.mu.Lock()
+		for _, key := range batch {
+			delete(c.batching, key)
+		}
+		c.mu.Unlock()
+	}
+	if !c.q.submit("titles:"+strconv.FormatInt(int64(batch[0]), 10)+":"+strconv.Itoa(len(batch)), func(ctx context.Context) {
+		defer done()
+		fctx, cancel := context.WithTimeout(ctx, titleFetchTimeout)
+		defer cancel()
+		if len(batch) > 1 {
+			c.prefetch(fctx, batch)
+		}
+		for _, key := range batch {
+			c.fetchOne(ctx, fctx, key)
+		}
+	}) {
+		done()
+	}
 }
 
 // peek returns the cached detail for key without scheduling a background fetch.
@@ -87,17 +142,22 @@ func (c *titleCache) schedule(key frontend.RatingKey) {
 	c.q.submit("title:"+strconv.FormatInt(int64(key), 10), func(ctx context.Context) {
 		fctx, cancel := context.WithTimeout(ctx, titleFetchTimeout)
 		defer cancel()
-		t, err := c.fetch(fctx, key)
-		if err != nil {
-			if ctx.Err() != nil {
-				return // shutting down: don't record a failure
-			}
-			c.log.Debug("title detail fetch failed", "key", key, "err", err)
-			c.store(key, nil)
-			return
-		}
-		c.put(t)
+		c.fetchOne(ctx, fctx, key)
 	})
+}
+
+// fetchOne fetches key's detail into the cache; ctx is the queue's.
+func (c *titleCache) fetchOne(ctx, fctx context.Context, key frontend.RatingKey) {
+	t, err := c.fetch(fctx, key)
+	if err != nil {
+		if ctx.Err() != nil {
+			return // shutting down: don't record a failure
+		}
+		c.log.Debug("title detail fetch failed", "key", key, "err", err)
+		c.store(key, nil)
+		return
+	}
+	c.put(t)
 }
 
 // put records a detailed title (e.g. one just fetched for a detail page).
@@ -198,6 +258,47 @@ func mergeDetail(t *frontend.Title, d *frontend.Title) {
 	if t.PosterPath == "" {
 		t.PosterPath = d.PosterPath
 	}
+}
+
+// warmTitleDetails schedules, in one batch, the detail a list's rendering
+// will ask the detail cache for (enrich, showOfOpts): movies and shows that
+// lack it, and the shows of seasons and episodes.
+func (s *Server) warmTitleDetails(ts []frontend.Title, storedOnly bool) {
+	if s.titles == nil {
+		return
+	}
+	var keys []frontend.RatingKey
+	seen := map[frontend.RatingKey]bool{}
+	add := func(k frontend.RatingKey) {
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
+	}
+	for i := range ts {
+		t := &ts[i]
+		switch t.Type {
+		case frontend.TypeMovie, frontend.TypeShow:
+			if (t.Key.Kind() == frontend.KindMovie || t.Key.Kind() == frontend.KindShow) && lacksDetail(t) {
+				add(t.Key)
+			}
+		case frontend.TypeSeason, frontend.TypeEpisode:
+			if storedOnly {
+				continue
+			}
+			show := t.ShowKey
+			if show == 0 {
+				show = t.Key.Parent()
+				if t.Type == frontend.TypeEpisode {
+					show = show.Parent()
+				}
+			}
+			if show.Kind() == frontend.KindShow {
+				add(show)
+			}
+		}
+	}
+	s.titles.warm(keys)
 }
 
 // enrich returns t with list-summary gaps filled from the detail cache.

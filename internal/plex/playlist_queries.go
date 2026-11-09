@@ -388,6 +388,9 @@ func (s *Server) playlistItemRows(ctx context.Context, pr *Request, pl *core.Pla
 		out.rows = make([]model.Metadata, 0, len(page))
 	}
 	state := s.stateFor(ctx, pr, page)
+	// Each row's Playable check (resumed tracks) reads its series from one
+	// batch of rows.
+	ctx = s.withSeriesRows(ctx, pr.User, page)
 	for i := range page {
 		md := s.metadata(ctx, pr, &page[i], renderOpts{media: true, state: state})
 		if id := itemIDs[lo+i]; id != 0 {

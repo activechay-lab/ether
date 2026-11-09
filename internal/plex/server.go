@@ -350,6 +350,13 @@ func NewServer(d Deps) *Server {
 		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
 		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
 		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
+		if pre, ok := d.Catalog.(interface {
+			PreloadStored(context.Context, []core.RatingKey)
+		}); ok {
+			// Detail fetches scheduled together (a hub's shows) read their
+			// stored titles in one batch; each fetch then reads the cache.
+			s.titles.prefetch = pre.PreloadStored
+		}
 		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key core.RatingKey, path string) (artworkservice.Palette, error) {
 			var art artworkservice.CollectionArt
 			if c, ok := s.d.Collections.(artworkservice.CollectionArt); ok {

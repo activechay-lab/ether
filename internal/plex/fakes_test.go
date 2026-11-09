@@ -110,6 +110,20 @@ func (c *fakeCatalog) Get(_ context.Context, k core.RatingKey) (*core.Title, err
 	return &t, nil
 }
 
+// CachedVisibilityRows serves the stored rows the mirror would, so hub
+// rendering judges series from rows as it does against the catalogue.
+func (c *fakeCatalog) CachedVisibilityRows(_ context.Context, keys []core.RatingKey, _ core.TitleFacts) (map[core.RatingKey]core.Title, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[core.RatingKey]core.Title{}
+	for _, k := range keys {
+		if t, ok := c.titles[k]; ok && t.Type != core.TypeSeason && !t.Adult && !c.failOnce[k] {
+			out[k] = t
+		}
+	}
+	return out, nil
+}
+
 func (c *fakeCatalog) list(keys []core.RatingKey) []core.Title {
 	var out []core.Title
 	for _, k := range keys {
