@@ -18,6 +18,8 @@ import (
 func init() {
 	store.Register("stats", 11, `CREATE TABLE stats_debrid_days(provider TEXT NOT NULL,day TEXT NOT NULL,requests INTEGER NOT NULL DEFAULT 0,failures INTEGER NOT NULL DEFAULT 0,cached INTEGER NOT NULL DEFAULT 0,not_cached INTEGER NOT NULL DEFAULT 0,blocked INTEGER NOT NULL DEFAULT 0,links_refreshed INTEGER NOT NULL DEFAULT 0,reused INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(provider,day));
 CREATE TABLE stats_stream_days(day TEXT PRIMARY KEY,memory_hits INTEGER NOT NULL DEFAULT 0,disk_hits INTEGER NOT NULL DEFAULT 0,blocks_fetched INTEGER NOT NULL DEFAULT 0,bytes_fetched INTEGER NOT NULL DEFAULT 0,hedges INTEGER NOT NULL DEFAULT 0,hedge_wins INTEGER NOT NULL DEFAULT 0,link_refreshes INTEGER NOT NULL DEFAULT 0,errors INTEGER NOT NULL DEFAULT 0);`)
+	// Bytes the debrid engine fetched through each account.
+	store.Register("stats", 12, `ALTER TABLE stats_debrid_days ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0;`)
 }
 
 // maxSourceDays bounds the Statistics window.
@@ -27,6 +29,8 @@ const maxSourceDays = 90
 type DebridSample struct {
 	ID                                                                     string
 	Requests, Failures, Cached, NotCached, Blocked, LinksRefreshed, Reused int64
+	// Bytes is what the streaming engine fetched through this account.
+	Bytes int64
 }
 
 // StreamSample is the debrid streaming engine's cumulative counters on
@@ -53,12 +57,12 @@ func (s *Service) SnapshotDebrid(ctx context.Context, ps []DebridSample) error {
 	day := s.opts.Now().UTC().Format("2006-01-02")
 	for _, p := range ps {
 		o := s.prevDebrid[p.ID]
-		d := []int64{counterDelta(p.Requests, o.Requests), counterDelta(p.Failures, o.Failures), counterDelta(p.Cached, o.Cached), counterDelta(p.NotCached, o.NotCached), counterDelta(p.Blocked, o.Blocked), counterDelta(p.LinksRefreshed, o.LinksRefreshed), counterDelta(p.Reused, o.Reused)}
+		d := []int64{counterDelta(p.Requests, o.Requests), counterDelta(p.Failures, o.Failures), counterDelta(p.Cached, o.Cached), counterDelta(p.NotCached, o.NotCached), counterDelta(p.Blocked, o.Blocked), counterDelta(p.LinksRefreshed, o.LinksRefreshed), counterDelta(p.Reused, o.Reused), counterDelta(p.Bytes, o.Bytes)}
 		s.prevDebrid[p.ID] = p
 		if allZero(d) {
 			continue
 		}
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO stats_debrid_days(provider,day,requests,failures,cached,not_cached,blocked,links_refreshed,reused) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(provider,day) DO UPDATE SET requests=stats_debrid_days.requests+excluded.requests,failures=stats_debrid_days.failures+excluded.failures,cached=stats_debrid_days.cached+excluded.cached,not_cached=stats_debrid_days.not_cached+excluded.not_cached,blocked=stats_debrid_days.blocked+excluded.blocked,links_refreshed=stats_debrid_days.links_refreshed+excluded.links_refreshed,reused=stats_debrid_days.reused+excluded.reused`, p.ID, day, d[0], d[1], d[2], d[3], d[4], d[5], d[6]); err != nil {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO stats_debrid_days(provider,day,requests,failures,cached,not_cached,blocked,links_refreshed,reused,bytes) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider,day) DO UPDATE SET requests=stats_debrid_days.requests+excluded.requests,failures=stats_debrid_days.failures+excluded.failures,cached=stats_debrid_days.cached+excluded.cached,not_cached=stats_debrid_days.not_cached+excluded.not_cached,blocked=stats_debrid_days.blocked+excluded.blocked,links_refreshed=stats_debrid_days.links_refreshed+excluded.links_refreshed,reused=stats_debrid_days.reused+excluded.reused,bytes=stats_debrid_days.bytes+excluded.bytes`, p.ID, day, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]); err != nil {
 			return err
 		}
 	}
@@ -100,6 +104,55 @@ type SourceHistory struct {
 	IndexerDays  []SourceIndexerDay  `json:"indexerDays"`
 	DebridDays   []SourceDebridDay   `json:"debridDays"`
 	StreamDays   []SourceStreamDay   `json:"streamDays"`
+	// Hours splits today's plays by UTC hour; only for a one-day window.
+	Hours []SourcePlayHour `json:"hours"`
+	// Lifetime totals each source over every retained day (daily rows are
+	// kept two years; see dailyRetentionDays).
+	Lifetime SourceLifetime `json:"lifetime"`
+}
+
+// SourcePlayHour counts today's plays started in one UTC hour (0..23).
+type SourcePlayHour struct {
+	Hour      int    `json:"hour"`
+	Origin    string `json:"origin"`
+	Plays     int64  `json:"plays"`
+	Failovers int64  `json:"failovers"`
+	Failed    int64  `json:"failed"`
+}
+
+// SourceLifetime is every source's totals since its first recorded day.
+type SourceLifetime struct {
+	Providers []SourceProviderTotal `json:"providers"`
+	Indexers  []SourceIndexerTotal  `json:"indexers"`
+	Debrid    []SourceDebridTotal   `json:"debrid"`
+}
+
+type SourceProviderTotal struct {
+	ID       string `json:"id"`
+	FirstDay string `json:"firstDay"`
+	Bytes    int64  `json:"bytes"`
+	Articles int64  `json:"articles"`
+	Misses   int64  `json:"misses"`
+	Errors   int64  `json:"errors"`
+}
+
+type SourceIndexerTotal struct {
+	Indexer     string `json:"indexer"`
+	FirstDay    string `json:"firstDay"`
+	Searches    int64  `json:"searches"`
+	Successes   int64  `json:"successes"`
+	Grabs       int64  `json:"grabs"`
+	GrabSuccess int64  `json:"grabSuccess"`
+}
+
+type SourceDebridTotal struct {
+	ID        string `json:"id"`
+	FirstDay  string `json:"firstDay"`
+	Requests  int64  `json:"requests"`
+	Failures  int64  `json:"failures"`
+	Cached    int64  `json:"cached"`
+	NotCached int64  `json:"notCached"`
+	Bytes     int64  `json:"bytes"`
 }
 
 // SourcePlayDay counts plays started on a UTC day by where they streamed from.
@@ -147,6 +200,7 @@ type SourceDebridDay struct {
 	Blocked        int64  `json:"blocked"`
 	LinksRefreshed int64  `json:"linksRefreshed"`
 	Reused         int64  `json:"reused"`
+	Bytes          int64  `json:"bytes"`
 }
 
 type SourceStreamDay struct {
@@ -175,7 +229,8 @@ func (s *Service) SourceHistoryFor(ctx context.Context, days int) (SourceHistory
 	start := today.AddDate(0, 0, -(days - 1))
 	since := start.Format("2006-01-02")
 	out := SourceHistory{Days: days, Since: since, Until: today.Format("2006-01-02"),
-		Plays: []SourcePlayDay{}, ProviderDays: []SourceProviderDay{}, IndexerDays: []SourceIndexerDay{}, DebridDays: []SourceDebridDay{}, StreamDays: []SourceStreamDay{}}
+		Plays: []SourcePlayDay{}, ProviderDays: []SourceProviderDay{}, IndexerDays: []SourceIndexerDay{}, DebridDays: []SourceDebridDay{}, StreamDays: []SourceStreamDay{}, Hours: []SourcePlayHour{},
+		Lifetime: SourceLifetime{Providers: []SourceProviderTotal{}, Indexers: []SourceIndexerTotal{}, Debrid: []SourceDebridTotal{}}}
 
 	if err := scanRows(ctx, s.db, `SELECT started/86400,CASE WHEN origin='' THEN 'Other' ELSE origin END,COUNT(*),CAST(COALESCE(SUM(failovers),0) AS BIGINT),CAST(COALESCE(SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END),0) AS BIGINT) FROM stats_plays WHERE started>=? GROUP BY 1,2 ORDER BY 1,2`, []any{start.Unix()}, func(r *sql.Rows) error {
 		var d SourcePlayDay
@@ -209,9 +264,9 @@ func (s *Service) SourceHistoryFor(ctx context.Context, days int) (SourceHistory
 	}); err != nil {
 		return out, err
 	}
-	if err := scanRows(ctx, s.db, `SELECT provider,day,requests,failures,cached,not_cached,blocked,links_refreshed,reused FROM stats_debrid_days WHERE day>=? ORDER BY day,provider`, []any{since}, func(r *sql.Rows) error {
+	if err := scanRows(ctx, s.db, `SELECT provider,day,requests,failures,cached,not_cached,blocked,links_refreshed,reused,bytes FROM stats_debrid_days WHERE day>=? ORDER BY day,provider`, []any{since}, func(r *sql.Rows) error {
 		var d SourceDebridDay
-		if err := r.Scan(&d.ID, &d.Day, &d.Requests, &d.Failures, &d.Cached, &d.NotCached, &d.Blocked, &d.LinksRefreshed, &d.Reused); err != nil {
+		if err := r.Scan(&d.ID, &d.Day, &d.Requests, &d.Failures, &d.Cached, &d.NotCached, &d.Blocked, &d.LinksRefreshed, &d.Reused, &d.Bytes); err != nil {
 			return err
 		}
 		out.DebridDays = append(out.DebridDays, d)
@@ -219,15 +274,65 @@ func (s *Service) SourceHistoryFor(ctx context.Context, days int) (SourceHistory
 	}); err != nil {
 		return out, err
 	}
-	err := scanRows(ctx, s.db, `SELECT day,memory_hits,disk_hits,blocks_fetched,bytes_fetched,hedges,hedge_wins,link_refreshes,errors FROM stats_stream_days WHERE day>=? ORDER BY day`, []any{since}, func(r *sql.Rows) error {
+	if err := scanRows(ctx, s.db, `SELECT day,memory_hits,disk_hits,blocks_fetched,bytes_fetched,hedges,hedge_wins,link_refreshes,errors FROM stats_stream_days WHERE day>=? ORDER BY day`, []any{since}, func(r *sql.Rows) error {
 		var d SourceStreamDay
 		if err := r.Scan(&d.Day, &d.MemoryHits, &d.DiskHits, &d.BlocksFetched, &d.BytesFetched, &d.Hedges, &d.HedgeWins, &d.LinkRefreshes, &d.Errors); err != nil {
 			return err
 		}
 		out.StreamDays = append(out.StreamDays, d)
 		return nil
+	}); err != nil {
+		return out, err
+	}
+	if days == 1 {
+		if err := scanRows(ctx, s.db, `SELECT (started-?)/3600,CASE WHEN origin='' THEN 'Other' ELSE origin END,COUNT(*),CAST(COALESCE(SUM(failovers),0) AS BIGINT),CAST(COALESCE(SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END),0) AS BIGINT) FROM stats_plays WHERE started>=? GROUP BY 1,2 ORDER BY 1,2`, []any{start.Unix(), start.Unix()}, func(r *sql.Rows) error {
+			var d SourcePlayHour
+			if err := r.Scan(&d.Hour, &d.Origin, &d.Plays, &d.Failovers, &d.Failed); err != nil {
+				return err
+			}
+			if d.Hour >= 0 && d.Hour < 24 {
+				out.Hours = append(out.Hours, d)
+			}
+			return nil
+		}); err != nil {
+			return out, err
+		}
+	}
+	return out, s.lifetime(ctx, &out.Lifetime)
+}
+
+// lifetime totals the daily tables per source. They hold at most
+// dailyRetentionDays rows per source, so this stays small however large
+// the library or play history grows; stats_plays is deliberately not read.
+func (s *Service) lifetime(ctx context.Context, out *SourceLifetime) error {
+	if err := scanRows(ctx, s.db, `SELECT provider,MIN(day),CAST(SUM(bytes) AS BIGINT),CAST(SUM(articles) AS BIGINT),CAST(SUM(misses) AS BIGINT),CAST(SUM(errors) AS BIGINT) FROM stats_provider_days GROUP BY provider ORDER BY provider`, nil, func(r *sql.Rows) error {
+		var d SourceProviderTotal
+		if err := r.Scan(&d.ID, &d.FirstDay, &d.Bytes, &d.Articles, &d.Misses, &d.Errors); err != nil {
+			return err
+		}
+		out.Providers = append(out.Providers, d)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := scanRows(ctx, s.db, `SELECT indexer,MIN(day),CAST(SUM(searches) AS BIGINT),CAST(SUM(successes) AS BIGINT),CAST(SUM(grabs) AS BIGINT),CAST(SUM(grab_success) AS BIGINT) FROM stats_indexer_days GROUP BY indexer ORDER BY indexer`, nil, func(r *sql.Rows) error {
+		var d SourceIndexerTotal
+		if err := r.Scan(&d.Indexer, &d.FirstDay, &d.Searches, &d.Successes, &d.Grabs, &d.GrabSuccess); err != nil {
+			return err
+		}
+		out.Indexers = append(out.Indexers, d)
+		return nil
+	}); err != nil {
+		return err
+	}
+	return scanRows(ctx, s.db, `SELECT provider,MIN(day),CAST(SUM(requests) AS BIGINT),CAST(SUM(failures) AS BIGINT),CAST(SUM(cached) AS BIGINT),CAST(SUM(not_cached) AS BIGINT),CAST(SUM(bytes) AS BIGINT) FROM stats_debrid_days GROUP BY provider ORDER BY provider`, nil, func(r *sql.Rows) error {
+		var d SourceDebridTotal
+		if err := r.Scan(&d.ID, &d.FirstDay, &d.Requests, &d.Failures, &d.Cached, &d.NotCached, &d.Bytes); err != nil {
+			return err
+		}
+		out.Debrid = append(out.Debrid, d)
+		return nil
 	})
-	return out, err
 }
 
 func scanRows(ctx context.Context, db *sql.DB, q string, args []any, each func(*sql.Rows) error) error {

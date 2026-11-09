@@ -119,6 +119,20 @@ type Engine struct {
 
 type engineCounters struct {
 	memHits, diskHits, fetched, bytes, hedges, hedgeWins, refreshes, errors atomic.Int64
+	// providerBytes is bytes fetched per debrid account (config ID →
+	// *atomic.Int64), so Statistics can show what each account served.
+	providerBytes sync.Map
+}
+
+func (c *engineCounters) addProviderBytes(provider string, n int64) {
+	if provider == "" || n <= 0 {
+		return
+	}
+	v, ok := c.providerBytes.Load(provider)
+	if !ok {
+		v, _ = c.providerBytes.LoadOrStore(provider, new(atomic.Int64))
+	}
+	v.(*atomic.Int64).Add(n)
 }
 
 // EngineStats is the engine part of the debrid admin status.
@@ -133,6 +147,8 @@ type EngineStats struct {
 	HedgeWins     int64 `json:"hedgeWins"`
 	LinkRefreshes int64 `json:"linkRefreshes"`
 	Errors        int64 `json:"errors"`
+	// ProviderBytes is bytes fetched since start per debrid account ID.
+	ProviderBytes map[string]int64 `json:"providerBytes,omitempty"`
 }
 
 var (
@@ -261,9 +277,18 @@ func (e *Engine) Stats() EngineStats {
 		}
 	}
 	e.mu.Unlock()
+	var byProvider map[string]int64
+	e.stats.providerBytes.Range(func(k, v any) bool {
+		if byProvider == nil {
+			byProvider = map[string]int64{}
+		}
+		byProvider[k.(string)] = v.(*atomic.Int64).Load()
+		return true
+	})
 	return EngineStats{OpenFiles: open, BlockBytes: e.block, MemoryHits: e.stats.memHits.Load(), DiskHits: e.stats.diskHits.Load(),
 		BlocksFetched: e.stats.fetched.Load(), BytesFetched: e.stats.bytes.Load(), Hedges: e.stats.hedges.Load(),
-		HedgeWins: e.stats.hedgeWins.Load(), LinkRefreshes: e.stats.refreshes.Load(), Errors: e.stats.errors.Load()}
+		HedgeWins: e.stats.hedgeWins.Load(), LinkRefreshes: e.stats.refreshes.Load(), Errors: e.stats.errors.Load(),
+		ProviderBytes: byProvider}
 }
 
 // tuning reads the live config knobs.
@@ -1021,6 +1046,9 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 		remaining.Store(max(0, end+1-(idx*f.e.block+int64(len(buf)))))
 		f.e.stats.fetched.Add(1)
 		f.e.stats.bytes.Add(int64(len(buf)))
+		if pl, _ := f.payload(); pl.Provider != "" {
+			f.e.stats.addProviderBytes(pl.Provider, int64(len(buf)))
+		}
 		if mode == fetchPrefetch || mode == fetchDurable {
 			// Publish only once on disk: prefetched blocks skip memory, and
 			// a checked head block must outlive the check's handle.

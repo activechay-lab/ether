@@ -49,9 +49,13 @@ func (a *App) buildInsights() {
 			return nil
 		}
 		ps := a.debrid.Stats()
+		var bytes map[string]int64
+		if a.media != nil {
+			bytes = a.media.Stats().ProviderBytes
+		}
 		out := make([]stats.DebridSample, 0, len(ps))
 		for _, p := range ps {
-			out = append(out, stats.DebridSample{ID: p.ID, Requests: p.Requests, Failures: p.Failures, Cached: p.Cached, NotCached: p.NotCached, Blocked: p.Blocked, LinksRefreshed: p.LinksRefreshed, Reused: p.Reused})
+			out = append(out, stats.DebridSample{ID: p.ID, Requests: p.Requests, Failures: p.Failures, Cached: p.Cached, NotCached: p.NotCached, Blocked: p.Blocked, LinksRefreshed: p.LinksRefreshed, Reused: p.Reused, Bytes: bytes[p.ID]})
 		}
 		return out
 	}, Stream: func() (stats.StreamSample, bool) {
