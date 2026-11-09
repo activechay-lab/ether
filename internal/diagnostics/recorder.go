@@ -643,9 +643,7 @@ func (r *Recorder) acceptLocked(c *capture, e Event) {
 			}
 			return
 		}
-		if e.DeviceKey == "" && ((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(e)) {
-			e.Uncorrelated = true
-		}
+		c.markUnattributed(&e)
 		if c.coalesceEv(e) {
 			return
 		}
@@ -671,6 +669,15 @@ func (r *Recorder) subjectLocked(c *capture, e Event) bool {
 		((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(e)) {
 		return true
 	}
+	// A rejected request from the same viewer on another client is retained
+	// too. Companion processes that act for the selected device — the
+	// download server built into Plex's desktop and mobile apps is one —
+	// authenticate as the viewer under their own client identifier, so the
+	// device filter above would silently drop exactly the 4xx a capture is
+	// started to find. It is kept unattributed, never as the other device.
+	if !e.Uncorrelated && viewerError(c, e) {
+		return true
+	}
 	if e.Kind != KindEncoderStarted && e.Kind != KindEncoderFailed {
 		return false
 	}
@@ -678,6 +685,33 @@ func (r *Recorder) subjectLocked(c *capture, e Event) bool {
 		return false
 	}
 	return r.sessions[e.SessionKey] == c.deviceKey
+}
+
+// viewerError reports a rejected (4xx/5xx) request authenticated as the
+// capture's viewer. Successes from other clients stay out: only rejections
+// are retained across the viewer's clients, because a failure the capture
+// was started for may be issued by a companion process, not the device.
+// Playback requests are excluded: their completions correlate by attempt
+// with a start and admission the capture scopes to the confirmed device
+// (or to device-less viewer traffic above), so retaining another device's
+// playback completion alone would export a completion with no matching
+// start. Companion traffic on those paths keeps the playback rules.
+func viewerError(c *capture, e Event) bool {
+	return e.Kind == KindRequest && e.Status >= 400 && c.viewerID != 0 && e.ViewerID == c.viewerID &&
+		e.AttemptKey == "" && !PlaybackRequestPath(e.Route)
+}
+
+// markUnattributed flags viewer-scoped events that are not the confirmed
+// device's own traffic and drops the other client's device identity, so a
+// retained rejection is never presented as that device or this one.
+func (c *capture) markUnattributed(e *Event) {
+	if e.DeviceKey == c.deviceKey {
+		return
+	}
+	if viewerError(c, *e) || (e.DeviceKey == "" && ((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(*e))) {
+		e.Uncorrelated = true
+		e.DeviceKey = ""
+	}
 }
 
 func (r *Recorder) seedLocked(c *capture, end time.Time) {
@@ -703,9 +737,7 @@ func (r *Recorder) seedLocked(c *capture, end time.Time) {
 			return
 		}
 		if r.subjectLocked(c, e) {
-			if e.DeviceKey == "" && ((e.Kind == KindRequest && ArtworkRequestPath(e.Route)) || viewerPlayback(e)) {
-				e.Uncorrelated = true
-			}
+			c.markUnattributed(&e)
 			c.appendEv(e)
 			return
 		}

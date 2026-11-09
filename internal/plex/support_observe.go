@@ -47,6 +47,14 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 		if sr.sampling {
 			ev.Response = summarizePlexResponse(sr.sample, sr.truncated, sr.Header().Get("Content-Encoding"))
 		}
+	} else if status >= 400 && kind == frontend.DiagnosticKindDevice && pr.User != nil {
+		// ClassifyRequest maps most paths to a bare device sighting, which
+		// the recorder never ring-buffers. A rejection on such a path (a
+		// download, subscription or provider route, say) must still enter
+		// the ring as a request, so a capture started for that failure
+		// contains the 4xx in its pre-roll. While recording, the branch
+		// above already re-kinds every event to a request.
+		ev.Kind = frontend.DiagnosticKindRequest
 	}
 	s.d.Support.Observe(ev)
 }

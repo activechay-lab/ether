@@ -25,16 +25,20 @@ func TestArtworkWithoutDeviceIsViewerScopedAndUnattributed(t *testing.T) {
 	}
 	capture := r.captures[c.ID]
 	events := capture.evidenceCopy(capture.started, capture.deadline)
-	if len(events) != 2 {
+	// The two viewer artwork rejections, plus — since #365 — every other
+	// rejection authenticated as this viewer (the 502 from another client
+	// and the 503 metadata request), all unattributed. Another viewer's
+	// and unauthenticated rejections stay out.
+	if len(events) != 4 {
 		t.Fatalf("retained %+v", events)
 	}
 	for _, e := range events {
-		if !e.Uncorrelated || e.DeviceKey != "" || e.ViewerID != 7 {
+		if !e.Uncorrelated || e.DeviceKey != "" || e.ViewerID != 7 || e.Status < 400 {
 			t.Fatal(e)
 		}
 	}
 	body, skipped, _ := eventsJSONL(events, [3]bool{}, c.ID, nil)
-	if skipped != 0 || strings.Count(body, `"uncorrelated":true`) != 2 || strings.Contains(body, `"device":`) {
+	if skipped != 0 || strings.Count(body, `"uncorrelated":true`) != 4 || strings.Contains(body, `"device":`) {
 		t.Fatalf("export: %s skipped=%d", body, skipped)
 	}
 }

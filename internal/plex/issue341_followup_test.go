@@ -48,8 +48,15 @@ func TestIssue341ArtworkRecording(t *testing.T) {
 			count += e.Count
 		}
 	}
-	if count != 5 {
-		t.Fatalf("image requests retained = %d, want 5 (identified, viewer-only and identified 401); %+v", count, got.Observations)
+	// Since #365 a capture retains every rejection authenticated as its
+	// viewer, including from a companion client under another device id
+	// (Plex's built-in download server calls as the viewer that way), kept
+	// unattributed. So both image routes count three times each —
+	// identified, viewer-only and other-device — plus the identified 401.
+	// Playback-route rejections are the exception (attempt correlation);
+	// artwork has no such correlation to break.
+	if count != 7 {
+		t.Fatalf("image requests retained = %d, want 7 (identified, viewer-only, other-device per route, and identified 401); %+v", count, got.Observations)
 	}
 }
 
