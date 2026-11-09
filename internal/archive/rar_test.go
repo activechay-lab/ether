@@ -31,7 +31,9 @@ func TestDetect(t *testing.T) {
 		{[]byte("7z\xbc\xaf\x27\x1c\x00\x04"), Format7z},
 		{[]byte("Rar!\x1a\x07"), FormatUnknown},
 		{[]byte("Rar!\x1a\x07\x02\x00"), FormatUnknown},
-		{[]byte("PK\x03\x04"), FormatUnknown},
+		{[]byte("PK\x03\x04"), FormatZIP},
+		{[]byte("PK\x07\x08"), FormatZIP},
+		{[]byte("PK\x05\x06"), FormatUnknown},
 		{nil, FormatUnknown},
 	}
 	for _, c := range cases {
@@ -39,7 +41,7 @@ func TestDetect(t *testing.T) {
 			t.Errorf("Detect(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
-	for f, s := range map[Format]string{FormatUnknown: "unknown", FormatRAR4: "rar4", FormatRAR5: "rar5", Format7z: "7z", Format(99): "unknown"} {
+	for f, s := range map[Format]string{FormatUnknown: "unknown", FormatRAR4: "rar4", FormatRAR5: "rar5", Format7z: "7z", FormatZIP: "zip", Format(99): "unknown"} {
 		if f.String() != s {
 			t.Errorf("Format(%d).String() = %q, want %q", f, f.String(), s)
 		}
