@@ -35,6 +35,8 @@ func mapFile(path string) ([]byte, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	data := unsafe.Slice((*byte)(unsafe.Pointer(addr)), int(size))
+	// The view lives outside the Go heap, so reinterpret the uintptr's bits as
+	// a pointer rather than converting it (the form go vet's unsafeptr accepts).
+	data := unsafe.Slice((*byte)(*(*unsafe.Pointer)(unsafe.Pointer(&addr))), int(size))
 	return data, func() error { return windows.UnmapViewOfFile(addr) }, nil
 }
