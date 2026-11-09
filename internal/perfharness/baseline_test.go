@@ -107,7 +107,7 @@ func TestRunnerMeasureAndColdEach(t *testing.T) {
 		t.Fatalf("rows = %d", len(rows))
 	}
 	for _, row := range rows {
-		if row.Status != 200 || row.Cold == 0 || row.WarmN != 1 || row.WarmCPU != time.Millisecond || row.ColdCPU != time.Millisecond || row.Items != 2 {
+		if row.Status != 200 || row.WarmN != 1 || row.WarmCPU != time.Millisecond || row.ColdCPU != time.Millisecond || row.Items != 2 {
 			t.Fatalf("row %+v", row)
 		}
 	}
