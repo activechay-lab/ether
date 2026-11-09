@@ -22,6 +22,50 @@ func TestBuildLayers(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+// Real clients disagree with the Jellyfin schema about JSON types:
+// Litefin's Tizen/WebOS profiles send MaxAudioChannels as a number, other
+// clients quote numbers and booleans. One such field must never fail the
+// whole profile (issue #404).
+func TestDeviceProfileFlexibleJSONTypes(t *testing.T) {
+	var p DeviceProfile
+	input := `{"MaxStreamingBitrate":"120000000","MaxStaticBitrate":12000000.0,"AlwaysUseMostCompatibleTranscodingProfile":"true","TranscodingProfiles":[{"Type":"Video","Container":"ts","VideoCodec":"h264","AudioCodec":"aac","Protocol":"hls","MaxAudioChannels":6,"MinSegments":"2","SegmentLength":"6","BreakOnNonKeyFrames":"true","EstimateContentLength":1,"CopyTimestamps":"false","EnableAudioVbrEncoding":0,"Conditions":[{"Condition":"LessThanEqual","Property":"VideoLevel","Value":52,"IsRequired":"false"}]}],"DirectPlayProfiles":[{"Type":"Video","Container":"mkv","VideoCodec":"hevc","AudioCodec":"aac"}]}`
+	if err := json.Unmarshal([]byte(input), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.MaxStreamingBitrate != 120000000 || p.MaxStaticBitrate != 12000000 || !p.AlwaysUseMostCompatibleTranscodingProfile {
+		t.Fatal(p)
+	}
+	if len(p.TranscodingProfiles) != 1 {
+		t.Fatal(p.TranscodingProfiles)
+	}
+	tp := p.TranscodingProfiles[0]
+	if tp.MaxAudioChannels != "6" || tp.MinSegments != 2 || tp.SegmentLength != 6 {
+		t.Fatal(tp)
+	}
+	if tp.BreakOnNonKeyFrames == nil || !*tp.BreakOnNonKeyFrames || tp.EnableAudioVbrEncoding == nil || *tp.EnableAudioVbrEncoding {
+		t.Fatal(tp)
+	}
+	if !tp.EstimateContentLength || tp.CopyTimestamps {
+		t.Fatal(tp)
+	}
+	if len(tp.Conditions) != 1 || tp.Conditions[0].Value != "52" || tp.Conditions[0].IsRequired == nil || *tp.Conditions[0].IsRequired {
+		t.Fatal(tp.Conditions)
+	}
+	got, err := (Builder{}).Build(context.Background(), DeviceInfo{}, p, nil, "")
+	if err != nil || got.Profiles == nil || len(got.Profiles.Transcoding) != 1 || got.Profiles.Transcoding[0].MaxAudioChannels != "6" {
+		t.Fatal(got, err)
+	}
+	// A value of neither type degrades to zero instead of failing decode.
+	var odd DeviceProfile
+	if err := json.Unmarshal([]byte(`{"MaxStreamingBitrate":"fast","TranscodingProfiles":[{"MaxAudioChannels":true,"MinSegments":{}}]}`), &odd); err != nil {
+		t.Fatal(err)
+	}
+	if odd.MaxStreamingBitrate != 0 || len(odd.TranscodingProfiles) != 1 || odd.TranscodingProfiles[0].MinSegments != 0 {
+		t.Fatal(odd)
+	}
+}
+
 func TestLayerFailure(t *testing.T) {
 	want := errors.New("failed")
 	b := Builder{Learn: func(context.Context, core.ClientCaps) (core.ClientCaps, error) { return core.ClientCaps{}, want }, Rules: func(context.Context, core.ClientCaps) (core.ClientCaps, error) {

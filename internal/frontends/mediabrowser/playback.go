@@ -33,6 +33,62 @@ type playbackRequest struct {
 	SubtitleStreamIndex *int               `json:"SubtitleStreamIndex"`
 }
 
+// UnmarshalJSON decodes a PlaybackInfo body through the caps Flex types
+// so a client that quotes a number/boolean (or sends MaxAudioChannels as
+// a number inside DeviceProfile) still plays instead of 400ing (#404).
+func (p *playbackRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		MediaSourceId       caps.FlexString    `json:"MediaSourceId"`
+		LiveStreamId        caps.FlexString    `json:"LiveStreamId"`
+		OpenToken           caps.FlexString    `json:"OpenToken"`
+		ItemId              caps.FlexString    `json:"ItemId"`
+		PlaySessionId       caps.FlexString    `json:"PlaySessionId"`
+		DeviceProfile       caps.DeviceProfile `json:"DeviceProfile"`
+		IsPlayback          *caps.FlexBool     `json:"IsPlayback"`
+		AutoOpenLiveStream  *caps.FlexBool     `json:"AutoOpenLiveStream"`
+		EnableDirectPlay    *caps.FlexBool     `json:"EnableDirectPlay"`
+		EnableDirectStream  *caps.FlexBool     `json:"EnableDirectStream"`
+		EnableTranscoding   *caps.FlexBool     `json:"EnableTranscoding"`
+		StartTimeTicks      caps.FlexInt64     `json:"StartTimeTicks"`
+		AudioStreamIndex    *caps.FlexInt      `json:"AudioStreamIndex"`
+		SubtitleStreamIndex *caps.FlexInt      `json:"SubtitleStreamIndex"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	flexBool := func(f *caps.FlexBool) *bool {
+		if f == nil {
+			return nil
+		}
+		b := bool(*f)
+		return &b
+	}
+	flexInt := func(f *caps.FlexInt) *int {
+		if f == nil {
+			return nil
+		}
+		n := int(*f)
+		return &n
+	}
+	*p = playbackRequest{
+		MediaSourceId:       string(raw.MediaSourceId),
+		LiveStreamId:        string(raw.LiveStreamId),
+		OpenToken:           string(raw.OpenToken),
+		ItemId:              string(raw.ItemId),
+		PlaySessionId:       string(raw.PlaySessionId),
+		DeviceProfile:       raw.DeviceProfile,
+		IsPlayback:          flexBool(raw.IsPlayback),
+		AutoOpenLiveStream:  flexBool(raw.AutoOpenLiveStream),
+		EnableDirectPlay:    flexBool(raw.EnableDirectPlay),
+		EnableDirectStream:  flexBool(raw.EnableDirectStream),
+		EnableTranscoding:   flexBool(raw.EnableTranscoding),
+		StartTimeTicks:      int64(raw.StartTimeTicks),
+		AudioStreamIndex:    flexInt(raw.AudioStreamIndex),
+		SubtitleStreamIndex: flexInt(raw.SubtitleStreamIndex),
+	}
+	return nil
+}
+
 func boolValue(p *bool, def bool) bool {
 	if p == nil {
 		return def
