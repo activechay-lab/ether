@@ -916,7 +916,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	cands = s.prepareSources(ctx, cands, req.Title, &trace, &checks)
 	trace.SourcePreparationDuration = time.Since(prepareStart)
 	if rcfg.OptimisticStart && !preferTried {
-		if cands[0].rel.OpensOnDemand() && !core.OnDemandStreamsAllowed(ctx) {
+		if cands[0].rel.OpensOnDemand() && !core.OnDemandAllowedAt(ctx, cands[0].rel, 0) {
 			// Nothing ranked below the add-on stream may stand in for it.
 			trace.Err = errOnDemandForeground.Error()
 			return nil, errOnDemandForeground

@@ -268,8 +268,12 @@ type Manager struct {
 	lastCaps       map[int64]core.ClientCaps
 	warm           map[identity]*warmEntry
 	warmRequests   map[warmBudgetKey][]time.Time
-	warmMisses     map[identity]time.Time       // warm-ups that ended without a source (warmMissTTL)
-	stalePrefers   map[stalePreferKey]time.Time // picked releases that fell back (stalePreferTTL)
+	warmMisses     map[identity]time.Time // warm-ups that ended without a source (warmMissTTL)
+	// onDemandWarmAt / onDemandWarmByAddon budget add-on streams opened
+	// by warm-ups (onDemandWarmAdmit); lazily created under mu.
+	onDemandWarmAt      map[int64]time.Time
+	onDemandWarmByAddon map[string][]time.Time
+	stalePrefers        map[stalePreferKey]time.Time // picked releases that fell back (stalePreferTTL)
 
 	pinMu        sync.Mutex
 	livePins     map[string]int

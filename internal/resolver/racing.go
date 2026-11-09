@@ -140,7 +140,7 @@ func (s *Service) validateCandidates(ctx context.Context, cands []candidate, tr 
 			break
 		}
 		if cands[base].rel.OpensOnDemand() {
-			if !core.OnDemandStreamsAllowed(ctx) {
+			if !core.OnDemandAllowedAt(ctx, cands[base].rel, base) {
 				return -1, nil, errors.Join(transient, errOnDemandForeground)
 			}
 			if onDemandHeld {

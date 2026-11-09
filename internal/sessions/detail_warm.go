@@ -160,5 +160,5 @@ func (b *Broker) WarmDetail(ctx context.Context, req frontend.PlanRequest) bool 
 	if err != nil || title == nil || title.Key != req.Item || (title.Type != core.TypeMovie && title.Type != core.TypeEpisode) || (!title.Released.IsZero() && title.Released.After(b.deps.Now())) {
 		return false
 	}
-	return warm.Prewarm(context.WithoutCancel(ctx), v, req.Item, b.playCaps(v, req.Protocol, req.Device, declared), core.PrewarmOptions{Reason: core.PrewarmDetail})
+	return warm.Prewarm(context.WithoutCancel(ctx), v, req.Item, b.playCaps(v, req.Protocol, req.Device, declared), core.PrewarmOptions{Reason: core.PrewarmDetail, PlayIntent: true})
 }

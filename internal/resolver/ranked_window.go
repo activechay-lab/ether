@@ -132,7 +132,7 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 				return
 			}
 			if cands[next].rel.OpensOnDemand() {
-				if !core.OnDemandStreamsAllowed(ctx) {
+				if !core.OnDemandAllowedAt(ctx, cands[next].rel, next) {
 					foregroundOnly = true
 					return
 				}

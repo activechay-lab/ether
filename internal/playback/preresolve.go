@@ -288,6 +288,7 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 	e := &warmEntry{offset: opts.StartOffset, profileKey: profileKey(profileObj), profileObj: profileObj, caps: caps, done: make(chan struct{}), opened: make(chan struct{}), foreground: make(chan context.Context, 1), started: now, expires: now.Add(preResolveTTL)}
 	m.warm[id] = e
 	u := *user
+	wallStarted := time.Now()
 	m.wg.Add(1)
 	m.mu.Unlock()
 	go func() {
@@ -308,6 +309,13 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		ctx, cancel := warmPreparationContext(core.WithIndexerPurpose(m.ctx, core.IndexerPurposeWarmup), timeout, e.foreground)
 		e.setCancel(cancel)
 		defer cancel()
+		if opts.PlayIntent || reason == core.PrewarmPostPlay || reason == core.PrewarmNextEpisode {
+			hold := time.Duration(0)
+			if reason == core.PrewarmDetail {
+				hold = onDemandWarmHold
+			}
+			ctx = core.WithOnDemandWarm(ctx, m.onDemandWarmAdmit(ctx, id, e, wallStarted, hold))
+		}
 		title, err := m.deps.Catalog.Get(ctx, key)
 		if err != nil || title == nil || title.IsFutureRelease(m.now()) || title.Type == core.TypeShow || title.Type == core.TypeSeason {
 			return
@@ -415,6 +423,72 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		}
 	}()
 	return true
+}
+
+const (
+	// onDemandWarmHold is how long a detail page must stay the device's
+	// current title before its warm-up may open an add-on stream: opening
+	// another title's page aborts the warm-up first.
+	onDemandWarmHold = 2500 * time.Millisecond
+	// One add-on stream per viewer per onDemandWarmViewerGap, and at most
+	// onDemandWarmAddonLimit per add-on per onDemandWarmAddonWindow.
+	onDemandWarmViewerGap   = time.Minute
+	onDemandWarmAddonLimit  = 6
+	onDemandWarmAddonWindow = 10 * time.Minute
+)
+
+// onDemandWarmAdmit is the budget behind core.WithOnDemandWarm for one
+// warm-up: after the hold, the entry must still be the device's current
+// warm-up, the viewer must not have warmed an add-on stream within the gap,
+// and the add-on must be under its window limit.
+func (m *Manager) onDemandWarmAdmit(ctx context.Context, id identity, e *warmEntry, started time.Time, hold time.Duration) func(core.Release) bool {
+	return func(rel core.Release) bool {
+		if wait := time.Until(started.Add(hold)); wait > 0 {
+			t := time.NewTimer(wait)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return false
+			}
+		}
+		if ctx.Err() != nil || !core.IsSpeculative(ctx) {
+			return ctx.Err() == nil // Play took the warm-up over: normal rules apply
+		}
+		addon := rel.IndexerID
+		if addon == "" {
+			addon = rel.Indexer
+		}
+		now := m.now()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.closed || m.warm[id] != e {
+			return false
+		}
+		if at, ok := m.onDemandWarmAt[id.userID]; ok && now.Sub(at) < onDemandWarmViewerGap {
+			return false
+		}
+		recent := m.onDemandWarmByAddon[addon][:0]
+		for _, at := range m.onDemandWarmByAddon[addon] {
+			if now.Sub(at) < onDemandWarmAddonWindow {
+				recent = append(recent, at)
+			}
+		}
+		if len(recent) >= onDemandWarmAddonLimit {
+			m.onDemandWarmByAddon[addon] = recent
+			return false
+		}
+		if m.onDemandWarmAt == nil {
+			m.onDemandWarmAt = map[int64]time.Time{}
+		}
+		if m.onDemandWarmByAddon == nil {
+			m.onDemandWarmByAddon = map[string][]time.Time{}
+		}
+		m.onDemandWarmAt[id.userID] = now
+		m.onDemandWarmByAddon[addon] = append(recent, now)
+		m.log.Info("warm-up opens one add-on stream", "key", id.key, "release", rel.Name, "addon", rel.Indexer)
+		return true
+	}
 }
 
 // warmFacts are the release properties a Play-time profile is checked

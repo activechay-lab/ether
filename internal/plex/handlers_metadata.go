@@ -409,7 +409,9 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *core.Title) {
 	}
 	caps := s.clientCapsForKey(pr, t.Key)
 	if warm, ok := s.d.Playback.(core.Prewarmer); ok {
-		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail})
+		// Plex builds these caps from the device's own profile: a held
+		// detail page may warm one cached add-on stream (PlayIntent).
+		warm.Prewarm(ctx, pr.User, t.Key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail, PlayIntent: true})
 	}
 	if pr == nil || pr.User == nil {
 		return
