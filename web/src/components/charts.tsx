@@ -4,10 +4,11 @@ import { getLocale, t } from "../i18n";
 import { fixed, formatHour, formatPercent } from "../lib/format";
 
 /**
- * Small token-driven charts. Each is single-series (identity is named by the
- * chart title), uses thin marks with rounded data ends anchored to the
- * baseline, recessive gridlines, text in text tokens, and a hover/focus
- * tooltip. Colors come from semantic tokens so light and dark both work.
+ * Small token-driven charts. Most are single-series (identity is named by the
+ * chart title); SeriesLines and ComboChart carry a few series with a legend.
+ * They use thin marks with rounded data ends anchored to the baseline,
+ * recessive gridlines, text in text tokens, and a hover/focus tooltip.
+ * Colors come from semantic tokens so light and dark both work.
  */
 
 function roundedTopBar(x: number, y: number, w: number, h: number, r: number): string {
@@ -381,12 +382,12 @@ export function Meter({
 
 /** The validated chart palette (styles.css --viz-1..5), as literal classes. */
 export type Viz = "viz-1" | "viz-2" | "viz-3" | "viz-4" | "viz-5";
-const VIZ: Record<Viz, { bg: string; fill: string; stroke: string }> = {
-  "viz-1": { bg: "bg-viz-1", fill: "fill-viz-1", stroke: "stroke-viz-1" },
-  "viz-2": { bg: "bg-viz-2", fill: "fill-viz-2", stroke: "stroke-viz-2" },
-  "viz-3": { bg: "bg-viz-3", fill: "fill-viz-3", stroke: "stroke-viz-3" },
-  "viz-4": { bg: "bg-viz-4", fill: "fill-viz-4", stroke: "stroke-viz-4" },
-  "viz-5": { bg: "bg-viz-5", fill: "fill-viz-5", stroke: "stroke-viz-5" },
+const VIZ: Record<Viz, { bg: string; fill: string; stroke: string; text: string }> = {
+  "viz-1": { bg: "bg-viz-1", fill: "fill-viz-1", stroke: "stroke-viz-1", text: "text-viz-1" },
+  "viz-2": { bg: "bg-viz-2", fill: "fill-viz-2", stroke: "stroke-viz-2", text: "text-viz-2" },
+  "viz-3": { bg: "bg-viz-3", fill: "fill-viz-3", stroke: "stroke-viz-3", text: "text-viz-3" },
+  "viz-4": { bg: "bg-viz-4", fill: "fill-viz-4", stroke: "stroke-viz-4", text: "text-viz-4" },
+  "viz-5": { bg: "bg-viz-5", fill: "fill-viz-5", stroke: "stroke-viz-5", text: "text-viz-5" },
 };
 /** Categorical order for parts with no fixed colour of their own. */
 const VIZ_ORDER: Viz[] = ["viz-4", "viz-2", "viz-3", "viz-5", "viz-1"];
@@ -991,6 +992,403 @@ export function SeriesLines({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** A series in a {@link ComboChart}. */
+export interface ComboSeries {
+  key: string;
+  label: string;
+  color: Viz;
+  values: number[];
+  /**
+   * bar: a column from the baseline (several bar series sit side by side);
+   * area: a line over a soft fill; line: a line; marker: a point in its own
+   * thin lane under the plot, sized by the value, for small counts (such as
+   * failures) that would lie flat against a shared scale.
+   */
+  mark: "bar" | "area" | "line" | "marker";
+  /** The scale a bar, area or line reads against; "right" adds a second axis. */
+  axis?: "left" | "right";
+  /** Marker shape, so two marker lanes differ by more than colour. */
+  shape?: "dot" | "diamond";
+  /** Value formatting in the tooltip; defaults to its axis's format. */
+  format?: (v: number) => string;
+}
+
+/** The legend swatch for a combo series: its mark, in its colour. */
+export function ComboSwatch({
+  mark,
+  color,
+  shape = "dot",
+  muted = false,
+}: Pick<ComboSeries, "mark" | "color" | "shape"> & { muted?: boolean }) {
+  const c = muted ? "border border-fg-subtle bg-transparent" : VIZ[color].bg;
+  if (mark === "bar")
+    return <span aria-hidden className={cn("h-2.5 w-2 shrink-0 rounded-[2px]", c)} />;
+  if (mark === "marker")
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "size-2 shrink-0",
+          shape === "diamond" ? "rotate-45 rounded-[1px]" : "rounded-full",
+          c,
+        )}
+      />
+    );
+  return (
+    <span
+      aria-hidden
+      className={cn("h-0.5 w-3 shrink-0 rounded-full", muted ? "bg-fg-subtle" : VIZ[color].bg)}
+    />
+  );
+}
+
+/** Evenly spaced label positions that fit the width, always the first and last. */
+function tickIndexes(n: number, width: number, minGap = 84): number[] {
+  if (n <= 0) return [];
+  const count = Math.max(2, Math.min(n, Math.floor(width / minGap) + 1));
+  if (n <= count) return Array.from({ length: n }, (_, i) => i);
+  const out = new Set<number>();
+  for (let k = 0; k < count; k++) out.add(Math.round((k * (n - 1)) / (count - 1)));
+  return [...out];
+}
+
+function markerPath(shape: ComboSeries["shape"], x: number, y: number, r: number): string {
+  if (shape === "diamond") {
+    const d = r * 1.2;
+    return `M${x},${y - d}L${x + d},${y}L${x},${y + d}L${x - d},${y}Z`;
+  }
+  return `M${x - r},${y}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 ${-r * 2},0`;
+}
+
+const LANE = 14;
+
+/**
+ * Several measures over the same time slots on one chart: columns, lines
+ * and a soft area against one scale or two (left and right, each with its
+ * own unit caption, sharing gridlines), plus marker lanes under the plot
+ * for small counts. Hovering a slot shows every series' value. The legend
+ * is the caller's, so it can carry totals and toggle series.
+ */
+export function ComboChart({
+  labels,
+  series,
+  height = 160,
+  ariaLabel,
+  leftFormat = (v) => String(v),
+  rightFormat = (v) => String(v),
+  leftUnit,
+  rightUnit,
+  detail,
+}: {
+  labels: string[];
+  series: ComboSeries[];
+  /** Height of the plot area plus its axes; marker lanes add to it. */
+  height?: number;
+  ariaLabel: string;
+  leftFormat?: (v: number) => string;
+  rightFormat?: (v: number) => string;
+  /** Short captions over each axis, e.g. "Plays" and "GB". */
+  leftUnit?: string;
+  rightUnit?: string;
+  /** An extra tooltip line for a slot. */
+  detail?: (i: number) => string | undefined;
+}) {
+  const gradient = useId().replace(/:/g, "");
+  const [hover, setHover] = useState<number | null>(null);
+  const [ref, size] = useElementSize<HTMLDivElement>();
+  const width = Math.max(240, Math.round(size.width || 600));
+  const plotted = series.filter((s) => s.mark !== "marker");
+  const lanes = series.filter((s) => s.mark === "marker");
+  const left = plotted.filter((s) => s.axis !== "right");
+  const right = plotted.filter((s) => s.axis === "right");
+  const hasLeft = left.length > 0 || right.length === 0;
+  const hasRight = right.length > 0;
+  const padL = hasLeft ? 34 : 10;
+  const padR = hasRight ? 38 : 10;
+  const padT = leftUnit || rightUnit ? 18 : 8;
+  const laneTop = height - 22;
+  const total = height + lanes.length * LANE + (lanes.length ? 4 : 0);
+  const n = labels.length;
+  const plotW = width - padL - padR;
+  const plotH = laneTop - padT;
+  const base = padT + plotH;
+  const maxOf = (list: ComboSeries[]) => niceMax(Math.max(0, ...list.flatMap((s) => s.values)));
+  const maxL = maxOf(left);
+  const maxR = maxOf(right);
+  const scale = (s: ComboSeries) => (s.axis === "right" ? maxR : maxL);
+  const slot = n ? plotW / n : 0;
+  const cx = (i: number) => padL + (i + 0.5) * slot;
+  const y = (v: number, max: number) => base - (Math.max(0, v) / max) * plotH;
+  const bars = plotted.filter((s) => s.mark === "bar");
+  const groupW = Math.max(1, Math.min(slot * 0.66, 14 * bars.length + 10));
+  const barW = bars.length ? Math.max(1, (groupW - (bars.length - 1)) / bars.length) : 0;
+  const linePath = (s: ComboSeries) =>
+    s.values.map((v, i) => `${i ? "L" : "M"}${cx(i)},${y(v, scale(s))}`).join("");
+  const fmt = (s: ComboSeries) => s.format ?? (s.axis === "right" ? rightFormat : leftFormat);
+  const xTicks = tickIndexes(n, plotW);
+  const laneY = (k: number) => base + 4 + LANE * k + LANE / 2;
+  const labelY = total - 6;
+  const pick = (clientX: number, el: SVGSVGElement) => {
+    const r = el.getBoundingClientRect();
+    const px = ((clientX - r.left) / r.width) * width;
+    setHover(n ? Math.max(0, Math.min(n - 1, Math.floor((px - padL) / slot))) : null);
+  };
+  const tipX = hover === null ? 0 : cx(hover) / width;
+  const extra = hover === null ? undefined : detail?.(hover);
+  const dim = (i: number) => hover !== null && hover !== i;
+  const lines = plotted.filter((s) => s.mark !== "bar");
+  return (
+    <div ref={ref} className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${total}`}
+        width="100%"
+        height={total}
+        className="block overflow-visible"
+        role="img"
+        aria-label={ariaLabel}
+        onMouseMove={(e) => pick(e.clientX, e.currentTarget)}
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          {lines
+            .filter((s) => s.mark === "area")
+            .map((s) => (
+              <linearGradient
+                key={s.key}
+                id={`${gradient}-${s.key}`}
+                x1="0"
+                x2="0"
+                y1="0"
+                y2="1"
+                className={VIZ[s.color].text}
+              >
+                <stop offset="0%" stopColor="currentColor" stopOpacity={0.32} />
+                <stop offset="100%" stopColor="currentColor" stopOpacity={0.02} />
+              </linearGradient>
+            ))}
+        </defs>
+        {leftUnit && hasLeft ? (
+          <text
+            x={padL - 6}
+            y={9}
+            textAnchor="end"
+            className="fill-fg-subtle text-[10px] font-medium"
+          >
+            {leftUnit}
+          </text>
+        ) : null}
+        {rightUnit && hasRight ? (
+          <text
+            x={width - padR + 6}
+            y={9}
+            textAnchor="start"
+            className="fill-fg-subtle text-[10px] font-medium"
+          >
+            {rightUnit}
+          </text>
+        ) : null}
+        {hover !== null ? (
+          <rect
+            x={padL + hover * slot}
+            y={padT}
+            width={slot}
+            height={base - padT + (lanes.length ? lanes.length * LANE + 4 : 0)}
+            rx={3}
+            className="pointer-events-none fill-fg/5"
+          />
+        ) : null}
+        {[0, 0.5, 1].map((f) => {
+          const ty = base - f * plotH;
+          return (
+            <g key={f} className="pointer-events-none">
+              <line
+                x1={padL}
+                x2={width - padR}
+                y1={ty}
+                y2={ty}
+                className={f === 0 ? "stroke-border" : "stroke-border-subtle"}
+                strokeDasharray={f === 0 ? undefined : "3 4"}
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+              />
+              {hasLeft ? (
+                <text
+                  x={padL - 6}
+                  y={ty + 3}
+                  textAnchor="end"
+                  className="fill-fg-subtle text-[10px] tabular-nums"
+                >
+                  {leftFormat(f * maxL)}
+                </text>
+              ) : null}
+              {hasRight ? (
+                <text
+                  x={width - padR + 6}
+                  y={ty + 3}
+                  textAnchor="start"
+                  className="fill-fg-subtle text-[10px] tabular-nums"
+                >
+                  {rightFormat(f * maxR)}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+        {lines
+          .filter((s) => s.mark === "area" && n > 1)
+          .map((s) => (
+            <path
+              key={`fill-${s.key}`}
+              d={`${linePath(s)}L${cx(n - 1)},${base}L${cx(0)},${base}Z`}
+              fill={`url(#${gradient}-${s.key})`}
+              className="pointer-events-none"
+            />
+          ))}
+        {bars.map((s, k) => (
+          <g key={s.key} className="pointer-events-none">
+            {s.values.map((v, i) => {
+              const bh = (Math.max(0, v) / scale(s)) * plotH;
+              const x = cx(i) - groupW / 2 + k * (barW + 1);
+              return (
+                <path
+                  key={i}
+                  d={roundedTopBar(x, base - bh, barW, bh, Math.min(3, barW / 2))}
+                  className={cn(
+                    VIZ[s.color].fill,
+                    "transition-opacity",
+                    dim(i) ? "opacity-35" : hover === i ? "opacity-100" : "opacity-80",
+                  )}
+                />
+              );
+            })}
+          </g>
+        ))}
+        {lines.map((s) => (
+          <g key={s.key} className="pointer-events-none">
+            {/* A surface halo keeps the line legible where it crosses columns. */}
+            <path
+              d={linePath(s)}
+              fill="none"
+              strokeWidth={5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              className="stroke-surface opacity-70"
+            />
+            <path
+              d={linePath(s)}
+              fill="none"
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              className={VIZ[s.color].stroke}
+            />
+            {s.values.map((v, i) =>
+              n <= 2 || i === hover ? (
+                <circle
+                  key={i}
+                  cx={cx(i)}
+                  cy={y(v, scale(s))}
+                  r={4}
+                  strokeWidth={2}
+                  className={cn(VIZ[s.color].fill, "stroke-surface")}
+                />
+              ) : null,
+            )}
+          </g>
+        ))}
+        {lanes.map((s, k) => {
+          const max = Math.max(1, ...s.values);
+          return (
+            <g key={s.key} className="pointer-events-none">
+              {s.values.map((v, i) =>
+                v > 0 ? (
+                  <path
+                    key={i}
+                    d={markerPath(s.shape, cx(i), laneY(k), 2.5 + 2.5 * Math.sqrt(v / max))}
+                    strokeWidth={1}
+                    className={cn(
+                      VIZ[s.color].fill,
+                      "stroke-surface transition-opacity",
+                      dim(i) && "opacity-40",
+                    )}
+                  />
+                ) : (
+                  <circle key={i} cx={cx(i)} cy={laneY(k)} r={1} className="fill-border" />
+                ),
+              )}
+            </g>
+          );
+        })}
+        {labels.map((label, i) => (
+          <rect
+            key={`hit-${i}`}
+            x={padL + i * slot}
+            y={padT}
+            width={slot}
+            height={labelY - padT}
+            fill="transparent"
+            tabIndex={0}
+            onFocus={() => setHover(i)}
+            onBlur={() => setHover(null)}
+            aria-label={`${label}: ${series.map((s) => `${s.label} ${fmt(s)(s.values[i] ?? 0)}`).join(", ")}`}
+            className="focus:outline-none"
+          />
+        ))}
+        {xTicks.map((i, k) => (
+          <text
+            key={`l${i}`}
+            x={
+              xTicks.length > 1 && k === 0
+                ? padL
+                : k === xTicks.length - 1 && k > 0
+                  ? width - padR
+                  : cx(i)
+            }
+            y={labelY}
+            textAnchor={
+              xTicks.length > 1 && k === 0
+                ? "start"
+                : k === xTicks.length - 1 && k > 0
+                  ? "end"
+                  : "middle"
+            }
+            className="pointer-events-none fill-fg-subtle text-[10px]"
+          >
+            {labels[i]}
+          </text>
+        ))}
+      </svg>
+      {hover !== null ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute top-0 z-10 min-w-36 whitespace-nowrap rounded-md border border-border bg-elevated px-2.5 py-1.5 text-xs shadow-md",
+            tipX < 0.2
+              ? "translate-x-3"
+              : tipX > 0.8
+                ? "-translate-x-[calc(100%+0.75rem)]"
+                : "-translate-x-1/2",
+          )}
+          style={{ left: `${tipX * 100}%` }}
+        >
+          <div className="mb-0.5 font-medium text-fg">{labels[hover]}</div>
+          {series.map((s) => (
+            <div key={s.key} className="flex items-center gap-1.5 tabular-nums text-fg-muted">
+              <ComboSwatch mark={s.mark} color={s.color} shape={s.shape} />
+              {s.label}
+              <span className="ml-auto pl-3 font-medium text-fg">
+                {fmt(s)(s.values[hover] ?? 0)}
+              </span>
+            </div>
+          ))}
+          {extra ? <div className="mt-1 text-fg-subtle">{extra}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

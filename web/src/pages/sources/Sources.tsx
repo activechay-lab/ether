@@ -2,7 +2,7 @@ import { localized, t } from "../../i18n";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { DomainPage } from "../../components/layout";
 import { ProwlarrImport } from "../../components/ProwlarrImport";
@@ -24,6 +24,7 @@ const TABS = localized(
       { key: "iptv", label: t("IPTV") },
       { key: "indexers", label: t("Indexers") },
       { key: "statistics", label: t("Statistics") },
+      { key: "usage", label: t("Usage") },
     ] as const,
 );
 
@@ -31,7 +32,7 @@ type AddDebrid = { nonce: number; kind: DebridKind };
 type AddIndexer = { nonce: number; type: "site" | "newznab" | "stremio" };
 
 /**
- * Where playback comes from: one tab per source type, plus Statistics.
+ * Where playback comes from: one tab per source type, plus Statistics and Usage.
  * An unknown address opens Debrid.
  * Adding one starts from a gallery, then a drawer.
  */
@@ -39,6 +40,9 @@ export default function Sources() {
   const { tab: raw } = useParams();
   const navigate = useNavigate();
   const top = TABS.find((item) => item.key === raw)?.key ?? "debrid";
+  const stats = top === "statistics" || top === "usage";
+  const [params] = useSearchParams();
+  const period = stats ? params.get("days") : null;
   const [importing, setImporting] = useState(false);
   const [gallery, setGallery] = useState(false);
   const [version, setVersion] = useState(0);
@@ -73,9 +77,15 @@ export default function Sources() {
       tabs={TABS}
       active={top}
       status={top === "iptv" ? undefined : <HealthStrip ids={["usenet", "indexers"]} />}
-      tabActions={top === "statistics" ? <StatisticsPeriod /> : undefined}
+      tabActions={stats ? <StatisticsPeriod /> : undefined}
+      // Statistics and Usage share one period, so switching between them keeps it.
+      tabHref={(key) =>
+        period && (key === "statistics" || key === "usage")
+          ? `/sources/${key}?days=${period}`
+          : `/sources/${key}`
+      }
       actions={
-        top !== "statistics" ? (
+        !stats ? (
           <>
             {top !== "iptv" ? (
               <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
@@ -89,7 +99,7 @@ export default function Sources() {
         ) : null
       }
     >
-      {top !== "statistics" && top !== "iptv" ? (
+      {!stats && top !== "iptv" ? (
         <p className="text-sm text-fg-muted">
           {t("Drag a card to choose which account Ether tries first.")}
         </p>
@@ -103,7 +113,7 @@ export default function Sources() {
           <NewReleaseBudgetSection />
         </>
       ) : null}
-      {top === "statistics" ? <SourceStatistics /> : null}
+      {stats ? <SourceStatistics view={top} /> : null}
       <AddSourceGallery open={gallery} onClose={() => setGallery(false)} onPick={pick} />
       <Drawer
         open={importing}

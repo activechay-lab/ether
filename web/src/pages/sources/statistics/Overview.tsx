@@ -1,7 +1,7 @@
 import { DashboardPanel } from "@braedonsaunders/appkit-dashboard/primitives";
 import { cn } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
-import { SeriesLines, TimeBars, type Viz } from "../../../components/charts";
+import { ComboChart, ComboSwatch, type ComboSeries } from "../../../components/charts";
 import { t } from "../../../i18n";
 import { fixed, formatNumber } from "../../../lib/format";
 import {
@@ -19,49 +19,49 @@ import {
 
 type Metric = "plays" | "data" | "failovers" | "failed";
 
-/** Count series share one axis; data downloaded has its own chart below them. */
-const COUNT: {
-  key: Exclude<Metric, "data">;
-  color: Viz;
-  value: (p: PlayDay | PlayHour) => number;
-}[] = [
-  { key: "plays", color: "viz-4", value: (p) => p.plays },
-  { key: "failovers", color: "viz-3", value: (p) => p.failovers },
-  { key: "failed", color: "viz-5", value: (p) => p.failed },
-];
-
-const SWATCH: Record<Metric, string> = {
-  plays: "bg-viz-4",
-  failovers: "bg-viz-3",
-  failed: "bg-viz-5",
-  data: "bg-primary",
+/** Plays as columns, data as an area on its own scale, failures in marker lanes. */
+const MARK: Record<Metric, Pick<ComboSeries, "mark" | "color" | "axis" | "shape">> = {
+  plays: { mark: "bar", color: "viz-4" },
+  data: { mark: "area", color: "viz-1", axis: "right" },
+  failovers: { mark: "marker", color: "viz-3", shape: "dot" },
+  failed: { mark: "marker", color: "viz-5", shape: "diamond" },
+};
+const METRICS: Metric[] = ["plays", "data", "failovers", "failed"];
+const PLAY: Record<Exclude<Metric, "data">, (p: PlayDay | PlayHour) => number> = {
+  plays: (p) => p.plays,
+  failovers: (p) => p.failovers,
+  failed: (p) => p.failed,
 };
 
+const gb = (v: number) => fixed(v, v > 0 && v < 10 ? 1 : 0);
+
 /**
- * The Statistics headline: plays, data downloaded, failovers and failed
- * plays over the period. Each measure is a toggle that also carries its
- * total. Counts share one chart; data downloaded is a second chart under it
- * on the same days, so two units never share an axis.
+ * The Statistics headline: one chart of the period with plays as columns,
+ * data downloaded as an area against its own scale on the right, and
+ * failovers and failed plays as sized markers in thin lanes underneath. The legend
+ * above it carries each measure's total and turns it on or off.
  */
 export function SourceOverview({ data }: { data: StatsData }) {
-  const [on, setOn] = useState<Set<Metric>>(() => new Set(["plays", "data"]));
+  const [on, setOn] = useState<Set<Metric>>(() => new Set(METRICS));
   const h = data.history;
   const today = h.days === 1;
   const plays = h.plays ?? [];
   const hours = h.hours ?? [];
   const days = windowDays(h);
   const labels = today ? hourLabels(h) : days.map(dayLabel);
-  const usenet = (d: string) =>
+  const usenet = days.map((d) =>
     sum(
       (h.providerDays ?? []).filter((x) => x.day === d),
       (x) => x.bytes,
-    );
-  const debrid = (d: string) =>
+    ),
+  );
+  const debrid = days.map((d) =>
     sum(
       (h.streamDays ?? []).filter((x) => x.day === d),
       (x) => x.bytesFetched,
-    );
-  const bytes = days.map((d) => usenet(d) + debrid(d));
+    ),
+  );
+  const bytes = days.map((_, i) => usenet[i]! + debrid[i]!);
 
   const totals: Record<Metric, number> = {
     plays: sum(plays, (p) => p.plays),
@@ -81,101 +81,83 @@ export function SourceOverview({ data }: { data: StatsData }) {
     failovers: formatNumber(totals.failovers, 0),
     failed: formatNumber(totals.failed, 0),
   };
-  // Data is recorded per day, so a one-day window has no hourly data chart.
+  // Data is recorded per day, so a one-day window has no hourly data series.
   const canChart = (m: Metric) => !(today && m === "data");
+  const visible = (m: Metric) => on.has(m) && canChart(m);
   const toggle = (m: Metric) =>
     setOn((prev) => {
       const next = new Set(prev);
       if (next.has(m)) {
-        // At least one chart stays visible.
-        if ([...next].filter(canChart).length > 1 || !canChart(m)) next.delete(m);
+        // At least one series stays on the chart.
+        if (METRICS.filter((x) => x !== m && next.has(x) && canChart(x)).length) next.delete(m);
       } else next.add(m);
       return next;
     });
 
-  const counts = COUNT.filter((c) => on.has(c.key)).map((c) => ({
-    key: c.key,
-    label: label[c.key],
-    color: c.color,
-    values: today ? hourly(h, hours, c.value) : daily(days, plays, c.value),
+  const series: ComboSeries[] = METRICS.filter(visible).map((m) => ({
+    key: m,
+    label: label[m],
+    ...MARK[m],
+    values:
+      m === "data"
+        ? bytes.map((b) => b / 1e9)
+        : today
+          ? hourly(h, hours, PLAY[m])
+          : daily(days, plays, PLAY[m]),
+    format: m === "data" ? (v: number) => formatGB(v * 1e9) : undefined,
   }));
-  const showData = on.has("data") && canChart("data");
-  const metrics: Metric[] = ["plays", "data", "failovers", "failed"];
 
   return (
-    <DashboardPanel title={t("Overview")}>
-      <div className="space-y-4">
-        <div
-          role="group"
-          aria-label={t("Measures to show")}
-          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
-        >
-          {metrics.map((m) => {
-            const pressed = on.has(m) && canChart(m);
-            return (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={pressed}
-                disabled={!canChart(m)}
-                title={canChart(m) ? undefined : t("Data is recorded per day")}
-                onClick={() => toggle(m)}
-                className={cn(
-                  "min-w-0 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  pressed
-                    ? "border-border bg-elevated"
-                    : "border-border-subtle bg-transparent opacity-70 hover:opacity-100",
-                  !canChart(m) && "cursor-default hover:opacity-70",
-                )}
-              >
-                <span className="flex items-center gap-1.5 text-xs text-fg-muted">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "size-2.5 shrink-0 rounded-sm",
-                      pressed ? SWATCH[m] : "border border-border bg-transparent",
-                    )}
-                  />
-                  <span className="truncate">{label[m]}</span>
-                </span>
-                <span className="mt-0.5 block truncate text-lg font-semibold tabular-nums text-fg">
-                  {shown[m]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {counts.length ? (
-          <SeriesLines
-            ariaLabel={
-              today ? t("Plays each hour today") : t("Plays, failovers and failed plays each day")
-            }
-            labels={labels}
-            height={220}
-            valueFormat={(v) => formatNumber(v, 0)}
-            series={counts}
-          />
-        ) : null}
-        {showData ? (
-          <div>
-            <p className="mb-1 text-xs font-medium text-fg-muted">{t("Data downloaded (GB)")}</p>
-            <TimeBars
-              ariaLabel={t("Gigabytes downloaded each day")}
-              height={counts.length ? 120 : 220}
-              valueFormat={(v) => fixed(v, v > 0 && v < 10 ? 1 : 0)}
-              data={days.map((day, i) => ({
-                key: day,
-                label: labels[i]!,
-                value: bytes[i]! / 1e9,
-                detail: t("Usenet {usenet} · Debrid {debrid}", {
-                  usenet: formatGB(usenet(day)),
-                  debrid: formatGB(debrid(day)),
-                }),
-              }))}
-            />
-          </div>
-        ) : null}
+    <DashboardPanel title={t("Overview")} bodyClassName="space-y-3 px-4 pb-3 pt-3">
+      <div role="group" aria-label={t("Measures to show")} className="flex flex-wrap gap-1.5">
+        {METRICS.map((m) => {
+          const pressed = visible(m);
+          return (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={pressed}
+              disabled={!canChart(m)}
+              title={canChart(m) ? undefined : t("Data is recorded per day")}
+              onClick={() => toggle(m)}
+              className={cn(
+                "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                pressed
+                  ? "border-border bg-elevated text-fg"
+                  : "border-dashed border-border text-fg-muted hover:text-fg",
+                !canChart(m) && "cursor-default opacity-60 hover:text-fg-muted",
+              )}
+            >
+              <ComboSwatch {...MARK[m]} muted={!pressed} />
+              <span className="truncate">{label[m]}</span>
+              <span className="font-semibold tabular-nums">{shown[m]}</span>
+            </button>
+          );
+        })}
       </div>
+      <ComboChart
+        ariaLabel={
+          today
+            ? t("Plays, failovers and failed plays each hour today")
+            : t("Plays, data downloaded, failovers and failed plays each day")
+        }
+        labels={labels}
+        height={156}
+        series={series}
+        leftUnit={t("Plays")}
+        rightUnit={t("GB")}
+        leftFormat={(v) => formatNumber(v, 0)}
+        rightFormat={gb}
+        detail={
+          today || !visible("data")
+            ? undefined
+            : (i) =>
+                t("Usenet {usenet} · Debrid {debrid}", {
+                  usenet: formatGB(usenet[i]!),
+                  debrid: formatGB(debrid[i]!),
+                })
+        }
+      />
     </DashboardPanel>
   );
 }

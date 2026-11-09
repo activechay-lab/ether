@@ -1,5 +1,5 @@
 import { DashboardPanel } from "@braedonsaunders/appkit-dashboard/primitives";
-import { Cloud, DatabaseZap, Newspaper, Search } from "lucide-react";
+import { DatabaseZap, HardDriveDownload, Newspaper, Search } from "lucide-react";
 import {
   RankedBars,
   SeriesLines,
@@ -70,8 +70,6 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
   const found = sum(indexers, (d) => d.successes);
   const articles = sum(providers, (d) => d.articles);
   const missing = sum(providers, (d) => d.misses + d.errors);
-  const requests = sum(debrid, (d) => d.requests);
-  const requestFailures = sum(debrid, (d) => d.failures);
   const hits = sum(stream, (d) => d.memoryHits + d.diskHits);
   const fetched = sum(stream, (d) => d.blocksFetched);
 
@@ -141,6 +139,19 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
     <>
       <KpiRow>
         <Kpi
+          label={t("Data downloaded")}
+          value={formatGB(usenetBytes + debridBytes)}
+          detail={
+            usenetBytes + debridBytes
+              ? t("Usenet {usenet} · Debrid {debrid}", {
+                  usenet: formatGB(usenetBytes),
+                  debrid: formatGB(debridBytes),
+                })
+              : t("Nothing recorded in this period.")
+          }
+          icon={<HardDriveDownload size={18} />}
+        />
+        <Kpi
           label={t("Article success")}
           value={pct(ratio(articles, articles + missing))}
           detail={
@@ -153,12 +164,6 @@ export function SourceDashboard({ data, rows }: { data: StatsData; rows: SourceR
               : t("No Usenet downloads in this period")
           }
           icon={<Newspaper size={18} />}
-        />
-        <Kpi
-          label={t("Debrid success")}
-          value={pct(ratio(requests - requestFailures, requests))}
-          detail={tn(requests, "{count} debrid request", "{count} debrid requests")}
-          icon={<Cloud size={18} />}
           tone="info"
         />
         <Kpi

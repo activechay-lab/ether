@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { ErrorPanel, LoadingRows } from "../../../components/feedback";
 import { Segmented } from "../../../components/fields";
-import { PageSubtabs } from "../../../components/layout";
-import { localized, t } from "../../../i18n";
+import { t } from "../../../i18n";
 import { useLocale } from "../../../i18n/react";
 import { useInterval } from "../../../lib/hooks";
 import { usePluginSourceSummaries } from "../PluginSources";
@@ -12,20 +11,13 @@ import { SourceDashboard } from "./Dashboard";
 import { SourceDrawer } from "./SourceDrawer";
 import { SourceUsageTable } from "./UsageTable";
 
-const VIEWS = localized(() => [
-  { key: "dashboard", label: t("Dashboard") },
-  { key: "usage", label: t("Usage") },
-]);
-
 /**
- * Sources › Statistics: a dashboard of every source over time, and a usage
- * table whose rows open everything Ether records about that source.
+ * Sources › Statistics (a dashboard of every source over time) and
+ * Sources › Usage (every source in one table). Both read the same period of
+ * stats, and a source's drawer opens over either.
  */
-export function SourceStatistics() {
-  const { section } = useParams();
-  const navigate = useNavigate();
+export function SourceStatistics({ view }: { view: "statistics" | "usage" }) {
   const [params, setParams] = useSearchParams();
-  const view = section === "usage" ? "usage" : "dashboard";
   const days = periodOf(params.get("days"));
   const stats = useSourceStats(days);
   useInterval(() => void stats.reload(), 60_000);
@@ -38,12 +30,6 @@ export function SourceStatistics() {
   const open = params.get("source");
   const selected = rows.find((r) => r.key === open) ?? null;
 
-  const select = (key: string) => {
-    const next = new URLSearchParams(params);
-    next.delete("source");
-    const query = next.toString();
-    navigate(`/sources/statistics/${key}${query ? `?${query}` : ""}`);
-  };
   const setSource = (key: string | null) =>
     setParams(
       (prev) => {
@@ -57,17 +43,11 @@ export function SourceStatistics() {
 
   return (
     <>
-      <PageSubtabs
-        ariaLabel={t("Statistics sections")}
-        active={view}
-        onSelect={select}
-        tabs={VIEWS}
-      />
       {stats.error && !stats.data ? (
         <ErrorPanel error={stats.error} onRetry={() => void stats.reload()} />
       ) : !stats.data ? (
         <LoadingRows rows={4} />
-      ) : view === "dashboard" ? (
+      ) : view === "statistics" ? (
         <SourceDashboard data={stats.data} rows={rows} />
       ) : (
         <SourceUsageTable
@@ -88,7 +68,7 @@ export function SourceStatistics() {
   );
 }
 
-/** Statistics' period control, on the Sources tab row. */
+/** The Statistics and Usage period control, on the Sources tab row. */
 export function StatisticsPeriod() {
   const [params, setParams] = useSearchParams();
   return (

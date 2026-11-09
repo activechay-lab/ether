@@ -238,7 +238,7 @@ function renderAt(path: string) {
       <Routes>
         <Route path="/activity/:tab?" element={<Activity />} />
         <Route path="/notifications/:tab?" element={<Notifications />} />
-        <Route path="/sources/:tab/:section?" element={<SourceStatistics />} />
+        <Route path="/sources/usage" element={<SourceStatistics view="usage" />} />
         <Route path="/hardware" element={<HardwareStatus />} />
       </Routes>
     </MemoryRouter>,
@@ -412,7 +412,7 @@ describe("Notifications", () => {
 describe("Source statistics", () => {
   it("opens a source from the usage table and saves its plan price in the drawer", async () => {
     const calls = backend();
-    renderAt("/sources/statistics/usage");
+    renderAt("/sources/usage");
     fireEvent.click(await screen.findByText("My news provider", {}, WAIT));
     const price = await screen.findByLabelText("Monthly price for My news provider", {}, WAIT);
     expect(screen.queryByLabelText("Service ID")).not.toBeInTheDocument();
@@ -434,7 +434,7 @@ describe("Source statistics", () => {
 
   it("lists a configured Usenet provider that has no traffic or live sample", async () => {
     backend();
-    renderAt("/sources/statistics/usage");
+    renderAt("/sources/usage");
     fireEvent.click(await screen.findByText("Spare block", {}, WAIT));
     expect(await screen.findByText("Totals · Last 7 days", {}, WAIT)).toBeInTheDocument();
     expect(
@@ -444,7 +444,7 @@ describe("Source statistics", () => {
 
   it("shows an indexer's real API hits by purpose in its drawer", async () => {
     backend();
-    renderAt("/sources/statistics/usage?source=indexer:My%20indexer");
+    renderAt("/sources/usage?source=indexer:My%20indexer");
     // Real API hits by purpose, matching the indexer's own counter.
     expect(await screen.findByText("7 of 100", {}, WAIT)).toBeInTheDocument();
     const byPurpose = screen.getByRole("list", { name: "API hits by purpose" });

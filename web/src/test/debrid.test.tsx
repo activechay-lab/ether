@@ -37,7 +37,7 @@ describe("Sources › Debrid", () => {
   it.each([
     ["/sources/usenet", "Usenet providers"],
     ["/sources/indexers", "Indexers"],
-    ["/sources/usage", "Debrid providers"],
+    ["/sources/elsewhere", "Debrid providers"],
   ])("opens %s as one tab level", async (path, region) => {
     renderApp(path);
     expect(await screen.findByRole("region", { name: region }, WAIT)).toBeInTheDocument();
