@@ -111,6 +111,42 @@ func AnalyzeFull(ctx context.Context, db *sql.DB, names ...string) error {
 	return err
 }
 
+// CreateIndexAnalyzed builds an index with create and analyses it from
+// every row in the same transaction. Other connections see the index and
+// its statistics together, on one schema change. An index committed
+// without statistics looks nearly unique to every connection's planner
+// (SQLite assumes about ten rows per leading value) for as long as it
+// stays that way: a type-leading index then wins "the latest episode of
+// this show" over the show's own index and walks every episode, a row
+// lookup each. The write lock is held for the build and one scan of the
+// new index. On PostgreSQL it runs create alone.
+func CreateIndexAnalyzed(ctx context.Context, db *sql.DB, name, create string) error {
+	if DialectOf(db) == Postgres {
+		_, err := db.ExecContext(ctx, create)
+		return err
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return withFullAnalysis(ctx, conn, func() error {
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, create); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `ANALYZE `+quoteIdent(name)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("store: analyze %s: %w", name, err)
+		}
+		return tx.Commit()
+	})
+}
+
 // staleTables lists the tables PRAGMA optimize would analyse, checking
 // every table (0x10000) rather than only those this connection used. The
 // debugging bit (0x01) makes it name them instead of analysing them under

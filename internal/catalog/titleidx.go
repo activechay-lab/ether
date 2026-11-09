@@ -90,7 +90,10 @@ func (c *Catalog) swapTitleIndexes(ctx context.Context) error {
 			if _, err := c.db.ExecContext(ctx, `CREATE INDEX CONCURRENTLY IF NOT EXISTS `+s.replacement+` ON catalog_titles`+s.def); err != nil {
 				return fmt.Errorf("catalog: build %s: %w", s.replacement, err)
 			}
-		} else if _, err := c.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS `+s.replacement+` ON catalog_titles`+s.def); err != nil {
+		} else if err := store.CreateIndexAnalyzed(ctx, c.db, s.replacement, `CREATE INDEX IF NOT EXISTS `+s.replacement+` ON catalog_titles`+s.def); err != nil {
+			// Built and analysed in one transaction: committed alone, a
+			// type-leading replacement without statistics drew every
+			// connection's per-show reads onto it until the swap finished.
 			return fmt.Errorf("catalog: build %s: %w", s.replacement, err)
 		}
 	}
@@ -108,21 +111,6 @@ func (c *Catalog) swapTitleIndexes(ctx context.Context) error {
 	}
 	if _, err := c.db.ExecContext(ctx, `INSERT INTO catalog_meta(k,v) VALUES('title_indexes_swapped',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, fmt.Sprint(c.now().Unix())); err != nil {
 		return err
-	}
-	if !pg {
-		// Full statistics for the new indexes alone. PRAGMA optimize here
-		// re-sampled all of catalog_titles (the new indexes had no stats)
-		// and left every type-leading index estimated at a few hundred rows
-		// per type (store.RefreshStatistics).
-		var built []string
-		for _, s := range titleIndexSwaps {
-			if s.replacement != "" {
-				built = append(built, s.replacement)
-			}
-		}
-		if err := store.AnalyzeFull(ctx, c.db, built...); err != nil {
-			c.log.Warn("catalog: statistics for the replaced title indexes", "err", err)
-		}
 	}
 	c.log.Info("catalog: popularity left the title indexes", "took", time.Since(started).Round(time.Millisecond), "replaced", strings.Join(swapNames(), ","))
 	return nil
