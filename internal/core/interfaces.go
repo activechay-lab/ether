@@ -227,7 +227,8 @@ type BrowseQuery struct {
 // ListRows asks a key-ordered Browse page for a whole-library export's rows:
 // each title with Facts, what the catalogue's own policy reads for the
 // viewer (browsing rules, the release gate), and its directors and first
-// three cast members, but no other credits or alternative titles. A title
+// three cast members, but no other credits, alternative titles or aired
+// season and episode counts (a series keeps its stored ones). A title
 // Detail reports (one the caller judges on its full facts) comes back in
 // full. Partial titles never enter a shared cache.
 type ListRows struct {

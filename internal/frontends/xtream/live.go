@@ -215,13 +215,13 @@ func (i *instance) playlist(w http.ResponseWriter, r *http.Request, l login) {
 		_, _ = fmt.Fprintf(w, "#EXTINF:-1 tvg-id=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n%s/live/%s/%s/%d.m3u8\n", cleanM3U(c.ID), cleanM3U(i.image(r, l, 0, c.ID, c.Images)), cleanM3U(group), cleanM3U(c.Name), base, l.username, l.password, l.channels[c.ID])
 	}
 	// Movies are emitted a page at a time; exporting never accumulates the catalogue.
-	if err := i.walk(r, l, "movie", func(t frontend.Title, cat string) error {
+	if err := i.walk(r, l, "movie", func(l login, t frontend.Title, cat string) error {
 		_, err := fmt.Fprintf(w, "#EXTINF:-1 group-title=\"Movies\",%s\n%s/movie/%s/%s/%d.mkv\n", cleanM3U(t.Title), base, l.username, l.password, l.ids[t.Key])
 		return err
 	}); err != nil {
 		return
 	}
-	_ = i.walk(r, l, "show", func(show frontend.Title, _ string) error {
+	_ = i.walk(r, l, "show", func(_ login, show frontend.Title, _ string) error {
 		return i.children(r, l, show.Key, func(season frontend.Title) error {
 			if string(season.Type) != "season" {
 				return nil

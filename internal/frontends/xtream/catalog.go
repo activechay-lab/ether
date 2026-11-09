@@ -21,7 +21,8 @@ func jsonEncoder(w http.ResponseWriter, v any) error { return json.NewEncoder(w)
 
 // walk keeps one policy-filtered page in memory and never fetches item details
 // per listing row. Category selection is pushed down to the library query.
-func (i *instance) walk(r *http.Request, l login, kind string, emit func(frontend.Title, string) error) error {
+// emit gets the login whose artwork and ids hold its title's page.
+func (i *instance) walk(r *http.Request, l login, kind string, emit func(login, frontend.Title, string) error) error {
 	views, err := i.host.Experience.Views(r.Context(), l.viewer)
 	if err != nil {
 		return err
@@ -32,13 +33,13 @@ func (i *instance) walk(r *http.Request, l login, kind string, emit func(fronten
 			continue
 		}
 		if exporter, ok := i.host.Experience.(frontend.LibraryExporter); ok {
-			err := exportPages(r.Context(), exporter, l, v.ID, func(page frontend.LibraryExportPage) error {
-				if err := i.pageImages(r, l, page.Items); err != nil {
-					return err
-				}
+			err := exportPages(r.Context(), exporter, l, v.ID, func(page frontend.LibraryExportPage) (login, error) {
+				pl := l.forPage()
+				return pl, i.pageImages(r, pl, page.Items)
+			}, func(page frontend.LibraryExportPage, pl login) error {
 				for _, t := range page.Items {
 					if string(t.Type) == kind {
-						if err := emit(t, v.ID); err != nil {
+						if err := emit(pl, t, v.ID); err != nil {
 							return err
 						}
 					}
@@ -66,7 +67,7 @@ func (i *instance) walk(r *http.Request, l login, kind string, emit func(fronten
 			}
 			for _, t := range page.Items {
 				if string(t.Type) == kind {
-					if err := emit(t, v.ID); err != nil {
+					if err := emit(l, t, v.ID); err != nil {
 						return err
 					}
 				}
@@ -83,19 +84,20 @@ func (i *instance) walk(r *http.Request, l login, kind string, emit func(fronten
 	return nil
 }
 
-// exportPages hands view's export pages to each in order, reading the next
-// page while each handles this one: the database read of a page overlaps
-// the signing and encoding of the one before. At most two pages are held.
-// It returns nil only after the last page; the reader stops with each.
-func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login, view string, each func(frontend.LibraryExportPage) error) error {
+// exportPages hands view's export pages to each in order, three stages
+// apart: while each encodes a page, sign signs the next one (into a login of
+// its own) and the reader reads the one after. At most four pages are held.
+// It returns nil only after the last page; both stages stop with each.
+func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login, view string, sign func(frontend.LibraryExportPage) (login, error), each func(frontend.LibraryExportPage, login) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	type result struct {
 		page frontend.LibraryExportPage
+		l    login
 		err  error
 	}
-	next := make(chan result, 1)
+	read, signed := make(chan result, 1), make(chan result, 1)
 	go func() {
-		defer close(next)
+		defer close(read)
 		after := frontend.RatingKey(0)
 		for {
 			page, err := exporter.ExportLibraryPage(ctx, l.viewer, l.device, view, after, pageSize)
@@ -107,7 +109,7 @@ func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login
 				err = errors.New("invalid export cursor")
 			}
 			select {
-			case next <- result{page, err}:
+			case read <- result{page: page, err: err}:
 			case <-ctx.Done():
 				return
 			}
@@ -117,24 +119,42 @@ func exportPages(ctx context.Context, exporter frontend.LibraryExporter, l login
 			after = page.Next
 		}
 	}()
-	defer func() {
-		// The reader never outlives the request handler.
-		cancel()
-		for range next {
+	go func() {
+		defer close(signed)
+		for res := range read {
+			if res.err == nil {
+				res.l, res.err = sign(res.page)
+			}
+			select {
+			case signed <- res:
+			case <-ctx.Done():
+				return
+			}
+			if res.err != nil {
+				return
+			}
 		}
 	}()
-	for res := range next {
+	defer func() {
+		// Neither stage outlives the request handler.
+		cancel()
+		for range signed {
+		}
+		for range read {
+		}
+	}()
+	for res := range signed {
 		if res.err != nil {
 			return res.err
 		}
-		if err := each(res.page); err != nil {
+		if err := each(res.page, res.l); err != nil {
 			return err
 		}
 		if res.page.Done {
 			return nil
 		}
 	}
-	// The reader stopped before the last page: the request was cancelled.
+	// A stage stopped before the last page: the request was cancelled.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -150,6 +170,7 @@ func (i *instance) titleImage(r *http.Request, l login, t frontend.Title) string
 	}
 	return i.image(r, l, t.Key, "", []frontend.Image{{Kind: "poster", Path: t.PosterPath}})
 }
+
 // movieRow and seriesRow are a listing row. Their fields are in byte order
 // of their JSON names, the order apps have always received them in.
 type movieRow struct {
@@ -238,7 +259,7 @@ func (i *instance) catalog(w http.ResponseWriter, r *http.Request, l login, acti
 	// writes per row through the response writer's wrappers.
 	out := bufio.NewWriterSize(w, 64<<10)
 	n := 0
-	err := i.walk(r, l, kind, func(t frontend.Title, cat string) error {
+	err := i.walk(r, l, kind, func(l login, t frontend.Title, cat string) error {
 		data, err := json.Marshal(i.row(r, l, t, cat, n+1))
 		if err != nil {
 			return err

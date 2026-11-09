@@ -1353,9 +1353,8 @@ func (c *Catalog) hydrateRows(ctx context.Context, items []core.Title, set factS
 	if len(items) == 0 {
 		return nil
 	}
-	if err := c.airedCounts(ctx, items); err != nil {
-		return err
-	}
+	// No aired counts: an export row shows no season or episode count, and
+	// counting them reads every episode of every listed series.
 	idx := map[core.RatingKey][]int{}
 	keys := make([]any, 0, len(items))
 	for i := range items {

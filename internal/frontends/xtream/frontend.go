@@ -99,6 +99,13 @@ type login struct {
 	groups             map[string]int32
 }
 
+// forPage is l with artwork and id maps of its own, for one listing page
+// signed while another is written.
+func (l login) forPage() login {
+	l.artwork, l.ids = make(map[frontend.RatingKey]string, pageSize), make(map[frontend.RatingKey]int32, pageSize)
+	return l
+}
+
 func (i *instance) authenticate(r *http.Request) (login, error) {
 	u, p := r.PathValue("username"), r.PathValue("password")
 	if u == "" {
