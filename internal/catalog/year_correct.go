@@ -189,13 +189,60 @@ func (c *Catalog) countPendingMovieYears(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// updateMovieYearsChunked runs one UPDATE of the pending movies
+// (year_source=''). While at most yearChunk movies are pending it is the
+// single statement it always was. On a large upgrade sweep it runs in
+// key-ordered windows of yearChunk pending movies, one statement (one
+// write transaction) per window, so the sweep yields the writer between
+// windows instead of holding it for every pending movie at once (#407).
+// update takes the window as `AND key>? AND key<=?` appended here. The
+// predicates it is used with only shrink as rows are written (year_source
+// leaves ''), so no window needs a second pass.
+const yearChunk = 5000
+
+func (c *Catalog) updateMovieYearsChunked(ctx context.Context, pending int, update string, args ...any) (int64, error) {
+	if pending <= yearChunk {
+		res, err := c.db.ExecContext(ctx, update, args...)
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	}
+	var total int64
+	last := int64(-1 << 62)
+	for {
+		var next sql.NullInt64
+		var window int
+		if err := c.db.QueryRowContext(ctx, `SELECT MAX(key), COUNT(*) FROM (SELECT key FROM catalog_titles WHERE type='movie' AND year_source='' AND key>? ORDER BY key LIMIT ?) s`, last, yearChunk).Scan(&next, &window); err != nil {
+			return total, err
+		}
+		if !next.Valid {
+			return total, nil
+		}
+		res, err := c.db.ExecContext(ctx, update+` AND key>? AND key<=?`, append(append([]any{}, args...), last, next.Int64)...)
+		if err != nil {
+			return total, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if window < yearChunk {
+			return total, nil
+		}
+		last = next.Int64
+	}
+}
+
 // rederiveStoredMovieYears applies a primary date that is already stored.
 // A movie that has never had a detail fetch keeps that date in released_ts.
 // A row that already recorded primary_released_ts uses that, including a
 // date before 1970. Detailed rows are left queued: their released_ts may
 // be a later theatrical date, and the primary date was not kept.
 func (c *Catalog) rederiveStoredMovieYears(ctx context.Context) (int, error) {
-	if pending, err := c.countPendingMovieYears(ctx); err == nil && pending == 0 {
+	pending, perr := c.countPendingMovieYears(ctx)
+	if perr == nil && pending == 0 {
 		return 0, nil
 	}
 	yearOf := func(column string) string {
@@ -205,20 +252,12 @@ func (c *Catalog) rederiveStoredMovieYears(ctx context.Context) (int, error) {
 		return `CAST(strftime('%Y', ` + column + `, 'unixepoch') AS INTEGER)`
 	}
 	total := 0
-	res, err := c.db.ExecContext(ctx, `UPDATE catalog_titles SET primary_released_ts=released_ts, year=`+yearOf("released_ts")+`, year_source=? WHERE type='movie' AND year_source='' AND detail=0 AND released_ts<>0`, yearSourcePrimary)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
+	n, err := c.updateMovieYearsChunked(ctx, pending, `UPDATE catalog_titles SET primary_released_ts=released_ts, year=`+yearOf("released_ts")+`, year_source=? WHERE type='movie' AND year_source='' AND detail=0 AND released_ts<>0`, yearSourcePrimary)
 	if err != nil {
 		return 0, err
 	}
 	total += int(n)
-	res, err = c.db.ExecContext(ctx, `UPDATE catalog_titles SET year=`+yearOf("primary_released_ts")+`, year_source=? WHERE type='movie' AND year_source='' AND primary_released_ts<>0`, yearSourcePrimary)
-	if err != nil {
-		return total, err
-	}
-	n, err = res.RowsAffected()
+	n, err = c.updateMovieYearsChunked(ctx, pending, `UPDATE catalog_titles SET year=`+yearOf("primary_released_ts")+`, year_source=? WHERE type='movie' AND year_source='' AND primary_released_ts<>0`, yearSourcePrimary)
 	if err != nil {
 		return total, err
 	}
@@ -234,15 +273,15 @@ func (c *Catalog) rederiveStoredMovieYears(ctx context.Context) (int, error) {
 // primary release, or a type-1 premiere late the previous year, can fall in
 // the other calendar year. No type-1 date is stored on its own.
 func (c *Catalog) settleUnchangedMovieYears(ctx context.Context) error {
-	if pending, err := c.countPendingMovieYears(ctx); err == nil && pending == 0 {
+	pending, perr := c.countPendingMovieYears(ctx)
+	if perr == nil && pending == 0 {
 		return nil
 	}
 	month := movieReleaseMonthSQL(store.DialectOf(c.db))
-	_, err := c.db.ExecContext(ctx, `UPDATE catalog_titles SET year_source=? WHERE type='movie' AND year_source='' AND released_ts=0`, yearSourceNone)
-	if err != nil {
+	if _, err := c.updateMovieYearsChunked(ctx, pending, `UPDATE catalog_titles SET year_source=? WHERE type='movie' AND year_source='' AND released_ts=0`, yearSourceNone); err != nil {
 		return err
 	}
-	_, err = c.db.ExecContext(ctx, `UPDATE catalog_titles SET year_source=? WHERE type='movie' AND year_source='' AND NOT (detail=1 AND released_ts<>0 AND `+month+` BETWEEN 1 AND 3)`, yearSourceReleased)
+	_, err := c.updateMovieYearsChunked(ctx, pending, `UPDATE catalog_titles SET year_source=? WHERE type='movie' AND year_source='' AND NOT (detail=1 AND released_ts<>0 AND `+month+` BETWEEN 1 AND 3)`, yearSourceReleased)
 	return err
 }
 
