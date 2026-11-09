@@ -63,8 +63,12 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(c.policyKeyFilter(q.Filter)) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
 	bkey := fmt.Sprintf("after:%d|", q.AfterKey) + fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cacheable := !groupHasState(q.Filter.Group)
+	// An export page holds partial titles (ListRows) and is read once per
+	// export: it neither serves from nor fills the page cache.
+	listRows := q.ListRows != nil && q.Sort == core.SortKey
+	pageCacheable := cacheable && !listRows
 	c.cacheMu.RLock()
-	if ent, ok := c.browseCache[bkey]; cacheable && !q.SortLastViewed && ok && ent.gen == gen && ent.minute == minBucket {
+	if ent, ok := c.browseCache[bkey]; pageCacheable && !q.SortLastViewed && ok && ent.gen == gen && ent.minute == minBucket {
 		items := make([]core.Title, len(ent.page.Items))
 		for i := range ent.page.Items {
 			items[i] = cloneTitle(ent.page.Items[i])
@@ -116,7 +120,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	if total == 0 || offset >= total {
 		page := core.Page{Items: []core.Title{}, Total: total}
-		if cacheable && !q.SortLastViewed && c.writeGen.Load() == gen {
+		if pageCacheable && !q.SortLastViewed && c.writeGen.Load() == gen {
 			c.cacheMu.Lock()
 			if len(c.browseCache) >= 512 {
 				c.browseCache = map[string]cachedBrowse{}
@@ -245,6 +249,10 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		if items, err = c.titlesInKeyOrder(ctx, keys); err != nil {
 			return core.Page{}, err
 		}
+	case listRows:
+		if items, err = c.queryListRows(ctx, q.ListRows, query, append(queryArgs, limit, offset)...); err != nil {
+			return core.Page{}, err
+		}
 	default:
 		if items, err = c.queryPagedTitles(ctx, query, append(queryArgs, limit, offset)...); err != nil {
 			return core.Page{}, err
@@ -261,7 +269,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.NoTotal {
 		total = offset + len(items)
 	}
-	if cacheable && !q.SortLastViewed && c.writeGen.Load() == gen {
+	if pageCacheable && !q.SortLastViewed && c.writeGen.Load() == gen {
 		cachedItems := make([]core.Title, len(items))
 		for i := range items {
 			cachedItems[i] = cloneTitle(items[i])

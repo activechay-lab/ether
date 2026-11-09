@@ -82,11 +82,28 @@ func (c *Catalog) ArtworkTitle(ctx context.Context, key core.RatingKey) (*core.T
 }
 
 // ArtworkTitles is CachedGetMany that also admits titles held only in
-// memory.
+// memory. A title of the viewer's current export page comes as that page
+// read it (exportCache): the facts its policy reads, so an export's signer
+// does not read the whole library a second time.
 func (c *Catalog) ArtworkTitles(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
-	out, err := c.CachedGetMany(ctx, keys)
+	gen, minute := c.writeGen.Load(), c.minuteBucket()
+	exported := map[core.RatingKey]core.Title{}
+	rest := make([]core.RatingKey, 0, len(keys))
+	for _, key := range keys {
+		if t, ok := c.exportTitle(ctx, key, gen, minute); ok {
+			exported[key] = t
+		} else {
+			rest = append(rest, key)
+		}
+	}
+	out, err := c.CachedGetMany(ctx, rest)
 	if err != nil {
 		return nil, err
+	}
+	for key, t := range exported {
+		if c.cachedListVisible(&t) {
+			out[key] = t
+		}
 	}
 	for _, key := range keys {
 		if _, ok := out[key]; ok {

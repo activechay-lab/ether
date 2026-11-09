@@ -98,6 +98,8 @@ func (s *ImageGrantService) pageKey() []byte {
 // for the page and no grant write. Serve rechecks the credential, expiry,
 // revocation and current artwork policy before returning bytes.
 func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePageRequest) ([]frontend.ImageBatchItem, error) {
+	// A page grant writes nothing per title, so one call signs a whole
+	// listing page (an export's 250), up to the input bound.
 	if len(req.Titles) > maxImageBatchInput || len(req.Kinds) > 6 {
 		return nil, frontend.ErrImageBatchLimit
 	}
@@ -146,10 +148,9 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			seen[title.Key] = true
 			keys = append(keys, title.Key)
 		}
-		if len(keys) > maxImageBatchItems {
-			return nil, frontend.ErrImageBatchLimit
-		}
-		listed, err := page.ItemArtworkPage(ctx, viewer, req.Device, keys)
+		// Only the wanted kinds are sealed below, so the listing need not
+		// prepare the others (UltraBlur colours for a poster-only page).
+		listed, err := page.ItemArtworkPage(frontend.WithArtworkKinds(ctx, wanted), viewer, req.Device, keys)
 		if err != nil {
 			return nil, err
 		}
@@ -178,9 +179,6 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			continue
 		}
 		seen[title.Key] = true
-		if len(seen) > maxImageBatchItems {
-			return nil, frontend.ErrImageBatchLimit
-		}
 		images, complete, err := s.pageImages(ctx, viewer, req.Device, title.Key)
 		if errors.Is(err, core.ErrNotFound) || errors.Is(err, core.ErrUnauthorized) {
 			continue

@@ -255,6 +255,9 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 	}
 	var entries []frontendArtworkEntry
 	add := func(kind, source string, entry frontendArtworkEntry) {
+		if !frontend.ArtworkKindWanted(ctx, kind) {
+			return
+		}
 		ref := artworkReference(req, kind, source)
 		entry.image = frontend.Image{Kind: kind, Path: ref, Tag: ref, Subject: entry.subject}
 		entry.virtualSeason = virtualSeason
@@ -265,6 +268,10 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 		selected = s.Discovery.SelectArtwork(ctx, req.Viewer, title, req.Device.Language)
 	}
 	for _, item := range []struct{ kind, element string }{{frontend.ImagePoster, "poster"}, {frontend.ImageThumb, "thumb"}, {frontend.ImageBackdrop, "art"}, {frontend.ImageLogo, "logo"}, {frontend.ImageBanner, "banner"}} {
+		if !frontend.ArtworkKindWanted(ctx, item.kind) {
+			// A page signer seals only its wanted kinds.
+			continue
+		}
 		path, _, err := s.ArtPath(ctx, req, item.element)
 		generated := req.Item.Kind() == core.KindSmart && (item.element == "thumb" || item.element == "poster")
 		version, kind := "", ""
@@ -292,7 +299,7 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 	}
 	complete := true
 	if title != nil {
-		if s.Palettes != nil && ultraBlurType(title.Type) && title.BackdropPath != "" {
+		if s.Palettes != nil && ultraBlurType(title.Type) && title.BackdropPath != "" && frontend.ArtworkKindWanted(ctx, frontend.ImageBackdrop) {
 			if colors := s.Palettes.Lookup(title.Key, title.BackdropPath); colors != nil {
 				stamp := colors.TopLeft + colors.TopRight + colors.BottomLeft + colors.BottomRight
 				add(frontend.ImageBackdrop, "ultrablur\x00"+title.BackdropPath+"\x00"+stamp, frontendArtworkEntry{ultra: colors})

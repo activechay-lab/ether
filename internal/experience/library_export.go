@@ -44,7 +44,14 @@ func (s *Service) ExportLibraryPage(ctx context.Context, viewer *core.Viewer, de
 			}
 		}
 	}
-	page, err := s.d.Browse(ctx, core.BrowseQuery{Filter: filter, Sort: core.SortKey, AfterKey: after, Limit: limit, NoTotal: true})
+	// An export row shows list facts (genres, directors, three cast) and
+	// carries what this viewer's policy reads; a title availability judges
+	// on its facts comes back in full. Detail stays with one-title reads.
+	q := core.BrowseQuery{Filter: filter, Sort: core.SortKey, AfterKey: after, Limit: limit, NoTotal: true}
+	if detail, ok := s.d.Visibility.judgedOnFacts(ctx); ok {
+		q.ListRows = &core.ListRows{Facts: s.d.Visibility.TitleFacts(v) | core.FactGenres, Detail: detail}
+	}
+	page, err := s.d.Browse(ctx, q)
 	if err != nil {
 		return frontend.LibraryExportPage{}, err
 	}

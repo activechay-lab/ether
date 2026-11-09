@@ -286,14 +286,19 @@ func (c *Catalog) kickMovieYears(items []core.Title) {
 		return
 	}
 	go func() {
-		rows, err := c.db.QueryContext(context.Background(), `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`) AND type='movie' AND year_source='' AND detail=1 AND released_ts<>0`, keys...)
+		// Only the key is a predicate: with type or year_source in the
+		// WHERE clause SQLite's planner may walk a type index (every movie)
+		// instead of seeking the page's keys. The rest is decided here.
+		rows, err := c.db.QueryContext(context.Background(), `SELECT key, type, year_source, detail, released_ts FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`)`, keys...)
 		if err != nil {
 			return
 		}
 		var pending []core.RatingKey
 		for rows.Next() {
-			var key int64
-			if rows.Scan(&key) == nil {
+			var key, released int64
+			var typ, source string
+			var detail int
+			if rows.Scan(&key, &typ, &source, &detail, &released) == nil && typ == string(core.TypeMovie) && source == "" && detail == 1 && released != 0 {
 				pending = append(pending, core.RatingKey(key))
 			}
 		}

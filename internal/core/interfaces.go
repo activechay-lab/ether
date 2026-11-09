@@ -219,6 +219,20 @@ type BrowseQuery struct {
 	// NoTotal skips counting the filter's matches, which reads every title
 	// the filter admits. Page.Total is then offset plus the items returned.
 	NoTotal bool
+	// ListRows reads a key-ordered (SortKey) page as list rows instead of
+	// full titles (an export). Other page shapes ignore it.
+	ListRows *ListRows
+}
+
+// ListRows asks a key-ordered Browse page for a whole-library export's rows:
+// each title with Facts, what the catalogue's own policy reads for the
+// viewer (browsing rules, the release gate), and its directors and first
+// three cast members, but no other credits or alternative titles. A title
+// Detail reports (one the caller judges on its full facts) comes back in
+// full. Partial titles never enter a shared cache.
+type ListRows struct {
+	Facts  TitleFacts
+	Detail func(Title) bool
 }
 
 type Page struct {

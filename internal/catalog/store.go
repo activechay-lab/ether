@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -393,6 +394,9 @@ const (
 	factCredits     factSet = 1 << (8 + iota) // every credit
 	factListCredits                           // what a list item shows: three cast members, all crew
 	factAltTitles
+	// factRowCredits is what an export row shows: the names of the
+	// directors and the first three cast members, no people join.
+	factRowCredits
 )
 
 const (
@@ -440,6 +444,8 @@ func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx 
 	}
 	if set&(factCredits|factListCredits) != 0 {
 		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", creditFrom)
+	} else if set&factRowCredits != 0 {
+		part("key", "'credit'", "kind", "name", "''", "''", "CAST(person_tmdb AS TEXT)", "''", "CAST(ord AS TEXT)", "''", `catalog_credits WHERE key IN (`+ph+`) AND (kind='director' OR (kind='cast' AND ord<`+strconv.Itoa(listCast)+`))`)
 	}
 	if len(parts) == 0 {
 		return nil
@@ -1279,6 +1285,157 @@ func (c *Catalog) queryTitles(ctx context.Context, q string, args ...any) ([]cor
 // release and adult guards before LIMIT and OFFSET.
 func (c *Catalog) queryPagedTitles(ctx context.Context, q string, args ...any) ([]core.Title, error) {
 	return c.queryTitlesMode(ctx, true, q, args...)
+}
+
+// queryListRows reads a SQL-gated export page (core.ListRows): the titles
+// rows.Detail reports in full, the others with rows.Facts, the facts the
+// catalogue's policy reads for ctx's viewer, and their row credits. The
+// partial titles never enter the title cache; exportCache keeps the page
+// for its image signer.
+func (c *Catalog) queryListRows(ctx context.Context, lr *core.ListRows, q string, args ...any) ([]core.Title, error) {
+	gen := c.writeGen.Load()
+	minute := c.minuteBucket()
+	rows, err := c.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	var out []core.Title
+	for rows.Next() {
+		st, err := scanTitle(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, st.t)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	var partial, full []core.Title
+	var partialAt, fullAt []int
+	for i := range out {
+		if lr.Detail != nil && lr.Detail(out[i]) {
+			full, fullAt = append(full, out[i]), append(fullAt, i)
+		} else {
+			partial, partialAt = append(partial, out[i]), append(partialAt, i)
+		}
+	}
+	need := factSet(lr.Facts|c.policyFacts(c.visibilityFor(ctx))|c.viewerPolicyFacts(ctx)) | factRowCredits
+	if err := c.hydrateRows(ctx, partial, need); err != nil {
+		return nil, err
+	}
+	if len(full) > 0 {
+		if err := c.hydrateSlice(ctx, full); err != nil {
+			return nil, err
+		}
+		c.rememberTitles(gen, minute, full)
+	}
+	for j, i := range partialAt {
+		out[i] = partial[j]
+	}
+	for j, i := range fullAt {
+		out[i] = full[j]
+	}
+	c.rememberExportTitles(ctx, gen, minute, out)
+	return out, nil
+}
+
+// exportFactSplit is the fewest keys worth a second fact reader.
+const exportFactSplit = 64
+
+// hydrateRows reads set's facts of an export page's partial titles. The
+// page is read while the one before it is signed and encoded: its facts
+// come from two readers at once, over disjoint halves of its keys (and so
+// of the items they fill).
+func (c *Catalog) hydrateRows(ctx context.Context, items []core.Title, set factSet) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if err := c.airedCounts(ctx, items); err != nil {
+		return err
+	}
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		if set&factSet(core.FactHomeRelease) != 0 {
+			items[i].HomeReleaseChecked = false
+			items[i].HomeReleased = time.Time{}
+			items[i].HomeReleaseFallbackAdmitted = false
+		}
+	}
+	parts := [][]any{keys}
+	if len(keys) > 2*exportFactSplit {
+		half := (len(keys) + 1) / 2
+		parts = [][]any{keys[:half], keys[half:]}
+	}
+	errs := make([]error, len(parts))
+	var wg sync.WaitGroup
+	for j, part := range parts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// One statement per half: at most 125 keys, far below the
+			// bound parameters.
+			errs[j] = c.hydrateFactBatch(ctx, items, idx, part, set)
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	if err := c.hydrateShows(ctx, items); err != nil {
+		return err
+	}
+	return c.applyHydratedAdded(ctx, items)
+}
+
+// exportCacheMax bounds exportCache: a few export pages, enough for
+// concurrent exports to find their own page when they sign it.
+const exportCacheMax = 4096
+
+// exportCacheKey is a title as one viewer's export read it: what it
+// carries is what that viewer's policy reads.
+type exportCacheKey struct {
+	viewer int64
+	key    core.RatingKey
+}
+
+func (c *Catalog) rememberExportTitles(ctx context.Context, gen uint64, minute int64, items []core.Title) {
+	viewer := core.CatalogViewerID(ctx)
+	if viewer == 0 || c.writeGen.Load() != gen {
+		return
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.exportCache == nil || len(c.exportCache)+len(items) > exportCacheMax {
+		c.exportCache = make(map[exportCacheKey]cachedStoredTitle, exportCacheMax)
+	}
+	for i := range items {
+		if cacheStoredTitle(items[i].Key.Kind()) {
+			c.exportCache[exportCacheKey{viewer, items[i].Key}] = cachedStoredTitle{st: storedTitle{t: cloneTitle(items[i])}, gen: gen, minute: minute}
+		}
+	}
+}
+
+// exportTitle is key as ctx's viewer's current export page read it.
+func (c *Catalog) exportTitle(ctx context.Context, key core.RatingKey, gen uint64, minute int64) (core.Title, bool) {
+	viewer := core.CatalogViewerID(ctx)
+	if viewer == 0 {
+		return core.Title{}, false
+	}
+	c.cacheMu.RLock()
+	ent, ok := c.exportCache[exportCacheKey{viewer, key}]
+	c.cacheMu.RUnlock()
+	if !ok || ent.gen != gen || ent.minute != minute {
+		return core.Title{}, false
+	}
+	return cloneTitle(ent.st.t), true
 }
 
 func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, args ...any) ([]core.Title, error) {

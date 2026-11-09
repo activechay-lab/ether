@@ -308,11 +308,15 @@ type Catalog struct {
 	frozenMinute atomic.Bool
 	cacheMu      sync.RWMutex
 	titleCache   map[core.RatingKey]cachedStoredTitle
-	countCache   map[string]cachedCount
-	browseCache  map[string]cachedBrowse
-	grandCache   map[core.RatingKey]cachedBrowse
-	facetCache   map[string]cachedFacet
-	statsCache   cachedStats
+	// exportCache holds the latest export pages' titles for the viewer
+	// that read them (queryListRows), so the page's image signer, which
+	// reads the same titles right after, does not read them again.
+	exportCache map[exportCacheKey]cachedStoredTitle
+	countCache  map[string]cachedCount
+	browseCache map[string]cachedBrowse
+	grandCache  map[core.RatingKey]cachedBrowse
+	facetCache  map[string]cachedFacet
+	statsCache  cachedStats
 
 	personMu       sync.Mutex
 	personHydrated map[int64]time.Time

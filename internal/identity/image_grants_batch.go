@@ -74,7 +74,7 @@ func (s *ImageGrantService) IssueBatch(ctx context.Context, req frontend.ImageBa
 	page, hasPage := experience.(frontend.ItemArtworkPage)
 	var listed map[core.RatingKey][]frontend.Image
 	if hasPage && len(keys) > 0 {
-		listed, err = page.ItemArtworkPage(ctx, viewer, req.Device, keys)
+		listed, err = page.ItemArtworkPage(frontend.WithArtworkKinds(ctx, wanted), viewer, req.Device, keys)
 		if err != nil {
 			return nil, err
 		}
