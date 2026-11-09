@@ -40,9 +40,9 @@ func (m *Manager) ServeRange(w http.ResponseWriter, r *http.Request, sessionID s
 	s.activeReads.Add(1)
 	defer func() {
 		s.activeReads.Add(-1)
-		s.touch(m.now())
+		s.touchMedia(m.now())
 	}()
-	s.touch(m.now())
+	s.touchMedia(m.now())
 	s.markDirectPlay()
 	if !s.directRangeCompatible() {
 		// The client still holds the original file's container headers and
@@ -121,7 +121,7 @@ func (m *Manager) streamClient(ctx context.Context, w io.Writer, s *session, vst
 			g.retryEpoch++
 			g.retryPending = false
 			g.mu.Unlock()
-			s.touch(now)
+			s.touchMedia(now)
 		}
 	}
 	for vpos < vend {

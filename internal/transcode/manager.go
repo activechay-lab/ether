@@ -1103,6 +1103,16 @@ func (m *Manager) reapIdle(now time.Time) {
 		return
 	}
 	for _, s := range m.Sessions() {
+		// An authenticated stop is terminal even if the dead player keeps
+		// fetching segments: those fetches touch LastAccess, so without
+		// this a stopped session (and its suspended ffmpeg) never reaps
+		// (#410). Close kills the process through its guardian, stopped
+		// or not.
+		if s.stoppedAt.Load() != 0 {
+			s.log.Info("closing stopped session")
+			_ = s.Close()
+			continue
+		}
 		if idle := now.Sub(s.LastAccess()); idle > m.opts.idleTimeout && now.UnixNano() >= s.pauseUntil.Load() {
 			s.log.Info("closing idle session", "idle", idle.Round(time.Second))
 			_ = s.Close()

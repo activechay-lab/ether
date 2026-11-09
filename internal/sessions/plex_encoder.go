@@ -58,7 +58,24 @@ func (b *Broker) StartPlexHLS(ctx context.Context, viewer *core.User, playID, pu
 	if b.deps.Transcoder == nil {
 		return nil, core.ErrNotAvailable
 	}
-	return b.deps.Transcoder.StartHLS(ctx, q)
+	// A local Plex encoder reads the same playback source as a broker
+	// start, so it needs the same input lease: without one its retirement
+	// can never verify input-producer drain and every Plex session close
+	// ended "encoder input producer retirement is unverified" (#410).
+	var lease core.EncoderInputLease
+	if q.InputLease == nil {
+		var err error
+		lease, err = b.mintEncoderInput(ctx, playID)
+		if err != nil {
+			return nil, err
+		}
+		q.InputLease = lease
+	}
+	hs, err := b.deps.Transcoder.StartHLS(ctx, q)
+	if (err != nil || hs == nil) && lease != nil {
+		lease.SealInput()
+	}
+	return hs, err
 }
 
 // PlexHLSSession reports ownership independently of current availability. A nil

@@ -417,6 +417,39 @@ func (s *Server) endLocalSession(tid string, offset time.Duration) {
 	if s.cl != nil {
 		s.cl.poke()
 	}
+	s.endEntryPlayback(e, offset)
+}
+
+// endExpiredEntry ends playback for a now-playing entry the janitor expired
+// after timeline silence. Expiry used to only drop the entry (which is all
+// Tautulli/Plex saw as "stopped"), leaving the broker, source and encoder
+// sessions alive for as long as the silent player kept fetching segments
+// (#410). Paused entries are not ended here: their retention and idle
+// clocks govern them. The caller already removed the entry and sent the
+// stopped notification.
+func (s *Server) endExpiredEntry(e playEntry) {
+	if e.state == "paused" {
+		return
+	}
+	unlockOwner, err := s.lockPlaybackOwner(s.ctx, e.user.ID, e.client.ClientID)
+	if err != nil {
+		return
+	}
+	defer unlockOwner()
+	if s.sessions.has(e.id) {
+		return // a fresh timeline recreated the entry after expiry
+	}
+	if s.playbackOwners.Stale(e.user.ID, e.client.ClientID, e.key, e.client.SessionID) {
+		s.cleanSupersededEncoders(s.ctx, e.user.ID, e.client.ClientID, e.key, e.client.SessionID)
+		return
+	}
+	s.endEntryPlayback(e, e.offset)
+}
+
+// endEntryPlayback reports the stop to the broker and stops this client's
+// encoders for the title. The entry must already be removed and its owner
+// lock held.
+func (s *Server) endEntryPlayback(e playEntry, offset time.Duration) {
 	user := e.user
 	s.reportBrokerTimeline(s.ctx, &Request{User: &user, ClientID: e.client.ClientID, SessionID: e.client.SessionID}, e.key, offset, e.duration, "stopped", sanitizeSessionID(e.transcodeID))
 	for _, id := range s.transcodes.forClient(e.user.ID, e.client.ClientID, e.key) {

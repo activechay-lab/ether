@@ -50,6 +50,7 @@ type Session struct {
 	created             time.Time
 	lastAccess          atomic.Int64 // unix nanos
 	pauseUntil          atomic.Int64 // bounded authenticated player pause
+	stoppedAt           atomic.Int64 // authenticated player stop; fetches after it do not revive
 	mu                  sync.Mutex
 	closed              bool
 	// Coordinated state transitions use mu; blocking process reaping releases it.
@@ -251,17 +252,22 @@ var _ core.SessionActivity = (*Session)(nil)
 func (s *Session) PlaybackState(state string) {
 	switch state {
 	case "paused":
+		s.stoppedAt.Store(0)
 		if s.pauseUntil.Swap(time.Now().Add(core.PausedSessionRetention).UnixNano()) == 0 {
 			s.log.Info("player paused; retaining output", "retention", core.PausedSessionRetention)
 		}
 		s.Touch()
 	case "playing":
+		s.stoppedAt.Store(0)
 		s.Touch()
 		if s.pauseUntil.Swap(0) != 0 {
 			s.log.Info("player resumed")
 		}
 	case "stopped":
 		s.pauseUntil.Store(0)
+		if s.stoppedAt.Swap(time.Now().UnixNano()) == 0 {
+			s.log.Info("player stopped")
+		}
 	}
 }
 

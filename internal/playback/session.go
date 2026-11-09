@@ -378,6 +378,18 @@ func (s *session) touch(now time.Time) {
 	s.mu.Unlock()
 }
 
+// touchMedia records media delivery. Unlike touch it must not clear a
+// client stop: a player that already reported "stopped" can keep draining
+// segments or an open range, and those reads are not the viewer coming
+// back (#410). Only a new play (touch) or a playing/paused timeline
+// (touchTimeline) cancels a stop.
+func (s *session) touchMedia(now time.Time) {
+	s.mu.Lock()
+	s.lastActive = now
+	s.lastRead = now
+	s.mu.Unlock()
+}
+
 func (s *session) touchTimeline(now time.Time) {
 	s.mu.Lock()
 	s.lastActive = now
