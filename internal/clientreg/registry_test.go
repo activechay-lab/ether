@@ -242,3 +242,24 @@ func TestShieldVideoDefaultsAndOverrides(t *testing.T) {
 		t.Fatal("Shield patch leaked into Google TV")
 	}
 }
+
+func TestSegmentedAudioRefused(t *testing.T) {
+	phone := Identity{Product: "Plex for Android (Mobile)", Platform: "Android", Device: "Pixel 9 Pro"}
+	shield := Identity{Product: "Plex for Android (TV)", Platform: "Android", Device: "SHIELD Android TV"}
+	chromecast := Identity{Product: "Plex for Android (TV)", Platform: "Android", Device: "Chromecast"}
+	onn := Identity{Product: "Plex for Android (TV)", Platform: "Android", Device: "onn. 4K Streaming Box"}
+	for _, tc := range []struct {
+		id    Identity
+		codec string
+		want  bool
+	}{
+		{phone, "eac3", true}, {phone, "dts", true}, {phone, "aac", false},
+		{shield, "eac3", false}, {shield, "dts", false}, {shield, "truehd", false},
+		{chromecast, "eac3", false}, {chromecast, "dts", true}, {onn, "truehd", true},
+		{Identity{Product: "Jellyfin Android", Platform: "Android"}, "eac3", false},
+	} {
+		if got := SegmentedAudioRefused(tc.id, tc.codec); got != tc.want {
+			t.Errorf("%s %s: refused=%v want %v", tc.id.Device+tc.id.Product, tc.codec, got, tc.want)
+		}
+	}
+}

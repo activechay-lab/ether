@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -373,6 +372,9 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	caps := s.clientCapsForKey(pr, key)
 	if s.dvBaseOnly(pr, key) {
 		caps.DolbyVisionBaseOnly = true // this start stalled in Dolby Vision
+	}
+	if s.segmentedSurroundOff(pr) {
+		caps.SegmentedSurroundOff = true // a stream stalled on copied surround audio
 	}
 	applyDecisionQuery(&caps, q)
 	// The decision query can identify WAN even when the metadata request
@@ -1353,7 +1355,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 			}
 		}
-		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
+		if dec.AudioCodec != "" && !transcode.SegmentedAudioCopyOK(entry.caps, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false
 			opts.DirectStream = true

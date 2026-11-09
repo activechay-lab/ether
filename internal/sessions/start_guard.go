@@ -25,7 +25,9 @@ import (
 // stream header keeps it, so the session ends with a terminationText. A Dolby
 // Vision copy with an HDR10 base is remembered for this viewer, client and
 // title. The next start then delivers the base layer without
-// another prompt. Anything else asks for another version.
+// another prompt. A Plex for Android start that copied Dolby/DTS audio into
+// segmented output is remembered for this viewer and client, and the next
+// start converts that audio. Anything else asks for another version.
 const (
 	startStallWindow = 20 * time.Second
 	startStallAhead  = 30 * time.Second
@@ -48,6 +50,9 @@ type startWatch struct {
 	done        bool          // disarmed after playback, or fired
 }
 
+// StartHintKey names one remembered fallback. A title Key is the Dolby
+// Vision HDR10-base hint for that title; a zero Key is client-wide: this
+// viewer's client stalled on surround audio copied into segmented output.
 type StartHintKey struct {
 	UserID   int64
 	ClientID string
@@ -144,6 +149,7 @@ func (g *StartGuard) Remember(k StartHintKey, now time.Time) {
 	g.hints[k] = now
 }
 
+// BaseOnly reports a remembered, unexpired hint for k.
 func (g *StartGuard) BaseOnly(k StartHintKey, now time.Time) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()

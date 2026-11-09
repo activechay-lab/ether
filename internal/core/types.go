@@ -265,6 +265,11 @@ type ClientCaps struct {
 	// videoDecoders=h264{resolution:1080} declaration. MaxHeight stays the
 	// ceiling of the tallest codec the client decodes (additive).
 	VideoMaxHeights map[string]int `json:"videoMaxHeights,omitempty"`
+
+	// SegmentedSurroundOff keeps Dolby/DTS/TrueHD audio out of copied
+	// segmented output because a start stalled on it for this client.
+	// Direct play of the original file is unaffected (additive).
+	SegmentedSurroundOff bool `json:"segmentedSurroundOff,omitempty"`
 }
 
 // AudioLimit applies to one audio codec, or all codecs when Codec is "*".

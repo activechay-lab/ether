@@ -591,6 +591,37 @@
       }
     },
     {
+      "id": "plex-android-mobile",
+      "role": "segmented-audio",
+      "notes": "Plex for Android (Mobile), also the app uncertified Android boxes run, lists E-AC-3, AC-3 and DTS in its HLS target whatever the device decodes. Segmented Matroska with copied E-AC-3 froze after the first segment on Pixel phones (PR #395) and plays converted to AAC. Direct play of the original file is the app's own decision and is untouched.",
+      "audio": ["eac3", "ac3", "dts", "dca", "dtshd", "truehd", "mlp"],
+      "match": {
+        "all": [
+          {"field": "product", "op": "contains", "value": "plex for android"},
+          {"field": "product", "op": "notContains", "value": "tv"},
+          {"field": "device", "op": "notContains", "value": "shield"},
+          {"field": "device", "op": "notContains", "value": "tv"}
+        ]
+      }
+    },
+    {
+      "id": "google-tv-no-dts",
+      "role": "segmented-audio",
+      "notes": "Chromecast with Google TV and onn. Google TV devices are Dolby-licensed but have no DTS or TrueHD decoder or passthrough; DTS is converted to E-AC-3 surround for them.",
+      "audio": ["dts", "dca", "dtshd", "truehd", "mlp"],
+      "match": {
+        "all": [
+          {"field": "product", "op": "contains", "value": "plex for android"},
+          {
+            "any": [
+              {"field": "device", "op": "prefix", "value": "chromecast"},
+              {"field": "device", "op": "prefix", "value": "onn"}
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "probe-hls-without-codecs",
       "role": "quirk",
       "quirks": ["probe-hls-without-codecs"],

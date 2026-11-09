@@ -1,8 +1,10 @@
 // Package clientreg is the data-driven client capability engine.
 // One ordered registry matches every client. Roles share that matcher:
 // policy (Dolby Vision profiles, subtitles, family), playback (codecs and
-// limits for clients that send no profile), patch (narrow hardware facts)
-// and quirk (a named flag, including a wire-protocol quirk).
+// limits for clients that send no profile), patch (narrow hardware facts),
+// quirk (a named flag, including a wire-protocol quirk) and segmented-audio
+// (audio codecs a client's segmented player must not receive copied, even
+// when its streaming target lists them).
 // Owner overrides apply to the matched policy or playback id. Runtime
 // declarations are applied by callers after this package returns.
 package clientreg
@@ -347,6 +349,26 @@ func HasQuirk(id Identity, name string) bool {
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+// SegmentedAudioRefused reports whether codec must not be copied into
+// segmented output (HLS or DASH) for id. Every matching segmented-audio
+// record applies. Direct play of the original file is not affected.
+func SegmentedAudioRefused(id Identity, codec string) bool {
+	codec = strings.TrimSpace(codec)
+	if codec == "" {
+		return false
+	}
+	for i := range loaded.Definitions {
+		d := &loaded.Definitions[i]
+		if d.Role != "segmented-audio" || !d.Match.ok(id) {
+			continue
+		}
+		if slices.ContainsFunc(d.Audio, func(c string) bool { return strings.EqualFold(c, codec) }) {
+			return true
+		}
 	}
 	return false
 }

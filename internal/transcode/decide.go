@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/clientreg"
@@ -631,6 +632,18 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 			caps: caps, heightCap: heightCap, bitrateCap: bitrateCap, burn: burn, audioFilters: d.AudioFilters,
 		})
 	}
+	// Some segmented players stall on audio their streaming target lists:
+	// Plex for Android phones on copied E-AC-3, Google TV sticks on DTS
+	// (clientreg segmented-audio), or any client after a remembered stall.
+	// Progressive Matroska and downloads keep the file's audio.
+	if a != nil && opts.Protocol != core.ProtocolHTTP && !caps.Download && segmentedAudioRefused(caps, a.Codec) {
+		flagged := len(caps.AudioCodecs) > 0 && !caps.SupportsAudio(a.Codec)
+		refused := func(c string) bool { return segmentedAudioRefused(caps, c) }
+		caps.AudioCodecs = slices.DeleteFunc(slices.Clone(caps.AudioCodecs), refused)
+		if !flagged {
+			audioIssues = append(audioIssues, fmt.Sprintf("audio codec %s is not copied into this client's streams", a.Codec))
+		}
+	}
 	// Native tvOS accepts MP3 files but rejects MP3 in our TS/fMP4 HLS
 	// output (AVPlayer -11848). Preserve direct play and other clients.
 	if a != nil && a.Codec == "mp3" && outputContainer(caps, opts, "h264", a.Codec) != ContainerMatroska &&
@@ -934,6 +947,23 @@ func hasHDR10Base(v *core.StreamInfo, caps core.ClientCaps) bool {
 
 // HasHDR10Base is hasHDR10Base for callers outside the package.
 func HasHDR10Base(v *core.StreamInfo, caps core.ClientCaps) bool { return hasHDR10Base(v, caps) }
+
+// SegmentedAudioCopyOK reports whether codec may be copied into this
+// client's segmented output: its streaming target lists it, when it declares
+// one, and neither the client registry nor a remembered stall refuses it.
+func SegmentedAudioCopyOK(caps core.ClientCaps, codec string) bool {
+	if len(caps.TranscodeAudioCodecs) > 0 && !slices.Contains(caps.TranscodeAudioCodecs, codec) {
+		return false
+	}
+	return !segmentedAudioRefused(caps, codec)
+}
+
+func segmentedAudioRefused(caps core.ClientCaps, codec string) bool {
+	if caps.SegmentedSurroundOff && core.IsSurroundAudioCodec(codec) {
+		return true
+	}
+	return clientreg.SegmentedAudioRefused(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: caps.Device, Version: caps.Version}, codec)
+}
 
 // androidClient reports an Android player (Plex sends Platform "Android";
 // some callers only know the product name).
