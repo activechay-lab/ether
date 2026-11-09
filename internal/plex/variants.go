@@ -40,6 +40,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 const variantRenderBudget = 3 * time.Second // incl. the resolver's in-flight wait
@@ -82,6 +83,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *frontend.
 	ik := s.playIdentityFor(pr, t.Key)
 	live := ps != nil
 	now := s.now()
+	caps := s.clientCapsForKey(pr, t.Key)
 	if s.versionFlows != nil && pr.versionItemKey == t.Key {
 		snap, err := s.versionFlows.call(ctx, ik, nil, versionRead, now, 0)
 		if err != nil {
@@ -134,7 +136,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *frontend.
 		}
 		if rel != "" && pin.autoAligned != rel && vs[0].Auto && vs[0].Release.ID != rel {
 			vctx, cancel := detailVariantContext(ctx, pr)
-			resolved, err := s.d.Variants.Variants(vctx, frontend.ResolveRequest{Title: t, Client: s.clientCapsForKey(pr, t.Key), User: pr.User, PlayedRelease: rel}, frontend.MaxVariants)
+			resolved, err := s.d.Variants.Variants(vctx, frontend.ResolveRequest{Title: t, Client: caps, User: pr.User, PlayedRelease: rel}, frontend.MaxVariants)
 			cancel()
 			var auto *frontend.ReleaseVariant
 			if err == nil && len(resolved) > 0 && resolved[0].Auto && resolved[0].Release.ID == rel {
@@ -144,7 +146,6 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *frontend.
 			s.playIDs.alignAuto(ik, auto, rel)
 		}
 	} else {
-		caps := s.clientCapsForKey(pr, t.Key)
 		vctx, cancel := detailVariantContext(ctx, pr)
 		resolved, err := s.d.Variants.Variants(vctx, frontend.ResolveRequest{Title: t, Client: caps, User: pr.User, PlayedRelease: probedRelease}, frontend.MaxVariants)
 		cancel()
@@ -242,6 +243,7 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *frontend.
 		} else if !v.Auto && sameVariantRelease(v.Release, vs[0].Release) && probedReady && !matchedNonAuto && !probeDisagrees(v.Info, probed) {
 			variant.Info = mergeProbedVariantInfo(v.Info, probed, v.Info.BitrateKbps > 0)
 		}
+		variant.Info = variantInfoForClient(variant.Info, caps)
 		m := buildMediaVariant(t, variant, stamp, s.variantIDs)
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, now)
 		if s.previewAvailable(pr, t.Key, v.Release.ID) {
@@ -318,6 +320,37 @@ func anyMediaSelected(media []model.Media) bool {
 		}
 	}
 	return false
+}
+
+// variantInfoForClient describes the compatible HDR10 base layer on multi-
+// version lists when this client lacks the stream's Dolby Vision profile (or
+// has Dolby Vision turned off) and Ether will strip Dolby Vision RPUs into an
+// HDR10 remux. Without this, Bedrock MDE clients with a DOVIProfile limitation
+// (e.g. 2017 NVIDIA Shield darcy) reject the probed 4K Auto version and hijack
+// playback onto an unprobed lower-compatibility version with no subtitle list.
+func variantInfoForClient(info frontend.MediaInfo, caps frontend.ClientCaps) frontend.MediaInfo {
+	v := info.Video()
+	if v == nil || !v.DolbyVision {
+		return info
+	}
+	if (transcode.SupportsDVProfile(caps, v.DolbyVisionProfile) && !caps.DolbyVisionBaseOnly) || !transcode.HasHDR10Base(v, caps) {
+		return info
+	}
+	streams := append([]frontend.StreamInfo(nil), info.Streams...)
+	for i := range streams {
+		if streams[i].Type == "video" && streams[i].DolbyVision {
+			streams[i].DolbyVision = false
+			streams[i].DolbyVisionProfile = 0
+			streams[i].DolbyVisionLevel = 0
+			streams[i].DolbyVisionCompatibilityID = 0
+			streams[i].DolbyVisionVersion = ""
+			streams[i].DolbyVisionBLPresent = nil
+			streams[i].DolbyVisionELPresent = nil
+			streams[i].DolbyVisionRPUPresent = nil
+		}
+	}
+	info.Streams = streams
+	return info
 }
 
 func buildMediaVariant(t *frontend.Title, v frontend.ReleaseVariant, stamp int64, registry *variantIDRegistry) model.Media {

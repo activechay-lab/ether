@@ -537,8 +537,17 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if !pr.User.IsOwner && e.user.ID != pr.User.ID {
 			continue
 		}
-		viewer := &Request{User: &e.user, ClientID: e.client.ClientID, Product: e.client.Product, Platform: e.client.Platform}
+		viewer := &Request{
+			User:     &e.user,
+			ClientID: e.client.ClientID,
+			Product:  e.client.Product,
+			Platform: e.client.Platform,
+			Device:   e.client.Device,
+			Model:    e.client.Model,
+			Version:  e.client.Version,
+		}
 		var md model.Metadata
+		var sessionTitle *frontend.Title
 		if e.key.Kind() == frontend.KindPlaylist {
 			pl, err := s.playlist(ctx, &e.user, e.key)
 			if err != nil {
@@ -550,7 +559,15 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
+			sessionTitle = t
 			md = s.metadata(ctx, viewer, t, renderOpts{media: true, session: true})
+		}
+		if e.node == "" && e.transcodeID != "" && sessionTitle != nil {
+			if te, ok := s.transcodes.get(e.transcodeID); ok && te.started {
+				if m, ok := s.sessionTranscodeMedia(sessionTitle, te, viewer); ok {
+					md.Media = []model.Media{m}
+				}
+			}
 		}
 		sessionItem(&md)
 

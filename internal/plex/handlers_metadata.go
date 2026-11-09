@@ -381,9 +381,10 @@ const detailWarmWaitBudget = 4 * time.Second
 // Apple TV can refresh detail metadata and obtains the admitted source's
 // tracks again on Play. Keep speculative preparation behind its browse
 // pages; share a short allowance across the probe and version discovery.
-// Android still needs the existing initial-track discovery allowance.
+// Android and iOS Bedrock players populate their subtitle picker from the
+// pre-play detail/queue item and do not re-fetch metadata once playback starts.
 func startDetailPageWait(pr *Request) {
-	if plexAndroidClient(pr) {
+	if plexMobileOrTVBedrockClient(pr) {
 		pr.detailWaitUntil = time.Now().Add(detailWarmWaitBudget)
 	} else if pr != nil && (strings.EqualFold(pr.Platform, "tvOS") || strings.EqualFold(pr.Product, "Plex for Apple TV")) {
 		pr.detailWaitUntil = time.Now().Add(250 * time.Millisecond)
@@ -398,7 +399,7 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
 		return
 	}
-	if plexAndroidClient(pr) {
+	if plexMobileOrTVBedrockClient(pr) {
 		if _, ok := s.d.Playback.(frontend.MetadataProber); ok {
 			// A single wait: do not add speculative warmDetail's four seconds
 			// after the metadata probe's own bounded wait. Errors/timeouts
@@ -1182,11 +1183,11 @@ func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *frontend
 	return nil
 }
 
-// Disabled warming on Plex Android permits cached metadata reads only: neither
+// Disabled warming on Plex Android/iOS permits cached metadata reads only: neither
 // the required probe nor version discovery may start a fresh indexer search.
 // Other clients retain their existing discovery policy.
 func (s *Server) detailSearchAllowed(pr *Request) bool {
-	if !plexAndroidClient(pr) {
+	if !plexMobileOrTVBedrockClient(pr) {
 		return true
 	}
 	c := s.cfg().Cache

@@ -556,7 +556,23 @@ func estimateVariantInfo(t *core.Title, rel core.Release) core.MediaInfo {
 			video.Profile = "main 10"
 		}
 	}
-	video.DolbyVision = info.DolbyVision
+	if info.DolbyVision {
+		video.DolbyVision = true
+		// Unprobed Dolby Vision variants still need a realistic DOVIProfile so
+		// Plex MDE clients with DOVIProfile limitations evaluate estimated
+		// siblings on the same footing as probed variants instead of mistaking
+		// an omitted DOVIProfile for plain HDR10.
+		switch {
+		case info.Source == core.SourceRemux || info.Source == core.SourceBluRay:
+			video.DolbyVisionProfile = 7
+			video.DolbyVisionCompatibilityID = 6
+		case !info.HDR10:
+			video.DolbyVisionProfile = 5
+		default:
+			video.DolbyVisionProfile = 8
+			video.DolbyVisionCompatibilityID = 1
+		}
+	}
 
 	audioCodec := info.AudioCodec
 	channels := channelInfo{}

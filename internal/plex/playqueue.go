@@ -518,6 +518,9 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		selItem = pq.Items[pq.Selected]
 	}
 	if selTitle, ok := byKey[selItem.Key]; ok {
+		if pr != nil && pr.detailWaitUntil.IsZero() {
+			startDetailPageWait(pr)
+		}
 		s.warmDetail(ctx, pr, selTitle)
 	}
 	mc := libraryContainer()

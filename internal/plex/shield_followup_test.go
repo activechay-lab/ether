@@ -64,8 +64,7 @@ func TestShieldTroyCaptureFollowup(t *testing.T) {
 						if err := prefs.PutRules(context.Background(), ownerUser.ID, rules); err != nil {
 							t.Fatal(err)
 						}
-						facts := core.MediaInfo{Container: "mkv", Duration: 30 * time.Second, Streams: []core.StreamInfo{
-							{Index: 0, Type: "video", Codec: "hevc", Profile: "Main 10", BitDepth: 10, Width: 3840, Height: 2160, ColorTransfer: "smpte2084", ColorPrimaries: "bt2020", DolbyVision: true, DolbyVisionProfile: 7, DolbyVisionCompatibilityID: 6},
+						facts := core.MediaInfo{Container: "mkv", Duration: 30 * time.Second, Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "hevc", Profile: "Main 10", BitDepth: 10, Width: 3840, Height: 2160, ColorTransfer: "smpte2084", ColorPrimaries: "bt2020", DolbyVision: true, DolbyVisionProfile: 7, DolbyVisionCompatibilityID: 6},
 							{Index: 1, Type: "audio", Codec: "dca", Profile: "DTS-HD MA", Channels: 6, Default: true},
 							{Index: 2, Type: "subtitle", Codec: "subrip", Language: "en", Default: true},
 							{Index: 3, Type: "subtitle", Codec: "hdmv_pgs_subtitle", Language: "en"},
@@ -163,7 +162,7 @@ func TestShieldMetadataProbeFailureKeepsNormalResponse(t *testing.T) {
 }
 
 func TestAndroidMetadataProbeLeavesOtherClientsUnchanged(t *testing.T) {
-	for _, product := range []string{"Plex Web", "Plex for iOS", "Plezy"} {
+	for _, product := range []string{"Plex Web", "Plex for Apple TV", "Plezy"} {
 		t.Run(product, func(t *testing.T) {
 			f := newFixture()
 			defer f.srv.Close()
