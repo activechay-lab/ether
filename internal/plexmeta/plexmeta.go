@@ -18,10 +18,13 @@ import (
 func init() {
 	store.Register("plexmeta", 1, `CREATE TABLE plexmeta_titles(rating_key INTEGER PRIMARY KEY,guid TEXT NOT NULL,payload TEXT NOT NULL,fetched_at INTEGER NOT NULL);`)
 	store.Register("plexmeta", 2, `ALTER TABLE plexmeta_titles ADD COLUMN rating_level INTEGER NOT NULL DEFAULT 0;`)
+	store.RegisterAfter("plexmeta_retention", "plexmeta")
+	store.Register("plexmeta_retention", 1, `CREATE INDEX plexmeta_titles_fetched ON plexmeta_titles(fetched_at) WHERE fetched_at>0;`)
 }
 
 const (
 	cacheTTL        = 30 * 24 * time.Hour
+	pruneRetention  = 60 * 24 * time.Hour
 	bgWorkers       = 2
 	bgQueueSize     = 256
 	bgLookupTimeout = 8 * time.Second
@@ -274,4 +277,16 @@ func (s *Service) store(ctx context.Context, k core.RatingKey, guid string, o Ov
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO plexmeta_titles(rating_key,guid,payload,fetched_at,rating_level) VALUES(?,?,?,?,?) ON CONFLICT(rating_key) DO UPDATE SET guid=excluded.guid,payload=excluded.payload,fetched_at=excluded.fetched_at,rating_level=excluded.rating_level`, int64(k), guid, string(raw), now.Unix(), int(contentrating.LevelOf(o.ContentRating)))
 	return err
+}
+
+// Prune deletes cached Plex metadata overlays older than pruneRetention (2x
+// cacheTTL). Un-browsed titles age out instead of holding JSON payloads forever.
+func (s *Service) Prune(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	cutoff := s.o.Now().Add(-pruneRetention).Unix()
+	return store.PruneBatched(ctx, s.db,
+		`DELETE FROM plexmeta_titles WHERE rating_key IN (SELECT rating_key FROM plexmeta_titles WHERE fetched_at>0 AND fetched_at<? ORDER BY fetched_at LIMIT ?)`,
+		cutoff)
 }

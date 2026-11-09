@@ -546,6 +546,8 @@ var tierDependents = []struct{ table, column string }{
 	{"catalog_release_evidence", "rating_key"},
 	{"catalog_show_episodes", "show_key"},
 	{"catalog_show_episode_ratings", "show_key"},
+	{"availability_title_checks", "rating_key"},
+	{"collections_air_dates", "show_key"},
 	{"plexmeta_titles", "rating_key"},
 	{"plex_ultrablur", "key"},
 }
@@ -583,7 +585,7 @@ func (c *Catalog) removeTierGroups(ctx context.Context, groups []tierGroup, touc
 		}
 		limit = nextBatch(limit, max(removed, 1), took, tierBatchMax)
 	}
-	return nil
+	return c.cleanupTierDerived(ctx)
 }
 
 // removeTierBatch removes one batch in one transaction: it re-reads the

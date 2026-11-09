@@ -3,6 +3,8 @@ package resolver
 import (
 	"context"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Retention and in-memory bounds for the resolver's caches. Everything here
@@ -15,6 +17,10 @@ const (
 	// always permanent; if the release is still broken after this long it
 	// fails one more check and is marked again.
 	badRetention = 90 * 24 * time.Hour
+
+	// subtitleCheckRetention bounds burned-in subtitle probe verdicts and
+	// claim records so defunct releases age out instead of growing forever.
+	subtitleCheckRetention = 90 * 24 * time.Hour
 
 	maxSearchCache     = 2000   // indexer result sets (each holds a release list)
 	maxAvailEntries    = 50_000 // title availability, mirrored in resolver_availability
@@ -60,8 +66,9 @@ func (s *Service) unavailableRetention() time.Duration {
 
 // Prune drops expired entries from the in-memory caches and deletes
 // resolver rows that can no longer be served: expired availability, health
-// passes older than the health TTL and automatic bad marks not re-marked
-// within badRetention (owner blocks never expire).
+// passes older than the health TTL, automatic bad marks not re-marked
+// within badRetention (owner blocks and deliberate rejections never expire),
+// and burned-in subtitle probes older than subtitleCheckRetention.
 // Indexer reputation is a handful of counters and is kept. It is meant to be
 // called periodically (the app runs it daily).
 func (s *Service) Prune(ctx context.Context) (int64, error) {
@@ -115,6 +122,17 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 		}
 		n, _ := res.RowsAffected()
 		total += n
+	}
+	subCutoff := now.Add(-subtitleCheckRetention).Unix()
+	for _, del := range []string{
+		`DELETE FROM resolver_hardsub WHERE release_id IN (SELECT release_id FROM resolver_hardsub WHERE updated_at>0 AND updated_at<? ORDER BY updated_at LIMIT ?)`,
+		`DELETE FROM resolver_subtitle_checks WHERE release_id IN (SELECT release_id FROM resolver_subtitle_checks WHERE updated_at>0 AND updated_at<? ORDER BY updated_at LIMIT ?)`,
+	} {
+		n, err := store.PruneBatched(ctx, s.db, del, subCutoff)
+		total += n
+		if err != nil {
+			return total, err
+		}
 	}
 	return total, nil
 }

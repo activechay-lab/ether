@@ -130,7 +130,7 @@ func rebuildFacetIDs(ctx context.Context, db queryExecer) error {
 		}
 	}
 	for _, v := range facetVocabs {
-		rows, err := db.QueryContext(ctx, `SELECT CAST(`+v.key+` AS TEXT) FROM `+v.table)
+		rows, err := db.QueryContext(ctx, `SELECT CAST(`+v.key+` AS TEXT) FROM `+v.table+` WHERE `+v.count+`>0`)
 		if err != nil {
 			return err
 		}

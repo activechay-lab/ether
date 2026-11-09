@@ -9,9 +9,14 @@ import (
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-// databaseCompaction is the owner's "Compact database" action: a one-time
-// VACUUM that switches a database created before incremental vacuum to
-// returning free space daily. It never runs on its own.
+const (
+	autoCompactMinBytes      = 128 << 20
+	autoCompactSmallMinBytes = 32 << 20
+	autoCompactSmallMinDenom = 5 // >= 20% of database size
+)
+
+// databaseCompaction coordinates one-time VACUUM conversion of a pre-incremental
+// SQLite database so daily maintenance returns free space from then on.
 type databaseCompaction struct {
 	mu      sync.Mutex
 	running bool
@@ -99,4 +104,51 @@ func (a *App) startCompaction(ctx context.Context) (any, error) {
 		a.publishDashboard()
 	}()
 	return a.compactionStatus(ctx)
+}
+
+// maybeAutoCompact runs the one-time auto_vacuum=INCREMENTAL conversion during
+// idle maintenance when a pre-incremental SQLite database has accumulated
+// substantial free pages (for example after the 0.3.6 tier migration or 0.3.7
+// hidden-table cleanup). Once converted, CompactPlan.Incremental is true and
+// daily ReleaseFreePages reclaims space in short steps without full VACUUM.
+func (a *App) maybeAutoCompact(ctx context.Context) {
+	if a.db == nil || store.DialectOf(a.db) != store.SQLite {
+		return
+	}
+	if a.playback != nil && len(a.playback.Sessions()) > 0 {
+		return
+	}
+	plan, err := store.PlanCompact(ctx, a.db)
+	if err != nil || plan.Incremental || !plan.Ready {
+		return
+	}
+	worthIt := plan.ReclaimableBytes >= autoCompactMinBytes ||
+		(plan.ReclaimableBytes >= autoCompactSmallMinBytes && plan.ReclaimableBytes*autoCompactSmallMinDenom >= plan.DatabaseBytes)
+	if !worthIt {
+		return
+	}
+	c := &a.compaction
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
+		return
+	}
+	c.running, c.started = true, time.Now()
+	started := c.started
+	c.mu.Unlock()
+
+	res := &compactResult{BeforeBytes: plan.DatabaseBytes}
+	after, err := store.Compact(ctx, a.db)
+	res.Finished, res.TookSeconds, res.AfterBytes = time.Now(), time.Since(started).Seconds(), after.DatabaseBytes
+	if err != nil {
+		res.Error = err.Error()
+		if a.log != nil {
+			a.log.Warn("automatic database compaction failed", "err", err)
+		}
+	} else if a.log != nil {
+		a.log.Info("database auto-compacted", "took", time.Since(started).Round(time.Second), "before", plan.DatabaseBytes, "after", after.DatabaseBytes)
+	}
+	c.mu.Lock()
+	c.running, c.last = false, res
+	c.mu.Unlock()
 }

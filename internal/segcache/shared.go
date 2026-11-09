@@ -678,9 +678,20 @@ func (c *Cache) Prune(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 	c.mu.Lock()
-	cutoff := c.now().Add(-releaseRetention).Unix()
+	now := c.now()
 	c.mu.Unlock()
-	return store.PruneBatched(ctx, c.shared.db, `DELETE FROM segcache_releases WHERE segments=0 AND bytes=0 AND touched<? AND release_id IN (SELECT r.release_id FROM segcache_releases r WHERE r.segments=0 AND r.touched<? AND r.bytes=0 AND r.played<? AND NOT EXISTS(SELECT 1 FROM segcache_pins p WHERE p.release_id=r.release_id) ORDER BY r.touched LIMIT ?)`, cutoff, cutoff, cutoff)
+	nowSec := now.Unix()
+	cutoff := now.Add(-releaseRetention).Unix()
+	pins, err := store.PruneBatched(ctx, c.shared.db,
+		`DELETE FROM segcache_pins WHERE (release_id,reason,owner) IN (SELECT release_id,reason,owner FROM segcache_pins WHERE expires>0 AND expires<=? LIMIT ?)`,
+		nowSec)
+	if err != nil {
+		return pins, err
+	}
+	releases, err := store.PruneBatched(ctx, c.shared.db,
+		`DELETE FROM segcache_releases WHERE segments=0 AND bytes=0 AND touched<? AND release_id IN (SELECT r.release_id FROM segcache_releases r WHERE r.segments=0 AND r.touched<? AND r.bytes=0 AND r.played<? AND NOT EXISTS(SELECT 1 FROM segcache_pins p WHERE p.release_id=r.release_id AND (p.expires=0 OR p.expires>?)) ORDER BY r.touched LIMIT ?)`,
+		cutoff, cutoff, cutoff, nowSec)
+	return pins + releases, err
 }
 
 // Shared reports whether this cache uses the cluster's NAS pool.

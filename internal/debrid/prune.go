@@ -14,19 +14,26 @@ func init() {
 	store.Register("debrid", 3, `
 CREATE INDEX debrid_payloads_updated ON debrid_payloads(updated_at);
 CREATE INDEX debrid_torrents_checked ON debrid_torrents(checked_at) WHERE torrent_id='';`)
+	store.RegisterAfter("debrid_retention", "debrid")
+	store.Register("debrid_retention", 1, `CREATE INDEX debrid_leases_expires ON debrid_leases(expires_at);`)
 }
 
 // pruneMargin is how far past its TTL a cache row is kept before Prune
 // deletes it, so a clock skew between nodes never races a read.
-const pruneMargin = 24 * time.Hour
+const (
+	pruneMargin      = 24 * time.Hour
+	leasePruneMargin = time.Hour
+)
 
-// Prune deletes cache rows past their TTL by pruneMargin:
+// Prune deletes cache rows past their TTL by pruneMargin and expired cluster
+// streaming leases:
 //
 //   - debrid_payloads older than PayloadTTL (storedPayload ignores them);
 //   - debrid_torrents availability answers older than the longer of
 //     CachedTTL and UncachedTTL (knownFor ignores them), only when the row
 //     records no torrent id on the account (reuse, removal and streaming
-//     leases key on that id) and holds no live add claim.
+//     leases key on that id) and holds no live add claim;
+//   - debrid_leases expired by more than leasePruneMargin.
 func (s *Service) Prune(ctx context.Context) (int64, error) {
 	if s == nil || s.db == nil {
 		return 0, nil
@@ -45,5 +52,12 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 	n, err := store.PruneBatched(ctx, s.db,
 		`DELETE FROM debrid_torrents WHERE (provider_id, info_hash) IN (SELECT provider_id, info_hash FROM debrid_torrents WHERE torrent_id='' AND checked_at<? AND claimed_at<? ORDER BY checked_at LIMIT ?)`,
 		cutoff, cutoff)
-	return total + n, err
+	total += n
+	if err != nil {
+		return total, err
+	}
+	m, err := store.PruneBatched(ctx, s.db,
+		`DELETE FROM debrid_leases WHERE (provider_id, torrent_id, node_id) IN (SELECT provider_id, torrent_id, node_id FROM debrid_leases WHERE expires_at<? ORDER BY expires_at LIMIT ?)`,
+		now.Add(-leasePruneMargin).Unix())
+	return total + m, err
 }

@@ -415,10 +415,10 @@ func (s *Service) refreshHidden(kind string) {
 	}()
 }
 
-// warmHidden keeps both sets current between requests.
+// warmHidden keeps sets current between requests.
 func (s *Service) warmHidden() {
 	input := s.discoverySnapshot()
-	if !input.availability.DisableMovieEvidenceGate {
+	if input.availability.EffectiveMode() == config.ModeDigital || !input.availability.DisableMovieEvidenceGate {
 		s.currentHidden(hiddenMovies, input)
 	}
 	s.currentHidden(hiddenShows, input)

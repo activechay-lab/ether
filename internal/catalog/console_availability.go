@@ -55,6 +55,25 @@ func (c *Catalog) RecordConsoleReleaseEvidence(ctx context.Context, key core.Rat
 	if r.Info.Atmos {
 		atmos = 1
 	}
+	// Unverified observations without a definitive cache check carry no console
+	// signal; update or clear any prior row for that release without inserting
+	// an already-expired tombstone on every feed item.
+	if verifiedUntil <= 0 && cacheUntil <= 0 && cached < 0 {
+		res, err := c.db.ExecContext(ctx, `UPDATE catalog_release_evidence SET
+			cache_until=CASE WHEN policy=? AND info_hash=? THEN cache_until ELSE 0 END,
+			cached=CASE WHEN policy=? AND info_hash=? THEN cached ELSE -1 END,
+			info_hash=?,policy=?,verified_until=0,height=?,hdr=?,dv=?,atmos=?
+			WHERE rating_key=? AND release_id=? AND source_id=?`,
+			policy, r.InfoHash, policy, r.InfoHash, r.InfoHash, policy, r.Info.Height, hdr, dv, atmos, int64(key), r.ID, source)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			_, _ = c.db.ExecContext(ctx, `DELETE FROM catalog_release_evidence WHERE rating_key=? AND release_id=? AND source_id=? AND verified_until<=0 AND cache_until<=0`, int64(key), r.ID, source)
+			c.writeGen.Add(1)
+		}
+		return nil
+	}
 	_, err := c.db.ExecContext(ctx, `INSERT INTO catalog_release_evidence(rating_key,release_id,source_id,info_hash,policy,verified_until,cache_until,cached,height,hdr,dv,atmos) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(rating_key,release_id,source_id) DO UPDATE SET info_hash=excluded.info_hash,policy=excluded.policy,verified_until=excluded.verified_until,cache_until=CASE WHEN excluded.cached<0 AND catalog_release_evidence.policy=excluded.policy AND catalog_release_evidence.info_hash=excluded.info_hash THEN catalog_release_evidence.cache_until ELSE excluded.cache_until END,cached=CASE WHEN excluded.cached<0 AND catalog_release_evidence.policy=excluded.policy AND catalog_release_evidence.info_hash=excluded.info_hash THEN catalog_release_evidence.cached ELSE excluded.cached END,height=excluded.height,hdr=excluded.hdr,dv=excluded.dv,atmos=excluded.atmos`, int64(key), r.ID, source, r.InfoHash, policy, verifiedUntil, cacheUntil, cached, r.Info.Height, hdr, dv, atmos)
 	if err == nil {
 		c.writeGen.Add(1)
@@ -130,4 +149,15 @@ func (c *Catalog) PruneConsoleReleaseEvidence(ctx context.Context, now int64) er
 		}
 	}
 	return err
+}
+
+// Prune drains expired console release evidence in bounded batches during
+// daily maintenance.
+func (c *Catalog) Prune(ctx context.Context) (int64, error) {
+	now := c.now().Unix()
+	n, err := store.PruneBatched(ctx, c.db, `DELETE FROM catalog_release_evidence WHERE (rating_key,release_id,source_id) IN (SELECT rating_key,release_id,source_id FROM catalog_release_evidence WHERE verified_until<=? AND cache_until<=? ORDER BY verified_until,rating_key,release_id,source_id LIMIT ?)`, now, now)
+	if n > 0 {
+		c.writeGen.Add(1)
+	}
+	return n, err
 }

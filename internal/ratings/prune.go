@@ -3,7 +3,14 @@ package ratings
 import (
 	"context"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/store"
 )
+
+func init() {
+	store.RegisterAfter("ratings_retention", "ratings")
+	store.Register("ratings_retention", 1, `CREATE INDEX ratings_cache_updated ON ratings_cache(updated);`)
+}
 
 // maxCacheAge is the longest cache interval SaveSettings accepts (2160 h).
 // A row older than this can never be served whatever the setting, so it is
@@ -20,9 +27,7 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 			age = d
 		}
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM ratings_cache WHERE updated<?`, s.o.Now().Add(-age).Unix())
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return store.PruneBatched(ctx, s.db,
+		`DELETE FROM ratings_cache WHERE (item_key,provider) IN (SELECT item_key,provider FROM ratings_cache WHERE updated<? ORDER BY updated LIMIT ?)`,
+		s.o.Now().Add(-age).Unix())
 }

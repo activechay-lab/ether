@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSnapshotBeforeMigrate(t *testing.T) {
@@ -179,6 +180,65 @@ func TestPreMigrateSnapshotsRotateWithTheirFiles(t *testing.T) {
 	if _, err := snapshotBeforeMigrate(ctx, db, path, append(ms, migration{component: "premig", version: 99, sql: `SELECT 1`}), []SnapshotFile{{Name: "../escape"}}, nil); err == nil {
 		t.Fatal("snapshot file name with a path accepted")
 	}
+}
+
+func TestSweepPreMigrateRemovesLegacyGenerationsAndAgedSnapshots(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ether.db")
+	db, err := OpenPath(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	dst := path + PreMigrateSuffix
+	for _, p := range []string{dst, dst + ".1", dst + ".2"} {
+		if err := os.WriteFile(p, []byte("snap"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(p+PreMigrateFilesSuffix, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Reopening immediately deletes legacy .bak.1 and .bak.2 while preserving a fresh .bak.
+	db, err = OpenPath(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, old := range []string{dst + ".1", dst + ".1" + PreMigrateFilesSuffix, dst + ".2", dst + ".2" + PreMigrateFilesSuffix} {
+		if _, err := os.Stat(old); !os.IsNotExist(err) {
+			t.Fatalf("legacy pre-migrate artifact survived open: %s (%v)", old, err)
+		}
+	}
+	if _, err := os.Stat(dst); err != nil {
+		t.Fatalf("fresh pre-migrate snapshot removed prematurely: %v", err)
+	}
+
+	// An incomplete marker protects even an aged snapshot.
+	aged := time.Now().Add(-PreMigrateMaxAge - time.Hour)
+	if err := os.Chtimes(dst, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst+preMigrateIncomplete, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sweepPreMigrate(ctx, db, path, time.Now())
+	if _, err := os.Stat(dst); err != nil {
+		t.Fatalf("incomplete aged snapshot was removed: %v", err)
+	}
+	_ = os.Remove(dst + preMigrateIncomplete)
+
+	// Once clean and past PreMigrateMaxAge, sweepPreMigrate retires .bak and its .files.
+	sweepPreMigrate(ctx, db, path, time.Now())
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatalf("aged pre-migrate snapshot survived sweep: %v", err)
+	}
+	if _, err := os.Stat(dst + PreMigrateFilesSuffix); !os.IsNotExist(err) {
+		t.Fatalf("aged pre-migrate .files survived sweep: %v", err)
+	}
+	db.Close()
 }
 
 // A database migrated by a newer binary is reported, never refused, and

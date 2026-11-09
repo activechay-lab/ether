@@ -6,6 +6,9 @@
   decade channels no longer burn CPU unwatched; disabling a channel cancels its
   renders; faster On Air rasterizing; calmer IPTV listing and availability
   rebuilds (#409).
+- **Database:** hidden-title sets no longer pile up (minutes of retention,
+  compact storage); daily sweeps of expired derived data; idle compaction
+  returns free pages to disk; one pre-migration snapshot, removed after 7 days.
 - **Updates and health:** startup and migration work queues background writers
   instead of failing them after 10 seconds; transient post-start states show as
   checking, not errors; **Sync shared users**; client rules naming removed

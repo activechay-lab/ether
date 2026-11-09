@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // journalSizeLimit bounds retained WAL after a full checkpoint and subsequent
@@ -25,6 +26,9 @@ func Maintain(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("analyze: %w", err)
 		}
 		return nil
+	}
+	if path, err := sqlitePath(ctx, db); err == nil && path != "" {
+		sweepPreMigrate(ctx, db, path, time.Now())
 	}
 	if _, err := ReleaseFreePages(ctx, db); err != nil {
 		return err

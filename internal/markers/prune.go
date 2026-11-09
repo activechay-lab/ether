@@ -15,6 +15,8 @@ CREATE INDEX markers_plugin_cache_expires ON markers_plugin_cache(expires_at);`)
 	store.Register("markers_breaks", 4, `
 CREATE INDEX markers_breaks_cache_analyzed ON markers_breaks_cache(analyzed_at);
 CREATE INDEX markers_breaks_observed_updated ON markers_breaks_observed(updated_at);`)
+	store.RegisterAfter("markers_retention", "markers")
+	store.Register("markers_retention", 1, `CREATE INDEX markers_refresh_queue_played ON markers_refresh_queue(last_played);`)
 }
 
 const (
@@ -26,13 +28,15 @@ const (
 	// BreakBudgetRetention is how long a day's scan-budget row is kept;
 	// only today's row is ever read.
 	BreakBudgetRetention = 30 * 24 * time.Hour
+	// RefreshQueueRetention bounds markers_refresh_queue even when no
+	// marker plugin refresh loop is active.
+	RefreshQueueRetention = 30 * 24 * time.Hour
 )
 
 // Prune deletes expired rows from the remote-lookup caches (markers_cache,
 // markers_plugin_cache), act-break analyses and observations older than
-// BreakRetention, and scan-budget days older than BreakBudgetRetention.
-// An expired lookup row is never served, so that only reclaims space; the
-// next playback re-fetches as it would anyway.
+// BreakRetention, scan-budget days older than BreakBudgetRetention, and
+// refresh-queue entries older than RefreshQueueRetention.
 func (s *Service) Prune(ctx context.Context) (int64, error) {
 	if s.o.DB == nil {
 		return 0, nil
@@ -50,6 +54,7 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 		{`DELETE FROM markers_breaks_observed WHERE (release_key,version) IN (SELECT release_key,version FROM markers_breaks_observed WHERE updated_at<? ORDER BY updated_at LIMIT ?)`, breaks},
 		// day is a UTC YYYY-MM-DD string, so it orders as text.
 		{`DELETE FROM markers_breaks_budget WHERE day IN (SELECT day FROM markers_breaks_budget WHERE day<? ORDER BY day LIMIT ?)`, now.UTC().Add(-BreakBudgetRetention).Format("2006-01-02")},
+		{`DELETE FROM markers_refresh_queue WHERE (rating_key,runtime_ms) IN (SELECT rating_key,runtime_ms FROM markers_refresh_queue WHERE last_played<? ORDER BY last_played LIMIT ?)`, now.Add(-RefreshQueueRetention).Unix()},
 	} {
 		n, err := store.PruneBatched(ctx, s.o.DB, q.del, q.arg)
 		total += n

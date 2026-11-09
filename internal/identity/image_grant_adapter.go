@@ -235,8 +235,7 @@ func (s *ImageGrantService) revokeAdmitted(ctx context.Context, viewerID int64, 
 // PruneImageGrantShard performs one bounded maintenance transaction for one
 // shard. Scheduling and rotation across shards belong to its caller. It takes
 // only that shard's issue/revoke lock, and rechecks expiry and shard in each
-// outer delete. The caller supplies the same trusted clock as image issuance.
-// Issued scope and expiry are immutable after cutover.
+// outer delete.
 func PruneImageGrantShard(ctx context.Context, db *sql.DB, now time.Time, shard int64) (int64, error) {
 	if db == nil || now.IsZero() || shard < 0 || shard >= capability.HeaderShardCount {
 		return 0, errors.New("identity: invalid image maintenance scope")
@@ -254,6 +253,10 @@ func PruneImageGrantShard(ctx context.Context, db *sql.DB, now time.Time, shard 
 	if !hasExpired {
 		return 0, nil
 	}
+	return pruneImageGrantBatch(ctx, db, ms, shard)
+}
+
+func pruneImageGrantBatch(ctx context.Context, db *sql.DB, ms, shard int64) (int64, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err

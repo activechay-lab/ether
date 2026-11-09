@@ -81,6 +81,8 @@ func (c *trajStubConn) QueryContext(_ context.Context, query string, _ []driver.
 	switch {
 	case strings.Contains(query, "FROM catalog_viewer_rules"):
 		return &trajStubRows{cols: []string{"viewer_id", "document", "revision"}}, nil
+	case strings.Contains(query, "FROM catalog_owner_includes"):
+		return &trajStubRows{cols: []string{"key"}}, nil
 	case strings.Contains(query, "type='episode'"):
 		if c.epQueryFail {
 			return nil, errIter

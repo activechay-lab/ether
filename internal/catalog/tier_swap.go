@@ -662,6 +662,9 @@ func (c *Catalog) tierSwap(ctx context.Context, p *TierMigration) error {
 	if err := rebuildStatsTally(ctx, tx); err != nil {
 		return err
 	}
+	if err := rebuildFacetTally(ctx, tx); err != nil {
+		return err
+	}
 	tallyTook := time.Since(tallyBegan)
 	// The rank still describes the pre-swap catalogue. Persist invalidation
 	// atomically with the rename so a restart cannot serve it as ready.
@@ -887,6 +890,9 @@ func (c *Catalog) tierDeleteOrphans(ctx context.Context, p *TierMigration) error
 				break
 			}
 		}
+	}
+	if err := c.cleanupTierDerived(ctx); err != nil {
+		return err
 	}
 	c.writeGen.Add(1)
 	return c.setTierPhase(ctx, c.db, "swept")

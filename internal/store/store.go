@@ -377,6 +377,7 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 	if path != ":memory:" {
 		finishPreMigrate(path)
 		warnSchemaAhead(ctx, db, slog.Default(), path+PreMigrateSuffix)
+		sweepPreMigrate(ctx, db, path, time.Now())
 	}
 	// Analyse tables whose statistics are missing or stale before the first
 	// request, from every row (RefreshStatistics). Best effort: stale

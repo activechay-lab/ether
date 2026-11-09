@@ -46,10 +46,13 @@ func (p personalHomeDisk) SavePersonalHome(ctx context.Context, protocol string,
 	if p.app == nil || p.app.db == nil {
 		return nil
 	}
-	_, err := p.app.db.ExecContext(ctx, `INSERT INTO mediabrowser_personal_home (protocol, viewer_id, config, body, updated_ms)
+	if _, err := p.app.db.ExecContext(ctx, `INSERT INTO mediabrowser_personal_home (protocol, viewer_id, config, body, updated_ms)
 VALUES (?,?,?,?,?)
 ON CONFLICT(protocol, viewer_id, config) DO UPDATE SET body=excluded.body, updated_ms=excluded.updated_ms`,
-		protocol, viewerID, config, string(body), time.Now().UnixMilli())
+		protocol, viewerID, config, string(body), time.Now().UnixMilli()); err != nil {
+		return err
+	}
+	_, err := p.app.db.ExecContext(ctx, `DELETE FROM mediabrowser_personal_home WHERE protocol=? AND viewer_id=? AND config<>?`, protocol, viewerID, config)
 	return err
 }
 

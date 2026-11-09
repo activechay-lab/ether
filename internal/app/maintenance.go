@@ -38,12 +38,17 @@ func (a *App) pruners() []pruner {
 			ps = append(ps, pruner{name, fn})
 		}
 	}
+	add("availability", a.availability != nil, func(ctx context.Context) (int64, error) { return a.availability.Prune(ctx) })
+	add("catalog", a.catalog != nil, func(ctx context.Context) (int64, error) { return a.catalog.Prune(ctx) })
 	add("markers", a.markers != nil, func(ctx context.Context) (int64, error) { return a.markers.Prune(ctx) })
 	add("resolver", a.resolver != nil, func(ctx context.Context) (int64, error) { return a.resolver.Prune(ctx) })
 	add("newznab", a.indexers != nil, func(ctx context.Context) (int64, error) { return a.indexers.Prune(ctx) })
 	add("stats", a.stats != nil, func(ctx context.Context) (int64, error) { return a.stats.Prune(ctx) })
 	add("ratings", a.ratings != nil, func(ctx context.Context) (int64, error) { return a.ratings.Prune(ctx) })
 	add("collections", a.collections != nil, func(ctx context.Context) (int64, error) { return a.collections.Prune(ctx) })
+	add("plexmeta", a.plexMeta != nil, func(ctx context.Context) (int64, error) { return a.plexMeta.Prune(ctx) })
+	add("livetv", a.livetv != nil, func(ctx context.Context) (int64, error) { return a.livetv.Prune(ctx) })
+	add("state_sync", a.state != nil, func(ctx context.Context) (int64, error) { return 0, a.state.CompactSync(ctx, time.Now()) })
 	add("identity", a.db != nil, func(ctx context.Context) (int64, error) {
 		grants, err := identity.NewGrants(a.db, a.users, 30*24*time.Hour, nil)
 		if err != nil {
@@ -103,6 +108,7 @@ func (a *App) maintainDB(ctx context.Context) {
 		delay = dbMaintenanceInterval
 		start := time.Now()
 		a.runPruners(ctx)
+		a.maybeAutoCompact(ctx)
 		err := store.Maintain(ctx, a.db)
 		var corrupt *store.CorruptionError
 		switch {

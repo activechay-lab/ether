@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -26,8 +27,11 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 	log := a.log
 	dataDir := a.opts.DataDir
 	var err error
-	// Watch state and recommendations.
+	// Watch state and recommendations. Default the account-sync journal gate
+	// closed until buildPlexWatch installs per-viewer consent checks, so a
+	// server without Plex never accumulates undeliverable journal rows.
 	a.state = state.New(a.db, state.Options{Now: parityClock(), Logger: log.With("component", "state"), Availability: a.dbAvail, PendingSQLite: store.DialectOf(a.db) == store.SQLite})
+	a.state.SetJournalGate(func(context.Context, *sql.Tx, int64) (int64, bool, error) { return 0, false, nil })
 	basePlaylists := a.state.Playlists()
 	marked, ok := basePlaylists.(core.TransactionalMarkedPlaylists)
 	if !ok {

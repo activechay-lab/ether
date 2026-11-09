@@ -57,7 +57,8 @@ func (s *Service) SubtitleVerdict(ctx context.Context, id string) (bool, bool) {
 }
 func (s *Service) RememberSubtitleVerdict(ctx context.Context, id string, v bool) error {
 	if s.db != nil {
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO resolver_hardsub VALUES (?,?) ON CONFLICT(release_id) DO UPDATE SET burned=excluded.burned`, id, store.BoolInt(v)); err != nil {
+		now := s.now().Unix()
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO resolver_hardsub(release_id,burned,updated_at) VALUES (?,?,?) ON CONFLICT(release_id) DO UPDATE SET burned=excluded.burned,updated_at=excluded.updated_at`, id, store.BoolInt(v), now); err != nil {
 			return err
 		}
 	}
@@ -236,7 +237,7 @@ func (s *Service) ClaimSubtitleCheck(ctx context.Context, id string) (bool, erro
 		return false, nil
 	}
 	if s.db != nil {
-		res, err := s.db.ExecContext(ctx, `INSERT INTO resolver_subtitle_checks(release_id) VALUES (?) ON CONFLICT(release_id) DO NOTHING`, id)
+		res, err := s.db.ExecContext(ctx, `INSERT INTO resolver_subtitle_checks(release_id,updated_at) VALUES (?,?) ON CONFLICT(release_id) DO NOTHING`, id, s.now().Unix())
 		if err != nil {
 			return false, err
 		}
@@ -256,4 +257,11 @@ func (s *Service) ClaimSubtitleCheck(ctx context.Context, id string) (bool, erro
 }
 func init() {
 	store.Register("resolver", 5, `CREATE TABLE resolver_subtitle_checks (release_id TEXT PRIMARY KEY);`)
+	store.RegisterAfter("resolver_retention", "resolver")
+	store.Register("resolver_retention", 1, `
+ALTER TABLE resolver_hardsub ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE resolver_subtitle_checks ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX resolver_hardsub_updated ON resolver_hardsub(updated_at) WHERE updated_at>0;
+CREATE INDEX resolver_subtitle_checks_updated ON resolver_subtitle_checks(updated_at) WHERE updated_at>0;
+`)
 }
