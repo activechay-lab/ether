@@ -284,6 +284,7 @@ type homeRow struct {
 	Slot         int               `json:"slot,omitempty"`
 	AnchorSlot   int               `json:"anchorSlot,omitempty"`
 	Placement    string            `json:"placement,omitempty"`
+	HiddenCode   string            `json:"hiddenCode,omitempty"`
 	HiddenReason string            `json:"hiddenReason,omitempty"`
 	Policy       *core.RowPolicy   `json:"policy,omitempty"`
 	PolicyLayer  string            `json:"policyLayer,omitempty"`
@@ -346,7 +347,7 @@ func (h *Handler) writeHomePreview(w http.ResponseWriter, p *core.HomePreview, v
 	rows := make([]homeRow, 0, len(p.Rows))
 	for _, row := range p.Rows {
 		hr := homeRow{HubID: row.HubID, Title: row.Title, Kind: row.Kind, Reason: row.Reason, Score: row.Score,
-			Layer: row.Layer, Slot: row.Slot, AnchorSlot: row.AnchorSlot, Placement: row.Placement, HiddenReason: row.HiddenReason, Policy: row.Policy, PolicyLayer: row.PolicyLayer, Pinned: row.Pinned, Hidden: row.Hidden, Source: row.Source, Items: make([]homeTitleCard, 0, len(row.Items))}
+			Layer: row.Layer, Slot: row.Slot, AnchorSlot: row.AnchorSlot, Placement: row.Placement, HiddenCode: row.HiddenCode, HiddenReason: row.HiddenReason, Policy: row.Policy, PolicyLayer: row.PolicyLayer, Pinned: row.Pinned, Hidden: row.Hidden, Source: row.Source, Items: make([]homeTitleCard, 0, len(row.Items))}
 		for _, t := range row.Items {
 			hr.Items = append(hr.Items, homeCard(t))
 		}

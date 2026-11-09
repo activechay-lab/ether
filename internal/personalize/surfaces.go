@@ -80,8 +80,8 @@ func (a *assembly) surfaceWeight(c *candRow) float64 {
 
 // admit decides whether a candidate row may appear on this surface and
 // with which prior weight: default members; new viewers' cold-start
-// section rows on Home; and any row an owner policy names explicitly for
-// this page, wherever the row fits.
+// section rows on Home; and any row an owner policy names explicitly (or
+// sets Always) for this page, wherever the row fits.
 func (a *assembly) admit(c *candRow, hubID string, newViewer bool) (float64, bool) {
 	if w := a.surfaceWeight(c); w > 0 {
 		return w, true
@@ -89,7 +89,7 @@ func (a *assembly) admit(c *candRow, hubID string, newViewer bool) (float64, boo
 	if a.section == "" && newViewer && c.coldHome {
 		return 1, true
 	}
-	if a.ownerPlaced(c, hubID) && fitsSurface(c.kind, a.surface()) {
+	if (a.ownerPlaced(c, hubID) || a.ownerAlways(c, hubID)) && fitsSurface(c.kind, a.surface()) {
 		return 1, true
 	}
 	return 0, false
@@ -104,6 +104,16 @@ func (a *assembly) ownerPlaced(c *candRow, hubID string) bool {
 	}
 	p, _ := effectiveHomePolicy(*a.layout, a.user.ID, a.surface(), core.HomeRow{HubID: hubID, Kind: c.kind})
 	return p != nil && p.Status != "off" && !strings.ContainsAny(p.Row, "*?[")
+}
+
+// ownerAlways reports whether an active layout policy sets Status "always"
+// for this row on this page (including glob patterns).
+func (a *assembly) ownerAlways(c *candRow, hubID string) bool {
+	if a.layout == nil {
+		return false
+	}
+	p, _ := effectiveHomePolicy(*a.layout, a.user.ID, a.surface(), core.HomeRow{HubID: hubID, Kind: c.kind})
+	return p != nil && p.Status == "always" && whenMatches(p.When, a.hc) && weekEligible(a.user.ID, p.Row, a.hc, p.MaxDaysPerWeek)
 }
 
 // surfacePriorStrength is how many row-days of the kind-level estimate a

@@ -373,6 +373,7 @@ func (b *builder) genNetwork() []*candRow {
 		return studios[i] < studios[j]
 	})
 	var rows []*candRow
+	var thinFallback *candRow
 	for _, s := range studios {
 		if len(rows) >= 3 {
 			break
@@ -391,14 +392,23 @@ func (b *builder) genNetwork() []*candRow {
 		items := b.rankType(in, core.TypeShow, func(t *core.Title, _, _ int, fit float64, why string) (float64, string) {
 			return 0.55*fit + 0.3*quality(t) + 0.15*popularity(t), withWhy("From "+studio, why)
 		})
-		if len(items) < 4 {
+		if len(items) == 0 {
 			continue
 		}
 		r := newRow(KindNetwork, "network."+genreSlug(s), "More from "+s,
 			fmt.Sprintf("You've watched %d %s series; more from them you haven't started.", shows[s], s), items)
 		r.minItems = 4
 		r.scale = 0.85 + 0.15*clamp(weight[s]/3, 0, 1)
+		if len(items) < 4 {
+			if thinFallback == nil {
+				thinFallback = r
+			}
+			continue
+		}
 		rows = append(rows, r)
+	}
+	if len(rows) == 0 && thinFallback != nil {
+		rows = append(rows, thinFallback)
 	}
 	return rows
 }
@@ -524,7 +534,7 @@ func (b *builder) genStandalone() []*candRow {
 		items = append(items, candItem{t: ep, base: score, fit: fit, qual: quality(&ep), reason: r})
 	}
 	sortItems(items)
-	if len(items) < 4 {
+	if len(items) == 0 {
 		return nil
 	}
 	r := newRow(KindStandalone, "standalone", "Standalone & Anthology Episodes",

@@ -75,8 +75,10 @@ func LayoutRows(ctx context.Context, source core.NeutralHomeLayoutSource, librar
 		return rows, nil
 	}
 	candidates := make([]core.NeutralHomeRow, 0, len(rows))
-	for _, row := range rows {
-		n := core.NeutralHomeRow{ID: row.ID, Title: row.Title, Kind: row.Kind, Purpose: row.Purpose, ItemCount: len(row.Entries)}
+	indices := make(map[string]int, len(rows))
+	for i, row := range rows {
+		indices[row.ID] = i
+		n := core.NeutralHomeRow{ID: row.ID, Title: row.Title, Kind: row.Kind, Purpose: row.Purpose, ItemCount: len(row.Entries), Always: row.Layout.Always}
 		for _, entry := range row.Entries {
 			if entry.Title != nil {
 				n.Items = append(n.Items, *entry.Title)
@@ -87,16 +89,22 @@ func LayoutRows(ctx context.Context, source core.NeutralHomeLayoutSource, librar
 		}
 		candidates = append(candidates, n)
 	}
-	ordered, err := ArrangeNeutralHome(ctx, source, req.Viewer, sit, section, candidates)
+	ordered, err := source.FinalizeNeutralHome(ctx, req.Viewer, sit, section, candidates)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]frontend.Row, 0, len(ordered))
-	for i, index := range ordered {
+	for _, arranged := range ordered {
+		index, ok := indices[arranged.ID]
+		if !ok {
+			continue
+		}
 		row := rows[index]
-		row.Rank = i
-		row.Layout.Order = i
+		rank := len(out)
+		row.Rank = rank
+		row.Layout.Order = rank
 		row.Layout.Style = row.Style
+		row.Layout.Always = arranged.Always
 		out = append(out, row)
 	}
 	return out, nil

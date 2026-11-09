@@ -217,7 +217,7 @@ func TestCollectionRowFollowsCollectionSchedule(t *testing.T) {
 		}
 		return rowByKind(p.Rows, "collection:select")
 	}
-	if r := shown(base); r != nil {
+	if r := shown(base); r == nil || !r.Hidden || r.HiddenCode != "outside_collection_schedule" {
 		t.Fatalf("placed row ignored its collection's schedule: %+v", r)
 	}
 	draft := base
@@ -482,5 +482,227 @@ func TestMatchingPolicyRanksLikeTheConsole(t *testing.T) {
 		if got == nil || got.Row != c.want {
 			t.Errorf("matchingPolicy(%s, %s) = %v, want %s", c.hubID, c.kind, got, c.want)
 		}
+	}
+}
+
+func TestAlwaysRowsNeverDroppedByCapsThresholdsOrDedupe(t *testing.T) {
+	hc := hubContext(testNow, core.DeviceTV)
+	// 1. Displaced anchor, sparse page (Slot > len(rows)), Slot > MaxRows, and count(Always) > MaxRows.
+	d := core.HomeLayout{
+		Global: []core.LayoutPage{{
+			Section: "home",
+			MaxRows: 1,
+			Rows: []core.RowPolicy{
+				{Row: "global_s1", Status: "always", Slot: 1},
+				{Row: "beyond_cap", Status: "always", Slot: 9},
+			},
+		}},
+		Viewers: []core.ViewerLayout{{
+			UserID: 4,
+			Pages: []core.LayoutPage{{
+				Section: "home",
+				Rows: []core.RowPolicy{
+					{Row: "viewer_s1", Status: "always", Slot: 1},
+					{Row: "min_beyond", Status: "always", MinSlot: 5},
+				},
+			}},
+		}},
+	}
+	got := arrangeLayout(sampleRows("opt", "global_s1", "viewer_s1", "beyond_cap", "min_beyond"), d, 4, hc, "home", 14)
+	ids := visibleIDs(got)
+	want := []string{"viewer_s1", "global_s1", "min_beyond", "beyond_cap"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("visible Always rows = %v, want %v", ids, want)
+	}
+	for _, r := range got {
+		if r.HubID == "opt" && (!r.Hidden || r.HiddenCode != "page_constraints") {
+			t.Fatalf("optional row should be hidden with page_constraints: %+v", r)
+		}
+	}
+
+	// 2. Thin row (< MinRowItems=12) and cold-only row for a warm viewer survive when Always, not when Eligible.
+	h := newHarness(t, func(o *Options) { o.MinRowItems = 12 })
+	ctx := context.Background()
+	u := core.User{ID: 1}
+	sciFiFan(h, 1)
+	h.rebuild(u)
+	h.e.mu.Lock()
+	m := h.e.models[u.ID]
+	if m == nil || m.taste == nil || m.taste.Confidence < coldStartConfidence {
+		h.e.mu.Unlock()
+		t.Fatalf("expected warm model for sciFiFan: %+v", m)
+	}
+	thinItems := m.rows[0].items
+	if len(thinItems) > 2 {
+		thinItems = thinItems[:2]
+	}
+	m.rows = append(m.rows,
+		&candRow{id: "thin.custom", kind: KindHiddenGems, title: "Thin Gems", reason: "Two picks", scale: 0.7, items: thinItems, minItems: 6},
+		&candRow{id: "cold.only", kind: KindNewReleases, title: "New Releases", reason: "Cold row", scale: 0.6, coldOnly: true, items: thinItems},
+		&candRow{id: "dedupe.twin", kind: KindTopRated, title: "Dedupe Twin", reason: "Same two picks", scale: 0.5, items: thinItems},
+	)
+	h.e.mu.Unlock()
+
+	eligLayout := core.HomeLayout{Global: []core.LayoutPage{{Section: "home", Rows: []core.RowPolicy{
+		{Row: "thin.custom", Status: "eligible"},
+	}}}}
+	eligPrev, err := h.e.PreviewLayout(ctx, &u, hc, "home", 12, eligLayout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := rowByKind(eligPrev.Rows, KindHiddenGems); r != nil && r.HubID == "home.thin.custom" && !r.Hidden {
+		t.Fatalf("2-item Eligible row should not pass MinRowItems=12: %+v", r)
+	}
+
+	alwaysLayout := core.HomeLayout{Global: []core.LayoutPage{{Section: "home", MaxRows: 1, Rows: []core.RowPolicy{
+		{Row: "thin.custom", Status: "always"},
+		{Row: KindNewReleases, Status: "always"},
+		{Row: "dedupe.twin", Status: "always"},
+	}}}}
+	if _, err := h.e.SetHomeLayout(ctx, alwaysLayout); err != nil {
+		t.Fatal(err)
+	}
+	liveHubs, err := h.e.HomeHubsFor(ctx, &u, hc, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotHubIDs := hubIDsOf(liveHubs)
+	for _, wantID := range []string{"home.thin.custom", "home.cold.only", "home.dedupe.twin"} {
+		found := false
+		for _, id := range gotHubIDs {
+			if id == wantID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("Always row %s missing from HomeHubsFor: %v", wantID, gotHubIDs)
+		}
+	}
+}
+
+type specCollectionSource struct {
+	selectedCollectionSource
+	specs []core.CollectionSpec
+}
+
+func (s *specCollectionSource) ListSpecs(context.Context) ([]core.CollectionSpec, error) {
+	return s.specs, nil
+}
+
+func TestPreviewLayoutExplainsAbsentAlwaysRows(t *testing.T) {
+	source := &specCollectionSource{
+		specs: []core.CollectionSpec{
+			{ID: "empty_col", Name: "Empty Collection", MediaType: "movie", Enabled: true, Targets: core.CollectionTargets{HomeRow: true, Users: core.AllUsers()}},
+			{ID: "disabled_col", Name: "Disabled Collection", MediaType: "movie", Enabled: false, Targets: core.CollectionTargets{HomeRow: true, Users: core.AllUsers()}},
+			{ID: "private_col", Name: "Private Collection", MediaType: "movie", Enabled: true, Targets: core.CollectionTargets{HomeRow: true, Users: core.UserTargets{IDs: []int64{99}}}},
+			{ID: "movies_only", Name: "Movies Only", MediaType: "movie", Enabled: true, Targets: core.CollectionTargets{HomeRow: true, Users: core.AllUsers()}},
+		},
+	}
+	var blockAllAvail bool
+	h := newHarness(t, func(o *Options) {
+		o.Collections = source
+		o.OwnerRowsWait = time.Millisecond
+		o.FilterAvailable = func(_ context.Context, items []core.Title) []core.Title {
+			if blockAllAvail {
+				return nil
+			}
+			return items
+		}
+	})
+	ctx := context.Background()
+	hc := hubContext(testNow, core.DeviceTV)
+
+	// 1. Typical viewer: personal rows explain typical_viewer_personal; disabled/unshared/empty collections explain why.
+	typLayout := core.HomeLayout{Global: []core.LayoutPage{{Section: "home", Rows: []core.RowPolicy{
+		{Row: KindTop10, Status: "always"},
+		{Row: "collection:empty_col", Status: "always"},
+		{Row: "collection:disabled_col", Status: "always"},
+		{Row: "collection:private_col", Status: "always"},
+		{Row: KindFavorites, Status: "always"},
+		{Row: KindUpNext, Status: "always"},
+		{Row: KindTraktRecs, Status: "always"},
+		{Row: KindLLM, Status: "always"},
+	}}}}
+	prev, err := h.e.PreviewLayout(ctx, &core.User{}, hc, "home", 12, typLayout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTypical := map[string]string{
+		KindTop10:                 "typical_viewer_personal",
+		"collection:empty_col":    "collection_empty",
+		"collection:disabled_col": "collection_disabled",
+		"collection:private_col":  "collection_not_shared",
+		KindFavorites:             "typical_viewer_personal",
+		KindUpNext:                "typical_viewer_personal",
+		KindTraktRecs:             "typical_viewer_personal",
+		KindLLM:                   "typical_viewer_personal",
+	}
+	for kind, wantCode := range wantTypical {
+		r := rowByKind(prev.Rows, kind)
+		if r == nil || !r.Hidden || r.HiddenCode != wantCode {
+			t.Fatalf("typical viewer kind %s = %+v, want hiddenCode=%s", kind, r, wantCode)
+		}
+	}
+
+	// 2. Real viewer with zero history: viewer-specific reasons reported, live HomeHubsFor omits empty rows.
+	coldViewer := core.User{ID: 42}
+	h.rebuild(coldViewer)
+	coldPrev, err := h.e.PreviewLayout(ctx, &coldViewer, hc, "home", 12, typLayout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCold := map[string]string{
+		KindTop10:     "needs_watch_history",
+		KindFavorites: "no_favorites",
+		KindUpNext:    "no_in_progress",
+		KindTraktRecs: "needs_trakt",
+		KindLLM:       "ai_unavailable",
+	}
+	for kind, wantCode := range wantCold {
+		r := rowByKind(coldPrev.Rows, kind)
+		if r == nil || !r.Hidden || r.HiddenCode != wantCode {
+			t.Fatalf("cold viewer kind %s = %+v, want hiddenCode=%s", kind, r, wantCode)
+		}
+	}
+	if _, err := h.e.SetHomeLayout(ctx, typLayout); err != nil {
+		t.Fatal(err)
+	}
+	liveHubs, err := h.e.HomeHubsFor(ctx, &coldViewer, hc, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hub := range liveHubs {
+		if hub.ID == "home."+KindTop10 || (hub.ID != "home.continue" && len(hub.Items) == 0) {
+			t.Fatalf("live HomeHubsFor returned empty/synthetic Always row: %+v", hub)
+		}
+	}
+
+	// 3. Wrong surface on TV page.
+	showsLayout := core.HomeLayout{Global: []core.LayoutPage{{Section: "shows", Rows: []core.RowPolicy{
+		{Row: "collection:movies_only", Status: "always"},
+		{Row: KindAcclaimed, Status: "always"},
+	}}}}
+	showsPrev, err := h.e.PreviewLayout(ctx, &coldViewer, hc, "shows", 12, showsLayout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"collection:movies_only", KindAcclaimed} {
+		if r := rowByKind(showsPrev.Rows, kind); r == nil || !r.Hidden || r.HiddenCode != "wrong_surface" {
+			t.Fatalf("shows surface kind %s = %+v, want wrong_surface", kind, r)
+		}
+	}
+
+	// 4. Availability filter emptying all candidates reports filtered_by_availability.
+	blockAllAvail = true
+	availLayout := core.HomeLayout{Global: []core.LayoutPage{{Section: "home", Rows: []core.RowPolicy{
+		{Row: KindTrending, Status: "always"},
+	}}}}
+	availPrev, err := h.e.PreviewLayout(ctx, &coldViewer, hc, "home", 12, availLayout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := rowByKind(availPrev.Rows, KindTrending); r == nil || !r.Hidden || r.HiddenCode != "filtered_by_availability" {
+		t.Fatalf("filtered_by_availability kind %s = %+v", KindTrending, r)
 	}
 }

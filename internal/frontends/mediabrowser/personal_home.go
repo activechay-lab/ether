@@ -437,7 +437,21 @@ func (i *instance) loadPersonalShelves(ctx context.Context, v *frontend.Viewer, 
 	if len(rows) == 0 {
 		return []personalShelf{}
 	}
-	out := make([]personalShelf, 0, cfg.count)
+	alwaysCount := 0
+	seenPre := map[string]bool{}
+	for _, row := range rows {
+		if row.ID == "" || seenPre[row.ID] || nowAvailableExperienceRow(row) || !personalShelfCompatible(row) || !row.Layout.Always {
+			continue
+		}
+		if len(personalTitles(row)) == 0 {
+			continue
+		}
+		seenPre[row.ID] = true
+		alwaysCount++
+	}
+	optionalBudget := max(0, cfg.count-alwaysCount)
+	optionalUsed := 0
+	out := make([]personalShelf, 0, max(cfg.count, alwaysCount))
 	seen := map[string]bool{}
 	var pinned *personalShelf
 	for _, row := range rows {
@@ -445,7 +459,8 @@ func (i *instance) loadPersonalShelves(ctx context.Context, v *frontend.Viewer, 
 			continue
 		}
 		available := nowAvailableExperienceRow(row)
-		if !available && (!personalRowAllowed(cfg, row) || len(out) >= cfg.count) {
+		always := !available && personalShelfCompatible(row) && row.Layout.Always
+		if !available && !always && (!personalRowAllowed(cfg, row) || optionalUsed >= optionalBudget) {
 			continue
 		}
 		titles := personalTitles(row)
@@ -464,6 +479,9 @@ func (i *instance) loadPersonalShelves(ctx context.Context, v *frontend.Viewer, 
 			pinned = &copy
 			continue
 		}
+		if !always {
+			optionalUsed++
+		}
 		out = append(out, shelf)
 	}
 	if pinned != nil {
@@ -479,13 +497,20 @@ func nowAvailableExperienceRow(row frontend.Row) bool {
 	return row.ID == "watchlist.available" || row.Title == "Now available"
 }
 
-func personalRowAllowed(cfg personalHomeConfig, row frontend.Row) bool {
+func personalShelfCompatible(row frontend.Row) bool {
 	switch row.Purpose {
 	case frontend.RowContinue, frontend.RowNextUp, frontend.RowLive:
 		return false
 	}
 	switch row.Kind {
 	case "continue-watching", "up-next":
+		return false
+	}
+	return true
+}
+
+func personalRowAllowed(cfg personalHomeConfig, row frontend.Row) bool {
+	if !personalShelfCompatible(row) {
 		return false
 	}
 	if cfg.kinds == nil {

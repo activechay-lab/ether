@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
 )
@@ -24,8 +25,8 @@ const previewWait = 45 * time.Second
 // viewer in this context (the same assembly as HomeHubsFor and
 // SectionHubsFor), plus the rows the front end adds itself (Continue
 // Watching and Recently Added in sections, Recent Playlists on Home),
-// marked source "plex". Rows hidden by a layout policy are included last
-// with Hidden set; Plex never receives them.
+// marked source "plex". Rows hidden by a layout policy or absent despite an
+// "always" policy are included last with Hidden set; Plex never receives them.
 //
 // section is "" or "home", "movies", "shows", or a library section id.
 // The daypart and weekend flag are derived from hc.Now in server local
@@ -95,9 +96,12 @@ func (e *Engine) PreviewHome(ctx context.Context, user *core.User, hc core.HubCo
 	if e.extraHomeRows != nil {
 		p.Rows = append(p.Rows, rowsFromHubs(e.extraHomeRows(ctx, user, hc, sectionName(section), limit))...)
 	}
+	emptiedByRestrictions := map[string]bool{}
 	if e.opts.Allowed != nil {
+		kept := p.Rows[:0]
 		for i := range p.Rows {
-			row := &p.Rows[i]
+			row := p.Rows[i]
+			before := len(row.Items)
 			items := make([]core.Title, 0, len(row.Items))
 			reasons := map[core.RatingKey]string{}
 			for _, title := range row.Items {
@@ -111,14 +115,319 @@ func (e *Engine) PreviewHome(ctx context.Context, user *core.User, hc core.HubCo
 			row.Items = items
 			row.Hub.Items = items
 			row.ItemReasons = reasons
+			if before > 0 && len(items) == 0 && row.Kind != KindContinue && row.Kind != KindPlaylists {
+				if row.Kind != "" {
+					emptiedByRestrictions[row.Kind] = true
+				}
+				if row.HubID != "" {
+					emptiedByRestrictions[row.HubID] = true
+				}
+				if !row.Hidden {
+					continue
+				}
+			}
+			kept = append(kept, row)
 		}
+		p.Rows = kept
 	}
 	def := e.opts.MaxHomeRows
 	if section != "" {
 		def = e.opts.MaxSectionRows
 	}
-	p.Rows = arrangeLayout(p.Rows, e.layoutForContext(ctx), user.ID, hc, sectionName(section), def)
+	layoutDoc := e.layoutForContext(ctx)
+	p.Rows = arrangeLayout(p.Rows, layoutDoc, user.ID, hc, sectionName(section), def)
+	p.Rows = e.appendAbsentAlwaysRows(ctx, p.Rows, layoutDoc, user, hc, section, emptiedByRestrictions)
 	return &p, nil
+}
+
+func isPersonalKind(kind string) bool {
+	switch kind {
+	case KindFavorites, KindContinue, KindUpNext, KindTop10, KindBecause, KindPerson,
+		KindBridge, KindTrendingTaste, KindCrowd, KindCrowdTrending, KindHiddenGems,
+		KindNewThisWeek, KindComfort, KindDifferent, KindFranchise, KindLLM,
+		KindTraktRecs, KindTraktWatch, KindPlaylists,
+		KindTasteCluster, KindEra, KindWorld, KindOccasion, KindAcclaimed, KindTopGenre, KindStudio,
+		KindNewSeasons, KindFinishShow, KindStartNew, KindAiringTaste, KindNetwork:
+		return true
+	}
+	return false
+}
+
+func (e *Engine) resolvePolicyIdentity(ctx context.Context, raw string, user *core.User, hc core.HubContext, section core.MediaType, d core.HomeLayout) (hubID, kind, title, source string) {
+	if collID := collectionRowID(raw); collID != "" {
+		kind = KindCollectionPrefix + collID
+		hubID = "collection." + collID
+		source = core.RowSourceOwner
+		title = collID
+		if cr, ok := e.cachedOwnerCollection(user, hc, section, d, collID); ok {
+			if cr.Hub.Title != "" {
+				title = cr.Hub.Title
+			}
+			if cr.Hub.ID != "" {
+				hubID = cr.Hub.ID
+			}
+			return hubID, kind, title, source
+		}
+		for _, sp := range e.collectionSpecs(ctx) {
+			if sp.ID == collID && sp.Name != "" {
+				title = sp.Name
+				break
+			}
+		}
+		return hubID, kind, title, source
+	}
+	if _, ok := kindByName[raw]; ok {
+		kind = raw
+	} else if k := hubKind(raw); k != raw {
+		kind = k
+	} else if k := parseHubKind("home." + raw); k != "other" {
+		kind = k
+	} else {
+		kind = raw
+	}
+	info := infoFor(kind)
+	source = info.source
+	title = info.title
+	switch {
+	case strings.HasPrefix(raw, "home."), strings.HasPrefix(raw, "movie."), strings.HasPrefix(raw, "tv."), strings.HasPrefix(raw, "live."):
+		hubID = raw
+	case kind == KindPlaylists:
+		hubID = "home.playlists"
+	case kind == KindContinue && section == "":
+		hubID = "home.continue"
+	default:
+		hubID = sectionPrefix(section) + "." + info.slug
+	}
+	return hubID, kind, title, source
+}
+
+func (e *Engine) collectionSpecs(ctx context.Context) []core.CollectionSpec {
+	source, ok := e.opts.Collections.(core.CollectionSpecSource)
+	if !ok {
+		return nil
+	}
+	if light, ok := e.opts.Collections.(lightCollectionSpecSource); ok {
+		specs, _ := light.ListSpecsLight(ctx)
+		return specs
+	}
+	specs, _ := source.ListSpecs(ctx)
+	return specs
+}
+
+func (e *Engine) appendAbsentAlwaysRows(ctx context.Context, rows []core.HomeRow, d core.HomeLayout, user *core.User, hc core.HubContext, section core.MediaType, emptied map[string]bool) []core.HomeRow {
+	if user == nil {
+		return rows
+	}
+	surf := sectionName(section)
+	type activePol struct {
+		pol   core.RowPolicy
+		layer string
+	}
+	var policies []activePol
+	var vPage *core.LayoutPage
+	for _, vl := range d.Viewers {
+		if vl.UserID == user.ID {
+			vPage = pageFor(vl.Pages, surf)
+		}
+	}
+	if vPage != nil {
+		for _, pol := range vPage.Rows {
+			if pol.Status == "always" && !strings.ContainsAny(pol.Row, "*?[") {
+				policies = append(policies, activePol{pol: pol, layer: "override"})
+			}
+		}
+	}
+	if gPage := pageFor(d.Global, surf); gPage != nil {
+		for _, pol := range gPage.Rows {
+			if pol.Status != "always" || strings.ContainsAny(pol.Row, "*?[") {
+				continue
+			}
+			hubID, kind, _, _ := e.resolvePolicyIdentity(ctx, pol.Row, user, hc, section, d)
+			eff, effLayer := effectiveHomePolicy(d, user.ID, surf, core.HomeRow{HubID: hubID, Kind: kind})
+			if eff == nil || eff.Status != "always" || effLayer != "global" || eff.Row != pol.Row {
+				continue
+			}
+			policies = append(policies, activePol{pol: pol, layer: "global"})
+		}
+	}
+	if len(policies) == 0 {
+		return rows
+	}
+	var model *userModel
+	modelLoaded := false
+	getModel := func() *userModel {
+		if !modelLoaded {
+			model = e.modelFor(ctx, user, false)
+			modelLoaded = true
+		}
+		return model
+	}
+	for _, ap := range policies {
+		pol := ap.pol
+		matched := false
+		for _, r := range rows {
+			if matchRank(pol.Row, r.HubID, hubStem(r.HubID), r.Kind) > 0 {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		hubID, kind, title, source := e.resolvePolicyIdentity(ctx, pol.Row, user, hc, section, d)
+		code, reason := e.absentAlwaysReason(ctx, pol, ap.layer, hubID, kind, user, hc, section, d, emptied, getModel)
+		polCopy := pol
+		placement := "Always included by " + ap.layer
+		if ap.layer == "override" {
+			placement = "Viewer override"
+		}
+		if pol.Slot > 0 {
+			placement = fmt.Sprintf("%s anchor at slot %d", ap.layer, pol.Slot)
+		}
+		rows = append(rows, core.HomeRow{
+			HubID:        hubID,
+			Title:        title,
+			Kind:         kind,
+			Source:       source,
+			Items:        []core.Title{},
+			Hub:          core.Hub{ID: hubID, Title: title},
+			Hidden:       true,
+			HiddenCode:   code,
+			HiddenReason: reason,
+			Layer:        ap.layer,
+			Policy:       &polCopy,
+			PolicyLayer:  ap.layer,
+			AnchorSlot:   pol.Slot,
+			Pinned:       pol.Slot > 0,
+			Placement:    placement,
+		})
+	}
+	return rows
+}
+
+func (e *Engine) absentAlwaysReason(ctx context.Context, pol core.RowPolicy, layer, hubID, kind string, user *core.User, hc core.HubContext, section core.MediaType, d core.HomeLayout, emptied map[string]bool, getModel func() *userModel) (code, reason string) {
+	if c, why := policyHiddenReason(&pol, layer, user.ID, hc); why != "" {
+		return c, why
+	}
+	surf := sectionName(section)
+	if collID := collectionRowID(pol.Row); collID != "" {
+		cr, hasCR := e.cachedOwnerCollection(user, hc, section, d, collID)
+		for _, sp := range e.collectionSpecs(ctx) {
+			if sp.ID != collID {
+				continue
+			}
+			if !sp.Enabled {
+				return "collection_disabled", "Collection is disabled in Collection Studio"
+			}
+			var targetUser *core.User
+			if user != nil && user.ID > 0 {
+				targetUser = user
+			}
+			if (sp.Targets.Users.All || len(sp.Targets.Users.IDs) > 0) && !sp.Targets.Users.Includes(targetUser) {
+				return "collection_not_shared", "Collection is not shared with this viewer"
+			}
+			if !slices.Contains(collectionSections(sp.MediaType), surf) {
+				return "wrong_surface", "Not available on this page"
+			}
+			if !hasCR && !(layer == "override" && pol.When != nil) {
+				sc := sp.Targets.Schedule
+				if draft, ok := d.CollectionSchedules[collID]; ok {
+					sc = draft
+				}
+				if !sc.Allows(hc.Device, hc.Now) {
+					return "outside_collection_schedule", "Outside collection schedule"
+				}
+			}
+			break
+		}
+		if hasCR {
+			if !collectionScheduleAllows(d, user.ID, section, hc, cr) {
+				return "outside_collection_schedule", "Outside collection schedule"
+			}
+			if len(cr.Hub.Items) > 0 && e.opts.FilterAvailable != nil && len(e.opts.FilterAvailable(ctx, cr.Hub.Items)) == 0 {
+				return "filtered_by_availability", "No available titles right now"
+			}
+		}
+		if emptied[kind] || emptied[hubID] || emptied[pol.Row] {
+			return "filtered_by_restrictions", "No titles allowed for this viewer"
+		}
+		return "collection_empty", "Collection has no titles for this viewer"
+	}
+	if _, knownKind := kindByName[kind]; knownKind && !fitsSurface(kind, surf) {
+		return "wrong_surface", "Not available on this page"
+	}
+	if emptied[kind] || emptied[hubID] || emptied[pol.Row] {
+		return "filtered_by_restrictions", "No titles allowed for this viewer"
+	}
+	m := getModel()
+	if m != nil && e.opts.FilterAvailable != nil {
+		prefix := sectionPrefix(section)
+		allowed := e.allowedFor(user)
+		for _, c := range m.rows {
+			if matchRank(pol.Row, prefix+"."+c.id, c.id, c.kind) == 0 {
+				continue
+			}
+			var raw []core.Title
+			src := c.items
+			if section != "" && c.typed != nil {
+				if typed, ok := c.typed[section]; ok {
+					src = typed
+				}
+			}
+			for _, it := range src {
+				if section != "" && baseType(it.t.Type) != section {
+					continue
+				}
+				if allowed != nil && !allowed(it.t.Type) {
+					continue
+				}
+				if !contentrating.Allowed(it.t.ContentRating, user.MaxContentRating) {
+					continue
+				}
+				raw = append(raw, it.t)
+			}
+			if len(raw) > 0 && len(e.opts.FilterAvailable(ctx, raw)) == 0 {
+				return "filtered_by_availability", "No available titles right now"
+			}
+		}
+	}
+	if user.ID <= 0 && isPersonalKind(kind) {
+		return "typical_viewer_personal", "Hidden for Typical viewer: personal row"
+	}
+	conf := 0.0
+	if m != nil && m.taste != nil {
+		conf = m.taste.Confidence
+	}
+	switch {
+	case kind == KindShowcase && conf >= coldStartConfidence:
+		return "cold_start_only", "Only shown for new viewers while learning their taste"
+	case kind == KindTraktRecs || kind == KindTraktWatch:
+		return "needs_trakt", "No Trakt titles for this viewer"
+	case kind == KindLLM:
+		if e.llm == nil {
+			return "ai_unavailable", "AI recommendations are not configured"
+		}
+		if conf < minPersonalConfidence {
+			return "needs_watch_history", "Needs more watch history for this viewer"
+		}
+		return "ai_unavailable", "No AI themed rows ready for this viewer"
+	case kind == KindPlaylists:
+		return "no_playlists", "Viewer has no playlists"
+	case kind == KindFavorites:
+		return "no_favorites", "Viewer has no favorites"
+	case kind == KindUpNext:
+		return "no_in_progress", "No next episodes in progress for this viewer"
+	case kind == KindFinishShow:
+		return "no_in_progress", "No stalled series in progress for this viewer"
+	case kind == KindTop10 && conf < top10Confidence:
+		return "needs_watch_history", "Needs more watch history for this viewer"
+	case kind == KindDifferent && conf < 0.2:
+		return "needs_watch_history", "Needs more watch history for this viewer"
+	case isPersonalKind(kind) && conf < minPersonalConfidence:
+		return "needs_watch_history", "Needs more watch history for this viewer"
+	default:
+		return "no_matching_titles", "No matching titles for this viewer"
+	}
 }
 
 // resolveSection maps a preview section name to a library section.

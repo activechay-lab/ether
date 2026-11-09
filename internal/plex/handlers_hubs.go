@@ -454,8 +454,14 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			}
 		}
 	}
+	provisional := s.d.Recommender != nil && !hasRecommendedRows(hubs)
+	includeContinue := !metadataOptionOn(q.Get("excludeContinueWatching"))
+	hubs, ondeckHub, cwHomeSpec, cwHomeRendered := s.prepareHomeContinueAndOnDeck(ctx, pr, hc, hubs, selected, includeContinue, count)
 	assembly := experience.HomeAssembly[model.Hub]{
 		Render: func(hub core.Hub) model.Hub {
+			if hub.ID == "home.ondeck" && ondeckHub != nil {
+				return *ondeckHub
+			}
 			owner := first
 			if hub.ID == "home.playlists" {
 				owner = "playlists"
@@ -485,8 +491,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 		Report:      homeLayoutFacts,
 		InLibraries: func(hub core.Hub) bool { return perDirectory || s.hubInSections(hub, sections) },
 		Continue: func() (core.Hub, model.Hub) {
-			spec := s.continueHub(ctx, pr, cwHome, Section{}, count)
-			return spec.Hub, s.renderHub(ctx, pr, spec, hubCtx{})
+			return cwHomeSpec.Hub, cwHomeRendered
 		},
 		Playlists: func() (model.Hub, bool) {
 			if q.Get("contentDirectoryID") != "" && q.Get("contentDirectoryID") != "playlists" {
@@ -531,54 +536,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			return s.arrangeHomeRows(ctx, pr, hc, "home", rows, hubs, neutral)
 		},
 	}
-	rows, served := assembly.Rows(hubs, !metadataOptionOn(q.Get("excludeContinueWatching")), promotedOnly, len(sections) == 0 || perDirectory, experience.HomePurpose)
-	// PMS retains separate Home resume and next-up shelves, suppressing
-	// the latter only when both nonempty memberships are identical.
-	if !metadataOptionOn(q.Get("excludeContinueWatching")) && (selected == nil || selected["home.ondeck"]) {
-		spec := s.continueHub(ctx, pr, cwGlobal, Section{}, count)
-		episodes := spec.Items[:0]
-		for _, item := range spec.Items {
-			if item.Type == core.TypeEpisode {
-				episodes = append(episodes, item)
-			}
-		}
-		spec.Items = episodes
-		spec.ID, spec.Context, spec.Title, spec.key = "home.ondeck", "hub.home.ondeck", "On Deck", "/hubs/home/onDeck"
-		spec.included, spec.noPromoted, spec.plain = false, false, false
-		ondeck := s.renderHub(ctx, pr, spec, hubCtx{})
-		var resume model.Hub
-		for _, row := range rows {
-			if row.HubIdentifier == "home.continue" {
-				resume = row
-			}
-		}
-		same := len(ondeck.Metadata) > 0 && len(ondeck.Metadata) == len(resume.Metadata)
-		keys := map[string]bool{}
-		for _, item := range resume.Metadata {
-			keys[item.RatingKey] = true
-		}
-		for _, item := range ondeck.Metadata {
-			same = same && keys[item.RatingKey]
-		}
-		filtered := rows[:0]
-		for _, row := range rows {
-			if row.HubIdentifier != "home.ondeck" {
-				filtered = append(filtered, row)
-			}
-		}
-		rows = filtered
-		if !same {
-			rows = append(rows, ondeck)
-		}
-	} else {
-		filtered := rows[:0]
-		for _, row := range rows {
-			if row.HubIdentifier != "home.ondeck" {
-				filtered = append(filtered, row)
-			}
-		}
-		rows = filtered
-	}
+	rows, served := assembly.Rows(hubs, includeContinue, promotedOnly, len(sections) == 0 || perDirectory, experience.HomePurpose)
 	if perDirectory {
 		var filtered []model.Hub
 		for _, row := range rows {
@@ -610,7 +568,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 		mc.Hub = heroReadyHomeHubs(stableHomeHubs(rows))
 	}
 	mc.Size = len(mc.Hub)
-	return homeBuild{mc: mc, served: served, provisional: s.d.Recommender != nil && !hasRecommendedRows(hubs)}
+	return homeBuild{mc: mc, served: served, provisional: provisional}
 }
 
 // hasRecommendedRows reports recommender rows beyond the Continue Watching

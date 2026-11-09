@@ -290,9 +290,27 @@ func weekEligible(user int64, key string, hc core.HubContext, n int) bool {
 	return (day+int(h.Sum32()%7))%7 < n
 }
 
+func policyHiddenReason(p *core.RowPolicy, layer string, user int64, hc core.HubContext) (code, why string) {
+	if p == nil {
+		return "", ""
+	}
+	switch {
+	case p.Status == "off":
+		if layer == "override" {
+			return "off_override", "Off in override layer"
+		}
+		return "off_global", "Off in global layer"
+	case !whenMatches(p.When, hc):
+		return "outside_schedule", "Outside schedule"
+	case !weekEligible(user, p.Row, hc, p.MaxDaysPerWeek):
+		return "weekly_cap", "Weekly frequency cap"
+	}
+	return "", ""
+}
+
 // arrangeLayout is the final, shared composition pass, including front-end rows.
-// Constraints are hard: an impossible row is explained as hidden, never placed
-// outside its bounds. Explicit viewer policies replace complete global policies.
+// Explicit "always" rows are never dropped by page-length caps or slot conflicts;
+// eligible rows remain bounded by page length and position constraints.
 func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.HubContext, section string, def int) []core.HomeRow {
 	if section == "" {
 		section = "home"
@@ -319,18 +337,33 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 		maxRows = 14
 	}
 	type candidate struct {
-		r    core.HomeRow
-		p    *core.RowPolicy
-		rank float64
+		r              core.HomeRow
+		p              *core.RowPolicy
+		rank           float64
+		explicitAlways bool
+	}
+	var activeRows []core.HomeRow
+	for _, row := range rows {
+		p := matchingPolicy(g, row)
+		layer := "global"
+		if q := matchingPolicy(v, row); q != nil {
+			p = q
+			layer = "override"
+		}
+		if code, _ := policyHiddenReason(p, layer, user, hc); code != "" {
+			continue
+		}
+		activeRows = append(activeRows, row)
 	}
 	// Rows no owner policy covers get the engine's defaults: Continue Watching
 	// first, then top picks, new releases and trending discovery.
-	lead, defaults := leadDefaults(rows, g, v, maxRows)
+	lead, defaults := leadDefaults(activeRows, g, v, maxRows)
 	var pool []candidate
 	hidden := []core.HomeRow{}
 	counts := map[string]int{}
 	for _, row := range rows {
 		row.Hidden = false
+		row.HiddenCode = ""
 		row.HiddenReason = ""
 		row.Slot = 0
 		row.AnchorSlot = 0
@@ -345,6 +378,7 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 		}
 		row.Policy = p
 		row.PolicyLayer = ""
+		explicitAlways := false
 		if p != nil {
 			row.PolicyLayer = layer
 			if p.Priority > 0 || p.MinSlot > 0 || p.MaxSlot > 0 || p.When != nil || p.MaxPerPage > 0 || p.MaxDaysPerWeek > 0 {
@@ -354,23 +388,16 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 				row.Layer = layer
 				row.Placement = "Viewer override"
 			}
-			why := ""
-			switch {
-			case p.Status == "off":
-				why = "Off in " + layer + " layer"
-			case !whenMatches(p.When, hc):
-				why = "Outside schedule"
-			case !weekEligible(user, p.Row, hc, p.MaxDaysPerWeek):
-				why = "Weekly frequency cap"
-			}
-			if why != "" {
+			if code, why := policyHiddenReason(p, layer, user, hc); why != "" {
 				row.Layer = layer
 				row.Hidden = true
+				row.HiddenCode = code
 				row.HiddenReason = why
 				hidden = append(hidden, row)
 				continue
 			}
 			if p.Status == "always" {
+				explicitAlways = true
 				row.Layer = layer
 				row.Placement = "Always included by " + layer
 			}
@@ -391,7 +418,7 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 				}
 			}
 		}
-		pool = append(pool, candidate{row, cp, 0})
+		pool = append(pool, candidate{row, cp, 0, explicitAlways})
 	}
 	// Explanation-only hidden rows are absent from Plex's candidate list.
 	// Compute ranking from the eligible pool so their presence in a preview
@@ -416,11 +443,45 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 	})
 	out := []core.HomeRow{}
 	used := make([]bool, len(pool))
-	for slot := 1; slot <= maxRows; slot++ {
+	needsExplicitAlways := func(c candidate, tally map[string]int) bool {
+		if !c.explicitAlways || c.p == nil {
+			return false
+		}
+		if c.p.MaxPerPage > 0 && tally[c.p.Row] >= c.p.MaxPerPage {
+			return false
+		}
+		if c.p.Slot > 0 && tally[c.p.Row] >= 1 {
+			return false
+		}
+		return true
+	}
+	remainingAlways := func() int {
+		sim := make(map[string]int, len(counts))
+		for k, n := range counts {
+			sim[k] = n
+		}
+		rem := 0
+		for i, c := range pool {
+			if used[i] || !needsExplicitAlways(c, sim) {
+				continue
+			}
+			sim[c.p.Row]++
+			rem++
+		}
+		return rem
+	}
+	for slot := 1; slot <= maxRows || remainingAlways() > 0; slot++ {
+		remAlways := remainingAlways()
+		allowOptional := slot <= maxRows && len(out)+remAlways < maxRows
 		pick := -1
+		displacedPick := false
 		deadline := 101
 		for i, c := range pool {
 			if used[i] {
+				continue
+			}
+			must := needsExplicitAlways(c, counts)
+			if !must && !allowOptional {
 				continue
 			}
 			p := c.p
@@ -428,17 +489,32 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 				if p.MaxPerPage > 0 && counts[p.Row] >= p.MaxPerPage {
 					continue
 				}
-				if p.Slot > 0 && p.Slot != slot {
+				if p.Slot > 0 {
+					if !must && p.Slot != slot {
+						continue
+					}
+					if must && p.Slot > slot {
+						continue
+					}
+				}
+				if p.MinSlot > slot {
 					continue
 				}
-				if p.MinSlot > slot || p.MaxSlot > 0 && p.MaxSlot < slot {
+				if p.MaxSlot > 0 && p.MaxSlot < slot && !must {
 					continue
 				}
 				if p.Slot == slot {
 					pick = i
 					break
 				}
-				if p.MaxSlot > 0 && p.MaxSlot < deadline {
+				if must && p.Slot > 0 && p.Slot < slot {
+					if !displacedPick {
+						pick = i
+						displacedPick = true
+					}
+					continue
+				}
+				if !displacedPick && p.MaxSlot > 0 && p.MaxSlot < deadline {
 					pick = i
 					deadline = p.MaxSlot
 					continue
@@ -449,7 +525,26 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 			}
 		}
 		if pick < 0 {
-			break
+			if remAlways == 0 {
+				break
+			}
+			bestTarget := 1000
+			for i, c := range pool {
+				if used[i] || !needsExplicitAlways(c, counts) {
+					continue
+				}
+				target := max(c.p.Slot, c.p.MinSlot)
+				if target == 0 {
+					target = slot
+				}
+				if pick < 0 || target < bestTarget {
+					pick = i
+					bestTarget = target
+				}
+			}
+			if pick < 0 {
+				break
+			}
 		}
 		used[pick] = true
 		c := pool[pick]
@@ -462,6 +557,7 @@ func arrangeLayout(rows []core.HomeRow, d core.HomeLayout, user int64, hc core.H
 	for i, c := range pool {
 		if !used[i] {
 			c.r.Hidden = true
+			c.r.HiddenCode = "page_constraints"
 			c.r.HiddenReason = "Page length, frequency cap or position constraints"
 			hidden = append(hidden, c.r)
 		}
@@ -503,8 +599,8 @@ func hubKind(id string) string {
 	case strings.Contains(id, "playlist"):
 		return "playlists"
 	}
-	// An engine row from before a restart ("movie.cluster.…").
-	if k := parseHubKind(id); k != "other" && (strings.HasPrefix(id, "home.") || strings.HasPrefix(id, "movie.") || strings.HasPrefix(id, "tv.")) {
+	// An engine or collection row from before a restart ("movie.cluster.…", "collection.…").
+	if k := parseHubKind(id); k != "other" && (strings.HasPrefix(id, "home.") || strings.HasPrefix(id, "movie.") || strings.HasPrefix(id, "tv.") || strings.HasPrefix(id, "collection.")) {
 		return k
 	}
 	return id
@@ -553,23 +649,41 @@ func (e *Engine) finalizeHomeRows(ctx context.Context, user *core.User, hc core.
 		}
 	}
 	// Recently Added is the catalogue's newest additions, not picks: keep
-	// only titles this viewer could plausibly want (toppicks.go).
+	// only titles this viewer could plausibly want (toppicks.go), unless an
+	// active Always policy requires keeping any available additions.
 	var taste *Taste
 	if m := e.modelFor(ctx, user, false); m != nil {
 		taste = m.taste
 	}
+	layoutDoc := e.layoutForContext(ctx)
 	kept := rows[:0]
 	for _, r := range rows {
 		if r.Kind == KindRecentlyAdded {
-			if r = curateFeed(r, taste); r.Hidden {
+			p, _ := effectiveHomePolicy(layoutDoc, user.ID, section, r)
+			always := p != nil && p.Status == "always" && whenMatches(p.When, hc) && weekEligible(user.ID, p.Row, hc, p.MaxDaysPerWeek)
+			curated := curateFeed(r, taste)
+			if curated.Hidden {
+				if always {
+					if len(curated.Items) > 0 {
+						curated.Hidden = false
+						curated.HiddenCode = ""
+						curated.HiddenReason = ""
+						curated.Hub.Items = curated.Items
+						kept = append(kept, curated)
+					} else if rowHasItems(r) {
+						kept = append(kept, r)
+					}
+				}
 				continue
 			}
+			r = curated
+			r.Hub.Items = curated.Items
 		}
 		kept = append(kept, r)
 	}
 	rows = kept
 	out := []core.HomeRow{}
-	for _, row := range arrangeLayout(rows, e.layoutForContext(ctx), user.ID, hc, section, def) {
+	for _, row := range arrangeLayout(rows, layoutDoc, user.ID, hc, section, def) {
 		if !row.Hidden {
 			out = append(out, row)
 		}
@@ -619,6 +733,7 @@ func (e *Engine) FinalizeNeutralHome(ctx context.Context, user *core.User, situa
 	out := make([]core.NeutralHomeRow, 0, len(arranged))
 	for _, row := range arranged {
 		if candidate, ok := byID[row.HubID]; ok {
+			candidate.Always = row.Policy != nil && row.Policy.Status == "always"
 			out = append(out, candidate)
 		}
 	}

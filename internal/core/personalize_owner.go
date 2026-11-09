@@ -85,6 +85,7 @@ type HomeRow struct {
 	Slot         int                  `json:"slot,omitempty"`
 	AnchorSlot   int                  `json:"anchorSlot,omitempty"`
 	Placement    string               `json:"placement,omitempty"`
+	HiddenCode   string               `json:"hiddenCode,omitempty"`
 	HiddenReason string               `json:"hiddenReason,omitempty"`
 	Policy       *RowPolicy           `json:"policy,omitempty"`
 	PolicyLayer  string               `json:"policyLayer,omitempty"`

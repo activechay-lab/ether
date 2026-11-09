@@ -80,13 +80,14 @@ func (a *assembly) run() []core.HomeRow {
 	a.demoted = map[*candRow]bool{}
 	a.held = map[*candRow][]core.RatingKey{}
 	for _, c := range cands {
-		if c.coldOnly && !newViewer {
+		hubID := a.hubID(c)
+		if c.coldOnly && !newViewer && !a.ownerPlaced(c, hubID) && !a.ownerAlways(c, hubID) {
 			continue
 		}
-		if a.section != "" && a.lead != nil && a.lead.rows[c.id] && infoFor(c.kind).dynamic && !a.ownerPlaced(c, a.hubID(c)) {
+		if a.section != "" && a.lead != nil && a.lead.rows[c.id] && infoFor(c.kind).dynamic && !a.ownerPlaced(c, hubID) && !a.ownerAlways(c, hubID) {
 			continue // the Home already shows this very row (same seed)
 		}
-		w, ok := a.admit(c, a.hubID(c), newViewer)
+		w, ok := a.admit(c, hubID, newViewer)
 		if !ok {
 			continue
 		}
@@ -104,7 +105,7 @@ func (a *assembly) run() []core.HomeRow {
 		if len(items) == 0 && c.kind != KindContinue {
 			continue
 		}
-		rr := &rankedRow{c: c, items: items, hubID: a.hubID(c)}
+		rr := &rankedRow{c: c, items: items, hubID: hubID}
 		if a.layout != nil {
 			p, _ := effectiveHomePolicy(*a.layout, a.user.ID, sectionName(a.section), core.HomeRow{HubID: rr.hubID, Kind: c.kind})
 			if p != nil {
@@ -171,6 +172,9 @@ func (a *assembly) run() []core.HomeRow {
 	}
 	capped := visible[:0:0]
 	for _, r := range visible {
+		if behaviorForRowSource(r.c.source).requiresMinimum && len(r.items) < a.minItemsFor(r) {
+			continue
+		}
 		if perKind[r.c.kind] >= a.kindCap(r.c.kind) {
 			continue
 		}
@@ -222,6 +226,33 @@ func (a *assembly) rowFloor(kind string) int {
 	return a.minRow
 }
 
+func (a *assembly) minItemsFor(r *rankedRow) int {
+	min := r.c.minItems
+	if r.c.source != core.RowSourceOwner && !a.ownerPlaced(r.c, r.hubID) {
+		floor := a.rowFloor(r.c.kind)
+		if cap := a.rowCap(r.c); floor > cap {
+			floor = cap
+		}
+		min = max(min, floor)
+	}
+	if r.d.pinned && min > 1 {
+		min = 1
+	}
+	// A client's card window can be smaller than the candidate's
+	// editorial minimum. A full window is still a useful shelf.
+	if cap := a.rowCap(r.c); min > cap {
+		min = cap
+	}
+	// A shelf already shown in the active browsing presentation
+	// with a smaller card window (e.g. /hubs/promoted followed by
+	// /hubs/items with count=50) must not be dropped when higher
+	// rows expand to a wider window.
+	if prev := a.previousCount(r.hubID); prev > 0 && min > prev {
+		min = prev
+	}
+	return min
+}
+
 func anchored(c *candRow) bool { return c.keepOrder && c.kind != KindContinue }
 
 // draftsFirst reports rows that take their titles before the round-robin:
@@ -250,10 +281,13 @@ func draftsFirst(c *candRow) bool {
 //
 // Surviving rows left with fewer than their minimum are dropped and the
 // draft is rerun without them, so their titles go back to the others and
-// the next row moves up. maxRows counts engine and owner rows.
+// the next row moves up. Pinned ("always") rows lower their minimum to one
+// title and reclaim a title if cross-row dedupe would otherwise starve them.
+// maxRows counts engine and owner rows.
 func (a *assembly) fill(ordered []*rankedRow, maxRows int) []core.HomeRow {
 	excluded := map[*rankedRow]bool{}
-	attempts := len(ordered)
+	reserved := map[*rankedRow]core.RatingKey{}
+	maxAttempts := len(ordered)*2 + 8
 	for attempt := 0; ; attempt++ {
 		var sel []*rankedRow
 		counted := 0
@@ -262,7 +296,7 @@ func (a *assembly) fill(ordered []*rankedRow, maxRows int) []core.HomeRow {
 				continue
 			}
 			if behaviorForRowSource(r.c.source).countsInBudget {
-				if maxRows > 0 && counted >= maxRows {
+				if maxRows > 0 && counted >= maxRows && !r.d.pinned {
 					continue
 				}
 				counted++
@@ -296,6 +330,21 @@ func (a *assembly) fill(ordered []*rankedRow, maxRows int) []core.HomeRow {
 				}
 				picked[r] = append(picked[r], it)
 				claimed[it.t.Key] = true
+			}
+		}
+		// Pinned ("always") rows rescued from dedupe starvation claim their
+		// reserved title before greedy/round-robin rows draft.
+		for _, r := range sel {
+			key, ok := reserved[r]
+			if !ok || !r.d.pinned || len(picked[r]) >= a.rowCap(r.c) {
+				continue
+			}
+			for _, it := range r.items {
+				if it.t.Key == key && !claimed[key] {
+					claimed[key] = true
+					picked[r] = append(picked[r], it)
+					break
+				}
 			}
 		}
 		draftOrder := append([]*rankedRow(nil), sel...)
@@ -358,35 +407,63 @@ func (a *assembly) fill(ordered []*rankedRow, maxRows int) []core.HomeRow {
 				break
 			}
 		}
+		if attempt < maxAttempts {
+			claimedBy := map[core.RatingKey]*rankedRow{}
+			for _, r := range sel {
+				for _, it := range picked[r] {
+					if claimedBy[it.t.Key] == nil {
+						claimedBy[it.t.Key] = r
+					}
+				}
+			}
+			rescued := false
+			for _, r := range sel {
+				if !r.d.pinned || len(picked[r]) > 0 || len(r.items) == 0 || (head != nil && !head[r]) {
+					continue
+				}
+				if _, already := reserved[r]; already {
+					continue
+				}
+				var pickKey core.RatingKey
+				var found bool
+				for _, it := range r.items {
+					owner := claimedBy[it.t.Key]
+					if owner != nil && !owner.d.pinned && !behaviorForRowSource(owner.c.source).claimsFirst && owner.c.kind != KindFavorites {
+						pickKey, found = it.t.Key, true
+						break
+					}
+				}
+				if !found {
+					for _, it := range r.items {
+						owner := claimedBy[it.t.Key]
+						if owner != nil && owner != r && owner.d.pinned && len(picked[owner]) > 1 && !behaviorForRowSource(owner.c.source).claimsFirst && owner.c.kind != KindFavorites {
+							pickKey, found = it.t.Key, true
+							break
+						}
+					}
+				}
+				if found {
+					reserved[r] = pickKey
+					rescued = true
+					break
+				}
+			}
+			if rescued {
+				continue
+			}
+		}
+		for _, r := range sel {
+			if r.d.pinned && len(picked[r]) == 0 && len(r.items) > 0 && (head == nil || head[r]) {
+				picked[r] = []candItem{r.items[0]}
+			}
+		}
 		short := map[*rankedRow]bool{}
 		var drop *rankedRow
 		for _, r := range sel {
 			if !behaviorForRowSource(r.c.source).requiresMinimum {
 				continue
 			}
-			min := r.c.minItems
-			if r.c.source != core.RowSourceOwner && !a.ownerPlaced(r.c, r.hubID) {
-				floor := a.rowFloor(r.c.kind)
-				if cap := a.rowCap(r.c); floor > cap {
-					floor = cap
-				}
-				min = max(min, floor)
-			}
-			if r.d.pinned && min > 1 && (r.c.source != core.RowSourceEngine || a.minRow <= 0) {
-				min = 1
-			}
-			// A client's card window can be smaller than the candidate's
-			// editorial minimum. A full window is still a useful shelf.
-			if cap := a.rowCap(r.c); min > cap {
-				min = cap
-			}
-			// A shelf already shown in the active browsing presentation
-			// with a smaller card window (e.g. /hubs/promoted followed by
-			// /hubs/items with count=50) must not be dropped when higher
-			// rows expand to a wider window.
-			if prev := a.previousCount(r.hubID); prev > 0 && min > prev {
-				min = prev
-			}
+			min := a.minItemsFor(r)
 			if n := len(picked[r]); n == 0 || n < min {
 				short[r] = true
 				if head == nil || head[r] {
@@ -396,7 +473,7 @@ func (a *assembly) fill(ordered []*rankedRow, maxRows int) []core.HomeRow {
 		}
 		// Drop one thin row at a time, lowest first, and redraft: its titles
 		// go back to the rows above, which may then be full enough to stay.
-		if drop != nil && attempt < attempts {
+		if drop != nil && attempt < maxAttempts {
 			excluded[drop] = true
 			continue
 		}

@@ -183,6 +183,7 @@ func curateFeed(row core.HomeRow, ts *Taste) core.HomeRow {
 	}
 	if len(kept) < 3 {
 		row.Hidden = true
+		row.HiddenCode = "sparse_feed"
 		row.HiddenReason = fmt.Sprintf("Only %d recent additions match this viewer", len(kept))
 	}
 	row.Items = kept

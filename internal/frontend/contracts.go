@@ -99,9 +99,10 @@ type RowDirectory struct {
 
 // RowLayout describes Home Designer presentation selected by experience.
 type RowLayout struct {
-	Order int
-	Style string
-	Paint RowPaint
+	Order  int
+	Style  string
+	Paint  RowPaint
+	Always bool
 }
 
 // RowPaint carries optional presentation colors and artwork references.

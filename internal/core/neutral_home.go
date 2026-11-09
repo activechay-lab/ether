@@ -22,6 +22,7 @@ type NeutralHomeRow struct {
 	Type            MediaType
 	Items           []Title
 	ItemCount       int
+	Always          bool
 }
 
 // NeutralHomeLayoutSource arranges rows without a protocol-specific context.

@@ -142,3 +142,96 @@ func TestContinueRemovalWithoutPersonalServicePreservesResume(t *testing.T) {
 		t.Fatal("TV section must retain hidden row", mc)
 	}
 }
+
+type onDeckLayoutRecommender struct {
+	hubs   []core.Hub
+	off    bool
+	always bool
+	maxOne bool
+}
+
+func (r *onDeckLayoutRecommender) HomeHubs(context.Context, *core.User, int) ([]core.Hub, error) {
+	return r.hubs, nil
+}
+func (r *onDeckLayoutRecommender) SectionHubs(context.Context, *core.User, core.MediaType, int) ([]core.Hub, error) {
+	return nil, nil
+}
+func (r *onDeckLayoutRecommender) Related(context.Context, *core.User, core.RatingKey, int) ([]core.Hub, error) {
+	return nil, nil
+}
+func (r *onDeckLayoutRecommender) RecordImpressions(*core.User, core.HubContext, []core.Hub) {}
+func (r *onDeckLayoutRecommender) FinalizeNeutralHome(_ context.Context, _ *core.User, _ core.HomeSituation, _ string, rows []core.NeutralHomeRow) ([]core.NeutralHomeRow, error) {
+	var ondeck *core.NeutralHomeRow
+	var rest []core.NeutralHomeRow
+	for _, row := range rows {
+		if row.ID == "home.ondeck" {
+			if r.off {
+				continue
+			}
+			cp := row
+			cp.Always = r.always
+			ondeck = &cp
+			continue
+		}
+		rest = append(rest, row)
+	}
+	if ondeck != nil && r.always {
+		// Anchor On Deck right after Continue Watching (slot 2).
+		if len(rest) > 0 {
+			out := append([]core.NeutralHomeRow{rest[0], *ondeck}, rest[1:]...)
+			if r.maxOne {
+				return out[:2], nil
+			}
+			return out, nil
+		}
+		return []core.NeutralHomeRow{*ondeck}, nil
+	}
+	if r.maxOne && len(rest) > 0 {
+		return rest[:1], nil
+	}
+	if ondeck != nil {
+		rest = append(rest, *ondeck)
+	}
+	return rest, nil
+}
+
+func TestHomeOnDeckParticipatesInHomeLayout(t *testing.T) {
+	f := newFixture()
+	defer f.srv.Close()
+	// Movie + episode in progress -> home.continue has 2 items while episode-only home.ondeck has 1.
+	f.state.set(ownerUser.ID, ws(fightClub.Key, 120000, 0))
+	f.state.set(ownerUser.ID, ws(bbE1.Key, 120000, 0))
+	rec := &onDeckLayoutRecommender{
+		hubs: []core.Hub{{ID: "home.trending", Title: "Trending", Promoted: true, Items: []core.Title{alien}}},
+	}
+	f.srv.d.Recommender = rec
+
+	idsOf := func() []string {
+		mc := decodeJSON(t, f.get(t, "/hubs", jsonAccept...))
+		raw, _ := mc["Hub"].([]any)
+		out := make([]string, 0, len(raw))
+		for _, item := range raw {
+			out = append(out, item.(map[string]any)["hubIdentifier"].(string))
+		}
+		return out
+	}
+
+	rec.always = true
+	if got := idsOf(); len(got) < 3 || got[0] != "home.continue" || got[1] != "home.ondeck" || got[2] != "home.trending" {
+		t.Fatalf("Always slot 2 order = %v", got)
+	}
+
+	rec.maxOne = true
+	if got := idsOf(); len(got) != 2 || got[1] != "home.ondeck" {
+		t.Fatalf("Always On Deck dropped under MaxRows=1: %v", got)
+	}
+
+	rec.always = false
+	rec.maxOne = false
+	rec.off = true
+	for _, id := range idsOf() {
+		if id == "home.ondeck" {
+			t.Fatalf("Off On Deck still rendered: %v", idsOf())
+		}
+	}
+}

@@ -121,7 +121,7 @@ func leadFromRows(rows []core.HomeRow, items int) *homeLead {
 // leave too thin is demoted instead (surfaceMult): it keeps the held
 // titles, after all of its own (demoted = true). A row left with almost
 // nothing of its own would only repeat the Home and is dropped (unless the
-// owner placed it).
+// owner placed it or set it to Always).
 func (a *assembly) holdBackHomeLead(c *candRow, items []candItem) (kept, held []candItem, demoted bool) {
 	if a.lead == nil || len(a.lead.keys) == 0 && len(a.lead.same[c.id]) == 0 || !behaviorForRowSource(c.source).participatesInLead {
 		return items, nil, false
@@ -159,7 +159,8 @@ func (a *assembly) holdBackHomeLead(c *candRow, items []candItem) (kept, held []
 		thin, empty = 1, 1 // rows that are fine with one title (new seasons)
 	}
 	if len(kept) < thin {
-		if len(kept) < empty && !a.ownerPlaced(c, a.hubID(c)) {
+		hubID := a.hubID(c)
+		if len(kept) < empty && !a.ownerPlaced(c, hubID) && !a.ownerAlways(c, hubID) {
 			// Nothing of its own to lead with: the page would only repeat
 			// the Home's row.
 			return nil, nil, false

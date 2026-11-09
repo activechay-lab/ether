@@ -635,6 +635,7 @@ func (b *builder) genBridge() []*candRow {
 	}
 	g := b.crowd()
 	var rows []*candRow
+	var thinFallback *candRow
 	for idx, p := range pairs {
 		simA := map[core.RatingKey]float64{}
 		simB := map[core.RatingKey]float64{}
@@ -664,7 +665,7 @@ func (b *builder) genBridge() []*candRow {
 			}
 			return 0.45*bridge + 0.30*clamp(fit, -1, 1) + 0.25*quality(t), r
 		})
-		if len(items) < 5 {
+		if len(items) == 0 {
 			continue
 		}
 		id := fmt.Sprintf("bridge.%d.%d", int64(p.a.Key), int64(p.c.Key))
@@ -673,7 +674,16 @@ func (b *builder) genBridge() []*candRow {
 		r := withTyped(newRow(KindBridge, id, title, reason, capItems(items, 40)), items)
 		r.minItems = 5
 		r.scale = 0.92 - 0.06*float64(idx)
+		if len(items) < 5 {
+			if thinFallback == nil {
+				thinFallback = r
+			}
+			continue
+		}
 		rows = append(rows, r)
+	}
+	if len(rows) == 0 && thinFallback != nil {
+		rows = append(rows, thinFallback)
 	}
 	return rows
 }
@@ -1378,7 +1388,7 @@ func (b *builder) genShowcase() []*candRow {
 			items := b.rank(ok, func(t *core.Title, _, _ int, fit float64, _ string) (float64, string) {
 				return 0.5*quality(t) + 0.35*popularity(t) + 0.15*fit, fmt.Sprintf("Rated %.1f by %s viewers", t.Rating, votesPhrase(t.VoteCount))
 			})
-			if len(items) < 6 {
+			if len(items) == 0 {
 				continue
 			}
 			name := genrePlural[g]

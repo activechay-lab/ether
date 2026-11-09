@@ -556,3 +556,50 @@ func TestPersonalLatestSnapshotsThenIssues(t *testing.T) {
 		t.Fatalf("issued %d impressions %d", issued.Load(), impressions.Load())
 	}
 }
+
+func TestAlwaysRowsNeverDroppedByPersonalHomeCountOrKindFilter(t *testing.T) {
+	shown := frontend.Title{Key: 4, Type: "movie", Title: "Shown"}
+	exp := frontendtest.Experience{
+		ViewsFunc: func(context.Context, *frontend.Viewer) ([]frontend.View, error) {
+			return []frontend.View{{ID: "1", Name: "Movies", Type: "movie"}}, nil
+		},
+		RowsFunc: func(context.Context, frontend.RowRequest) ([]frontend.Row, error) {
+			return []frontend.Row{
+				{ID: "home.trending", Title: "Trending", Kind: "trending", Purpose: frontend.RowRecommendation, Entries: []frontend.RowEntry{{Kind: frontend.RowEntryTitle, Title: &shown}}},
+				{ID: "home.popular", Title: "Popular", Kind: "trending", Purpose: frontend.RowRecommendation, Entries: []frontend.RowEntry{{Kind: frontend.RowEntryTitle, Title: &shown}}},
+				{ID: "home.gems", Title: "Hidden Gems", Kind: "hidden-gems", Purpose: frontend.RowRecommendation, Layout: frontend.RowLayout{Always: true}, Entries: []frontend.RowEntry{{Kind: frontend.RowEntryTitle, Title: &shown}}},
+				{ID: "collection.c1", Title: "Staff Picks", Kind: "collection:c1", Purpose: frontend.RowCollection, Layout: frontend.RowLayout{Always: true}, Entries: []frontend.RowEntry{{Kind: frontend.RowEntryTitle, Title: &shown}}},
+			}, nil
+		},
+	}
+	ident := frontendtest.Identity{ResolveFunc: func(context.Context, string) (*frontend.Viewer, error) {
+		v := frontend.Viewer{ID: 1, Username: "ada"}
+		return &v, nil
+	}}
+	inst, err := (Jellyfin{MachineID: "test"}).Mount(context.Background(), frontend.Host{
+		Identity:   ident,
+		Experience: exp,
+		Sessions:   frontendtest.Sessions{},
+		Config: func() frontend.Settings {
+			return frontend.Settings{"homeRowCount": float64(1), "homeRowKinds": []any{"trending"}}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := waitFor(t, func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/UserViews", nil)
+		r.Header.Set("X-Emby-Token", "grant")
+		r.Header.Set("X-Emby-Device-Id", "living-room")
+		inst.Handler().ServeHTTP(rec, r)
+		return rec
+	}, "Staff Picks")
+	body := w.Body.String()
+	if !strings.Contains(body, `"Name":"Hidden Gems"`) || !strings.Contains(body, `"Name":"Staff Picks"`) {
+		t.Fatalf("Always rows dropped on Jellyfin: %s", body)
+	}
+	if strings.Contains(body, `"Name":"Trending"`) || strings.Contains(body, `"Name":"Popular"`) {
+		t.Fatalf("Optional rows exceeded remaining budget when Always rows exceeded homeRowCount: %s", body)
+	}
+}

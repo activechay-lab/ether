@@ -19,6 +19,77 @@ func homeLayoutFacts(row model.Hub) (core.Hub, core.NeutralHomeRow) {
 	return hub, neutral
 }
 
+// prepareHomeContinueAndOnDeck builds the Home Continue Watching and On Deck
+// projections ahead of HomeAssembly so On Deck participates in layout slot
+// placement, Off rules, and page row budgets while suppressing duplicate
+// resume shelves.
+func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, hc core.HubContext, hubs []core.Hub, selected map[string]bool, includeContinue bool, count int) ([]core.Hub, *model.Hub, hubSpec, model.Hub) {
+	stripOnDeck := func(in []core.Hub) []core.Hub {
+		out := make([]core.Hub, 0, len(in))
+		for _, h := range in {
+			if h.ID != "home.ondeck" {
+				out = append(out, h)
+			}
+		}
+		return out
+	}
+	if !includeContinue {
+		return stripOnDeck(hubs), nil, hubSpec{}, model.Hub{}
+	}
+	cwSpec := s.continueHub(ctx, pr, cwHome, Section{}, count)
+	cwRendered := s.renderHub(ctx, pr, cwSpec, hubCtx{})
+	if selected != nil && !selected["home.ondeck"] {
+		return stripOnDeck(hubs), nil, cwSpec, cwRendered
+	}
+	spec := s.continueHub(ctx, pr, cwGlobal, Section{}, count)
+	episodes := spec.Items[:0]
+	for _, item := range spec.Items {
+		if item.Type == core.TypeEpisode {
+			episodes = append(episodes, item)
+		}
+	}
+	spec.Items = episodes
+	spec.ID, spec.Context, spec.Title, spec.Style, spec.key = "home.ondeck", "hub.home.ondeck", "On Deck", "shelf", "/hubs/home/onDeck"
+	spec.included, spec.noPromoted, spec.plain = false, false, false
+	ondeck := s.renderHub(ctx, pr, spec, hubCtx{})
+
+	same := len(ondeck.Metadata) > 0 && len(ondeck.Metadata) == len(cwRendered.Metadata)
+	keys := make(map[string]bool, len(cwRendered.Metadata))
+	for _, item := range cwRendered.Metadata {
+		keys[item.RatingKey] = true
+	}
+	for _, item := range ondeck.Metadata {
+		same = same && keys[item.RatingKey]
+	}
+	cwShown := selected == nil || selected["home.continue"]
+	if cwShown {
+		if layout, ok := s.d.Recommender.(interface {
+			HomeRowEnabled(context.Context, *core.User, core.HubContext, string) bool
+		}); ok && !layout.HomeRowEnabled(ctx, pr.User, hc, "home.continue") {
+			cwShown = false
+		}
+	}
+	if len(ondeck.Metadata) == 0 || (same && cwShown) {
+		return stripOnDeck(hubs), nil, cwSpec, cwRendered
+	}
+	out := make([]core.Hub, 0, len(hubs)+1)
+	replaced := false
+	for _, h := range hubs {
+		if h.ID == "home.ondeck" {
+			if !replaced {
+				out = append(out, spec.Hub)
+				replaced = true
+			}
+			continue
+		}
+		out = append(out, h)
+	}
+	if !replaced {
+		out = append(out, spec.Hub)
+	}
+	return out, &ondeck, cwSpec, cwRendered
+}
+
 // arrangeHomeRows reorders painted rows from facts captured at paint time.
 // A missing provider or a layout error leaves the original rows in place.
 // Empty and duplicate rows are dropped by the hubs handlers after this returns.
