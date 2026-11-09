@@ -25,25 +25,78 @@ func (i *instance) creditPortraits(r *http.Request, viewer *frontend.Viewer, cre
 	if !authoritative {
 		return urls
 	}
+	// Each person keeps the first portrait the viewer may see, in list
+	// order: a round signs every person's next candidate at once.
+	var people []int64
+	candidates := map[int64][]frontend.Image{}
 	for _, img := range images {
 		if img.Kind != frontend.ImagePerson || !strings.HasPrefix(img.Subject, "tmdb:") {
 			continue
 		}
 		id, err := strconv.ParseInt(strings.TrimPrefix(img.Subject, "tmdb:"), 10, 64)
-		if err != nil || id <= 0 || urls[id].url != "" {
+		if err != nil || id <= 0 {
 			continue
 		}
-		grant, err := i.host.ImageGrants.Issue(r.Context(), frontend.ImageGrantRequest{Credential: credential, Device: device(r), Item: d.Title.Key, Image: img})
-		if err != nil {
-			continue
+		if _, ok := candidates[id]; !ok {
+			people = append(people, id)
 		}
-		prefix := ""
-		if r.Context().Value(sharedPrefix{}) != nil {
-			prefix = "/silo"
-		}
-		urls[id] = creditPortrait{url: siloImageURL(r, prefix+"/api/v2/images/"+grant, frontend.ImagePerson), thumbHash: img.ThumbHash}
+		candidates[id] = append(candidates[id], img)
 	}
-	return urls
+	prefix := ""
+	if r.Context().Value(sharedPrefix{}) != nil {
+		prefix = "/silo"
+	}
+	for round := 0; ; round++ {
+		var pending []int64
+		var portraits []frontend.Image
+		for _, id := range people {
+			if urls[id].url == "" && round < len(candidates[id]) {
+				pending = append(pending, id)
+				portraits = append(portraits, candidates[id][round])
+			}
+		}
+		if len(pending) == 0 {
+			return urls
+		}
+		grants := i.creditPortraitGrants(r, credential, d.Title.Key, portraits)
+		for n, id := range pending {
+			if grants[n] != "" {
+				urls[id] = creditPortrait{url: siloImageURL(r, prefix+"/api/v2/images/"+grants[n], frontend.ImagePerson), thumbHash: portraits[n].ThumbHash}
+			}
+		}
+	}
+}
+
+// creditPortraitGrants signs a title's portraits in one credit proof per
+// hundred, as the people list does, instead of one proof per person. A host
+// without the batch, or a batch that fails, signs each portrait on its own;
+// an empty grant is a portrait the viewer may not see.
+func (i *instance) creditPortraitGrants(r *http.Request, credential string, item frontend.RatingKey, portraits []frontend.Image) []string {
+	grants := make([]string, len(portraits))
+	if batch, ok := i.host.ImageGrants.(frontend.PersonImageGrantBatch); ok {
+		signed := true
+		for start := 0; start < len(portraits) && signed; start += 100 {
+			part := portraits[start:min(start+100, len(portraits))]
+			targets := make([]frontend.PersonImageTarget, len(part))
+			for n, img := range part {
+				targets[n] = frontend.PersonImageTarget{Item: item, Image: img}
+			}
+			tokens, err := batch.IssuePersonImages(r.Context(), credential, device(r), targets)
+			if signed = err == nil && len(tokens) == len(part); signed {
+				copy(grants[start:], tokens)
+			}
+		}
+		if signed {
+			return grants
+		}
+		clear(grants)
+	}
+	for n, img := range portraits {
+		if grant, err := i.host.ImageGrants.Issue(r.Context(), frontend.ImageGrantRequest{Credential: credential, Device: device(r), Item: item, Image: img}); err == nil {
+			grants[n] = grant
+		}
+	}
+	return grants
 }
 
 // sectionArtwork signs poster, backdrop, and logo for titles the row already
