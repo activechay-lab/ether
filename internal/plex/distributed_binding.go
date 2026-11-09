@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
@@ -17,7 +17,7 @@ type durablePlexBinding interface {
 type plexBindingSnapshot struct {
 	Binding   sessions.Binding[struct{}]
 	ReadToken string
-	Source    core.PlaySession
+	Source    frontend.PlaySession
 }
 
 func (s *Server) saveDistributedBinding(ctx context.Context, id string) error {
@@ -27,11 +27,11 @@ func (s *Server) saveDistributedBinding(ctx context.Context, id string) error {
 	}
 	entry, ok := s.transcodes.get(id)
 	if !ok {
-		return core.ErrNotAvailable
+		return frontend.ErrNotAvailable
 	}
 	ps, ok := s.d.Playback.Session(entry.playID)
 	if !ok || ps == nil {
-		return core.ErrNotAvailable
+		return frontend.ErrNotAvailable
 	}
 	b := entry.binding()
 	snapshot := plexBindingSnapshot{Binding: sessions.Binding[struct{}]{ID: b.ID, StreamToken: b.StreamToken, PlayID: b.PlayID, PlaybackID: b.PlaybackID, UserID: b.UserID, ClientID: b.ClientID, Key: b.Key, Decision: b.Decision, Info: b.Info, Subtitle: b.Subtitle, Caps: b.Caps, Opts: b.Opts, Offset: b.Offset, Started: b.Started, UpdatedAt: b.UpdatedAt}, ReadToken: s.readCaps.token(id), Source: *ps}
@@ -74,7 +74,7 @@ func (s *Server) loadDistributedBinding(id string) (*transcodeEntry, bool) {
 		s.readCaps.mu.Unlock()
 	}
 	if restore, ok := s.d.Playback.(interface {
-		RestorePlexSource(context.Context, string, core.PlaySession) error
+		RestorePlexSource(context.Context, string, frontend.PlaySession) error
 	}); ok {
 		if restore.RestorePlexSource(ctx, id, snapshot.Source) != nil {
 			return nil, false

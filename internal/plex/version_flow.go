@@ -3,7 +3,7 @@ package plex
 import (
 	"context"
 	"database/sql"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"time"
 )
@@ -18,7 +18,7 @@ const (
 )
 
 type versionSnapshot struct {
-	variants []core.ReleaseVariant
+	variants []frontend.ReleaseVariant
 	frozen   bool
 	until    time.Time
 }
@@ -30,7 +30,7 @@ func newVersionFlowStore(s *Server, db *sql.DB) *versionFlowStore {
 	go func() { defer s.wg.Done(); flows.Run() }()
 	return &versionFlowStore{flows: flows}
 }
-func (v *versionFlowStore) call(ctx context.Context, k playIdentityKey, vs []core.ReleaseVariant, mode int, now time.Time, ttl time.Duration) (versionSnapshot, error) {
+func (v *versionFlowStore) call(ctx context.Context, k playIdentityKey, vs []frontend.ReleaseVariant, mode int, now time.Time, ttl time.Duration) (versionSnapshot, error) {
 	snap, err := v.flows.Call(ctx, sessions.VersionFlowKey{UserID: k.userID, ClientID: k.clientID, Key: k.key}, vs, mode, now, ttl)
 	return versionSnapshot{snap.Variants, snap.Frozen, snap.Until}, err
 }

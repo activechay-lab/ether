@@ -23,3 +23,11 @@ var ErrRowViewStale = errors.New("frontend: row view snapshot expired or changed
 
 // ErrStreamLimit identifies exhausted playback admission.
 var ErrStreamLimit = core.ErrStreamLimit
+
+// ErrDownloadBudget identifies an exceeded temporary download disk budget.
+// It shares identity with the domain error for errors.Is checks.
+var ErrDownloadBudget = core.ErrDownloadBudget
+
+// ErrDownloadNeedsTranscode identifies a download source that cannot be
+// copied to MP4. It shares identity with the domain error for errors.Is.
+var ErrDownloadNeedsTranscode = core.ErrDownloadNeedsTranscode

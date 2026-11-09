@@ -3,7 +3,7 @@ package plex
 import (
 	"context"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 type noPlaybackDelivery struct{}
@@ -16,7 +16,7 @@ func suppressTimelineWatch(ctx context.Context) bool {
 // playbackNeverDelivered uses output evidence for conversions: ffmpeg can read
 // megabytes of source headers without delivering a single playable segment.
 // No active source is deliberately inconclusive: Plex can sync offline views.
-func (s *Server) playbackNeverDelivered(ps *core.PlaySession, tids []string) bool {
+func (s *Server) playbackNeverDelivered(ps *frontend.PlaySession, tids []string) bool {
 	if ps != nil && ps.Experience != nil && ps.Experience.StartFailure != "" {
 		return true
 	}
@@ -25,7 +25,7 @@ func (s *Server) playbackNeverDelivered(ps *core.PlaySession, tids []string) boo
 	for _, id := range tids {
 		// A decision reserves a binding even for direct play. Until an encoder
 		// starts, that binding uses the source's delivered-byte evidence.
-		if entry, ok := s.transcodes.get(id); ok && !entry.started && entry.failErr == nil && entry.decision.Kind == core.DecisionDirectPlay {
+		if entry, ok := s.transcodes.get(id); ok && !entry.started && entry.failErr == nil && entry.decision.Kind == frontend.DecisionDirectPlay {
 			continue
 		}
 		converted = true

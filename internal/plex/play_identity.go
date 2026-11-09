@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -46,12 +46,12 @@ const (
 type playIdentityKey struct {
 	userID   int64
 	clientID string
-	key      core.RatingKey
+	key      frontend.RatingKey
 }
 
 func (k playIdentityKey) valid() bool { return k.userID != 0 && k.key != 0 }
 
-func (s *Server) playIdentityFor(pr *Request, key core.RatingKey) playIdentityKey {
+func (s *Server) playIdentityFor(pr *Request, key frontend.RatingKey) playIdentityKey {
 	if pr == nil || pr.User == nil {
 		return playIdentityKey{}
 	}
@@ -61,7 +61,7 @@ func (s *Server) playIdentityFor(pr *Request, key core.RatingKey) playIdentityKe
 type playIdentity struct {
 	// variants is the Play Version list last issued, Auto first; resolved
 	// with no variants means the client was issued a single version.
-	variants []core.ReleaseVariant
+	variants []frontend.ReleaseVariant
 	resolved bool
 	at       time.Time
 	// frozen: a session is being admitted or is live. The list, selected
@@ -89,7 +89,7 @@ type issuedMedia struct {
 	// track its latest list marked selected (nil = None). A subtitle the
 	// client was never shown selected is not burned (#313).
 	rendered bool
-	subtitle *core.StreamInfo
+	subtitle *frontend.StreamInfo
 }
 
 type issuedStream struct {
@@ -104,12 +104,12 @@ type issuedStream struct {
 
 type remapTarget struct {
 	index int
-	info  core.StreamInfo
+	info  frontend.StreamInfo
 }
 
 // pinnedVariants is a render's view of an identity.
 type pinnedVariants struct {
-	variants        []core.ReleaseVariant
+	variants        []frontend.ReleaseVariant
 	resolved        bool
 	frozen          bool
 	selected        int64
@@ -199,7 +199,7 @@ func (p *playIdentities) pinned(k playIdentityKey, live bool, now time.Time) pin
 // Ordinary cold/singleton renders remain unresolved and can gain a picker.
 // Explicit pre-play/queue flows retain their list, including Auto, until
 // admission, stop or pending-flow expiry (#339).
-func (p *playIdentities) issueList(k playIdentityKey, vs []core.ReleaseVariant, live bool, now time.Time) {
+func (p *playIdentities) issueList(k playIdentityKey, vs []frontend.ReleaseVariant, live bool, now time.Time) {
 	if p == nil || !k.valid() {
 		return
 	}
@@ -221,7 +221,7 @@ func (p *playIdentities) issueList(k playIdentityKey, vs []core.ReleaseVariant, 
 // admitted release (its label names the release that plays), once per
 // admission. Auto's Media id is the rating key, so no id changes; a nil
 // auto only records the attempt.
-func (p *playIdentities) alignAuto(k playIdentityKey, auto *core.ReleaseVariant, release string) {
+func (p *playIdentities) alignAuto(k playIdentityKey, auto *frontend.ReleaseVariant, release string) {
 	if p == nil || !k.valid() {
 		return
 	}
@@ -234,7 +234,7 @@ func (p *playIdentities) alignAuto(k playIdentityKey, auto *core.ReleaseVariant,
 	e.autoAligned = release
 	if auto != nil && len(e.variants) > 0 && e.variants[0].Auto {
 		v := *auto
-		v.Info.Streams = append([]core.StreamInfo(nil), auto.Info.Streams...)
+		v.Info.Streams = append([]frontend.StreamInfo(nil), auto.Info.Streams...)
 		e.variants[0] = v
 	}
 }
@@ -354,7 +354,7 @@ func (e *playIdentity) mediaLocked(id int64) *issuedMedia {
 // issueStreams rewrites out's ids so every id this client was issued for
 // the Media keeps naming a track while one exists. out[i] renders
 // info.Streams[src[i]] and carries that track's own (title-wide) id.
-func (p *playIdentities) issueStreams(k playIdentityKey, mediaID int64, out []model.Stream, src []int, info core.MediaInfo, now time.Time) {
+func (p *playIdentities) issueStreams(k playIdentityKey, mediaID int64, out []model.Stream, src []int, info frontend.MediaInfo, now time.Time) {
 	if p == nil || !k.valid() || len(out) == 0 || len(out) != len(src) {
 		return
 	}
@@ -497,7 +497,7 @@ func (p *playIdentities) issueStreams(k playIdentityKey, mediaID int64, out []mo
 // pickSubtitle records that this client set the title's subtitle itself
 // (PUT /library/parts): it shows that track (nil = None) selected on every
 // Media it holds.
-func (p *playIdentities) pickSubtitle(k playIdentityKey, st *core.StreamInfo, now time.Time) {
+func (p *playIdentities) pickSubtitle(k playIdentityKey, st *frontend.StreamInfo, now time.Time) {
 	if p == nil || !k.valid() {
 		return
 	}
@@ -507,7 +507,7 @@ func (p *playIdentities) pickSubtitle(k playIdentityKey, st *core.StreamInfo, no
 	if e == nil {
 		return
 	}
-	var picked *core.StreamInfo
+	var picked *frontend.StreamInfo
 	if st != nil {
 		cp := *st
 		picked = &cp
@@ -522,7 +522,7 @@ func (p *playIdentities) pickSubtitle(k playIdentityKey, st *core.StreamInfo, no
 // shownSubtitles returns the subtitle each Media's latest stream list for k
 // marked selected. rendered is false when this client holds no current
 // stream list for the title.
-func (p *playIdentities) shownSubtitles(k playIdentityKey, now time.Time) (subs []core.StreamInfo, rendered bool) {
+func (p *playIdentities) shownSubtitles(k playIdentityKey, now time.Time) (subs []frontend.StreamInfo, rendered bool) {
 	if p == nil || !k.valid() {
 		return nil, false
 	}
@@ -624,14 +624,14 @@ func (s *Server) playIdentityAlive(k playIdentityKey) bool {
 	return ok
 }
 
-func cloneVariants(vs []core.ReleaseVariant) []core.ReleaseVariant {
+func cloneVariants(vs []frontend.ReleaseVariant) []frontend.ReleaseVariant {
 	if len(vs) < 2 {
 		return nil
 	}
-	out := make([]core.ReleaseVariant, len(vs))
+	out := make([]frontend.ReleaseVariant, len(vs))
 	copy(out, vs)
 	for i := range out {
-		out[i].Info.Streams = append([]core.StreamInfo(nil), vs[i].Info.Streams...)
+		out[i].Info.Streams = append([]frontend.StreamInfo(nil), vs[i].Info.Streams...)
 	}
 	return out
 }
@@ -643,7 +643,7 @@ func isExternalStream(st model.Stream) bool { return st.External != nil && *st.E
 // installVersionFlow adopts an authoritative flow snapshot without changing
 // issued stream aliases. Pending pre-play expires promptly; live sessions keep
 // the existing admission lifetime.
-func (p *playIdentities) installVersionFlow(k playIdentityKey, vs []core.ReleaseVariant, until, now time.Time) {
+func (p *playIdentities) installVersionFlow(k playIdentityKey, vs []frontend.ReleaseVariant, until, now time.Time) {
 	if !k.valid() {
 		return
 	}

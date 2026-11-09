@@ -28,6 +28,22 @@ type User = core.User
 type Hub = core.Hub
 type HubContext = core.HubContext
 
+// Playback session and decision values stay owned by core. Adapters
+// observe and render them through these aliases.
+type PlaySession = core.PlaySession
+type DecisionKind = core.DecisionKind
+type DecisionCandidate = core.DecisionCandidate
+type DecisionTrace = core.DecisionTrace
+type ReleaseVariant = core.ReleaseVariant
+
+const (
+	DecisionDirectPlay = core.DecisionDirectPlay
+	DecisionRemux      = core.DecisionRemux
+	DecisionTranscode  = core.DecisionTranscode
+)
+
+func IsSurroundAudioCodec(c string) bool { return core.IsSurroundAudioCodec(c) }
+
 // Library browse and history values stay owned by core. Adapters build
 // queries and read results through these aliases.
 type BrowseQuery = core.BrowseQuery

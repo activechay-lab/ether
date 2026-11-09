@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -20,7 +19,7 @@ func (s *Server) UsePlaybackBroker(b frontend.Sessions) {
 }
 
 func (s *Server) plexPlanRequest(pr *Request, p *playRequest) frontend.PlanRequest {
-	device := core.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}
+	device := frontend.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}
 	caps := p.caps
 	if caps.ClientID == "" {
 		caps.ClientID = pr.ClientID
@@ -52,31 +51,31 @@ func replayPlay(p playRequest, entry *transcodeEntry) *playRequest {
 }
 
 func (s *Server) plexAccess(pr *Request) frontend.SessionAccess {
-	return frontend.SessionAccess{Viewer: pr.User, Device: core.Device{ID: pr.ClientID}, Protocol: "plex"}
+	return frontend.SessionAccess{Viewer: pr.User, Device: frontend.Device{ID: pr.ClientID}, Protocol: "plex"}
 }
 
 // openPlexPlan runs version and track resolution inside Plan, then publishes
 // the decision Plan made. The adapter renders that decision.
-func (s *Server) openPlexPlan(ctx context.Context, pr *Request, p *playRequest, admit func(context.Context) (sessions.PlexAdmission, error)) (core.Decision, error) {
+func (s *Server) openPlexPlan(ctx context.Context, pr *Request, p *playRequest, admit func(context.Context) (sessions.PlexAdmission, error)) (frontend.Decision, error) {
 	if s == nil || s.playbackBroker == nil || pr == nil || pr.User == nil || p == nil || p.sessionID == "" || admit == nil {
-		return core.Decision{}, core.ErrNotAvailable
+		return frontend.Decision{}, frontend.ErrNotAvailable
 	}
 	ctx = sessions.WithPlexAdmission(ctx, admit)
 	plan, err := s.playbackBroker.Plan(ctx, s.plexPlanRequest(pr, p))
 	if err != nil {
-		return core.Decision{}, fmt.Errorf("Plex broker plan: %w", err)
+		return frontend.Decision{}, fmt.Errorf("Plex broker plan: %w", err)
 	}
-	_, err = s.playbackBroker.Open(ctx, frontend.OpenRequest{Protocol: "plex", PlanID: plan.ID, Viewer: pr.User, Device: core.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}})
+	_, err = s.playbackBroker.Open(ctx, frontend.OpenRequest{Protocol: "plex", PlanID: plan.ID, Viewer: pr.User, Device: frontend.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}})
 	if err != nil {
-		return core.Decision{}, fmt.Errorf("Plex broker open: %w", err)
+		return frontend.Decision{}, fmt.Errorf("Plex broker open: %w", err)
 	}
 	return plan.Decision, nil
 }
 
 // publishBrokerPlayback plans a source that is already open.
-func (s *Server) publishBrokerPlayback(ctx context.Context, pr *Request, p *playRequest, ps *core.PlaySession) (core.Decision, error) {
+func (s *Server) publishBrokerPlayback(ctx context.Context, pr *Request, p *playRequest, ps *frontend.PlaySession) (frontend.Decision, error) {
 	if ps == nil {
-		return core.Decision{}, core.ErrNotAvailable
+		return frontend.Decision{}, frontend.ErrNotAvailable
 	}
 	return s.openPlexPlan(ctx, pr, p, func(context.Context) (sessions.PlexAdmission, error) {
 		return sessions.PlexAdmission{
@@ -87,10 +86,10 @@ func (s *Server) publishBrokerPlayback(ctx context.Context, pr *Request, p *play
 }
 
 type plexEncoderNote interface {
-	NotePlexEncoder(id string, format frontend.StreamFormat, decision core.Decision, offset time.Duration)
+	NotePlexEncoder(id string, format frontend.StreamFormat, decision frontend.Decision, offset time.Duration)
 }
 
-func (s *Server) notePlexEncoder(id string, format frontend.StreamFormat, dec core.Decision, offset time.Duration) {
+func (s *Server) notePlexEncoder(id string, format frontend.StreamFormat, dec frontend.Decision, offset time.Duration) {
 	if s == nil || s.playbackBroker == nil {
 		return
 	}
@@ -105,7 +104,7 @@ type plexPlaybackLookup interface {
 	PlexSessionSource(string) (string, bool)
 }
 
-func (s *Server) reportBrokerTimeline(ctx context.Context, pr *Request, key core.RatingKey, offset, duration time.Duration, state, transcodeID string) bool {
+func (s *Server) reportBrokerTimeline(ctx context.Context, pr *Request, key frontend.RatingKey, offset, duration time.Duration, state, transcodeID string) bool {
 	if s == nil || s.playbackBroker == nil || pr == nil || pr.User == nil || key == 0 {
 		return false
 	}
@@ -130,7 +129,7 @@ func (s *Server) reportBrokerTimeline(ctx context.Context, pr *Request, key core
 		return s.playbackBroker.Report(ctx, access, id, timeline) == nil
 	}
 	if progress, ok := s.playbackBroker.(interface {
-		ReportProgress(context.Context, frontend.SessionAccess, core.RatingKey, frontend.Timeline) error
+		ReportProgress(context.Context, frontend.SessionAccess, frontend.RatingKey, frontend.Timeline) error
 	}); ok {
 		return progress.ReportProgress(ctx, access, key, timeline) == nil
 	}
@@ -140,7 +139,7 @@ func (s *Server) reportBrokerTimeline(ctx context.Context, pr *Request, key core
 // adoptBrokerTimeline publishes a source the client is already playing when
 // no broker session exists for this viewer and item. A mismatched playback
 // header does not open a second session.
-func (s *Server) adoptBrokerTimeline(ctx context.Context, pr *Request, key core.RatingKey) string {
+func (s *Server) adoptBrokerTimeline(ctx context.Context, pr *Request, key frontend.RatingKey) string {
 	if s.d.Playback == nil || pr == nil || pr.User == nil {
 		return ""
 	}
@@ -179,7 +178,7 @@ type plexProtocolStop interface {
 	StopProtocol(context.Context, frontend.Protocol) error
 }
 
-func (s *Server) recordManualSubtitle(ctx context.Context, viewer int64, key core.RatingKey, manual bool) error {
+func (s *Server) recordManualSubtitle(ctx context.Context, viewer int64, key frontend.RatingKey, manual bool) error {
 	if b := sessions.UnderlyingBroker(s.playbackBroker); b != nil {
 		return b.RecordAuthorizedSubtitleIntent(ctx, viewer, key, manual)
 	}

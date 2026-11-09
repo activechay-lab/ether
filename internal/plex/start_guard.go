@@ -3,7 +3,6 @@ package plex
 import (
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
@@ -19,7 +18,7 @@ const (
 // Dolby Vision sources on any client, Plex for iOS on any source, and Plex
 // for Android when Dolby/DTS audio was copied into its stream. Other clients
 // and sources keep their behaviour unchanged.
-func guardedStart(pr *Request, v *frontend.StreamInfo, d core.Decision) bool {
+func guardedStart(pr *Request, v *frontend.StreamInfo, d frontend.Decision) bool {
 	if v != nil && v.DolbyVision {
 		return true
 	}
@@ -31,8 +30,8 @@ func guardedStart(pr *Request, v *frontend.StreamInfo, d core.Decision) bool {
 
 // surroundCopied reports a Plex for Android stream carrying copied Dolby or
 // DTS audio: the case an Android box without that decoder freezes on.
-func surroundCopied(pr *Request, d core.Decision) bool {
-	return plexAndroidClient(pr) && d.Kind != core.DecisionDirectPlay && d.AudioCopy && core.IsSurroundAudioCodec(d.AudioCodec)
+func surroundCopied(pr *Request, d frontend.Decision) bool {
+	return plexAndroidClient(pr) && d.Kind != frontend.DecisionDirectPlay && d.AudioCopy && frontend.IsSurroundAudioCodec(d.AudioCodec)
 }
 
 // checkStartStall feeds one timeline to the guard. It returns the

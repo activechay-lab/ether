@@ -12,8 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -57,13 +57,13 @@ func (s *Server) downloadsEnabled() bool {
 // downloadsAllowed reports whether u may download (and so sees
 // allowSync="1"): the owner always, friends only with the owner's
 // AllowFriends setting unless the access policy decides per user.
-func (s *Server) downloadsAllowed(u *core.User) bool {
+func (s *Server) downloadsAllowed(u *frontend.User) bool {
 	return experience.DownloadsAllowed(u, s.downloadsEnabled(), s.cfg().Downloads.AllowFriends, s.d.AccessPolicy)
 }
 
 // DownloadsAllowed exposes the same admission decision for informational
 // frontend capability reporting; the download handler still enforces it.
-func (s *Server) DownloadsAllowed(u *core.User) bool { return s.downloadsAllowed(u) }
+func (s *Server) DownloadsAllowed(u *frontend.User) bool { return s.downloadsAllowed(u) }
 
 func (s *Server) requireDownloads(w http.ResponseWriter, r *http.Request) bool {
 	if !s.downloadsEnabled() {
@@ -145,7 +145,7 @@ type downloadContainer struct {
 	Added []addedQueueItemModel    `plex:"AddedQueueItems"`
 }
 
-func keyPath(k core.RatingKey) string { return "/library/metadata/" + k.String() }
+func keyPath(k frontend.RatingKey) string { return "/library/metadata/" + k.String() }
 
 // itemModel renders one queue item. Downloads are converted or remuxed to MP4.
 func itemModel(it *downloadItem) downloadQueueItemModel {
@@ -242,7 +242,7 @@ func (s *Server) handleDownloadQueue(w http.ResponseWriter, r *http.Request) {
 
 // parseDownloadKey accepts "/library/metadata/123[/children]" or a bare
 // rating key.
-func parseDownloadKey(s string) (core.RatingKey, error) {
+func parseDownloadKey(s string) (frontend.RatingKey, error) {
 	s = strings.TrimSpace(s)
 	if i := strings.Index(s, "metadata/"); i >= 0 {
 		s = s[i+len("metadata/"):]
@@ -250,7 +250,7 @@ func parseDownloadKey(s string) (core.RatingKey, error) {
 	if i := strings.IndexAny(s, "/?"); i >= 0 {
 		s = s[:i]
 	}
-	return core.ParseRatingKey(s)
+	return frontend.ParseRatingKey(s)
 }
 
 // syncVideoQualities maps the legacy videoQuality index clients send to
@@ -263,7 +263,7 @@ var syncVideoQualities = []struct{ kbps, height int }{
 }
 
 // downloadCaps builds the caps an add request asked for.
-func (s *Server) downloadCaps(r *http.Request, pr *Request) core.ClientCaps {
+func (s *Server) downloadCaps(r *http.Request, pr *Request) frontend.ClientCaps {
 	caps := s.declaredCaps(pr)
 	q := r.URL.Query()
 	if v := q.Get("videoResolution"); v != "" {
@@ -297,31 +297,31 @@ func (s *Server) downloadCaps(r *http.Request, pr *Request) core.ClientCaps {
 
 // expandDownloadKey turns a show/season key into its episodes; playable
 // keys pass through. Returns titles the user may see.
-func (s *Server) expandDownloadKey(ctx context.Context, u *core.User, k core.RatingKey) ([]core.Title, error) {
+func (s *Server) expandDownloadKey(ctx context.Context, u *frontend.User, k frontend.RatingKey) ([]frontend.Title, error) {
 	t, err := s.d.Catalog.Get(ctx, k)
 	if err != nil {
 		return nil, err
 	}
 	if !s.visibleTitle(ctx, u, t) {
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 	switch t.Type {
-	case core.TypeMovie, core.TypeEpisode:
-		return []core.Title{*t}, nil
-	case core.TypeSeason:
+	case frontend.TypeMovie, frontend.TypeEpisode:
+		return []frontend.Title{*t}, nil
+	case frontend.TypeSeason:
 		kids, err := s.d.Catalog.Children(ctx, k)
 		if err != nil {
 			return nil, err
 		}
 		return s.visibleTitles(u, kids), nil
-	case core.TypeShow:
+	case frontend.TypeShow:
 		eps, err := s.d.Catalog.Grandchildren(ctx, k)
 		if err != nil {
 			return nil, err
 		}
 		return s.visibleTitles(u, eps), nil
 	}
-	return nil, core.ErrNotFound
+	return nil, frontend.ErrNotFound
 }
 
 // POST /downloadQueue/{queue}/add?keys=...
@@ -339,7 +339,7 @@ func (s *Server) handleDownloadQueueAdd(w http.ResponseWriter, r *http.Request) 
 	if len(raw) == 0 {
 		raw = r.URL.Query()["key"]
 	}
-	var keys []core.RatingKey
+	var keys []frontend.RatingKey
 	for _, v := range raw {
 		for _, part := range strings.Split(v, ",") {
 			if part = strings.TrimSpace(part); part == "" {
@@ -377,7 +377,7 @@ func (s *Server) handleDownloadQueueAdd(w http.ResponseWriter, r *http.Request) 
 
 // addDownloadItem appends an item, or returns the existing one when the
 // same title is already queued with the same parameters (PMS dedupes).
-func (s *Server) addDownloadItem(q *downloadQueue, u *core.User, t core.Title, caps core.ClientCaps, burn bool) *downloadItem {
+func (s *Server) addDownloadItem(q *downloadQueue, u *frontend.User, t frontend.Title, caps frontend.ClientCaps, burn bool) *downloadItem {
 	return s.downloads.Add(q, u, t, caps, burn)
 }
 
@@ -520,7 +520,7 @@ func (s *Server) handleDownloadItemDecision(w http.ResponseWriter, r *http.Reque
 	pr := FromContext(ctx)
 	t, err := s.d.Catalog.Get(ctx, it.Key)
 	if err == nil && !s.visibleTitle(ctx, pr.User, t) {
-		err = core.ErrNotFound // restrictions can change after queueing
+		err = frontend.ErrNotFound // restrictions can change after queueing
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
@@ -649,13 +649,13 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 	fail := func(msg string) { s.downloads.Fail(ctx, it, msg) }
 
 	noRelease := func(err error) bool {
-		return err != nil && errors.Is(err, core.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
+		return err != nil && errors.Is(err, frontend.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
 	}
 	job := sessions.DownloadJob{Playback: s.d.Playback, Remuxer: s.d.Downloads}
 	p, size, err := job.Run(ctx, sessions.DownloadRequest{Viewer: it.User, Item: it.Key, Caps: it.Caps, Run: run, NoRelease: noRelease,
-		Prepared: func(ps *core.PlaySession) (core.DecideOptions, error) {
+		Prepared: func(ps *frontend.PlaySession) (frontend.DecideOptions, error) {
 			if !s.downloads.Prepared(ctx, it, ps.Info) {
-				return core.DecideOptions{}, ctx.Err()
+				return frontend.DecideOptions{}, ctx.Err()
 			}
 
 			var viewerID int64
@@ -673,7 +673,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 					subtitle = st.Index
 				}
 			}
-			return core.DecideOptions{
+			return frontend.DecideOptions{
 				DirectPlay: false, DirectStream: true,
 				MaxBitrateKbps: it.Bandwidth, MaxHeight: it.Caps.MaxHeight, AudioStream: -1, SubtitleStream: subtitle,
 				BurnSubtitles: it.Burn,
@@ -702,9 +702,9 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		switch {
 		case ctx.Err() != nil:
 			// Deleted, restarted or shutting down; state already reset.
-		case errors.Is(err, core.ErrDownloadNeedsTranscode):
+		case errors.Is(err, frontend.ErrDownloadNeedsTranscode):
 			fail("This title cannot be downloaded: it cannot be converted to a playable MP4.")
-		case errors.Is(err, core.ErrDownloadBudget):
+		case errors.Is(err, frontend.ErrDownloadBudget):
 			fail("Not enough temporary disk space on the server for this download.")
 		default:
 			fail(msgPlayFailed)
