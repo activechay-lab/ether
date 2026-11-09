@@ -855,6 +855,9 @@ func (a *App) Run(ctx context.Context) error {
 	if next := startupNextStep(cfg, uiURL); next != "" {
 		a.log.Info(next)
 	}
+	if a.registrar != nil {
+		a.registrar.ListenerReady()
+	}
 	background.start(func() { a.checkIntegrityLater(ctx) })
 	a.notifyLifecycle("server.started", "Ether is online", cfg.Server.FriendlyName+" is ready for connections.")
 	// Hang watchdog: restart via the supervisor if we stop answering.
