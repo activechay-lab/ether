@@ -146,6 +146,14 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
+	if len(keys) == 1 && pr.User != nil && isPlayableKey(keys[0]) {
+		// A subtitle pick for this title may still be downloading; the
+		// re-read that selects the new track must already list it (#389).
+		s.subtitlePicks.wait(ctx, pr.User.ID, keys[0])
+		if ctx.Err() != nil {
+			return
+		}
+	}
 	var mc *model.MediaContainer
 	for _, k := range keys {
 		var md model.Metadata

@@ -246,3 +246,44 @@ func TestPlayIdentityStableAcrossRefillProbeFailover(t *testing.T) {
 	setSession("rel-failover", failover)
 	check("after failover")
 }
+
+// Issue #389: once a client has been issued a version list, no later
+// bookkeeping may shrink or erase it while the identity lives — an empty
+// shared-flow snapshot (row expired or never offered), a thaw after the
+// pre-play freeze lapses, or a re-resolve against an expired search
+// cache. The client addresses Parts and mediaIndex positions from the
+// list it holds; a shorter list strands both.
+func TestIssuedVersionListNeverShrinks(t *testing.T) {
+	p := newPlayIdentities()
+	k := playIdentityKey{userID: 7, clientID: "tv", key: fightClub.Key}
+	full := testVariantLists()[fightClub.Key]
+	now := fixedNow
+	p.issueList(k, full, false, now)
+	p.installVersionFlow(k, nil, now.Add(time.Minute), now)
+	p.installVersionFlow(k, full[:1], now.Add(time.Minute), now)
+	// Thaw after the freeze lapses, then a re-resolve that finds only Auto.
+	pin := p.pinned(k, false, now.Add(2*time.Minute))
+	if pin.frozen {
+		t.Fatal("flow did not thaw")
+	}
+	p.issueList(k, full[:1], false, now.Add(2*time.Minute))
+	pin = p.pinned(k, false, now.Add(2*time.Minute))
+	if len(pin.variants) != len(full) {
+		t.Fatalf("issued list shrank to %d, want %d", len(pin.variants), len(full))
+	}
+	for i, v := range pin.variants {
+		if v.Release.ID != full[i].Release.ID {
+			t.Fatalf("position %d became %q, want %q", i, v.Release.ID, full[i].Release.ID)
+		}
+	}
+	if ids, ok := p.releases(k, now.Add(2*time.Minute)); !ok || len(ids) != len(full) || ids[1] != full[1].Release.ID {
+		t.Fatalf("releases %v issued=%v", ids, ok)
+	}
+	// An empty snapshot on a fresh identity issues nothing: a mediaIndex
+	// with no issued list still refuses (TestMediaIndexWithoutIssuedList).
+	fresh := playIdentityKey{userID: 8, clientID: "tv", key: fightClub.Key}
+	p.installVersionFlow(fresh, nil, now.Add(time.Minute), now)
+	if _, ok := p.releases(fresh, now); ok {
+		t.Fatal("empty snapshot must not issue a list")
+	}
+}

@@ -328,3 +328,112 @@ func TestVersionFlowPendingExpiry(t *testing.T) {
 		t.Fatal("abandoned pre-play hid picker")
 	}
 }
+
+// Issue #389, the reporter's exact sequence on Plex for Android (TV):
+// play a non-Auto version, search subtitles during playback, PUT the
+// pick, re-read the metadata three times at once (the app does not wait
+// for the activity event), then select the downloaded track on the Part
+// it already holds and restart with its held mediaIndex. The resolver's
+// search cache expires and playback stops in between, which used to
+// collapse the re-read to one Media (the app then PUT
+// /library/parts/undefined) and refuse the restart's mediaIndex.
+func TestAndroidTVSubtitleDownloadDuringPlayback(t *testing.T) {
+	f, pb := newVariantPlaybackFixture(t)
+	path := "/library/metadata/" + fightClub.Key.String()
+	headers := []string{"X-Plex-Product", "Plex for Android (TV)", "Accept", "application/json"}
+	put := func(target string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPut, target, nil)
+		r.Header.Set("X-Plex-Token", ownerToken)
+		r.Header.Set("X-Plex-Client-Identifier", "client-1")
+		for i := 0; i < len(headers); i += 2 {
+			r.Header.Set(headers[i], headers[i+1])
+		}
+		w := httptest.NewRecorder()
+		f.srv.ServeHTTP(w, r)
+		return w
+	}
+	idsOf := func(stage string, ms []wireMedia) []flexID {
+		out := make([]flexID, len(ms))
+		for i, m := range ms {
+			out[i] = m.ID
+			if len(m.Part) != 1 || m.Part[0].ID != m.ID || m.Part[0].ID == 0 {
+				t.Fatalf("%s: invalid part %+v", stage, m)
+			}
+		}
+		return out
+	}
+	before := idsOf("detail", decodeWireMedia(t, "detail", f.get(t, path, headers...).Body))
+	if len(before) != 3 {
+		t.Fatalf("detail versions %v", before)
+	}
+	query := "path=" + urlEsc(path) + "&mediaIndex=1&partIndex=0&session=tv389&hasMDE=1&directPlay=1&directStream=1&protocol=hls"
+	if r := f.get(t, "/video/:/transcode/universal/decision?"+query, headers...); r.Code != http.StatusOK {
+		t.Fatalf("decision: %d %s", r.Code, r.Body.String())
+	}
+	if r := f.get(t, "/video/:/transcode/universal/start.m3u8?"+query, headers...); r.Code != http.StatusOK {
+		t.Fatalf("start: %d %s", r.Code, r.Body.String())
+	}
+
+	// Search and pick during playback. The download takes a moment; the
+	// PUT still answers at once, as on PMS.
+	subs := newFakeSubtitles()
+	subs.offers = []SubtitleOffer{{ID: 101, Language: "nl", Title: "Downloaded Dutch", Provider: "OpenSubtitles"}}
+	blocking := &blockingSubtitleDownload{subs, make(chan struct{}), make(chan struct{})}
+	f.srv.d.Subtitles = blocking
+	search := decodeJSON(t, f.get(t, path+"/subtitles?language=nl", headers...))
+	offer := search["Stream"].([]any)[0].(map[string]any)["key"].(string)
+	if rec := put(path + "/subtitles?key=" + urlEsc(offer)); rec.Code != http.StatusOK {
+		t.Fatalf("pick: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-blocking.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not start")
+	}
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		close(blocking.complete)
+	}()
+
+	// The version search cache expires during the movie and the player
+	// stops to restart with the new subtitle.
+	f.resolver.mu.Lock()
+	f.resolver.byKey[fightClub.Key] = nil
+	f.resolver.mu.Unlock()
+	f.get(t, "/:/timeline?ratingKey="+fightClub.Key.String()+"&state=stopped&time=1000", headers...)
+
+	// Three immediate re-reads, no activity wait: same Media/Part ids in
+	// the same order, and the downloaded track already selected on the
+	// playing version's Part.
+	var partID, subID flexID
+	for n := 0; n < 3; n++ {
+		ms := decodeWireMedia(t, "refresh", f.get(t, path, headers...).Body)
+		if got := idsOf("refresh", ms); !reflect.DeepEqual(got, before) {
+			t.Fatalf("refresh %d ids %v, client holds %v", n, got, before)
+		}
+		part := ms[1].Part[0]
+		partID, subID = part.ID, 0
+		for _, st := range part.Stream {
+			if st.StreamType == 3 && bool(st.Selected) {
+				subID = st.ID
+			}
+		}
+		if subID == 0 {
+			t.Fatalf("refresh %d: downloaded subtitle not listed selected on %+v", n, part)
+		}
+	}
+	if rec := put(fmt.Sprintf("/library/parts/%d?subtitleStreamID=%d&allParts=1", partID, subID)); rec.Code != http.StatusOK {
+		t.Fatalf("select downloaded subtitle: %d %s", rec.Code, rec.Body.String())
+	}
+	if r := f.get(t, "/video/:/transcode/universal/decision?"+query, headers...); r.Code != http.StatusOK {
+		t.Fatalf("restart decision: %d %s", r.Code, r.Body.String())
+	}
+	if r := f.get(t, "/video/:/transcode/universal/start.m3u8?"+query, headers...); r.Code != http.StatusOK {
+		t.Fatalf("restart: %d %s", r.Code, r.Body.String())
+	}
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	if len(pb.variantCalls) == 0 || pb.variantCalls[len(pb.variantCalls)-1] != "rel-4k" {
+		t.Fatalf("restart prepared %v, want rel-4k last", pb.variantCalls)
+	}
+}

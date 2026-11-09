@@ -38,13 +38,19 @@ func (v *versionFlowStore) call(ctx context.Context, k playIdentityKey, vs []fro
 func (s *Server) endVersionFlow(ctx context.Context, k playIdentityKey) {
 	s.playIDs.mu.Lock()
 	if e := s.playIDs.m[k]; e != nil {
+		// End the freeze, keep the issued list: a stopped timeline is also
+		// how a client restarts playback to apply a subtitle it just
+		// downloaded (#389). It re-reads the item and addresses the Part
+		// from the list it still holds, then re-decides with its held
+		// mediaIndex; clearing the list here collapsed that re-read to
+		// one Media and refused the index. The list expires with the
+		// identity instead (playIdentityTTL from last use).
 		e.frozen = false
-		e.resolved = false
-		e.variants = nil
 		e.flowUntil = time.Time{}
 		e.selected = 0
 		e.admittedRelease = ""
 		e.autoAligned = ""
+		e.at = s.now()
 	}
 	s.playIDs.mu.Unlock()
 	if s.versionFlows != nil {

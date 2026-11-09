@@ -181,12 +181,15 @@ func (p *playIdentities) pinned(k playIdentityKey, live bool, now time.Time) pin
 		e.frozen = true
 		e.at = now
 	} else if e.frozen && e.admitting == 0 && !now.Before(e.flowUntil) {
+		// Thawing ends the freeze, not the issued list: a client restarting
+		// playback (e.g. to select a just-downloaded subtitle, #389) stops
+		// the session, re-reads the item and looks its held mediaIndex and
+		// Part id up in the answer. Discarding the list here let that
+		// re-read collapse to one Media when the resolver's cached search
+		// had expired during the movie. The list still expires with the
+		// identity (playIdentityTTL from last use, below).
 		e.frozen, e.selected, e.admittedRelease, e.autoAligned = false, 0, "", ""
-		if !e.flowUntil.IsZero() {
-			e.resolved = false
-			e.variants = nil
-			e.flowUntil = time.Time{}
-		}
+		e.flowUntil = time.Time{}
 	}
 	if !e.frozen && now.Sub(e.at) > playIdentityTTL {
 		return pinnedVariants{}
@@ -207,6 +210,16 @@ func (p *playIdentities) issueList(k playIdentityKey, vs []frontend.ReleaseVaria
 	defer p.mu.Unlock()
 	e := p.entryLocked(k, now)
 	if e == nil || (e.frozen && e.resolved) {
+		return
+	}
+	// A re-resolve may grow the issued list (discovery completing), never
+	// shrink it: the client may still hold the longer list's Media/Part
+	// ids and mediaIndex positions (#389).
+	if len(e.variants) >= 2 && len(vs) < len(e.variants) {
+		e.at = now
+		if live {
+			e.frozen = true
+		}
 		return
 	}
 	e.variants = cloneVariants(vs)
@@ -653,8 +666,15 @@ func (p *playIdentities) installVersionFlow(k playIdentityKey, vs []frontend.Rel
 	if e == nil {
 		return
 	}
-	e.variants = cloneVariants(vs)
-	e.resolved = true
+	// An empty or shorter snapshot never replaces a list this node already
+	// issued: the shared flow row can be absent or expired (90s pre-play
+	// TTL) while the client still holds the issued Media/Part ids, and
+	// shrinking the list strands its mediaIndex and part lookups (#389).
+	// The snapshot still freezes the flow either way.
+	if len(vs) > 0 && !(len(e.variants) >= 2 && len(vs) < len(e.variants)) {
+		e.variants = cloneVariants(vs)
+		e.resolved = true
+	}
 	e.frozen = true
 	e.flowUntil = until
 	e.at = now

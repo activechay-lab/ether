@@ -251,6 +251,7 @@ type Server struct {
 	readCaps          *readCapabilityStore
 	extraPlay         *extraPlayStore
 	subtitleOffers    subtitleOffers
+	subtitlePicks     subtitlePicks
 	selections        *selectionStore
 	notifier          *notifier
 	facets            *facetCache

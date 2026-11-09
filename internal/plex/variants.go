@@ -93,12 +93,11 @@ func (s *Server) mediaForVariants(ctx context.Context, pr *Request, t *frontend.
 		if snap.frozen {
 			s.playIDs.installVersionFlow(ik, snap.variants, snap.until, now)
 		} else if !live {
+			// The shared flow ended or expired: unfreeze, but keep the
+			// issued list (see endVersionFlow) so a restart re-read still
+			// answers with the Media/Part ids the client holds (#389).
 			s.playIDs.mu.Lock()
 			if e := s.playIDs.m[ik]; e != nil && e.admitting == 0 {
-				if e.frozen {
-					e.resolved = false
-					e.variants = nil
-				}
 				e.frozen = false
 				e.flowUntil = time.Time{}
 			}
@@ -638,7 +637,14 @@ func plexAudioPhrase(info frontend.ReleaseInfo) string {
 func (s *Server) preparePlayback(ctx context.Context, pr *Request, p *playRequest) (*frontend.PlaySession, error) {
 	if s.versionFlows != nil {
 		ik := s.playIdentityFor(pr, p.key)
-		snap, err := s.versionFlows.call(ctx, ik, nil, versionFreeze, s.now(), playIdentityTTL)
+		// Freeze the list this client was issued, not an empty one: when
+		// the shared row has expired (90s pre-play TTL) or was never
+		// offered, freezing empty erased the issued identities, so the
+		// request's mediaIndex pointed outside the list and later renders
+		// collapsed to one Media (#389). An unexpired offered row still
+		// wins in the store; the local list only fills an absent one.
+		issued := s.playIDs.pinned(ik, true, s.now()).variants
+		snap, err := s.versionFlows.call(ctx, ik, issued, versionFreeze, s.now(), playIdentityTTL)
 		if err != nil {
 			return nil, err
 		}

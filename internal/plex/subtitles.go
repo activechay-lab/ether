@@ -274,6 +274,72 @@ func (o *subtitleOffers) get(id int64, key frontend.RatingKey, user int64) (int6
 	return row.provider, ok && row.key == key && row.user == user
 }
 
+// subtitlePicks tracks in-flight viewer picks (PUT .../subtitles). The PUT
+// answers before the download finishes, as on PMS. Clients that do not
+// follow the activity socket (Plex for Android TV during playback, #389)
+// re-read the item at once and look the new track up in it, so a
+// single-item metadata read waits briefly for a pick of that title to
+// land instead of answering without the track.
+type subtitlePicks struct {
+	mu      sync.Mutex
+	pending map[subtitlePickKey]*subtitlePick
+}
+
+type subtitlePickKey struct {
+	user int64
+	key  frontend.RatingKey
+}
+
+type subtitlePick struct {
+	n    int
+	done chan struct{}
+}
+
+// subtitlePickWait bounds how long one metadata read waits for a pick.
+// Downloads are a small text file; a client that polls several times gets
+// a fresh wait on each read.
+const subtitlePickWait = 5 * time.Second
+
+func (p *subtitlePicks) begin(user int64, key frontend.RatingKey) func() {
+	k := subtitlePickKey{user, key}
+	p.mu.Lock()
+	if p.pending == nil {
+		p.pending = map[subtitlePickKey]*subtitlePick{}
+	}
+	cur := p.pending[k]
+	if cur == nil {
+		cur = &subtitlePick{done: make(chan struct{})}
+		p.pending[k] = cur
+	}
+	cur.n++
+	p.mu.Unlock()
+	return func() {
+		p.mu.Lock()
+		cur.n--
+		if cur.n <= 0 {
+			close(cur.done)
+			delete(p.pending, k)
+		}
+		p.mu.Unlock()
+	}
+}
+
+func (p *subtitlePicks) wait(ctx context.Context, user int64, key frontend.RatingKey) {
+	p.mu.Lock()
+	cur := p.pending[subtitlePickKey{user, key}]
+	p.mu.Unlock()
+	if cur == nil {
+		return
+	}
+	timer := time.NewTimer(subtitlePickWait)
+	defer timer.Stop()
+	select {
+	case <-cur.done:
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+}
+
 // searchLevel parses Plex's hearingImpaired/forced search options:
 // 0 prefer without, 1 prefer with, 2 only with, 3 only without.
 func searchLevel(v string) int {
@@ -436,11 +502,15 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activity := rand.Text()
+	// Register the pick before answering, so a metadata re-read racing
+	// this response waits for the download instead of missing the track.
+	finishPick := s.subtitlePicks.begin(pr.User.ID, t.Key)
 	w.Header().Set("X-Plex-Activity", activity)
 	w.WriteHeader(http.StatusOK)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer finishPick()
 		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
 		defer cancel()
 		s.publishNotification(model.NotificationContainer{Type: "activity", Size: 1, ActivityNotification: []model.ActivityNotification{{Event: "started", UUID: activity, Activity: &model.Activity{UUID: activity, Type: "subtitle.download", Title: "Downloading subtitles", UserID: pr.User.ID}}}}, pr.User.ID)
