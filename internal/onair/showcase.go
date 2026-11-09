@@ -125,10 +125,10 @@ func showcaseReelSignature(r Reel) string {
 
 func showcaseLooks() []showcaseLook {
 	return []showcaseLook{
-		{id: "showcase-80", name: "CHROMA 80", family: "retro", bg: "#0a0b2e", accent: "#ff3d6e", text: "#ffffff", glow: "#33d6ff", display: "archivoblack", body: "inter", tagline: "Something special every night", textures: []string{"grain", "vignette"}, version: 1},
-		{id: "showcase-90", name: "RIOT 90", family: "grunge", bg: "#141021", accent: "#edff38", text: "#ffffff", glow: "#ed4c99", display: "archivoblack", body: "specialelite", tagline: "Television with a pulse", textures: []string{"grain"}, version: 1},
-		{id: "showcase-00", name: "ORBIT 00", family: "aqua", bg: "#031d37", accent: "#009edb", text: "#ffffff", glow: "#8cf5ff", display: "spacegrotesk", body: "inter", tagline: "Your world, in orbit.", textures: []string{"grain", "vignette"}, version: 1},
-		{id: "showcase-10", name: "SHIFT 10", family: "flat", bg: "#102a35", accent: "#f15440", text: "#ffffff", glow: "#ffd66e", display: "archivoblack", body: "inter", tagline: "Good stories. Every day.", version: 1},
+		{id: "showcase-80", name: "CHROMA 80", family: "retro", bg: "#0a0b2e", accent: "#ff3d6e", text: "#ffffff", glow: "#33d6ff", display: "archivoblack", body: "inter", tagline: "Something special every night", textures: []string{"grain", "vignette"}, version: 2},
+		{id: "showcase-90", name: "RIOT 90", family: "grunge", bg: "#141021", accent: "#edff38", text: "#ffffff", glow: "#ed4c99", display: "archivoblack", body: "specialelite", tagline: "Television with a pulse", textures: []string{"grain"}, version: 2},
+		{id: "showcase-00", name: "ORBIT 00", family: "aqua", bg: "#031d37", accent: "#009edb", text: "#ffffff", glow: "#8cf5ff", display: "spacegrotesk", body: "inter", tagline: "Your world, in orbit.", textures: []string{"grain", "vignette"}, version: 2},
+		{id: "showcase-10", name: "SHIFT 10", family: "flat", bg: "#102a35", accent: "#f15440", text: "#ffffff", glow: "#ffd66e", display: "archivoblack", body: "inter", tagline: "Good stories. Every day.", version: 2},
 	}
 }
 
@@ -150,9 +150,17 @@ func (v showcaseLook) look() Look {
 			l.Controls[i].Value = value
 		}
 	}
-	// A translucent wordmark bug in the channel's own colour.
-	opacity := .4
-	l.Bug = &core.BugSettings{Source: "wordmark", Style: "original", Opacity: &opacity}
+	// A compact translucent era logo mark in the channel's own colours.
+	opacity := .52
+	l.Bug = &core.BugSettings{Source: "logo", Style: "original", Opacity: &opacity}
+	if src := showcaseBugSrc(v.id); src != "" {
+		resolved := core.ResolveBug(l.Bug, nil)
+		for i := range l.Scenes {
+			if l.Scenes[i].Role == "bug" {
+				configureBug(&l.Scenes[i].Document, resolved, src)
+			}
+		}
+	}
 	return l
 }
 

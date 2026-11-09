@@ -22,15 +22,23 @@ func (s *Service) Overlay(ctx context.Context, r core.ClipRequest) (scene.Docume
 		s.mu.Lock()
 		look := s.looks[r.LookID]
 		s.mu.Unlock()
+		b := core.ResolveBug(look.Bug, r.Bug)
 		logo := r.Art["channel.logo"]
-		if logo == "" {
+		if logo == "" || j.Bind.Assets[logo] == nil {
 			logo = look.Brand.Logo
 		}
-		if j.Bind.Assets[logo] == nil {
-			logo = ""
+		if logo == "" || j.Bind.Assets[logo] == nil {
+			logo = showcaseBugSrc(look.ID)
 		}
-		b := core.ResolveBug(look.Bug, r.Bug)
-		if logo != "" && b.Style == "monochrome" {
+		if im := showcaseBugImage(logo); im != nil {
+			if b.Style == "monochrome" {
+				j.Bind.Assets[logo] = showcaseBugSilhouette(logo)
+			} else {
+				j.Bind.Assets[logo] = im
+			}
+		} else if j.Bind.Assets[logo] == nil {
+			logo = ""
+		} else if logo != "" && b.Style == "monochrome" {
 			j.Bind.Assets[logo] = raster.Silhouette(j.Bind.Assets[logo])
 		}
 		configureBug(&j.Doc, b, logo)

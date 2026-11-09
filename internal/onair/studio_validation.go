@@ -195,6 +195,9 @@ func (s *Service) validateScenes(ctx context.Context, l Look) error {
 					if digest == l.Brand.Logo && utf8.RuneCountInString(digest) <= 3 {
 						continue
 					}
+					if showcaseBugImage(digest) != nil {
+						continue
+					}
 					if err := asset(digest, "", at); err != nil {
 						return err
 					}

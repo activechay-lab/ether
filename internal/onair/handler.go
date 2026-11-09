@@ -43,6 +43,9 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 		r.SetPathValue("id", chi.URLParam(r, "id"))
 		ServeFont(w, r)
 	})
+	r.Get("/showcase-bugs/{file}", func(w http.ResponseWriter, r *http.Request) {
+		serveShowcaseBug(w, r, chi.URLParam(r, "file"))
+	})
 
 	r.Get("/system-screens", ServeSystemScreens)
 	r.Get("/templates", func(w http.ResponseWriter, r *http.Request) { v, e := s.Templates(r.Context()); result(w, v, e) })

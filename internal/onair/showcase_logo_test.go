@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/image/draw"
 
+	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 )
@@ -35,14 +36,9 @@ func TestRenderShowcaseLogos(t *testing.T) {
 	}
 	for _, v := range showcaseLooks() {
 		l := v.look()
-		var doc scene.Document
-		for _, sc := range l.Scenes {
-			if sc.Role == "bug" {
-				doc = sc.Document
-			}
-		}
-		if len(doc.Layers) == 0 {
-			t.Fatalf("%s: no bug scene", v.id)
+		doc, err := families.Get(v.family, "bug")
+		if err != nil || len(doc.Layers) == 0 {
+			t.Fatalf("%s: no bug scene: %v", v.id, err)
 		}
 		b := scene.Bindings{Tokens: map[string]any{
 			"bg": l.Brand.Palette.Background, "accent": l.Brand.Palette.Accent, "text": l.Brand.Palette.Text, "glow": l.Brand.Palette.Glow,

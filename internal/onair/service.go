@@ -1149,7 +1149,7 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 		refs[k] = d
 	}
 	collectSceneAssets(j.Doc.Layers, j.Bind.Bindings, refs)
-	for _, key := range []string{"type.display", "type.mono", "type.body", "logo"} {
+	for _, key := range []string{"type.display", "type.mono", "type.body", "logo", "brand.logo"} {
 		d, _ := j.Bind.Tokens[key].(string)
 		if len(d) == 64 {
 			refs[d] = d
@@ -1157,6 +1157,11 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 	}
 	for slot, d := range refs {
 		if _, ok := j.Bind.Assets[d]; ok {
+			continue
+		}
+		if im := showcaseBugImage(d); im != nil {
+			j.Bind.Assets[d] = im
+			j.Bind.Slots[slot] = d
 			continue
 		}
 		if len(d) != 64 {
