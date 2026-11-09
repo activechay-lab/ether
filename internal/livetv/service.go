@@ -840,6 +840,7 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 	}
 	return c, err
 }
+
 // cancelGraphics drops a channel's queued and running graphics renders
 // when the graphics service supports it: a disabled or deleted channel
 // must stop rendering at once, not at the next planning tick.

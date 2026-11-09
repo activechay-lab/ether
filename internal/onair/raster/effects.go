@@ -132,6 +132,7 @@ func reverse(p []point) {
 		p[i], p[j] = p[j], p[i]
 	}
 }
+
 // box is one sliding-window pass (edge pixels replicate). The sums are
 // integer and per line, so lines run in parallel with identical output.
 func box(src, dst *image.RGBA, radius int, horizontal bool) {

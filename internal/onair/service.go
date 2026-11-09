@@ -480,6 +480,7 @@ func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
 		}
 	}
 }
+
 // CancelChannel stops every queued and running render for a channel and
 // releases its pins: the channel was disabled, deleted, or fell out of
 // the requested set. The running render's context is cancelled, which
