@@ -226,8 +226,22 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	localKeys := make(map[core.RatingKey]bool)
 	remoteKeys := make(map[core.RatingKey]bool)
 	deferredLocal := false
-	summaryLocal := false
 	hydrateLocalLate := false
+	// A caller ranking the candidate window itself reads its page in full
+	// (core.SearchCandidates); a summary search shows rows as they are.
+	cand := core.SearchCandidatesFrom(ctx)
+	if cand == nil && core.SearchSummaryFacts(ctx) {
+		cand = &core.SearchCandidates{Facts: core.VisibilityFacts}
+	}
+	// partial holds the library titles read as rows, with windowFacts: the
+	// facts the visibility rules and the release gate decide by. The rest
+	// waits for the titles that survive.
+	// A deferred search (no rule or gate decides by a fact) reads none.
+	partial := make(map[core.RatingKey]bool)
+	var windowFacts core.TitleFacts
+	if !unfiltered {
+		windowFacts = c.policyFacts(c.visibilityFor(ctx))
+	}
 	finish := func(items []core.Title) ([]core.Title, error) {
 		if !unfiltered {
 			var remote []core.Title
@@ -267,7 +281,13 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		applySearchAffinity(ctx, items)
 		sortTitlesForSearch(items)
 		items = limitTitles(items, limit)
-		if deferredLocal || hydrateLocalLate {
+		if (deferredLocal || hydrateLocalLate) && cand != nil {
+			// The caller's candidate window: library rows stay partial,
+			// with the facts its policy and filters read.
+			if err := c.finishCandidates(ctx, cand, items, partial, windowFacts); err != nil {
+				return nil, err
+			}
+		} else if deferredLocal || hydrateLocalLate {
 			// The page's library titles in full, read once in a batch and
 			// cached as Get caches them, so the frontend's own reads of
 			// these titles (visibility, playability, a show's seasons) hit
@@ -278,29 +298,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 					keys = append(keys, t.Key)
 				}
 			}
-			if summaryLocal {
-				// Scalar rows already contain the displayed summary. When the
-				// catalogue policy is passive, still load the retained titles'
-				// facets for downstream viewer policy and query filters. Active
-				// catalogue policy read those before ranking. Never cache these
-				// partial titles as full details.
-				if deferredLocal {
-					var local []core.Title
-					var positions []int
-					for i, title := range items {
-						if localKeys[title.Key] {
-							local = append(local, title)
-							positions = append(positions, i)
-						}
-					}
-					if err := c.hydrateVisibilityFacts(ctx, local); err != nil {
-						return nil, err
-					}
-					for i, position := range positions {
-						items[position] = local[i]
-					}
-				}
-			} else if core.SearchListFacts(ctx) {
+			if core.SearchListFacts(ctx) {
 				// Shown as list items: the facts a list shows, not cached.
 				loaded, err := c.searchListRows(ctx, keys)
 				if err != nil {
@@ -398,18 +396,16 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	// every type until the index's first build, from the literal match.
 	var localErr error
 	ix := c.searchIndex(ctx, true)
-	summaryLocal = core.SearchSummaryFacts(ctx) && !wantSeason && !wantEpisode
 	deferredLocal = year == 0 && !wantSeason && !wantEpisode && (unfiltered || (c.visibilityFor(ctx).Passive() && c.config().ReleaseMode != config.ModeDigital))
 	if ix != nil && (wantMovie || wantTV) {
 		keys, scores := c.searchKeys(ix, sq, wantMovie, wantTV, max(limit*3, 30))
-		// When visibility needs no facets, rank and merge the lightweight
-		// rows first. Only survivors need credits and other full metadata.
-		// The window is three pages: read its rows, plus (when visibility
-		// or the release gate decides by them) the facts rules read. Only
-		// the page that survives is read in full, in finish.
-		local, err := c.searchCandidateRows(ctx, keys, unfiltered)
-		if err == nil && !deferredLocal {
-			err = c.hydrateVisibilityFacts(ctx, local)
+		// The window is three pages: read its rows with only the facts the
+		// visibility rules and the release gate decide by (none when they
+		// decide by nothing). Only the page that survives is read in full,
+		// in finish, or by the caller of a candidate search.
+		local, err := c.searchCandidateRows(ctx, keys, unfiltered, cand != nil)
+		if err == nil {
+			err = c.hydrateFacts(ctx, local, windowFacts)
 		}
 		if err != nil {
 			localErr = err
@@ -422,6 +418,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		for _, item := range local {
 			if seen[item.Key] {
 				localKeys[item.Key] = true
+				partial[item.Key] = true
 			}
 		}
 	}
@@ -437,7 +434,25 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 			types = append(types, "'episode'")
 		}
 		if len(types) > 0 {
-			local, err := c.searchLiteral(ctx, query, strings.Join(types, ","), year, limit*2, unfiltered, ix == nil, deferredLocal)
+			// Deferred, or for a candidate search, the literal match reads
+			// movies and shows as rows, as the title index's are read.
+			rows := deferredLocal || (cand != nil && !unfiltered)
+			local, err := c.searchLiteral(ctx, query, strings.Join(types, ","), year, limit*2, unfiltered, ix == nil, deferredLocal, cand != nil && !unfiltered)
+			if err == nil && rows {
+				hydrateLocalLate = true
+				var movies []core.Title
+				var at []int
+				for i := range local {
+					if local[i].Type == core.TypeMovie || local[i].Type == core.TypeShow {
+						movies = append(movies, local[i])
+						at = append(at, i)
+					}
+				}
+				err = c.hydrateFacts(ctx, movies, windowFacts)
+				for j, i := range at {
+					local[i] = movies[j]
+				}
+			}
 			if err != nil && localErr == nil {
 				localErr = err
 			}
@@ -445,6 +460,9 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 			for _, item := range local {
 				if seen[item.Key] {
 					localKeys[item.Key] = true
+					if rows && (item.Type == core.TypeMovie || item.Type == core.TypeShow) {
+						partial[item.Key] = true
+					}
 				}
 			}
 		}
@@ -643,13 +661,13 @@ func sortTitlesForSearch(items []core.Title) {
 // searchLiteral is the literal title match over types (a quoted SQL list):
 // the most popular titles whose name holds query. Without the title index
 // (walk) a dense movie and show term is read from the popularity index.
-func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, n int, unfiltered, walk, deferFacts bool) ([]core.Title, error) {
+func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, n int, unfiltered, walk, deferFacts, partial bool) ([]core.Title, error) {
 	if walk && year == 0 {
 		if keys, ok, err := c.searchByPopularity(ctx, query, n, unfiltered); err == nil && ok {
 			if deferFacts {
-				return c.searchCandidateRows(ctx, keys, unfiltered)
+				return c.searchCandidateRows(ctx, keys, unfiltered, partial)
 			}
-			return c.searchCandidates(ctx, keys, unfiltered)
+			return c.searchCandidates(ctx, keys, unfiltered, partial)
 		}
 	}
 	match, args := c.titleMatch("", query)
@@ -666,12 +684,12 @@ func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, 
 	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE ` + adult + `type IN (` + types + `) AND ` + match + ` ORDER BY CASE WHEN ?>0 AND year=? THEN 0 ELSE 1 END, ` + pop + ` DESC LIMIT ?`
 	args = append(args, year, year, n)
 	if deferFacts {
-		return c.querySearchRows(ctx, unfiltered, q, args...)
+		return c.querySearchRows(ctx, unfiltered, partial, q, args...)
 	}
 	if unfiltered {
 		return c.queryTitlesUnfiltered(ctx, q, args...)
 	}
-	return c.queryTitles(ctx, q, args...)
+	return c.queryTitlesRows(ctx, false, partial, q, args...)
 }
 
 // List returns TMDB curated/trending lists with a short in-memory TTL.
@@ -1165,8 +1183,6 @@ func (c *Catalog) releasedTitles(ctx context.Context, items []core.Title) []core
 	return out
 }
 
-// searchCandidateRows reads the same title rows as searchCandidates without
-// their facts. It retains key order and the ordinary release and cache rules.
 // searchListRows reads keys' rows with their list facts (hydrateListSlice).
 func (c *Catalog) searchListRows(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
 	out := make(map[core.RatingKey]core.Title, len(keys))
@@ -1203,7 +1219,10 @@ func (c *Catalog) searchListRows(ctx context.Context, keys []core.RatingKey) (ma
 	return out, nil
 }
 
-func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey, unfiltered bool) ([]core.Title, error) {
+// searchCandidateRows reads the same title rows as searchCandidates without
+// their facts. It retains key order and the ordinary release and cache rules;
+// partial rows stay rows (a cached title is not swapped in).
+func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey, unfiltered, partial bool) ([]core.Title, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -1211,7 +1230,7 @@ func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey
 	for i, k := range keys {
 		args[i] = int64(k)
 	}
-	titles, err := c.querySearchRows(ctx, unfiltered, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`)`, args...)
+	titles, err := c.querySearchRows(ctx, unfiltered, partial, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1228,7 +1247,7 @@ func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey
 	return out, nil
 }
 
-func (c *Catalog) querySearchRows(ctx context.Context, unfiltered bool, query string, args ...any) ([]core.Title, error) {
+func (c *Catalog) querySearchRows(ctx context.Context, unfiltered, partial bool, query string, args ...any) ([]core.Title, error) {
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -1245,7 +1264,7 @@ func (c *Catalog) querySearchRows(ctx context.Context, unfiltered bool, query st
 		if t.Adult || (!unfiltered && !t.IsReleased(c.now()) && !c.upcomingMovie(&t)) {
 			continue
 		}
-		if !unfiltered && !core.SearchSummaryFacts(ctx) {
+		if !unfiltered && !partial {
 			if cached, ok := c.cachedStored(t.Key, gen, minute); ok {
 				t = cached
 			}
@@ -1258,8 +1277,9 @@ func (c *Catalog) querySearchRows(ctx context.Context, unfiltered bool, query st
 	return out, nil
 }
 
-// searchCandidates reads and hydrates titles in the supplied key order.
-func (c *Catalog) searchCandidates(ctx context.Context, keys []core.RatingKey, unfiltered bool) ([]core.Title, error) {
+// searchCandidates reads and hydrates titles in the supplied key order;
+// partial leaves movies and shows rows (queryTitlesRows).
+func (c *Catalog) searchCandidates(ctx context.Context, keys []core.RatingKey, unfiltered, partial bool) ([]core.Title, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -1275,7 +1295,7 @@ func (c *Catalog) searchCandidates(ctx context.Context, keys []core.RatingKey, u
 	if unfiltered {
 		titles, err = c.queryTitlesUnfiltered(ctx, q, args...)
 	} else {
-		titles, err = c.queryTitles(ctx, q, args...)
+		titles, err = c.queryTitlesRows(ctx, false, partial, q, args...)
 	}
 	if err != nil {
 		return nil, err

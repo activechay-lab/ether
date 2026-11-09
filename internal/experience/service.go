@@ -1188,7 +1188,13 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	// The candidate window grows with the page asked for, so a first page
 	// of search results does not load and hydrate a thousand titles.
 	window := min(max(2*end, searchWindowMin), 1000)
-	candidates, err := s.d.Search.Find(ctx, v, query, types, window)
+	// The window is ranked and filtered here, so the catalogue returns it
+	// as rows with the facts the filters read; only the page is read in full.
+	findCtx, cand := ctx, s.searchCandidates(ctx, v, q)
+	if cand != nil {
+		findCtx = core.WithSearchCandidates(ctx, cand)
+	}
+	candidates, err := s.d.Search.Find(findCtx, v, query, types, window)
 	if err != nil {
 		return frontend.SearchPage{}, err
 	}
@@ -1220,7 +1226,43 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	if len(items) > end {
 		continuation = frontend.ContinuationMore
 	}
-	return frontend.SearchPage{Page: core.Page{Items: items[start:stop], Total: len(items)}, TotalExact: false, Continuation: continuation}, nil
+	page := items[start:stop]
+	// A summary search (Stremio) shows the rows as they are.
+	if cand != nil && !core.SearchSummaryFacts(ctx) {
+		full, err := s.d.Search.Details(findCtx, page)
+		if err != nil {
+			return frontend.SearchPage{}, err
+		}
+		page = full
+	}
+	return frontend.SearchPage{Page: core.Page{Items: page, Total: len(items)}, TotalExact: false, Continuation: continuation}, nil
+}
+
+// searchCandidates is the candidate window a search asks the catalogue for
+// (core.SearchCandidates): every fact the viewer's policy and q's filters
+// read beyond a title's row, and the titles availability judges in full.
+// Nil, for full results, when a filter reads credits, the sort is by the
+// date added (a full title derives it from its release dates), or the
+// catalogue or availability cannot say.
+func (s *Service) searchCandidates(ctx context.Context, v *core.User, q frontend.ItemQuery) *core.SearchCandidates {
+	if s.d.Search.Details == nil || q.Filter.Person != 0 || q.Sort == core.SortAdded {
+		return nil
+	}
+	detail, ok := s.d.Visibility.judgedOnFacts(ctx)
+	if !ok {
+		return nil
+	}
+	facts := s.d.Visibility.TitleFacts(v)
+	if len(q.Filter.Genres) > 0 {
+		facts |= core.FactGenres
+	}
+	if len(q.Filter.Countries) > 0 {
+		facts |= core.FactCountries
+	}
+	if q.Filter.Studio != "" {
+		facts |= core.FactStudios
+	}
+	return &core.SearchCandidates{Facts: facts, Detail: detail}
 }
 func (s *Service) UserData(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]core.WatchStatus, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)

@@ -54,7 +54,7 @@ func (a *App) experienceSearch(vis experience.Visibility) experience.Search {
 // the catalogue with the owner's availability rules, natural-language
 // search, viewer affinity and collection readings.
 func (a *App) searchSources() experience.SearchSources {
-	src := experience.SearchSources{Catalog: a.catalog.Search}
+	src := experience.SearchSources{Catalog: a.catalog.Search, Details: a.catalog.SearchDetails}
 	if a.availability != nil && !a.cfg.Read().Spike.Enabled {
 		src.Catalog = (&availabilityCatalog{Catalog: a.catalog, availability: a.availability}).Search
 	}
@@ -121,6 +121,12 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	// Home, library rows, and card user-data read the mirror. Refreshing a
 	// show from a provider stays on the single-title detail and playback path.
 	vis := experienceVisibility(a.safety, a.catalog.CachedGet, filter, sessions, libs)
+	vis.JudgedOnFacts = func(ctx context.Context) func(core.Title) bool {
+		if a.availability == nil {
+			return nil
+		}
+		return a.availability.JudgedOnFacts(ctx)
+	}
 	rowVis := vis
 	source := experience.CandidateRowSource{Kind: a.personalize.SemanticRowKind, Load: func(ctx context.Context, req frontend.RowRequest) ([]experience.RankedCandidate, error) {
 		return a.productionExperienceRows(ctx, req, libs, rowVis)

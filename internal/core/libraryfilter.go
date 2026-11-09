@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // LibraryExclusion is one ordered visibility rule. Slice order is evaluation
 // order: the first match wins. Action is "show" or "hide"; an empty Action is
@@ -181,4 +184,82 @@ func SearchSummaryFacts(ctx context.Context) bool {
 	}
 	v, _ := ctx.Value(searchSummaryFactsKey{}).(bool)
 	return v
+}
+
+// TitleFacts is a set of the facts a title keeps outside its own row, in
+// tables of their own: what a visibility rule, a viewer's policy, the release
+// gate or a query filter may read beyond the row.
+type TitleFacts uint8
+
+const (
+	FactGenres TitleFacts = 1 << iota
+	FactStudios
+	FactCountries
+	FactKeywords
+	FactHomeRelease
+)
+
+// VisibilityFacts is every fact a visibility decision can read.
+const VisibilityFacts = FactGenres | FactStudios | FactCountries | FactKeywords | FactHomeRelease
+
+// SearchCandidates asks a catalogue search for its candidate window, not its
+// page: the caller ranks and filters the window itself and reads only the
+// page it shows in full. Library movies and shows then come back as their
+// title rows with Facts and the facts the catalogue's own policy reads for
+// the viewer (browsing and search rules, the release gate). A title Detail
+// reports (one the caller judges on its full facts) comes back in full.
+// The catalogue records which titles it returned partial; the caller reads
+// those of its page in full before showing them. Partial titles never enter
+// a cache.
+type SearchCandidates struct {
+	Facts  TitleFacts
+	Detail func(Title) bool
+
+	mu      sync.Mutex
+	partial map[RatingKey]bool
+}
+
+// MarkPartial records titles a search returned partial.
+func (s *SearchCandidates) MarkPartial(keys []RatingKey) {
+	if s == nil || len(keys) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.partial == nil {
+		s.partial = make(map[RatingKey]bool, len(keys))
+	}
+	for _, k := range keys {
+		s.partial[k] = true
+	}
+}
+
+// Partial reports a title a search returned partial.
+func (s *SearchCandidates) Partial(key RatingKey) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.partial[key]
+}
+
+type searchCandidatesKey struct{}
+
+// WithSearchCandidates attaches c to a search (see SearchCandidates). A nil c
+// asks for full results again, as for a search ctx hands on to another one.
+func WithSearchCandidates(ctx context.Context, c *SearchCandidates) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchCandidatesKey{}, c)
+}
+
+// SearchCandidatesFrom returns WithSearchCandidates' c, or nil.
+func SearchCandidatesFrom(ctx context.Context) *SearchCandidates {
+	if ctx == nil {
+		return nil
+	}
+	c, _ := ctx.Value(searchCandidatesKey{}).(*SearchCandidates)
+	return c
 }

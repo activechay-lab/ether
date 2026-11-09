@@ -290,6 +290,31 @@ func (f *Filter) ForSearch() *Filter {
 	return out
 }
 
+// Facts reports the facts outside a title's row that the rules read
+// (core.TitleFacts): genres, studios and networks, countries, keywords.
+// Every other condition is on the row itself.
+func (f *Filter) Facts() core.TitleFacts {
+	if f == nil {
+		return 0
+	}
+	var out core.TitleFacts
+	for _, g := range f.rules {
+		for _, c := range g.rules {
+			switch c.field {
+			case "genre":
+				out |= core.FactGenres
+			case "studio":
+				out |= core.FactStudios
+			case "country":
+				out |= core.FactCountries
+			case "keyword":
+				out |= core.FactKeywords
+			}
+		}
+	}
+	return out
+}
+
 // Passive reports that the filter hides nothing.
 func (f *Filter) Passive() bool {
 	return f == nil || (len(f.rules) == 0 && f.fallback != "hide")

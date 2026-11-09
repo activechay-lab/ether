@@ -276,8 +276,17 @@ func (c *Catalog) hydrateSlice(ctx context.Context, items []core.Title) error {
 }
 
 // hydrateVisibilityFacts fills the facts visibility rules and the release
-// gate read (hydrateFactBatch visibilityOnly), batched.
+// gate read (factsVisibility), batched.
 func (c *Catalog) hydrateVisibilityFacts(ctx context.Context, items []core.Title) error {
+	return c.hydrateFacts(ctx, items, core.VisibilityFacts)
+}
+
+// hydrateFacts fills facts of items, batched: one statement per 200 titles,
+// none when facts is empty. Facts it reads must not be on items already.
+func (c *Catalog) hydrateFacts(ctx context.Context, items []core.Title, facts core.TitleFacts) error {
+	if facts == 0 || len(items) == 0 {
+		return nil
+	}
 	idx := map[core.RatingKey][]int{}
 	keys := make([]any, 0, len(items))
 	for i := range items {
@@ -285,12 +294,14 @@ func (c *Catalog) hydrateVisibilityFacts(ctx context.Context, items []core.Title
 			keys = append(keys, int64(items[i].Key))
 		}
 		idx[items[i].Key] = append(idx[items[i].Key], i)
-		items[i].HomeReleaseChecked = false
-		items[i].HomeReleased = time.Time{}
-		items[i].HomeReleaseFallbackAdmitted = false
+		if facts&core.FactHomeRelease != 0 {
+			items[i].HomeReleaseChecked = false
+			items[i].HomeReleased = time.Time{}
+			items[i].HomeReleaseFallbackAdmitted = false
+		}
 	}
 	for chunk := range store.Chunks(keys, 200) {
-		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factsVisibility); err != nil {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factSet(facts)); err != nil {
 			return err
 		}
 	}
@@ -372,18 +383,23 @@ type creditFact struct {
 	ord    int64
 }
 
-// hydrateFactBatch reads the facts of the titles keyed by args. With
-// visibilityOnly it reads only what a visibility rule or the release gate
-// decides by (genres, keywords, studios, countries, home release), not
-// credits or alternative titles: a search ranks a window of candidates
-// three times its page, and only the page needs everything.
-// factSet is which facts hydrateFactBatch reads.
-type factSet int
+// factSet is which facts hydrateFactBatch reads: the visibility facts
+// (core.TitleFacts, one bit each) plus credits and alternative titles.
+// A search reads its candidate window's rows with only the facts the
+// active policy decides by, and only the page that survives in full.
+type factSet uint16
 
 const (
-	factsFull       factSet = iota
-	factsVisibility         // what visibility rules and the release gate read
-	factsList               // what a list item shows: no keywords or alternative titles, three cast members
+	factCredits     factSet = 1 << (8 + iota) // every credit
+	factListCredits                           // what a list item shows: three cast members, all crew
+	factAltTitles
+)
+
+const (
+	factsVisibility = factSet(core.VisibilityFacts)
+	factsFull       = factsVisibility | factCredits | factAltTitles
+	// factsList is what a list item shows: no keywords or alternative titles.
+	factsList = factSet(core.FactGenres|core.FactStudios|core.FactCountries|core.FactHomeRelease) | factListCredits
 )
 
 // listCast is the cast a list item shows (Plex: three).
@@ -391,23 +407,42 @@ const listCast = 3
 
 func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, args []any, set factSet) error {
 	ph := placeholders(len(args))
-	parts := []string{
-		`SELECT key, 'genre' AS tag, genre AS a, '' AS b, '' AS c, '' AS d, '' AS e, '' AS f, '' AS g, '' AS extra FROM catalog_genres WHERE key IN (` + ph + `)`,
-		`SELECT key, 'studio', studio, '', '', '', '', '', '', '' FROM catalog_studios WHERE key IN (` + ph + `)`,
-		`SELECT key, 'country', country, '', '', '', '', '', '', '' FROM catalog_countries WHERE key IN (` + ph + `)`,
-		`SELECT h.key, 'home', CAST(h.checked AS TEXT), CAST(h.earliest_ts AS TEXT), CAST(h.fallback_admitted AS TEXT), CAST(t.released_ts AS TEXT), CAST(t.year AS TEXT), '', '', '' FROM catalog_home_release h JOIN catalog_titles t ON t.key=h.key WHERE h.key IN (` + ph + `)`,
+	// The first part names the columns the outer select reads.
+	var parts []string
+	part := func(key, tag, a, b, c, d, e, f, g, extra, from string) {
+		if len(parts) == 0 {
+			parts = append(parts, `SELECT `+key+`, `+tag+` AS tag, `+a+` AS a, `+b+` AS b, `+c+` AS c, `+d+` AS d, `+e+` AS e, `+f+` AS f, `+g+` AS g, `+extra+` AS extra FROM `+from)
+			return
+		}
+		parts = append(parts, `SELECT `+key+`, `+tag+`, `+a+`, `+b+`, `+c+`, `+d+`, `+e+`, `+f+`, `+g+`, `+extra+` FROM `+from)
 	}
-	creditSQL := `SELECT c.key, 'credit', c.kind, c.name, c.role, c.thumb, CAST(c.person_tmdb AS TEXT), COALESCE(p.imdb,''), CAST(c.ord AS TEXT), c.provider_id FROM catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)`
-	switch set {
-	case factsFull:
-		parts = append(parts,
-			`SELECT key, 'keyword', keyword, '', '', '', '', '', '', '' FROM catalog_keywords WHERE key IN (`+ph+`)`,
-			`SELECT key, 'alt', title, '', '', '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (`+ph+`)`,
-			creditSQL)
-	case factsVisibility:
-		parts = append(parts, `SELECT key, 'keyword', keyword, '', '', '', '', '', '', '' FROM catalog_keywords WHERE key IN (`+ph+`)`)
-	case factsList:
-		parts = append(parts, creditSQL+` AND (c.kind<>'cast' OR c.ord<`+strconv.Itoa(listCast)+`)`)
+	if set&factSet(core.FactGenres) != 0 {
+		part("key", "'genre'", "genre", "''", "''", "''", "''", "''", "''", "''", `catalog_genres WHERE key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactStudios) != 0 {
+		part("key", "'studio'", "studio", "''", "''", "''", "''", "''", "''", "''", `catalog_studios WHERE key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactCountries) != 0 {
+		part("key", "'country'", "country", "''", "''", "''", "''", "''", "''", "''", `catalog_countries WHERE key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactHomeRelease) != 0 {
+		part("h.key", "'home'", "CAST(h.checked AS TEXT)", "CAST(h.earliest_ts AS TEXT)", "CAST(h.fallback_admitted AS TEXT)", "CAST(t.released_ts AS TEXT)", "CAST(t.year AS TEXT)", "''", "''", "''", `catalog_home_release h JOIN catalog_titles t ON t.key=h.key WHERE h.key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactKeywords) != 0 {
+		part("key", "'keyword'", "keyword", "''", "''", "''", "''", "''", "''", "''", `catalog_keywords WHERE key IN (`+ph+`)`)
+	}
+	if set&factAltTitles != 0 {
+		part("key", "'alt'", "title", "''", "''", "''", "''", "''", "''", "''", `catalog_alt_titles WHERE key IN (`+ph+`)`)
+	}
+	creditFrom := `catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)`
+	if set&factListCredits != 0 && set&factCredits == 0 {
+		creditFrom += ` AND (c.kind<>'cast' OR c.ord<` + strconv.Itoa(listCast) + `)`
+	}
+	if set&(factCredits|factListCredits) != 0 {
+		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", creditFrom)
+	}
+	if len(parts) == 0 {
+		return nil
 	}
 	q := "SELECT key, tag, a, b, c, d, e, f, g, extra FROM (\n" + strings.Join(parts, "\nUNION ALL\n") + "\n) AS facts"
 	bound := make([]any, 0, len(args)*len(parts))
@@ -1247,6 +1282,14 @@ func (c *Catalog) queryPagedTitles(ctx context.Context, q string, args ...any) (
 }
 
 func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, args ...any) ([]core.Title, error) {
+	return c.queryTitlesRows(ctx, sqlGated, false, q, args...)
+}
+
+// queryTitlesRows is queryTitlesMode; with rowsOnly, movies and shows stay
+// the rows the query read, for the caller to filter and complete (a
+// candidate search, core.SearchCandidates), and only the other titles are
+// read in full. Rows and full titles keep the query's order.
+func (c *Catalog) queryTitlesRows(ctx context.Context, sqlGated, rowsOnly bool, q string, args ...any) ([]core.Title, error) {
 	gen := c.writeGen.Load()
 	minute := c.minuteBucket()
 	rows, err := c.db.QueryContext(ctx, q, args...)
@@ -1270,8 +1313,14 @@ func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	asRow := func(t *core.Title) bool {
+		return rowsOnly && (t.Type == core.TypeMovie || t.Type == core.TypeShow)
+	}
 	needAt := make([]int, 0, len(out))
 	for i := range out {
+		if asRow(&out[i]) {
+			continue
+		}
 		if cached, ok := c.cachedStored(out[i].Key, gen, minute); ok {
 			out[i] = cached
 			continue
@@ -1294,12 +1343,22 @@ func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, 
 	if !sqlGated {
 		visible = out[:0]
 		for _, t := range out {
-			if c.upcomingMovie(&t) || (t.IsReleased(c.now()) && (!(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&t, c.now()))) {
+			// A row's release gate is the caller's, once its facts are read.
+			if asRow(&t) || c.upcomingMovie(&t) || (t.IsReleased(c.now()) && (!(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&t, c.now()))) {
 				visible = append(visible, t)
 			}
 		}
 	}
-	c.rememberTitles(gen, minute, visible)
+	full := visible
+	if rowsOnly {
+		full = make([]core.Title, 0, len(visible))
+		for _, t := range visible {
+			if !asRow(&t) {
+				full = append(full, t)
+			}
+		}
+	}
+	c.rememberTitles(gen, minute, full)
 	return visible, nil
 }
 

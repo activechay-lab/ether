@@ -246,6 +246,27 @@ func (s *Service) SetCatalogPolicy(direct, browse func(*core.User, *core.Title) 
 	s.catalogBrowseAllowed = browse
 }
 
+// TitleFacts is what Allowed reads of a title beyond its row for u: the
+// genres and keywords u's policy blocks. Ratings and collections are on the
+// row. The catalogue policy installed by SetCatalogPolicy is the
+// catalogue's to state (core.SearchCandidates).
+func (s *Service) TitleFacts(u *core.User) core.TitleFacts {
+	if u == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p := s.policies[u.ID]
+	var facts core.TitleFacts
+	if len(p.BlockedGenres) > 0 {
+		facts |= core.FactGenres
+	}
+	if len(p.BlockedKeywords) > 0 {
+		facts |= core.FactKeywords
+	}
+	return facts
+}
+
 func (s *Service) Allowed(u *core.User, t *core.Title) bool {
 	if s.catalogAllowed != nil && !s.catalogAllowed(u, t) {
 		return false
