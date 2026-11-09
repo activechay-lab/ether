@@ -79,16 +79,6 @@ type isoFileEntry struct {
 	extents []isoExtent
 }
 
-// firstLBA returns the start LBA of the file's first extent. Callers
-// that only need a starting sector (e.g. reading a small MPLS file
-// known to be single-extent) can use this.
-func (e isoFileEntry) firstLBA() uint32 {
-	if len(e.extents) == 0 {
-		return 0
-	}
-	return e.extents[0].lba
-}
-
 // isoExtent is one contiguous run of sectors on disc that contributes
 // length bytes to the logical file.
 type isoExtent struct {

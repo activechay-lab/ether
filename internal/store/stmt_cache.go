@@ -233,7 +233,7 @@ func (c *stmtConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.T
 	if begin, ok := c.inner.(driver.ConnBeginTx); ok {
 		tx, err = begin.BeginTx(ctx, opts)
 	} else {
-		tx, err = c.inner.Begin()
+		tx, err = c.inner.Begin() //nolint:staticcheck // driver wrapper: fall back to the inner driver's legacy method
 	}
 	if !gated {
 		return tx, err
@@ -302,11 +302,11 @@ func (s stmtHold) Close() error {
 func (s stmtHold) NumInput() int { return s.inner.NumInput() }
 
 func (s stmtHold) Exec(args []driver.Value) (driver.Result, error) {
-	return s.inner.Exec(args)
+	return s.inner.Exec(args) //nolint:staticcheck // driver.Stmt requires Exec; delegate to the inner statement
 }
 
 func (s stmtHold) Query(args []driver.Value) (driver.Rows, error) {
-	return s.inner.Query(args)
+	return s.inner.Query(args) //nolint:staticcheck // driver.Stmt requires Query; delegate to the inner statement
 }
 
 func (s stmtHold) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
@@ -333,7 +333,7 @@ func (s stmtHold) exec(ctx context.Context, args []driver.NamedValue) (driver.Re
 	for i := range args {
 		values[i] = args[i].Value
 	}
-	return s.inner.Exec(values)
+	return s.inner.Exec(values) //nolint:staticcheck // driver wrapper: fall back to the inner driver's legacy method
 }
 
 func (s stmtHold) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
@@ -374,5 +374,5 @@ func (s stmtHold) run(ctx context.Context, args []driver.NamedValue) (driver.Row
 	for i := range args {
 		values[i] = args[i].Value
 	}
-	return s.inner.Query(values)
+	return s.inner.Query(values) //nolint:staticcheck // driver wrapper: fall back to the inner driver's legacy method
 }

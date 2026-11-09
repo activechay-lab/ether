@@ -103,7 +103,8 @@ func TestSemPrefetchCap(t *testing.T) {
 func TestSemPrefetchYieldsToWaitingLive(t *testing.T) {
 	s := newPrioSem(2, 2)
 	ctx := context.Background()
-	if !s.TryAcquire(core.PriorityPrefetch) || !s.TryAcquire(core.PriorityPrefetch) {
+	first := s.TryAcquire(core.PriorityPrefetch)
+	if !first || !s.TryAcquire(core.PriorityPrefetch) {
 		t.Fatal("prefetch should take both slots")
 	}
 	live := acquireAsync(s, ctx, core.PriorityLive)
@@ -157,7 +158,8 @@ func TestSemCancelReleases(t *testing.T) {
 func TestSemCancelUnblocksPrefetchBehind(t *testing.T) {
 	// A cancelled live waiter must not leave a prefetch waiter stranded.
 	s := newPrioSem(2, 1)
-	if !s.TryAcquire(core.PriorityLive) || !s.TryAcquire(core.PriorityLive) {
+	first := s.TryAcquire(core.PriorityLive)
+	if !first || !s.TryAcquire(core.PriorityLive) {
 		t.Fatal("setup")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

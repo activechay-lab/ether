@@ -446,8 +446,7 @@ func httpStarts(reqs []core.HLSRequest) int {
 
 func TestIPTVRelativeManifestKeysRangesRetryAndReconnect(t *testing.T) {
 	var attempts atomic.Int32
-	var upstream *httptest.Server
-	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/redirect":
 			http.Redirect(w, r, "/hls/master.m3u8", 302)

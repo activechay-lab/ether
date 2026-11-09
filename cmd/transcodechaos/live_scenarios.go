@@ -49,9 +49,6 @@ type liveBudget struct {
 	SilenceS float64 `json:"silenceSeconds"`
 }
 
-// Presets are worker D's Stability values.
-var livePresets = []string{"fastest", "balanced", "rocksolid"}
-
 const (
 	liveFaultAt  = 15 * time.Second // after provider start; tune happens at ~0
 	liveObserve  = 60 * time.Second

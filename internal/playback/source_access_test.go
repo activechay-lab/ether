@@ -225,13 +225,13 @@ func TestSourceAccessProducerAndCloseAccounting(t *testing.T) {
 			}
 			src.onClose = func() {
 				a.manager.mu.Lock()
-				a.manager.mu.Unlock()
+				a.manager.mu.Unlock() //nolint:staticcheck // barrier: Close must run with this lock free
 				h.session.mu.Lock()
-				h.session.mu.Unlock()
+				h.session.mu.Unlock() //nolint:staticcheck // barrier: Close must run with this lock free
 				h.lifetime.mu.Lock()
-				h.lifetime.mu.Unlock()
+				h.lifetime.mu.Unlock() //nolint:staticcheck // barrier: Close must run with this lock free
 				a.mu.Lock()
-				a.mu.Unlock()
+				a.mu.Unlock() //nolint:staticcheck // barrier: Close must run with this lock free
 			}
 			reconciled := make(chan struct{})
 			go func() { defer close(reconciled); a.Reconcile() }()

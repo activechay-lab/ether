@@ -59,8 +59,6 @@ type session struct {
 	// is deliberately separate from mu so that slow preparation blocks
 	// neither media serving nor close.
 	prepareMu sync.Mutex
-	// failoverGate serializes source changes without blocking close or readers.
-	failoverGate chan struct{} // initialized under mu
 	// ctx is the session lifetime, cancelled by close; preparation I/O is
 	// bound to it (bindContext) so Stop cancels a slow Prepare/probe.
 	ctx    context.Context

@@ -53,7 +53,8 @@ func (s *Service) steadyHandoff(ctx context.Context, ss *session) (SteadyFeed, e
 	}
 	key := broadcastKey{channelID: c.ID}
 	var admitted *steadyAdmission
-	format, full := transcode.RawFormat{}, 0
+	var format transcode.RawFormat
+	var full int
 	class := ""
 	if running := s.broadcasts.running(key); running != nil {
 		// Joining a running output needs no capacity.

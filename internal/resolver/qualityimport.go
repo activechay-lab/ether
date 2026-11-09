@@ -254,11 +254,6 @@ func parseImportedQuality(name string) (q string, source core.Source, height int
 	return fmt.Sprintf("%s-%d", source, height), source, height, true
 }
 
-// sourceRank orders equally ranked sources best first.
-func sourceRank(s core.Source) int {
-	return slices.Index([]core.Source{core.SourceRemux, core.SourceBluRay, core.SourceWEBDL, core.SourceWEBRip, core.SourceHDTV, core.SourceDVD}, s)
-}
-
 func releaseQuality(info core.ReleaseInfo) string {
 	height := info.Height
 	if height == 0 && info.Source == core.SourceDVD {

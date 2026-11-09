@@ -227,23 +227,6 @@ func subtitleFormat(v string) string {
 	return "srt"
 }
 
-// subtitleLanguage is the language a subtitle search defaults to: the
-// viewer's first preferred subtitle language, else English.
-func (s *Server) subtitleLanguage(ctx context.Context, u *core.User) string {
-	if u == nil {
-		return "en"
-	}
-	if s.d.TrackPreferences != nil {
-		if rules, err := s.d.TrackPreferences.GetRules(ctx, u.ID); err == nil && len(rules.SubtitleLanguages) > 0 {
-			return rules.SubtitleLanguages[0]
-		}
-	}
-	if len(u.SubtitleLanguages) > 0 {
-		return u.SubtitleLanguages[0]
-	}
-	return "en"
-}
-
 // subtitleTitle resolves the playable title of a /library/metadata/{key}/
 // subtitles request the viewer may see.
 func (s *Server) subtitleTitle(r *http.Request) (*core.Title, bool) {
@@ -682,8 +665,8 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		s.writeEmpty(w, r)
 		return
 	}
-	timeline, ok := s.d.Subtitles.(SubtitleSource)
-	if !ok {
+	timeline := s.d.Subtitles
+	if timeline == nil {
 		s.writeEmpty(w, r)
 		return
 	}

@@ -141,12 +141,3 @@ func (t *trackedTranscoder) StartHLS(_ context.Context, req core.HLSRequest) (co
 	t.sessions = append(t.sessions, s)
 	return s, nil
 }
-
-type hlsOnlyPlexTranscoder struct{ *fakeTranscoder }
-
-func (t *hlsOnlyPlexTranscoder) StartHLS(ctx context.Context, req core.HLSRequest) (core.HLSSession, error) {
-	if req.Protocol == core.ProtocolDASH {
-		return t.fakeTranscoder.StartHLS(ctx, req)
-	}
-	return t.fakeTranscoder.StartHLS(ctx, req)
-}

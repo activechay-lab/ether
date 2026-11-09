@@ -33,7 +33,6 @@ func writeLeanTitleIndex(n int, names func(i int) []string, out sectionSink) err
 		}
 	}
 	lx := buildLexiconFrom(docs)
-	docs = nil
 	for _, s := range []struct {
 		sec  int
 		data []byte
@@ -103,7 +102,6 @@ func writeLeanTitleIndex(n int, names func(i int) []string, out sectionSink) err
 			return err
 		}
 	}
-	nameAt, nameOff, nameBlob = nil, nil, nil
 	wordAt = append(wordAt, uint32(len(wordIDs)))
 
 	// Postings: each word's titles, in title order.
@@ -122,14 +120,12 @@ func writeLeanTitleIndex(n int, names func(i int) []string, out sectionSink) err
 			fill[w]++
 		}
 	}
-	wordIDs, wordAt, fill = nil, nil, nil
 	if err := out.put(secPostAt, sliceBytes(counts)); err != nil {
 		return err
 	}
 	if err := out.put(secPosts, sliceBytes(posts)); err != nil {
 		return err
 	}
-	counts, posts = nil, nil
 
 	// Joins, sorted by string then title.
 	sort.Slice(joins, func(a, b int) bool {

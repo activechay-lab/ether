@@ -228,21 +228,6 @@ func (s *Service) orderedSourceCandidates(c Channel, exclude ...string) []Stream
 	return list
 }
 
-func (s *Service) recordStreamFailure(ss *session, rctx context.Context, err error) {
-	if rctx.Err() == nil {
-		s.recordSourceHealth(ss.info.Channel.ID, ss.inputSource, err, false)
-		ss.mu.Lock()
-		warn := ss.lastMediaWarning.IsZero() || time.Since(ss.lastMediaWarning) >= 5*time.Second
-		if warn {
-			ss.lastMediaWarning = time.Now()
-		}
-		ss.mu.Unlock()
-		if warn {
-			s.sessionLog(ss).Warn("live upstream media failed", Diagnose("media_fetch", err).LogAttrs()...)
-		}
-	}
-}
-
 // StreamSourceStatuses is owner-only health, without source URLs or upstream
 // errors that might contain credentials. Transient failures never ban a source.
 func (s *Service) StreamSourceStatuses(ctx context.Context, channelID string) ([]StreamSourceStatus, error) {

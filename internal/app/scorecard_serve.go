@@ -626,3 +626,20 @@ func scorecardDetailOffer(ctx context.Context, db *sql.DB, dir string, surface c
 	}
 	return scorecardDetailOfferRow{Handle: handle, ItemID: ids.RatingKeyGUID(core.RatingKey(key)), ReleaseID: release, Revision: revision, ExpectedSHA256: file.SHA256}, nil
 }
+
+// warmFixtureEpisodes fills the show-episode cache after the scorecard import.
+// It runs only before the listener opens.
+func (a *App) warmFixtureEpisodes(ctx context.Context) {
+	if a == nil || a.catalog == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	shows, err := a.catalog.Browse(ctx, core.BrowseQuery{Sort: core.SortTitle, Limit: 16, Filter: core.Filter{Type: core.TypeShow}})
+	if err != nil {
+		return
+	}
+	for _, show := range shows.Items {
+		_, _ = a.catalog.Grandchildren(ctx, show.Key)
+	}
+}

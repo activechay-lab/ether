@@ -353,7 +353,7 @@ func ownedPSISection(payload []byte, table byte) []byte {
 
 func ownedParsePMT(payload []byte) map[uint16]*tsStream {
 	sec := ownedPSISection(payload, 2)
-	if sec == nil || len(sec) < 12 {
+	if len(sec) < 12 {
 		return nil
 	}
 	infoLen := int(binary.BigEndian.Uint16(sec[10:]) & 0x0fff)

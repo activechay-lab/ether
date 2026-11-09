@@ -284,12 +284,6 @@ var liveClients = map[string]map[string]string{
 // AVFoundation 1.5 (CoreMedia -12888), Media3/ExoPlayer 3.5.
 var liveStuckFactor = map[string]float64{"plex-appletv": 1.5, "plex-firetv": 3.5}
 
-// tunePlex performs the native live tune and returns the client playlist URL
-// the app plays, plus the session id.
-func (e *liveEther) tunePlex(ctx context.Context, client string, channelID string) (string, string, error) {
-	return e.tunePlexAs(ctx, client, "", channelID)
-}
-
 // tunePlexAs tunes as a distinct device of the same client type, so two
 // concurrent viewers are two players, not one player switching channels.
 func (e *liveEther) tunePlexAs(ctx context.Context, client, clientID, channelID string) (string, string, error) {

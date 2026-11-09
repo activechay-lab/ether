@@ -44,14 +44,6 @@ import (
 
 const variantRenderBudget = 3 * time.Second // incl. the resolver's in-flight wait
 
-// inVariantIDSpace reports ids that Play Version may have issued. The live
-// allocator starts at 9*10^15 and stops below 2^53; the 8*10^15 block is
-// the same namespace from before that move. Both overlap real rating-key
-// kinds, so callers must not treat a miss as a title.
-func inVariantIDSpace(id int64) bool {
-	return id >= 8_000_000_000_000_000 && id < 1<<53
-}
-
 // partTitle maps a Part id back to its title: the rating key itself for
 // the Auto part, or a registry id for a variant part (with its release).
 // releaseID is non-empty only when the registry resolved a variant.

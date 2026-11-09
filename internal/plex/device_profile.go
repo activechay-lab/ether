@@ -27,8 +27,6 @@ type devicePlaybackRule struct {
 type deviceProfileResult struct {
 	reason string
 	target *deviceMediaRule
-	code   int
-	text   string
 }
 
 func profileContains(list, value string) bool {

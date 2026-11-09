@@ -648,7 +648,6 @@ const maxQueues = sessions.MaxPlayQueues
 
 var newPlayQueueStore = sessions.NewPlayQueues
 var shuffleQueue = sessions.ShuffleQueue
-var unshuffleQueue = sessions.UnshuffleQueue
 var indexOfItem = sessions.QueueItemIndex
 var encodeQueue = sessions.EncodeQueue
 var decodeQueue = sessions.DecodeQueue

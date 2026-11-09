@@ -93,7 +93,7 @@ func Parse(name string) core.ReleaseInfo {
 
 	// Season / episode.
 	absolute, absoluteAt := parseAbsoluteEpisode(stem, spaced)
-	markerAt := -1
+	var markerAt int
 	if absolute > 0 {
 		// Explicit anime numbering must not be reinterpreted as packed chapters.
 		markerAt = parseStandardEpisodes(spaced, upper, &info)

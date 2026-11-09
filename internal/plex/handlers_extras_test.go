@@ -200,7 +200,7 @@ func TestExtraPlaybackDecisionStartPrewarm(t *testing.T) {
 		t.Fatalf("segment: %d %q", rec.Code, rec.Body.String())
 	}
 	// Stop cleans the session up like other transcodes.
-	rec = f.request(t, http.MethodGet, "/video/:/transcode/universal/stop?session=ex1", nil)
+	_ = f.request(t, http.MethodGet, "/video/:/transcode/universal/stop?session=ex1", nil)
 	f.trans.mu.Lock()
 	stopped := append([]string(nil), f.trans.stopped...)
 	f.trans.mu.Unlock()

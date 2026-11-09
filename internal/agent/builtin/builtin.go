@@ -346,44 +346,6 @@ func boolArg(in map[string]any, key string, def bool) (bool, error) {
 	return b, nil
 }
 
-func stringsArg(in map[string]any, key string, maxItems, maxLen int) ([]string, error) {
-	v, ok := in[key]
-	if !ok || v == nil {
-		return nil, nil
-	}
-	raw, is := v.([]any)
-	if !is {
-		// A spec round-trip through JSON gives []any; direct Go callers
-		// may send []string.
-		if ss, is := v.([]string); is {
-			raw = make([]any, len(ss))
-			for i, s := range ss {
-				raw[i] = s
-			}
-		} else {
-			return nil, tools.Userf("%s must be a list of text", key)
-		}
-	}
-	if len(raw) > maxItems {
-		return nil, tools.Userf("%s has too many entries (at most %d)", key, maxItems)
-	}
-	out := make([]string, 0, len(raw))
-	for _, item := range raw {
-		s, is := item.(string)
-		if !is {
-			return nil, tools.Userf("%s must be a list of text", key)
-		}
-		s = strings.TrimSpace(s)
-		if len(s) > maxLen {
-			return nil, tools.Userf("%s entries are too long (at most %d characters)", key, maxLen)
-		}
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return out, nil
-}
-
 // keyArg parses a rating key (tools address titles by their string key).
 func keyArg(in map[string]any, key string) (core.RatingKey, error) {
 	if _, isStr := in[key].(string); !isStr {
@@ -442,10 +404,6 @@ func pInt(desc string, min, max int) map[string]any {
 func pBool(desc string) map[string]any { return map[string]any{"type": "boolean", "description": desc} }
 func pEnum(desc string, values ...string) map[string]any {
 	return map[string]any{"type": "string", "description": desc, "enum": values}
-}
-func pStrings(desc string, maxItems, maxLen int) map[string]any {
-	return map[string]any{"type": "array", "description": desc, "maxItems": maxItems,
-		"items": map[string]any{"type": "string", "maxLength": maxLen}}
 }
 func pPage() map[string]any {
 	return map[string]any{

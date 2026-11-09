@@ -29,8 +29,6 @@ type steadyShape struct {
 const (
 	steadySoftwareCores1080p30 = 2.0
 	steadyHardwareCores1080p30 = 0.45
-	// Keep this share of the host for VOD, guide work and the server itself.
-	steadyHostShare = 0.6
 )
 
 func steadyCost(f transcode.RawFormat, hardware bool) float64 {

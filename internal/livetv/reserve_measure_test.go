@@ -167,7 +167,6 @@ func TestReserveMeasure(t *testing.T) {
 			var playClock int64 = -1
 			var freeze, maxFreeze, curFreeze time.Duration // stall time after the first picture
 			lastLoop := time.Now()
-			keyAt := int64(-1)
 			var depths []string
 			lastSample := time.Now()
 			buf := make([]byte, tsPacket*16)
@@ -241,7 +240,7 @@ func TestReserveMeasure(t *testing.T) {
 							for _, mk := range m {
 								if mk.key {
 									// Like a decoder, play once a second is buffered.
-									playClock, playStart, keyAt = mk.clock, time.Now().Add(time.Second), mk.entry
+									playClock, playStart = mk.clock, time.Now().Add(time.Second)
 									firstKey = time.Now()
 									break
 								}
@@ -283,7 +282,7 @@ func TestReserveMeasure(t *testing.T) {
 			}
 			// Decode from the first keyframe (and the PAT before it), as a
 			// decoder joining the stream would.
-			keyAt = 0
+			keyAt := int64(0)
 			for i, x := range seen {
 				if x.pid == 0x100 && x.key {
 					for j := i; j >= 0 && j > i-20; j-- {

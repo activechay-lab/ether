@@ -325,7 +325,7 @@ func TestPayloadReleaseCallbackImmediateAndDeduplicated(t *testing.T) {
 	callback := func() {
 		// All locks are available and queue ownership was removed before callback.
 		o.state.mu.Lock()
-		o.state.mu.Unlock()
+		o.state.mu.Unlock() //nolint:staticcheck // barrier: callback must run with this lock free
 		if err := p.enter(context.Background()); err != nil {
 			panic(err)
 		}

@@ -23,7 +23,6 @@ func interstitial(it Item) bool {
 	return false
 }
 
-func (c Channel) moments(at time.Time) []Item { return c.momentsWithin(at, 0) }
 func (c Channel) momentsWithin(at time.Time, budget time.Duration) []Item {
 	if c.Look != nil && c.Look.BreakPattern != nil {
 		// Era pods compose with the ordinary channel moments. Reserve their

@@ -782,7 +782,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		base = 0
 		startSeg = req.Resume.FirstSegment
 	}
-	tracks := 1
+	var tracks int
 	var reps []dashRep
 	var plan *Timeline
 	if proto == core.ProtocolDASH {

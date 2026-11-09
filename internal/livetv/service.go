@@ -909,14 +909,6 @@ func (s *Service) SavePolicy(ctx context.Context, p Policy) error {
 	}
 	return err
 }
-func containsString(ids []string, id string) bool {
-	for _, v := range ids {
-		if v == id {
-			return true
-		}
-	}
-	return false
-}
 func (s *Service) allowed(ctx context.Context, u *core.User, c Channel, p *Programme) bool {
 	var lookup func(context.Context, core.RatingKey) (*core.Title, error)
 	if s.o.Catalog != nil {

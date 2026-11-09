@@ -197,7 +197,6 @@ func (b *tailBuilder) write(names *tailNames, out sectionSink) (int, error) {
 	if err := put(secSorted, sliceBytes(sorted)); err != nil {
 		return 0, err
 	}
-	sorted = nil
 	if err := put(secSortAt, sliceBytes(order)); err != nil {
 		return 0, err
 	}
@@ -217,7 +216,6 @@ func (b *tailBuilder) write(names *tailNames, out sectionSink) (int, error) {
 			return 0, err
 		}
 	}
-	keys, kinds, pops = nil, nil, nil
 
 	years := make([]uint16, n)
 	released := make([]int32, n)
@@ -262,7 +260,7 @@ func (b *tailBuilder) write(names *tailNames, out sectionSink) (int, error) {
 			return 0, err
 		}
 	}
-	years, released, flags, posterAt, posters = nil, nil, nil, nil, blobBuilder{}
+	posters = blobBuilder{}
 
 	var both [2]string
 	err := writeLeanTitleIndex(n, func(i int) []string {
@@ -287,12 +285,6 @@ func (b *blobBuilder) add(s string) uint32 {
 }
 func (b *blobBuilder) end() uint32    { return uint32(len(b.b)) }
 func (b *blobBuilder) String() string { return string(b.b) }
-
-// exportName decodes the name fields ExportRow leaves out.
-type exportName struct {
-	OriginalTitle string `json:"original_title"`
-	OriginalName  string `json:"original_name"`
-}
 
 // buildTailIndex builds a tail index from export readers (gzip JSON lines,
 // as TMDB publishes them; several days or the adult files may be

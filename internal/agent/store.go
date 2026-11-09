@@ -225,9 +225,6 @@ func (s *Store) Messages(ctx context.Context, threadID, before string, limit int
 	for i, m := range rev {
 		out[len(rev)-1-i] = m
 	}
-	if out == nil {
-		out = []Message{}
-	}
 	return out, hasOlder, nil
 }
 

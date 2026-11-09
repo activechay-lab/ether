@@ -112,10 +112,6 @@ func linkIdentity(name string, size int64, link string, s *stream, req core.Sear
 // streamLanguages adds the audio languages a stream's text declares
 // outside its release name: flag emoji (as Torrentio prints them) and
 // "Multi Audio" / "Dual Audio".
-func (s *stream) languages(langs []string, text string) []string {
-	return streamLanguages(langs, text)
-}
-
 func streamLanguages(langs []string, text string) []string {
 	add := func(l string) {
 		for _, x := range langs {

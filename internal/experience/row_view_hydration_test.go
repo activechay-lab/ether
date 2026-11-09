@@ -134,7 +134,7 @@ func TestRowViewHydrateLegacyNilEmptyOrderAndSourceError(t *testing.T) {
 	if err != nil || guides != 1 || len(got) != 3 || got[0].LiveChannel.ID != "a" || got[1].LiveChannel.ID != "a" || got[2].Title.Key != core.MovieKey(8) || got[2].Handle != "legacy" || got[0].Handle != "guide" {
 		t.Fatalf("order/guide %#v guides=%d err=%v", got, guides, err)
 	}
-	got, err = RowViewHydrateLegacy(ctx, viewer, refs[:1], one, guide)
+	_, err = RowViewHydrateLegacy(ctx, viewer, refs[:1], one, guide)
 	if err != nil || guides != 2 {
 		t.Fatalf("guide shared across passes: %d %v", guides, err)
 	}

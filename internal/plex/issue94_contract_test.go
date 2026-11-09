@@ -304,7 +304,7 @@ func TestIssue94LatePartAndDownloadDoNotReplaceOwner(t *testing.T) {
 			if r.Code != 200 {
 				t.Fatalf("playlist=%d", r.Code)
 			}
-			r = f.get(t, "/:/timeline?ratingKey=1000000000000550&state=stopped&time=1000&duration=8340000", "X-Plex-Client-Identifier", "phone", "X-Plex-Session-Identifier", "new")
+			_ = f.get(t, "/:/timeline?ratingKey=1000000000000550&state=stopped&time=1000&duration=8340000", "X-Plex-Client-Identifier", "phone", "X-Plex-Session-Identifier", "new")
 			if _, ok := m.SessionFor(ownerUser.ID, "phone", fightClub.Key); ok {
 				t.Fatal("current stop did not stop playback")
 			}

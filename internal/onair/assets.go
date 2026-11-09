@@ -320,7 +320,6 @@ func (s *Service) putReelAsset(ctx context.Context, name, path, digest string, s
 	if e = tx.Commit(); e != nil {
 		return a, e
 	}
-	content = nil
 	if stored == "db" {
 		s.announceAssets(ctx)
 	}

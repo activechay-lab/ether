@@ -395,8 +395,10 @@ func parseHEVCSPS(nal []byte, strict bool) (spsFacts, error) {
 	if strict && (minCB > 3 || diffCB > 3 || minTB > minCB || minTB+diffTB > min(5, minCB+diffCB+3)-2 || interDepth > minCB+diffCB+1-minTB || intraDepth > minCB+diffCB+1-minTB) {
 		return spsFacts{}, errBits
 	}
-	if r.flag() && r.flag() { // scaling_list_enabled_flag, sps_scaling_list_data_present_flag
-		hevcScalingListData(r, strict)
+	if r.flag() { // scaling_list_enabled_flag
+		if r.flag() { // sps_scaling_list_data_present_flag
+			hevcScalingListData(r, strict)
+		}
 	}
 	r.skip(2)     // amp_enabled_flag, sample_adaptive_offset_enabled_flag
 	if r.flag() { // pcm_enabled_flag

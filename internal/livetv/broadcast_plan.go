@@ -199,13 +199,6 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			return decoder, release, err
 		}
 
-		now := p.s.o.Now()
-		if len(plannedAt) > 0 && plannedAt[0].After(now) {
-			now = plannedAt[0]
-		}
-		if p.joinAt.After(now) {
-			now = p.joinAt
-		}
 		candidates := p.s.virtualCandidates(c, programme)
 		if programme.Item.BreakReleaseID != "" && len(programme.Item.BreakPointsMS) > 0 {
 			candidates = []Programme{programme}
@@ -264,7 +257,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				last = err
 				continue
 			}
-			now = p.s.o.Now()
+			now := p.s.o.Now()
 			if len(plannedAt) > 0 && plannedAt[0].After(now) {
 				now = plannedAt[0]
 			}

@@ -291,7 +291,7 @@ type storedQueue struct {
 func toStored(items []QueueItem) []storedItem {
 	out := make([]storedItem, len(items))
 	for i, it := range items {
-		out[i] = storedItem{ID: it.ID, Key: it.Key, Added: it.Added}
+		out[i] = storedItem(it)
 	}
 	return out
 }
@@ -302,7 +302,7 @@ func fromStored(items []storedItem) []QueueItem {
 	}
 	out := make([]QueueItem, len(items))
 	for i, it := range items {
-		out[i] = QueueItem{ID: it.ID, Key: it.Key, Added: it.Added}
+		out[i] = QueueItem(it)
 	}
 	return out
 }

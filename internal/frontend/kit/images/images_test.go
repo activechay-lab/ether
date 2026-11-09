@@ -7,7 +7,8 @@ import (
 )
 
 func TestImages(t *testing.T) {
-	if Tag([]byte("a")) == Tag([]byte("b")) || Tag([]byte("a")) != Tag([]byte("a")) {
+	first, again := Tag([]byte("a")), Tag([]byte("a"))
+	if first == Tag([]byte("b")) || first != again {
 		t.Fatal("tag")
 	}
 	src := image.NewNRGBA(image.Rect(3, 4, 5, 5))

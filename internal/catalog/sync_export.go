@@ -69,8 +69,6 @@ func (s *storedSet) find(id int64) int {
 	return i
 }
 
-func (s *storedSet) has(id int64) bool { return s.find(id) >= 0 }
-
 func kindRange(tv bool) (lo, hi core.RatingKey) {
 	if tv {
 		return core.ShowKey(0), core.ShowKey(0) + (core.ShowKey(0) - core.MovieKey(0))
@@ -268,8 +266,6 @@ func packFill(pop float64, id int64) uint64 {
 }
 
 func fillID(v uint64) int64 { return int64(uint32(v)) }
-
-func fillPop(v uint64) float64 { return float64(math.Float32frombits(uint32(v >> 32))) }
 
 // sortFill puts the most popular first, then the lower id.
 func sortFill(v []uint64) {

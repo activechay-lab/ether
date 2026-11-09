@@ -216,16 +216,6 @@ func (s *Server) handleLiveDVRs(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &liveContainer{Size: 1, Identifier: livetv.Provider, DVR: []liveDVR{{EPGIdentifier: livetv.Provider, Key: "1", Language: "eng", Lineup: "lineup://" + livetv.Provider + "/dvr", UUID: s.identity().MachineIdentifier + "-livetv", RefreshedAt: s.liveLineupRefreshedAtFor(FromContext(r.Context()).User), Device: devices}}})
 }
 
-// liveLineupRefreshedAt is the clock Apple TV compares to drop a cached lineup.
-func (s *Server) liveLineupRefreshedAt() int64 {
-	if s.d.LiveTV != nil {
-		if at := s.d.LiveTV.LineupChanged(); !at.IsZero() {
-			return at.Unix()
-		}
-	}
-	return s.now().Unix()
-}
-
 func (s *Server) liveLineupRefreshedAtFor(u *core.User) int64 {
 	if s.d.LiveTV != nil {
 		if at := s.d.LiveTV.LineupChangedFor(u); !at.IsZero() {

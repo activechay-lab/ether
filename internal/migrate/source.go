@@ -251,8 +251,6 @@ func (m *sourceMapper) resolve(ctx context.Context, item media, fetched bool) (c
 
 func (m *sourceMapper) resolveBody(ctx context.Context, item media, fetched bool) (core.RatingKey, error) {
 	item = m.enrichFromLibrary(item)
-	var key core.RatingKey
-	err := core.ErrNotFound
 	if item.Type == "episode" {
 		if gp := item.grandparentID(); gp != "" && episodeKeyFits(item.Season, item.Episode) {
 			m.noteShowParent(item.GrandparentTitle, gp)
@@ -266,7 +264,7 @@ func (m *sourceMapper) resolveBody(ctx context.Context, item media, fetched bool
 			}
 		}
 	}
-	key, err = m.service.mapMediaGUIDs(ctx, m.base, m.token, item)
+	key, err := m.service.mapMediaGUIDs(ctx, m.base, m.token, item)
 	if err == nil && key != 0 {
 		if item.Type == "episode" && item.GrandparentTitle != "" && key.Kind() == core.KindEpisode {
 			m.cacheShowTitle(item.GrandparentTitle, core.ShowKey(key.TMDB()))

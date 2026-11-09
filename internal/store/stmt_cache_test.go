@@ -130,7 +130,8 @@ func TestCachedSQLiteStatementsReuse(t *testing.T) {
 		}
 		return name
 	}
-	if read() != "one" || read() != "one" {
+	first := read()
+	if first != "one" || read() != "one" {
 		t.Fatal(read())
 	}
 	tx, err := db.BeginTx(ctx, nil)

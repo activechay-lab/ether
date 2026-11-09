@@ -334,9 +334,7 @@ func (f *fakeTMDB) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSONResp(w, page(f.list(parts[0] == "tv", parts[1]), pageNo))
 	case len(parts) == 3 && parts[0] == "trending":
 		var out []map[string]any
-		for _, x := range f.list(parts[1] == "tv", "popular") {
-			out = append(out, x)
-		}
+		out = append(out, f.list(parts[1] == "tv", "popular")...)
 		if parts[1] == "all" {
 			out = nil
 			for _, x := range fixtures {

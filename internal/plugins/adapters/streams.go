@@ -953,7 +953,7 @@ func (e *Engine) Open(ctx context.Context, releaseID string, payload []byte) (co
 			}
 			return &remoteFileSource{sources: e.sources, plugin: lp.PluginID, file: lp.FilePath, size: size, name: lp.Name, releaseID: relID, origin: lp.Origin}, nil
 		}
-		resolved, fi, err := e.sources.validateLocalFile(ctx, lp.PluginID, lp.FilePath)
+		resolved, _, err := e.sources.validateLocalFile(ctx, lp.PluginID, lp.FilePath)
 		if err != nil {
 			return nil, err
 		}
@@ -961,7 +961,7 @@ func (e *Engine) Open(ctx context.Context, releaseID string, payload []byte) (co
 		if err != nil {
 			return nil, err
 		}
-		fi, err = f.Stat()
+		fi, err := f.Stat()
 		if err != nil || !fi.Mode().IsRegular() {
 			_ = f.Close()
 			return nil, plugins.ErrPermissionDenied

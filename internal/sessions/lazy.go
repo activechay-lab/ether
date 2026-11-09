@@ -733,7 +733,7 @@ func serveSourceGone(protocol frontend.Protocol, w http.ResponseWriter, r *http.
 // new transfers fail closed with 503 until a worker exits or the process restarts.
 const maxLazyHeartbeats = 1024
 
-type lazyTransfer struct{ marker byte }
+type lazyTransfer struct{ _ byte }
 
 func (b *Broker) registerLazyTransfer(id string, cancel context.CancelFunc) (func(), bool) {
 	b.mu.Lock()

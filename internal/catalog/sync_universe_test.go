@@ -23,13 +23,12 @@ type universeTMDB struct {
 }
 
 type uMovie struct {
-	id         int64
-	pop        float64
-	votes      int
-	date       string // "" undated
-	adult      bool
-	video      bool
-	inDiscover bool
+	id    int64
+	pop   float64
+	votes int
+	date  string // "" undated
+	adult bool
+	video bool
 }
 
 const universePage = 2

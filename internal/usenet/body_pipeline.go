@@ -181,7 +181,6 @@ func (p *pool) bodyWorker(prio core.Priority) {
 		p.bodyMu.Lock()
 		if claimed {
 			p.bodyClaimed[prio]--
-			claimed = false
 		}
 		q := p.bodyQueue[prio]
 		if len(q) == 0 {

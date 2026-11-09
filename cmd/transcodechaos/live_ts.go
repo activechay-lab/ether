@@ -240,16 +240,3 @@ func (c ccCounter) stamp(p []byte) {
 	}
 	p[3] = p[3]&0xf0 | cur
 }
-
-// payloadCounts counts payload-bearing packets per PID, for computing the
-// continuity counter at any point of a loop without replaying it.
-func payloadCounts(data []byte) map[uint16]int {
-	out := map[uint16]int{}
-	for i := 0; i+tsPacket <= len(data); i += tsPacket {
-		p := data[i : i+tsPacket]
-		if tsHasPayload(p) && tsPID(p) != 0x1fff {
-			out[tsPID(p)]++
-		}
-	}
-	return out
-}

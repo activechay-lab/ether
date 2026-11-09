@@ -184,7 +184,6 @@ func StreamHandler(hub *StreamHub) http.Handler {
 		fl.Flush()
 
 		serveStreamEvents(w, r, hub, lastID, streamHeartbeat, fl)
-		return
 	})
 }
 

@@ -60,9 +60,6 @@ func rewriteHLS(body []byte, base *url.URL, rewrite func(string) string) ([]byte
 	}
 	return []byte(strings.Join(lines, "\n")), nil
 }
-func (s *Service) upstream(ctx context.Context, raw string, r *http.Request) (*http.Response, error) {
-	return s.upstreamWithHeaders(ctx, raw, r, nil, raw)
-}
 
 func (s *Service) upstreamWithHeaders(ctx context.Context, raw string, r *http.Request, headers http.Header, source string, public ...http.Header) (*http.Response, error) {
 	originURL, err := url.Parse(source)

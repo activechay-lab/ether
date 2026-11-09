@@ -130,7 +130,7 @@ func TestOwnedTimelineSplicesKeepNumberingConsistent(t *testing.T) {
 		t.Fatalf("no slate at the deadline: %d", tl.slateSegments)
 	}
 	advance(6 * time.Second)
-	segs := check()
+	check()
 	var slates []*ownedSegment
 	for _, s := range tl.window {
 		if s.slate {
@@ -152,7 +152,7 @@ func TestOwnedTimelineSplicesKeepNumberingConsistent(t *testing.T) {
 	if tl.codecSplices != 1 {
 		t.Fatalf("codec change not marked: %d", tl.codecSplices)
 	}
-	segs = check()
+	segs := check()
 	last := segs[len(segs)-1]
 	if prev := segs[len(segs)-2]; last.discSeq != prev.discSeq+1 {
 		t.Fatalf("codec change shares a discontinuity span: %+v %+v", prev, last)

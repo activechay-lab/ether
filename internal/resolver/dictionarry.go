@@ -251,7 +251,8 @@ func compileDictionarryArchive(ctx context.Context, archiveBytes []byte) (*dicti
 		if entries > dictionarryMaxTarEntries {
 			return nil, fmt.Errorf("%w: archive has too many entries", ErrDictionarryUnavailable)
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		// tar.Reader already normalises legacy TypeRegA headers to TypeReg.
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		clean := path.Clean(strings.TrimLeft(hdr.Name, "/"))

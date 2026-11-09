@@ -77,7 +77,7 @@ func (noCollections) DeleteSmart(context.Context, core.RatingKey) error { return
 type recommender struct{ lib *Library }
 
 func (r recommender) HomeHubs(ctx context.Context, _ *core.User, limit int) ([]core.Hub, error) {
-	p, err := catalog{r.lib}.Browse(ctx, core.BrowseQuery{Sort: core.SortTitle, Limit: limit})
+	p, err := catalog(r).Browse(ctx, core.BrowseQuery{Sort: core.SortTitle, Limit: limit})
 	if err != nil {
 		return nil, err
 	}

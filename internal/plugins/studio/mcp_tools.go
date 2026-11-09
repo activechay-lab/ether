@@ -749,8 +749,7 @@ func pluginCheckTool(deps ToolDeps) tools.Tool {
 				}
 			}
 
-			var eng *wasm.Engine
-			eng = deps.Engine
+			eng := deps.Engine
 			rep, err := Check(ctx, eng, CheckRequest{
 				Manifest: manifestBytes,
 				Files:    files,

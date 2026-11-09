@@ -165,7 +165,7 @@ func originalScope(r placement.Record) nodesource.Scope {
 	return nodesource.Scope{Fence: r.Fence, Viewer: "viewer", Revision: "revision"}
 }
 func TestCallbackRevokeAndErrorHold(t *testing.T) {
-	a, db, src, h, now := fixture(t)
+	a, db, _, h, now := fixture(t)
 	ctx := core.WithReadRetirement(context.Background(), &core.ReadRetirement{})
 	lease, err := a.Issue(ctx, h, now.Add(10*time.Second))
 	if err != nil {
@@ -175,7 +175,7 @@ func TestCallbackRevokeAndErrorHold(t *testing.T) {
 	if _, err = a.Verify(ctx, nodesource.Peer{NodeID: "worker", Boot: "wb"}, lease.Grant().Credential); err == nil {
 		t.Fatal("callback revoke passed verify")
 	}
-	a, db, src, h, _ = fixture(t)
+	a, db, src, h, _ := fixture(t)
 	released := false
 	src.acquire = func(context.Context) (playback.SourceHold, error) {
 		_ = a.Revoke(h)
