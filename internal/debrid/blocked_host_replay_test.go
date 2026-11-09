@@ -57,8 +57,8 @@ func TestRefusedHostMovesToSameFileOnAnotherProvider(t *testing.T) {
 	if err != nil || n != len(buf) || !bytes.Equal(buf, other.data[off:off+int64(len(buf))]) {
 		t.Fatalf("alternate read n=%d err=%v", n, err)
 	}
-	if links.Load() != 1 {
-		t.Fatalf("TorBox regenerated %d links, want one", links.Load())
+	if links.Load() != rerouteLinks {
+		t.Fatalf("TorBox regenerated %d links on the refused host, want one wave of %d", links.Load(), rerouteLinks)
 	}
 	p, _ := source.(*httpSource).f.payload()
 	if p.Provider != "realdebrid-1" {

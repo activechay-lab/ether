@@ -533,16 +533,17 @@ type remoteFile struct {
 	refs     int
 	lastUsed time.Time
 
-	linkMu           sync.Mutex // serializes refreshes
-	mu               sync.Mutex
-	pl               Payload
-	gen              int
-	linkFails        int       // link generations that failed in a row
-	failedGen        int       // last generation counted in linkFails (-1 = none)
-	transportRetryAt time.Time // bound link regeneration during a CDN outage
-	mediaHealthyKey  string    // a shared cooldown must not interrupt another healthy file
-	mediaPauseKey    string
-	mediaPause       mediaPause
+	linkMu          sync.Mutex // serializes refreshes
+	mu              sync.Mutex
+	pl              Payload
+	gen             int
+	linkFails       int           // link generations that failed in a row
+	failedGen       int           // last generation counted in linkFails (-1 = none)
+	rerouteAt       time.Time     // next link-regeneration wave allowed after a host failure
+	rerouteSem      chan struct{} // one reroute wave at a time; waiters reuse its result
+	mediaHealthyKey string        // a shared cooldown must not interrupt another healthy file
+	mediaPauseKey   string
+	mediaPause      mediaPause
 
 	bmu     sync.Mutex
 	flights map[int64]*blockFlight
@@ -567,7 +568,7 @@ func (e *Engine) newFile(id string, p Payload) *remoteFile {
 	f := &remoteFile{e: e, id: id, tag: p.fileTag(), size: p.Size, pl: p,
 		flights: map[int64]*blockFlight{}, mem: lru.New(lru.Options[int64, []byte]{MaxEntries: memBlocksPerFile}), stored: map[int64]bool{}, failedGen: -1,
 		conns: make(chan struct{}, conns), raSlots: make(chan struct{}, max(1, conns-1)),
-		yieldSig: make(chan struct{})}
+		yieldSig: make(chan struct{}), rerouteSem: make(chan struct{}, 1)}
 	f.nblocks = (p.Size + e.block - 1) / e.block
 	f.ctx, f.cancel = context.WithCancel(e.ctx)
 	return f
@@ -693,6 +694,82 @@ func (f *remoteFile) moveFromHost(ctx context.Context, gen int) bool {
 	f.mu.Unlock()
 	f.e.kickLeases()
 	return true
+}
+
+// Rerouting a link whose CDN node stopped answering (issue #396).
+const (
+	rerouteLinks    = 3                // fresh links one wave asks for before trying another provider
+	rerouteBudget   = 10 * time.Second // bounds one wave: API calls and the alternate provider
+	rerouteSpacing  = 5 * time.Second  // between waves that found a live node
+	rerouteCooldown = 20 * time.Second // after a wave that found none
+)
+
+// reroute replaces the link of a file whose CDN node failed a request. The
+// providers balance fresh links across edge nodes (TorBox requestdl, Real-
+// Debrid and AllDebrid unrestrict, Premiumize directdl), so a new link for
+// the same file usually lands on a live node and the byte range resumes
+// there: same file, same offsets. A link on the failed node, or on another
+// node that keeps failing, is not a new route, so one wave asks for up to
+// rerouteLinks links and then for the same file on another provider.
+// Readers that failed together share one wave, and waves are spaced per
+// file, so an outage cannot loop on the provider API. It reports whether
+// the file now streams from another node.
+func (f *remoteFile) reroute(ctx context.Context, failed string, gen int) bool {
+	if f.e.svc == nil || f.e.backoff == nil {
+		return false
+	}
+	failedAddr := dialAddr(failed)
+	usable := func(u string) bool {
+		return u != "" && dialAddr(u) != failedAddr && !f.e.backoff.down(urlHost(u))
+	}
+	select {
+	case f.rerouteSem <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	defer func() { <-f.rerouteSem }()
+	if p, g := f.payload(); g != gen && usable(p.URL) {
+		return true // a reader that failed alongside this one already moved the file
+	}
+	f.mu.Lock()
+	if f.e.now().Before(f.rerouteAt) {
+		f.mu.Unlock()
+		return false
+	}
+	f.mu.Unlock()
+	wctx, cancel := context.WithTimeout(ctx, rerouteBudget)
+	defer cancel()
+	p, _ := f.payload()
+	moved := false
+	for i := 1; i <= rerouteLinks && !moved; i++ {
+		u, g, err := f.link(wctx, true, gen)
+		if err != nil {
+			f.e.log.Warn("debrid link refresh after media host failure failed", "release", f.id,
+				"provider", p.Provider, "failedHost", urlHost(failed), "err", sanitize(err))
+			break
+		}
+		gen = g
+		moved = usable(u)
+		f.e.log.Info("debrid link refreshed after media host failure", "release", f.id, "provider", p.Provider,
+			"failedHost", urlHost(failed), "host", urlHost(u), "attempt", i, "newHost", moved)
+	}
+	if !moved && wctx.Err() == nil && f.moveFromHost(wctx, gen) {
+		np, _ := f.payload()
+		if moved = usable(np.URL); moved {
+			f.e.log.Info("debrid release moved off a failed media host", "release", f.id,
+				"failedHost", urlHost(failed), "provider", np.Provider, "host", urlHost(np.URL))
+		}
+	}
+	wait := rerouteSpacing
+	if !moved {
+		wait = rerouteCooldown
+		f.e.log.Warn("debrid media host failed and no other route was found", "release", f.id,
+			"provider", p.Provider, "host", urlHost(failed), "retryAfter", wait)
+	}
+	f.mu.Lock()
+	f.rerouteAt = f.e.now().Add(wait)
+	f.mu.Unlock()
+	return moved
 }
 
 func (f *remoteFile) blockLen(idx int64) int64 {
@@ -1202,6 +1279,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		release = done
 	}
 	var lastErr error
+	rerouted := false // the previous attempt failed over to another node: no pause
 	for attempt := 0; attempt < maxRangeAttempts; attempt++ {
 		if isAnalysisRead(ctx) {
 			payload, _ := f.payload()
@@ -1216,6 +1294,12 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		if err != nil {
 			return nil, timing{}, err
 		}
+		if attempt == 0 && f.e.backoff != nil && f.e.backoff.down(urlHost(u)) && f.reroute(ctx, u, gen) {
+			// The link points at a node other requests just found dead.
+			if u, gen, err = f.link(ctx, false); err != nil {
+				return nil, timing{}, err
+			}
+		}
 		payload, _ := f.payload()
 		if isAnalysisRead(ctx) {
 			if err := f.e.svc.checkAnalysisAccount(payload.Provider); err != nil {
@@ -1225,11 +1309,12 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		if err := f.checkMediaPause(payload.Provider, u); err != nil {
 			return nil, timing{}, err
 		}
-		if attempt > 0 {
+		if attempt > 0 && !rerouted {
 			if err := sleep(ctx, time.Duration(attempt*attempt)*150*time.Millisecond); err != nil {
 				return nil, timing{}, err
 			}
 		}
+		rerouted = false
 		rctx := ctx
 		if payload.IsDirect() || payload.IsPluginProvider() {
 			rctx = withDirect(ctx, payload)
@@ -1253,30 +1338,21 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 				return nil, tm, ctx.Err()
 			}
 			lastErr = err
-			// A still-valid signed URL can point at a dead CDN node. One
-			// bounded regeneration gives the provider a chance to route us
-			// elsewhere instead of retrying the dead endpoint four times.
-			// A network outage never establishes that the file is missing.
-			if attempt == 0 && urgent {
-				f.mu.Lock()
-				refresh := !f.e.now().Before(f.transportRetryAt)
-				if refresh {
-					f.transportRetryAt = f.e.now().Add(resetCooldown)
-				}
-				f.mu.Unlock()
-				if refresh {
-					// Give the provider one chance to route to a new node. A
-					// new signature on the failed host is not a new route.
-					recoveryCtx, cancelRecovery := context.WithTimeout(ctx, 8*time.Second)
-					newURL, newGen, refreshErr := f.link(recoveryCtx, true, gen)
-					if refreshErr != nil || dialAddr(newURL) == dialAddr(u) {
-						if refreshErr != nil {
-							newGen = gen
-						}
-						f.moveFromHost(recoveryCtx, newGen)
-					}
-					cancelRecovery()
-				}
+			if errors.Is(err, core.ErrStreamLimit) {
+				continue
+			}
+			// A still-valid signed URL can point at a dead CDN node. Resume
+			// this range on a fresh link on a live node, for read-ahead and
+			// prefetch too: they meet the dead node first. A network outage
+			// never establishes that the file is missing.
+			if f.reroute(ctx, u, gen) {
+				rerouted = true
+				continue
+			}
+			if isConnRefused(err) && f.e.backoff != nil && f.e.backoff.down(urlHost(u)) {
+				// No other route for now and the node refuses connections:
+				// hand the session its failover instead of more refusals.
+				break
 			}
 			continue
 		}
