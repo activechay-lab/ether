@@ -8,16 +8,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // stateKey reads the item key from ratingKey= or key=.
-func stateKey(r *http.Request) core.RatingKey {
+func stateKey(r *http.Request) frontend.RatingKey {
 	q := r.URL.Query()
-	if k, err := core.ParseRatingKey(q.Get("ratingKey")); err == nil {
+	if k, err := frontend.ParseRatingKey(q.Get("ratingKey")); err == nil {
 		return k
 	}
 	return keyFromPath(q.Get("key"))
@@ -90,7 +89,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	if key.Kind() == core.KindPlaylist {
+	if key.Kind() == frontend.KindPlaylist {
 		if _, err := s.playlist(ctx, pr.User, key); err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -121,7 +120,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	duration := msParam(q.Get("duration"))
 	user := pr.User
 	s.log.Debug("playback timeline", "user", user.ID, "client", pr.ClientID, "key", key, "state", state, "position", offset, "duration", duration)
-	var ps *core.PlaySession
+	var ps *frontend.PlaySession
 	if s.d.Playback != nil {
 		if p, ok := s.d.Playback.SessionFor(user.ID, pr.ClientID, key); ok {
 			ps = p
@@ -304,7 +303,7 @@ func impossiblePlayhead(offset, duration time.Duration) bool {
 
 // lastKnownOffset is the item's last real position: this session's report,
 // else the viewer's saved state, else the start.
-func (s *Server) lastKnownOffset(ctx context.Context, userID int64, tid string, key core.RatingKey) time.Duration {
+func (s *Server) lastKnownOffset(ctx context.Context, userID int64, tid string, key frontend.RatingKey) time.Duration {
 	for _, activity := range s.sessions.list() {
 		if activity.id == tid && activity.key == key {
 			return activity.offset
@@ -337,7 +336,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, 404)
 		return
 	}
-	key := core.RatingKey(raw)
+	key := frontend.RatingKey(raw)
 	n, err := strconv.ParseInt(q.Get("time"), 10, 64)
 	if err != nil || n > math.MaxInt64/int64(time.Millisecond) {
 		writeHTTPError(w, 500)
@@ -350,19 +349,19 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	// Unknown integer keys are accepted by this legacy writer but create no row.
 	known := false
 	switch key.Kind() {
-	case core.KindPlaylist:
+	case frontend.KindPlaylist:
 		if s.d.Playlists != nil {
 			_, err = s.d.Playlists.Get(ctx, pr.User.ID, key)
 			known = err == nil
 		}
-	case core.KindCollection, core.KindSmart:
+	case frontend.KindCollection, frontend.KindSmart:
 		_, err = s.collectionRaw(ctx, pr.User, key)
 		known = err == nil
 	default:
 		if s.d.Catalog != nil {
-			var title *core.Title
+			var title *frontend.Title
 			var e error
-			if stored, ok := s.d.Catalog.(core.StoredTitleLookup); ok {
+			if stored, ok := s.d.Catalog.(frontend.StoredTitleLookup); ok {
 				title, e = stored.StoredTitle(ctx, key)
 			} else {
 				title, e = s.d.Catalog.Get(ctx, key)
@@ -376,7 +375,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := time.Duration(n) * time.Millisecond
 	if legacy, ok := s.d.State.(interface {
-		LegacyProgress(context.Context, int64, core.RatingKey, time.Duration) error
+		LegacyProgress(context.Context, int64, frontend.RatingKey, time.Duration) error
 	}); ok {
 		err = legacy.LegacyProgress(ctx, pr.User.ID, key, offset)
 	} else {
@@ -405,14 +404,14 @@ func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) 
 		ctx = frontend.WithHistoryTitle(ctx, title)
 	}
 	// Containers mark every episode.
-	keys := []core.RatingKey{key}
-	if key.Kind() == core.KindShow || key.Kind() == core.KindSeason {
+	keys := []frontend.RatingKey{key}
+	if key.Kind() == frontend.KindShow || key.Kind() == frontend.KindSeason {
 		if ks, err := s.expandKey(ctx, pr, key); err == nil && len(ks) > 0 {
 			keys = ks
 		}
 	}
 	if native, ok := s.d.State.(interface {
-		PlexScrobble(context.Context, int64, core.RatingKey, []core.RatingKey, bool) error
+		PlexScrobble(context.Context, int64, frontend.RatingKey, []frontend.RatingKey, bool) error
 	}); ok {
 		if err := native.PlexScrobble(ctx, pr.User.ID, key, keys, watched); err != nil {
 			s.writeErr(w, r, err)
@@ -462,7 +461,7 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 	if rating > 0 {
 		promoter := s.d.VibeSearch
 		if promoter == nil {
-			promoter, _ = s.d.Collections.(core.VibeSearcher)
+			promoter, _ = s.d.Collections.(frontend.VibeSearcher)
 		}
 		if promoter != nil {
 			if _, promoted, err := promoter.PromoteEphemeral(ctx, pr.User, key); err != nil {
@@ -475,7 +474,7 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if native, ok := s.d.State.(interface {
-		PlexRate(context.Context, int64, core.RatingKey, float64) error
+		PlexRate(context.Context, int64, frontend.RatingKey, float64) error
 	}); ok {
 		err = native.PlexRate(ctx, pr.User.ID, key, rating)
 	} else {
@@ -497,7 +496,7 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
-	key, _ := core.ParseRatingKey(r.URL.Query().Get("ratingKey"))
+	key, _ := frontend.ParseRatingKey(r.URL.Query().Get("ratingKey"))
 	if key == 0 || pr.User == nil || s.d.State == nil {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
@@ -507,7 +506,7 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 		return
 	}
 	if hidden, ok := s.d.State.(interface {
-		HideContinue(context.Context, int64, core.RatingKey) error
+		HideContinue(context.Context, int64, frontend.RatingKey) error
 	}); ok {
 		if err := hidden.HideContinue(ctx, pr.User.ID, key); err != nil {
 			s.writeErr(w, r, err)
@@ -540,7 +539,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		viewer := &Request{User: &e.user, ClientID: e.client.ClientID, Product: e.client.Product, Platform: e.client.Platform}
 		var md model.Metadata
-		if e.key.Kind() == core.KindPlaylist {
+		if e.key.Kind() == frontend.KindPlaylist {
 			pl, err := s.playlist(ctx, &e.user, e.key)
 			if err != nil {
 				continue

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -25,7 +25,7 @@ const APIVersion = "1.2.3"
 // /media/providers (providers=true, which omits a few, as PMS does).
 // allowSync is the viewer's own download permission: Plex Web's
 // showSyncDownload gate reads server.allowSync for library providers.
-func (s *Server) serverInfoAttrs(providers bool, viewer *core.User) []model.Attr {
+func (s *Server) serverInfoAttrs(providers bool, viewer *frontend.User) []model.Attr {
 	id := s.identity()
 	c := s.cfg()
 	signIn, mapping := "none", "unknown"
@@ -138,7 +138,7 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 func sectionPivots(sec Section) []model.Pivot {
 	id := strconv.Itoa(sec.ID)
 	typeNum := "1"
-	if sec.Type == core.TypeShow {
+	if sec.Type == frontend.TypeShow {
 		typeNum = "2"
 	}
 	return []model.Pivot{
@@ -150,8 +150,8 @@ func sectionPivots(sec Section) []model.Pivot {
 	}
 }
 
-func agentFor(t core.MediaType) (agent, scanner string) {
-	if t == core.TypeShow {
+func agentFor(t frontend.MediaType) (agent, scanner string) {
+	if t == frontend.TypeShow {
 		return "tv.plex.agents.series", "Plex TV Series"
 	}
 	return "tv.plex.agents.movie", "Plex Movie"
@@ -389,7 +389,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
-	var users []core.User
+	var users []frontend.User
 	if s.d.Auth != nil {
 		if us, err := s.d.Auth.Users(r.Context()); err == nil {
 			users = us
@@ -456,7 +456,7 @@ func plexSubtitleMode(mode string) int {
 
 func (s *Server) handleSecurityToken(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(r.Context())
-	issuer, ok := s.d.Auth.(core.DelegationAuth)
+	issuer, ok := s.d.Auth.(frontend.DelegationAuth)
 	if !ok || pr.User == nil || pr.User.Delegated {
 		writeHTTPError(w, http.StatusForbidden)
 		return

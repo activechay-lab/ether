@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -41,9 +41,9 @@ type shelfCut struct {
 type shelfGeneration struct {
 	scope       string
 	path        string
-	keys        []core.RatingKey
+	keys        []frontend.RatingKey
 	expires     int64
-	items       []core.Title
+	items       []frontend.Title
 	bytes       int
 	serial      uint64
 	persisted   bool
@@ -72,8 +72,8 @@ func (s *Server) shelfScope(ctx context.Context, pr *Request) (string, string, b
 	return fmt.Sprintf("%x", sha256.Sum256(data)), viewerRevision, true
 }
 
-func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc hubCtx, build func() ([]core.Title, []model.Metadata)) ([]core.Title, string) {
-	titles, generation, _ := s.shelfSnapshotResult(ctx, pr, h, hc, func() ([]core.Title, []model.Metadata, error) {
+func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h frontend.Hub, hc hubCtx, build func() ([]frontend.Title, []model.Metadata)) ([]frontend.Title, string) {
+	titles, generation, _ := s.shelfSnapshotResult(ctx, pr, h, hc, func() ([]frontend.Title, []model.Metadata, error) {
 		titles, metadata := build()
 		return titles, metadata, nil
 	})
@@ -82,11 +82,11 @@ func (s *Server) shelfSnapshot(ctx context.Context, pr *Request, h core.Hub, hc 
 
 // shelfSnapshotResult never publishes an incomplete generation after a source
 // read fails. Existing hub builders have already handled their source errors.
-func (s *Server) shelfSnapshotResult(ctx context.Context, pr *Request, h core.Hub, hc hubCtx, build func() ([]core.Title, []model.Metadata, error)) ([]core.Title, string, error) {
+func (s *Server) shelfSnapshotResult(ctx context.Context, pr *Request, h frontend.Hub, hc hubCtx, build func() ([]frontend.Title, []model.Metadata, error)) ([]frontend.Title, string, error) {
 	scope, viewerRevision, ok := s.shelfScope(ctx, pr)
 	if !ok {
 		// Without the authorization revision a retained row cannot be served.
-		return nil, "", core.ErrNotAvailable
+		return nil, "", frontend.ErrNotAvailable
 	}
 	identity := fmt.Sprintf("%s|%d|%d|%s", scope, hc.section, hc.related, h.ID)
 	s.shelfMu.Lock()
@@ -105,20 +105,20 @@ func (s *Server) shelfSnapshotResult(ctx context.Context, pr *Request, h core.Hu
 	// Wire identities, including duplicates from a producer, are canonicalized
 	// BEFORE calculating counts or cutting any page.
 	seen := map[string]bool{}
-	byKey := map[string]core.Title{}
+	byKey := map[string]frontend.Title{}
 	for _, title := range titles {
 		if _, ok := byKey[title.Key.String()]; !ok {
 			byKey[title.Key.String()] = title
 		}
 	}
-	unique := make([]core.Title, 0, len(items))
+	unique := make([]frontend.Title, 0, len(items))
 	for _, item := range items {
 		if item.RatingKey != "" && !seen[item.RatingKey] {
 			seen[item.RatingKey] = true
 			unique = append(unique, byKey[item.RatingKey])
 		}
 	}
-	keys := make([]core.RatingKey, 0, len(unique))
+	keys := make([]frontend.RatingKey, 0, len(unique))
 	for _, title := range unique {
 		keys = append(keys, title.Key)
 	}
@@ -221,10 +221,10 @@ func (s *Server) recoverShelf(ctx context.Context, generation string) (shelfGene
 	return g, true
 }
 
-func (s *Server) shelfTitles(ctx context.Context, pr *Request, g shelfGeneration, keys []core.RatingKey) ([]core.Title, bool) {
+func (s *Server) shelfTitles(ctx context.Context, pr *Request, g shelfGeneration, keys []frontend.RatingKey) ([]frontend.Title, bool) {
 	titles := g.items
 	if len(titles) == 0 && len(keys) > 0 {
-		if cached, ok := s.d.Catalog.(core.CachedTitleSource); ok {
+		if cached, ok := s.d.Catalog.(frontend.CachedTitleSource); ok {
 			var err error
 			titles, err = cached.CachedTitles(ctx, keys)
 			if err != nil {
@@ -240,11 +240,11 @@ func (s *Server) shelfTitles(ctx context.Context, pr *Request, g shelfGeneration
 			}
 		}
 	}
-	byKey := map[core.RatingKey]core.Title{}
+	byKey := map[frontend.RatingKey]frontend.Title{}
 	for _, t := range titles {
 		byKey[t.Key] = t
 	}
-	ordered := make([]core.Title, 0, len(keys))
+	ordered := make([]frontend.Title, 0, len(keys))
 	for _, key := range keys {
 		t, ok := byKey[key]
 		if !ok {
@@ -257,12 +257,12 @@ func (s *Server) shelfTitles(ctx context.Context, pr *Request, g shelfGeneration
 
 type shelfMembershipKey struct{}
 
-func shelfMember(ctx context.Context, key core.RatingKey) (core.Title, bool) {
-	titles, _ := ctx.Value(shelfMembershipKey{}).(map[core.RatingKey]core.Title)
+func shelfMember(ctx context.Context, key frontend.RatingKey) (frontend.Title, bool) {
+	titles, _ := ctx.Value(shelfMembershipKey{}).(map[frontend.RatingKey]frontend.Title)
 	title, ok := titles[key]
 	return title, ok
 }
-func shelfContainsAll(ctx context.Context, titles []core.Title) bool {
+func shelfContainsAll(ctx context.Context, titles []frontend.Title) bool {
 	if len(titles) == 0 {
 		return false
 	}
@@ -320,7 +320,7 @@ func (s *Server) serveShelfGeneration(w http.ResponseWriter, r *http.Request) bo
 		return false
 	}
 	if metadata {
-		members := map[core.RatingKey]core.Title{}
+		members := map[frontend.RatingKey]frontend.Title{}
 		for _, t := range titles {
 			members[t.Key] = t
 		}

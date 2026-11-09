@@ -3,8 +3,14 @@ package frontend
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 )
+
+// SubtitleExtractor extracts one embedded subtitle stream to a writer.
+type SubtitleExtractor interface {
+	ExtractSubtitle(ctx context.Context, inputURL string, streamIndex int, codec string, w io.Writer) error
+}
 
 // MaxSubtitleFontAttachments bounds the number of Matroska font attachments
 // exposed per subtitle stream.

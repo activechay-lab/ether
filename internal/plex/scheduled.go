@@ -4,23 +4,23 @@ import (
 	"context"
 	"sort"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
-func (s *Server) scheduledEpisodes(ctx context.Context, pr *Request, season core.RatingKey) []core.Title {
-	if !s.cfg().Catalog.ShowUpcomingEpisodes || season.Kind() != core.KindSeason || season.Season() <= 0 {
+func (s *Server) scheduledEpisodes(ctx context.Context, pr *Request, season frontend.RatingKey) []frontend.Title {
+	if !s.cfg().Catalog.ShowUpcomingEpisodes || season.Kind() != frontend.KindSeason || season.Season() <= 0 {
 		return nil
 	}
-	schedule, ok := s.d.Catalog.(core.CatalogSchedule)
+	schedule, ok := s.d.Catalog.(frontend.CatalogSchedule)
 	if !ok {
 		return nil
 	}
 	// Alternate groups have their own numbering; do not attach canonical future
 	// episodes to an unrelated group or offer a detail page outside that tree.
 	if s.d.EpisodeOrder != nil {
-		grouped, err := s.d.EpisodeOrder.Grouped(ctx, pr.User, []core.RatingKey{core.ShowKey(season.TMDB())})
-		if err != nil || grouped[core.ShowKey(season.TMDB())] {
+		grouped, err := s.d.EpisodeOrder.Grouped(ctx, pr.User, []frontend.RatingKey{frontend.ShowKey(season.TMDB())})
+		if err != nil || grouped[frontend.ShowKey(season.TMDB())] {
 			return nil
 		}
 	}
@@ -32,27 +32,27 @@ func (s *Server) scheduledEpisodes(ctx context.Context, pr *Request, season core
 	if err != nil {
 		return nil
 	}
-	out := make([]core.Title, 0, len(episodes))
+	out := make([]frontend.Title, 0, len(episodes))
 	for _, ep := range episodes {
-		if ep.Type == core.TypeEpisode && ep.Key.Parent() == season && ep.Released.After(s.now()) && s.playableTitle(ctx, pr.User, &ep) {
+		if ep.Type == frontend.TypeEpisode && ep.Key.Parent() == season && ep.Released.After(s.now()) && s.playableTitle(ctx, pr.User, &ep) {
 			out = append(out, ep)
 		}
 	}
 	return out
 }
 
-func (s *Server) scheduledEpisode(ctx context.Context, pr *Request, key core.RatingKey) (*core.Title, error) {
-	if key.Kind() == core.KindEpisode {
+func (s *Server) scheduledEpisode(ctx context.Context, pr *Request, key frontend.RatingKey) (*frontend.Title, error) {
+	if key.Kind() == frontend.KindEpisode {
 		for _, ep := range s.scheduledEpisodes(ctx, pr, key.Parent()) {
 			if ep.Key == key {
 				return &ep, nil
 			}
 		}
 	}
-	return nil, core.ErrNotFound
+	return nil, frontend.ErrNotFound
 }
 
-func (s *Server) scheduledMetadata(ctx context.Context, pr *Request, t *core.Title) model.Metadata {
+func (s *Server) scheduledMetadata(ctx context.Context, pr *Request, t *frontend.Title) model.Metadata {
 	md := s.metadata(ctx, pr, t, renderOpts{})
 	md.Media = nil
 	md.Title += " (Unaired)"
@@ -65,11 +65,11 @@ func (s *Server) scheduledMetadata(ctx context.Context, pr *Request, t *core.Tit
 	return md
 }
 
-func appendScheduled(aired, future []core.Title) []core.Title {
+func appendScheduled(aired, future []frontend.Title) []frontend.Title {
 	if len(future) == 0 {
 		return aired
 	}
-	out := append(append([]core.Title(nil), aired...), future...)
+	out := append(append([]frontend.Title(nil), aired...), future...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Episode < out[j].Episode })
 	return out
 }

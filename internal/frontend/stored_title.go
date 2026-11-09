@@ -19,3 +19,16 @@ type AvailabilitySource interface {
 type SearchCacheRefiller interface {
 	RefillSearchCache(*Title) <-chan struct{}
 }
+
+// CatalogSchedule is the optional capability listing a show's scheduled
+// episodes. Catalogue methods remain released-only; this interface never
+// authorizes playback.
+type CatalogSchedule interface {
+	ScheduledEpisodes(context.Context, RatingKey) ([]Title, error)
+}
+
+// CachedTitleSource is the optional capability reading titles already in
+// the local cache, without discovery.
+type CachedTitleSource interface {
+	CachedTitles(context.Context, []RatingKey) ([]Title, error)
+}

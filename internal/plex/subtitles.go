@@ -26,7 +26,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -38,7 +37,7 @@ import (
 // already cached for a title and viewer, without network access, skipping
 // streams embedded already lists (by ExternalURL) or covers (by language).
 type SubtitleCatalog interface {
-	CachedSidecars(ctx context.Context, t *core.Title, u *core.User, embedded []core.StreamInfo) []core.StreamInfo
+	CachedSidecars(ctx context.Context, t *frontend.Title, u *frontend.User, embedded []frontend.StreamInfo) []frontend.StreamInfo
 }
 
 // SubtitleOffer is one subtitle search result.
@@ -56,18 +55,18 @@ type SubtitleOffer struct {
 // SubtitleSearch is optionally implemented by Deps.Subtitles: Plex's
 // on-demand subtitle search and pick.
 type SubtitleSearch interface {
-	SearchSubtitles(ctx context.Context, t *core.Title, u *core.User, lang, release string) ([]SubtitleOffer, error)
+	SearchSubtitles(ctx context.Context, t *frontend.Title, u *frontend.User, lang, release string) ([]SubtitleOffer, error)
 	// DownloadSubtitle fetches an offer returned by SearchSubtitles for t
-	// and returns its sidecar stream; core.ErrNotFound for unknown offers.
-	DownloadSubtitle(ctx context.Context, t *core.Title, u *core.User, id int64) (core.StreamInfo, error)
+	// and returns its sidecar stream; frontend.ErrNotFound for unknown offers.
+	DownloadSubtitle(ctx context.Context, t *frontend.Title, u *frontend.User, id int64) (frontend.StreamInfo, error)
 }
 
 // infoWithSelectedSidecar keeps a chosen external subtitle on a metadata
 // stream list. Cached sidecars omit a language the file already embeds, so
 // the next detail response would select that embedded track, or Off when
 // the viewer's subtitle mode is off.
-func infoWithSelectedSidecar(info core.MediaInfo, want *core.StreamInfo) core.MediaInfo {
-	ps := ensureSelectedSidecar(&core.PlaySession{Info: info}, want)
+func infoWithSelectedSidecar(info frontend.MediaInfo, want *frontend.StreamInfo) frontend.MediaInfo {
+	ps := ensureSelectedSidecar(&frontend.PlaySession{Info: info}, want)
 	if ps == nil {
 		return info
 	}
@@ -81,7 +80,7 @@ func infoWithSelectedSidecar(info core.MediaInfo, want *core.StreamInfo) core.Me
 // decision and Continue Watching would show no SRT. A probed external of
 // the same language is left alone: the stored choice follows that release
 // sidecar instead of pinning the earlier cached copy beside it.
-func ensureSelectedSidecar(ps *core.PlaySession, want *core.StreamInfo) *core.PlaySession {
+func ensureSelectedSidecar(ps *frontend.PlaySession, want *frontend.StreamInfo) *frontend.PlaySession {
 	if ps == nil || want == nil || want.Type != "subtitle" || !want.External || want.ExternalURL == "" {
 		return ps
 	}
@@ -94,7 +93,7 @@ func ensureSelectedSidecar(ps *core.PlaySession, want *core.StreamInfo) *core.Pl
 		}
 	}
 	cp := *ps
-	streams := make([]core.StreamInfo, len(ps.Info.Streams)+1)
+	streams := make([]frontend.StreamInfo, len(ps.Info.Streams)+1)
 	copy(streams, ps.Info.Streams)
 	streams[len(ps.Info.Streams)] = *want
 	cp.Info.Streams = streams
@@ -103,7 +102,7 @@ func ensureSelectedSidecar(ps *core.PlaySession, want *core.StreamInfo) *core.Pl
 
 // withCachedSidecars appends the viewer's cached sidecars that info does not
 // already list. It never touches the network.
-func (s *Server) withCachedSidecars(ctx context.Context, u *core.User, t *core.Title, info core.MediaInfo) core.MediaInfo {
+func (s *Server) withCachedSidecars(ctx context.Context, u *frontend.User, t *frontend.Title, info frontend.MediaInfo) frontend.MediaInfo {
 	c, ok := s.d.Subtitles.(SubtitleCatalog)
 	if !ok || t == nil {
 		return info
@@ -113,20 +112,20 @@ func (s *Server) withCachedSidecars(ctx context.Context, u *core.User, t *core.T
 		return info
 	}
 	out := info
-	out.Streams = append(append(make([]core.StreamInfo, 0, len(info.Streams)+len(extra)), info.Streams...), extra...)
+	out.Streams = append(append(make([]frontend.StreamInfo, 0, len(info.Streams)+len(extra)), info.Streams...), extra...)
 	return out
 }
 
 // resolveSubtitle finds a chosen subtitle in info by language, codec, and
 // source. The old stream position is only a tie-break. -1 when info has none.
-func resolveSubtitle(want *core.StreamInfo, pos int, info core.MediaInfo) int {
+func resolveSubtitle(want *frontend.StreamInfo, pos int, info frontend.MediaInfo) int {
 	return experience.ResolveSubtitle(want, pos, info)
 }
 
 // resolveAudio retains the requested language across estimates and releases.
 // Within that language prefer the same codec, channel layout and track label;
 // position breaks ties but can never override a language mismatch.
-func resolveAudio(want *core.StreamInfo, pos int, info core.MediaInfo) int {
+func resolveAudio(want *frontend.StreamInfo, pos int, info frontend.MediaInfo) int {
 	if want == nil {
 		return -1
 	}
@@ -135,7 +134,7 @@ func resolveAudio(want *core.StreamInfo, pos int, info core.MediaInfo) int {
 
 // resolveSelection maps stored track identities onto the current positions. A
 // choice that info cannot satisfy is dropped, so viewer preferences apply.
-func resolveSelection(sel selection, info core.MediaInfo) selection {
+func resolveSelection(sel selection, info frontend.MediaInfo) selection {
 	if sel.audioSet && sel.audioStream != nil {
 		sel.audio = resolveAudio(sel.audioStream, sel.audio, info)
 		sel.audioSet = sel.audio >= 0
@@ -160,7 +159,7 @@ func resolveSelection(sel selection, info core.MediaInfo) selection {
 // off. Such a selection plays as None, which is what the client shows. A
 // track the viewer picks, or one the client was shown selected, is burned
 // as before.
-func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info core.MediaInfo) {
+func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info frontend.MediaInfo) {
 	if p.subNamed || !p.subSet || p.opts.SubtitleStream < 0 || p.subSel < 0 || p.subSel >= len(info.Streams) {
 		return
 	}
@@ -185,7 +184,7 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info core.Me
 }
 
 // resolvePlaySelection is resolveSelection for a play request.
-func resolvePlaySelection(p *playRequest, info core.MediaInfo) {
+func resolvePlaySelection(p *playRequest, info frontend.MediaInfo) {
 	out, err := experience.TranslatePlexTrackIdentity(experience.PlexIssuedIdentity{
 		Audio: p.audioStream, AudioPosition: p.audioSel, AudioSet: p.audioSel >= 0,
 		Subtitle: p.subStream, SubtitlePosition: p.subSel, SubtitleSet: p.subSet,
@@ -229,7 +228,7 @@ func subtitleFormat(v string) string {
 
 // subtitleTitle resolves the playable title of a /library/metadata/{key}/
 // subtitles request the viewer may see.
-func (s *Server) subtitleTitle(r *http.Request) (*core.Title, bool) {
+func (s *Server) subtitleTitle(r *http.Request) (*frontend.Title, bool) {
 	keys, err := parseKeys(chi.URLParam(r, "key"))
 	if err != nil || len(keys) != 1 || !isPlayableKey(keys[0]) || s.d.Catalog == nil {
 		return nil, false
@@ -249,14 +248,14 @@ type subtitleOffers struct {
 	rows map[int64]subtitleOfferRef
 }
 type subtitleOfferRef struct {
-	key      core.RatingKey
+	key      frontend.RatingKey
 	user     int64
 	provider int64
 }
 
 const maxSubtitleOffers = 4096
 
-func (o *subtitleOffers) add(key core.RatingKey, user, provider int64) int64 {
+func (o *subtitleOffers) add(key frontend.RatingKey, user, provider int64) int64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.rows == nil {
@@ -268,7 +267,7 @@ func (o *subtitleOffers) add(key core.RatingKey, user, provider int64) int64 {
 	delete(o.rows, o.next-maxSubtitleOffers)
 	return o.next
 }
-func (o *subtitleOffers) get(id int64, key core.RatingKey, user int64) (int64, bool) {
+func (o *subtitleOffers) get(id int64, key frontend.RatingKey, user int64) (int64, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	row, ok := o.rows[id]
@@ -359,7 +358,7 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 		if !keepOffer(hi, o.HearingImpaired) || !keepOffer(forced, o.Forced) {
 			continue
 		}
-		display := subtitleDisplayTitle(core.StreamInfo{Type: "subtitle", Codec: "srt", Language: o.Language, Forced: o.Forced})
+		display := subtitleDisplayTitle(frontend.StreamInfo{Type: "subtitle", Codec: "srt", Language: o.Language, Forced: o.Forced})
 		id := s.subtitleOffers.add(t.Key, userID, o.ID)
 		transient := 1
 		st := model.Stream{
@@ -375,7 +374,7 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 			Format:               "srt",
 			Title:                o.Title,
 			DisplayTitle:         display,
-			ExtendedDisplayTitle: extendedTitle(core.StreamInfo{Type: "subtitle", Codec: "srt", Title: o.Title, Language: o.Language}, display, "SRT"),
+			ExtendedDisplayTitle: extendedTitle(frontend.StreamInfo{Type: "subtitle", Codec: "srt", Title: o.Title, Language: o.Language}, display, "SRT"),
 			Extra: []model.Attr{
 				model.A("hearingImpaired", o.HearingImpaired),
 				model.A("perfectMatch", o.PerfectMatch),
@@ -508,7 +507,7 @@ func (s *Server) finishSubtitleActivity(uuid string, userID int64) {
 // SubtitleUpload is optionally implemented by Deps.Subtitles: Plex Web's
 // "Upload Subtitles" (POST /library/metadata/{key}/subtitles).
 type SubtitleUpload interface {
-	UploadSubtitle(ctx context.Context, t *core.Title, u *core.User, filename, format, language string, body []byte) (core.StreamInfo, error)
+	UploadSubtitle(ctx context.Context, t *frontend.Title, u *frontend.User, filename, format, language string, body []byte) (frontend.StreamInfo, error)
 }
 
 const maxUploadBytes = 16 << 20
@@ -715,7 +714,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 
 // sessionSoftSubtitle asks the remux to carry the selected browser text
 // subtitle through the same source read as the video.
-func sessionSoftSubtitle(entry *transcodeEntry, pr *Request, dec core.Decision) *int {
+func sessionSoftSubtitle(entry *transcodeEntry, pr *Request, dec frontend.Decision) *int {
 	if entry == nil || !browserClient(pr) || dec.BurnSubtitles || entry.subtitle < 0 || entry.subtitle >= len(entry.info.Streams) {
 		return nil
 	}
@@ -785,7 +784,7 @@ const softSubtitleLead = 10 * time.Second
 // follow, and a blank line (skipped by ASS parsers) every
 // subtitleKeepAlive holds the connection through gaps in the dialogue. It
 // reports false, with nothing written, when the track cannot be read.
-func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID string, st core.StreamInfo, from time.Duration) bool {
+func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID string, st frontend.StreamInfo, from time.Duration) bool {
 	streamer, ok := s.d.Transcoder.(subtitleStreamer)
 	if !ok || s.d.Playback == nil || playID == "" {
 		return false
@@ -881,8 +880,8 @@ func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID
 	}
 }
 
-func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st core.StreamInfo, format string) ([]byte, string, bool) {
-	ex, ok := s.d.Transcoder.(core.SubtitleExtractor)
+func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st frontend.StreamInfo, format string) ([]byte, string, bool) {
+	ex, ok := s.d.Transcoder.(frontend.SubtitleExtractor)
 	if !ok || s.d.Playback == nil || playID == "" {
 		return nil, "", false
 	}
@@ -910,7 +909,7 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st 
 	return body, format, true
 }
 
-func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key core.RatingKey, info core.StreamInfo) {
+func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, info frontend.StreamInfo) {
 	pr := FromContext(r.Context())
 	if pr == nil || pr.User == nil || info.Type != "subtitle" || s.d.Playback == nil {
 		writeHTTPError(w, http.StatusNotFound)
@@ -970,7 +969,7 @@ var (
 // writeEmbeddedSubtitle serves an embedded text track as format (srt or
 // vtt). It reports false, with nothing written, when extraction failed
 // before the response had to start.
-func (s *Server) writeEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, playID string, st core.StreamInfo, format string, matroska bool) bool {
+func (s *Server) writeEmbeddedSubtitle(w http.ResponseWriter, r *http.Request, playID string, st frontend.StreamInfo, format string, matroska bool) bool {
 	type extracted struct {
 		body   []byte
 		actual string
