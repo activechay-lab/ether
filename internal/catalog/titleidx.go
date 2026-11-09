@@ -26,6 +26,10 @@ import (
 
 type titleIndexSwap struct{ old, replacement, def string }
 
+// childPopPartial is catalog_titles_child_pop's WHERE term. A query that
+// should use the index must repeat it word for word.
+const childPopPartial = "type IN ('season','episode')"
+
 var titleIndexSwaps = []titleIndexSwap{
 	{"catalog_titles_type_browse_year", "catalog_titles_type_year", "(type, browsable, adult, year DESC, key)"},
 	{"catalog_titles_type_browse_lang", "catalog_titles_type_lang", "(type, browsable, adult, language, key)"},
@@ -37,7 +41,7 @@ var titleIndexSwaps = []titleIndexSwap{
 	{"catalog_titles_browse_warm", "catalog_titles_warm_queue", "(popularity DESC, vote_count DESC) WHERE detail=0 AND browsable=1 AND adult=0"},
 	// Seasons and episodes have no TMDB popularity, so their index never
 	// churns; movies and shows are ordered by the rank.
-	{"catalog_titles_type_browse_pop", "catalog_titles_child_pop", "(type, browsable, popularity DESC) WHERE type IN ('season','episode')"},
+	{"catalog_titles_type_browse_pop", "catalog_titles_child_pop", "(type, browsable, popularity DESC) WHERE " + childPopPartial},
 	{"catalog_titles_console_pop_page", "", ""},
 }
 

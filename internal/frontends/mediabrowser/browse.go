@@ -369,6 +369,7 @@ func (i *instance) browseRoutes() error {
 				r = i.withPageEditions(r, v, keys)
 			}
 			i.fillSeriesTitles(r, v, page)
+			i.prefetchParentArtwork(r, page)
 			for _, title := range page {
 				if purpose == frontend.RowNextUp && title.Type == "episode" && i.host.Experience != nil {
 					if stored, ok := i.storedListTitle(r, v, title.Key); ok && stored.Type == "episode" {
@@ -766,6 +767,7 @@ func (i *instance) pageWithCount(w http.ResponseWriter, r *http.Request, v *fron
 	}
 	items := make([]any, 0, len(page.Items))
 	images := i.gridListImages(r, page.Items)
+	i.prefetchParentArtwork(r, page.Items)
 	ratingFacts := i.pageRatingFacts(r, v, page.Items)
 	paths := i.virtualPaths(r, v, keys)
 	r = i.pageEditions(r, v, keys)

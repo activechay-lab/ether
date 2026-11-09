@@ -1142,6 +1142,7 @@ func (i *instance) recommendations(w http.ResponseWriter, r *http.Request, want 
 		}
 		items := make([]any, 0, len(titles))
 		images := i.gridImagesFor(r, titles)
+		i.prefetchParentArtwork(r, titles)
 		ratingFacts := i.pageRatingFacts(r, v, titles)
 		for _, title := range titles {
 			item := i.itemDTO(title, states[title.Key])

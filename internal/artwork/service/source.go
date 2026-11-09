@@ -404,6 +404,16 @@ func (a Source) ListPage(ctx context.Context, viewer *core.Viewer, device core.D
 		}
 		ctx = next
 	}
+	// An episode or season missing a wanted image falls back to its
+	// series' (ArtPath). Read those series in one batch rather than one
+	// title per series as each row is listed.
+	if pre, ok := a.Catalog.(interface {
+		PreloadStored(context.Context, []core.RatingKey)
+	}); ok {
+		if parents := fallbackParents(ctx, titles); len(parents) > 0 {
+			pre.PreloadStored(ctx, parents)
+		}
+	}
 	out := make(map[core.RatingKey][]frontend.Image, len(titles))
 	for i := range titles {
 		images, _, err := a.List(frontend.WithArtworkTitle(ctx, &titles[i]), frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: titles[i].Key})
@@ -452,4 +462,34 @@ func (a Source) undatedSearchHit(ctx context.Context, key core.RatingKey) bool {
 		UndatedSearchHit(context.Context, core.RatingKey) bool
 	})
 	return ok && u.UndatedSearchHit(ctx, key)
+}
+
+// fallbackParents lists the series ArtPath reads for titles: those of
+// episodes and seasons without their own image of a wanted kind.
+func fallbackParents(ctx context.Context, titles []core.Title) []core.RatingKey {
+	poster := frontend.ArtworkKindWanted(ctx, frontend.ImagePoster) || frontend.ArtworkKindWanted(ctx, frontend.ImageThumb)
+	backdrop := frontend.ArtworkKindWanted(ctx, frontend.ImageBackdrop)
+	logo := frontend.ArtworkKindWanted(ctx, frontend.ImageLogo)
+	var out []core.RatingKey
+	for i := range titles {
+		t := &titles[i]
+		if t.Type != core.TypeEpisode && t.Type != core.TypeSeason {
+			continue
+		}
+		ownPoster := t.PosterPath != "" || (t.Type == core.TypeEpisode && t.StillPath != "")
+		if (!poster || ownPoster) && (!backdrop || t.BackdropPath != "") && (!logo || t.LogoPath != "") {
+			continue
+		}
+		pk := t.ShowKey
+		if pk == 0 {
+			pk = t.Key.Parent()
+			if t.Type == core.TypeEpisode {
+				pk = pk.Parent()
+			}
+		}
+		if pk != 0 {
+			out = append(out, pk)
+		}
+	}
+	return out
 }

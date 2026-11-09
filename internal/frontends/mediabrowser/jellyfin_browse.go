@@ -1422,10 +1422,7 @@ func (i *instance) attachParentArtwork(r *http.Request, viewer *frontend.Viewer,
 	if i == nil || r == nil || item == nil {
 		return
 	}
-	show := title.ShowKey
-	if show == 0 && (title.Key.Kind() == frontend.KindEpisode || title.Key.Kind() == frontend.KindSeason) {
-		show = frontend.ShowKey(title.Key.TMDB())
-	}
+	show := parentShowKey(title)
 	if show == 0 {
 		return
 	}
@@ -1445,6 +1442,51 @@ func (i *instance) attachParentArtwork(r *http.Request, viewer *frontend.Viewer,
 	if backs, _ := images["BackdropImageTags"].([]string); len(backs) > 0 {
 		item["ParentBackdropImageTags"] = backs
 		item["ParentBackdropItemId"] = seriesID
+	}
+}
+
+// parentShowKey is the series of an episode or season: its ShowKey, or the
+// show its key encodes.
+func parentShowKey(title frontend.Title) frontend.RatingKey {
+	show := title.ShowKey
+	if show == 0 && (title.Key.Kind() == frontend.KindEpisode || title.Key.Kind() == frontend.KindSeason) {
+		show = frontend.ShowKey(title.Key.TMDB())
+	}
+	return show
+}
+
+// prefetchParentArtwork signs the series artwork of every episode and
+// season in titles in one page signing, so attachParentArtwork reads it
+// from the request's cache. Signing each series alone ran the artwork,
+// overlay and grant reads once per series on the page.
+func (i *instance) prefetchParentArtwork(r *http.Request, titles []frontend.Title) {
+	if i == nil || i.protocol != "jellyfin" || r == nil {
+		return
+	}
+	cache, _ := r.Context().Value(showArtworkCacheKey{}).(map[frontend.RatingKey]map[string]any)
+	if cache == nil {
+		return
+	}
+	var shows []frontend.Title
+	seen := map[frontend.RatingKey]bool{}
+	for _, title := range titles {
+		if title.Type != "episode" && title.Type != "season" {
+			continue
+		}
+		show := parentShowKey(title)
+		if _, cached := cache[show]; show == 0 || cached || seen[show] {
+			continue
+		}
+		seen[show] = true
+		shows = append(shows, frontend.Title{Key: show})
+	}
+	if len(shows) == 0 {
+		return
+	}
+	// A series the batch did not sign is left to cachedShowArtwork, which
+	// signs it alone as before.
+	for key, art := range i.gridImagesFor(r, shows) {
+		cache[key] = art
 	}
 }
 

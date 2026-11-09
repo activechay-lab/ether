@@ -48,7 +48,6 @@ plex-appletv | /hubs/continueWatching/items  # E/C: Continue Watching per-series
 plex-appletv | playlist items deep  # C: warm DB time grows with flat rows
 plex-appletv playback | shows all titleSort p1  # C: warm DB time grows with flat rows
 plex-appletv playback | shows allLeaves p1  # C: warm DB time grows with flat rows
-infuse-jellyfin | episodes recursive MediaSources  # D
 emby-sdk | /Shows/NextUp  # D/E
 silo-appletv | home/sections  # C: Silo home first pass (continue walk, row admission)
 stremio | catalog movies  # D

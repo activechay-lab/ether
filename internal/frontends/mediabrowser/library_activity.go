@@ -196,6 +196,7 @@ func (i *instance) writeListedTitles(w http.ResponseWriter, r *http.Request, vie
 		return
 	}
 	images, paths := i.gridImagesFor(r, titles), i.virtualPaths(r, viewer, keys)
+	i.prefetchParentArtwork(r, titles)
 	ratingFacts := i.pageRatingFacts(r, viewer, titles)
 	i.fillSeriesTitles(r, viewer, titles)
 	r = i.pageEditions(r, viewer, keys)

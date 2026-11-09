@@ -315,12 +315,16 @@ func (c *Catalog) CountStoredEpisodes(ctx context.Context, show core.Filter) (in
 // popularity order of episodes is their key order. TMDB gives episodes no
 // popularity; this checks the index's two ends rather than assuming it.
 func (c *Catalog) EpisodesUnranked(ctx context.Context) (bool, error) {
-	// Separate MIN and MAX subqueries, so each is one index seek.
+	// Separate MIN and MAX subqueries, so each is one index seek. After the
+	// title index swap the index is the partial catalog_titles_child_pop;
+	// SQLite uses a partial index only when the query repeats its WHERE
+	// term (type='episode' alone does not imply the IN list). Without it
+	// each subquery read every episode: 3 to 12 s on a 540k-title library.
 	var ranked bool
-	err := c.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT MIN(popularity) FROM catalog_titles WHERE type='episode' AND browsable=0),0)<>0
-		OR COALESCE((SELECT MAX(popularity) FROM catalog_titles WHERE type='episode' AND browsable=0),0)<>0
-		OR COALESCE((SELECT MIN(popularity) FROM catalog_titles WHERE type='episode' AND browsable=1),0)<>0
-		OR COALESCE((SELECT MAX(popularity) FROM catalog_titles WHERE type='episode' AND browsable=1),0)<>0`).Scan(&ranked)
+	err := c.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT MIN(popularity) FROM catalog_titles WHERE type='episode' AND browsable=0 AND `+childPopPartial+`),0)<>0
+		OR COALESCE((SELECT MAX(popularity) FROM catalog_titles WHERE type='episode' AND browsable=0 AND `+childPopPartial+`),0)<>0
+		OR COALESCE((SELECT MIN(popularity) FROM catalog_titles WHERE type='episode' AND browsable=1 AND `+childPopPartial+`),0)<>0
+		OR COALESCE((SELECT MAX(popularity) FROM catalog_titles WHERE type='episode' AND browsable=1 AND `+childPopPartial+`),0)<>0`).Scan(&ranked)
 	return !ranked, err
 }
 
