@@ -36,10 +36,10 @@ import (
 // pages, filters, search and detail, and Infuse's resume and next-up.
 var plansSteps = map[string][]string{
 	"plex-appletv": {"/library/sections", "/hubs/continueWatching", "/library/onDeck", "/hubs", "/hubs/sections/movies", "movies all titleSort p1", "movies all titleSort deep", "movies all addedAt", "movies all rating",
-		"movies all popularity", "popular movie detail", "movies filter genre", "movies filter year", "movies filter decade", "movies filter actor", "movies filter director", "movies filter country", "movies filter studio", "movies filter unwatched",
+		"movies all popularity", "popular movie detail", "movies filter genre", "movies filter genre deep", "movies filter year", "movies filter decade", "movies filter actor", "movies filter director", "movies filter country", "movies filter studio", "movies filter unwatched",
 		"movies jump bar", "movies genre filter list", "shows all titleSort p1", "shows allLeaves p1", "show detail", "show children", "season children", "episode detail", "movie detail",
 		"/hubs/search star", "/library/search star", "person media", "shows onDeck", "shows filter addedAt before", "/hubs/promoted"},
-	"infuse-jellyfin": {"/UserItems/Resume", "/Shows/NextUp", "/UserViews", "movies p1 SortName", "search items star"},
+	"infuse-jellyfin": {"/UserItems/Resume", "/Shows/NextUp", "/UserViews", "movies p1 SortName", "movies p1 Genres=Drama", "movies deep Genres=Drama", "movies p1 Years", "search items star"},
 }
 
 // plansFullMirror is the catalogue size the statistics are scaled to.

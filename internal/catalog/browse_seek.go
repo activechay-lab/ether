@@ -42,15 +42,28 @@ func (c *Catalog) seekPage(ctx context.Context, q core.BrowseQuery, where string
 		dir, past = "DESC", "<"
 	}
 	order := col + " " + dir + ", t.key ASC"
+	if q.Sort == core.SortTitle {
+		where = c.genreProbe(where, q.Filter)
+	}
 	want := offset + limit
-	var items []core.Title
-	for _, r := range []struct {
-		pred string
-		args []any
-	}{
+	ranges := []seekRange{
 		{" AND " + col + "=? AND t.key>?", []any{value, int64(q.AfterKey)}},
 		{" AND " + col + past + "?", []any{value}},
-	} {
+	}
+	if years, ok := pageYears(q.Filter); ok && q.Sort == core.SortTitle && walkableFilter(q.Filter) && want <= mergedPageMax {
+		// A year range has no index in title order; each year's does.
+		keys, err := c.seekYearKeys(ctx, q, where, args, years, ranges, offset, limit)
+		if err != nil {
+			return nil, err
+		}
+		items, err := c.titlesInKeyOrder(ctx, keys)
+		if items == nil && err == nil {
+			items = []core.Title{}
+		}
+		return items, err
+	}
+	var items []core.Title
+	for _, r := range ranges {
 		if len(items) >= want {
 			break
 		}
@@ -70,6 +83,38 @@ func (c *Catalog) seekPage(ctx context.Context, q core.BrowseQuery, where string
 		}
 	}
 	return items, nil
+}
+
+type seekRange struct {
+	pred string
+	args []any
+}
+
+// seekYearKeys is seekPage's keys for a title-sorted page over a few
+// years: each year's rows past AfterKey, from its (year, sort_title)
+// index range, merged.
+func (c *Catalog) seekYearKeys(ctx context.Context, q core.BrowseQuery, where string, args []any, years []int, ranges []seekRange, offset, limit int) ([]core.RatingKey, error) {
+	dir := "ASC"
+	if q.Desc {
+		dir = "DESC"
+	}
+	want := offset + limit
+	var all []sortedKey
+	for _, y := range years {
+		n := 0
+		for _, r := range ranges {
+			if n >= want {
+				break
+			}
+			got, err := c.sortedKeys(ctx, `SELECT t.key, t.sort_title FROM catalog_titles t WHERE `+where+` AND t.year=?`+r.pred+` ORDER BY t.sort_title `+dir+`, t.key ASC LIMIT ?`, append(append(append(append([]any{}, args...), y), r.args...), want-n)...)
+			if err != nil {
+				return nil, err
+			}
+			n += len(got)
+			all = append(all, got...)
+		}
+	}
+	return mergedPage(all, q.Desc, offset, limit), nil
 }
 
 // CountWatched counts the titles matching f that userID has played (a watch

@@ -8,8 +8,6 @@
 # code scales on these paths; the new tier exposed them. "owner: cause".
 plex-appletv | episode postplay  # C: postplay hub hydrates related titles' detail per candidate; flaky: behind-the-read work; pending quiesce hook
 plex-appletv | /hubs/search star  # K/J (search): candidate hydration N+1 (visibility Get per series), rows over the window bound
-plex-appletv | movies filter genre deep  # C: deep offset page walks the genre's titles in sort order (keyset wanted)
-plex-appletv | movies filter decade  # C: year-range page and total read every title of the decade
 plex-appletv | movies filter unwatched  # C: unwatched page walks titles in sort order past the viewer's watched ones
 plex-appletv | movies unwatched  # C: /unwatched total counted directly (not the tally-less-watched shape)
 plex-appletv | movies all addedAt 15k  # C: offset 15k page by date added walks the index (keyset wanted)

@@ -228,7 +228,24 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		queryArgs = append(append([]any{}, orderArgs...), pageArgs...)
 	}
 	var items []core.Title
+	years, byYear := yearMergeable(q, offset, limit)
 	switch {
+	case byYear:
+		keys, err := c.yearMergedKeys(ctx, pageWhere, pageArgs, q, years, offset, limit)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if items, err = c.titlesInKeyOrder(ctx, keys); err != nil {
+			return core.Page{}, err
+		}
+	case titleWalkPage(q):
+		keys, err := c.titlePageKeys(ctx, pageWhere, pageArgs, q, offset, limit)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if items, err = c.titlesInKeyOrder(ctx, keys); err != nil {
+			return core.Page{}, err
+		}
 	case q.Filter.LocalOnly && q.NoTotal && q.Filter.Type == "" && !q.SortLastViewed && !computedAdded && offset+limit <= mergedPageMax:
 		keys, err := c.consoleMergedKeys(ctx, pageWhere, pageArgs, q, offset, limit)
 		if err != nil {
@@ -687,7 +704,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 	}
 	if len(f.Genres) > 0 {
-		conds = append(conds, `EXISTS (SELECT 1 FROM catalog_genres g WHERE g.key=t.key AND g.genre IN (`+placeholders(len(f.Genres))+`))`)
+		conds = append(conds, genreExistsSQL(len(f.Genres)))
 		for _, g := range f.Genres {
 			args = append(args, g)
 		}
@@ -716,11 +733,17 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			args = append(args, strings.ToLower(strings.TrimSpace(k)))
 		}
 	}
-	if f.YearFrom > 0 {
+	if f.YearFrom > 0 && f.YearFrom == f.YearTo {
+		// One year is an equality, so a title-sorted page walks the
+		// (year, sort_title) index in order: as a range, the planner reads
+		// every title of the year and sorts them.
+		conds = append(conds, "t.year=?")
+		args = append(args, f.YearFrom)
+	} else if f.YearFrom > 0 {
 		conds = append(conds, "t.year>=?")
 		args = append(args, f.YearFrom)
 	}
-	if f.YearTo > 0 {
+	if f.YearTo > 0 && f.YearTo != f.YearFrom {
 		conds = append(conds, "t.year<=? AND t.year>0")
 		args = append(args, f.YearTo)
 	}
@@ -1428,6 +1451,8 @@ func (c *Catalog) rankKeysQuery(ctx context.Context, q core.BrowseQuery, where s
 	// of the type in rank order (the non-browsable ones of a library are
 	// the few titles viewers touched below the bar).
 	upcoming := c.config().ShowUpcomingMovies && q.Filter.RuleVisibility == ""
+	// The walk is in rank order: a genre is a probe of each title passed.
+	where = c.genreProbe(where, q.Filter)
 	dir := "ASC" // rk is the negated popularity: ascending is most popular first
 	if q.Sort == core.SortPopularity && !q.Desc {
 		dir = "DESC"

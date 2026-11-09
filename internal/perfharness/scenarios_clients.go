@@ -26,7 +26,7 @@ func jellyfinLibrarySteps(f string) []Step {
 		{Name: "movies p1 CommunityRating", Class: classBrowse, Path: movies + "&sortBy=CommunityRating%2CSortName&sortOrder=Descending&startIndex=0"},
 		{Name: "movies p1 PremiereDate", Class: classBrowse, Path: movies + "&sortBy=PremiereDate%2CSortName&sortOrder=Descending&startIndex=0"},
 		{Name: "movies p1 Genres=Drama", Class: classBrowse, Path: movies + "&genres=Drama&sortBy=SortName&sortOrder=Ascending&startIndex=0"},
-		{Name: "movies deep Genres=Drama", Class: classBrowse, Path: movies + "&genres=Drama&sortBy=SortName&sortOrder=Ascending&startIndex=2000"},
+		{Name: "movies deep Genres=Drama", Class: classBrowse, Path: movies + "&genres=Drama&sortBy=SortName&sortOrder=Ascending&startIndex=1000"},
 		{Name: "movies p1 Years", Class: classBrowse, Path: movies + "&years=1999&sortBy=SortName&sortOrder=Ascending&startIndex=0"},
 		{Name: "movies p1 IsPlayed", Class: classBrowse, Path: movies + "&filters=IsPlayed&sortBy=SortName&sortOrder=Ascending&startIndex=0"},
 		{Name: "movies p1 IsUnplayed", Class: classBrowse, Path: movies + "&filters=IsUnplayed&sortBy=SortName&sortOrder=Ascending&startIndex=0"},

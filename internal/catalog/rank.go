@@ -49,7 +49,7 @@ func rankTableSQL(side string, bigint string) string {
 // search).
 func rankIndexSQL(side string) string {
 	t := "catalog_rank_" + side
-	return `CREATE INDEX ` + t + `_pop ON ` + t + `(type, browsable, adult, rk, release_known, released_ts);
+	return `CREATE INDEX ` + t + `_pop ON ` + t + `(type, browsable, adult, rk, key, release_known, released_ts);
 CREATE INDEX ` + t + `_year ON ` + t + `(type, browsable, adult, year, rk);
 CREATE INDEX ` + t + `_lang ON ` + t + `(type, browsable, adult, language, rk);
 CREATE INDEX ` + t + `_runtime ON ` + t + `(type, browsable, adult, runtime_sec, rk);
@@ -110,6 +110,17 @@ CREATE TRIGGER catalog_rank_delete AFTER DELETE ON catalog_titles WHEN old.type 
 END;
 INSERT INTO catalog_meta(k,v) VALUES('rank_side','a'),('rank_building','') ON CONFLICT(k) DO UPDATE SET v=excluded.v;`
 	store.Register("catalog", 53, sqlite)
+	// A deep popularity page walks _pop in (rk, key) order, the order pages
+	// are cut in. Without the key the planner walked _all instead and read
+	// each rank row it passed: 5,000 pages for a page 10,000 deep against
+	// 115. Rebuilds recreate the idle copy from rankIndexSQL; this moves
+	// both copies now.
+	var popKey []string
+	for _, side := range []string{"a", "b"} {
+		t := "catalog_rank_" + side
+		popKey = append(popKey, `DROP INDEX IF EXISTS `+t+`_pop`, `CREATE INDEX `+t+`_pop ON `+t+`(type, browsable, adult, rk, key, release_known, released_ts)`)
+	}
+	store.Register("catalog", 57, strings.Join(popKey, ";\n")+";")
 	// PostgreSQL: one row trigger function writes the live copy, and records
 	// the key while the other is being rebuilt.
 	pgUpsert := func(side string) string {
