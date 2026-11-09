@@ -67,7 +67,7 @@ func (s *Server) titleAllowed(u *core.User, t *core.Title) bool {
 }
 
 func (s *Server) visibility() experience.Visibility {
-	v := experience.Visibility{Policy: s.d.AccessPolicy, FilterAvailable: s.d.FilterAvailable,
+	v := experience.Visibility{Policy: s.d.AccessPolicy, FilterAvailable: s.d.FilterAvailable, JudgedOnFacts: s.d.JudgedOnFacts,
 		SectionFor: func(t core.MediaType) (int, bool) { sec, ok := s.untitledSectionFor(t); return sec.ID, ok }}
 	if s.d.Catalog != nil {
 		v.GetTitle = s.artworkTitle
@@ -96,6 +96,12 @@ func (s *Server) openableTitles(ctx context.Context, u *core.User, ts []core.Tit
 }
 
 func (s *Server) visibleTitle(ctx context.Context, u *core.User, t *core.Title) bool {
+	return s.visibleTitleWith(ctx, s.visibility(), u, t)
+}
+
+// visibleTitleWith is visibleTitle through vis (s.visibility() with a
+// caller's own show lookup).
+func (s *Server) visibleTitleWith(ctx context.Context, vis experience.Visibility, u *core.User, t *core.Title) bool {
 	if t == nil {
 		return false
 	}
@@ -105,7 +111,7 @@ func (s *Server) visibleTitle(ctx context.Context, u *core.User, t *core.Title) 
 	if _, pinned := shelfMember(ctx, t.Key); pinned {
 		return s.titleAllowed(u, t)
 	}
-	return s.visibility().Visible(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
+	return vis.Visible(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
 }
 
 // admittedTitle shares a cheap predicate over facts the source already loaded.

@@ -392,7 +392,7 @@ type factSet uint16
 
 const (
 	factCredits     factSet = 1 << (8 + iota) // every credit
-	factListCredits                           // what a list item shows: three cast members, all crew
+	factListCredits                           // what a list item shows: three cast members, the directors and writers
 	factAltTitles
 	// factRowCredits is what an export row shows: the names of the
 	// directors and the first three cast members, no people join.
@@ -440,7 +440,8 @@ func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx 
 	}
 	creditFrom := `catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)`
 	if set&factListCredits != 0 && set&factCredits == 0 {
-		creditFrom += ` AND (c.kind<>'cast' OR c.ord<` + strconv.Itoa(listCast) + `)`
+		// A list item names no other crew (plex convert: Director, Writer, Role).
+		creditFrom += ` AND (c.kind IN ('director','writer') OR (c.kind='cast' AND c.ord<` + strconv.Itoa(listCast) + `))`
 	}
 	if set&(factCredits|factListCredits) != 0 {
 		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", creditFrom)

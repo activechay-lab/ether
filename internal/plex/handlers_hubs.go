@@ -1293,8 +1293,8 @@ type peopleSearchCatalog interface {
 // peopleBatchCatalog reads every searched person's credits and their
 // titles' visibility rows in a few statements (catalog/people_batch.go).
 type peopleBatchCatalog interface {
-	PersonCreditsMany(ctx context.Context, persons []int64, types []core.MediaType, limit int) (map[int64][]core.PersonCredit, error)
-	CachedVisibilityRows(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	PersonCreditTitles(ctx context.Context, persons []int64, types []core.MediaType, limit int, facts core.TitleFacts) (map[int64][]core.PersonCredit, map[core.RatingKey]core.Title, error)
+	CachedVisibilityRows(ctx context.Context, keys []core.RatingKey, facts core.TitleFacts) (map[core.RatingKey]core.Title, error)
 }
 
 type reasonedTitle struct {
@@ -1310,6 +1310,8 @@ type peopleSearchResult struct {
 	directors     []model.Directory
 	directorsMore bool
 	titles        map[core.MediaType][]reasonedTitle
+	// rows: titles are visibility rows, to be read in full when shown.
+	rows bool
 	// actorScores and directorScores are each directory's relevance.
 	actorScores    []float64
 	directorScores []float64
@@ -1510,6 +1512,8 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 	}
 	// An explicit search: rules the owner limited to browsing do not apply.
 	catVis, _ := s.d.Catalog.(interface{ SearchVisible(*core.Title) bool })
+	// The batched path judges rows; it resolves their shows from rows too.
+	vis := s.visibility()
 	now := s.now()
 	creditLimit := max(limit*3, 30)
 	// A person whose whole name is the query leads, then the most credited.
@@ -1557,22 +1561,11 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		for i, p := range walked {
 			ids[i] = p.TMDB
 		}
-		credits, err := batch.PersonCreditsMany(ctx, ids, queryTypes, creditLimit)
+		credits, rows, err := batch.PersonCreditTitles(withStoredPolicy(ctx), ids, queryTypes, creditLimit, vis.TitleFacts(pr.User))
 		if err != nil {
 			return out
 		}
-		var keys []core.RatingKey
-		seenKey := map[core.RatingKey]bool{}
-		for _, cs := range credits {
-			for _, cr := range cs {
-				if !seenKey[cr.Key] {
-					seenKey[cr.Key] = true
-					keys = append(keys, cr.Key)
-				}
-			}
-		}
-		rows, err := batch.CachedVisibilityRows(withStoredPolicy(ctx), keys)
-		if err != nil {
+		if err := s.peopleVisibilityRows(ctx, batch, &vis, pr.User, rows); err != nil {
 			return out
 		}
 		for i, p := range walked {
@@ -1634,7 +1627,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 			if t.Adult || !t.IsReleased(now) {
 				continue
 			}
-			if !s.visibleTitle(ctx, pr.User, &t) {
+			if !s.visibleTitleWith(ctx, vis, pr.User, &t) {
 				continue
 			}
 			sec, hasSec := s.sectionFor(t.Type)
@@ -1725,31 +1718,116 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		addReasoned(rt)
 	}
 	if batched {
-		// A hub shows at most limit titles of a type: read those in full
-		// (genres, cast, directors for the list), cached as Get caches them.
-		var keys []core.RatingKey
+		// A hub shows at most limit titles of a type. They are visibility
+		// rows: the hub reads in full the ones it shows (hubReasoned).
 		for typ, rts := range out.titles {
 			out.titles[typ] = rts[:min(len(rts), limit)]
-			for _, rt := range out.titles[typ] {
-				keys = append(keys, rt.title.Key)
-			}
+		}
+		out.rows = true
+	}
+	return out
+}
+
+// hubSearchCandidates asks the catalogue for the search's candidate window
+// as rows with what the viewer's policy reads, and returns how a hub reads
+// the rows it shows as list items. Nil when the catalogue cannot.
+func (s *Server) hubSearchCandidates(ctx context.Context, u *core.User) (context.Context, func([]core.Title) ([]core.Title, error)) {
+	list, ok := s.d.Catalog.(interface {
+		SearchListDetails(context.Context, []core.Title) ([]core.Title, error)
+	})
+	if !ok {
+		return ctx, nil
+	}
+	vis := s.visibility()
+	judge, known := vis.FactJudge(core.WithCatalogViewer(ctx, u))
+	if !known {
+		return ctx, nil
+	}
+	ctx = core.WithSearchCandidates(ctx, &core.SearchCandidates{Facts: vis.TitleFacts(u), Detail: judge})
+	return ctx, func(items []core.Title) ([]core.Title, error) { return list.SearchListDetails(ctx, items) }
+}
+
+// hubReasoned is the titles people found for a hub of typ: those not in seen,
+// in order, as many as fill room and one more (the hub's More), read in
+// full when they are visibility rows. A title no longer readable gives its
+// place to the next, as it did when every reasoned title was read first.
+func (s *Server) hubReasoned(ctx context.Context, people peopleSearchResult, typ core.MediaType, seen map[core.RatingKey]bool, room int) []reasonedTitle {
+	var cands []reasonedTitle
+	for _, rt := range people.titles[typ] {
+		if !seen[rt.title.Key] {
+			cands = append(cands, rt)
+		}
+	}
+	if !people.rows {
+		return cands
+	}
+	want := room + 1
+	if room < 0 {
+		want = 0
+	}
+	var out []reasonedTitle
+	for next := 0; len(out) < want && next < len(cands); {
+		part := cands[next:min(next+want-len(out), len(cands))]
+		next += len(part)
+		keys := make([]core.RatingKey, len(part))
+		for i, rt := range part {
+			keys[i] = rt.title.Key
 		}
 		full := map[core.RatingKey]core.Title{}
 		for _, t := range s.getTitles(withStoredPolicy(ctx), keys) {
 			full[t.Key] = t
 		}
-		for typ, rts := range out.titles {
-			kept := rts[:0]
-			for _, rt := range rts {
-				if t, ok := full[rt.title.Key]; ok {
-					rt.title = t
-					kept = append(kept, rt)
-				}
+		for _, rt := range part {
+			if t, ok := full[rt.title.Key]; ok {
+				rt.title = t
+				out = append(out, rt)
 			}
-			out.titles[typ] = kept
 		}
 	}
 	return out
+}
+
+// peopleVisibilityRows completes a people search's visibility rows
+// (PersonCreditTitles) for vis's decisions for u: titles availability
+// judges on their facts are read in full, and vis resolves the shows of
+// seasons and episodes from their rows.
+func (s *Server) peopleVisibilityRows(ctx context.Context, batch peopleBatchCatalog, vis *experience.Visibility, u *core.User, rows map[core.RatingKey]core.Title) error {
+	ctx = withStoredPolicy(ctx)
+	judge, known := vis.FactJudge(core.WithCatalogViewer(ctx, u))
+	var detail, shows []core.RatingKey
+	seenShow := map[core.RatingKey]bool{}
+	for key, t := range rows {
+		if !known || (judge != nil && judge(t)) {
+			detail = append(detail, key)
+		}
+		if t.ShowKey != 0 && !seenShow[t.ShowKey] {
+			seenShow[t.ShowKey] = true
+			shows = append(shows, t.ShowKey)
+		}
+	}
+	if len(detail) > 0 {
+		for _, t := range s.getTitles(ctx, detail) {
+			rows[t.Key] = t
+		}
+	}
+	if len(shows) == 0 {
+		return nil
+	}
+	parents, err := batch.CachedVisibilityRows(ctx, shows, vis.TitleFacts(u))
+	if err != nil {
+		return err
+	}
+	get := vis.GetTitle
+	vis.GetTitle = func(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+		if t, ok := parents[key]; ok {
+			return &t, nil
+		}
+		if get == nil {
+			return nil, core.ErrNotFound
+		}
+		return get(ctx, key)
+	}
+	return nil
 }
 
 func (s *Server) searchTypes(u *core.User, sectionID int) []core.MediaType {
@@ -1835,9 +1913,11 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 	peopleDone := make(chan peopleSearchResult, 1)
 	go func() { peopleDone <- s.searchPeople(ctx, pr, query, sectionID, limit, true) }()
 	// Hub items render as list items (three cast members, directors,
-	// genres): the catalogue reads those facts for the page, not every
-	// credit, keyword and alternative title.
-	result, err := s.searchExperience().Resolve(core.WithSearchListFacts(ctx), pr.User, query, s.searchTypes(pr.User, sectionID), fetch, true)
+	// genres): the catalogue reads those facts for the titles a hub shows,
+	// not every credit, keyword and alternative title, and returns the rest
+	// of its window as rows (core.SearchCandidates).
+	searchCtx, listDetails := s.hubSearchCandidates(core.WithSearchListFacts(ctx), pr.User)
+	result, err := s.searchExperience().Resolve(searchCtx, pr.User, query, s.searchTypes(pr.User, sectionID), fetch, true)
 	people := <-peopleDone
 	if err != nil {
 		s.writeErr(w, r, err)
@@ -1872,10 +1952,7 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 					seen[t.Key] = true
 					items = append(items, t)
 				}
-				for _, rt := range people.titles[mediaType] {
-					if seen[rt.title.Key] {
-						continue
-					}
+				for _, rt := range s.hubReasoned(ctx, people, mediaType, seen, limit-len(items)) {
 					seen[rt.title.Key] = true
 					items = append(items, rt.title)
 					reasons[rt.title.Key.String()] = rt
@@ -1884,6 +1961,12 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 			more := false
 			if len(items) > limit {
 				items, more = items[:limit], true
+			}
+			if listDetails != nil {
+				if items, err = listDetails(items); err != nil {
+					s.writeErr(w, r, err)
+					return
+				}
 			}
 			h := core.Hub{ID: hd.id, Title: hd.title, Type: mediaType, Items: items, More: more, Style: "shelf"}
 			scores := make(map[string]float64, len(items))

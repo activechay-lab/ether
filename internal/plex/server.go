@@ -93,6 +93,9 @@ type Deps struct {
 	SessionCoordination *sessions.Coordination
 	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []core.Title) []core.Title
+	// JudgedOnFacts reports, for a request, the titles FilterAvailable judges
+	// on their full facts (availability.Service.JudgedOnFacts).
+	JudgedOnFacts       func(context.Context) func(core.Title) bool
 	PrioritizeAvailable func(context.Context, []core.Title) []core.Title
 	EpisodeOrder        frontend.EpisodeOrder
 	PlexGUID            frontend.LibraryGUIDs

@@ -38,15 +38,15 @@ func (s *State) Familiar(ctx context.Context, userID int64, keys []core.RatingKe
 	for _, k := range keys {
 		switch k.Kind() {
 		case core.KindMovie:
-			probes = append(probes, probe{`SELECT CAST(? AS BIGINT), CASE
+			probes = append(probes, probe{`SELECT CAST(? AS BIGINT) AS k, CASE
 				WHEN EXISTS (SELECT 1 FROM state_watch WHERE user_id=? AND rating_key=? AND ` + touched + `) THEN 2
-				WHEN EXISTS (SELECT 1 FROM state_watch WHERE rating_key=? AND ` + touched + `) THEN 1 ELSE 0 END`,
+				WHEN EXISTS (SELECT 1 FROM state_watch WHERE rating_key=? AND ` + touched + `) THEN 1 ELSE 0 END AS level`,
 				[]any{int64(k), userID, int64(k), int64(k)}})
 		case core.KindShow:
 			lo, hi := int64(core.EpisodeKey(k.TMDB(), 0, 0)), int64(core.EpisodeKey(k.TMDB()+1, 0, 0))
-			probes = append(probes, probe{`SELECT CAST(? AS BIGINT), CASE
+			probes = append(probes, probe{`SELECT CAST(? AS BIGINT) AS k, CASE
 				WHEN EXISTS (SELECT 1 FROM state_watch WHERE user_id=? AND rating_key>=? AND rating_key<? AND ` + touched + `) THEN 2
-				WHEN EXISTS (SELECT 1 FROM state_watch WHERE rating_key>=? AND rating_key<? AND ` + touched + `) THEN 1 ELSE 0 END`,
+				WHEN EXISTS (SELECT 1 FROM state_watch WHERE rating_key>=? AND rating_key<? AND ` + touched + `) THEN 1 ELSE 0 END AS level`,
 				[]any{int64(k), userID, lo, hi, lo, hi}})
 		}
 	}
@@ -54,7 +54,9 @@ func (s *State) Familiar(ctx context.Context, userID int64, keys []core.RatingKe
 		var parts []string
 		var args []any
 		for i, p := range probes[start:min(start+100, len(probes))] {
-			parts = append(parts, "SELECT * FROM ("+p.sql+") AS p"+strconv.Itoa(i))
+			// Only titles someone touched come back: most candidates have
+			// no history, and the result is one row per familiar title.
+			parts = append(parts, "SELECT k, level FROM ("+p.sql+") AS p"+strconv.Itoa(i)+" WHERE level>0")
 			args = append(args, p.args...)
 		}
 		rows, err := s.db.QueryContext(ctx, strings.Join(parts, " UNION ALL "), args...)

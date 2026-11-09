@@ -48,7 +48,7 @@ func (s *Service) ExportLibraryPage(ctx context.Context, viewer *core.Viewer, de
 	// carries what this viewer's policy reads; a title availability judges
 	// on its facts comes back in full. Detail stays with one-title reads.
 	q := core.BrowseQuery{Filter: filter, Sort: core.SortKey, AfterKey: after, Limit: limit, NoTotal: true}
-	if detail, ok := s.d.Visibility.judgedOnFacts(ctx); ok {
+	if detail, ok := s.d.Visibility.FactJudge(ctx); ok {
 		q.ListRows = &core.ListRows{Facts: s.d.Visibility.TitleFacts(v) | core.FactGenres, Detail: detail}
 	}
 	page, err := s.d.Browse(ctx, q)

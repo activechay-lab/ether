@@ -1249,7 +1249,7 @@ func (s *Service) searchCandidates(ctx context.Context, v *core.User, q frontend
 	if s.d.Search.Details == nil || q.Filter.Person != 0 || q.Sort == core.SortAdded {
 		return nil
 	}
-	detail, ok := s.d.Visibility.judgedOnFacts(ctx)
+	detail, ok := s.d.Visibility.FactJudge(ctx)
 	if !ok {
 		return nil
 	}

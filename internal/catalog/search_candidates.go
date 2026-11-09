@@ -84,6 +84,37 @@ func (c *Catalog) SearchDetails(ctx context.Context, items []core.Title) ([]core
 	return out, nil
 }
 
+// SearchListDetails is SearchDetails for titles shown as list items
+// (core.WithSearchListFacts): the partial ones gain the facts a list shows
+// (hydrateListSlice) on the rows the search read, not cached, each keeping
+// its search score.
+func (c *Catalog) SearchListDetails(ctx context.Context, items []core.Title) ([]core.Title, error) {
+	cand := core.SearchCandidatesFrom(ctx)
+	out := slices.Clone(items)
+	var rows []core.Title
+	var at []int
+	for i := range out {
+		if cand.Partial(out[i].Key) {
+			t := out[i]
+			// The facts the window read are read again with the list's.
+			t.Genres, t.Studios, t.Countries, t.Keywords, t.AlternativeTitles = nil, nil, nil, nil, nil
+			t.Cast, t.Directors, t.Writers, t.Crew = nil, nil, nil, nil
+			rows = append(rows, t)
+			at = append(at, i)
+		}
+	}
+	if len(rows) == 0 {
+		return out, nil
+	}
+	if err := c.hydrateListSlice(ctx, rows); err != nil {
+		return nil, err
+	}
+	for j, i := range at {
+		out[i] = rows[j]
+	}
+	return out, nil
+}
+
 // readSearchFull replaces items[i] for each i in at with its full stored
 // title, read in one batch and cached as Get caches it, keeping its search
 // score. A title no longer stored stays as it is.

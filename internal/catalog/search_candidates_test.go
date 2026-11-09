@@ -106,6 +106,29 @@ func testSearchCandidates(t *testing.T, indexed bool) {
 					t.Fatalf("partial candidate %d: cast %d, genres %v", i, len(got[i].Cast), got[i].Genres)
 				}
 			}
+			// Shown as list items (a Plex hub), the rows gain the list's facts.
+			// (Before the title index's first build, a full search returns
+			// the literal match's titles in full; a candidate search reads
+			// them as list items as it does once the index is built.)
+			listCtx := core.WithSearchListFacts(ctx)
+			wantList, err := c.Search(listCtx, "star", tc.types, 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listCand := &core.SearchCandidates{Facts: core.FactGenres, Detail: cand.Detail}
+			listCandCtx := core.WithSearchCandidates(listCtx, listCand)
+			gotList, err := c.Search(listCandCtx, "star", tc.types, 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotList, err = c.SearchListDetails(listCandCtx, gotList); err != nil {
+				t.Fatal(err)
+			}
+			for i := range wantList {
+				if indexed && listCand.Partial(wantList[i].Key) && !reflect.DeepEqual(gotList[i], wantList[i]) {
+					t.Fatalf("list detail %d:\n%+v\nwant\n%+v", i, gotList[i], wantList[i])
+				}
+			}
 			details, err := c.SearchDetails(candCtx, got)
 			if err != nil {
 				t.Fatal(err)

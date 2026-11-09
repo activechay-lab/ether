@@ -67,9 +67,9 @@ func (v Visibility) TitleFacts(viewer *core.User) core.TitleFacts {
 	return core.VisibilityFacts
 }
 
-// judgedOnFacts is JudgedOnFacts for one request: nil when no title is,
+// FactJudge is JudgedOnFacts for one request: nil when no title is,
 // false when the visibility cannot tell.
-func (v Visibility) judgedOnFacts(ctx context.Context) (func(core.Title) bool, bool) {
+func (v Visibility) FactJudge(ctx context.Context) (func(core.Title) bool, bool) {
 	if v.FilterAvailable == nil {
 		return nil, true
 	}

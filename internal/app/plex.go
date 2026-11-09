@@ -85,6 +85,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	if !cfg.Spike.Enabled && a.availability != nil {
 		deps.Catalog = &availabilityCatalog{Catalog: a.catalog, availability: a.availability}
 		deps.FilterAvailable = a.availability.FilterDiscovery
+		deps.JudgedOnFacts = a.availability.JudgedOnFacts
 	}
 	if !cfg.Spike.Enabled {
 		deps.Search = a.searchSources()
