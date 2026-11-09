@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // consoleStreamTopic carries console events between nodes. Every node runs
@@ -185,4 +188,56 @@ func (a *App) consoleStreamHandlers(m map[string]http.Handler) {
 	}
 	rt.mu.Unlock()
 	m["stream"] = admin.StreamHandler(rt.hub)
+}
+
+// consoleSessionsEvery bounds how long a stream that started or ended takes
+// to show on open consoles.
+const consoleSessionsEvery = 2 * time.Second
+
+// watchConsoleSessions tells open consoles when this node's set of live
+// streams changes, so Overview and Activity drop an ended or idle-expired
+// stream within seconds instead of at their next poll. It reads in-memory
+// session snapshots only, and only while a console is connected. Other
+// nodes run their own watcher; Publish forwards their events here.
+func (a *App) watchConsoleSessions(ctx context.Context) {
+	if a.streamRT == nil {
+		return
+	}
+	owner := ownerPlayback{Playback: a.playback, app: a}
+	a.streamRT.watchSessions(ctx, consoleSessionsEvery, owner.localSessions)
+}
+
+func (r *consoleStreamRuntime) watchSessions(ctx context.Context, every time.Duration, list func() []*core.PlaySession) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	var last string
+	primed := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if r.hub.Subscribers() == 0 {
+			primed = false
+			continue
+		}
+		sig := consoleSessionsSignature(list())
+		if primed && sig != last {
+			_ = r.Publish(ctx, admin.StreamSessions, nil)
+		}
+		last, primed = sig, true
+	}
+}
+
+// consoleSessionsSignature identifies a set of live streams by ID.
+func consoleSessionsSignature(sessions []*core.PlaySession) string {
+	ids := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		if s != nil {
+			ids = append(ids, s.ID)
+		}
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, "\n")
 }

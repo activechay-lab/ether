@@ -196,6 +196,9 @@ describe("Getting started", () => {
       fake.fetch = async (input, init) => {
         const response = await original(input, init);
         const url = String(input);
+        if (url.endsWith("/status/sessions")) {
+          return new Response(JSON.stringify({ name: "sessions", value: [] }), { status: 200 });
+        }
         if (url.endsWith("/dashboard")) {
           const body = await response.json();
           body.sections.sessions = [];

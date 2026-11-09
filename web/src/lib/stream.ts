@@ -17,7 +17,8 @@ type StreamEventType =
   | "plugins.log"
   | "studio.reload"
   | "agent.approval"
-  | "notice";
+  | "notice"
+  | "sessions.changed";
 
 export interface StreamEvent<T = unknown> {
   id: string;

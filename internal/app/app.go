@@ -735,6 +735,7 @@ func (a *App) Run(ctx context.Context) error {
 	defer background.Wait()
 	defer cancel()
 	background.start(func() { a.runNodeControl(ctx) })
+	background.start(func() { a.watchConsoleSessions(ctx) })
 
 	// Singleton work runs only on the cluster leader (always, standalone).
 	// trakt.Start stays on every node: it delivers this node's own
