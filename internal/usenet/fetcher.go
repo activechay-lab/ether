@@ -914,6 +914,52 @@ func (f *Fetcher) MaxConnections() int {
 	return n
 }
 
+// ReadAheadConnections reports how many PriorityReadahead fetches usable
+// non-backfill providers can serve concurrently on this node. Each top-tier
+// primary pool contributes its live semaphore size (reflecting cluster shares
+// and learned server caps) minus its reserved live slot (at least one on a
+// single-socket pool); lower-priority primary tiers contribute up to half their
+// slots while no live viewer uses them, matching spill.go's quiet spillover
+// rule. Backfill (block) accounts and unreachable/disabled pools contribute 0.
+func (f *Fetcher) ReadAheadConnections() int {
+	if f == nil {
+		return 0
+	}
+	f.mu.RLock()
+	tiers := f.tiers
+	f.mu.RUnlock()
+	headPrio := 0
+	haveHead := false
+	total := 0
+	for _, tier := range tiers {
+		for _, p := range tier {
+			if p.cfg.Backfill || !p.serves() {
+				continue
+			}
+			ss := p.sem.stats()
+			if ss.Size <= 0 {
+				continue
+			}
+			if !haveHead {
+				headPrio = p.cfg.Priority
+				haveHead = true
+			}
+			if p.cfg.Priority == headPrio {
+				if ss.Size >= 2 {
+					total += ss.Size - 1
+				} else {
+					total += 1
+				}
+				continue
+			}
+			if ss.Live == 0 && ss.Waiting[core.PriorityLive] == 0 {
+				total += ss.Size / 2
+			}
+		}
+	}
+	return total
+}
+
 // PipelineDepth is the normal read-ahead BODY depth ceiling per connection.
 // Background fetches use one; repair bursts may use the configured larger depth.
 // This is a policy diagnostic, not current socket occupancy.

@@ -193,6 +193,11 @@ func (s *source) readAtWithPriority(parent context.Context, p []byte, off int64,
 		}
 		return n, err
 	}
+	if ahead && n > 0 && s.playRate.Load() > 0 {
+		// The first foreground read teaches perFetchBps; widen the cursor
+		// window and schedule additional adaptive concurrency immediately.
+		s.growPlayingWindow(off, int64(n))
+	}
 	if n < len(p) {
 		return n, io.EOF
 	}
@@ -280,6 +285,17 @@ func speculate(ctx context.Context, e *Engine, rel *release, p *plan, pcs []piec
 	return func() { cancel(); wg.Wait() }
 }
 
+func (s *source) windowBudget(n int64) (partSize, windowCap int64) {
+	opts := s.e.opts
+	partSize = s.rel.partSize.Load()
+	if partSize <= 0 {
+		partSize = 716800
+	}
+	windowCap = min(opts.ReadAheadMax, opts.HotBufferBytes/2,
+		max(int64(0), opts.HotBufferBytes-n-2*partSize))
+	return partSize, windowCap
+}
+
 // readAhead updates the reader cursors and schedules background fetches
 // ahead of a sequential reader.
 func (s *source) readAhead(off, n int64) {
@@ -290,12 +306,10 @@ func (s *source) readAhead(off, n int64) {
 	// decoded cache. Reserve half the cache for demand reads, and account for
 	// whole articles straddling the read/window boundaries. Otherwise a small
 	// cache can evict prefetched bytes before the player ever consumes them.
-	partSize := s.rel.partSize.Load()
-	if partSize <= 0 {
-		partSize = 716800
-	}
-	windowCap := min(opts.ReadAheadMax, opts.HotBufferBytes/2,
-		max(int64(0), opts.HotBufferBytes-n-2*partSize))
+	partSize, windowCap := s.windowBudget(n)
+	rate := s.playRate.Load()
+	s.lastRead.Store(now.UnixNano())
+	targetLimit := s.raLimit()
 
 	s.mu.Lock()
 	if s.closed {
@@ -314,6 +328,9 @@ func (s *source) readAhead(off, n int64) {
 		if s.e.repairOptions().Enabled {
 			initial = max(initial, 32<<20)
 		}
+		if rate > 0 {
+			initial = max(initial, min(opts.ReadAheadMax, max(2*rate, 2*int64(targetLimit)*partSize)))
+		}
 		c = &cursor{next: end, window: min(initial, windowCap), frontier: end, consumed: n}
 		if len(s.cursors) < maxCursors {
 			s.cursors = append(s.cursors, c)
@@ -331,10 +348,10 @@ func (s *source) readAhead(off, n int64) {
 			// Sequential progress: grow the window with the bytes consumed.
 			c.window = min(windowCap, c.window+2*(end-c.next))
 			c.consumed += end - c.next
-			if c.consumed >= playMinConsumed {
+			if rate > 0 || c.consumed >= playMinConsumed {
 				// A playing reader's window must hold every fetch the
 				// adaptive concurrency allows, twice over.
-				c.window = max(c.window, min(windowCap, 2*int64(s.raLimit())*partSize))
+				c.window = max(c.window, min(windowCap, 2*int64(targetLimit)*partSize))
 			}
 		}
 		c.next = max(c.next, end)
@@ -342,11 +359,36 @@ func (s *source) readAhead(off, n int64) {
 	c.requestBegin = off
 	c.window = min(c.window, windowCap)
 	c.used = now
-	s.lastRead.Store(now.UnixNano())
 	c.blocked = false // a new demand read permits retrying a failed layout check
 	s.mu.Unlock()
 	s.kickReadAhead()
 	s.kickPlayAhead()
+}
+
+// growPlayingWindow expands an active cursor's window once completed fetches
+// raise raLimit, so adaptive read-ahead fans out without waiting for the next
+// foreground ReadAt.
+func (s *source) growPlayingWindow(off, n int64) {
+	partSize, windowCap := s.windowBudget(n)
+	wantWindow := min(windowCap, 2*int64(s.raLimit())*partSize)
+	end := off + n
+	grew := false
+	s.mu.Lock()
+	if !s.closed {
+		for _, cur := range s.cursors {
+			if cur.requestBegin == off || (end >= cur.next-backSlack && end <= cur.next+cur.window) {
+				if wantWindow > cur.window {
+					cur.window = wantWindow
+					grew = true
+				}
+				break
+			}
+		}
+	}
+	s.mu.Unlock()
+	if grew {
+		s.kickReadAhead()
+	}
 }
 
 // kickReadAhead coalesces wakeups into one source-local scheduler. Workers add

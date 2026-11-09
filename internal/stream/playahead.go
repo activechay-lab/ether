@@ -98,7 +98,8 @@ func (s *source) playAheadLoop() {
 			if !ok {
 				break
 			}
-			err := s.e.prefetchRangeN(s.ctx, s.rel, s.plan, s.releaseID, from, to-from, s.raLimit(), &s.meter)
+			parallel := max(1, min(s.e.opts.PrefetchParallel, s.raLimit()/2))
+			err := s.e.prefetchRangeN(s.ctx, s.rel, s.plan, s.releaseID, from, to-from, parallel, &s.meter)
 			if s.ctx.Err() != nil {
 				return
 			}

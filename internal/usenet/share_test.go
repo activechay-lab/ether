@@ -228,3 +228,43 @@ func TestConnectionShareAppliesToNewProviders(t *testing.T) {
 		t.Fatalf("new provider: %+v", ps)
 	}
 }
+
+func TestReadAheadConnectionsRespectsTiersBackfillAndShares(t *testing.T) {
+	s := startShareServer(t)
+	p0a := s.Provider("p0a", 30)
+	p0a.Priority = 0
+	p0b := s.Provider("p0b", 10)
+	p0b.Priority = 0
+	p1 := s.Provider("p1", 12)
+	p1.Priority = 1
+	block := s.Provider("block", 50)
+	block.Priority = 2
+	block.Backfill = true
+
+	f := newFetcher(t, []config.UsenetProvider{p0a, p0b, p1, block}, Options{MinIdle: -1})
+	// Tier 0: (30-1) + (10-1) = 38; quiet Tier 1: 12/2 = 6; Backfill: 0 => 44.
+	if got := f.ReadAheadConnections(); got != 44 {
+		t.Fatalf("ReadAheadConnections() = %d, want 44", got)
+	}
+	// Cluster share halves configured limits: Tier 0: (15-1)+(5-1)=18; Tier 1: 6/2=3 => 21.
+	f.SetConnectionShare(func(configured int) int { return configured / 2 })
+	if got := f.ReadAheadConnections(); got != 21 {
+		t.Fatalf("shared ReadAheadConnections() = %d, want 21", got)
+	}
+	// Holding a live slot on the lower-priority tier removes its quiet spill share.
+	f.mu.RLock()
+	var secondary *pool
+	for _, p := range f.pools {
+		if p.cfg.ID == "p1" {
+			secondary = p
+		}
+	}
+	f.mu.RUnlock()
+	if !secondary.sem.TryAcquire(core.PriorityLive) {
+		t.Fatal("failed to acquire live slot on secondary")
+	}
+	defer secondary.sem.Release(core.PriorityLive)
+	if got := f.ReadAheadConnections(); got != 18 {
+		t.Fatalf("with live viewer on secondary, ReadAheadConnections() = %d, want 18", got)
+	}
+}

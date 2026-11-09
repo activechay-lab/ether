@@ -368,13 +368,12 @@ func (e *Engine) bodyPart(ctx context.Context, pf *postedFile, id string, prio c
 	var data []byte
 	var part core.ArticlePart
 	var err error
-	started := fo.meter.begin()
 	release, waitErr := fo.meter.acquire(ctx, prio)
 	if waitErr != nil {
-		fo.meter.end(started, 0, false, prio)
 		return nil, core.ArticlePart{}, waitErr
 	}
 	defer release()
+	started := fo.meter.begin()
 	if burst, ok := e.fetcher.(core.BurstArticleFetcher); ok && time.Now().Before(fo.burstUntil) {
 		data, part, err = burst.BodyPartBurst(ctx, id, pf.groups, prio, fo.burstUntil)
 	} else {

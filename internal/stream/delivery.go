@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -23,10 +24,6 @@ const (
 	// maxAdaptiveParallel bounds one source's read-ahead fetches whatever
 	// the account allows.
 	maxAdaptiveParallel = 64
-	// streamConnShare sizes speculative work against primary capacity.
-	// A minimum one fetch per reader preserves progress on tiny pools; the
-	// provider scheduler, not this estimate, reserves actual sockets.
-	streamConnShare = 0.75
 	// activeStreamWindow: a source that read this recently is playing.
 	activeStreamWindow = 30 * time.Second
 	// perFetchAlpha weighs the newest per-fetch throughput sample.
@@ -38,6 +35,7 @@ type deliveryMeter struct {
 	owner                 *source // immutable after construction
 	budgetMu              sync.Mutex
 	speculative, prefetch int
+	readaheadWait         int
 	changed               chan struct{}
 	mu                    sync.Mutex
 	inflight              int
@@ -122,43 +120,126 @@ func (s *source) SourceDelivery() core.SourceDelivery {
 	return d
 }
 
-// raLimit is how many read-ahead fetches this source may run now: enough to
-// deliver adaptiveHeadroom times the media bitrate at the measured per-fetch
-// throughput, bounded by provider capacity even when that falls below the configured base.
-func (s *source) raLimit() int {
-	base := s.e.opts.ReadAheadParallel
+// wantedParallel is how many concurrent read-ahead fetches this source wants
+// before applying multi-stream provider connection sharing.
+func (s *source) wantedParallel() int {
+	base := max(1, min(s.e.opts.ReadAheadParallel, maxAdaptiveParallel))
 	rate := s.playRate.Load()
 	per := s.meter.perFetchBps()
 	if rate <= 0 || per <= 0 {
-		return adaptiveParallel(base, base, s.e.connectionCapacity(), s.e.activeStreams())
+		return base
 	}
 	want := int(math.Min(maxAdaptiveParallel, math.Ceil(adaptiveHeadroom*float64(rate)/per))) + adaptiveMargin
-	return adaptiveParallel(base, want, s.e.connectionCapacity(), s.e.activeStreams())
+	return min(max(base, want), maxAdaptiveParallel)
+}
+
+// raLimit is how many read-ahead fetches this source may run now: enough to
+// deliver adaptiveHeadroom times the media bitrate at the measured per-fetch
+// throughput, bounded by this stream's water-filled share of usable provider
+// read-ahead connections (scaling up into free slots and down when other
+// streams need connections).
+func (s *source) raLimit() int {
+	limit, _ := s.raBudget()
+	return limit
+}
+
+// raBudget returns (limit, streamAllowance): limit is the source's target
+// read-ahead concurrency; streamAllowance is its water-filled connection
+// ceiling (0 when the fetcher reports no connection limit).
+func (s *source) raBudget() (limit int, share int) {
+	base := s.e.opts.ReadAheadParallel
+	want := s.wantedParallel()
+	allowance, known := s.e.readAheadAllowance()
+	if !known {
+		return min(max(1, max(base, want)), maxAdaptiveParallel), 0
+	}
+	if allowance <= 0 {
+		return 1, 1
+	}
+	peers := s.e.peerWantedParallel(s)
+	share = waterFillCeiling(allowance, peers)
+	return min(max(1, max(base, want)), share), share
+}
+
+// waterFillCeiling computes this stream's fair connection ceiling out of
+// allowance given the wanted concurrencies of other active streams. Peers that
+// need fewer connections than an equal split take only what they want, leaving
+// the remaining allowance for high-bitrate streams; when another high-bitrate
+// stream starts, the ceiling drops immediately so active fetches drain down.
+func waterFillCeiling(allowance int, peerWants []int) int {
+	if allowance <= 0 {
+		return maxAdaptiveParallel
+	}
+	participants := 1 + len(peerWants)
+	if allowance <= participants {
+		return 1
+	}
+	if len(peerWants) == 0 {
+		return min(maxAdaptiveParallel, allowance)
+	}
+	sorted := slices.Clone(peerWants)
+	slices.Sort(sorted)
+	remaining := allowance
+	for _, pw := range sorted {
+		pw = max(1, pw)
+		fair := remaining / participants
+		if pw >= fair {
+			break
+		}
+		remaining -= pw
+		participants--
+	}
+	return min(maxAdaptiveParallel, max(1, remaining/participants))
 }
 
 // adaptiveParallel bounds a wanted concurrency by the base floor, the hard
-// ceiling and, when the providers' capacity is known, an equal share of it
-// across the playing streams.
-func adaptiveParallel(base, want, capacity int, streams int64) int {
+// ceiling and, when the providers' read-ahead allowance is known, an equal
+// share across equal-demand playing streams.
+func adaptiveParallel(base, want, allowance int, streams int64) int {
 	base = max(1, min(base, maxAdaptiveParallel))
-	ceiling := maxAdaptiveParallel
-	if capacity <= 0 {
+	if allowance <= 0 {
 		return base
 	}
-	if capacity > 0 {
-		share := int(float64(capacity) * streamConnShare / float64(max(1, streams)))
-		ceiling = min(ceiling, max(1, share))
-	}
-	return min(max(base, want), ceiling)
+	n := int(max(1, streams))
+	share := max(1, allowance/n)
+	return min(max(base, want), min(maxAdaptiveParallel, share))
 }
 
-// connectionCapacity is the providers' total connection limit on this node,
-// or 0 when the fetcher does not say.
-func (e *Engine) connectionCapacity() int {
-	if c, ok := e.fetcher.(interface{ MaxConnections() int }); ok {
-		return c.MaxConnections()
+// readAheadAllowance returns the providers' usable read-ahead connection
+// allowance on this node and whether the fetcher reports connection limits.
+func (e *Engine) readAheadAllowance() (int, bool) {
+	if c, ok := e.fetcher.(interface{ ReadAheadConnections() int }); ok {
+		return c.ReadAheadConnections(), true
 	}
-	return 0
+	if c, ok := e.fetcher.(interface{ MaxConnections() int }); ok {
+		n := c.MaxConnections()
+		if n <= 0 {
+			return 0, false
+		}
+		if n >= 2 {
+			return n - 1, true
+		}
+		return 1, true
+	}
+	return 0, false
+}
+
+func (s *source) isActiveAt(cutoff int64) bool {
+	return s.lastRead.Load() > cutoff || s.meter.snapshot().InFlight > 0
+}
+
+// peerWantedParallel collects wantedParallel() for every other active source.
+func (e *Engine) peerWantedParallel(self *source) []int {
+	cutoff := time.Now().Add(-activeStreamWindow).UnixNano()
+	var peers []int
+	e.sources.Range(func(k, _ any) bool {
+		s := k.(*source)
+		if s != self && s.isActiveAt(cutoff) {
+			peers = append(peers, s.wantedParallel())
+		}
+		return true
+	})
+	return peers
 }
 
 // activeStreams counts recent readers and sources with outstanding fetches.
@@ -166,8 +247,7 @@ func (e *Engine) activeStreams() int64 {
 	cutoff := time.Now().Add(-activeStreamWindow).UnixNano()
 	var n int64
 	e.sources.Range(func(k, _ any) bool {
-		s := k.(*source)
-		if s.lastRead.Load() > cutoff || s.meter.snapshot().InFlight > 0 {
+		if k.(*source).isActiveAt(cutoff) {
 			n++
 		}
 		return true
@@ -175,27 +255,53 @@ func (e *Engine) activeStreams() int64 {
 	return n
 }
 
-// acquire shares one speculative fetch budget across near and disk read-ahead.
-// Demand reads bypass it. Background work may use at most half the budget so
-// it leaves room for near read-ahead when the budget exceeds one.
+// acquire coordinates speculative fetches across near read-ahead and disk
+// play-ahead. Demand reads bypass it. Disk play-ahead (PriorityPrefetch) is
+// capped at PrefetchParallel (and at most half of limit), yields whenever near
+// read-ahead is waiting, and uses spare stream connection allowance above limit
+// when available so near read-ahead keeps its full bitrate target.
 // Shrinks drain naturally; already transmitted work is not preempted.
 func (m *deliveryMeter) acquire(ctx context.Context, prio core.Priority) (func(), error) {
 	if m == nil || m.owner == nil || prio == core.PriorityLive {
 		return func() {}, nil
 	}
+	waitedReadahead := false
+	defer func() {
+		if waitedReadahead {
+			m.budgetMu.Lock()
+			m.readaheadWait--
+			m.budgetMu.Unlock()
+		}
+	}()
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		limit := m.owner.raLimit()
+		limit, share := m.owner.raBudget()
+		prefetchCap := max(1, min(m.owner.e.opts.PrefetchParallel, limit/2))
+		totalCap := limit
+		if share > limit {
+			totalCap = min(share, limit+prefetchCap)
+		}
 		m.budgetMu.Lock()
 		if m.changed == nil {
 			m.changed = make(chan struct{})
 		}
-		if m.speculative < limit && (prio != core.PriorityPrefetch || m.prefetch < max(1, limit/2)) {
+		canTake := false
+		if prio == core.PriorityPrefetch {
+			canTake = m.readaheadWait == 0 && m.prefetch < prefetchCap && m.speculative < totalCap
+		} else {
+			nearInFlight := m.speculative - m.prefetch
+			canTake = nearInFlight < limit && m.speculative < totalCap
+		}
+		if canTake {
 			m.speculative++
 			if prio == core.PriorityPrefetch {
 				m.prefetch++
+			}
+			if waitedReadahead {
+				m.readaheadWait--
+				waitedReadahead = false
 			}
 			m.budgetMu.Unlock()
 			return func() {
@@ -208,6 +314,10 @@ func (m *deliveryMeter) acquire(ctx context.Context, prio core.Priority) (func()
 				m.changed = make(chan struct{})
 				m.budgetMu.Unlock()
 			}, nil
+		}
+		if prio != core.PriorityPrefetch && !waitedReadahead {
+			m.readaheadWait++
+			waitedReadahead = true
 		}
 		changed := m.changed
 		m.budgetMu.Unlock()
