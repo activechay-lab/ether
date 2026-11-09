@@ -806,6 +806,20 @@ export function createFakeServer(opts: FakeOptions = {}) {
     const t = TEMPLATES.find((x) => x.id === id)!;
     const spec = normalizeSpec({
       ...t.spec,
+      // One seeded collection is a scheduled Home row, not a Collections-tab
+      // entry, so the Home designer has a collection schedule to edit. It is
+      // renamed so it does not share a name with the built-in Short on Time row.
+      ...(id === "short-under-90"
+        ? {
+            name: "Weeknight wind-down",
+            targets: {
+              ...t.spec.targets,
+              collectionsTab: false,
+              homeRow: true,
+              schedule: { days: [1, 2, 3, 4], fromHour: 18 },
+            },
+          }
+        : {}),
       id: `c${seq++}`,
       enabled: id !== "family-night",
       updatedAt: NOW().toISOString(),

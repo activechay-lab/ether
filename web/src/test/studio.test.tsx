@@ -229,7 +229,7 @@ describe("Collection Studio gallery", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), WAIT);
     expect(screen.getByRole("region", { name: "Collection posters" })).toBe(gallery);
     expect(screen.getByRole("complementary", { name: "Collection library" })).toBe(library);
-    expect(screen.getByRole("button", { name: "Preview Family movie night" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Preview Family Movie Night" })).toHaveAttribute(
       "aria-current",
       "true",
     );
@@ -238,33 +238,33 @@ describe("Collection Studio gallery", () => {
   it("previews a selected collection in place and publishes it", async () => {
     const { fake } = renderApp("/collections?collection=c3");
     expect(
-      await screen.findByRole("heading", { name: "Family movie night" }, WAIT),
+      await screen.findByRole("heading", { name: "Family Movie Night" }, WAIT),
     ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
-    const row = screen.getByRole("button", { name: "Preview Family movie night" });
+    const row = screen.getByRole("button", { name: "Preview Family Movie Night" });
     expect(row).toHaveAttribute("aria-current", "true");
     await waitFor(
-      () => expect(previewBodies(fake).some((s) => s.name === "Family movie night")).toBe(true),
+      () => expect(previewBodies(fake).some((s) => s.name === "Family Movie Night")).toBe(true),
       WAIT,
     );
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     await waitFor(() => expect(calls(fake, "PUT", "/collections/c3")).toHaveLength(1), WAIT);
     expect(await screen.findByRole("button", { name: "Unpublish" }, WAIT)).toBeInTheDocument();
     expect(within(row).getByText("Published")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Preview New to Ether" }));
-    expect(await screen.findByRole("heading", { name: "New to Ether" }, WAIT)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Preview Recently Added" }));
+    expect(await screen.findByRole("heading", { name: "Recently Added" }, WAIT)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("filters the library and recovers from an empty search", async () => {
     renderApp("/collections");
-    await screen.findByRole("heading", { name: "Edge of your seat" }, WAIT);
+    await screen.findByRole("heading", { name: "Edge of Your Seat" }, WAIT);
     fireEvent.click(screen.getByRole("button", { name: "Collection status" }));
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Drafts" }));
     expect(
-      await screen.findByRole("heading", { name: "Family movie night" }, WAIT),
+      await screen.findByRole("heading", { name: "Family Movie Night" }, WAIT),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Preview Edge of your seat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview Edge of Your Seat" })).toBeNull();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search collections" }), {
       target: { value: "no such collection" },
     });
@@ -273,7 +273,7 @@ describe("Collection Studio gallery", () => {
       target: { value: "" },
     });
     expect(
-      await screen.findByRole("heading", { name: "Family movie night" }, WAIT),
+      await screen.findByRole("heading", { name: "Family Movie Night" }, WAIT),
     ).toBeInTheDocument();
   });
 
@@ -306,10 +306,10 @@ describe("Collection Studio gallery", () => {
     const gallery = await screen.findByRole("region", { name: "Collection posters" }, WAIT);
     expect(within(gallery).getAllByRole("button", { name: /Open .+ preview/ })).toHaveLength(4);
     fireEvent.click(
-      within(gallery).getByRole("button", { name: "Open Family movie night preview" }),
+      within(gallery).getByRole("button", { name: "Open Family Movie Night preview" }),
     );
     expect(
-      await screen.findByRole("heading", { name: "Family movie night" }, WAIT),
+      await screen.findByRole("heading", { name: "Family Movie Night" }, WAIT),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show collection preview" })).toHaveAttribute(
       "aria-pressed",
@@ -350,19 +350,19 @@ describe("Collection Studio gallery", () => {
   it("lists collections and starts a new one from a template", async () => {
     renderApp("/collections");
     expect(
-      await screen.findByRole("heading", { name: "Edge of your seat" }, WAIT),
+      await screen.findByRole("heading", { name: "Edge of Your Seat" }, WAIT),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Collection views" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: /Templates/ }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Preview template Hidden gems" }, WAIT),
+      await screen.findByRole("button", { name: "Preview template Hidden Gems" }, WAIT),
     );
-    const card = await screen.findByRole("button", { name: "Use template Hidden gems" }, WAIT);
+    const card = await screen.findByRole("button", { name: "Use template Hidden Gems" }, WAIT);
     fireEvent.click(card);
-    expect(await screen.findByDisplayValue("Hidden gems", {}, WAIT)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Hidden Gems", {}, WAIT)).toBeInTheDocument();
     expect(
       within(await screen.findByRole("dialog", { name: "New collection" }, WAIT)).getByText(
-        "Rating is at least 7.5",
+        "Rating is at least 7.3",
       ),
     ).toBeInTheDocument();
   });
@@ -370,7 +370,7 @@ describe("Collection Studio gallery", () => {
   it("builds a collection live from a description and saves it in one click", async () => {
     const user = userEvent.setup();
     const { fake } = renderApp("/collections");
-    await screen.findByRole("heading", { name: "Edge of your seat" }, WAIT);
+    await screen.findByRole("heading", { name: "Edge of Your Seat" }, WAIT);
     fireEvent.click(screen.getByRole("button", { name: /Describe it/ }));
     const dialog = await screen.findByRole("dialog");
     const composer = await within(dialog).findByPlaceholderText(
@@ -427,7 +427,7 @@ describe("Collection Studio gallery", () => {
     setMockAgentEnabled(false);
     try {
       renderApp("/collections");
-      await screen.findByRole("heading", { name: "Edge of your seat" }, WAIT);
+      await screen.findByRole("heading", { name: "Edge of Your Seat" }, WAIT);
       fireEvent.click(screen.getByRole("button", { name: /Describe it/ }));
       const dialog = await screen.findByRole("dialog");
       expect(
