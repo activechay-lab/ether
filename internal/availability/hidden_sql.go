@@ -46,17 +46,19 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	published := err == nil
 	changed := prevGen != gen || prevPolicy != policy
 	now := time.Now().Unix()
-	if !changed && prevGen == gen && err == nil {
-		// The same set is already published: one statement keeps its
-		// rows inside the retention window instead of rewriting every
-		// key (the hidden set can hold much of a large library, and
-		// this runs every warm cycle).
-		if _, err = tx.ExecContext(ctx, `UPDATE availability_hidden SET created_at=? WHERE kind=? AND generation=?`, now, kind, gen); err != nil {
-			return err
+	if !published || prevGen != gen {
+		// A replaced generation keeps answering requests already using it
+		// for an hour from now: stamp its rows once, at retirement. An
+		// unchanged set writes no rows at all; the hidden set can hold
+		// much of a large library and this runs every warm cycle.
+		if published && prevGen != "" {
+			if _, err = tx.ExecContext(ctx, `UPDATE availability_hidden SET created_at=? WHERE kind=? AND generation=?`, now, kind, prevGen); err != nil {
+				return err
+			}
 		}
-	} else {
 		for _, key := range sorted {
 			if _, err = tx.ExecContext(ctx, `INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES(?,?,?,?) ON CONFLICT(kind,generation,rating_key) DO UPDATE SET created_at=excluded.created_at`, kind, gen, int64(key), now); err != nil {
 				return err
@@ -66,7 +68,9 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	if _, err = tx.ExecContext(ctx, `INSERT INTO availability_hidden_current(kind,generation,policy) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET generation=excluded.generation,policy=excluded.policy`, kind, gen, policy); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=? AND generation<>? AND created_at<?`, kind, gen, now-int64(time.Hour.Seconds())); err != nil {
+	// Two primary-key ranges around the current generation: the prune never
+	// walks the current set's rows.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=? AND (generation<? OR generation>?) AND created_at<?`, kind, gen, gen, now-int64(time.Hour.Seconds())); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
