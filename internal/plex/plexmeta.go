@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/url"
 
-	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -92,10 +91,10 @@ func (s *Server) needPlexRatingFilter(u *frontend.Viewer) bool {
 }
 
 func (s *Server) plexMetaRatingOK(u *frontend.Viewer, t *frontend.Title, row frontend.CachedMetadataOverlay, ok bool) bool {
-	if !ok || row.ContentRating == "" {
+	if !ok {
 		return true
 	}
-	return !contentrating.Exceeds(experience.SaferMetadataRating(t.ContentRating, row.ContentRating), u.MaxContentRating)
+	return experience.MetadataOverlayRatingAllowed(u, t.ContentRating, row.ContentRating)
 }
 
 func (s *Server) plexMetaRatingAllowedCached(u *frontend.Viewer, t *frontend.Title, rows map[frontend.RatingKey]frontend.CachedMetadataOverlay, guids map[frontend.RatingKey]string) bool {
