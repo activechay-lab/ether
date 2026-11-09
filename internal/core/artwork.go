@@ -12,3 +12,20 @@ func ValidArtworkPath(path string) bool { return artworkPath.MatchString(path) }
 func NeedsGeneratedPoster(t *Title) bool {
 	return t != nil && t.PosterPath == "" && (t.Type == TypeMovie || t.Type == TypeShow)
 }
+
+// ArtworkImageFile describes one candidate remote artwork variant.
+type ArtworkImageFile struct {
+	FilePath string  `json:"file_path"`
+	Width    int     `json:"width"`
+	Height   int     `json:"height"`
+	ISO639   string  `json:"iso_639_1"`
+	VoteAvg  float64 `json:"vote_average"`
+}
+
+// ArtworkImages groups candidate artwork variants for a title by kind.
+type ArtworkImages struct {
+	Backdrops []ArtworkImageFile `json:"backdrops"`
+	Posters   []ArtworkImageFile `json:"posters"`
+	Logos     []ArtworkImageFile `json:"logos"`
+	Still     []ArtworkImageFile `json:"stills"`
+}

@@ -6,6 +6,12 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
+// ArtworkImageFile describes one candidate remote artwork variant.
+type ArtworkImageFile = core.ArtworkImageFile
+
+// ArtworkImages groups candidate artwork variants for a title by kind.
+type ArtworkImages = core.ArtworkImages
+
 // ArtworkRequest identifies the viewer and presentation context for artwork.
 // Implementations must apply the same item visibility policy as Experience.
 type ArtworkRequest struct {

@@ -1,6 +1,10 @@
 package tmdb
 
-import "cmp"
+import (
+	"cmp"
+
+	"github.com/braedonsaunders/ether/internal/core"
+)
 
 // Paged is a TMDB paged list response.
 type Paged[T any] struct {
@@ -81,19 +85,8 @@ type Keywords struct {
 	Keywords []Keyword `json:"keywords"`
 	Results  []Keyword `json:"results"` // tv uses results
 }
-type ImageFile struct {
-	FilePath string  `json:"file_path"`
-	Width    int     `json:"width"`
-	Height   int     `json:"height"`
-	ISO639   string  `json:"iso_639_1"`
-	VoteAvg  float64 `json:"vote_average"`
-}
-type Images struct {
-	Backdrops []ImageFile `json:"backdrops"`
-	Posters   []ImageFile `json:"posters"`
-	Logos     []ImageFile `json:"logos"`
-	Still     []ImageFile `json:"stills"`
-}
+type ImageFile = core.ArtworkImageFile
+type Images = core.ArtworkImages
 
 // Movie is a list/search/discover movie item.
 type Movie struct {

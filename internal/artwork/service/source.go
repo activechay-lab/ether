@@ -13,7 +13,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
-	"github.com/braedonsaunders/ether/internal/tmdb"
 	"net/url"
 	"sync"
 	"time"
@@ -34,7 +33,7 @@ type Source struct {
 	ImageURL      core.ImageURLFunc
 	Palettes      *PaletteCache
 	Now           func() time.Time
-	Variants      func(*core.Title, string) (*tmdb.Images, bool)
+	Variants      func(*core.Title, string) (*frontend.ArtworkImages, bool)
 	Metadata      func(context.Context, frontend.ArtworkRequest, frontend.Image) frontend.Image
 	meta          *MetadataQueue
 	VirtualSeason func(context.Context, *core.User, core.RatingKey) (*core.Title, error)
@@ -313,7 +312,7 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 			if ready && variants != nil {
 				for _, group := range []struct {
 					kind  string
-					files []tmdb.ImageFile
+					files []frontend.ArtworkImageFile
 				}{{frontend.ImagePoster, variants.Posters}, {frontend.ImageBackdrop, variants.Backdrops}, {frontend.ImageLogo, variants.Logos}, {frontend.ImageStill, variants.Still}} {
 					for _, file := range group.files {
 						if artwork.ValidPath(file.FilePath) {

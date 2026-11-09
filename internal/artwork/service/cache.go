@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/tmdb"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // VariantsQueue keeps item enrichment cache-only. Bounded workers
@@ -15,8 +15,8 @@ import (
 type VariantsQueue struct {
 	ctx     context.Context
 	workers sync.WaitGroup
-	cached  func(*core.Title, string) (*tmdb.Images, bool)
-	fetch   func(context.Context, *core.Title, string) (*tmdb.Images, error)
+	cached  func(*core.Title, string) (*frontend.ArtworkImages, bool)
+	fetch   func(context.Context, *core.Title, string) (*frontend.ArtworkImages, error)
 	jobs    chan artworkVariantJob
 	mu      sync.Mutex
 	pending map[artworkVariantKey]bool
@@ -31,7 +31,7 @@ type artworkVariantJob struct {
 	title core.Title
 }
 
-func NewVariantsQueue(ctx context.Context, cached func(*core.Title, string) (*tmdb.Images, bool), fetch func(context.Context, *core.Title, string) (*tmdb.Images, error)) *VariantsQueue {
+func NewVariantsQueue(ctx context.Context, cached func(*core.Title, string) (*frontend.ArtworkImages, bool), fetch func(context.Context, *core.Title, string) (*frontend.ArtworkImages, error)) *VariantsQueue {
 	q := &VariantsQueue{ctx: ctx, cached: cached, fetch: fetch, jobs: make(chan artworkVariantJob, 128), pending: make(map[artworkVariantKey]bool), retry: make(map[artworkVariantKey]time.Time)}
 	for i := 0; i < 4; i++ {
 		q.workers.Add(1)
@@ -40,7 +40,7 @@ func NewVariantsQueue(ctx context.Context, cached func(*core.Title, string) (*tm
 	return q
 }
 
-func (q *VariantsQueue) Get(title *core.Title, language string) (*tmdb.Images, bool) {
+func (q *VariantsQueue) Get(title *core.Title, language string) (*frontend.ArtworkImages, bool) {
 	if title == nil || q.ctx.Err() != nil {
 		return nil, false
 	}

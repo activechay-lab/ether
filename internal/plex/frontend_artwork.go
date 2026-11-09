@@ -6,15 +6,13 @@ import (
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
-
-	"github.com/braedonsaunders/ether/internal/tmdb"
 )
 
 // FrontendArtwork is a compatibility adapter for callers already holding a Plex
 // server. Shared runtime constructs artworkservice.Source directly.
 type FrontendArtwork struct {
 	Server        *Server
-	Variants      func(*frontend.Title, string) (*tmdb.Images, bool)
+	Variants      func(*frontend.Title, string) (*frontend.ArtworkImages, bool)
 	Metadata      func(context.Context, frontend.ArtworkRequest, frontend.Image) frontend.Image
 	VirtualSeason func(context.Context, *frontend.User, frontend.RatingKey) (*frontend.Title, error)
 	URLImages     interface {
