@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
 	"github.com/braedonsaunders/ether/internal/dburl"
 	"io/fs"
 	"log/slog"
@@ -325,8 +326,8 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 	// journal_size_limit trims retained WAL on writer reuse after a full
 	// checkpoint. It does not cap pinned/active frames or bound truncate I/O.
 	// Without it a large transaction can leave its allocation indefinitely.
-	// auto_vacuum=INCREMENTAL is set once, on a new database only (below):
-	// as a DSN pragma every new pool connection ran it, and it waits on the
+	// auto_vacuum=INCREMENTAL is part of a new database's image (below): as
+	// a DSN pragma every new pool connection ran it, and it waits on the
 	// write lock, so a held writer stalled fresh reads for busy_timeout.
 	// wal_autocheckpoint=0 keeps a commit from running a checkpoint. Under
 	// WAL + synchronous=NORMAL the checkpoint is the fsync; a request must
@@ -334,32 +335,26 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 	dsn := "file:" + path + "?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=wal_autocheckpoint(0)&_pragma=cache_size(-65536)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)" +
 		fmt.Sprintf("&_pragma=journal_size_limit(%d)", journalSizeLimit)
 	if path == ":memory:" {
-		dsn = memoryDSN
+		// Only migratedImage opens ":memory:" here, to build the image every
+		// new database file starts from; auto_vacuum must be set before its
+		// first table.
+		dsn = memoryDSN + "&_pragma=auto_vacuum(INCREMENTAL)"
 	} else if err := checkSQLiteFilesystem(path); err != nil {
 		return nil, err
 	} else if err := protectDBFiles(path); err != nil {
 		return nil, err
 	}
-	fresh := false
 	if path != ":memory:" {
 		if st, err := os.Stat(path); errors.Is(err, os.ErrNotExist) || (err == nil && st.Size() == 0) {
-			fresh = true
-		}
-	}
-	if fresh {
-		// Create the file with auto_vacuum set before journal_mode=WAL
-		// writes the header, through a one-off handle, so the pool's
-		// connections never run the pragma.
-		init, err := sql.Open("sqlite-cached", "file:"+path+"?_pragma=auto_vacuum(INCREMENTAL)&_pragma=journal_mode(WAL)")
-		if err != nil {
-			return nil, err
-		}
-		_, err = init.ExecContext(ctx, `PRAGMA user_version`)
-		if cerr := init.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil {
-			return nil, err
+			// A new database is written whole from the migrated image, so a
+			// crash leaves either no database or a complete one.
+			image, err := migratedImage(ctx, progress)
+			if err != nil {
+				return nil, err
+			}
+			if err := atomicfile.Write(path, image, 0o600); err != nil {
+				return nil, fmt.Errorf("store: create database: %w", err)
+			}
 		}
 	}
 	db, err := sql.Open("sqlite-cached", dsn)

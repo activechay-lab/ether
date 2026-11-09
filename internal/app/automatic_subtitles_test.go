@@ -27,7 +27,8 @@ import (
 // media and HTTP fakes. It proves live track serving, not a physical client's
 // discovery or automatic selection of a newly introduced track.
 func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
-	// Opening a fresh database runs every migration; a loaded runner needs more than 15 s.
+	// A hang guard, not a speed bar: when this is the process's first test to
+	// open a database, New migrates the image every new database copies.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	body, err := os.ReadFile("../transcode/testdata/nativeprobe/h264_aac_movtext_faststart.mp4")

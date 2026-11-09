@@ -5,7 +5,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/livetv"
-	"github.com/braedonsaunders/ether/internal/store"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,7 +22,6 @@ func TestRoadmapOwnerAPIsAreWiredAndPrivate(t *testing.T) {
 	if err = cfg.Update(func(c *config.Config) error { c.Transcode.FFmpegPath = "/not-installed/ffmpeg"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	store.SeedTestDataDir(t, dir)
 	a, err := New(context.Background(), Options{DataDir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)

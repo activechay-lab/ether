@@ -140,7 +140,6 @@ func TestServeShowsWaitingForTheDatabase(t *testing.T) {
 func writeBundle(t *testing.T, dataDir string, edit ...func(*config.Config)) string {
 	t.Helper()
 	src := t.TempDir()
-	store.SeedTestDataDir(t, src)
 	db, err := store.Open(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
@@ -347,7 +346,6 @@ func newOpsApp(t *testing.T) *App {
 	if err := cfg.Update(func(c *config.Config) error { c.Transcode.FFmpegPath = "/not-installed/ffmpeg"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	store.SeedTestDataDir(t, dir)
 	a, err := New(context.Background(), Options{DataDir: dir, Logger: quietLog()})
 	if err != nil {
 		t.Fatal(err)
