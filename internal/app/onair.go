@@ -27,6 +27,10 @@ func (a *App) buildOnAir() error {
 			return a.livetv.RefreshGuide(ctx)
 		}
 		return nil
+	}, ReelsChanged: func(ctx context.Context) {
+		if a.livetv != nil {
+			a.livetv.RefreshGraphics(ctx)
+		}
 	}, DB: a.db, Dir: filepath.Join(a.opts.DataDir, "cache", "onair"), Logger: a.log.With("component", "onair"), Bindings: a.onairBindings}
 	o.StyleChannels = func(ctx context.Context) (map[string][]string, error) {
 		if a.livetv == nil {

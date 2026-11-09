@@ -217,6 +217,7 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 					return
 				}
 				c.Name = in.Name
+				c.AutoName = false
 				result(w, c, s.setClip(r.Context(), v.ID, c))
 				return
 			}
@@ -226,11 +227,41 @@ func (s *Service) Handler(resources ...func(chi.Router)) http.Handler {
 	r.Delete("/reels/{id}/clips/{clip}", func(w http.ResponseWriter, r *http.Request) {
 		result(w, nil, s.DeleteClip(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "clip")))
 	})
+	r.Post("/reels/{id}/clips/{clip}/resolve", func(w http.ResponseWriter, r *http.Request) {
+		c, e := s.ResolveReelClip(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "clip"))
+		if e != nil {
+			result(w, nil, e)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if c.Cached {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusAccepted)
+		}
+		_ = json.NewEncoder(w).Encode(c)
+	})
 	r.Get("/reels/{id}/clips/{clip}/preview", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.Reel(r.Context(), chi.URLParam(r, "id"))
+		reelID := chi.URLParam(r, "id")
+		clipID := chi.URLParam(r, "clip")
+		v, e := s.Reel(r.Context(), reelID)
 		if e == nil {
 			for _, c := range v.Clips {
-				if c.ID == chi.URLParam(r, "clip") && c.Status == "ready" {
+				if c.ID != clipID {
+					continue
+				}
+				if c.Link {
+					if p, ok := s.CachedReelClip(reelID, clipID); ok {
+						if _, statErr := os.Stat(p); statErr == nil {
+							http.ServeFile(w, r, p)
+							return
+						}
+					}
+					_, _ = s.ResolveReelClip(r.Context(), reelID, clipID)
+					result(w, nil, fmt.Errorf("preview resolving; retry shortly"))
+					return
+				}
+				if c.Status == "ready" {
 					p := filepath.Join(s.o.Dir, "reel-"+c.ID+".mp4")
 					if _, e = os.Stat(p); e == nil {
 						http.ServeFile(w, r, p)

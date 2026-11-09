@@ -107,6 +107,8 @@ type Asset struct {
 	DurationMS  int64    `json:"durationMs,omitempty"`
 	Width       int      `json:"width,omitempty"`
 	Height      int      `json:"height,omitempty"`
+	Link        bool     `json:"link,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
 type Reel struct {
 	Anchor        time.Time  `json:"-"`
@@ -120,17 +122,21 @@ type Reel struct {
 	ChannelIDs    []string   `json:"channelIds"`
 }
 type ReelClip struct {
-	Source       string  `json:"source,omitempty"`
-	Attribution  string  `json:"attribution,omitempty"`
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	DurationMS   int64   `json:"durationMs"`
-	SourceDigest string  `json:"sourceDigest,omitempty"`
-	Status       string  `json:"status"`
-	Progress     float64 `json:"progress,omitempty"`
-	Size         int64   `json:"size,omitempty"`
-	Preview      string  `json:"preview,omitempty"`
-	Error        string  `json:"error,omitempty"`
+	Source       string   `json:"source,omitempty"`
+	Attribution  string   `json:"attribution,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	DurationMS   int64    `json:"durationMs"`
+	SourceDigest string   `json:"sourceDigest,omitempty"`
+	Status       string   `json:"status"`
+	Progress     float64  `json:"progress,omitempty"`
+	Size         int64    `json:"size,omitempty"`
+	Preview      string   `json:"preview,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	Link         bool     `json:"link,omitempty"`
+	Cached       bool     `json:"cached,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	AutoName     bool     `json:"autoName,omitempty"`
 }
 
 // Every owned document goes through the strict, cost-limited scene decoder.

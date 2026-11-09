@@ -44,6 +44,7 @@ type Service struct {
 	graphicsWake       chan struct{}
 	reelSnapshots      map[string]*ReelSnapshot
 	graphicsSkips      map[string]time.Time
+	reelSubstitutions  map[string]reelSubEntry
 	personalDirty      map[int64]uint64
 	personalRecipes    map[personalKey]string
 	personalMu         sync.Mutex

@@ -17,7 +17,10 @@ type ClipRequest struct {
 	// AssetDigest overrides this channel's moment without changing its shared look.
 	AssetDigest   string        `json:"assetDigest,omitempty"`
 	AssetDuration time.Duration `json:"assetDuration,omitempty"`
-	Bug           *BugSettings
+	// ReelID and ReelClipID identify a break reel clip for playtime link resolution.
+	ReelID     string `json:"reelId,omitempty"`
+	ReelClipID string `json:"reelClipId,omitempty"`
+	Bug        *BugSettings
 
 	LookID    string
 	Moment    string

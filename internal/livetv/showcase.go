@@ -39,6 +39,8 @@ type showcaseRecipe struct {
 	number  string
 	name    string
 	lookID  string
+	reelID  string
+	decade  string
 	seed    int64
 	era     [2]int
 	blocks  []Block
@@ -120,6 +122,7 @@ func showcaseRecipes() []showcaseRecipe {
 
 	type era struct {
 		id, number, name, look string
+		reel, decade           string
 		from, to               int
 		votes, filmVotes       int
 		lateNight              ProgramSource
@@ -130,7 +133,7 @@ func showcaseRecipes() []showcaseRecipe {
 	build := func(e era) showcaseRecipe {
 		f, t := e.from, e.to
 		v := e.votes
-		r := showcaseRecipe{id: e.id, version: 1, number: e.number, name: e.name, lookID: e.look, seed: int64(f), era: [2]int{f, t}}
+		r := showcaseRecipe{id: e.id, version: 2, number: e.number, name: e.name, lookID: e.look, reelID: e.reel, decade: e.decade, seed: int64(f), era: [2]int{f, t}}
 		r.blocks = []Block{
 			block("The Late Movie", 0, 2, everyDay, moviePool("Late movies", rated(films(f, t, lateFilm, e.filmVotes/2), ""), excluding("Animation", "Family"), 40)),
 			block("All-night reruns", 2, 6, everyDay, lineup("Overnight dramas", series(f-4, t, append(append([]string(nil), hour...), "Sci-Fi & Fantasy"), v/2, 38, 70), noToons, 4, 8, 7)),
@@ -159,22 +162,22 @@ func showcaseRecipes() []showcaseRecipe {
 		return r
 	}
 	return []showcaseRecipe{
-		build(era{id: "chroma-80", number: "1980", name: "CHROMA 80", look: "showcase-80", from: 1978, to: 1989, votes: 40, filmVotes: 800,
+		build(era{id: "chroma-80", number: "1980", name: "CHROMA 80", look: "showcase-80", reel: "showcase-reel-80", decade: "1980s", from: 1978, to: 1989, votes: 40, filmVotes: 800,
 			monName: "Action night", primeMon: lineup("Monday action", series(1978, 1989, action, 80, 38, 70), noToons, 3, 6, 4),
 			wedName: "Drama night", primeWed: lineup("Wednesday dramas", series(1978, 1989, hour, 60, 38, 70), noFantasy, 3, 6, 4),
 			primeComedyExclude: noToons,
 			lateNight:          lineup("Late-night comedy", rated(series(1983, 1989, comedy, 60, 18, 35), ""), noToons, 2, 6, 7)}),
-		build(era{id: "riot-90", number: "1990", name: "RIOT 90", look: "showcase-90", from: 1988, to: 1999, votes: 60, filmVotes: 1000,
+		build(era{id: "riot-90", number: "1990", name: "RIOT 90", look: "showcase-90", reel: "showcase-reel-90", decade: "1990s", from: 1988, to: 1999, votes: 60, filmVotes: 1000,
 			monName: "Sci-fi night", primeMon: lineup("Monday sci-fi", series(1988, 1999, scifi, 120, 38, 70), noToons, 3, 6, 4),
 			wedName: "Drama night", primeWed: lineup("Wednesday dramas", series(1988, 1999, hour, 100, 38, 70), noFantasy, 3, 6, 4),
 			primeComedyExclude: noToons,
 			lateNight:          lineup("Late-night animation", rated(series(1989, 1999, []string{"Animation"}, 150, 18, 35), ""), adultToons, 2, 6, 7)}),
-		build(era{id: "orbit-00", number: "2000", name: "ORBIT 00", look: "showcase-00", from: 1998, to: 2009, votes: 100, filmVotes: 1500,
+		build(era{id: "orbit-00", number: "2000", name: "ORBIT 00", look: "showcase-00", reel: "showcase-reel-00", decade: "2000s", from: 1998, to: 2009, votes: 100, filmVotes: 1500,
 			monName: "Crime time", primeMon: lineup("Monday crime", series(1998, 2009, crime, 200, 38, 70), noFantasy, 3, 6, 4),
 			wedName: "Sci-fi night", primeWed: lineup("Wednesday sci-fi", series(1998, 2009, scifi, 200, 38, 70), noToons, 3, 6, 4),
 			primeComedyExclude: excluding("Animation", "Kids", "Family"),
 			lateNight:          lineup("Late-night animation", rated(series(1998, 2009, []string{"Animation"}, 300, 10, 35), ""), adultToons, 2, 6, 7)}),
-		build(era{id: "shift-10", number: "2010", name: "SHIFT 10", look: "showcase-10", from: 2008, to: 2019, votes: 150, filmVotes: 2000,
+		build(era{id: "shift-10", number: "2010", name: "SHIFT 10", look: "showcase-10", reel: "showcase-reel-10", decade: "2010s", from: 2008, to: 2019, votes: 150, filmVotes: 2000,
 			monName: "Hero night", primeMon: lineup("Monday heroes", series(2008, 2019, []string{"Sci-Fi & Fantasy", "Action & Adventure"}, 300, 38, 70), noToons, 3, 6, 4),
 			wedName: "Prestige drama", primeWed: lineup("Wednesday dramas", series(2008, 2019, []string{"Drama", "Crime"}, 600, 38, 70), noFantasy, 3, 6, 4),
 			primeComedyExclude: excluding("Animation", "Kids", "Family"),
@@ -188,7 +191,18 @@ func (r showcaseRecipe) channel(id, number, tz string, now time.Time) Channel {
 	loc := zoneOf(tz)
 	start := dayStart(now, loc)
 	c := Channel{ID: id, Number: number, Name: r.name, Kind: "virtual", Group: "Decades", Enabled: false, Timezone: tz, Epoch: start.UTC(), Seed: r.seed, OffAir: true, Items: []Item{}, Transcode: true}
-	c.Look = &ChannelLook{LookID: r.lookID, Ident: true, UpNext: true, OffAir: true, Overlays: "always", Placement: "insert"}
+	look := &ChannelLook{LookID: r.lookID, Ident: true, UpNext: true, OffAir: true, Overlays: "always", Placement: "insert"}
+	if r.reelID != "" {
+		look.Breaks = "between"
+		look.BreakPlacement = "between"
+		look.BreakContent = "reel"
+		look.ReelID = r.reelID
+		if pattern, ok := EraBreakPattern(r.decade); ok {
+			pattern.Inside = false
+			look.BreakPattern = &pattern
+		}
+	}
+	c.Look = look
 	date := start.Format("2006-01-02")
 	for i, b := range r.blocks {
 		b.ID = fmt.Sprintf("%s-block-%d", id, i)
@@ -314,6 +328,7 @@ func (s *Service) seedShowcase(ctx context.Context) error {
 		s.o.Logger.Info("showcase channel added", "channel", a[0], "number", a[1])
 	}
 	s.bumpLineup()
+	s.RefreshGraphics(ctx)
 	return nil
 }
 
@@ -373,12 +388,14 @@ func (s *Service) refreshShowcase(ctx context.Context) {
 			continue
 		}
 		// Fill a pending channel as soon as the catalogue allows; afterwards
-		// a daily refresh admits new episodes, series and films.
+		// a daily refresh admits new episodes, series and films. Shipped recipe
+		// version upgrades run immediately so existing installs pick up new
+		// defaults without waiting out the daily interval.
 		every := 24 * time.Hour
 		if row.state == showcasePending {
 			every = 15 * time.Minute
 		}
-		if now.Sub(time.UnixMilli(row.attempted)) < every || now.Sub(time.UnixMilli(row.refreshed)) < every {
+		if row.version >= recipe.version && (now.Sub(time.UnixMilli(row.attempted)) < every || now.Sub(time.UnixMilli(row.refreshed)) < every) {
 			continue
 		}
 		if err := s.refreshShowcaseChannel(ctx, row, recipe); err != nil && ctx.Err() == nil {
@@ -410,6 +427,9 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 	var raw string
 	err := s.o.DB.QueryRowContext(ctx, `SELECT data FROM livetv_channels WHERE id=?`, row.channelID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
+		if row.version < recipe.version {
+			_, _ = s.o.DB.ExecContext(ctx, `UPDATE livetv_showcase SET version=? WHERE id=?`, recipe.version, row.id)
+		}
 		return nil // removed by the owner
 	}
 	if err != nil {
@@ -433,12 +453,18 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 	}
 	untouched := showcaseRecipeHash(c) == row.hash
 	version := row.version
-	if untouched && row.version < recipe.version {
-		// A newer shipped recipe replaces one the owner never changed.
-		next := recipe.channel(c.ID, c.Number, c.Timezone, s.o.Now())
-		next.Enabled, next.Favorite, next.Epoch = c.Enabled, c.Favorite, c.Epoch
-		c = next
+	if row.version < recipe.version {
 		version = recipe.version
+		if untouched {
+			// A newer shipped recipe replaces one the owner never changed.
+			anchor := s.o.Now()
+			if !c.Epoch.IsZero() {
+				anchor = c.Epoch.In(zoneOf(c.Timezone))
+			}
+			next := recipe.channel(c.ID, c.Number, c.Timezone, anchor)
+			next.Enabled, next.Favorite, next.Epoch = c.Enabled, c.Favorite, c.Epoch
+			c = next
+		}
 	}
 	if err = s.expand(ctx, &c); err != nil {
 		return err
@@ -470,7 +496,7 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 			if row.attempted == 0 {
 				s.o.Logger.Info("showcase channel waiting for the catalogue", "channel", c.Name, "filledBlocks", filled, "blocks", len(c.Blocks))
 			}
-			return s.writeShowcase(ctx, row, raw, c, version, state, false)
+			return s.writeShowcase(ctx, row, raw, c, version, state, untouched, false)
 		}
 		if !c.Enabled && untouched {
 			c.Enabled = true
@@ -478,7 +504,7 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 		state = showcaseLive
 		s.o.Logger.Info("showcase channel on air", "channel", c.Name, "filledBlocks", filled, "blocks", len(c.Blocks), "enabled", c.Enabled)
 	}
-	return s.writeShowcase(ctx, row, raw, c, version, state, true)
+	return s.writeShowcase(ctx, row, raw, c, version, state, untouched, true)
 }
 
 func interleaveFiller(series []ProgramSource) []Item {
@@ -498,7 +524,7 @@ func interleaveFiller(series []ProgramSource) []Item {
 	return out
 }
 
-func (s *Service) writeShowcase(ctx context.Context, row showcaseRow, raw string, c Channel, version int, state string, refreshed bool) error {
+func (s *Service) writeShowcase(ctx context.Context, row showcaseRow, raw string, c Channel, version int, state string, untouched, refreshed bool) error {
 	if err := validateChannel(&c); err != nil {
 		return err
 	}
@@ -519,9 +545,10 @@ func (s *Service) writeShowcase(ctx context.Context, row showcaseRow, raw string
 			return err
 		}
 		s.bumpLineup()
+		s.RefreshGraphics(ctx)
 	}
 	hash := row.hash
-	if version != row.version {
+	if untouched && version != row.version {
 		hash = showcaseRecipeHash(c)
 	}
 	refreshedMS := row.refreshed

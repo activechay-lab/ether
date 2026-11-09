@@ -1,0 +1,516 @@
+[
+  {
+    "id": "showcase-reel-80",
+    "version": 1,
+    "era": "1980s",
+    "name": "1980s commercials",
+    "order": "shuffle",
+    "repeatHours": 1,
+    "loudnessMatch": true,
+    "trimSilence": true,
+    "clips": [
+      {
+        "id": "4384d8955336fd771d13d650376a14f5",
+        "name": "1989 Nintendo Game Boy Commercial",
+        "source": "https://archive.org/details/1989-nintendo-game-boy-commercial",
+        "durationMs": 29800,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "8c0e81c0eb8299133d5394bb0b60b7c2",
+        "name": "1980 commercial: Old Spice",
+        "source": "https://archive.org/details/OldSpice1980",
+        "durationMs": 31133,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "a1f8b3e48a830a7cfeca19b816e4e075",
+        "name": "Computer Commercial: 1984 (1984)(Apple).mov",
+        "source": "https://archive.org/details/1984_1984_Apple.mov",
+        "durationMs": 59766,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "2166da2906b1d4b7bdfd25291c739859",
+        "name": "Computer Commercial: Apple Macintosh (1986)(Apple).mp4",
+        "source": "https://archive.org/details/Apple_Macintosh_1986_Apple.mp4",
+        "durationMs": 44633,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "255c6e1674b6a5c4ae10bd0d0039bfc3",
+        "name": "Apple II commercial (USA, 1985)",
+        "source": "https://archive.org/details/appleII_2-28-85",
+        "durationMs": 30166,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "750fd326345294af4af52c209c770ff4",
+        "name": "Apple IIc commercial (USA, 1985)",
+        "source": "https://archive.org/details/AppleII_1985-12-01",
+        "durationMs": 30566,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "2617f43522475523e50e131c587a7d3c",
+        "name": "1984 commercial for McDonald's McFeast",
+        "source": "https://archive.org/details/1984-commercial-for-mc-donalds-mc-feast",
+        "durationMs": 29546,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "5deb13085b219ef6db453999a5995c20",
+        "name": "1988 Coca Cola Busch Gardens Commercial",
+        "source": "https://archive.org/details/1988-coca-cola-bush-gardens-commercial",
+        "durationMs": 29700,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "7a3b4424bf9db093c72fb256eab0a5cd",
+        "name": "Nintendo Game And Watch (Commercial, 1983)",
+        "source": "https://archive.org/details/nintendo-game-and-watch-commercial-1983",
+        "durationMs": 30266,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "0281dc929b44ac470b6610088c313b00",
+        "name": "Diet Pepsi - Top Gun (1986) USA TV Commercial",
+        "source": "https://archive.org/details/pepsi-top-gun-1988-tv-commercial",
+        "durationMs": 29566,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "3e90524f7afb93cf1ba3f42f462cded4",
+        "name": "Nintendo Entertainment System commercial (USA, 1986)",
+        "source": "https://archive.org/details/Nintendo_Entertainment_System_commercial_USA_1986",
+        "durationMs": 30233,
+        "tags": [
+          "1980s",
+          "commercial"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "showcase-reel-90",
+    "version": 1,
+    "era": "1990s",
+    "name": "1990s commercials",
+    "order": "shuffle",
+    "repeatHours": 1,
+    "loudnessMatch": true,
+    "trimSilence": true,
+    "clips": [
+      {
+        "id": "cd3af132573939cccf33a1fb0b207988",
+        "name": "1990 Michael Jordon Coca Cola Commercial",
+        "source": "https://archive.org/details/1990-michael-jordon-coca-cola-commercia",
+        "durationMs": 30000,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "e7527da2f98cb7ac26e12cda531f9c19",
+        "name": "Computer Commercial: Nintendo 64 (1997)(Nintendo)(AU).mp4",
+        "source": "https://archive.org/details/Nintendo_64_1997_Nintendo_AU",
+        "durationMs": 120047,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "fc0ade158292ef798e0d538770cd72bc",
+        "name": "1990 Coca Cola Rolling Stones Sponsor Commercial",
+        "source": "https://archive.org/details/1990-coca-cola-rolling-stones-sponsor-commercial",
+        "durationMs": 38767,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "d808bab46c55ac73a97004c370bf4b3e",
+        "name": "1990 Coca Cola MagiCans Commercial",
+        "source": "https://archive.org/details/1990-coca-cola-magi-cans-commercial",
+        "durationMs": 40367,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "be45c99a219e9e3444dfcc930afe8d32",
+        "name": "Nintendo - Super Mario 64 commercial (USA, 1996)",
+        "source": "https://archive.org/details/Nintendo_-_Super_Mario_64_commercial_USA_1996",
+        "durationMs": 29633,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "3111459d32d7dff379bd1098ea4a4ff9",
+        "name": "McDonalds Toy Story Commercial (1995)",
+        "source": "https://archive.org/details/mc-donalds-toy-story-commercial-1995",
+        "durationMs": 15882,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "25e5da2edd3ff040a597a58256d20725",
+        "name": "1990 Coca Cola Jingle Commercial",
+        "source": "https://archive.org/details/1990-coca-cola-jingle-commercial",
+        "durationMs": 29867,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "5023c5cea5c0f0cd0fb8b39f785f7bcd",
+        "name": "Super Nintendo commercial (1992)",
+        "source": "https://archive.org/details/Super_Nintendo_commercial_1992",
+        "durationMs": 30023,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "6ddd279d0d73e64f87905e4cc6088580",
+        "name": "Nintendo - Doctor Mario commercial (USA, 1992)",
+        "source": "https://archive.org/details/Nintendo_-_Doctor_Mario_commercial_USA_1992",
+        "durationMs": 29600,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "7d2ad921bab15b4b1830188ed11d0cea",
+        "name": "Computer Commercial: Power Macintosh (1994)(Apple).mp4",
+        "source": "https://archive.org/details/Power_Macintosh_1994_Apple.mp4",
+        "durationMs": 29000,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "cfb6ee1aff221c7505d376179f2c2959",
+        "name": "1998 McDonalds Animal Kingdom Commercial",
+        "source": "https://archive.org/details/1998-mc-donalds-animal-kingdom-commercial",
+        "durationMs": 14867,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "5225918e1e2bf5a94e03134791769fdc",
+        "name": "1996 Nike Humpty Dumpty Commercial",
+        "source": "https://archive.org/details/1996-nike-humpty-dumpty-commercial",
+        "durationMs": 30000,
+        "tags": [
+          "1990s",
+          "commercial"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "showcase-reel-00",
+    "version": 1,
+    "era": "2000s",
+    "name": "2000s commercials",
+    "order": "shuffle",
+    "repeatHours": 1,
+    "loudnessMatch": true,
+    "trimSilence": true,
+    "clips": [
+      {
+        "id": "0a915c5a274c0fac4a773e4c8931a4da",
+        "name": "Pop Tarts Yeti Commercial (2003)",
+        "source": "https://archive.org/details/pop-tarts-yeti-commercial",
+        "durationMs": 29907,
+        "tags": [
+          "2000s",
+          "commercial"
+        ],
+        "attribution": "Pop Tarts Yeti Commercial"
+      },
+      {
+        "id": "a7647c432b5f611b9c4f3b2faf02fdc2",
+        "name": "McDonald's Commercial: \"Space Ghost Dollar Menu Interview\"",
+        "source": "https://archive.org/details/space-ghost-mc-donalds-sponsorship-2007480p",
+        "durationMs": 30070,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "8771b58cf2334e0ba735a7c4114772ff",
+        "name": "Coca-Cola Commercial: \"Space Ghost Burps\"",
+        "source": "https://archive.org/details/space-ghost-coca-cola-commercial-480p",
+        "durationMs": 14100,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "e2fe6d0691c0ba9754c8546d771dad59",
+        "name": "2000 commercial for McDonald's",
+        "source": "https://archive.org/details/2000-commercial-for-mc-donalds",
+        "durationMs": 29400,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "40dba13219a738130d77190184234a50",
+        "name": "2003 commercial for McDonald's Happy Meal",
+        "source": "https://archive.org/details/2003-commercial-for-mc-donalds-happy-meal",
+        "durationMs": 30037,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "fcc887a64784f03cbff6bc669eaa8ea8",
+        "name": "2006 McDonald's Pakistan Hot Wheels commercial",
+        "source": "https://archive.org/details/hotwheels_202405",
+        "durationMs": 27100,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "f6131762cc17d1ab83962fb7dc9d808d",
+        "name": "2002 commercial for McDonald's Happy Meal",
+        "source": "https://archive.org/details/2002-commercial-for-mc-donalds-happy-meal",
+        "durationMs": 30121,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "10a1dfee8f35d6958c297b47e1759a83",
+        "name": "2000 commercial for McDonald's (2)",
+        "source": "https://archive.org/details/2000-commercial-for-mc-donalds-2",
+        "durationMs": 30066,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "54cb48dbd3b791434a0221adac9ebbd3",
+        "name": "2001 commercial for CD Pepsi Chart Hits Volume 3",
+        "source": "https://archive.org/details/2001-commercial-for-cd-pepsi-chart-hits-volume-3",
+        "durationMs": 15000,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "bb2c20632d47c619c00ed669ae310f55",
+        "name": "All Adland.tv US LEGO Bionicle TV Commercial",
+        "source": "https://archive.org/details/AdlandBionicleCommercial",
+        "durationMs": 60100,
+        "tags": [
+          "2000s",
+          "commercial"
+        ],
+        "attribution": "All Adland.tv US LEGO Bionicle TV Commercial \u00b7 https://creativecommons.org/licenses/by-nd/4.0/"
+      },
+      {
+        "id": "014a0efed97a49c07d0a5c058be64b70",
+        "name": "Launch Vahki CGI Commercial in English - LEGO Bionicle",
+        "source": "https://archive.org/details/BionicleVahki",
+        "durationMs": 30041,
+        "tags": [
+          "2000s",
+          "commercial"
+        ],
+        "attribution": "Launch Vahki CGI Commercial in English - LEGO Bionicle \u00b7 https://creativecommons.org/licenses/by-nd/4.0/"
+      },
+      {
+        "id": "141c73443888ef5a9f20e61bb1aa0799",
+        "name": "2003 commercial for Lego Bionicle",
+        "source": "https://archive.org/details/2003-commercial-for-lego-bionicle",
+        "durationMs": 30136,
+        "tags": [
+          "2000s",
+          "commercial"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "showcase-reel-10",
+    "version": 1,
+    "era": "2010s",
+    "name": "2010s commercials",
+    "order": "shuffle",
+    "repeatHours": 1,
+    "loudnessMatch": true,
+    "trimSilence": true,
+    "clips": [
+      {
+        "id": "2c07b2a5ebd9afe2c5d7404c8273ff3d",
+        "name": "McDonald's Anime Commercial English Subs",
+        "source": "https://archive.org/details/youtube-ZTrC86mmPaw",
+        "durationMs": 72366,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "2fcc98917d68cce8048fbc6bfb140daf",
+        "name": "Nintendo Switch Super Bowl Commercial ( February 2017)",
+        "source": "https://archive.org/details/NintendoSwitchSuperBowlCommercialFebruary2017",
+        "durationMs": 100449,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "e9bb3b14bb8046f9329013f9e6c73dc9",
+        "name": "Apple Music Commercial (Garvey, 2018)",
+        "source": "https://archive.org/details/Apple_Music_Commercial_Garvey_2018",
+        "durationMs": 41500,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "f20746808308ed7213be94c43087dcc7",
+        "name": "2017 commercial for McDonald's Happy Meal - The Lego Batman Movie",
+        "source": "https://archive.org/details/2017-commercial-for-mcdonalds-happy-meal-the-lego-batman-movie",
+        "durationMs": 29000,
+        "tags": [
+          "2010s",
+          "commercial"
+        ],
+        "attribution": "2017 commercial for McDonald's Happy Meal - The Lego Batman Movie \u00b7 https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      {
+        "id": "3017dd76ed56e9320a38c5ae0003c3f4",
+        "name": "Nintendo DSi XL Holiday Official Commercial [HD]",
+        "source": "https://archive.org/details/youtube-B3Kq8SXATiI",
+        "durationMs": 31631,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "bfec3672d64f8620530619c953fbc5e8",
+        "name": "( 2014) New Nintendo 3DS ( Kyary Pamyu Pamyu) Japanese Commercial",
+        "source": "https://archive.org/details/2014-new-nintendo-3-ds-kyary-pamyu-pamyu-japanese-commercial",
+        "durationMs": 29000,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "75d40ec65bdfbb12b3529bdf9d27eee7",
+        "name": "2013 commercial for McDonald's Happy Meal - Despicable Me 2",
+        "source": "https://archive.org/details/2013-commercial-for-mcdonalds-happy-meal-despicable-me-2",
+        "durationMs": 28966,
+        "tags": [
+          "2010s",
+          "commercial"
+        ],
+        "attribution": "2013 commercial for McDonald's Happy Meal - Despicable Me 2 \u00b7 https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      {
+        "id": "ff5d6b914b058d78ef66d5b5fb71f7b8",
+        "name": "Pack US TV Kirby: And The Rainbow Curse Commercial - Nintendo Wii U 2015",
+        "source": "https://archive.org/details/PackUSTVKirbyWiiUCommercial",
+        "durationMs": 29766,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "2fc2b1150dca1b6981643f75a42c760b",
+        "name": "Geico - Two In The Bush (2011) TV Commercial",
+        "source": "https://archive.org/details/geico-two-in-the-bush-2011-tv-commercial",
+        "durationMs": 30033,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      },
+      {
+        "id": "33e8a1acf38f03ec92369fb28cd1908a",
+        "name": "Doritos - Goat 4 Sale Commercial (2013) (1080p)",
+        "source": "https://archive.org/details/doritos-goat-4-sale-2013-1080p",
+        "durationMs": 30037,
+        "tags": [
+          "2010s",
+          "commercial"
+        ],
+        "attribution": "Doritos - Goat 4 Sale Commercial (2013) (1080p) \u00b7 https://creativecommons.org/publicdomain/mark/1.0/"
+      },
+      {
+        "id": "3ff87efb5f27e09c41451c629366800d",
+        "name": "McDonald's 2014 \"After Midnight Menu\" commercial",
+        "source": "https://archive.org/details/2014-after-midnight-menu",
+        "durationMs": 10101,
+        "tags": [
+          "2010s",
+          "commercial"
+        ]
+      }
+    ]
+  }
+]

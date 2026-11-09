@@ -160,15 +160,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			return nil, nil, core.ErrNotAvailable
 		}
 		if programme.Item.ReelClipID != "" {
-			var path string
-			if reel := c.reelForItem(programme.Item); reel != nil {
-				for _, clip := range reel.Clips {
-					if clip.ID == programme.Item.ReelClipID {
-						path = clip.Path
-						break
-					}
-				}
+			reelID := programme.Item.ReelID
+			if reelID == "" && programme.graphicsRequest != nil {
+				reelID = programme.graphicsRequest.ReelID
 			}
+			path := p.s.openReelClipPath(c, reelID, programme.Item.ReelClipID)
 			if path == "" {
 				return nil, nil, core.ErrNotAvailable
 			}

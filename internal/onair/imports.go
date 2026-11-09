@@ -24,10 +24,13 @@ import (
 // Import jobs share the bounded background queue with look preparation. No
 // network request or media probe runs on the console request goroutine.
 type ImportRequest struct {
-	URL  string   `json:"url"`
-	URLs []string `json:"urls"`
-	Name string   `json:"name"`
-	Kind string   `json:"kind"`
+	URL        string   `json:"url"`
+	URLs       []string `json:"urls"`
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"`
+	Mode       string   `json:"mode,omitempty"`
+	DurationMS int64    `json:"durationMs,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 type ImportJob struct {
 	UseSourceTitle bool    `json:"useSourceTitle,omitempty"`
@@ -39,6 +42,7 @@ type ImportJob struct {
 	Status         string  `json:"status"`
 	Progress       float64 `json:"progress"`
 	Error          string  `json:"error,omitempty"`
+	Link           bool    `json:"link,omitempty"`
 }
 
 func publicImportURL(ctx context.Context, raw string) error {
@@ -58,6 +62,29 @@ func publicImportURL(ctx context.Context, raw string) error {
 	}
 	return nil
 }
+
+func (s *Service) validateImportURL(ctx context.Context, raw string) error {
+	if s.o.ValidateURL != nil {
+		return s.o.ValidateURL(ctx, raw)
+	}
+	return publicImportURL(ctx, raw)
+}
+
+func (s *Service) archiveOrigin() string {
+	if s.o.ArchiveOrigin != "" {
+		return strings.TrimRight(s.o.ArchiveOrigin, "/")
+	}
+	return "https://archive.org"
+}
+
+func (s *Service) importHTTPClient() (*http.Client, func()) {
+	if s.o.HTTPClient != nil {
+		return s.o.HTTPClient, func() {}
+	}
+	c := importClient()
+	return c, c.CloseIdleConnections
+}
+
 func importClient() *http.Client {
 	c := egress.Client(egress.CapPlugins, 10*time.Minute)
 	tr := c.Transport.(*http.Transport)
@@ -107,8 +134,14 @@ func importGET(ctx context.Context, c *http.Client, raw string) (*http.Response,
 }
 
 func importGETWithHeaders(ctx context.Context, c *http.Client, raw string, headers map[string]string) (*http.Response, error) {
-	if e := publicImportURL(ctx, raw); e != nil {
-		return nil, e
+	return importGETValidated(ctx, c, raw, headers, publicImportURL)
+}
+
+func importGETValidated(ctx context.Context, c *http.Client, raw string, headers map[string]string, validate func(context.Context, string) error) (*http.Response, error) {
+	if validate != nil {
+		if e := validate(ctx, raw); e != nil {
+			return nil, e
+		}
 	}
 	r, e := http.NewRequestWithContext(ctx, "GET", raw, nil)
 	if e != nil {
@@ -287,6 +320,12 @@ func (s *Service) Import(ctx context.Context, reel string, in ImportRequest) ([]
 	if len(urls) == 0 || len(urls) > 50 {
 		return nil, fmt.Errorf("import between 1 and 50 links")
 	}
+	if in.Mode != "" && in.Mode != "import" && in.Mode != "link" {
+		return nil, fmt.Errorf("invalid import mode")
+	}
+	if in.Mode == "link" && reel == "" {
+		return nil, fmt.Errorf("link mode requires a reel")
+	}
 	if reel != "" {
 		if _, e := s.Reel(ctx, reel); e != nil {
 			return nil, e
@@ -300,6 +339,31 @@ func (s *Service) Import(ctx context.Context, reel string, in ImportRequest) ([]
 		if len(raw) > 8192 || e != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {
 			return nil, fmt.Errorf("invalid HTTP media link")
 		}
+	}
+	if in.Mode == "link" {
+		out := make([]ImportJob, 0, len(urls))
+		for _, raw := range urls {
+			c, err := s.AddLinkClip(ctx, reel, LinkClipInput{
+				Name:       in.Name,
+				Source:     raw,
+				DurationMS: in.DurationMS,
+				Tags:       in.Tags,
+			})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ImportJob{
+				UseSourceTitle: in.Name == "",
+				ID:             c.ID,
+				Source:         c.Source,
+				Name:           c.Name,
+				Kind:           "video",
+				Status:         c.Status,
+				Progress:       100,
+				Link:           true,
+			})
+		}
+		return out, nil
 	}
 	out := []ImportJob{}
 	for _, raw := range urls {
@@ -353,11 +417,11 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 	}
 	j.Status = "downloading"
 	s.saveImport(ctx, reel, j)
-	c := importClient()
-	defer c.CloseIdleConnections()
+	c, closeClient := s.importHTTPClient()
+	defer closeClient()
 	raw := j.Source
 	u, _ := url.Parse(raw)
-	if e := publicImportURL(ctx, raw); e != nil {
+	if e := s.validateImportURL(ctx, raw); e != nil {
 		return e
 	}
 	kind := j.Kind
@@ -374,8 +438,11 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 	if strings.EqualFold(u.Hostname(), "archive.org") && strings.HasPrefix(u.Path, "/details/") {
 		item := strings.Split(strings.TrimPrefix(u.Path, "/details/"), "/")[0]
 		var title string
-		raw, title, j.Attribution, err = resolveArchive(ctx, c, "https://archive.org", item)
+		raw, title, j.Attribution, err = resolveArchive(ctx, c, s.archiveOrigin(), item)
 		if err != nil {
+			if s.o.Downloader != nil && s.o.Downloader.Status().Available {
+				return s.runExtractorImport(ctx, c, reel, j, j.Source, kind, limit, maxDur)
+			}
 			return err
 		}
 		if j.UseSourceTitle && strings.TrimSpace(title) != "" {
@@ -385,7 +452,7 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 		return s.runExtractorImport(ctx, c, reel, j, raw, kind, limit, maxDur)
 	}
 
-	resp, e := importGET(ctx, c, raw)
+	resp, e := importGETValidated(ctx, c, raw, nil, s.validateImportURL)
 	if e != nil {
 		return e
 	}
@@ -424,85 +491,211 @@ func (s *Service) runImport(ctx context.Context, reel string, j ImportJob) (err 
 }
 
 func (s *Service) runExtractorImport(ctx context.Context, c *http.Client, reel string, j ImportJob, raw, kind string, limit int64, maxDur time.Duration) error {
-	if s.o.Downloader == nil {
-		return fmt.Errorf("yt-dlp is required to import from video sites; click Install yt-dlp to set it up")
-	}
-	workDir, err := os.MkdirTemp(s.o.Dir, ".import-ytdlp-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(workDir)
-
-	res, err := s.o.Downloader.Download(ctx, extras.DownloadRequest{
-		URL:         raw,
-		Kind:        kind,
-		Reel:        reel != "",
-		MaxBytes:    limit,
-		MaxDuration: maxDur,
-		OutputDir:   workDir,
-		Progress: func(pct float64) {
-			j.Progress = pct
-			_ = s.saveImport(ctx, reel, j)
-		},
+	dl, err := s.downloadViaExtractor(ctx, c, raw, kind, reel != "", limit, maxDur, func(pct float64) {
+		j.Progress = pct
+		_ = s.saveImport(ctx, reel, j)
 	})
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(res.Title) != "" {
-		if j.UseSourceTitle {
-			j.Name = cleanTitle(res.Title)
-		}
-		if j.Attribution == "" {
-			if strings.TrimSpace(res.Attribution) != "" {
-				j.Attribution = cleanTitle(res.Title + " · " + res.Attribution)
-			} else {
-				j.Attribution = cleanTitle(res.Title)
-			}
-		}
-	} else if j.Attribution == "" && strings.TrimSpace(res.Attribution) != "" {
-		j.Attribution = cleanTitle(res.Attribution)
+	defer dl.cleanup()
+	if dl.title != "" && j.UseSourceTitle {
+		j.Name = dl.title
+	}
+	if j.Attribution == "" && dl.attribution != "" {
+		j.Attribution = dl.attribution
 	}
 	_ = s.saveImport(ctx, reel, j)
+	f, err := os.Open(dl.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return s.commitImportedMedia(ctx, reel, j, f)
+}
 
-	if res.Path != "" {
-		f, err := os.Open(res.Path)
-		if err != nil {
-			return err
+type downloadedLink struct {
+	path        string
+	title       string
+	attribution string
+	cleanup     func()
+}
+
+func (s *Service) downloadViaExtractor(ctx context.Context, c *http.Client, raw, kind string, isReel bool, limit int64, maxDur time.Duration, progress func(float64)) (downloadedLink, error) {
+	if s.o.Downloader == nil {
+		return downloadedLink{}, fmt.Errorf("yt-dlp is required to import from video sites; click Install yt-dlp to set it up")
+	}
+	workDir, err := os.MkdirTemp(s.o.Dir, ".import-ytdlp-*")
+	if err != nil {
+		return downloadedLink{}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(workDir) }
+	res, err := s.o.Downloader.Download(ctx, extras.DownloadRequest{
+		URL:         raw,
+		Kind:        kind,
+		Reel:        isReel,
+		MaxBytes:    limit,
+		MaxDuration: maxDur,
+		OutputDir:   workDir,
+		Progress:    progress,
+	})
+	if err != nil {
+		cleanup()
+		return downloadedLink{}, err
+	}
+	var title, attr string
+	if strings.TrimSpace(res.Title) != "" {
+		title = cleanTitle(res.Title)
+		if strings.TrimSpace(res.Attribution) != "" {
+			attr = cleanTitle(res.Title + " · " + res.Attribution)
+		} else {
+			attr = title
 		}
-		defer f.Close()
-		return s.commitImportedMedia(ctx, reel, j, f)
+	} else if strings.TrimSpace(res.Attribution) != "" {
+		attr = cleanTitle(res.Attribution)
+	}
+	if res.Path != "" {
+		return downloadedLink{path: res.Path, title: title, attribution: attr, cleanup: cleanup}, nil
 	}
 	if res.ResolvedURL != "" {
-		resp, err := importGETWithHeaders(ctx, c, res.ResolvedURL, res.Headers)
+		resp, err := importGETValidated(ctx, c, res.ResolvedURL, res.Headers, s.validateImportURL)
 		if err != nil {
-			return err
+			cleanup()
+			return downloadedLink{}, err
 		}
 		defer resp.Body.Close()
 		if resp.ContentLength > limit {
-			return fmt.Errorf("media exceeds size cap")
+			cleanup()
+			return downloadedLink{}, fmt.Errorf("media exceeds size cap")
 		}
-		f, err := os.CreateTemp(s.o.Dir, ".import-*")
+		f, err := os.CreateTemp(workDir, "resolved-*.mp4")
 		if err != nil {
-			return err
+			cleanup()
+			return downloadedLink{}, err
 		}
-		defer os.Remove(f.Name())
-		defer f.Close()
-		n, err := copyImport(f, resp.Body, limit, resp.ContentLength, func(progress float64) {
-			j.Progress = progress
-			_ = s.saveImport(ctx, reel, j)
+		n, err := copyImport(f, resp.Body, limit, resp.ContentLength, func(pct float64) {
+			if progress != nil {
+				progress(pct)
+			}
 		})
+		closeErr := f.Close()
 		if err != nil {
-			return err
+			cleanup()
+			return downloadedLink{}, err
+		}
+		if closeErr != nil {
+			cleanup()
+			return downloadedLink{}, closeErr
 		}
 		if n == 0 {
-			return fmt.Errorf("empty media")
+			cleanup()
+			return downloadedLink{}, fmt.Errorf("empty media")
 		}
-		if _, err = f.Seek(0, 0); err != nil {
-			return err
-		}
-		return s.commitImportedMedia(ctx, reel, j, f)
+		return downloadedLink{path: f.Name(), title: title, attribution: attr, cleanup: cleanup}, nil
 	}
-	return fmt.Errorf("could not download media from link")
+	cleanup()
+	return downloadedLink{}, fmt.Errorf("could not download media from link")
+}
+
+// downloadLinkMedia resolves a reel link clip (YouTube, archive.org/details/...,
+// extractor sites, or direct HTTP video) to a temporary local file ready for normalization.
+func (s *Service) downloadLinkMedia(ctx context.Context, raw string, progress func(float64)) (downloadedLink, error) {
+	if err := s.validateImportURL(ctx, raw); err != nil {
+		return downloadedLink{}, err
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return downloadedLink{}, fmt.Errorf("invalid HTTP media link")
+	}
+	c, closeClient := s.importHTTPClient()
+	defer closeClient()
+
+	const limit = int64(500 << 20)
+	const maxDur = 3 * time.Minute
+
+	isArchiveDetails := strings.EqualFold(u.Hostname(), "archive.org") && strings.HasPrefix(u.Path, "/details/")
+	if isArchiveDetails {
+		// Prefer yt-dlp when available (handles Archive.org .mov/.ogv/.mp4 and
+		// offline fake-resolver tests without network calls), falling back to
+		// Archive.org's JSON metadata API when yt-dlp is unavailable or fails.
+		if s.o.Downloader != nil && s.o.Downloader.Status().Available {
+			if dl, err := s.downloadViaExtractor(ctx, c, raw, "video", true, limit, maxDur, progress); err == nil {
+				return dl, nil
+			} else if ctx.Err() != nil {
+				return downloadedLink{}, ctx.Err()
+			}
+		}
+		item := strings.Split(strings.TrimPrefix(u.Path, "/details/"), "/")[0]
+		resolvedURL, title, attr, err := resolveArchive(ctx, c, s.archiveOrigin(), item)
+		if err != nil {
+			if s.o.Downloader != nil && !s.o.Downloader.Status().Available {
+				return downloadedLink{}, fmt.Errorf("%w (or install yt-dlp to resolve Archive.org formats)", err)
+			}
+			return downloadedLink{}, err
+		}
+		dl, err := s.downloadHTTPFile(ctx, c, resolvedURL, "video", limit, progress)
+		if err != nil {
+			return downloadedLink{}, err
+		}
+		dl.title = cleanTitle(title)
+		dl.attribution = cleanTitle(attr)
+		return dl, nil
+	}
+	if extras.IsExtractorSiteURL(raw) {
+		return s.downloadViaExtractor(ctx, c, raw, "video", true, limit, maxDur, progress)
+	}
+	dl, err := s.downloadHTTPFile(ctx, c, raw, "video", limit, progress)
+	if errors.Is(err, errHTMLPage) && s.o.Downloader != nil {
+		return s.downloadViaExtractor(ctx, c, raw, "video", true, limit, maxDur, progress)
+	}
+	return dl, err
+}
+
+var errHTMLPage = errors.New("html media page")
+
+func (s *Service) downloadHTTPFile(ctx context.Context, c *http.Client, raw, kind string, limit int64, progress func(float64)) (downloadedLink, error) {
+	resp, err := importGETValidated(ctx, c, raw, nil, s.validateImportURL)
+	if err != nil {
+		return downloadedLink{}, err
+	}
+	defer resp.Body.Close()
+	mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		return downloadedLink{}, fmt.Errorf("invalid media content type")
+	}
+	if !strings.HasPrefix(mt, kind+"/") && mt != "application/octet-stream" {
+		if mt == "text/html" || mt == "application/xhtml+xml" {
+			return downloadedLink{}, errHTMLPage
+		}
+		return downloadedLink{}, fmt.Errorf("link is not %s media", kind)
+	}
+	if resp.ContentLength > limit {
+		return downloadedLink{}, fmt.Errorf("media exceeds size cap")
+	}
+	f, err := os.CreateTemp(s.o.Dir, ".link-dl-*")
+	if err != nil {
+		return downloadedLink{}, err
+	}
+	cleanup := func() { _ = os.Remove(f.Name()) }
+	n, err := copyImport(f, resp.Body, limit, resp.ContentLength, func(pct float64) {
+		if progress != nil {
+			progress(pct)
+		}
+	})
+	closeErr := f.Close()
+	if err != nil {
+		cleanup()
+		return downloadedLink{}, err
+	}
+	if closeErr != nil {
+		cleanup()
+		return downloadedLink{}, closeErr
+	}
+	if n == 0 {
+		cleanup()
+		return downloadedLink{}, fmt.Errorf("empty media")
+	}
+	return downloadedLink{path: f.Name(), cleanup: cleanup}, nil
 }
 
 func cleanTitle(s string) string {
@@ -580,7 +773,7 @@ func copyImport(dst io.Writer, src io.Reader, limit, total int64, progress func(
 			if _, e := dst.Write(buf[:nr]); e != nil {
 				return n, e
 			}
-			if total > 0 && time.Since(last) > time.Second {
+			if total > 0 && progress != nil && time.Since(last) > time.Second {
 				progress(99 * float64(n) / float64(total))
 				last = time.Now()
 			}

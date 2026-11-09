@@ -196,7 +196,18 @@ func (s *Service) clipRequest(c Channel, p Programme, snapshots ...[]Programme) 
 	if c.Look != nil {
 		lookID = c.Look.LookID
 	}
-	r := core.ClipRequest{LookID: lookID, Moment: p.Item.Slate, ChannelID: c.ID, Bind: map[string]string{"channel.name": c.Name, "slate.start": fmt.Sprint(p.Start.Unix())}, Art: map[string]string{}}
+	r := core.ClipRequest{
+		LookID:     lookID,
+		Moment:     p.Item.Slate,
+		ChannelID:  c.ID,
+		ReelID:     p.Item.ReelID,
+		ReelClipID: p.Item.ReelClipID,
+		Bind:       map[string]string{"channel.name": c.Name, "slate.start": fmt.Sprint(p.Start.Unix())},
+		Art:        map[string]string{},
+	}
+	if p.Item.ReelClipID != "" && r.ReelID == "" && c.Look != nil {
+		r.ReelID = c.Look.ReelID
+	}
 	if c.Look != nil {
 		r.Bug = c.Look.Bug
 		r.AssetDigest = c.Look.MomentAssets[p.Item.Slate]

@@ -14,6 +14,18 @@ func (a *App) onairReelSnapshot(ctx context.Context, id string) (livetv.ReelSnap
 	}
 	out := livetv.ReelSnapshot{ID: reel.ID, Anchor: reel.Anchor, Order: reel.Order, Repeat: time.Duration(reel.RepeatHours * float64(time.Hour))}
 	for _, clip := range reel.Clips {
+		if clip.Link {
+			path, cachedDur, ok := a.onair.PeekCachedReelClip(reel.ID, clip.ID)
+			dur := time.Duration(clip.DurationMS) * time.Millisecond
+			if dur <= 0 && ok && cachedDur > 0 {
+				dur = cachedDur
+			}
+			if dur <= 0 {
+				dur = 30 * time.Second
+			}
+			out.Clips = append(out.Clips, livetv.ReelClip{ID: clip.ID, Name: clip.Name, Duration: dur, Path: path, Link: true})
+			continue
+		}
 		if clip.Status != "ready" || clip.DurationMS <= 0 {
 			continue
 		}

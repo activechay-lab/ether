@@ -57,12 +57,22 @@ func (s *Service) ReelSnapshot(ctx context.Context, id string) (Reel, error) { r
 // ReelClipPath reads clip metadata and the local master index. A miss is materialized by
 // the background queue, and the caller skips it until a later planning pass.
 func (s *Service) ReelClipPath(ctx context.Context, reelID, clipID string) (string, bool) {
+	if path, _, ok := s.PeekCachedReelClip(reelID, clipID); ok {
+		return path, true
+	}
 	r, e := s.Reel(ctx, reelID)
 	if e != nil {
 		return "", false
 	}
 	for _, c := range r.Clips {
-		if c.ID != clipID || c.Status != "ready" {
+		if c.ID != clipID {
+			continue
+		}
+		if c.Link {
+			path, _, ok := s.PeekCachedReelClip(reelID, clipID)
+			return path, ok
+		}
+		if c.Status != "ready" {
 			continue
 		}
 		s.mu.Lock()

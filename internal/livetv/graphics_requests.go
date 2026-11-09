@@ -66,7 +66,7 @@ func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.Cl
 				if renderer != nil {
 					momentLead = max(momentLead, renderer.RenderLead(channelLook, p.Item.Slate))
 				}
-				if strings.HasPrefix(p.Item.Slate, "plugin:") {
+				if strings.HasPrefix(p.Item.Slate, "plugin:") || p.Item.ReelClipID != "" {
 					momentLead = max(momentLead, 15*time.Minute)
 				}
 				if p.Start.After(now.Add(momentLead)) {

@@ -18,6 +18,7 @@ type ReelSnapshot struct {
 type ReelClip struct {
 	ID, Name, Path string
 	Duration       time.Duration
+	Link           bool
 }
 type momentHistory struct {
 	last      map[string]time.Time
