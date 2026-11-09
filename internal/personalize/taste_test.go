@@ -281,3 +281,32 @@ func TestFavoriteDoesNotEraseWatchedEvidence(t *testing.T) {
 		t.Fatalf("watched evidence lost: %+v", e)
 	}
 }
+
+// A taste ranking reads only what a ranking window reads
+// (core.WithRankingCandidates): a title cut to its row, genres, keywords,
+// every director and the first core.RankCast cast, core.RankWriters writers
+// and core.RankCrew crew fits and scores as the full title does.
+func TestFitReadsTheRankingWindow(t *testing.T) {
+	ts := &Taste{Genre: map[string]float64{"drama": 0.6, "horror": -0.2}, Keyword: map[string]float64{"heist": 0.8}, Person: map[int64]float64{},
+		Decade: map[int]float64{1990: 0.7}, Language: map[string]float64{"en": 0.9, "fr": 0.4}, Franchise: map[int64]float64{9: 0.5}, Studio: map[string]float64{"Studio": 1}}
+	full := core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Year: 1994, Language: "fr", Rating: 7.9, VoteCount: 4000, CollectionID: 9, CollectionName: "Saga",
+		Genres: []string{"Drama", "Horror"}, Keywords: []string{"heist", "night"}, Studios: []string{"Studio"}, Countries: []string{"FR"}, AlternativeTitles: []string{"Le Casse"}}
+	for n := int64(1); n <= 12; n++ {
+		full.Cast = append(full.Cast, core.Person{TMDB: 100 + n, Name: "Actor"})
+		full.Writers = append(full.Writers, core.Person{TMDB: 200 + n, Name: "Writer"})
+		full.Crew = append(full.Crew, core.Person{TMDB: 300 + n, Name: "Crew", Role: []string{"Composer", "Creator", "Cinematographer"}[n%3]})
+		full.Directors = append(full.Directors, core.Person{TMDB: 400 + n, Name: "Director"})
+		// Weights past the cut too: a ranking that read them would differ.
+		for _, id := range []int64{100 + n, 200 + n, 300 + n, 400 + n} {
+			ts.Person[id] = 0.1 * float64(n%7)
+		}
+	}
+	window := full
+	window.Cast, window.Writers, window.Crew = full.Cast[:core.RankCast], full.Writers[:core.RankWriters], full.Crew[:core.RankCrew]
+	window.Studios, window.Countries, window.AlternativeTitles = nil, nil, nil
+	fitFull, whyFull := ts.Fit(&full)
+	fitWindow, whyWindow := ts.Fit(&window)
+	if fitFull != fitWindow || whyFull != whyWindow || quality(&full) != quality(&window) {
+		t.Fatalf("window fits %v %q, full title %v %q", fitWindow, whyWindow, fitFull, whyFull)
+	}
+}

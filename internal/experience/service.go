@@ -3,6 +3,7 @@ package experience
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -117,6 +118,11 @@ type ServiceDeps struct {
 	// some of those forms. With both (and PeopleRead.PortraitTitles) a person
 	// page reads its credited titles in the order its choice prefers them
 	// and stops at the first the viewer may see. Optional.
+	// RankingDetails reads in full the titles a ranking window
+	// (core.WithRankingCandidates) returned partial. With it, Similar ranks
+	// its related shelves on the facts their ranking reads and reads only
+	// its page in full. Optional.
+	RankingDetails    func(context.Context, []core.Title) ([]core.Title, error)
 	PersonCreditForms func(context.Context, int64, []core.MediaType) ([]core.PersonCreditForm, error)
 	PersonFormKeys    func(context.Context, int64, []core.MediaType, []core.PersonCreditForm, core.RatingKey, int) ([]core.RatingKey, error)
 	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
@@ -1694,6 +1700,10 @@ func (s *Service) Similar(ctx context.Context, viewer *core.Viewer, device core.
 	if _, err = s.item(ctx, v, key); err != nil {
 		return frontend.SearchPage{}, err
 	}
+	rank := s.similarWindow(ctx, v, q)
+	if rank != nil {
+		ctx = core.WithRankingCandidates(ctx, rank)
+	}
 	candidates, err := s.similarCandidates(ctx, v, key)
 	if err != nil {
 		return frontend.SearchPage{}, err
@@ -1731,7 +1741,29 @@ func (s *Service) Similar(ctx context.Context, viewer *core.Viewer, device core.
 	if end < len(items) {
 		continuation = frontend.ContinuationMore
 	}
-	return frontend.SearchPage{Page: core.Page{Items: items[offset:end], Total: len(items)}, TotalExact: exact, Continuation: continuation}, nil
+	page := items[offset:end]
+	if rank != nil {
+		if page, err = s.d.RankingDetails(ctx, page); err != nil {
+			return frontend.SearchPage{}, err
+		}
+	}
+	return frontend.SearchPage{Page: core.Page{Items: page, Total: len(items)}, TotalExact: exact, Continuation: continuation}, nil
+}
+
+// similarWindow is the ranking window Similar reads its related shelves
+// with (core.WithRankingCandidates): the facts the viewer's policy reads,
+// and the genres and keywords a shelf's taste ranking reads with its
+// credits. Nil, for full titles, when q filters on facts, or the catalogue
+// or availability cannot say.
+func (s *Service) similarWindow(ctx context.Context, v *core.User, q frontend.ItemQuery) *core.SearchCandidates {
+	if s.d.RankingDetails == nil || !reflect.ValueOf(q.Filter).IsZero() {
+		return nil
+	}
+	detail, ok := s.d.Visibility.FactJudge(ctx)
+	if !ok {
+		return nil
+	}
+	return &core.SearchCandidates{Facts: s.d.Visibility.TitleFacts(v) | core.FactGenres | core.FactKeywords, Detail: detail}
 }
 
 // similarCandidates uses the detail recommender when the host wired one, so

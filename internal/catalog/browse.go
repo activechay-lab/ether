@@ -67,6 +67,15 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	// export: it neither serves from nor fills the page cache.
 	listRows := q.ListRows != nil && q.Sort == core.SortKey
 	pageCacheable := cacheable && !listRows
+	// A ranking window (core.WithRankingCandidates) reads its titles
+	// partial and caches that page apart, under rkey; a full page serves it.
+	var rank *rankProjection
+	rkey := ""
+	cand := core.RankingCandidatesFrom(ctx)
+	if cand != nil && !listRows {
+		rank = &rankProjection{facts: cand.Facts | c.policyFacts(c.visibilityFor(ctx)) | c.viewerPolicyFacts(ctx), detail: cand.Detail}
+		rkey = bkey + fmt.Sprintf("|rank:%d", rank.facts)
+	}
 	c.cacheMu.RLock()
 	if ent, ok := c.browseCache[bkey]; pageCacheable && !q.SortLastViewed && ok && ent.gen == gen && ent.minute == minBucket {
 		items := make([]core.Title, len(ent.page.Items))
@@ -74,6 +83,19 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 			items[i] = cloneTitle(ent.page.Items[i])
 		}
 		c.cacheMu.RUnlock()
+		c.kickMovieYears(items)
+		return core.Page{Items: items, Total: ent.page.Total}, nil
+	}
+	if ent, ok := c.browseCache[rkey]; rank != nil && pageCacheable && !q.SortLastViewed && ok && ent.gen == gen && ent.minute == minBucket {
+		items := make([]core.Title, len(ent.page.Items))
+		for i := range ent.page.Items {
+			items[i] = cloneTitle(ent.page.Items[i])
+		}
+		partial := slices.Clone(ent.partial)
+		c.cacheMu.RUnlock()
+		if err := c.finishRankPage(ctx, cand, items, partial); err != nil {
+			return core.Page{}, err
+		}
 		c.kickMovieYears(items)
 		return core.Page{Items: items, Total: ent.page.Total}, nil
 	}
@@ -227,6 +249,9 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		// The date expression comes before the filter in the narrow subquery.
 		queryArgs = append(append([]any{}, orderArgs...), pageArgs...)
 	}
+	if rank != nil {
+		ctx = withRankProjection(ctx, rank)
+	}
 	var items []core.Title
 	years, byYear := yearMergeable(q, offset, limit)
 	switch {
@@ -286,6 +311,12 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.NoTotal {
 		total = offset + len(items)
 	}
+	key := bkey
+	var partial []core.RatingKey
+	if rank != nil && len(rank.partial) > 0 {
+		key, partial = rkey, slices.Clone(rank.partial)
+		cand.MarkPartial(partial)
+	}
 	if pageCacheable && !q.SortLastViewed && c.writeGen.Load() == gen {
 		cachedItems := make([]core.Title, len(items))
 		for i := range items {
@@ -295,7 +326,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		if len(c.browseCache) >= 512 {
 			c.browseCache = map[string]cachedBrowse{}
 		}
-		c.browseCache[bkey] = cachedBrowse{page: core.Page{Items: cachedItems, Total: total}, gen: gen, minute: minBucket}
+		c.browseCache[key] = cachedBrowse{page: core.Page{Items: cachedItems, Total: total}, gen: gen, minute: minBucket, partial: partial}
 		c.cacheMu.Unlock()
 	}
 	c.kickMovieYears(items)

@@ -263,3 +263,39 @@ func SearchCandidatesFrom(ctx context.Context) *SearchCandidates {
 	c, _ := ctx.Value(searchCandidatesKey{}).(*SearchCandidates)
 	return c
 }
+
+// RankCast, RankWriters and RankCrew are how many of a title's cast,
+// writers and crew a taste ranking reads (personalize's Taste.Fit), in
+// credit order; it reads every director. A ranking window reads no more.
+const (
+	RankCast    = 5
+	RankWriters = 3
+	RankCrew    = 6
+)
+
+type rankingCandidatesKey struct{}
+
+// WithRankingCandidates marks titles a caller ranks and filters itself and
+// shows only a page of, in full: a related shelf. A catalogue browse read
+// with it returns its movies and shows with their rows, c.Facts, the facts
+// the catalogue's own policy reads, and the credits a ranking reads
+// (RankCast, RankWriters, RankCrew and every director), not every credit,
+// alternative title and trailer; a title c.Detail reports comes back in
+// full. It records the titles it returned partial (c.Partial), and the
+// caller reads those of its page in full before showing them. Partial titles
+// never reach a cache other callers read. Only a browse reads the mark.
+func WithRankingCandidates(ctx context.Context, c *SearchCandidates) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, rankingCandidatesKey{}, c)
+}
+
+// RankingCandidatesFrom returns WithRankingCandidates' c, or nil.
+func RankingCandidatesFrom(ctx context.Context) *SearchCandidates {
+	if ctx == nil {
+		return nil
+	}
+	c, _ := ctx.Value(rankingCandidatesKey{}).(*SearchCandidates)
+	return c
+}

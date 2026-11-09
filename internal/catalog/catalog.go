@@ -373,6 +373,8 @@ type cachedBrowse struct {
 	page   core.Page
 	gen    uint64
 	minute int64
+	// partial lists a ranking page's partial titles (rankProjection).
+	partial []core.RatingKey
 }
 
 type cachedFacet struct {

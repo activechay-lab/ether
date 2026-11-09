@@ -309,6 +309,38 @@ func (c *Catalog) hydrateFacts(ctx context.Context, items []core.Title, facts co
 	return nil
 }
 
+// hydrateRankSlice is hydrateSlice for a ranking window
+// (core.WithRankingCandidates): facts and the credits a ranking reads, no
+// alternative titles or trailers. The titles are partial: never cache them.
+func (c *Catalog) hydrateRankSlice(ctx context.Context, items []core.Title, facts core.TitleFacts) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if err := c.airedCounts(ctx, items); err != nil {
+		return err
+	}
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		items[i].HomeReleaseChecked = false
+		items[i].HomeReleased = time.Time{}
+		items[i].HomeReleaseFallbackAdmitted = false
+	}
+	for chunk := range store.Chunks(keys, 200) {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factSet(facts|core.FactHomeRelease)|factRankCredits); err != nil {
+			return err
+		}
+	}
+	if err := c.hydrateShows(ctx, items); err != nil {
+		return err
+	}
+	return c.applyHydratedAdded(ctx, items)
+}
+
 // hydrateListSlice is hydrateSlice for titles shown as list items
 // (factsList, no trailers). The titles are partial: never cache them.
 func (c *Catalog) hydrateListSlice(ctx context.Context, items []core.Title) error {
@@ -397,6 +429,10 @@ const (
 	// factRowCredits is what an export row shows: the names of the
 	// directors and the first three cast members, no people join.
 	factRowCredits
+	// factRankCredits is what a taste ranking reads (core.RankCast and
+	// the others): every director and the first cast, writers and crew in
+	// credit order, with every credit tied at the cut.
+	factRankCredits
 )
 
 const (
@@ -445,6 +481,13 @@ func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx 
 	}
 	if set&(factCredits|factListCredits) != 0 {
 		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", creditFrom)
+	} else if set&factRankCredits != 0 {
+		// RANK keeps every credit tied with the last one a ranking reads;
+		// the credit sort below then cuts each list as the full read does.
+		// A kind the lists do not name joins the cast, as below.
+		ranked := `(SELECT key, person_tmdb, name, role, kind, ord, thumb, provider_id, RANK() OVER (PARTITION BY key, kind ORDER BY ord) AS rk FROM catalog_credits WHERE key IN (` + ph + `)) c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb` +
+			` WHERE c.kind='director' OR (c.kind='writer' AND c.rk<=` + strconv.Itoa(core.RankWriters) + `) OR (c.kind='crew' AND c.rk<=` + strconv.Itoa(core.RankCrew) + `) OR (c.kind NOT IN ('director','writer','crew') AND c.rk<=` + strconv.Itoa(core.RankCast) + `)`
+		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", ranked)
 	} else if set&factRowCredits != 0 {
 		part("key", "'credit'", "kind", "name", "''", "''", "CAST(person_tmdb AS TEXT)", "''", "CAST(ord AS TEXT)", "''", `catalog_credits WHERE key IN (`+ph+`) AND (kind='director' OR (kind='cast' AND ord<`+strconv.Itoa(listCast)+`))`)
 	}
@@ -531,11 +574,20 @@ func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx 
 		}
 	}
 	for key, list := range credits {
+		// Credits tied on order keep the credit key's order (person, then
+		// role): SQLite reads one title's credits in it, and a ranking
+		// window cuts its lists the same way on either database.
 		sort.SliceStable(list, func(i, j int) bool {
 			if list[i].kind != list[j].kind {
 				return list[i].kind < list[j].kind
 			}
-			return list[i].ord < list[j].ord
+			if list[i].ord != list[j].ord {
+				return list[i].ord < list[j].ord
+			}
+			if list[i].person.TMDB != list[j].person.TMDB {
+				return list[i].person.TMDB < list[j].person.TMDB
+			}
+			return list[i].person.Role < list[j].person.Role
 		})
 		for _, fact := range list {
 			for _, i := range idx[key] {
@@ -1484,6 +1536,29 @@ func (c *Catalog) queryTitlesRows(ctx context.Context, sqlGated, rowsOnly bool, 
 		}
 		needAt = append(needAt, i)
 	}
+	rank := rankProjectionFrom(ctx)
+	partial := map[core.RatingKey]bool{}
+	if len(needAt) > 0 && rank != nil {
+		// A ranking window's titles: the projection, then in full each one
+		// the caller judges on its full facts.
+		need := make([]core.Title, len(needAt))
+		for j, i := range needAt {
+			need[j] = out[i]
+		}
+		if err := c.hydrateRankSlice(ctx, need, rank.facts); err != nil {
+			return nil, err
+		}
+		var fullAt []int
+		for j, i := range needAt {
+			if rank.detail != nil && rank.detail(need[j]) {
+				fullAt = append(fullAt, i)
+				continue
+			}
+			out[i] = need[j]
+			partial[out[i].Key] = true
+		}
+		needAt = fullAt
+	}
 	if len(needAt) > 0 {
 		need := make([]core.Title, len(needAt))
 		for j, i := range needAt {
@@ -1507,16 +1582,43 @@ func (c *Catalog) queryTitlesRows(ctx context.Context, sqlGated, rowsOnly bool, 
 		}
 	}
 	full := visible
-	if rowsOnly {
+	if rowsOnly || len(partial) > 0 {
 		full = make([]core.Title, 0, len(visible))
 		for _, t := range visible {
-			if !asRow(&t) {
+			if !asRow(&t) && !partial[t.Key] {
 				full = append(full, t)
+			}
+		}
+	}
+	if len(partial) > 0 {
+		for _, t := range visible {
+			if partial[t.Key] {
+				rank.partial = append(rank.partial, t.Key)
 			}
 		}
 	}
 	c.rememberTitles(gen, minute, full)
 	return visible, nil
+}
+
+// rankProjection is a browse's ranking window (core.WithRankingCandidates)
+// as its title reads see it: the facts to read, the titles to read in full
+// instead, and the titles read partial.
+type rankProjection struct {
+	facts   core.TitleFacts
+	detail  func(core.Title) bool
+	partial []core.RatingKey
+}
+
+type rankProjectionKey struct{}
+
+func withRankProjection(ctx context.Context, p *rankProjection) context.Context {
+	return context.WithValue(ctx, rankProjectionKey{}, p)
+}
+
+func rankProjectionFrom(ctx context.Context) *rankProjection {
+	p, _ := ctx.Value(rankProjectionKey{}).(*rankProjection)
+	return p
 }
 
 func (c *Catalog) getMeta(ctx context.Context, k string) string {

@@ -141,3 +141,45 @@ func (c *Catalog) readSearchFull(ctx context.Context, items []core.Title, at []i
 	}
 	return nil
 }
+
+// finishRankPage completes a ranking window's page served from the page
+// cache: a title read partial that this request judges on its full facts
+// is read in full, and the rest are recorded partial again.
+func (c *Catalog) finishRankPage(ctx context.Context, cand *core.SearchCandidates, items []core.Title, partial []core.RatingKey) error {
+	was := make(map[core.RatingKey]bool, len(partial))
+	for _, k := range partial {
+		was[k] = true
+	}
+	var full []int
+	marked := make([]core.RatingKey, 0, len(partial))
+	for i := range items {
+		if !was[items[i].Key] {
+			continue
+		}
+		if cand.Detail != nil && cand.Detail(items[i]) {
+			full = append(full, i)
+		} else {
+			marked = append(marked, items[i].Key)
+		}
+	}
+	cand.MarkPartial(marked)
+	return c.readSearchFull(ctx, items, full)
+}
+
+// RankingDetails is SearchDetails for a ranking window
+// (core.WithRankingCandidates): items with the titles it returned partial
+// read in full, as a browse without the window returns them.
+func (c *Catalog) RankingDetails(ctx context.Context, items []core.Title) ([]core.Title, error) {
+	cand := core.RankingCandidatesFrom(ctx)
+	out := slices.Clone(items)
+	var at []int
+	for i := range out {
+		if cand.Partial(out[i].Key) {
+			at = append(at, i)
+		}
+	}
+	if err := c.readSearchFull(ctx, out, at); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
