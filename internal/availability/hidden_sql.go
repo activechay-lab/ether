@@ -48,9 +48,19 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	}
 	changed := prevGen != gen || prevPolicy != policy
 	now := time.Now().Unix()
-	for _, key := range sorted {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES(?,?,?,?) ON CONFLICT(kind,generation,rating_key) DO UPDATE SET created_at=excluded.created_at`, kind, gen, int64(key), now); err != nil {
+	if !changed && prevGen == gen && err == nil {
+		// The same set is already published: one statement keeps its
+		// rows inside the retention window instead of rewriting every
+		// key (the hidden set can hold much of a large library, and
+		// this runs every warm cycle).
+		if _, err = tx.ExecContext(ctx, `UPDATE availability_hidden SET created_at=? WHERE kind=? AND generation=?`, now, kind, gen); err != nil {
 			return err
+		}
+	} else {
+		for _, key := range sorted {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES(?,?,?,?) ON CONFLICT(kind,generation,rating_key) DO UPDATE SET created_at=excluded.created_at`, kind, gen, int64(key), now); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO availability_hidden_current(kind,generation,policy) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET generation=excluded.generation,policy=excluded.policy`, kind, gen, policy); err != nil {

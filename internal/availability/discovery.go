@@ -320,11 +320,15 @@ type hiddenSet struct {
 }
 
 // fresh reports whether the set still answers for these inputs: the same
-// settings, no observation or invalidation since, and at most fifteen
-// seconds old (other cluster nodes write evidence too, and titles leave
-// the window as time passes).
+// settings, no observation or invalidation since, and younger than
+// hiddenFreshFor (other cluster nodes write evidence too, and titles leave
+// the window as time passes). The Service re-warms every minute; a much
+// shorter freshness made every browse a few seconds after a pass queue
+// another full evidence pass behind it, back to back while anyone browsed.
+const hiddenFreshFor = 45 * time.Second
+
 func (h *hiddenSet) fresh(key string, revision uint64, now time.Time) bool {
-	return h.key == key && h.revision == revision && now.Sub(h.at) < 15*time.Second && !now.Before(h.at)
+	return h.key == key && h.revision == revision && now.Sub(h.at) < hiddenFreshFor && !now.Before(h.at)
 }
 
 func hiddenKey(kind string, input discoverySnapshot) string {

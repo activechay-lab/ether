@@ -51,6 +51,47 @@ type gateCountingCatalog struct {
 
 func (c *gateCountingCatalog) ConsoleGateChanged() { c.changed++ }
 
+// The hidden answer stays fresh for most of the warm cycle: with a
+// shorter life every browse after a few seconds queued another full
+// evidence pass behind the last, back to back for as long as anyone
+// browsed.
+func TestHiddenSetStaysFreshBetweenWarmCycles(t *testing.T) {
+	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	h := &hiddenSet{key: "k", revision: 3, at: at}
+	if !h.fresh("k", 3, at.Add(30*time.Second)) {
+		t.Fatal("hidden set went stale inside the warm cycle")
+	}
+	if h.fresh("k", 3, at.Add(time.Minute)) {
+		t.Fatal("hidden set outlived the warm cycle")
+	}
+	if h.fresh("k", 4, at.Add(time.Second)) || h.fresh("other", 3, at.Add(time.Second)) {
+		t.Fatal("hidden set answered for other inputs")
+	}
+}
+
+// Republishing an unchanged set keeps its published rows answering: the
+// generation stays current with every member present.
+func TestPublishHiddenUnchangedKeepsPublishedRows(t *testing.T) {
+	x := setup(t)
+	keys := []core.RatingKey{core.ShowKey(1), core.ShowKey(2), core.ShowKey(3)}
+	for range 3 {
+		if err := x.s.publishHidden(t.Context(), hiddenShows, "p", keys); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var gen string
+	if err := x.s.db.QueryRowContext(t.Context(), `SELECT generation FROM availability_hidden_current WHERE kind=?`, hiddenShows).Scan(&gen); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := x.s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM availability_hidden WHERE kind=? AND generation=?`, hiddenShows, gen).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(keys) {
+		t.Fatalf("published generation holds %d of %d keys", n, len(keys))
+	}
+}
+
 // Republishing the same hidden set must keep the catalogue's page cache:
 // a refresh on a large library otherwise made every browse a cache miss.
 // A new set or policy still invalidates it.
