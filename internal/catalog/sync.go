@@ -7,6 +7,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -43,6 +45,9 @@ type Stats struct {
 	LastSync           time.Time         `json:"lastSync,omitempty"`
 	Sync               SyncProgress      `json:"sync"`
 	YearCorrection     MovieYearProgress `json:"yearCorrection"`
+	TierMigration      TierMigration     `json:"tierMigration,omitzero"`
+	// Tail is this node's long-tail search index.
+	Tail TailStatus `json:"tail"`
 }
 
 func cloneStats(s Stats) Stats {
@@ -55,112 +60,50 @@ func cloneStats(s Stats) Stats {
 }
 
 // Stats returns mirror counts, last sync time and current sync progress.
+// The counts come from catalog_stats_tally, so they are exact on every
+// call at a cost that does not grow with the library. The last snapshot
+// answers when the database cannot (a busy or timed-out status call).
 func (c *Catalog) Stats(ctx context.Context) (Stats, error) {
-	gen := c.writeGen.Load()
-	minBucket := c.minuteBucket()
-	now := c.now()
-	syncing := c.syncing.Load()
-
-	c.cacheMu.RLock()
-	cached := c.statsCache
-	c.cacheMu.RUnlock()
-
-	if cached.ready && ((cached.gen == gen && cached.minute == minBucket) || (syncing && !cached.fetchedAt.IsZero() && now.Sub(cached.fetchedAt) < 2*time.Second)) {
-		s := cloneStats(cached.stats)
-		return c.finishStats(ctx, s), nil
-	}
-	if cached.ready && cached.stats.Movies+cached.stats.Shows+cached.stats.Seasons+cached.stats.Episodes >= staleCountMin {
-		// The counts walk the whole catalogue. Serve the last ones and
-		// recount behind the read, at most once per recountEvery, as browse
-		// totals and facets do.
-		if now.Sub(cached.fetchedAt) >= recountEvery {
-			_ = c.hydrate(ctx, "stats", 0, func(ctx context.Context) error {
-				_, err := c.statsFlights.Do(ctx, "stats", func(ctx context.Context) (Stats, error) {
-					return c.loadStats(ctx)
-				})
-				return err
-			})
-		}
-		return c.finishStats(ctx, cloneStats(cached.stats)), nil
-	}
-
-	s, err := c.statsFlights.Do(ctx, "stats", func(ctx context.Context) (Stats, error) {
-		return c.loadStats(ctx)
-	})
+	s, yearPending, err := c.loadStats(ctx)
 	if err != nil {
 		c.cacheMu.RLock()
 		fallback := c.statsCache
 		c.cacheMu.RUnlock()
 		if fallback.ready {
-			out := cloneStats(fallback.stats)
-			return c.finishStats(ctx, out), nil
+			return c.finishStats(ctx, cloneStats(fallback.stats), fallback.yearPending), nil
 		}
 		return s, err
 	}
-	return c.finishStats(ctx, cloneStats(s)), nil
+	c.cacheMu.Lock()
+	c.statsCache = cachedStats{stats: cloneStats(s), yearPending: yearPending, ready: true}
+	c.cacheMu.Unlock()
+	return c.finishStats(ctx, s, yearPending), nil
 }
 
-func (c *Catalog) finishStats(ctx context.Context, s Stats) Stats {
+func (c *Catalog) finishStats(ctx context.Context, s Stats, yearPending int) Stats {
 	s.Sync = c.SyncProgress()
 	if s.Sync.LastError == "" && !s.Sync.Running {
 		s.Sync.LastError = c.getMeta(ctx, "sync_error")
 	}
-	s.YearCorrection = c.movieYearProgress(ctx)
+	s.YearCorrection = c.movieYearProgressFrom(yearPending)
+	s.TierMigration = c.TierMigrationStatus(ctx)
+	s.Tail = c.TailStatus()
 	return s
 }
 
-func (c *Catalog) loadStats(ctx context.Context) (Stats, error) {
-	gen := c.writeGen.Load()
-	minBucket := c.minuteBucket()
+func (c *Catalog) loadStats(ctx context.Context) (Stats, int, error) {
 	var s Stats
+	yearPending, err := c.tallyStats(ctx, &s)
+	if err != nil {
+		return s, 0, err
+	}
 	s.Trending = c.TrendStatus(ctx)
-	count := func(q string, dst *int, args ...any) error {
-		return c.db.QueryRowContext(ctx, q, args...).Scan(dst)
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_titles WHERE type='movie'`, &s.Movies); err != nil {
-		return s, err
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_titles WHERE type='show'`, &s.Shows); err != nil {
-		return s, err
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_titles WHERE type='season'`, &s.Seasons); err != nil {
-		return s, err
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_titles WHERE type='episode'`, &s.Episodes); err != nil {
-		return s, err
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_titles WHERE type='movie' AND browsable=1`, &s.BrowsableMovies); err != nil {
-		return s, err
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_titles WHERE type='show' AND browsable=1`, &s.BrowsableShows); err != nil {
-		return s, err
-	}
-	if err := count(`SELECT COUNT(*) FROM catalog_collections`, &s.Collections); err != nil {
-		return s, err
-	}
-	if err := c.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(CASE WHEN h.checked=1 THEN 1 ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN h.checked IS NULL OR h.checked=0 THEN 1 ELSE 0 END), 0)
-		FROM catalog_titles t
-		LEFT JOIN catalog_home_release h ON h.key=t.key
-		WHERE t.type='movie' AND t.adult=0 AND t.release_known=1 AND t.released_ts<=?`, c.now().Unix()).Scan(&s.HomeReleaseChecked, &s.HomeReleasePending); err != nil {
-		return s, err
-	}
 	if v := c.getMeta(ctx, "last_sync"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			s.LastSync = time.Unix(n, 0).UTC()
 		}
 	}
-	c.cacheMu.Lock()
-	c.statsCache = cachedStats{
-		stats:     cloneStats(s),
-		gen:       gen,
-		minute:    minBucket,
-		fetchedAt: c.now(),
-		ready:     true,
-	}
-	c.cacheMu.Unlock()
-	return s, nil
+	return s, yearPending, nil
 }
 
 func (c *Catalog) setProgress(fn func(*SyncProgress)) {
@@ -183,6 +126,9 @@ func (c *Catalog) SyncProgress() SyncProgress {
 // WithResumeSchedule the initial sync waits until the interval has passed
 // since the last recorded sync.
 func (c *Catalog) Run(ctx context.Context) {
+	// Everything Run starts is bulk work: it yields TMDB's budget to
+	// viewer-facing requests (tmdb.Background).
+	ctx = tmdb.Background(ctx)
 	if err := c.rankRatings(ctx); err != nil && ctx.Err() == nil {
 		c.log.Error("catalog: re-rank content ratings", "err", err)
 	}
@@ -193,7 +139,11 @@ func (c *Catalog) Run(ctx context.Context) {
 	}()
 	go c.refreshRatingsLoop(ctx)
 	go c.refreshShowAddedLoop(ctx)
+	go c.foldLibraryTalliesLoop(ctx)
 	go c.correctMovieYears(ctx)
+	go c.fillLoop(ctx)
+	go c.runTierMigration(ctx)
+	go c.rankLoop(ctx)
 	full := schedule.New(c.now(), c.untilDue(ctx))
 	// Preserve the existing resume behavior while the gate is off. If the
 	// owner enables it during the wait, start background backfill promptly.
@@ -281,6 +231,7 @@ func (c *Catalog) untilDue(ctx context.Context) time.Duration {
 var ErrSyncInProgress = fmt.Errorf("catalog: sync already in progress")
 
 func (c *Catalog) Sync(ctx context.Context) error {
+	ctx = tmdb.Background(ctx)
 	if !c.syncing.CompareAndSwap(false, true) {
 		return ErrSyncInProgress
 	}
@@ -327,20 +278,91 @@ func (c *Catalog) Sync(ctx context.Context) error {
 	return err
 }
 
+// clearSyncError forgets the previous attempt's error once this sync has
+// stored a page: a retry that makes progress is no longer failing. The
+// error comes back if this attempt fails too.
+func (c *Catalog) clearSyncError(ctx context.Context) {
+	cleared := false
+	c.setProgress(func(p *SyncProgress) {
+		if p.LastError != "" {
+			p.LastError, cleared = "", true
+		}
+	})
+	if cleared {
+		if _, err := c.db.ExecContext(ctx, `DELETE FROM catalog_meta WHERE k='sync_error'`); err != nil {
+			c.log.Warn("catalog: clear sync error", "err", err)
+		}
+	}
+}
+
+// syncLocked is one sync pass, per type:
+//
+//  1. the export pass (sync_export.go): today's TMDB id list, popularity
+//     for stored titles, and the backlog of titles to fetch;
+//  2. under a vote bar, the /discover vote walk: the export has no vote
+//     counts, so titles admitted by votes alone come from there;
+//  3. a backlog of bulkFillGap or more (a first sync, a lowered bar) is
+//     read by the /discover popularity walk first, 20 titles a request;
+//  4. the rest of the backlog is fetched by id, most popular first: up to
+//     syncFillBudget here, the remainder by fillLoop.
+//
+// Without an export the sync walks /discover alone, as it did before the
+// exports: the popularity walk and, under a vote bar, the vote walk. That
+// path cannot see undated titles.
+//
+// Then /changes refreshes stored titles TMDB edited, stored titles whose
+// release date has passed are promoted, and the live release feeds run.
 func (c *Catalog) syncLocked(ctx context.Context) error {
+	if k, ok := c.tmdb().(interface{ HasKey() bool }); ok && !k.HasKey() {
+		return tmdb.ErrNoKey // before any download: a fresh install waits for setup
+	}
+	cfg := c.config()
 	for _, tv := range []bool{false, true} {
-		// Pass 1: popularity-sorted; stop once popularity drops below threshold
-		// AND the item also fails the vote bar (sorted desc, so all later fail pop).
-		if err := c.syncPass(ctx, tv, "popularity"); err != nil {
+		typ := "movie"
+		if tv {
+			typ = "tv"
+		}
+		c.setProgress(func(p *SyncProgress) { p.Phase = typ + "/export" })
+		pass, err := c.runExportPass(ctx, tv)
+		if errors.Is(err, errNoExport) {
+			if err := c.walkFallback(ctx, tv); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
 			return err
 		}
-		// Pass 2: vote-count with server-side vote_count.gte catches long-tail
-		// classics whose current popularity is low.
-		if c.config().MinVotes > 0 {
-			if err := c.syncPass(ctx, tv, "votes"); err != nil {
+		stored := map[int64]bool{}
+		note := func(t core.Title) { stored[t.IDs.TMDB] = true }
+		if cfg.MinVotes > 0 {
+			w := newSyncWriter(c)
+			w.onStored = note
+			if err := c.walkDiscover(ctx, c.voteWalk(tv), w); err != nil {
 				return err
 			}
 		}
+		backlog := dropStored(pass.backlog, stored)
+		if len(backlog) >= bulkFillGap {
+			w := newSyncWriter(c)
+			w.onStored = note
+			if err := c.walkDiscover(ctx, c.popularityWalk(tv), w); err != nil {
+				return err
+			}
+			backlog = dropStored(backlog, stored)
+		}
+		now := backlog[:min(len(backlog), syncFillBudget)]
+		c.setProgress(func(p *SyncProgress) { p.Phase = typ + "/fill" })
+		if _, err := c.fillByID(ctx, tv, now); err != nil {
+			return err
+		}
+		c.fill.set(tv, append([]uint64(nil), backlog[len(now):]...))
+	}
+	if err := c.syncChanges(ctx); err != nil {
+		return err
+	}
+	if _, err := c.promoteReleased(ctx); err != nil {
+		return err
 	}
 	c.syncNewReleases(ctx)
 	// Demote browsable titles that no longer meet the (possibly raised) threshold?
@@ -350,147 +372,81 @@ func (c *Catalog) syncLocked(ctx context.Context) error {
 	return nil
 }
 
-func (c *Catalog) syncPass(ctx context.Context, tv bool, pass string) (err error) {
-	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
-	passKey := fmt.Sprintf("%t/%s", tv, pass)
-	if r != nil && r.Passes[passKey] {
-		return nil
+// dropStored removes the ids a walk stored from a fill backlog.
+func dropStored(backlog []uint64, stored map[int64]bool) []uint64 {
+	if len(stored) == 0 {
+		return backlog
 	}
-	defer func() {
-		if err == nil && r != nil {
-			r.Passes[passKey] = true
-			err = c.saveSyncResume(ctx)
+	out := backlog[:0:0]
+	for _, v := range backlog {
+		if !stored[fillID(v)] {
+			out = append(out, v)
 		}
-	}()
+	}
+	return out
+}
+
+// popularityWalk reads titles by popularity; under a popularity bar each
+// slice stops at the first title under both bars.
+func (c *Catalog) popularityWalk(tv bool) walkSpec {
 	cfg := c.config()
-	typ := "movie"
-	sortBy := "popularity.desc"
-	if tv {
-		typ = "tv"
-	}
-	params := tmdb.DiscoverParams{SortBy: sortBy, IncludeAdult: cfg.IncludeAdult}
-	if pass == "votes" {
-		params.SortBy = "vote_count.desc"
-		params.VoteCountGTE = cfg.MinVotes
-	}
-	// Probe page 1 unsliced; if TMDB's 500-page cap would bite, slice by year.
-	totalPages, err := c.syncSlice(ctx, tv, params, pass, 0, true)
-	if err != nil {
-		return err
-	}
-	c.setProgress(func(p *SyncProgress) { p.Phase = typ + "/" + pass })
-	// The probe only read total_pages (the real fetch hits the TMDB cache).
-	if totalPages <= 500 {
-		_, err := c.syncSlice(ctx, tv, params, pass, 0, false)
-		return err
-	}
-	from, to := c.syncYears[0], c.syncYears[1]
-	if from <= 0 {
-		from = 1900
-	}
-	if to <= 0 {
-		to = c.now().Year() + 2
-	}
-	for year := to; year >= from; year-- {
-		if err := ctx.Err(); err != nil {
+	return walkSpec{tv: tv, pass: "popularity", stopBelow: cfg.MinPopularity > 0,
+		params: tmdb.DiscoverParams{SortBy: "popularity.desc", IncludeAdult: cfg.IncludeAdult}}
+}
+
+// voteWalk reads every title at or above the vote bar.
+func (c *Catalog) voteWalk(tv bool) walkSpec {
+	cfg := c.config()
+	return walkSpec{tv: tv, pass: "votes",
+		params: tmdb.DiscoverParams{SortBy: "vote_count.desc", VoteCountGTE: cfg.MinVotes, IncludeAdult: cfg.IncludeAdult}}
+}
+
+// walkFallback is the sync without an export: /discover alone. A
+// votes-only bar needs no popularity walk.
+func (c *Catalog) walkFallback(ctx context.Context, tv bool) error {
+	cfg := c.config()
+	if cfg.MinPopularity > 0 || cfg.MinVotes <= 0 {
+		if err := c.walkDiscover(ctx, c.popularityWalk(tv), newSyncWriter(c)); err != nil {
 			return err
 		}
-		p := params
-		p.Year = year
-		c.setProgress(func(pr *SyncProgress) { pr.Phase = fmt.Sprintf("%s/%s/%d", typ, pass, year) })
-		if _, err := c.syncSlice(ctx, tv, p, pass, year, false); err != nil {
-			return err
-		}
+	}
+	if cfg.MinVotes > 0 {
+		return c.walkDiscover(ctx, c.voteWalk(tv), newSyncWriter(c))
 	}
 	return nil
 }
 
-// syncSlice pages one discover slice. In probe mode it fetches only page 1 and
-// returns total_pages without storing anything.
-func (c *Catalog) syncSlice(ctx context.Context, tv bool, params tmdb.DiscoverParams, pass string, year int, probe bool) (int, error) {
-	cfg := c.config()
-	r, _ := ctx.Value(syncResumeKey{}).(*syncResume)
-	sliceKey := fmt.Sprintf("%t/%s/%d", tv, pass, year)
-	first := 1
-	if !probe && r != nil && r.Pages[sliceKey] > 0 {
-		first = r.Pages[sliceKey]
+// syncWriteBatch is the most synced titles one transaction stores. On the
+// lab catalogue: 20 a transaction wrote 20 WAL pages a title, 100 wrote 15,
+// 500 wrote 6.7.
+const syncWriteBatch = 250
+
+// syncWriteHold is the write-lock hold a sync transaction aims for: every
+// other writer (playback progress, receipts) waits behind it. On a large
+// catalogue on a spinning disk a title's index pages are mostly not cached
+// and each costs a seek, so the batch shrinks until one transaction takes
+// about this long, and grows back when the disk keeps up.
+const syncWriteHold = 500 * time.Millisecond
+
+func nextSyncBatch(limit, stored int, took time.Duration) int {
+	return nextBatch(limit, stored, took, syncWriteBatch)
+}
+
+// nextBatch sizes the next write batch so one transaction holds the write
+// lock about syncWriteHold, between 1 and most.
+func nextBatch(limit, stored int, took time.Duration, most int) int {
+	if stored <= 0 {
+		return limit
 	}
-	for page := first; page <= 500; page++ {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		p := params
-		p.Page = page
-		var titles []core.Title
-		totalPages := 0
-		if tv {
-			res, err := c.tmdb().DiscoverTV(ctx, p)
-			if err != nil {
-				return 0, fmt.Errorf("catalog: discover tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
-			}
-			totalPages = res.TotalPages
-			if probe {
-				return totalPages, nil
-			}
-			for _, s := range res.Results {
-				titles = append(titles, c.tvToTitle(ctx, s))
-			}
-		} else {
-			res, err := c.tmdb().DiscoverMovies(ctx, p)
-			if err != nil {
-				return 0, fmt.Errorf("catalog: discover tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
-			}
-			totalPages = res.TotalPages
-			if probe {
-				return totalPages, nil
-			}
-			for _, m := range res.Results {
-				titles = append(titles, c.movieToTitle(ctx, m))
-			}
-		}
-		var batch []core.Title
-		stop := false
-		for _, t := range titles {
-			if pass == "popularity" && cfg.MinPopularity > 0 && t.Popularity < cfg.MinPopularity && (cfg.MinVotes <= 0 || t.VoteCount < cfg.MinVotes) {
-				// Popularity-sorted desc: nothing later on this slice qualifies on pop,
-				// but vote-qualifiers are still possible deeper. Only stop early when
-				// there is no vote pass (MinVotes unset) — otherwise finish the slice
-				// cheaply is wrong for huge slices, so stop and let the votes pass catch them.
-				stop = true
-			}
-			if c.meetsThreshold(t) {
-				batch = append(batch, t)
-			}
-		}
-		if len(batch) > 0 {
-			if err := store.CheckWALBudget(ctx, c.db); err != nil {
-				return totalPages, err
-			}
-			if err := c.upsertMany(ctx, batch, upsertOpts{browsable: true}); err != nil {
-				return totalPages, fmt.Errorf("catalog: store tv=%t pass=%s year=%d page=%d: %w", tv, pass, year, page, err)
-			}
-		}
-		added := len(batch)
-		c.setProgress(func(pr *SyncProgress) {
-			pr.PagesDone++
-			pr.TitlesSeen += len(titles)
-			pr.TitlesAdded += added
-		})
-		done := stop || page >= totalPages || len(titles) == 0
-		if r != nil {
-			r.Pages[sliceKey] = page + 1
-			if done {
-				r.Pages[sliceKey] = 501
-			}
-			if err := c.saveSyncResume(ctx); err != nil {
-				return totalPages, err
-			}
-		}
-		if done {
-			return totalPages, nil
-		}
+	perTitle := took / time.Duration(stored)
+	if perTitle <= 0 {
+		return most
 	}
-	return 500, nil
+	want := int(syncWriteHold / perTitle)
+	// Move gradually: halve at most, grow by half at most.
+	want = max(want, limit/2, 1)
+	want = min(want, limit+limit/2+1, most)
+	return want
 }
 
 // qualifiesNewRelease admits a recently released title (last 45 days) that
@@ -561,40 +517,106 @@ func (c *Catalog) WarmDetails(ctx context.Context, limit int) (int, error) {
 	now := c.now()
 	recentCutoff := now.Add(-120 * 24 * time.Hour).Unix()
 	staleCutoff := now.Add(-c.staleAfter).Unix()
-	rows, err := c.db.QueryContext(ctx, `
-		SELECT key FROM catalog_titles
-		WHERE browsable=1 AND adult=0 AND type IN ('movie','show')
-		  AND release_known=1 AND released_ts<=?
-		  AND (detail=0 OR (type='show' AND status='Returning Series' AND detail_at>0 AND detail_at<?))
-		ORDER BY CASE WHEN detail=0 AND released_ts>=? THEN 0 WHEN detail=0 THEN 1 ELSE 2 END ASC,
-		         popularity DESC, vote_count DESC, key ASC
-		LIMIT ?`, now.Unix(), staleCutoff, recentCutoff, limit)
-	if err != nil {
-		return 0, err
-	}
+	// Three bounded reads, in priority order: undetailed recent releases
+	// (the last 120 days of the release index), undetailed titles by
+	// popularity (catalog_titles_browse_warm is in that order, ties by key),
+	// then stale returning series (catalog_titles_warm_stale holds returning
+	// series by detail time, so only the stale ones are read). One query
+	// ordering all three read every browsable title on every pass: 1.3M
+	// rows every 90 seconds on a full mirror.
+	const eligible = ` browsable=1 AND adult=0 AND type IN ('movie','show') AND release_known=1 AND released_ts<=?`
 	var keys []core.RatingKey
-	for rows.Next() {
-		var k int64
-		if err := rows.Scan(&k); err != nil {
-			rows.Close()
+	seen := map[core.RatingKey]bool{}
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`SELECT key FROM catalog_titles WHERE detail=0 AND` + eligible + ` AND released_ts>=?
+			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{now.Unix(), recentCutoff}},
+		{`SELECT key FROM catalog_titles` + c.indexHint("catalog_titles_browse_warm") + ` WHERE detail=0 AND` + eligible + `
+			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{now.Unix()}},
+		{`SELECT key FROM catalog_titles` + c.indexHint("catalog_titles_warm_stale") + ` WHERE type='show' AND status='Returning Series' AND detail=1 AND detail_at>0 AND detail_at<? AND` + eligible + `
+			ORDER BY popularity DESC, vote_count DESC, key ASC LIMIT ?`, []any{staleCutoff, now.Unix()}},
+	} {
+		if len(keys) >= limit {
+			break
+		}
+		stmt := q.sql
+		// The full limit each time: the recent releases come round again
+		// in the popularity read.
+		rows, err := c.db.QueryContext(ctx, stmt, append(q.args, limit)...)
+		if err != nil {
 			return 0, err
 		}
-		keys = append(keys, core.RatingKey(k))
+		for rows.Next() {
+			var k int64
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			if key := core.RatingKey(k); !seen[key] && len(keys) < limit {
+				seen[key] = true
+				keys = append(keys, key)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return 0, err
+		}
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
+	return c.warmKeys(ctx, keys)
+}
+
+// warmDetailsWorkers is how many detail fetches WarmDetails keeps in flight.
+// One at a time, a fill ran at TMDB's round-trip time (5-10 titles a
+// second) instead of its rate limit (40 requests a second). Concurrent
+// writes group-commit (detail_writer.go).
+const warmDetailsWorkers = 8
+
+// warmOnlyKey marks a Get whose caller only wants the details stored:
+// WarmDetails never reads the result, so the title is not reloaded and
+// hydrated after its fetch (a dozen statements a title).
+type warmOnlyKey struct{}
+
+func warmOnly(ctx context.Context) bool { return ctx.Value(warmOnlyKey{}) != nil }
+
+func (c *Catalog) warmKeys(ctx context.Context, keys []core.RatingKey) (int, error) {
+	ctx = context.WithValue(ctx, warmOnlyKey{}, true)
+	var warmed atomic.Int64
+	next := make(chan core.RatingKey)
+	var wg sync.WaitGroup
+	for range min(warmDetailsWorkers, len(keys)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := range next {
+				// Eight workers reading and writing at once leave the
+				// checkpointer no moment without a reader: the WAL reached
+				// 2-2.5 GB in syncbench's detail phases. Each fetch first
+				// waits for the WAL to drain, as the sync's bulk writes do.
+				if err := store.WaitWALBudget(ctx, c.db); err != nil {
+					c.log.Warn("catalog: detail warm paused", "err", err)
+					for range next { // drain: this round ends
+					}
+					return
+				}
+				if _, err := c.Get(ctx, k); err == nil {
+					warmed.Add(1)
+				}
+			}
+		}()
 	}
-	warmed := 0
+feed:
 	for _, k := range keys {
-		if ctx.Err() != nil {
-			return warmed, ctx.Err()
-		}
-		if _, err := c.Get(ctx, k); err == nil {
-			warmed++
+		select {
+		case next <- k:
+		case <-ctx.Done():
+			break feed
 		}
 	}
-	return warmed, nil
+	close(next)
+	wg.Wait()
+	return int(warmed.Load()), ctx.Err()
 }
 
 type personCreditsTMDB interface {
@@ -644,7 +666,7 @@ func (c *Catalog) hydratePersonCredits(ctx context.Context, client TMDB, pc pers
 	}
 
 	var have int
-	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT key) FROM catalog_credits WHERE person_tmdb=?`, personID).Scan(&have); err == nil && have >= 8 {
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT key FROM catalog_credits WHERE person_tmdb=? LIMIT 8)`, personID).Scan(&have); err == nil && have >= 8 {
 		stampHydrated()
 		return
 	}

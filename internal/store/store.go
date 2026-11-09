@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/atomicfile"
 	"github.com/braedonsaunders/ether/internal/dburl"
 	"io/fs"
 	"log/slog"
@@ -322,19 +323,39 @@ func OpenPath(ctx context.Context, path string) (*sql.DB, error) {
 }
 
 func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress func(Progress)) (*sql.DB, error) {
-	// journal_size_limit caps the WAL left on disk after a checkpoint; without
-	// it one large transaction leaves a WAL file that never shrinks.
+	// journal_size_limit trims retained WAL on writer reuse after a full
+	// checkpoint. It does not cap pinned/active frames or bound truncate I/O.
+	// Without it a large transaction can leave its allocation indefinitely.
+	// auto_vacuum=INCREMENTAL is part of a new database's image (below): as
+	// a DSN pragma every new pool connection ran it, and it waits on the
+	// write lock, so a held writer stalled fresh reads for busy_timeout.
 	// wal_autocheckpoint=0 keeps a commit from running a checkpoint. Under
 	// WAL + synchronous=NORMAL the checkpoint is the fsync; a request must
 	// not wait on it. RunCheckpointer does that work in the background.
 	dsn := "file:" + path + "?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=wal_autocheckpoint(0)&_pragma=cache_size(-65536)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)" +
 		fmt.Sprintf("&_pragma=journal_size_limit(%d)", journalSizeLimit)
 	if path == ":memory:" {
-		dsn = memoryDSN
+		// Only migratedImage opens ":memory:" here, to build the image every
+		// new database file starts from; auto_vacuum must be set before its
+		// first table.
+		dsn = memoryDSN + "&_pragma=auto_vacuum(INCREMENTAL)"
 	} else if err := checkSQLiteFilesystem(path); err != nil {
 		return nil, err
 	} else if err := protectDBFiles(path); err != nil {
 		return nil, err
+	}
+	if path != ":memory:" {
+		if st, err := os.Stat(path); errors.Is(err, os.ErrNotExist) || (err == nil && st.Size() == 0) {
+			// A new database is written whole from the migrated image, so a
+			// crash leaves either no database or a complete one.
+			image, err := migratedImage(ctx, progress)
+			if err != nil {
+				return nil, err
+			}
+			if err := atomicfile.Write(path, image, 0o600); err != nil {
+				return nil, fmt.Errorf("store: create database: %w", err)
+			}
+		}
 	}
 	db, err := sql.Open("sqlite-cached", dsn)
 	if err != nil {
@@ -357,10 +378,13 @@ func openSQLite(ctx context.Context, path string, files []SnapshotFile, progress
 		finishPreMigrate(path)
 		warnSchemaAhead(ctx, db, slog.Default(), path+PreMigrateSuffix)
 	}
-	// Recommended at open by the SQLite docs: analyse tables whose stats are
-	// missing or stale, bounded by the 0x10000 analysis limit so it is cheap.
+	// Analyse tables whose statistics are missing or stale before the first
+	// request, from every row (RefreshStatistics). Best effort: stale
+	// statistics must not stop the server from starting.
 	WorkProgress(ctx, "optimizing", 0, 0)
-	_, _ = db.ExecContext(ctx, `PRAGMA optimize=0x10002`)
+	if _, err := RefreshStatistics(ctx, db); err != nil {
+		slog.Warn("store: could not refresh planner statistics", "err", err)
+	}
 	if path != ":memory:" {
 		// Opening SQLite re-reads the whole schema. The default idle pool
 		// drops every connection past the second, so a play paid that cost
@@ -461,6 +485,33 @@ func registered() []migration {
 	return ordered
 }
 
+// ceilingKey carries MigrateThrough's per-component version ceiling.
+type ceilingKey struct{}
+
+// WithMigrationCeiling makes opening or migrating with ctx apply only
+// migrations at or below ceiling[component] (components absent from ceiling
+// apply in full). Upgrade tests use it to build an older release's schema
+// through the real migrations, then open again without it to upgrade.
+func WithMigrationCeiling(ctx context.Context, ceiling map[string]int) context.Context {
+	return context.WithValue(ctx, ceilingKey{}, ceiling)
+}
+
+// pendingFor is registered() limited to ctx's migration ceiling, if any.
+func pendingFor(ctx context.Context) []migration {
+	ms := registered()
+	ceiling, _ := ctx.Value(ceilingKey{}).(map[string]int)
+	if ceiling == nil {
+		return ms
+	}
+	out := ms[:0]
+	for _, m := range ms {
+		if top, ok := ceiling[m.component]; !ok || m.version <= top {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		component TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY (component, version))`
 
@@ -485,7 +536,7 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 	// Counted up front for progress; each is checked again right before it
 	// runs, because a migration may record another as applied.
 	var pending []migration
-	for _, m := range registered() {
+	for _, m := range pendingFor(ctx) {
 		done, err := applied(m)
 		if err != nil {
 			return err
@@ -544,16 +595,21 @@ func migrateSQLite(ctx context.Context, db *sql.DB, progress func(Progress)) err
 // complete statistics: a 1000-row sample estimated just 1001 rows per media
 // type on a 285k-title catalogue, making the planner scan all seasons instead
 // of using its per-show index. A fresh database has no statistics; every index is then
-// estimated alike and nothing is analysed. Empty tables have no statistics
-// either and are skipped the same way.
+// estimated alike and nothing is analysed. Statistics that count no rows
+// are no statistics either. ANALYZE of an empty table records zero counts
+// for its partial indexes only (catalog/43 does that on a new database);
+// its other indexes never gain a row, so every later migration analysed
+// them again and reloaded the whole database's statistics each time.
 func analyseNewIndexes(ctx context.Context, tx *sql.Tx) error {
 	var stats int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_schema WHERE name='sqlite_stat1'`).Scan(&stats); err != nil || stats == 0 {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT i.name FROM sqlite_schema i WHERE i.type='index'
-		AND EXISTS (SELECT 1 FROM sqlite_stat1 s WHERE s.tbl=i.tbl_name)
-		AND NOT EXISTS (SELECT 1 FROM sqlite_stat1 s WHERE s.idx=i.name)`)
+	// Each migration asks, so the question must not cost the schema times
+	// the statistics: the subqueries are uncorrelated and built once.
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_schema WHERE type='index'
+		AND tbl_name IN (SELECT tbl FROM sqlite_stat1 WHERE CAST(stat AS INTEGER) > 0)
+		AND name NOT IN (SELECT idx FROM sqlite_stat1 WHERE idx IS NOT NULL)`)
 	if err != nil {
 		return err
 	}

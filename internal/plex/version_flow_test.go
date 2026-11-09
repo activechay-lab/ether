@@ -133,6 +133,74 @@ func TestVersionIdentityAcrossPlayFlow(t *testing.T) {
 					t.Fatalf("start: %d %s", r.Code, r.Body.String())
 				}
 				check("after start and probe", path+"?checkFiles=1&includeChapters=1")
+				if product == "Plex for Android (TV)" && count == 3 {
+					// A manual subtitle download causes repeated metadata refreshes,
+					// followed by selection on the Part the player already holds.
+					putRequest := func(target string) *httptest.ResponseRecorder {
+						r := httptest.NewRequest(http.MethodPut, target, nil)
+						r.Header.Set("X-Plex-Token", ownerToken)
+						r.Header.Set("X-Plex-Client-Identifier", "client-1")
+						for i := 0; i < len(headers); i += 2 {
+							r.Header.Set(headers[i], headers[i+1])
+						}
+						w := httptest.NewRecorder()
+						f.srv.ServeHTTP(w, r)
+						return w
+					}
+					subs := newFakeSubtitles()
+					subs.offers = []SubtitleOffer{{ID: 101, Language: "nl", Title: "Downloaded Dutch", Provider: "OpenSubtitles"}}
+					f.srv.d.Subtitles = subs
+					notifications, ok := f.srv.notifier.subscribe([]string{"activity"}, &ownerUser)
+					if !ok {
+						t.Fatal("activity subscription failed")
+					}
+					defer f.srv.notifier.unsubscribe(notifications)
+					search := decodeJSON(t, f.get(t, path+"/subtitles?language=nl", headers...))
+					offer := search["Stream"].([]any)[0].(map[string]any)["key"].(string)
+					pick := putRequest(path + "/subtitles?key=" + urlEsc(offer))
+					activity := pick.Header().Get("X-Plex-Activity")
+					if pick.Code != 200 || activity == "" {
+						t.Fatalf("download: %d %s", pick.Code, pick.Body.String())
+					}
+					deadline := time.NewTimer(5 * time.Second)
+					defer deadline.Stop()
+				waiting:
+					for {
+						select {
+						case event := <-notifications.ch:
+							if strings.Contains(string(event.data), `"event":"ended"`) && strings.Contains(string(event.data), activity) {
+								break waiting
+							}
+						case <-deadline.C:
+							t.Fatal("subtitle download did not finish")
+						}
+					}
+					for n := 0; n < 3; n++ {
+						check("subtitle refresh", path)
+					}
+					refreshed := media("downloaded tracks", f.get(t, path, headers...))
+					part := refreshed[1].Part[0]
+					var subtitle flexID
+					for _, stream := range part.Stream {
+						if stream.StreamType == 3 && stream.Selected {
+							subtitle = stream.ID
+						}
+					}
+					if part.ID == 0 || subtitle == 0 {
+						t.Fatalf("missing selected Part/subtitle: %+v", part)
+					}
+					put := putRequest(fmt.Sprintf("/library/parts/%d?subtitleStreamID=%d&allParts=1", part.ID, subtitle))
+					if put.Code != 200 {
+						t.Fatalf("select downloaded subtitle: %d %s", put.Code, put.Body.String())
+					}
+					restarted := ids(media("subtitle decision", f.get(t, "/video/:/transcode/universal/decision?"+query, headers...)))
+					if !reflect.DeepEqual(restarted, []flexID{before[1]}) {
+						t.Fatalf("subtitle decision changed identity: %v", restarted)
+					}
+					if r := f.get(t, "/video/:/transcode/universal/start.m3u8?"+query, headers...); r.Code != 200 {
+						t.Fatalf("subtitle restart: %d %s", r.Code, r.Body.String())
+					}
+				}
 				pb.mu.Lock()
 				defer pb.mu.Unlock()
 				if count < 2 && len(pb.variantCalls) != 0 {

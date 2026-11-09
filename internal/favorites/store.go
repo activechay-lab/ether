@@ -48,6 +48,10 @@ type Options struct {
 	Active        func(context.Context, int64) (*core.User, error)
 	Allowed       func(context.Context, *core.User, Subject) bool
 	AllowedTitles func(context.Context, *core.User, []core.RatingKey) (bool, error)
+	// PreloadTitles, when set, reads in batches the titles a loop of
+	// Allowed calls is about to check one at a time, so a list of favorites
+	// costs a few statements instead of several per title.
+	PreloadTitles func(context.Context, []core.RatingKey)
 	Changed       func(context.Context, int64, Subject)
 	Now           func() time.Time
 	Marked        core.TransactionalMarkedPlaylists
@@ -76,6 +80,21 @@ func New(o Options) (*Service, error) {
 	}
 	return &Service{o: o}, nil
 }
+
+// preloadTitles batches the title reads Allowed is about to make for ids.
+func (s *Service) preloadTitles(ctx context.Context, ids []string) {
+	if s.o.PreloadTitles == nil || len(ids) < 2 {
+		return
+	}
+	keys := make([]core.RatingKey, 0, len(ids))
+	for _, id := range ids {
+		if key, err := core.ParseRatingKey(id); err == nil {
+			keys = append(keys, key)
+		}
+	}
+	s.o.PreloadTitles(ctx, keys)
+}
+
 func valid(s Subject) bool {
 	if s.Kind != KindTitle && s.Kind != KindPerson && s.Kind != KindCollection && s.Kind != KindChannel {
 		return false
@@ -216,6 +235,37 @@ func (s *Service) Has(ctx context.Context, viewer *core.User, subject Subject) (
 	return err == nil, err
 }
 
+// TitleKeys returns up to limit of the viewer's favorite title keys from the
+// primary-key prefix, and whether that is all of them. It is a filter's
+// candidate set: callers still apply visibility to what it names.
+func (s *Service) TitleKeys(ctx context.Context, viewer *core.User, limit int) ([]core.RatingKey, bool, error) {
+	if viewer == nil || viewer.ID <= 0 || limit <= 0 {
+		return nil, false, ErrForbidden
+	}
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT subject_id FROM favorites_items WHERE viewer_id=? AND kind=? LIMIT ?`, viewer.ID, string(KindTitle), limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var out []core.RatingKey
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, false, err
+		}
+		if key, err := core.ParseRatingKey(id); err == nil {
+			out = append(out, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(out) > limit {
+		return out[:limit], false, nil
+	}
+	return out, true, nil
+}
+
 // HasTitles checks title membership in bounded batches, revalidating every subject.
 func (s *Service) HasTitles(ctx context.Context, viewer *core.User, keys []core.RatingKey) (map[core.RatingKey]bool, error) {
 	out := make(map[core.RatingKey]bool, len(keys))
@@ -312,6 +362,16 @@ func (s *Service) List(ctx context.Context, viewer *core.User, kind Kind, limit 
 	if err != nil {
 		return nil, err
 	}
+	if kind == KindTitle {
+		ids := make([]string, 0, len(candidates))
+		for _, entry := range candidates {
+			if limit > 0 && len(ids) >= limit {
+				break
+			}
+			ids = append(ids, entry.Subject.ID)
+		}
+		s.preloadTitles(ctx, ids)
+	}
 	out := make([]Entry, 0, len(candidates))
 	for _, entry := range candidates {
 		if s.o.Allowed(ctx, active, entry.Subject) {
@@ -356,6 +416,7 @@ func (s *Service) removeTitleAt(ctx context.Context, viewer *core.User, expected
 		if err != nil {
 			return err
 		}
+		s.preloadTitles(ctx, before)
 		var visible []string
 		for _, id := range before {
 			if s.o.Allowed(ctx, active, Subject{Kind: KindTitle, ID: id}) {
@@ -525,6 +586,7 @@ func (s *Service) MoveTitle(ctx context.Context, viewer *core.User, expected cor
 	if err != nil {
 		return err
 	}
+	s.preloadTitles(ctx, before)
 	var positions []int
 	for i, id := range before {
 		if s.o.Allowed(ctx, active, Subject{Kind: KindTitle, ID: id}) {

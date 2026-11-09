@@ -218,8 +218,6 @@ func downloadCorpus(ctx context.Context, cache, mode, ff string) (map[string]str
 								detail = "download checksum mismatch"
 							} else if e = os.Link(tmpName, path); e != nil {
 								detail = "cache publication failed"
-							} else {
-								used += n
 							}
 							_ = os.Remove(tmpName)
 						}

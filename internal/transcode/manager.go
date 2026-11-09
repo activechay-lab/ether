@@ -41,42 +41,49 @@ type options struct {
 	detectHW       bool
 	idleTimeout    time.Duration
 	segmentTimeout time.Duration
-	stallTimeout   time.Duration
-	restartAhead   time.Duration
-	maxAhead       time.Duration
-	keepBehind     time.Duration
-	pollInterval   time.Duration
-	segmentURI     func(n int, container string) string
-	dashURLs       DASHURLs
-	manifestWait   time.Duration
-	onFailure      func(sessionID string, at time.Duration, err error)
-	onInputFailure func(sessionID, inputURL string, at time.Duration, err error)
-	onRunStart     func(inputURL string, from, to time.Duration)
-	onEncoder      func(sessionID string, started bool, excerpt string)
-	tracePlayback  bool
+	// segmentPadLimit bounds padding a slow segment (segment_padding.go).
+	segmentPadLimit time.Duration
+	stallTimeout    time.Duration
+	restartAhead    time.Duration
+	maxAhead        time.Duration
+	keepBehind      time.Duration
+	pollInterval    time.Duration
+	segmentURI      func(n int, container string) string
+	dashURLs        DASHURLs
+	manifestWait    time.Duration
+	onFailure       func(sessionID string, at time.Duration, err error)
+	onInputFailure  func(sessionID, inputURL string, at time.Duration, err error)
+	onRunStart      func(inputURL string, from, to time.Duration)
+	onEncoder       func(sessionID string, started bool, excerpt string)
+	tracePlayback   bool
 	// rungDwell is how long a run keeps producing its rung before a
 	// request on another rung may replace it (see Session.rungDwellLocked).
 	rungDwell time.Duration
 	// audioMatchBudget bounds the best-effort loudness analysis before a
 	// source swap (see Session.prepareAudioMatch).
 	audioMatchBudget time.Duration
+	// copySamplePackets is the packet budget of the pre-publication copy
+	// sample (seek_ramp_index.go): a title it covers whole is indexed.
+	copySamplePackets int
 }
 
 func defaultOptions() options {
 	return options{
-		runner:         ExecRunner{},
-		detectHW:       true,
-		idleTimeout:    2 * time.Minute,
-		segmentTimeout: 45 * time.Second,
-		stallTimeout:   30 * time.Second,
-		restartAhead:   24 * time.Second,
-		maxAhead:       2 * time.Minute,
-		keepBehind:     3 * time.Minute,
-		pollInterval:   150 * time.Millisecond,
-		segmentURI:     SegmentName,
-		dashURLs:       PlexDASHURLs,
-		manifestWait:   15 * time.Second,
-		rungDwell:      8 * time.Second,
+		runner:            ExecRunner{},
+		detectHW:          true,
+		idleTimeout:       2 * time.Minute,
+		segmentTimeout:    45 * time.Second,
+		segmentPadLimit:   segmentPadMax,
+		copySamplePackets: copySamplePackets,
+		stallTimeout:      30 * time.Second,
+		restartAhead:      24 * time.Second,
+		maxAhead:          2 * time.Minute,
+		keepBehind:        3 * time.Minute,
+		pollInterval:      150 * time.Millisecond,
+		segmentURI:        SegmentName,
+		dashURLs:          PlexDASHURLs,
+		manifestWait:      15 * time.Second,
+		rungDwell:         8 * time.Second,
 
 		audioMatchBudget: defaultAudioMatchBudget,
 	}
@@ -99,6 +106,10 @@ func WithIdleTimeout(d time.Duration) Option { return func(o *options) { o.idleT
 // WithSegmentTimeout bounds how long ServeSegment waits for ffmpeg
 // (default 45s).
 func WithSegmentTimeout(d time.Duration) Option { return func(o *options) { o.segmentTimeout = d } }
+
+// WithSegmentPadLimit bounds how long a slow segment's response is padded
+// before the request aborts (default segmentPadMax).
+func WithSegmentPadLimit(d time.Duration) Option { return func(o *options) { o.segmentPadLimit = d } }
 
 // WithStallTimeout sets the no-progress timeout for an actively requested
 // on-demand segment. Zero disables the watchdog.
@@ -456,6 +467,14 @@ func probeState(f features) string {
 	return "filters unread"
 }
 
+// ToneMapsDolbyVisionProfile5 reports whether this ffmpeg can reshape a
+// Dolby Vision profile 5 (IPTPQc2) picture through its RPU and tone-map it
+// to SDR. Profile 5 has no HDR10 base, so without it a video conversion of
+// such a source is refused.
+func (m *Manager) ToneMapsDolbyVisionProfile5() bool {
+	return m != nil && m.feat.hasFilter("tonemapx")
+}
+
 // HWAccel implements core.Transcoder.
 func (m *Manager) HWAccel() core.HWAccel {
 	hw := m.hw
@@ -632,7 +651,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	v := req.Info.Video()
 	// Profile 5 has no HDR10 fallback. Refuse when this ffmpeg cannot reshape
 	// IPTPQc2 through the RPU, rather than delivering a green/purple encode.
-	if v != nil && v.DolbyVision && v.DolbyVisionProfile == 5 && !d.VideoCopy && !m.feat.hasFilter("tonemapx") {
+	if v != nil && v.DolbyVision && v.DolbyVisionProfile == 5 && !d.VideoCopy && !m.ToneMapsDolbyVisionProfile5() {
 		return nil, errors.New("transcode: DoVi (Profile 5) color space is not supported")
 	}
 	if v == nil {
@@ -679,6 +698,32 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	}
 	atCap := m.cfg.MaxTranscodes > 0 && m.encodingLocked(req.SessionID) >= m.cfg.MaxTranscodes
 	m.mu.Unlock()
+	id := req.SessionID
+	if id == "" {
+		id = randomHex(12)
+	}
+
+	if req.InputLease != nil {
+		if err := life.installInput(req.InputLease); err != nil {
+			return nil, err
+		}
+	}
+	if err := m.claimEncoderID(ctx, id, life); err != nil {
+		return nil, err
+	}
+	healTimestamps := false
+	if !atCap && proto == core.ProtocolHLS && (d.Container == ContainerMPEGTS || d.Container == ContainerFMP4) {
+		if damaged, heal := m.copyDamage(ctx, req, d, life); damaged {
+			healTimestamps = heal
+			d.Kind, d.VideoCopy, d.VideoCodec = core.DecisionTranscode, false, "h264"
+			if heal {
+				d.Reason += "; sampled timestamp discontinuity; healing video clock"
+			} else {
+				d.Reason += "; sampled video corruption; encoding video"
+			}
+			m.log.Info("sampled video damage; encoding video", "session", req.SessionID, "healTimestamps", heal)
+		}
+	}
 	if atCap && d.VideoCopy {
 		// The encoder cap is reached. A copy session still plays, but
 		// plainly: no encoded fast-start ramp, no governor clamps and no
@@ -741,7 +786,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		base = 0
 		startSeg = req.Resume.FirstSegment
 	}
-	tracks := 1
+	var tracks int
 	var reps []dashRep
 	var plan *Timeline
 	if proto == core.ProtocolDASH {
@@ -784,7 +829,17 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		}
 		// Recovery reconstructs the original plan; segment numbers are not
 		// steady-grid offsets while FastStart is enabled.
-		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || d.Container == ContainerMPEGTS)
+		//
+		// A TS copy's ramp is encoded, and the copy can only take over at a
+		// source keyframe: the ramp runs to the first indexed one at or
+		// after its nominal end. Without a keyframe index that handover
+		// is a guess. Copy cannot start mid-GOP, the keyframe before it is
+		// already inside the encoded ramp, so the copy resumed at the next
+		// keyframe: the media between was skipped (and A/V shifted against
+		// the playlist clock), or with no later keyframe the copy published
+		// nothing and the playlist's tail failed. An unindexed copy keeps one
+		// copy plan from its first segment instead, like fMP4 and Matroska.
+		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || (d.Container == ContainerMPEGTS && len(req.Info.Keyframes) > 0))
 		plan = buildTimeline(span, segDur, timelineOptions{
 			steadyMode: steadyMode,
 			fastStart:  fastStart,
@@ -801,18 +856,43 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		return nil, errors.New("transcode: resume segment outside authored timeline")
 	}
 
-	id := req.SessionID
-	if id == "" {
-		id = randomHex(12)
-	}
-
-	if req.InputLease != nil {
-		if err := life.installInput(req.InputLease); err != nil {
+	// One bounded packet sample provides representative copy bandwidth
+	// and, for a seek, a proven encoded-ramp handover. It cannot establish
+	// the bitrate of future unseen scenes or change a published timeline.
+	if proto == core.ProtocolHLS && req.Resume == nil && req.Ramp.Version == 0 && !ValidCopyTimeline(req) && !req.LiveInput &&
+		d.VideoCopy && len(req.Info.Keyframes) == 0 && plan != nil {
+		sample := m.sampleCopyIndex(ctx, req, offset, life)
+		points := sample.points
+		nominal := time.Duration(adapt.RampSegs) * adapt.RampDur
+		// A TS copy's encoded ramp needs a sampled keyframe to hand over at
+		// (c6add9e4f): a complete sample of a title whose only keyframe
+		// opens it keeps one copy plan, exactly as when it went unsampled.
+		rampBoundary := d.Container == ContainerMPEGTS && adapt.FastStart && hasSampledRampBoundary(points, offset, nominal)
+		sampledRamp := offset > 0 && rampBoundary
+		if sample.complete || sampledRamp {
+			req.Info.Keyframes = points
+			plan = buildTimeline(plan.span, segDur, timelineOptions{steadyMode: ModeCopy,
+				fastStart: rampBoundary, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
+				keyframes: points, base: base, snap: true})
+			total = plan.Total()
+		}
+		if len(rungs) > 0 {
+			slot := segDur
+			for _, duration := range plan.durs {
+				if duration > 0 && duration < slot {
+					slot = duration
+				}
+			}
+			slot = max(slot, plan.TargetDuration()/2)
+			peak := sampledCopyPeakKbps(sample.peakPoints, slot)
+			if a := findStream(req.Info, d.AudioStream, "audio"); a != nil && !d.AudioCopy {
+				peak += max(0, decisionAudioKbps(req.Info, d)-copiedAudioKbps(a))
+			}
+			rungs[0].peakKbps = max(rungs[0].peakKbps, peak)
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-	}
-	if err := m.claimEncoderID(ctx, id, life); err != nil {
-		return nil, err
 	}
 	m.mu.Lock()
 	if m.closed {
@@ -845,6 +925,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		softSubtitleStream = &index
 	}
 	s := &Session{
+		healTimestamps:          healTimestamps,
 		encoder:                 life,
 		id:                      id,
 		m:                       m,
@@ -862,6 +943,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			rtxTimeline:        enhancementSelected(d),
 			rtxConfig:          rtxConfig,
 			liveInput:          req.LiveInput,
+			liveFromBacklog:    req.LiveInput && req.LiveFromBacklog,
 			loopInput:          len(slateData) > 0,
 			input:              req.InputURL,
 			inputHeaders:       inputHeaders,

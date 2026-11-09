@@ -10,6 +10,7 @@ import (
 // It never contains IPTV source URLs or credentials.
 type LiveChannel struct {
 	ID, Number, Name, Kind, Logo, Rating string
+	Group                                string
 	Favorite                             bool
 	Images                               []Image
 }

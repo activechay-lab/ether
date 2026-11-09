@@ -9,6 +9,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/handles/capability"
+	"github.com/braedonsaunders/ether/internal/store"
 )
 
 const deliveryNamespace = "sessions.delivery"
@@ -39,6 +40,33 @@ func reserveDeliveryToken(ctx context.Context, db *sql.DB) (int64, error) {
 		return 0, err
 	}
 	return token, nil
+}
+
+// deliveryTokenKeep is how many of the newest delivery tokens Prune keeps.
+// A token is checked only when its own session publishes, and sessions have
+// no fixed lifetime, so retention counts later plays instead of time: a
+// session would have to outlive 100,000 newer plays to lose its token. A
+// token row is one integer, so the kept window costs about a megabyte.
+const deliveryTokenKeep = 100_000
+
+// Prune deletes delivery tokens older than the newest deliveryTokenKeep,
+// except tokens a delivery authority row still names, and reports the rows
+// removed. Ordering never depends on deleted rows: ids come from an
+// AUTOINCREMENT key (a sequence on PostgreSQL) that never reuses a value,
+// and the newest row is always kept.
+func (b *Broker) Prune(ctx context.Context) (int64, error) {
+	if b == nil || b.deps.DB == nil {
+		return 0, nil
+	}
+	return pruneDeliveryTokens(ctx, b.deps.DB, deliveryTokenKeep)
+}
+
+func pruneDeliveryTokens(ctx context.Context, db *sql.DB, keep int64) (int64, error) {
+	var newest int64
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id),0) FROM sessions_delivery_tokens`).Scan(&newest); err != nil || newest <= keep {
+		return 0, err
+	}
+	return store.PruneBatched(ctx, db, `DELETE FROM sessions_delivery_tokens WHERE id IN (SELECT id FROM sessions_delivery_tokens WHERE id<=? AND id NOT IN (SELECT token FROM sessions_delivery_authority) ORDER BY id LIMIT ?)`, newest-keep)
 }
 
 func (b *Broker) bindDeliveryAuthority(ctx context.Context, s *brokerSession, ps *core.PlaySession) error {
@@ -134,6 +162,9 @@ func publishDeliveryAuthority(ctx context.Context, db *sql.DB, next deliveryAuth
 	if err = capability.LockHeaderScopeInTx(ctx, db, tx, scope); err != nil {
 		return false, err
 	}
+	if err = retireExpiredDeliveryInTx(ctx, tx, next.ViewerID, now); err != nil {
+		return false, err
+	}
 	var issued int
 	if err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions_delivery_tokens WHERE id=?`, next.Token).Scan(&issued); err != nil {
 		return false, err
@@ -187,6 +218,56 @@ func publishDeliveryAuthority(ctx context.Context, db *sql.DB, next deliveryAuth
 		return false, err
 	}
 	return true, nil
+}
+
+// deliveryRetireBatch bounds the expired grants one publish retires. A
+// publish admits one header, so retiring several keeps every shard
+// draining even while most of its viewers are idle.
+const deliveryRetireBatch = 32
+
+// retireExpiredDeliveryInTx deletes delivery grants in the viewer's
+// admission shard whose header has expired: the authority row, the claim
+// and the header. An expired header is no longer authority
+// (rememberedDeliveryRelease treats it as absent), but the claim keeps
+// capability.PruneHeadersInTx from collecting it and admission counts it,
+// so without this a viewer's 257th title on one surface, or the shard's
+// 4097th grant, failed to play. The caller holds the shard lock, which
+// renewals take too: a grant is either renewed first and kept, or retired
+// first and its renewal fails as expired.
+func retireExpiredDeliveryInTx(ctx context.Context, tx *sql.Tx, viewer int64, now time.Time) error {
+	rows, err := tx.QueryContext(ctx, `SELECT digest,viewer_id,surface,device_id FROM capability_headers WHERE namespace=? AND shard=? AND expires<=? ORDER BY expires LIMIT ?`,
+		deliveryNamespace, viewer%capability.HeaderShardCount, now.UnixMilli(), deliveryRetireBatch)
+	if err != nil {
+		return err
+	}
+	type expired struct {
+		digest string
+		scope  capability.HeaderScope
+	}
+	var stale []expired
+	for rows.Next() {
+		e := expired{scope: capability.HeaderScope{Namespace: deliveryNamespace}}
+		if err = rows.Scan(&e.digest, &e.scope.ViewerID, &e.scope.Surface, &e.scope.DeviceID); err != nil {
+			rows.Close()
+			return err
+		}
+		stale = append(stale, e)
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	for _, e := range stale {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM sessions_delivery_authority WHERE viewer_id=? AND surface=? AND device_id=? AND header_digest=?`, e.scope.ViewerID, e.scope.Surface, e.scope.DeviceID, e.digest); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM capability_claims WHERE namespace=? AND digest=?`, deliveryNamespace, e.digest); err != nil {
+			return err
+		}
+		if err = capability.DropHeadersInTx(ctx, tx, e.scope, []string{e.digest}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func lookupDeliveryAuthority(ctx context.Context, db *sql.DB, viewer, item int64, surface, device string) (deliveryAuthority, bool, error) {

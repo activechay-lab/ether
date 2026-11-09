@@ -21,7 +21,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
@@ -144,6 +144,10 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 	})
 	get("/livetv/channels/{channel}/logo.svg", s.handleLiveLogo)
 	get("/livetv/channels/{channel}/logo.png", s.handleLiveRasterLogo)
+	// No viewer guard: Plex's cloud fetches it without credentials; the
+	// signature is the authorization.
+	r.Get(signedLogoPrefix+"{channel}/{signature}", s.handleSignedLiveLogo)
+	r.Head(signedLogoPrefix+"{channel}/{signature}", s.handleSignedLiveLogo)
 	get("/livetv/sessions", s.handleLiveSessions)
 	get("/livetv/sessions/{session}", s.handleLiveSession)
 	r.Delete("/livetv/sessions/{session}", guard(func(w http.ResponseWriter, r *http.Request) {
@@ -212,16 +216,6 @@ func (s *Server) handleLiveDVRs(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &liveContainer{Size: 1, Identifier: livetv.Provider, DVR: []liveDVR{{EPGIdentifier: livetv.Provider, Key: "1", Language: "eng", Lineup: "lineup://" + livetv.Provider + "/dvr", UUID: s.identity().MachineIdentifier + "-livetv", RefreshedAt: s.liveLineupRefreshedAtFor(FromContext(r.Context()).User), Device: devices}}})
 }
 
-// liveLineupRefreshedAt is the clock Apple TV compares to drop a cached lineup.
-func (s *Server) liveLineupRefreshedAt() int64 {
-	if s.d.LiveTV != nil {
-		if at := s.d.LiveTV.LineupChanged(); !at.IsZero() {
-			return at.Unix()
-		}
-	}
-	return s.now().Unix()
-}
-
 func (s *Server) liveLineupRefreshedAtFor(u *core.User) int64 {
 	if s.d.LiveTV != nil {
 		if at := s.d.LiveTV.LineupChangedFor(u); !at.IsZero() {
@@ -287,15 +281,38 @@ func liveLogo(c livetv.Channel) string {
 	return "/livetv/channels/" + url.PathEscape(c.ID) + "/logo.png"
 }
 
+func isStandaloneGuideLogoClient(pr *Request) bool {
+	if pr == nil {
+		return false
+	}
+	return strings.EqualFold(pr.Platform, "tvOS") ||
+		strings.EqualFold(pr.Product, "Plex for Apple TV") ||
+		strings.EqualFold(pr.Product, "Plex Web") ||
+		strings.EqualFold(pr.Platform, "Android") ||
+		plexAndroidClient(pr)
+}
+
 func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
 	path := liveLogo(c)
 	pr := FromContext(r.Context())
-	if pr == nil || !(strings.EqualFold(pr.Platform, "tvOS") || strings.EqualFold(pr.Product, "Plex for Apple TV")) || r.Host == "" {
+	if !isStandaloneGuideLogoClient(pr) || r.Host == "" {
 		return path
 	}
-	// Native tvOS treats EPG thumbnails as standalone URLs, like Plex's
-	// provider-static images, rather than library paths relative to this PMS.
-	// Its image loader also does not carry the guide request's auth headers.
+	scheme, host := s.requestOrigin(r)
+	if cloudGuideLogoClient(pr) {
+		return s.cloudGuideLogo(r.Context(), c, scheme+"://"+host)
+	}
+	// These clients load guide thumbnails as standalone URLs without auth headers.
+	u := url.URL{Scheme: scheme, Host: host, Path: "/livetv/channels/" + c.ID + "/logo.png", RawPath: path}
+	q := url.Values{}
+	q.Set("X-Plex-Token", pr.Token)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// requestOrigin is the scheme and host this request reached the server at,
+// honouring forwarding headers only from trusted proxies.
+func (s *Server) requestOrigin(r *http.Request) (string, string) {
 	scheme, host := "http", r.Host
 	if r.TLS != nil {
 		scheme = "https"
@@ -303,7 +320,7 @@ func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
 	peerHost, _, _ := net.SplitHostPort(r.RemoteAddr)
 	peer, _ := netip.ParseAddr(peerHost)
 	trusted := peer.IsLoopback()
-	for _, prefix := range identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs) {
+	for _, prefix := range clientnet.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs) {
 		trusted = trusted || prefix.Contains(peer.Unmap())
 	}
 	if trusted {
@@ -314,11 +331,7 @@ func (s *Server) liveGuideLogo(r *http.Request, c livetv.Channel) string {
 			host = forwarded
 		}
 	}
-	u := url.URL{Scheme: scheme, Host: host, Path: path}
-	q := url.Values{}
-	q.Set("X-Plex-Token", pr.Token)
-	u.RawQuery = q.Encode()
-	return u.String()
+	return scheme, host
 }
 
 func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
@@ -475,7 +488,17 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]livetv.Pr
 		if id := chi.URLParam(r, "programme"); id != "" && p.ID != id {
 			continue
 		}
-		out = append(out, liveProgrammeMetadata(byID[p.ChannelID], p))
+		md := liveProgrammeMetadata(byID[p.ChannelID], p)
+		if c, ok := byID[p.ChannelID]; ok && cloudGuideLogoClient(FromContext(r.Context())) {
+			// The Apple TV guide draws airings' channelThumb too: give it the
+			// same fetchable logo as the lineup.
+			for i, a := range md.Media[0].Extra {
+				if a.Name == "channelThumb" {
+					md.Media[0].Extra[i].Value = s.liveGuideLogo(r, c)
+				}
+			}
+		}
+		out = append(out, md)
 		if captured != nil {
 			*captured = append(*captured, p)
 		}
@@ -575,7 +598,7 @@ func (s *Server) liveTVHubProjection(r *http.Request) (*model.Hub, frontend.Row)
 	}
 	for _, c := range cs {
 		if !found[c.ID] {
-			md = append(md, s.liveChannelMetadata(c))
+			md = append(md, s.liveChannelMetadata(r, c))
 		}
 	}
 	if len(md) == 0 {
@@ -622,8 +645,8 @@ func (s *Server) liveTVHubProjection(r *http.Request) (*model.Hub, frontend.Row)
 	}
 	return h, row
 }
-func (s *Server) liveChannelMetadata(c livetv.Channel) model.Metadata {
-	return model.Metadata{RatingKey: "channel-" + c.ID, Key: liveProviderPath + "/channels/" + url.PathEscape(c.ID), Type: "clip", Title: c.Name, Summary: "Live channel. No programme guide supplied.", Thumb: liveLogo(c), ContentRating: c.Rating, Extra: []model.Attr{model.A("live", true), model.A("dvrChannel", true)}, Media: []model.Media{{Protocol: "livetv", Extra: []model.Attr{model.A("origin", "livetv"), model.A("channelIdentifier", c.ID), model.A("channelTitle", c.Name), model.A("channelVcn", c.Number), model.A("onAir", true)}}}}
+func (s *Server) liveChannelMetadata(r *http.Request, c livetv.Channel) model.Metadata {
+	return model.Metadata{RatingKey: "channel-" + c.ID, Key: liveProviderPath + "/channels/" + url.PathEscape(c.ID), Type: "clip", Title: c.Name, Summary: "Live channel. No programme guide supplied.", Thumb: s.liveGuideLogo(r, c), ContentRating: c.Rating, Extra: []model.Attr{model.A("live", true), model.A("dvrChannel", true)}, Media: []model.Media{{Protocol: "livetv", Extra: []model.Attr{model.A("origin", "livetv"), model.A("channelIdentifier", c.ID), model.A("channelTitle", c.Name), model.A("channelVcn", c.Number), model.A("onAir", true)}}}}
 }
 func (s *Server) handleLiveChannel(w http.ResponseWriter, r *http.Request) {
 	c, err := s.d.LiveTV.AllowedChannel(r.Context(), FromContext(r.Context()).User, chi.URLParam(r, "channel"))
@@ -635,7 +658,7 @@ func (s *Server) handleLiveChannel(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
-	s.write(w, r, &model.MediaContainer{Size: 1, Identifier: livetv.Provider, Metadata: []model.Metadata{s.liveChannelMetadata(c)}})
+	s.write(w, r, &model.MediaContainer{Size: 1, Identifier: livetv.Provider, Metadata: []model.Metadata{s.liveChannelMetadata(r, c)}})
 }
 
 func (s *Server) handleLiveHubs(w http.ResponseWriter, r *http.Request) {
@@ -818,6 +841,13 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 		s.writeErr(w, r, err)
 		return
 	}
+	s.writeChannelLogo(w, r, c, raster, "private, max-age=300")
+}
+
+// writeChannelLogo writes channel c's logo: its source image (or matched
+// guide logo), rasterized when asked, else a generated card.
+func (s *Server) writeChannelLogo(w http.ResponseWriter, r *http.Request, c livetv.Channel, raster bool, cacheControl string) {
+	var err error
 	format := androidPhotoOutputFormat(r)
 	rasterFormat := format
 	if rasterFormat == "" {
@@ -825,7 +855,7 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 	}
 	write := func(data []byte, ct string) {
 		setArtworkHeaders(w.Header(), ct)
-		w.Header().Set("Cache-Control", "private, max-age=300")
+		w.Header().Set("Cache-Control", cacheControl)
 		w.Header().Add("Vary", "X-Plex-Token")
 		w.Header().Add("Vary", "X-Plex-Product")
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -833,12 +863,37 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 			_, _ = w.Write(data)
 		}
 	}
-	if c.Logo != "" && s.channelLogos != nil {
-		data, ct, err := s.channelLogos.GetUntrustedURL(r.Context(), c.Logo)
-		if err == nil && raster && strings.HasPrefix(ct, "image/svg+xml") {
-			data, ct, err = s.channelRaster.Rasterize(r.Context(), c.Logo, data, artwork.RasterOptions{Format: rasterFormat})
+	src := c.Logo
+	var (
+		data []byte
+		ct   string
+	)
+	if src != "" && s.channelLogos != nil {
+		data, ct, err = s.channelLogos.GetUntrustedURL(r.Context(), src)
+	}
+	if (src == "" || err != nil || len(data) == 0) && s.d.LiveTV != nil && s.channelLogos != nil && c.GuideID != "" {
+		if guideLogo := s.d.LiveTV.GuideChannelLogo(r.Context(), c); guideLogo != "" && guideLogo != c.Logo {
+			src = guideLogo
+			data, ct, err = s.channelLogos.GetUntrustedURL(r.Context(), src)
+		}
+	}
+	if err == nil && len(data) > 0 {
+		if raster && strings.HasPrefix(ct, "image/svg+xml") {
+			data, ct, err = s.channelRaster.Rasterize(r.Context(), src, data, artwork.RasterOptions{Format: rasterFormat})
 		}
 		if err == nil && raster && format != "" {
+			data, ct, err = s.images.RasterFormat(r.Context(), data, ct, format, s.now())
+		}
+		if err == nil && len(data) > 0 {
+			write(data, ct)
+			return
+		}
+	}
+	if _, shipped, ok := livetv.ShowcaseLogo(c); ok {
+		// A shipped channel's own artwork, the same file Apple TV fetches
+		// from Ether's public repository.
+		data, ct, err = shipped, "image/png", nil
+		if raster && format != "" {
 			data, ct, err = s.images.RasterFormat(r.Context(), data, ct, format, s.now())
 		}
 		if err == nil && len(data) > 0 {
@@ -856,7 +911,7 @@ func (s *Server) serveLiveLogo(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	setArtworkHeaders(w.Header(), "image/svg+xml")
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Cache-Control", cacheControl)
 	if r.Method != "HEAD" {
 		fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" rx="24" fill="#182d45"/><text x="40" y="125" fill="#64dfc7" font-size="68" font-family="sans-serif">%s</text><text x="40" y="220" fill="white" font-size="30" font-family="sans-serif">%s</text></svg>`, html.EscapeString(c.Number), html.EscapeString(c.Name))
 	}

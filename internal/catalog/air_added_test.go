@@ -69,6 +69,25 @@ func TestAirAddedAndAiredEpisodeBrowse(t *testing.T) {
 	if err != nil || page.Total != 2 || len(page.Items) != 1 || page.Items[0].Key != items[3].Key {
 		t.Fatalf("per-show paging: %+v %v", page, err)
 	}
+	// The batched read answers each show exactly as the single-show read.
+	for _, limit := range []int{1, 10} {
+		many, err := c.CachedAiredEpisodesMany(ctx, []core.RatingKey{other, show, core.ShowKey(99)}, limit)
+		if err != nil || len(many) != 3 {
+			t.Fatalf("batched aired episodes: %+v %v", many, err)
+		}
+		for _, key := range []core.RatingKey{show, other, core.ShowKey(99)} {
+			single, err := c.CachedAiredEpisodes(ctx, key, 0, limit)
+			got := many[key]
+			if err != nil || got.Total != single.Total || len(got.Items) != len(single.Items) {
+				t.Fatalf("batched %v limit %d: %+v, single %+v %v", key, limit, got, single, err)
+			}
+			for i := range got.Items {
+				if got.Items[i].Key != single.Items[i].Key || !got.Items[i].AddedAt.Equal(single.Items[i].AddedAt) {
+					t.Fatalf("batched %v item %d: %+v, single %+v", key, i, got.Items[i], single.Items[i])
+				}
+			}
+		}
+	}
 	items[3].Released = now.Add(48 * time.Hour)
 	if err := c.upsert(ctx, items[3], upsertOpts{airDates: true}); err != nil {
 		t.Fatal(err)

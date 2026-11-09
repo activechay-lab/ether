@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PluginSourceCards, PluginSourceUsage } from "./PluginSources";
+import { PluginSourceCards, usePluginSourceSummaries } from "./PluginSources";
 
 const mockDescriptors = [
   {
@@ -146,7 +146,7 @@ describe("PluginSources", () => {
     render(
       <MemoryRouter>
         <PluginSourceCards classes={["debrid"]} />
-        <PluginSourceUsage />
+        <PluginSummaries />
       </MemoryRouter>,
     );
 
@@ -160,3 +160,15 @@ describe("PluginSources", () => {
     expect(screen.getByText(/50 grabs a day/)).toBeTruthy();
   });
 });
+
+function PluginSummaries() {
+  return (
+    <ul>
+      {usePluginSourceSummaries().map((p) => (
+        <li key={p.id}>
+          <span>{p.label}</span> <span>{p.summary}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}

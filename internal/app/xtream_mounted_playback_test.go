@@ -13,7 +13,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/compactids"
 	"github.com/braedonsaunders/ether/internal/identity"
-	"github.com/braedonsaunders/ether/internal/store"
 	"io"
 	"log/slog"
 	"net/http"
@@ -62,7 +61,6 @@ func TestXtreamMountedOfflineOriginalFile(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	store.SeedTestDataDir(t, dir)
 	a, err := New(ctx, Options{DataDir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)

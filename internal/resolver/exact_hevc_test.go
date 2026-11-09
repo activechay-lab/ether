@@ -43,7 +43,7 @@ func TestInfuseAndTVOSPoolPicksHEVCOverAV1UnlessAdvertised(t *testing.T) {
 	}
 	cfg := testCfg()
 	for i := range cfg.Quality.Profiles {
-		cfg.Quality.Profiles[i].PreferredCodecs = []string{"av1", "hevc", "h264"}
+		cfg.Quality.Profiles[i].CustomFormatScores[core.CodecFormat("av1")] = 30
 	}
 
 	for _, tc := range []struct {

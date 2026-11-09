@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -75,6 +76,7 @@ type Conn struct {
 	broken        bool
 	inBody        bool
 	group         string
+	remoteIP      netip.Addr
 
 	used time.Time // last time a command completed
 	// idleSince is when the pool last got the connection back from a
@@ -126,6 +128,16 @@ func Dial(ctx context.Context, o DialOptions) (*Conn, error) {
 	if tc, ok := raw.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
 	}
+	var remoteIP netip.Addr
+	if ra := raw.RemoteAddr(); ra != nil {
+		if ta, ok := ra.(*net.TCPAddr); ok {
+			if ip, ok := netip.AddrFromSlice(ta.IP); ok {
+				remoteIP = ip.Unmap()
+			}
+		} else if ap, err := netip.ParseAddrPort(ra.String()); err == nil {
+			remoteIP = ap.Addr().Unmap()
+		}
+	}
 	wire := new(atomic.Int64)
 	var nc net.Conn = &countingConn{Conn: raw, n: o.BytesRead, own: wire}
 	if o.TLS {
@@ -169,6 +181,7 @@ func Dial(ctx context.Context, o DialOptions) (*Conn, error) {
 		onPhase:        o.OnPhase,
 		onStatus:       o.OnStatus,
 		onCommand:      o.OnCommand,
+		remoteIP:       remoteIP,
 
 		used: now,
 		wire: wire,
@@ -521,6 +534,9 @@ func (c *Conn) Close() error {
 // Broken reports whether the connection failed and must not be reused.
 func (c *Conn) Broken() bool { return c.broken }
 
+// RemoteIP returns the remote IP address of the underlying TCP connection, if known.
+func (c *Conn) RemoteIP() netip.Addr { return c.remoteIP }
+
 // Body issues BODY and returns a reader over the dot-unstuffed body. The
 // reader must be closed (which drains any unread remainder) before the
 // connection is used again.
@@ -561,7 +577,7 @@ func (c *Conn) BodyDecode(ctx context.Context, messageID string, opt *yenc.Decod
 	if err != nil {
 		return nil, err
 	}
-	part, derr := yenc.DecodeLines(br, opt)
+	part, derr := decodeBody(br, opt)
 	cerr := br.Close()
 	if br.ioErr != nil {
 		// The transport failed; that is what the caller needs to see.
@@ -590,6 +606,12 @@ type BodyReader struct {
 
 // readRaw returns the next line including its terminator, unstuffed.
 func (b *BodyReader) readRaw() ([]byte, error) {
+	return b.readBodyLine(false)
+}
+
+// readBodyLine optionally preserves original NNTP dot-stuffing and terminator.
+// It never reads a line belonging to the following response.
+func (b *BodyReader) readBodyLine(wire bool) ([]byte, error) {
 	if b.done {
 		if b.ioErr != nil {
 			return nil, b.ioErr
@@ -624,9 +646,14 @@ func (b *BodyReader) readRaw() ([]byte, error) {
 	if line[0] == '.' {
 		if len(line) == 3 && line[1] == '\r' || len(line) == 2 {
 			b.finish(nil)
+			if wire {
+				return line, nil
+			}
 			return nil, io.EOF
 		}
-		line = line[1:]
+		if !wire {
+			line = line[1:]
+		}
 	}
 	return line, nil
 }

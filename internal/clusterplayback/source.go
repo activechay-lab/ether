@@ -34,6 +34,7 @@ type ownedSource struct {
 	grant                    nodesource.Grant
 	retiring                 bool
 	binding, issuing, issued bool
+	forgetAt                 time.Time // forgetTerminal grace deadline
 }
 type sourceRequest struct {
 	CopyKeyframes         []core.KeyframePoint `json:",omitempty"`

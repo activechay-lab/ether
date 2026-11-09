@@ -73,7 +73,12 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 			}
 		}
 	}
-	vs := pickVariants(req.Title, req.Client, profile, strict[0].rel, pool, strict, s.sameQualityAlternatives(), max, allowTaller)
+	var vs []core.ReleaseVariant
+	if s.resolverCfg().AlternativesPerResolution {
+		vs = pickResolutionVariants(req.Title, profile, strict[0].rel, pool, s.sameQualityAlternatives(), max, allowTaller)
+	} else {
+		vs = pickVariants(req.Title, req.Client, profile, strict[0].rel, pool, strict, s.sameQualityAlternatives(), max, allowTaller)
+	}
 	labelPlayedAuto(req.Title, vs, req.PlayedRelease, results, s.LookupRelease)
 	return vs, nil
 }
@@ -366,7 +371,7 @@ func bestCompat(pool []candidate, caps core.ClientCaps, used map[string]bool) (c
 		if rel.Info.HDR10 || rel.Info.DolbyVision {
 			continue
 		}
-		sc := rel.Score / 10 // overall rank as tiebreak
+		sc := 0.0 // ties keep the pool's rank order
 		if rel.Info.Height == target {
 			sc += 100
 		} else if rel.Info.Height == 720 {

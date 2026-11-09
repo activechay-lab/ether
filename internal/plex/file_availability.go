@@ -2,17 +2,16 @@ package plex
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
 type fileAvailabilityChecker interface {
-	CheckFileAvailability(context.Context, *core.User, core.RatingKey, core.ClientCaps, string) (bool, error)
+	CheckFileAvailability(context.Context, *frontend.Viewer, frontend.RatingKey, frontend.ClientCaps, string) (bool, error)
 }
 
 // fileCheckBudget bounds one response's file checks; fileCheckParallel bounds
@@ -26,10 +25,12 @@ const (
 
 // projectFileAvailability answers checkFiles / asyncCheckFiles /
 // checkFileAvailability: every Part carries exists and accessible. Versions
-// are checked concurrently within one shared budget; a Part whose check did
-// not reach a verdict (budget spent, check slots busy, a transient source
-// error) keeps the state it is offered with, available, rather than losing
-// the attributes.
+// are checked concurrently within one shared budget. Only a verdict (nil
+// error) can mark a Part missing; any error is no verdict (budget spent,
+// check slots busy, nothing found yet, another release preferred) and the
+// Part keeps the state it is offered with, available. Plex apps hide Play on
+// accessible="0", which would also stop the playback-time search that finds
+// a release.
 func (s *Server) projectFileAvailability(r *http.Request, mc *model.MediaContainer) {
 	q := r.URL.Query()
 	if !metadataOptionOn(q.Get("checkFiles")) && !metadataOptionOn(q.Get("asyncCheckFiles")) && !metadataOptionOn(q.Get("checkFileAvailability")) {
@@ -40,7 +41,7 @@ func (s *Server) projectFileAvailability(r *http.Request, mc *model.MediaContain
 		return
 	}
 	type target struct {
-		key     core.RatingKey
+		key     frontend.RatingKey
 		release string
 	}
 	parts := map[target][]*model.Part{}
@@ -84,7 +85,7 @@ dispatch:
 			defer wg.Done()
 			defer func() { <-slots }()
 			live, err := checker.CheckFileAvailability(ctx, pr.User, t.key, caps, t.release)
-			if err != nil && !errors.Is(err, core.ErrNotAvailable) && !errors.Is(err, core.ErrNotFound) {
+			if err != nil {
 				return
 			}
 			verdicts[i] = &live

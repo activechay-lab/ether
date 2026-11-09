@@ -43,7 +43,69 @@ func main() {
 	serverURL := flag.String("server-url", "", "explicit Ether lab server URL")
 	mediaKey := flag.String("media-key", "", "comma-separated rating keys of staged test titles on the lab server")
 	report := flag.String("report", "transcodechaos-report.json", "output JSON report")
+	live := flag.String("live", "", "run the live TV acceptance matrix instead: quick or full")
+	liveOnly := flag.String("live-only", "", "comma-separated substrings of live row IDs (scenario/mode) to run")
+	livePreset := flag.String("live-preset", "balanced", "stability preset to apply and judge against: fastest, balanced or rocksolid")
+	livePlayer := flag.String("live-player", "auto", "AVFoundation judge: auto (macOS), on or off")
+	liveParallel := flag.Int("live-parallel", 3, "live rows run concurrently")
+	liveFixtureFF := flag.String("live-fixture-ffmpeg", "", "ffmpeg used to generate live fixtures (default: -ffmpeg)")
+	liveMarkdown := flag.String("live-markdown", "", "also write a Markdown summary here")
+	liveBaseline := flag.String("live-baseline", "", "baseline JSON report to compare against in the Markdown summary")
+	liveKeep := flag.String("live-keep", "", "keep each row's work directory (Ether log, captured segments) under this directory")
+	liveLabel := flag.String("live-label", "", "label for the live report")
+	liveObserve := flag.Duration("live-observe", liveObserve, "how long each live row is watched after the tune")
+	liveClient := flag.String("live-client", "plex-appletv", "client identity to tune as: plex-appletv (AVPlayer judge) or plex-firetv (ExoPlayer stuck rule, protocol judge)")
+	liveRender := flag.Bool("live-render", false, "rewrite -live-markdown from the existing -report JSON (with -live-baseline) and exit")
+	liveRescore := flag.Bool("live-rescore", false, "re-judge the existing -report JSON with the current pass criteria, rewrite it (and -live-markdown) and exit")
+	vodAV := flag.Bool("vod-avplayer", false, "play the corpus client sequences in AVPlayer next to ffmpeg -xerror (macOS; needs -fixture-dir with a staged corpus)")
+	vodPlayerOnly := flag.Bool("vod-player-only", false, "with -vod-avplayer: skip the ffmpeg comparison corpus for a focused player verification")
+	vodOnly := flag.String("vod-only", "", "substring of asset/path/scenario cases to run with -vod-avplayer")
+	vodKeep := flag.String("vod-keep", "", "keep the media segments the player fetched under this directory")
+	vodMarkdown := flag.String("vod-markdown", "", "also write a Markdown summary of -vod-avplayer here")
+	vodTranscode := flag.Bool("vod-transcode", false, "with -vod-avplayer: only the sustained full-transcode case per asset (live-priority row)")
 	flag.Parse()
+	if *vodAV {
+		root, _ := os.Getwd()
+		if err := runVODAVPlayer(vodOptions{FF: *ff, FP: *fp, Fixtures: *fixtures, Cache: *cache, Report: *report, Markdown: *vodMarkdown, Only: *vodOnly, Keep: *vodKeep, RepoRoot: root, Label: *liveLabel, Transcode: *vodTranscode, PlayerOnly: *vodPlayerOnly}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *liveRescore {
+		if err := rescoreLive(*report, *liveMarkdown, *liveBaseline); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *liveRender {
+		if err := renderLive(*report, *liveMarkdown, *liveBaseline); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *live != "" {
+		if *live != "quick" && *live != "full" {
+			fmt.Fprintln(os.Stderr, "-live must be quick or full")
+			os.Exit(2)
+		}
+		root, _ := os.Getwd()
+		fixtureFF := *liveFixtureFF
+		if fixtureFF == "" {
+			fixtureFF = *ff
+		}
+		label := *liveLabel
+		if label == "" {
+			label = *live
+		}
+		if err := runLive(liveOptions{FF: *ff, FP: *fp, FixtureFF: fixtureFF, Subset: *live, Only: *liveOnly, Preset: *livePreset, Player: *livePlayer, Parallel: *liveParallel, CacheDir: *cache, Report: *report, Markdown: *liveMarkdown, Baseline: *liveBaseline, Keep: *liveKeep, Label: label, Observe: *liveObserve, Client: *liveClient, RepoRoot: root}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*ff, *fp, *report, *only, *fixtures, *cache, *mode, *corpus, *serverURL, *mediaKey); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

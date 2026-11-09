@@ -138,7 +138,7 @@ func vibeSetup(t *testing.T, now *atomic.Int64, opts ...collections.Option) *col
 			t.Fatal(err)
 		}
 	}
-	all := []collections.Option{collections.WithoutDefaults(), collections.WithIndexTTL(0), collections.WithLiveTTL(0)}
+	all := []collections.Option{collections.WithIndexTTL(0), collections.WithLiveTTL(0)}
 	if now != nil {
 		all = append(all, collections.WithNow(func() time.Time { return time.Unix(now.Load(), 0) }))
 	}

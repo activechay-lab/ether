@@ -11,10 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/streamgrant"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-const streamGrantParam = streamgrant.StreamGrantParam
+const streamGrantParam = frontend.StreamGrantParam
 
 func transcodeSessionID(path string) string {
 	rest, ok := strings.CutPrefix(path, "/video/:/transcode/universal/session/")
@@ -104,7 +104,7 @@ func (s *Server) authenticateStreamGrant(r *http.Request, pr *Request) bool {
 	if !ok {
 		return false
 	}
-	u, ok := streamgrant.AuthenticateGrant(r.Context(), r.Method, r.URL.Query().Get(streamGrantParam), streamgrant.GrantBinding{Token: e.streamToken, ViewerID: e.userID, Started: e.started}, s.activeViewer)
+	u, ok := frontend.AuthenticateStreamGrant(r.Context(), r.Method, r.URL.Query().Get(streamGrantParam), frontend.StreamGrantBinding{Token: e.streamToken, ViewerID: e.userID, Started: e.started}, s.activeViewer)
 	if !ok {
 		return false
 	}
@@ -165,7 +165,7 @@ func (s *Server) authenticateSessionRead(r *http.Request, pr *Request) bool {
 }
 
 func streamGrantURL(raw, token string) string {
-	return streamgrant.GrantURL(raw, token)
+	return frontend.StreamGrantURL(raw, token)
 }
 
 // Only manifest responses are buffered. Segments remain streamed directly.

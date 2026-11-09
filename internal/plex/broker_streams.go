@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -17,11 +16,11 @@ func (s *Server) UsePlexStreams(api sessions.PlexStreamAPI) {
 	}
 }
 
-func (s *Server) plexStreamAccess(u *core.User) frontend.SessionAccess {
+func (s *Server) plexStreamAccess(u *frontend.Viewer) frontend.SessionAccess {
 	return frontend.SessionAccess{Viewer: u, Protocol: "plex"}
 }
 
-func (s *Server) assignStream(ctx context.Context, u *core.User, key core.RatingKey, index int, info core.StreamInfo, sessionID string) int64 {
+func (s *Server) assignStream(ctx context.Context, u *frontend.Viewer, key frontend.RatingKey, index int, info frontend.StreamInfo, sessionID string) int64 {
 	if s == nil || s.boundStreams == nil {
 		return 0
 	}
@@ -34,9 +33,9 @@ func (s *Server) assignStream(ctx context.Context, u *core.User, key core.Rating
 	return id
 }
 
-func (s *Server) resolveStream(ctx context.Context, u *core.User, id int64) (sessions.PlexStreamBinding, error) {
+func (s *Server) resolveStream(ctx context.Context, u *frontend.Viewer, id int64) (sessions.PlexStreamBinding, error) {
 	if s == nil || s.boundStreams == nil {
-		return sessions.PlexStreamBinding{}, core.ErrNotFound
+		return sessions.PlexStreamBinding{}, frontend.ErrNotFound
 	}
 	return s.boundStreams.ResolvePlexStream(ctx, s.plexStreamAccess(u), id)
 }
@@ -45,7 +44,7 @@ func (s *Server) resolveStream(ctx context.Context, u *core.User, id int64) (ses
 // authorizes it and names the title; when a probe or failover moved that
 // id onto another track for this client, the track it names now is
 // returned instead of the title-wide binding.
-func (s *Server) resolveIssuedStream(ctx context.Context, u *core.User, clientID string, id int64) (sessions.PlexStreamBinding, error) {
+func (s *Server) resolveIssuedStream(ctx context.Context, u *frontend.Viewer, clientID string, id int64) (sessions.PlexStreamBinding, error) {
 	binding, err := s.resolveStream(ctx, u, id)
 	if err != nil || u == nil || s.playIDs == nil {
 		return binding, err
@@ -57,5 +56,5 @@ func (s *Server) resolveIssuedStream(ctx context.Context, u *core.User, clientID
 }
 
 func streamMiss(err error) bool {
-	return err == nil || errors.Is(err, core.ErrNotFound)
+	return err == nil || errors.Is(err, frontend.ErrNotFound)
 }

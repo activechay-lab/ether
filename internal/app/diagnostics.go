@@ -34,12 +34,19 @@ func (a *App) diagnosticsHandler() http.Handler {
 		add("Server discovery", st.Listed && st.LastPublishError == "", "Plex must list Ether and its connection addresses.", "Check the published address and refresh registration.")
 		add("Remote access enabled", cfg.Plex.RemoteAccess, "The configured public port must forward to Ether.", "Enable remote access and set the router port forward.")
 		add("Port mapping", st.UPnP.LastError == "" && st.UPnP.Active, "Automatic mapping is optional when a manual port forward exists.", "Use a manual forward if your router does not support UPnP/NAT-PMP.")
-		if st.RemoteClientReachable {
+		switch wan := st.WANCheck(); {
+		case wan.Reason == "outside_client":
 			add("External reachability", true, "An authenticated Plex client connected from outside this network within the last five minutes.", "")
-		} else if st.WANState() == "unknown" {
+		case wan.Reason == "self_check":
+			add("External reachability", true, "Ether reached itself at "+wan.Address+". Checked from this server, so devices away from home may differ.", "")
+		case wan.Reason == "wrong_identity":
+			add("External reachability", false, wan.Address+" is answered by a different server.", "Check where the public host name and your reverse proxy point.")
+		case wan.Reason == "self_check_failed":
+			steps = append(steps, diagnostic{"External reachability", "unknown", "Ether could not reach " + wan.Address + " from this server. Some routers block this check, so outside devices may still connect.", "Check the public host name, your reverse proxy and its certificate."})
+		case wan.Reason == "plex_tv":
+			add("External reachability", wan.State == "reachable", "This result comes from plex.tv; local WAN loopback tests are not external proof.", "Check forwarding, double NAT/CGNAT, and the published public port.")
+		default:
 			steps = append(steps, diagnostic{"External reachability", "unknown", "Plex has not supplied an external connectivity result yet.", "Refresh registration and allow the connectivity check to complete."})
-		} else {
-			add("External reachability", *st.PlexReachable, "This result comes from plex.tv; local WAN loopback tests are not external proof.", "Check forwarding, double NAT/CGNAT, and the published public port.")
 		}
 		add("Secure connection", st.Cert.Present && !st.Cert.SelfSigned && st.CertError == "", "Official clients prefer a valid plex.direct or custom certificate.", "Check certificate renewal, local DNS rebinding protection, and the device clock.")
 		key, err := os.Stat(filepath.Join(a.opts.DataDir, config.CredentialKeyFile))
@@ -51,6 +58,7 @@ func (a *App) diagnosticsHandler() http.Handler {
 	})
 	m.HandleFunc("POST /refresh", func(w http.ResponseWriter, r *http.Request) {
 		a.registrar.Trigger()
+		a.registrar.RequestReachabilityCheck()
 		if a.frontends != nil {
 			a.frontends.refreshLAN()
 		}

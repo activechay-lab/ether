@@ -65,8 +65,8 @@ func TestChannelAndEventDescriptorsValidate(t *testing.T) {
 			t.Fatalf("%s marked automatic", d.ID)
 		}
 	}
-	if criticalCount != 6 {
-		t.Fatalf("critical events = %d, want 6", criticalCount)
+	if criticalCount != 7 {
+		t.Fatalf("critical events = %d, want 7", criticalCount)
 	}
 }
 

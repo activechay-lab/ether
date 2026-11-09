@@ -19,7 +19,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 func init() {
@@ -70,9 +69,6 @@ func setupTestAppWith(t *testing.T, complete bool, opts Options) *App {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// An installed server: the database is current, so New takes the
-	// ordinary restart path instead of migrating a fresh file.
-	store.SeedTestDataDir(t, dir)
 	s := &clusterSetup{state: "idle", stop: make(chan struct{}, 1), check: func(context.Context, clusterconfig.SetupRequest) error { return nil }}
 	opts.DataDir = dir
 	opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))

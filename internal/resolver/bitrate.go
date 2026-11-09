@@ -3,7 +3,6 @@ package resolver
 import (
 	"math"
 	"regexp"
-	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releasepolicy"
@@ -122,16 +121,16 @@ func isAnimation(t *core.Title) bool {
 	return isAnime(t)
 }
 
-// sameTier reports releases of one tier for hedged validation: same height
-// and HDR kind (qualityTier), both above or both below their bitrate floor,
-// both in an accepted audio language or both not, and equal on any moved
-// score-tail ladder steps.
+// sameTier reports releases of one tier for hedged validation: the same
+// place in the quality order, height and HDR kind (qualityTier), both
+// above or both below their bitrate floor, and both in an accepted audio
+// language or both not.
 func sameTier(a, b candidate) bool {
-	return qualityTier(a.rel.Info) == qualityTier(b.rel.Info) &&
+	return a.keys.position == b.keys.position &&
+		qualityTier(a.rel.Info) == qualityTier(b.rel.Info) &&
 		a.starved == b.starved &&
 		a.langOK == b.langOK &&
-		a.langWanted == b.langWanted &&
-		a.quality.movedEqual(b.quality)
+		a.langWanted == b.langWanted
 }
 
 // sameQuality reports releases that are interchangeable for source
@@ -154,178 +153,6 @@ func sourceClass(s core.Source) string {
 		return "web"
 	}
 	return "other"
-}
-
-// qualityRank holds a release's per-dimension ranks for its profile's
-// ranking ladder. Higher is better; the zero value ranks with unknowns.
-type qualityRank struct {
-	height, source, hdr    int
-	codec, audio           int
-	size                   int64
-	movedCodec, movedAudio int
-	movedSize              int64
-}
-
-func (a qualityRank) movedEqual(b qualityRank) bool {
-	return a.movedCodec == b.movedCodec && a.movedAudio == b.movedAudio && a.movedSize == b.movedSize
-}
-
-func hasDefaultScoreTail(ladder []string) bool {
-	n := len(ladder)
-	return n >= 3 &&
-		ladder[n-3] == core.RankVideoCodec &&
-		ladder[n-2] == core.RankAudioFormat &&
-		ladder[n-1] == core.RankSize
-}
-
-func audioFormatRank(info core.ReleaseInfo, profile core.QualityProfile) int {
-	r := indexRank(profile.PreferredAudio, info.AudioCodec) * 2
-	if info.Atmos {
-		r++
-	}
-	return r
-}
-
-// rankQuality places a release in the profile's quality order. A release
-// below its bitrate floor ranks one resolution step down: a starved
-// "2160p" is not better than a good 1080p, HDR or not. Unknown heights
-// rank lowest.
-func rankQuality(rel core.Release, profile core.QualityProfile, starved bool) qualityRank {
-	info := rel.Info
-	h := info.Height
-	if starved {
-		switch {
-		case h >= 2160:
-			h = 1080
-		case h >= 1080:
-			h = 720
-		case h >= 720:
-			h = 480
-		}
-	}
-	hdr := hdrRank(info, profile)
-	if starved {
-		hdr = 0 // a starved or upscaled encode keeps no HDR advantage either
-	}
-	codec := indexRank(profile.PreferredCodecs, info.VideoCodec)
-	audio := audioFormatRank(info, profile)
-	var size int64
-	if profile.PreferLargest {
-		size = sizedForEpisode(rel).Size
-	}
-	r := qualityRank{
-		height: h,
-		source: indexRank(profile.PreferredSources, info.Source),
-		hdr:    hdr,
-		codec:  codec,
-		audio:  audio,
-		size:   size,
-	}
-	if !hasDefaultScoreTail(profile.EffectiveRanking()) {
-		r.movedCodec = codec
-		r.movedAudio = audio
-		r.movedSize = size
-	}
-	return r
-}
-
-// compareCandidates walks the profile's ranking ladder from top to bottom,
-// breaking remaining ties by the soft score (profile score + custom formats +
-// client compatibility). Fallback tiers on require rules always hold first so
-// a fallback candidate never outranks a primary candidate.
-func compareCandidates(a, b candidate, profile core.QualityProfile) bool {
-	if a.policy.Fallback != b.policy.Fallback {
-		return a.policy.Fallback < b.policy.Fallback
-	}
-	ladder := profile.EffectiveRanking()
-	defaultTail := hasDefaultScoreTail(ladder)
-	for _, step := range ladder {
-		switch {
-		case core.IsPluginRankingStep(step):
-			if ak, bk := a.pluginKeys[step], b.pluginKeys[step]; ak != bk {
-				return ak > bk
-			}
-		case strings.HasPrefix(step, core.RankRulePrefix):
-			id := strings.TrimPrefix(step, core.RankRulePrefix)
-			if ap, bp := a.policy.PreferRule(id), b.policy.PreferRule(id); ap != bp {
-				return ap > bp
-			}
-		case step == core.RankLanguage:
-			// A release whose declared audio is only in languages nobody
-			// asked for is a last resort, whatever its quality or fit.
-			if a.langOK != b.langOK {
-				return a.langOK
-			}
-		case step == core.RankConnection:
-			// A previously working LAN remux must not outrank a source that
-			// fits this client's slower connection. Unknown sizes remain usable
-			// and an oversized source can still be transcoded as a fallback.
-			if a.bandwidth != b.bandwidth {
-				return a.bandwidth > b.bandwidth
-			}
-		case step == core.RankResolution:
-			if a.quality.height != b.quality.height {
-				return a.quality.height > b.quality.height
-			}
-			// On a foreign-language title, a release within this resolution tier
-			// that explicitly declares the viewer's audio language (or MULTI)
-			// ranks ahead of untagged original-language or bare .DUAL releases.
-			if a.langWanted != b.langWanted {
-				return a.langWanted
-			}
-			// Within a resolution, a correctly-labelled series year beats one
-			// accepted because the differing year names no other show.
-			if a.yearGuessed != b.yearGuessed {
-				return !a.yearGuessed
-			}
-		case step == core.RankReleaseType:
-			if a.quality.source != b.quality.source {
-				return a.quality.source > b.quality.source
-			}
-		case step == core.RankHDR:
-			if a.quality.hdr != b.quality.hdr {
-				return a.quality.hdr > b.quality.hdr
-			}
-		case step == core.RankCustomScore:
-			// The total score: Ether's quality points, the owner's custom
-			// format scores and client compatibility.
-			if a.rel.Score != b.rel.Score {
-				return a.rel.Score > b.rel.Score
-			}
-		case step == core.RankVerified:
-			// Evidence ranks only where the owner puts it; by default the
-			// custom score step comes first, so it breaks score ties.
-			if a.verified != b.verified {
-				return a.verified
-			}
-		case step == core.RankVideoCodec:
-			if !defaultTail && a.quality.codec != b.quality.codec {
-				return a.quality.codec > b.quality.codec
-			}
-		case step == core.RankAudioFormat:
-			if !defaultTail && a.quality.audio != b.quality.audio {
-				return a.quality.audio > b.quality.audio
-			}
-		case step == core.RankSize:
-			if !defaultTail && a.quality.size != b.quality.size {
-				return a.quality.size > b.quality.size
-			}
-		}
-	}
-	return a.rel.Score > b.rel.Score
-}
-
-// hdrRank orders dynamic range the profile can use: Dolby Vision, then
-// HDR, then SDR. A 2160p remux is a UHD disc, which carries HDR10 even
-// when the name does not say so.
-func hdrRank(info core.ReleaseInfo, profile core.QualityProfile) int {
-	switch {
-	case info.DolbyVision && profile.AllowDolbyVision:
-		return 2
-	case profile.AllowHDR && (info.HDR10 || info.DolbyVision || (info.Height >= 2160 && info.Source == core.SourceRemux)):
-		return 1
-	}
-	return 0
 }
 
 // upscaleRe matches names that say they were upscaled or AI-enhanced.
@@ -367,13 +194,3 @@ func uhdLabelled(name string) bool {
 }
 
 var uhdRe = regexp.MustCompile(`(?i)(^|[ ._\-\[(])uhd($|[ ._\-\])])`)
-
-// indexRank is len(list)-i for v at index i, 0 when absent.
-func indexRank[T comparable](list []T, v T) int {
-	for i, x := range list {
-		if x == v {
-			return len(list) - i
-		}
-	}
-	return 0
-}

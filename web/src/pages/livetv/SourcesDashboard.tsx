@@ -15,6 +15,7 @@ import {
   type LiveUsage,
   type Source,
 } from "./model";
+import { StabilityPanel } from "./stability";
 
 const DAY = 24 * 60 * MINUTE;
 
@@ -129,6 +130,8 @@ export function SourcesDashboard({
           icon={<KeyRound size={17} />}
         />
       </KpiRow>
+
+      <StabilityPanel />
 
       {list.map((s) => (
         <SourcePanel

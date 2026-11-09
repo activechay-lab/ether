@@ -259,7 +259,7 @@ func (h *History) publish(ctx context.Context, r RetirementReceipt, evidence str
 			return err
 		}
 		if retire {
-			return retireRecord(ctx, tx, current)
+			return s.retireRecord(ctx, tx, current)
 		}
 		return nil
 	})

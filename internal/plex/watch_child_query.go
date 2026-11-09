@@ -3,14 +3,14 @@ package plex
 import (
 	"context"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"net/url"
 	"strings"
 )
 
 // childQuery applies the ordinary browse predicates to a known subtree before
 // its page window. IncludeKeys prevents a children read from querying peers.
-func (s *Server) childQuery(ctx context.Context, pr *Request, items []core.Title, q url.Values) ([]core.Title, error) {
+func (s *Server) childQuery(ctx context.Context, pr *Request, items []frontend.Title, q url.Values) ([]frontend.Title, error) {
 	if len(items) == 0 {
 		return items, nil
 	}

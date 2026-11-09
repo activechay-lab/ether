@@ -102,16 +102,6 @@ func TestCachedMarkersNeverFetchesOnMissOrHit(t *testing.T) {
 	}
 }
 
-type blockingRunner struct{ started chan struct{} }
-
-func (r blockingRunner) Run(ctx context.Context, _ string, _ []string, _ io.Writer, _ io.Writer) error {
-	select {
-	case r.started <- struct{}{}:
-	default:
-	}
-	<-ctx.Done()
-	return ctx.Err()
-}
 func TestMatrixStudioCardIsNotAnIntro(t *testing.T) {
 	ctx := context.Background()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

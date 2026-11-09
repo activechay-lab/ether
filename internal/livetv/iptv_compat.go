@@ -2,64 +2,53 @@ package livetv
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/transcode"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
-func relayPlaylistHasMedia(body string) bool {
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
-			return true
-		}
+// relayPlan decides a relay's output for the viewer: standard TS or
+// fragmented MP4 HLS, keeping the viewer's codec, HDR and quality ceilings
+// (enhanced file-only containers do not apply). steady reports that the
+// source needs conversion and the channel's screens ask for Steady.
+func (s *Service) relayPlan(ss *session, info core.MediaInfo) (dec core.Decision, cut time.Duration, steady bool) {
+	caps := relayCaps(ss.caps)
+	dec = s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: !ss.info.Channel.Transcode, AudioStream: -1, SubtitleStream: -1})
+	steady = ss.steadyRefused == "" && s.screenStyle(ss.info.Channel, false) != "error" && (!dec.VideoCopy || !dec.AudioCopy)
+	if relayTSOnly(ss.caps) {
+		dec.Container = "mpegts"
 	}
-	return false
-}
-
-// Waiting for readiness must not retain a complete video segment in memory.
-type relayReadinessWriter struct {
-	header http.Header
-	status int
-}
-
-func (w *relayReadinessWriter) Header() http.Header { return w.header }
-func (w *relayReadinessWriter) WriteHeader(code int) {
-	if w.status == 0 {
-		w.status = code
+	// Two-second segments: the first owned playlist carries two of them
+	// (about four seconds of media, so a player does not start at a stalling
+	// live edge) within the cold-tune budget. Copy cuts at the first source
+	// keyframe after it.
+	cut = relaySegment
+	if dec.Container != transcode.ContainerFMP4 && dec.Container != transcode.ContainerMPEGTS {
+		dec.Container = transcode.ContainerMPEGTS
 	}
-}
-func (w *relayReadinessWriter) Write(b []byte) (int, error) {
-	w.WriteHeader(http.StatusOK)
-	return len(b), nil
+	return dec, cut, steady
 }
 
-// Live IPTV uses standard TS or fragmented MP4 HLS. Keep the viewer's
-// codec, HDR and quality ceilings; enhanced file-only containers do not apply.
-func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.MediaInfo) error {
-	caps := ss.caps
+const relaySegment = 2 * time.Second
+
+func relayCaps(viewer core.ClientCaps) core.ClientCaps {
+	caps := viewer
 	caps.VideoCodecs = []string{"h264"}
-	if ss.caps.SupportsVideo("hevc") {
+	if viewer.SupportsVideo("hevc") {
 		caps.VideoCodecs = append(caps.VideoCodecs, "hevc")
 	} else {
 		caps.HDR10, caps.DolbyVision = false, false
 	}
 	caps.HLSContainers = nil
-	tsOnly := false
-	for _, c := range ss.caps.HLSContainers {
+	for _, c := range viewer.HLSContainers {
 		switch c {
-		case "mpegts":
-			tsOnly = true
 		case "mp4", "fmp4":
 			caps.HLSContainers = append(caps.HLSContainers, c)
 		}
 	}
-	tsOnly = tsOnly && len(caps.HLSContainers) == 0
 	caps.AudioCodecs = nil
-	for _, codec := range ss.caps.AudioCodecs {
+	for _, codec := range viewer.AudioCodecs {
 		switch codec {
 		case "aac", "ac3", "eac3", "mp3":
 			caps.AudioCodecs = append(caps.AudioCodecs, codec)
@@ -68,38 +57,46 @@ func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.Med
 	if len(caps.AudioCodecs) == 0 {
 		caps.AudioCodecs = []string{"aac"}
 	}
-	dec := s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: !ss.info.Channel.Transcode, AudioStream: -1, SubtitleStream: -1})
-	if s.screenStyle(ss.info.Channel, false) != "error" && (!dec.VideoCopy || !dec.AudioCopy) {
+	return caps
+}
+
+func relayTSOnly(viewer core.ClientCaps) bool {
+	ts, fmp4 := false, false
+	for _, c := range viewer.HLSContainers {
+		switch c {
+		case "mpegts":
+			ts = true
+		case "mp4", "fmp4":
+			fmp4 = true
+		}
+	}
+	return ts && !fmp4
+}
+
+func (s *Service) startIPTVRelay(ctx context.Context, ss *session, info core.MediaInfo) error {
+	dec, cut, steady := s.relayPlan(ss, info)
+	if steady {
 		s.revokeInput(ss)
 		c := ss.info.Channel
 		c.Transcode = true
 		ss.info.Channel = c
 		return s.startBroadcast(ctx, ss)
 	}
-	if tsOnly {
-		dec.Container = "mpegts"
-	}
-	// Copy can publish at the next source keyframe without waiting four seconds.
-	cut := segmentDuration
-	if dec.VideoCopy && dec.VideoCodec == "hevc" {
-		cut = 2 * time.Second
-	}
-	if dec.Container != transcode.ContainerFMP4 && dec.Container != transcode.ContainerMPEGTS {
-		dec.Container = transcode.ContainerMPEGTS
-	}
-	input, err := s.relayInput(ss)
-	if err != nil {
-		return err
-	}
 	started := time.Now()
-	s.sessionLog(ss).Info("live playback path selected", "path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec)
-	relay, cancel, err := s.startOwnedHLS(ctx, ss, core.HLSRequest{SessionID: "livetv-" + ss.info.ID, InputURL: input, LiveInput: true, Info: info, Decision: dec, SegmentDuration: cut})
+	attrs := []any{}
+	if next, evidence := s.historyDecision(ss, info, dec); evidence != "" {
+		// The source's history says copy would hand damage or stalled
+		// cuts to the player: start re-encoded instead of copy-then-switch.
+		dec = next
+		attrs = append(attrs, "reason", "history", "evidence", evidence)
+	}
+	s.sessionLog(ss).Info("live playback path selected", append([]any{"path", string(dec.Kind), "video_copy", dec.VideoCopy, "audio_copy", dec.AudioCopy, "container", dec.Container, "video_codec", dec.VideoCodec, "audio_codec", dec.AudioCodec}, attrs...)...)
+	lease, err := s.startOwnedRelay(ctx, ss, info, relayCaps(ss.caps), dec, cut)
 	if err != nil {
 		return Diagnose("relay_start", err)
 	}
 	s.sessionLog(ss).Debug("live relay started", "elapsed", time.Since(started))
-	ss.relay = relay
-	ss.relayCancel = cancel
+	ss.owned = lease
 	output := liveRelayInfo(info, dec)
 	ss.relayInfo = &output
 	return nil

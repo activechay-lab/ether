@@ -3,6 +3,11 @@ package experience
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -36,14 +41,139 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 	if none {
 		return core.Page{Items: []core.Title{}}, true, nil
 	}
-	page, err := s.d.Browse(ctx, core.BrowseQuery{Filter: filter, Sort: q.Sort, Desc: q.Desc, Offset: max(q.Offset, 0), Limit: q.Limit})
+	filter, fits, none, err := s.userStateFilter(ctx, v, filter, q)
+	if err != nil || !fits {
+		return core.Page{}, false, err
+	} else if none {
+		return core.Page{Items: []core.Title{}}, true, nil
+	}
+	bq := core.BrowseQuery{Filter: filter, Sort: q.Sort, Desc: q.Desc, Offset: max(q.Offset, 0), Limit: q.Limit, NoTotal: q.NoTotal}
+	countWatched := q.Watched != nil && !q.NoTotal && s.d.CountWatched != nil
+	if countWatched {
+		// A state predicate is not a cacheable count: counting it scanned
+		// the whole type on every page. The total comes from the viewer's
+		// watch rows instead (and the type's cached count for unplayed).
+		bq.NoTotal = true
+	}
+	page, err := s.browsePageEnd(ctx, v, bq)
 	if err != nil {
 		return core.Page{}, false, err
+	}
+	if countWatched {
+		if page.Total, err = s.watchedTotal(ctx, v, filter, *q.Watched); err != nil {
+			return core.Page{}, false, err
+		}
 	}
 	if !s.indexedPageHolds(ctx, v, page.Items, q, ex.AvailabilityInSQL) {
 		return core.Page{}, false, nil
 	}
 	return page, true, nil
+}
+
+// browsePageEnd reads an indexed page, continuing from the remembered end
+// of the page before it when there is one: Jellyfin and Emby apps page by
+// StartIndex in order (Infuse walks a whole library that way), and an
+// OFFSET re-reads every row before the page, so page n cost n pages. The
+// remembered end is the last title of the previous page; the catalogue
+// seeks past it in the sort order.
+func (s *Service) browsePageEnd(ctx context.Context, v *core.User, q core.BrowseQuery) (core.Page, error) {
+	var key string
+	if s.cursors != nil && q.Limit > 0 && core.BrowseSeekable(q) {
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%d|%+v|%s|%v|%v", v.ID, q.Filter, q.Sort, q.Desc, q.NoTotal)))
+		key = "page|" + hex.EncodeToString(sum[:16]) + "|"
+		if after, ok := s.cursors.get(key + strconv.Itoa(q.Offset)); ok && q.Offset > 0 {
+			seek := q
+			seek.AfterKey, seek.Offset = after, 0
+			page, err := s.d.Browse(ctx, seek)
+			if err == nil {
+				if q.NoTotal {
+					page.Total += q.Offset
+				}
+				s.rememberPageEnd(key, q.Offset, page)
+				return page, nil
+			}
+			if !errors.Is(err, core.ErrSeekUnavailable) {
+				return core.Page{}, err
+			}
+		}
+	}
+	page, err := s.d.Browse(ctx, q)
+	if err == nil && key != "" {
+		s.rememberPageEnd(key, q.Offset, page)
+	}
+	return page, err
+}
+
+func (s *Service) rememberPageEnd(key string, offset int, page core.Page) {
+	if n := len(page.Items); n > 0 {
+		s.cursors.put(key+strconv.Itoa(offset+n), page.Items[n-1].Key)
+	}
+}
+
+// userStateFilter folds a played or favorite filter into the SQL filter:
+// played is a watch-state predicate, favorites the viewer's favorite keys
+// (included, or excluded for "not a favorite"). fits is false when the
+// favorites are too many for one predicate.
+func (s *Service) userStateFilter(ctx context.Context, v *core.User, filter core.Filter, q frontend.ItemQuery) (out core.Filter, fits, none bool, err error) {
+	if q.Favorite != nil {
+		if s.d.FavoriteTitleKeys == nil || filter.IncludeKeys != nil {
+			return filter, false, false, nil
+		}
+		keys, all, err := s.d.FavoriteTitleKeys(ctx, v, maxIndexedExclusions)
+		if err != nil || !all || len(filter.ExcludeKeys)+len(keys) > maxIndexedExclusions {
+			return filter, false, false, err
+		}
+		if *q.Favorite {
+			if len(keys) == 0 {
+				return filter, true, true, nil
+			}
+			filter.IncludeKeys = keys
+		} else {
+			filter.ExcludeKeys = append(filter.ExcludeKeys, keys...)
+		}
+	}
+	return withWatched(filter, v, q.Watched), true, false, nil
+}
+
+// withWatched adds the played (or unplayed) predicate for v.
+func withWatched(filter core.Filter, v *core.User, watched *bool) core.Filter {
+	if watched == nil {
+		return filter
+	}
+	state := core.FilterGroup{UserID: v.ID, Unwatched: boolPtr(!*watched)}
+	if filter.Group == nil {
+		filter.Group = &state
+	} else {
+		filter.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*filter.Group, state}}
+	}
+	return filter
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// watchedTotal is a played or unplayed listing's total: the viewer's played
+// titles matching the filter, read from their watch rows, or the type's
+// (cached) count less those. filter carries the state predicate, which is
+// removed for both counts.
+func (s *Service) watchedTotal(ctx context.Context, v *core.User, filter core.Filter, watched bool) (int, error) {
+	plain := filter
+	if g := plain.Group; g != nil {
+		if g.Unwatched != nil && g.UserID == v.ID && g.Operator == "" {
+			plain.Group = nil
+		} else if g.Operator == "and" && len(g.Children) == 2 {
+			first := g.Children[0]
+			plain.Group = &first
+		}
+	}
+	played, err := s.d.CountWatched(ctx, plain, v.ID)
+	if err != nil || watched {
+		return played, err
+	}
+	all, err := s.d.Browse(ctx, core.BrowseQuery{Filter: plain, Limit: 1})
+	if err != nil {
+		return 0, err
+	}
+	return max(all.Total-played, 0), nil
 }
 
 // viewerBrowseFilter folds what the viewer may not see into filter for a
@@ -123,6 +253,11 @@ func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []co
 	if len(items) == 0 {
 		return true
 	}
+	if !s.pageStateHolds(ctx, v, items, q) {
+		return false
+	}
+	// The played and favorite checks ran for the whole page above.
+	q.Watched, q.Favorite = nil, nil
 	kept := items
 	if !availabilityInSQL {
 		kept = s.d.Visibility.Available(ctx, v, items)
@@ -144,11 +279,53 @@ func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []co
 	return true
 }
 
+// pageStateHolds checks a page's played and favorite filters in one read
+// each (the watch state includes writes not yet stored, so a page the SQL
+// predicate admitted can still fail and fall back to the scan).
+func (s *Service) pageStateHolds(ctx context.Context, v *core.User, items []core.Title, q frontend.ItemQuery) bool {
+	keys := make([]core.RatingKey, len(items))
+	for i := range items {
+		keys[i] = items[i].Key
+	}
+	if q.Watched != nil {
+		watched, err := s.d.State.GetMany(ctx, v.ID, keys)
+		if err != nil {
+			return false
+		}
+		for _, k := range keys {
+			if (watched[k].ViewCount > 0) != *q.Watched {
+				return false
+			}
+		}
+	}
+	if q.Favorite != nil {
+		if s.d.IsFavoriteMany == nil {
+			return false
+		}
+		favorites, err := s.d.IsFavoriteMany(ctx, v, keys)
+		if err != nil {
+			return false
+		}
+		for _, k := range keys {
+			if favorites[k] != *q.Favorite {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // indexedBrowseQuery is a single catalogue page. A recursive movie library is
 // still that page: movies have no children. A recursive show library is not,
 // once the request can include seasons or episodes.
 func indexedBrowseQuery(library *Library, q frontend.ItemQuery) bool {
-	if library == nil || q.Watched != nil || q.Favorite != nil || q.Season != nil || q.AdjacentTo != 0 || q.StartAt != 0 || q.Limit <= 0 {
+	if library == nil || q.Season != nil || q.AdjacentTo != 0 || q.StartAt != 0 || q.Limit <= 0 {
+		return false
+	}
+	// A movie's played state is its own watch row. A series' is derived
+	// from its episodes, which the predicate cannot see. Favorites are the
+	// title's own either way.
+	if q.Watched != nil && library.Type != core.TypeMovie {
 		return false
 	}
 	for _, typ := range q.Types {

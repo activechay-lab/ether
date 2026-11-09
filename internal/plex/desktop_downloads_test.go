@@ -102,10 +102,11 @@ func TestTranscodeSessionStatus(t *testing.T) {
 	}
 }
 
-// slowChecker answers each key with its verdict (missing: live); it records
-// the peak number of concurrent checks.
+// slowChecker answers each key with its verdict (missing: live) or error (no
+// verdict); it records the peak number of concurrent checks.
 type slowChecker struct {
 	*fakePlayback
+	dead           map[core.RatingKey]bool
 	errs           map[core.RatingKey]error
 	mu             sync.Mutex
 	inflight, peak int
@@ -127,7 +128,7 @@ func (c *slowChecker) CheckFileAvailability(ctx context.Context, _ *core.User, k
 	if err := c.errs[key]; err != nil {
 		return false, err
 	}
-	return true, nil
+	return !c.dead[key], nil
 }
 
 // Every Part of every version carries exists/accessible: checks run with
@@ -136,15 +137,17 @@ func (c *slowChecker) CheckFileAvailability(ctx context.Context, _ *core.User, k
 func TestFileAvailabilityAnnotatesEveryPart(t *testing.T) {
 	f := newFixture(func(d *Deps) { d.DisableEnrichment = true })
 	defer f.srv.Close()
-	// Titles 1, 5, 9 are dead; 2, 6, 10 get no verdict (busy check slots)
-	// and keep the offered state.
-	checker := &slowChecker{fakePlayback: newFakePlayback(sampleInfo), errs: map[core.RatingKey]error{}}
+	// Titles 1, 5, 9 are dead; 2, 6, 10 (busy check slots) and 3, 7, 11
+	// (nothing found yet) get no verdict and keep the offered state.
+	checker := &slowChecker{fakePlayback: newFakePlayback(sampleInfo), dead: map[core.RatingKey]bool{}, errs: map[core.RatingKey]error{}}
 	for n := int64(1); n <= 12; n++ {
 		switch n % 4 {
 		case 1:
-			checker.errs[core.MovieKey(n)] = core.ErrNotAvailable
+			checker.dead[core.MovieKey(n)] = true
 		case 2:
 			checker.errs[core.MovieKey(n)] = core.ErrSourceUnavailable
+		case 3:
+			checker.errs[core.MovieKey(n)] = core.ErrNotAvailable
 		}
 	}
 	f.srv.d.Playback = checker

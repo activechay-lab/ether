@@ -536,9 +536,9 @@ func (g *Guard) policyTransport(base http.RoundTripper, trusted bool) http.Round
 		direct.MaxIdleConns = 100
 	}
 	direct.DialContext = dial
-	direct.Dial = nil
+	direct.Dial = nil //nolint:staticcheck // clear a caller's legacy hook so nothing bypasses the guarded dialer
 	direct.DialTLSContext = g.dialTLSContext(dial, ht.TLSClientConfig)
-	direct.DialTLS = nil
+	direct.DialTLS = nil //nolint:staticcheck // clear a caller's legacy hook so nothing bypasses the guarded dialer
 	direct.OnProxyConnectResponse = nil
 	proxied := ht.Clone()
 	proxied.Proxy = proxyFromDecision
@@ -546,7 +546,7 @@ func (g *Guard) policyTransport(base http.RoundTripper, trusted bool) http.Round
 	// túnel do proxy; descartados também aqui (o TLS com o destino via
 	// CONNECT é feito pelo transporte sobre o dial do proxy).
 	proxied.DialTLSContext = nil
-	proxied.DialTLS = nil
+	proxied.DialTLS = nil //nolint:staticcheck // clear a caller's legacy hook so TLS stays inside the proxy tunnel
 	// Dial para o proxy em si (HTTP claro via proxy, escrito à mão).
 	proxyDial := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		var d net.Dialer
@@ -554,9 +554,9 @@ func (g *Guard) policyTransport(base http.RoundTripper, trusted bool) http.Round
 	}
 	if ht.DialContext != nil {
 		proxyDial = ht.DialContext
-	} else if ht.Dial != nil {
+	} else if legacyDial := ht.Dial; legacyDial != nil { //nolint:staticcheck // honour a caller transport's legacy Dial for the proxy hop
 		proxyDial = func(_ context.Context, network, addr string) (net.Conn, error) {
-			return ht.Dial(network, addr)
+			return legacyDial(network, addr)
 		}
 	}
 	return policyTransport{

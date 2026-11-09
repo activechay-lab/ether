@@ -69,18 +69,22 @@ export function ConnectionStatusRow({
   title,
   detail,
   address,
+  label: stateLabel,
 }: {
   state?: string;
   title: string;
   detail: string;
   address?: string;
+  /** Overrides the state word, e.g. a check that ran but could not confirm. */
+  label?: string;
 }) {
   const label =
-    state === "reachable"
+    stateLabel ??
+    (state === "reachable"
       ? t("Reachable")
       : state === "unreachable"
         ? t("Can't reach it")
-        : t("Not checked yet");
+        : t("Not checked yet"));
   return (
     <StatusRow
       state={state}

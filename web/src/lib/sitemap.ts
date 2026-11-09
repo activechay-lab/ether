@@ -192,9 +192,16 @@ const PAGES = localized<PageDef[]>(() => [
         ),
       },
       {
-        key: "stats",
-        title: t("Stats"),
-        keywords: searchTerms(msg("quota price plan cost success speed plays failover")),
+        key: "statistics",
+        title: t("Statistics"),
+        keywords: searchTerms(
+          msg("stats dashboard success speed plays failover cache data downloaded debrid"),
+        ),
+      },
+      {
+        key: "usage",
+        title: t("Usage"),
+        keywords: searchTerms(msg("usage quota price plan cost per play iptv")),
       },
     ],
   },

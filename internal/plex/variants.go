@@ -27,14 +27,12 @@ package plex
 // are recomputed deterministically, the same way a Plex stream id is).
 // The Auto variant keeps Media.ID == Part.ID == ratingKey, exactly as
 // before variants existed.
+// Ids unseen for 90 days are pruned (variants_retention.go).
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"hash/fnv"
-	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,134 +40,9 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
-func init() {
-	store.Register("variants", 1, `
-CREATE TABLE variants_ids (
-  media_id INTEGER PRIMARY KEY,
-  rating_key INTEGER NOT NULL,
-  release_id TEXT NOT NULL
-);
-CREATE UNIQUE INDEX variants_ids_pair ON variants_ids(rating_key, release_id);`)
-}
-
-const (
-	variantIDBase  = 9_000_000_000_000_000
-	variantIDSpace = 7_199_254_740_990 // ids stay below 2^53
-
-	maxVariantIDs       = 200_000
-	variantRenderBudget = 3 * time.Second // incl. the resolver's in-flight wait
-)
-
-// ---------------------------------------------------------------------------
-// Variant Media/Part ids
-
-type variantRef struct {
-	key       core.RatingKey
-	releaseID string
-}
-
-type variantIDRegistry struct {
-	mu     sync.Mutex
-	db     *sql.DB
-	byID   map[int64]variantRef
-	byPair map[variantRef]int64
-	loaded bool
-}
-
-func newVariantIDRegistry(db *sql.DB) *variantIDRegistry {
-	return &variantIDRegistry{db: db, byID: map[int64]variantRef{}, byPair: map[variantRef]int64{}}
-}
-
-// loadLocked reads persisted mappings once; the caller holds mu.
-func (r *variantIDRegistry) loadLocked() {
-	if r.loaded {
-		return
-	}
-	r.loaded = true
-	if r.db == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	rows, err := r.db.QueryContext(ctx, `SELECT media_id, rating_key, release_id FROM variants_ids`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, rk int64
-		var rel string
-		if rows.Scan(&id, &rk, &rel) == nil {
-			ref := variantRef{key: core.RatingKey(rk), releaseID: rel}
-			r.byID[id] = ref
-			r.byPair[ref] = id
-		}
-	}
-	if err := rows.Err(); err != nil {
-		slog.Default().Warn("plex: variant ids not fully loaded", "err", err)
-	}
-}
-
-func variantHash(key core.RatingKey, releaseID string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(strconv.FormatInt(int64(key), 10) + "/" + releaseID))
-	return variantIDBase + int64(h.Sum64()%variantIDSpace) + 1
-}
-
-// idFor returns the stable Media/Part id of a non-Auto variant.
-func (r *variantIDRegistry) idFor(key core.RatingKey, releaseID string) int64 {
-	ref := variantRef{key: key, releaseID: releaseID}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.loadLocked()
-	if id, ok := r.byPair[ref]; ok {
-		return id
-	}
-	if len(r.byID) >= maxVariantIDs && r.db == nil {
-		r.byID = map[int64]variantRef{}
-		r.byPair = map[variantRef]int64{}
-	}
-	id := variantHash(key, releaseID)
-	for {
-		existing, ok := r.byID[id]
-		if !ok || existing == ref {
-			break
-		}
-		id++ // collision: probe (the space is ~10^15 wide, so this terminates)
-		if id >= variantIDBase+variantIDSpace {
-			id = variantIDBase + 1
-		}
-	}
-	r.byID[id] = ref
-	r.byPair[ref] = id
-	if r.db != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, _ = r.db.ExecContext(ctx,
-			`INSERT INTO variants_ids(media_id, rating_key, release_id) VALUES (?,?,?) ON CONFLICT DO NOTHING`,
-			id, int64(key), releaseID)
-		cancel()
-	}
-	return id
-}
-
-func (r *variantIDRegistry) lookup(id int64) (variantRef, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.loadLocked()
-	ref, ok := r.byID[id]
-	return ref, ok
-}
-
-// inVariantIDSpace reports ids that Play Version may have issued. The live
-// allocator starts at 9*10^15 and stops below 2^53; the 8*10^15 block is
-// the same namespace from before that move. Both overlap real rating-key
-// kinds, so callers must not treat a miss as a title.
-func inVariantIDSpace(id int64) bool {
-	return id >= 8_000_000_000_000_000 && id < 1<<53
-}
+const variantRenderBudget = 3 * time.Second // incl. the resolver's in-flight wait
 
 // partTitle maps a Part id back to its title: the rating key itself for
 // the Auto part, or a registry id for a variant part (with its release).
@@ -738,11 +611,6 @@ func (s *Server) preparePlayback(ctx context.Context, pr *Request, p *playReques
 		}
 		s.playIDs.installVersionFlow(ik, snap.variants, snap.until, s.now())
 	}
-	if p.decisionRequest && p.requestedPart == 0 {
-		if releases, issued := s.playIDs.releases(s.playIdentityFor(pr, p.key), s.now()); issued && len(releases) > 1 && (p.selectorCount != 1 || !p.selectorValid) {
-			return nil, errDecisionMediaIndex
-		}
-	}
 	if p.mediaIndex > 0 {
 		if releases, issued := s.playIDs.releases(s.playIdentityFor(pr, p.key), s.now()); !issued || p.mediaIndex >= len(releases) {
 			return nil, errDecisionMediaIndex
@@ -778,22 +646,7 @@ func (s *Server) admittedMedia(p *playRequest) int64 {
 // When the playback manager cannot target a release, it logs and plays
 // the normal choice instead of failing.
 func (s *Server) prepareForRelease(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps, releaseID string) (*core.PlaySession, error) {
-	// Starts and direct part reads can skip decision entirely. Bound their
-	// acquisition wait too; the manager retains the shared source flight.
-	if pw, ok := s.d.Playback.(core.PlaybackPrepareWithin); ok {
-		if _, err := pw.PrepareWithin(ctx, decisionSourceWait, user, key, caps, releaseID, false); err != nil {
-			return nil, err
-		}
-		// Retain normal admission/supersession semantics on success.
-	}
-	if releaseID != "" {
-		if vp, ok := s.d.Playback.(core.VariantPlayback); ok {
-			return vp.PrepareVariant(ctx, user, key, caps, releaseID)
-		}
-		s.log.Info("variant pick ignored: playback manager has no variant support",
-			"key", key, "release", releaseID)
-	}
-	return s.d.Playback.Prepare(ctx, user, key, caps)
+	return s.plexSources().Prepare(ctx, user, key, caps, releaseID, decisionSourceWait)
 }
 
 // variantWatchSchedule is when a detail page rendered with a single version

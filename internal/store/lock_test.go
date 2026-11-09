@@ -65,7 +65,8 @@ func TestLockKeyNilTxAndHashStable(t *testing.T) {
 	if err := LockKey(context.Background(), Postgres, nil, "k"); err != nil {
 		t.Fatal(err)
 	}
-	if lockHash("a") != lockHash("a") || lockHash("a") == lockHash("b") {
+	first, again := lockHash("a"), lockHash("a")
+	if first != again || first == lockHash("b") {
 		t.Fatal("lock hash must be stable and key-specific")
 	}
 }

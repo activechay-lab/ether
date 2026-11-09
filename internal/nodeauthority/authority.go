@@ -75,6 +75,7 @@ type binding struct {
 	current  string
 	timer    *time.Timer
 	deadline time.Time // monotonic local cap, never serialized
+	sealedAt time.Time // monotonic local; start of the Forget grace period
 }
 type credential struct {
 	binding  *binding
@@ -84,8 +85,8 @@ type credential struct {
 type Authority struct {
 	o        Options
 	mu       sync.Mutex
-	bindings map[string]*binding           // permanent bounded boot-local tombstones
-	scopes   map[nodesource.Scope]*binding // same bounded entries, exact acquisition index
+	bindings map[string]*binding           // live bindings plus sealed ones awaiting Forget
+	scopes   map[nodesource.Scope]*binding // same entries, exact acquisition index
 	grants   map[string]*credential
 }
 
@@ -326,7 +327,10 @@ func (a *Authority) Revoke(h Handle) error {
 	b := a.bindings[h.value]
 	if b == nil {
 		a.mu.Unlock()
-		return ErrDenied
+		// Forget drops only sealed bindings whose source barrier already
+		// closed, so a forgotten handle is revoked by definition. A handle that
+		// was never bound grants nothing either: there is nothing to seal.
+		return nil
 	}
 	if b.timer != nil {
 		b.timer.Stop()
@@ -334,6 +338,7 @@ func (a *Authority) Revoke(h Handle) error {
 	if !b.sealed {
 		b.sealed = true
 		b.epoch++
+		b.sealedAt = time.Now()
 	}
 	for key, c := range a.grants {
 		if c.binding == b {
@@ -390,6 +395,7 @@ func (a *Authority) armLocked(b *binding, expiry time.Time) {
 		}
 		b.sealed = true
 		b.epoch++
+		b.sealedAt = time.Now()
 		for key, c := range a.grants {
 			if c.binding == b {
 				delete(a.grants, key)
@@ -415,4 +421,61 @@ func (a *Authority) CheckLocal(ctx context.Context, p nodesource.Peer, key strin
 		return ErrDenied
 	}
 	return nil
+}
+
+// Forget drops sealed bindings that can never be authoritative again, so
+// MaxBindings bounds live bindings rather than every binding this boot has
+// ever made. A binding is forgotten only when it is sealed (no new bearer can
+// be minted and every grant was deleted at sealing), its playback acquisition
+// barrier has closed, it has stayed sealed for grace, and a fresh Lookup shows
+// its exact fence retired, replaced by another generation, or compacted away.
+// A later bind of the same scope therefore still fails check(): placement never
+// re-authorises a retired or superseded fence. Lookups run without the lock;
+// at most limit bindings are examined per call. It returns how many it forgot.
+func (a *Authority) Forget(ctx context.Context, grace time.Duration, limit int) int {
+	now := time.Now()
+	a.mu.Lock()
+	var candidates []*binding
+	for _, b := range a.bindings {
+		if len(candidates) >= limit {
+			break
+		}
+		if b.sealed && !b.sealedAt.IsZero() && now.Sub(b.sealedAt) >= grace && !b.source.Active() {
+			candidates = append(candidates, b)
+		}
+	}
+	a.mu.Unlock()
+	forgotten := 0
+	for _, b := range candidates {
+		if ctx.Err() != nil {
+			break
+		}
+		r, err := a.o.Lookup.Lookup(ctx, b.scope.Fence.Session)
+		terminal := errors.Is(err, placement.ErrFenced) || err == nil && (r.Fence != b.scope.Fence || r.Retired)
+		if !terminal {
+			// Not yet provably terminal: wait another grace period before the
+			// next Lookup instead of re-checking on every call.
+			a.mu.Lock()
+			b.sealedAt = time.Now()
+			a.mu.Unlock()
+			continue
+		}
+		a.mu.Lock()
+		if a.bindings[b.handle.value] == b {
+			delete(a.bindings, b.handle.value)
+			if a.scopes[b.scope] == b {
+				delete(a.scopes, b.scope)
+			}
+			forgotten++
+		}
+		a.mu.Unlock()
+	}
+	return forgotten
+}
+
+// Bindings reports how many bindings (live and sealed) are retained.
+func (a *Authority) Bindings() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.bindings)
 }

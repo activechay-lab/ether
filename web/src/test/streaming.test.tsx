@@ -99,7 +99,8 @@ describe("Sources", () => {
     expect(
       await screen.findByRole("button", { name: "Edit Indexer One" }, WAIT),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Import from Prowlarr/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a source/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Prowlarr/ }));
     const drawer = await screen.findByRole("dialog", { name: "Import from Prowlarr" });
     expect(within(drawer).getByLabelText("Prowlarr URL")).toBeInTheDocument();
     expect(within(drawer).getByRole("button", { name: "Preview indexers" })).toBeDisabled();
@@ -261,7 +262,7 @@ describe("Releases", () => {
     ).toBeChecked();
   });
 
-  it("shows Never play filters and What matters most ladder in the profile drawer", async () => {
+  it("shows Never play filters, the quality order and custom formats in the profile drawer", async () => {
     renderApp("/quality/profiles");
     fireEvent.click(await screen.findByRole("button", { name: "Edit 4K" }, WAIT));
     const drawer = await screen.findByRole("dialog", { name: "4K" });
@@ -269,36 +270,28 @@ describe("Releases", () => {
     expect(within(drawer).getByRole("group", { name: "TV episodes" })).toBeInTheDocument();
     expect(within(drawer).getByLabelText("Maximum MB per minute")).toHaveValue(1000);
     expect(within(drawer).getByLabelText("Episode maximum MB per minute")).toHaveValue(0);
-    expect(within(drawer).getByRole("switch", { name: "Larger file" })).not.toBeChecked();
-    expect(within(drawer).queryByText("Imported profile")).toBeNull();
-    // The Custom score step links to the scoring editor, even before any import.
-    expect(within(drawer).getByText("Custom score")).toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole("button", { name: "Edit scores" }));
-    expect(await within(drawer).findByText("Custom scores")).toBeInTheDocument();
-    expect(within(drawer).getByText("Custom format definitions")).toBeInTheDocument();
+    expect(within(drawer).getByText("Qualities")).toBeInTheDocument();
+    expect(within(drawer).getByText("Custom formats")).toBeInTheDocument();
+    expect(within(drawer).getByLabelText("Score for Remux")).toHaveValue(6000);
+    expect(
+      within(drawer).getByRole("button", { name: "More options: Custom format definitions" }),
+    ).toBeInTheDocument();
   });
 
-  it("reorders steps in What matters most and saves the new ranking ladder", async () => {
+  it("reorders the quality order and changes a format score", async () => {
     const { fake } = renderApp("/quality/profiles");
     fireEvent.click(await screen.findByRole("button", { name: "Edit 4K" }, WAIT));
     const drawer = await screen.findByRole("dialog", { name: "4K" });
-    fireEvent.click(within(drawer).getByRole("button", { name: "Move Release type up" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Move 1080p up" }));
+    fireEvent.change(within(drawer).getByLabelText("Score for Remux"), {
+      target: { value: "7000" },
+    });
     fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
     await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
     const body = calls(fake, "PUT", "/config/quality")[0]!.body as EtherConfig["quality"];
     const saved4k = body.profiles?.find((p) => p.name === "4K");
-    expect(saved4k?.ranking).toEqual([
-      "language",
-      "connection",
-      "releaseType",
-      "resolution",
-      "hdr",
-      "customScore",
-      "verified",
-      "videoCodec",
-      "audioFormat",
-      "size",
-    ]);
+    expect(saved4k?.qualityOrder?.map((i) => i.name)).toEqual(["1080p", "2160p"]);
+    expect(saved4k?.customFormatScores?.["ether:remux"]).toBe(7000);
   });
 
   it("shows Default at home and Default away badges and updates them from the profile drawer", async () => {
@@ -353,7 +346,9 @@ describe("Releases", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Edit 1080p" }, WAIT));
     const drawer = await screen.findByRole("dialog", { name: "1080p" });
-    fireEvent.click(within(drawer).getByRole("button", { name: "More options: Custom scoring" }));
+    fireEvent.click(
+      within(drawer).getByRole("button", { name: "More options: Custom format definitions" }),
+    );
     const defs = await within(drawer).findByLabelText("Custom format definitions");
     fireEvent.change(defs, { target: { value: "unfinished JSON" } });
     fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
@@ -362,23 +357,20 @@ describe("Releases", () => {
     expect(calls(fake, "PUT", "/config/resolver")).toHaveLength(0);
   });
 
-  it("saves score overrides on an imported profile", async () => {
-    const { fake } = renderApp("/quality/profiles", {}, (f) => {
-      const p = f.state.config.quality.profiles?.find((x) => x.name === "1080p");
-      if (p) p.minCustomFormatScore = 0;
-    });
+  it("sets a minimum score and removes a format from the profile", async () => {
+    const { fake } = renderApp("/quality/profiles");
     fireEvent.click(await screen.findByRole("button", { name: "Edit 1080p" }, WAIT));
     const drawer = await screen.findByRole("dialog", { name: "1080p" });
-    fireEvent.click(within(drawer).getByRole("button", { name: "More options: Custom scoring" }));
-    fireEvent.change(within(drawer).getByLabelText("Score overrides for this profile"), {
-      target: { value: '{ "x265-hd": -500 }' },
-    });
+    fireEvent.click(within(drawer).getByRole("switch", { name: "Set a minimum score" }));
+    fireEvent.change(within(drawer).getByLabelText("Minimum score"), { target: { value: "100" } });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Remove Blu-ray" }));
     fireEvent.click(within(drawer).getByRole("button", { name: "Save profile" }));
     await waitFor(() => expect(calls(fake, "PUT", "/config/quality")).toHaveLength(1));
     const body = calls(fake, "PUT", "/config/quality")[0]!.body as EtherConfig["quality"];
-    expect(body.profiles?.find((p) => p.name === "1080p")?.customFormatScores).toEqual({
-      "x265-hd": -500,
-    });
+    const saved = body.profiles?.find((p) => p.name === "1080p");
+    expect(saved?.minCustomFormatScore).toBe(100);
+    expect(saved?.customFormatScores?.["ether:bluray"]).toBeUndefined();
+    expect(saved?.customFormatScores?.["ether:webdl"]).toBe(2000);
   });
 });
 
@@ -504,7 +496,7 @@ describe("Release traces", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Profile: 720p–1080p.*Height: 2160p.*Bitrate: 5000 kbps/),
+      screen.getByText(/Profile: 720p–1080p.*Resolution: 2160p.*Bitrate: 5000 kbps/),
     ).toBeInTheDocument();
     for (const [min, max, label] of [
       [0, 0, "Any resolution"],
@@ -526,7 +518,7 @@ describe("Release traces", () => {
       );
       expect(
         screen.getByText(
-          `Effective playback limits: Profile: ${label} · Height: unlimited · Bitrate: unlimited`,
+          `Effective playback limits: Profile: ${label} · Resolution: unlimited · Bitrate: unlimited`,
         ),
       ).toBeInTheDocument();
     }

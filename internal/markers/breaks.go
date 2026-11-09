@@ -327,10 +327,6 @@ func (s *breakSignals) line(line string, silenceStart *float64) {
 		s.black = append(s.black, black)
 	}
 }
-func (a *BreakAnalyzer) decode(ctx context.Context, in BreakInput) ([]BreakPoint, error) {
-	evidence := newBreakEvidence(in)
-	return a.decodeEvidence(ctx, in, &evidence)
-}
 func (a *BreakAnalyzer) decodeEvidence(ctx context.Context, in BreakInput, evidence *BreakEvidence) ([]BreakPoint, error) {
 	if evidence.ReservedBytes > 0 && in.BytesRead != nil {
 		limited, cancel := context.WithCancel(ctx)

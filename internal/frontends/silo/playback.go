@@ -31,18 +31,24 @@ type startRequest struct {
 		Deliveries map[string]struct {
 			Enabled   bool `json:"enabled"`
 			Supported bool `json:"supported_on_device"`
+			Subtitles struct {
+				ASSStyling      bool `json:"ass_styling"`
+				FontAttachments bool `json:"font_attachments"`
+				SidecarText     bool `json:"sidecar_text"`
+			} `json:"subtitles"`
 		} `json:"deliveries"`
 	} `json:"client_playback_context"`
-	FileID         string  `json:"file_id"`
-	ProfileID      string  `json:"profile_id"`
-	InstallationID string  `json:"installation_id"`
-	Attempt        string  `json:"playback_attempt_id"`
-	Protocol       int     `json:"protocol_version"`
-	Quality        string  `json:"quality_preference"`
-	Position       float64 `json:"start_position"`
-	Audio          *int    `json:"audio_track_index"`
-	Subtitle       *int    `json:"subtitle_track_index"`
-	Capabilities   struct {
+	FileID           string  `json:"file_id"`
+	ProfileID        string  `json:"profile_id"`
+	InstallationID   string  `json:"installation_id"`
+	Attempt          string  `json:"playback_attempt_id"`
+	Protocol         int     `json:"protocol_version"`
+	Quality          string  `json:"quality_preference"`
+	Position         float64 `json:"start_position"`
+	Audio            *int    `json:"audio_track_index"`
+	Subtitle         *int    `json:"subtitle_track_index"`
+	SubtitleFidelity string  `json:"subtitle_fidelity_preference"`
+	Capabilities     struct {
 		Video      []string `json:"codecs_video"`
 		Audio      []string `json:"codecs_audio"`
 		Containers []string `json:"containers"`
@@ -139,7 +145,7 @@ func (i *instance) playbackStart(w http.ResponseWriter, r *http.Request) {
 		pos = i.skipIntroAtStart(r, v, scope, key, versionHandle, pos)
 		b.Position = float64(pos) / float64(time.Second)
 	}
-	plan, err := i.host.Sessions.Plan(r.Context(), frontend.PlanRequest{Viewer: v, Device: d, Protocol: "silo", Item: key, Channel: channel, Version: versionHandle, DetailSource: offer.Target.DetailSource, ExpectedSourceETag: offer.Target.ETag, Caps: cap.Client, Intent: frontend.PlayIntent{ExactVersion: versionHandle != "", Options: options, AllowTranscoding: &hls, AudioOrdinal: b.Audio, SubtitleStreamIndex: b.Subtitle, Position: pos, PlaybackID: b.Attempt, ClientSessionID: b.InstallationID}})
+	plan, err := i.host.Sessions.Plan(r.Context(), frontend.PlanRequest{Viewer: v, Device: d, Protocol: "silo", Item: key, Channel: channel, Version: versionHandle, DetailSource: offer.Target.DetailSource, ExpectedSourceETag: offer.Target.ETag, Caps: cap.Client, Intent: frontend.PlayIntent{ExactVersion: versionHandle != "", Options: options, AllowTranscoding: &hls, AudioOrdinal: b.Audio, SubtitleStreamIndex: b.Subtitle, Position: pos, PlaybackID: b.Attempt, ClientSessionID: b.InstallationID, DeclaredCaps: channel == "" && len(b.Capabilities.Video) > 0}})
 	if err != nil {
 		if !errors.Is(err, frontend.ErrSessionBusy) && !errors.Is(err, frontend.ErrTranscodeCapacity) && !errors.Is(err, frontend.ErrTrackNotFound) && !errors.Is(err, frontend.ErrTrackSourceUnavailable) {
 			i.versionUnavailable(w, err, "plan")
@@ -315,6 +321,23 @@ func (i *instance) playbackStart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	deliveryClass := "original_http"
+	if format == frontend.StreamHLS {
+		deliveryClass = "hls"
+	}
+	var clientASSStyling bool
+	if b.Context.Deliveries != nil {
+		if delivCap, ok := b.Context.Deliveries[deliveryClass]; ok {
+			clientASSStyling = delivCap.Subtitles.ASSStyling
+		}
+	}
+	requireAuthoredFidelity := strings.EqualFold(b.SubtitleFidelity, "preserve")
+	fidelityPolicy := "allow_simplified_rendering"
+	if requireAuthoredFidelity {
+		fidelityPolicy = "require_authored_fidelity"
+	}
+	_, hasSubtitleArtifacts := i.host.Sessions.(frontend.SessionSubtitleArtifacts)
+	assStylingPreserved := false
 	selected := map[string]any{}
 	inventory := []any{}
 	subtitle := map[string]any{"mode": "off"}
@@ -335,12 +358,24 @@ func (i *instance) playbackStart(w http.ResponseWriter, r *http.Request) {
 		if track.External {
 			entry["source"] = "external"
 		}
+		isEmbeddedASS := !track.External && frontend.IsASSSubtitleCodec(track.Codec)
+		// Availability is resolved when the client requests the artifact. Do
+		// not scan every subtitle track or extract media during startup.
+		authoredASS := isEmbeddedASS && hasSubtitleArtifacts
+		preserveTrackASS := authoredASS && clientASSStyling
 		url, e := i.host.Sessions.SubtitleURL(r.Context(), access, session.ID, track.Index, "vtt")
 		if e == nil && strings.HasPrefix(url, "/sessions/media/") {
 			entry["delivery"] = "sidecar"
-			entry["url"] = "/api/v2/stream/" + session.ID + "/subtitles/" + strconv.Itoa(track.Index) + ".vtt"
+			ext := ".vtt"
+			if preserveTrackASS {
+				ext = ".ass"
+			}
+			entry["url"] = "/api/v2/stream/" + session.ID + "/subtitles/" + strconv.Itoa(track.Index) + ext
 			if sync := i.subtitleSyncMS(r, v); sync != 0 {
 				entry["url"] = entry["url"].(string) + "?sync_ms=" + strconv.Itoa(sync)
+			}
+			if authoredASS {
+				entry["font_bundle_url"] = "/api/v2/stream/" + session.ID + "/subtitles/" + strconv.Itoa(track.Index) + "/fonts"
 			}
 		}
 		inventory = append(inventory, entry)
@@ -350,9 +385,21 @@ func (i *instance) playbackStart(w http.ResponseWriter, r *http.Request) {
 				subtitle["mode"] = "burn_in"
 				subtitle["track_id"] = trackID
 			} else if url, e := entry["url"].(string); e {
-				subtitle["mode"] = "convert"
-				subtitle["track_id"] = trackID
-				subtitle["artifact"] = map[string]any{"url": url, "format": "vtt", "mime_type": "text/vtt", "timing_origin_seconds": 0}
+				if preserveTrackASS {
+					subtitle["mode"] = "render"
+					subtitle["track_id"] = trackID
+					subtitle["artifact"] = map[string]any{"url": url, "format": "ass", "mime_type": "text/x-ssa", "timing_origin_seconds": 0}
+					// The artifact endpoint must still validate completeness; startup
+					// cannot claim that authored bytes have already been delivered.
+				} else if requireAuthoredFidelity {
+					i.stopFailedAdmission(r.Context(), access, session.ID)
+					http.Error(w, "Selected track unavailable", http.StatusUnprocessableEntity)
+					return
+				} else {
+					subtitle["mode"] = "convert"
+					subtitle["track_id"] = trackID
+					subtitle["artifact"] = map[string]any{"url": url, "format": "vtt", "mime_type": "text/vtt", "timing_origin_seconds": 0}
+				}
 			} else {
 				i.stopFailedAdmission(r.Context(), access, session.ID)
 				http.Error(w, "Subtitle unavailable", 503)
@@ -391,12 +438,12 @@ func (i *instance) playbackStart(w http.ResponseWriter, r *http.Request) {
 	if !plan.Decision.VideoCopy && plan.Decision.MaxHeight > 0 {
 		encodeHeight = plan.Decision.MaxHeight
 	}
-	output := map[string]any{"protocol_version": 3, "plan_id": plan.ID, "session_id": session.ID, "delivery": delivery, "plan_attempt_key": plan.ID, "stream": stream, "timeline": timeline, "selected_tracks": selected, "effective_recipe": recipe, "claims": map[string]any{"video": map[string]any{"hdr10": hdr10, "hdr10_plus": hdr10Plus, "hlg": hlg, "dolby_vision": dv}, "audio": audioClaim, "subtitles": map[string]any{"ass_styling_preserved": false, "bitmap_overlay": false, "bitmap_sidecar": false}}, "subtitle": subtitle, "transformations": siloTransformations(plan), "applied_quirks": []any{}, "runtime_corrections": []any{}, "degradation_warnings": []any{}, "decision_reason": plan.Decision.Reason, "requested_media_file_id": b.FileID, "effective_media_file_id": b.FileID, "source": source, "subtitle_fidelity_policy": "allow_simplified_rendering", "available_qualities": qualities}
+	output := map[string]any{"protocol_version": 3, "plan_id": plan.ID, "session_id": session.ID, "delivery": delivery, "plan_attempt_key": plan.ID, "stream": stream, "timeline": timeline, "selected_tracks": selected, "effective_recipe": recipe, "claims": map[string]any{"video": map[string]any{"hdr10": hdr10, "hdr10_plus": hdr10Plus, "hlg": hlg, "dolby_vision": dv}, "audio": audioClaim, "subtitles": map[string]any{"ass_styling_preserved": assStylingPreserved, "bitmap_overlay": false, "bitmap_sidecar": false}}, "subtitle": subtitle, "transformations": siloTransformations(plan), "applied_quirks": []any{}, "runtime_corrections": []any{}, "degradation_warnings": []any{}, "decision_reason": plan.Decision.Reason, "requested_media_file_id": b.FileID, "effective_media_file_id": b.FileID, "source": source, "subtitle_fidelity_policy": fidelityPolicy, "available_qualities": qualities}
 	if active := siloActiveQuality(b.Quality, qualities, plan.Decision.VideoCopy, encodeHeight); active != "" {
 		output["active_quality"] = active
 	}
 	document := map[string]any{"outcome": "playable", "protocol_version": 3, "server_features": []string{"playback_plan_v3", "neutral_playback_v3_contract_v1", "header_authenticated_media_v1", "sequenced_progress_v1", "plan_source_duration_v1"}, "session_id": session.ID, "playback_plan": output}
-	i.rememberPlan(session.ID, playbackPlan{format: format, live: liveFile, baseID: plan.ID, delivery: delivery, body: document})
+	i.rememberPlan(session.ID, playbackPlan{format: format, live: liveFile, baseID: plan.ID, delivery: delivery, requireAuthored: requireAuthoredFidelity, body: document})
 	reply(w, 201, document)
 }
 
@@ -500,11 +547,12 @@ func siloMediaURL(sessionID string, format frontend.StreamFormat) string {
 }
 
 type playbackPlan struct {
-	format   frontend.StreamFormat
-	live     bool
-	baseID   string
-	delivery string
-	body     map[string]any
+	format          frontend.StreamFormat
+	live            bool
+	baseID          string
+	delivery        string
+	requireAuthored bool
+	body            map[string]any
 }
 
 func (i *instance) rememberPlan(id string, plan playbackPlan) {
@@ -980,7 +1028,7 @@ func (i *instance) playbackReplan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	document["session_id"] = id
-	i.rememberPlan(id, playbackPlan{format: nextFormat, live: snap.live, baseID: baseID, delivery: nextDelivery, body: document})
+	i.rememberPlan(id, playbackPlan{format: nextFormat, live: snap.live, baseID: baseID, delivery: nextDelivery, requireAuthored: snap.requireAuthored, body: document})
 	reply(w, http.StatusOK, document)
 }
 
@@ -1071,7 +1119,11 @@ func (i *instance) serveSessionMedia(w http.ResponseWriter, r *http.Request, ses
 		http.Error(w, "Unavailable", 503)
 		return
 	}
-	media.ServeSessionMedia(w, r, frontend.SessionAccess{Viewer: viewer, Device: device(r), Protocol: "silo"}, sessionID, resource)
+	access := frontend.SessionAccess{Viewer: viewer, Device: device(r), Protocol: "silo"}
+	if i.tryServeSessionSubtitleResource(w, r, media, access, sessionID, resource) {
+		return
+	}
+	media.ServeSessionMedia(w, r, access, sessionID, resource)
 }
 
 func (i *instance) playbackRoutes() error {

@@ -3,6 +3,7 @@ package mediabrowser
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -185,4 +186,44 @@ func embyRicherVersion(a, b frontend.Version) bool {
 		return ah > bh
 	}
 	return a.Media.Size > b.Media.Size
+}
+
+// embyListGated maps the item keys an Emby list row carries only when the
+// request's Fields names them to the field that asks for them (the Emby
+// API's "additional fields of information"). An Emby library listing
+// without Fields answers names, ids, artwork, runtime and user data; Ether
+// builds rows with the detail DTO, so a list row drops the rest here.
+var embyListGated = map[string]string{
+	"Overview":             "overview",
+	"Genres":               "genres",
+	"GenreItems":           "genres",
+	"ProviderIds":          "providerids",
+	"DateCreated":          "datecreated",
+	"SortName":             "sortname",
+	"ForcedSortName":       "sortname",
+	"Taglines":             "taglines",
+	"Studios":              "studios",
+	"ProductionLocations":  "productionlocations",
+	"ExternalUrls":         "externalurls",
+	"OriginalTitle":        "originaltitle",
+	"ParentId":             "parentid",
+	"DisplayPreferencesId": "displaypreferencesid",
+	"CanDelete":            "candelete",
+	"CanDownload":          "candownload",
+	"LockData":             "settings",
+	"LockedFields":         "settings",
+}
+
+// embyListFields trims an Emby list row to what the request's Fields asked
+// for. Detail responses keep the full DTO.
+func (i *instance) embyListFields(r *http.Request, item map[string]any) {
+	if i == nil || i.protocol != "emby" || item == nil {
+		return
+	}
+	fields := fieldSet(r)
+	for key, field := range embyListGated {
+		if !fields[field] {
+			delete(item, key)
+		}
+	}
 }

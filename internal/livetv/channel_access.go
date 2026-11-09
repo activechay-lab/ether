@@ -288,6 +288,12 @@ func (s *Service) VisibleTo(ctx context.Context, u *core.User) bool {
 		trueValue = "'true'"
 	}
 	enabled := store.JSONText(d, "data", "enabled") + "=" + trueValue
+	if app := core.LiveApp(ctx); slices.Contains(Apps, app) {
+		// Apps are fixed identifiers, so the literal is safe; the stored list
+		// is a JSON array of them.
+		hidden := store.JSONText(d, "data", "hiddenApps")
+		enabled += " AND (" + hidden + " IS NULL OR " + hidden + ` NOT LIKE '%"` + app + `"%')`
+	}
 	exists := func(where string, args ...any) bool {
 		var one int
 		return s.o.DB.QueryRowContext(ctx, `SELECT 1 FROM livetv_channels WHERE `+where+` LIMIT 1`, args...).Scan(&one) == nil

@@ -71,12 +71,32 @@ func (s *ImageGrantService) IssueBatch(ctx context.Context, req frontend.ImageBa
 	if experience == nil {
 		return nil, core.ErrNotAvailable
 	}
+	// A batch grants a title's own images, never a credited person's
+	// portrait: its titles are read as visibility rows.
+	ctx = frontend.WithArtworkRows(ctx)
+	page, hasPage := experience.(frontend.ItemArtworkPage)
+	var listed map[core.RatingKey][]frontend.Image
+	if hasPage && len(keys) > 0 {
+		listed, err = page.ItemArtworkPage(frontend.WithArtworkKinds(ctx, wanted), viewer, req.Device, keys)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var rows []imageBatchRow
 	out := make([]frontend.ImageBatchItem, 0, len(keys))
 	for _, key := range keys {
 		var images []frontend.Image
 		var complete bool
-		if scoped, ok := experience.(frontend.ItemArtwork); ok {
+		if hasPage {
+			var present bool
+			images, present = listed[key]
+			if !present {
+				// Omitted keys were not authorized/listed. Never retry them
+				// through a weaker scalar capability.
+				continue
+			}
+			complete = true
+		} else if scoped, ok := experience.(frontend.ItemArtwork); ok {
 			images, complete, err = scoped.ItemArtwork(ctx, viewer, req.Device, key)
 		} else {
 			var detail frontend.ItemDetail

@@ -101,10 +101,35 @@ func readUpgradeRows(t *testing.T, db *sql.DB, table string, columns []string) [
 	return result
 }
 
+// upgradeSeededMeta are the catalog_meta keys a migration newer than the
+// delivered schema seeds (catalog/53: the rank tables' live side and rebuild
+// flag). They are new rows, not changed delivered ones; every delivered row
+// must still compare exactly.
+var upgradeSeededMeta = map[string]bool{"rank_side": true, "rank_building": true}
+
+func withoutSeededMeta(t *testing.T, name string, rows []string) []string {
+	t.Helper()
+	if name != "catalog_meta" {
+		return rows
+	}
+	var kept []string
+	for _, row := range rows {
+		var values []any
+		if err := json.Unmarshal([]byte(row), &values); err != nil {
+			t.Fatal(err)
+		}
+		if k, ok := values[0].(string); ok && upgradeSeededMeta[k] {
+			continue
+		}
+		kept = append(kept, row)
+	}
+	return kept
+}
+
 func assertUpgradeTables(t *testing.T, db *sql.DB, before map[string]upgradeTable) {
 	t.Helper()
 	for name, table := range before {
-		if got := readUpgradeRows(t, db, name, table.columns); !reflect.DeepEqual(got, table.rows) {
+		if got := withoutSeededMeta(t, name, readUpgradeRows(t, db, name, table.columns)); !reflect.DeepEqual(got, withoutSeededMeta(t, name, table.rows)) {
 			// Fixture credentials are synthetic; include the whole row to identify the lost field.
 			t.Errorf("delivered table %s columns %v: got %v want %v", name, table.columns, got, table.rows)
 		}

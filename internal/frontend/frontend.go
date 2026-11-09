@@ -53,6 +53,9 @@ type Status struct {
 	LANReason        string    `json:"lanReason,omitempty"`
 	LANCheckedAt     time.Time `json:"lanCheckedAt,omitzero"`
 	WAN              string    `json:"wan"`
+	WANReason        string    `json:"wanReason,omitempty"`
+	WANAddress       string    `json:"wanAddress,omitempty"`
+	WANCheckedAt     time.Time `json:"wanCheckedAt,omitzero"`
 	Clients24h       int       `json:"clients24h"`
 	Clients24hKnown  bool      `json:"clients24hKnown"`
 	LiveStreams      int       `json:"liveStreams"`
@@ -307,6 +310,10 @@ type Host struct {
 	ClientIP func(*http.Request) (netip.Addr, bool)
 	// PageFreshness invalidates cached browse bodies. Nil disables the cache.
 	PageFreshness func() PageFreshness
+	// CacheDir is a node-local directory this frontend alone may fill with
+	// files it can regenerate. It may be emptied between mounts. Empty
+	// disables on-disk caches.
+	CacheDir string
 	// PersonalHomes keeps the last personalized library list so the first
 	// UserViews after a restart can include it. Nil keeps that list in memory.
 	PersonalHomes PersonalHomeStore

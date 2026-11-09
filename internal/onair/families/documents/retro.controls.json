@@ -10,28 +10,35 @@
     "id": "detail2",
     "label": "Twilight colour",
     "kind": "color",
-    "value": "#502050",
+    "value": "#3b1a6b",
     "group": "Artwork"
   },
   {
     "id": "detail3",
-    "label": "Sun colour",
+    "label": "Gold",
     "kind": "color",
-    "value": "#ffce52",
+    "value": "#ffc53d",
     "group": "Artwork"
   },
   {
     "id": "detail4",
     "label": "Chrome blue",
     "kind": "color",
-    "value": "#83e4ff",
+    "value": "#8fd8ff",
+    "group": "Artwork"
+  },
+  {
+    "id": "detail5",
+    "label": "Stripe orange",
+    "kind": "color",
+    "value": "#ff7a2a",
     "group": "Artwork"
   },
   {
     "id": "effect-scanlines",
     "label": "Scanlines",
     "kind": "number",
-    "value": 0.16,
+    "value": 0.12,
     "min": 0,
     "max": 1,
     "step": 0.01,

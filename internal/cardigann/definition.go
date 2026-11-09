@@ -931,8 +931,7 @@ func (d *Definition) validate() (errs, warnings []string) {
 		}
 	}
 	unknown := map[string]bool{}
-	var checkFilters func([]Filter)
-	checkFilters = func(fs []Filter) {
+	checkFilters := func(fs []Filter) {
 		for _, f := range fs {
 			if !knownFilters[f.Name] {
 				unknown[f.Name] = true

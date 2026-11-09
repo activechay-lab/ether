@@ -2,9 +2,9 @@ package plex
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 type subtitleDelete interface {
-	DeleteSubtitle(context.Context, core.RatingKey, *core.User, core.StreamInfo) error
+	DeleteSubtitle(context.Context, frontend.RatingKey, *frontend.Viewer, frontend.StreamInfo) error
 }

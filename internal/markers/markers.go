@@ -18,6 +18,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/egress"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -25,13 +26,7 @@ func init() {
 	store.Register("markers", 1, `CREATE TABLE markers_cache(rating_key INTEGER NOT NULL,runtime_ms INTEGER NOT NULL,ranges TEXT NOT NULL,expires_at INTEGER NOT NULL,PRIMARY KEY(rating_key,runtime_ms));`)
 }
 
-type Marker struct {
-	Type    string `json:"type"`
-	StartMS int64  `json:"startTimeOffset"`
-	EndMS   int64  `json:"endTimeOffset"`
-	Final   bool   `json:"final"`
-	Source  string `json:"source"`
-}
+type Marker = frontend.MarkerRange
 
 // Lookup is the live skip-marker configuration.
 // IntroOff and CreditsOff hide those buttons. The zero value offers both.

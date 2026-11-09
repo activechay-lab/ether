@@ -33,7 +33,9 @@ func (n *NZB) SubsetMeta(keep func(*File) bool, extra map[string]string) (data [
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n")
 	if len(n.Meta) > 0 || len(extra) > 0 {
 		b.WriteString("<head>\n")
-		// Sorted, so the same subset always has the same bytes (and digest).
+		// Sorted, so one input always gives the same bytes: the stream
+		// engine keys release state, plans and cached segments by the
+		// digest of the document.
 		for _, typ := range slices.Sorted(maps.Keys(n.Meta)) {
 			if _, replaced := extra[typ]; replaced {
 				continue
@@ -43,8 +45,7 @@ func (n *NZB) SubsetMeta(keep func(*File) bool, extra map[string]string) (data [
 			}
 		}
 		for _, typ := range slices.Sorted(maps.Keys(extra)) {
-			v := extra[typ]
-			b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(v) + "</meta>\n")
+			b.WriteString(`<meta type="` + escAttr(typ) + `">` + escText(extra[typ]) + "</meta>\n")
 		}
 		b.WriteString("</head>\n")
 	}

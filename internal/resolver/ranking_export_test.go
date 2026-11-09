@@ -6,20 +6,22 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-func TestSortRankingCandidatesPluginKey(t *testing.T) {
+// A plugin's points join the custom format score: they decide between
+// releases of one quality and never lift a release over a better quality.
+func TestSortRankingCandidatesPluginPoints(t *testing.T) {
 	step := "plugin:example/dub"
-	profile := core.QualityProfile{Ranking: []string{step, core.RankResolution}}
-	c := []RankingCandidate{
-		{Release: core.Release{ID: "plain", Info: core.ReleaseInfo{Height: 2160}}, LanguageOK: true},
-		{Release: core.Release{ID: "dub", Info: core.ReleaseInfo{Height: 1080}}, LanguageOK: true, PluginKeys: map[string]int64{step: 1}},
+	profile := core.QualityProfile{QualityOrder: []core.QualityItem{{Qualities: []string{"webdl-2160"}}, {Qualities: []string{"webdl-1080"}}}}
+	web := func(id string, h, cf int) RankingCandidate {
+		return RankingCandidate{Release: core.Release{ID: id, Info: core.ReleaseInfo{Height: h, Source: core.SourceWEBDL}}, LanguageOK: true, CustomFormatScore: cf, PluginKeys: map[string]int64{step: int64(cf)}}
 	}
-	SortRankingCandidates(c, profile)
-	if c[0].Release.ID != "dub" {
-		t.Fatalf("plugin step did not take precedence: %v", c[0].Release.ID)
-	}
-	c[0].PluginKeys = nil
-	SortRankingCandidates(c, profile)
+	c := []RankingCandidate{web("plain", 2160, 0), web("dub", 1080, 500)}
+	SortRankingCandidates(c, profile, nil)
 	if c[0].Release.ID != "plain" {
-		t.Fatalf("neutral step changed built-in ordering: %v", c[0].Release.ID)
+		t.Fatalf("plugin points lifted a lower quality: %v", c[0].Release.ID)
+	}
+	c = []RankingCandidate{web("plain", 1080, 0), web("dub", 1080, 500)}
+	SortRankingCandidates(c, profile, nil)
+	if c[0].Release.ID != "dub" {
+		t.Fatalf("plugin points did not decide within a quality: %v", c[0].Release.ID)
 	}
 }

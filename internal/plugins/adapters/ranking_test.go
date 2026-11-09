@@ -100,9 +100,9 @@ func TestRankingKeysAndConditions(t *testing.T) {
 	if !matchedDub || matchedPlain {
 		t.Fatal("condition mismatch")
 	}
-	profile := core.QualityProfile{Ranking: []string{"plugin:test.dub/dub"}}
-	c := []resolver.RankingCandidate{{Release: rels[0], LanguageOK: true, PluginKeys: map[string]int64{"plugin:test.dub/dub": keys[0]}}, {Release: rels[1], LanguageOK: true, PluginKeys: map[string]int64{"plugin:test.dub/dub": keys[1]}}}
-	resolver.SortRankingCandidates(c, profile)
+	profile := core.QualityProfile{}
+	c := []resolver.RankingCandidate{{Release: rels[0], LanguageOK: true, CustomFormatScore: int(keys[0]), PluginKeys: map[string]int64{"plugin:test.dub/dub": keys[0]}}, {Release: rels[1], LanguageOK: true, CustomFormatScore: int(keys[1]), PluginKeys: map[string]int64{"plugin:test.dub/dub": keys[1]}}}
+	resolver.SortRankingCandidates(c, profile, nil)
 	if !strings.Contains(c[0].Release.Name, "DUB") {
 		t.Fatal("dub not selected")
 	}
@@ -154,7 +154,7 @@ func BenchmarkResolve500PluginStep(b *testing.B) {
 	cfg.Quality.Default = "1080p"
 	cfg.Quality.Remote = "1080p"
 	for i := range cfg.Quality.Profiles {
-		cfg.Quality.Profiles[i].Ranking = []string{"plugin:test.dub/dub"}
+		cfg.Quality.Profiles[i].PluginScores = map[string]json.RawMessage{"plugin:test.dub/dub": json.RawMessage(`{}`)}
 	}
 	pool := make([]core.Release, 500)
 	for i := range pool {
@@ -183,7 +183,7 @@ func TestPluginRankingChangesActualResolve(t *testing.T) {
 	cfg.Quality.Default = "1080p"
 	cfg.Quality.Remote = "1080p"
 	for i := range cfg.Quality.Profiles {
-		cfg.Quality.Profiles[i].Ranking = []string{"plugin:test.dub/dub"}
+		cfg.Quality.Profiles[i].PluginScores = map[string]json.RawMessage{"plugin:test.dub/dub": json.RawMessage(`{}`)}
 	}
 	names := []string{"The.Signal.1999.1080p.WEB-DL.H.264-GRP", "The.Signal.1999.DUB.1080p.WEB-DL.H.264-GRP"}
 	pool := make([]core.Release, len(names))

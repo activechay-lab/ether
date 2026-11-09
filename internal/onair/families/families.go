@@ -54,6 +54,8 @@ func Defaults(family string) scene.Bindings {
 	b.Slots["viewer.name"] = "Alex"
 	b.Slots["viewer.greeting"] = "Good evening"
 	b.Slots["now.title"] = "Carnival of Souls"
+	b.Slots["now.meta"] = "1962 · 1h 18m"
+	b.Slots["now.logline"] = "A church organist drifts toward a deserted pavilion."
 	b.Slots["next.reason"] = "Picked for your evening"
 	for i, title := range []string{"The Grand Budapest Hotel", "Moonrise Kingdom", "Fantastic Mr. Fox", "The Royal Tenenbaums"} {
 		b.Slots[fmt.Sprintf("list[%d].title", i)] = title
@@ -76,15 +78,15 @@ func Defaults(family string) scene.Bindings {
 		b.Tokens["text"] = "#ffffff"
 		b.Tokens["type.display"] = "spacegrotesk"
 		b.Tokens["type.mono"] = "inter"
-		b.Slots["channel.name"] = "AQUAWAVE 00"
+		b.Slots["channel.name"] = "ORBIT 00"
 	case "flat":
 		b.Tokens["bg"] = "#102a35"
 		b.Tokens["accent"] = "#f15440"
 		b.Tokens["glow"] = "#ffd66e"
 		b.Tokens["text"] = "#ffffff"
-		b.Tokens["type.display"] = "inter"
+		b.Tokens["type.display"] = "archivoblack"
 		b.Tokens["type.mono"] = "inter"
-		b.Slots["channel.name"] = "OFFSET 10"
+		b.Slots["channel.name"] = "SHIFT 10"
 	case "signal":
 		b.Slots["channel.name"] = "Ether"
 		b.Slots["station.id"] = "ETHER"

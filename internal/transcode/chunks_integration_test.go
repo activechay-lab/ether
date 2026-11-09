@@ -637,3 +637,85 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 		})
 	}
 }
+
+// An MPEG-TS source has no keyframe index and its timestamp seek lands
+// inside a GOP. A copy started there must still open on the keyframe before
+// the start point, mid-title (not a GOP late) and inside the title's last GOP
+// (where there is no next keyframe at all).
+func TestIntegrationUnindexedTSCopyStartsOnKeyframeBefore(t *testing.T) {
+	e := newRealEnv(t, WithoutHWDetection(), WithBuffering(4*time.Second, 0, 0))
+	e.gen(t, "noindex-4s.ts", 14, "-c:v", "libx264", "-preset", "ultrafast", "-g", "96", "-keyint_min", "96", "-sc_threshold", "0", "-c:a", "aac", "-f", "mpegts")
+	info, err := e.m.Probe(t.Context(), e.url("noindex-4s.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info.Keyframes) != 0 {
+		t.Fatal("probe produced a keyframe index; this test needs none")
+	}
+	for _, c := range []struct {
+		at, key time.Duration
+	}{{6 * time.Second, 4 * time.Second}, {13 * time.Second, 12 * time.Second}} {
+		t.Run(c.at.String(), func(t *testing.T) {
+			d := core.Decision{Kind: core.DecisionRemux, Container: ContainerMPEGTS, VideoCopy: true, AudioCopy: true, AudioStream: 1}
+			hs, err := e.m.StartHLS(context.Background(), core.HLSRequest{SessionID: "noindex-ts-" + c.at.String(), InputURL: e.url("noindex-4s.ts"), Info: *info, Decision: d, StartOffset: c.at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer hs.Close()
+			name := "start-" + c.at.String()
+			seg := fetch(t, hs, 0)
+			first, _, key := e.videoSpanKey(t, ContainerMPEGTS, nil, seg, name)
+			if !key || math.Abs(first-c.key.Seconds()) > 0.1 {
+				t.Fatalf("%s opens on video at %.3f (keyframe %v), want the keyframe at %v", name, first, key, c.key)
+			}
+			e.decodesAlone(t, ContainerMPEGTS, nil, seg, name)
+		})
+	}
+}
+
+// A TS copy's fast-start ramp is encoded, and the copy can only take over
+// at a keyframe. Without a keyframe index that handover is unknown, so the
+// session keeps one copy plan: every listed segment is served, and the
+// video runs on without a hole, from a start between keyframes and through
+// a GOP that outlasts the title's remaining segments.
+func TestIntegrationUnindexedTSCopyWithFastStartIsContinuous(t *testing.T) {
+	e := newRealEnv(t, WithoutHWDetection(), WithBuffering(4*time.Second, 0, 0))
+	e.m.UpdateConfig(config.Transcode{FastStart: true, FastStartSegments: 2})
+	e.gen(t, "ramp-4s.mkv", 30, "-c:v", "libx264", "-preset", "ultrafast", "-g", "96", "-keyint_min", "96", "-sc_threshold", "0", "-c:a", "ac3")
+	e.gen(t, "ramp-onegop.mkv", 10, "-c:v", "libx264", "-preset", "ultrafast", "-g", "1000", "-keyint_min", "1000", "-sc_threshold", "0", "-c:a", "ac3")
+	for _, c := range []struct {
+		name string
+		at   time.Duration
+	}{{"ramp-4s.mkv", 10500 * time.Millisecond}, {"ramp-onegop.mkv", 0}} {
+		t.Run(c.name, func(t *testing.T) {
+			info, err := e.m.Probe(t.Context(), e.url(c.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(info.Keyframes) != 0 {
+				t.Fatal("probe produced a keyframe index; this test needs none")
+			}
+			// Video copied, audio transcoded (as for AC3 to a Plex Web client).
+			d := core.Decision{Kind: core.DecisionTranscode, Container: ContainerMPEGTS, VideoCopy: true, AudioCodec: "aac", AudioStream: 1}
+			hs, err := e.m.StartHLS(context.Background(), core.HLSRequest{SessionID: "ramp-" + c.name, InputURL: e.url(c.name), Info: *info, Decision: d, StartOffset: c.at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer hs.Close()
+			starts := planStarts(t, hs, c.at)
+			covered := -1.0
+			for n := 0; n < len(starts)-1; n++ {
+				seg := fetch(t, hs, n) // fails the test on anything but 200
+				name := fmt.Sprintf("%s-%d", c.name, n)
+				first, end := e.videoSpan(t, ContainerMPEGTS, nil, seg, name)
+				if covered >= 0 && first > covered+0.1 {
+					t.Fatalf("%s starts at %.3f: video %.3f-%.3f skipped", name, first, covered, first)
+				}
+				covered = math.Max(covered, end)
+			}
+			if covered < starts[len(starts)-1]-0.2 {
+				t.Fatalf("segments cover video up to %.3f of %.3f", covered, starts[len(starts)-1])
+			}
+		})
+	}
+}

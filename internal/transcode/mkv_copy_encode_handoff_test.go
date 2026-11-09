@@ -12,7 +12,9 @@ import (
 )
 
 func TestIntegrationMatroskaCopyEncodeDoesNotReplayHeldGOP(t *testing.T) {
-	e := newRealEnv(t, WithoutHWDetection())
+	// The unindexed plan of a feature-length title, which the copy
+	// sample cannot cover whole: long GOPs leave empty Clusters.
+	e := newRealEnv(t, WithoutHWDetection(), withCopySample(64))
 	e.gen(t, "long.mkv", 24, openGOPx265(192, "ctu=64")...)
 	e.gen(t, "small.mkv", 24, sdrBars("640:360")...)
 	path, copied, _ := e.playStatic(t, "copy-encode-long", "long.mkv", []contractSwap{{file: "small.mkv", at: 12 * time.Second}}, 5)

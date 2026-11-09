@@ -1,11 +1,12 @@
 import { Button, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
 import { useEffect, useState } from "react";
+import { CopyButton } from "../../components/CopyButton";
 import { ErrorPanel, LoadingInline, LoadingRows } from "../../components/feedback";
 import { LevelBadge } from "../../components/status";
 import { SettingsRow } from "../../components/SettingsRow";
 import { localized, t, tn } from "../../i18n";
 import { api, ApiError } from "../../lib/api";
-import { isPlainObject, relativeTime } from "../../lib/format";
+import { formatDateTime, isPlainObject, relativeTime } from "../../lib/format";
 import { plexDirectHealth, remoteHealth } from "../../lib/health";
 import { useAsync } from "../../lib/hooks";
 import { phaseText } from "../../lib/startup-text";
@@ -71,9 +72,140 @@ const UPDATE_STATE: Record<UpdateStatus["state"], string> = localized(() => ({
   staged: t("Downloaded"),
   "waiting-for-window": t("Waiting for maintenance window"),
   "waiting-for-idle": t("Waiting until nobody is watching"),
+  "waiting-for-rollout": t("Rolling out gradually"),
+  "waiting-for-turn": t("Waiting for another server to finish updating"),
+  draining: t("Waiting for playback on this server to finish"),
   applying: t("Installing — Ether will restart"),
   "rolled-back": t("Rolled back"),
 }));
+
+/** When a self-applying install will put the available update in, in plain words. */
+function installPlanText(s: UpdateStatus): string | null {
+  const a = s.available;
+  if (!a || s.capability !== "self-apply" || s.state === "applying") return null;
+  if (s.requested) return null; // the toast and state already say it
+  if (!s.autoUpdate) return t("Installs when you choose Update now.");
+  if (a.critical) return t("Security fix: installs the next time nobody is watching.");
+  if (a.installAfter)
+    return t(
+      "New releases reach servers a few at a time. This one installs on its own after {time}, at night once nobody is watching.",
+      { time: formatDateTime(a.installAfter) },
+    );
+  if (a.catchUp)
+    return t(
+      "Someone has watched every night lately, so it installs the next time nobody watches for half an hour.",
+    );
+  return t("Installs tonight between {start} and {end}, once nobody is watching.", {
+    start: s.window.start,
+    end: s.window.end,
+  });
+}
+
+function CommandLine({ command }: { command: string }) {
+  return (
+    <span className="mt-1 flex items-center gap-2">
+      <code className="truncate rounded bg-bg-subtle px-2 py-1 text-xs">{command}</code>
+      <CopyButton value={command} label={t("Copy command")} />
+    </span>
+  );
+}
+
+/** The exact way to update an install that cannot update itself. */
+function ManualUpdate({ s }: { s: UpdateStatus }) {
+  const a = s.available;
+  if (!a) return null;
+  const download =
+    a.downloadUrl && a.downloadName ? (
+      <a className="underline" href={a.downloadUrl} target="_blank" rel="noreferrer">
+        {t("Download {file}", { file: a.downloadName })}
+      </a>
+    ) : null;
+  const tag = s.channel === "beta" ? a.version : "latest";
+  switch (s.notifyKind) {
+    case "container":
+      return (
+        <span className="block">
+          {t(
+            "Ether runs in a container, so it updates when you pull the new image. With Docker Compose:",
+          )}
+          <CommandLine command="docker compose pull && docker compose up -d" />
+          <span className="mt-1 block">
+            {t("With plain Docker, pull the image, then recreate the container:")}
+          </span>
+          <CommandLine command={`docker pull ghcr.io/braedonsaunders/ether:${tag}`} />
+          <span className="mt-1 block">
+            {t("Watchtower can pull new images for you automatically.")}
+          </span>
+        </span>
+      );
+    case "macos":
+      return (
+        <span className="block">
+          {t("Open the new version's disk image and drag Ether to Applications to update.")}{" "}
+          {download}
+        </span>
+      );
+    case "deb":
+    case "rpm":
+      return (
+        <span className="block">
+          {t(
+            "Ether was installed with your package manager. Download the new package, then install it:",
+          )}{" "}
+          {download}
+          {a.downloadName ? (
+            <CommandLine
+              command={
+                s.notifyKind === "deb"
+                  ? `sudo apt install ./${a.downloadName}`
+                  : `sudo dnf install ./${a.downloadName}`
+              }
+            />
+          ) : null}
+        </span>
+      );
+    case "package":
+      return (
+        <span className="block">
+          {t("Update Ether with the package manager that installed it.")}
+        </span>
+      );
+    case "unsupervised":
+      return (
+        <span className="block">
+          {t(
+            "Ether isn't running as a service, so nothing would restart it after an update. Install the new version by hand, or run Ether as a service to update automatically.",
+          )}{" "}
+          {download}
+        </span>
+      );
+    case "unwritable":
+      return (
+        <span className="block">
+          {t(
+            "The Ether service can't write to its install folder, so install the new version by hand.",
+          )}{" "}
+          {download}
+        </span>
+      );
+    case "installer":
+      return (
+        <span className="block">
+          {t("Run the new version's installer to update.")} {download}
+        </span>
+      );
+    case "dev":
+      return (
+        <span className="block">{t("Development build: build the new version from source.")}</span>
+      );
+    default:
+      return s.capabilityReason ? (
+        <span className="block">
+          {t("Install manually: {reason}.", { reason: s.capabilityReason })}
+        </span>
+      ) : null;
+  }
+}
 
 export function UpdatesStatus() {
   const status = useAsync(() => api.updateStatus(), []);
@@ -156,8 +288,30 @@ export function UpdatesStatus() {
   else if (s.lastError) availableText = s.lastError;
   else if (!s.lastCheck) availableText = t("Not checked yet");
 
+  const dismissInstalled = async () => {
+    try {
+      status.setData(await api.dismissInstalledUpdate());
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  const plan = installPlanText(s);
+
   return (
     <SettingsSection title={t("Status")}>
+      {s.installed ? (
+        <SettingsRow
+          title={t("Updated to {version}", { version: s.installed.to })}
+          description={t("Ether installed it by itself on {time}, while nobody was watching.", {
+            time: formatDateTime(s.installed.at),
+          })}
+          control={
+            <Button size="sm" variant="outline" onClick={() => void dismissInstalled()}>
+              {t("Dismiss")}
+            </Button>
+          }
+        />
+      ) : null}
       <SettingsRow
         title={t("Installed")}
         description={
@@ -194,11 +348,8 @@ export function UpdatesStatus() {
                 </a>
               </>
             ) : null}
-            {s.capability === "notify-only" && s.capabilityReason ? (
-              <span className="block">
-                {t("Install manually: {reason}.", { reason: s.capabilityReason })}
-              </span>
-            ) : null}
+            {plan ? <span className="block">{plan}</span> : null}
+            {s.capability === "notify-only" ? <ManualUpdate s={s} /> : null}
           </>
         }
         control={
@@ -224,6 +375,24 @@ export function UpdatesStatus() {
           ) : null
         }
       />
+      {s.capability === "self-apply" ? (
+        <SettingsRow
+          title={t("Automatic updates")}
+          description={
+            s.autoUpdate
+              ? t("Ether installs updates by itself at night, once nobody is watching.")
+              : t(
+                  "Off. Turn on “Install updates automatically” below to get fixes overnight, while nobody is watching.",
+                )
+          }
+          control={
+            <LevelBadge
+              level={s.autoUpdate ? "ok" : "off"}
+              label={s.autoUpdate ? t("On") : t("Off")}
+            />
+          }
+        />
+      ) : null}
       <SettingsRow
         title={t("Maintenance window")}
         description={`${
@@ -252,13 +421,20 @@ export function UpdatesStatus() {
           </Button>
         }
         description={
-          s.lastError
-            ? s.lastError
-            : s.lastCheck
-              ? relativeTime(s.lastCheck)
-              : s.enabled
-                ? t("Not checked yet")
-                : t("Never")
+          <>
+            {s.lastError
+              ? s.lastError
+              : s.lastCheck
+                ? relativeTime(s.lastCheck)
+                : s.enabled
+                  ? t("Not checked yet")
+                  : t("Never")}
+            {s.enabled && s.nextCheck && !s.checking ? (
+              <span className="block">
+                {t("Next check: {time}", { time: formatDateTime(s.nextCheck) })}
+              </span>
+            ) : null}
+          </>
         }
       />
     </SettingsSection>

@@ -259,6 +259,7 @@ type stream struct {
 type behaviorHints struct {
 	Filename     string `json:"filename"`
 	VideoSize    int64  `json:"videoSize"`
+	BingeGroup   string `json:"bingeGroup"`
 	ProxyHeaders struct {
 		Request map[string]string `json:"request"`
 	} `json:"proxyHeaders"`
@@ -296,11 +297,14 @@ type convertOptions struct {
 // convertWith turns addon streams into releases, best first as the addon
 // ordered them:
 //
-//   - a stream labelled with an info hash is a torrent Ether streams
-//     through its own debrid accounts. Its HTTP link, when it has one, is
-//     kept as the release's StreamURL so a server without a debrid account
-//     can still play the addon's own resolution of it;
-//   - otherwise a stream with an nzbUrl is a Usenet release;
+//   - a stream labelled with an info hash (its fields, or a play link
+//     route that names one: links.go) is a torrent Ether streams through
+//     its own debrid accounts. Its HTTP link, when it has one, is kept as
+//     the release's StreamURL so a server without a debrid account can
+//     still play the addon's own resolution of it;
+//   - otherwise a stream with an nzbUrl (or a url that is an NZB
+//     download) is a Usenet release. A separate play link is kept as its
+//     StreamURL in the same way, for a server without a Usenet provider;
 //   - otherwise a stream with an HTTP(S) url is an HTTP stream (an addon's
 //     own resolver or CDN link), read with range requests.
 //
@@ -336,8 +340,20 @@ func convertWith(streams []stream, req core.SearchRequest, packs bool, opts conv
 		} else if name = pickName(req, file, torrent); name == "" {
 			continue
 		}
-		hash, ambiguous := streamHash(s)
+		hash, idx, ambiguous := streamTorrent(s)
+		if idx >= 0 && s.FileIdx == nil {
+			// The play link's route names the file: keep it in the GUID
+			// as the stream's own fileIdx would be.
+			copied := *s
+			copied.FileIdx = &idx
+			s = &copied
+		}
 		streamURL, nzbURL := httpLink(s.URL), httpLink(s.NZBURL)
+		if nzbURL == "" && hash == "" {
+			if link := nzbFromURL(s.URL); link != "" {
+				nzbURL, streamURL = link, "" // an NZB download is not video
+			}
+		}
 		if ambiguous || (hash == "" && nzbURL == "" && (streamURL == "" || packs)) {
 			key := name + "\x00" + s.URL + "\x00" + guidSuffix(s, req, packs)
 			if ambiguous {
@@ -386,6 +402,9 @@ func convertWith(streams []stream, req core.SearchRequest, packs bool, opts conv
 			rel.GUID = "nzb:" + opts.instance + ":" + linkIdentity(name, size, nzbURL, s, req)
 			rel.Protocol = core.ProtocolUsenet
 			rel.NZBURL = nzbURL
+			if streamURL != "" && streamURL != nzbURL && !packs {
+				rel.StreamURL, rel.StreamHeaders, rel.StreamOrigin = streamURL, s.requestHeaders(), opts.origin
+			}
 		default:
 			rel.GUID = "http:" + opts.instance + ":" + linkIdentity(name, size, streamURL, s, req)
 			rel.Protocol = core.ProtocolHTTP
@@ -426,13 +445,22 @@ func imdbID(id string) string {
 // Valores inválidos, sim, são ausência e não bloqueiam um hash válido.
 // Unlabelled hex in names, titles, descriptions or file names never counts.
 func streamHash(s *stream) (hash string, ambiguous bool) {
-	urlHash, urlAmbiguous := hashFromURL(s.URL)
+	hash, _, ambiguous = streamTorrent(s)
+	return hash, ambiguous
+}
+
+// streamTorrent is streamHash plus the file index the stream's URL route
+// names (-1 when none). A hash at the end of behaviorHints.bingeGroup
+// (bingeTorrent) is only a fallback: it is used when nothing else labels
+// the stream and never makes a labelled stream ambiguous.
+func streamTorrent(s *stream) (hash string, idx int, ambiguous bool) {
+	urlHash, urlIdx, urlAmbiguous := urlTorrent(s.URL)
 	if urlAmbiguous {
-		return "", true
+		return "", -1, true
 	}
 	srcHash, srcAmbiguous := hashFromSources(s.Sources)
 	if srcAmbiguous {
-		return "", true
+		return "", -1, true
 	}
 	hash = newznab.NormalizeInfoHash(s.InfoHash)
 	for _, candidate := range []string{urlHash, srcHash} {
@@ -440,11 +468,18 @@ func streamHash(s *stream) (hash string, ambiguous bool) {
 			continue
 		}
 		if hash != "" && candidate != hash {
-			return "", true
+			return "", -1, true
 		}
 		hash = candidate
 	}
-	return hash, false
+	if hash == "" {
+		hash = bingeTorrent(s)
+	}
+	idx = -1
+	if hash != "" && urlHash == hash {
+		idx = urlIdx
+	}
+	return hash, idx, false
 }
 
 // magnetValues parses a magnet URI's query, tolerating unescaped junk in
@@ -543,20 +578,29 @@ func hashFromSources(sources []string) (hash string, ambiguous bool) {
 }
 
 // hashFromURL reads a magnet URL, explicit hash query fields (including a
-// magnet carried in ?magnet=) or the known Torrentio-style
-// /resolve/{provider}/{credential}/{hash}/... route. ambiguous reports an
-// internal conflict within the URL itself (e.g. ?info_hash=A&info_hash=B,
-// or a magnet with two distinct xt hashes), distinguishing it from
-// absence ("", false): invalid values are absence. Arbitrary hexadecimal
-// URL values may be credentials or opaque IDs, not torrent identities.
+// magnet carried in ?magnet=) or a known add-on route (links.go).
+// ambiguous reports an internal conflict within the URL itself (e.g.
+// ?info_hash=A&info_hash=B, or a magnet with two distinct xt hashes),
+// distinguishing it from absence ("", false): invalid values are absence.
+// Arbitrary hexadecimal URL values may be credentials or opaque IDs, not
+// torrent identities.
 func hashFromURL(raw string) (hash string, ambiguous bool) {
+	hash, _, ambiguous = urlTorrent(raw)
+	return hash, ambiguous
+}
+
+// urlTorrent is hashFromURL plus the file index the route names (-1 when
+// none). A named query hash wins over the path; the path's file index is
+// kept only when its hash agrees.
+func urlTorrent(raw string) (hash string, idx int, ambiguous bool) {
 	raw = strings.TrimSpace(raw)
 	if strings.HasPrefix(strings.ToLower(raw), "magnet:") {
-		return hashFromMagnet(raw)
+		hash, ambiguous = hashFromMagnet(raw)
+		return hash, -1, ambiguous
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return "", false
+		return "", -1, false
 	}
 	for key, values := range u.Query() {
 		switch strings.ToLower(key) {
@@ -564,7 +608,7 @@ func hashFromURL(raw string) (hash string, ambiguous bool) {
 			for _, value := range values {
 				if candidate := newznab.NormalizeInfoHash(value); candidate != "" {
 					if hash != "" && candidate != hash {
-						return "", true
+						return "", -1, true
 					}
 					hash = candidate
 				}
@@ -573,32 +617,25 @@ func hashFromURL(raw string) (hash string, ambiguous bool) {
 			for _, value := range values {
 				candidate, magnetAmbiguous := hashFromMagnet(value)
 				if magnetAmbiguous {
-					return "", true
+					return "", -1, true
 				}
 				if candidate != "" {
 					if hash != "" && candidate != hash {
-						return "", true
+						return "", -1, true
 					}
 					hash = candidate
 				}
 			}
 		}
 	}
+	m := pathTorrent(u.EscapedPath())
 	if hash != "" {
-		return hash, false
-	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	for i := 0; i+3 < len(parts); i++ {
-		if parts[i] != "resolve" {
-			continue
+		if m.hash == hash {
+			return hash, m.idx, false
 		}
-		switch strings.ToLower(parts[i+1]) {
-		case config.DebridRealDebrid, config.DebridAllDebrid, config.DebridPremiumize,
-			config.DebridTorBox, config.DebridDebridLink, config.DebridOffcloud:
-			return newznab.NormalizeInfoHash(parts[i+3]), false
-		}
+		return hash, -1, false
 	}
-	return "", false
+	return m.hash, m.idx, m.ambiguous
 }
 
 // videoExt reports whether a file name ends in a video container.

@@ -220,7 +220,7 @@ func TestTerminalEvidenceProofGettersRunOutsideWorkerMutex(t *testing.T) {
 	}
 	terminalState(t, w, start.Identity, true, TerminalPending)
 	close(f.session.done)
-	backend := &evidenceToken{done: make(chan struct{}), check: func() { w.mu.Lock(); w.mu.Unlock() }}
+	backend := &evidenceToken{done: make(chan struct{}), check: func() { w.mu.Lock(); w.mu.Unlock() }} //nolint:staticcheck // barrier: check must run with w.mu free
 	close(backend.done)
 	w.mu.Lock()
 	w.records[start.Identity].retirement = backend

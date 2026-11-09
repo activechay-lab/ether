@@ -521,8 +521,21 @@ func TestIntegrationFMP4FailoverChangedTimescaleRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	rec := httptest.NewRecorder()
-	hs.ServeSegment(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx), mid)
-	if rec.Code == http.StatusOK {
+	// A slow segment commits padding early and then aborts the response
+	// (http.ErrAbortHandler) when it can't be produced; that is a refusal too.
+	aborted := func() (aborted bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != http.ErrAbortHandler {
+					panic(r)
+				}
+				aborted = true
+			}
+		}()
+		hs.ServeSegment(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx), mid)
+		return false
+	}()
+	if rec.Code == http.StatusOK && !aborted {
 		t.Errorf("segment %d of the 90000 timescale run served: %d bytes", mid, rec.Body.Len())
 	}
 	s.mu.Lock()

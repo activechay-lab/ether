@@ -20,10 +20,13 @@ import (
 // wait on it. Another process writing the same file is still handled by
 // SQLite's busy_timeout.
 type writeGate struct {
-	slot    chan struct{}
-	mu      sync.Mutex
-	holder  string
-	started time.Time
+	slot chan struct{}
+	// pausedUntil, while a maintenance rewrite holds the gate (pause),
+	// is how long a writer waits for it instead of writeGateWait.
+	pausedUntil time.Time
+	mu          sync.Mutex
+	holder      string
+	started     time.Time
 }
 
 // writeGateWait matches busy_timeout: a writer that waits longer fails the
@@ -82,8 +85,9 @@ func (g *writeGate) acquire(ctx context.Context) error {
 	}
 	g.mu.Lock()
 	prior, priorStart := g.holder, g.started
+	wait := max(writeGateWait, time.Until(g.pausedUntil))
 	g.mu.Unlock()
-	t := time.NewTimer(writeGateWait)
+	t := time.NewTimer(wait)
 	defer t.Stop()
 	select {
 	case g.slot <- struct{}{}:
@@ -99,6 +103,28 @@ func (g *writeGate) acquire(ctx context.Context) error {
 		g.logHolder(time.Since(start))
 		return errWriteGateTimeout
 	}
+}
+
+// pause takes the gate for a whole-database rewrite (Compact) that SQLite
+// runs under its own write lock: this process's writers then queue on the
+// gate, in order, for up to until, instead of failing on busy_timeout
+// after 10 s. release ends the pause.
+func (g *writeGate) pause(ctx context.Context, until time.Time) (release func(), err error) {
+	select {
+	case g.slot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	g.held()
+	g.mu.Lock()
+	g.pausedUntil = until
+	g.mu.Unlock()
+	return func() {
+		g.mu.Lock()
+		g.pausedUntil = time.Time{}
+		g.mu.Unlock()
+		g.release()
+	}, nil
 }
 
 func (g *writeGate) held() {
@@ -139,14 +165,69 @@ func (g *writeGate) release() {
 	g.holder, g.started = "", time.Time{}
 	g.mu.Unlock()
 	<-g.slot
-	if elapsed := time.Since(started); !started.IsZero() && elapsed >= time.Second {
+	elapsed := time.Since(started)
+	if !started.IsZero() {
+		writeGateHolds.add(elapsed)
+	}
+	if !started.IsZero() && elapsed >= time.Second {
 		slog.Warn("sqlite writer held", "holder", label, "duration", elapsed)
 	}
 }
 
+// WriteGateHolds is how often and how long this process's SQLite writers
+// held the write gate, for benchmarks (etherperf syncbench). Buckets count
+// holds under 1, 5, 20, 100 and 1000 ms and over.
+type WriteGateHolds struct {
+	Holds   int64
+	Held    time.Duration
+	Max     time.Duration
+	Buckets [6]int64
+}
+
+var writeGateHolds gateHoldStats
+
+type gateHoldStats struct {
+	mu sync.Mutex
+	s  WriteGateHolds
+}
+
+var gateHoldBounds = [5]time.Duration{time.Millisecond, 5 * time.Millisecond, 20 * time.Millisecond, 100 * time.Millisecond, time.Second}
+
+func (g *gateHoldStats) add(d time.Duration) {
+	b := len(gateHoldBounds)
+	for i, bound := range gateHoldBounds {
+		if d < bound {
+			b = i
+			break
+		}
+	}
+	g.mu.Lock()
+	g.s.Holds++
+	g.s.Held += d
+	g.s.Max = max(g.s.Max, d)
+	g.s.Buckets[b]++
+	g.mu.Unlock()
+}
+
+// ResetWriteGateHolds starts the counts again.
+func ResetWriteGateHolds() {
+	writeGateHolds.mu.Lock()
+	writeGateHolds.s = WriteGateHolds{}
+	writeGateHolds.mu.Unlock()
+}
+
+// ReadWriteGateHolds returns the write-gate holds since the last reset.
+func ReadWriteGateHolds() WriteGateHolds {
+	writeGateHolds.mu.Lock()
+	defer writeGateHolds.mu.Unlock()
+	return writeGateHolds.s
+}
+
 // writes reports whether a statement modifies the database (and so takes
-// SQLite's write lock outside a transaction). PRAGMAs are not gated: a WAL
-// checkpoint runs beside writers and must never make a commit wait.
+// SQLite's write lock outside a transaction). PASSIVE checkpoints run beside
+// writers. Our canonical TRUNCATE statement takes SQLite's writer lock, so it
+// must use the same admission as writers; otherwise a writer can hold the Go
+// gate while its underlying BEGIN fails behind an untracked checkpoint.
 func writes(query string) bool {
 	q := strings.TrimLeft(query, " \t\r\n(")
 	if len(q) < 6 {
@@ -155,6 +236,8 @@ func writes(query string) bool {
 	switch strings.ToUpper(q[:6]) {
 	case "INSERT", "UPDATE", "DELETE", "REPLAC", "CREATE", "ANALYZ":
 		return true
+	case "PRAGMA":
+		return strings.EqualFold(strings.TrimSuffix(strings.Join(strings.Fields(q), " "), ";"), "PRAGMA wal_checkpoint(TRUNCATE)")
 	}
 	// WITH ... INSERT/UPDATE/DELETE and the like.
 	if strings.EqualFold(q[:4], "WITH") {

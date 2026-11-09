@@ -11,9 +11,11 @@ import (
 	"sync"
 
 	"github.com/braedonsaunders/ether/internal/clusterbus"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"github.com/braedonsaunders/ether/internal/store"
+	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 )
 
 func init() {
@@ -120,6 +122,42 @@ func (c *Catalog) reloadViewerRules(ctx context.Context) error {
 	c.viewerRules.Unlock()
 	return nil
 }
+
+// ReadViewerRulesInputs is the per-viewer rules source of a viewer-policy
+// inputs rebuild: what every stored custom document reads. Inherit and exempt
+// documents read a subset of the global rules, which the config source has.
+func ReadViewerRulesInputs(ctx context.Context, tx *sql.Tx) (viewerpolicy.Inputs, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT document FROM catalog_viewer_rules`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	in := viewerpolicy.Inputs{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var doc ViewerRules
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+			return nil, err
+		}
+		viewerpolicy.RulesInputs(in, doc.Exclusions)
+	}
+	return in, rows.Err()
+}
+
+// PolicyInputs lists what the installed global rules read, and whether the
+// installed config is expected (a rejected update keeps the previous rules).
+func (c *Catalog) PolicyInputs(expected config.Catalog) (viewerpolicy.Inputs, bool) {
+	if _, ok := c.CaptureConfigEvidence(expected); !ok {
+		return nil, false
+	}
+	in := viewerpolicy.Inputs{}
+	viewerpolicy.RulesInputs(in, expected.Exclusions)
+	return in, true
+}
+
 func (c *Catalog) SetViewerRulesBus(bus clusterbus.Bus) {
 	iv := clusterbus.NewInvalidator(bus, "catalog_viewer_rules", c.log, func(ctx context.Context, _ []string, _ bool) {
 		c.configUpdateMu.Lock()
@@ -166,7 +204,20 @@ func (c *Catalog) PutViewerRules(ctx context.Context, id int64, p ViewerRules) e
 	if err != nil {
 		return err
 	}
-	if _, err = c.db.ExecContext(ctx, `INSERT INTO catalog_viewer_rules(viewer_id,document,revision) VALUES(?,?,1) ON CONFLICT(viewer_id) DO UPDATE SET document=excluded.document,revision=catalog_viewer_rules.revision+1`, id, string(raw)); err != nil {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO catalog_viewer_rules(viewer_id,document,revision) VALUES(?,?,1) ON CONFLICT(viewer_id) DO UPDATE SET document=excluded.document,revision=catalog_viewer_rules.revision+1`, id, string(raw)); err != nil {
+		return err
+	}
+	in := viewerpolicy.Inputs{}
+	viewerpolicy.RulesInputs(in, p.Exclusions)
+	if err = viewerpolicy.AddInputs(ctx, c.db, tx, viewerpolicy.SourceRules, in); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 	if err := c.reloadViewerRules(ctx); err != nil {
@@ -193,13 +244,55 @@ func (c *Catalog) viewerFilter(id int64, search bool) *libraryfilter.Filter {
 	}
 	return c.visibilityFilter()
 }
+
+// strictViewer reports a viewer whose catalogue rules must fail closed on
+// titles they cannot judge: one with their own ("custom") rule set, or a
+// restricted one (a rating cap or section limits). The owner, inheriting and
+// exempted profiles keep the fail-open behaviour.
+func (c *Catalog) strictViewer(id int64, restricted bool) bool {
+	if restricted {
+		return true
+	}
+	if id == 0 {
+		return false
+	}
+	c.viewerRules.RLock()
+	v, ok := c.viewerRules.entries[id]
+	c.viewerRules.RUnlock()
+	return ok && v.document.Mode == "custom"
+}
+
+func userRestricted(u *core.User) bool {
+	return u != nil && (u.MaxContentRating != "" || len(u.AllowedSections) > 0)
+}
+
+// undecided reports a title f cannot judge that the catalogue holds no
+// details for: a remote summary, or a stored row whose details were never
+// fetched. One indexed point read, only for titles that are undecidable.
+func (c *Catalog) undecided(f *libraryfilter.Filter, t *core.Title) bool {
+	if f.Passive() || f.Decidable(t) {
+		return false
+	}
+	var detail int
+	err := c.db.QueryRowContext(context.Background(), `SELECT detail FROM catalog_titles WHERE key=?`, int64(t.Key)).Scan(&detail)
+	return err != nil || detail == 0
+}
+
+// strictVisible is visibleWith plus the fail-closed rule for strict viewers.
+func (c *Catalog) strictVisible(f *libraryfilter.Filter, strict bool, t *core.Title) bool {
+	if strict && c.undecided(f, t) {
+		return false
+	}
+	return c.visibleWith(f, t)
+}
+
 func (c *Catalog) VisibleForViewer(u *core.User, t *core.Title) bool {
 	var id int64
 	if u != nil {
 		id = u.ID
 	}
 	// Direct lookup and playback retain browsing-only titles.
-	return c.visibleWith(c.viewerFilter(id, true), t)
+	return c.strictVisible(c.viewerFilter(id, true), c.strictViewer(id, userRestricted(u)), t)
 }
 func (c *Catalog) viewerPaging(ctx context.Context, f core.Filter) core.Filter {
 	f.CatalogCandidates = core.CatalogCandidates(ctx)
@@ -221,6 +314,16 @@ func (c *Catalog) ViewerRulesRevision(u *core.User) int64 {
 	return c.viewerRules.entries[u.ID].revision
 }
 
+// ViewerRulesJudge is u's own rules revision and whether the rules that
+// apply to u (their own, or the household's they inherit) judge titles on
+// their facts, so that a catalogue write can change what u may see.
+func (c *Catalog) ViewerRulesJudge(u *core.User) (int64, bool) {
+	if u == nil {
+		return 0, !c.visibilityFilter().Passive()
+	}
+	return c.ViewerRulesRevision(u), !c.viewerFilter(u.ID, false).Passive()
+}
+
 // ReadViewerRulesRevision is an indexed point read, also used by durable Home snapshots.
 func ReadViewerRulesRevision(ctx context.Context, db *sql.DB, id int64) (int64, error) {
 	var revision int64
@@ -233,7 +336,7 @@ func (c *Catalog) DiscoveryVisibleForViewer(u *core.User, t *core.Title) bool {
 	if u != nil {
 		id = u.ID
 	}
-	return c.visibleWith(c.viewerFilter(id, false), t)
+	return c.strictVisible(c.viewerFilter(id, false), c.strictViewer(id, userRestricted(u)), t)
 }
 
 // RefreshViewerRules follows viewer removal or merge after the lifecycle transaction.

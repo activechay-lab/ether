@@ -90,7 +90,7 @@ func (p *searchPreparation) arrived(batch []core.Release) {
 	if len(added) == 0 && !reorder {
 		return
 	}
-	p.ranked = p.svc.orderCandidates(p.ranked, p.profile, p.req.Title, nil)
+	p.ranked = p.svc.orderCandidates(p.ranked, p.req.Title, nil)
 	// Allow concurrent indexers to contribute before spending probe budget.
 	// A completed search proceeds directly to normal ranked validation.
 	if time.Since(p.first) >= discoveryWindow {
@@ -136,6 +136,11 @@ func (p *searchPreparation) pumpLocked() {
 	for _, c := range p.ranked {
 		if active >= 4 || len(p.byID) >= earlyCheckLimit {
 			break
+		}
+		if c.rel.OpensOnDemand() {
+			// Each open makes the add-on fetch the release: ranked
+			// validation opens it, alone, if it is reached (ondemand.go).
+			continue
 		}
 		if prior := p.byID[c.rel.ID]; prior != nil {
 			select {
@@ -228,7 +233,7 @@ func (p *searchPreparation) readyResultsAfter(window time.Duration) []core.Relea
 		return nil
 	}
 	if len(p.ranked) > 1 {
-		p.ranked = p.svc.orderCandidates(p.ranked, p.profile, p.req.Title, nil)
+		p.ranked = p.svc.orderCandidates(p.ranked, p.req.Title, nil)
 	}
 	p.pumpLocked()
 	margin := p.svc.resolverCfg().SourceScoreMargin
@@ -303,10 +308,15 @@ func (p *searchPreparation) searchLive(ctx context.Context, indexer core.Streami
 		defer p.svc.bgWG.Done()
 		defer cancel()
 		r, e := indexer.SearchWith(searchCtx, req, p.arrived)
-		done <- answer{r, e}
-		if p.partial.Load() && e == nil && len(r) > 0 && !coverage.Incomplete() {
+		// Publish every complete answer before notifying the caller. Completion
+		// can race with the early-play ticker: checking partial here could
+		// miss an early return chosen just after the check, losing the cache.
+		// Normalizing before send also keeps the caller from mutating the
+		// same release slice while this worker writes the cache.
+		if e == nil && len(r) > 0 && !coverage.Incomplete() {
 			p.svc.rememberSearchResults(req, r)
 		}
+		done <- answer{r, e}
 	}()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()

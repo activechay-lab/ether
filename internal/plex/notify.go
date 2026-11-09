@@ -11,7 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -25,9 +25,9 @@ type playEntry struct {
 	decisionSeen    bool
 	playingSeen     bool
 	sessionKey      int
-	user            core.User
+	user            frontend.Viewer
 	client          Request // product/platform/device snapshot (no User)
-	key             core.RatingKey
+	key             frontend.RatingKey
 	state           string
 	offset          time.Duration
 	duration        time.Duration
@@ -275,7 +275,7 @@ func newNotifier() *notifier {
 	return &notifier{subs: map[*subscriber]struct{}{}, done: make(chan struct{})}
 }
 
-func (n *notifier) subscribe(filters []string, user *core.User, language ...string) (*subscriber, bool) {
+func (n *notifier) subscribe(filters []string, user *frontend.Viewer, language ...string) (*subscriber, bool) {
 	sub := &subscriber{userID: user.ID, owner: user.IsOwner, ch: make(chan notification, 64), filters: map[string]bool{}, includeLogs: filters != nil}
 	if len(language) > 0 {
 		sub.language = language[0]
@@ -510,13 +510,13 @@ func (s *Server) notifyPlaying(e playEntry, state string) {
 // WatchStateChanged invalidates client library metadata after a committed watch
 // update. A playing notification only updates session status; clients can keep
 // their cached Continue Watching shelf until a library timeline event arrives.
-func (s *Server) WatchStateChanged(userID int64, key core.RatingKey) {
-	var kind core.MediaType
+func (s *Server) WatchStateChanged(userID int64, key frontend.RatingKey) {
+	var kind frontend.MediaType
 	switch key.Kind() {
-	case core.KindMovie:
-		kind = core.TypeMovie
-	case core.KindEpisode:
-		kind = core.TypeEpisode
+	case frontend.KindMovie:
+		kind = frontend.TypeMovie
+	case frontend.KindEpisode:
+		kind = frontend.TypeEpisode
 	default:
 		return
 	}
@@ -526,18 +526,18 @@ func (s *Server) WatchStateChanged(userID int64, key core.RatingKey) {
 // notifyTimeline publishes a completed metadata change (watch state or versions).
 // PMS terminal state 5 must omit metadataState/mediaState: carrying "created"
 // is a processing hint, not the completed invalidation native detail pages need.
-func (s *Server) notifyTimeline(key core.RatingKey, t core.MediaType, title string, userID int64) {
+func (s *Server) notifyTimeline(key frontend.RatingKey, t frontend.MediaType, title string, userID int64) {
 	sec, _ := s.sectionFor(t)
-	typeNum := map[core.MediaType]int{core.TypeMovie: 1, core.TypeShow: 2, core.TypeSeason: 3, core.TypeEpisode: 4}[t]
+	typeNum := map[frontend.MediaType]int{frontend.TypeMovie: 1, frontend.TypeShow: 2, frontend.TypeSeason: 3, frontend.TypeEpisode: 4}[t]
 	// PMS names an episode's season and show, and a season's show, so a
 	// client can refresh the show's rows (Continue Watching, On Deck).
 	var parent, root string
 	switch key.Kind() {
-	case core.KindEpisode:
-		parent, root = key.Parent().String(), core.ShowKey(key.TMDB()).String()
-	case core.KindSeason:
+	case frontend.KindEpisode:
+		parent, root = key.Parent().String(), frontend.ShowKey(key.TMDB()).String()
+	case frontend.KindSeason:
 		parent = key.Parent().String()
-	case core.KindMovie:
+	case frontend.KindMovie:
 		// An open movie detail is the item itself. Episodes refresh because
 		// the season and show ids are on the entry; a movie with only itemID
 		// leaves the toolbar on "Mark as Watched" until the page is reopened.

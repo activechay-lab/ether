@@ -93,32 +93,24 @@ func TestLiveAdapterRewritesNestedResourcesToLazyCapability(t *testing.T) {
 		t.Fatalf("missing %q URI in %q", prefix, body)
 		return ""
 	}
-	master := read("index.m3u8", "./")
-	if master.Code != 200 || strings.Contains(master.Body.String(), "source-token") || strings.Contains(master.Body.String(), "account-token") || strings.Contains(master.Body.String(), "/sessions/media/") || !strings.Contains(master.Body.String(), "X-Ether-Stream-Token=") {
-		t.Fatalf("master %d %q", master.Code, master.Body.String())
+	// The client reads Ether's owned live playlist: no provider URL or
+	// credential, no variant indirection, and every segment behind the
+	// capability base.
+	playlist := read("index.m3u8", "./")
+	body := playlist.Body.String()
+	if playlist.Code != 200 || strings.Contains(body, "source-token") || strings.Contains(body, "account-token") || strings.Contains(body, "/sessions/media/") || strings.Contains(body, "STREAM-INF") || !strings.Contains(body, "X-Ether-Stream-Token=") {
+		t.Fatalf("playlist %d %q", playlist.Code, body)
 	}
-	variantKey, _, _ := strings.Cut(firstURI(master.Body.String(), "./resource/"), "?")
-	variant := read("resource/"+variantKey, "../")
-	if variant.Code != 200 || strings.Contains(variant.Body.String(), "source-token") || strings.Contains(variant.Body.String(), "account-token") || !strings.Contains(variant.Body.String(), "X-Ether-Stream-Token=") {
-		t.Fatalf("variant %d %q", variant.Code, variant.Body.String())
-	}
-	segmentKey, _, _ := strings.Cut(firstURI(variant.Body.String(), "../resource/"), "?")
-	segment := read("resource/"+segmentKey, "../")
+	segmentName, _, _ := strings.Cut(firstURI(body, "./relay/"), "?")
+	segment := read("relay/"+segmentName, "../")
 	if segment.Code != 200 || segment.Body.String() != "media-bytes" {
 		t.Fatalf("segment %d %q", segment.Code, segment.Body.String())
 	}
-	var activeURI string
-	for _, line := range strings.Split(variant.Body.String(), "\n") {
-		if strings.HasPrefix(line, "../resource/") && !strings.HasPrefix(line, "../resource/"+segmentKey+"?") {
-			activeURI = strings.TrimPrefix(line, "../resource/")
-		}
-	}
-	activeKey, _, _ := strings.Cut(activeURI, "?")
-	active := read("resource/"+activeKey, "../")
-	if active.Code != 200 || active.Body.String() != "<script>bad()</script>" || !strings.Contains(active.Header().Get("Content-Security-Policy"), "sandbox") || active.Header().Get("X-Content-Type-Options") != "nosniff" {
+	// Provider bytes that are not media are still served inert.
+	active := read("relay/1.ts", "../")
+	if active.Code != 200 || active.Body.String() != "<script>bad()</script>" || !strings.Contains(active.Header().Get("Content-Security-Policy"), "sandbox") || active.Header().Get("X-Content-Type-Options") != "nosniff" || strings.Contains(active.Header().Get("Content-Type"), "html") {
 		t.Fatalf("active %d %v %q", active.Code, active.Header(), active.Body.String())
 	}
-
 }
 
 type liveTestHLS struct {
@@ -398,10 +390,9 @@ func TestSwiftfinLiveTVSequenceIPTVAndVirtual(t *testing.T) {
 			wantAudio string
 			wantWidth float64
 			wantSeg   string
-			hasMaster bool
 		}{
-			{ch: iptvCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1920, wantSeg: "iptv-ts-segment-0", hasMaster: true},
-			{ch: virtualCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1280, wantSeg: "virtual-ts-segment-", hasMaster: false},
+			{ch: iptvCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1920, wantSeg: "iptv-ts-segment-0"},
+			{ch: virtualCh, wantCodec: "h264", wantAudio: "aac", wantWidth: 1280, wantSeg: "virtual-ts-segment-"},
 		} {
 			channelGUID, err := ids.StringGUID(ids.Channel, tcChan.ch.ID)
 			if err != nil {
@@ -481,16 +472,8 @@ func TestSwiftfinLiveTVSequenceIPTVAndVirtual(t *testing.T) {
 				t.Fatalf("%s %s playlist fetch (%s): %d %s", proto, tcChan.ch.Kind, swiftfinHLSURL, plW.Code, plW.Body.String())
 			}
 
-			// Step 4: Follow variant playlist (IPTV) and fetch a .ts segment
+			// Step 4: fetch the first .ts segment (IPTV is Ether's owned media playlist)
 			nextURI := resolveRelative(transcodingURL, firstMediaURI(plW.Body.String()))
-			if tcChan.hasMaster {
-				varW := request("GET", nextURI, "", false)
-				if varW.Code != 200 || !strings.Contains(varW.Body.String(), "#EXTINF") || strings.Contains(varW.Body.String(), "upstream-token") {
-					t.Fatalf("%s %s variant fetch (%s): %d %s", proto, tcChan.ch.Kind, nextURI, varW.Code, varW.Body.String())
-				}
-				varPath, _, _ := strings.Cut(nextURI, "?")
-				nextURI = resolveRelative(varPath, firstMediaURI(varW.Body.String()))
-			}
 			segW := request("GET", nextURI, "", false)
 			if segW.Code != 200 || !strings.HasPrefix(segW.Body.String(), tcChan.wantSeg) {
 				t.Fatalf("%s %s segment fetch (%s): %d %q", proto, tcChan.ch.Kind, nextURI, segW.Code, segW.Body.String())
@@ -704,12 +687,11 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 	}
 
 	for _, tcChan := range []struct {
-		ch        livetv.Channel
-		wantSeg   string
-		hasMaster bool
+		ch      livetv.Channel
+		wantSeg string
 	}{
-		{ch: iptvCh, wantSeg: "iptv-ts-segment-0", hasMaster: true},
-		{ch: virtualCh, wantSeg: "virtual-ts-segment-", hasMaster: false},
+		{ch: iptvCh, wantSeg: "iptv-ts-segment-0"},
+		{ch: virtualCh, wantSeg: "virtual-ts-segment-"},
 	} {
 		channelGUID, err := ids.StringGUID(ids.Channel, tcChan.ch.ID)
 		if err != nil {
@@ -778,16 +760,6 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 		nextURI := firstMediaURI(masterW.Body.String())
 		if err := siloScopeAllows(startDoc.SessionID, nextURI); err != nil {
 			t.Fatalf("%s playlist URI rejected by Silo scope: %v (playlist:\n%s)", tcChan.ch.Kind, err, masterW.Body.String())
-		}
-		if tcChan.hasMaster {
-			varW := request("GET", nextURI, "")
-			if varW.Code != 200 || !strings.Contains(varW.Body.String(), "#EXTINF") || strings.Contains(varW.Body.String(), "upstream-token") {
-				t.Fatalf("%s variant: %d %s", tcChan.ch.Kind, varW.Code, varW.Body.String())
-			}
-			nextURI = firstMediaURI(varW.Body.String())
-			if err := siloScopeAllows(startDoc.SessionID, nextURI); err != nil {
-				t.Fatalf("%s segment URI rejected by Silo scope: %v (variant:\n%s)", tcChan.ch.Kind, err, varW.Body.String())
-			}
 		}
 		segW := request("GET", nextURI, "")
 		if segW.Code != 200 || !strings.HasPrefix(segW.Body.String(), tcChan.wantSeg) {

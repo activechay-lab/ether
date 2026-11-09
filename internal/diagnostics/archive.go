@@ -514,8 +514,7 @@ func writeZip(files []archived, mod time.Time, limit int) ([]byte, error) {
 			_ = zw.Close()
 			return nil, errArchiveLimit
 		}
-		h := &zip.FileHeader{Name: f.name, Method: zip.Deflate}
-		h.SetModTime(mod)
+		h := &zip.FileHeader{Name: f.name, Method: zip.Deflate, Modified: mod}
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()

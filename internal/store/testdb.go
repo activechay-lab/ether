@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -11,8 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,20 +37,13 @@ const memoryDSN = "file::memory:?_pragma=foreign_keys(1)"
 
 // OpenMemory is a migrated, empty database for tests: in-memory SQLite (a
 // single connection), or a fresh PostgreSQL schema when TestPostgresEnv is
-// set.
-//
-// The SQLite database is a copy of one migrated once per process. Applying
-// every component's migrations re-reads a schema that grows with each one,
-// which costs seconds under the race detector; packages that open hundreds
-// of test databases spent most of their time there. The copy is the same
-// database: migrations are only ever applied by the process that registered
-// them (from init), and the image is rebuilt whenever the effective SQLite
-// registry differs from the one it was migrated with.
+// set. The SQLite database is a copy of the process's migrated image (see
+// migratedImage), so a package of tests migrates once.
 func OpenMemory(ctx context.Context) (*sql.DB, error) {
 	if u := os.Getenv(TestPostgresEnv); u != "" {
 		return OpenTestPostgres(ctx, u)
 	}
-	image, err := migratedMemoryImage(ctx)
+	image, err := migratedImage(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,102 +59,6 @@ func OpenMemory(ctx context.Context) (*sql.DB, error) {
 		return nil, fmt.Errorf("store: load migrated test database: %w", err)
 	}
 	return db, nil
-}
-
-// SeedTestDataDir writes the migrated test database to dataDir/ether.db, for
-// a test whose server has already been set up: opening it (Open, app.New)
-// takes the ordinary startup path for an up-to-date database instead of
-// migrating a fresh file. It never replaces an existing database.
-func SeedTestDataDir(t TB, dataDir string) {
-	t.Helper()
-	image, err := migratedMemoryImage(context.Background())
-	if err != nil {
-		t.Fatalf("store: seed test data directory: %v", err)
-	}
-	f, err := os.OpenFile(filepath.Join(dataDir, "ether.db"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		t.Fatalf("store: seed test data directory: %v", err)
-	}
-	_, err = f.Write(image)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		t.Fatalf("store: seed test data directory: %v", err)
-	}
-}
-
-// sqliteImage is the part of the modernc.org/sqlite connection that copies
-// a whole database in and out of memory.
-type sqliteImage interface {
-	Serialize() ([]byte, error)
-	Deserialize([]byte) error
-}
-
-func withSQLiteConn(ctx context.Context, db *sql.DB, fn func(sqliteImage) error) error {
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	return conn.Raw(func(dc any) error {
-		sc, ok := dc.(*stmtConn)
-		if !ok {
-			return fmt.Errorf("unexpected driver connection %T", dc)
-		}
-		img, ok := sc.inner.(sqliteImage)
-		if !ok {
-			return fmt.Errorf("driver connection %T cannot serialize", sc.inner)
-		}
-		return fn(img)
-	})
-}
-
-var memoryTemplate struct {
-	sync.Mutex
-	key   [sha256.Size]byte
-	image []byte
-}
-
-// migratedMemoryImage returns a serialized, freshly migrated SQLite
-// database for the migrations registered now.
-func migratedMemoryImage(ctx context.Context) ([]byte, error) {
-	key := sqliteRegistryKey()
-	memoryTemplate.Lock()
-	defer memoryTemplate.Unlock()
-	if memoryTemplate.image != nil && memoryTemplate.key == key {
-		return memoryTemplate.image, nil
-	}
-	db, err := openSQLite(ctx, ":memory:", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	var image []byte
-	if err := withSQLiteConn(ctx, db, func(c sqliteImage) error {
-		image, err = c.Serialize()
-		return err
-	}); err != nil {
-		return nil, fmt.Errorf("store: serialize migrated test database: %w", err)
-	}
-	memoryTemplate.key, memoryTemplate.image = key, image
-	return image, nil
-}
-
-// sqliteRegistryKey identifies everything migrateSQLite would apply, in
-// order. Tests that add or swap migrations change it.
-func sqliteRegistryKey() [sha256.Size]byte {
-	h := sha256.New()
-	for _, m := range registered() {
-		var apply uintptr
-		if m.sqliteApply != nil {
-			apply = reflect.ValueOf(m.sqliteApply).Pointer()
-		}
-		fmt.Fprintf(h, "%s\x00%d\x00%d\x00%x\x00%s\x00", m.component, m.version, len(m.sqlFor(SQLite)), apply, m.sqlFor(SQLite))
-	}
-	var key [sha256.Size]byte
-	h.Sum(key[:0])
-	return key
 }
 
 // TB is the part of testing.TB that OpenTest uses.

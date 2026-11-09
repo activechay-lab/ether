@@ -11,7 +11,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/nodewire"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // PreparationReceipt proves closure only of one source preparation operation.
@@ -183,29 +182,14 @@ func (r *Runtime) publishPreparationReceipt(ctx context.Context, entry *preparat
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		// No retained-history count: every receipt is published by a live
+		// in-memory preparation (at most HistoryCapacity per boot) and ages out
+		// after DefaultReceiptRetention, so rows stay bounded without refusing
+		// a closure. The immutable insert plus readback settles any race.
 		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		tx, err := r.o.DB.BeginTx(writeCtx, nil)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		if err = store.LockKey(writeCtx, store.DialectOf(r.o.DB), tx, "clusterplayback:preparation-receipts"); err != nil {
-			return err
-		}
-		// Bound retained history per source boot independently of concurrency.
-		var count int
-		if err = tx.QueryRowContext(writeCtx, `SELECT COUNT(*) FROM clusterplayback_preparation_receipts WHERE cluster=? AND source=? AND source_boot=?`, receipt.Source.Cluster, receipt.Source.NodeID, receipt.Source.Boot).Scan(&count); err != nil {
-			return err
-		}
-		if count >= r.o.HistoryCapacity {
-			return ErrPending
-		}
-		args := append(preparationArgs(receipt.Source, receipt.Controller, receipt.OperationHash), raw)
-		if _, err = tx.ExecContext(writeCtx, `INSERT INTO clusterplayback_preparation_receipts(cluster,source,source_boot,controller,controller_boot,operation_hash,receipt) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, args...); err != nil {
-			return err
-		}
-		if err = tx.Commit(); err != nil {
+		args := append(preparationArgs(receipt.Source, receipt.Controller, receipt.OperationHash), raw, time.Now().UnixMilli())
+		if _, err = r.o.DB.ExecContext(writeCtx, `INSERT INTO clusterplayback_preparation_receipts(cluster,source,source_boot,controller,controller_boot,operation_hash,receipt,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, args...); err != nil {
 			return err
 		}
 		confirmed, err := r.readPreparationReceipt(ctx, receipt.Source, receipt.Controller, receipt.OperationHash)

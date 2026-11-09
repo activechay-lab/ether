@@ -59,7 +59,10 @@ func (s *Service) RaiseLedgerQuota(ctx context.Context, expected int) error {
 }
 
 type QuotaStatus struct {
-	Capacity  int  `json:"capacity"`
+	Capacity int `json:"capacity"`
+	// Live is what the quota bounds; Used adds retained tombstones awaiting
+	// compaction, which never refuse admission.
+	Live      int  `json:"live"`
 	Used      int  `json:"used"`
 	Retired   int  `json:"retired"`
 	Exhausted bool `json:"exhausted"`
@@ -73,7 +76,8 @@ func (s *Service) LedgerStatus(ctx context.Context) (QuotaStatus, error) {
 		return status, err
 	}
 	status.Used, status.Retired, err = s.LedgerUsage(ctx)
+	status.Live = status.Used - status.Retired
 	status.Matches = status.Capacity == s.options.MaxSessions
-	status.Exhausted = status.Used >= status.Capacity
+	status.Exhausted = status.Live >= status.Capacity
 	return status, err
 }

@@ -398,7 +398,7 @@ func TestDownloadExpiry(t *testing.T) {
 	f.mu.Lock()
 	f.now = f.now.Add(2 * time.Hour) // past the 1h retention
 	f.mu.Unlock()
-	it = f.waitStatus(t, qid, downloadExpired)
+	f.waitStatus(t, qid, downloadExpired)
 	rec := f.do(t, http.MethodGet, "/downloadQueue/"+itoa(qid)+"/item/"+itoa(itemID)+"/media", ownerToken, nil)
 	if rec.Code != http.StatusGone {
 		t.Fatalf("expired media: %d", rec.Code)

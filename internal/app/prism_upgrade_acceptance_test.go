@@ -479,8 +479,8 @@ func assertInstalledConfig(t *testing.T, cfg config.Config) {
 		cfg.Quality.Profiles[1].Name != upgradeProfileName || cfg.Quality.Profiles[1].MediaType != core.MediaTV {
 		t.Fatalf("profile key %+v default %q", cfg.Quality.Profiles, cfg.Quality.Default)
 	}
-	if len(cfg.Quality.Profiles[0].PreferredSources) != 1 || cfg.Quality.Profiles[0].PreferredSources[0] != core.SourceBluRay {
-		t.Fatalf("profile sources %+v", cfg.Quality.Profiles[0].PreferredSources)
+	if cfg.Quality.Profiles[0].CustomFormatScores[core.SourceFormat(core.SourceBluRay)] != 4000 || len(cfg.Quality.Profiles[0].QualityOrder) != 1 {
+		t.Fatalf("profile ranking %+v", cfg.Quality.Profiles[0])
 	}
 	if cfg.Resolver.SourcePreference != upgradeSourcePref {
 		t.Fatalf("source preference %q", cfg.Resolver.SourcePreference)
@@ -520,9 +520,8 @@ func writeInstalledConfig(t *testing.T, dir string) {
 	cfg.Quality.Profiles = []core.QualityProfile{{
 		Name:               upgradeProfileName,
 		MaxHeight:          1080,
-		PreferredSources:   []core.Source{core.SourceBluRay},
-		PreferredCodecs:    []string{"hevc"},
-		PreferredAudio:     []string{"eng"},
+		QualityOrder:       []core.QualityItem{{Name: "1080p", Qualities: []string{"bluray-1080", "webdl-1080"}}},
+		CustomFormatScores: map[string]int{core.SourceFormat(core.SourceBluRay): 4000, core.CodecFormat("hevc"): 6},
 		PreferredLanguages: []string{"eng"},
 	}}
 	cfg.Resolver.SourcePreference = upgradeSourcePref

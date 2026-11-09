@@ -69,12 +69,22 @@ func (c *Catalog) searchByPopularity(ctx context.Context, query string, n int, u
 			return nil, false, nil
 		}
 	}
+	// Movies and shows walk the popularity rank (rank.go), whose order is
+	// the popularity of the last rebuild; the sorted query then orders by
+	// the same snapshot (searchPopularity). Seasons and episodes have no
+	// TMDB popularity and walk their own small index.
+	ranked := c.rankReady.Load()
+	rankStream := func(typ string) bool { return ranked && (typ == "movie" || typ == "show") }
 	var streams []*searchStream
 	for _, typ := range []string{"movie", "show", "season", "episode"} {
 		for _, b := range []int{0, 1} {
 			s := &searchStream{typ: typ, browsable: b}
 			var max *float64
-			if err := c.db.QueryRowContext(ctx, `SELECT MAX(popularity) FROM catalog_titles WHERE type=? AND browsable=?`, typ, b).Scan(&max); err != nil {
+			maxQ := `SELECT MAX(popularity) FROM catalog_titles WHERE type='` + typ + `' AND browsable=?`
+			if rankStream(typ) {
+				maxQ = `SELECT -MIN(rk) FROM catalog_rank WHERE type='` + typ + `' AND browsable=?`
+			}
+			if err := c.db.QueryRowContext(ctx, maxQ, b).Scan(&max); err != nil {
 				return nil, false, err
 			}
 			if max == nil {
@@ -94,13 +104,29 @@ func (c *Catalog) searchByPopularity(ctx context.Context, query string, n int, u
 		return s.lastPop
 	}
 	fetch := func(s *searchStream) error {
-		q := `SELECT key, popularity FROM catalog_titles WHERE type=? AND browsable=?` + adult + ` AND ` + match
-		args := []any{s.typ, s.browsable, like, like, like}
+		q := `SELECT key, popularity FROM catalog_titles WHERE type='` + s.typ + `' AND browsable=?` + adult + ` AND ` + match
+		args := []any{s.browsable, like, like, like}
 		if s.started {
 			q += ` AND popularity<=? AND (popularity<? OR key>?)`
 			args = append(args, s.lastPop, s.lastPop, s.lastKey)
 		}
 		q += ` ORDER BY popularity DESC, key ASC LIMIT ?`
+		if rankStream(s.typ) {
+			join := "CROSS JOIN"
+			if store.DialectOf(c.db) == store.Postgres {
+				join = "JOIN"
+			}
+			radult := ""
+			if adult != "" {
+				radult = ` AND r.adult=0`
+			}
+			q = `SELECT r.key, -r.rk FROM catalog_rank r ` + join + ` catalog_titles ON catalog_titles.key=r.key WHERE r.type='` + s.typ + `' AND r.browsable=?` + radult + ` AND ` + match
+			if s.started {
+				q += ` AND r.rk>=? AND (r.rk>? OR r.key>?)`
+				args = []any{s.browsable, like, like, like, -s.lastPop, -s.lastPop, s.lastKey}
+			}
+			q += ` ORDER BY r.rk ASC, r.key ASC LIMIT ?`
+		}
 		rows, err := c.db.QueryContext(ctx, q, append(args, searchWalkBatch)...)
 		if err != nil {
 			return err

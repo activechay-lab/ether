@@ -105,6 +105,15 @@ func readTools(d Deps) []tools.Tool {
 					return tools.Result{}, err
 				}
 				rows, total := paged(entries, page, pageSize)
+				// One batched read for the page's titles, not one per entry.
+				var titles map[core.RatingKey]core.Title
+				if many, ok := d.Catalog.(cachedTitles); ok {
+					keys := make([]core.RatingKey, len(rows))
+					for i, e := range rows {
+						keys[i] = e.Key
+					}
+					titles, _ = many.CachedGetMany(ctx, keys)
+				}
 				out := make([]any, 0, len(rows))
 				for _, e := range rows {
 					row := map[string]any{
@@ -112,7 +121,8 @@ func readTools(d Deps) []tools.Tool {
 						"viewedAt":  e.ViewedAt.UTC().Format(time.RFC3339),
 						"completed": e.Completed,
 					}
-					if t, err := d.Catalog.Get(ctx, e.Key); err == nil && t != nil {
+					t, err := historyTitle(ctx, d.Catalog, titles, e.Key)
+					if err == nil && t != nil {
 						row["title"] = truncate(t.Title, 200)
 						row["type"] = string(t.Type)
 						if t.ShowTitle != "" {
@@ -731,4 +741,18 @@ func merge(maps ...map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+// cachedTitles is the catalogue's batched cached read.
+type cachedTitles interface {
+	CachedGetMany(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error)
+}
+
+// historyTitle is a history entry's title from the page's batched read, or
+// one read when the batch missed it or the catalogue has no batched read.
+func historyTitle(ctx context.Context, c CatalogService, batch map[core.RatingKey]core.Title, key core.RatingKey) (*core.Title, error) {
+	if t, ok := batch[key]; ok {
+		return &t, nil
+	}
+	return c.Get(ctx, key)
 }

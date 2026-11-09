@@ -20,6 +20,7 @@ type DecideOptions = core.DecideOptions
 type ClientCaps = core.ClientCaps
 type PlaybackSourceHistory = core.PlaybackSourceHistory
 type Decision = core.Decision
+type FacetValue = core.FacetValue
 
 // Catalogue key kinds and constructors stay owned by core. Adapters compare
 // and rebuild parent keys through these aliases.

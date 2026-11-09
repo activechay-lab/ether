@@ -10,7 +10,7 @@ import (
 // playlistEntry contains only already-authorized channel metadata and URLs.
 // In particular, StreamURL must come from the host's scoped stream service.
 type playlistEntry struct {
-	ID, Name, LogoURL, StreamURL string
+	ID, Name, LogoURL, StreamURL, Group string
 }
 
 func playlistText(value string) string {
@@ -42,6 +42,11 @@ func writePlaylist(w io.Writer, entries []playlistEntry) error {
 		}
 		if entry.LogoURL != "" {
 			if _, err := fmt.Fprintf(w, " tvg-logo=\"%s\"", playlistText(entry.LogoURL)); err != nil {
+				return err
+			}
+		}
+		if entry.Group != "" {
+			if _, err := fmt.Fprintf(w, " group-title=\"%s\"", playlistText(entry.Group)); err != nil {
 				return err
 			}
 		}

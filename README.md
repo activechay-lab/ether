@@ -235,6 +235,8 @@ Dial your storage footprint from **Pass-through (0 GiB)** to **Everyday (32 GiB)
 | **Linux** | [`.deb` / `.rpm`](https://github.com/braedonsaunders/ether/releases/latest) (`amd64`, `arm64`) | Dedicated `ether` systemd service, hardware transcoding group setup (`render`/`video`), bundled FFmpeg. |
 | **Docker** | `ghcr.io/braedonsaunders/ether:latest` | Multi-arch (`amd64`, `arm64`). Ready-made templates for **Unraid, TrueNAS SCALE, and Proxmox**, plus Synology instructions, in [`packaging/community`](packaging/community/README.md). |
 
+PR previews (`linux/amd64` only) are published for PRs whose author has write access to this repository, from a branch here or in the author's own fork, as `ghcr.io/braedonsaunders/ether:pr-<number>`. **Previews are unreviewed PR code: only run one if you trust its author, and never in place of a release.** The `pr-<number>` tag moves with each new head. A second tag, `pr-<number>-<branch>-<12-char head SHA>`, is never replaced; for a strictly immutable reference, pull by the digest shown in the publish run. Eligibility is checked again before every publication, previews remain after a PR closes, and preview tags never collide with release tags.
+
 ```yaml
 services:
   ether:
@@ -283,7 +285,7 @@ Open **`http://localhost:32400/ether/`** and complete the setup wizard. If Plex 
 - **System requirements:**
   - **CPU and RAM:** 2 CPU cores and 1 GiB of RAM are enough for direct play, container remuxing, and audio transcoding. Video transcoding requires a supported GPU (NVIDIA NVENC, Intel QuickSync, VAAPI, or Apple VideoToolbox) or 4+ CPU cores for software encoding.
   - **Disk space:** Configurable from **0 GiB** (pass-through mode) to **32+ GiB** on an SSD for the default segment cache, or multiple terabytes if you enable household preloading.
-- **Outbound network activity:** Ether sends no analytics or usage telemetry. By default it checks GitHub's signed release feed once a day for updates and queries TheIntroDB (`api.theintrodb.org`) for intro and credits skip timestamps during playback; both can be turned off in the console. When Plex is claimed and enabled, it communicates with `plex.tv`; turning the Plex app off stops Plex sign-in, publishing, sharing, and metadata traffic. See [What outbound connections does Ether make?](#what-outbound-connections-does-ether-make) for the full list.
+- **Outbound network activity:** Ether sends no analytics or usage telemetry. By default it checks GitHub's signed release feed every few hours for updates and queries TheIntroDB (`api.theintrodb.org`) for intro and credits skip timestamps during playback; both can be turned off in the console. When Plex is claimed and enabled, it communicates with `plex.tv`; turning the Plex app off stops Plex sign-in, publishing, sharing, and metadata traffic. See [What outbound connections does Ether make?](#what-outbound-connections-does-ether-make) for the full list.
 - **Legal responsibility:** You supply your own accounts, providers, and indexers, and you are responsible for complying with applicable laws and service terms. Read [**LEGAL.md**](LEGAL.md).
 
 ---
@@ -380,7 +382,7 @@ Yes, and if you have local media files on disk, that is the recommended setup. O
 
 Ether sends **no usage analytics, crash reports, or behavioural telemetry**. Every outbound connection has a specific purpose, and all but cluster address detection can be configured or turned off:
 
-1. **Update check (on by default):** Ether checks the signed release feed on GitHub once a day (first check 5 minutes after startup). Turn this off under **Maintenance › Updates** (*Check for updates*).
+1. **Update check (on by default):** Ether checks the signed release feed on GitHub about every 6 hours (first check 5 minutes after startup). The feed is a static file; nothing about your server is sent. Turn this off under **Maintenance › Updates** (*Check for updates*).
 2. **TheIntroDB skip markers (on by default):** When a title plays, Ether queries `api.theintrodb.org` by TMDB ID, season/episode number, and duration for intro, recap, and credits timestamps. Turn this off with the lookup switch under **Playback › Extras** or the TheIntroDB switch on **Integrations**.
 3. **TMDB and your configured sources:** Ether queries `api.themoviedb.org` and `image.tmdb.org` with your key or the one built into official builds, plus the Usenet providers, debrid services, indexers, Stremio addons, and optional integrations (OpenSubtitles, Trakt, Simkl, ratings, artwork, notifications, language model) that you configure.
 4. **`plex.tv` (only when Plex is claimed and enabled):** When the Plex app is enabled and claimed, Ether contacts `plex.tv` for PIN sign-in, server and connection registration, friend/share sync, `plex.direct` TLS certificate renewal, and public IP detection when **Remote access** is on (**Apps › Plex › Remote access**). Ether also matches titles to Plex IDs through `metadata.provider.plex.tv`. Full Plex metadata (**Apps › Plex › Account**), per-viewer Plex account watch sync, and Plex watchlist sync (both `discover.provider.plex.tv`) are off until you enable them. Turning the **Plex** app off under **Server › Apps** stops all of this `plex.tv` traffic.

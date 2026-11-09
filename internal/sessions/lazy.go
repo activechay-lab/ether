@@ -73,6 +73,34 @@ func (s *lazyStreams) Issue(ctx context.Context, credential string, req frontend
 	return s.issue(ctx, credential, req, false)
 }
 
+// Warm implements frontend.LazyStreamWarmer with playback's detail warm-up:
+// the same viewer, device caps and title a GET of the issued URL plays, so
+// that Prepare joins or takes the warm resolution instead of resolving after
+// the pick. It rechecks the grant, policy and title like Issue.
+func (s *lazyStreams) Warm(ctx context.Context, credential string, req frontend.PlanRequest) {
+	if req.Protocol != s.protocol || req.Device.ID == "" || req.Viewer == nil || req.Item == 0 || req.Channel != "" || req.Intent.Plex != nil {
+		return
+	}
+	warm, ok := s.broker.deps.Playback.(core.Prewarmer)
+	if !ok || s.broker.deps.MediaLookup == nil {
+		return
+	}
+	_, viewer, err := s.grants.GrantReference(ctx, string(s.protocol), credential)
+	if err != nil || viewer == nil || viewer.ID != req.Viewer.ID {
+		return
+	}
+	if viewer, err = s.broker.confirm(ctx, viewer, req.Caps); err != nil {
+		return
+	}
+	title, err := s.broker.deps.MediaLookup(ctx, viewer, req.Device, req.Item)
+	if err != nil || title == nil || title.Key != req.Item || (!title.Released.IsZero() && title.Released.After(s.broker.deps.Now())) {
+		return
+	}
+	// Plan keys and profiles the later Prepare with the broker's caps, not
+	// the declaration; warm with the same caps or Play never finds the entry.
+	warm.Prewarm(context.WithoutCancel(ctx), viewer, req.Item, s.broker.playCaps(viewer, req.Protocol, req.Device, req.Caps), core.PrewarmOptions{Reason: core.PrewarmDetail})
+}
+
 func (s *lazyStreams) issue(ctx context.Context, credential string, req frontend.PlanRequest, stable bool) (string, error) {
 	return s.issueOutput(ctx, credential, req, stable, nil, false, false)
 }
@@ -402,7 +430,7 @@ func (s *lazyStreams) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	viewer = fresh
 	req.Viewer = viewer
 	if req.Channel != "" {
-		if !strings.HasPrefix(tail, "live/") || s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(ctx, viewer, req.Channel) != nil {
+		if !strings.HasPrefix(tail, "live/") || s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(core.WithLiveApp(ctx, string(s.protocol)), viewer, req.Channel) != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -705,7 +733,7 @@ func serveSourceGone(protocol frontend.Protocol, w http.ResponseWriter, r *http.
 // new transfers fail closed with 503 until a worker exits or the process restarts.
 const maxLazyHeartbeats = 1024
 
-type lazyTransfer struct{ marker byte }
+type lazyTransfer struct{ _ byte }
 
 func (b *Broker) registerLazyTransfer(id string, cancel context.CancelFunc) (func(), bool) {
 	b.mu.Lock()
@@ -774,7 +802,7 @@ func (s *lazyStreams) heartbeatBinding(ctx context.Context, cancel context.Cance
 				return
 			}
 			if req.Channel != "" {
-				if s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(ctx, viewer, req.Channel) != nil {
+				if s.broker.deps.Live == nil || s.broker.deps.Live.Allowed(core.WithLiveApp(ctx, string(s.protocol)), viewer, req.Channel) != nil {
 					cancel()
 					return
 				}

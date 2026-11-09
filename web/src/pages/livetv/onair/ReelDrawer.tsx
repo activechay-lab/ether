@@ -148,6 +148,19 @@ export function ReelDrawer({
       if (upload.current) upload.current.value = "";
     }
   }
+  const removeClip = async (clipId: string) => {
+    setError("");
+    const reelIdToUse = current.current.id;
+    setDraft((d) => ({ ...d, clips: d.clips.filter((v) => v.id !== clipId) }));
+    setSaved((s) => ({ ...s, clips: s.clips.filter((v) => v.id !== clipId) }));
+    if (preview === clipId) setPreview(null);
+    if (!reelIdToUse) return;
+    try {
+      await onair.deleteClip(reelIdToUse, clipId);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
   const clip = draft.clips.find((c) => c.id === preview);
   const changeClip = (clip: ReelClip) =>
     setDraft((d) => ({ ...d, clips: d.clips.map((c) => (c.id === clip.id ? clip : c)) }));
@@ -312,13 +325,17 @@ export function ReelDrawer({
                       <p className="truncate text-sm font-medium text-fg">{c.name}</p>
                     )}
                     <p className="text-xs text-fg-muted">
-                      {c.status === "queued" || c.status === "downloading"
-                        ? t("Importing…")
-                        : c.status === "converting"
-                          ? t("Converting {progress}%", { progress: Math.round(c.progress || 0) })
-                          : c.status === "error"
-                            ? t("Conversion failed")
-                            : t("Ready")}
+                      {c.status === "queued"
+                        ? t("Queued…")
+                        : c.status === "downloading"
+                          ? c.progress && c.progress > 0
+                            ? t("Downloading {progress}%", { progress: Math.round(c.progress) })
+                            : t("Importing…")
+                          : c.status === "converting"
+                            ? t("Converting {progress}%", { progress: Math.round(c.progress || 0) })
+                            : c.status === "error"
+                              ? t("Conversion failed")
+                              : t("Ready")}
                     </p>
                     {c.source ? (
                       <a
@@ -343,9 +360,20 @@ export function ReelDrawer({
                       />
                     ) : null}
                   </div>
-                  <span className="text-xs tabular-nums text-fg-muted">
-                    {runtime(c.durationMs)}
-                  </span>
+                  {c.status === "queued" || c.status === "downloading" ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-danger"
+                      onClick={() => void removeClip(c.id)}
+                    >
+                      {t("Cancel")}
+                    </Button>
+                  ) : (
+                    <span className="text-xs tabular-nums text-fg-muted">
+                      {runtime(c.durationMs)}
+                    </span>
+                  )}
                   <Popover
                     open={menu === c.id}
                     onOpenChange={(v) => setMenu(v ? c.id : null)}
@@ -384,8 +412,8 @@ export function ReelDrawer({
                         variant="ghost"
                         className="text-danger"
                         onClick={() => {
-                          setDraft({ ...draft, clips: draft.clips.filter((v) => v.id !== c.id) });
                           setMenu(null);
+                          void removeClip(c.id);
                         }}
                       >
                         {t("Remove")}

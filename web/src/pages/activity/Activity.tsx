@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { DomainPage, useRouteTab } from "../../components/layout";
 import { localized, t } from "../../i18n";
 import { api, apiFetch } from "../../lib/api";
-import { normalizeSessions } from "../../lib/health";
 import { useAsync, useInterval } from "../../lib/hooks";
+import { fetchLiveSessions, LIVE_SESSIONS_MS, useLiveSessionsRefresh } from "../../lib/sessions";
 import { clusterActivity } from "./cluster";
 import { PlayHistory, ViewingFilters } from "./History";
 import { Experience, ExperiencePeriod } from "./Experience";
@@ -52,11 +52,10 @@ export default function Activity() {
 
   const [truncated, setTruncated] = useState(false);
   const sessions = useAsync(async (signal) => {
-    const [body, status] = await Promise.all([
-      apiFetch<{ value: unknown[] | null }>("/status/sessions", { signal }),
+    const [streams, status] = await Promise.all([
+      fetchLiveSessions(signal),
       api.clusterStatus(signal).catch(() => null),
     ]);
-    const streams = normalizeSessions(body.value ?? []);
     if (status?.mode !== "postgres") return streams;
     const console = await api.clusterConsole(signal);
     setTruncated(console.truncated);
@@ -78,7 +77,7 @@ export default function Activity() {
     return { summary, history: history ?? [] };
   }, [query, viewingTab]);
 
-  useInterval(() => void sessions.reload(), tab === "now" ? 10_000 : 30_000);
+  useLiveSessionsRefresh(sessions.reload, tab === "now" ? LIVE_SESSIONS_MS : 30_000);
   useInterval(() => void viewing.reload(), viewingTab ? 30_000 : null);
 
   const live = sessions.data?.length;

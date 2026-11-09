@@ -257,6 +257,7 @@ func (i *instance) sections(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]any{"sections": cached})
 		return
 	}
+	gen := i.sectionsGeneration(v.ID)
 	placement := frontend.PlacementHome
 	view := r.PathValue("library")
 	if view != "" && view != nowAvailableLibraryID {
@@ -354,7 +355,7 @@ func (i *instance) sections(w http.ResponseWriter, r *http.Request) {
 		sections = append(sections, section)
 	}
 	if !partial {
-		i.storeSections(cacheKey, sections)
+		i.storeSections(cacheKey, v.ID, gen, sections)
 	}
 	reply(w, 200, map[string]any{"sections": sections})
 }
@@ -387,19 +388,70 @@ func (i *instance) cachedSections(key string) ([]any, bool) {
 	return page.sections, true
 }
 
-func (i *instance) storeSections(key string, sections []any) {
+// storeSections keeps a page built from the viewer's state at generation
+// gen; a page built across one of the viewer's own changes is not kept.
+func (i *instance) storeSections(key string, viewerID int64, gen uint64, sections []any) {
 	if i == nil {
 		return
 	}
 	i.sectionsMu.Lock()
 	defer i.sectionsMu.Unlock()
+	if i.sectionsGen[viewerID] != gen {
+		return
+	}
 	if i.sectionsCache == nil {
 		i.sectionsCache = map[string]siloSectionPage{}
 	}
-	if len(i.sectionsCache) > 64 {
-		i.sectionsCache = map[string]siloSectionPage{}
+	// Past the cap, drop expired pages, then the oldest: one busy viewer
+	// must not empty every other viewer's pages.
+	if len(i.sectionsCache) >= siloSectionPages {
+		oldest, at := "", time.Time{}
+		for k, page := range i.sectionsCache {
+			if time.Since(page.at) >= siloSectionTTL {
+				delete(i.sectionsCache, k)
+			} else if oldest == "" || page.at.Before(at) {
+				oldest, at = k, page.at
+			}
+		}
+		if len(i.sectionsCache) >= siloSectionPages {
+			delete(i.sectionsCache, oldest)
+		}
 	}
 	i.sectionsCache[key] = siloSectionPage{at: time.Now(), sections: sections}
+}
+
+func (i *instance) sectionsGeneration(viewerID int64) uint64 {
+	if i == nil {
+		return 0
+	}
+	i.sectionsMu.Lock()
+	defer i.sectionsMu.Unlock()
+	return i.sectionsGen[viewerID]
+}
+
+// siloSectionPages bounds the cached section pages across viewers.
+const siloSectionPages = 64
+
+// dropViewerSections forgets one viewer's cached section pages after that
+// viewer changes their own state here (watched, favorites, watchlist, not
+// interested), so their next Home shows it. Other viewers keep theirs;
+// changes made elsewhere reach a page within siloSectionTTL.
+func (i *instance) dropViewerSections(viewerID int64) {
+	if i == nil {
+		return
+	}
+	prefix := strconv.FormatInt(viewerID, 10) + "\n"
+	i.sectionsMu.Lock()
+	defer i.sectionsMu.Unlock()
+	if i.sectionsGen == nil {
+		i.sectionsGen = map[int64]uint64{}
+	}
+	i.sectionsGen[viewerID]++
+	for k := range i.sectionsCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(i.sectionsCache, k)
+		}
+	}
 }
 
 func (i *instance) liveChannelDetail(w http.ResponseWriter, r *http.Request, v *frontend.Viewer, credential, channelGUID string) {
@@ -721,6 +773,11 @@ func (i *instance) detail(w http.ResponseWriter, r *http.Request) {
 	if (d.Title.Type == "movie" || d.Title.Type == "episode") && i.host.Sessions != nil && i.host.Capabilities != nil {
 		dev := device(r)
 		capability, e := i.host.Capabilities.Build(i.identityContext(r), frontend.CapabilityRequest{Viewer: v, Device: caps.DeviceInfo{Protocol: "silo", ClientID: dev.ID, Product: dev.Client, Version: dev.Version}, UserAgent: r.UserAgent()})
+		if warmer, ok := i.host.Sessions.(frontend.DetailWarmer); ok && e == nil {
+			// The broker warms with this device's last declared play caps,
+			// never these generic ones (which supply network locality only).
+			warmer.WarmDetail(i.identityContext(r), frontend.PlanRequest{Viewer: v, Device: dev, Protocol: "silo", Item: key, Caps: capability.Client})
+		}
 		if e == nil {
 			versions, offers, e := i.sourceVersions(r, frontend.VersionScope{Viewer: v, Device: dev, Protocol: "silo", Caps: capability.Client}, d)
 			if e != nil {

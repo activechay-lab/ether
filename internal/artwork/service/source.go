@@ -43,6 +43,11 @@ type Source struct {
 	}
 	Raster   *artwork.SVGRasterizer
 	Collages *LibraryCollageCache
+	// Generated draws Ether's poster for a movie or show with no artwork
+	// (*artwork.Renderer). Nil leaves such titles without a poster entry.
+	Generated interface {
+		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
+	}
 }
 type artworkVirtualSeasonKey struct{}
 
@@ -137,6 +142,7 @@ type frontendArtworkEntry struct {
 	channelNumber, channelName    string
 	ultra                         *Palette
 	virtualSeason                 *core.Title
+	generated                     *artwork.TitlePoster
 }
 
 func artworkReference(req frontend.ArtworkRequest, kind, source string) string {
@@ -243,12 +249,15 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 				ctx = context.WithValue(ctx, artworkVirtualSeasonKey{}, title)
 			}
 		}
-		if err != nil || title == nil || title.Key != req.Item || (virtualSeason == nil && !title.IsReleased(s.now())) || !s.visible(ctx, req.Viewer, title) {
+		if err != nil || title == nil || title.Key != req.Item || (virtualSeason == nil && !title.IsReleased(s.now()) && !s.undatedSearchHit(ctx, title.Key)) || !s.visible(ctx, req.Viewer, title) {
 			return nil, false, core.ErrNotFound
 		}
 	}
 	var entries []frontendArtworkEntry
 	add := func(kind, source string, entry frontendArtworkEntry) {
+		if !frontend.ArtworkKindWanted(ctx, kind) {
+			return
+		}
 		ref := artworkReference(req, kind, source)
 		entry.image = frontend.Image{Kind: kind, Path: ref, Tag: ref, Subject: entry.subject}
 		entry.virtualSeason = virtualSeason
@@ -259,6 +268,10 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 		selected = s.Discovery.SelectArtwork(ctx, req.Viewer, title, req.Device.Language)
 	}
 	for _, item := range []struct{ kind, element string }{{frontend.ImagePoster, "poster"}, {frontend.ImageThumb, "thumb"}, {frontend.ImageBackdrop, "art"}, {frontend.ImageLogo, "logo"}, {frontend.ImageBanner, "banner"}} {
+		if !frontend.ArtworkKindWanted(ctx, item.kind) {
+			// A page signer seals only its wanted kinds.
+			continue
+		}
 		path, _, err := s.ArtPath(ctx, req, item.element)
 		generated := req.Item.Kind() == core.KindSmart && (item.element == "thumb" || item.element == "poster")
 		version, kind := "", ""
@@ -277,13 +290,16 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 			continue
 		}
 		if (err != nil || path == "") && !generated {
+			if p, ok := a.generatedPoster(title, virtualSeason, item.kind); ok {
+				add(item.kind, "generated\x00"+p.Stamp(), frontendArtworkEntry{generated: &p})
+			}
 			continue
 		}
 		add(item.kind, item.element+"\x00"+path+"\x00"+collectionVersion, frontendArtworkEntry{element: item.element})
 	}
 	complete := true
 	if title != nil {
-		if s.Palettes != nil && ultraBlurType(title.Type) && title.BackdropPath != "" {
+		if s.Palettes != nil && ultraBlurType(title.Type) && title.BackdropPath != "" && frontend.ArtworkKindWanted(ctx, frontend.ImageBackdrop) {
 			if colors := s.Palettes.Lookup(title.Key, title.BackdropPath); colors != nil {
 				stamp := colors.TopLeft + colors.TopRight + colors.BottomLeft + colors.BottomRight
 				add(frontend.ImageBackdrop, "ultrablur\x00"+title.BackdropPath+"\x00"+stamp, frontendArtworkEntry{ultra: colors})
@@ -388,6 +404,16 @@ func (a Source) ListPage(ctx context.Context, viewer *core.Viewer, device core.D
 		}
 		ctx = next
 	}
+	// An episode or season missing a wanted image falls back to its
+	// series' (ArtPath). Read those series in one batch rather than one
+	// title per series as each row is listed.
+	if pre, ok := a.Catalog.(interface {
+		PreloadStored(context.Context, []core.RatingKey)
+	}); ok {
+		if parents := fallbackParents(ctx, titles); len(parents) > 0 {
+			pre.PreloadStored(ctx, parents)
+		}
+	}
 	out := make(map[core.RatingKey][]frontend.Image, len(titles))
 	for i := range titles {
 		images, _, err := a.List(frontend.WithArtworkTitle(ctx, &titles[i]), frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: titles[i].Key})
@@ -408,9 +434,10 @@ func (a Source) List(ctx context.Context, req frontend.ArtworkRequest) ([]fronte
 		return nil, false, err
 	}
 	out := make([]frontend.Image, 0, len(entries))
+	withMetadata := frontend.ArtworkMetadataWanted(ctx)
 	for _, e := range entries {
 		img := e.image
-		if a.Metadata != nil {
+		if a.Metadata != nil && withMetadata {
 			img = a.Metadata(ctx, req, img)
 		}
 		out = append(out, img)
@@ -419,3 +446,50 @@ func (a Source) List(ctx context.Context, req frontend.ArtworkRequest) ([]fronte
 }
 
 var _ frontend.Artwork = Source{}
+
+func (a Source) generatedPoster(t, virtualSeason *core.Title, kind string) (artwork.TitlePoster, bool) {
+	if a.Generated == nil || virtualSeason != nil || (kind != frontend.ImagePoster && kind != frontend.ImageThumb) {
+		return artwork.TitlePoster{}, false
+	}
+	return artwork.ForTitle(t)
+}
+
+// undatedSearchHit reports a long-tail search hit whose release date is not
+// known yet (catalog.UndatedSearchHit): search shows it, so its artwork is
+// served although it is not known to be released.
+func (a Source) undatedSearchHit(ctx context.Context, key core.RatingKey) bool {
+	u, ok := a.Catalog.(interface {
+		UndatedSearchHit(context.Context, core.RatingKey) bool
+	})
+	return ok && u.UndatedSearchHit(ctx, key)
+}
+
+// fallbackParents lists the series ArtPath reads for titles: those of
+// episodes and seasons without their own image of a wanted kind.
+func fallbackParents(ctx context.Context, titles []core.Title) []core.RatingKey {
+	poster := frontend.ArtworkKindWanted(ctx, frontend.ImagePoster) || frontend.ArtworkKindWanted(ctx, frontend.ImageThumb)
+	backdrop := frontend.ArtworkKindWanted(ctx, frontend.ImageBackdrop)
+	logo := frontend.ArtworkKindWanted(ctx, frontend.ImageLogo)
+	var out []core.RatingKey
+	for i := range titles {
+		t := &titles[i]
+		if t.Type != core.TypeEpisode && t.Type != core.TypeSeason {
+			continue
+		}
+		ownPoster := t.PosterPath != "" || (t.Type == core.TypeEpisode && t.StillPath != "")
+		if (!poster || ownPoster) && (!backdrop || t.BackdropPath != "") && (!logo || t.LogoPath != "") {
+			continue
+		}
+		pk := t.ShowKey
+		if pk == 0 {
+			pk = t.Key.Parent()
+			if t.Type == core.TypeEpisode {
+				pk = pk.Parent()
+			}
+		}
+		if pk != 0 {
+			out = append(out, pk)
+		}
+	}
+	return out
+}

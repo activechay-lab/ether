@@ -121,17 +121,18 @@ func EpisodeNZB(data []byte, t *core.ReleaseTarget) ([]byte, error) {
 }
 
 // opaqueArchives returns the archive sets whose names carry no episode (an
-// obfuscated base name), the ones that may hold a whole season.
+// obfuscated base name), the ones that may hold a whole season. A set whose
+// name does give a season or cour must be the target's: "Show.S02.rar" of a
+// complete-series pack never stands in for season 1, whose classic-numbered
+// "05 - Title.mkv" member would otherwise match S01E05.
 func opaqueArchives(units []packUnit, t *core.ReleaseTarget) []packUnit {
 	var out []packUnit
 	for _, u := range units {
 		info := releaseparse.Parse(u.name)
-		if !u.archive || len(info.Episodes) != 0 || len(info.AbsoluteEpisodes) != 0 {
+		if !u.archive || len(info.Episodes) > 0 || len(info.AbsoluteEpisodes) > 0 {
 			continue
 		}
-		// A name that gives a season ("Show.S02") is that season's set, not
-		// one that may hold the wanted season.
-		if len(info.Seasons) > 0 && !slices.Contains(info.Seasons, t.Season) {
+		if len(info.Seasons) > 0 && !slices.Contains(info.Seasons, t.Season) || !fileCourMatchesTarget(u.name+".mkv", t) {
 			continue
 		}
 		out = append(out, u)
@@ -171,10 +172,17 @@ func pickPackUnit(units []packUnit, t *core.ReleaseTarget) *packUnit {
 	var best *packUnit
 	for i := range units {
 		u := &units[i]
+		if !fileCourMatchesTarget(u.name+".mkv", t) {
+			continue
+		}
 		info := releaseparse.Parse(u.name)
 		ok := releaseparse.EpisodeMatches(info, t.Season, t.Episode) ||
 			(t.AbsoluteEpisode > 0 && releaseparse.EpisodeMatchesAbsolute(info, t.AbsoluteEpisode)) ||
 			(len(info.Episodes) == 0 && classicPackEpisodeMatches(u.name+".mkv", t.Season, t.Episode))
+		if info.Cour > 0 && t.Cour == info.Cour && t.CourEpisode > 0 {
+			ok = releaseparse.EpisodeMatches(info, t.Season, t.CourEpisode) ||
+				releaseparse.EpisodeMatchesAbsolute(info, t.CourEpisode)
+		}
 		if ok && (best == nil || u.bytes > best.bytes) {
 			best = u
 		}

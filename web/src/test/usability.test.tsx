@@ -35,7 +35,7 @@ describe("Owner usability", () => {
   it.each([
     { path: "/sources/usenet", trigger: "Add a Usenet provider", dialog: "New provider" },
     { path: "/sources/debrid", trigger: "Add a debrid service", dialog: "New debrid provider" },
-    { path: "/sources/indexers", trigger: "Import from Prowlarr", dialog: "Import from Prowlarr" },
+    { path: "/sources/indexers", trigger: "Add a source", dialog: "Add a source" },
     { path: "/cache", trigger: "Edit policy", dialog: "Edit cache policy" },
     { path: "/notifications/channels", trigger: "New channel", dialog: "New notification channel" },
   ])("keeps $path mounted while its drawer opens and closes", async ({ path, trigger, dialog }) => {

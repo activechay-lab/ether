@@ -282,7 +282,7 @@ func configuredOrigin(cfg config.Config, defaultPort string) (string, bool) {
 				return base, true
 			}
 		} else {
-			h, p := host, ""
+			var h, p string
 			if sh, sp, err := net.SplitHostPort(host); err == nil {
 				h, p = strings.Trim(sh, "[]"), sp
 			} else {

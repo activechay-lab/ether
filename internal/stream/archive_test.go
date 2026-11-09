@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"errors"
@@ -286,6 +287,63 @@ func Test7zCopyMultiVolume(t *testing.T) {
 	checkRandomReads(t, src, video, 31, 150)
 	if got := readAll(t, src, 32<<10); !bytes.Equal(got, video) {
 		t.Fatal("mismatch")
+	}
+}
+
+func TestZIPStoreMultiVolumeAndRejected(t *testing.T) {
+	video := mkvBytes(70, 900_000)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, entry := range []struct {
+		name string
+		data []byte
+	}{
+		{"Movie.nfo", []byte("nfo")},
+		{"Movie.2024.mkv", video},
+	} {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: entry.name, Method: zip.Store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(entry.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	vols := cut(buf.Bytes(), 300_000)
+	f := newFakeFetcher()
+	doc := postVolumes(t, f, 60_000, vols, func(i int) string {
+		if i == len(vols)-1 {
+			return "Movie.2024.zip"
+		}
+		return fmt.Sprintf("Movie.2024.z%02d", i+1)
+	})
+	e := newTestEngine(t, f, nil, Options{})
+	src := openSource(t, e, "zip", doc)
+	if src.Name() != "Movie.2024.mkv" || src.Size() != int64(len(video)) {
+		t.Fatalf("name %q size %d", src.Name(), src.Size())
+	}
+	checkRandomReads(t, src, video, 71, 100)
+	if got := readAll(t, src, 32<<10); !bytes.Equal(got, video) {
+		t.Fatal("mismatch")
+	}
+
+	// Compressed ZIP must reject with ErrCompressed.
+	var cbuf bytes.Buffer
+	czw := zip.NewWriter(&cbuf)
+	cw, err := czw.CreateHeader(&zip.FileHeader{Name: "Movie.2024.mkv", Method: zip.Deflate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = cw.Write(video[:50_000])
+	_ = czw.Close()
+	cf := newFakeFetcher()
+	cdoc := postVolumes(t, cf, 30_000, [][]byte{cbuf.Bytes()}, func(int) string { return "Comp.zip" })
+	ce := newTestEngine(t, cf, nil, Options{})
+	if _, err := ce.Open(context.Background(), "zip-comp", cdoc); !errors.Is(err, ErrCompressed) {
+		t.Fatalf("compressed ZIP err = %v, want ErrCompressed", err)
 	}
 }
 

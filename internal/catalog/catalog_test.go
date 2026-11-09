@@ -286,20 +286,22 @@ func TestFacets(t *testing.T) {
 	}
 }
 
-func TestSearchJoinsBrowsable(t *testing.T) {
+// A search hit is a summary: it is not stored, and does not join the
+// library's listings, until someone opens it (owner decision, 0.3.6).
+func TestSearchDoesNotStoreHits(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCatalog(t, fakeTMDB(t))
 	res, err := c.Search(ctx, "Hidden", nil, 10)
 	if err != nil || len(res) != 1 || res[0].Title != "Hidden Gem" {
 		t.Fatalf("search: %v %v", res, err)
 	}
-	// Search publishes summaries immediately and persists them in the background.
-	// Wait for that publication before asserting the stored browse projection.
 	c.WaitRefreshes()
-	// Hidden Gem is below thresholds but must now be browsable (added_at set -> SortAdded works).
 	page, err := c.Browse(ctx, core.BrowseQuery{Filter: core.Filter{Query: "Hidden"}})
-	if err != nil || page.Total != 1 {
-		t.Fatalf("searched title not browsable: %+v %v", page, err)
+	if err != nil || page.Total != 0 {
+		t.Fatalf("searched title listed: %+v %v", page, err)
+	}
+	if got, err := c.StoredTitle(ctx, res[0].Key); err != nil || got.Title != "Hidden Gem" {
+		t.Fatalf("search summary not readable: %v %v", got, err)
 	}
 }
 

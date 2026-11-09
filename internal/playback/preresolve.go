@@ -288,6 +288,7 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 	e := &warmEntry{offset: opts.StartOffset, profileKey: profileKey(profileObj), profileObj: profileObj, caps: caps, done: make(chan struct{}), opened: make(chan struct{}), foreground: make(chan context.Context, 1), started: now, expires: now.Add(preResolveTTL)}
 	m.warm[id] = e
 	u := *user
+	wallStarted := time.Now()
 	m.wg.Add(1)
 	m.mu.Unlock()
 	go func() {
@@ -308,6 +309,13 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		ctx, cancel := warmPreparationContext(core.WithIndexerPurpose(m.ctx, core.IndexerPurposeWarmup), timeout, e.foreground)
 		e.setCancel(cancel)
 		defer cancel()
+		if opts.PlayIntent || reason == core.PrewarmPostPlay || reason == core.PrewarmNextEpisode {
+			hold := time.Duration(0)
+			if reason == core.PrewarmDetail {
+				hold = onDemandWarmHold
+			}
+			ctx = core.WithOnDemandWarm(ctx, m.onDemandWarmAdmit(ctx, id, e, wallStarted, hold))
+		}
 		title, err := m.deps.Catalog.Get(ctx, key)
 		if err != nil || title == nil || title.IsFutureRelease(m.now()) || title.Type == core.TypeShow || title.Type == core.TypeSeason {
 			return
@@ -416,6 +424,72 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 	return true
 }
 
+const (
+	// onDemandWarmHold is how long a detail page must stay the device's
+	// current title before its warm-up may open an add-on stream: opening
+	// another title's page aborts the warm-up first.
+	onDemandWarmHold = 2500 * time.Millisecond
+	// One add-on stream per viewer per onDemandWarmViewerGap, and at most
+	// onDemandWarmAddonLimit per add-on per onDemandWarmAddonWindow.
+	onDemandWarmViewerGap   = time.Minute
+	onDemandWarmAddonLimit  = 6
+	onDemandWarmAddonWindow = 10 * time.Minute
+)
+
+// onDemandWarmAdmit is the budget behind core.WithOnDemandWarm for one
+// warm-up: after the hold, the entry must still be the device's current
+// warm-up, the viewer must not have warmed an add-on stream within the gap,
+// and the add-on must be under its window limit.
+func (m *Manager) onDemandWarmAdmit(ctx context.Context, id identity, e *warmEntry, started time.Time, hold time.Duration) func(core.Release) bool {
+	return func(rel core.Release) bool {
+		if wait := time.Until(started.Add(hold)); wait > 0 {
+			t := time.NewTimer(wait)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return false
+			}
+		}
+		if ctx.Err() != nil || !core.IsSpeculative(ctx) {
+			return ctx.Err() == nil // Play took the warm-up over: normal rules apply
+		}
+		addon := rel.IndexerID
+		if addon == "" {
+			addon = rel.Indexer
+		}
+		now := m.now()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.closed || m.warm[id] != e {
+			return false
+		}
+		if at, ok := m.onDemandWarmAt[id.userID]; ok && now.Sub(at) < onDemandWarmViewerGap {
+			return false
+		}
+		recent := m.onDemandWarmByAddon[addon][:0]
+		for _, at := range m.onDemandWarmByAddon[addon] {
+			if now.Sub(at) < onDemandWarmAddonWindow {
+				recent = append(recent, at)
+			}
+		}
+		if len(recent) >= onDemandWarmAddonLimit {
+			m.onDemandWarmByAddon[addon] = recent
+			return false
+		}
+		if m.onDemandWarmAt == nil {
+			m.onDemandWarmAt = map[int64]time.Time{}
+		}
+		if m.onDemandWarmByAddon == nil {
+			m.onDemandWarmByAddon = map[string][]time.Time{}
+		}
+		m.onDemandWarmAt[id.userID] = now
+		m.onDemandWarmByAddon[addon] = append(recent, now)
+		m.log.Info("warm-up opens one add-on stream", "key", id.key, "release", rel.Name, "addon", rel.Indexer)
+		return true
+	}
+}
+
 // warmFacts are the release properties a Play-time profile is checked
 // against, from the cached probe when there is one, else the parsed
 // release name.
@@ -465,7 +539,7 @@ func warmAcceptable(e *warmEntry, profile core.QualityProfile, caps core.ClientC
 		return false
 	}
 	if !reflect.DeepEqual(e.profileObj.ReleaseRules, profile.ReleaseRules) ||
-		!reflect.DeepEqual(e.profileObj.EffectiveRanking(), profile.EffectiveRanking()) {
+		!reflect.DeepEqual(e.profileObj.PluginScores, profile.PluginScores) {
 		return false
 	}
 	if e.originalAudio && e.originalLanguage != strings.TrimSpace(originalLanguage) {
@@ -529,6 +603,25 @@ func (m *Manager) findWarmEntryLocked(user *core.User, caps core.ClientCaps, key
 		}
 	}
 	return nil
+}
+
+// DiscardWarm drops and cancels the warm entry for this user/client/key, so
+// the next Prepare resolves afresh. The broker calls it when a device's caps
+// widened after a detail page warmed the title with its earlier caps.
+func (m *Manager) DiscardWarm(user *core.User, caps core.ClientCaps, key core.RatingKey) {
+	if user == nil || caps.ClientID == "" {
+		return
+	}
+	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: playbackSurface(string(caps.Protocol))}
+	m.mu.Lock()
+	e := m.warm[id]
+	if e != nil {
+		delete(m.warm, id)
+	}
+	m.mu.Unlock()
+	if e != nil {
+		e.abort()
+	}
 }
 
 // WarmProbeInfo returns the probed media info of a completed warm-up for
@@ -677,8 +770,9 @@ func (m *Manager) takeWarmResolution(ctx context.Context, id identity, profile c
 // InvalidateTitle drops the warm (pre-resolved) entries for a title, from
 // both the detail and speculative budgets, so the next Play resolves
 // afresh — after the owner pins, unpins, blocks or unblocks a release, or
-// forgets a title's search. Stored source choices are invalidated too;
-// watch progress and container indexes remain intact. A show or season key
+// forgets a title's search. Stored source choices are invalidated too,
+// with their keyframe indexes and probes; watch progress remains intact.
+// A show or season key
 // also drops its episodes' entries. A warm-up still in flight finishes into
 // nothing. It returns how many warm entries were dropped.
 func (m *Manager) InvalidateTitle(key core.RatingKey) int {
@@ -699,7 +793,13 @@ func (m *Manager) InvalidateTitle(key core.RatingKey) int {
 	if m.resume != nil {
 		ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
 		defer cancel()
-		if err := m.resume.invalidateTitle(ctx, key); err != nil {
+		sessions := map[resumeKey]bool{}
+		m.mu.Lock()
+		for _, s := range m.sessions {
+			sessions[resumeKey{s.ident.userID, s.ident.key}] = true
+		}
+		m.mu.Unlock()
+		if err := m.resume.invalidateTitle(ctx, key, sessions); err != nil {
 			m.log.Warn("invalidate remembered source", "key", key, "err", err)
 		}
 	}

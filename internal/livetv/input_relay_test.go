@@ -46,7 +46,18 @@ func carriesProviderHeaders(r *http.Request) bool {
 // returns the session.
 func tuneRelayChannel(t *testing.T, s *Service, streamURL string) SessionInfo {
 	t.Helper()
-	ctx := context.Background()
+	info, err := tuneRelayChannelCtx(t, context.Background(), s, streamURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
+}
+
+// tuneRelayChannelCtx tunes without requiring the relay to deliver media: a
+// Direct tune waits for its owned timeline's first playlist, which a fake
+// encoder never produces.
+func tuneRelayChannelCtx(t *testing.T, ctx context.Context, s *Service, streamURL string) (SessionInfo, error) {
+	t.Helper()
 	src := Source{ID: "provider", Name: "Provider", Auth: relayAuth(), Playlist: "#EXTM3U\n#EXTINF:-1 tvg-id=\"news\",News\n" + streamURL + "\n"}
 	if _, err := s.ImportSource(ctx, src); err != nil {
 		t.Fatal(err)
@@ -57,11 +68,7 @@ func tuneRelayChannel(t *testing.T, s *Service, streamURL string) SessionInfo {
 	if _, err := s.SaveChannel(ctx, c); err != nil {
 		t.Fatal(err)
 	}
-	info, err := s.Tune(ctx, &core.User{ID: 1}, c.ID, core.ClientCaps{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return info
+	return s.Tune(ctx, &core.User{ID: 1}, c.ID, core.ClientCaps{})
 }
 
 func relayGet(t *testing.T, raw string, header http.Header) (int, http.Header, string) {
@@ -206,12 +213,35 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	}
 	defer tc.Close()
 	s := testService(t, Options{Transcoder: tc, HTTPClient: up.Client()})
-	info := tuneRelayChannel(t, s, up.URL+"/live/xuser/xpass-S3CRET/1001.ts?token=QTOKEN-S3CRET")
-
-	runner.mu.Lock()
-	calls := append([][]string(nil), runner.calls...)
-	bodies := append([]string(nil), runner.bodies...)
-	runner.mu.Unlock()
+	// A Direct relay whose stub encoder never publishes a segment ends its
+	// tune at the deadline; the argv it was started with is what this test
+	// inspects.
+	tuneCtx, cancelTune := context.WithTimeout(context.Background(), 3*time.Second)
+	info, tuneErr := tuneRelayChannelCtx(t, tuneCtx, s, up.URL+"/live/xuser/xpass-S3CRET/1001.ts?token=QTOKEN-S3CRET")
+	cancelTune()
+	// A continuous output starts its input decoder after the tune returns,
+	// and reopens it while this fake ffmpeg keeps failing. Judge one snapshot
+	// in which every recorded relay read has its body.
+	var calls [][]string
+	var bodies []string
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		runner.mu.Lock()
+		calls = append([][]string(nil), runner.calls...)
+		bodies = append([]string(nil), runner.bodies...)
+		runner.mu.Unlock()
+		started, reads := false, 0
+		for _, args := range calls {
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "-i" && strings.HasPrefix(args[i+1], "http") {
+					reads++
+					started = started || args[0] == "ffmpeg"
+				}
+			}
+		}
+		if started && reads == len(bodies) {
+			break
+		}
+	}
 	var inputs []string
 	var analysis, packetProbe, encoder bool
 	for _, args := range calls {
@@ -221,6 +251,10 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 		}
 		for i := 0; i+1 < len(args); i++ {
 			if args[i] == "-i" {
+				if strings.HasPrefix(args[i+1], "tcp://127.0.0.1:") {
+					// A continuous encoder's raw frames, never provider data.
+					continue
+				}
 				inputs = append(inputs, args[i+1])
 				if args[0] == "ffprobe" && contains(args, "-show_streams") {
 					analysis = true
@@ -239,9 +273,11 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 		t.Fatalf("tool inputs = %q", inputs)
 	}
 	grantPattern := regexp.MustCompile(`^http://127\.0\.0\.1:\d+/livetv/input/[A-Za-z0-9_-]{43}/0/stream\.ts$`)
+	// Steady probes through its own grant and decodes through another: every
+	// tool reads a loopback grant, never the provider URL.
 	for _, input := range inputs {
-		if input != inputs[0] || !grantPattern.MatchString(input) {
-			t.Fatalf("tool input is not the session's loopback grant: %q (all: %q)", input, inputs)
+		if !grantPattern.MatchString(input) {
+			t.Fatalf("tool input is not a loopback grant: %q (all: %q)", input, inputs)
 		}
 	}
 	if len(bodies) != len(inputs) || hits.Load() == 0 {
@@ -254,11 +290,18 @@ func TestFFmpegArgvCarriesNoProviderURLOrHeaders(t *testing.T) {
 	}
 	assertNoSecrets(t, "transcoder log", logs.String(), hostOf(up.URL))
 
-	if err := s.Stop(context.Background(), info.ID, &core.User{ID: 1}); err != nil {
-		t.Fatal(err)
+	if tuneErr == nil {
+		if err := s.Stop(context.Background(), info.ID, &core.User{ID: 1}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if code, _, _ := relayGet(t, inputs[0], nil); code != http.StatusNotFound {
-		t.Fatalf("grant outlived its session: %d", code)
+	// A continuous channel output keeps its input warm through the idle
+	// grace after its last viewer; ending the output must revoke the grant.
+	s.broadcasts.invalidate("", true)
+	for _, input := range inputs {
+		if code, _, _ := relayGet(t, input, nil); code != http.StatusNotFound {
+			t.Fatalf("grant outlived its session: %d", code)
+		}
 	}
 	runner.mu.Lock()
 	for _, p := range runner.procs {
@@ -331,7 +374,9 @@ func TestRelayHLSChainScopesProviderHeadersToSourceOrigin(t *testing.T) {
 	}))
 	defer origin.Close()
 	tc := &fakeTranscoder{}
-	s := testService(t, Options{Transcoder: tc, HTTPClient: origin.Client()})
+	// Fastest holds no reserve, so the relay serves the provider's whole
+	// window: this test walks every segment of the chain.
+	s := testService(t, Options{Transcoder: tc, HTTPClient: origin.Client(), Stability: func() string { return stabilityFastest }})
 	tuneRelayChannel(t, s, origin.URL+"/live/u/xpass-S3CRET/master.m3u8?token=QTOKEN-S3CRET")
 	if len(tc.requests) != 1 || len(tc.requests[0].InputHeaders) != 0 {
 		t.Fatalf("relay request = %+v", tc.requests)

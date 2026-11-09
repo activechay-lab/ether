@@ -25,6 +25,7 @@ import (
 // track per representation (video, audio); ffmpeg's dash muxer writes short
 // chunks that the session regroups into numbered segments by timestamp.
 type Session struct {
+	healTimestamps          bool // positively sampled MPEG-TS clock discontinuity
 	qsvCodec                string
 	qsvQuality              bool
 	qsvMode                 string
@@ -72,6 +73,7 @@ type sessionInput struct {
 	rtxDiscontinuities     map[int]bool
 	loopInput              bool
 	liveInput              bool
+	liveFromBacklog        bool
 	inputLease             core.EncoderInputLease
 	inputHeaders           map[string]string
 	input                  string
@@ -91,6 +93,7 @@ type sessionInput struct {
 	liveFailures        int
 	liveRecovering      bool
 	liveDiscontinuities map[int]bool
+	liveDurations       map[int]time.Duration // live: each published segment's real length (session_playlist.go)
 	// contract is the delivered video a static-header session keeps
 	// across failovers; nil for every other session (contract.go).
 	contract       *videoContract
@@ -195,27 +198,28 @@ type run struct {
 	rtx          bool
 	rtxConfirmed atomic.Bool
 
-	seq        int
-	reason     string
-	startSeg   int
-	spec       runSpec
-	proc       Process
-	watchWork  *encoderWork
-	stopWork   *encoderWork
-	hw         bool
-	maxDone    int // last segment finished (DASH: on every track)
-	produced   int // segments finished (DASH: on the slowest track)
-	finished   bool
-	stopped    bool // stopped deliberately, not a failure
-	stalled    bool // watchdog interrupted a run with no progress
-	paused     bool
-	pausedDone int // maxDone when Pause was applied; later growth means it did not hold
-	err        error
-	stderr     *tailBuffer
-	started    time.Time
-	mode       SegMode // plan mode this run produces
-	planEnd    int     // first segment NOT produced by this run (mode change); -1 none
-	track      int     // session track (HLS rung / DASH video rep) encoded
+	seq           int
+	reason        string
+	startSeg      int
+	spec          runSpec
+	proc          Process
+	watchWork     *encoderWork
+	stopWork      *encoderWork
+	hw            bool
+	maxDone       int // last segment finished (DASH: on every track)
+	produced      int // segments finished (DASH: on the slowest track)
+	finished      bool
+	stopped       bool // stopped deliberately, not a failure
+	stalled       bool // watchdog interrupted a run with no progress
+	paused        bool
+	pausedDone    int // maxDone when Pause was applied; later growth means it did not hold
+	err           error
+	stderr        *tailBuffer
+	started       time.Time
+	traceBufferAt time.Time // rate limit optional playback buffer telemetry
+	mode          SegMode   // plan mode this run produces
+	planEnd       int       // first segment NOT produced by this run (mode change); -1 none
+	track         int       // session track (HLS rung / DASH video rep) encoded
 
 	progressMu sync.Mutex
 	progress   Progress
@@ -325,7 +329,14 @@ func (s *Session) EncoderStatus() *core.EncoderStatus {
 		}
 	}
 	b := s.recoveryBufferLocked()
-	return &core.EncoderStatus{Decision: r.spec.Decision, Processor: processor, Filters: filters, Phase: phase, Reason: r.reason, StartedAt: r.started, UpdatedAt: p.Updated, Speed: p.Speed, OutputTime: p.OutTime, ReadyUntil: b.ReadyUntil}
+	rung, i := "", r.track
+	if s.isDASH() {
+		i = rungForDashTrack(i) // DASH track 1 is audio: rung 0
+	}
+	if i > 0 && i < len(s.rungs) {
+		rung = s.rungs[i].id
+	}
+	return &core.EncoderStatus{Decision: r.spec.Decision, Rung: rung, Processor: processor, Filters: filters, Phase: phase, Reason: r.reason, StartedAt: r.started, UpdatedAt: p.Updated, Speed: p.Speed, OutputTime: p.OutTime, ReadyUntil: b.ReadyUntil}
 }
 
 // HWAccelerated reports whether the current run encodes on hardware.

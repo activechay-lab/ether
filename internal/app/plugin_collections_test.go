@@ -25,7 +25,7 @@ func TestPluginCollectionsWriteAndUndoIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cols, err := collections.New(db, cat, log, collections.WithoutDefaults())
+	cols, err := collections.New(db, cat, log)
 	if err != nil {
 		t.Fatal(err)
 	}

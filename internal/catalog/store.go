@@ -10,6 +10,8 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/contentrating"
@@ -63,8 +65,17 @@ func cacheStoredTitle(kind core.KeyKind) bool {
 }
 
 func (c *Catalog) minuteBucket() int64 {
+	if c.frozenMinute.Load() {
+		return 0
+	}
 	return c.now().Unix() / 60
 }
+
+// FreezeCacheMinute keys the catalogue's caches by its write generation
+// alone, without the wall-clock minute, so a measured replay hits and
+// misses the same way whenever it crosses a minute (the performance gate).
+// Production never calls it.
+func (c *Catalog) FreezeCacheMinute() { c.frozenMinute.Store(true) }
 
 func (c *Catalog) loadByKey(ctx context.Context, key core.RatingKey) (*storedTitle, error) {
 	gen := c.writeGen.Load()
@@ -252,7 +263,7 @@ func (c *Catalog) hydrateSlice(ctx context.Context, items []core.Title) error {
 	// studios, countries, credits and home-release dates.
 	const batch = 200
 	for chunk := range store.Chunks(keys, batch) {
-		if err := c.hydrateFactBatch(ctx, items, idx, chunk); err != nil {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factsFull); err != nil {
 			return err
 		}
 	}
@@ -260,6 +271,102 @@ func (c *Catalog) hydrateSlice(ctx context.Context, items []core.Title) error {
 		return err
 	}
 	if err := c.hydrateTrailers(ctx, items, idx, keys); err != nil {
+		return err
+	}
+	return c.applyHydratedAdded(ctx, items)
+}
+
+// hydrateVisibilityFacts fills the facts visibility rules and the release
+// gate read (factsVisibility), batched.
+func (c *Catalog) hydrateVisibilityFacts(ctx context.Context, items []core.Title) error {
+	return c.hydrateFacts(ctx, items, core.VisibilityFacts)
+}
+
+// hydrateFacts fills facts of items, batched: one statement per 200 titles,
+// none when facts is empty. Facts it reads must not be on items already.
+func (c *Catalog) hydrateFacts(ctx context.Context, items []core.Title, facts core.TitleFacts) error {
+	if facts == 0 || len(items) == 0 {
+		return nil
+	}
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		if facts&core.FactHomeRelease != 0 {
+			items[i].HomeReleaseChecked = false
+			items[i].HomeReleased = time.Time{}
+			items[i].HomeReleaseFallbackAdmitted = false
+		}
+	}
+	for chunk := range store.Chunks(keys, 200) {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factSet(facts)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hydrateRankSlice is hydrateSlice for a ranking window
+// (core.WithRankingCandidates): facts and the credits a ranking reads, no
+// alternative titles or trailers. The titles are partial: never cache them.
+func (c *Catalog) hydrateRankSlice(ctx context.Context, items []core.Title, facts core.TitleFacts) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if err := c.airedCounts(ctx, items); err != nil {
+		return err
+	}
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		items[i].HomeReleaseChecked = false
+		items[i].HomeReleased = time.Time{}
+		items[i].HomeReleaseFallbackAdmitted = false
+	}
+	for chunk := range store.Chunks(keys, 200) {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factSet(facts|core.FactHomeRelease)|factRankCredits); err != nil {
+			return err
+		}
+	}
+	if err := c.hydrateShows(ctx, items); err != nil {
+		return err
+	}
+	return c.applyHydratedAdded(ctx, items)
+}
+
+// hydrateListSlice is hydrateSlice for titles shown as list items
+// (factsList, no trailers). The titles are partial: never cache them.
+func (c *Catalog) hydrateListSlice(ctx context.Context, items []core.Title) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if err := c.airedCounts(ctx, items); err != nil {
+		return err
+	}
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		items[i].HomeReleaseChecked = false
+		items[i].HomeReleased = time.Time{}
+		items[i].HomeReleaseFallbackAdmitted = false
+	}
+	for chunk := range store.Chunks(keys, 200) {
+		if err := c.hydrateFactBatch(ctx, items, idx, chunk, factsList); err != nil {
+			return err
+		}
+	}
+	if err := c.hydrateShows(ctx, items); err != nil {
 		return err
 	}
 	return c.applyHydratedAdded(ctx, items)
@@ -309,25 +416,87 @@ type creditFact struct {
 	ord    int64
 }
 
-func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, args []any) error {
+// factSet is which facts hydrateFactBatch reads: the visibility facts
+// (core.TitleFacts, one bit each) plus credits and alternative titles.
+// A search reads its candidate window's rows with only the facts the
+// active policy decides by, and only the page that survives in full.
+type factSet uint16
+
+const (
+	factCredits     factSet = 1 << (8 + iota) // every credit
+	factListCredits                           // what a list item shows: three cast members, the directors and writers
+	factAltTitles
+	// factRowCredits is what an export row shows: the names of the
+	// directors and the first three cast members, no people join.
+	factRowCredits
+	// factRankCredits is what a taste ranking reads (core.RankCast and
+	// the others): every director and the first cast, writers and crew in
+	// credit order, with every credit tied at the cut.
+	factRankCredits
+)
+
+const (
+	factsVisibility = factSet(core.VisibilityFacts)
+	factsFull       = factsVisibility | factCredits | factAltTitles
+	// factsList is what a list item shows: no keywords or alternative titles.
+	factsList = factSet(core.FactGenres|core.FactStudios|core.FactCountries|core.FactHomeRelease) | factListCredits
+)
+
+// listCast is the cast a list item shows (Plex: three).
+const listCast = 3
+
+func (c *Catalog) hydrateFactBatch(ctx context.Context, items []core.Title, idx map[core.RatingKey][]int, args []any, set factSet) error {
 	ph := placeholders(len(args))
-	q := `SELECT key, tag, a, b, c, d, e, f, g, extra FROM (
-SELECT key, 'genre' AS tag, genre AS a, '' AS b, '' AS c, '' AS d, '' AS e, '' AS f, '' AS g, '' AS extra FROM catalog_genres WHERE key IN (` + ph + `)
-UNION ALL
-SELECT key, 'keyword', keyword, '', '', '', '', '', '', '' FROM catalog_keywords WHERE key IN (` + ph + `)
-UNION ALL
-SELECT key, 'alt', title, '', '', '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (` + ph + `)
-UNION ALL
-SELECT key, 'studio', studio, '', '', '', '', '', '', '' FROM catalog_studios WHERE key IN (` + ph + `)
-UNION ALL
-SELECT key, 'country', country, '', '', '', '', '', '', '' FROM catalog_countries WHERE key IN (` + ph + `)
-UNION ALL
-SELECT c.key, 'credit', c.kind, c.name, c.role, c.thumb, CAST(c.person_tmdb AS TEXT), COALESCE(p.imdb,''), CAST(c.ord AS TEXT), c.provider_id FROM catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)
-UNION ALL
-SELECT h.key, 'home', CAST(h.checked AS TEXT), CAST(h.earliest_ts AS TEXT), CAST(h.fallback_admitted AS TEXT), CAST(t.released_ts AS TEXT), CAST(t.year AS TEXT), '', '', '' FROM catalog_home_release h JOIN catalog_titles t ON t.key=h.key WHERE h.key IN (` + ph + `)
-) AS facts`
-	bound := make([]any, 0, len(args)*7)
-	for i := 0; i < 7; i++ {
+	// The first part names the columns the outer select reads.
+	var parts []string
+	part := func(key, tag, a, b, c, d, e, f, g, extra, from string) {
+		if len(parts) == 0 {
+			parts = append(parts, `SELECT `+key+`, `+tag+` AS tag, `+a+` AS a, `+b+` AS b, `+c+` AS c, `+d+` AS d, `+e+` AS e, `+f+` AS f, `+g+` AS g, `+extra+` AS extra FROM `+from)
+			return
+		}
+		parts = append(parts, `SELECT `+key+`, `+tag+`, `+a+`, `+b+`, `+c+`, `+d+`, `+e+`, `+f+`, `+g+`, `+extra+` FROM `+from)
+	}
+	if set&factSet(core.FactGenres) != 0 {
+		part("key", "'genre'", "genre", "''", "''", "''", "''", "''", "''", "''", `catalog_genres WHERE key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactStudios) != 0 {
+		part("key", "'studio'", "studio", "''", "''", "''", "''", "''", "''", "''", `catalog_studios WHERE key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactCountries) != 0 {
+		part("key", "'country'", "country", "''", "''", "''", "''", "''", "''", "''", `catalog_countries WHERE key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactHomeRelease) != 0 {
+		part("h.key", "'home'", "CAST(h.checked AS TEXT)", "CAST(h.earliest_ts AS TEXT)", "CAST(h.fallback_admitted AS TEXT)", "CAST(t.released_ts AS TEXT)", "CAST(t.year AS TEXT)", "''", "''", "''", `catalog_home_release h JOIN catalog_titles t ON t.key=h.key WHERE h.key IN (`+ph+`)`)
+	}
+	if set&factSet(core.FactKeywords) != 0 {
+		part("key", "'keyword'", "keyword", "''", "''", "''", "''", "''", "''", "''", `catalog_keywords WHERE key IN (`+ph+`)`)
+	}
+	if set&factAltTitles != 0 {
+		part("key", "'alt'", "title", "''", "''", "''", "''", "''", "''", "''", `catalog_alt_titles WHERE key IN (`+ph+`)`)
+	}
+	creditFrom := `catalog_credits c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE c.key IN (` + ph + `)`
+	if set&factListCredits != 0 && set&factCredits == 0 {
+		// A list item names no other crew (plex convert: Director, Writer, Role).
+		creditFrom += ` AND (c.kind IN ('director','writer') OR (c.kind='cast' AND c.ord<` + strconv.Itoa(listCast) + `))`
+	}
+	if set&(factCredits|factListCredits) != 0 {
+		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", creditFrom)
+	} else if set&factRankCredits != 0 {
+		// RANK keeps every credit tied with the last one a ranking reads;
+		// the credit sort below then cuts each list as the full read does.
+		// A kind the lists do not name joins the cast, as below.
+		ranked := `(SELECT key, person_tmdb, name, role, kind, ord, thumb, provider_id, RANK() OVER (PARTITION BY key, kind ORDER BY ord) AS rk FROM catalog_credits WHERE key IN (` + ph + `)) c LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb` +
+			` WHERE c.kind='director' OR (c.kind='writer' AND c.rk<=` + strconv.Itoa(core.RankWriters) + `) OR (c.kind='crew' AND c.rk<=` + strconv.Itoa(core.RankCrew) + `) OR (c.kind NOT IN ('director','writer','crew') AND c.rk<=` + strconv.Itoa(core.RankCast) + `)`
+		part("c.key", "'credit'", "c.kind", "c.name", "c.role", "c.thumb", "CAST(c.person_tmdb AS TEXT)", "COALESCE(p.imdb,'')", "CAST(c.ord AS TEXT)", "c.provider_id", ranked)
+	} else if set&factRowCredits != 0 {
+		part("key", "'credit'", "kind", "name", "''", "''", "CAST(person_tmdb AS TEXT)", "''", "CAST(ord AS TEXT)", "''", `catalog_credits WHERE key IN (`+ph+`) AND (kind='director' OR (kind='cast' AND ord<`+strconv.Itoa(listCast)+`))`)
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	q := "SELECT key, tag, a, b, c, d, e, f, g, extra FROM (\n" + strings.Join(parts, "\nUNION ALL\n") + "\n) AS facts"
+	bound := make([]any, 0, len(args)*len(parts))
+	for range parts {
 		bound = append(bound, args...)
 	}
 	rows, err := c.db.QueryContext(ctx, q, bound...)
@@ -405,11 +574,20 @@ SELECT h.key, 'home', CAST(h.checked AS TEXT), CAST(h.earliest_ts AS TEXT), CAST
 		}
 	}
 	for key, list := range credits {
+		// Credits tied on order keep the credit key's order (person, then
+		// role): SQLite reads one title's credits in it, and a ranking
+		// window cuts its lists the same way on either database.
 		sort.SliceStable(list, func(i, j int) bool {
 			if list[i].kind != list[j].kind {
 				return list[i].kind < list[j].kind
 			}
-			return list[i].ord < list[j].ord
+			if list[i].ord != list[j].ord {
+				return list[i].ord < list[j].ord
+			}
+			if list[i].person.TMDB != list[j].person.TMDB {
+				return list[i].person.TMDB < list[j].person.TMDB
+			}
+			return list[i].person.Role < list[j].person.Role
 		})
 		for _, fact := range list {
 			for _, i := range idx[key] {
@@ -431,11 +609,15 @@ SELECT h.key, 'home', CAST(h.checked AS TEXT), CAST(h.earliest_ts AS TEXT), CAST
 
 func (c *Catalog) hydrateShows(ctx context.Context, items []core.Title) error {
 	shows := map[core.RatingKey]*seriesIdentity{}
+	needsSeasonCounts := map[core.RatingKey]bool{}
 	var showArgs []any
 	for i := range items {
 		if k := items[i].ShowKey; k != 0 && shows[k] == nil {
 			shows[k] = &seriesIdentity{}
 			showArgs = append(showArgs, int64(k))
+		}
+		if items[i].Type == core.TypeEpisode && items[i].Season > 1 && items[i].Episode > 0 {
+			needsSeasonCounts[items[i].ShowKey] = true
 		}
 		if items[i].Type == core.TypeEpisode && items[i].Season == 1 && items[i].Episode > 0 {
 			items[i].AbsoluteEpisode = items[i].Episode
@@ -454,14 +636,27 @@ SELECT 'id' AS tag, key, imdb AS a, CAST(tvdb AS TEXT) AS b, CAST(year AS TEXT) 
 UNION ALL
 SELECT 'kw', key, keyword, '', '', '', '', '' FROM catalog_keywords WHERE key IN (` + ph + `)
 UNION ALL
-SELECT 'alt', key, title, '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (` + ph + `)
-UNION ALL
-SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', '', '', '' FROM catalog_titles WHERE type='season' AND season>0 AND show_key IN (` + ph + `)
-) AS show_facts`
+SELECT 'alt', key, title, '', '', '', '', '' FROM catalog_alt_titles WHERE key IN (` + ph + `)`
 		bound := make([]any, 0, len(part)*4)
-		for i := 0; i < 4; i++ {
+		for i := 0; i < 3; i++ {
 			bound = append(bound, part...)
 		}
+		// Only later episodes use sibling season counts to calculate their
+		// absolute number. Season pages still inherit every parent policy
+		// and display fact, without reading unrendered sibling seasons.
+		var countArgs []any
+		for _, arg := range part {
+			if needsSeasonCounts[core.RatingKey(arg.(int64))] {
+				countArgs = append(countArgs, arg)
+			}
+		}
+		if len(countArgs) > 0 {
+			q += `
+UNION ALL
+SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', '', '', '' FROM catalog_titles WHERE type='season' AND season>0 AND show_key IN (` + placeholders(len(countArgs)) + `)`
+			bound = append(bound, countArgs...)
+		}
+		q += "\n) AS show_facts"
 		rows, err := c.db.QueryContext(ctx, q, bound...)
 		if err != nil {
 			return err
@@ -627,6 +822,16 @@ type upsertOpts struct {
 	// earlier detail upsert marked (which otherwise keep their date).
 	airDates     bool
 	releaseDates *tmdb.ReleaseDates
+	// ratingCuts, set by upsertMany, limits rating, vote and popularity
+	// wobbles to the writes rating_drift.go keeps.
+	ratingCuts *ratingCuts
+	// stored, set by upsertMany, holds the batch's keys that already had a
+	// row; a key it lacks is inserted by this upsert, so the probes for
+	// what an existing row holds (ratings, release names) are skipped.
+	stored map[int64]bool
+	// joins, set by upsertItems, collects the batch's facet and credit
+	// writes (join_batch.go).
+	joins *joinBatch
 	// region is the owner's catalogue region; upsertMany sets it. A TMDB
 	// rating from the region or the US outranks a provider rating.
 	region string
@@ -677,7 +882,29 @@ func (c *Catalog) upsert(ctx context.Context, t core.Title, o upsertOpts) error 
 }
 
 func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertOpts) error {
-	if len(titles) == 0 {
+	items := make([]upsertItem, len(titles))
+	for i, t := range titles {
+		items[i] = upsertItem{t: t, o: o}
+	}
+	return c.upsertItems(ctx, items)
+}
+
+// upsertItem is one title and its write options.
+type upsertItem struct {
+	t core.Title
+	o upsertOpts
+}
+
+// upsertItems stores items in one transaction, each with its own options,
+// then runs after (more writes of the same transaction).
+func (c *Catalog) upsertItems(ctx context.Context, items []upsertItem, after ...func(context.Context, *sql.Tx) error) error {
+	return c.upsertItemsBudget(ctx, items, 0, after...)
+}
+
+// upsertItemsBudget starts the execution budget only after writer admission.
+// Waiting behind another transaction must not consume our execution allowance.
+func (c *Catalog) upsertItemsBudget(ctx context.Context, items []upsertItem, budget time.Duration, after ...func(context.Context, *sql.Tx) error) error {
+	if len(items) == 0 && len(after) == 0 {
 		return nil
 	}
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -685,12 +912,73 @@ func (c *Catalog) upsertMany(ctx context.Context, titles []core.Title, o upsertO
 		return err
 	}
 	defer tx.Rollback()
+	if budget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, budget)
+		defer cancel()
+	}
 	now := c.now().Unix()
-	o.region = c.config().Region
+	region := c.config().Region
+	cuts := c.ratingCuts()
+	titles := make([]core.Title, len(items))
+	for i := range items {
+		titles[i] = items[i].t
+	}
+	stored, err := storedKeys(ctx, tx, titles)
+	if err != nil {
+		return err
+	}
+	// Fold the new rows into the title search index (fts_fold.go).
+	var fresh []int64
+	seen := map[int64]bool{}
 	for _, t := range titles {
-		if err := upsertOne(ctx, tx, t, o, now); err != nil {
+		if k := int64(t.Key); !stored[k] && !seen[k] {
+			seen[k] = true
+			fresh = append(fresh, k)
+		}
+	}
+	// A bulk transaction (two or more new titles, or credits) sets the
+	// marker the search-index triggers check, and folds instead.
+	anyCredits := false
+	for i := range titles {
+		anyCredits = anyCredits || hasCredits(&titles[i])
+	}
+	// The marker is a write, so it is set only when a fold will run: up
+	// front for new titles, and around the credit inserts themselves for
+	// person names (join_batch.go), so an unchanged refresh writes nothing.
+	bulk := c.ftsFold && len(fresh) >= ftsFoldMin
+	if bulk {
+		if err := beginBulk(ctx, tx); err != nil {
 			return err
 		}
+	}
+	joins := &joinBatch{personFold: c.personFold && anyCredits, bulk: bulk}
+	for _, it := range items {
+		o := it.o
+		o.region, o.ratingCuts, o.stored, o.joins = region, &cuts, stored, joins
+		if err := upsertOne(ctx, tx, it.t, o, now); err != nil {
+			return err
+		}
+	}
+	if err := joins.flush(ctx, tx, now); err != nil {
+		return err
+	}
+	if bulk {
+		// With the marker set, the title trigger skipped every new row.
+		if err := foldTitleSearch(ctx, tx, fresh); err != nil {
+			return err
+		}
+		if err := endBulk(ctx, tx); err != nil {
+			return err
+		}
+	}
+	for _, f := range after {
+		if err := f(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -738,6 +1026,41 @@ const materialTitleChangeSQL = `(
  excluded.browsable>catalog_titles.browsable OR
  excluded.detail>catalog_titles.detail
 )`
+
+type noRows struct{}
+
+func (noRows) LastInsertId() (int64, error) { return 0, nil }
+func (noRows) RowsAffected() (int64, error) { return 0, nil }
+
+// storedKeys reads which of titles' keys already have a row, 500 a statement.
+func storedKeys(ctx context.Context, tx *sql.Tx, titles []core.Title) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(titles))
+	for start := 0; start < len(titles); start += 500 {
+		part := titles[start:min(start+500, len(titles))]
+		args := make([]any, len(part))
+		for i, t := range part {
+			args[i] = int64(t.Key)
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(part))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var k int64
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[k] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
 
 func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now int64) error {
 	if t.Key == 0 {
@@ -789,14 +1112,25 @@ func upsertOne(ctx context.Context, tx *sql.Tx, t core.Title, o upsertOpts, now 
 	if o.preserveDetailed {
 		preserveInt = 1
 	}
+	// A new movie row takes its year source at insert (what
+	// saveMovieYearSource would write to a row that has none); the
+	// conflict path leaves both columns to saveMovieYearSource.
+	insertYearSource, insertPrimary := "", int64(0)
+	if t.Type == core.TypeMovie && t.YearSource != "" {
+		insertYearSource = t.YearSource
+		if !t.PrimaryReleased.IsZero() {
+			insertPrimary = t.PrimaryReleased.Unix()
+		}
+	}
 	// Keep richer existing fields when a summary upsert would blank them:
 	// handled per-field with CASE in ON CONFLICT for a few detail-only fields.
 	result, err := tx.ExecContext(ctx, `
 INSERT INTO catalog_titles (key,type,tmdb_id,imdb,tvdb,show_key,show_tmdb,show_title,season_title,season,episode,
  title,original_title,sort_title,tagline,summary,year,released_ts,runtime_sec,status,language,
  content_rating,content_rating_rank,content_rating_source,rating,vote_count,popularity,poster,backdrop,still,logo,
- collection_id,collection_name,child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,detail_at,last_air_ts)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ collection_id,collection_name,child_count,leaf_count,browsable,added_at,fetched_at,detail,adult,detail_at,last_air_ts,
+ year_source,primary_released_ts)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(key) DO UPDATE SET
  type=excluded.type, tmdb_id=excluded.tmdb_id, adult=excluded.adult,
  imdb=CASE WHEN excluded.imdb<>'' THEN excluded.imdb ELSE catalog_titles.imdb END,
@@ -833,7 +1167,7 @@ ON CONFLICT(key) DO UPDATE SET
  detail=CASE WHEN excluded.detail>catalog_titles.detail THEN excluded.detail ELSE catalog_titles.detail END,
  detail_at=CASE WHEN excluded.detail=1 THEN excluded.detail_at ELSE catalog_titles.detail_at END
  WHERE (`+materialTitleChangeSQL+` OR
- catalog_titles.rating<>excluded.rating OR catalog_titles.vote_count<>excluded.vote_count OR catalog_titles.popularity<>excluded.popularity OR
+ (catalog_titles.added_at=0 AND excluded.browsable=1) OR
  catalog_titles.content_rating<>(`+ratingPrecedence("content_rating")+`) OR
  catalog_titles.content_rating_rank<>(`+ratingPrecedence("content_rating_rank")+`) OR
  catalog_titles.content_rating_source<>(`+ratingPrecedence("content_rating_source")+`)) AND (catalog_titles.detail=0 OR excluded.detail=1 OR ?=0)`,
@@ -841,16 +1175,46 @@ ON CONFLICT(key) DO UPDATE SET
 		t.Title, t.OriginalTitle, t.SortTitle, t.Tagline, t.Summary, t.Year, releasedTS, int64(t.Runtime.Seconds()), t.Status, t.Language,
 		t.ContentRating, int(contentrating.LevelOf(t.ContentRating)), t.ContentRatingSource, t.Rating, t.VoteCount, t.Popularity, t.PosterPath, t.BackdropPath, t.StillPath, t.LogoPath,
 		t.CollectionID, t.CollectionName, t.ChildCount, t.LeafCount, browsableInt, addedAtFor(browsableInt, now), now, detailInt, t.Adult, detailAtFor(detailInt, now), lastAirTS,
+		insertYearSource, insertPrimary,
 		homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, homeInt, preserveInt)
 	if err != nil {
 		return fmt.Errorf("catalog: upsert %d: %w", t.Key, err)
+	}
+	// TMDB's rating, votes and popularity move on nearly every sync. When
+	// nothing else changed, update only those three columns: the upsert
+	// above assigns every column, and SQLite rewrites the entry of every
+	// index on a column an UPDATE assigns (37 on catalog_titles), which made
+	// a popularity-only refresh 33 WAL pages a title. After a full upsert
+	// the values match and this matches no row.
+	fresh := o.stored != nil && !o.stored[int64(t.Key)]
+	if o.stored != nil {
+		o.stored[int64(t.Key)] = true // a repeat in the batch updates it
+	}
+	// Small wobbles are written only per rating_drift.go. A row this upsert
+	// inserted already holds the exact values.
+	drift, driftArgs := "", []any(nil)
+	if !o.detail && o.ratingCuts != nil && !ratingExact(t.Key, time.Unix(now, 0)) {
+		drift, driftArgs = ratingDriftSQL(*o.ratingCuts, t.Popularity, t.VoteCount, t.Rating)
+		drift = " AND " + drift
+	}
+	var jitter sql.Result = noRows{}
+	if !fresh {
+		jitter, err = tx.ExecContext(ctx, `UPDATE catalog_titles SET rating=?,vote_count=?,popularity=? WHERE key=? AND (rating<>? OR vote_count<>? OR popularity<>?) AND (detail=0 OR ?=1 OR ?=0)`+drift,
+			append([]any{t.Rating, t.VoteCount, t.Popularity, int64(t.Key), t.Rating, t.VoteCount, t.Popularity, detailInt, preserveInt}, driftArgs...)...)
+		if err != nil {
+			return fmt.Errorf("catalog: upsert %d ratings: %w", t.Key, err)
+		}
 	}
 	if o.preserveDetailed {
 		n, err := result.RowsAffected()
 		if err != nil {
 			return err
 		}
-		if n == 0 {
+		m, err := jitter.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n+m == 0 {
 			var detailed int
 			if err := tx.QueryRowContext(ctx, `SELECT detail FROM catalog_titles WHERE key=?`, int64(t.Key)).Scan(&detailed); err != nil {
 				return err
@@ -873,7 +1237,13 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: detail freshness %d: %w", t.Key, err)
 		}
 	}
-	if err := updateReleaseNames(ctx, tx, int64(t.Key), t.Type); err != nil {
+	updateNames := updateReleaseNames
+	if fresh {
+		updateNames = func(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType) error {
+			return insertFreshReleaseNames(ctx, tx, key, typ, t.Title, t.OriginalTitle)
+		}
+	}
+	if err := updateNames(ctx, tx, int64(t.Key), t.Type); err != nil {
 		return fmt.Errorf("catalog: index release name: %w", err)
 	}
 	if t.RemoteTrailerURL != "" {
@@ -891,119 +1261,22 @@ ON CONFLICT(key) DO UPDATE SET
 			return fmt.Errorf("catalog: upsert %d air date: %w", t.Key, err)
 		}
 	}
-	if err := saveMovieYearSource(ctx, tx, t, detailInt); err != nil {
-		return err
+	if !fresh {
+		if err := saveMovieYearSource(ctx, tx, t, detailInt); err != nil {
+			return err
+		}
 	}
 	// Replace join rows only when the incoming title carries that facet, so
-	// summary upserts don't wipe detail-fetched genres/credits.
-	joinChanged := false
-	if t.Genres != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_genres", "genre", int64(t.Key), t.Genres)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
+	// summary upserts don't wipe detail-fetched genres/credits. A batch
+	// writes them together after its titles (join_batch.go).
+	if o.joins != nil {
+		return o.joins.add(ctx, tx, t, now)
 	}
-	if t.Keywords != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_keywords", "keyword", int64(t.Key), t.Keywords)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
+	one := &joinBatch{}
+	if err := one.add(ctx, tx, t, now); err != nil {
+		return err
 	}
-	if t.AlternativeTitles != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_alt_titles", "title", int64(t.Key), t.AlternativeTitles)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Studios != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_studios", "studio", int64(t.Key), t.Studios)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if t.Countries != nil {
-		changed, err := replacePairs(ctx, tx, "catalog_countries", "country", int64(t.Key), t.Countries)
-		if err != nil {
-			return err
-		}
-		joinChanged = joinChanged || changed
-	}
-	if (t.Cast != nil || t.Directors != nil || t.Writers != nil || t.Crew != nil) && !creditsUnchanged(ctx, tx, t) {
-		joinChanged = true
-		if _, err := tx.ExecContext(ctx, `DELETE FROM catalog_credits WHERE key=?`, int64(t.Key)); err != nil {
-			return err
-		}
-		insert := func(ps []core.Person, kind string) error {
-			for i, p := range ps {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_credits(key,person_tmdb,name,role,kind,ord,thumb,provider_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
-					int64(t.Key), p.TMDB, p.Name, p.Role, kind, i, p.ThumbPath, p.ID); err != nil {
-					return err
-				}
-				if p.TMDB > 0 && validPersonIMDB(p.IMDB) {
-					if _, err := tx.ExecContext(ctx, `INSERT INTO catalog_people(person_tmdb,imdb) VALUES(?,?) ON CONFLICT(person_tmdb) DO UPDATE SET imdb=excluded.imdb`, p.TMDB, p.IMDB); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		}
-		if err := insert(t.Cast, "cast"); err != nil {
-			return err
-		}
-		if err := insert(t.Directors, "director"); err != nil {
-			return err
-		}
-		if err := insert(t.Writers, "writer"); err != nil {
-			return err
-		}
-		if err := insert(t.Crew, "crew"); err != nil {
-			return err
-		}
-	}
-	if joinChanged {
-		if _, err := tx.ExecContext(ctx, `UPDATE catalog_titles SET fetched_at=? WHERE key=?`, now, int64(t.Key)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// creditsUnchanged reports whether t's credits are exactly the stored ones,
-// so a refresh that brings the same cast and crew writes nothing.
-func creditsUnchanged(ctx context.Context, tx *sql.Tx, t core.Title) bool {
-	type credit struct {
-		person            int64
-		name, role, kind  string
-		ord               int
-		thumb, providerID string
-	}
-	want := map[credit]bool{}
-	for _, group := range []struct {
-		people []core.Person
-		kind   string
-	}{{t.Cast, "cast"}, {t.Directors, "director"}, {t.Writers, "writer"}, {t.Crew, "crew"}} {
-		for i, p := range group.people {
-			want[credit{p.TMDB, p.Name, p.Role, group.kind, i, p.ThumbPath, p.ID}] = true
-		}
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT person_tmdb,name,role,kind,ord,thumb,provider_id FROM catalog_credits WHERE key=?`, int64(t.Key))
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	n := 0
-	for rows.Next() {
-		var c credit
-		if rows.Scan(&c.person, &c.name, &c.role, &c.kind, &c.ord, &c.thumb, &c.providerID) != nil || !want[c] {
-			return false
-		}
-		n++
-	}
-	return rows.Err() == nil && n == len(want)
+	return one.flush(ctx, tx, now)
 }
 
 func detailAtFor(detail int, now int64) int64 {
@@ -1043,53 +1316,18 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-func replacePairs(ctx context.Context, tx *sql.Tx, table, col string, key int64, vals []string) (bool, error) {
-	want := map[string]bool{}
-	for _, v := range vals {
-		if v != "" {
-			want[v] = true
+// valueRows is n parenthesised rows of cols placeholders: "(?,?),(?,?)".
+func valueRows(n, cols int) string {
+	row := "(" + placeholders(cols) + ")"
+	var b strings.Builder
+	b.Grow(n * (len(row) + 1))
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
 		}
+		b.WriteString(row)
 	}
-	// A refresh usually brings the same values. Leaving the rows alone keeps
-	// policy triggers (and the search index) from firing for nothing.
-	if same, err := pairsEqual(ctx, tx, table, col, key, want); err != nil || same {
-		return false, err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE key=?`, key); err != nil {
-		return false, err
-	}
-	seen := map[string]bool{}
-	for _, v := range vals {
-		if v == "" || seen[v] {
-			continue
-		}
-		seen[v] = true
-		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(key,`+col+`) VALUES(?,?) ON CONFLICT DO NOTHING`, key, v); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
-}
-
-// pairsEqual reports whether key's stored values in table are exactly want.
-func pairsEqual(ctx context.Context, tx *sql.Tx, table, col string, key int64, want map[string]bool) (bool, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT `+col+` FROM `+table+` WHERE key=?`, key)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	n := 0
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return false, err
-		}
-		if !want[v] {
-			return false, rows.Err()
-		}
-		n++
-	}
-	return n == len(want), rows.Err()
+	return b.String()
 }
 
 func (c *Catalog) queryTitles(ctx context.Context, q string, args ...any) ([]core.Title, error) {
@@ -1102,7 +1340,165 @@ func (c *Catalog) queryPagedTitles(ctx context.Context, q string, args ...any) (
 	return c.queryTitlesMode(ctx, true, q, args...)
 }
 
+// queryListRows reads a SQL-gated export page (core.ListRows): the titles
+// rows.Detail reports in full, the others with rows.Facts, the facts the
+// catalogue's policy reads for ctx's viewer, and their row credits. The
+// partial titles never enter the title cache; exportCache keeps the page
+// for its image signer.
+func (c *Catalog) queryListRows(ctx context.Context, lr *core.ListRows, q string, args ...any) ([]core.Title, error) {
+	gen := c.writeGen.Load()
+	minute := c.minuteBucket()
+	rows, err := c.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	var out []core.Title
+	for rows.Next() {
+		st, err := scanTitle(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, st.t)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	var partial, full []core.Title
+	var partialAt, fullAt []int
+	for i := range out {
+		if lr.Detail != nil && lr.Detail(out[i]) {
+			full, fullAt = append(full, out[i]), append(fullAt, i)
+		} else {
+			partial, partialAt = append(partial, out[i]), append(partialAt, i)
+		}
+	}
+	need := factSet(lr.Facts|c.policyFacts(c.visibilityFor(ctx))|c.viewerPolicyFacts(ctx)) | factRowCredits
+	if err := c.hydrateRows(ctx, partial, need); err != nil {
+		return nil, err
+	}
+	if len(full) > 0 {
+		if err := c.hydrateSlice(ctx, full); err != nil {
+			return nil, err
+		}
+		c.rememberTitles(gen, minute, full)
+	}
+	for j, i := range partialAt {
+		out[i] = partial[j]
+	}
+	for j, i := range fullAt {
+		out[i] = full[j]
+	}
+	c.rememberExportTitles(ctx, gen, minute, out)
+	return out, nil
+}
+
+// exportFactSplit is the fewest keys worth a second fact reader.
+const exportFactSplit = 64
+
+// hydrateRows reads set's facts of an export page's partial titles. The
+// page is read while the one before it is signed and encoded: its facts
+// come from two readers at once, over disjoint halves of its keys (and so
+// of the items they fill).
+func (c *Catalog) hydrateRows(ctx context.Context, items []core.Title, set factSet) error {
+	if len(items) == 0 {
+		return nil
+	}
+	// No aired counts: an export row shows no season or episode count, and
+	// counting them reads every episode of every listed series.
+	idx := map[core.RatingKey][]int{}
+	keys := make([]any, 0, len(items))
+	for i := range items {
+		if _, ok := idx[items[i].Key]; !ok {
+			keys = append(keys, int64(items[i].Key))
+		}
+		idx[items[i].Key] = append(idx[items[i].Key], i)
+		if set&factSet(core.FactHomeRelease) != 0 {
+			items[i].HomeReleaseChecked = false
+			items[i].HomeReleased = time.Time{}
+			items[i].HomeReleaseFallbackAdmitted = false
+		}
+	}
+	parts := [][]any{keys}
+	if len(keys) > 2*exportFactSplit {
+		half := (len(keys) + 1) / 2
+		parts = [][]any{keys[:half], keys[half:]}
+	}
+	errs := make([]error, len(parts))
+	var wg sync.WaitGroup
+	for j, part := range parts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// One statement per half: at most 125 keys, far below the
+			// bound parameters.
+			errs[j] = c.hydrateFactBatch(ctx, items, idx, part, set)
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	if err := c.hydrateShows(ctx, items); err != nil {
+		return err
+	}
+	return c.applyHydratedAdded(ctx, items)
+}
+
+// exportCacheMax bounds exportCache: a few export pages, enough for
+// concurrent exports to find their own page when they sign it.
+const exportCacheMax = 4096
+
+// exportCacheKey is a title as one viewer's export read it: what it
+// carries is what that viewer's policy reads.
+type exportCacheKey struct {
+	viewer int64
+	key    core.RatingKey
+}
+
+func (c *Catalog) rememberExportTitles(ctx context.Context, gen uint64, minute int64, items []core.Title) {
+	viewer := core.CatalogViewerID(ctx)
+	if viewer == 0 || c.writeGen.Load() != gen {
+		return
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.exportCache == nil || len(c.exportCache)+len(items) > exportCacheMax {
+		c.exportCache = make(map[exportCacheKey]cachedStoredTitle, exportCacheMax)
+	}
+	for i := range items {
+		if cacheStoredTitle(items[i].Key.Kind()) {
+			c.exportCache[exportCacheKey{viewer, items[i].Key}] = cachedStoredTitle{st: storedTitle{t: cloneTitle(items[i])}, gen: gen, minute: minute}
+		}
+	}
+}
+
+// exportTitle is key as ctx's viewer's current export page read it.
+func (c *Catalog) exportTitle(ctx context.Context, key core.RatingKey, gen uint64, minute int64) (core.Title, bool) {
+	viewer := core.CatalogViewerID(ctx)
+	if viewer == 0 {
+		return core.Title{}, false
+	}
+	c.cacheMu.RLock()
+	ent, ok := c.exportCache[exportCacheKey{viewer, key}]
+	c.cacheMu.RUnlock()
+	if !ok || ent.gen != gen || ent.minute != minute {
+		return core.Title{}, false
+	}
+	return cloneTitle(ent.st.t), true
+}
+
 func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, args ...any) ([]core.Title, error) {
+	return c.queryTitlesRows(ctx, sqlGated, false, q, args...)
+}
+
+// queryTitlesRows is queryTitlesMode; with rowsOnly, movies and shows stay
+// the rows the query read, for the caller to filter and complete (a
+// candidate search, core.SearchCandidates), and only the other titles are
+// read in full. Rows and full titles keep the query's order.
+func (c *Catalog) queryTitlesRows(ctx context.Context, sqlGated, rowsOnly bool, q string, args ...any) ([]core.Title, error) {
 	gen := c.writeGen.Load()
 	minute := c.minuteBucket()
 	rows, err := c.db.QueryContext(ctx, q, args...)
@@ -1126,13 +1522,42 @@ func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	asRow := func(t *core.Title) bool {
+		return rowsOnly && (t.Type == core.TypeMovie || t.Type == core.TypeShow)
+	}
 	needAt := make([]int, 0, len(out))
 	for i := range out {
+		if asRow(&out[i]) {
+			continue
+		}
 		if cached, ok := c.cachedStored(out[i].Key, gen, minute); ok {
 			out[i] = cached
 			continue
 		}
 		needAt = append(needAt, i)
+	}
+	rank := rankProjectionFrom(ctx)
+	partial := map[core.RatingKey]bool{}
+	if len(needAt) > 0 && rank != nil {
+		// A ranking window's titles: the projection, then in full each one
+		// the caller judges on its full facts.
+		need := make([]core.Title, len(needAt))
+		for j, i := range needAt {
+			need[j] = out[i]
+		}
+		if err := c.hydrateRankSlice(ctx, need, rank.facts); err != nil {
+			return nil, err
+		}
+		var fullAt []int
+		for j, i := range needAt {
+			if rank.detail != nil && rank.detail(need[j]) {
+				fullAt = append(fullAt, i)
+				continue
+			}
+			out[i] = need[j]
+			partial[out[i].Key] = true
+		}
+		needAt = fullAt
 	}
 	if len(needAt) > 0 {
 		need := make([]core.Title, len(needAt))
@@ -1150,13 +1575,50 @@ func (c *Catalog) queryTitlesMode(ctx context.Context, sqlGated bool, q string, 
 	if !sqlGated {
 		visible = out[:0]
 		for _, t := range out {
-			if c.upcomingMovie(&t) || (t.IsReleased(c.now()) && (!(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&t, c.now()))) {
+			// A row's release gate is the caller's, once its facts are read.
+			if asRow(&t) || c.upcomingMovie(&t) || (t.IsReleased(c.now()) && (!(c.config().ReleaseMode == config.ModeDigital) || homeReleaseVisible(&t, c.now()))) {
 				visible = append(visible, t)
 			}
 		}
 	}
-	c.rememberTitles(gen, minute, visible)
+	full := visible
+	if rowsOnly || len(partial) > 0 {
+		full = make([]core.Title, 0, len(visible))
+		for _, t := range visible {
+			if !asRow(&t) && !partial[t.Key] {
+				full = append(full, t)
+			}
+		}
+	}
+	if len(partial) > 0 {
+		for _, t := range visible {
+			if partial[t.Key] {
+				rank.partial = append(rank.partial, t.Key)
+			}
+		}
+	}
+	c.rememberTitles(gen, minute, full)
 	return visible, nil
+}
+
+// rankProjection is a browse's ranking window (core.WithRankingCandidates)
+// as its title reads see it: the facts to read, the titles to read in full
+// instead, and the titles read partial.
+type rankProjection struct {
+	facts   core.TitleFacts
+	detail  func(core.Title) bool
+	partial []core.RatingKey
+}
+
+type rankProjectionKey struct{}
+
+func withRankProjection(ctx context.Context, p *rankProjection) context.Context {
+	return context.WithValue(ctx, rankProjectionKey{}, p)
+}
+
+func rankProjectionFrom(ctx context.Context) *rankProjection {
+	p, _ := ctx.Value(rankProjectionKey{}).(*rankProjection)
+	return p
 }
 
 func (c *Catalog) getMeta(ctx context.Context, k string) string {

@@ -73,7 +73,7 @@ func TestCatalogWriteVolume(t *testing.T) {
 			}
 			if pass == "unchanged-cursor" {
 				r := resumed.Value(syncResumeKey{}).(*syncResume)
-				r.Pages["false/popularity/2000"] = i/20 + 2
+				r.Walks["false/popularity"] = walkCursor{Leaf: "false/popularity/2000-01-01..2000-12-31/0--1", Page: i/20 + 2}
 				if err := c.saveSyncResume(resumed); err != nil {
 					t.Fatal(err)
 				}

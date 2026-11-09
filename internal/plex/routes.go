@@ -78,6 +78,7 @@ func (s *Server) routes() chi.Router {
 	get("/library/search", s.handleLibrarySearch)
 	get("/search", s.handleSearch)
 	get("/library/metadata/{key}", s.handleMetadata)
+	get("/library/metadata/plex:/*", s.handleMetadataGUIDPath)
 	r.Delete("/library/metadata/{key}", s.handlePlaylistMetadataRefusal)
 	r.Put("/library/metadata/{key}/prefs", s.handlePlaylistMetadataRefusal)
 	r.Put("/library/metadata/{key}/analyze", s.handlePlaylistMetadataRefusal)

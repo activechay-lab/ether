@@ -15,6 +15,7 @@ import (
 
 // runSpec is everything needed to build one ffmpeg HLS run.
 type runSpec struct {
+	HealTimestamps bool
 	// RampClock keeps every run of a fast-start session on the steady clock.
 	RampClock bool
 	// AuthoredTimeline preserves adaptive sessions with a separate clock.
@@ -27,6 +28,7 @@ type runSpec struct {
 	SoftSubtitleIndex    int
 	LoopInput            bool
 	LiveInput            bool
+	LiveFromBacklog      bool // live HLS input: start at its first listed segment
 	CopyTimestamps       bool
 	// RTXTimeline preserves the native session's clock and rendition-local
 	// initialization paths when ordinary FFmpeg takes over.
@@ -37,7 +39,12 @@ type runSpec struct {
 	Info              core.MediaInfo
 	Decision          core.Decision
 	// Start is the media timestamp of the run's first segment (StartSeg).
-	Start          time.Duration
+	Start time.Duration
+	// SeekFrom is the input seek point of a video copy whose demuxer cannot
+	// find the keyframe before Start itself (copyKeyframeBefore), when
+	// HasSeekFrom.
+	SeekFrom       time.Duration
+	HasSeekFrom    bool
 	SegDur         time.Duration
 	StartSeg       int
 	Dir            string
@@ -324,6 +331,9 @@ func buildCodecArgs(s runSpec) []string {
 			args = append(args, "-reconnect_streamed", "1", "-reconnect_max_retries", "3")
 		}
 		args = append(args, "-fflags", "+discardcorrupt+genpts", "-err_detect", "ignore_err")
+		if s.LiveFromBacklog {
+			args = append(args, "-live_start_index", "0")
+		}
 	}
 	if !pceBounded {
 		args = appendInputHeaders(args, s.commandHeaders())
@@ -347,7 +357,9 @@ func buildCodecArgs(s runSpec) []string {
 	}
 	if s.Start > 0 && !pceOutputSeek {
 		seek := secs(s.Start)
-		if lead := hlsNVENCPreroll(s); lead > 0 {
+		if s.HasSeekFrom {
+			seek = secs(s.SeekFrom)
+		} else if lead := hlsNVENCPreroll(s); lead > 0 {
 			// Keep the measured NVENC seek and its hardware-frame trim.
 			seek = secs(max(0, s.Start-lead).Truncate(time.Millisecond))
 		} else if start, ok := hlsAudioPreroll(s); ok {

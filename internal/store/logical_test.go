@@ -164,12 +164,14 @@ func TestLogicalRejectsDamage(t *testing.T) {
 // left out of a dump and rebuilt by their triggers on restore.
 func TestLogicalSkipsVirtualTables(t *testing.T) {
 	ctx := context.Background()
+	RegisterLocalTable("storetest_local_marker")
 	db, err := OpenPath(ctx, filepath.Join(t.TempDir(), "fts.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	if _, err := db.ExecContext(ctx, `CREATE TABLE lg_docs (id INTEGER PRIMARY KEY, body TEXT);
+CREATE TABLE storetest_local_marker (id INTEGER PRIMARY KEY);
 CREATE VIRTUAL TABLE lg_docs_fts USING fts5(body, content='lg_docs', content_rowid='id', tokenize='trigram');`); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +180,7 @@ CREATE VIRTUAL TABLE lg_docs_fts USING fts5(body, content='lg_docs', content_row
 		t.Fatal(err)
 	}
 	for _, name := range tables {
-		if strings.HasPrefix(name, "lg_docs_fts") {
+		if strings.HasPrefix(name, "lg_docs_fts") || name == "storetest_local_marker" {
 			t.Fatalf("dump lists derived table %s (all: %v)", name, tables)
 		}
 	}
@@ -188,5 +190,65 @@ CREATE VIRTUAL TABLE lg_docs_fts USING fts5(body, content='lg_docs', content_row
 	}
 	if !found {
 		t.Fatalf("dump misses lg_docs: %v", tables)
+	}
+}
+
+func init() {
+	// A schema history for TestLogicalRestoresAcrossDropsAndRenames: a
+	// renamed column, a dropped column and a dropped table.
+	Register("storetest_history", 1, `
+CREATE TABLE storetest_hist(id INTEGER PRIMARY KEY, nick TEXT NOT NULL DEFAULT '', dropped INTEGER);
+ALTER TABLE storetest_hist RENAME COLUMN nick TO alias;
+ALTER TABLE storetest_hist DROP COLUMN dropped;
+CREATE TABLE storetest_gone(id INTEGER);
+DROP TABLE storetest_gone;`)
+}
+
+// A backup taken before migrations dropped a table, dropped a column and
+// renamed one still restores: dropped data is skipped, the renamed column
+// loads under its new name. A column the server never had is refused.
+func TestLogicalRestoresAcrossDropsAndRenames(t *testing.T) {
+	ctx := context.Background()
+	old := func(extra string) []byte {
+		t.Helper()
+		src := OpenTest(t)
+		seedLogical(t, src)
+		for _, q := range []string{
+			`ALTER TABLE storetest_hist RENAME COLUMN alias TO nick`,
+			`ALTER TABLE storetest_hist ADD COLUMN dropped INTEGER`,
+			`CREATE TABLE storetest_gone(id INTEGER)`,
+			`INSERT INTO storetest_gone(id) VALUES(1)`,
+			`INSERT INTO storetest_hist(id, nick, dropped) VALUES(7, 'seven', 3)`,
+			extra,
+		} {
+			if q == "" {
+				continue
+			}
+			if _, err := src.ExecContext(ctx, q); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+		var buf bytes.Buffer
+		if err := ExportLogical(ctx, src, &buf); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+	dst := OpenTest(t)
+	if err := ImportLogical(ctx, dst, bytes.NewReader(old(""))); err != nil {
+		t.Fatal(err)
+	}
+	checkLogical(t, dst)
+	var alias string
+	if err := dst.QueryRowContext(ctx, `SELECT alias FROM storetest_hist WHERE id=7`).Scan(&alias); err != nil || alias != "seven" {
+		t.Fatalf("renamed column = %q err=%v", alias, err)
+	}
+	if err := ImportLogical(ctx, OpenTest(t), bytes.NewReader(old(`ALTER TABLE storetest_hist ADD COLUMN never INTEGER`))); err == nil {
+		t.Fatal("restored a column this server never had")
+	}
+
+	RegisterRetiredTable("storetest_retired_table")
+	if err := ImportLogical(ctx, OpenTest(t), bytes.NewReader(old(`CREATE TABLE storetest_retired_table(id INTEGER); INSERT INTO storetest_retired_table(id) VALUES(42);`))); err != nil {
+		t.Fatalf("failed restoring with retired table: %v", err)
 	}
 }

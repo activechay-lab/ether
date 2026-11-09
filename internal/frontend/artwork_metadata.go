@@ -36,3 +36,46 @@ func SynchronousArtworkDeadline(ctx context.Context) (time.Time, bool) {
 	deadline, ok := ctx.Value(synchronousArtworkMetadataKey{}).(time.Time)
 	return deadline, ok
 }
+
+type noArtworkMetadataKey struct{}
+
+// WithoutArtworkMetadata marks a read whose responses never carry image
+// dimensions or hashes (an IPTV export): artwork lists skip the per-image
+// metadata lookup and do not queue hashing for the titles they list.
+func WithoutArtworkMetadata(ctx context.Context) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, noArtworkMetadataKey{}, true)
+}
+
+// ArtworkMetadataWanted is false under WithoutArtworkMetadata.
+func ArtworkMetadataWanted(ctx context.Context) bool {
+	if ctx == nil {
+		return true
+	}
+	skip, _ := ctx.Value(noArtworkMetadataKey{}).(bool)
+	return !skip
+}
+
+type artworkKindsKey struct{}
+
+// WithArtworkKinds marks a read that signs only these image kinds (a page
+// signer's Kinds): artwork lists skip work that only another kind uses, such
+// as scheduling a backdrop's UltraBlur colours for a poster-only listing.
+func WithArtworkKinds(ctx context.Context, kinds map[string]bool) context.Context {
+	if ctx == nil || len(kinds) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, artworkKindsKey{}, kinds)
+}
+
+// ArtworkKindWanted reports whether kind may be used by this read: always,
+// unless WithArtworkKinds narrowed it.
+func ArtworkKindWanted(ctx context.Context, kind string) bool {
+	if ctx == nil {
+		return true
+	}
+	kinds, ok := ctx.Value(artworkKindsKey{}).(map[string]bool)
+	return !ok || kinds[kind]
+}

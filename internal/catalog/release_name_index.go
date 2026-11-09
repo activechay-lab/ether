@@ -118,6 +118,19 @@ func updateReleaseNames(ctx context.Context, tx *sql.Tx, key int64, typ core.Med
 	if err := tx.QueryRowContext(ctx, `SELECT title,original_title FROM catalog_titles WHERE key=?`, key).Scan(&title, &original); err != nil {
 		return err
 	}
+	return replaceReleaseNames(ctx, tx, key, title, original)
+}
+
+// insertFreshReleaseNames indexes a row this transaction just inserted with
+// title and original: it has no names yet, and those are its stored names.
+func insertFreshReleaseNames(ctx context.Context, tx *sql.Tx, key int64, typ core.MediaType, title, original string) error {
+	if typ != core.TypeMovie && typ != core.TypeShow {
+		return nil
+	}
+	return insertReleaseNames(ctx, tx, key, title, original)
+}
+
+func replaceReleaseNames(ctx context.Context, tx *sql.Tx, key int64, title, original string) error {
 	want := map[string]bool{}
 	for _, name := range []string{title, original} {
 		if name = releaseparse.NormalizeTitle(name); name != "" {

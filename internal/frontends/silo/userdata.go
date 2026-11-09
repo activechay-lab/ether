@@ -49,6 +49,7 @@ func (i *instance) mutation(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unavailable", 503)
 		return
 	}
+	i.dropViewerSections(v.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 func (i *instance) mutationRoutes() error {

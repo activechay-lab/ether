@@ -12,4 +12,5 @@ var (
 	_ core.PrefetchReaderAt       = (*source)(nil)
 	_ core.DamageReporter         = (*source)(nil)
 	_ core.PlaybackDurationSetter = (*source)(nil)
+	_ core.SourceDeliveryReporter = (*source)(nil)
 )

@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -58,11 +59,57 @@ func (s *Service) UpdateAvailable(ctx context.Context, current, version string) 
 	return err
 }
 
+// UpdateInstalled announces, once per version, a self-update that
+// confirmed healthy.
+func (s *Service) UpdateInstalled(ctx context.Context, from, to string) error {
+	_, err := s.EmitOnce(ctx, "update.installed:"+to, Event{
+		Kind:    "update.installed",
+		Title:   "Ether updated to " + to,
+		Message: fmt.Sprintf("Ether installed %s (from %s) while nobody was watching, and it is running well.", to, from),
+	})
+	return err
+}
+
+// UpdateRolledBack announces, once per version, an update that failed and
+// was rolled back.
+func (s *Service) UpdateRolledBack(ctx context.Context, version, restored, reason string) error {
+	_, err := s.EmitOnce(ctx, "update.rolledback:"+version, Event{
+		Kind:    "update.rolledback",
+		Title:   "Ether update " + version + " rolled back",
+		Message: fmt.Sprintf("Ether %s did not run properly (%s), so this server went back to %s and will skip %s.", version, reason, restored, version),
+	})
+	return err
+}
+
 // TitleAvailableOnce publishes availability once per key (an episode, say),
 // however often a caller retries after a failure or crash.
 func (s *Service) TitleAvailableOnce(ctx context.Context, key, title string) error {
 	_, err := s.EmitOnce(ctx, "title.available:"+key, Event{Kind: "title.available", Title: "Title available", Message: title})
 	return err
+}
+
+// ForgetTitleAvailableOnce drops the records of TitleAvailableOnce keys
+// whose caller knows the event can never be emitted again (watchlist episode
+// alerts it has pruned), and reports the rows removed.
+func (s *Service) ForgetTitleAvailableOnce(ctx context.Context, keys []string) (int64, error) {
+	var total int64
+	for start := 0; start < len(keys); start += 500 {
+		chunk := keys[start:min(start+500, len(keys))]
+		args := make([]any, len(chunk))
+		for i, k := range chunk {
+			args[i] = "title.available:" + k
+		}
+		res, err := s.db.ExecContext(ctx, `DELETE FROM notify_once WHERE key IN (?`+strings.Repeat(",?", len(chunk)-1)+`)`, args...)
+		if err != nil {
+			return total, err
+		}
+		n, err := res.RowsAffected()
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
 }
 
 // BackupFailed reports a scheduled backup that did not complete.

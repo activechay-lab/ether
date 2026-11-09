@@ -13,20 +13,22 @@ import (
 
 // A v0.3.4 quality section: profiles with no media type (they served
 // movies and shows alike), device, platform and viewer rules, and
-// separate At home and Away defaults.
+// separate At home and Away defaults. The profiles are already in the
+// standard ranking shape, so only the split is under test.
 const v034Quality = `{
   "profiles": [
     {"name": "4K", "maxHeight": 2160, "minHeight": 1080, "allowHdr": true, "allowDolbyVision": true,
-     "preferredSources": ["remux", "bluray", "webdl"], "preferredCodecs": ["hevc", "h264"],
-     "preferredAudio": ["truehd", "eac3", "ac3"], "minSizeMbPerMin": 15, "maxSizeMbPerMin": 1000,
+     "qualityOrder": [{"name": "2160p", "qualities": ["remux-2160", "bluray-2160", "webdl-2160"]}, {"name": "1080p", "qualities": ["remux-1080", "bluray-1080", "webdl-1080"]}],
+     "customFormatScores": {"ether:codec-hevc": 12, "ether:codec-h264": 6, "ether:audio-truehd": 12},
+     "minSizeMbPerMin": 15, "maxSizeMbPerMin": 1000,
      "releaseRules": [{"id": "no-cam", "name": "No CAM", "action": "avoid",
        "conditions": [{"field": "name", "operator": "contains", "value": "CAM"}]}]},
-    {"name": "1080p", "maxHeight": 1080, "minHeight": 720, "preferredSources": ["webdl", "bluray"],
-     "preferredCodecs": ["h264", "hevc"], "preferredAudio": ["eac3", "ac3", "aac"],
+    {"name": "1080p", "maxHeight": 1080, "minHeight": 720, "qualityOrder": [{"name": "1080p", "qualities": ["webdl-1080", "bluray-1080"]}],
+     "customFormatScores": {"ether:codec-h264": 12, "ether:audio-eac3": 12},
      "minSizeMbPerMin": 5, "maxSizeMbPerMin": 150, "episodeMaxSizeMbPerMin": 80},
-    {"name": "720p", "maxHeight": 720, "minHeight": 480, "preferredCodecs": ["h264"],
-     "preferredAudio": ["aac", "ac3"], "minSizeMbPerMin": 2, "maxSizeMbPerMin": 60},
-    {"name": "Kids", "maxHeight": 1080, "minHeight": 480, "preferredLanguages": ["en"],
+    {"name": "720p", "maxHeight": 720, "minHeight": 480, "qualityOrder": [{"qualities": ["webdl-720"]}],
+     "customFormatScores": {"ether:audio-aac": 8}, "minSizeMbPerMin": 2, "maxSizeMbPerMin": 60},
+    {"name": "Kids", "maxHeight": 1080, "minHeight": 480, "preferredLanguages": ["en"], "qualityOrder": [{"qualities": ["webdl-1080"]}],
      "minSizeMbPerMin": 2, "maxSizeMbPerMin": 80}
   ],
   "rules": [
@@ -55,14 +57,6 @@ func TestSplitSharedProfilesKeepsEveryChoice(t *testing.T) {
 	before := stored.Quality
 	if len(before.Profiles) != 4 || before.Profiles[0].MediaType != core.MediaAny {
 		t.Fatalf("baseline is not the v0.3.4 shape: %+v", before.Profiles)
-	}
-	// Open also writes out the default ranking a profile left unset (an
-	// older startup step that does not change what the ranking is), so the
-	// baseline gets it too and only the split is under test.
-	for i := range before.Profiles {
-		if len(before.Profiles[i].Ranking) == 0 {
-			before.Profiles[i].Ranking = core.DefaultRanking(before.Profiles[i].ReleaseRules)
-		}
 	}
 	store, err := config.Open(dir)
 	if err != nil {

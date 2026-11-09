@@ -720,10 +720,19 @@ func TestStopAndClose(t *testing.T) {
 }
 
 func TestThrottlePausesAndResumes(t *testing.T) {
+	t.Run("copy", func(t *testing.T) { testThrottlePausesAndResumes(t, false) })
+	t.Run("encode", func(t *testing.T) { testThrottlePausesAndResumes(t, true) })
+}
+
+func testThrottlePausesAndResumes(t *testing.T, encode bool) {
 	fr := newFakeRunner()
 	fr.segDelay = time.Millisecond
 	m := newTestManager(t, fr, config.Transcode{}, WithBuffering(24*time.Second, 16*time.Second, 0))
-	s := startSession(t, m, remuxRequest(t, "thr", time.Hour))
+	req := remuxRequest(t, "thr", time.Hour)
+	if encode {
+		req = transcodeRequest(t, "thr-encode")
+	}
+	s := startSession(t, m, req)
 	p := fr.lastProc()
 	waitFor(t, "pause", p.isPaused)
 	s.mu.Lock()

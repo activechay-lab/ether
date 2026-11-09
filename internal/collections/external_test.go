@@ -128,6 +128,98 @@ func TestExternalListSources(t *testing.T) {
 	}
 }
 
+func TestMDBListPaginationAndPartialErrors(t *testing.T) {
+	ext := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		offset := q.Get("offset")
+		switch r.URL.Path {
+		case "/lists/bob/paged/json":
+			// Page size is 2 in test. Page 1 returns 2 items; page 2 overlaps 1 item and adds 1; page 3 returns 1 item (< limit) and terminates.
+			switch offset {
+			case "0":
+				fmt.Fprint(w, `[{"id":101,"title":"Space Saga","mediatype":"movie","release_year":1977},
+					{"id":104,"title":"Cyborg Hunter","mediatype":"movie","release_year":1982}]`)
+			case "2":
+				fmt.Fprint(w, `[{"id":104,"title":"Cyborg Hunter","mediatype":"movie","release_year":1982},
+					{"id":108,"title":"Knight Returns","mediatype":"movie","release_year":2008}]`)
+			case "4":
+				fmt.Fprint(w, `[{"id":509,"title":"Space Show","mediatype":"show","release_year":2013}]`)
+			default:
+				t.Errorf("unexpected offset %q for paged list", offset)
+				fmt.Fprint(w, `[]`)
+			}
+		case "/lists/bob/repeated/json":
+			// Upstream ignores offset and repeats the same full page forever.
+			fmt.Fprint(w, `[{"id":101,"title":"Space Saga","mediatype":"movie","release_year":1977},
+				{"id":104,"title":"Cyborg Hunter","mediatype":"movie","release_year":1982}]`)
+		case "/lists/bob/flaky/json":
+			if offset == "0" {
+				fmt.Fprint(w, `[{"id":101,"title":"Space Saga","mediatype":"movie","release_year":1977},
+					{"id":104,"title":"Cyborg Hunter","mediatype":"movie","release_year":1982}]`)
+				return
+			}
+			http.Error(w, "upstream gateway error", http.StatusBadGateway)
+		case "/lists/bob/overflow/json":
+			// Returns 2 new items on every page beyond the 10-page safety cap.
+			var page int
+			fmt.Sscanf(offset, "%d", &page)
+			id1 := 100 + page + 1
+			id2 := 100 + page + 2
+			fmt.Fprintf(w, `[{"id":%d,"title":"Film %d","mediatype":"movie","release_year":2000},{"id":%d,"title":"Film %d","mediatype":"movie","release_year":2000}]`,
+				id1, id1, id2, id2)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ext.Close()
+
+	bases := collections.ExternalBases{MDBList: ext.URL, MDBListPageSize: 2}
+	e := newEnv(t, withOpts(collections.WithExternalBases(bases), collections.WithUserAgent("Ether/test")))
+	preview := func(listURL string) *core.CollectionPreview {
+		t.Helper()
+		sp := spec("mdblist-test", "mixed", []core.CollectionSource{{Kind: "mdblist", URL: listURL}})
+		sp.Sort, sp.SortDesc = "source", false
+		p, err := e.svc.Preview(e.ctx, sp, 60)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// 1. Multi-page pagination with boundary deduplication and natural termination.
+	paged := preview("https://mdblist.com/lists/bob/paged")
+	if got := strings.Join(titlesOf(paged), ","); got != "Space Saga,Cyborg Hunter,Knight Returns,Space Show" {
+		t.Fatalf("paged mdblist: got %q, warnings=%v", got, paged.Warnings)
+	}
+	if len(paged.Warnings) != 0 {
+		t.Fatalf("paged mdblist unexpected warnings: %v", paged.Warnings)
+	}
+
+	// 2. Repeated page (upstream ignores offset) produces an explicit incomplete warning.
+	rep := preview("https://mdblist.com/lists/bob/repeated")
+	if got := strings.Join(titlesOf(rep), ","); got != "Space Saga,Cyborg Hunter" {
+		t.Fatalf("repeated mdblist items: got %q", got)
+	}
+	if !strings.Contains(strings.Join(rep.Warnings, " "), "repeated prior items") {
+		t.Fatalf("repeated mdblist should report incomplete warning, got %v", rep.Warnings)
+	}
+
+	// 3. Page > 1 failure retains page 1 items and reports incomplete warning.
+	flaky := preview("https://mdblist.com/lists/bob/flaky")
+	if got := strings.Join(titlesOf(flaky), ","); got != "Space Saga,Cyborg Hunter" {
+		t.Fatalf("flaky mdblist items: got %q", got)
+	}
+	if !strings.Contains(strings.Join(flaky.Warnings, " "), "incomplete: page 2 failed") {
+		t.Fatalf("flaky mdblist should report page 2 failure warning, got %v", flaky.Warnings)
+	}
+
+	// 4. Exceeding maxExternalPages reports explicit incomplete warning.
+	overflow := preview("https://mdblist.com/lists/bob/overflow")
+	if !strings.Contains(strings.Join(overflow.Warnings, " "), "exceeds 10 pages") {
+		t.Fatalf("overflow mdblist should report page cap warning, got %v", overflow.Warnings)
+	}
+}
+
 // fakeLLM replays canned replies.
 type fakeLLM struct {
 	enabled bool

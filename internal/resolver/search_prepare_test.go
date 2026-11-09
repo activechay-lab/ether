@@ -120,8 +120,15 @@ func TestSearchPreparationOverlapsAndReusesHealth(t *testing.T) {
 		if result.Release.ID != "a" || idx.grabs.Load() != 1 || health.calls.Load() != 1 {
 			t.Fatalf("preparation was repeated: result=%v grabs=%d health=%d", result, idx.grabs.Load(), health.calls.Load())
 		}
-		if got := s.Traces()[0].Discovery; len(got) != 1 || got[0].Path != "live-complete" || got[0].Count != 1 {
-			t.Fatalf("complete trace: %+v", got)
+		// The health result and final indexer response become runnable
+		// together; either may win without repeating preparation.
+		if got := s.Traces()[0].Discovery; len(got) != 1 || (got[0].Path != "live-complete" && got[0].Path != "live-early") || got[0].Count != 1 {
+			t.Fatalf("discovery trace: %+v", got)
+		}
+		synctest.Wait()
+		cached, ok := s.peekSearchCache(searchCacheKey(searchRequestFor(matrixTitle())))
+		if !ok || len(cached) != 1 || cached[0].ID != "a" {
+			t.Fatalf("completed search was not retained: %+v, cached=%v", cached, ok)
 		}
 	})
 }

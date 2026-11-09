@@ -557,3 +557,64 @@ func TestAutoLabelFollowsPlayedRelease(t *testing.T) {
 		t.Fatalf("auto relabelled for an explicit version: %q (err %v)", vs[0].Label, err)
 	}
 }
+
+func TestResolutionVariantsBalanceAndBounds(t *testing.T) {
+	mk := func(id, name string, size int64) candidate { return candidate{rel: withParsed(rel(id, name, size))} }
+	pool := []candidate{
+		mk("auto", "The.Signal.1999.1080p.WEB-DL.H.264-TOP", 8000),
+		mk("copy", "The.Signal.1999.1080p.WEB-DL.H.264-TOP", 8000),
+		mk("hd", "The.Signal.1999.1080p.WEB-DL.H.264-ALT", 7000),
+		mk("uhd", "The.Signal.1999.2160p.WEB-DL.H.265-TOP", 16000),
+		mk("uhd2", "The.Signal.1999.2160p.WEB-DL.H.265-ALT", 14000),
+		mk("uhd3", "The.Signal.1999.2160p.WEB-DL.H.265-THIRD", 13000),
+		mk("sd", "The.Signal.1999.720p.WEB-DL.H.264-TOP", 4000),
+		mk("sd2", "The.Signal.1999.720p.WEB-DL.H.264-ALT", 3000),
+	}
+	profile := core.QualityProfile{MaxHeight: 2160}
+	for _, tc := range []struct {
+		name                       string
+		alternatives, cap, ceiling int
+		want                       string
+	}{
+		{"two per resolution", 1, 7, 2160, "auto,hd,uhd,uhd2,sd,sd2"},
+		{"coverage before duplicates", 3, 3, 2160, "auto,uhd,sd"},
+		{"profile ceiling", 1, 7, 1080, "auto,hd,sd,sd2"},
+		{"no alternatives", 0, 7, 2160, "auto,uhd,sd"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := profile
+			p.MaxHeight = tc.ceiling
+			got := pickResolutionVariants(matrixTitle(), p, pool[0].rel, pool, tc.alternatives, tc.cap, false)
+			var ids []string
+			for i, v := range got {
+				if v.Auto != (i == 0) {
+					t.Fatal("Auto moved")
+				}
+				ids = append(ids, v.ID)
+			}
+			if strings.Join(ids, ",") != tc.want {
+				t.Fatalf("%v, want %s", ids, tc.want)
+			}
+		})
+	}
+	// Exercise the public cache-only path and the actual device/profile filter.
+	cfg := testCfg()
+	cfg.Resolver.AlternativesPerResolution = true
+	cfg.Resolver.SameQualityAlternatives = 1
+	idx := &fakeIndexer{}
+	for _, c := range pool {
+		idx.releases = append(idx.releases, c.rel)
+	}
+	svc := New(idx, fakeHealth{}, nil, cfg, Options{})
+	primeSearchCache(t, svc, webCaps())
+	searches := idx.searches.Load()
+	got, err := svc.Variants(context.Background(), core.ResolveRequest{Title: matrixTitle(), Client: webCaps()}, core.MaxVariants)
+	if err != nil || len(got) == 0 || !got[0].Auto || idx.searches.Load() != searches {
+		t.Fatalf("cache-only mode: %v %v", got, err)
+	}
+	for _, v := range got {
+		if v.Release.Info.Height > 1080 {
+			t.Fatalf("device/profile ceiling bypass: %+v", v)
+		}
+	}
+}

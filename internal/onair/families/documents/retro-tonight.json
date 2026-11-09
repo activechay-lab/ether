@@ -2,671 +2,9 @@
   "v": 1,
   "moment": "tonight",
   "duration": 8,
-  "poster": 5.5,
-  "layers": [
-    {
-      "id": "bg",
-      "type": "rect",
-      "x": 0,
-      "y": 0,
-      "w": 1920,
-      "h": 1080,
-      "fill": {
-        "linear": [
-          0,
-          0,
-          0,
-          1080
-        ],
-        "stops": [
-          [
-            0,
-            "{bg}"
-          ],
-          [
-            1,
-            "{control.detail2}"
-          ]
-        ]
-      },
-      "name": "Background"
-    },
-    {
-      "id": "horizon-group",
-      "name": "Horizon",
-      "type": "group",
-      "layers": [
-        {
-          "id": "sun",
-          "type": "path",
-          "x": 660,
-          "y": 180,
-          "fill": {
-            "linear": [
-              0,
-              0,
-              0,
-              1080
-            ],
-            "stops": [
-              [
-                0,
-                "{control.detail3}"
-              ],
-              [
-                1,
-                "{accent}"
-              ]
-            ]
-          },
-          "path": "M 0 300 A 300 300 0 1 0 600 300 A 300 300 0 1 0 0 300 Z M -10 290 H 610 Q 610 290 610 290 V 295 Q 610 295 610 295 H -10 Q -10 295 -10 295 V 290 Q -10 290 -10 290 Z M -10 318 H 610 Q 610 318 610 318 V 325 Q 610 325 610 325 H -10 Q -10 325 -10 325 V 318 Q -10 318 -10 318 Z M -10 346 H 610 Q 610 346 610 346 V 355 Q 610 355 610 355 H -10 Q -10 355 -10 355 V 346 Q -10 346 -10 346 Z M -10 374 H 610 Q 610 374 610 374 V 385 Q 610 385 610 385 H -10 Q -10 385 -10 385 V 374 Q -10 374 -10 374 Z M -10 402 H 610 Q 610 402 610 402 V 415 Q 610 415 610 415 H -10 Q -10 415 -10 415 V 402 Q -10 402 -10 402 Z M -10 430 H 610 Q 610 430 610 430 V 445 Q 610 445 610 445 H -10 Q -10 445 -10 445 V 430 Q -10 430 -10 430 Z M -10 458 H 610 Q 610 458 610 458 V 475 Q 610 475 610 475 H -10 Q -10 475 -10 475 V 458 Q -10 458 -10 458 Z M -10 486 H 610 Q 610 486 610 486 V 505 Q 610 505 610 505 H -10 Q -10 505 -10 505 V 486 Q -10 486 -10 486 Z M -10 514 H 610 Q 610 514 610 514 V 535 Q 610 535 610 535 H -10 Q -10 535 -10 535 V 514 Q -10 514 -10 514 Z M -10 542 H 610 Q 610 542 610 542 V 565 Q 610 565 610 565 H -10 Q -10 565 -10 565 V 542 Q -10 542 -10 542 Z",
-          "fillRule": "evenodd",
-          "clip": "M 0 300 A 300 300 0 1 0 600 300 A 300 300 0 1 0 0 300 Z",
-          "name": "Sun"
-        },
-        {
-          "id": "ground",
-          "type": "rect",
-          "x": 0,
-          "y": 640,
-          "w": 1920,
-          "h": 440,
-          "fill": "{bg}",
-          "name": "Ground"
-        },
-        {
-          "id": "grid",
-          "type": "grid",
-          "y": 640,
-          "w": 1920,
-          "h": 440,
-          "stroke": "{glow}@0.6",
-          "strokeWidth": 2,
-          "name": "Perspective grid"
-        }
-      ]
-    },
-    {
-      "id": "Title-group",
-      "name": "Channel title",
-      "type": "group",
-      "layers": [
-        {
-          "id": "Title-treatment",
-          "name": "Chrome title",
-          "type": "group",
-          "layers": [
-            {
-              "id": "Title-weight0",
-              "type": "text",
-              "text": "{words.tonight}",
-              "x": 958.2,
-              "y": 190,
-              "size": 86,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1600,
-              "align": "center",
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Chrome layer 1"
-            },
-            {
-              "id": "Title-weight1",
-              "type": "text",
-              "text": "{words.tonight}",
-              "x": 961.8,
-              "y": 190,
-              "size": 86,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1600,
-              "align": "center",
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Chrome layer 2"
-            },
-            {
-              "id": "Title-weight2",
-              "type": "text",
-              "text": "{words.tonight}",
-              "x": 960,
-              "y": 188.2,
-              "size": 86,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1600,
-              "align": "center",
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Chrome layer 3"
-            },
-            {
-              "id": "Title-weight3",
-              "type": "text",
-              "text": "{words.tonight}",
-              "x": 960,
-              "y": 191.8,
-              "size": 86,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1600,
-              "align": "center",
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Chrome layer 4"
-            },
-            {
-              "id": "Title",
-              "type": "text",
-              "text": "{words.tonight}",
-              "x": 960,
-              "y": 190,
-              "size": 86,
-              "font": "{type.display}",
-              "fill": "{text}",
-              "fit": "shrink",
-              "maxWidth": 1600,
-              "align": "center",
-              "opacity": {
-                "keys": [
-                  [
-                    0,
-                    0
-                  ],
-                  [
-                    0.4,
-                    0
-                  ],
-                  [
-                    1.8,
-                    1,
-                    "out"
-                  ]
-                ]
-              },
-              "name": "Chrome layer 5"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "card0",
-      "type": "path",
-      "x": 360,
-      "y": 268,
-      "fill": "{accent}@0.14",
-      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card 1"
-    },
-    {
-      "id": "time0",
-      "type": "text",
-      "text": "{list[0].time}",
-      "x": 180,
-      "y": 350,
-      "size": 42,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Time 1"
-    },
-    {
-      "id": "item0",
-      "type": "text",
-      "text": "{list[0].title}",
-      "x": 420,
-      "y": 340,
-      "size": 58,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Item 1"
-    },
-    {
-      "id": "meta0",
-      "type": "text",
-      "text": "{list[0].meta}",
-      "x": 420,
-      "y": 382,
-      "size": 28,
-      "font": "{type.mono}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Meta 1"
-    },
-    {
-      "id": "card1",
-      "type": "path",
-      "x": 360,
-      "y": 438,
-      "fill": "{accent}@0.14",
-      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card 2"
-    },
-    {
-      "id": "time1",
-      "type": "text",
-      "text": "{list[1].time}",
-      "x": 180,
-      "y": 520,
-      "size": 42,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Time 2"
-    },
-    {
-      "id": "item1",
-      "type": "text",
-      "text": "{list[1].title}",
-      "x": 420,
-      "y": 510,
-      "size": 58,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Item 2"
-    },
-    {
-      "id": "meta1",
-      "type": "text",
-      "text": "{list[1].meta}",
-      "x": 420,
-      "y": 552,
-      "size": 28,
-      "font": "{type.mono}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Meta 2"
-    },
-    {
-      "id": "card2",
-      "type": "path",
-      "x": 360,
-      "y": 608,
-      "fill": "{accent}@0.14",
-      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card 3"
-    },
-    {
-      "id": "time2",
-      "type": "text",
-      "text": "{list[2].time}",
-      "x": 180,
-      "y": 690,
-      "size": 42,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Time 3"
-    },
-    {
-      "id": "item2",
-      "type": "text",
-      "text": "{list[2].title}",
-      "x": 420,
-      "y": 680,
-      "size": 58,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Item 3"
-    },
-    {
-      "id": "meta2",
-      "type": "text",
-      "text": "{list[2].meta}",
-      "x": 420,
-      "y": 722,
-      "size": 28,
-      "font": "{type.mono}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Meta 3"
-    },
-    {
-      "id": "card3",
-      "type": "path",
-      "x": 360,
-      "y": 778,
-      "fill": "{accent}@0.14",
-      "path": "M 30 0 H 1370 Q 1400 0 1400 30 V 102 Q 1400 132 1370 132 H 30 Q 0 132 0 102 V 30 Q 0 0 30 0 Z",
-      "name": "Card 4"
-    },
-    {
-      "id": "time3",
-      "type": "text",
-      "text": "{list[3].time}",
-      "x": 180,
-      "y": 860,
-      "size": 42,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "maxLines": 1,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Time 4"
-    },
-    {
-      "id": "item3",
-      "type": "text",
-      "text": "{list[3].title}",
-      "x": 420,
-      "y": 850,
-      "size": 58,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Item 4"
-    },
-    {
-      "id": "meta3",
-      "type": "text",
-      "text": "{list[3].meta}",
-      "x": 420,
-      "y": 892,
-      "size": 28,
-      "font": "{type.mono}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1600,
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.4,
-            0
-          ],
-          [
-            1.8,
-            1,
-            "out"
-          ]
-        ]
-      },
-      "name": "Meta 4"
-    }
-  ],
-  "post": [
-    {
-      "type": "grain",
-      "amount": "{textures.grain}"
-    },
-    {
-      "type": "scanlines",
-      "amount": "{control.effect-scanlines}"
-    }
-  ],
+  "poster": 4.5,
   "slots": [
+    "channel.name",
     "list[0].meta",
     "list[0].time",
     "list[0].title",
@@ -679,5 +17,1543 @@
     "list[3].meta",
     "list[3].time",
     "list[3].title"
+  ],
+  "layers": [
+    {
+      "id": "envelope",
+      "type": "group",
+      "name": "Scene",
+      "layers": [
+        {
+          "id": "sky",
+          "type": "rect",
+          "name": "Night sky",
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              1080
+            ],
+            "stops": [
+              [
+                0,
+                "{bg}"
+              ],
+              [
+                0.5507407407407408,
+                "{bg}"
+              ],
+              [
+                0.8907407407407407,
+                "{control.detail2}"
+              ],
+              [
+                0.8927407407407407,
+                "{bg}"
+              ],
+              [
+                1,
+                "#000000"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "zenith",
+          "type": "rect",
+          "name": "Zenith shade",
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 769.6,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              0,
+              769.6
+            ],
+            "stops": [
+              [
+                0,
+                "#000000@0.55"
+              ],
+              [
+                1,
+                "#000000@0"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "haze",
+          "type": "group",
+          "name": "Horizon haze",
+          "layers": [
+            {
+              "id": "haze-disc",
+              "type": "ellipse",
+              "name": "Haze disc",
+              "x": -1300,
+              "y": -1300,
+              "w": 2600,
+              "h": 2600,
+              "fill": {
+                "radial": [
+                  1300,
+                  1300,
+                  0,
+                  1300
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{glow}@0.245"
+                  ],
+                  [
+                    0.3,
+                    "{control.detail2}@0.385"
+                  ],
+                  [
+                    1,
+                    "{control.detail2}@0"
+                  ]
+                ]
+              }
+            }
+          ],
+          "x": 960,
+          "y": 962,
+          "scaleY": 0.15
+        },
+        {
+          "id": "stars0",
+          "type": "path",
+          "name": "Stars 1",
+          "path": "M131.41 879.62L132.87 881.08L131.41 882.55L129.95 881.08ZM1761.53 427.96L1762.91 429.34L1761.53 430.71L1760.15 429.34ZM393.26 108.63L394.75 110.12L393.26 111.6L391.78 110.12ZM1625.95 326.37L1627.91 328.32L1625.95 330.27L1624.0 328.32ZM878.33 104.71L879.9 106.29L878.33 107.87L876.75 106.29ZM701.03 741.48L702.51 742.96L701.03 744.44L699.55 742.96ZM1694.22 289.48L1695.94 291.2L1694.22 292.92L1692.5 291.2ZM440.73 341.72L441.98 342.97L440.73 344.22L439.48 342.97ZM81.1 302.34L82.6 303.83L81.1 305.32L79.61 303.83ZM213.62 173.02L214.91 174.31L213.62 175.6L212.33 174.31ZM1083.31 234.86L1085.19 236.74L1083.31 238.62L1081.43 236.74ZM1455.42 162.18L1457.02 163.78L1455.42 165.38L1453.82 163.78ZM672.75 527.71L674.65 529.61L672.75 531.52L670.84 529.61ZM126.17 256.41L127.98 258.22L126.17 260.02L124.36 258.22ZM550.15 655.12L551.26 656.24L550.15 657.35L549.04 656.24ZM195.02 127.8L196.48 129.26L195.02 130.72L193.56 129.26ZM41.45 53.11L42.52 54.18L41.45 55.25L40.38 54.18ZM531.79 625.33L533.09 626.62L531.79 627.92L530.5 626.62ZM607.98 101.03L609.38 102.42L607.98 103.82L606.58 102.42ZM1510.89 169.86L1512.33 171.3L1510.89 172.74L1509.45 171.3ZM1860.23 474.28L1861.26 475.31L1860.23 476.35L1859.2 475.31ZM1909.13 287.03L1910.5 288.4L1909.13 289.77L1907.76 288.4ZM1486.36 500.87L1487.92 502.43L1486.36 503.99L1484.81 502.43ZM985.65 310.64L987.07 312.06L985.65 313.49L984.23 312.06ZM1497.76 703.12L1498.85 704.21L1497.76 705.3L1496.66 704.21ZM407.9 651.74L409.62 653.46L407.9 655.17L406.19 653.46ZM1095.18 41.36L1096.93 43.11L1095.18 44.86L1093.43 43.11ZM174.39 151.49L175.53 152.64L174.39 153.78L173.24 152.64ZM1710.49 393.39L1711.78 394.68L1710.49 395.97L1709.2 394.68ZM1640.71 331.04L1642.64 332.97L1640.71 334.9L1638.78 332.97ZM1819.87 843.93L1821.75 845.81L1819.87 847.7L1817.98 845.81ZM1742.04 660.54L1743.38 661.88L1742.04 663.22L1740.7 661.88ZM1076.02 82.12L1077.17 83.26L1076.02 84.41L1074.88 83.26ZM481.07 848.54L482.31 849.78L481.07 851.02L479.83 849.78ZM767.89 415.02L768.92 416.05L767.89 417.08L766.86 416.05ZM637.09 31.06L638.17 32.15L637.09 33.24L636.0 32.15ZM347.69 203.54L349.22 205.07L347.69 206.59L346.16 205.07ZM127.72 558.92L129.41 560.61L127.72 562.3L126.03 560.61ZM486.48 294.91L487.87 296.29L486.48 297.68L485.1 296.29ZM1841.48 239.27L1843.08 240.86L1841.48 242.46L1839.88 240.86ZM1830.45 437.53L1832.25 439.33L1830.45 441.13L1828.65 439.33ZM655.18 580.61L656.71 582.15L655.18 583.68L653.64 582.15ZM1331.65 666.45L1333.38 668.17L1331.65 669.9L1329.92 668.17ZM196.8 748.93L197.81 749.94L196.8 750.95L195.79 749.94ZM877.96 309.94L879.09 311.07L877.96 312.21L876.83 311.07ZM1510.5 67.3L1511.85 68.65L1510.5 70.0L1509.15 68.65ZM988.37 647.23L989.39 648.24L988.37 649.26L987.35 648.24ZM846.68 670.41L848.09 671.82L846.68 673.23L845.27 671.82ZM290.96 619.34L292.21 620.59L290.96 621.85L289.7 620.59ZM16.37 505.69L18.11 507.43L16.37 509.16L14.64 507.43ZM722.1 512.41L723.19 513.5L722.1 514.58L721.01 513.5ZM435.48 319.42L437.14 321.09L435.48 322.75L433.81 321.09ZM636.86 83.21L638.2 84.55L636.86 85.89L635.52 84.55ZM1540.39 832.09L1541.4 833.1L1540.39 834.11L1539.38 833.1ZM1621.51 38.12L1623.48 40.09L1621.51 42.06L1619.55 40.09ZM1843.21 753.79L1844.54 755.12L1843.21 756.45L1841.88 755.12ZM1110.65 549.99L1112.05 551.39L1110.65 552.8L1109.24 551.39ZM350.58 96.65L352.39 98.46L350.58 100.26L348.77 98.46ZM12.46 815.12L14.36 817.02L12.46 818.92L10.56 817.02ZM1796.7 630.14L1797.9 631.34L1796.7 632.54L1795.5 631.34Z",
+          "fill": "{control.detail1}@0.55",
+          "seed": 1
+        },
+        {
+          "id": "stars1",
+          "type": "path",
+          "name": "Stars 2",
+          "path": "M1753.5 346.65L1756.27 349.41L1753.5 352.18L1750.74 349.41ZM568.45 84.37L571.35 87.27L568.45 90.17L565.55 87.27ZM1581.34 553.73L1583.77 556.17L1581.34 558.6L1578.9 556.17ZM92.19 196.6L94.73 199.13L92.19 201.66L89.66 199.13ZM1141.5 871.93L1143.87 874.3L1141.5 876.67L1139.13 874.3ZM1348.22 211.14L1350.57 213.49L1348.22 215.84L1345.87 213.49ZM502.91 683.41L505.74 686.24L502.91 689.06L500.09 686.24ZM1378.11 743.92L1380.12 745.93L1378.11 747.95L1376.09 745.93ZM1302.61 348.68L1305.19 351.26L1302.61 353.84L1300.03 351.26ZM591.87 236.87L594.47 239.47L591.87 242.07L589.27 239.47ZM765.16 690.13L768.06 693.04L765.16 695.95L762.25 693.04ZM452.24 878.67L453.93 880.36L452.24 882.05L450.55 880.36ZM251.82 470.64L254.28 473.1L251.82 475.56L249.36 473.1ZM1189.96 135.74L1191.83 137.6L1189.96 139.47L1188.1 137.6ZM61.28 69.54L64.14 72.4L61.28 75.27L58.42 72.4ZM1341.39 419.96L1343.25 421.82L1341.39 423.68L1339.53 421.82ZM829.77 551.5L831.65 553.37L829.77 555.25L827.89 553.37ZM970.58 829.13L973.19 831.75L970.58 834.36L967.96 831.75ZM614.95 860.2L617.92 863.17L614.95 866.15L611.98 863.17ZM339.53 204.26L342.06 206.78L339.53 209.31L337.01 206.78ZM1673.91 252.66L1675.83 254.57L1673.91 256.49L1672.0 254.57ZM801.46 400.32L803.83 402.68L801.46 405.05L799.1 402.68ZM862.08 73.84L863.86 75.62L862.08 77.4L860.3 75.62ZM1773.08 125.8L1775.05 127.77L1773.08 129.73L1771.12 127.77ZM1205.96 115.02L1208.2 117.27L1205.96 119.52L1203.71 117.27ZM1273.38 467.8L1275.31 469.73L1273.38 471.67L1271.44 469.73Z",
+          "fill": "{control.detail1}@0.8",
+          "behave": [
+            {
+              "flicker": {
+                "amplitude": 0.5,
+                "speed": 1,
+                "seed": 4
+              }
+            }
+          ],
+          "seed": 2
+        },
+        {
+          "id": "stars2",
+          "type": "path",
+          "name": "Stars 3",
+          "path": "M1455.6 870.92L1458.53 873.85L1455.6 876.78L1452.67 873.85ZM1295.38 552.79L1298.74 556.16L1295.38 559.53L1292.01 556.16ZM849.41 136.94L853.13 140.66L849.41 144.39L845.69 140.66ZM478.43 90.91L481.64 94.11L478.43 97.32L475.22 94.11ZM1404.68 659.42L1408.11 662.85L1404.68 666.29L1401.24 662.85ZM75.41 636.16L78.95 639.7L75.41 643.24L71.87 639.7ZM1231.6 136.21L1234.25 138.85L1231.6 141.5L1228.96 138.85ZM395.48 168.24L398.63 171.39L395.48 174.53L392.34 171.39Z",
+          "fill": "{control.detail4}",
+          "behave": [
+            {
+              "flicker": {
+                "amplitude": 0.7,
+                "speed": 1,
+                "seed": 5
+              }
+            }
+          ],
+          "seed": 3,
+          "glow": 4
+        },
+        {
+          "id": "hz-laser",
+          "type": "group",
+          "name": "Horizon laser",
+          "layers": [
+            {
+              "id": "hz-line",
+              "type": "rect",
+              "name": "Laser line",
+              "x": -960.0,
+              "y": -1.5,
+              "w": 1920,
+              "h": 3,
+              "fill": "{glow}",
+              "glow": 14
+            },
+            {
+              "id": "hz-core",
+              "type": "rect",
+              "name": "Laser core",
+              "x": -672.0,
+              "y": -0.5,
+              "w": 1344.0,
+              "h": 1,
+              "fill": "{control.detail1}@0.85"
+            },
+            {
+              "id": "hz-flare",
+              "type": "ellipse",
+              "name": "Horizon flare",
+              "x": -520,
+              "y": -9,
+              "w": 1040,
+              "h": 18,
+              "fill": {
+                "radial": [
+                  520,
+                  9,
+                  0,
+                  520
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{control.detail1}"
+                  ],
+                  [
+                    0.3,
+                    "{glow}@0.7"
+                  ],
+                  [
+                    1,
+                    "{glow}@0"
+                  ]
+                ]
+              },
+              "glow": 10
+            }
+          ],
+          "x": 960.0,
+          "y": 962,
+          "scaleX": {
+            "keys": [
+              [
+                0.1,
+                0.0
+              ],
+              [
+                0.9,
+                1.0,
+                "out"
+              ],
+              [
+                7.15,
+                1.0
+              ],
+              [
+                7.65,
+                0.0,
+                "in"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "head",
+          "type": "group",
+          "name": "Header",
+          "layers": [
+            {
+              "id": "head-wm",
+              "type": "group",
+              "name": "Chrome wordmark",
+              "layers": [
+                {
+                  "id": "head-wm-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "head-wm-shadow",
+                      "type": "text",
+                      "name": "Drop shadow",
+                      "x": 12.48,
+                      "y": 15.04,
+                      "fill": "#000000@0.55",
+                      "blur": 6.4,
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x9",
+                      "type": "text",
+                      "name": "Extrusion 1",
+                      "x": 8.64,
+                      "y": 8.64,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x8",
+                      "type": "text",
+                      "name": "Extrusion 2",
+                      "x": 7.68,
+                      "y": 7.68,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x7",
+                      "type": "text",
+                      "name": "Extrusion 3",
+                      "x": 6.72,
+                      "y": 6.72,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x6",
+                      "type": "text",
+                      "name": "Extrusion 4",
+                      "x": 5.76,
+                      "y": 5.76,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x5",
+                      "type": "text",
+                      "name": "Extrusion 5",
+                      "x": 4.8,
+                      "y": 4.8,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x4",
+                      "type": "text",
+                      "name": "Extrusion 6",
+                      "x": 3.84,
+                      "y": 3.84,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x3",
+                      "type": "text",
+                      "name": "Extrusion 7",
+                      "x": 2.88,
+                      "y": 2.88,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x2",
+                      "type": "text",
+                      "name": "Extrusion 8",
+                      "x": 1.92,
+                      "y": 1.92,
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          0
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{accent}"
+                          ],
+                          [
+                            0.45,
+                            "{control.detail2}"
+                          ],
+                          [
+                            1,
+                            "#000000"
+                          ]
+                        ]
+                      },
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-x1",
+                      "type": "text",
+                      "name": "Extrusion 9",
+                      "x": 0.96,
+                      "y": 0.96,
+                      "fill": "{accent}",
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-rim",
+                      "type": "text",
+                      "name": "Bevel rim",
+                      "x": -1.02,
+                      "y": -1.02,
+                      "fill": "{control.detail1}@0.85",
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-face",
+                      "type": "text",
+                      "name": "Chrome face",
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          5.12
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.24,
+                            "{control.detail4}"
+                          ],
+                          [
+                            0.48,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.5,
+                            "{bg}"
+                          ],
+                          [
+                            0.54,
+                            "{control.detail2}"
+                          ],
+                          [
+                            0.78,
+                            "{control.detail3}"
+                          ],
+                          [
+                            1,
+                            "{control.detail1}"
+                          ]
+                        ]
+                      },
+                      "glow": 6,
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    },
+                    {
+                      "id": "head-wm-glint",
+                      "type": "text",
+                      "name": "Chrome glint",
+                      "fill": {
+                        "linear": [
+                          0,
+                          -99.84,
+                          0,
+                          5.12
+                        ],
+                        "stops": [
+                          [
+                            0,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.24,
+                            "{control.detail4}"
+                          ],
+                          [
+                            0.48,
+                            "{control.detail1}"
+                          ],
+                          [
+                            0.5,
+                            "{bg}"
+                          ],
+                          [
+                            0.54,
+                            "{control.detail2}"
+                          ],
+                          [
+                            0.78,
+                            "{control.detail3}"
+                          ],
+                          [
+                            1,
+                            "{control.detail1}"
+                          ]
+                        ]
+                      },
+                      "start": 1.6,
+                      "end": 4.1,
+                      "behave": [
+                        {
+                          "glint": {
+                            "start": 1.6,
+                            "speed": 2.0,
+                            "amplitude": 0.85
+                          }
+                        }
+                      ],
+                      "text": "{words.tonight}",
+                      "font": "{type.display}",
+                      "size": 128,
+                      "align": "left",
+                      "maxWidth": 900,
+                      "fit": "shrink",
+                      "track": 2.56
+                    }
+                  ],
+                  "rotate": 0.835232
+                }
+              ],
+              "rotate": -0.735564,
+              "scaleX": 1.104988,
+              "scaleY": 0.904988
+            }
+          ],
+          "x": 198,
+          "y": 232,
+          "scaleX": {
+            "keys": [
+              [
+                0.3,
+                0.02
+              ],
+              [
+                1.0,
+                1.0,
+                "out"
+              ]
+            ]
+          },
+          "opacity": {
+            "keys": [
+              [
+                0.3,
+                0
+              ],
+              [
+                0.45,
+                1
+              ],
+              [
+                7.35,
+                1
+              ],
+              [
+                7.7,
+                0
+              ]
+            ]
+          }
+        },
+        {
+          "id": "head-stripes",
+          "type": "group",
+          "name": "Header stripes",
+          "layers": [
+            {
+              "id": "hs-0",
+              "type": "path",
+              "name": "Stripe 1",
+              "path": "M-400 0L1748.0 0L1740.0 8L-400 8Z",
+              "fill": "{accent}"
+            },
+            {
+              "id": "hs-1",
+              "type": "path",
+              "name": "Stripe 2",
+              "path": "M-400 13L1735.0 13L1727.0 21L-400 21Z",
+              "fill": "{control.detail5}"
+            },
+            {
+              "id": "hs-2",
+              "type": "path",
+              "name": "Stripe 3",
+              "path": "M-400 26L1722.0 26L1714.0 34L-400 34Z",
+              "fill": "{control.detail3}"
+            },
+            {
+              "id": "hs-3",
+              "type": "path",
+              "name": "Stripe 4",
+              "path": "M-400 39L1709.0 39L1701.0 47L-400 47Z",
+              "fill": "{glow}"
+            }
+          ],
+          "y": 262,
+          "x": {
+            "keys": [
+              [
+                0.45,
+                -2100
+              ],
+              [
+                1.15,
+                0,
+                "out"
+              ],
+              [
+                7.15,
+                0
+              ],
+              [
+                7.65,
+                -2300,
+                "in"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "head-chan",
+          "type": "group",
+          "name": "Channel",
+          "layers": [
+            {
+              "id": "head-chan-text",
+              "type": "text",
+              "name": "Channel",
+              "text": "{channel.name}",
+              "x": 0,
+              "y": 0,
+              "size": 36,
+              "font": "{type.mono}",
+              "fill": "{text}@0.9",
+              "align": "right",
+              "maxWidth": 560,
+              "fit": "shrink",
+              "track": 6
+            }
+          ],
+          "x": 1728,
+          "y": 222,
+          "opacity": {
+            "keys": [
+              [
+                1.0,
+                0
+              ],
+              [
+                1.5,
+                1
+              ],
+              [
+                7.3,
+                1
+              ],
+              [
+                7.6,
+                0
+              ]
+            ]
+          }
+        },
+        {
+          "id": "row0",
+          "type": "group",
+          "name": "Row 1",
+          "layers": [
+            {
+              "id": "hl",
+              "type": "path",
+              "name": "Next highlight",
+              "path": "M23.6 0L1589.6 0L1566 118L0 118Z",
+              "x": 166,
+              "y": -80,
+              "fill": {
+                "linear": [
+                  0,
+                  0,
+                  1536,
+                  0
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{accent}@0.55"
+                  ],
+                  [
+                    0.55,
+                    "{accent}@0.12"
+                  ],
+                  [
+                    1,
+                    "{accent}@0"
+                  ]
+                ]
+              }
+            },
+            {
+              "id": "hl-edge",
+              "type": "path",
+              "name": "Highlight edge",
+              "path": "M23.6 0L31.6 0L8 118L0 118Z",
+              "x": 166,
+              "y": -80,
+              "fill": "{accent}",
+              "glow": 8
+            },
+            {
+              "id": "time0",
+              "type": "text",
+              "name": "Clock readout",
+              "text": "{list[0].time}",
+              "x": 412,
+              "y": 0,
+              "size": 66,
+              "font": "vt323",
+              "fill": "{control.detail3}",
+              "glow": 8,
+              "align": "right",
+              "maxWidth": 210,
+              "fit": "shrink",
+              "track": 2
+            },
+            {
+              "id": "title0-it",
+              "type": "group",
+              "name": "Italic",
+              "layers": [
+                {
+                  "id": "title0-it-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "title0-sh",
+                      "type": "text",
+                      "name": "Title 1 shadow",
+                      "blur": 5,
+                      "text": "{list[0].title}",
+                      "x": 4,
+                      "y": 4,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "#000000@0.6",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    },
+                    {
+                      "id": "title0",
+                      "type": "text",
+                      "name": "Title 1",
+                      "text": "{list[0].title}",
+                      "x": 0,
+                      "y": 0,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "{text}",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    }
+                  ],
+                  "rotate": 0.825313
+                }
+              ],
+              "rotate": -0.745483,
+              "scaleX": 1.083195,
+              "scaleY": 0.923195,
+              "x": 452
+            },
+            {
+              "id": "meta0",
+              "type": "text",
+              "name": "Details 1",
+              "text": "{list[0].meta}",
+              "x": 458,
+              "y": 46,
+              "size": 34,
+              "font": "{type.mono}",
+              "fill": "{control.detail4}@0.9",
+              "maxWidth": 1256,
+              "fit": "shrink",
+              "track": 1
+            },
+            {
+              "id": "rule0",
+              "type": "rect",
+              "name": "Rule 1",
+              "x": 192,
+              "y": 70,
+              "w": 1536,
+              "h": 2,
+              "fill": {
+                "linear": [
+                  0,
+                  0,
+                  1536,
+                  0
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{glow}@0"
+                  ],
+                  [
+                    0.15,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    0.85,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    1,
+                    "{glow}@0"
+                  ]
+                ]
+              }
+            }
+          ],
+          "y": 404,
+          "x": {
+            "keys": [
+              [
+                0.85,
+                1500
+              ],
+              [
+                1.45,
+                0,
+                "out"
+              ],
+              [
+                7.09,
+                0
+              ],
+              [
+                7.54,
+                -2000,
+                "in"
+              ]
+            ]
+          },
+          "opacity": {
+            "keys": [
+              [
+                0.85,
+                0
+              ],
+              [
+                1.0,
+                1
+              ]
+            ]
+          }
+        },
+        {
+          "id": "row1",
+          "type": "group",
+          "name": "Row 2",
+          "layers": [
+            {
+              "id": "time1",
+              "type": "text",
+              "name": "Clock readout",
+              "text": "{list[1].time}",
+              "x": 412,
+              "y": 0,
+              "size": 66,
+              "font": "vt323",
+              "fill": "{glow}",
+              "glow": 8,
+              "align": "right",
+              "maxWidth": 210,
+              "fit": "shrink",
+              "track": 2
+            },
+            {
+              "id": "title1-it",
+              "type": "group",
+              "name": "Italic",
+              "layers": [
+                {
+                  "id": "title1-it-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "title1-sh",
+                      "type": "text",
+                      "name": "Title 2 shadow",
+                      "blur": 5,
+                      "text": "{list[1].title}",
+                      "x": 4,
+                      "y": 4,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "#000000@0.6",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    },
+                    {
+                      "id": "title1",
+                      "type": "text",
+                      "name": "Title 2",
+                      "text": "{list[1].title}",
+                      "x": 0,
+                      "y": 0,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "{text}",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    }
+                  ],
+                  "rotate": 0.825313
+                }
+              ],
+              "rotate": -0.745483,
+              "scaleX": 1.083195,
+              "scaleY": 0.923195,
+              "x": 452
+            },
+            {
+              "id": "meta1",
+              "type": "text",
+              "name": "Details 2",
+              "text": "{list[1].meta}",
+              "x": 458,
+              "y": 46,
+              "size": 34,
+              "font": "{type.mono}",
+              "fill": "{control.detail4}@0.9",
+              "maxWidth": 1256,
+              "fit": "shrink",
+              "track": 1
+            },
+            {
+              "id": "rule1",
+              "type": "rect",
+              "name": "Rule 2",
+              "x": 192,
+              "y": 70,
+              "w": 1536,
+              "h": 2,
+              "fill": {
+                "linear": [
+                  0,
+                  0,
+                  1536,
+                  0
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{glow}@0"
+                  ],
+                  [
+                    0.15,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    0.85,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    1,
+                    "{glow}@0"
+                  ]
+                ]
+              }
+            }
+          ],
+          "y": 542,
+          "x": {
+            "keys": [
+              [
+                0.99,
+                1500
+              ],
+              [
+                1.59,
+                0,
+                "out"
+              ],
+              [
+                7.01,
+                0
+              ],
+              [
+                7.46,
+                -2000,
+                "in"
+              ]
+            ]
+          },
+          "opacity": {
+            "keys": [
+              [
+                0.99,
+                0
+              ],
+              [
+                1.14,
+                1
+              ]
+            ]
+          }
+        },
+        {
+          "id": "row2",
+          "type": "group",
+          "name": "Row 3",
+          "layers": [
+            {
+              "id": "time2",
+              "type": "text",
+              "name": "Clock readout",
+              "text": "{list[2].time}",
+              "x": 412,
+              "y": 0,
+              "size": 66,
+              "font": "vt323",
+              "fill": "{glow}",
+              "glow": 8,
+              "align": "right",
+              "maxWidth": 210,
+              "fit": "shrink",
+              "track": 2
+            },
+            {
+              "id": "title2-it",
+              "type": "group",
+              "name": "Italic",
+              "layers": [
+                {
+                  "id": "title2-it-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "title2-sh",
+                      "type": "text",
+                      "name": "Title 3 shadow",
+                      "blur": 5,
+                      "text": "{list[2].title}",
+                      "x": 4,
+                      "y": 4,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "#000000@0.6",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    },
+                    {
+                      "id": "title2",
+                      "type": "text",
+                      "name": "Title 3",
+                      "text": "{list[2].title}",
+                      "x": 0,
+                      "y": 0,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "{text}",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    }
+                  ],
+                  "rotate": 0.825313
+                }
+              ],
+              "rotate": -0.745483,
+              "scaleX": 1.083195,
+              "scaleY": 0.923195,
+              "x": 452
+            },
+            {
+              "id": "meta2",
+              "type": "text",
+              "name": "Details 3",
+              "text": "{list[2].meta}",
+              "x": 458,
+              "y": 46,
+              "size": 34,
+              "font": "{type.mono}",
+              "fill": "{control.detail4}@0.9",
+              "maxWidth": 1256,
+              "fit": "shrink",
+              "track": 1
+            },
+            {
+              "id": "rule2",
+              "type": "rect",
+              "name": "Rule 3",
+              "x": 192,
+              "y": 70,
+              "w": 1536,
+              "h": 2,
+              "fill": {
+                "linear": [
+                  0,
+                  0,
+                  1536,
+                  0
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{glow}@0"
+                  ],
+                  [
+                    0.15,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    0.85,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    1,
+                    "{glow}@0"
+                  ]
+                ]
+              }
+            }
+          ],
+          "y": 680,
+          "x": {
+            "keys": [
+              [
+                1.13,
+                1500
+              ],
+              [
+                1.73,
+                0,
+                "out"
+              ],
+              [
+                6.93,
+                0
+              ],
+              [
+                7.38,
+                -2000,
+                "in"
+              ]
+            ]
+          },
+          "opacity": {
+            "keys": [
+              [
+                1.13,
+                0
+              ],
+              [
+                1.28,
+                1
+              ]
+            ]
+          }
+        },
+        {
+          "id": "row3",
+          "type": "group",
+          "name": "Row 4",
+          "layers": [
+            {
+              "id": "time3",
+              "type": "text",
+              "name": "Clock readout",
+              "text": "{list[3].time}",
+              "x": 412,
+              "y": 0,
+              "size": 66,
+              "font": "vt323",
+              "fill": "{glow}",
+              "glow": 8,
+              "align": "right",
+              "maxWidth": 210,
+              "fit": "shrink",
+              "track": 2
+            },
+            {
+              "id": "title3-it",
+              "type": "group",
+              "name": "Italic",
+              "layers": [
+                {
+                  "id": "title3-it-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "title3-sh",
+                      "type": "text",
+                      "name": "Title 4 shadow",
+                      "blur": 5,
+                      "text": "{list[3].title}",
+                      "x": 4,
+                      "y": 4,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "#000000@0.6",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    },
+                    {
+                      "id": "title3",
+                      "type": "text",
+                      "name": "Title 4",
+                      "text": "{list[3].title}",
+                      "x": 0,
+                      "y": 0,
+                      "size": 54,
+                      "font": "{type.display}",
+                      "fill": "{text}",
+                      "maxWidth": 1256,
+                      "fit": "shrink"
+                    }
+                  ],
+                  "rotate": 0.825313
+                }
+              ],
+              "rotate": -0.745483,
+              "scaleX": 1.083195,
+              "scaleY": 0.923195,
+              "x": 452
+            },
+            {
+              "id": "meta3",
+              "type": "text",
+              "name": "Details 4",
+              "text": "{list[3].meta}",
+              "x": 458,
+              "y": 46,
+              "size": 34,
+              "font": "{type.mono}",
+              "fill": "{control.detail4}@0.9",
+              "maxWidth": 1256,
+              "fit": "shrink",
+              "track": 1
+            },
+            {
+              "id": "rule3",
+              "type": "rect",
+              "name": "Rule 4",
+              "x": 192,
+              "y": 70,
+              "w": 1536,
+              "h": 2,
+              "fill": {
+                "linear": [
+                  0,
+                  0,
+                  1536,
+                  0
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{glow}@0"
+                  ],
+                  [
+                    0.15,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    0.85,
+                    "{glow}@0.5"
+                  ],
+                  [
+                    1,
+                    "{glow}@0"
+                  ]
+                ]
+              }
+            }
+          ],
+          "y": 818,
+          "x": {
+            "keys": [
+              [
+                1.27,
+                1500
+              ],
+              [
+                1.87,
+                0,
+                "out"
+              ],
+              [
+                6.85,
+                0
+              ],
+              [
+                7.3,
+                -2000,
+                "in"
+              ]
+            ]
+          },
+          "opacity": {
+            "keys": [
+              [
+                1.27,
+                0
+              ],
+              [
+                1.42,
+                1
+              ]
+            ]
+          }
+        }
+      ],
+      "opacity": {
+        "keys": [
+          [
+            0,
+            0
+          ],
+          [
+            0.3,
+            1,
+            "out"
+          ],
+          [
+            7.72,
+            1
+          ],
+          [
+            8,
+            0
+          ]
+        ]
+      }
+    }
+  ],
+  "post": [
+    {
+      "type": "grain",
+      "amount": "{textures.grain}"
+    },
+    {
+      "type": "scanlines",
+      "amount": "{control.effect-scanlines}"
+    },
+    {
+      "type": "vignette",
+      "amount": "{textures.vignette}"
+    }
   ]
 }

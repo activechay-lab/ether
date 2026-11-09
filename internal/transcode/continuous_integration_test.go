@@ -52,11 +52,12 @@ func TestContinuousPlayout(t *testing.T) {
 	}
 	// Allow complete segments to be published; shutdown intentionally does not
 	// publish the incomplete final segment as though it were a full GOP.
+	// Segments reach the disk on the store's background writer.
+	waitDisk(t, enc.dir, "init.mp4", "seg-000000004.ts", "fragment-000000004.m4s")
 	for _, name := range []string{"index.m3u8"} {
-		path := filepath.Join(enc.dir, name)
-		b, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+		b, ok := enc.store.read(name)
+		if !ok {
+			t.Fatal("playlist never received")
 		}
 		if strings.Contains(string(b), "DISCONTINUITY") {
 			t.Fatal("discontinuity in output")
@@ -65,7 +66,7 @@ func TestContinuousPlayout(t *testing.T) {
 			continue
 		} // This host lacks the DASH demuxer; validate fMP4 tracks below.
 		b = append(b, []byte("\n#EXT-X-ENDLIST\n")...)
-		path = filepath.Join(enc.dir, "capture-"+name)
+		path := filepath.Join(enc.dir, "capture-"+name)
 		if err := os.WriteFile(path, b, 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -97,7 +98,7 @@ func TestContinuousPlayout(t *testing.T) {
 		t.Fatalf("finished segments: %v", segments)
 	}
 	for i, seg := range segments {
-		start, frames := continuousSegmentFrames(format, int64(i))
+		start, frames := continuousSegmentFrames(format, 4*time.Second, false, int64(i))
 		if seg.Seq != int64(i) || seg.Duration != continuousFrameTime(format, frames) || !seg.Start.Equal(segments[0].Start.Add(continuousFrameTime(format, start))) {
 			t.Fatalf("segment clock: %v", segments)
 		}
@@ -161,7 +162,7 @@ func TestContinuousPlayout(t *testing.T) {
 				end = pts
 			}
 		}
-		_, frames := continuousSegmentFrames(format, int64(n))
+		_, frames := continuousSegmentFrames(format, 4*time.Second, false, int64(n))
 		if math.Abs(end-first+1.0/30-float64(frames)/30) > 0.001 {
 			t.Fatalf("segment duration %f", end-first+1.0/30)
 		}
@@ -197,6 +198,24 @@ func TestContinuousPlayout(t *testing.T) {
 
 }
 
+func waitDisk(t *testing.T, dir string, names ...string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		missing := ""
+		for _, name := range names {
+			if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+				missing = name
+			}
+		}
+		if missing == "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s never reached the disk", missing)
+		}
+	}
+}
+
 // Index publication and eviction are one invariant shared by every delivery
 // format. Simulated atomic muxer files keep this part independent of ffmpeg.
 func TestContinuousSegmentIndex(t *testing.T) {
@@ -205,17 +224,21 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	e := &continuousEncoder{continuousProcess: &continuousProcess{ctx: ctx}, dir: t.TempDir(), req: EncoderRequest{Source: RawFormat{Width: 320, Height: 180, FPSNum: 30000, FPSDen: 1001}, DVRWindow: 8 * time.Second}}
 	index := newContinuousSegmentIndex(e)
 	e.index = index
+	store, err := newContinuousStore(e.dir, 4, index.kick)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.close()
+	e.store = store
 	start := time.Unix(1000, 0)
 	index.setStart(start)
 	for n := int64(0); n < 6; n++ {
-		first, count := continuousSegmentFrames(e.req.Source, n)
+		first, count := continuousSegmentFrames(e.req.Source, e.req.SegmentDuration, e.req.LiveSource, n)
 		for tick := first; tick < first+count; tick++ {
 			index.recordPolicy(tick, []any{"programme", n})
 		}
-		for _, path := range []string{index.ts(n), index.mp4(n)} {
-			if err := os.WriteFile(path, []byte("finished"), 0600); err != nil {
-				t.Fatal(err)
-			}
+		for _, name := range []string{index.ts(n), index.mp4(n)} {
+			store.put(name, []byte("finished"))
 		}
 		index.refresh()
 	}
@@ -234,11 +257,10 @@ func TestContinuousSegmentIndex(t *testing.T) {
 	if _, err := index.Wait(ctx, -1); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("evicted wait: %v", err)
 	}
-	if _, err := index.open(0, false); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("evicted TS: %v", err)
-	}
-	if _, err := index.open(0, true); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("evicted fMP4: %v", err)
+	for _, name := range []string{index.ts(0), index.mp4(0)} {
+		if _, ok := store.has(name); ok {
+			t.Fatalf("evicted %s still stored", name)
+		}
 	}
 	got, err := index.Wait(ctx, 4)
 	if err != nil || got.Seq != 5 {

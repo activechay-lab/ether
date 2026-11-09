@@ -3,7 +3,6 @@ package homeassistant_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/braedonsaunders/ether/internal/plugins/remotetest"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +48,7 @@ func TestPlaybackThroughTunnel(t *testing.T) {
 	for _, req := range []remote.Request{{Method: "POST", Path: "/ether/configure", Body: config}, {Method: "POST", Path: "/ether/event", Body: []byte(`{"events":[{"id":"1","name":"playback.started"}]}`)}} {
 		res, err := rt.Call(ctx, req)
 		if err != nil || res.Status != 200 {
-			t.Fatal(fmt.Sprintf("response: %d %s %v", res.Status, res.Body, err))
+			t.Fatalf("response: %d %s %v", res.Status, res.Body, err)
 		}
 	}
 	select {

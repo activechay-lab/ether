@@ -527,3 +527,57 @@ func TestImagePageRevokeReportsAFailedPersist(t *testing.T) {
 		t.Fatalf("revoked grant served %d on the revoking node", rec.Code)
 	}
 }
+
+// A renewal keeps a cached listing's image tags serving past the page grant
+// lifetime, and authorizes nothing the viewer's artwork policy refuses.
+func TestRenewPageExtendsTagsWithoutWideningPolicy(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	if _, err := db.ExecContext(ctx, `INSERT INTO auth_users(id,plex_id,created_at,updated_at) VALUES(1,123,0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
+	clock := func() time.Time { return now }
+	grants, err := identity.NewGrants(db, members{db}, 24*time.Hour, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := grants.Issue(ctx, 1, nil, "xtream", core.Device{ID: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, calls := true, 0
+	service, err := identity.NewImageGrantService(db, "xtream", grants, func() frontend.Experience {
+		return &pageArtwork{allow: &allowed, calls: &calls}
+	}, &imageFixture{}, 10*time.Minute, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetImageKey([]byte("test-image-page-key"))
+	page, err := service.SignPage(ctx, frontend.ImagePageRequest{Credential: credential, Device: core.Device{ID: "app"}, Titles: []core.Title{{Key: core.MovieKey(9), Type: core.TypeMovie}}, Kinds: []string{frontend.ImagePoster}})
+	if err != nil || len(page) != 1 || len(page[0].Images) != 1 {
+		t.Fatalf("sign: %+v %v", page, err)
+	}
+	serve := func() int {
+		rec := httptest.NewRecorder()
+		service.Serve(rec, httptest.NewRequest("GET", "/xtream/image/"+page[0].Images[0].Secret, nil), page[0].Images[0].Secret)
+		return rec.Code
+	}
+	now = now.Add(11 * time.Minute)
+	if code := serve(); code != 404 {
+		t.Fatalf("expired tag served %d", code)
+	}
+	if err := service.RenewPage(ctx, frontend.ImagePageRenewal{Credential: "not-a-credential", Items: page}); err == nil {
+		t.Fatal("renewed for an unknown credential")
+	}
+	if err := service.RenewPage(ctx, frontend.ImagePageRenewal{Credential: credential, Device: core.Device{ID: "app"}, Items: page}); err != nil {
+		t.Fatal(err)
+	}
+	if code := serve(); code != 200 {
+		t.Fatalf("renewed tag served %d", code)
+	}
+	allowed = false
+	if code := serve(); code != 404 {
+		t.Fatalf("renewal widened artwork policy: %d", code)
+	}
+}

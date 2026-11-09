@@ -98,6 +98,7 @@ type Engine struct {
 	// limit caps connections per media host across both owned transports;
 	// backoff spaces requests to a host whose connections keep failing.
 	limit   *connCap
+	gate    *hostGate
 	backoff *hostBackoff
 
 	ctx    context.Context
@@ -118,6 +119,20 @@ type Engine struct {
 
 type engineCounters struct {
 	memHits, diskHits, fetched, bytes, hedges, hedgeWins, refreshes, errors atomic.Int64
+	// providerBytes is bytes fetched per debrid account (config ID →
+	// *atomic.Int64), so Statistics can show what each account served.
+	providerBytes sync.Map
+}
+
+func (c *engineCounters) addProviderBytes(provider string, n int64) {
+	if provider == "" || n <= 0 {
+		return
+	}
+	v, ok := c.providerBytes.Load(provider)
+	if !ok {
+		v, _ = c.providerBytes.LoadOrStore(provider, new(atomic.Int64))
+	}
+	v.(*atomic.Int64).Add(n)
 }
 
 // EngineStats is the engine part of the debrid admin status.
@@ -132,6 +147,8 @@ type EngineStats struct {
 	HedgeWins     int64 `json:"hedgeWins"`
 	LinkRefreshes int64 `json:"linkRefreshes"`
 	Errors        int64 `json:"errors"`
+	// ProviderBytes is bytes fetched since start per debrid account ID.
+	ProviderBytes map[string]int64 `json:"providerBytes,omitempty"`
 }
 
 var (
@@ -214,6 +231,8 @@ func NewEngine(svc *Service, opts EngineOptions) *Engine {
 	}
 	limit.log = e.log
 	e.limit = limit
+	e.gate = newHostGate(limit)
+	e.gate.log = e.log
 	e.backoff = newHostBackoff(e.log)
 	if e.now == nil {
 		e.now = time.Now
@@ -258,9 +277,18 @@ func (e *Engine) Stats() EngineStats {
 		}
 	}
 	e.mu.Unlock()
+	var byProvider map[string]int64
+	e.stats.providerBytes.Range(func(k, v any) bool {
+		if byProvider == nil {
+			byProvider = map[string]int64{}
+		}
+		byProvider[k.(string)] = v.(*atomic.Int64).Load()
+		return true
+	})
 	return EngineStats{OpenFiles: open, BlockBytes: e.block, MemoryHits: e.stats.memHits.Load(), DiskHits: e.stats.diskHits.Load(),
 		BlocksFetched: e.stats.fetched.Load(), BytesFetched: e.stats.bytes.Load(), Hedges: e.stats.hedges.Load(),
-		HedgeWins: e.stats.hedgeWins.Load(), LinkRefreshes: e.stats.refreshes.Load(), Errors: e.stats.errors.Load()}
+		HedgeWins: e.stats.hedgeWins.Load(), LinkRefreshes: e.stats.refreshes.Load(), Errors: e.stats.errors.Load(),
+		ProviderBytes: byProvider}
 }
 
 // tuning reads the live config knobs.
@@ -382,7 +410,12 @@ func (e *Engine) CheckRelease(ctx context.Context, releaseID string, payload []b
 		body.Close()
 		return true, nil
 	}
-	if _, err := f.block(ctx, 0, fetchDurable, 1, nil); err != nil {
+	// The check waits for block 0 only, but its one request covers the
+	// pinned head: the probe and the first media read need the next blocks
+	// right after, and on a fresh link each new request costs a CDN first
+	// byte (0.3–0.7 s on TorBox, measured on the lab). The rest of the run
+	// arrives on the same connection while the resolver finishes.
+	if _, err := f.block(ctx, 0, fetchDurable, max(1, pinnedHeadBytes/f.e.block), nil); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -500,16 +533,17 @@ type remoteFile struct {
 	refs     int
 	lastUsed time.Time
 
-	linkMu           sync.Mutex // serializes refreshes
-	mu               sync.Mutex
-	pl               Payload
-	gen              int
-	linkFails        int       // link generations that failed in a row
-	failedGen        int       // last generation counted in linkFails (-1 = none)
-	transportRetryAt time.Time // bound link regeneration during a CDN outage
-	mediaHealthyKey  string    // a shared cooldown must not interrupt another healthy file
-	mediaPauseKey    string
-	mediaPause       mediaPause
+	linkMu          sync.Mutex // serializes refreshes
+	mu              sync.Mutex
+	pl              Payload
+	gen             int
+	linkFails       int           // link generations that failed in a row
+	failedGen       int           // last generation counted in linkFails (-1 = none)
+	rerouteAt       time.Time     // next link-regeneration wave allowed after a host failure
+	rerouteSem      chan struct{} // one reroute wave at a time; waiters reuse its result
+	mediaHealthyKey string        // a shared cooldown must not interrupt another healthy file
+	mediaPauseKey   string
+	mediaPause      mediaPause
 
 	bmu     sync.Mutex
 	flights map[int64]*blockFlight
@@ -534,7 +568,7 @@ func (e *Engine) newFile(id string, p Payload) *remoteFile {
 	f := &remoteFile{e: e, id: id, tag: p.fileTag(), size: p.Size, pl: p,
 		flights: map[int64]*blockFlight{}, mem: lru.New(lru.Options[int64, []byte]{MaxEntries: memBlocksPerFile}), stored: map[int64]bool{}, failedGen: -1,
 		conns: make(chan struct{}, conns), raSlots: make(chan struct{}, max(1, conns-1)),
-		yieldSig: make(chan struct{})}
+		yieldSig: make(chan struct{}), rerouteSem: make(chan struct{}, 1)}
 	f.nblocks = (p.Size + e.block - 1) / e.block
 	f.ctx, f.cancel = context.WithCancel(e.ctx)
 	return f
@@ -660,6 +694,82 @@ func (f *remoteFile) moveFromHost(ctx context.Context, gen int) bool {
 	f.mu.Unlock()
 	f.e.kickLeases()
 	return true
+}
+
+// Rerouting a link whose CDN node stopped answering (issue #396).
+const (
+	rerouteLinks    = 3                // fresh links one wave asks for before trying another provider
+	rerouteBudget   = 10 * time.Second // bounds one wave: API calls and the alternate provider
+	rerouteSpacing  = 5 * time.Second  // between waves that found a live node
+	rerouteCooldown = 20 * time.Second // after a wave that found none
+)
+
+// reroute replaces the link of a file whose CDN node failed a request. The
+// providers balance fresh links across edge nodes (TorBox requestdl, Real-
+// Debrid and AllDebrid unrestrict, Premiumize directdl), so a new link for
+// the same file usually lands on a live node and the byte range resumes
+// there: same file, same offsets. A link on the failed node, or on another
+// node that keeps failing, is not a new route, so one wave asks for up to
+// rerouteLinks links and then for the same file on another provider.
+// Readers that failed together share one wave, and waves are spaced per
+// file, so an outage cannot loop on the provider API. It reports whether
+// the file now streams from another node.
+func (f *remoteFile) reroute(ctx context.Context, failed string, gen int) bool {
+	if f.e.svc == nil || f.e.backoff == nil {
+		return false
+	}
+	failedAddr := dialAddr(failed)
+	usable := func(u string) bool {
+		return u != "" && dialAddr(u) != failedAddr && !f.e.backoff.down(urlHost(u))
+	}
+	select {
+	case f.rerouteSem <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	defer func() { <-f.rerouteSem }()
+	if p, g := f.payload(); g != gen && usable(p.URL) {
+		return true // a reader that failed alongside this one already moved the file
+	}
+	f.mu.Lock()
+	if f.e.now().Before(f.rerouteAt) {
+		f.mu.Unlock()
+		return false
+	}
+	f.mu.Unlock()
+	wctx, cancel := context.WithTimeout(ctx, rerouteBudget)
+	defer cancel()
+	p, _ := f.payload()
+	moved := false
+	for i := 1; i <= rerouteLinks && !moved; i++ {
+		u, g, err := f.link(wctx, true, gen)
+		if err != nil {
+			f.e.log.Warn("debrid link refresh after media host failure failed", "release", f.id,
+				"provider", p.Provider, "failedHost", urlHost(failed), "err", sanitize(err))
+			break
+		}
+		gen = g
+		moved = usable(u)
+		f.e.log.Info("debrid link refreshed after media host failure", "release", f.id, "provider", p.Provider,
+			"failedHost", urlHost(failed), "host", urlHost(u), "attempt", i, "newHost", moved)
+	}
+	if !moved && wctx.Err() == nil && f.moveFromHost(wctx, gen) {
+		np, _ := f.payload()
+		if moved = usable(np.URL); moved {
+			f.e.log.Info("debrid release moved off a failed media host", "release", f.id,
+				"failedHost", urlHost(failed), "provider", np.Provider, "host", urlHost(np.URL))
+		}
+	}
+	wait := rerouteSpacing
+	if !moved {
+		wait = rerouteCooldown
+		f.e.log.Warn("debrid media host failed and no other route was found", "release", f.id,
+			"provider", p.Provider, "host", urlHost(failed), "retryAfter", wait)
+	}
+	f.mu.Lock()
+	f.rerouteAt = f.e.now().Add(wait)
+	f.mu.Unlock()
+	return moved
 }
 
 func (f *remoteFile) blockLen(idx int64) int64 {
@@ -872,12 +982,23 @@ func (f *remoteFile) finish(idx int64, fl *blockFlight, data []byte, err error, 
 // fetchRun reads blocks [first, first+len(fls)) with one range request,
 // publishing each block as soon as its bytes arrive.
 func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlight, mode fetchMode, slotHeld bool) {
-	reqCtx := ctx
+	// reqCtx ends when the run is abandoned; httpCtx carries its request.
+	// They differ for background runs, which keep a nearly finished
+	// response going so its connection survives the seek that displaced it.
+	reqCtx, httpCtx := ctx, ctx
+	var remaining atomic.Int64 // response bytes still unread; -1 before the body
+	remaining.Store(-1)
 	if mode == fetchReadAhead || mode == fetchPrefetch {
-		var stop context.CancelFunc
+		var stop, cancelHTTP context.CancelFunc
 		reqCtx, stop = f.yieldCtx(ctx)
 		defer stop()
+		httpCtx, cancelHTTP = context.WithCancel(context.WithoutCancel(ctx))
+		finished := make(chan struct{})
+		defer cancelHTTP()
+		defer close(finished)
+		go f.keepWarmOnYield(reqCtx, finished, &remaining, cancelHTTP)
 	}
+	httpCtx = context.WithValue(httpCtx, fetchModeKey{}, mode)
 	i := 0
 	fail := func(err error) {
 		if reqCtx.Err() != nil {
@@ -913,7 +1034,10 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 	start := first * f.e.block
 	end := min((first+int64(len(fls)))*f.e.block, f.size) - 1
 	began := f.e.now()
-	body, tm, err := f.rangeGet(reqCtx, start, end, mode == fetchUrgent || mode == fetchDurable)
+	body, tm, err := f.rangeGet(httpCtx, start, end, mode == fetchUrgent || mode == fetchDurable)
+	if err == nil {
+		remaining.Store(end + 1 - start)
+	}
 	if err == nil && isAnalysisRead(reqCtx) {
 		body = &analysisBody{ReadCloser: body, counters: &f.analysis, totals: &f.e.svc.analysisTotals, ctx: reqCtx}
 	}
@@ -954,7 +1078,7 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 				_, gen := f.payload()
 				f.moveFromHost(reqCtx, gen)
 			}
-			body, tm, err = f.rangeGet(reqCtx, idx*f.e.block, end, mode == fetchUrgent || mode == fetchDurable)
+			body, tm, err = f.rangeGet(httpCtx, idx*f.e.block, end, mode == fetchUrgent || mode == fetchDurable)
 			if err != nil {
 				break
 			}
@@ -970,8 +1094,12 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 			break
 		}
 		got += int64(len(buf))
+		remaining.Store(max(0, end+1-(idx*f.e.block+int64(len(buf)))))
 		f.e.stats.fetched.Add(1)
 		f.e.stats.bytes.Add(int64(len(buf)))
+		if pl, _ := f.payload(); pl.Provider != "" {
+			f.e.stats.addProviderBytes(pl.Provider, int64(len(buf)))
+		}
 		if mode == fetchPrefetch || mode == fetchDurable {
 			// Publish only once on disk: prefetched blocks skip memory, and
 			// a checked head block must outlive the check's handle.
@@ -990,6 +1118,61 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 	}
 	p, _ := f.payload()
 	f.e.svc.RecordStream(p.Provider, tm.connect, tm.ttfb, got, elapsed)
+}
+
+// A background run displaced by a seek reads its last bytes, up to about a
+// quarter second of transfer, when that is all that stands between its
+// connection and the idle pool: the seek's own request then reuses a warm
+// connection instead of paying a new TCP and TLS handshake to the CDN (or
+// waiting under the host cap for a slot). Anything longer is cut off at
+// once, as before, so it never competes with the seek for bandwidth.
+const (
+	minYieldDrainBytes = 1 << 20
+	maxYieldDrainBytes = 4 << 20
+	yieldDrainWait     = 750 * time.Millisecond
+)
+
+type fetchModeKey struct{}
+
+// gateUrgent reports whether a viewer is waiting on the request ctx carries:
+// a foreground read that is not, or is no longer, a warm-up or analysis.
+func gateUrgent(ctx context.Context) bool {
+	mode, ok := ctx.Value(fetchModeKey{}).(fetchMode)
+	if !ok {
+		return true
+	}
+	return (mode == fetchUrgent || mode == fetchDurable || mode == fetchMetadata) && !core.IsSpeculative(ctx) && !isAnalysisRead(ctx)
+}
+
+func (f *remoteFile) yieldDrainBytes() int64 {
+	f.bmu.Lock()
+	tput := f.tput
+	f.bmu.Unlock()
+	return min(int64(maxYieldDrainBytes), max(int64(minYieldDrainBytes), int64(tput/4)))
+}
+
+// keepWarmOnYield ends an abandoned background run's request, unless only a
+// short remainder is left: that is read to the end (and published), so the
+// connection goes back to the pool instead of being torn down mid-response.
+func (f *remoteFile) keepWarmOnYield(abandoned context.Context, finished <-chan struct{}, remaining *atomic.Int64, cancel context.CancelFunc) {
+	select {
+	case <-abandoned.Done():
+	case <-finished:
+		return
+	}
+	if rem := remaining.Load(); rem < 0 || rem > f.yieldDrainBytes() || f.ctx.Err() != nil {
+		cancel()
+		return
+	}
+	t := time.NewTimer(yieldDrainWait)
+	defer t.Stop()
+	select {
+	case <-finished:
+	case <-t.C:
+		cancel()
+	case <-f.ctx.Done():
+		cancel()
+	}
 }
 
 func (f *remoteFile) isRateLimited() bool {
@@ -1096,6 +1279,7 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		release = done
 	}
 	var lastErr error
+	rerouted := false // the previous attempt failed over to another node: no pause
 	for attempt := 0; attempt < maxRangeAttempts; attempt++ {
 		if isAnalysisRead(ctx) {
 			payload, _ := f.payload()
@@ -1110,6 +1294,12 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		if err != nil {
 			return nil, timing{}, err
 		}
+		if attempt == 0 && f.e.backoff != nil && f.e.backoff.down(urlHost(u)) && f.reroute(ctx, u, gen) {
+			// The link points at a node other requests just found dead.
+			if u, gen, err = f.link(ctx, false); err != nil {
+				return nil, timing{}, err
+			}
+		}
 		payload, _ := f.payload()
 		if isAnalysisRead(ctx) {
 			if err := f.e.svc.checkAnalysisAccount(payload.Provider); err != nil {
@@ -1119,11 +1309,12 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		if err := f.checkMediaPause(payload.Provider, u); err != nil {
 			return nil, timing{}, err
 		}
-		if attempt > 0 {
+		if attempt > 0 && !rerouted {
 			if err := sleep(ctx, time.Duration(attempt*attempt)*150*time.Millisecond); err != nil {
 				return nil, timing{}, err
 			}
 		}
+		rerouted = false
 		rctx := ctx
 		if payload.IsDirect() || payload.IsPluginProvider() {
 			rctx = withDirect(ctx, payload)
@@ -1147,30 +1338,21 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 				return nil, tm, ctx.Err()
 			}
 			lastErr = err
-			// A still-valid signed URL can point at a dead CDN node. One
-			// bounded regeneration gives the provider a chance to route us
-			// elsewhere instead of retrying the dead endpoint four times.
-			// A network outage never establishes that the file is missing.
-			if attempt == 0 && urgent {
-				f.mu.Lock()
-				refresh := !f.e.now().Before(f.transportRetryAt)
-				if refresh {
-					f.transportRetryAt = f.e.now().Add(resetCooldown)
-				}
-				f.mu.Unlock()
-				if refresh {
-					// Give the provider one chance to route to a new node. A
-					// new signature on the failed host is not a new route.
-					recoveryCtx, cancelRecovery := context.WithTimeout(ctx, 8*time.Second)
-					newURL, newGen, refreshErr := f.link(recoveryCtx, true, gen)
-					if refreshErr != nil || dialAddr(newURL) == dialAddr(u) {
-						if refreshErr != nil {
-							newGen = gen
-						}
-						f.moveFromHost(recoveryCtx, newGen)
-					}
-					cancelRecovery()
-				}
+			if errors.Is(err, core.ErrStreamLimit) {
+				continue
+			}
+			// A still-valid signed URL can point at a dead CDN node. Resume
+			// this range on a fresh link on a live node, for read-ahead and
+			// prefetch too: they meet the dead node first. A network outage
+			// never establishes that the file is missing.
+			if f.reroute(ctx, u, gen) {
+				rerouted = true
+				continue
+			}
+			if isConnRefused(err) && f.e.backoff != nil && f.e.backoff.down(urlHost(u)) {
+				// No other route for now and the node refuses connections:
+				// hand the session its failover instead of more refusals.
+				break
 			}
 			continue
 		}
@@ -1322,9 +1504,16 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 			return false
 		}
 	}
-	send := func(c context.Context, hc *http.Client, w *connWatch) (*http.Response, timing, error) {
+	// Owned CDN pools also queue on the host gate (add-on links use the
+	// SSRF-guarded clients, which the gate does not cover).
+	addr := ""
+	if _, direct := ctx.Value(directKey{}).(Payload); !direct {
+		addr = dialAddr(u)
+	}
+	priority := func() bool { return gateUrgent(ctx) }
+	send := func(c context.Context, hc *http.Client, w *connWatch, host func()) (*http.Response, timing, error) {
 		var once sync.Once
-		release := func() { once.Do(func() { <-slots }) }
+		release := func() { once.Do(func() { host(); <-slots }) }
 		c, stop := context.WithCancel(c)
 		resp, tm, err := e.send(c, hc, u, start, end, w)
 		if err != nil {
@@ -1338,8 +1527,13 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	if !acquire(true) {
 		return nil, timing{}, ctx.Err()
 	}
+	host, err := e.gate.acquire(ctx, addr, priority)
+	if err != nil {
+		<-slots
+		return nil, timing{}, err
+	}
 	if !urgent || e.delay < 0 {
-		return send(ctx, e.hc, nil)
+		return send(ctx, e.hc, nil, host)
 	}
 	type result struct {
 		resp   *http.Response
@@ -1350,11 +1544,11 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	}
 	results := make(chan result, 2)
 	var cancels []context.CancelFunc
-	launch := func(hc *http.Client, hedge bool, w *connWatch) {
+	launch := func(hc *http.Client, hedge bool, w *connWatch, host func()) {
 		rctx, cancel := context.WithCancel(ctx)
 		cancels = append(cancels, cancel)
 		go func() {
-			resp, tm, err := send(rctx, hc, w)
+			resp, tm, err := send(rctx, hc, w, host)
 			if err == nil && resp.StatusCode/100 == 2 {
 				br := newPeekBody(resp.Body)
 				if _, perr := br.peek(); perr != nil && perr != io.EOF {
@@ -1372,7 +1566,7 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	// another handshake to the same slow edge: wait for the primary's
 	// connection, then give it the full hedge delay.
 	watch := newConnWatch()
-	launch(e.hc, false, watch)
+	launch(e.hc, false, watch, host)
 	timer := time.NewTimer(e.delay)
 	defer timer.Stop()
 	pending, hedged := 1, false
@@ -1381,8 +1575,13 @@ func (e *Engine) get(ctx context.Context, u string, start, end int64, urgent boo
 	tryHedge := func() {
 		hedged = true
 		if ctx.Err() == nil && e.limit.hedgeAllowed(dialAddr(u)) && acquire(false) {
+			hedgeHost, ok := e.gate.tryAcquire(addr)
+			if !ok {
+				<-slots
+				return
+			}
 			e.stats.hedges.Add(1)
-			launch(e.hedge, true, nil)
+			launch(e.hedge, true, nil, hedgeHost)
 			pending++
 		}
 	}

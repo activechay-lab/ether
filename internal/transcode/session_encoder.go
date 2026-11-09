@@ -94,6 +94,14 @@ func (s *Session) leadOverLocked(r *run) bool {
 
 // aheadLimit is how many segments ffmpeg may run ahead of the player.
 func (s *Session) aheadLimit() int {
+	// Encoders compete at normal priority while playback needs media. Once
+	// four segments are ready the reversible pause/resume throttle yields
+	// the CPU until only two remain. Renicing a running child back from 5
+	// to 0 requires privileges on Unix; never strand playback at nice 5.
+	// Copies retain the owner's larger read-ahead and background priority.
+	if !s.liveInput && !s.decision.VideoCopy {
+		return 4
+	}
 	limit := int(s.m.opts.maxAhead / s.segDur)
 	if limit < 4 {
 		limit = 4
@@ -232,9 +240,11 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		s.fallbackRTXLocked("selected soft subtitle requires a shared encoder output", seg)
 		rp.decision = s.trackDecisionLocked(s.wantTrack)
 	}
+	s.boundHLSRateLocked(&rp)
 	s.seekRampSeg = -1
 	rampClock := len(s.rungs) <= 1 && s.plan != nil && s.plan.rampSegs > 0
 	spec := runSpec{
+		HealTimestamps:       s.healTimestamps,
 		AuthoredTimeline:     len(s.rungs) > 1 || (s.plan != nil && s.plan.rampSegs > 0),
 		RampClock:            rampClock,
 		SilenceAudio:         s.silenceAudio,
@@ -242,6 +252,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		RTXTimeline:          s.rtxTimeline,
 		AudioGainDB:          s.audioMatch.gain,
 		LiveInput:            s.liveInput,
+		LiveFromBacklog:      s.liveFromBacklog,
 		LoopInput:            s.loopInput,
 		InputHeaders:         s.inputHeaders,
 		Input:                s.input,
@@ -387,7 +398,11 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		r.progressMu.Lock()
 		r.progress = p
 		r.progressMu.Unlock()
-		if time.Since(lastLog) > 15*time.Second {
+		interval := 15 * time.Second
+		if s.traceOn() {
+			interval = time.Second
+		}
+		if time.Since(lastLog) > interval {
 			lastLog = time.Now()
 			runLog.Debug("ffmpeg progress", "outTime", p.OutTime, "speed", p.Speed, "fps", p.FPS)
 		}
@@ -421,6 +436,10 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 	starting := make(chan struct{})
 	s.starting = starting
 	rtxConfig, runDir, inputLease := s.rtxConfig, s.dir, s.inputLease
+	var stopping <-chan struct{}
+	if s.encoder != nil {
+		stopping = s.encoder.cancel
+	}
 	hint := s.m.opts.onRunStart
 	hintEnd := spec.Start + 2*s.segDur
 	s.mu.Unlock()
@@ -432,6 +451,11 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		err = graphFailure(spec)
 	}
 	if err == nil {
+		if needsCopyKeyframe(spec) {
+			probeCtx, cancelProbe := stopContext(stopping)
+			spec.SeekFrom, spec.HasSeekFrom = s.m.copyKeyframeBefore(probeCtx, spec)
+			cancelProbe()
+		}
 		args = buildArgs(spec)
 		r.spec = spec
 		err = os.MkdirAll(spec.Dir, 0o755)
@@ -464,7 +488,7 @@ func (s *Session) startRunLocked(seg int, bigProbe bool) error {
 		}
 	}
 	if err == nil && proc == nil {
-		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr})
+		proc, err = s.m.runner.Start(Command{Path: s.m.ffmpeg, Args: args, Dir: runDir, Stdout: stdout, Stderr: stderr, Background: !s.liveInput && spec.Decision.VideoCopy})
 	}
 	s.encoder.fenceProcess(proc)
 	err = redactScopedCommandError(err, spec)

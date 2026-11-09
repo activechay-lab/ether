@@ -62,7 +62,7 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 	o.MaxSize = min(o.MaxSize, int64(int(^uint(0)>>1)))
 	p := &Part{}
 	preamble := 0
-	// 1. Find =ybegin.
+	// 1. Find =ybegin (or fall back to UUEncode).
 	for {
 		line, err := lr.ReadLine()
 		if err != nil {
@@ -81,6 +81,9 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 			}
 			p.Header = h
 			break
+		}
+		if _, ok := parseUUBegin(line); ok || isRawUUMLine(line) {
+			return decodeUU(lr, line, o)
 		}
 		preamble += len(line) + 2
 		if preamble > MaxPreambleSize {
@@ -199,6 +202,16 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 }
 
 func verify(p *Part, skipCRC bool) error {
+	var got uint32
+	if !skipCRC && (p.Trailer.HasPartCRC || p.Trailer.HasCRC) {
+		got = crc32.ChecksumIEEE(p.Data)
+	}
+	return VerifyChecksum(p, skipCRC, got)
+}
+
+// VerifyChecksum checks a decoded part using a checksum supplied by the decoder.
+// It applies the same metadata and CRC rules as DecodeLines.
+func VerifyChecksum(p *Part, skipCRC bool, got uint32) error {
 	n := int64(len(p.Data))
 	if p.Trailer.Size != n {
 		return fmt.Errorf("%w: decoded %d bytes, =yend size=%d", ErrSizeMismatch, n, p.Trailer.Size)
@@ -211,7 +224,6 @@ func verify(p *Part, skipCRC bool) error {
 	}
 	whole := !p.Header.Multipart || (p.Header.Begin == 1 && p.Header.End == p.Header.Size)
 	if p.Trailer.HasPartCRC || (p.Trailer.HasCRC && whole) {
-		got := crc32.ChecksumIEEE(p.Data)
 		if p.Trailer.HasPartCRC && got != p.Trailer.PartCRC32 {
 			return fmt.Errorf("%w: pcrc32 got %08x want %08x", ErrCRCMismatch, got, p.Trailer.PartCRC32)
 		}

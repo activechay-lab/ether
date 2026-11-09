@@ -231,6 +231,8 @@ type Catalog struct {
 	consoleGateGen atomic.Uint64
 	listSummaryMu  sync.Mutex
 	listSummaries  map[core.RatingKey]listSummary
+	remoteSearches remoteSearchCache // search_remote_cache.go
+	posters        posterResolver    // posters.go
 
 	startupContext    context.Context
 	metadataMu        sync.RWMutex
@@ -269,13 +271,16 @@ type Catalog struct {
 	hydrateSlots chan struct{}
 
 	trendFlights flight.Group[string, trendSnapshot]
-	statsFlights flight.Group[string, Stats]
 	listMu       sync.Mutex
 	listCache    map[string]listEntry
 
-	syncing    atomic.Bool
-	progress   SyncProgress
-	progressMu sync.RWMutex
+	syncing      atomic.Bool
+	syncBatch    atomic.Int64 // adaptive sync write batch (sync.go nextSyncBatch)
+	detailWrites detailWrites // batched detail writes (detail_writer.go)
+	ftsFold      bool         // bulk writes fold new rows into the title FTS (fts_fold.go)
+	personFold   bool         // and new credits into person names (fts_fold.go)
+	progress     SyncProgress
+	progressMu   sync.RWMutex
 
 	yearMu         sync.RWMutex
 	yearRunning    atomic.Bool
@@ -285,12 +290,33 @@ type Catalog struct {
 	yearInflight   sync.Map
 	yearInflightN  atomic.Int32
 	yearPauseUntil atomic.Int64
-	syncYears      [2]int // 0,0 = 1900..now+2
+	// kickMovieYears coalesces on-screen keys for one reader goroutine.
+	yearKickMu   sync.Mutex
+	yearKickKeys []any
+	yearKickBusy bool
+	syncYears    [2]int // 0,0 = 1800..now+2 (the /discover walk's date range)
+
+	// exports is TMDB's daily ID export source (sync_export.go); nil syncs
+	// from /discover alone.
+	exports ExportSource
+	fill    fillState // per-ID fill backlog (sync_fill.go)
+	tail    tailState // the long-tail search index (tail_index.go)
+	// posterPrefetch, when set, starts poster lookups for long-tail search
+	// hits while the search waits for TMDB (posters, L).
+	posterPrefetch func(context.Context, []core.Title)
 
 	// High-speed in-memory read caches, invalidated atomically on writes.
-	writeGen    atomic.Uint64
-	cacheMu     sync.RWMutex
-	titleCache  map[core.RatingKey]cachedStoredTitle
+	writeGen atomic.Uint64
+	// frozenMinute drops the wall-clock minute from cache keys
+	// (FreezeCacheMinute).
+	frozenMinute atomic.Bool
+	cacheMu      sync.RWMutex
+	titleCache   map[core.RatingKey]cachedStoredTitle
+	// exportCache holds the latest export pages' titles for the viewer
+	// that read them (queryListRows), so the page's image signer, which
+	// reads the same titles right after, does not read them again; and the
+	// rows an image grant read (ArtworkRows), for the image reads after it.
+	exportCache map[exportCacheKey]cachedStoredTitle
 	countCache  map[string]cachedCount
 	browseCache map[string]cachedBrowse
 	grandCache  map[core.RatingKey]cachedBrowse
@@ -307,6 +333,18 @@ type Catalog struct {
 
 	// searchIx is the in-memory title search index (search_titles.go).
 	searchIx searchIndexState
+
+	// schemaWorkMu serializes background rank/index work with SQLite tier
+	// copy/swap. Request reads and writes never take this mutex.
+	schemaWorkMu sync.Mutex
+
+	// tier is the one-off library-tier migration (tier_migrate.go).
+	tier tierMigrationState
+	// rankReady is set once the popularity rank (rank.go) has been built.
+	rankReady atomic.Bool
+	// titleIndexesSwapped is set once popularity left the title indexes
+	// (titleidx.go).
+	titleIndexesSwapped atomic.Bool
 }
 
 // SaferRatingSQL is the optional Plex overlay predicate for viewer limits.
@@ -335,6 +373,8 @@ type cachedBrowse struct {
 	page   core.Page
 	gen    uint64
 	minute int64
+	// partial lists a ranking page's partial titles (rankProjection).
+	partial []core.RatingKey
 }
 
 type cachedFacet struct {
@@ -344,12 +384,12 @@ type cachedFacet struct {
 	counted time.Time
 }
 
+// cachedStats is the last Stats read, served only when the database cannot
+// answer.
 type cachedStats struct {
-	stats     Stats
-	gen       uint64
-	minute    int64
-	fetchedAt time.Time
-	ready     bool
+	stats       Stats
+	yearPending int
+	ready       bool
 }
 
 type listEntry struct {
@@ -425,17 +465,23 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 		personHydrated: map[int64]time.Time{}, listMirrored: map[string]time.Time{}}
 	c.setNow(time.Now)
 	c.SetTMDB(client)
+	c.posterPrefetch = c.prefetchTailPosters
 	for _, fn := range opts {
 		fn(c)
 	}
 	if err := c.reloadViewerRules(context.Background()); err != nil {
 		return nil, err
 	}
+	c.loadTierHints(context.Background())
 	ctx := c.startupContext
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	c.ensureSortTitlesFolded(ctx)
+	c.loadRankReady(ctx)
+	c.loadTitleIndexState(ctx)
+	c.ftsFold = ftsFoldAvailable(ctx, db)
+	c.personFold = personFoldAvailable(ctx, db)
 	c.startupContext = nil
 	return c, nil
 }
@@ -479,7 +525,8 @@ func (c *Catalog) config() config.Catalog {
 }
 
 // MeetsThreshold reports whether a title qualifies for the browsable set under
-// cfg: popularity >= MinPopularity OR votes >= MinVotes, and released.
+// cfg: popularity >= MinPopularity OR votes >= MinVotes, and released. A
+// saved 0/0 (Off) means the Off floor (config.Catalog.Bars).
 func MeetsThreshold(cfg config.Catalog, t core.Title, now time.Time) bool {
 	if t.Type != core.TypeMovie && t.Type != core.TypeShow {
 		return false
@@ -488,18 +535,10 @@ func MeetsThreshold(cfg config.Catalog, t core.Title, now time.Time) bool {
 		// A title with no date is treated as unreleased.
 		return false
 	}
-	if cfg.MinPopularity <= 0 && cfg.MinVotes <= 0 {
-		return true
-	}
-	popOK := cfg.MinPopularity > 0 && t.Popularity >= cfg.MinPopularity
-	voteOK := cfg.MinVotes > 0 && t.VoteCount >= cfg.MinVotes
-	if cfg.MinPopularity > 0 && cfg.MinVotes > 0 {
-		return popOK || voteOK
-	}
-	if cfg.MinPopularity > 0 {
-		return popOK
-	}
-	return voteOK
+	minPop, minVotes := cfg.Bars()
+	popOK := minPop > 0 && t.Popularity >= minPop
+	voteOK := minVotes > 0 && t.VoteCount >= minVotes
+	return popOK || voteOK
 }
 
 func (c *Catalog) meetsThreshold(t core.Title) bool {
@@ -510,6 +549,7 @@ func (c *Catalog) meetsThreshold(t core.Title) bool {
 func (c *Catalog) SetTMDB(client TMDB) {
 	if c != nil {
 		c.remote.Store(&tmdbRef{client: client})
+		c.remoteSearches.reset()
 	}
 }
 

@@ -198,6 +198,9 @@ func (s *ImageGrantService) Issue(ctx context.Context, req frontend.ImageGrantRe
 	if (req.Item == 0) == (req.Channel == "") || len(req.Channel) > 512 || req.Image.Path == "" || req.Image.Kind == "" || len(req.Image.Path) > 1024 || len(req.Image.Kind) > 128 || len(req.Image.Tag) > 256 || len(req.Image.Subject) > 256 {
 		return "", core.ErrUnauthorized
 	}
+	if req.Image.Kind != frontend.ImagePerson {
+		ctx = frontend.WithArtworkRows(ctx)
+	}
 	if err := s.authorized(ctx, viewer, req.Device, req.Item, req.Channel, req.Image); err != nil {
 		return "", err
 	}
@@ -288,11 +291,23 @@ func (s *ImageGrantService) Serve(w http.ResponseWriter, r *http.Request, secret
 		http.NotFound(w, r)
 		return
 	}
+	r = artworkRowsRequest(r, img)
 	if err = s.authorized(r.Context(), viewer, device, core.RatingKey(item), channel, img); err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	s.writeGrantedImage(w, r, viewer, device, core.RatingKey(item), channel, img, hash, sourceHash, deviceJSON)
+}
+
+// artworkRowsRequest lets an image read authorize and list its title from
+// visibility rows (frontend.WithArtworkRows), shared by its authorization
+// and its read. A credited person's portrait is listed from the title's
+// credits, so its title is read in full.
+func artworkRowsRequest(r *http.Request, img frontend.Image) *http.Request {
+	if img.Kind == frontend.ImagePerson {
+		return r
+	}
+	return r.WithContext(frontend.WithArtworkRows(r.Context()))
 }
 
 func imageETag(img frontend.Image, width, height int, format string, blur bool) string {

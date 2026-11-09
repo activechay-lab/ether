@@ -92,6 +92,33 @@ func TestLookup(t *testing.T) {
 	}
 }
 
+func TestLookupCour(t *testing.T) {
+	srv := serve(t, fixture, nil)
+	s := New(Options{URL: srv.URL, Client: srv.Client()})
+	for _, tc := range []struct {
+		name string
+		req  core.SearchRequest
+		cour int
+		ep   int
+		ok   bool
+	}{
+		{"single-cour season", ep(1000, 1, 5, 5), 0, 0, false},
+		{"season part one stays cour 1", ep(1000, 3, 12, 0), 0, 0, false},
+		{"season part two first episode", ep(1000, 3, 13, 0), 2, 1, true},
+		{"season part two tenth episode", ep(1000, 3, 22, 0), 2, 10, true},
+		{"special offset ignored for cour numbering", ep(1000, 4, 30, 0), 2, 14, true},
+		{"whole-series entry has no cour offset", ep(2000, 21, 180, 1071), 0, 0, false},
+	} {
+		cour, episode, ok, err := s.LookupCour(context.Background(), tc.req)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if cour != tc.cour || episode != tc.ep || ok != tc.ok {
+			t.Errorf("%s: got cour=%d ep=%d ok=%v, want cour=%d ep=%d ok=%v", tc.name, cour, episode, ok, tc.cour, tc.ep, tc.ok)
+		}
+	}
+}
+
 func TestLoadIsSharedCachedAndBacksOff(t *testing.T) {
 	var hits atomic.Int64
 	srv := serve(t, fixture, &hits)

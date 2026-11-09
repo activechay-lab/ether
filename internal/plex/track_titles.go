@@ -3,7 +3,7 @@ package plex
 import (
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
@@ -135,7 +135,7 @@ func codecInPlainTitle(product string) bool {
 	}
 	return false
 }
-func projectStreamTitles(out []model.Stream, src []int, info core.MediaInfo, pr *Request) {
+func projectStreamTitles(out []model.Stream, src []int, info frontend.MediaInfo, pr *Request) {
 	for i := range out {
 		st := info.Streams[src[i]]
 		out[i].Language = trackLanguage(st.Language, pr.Language)
@@ -157,7 +157,7 @@ func asciiLower(s string) string {
 		return r
 	}, s)
 }
-func trackCodec(st core.StreamInfo) string {
+func trackCodec(st frontend.StreamInfo) string {
 	if st.Type == "audio" {
 		return audioStreamCodecLabel(st)
 	}
@@ -166,7 +166,7 @@ func trackCodec(st core.StreamInfo) string {
 	}
 	return strings.ToUpper(plexCodec(st.Codec))
 }
-func trackParts(st core.StreamInfo, locale string) []string {
+func trackParts(st frontend.StreamInfo, locale string) []string {
 	words := trackWords(locale)
 	lang := trackLanguage(st.Language, locale)
 	if lang == "" {
@@ -196,7 +196,7 @@ func trackParts(st core.StreamInfo, locale string) []string {
 	}
 	return parts
 }
-func untitledTrack(st core.StreamInfo, locale string, withCodec bool) string {
+func untitledTrack(st frontend.StreamInfo, locale string, withCodec bool) string {
 	if st.Type == "video" {
 		title := videoDisplayTitle(st)
 		if withCodec {
@@ -219,7 +219,7 @@ func untitledTrack(st core.StreamInfo, locale string, withCodec bool) string {
 	}
 	return plain
 }
-func composeTrackTitle(st core.StreamInfo, locale string, extended bool) string {
+func composeTrackTitle(st frontend.StreamInfo, locale string, extended bool) string {
 	if !extended {
 		return untitledTrack(st, locale, st.Type == "audio" || locale == "")
 	}

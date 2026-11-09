@@ -280,12 +280,11 @@ type ListSourceMeta struct {
 
 // RankingStepMeta is one contributed ranking step (hosted only).
 type RankingStepMeta struct {
-	Key             string          `json:"key"`
-	Label           string          `json:"label"`
-	Hint            string          `json:"hint,omitempty"`
-	Editor          json.RawMessage `json:"editor,omitempty"`
-	DefaultPosition int             `json:"defaultPosition,omitempty"`
-	Budget          json.RawMessage `json:"budget,omitempty"`
+	Key    string          `json:"key"`
+	Label  string          `json:"label"`
+	Hint   string          `json:"hint,omitempty"`
+	Editor json.RawMessage `json:"editor,omitempty"`
+	Budget json.RawMessage `json:"budget,omitempty"`
 }
 
 // RuleConditionMeta is one contributed rule condition (hosted only).

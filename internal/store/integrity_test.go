@@ -117,6 +117,11 @@ func TestIsCorrupt(t *testing.T) {
 
 func TestOpenReportsMigrationProgress(t *testing.T) {
 	ctx := context.Background()
+	// A new database copies the process's migrated image; drop it so this
+	// open migrates, as a server's first start does.
+	memoryTemplate.Lock()
+	memoryTemplate.image = nil
+	memoryTemplate.Unlock()
 	var seen []Progress
 	db, _, err := OpenWith(ctx, Options{DataDir: t.TempDir(), Progress: func(p Progress) { seen = append(seen, p) }})
 	if err != nil {

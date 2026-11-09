@@ -90,6 +90,33 @@ sha256_of() {
   fi
 }
 
+# github_api_asset <url> prints the API download URL for a GitHub release
+# asset link. GitHub's release-download front end sometimes answers 504 for
+# an asset for hours while the API serves it fine; the SHA-256 pin still
+# decides whether the bytes are used.
+github_api_asset() {
+  case "$1" in
+    https://github.com/*/releases/download/*) ;;
+    *) return 1 ;;
+  esac
+  rest=${1#https://github.com/}
+  repo=$(printf '%s' "$rest" | cut -d/ -f1-2)
+  tag=$(printf '%s' "$rest" | cut -d/ -f5)
+  name=$(printf '%s' "$rest" | cut -d/ -f6-)
+  meta=$(curl -fsSL --retry 3 ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} "https://api.github.com/repos/$repo/releases/tags/$tag") || return 1
+  if [ -n "$PY" ]; then
+    printf '%s' "$meta" | "$PY" -c 'import json,sys
+name=sys.argv[1]
+for a in json.load(sys.stdin).get("assets", []):
+    if a.get("name") == name:
+        print(a["url"]); break
+else:
+    sys.exit(1)' "$name"
+  else
+    printf '%s' "$meta" | jq -er --arg n "$name" '.assets[] | select(.name == $n) | .url'
+  fi
+}
+
 fetch_one() {
   plat=$1
   url=$(lock_field "$plat" url) || { echo "fetch-ffmpeg: no lock entry for $plat" >&2; exit 1; }
@@ -107,7 +134,11 @@ fetch_one() {
   trap 'rm -rf "$tmp"' EXIT INT TERM
   archive="$tmp/ffmpeg-archive"
   echo "fetch-ffmpeg: downloading $plat from $url"
-  curl -fL --retry 3 -o "$archive" "$url"
+  if ! curl -fL --retry 3 -o "$archive" "$url"; then
+    api=$(github_api_asset "$url") || { echo "fetch-ffmpeg: download failed: $url" >&2; exit 1; }
+    echo "fetch-ffmpeg: retrying $plat through the GitHub API"
+    curl -fL --retry 3 -H "Accept: application/octet-stream" ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} -o "$archive" "$api"
+  fi
   got=$(sha256_of "$archive")
   if [ "$got" != "$want" ]; then
     echo "fetch-ffmpeg: SHA-256 mismatch for $plat" >&2

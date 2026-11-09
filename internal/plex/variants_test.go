@@ -399,11 +399,13 @@ func TestVariantIDRegistryStablePersisted(t *testing.T) {
 }
 
 func TestVariantIDCollisionProbeAndPartTitle(t *testing.T) {
-	r := newVariantIDRegistry(nil)
+	db := store.OpenTest(t)
+	r := newVariantIDRegistry(db)
 	h := variantHash(fightClub.Key, "rel-x")
 	squatter := variantRef{key: alien.Key, releaseID: "other"}
-	r.byID[h] = squatter
-	r.byPair[squatter] = h
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO variants_ids(media_id,rating_key,release_id,last_seen) VALUES(?,?,?,?)`, h, int64(squatter.key), squatter.releaseID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
 	got := r.idFor(fightClub.Key, "rel-x")
 	if got == h {
 		t.Fatal("collision not probed")
@@ -605,15 +607,16 @@ func TestSameQualityAlternativesAreSeparateVersions(t *testing.T) {
 			t.Fatalf("mediaIndex %d prepared %v, want %s", i+1, pb.variantCalls, want)
 		}
 	}
-	// A multi-version decision requires an explicit selector; index 0 is Auto.
+	// Index 0 is Auto, and so is a decision without a selector, which plays
+	// the first Media as v0.3.4 did.
 	n, prepared := len(pb.variantCalls), pb.prepared
-	if rec := f.get(t, base+"&session=plain"); rec.Code != http.StatusBadRequest {
+	if rec := f.get(t, base+"&session=plain"); rec.Code != http.StatusOK {
 		t.Fatalf("missing selector: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := f.get(t, base+"&mediaIndex=0&session=plain0"); rec.Code != http.StatusOK {
 		t.Fatalf("Auto selector: %d %s", rec.Code, rec.Body.String())
 	}
-	if pb.prepared != prepared+1 || len(pb.variantCalls) != n {
+	if pb.prepared != prepared+2 || len(pb.variantCalls) != n {
 		t.Errorf("plain play prepared=%d variantCalls=%v", pb.prepared, pb.variantCalls)
 	}
 }

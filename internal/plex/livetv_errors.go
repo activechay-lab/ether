@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -18,10 +18,10 @@ func (s *Server) writeLiveTuneError(w http.ResponseWriter, r *http.Request, err 
 	}
 	detail := livetv.Diagnose("tune", err)
 	status := http.StatusServiceUnavailable
-	if errors.Is(err, core.ErrNotFound) {
+	if errors.Is(err, frontend.ErrNotFound) {
 		status = http.StatusNotFound
 	}
-	if errors.Is(err, core.ErrUnauthorized) {
+	if errors.Is(err, frontend.ErrUnauthorized) {
 		status = http.StatusUnauthorized
 	}
 	w.Header().Set("X-Ether-LiveTV-Error", detail.Code)

@@ -1,8 +1,8 @@
 import { localized, t } from "../../i18n";
 import { Button } from "@braedonsaunders/appkit-ui";
 import { Plus } from "lucide-react";
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { DomainPage } from "../../components/layout";
 import { ProwlarrImport } from "../../components/ProwlarrImport";
@@ -12,9 +12,12 @@ import { HealthStrip } from "./form";
 import { IndexerList } from "./Indexers";
 import { NewReleaseBudgetSection } from "../catalog/NewReleasesSettings";
 import { UsenetProviders } from "./Usenet";
-import { SourceUsage } from "./Usage";
+import { SourceStatistics, StatisticsPeriod } from "./statistics/Statistics";
 import { AddSourceGallery, type GalleryChoice } from "./cards";
 import type { DebridKind } from "../../lib/types";
+import { debridHealth, iptvHealth } from "../../lib/health";
+import { useApp } from "../../app-context";
+import { tv, type Source as TVSource } from "../livetv/model";
 
 const TABS = localized(
   () =>
@@ -23,7 +26,8 @@ const TABS = localized(
       { key: "usenet", label: t("Usenet") },
       { key: "iptv", label: t("IPTV") },
       { key: "indexers", label: t("Indexers") },
-      { key: "stats", label: t("Stats") },
+      { key: "statistics", label: t("Statistics") },
+      { key: "usage", label: t("Usage") },
     ] as const,
 );
 
@@ -31,7 +35,7 @@ type AddDebrid = { nonce: number; kind: DebridKind };
 type AddIndexer = { nonce: number; type: "site" | "newznab" | "stremio" };
 
 /**
- * Where playback comes from: one tab per source type, plus Stats.
+ * Where playback comes from: one tab per source type, plus Statistics and Usage.
  * An unknown address opens Debrid.
  * Adding one starts from a gallery, then a drawer.
  */
@@ -39,6 +43,9 @@ export default function Sources() {
   const { tab: raw } = useParams();
   const navigate = useNavigate();
   const top = TABS.find((item) => item.key === raw)?.key ?? "debrid";
+  const stats = top === "statistics" || top === "usage";
+  const [params] = useSearchParams();
+  const period = stats ? params.get("days") : null;
   const [importing, setImporting] = useState(false);
   const [gallery, setGallery] = useState(false);
   const [version, setVersion] = useState(0);
@@ -72,15 +79,17 @@ export default function Sources() {
       base="/sources"
       tabs={TABS}
       active={top}
-      status={top === "iptv" ? undefined : <HealthStrip ids={["usenet", "indexers"]} />}
+      status={<SourcesHealth />}
+      tabActions={stats ? <StatisticsPeriod /> : undefined}
+      // Statistics and Usage share one period, so switching between them keeps it.
+      tabHref={(key) =>
+        period && (key === "statistics" || key === "usage")
+          ? `/sources/${key}?days=${period}`
+          : `/sources/${key}`
+      }
       actions={
-        top !== "stats" ? (
+        !stats ? (
           <>
-            {top !== "iptv" ? (
-              <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
-                {t("Import from Prowlarr")}
-              </Button>
-            ) : null}
             <Button size="sm" onClick={() => setGallery(true)}>
               <Plus size={14} /> {t("Add a source")}
             </Button>
@@ -88,7 +97,7 @@ export default function Sources() {
         ) : null
       }
     >
-      {top !== "stats" && top !== "iptv" ? (
+      {!stats && top !== "iptv" ? (
         <p className="text-sm text-fg-muted">
           {t("Drag a card to choose which account Ether tries first.")}
         </p>
@@ -102,7 +111,7 @@ export default function Sources() {
           <NewReleaseBudgetSection />
         </>
       ) : null}
-      {top === "stats" ? <SourceUsage /> : null}
+      {stats ? <SourceStatistics view={top} /> : null}
       <AddSourceGallery open={gallery} onClose={() => setGallery(false)} onPick={pick} />
       <Drawer
         open={importing}
@@ -115,4 +124,24 @@ export default function Sources() {
       </Drawer>
     </DomainPage>
   );
+}
+
+/** Debrid, Usenet, IPTV and indexer health above every Sources tab. */
+function SourcesHealth() {
+  const [iptv, setIptv] = useState<TVSource[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    tv.sources()
+      .then((list) => live && setIptv(list))
+      .catch(() => live && setIptv(null));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const { dashboard } = useApp();
+  // Debrid health shows here only; it does not count toward server health.
+  const extra = [debridHealth(dashboard?.sections?.debrid), iptvHealth(iptv)].filter(
+    (h) => h !== null,
+  );
+  return <HealthStrip ids={["debrid", "usenet", "iptv", "indexers"]} extra={extra} />;
 }

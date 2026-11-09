@@ -155,10 +155,6 @@ func (s *Service) catalogGet(ctx context.Context, key core.RatingKey) (*core.Tit
 	return load()
 }
 
-func (s *Service) externalTitle(ctx context.Context, source, id string) (*core.Title, error) {
-	return s.externalTitleForType(ctx, source, id, "")
-}
-
 func (s *Service) externalTitleForType(ctx context.Context, source, id, typ string) (*core.Title, error) {
 	load := func() (*core.Title, error) {
 		if typed, ok := s.catalog.(interface {

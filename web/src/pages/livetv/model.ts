@@ -12,6 +12,11 @@ export type Item = {
   summary?: string;
   rating?: string;
   thumb?: string;
+  art?: string;
+  showTitle?: string;
+  episodeTitle?: string;
+  genres?: string[];
+  premiere?: boolean;
   showKey?: number;
   season?: number;
   episode?: number;
@@ -21,7 +26,16 @@ export type Item = {
 };
 export type ProgramSource = {
   id?: string;
-  kind?: "items" | "show" | "movies" | "collection" | "filter" | "personal" | "plugin" | "mix";
+  kind?:
+    | "items"
+    | "show"
+    | "movies"
+    | "collection"
+    | "filter"
+    | "personal"
+    | "plugin"
+    | "mix"
+    | "lineup";
   showKey?: number;
   startSeason?: number;
   startEpisode?: number;
@@ -37,6 +51,14 @@ export type ProgramSource = {
   collection?: number;
   filter?: Record<string, unknown>;
   watched?: "" | "watched" | "unwatched";
+  /** Lineup and pooled movies: how many of the most popular matches to draw. */
+  pool?: number;
+  /** Lineup: series on air at once. */
+  shows?: number;
+  /** Lineup: broadcast days before the next group of series takes over; 0 never rotates. */
+  rotateDays?: number;
+  /** Lineup and pooled movies: genres to leave out. */
+  excludeGenres?: string[];
 };
 export type Block = {
   id?: string;
@@ -75,6 +97,8 @@ export type Pin = {
   breaks?: ChannelLook;
 };
 export type Channel = {
+  /** Apps that leave this channel out of their lineup; every other app lists it. */
+  hiddenApps?: string[];
   pins?: Pin[];
   personal?: PersonalRecipe;
   look?: ChannelLook;
@@ -88,6 +112,8 @@ export type Channel = {
   /** Only viewers given this channel may watch it. */
   private?: boolean;
   transcode?: boolean;
+  /** Stability preset override; empty or absent follows the server setting. */
+  stability?: Stability | "";
   enabled: boolean;
   favorite: boolean;
   rating?: string;
@@ -182,6 +208,14 @@ export type SourceStatus = {
   lastPlayed?: string;
   retryAfter?: string;
   lastError?: string;
+  /** What the source's history says about its media. */
+  learned?: {
+    damage?: boolean;
+    longGop?: boolean;
+    stallsPerHour?: number;
+    formatChanges?: number;
+    startsConverted?: boolean;
+  };
 };
 export type PreviewSession = {
   id: string;
@@ -247,6 +281,7 @@ export type Source = {
   guideUrl?: string;
   updatedAt: string;
   refreshHours?: number;
+  activityRefreshMinutes?: number;
   channelCount?: number;
   guideChannelCount?: number;
   programmeCount?: number;
@@ -278,6 +313,7 @@ export type SourceDraft = {
   playlist: string;
   guide: string;
   refreshHours?: number;
+  activityRefreshMinutes?: number;
   auth?: SourceAuth;
 } & GroupRules &
   SourceLimitRules;
@@ -431,7 +467,14 @@ export const tv = {
     ),
   channels: (signal?: AbortSignal) => apiFetch<Channel[]>("/livetv/channels", { signal }),
   channelPage: (
-    q: { offset?: number; limit?: number; q?: string; filter?: string; source?: string },
+    q: {
+      offset?: number;
+      limit?: number;
+      q?: string;
+      filter?: string;
+      source?: string;
+      group?: string;
+    },
     signal?: AbortSignal,
   ) => {
     const p = new URLSearchParams();
@@ -440,6 +483,7 @@ export const tv = {
     if (q.q?.trim()) p.set("q", q.q.trim());
     if (q.filter) p.set("filter", q.filter);
     if (q.source) p.set("source", q.source);
+    if (q.group) p.set("group", q.group);
     return apiFetch<ChannelPage>(`/livetv/channels/page?${p}`, { signal });
   },
   channel: (id: string, signal?: AbortSignal) =>
@@ -457,7 +501,13 @@ export const tv = {
   },
   updateChannels: (
     ids: string[],
-    patch: { enabled?: boolean; favorite?: boolean; group?: string },
+    patch: {
+      enabled?: boolean;
+      favorite?: boolean;
+      group?: string;
+      showApps?: string[];
+      hideApps?: string[];
+    },
   ) => apiFetch<{ updated: number }>("/livetv/channels/bulk", json("PATCH", { ids, ...patch })),
   saveChannel: (c: Channel) =>
     apiFetch<Channel>(
@@ -879,3 +929,6 @@ export function programmeArtwork(src?: string): string | undefined {
     ? `/ether/api/image?path=${encodeURIComponent(src)}&w=342`
     : src;
 }
+
+/** Live TV stability presets (config liveTV.stability, channel stability). */
+export type Stability = "fastest" | "balanced" | "rocksolid";

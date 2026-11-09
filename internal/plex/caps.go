@@ -454,15 +454,24 @@ func applyLegacyCapabilities(c *core.ClientCaps, s string) {
 		}
 		switch strings.TrimSpace(k) {
 		case "videoDecoders":
-			maxRes := 0
+			// A decoder's resolution bounds that codec only (#394). Plex for
+			// Roku lists just h264{resolution:1080} while it plays 4K HEVC,
+			// which PMS serves it. The client-wide ceiling drops only when
+			// every codec the client decodes is bounded.
 			for _, dec := range splitDecoders(v) {
-				c.VideoCodecs = addUnique(c.VideoCodecs, normalizeCodec(dec.name))
-				if r, err := strconv.Atoi(dec.params["resolution"]); err == nil && r > maxRes {
-					maxRes = r
+				codec := normalizeCodec(dec.name)
+				c.VideoCodecs = addUnique(c.VideoCodecs, codec)
+				if r, err := strconv.Atoi(dec.params["resolution"]); err == nil && r > 0 {
+					if c.VideoMaxHeights == nil {
+						c.VideoMaxHeights = map[string]int{}
+					}
+					if old := c.VideoMaxHeights[codec]; old == 0 || r < old {
+						c.VideoMaxHeights[codec] = r
+					}
 				}
 			}
-			if maxRes > 0 && maxRes < c.MaxHeight {
-				c.MaxHeight = maxRes
+			if ceiling := decoderCeiling(*c); ceiling > 0 && ceiling < c.MaxHeight {
+				c.MaxHeight = ceiling
 				c.ExplicitMaxHeight = true
 			}
 		case "audioDecoders":
@@ -471,6 +480,20 @@ func applyLegacyCapabilities(c *core.ClientCaps, s string) {
 			}
 		}
 	}
+}
+
+// decoderCeiling is the tallest per-decoder bound across the client's video
+// codecs, or 0 when any of them is unbounded.
+func decoderCeiling(c core.ClientCaps) int {
+	ceiling := 0
+	for _, codec := range c.VideoCodecs {
+		h := c.VideoMaxHeights[codec]
+		if h <= 0 {
+			return 0
+		}
+		ceiling = max(ceiling, h)
+	}
+	return ceiling
 }
 
 type decoder struct {

@@ -19,6 +19,10 @@ type Command struct {
 	Dir    string
 	Stdout io.Writer
 	Stderr io.Writer
+	// Background runs the process below live outputs' scheduling priority
+	// (copy-only playback and background jobs): a real-time Live TV encoder
+	// must not miss its segment deadline because the host is busy.
+	Background bool
 }
 
 // Process is a started long-running command (an ffmpeg HLS run).
@@ -79,6 +83,9 @@ func (ExecRunner) Start(c Command) (Process, error) {
 	}
 	cmd := exec.Command(executable, append([]string{guardianArg, path}, c.Args...)...)
 	cmd.Env = append(os.Environ(), guardianEnv+"=1")
+	if c.Background {
+		cmd.Env = append(cmd.Env, guardianPriorityEnv+"=background")
+	}
 	cmd.Stdin = control
 	cmd.WaitDelay = waitDelay
 	cmd.Dir = c.Dir

@@ -52,6 +52,11 @@ type HLSRequest struct {
 	// LiveInput permits playlist demuxers for owner-configured live sources.
 	// Ordinary resolved media must leave this false, even if duration is unknown.
 	LiveInput bool
+	// LiveFromBacklog starts a live HLS input at the first segment its
+	// playlist lists (Live TV's relay trims that playlist to the channel's
+	// stability reserve), so the backlog primes the reserve instead of the
+	// demuxer's default three segments from the live edge.
+	LiveFromBacklog bool
 	// CopyTimestamps preserves source timestamps for HTTP Matroska output.
 	CopyTimestamps bool
 	// InputHeaders are optional HTTP headers ffmpeg must send when reading
@@ -276,15 +281,18 @@ type EncoderStatus struct {
 	PlayerPosition *time.Duration `json:"playerPosition,omitempty"`
 	Runway         *time.Duration `json:"runway,omitempty"`
 	Decision       Decision       `json:"decision"`
-	Processor      string         `json:"processor"`
-	Filters        string         `json:"filters"`
-	Phase          string         `json:"phase"`
-	Reason         string         `json:"reason,omitempty"`
-	StartedAt      time.Time      `json:"startedAt"`
-	UpdatedAt      time.Time      `json:"updatedAt"`
-	Speed          float64        `json:"speed"`
-	OutputTime     time.Duration  `json:"outputTime"`
-	ReadyUntil     time.Duration  `json:"readyUntil"`
+	// Rung is the ABR rung the active run encodes ("" or "base" for the
+	// session's primary decision).
+	Rung       string        `json:"rung,omitempty"`
+	Processor  string        `json:"processor"`
+	Filters    string        `json:"filters"`
+	Phase      string        `json:"phase"`
+	Reason     string        `json:"reason,omitempty"`
+	StartedAt  time.Time     `json:"startedAt"`
+	UpdatedAt  time.Time     `json:"updatedAt"`
+	Speed      float64       `json:"speed"`
+	OutputTime time.Duration `json:"outputTime"`
+	ReadyUntil time.Duration `json:"readyUntil"`
 }
 
 type Playback interface {
@@ -347,4 +355,11 @@ type PlaybackSourceHistory struct {
 // authorization or a claim that a local path has remained unchanged.
 type PlaybackSourceSnapshot interface {
 	CurrentSource(context.Context, string) (PlaybackSourceObservation, error)
+}
+
+// PlaybackSelectionFence validates an observed selection against the exact
+// current source. fn must be short and must not read media or call a provider.
+// The source fence is acquired before any manual-intent database writer in fn.
+type PlaybackSelectionFence interface {
+	WithSourceSelection(context.Context, string, string, func(MediaInfo) error) error
 }

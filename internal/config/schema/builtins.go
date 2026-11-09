@@ -40,7 +40,7 @@ func Builtins() []Builtin {
 			}, More: []Field{
 				{Key: "useUpnp", Label: extend.T("Map the port automatically (UPnP)"), Kind: KindBool, Help: extend.T("Asks your router to forward the port.")},
 				{Key: "publicPort", Label: extend.T("Public port"), Kind: KindNumber, Help: extend.T("The port forwarded on your router. 0 uses the server port."), Min: F(0), Max: F(65535), Step: F(1)},
-				{Key: "publicHost", Label: extend.T("Public host name"), Kind: KindText, Help: extend.T("Optional. Leave empty to detect your public address.")},
+				{Key: "publicHost", Label: extend.T("Public host name"), Kind: KindText, Help: extend.T("Optional. Enter a name like plex.example.com, or the full https:// address of your reverse proxy. Leave empty to detect your public address.")},
 				{Key: "customUrls", Label: extend.T("Custom server URLs"), Kind: KindList, Help: extend.T("Extra addresses Plex apps should try, comma-separated."), Placeholder: "https://ether.example.com:443"},
 			}},
 			{ID: "secure", Title: extend.T("Secure connections"), Description: extend.T("How Plex apps encrypt the connection to this server."), Fields: []Field{
@@ -89,6 +89,7 @@ func Builtins() []Builtin {
 		{ID: "playVersions", ConfigKey: "resolver", Label: extend.T("Versions in the app"), Schema: Schema{Groups: []Group{
 			{Title: extend.T("Versions in the app"), Description: extend.T("Extra copies of the same picture, after Auto."), Fields: []Field{
 				{Key: "sameQualityAlternatives", Label: extend.T("Same-quality versions to offer"), Kind: KindNumber, Help: extend.T("Listed after Auto in the app's version menu."), Min: F(0), Max: F(3), Step: F(1)},
+				{Key: "alternativesPerResolution", Label: extend.T("Offer alternatives at every resolution"), Kind: KindBool, Help: extend.T("Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.")},
 				{Key: "offerHigherVersions", Label: extend.T("Offer higher versions"), Kind: KindBool, Help: extend.T("Version menus can list releases taller than the profile. Off keeps the ceiling you set. HDR and file-size limits still apply.")},
 			}},
 		}}},
@@ -157,7 +158,7 @@ func Builtins() []Builtin {
 		// UPDATES
 		{ID: "updates", ConfigKey: "updates", Label: extend.T("Release channel"), Schema: Schema{Groups: []Group{
 			{Title: extend.T("Release channel"), Fields: []Field{
-				{Key: "enabled", Label: extend.T("Check for updates"), Kind: KindBool, Help: extend.T("Checks the signed release feed once a day.")},
+				{Key: "enabled", Label: extend.T("Check for updates"), Kind: KindBool, Help: extend.T("Checks the signed release feed every few hours.")},
 				{Key: "channel", Label: extend.T("Channel"), Kind: KindSelect, Options: []Option{{Value: "stable", Label: extend.T("Stable")}, {Value: "beta", Label: extend.T("Beta")}}},
 				{Key: "autoUpdate", Label: extend.T("Install updates automatically"), Kind: KindBool, Help: extend.T("Installs during the maintenance window, once nobody is watching.")},
 			}, More: []Field{
@@ -199,7 +200,7 @@ func Builtins() []Builtin {
 				{Key: "enabled", Label: extend.T("Allow downloads"), Kind: KindBool},
 				{Key: "allowFriends", Label: extend.T("Friends can download"), Kind: KindBool, Help: extend.T("Off lets only you download. A viewer's access policy can still allow or deny it.")},
 			}, More: []Field{
-				{Key: "maxHeight", Label: extend.T("Highest resolution"), Kind: KindNumber, Help: extend.T("Downloads are capped at this height. 0 uses 1080p."), Min: F(0), Step: F(1), Unit: extend.Text{Source: "p"}},
+				{Key: "maxHeight", Label: extend.T("Highest resolution"), Kind: KindNumber, Help: extend.T("Downloads are capped at this resolution. 0 uses 1080p."), Min: F(0), Step: F(1), Unit: extend.Text{Source: "p"}},
 				{Key: "maxConcurrent", Label: extend.T("Downloads at once"), Kind: KindNumber, Help: extend.T("Across the whole server. 0 uses 2."), Min: F(0), Step: F(1)},
 				{Key: "maxConcurrentPerUser", Label: extend.T("Downloads at once per viewer"), Kind: KindNumber, Help: extend.T("0 uses 1."), Min: F(0), Step: F(1)},
 				{Key: "diskBudgetBytes", Label: extend.T("Temporary disk space"), Kind: KindBytes, Help: extend.T("Maximum space for prepared downloads. Set to 0 to use the default limit of 20 GiB."), Unit: extend.Text{Source: "GiB"}},

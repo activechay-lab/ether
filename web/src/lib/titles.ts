@@ -31,3 +31,19 @@ export function useTitle(key: string | undefined): TitleDetail | null {
   }, [key]);
   return t;
 }
+
+/**
+ * A title's poster: TMDB's when it has a path, else Ether's generated poster
+ * (the same image every frontend shows for a title with no artwork).
+ */
+export function titlePosterURL(
+  title: { key?: string | number; title?: string; year?: number; posterPath?: string },
+  width: 92 | 185 | 342,
+): string | undefined {
+  if (title.posterPath) return `https://image.tmdb.org/t/p/w${width}${title.posterPath}`;
+  if (title.key == null || !title.title) return undefined;
+  const q = new URLSearchParams({ k: String(title.key), t: title.title });
+  if (title.year) q.set("y", String(title.year));
+  q.set("w", String(width));
+  return `/ether/api/image/generated?${q.toString()}`;
+}

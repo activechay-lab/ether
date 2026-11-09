@@ -262,7 +262,8 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                   source: "Public host name",
                 },
                 help: {
-                  source: "Optional. Leave empty to detect your public address.",
+                  source:
+                    "Optional. Enter a name like plex.example.com, or the full https:// address of your reverse proxy. Leave empty to detect your public address.",
                 },
                 kind: "text",
               },
@@ -641,6 +642,15 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 min: 0,
                 max: 3,
                 step: 1,
+              },
+              {
+                key: "alternativesPerResolution",
+                label: { source: "Offer alternatives at every resolution" },
+                help: {
+                  source:
+                    "Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.",
+                },
+                kind: "bool",
               },
               {
                 key: "offerHigherVersions",
@@ -1242,7 +1252,7 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                   source: "Check for updates",
                 },
                 help: {
-                  source: "Checks the signed release feed once a day.",
+                  source: "Checks the signed release feed every few hours.",
                 },
                 kind: "bool",
               },
@@ -1559,7 +1569,7 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                   source: "Highest resolution",
                 },
                 help: {
-                  source: "Downloads are capped at this height. 0 uses 1080p.",
+                  source: "Downloads are capped at this resolution. 0 uses 1080p.",
                 },
                 kind: "number",
                 min: 0,

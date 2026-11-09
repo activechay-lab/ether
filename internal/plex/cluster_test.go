@@ -232,8 +232,8 @@ func TestClusterPlayQueueFollowsClientAcrossNodes(t *testing.T) {
 		t.Fatalf("friend read: %d", rec.Code)
 	}
 	// Expiry removes it cluster-wide.
-	a.srv.queues.expire(fixedNow.Add(7*time.Hour), 6*time.Hour)
-	b.srv.queues.dropCache()
+	a.srv.queues.Expire(fixedNow.Add(7*time.Hour), 6*time.Hour)
+	b.srv.queues.DropCache()
 	if rec := b.get(t, "/playQueues/"+id); rec.Code != http.StatusNotFound {
 		t.Fatalf("expired queue still served: %d", rec.Code)
 	}
@@ -276,7 +276,7 @@ func TestClusterNotificationsReachOtherNodes(t *testing.T) {
 func TestStandaloneServerKeepsSessionsLocalAndQueuesDurable(t *testing.T) {
 	f := newFixture(func(d *Deps) { d.DB = store.OpenTest(t) })
 	defer f.srv.Close()
-	if f.srv.cl != nil || f.srv.queues.cl == nil {
+	if f.srv.cl != nil || !f.srv.queues.Persistent() {
 		t.Fatal("standalone session or durable queue wiring is incorrect")
 	}
 	uri := urlEsc("server://0123456789abcdef0123456789abcdef01234567/com.plexapp.plugins.library/library/metadata/" + breakingBad.Key.String())

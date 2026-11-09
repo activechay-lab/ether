@@ -13,22 +13,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/faillog"
-	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 type acceptanceContextKey struct{}
 
-func withAcceptance(ctx context.Context, a auth.Acceptance) context.Context {
+func withAcceptance(ctx context.Context, a frontend.CredentialAcceptance) context.Context {
 	return context.WithValue(ctx, acceptanceContextKey{}, a)
 }
 
-func acceptanceFrom(ctx context.Context) (auth.Acceptance, bool) {
-	a, ok := ctx.Value(acceptanceContextKey{}).(auth.Acceptance)
+func acceptanceFrom(ctx context.Context) (frontend.CredentialAcceptance, bool) {
+	a, ok := ctx.Value(acceptanceContextKey{}).(frontend.CredentialAcceptance)
 	return a, ok && a.Valid()
 }
 
@@ -229,7 +229,7 @@ func traceSecretQuery(k string) bool {
 // parse attaches the parsed request context.
 func (s *Server) parse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pr := ParseRequest(r, identity.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
+		pr := ParseRequest(r, clientnet.ProxyPrefixes(s.cfg().Server.TrustedProxyCIDRs)...)
 		if pr.pagingInvalid {
 			writeHTTPError(w, http.StatusInternalServerError)
 			return
@@ -257,7 +257,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
-		if publicPaths[trimSlash(r.URL.Path)] {
+		if publicPaths[trimSlash(r.URL.Path)] || strings.HasPrefix(r.URL.Path, signedLogoPrefix) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -311,6 +311,9 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if s.d.Hooks.OnClientSeen != nil {
 					s.d.Hooks.OnClientSeen(pr.ClientID)
 				}
+				if s.d.LiveTV != nil {
+					s.d.LiveTV.NoteClientActivity()
+				}
 				if pr.Remote && s.d.Hooks.OnRemoteClientSeen != nil {
 					s.d.Hooks.OnRemoteClientSeen(pr.RemoteIP.String())
 				}
@@ -351,17 +354,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
-type tokenAcceptor interface {
-	Accept(context.Context, string) (*core.User, auth.Acceptance, error)
-	ReceiptCurrent(context.Context, auth.Acceptance) error
-}
+type tokenAcceptor = frontend.CredentialAcceptor
 
-func (s *Server) acceptToken(ctx context.Context, token string) (*core.User, auth.Acceptance, error) {
+func (s *Server) acceptToken(ctx context.Context, token string) (*core.User, frontend.CredentialAcceptance, error) {
 	if acc, ok := s.d.Auth.(tokenAcceptor); ok {
 		return acc.Accept(ctx, token)
 	}
 	u, err := s.d.Auth.Authenticate(ctx, token)
-	return u, auth.Acceptance{}, err
+	return u, frontend.CredentialAcceptance{}, err
 }
 
 // acceptanceCurrent rechecks a receipt minted for this request. Requests that
@@ -552,6 +552,12 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 			}
 		}
 		return model.MarshalWithExclusions(v, pr.Format, names("excludeFields"), elements)
+	}
+	if mc, ok := v.(*model.MediaContainer); ok {
+		if fields, elements := responseExclusions(r); len(fields) > 0 || len(elements) > 0 {
+			substituteExcludedCounts(mc, elements)
+			return model.MarshalWithExclusions(v, pr.Format, fields, elements)
+		}
 	}
 	return model.Marshal(v, pr.Format)
 

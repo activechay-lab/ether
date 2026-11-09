@@ -163,3 +163,16 @@ func soakImageStub() (string, *http.Server, error) {
 	go srv.Serve(ln)
 	return ln.Addr().String(), srv, nil
 }
+
+func profileTiming(profile string) (soakTiming, error) {
+	switch profile {
+	case "shakedown":
+		return soakTiming{Steady: 8 * time.Minute, Fault: 3 * time.Minute, Followup: 5*time.Minute + 20*time.Second, Cleanup: 5*time.Minute + 15*time.Second, Sample: 10 * time.Second}, nil
+	case "sustained":
+		return soakTiming{Steady: 135 * time.Minute, Fault: 3 * time.Minute, Followup: 5*time.Minute + 20*time.Second, Cleanup: 5*time.Minute + 15*time.Second, Sample: 15 * time.Second}, nil
+	case "heap":
+		return soakTiming{Steady: 8 * time.Minute, Followup: 4 * time.Minute, Cleanup: time.Minute, Sample: 30 * time.Second}, nil
+	default:
+		return soakTiming{}, fmt.Errorf("profile must be shakedown, sustained or heap")
+	}
+}

@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -81,7 +80,7 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 			dec.Container = transcode.HLSContainer(r.Caps, videoCodec, audioCodec)
 		}
 		dec.Reason = "Direct stream preserves playback across source changes."
-		if len(r.Caps.TranscodeAudioCodecs) > 0 && audioCodec != "" && !slices.Contains(r.Caps.TranscodeAudioCodecs, audioCodec) {
+		if audioCodec != "" && !transcode.SegmentedAudioCopyOK(r.Caps, audioCodec) {
 			opts := r.Options
 			opts.DirectPlay = false
 			dec = transcoder.Decide(ps.Info, r.Caps, opts)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
-	"os"
 	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/mediaproc"
@@ -14,22 +13,19 @@ func (s *Service) renderMomentVideo(ctx context.Context, j renderJob, out string
 	if s.o.FFmpeg == nil || s.o.Probe == nil {
 		return fmt.Errorf("media conversion unavailable")
 	}
-	var b []byte
-	if e := s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind='video'", j.AssetDigest).Scan(&b); e != nil {
+	var kind string
+	if e := s.db.QueryRowContext(ctx, "SELECT kind FROM onair_assets WHERE digest=?", j.AssetDigest).Scan(&kind); e != nil {
 		return e
 	}
-	f, e := os.CreateTemp(s.o.Dir, ".bumper-*")
-	if e != nil {
-		return e
+	if kind != "video" {
+		return ErrNotFound
 	}
-	defer os.Remove(f.Name())
-	_, e = f.Write(b)
-	f.Close()
+	source, e := s.assetPath(ctx, j.AssetDigest)
 	if e != nil {
 		return e
 	}
 	// Supply silence when necessary, keeping authored picture and sound together.
-	info, e := s.o.Probe(ctx, f.Name())
+	info, e := s.o.Probe(ctx, source)
 	if e != nil {
 		return e
 	}
@@ -42,7 +38,7 @@ func (s *Service) renderMomentVideo(ctx context.Context, j renderJob, out string
 			return j.Scene.Video.Start
 		}
 		return 0
-	}(), 'f', 6, 64), "-i", f.Name()}
+	}(), 'f', 6, 64), "-i", source}
 	if !hasAudio {
 		args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
 	}

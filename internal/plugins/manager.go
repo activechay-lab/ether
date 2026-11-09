@@ -1041,3 +1041,12 @@ func (m *Manager) startActionJob(pluginID string, body json.RawMessage) {
 		}
 	}()
 }
+
+// Prune applies the plugin retention that is not bounded at write time:
+// settled journal entries past JournalSettledMaxAge.
+func (m *Manager) Prune(ctx context.Context) (int64, error) {
+	if m == nil || m.store == nil || m.store.db == nil {
+		return 0, nil
+	}
+	return m.store.pruneJournal(ctx)
+}

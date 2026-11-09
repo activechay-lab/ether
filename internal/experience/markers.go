@@ -51,3 +51,12 @@ func ItemMarkers(ctx context.Context, source MarkerSource, key core.RatingKey, i
 	}
 	return out
 }
+
+// PlaybackMarkerRanges retains the source provider's result, including partial
+// results returned with an error. Without a provider, chapter ranges are used.
+func PlaybackMarkerRanges(ctx context.Context, source frontend.MarkerRanges, key core.RatingKey, info core.MediaInfo) ([]frontend.MarkerRange, error) {
+	if source != nil {
+		return source.Markers(ctx, key, info)
+	}
+	return markers.FromChapters(info), nil
+}

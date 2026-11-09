@@ -159,13 +159,17 @@ func TestJSGovernanceBudget(t *testing.T) {
 
 func TestJSTimeoutDiscardsInstance(t *testing.T) {
 	e := testEngine(t)
-	p, err := e.LoadJS("test.hello", "1.0.0", helloJS, newFakeHost(), Limits{Deadline: 300 * time.Millisecond})
+	p, err := e.LoadJS("test.hello", "1.0.0", helloJS, newFakeHost(), Limits{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer p.Close()
+	// Limit the looping call, not initialization of its replacement on a busy
+	// host. Initialization deadlines have their own test below.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
 	start := time.Now()
-	_, out, err := p.CallDetailed(context.Background(), Request{Method: "GET", Path: "/loop"})
+	_, out, err := p.CallDetailed(ctx, Request{Method: "GET", Path: "/loop"})
 	if errStatus(t, err) != StatusTimeout || !out.Trap {
 		t.Fatalf("loop = %v outcome %+v", err, out)
 	}

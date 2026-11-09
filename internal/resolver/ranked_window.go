@@ -109,8 +109,34 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 		}
 		return true
 	}
-	// fill keeps width checks running, but a verified lead runs alone:
-	// reusing a known working release must not start speculative downloads.
+	var transient error
+	// onDemandHeld: an on-demand check went unanswered (see ondemand.go);
+	// foregroundOnly: an on-demand candidate was reached by work that may
+	// not open it, so nothing ranked below it may win.
+	onDemandHeld, foregroundOnly, heldSkipped := false, false, false
+	// addonHedge reports whether cands[next] may start beside a lead
+	// add-on stream still being checked: Play is waiting, the lead is the
+	// only check running and its add-on marks it debrid-cached, it has run
+	// onDemandHedgeDelay, and next is native or another cached add-on
+	// stream. The lead still wins when healthy; the hedge only makes its
+	// failure seamless.
+	addonHedge := func(lead int) bool {
+		if lead >= next || done[lead] != nil || inflight != 1 || !core.OnDemandStreamsAllowed(ctx) || !core.OnDemandCached(cands[lead].rel) {
+			return false
+		}
+		if c := cands[next].rel; c.OpensOnDemand() && !core.OnDemandCached(c) {
+			return false
+		}
+		if at := startedAt[lead].Add(onDemandHedgeDelay); time.Now().Before(at) {
+			hedgeAt = at
+			return false
+		}
+		return true
+	}
+	// fill keeps width checks running, but a verified or on-demand lead
+	// runs alone: reusing a known working release must not start
+	// speculative downloads, and each on-demand open makes an add-on fetch
+	// a release.
 	fill := func(lead int) {
 		hedgeAt = time.Time{}
 		// Once a healthy backup is ready, wait for the preferred source or
@@ -121,8 +147,28 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			}
 		}
 		for next < limit {
-			if next > lead && lead < limit && cands[lead].verified && done[lead] == nil {
+			if next > lead && lead < limit && (cands[lead].verified || cands[lead].rel.OpensOnDemand()) && done[lead] == nil && !addonHedge(lead) {
 				return
+			}
+			if cands[next].rel.OpensOnDemand() {
+				if !core.OnDemandAllowedAt(ctx, cands[next].rel, next) {
+					foregroundOnly = true
+					return
+				}
+				if onDemandHeld {
+					i := next
+					next++
+					startedAt[i] = time.Now()
+					done[i] = &validation{index: i, err: errOnDemandHeld}
+					ct := &tr.Candidates[cands[i].trace]
+					ct.Rejected, ct.Reason, ct.err = true, errOnDemandHeld.Error(), errOnDemandHeld
+					transient = errors.Join(transient, errOnDemandHeld)
+					heldSkipped = true
+					continue
+				}
+				if inflight > 0 && !addonHedge(lead) {
+					return // starts once everything ranked above it settled
+				}
 			}
 			if core.IsSpeculative(ctx) && next >= speculativeHealthAttempts {
 				return
@@ -138,11 +184,11 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			launch()
 		}
 	}
-	var transient error
 	record := func(v validation) {
 		noteValidation(ctx, cands[v.index].rel, v)
 		inflight--
 		done[v.index] = &v
+		onDemandHeld = onDemandHeld || onDemandSlow(cands[v.index].rel, v)
 		ct := &tr.Candidates[cands[v.index].trace]
 		ct.Attempted = true
 		ct.FetchDuration = v.fetchDuration
@@ -215,6 +261,10 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			break
 		}
 		fill(lead)
+		if heldSkipped {
+			heldSkipped = false
+			continue // settle the candidates fill passed over
+		}
 		if inflight == 0 && lead >= next {
 			break // a speculative warm-up reached its cap: nothing left running
 		}
@@ -273,6 +323,9 @@ func (s *Service) validateRanked(ctx context.Context, cands []candidate, tr *Tra
 			default:
 			}
 		}
+	}
+	if foregroundOnly {
+		return -1, nil, errors.Join(transient, errOnDemandForeground)
 	}
 	if transient == nil && (len(cands) > limit || (core.IsSpeculative(ctx) && len(cands) > speculativeHealthAttempts)) {
 		return -1, nil, errHealthBudget

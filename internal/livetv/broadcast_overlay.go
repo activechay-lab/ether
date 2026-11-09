@@ -58,8 +58,8 @@ func (p *scheduleBroadcastPlanner) prepareProgrammeOverlays(ctx context.Context,
 		}
 		request := p.s.clipRequest(c, Programme{ChannelID: c.ID, Start: programme.Start, End: programme.End, Item: Item{Slate: moment}})
 		request.Bind["now.title"] = programme.Item.Title
-		request.Bind["now.meta"] = programme.Item.EpisodeTitle
-		request.Bind["now.logline"] = programme.Item.Summary
+		request.Bind["now.meta"] = ProgrammeMeta(programme.Item)
+		request.Bind["now.logline"] = Logline(programme.Item.Summary)
 		doc, bindings, ok := source.Overlay(ctx, request)
 		if !ok {
 			continue

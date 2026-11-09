@@ -65,9 +65,20 @@ func evidenceWindow(t core.Title, now time.Time, cfg config.Availability) bool {
 		}
 		return !cfg.DisableMovieEvidenceGate && age < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 	case core.TypeEpisode, core.TypeShow:
-		return age < 24*time.Hour
+		return age < episodeEvidence
 	}
 	return false
+}
+
+// episodeEvidence is how long after release an episode or show needs
+// release evidence to be discovered.
+const episodeEvidence = 24 * time.Hour
+
+// EpisodesSettledBefore is the release time at or before which
+// FilterDiscovery keeps an episode without looking for evidence, at the
+// clock the request's later FilterDiscovery calls use.
+func (s *Service) EpisodesSettledBefore(ctx context.Context) time.Time {
+	return s.snapshotFor(ctx).now.Add(-episodeEvidence)
 }
 
 // FilterDiscovery reads local observations only. A feed listing establishes

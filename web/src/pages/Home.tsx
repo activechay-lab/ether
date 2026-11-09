@@ -45,11 +45,11 @@ import {
   channelLabel,
   countsOverall,
   hasExemptDiagnostic,
-  normalizeSessions,
   type HealthItem,
   type NowPlaying,
 } from "../lib/health";
 import { useAsync } from "../lib/hooks";
+import { fetchLiveSessions, useLiveSessionsRefresh } from "../lib/sessions";
 import { useTitle } from "../lib/titles";
 import type { EtherConfig } from "../lib/types";
 import { useLocale } from "../i18n/react";
@@ -176,10 +176,10 @@ export default function Home() {
   const activity = useAsync((_s) => api.activity(), []);
   const rows = useAsync((_s) => api.rowInsights(), []);
   const { locale } = useLocale();
-  const sessions = useMemo(
-    () => normalizeSessions(dashboard?.sections.sessions),
-    [dashboard, locale],
-  );
+  // Now playing reads the same live list as Activity, under the same rule.
+  const live = useAsync((signal) => fetchLiveSessions(signal), [locale]);
+  useLiveSessionsRefresh(live.reload);
+  const sessions = live.data ?? [];
   const hw = dashboard?.sections.hwaccel as
     { hwaccel?: { name?: string }; ffmpeg?: string; error?: string } | undefined;
   const problems = health.filter((h) => !h.setupGap && (h.level === "error" || h.level === "warn"));
@@ -220,6 +220,7 @@ export default function Home() {
               size="sm"
               onClick={() => {
                 void refreshDashboard();
+                void live.reload();
                 void activity.reload();
                 void rows.reload();
               }}
@@ -255,7 +256,9 @@ export default function Home() {
                 its content (up to a cap) and the lower one takes the rest. */}
             <div className="flex min-w-0 flex-col gap-4 @3xl:col-span-2 cockpit:col-span-5 cockpit:min-h-0">
               <NowPlayingPanel
-                loading={!dashboard}
+                loading={!live.data && !live.error}
+                error={live.data ? null : live.error}
+                onRetry={() => void live.reload()}
                 sessions={sessions}
                 className="shrink-0 cockpit:max-h-[58%]"
               />
@@ -283,10 +286,14 @@ const scrollBody = "cockpit:overflow-y-auto";
 
 function NowPlayingPanel({
   loading,
+  error,
+  onRetry,
   sessions,
   className,
 }: {
   loading: boolean;
+  error: unknown;
+  onRetry: () => void;
   sessions: NowPlaying[];
   className?: string;
 }) {
@@ -313,6 +320,8 @@ function NowPlayingPanel({
     >
       {loading ? (
         <LoadingRows rows={2} />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={onRetry} />
       ) : sessions.length === 0 ? (
         <EmptyState
           icon={<MonitorPlay />}

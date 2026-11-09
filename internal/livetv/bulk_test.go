@@ -120,8 +120,10 @@ func TestChannelBatchRejectsInvalidAndUnknownFields(t *testing.T) {
 	}
 }
 
-// Pause a real refresh after its override snapshot but before DELETE locks any
+// Pause a real refresh after its override snapshot but before it writes any
 // channel row. An uncoordinated bulk write would commit in that exact gap.
+// Imports diff against stored rows, so the refresh carries a renamed channel:
+// an unchanged playlist would write nothing and never reach the barrier.
 func TestChannelBatchRefreshInterleavingPostgres(t *testing.T) {
 	if os.Getenv(store.TestPostgresEnv) == "" {
 		t.Skip("requires isolated PostgreSQL")
@@ -135,8 +137,9 @@ func TestChannelBatchRefreshInterleavingPostgres(t *testing.T) {
 	}
 	cs, _ := s.Channels(ctx)
 	id := cs[0].ID
+	src.Playlist = strings.Replace(src.Playlist, ",News\n", ",News HD\n", 1)
 	_, err := s.o.DB.ExecContext(ctx, `CREATE FUNCTION bulk_pause_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(987654321); RETURN NULL; END $$;
- CREATE TRIGGER bulk_pause_refresh BEFORE DELETE ON livetv_channels FOR EACH STATEMENT EXECUTE FUNCTION bulk_pause_refresh();`)
+ CREATE TRIGGER bulk_pause_refresh BEFORE INSERT OR UPDATE OR DELETE ON livetv_channels FOR EACH STATEMENT EXECUTE FUNCTION bulk_pause_refresh();`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +212,7 @@ func TestChannelBatchRefreshInterleavingPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, err := s.Channel(ctx, id)
-	if err != nil || c.Enabled || !c.Favorite || c.Group != group || !c.CustomGroup {
+	if err != nil || c.Name != "News HD" || c.Enabled || !c.Favorite || c.Group != group || !c.CustomGroup {
 		t.Fatalf("refresh lost bulk edits: %+v %v", c, err)
 	}
 }

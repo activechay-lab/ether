@@ -253,11 +253,20 @@ func (s *Service) Resume(ctx context.Context, viewer *core.Viewer, _ core.Device
 		if len(states) < processed {
 			return page, errors.New("experience: resume state changed during scan")
 		}
+		// The batch's titles and their series in two reads, not one read
+		// (and one hydration) per in-progress title.
+		cached := s.prefetchActivity(ctx, states[processed:])
+		visibility.GetTitle = func(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+			if t, ok := cached[key]; ok {
+				return &t, nil
+			}
+			return s.d.CachedGet(ctx, key)
+		}
 		for _, status := range states[processed:] {
 			if err = ctx.Err(); err != nil {
 				return page, err
 			}
-			title, err := s.d.CachedGet(ctx, status.Key)
+			title, err := visibility.GetTitle(ctx, status.Key)
 			if errors.Is(err, core.ErrNotFound) {
 				continue
 			}
@@ -306,3 +315,37 @@ func (s *Service) Resume(ctx context.Context, viewer *core.Viewer, _ core.Device
 
 var _ frontend.LibraryActivity = (*Service)(nil)
 var _ frontend.LibraryActivityGrouping = (*Service)(nil)
+
+// prefetchActivity reads the titles of states, and the series of their
+// episodes, in batches; what it misses is read one at a time by the caller.
+func (s *Service) prefetchActivity(ctx context.Context, states []core.WatchStatus) map[core.RatingKey]core.Title {
+	if s.d.CachedGetMany == nil || len(states) == 0 {
+		return nil
+	}
+	keys := make([]core.RatingKey, 0, len(states))
+	for _, st := range states {
+		keys = append(keys, st.Key)
+	}
+	titles, err := s.d.CachedGetMany(ctx, keys)
+	if err != nil {
+		return nil
+	}
+	var shows []core.RatingKey
+	seen := map[core.RatingKey]bool{}
+	for _, t := range titles {
+		if t.ShowKey != 0 && !seen[t.ShowKey] {
+			if _, ok := titles[t.ShowKey]; !ok {
+				seen[t.ShowKey] = true
+				shows = append(shows, t.ShowKey)
+			}
+		}
+	}
+	if len(shows) > 0 {
+		if parents, err := s.d.CachedGetMany(ctx, shows); err == nil {
+			for k, t := range parents {
+				titles[k] = t
+			}
+		}
+	}
+	return titles
+}

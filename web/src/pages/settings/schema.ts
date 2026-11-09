@@ -263,7 +263,9 @@ export const AWAY: FieldGroup[] = localized(() => [
         key: "publicHost",
         label: t("Public host name"),
         kind: "text",
-        help: t("Optional. Leave empty to detect your public address."),
+        help: t(
+          "Optional. Enter a name like plex.example.com, or the full https:// address of your reverse proxy. Leave empty to detect your public address.",
+        ),
       },
       {
         key: "publicPort",
@@ -362,6 +364,14 @@ export const PLAY_VERSIONS: FieldGroup[] = localized(() => [
         max: 3,
         step: 1,
         help: t("Listed after Auto in the app's version menu."),
+      },
+      {
+        key: "alternativesPerResolution",
+        label: t("Offer alternatives at every resolution"),
+        kind: "bool",
+        help: t(
+          "Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.",
+        ),
       },
       {
         key: "offerHigherVersions",
@@ -652,7 +662,7 @@ export const UPDATES: FieldGroup[] = localized(() => [
         key: "enabled",
         label: t("Check for updates"),
         kind: "bool",
-        help: t("Checks the signed release feed once a day."),
+        help: t("Checks the signed release feed every few hours."),
       },
       {
         key: "channel",
@@ -826,7 +836,7 @@ export const DOWNLOADS: FieldGroup[] = localized(() => [
         min: 0,
         step: 1,
         unit: "p",
-        help: t("Downloads are capped at this height. 0 uses 1080p."),
+        help: t("Downloads are capped at this resolution. 0 uses 1080p."),
       },
       {
         key: "maxConcurrent",

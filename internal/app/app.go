@@ -29,6 +29,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/favorites"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/handles/capability"
 	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/identity"
@@ -77,7 +78,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/trickplay"
 	"github.com/braedonsaunders/ether/internal/updater"
 	"github.com/braedonsaunders/ether/internal/usenet"
-	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 	"github.com/braedonsaunders/ether/internal/watchlist"
 	"log/slog"
 	"net/http"
@@ -137,6 +137,9 @@ type Options struct {
 
 // App is a running Ether server.
 type App struct {
+	// Nil until a client path proves manual-intent and live selection support.
+	automaticSubtitleClientSupported func(frontend.SessionAccess) bool
+
 	deployment       *deploymentRuntime
 	brokerPlayback   core.Playback
 	brokerTranscoder core.Transcoder
@@ -179,28 +182,31 @@ type App struct {
 	// (heartbeated; see rolling.go).
 	draining atomic.Bool
 
-	tmdb          *tmdb.Client
-	catalog       *catalog.Catalog
-	collections   *collections.Service
-	images        *artwork.Images
-	favorites     *favorites.Service
-	notInterested *notinterested.Service
-	playlists     core.Playlists
-	state         *state.State
-	trakt         *trakt.Client
-	simklDevice   *simkl.DeviceManager
-	llm           *llm.Service
-	recommend     *recommend.Recommender
-	personalize   *personalize.Engine
-	subtitles     *subtitles.Service
-	lang          *langfeat.Service
-	fetcher       *usenet.Fetcher
-	cache         *segcache.Cache
-	cacheConfig   atomic.Pointer[config.Cache]
-	engine        *stream.Engine
-	indexers      *newznab.Manager
-	sites         *cardigann.Service // built-in indexer sites from owner-installed definitions
-	addons        *stremio.Service   // Stremio stream addons configured as indexers
+	tmdb        *tmdb.Client
+	catalog     *catalog.Catalog
+	collections *collections.Service
+	images      *artwork.Images
+	// titlePosterRenderer draws generated posters (titlePosters).
+	titlePosterOnce     sync.Once
+	titlePosterRenderer *artwork.Renderer
+	favorites           *favorites.Service
+	notInterested       *notinterested.Service
+	playlists           core.Playlists
+	state               *state.State
+	trakt               *trakt.Client
+	simklDevice         *simkl.DeviceManager
+	llm                 *llm.Service
+	recommend           *recommend.Recommender
+	personalize         *personalize.Engine
+	subtitles           *subtitles.Service
+	lang                *langfeat.Service
+	fetcher             *usenet.Fetcher
+	cache               *segcache.Cache
+	cacheConfig         atomic.Pointer[config.Cache]
+	engine              *stream.Engine
+	indexers            *newznab.Manager
+	sites               *cardigann.Service // built-in indexer sites from owner-installed definitions
+	addons              *stremio.Service   // Stremio stream addons configured as indexers
 	// Debrid: torrent releases stream through owner debrid accounts. The
 	// wrappers dispatch on the payload and delegate Usenet to engine and
 	// indexers, so every consumer uses media and sources.
@@ -278,6 +284,8 @@ type App struct {
 	// integrity is the database's last integrity check (SQLite).
 	integrity         atomic.Pointer[store.Integrity]
 	integrityChecking atomic.Bool
+	// compaction is the owner's "Compact database" action (dbcompact.go).
+	compaction databaseCompaction
 	// restart is an owner-requested restart (restart.go).
 	restart restartState
 	// Extensibility (docs/extend/SPEC.md). Each runtime type lives in its own
@@ -443,7 +451,7 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		a.Close() // libera o instance lock (o db não foi aberto)
 		return nil, startFail(openFailure(err, dbCfg.IsPostgres()), fmt.Errorf("database: %w", err))
 	}
-	a.cfg.SetPolicyEpoch(func() error { return viewerpolicy.Bump(context.Background(), a.db) })
+	a.cfg.SetPolicyEpoch(a.publishPolicyConfig)
 	if err := a.checkRestoredIntegrity(ctx); err != nil {
 		return nil, err
 	}
@@ -565,7 +573,7 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 	for _, build := range []func(context.Context, config.Config) error{
 		a.buildCatalogue, func(context.Context, config.Config) error {
 			a.safety.SetCatalogPolicy(a.catalog.VisibleForViewer, a.catalog.DiscoveryVisibleForViewer)
-			return nil
+			return a.rebuildPolicyInputs(ctx)
 		}, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
 		a.buildSources, a.buildPlayback, a.buildClusterPlayback, a.buildPrefetch, a.buildIntegrations,
 	} {
@@ -603,23 +611,6 @@ func (a *App) prewarmBrowse(ctx context.Context) {
 	}
 	if len(keys) > 0 {
 		_, _ = a.catalog.CachedGetMany(ctx, keys)
-	}
-}
-
-// warmFixtureEpisodes fills the show-episode cache after the scorecard import.
-// It runs only before the listener opens.
-func (a *App) warmFixtureEpisodes(ctx context.Context) {
-	if a == nil || a.catalog == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	shows, err := a.catalog.Browse(ctx, core.BrowseQuery{Sort: core.SortTitle, Limit: 16, Filter: core.Filter{Type: core.TypeShow}})
-	if err != nil {
-		return
-	}
-	for _, show := range shows.Items {
-		_, _ = a.catalog.Grandchildren(ctx, show.Key)
 	}
 }
 
@@ -727,6 +718,7 @@ func (a *App) Run(ctx context.Context) error {
 	defer background.Wait()
 	defer cancel()
 	background.start(func() { a.runNodeControl(ctx) })
+	background.start(func() { a.watchConsoleSessions(ctx) })
 
 	// Singleton work runs only on the cluster leader (always, standalone).
 	// trakt.Start stays on every node: it delivers this node's own
@@ -736,6 +728,8 @@ func (a *App) Run(ctx context.Context) error {
 	// Every node serves search: build its title index now, in the
 	// background, so the first search does not fall back to SQL.
 	a.catalog.WarmSearch(ctx)
+	// Every node that serves search keeps its own long-tail index.
+	background.start(func() { a.catalog.RunTail(ctx) })
 	if parityRunCatalogueWorkers() {
 		background.start(func() { a.cluster.RunAsLeader(ctx, "catalogue sync", a.catalog.Run) })
 		background.start(func() { a.cluster.RunAsLeader(ctx, "trending charts", a.catalog.RunTrends) })
@@ -843,6 +837,9 @@ func (a *App) Run(ctx context.Context) error {
 		"version", a.opts.Version, "spike", cfg.Spike.Enabled)
 	if next := startupNextStep(cfg, uiURL); next != "" {
 		a.log.Info(next)
+	}
+	if a.registrar != nil {
+		a.registrar.ListenerReady()
 	}
 	background.start(func() { a.checkIntegrityLater(ctx) })
 	a.notifyLifecycle("server.started", "Ether is online", cfg.Server.FriendlyName+" is ready for connections.")

@@ -31,7 +31,7 @@ func (c *blockingListCatalog) List(ctx context.Context, list string, typ core.Me
 func TestEditingDuringBuildKeepsNewMembership(t *testing.T) {
 	e := newEnv(t)
 	cat := &blockingListCatalog{Catalog: e.cat, entered: make(chan struct{}), release: make(chan struct{})}
-	svc, err := collections.New(e.db.(*sql.DB), cat, slog.Default(), collections.WithoutDefaults())
+	svc, err := collections.New(e.db.(*sql.DB), cat, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestEditingDuringBuildKeepsNewMembership(t *testing.T) {
 
 func TestOtherServiceEditInvalidatesCachedMembership(t *testing.T) {
 	e := newEnv(t)
-	other, err := collections.New(e.db.(*sql.DB), e.cat, slog.Default(), collections.WithoutDefaults())
+	other, err := collections.New(e.db.(*sql.DB), e.cat, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestOtherServiceEditInvalidatesCachedMembership(t *testing.T) {
 func TestCancelPreviewWhileSourceBlocked(t *testing.T) {
 	e := newEnv(t)
 	cat := &blockingListCatalog{Catalog: e.cat, entered: make(chan struct{}), release: make(chan struct{})}
-	svc, err := collections.New(e.db.(*sql.DB), cat, slog.Default(), collections.WithoutDefaults())
+	svc, err := collections.New(e.db.(*sql.DB), cat, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func (c failedCatalog) Collection(context.Context, int64) (string, []core.Title,
 }
 func TestCatalogListAndFranchiseFailurePreservesUnion(t *testing.T) {
 	e := newEnv(t)
-	svc, err := collections.New(e.db.(*sql.DB), failedCatalog{e.cat}, slog.Default(), collections.WithoutDefaults())
+	svc, err := collections.New(e.db.(*sql.DB), failedCatalog{e.cat}, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}

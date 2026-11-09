@@ -249,6 +249,7 @@ func TestTranscodeChaosPlexFaults(t *testing.T) {
 					query := "path=%2Flibrary%2Fmetadata%2F" + fightClub.Key.String() + "&session=" + id + "&directPlay=0&directStream=1"
 					get := func(url string) []byte {
 						t.Helper()
+						requestHook(f, http.MethodGet, url, map[string]string{"X-Plex-Token": ownerToken, "X-Plex-Client-Identifier": "client-1"})
 						ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 						defer cancel()
 						req := httptest.NewRequest(http.MethodGet, url, nil).WithContext(ctx)

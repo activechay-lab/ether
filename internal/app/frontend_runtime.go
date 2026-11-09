@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -217,7 +218,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 			}
 		}
 		lazy, lazyErr := sessions.NewLazyStreams(a.db, r.broker, id, grants, time.Hour, func(req *http.Request) bool { ip, ok := a.frontendClientIP(req); return !ok || !identity.LAN(ip) })
-		versionHandles, handleErr := sessions.NewVersionHandles(a.db, r.broker, id)
+		versionHandles, handleErr := sessions.NewVersionHandles(a.db, r.broker, id, a.cfg.DerivedKey("ether-version-id-v1"))
 		if handleErr != nil {
 			a.log.Error("version handles unavailable", "surface", id, "err", handleErr)
 		}
@@ -279,7 +280,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 				return ""
 			}
 			return fmt.Sprintf("%d|%d|%d|%s|%v", a.catalog.WriteGeneration(), a.cfg.Generation(), v.ID, v.MaxContentRating, v.AllowedSections)
-		}, enabled: func() bool { _, ok := r.registry.Instance("webdav"); return ok }, base: func(ctx context.Context, req *http.Request) (string, error) { return r.surfaceURL(ctx, "webdav", req) }}, ViewerCapabilities: a.viewerCapabilities(local, experience), ViewerPolicy: surfaceViewerPolicy{app: a}, ImageGrants: imageGrants, Artwork: artwork, ExtraStreams: extraPlay, Cinema: cinema, Prerolls: prerollIntros, Subtitles: subtitleCatalog, Preferences: identity.NewPreferences(a.db, id), TrackPreferences: surfaceTrackPreferences{app: a}, LiveTV: surfaceLiveTV{app: a, channelArtwork: channelArtwork, artwork: artwork}, Sessions: scorecardSessions(a, sessions.BindSurface(r.broker, id)), LazyStreams: lazy, LANStreams: lanStreams, Capabilities: surfaceCapabilities{app: a, surface: id}, Identity: surfaceIdentity{settings: settings, surface: id, resolver: resolver, local: local, grants: grants, quick: quick, login: login, poll: poll, times: times}, Events: sessions.BindEvents(r.events, id), Tickets: tickets, WatchParty: parties, Images: frontendImages{source: a.images}, Log: a.log.With("frontend", id), ClientSeen: func(deviceID string) { a.frontendClients.observe(id, deviceID) }, ClientIP: a.frontendClientIP, ViewerPortalURL: r.viewerPortalURL, SecurePortalURL: r.viewerPortalSecureURL, SurfaceURL: func(ctx context.Context, req *http.Request) (string, error) {
+		}, enabled: func() bool { _, ok := r.registry.Instance("webdav"); return ok }, base: func(ctx context.Context, req *http.Request) (string, error) { return r.surfaceURL(ctx, "webdav", req) }}, ViewerCapabilities: a.viewerCapabilities(local, experience), ViewerPolicy: surfaceViewerPolicy{app: a}, ImageGrants: imageGrants, Artwork: artwork, ExtraStreams: extraPlay, Cinema: cinema, Prerolls: prerollIntros, Subtitles: subtitleCatalog, Preferences: identity.NewPreferences(a.db, id), TrackPreferences: surfaceTrackPreferences{app: a}, LiveTV: surfaceLiveTV{app: a, surface: string(id), channelArtwork: channelArtwork, artwork: artwork}, Sessions: scorecardSessions(a, sessions.BindSurface(r.broker, id)), LazyStreams: lazy, LANStreams: lanStreams, Capabilities: surfaceCapabilities{app: a, surface: id}, Identity: surfaceIdentity{settings: settings, surface: id, resolver: resolver, local: local, grants: grants, quick: quick, login: login, poll: poll, times: times}, Events: sessions.BindEvents(r.events, id), Tickets: tickets, WatchParty: parties, Images: frontendImages{source: a.images}, Log: a.log.With("frontend", id), ClientSeen: func(deviceID string) { a.frontendClients.observe(id, deviceID) }, ClientIP: a.frontendClientIP, ViewerPortalURL: r.viewerPortalURL, SecurePortalURL: r.viewerPortalSecureURL, SurfaceURL: func(ctx context.Context, req *http.Request) (string, error) {
 			return scorecardSurfaceURL(ctx, r, id, req)
 		}, LANViewer: lanViewer, PageFreshness: func() frontend.PageFreshness {
 			f := a.browseFreshness()
@@ -295,7 +296,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 				return ""
 			}
 			return a.cfg.Get().Catalog.Language
-		}, AudioOrder: trackprefs.AudioOrder, PickAudio: experiencepkg.PickAudio, PersonalHomes: a.personalHomeDisk()}
+		}, AudioOrder: trackprefs.AudioOrder, PickAudio: experiencepkg.PickAudio, PersonalHomes: a.personalHomeDisk(), CacheDir: a.frontendCacheDir(id)}
 	})
 	r.control = newFrontendControl(r.registry, a.cfg)
 	r.control.listeners.log = a.log
@@ -324,11 +325,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}
 		srv := handler.(*plex.Server)
 		srv.UsePlexStreams(sessions.BindPlexStreams(r.broker))
-		if a.deployment != nil {
-			srv.UsePlexEncoder(r.broker)
-		}
+		srv.UsePlexEncoder(r.broker)
 		return srv, nil
-	}, WatchState: a.state, ExplicitWatchOnly: cfg.Spike.Enabled, StatusFunc: r.plexStatus, ListenersFunc: r.plexListeners}); err != nil {
+	}, WatchRefresh: experiencepkg.BindWatchRefresh(a.state), ExplicitWatchOnly: cfg.Spike.Enabled, StatusFunc: r.plexStatus, ListenersFunc: r.plexListeners}); err != nil {
 		return nil, err
 	}
 	if err := r.registry.Register(mediabrowser.Jellyfin{MachineID: cfg.Server.MachineIdentifier}); err != nil {
@@ -481,10 +480,15 @@ func (r *frontendRuntime) plexStatus(ctx context.Context) frontend.Status {
 	}
 	if r.app.registrar != nil {
 		remote := r.app.registrar.Status()
+		// ConnectURLs are the at-home addresses. The public host, custom
+		// outside routes and the WAN address belong to Away from home.
 		for _, connection := range remote.Connections {
-			st.ConnectURLs = append(st.ConnectURLs, connection.URI)
+			if connection.Local {
+				st.ConnectURLs = append(st.ConnectURLs, connection.URI)
+			}
 		}
-		st.WAN = remote.WANState()
+		wan := remote.WANCheck()
+		st.WAN, st.WANReason, st.WANAddress, st.WANCheckedAt = wan.State, wan.Reason, wan.Address, wan.CheckedAt
 	}
 	if snapshot, ok := ctx.Value(frontendStreamCountsKey{}).(frontendStreamCounts); ok {
 		st.LiveStreams, st.LiveStreamsKnown = snapshot.counts["plex"], snapshot.known
@@ -625,6 +629,33 @@ func (r *frontendRuntime) close() {
 
 // browseFreshness is the stamp of a cached Jellyfin or Emby page. Image
 // grants last ten minutes, so the art bucket rotates well inside that.
+// frontendCacheDir is the node-local directory a frontend may fill with
+// files it regenerates (Xtream's whole-library exports), under the data
+// directory's cache, which Kubernetes keeps on the writable data volume.
+func (a *App) frontendCacheDir(id frontend.Protocol) string {
+	if a == nil || a.opts.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(a.opts.DataDir, "cache", "frontends", string(id))
+}
+
+// backgroundBusy counts work mounted frontends run behind their
+// requests (Xtream export builds).
+func (r *frontendRuntime) backgroundBusy() int {
+	if r == nil || r.registry == nil {
+		return 0
+	}
+	busy := 0
+	for _, d := range r.registry.Descriptors() {
+		if inst, ok := r.registry.Instance(d.ID); ok {
+			if b, ok := inst.(interface{ BackgroundBusy() int }); ok {
+				busy += b.BackgroundBusy()
+			}
+		}
+	}
+	return busy
+}
+
 func (a *App) browseFreshness() frontend.PageFreshness {
 	f := frontend.PageFreshness{ArtBucket: time.Now().Unix() / 120}
 	if a == nil {

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"net/http"
 	"strings"
 	"time"
@@ -97,6 +98,8 @@ func (s *ImageGrantService) pageKey() []byte {
 // for the page and no grant write. Serve rechecks the credential, expiry,
 // revocation and current artwork policy before returning bytes.
 func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePageRequest) ([]frontend.ImageBatchItem, error) {
+	// A page grant writes nothing per title, so one call signs a whole
+	// listing page (an export's 250), up to the input bound.
 	if len(req.Titles) > maxImageBatchInput || len(req.Kinds) > 6 {
 		return nil, frontend.ErrImageBatchLimit
 	}
@@ -113,13 +116,17 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			return nil, frontend.ErrImageBatchLimit
 		}
 	}
-	viewer, err := s.grants.Resolve(ctx, string(s.surface), req.Credential)
-	if err != nil {
-		return nil, err
-	}
 	source, ok := grantHash(req.Credential)
 	if !ok {
 		return nil, core.ErrUnauthorized
+	}
+	// A listing signs its rows 50 at a time; within one read request the
+	// credential is resolved once (reqmemo's short window), not per batch.
+	viewer, err := reqmemo.Do(ctx, "image-page-grant:"+string(s.surface)+":"+source, func() (*core.Viewer, error) {
+		return s.grants.Resolve(ctx, string(s.surface), req.Credential)
+	})
+	if err != nil {
+		return nil, err
 	}
 	deviceJSON, err := json.Marshal(req.Device)
 	if err != nil || len(deviceJSON) > 4096 {
@@ -141,10 +148,9 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			seen[title.Key] = true
 			keys = append(keys, title.Key)
 		}
-		if len(keys) > maxImageBatchItems {
-			return nil, frontend.ErrImageBatchLimit
-		}
-		listed, err := page.ItemArtworkPage(ctx, viewer, req.Device, keys)
+		// Only the wanted kinds are sealed below, so the listing need not
+		// prepare the others (UltraBlur colours for a poster-only page).
+		listed, err := page.ItemArtworkPage(frontend.WithArtworkKinds(ctx, wanted), viewer, req.Device, keys)
 		if err != nil {
 			return nil, err
 		}
@@ -173,9 +179,6 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 			continue
 		}
 		seen[title.Key] = true
-		if len(seen) > maxImageBatchItems {
-			return nil, frontend.ErrImageBatchLimit
-		}
 		images, complete, err := s.pageImages(ctx, viewer, req.Device, title.Key)
 		if errors.Is(err, core.ErrNotFound) || errors.Is(err, core.ErrUnauthorized) {
 			continue
@@ -194,6 +197,53 @@ func (s *ImageGrantService) SignPage(ctx context.Context, req frontend.ImagePage
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// RenewPage gives tags SignPage sealed earlier a full lifetime for
+// req.Credential, as signing the page again would, without listing its
+// artwork again. A tag names the image it was sealed for; Serve still
+// rechecks the credential, revocation and the viewer's artwork policy, so a
+// renewal can only keep serving what that viewer may already see.
+func (s *ImageGrantService) RenewPage(ctx context.Context, req frontend.ImagePageRenewal) error {
+	source, ok := grantHash(req.Credential)
+	if !ok {
+		return core.ErrUnauthorized
+	}
+	viewer, err := reqmemo.Do(ctx, "image-page-grant:"+string(s.surface)+":"+source, func() (*core.Viewer, error) {
+		return s.grants.Resolve(ctx, string(s.surface), req.Credential)
+	})
+	if err != nil {
+		return err
+	}
+	if viewer == nil {
+		return core.ErrUnauthorized
+	}
+	deviceJSON, err := json.Marshal(req.Device)
+	if err != nil || len(deviceJSON) > 4096 {
+		return core.ErrUnauthorized
+	}
+	expires, gen := s.pageExpires(), s.Generation()
+	s.shortMu.Lock()
+	defer s.shortMu.Unlock()
+	if s.short == nil {
+		s.short = map[string]pageClaims{}
+	}
+	for _, item := range req.Items {
+		if item.Item == 0 {
+			continue
+		}
+		for _, g := range item.Images {
+			img := g.Image
+			if !isShortImageTag(g.Secret) || img.Kind == "" || img.Path == "" || len(img.Path) > 1024 || len(img.Kind) > 128 || len(img.Tag) > 256 || len(img.Subject) > 256 {
+				continue
+			}
+			s.short[g.Secret] = pageClaims{
+				Item: int64(item.Item), Kind: img.Kind, Path: img.Path, Tag: img.Tag, Subject: img.Subject,
+				Device: deviceJSON, Source: source, Viewer: viewer.ID, Expires: expires, Gen: gen,
+			}
+		}
+	}
+	return nil
 }
 
 func (s *ImageGrantService) sealPageImages(ctx context.Context, master []byte, source string, deviceJSON []byte, viewer int64, expires int64, key core.RatingKey, images []frontend.Image, complete bool, wanted map[string]bool) (frontend.ImageBatchItem, error) {
@@ -295,16 +345,6 @@ func (s *ImageGrantService) pageExpires() int64 {
 	return now - (now % step) + ttl
 }
 
-func pageNonce(key, plain []byte, size int) []byte {
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write(plain)
-	sum := mac.Sum(nil)
-	if size > len(sum) {
-		size = len(sum)
-	}
-	return sum[:size]
-}
-
 func pageRequestKey(master []byte, viewer, expires int64, surface string) []byte {
 	mac := hmac.New(sha256.New, master)
 	var buf [16]byte
@@ -313,28 +353,6 @@ func pageRequestKey(master []byte, viewer, expires int64, surface string) []byte
 	_, _ = mac.Write(buf[:])
 	_, _ = mac.Write([]byte(surface))
 	return mac.Sum(nil)
-}
-
-func sealPageGrant(reqKey []byte, claims pageClaims) (string, error) {
-	block, err := aes.NewCipher(reqKey)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	plain, err := json.Marshal(claims)
-	if err != nil {
-		return "", err
-	}
-	nonce := pageNonce(reqKey, plain, gcm.NonceSize())
-	sealed := gcm.Seal(nonce, nonce, plain, nil)
-	body := make([]byte, 16+len(sealed))
-	binary.BigEndian.PutUint64(body[:8], uint64(claims.Viewer))
-	binary.BigEndian.PutUint64(body[8:16], uint64(claims.Expires))
-	copy(body[16:], sealed)
-	return pageGrantPrefix + base64.RawURLEncoding.EncodeToString(body), nil
 }
 
 func openPageGrant(master []byte, surface, secret string, now int64) (pageClaims, error) {
@@ -711,6 +729,7 @@ func (s *ImageGrantService) serveClaims(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 	}
+	r = artworkRowsRequest(r, img)
 	if err = s.authorized(r.Context(), viewer, device, core.RatingKey(claims.Item), claims.Channel, img); err != nil {
 		http.NotFound(w, r)
 		return

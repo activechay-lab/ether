@@ -38,8 +38,21 @@ func (b *builder) planPlain(ctx context.Context, pf *postedFile) (*plan, error) 
 		pf.learn(last, ls.begin, ls.end(), ls.end(), 0)
 	}
 	name := pf.Name()
-	if (pf.file.Obfuscated || name == "") && seg.name != "" && !nzb.IsObfuscated(seg.name) {
+	if (pf.file.Obfuscated || name == "" || nzb.IsObfuscated(name)) && seg.name != "" && !nzb.IsObfuscated(seg.name) {
 		name = path.Base(seg.name)
+	}
+	if !nzb.IsVideoExt(strings.TrimPrefix(path.Ext(name), ".")) && !isISOName(name) {
+		ext := pf.file.Info.Ext
+		if ext == "" {
+			ext = sniffVideoExt(seg.data)
+		}
+		if ext != "" {
+			if name == "" {
+				name = "video." + ext
+			} else {
+				name = name + "." + ext
+			}
+		}
 	}
 	size := pf.Size()
 	if size <= 0 {
@@ -63,7 +76,7 @@ func (b *builder) planSplit(ctx context.Context, vols []*postedFile) (*plan, err
 		return nil, fmt.Errorf("stream: %s archive split into plain volumes: %w", f, ErrUnsupported)
 	}
 	ext := vols[0].file.Info.Ext
-	if !nzb.IsVideoExt(ext) && !looksLikeVideo(head) {
+	if !nzb.IsVideoExt(ext) && !strings.EqualFold(ext, "iso") && !looksLikeVideo(head) {
 		return nil, fmt.Errorf("%w: split set %s is not a video", ErrNoPlayableFile, vols[0].Name())
 	}
 	name := vols[0].Name()
@@ -317,33 +330,57 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 	if m == nil {
 		return nil, fmt.Errorf("%w: rar %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
-	if m.Encrypted && b.rel.doc.Password() == "" {
-		return nil, archive.ErrPasswordRequired
-	}
-	if err := m.Streamable(); err != nil {
-		return nil, fmt.Errorf("stream: rar %s: %s: %w", vols[0].Name(), m.Name, err)
-	}
-	info := make([]volInfo, len(vols))
-	verified := make([]bool, len(vols))
-	for k := range vols {
-		info[k] = volInfo{size: vols[k].Size()}
-		verified[k] = true
-	}
-	if m.Encryption != nil {
-		return b.encryptedPlan(ctx, kindRAR, m, vols, info)
-	}
-	for _, x := range m.Extents {
-		if x.Volume < 0 || x.Volume >= len(vols) {
-			return nil, fmt.Errorf("stream: rar extent in volume %d of %d: %w", x.Volume, len(vols), ErrCorrupt)
+	plan := func(m *archive.Member) (*plan, error) {
+		if m.Encrypted && b.rel.doc.Password() == "" {
+			return nil, archive.ErrPasswordRequired
 		}
-		if info[x.Volume].dataSize != 0 {
-			return nil, fmt.Errorf("stream: rar member %s has two extents in volume %d: %w", m.Name, x.Volume, ErrUnsupported)
+		if err := m.Streamable(); err != nil {
+			return nil, fmt.Errorf("stream: rar %s: %s: %w", vols[0].Name(), m.Name, err)
 		}
-		info[x.Volume].dataOff, info[x.Volume].dataSize = x.Offset, x.Size
+		info := make([]volInfo, len(vols))
+		verified := make([]bool, len(vols))
+		for k := range vols {
+			info[k] = volInfo{size: vols[k].Size()}
+			verified[k] = true
+		}
+		if m.Encryption != nil {
+			return b.encryptedPlan(ctx, kindRAR, m, vols, info)
+		}
+		for _, x := range m.Extents {
+			if x.Volume < 0 || x.Volume >= len(vols) {
+				return nil, fmt.Errorf("stream: rar extent in volume %d of %d: %w", x.Volume, len(vols), ErrCorrupt)
+			}
+			if info[x.Volume].dataSize != 0 {
+				return nil, fmt.Errorf("stream: rar member %s has two extents in volume %d: %w", m.Name, x.Volume, ErrUnsupported)
+			}
+			info[x.Volume].dataOff, info[x.Volume].dataSize = x.Offset, x.Size
+		}
+		p := newPlan(b.rel, kindRAR, path.Base(m.Name), m.Size, vols, info, verified)
+		p.member = m.Name
+		return p, p.init()
 	}
-	p := newPlan(b.rel, kindRAR, path.Base(m.Name), m.Size, vols, info, verified)
-	p.member = m.Name
-	return p, p.init()
+	p, err := plan(m)
+	if err == nil && isISOName(p.name) {
+		b.stashDiscs(members, m, plan)
+	}
+	return p, err
+}
+
+// stashDiscs plans the archive's other disc images, the further discs of a
+// multi-disc release, for expandISO to join.
+func (b *builder) stashDiscs(members []archive.Member, chosen *archive.Member, plan func(*archive.Member) (*plan, error)) {
+	for i := range members {
+		m := &members[i]
+		if len(b.memberISOs) >= maxDiscSiblings {
+			return
+		}
+		if m.Dir || m.Name == chosen.Name || nzb.Classify(m.Name).Kind != nzb.KindISO || m.Size <= 0 {
+			continue
+		}
+		if p, err := plan(m); err == nil {
+			b.memberISOs = append(b.memberISOs, p)
+		}
+	}
 }
 
 // plan7z maps the main video inside a copy-method 7z set.
@@ -421,13 +458,68 @@ func (b *builder) plan7z(ctx context.Context, vols []*postedFile) (*plan, error)
 	if m == nil {
 		return nil, fmt.Errorf("%w: 7z %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
+	plan := func(m *archive.Member) (*plan, error) {
+		if err := m.Streamable(); err != nil {
+			return nil, fmt.Errorf("stream: 7z %s: %s: %w", vols[0].Name(), m.Name, err)
+		}
+		if m.Encryption != nil {
+			return b.encryptedPlan(ctx, kind7z, m, vols, info)
+		}
+		p := newPlan(b.rel, kind7z, path.Base(m.Name), m.Size, vols, info, verified)
+		p.concatExt = m.Extents
+		return p, p.init()
+	}
+	p, err := plan(m)
+	if err == nil && isISOName(p.name) {
+		b.stashDiscs(members, m, plan)
+	}
+	return p, err
+}
+
+// planZIP maps the main video inside a store-mode ZIP or ZIP64 set (.zip,
+// .zip.001, or .z01+.zip).
+func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error) {
+	if err := b.heads(ctx, vols); err != nil {
+		return nil, err
+	}
+	last := vols[len(vols)-1]
+	if !last.SizeKnown() {
+		slot := last.numSlots() - 1
+		ls, err := b.e.segment(ctx, b.rel, last, slot, b.prio, b.fo)
+		if err != nil {
+			return nil, err
+		}
+		last.learn(slot, ls.begin, ls.end(), ls.end(), 0)
+	}
+	head, err := b.sniff(ctx, vols[0])
+	if err != nil {
+		return nil, err
+	}
+	if archive.Detect(head) != archive.FormatZIP {
+		return nil, fmt.Errorf("stream: %s is not a zip archive: %w", vols[0].Name(), ErrCorrupt)
+	}
+	n := len(vols)
+	info := make([]volInfo, n)
+	verified := make([]bool, n)
+	av := make([]archive.Volume, n)
+	for k, pf := range vols {
+		s := pf.Size()
+		info[k] = volInfo{size: s}
+		verified[k] = true
+		av[k] = archive.Volume{R: b.reader(ctx, pf), Size: s}
+	}
+	members, err := archive.ListZIP(av)
+	if err != nil {
+		return nil, fmt.Errorf("stream: zip %s: %w", vols[0].Name(), err)
+	}
+	m := b.chooseMember(members)
+	if m == nil {
+		return nil, fmt.Errorf("%w: zip %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
+	}
 	if err := m.Streamable(); err != nil {
-		return nil, fmt.Errorf("stream: 7z %s: %s: %w", vols[0].Name(), m.Name, err)
+		return nil, fmt.Errorf("stream: zip %s: %s: %w", vols[0].Name(), m.Name, err)
 	}
-	if m.Encryption != nil {
-		return b.encryptedPlan(ctx, kind7z, m, vols, info)
-	}
-	p := newPlan(b.rel, kind7z, path.Base(m.Name), m.Size, vols, info, verified)
+	p := newPlan(b.rel, kindZIP, path.Base(m.Name), m.Size, vols, info, verified)
 	p.concatExt = m.Extents
 	return p, p.init()
 }
@@ -572,7 +664,7 @@ func (b *builder) checkCachedRAR(ctx context.Context, c candidate) error {
 // is not a sample or extra; failing that (obfuscated inner names), the
 // largest file without a known non-video type if it dominates the archive.
 func chooseMember(members []archive.Member) *archive.Member {
-	var best, anon *archive.Member
+	var best, disc, anon *archive.Member
 	var total int64
 	for i := range members {
 		m := &members[i]
@@ -586,6 +678,10 @@ func chooseMember(members []archive.Member) *archive.Member {
 			if best == nil || m.Size > best.Size {
 				best = m
 			}
+		case info.Kind == nzb.KindISO:
+			if disc == nil || m.Size > disc.Size {
+				disc = m
+			}
 		case info.Kind == nzb.KindUnknown:
 			if anon == nil || m.Size > anon.Size {
 				anon = m
@@ -594,6 +690,9 @@ func chooseMember(members []archive.Member) *archive.Member {
 	}
 	if best != nil {
 		return best
+	}
+	if disc != nil {
+		return disc // no video, but a disc image: its main feature plays
 	}
 	if anon != nil && (anon.Size*2 >= total || (anon.Size < 0 && total == 0)) {
 		return anon
@@ -852,6 +951,7 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 	named := map[*postedFile]bool{}
 	type rarVol struct {
 		pf     *postedFile
+		format archive.Format
 		number int // -1 unknown
 	}
 	var rars []rarVol
@@ -881,7 +981,7 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 			continue
 		}
 		head := pr.seg.data
-		switch archive.Detect(head) {
+		switch f := archive.Detect(head); f {
 		case archive.FormatRAR4, archive.FormatRAR5:
 			num := -1
 			if v, err := b.readCachedRARVolume(ctx, pf, head); err == nil {
@@ -891,21 +991,80 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 					num = 0
 				}
 			}
-			rars = append(rars, rarVol{pf, num})
+			rars = append(rars, rarVol{pf: pf, format: f, number: num})
 		case archive.Format7z:
 			b.rel.setFileInfo(func() {
 				pf.file.Info = nzb.FileInfo{Kind: nzb.KindSevenZip, Ext: "7z", Volume: 0, SetName: fmt.Sprintf("\x00obfuscated-7z-%d", pf.idx)}
 			})
+		case archive.FormatZIP:
+			b.rel.setFileInfo(func() {
+				pf.file.Info = nzb.FileInfo{Kind: nzb.KindZIP, Ext: "zip", Volume: 0, SetName: fmt.Sprintf("\x00obfuscated-zip-%d", pf.idx)}
+			})
 		default:
-			if looksLikeVideo(head) {
+			if ext := sniffVideoExt(head); ext != "" {
 				b.rel.setFileInfo(func() {
-					pf.file.Info = nzb.FileInfo{Kind: nzb.KindVideo, Ext: "", Volume: -1, SetName: pf.file.Info.SetName}
+					pf.file.Info = nzb.FileInfo{Kind: nzb.KindVideo, Ext: ext, Volume: -1, SetName: pf.file.Info.SetName}
 				})
 			}
 		}
 	}
 	if len(rars) == 0 {
 		return named, unreadable, nil
+	}
+	if set == nil && len(rars) > 3 {
+		// Wait until the leading volume's cached head passes checkRARVolume before
+		// issuing any RAR4 tail probes, so compressed or encrypted sets still
+		// fast-fail without extra segment fetches.
+		canProbeTails := true
+		for _, r := range rars {
+			if seg, ok := b.e.hot.get(segKey{b.rel.digest, r.pf.segBase}); ok && seg != nil && seg.begin == 0 {
+				if v, err := b.readCachedRARVolume(ctx, r.pf, seg.data); err != nil || b.checkRARVolume(v) != nil {
+					canProbeTails = false
+					break
+				}
+			}
+		}
+		// RAR4 continuation volumes record their volume number in the trailing
+		// 0x7b end block rather than the main header. Once the full probe wave
+		// runs without PAR2 or [i/N] subject counters (identifyObfuscated's
+		// initial no-PAR2 wave has at most 3 files), probe the final segment
+		// of unnumbered RAR4 volumes to recover their exact volume numbers.
+		hasSubjectOrder := true
+		var needTail []int
+		for i, r := range rars {
+			if r.pf.file.SubjectIndex <= 0 {
+				hasSubjectOrder = false
+			}
+			if r.format == archive.FormatRAR4 && r.number < 0 {
+				if r.pf.numSlots() == 1 {
+					if seg, ok := b.e.hot.get(segKey{b.rel.digest, r.pf.segBase}); ok && seg != nil {
+						if n := archive.ReadRAR4TailVolumeNumber(seg.data); n >= 0 {
+							rars[i].number = n
+						}
+					}
+				} else if r.pf.numSlots() > 1 {
+					needTail = append(needTail, i)
+				}
+			}
+		}
+		if canProbeTails && !hasSubjectOrder && len(needTail) > 0 {
+			_ = b.parallel(ctx, len(needTail), func(ctx context.Context, k int) error {
+				idx := needTail[k]
+				pf := rars[idx].pf
+				slot := pf.numSlots() - 1
+				msgID := pf.msgID(slot)
+				if msgID == "" {
+					return nil
+				}
+				data, _, err := b.e.bodyPart(ctx, pf, msgID, b.prio, b.fo)
+				if err == nil && len(data) > 0 {
+					if n := archive.ReadRAR4TailVolumeNumber(data); n >= 0 {
+						rars[idx].number = n
+					}
+				}
+				return nil
+			})
+		}
 	}
 	allNumbered := true
 	for _, r := range rars {
@@ -940,25 +1099,53 @@ func (b *builder) probeObfuscated(ctx context.Context, unknown []*postedFile, se
 
 // looksLikeVideo recognises common container signatures.
 func looksLikeVideo(b []byte) bool {
+	return sniffVideoExt(b) != ""
+}
+
+// sniffVideoExt recognises common container signatures and returns the
+// canonical lowercase container extension ("mkv", "webm", "mp4", "mov",
+// "avi", "mpg", "flv", "ogm", "wmv", "ts", "m2ts"), or "" if none match.
+func sniffVideoExt(b []byte) string {
 	switch {
 	case len(b) >= 4 && bytes.Equal(b[:4], []byte{0x1a, 0x45, 0xdf, 0xa3}): // Matroska/WebM (EBML)
-		return true
+		if sniffEBMLWebM(b[:min(len(b), 128)]) {
+			return "webm"
+		}
+		return "mkv"
 	case len(b) >= 8 && (string(b[4:8]) == "ftyp" || string(b[4:8]) == "moov" || string(b[4:8]) == "mdat" || string(b[4:8]) == "free"):
-		return true
+		if len(b) >= 12 && string(b[4:8]) == "ftyp" {
+			switch string(b[8:12]) {
+			case "qt  ":
+				return "mov"
+			case "M4V ", "M4VP", "M4VH":
+				return "m4v"
+			}
+		}
+		return "mp4"
 	case len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "AVI ":
-		return true
+		return "avi"
 	case len(b) >= 4 && (bytes.Equal(b[:4], []byte{0x00, 0x00, 0x01, 0xba}) || bytes.Equal(b[:4], []byte{0x00, 0x00, 0x01, 0xb3})): // MPEG program/elementary video stream
-		return true
+		return "mpg"
 	case len(b) >= 9 && string(b[:3]) == "FLV" && b[3] == 1 && b[4]&^byte(5) == 0 && binary.BigEndian.Uint32(b[5:9]) >= 9:
-		return true
+		return "flv"
 	case len(b) >= 27 && string(b[:4]) == "OggS" && b[4] == 0 && b[5]&^byte(7) == 0:
-		return true
+		return "ogm"
 	case len(b) >= 16 && bytes.Equal(b[:8], []byte{0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11}): // ASF/WMV
-		return true
+		return "wmv"
 	case len(b) > 376 && b[0] == 0x47 && b[188] == 0x47 && b[376] == 0x47: // MPEG-TS
-		return true
+		return "ts"
 	case len(b) > 392 && b[4] == 0x47 && b[196] == 0x47 && b[388] == 0x47: // M2TS (192-byte packets)
-		return true
+		return "m2ts"
+	}
+	return ""
+}
+
+// sniffEBMLWebM checks whether an EBML header carries DocType (0x4282) "webm".
+func sniffEBMLWebM(b []byte) bool {
+	for i := 4; i+7 <= len(b); i++ {
+		if b[i] == 0x42 && b[i+1] == 0x82 && b[i+2] == 0x84 && string(b[i+3:i+7]) == "webm" {
+			return true
+		}
 	}
 	return false
 }

@@ -61,7 +61,7 @@ func (m *Manager) ServeRange(w http.ResponseWriter, r *http.Request, sessionID s
 		contentType:           s.contentType,
 		deferStatusOnZeroRead: true,
 	}
-	plexPart, _ := r.Context().Value(plexPartKey{}).(bool)
+	plexPart := core.IsPlexPart(r.Context())
 	if plexPart {
 		rep.contentType = plexPartMIME(s.name)
 	}
@@ -161,7 +161,15 @@ func (m *Manager) streamClient(ctx context.Context, w io.Writer, s *session, vst
 			// do not wait for its internal retries before replacing it.
 			g.noteReadFailure(core.ErrSourceUnavailable)
 			at = g.timeMapSnapshot().TimeAt(srcpos)
-			_, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source stalled", strictDirect: true})
+			res, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source stalled", strictDirect: true, stallRecovery: true})
+			if err == nil && res == g {
+				// The stall grace continued this release on a read the
+				// client may never repeat. This path does not return a
+				// retryable error, so arm the same bounded recovery the
+				// recoverable path uses: a client that stops requesting
+				// still ends or restarts within two windows (issue #169).
+				m.limitDirectRetry(s, g, at)
+			}
 			if err != nil && !errors.Is(err, errRequireRemux) && ctx.Err() == nil {
 				m.emitEvent("error", s, err)
 				m.Stop(s.id)
@@ -235,29 +243,40 @@ func (m *Manager) limitDirectRetryAfter(s *session, g *generation, at, delay tim
 	g.retryPending = true
 	epoch := g.retryEpoch
 	g.mu.Unlock()
+	pending := func() bool {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return g.retryPending && g.retryEpoch == epoch && !g.retired
+	}
 	go func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-		case <-g.ctx.Done():
-			return
-		}
-		pending := func() bool {
-			g.mu.Lock()
-			defer g.mu.Unlock()
-			return g.retryPending && g.retryEpoch == epoch && !g.retired
-		}
-		if !pending() {
-			return
-		}
-		g.noteReadFailure(core.ErrSourceUnavailable)
-		ctx, cancel := context.WithTimeout(g.ctx, 25*time.Second)
-		defer cancel()
-		_, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source unavailable", stillNeeded: pending, strictDirect: true})
-		if err != nil && !errors.Is(err, errRequireRemux) && pending() {
-			m.emitEvent("error", s, err)
-			m.Stop(s.id)
+		// One spent stall grace re-waits in this goroutine rather than
+		// re-arming through limitDirectRetryAfter: capturing one epoch at
+		// arm time keeps the epoch guarantee, so a read that progresses
+		// between windows disarms the watchdog instead of letting a stale
+		// timer re-arm over recovered progress and escalate later.
+		for {
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-g.ctx.Done():
+				timer.Stop()
+				return
+			}
+			if !pending() {
+				return
+			}
+			g.noteReadFailure(core.ErrSourceUnavailable)
+			ctx, cancel := context.WithTimeout(g.ctx, 25*time.Second)
+			res, err := m.failoverWith(ctx, s, g, at, failoverOpts{reason: "media source unavailable", stillNeeded: pending, strictDirect: true, stallRecovery: true})
+			continued := err == nil && res == g && pending()
+			if err != nil && !errors.Is(err, errRequireRemux) && pending() {
+				m.emitEvent("error", s, err)
+				m.Stop(s.id)
+			}
+			cancel()
+			if !continued {
+				return
+			}
 		}
 	}()
 }
@@ -288,6 +307,11 @@ type chunk struct {
 const maxReadProducers = 128
 
 var readProducers = make(chan struct{}, maxReadProducers)
+
+// firstReadAlign bounds a response's first read: it ends at the next
+// multiple of the debrid engine's block (its cache and publish unit), so the
+// first bytes go out once one block has arrived rather than two or three.
+const firstReadAlign = 512 << 10
 
 // copyFrom copies up to length bytes of g's source starting at off into w,
 // reading ahead of the writer in ChunkSize pieces. It returns the bytes
@@ -378,12 +402,21 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 		}()
 		defer close(ch)
 		pos, rem := off, length
+		first := !background
 		for rem > 0 {
 			if ctx.Err() != nil {
 				return
 			}
 			bp := pool.Get().(*[]byte)
 			want := int64(len(*bp))
+			if first {
+				// The client is waiting for its first byte: read only up
+				// to the next firstReadAlign boundary (one debrid block)
+				// and write that at once instead of waiting for a whole
+				// chunk. Later reads start aligned and use full chunks.
+				first = false
+				want = min(want, firstReadAlign-pos%firstReadAlign)
+			}
 			if rem < want {
 				want = rem
 			}
@@ -462,6 +495,7 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 			rem -= int64(n)
 		}
 	}()
+	flushFirst := !background
 	for c := range ch {
 		if c.n > 0 {
 			k, err := w.Write((*c.buf)[:c.n])
@@ -469,6 +503,12 @@ func (m *Manager) copyFrom(ctx context.Context, w io.Writer, g *generation, off,
 			onWrite(k)
 			if err == nil && k < c.n {
 				err = io.ErrShortWrite
+			}
+			if err == nil && flushFirst {
+				flushFirst = false
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
 			}
 			if err != nil {
 				pool.Put(c.buf)

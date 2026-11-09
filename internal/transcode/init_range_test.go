@@ -135,16 +135,16 @@ func TestHLSInitRangeStartsInactiveRung(t *testing.T) {
 	for _, r := range s.Rungs() {
 		ids = append(ids, r.ID)
 	}
-	if got, want := strings.Join(ids, ","), "base,480p1500k,360p800k"; got != want {
+	if got, want := strings.Join(ids, ","), "base,360p800k"; got != want {
 		t.Fatalf("rungs = %s, want %s", got, want)
 	}
 	if fr.startCount() != 1 {
 		t.Fatalf("starts = %d, want 1 (base only)", fr.startCount())
 	}
-	req := httptest.NewRequest(http.MethodGet, "/480p1500k/init.mp4", nil)
+	req := httptest.NewRequest(http.MethodGet, "/360p800k/init.mp4", nil)
 	req.Header.Set("Range", "bytes=0-")
 	rec := httptest.NewRecorder()
-	s.ServeRungSegment(rec, req, "480p1500k", InitSegment)
+	s.ServeRungSegment(rec, req, "360p800k", InitSegment)
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("ranged init of inactive rung: status=%d body=%q, want 206", rec.Code, rec.Body.String())
 	}
@@ -154,7 +154,7 @@ func TestHLSInitRangeStartsInactiveRung(t *testing.T) {
 	if fr.startCount() != 2 {
 		t.Fatalf("starts = %d, want 2 (rung started by its ranged init)", fr.startCount())
 	}
-	mustContain(t, fr.lastStart(), "scale_vt=w=1146:h=480")
+	mustContain(t, fr.lastStart(), "scale_vt=w=640:h=268")
 }
 
 // The ranged-probe guard still holds where it was designed for: DASH.

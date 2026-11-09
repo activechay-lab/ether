@@ -648,6 +648,7 @@ function Sources({
                           kind,
                           items: [],
                           personal: kind === "personal" ? personalRecipe() : undefined,
+                          filter: kind === "lineup" ? { type: "show" } : undefined,
                         }
                       : source,
                   ),
@@ -661,6 +662,7 @@ function Sources({
               <option value="filter">{t("Smart filter")}</option>
               <option value="personal">{t("Personal picks")}</option>
               <option value="plugin">{t("Plugin segment")}</option>
+              <option value="lineup">{t("Series lineup")}</option>
               {depth < 2 && <option value="mix">{t("Weighted mix")}</option>}
             </Select>
             <Button
@@ -694,7 +696,36 @@ function Sources({
               </Select>
             </Field>
           )}
-          {(s.kind === "items" || s.kind === "movies" || !s.kind) && (
+          {s.kind === "movies" && s.filter && (
+            <>
+              <GenreChips
+                filter={s.filter}
+                lockType="movie"
+                onChange={(filter) => set(i, { filter })}
+              />
+              <ExcludeGenres
+                type="movie"
+                value={s.excludeGenres}
+                onChange={(excludeGenres) => set(i, { excludeGenres })}
+              />
+              <SmartFilter
+                filter={s.filter}
+                onChange={(filter) => set(i, { filter: { ...s.filter, ...filter } })}
+              />
+              <Field label={t("Movies in the pool")} hint={t("The most popular matches.")}>
+                <Input
+                  aria-label={t("Movies in the pool")}
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={s.pool || 40}
+                  onChange={(e) => set(i, { pool: Number(e.currentTarget.value) })}
+                />
+              </Field>
+            </>
+          )}
+          {s.kind === "lineup" && <LineupFields source={s} onChange={(p) => set(i, p)} />}
+          {(s.kind === "items" || (s.kind === "movies" && !s.filter) || !s.kind) && (
             <ProgrammePicker
               label={t("Selected titles")}
               items={s.items || []}
@@ -1152,6 +1183,11 @@ function SmartFilter({
           }}
         >
           <option value="">{t("Any decade")}</option>
+          {decade && Number(decade) % 10 !== 0 && (
+            <option value={decade}>
+              {t("{from}–{to}", { from: decade, to: String(filter?.yearTo ?? "") })}
+            </option>
+          )}
           {[2020, 2010, 2000, 1990, 1980, 1970, 1960].map((year) => (
             <option key={year} value={year}>
               {t("{year}s", { year })}
@@ -1233,15 +1269,8 @@ function SmartFilter({
   );
 }
 
-function GenreChips({
-  filter,
-  onChange,
-}: {
-  filter?: Record<string, unknown>;
-  onChange: (v: Record<string, unknown>) => void;
-}) {
+function useGenres(type: "movie" | "show") {
   const [genres, setGenres] = useState<{ key: string; title: string }[]>([]);
-  const type = filter?.type === "show" ? "show" : "movie";
   useEffect(() => {
     let live = true;
     api
@@ -1254,25 +1283,144 @@ function GenreChips({
       live = false;
     };
   }, [type]);
-  const selected = Array.isArray(filter?.genres) ? filter.genres.map(String) : [];
-  const options = [
+  return genres;
+}
+
+function genreOptions(genres: { key: string; title: string }[], selected: string[]) {
+  return [
     ...genres.map((g) => ({ value: g.key, label: g.title })),
     ...selected
       .filter((v) => !genres.some((g) => g.key === v))
       .map((v) => ({ value: v, label: v })),
   ];
+}
+
+function ExcludeGenres({
+  type,
+  value,
+  onChange,
+}: {
+  type: "movie" | "show";
+  value?: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const genres = useGenres(type);
+  const selected = value ?? [];
+  return (
+    <Field label={t("Leave out genres")}>
+      <ChipGroup
+        ariaLabel={t("Leave out genres")}
+        value={selected}
+        options={genreOptions(genres, selected)}
+        onChange={onChange}
+      />
+    </Field>
+  );
+}
+
+function LineupFields({
+  source,
+  onChange,
+}: {
+  source: ProgramSource;
+  onChange: (p: Partial<ProgramSource>) => void;
+}) {
+  const shows = source.shows || 4;
+  const series = (source.sources ?? []).map((s) => s.name).filter(Boolean);
   return (
     <>
-      <Field label={t("Catalogue")}>
-        <Select
-          aria-label={t("Catalogue")}
-          value={type}
-          onChange={(e) => onChange({ ...filter, type: e.currentTarget.value })}
-        >
-          <option value="movie">{t("Movies")}</option>
-          <option value="show">{t("TV shows")}</option>
-        </Select>
-      </Field>
+      <p className="text-xs text-fg-muted">
+        {t(
+          "The most popular series matching these rules take turns in this slot. Each series continues from the episode it reached last time.",
+        )}
+      </p>
+      <GenreChips
+        filter={source.filter}
+        lockType="show"
+        onChange={(filter) => onChange({ filter })}
+      />
+      <ExcludeGenres
+        type="show"
+        value={source.excludeGenres}
+        onChange={(excludeGenres) => onChange({ excludeGenres })}
+      />
+      <FilterCount filter={{ ...source.filter, type: "show" }} />
+      <SmartFilter
+        filter={source.filter}
+        onChange={(filter) => onChange({ filter: { ...source.filter, ...filter, type: "show" } })}
+      />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label={t("Series on air")}>
+          <Input
+            aria-label={t("Series on air")}
+            type="number"
+            min={1}
+            max={48}
+            value={shows}
+            onChange={(e) => onChange({ shows: Number(e.currentTarget.value) })}
+          />
+        </Field>
+        <Field label={t("Series in the pool")}>
+          <Input
+            aria-label={t("Series in the pool")}
+            type="number"
+            min={1}
+            max={48}
+            value={source.pool || (source.rotateDays ? shows * 3 : shows)}
+            onChange={(e) => onChange({ pool: Number(e.currentTarget.value) })}
+          />
+        </Field>
+        <Field label={t("New series every")} hint={t("Days on air. 0 keeps the same series.")}>
+          <Input
+            aria-label={t("New series every")}
+            type="number"
+            min={0}
+            max={365}
+            value={source.rotateDays || 0}
+            onChange={(e) => onChange({ rotateDays: Number(e.currentTarget.value) })}
+          />
+        </Field>
+      </div>
+      {series.length > 0 && (
+        <Field label={t("In the pool now")}>
+          <div className="flex flex-wrap gap-1.5">
+            {series.map((name) => (
+              <Badge key={name}>{name}</Badge>
+            ))}
+          </div>
+        </Field>
+      )}
+    </>
+  );
+}
+
+function GenreChips({
+  filter,
+  onChange,
+  lockType,
+}: {
+  filter?: Record<string, unknown>;
+  onChange: (v: Record<string, unknown>) => void;
+  lockType?: "movie" | "show";
+}) {
+  const type = lockType ?? (filter?.type === "show" ? "show" : "movie");
+  const genres = useGenres(type);
+  const selected = Array.isArray(filter?.genres) ? filter.genres.map(String) : [];
+  const options = genreOptions(genres, selected);
+  return (
+    <>
+      {!lockType && (
+        <Field label={t("Catalogue")}>
+          <Select
+            aria-label={t("Catalogue")}
+            value={type}
+            onChange={(e) => onChange({ ...filter, type: e.currentTarget.value })}
+          >
+            <option value="movie">{t("Movies")}</option>
+            <option value="show">{t("TV shows")}</option>
+          </Select>
+        </Field>
+      )}
       <Field label={t("Genres")}>
         <ChipGroup
           ariaLabel={t("Genres")}

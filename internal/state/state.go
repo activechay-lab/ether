@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -77,6 +78,9 @@ CREATE UNIQUE INDEX state_history_imported ON state_history(user_id, rating_key,
 	// A viewer's latest watch-state write is one index probe: Plex Home's
 	// cached rows are stamped with it (experience.HomeRevision).
 	store.Register("state_updated", 1, `CREATE INDEX state_watch_updated ON state_watch(user_id, updated_at);`)
+	// Views without a date (imports) for the On Deck window, which keeps
+	// them; state_watch_last_viewed serves the dated ones.
+	store.Register("state_watch_undated", 1, `CREATE INDEX state_watch_undated ON state_watch(user_id, rating_key) WHERE last_viewed_at<=0;`)
 	store.Register("state", 6, `ALTER TABLE state_playlists ADD COLUMN smart_uri TEXT NOT NULL DEFAULT '';`)
 
 }
@@ -129,22 +133,12 @@ type Event struct {
 }
 
 // Origin identifies the surface and client that made a watch-state change.
-type Origin struct {
-	HistoryTitle        *core.Title
-	Surface             core.Protocol
-	SessionID, ClientID string
-	DeviceID            int64
-}
-type originKey struct{}
+type Origin = frontend.WatchOrigin
 
-// WithOrigin attaches the authenticated request origin to committed events.
 func WithOrigin(ctx context.Context, origin Origin) context.Context {
-	return context.WithValue(ctx, originKey{}, origin)
+	return frontend.WithWatchOrigin(ctx, origin)
 }
-func originFrom(ctx context.Context) Origin {
-	origin, _ := ctx.Value(originKey{}).(Origin)
-	return origin
-}
+func originFrom(ctx context.Context) Origin { return frontend.WatchOriginFrom(ctx) }
 
 // Options tune a State. Now is injectable for tests.
 type Options struct {
@@ -725,7 +719,7 @@ func unixTime(ns int64) time.Time {
 // timeout is held and written later (see Options.Availability); it then
 // returns nil.
 func (s *State) Progress(ctx context.Context, userID int64, key core.RatingKey, offset, duration time.Duration, state string) error {
-	if skip, _ := ctx.Value(plexSkipKey{}).(bool); skip {
+	if skip := frontend.TimelineStored(ctx); skip {
 		return nil
 	}
 	if offset < 0 {
@@ -930,6 +924,16 @@ func (s *State) WatchSample(ctx context.Context, userID int64, limit int) (sampl
 		}
 	}
 	return sampled, inProgress, watched, truncated, rows.Err()
+}
+
+// PendingKeys are the keys with a watch write for userID that reads overlay
+// but the database does not hold yet. A count read from the database alone
+// must judge these keys through GetMany or PageUserData.
+func (s *State) PendingKeys(userID int64) []core.RatingKey {
+	if s == nil || s.pending == nil {
+		return nil
+	}
+	return s.pending.userKeys(userID)
 }
 
 // InProgress returns items with a resume point, most recently viewed first.

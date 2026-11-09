@@ -62,13 +62,24 @@ limits throughput; there is no speculative lock sharding. Queries touch only the
 bounded placement ledger and indexed scope accounting, not the media library.
 
 Retirement deletes accounting rows but retains one bounded tombstone per logical
-session, with generation floor, bounded identities, operation hash, and at most
-16 historical claims. `LedgerUsage` exposes total/retired rows. Quota exhaustion
-is `ErrQuota`. There is intentionally no TTL deletion: arbitrarily delayed old
-requests cannot be safely fenced after forgetting their generation floor. Raise
-quota consistently, reuse logical session identities with generation CAS, or
-replace/archive an entire cluster namespace only after externally establishing
-quiescence. Never simply delete tombstones to admit new work.
+session, with generation floor, bounded identities, operation hash, retirement
+time and at most 16 historical claims. The quota (`MaxSessions`) bounds **live**
+(unretired) generations only, counted through a partial index bounded by pool
+capacity; retained tombstones never refuse admission. `LedgerUsage` reports live
+plus a maintained retained-tombstone counter without scanning history. Quota
+exhaustion is `ErrQuota`.
+
+`PruneTombstones` (run by exactly one node, off request paths) compacts terminal
+tombstones in bounded batches under the ledger lock: retired, no displaced
+generation still charged, and both the authority deadline and the retirement at
+least `Age` (≥ `MinRetention`, ≥ `MaxLease`) old on the database clock. Each
+batch removes the session's history receipts, lets the caller delete its own
+per-session rows in the same transaction, and raises one cluster-wide generation
+floor. A session with no row is always allocated a generation above that floor,
+so any fence that survives anywhere for a compacted session is strictly older
+than every generation the ledger can issue again; a delayed replacement for an
+old generation still fails `ErrFenced`. `ReconcileRetained` corrects the display
+counter. Never delete tombstones by hand: only the floor makes compaction safe.
 
 The transport and workers must enforce these fences and execution deadlines;
 this package alone does not stop FFmpeg, validate retirement evidence, provide

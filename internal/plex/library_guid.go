@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/plexguid"
 )
 
 // GUID lookups are exact identity requests, never a fall-through to browsing.
@@ -47,11 +46,11 @@ func (s *Server) libraryByGUID(w http.ResponseWriter, r *http.Request, sec *Sect
 			guids = append(guids, strings.TrimSpace(guid))
 		}
 	}
-	var titles []core.Title
-	seen := map[core.RatingKey]bool{}
+	var titles []frontend.Title
+	seen := map[frontend.RatingKey]bool{}
 	for _, guid := range guids {
 		keys, err := s.guidKeys(ctx, guid, typ)
-		if err != nil && !errors.Is(err, core.ErrNotFound) {
+		if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 			s.writeErr(w, r, err)
 			return
 		}
@@ -61,7 +60,7 @@ func (s *Server) libraryByGUID(w http.ResponseWriter, r *http.Request, sec *Sect
 			}
 			seen[key] = true
 			title, err := s.d.Catalog.Get(ctx, key)
-			if errors.Is(err, core.ErrNotFound) {
+			if errors.Is(err, frontend.ErrNotFound) {
 				continue
 			}
 			if err != nil {
@@ -84,72 +83,72 @@ func (s *Server) libraryByGUID(w http.ResponseWriter, r *http.Request, sec *Sect
 	s.write(w, r, mc)
 }
 
-func validGUIDMediaType(typ core.MediaType) bool {
-	return typ == core.TypeMovie || typ == core.TypeShow || typ == core.TypeSeason || typ == core.TypeEpisode
+func validGUIDMediaType(typ frontend.MediaType) bool {
+	return typ == frontend.TypeMovie || typ == frontend.TypeShow || typ == frontend.TypeSeason || typ == frontend.TypeEpisode
 }
 
-func sectionAllowsGUIDType(sec *Section, typ core.MediaType) bool {
+func sectionAllowsGUIDType(sec *Section, typ frontend.MediaType) bool {
 	if sec == nil || typ == "" || typ == sec.Type {
 		return true
 	}
-	return sec.Type == core.TypeShow && (typ == core.TypeSeason || typ == core.TypeEpisode)
+	return sec.Type == frontend.TypeShow && (typ == frontend.TypeSeason || typ == frontend.TypeEpisode)
 }
 
-func (s *Server) guidKeys(ctx context.Context, guid string, typ core.MediaType) ([]core.RatingKey, error) {
+func (s *Server) guidKeys(ctx context.Context, guid string, typ frontend.MediaType) ([]frontend.RatingKey, error) {
 	guid = strings.TrimSpace(guid)
 	cleanGUID, _, _ := strings.Cut(guid, "?")
 	scheme, id, ok := strings.Cut(cleanGUID, "://")
 	if !ok {
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 	scheme = strings.ToLower(strings.TrimSpace(scheme))
 	id = strings.Trim(strings.TrimSpace(id), "/")
 	if id == "" {
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 	switch scheme {
 	case "plex":
 		if s.d.PlexGUID == nil {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		if strings.HasPrefix(cleanGUID, "plex://season/") || strings.HasPrefix(cleanGUID, "plex://episode/") {
 			k, err := s.d.PlexGUID.ExactKey(ctx, cleanGUID)
 			if err != nil {
-				if errors.Is(err, plexguid.ErrAmbiguous) {
-					return nil, core.ErrNotFound
+				if errors.Is(err, frontend.ErrAmbiguousLibraryGUID) {
+					return nil, frontend.ErrNotFound
 				}
 				return nil, err
 			}
-			return []core.RatingKey{k}, nil
+			return []frontend.RatingKey{k}, nil
 		}
 		k, err := s.d.PlexGUID.Lookup(ctx, cleanGUID)
 		if err != nil {
 			return nil, err
 		}
-		return []core.RatingKey{k}, nil
+		return []frontend.RatingKey{k}, nil
 	case "tmdb", "themoviedb", "com.plexapp.agents.themoviedb":
 		return tmdbGUIDKeys(id, typ)
 	case "imdb", "com.plexapp.agents.imdb":
 		if !strings.HasPrefix(id, "tt") {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		raw := strings.TrimPrefix(id, "tt")
 		n, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || n <= 0 || strings.ContainsAny(raw, "+- /") {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		t, err := s.d.Catalog.ByExternalID(ctx, "imdb", id)
 		if err != nil {
 			return nil, err
 		}
 		if t == nil {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
-		return []core.RatingKey{t.Key}, nil
+		return []frontend.RatingKey{t.Key}, nil
 	case "tvdb", "thetvdb", "com.plexapp.agents.thetvdb":
 		return s.tvdbGUIDKeys(ctx, id, typ)
 	}
-	return nil, core.ErrNotFound
+	return nil, frontend.ErrNotFound
 }
 
 func parsePositiveTMDBID(raw string) (int64, bool) {
@@ -168,79 +167,79 @@ func parseChildNumber(raw string) (int, bool) {
 	return n, true
 }
 
-func tmdbGUIDKeys(id string, typ core.MediaType) ([]core.RatingKey, error) {
+func tmdbGUIDKeys(id string, typ frontend.MediaType) ([]frontend.RatingKey, error) {
 	parts := strings.Split(id, "/")
 	switch len(parts) {
 	case 1:
 		n, ok := parsePositiveTMDBID(parts[0])
 		if !ok {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
-		var keys []core.RatingKey
-		if typ == "" || typ == core.TypeMovie {
-			keys = append(keys, core.MovieKey(n))
+		var keys []frontend.RatingKey
+		if typ == "" || typ == frontend.TypeMovie {
+			keys = append(keys, frontend.MovieKey(n))
 		}
-		if typ == "" || typ == core.TypeShow {
-			keys = append(keys, core.ShowKey(n))
+		if typ == "" || typ == frontend.TypeShow {
+			keys = append(keys, frontend.ShowKey(n))
 		}
 		return keys, nil
 	case 2:
 		showID, ok1 := parsePositiveTMDBID(parts[0])
 		seasonNum, ok2 := parseChildNumber(parts[1])
 		if !ok1 || !ok2 {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		switch typ {
-		case core.TypeSeason:
-			return []core.RatingKey{core.SeasonKey(showID, seasonNum)}, nil
-		case "", core.TypeShow:
-			return []core.RatingKey{core.ShowKey(showID)}, nil
+		case frontend.TypeSeason:
+			return []frontend.RatingKey{frontend.SeasonKey(showID, seasonNum)}, nil
+		case "", frontend.TypeShow:
+			return []frontend.RatingKey{frontend.ShowKey(showID)}, nil
 		default:
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 	case 3:
 		showID, ok1 := parsePositiveTMDBID(parts[0])
 		seasonNum, ok2 := parseChildNumber(parts[1])
 		epNum, ok3 := parseChildNumber(parts[2])
 		if !ok1 || !ok2 || !ok3 {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		switch typ {
-		case core.TypeEpisode:
-			return []core.RatingKey{core.EpisodeKey(showID, seasonNum, epNum)}, nil
-		case core.TypeSeason:
-			return []core.RatingKey{core.SeasonKey(showID, seasonNum)}, nil
-		case "", core.TypeShow:
-			return []core.RatingKey{core.ShowKey(showID)}, nil
+		case frontend.TypeEpisode:
+			return []frontend.RatingKey{frontend.EpisodeKey(showID, seasonNum, epNum)}, nil
+		case frontend.TypeSeason:
+			return []frontend.RatingKey{frontend.SeasonKey(showID, seasonNum)}, nil
+		case "", frontend.TypeShow:
+			return []frontend.RatingKey{frontend.ShowKey(showID)}, nil
 		default:
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 	default:
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 }
 
-func (s *Server) tvdbGUIDKeys(ctx context.Context, id string, typ core.MediaType) ([]core.RatingKey, error) {
+func (s *Server) tvdbGUIDKeys(ctx context.Context, id string, typ frontend.MediaType) ([]frontend.RatingKey, error) {
 	parts := strings.Split(id, "/")
 	if len(parts) < 1 || len(parts) > 3 {
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 	showRaw := parts[0]
 	n, err := strconv.ParseInt(showRaw, 10, 64)
 	if err != nil || n <= 0 || strings.ContainsAny(showRaw, "+- /") || strconv.FormatInt(n, 10) != showRaw {
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 	var seasonNum, epNum int
 	if len(parts) >= 2 {
 		var ok bool
 		if seasonNum, ok = parseChildNumber(parts[1]); !ok {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 	}
 	if len(parts) == 3 {
 		var ok bool
 		if epNum, ok = parseChildNumber(parts[2]); !ok {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 	}
 	t, err := s.d.Catalog.ByExternalID(ctx, "tvdb", showRaw)
@@ -248,25 +247,25 @@ func (s *Server) tvdbGUIDKeys(ctx context.Context, id string, typ core.MediaType
 		return nil, err
 	}
 	if t == nil {
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 	if len(parts) == 1 {
-		return []core.RatingKey{t.Key}, nil
+		return []frontend.RatingKey{t.Key}, nil
 	}
-	if t.Key.Kind() != core.KindShow {
-		return nil, core.ErrNotFound
+	if t.Key.Kind() != frontend.KindShow {
+		return nil, frontend.ErrNotFound
 	}
 	switch typ {
-	case core.TypeEpisode:
+	case frontend.TypeEpisode:
 		if len(parts) == 3 {
-			return []core.RatingKey{core.EpisodeKey(t.Key.TMDB(), seasonNum, epNum)}, nil
+			return []frontend.RatingKey{frontend.EpisodeKey(t.Key.TMDB(), seasonNum, epNum)}, nil
 		}
-		return nil, core.ErrNotFound
-	case core.TypeSeason:
-		return []core.RatingKey{core.SeasonKey(t.Key.TMDB(), seasonNum)}, nil
-	case "", core.TypeShow:
-		return []core.RatingKey{t.Key}, nil
+		return nil, frontend.ErrNotFound
+	case frontend.TypeSeason:
+		return []frontend.RatingKey{frontend.SeasonKey(t.Key.TMDB(), seasonNum)}, nil
+	case "", frontend.TypeShow:
+		return []frontend.RatingKey{t.Key}, nil
 	default:
-		return nil, core.ErrNotFound
+		return nil, frontend.ErrNotFound
 	}
 }

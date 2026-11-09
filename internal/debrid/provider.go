@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -683,7 +684,7 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 	var videos []File
 	identityMismatch := false
 	for _, f := range files {
-		if target != nil && !fileIdentityMatches(f, target) {
+		if target != nil && (!fileCourMatchesTarget(f.Path, target) || !fileIdentityMatches(f, target)) {
 			identityMismatch = identityMismatch || (isVideo(f.Path) && !isExtra(f.Path) && f.Size > 0)
 			continue
 		}
@@ -709,6 +710,24 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 		normPath := strings.ReplaceAll(f.Path, "\\", "/")
 		baseInfo := releaseparse.Parse(path.Base(normPath))
 		fullInfo := releaseparse.Parse(strings.ReplaceAll(normPath, "/", " "))
+		fileCour := baseInfo.Cour
+		if fileCour == 0 {
+			fileCour = fullInfo.Cour
+		}
+		if target.Cour > 0 && target.CourEpisode > 0 && fileCour > 0 {
+			seasonOK := (len(baseInfo.Seasons) == 0 && len(fullInfo.Seasons) == 0) ||
+				slices.Contains(baseInfo.Seasons, target.Season) ||
+				slices.Contains(fullInfo.Seasons, target.Season)
+			if fileCour == target.Cour && seasonOK &&
+				(slices.Contains(baseInfo.Episodes, target.CourEpisode) ||
+					releaseparse.EpisodeMatchesAbsolute(baseInfo, target.CourEpisode)) {
+				return f, nil
+			}
+			continue
+		}
+		if fileCour > 1 && target.Cour != fileCour {
+			continue
+		}
 		// Absolute anime numbers are authoritative file identities. Never let
 		// a parent pack's episode range or the single-file fallback override one.
 		if len(baseInfo.AbsoluteEpisodes) > 0 {
@@ -753,7 +772,33 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 	return File{}, fmt.Errorf("debrid: no file for S%02dE%02d in torrent: %w", target.Season, target.Episode, errNoVideo)
 }
 
+// fileCourMatchesTarget applies to every selection path, including classic
+// numbering and the unnamed single-file fallback.
+func fileCourMatchesTarget(filePath string, target *core.ReleaseTarget) bool {
+	if target == nil || target.Episode <= 0 {
+		return true
+	}
+	norm := strings.ReplaceAll(filePath, "\\", "/")
+	base := releaseparse.Parse(path.Base(norm))
+	full := releaseparse.Parse(strings.ReplaceAll(norm, "/", " "))
+	cour := base.Cour
+	if cour == 0 {
+		cour = full.Cour
+	}
+	if cour == 0 {
+		return true
+	}
+	if cour > 1 && (target.Cour != cour || target.CourEpisode <= 0) || cour == 1 && target.Cour > 1 {
+		return false
+	}
+	return (len(base.Seasons) == 0 || slices.Contains(base.Seasons, target.Season)) &&
+		(len(full.Seasons) == 0 || slices.Contains(full.Seasons, target.Season))
+}
+
 func chosenFileMatchesTarget(filePath string, target *core.ReleaseTarget) bool {
+	if !fileCourMatchesTarget(filePath, target) {
+		return false
+	}
 	if target == nil || target.Episode <= 0 || filePath == "" {
 		return true
 	}

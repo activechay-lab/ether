@@ -170,16 +170,11 @@ func (r *Runtime) insertAdmission(ctx context.Context, a admissionRecord, raw st
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	// The index's cluster prefix bounds retained history across all controller
-	// boots, including retired generations. Restart cannot replenish capacity.
-	// Exact retries above remain readable even at exhaustion. No eviction exists.
-	var count int
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM clusterplayback_admissions WHERE cluster=?`, a.Route.Source.Cluster).Scan(&count); err != nil {
-		return err
-	}
-	if count >= r.o.HistoryCapacity {
-		return ErrPending
-	}
+	// No lifetime cap: one admission exists per reserved placement generation,
+	// so retained rows are bounded by the ledger's live quota plus its
+	// retention window, and PruneRetained removes them with their session's
+	// compacted tombstone. (A cluster-wide COUNT(*) against HistoryCapacity
+	// used to refuse every distributed playback after 4096 lifetime admissions.)
 	if _, err = tx.ExecContext(ctx, `INSERT INTO clusterplayback_admissions(cluster,session,generation,controller,controller_boot,admission) VALUES(?,?,?,?,?,?)`, a.Route.Source.Cluster, a.Route.Fence.Session, a.Route.Fence.Generation, a.Route.Fence.Controller.ID, a.Route.Fence.Controller.Boot, raw); err != nil {
 		return err
 	}

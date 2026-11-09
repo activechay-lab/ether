@@ -12,6 +12,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/clusterbus"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/extend"
 )
 
@@ -180,5 +181,40 @@ func TestConsoleStreamRegistrySubscription(t *testing.T) {
 	var body map[string]any
 	if err := json.Unmarshal(ev.Data, &body); err != nil || body["version"] == nil {
 		t.Fatalf("extend.changed body %v", ev.Data)
+	}
+}
+
+// Overview and Activity refetch the live streams when the set changes, so an
+// ended or idle-expired stream leaves both pages at once.
+func TestConsoleStreamAnnouncesSessionChanges(t *testing.T) {
+	rt := testStreamRuntime(nil)
+	var ids atomic.Value
+	ids.Store([]string{"a"})
+	list := func() []*core.PlaySession {
+		var out []*core.PlaySession
+		for _, id := range ids.Load().([]string) {
+			out = append(out, &core.PlaySession{ID: id})
+		}
+		return out
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, unsubscribe := rt.hub.Subscribe(0)
+	defer unsubscribe()
+	go rt.watchSessions(ctx, 5*time.Millisecond, list)
+	time.Sleep(40 * time.Millisecond)
+	select {
+	case ev := <-ch:
+		t.Fatalf("unchanged streams announced %+v", ev)
+	default:
+	}
+	ids.Store([]string{})
+	select {
+	case ev := <-ch:
+		if ev.Type != admin.StreamSessions {
+			t.Fatalf("event %+v", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("an ended stream was not announced")
 	}
 }

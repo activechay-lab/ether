@@ -2,10 +2,13 @@
   "v": 1,
   "moment": "offair",
   "duration": 8,
-  "poster": 4,
+  "poster": 2.0,
+  "slots": [
+    "channel.name"
+  ],
   "layers": [
     {
-      "id": "Background",
+      "id": "bg",
       "type": "rect",
       "x": 0,
       "y": 0,
@@ -15,122 +18,222 @@
       "name": "Background"
     },
     {
-      "id": "Accent-plane",
-      "type": "rect",
-      "x": 1150,
-      "y": -200,
-      "w": 1150,
-      "h": 1400,
-      "fill": "{accent}",
+      "id": "oa-plane",
+      "type": "group",
+      "x": 1500,
+      "y": 540,
       "rotate": "{control.rotate}",
-      "name": "Accent plane"
+      "layers": [
+        {
+          "id": "oa-plane-field",
+          "type": "rect",
+          "x": 0,
+          "y": -1400,
+          "w": 1600,
+          "h": 2800,
+          "fill": "{text}@0.03",
+          "name": "Plane"
+        }
+      ],
+      "name": "Quiet plane"
     },
     {
-      "id": "Rule",
-      "type": "rect",
-      "x": 120,
-      "y": 210,
-      "w": 110,
-      "h": 14,
-      "fill": "{glow}",
-      "name": "Rule"
-    },
-    {
-      "id": "Edition",
-      "type": "text",
-      "text": "THE 2010s / DAILY EDITION",
-      "x": 120,
-      "y": 160,
-      "size": "{control.size}",
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "track": "{control.track}",
-      "name": "Edition"
-    },
-    {
-      "id": "Long-shadow",
-      "type": "path",
-      "path": "M 180 400 L 1650 400 L 1920 670 L 1920 1080 L 850 1080 Z",
-      "fill": "#000000@0.16",
-      "name": "Long shadow"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "BACK SOON",
-      "x": {
-        "keys": [
-          [
-            0,
-            850
+      "id": "spinner",
+      "type": "group",
+      "x": 960,
+      "y": 400,
+      "layers": [
+        {
+          "id": "spin-track",
+          "type": "ellipse",
+          "x": -190,
+          "y": -190,
+          "w": 380,
+          "h": 380,
+          "stroke": "{text}@0.1",
+          "strokeWidth": 14,
+          "name": "Track"
+        },
+        {
+          "id": "spin-arc",
+          "type": "path",
+          "path": "M 190 0 A 190 190 0 0 1 -95 164.5",
+          "stroke": "{accent}",
+          "strokeWidth": 14,
+          "cap": "round",
+          "rotate": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                8,
+                12.566370614359172
+              ]
+            ]
+          },
+          "name": "Coral arc"
+        },
+        {
+          "id": "spin-arc2",
+          "type": "path",
+          "path": "M 150 0 A 150 150 0 0 1 0 150",
+          "stroke": "{glow}",
+          "strokeWidth": 8,
+          "cap": "round",
+          "rotate": {
+            "keys": [
+              [
+                0,
+                1.2
+              ],
+              [
+                8,
+                -5.083185307179586
+              ]
+            ]
+          },
+          "name": "Yellow arc"
+        },
+        {
+          "id": "spin-dot",
+          "type": "ellipse",
+          "x": -12,
+          "y": -246,
+          "w": 24,
+          "h": 24,
+          "fill": "{control.second}",
+          "rotate": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                8,
+                6.283185307179586
+              ]
+            ]
+          },
+          "name": "Third dot"
+        },
+        {
+          "id": "oa-mark",
+          "type": "group",
+          "x": 0,
+          "y": 0,
+          "layers": [
+            {
+              "id": "oa-mark-tile",
+              "type": "path",
+              "path": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "{accent}",
+              "name": "Tile"
+            },
+            {
+              "id": "oa-mark-shadow",
+              "type": "path",
+              "path": "M 64 0 L 264 200 L 170 254 L -30 54 L 30 54 L 30 0 Z",
+              "clip": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "#000000@0.2",
+              "name": "Long shadow"
+            },
+            {
+              "id": "oa-mark-arrow",
+              "type": "path",
+              "path": "M 0 -64 L 64 0 L 30 0 L 30 54 L -30 54 L -30 0 L -64 0 Z",
+              "fill": "{text}",
+              "name": "Arrow"
+            }
           ],
-          [
-            0.65,
-            960,
-            "out"
-          ]
-        ]
-      },
-      "y": 535,
-      "size": 140,
+          "name": "Shift mark",
+          "scale": 1.0
+        }
+      ],
+      "name": "Spinner"
+    },
+    {
+      "id": "oa-head",
+      "type": "text",
+      "text": "We’ll be back soon.",
+      "x": 960,
+      "y": 745,
+      "size": 86,
+      "weight": 700,
       "font": "{type.display}",
       "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
       "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.7,
-            1,
-            "out"
-          ],
-          [
-            7.5,
-            1
-          ],
-          [
-            8,
-            0
-          ]
-        ]
-      },
-      "name": "Channel title"
+      "maxWidth": 1500,
+      "fit": "shrink",
+      "name": "Heading"
     },
     {
-      "id": "Detail",
+      "id": "oa-stripe",
+      "type": "group",
+      "layers": [
+        {
+          "id": "oa-s0",
+          "type": "rect",
+          "x": 859,
+          "y": 790,
+          "w": 58,
+          "h": 9,
+          "fill": "{accent}",
+          "name": "Stripe 1"
+        },
+        {
+          "id": "oa-s1",
+          "type": "rect",
+          "x": 931,
+          "y": 790,
+          "w": 58,
+          "h": 9,
+          "fill": "{glow}",
+          "name": "Stripe 2"
+        },
+        {
+          "id": "oa-s2",
+          "type": "rect",
+          "x": 1003,
+          "y": 790,
+          "w": 58,
+          "h": 9,
+          "fill": "{control.second}",
+          "name": "Stripe 3"
+        }
+      ],
+      "name": "Signature stripe"
+    },
+    {
+      "id": "oa-tag",
+      "type": "text",
+      "text": "{words.tagline}",
+      "x": 960,
+      "y": 870,
+      "size": 38,
+      "font": "{type.mono}",
+      "fill": "{text}@0.75",
+      "align": "center",
+      "maxWidth": 1400,
+      "fit": "shrink",
+      "name": "Tagline"
+    },
+    {
+      "id": "oa-chan",
       "type": "text",
       "text": "{channel.name}",
       "x": 960,
-      "y": 660,
-      "size": 48,
+      "y": 958,
+      "size": 30,
+      "weight": 700,
+      "track": 8,
       "font": "{type.mono}",
-      "fill": "{text}",
+      "fill": "{glow}",
       "align": "center",
-      "maxWidth": 1500,
+      "maxWidth": 900,
       "fit": "shrink",
-      "name": "Detail"
-    },
-    {
-      "id": "Station",
-      "type": "text",
-      "text": "{channel.name}  /  {station.id}",
-      "x": 960,
-      "y": 930,
-      "size": 26,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "align": "center",
-      "track": "{control.track}",
-      "name": "Station"
+      "name": "Channel name"
     }
   ]
 }
