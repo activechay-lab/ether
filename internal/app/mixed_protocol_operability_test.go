@@ -450,7 +450,6 @@ func TestMixedProtocolOperability(t *testing.T) {
 			{http.MethodGet, "/silo/api/v2/home/sections", "", silo},
 			{http.MethodGet, "/stremio/" + tokens["stremio"] + "/catalog/movie/ether-movies.json", "", nil},
 			{http.MethodGet, "/stremio/" + tokens["stremio"] + "/meta/movie/tmdb:999.json", "", nil},
-			{http.MethodGet, "/stremio/" + tokens["stremio"] + "/stream/movie/tmdb:999.json", "", nil},
 			{http.MethodGet, "/m3u/" + tokens["m3u"] + "/playlist.m3u", "", nil},
 			{"PROPFIND", "/webdav/", "", map[string]string{"Depth": "1", "Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(owner.ID, 10)+":"+tokens["webdav"]))}},
 			{http.MethodPost, "/dlna/ContentDirectory/control", soap, map[string]string{"SOAPACTION": `"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"`, "Content-Type": "text/xml"}},
@@ -468,6 +467,10 @@ func TestMixedProtocolOperability(t *testing.T) {
 		if got := len(a.resolver.Traces()); got != before || media.opensOf(media.relID) != opens {
 			t.Fatalf("browse resolved: traces %d -> %d opens %d -> %d", before, got, opens, media.opensOf(media.relID))
 		}
+		// Stremio's stream list is the viewer opening a title's streams, the
+		// play signal its clients give: it warms the issued lazy stream, as
+		// a Plex detail view does, so it is not browsing.
+		check(route{http.MethodGet, "/stremio/" + tokens["stremio"] + "/stream/movie/tmdb:999.json", "", nil})
 	})
 
 	t.Run("watch-state", func(t *testing.T) {

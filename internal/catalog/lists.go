@@ -496,9 +496,11 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		return localAnswer()
 	}
 	kinds := fmt.Sprintf("%t%t", wantMovie, wantTV)
+	searchKey := "search:" + kinds + ":" + strconv.Itoa(limit) + ":" + query
+	remoteKey := c.config().Language + ":" + searchKey
 	// TMDB widens the search beyond the mirror. It runs detached and is
 	// waited for briefly: a search never waits long on the provider, and
-	// results that arrive late are already in the mirror for the next one.
+	// results that arrive late answer the next one (remoteSearches).
 	fetch := func(ctx context.Context) (any, error) {
 		var remote []core.Title
 		if wantMovie && wantTV {
@@ -542,26 +544,32 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		// Search hits are summaries in memory only: a title is stored when
 		// someone opens it (Get), never because it matched a search.
 		c.rememberListSummaries(remote)
+		c.remoteSearches.put(remoteKey, remote, c.now())
 		return remote, nil
 	}
 	wait := searchRemoteWait
 	switch {
 	case tailAnswered || slices.ContainsFunc(out, func(t core.Title) bool { return t.SearchScore >= searchConfident }):
 		// The mirror holds the title the viewer typed: answer now. TMDB
-		// still runs, detached, and what it finds joins the mirror (and the
-		// search index) for the next search.
+		// still runs, detached, and what it finds answers the next search
+		// (remoteSearches).
 		wait = 0
 	case len(out) >= limit:
 		// The mirror already answers the search; take TMDB's results only if
 		// they are immediate.
 		wait = searchRemoteGrace
 	}
-	got, err := c.hydrateValue(ctx, "search:"+kinds+":"+strconv.Itoa(limit)+":"+query, wait, fetch)
-	if err != nil {
-		// TMDB is slow, failing or still answering: the mirror's matches stand.
-		return localAnswer()
+	// A detached search that finished answers the next one: its hits are
+	// summaries in memory, never stored, so the mirror cannot.
+	remote, ok := c.remoteSearches.get(remoteKey, c.now())
+	if !ok {
+		got, err := c.hydrateValue(ctx, searchKey, wait, fetch)
+		if err != nil {
+			// TMDB is slow, failing or still answering: the mirror's matches stand.
+			return localAnswer()
+		}
+		remote, _ = got.([]core.Title)
 	}
-	remote, _ := got.([]core.Title)
 	if len(remote) > 0 {
 		// Reload so callers get hydrated/genres-preserved rows, in one
 		// batch rather than a read per result.

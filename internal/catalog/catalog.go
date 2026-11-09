@@ -231,7 +231,8 @@ type Catalog struct {
 	consoleGateGen atomic.Uint64
 	listSummaryMu  sync.Mutex
 	listSummaries  map[core.RatingKey]listSummary
-	posters        posterResolver // posters.go
+	remoteSearches remoteSearchCache // search_remote_cache.go
+	posters        posterResolver    // posters.go
 
 	startupContext    context.Context
 	metadataMu        sync.RWMutex
@@ -537,6 +538,7 @@ func (c *Catalog) meetsThreshold(t core.Title) bool {
 func (c *Catalog) SetTMDB(client TMDB) {
 	if c != nil {
 		c.remote.Store(&tmdbRef{client: client})
+		c.remoteSearches.reset()
 	}
 }
 
