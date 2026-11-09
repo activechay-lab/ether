@@ -123,6 +123,61 @@ describe("Release search", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("pins a release for every episode in a season from best candidates or a season pack", async () => {
+    const { fake } = renderApp("/quality/pinned");
+    const show = fake.catalog.find((t) => t.type === "show")!;
+    await pickTitle(show.title);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Season" })).toBeEnabled(), WAIT);
+    await choose("Season", "Season 1");
+
+    const bulkBtn = await screen.findByRole(
+      "button",
+      { name: "Pin a release for every episode" },
+      WAIT,
+    );
+    await waitFor(() => expect(bulkBtn).toBeEnabled(), WAIT);
+    fireEvent.click(bulkBtn);
+
+    const drawer = await screen.findByRole(
+      "dialog",
+      { name: "Pin a release for every episode" },
+      WAIT,
+    );
+    await within(drawer).findByText("E01 · Chapter 1", {}, WAIT);
+    expect(calls(fake, "GET", `/releases/season?key=${show.key}.s1`)).toHaveLength(1);
+
+    // Switch from per-episode best candidates to the discovered season pack.
+    fireEvent.click(within(drawer).getByRole("button", { name: "Release source" }));
+    fireEvent.click(await screen.findByRole("option", { name: /^Season pack · / }));
+    expect(await within(drawer).findByText(/Covers \d+ episodes/)).toBeInTheDocument();
+
+    fireEvent.change(within(drawer).getByLabelText("Note"), {
+      target: { value: "Blu-ray pack for Season 1" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: /^Pin \d+ episodes$/ }));
+
+    await waitFor(() => expect(calls(fake, "POST", "/releases/pins/batch")).toHaveLength(1));
+    const batchBody = calls(fake, "POST", "/releases/pins/batch")[0]!.body as {
+      note: string;
+      pins: { key: string; releaseId: string }[];
+    };
+    expect(batchBody.note).toBe("Blu-ray pack for Season 1");
+    expect(batchBody.pins.length).toBeGreaterThanOrEqual(6);
+    expect(batchBody.pins[0]).toEqual({
+      key: `${show.key}.s1.e1`,
+      releaseId: `${show.key}.s1.e1-pack0`,
+    });
+    expect(batchBody.pins[1]).toEqual({
+      key: `${show.key}.s1.e2`,
+      releaseId: `${show.key}.s1.e2-pack0`,
+    });
+
+    // The pinned episodes appear immediately in the Pinned table below.
+    expect(
+      await screen.findByRole("link", { name: `${show.title} S01E01` }, WAIT),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("Pinned releases", () => {

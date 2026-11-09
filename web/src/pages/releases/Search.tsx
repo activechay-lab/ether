@@ -40,18 +40,22 @@ import {
 import { RecordDrawer } from "../sources/form";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
 import { PinStatusBadge } from "./Pinned";
+import { SeasonPinDrawer } from "./SeasonPinDrawer";
 
 const pad = (n: number | undefined) => String(n ?? 0).padStart(2, "0");
 
 /** Pick a movie, or a show then a season then an episode. */
 export function TitlePicker({
   onPick,
+  onPinsChanged,
 }: {
   onPick: (key: string, name: string, media?: "movie" | "tv") => void;
+  onPinsChanged?: () => void;
 }) {
   const id = useId();
   const [show, setShow] = useState<TitleCard | null>(null);
   const [season, setSeason] = useState("");
+  const [pinningSeason, setPinningSeason] = useState(false);
   const seasons = useAsync(
     (signal) => (show ? releaseConsole.children(show.key, signal) : Promise.resolve([])),
     [show?.key],
@@ -122,8 +126,31 @@ export function TitlePicker({
               ))}
             </Select>
           </Field>
+          {season ? (
+            <Button
+              variant="outline"
+              onClick={() => setPinningSeason(true)}
+              disabled={!episodes.data || episodeList.length === 0}
+            >
+              <PinIcon size={14} /> {t("Pin a release for every episode")}
+            </Button>
+          ) : null}
           {seasons.error ? <ErrorPanel error={seasons.error} className="w-full" /> : null}
           {episodes.error ? <ErrorPanel error={episodes.error} className="w-full" /> : null}
+          <SeasonPinDrawer
+            open={pinningSeason && Boolean(season)}
+            target={season ? { key: season } : null}
+            label={(() => {
+              const s = seasonList.find((item) => item.key === season);
+              const sTitle = s ? s.title || t("Season {n}", { n: s.season ?? 0 }) : "";
+              return sTitle ? `${show.title} · ${sTitle}` : show.title;
+            })()}
+            onClose={() => setPinningSeason(false)}
+            onPinned={() => {
+              void episodes.reload();
+              onPinsChanged?.();
+            }}
+          />
         </div>
       ) : null}
     </div>
@@ -327,6 +354,10 @@ export function ReleaseSearch({ onPinsChanged }: { onPinsChanged?: () => void })
           onPick={(k, n, picked) => {
             setProfile("");
             setParams({ key: k, title: n, ...(picked ? { media: picked } : {}) });
+          }}
+          onPinsChanged={() => {
+            void result.reload();
+            onPinsChanged?.();
           }}
         />
         <div className="flex flex-wrap items-end gap-3">

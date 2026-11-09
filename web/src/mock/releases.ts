@@ -368,6 +368,123 @@ export function createReleaseConsoleMock(catalog: FakeTitle[]) {
     });
   }
 
+  function seasonSearch(seasonKey: string, profile: string): Reply {
+    const match = /^(\d+)\.s(\d+)$/.exec(seasonKey);
+    if (!match) return fail(400, "invalid", "key must be a season rating key");
+    const show = byKey.get(match[1]!);
+    if (!show || show.type !== "show") return fail(404, "not_found", "no such title");
+    const s = Number(match[2]);
+    const name = profile || "1080p";
+    if (![...PROFILES, "none", "download"].includes(name))
+      return fail(400, "invalid", `no such quality profile: "${name}"`);
+
+    const count = 6 + (hash(seasonKey) % 4);
+    const showBase = show.title.replace(/ /g, ".");
+    const sCode = `S${String(s).padStart(2, "0")}`;
+    const packName = `${showBase}.${sCode}.1080p.BluRay.x265-PACK`;
+    const packInfo = {
+      title: show.title,
+      seasons: [s],
+      fullSeason: true,
+      height: 1080,
+      source: "bluray",
+      videoCodec: "hevc",
+      audioCodec: "eac3",
+      channels: "5.1",
+      group: "PACK",
+    };
+    const packSize = Math.round(14.4 * 1024 ** 3);
+    const episodeReleases: Record<string, string> = {};
+
+    const episodes = Array.from({ length: count }, (_, idx) => {
+      const epNum = idx + 1;
+      const epKey = `${show.key}.s${s}.e${epNum}`;
+      const p = playable(epKey)!;
+      const packEpId = `${epKey}-pack0`;
+      const packRel: Release = {
+        id: packEpId,
+        guid: `${seasonKey}-pack0`,
+        indexer: "NZBgeek",
+        name: packName,
+        size: packSize,
+        pubDate: new Date(Date.now() - 40 * 86400000).toISOString(),
+        grabs: 180,
+        info: packInfo,
+        score: 82,
+      };
+      releases.set(packEpId, { rel: packRel, key: epKey, title: p.name });
+
+      const pin = pins.get(epKey) ?? null;
+      const pinUsable = pin && !blocks.has(pin.release.id) ? pin.release.id : "";
+      const allRels = [...releasesFor(p), packRel];
+      const rows: ConsoleRelease[] = [];
+      for (const rel of allRels) {
+        const j = judge(rel, name === "download" ? "1080p" : name);
+        const pinned = rel.id === pin?.release.id;
+        const rejected = pinned ? blocks.has(rel.id) : Boolean(j.reason);
+        if (rejected && !pinned) continue;
+        rows.push({
+          release: { ...rel, score: j.score },
+          score: j.score,
+          formatScore: rel.info.atmos ? 25 : 0,
+          rejected,
+          reason: rejected ? "marked bad" : undefined,
+          pinned,
+          blocked: blocks.has(rel.id),
+        });
+      }
+      rows.sort(
+        (a, b) =>
+          Number(b.release.id === pinUsable) - Number(a.release.id === pinUsable) ||
+          b.score - a.score,
+      );
+      rows.forEach((r, rankIdx) => {
+        r.rank = rankIdx + 1;
+        r.winner = rankIdx === 0;
+      });
+      if (!blocks.has(packEpId) && rows.some((r) => r.release.id === packEpId)) {
+        episodeReleases[epKey] = packEpId;
+      }
+      return {
+        key: epKey,
+        season: s,
+        episode: epNum,
+        title: `Chapter ${epNum}`,
+        winner: rows[0]?.release.id,
+        pin,
+        releases: rows,
+      };
+    });
+
+    const packs =
+      Object.keys(episodeReleases).length > 0
+        ? [
+            {
+              id: `${seasonKey}-pack0`,
+              name: packName,
+              indexer: "NZBgeek",
+              size: packSize,
+              info: packInfo,
+              score: 82,
+              formatScore: 0,
+              episodeReleases,
+            },
+          ]
+        : [];
+
+    return ok({
+      seasonKey,
+      showKey: show.key,
+      titleName: `${show.title} · ${s === 0 ? "Specials" : `Season ${s}`}`,
+      season: s,
+      profile: name === "download" ? "1080p+download" : name,
+      searchedAt: new Date().toISOString(),
+      duration: 9e8,
+      packs,
+      episodes,
+    });
+  }
+
   function children(key: string): Reply {
     const season = /^(\d+)\.s(\d+)$/.exec(key);
     if (season) {
@@ -547,6 +664,12 @@ export function createReleaseConsoleMock(catalog: FakeTitle[]) {
         return previewRules(body);
       case "GET /search":
         return search(q.get("key") ?? "", q.get("profile") ?? "");
+      case "GET /season": {
+        const key =
+          q.get("key") ||
+          (q.get("show") && q.get("season") !== null ? `${q.get("show")}.s${q.get("season")}` : "");
+        return seasonSearch(key, q.get("profile") ?? "");
+      }
       case "POST /forget":
         return playable(b.key ?? "")
           ? ok({ ok: true })
@@ -597,6 +720,41 @@ export function createReleaseConsoleMock(catalog: FakeTitle[]) {
         };
         pins.set(pin.titleKey, pin);
         return ok(pin);
+      }
+      case "POST /pins/batch": {
+        const batch = (body ?? {}) as {
+          pins?: { key?: string; releaseId?: string }[];
+          note?: string;
+        };
+        const items = batch.pins ?? [];
+        if (items.length === 0) return fail(400, "invalid", "at least one pin is required");
+        const prepared: { key: string; title: string; rel: Release }[] = [];
+        for (const item of items) {
+          const known = releases.get(item.releaseId ?? "");
+          if (!known)
+            return fail(
+              404,
+              "unknown_release",
+              "release is not among recent search results; search again",
+            );
+          if (blocks.has(known.rel.id))
+            return fail(409, "blocked", "release is blocklisted; unblock it before pinning");
+          prepared.push({ key: item.key ?? known.key, title: known.title, rel: known.rel });
+        }
+        const now = new Date().toISOString();
+        const saved: Pin[] = prepared.map((item) => {
+          const pin: Pin = {
+            titleKey: item.key,
+            titleName: item.title,
+            release: item.rel,
+            note: batch.note || undefined,
+            pinnedAt: now,
+            lastCheckedAt: "0001-01-01T00:00:00Z",
+          };
+          pins.set(pin.titleKey, pin);
+          return pin;
+        });
+        return ok({ pins: saved });
       }
       case "GET /blocklist": {
         const needle = (q.get("q") ?? "").toLowerCase();

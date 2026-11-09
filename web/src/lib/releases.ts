@@ -101,6 +101,40 @@ export interface ConsoleSearch {
   releases: ConsoleRelease[] | null;
 }
 
+export interface ConsoleSeasonPack {
+  id: string;
+  name: string;
+  indexer: string;
+  size: number;
+  info: ReleaseInfo;
+  score: number;
+  formatScore: number;
+  episodeReleases: Record<string, string>;
+}
+
+export interface ConsoleSeasonEpisode {
+  key: string;
+  season: number;
+  episode: number;
+  title: string;
+  aired?: string;
+  winner?: string;
+  pin?: Pin | null;
+  releases: ConsoleRelease[] | null;
+}
+
+export interface ConsoleSeasonSearch {
+  seasonKey: string;
+  showKey?: string;
+  titleName: string;
+  season: number;
+  profile: string;
+  searchedAt: string;
+  duration: number;
+  packs: ConsoleSeasonPack[] | null;
+  episodes: ConsoleSeasonEpisode[] | null;
+}
+
 export interface BlockEntry {
   releaseId: string;
   name?: string;
@@ -325,6 +359,21 @@ export const releaseConsole = {
       `${base}/search${qs({ key, profile: opts.profile, fresh: opts.fresh ? 1 : undefined })}`,
       { signal },
     ),
+  season: (
+    target: { key?: string; show?: string; season?: number },
+    opts: { profile?: string; fresh?: boolean } = {},
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<ConsoleSeasonSearch>(
+      `${base}/season${qs({
+        key: target.key,
+        show: target.show,
+        season: target.season,
+        profile: opts.profile,
+        fresh: opts.fresh ? 1 : undefined,
+      })}`,
+      { signal },
+    ),
   children: async (key: string, signal?: AbortSignal) =>
     (
       await apiFetch<{ items: ChildTitle[] | null }>(
@@ -339,6 +388,8 @@ export const releaseConsole = {
     (await apiFetch<{ pins: Pin[] | null }>(`${base}/pins`, { signal })).pins ?? [],
   pin: (key: string, releaseId: string, note: string) =>
     post<Pin>("/pins", { key, releaseId, note }),
+  pinBatch: async (pins: { key: string; releaseId: string }[], note: string) =>
+    (await post<{ pins: Pin[] | null }>("/pins/batch", { pins, note })).pins ?? [],
   unpin: (key: string) => del(`/pins/${encodeURIComponent(key)}`),
   blocklist: async (
     params: { key?: string; source?: string; q?: string; limit?: number; offset?: number },

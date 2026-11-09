@@ -1,5 +1,6 @@
 import { Badge, Button, Spinner, cn } from "@braedonsaunders/appkit-ui";
-import { CalendarClock, ChevronDown, Clock, Search, Star, Tv } from "lucide-react";
+import { CalendarClock, ChevronDown, Clock, Pin, Search, Star, Tv } from "lucide-react";
+import { SeasonPinDrawer } from "../releases/SeasonPinDrawer";
 import { useEffect, useRef, useState } from "react";
 import { Artwork } from "../../components/Artwork";
 import { ErrorPanel } from "../../components/feedback";
@@ -179,6 +180,7 @@ export function TitleEpisodes({
     [title.key, season],
   );
   const [open, setOpen] = useState<string | null>(focus?.key ?? null);
+  const [pinningSeason, setPinningSeason] = useState(false);
   const focused = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (focus?.key && episodes.data?.length)
@@ -236,14 +238,14 @@ export function TitleEpisodes({
         })}
       </div>
       {current ? (
-        <div className="catalog-season-head">
+        <div className="catalog-season-head flex-wrap">
           <Artwork
             src={current.poster}
             alt=""
             className="aspect-[2/3] w-14 shrink-0 rounded-md"
             icon={<Tv size={16} />}
           />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h3>{current.title}</h3>
             <p>
               {[
@@ -256,6 +258,17 @@ export function TitleEpisodes({
                 .join(" · ")}
             </p>
           </div>
+          {season != null &&
+          (current.aired > 0 ||
+            (episodes.data ?? []).some((e) => {
+              const st = episodeState(e, today);
+              return st === "aired" || st === "today";
+            })) ? (
+            <Button size="sm" variant="outline" onClick={() => setPinningSeason(true)}>
+              <Pin size={14} aria-hidden />
+              {t("Pin a release for every episode")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {episodes.error ? (
@@ -349,6 +362,12 @@ export function TitleEpisodes({
           })}
         </ol>
       )}
+      <SeasonPinDrawer
+        open={pinningSeason && season != null}
+        target={season != null ? { show: title.key, season } : null}
+        label={current ? `${title.title} · ${current.title}` : title.title}
+        onClose={() => setPinningSeason(false)}
+      />
     </div>
   );
 }

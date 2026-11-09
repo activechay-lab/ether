@@ -36,6 +36,9 @@ type ReleaseTarget struct {
 	Episode      int    `json:"episode,omitempty"`
 	ShowYear     int    `json:"showYear,omitempty"`
 	EpisodeTitle string `json:"episodeTitle,omitempty"`
+	// PackID is the untargeted release ID of a FullSeason pack before
+	// TargetReleaseID derives the per-episode ID (additive).
+	PackID string `json:"packId,omitempty"`
 	// ExpectedIDs identify the requested series; ReportedIDs are the
 	// release's indexer-reported series IDs, retained for file validation.
 	ExpectedIDs IDs `json:"expectedIds,omitempty"`

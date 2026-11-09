@@ -454,6 +454,354 @@ func (s *Service) SearchReleases(ctx context.Context, t *core.Title, opts Search
 	return out, nil
 }
 
+const seasonSearchParallel = 4
+
+// ConsoleSeasonPack is a season pack whose targeted episode files can be pinned
+// across a season in one action.
+type ConsoleSeasonPack struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Indexer         string            `json:"indexer"`
+	Size            int64             `json:"size"`
+	Info            core.ReleaseInfo  `json:"info"`
+	Score           float64           `json:"score"`
+	FormatScore     int               `json:"formatScore"`
+	EpisodeReleases map[string]string `json:"episodeReleases"`
+}
+
+// ConsoleSeasonEpisode is one episode's accepted candidates for bulk pinning.
+type ConsoleSeasonEpisode struct {
+	Key      core.RatingKey   `json:"key,string"`
+	Season   int              `json:"season"`
+	Episode  int              `json:"episode"`
+	Title    string           `json:"title"`
+	Aired    string           `json:"aired,omitempty"`
+	Winner   string           `json:"winner,omitempty"`
+	Pin      *Pin             `json:"pin,omitempty"`
+	Releases []ConsoleRelease `json:"releases"`
+}
+
+// ConsoleSeasonSearch is an interactive search answer across a season's episodes.
+type ConsoleSeasonSearch struct {
+	SeasonKey  core.RatingKey         `json:"seasonKey,string"`
+	ShowKey    core.RatingKey         `json:"showKey,string,omitempty"`
+	TitleName  string                 `json:"titleName"`
+	Season     int                    `json:"season"`
+	Profile    string                 `json:"profile"`
+	SearchedAt time.Time              `json:"searchedAt"`
+	Duration   time.Duration          `json:"duration"`
+	Packs      []ConsoleSeasonPack    `json:"packs"`
+	Episodes   []ConsoleSeasonEpisode `json:"episodes"`
+}
+
+func consoleSeasonTitleName(season *core.Title, episodes []core.Title) string {
+	show := ""
+	num := 0
+	label := ""
+	if season != nil {
+		show = season.ShowTitle
+		if show == "" && season.Type == core.TypeShow {
+			show = season.Title
+		}
+		num = season.Season
+		if num == 0 && season.Key.Kind() == core.KindSeason {
+			num = season.Key.Season()
+		}
+		if season.Type == core.TypeSeason {
+			label = season.Title
+		}
+	}
+	if show == "" && len(episodes) > 0 {
+		show = episodes[0].ShowTitle
+		if num == 0 {
+			num = episodes[0].Season
+		}
+	}
+	if label == "" {
+		if num == 0 {
+			label = "Specials"
+		} else {
+			label = fmt.Sprintf("Season %d", num)
+		}
+	}
+	if show != "" {
+		return show + " · " + label
+	}
+	return label
+}
+
+// SeasonReleases searches and ranks candidates for every aired episode in a
+// season, plus any discovered season packs targeted per episode, and remembers
+// every candidate so the owner can pin the season in one action.
+func (s *Service) SeasonReleases(ctx context.Context, season *core.Title, episodes []core.Title, opts SearchOptions) (*ConsoleSeasonSearch, error) {
+	if s.indexer == nil {
+		return nil, fmt.Errorf("resolver: no indexer configured")
+	}
+	profile, caps, err := s.consoleProfileForMedia(opts.Profile, core.MediaTV)
+	if err != nil {
+		return nil, err
+	}
+	var seasonKey, showKey core.RatingKey
+	seasonNum := 0
+	if season != nil {
+		seasonKey = season.Key
+		showKey = season.ShowKey
+		seasonNum = season.Season
+		if seasonNum == 0 && seasonKey.Kind() == core.KindSeason {
+			seasonNum = seasonKey.Season()
+		}
+		if showKey == 0 && seasonKey.Kind() == core.KindSeason {
+			showKey = seasonKey.Parent()
+		}
+	}
+	start := time.Now()
+	cutoff := s.now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
+	eps := make([]core.Title, 0, len(episodes))
+	for _, ep := range episodes {
+		if ep.Key.Kind() != core.KindEpisode {
+			continue
+		}
+		if !ep.Released.IsZero() && ep.Released.After(cutoff) {
+			continue
+		}
+		if ep.Season == 0 && ep.Episode == 0 {
+			ep.Season, ep.Episode = ep.Key.Season(), ep.Key.Episode()
+		}
+		eps = append(eps, ep)
+	}
+	sort.Slice(eps, func(i, j int) bool {
+		if eps[i].Season != eps[j].Season {
+			return eps[i].Season < eps[j].Season
+		}
+		if eps[i].Episode != eps[j].Episode {
+			return eps[i].Episode < eps[j].Episode
+		}
+		return eps[i].Key < eps[j].Key
+	})
+	if seasonNum == 0 && len(eps) > 0 {
+		seasonNum = eps[0].Season
+	}
+	if seasonKey == 0 && len(eps) > 0 {
+		seasonKey = eps[0].Key.Parent()
+	}
+	if showKey == 0 && seasonKey.Kind() == core.KindSeason {
+		showKey = seasonKey.Parent()
+	}
+	out := &ConsoleSeasonSearch{
+		SeasonKey:  seasonKey,
+		ShowKey:    showKey,
+		TitleName:  consoleSeasonTitleName(season, eps),
+		Season:     seasonNum,
+		Profile:    profile.Name,
+		SearchedAt: s.now(),
+		Packs:      []ConsoleSeasonPack{},
+		Episodes:   make([]ConsoleSeasonEpisode, 0, len(eps)),
+	}
+	if len(eps) == 0 {
+		out.Duration = time.Since(start)
+		return out, nil
+	}
+
+	sreqs := make([]core.SearchRequest, len(eps))
+	for i := range eps {
+		sreqs[i] = s.searchRequest(ctx, &eps[i])
+	}
+
+	type epFetch struct {
+		results []core.Release
+		err     error
+	}
+	fetched := make([]epFetch, len(eps))
+	var rescuePacks []core.Release
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, seasonSearchParallel)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		rescuePacks = s.searchSeasonPacks(ctx, sreqs[0], opts.Fresh)
+	}()
+
+	for i := range eps {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				fetched[i].err = ctx.Err()
+				return
+			}
+			defer func() { <-sem }()
+			fetched[i].results, _, fetched[i].err = s.searchCached(ctx, sreqs[i], opts.Fresh)
+		}()
+	}
+	wg.Wait()
+
+	for _, f := range fetched {
+		if f.err != nil {
+			return nil, f.err
+		}
+	}
+
+	var rawPacks []core.Release
+	seenPack := map[string]bool{}
+	collectPack := func(rel core.Release) {
+		if !rel.Info.FullSeason {
+			return
+		}
+		pk := packIdentity(rel)
+		if pk == "" || seenPack[pk] {
+			return
+		}
+		seenPack[pk] = true
+		rawPacks = append(rawPacks, rel)
+	}
+	for _, rel := range rescuePacks {
+		collectPack(rel)
+	}
+	for _, f := range fetched {
+		for _, rel := range f.results {
+			collectPack(rel)
+		}
+	}
+
+	packMap := map[string]*ConsoleSeasonPack{}
+	var packOrder []string
+
+	for i := range eps {
+		ep := &eps[i]
+		results := append([]core.Release(nil), fetched[i].results...)
+		for _, raw := range rawPacks {
+			results = withRelease(results, retargetPack(raw, sreqs[i]))
+		}
+		s.rememberReleases(ep, results)
+		if s.searchObserved != nil {
+			s.searchObserved(ctx, ep, results)
+		}
+		req := core.ResolveRequest{Title: ep, Client: caps}
+		epOut := ConsoleSeasonEpisode{
+			Key:      ep.Key,
+			Season:   ep.Season,
+			Episode:  ep.Episode,
+			Title:    ep.Title,
+			Releases: []ConsoleRelease{},
+		}
+		if !ep.Released.IsZero() {
+			epOut.Aired = ep.Released.Format("2006-01-02")
+		}
+		if p, ok := s.PinFor(ep.Key); ok {
+			bp := browserPin(p)
+			epOut.Pin = &bp
+		}
+		pinID := ""
+		if pin, _ := s.pinForResolve(req); pin != nil {
+			pinID = pin.Release.ID
+			results = withRelease(results, pin.Release)
+		}
+		var trace Trace
+		cands, _, err := s.rankCandidates(ctx, req, sreqs[i], profile, results, &trace, pinID)
+		if err != nil {
+			return nil, err
+		}
+		cands = pinFirst(cands, pinID)
+		rank := map[string]int{}
+		for idx, c := range cands {
+			rank[c.rel.ID] = idx + 1
+		}
+		if len(cands) > 0 {
+			epOut.Winner = cands[0].rel.ID
+			if e, known := s.getAvailability(ctx, int64(ep.Key)); known && !e.available {
+				_ = s.forgetAvailability(ctx, ep.Key)
+			}
+		}
+		for ri, ct := range trace.Candidates {
+			rel := results[ri]
+			if ct.Rejected && !ct.Pinned {
+				continue
+			}
+			cr := ConsoleRelease{
+				Preferences:   ct.Preferences,
+				Release:       browserRelease(rel),
+				Score:         ct.Score,
+				CustomFormats: ct.CustomFormats,
+				Compatibility: ct.CompatibilityReason,
+				Rejected:      ct.Rejected,
+				Reason:        ct.Reason,
+				Rank:          rank[rel.ID],
+				Winner:        rel.ID == epOut.Winner && !ct.Rejected,
+				Pinned:        ct.Pinned,
+				Route:         ct.Route,
+			}
+			pol := releasepolicy.Result{}
+			if ct.Preferences != nil {
+				pol = *ct.Preferences
+			}
+			if sc, err := s.scoreRelease(rel, profile, caps, ep, pol, formatFacts{}); err == nil {
+				cr.FormatScore = sc.counted
+				if ct.Rejected {
+					cr.Score, cr.CustomFormats = float64(sc.total), sc.matches
+				}
+			}
+			cr.Release.Score = cr.Score
+			reason, bad := s.badReason(rel.ID)
+			cr.Blocked, cr.BlockReason = bad, reason
+			if h, ok := s.lastHealth(ctx, rel.ID); ok {
+				cr.Health = &h
+			}
+			epOut.Releases = append(epOut.Releases, cr)
+			if !ct.Rejected && rel.Info.FullSeason {
+				pk := packIdentity(rel)
+				entry, exists := packMap[pk]
+				if !exists {
+					entry = &ConsoleSeasonPack{
+						ID:              pk,
+						Name:            rel.Name,
+						Indexer:         rel.Indexer,
+						Size:            rel.Size,
+						Info:            rel.Info,
+						Score:           cr.Score,
+						FormatScore:     cr.FormatScore,
+						EpisodeReleases: map[string]string{},
+					}
+					packMap[pk] = entry
+					packOrder = append(packOrder, pk)
+				} else if cr.Score > entry.Score {
+					entry.Score = cr.Score
+					entry.FormatScore = cr.FormatScore
+				}
+				entry.EpisodeReleases[ep.Key.String()] = rel.ID
+			}
+		}
+		sort.SliceStable(epOut.Releases, func(aIdx, bIdx int) bool {
+			a, b := epOut.Releases[aIdx], epOut.Releases[bIdx]
+			if (a.Rank > 0) != (b.Rank > 0) {
+				return a.Rank > 0
+			}
+			if a.Rank > 0 {
+				return a.Rank < b.Rank
+			}
+			return a.Score > b.Score
+		})
+		out.Episodes = append(out.Episodes, epOut)
+	}
+
+	for _, pk := range packOrder {
+		if p := packMap[pk]; len(p.EpisodeReleases) > 0 {
+			out.Packs = append(out.Packs, *p)
+		}
+	}
+	sort.SliceStable(out.Packs, func(i, j int) bool {
+		if len(out.Packs[i].EpisodeReleases) != len(out.Packs[j].EpisodeReleases) {
+			return len(out.Packs[i].EpisodeReleases) > len(out.Packs[j].EpisodeReleases)
+		}
+		return out.Packs[i].Score > out.Packs[j].Score
+	})
+	out.Duration = time.Since(start)
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // Health
 

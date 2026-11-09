@@ -1142,6 +1142,41 @@ func (s *Service) searchRescue(ctx context.Context, req core.SearchRequest) ([]c
 	return results, "live-complete"
 }
 
+func (s *Service) searchSeasonPacks(ctx context.Context, req core.SearchRequest, fresh bool) []core.Release {
+	rs, ok := s.indexer.(rescueSearcher)
+	if !ok {
+		return nil
+	}
+	key := searchCacheKey(req) + "|rescue"
+	if !fresh {
+		s.mu.RLock()
+		e, ok := s.searchCache[key]
+		s.mu.RUnlock()
+		if ok && s.now().Before(e.expires) {
+			return append([]core.Release(nil), e.results...)
+		}
+	}
+	rctx, coverage := core.WithSearchCoverage(ctx)
+	results, err := rs.SearchRescue(rctx, req)
+	if err != nil {
+		return nil
+	}
+	for i := range results {
+		if results[i].Info.Title == "" && results[i].Info.Height == 0 && results[i].Info.Source == core.SourceUnknown {
+			results[i].Info = releaseparse.Parse(results[i].Name)
+		}
+		results[i] = withTarget(results[i], req)
+	}
+	if !coverage.Incomplete() {
+		s.mu.Lock()
+		now := s.now()
+		boundMap(s.searchCache, maxSearchCache, func(e searchCacheEntry) bool { return !now.Before(e.expires) })
+		s.searchCache[key] = searchCacheEntry{results: append([]core.Release(nil), results...), expires: s.now().Add(s.searchTTL())}
+		s.mu.Unlock()
+	}
+	return results
+}
+
 func novelReleases(existing, incoming []core.Release) []core.Release {
 	seen := make(map[string]bool, len(existing))
 	for _, r := range existing {
@@ -2052,11 +2087,42 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 		return rel // enrich cached identities without deriving their ID again
 	}
 	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Cour: sreq.Cour, CourEpisode: sreq.CourEpisode, Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
-	rel.Target = &target
 	if rel.Info.FullSeason {
+		target.PackID = rel.ID
 		rel.ID = core.TargetReleaseID(rel.ID, target)
 	}
+	rel.Target = &target
 	return rel
+}
+
+// retargetPack targets a season pack release at another episode in the season,
+// deriving that episode's stable TargetReleaseID from the original pack ID.
+func retargetPack(rel core.Release, sreq core.SearchRequest) core.Release {
+	if !rel.Info.FullSeason {
+		return rel
+	}
+	if rel.Target != nil && rel.Target.PackID != "" {
+		rel.ID = rel.Target.PackID
+	}
+	rel.Target = nil
+	return withTarget(rel, sreq)
+}
+
+// packIdentity returns a stable key grouping the same season pack across episodes.
+func packIdentity(rel core.Release) string {
+	if !rel.Info.FullSeason {
+		return ""
+	}
+	if rel.Target != nil && rel.Target.PackID != "" {
+		return rel.Target.PackID
+	}
+	if rel.InfoHash != "" {
+		return "h:" + rel.InfoHash
+	}
+	if rel.GUID != "" {
+		return rel.Indexer + "|" + rel.GUID
+	}
+	return rel.ID
 }
 
 // sizedForEpisode hides a season pack's total size from per-runtime size

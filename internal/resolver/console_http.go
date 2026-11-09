@@ -80,11 +80,13 @@ func (s *Service) ConsoleHandler(deps ConsoleDeps) http.Handler {
 	mux.HandleFunc("GET /profiles", h.profiles)
 	mux.HandleFunc("POST /rules/preview", h.previewRules)
 	mux.HandleFunc("GET /search", h.search)
+	mux.HandleFunc("GET /season", h.season)
 	mux.HandleFunc("GET /titles/{key}/children", h.children)
 	mux.HandleFunc("POST /health", h.health)
 	mux.HandleFunc("POST /forget", h.forget)
 	mux.HandleFunc("GET /pins", h.listPins)
 	mux.HandleFunc("POST /pins", h.pin)
+	mux.HandleFunc("POST /pins/batch", h.pinBatch)
 	mux.HandleFunc("DELETE /pins/{key}", h.unpin)
 	mux.HandleFunc("GET /blocklist", h.blocklist)
 	mux.HandleFunc("POST /blocklist", h.block)
@@ -222,6 +224,109 @@ func (h *consoleAPI) search(w http.ResponseWriter, r *http.Request) {
 	}
 	fresh := q.Get("fresh") == "1" || q.Get("fresh") == "true"
 	res, err := h.s.SearchReleases(ctx, t, SearchOptions{Profile: q.Get("profile"), Fresh: fresh})
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	consoleJSON(w, http.StatusOK, res)
+}
+
+func (h *consoleAPI) season(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var seasonKey core.RatingKey
+	if raw := strings.TrimSpace(q.Get("key")); raw != "" {
+		k, ok := parseKey(w, raw, false)
+		if !ok {
+			return
+		}
+		if k.Kind() != core.KindSeason {
+			consoleError(w, http.StatusBadRequest, "invalid", "key must be a season rating key")
+			return
+		}
+		seasonKey = k
+	} else if showRaw := strings.TrimSpace(q.Get("show")); showRaw != "" {
+		showKey, ok := parseKey(w, showRaw, false)
+		if !ok {
+			return
+		}
+		if showKey.Kind() != core.KindShow {
+			consoleError(w, http.StatusBadRequest, "invalid", "show must be a show rating key")
+			return
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(q.Get("season")))
+		if err != nil || n < 0 || n >= 10_000 {
+			consoleError(w, http.StatusBadRequest, "invalid", "season must be a valid season number")
+			return
+		}
+		seasonKey = core.SeasonKey(showKey.TMDB(), n)
+	} else {
+		consoleError(w, http.StatusBadRequest, "invalid", "season key or show and season are required")
+		return
+	}
+	if h.deps.Catalog == nil {
+		consoleError(w, http.StatusNotImplemented, "not_implemented", "the catalogue is not available")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	episodes, err := h.deps.Catalog.Children(ctx, seasonKey)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	showTitle, _ := h.deps.Catalog.Get(ctx, seasonKey.Parent())
+	seasonTitle, _ := h.deps.Catalog.Get(ctx, seasonKey)
+
+	header := &core.Title{
+		Key:     seasonKey,
+		Type:    core.TypeSeason,
+		ShowKey: seasonKey.Parent(),
+		Season:  seasonKey.Season(),
+	}
+	if seasonTitle != nil {
+		header.Title = seasonTitle.Title
+		if seasonTitle.ShowTitle != "" {
+			header.ShowTitle = seasonTitle.ShowTitle
+		}
+	}
+	if showTitle != nil {
+		if header.ShowTitle == "" {
+			header.ShowTitle = showTitle.Title
+		}
+		for i := range episodes {
+			ep := &episodes[i]
+			if ep.Type == "" {
+				ep.Type = core.TypeEpisode
+			}
+			if ep.ShowKey == 0 {
+				ep.ShowKey = showTitle.Key
+			}
+			if ep.ShowTitle == "" {
+				ep.ShowTitle = showTitle.Title
+			}
+			if ep.ShowOriginalTitle == "" {
+				ep.ShowOriginalTitle = showTitle.OriginalTitle
+			}
+			if len(ep.ShowAlternativeTitles) == 0 && len(showTitle.AlternativeTitles) > 0 {
+				ep.ShowAlternativeTitles = showTitle.AlternativeTitles
+			}
+			if ep.ShowYear == 0 {
+				ep.ShowYear = showTitle.Year
+			}
+			if ep.ShowIDs == (core.IDs{}) {
+				ep.ShowIDs = showTitle.IDs
+			}
+			if len(ep.Countries) == 0 && len(showTitle.Countries) > 0 {
+				ep.Countries = showTitle.Countries
+			}
+			if ep.Language == "" {
+				ep.Language = showTitle.Language
+			}
+		}
+	}
+	fresh := q.Get("fresh") == "1" || q.Get("fresh") == "true"
+	res, err := h.s.SeasonReleases(ctx, header, episodes, SearchOptions{Profile: q.Get("profile"), Fresh: fresh})
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -380,6 +485,74 @@ func (h *consoleAPI) pin(w http.ResponseWriter, r *http.Request) {
 	}
 	h.invalidate(key)
 	consoleJSON(w, http.StatusOK, browserPin(p))
+}
+
+func (h *consoleAPI) pinBatch(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Pins []struct {
+			Key       string `json:"key"`
+			ReleaseID string `json:"releaseId"`
+		} `json:"pins"`
+		Note string `json:"note"`
+	}
+	if !decodeBody(w, r, &in) {
+		return
+	}
+	if len(in.Pins) == 0 {
+		consoleError(w, http.StatusBadRequest, "invalid", "at least one pin is required")
+		return
+	}
+	if len(in.Pins) > 500 {
+		consoleError(w, http.StatusBadRequest, "invalid", "too many pins in one request")
+		return
+	}
+	if len(in.Note) > 500 {
+		consoleError(w, http.StatusBadRequest, "invalid", "note is too long")
+		return
+	}
+	type prepared struct {
+		key  core.RatingKey
+		name string
+		rel  core.Release
+	}
+	ready := make([]prepared, 0, len(in.Pins))
+	for _, item := range in.Pins {
+		key, ok := parseKey(w, item.Key, true)
+		if !ok {
+			return
+		}
+		if item.ReleaseID == "" {
+			consoleError(w, http.StatusBadRequest, "invalid", "releaseId is required")
+			return
+		}
+		rel, found := h.s.LookupRelease(item.ReleaseID)
+		if !found {
+			h.fail(w, ErrUnknownRelease)
+			return
+		}
+		if h.s.isBad(rel.ID) {
+			h.fail(w, ErrPinBlocked)
+			return
+		}
+		name := ""
+		if h.deps.Catalog != nil {
+			if t, err := h.deps.Catalog.Get(r.Context(), key); err == nil && t != nil {
+				name = consoleTitleName(t)
+			}
+		}
+		ready = append(ready, prepared{key: key, name: name, rel: rel})
+	}
+	out := make([]Pin, 0, len(ready))
+	for _, item := range ready {
+		p, err := h.s.Pin(r.Context(), item.key, item.name, item.rel, in.Note)
+		if err != nil {
+			h.fail(w, err)
+			return
+		}
+		h.invalidate(item.key)
+		out = append(out, browserPin(p))
+	}
+	consoleJSON(w, http.StatusOK, map[string]any{"pins": out})
 }
 
 func (h *consoleAPI) unpin(w http.ResponseWriter, r *http.Request) {
