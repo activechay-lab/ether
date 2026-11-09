@@ -78,6 +78,16 @@ type ProgramSource struct {
 	Collection   core.RatingKey  `json:"collection,omitempty"`
 	Filter       *core.Filter    `json:"filter,omitempty"`
 	Watched      string          `json:"watched,omitempty"`
+	// Lineup and pooled movie sources. Pool caps how many titles the smart
+	// filter draws, most popular first. A lineup keeps Shows series on air at
+	// once and, with RotateDays, brings the next group of the pool on air
+	// every RotateDays broadcast days. Each series continues where it left off.
+	Pool       int `json:"pool,omitempty"`
+	Shows      int `json:"shows,omitempty"`
+	RotateDays int `json:"rotateDays,omitempty"`
+	// ExcludeGenres leaves titles with any of these genres out of a lineup
+	// or movie pool (a sitcom lineup without cartoons, say).
+	ExcludeGenres []string `json:"excludeGenres,omitempty"`
 }
 type Block struct {
 	ID     string       `json:"id,omitempty"`
@@ -181,7 +191,8 @@ type Channel struct {
 	sweepKey      string
 	numberMissing bool
 	Health        string `json:"health,omitempty"`
-	Transcode     bool   `json:"transcode"` // IPTV: normalize codecs through the transcoder
+	Transcode     bool   `json:"transcode"`           // IPTV: normalize codecs through the transcoder
+	Stability     string `json:"stability,omitempty"` // fastest, balanced, rocksolid; "" inherits the server preset
 	ID            string `json:"id"`
 	// Private channels are hidden from every viewer whose policy does not
 	// grant them: a restricted viewer needs it in Channels, an unrestricted
@@ -191,6 +202,7 @@ type Channel struct {
 	Name          string         `json:"name"`
 	Kind          string         `json:"kind"` // virtual or iptv
 	Enabled       bool           `json:"enabled"`
+	HiddenApps    []string       `json:"hiddenApps,omitempty"` // apps (Apps) that omit this channel; every other app lists it
 	Favorite      bool           `json:"favorite"`
 	Logo          string         `json:"logo,omitempty"`
 	LogoMatched   bool           `json:"logoMatched,omitempty"`
@@ -265,6 +277,9 @@ type Source struct {
 	// refresh only. Sources also refresh before mapped listings run out.
 	// Inline uploads never refresh automatically.
 	RefreshHours int `json:"refreshHours,omitempty"`
+	// ActivityRefreshMinutes allows an idle-to-active client visit to refresh
+	// earlier than RefreshHours. Zero disables it; the minimum is 30 minutes.
+	ActivityRefreshMinutes int `json:"activityRefreshMinutes,omitempty"`
 	// LastError/LastErrorAt/RefreshFailures record failed refreshes; a
 	// successful import clears them. Existing data is kept on failure.
 	LastError       string     `json:"lastError,omitempty"`
@@ -415,7 +430,8 @@ type Options struct {
 	HTTPClient         *http.Client
 	LogoHTTP           *http.Client // optional test transport for the logo index; nil uses the guarded client
 	LogoIndexURL       func() string
-	HealthSweepMinutes func() int // 0 defaults to 15; negative disables
+	HealthSweepMinutes func() int    // 0 defaults to 15; negative disables
+	Stability          func() string // server-wide stability preset; nil or "" is balanced (reserve_policy.go)
 	Now                func() time.Time
 	// Logger receives credential-safe import, playback and delivery diagnostics.
 	Logger *slog.Logger
@@ -431,6 +447,8 @@ type Options struct {
 	Sealer config.FieldSealer
 	// Kinds overrides the source-kind registry; nil uses the built-ins.
 	Kinds *KindRegistry
+	// Showcase adds and refreshes the shipped decade channels.
+	Showcase bool
 }
 type SessionInfo struct {
 	ActiveSourceID string `json:"activeSourceId,omitempty"`

@@ -196,38 +196,54 @@ func (c *Catalog) storeCrowd(ctx context.Context, key core.RatingKey, titles []c
 	return err
 }
 
-// harvestCrowd keeps the first page of recommendations a detail fetch
-// carried, unless a fresh list with more pages is already stored. Errors
-// are ignored: this is a free bonus, never a reason for Get to fail.
-func (c *Catalog) harvestCrowd(ctx context.Context, key core.RatingKey, titles []core.Title) {
+// crowdExtra is harvestCrowd as more writes of a detail write's
+// transaction: the recommended titles and the list row commit with the
+// title, instead of in three transactions of their own. Nil when a fresh
+// list with more pages is already stored (or it cannot be read).
+func (c *Catalog) crowdExtra(ctx context.Context, key core.RatingKey, titles []core.Title) *detailExtra {
 	if _, at, have, err := c.loadCrowd(ctx, key, maxCrowdPages); err != nil || have && c.now().Sub(at) < c.crowdTTLOrDefault() {
-		return
+		return nil
 	}
-	if err := c.storeCrowd(ctx, key, titles, 1); err != nil {
-		c.log.Debug("catalog: storing harvested recommendations failed", "key", key, "err", err)
+	seen := map[core.RatingKey]bool{key: true}
+	var items []upsertItem
+	var parts []string
+	for _, t := range titles {
+		if t.Key == 0 || t.Adult || seen[t.Key] {
+			continue
+		}
+		seen[t.Key] = true
+		items = append(items, upsertItem{t: t, o: upsertOpts{browsable: c.meetsThreshold(t)}})
+		parts = append(parts, strconv.FormatInt(int64(t.Key), 10))
 	}
+	at := c.now().Unix()
+	return &detailExtra{items: items, after: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO catalog_crowd(key, fetched_at, pages, recs) VALUES(?,?,?,?)
+		ON CONFLICT(key) DO UPDATE SET fetched_at=excluded.fetched_at, pages=excluded.pages, recs=excluded.recs`,
+			int64(key), at, 1, strings.Join(parts, ","))
+		return err
+	}}
 }
 
-func (c *Catalog) harvestMovieCrowd(ctx context.Context, key core.RatingKey, p *tmdb.Paged[tmdb.Movie]) {
+func movieCrowdTitles(c *Catalog, ctx context.Context, p *tmdb.Paged[tmdb.Movie]) []core.Title {
 	if p == nil {
-		return
+		return nil
 	}
 	titles := make([]core.Title, 0, len(p.Results))
 	for _, m := range p.Results {
 		titles = append(titles, c.movieToTitle(ctx, m))
 	}
-	c.harvestCrowd(ctx, key, titles)
+	return titles
 }
 
-func (c *Catalog) harvestTVCrowd(ctx context.Context, key core.RatingKey, p *tmdb.Paged[tmdb.TVShow]) {
+func tvCrowdTitles(c *Catalog, ctx context.Context, p *tmdb.Paged[tmdb.TVShow]) []core.Title {
 	if p == nil {
-		return
+		return nil
 	}
 	titles := make([]core.Title, 0, len(p.Results))
 	for _, s := range p.Results {
 		titles = append(titles, c.tvToTitle(ctx, s))
 	}
-	c.harvestCrowd(ctx, key, titles)
+	return titles
 }
 
 func keyList(titles []core.Title) []core.RatingKey {

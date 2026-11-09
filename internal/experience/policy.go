@@ -46,7 +46,37 @@ type Visibility struct {
 	SectionFor      func(core.MediaType) (int, bool)
 	GetTitle        func(context.Context, core.RatingKey) (*core.Title, error)
 	FilterAvailable func(context.Context, []core.Title) []core.Title
-	Sessions        func() []*core.PlaySession
+	// JudgedOnFacts returns, for one request, whether FilterAvailable judges
+	// a title on its full facts rather than its row. Nil with FilterAvailable
+	// set means every title may be.
+	JudgedOnFacts func(context.Context) func(core.Title) bool
+	Sessions      func() []*core.PlaySession
+}
+
+// TitleFacts is what the access policy reads of a title beyond its row for
+// viewer (core.TitleFacts). A policy that does not say may read any of them.
+func (v Visibility) TitleFacts(viewer *core.User) core.TitleFacts {
+	if v.Policy == nil {
+		return 0
+	}
+	if p, ok := v.Policy.(interface {
+		TitleFacts(*core.User) core.TitleFacts
+	}); ok {
+		return p.TitleFacts(viewer)
+	}
+	return core.VisibilityFacts
+}
+
+// FactJudge is JudgedOnFacts for one request: nil when no title is,
+// false when the visibility cannot tell.
+func (v Visibility) FactJudge(ctx context.Context) (func(core.Title) bool, bool) {
+	if v.FilterAvailable == nil {
+		return nil, true
+	}
+	if v.JudgedOnFacts == nil {
+		return nil, false
+	}
+	return v.JudgedOnFacts(ctx), true
 }
 
 func (v Visibility) TitleAllowed(viewer *core.User, title *core.Title) bool {

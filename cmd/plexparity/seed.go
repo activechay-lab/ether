@@ -230,6 +230,14 @@ func seed(ctx context.Context, dir string) error {
 	if _, err = cols.CreateSmart(ctx, core.Collection{Title: "Fixture drama", Filter: &core.Filter{Type: core.TypeMovie, Genres: []string{"Drama"}}}); err != nil {
 		return err
 	}
+	// Installs create no collections; the fixture applies the library
+	// bundles an owner would, so genre and network collections stay in the
+	// parity world.
+	for _, bundle := range []string{"movie-genres", "tv-networks"} {
+		if _, err = collections.ApplyTemplateBundle(ctx, cols, bundle); err != nil {
+			return err
+		}
+	}
 
 	engine, err := personalize.New(personalize.Options{DB: db, Catalog: cat, State: st, Events: st, Users: users, Playlists: st.Playlists(), Now: now, Location: time.UTC, RefreshEvery: -1, RebuildDebounce: time.Hour, Dependencies: func(sc core.PersonalScorer) (core.Recommender, core.CollectionRows, error) {
 		c, err := collections.New(db, cat, nil, collections.WithNow(now), collections.WithState(st), collections.WithAuth(users), collections.WithScorer(sc))

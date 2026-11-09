@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -42,14 +43,23 @@ func TestManifestRequiresSurfaceGrantAndProvidesCORS(t *testing.T) {
 	}
 }
 
-type lazyFixture struct{ issued bool }
+type lazyFixture struct {
+	issued               bool
+	issuedReq, warmedReq *frontend.PlanRequest
+}
 
 func (f *lazyFixture) Issue(_ context.Context, credential string, request frontend.PlanRequest) (string, error) {
 	if credential != "grant" || request.Protocol != "stremio" || request.Item.TMDB() != 42 || !request.Intent.Options.DirectPlay {
 		return "", errors.New("wrong scope")
 	}
 	f.issued = true
+	f.issuedReq = &request
 	return "/sessions/lazy/scoped/file", nil
+}
+func (f *lazyFixture) Warm(_ context.Context, credential string, request frontend.PlanRequest) {
+	if credential == "grant" {
+		f.warmedReq = &request
+	}
 }
 func (*lazyFixture) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusPartialContent)
@@ -79,6 +89,11 @@ func TestStreamUsesLazyCapabilityAndNeverOpensOnDiscovery(t *testing.T) {
 	inst.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/stremio/grant/stream/movie/tmdb:42.json", nil))
 	if w.Code != 200 || !lazy.issued || !strings.Contains(w.Body.String(), "https://ether.example/stremio/sessions/lazy/scoped/file") || strings.Contains(w.Body.String(), "grant") {
 		t.Fatalf("response: %d %s", w.Code, w.Body.String())
+	}
+	// The stream list warms the exact request the lazy URL plays, so the
+	// viewer's pick joins a resolve that started before it.
+	if lazy.warmedReq == nil || !reflect.DeepEqual(*lazy.warmedReq, *lazy.issuedReq) {
+		t.Fatalf("stream list did not warm the issued request: %+v", lazy.warmedReq)
 	}
 }
 

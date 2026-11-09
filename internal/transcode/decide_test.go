@@ -346,3 +346,36 @@ func TestAudioTarget(t *testing.T) {
 		t.Error("channel mapping")
 	}
 }
+
+// File capabilities and segmented-output capabilities are different contracts.
+func TestAppleTVMP3OutputContract(t *testing.T) {
+	info := core.MediaInfo{Container: "mp4", BitrateKbps: 2000, Streams: []core.StreamInfo{
+		{Index: 0, Type: "video", Codec: "h264", Width: 1280, Height: 720},
+		{Index: 1, Type: "audio", Codec: "mp3", Channels: 2, BitrateKbps: 128},
+	}}
+	for _, tc := range []struct {
+		name, container     string
+		direct, apple, copy bool
+	}{
+		{"file", ContainerMPEGTS, true, true, true},
+		{"ts", ContainerMPEGTS, false, true, false},
+		{"fmp4", ContainerFMP4, false, true, false},
+		{"matroska", ContainerMatroska, false, true, true},
+		{"browser", ContainerMPEGTS, false, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caps := appleTV
+			if !tc.apple {
+				caps = plexWeb
+			}
+			caps.AudioCodecs = []string{"aac", "mp3"}
+			caps.HLSContainers = []string{tc.container}
+			opts := allow()
+			opts.DirectPlay = tc.direct
+			d := Decide(info, caps, opts, Policy{})
+			if d.AudioCopy != tc.copy || (!tc.copy && d.AudioCodec != "aac") {
+				t.Fatalf("unexpected audio decision: %+v", d)
+			}
+		})
+	}
+}

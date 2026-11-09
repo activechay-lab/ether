@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -14,6 +15,11 @@ import (
 
 func (s *Service) screenDefaults(c Channel) config.LiveTVScreens {
 	defaults := config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
+	if c.Kind == "iptv" {
+		// IPTV plays through a continuous output; its visible failure mode is
+		// the warm reconnecting screen.
+		defaults.NoSignal, defaults.ApplyTo = "card", "all"
+	}
 	if c.Look != nil && c.Look.LookID != "" {
 		// Match StyleScreensEditor when the style has no explicit override.
 		defaults.NoSignal, defaults.StationID = "card", true
@@ -48,11 +54,17 @@ func (s *Service) screenStyle(c Channel, offair bool) string {
 	}
 	return style
 }
+
+// useBroadcast reports the channels that play through a continuous output.
+// IPTV defaults to it (Steady); the tune itself may still refuse a 4K or HDR
+// source, or a host without encode capacity, and take a direct path. A channel
+// whose owner chose no screen at all ("error") never shows one, so it plays
+// direct.
 func (s *Service) useBroadcast(c Channel) bool {
 	if c.Kind == "virtual" {
 		return true
 	}
-	return c.Kind == "iptv" && s.screenStyle(c, false) != "error" && (c.Transcode || s.screenDefaults(c).ApplyTo == "all")
+	return c.Kind == "iptv" && (c.Screens == nil || c.Screens.NoSignal != "error")
 }
 func (s *Service) screenRequest(c Channel, reason string) core.ClipRequest {
 	offair := reason == offAirSlate
@@ -94,7 +106,8 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 		if doc, bindings, found := source.Overlay(ctx, request); found {
 			if foreground, live := doc.StaticForeground(); live {
 				overlay := compactOverlay(raster.Render(foreground, bindings, doc.Poster, format.Width, format.Height), format)
-				return &signalInputDecoder{engine: signal.NewStatic(format.Width, format.Height, int64Hash(request.ChannelID+request.LookID)), overlay: overlay, format: format, tick: s.o.Now().Unix() * 30, audio: make([]int16, 3200), closed: make(chan struct{})}, nil, nil
+				seed := int64Hash(request.ChannelID + request.LookID)
+				return newSignalInputDecoder(signal.NewStatic(format.Width, format.Height, seed), overlay, format, s.o.Now(), true, seed), nil, nil
 			}
 		}
 	}
@@ -127,44 +140,126 @@ func (s *Service) screenPlan(c Channel, runner transcode.ContinuousRunner, forma
 	return s.signalPlan(c, "reconnecting", "", format)
 }
 func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
+	ss.mu.Lock()
+	c, user, caps, refused := ss.info.Channel, ss.user, ss.caps, ss.steadyRefused
+	ss.mu.Unlock()
 	runner, ok := s.o.Transcoder.(transcode.ContinuousRunner)
 	if !ok {
+		if c.Kind == "iptv" && refused == "" {
+			ss.mu.Lock()
+			ss.steadyRefused = steadyRefusedNoTranscoder
+			ss.mu.Unlock()
+			return fmt.Errorf("%w: no continuous transcoder", errSteadyRefused)
+		}
 		return core.ErrNotAvailable
 	}
-	ss.mu.Lock()
-	c, user, caps := ss.info.Channel, ss.user, ss.caps
-	ss.mu.Unlock()
-	height := 720
-	if s.o.Transcoder != nil {
-		hw := s.o.Transcoder.HWAccel()
-		if hw.Name != "" && hw.Name != "none" {
+	key := broadcastKey{channelID: c.ID}
+	if c.Personal != nil {
+		key.viewerID = user.ID
+	}
+	var format transcode.RawFormat
+	var outputHeight, bitrate int
+	var admitted *steadyAdmission
+	if c.Kind == "iptv" {
+		if refused != "" {
+			// A direct tune that Steady already refused never escalates back.
+			return fmt.Errorf("%w: %s", errSteadyRefused, refused)
+		}
+		full := 0
+		if running := s.broadcasts.running(key); running != nil {
+			format, full = running.format, running.steadyBitrate
+		} else {
+			var code, detail string
+			admitted, code, detail = s.admitSteady(ctx, c)
+			if code != "" {
+				s.sessionLog(ss).Info("live playback path selected", "path", "direct", "reason", code, "detail", detail)
+				ss.mu.Lock()
+				ss.steadyRefused = code
+				ss.mu.Unlock()
+				return fmt.Errorf("%w: %s", errSteadyRefused, detail)
+			}
+			format, full = admitted.shape.format, admitted.shape.bitrateKbps
+		}
+		outputHeight, bitrate = steadyRendition(format, full, caps)
+	} else {
+		height := 720
+		if s.steadyHardware() {
 			height = 1080
 		}
-	}
-	format := transcode.RawFormat{Width: height * 16 / 9, Height: height, FPSNum: 30, FPSDen: 1, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}
-	outputHeight := height
-	if caps.MaxHeight > 0 && caps.MaxHeight < height {
-		outputHeight = 480
-		if height == 1080 && caps.MaxHeight >= 720 {
-			outputHeight = 720
-		}
-	}
-	bitrate := 3000
-	if outputHeight == 1080 {
-		bitrate = 6000
-	}
-	if outputHeight == 480 {
-		bitrate = 1500
-	}
-	if caps.MaxBitrateKbps > 0 && caps.MaxBitrateKbps < bitrate {
-		bitrate = caps.MaxBitrateKbps
-		if height == 1080 {
-			outputHeight = 720
-		} else {
+		format = transcode.RawFormat{Width: height * 16 / 9, Height: height, FPSNum: 30, FPSDen: 1, SampleRate: 48000, Channels: 2, PixelFormat: "yuv420p"}
+		outputHeight = height
+		if caps.MaxHeight > 0 && caps.MaxHeight < height {
 			outputHeight = 480
+			if height == 1080 && caps.MaxHeight >= 720 {
+				outputHeight = 720
+			}
+		}
+		bitrate = 3000
+		if outputHeight == 1080 {
+			bitrate = 6000
+		}
+		if outputHeight == 480 {
+			bitrate = 1500
+		}
+		if caps.MaxBitrateKbps > 0 && caps.MaxBitrateKbps < bitrate {
+			bitrate = caps.MaxBitrateKbps
+			if height == 1080 {
+				outputHeight = 720
+			} else {
+				outputHeight = 480
+			}
 		}
 	}
-	sourceInfo := core.MediaInfo{Container: "mp4", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Width: format.Width, Height: format.Height, FrameRate: 30}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2, SampleRate: 48000}}}
+	var attrs []any
+	if admitted != nil {
+		attrs = []any{"allocation", admitted.class}
+	}
+	lease, info, err := s.launchBroadcast(ctx, ss, broadcastLaunch{channel: c, user: user, caps: caps, key: key, runner: runner, format: format, outputHeight: outputHeight, bitrate: bitrate, admitted: admitted, logAttrs: attrs})
+	if err != nil {
+		return err
+	}
+	ss.mu.Lock()
+	if ss.closed {
+		ss.mu.Unlock()
+		lease.close()
+		return core.ErrNotFound
+	}
+	ss.broadcast = lease
+	ss.info.MediaInfo = &info
+	ss.mu.Unlock()
+	awaitBroadcastCushion(ctx, lease, c.Kind == "iptv")
+	return nil
+}
+
+// broadcastLaunch is everything a viewer's continuous output needs: the
+// working format, the viewer's rendition and, for a new provider output, its
+// admitted first input.
+type broadcastLaunch struct {
+	channel      Channel
+	user         core.User
+	caps         core.ClientCaps
+	key          broadcastKey
+	runner       transcode.ContinuousRunner
+	format       transcode.RawFormat
+	outputHeight int
+	bitrate      int
+	admitted     *steadyAdmission
+	logAttrs     []any
+}
+
+// launchBroadcast starts (or joins) the output and attaches one rendition
+// lease for the viewer. It owns admitted's link: consumed by a new output,
+// closed otherwise.
+func (s *Service) launchBroadcast(ctx context.Context, ss *session, l broadcastLaunch) (*broadcastLease, core.MediaInfo, error) {
+	c, user, caps, key, runner, format, outputHeight, bitrate, admitted := l.channel, l.user, l.caps, l.key, l.runner, l.format, l.outputHeight, l.bitrate, l.admitted
+	consumed := false
+	defer func() {
+		if admitted != nil && !consumed {
+			admitted.link.close(s)
+		}
+	}()
+	rate := float64(format.FPSNum) / float64(format.FPSDen)
+	sourceInfo := core.MediaInfo{Container: "mp4", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Width: format.Width, Height: format.Height, FrameRate: rate}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2, SampleRate: 48000}}}
 	outputCaps := caps
 	outputCaps.VideoCodecs = []string{"h264"}
 	outputCaps.AudioCodecs = []string{"aac"}
@@ -181,27 +276,35 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	decision.BitrateKbps = bitrate
 	decision.Container = "mpegts"
 
-	info := core.MediaInfo{Container: "mpegts", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Profile: "High", Width: outputHeight * 16 / 9, Height: outputHeight, FrameRate: 30}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2, SampleRate: 48000}}}
+	info := core.MediaInfo{Container: "mpegts", Streams: []core.StreamInfo{{Index: 0, Type: "video", Codec: "h264", Profile: "High", Width: outputHeight * 16 / 9, Height: outputHeight, FrameRate: rate}, {Index: 1, Type: "audio", Codec: "aac", Channels: 2, SampleRate: 48000}}}
 	// Resolve a shared catalogue source as the owner, then enforce every viewer's
 	// channel/title policy again at playlist and segment boundaries.
 	inputUser := user
 	if c.Personal == nil && s.o.InputUser != nil {
 		owner, err := s.o.InputUser(ctx)
 		if err != nil {
-			return err
+			return nil, core.MediaInfo{}, err
 		}
 		inputUser = *owner
 	}
 	create := func() (*broadcast, error) {
 		var planner broadcastPlanner
 		if c.Kind == "virtual" {
-			planner = &scheduleBroadcastPlanner{s: s, channel: c, user: inputUser, caps: core.ClientCaps{MaxHeight: height, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}}, format: format, runner: runner}
+			planner = &scheduleBroadcastPlanner{s: s, channel: c, user: inputUser, caps: core.ClientCaps{MaxHeight: format.Height, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}}, format: format, runner: runner}
 		} else {
-			planner = &providerBroadcastPlanner{s: s, channel: c, format: format, runner: runner}
+			provider := &providerBroadcastPlanner{s: s, channel: c, format: format, runner: runner, ladder: newSteadyLadder()}
+			if admitted != nil && admitted.link != nil {
+				provider.primed = admitted.link
+				consumed = true
+			}
+			planner = provider
 		}
 		b, err := newBroadcast(s.ctx, runner, planner, format)
 		if err != nil {
 			return nil, err
+		}
+		if admitted != nil {
+			b.steadyBitrate = admitted.shape.bitrateKbps
 		}
 		if c.DVRMinutes > 0 {
 			b.dvr = time.Duration(c.DVRMinutes) * time.Minute
@@ -209,25 +312,43 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 		return b, nil
 	}
 	id := "channel-" + c.ID + "-" + strconv.Itoa(outputHeight) + "-" + strconv.Itoa(bitrate)
-	key := broadcastKey{channelID: c.ID}
 	if c.Personal != nil {
-		key.viewerID = user.ID
 		id += "-viewer-" + strconv.FormatInt(user.ID, 10)
+	}
+	if c.Kind == "iptv" {
+		s.sessionLog(ss).Info("live playback path selected", append([]any{"path", "steady", "width", format.Width, "height", format.Height, "fps", rate, "rendition_height", outputHeight, "bitrate_kbps", bitrate}, l.logAttrs...)...)
 	}
 	lease, err := s.broadcasts.acquire(ctx, key, id, decision, create)
 	if err != nil {
-		return err
+		return nil, core.MediaInfo{}, err
 	}
-	ss.mu.Lock()
-	if ss.closed {
-		ss.mu.Unlock()
-		lease.close()
-		return core.ErrNotFound
+	return lease, info, nil
+}
+
+// steadyRendition is one viewer's rendition of a Steady output: the source
+// size and quality unless the viewer's own limits ask for less.
+func steadyRendition(f transcode.RawFormat, full int, caps core.ClientCaps) (int, int) {
+	height := f.Height
+	if full <= 0 {
+		full = steadyShapeFor(nil).bitrateKbps
 	}
-	ss.broadcast = lease
-	ss.info.MediaInfo = &info
-	ss.mu.Unlock()
-	return nil
+	bitrate := full
+	for _, h := range []int{720, 576, 480} {
+		if caps.MaxHeight > 0 && caps.MaxHeight < height && h < height && h <= caps.MaxHeight {
+			bitrate = full * h * h / (height * height)
+			height = h
+		}
+	}
+	if caps.MaxBitrateKbps > 0 && caps.MaxBitrateKbps < bitrate {
+		bitrate = caps.MaxBitrateKbps
+		for _, h := range []int{720, 576, 480} {
+			if h < height && bitrate*height*height/(h*h) <= full {
+				height = h
+				break
+			}
+		}
+	}
+	return height, max(bitrate, 500)
 }
 
 func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time.Duration) {

@@ -5,6 +5,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/livetv"
+	"time"
 )
 
 func (a *App) newRowViews(protocol core.Protocol, rows *experience.RowsService, receipts *experience.Receipts, visibility experience.Visibility, libraries []experience.Library) (*experience.RowViewService, error) {
@@ -22,7 +24,7 @@ func (a *App) newRowViews(protocol core.Protocol, rows *experience.RowsService, 
 		d.CachedVirtualSeason = a.episodeorder.CachedVirtualSeason
 	}
 	if a.livetv != nil {
-		d.Live = a.livetv
+		d.Live = liveForApp{svc: a.livetv, app: string(protocol)}
 	}
 	return experience.NewRuntimeRowViews(d)
 }
@@ -31,4 +33,18 @@ type rowViewCollectionSource = experience.RowViewCollectionSource
 
 func rowViewCollectionMembers(ctx context.Context, source rowViewCollectionSource, user *core.User, collection core.RatingKey, refs []core.NeutralEntryRef) bool {
 	return experience.RowViewCollectionMembers(ctx, source, user, collection, refs)
+}
+
+// liveForApp applies the owner's per-app channel visibility to Home rows.
+type liveForApp struct {
+	svc *livetv.Service
+	app string
+}
+
+func (l liveForApp) AllowedChannels(ctx context.Context, u *core.User) ([]livetv.Channel, error) {
+	return l.svc.AllowedChannels(core.WithLiveApp(ctx, l.app), u)
+}
+
+func (l liveForApp) Guide(ctx context.Context, u *core.User, from, until time.Time) ([]livetv.Programme, error) {
+	return l.svc.Guide(core.WithLiveApp(ctx, l.app), u, from, until)
 }

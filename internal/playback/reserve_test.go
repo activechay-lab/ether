@@ -116,7 +116,7 @@ func TestBufferRunwayAccountsForOngoingDelivery(t *testing.T) {
 	}
 }
 
-func TestLowBufferOverridesLegacyGraceButNotSeekSettling(t *testing.T) {
+func TestLowBufferHonoursGraceBeforeRecovering(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) { o.SpeedCheckInterval = time.Hour })
 	ps := h.prepare(owner, movieKey, "deadline")
 	s := h.m.lookup(ps.ID)
@@ -128,8 +128,17 @@ func TestLowBufferOverridesLegacyGraceButNotSeekSettling(t *testing.T) {
 	h.m.checkSpeeds()
 	select {
 	case <-f.swapC:
+		t.Fatal("low buffer bypassed grace")
+	default:
+	}
+	h.clock.Advance(14 * time.Second)
+	feedFetches(s, 10, 64<<10, 200*time.Millisecond, h.clock.Now())
+	h.m.checkSpeeds()
+	h.m.checkSpeeds()
+	select {
+	case <-f.swapC:
 	case <-time.After(3 * time.Second):
-		t.Fatal("emptying buffer waited for 20-second grace")
+		t.Fatal("emptying buffer did not recover after grace")
 	}
 }
 
@@ -208,7 +217,7 @@ func TestBlockedSourceRecoversWithoutCompletedFetchSamples(t *testing.T) {
 	h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
 	end := s.current().reads.begin(h.clock.Now())
 	defer end()
-	h.clock.Advance(8 * time.Second)
+	h.clock.Advance(21 * time.Second)
 	h.m.checkSpeeds()
 	h.m.checkSpeeds()
 	select {

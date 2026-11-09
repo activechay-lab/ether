@@ -1,7 +1,10 @@
-// Adapted from AltMount (internal/nzbfilesystem/tsremux.go), MIT License,
-// Copyright (c) 2025 Javier Blanco. See THIRD_PARTY_NOTICES.md.
+// Adapted from AltMount (internal/nzbfilesystem/tsremux.go),
+// MIT License, Copyright (c) 2025 Javier Blanco.
+// https://github.com/javi11/altmount
 
 package stream
+
+import "sort"
 
 // Continuous-timeline remux core for Blu-ray main-feature virtual files.
 //
@@ -205,58 +208,72 @@ func clipSpans(clips []clipBoundary) []clipSpan {
 // clip's delta. The transform preserves length, so offsets and the file size
 // are unchanged. read must fill dst with the file's bytes at [from, from+len(dst)).
 //
-// Packets wholly inside buf are rewritten in place. Only the packets cut by
-// the ends of buf (at most two per clip, 192 bytes each) are read again, whole,
-// because their timestamps may sit in the part outside buf.
-//
-// A window is treated as a transport stream when most of its whole packets
-// start with the sync byte; the few that do not (a zero-filled damaged packet)
-// are skipped on their own, and a window that is not a transport stream is left
-// untouched. On error buf may be partly rewritten and must not be served.
+// Only the packets cut by the ends of buf are read again (at most two of 192
+// bytes per clip), so a read costs no more I/O than without the remux. On an
+// error buf is partly rewritten and must not be served.
 func remux(spans []clipSpan, buf []byte, off int64, read func(dst []byte, from int64) (int, error)) error {
 	end := off + int64(len(buf))
-	for _, sp := range spans {
-		if sp.end < off || sp.start >= end || sp.delta == 0 {
+	i := sort.Search(len(spans), func(i int) bool { return spans[i].end >= off })
+	for ; i < len(spans) && spans[i].start < end; i++ {
+		sp := spans[i]
+		if sp.delta == 0 {
 			continue
 		}
-		lo, hi := max(off, sp.start), min(end, sp.end+1)
-		clipEnd := sp.end + 1
-		first := (lo - sp.start) / bdavPacketLen
-		last := (hi - 1 - sp.start) / bdavPacketLen
-
-		// A packet is whole in buf, an edge packet, or the clip's partial tail.
-		var whole, withSync int64
-		for k := first; k <= last; k++ {
-			ps := sp.start + k*bdavPacketLen
-			if ps+bdavPacketLen > clipEnd || ps < lo || ps+bdavPacketLen > hi {
-				continue
-			}
-			whole++
-			if buf[ps-off+4] == tsSync {
-				withSync++
-			}
-		}
-		if whole > 0 && withSync*2 <= whole {
-			continue // not a transport stream: rewriting would corrupt bytes
-		}
-
-		for k := first; k <= last; k++ {
-			ps := sp.start + k*bdavPacketLen
-			pe := ps + bdavPacketLen
-			if pe > clipEnd {
-				break // the clip's own tail that is not a whole packet stays as it is
-			}
-			if ps >= lo && pe <= hi {
-				rewritePacket(buf[ps-off:pe-off], bdavPacketLen, sp.delta)
-				continue
-			}
-			var pkt [bdavPacketLen]byte
-			if n, err := read(pkt[:], ps); err != nil && n < len(pkt) {
+		lo, hi, clipEnd := max(off, sp.start), min(end, sp.end+1), sp.end+1
+		first := sp.start + (lo-sp.start)/bdavPacketLen*bdavPacketLen
+		// The packets cut by lo and hi, read whole; the clip's own tail that
+		// is not a whole packet stays as it is.
+		var head, tail []byte
+		var tailAt int64
+		if first < lo && first+bdavPacketLen <= clipEnd {
+			head = make([]byte, bdavPacketLen)
+			if n, err := read(head, first); err != nil && n < len(head) {
 				return err
 			}
-			rewritePacket(pkt[:], bdavPacketLen, sp.delta)
-			cLo, cHi := max(ps, lo), min(pe, hi)
-			copy(buf[cLo-off:cHi-off], pkt[cLo-ps:cHi-ps])
+		}
+		if last := sp.start + (hi-sp.start)/bdavPacketLen*bdavPacketLen; last < hi && (head == nil || last > first) && last+bdavPacketLen <= clipEnd {
+			tail, tailAt = make([]byte, bdavPacketLen), last
+			if n, err := read(tail, last); err != nil && n < len(tail) {
+				return err
+			}
+		}
+		packet := func(at int64) []byte {
+			switch {
+			case head != nil && at == first:
+				return head
+			case tail != nil && at == tailAt:
+				return tail
+			case at >= lo && at+bdavPacketLen <= hi:
+				return buf[at-off : at-off+bdavPacketLen]
+			}
+			return nil
+		}
+		// Real transport stream packets start with the sync byte. A stretch
+		// where most do not is not one (wrong data, an unexpected container)
+		// and is left alone; a damaged packet inside a real one is skipped
+		// by rewritePacket without holding back its neighbours.
+		var total, synced int
+		for at := first; at < hi && at+bdavPacketLen <= clipEnd; at += bdavPacketLen {
+			if pk := packet(at); pk != nil {
+				total++
+				if pk[4] == tsSync {
+					synced++
+				}
+			}
+		}
+		if total == 0 || synced*2 <= total {
+			continue
+		}
+		for at := first; at < hi && at+bdavPacketLen <= clipEnd; at += bdavPacketLen {
+			if pk := packet(at); pk != nil {
+				rewritePacket(pk, bdavPacketLen, sp.delta)
+			}
+		}
+		if head != nil {
+			copy(buf[lo-off:min(first+bdavPacketLen, hi)-off], head[lo-first:])
+		}
+		if tail != nil {
+			copy(buf[tailAt-off:hi-off], tail)
 		}
 	}
 	return nil

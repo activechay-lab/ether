@@ -97,8 +97,7 @@ func TestStudioReplayChangesPick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pos := 0
-	rep, err := runner.Replay(context.Background(), studio.ReplayRequest{DevInstance: &studio.DevInstance{Manifest: raw, Files: map[string]string{"dist/plugin.js": string(js)}}, Kind: studio.ReplayRanking, Params: studio.ReplayParams{StepKey: "dub_language", Position: &pos, Config: json.RawMessage(`{"value":["fr"]}`)}})
+	rep, err := runner.Replay(context.Background(), studio.ReplayRequest{DevInstance: &studio.DevInstance{Manifest: raw, Files: map[string]string{"dist/plugin.js": string(js)}}, Kind: studio.ReplayRanking, Params: studio.ReplayParams{StepKey: "dub_language", Config: json.RawMessage(`{"value":["fr"]}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}

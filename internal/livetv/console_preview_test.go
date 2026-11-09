@@ -27,6 +27,14 @@ import (
 
 type consolePlayback struct{ lookDemoPlayback }
 
+// consoleHost is the real transcoder with a fixed software encode budget
+// (a 10-core host's 6 cores). Steady admission otherwise follows
+// runtime.NumCPU, and a 3-core CI runner's 1.8 cores cannot hold an outage
+// channel's unprobed 1080p30 shape (2 cores), so that channel plays direct.
+type consoleHost struct{ *transcode.Manager }
+
+func (consoleHost) ContinuousBudget() (float64, bool) { return 6, false }
+
 func (*consolePlayback) Sessions() []*core.PlaySession { return nil }
 
 type consolePicker struct{}
@@ -91,7 +99,7 @@ func TestConsolePreviewBroadcast(t *testing.T) {
 	}
 	defer manager.Close()
 	users := consoleUsers{{ID: 1, IsOwner: true, Title: "Owner"}, {ID: 2, Title: "Alice"}}
-	s := testService(t, Options{Transcoder: manager, Playback: &consolePlayback{lookDemoPlayback{path: clip}}, Picker: consolePicker{}, Users: users, InputUser: func(context.Context) (*core.User, error) { return &users[0], nil }})
+	s := testService(t, Options{Transcoder: consoleHost{manager}, Playback: &consolePlayback{lookDemoPlayback{path: clip}}, Picker: consolePicker{}, Users: users, InputUser: func(context.Context) (*core.User, error) { return &users[0], nil }})
 	channels := []Channel{}
 	for i, name := range []string{"virtual", "iptv", "outage", "personal"} {
 		c := testChannel()

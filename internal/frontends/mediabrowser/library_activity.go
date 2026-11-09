@@ -55,7 +55,14 @@ func (i *instance) libraryActivity(w http.ResponseWriter, r *http.Request, lates
 		http.NotFound(w, r)
 		return
 	}
-	offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", 50)
+	defaultLimit := 50
+	if latest {
+		// Jellyfin's and Emby's Latest answer 20 rows when no Limit is sent
+		// (Jellyfin's GetLatestMedia "int limit = 20", its OpenAPI default;
+		// Emby's GetLatestMedia sets Limit = 20).
+		defaultLimit = 20
+	}
+	offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", defaultLimit)
 	if limit == 0 {
 		if latest {
 			i.replyItems(w, r, []any{})
@@ -189,6 +196,7 @@ func (i *instance) writeListedTitles(w http.ResponseWriter, r *http.Request, vie
 		return
 	}
 	images, paths := i.gridImagesFor(r, titles), i.virtualPaths(r, viewer, keys)
+	i.prefetchParentArtwork(r, titles)
 	ratingFacts := i.pageRatingFacts(r, viewer, titles)
 	i.fillSeriesTitles(r, viewer, titles)
 	r = i.pageEditions(r, viewer, keys)
@@ -235,16 +243,60 @@ func (i *instance) writeListedTitles(w http.ResponseWriter, r *http.Request, vie
 
 type unplayedCountKey struct{}
 
-func withUnplayedCounts(r *http.Request, counts map[frontend.RatingKey]int) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, counts))
+// unplayedCounts are a list's UnplayedItemCount badges, worked out for the
+// whole page before its items are shaped. absent names the series whose
+// badge stays off (a capped or unreadable episode list).
+type unplayedCounts struct {
+	n      map[frontend.RatingKey]int
+	absent map[frontend.RatingKey]bool
 }
 
-func unplayedCountsFrom(r *http.Request) (map[frontend.RatingKey]int, bool) {
+func withUnplayedCounts(r *http.Request, counts map[frontend.RatingKey]int) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, unplayedCounts{n: counts}))
+}
+
+func unplayedCountsFrom(r *http.Request) (unplayedCounts, bool) {
 	if r == nil {
-		return nil, false
+		return unplayedCounts{}, false
 	}
-	counts, ok := r.Context().Value(unplayedCountKey{}).(map[frontend.RatingKey]int)
-	return counts, ok && counts != nil
+	counts, ok := r.Context().Value(unplayedCountKey{}).(unplayedCounts)
+	return counts, ok && counts.n != nil
+}
+
+// noteLocalUnplayedCounts is attachUnplayedCount for every series and
+// season of a page at once: the experience counts every badge of the page
+// in a few statements instead of listing each series' episodes. The badge
+// counts are those attachUnplayedCount works out for one series.
+func (i *instance) noteLocalUnplayedCounts(r *http.Request, viewer *frontend.Viewer, titles []frontend.Title) *http.Request {
+	if i == nil || i.protocol != "jellyfin" || r == nil || viewer == nil || i.host.Experience == nil {
+		return r
+	}
+	local, ok := i.host.Experience.(interface {
+		LocalUnplayedCounts(context.Context, *frontend.Viewer, []frontend.RatingKey) (map[frontend.RatingKey]int, error)
+	})
+	if !ok {
+		return r
+	}
+	var keys []frontend.RatingKey
+	for _, title := range titles {
+		if title.Type == "show" || title.Type == "season" {
+			keys = append(keys, title.Key)
+		}
+	}
+	if len(keys) == 0 {
+		return r
+	}
+	n, err := local.LocalUnplayedCounts(r.Context(), viewer, keys)
+	if err != nil {
+		return r
+	}
+	counts := unplayedCounts{n: n, absent: map[frontend.RatingKey]bool{}}
+	for _, key := range keys {
+		if _, ok := n[key]; !ok {
+			counts.absent[key] = true
+		}
+	}
+	return r.WithContext(context.WithValue(r.Context(), unplayedCountKey{}, counts))
 }
 
 func (i *instance) noteUnplayedCounts(r *http.Request, viewer *frontend.Viewer, titles []frontend.Title) *http.Request {

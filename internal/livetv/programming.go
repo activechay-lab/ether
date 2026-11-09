@@ -89,10 +89,19 @@ func programmingItems(sources []ProgramSource, fallback []Item, c Channel, day t
 	}
 	var parts [][]Item
 	var weights []int
+	shareTotal := 0
 	for _, s := range sources {
-		items := append([]Item(nil), s.Items...)
-		if len(s.Sources) > 0 {
-			items = programmingItems(s.Sources, items, c, day, b)
+		shareTotal += min(max(s.Weight, 1), 100)
+	}
+	for _, s := range sources {
+		var items []Item
+		if s.Kind == "lineup" {
+			items = lineupDay(s, c, day, b, float64(min(max(s.Weight, 1), 100))/float64(shareTotal))
+		} else {
+			items = append([]Item(nil), s.Items...)
+			if len(s.Sources) > 0 {
+				items = programmingItems(s.Sources, items, c, day, b)
+			}
 		}
 		if s.Order == "shuffle" {
 			items = shuffleItems(items, c.Seed, day.Unix()+int64Hash(s.ID))

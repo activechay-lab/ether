@@ -179,7 +179,7 @@ func (s *Service) newEpisode(ctx context.Context, cfg Settings, u *core.User, sh
 func (s *Service) sendAlert(ctx context.Context, episode core.RatingKey, label string, at int64) error {
 	var e error
 	if once, ok := s.o.Notifier.(OnceNotifier); ok {
-		e = once.TitleAvailableOnce(ctx, "watchlist.episode:"+episode.String(), label)
+		e = once.TitleAvailableOnce(ctx, episodeOnceKey(episode), label)
 	} else {
 		e = s.o.Notifier.TitleAvailable(ctx, label)
 	}

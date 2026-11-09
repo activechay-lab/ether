@@ -16,13 +16,17 @@ type SearchSources struct {
 	Natural  func(context.Context, *core.User, string, int) ([]core.Title, bool)
 	Familiar func(context.Context, *core.User, []core.RatingKey) map[core.RatingKey]int
 	Vibe     VibeSource
+	// Details reads in full the titles a candidate search returned partial
+	// (core.SearchCandidates). Nil leaves every search reading its results
+	// in full.
+	Details func(context.Context, []core.Title) ([]core.Title, error)
 }
 
 // For is the shared search seen through one frontend's visibility.
 // unrestricted is the trusted host policy capability (nil fails closed).
 func (src SearchSources) For(vis Visibility, unrestricted func(*core.User) bool) Search {
 	return Search{
-		Catalog: src.Catalog, Natural: src.Natural, Familiar: src.Familiar,
+		Catalog: src.Catalog, Natural: src.Natural, Familiar: src.Familiar, Details: src.Details,
 		Visibility: vis, Unrestricted: unrestricted,
 		Vibe: VibeSearch{Source: src.Vibe, Visibility: vis, Unrestricted: unrestricted},
 	}

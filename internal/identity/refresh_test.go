@@ -140,3 +140,61 @@ func TestRefreshExpiry(t *testing.T) {
 		t.Fatalf("absolute expiry: %v", err)
 	}
 }
+
+func TestPruneKeepsLiveGrantsAndFamilies(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	if _, err := db.Exec(`INSERT INTO auth_users(id,plex_id,created_at,updated_at) VALUES(1,1,0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(10000, 0)
+	clock := func() time.Time { return now }
+	g, err := identity.NewGrants(db, members{db}, time.Hour, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, err := identity.NewGrants(db, members{db}, 30*24*time.Hour, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := core.Device{ID: "tv"}
+	// Live family whose current access grant has expired: Refresh still needs it.
+	a, _ := g.Issue(ctx, 1, nil, "silo", d)
+	r1, _ := g.IssueRefresh(ctx, "silo", a, d)
+	_, r2, err := g.Refresh(ctx, "silo", r1, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dead family: replay revoked it and its grants.
+	other := core.Device{ID: "phone"}
+	c, _ := g.Issue(ctx, 1, nil, "silo", other)
+	rc, _ := g.IssueRefresh(ctx, "silo", c, other)
+	if _, _, err = g.Refresh(ctx, "silo", rc, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = g.Refresh(ctx, "silo", rc, other); !errors.Is(err, core.ErrUnauthorized) {
+		t.Fatal(err)
+	}
+	_, _ = g.Issue(ctx, 1, nil, "silo", core.Device{ID: "gone"})
+	live, _ := long.Issue(ctx, 1, nil, "silo", core.Device{ID: "pc"})
+
+	now = now.Add(8 * 24 * time.Hour)
+	n, err := g.Prune(ctx)
+	if err != nil || n != 5 {
+		t.Fatalf("pruned %d, %v; want 4 grants and 1 family", n, err)
+	}
+	if _, err = long.Resolve(ctx, "silo", live); err != nil {
+		t.Fatalf("live grant pruned: %v", err)
+	}
+	_, r3, err := g.Refresh(ctx, "silo", r2, d)
+	if err != nil {
+		t.Fatalf("live family's current token pruned: %v", err)
+	}
+	// The live family's consumed tokens still trip replay detection.
+	if _, _, err = g.Refresh(ctx, "silo", r1, d); !errors.Is(err, core.ErrUnauthorized) {
+		t.Fatal(err)
+	}
+	if _, _, err = g.Refresh(ctx, "silo", r3, d); !errors.Is(err, core.ErrUnauthorized) {
+		t.Fatalf("replay after prune did not revoke the family: %v", err)
+	}
+}

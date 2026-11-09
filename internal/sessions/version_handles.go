@@ -2,34 +2,89 @@ package sessions
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/handles/capability"
+	"github.com/braedonsaunders/ether/internal/store"
+)
+
+func init() {
+	// Version ids are derived from (surface, title, release) with a keyed
+	// hash, so one row per pair serves every viewer and device: no
+	// per-viewer handle rows and no admission cap. The per-viewer table
+	// and its capability headers go.
+	store.RegisterAfter("sessions_version_ids", "sessions", "capability_headers")
+	store.Register("sessions_version_ids", 1, `CREATE TABLE sessions_version_ids (
+		handle TEXT PRIMARY KEY,
+		surface TEXT NOT NULL,
+		item_id BIGINT NOT NULL,
+		release_id TEXT NOT NULL,
+		seen_at BIGINT NOT NULL
+	);
+	CREATE INDEX sessions_version_ids_seen ON sessions_version_ids(seen_at);
+	DROP TABLE sessions_version_handles;
+	DELETE FROM capability_headers WHERE namespace='sessions.version';`)
+}
+
+// versionIDSeen spaces seen_at refreshes; versionIDRetention is how long an
+// id nobody lists or resolves stays resolvable. A pruned id is not lost:
+// the next listing derives the same id again.
+const (
+	versionIDSeen      = 24 * time.Hour
+	versionIDRetention = 90 * 24 * time.Hour
 )
 
 type versionHandles struct {
 	db       *sql.DB
 	broker   *Broker
 	protocol frontend.Protocol
-	limits   capability.Limits
+	// key derives ids; only issuing needs it.
+	key []byte
 }
 
-// NewVersionHandles creates a surface-bound, durable version identifier map.
-// Handles are not credentials and all lookups recheck viewer and title policy.
-func NewVersionHandles(db *sql.DB, b *Broker, protocol frontend.Protocol) (frontend.VersionHandles, error) {
-	if db == nil || b == nil || protocol == "" {
+// NewVersionHandles creates a surface's version identifiers. An id is a
+// keyed hash of (surface, title, release) under key (a server secret), so it
+// is the same for every viewer and device and reveals nothing about the
+// release. Ids are not credentials: every lookup rechecks viewer and title
+// policy and the release must be one the viewer is offered.
+func NewVersionHandles(db *sql.DB, b *Broker, protocol frontend.Protocol, key []byte) (frontend.VersionHandles, error) {
+	if db == nil || b == nil || protocol == "" || len(key) < 16 {
 		return nil, errors.New("sessions: missing version handle dependency")
 	}
-	return &versionHandles{db: db, broker: b, protocol: protocol, limits: capability.Limits{PerScope: 100000, PerShard: 400000}}, nil
+	return &versionHandles{db: db, broker: b, protocol: protocol, key: key}, nil
+}
+
+// versionID derives the canonical UUIDv4-shaped id for one version.
+func versionID(key []byte, protocol frontend.Protocol, item core.RatingKey, release string) string {
+	mac := hmac.New(sha256.New, key)
+	var k [8]byte
+	binary.BigEndian.PutUint64(k[:], uint64(item))
+	mac.Write([]byte("ether-version-id-v1\x00" + string(protocol) + "\x00"))
+	mac.Write(k[:])
+	mac.Write([]byte(release))
+	id := mac.Sum(nil)[:16]
+	id[6] = id[6]&0x0f | 0x40
+	id[8] = id[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
+}
+
+// PruneVersionIDs deletes ids nobody listed or resolved for
+// versionIDRetention, in batches.
+func PruneVersionIDs(ctx context.Context, db *sql.DB, now time.Time) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	return store.PruneBatched(ctx, db, `DELETE FROM sessions_version_ids WHERE handle IN (SELECT handle FROM sessions_version_ids WHERE seen_at<? ORDER BY seen_at LIMIT ?)`, now.Add(-versionIDRetention).Unix())
 }
 
 func (v *versionHandles) allowedOffers(ctx context.Context, scope frontend.VersionScope, item core.RatingKey) (*core.Viewer, map[string]bool, error) {
@@ -98,7 +153,7 @@ func (v *versionHandles) IssueBatch(ctx context.Context, scope frontend.VersionS
 	if len(releases) == 0 || len(releases) > 128 {
 		return nil, core.ErrNotAvailable
 	}
-	viewer, offered, err := v.allowedOffers(ctx, scope, item)
+	_, offered, err := v.allowedOffers(ctx, scope, item)
 	if err != nil {
 		return nil, err
 	}
@@ -107,54 +162,62 @@ func (v *versionHandles) IssueBatch(ctx context.Context, scope frontend.VersionS
 			return nil, core.ErrNotFound
 		}
 	}
-	tx, err := v.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
 	out := make(map[string]string, len(releases))
-	ordered := slices.Clone(releases)
-	slices.Sort(ordered)
-	for _, release := range ordered {
-		if _, exists := out[release]; exists {
-			continue
-		}
-		token, err := randomUUID()
-		if err != nil {
-			return nil, err
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO sessions_version_handles(handle,viewer_id,surface,device_id,item_id,release_id) VALUES(?,?,?,?,?,?) ON CONFLICT(viewer_id,surface,device_id,item_id,release_id) DO NOTHING`, token, viewer.ID, string(v.protocol), scope.Device.ID, int64(item), release)
-		if err != nil {
-			return nil, err
-		}
-		var stored string
-		if err := tx.QueryRowContext(ctx, `SELECT handle FROM sessions_version_handles WHERE viewer_id=? AND surface=? AND device_id=? AND item_id=? AND release_id=?`, viewer.ID, string(v.protocol), scope.Device.ID, int64(item), release).Scan(&stored); err != nil {
-			return nil, err
-		}
-		out[release] = stored
+	for _, release := range releases {
+		out[release] = versionID(v.key, v.protocol, item, release)
 	}
-	headers := make([]capability.Header, 0, len(out))
-	for _, handle := range out {
-		digest := sha256.Sum256([]byte(handle))
-		var exists int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM capability_headers WHERE namespace=? AND digest=? AND viewer_id=? AND surface=? AND device_id=?`, "sessions.version", hex.EncodeToString(digest[:]), viewer.ID, string(v.protocol), scope.Device.ID).Scan(&exists)
-		if err == nil {
-			continue
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
-		headers = append(headers, capability.Header{HeaderScope: capability.HeaderScope{Namespace: "sessions.version", ViewerID: viewer.ID, Surface: string(v.protocol), DeviceID: scope.Device.ID}, Digest: hex.EncodeToString(digest[:]), ExpiresMillis: math.MaxInt64})
-	}
-	for start := 0; start < len(headers); start += capability.HeaderBatchMax {
-		if err := capability.AdmitHeadersInTx(ctx, v.db, tx, headers[start:min(start+capability.HeaderBatchMax, len(headers))], v.limits); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
+	if err := v.remember(ctx, item, out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// remember stores the ids a lookup must map back, writing only ids that are
+// new or not seen for versionIDSeen, so a listing is normally one read.
+func (v *versionHandles) remember(ctx context.Context, item core.RatingKey, ids map[string]string) error {
+	now := v.broker.deps.Now()
+	handles := make([]any, 0, len(ids))
+	for _, h := range ids {
+		handles = append(handles, h)
+	}
+	rows, err := v.db.QueryContext(ctx, `SELECT handle,seen_at FROM sessions_version_ids WHERE handle IN (`+store.Placeholders(len(handles))+`)`, handles...)
+	if err != nil {
+		return err
+	}
+	fresh := map[string]bool{}
+	for rows.Next() {
+		var h string
+		var seen int64
+		if err := rows.Scan(&h, &seen); err != nil {
+			rows.Close()
+			return err
+		}
+		fresh[h] = now.Sub(time.Unix(seen, 0)) < versionIDSeen
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	releases := make([]string, 0, len(ids))
+	for release, h := range ids {
+		if !fresh[h] {
+			releases = append(releases, release)
+		}
+	}
+	if len(releases) == 0 {
+		return nil
+	}
+	slices.Sort(releases)
+	tx, err := v.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, release := range releases {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions_version_ids(handle,surface,item_id,release_id,seen_at) VALUES(?,?,?,?,?) ON CONFLICT(handle) DO UPDATE SET seen_at=excluded.seen_at`, ids[release], string(v.protocol), int64(item), release, now.Unix()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (v *versionHandles) Issue(ctx context.Context, scope frontend.VersionScope, item core.RatingKey, release string) (string, error) {
@@ -175,54 +238,38 @@ func (v *versionHandles) resolveRecord(ctx context.Context, scope frontend.Versi
 	if err != nil {
 		return 0, "", err
 	}
-	_, offered, err := v.allowedOffers(ctx, scope, item)
+	viewer, offered, err := v.allowedOffers(ctx, scope, item)
 	if err != nil {
 		return 0, "", err
 	}
-	if release == "" || len(release) > 512 || len(offered) == 0 {
+	// A session this viewer and device planned with the id plays the
+	// release it actually opened (a fallback when the named one failed);
+	// the id names that release for as long as the session lives.
+	if playing := v.sessionRelease(viewer.ID, scope.Device.ID, item, normalizeVersionHandle(handle)); playing != "" && offered[playing] {
+		return item, playing, nil
+	}
+	if release == "" || len(release) > 512 || !offered[release] {
 		return 0, "", core.ErrNotFound
 	}
 	return item, release, nil
 }
 
-func (b *Broker) rebindVersionHandle(ctx context.Context, viewerID int64, surface, deviceID string, item core.RatingKey, handle, release string) {
-	if b == nil || b.deps.DB == nil || viewerID <= 0 || surface == "" || deviceID == "" || item == 0 || handle == "" || release == "" || len(release) > 512 {
-		return
-	}
-	handle = normalizeVersionHandle(handle)
-	if handle == "" {
-		return
-	}
-	tx, err := b.deps.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, `DELETE FROM sessions_version_handles WHERE viewer_id=? AND surface=? AND device_id=? AND item_id=? AND release_id=? AND handle<>?`, viewerID, surface, deviceID, int64(item), release, handle)
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions_version_handles SET release_id=? WHERE handle=? AND viewer_id=? AND surface=? AND device_id=? AND item_id=?`, release, handle, viewerID, surface, deviceID, int64(item)); err != nil {
-		return
-	}
-	_ = tx.Commit()
-}
-
-// lookupRow reads the handle's stored parent. It does not check that the
-// release is still offered; resolveRecord does that.
+// lookupRow reads the version an id names. It does not check that the
+// viewer is offered the release; resolveRecord does that.
 func (v *versionHandles) lookupRow(ctx context.Context, scope frontend.VersionScope, handle string) (core.RatingKey, string, error) {
 	handle = normalizeVersionHandle(handle)
 	if scope.Protocol != v.protocol || scope.Device.ID == "" || scope.Viewer == nil || handle == "" {
 		return 0, "", core.ErrNotFound
 	}
-	viewer, err := v.broker.viewer(ctx, scope.Viewer)
-	if err != nil {
+	if _, err := v.broker.viewer(ctx, scope.Viewer); err != nil {
 		return 0, "", err
 	}
-	var item int64
+	var item, seen int64
 	var release string
-	if v.protocol == "silo" {
-		digest := sha256.Sum256([]byte(handle))
-		err = v.db.QueryRowContext(ctx, `SELECT v.item_id,v.release_id FROM sessions_version_handles v JOIN capability_headers h ON h.namespace='sessions.version' AND h.digest=? AND h.viewer_id=v.viewer_id AND h.surface=v.surface AND h.device_id=v.device_id WHERE v.handle=? AND v.viewer_id=? AND v.surface=? AND v.device_id=? AND h.expires>?`, hex.EncodeToString(digest[:]), handle, viewer.ID, string(v.protocol), scope.Device.ID, v.broker.deps.Now().UnixMilli()).Scan(&item, &release)
-	} else {
-		err = v.db.QueryRowContext(ctx, `SELECT item_id,release_id FROM sessions_version_handles WHERE handle=? AND viewer_id=? AND surface=? AND device_id=?`, handle, viewer.ID, string(v.protocol), scope.Device.ID).Scan(&item, &release)
+	err := v.db.QueryRowContext(ctx, `SELECT item_id,release_id,seen_at FROM sessions_version_ids WHERE handle=? AND surface=?`, handle, string(v.protocol)).Scan(&item, &release, &seen)
+	if err == nil && v.broker.deps.Now().Sub(time.Unix(seen, 0)) >= versionIDSeen {
+		// A client resolving a cached id keeps it alive without a listing.
+		_, _ = v.db.ExecContext(ctx, `UPDATE sessions_version_ids SET seen_at=? WHERE handle=? AND seen_at<?`, v.broker.deps.Now().Unix(), handle, v.broker.deps.Now().Add(-versionIDSeen).Unix())
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, "", core.ErrNotFound
@@ -231,6 +278,19 @@ func (v *versionHandles) lookupRow(ctx context.Context, scope frontend.VersionSc
 		return 0, "", err
 	}
 	return core.RatingKey(item), release, nil
+}
+
+// sessionRelease is the release a live session of this viewer and device
+// opened for item through handle, or "".
+func (v *versionHandles) sessionRelease(viewer int64, device string, item core.RatingKey, handle string) string {
+	v.broker.mu.Lock()
+	defer v.broker.mu.Unlock()
+	for _, s := range v.broker.sessions {
+		if s != nil && s.public.ViewerID == viewer && s.public.Protocol == v.protocol && s.public.Device.ID == device && s.public.Item == item && s.versionHandle == handle && s.exactRelease != "" {
+			return s.exactRelease
+		}
+	}
+	return ""
 }
 
 func (v *versionHandles) MatchSession(ctx context.Context, scope frontend.VersionScope, handle, sessionID string) error {

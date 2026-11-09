@@ -112,7 +112,8 @@ func ValidateStepConfig(meta, raw json.RawMessage) error {
 	return nil
 }
 
-// ValidateRankingConfig checks installed plugin descriptors; absent plugins
+// ValidateRankingConfig checks a profile's plugin score steps against the
+// installed plugin descriptors; absent plugins
 // retain their saved settings so uninstalling one does not make profiles unsaveable.
 func (s *Service) ValidateRankingConfig(p core.QualityProfile) map[string]string {
 	errs := map[string]string{}
@@ -120,7 +121,7 @@ func (s *Service) ValidateRankingConfig(p core.QualityProfile) map[string]string
 	if r == nil {
 		return errs
 	}
-	for id, raw := range p.RankingConfig {
+	for id, raw := range p.PluginScores {
 		if !strings.HasPrefix(id, "plugin:") {
 			errs[id] = "configuration requires a plugin step"
 			continue

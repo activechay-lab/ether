@@ -20,7 +20,6 @@ type broadcastFakeEncoder struct {
 	mu     sync.Mutex
 	frames []transcode.RawFrame
 	closed bool
-	output fakeHLS
 	index  transcode.SegmentIndex
 	pause  time.Duration
 	once   sync.Once

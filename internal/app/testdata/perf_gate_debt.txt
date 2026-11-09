@@ -2,3 +2,76 @@
 # when the gate was introduced (54k vs 540k synthetic rows). One
 # "client | step" per line. Remove a line when its endpoint is fixed; never
 # add one for new code: a new path must stay flat as the library grows.
+
+# First measured by the long-tail detail fixture and the per-viewer cold and
+# first passes (PR #382, 2026-11-08, clean CI runner). Pre-existing: main's
+# code scales on these paths; the new tier exposed them. "owner: cause".
+plex-appletv | episode postplay  # C: postplay hub hydrates related titles' detail per candidate; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | /hubs/search star  # K/J (search): candidate hydration N+1 (visibility Get per series), rows over the window bound
+plex-appletv | movies filter unwatched  # C: unwatched page walks titles in sort order past the viewer's watched ones
+plex-appletv | movies unwatched  # C: /unwatched total counted directly (not the tally-less-watched shape)
+plex-appletv | movies all addedAt 15k  # C: offset 15k page by date added walks the index (keyset wanted)
+plex-appletv | movies collections type=18  # C: the collections index snapshots the whole catalogue; every franchise is listed
+plex-appletv | movies collection dir  # C: every franchise of the library is listed and counted
+plex-appletv | shows onDeck  # E: section On Deck deck walk; flaky: behind-the-read work; pending quiesce hook
+plex-web | /hubs  # C/E: Home rows' per-series continue and visibility reads on a cold build; flaky: behind-the-read work; pending quiesce hook
+plex-web | /hubs/promoted bare  # C/E: as /hubs
+plex-web | /hubs/sections/movies  # C: section hubs' per-title reads on a cold build
+plex-web | /hubs/search star  # K/J (search): as plex-appletv /hubs/search star; flaky: behind-the-read work; pending quiesce hook
+plex-web | movies collections type=18  # C: as plex-appletv
+plex-web | playlist items  # C: per-item Get of a 3000-item playlist (fixed by 7d270726b, PreloadStored)
+plex-appletv playback | playQueue show continuous  # C: a show queue reads every episode's series and state
+plex-appletv playback | playQueue playlist shuffle  # C: a play queue without window= renders all 3000 items with detail (PMS window semantics: owner question)
+plex-appletv playback | /hubs/continueWatching after scrobble  # E/C: continue rebuild per-series reads (reduced by e57577f95)
+infuse-jellyfin | personal library p1  # D
+infuse-jellyfin | search items star  # K/J (search): candidate hydration over the window bound
+infuse-jellyfin | search persons  # K/J (search); flaky: behind-the-read work; pending quiesce hook
+emby-sdk | /Users/{id}/Items/Resume  # D/E: resume rows; flaky: behind-the-read work; pending quiesce hook
+emby-sdk | series p1  # D
+emby-sdk | search  # K/J (search)
+silo-appletv | user/libraries  # C: library cards issue receipts and admit entries per card on a cold build
+silo-appletv | library movies sections  # C: row admission per card (reduced by 664d4e643) and continue walk
+silo-appletv | library series sections  # C: as library movies sections
+silo-appletv | catalog movies title  # C: catalogue page hydration on a viewer's first pass
+silo-appletv | catalog series title  # C: as catalog movies title
+silo-appletv | catalog movies title cursor 15k  # C: cursor is an offset (keyset wanted)
+silo-appletv | catalog search star  # K/J (search): candidate hydration over the window bound
+stremio | catalog movies skip=1000  # D
+stremio | catalog movies genre  # D
+stremio | catalog recommendations  # D
+plex-appletv restricted | shows allLeaves p1  # C: restricted viewer's episode listing reads per-series ratings
+# PR #382 run 2 (clean CI runner): further rows that scale, in statements or
+# rows, or in warm database time with flat rows (a scan that returns few rows).
+plex-appletv | /hubs/sections/movies  # C: section hubs' per-title reads on a cold build; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | collection  # C: one franchise reads its members' detail (rows grow with franchise size)
+plex-appletv | /hubs/continueWatching/items  # E/C: Continue Watching per-series reads (reduced by e57577f95)
+plex-appletv | playlist items deep  # C: warm DB time grows with flat rows
+plex-appletv playback | shows all titleSort p1  # C: warm DB time grows with flat rows
+plex-appletv playback | shows allLeaves p1  # C: warm DB time grows with flat rows
+emby-sdk | /Shows/NextUp  # D/E
+silo-appletv | home/sections  # C: Silo home first pass (continue walk, row admission)
+stremio | catalog movies  # D
+stremio | catalog continue  # D/E
+# Quick pair run 3x on one build (598cf482f): rows that failed in only some runs.
+infuse-jellyfin | /Shows/NextUp  # D/E; flaky: behind-the-read work; pending quiesce hook
+infuse-jellyfin | /UserItems/Resume  # D/E; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | /hubs/promoted bare  # C/E; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | /hubs/promoted movies directory  # C/E; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | /hubs/promoted shows directory  # C/E; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | /hubs/sections/shows  # C; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | movie detail  # C; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | movie postplay  # C; flaky: behind-the-read work; pending quiesce hook
+plex-appletv | show detail  # C; flaky: behind-the-read work; pending quiesce hook
+# ... and rows that failed in all three runs.
+plex-appletv | collection children  # C: a smart collection's children hydrate its members' detail; the first-listed collection grows with the library
+plex-web | collection children  # C: as plex-appletv collection children
+plex-appletv | playlist items  # C: 3000-item playlist page sums every item's duration from its stored title (PreloadStored, 7d270726b, reads them in batches)
+silo-appletv | search people  # K/J (search): per-candidate credits and title reads, more candidates match on the larger library
+stremio | catalog recent  # D: first-pass statements grow
+# Runner noise in the 0.3.6 release gate (CI run 42553872012 and two full
+# local runs on one build, 2026-11-08): rows whose work is the same on both
+# libraries and that failed in only some runs. None is a library-sized path.
+infuse-jellyfin | movies p3 SortName  # noise: 14 statements and ~900 rows on both libraries; failed once on database time (one 369 ms cold sample; 16 ms for the same statements on the viewer pass)
+infuse-jellyfin | movie Similar  # noise: the small library's rows swing between runs (45, 203, 4105) while the large stays near 700-1100; failed once
+infuse-jellyfin | mark series played  # noise: cache state; a season not yet cached reads its 24 episodes one by one on either library (168 statements on the small library's warm pass, 182 on the large first pass)
+silo-appletv | recommendations/discover  # noise: owner's cold-pass statements 100 → 220 on CI only; 96-99 → 105-141 in both local runs

@@ -342,22 +342,42 @@ type Catalog struct {
 	RefreshInterval   Duration                `json:"refreshInterval"`
 }
 
+// The library's floor when the owner turns "Hide obscure titles" off
+// (0/0): every title with a real audience is listed, and every other
+// TMDB title is still found by search (the long-tail index).
+const (
+	OffFloorPopularity = 2.5
+	OffFloorVotes      = 10
+)
+
+// Bars is the browse bar the catalogue applies: the owner's own, or the
+// Off floor for a saved 0/0. No setting lists every TMDB title.
+func (c Catalog) Bars() (minPopularity float64, minVotes int) {
+	if c.MinPopularity <= 0 && c.MinVotes <= 0 {
+		return OffFloorPopularity, OffFloorVotes
+	}
+	return c.MinPopularity, c.MinVotes
+}
+
 type Resolver struct {
 	// HardSubtitles is empty (prefer clean), exclude, or allow.
-	HardSubtitles        string              `json:"hardSubtitles,omitempty"`
-	HealthRace           int                 `json:"healthRace"`      // 0 = ranked checks; >0 = first healthy of bounded concurrent candidates
-	OptimisticStart      bool                `json:"optimisticStart"` // return top NZB before background health check
-	CustomFormats        []core.CustomFormat `json:"customFormats,omitempty"`
-	CustomFormatScores   map[string]int      `json:"customFormatScores,omitempty"`
-	MinCustomFormatScore *int                `json:"minCustomFormatScore,omitempty"`
-	HealthSamples        int                 `json:"healthSamples"`
-	SearchCacheTTL       Duration            `json:"searchCacheTtl"`
-	UnavailableCooloff   Duration            `json:"unavailableCooloff"` // hide titles with no release this long
-	MaxCandidates        int                 `json:"maxCandidates"`
+	HardSubtitles   string `json:"hardSubtitles,omitempty"`
+	HealthRace      int    `json:"healthRace"`      // 0 = ranked checks; >0 = first healthy of bounded concurrent candidates
+	OptimisticStart bool   `json:"optimisticStart"` // return top NZB before background health check
+	// CustomFormats are the custom format definitions profiles score
+	// (QualityProfile.CustomFormatScores).
+	CustomFormats      []core.CustomFormat `json:"customFormats,omitempty"`
+	HealthSamples      int                 `json:"healthSamples"`
+	SearchCacheTTL     Duration            `json:"searchCacheTtl"`
+	UnavailableCooloff Duration            `json:"unavailableCooloff"` // hide titles with no release this long
+	MaxCandidates      int                 `json:"maxCandidates"`
 	// SameQualityAlternatives is how many other releases of the same cut,
 	// resolution and HDR type a detail page lists after Auto as Play
 	// Versions (0 = none, at most 3; default 1).
 	SameQualityAlternatives int `json:"sameQualityAlternatives"`
+	// AlternativesPerResolution distributes the alternative count across
+	// available resolutions while retaining Auto and the shared menu cap.
+	AlternativesPerResolution bool `json:"alternativesPerResolution,omitempty"`
 	// OfferHigherVersions lets Play Version list releases taller than the
 	// profile ceiling (a 4K copy on a 1080p profile). Off, the default,
 	// keeps that ceiling: height, HDR policy and size limits.
@@ -494,10 +514,12 @@ type Trakt struct {
 }
 
 type OpenSubtitles struct {
-	Enabled  bool   `json:"enabled"`
-	APIKey   string `json:"apiKey"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	// AutomaticPreferred is opt-in; only authenticated actual playing may fetch.
+	AutomaticPreferred bool   `json:"automaticPreferred"`
+	Enabled            bool   `json:"enabled"`
+	APIKey             string `json:"apiKey"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
 }
 
 // Subtitle provider kinds (SubtitleProvider.Kind). An installed add-on's
@@ -551,6 +573,28 @@ type LiveTV struct {
 	// HealthSweepMinutes is the channel health sweep interval: 0 uses
 	// the default (15), negative disables the sweep.
 	HealthSweepMinutes int `json:"healthSweepMinutes,omitempty"`
+	// Stability is the server-wide Live TV stability preset: how much
+	// provider stream Ether holds in reserve so blips never reach the
+	// viewer. "fastest", "balanced" or "rocksolid"; empty means balanced.
+	// A channel may override it.
+	Stability string `json:"stability,omitempty"`
+}
+
+// Live TV stability presets (LiveTV.Stability and the per-channel override).
+const (
+	LiveTVStabilityFastest   = "fastest"
+	LiveTVStabilityBalanced  = "balanced"
+	LiveTVStabilityRockSolid = "rocksolid"
+)
+
+// ValidLiveTVStability reports whether v names a stability preset. Empty is
+// valid and means "inherit" (the server default, itself balanced).
+func ValidLiveTVStability(v string) bool {
+	switch v {
+	case "", LiveTVStabilityFastest, LiveTVStabilityBalanced, LiveTVStabilityRockSolid:
+		return true
+	}
+	return false
 }
 
 type LLM struct {
@@ -573,8 +617,11 @@ type LLM struct {
 
 type Updates struct {
 	// Enabled controls automatic release-feed checks (default true).
-	Enabled    bool   `json:"enabled"`
-	Channel    string `json:"channel"` // "stable", "beta"
+	Enabled bool   `json:"enabled"`
+	Channel string `json:"channel"` // "stable", "beta"
+	// AutoUpdate installs updates on their own, at night once nobody is
+	// watching (default true for new installs; existing settings without
+	// the key keep updates manual).
 	AutoUpdate bool   `json:"autoUpdate"`
 	FeedURL    string `json:"feedUrl"`
 	// MaintenanceStart/End bound the local-time window ("HH:MM") in which
@@ -823,10 +870,27 @@ func decodeOverDefaults(defaults Config, b []byte) (Config, bool, error) {
 		delete(plex, "disableVersionTracking")
 	}
 	stripRetiredLiveTV(file)
+	keepStoredAutoUpdate(file)
 	doc := toDoc(defaults)
 	mergeDoc(doc, file)
 	cfg, err := fromDoc(doc)
 	return cfg, false, err
+}
+
+// keepStoredAutoUpdate keeps automatic installs off for stored settings
+// that do not say: they predate the on-by-default switch (v0.3.5 and
+// earlier defaulted to off), so the new default must not reach an existing
+// install through a missing key. Only a brand-new install (no stored
+// settings at all) starts with automatic installs on.
+func keepStoredAutoUpdate(file map[string]any) {
+	updates, ok := file["updates"].(map[string]any)
+	if !ok {
+		updates = map[string]any{}
+		file["updates"] = updates
+	}
+	if _, set := updates["autoUpdate"]; !set {
+		updates["autoUpdate"] = false
+	}
 }
 
 // decodeStartupConfig decodes the stored config over defaults. The
@@ -854,11 +918,15 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 	if stripRetiredLiveTV(file) {
 		dropped = true
 	}
+	keepStoredAutoUpdate(file)
 	if server, ok := file["plex"].(map[string]any); ok {
 		if _, exists := server["disableVersionTracking"]; exists {
 			delete(server, "disableVersionTracking")
 			dropped = true
 		}
+	}
+	if resetPreStandardQuality(file) {
+		dropped = true
 	}
 	doc := toDoc(defaults)
 	if av, ok := file["availability"].(map[string]any); ok {
@@ -886,14 +954,6 @@ func decodeStartupConfig(defaults Config, b []byte) (Config, bool, error) {
 		}
 	}
 	cfg, err := fromDoc(doc)
-	if err == nil {
-		for i := range cfg.Quality.Profiles {
-			if len(cfg.Quality.Profiles[i].Ranking) == 0 {
-				cfg.Quality.Profiles[i].Ranking = core.DefaultRanking(cfg.Quality.Profiles[i].ReleaseRules)
-				dropped = true
-			}
-		}
-	}
 	return cfg, dropped, err
 }
 

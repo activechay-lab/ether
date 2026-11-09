@@ -248,3 +248,55 @@ func TestM3UGuideOver4096Channels(t *testing.T) {
 		t.Fatalf("channels=%d", got)
 	}
 }
+
+// Each app's lineup, guide, tune check and Home rows honour the owner's
+// per-app visibility; the console (no app) and other apps keep the channel.
+func TestFrontendLiveTVHonoursPerAppVisibility(t *testing.T) {
+	ctx := context.Background()
+	a := setupTestApp(t, true)
+	if err := a.users.SetOwner(ctx, plextv.Account{ID: 42, Username: "owner"}, "owner-token"); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := a.users.Owner(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.catalog.UpsertTitle(ctx, core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, IDs: core.IDs{TMDB: 1}, Title: "Programme", Released: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)}, true); err != nil {
+		t.Fatal(err)
+	}
+	c, err := a.livetv.SaveChannel(ctx, livetv.Channel{ID: "app-channel", Number: "1", Name: "Channel", Kind: "virtual", Enabled: true, HiddenApps: []string{"xtream", "jellyfin", "jellyfin"}, Items: []livetv.Item{{Key: core.MovieKey(1), Title: "Programme", DurationMS: 3600000}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(c.HiddenApps, ",") != "jellyfin,xtream" {
+		t.Fatalf("apps not normalized: %v", c.HiddenApps)
+	}
+	if _, err := a.livetv.SaveChannel(ctx, livetv.Channel{ID: "bad", Name: "Bad", Kind: "virtual", HiddenApps: []string{"stremio"}}); err == nil {
+		t.Fatal("accepted an app without Live TV")
+	}
+	channelGUID, _ := ids.StringGUID(ids.Channel, c.ID)
+	now := time.Now().UTC()
+	q := frontend.LiveGuideQuery{From: now, Until: now.Add(2 * time.Hour)}
+	for _, app := range []string{"", "jellyfin", "emby", "silo", "xtream", "m3u"} {
+		want := 1
+		if app == "jellyfin" || app == "xtream" {
+			want = 0
+		}
+		facade := surfaceLiveTV{app: a, surface: app}
+		if rows, err := facade.Channels(ctx, owner); err != nil || len(rows) != want {
+			t.Fatalf("%q lineup: %v %v", app, rows, err)
+		}
+		if _, err := facade.ResolveChannelGUID(ctx, owner, channelGUID); (err == nil) != (want == 1) {
+			t.Fatalf("%q resolve: %v", app, err)
+		}
+		if guide, err := facade.Guide(ctx, owner, q); err != nil || (len(guide) > 0) != (want == 1) {
+			t.Fatalf("%q guide: %v %v", app, guide, err)
+		}
+		if err := (sessionLive{service: a.livetv, cached: a.catalog.CachedGet}).Allowed(core.WithLiveApp(ctx, app), owner, c.ID); (err == nil) != (want == 1) {
+			t.Fatalf("%q tune: %v", app, err)
+		}
+		if rows, err := (liveForApp{svc: a.livetv, app: app}).AllowedChannels(ctx, owner); err != nil || len(rows) != want {
+			t.Fatalf("%q Home rows: %v %v", app, rows, err)
+		}
+	}
+}

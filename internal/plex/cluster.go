@@ -5,18 +5,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"github.com/braedonsaunders/ether/internal/store"
 	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/clusterbus"
-	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/faillog"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	_ "github.com/braedonsaunders/ether/internal/sessions"
+	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // Clustering. A clustered node (Deps.Cluster set) shares with the others:
@@ -95,7 +93,7 @@ func (c *clusterState) start() {
 		c.node.Subscribe(topicNotify, c.onNotify),
 		c.node.Subscribe(topicTerminate, c.onTerminate),
 		c.node.Subscribe("invalidate:playqueue", c.onQueueChanged),
-		c.node.Subscribe(clusterbus.TopicResync, func([]byte) { c.s.queues.dropCache() }),
+		c.node.Subscribe(clusterbus.TopicResync, func([]byte) { c.s.queues.DropCache() }),
 	}
 	go c.loop()
 }
@@ -188,9 +186,9 @@ type sharedEntry struct {
 	DecisionSeen bool                 `json:"decisionSeen,omitempty"`
 	ID           string               `json:"id"`
 	SessionKey   int                  `json:"sessionKey"`
-	User         core.User            `json:"user"`
+	User         frontend.Viewer      `json:"user"`
 	Client       sharedClient         `json:"client"`
-	Key          core.RatingKey       `json:"key"`
+	Key          frontend.RatingKey   `json:"key"`
 	State        string               `json:"state"`
 	OffsetMS     int64                `json:"offset"`
 	DurationMS   int64                `json:"duration"`
@@ -230,7 +228,7 @@ func (s *Server) toShared(e playEntry) sharedEntry {
 	}
 	if e.transcodeID != "" {
 		if te, ok := s.transcodes.get(e.transcodeID); ok {
-			ts := transcodeSessionModel(te)
+			ts := s.servedTranscodeSessionModel(te)
 			se.Transcode = &ts
 		}
 	}
@@ -519,23 +517,27 @@ func (c *clusterState) onQueueChanged(msg []byte) {
 	if !c.remote(msg, &ev) {
 		return
 	}
-	c.s.queues.forget(ev.ID)
+	c.s.queues.Forget(ev.ID)
 }
 
 type queueEvent struct {
 	ID int64 `json:"id"`
 }
 
-var errQueueConflict = errors.New("plex: play queue changed concurrently")
-
-func queueRowError(err error) error {
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.ErrNotFound
-	}
-	return fmt.Errorf("plex: play queue store: %w", err)
-}
-
 func parseAddr(s string) netip.Addr {
 	a, _ := netip.ParseAddr(s)
 	return a
+}
+
+func (c *clusterState) queuePersistence() *sessions.PlayQueuePersistence {
+	return &sessions.PlayQueuePersistence{DB: c.db, Counter: c.counter,
+		Invalidate: func(id int64) { c.publish("invalidate:playqueue", queueEvent{ID: id}) },
+		Warn:       c.warn, ExpireResult: func(err error) {
+			if err != nil {
+				c.expireFail.Fail(err)
+			} else {
+				c.expireFail.OK()
+			}
+		},
+	}
 }

@@ -334,9 +334,7 @@ func (f *fakeTMDB) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSONResp(w, page(f.list(parts[0] == "tv", parts[1]), pageNo))
 	case len(parts) == 3 && parts[0] == "trending":
 		var out []map[string]any
-		for _, x := range f.list(parts[1] == "tv", "popular") {
-			out = append(out, x)
-		}
+		out = append(out, f.list(parts[1] == "tv", "popular")...)
 		if parts[1] == "all" {
 			out = nil
 			for _, x := range fixtures {
@@ -366,6 +364,11 @@ func (f *fakeTMDB) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		m["external_ids"] = map[string]any{"imdb_id": fmt.Sprintf("tt%07d", x.id)}
 		writeJSONResp(w, m)
+	case len(parts) >= 3 && parts[0] == "lists":
+		writeJSONResp(w, []map[string]any{
+			{"id": 101, "mediatype": "movie", "title": "Space Saga", "release_year": 1977},
+			{"id": 501, "mediatype": "show", "title": "Chemistry Teacher", "release_year": 2008},
+		})
 	case len(parts) == 2 && parts[0] == "find":
 		id := strings.TrimPrefix(parts[1], "tt")
 		n, _ := strconv.ParseInt(id, 10, 64)
@@ -608,8 +611,8 @@ func newEnv(t *testing.T, eo ...envOpt) *env {
 		}
 	}
 	seeding.Store(false)
-	opts := []collections.Option{collections.WithIndexTTL(0), collections.WithLiveTTL(0), collections.WithoutDefaults(),
-		collections.WithCatalogConfig(func() config.Catalog { return cfg })}
+	opts := []collections.Option{collections.WithIndexTTL(0), collections.WithLiveTTL(0),
+		collections.WithCatalogConfig(func() config.Catalog { return cfg }), collections.WithExternalBases(collections.ExternalBases{MDBList: ft.srv.URL})}
 	if client != nil {
 		opts = append(opts, collections.WithTMDB(client))
 	}

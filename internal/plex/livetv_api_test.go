@@ -207,7 +207,7 @@ func TestLiveTVDVRGuideProviderAndTuneShapes(t *testing.T) {
 		t.Fatalf("live start %d %s", start.Code, start.Body.String())
 	}
 	playlist := f.request(t, "GET", sessionPath+"/0/index.m3u8", nil)
-	if playlist.Code != 200 || !strings.Contains(playlist.Body.String(), "/resource/") {
+	if playlist.Code != 200 || !strings.Contains(playlist.Body.String(), "/relay/0.ts") {
 		t.Fatalf("playlist %d %s", playlist.Code, playlist.Body.String())
 	}
 	other := f.request(t, "GET", sessionPath+"/0/index.m3u8", map[string]string{"X-Plex-Token": friendToken})
@@ -329,6 +329,21 @@ func TestLiveTVProviderRequiresAccessibleEnabledChannel(t *testing.T) {
 	if !visible(ownerToken) {
 		t.Fatal("enabled channel did not advertise Live TV")
 	}
+	channel.HiddenApps = []string{"plex"}
+	if _, err := service.SaveChannel(ctx, channel); err != nil {
+		t.Fatal(err)
+	}
+	if visible(ownerToken) || visible(friendToken) {
+		t.Fatal("Plex-hidden channel advertised Live TV")
+	}
+	if channels, err := service.AllowedChannels(ctx, &ownerUser); err != nil || len(channels) != 1 {
+		t.Fatalf("Plex visibility changed the external lineup: %v %v", channels, err)
+	}
+	response := f.request(t, "GET", liveProviderPath+"/lineups/dvr/channels", map[string]string{"Accept": "application/json"})
+	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), channel.Name) {
+		t.Fatalf("Plex-hidden channel in guide: %d %s", response.Code, response.Body.String())
+	}
+	channel.HiddenApps = nil
 	channel.Enabled = false
 	if _, err := service.SaveChannel(ctx, channel); err != nil {
 		t.Fatal(err)
@@ -606,7 +621,7 @@ func TestStreamTokenAloneFetchesPlaylistAndDASH(t *testing.T) {
 	}
 	var mediaURL string
 	for _, line := range strings.Split(playlist.Body.String(), "\n") {
-		if strings.Contains(line, streamgrant.StreamGrantParam) && strings.Contains(line, "/resource/") {
+		if strings.Contains(line, streamgrant.StreamGrantParam) && strings.Contains(line, "/relay/") {
 			mediaURL = strings.TrimSpace(line)
 			break
 		}

@@ -42,7 +42,7 @@ func (m *Manager) ResumedTracks(ctx context.Context, user *core.User, key core.R
 		return core.MediaInfo{}, "", false
 	}
 	facts := m.persistedProbeHash(ctx, user.ID, key, rp.Release.ID, rp.payloadHash())
-	if facts == nil || facts.releaseID != rp.Release.ID || facts.info.Estimated || facts.info.Video() == nil || len(facts.info.Streams) > 0 == false {
+	if facts == nil || facts.releaseID != rp.Release.ID || facts.info.Estimated || facts.info.Video() == nil || len(facts.info.Streams) == 0 {
 		// Check active/prepared sessions for this viewer + title + release as well.
 		m.mu.Lock()
 		for _, s := range m.sessions {

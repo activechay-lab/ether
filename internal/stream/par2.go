@@ -29,9 +29,9 @@ import (
 
 const (
 	// maxPar2Bytes bounds the listed (encoded) size of the index file read.
-	maxPar2Bytes = 1 << 20
+	maxPar2Bytes = 4 << 20
 	// maxPar2Parts bounds its article count.
-	maxPar2Parts = 8
+	maxPar2Parts = 16
 )
 
 // par2State is a release's PAR2 index, loaded at most once per index file.

@@ -2,6 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/clientreg"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/transcode"
 	"os"
 	"path/filepath"
 	"slices"
@@ -93,6 +96,32 @@ func TestBuiltinAppsCoverConformProfilesAndCertification(t *testing.T) {
 	for _, device := range builtinDevices(nil) {
 		if device.Name == "Apple TV" && !slices.Equal(device.DolbyVisionProfiles, []int{5, 8}) {
 			t.Fatalf("apple tv device: %+v", device)
+		}
+	}
+}
+
+// Every catalogue row must exercise a real registry matcher, including owner
+// overrides. This prevents display labels silently becoming generic clients.
+func TestBuiltinDevicesMatchRuntimeRegistry(t *testing.T) {
+	off := false
+	overrides := []core.ClientCapabilityOverride{{ID: "shield", VideoCodecs: []string{"h264"}, MaxHeight: 720, HDR10: &off, DolbyVision: &off, DolbyVisionProfiles: []int{8}, SubtitleCodecs: []string{"srt"}}}
+	for _, edits := range [][]core.ClientCapabilityOverride{nil, overrides} {
+		rows := builtinDevices(edits)
+		for i, device := range clientreg.Devices() {
+			row := rows[i]
+			id := device.Identity
+			play := transcode.PlaybackDefaultsFor(id.Product, id.Platform, id.Device, id.Model, id.Version, edits)
+			base := transcode.PlaybackDefaultsFor(id.Product, id.Platform, id.Device, id.Model, id.Version, nil)
+			policy := transcode.ResolvePolicy(core.ClientCaps{Product: id.Product, Platform: id.Platform, Device: id.Device, Version: id.Version}, edits)
+			if play.ID == "generic" {
+				t.Errorf("%s unexpectedly uses generic playback", row.Name)
+			}
+			if row.Name != device.Name || row.MaxHeight != play.MaxHeight || row.HDR10 != play.HDR10 || row.DolbyVision != play.DolbyVision || !slices.Equal(row.VideoCodecs, play.Video) || !slices.Equal(row.DolbyVisionProfiles, policy.DolbyVisionProfiles) || !slices.Equal(row.SubtitleCodecs, policy.SubtitleCodecs) || row.Notes != policy.Notes || row.BuiltinMaxHeight != base.MaxHeight || row.BuiltinHDR10 != base.HDR10 || row.BuiltinDolbyVision != base.DolbyVision {
+				t.Errorf("%s differs from runtime registry: %+v", device.Name, row)
+			}
+			if edits == nil && row.Name == "NVIDIA Shield" && (row.ID != "shield" || row.MaxHeight != 2160 || !row.HDR10 || slices.Contains(row.VideoCodecs, "av1") || !slices.Equal(row.DolbyVisionProfiles, []int{5, 8})) {
+				t.Errorf("incorrect Shield baseline: %+v", row)
+			}
 		}
 	}
 }

@@ -27,7 +27,8 @@ func (hostSource) Counters(ctx context.Context) (Counters, error) {
 		return c, errors.New("no CPU times reported")
 	}
 	t := times[0]
-	c.CPUTotal = t.Total()
+	c.CPUTotal = t.User + t.System + t.Idle + t.Nice + t.Iowait + t.Irq +
+		t.Softirq + t.Steal + t.Guest + t.GuestNice
 	c.CPUBusy = c.CPUTotal - t.Idle - t.Iowait
 
 	vm, err := mem.VirtualMemoryWithContext(ctx)

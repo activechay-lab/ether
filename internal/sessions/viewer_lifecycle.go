@@ -10,7 +10,6 @@ func init() {
 	store.RegisterViewerTable("sessions", "sessions_devices", "viewer_id", store.ViewerMergeMove, "protocol", "device_id")
 	store.RegisterViewerTable("sessions", "sessions_delivery_authority", "viewer_id", store.ViewerMergeDrop)
 	store.RegisterViewerTable("sessions", "sessions_detail_sources", "viewer_id", store.ViewerMergeDrop)
-	store.RegisterViewerTable("sessions", "sessions_version_handles", "viewer_id", store.ViewerMergeDrop)
 	store.RegisterViewerTable("sessions", "sessions_lazy_streams", "viewer_id", store.ViewerMergeDrop)
 	store.RegisterViewerTable("sessions", "sessions_lazy_viewer_capacity", "viewer_id", store.ViewerMergeDrop)
 }

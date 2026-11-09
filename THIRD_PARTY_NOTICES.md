@@ -163,30 +163,25 @@ the repository above, which satisfies that offer.
 
 Ether was designed with [AltMount](https://github.com/javi11/altmount)
 as a reference for Usenet-streaming concepts (provider pooling, NZB
-segment indexing). Apart from the files listed below, Ether's code is
-its own.
+segment indexing).
 
-### AltMount code adapted into Ether
+> MIT License — Copyright (c) 2025 Javier Blanco
 
-Disc-image support was adapted from AltMount's MIT-licensed code. Each
-adapted file carries a header naming its AltMount source, and the MIT
-notice below travels with it.
+Disc-image playback adapts AltMount code (contributed by its author); each
+adapted file keeps the copyright line above in a header comment:
 
-- `internal/iso/fs.go`, `mpls.go`, `volume.go` and `fs_test.go`,
-  `mpls_test.go`, `volume_test.go` — from AltMount
-  `internal/importer/archive/iso/` (largely unchanged; Ether adds walk
-  limits and descriptor bounds checks).
-- `internal/iso/bluray.go`, `bluray_test.go` — adapted from the same
-  directory.
-- `internal/iso/disc.go` — adapted from AltMount
-  `internal/importer/iso_expansion.go`.
-- `internal/stream/tsremux.go` — adapted from AltMount
+- `internal/iso/fs.go`, `bluray.go`, `mpls.go`, `volume.go` (and their
+  tests): ISO 9660/UDF reading and Blu-ray main-feature playlist selection,
+  from AltMount `internal/importer/archive/iso/`. Ether bounds the
+  filesystem walk and playlist reads against damaged or hostile images.
+- `internal/iso/disc.go`: multi-disc grouping by volume label, from AltMount
+  `internal/importer/archive/iso_expansion.go`.
+- `internal/stream/tsremux.go`: MPEG-TS timestamp rewriting for a
+  continuous Blu-ray main-feature timeline, from AltMount
   `internal/nzbfilesystem/tsremux.go`.
 
 The stream engine's tests also use AltMount's MIT-licensed WinRAR RAR5
-fixture files (see below).
-
-> MIT License — Copyright (c) 2025 Javier Blanco
+fixture files (see below). The MIT License text follows those fixtures.
 
 ## Stream engine components
 

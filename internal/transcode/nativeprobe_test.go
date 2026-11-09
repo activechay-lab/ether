@@ -458,7 +458,7 @@ func (c *metaCountingReader) ReadAt(p []byte, off int64) (int, error) {
 
 func TestProbeSourceFollowsSeekHeadPastAttachments(t *testing.T) {
 	hvcc := fixturePrivate(t, "hevc_hdr10_eac3_ac3_ass.mkv", "V_MPEGH/ISO/HEVC")
-	dovi := []byte{1, 0, 8<<1 | 0, 6<<3 | 0x5, 0x10} // profile 8, level 6, rpu+bl, compat 1
+	dovi := []byte{1, 0, 8 << 1, 6<<3 | 0x5, 0x10} // profile 8, level 6, rpu+bl, compat 1
 	tracks := el(mkvTracks,
 		el(mkvTrackEntry, elU(mkvTrackNumber, 1), elU(mkvTrackType, 1), elS(mkvCodecID, "V_MPEGH/ISO/HEVC"),
 			el(mkvCodecPrivate, hvcc), elU(mkvDefaultDur, 41708333),

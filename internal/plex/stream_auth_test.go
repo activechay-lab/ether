@@ -46,7 +46,7 @@ func TestStreamGrantIsolation(t *testing.T) {
 	if rec.Code != 403 || f.playback.prepared != before {
 		t.Fatalf("session collision: %d prepares=%d", rec.Code, f.playback.prepared-before)
 	}
-	rec = f.get(t, "/video/:/transcode/universal/stop?session=private-stream", "X-Plex-Token", friendToken)
+	_ = f.get(t, "/video/:/transcode/universal/stop?session=private-stream", "X-Plex-Token", friendToken)
 	if _, ok := f.trans.Session(e.id); !ok {
 		t.Fatal("viewer stopped someone else's stream")
 	}

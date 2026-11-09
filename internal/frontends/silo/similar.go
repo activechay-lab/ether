@@ -81,11 +81,29 @@ func (i *instance) similar(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	// The page's artwork and editions are read once for every card, as a
+	// catalogue page reads them, not through each card's detail.
+	cards := i.catalogCards(r, v, token, page.Page.Items)
+	editions, batched := i.pageEditions(r, v, keys)
 	items := make([]any, 0, len(page.Page.Items))
 	for _, title := range page.Page.Items {
 		item := titleDTO(title, state[title.Key])
-		i.artwork(r, v, token, title.Key, item)
-		i.applyEditionOverlay(r, v, title.Key, item)
+		if granted, ok := cards[title.Key]; ok {
+			paintCatalogArtwork(r, granted, item)
+			// The card keeps the backdrop list a detail-read card carried.
+			if backdrop, ok := item["backdrop_url"].(string); ok {
+				item["backdrop_urls"] = []string{backdrop}
+			}
+		} else {
+			i.artwork(r, v, token, title.Key, item)
+		}
+		if batched {
+			if summary := bestSiloOverlay(editions[title.Key]); len(summary) > 0 {
+				item["overlay_summary"] = summary
+			}
+		} else {
+			i.applyEditionOverlay(r, v, title.Key, item)
+		}
 		items = append(items, item)
 	}
 	body := map[string]any{"items": items}

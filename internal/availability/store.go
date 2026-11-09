@@ -19,6 +19,13 @@ CREATE TABLE availability_hidden_current (
 );`
 
 func init() {
+	// Retention runs every feed cycle (once a minute). Without these, its
+	// "anything expired?" probes scanned availability_releases (2 KB rows)
+	// and an availability_feed_items index whose leading column is the
+	// title, every minute. Own component: availability is pinned to the
+	// delivered schema boundary.
+	store.RegisterAfter("availability_retention", "availability")
+	store.Register("availability_retention", 1, `CREATE INDEX availability_feed_items_seen ON availability_feed_items(seen_at); CREATE INDEX availability_releases_last_seen ON availability_releases(last_seen);`)
 	store.Register("availability", 6, hiddenMigration)
 	// covered_since: since when a feed's head polls have overlapped without a
 	// gap, so it has shown every release posted since then. full_at: a

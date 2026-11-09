@@ -79,13 +79,15 @@ type CommandRunner func(ctx context.Context, name string, args []string) ([]byte
 
 // Options are the extras service dependencies.
 type Options struct {
-	Videos   VideoProvider
-	Config   func() config.Extras
-	Logger   *slog.Logger
-	Now      func() time.Time
-	CacheTTL time.Duration // list cache; default 1h
-	Runner   CommandRunner
-	LookPath func(string) (string, error)
+	Videos     VideoProvider
+	Config     func() config.Extras
+	Logger     *slog.Logger
+	Now        func() time.Time
+	CacheTTL   time.Duration // list cache; default 1h
+	Runner     CommandRunner
+	LookPath   func(string) (string, error)
+	ToolsDir   string
+	Downloader *Downloader
 }
 
 type listEntry struct {
@@ -95,13 +97,14 @@ type listEntry struct {
 
 // Service lists, registers and resolves extras. Safe for concurrent use.
 type Service struct {
-	videos VideoProvider
-	cfgFn  func() config.Extras
-	log    *slog.Logger
-	now    func() time.Time
-	ttl    time.Duration
-	runner CommandRunner
-	look   func(string) (string, error)
+	videos     VideoProvider
+	cfgFn      func() config.Extras
+	log        *slog.Logger
+	now        func() time.Time
+	ttl        time.Duration
+	runner     CommandRunner
+	look       func(string) (string, error)
+	downloader *Downloader
 
 	mu       sync.Mutex
 	registry map[core.RatingKey]Extra
@@ -135,14 +138,27 @@ func New(o Options) *Service {
 	if o.LookPath == nil {
 		o.LookPath = exec.LookPath
 	}
+	dl := o.Downloader
+	if dl == nil && o.ToolsDir != "" {
+		dl = NewDownloader(DownloaderOptions{
+			ToolsDir: o.ToolsDir,
+			Config:   o.Config,
+			LookPath: o.LookPath,
+			Now:      o.Now,
+		})
+	}
 	return &Service{
 		videos: o.Videos, cfgFn: o.Config,
 		log: o.Logger.With("component", "extras"), now: o.Now,
 		ttl: o.CacheTTL, runner: o.Runner, look: o.LookPath,
-		registry: map[core.RatingKey]Extra{}, lists: map[string]listEntry{},
+		downloader: dl,
+		registry:   map[core.RatingKey]Extra{}, lists: map[string]listEntry{},
 		resolved: map[string]Resolved{},
 	}
 }
+
+// Downloader returns the managed yt-dlp downloader shared with this service.
+func (s *Service) Downloader() *Downloader { return s.downloader }
 
 func (s *Service) cfg() config.Extras { return s.cfgFn() }
 
@@ -152,11 +168,17 @@ func (s *Service) cfg() config.Extras { return s.cfgFn() }
 const DefaultResolverCommand = "yt-dlp"
 
 // effectiveCommand returns the command that would run for this config:
-// the configured one, or the yt-dlp default when none is set. The second
-// result reports whether it was found on PATH.
+// the configured one, the verified managed yt-dlp binary in Ether's data dir,
+// or the yt-dlp default when none is set. The second result reports whether
+// it was found and verified.
 func (s *Service) effectiveCommand(c config.Extras) (string, bool) {
 	cmd := strings.TrimSpace(c.ResolverCommand)
 	if cmd == "" {
+		if s.downloader != nil {
+			if path, _, ok := s.downloader.VerifiedManagedBinary(); ok {
+				return path, true
+			}
+		}
 		cmd = DefaultResolverCommand
 	}
 	_, err := s.look(cmd)

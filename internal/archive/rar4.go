@@ -204,6 +204,39 @@ func finishRAR4(v *RARVolume, numberKnown bool) *RARVolume {
 	return v
 }
 
+// ReadRAR4TailVolumeNumber inspects the trailing bytes of a RAR 4.x volume for
+// an end-of-archive (0x7b) block carrying EARC_VOLNUMBER (0x0008), verified by
+// its 16-bit header CRC. It returns the 0-based volume number, or -1 if no
+// numbered end block is present.
+func ReadRAR4TailVolumeNumber(tail []byte) int {
+	if len(tail) > 64 {
+		tail = tail[len(tail)-64:]
+	}
+	for pos := len(tail) - (rar4BaseLen + 2); pos >= 0; pos-- {
+		if tail[pos+2] != rar4End {
+			continue
+		}
+		flags := binary.LittleEndian.Uint16(tail[pos+3:])
+		if flags&rar4EndVolNumber == 0 {
+			continue
+		}
+		hsize := int(binary.LittleEndian.Uint16(tail[pos+5:]))
+		off := rar4BaseLen
+		if flags&rar4EndDataCRC != 0 {
+			off += 4
+		}
+		if hsize < off+2 || pos+hsize > len(tail) {
+			continue
+		}
+		h := tail[pos : pos+hsize]
+		if uint16(crc32.ChecksumIEEE(h[2:])) != binary.LittleEndian.Uint16(h) {
+			continue
+		}
+		return int(binary.LittleEndian.Uint16(h[off:]))
+	}
+	return -1
+}
+
 // parseRAR4File decodes a file (0x74) or new sub-block (0x7a) header and
 // returns it with the size of the data that follows it.
 func parseRAR4File(h []byte, flags uint16) (RARFile, int64, error) {

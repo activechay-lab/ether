@@ -75,7 +75,7 @@ func TestListAndDetailAdmissionInvariant(t *testing.T) {
 			if err != nil || mirrored.PosterPath == "" {
 				t.Fatalf("missing list summary not mirrored: %+v %v", mirrored, err)
 			}
-			opened, err = c.Get(ctx, missing.Key)
+			_, _ = c.Get(ctx, missing.Key)
 			c.WaitRefreshes()
 			opened, err = c.Get(ctx, missing.Key)
 			if err != nil || opened == nil || opened.PosterPath != "/eb.jpg" {

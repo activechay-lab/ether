@@ -1,0 +1,42 @@
+name: PR image cleanup
+
+# Deletes a pull request's pr-<number> preview images from ghcr.io once the
+# pull request closes. Nothing from the pull request is checked out or run:
+# the job only lists and deletes package versions by tag.
+on:
+  # Only lists and deletes package versions by tag; no code from the pull
+  # request is checked out or run.
+  # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+concurrency:
+  group: pr-image-cleanup-${{ github.event.pull_request.number }}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write # delete this pull request's pr-* package versions
+    steps:
+      - name: Delete pr-${{ github.event.pull_request.number }} images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE: ${{ github.event.repository.name }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$NUMBER" =~ ^[0-9]+$ ]]
+          versions="$(gh api --paginate "/users/$OWNER/packages/container/$PACKAGE/versions?per_page=100" \
+            --jq ".[] | select(.metadata.container.tags | length > 0) | select(all(.metadata.container.tags[]; test(\"^pr-${NUMBER}(-|$)\"))) | .id" || true)"
+          if [[ -z "$versions" ]]; then
+            echo "No pr-$NUMBER images to delete."
+            exit 0
+          fi
+          for id in $versions; do
+            gh api -X DELETE "/users/$OWNER/packages/container/$PACKAGE/versions/$id"
+            echo "Deleted version $id"
+          done

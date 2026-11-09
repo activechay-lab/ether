@@ -14,6 +14,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/cluster"
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -184,6 +185,9 @@ func (a *App) nodeCaps() cluster.Caps {
 		caps.HWAccel = a.deployment.encoder.HWAccel().Name
 	}
 	caps.Diagnostics = a.nodeDiagnostics()
+	if a.onair != nil {
+		caps.OnAirAssets = onair.AssetFilesVersion
+	}
 	return caps
 }
 

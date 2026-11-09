@@ -18,6 +18,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/datafs"
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/tmdb"
 )
@@ -588,7 +589,7 @@ func (h *Handler) handleDisk(w http.ResponseWriter, r *http.Request) {
 		}
 		probe = parent
 	}
-	usage := diskUsage
+	usage := datafs.Usage
 	if h.deps.DiskUsage != nil {
 		usage = h.deps.DiskUsage
 	}
@@ -697,10 +698,35 @@ func (h *Handler) handleClearLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // DiskFree reports available bytes on the filesystem containing path.
-func DiskFree(path string) (int64, error) { _, free, err := diskUsage(path); return free, err }
+func DiskFree(path string) (int64, error) { _, free, err := datafs.Usage(path); return free, err }
 
 // DiskUsage reports the size and free bytes of the volume holding path.
-func DiskUsage(path string) (total, free int64, err error) { return diskUsage(path) }
+func DiskUsage(path string) (total, free int64, err error) { return datafs.Usage(path) }
+
+// handleDatabaseCompact reports (GET) or starts (POST) the owner's one-time
+// database compaction. POST returns at once; the compaction runs in the
+// background and GET reports it.
+func (h *Handler) handleDatabaseCompact(w http.ResponseWriter, r *http.Request) {
+	access, _ := RequestAccess(r.Context())
+	if !access.Owner {
+		writeError(w, http.StatusForbidden, "owner_required", "sign in as the owner to compact the database")
+		return
+	}
+	fn := h.deps.DatabaseCompactStatus
+	if r.Method == http.MethodPost {
+		fn = h.deps.DatabaseCompact
+	}
+	if fn == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "database compaction is not available")
+		return
+	}
+	value, err := fn(r.Context())
+	if err != nil {
+		writeError(w, http.StatusConflict, "database_compact_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": value})
+}
 
 func (h *Handler) handleDatabaseCheck(w http.ResponseWriter, r *http.Request) {
 	access, _ := RequestAccess(r.Context())

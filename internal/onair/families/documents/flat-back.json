@@ -2,10 +2,14 @@
   "v": 1,
   "moment": "back",
   "duration": 8,
-  "poster": 4,
+  "poster": 3.5,
+  "slots": [
+    "channel.name",
+    "next.title"
+  ],
   "layers": [
     {
-      "id": "Background",
+      "id": "bg",
       "type": "rect",
       "x": 0,
       "y": 0,
@@ -15,122 +19,523 @@
       "name": "Background"
     },
     {
-      "id": "Accent-plane",
-      "type": "rect",
-      "x": 1150,
-      "y": -200,
-      "w": 1150,
-      "h": 1400,
-      "fill": "{accent}",
-      "rotate": "{control.rotate}",
-      "name": "Accent plane"
-    },
-    {
-      "id": "Rule",
-      "type": "rect",
-      "x": 120,
-      "y": 210,
-      "w": 110,
-      "h": 14,
-      "fill": "{glow}",
-      "name": "Rule"
-    },
-    {
-      "id": "Edition",
-      "type": "text",
-      "text": "THE 2010s / DAILY EDITION",
-      "x": 120,
-      "y": 160,
-      "size": "{control.size}",
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "track": "{control.track}",
-      "name": "Edition"
-    },
-    {
-      "id": "Long-shadow",
-      "type": "path",
-      "path": "M 180 400 L 1650 400 L 1920 670 L 1920 1080 L 850 1080 Z",
-      "fill": "#000000@0.16",
-      "name": "Long shadow"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "BACK TO THE SHOW",
-      "x": {
+      "id": "bk-halo",
+      "type": "ellipse",
+      "x": 320,
+      "y": -100,
+      "w": 1280,
+      "h": 1280,
+      "fill": "{text}@0.035",
+      "scale": {
         "keys": [
           [
             0,
-            850
+            1.6
           ],
           [
-            0.65,
-            960,
+            0.8,
+            1,
             "out"
           ]
         ]
       },
-      "y": 535,
-      "size": 140,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "align": "center",
-      "opacity": {
+      "name": "Halo"
+    },
+    {
+      "id": "stack0",
+      "type": "path",
+      "path": "M 18 0 H 1162 A 18 18 0 0 1 1180 18 V 402 A 18 18 0 0 1 1162 420 H 18 A 18 18 0 0 1 0 402 V 18 A 18 18 0 0 1 18 0 Z",
+      "fill": "{control.second}",
+      "y": {
         "keys": [
           [
-            0,
-            0
+            0.1,
+            1200
           ],
           [
             0.7,
-            1,
+            396,
             "out"
           ],
           [
-            7.5,
-            1
+            7.21,
+            396
           ],
           [
-            8,
-            0
+            7.71,
+            -700,
+            "in"
           ]
         ]
       },
-      "name": "Channel title"
+      "x": {
+        "keys": [
+          [
+            0.1,
+            930
+          ],
+          [
+            0.7,
+            426,
+            "out"
+          ]
+        ]
+      },
+      "name": "Third card"
     },
     {
-      "id": "Detail",
+      "id": "stack1",
+      "type": "path",
+      "path": "M 18 0 H 1162 A 18 18 0 0 1 1180 18 V 402 A 18 18 0 0 1 1162 420 H 18 A 18 18 0 0 1 0 402 V 18 A 18 18 0 0 1 18 0 Z",
+      "fill": "{glow}",
+      "y": {
+        "keys": [
+          [
+            0.2,
+            1200
+          ],
+          [
+            0.8,
+            364,
+            "out"
+          ],
+          [
+            7.13,
+            364
+          ],
+          [
+            7.63,
+            -700,
+            "in"
+          ]
+        ]
+      },
+      "x": {
+        "keys": [
+          [
+            0.2,
+            930
+          ],
+          [
+            0.8,
+            394,
+            "out"
+          ]
+        ]
+      },
+      "name": "Yellow card"
+    },
+    {
+      "id": "stack2",
+      "type": "path",
+      "path": "M 18 0 H 1162 A 18 18 0 0 1 1180 18 V 402 A 18 18 0 0 1 1162 420 H 18 A 18 18 0 0 1 0 402 V 18 A 18 18 0 0 1 18 0 Z",
+      "fill": "{accent}",
+      "y": {
+        "keys": [
+          [
+            0.30000000000000004,
+            1200
+          ],
+          [
+            0.9,
+            332,
+            "out"
+          ],
+          [
+            7.05,
+            332
+          ],
+          [
+            7.55,
+            -700,
+            "in"
+          ]
+        ]
+      },
+      "x": {
+        "keys": [
+          [
+            0.30000000000000004,
+            930
+          ],
+          [
+            0.9,
+            362,
+            "out"
+          ]
+        ]
+      },
+      "name": "Coral card"
+    },
+    {
+      "id": "top",
+      "type": "group",
+      "x": {
+        "keys": [
+          [
+            0.4,
+            930
+          ],
+          [
+            1.0,
+            330,
+            "out"
+          ]
+        ]
+      },
+      "y": {
+        "keys": [
+          [
+            0.4,
+            1200
+          ],
+          [
+            1.0,
+            300,
+            "out"
+          ],
+          [
+            6.95,
+            300
+          ],
+          [
+            7.45,
+            -700,
+            "in"
+          ]
+        ]
+      },
+      "layers": [
+        {
+          "id": "top-face",
+          "type": "path",
+          "path": "M 18 0 H 1162 A 18 18 0 0 1 1180 18 V 402 A 18 18 0 0 1 1162 420 H 18 A 18 18 0 0 1 0 402 V 18 A 18 18 0 0 1 18 0 Z",
+          "fill": "{text}",
+          "name": "Card face"
+        },
+        {
+          "id": "bk-pill",
+          "type": "group",
+          "x": 80,
+          "y": 70,
+          "layers": [
+            {
+              "id": "bk-pill-bg",
+              "type": "path",
+              "path": "M 27 0 H 223 A 27 27 0 0 1 250 27 V 27 A 27 27 0 0 1 223 54 H 27 A 27 27 0 0 1 0 27 V 27 A 27 27 0 0 1 27 0 Z",
+              "fill": "{bg}",
+              "scaleX": {
+                "keys": [
+                  [
+                    1.0,
+                    0
+                  ],
+                  [
+                    1.35,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Pill"
+            },
+            {
+              "id": "bk-pill-label",
+              "type": "text",
+              "text": "BACK TO",
+              "x": 125.0,
+              "y": 38.0,
+              "size": 26,
+              "weight": 700,
+              "track": "{control.track}",
+              "font": "{type.mono}",
+              "fill": "{text}",
+              "align": "center",
+              "maxWidth": 212.2,
+              "fit": "shrink",
+              "opacity": {
+                "keys": [
+                  [
+                    1.2,
+                    0
+                  ],
+                  [
+                    1.45,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Pill label"
+            }
+          ],
+          "name": "Pill back to"
+        },
+        {
+          "id": "bk-title-mask",
+          "type": "group",
+          "clip": "M 40 150 H 1140 V 290 H 40 Z",
+          "layers": [
+            {
+              "id": "bk-title",
+              "type": "text",
+              "y": {
+                "keys": [
+                  [
+                    1.15,
+                    396
+                  ],
+                  [
+                    1.65,
+                    256,
+                    "out"
+                  ]
+                ]
+              },
+              "text": "{next.title}",
+              "x": 80,
+              "size": 104,
+              "weight": 700,
+              "font": "{type.display}",
+              "fill": "{bg}",
+              "maxWidth": 1020,
+              "fit": "shrink",
+              "name": "Programme title"
+            }
+          ],
+          "name": "Programme title mask"
+        },
+        {
+          "id": "bk-rule",
+          "type": "rect",
+          "x": 80,
+          "y": 312,
+          "w": 1020,
+          "h": 3,
+          "fill": "{bg}@0.12",
+          "scaleX": {
+            "keys": [
+              [
+                1.4,
+                0
+              ],
+              [
+                1.9,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Rule"
+        },
+        {
+          "id": "bk-foot",
+          "type": "group",
+          "opacity": {
+            "keys": [
+              [
+                1.6,
+                0
+              ],
+              [
+                2.0,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "layers": [
+            {
+              "id": "bk-live",
+              "type": "text",
+              "text": "RESUMING NOW",
+              "x": 80,
+              "y": 372,
+              "size": 26,
+              "weight": 700,
+              "track": 4,
+              "font": "{type.mono}",
+              "fill": "{accent}",
+              "maxWidth": 500,
+              "fit": "shrink",
+              "name": "Resuming"
+            }
+          ],
+          "name": "Card footer"
+        },
+        {
+          "id": "bk-stripe",
+          "type": "group",
+          "layers": [
+            {
+              "id": "bk-stripe0",
+              "type": "rect",
+              "x": 904,
+              "y": 356,
+              "w": 60,
+              "h": 10,
+              "fill": "{accent}",
+              "scaleX": {
+                "keys": [
+                  [
+                    1.7,
+                    0
+                  ],
+                  [
+                    2.05,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Stripe 1"
+            },
+            {
+              "id": "bk-stripe1",
+              "type": "rect",
+              "x": 972,
+              "y": 356,
+              "w": 60,
+              "h": 10,
+              "fill": "{glow}",
+              "scaleX": {
+                "keys": [
+                  [
+                    1.78,
+                    0
+                  ],
+                  [
+                    2.13,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Stripe 2"
+            },
+            {
+              "id": "bk-stripe2",
+              "type": "rect",
+              "x": 1040,
+              "y": 356,
+              "w": 60,
+              "h": 10,
+              "fill": "{control.second}",
+              "scaleX": {
+                "keys": [
+                  [
+                    1.8599999999999999,
+                    0
+                  ],
+                  [
+                    2.21,
+                    1,
+                    "out"
+                  ]
+                ]
+              },
+              "name": "Stripe 3"
+            }
+          ],
+          "name": "Signature stripe"
+        }
+      ],
+      "name": "Title card"
+    },
+    {
+      "id": "bk-lock",
+      "type": "group",
+      "x": 330,
+      "y": 905,
+      "opacity": {
+        "keys": [
+          [
+            1.5,
+            0
+          ],
+          [
+            1.9,
+            1,
+            "out"
+          ]
+        ]
+      },
+      "layers": [
+        {
+          "id": "bk-lock-mark",
+          "type": "group",
+          "x": 28.0,
+          "y": 0,
+          "layers": [
+            {
+              "id": "bk-lock-mark-tile",
+              "type": "path",
+              "path": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "{accent}",
+              "name": "Tile"
+            },
+            {
+              "id": "bk-lock-mark-shadow",
+              "type": "path",
+              "path": "M 64 0 L 264 200 L 170 254 L -30 54 L 30 54 L 30 0 Z",
+              "clip": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+              "fill": "#000000@0.2",
+              "name": "Long shadow"
+            },
+            {
+              "id": "bk-lock-mark-arrow",
+              "type": "path",
+              "path": "M 0 -64 L 64 0 L 30 0 L 30 54 L -30 54 L -30 0 L -64 0 Z",
+              "fill": "{text}",
+              "name": "Arrow"
+            }
+          ],
+          "name": "Shift mark",
+          "scale": 0.28
+        },
+        {
+          "id": "bk-lock-name",
+          "type": "text",
+          "text": "{channel.name}",
+          "x": 78,
+          "y": 10.799999999999999,
+          "size": 30,
+          "weight": 700,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "maxWidth": 520,
+          "fit": "shrink",
+          "name": "Channel name"
+        }
+      ],
+      "name": "Channel lockup"
+    },
+    {
+      "id": "bk-tag",
       "type": "text",
-      "text": "{now.title}",
-      "x": 960,
-      "y": 660,
-      "size": 48,
+      "text": "{words.tagline}",
+      "x": 1590,
+      "y": 916,
+      "size": 30,
       "font": "{type.mono}",
-      "fill": "{text}",
-      "align": "center",
-      "maxWidth": 1500,
+      "fill": "{text}@0.7",
+      "align": "right",
+      "maxWidth": 700,
       "fit": "shrink",
-      "name": "Detail"
-    },
-    {
-      "id": "Station",
-      "type": "text",
-      "text": "{channel.name}  /  {station.id}",
-      "x": 960,
-      "y": 930,
-      "size": 26,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "align": "center",
-      "track": "{control.track}",
-      "name": "Station"
+      "opacity": {
+        "keys": [
+          [
+            1.7,
+            0
+          ],
+          [
+            2.1,
+            1,
+            "out"
+          ]
+        ]
+      },
+      "name": "Tagline"
     }
   ]
 }

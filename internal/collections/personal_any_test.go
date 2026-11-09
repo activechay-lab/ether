@@ -48,7 +48,7 @@ func TestMatchAnyWithPersonalRuleIsAnOr(t *testing.T) {
 		t.Fatalf("guest total %d, owner total %d", guestPage.Total, page.Total)
 	}
 	// After a restart the members come from the database.
-	e2, err := collections.New(e.db.(*sql.DB), e.cat, nil, collections.WithIndexTTL(0), collections.WithoutDefaults(), collections.WithState(st))
+	e2, err := collections.New(e.db.(*sql.DB), e.cat, nil, collections.WithIndexTTL(0), collections.WithState(st))
 	if err != nil {
 		t.Fatal(err)
 	}

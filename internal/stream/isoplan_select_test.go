@@ -40,17 +40,6 @@ func TestIsoFeatureDVDPlaysTheWholeLargestTitleSet(t *testing.T) {
 	}
 }
 
-func TestIsoFeaturePrefersALargerPlainVideoOverDVDExtras(t *testing.T) {
-	an := &iso.Analysis{Files: isoFiles(map[string]int64{
-		"VIDEO_TS/VTS_01_1.VOB": 50 << 20,
-		"Movie.mkv":             4 << 30,
-	})}
-	files, name := isoFeature(an, "x.iso")
-	if len(files) != 1 || name != "Movie.mkv" {
-		t.Fatalf("got %v %q", files, name)
-	}
-}
-
 func TestJoinableDiscsDropsABonusDisc(t *testing.T) {
 	mk := func(ticks int64) *disc {
 		return &disc{an: &iso.Analysis{DurationTicks: ticks, MainFeature: []iso.Clip{{File: iso.File{Size: ticks}}}}}

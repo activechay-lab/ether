@@ -134,7 +134,7 @@ func TestRankingReplayPrefersDubAndNeutralIsUnchanged(t *testing.T) {
 			"runtime": { "kind": "hosted", "entry": "plugin.js" },
 			"contributes": {
 				"rankingSteps": [
-					{ "key": "prefer_dub", "label": "Prefer dubbed audio", "defaultPosition": 0 }
+					{ "key": "prefer_dub", "label": "Prefer dubbed audio" }
 				]
 			}
 		}
@@ -152,18 +152,16 @@ globalThis.rank_key = rank_key;
 
 	ctx := context.Background()
 
-	// 1. At position 0 (top of ladder), both Trace 1 and Trace 3 switch to DUB.
-	posZero := 0
+	// 1. The step's points join the custom format score: Trace 1 (both
+	// 1080p) switches to DUB, while Trace 3 (2160p vs 1080p DUB) keeps the
+	// 2160p release, since quality ranks first.
 	rep, err := runner.Replay(ctx, ReplayRequest{
 		DevInstance: &DevInstance{
 			Manifest: manifestJSON,
 			Files:    map[string]string{"plugin.js": dubJS},
 		},
-		Kind: ReplayRanking,
-		Params: ReplayParams{
-			StepKey:  "prefer_dub",
-			Position: &posZero,
-		},
+		Kind:   ReplayRanking,
+		Params: ReplayParams{StepKey: "prefer_dub"},
 	})
 	if err != nil {
 		t.Fatalf("ranking replay failed: %v", err)
@@ -174,41 +172,13 @@ globalThis.rank_key = rank_key;
 	if rep.Ranking.TracesLoaded != 3 || rep.Ranking.TracesEvaluated != 3 {
 		t.Fatalf("traces loaded=%d evaluated=%d, want 3", rep.Ranking.TracesLoaded, rep.Ranking.TracesEvaluated)
 	}
-	if rep.Ranking.ChangedCount != 2 || rep.Ranking.UnchangedCount != 1 {
-		t.Fatalf("changed=%d unchanged=%d, want 2 changed and 1 unchanged", rep.Ranking.ChangedCount, rep.Ranking.UnchangedCount)
+	if rep.Ranking.ChangedCount != 1 || rep.Ranking.UnchangedCount != 2 {
+		t.Fatalf("changed=%d unchanged=%d, want 1 changed and 2 unchanged", rep.Ranking.ChangedCount, rep.Ranking.UnchangedCount)
 	}
-	if len(rep.Ranking.Changed) != 2 {
-		t.Fatalf("changed slice len=%d, want 2", len(rep.Ranking.Changed))
+	ch := rep.Ranking.Changed[0]
+	if ch.TitleName != "Spirited Away (2001)" || !strings.Contains(ch.AfterReleaseName, "DUB") || strings.Contains(ch.BeforeReleaseName, "DUB") {
+		t.Fatalf("unexpected changed pick: %+v", ch)
 	}
-	for _, ch := range rep.Ranking.Changed {
-		if !strings.Contains(ch.AfterReleaseName, "DUB") || strings.Contains(ch.BeforeReleaseName, "DUB") {
-			t.Fatalf("unexpected changed pick: %+v", ch)
-		}
-	}
-
-	// 2. Placed after "resolution", Trace 1 (both 1080p) switches to DUB, while
-	// Trace 3 (2160p vs 1080p DUB) keeps the 2160p release.
-	repAfterRes, err := runner.Replay(ctx, ReplayRequest{
-		DevInstance: &DevInstance{
-			Manifest: manifestJSON,
-			Files:    map[string]string{"plugin.js": dubJS},
-		},
-		Kind: ReplayRanking,
-		Params: ReplayParams{
-			StepKey:   "prefer_dub",
-			AfterStep: "resolution",
-		},
-	})
-	if err != nil {
-		t.Fatalf("ranking replay after resolution failed: %v", err)
-	}
-	if repAfterRes.Ranking.ChangedCount != 1 {
-		t.Fatalf("changed after resolution = %d, want 1", repAfterRes.Ranking.ChangedCount)
-	}
-	if repAfterRes.Ranking.Changed[0].TitleName != "Spirited Away (2001)" {
-		t.Fatalf("changed title = %q, want Spirited Away (2001)", repAfterRes.Ranking.Changed[0].TitleName)
-	}
-
 	// 3. When the step is neutral (returns 0 for all candidates), 0 picks change.
 	repNeutral, err := runner.Replay(ctx, ReplayRequest{
 		DevInstance: &DevInstance{
@@ -217,9 +187,8 @@ globalThis.rank_key = rank_key;
 		},
 		Kind: ReplayRanking,
 		Params: ReplayParams{
-			StepKey:  "prefer_dub",
-			Position: &posZero,
-			Config:   json.RawMessage(`{"neutral":true}`),
+			StepKey: "prefer_dub",
+			Config:  json.RawMessage(`{"neutral":true}`),
 		},
 	})
 	if err != nil {
@@ -269,8 +238,10 @@ globalThis.cond_match = cond_match;
 	if err != nil {
 		t.Fatalf("condition replay failed: %v", err)
 	}
-	if repCond.Ranking.Mode != "rule_condition" || repCond.Ranking.ChangedCount != 2 {
-		t.Fatalf("condition replay mode=%s changed=%d, want rule_condition and 2", repCond.Ranking.Mode, repCond.Ranking.ChangedCount)
+	// A Prefer rule is a scored format: it wins within a quality (Trace 1)
+	// but not over a better quality (Trace 3).
+	if repCond.Ranking.Mode != "rule_condition" || repCond.Ranking.ChangedCount != 1 || repCond.Ranking.PreferScore != defaultPreferScore {
+		t.Fatalf("condition replay mode=%s changed=%d, want rule_condition and 1", repCond.Ranking.Mode, repCond.Ranking.ChangedCount)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/fonts"
@@ -29,6 +30,8 @@ import (
 )
 
 type Options struct {
+	// Showcase adds the decade looks used by the shipped showcase channels.
+	Showcase bool
 	// Changed runs after an owner style save has committed and locks are released.
 	Changed        func(context.Context) error
 	StyleChannels  func(context.Context) (map[string][]string, error)
@@ -50,6 +53,19 @@ type Options struct {
 	Artwork     func(context.Context, string) (image.Image, error)
 	// Render is a seam for verifying that Ensure never executes work inline.
 	Render func(context.Context, scene.Document, raster.Bindings, string) error
+	// AssetDir is the blob store for asset bytes (<data>/onair/assets);
+	// empty uses Dir/assets.
+	AssetDir string
+	// NodeID identifies this node in onair_asset_replicas.
+	NodeID string
+	// Members lists every node sharing the database (cluster members seen
+	// in the last day); nil means this node alone.
+	Members func(context.Context) ([]Member, error)
+	// AssetsChanged asks every node to run an asset pass (PokeAssets).
+	AssetsChanged func(context.Context)
+	// Downloader resolves and downloads video/audio pages via yt-dlp or the
+	// owner's configured resolver command.
+	Downloader *extras.Downloader
 }
 type entry struct {
 	Ref  core.ClipRef
@@ -82,23 +98,29 @@ type Service struct {
 	db             *sql.DB
 	mu             sync.Mutex
 	assetMu        sync.Mutex
+	blobs          blobStore
+	nodeID         string
+	assetPoke      chan struct{}
+	fetchMu        sync.Mutex
+	fetching       map[string]chan struct{}
 	looks          map[string]Look
 	cache          map[string]entry
 	pins           map[string]time.Time
 	pending        map[string]bool
 	// failed holds a retry time per content hash after a render error, so a
 	// boundary that re-requests every tick cannot spin a failing render.
-	failed      map[string]failure
-	renderTimes map[string]time.Duration
-	progress    map[string]*Progress
-	lookJobs    map[string][]string
-	jobs        chan renderJob
-	clipJobs    chan renderJob
-	importJobs  chan renderJob
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	startOnce   sync.Once
+	failed        map[string]failure
+	renderTimes   map[string]time.Duration
+	progress      map[string]*Progress
+	lookJobs      map[string][]string
+	importCancels map[string]context.CancelFunc
+	jobs          chan renderJob
+	clipJobs      chan renderJob
+	importJobs    chan renderJob
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	startOnce     sync.Once
 }
 
 var _ core.ChannelGraphics = (*Service)(nil)
@@ -116,12 +138,30 @@ func New(o Options) (*Service, error) {
 	if e := os.MkdirAll(o.Dir, 0750); e != nil {
 		return nil, e
 	}
+	if o.AssetDir == "" {
+		o.AssetDir = filepath.Join(o.Dir, "assets")
+	}
+	if o.NodeID == "" {
+		o.NodeID = "local"
+	}
+	if o.Downloader == nil {
+		o.Downloader = extras.NewDownloader(extras.DownloaderOptions{
+			ToolsDir: filepath.Join(o.Dir, "tools"),
+			FFmpeg:   o.FFmpeg,
+		})
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
 
 	if e := s.seed(ctx); e != nil {
 		cancel()
 		return nil, e
+	}
+	if o.Showcase {
+		if e := s.seedShowcase(ctx); e != nil {
+			cancel()
+			return nil, e
+		}
 	}
 	ls, e := s.Looks(ctx)
 	if e != nil {
@@ -154,14 +194,18 @@ func New(o Options) (*Service, error) {
 	return s, nil
 }
 
+// Downloader returns the yt-dlp downloader shared with this service.
+func (s *Service) Downloader() *extras.Downloader { return s.o.Downloader }
+
 // Start begins workers after application dependencies have been constructed.
 func (s *Service) Start() {
 	s.startOnce.Do(func() {
 		if s.ctx.Err() == nil {
-			s.wg.Add(3)
+			s.wg.Add(4)
 			go s.run()
 			go s.watchUpcoming()
 			go s.backfillFacts()
+			go s.runAssets()
 			for range 2 {
 				s.wg.Add(1)
 				go s.runImports()
@@ -744,7 +788,7 @@ func (s *Service) process(j renderJob) {
 	delete(s.pending, j.Hash)
 	s.refreshProgress(j.Look)
 	s.mu.Unlock()
-	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil {
+	if errors.Is(e, context.Canceled) && s.ctx.Err() == nil && !j.download {
 		s.enqueue(j)
 	}
 	if e != nil && s.ctx.Err() == nil && !errors.Is(e, context.Canceled) && j.scene() {
@@ -832,32 +876,22 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	audio := ""
 
 	var sounds []encode.SoundInput
+	// Scene media is read in place from the immutable asset file.
 	prepare := func(digest, kind string) (string, error) {
-		var b []byte
-		if err := s.db.QueryRowContext(ctx, "SELECT content FROM onair_assets WHERE digest=? AND kind=?", digest, kind).Scan(&b); err != nil {
+		var stored string
+		if err := s.db.QueryRowContext(ctx, "SELECT kind FROM onair_assets WHERE digest=?", digest).Scan(&stored); err != nil {
 			return "", err
 		}
-		f, err := os.CreateTemp(s.o.Dir, ".scene-media-*")
-		if err != nil {
-			return "", err
+		if stored != kind {
+			return "", sql.ErrNoRows
 		}
-		_, err = f.Write(b)
-		closeErr := f.Close()
-		if err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			os.Remove(f.Name())
-			return "", err
-		}
-		return f.Name(), nil
+		return s.assetPath(ctx, digest)
 	}
 	for _, sound := range j.Scene.Sounds {
 		path, err := prepare(sound.AssetDigest, "audio")
 		if err != nil {
 			return err
 		}
-		defer os.Remove(path)
 		sounds = append(sounds, encode.SoundInput{Path: path, At: sound.At, Start: sound.Start, End: sound.End, Volume: sound.Volume, FadeIn: sound.FadeIn, FadeOut: sound.FadeOut})
 	}
 	var background *encode.VideoInput
@@ -866,7 +900,6 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		if err != nil {
 			return err
 		}
-		defer os.Remove(path)
 		background = &encode.VideoInput{Path: path, Fit: v.Fit, Start: v.Start}
 	}
 	if j.AssetDigest != "" {
@@ -993,9 +1026,12 @@ func (s *Service) loadAssets(ctx context.Context, j *renderJob) error {
 			}
 			continue
 		}
-		var b []byte
 		var kind, mime string
-		if e := s.db.QueryRowContext(ctx, "SELECT content,kind,mime FROM onair_assets WHERE digest=?", d).Scan(&b, &kind, &mime); e != nil {
+		if e := s.db.QueryRowContext(ctx, "SELECT kind,mime FROM onair_assets WHERE digest=?", d).Scan(&kind, &mime); e != nil {
+			return e
+		}
+		b, e := s.assetBytes(ctx, d)
+		if e != nil {
 			return e
 		}
 		if kind == "font" {

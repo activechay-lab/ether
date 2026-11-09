@@ -77,10 +77,22 @@ func TestTranscodeChaosHTTPHardware(t *testing.T) {
 	f.srv.d.State = watch
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// A resume point under a minute is never stored from a timeline (the PMS
+	// rule) and a timeline before any delivered segment is suppressed, so
+	// seed the prior resume point the abort must leave alone.
+	if e := watch.Progress(ctx, ownerUser.ID, fightClub.Key, time.Second, 0, "playing"); e != nil {
+		t.Fatal(e)
+	}
+	// The player asks its decision first; timelines count only for an armed
+	// decision, so the playhead below belongs to this playback.
+	requestHook(f, http.MethodGet, "/video/:/transcode/universal/start.mkv?path=%2Flibrary%2Fmetadata%2F"+fightClub.Key.String()+"&session=http-hardware&protocol=http&directPlay=0&directStream=0", map[string]string{"X-Plex-Token": ownerToken, "X-Plex-Client-Identifier": "client-1"})
 	// Keep the client's last actual playhead, rather than the encoder head.
 	f.get(t, "/:/timeline?ratingKey="+fightClub.Key.String()+"&state=playing&time=1000&duration=12000", "X-Plex-Client-Identifier", "client-1")
 	injected := make(chan error, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "" { // a ranged reconnect resumes the same start; a client asks no new decision
+			requestHook(f, r.Method, r.URL.RequestURI(), map[string]string{"X-Plex-Token": ownerToken, "X-Plex-Client-Identifier": r.Header.Get("X-Plex-Client-Identifier")})
+		}
 		if r.URL.Query().Get("session") == "http-hardware" && r.Header.Get("Range") == "" {
 			f.srv.ServeHTTP(&interruptingWriter{ResponseWriter: w, runner: runner, err: injected}, r)
 			return
@@ -178,6 +190,7 @@ func TestTranscodeChaosHTTPHardware(t *testing.T) {
 	retry.Header.Set("X-Plex-Token", ownerToken)
 	retry.Header.Set("X-Plex-Client-Identifier", "client-1")
 	recovered := httptest.NewRecorder()
+	requestHook(f, retry.Method, retry.URL.RequestURI(), map[string]string{"X-Plex-Token": ownerToken, "X-Plex-Client-Identifier": "client-1"})
 	f.srv.ServeHTTP(recovered, retry)
 	if recovered.Code != 200 || !runner.softwareStarted() {
 		t.Fatalf("retry did not use software (HTTP %d)", recovered.Code)

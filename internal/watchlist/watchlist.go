@@ -240,11 +240,23 @@ func (s *Service) ContainsMany(ctx context.Context, userID int64, keys []core.Ra
 	return out, nil
 }
 func (s *Service) Remove(ctx context.Context, userID int64, key core.RatingKey) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM watchlist_items WHERE user_id=? AND item_key=?`, userID, key)
-	if err == nil {
-		s.gen.Add(1)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	return err
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM watchlist_items WHERE user_id=? AND item_key=?`, userID, key); err != nil {
+		return err
+	}
+	// The show's handled episodes go with it (see forgetEpisodes).
+	if _, err := tx.ExecContext(ctx, `DELETE FROM watchlist_episodes WHERE user_id=? AND item_key=?`, userID, key); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.gen.Add(1)
+	return nil
 }
 func (s *Service) upsert(ctx context.Context, uid int64, source string, t core.Title) error {
 	raw, err := json.Marshal(t)
@@ -299,6 +311,9 @@ func (s *Service) replace(ctx context.Context, u *core.User, source string, ts [
 	}
 	for _, k := range removed {
 		if _, err = tx.ExecContext(ctx, `DELETE FROM watchlist_items WHERE user_id=? AND source=? AND item_key=?`, u.ID, source, k); err != nil {
+			return err
+		}
+		if err = forgetEpisodes(ctx, tx, u.ID, k); err != nil {
 			return err
 		}
 	}

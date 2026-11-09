@@ -285,25 +285,69 @@ func (c *Catalog) kickMovieYears(items []core.Title) {
 		// The correction loop resumes the backlog after the pause.
 		return
 	}
+	// Every listing and title read lands here. One goroutine at a time
+	// reads the keys gathered so far: a goroutine per call held a
+	// connection each, and a burst of them (a Home build browsing every
+	// genre) opened connections past the idle pool, every one parsing the
+	// whole schema while the requests beside it waited.
+	c.yearKickMu.Lock()
+	if len(c.yearKickKeys) < yearKickBacklog {
+		c.yearKickKeys = append(c.yearKickKeys, keys...)
+	}
+	if c.yearKickBusy {
+		c.yearKickMu.Unlock()
+		return
+	}
+	c.yearKickBusy = true
+	c.yearKickMu.Unlock()
 	go func() {
-		rows, err := c.db.QueryContext(context.Background(), `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`) AND type='movie' AND year_source='' AND detail=1 AND released_ts<>0`, keys...)
-		if err != nil {
-			return
-		}
-		var pending []core.RatingKey
-		for rows.Next() {
-			var key int64
-			if rows.Scan(&key) == nil {
-				pending = append(pending, core.RatingKey(key))
+		for {
+			c.yearKickMu.Lock()
+			batch := c.yearKickKeys
+			c.yearKickKeys = nil
+			if len(batch) == 0 {
+				c.yearKickBusy = false
+				c.yearKickMu.Unlock()
+				return
 			}
-		}
-		rows.Close()
-		for _, key := range pending {
-			if c.yearAhead == nil || c.yearInflightN.Load() >= yearFetchSlots || !c.startYearFetch(context.Background(), key) {
-				c.enqueueMovieYear(key)
+			c.yearKickMu.Unlock()
+			for start := 0; start < len(batch); start += 500 {
+				c.checkMovieYears(batch[start:min(start+500, len(batch))])
 			}
 		}
 	}()
+}
+
+// yearKickBacklog bounds the keys waiting for kickMovieYears' reader. Keys
+// past it are dropped: a title seen again is kicked again, and the
+// correction loop covers the backlog.
+const yearKickBacklog = 4000
+
+// checkMovieYears starts or queues a year fetch for keys whose stored
+// movie year may be a premiere-date year.
+func (c *Catalog) checkMovieYears(keys []any) {
+	// Only the key is a predicate: with type or year_source in the
+	// WHERE clause SQLite's planner may walk a type index (every movie)
+	// instead of seeking the page's keys. The rest is decided here.
+	rows, err := c.db.QueryContext(context.Background(), `SELECT key, type, year_source, detail, released_ts FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`)`, keys...)
+	if err != nil {
+		return
+	}
+	var pending []core.RatingKey
+	for rows.Next() {
+		var key, released int64
+		var typ, source string
+		var detail int
+		if rows.Scan(&key, &typ, &source, &detail, &released) == nil && typ == string(core.TypeMovie) && source == "" && detail == 1 && released != 0 {
+			pending = append(pending, core.RatingKey(key))
+		}
+	}
+	rows.Close()
+	for _, key := range pending {
+		if c.yearAhead == nil || c.yearInflightN.Load() >= yearFetchSlots || !c.startYearFetch(context.Background(), key) {
+			c.enqueueMovieYear(key)
+		}
+	}
 }
 
 func (c *Catalog) yearPaused() bool {

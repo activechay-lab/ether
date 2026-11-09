@@ -432,7 +432,7 @@ func startScorecard(ctx context.Context, dir, username, password string, items [
 				}
 				var item int64
 				var release string
-				err := a.db.QueryRowContext(r.Context(), `SELECT item_id,release_id FROM sessions_version_handles WHERE handle=? AND surface=?`, handle, string(p)).Scan(&item, &release)
+				err := a.db.QueryRowContext(r.Context(), `SELECT item_id,release_id FROM sessions_version_ids WHERE handle=? AND surface=?`, handle, string(p)).Scan(&item, &release)
 				if err != nil {
 					http.NotFound(w, r)
 					return
@@ -567,7 +567,7 @@ func scorecardResolverTraces(traces []resolver.Trace) []map[string]any {
 		for _, c := range trace.Candidates {
 			reason := "other"
 			switch c.Reason {
-			case "video codec unsupported by client", "above profile max height", "below profile min height", "dolby vision not allowed for client", "season/episode mismatch", "quality excluded by imported profile":
+			case "video codec unsupported by client", resolver.ReasonAboveProfileMaxResolution, resolver.ReasonBelowProfileMinResolution, "dolby vision not allowed for client", "season/episode mismatch", "quality excluded by imported profile":
 				reason = c.Reason
 			case "":
 				reason = "none"
@@ -625,4 +625,21 @@ func scorecardDetailOffer(ctx context.Context, db *sql.DB, dir string, surface c
 		return row, core.ErrNotFound
 	}
 	return scorecardDetailOfferRow{Handle: handle, ItemID: ids.RatingKeyGUID(core.RatingKey(key)), ReleaseID: release, Revision: revision, ExpectedSHA256: file.SHA256}, nil
+}
+
+// warmFixtureEpisodes fills the show-episode cache after the scorecard import.
+// It runs only before the listener opens.
+func (a *App) warmFixtureEpisodes(ctx context.Context) {
+	if a == nil || a.catalog == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	shows, err := a.catalog.Browse(ctx, core.BrowseQuery{Sort: core.SortTitle, Limit: 16, Filter: core.Filter{Type: core.TypeShow}})
+	if err != nil {
+		return
+	}
+	for _, show := range shows.Items {
+		_, _ = a.catalog.Grandchildren(ctx, show.Key)
+	}
 }

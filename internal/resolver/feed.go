@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -168,6 +169,9 @@ func (e *feedEvaluation) judge(ctx context.Context, t *core.Title, r core.Releas
 
 // judgeWith ranks the release on its own, exactly as a one-result search.
 func (e *feedEvaluation) judgeWith(ctx context.Context, req core.ResolveRequest, sreq core.SearchRequest, env rankEnv, r core.Release) (core.Release, string, error) {
+	if reason := packEvidenceReason(r, sreq); reason != "" {
+		return r, reason, nil
+	}
 	trace := Trace{}
 	candidates, _, err := e.s.rankWith(ctx, env, req, sreq, e.profile, []core.Release{r}, &trace, "")
 	if err != nil {
@@ -181,6 +185,21 @@ func (e *feedEvaluation) judgeWith(ctx context.Context, req core.ResolveRequest,
 		return r, reason, nil
 	}
 	return candidates[0].rel, "", nil
+}
+
+// packEvidenceReason keeps a feed item from standing in for an episode it is
+// not shown to hold. A Usenet season pack is narrowed to one episode only when
+// its NZB is fetched, so from its name alone it proves just the episodes it
+// lists ("S01E03-E10"): a bare "S01" says nothing about a premiere that may
+// not be in it. Torrent packs are unchanged. "" accepts.
+func packEvidenceReason(r core.Release, sreq core.SearchRequest) string {
+	if sreq.Type != core.TypeEpisode || !r.Info.FullSeason || r.Protocol != core.ProtocolUsenet {
+		return ""
+	}
+	if !slices.Contains(r.Info.Episodes, sreq.Episode) {
+		return "season pack does not list the episode"
+	}
+	return ""
 }
 
 // VerifyFeedCandidate validates exactly the discovered release. It never invokes

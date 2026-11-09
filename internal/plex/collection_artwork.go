@@ -5,20 +5,20 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // CollectionArtworker is optionally implemented by Deps.Collections to
 // serve generated collection posters (internal/collections renders them
 // with internal/artwork). ok=false falls back to the TMDB artwork path.
 type CollectionArtworker interface {
-	CollectionArtwork(ctx context.Context, user *core.User, key core.RatingKey, element string, width int) (data []byte, contentType string, ok bool, err error)
+	CollectionArtwork(ctx context.Context, user *frontend.Viewer, key frontend.RatingKey, element string, width int) (data []byte, contentType string, ok bool, err error)
 }
 
 // serveCollectionArtwork answers an image request for a collection with
 // its generated poster, reporting whether it did.
-func (s *Server) serveCollectionArtwork(w http.ResponseWriter, r *http.Request, key core.RatingKey, element string, width int) bool {
-	if key.Kind() != core.KindSmart {
+func (s *Server) serveCollectionArtwork(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string, width int) bool {
+	if key.Kind() != frontend.KindSmart {
 		return false
 	}
 	art, ok := s.d.Collections.(CollectionArtworker)
@@ -57,7 +57,7 @@ func (s *Server) serveCollectionArtwork(w http.ResponseWriter, r *http.Request, 
 
 // collectionStamp versions collection artwork URLs so Plex clients refetch
 // a poster when the collection changes.
-func collectionStamp(c *core.Collection) string {
+func collectionStamp(c *frontend.Collection) string {
 	if c == nil || c.UpdatedAt.IsZero() {
 		return "1"
 	}

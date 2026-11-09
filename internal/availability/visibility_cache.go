@@ -125,3 +125,14 @@ func (s *Service) answeredSets(input discoverySnapshot) map[core.MediaType]*hidd
 	}
 	return out
 }
+
+// JudgedOnFacts returns, for one request, whether FilterDiscovery judges a
+// title on its facts: one inside the evidence window, whose releases are
+// matched against its names, genres, keywords, countries and directors. A
+// caller holding partial titles passes those in full.
+func (s *Service) JudgedOnFacts(ctx context.Context) func(core.Title) bool {
+	snap := s.snapshotFor(ctx)
+	return func(t core.Title) bool {
+		return !snap.upcomingMovie(t) && evidenceWindow(t, snap.now, snap.availability)
+	}
+}

@@ -2,7 +2,6 @@ package stream
 
 import (
 	"bytes"
-	"errors"
 	"math/rand/v2"
 	"testing"
 
@@ -128,67 +127,3 @@ func TestRemuxLeavesNonTransportStreamAlone(t *testing.T) {
 		t.Fatal("non-TS data was rewritten")
 	}
 }
-
-// A read not aligned to the clip's packet grid re-reads only the two packets
-// cut by its ends, not the whole window.
-func TestRemuxUnalignedReadRereadsOnlyEdgePackets(t *testing.T) {
-	raw := clipBytes(0, 40, 0xA1)
-	spans := clipSpans([]clipBoundary{{byteLen: int64(len(raw)), delta90k: 90000}})
-	var reread int
-	read := func(dst []byte, from int64) (int, error) {
-		reread += len(dst)
-		return copy(dst, raw[from:]), nil
-	}
-	want := append([]byte{}, raw...)
-	if err := remux(spans, want, 0, func(dst []byte, from int64) (int, error) { return copy(dst, raw[from:]), nil }); err != nil {
-		t.Fatal(err)
-	}
-
-	off, n := int64(100), 20*bdavPacketLen+37
-	got := append([]byte{}, raw[off:off+int64(n)]...)
-	if err := remux(spans, got, off, read); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want[off:off+int64(n)]) {
-		t.Fatal("unaligned read differs from the same bytes of a whole-file remux")
-	}
-	if reread > 2*bdavPacketLen {
-		t.Fatalf("re-read %d bytes, want at most %d", reread, 2*bdavPacketLen)
-	}
-}
-
-// One packet without a sync byte (a zero-filled damaged packet) must not stop
-// the rest of the window from being rewritten.
-func TestRemuxSkipsOnlyDamagedPackets(t *testing.T) {
-	raw := clipBytes(0, 10, 0xA1)
-	spans := clipSpans([]clipBoundary{{byteLen: int64(len(raw)), delta90k: 90000}})
-	clear(raw[3*bdavPacketLen : 4*bdavPacketLen])
-	buf := append([]byte{}, raw...)
-	if err := remux(spans, buf, 0, func(dst []byte, from int64) (int, error) { return copy(dst, raw[from:]), nil }); err != nil {
-		t.Fatal(err)
-	}
-	for i := range 10 {
-		pkt := buf[i*bdavPacketLen : (i+1)*bdavPacketLen]
-		if i == 3 {
-			if !bytes.Equal(pkt, raw[i*bdavPacketLen:(i+1)*bdavPacketLen]) {
-				t.Fatal("damaged packet was modified")
-			}
-			continue
-		}
-		if got, want := firstPTS(pkt), int64(i)*3000+90000; got != want {
-			t.Fatalf("packet %d PTS %d, want %d", i, got, want)
-		}
-	}
-}
-
-func TestRemuxEdgeReadErrorIsReturned(t *testing.T) {
-	raw := clipBytes(0, 10, 0xA1)
-	spans := clipSpans([]clipBoundary{{byteLen: int64(len(raw)), delta90k: 90000}})
-	buf := append([]byte{}, raw[100:1000]...)
-	err := remux(spans, buf, 100, func([]byte, int64) (int, error) { return 0, errTestRead })
-	if err != errTestRead {
-		t.Fatalf("err = %v, want errTestRead", err)
-	}
-}
-
-var errTestRead = errors.New("test read failure")

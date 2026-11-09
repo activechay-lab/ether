@@ -14,6 +14,9 @@ func peopleProblem(w http.ResponseWriter, status int) {
 	problemReply(w, status, map[string]any{"type": "urn:ether:problem:people-unavailable", "title": http.StatusText(status), "status": status, "detail": "The requested people operation is unavailable.", "instance": "/api/v2/catalog/people"})
 }
 func (i *instance) personDTO(r *http.Request, credential string, person frontend.PersonDetail) map[string]any {
+	return i.personDTOGrant(r, credential, person, nil)
+}
+func (i *instance) personDTOGrant(r *http.Request, credential string, person frontend.PersonDetail, issued *string) map[string]any {
 	out := map[string]any{"id": person.ID, "name": person.Name}
 	if person.TMDB > 0 {
 		out["tmdb_id"] = strconv.FormatInt(person.TMDB, 10)
@@ -26,8 +29,14 @@ func (i *instance) personDTO(r *http.Request, credential string, person frontend
 			if image.Kind != frontend.ImagePerson || image.Subject != "tmdb:"+strconv.FormatInt(person.TMDB, 10) || image.Path == "" {
 				continue
 			}
-			token, err := i.host.ImageGrants.Issue(r.Context(), frontend.ImageGrantRequest{Credential: credential, Device: device(r), Item: person.ArtworkItem, Image: image})
-			if err != nil {
+			var token string
+			var err error
+			if issued != nil {
+				token = *issued
+			} else {
+				token, err = i.host.ImageGrants.Issue(r.Context(), frontend.ImageGrantRequest{Credential: credential, Device: device(r), Item: person.ArtworkItem, Image: image})
+			}
+			if err != nil || token == "" {
 				continue
 			}
 			prefix := ""
@@ -99,8 +108,37 @@ func (i *instance) people(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]any, 0, len(people))
-	for _, person := range people {
-		items = append(items, i.personDTO(r, credential, person))
+	if batch, ok := i.host.ImageGrants.(frontend.PersonImageGrantBatch); ok {
+		targets := make([]frontend.PersonImageTarget, 0, len(people))
+		positions := make([]int, 0, len(people))
+		for n, person := range people {
+			if person.ArtworkItem == 0 {
+				continue
+			}
+			for _, image := range person.Images {
+				if image.Kind == frontend.ImagePerson && image.Subject == "tmdb:"+strconv.FormatInt(person.TMDB, 10) && image.Path != "" {
+					targets = append(targets, frontend.PersonImageTarget{Item: person.ArtworkItem, Image: image})
+					positions = append(positions, n)
+					break
+				}
+			}
+		}
+		issued := make([]string, len(people))
+		if len(targets) > 0 {
+			tokens, err := batch.IssuePersonImages(r.Context(), credential, device(r), targets)
+			if err == nil && len(tokens) == len(targets) {
+				for n, pos := range positions {
+					issued[pos] = tokens[n]
+				}
+			}
+		}
+		for n, person := range people {
+			items = append(items, i.personDTOGrant(r, credential, person, &issued[n]))
+		}
+	} else {
+		for _, person := range people {
+			items = append(items, i.personDTO(r, credential, person))
+		}
 	}
 	reply(w, 200, map[string]any{"items": items})
 }

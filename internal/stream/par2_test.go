@@ -296,14 +296,14 @@ func TestPar2OversizeIndexSkipped(t *testing.T) {
 	video := mkvBytes(48, 300_000)
 	doc := post(t, f, 400_000,
 		postFile{name: "Movie.2024.mkv", data: video},
-		postFile{name: "Movie.2024.par2", data: randBytes(3, 1_100_000)},
+		postFile{name: "Movie.2024.par2", data: randBytes(3, 4_500_000)},
 	)
 	e := newTestEngine(t, f, nil, Options{HealthSamples: 4})
 	if ok, err := e.Check(context.Background(), doc); !ok || err != nil {
 		t.Fatalf("Check = %v %v", ok, err)
 	}
 	openSource(t, e, "big", doc)
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= 12; i++ {
 		if n := f.calls(postID("Movie.2024.par2", i)); n != 0 {
 			t.Fatalf("oversize par2 part %d fetched %d times", i, n)
 		}
@@ -397,4 +397,25 @@ func TestObfuscatedUnrecognizableMultiPartFailsAfterLeadingPair(t *testing.T) {
 	if got := f.totalCalls(); got > 3 {
 		t.Fatalf("Check fetched %d articles on unrecognizable post, want <= 3", got)
 	}
+}
+
+func TestObfuscatedRAR4OrderedByTailVolumeNumber(t *testing.T) {
+	video := mkvBytes(50, 1_500_000)
+	vols := buildRAR(t, []archivetest.RARFile{{Name: "Real.RAR4.mkv", Data: video}},
+		archivetest.RAROptions{Version: 4, VolumeSize: 300_000, NewNumbering: true})
+	if len(vols) < 5 {
+		t.Fatalf("only %d volumes", len(vols))
+	}
+	order := []int{2, 0, 3, 1}
+	for k := 4; k < len(vols); k++ {
+		order = append(order, k)
+	}
+	f := newFakeFetcher()
+	doc := postShuffled(t, f, vols, order)
+	e := newTestEngine(t, f, nil, Options{})
+	src := openSource(t, e, "rar4tail", doc)
+	if src.Name() != "Real.RAR4.mkv" || src.Size() != int64(len(video)) {
+		t.Fatalf("name %q size %d", src.Name(), src.Size())
+	}
+	checkRandomReads(t, src, video, 7, 60)
 }

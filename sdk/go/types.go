@@ -250,12 +250,11 @@ type ListSourceMeta struct {
 
 // RankingStepMeta describes a custom ranking step.
 type RankingStepMeta struct {
-	Key             string `json:"key"`
-	Label           string `json:"label"`
-	Hint            string `json:"hint,omitempty"`
-	Editor          any    `json:"editor,omitempty"`
-	DefaultPosition int    `json:"defaultPosition,omitempty"`
-	Budget          any    `json:"budget,omitempty"`
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Hint   string `json:"hint,omitempty"`
+	Editor any    `json:"editor,omitempty"`
+	Budget any    `json:"budget,omitempty"`
 }
 
 // RuleConditionMeta describes a custom rule condition.

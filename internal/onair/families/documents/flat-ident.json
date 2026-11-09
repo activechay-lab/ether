@@ -2,10 +2,13 @@
   "v": 1,
   "moment": "ident",
   "duration": 8,
-  "poster": 4,
+  "poster": 3.5,
+  "slots": [
+    "channel.name"
+  ],
   "layers": [
     {
-      "id": "Background",
+      "id": "bg",
       "type": "rect",
       "x": 0,
       "y": 0,
@@ -15,122 +18,496 @@
       "name": "Background"
     },
     {
-      "id": "Accent-plane",
-      "type": "rect",
-      "x": 1150,
-      "y": -200,
-      "w": 1150,
-      "h": 1400,
-      "fill": "{accent}",
-      "rotate": "{control.rotate}",
-      "name": "Accent plane"
-    },
-    {
-      "id": "Rule",
-      "type": "rect",
-      "x": 120,
-      "y": 210,
-      "w": 110,
-      "h": 14,
-      "fill": "{glow}",
-      "name": "Rule"
-    },
-    {
-      "id": "Edition",
-      "type": "text",
-      "text": "THE 2010s / DAILY EDITION",
-      "x": 120,
+      "id": "halo",
+      "type": "ellipse",
+      "x": 560,
       "y": 160,
-      "size": "{control.size}",
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "track": "{control.track}",
-      "name": "Edition"
-    },
-    {
-      "id": "Long-shadow",
-      "type": "path",
-      "path": "M 180 400 L 1650 400 L 1920 670 L 1920 1080 L 850 1080 Z",
-      "fill": "#000000@0.16",
-      "name": "Long shadow"
-    },
-    {
-      "id": "Title",
-      "type": "text",
-      "text": "{channel.name}",
-      "x": {
+      "w": 800,
+      "h": 800,
+      "fill": "{text}@0.035",
+      "scale": {
         "keys": [
           [
-            0,
-            850
-          ],
-          [
-            0.65,
-            960,
-            "out"
-          ]
-        ]
-      },
-      "y": 535,
-      "size": 140,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "align": "center",
-      "opacity": {
-        "keys": [
-          [
-            0,
+            0.45,
             0
           ],
           [
-            0.7,
+            1.05,
             1,
-            "out"
-          ],
+            "back"
+          ]
+        ]
+      },
+      "name": "Halo"
+    },
+    {
+      "id": "orbit",
+      "type": "group",
+      "x": 960,
+      "y": 560,
+      "rotate": {
+        "keys": [
           [
-            7.5,
-            1
+            0,
+            -0.6
           ],
           [
             8,
-            0
+            0.5
           ]
         ]
       },
-      "name": "Channel title"
+      "scale": {
+        "keys": [
+          [
+            0.5,
+            0.6
+          ],
+          [
+            1.4,
+            1,
+            "out"
+          ]
+        ]
+      },
+      "opacity": {
+        "keys": [
+          [
+            0.5,
+            0
+          ],
+          [
+            1.1,
+            1,
+            "out"
+          ]
+        ]
+      },
+      "layers": [
+        {
+          "id": "orbit-ring",
+          "type": "ellipse",
+          "x": -430,
+          "y": -430,
+          "w": 860,
+          "h": 860,
+          "stroke": "{text}@0.12",
+          "strokeWidth": 3,
+          "name": "Orbit ring"
+        },
+        {
+          "id": "orbit-ring2",
+          "type": "ellipse",
+          "x": -560,
+          "y": -560,
+          "w": 1120,
+          "h": 1120,
+          "stroke": "{text}@0.06",
+          "strokeWidth": 2,
+          "name": "Outer ring"
+        },
+        {
+          "id": "orbit-dot1",
+          "type": "ellipse",
+          "x": -321,
+          "y": -321,
+          "w": 34,
+          "h": 34,
+          "fill": "{accent}",
+          "name": "Coral dot"
+        },
+        {
+          "id": "orbit-dot2",
+          "type": "ellipse",
+          "x": 360,
+          "y": -227,
+          "w": 24,
+          "h": 24,
+          "fill": "{glow}",
+          "name": "Yellow dot"
+        },
+        {
+          "id": "orbit-dot3",
+          "type": "ellipse",
+          "x": 193,
+          "y": 350,
+          "w": 44,
+          "h": 44,
+          "fill": "{control.second}",
+          "name": "Third dot"
+        },
+        {
+          "id": "orbit-dot4",
+          "type": "ellipse",
+          "x": -288,
+          "y": -493,
+          "w": 16,
+          "h": 16,
+          "fill": "{text}@0.5",
+          "name": "Small dot"
+        },
+        {
+          "id": "orbit-dot5",
+          "type": "ellipse",
+          "x": -417,
+          "y": 134,
+          "w": 26,
+          "h": 26,
+          "stroke": "{glow}",
+          "strokeWidth": 4,
+          "name": "Ring dot"
+        }
+      ],
+      "name": "Orbit"
     },
     {
-      "id": "Detail",
-      "type": "text",
-      "text": "{words.tagline}",
-      "x": 960,
-      "y": 660,
-      "size": 48,
-      "font": "{type.mono}",
-      "fill": "{text}",
-      "align": "center",
-      "maxWidth": 1500,
-      "fit": "shrink",
-      "name": "Detail"
+      "id": "confetti",
+      "type": "particles",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "count": 26,
+      "seed": 31,
+      "fill": "{text}@0.10",
+      "name": "Confetti"
     },
     {
-      "id": "Station",
-      "type": "text",
-      "text": "{channel.name}  /  {station.id}",
+      "id": "id-mark",
+      "type": "group",
       "x": 960,
-      "y": 930,
-      "size": 26,
-      "font": "{type.display}",
-      "fill": "{text}",
-      "fit": "shrink",
-      "maxWidth": 1500,
-      "align": "center",
-      "track": "{control.track}",
-      "name": "Station"
+      "y": 390,
+      "layers": [
+        {
+          "id": "id-mark-tile",
+          "type": "path",
+          "path": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+          "fill": "{accent}",
+          "name": "Tile"
+        },
+        {
+          "id": "id-mark-shadow",
+          "type": "path",
+          "path": "M 64 0 L 264 200 L 170 254 L -30 54 L 30 54 L 30 0 Z",
+          "clip": "M -56 -100 H 56 A 44 44 0 0 1 100 -56 V 56 A 44 44 0 0 1 56 100 H -56 A 44 44 0 0 1 -100 56 V -56 A 44 44 0 0 1 -56 -100 Z",
+          "fill": "#000000@0.2",
+          "opacity": {
+            "keys": [
+              [
+                1.0,
+                0
+              ],
+              [
+                1.5,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Long shadow"
+        },
+        {
+          "id": "id-mark-arrow",
+          "type": "path",
+          "path": "M 0 -64 L 64 0 L 30 0 L 30 54 L -30 54 L -30 0 L -64 0 Z",
+          "fill": "{text}",
+          "name": "Arrow"
+        }
+      ],
+      "name": "Shift mark",
+      "scale": {
+        "keys": [
+          [
+            0.55,
+            0
+          ],
+          [
+            1.15,
+            1.25,
+            "back"
+          ]
+        ]
+      },
+      "rotate": {
+        "keys": [
+          [
+            0.55,
+            -0.5
+          ],
+          [
+            1.15,
+            0,
+            "out"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "id-name-mask",
+      "type": "group",
+      "clip": "M 0 480 H 1920 V 705 H 0 Z",
+      "layers": [
+        {
+          "id": "id-name",
+          "type": "text",
+          "y": {
+            "keys": [
+              [
+                0.95,
+                890
+              ],
+              [
+                1.5,
+                660,
+                "out"
+              ]
+            ]
+          },
+          "text": "{channel.name}",
+          "x": 960,
+          "size": 168,
+          "weight": 700,
+          "font": "{type.display}",
+          "fill": "{text}",
+          "align": "center",
+          "maxWidth": 1500,
+          "fit": "shrink",
+          "name": "Channel name"
+        }
+      ],
+      "name": "Channel name mask"
+    },
+    {
+      "id": "id-stripe",
+      "type": "group",
+      "layers": [
+        {
+          "id": "id-stripe0",
+          "type": "rect",
+          "x": 855,
+          "y": 716,
+          "w": 62,
+          "h": 10,
+          "fill": "{accent}",
+          "scaleX": {
+            "keys": [
+              [
+                1.35,
+                0
+              ],
+              [
+                1.7000000000000002,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Stripe 1"
+        },
+        {
+          "id": "id-stripe1",
+          "type": "rect",
+          "x": 929,
+          "y": 716,
+          "w": 62,
+          "h": 10,
+          "fill": "{glow}",
+          "scaleX": {
+            "keys": [
+              [
+                1.4300000000000002,
+                0
+              ],
+              [
+                1.7800000000000002,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Stripe 2"
+        },
+        {
+          "id": "id-stripe2",
+          "type": "rect",
+          "x": 1003,
+          "y": 716,
+          "w": 62,
+          "h": 10,
+          "fill": "{control.second}",
+          "scaleX": {
+            "keys": [
+              [
+                1.51,
+                0
+              ],
+              [
+                1.8599999999999999,
+                1,
+                "out"
+              ]
+            ]
+          },
+          "name": "Stripe 3"
+        }
+      ],
+      "name": "Signature stripe"
+    },
+    {
+      "id": "id-tag-mask",
+      "type": "group",
+      "clip": "M 0 745 H 1920 V 835 H 0 Z",
+      "layers": [
+        {
+          "id": "id-tag",
+          "type": "text",
+          "y": {
+            "keys": [
+              [
+                1.55,
+                890
+              ],
+              [
+                2.05,
+                800,
+                "out"
+              ]
+            ]
+          },
+          "text": "{words.tagline}",
+          "x": 960,
+          "size": 44,
+          "font": "{type.mono}",
+          "fill": "{text}@0.86",
+          "align": "center",
+          "maxWidth": 1400,
+          "fit": "shrink",
+          "name": "Tagline"
+        }
+      ],
+      "name": "Tagline mask"
+    },
+    {
+      "id": "wipe-in",
+      "type": "group",
+      "x": 960,
+      "y": 540,
+      "rotate": "{control.rotate}",
+      "layers": [
+        {
+          "id": "wipe-in-slide",
+          "type": "group",
+          "x": {
+            "keys": [
+              [
+                0.08,
+                0
+              ],
+              [
+                0.8,
+                2900,
+                "inOut"
+              ]
+            ]
+          },
+          "layers": [
+            {
+              "id": "wipe-in-s1",
+              "type": "rect",
+              "x": -1420,
+              "y": -1400,
+              "w": 120,
+              "h": 2800,
+              "fill": "{glow}",
+              "name": "Yellow strip"
+            },
+            {
+              "id": "wipe-in-s2",
+              "type": "rect",
+              "x": -1540,
+              "y": -1400,
+              "w": 120,
+              "h": 2800,
+              "fill": "{control.second}",
+              "name": "Third strip"
+            },
+            {
+              "id": "wipe-in-body",
+              "type": "rect",
+              "x": -1300,
+              "y": -1400,
+              "w": 2600,
+              "h": 2800,
+              "fill": "{accent}",
+              "name": "Field"
+            }
+          ],
+          "name": "Slide"
+        }
+      ],
+      "end": 0.8200000000000001,
+      "name": "Shift wipe off"
+    },
+    {
+      "id": "wipe-out",
+      "type": "group",
+      "x": 960,
+      "y": 540,
+      "rotate": "{control.rotate}",
+      "layers": [
+        {
+          "id": "wipe-out-slide",
+          "type": "group",
+          "x": {
+            "keys": [
+              [
+                7.1,
+                -2900
+              ],
+              [
+                7.72,
+                0,
+                "inOut"
+              ]
+            ]
+          },
+          "layers": [
+            {
+              "id": "wipe-out-s1",
+              "type": "rect",
+              "x": 1300,
+              "y": -1400,
+              "w": 120,
+              "h": 2800,
+              "fill": "{glow}",
+              "name": "Yellow strip"
+            },
+            {
+              "id": "wipe-out-s2",
+              "type": "rect",
+              "x": 1420,
+              "y": -1400,
+              "w": 120,
+              "h": 2800,
+              "fill": "{control.second}",
+              "name": "Third strip"
+            },
+            {
+              "id": "wipe-out-body",
+              "type": "rect",
+              "x": -1300,
+              "y": -1400,
+              "w": 2600,
+              "h": 2800,
+              "fill": "{accent}",
+              "name": "Field"
+            }
+          ],
+          "name": "Slide"
+        }
+      ],
+      "start": 7.1,
+      "name": "Shift wipe on"
     }
   ]
 }

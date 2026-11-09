@@ -102,9 +102,9 @@ func TestAcceptedStartLocalRetainedInvariant(t *testing.T) {
 			t.Fatal("caller-created handle accepted")
 		}
 	}
-	raw, _ := json.Marshal(h)
+	raw, _ := json.Marshal(h) //nolint:staticcheck // asserts the opaque handle encodes to {}
 	var decoded AcceptedStartHandle
-	if string(raw) != "{}" || json.Unmarshal(raw, &decoded) != nil {
+	if string(raw) != "{}" || json.Unmarshal(raw, &decoded) != nil { //nolint:staticcheck // asserts decoding yields an unusable zero handle
 		t.Fatal("opaque handle exposed fields")
 	}
 	if _, err := w.InspectAcceptedStart(ctx, &decoded); err == nil {

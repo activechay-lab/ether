@@ -5,12 +5,16 @@ import (
 	"errors"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/mcp"
 	"github.com/braedonsaunders/ether/internal/schedule"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // dbMaintenanceInterval is how often derived data is pruned, the SQLite WAL
-// truncated, the planner statistics refreshed and the database checked for
+// passively checkpointed, the planner statistics refreshed and the database checked for
 // damage. The first pass waits
 // dbMaintenanceDelay so it never competes with startup work.
 const (
@@ -40,6 +44,28 @@ func (a *App) pruners() []pruner {
 	add("stats", a.stats != nil, func(ctx context.Context) (int64, error) { return a.stats.Prune(ctx) })
 	add("ratings", a.ratings != nil, func(ctx context.Context) (int64, error) { return a.ratings.Prune(ctx) })
 	add("collections", a.collections != nil, func(ctx context.Context) (int64, error) { return a.collections.Prune(ctx) })
+	add("identity", a.db != nil, func(ctx context.Context) (int64, error) {
+		grants, err := identity.NewGrants(a.db, a.users, 30*24*time.Hour, nil)
+		if err != nil {
+			return 0, err
+		}
+		return grants.Prune(ctx)
+	})
+	add("agent", a.agentRT != nil && a.agentRT.svc != nil, func(ctx context.Context) (int64, error) { return a.agentRT.svc.Prune(ctx) })
+	add("plugins", a.pluginsRT != nil && a.pluginsRT.mgr != nil, func(ctx context.Context) (int64, error) { return a.pluginsRT.mgr.Prune(ctx) })
+	add("migrate", a.migration != nil, func(ctx context.Context) (int64, error) { return a.migration.Prune(ctx) })
+	add("debrid", a.debrid != nil, func(ctx context.Context) (int64, error) { return a.debrid.Prune(ctx) })
+	add("experience", a.db != nil, func(ctx context.Context) (int64, error) { return experience.PruneRowViews(ctx, a.db) })
+	add("mcp", a.db != nil, func(ctx context.Context) (int64, error) { return mcp.PruneOAuth(ctx, a.db) })
+	add("sessions", a.frontends != nil && a.frontends.broker != nil, func(ctx context.Context) (int64, error) { return a.frontends.broker.Prune(ctx) })
+	add("sessions_version_ids", a.db != nil, func(ctx context.Context) (int64, error) { return sessions.PruneVersionIDs(ctx, a.db, time.Now()) })
+	add("segcache", a.cache != nil, func(ctx context.Context) (int64, error) { return a.cache.Prune(ctx) })
+	add("watchlist", a.watchlist != nil, func(ctx context.Context) (int64, error) { return a.watchlist.Prune(ctx) })
+	add("notify", a.notifications != nil, func(ctx context.Context) (int64, error) { return a.notifications.Prune(ctx) })
+	add("artwork", a.artwork != nil, func(ctx context.Context) (int64, error) { return a.artwork.Prune(ctx) })
+	if plex := a.currentPlexServer(); plex != nil {
+		add("plex", true, plex.Prune)
+	}
 	return ps
 }
 
@@ -64,19 +90,9 @@ func (a *App) checkpointWAL(ctx context.Context) {
 	if a.db == nil || store.DialectOf(a.db) != store.SQLite {
 		return
 	}
-	store.RunCheckpointer(ctx, a.db, a.walTruncateAllowed, func(err error) {
+	store.RunCheckpointer(ctx, a.db, nil, func(err error) {
 		a.log.Warn("wal checkpoint", "err", err)
 	})
-}
-
-// walTruncateAllowed reports whether a TRUNCATE checkpoint is safe. PASSIVE
-// checkpoints still run when this is false. A live playback, or any other
-// connection inside a query, keeps the exclusive truncate off the request.
-func (a *App) walTruncateAllowed() bool {
-	if a.playback != nil && len(a.playback.Sessions()) > 0 {
-		return false
-	}
-	return a.db != nil && a.db.Stats().InUse == 0
 }
 
 // maintainDB prunes derived data and runs store.Maintain daily until ctx

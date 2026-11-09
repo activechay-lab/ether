@@ -15,20 +15,17 @@ import (
 // is not broken, only slow, so it is excluded for this session only and
 // never marked bad.
 
-// fetchLatencyMin separates cache-like reads from fetched reads: a chunk
-// served from the segment cache returns in well under this, a chunk that
-// had to be fetched over NNTP does not. Reads faster than this carry no
-// evidence about Usenet throughput and are ignored.
-const fetchLatencyMin = 2 * time.Millisecond
-
 const speedWindow = 20 // seconds of fetch evidence considered
 
-// speedTracker accumulates fetched bytes and the wall time those fetches
-// took, bucketed per second so old evidence ages out.
+// speedTracker measures effective source-read delivery, including cached bytes.
+// It is NOT fresh network throughput: play-ahead is reflected when its bytes
+// are consumed, and idle time between reads is excluded. Never teach provider
+// capacity from this demand-driven estimate. Evidence ages out per second.
 type speedTracker struct {
 	bytes [speedWindow + 1]int64
 	durNs [speedWindow + 1]int64
 	secs  [speedWindow + 1]int64
+	reads [speedWindow + 1]int64
 }
 
 func (t *speedTracker) add(n int64, dur time.Duration, now time.Time) {
@@ -39,27 +36,28 @@ func (t *speedTracker) add(n int64, dur time.Duration, now time.Time) {
 	}
 	if t.secs[i] != sec {
 		t.secs[i], t.bytes[i], t.durNs[i] = sec, 0, 0
+		t.reads[i] = 0
 	}
+	t.reads[i]++
 	t.bytes[i] += n
 	t.durNs[i] += dur.Nanoseconds()
 }
 
 func (t *speedTracker) reset() { *t = speedTracker{} }
 
-// rate is the effective fetch throughput in bytes per second over the
-// window: fetched bytes divided by the time fetching them took. ok is
-// false until there is at least a second of fetch time and a meaningful
-// number of bytes, so a slow first chunk proves nothing.
+// rate requires several reads and at least a second of read time; a single
+// cold read after a start or seek cannot establish sustained delivery.
 func (t *speedTracker) rate(now time.Time) (float64, bool) {
 	sec := now.Unix()
-	var bytes, durNs int64
+	var bytes, durNs, reads int64
 	for i := range t.bytes {
 		if d := sec - t.secs[i]; d >= 0 && d <= speedWindow {
+			reads += t.reads[i]
 			bytes += t.bytes[i]
 			durNs += t.durNs[i]
 		}
 	}
-	if bytes < 256<<10 || durNs < int64(time.Second) {
+	if reads < 4 || bytes < 256<<10 || durNs < int64(time.Second) {
 		return 0, false
 	}
 	return float64(bytes) / (float64(durNs) / float64(time.Second)), true
@@ -76,9 +74,10 @@ func mediaBps(info core.MediaInfo, size int64) float64 {
 	return 0
 }
 
-// noteFetch records one source read. Fast (cache-like) reads are dropped.
+// noteFetch records all source reads. Dropping fast reads biases delivery
+// downward by discarding the bytes that read-ahead successfully supplied.
 func (s *session) noteFetch(n int, elapsed time.Duration, now time.Time) {
-	if n <= 0 || elapsed < fetchLatencyMin {
+	if n <= 0 || elapsed <= 0 {
 		return
 	}
 	s.speedMu.Lock()
@@ -189,12 +188,16 @@ func (m *Manager) checkSpeed(s *session, now time.Time) {
 	s.speedMu.Lock()
 	fetch, ok := s.speed.rate(now)
 	age := now.Sub(s.genSince)
-	settled := !now.Before(s.graceUntil.Add(-max(0, m.opts.SpeedGrace-6*time.Second)))
 	grace := now.Before(s.graceUntil) || age < m.opts.SpeedGrace
 	// A source that stopped delivering bytes cannot produce completed-read
 	// samples. A live blocked read is evidence; a quiet/paused encoder is not.
 	if blocked >= 6*time.Second {
 		fetch, ok = 0, true
+	}
+	if grace {
+		s.slowChecks = 0
+		s.speedMu.Unlock()
+		return
 	}
 	if !ok {
 		s.speedMu.Unlock()
@@ -209,19 +212,19 @@ func (m *Manager) checkSpeed(s *session, now time.Time) {
 	slow := s.slowChecks
 	at := g.timeMapSnapshot().TimeAt(s.lastSrcPos)
 	s.speedMu.Unlock()
-	if age >= 8*time.Second {
-		if observer, ok := m.deps.Resolver.(core.SourceDeliveryObserver); ok {
-			observer.ObserveSourceDelivery(g.res.Release, fetch)
-		}
-	}
 	// Begin bounded preparation before the buffer is empty. A source slightly
 	// faster than average still needs headroom for bursts, but never switch it
 	// solely for lacking that headroom.
-	if hasHLS && settled && age >= 6*time.Second && ratio < 1.2 {
+	if hasHLS && !grace && ratio < 1.2 {
 		m.prepareSpeedAlternate(g)
 	}
 	_, buffer, bufferKnown := m.repairHorizon(g, core.RepairEvent{Offset: -1})
-	urgent := hasHLS && settled && bufferKnown && age >= 6*time.Second && slow >= 2 && ratio < 1 && bufferRunway(buffer, ratio) <= 25*time.Second
+	// A comfortable buffer is direct evidence that recovery can wait, even
+	// when completed source reads look slow. Apply this to every path.
+	if bufferKnown && bufferRunway(buffer, ratio) > 25*time.Second {
+		return
+	}
+	urgent := hasHLS && !grace && bufferKnown && slow >= 2 && ratio < 1 && bufferRunway(buffer, ratio) <= 25*time.Second
 	if !urgent && (grace || ratio >= m.opts.SpeedThreshold || slow < m.opts.SpeedSlowChecks) {
 		return
 	}
@@ -233,17 +236,13 @@ func (m *Manager) checkSpeed(s *session, now time.Time) {
 	s.speedMu.Unlock()
 	m.log.Warn("source slower than playback; down-failing over",
 		"session", s.id, "key", s.ident.key, "release", g.res.Release.Name,
-		"fetchBps", int64(fetch), "mediaBps", int64(media), "at", at,
+		"sourceReadBps", int64(fetch), "mediaBps", int64(media), "at", at,
 		"buffer", buffer, "bufferKnown", bufferKnown, "runway", bufferRunway(buffer, ratio), "blockedRead", blocked)
 	m.backgroundDownFailover(s, g, at)
 }
 
-// noteFailedDownFailover records a down-failover that found nothing
-// slower. The releases it opened stay excluded. Once failed and
-// successful down-failovers together reach MaxDownFailovers, the
-// session stops. Closing the source ends the client read, which is
-// the error a player can see; the timeline would otherwise stay
-// "playing" while bytes trickle in.
+// noteFailedDownFailover bounds unsuccessful adaptation attempts without
+// stopping a source that is still delivering. Slow is not broken.
 func (m *Manager) noteFailedDownFailover(s *session, tried []string) {
 	if m.opts.MaxDownFailovers < 0 || s == nil {
 		return
@@ -259,13 +258,7 @@ func (m *Manager) noteFailedDownFailover(s *session, tried []string) {
 		}
 	}
 	s.downMisses++
-	giveUp := s.downFailovers+s.downMisses >= m.opts.MaxDownFailovers
 	s.mu.Unlock()
-	if !giveUp {
-		return
-	}
-	m.log.Error("playback starved; no lower-bitrate release worked", "session", s.id, "key", s.ident.key)
-	m.Stop(s.id)
 }
 
 // backgroundDownFailover runs a speed-triggered failover off the monitor.

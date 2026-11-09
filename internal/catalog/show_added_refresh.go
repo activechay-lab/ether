@@ -23,7 +23,7 @@ func (c *Catalog) refreshShowAdded(ctx context.Context) (bool, error) {
 	now := c.now().Unix()
 	indexHint := ""
 	if store.DialectOf(c.db) == store.SQLite {
-		indexHint = " INDEXED BY catalog_titles_episode_recent"
+		indexHint = c.indexedBy("catalog_titles_episode_recent")
 	}
 	type episode struct{ ts, key, show int64 }
 	var batch []episode

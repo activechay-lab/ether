@@ -60,6 +60,11 @@ func (s *Session) watch(r *run) {
 		case <-t.C:
 			collect(false)
 			watchdog.check(s, r)
+			if s.traceOn() {
+				s.mu.Lock()
+				s.traceBufferLocked(r)
+				s.mu.Unlock()
+			}
 			s.removals.retry()
 		}
 	}
@@ -86,7 +91,7 @@ func (s *Session) poll(r *run, playlist string, exited bool) {
 	if t < 0 || t >= len(s.done) {
 		t = 0
 	}
-	for _, n := range p.segments {
+	for i, n := range p.segments {
 		if n < r.startSeg || (n <= r.maxDone && r.produced > 0) {
 			continue
 		}
@@ -128,6 +133,9 @@ func (s *Session) poll(r *run, playlist string, exited bool) {
 		r.produced++
 		r.maxDone = n
 		s.done[t][n] = true
+		if s.liveInput && t == 0 && i < len(p.entries) {
+			s.noteLiveDurationLocked(n, p.entries[i].dur)
+		}
 		if t == 0 {
 			s.noteSegSizeLocked(n, s.trackSegPath(t, n))
 		}
@@ -196,6 +204,7 @@ func (s *Session) progressedLocked(r *run) {
 	s.maybeGovernLocked()
 	s.chainOrHoldLocked(r)
 	s.throttleLocked()
+
 	s.broadcastLocked()
 }
 
@@ -204,6 +213,24 @@ func (s *Session) progressedLocked(r *run) {
 // cap (maxForcedKeySegments) is the same kind of boundary: reaching it
 // while the player is still minutes behind must not start that far run or
 // the encoder head becomes the only window left on disk.
+// traceBufferLocked also runs while no segment completes, exposing stalls and pauses.
+func (s *Session) traceBufferLocked(r *run) {
+	if s.traceOn() && s.cur == r && time.Since(r.traceBufferAt) >= time.Second {
+		r.traceBufferAt = time.Now()
+		r.progressMu.Lock()
+		p := r.progress
+		r.progressMu.Unlock()
+		readyLead := time.Duration(0)
+		if r.produced > 0 {
+			readyLead = max(0, s.segStart(r.maxDone+1)-s.segStart(s.lastReq))
+		}
+		s.log.Debug("encoder buffer trace", "run", r.seq, "track", r.track, "playheadSegment", s.lastReq,
+			"maxDone", r.maxDone, "readyLeadSeconds", readyLead.Seconds(), "paused", r.paused,
+			"wallSeconds", time.Since(r.started).Seconds(), "runStartSeconds", r.spec.Start.Seconds(),
+			"outTimeSeconds", p.OutTime.Seconds(), "frame", p.Frame, "speed", p.Speed, "fps", p.FPS)
+	}
+}
+
 func (s *Session) chainOrHoldLocked(r *run) {
 	if !s.boundaryReadyLocked(r) {
 		return

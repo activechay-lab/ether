@@ -3,6 +3,7 @@ package resolver
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ func TestNativeCustomFormatLookaroundsAndGrouping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewFormatScorer(defs, nil)
+	s, err := NewFormatScorer(defs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestNativeSourceAndQualityProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, _ := NewFormatScorer(defs, nil)
+	s, _ := NewFormatScorer(defs)
 	score, _, err := s.Score(core.Release{Info: core.ReleaseInfo{Source: core.SourceWEBDL}})
 	if err != nil || score != 100 {
 		t.Fatalf("native WEB enum %d %v", score, err)
@@ -154,7 +155,10 @@ func TestCustomFormatScoresAndMinimumAppearInTrace(t *testing.T) {
 	}
 	cfg.Resolver.CustomFormats = defs
 	minimum := 1
-	cfg.Resolver.MinCustomFormatScore = &minimum
+	for i := range cfg.Quality.Profiles {
+		cfg.Quality.Profiles[i].MinCustomFormatScore = &minimum
+		cfg.Quality.Profiles[i].CustomFormatScores[defs[0].ID] = 1000
+	}
 	svc := New(&fakeIndexer{releases: movieReleases()}, nil, nil, cfg, Options{})
 	defer svc.Close()
 	res, err := svc.Resolve(context.Background(), core.ResolveRequest{Title: matrixTitle(), Client: webCaps()})
@@ -164,7 +168,9 @@ func TestCustomFormatScoresAndMinimumAppearInTrace(t *testing.T) {
 	found := false
 	for _, c := range svc.Traces()[0].Candidates {
 		if c.ReleaseID == "sd720" {
-			found = len(c.CustomFormats) == 1 && c.CustomFormats[0].Score == 1000
+			for _, m := range c.CustomFormats {
+				found = found || (m.ID == defs[0].ID && m.Score == 1000)
+			}
 		}
 	}
 	if !found {
@@ -193,7 +199,7 @@ func TestNativeLanguageSpecifications(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewFormatScorer(defs, nil)
+	s, err := NewFormatScorer(defs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +221,7 @@ func TestNativeLanguageSpecifications(t *testing.T) {
 		}
 	}
 	for _, v := range []int{-3, 59} {
-		if _, err := NewFormatScorer([]core.CustomFormat{{Name: "bad", Specifications: []core.FormatSpecification{{Implementation: "LanguageSpecification", Fields: map[string]json.RawMessage{"value": json.RawMessage(strconv.Itoa(v))}}}}}, nil); err == nil {
+		if _, err := NewFormatScorer([]core.CustomFormat{{Name: "bad", Specifications: []core.FormatSpecification{{Implementation: "LanguageSpecification", Fields: map[string]json.RawMessage{"value": json.RawMessage(strconv.Itoa(v))}}}}}); err == nil {
 			t.Fatalf("language value %d imported", v)
 		}
 	}
@@ -232,7 +238,7 @@ func TestScoreForTitleSparseProfileMapInheritsGlobalScores(t *testing.T) {
 		format("b", "B", map[string]int{"default": 20}, titleSpec),
 	}
 	release := core.Release{Name: "x", Info: core.ReleaseInfo{Languages: []string{"english"}}}
-	scorer, err := NewFormatScorer(defs, map[string]int{"a": 5, "b": 7})
+	scorer, err := NewFormatScorer(withDefaults(defs, map[string]int{"a": 5, "b": 7}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,22 +264,17 @@ func TestScoreForTitleSparseProfileMapInheritsGlobalScores(t *testing.T) {
 	}
 }
 
-func TestCompatibilityScoreDoesNotCountBandwidthTwice(t *testing.T) {
+// The connection fit is a gate, so no streaming format scores it again.
+func TestBandwidthIsNotAStreamingFormat(t *testing.T) {
 	title := &core.Title{Runtime: 100 * time.Minute}
 	rel := core.Release{Size: 2 << 30, Info: core.ReleaseInfo{VideoCodec: "h264", AudioCodec: "aac"}}
 	caps := core.ClientCaps{MaxBitrateKbps: 1000, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}}
-	score, note := compatibilityScore(rel, caps, title)
-	if !strings.Contains(note, "exceeds client cap") {
+	if note := compatibilityNote(rel, caps, title); !strings.Contains(note, "exceeds client cap") {
 		t.Fatalf("note %q", note)
 	}
-	// Only the codec/audio contributions remain: 10 for audio, nothing for
-	// video; the connection ladder step ranks the fit separately.
-	if score != 10 {
-		t.Fatalf("score %v, want 10 (bandwidth must not add ±200)", score)
-	}
-	caps.MaxBitrateKbps = 1_000_000
-	if score, _ := compatibilityScore(rel, caps, title); score != 10 {
-		t.Fatalf("fitting source score %v, want 10", score)
+	got := builtinFormatMatches(rel, core.QualityProfile{}, caps, formatFacts{})
+	if want := []string{core.CodecFormat("h264"), core.AudioFormat("aac"), core.FormatAudioDirect}; !slices.Equal(got, want) {
+		t.Fatalf("formats %v, want %v", got, want)
 	}
 }
 

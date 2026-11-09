@@ -7,6 +7,37 @@ import type { StreamRules } from "../viewers/shared";
 export const ORIGINAL_AUDIO = "original";
 
 /**
+ * Regional and script-specific BCP-47 track tags supported in the audio and
+ * subtitle pickers so Latin American vs European Spanish, Brazilian vs European
+ * Portuguese, Canadian French, Simplified vs Traditional Chinese, and Serbian
+ * scripts are distinguished cleanly.
+ */
+export const REGIONAL_TRACK_TAGS = [
+  "es-419",
+  "es-ES",
+  "pt-BR",
+  "pt-PT",
+  "fr-CA",
+  "fr-FR",
+  "zh-Hans",
+  "zh-Hant",
+  "sr-Latn",
+  "sr-Cyrl",
+] as const;
+
+export function normalizeTrackLanguage(tag: string): string {
+  const trimmed = tag.trim();
+  if (!trimmed) return "";
+  if (trimmed === ORIGINAL_AUDIO) return ORIGINAL_AUDIO;
+  try {
+    return Intl.getCanonicalLocales(trimmed)[0] ?? trimmed;
+  } catch {
+    // Keep an existing custom preference intact when editing other defaults.
+    return trimmed;
+  }
+}
+
+/**
  * One household language choice. The simple picker sets console, metadata,
  * audio and subtitles together. Region follows the browser and stays put
  * when the language changes.
@@ -18,9 +49,9 @@ export interface HouseholdLanguage {
   metadata: string;
   /** Catalogue region. Editable, and not rewritten by the language picker. */
   region: string;
-  /** ISO 639 audio code, or ORIGINAL_AUDIO. */
+  /** ISO 639 / BCP-47 audio code, or ORIGINAL_AUDIO. */
   audio: string;
-  /** ISO 639 subtitle code. Subtitle mode is left alone. */
+  /** ISO 639 / BCP-47 subtitle code. Subtitle mode is left alone. */
   subtitle: string;
 }
 
@@ -145,8 +176,12 @@ export function savedHouseholdLanguage(input: {
     negotiateLocale(browser.length ? browser : [metadata, baseLanguage(metadata)]);
   const audio = input.preferOriginal
     ? ORIGINAL_AUDIO
-    : baseLanguage(input.audioLanguages[0] || metadata);
-  const subtitle = baseLanguage(input.subtitleLanguages[0] || metadata);
+    : input.audioLanguages[0]
+      ? normalizeTrackLanguage(input.audioLanguages[0])
+      : baseLanguage(metadata);
+  const subtitle = input.subtitleLanguages[0]
+    ? normalizeTrackLanguage(input.subtitleLanguages[0])
+    : baseLanguage(metadata);
   return { console: consoleLocale, metadata, region, audio, subtitle };
 }
 
@@ -227,8 +262,8 @@ export function projectHouseholdRules<T extends StreamRules>(
   choice: HouseholdLanguage,
 ): T {
   const preferOriginal = choice.audio === ORIGINAL_AUDIO;
-  const audio = baseLanguage(choice.audio);
-  const subtitle = baseLanguage(choice.subtitle);
+  const audio = normalizeTrackLanguage(choice.audio);
+  const subtitle = normalizeTrackLanguage(choice.subtitle);
   return {
     ...existing,
     preferOriginal,

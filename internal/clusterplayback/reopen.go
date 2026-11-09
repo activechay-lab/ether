@@ -7,6 +7,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playbackcontinuity"
+	"time"
 )
 
 // ReopenRequest is an immutable same-owner operation. It grants no encoder start
@@ -31,8 +32,16 @@ type reopenRecord struct {
 	proof     string
 	busy      bool
 	nextFence placement.Fence
+	forgetAt  time.Time // forgetTerminal grace deadline
 }
 
+// ReopenSource reopens the exact revision of a retired generation's source at
+// its owner. Reopen window: the owner can attest a reopen only while it still
+// holds the old generation's owned source and original preparation in memory.
+// Once that generation is durably terminal, forgetTerminal drops both after
+// forgetGrace (two minutes), and a later reopen fails closed with ErrDenied: it
+// never reopens without that local proof. Callers that wire this into recovery
+// must reopen within the window or treat ErrDenied as "start a fresh playback".
 func (r *Runtime) ReopenSource(ctx context.Context, old playbackcontinuity.SourceBinding, operation string) (ReopenedSource, error) {
 	owner := nodewire.Identity{Cluster: r.o.Self.Cluster, NodeID: old.Owner.NodeID, Boot: old.Owner.Boot}
 	result := ReopenedSource{Owner: owner, Operation: operation}

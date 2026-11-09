@@ -11,41 +11,41 @@ import (
 func TestQueueUpNextBlockSurvivesPersistence(t *testing.T) {
 	s := newPlayQueueStore()
 	keys := []core.RatingKey{core.MovieKey(1), core.MovieKey(2), core.MovieKey(3)}
-	q, err := s.createWith(1, "client", keys, time.Now(), nil)
+	q, err := s.CreateWith(1, "client", keys, time.Now(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	add := func(key int64, next bool) { s.addItems(&q, []core.RatingKey{core.MovieKey(key)}, nil, next) }
+	add := func(key int64, next bool) { s.AddItems(&q, []core.RatingKey{core.MovieKey(key)}, nil, next) }
 	add(4, false)
-	last := q.lastAdded
+	last := q.LastAdded
 	add(5, true)
-	if q.lastAdded != last {
+	if q.LastAdded != last {
 		t.Fatal("Play Next moved last-added marker")
 	}
 	add(6, false)
 	want := []core.RatingKey{core.MovieKey(1), core.MovieKey(5), core.MovieKey(4), core.MovieKey(6), core.MovieKey(2), core.MovieKey(3)}
 	for i, key := range want {
-		if q.items[i].key != key {
-			t.Fatalf("item %d = %v, want %v", i, q.items[i].key, key)
+		if q.Items[i].Key != key {
+			t.Fatalf("item %d = %v, want %v", i, q.Items[i].Key, key)
 		}
 	}
 	encoded, err := encodeQueue(&q)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := decodeQueue(q.id, q.userID, 1, time.Now().UnixMilli(), encoded)
+	restored, err := decodeQueue(q.ID, q.UserID, 1, time.Now().UnixMilli(), encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	q = *restored
-	q.selected = 1
+	q.Selected = 1
 	add(7, false)
-	if q.items[4].key != core.MovieKey(7) || q.lastAdded != q.items[4].id {
+	if q.Items[4].Key != core.MovieKey(7) || q.LastAdded != q.Items[4].ID {
 		t.Fatal("persisted Up Next block lost")
 	}
-	version := q.version
-	s.addItems(&q, nil, nil, false)
-	if q.version != version {
+	version := q.Version
+	s.AddItems(&q, nil, nil, false)
+	if q.Version != version {
 		t.Fatal("empty add changed version")
 	}
 }

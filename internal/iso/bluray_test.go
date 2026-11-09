@@ -1,5 +1,6 @@
-// Adapted from AltMount (internal/importer/archive/iso/bluray_test.go), MIT License,
-// Copyright (c) 2025 Javier Blanco. See THIRD_PARTY_NOTICES.md.
+// Adapted from AltMount (internal/importer/archive/iso/bluray_test.go),
+// MIT License, Copyright (c) 2025 Javier Blanco.
+// https://github.com/javi11/altmount
 
 package iso
 

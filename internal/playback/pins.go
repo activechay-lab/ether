@@ -165,11 +165,11 @@ func (m *Manager) ReconcilePins(ctx context.Context) error {
 			inProgress[k] = true
 		}
 	}
-	live := map[identity]bool{}
+	live := map[resumeKey]bool{}
 	liveRel := map[string]bool{}
 	m.mu.Lock()
 	for _, s := range m.sessions {
-		live[identity{userID: s.ident.userID, key: s.ident.key}] = true
+		live[resumeKey{s.ident.userID, s.ident.key}] = true
 		if g := s.current(); g != nil {
 			liveRel[g.releaseID()] = true
 		}
@@ -217,7 +217,7 @@ func (m *Manager) ReconcilePins(ctx context.Context) error {
 			}
 			continue
 		}
-		if !live[identity{userID: rec.userID, key: rec.key}] && now.Sub(rec.updatedAt) > m.opts.ResumeRetention {
+		if !live[resumeKey{rec.userID, rec.key}] && now.Sub(rec.updatedAt) > m.opts.ResumeRetention {
 			expired = append(expired, rec)
 		}
 	}
@@ -231,7 +231,17 @@ func (m *Manager) ReconcilePins(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	// Index and probe rows of generations whose resume row never landed.
+	// The sweep reads every index key, so it runs hourly, not every pass.
+	if now.Before(m.resume.orphanNext) {
+		return nil
+	}
+	m.resume.orphanNext = now.Add(orphanSweepEvery)
+	n, err := m.resume.sweepOrphans(ctx, live)
+	if n > 0 {
+		m.log.Debug("dropped orphaned resume keyframe indexes and probes", "rows", n)
+	}
+	return err
 }
 
 // selectPins picks which in-progress releases to pin: those with activity

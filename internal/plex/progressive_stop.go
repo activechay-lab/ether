@@ -5,14 +5,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 type progressiveStopKey struct {
 	user     int64
 	client   string
 	playback string
-	key      core.RatingKey
+	key      frontend.RatingKey
 }
 
 type progressiveStop struct {
@@ -51,7 +51,7 @@ func (g *progressiveStopGuard) put(k progressiveStopKey, v progressiveStop) {
 	g.m[k] = v
 }
 
-func (g *progressiveStopGuard) get(user int64, client, playback string, key core.RatingKey, now time.Time) (progressiveStop, bool) {
+func (g *progressiveStopGuard) get(user int64, client, playback string, key frontend.RatingKey, now time.Time) (progressiveStop, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	k := progressiveStopKey{user, client, playback, key}
@@ -63,7 +63,7 @@ func (g *progressiveStopGuard) get(user int64, client, playback string, key core
 	return v, ok
 }
 
-func (g *progressiveStopGuard) clear(user int64, client, playback string, key core.RatingKey) {
+func (g *progressiveStopGuard) clear(user int64, client, playback string, key frontend.RatingKey) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.m, progressiveStopKey{user, client, playback, key})

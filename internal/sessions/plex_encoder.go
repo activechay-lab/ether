@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// StartPlexHLS is the opt-in universal encoder seam after the Plex adapter has
+// StartPlexHLS is the shared universal encoder seam after the Plex adapter has
 // performed its existing acceptance, policy, selection and grant checks. Errors
 // never authorize caller fallback or a second encoder.
 func (b *Broker) StartPlexHLS(ctx context.Context, viewer *core.User, playID, publicID string, q core.HLSRequest) (core.HLSSession, error) {
@@ -74,11 +74,16 @@ func (b *Broker) PlexHLSSession(id string) (core.HLSSession, bool) {
 	return b.deps.Transcoder.Session(id)
 }
 
-// StopPlexHLS returns true when the remote coordinator owns the exact execution,
-// including uncertain start/stop phases. It never claims retirement completion.
+// StopPlexHLS handles local and remote encoder retirement through the broker.
+// Remote ownership includes uncertain start/stop phases; true reports ownership,
+// not proof that an asynchronous remote retirement has completed.
 func (b *Broker) StopPlexHLS(id string) bool {
 	if remote := b.deps.DistributedHLS; remote != nil && remote.Allocated(id) {
 		remote.Stop(id)
+		return true
+	}
+	if b.deps.Transcoder != nil {
+		b.deps.Transcoder.Stop(id)
 		return true
 	}
 	return false

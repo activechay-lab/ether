@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/hoststat"
 )
 
@@ -30,69 +31,12 @@ type Dashboard struct {
 	media     map[int]*mediaTier
 }
 
-// Device is one client the Dashboard can name.
-type Device struct {
-	ID               int64
-	ClientIdentifier string
-	Name             string
-	Platform         string
-	CreatedAt        int64
-}
-
-// BandwidthRow is one StatisticsBandwidth series point.
-type BandwidthRow struct {
-	AccountID int64
-	DeviceID  int64
-	Timespan  int
-	At        int64
-	Lan       int
-	Bytes     int64
-}
-
-// MediaRow is one StatisticsMedia series point.
-type MediaRow struct {
-	AccountID    int64
-	DeviceID     int64
-	Timespan     int
-	At           int64
-	MetadataType int
-	Count        int64
-	Duration     int64 // sum of item lengths in seconds
-}
-
-// Query is the parsed Dashboard filter. Timespans empty means "every kept
-// rollup except per-second" for bandwidth/media (0..4).
-type Query struct {
-	Timespans                     []int
-	AccountID                     int64
-	DeviceID                      int64
-	HasAccount, HasDevice, HasLan bool
-	Lan                           int
-	AtMin, AtMax                  int64
-	ExactAt                       int64
-	HasExact, HasAtMin, HasAtMax  bool
-	Offset                        int
-	Limit                         int
-	HasLimit                      bool
-	Sort                          string
-	Desc                          bool
-}
-
-// Page is one statistics answer: the series window and the Device/Account
-// lookup for ids that window names.
-type Page struct {
-	Rows      []BandwidthRow
-	Media     []MediaRow
-	Devices   []Device
-	Accounts  []AccountRef
-	TotalSize int
-}
-
-// AccountRef labels an account id on a statistics page.
-type AccountRef struct {
-	ID   int64
-	Name string
-}
+type Device = frontend.StatisticsDevice
+type BandwidthRow = frontend.StatisticsBandwidthRow
+type MediaRow = frontend.StatisticsMediaRow
+type Query = frontend.StatisticsQuery
+type Page = frontend.StatisticsPage
+type AccountRef = frontend.StatisticsAccountRef
 
 type bwSeriesKey struct {
 	account, device int64

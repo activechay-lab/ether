@@ -80,7 +80,7 @@ func outputResponse(data []byte) func(http.ResponseWriter, *http.Request) remote
 	}
 }
 func TestOutputBufferContiguousAndImmutable(t *testing.T) {
-	s, data := outputFixture(t)
+	s, _ := outputFixture(t)
 	// Real synthetic lab output has 96 unbounded H.264 PES packets.
 	compressed, err := os.ReadFile("../playbackbuffer/testdata/lab-unbounded.ts.gz")
 	if err != nil {
@@ -90,7 +90,7 @@ func TestOutputBufferContiguousAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err = io.ReadAll(reader)
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
 	}

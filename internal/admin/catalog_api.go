@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -264,8 +265,54 @@ func CardFor(t core.Title) TitleCard {
 		poster = t.StillPath
 	}
 	c.Poster = ImageURL(poster, 342)
+	if c.Poster == "" {
+		c.Poster = GeneratedPosterURL(&t, 342)
+	}
 	c.Backdrop = ImageURL(t.BackdropPath, 780)
 	return c
+}
+
+// GeneratedPosterURL is the console URL of Ether's poster for a movie or
+// show with no artwork, or "" for any other title. The URL describes the
+// whole image, so it is stable and caches like a TMDB path.
+func GeneratedPosterURL(t *core.Title, w int) string {
+	p, ok := artwork.ForTitle(t)
+	if !ok {
+		return ""
+	}
+	q := p.Query()
+	q.Set("w", strconv.Itoa(w))
+	return "/ether/api/image/generated?" + q.Encode()
+}
+
+func (h *Handler) handleGeneratedImage(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	p, ok := artwork.TitlePosterFromQuery(q)
+	if !ok || h.deps.TitlePosters == nil {
+		writeError(w, http.StatusNotFound, "not_found", "image not found")
+		return
+	}
+	p.Width, _ = strconv.Atoi(q.Get("w"))
+	etag := `"g` + strconv.Itoa(p.Width) + p.Stamp() + `"`
+	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	data, ct, err := h.deps.TitlePosters.Title(r.Context(), p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "render", "could not draw the poster")
+		return
+	}
+	hdr := w.Header()
+	hdr.Set("Content-Type", ct)
+	hdr.Set("Content-Security-Policy", imageCSP)
+	hdr.Set("Cache-Control", "public, max-age=2592000, immutable")
+	hdr.Set("ETag", etag)
+	hdr.Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(data)
+	}
 }
 
 func cardsFor(ts []core.Title) []TitleCard {

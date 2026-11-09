@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // readCapParam is the minted playlist/segment read capability. It is
@@ -78,7 +78,7 @@ func (c *readCapabilityStore) token(sessionID string) string {
 	return c.bySession[sessionID]
 }
 
-func (s *Server) bindTranscodeStarted(entry *transcodeEntry, dec core.Decision, offset time.Duration) {
+func (s *Server) bindTranscodeStarted(entry *transcodeEntry, dec frontend.Decision, offset time.Duration) {
 	entry.decision, entry.offset, entry.started, entry.updatedAt = dec, offset, true, s.now()
 	s.transcodes.put(entry)
 	s.mintReadCapability(entry.id, entry.clientID, entry.userID)
@@ -103,7 +103,7 @@ func (s *Server) dropTranscode(id string) {
 
 	s.revokeReadCapability(id)
 	s.transcodes.remove(id)
-	s.starts.forget(id)
+	s.starts.Forget(id)
 }
 
 func readCapURL(raw, token string) string {

@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // LibraryExclusion is one ordered visibility rule. Slice order is evaluation
 // order: the first match wins. Action is "show" or "hide"; an empty Action is
@@ -98,6 +101,15 @@ type catalogViewer struct {
 	restricted bool
 }
 
+// WithoutCatalogViewer drops the viewer from ctx, for reads that are the same
+// for every viewer (a facet name's identifier) and must share one cache entry.
+func WithoutCatalogViewer(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithValue(ctx, catalogViewerKey{}, catalogViewer{})
+}
+
 func CatalogViewerID(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0
@@ -129,4 +141,161 @@ func CatalogCandidates(ctx context.Context) bool {
 	}
 	v, _ := ctx.Value(catalogCandidatesKey{}).(bool)
 	return v
+}
+
+type searchListFactsKey struct{}
+
+// WithSearchListFacts marks a search whose results are rendered as list
+// items (a Plex search hub: three cast members, the directors, genres,
+// countries, studios): the catalogue reads those facts for its page, not
+// every credit, keyword and alternative title of every result.
+func WithSearchListFacts(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchListFactsKey{}, true)
+}
+
+// SearchListFacts reports WithSearchListFacts.
+func SearchListFacts(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(searchListFactsKey{}).(bool)
+	return v
+}
+
+type searchSummaryFactsKey struct{}
+
+// WithSearchSummaryFacts marks movie/show searches rendered using scalar title
+// metadata and posters only. Visibility and query-filter facets are still read;
+// credits and other detail facts are not needed. Partial titles must not enter
+// the full-title cache. Searches without this opt-in retain full results.
+func WithSearchSummaryFacts(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchSummaryFactsKey{}, true)
+}
+
+func SearchSummaryFacts(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(searchSummaryFactsKey{}).(bool)
+	return v
+}
+
+// TitleFacts is a set of the facts a title keeps outside its own row, in
+// tables of their own: what a visibility rule, a viewer's policy, the release
+// gate or a query filter may read beyond the row.
+type TitleFacts uint8
+
+const (
+	FactGenres TitleFacts = 1 << iota
+	FactStudios
+	FactCountries
+	FactKeywords
+	FactHomeRelease
+)
+
+// VisibilityFacts is every fact a visibility decision can read.
+const VisibilityFacts = FactGenres | FactStudios | FactCountries | FactKeywords | FactHomeRelease
+
+// SearchCandidates asks a catalogue search for its candidate window, not its
+// page: the caller ranks and filters the window itself and reads only the
+// page it shows in full. Library movies and shows then come back as their
+// title rows with Facts and the facts the catalogue's own policy reads for
+// the viewer (browsing and search rules, the release gate). A title Detail
+// reports (one the caller judges on its full facts) comes back in full.
+// The catalogue records which titles it returned partial; the caller reads
+// those of its page in full before showing them. Partial titles never enter
+// a cache.
+type SearchCandidates struct {
+	Facts  TitleFacts
+	Detail func(Title) bool
+
+	mu      sync.Mutex
+	partial map[RatingKey]bool
+}
+
+// MarkPartial records titles a search returned partial.
+func (s *SearchCandidates) MarkPartial(keys []RatingKey) {
+	if s == nil || len(keys) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.partial == nil {
+		s.partial = make(map[RatingKey]bool, len(keys))
+	}
+	for _, k := range keys {
+		s.partial[k] = true
+	}
+}
+
+// Partial reports a title a search returned partial.
+func (s *SearchCandidates) Partial(key RatingKey) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.partial[key]
+}
+
+type searchCandidatesKey struct{}
+
+// WithSearchCandidates attaches c to a search (see SearchCandidates). A nil c
+// asks for full results again, as for a search ctx hands on to another one.
+func WithSearchCandidates(ctx context.Context, c *SearchCandidates) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, searchCandidatesKey{}, c)
+}
+
+// SearchCandidatesFrom returns WithSearchCandidates' c, or nil.
+func SearchCandidatesFrom(ctx context.Context) *SearchCandidates {
+	if ctx == nil {
+		return nil
+	}
+	c, _ := ctx.Value(searchCandidatesKey{}).(*SearchCandidates)
+	return c
+}
+
+// RankCast, RankWriters and RankCrew are how many of a title's cast,
+// writers and crew a taste ranking reads (personalize's Taste.Fit), in
+// credit order; it reads every director. A ranking window reads no more.
+const (
+	RankCast    = 5
+	RankWriters = 3
+	RankCrew    = 6
+)
+
+type rankingCandidatesKey struct{}
+
+// WithRankingCandidates marks titles a caller ranks and filters itself and
+// shows only a page of, in full: a related shelf. A catalogue browse read
+// with it returns its movies and shows with their rows, c.Facts, the facts
+// the catalogue's own policy reads, and the credits a ranking reads
+// (RankCast, RankWriters, RankCrew and every director), not every credit,
+// alternative title and trailer; a title c.Detail reports comes back in
+// full. It records the titles it returned partial (c.Partial), and the
+// caller reads those of its page in full before showing them. Partial titles
+// never reach a cache other callers read. Only a browse reads the mark.
+func WithRankingCandidates(ctx context.Context, c *SearchCandidates) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, rankingCandidatesKey{}, c)
+}
+
+// RankingCandidatesFrom returns WithRankingCandidates' c, or nil.
+func RankingCandidatesFrom(ctx context.Context) *SearchCandidates {
+	if ctx == nil {
+		return nil
+	}
+	c, _ := ctx.Value(rankingCandidatesKey{}).(*SearchCandidates)
+	return c
 }

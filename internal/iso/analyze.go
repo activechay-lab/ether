@@ -59,9 +59,7 @@ func Analyze(ctx context.Context, r io.ReaderAt, size int64, progress func(done,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// One read budget covers the whole analysis (walk, label, playlists), so a
-	// hostile image cannot make us read without bound through Usenet.
-	rs := newBudgetReader(io.NewSectionReader(r, 0, size), listReadBudget)
+	rs := io.NewSectionReader(r, 0, size)
 	entries, err := ListISOFiles(ctx, rs)
 	if err != nil {
 		return nil, fmt.Errorf("iso: listing files: %w", err)

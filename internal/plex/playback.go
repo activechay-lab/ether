@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
@@ -195,6 +193,7 @@ func onlyNotCached(err error) bool {
 
 // playRequest is a parsed decision/start request.
 type playRequest struct {
+	manualSubtitle bool
 	key            core.RatingKey
 	collection     string
 	caps           core.ClientCaps
@@ -374,6 +373,9 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	if s.dvBaseOnly(pr, key) {
 		caps.DolbyVisionBaseOnly = true // this start stalled in Dolby Vision
 	}
+	if s.segmentedSurroundOff(pr) {
+		caps.SegmentedSurroundOff = true // a stream stalled on copied surround audio
+	}
 	applyDecisionQuery(&caps, q)
 	// The decision query can identify WAN even when the metadata request
 	// looked local. Apply the remote ceiling before source resolution too.
@@ -461,6 +463,7 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 			}
 		}
 	}
+	p.manualSubtitle = p.subSet
 	p.sessionID = cmp.Or(q.Get("session"), q.Get("transcodeSessionId"), pr.SessionID)
 	if p.sessionID == "" {
 		p.sessionID = sanitizeSessionID(pr.ClientID + "-" + key.String())
@@ -856,7 +859,10 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	// instead of "Direct play OK", whatever directStream says (#246).
 	mustConvert := dec.Kind == core.DecisionTranscode || (dec.Kind != core.DecisionDirectPlay && (!dec.VideoCopy || !dec.AudioCopy))
 	pm4k := strings.EqualFold(pr.Product, "PM4K") || strings.EqualFold(pr.Product, "Plex for Kodi")
-	mdeDirect := p.mde && p.opts.DirectPlay && !(plexAndroidClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 &&
+	// The owner's "Convert Dolby and DTS to AAC" rule outranks the client's
+	// engine: a surround track it converted is never answered direct play.
+	ownerConverts := p.caps.ConvertSurroundAudio && dec.Kind != core.DecisionDirectPlay && !dec.AudioCopy
+	mdeDirect := p.mde && p.opts.DirectPlay && !(plexAndroidClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 && !ownerConverts &&
 		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != core.DecisionDirectPlay)))
 	shown := dec
 	if mdeDirect {
@@ -1349,7 +1355,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 			}
 		}
-		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
+		if dec.AudioCodec != "" && !transcode.SegmentedAudioCopyOK(entry.caps, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false
 			opts.DirectStream = true
@@ -1397,8 +1403,13 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 	// ABR (AVPlayer, hls.js) steps between them and the session starts a
 	// rung's encoder lazily on its first segment request. The primary
 	// rung keeps the historic "base" URI.
+	baseBandwidth := 0
 	if ls, ok := hs.(core.HLSLadderSession); ok {
-		if rungs := ls.Rungs(); len(rungs) > 1 {
+		rungs := ls.Rungs()
+		if len(rungs) == 1 {
+			baseBandwidth = rungs[0].Bandwidth
+		}
+		if len(rungs) > 1 {
 			var b strings.Builder
 			b.WriteString("#EXTM3U\n")
 			for _, rg := range rungs {
@@ -1431,8 +1442,21 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 		}
 	}
 	bw := info.BitrateKbps
-	if !dec.VideoCopy && dec.BitrateKbps > 0 {
+	if dec.VideoCopy {
+		// BANDWIDTH is the peak segment rate; a copy's segments swing
+		// above the container average.
+		var segDur time.Duration
+		if sd, ok := hs.(interface{ SegmentDuration() time.Duration }); ok {
+			segDur = sd.SegmentDuration()
+		}
+		bw = transcode.HLSCopyPeakKbps(info, segDur)
+	} else if dec.BitrateKbps > 0 {
 		bw = dec.BitrateKbps
+	}
+	// A single-rung session still owns measured copy peaks and ramp rate
+	// controls. Keep the legacy attribute layout but use its actual budget.
+	if baseBandwidth > 0 {
+		bw = (baseBandwidth + 999) / 1000
 	}
 	if bw <= 0 {
 		bw = 8000
@@ -1681,7 +1705,7 @@ func (s *Server) handleTranscodeSessions(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		if te, ok := s.transcodes.get(e.transcodeID); ok {
-			mc.TranscodeSess = append(mc.TranscodeSess, transcodeSessionModel(te))
+			mc.TranscodeSess = append(mc.TranscodeSess, s.servedTranscodeSessionModel(te))
 		}
 	}
 	mc.Size = len(mc.TranscodeSess)
@@ -1699,7 +1723,28 @@ func (s *Server) handleTranscodeSessionStatus(w http.ResponseWriter, r *http.Req
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	s.write(w, r, &model.MediaContainer{Size: 1, TranscodeSess: []model.TranscodeSess{transcodeSessionModel(te)}})
+	s.write(w, r, &model.MediaContainer{Size: 1, TranscodeSess: []model.TranscodeSess{s.servedTranscodeSessionModel(te)}})
+}
+
+// servedTranscodeSessionModel is the TranscodeSession of what is actually
+// being served. A player that stepped down to an encoded ABR rung of a
+// Direct Stream session is transcoding video, and the Plex dashboard must
+// say so just as Ether's Activity does.
+func (s *Server) servedTranscodeSessionModel(te *transcodeEntry) model.TranscodeSess {
+	ts := transcodeSessionModel(te)
+	hs, ok := s.plexHLSSession(te.id)
+	if !ok || hs == nil {
+		return ts
+	}
+	src, ok := hs.(interface{ EncoderStatus() *core.EncoderStatus })
+	if !ok {
+		return ts
+	}
+	if st := src.EncoderStatus(); st != nil && st.Rung != "" && st.Rung != "base" && !st.Decision.VideoCopy {
+		ts.VideoDecision = "transcode"
+		ts.VideoCodec = plexCodec(st.Decision.VideoCodec)
+	}
+	return ts
 }
 
 func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
@@ -1806,24 +1851,9 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
-	anonymousContinuation := false
-	if pr.ClientID == "" {
-		if lookup, supported := s.d.Playback.(interface {
-			PlexSessionForPart(int64, core.RatingKey, string) (*core.PlaySession, bool)
-		}); supported {
-			ps, ok = lookup.PlexSessionForPart(pr.User.ID, key, releaseID)
-			anonymousContinuation = ok && ps != nil
-		}
-	}
-	live := ""
-	if ok && ps != nil {
-		live = ps.ID
-	}
-	// A live session on a different release does not satisfy a variant part.
-	if ok && ps != nil && releaseID != "" && (ps.Resolution == nil || ps.Resolution.Release.ID != releaseID) {
-		ok = false
-	}
+	source := s.plexSources().Part(pr.User.ID, pr.ClientID, key, releaseID)
+	ps, ok := source.Session, source.Matches
+	live, anonymousContinuation := source.PreviousID, source.AnonymousContinuation
 	if anonymousContinuation {
 		if confirm, supported := s.playbackBroker.(interface {
 			ConfirmPlexAdmission(context.Context, *core.Viewer, bool) (*core.Viewer, error)
@@ -1917,7 +1947,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	}
 	unlockOwner()
 	cw := s.newCountWriter(w, r)
-	s.d.Playback.ServeRange(cw, playback.PlexPartRequest(r), ps.ID)
+	s.plexSources().ServePart(cw, r, ps.ID)
 	cw.finish()
 }
 
@@ -2015,6 +2045,12 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 				}
 				sub = &binding
 			}
+		}
+	}
+	if q.Has("subtitleStreamID") {
+		if err := s.recordManualSubtitle(r.Context(), pr.User.ID, key, !subDefault); err != nil {
+			writeHTTPError(w, http.StatusServiceUnavailable)
+			return
 		}
 	}
 	s.selections.update(pr.User.ID, id, func(sel *selection) {

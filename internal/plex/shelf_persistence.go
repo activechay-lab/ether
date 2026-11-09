@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 
 type shelfWrite struct {
 	generation, scope, path string
-	keys                    []core.RatingKey
+	keys                    []frontend.RatingKey
 	expires                 int64
 }
 type shelfBatchKey struct{}

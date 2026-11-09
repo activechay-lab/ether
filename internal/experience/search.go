@@ -22,6 +22,9 @@ type Search struct {
 	// or core.AffinityServer) with titles among keys; the catalogue ranks
 	// those first among equal matches.
 	Familiar func(ctx context.Context, viewer *core.User, keys []core.RatingKey) map[core.RatingKey]int
+	// Details reads in full the titles a candidate search returned partial
+	// (core.SearchCandidates); nil when the catalogue cannot.
+	Details func(context.Context, []core.Title) ([]core.Title, error)
 }
 
 // FamiliarSource is a watch-state store that can report a viewer's
@@ -74,7 +77,7 @@ func (s Search) Find(ctx context.Context, viewer *core.User, query string, types
 		var items []core.Title
 		var natural bool
 		if s.Natural != nil {
-			items, natural = s.Natural(ctx, viewer, query, limit)
+			items, natural = s.Natural(fullSearch(ctx), viewer, query, limit)
 		}
 		if !natural {
 			var err error
@@ -97,7 +100,7 @@ func (s Search) Find(ctx context.Context, viewer *core.User, query string, types
 		var items []core.Title
 		var ok bool
 		if s.Natural != nil {
-			items, ok = s.Natural(ctx, viewer, query, fetch)
+			items, ok = s.Natural(fullSearch(ctx), viewer, query, fetch)
 		}
 		if !ok {
 			var err error
@@ -120,6 +123,15 @@ func (s Search) Find(ctx context.Context, viewer *core.User, query string, types
 		}
 		fetch = min(fetch*2, 1000)
 	}
+}
+
+// fullSearch is ctx for a search that keeps its results: natural search
+// caches what it resolves, so it never reads a candidate window.
+func fullSearch(ctx context.Context) context.Context {
+	if core.SearchCandidatesFrom(ctx) == nil {
+		return ctx
+	}
+	return core.WithSearchCandidates(ctx, nil)
 }
 
 // SearchResults retains whether an optional collection source handled the query.

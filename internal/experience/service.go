@@ -2,9 +2,9 @@ package experience
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
+	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,6 +54,16 @@ type ServiceDeps struct {
 	CachedGet func(context.Context, core.RatingKey) (*core.Title, error)
 	// CachedGetMany reads current cached rows in bounded batches without refresh.
 	CachedGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	// ArtworkGet and ArtworkGetMany are CachedGet and CachedGetMany for
+	// image grants: they also admit search and list hits held in memory
+	// without a row, so those hits keep their poster. Nil uses the cached
+	// readers.
+	ArtworkGet     func(context.Context, core.RatingKey) (*core.Title, error)
+	ArtworkGetMany func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	// ArtworkRows is ArtworkGetMany for a request that lists no credited
+	// people's portraits (frontend.WithArtworkRows): movies and shows as
+	// their rows with the facts given, not read in full. Optional.
+	ArtworkRows func(context.Context, []core.RatingKey, core.TitleFacts) (map[core.RatingKey]core.Title, error)
 	// ParentTitles resolves distinct parents using the same semantics as GetTitle.
 	ParentTitles func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
 	// CachedVirtualSeason resolves a viewer's already-computed episode layout.
@@ -69,6 +79,24 @@ type ServiceDeps struct {
 	// content-rating cap, and parsed plex.tv share filters. Nil keeps the
 	// catalogue scan, which still applies filters the SQL page cannot see.
 	PageExclusions func(context.Context, *core.User, core.MediaType) LibraryPageExclusions
+	// ViewerRules is the revision of a viewer's own catalogue rules and
+	// whether the rules that apply to them (their own or the household's)
+	// judge titles on their facts. Optional; ExportPolicy stamps it.
+	ViewerRules func(*core.User) (revision int64, judged bool)
+	// FacetFilter counts a facet's values over the browsable titles matching
+	// a filter in SQL. With PageExclusions, library facet lists use it
+	// instead of walking the library. Optional.
+	FacetFilter func(context.Context, core.Filter, string) ([]core.FacetValue, error)
+	// FacetPage is one page of a facet's values, in byte order, over the
+	// browsable titles matching a filter, and how many values there are; ok
+	// is false when the catalogue cannot page that facet or filter, and
+	// FacetFilter counts it whole. Optional.
+	FacetPage func(ctx context.Context, f core.Filter, facet string, offset, limit int) (vals []core.FacetValue, total int, ok bool, err error)
+	// StudioByFacetID and PersonByFacetID invert core.FacetID by index: the
+	// stored studio, or the credited person's TMDB id, a facet identifier
+	// names. ok is false when no title carries it. Optional.
+	StudioByFacetID func(context.Context, string) (string, bool, error)
+	PersonByFacetID func(context.Context, string) (int64, bool, error)
 	// CountBrowsable is the indexed library size. The view list uses it instead
 	// of browsing titles.
 	CountBrowsable func(context.Context, core.MediaType) (int, error)
@@ -80,7 +108,39 @@ type ServiceDeps struct {
 	// name index instead of walking every credited title. Optional.
 	PeopleIndex   func(context.Context, []string, int) ([]PersonCandidate, error)
 	PersonCredits func(context.Context, int64, []core.MediaType, int) ([]core.RatingKey, error)
-	AiredEpisodes func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	// PersonCreditsMany is PersonCredits for a page of people, with each
+	// person's credit rows (name, role, portrait) on those titles. With it
+	// (and PeopleRead.VisibleTitles) a people search reads a page of people
+	// in a few statements. Optional.
+	PersonCreditsMany func(context.Context, []int64, []core.MediaType, int) (map[int64][]core.PersonCredit, error)
+	// PersonCreditForms lists the forms (name, portrait) a person's credits
+	// take, and PersonFormKeys pages, by key, the titles crediting them in
+	// some of those forms. With both (and PeopleRead.PortraitTitles) a person
+	// page reads its credited titles in the order its choice prefers them
+	// and stops at the first the viewer may see. Optional.
+	// RankingDetails reads in full the titles a ranking window
+	// (core.WithRankingCandidates) returned partial. With it, Similar ranks
+	// its related shelves on the facts their ranking reads and reads only
+	// its page in full. Optional.
+	RankingDetails    func(context.Context, []core.Title) ([]core.Title, error)
+	PersonCreditForms func(context.Context, int64, []core.MediaType) ([]core.PersonCreditForm, error)
+	PersonFormKeys    func(context.Context, int64, []core.MediaType, []core.PersonCreditForm, core.RatingKey, int) ([]core.RatingKey, error)
+	// peopleVisibleTitles is the people read's VisibleTitles (readPeople).
+	peopleVisibleTitles  func(context.Context, []core.RatingKey) (map[core.RatingKey]core.Title, error)
+	peoplePortraitTitles func(context.Context, []PersonCreditRef) (map[core.RatingKey]core.Title, error)
+	AiredEpisodes        func(context.Context, core.RatingKey, int, int) (core.Page, error)
+	// AiredEpisodesMany is AiredEpisodes(show, 0, limit) for several shows in
+	// a few statements. Optional; without it each show is read alone.
+	AiredEpisodesMany func(context.Context, []core.RatingKey, int) (map[core.RatingKey]core.Page, error)
+	// AiredEpisodeTallies counts each show's aired episodes and the viewer's
+	// plays of them by season (catalog.AiredEpisodeTallies). With it and
+	// EpisodesSettledBefore, unplayed badges are counted, not listed.
+	// Optional.
+	AiredEpisodeTallies func(ctx context.Context, userID int64, shows []core.RatingKey, settled time.Time, judge []core.RatingKey) (map[core.RatingKey]core.AiredEpisodeTally, error)
+	// EpisodesSettledBefore is the release time at or before which
+	// Visibility.FilterAvailable keeps every episode; zero when it keeps
+	// them all. Required with a FilterAvailable for counted badges.
+	EpisodesSettledBefore func(context.Context) time.Time
 	// StoredEpisodes answers a recursive episode listing from the stored
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
@@ -108,9 +168,17 @@ type ServiceDeps struct {
 	Rows     *RowsService
 	Protocol core.Protocol
 	// Favorites manages the stable, per-viewer Favorites playlist mapping.
-	Favorites               func(context.Context, *core.User, core.RatingKey, bool) (bool, error)
-	IsFavorite              func(context.Context, *core.User, core.RatingKey) (bool, error)
-	IsFavoriteMany          func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
+	Favorites      func(context.Context, *core.User, core.RatingKey, bool) (bool, error)
+	IsFavorite     func(context.Context, *core.User, core.RatingKey) (bool, error)
+	IsFavoriteMany func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
+	// FavoriteTitleKeys lists up to n of a viewer's favorite titles and
+	// whether that is all of them, so a favorites filter seeks those titles
+	// instead of walking the library. Optional.
+	FavoriteTitleKeys func(context.Context, *core.User, int) ([]core.RatingKey, bool, error)
+	// CountWatched counts the titles matching a filter that a viewer has
+	// played, from their watch rows. Optional; without it a played filter's
+	// total is counted over the whole type.
+	CountWatched            func(context.Context, core.Filter, int64) (int, error)
 	IsNotInterestedMany     func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error)
 	IsWatchlistedMany       func(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
 	FavoriteMembership      func(context.Context, *core.User, core.RatingKey) (frontend.Membership, error)
@@ -629,7 +697,7 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 }
 
 func plainItemFilter(f core.Filter) bool {
-	return !f.KnownAddedDate && len(f.ExcludeKeys) == 0 && f.Type == "" && len(f.Genres) == 0 && f.YearFrom == 0 && f.YearTo == 0 && f.MinRating == 0 && f.MaxRuntime == 0 && f.MinRuntime == 0 && len(f.Languages) == 0 && len(f.Countries) == 0 && len(f.ContentRatings) == 0 && f.MaxContentRating == "" && f.Collection == 0 && f.Person == 0 && f.Studio == "" && f.FirstCharacter == "" && f.Query == ""
+	return !f.KnownAddedDate && len(f.ExcludeKeys) == 0 && f.Type == "" && len(f.Genres) == 0 && f.YearFrom == 0 && f.YearTo == 0 && len(f.Years) == 0 && len(f.ExcludeYears) == 0 && len(f.ReleasedFilters) == 0 && f.MinRating == 0 && f.MaxRuntime == 0 && f.MinRuntime == 0 && len(f.Languages) == 0 && len(f.Countries) == 0 && len(f.ContentRatings) == 0 && f.MaxContentRating == "" && f.Collection == 0 && f.Person == 0 && f.Studio == "" && f.FirstCharacter == "" && f.NameStartsWith == "" && f.NameStartsWithOrGreater == "" && f.NameLessThan == "" && f.Query == ""
 }
 
 func (s *Service) Rows(ctx context.Context, req frontend.RowRequest) ([]frontend.Row, error) {
@@ -862,6 +930,55 @@ func (s *Service) allowTitles(ctx context.Context, v *core.User, titles []core.T
 	return out, nil
 }
 
+// artworkRows reads keys for an artwork request that lists no credited
+// people's portraits (frontend.WithArtworkRows) as rows with what v's policy
+// reads; a title availability judges on its facts is read in full. Nil,
+// nil when the request or the catalogue cannot (read the titles in full).
+func (s *Service) artworkRows(ctx context.Context, v *core.User, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+	if s.d.ArtworkRows == nil || frontend.ArtworkRowsFrom(ctx) == nil {
+		return nil, nil
+	}
+	judge, known := s.d.Visibility.FactJudge(ctx)
+	if !known {
+		return nil, nil
+	}
+	rows, err := s.d.ArtworkRows(ctx, keys, s.d.Visibility.TitleFacts(v))
+	if err != nil {
+		return nil, err
+	}
+	if judge == nil {
+		return rows, nil
+	}
+	var full []core.RatingKey
+	for key, t := range rows {
+		if judge(t) {
+			full = append(full, key)
+		}
+	}
+	if len(full) == 0 {
+		return rows, nil
+	}
+	getMany := s.d.ArtworkGetMany
+	if getMany == nil {
+		getMany = s.d.CachedGetMany
+	}
+	if getMany == nil {
+		return nil, nil
+	}
+	loaded, err := getMany(ctx, full)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range full {
+		if t, ok := loaded[key]; ok {
+			rows[key] = t
+		} else {
+			delete(rows, key)
+		}
+	}
+	return rows, nil
+}
+
 // PageArtworkTitles loads one grid and drops titles this viewer cannot see.
 func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) ([]core.Title, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
@@ -869,12 +986,21 @@ func (s *Service) PageArtworkTitles(ctx context.Context, viewer *core.Viewer, ke
 	if err != nil {
 		return nil, err
 	}
-	if s.d.CachedGetMany == nil {
+	getMany := s.d.ArtworkGetMany
+	if getMany == nil {
+		getMany = s.d.CachedGetMany
+	}
+	if getMany == nil {
 		return nil, core.ErrNotAvailable
 	}
-	titles, err := s.d.CachedGetMany(ctx, keys)
+	titles, err := s.artworkRows(ctx, v, keys)
 	if err != nil {
 		return nil, err
+	}
+	if titles == nil {
+		if titles, err = getMany(ctx, keys); err != nil {
+			return nil, err
+		}
 	}
 	loaded := make([]core.Title, 0, len(titles))
 	for _, key := range keys {
@@ -897,7 +1023,20 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 			return nil, err
 		}
 	} else if s.d.CachedGet != nil {
-		title, err := s.d.CachedGet(ctx, key)
+		get := s.d.ArtworkGet
+		if get == nil {
+			get = s.d.CachedGet
+		}
+		var title *core.Title
+		rows, err := s.artworkRows(ctx, v, []core.RatingKey{key})
+		if err != nil {
+			return nil, err
+		}
+		if t, ok := rows[key]; ok {
+			title = &t
+		} else {
+			title, err = get(ctx, key)
+		}
 		if errors.Is(err, core.ErrNotFound) && s.d.CachedVirtualSeason != nil {
 			title, err = s.d.CachedVirtualSeason(ctx, v, key)
 		}
@@ -913,6 +1052,8 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 		if !ok || !SectionAllowed(v, section) || !visibility.Visible(ctx, v, title) {
 			return nil, core.ErrNotFound
 		}
+		// The image read that follows lists the same title (ArtworkTitle).
+		frontend.ArtworkRowsFrom(ctx).Put(*title)
 	} else if _, err := s.item(ctx, v, key); err != nil {
 		return nil, err
 	}
@@ -924,73 +1065,15 @@ func (s *Service) AuthorizeArtwork(ctx context.Context, viewer *core.Viewer, dev
 // needs every episode can omit a count instead of inventing one. It does
 // not refresh the show or its seasons.
 func (s *Service) LocalEpisodes(ctx context.Context, viewer *core.Viewer, key core.RatingKey) ([]core.Title, bool, error) {
-	ctx = core.WithCatalogViewer(ctx, viewer)
-	if s == nil || s.d.AiredEpisodes == nil {
+	if key.Kind() != core.KindShow && key.Kind() != core.KindSeason {
 		return nil, false, core.ErrNotFound
 	}
-	v, err := s.viewer(ctx, viewer)
+	lists, err := s.localEpisodesMany(ctx, viewer, []core.RatingKey{key})
 	if err != nil {
 		return nil, false, err
 	}
-	show := key
-	season := 0
-	switch key.Kind() {
-	case core.KindShow:
-	case core.KindSeason:
-		show = core.ShowKey(key.TMDB())
-		season = key.Season()
-	default:
-		return nil, false, core.ErrNotFound
-	}
-	page, err := s.airedShowEpisodes(ctx, show)
-	if err != nil {
-		return nil, false, err
-	}
-	complete := page.Total == len(page.Items)
-	out := make([]core.Title, 0, len(page.Items))
-	for i := range page.Items {
-		title := page.Items[i]
-		if season != 0 && title.Season != season {
-			continue
-		}
-		if title.Type == core.TypeEpisode && s.visible(ctx, v, &title) {
-			out = append(out, title)
-		}
-	}
-	return out, complete, nil
-}
-
-// airedShowEpisodes reads at most 500 stored episodes of a show. A seasons
-// page asks once per season; the request memo keeps that to a single read.
-func (s *Service) airedShowEpisodes(ctx context.Context, show core.RatingKey) (core.Page, error) {
-	if memo := frontend.RequestMemoFrom(ctx); memo != nil {
-		memo.Mu.Lock()
-		if hit, ok := memo.Aired[show]; ok {
-			memo.Mu.Unlock()
-			if hit.Err != nil {
-				return core.Page{}, hit.Err
-			}
-			items := append([]core.Title(nil), hit.Items...)
-			return core.Page{Items: items, Total: hit.Total}, nil
-		}
-		memo.Mu.Unlock()
-	}
-	page, err := s.d.AiredEpisodes(ctx, show, 0, 500)
-	if memo := frontend.RequestMemoFrom(ctx); memo != nil {
-		memo.Mu.Lock()
-		if memo.Aired == nil {
-			memo.Aired = map[core.RatingKey]frontend.AiredMemo{}
-		}
-		stored := frontend.AiredMemo{Total: page.Total, Err: err}
-		if err == nil {
-			stored.Items = append([]core.Title(nil), page.Items...)
-		}
-		if _, ok := memo.Aired[show]; !ok {
-			memo.Aired[show] = stored
-		}
-		memo.Mu.Unlock()
-	}
-	return page, err
+	list := lists[key]
+	return list.Items, list.Complete, nil
 }
 
 func (s *Service) Children(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey, q frontend.ItemQuery) (core.Page, error) {
@@ -1192,7 +1275,13 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	// The candidate window grows with the page asked for, so a first page
 	// of search results does not load and hydrate a thousand titles.
 	window := min(max(2*end, searchWindowMin), 1000)
-	candidates, err := s.d.Search.Find(ctx, v, query, types, window)
+	// The window is ranked and filtered here, so the catalogue returns it
+	// as rows with the facts the filters read; only the page is read in full.
+	findCtx, cand := ctx, s.searchCandidates(ctx, v, q)
+	if cand != nil {
+		findCtx = core.WithSearchCandidates(ctx, cand)
+	}
+	candidates, err := s.d.Search.Find(findCtx, v, query, types, window)
 	if err != nil {
 		return frontend.SearchPage{}, err
 	}
@@ -1224,7 +1313,43 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	if len(items) > end {
 		continuation = frontend.ContinuationMore
 	}
-	return frontend.SearchPage{Page: core.Page{Items: items[start:stop], Total: len(items)}, TotalExact: false, Continuation: continuation}, nil
+	page := items[start:stop]
+	// A summary search (Stremio) shows the rows as they are.
+	if cand != nil && !core.SearchSummaryFacts(ctx) {
+		full, err := s.d.Search.Details(findCtx, page)
+		if err != nil {
+			return frontend.SearchPage{}, err
+		}
+		page = full
+	}
+	return frontend.SearchPage{Page: core.Page{Items: page, Total: len(items)}, TotalExact: false, Continuation: continuation}, nil
+}
+
+// searchCandidates is the candidate window a search asks the catalogue for
+// (core.SearchCandidates): every fact the viewer's policy and q's filters
+// read beyond a title's row, and the titles availability judges in full.
+// Nil, for full results, when a filter reads credits, the sort is by the
+// date added (a full title derives it from its release dates), or the
+// catalogue or availability cannot say.
+func (s *Service) searchCandidates(ctx context.Context, v *core.User, q frontend.ItemQuery) *core.SearchCandidates {
+	if s.d.Search.Details == nil || q.Filter.Person != 0 || q.Sort == core.SortAdded {
+		return nil
+	}
+	detail, ok := s.d.Visibility.FactJudge(ctx)
+	if !ok {
+		return nil
+	}
+	facts := s.d.Visibility.TitleFacts(v)
+	if len(q.Filter.Genres) > 0 {
+		facts |= core.FactGenres
+	}
+	if len(q.Filter.Countries) > 0 {
+		facts |= core.FactCountries
+	}
+	if q.Filter.Studio != "" {
+		facts |= core.FactStudios
+	}
+	return &core.SearchCandidates{Facts: facts, Detail: detail}
 }
 func (s *Service) UserData(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]core.WatchStatus, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
@@ -1575,6 +1700,10 @@ func (s *Service) Similar(ctx context.Context, viewer *core.Viewer, device core.
 	if _, err = s.item(ctx, v, key); err != nil {
 		return frontend.SearchPage{}, err
 	}
+	rank := s.similarWindow(ctx, v, q)
+	if rank != nil {
+		ctx = core.WithRankingCandidates(ctx, rank)
+	}
 	candidates, err := s.similarCandidates(ctx, v, key)
 	if err != nil {
 		return frontend.SearchPage{}, err
@@ -1612,7 +1741,29 @@ func (s *Service) Similar(ctx context.Context, viewer *core.Viewer, device core.
 	if end < len(items) {
 		continuation = frontend.ContinuationMore
 	}
-	return frontend.SearchPage{Page: core.Page{Items: items[offset:end], Total: len(items)}, TotalExact: exact, Continuation: continuation}, nil
+	page := items[offset:end]
+	if rank != nil {
+		if page, err = s.d.RankingDetails(ctx, page); err != nil {
+			return frontend.SearchPage{}, err
+		}
+	}
+	return frontend.SearchPage{Page: core.Page{Items: page, Total: len(items)}, TotalExact: exact, Continuation: continuation}, nil
+}
+
+// similarWindow is the ranking window Similar reads its related shelves
+// with (core.WithRankingCandidates): the facts the viewer's policy reads,
+// and the genres and keywords a shelf's taste ranking reads with its
+// credits. Nil, for full titles, when q filters on facts, or the catalogue
+// or availability cannot say.
+func (s *Service) similarWindow(ctx context.Context, v *core.User, q frontend.ItemQuery) *core.SearchCandidates {
+	if s.d.RankingDetails == nil || !reflect.ValueOf(q.Filter).IsZero() {
+		return nil
+	}
+	detail, ok := s.d.Visibility.FactJudge(ctx)
+	if !ok {
+		return nil
+	}
+	return &core.SearchCandidates{Facts: s.d.Visibility.TitleFacts(v) | core.FactGenres | core.FactKeywords, Detail: detail}
 }
 
 // similarCandidates uses the detail recommender when the host wired one, so
@@ -1675,6 +1826,9 @@ func (s *Service) Ancestors(ctx context.Context, viewer *core.Viewer, device cor
 // Facets are computed only from titles the viewer may see.
 func (s *Service) Facets(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, name string) ([]core.FacetValue, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if out, ok, err := s.indexedFacets(ctx, viewer, viewID, name); err != nil || ok {
+		return out, err
+	}
 	page, err := s.LibraryItems(ctx, viewer, device, viewID, frontend.ItemQuery{})
 	if err != nil {
 		return nil, err
@@ -1910,6 +2064,12 @@ func matchesFilter(t core.Title, f core.Filter) bool {
 	if f.YearTo > 0 && t.Year > f.YearTo {
 		return false
 	}
+	if len(f.Years) > 0 && !slices.Contains(f.Years, t.Year) || slices.Contains(f.ExcludeYears, t.Year) {
+		return false
+	}
+	if !releasedMatches(t, f.ReleasedFilters) {
+		return false
+	}
 	if f.MinRating > 0 && t.Rating < f.MinRating {
 		return false
 	}
@@ -1960,6 +2120,50 @@ func matchesFilter(t core.Title, f core.Filter) bool {
 	return true
 }
 
+// releasedMatches is catalog browseWhere's release-date predicates, for
+// pages the catalogue's SQL did not read. An unknown date matches none.
+func releasedMatches(t core.Title, filters []core.DateFilter) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	if t.Released.IsZero() {
+		return false
+	}
+	const day = 86400
+	ts := t.Released.Unix()
+	for _, rf := range filters {
+		var ok bool
+		switch rf.Op {
+		case "<<":
+			ok = ts < rf.Unix
+		case "<=":
+			end := rf.Unix
+			if rf.SpanDay {
+				end += day - 1
+			}
+			ok = ts <= end
+		case ">>":
+			ok = ts > rf.Unix
+		case ">=":
+			ok = ts >= rf.Unix
+		case "!=", "!==":
+			ok = ts != rf.Unix
+			if rf.SpanDay {
+				ok = ts < rf.Unix || ts >= rf.Unix+day
+			}
+		default:
+			ok = ts == rf.Unix
+			if rf.SpanDay {
+				ok = ts >= rf.Unix && ts < rf.Unix+day
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // SetLikes delegates to the state's atomic shared-rating operation.
 func (s *Service) SetLikes(ctx context.Context, viewer *core.Viewer, key core.RatingKey, likes *bool) error {
 	ctx = core.WithCatalogViewer(ctx, viewer)
@@ -1973,16 +2177,42 @@ func (s *Service) SetLikes(ctx context.Context, viewer *core.Viewer, key core.Ra
 	})
 }
 
-func facetID(kind, value string) string {
-	sum := sha256.Sum256([]byte("ether/facet/v1\x00" + kind + "\x00" + value))
-	sum[6] = (sum[6] & 0x0f) | 0x50
-	sum[8] = (sum[8] & 0x3f) | 0x80
-	return hex.EncodeToString(sum[:16])
-}
+func facetID(kind, value string) string { return core.FacetID(kind, value) }
 
 // ResolveFacet only resolves identifiers among the viewer's current visible facets.
 func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, kind, id string) (core.FacetValue, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if kind == "studio" && s.d.StudioByFacetID != nil {
+		// The studio vocabulary carries each name's identifier: one indexed
+		// read, where the list of every studio of the library was hashed
+		// to find it. Which titles the viewer may see under it is the
+		// filtered page's business.
+		return s.resolveStudio(ctx, viewer, viewID, id)
+	}
+	if name := sqlFacets[kind]; name != "" && s.d.FacetFilter != nil {
+		// A genre, studio or country id names a value; which titles the
+		// viewer may see under it is the filtered page's business. The id
+		// resolves against the library-wide values, one cached count for
+		// every viewer, not a count of this viewer's whole library.
+		if found, ok, err := s.resolveGlobalFacet(ctx, viewer, viewID, kind, name, id); err != nil || ok {
+			return found, err
+		}
+	}
+	if kind == "person" {
+		tmdb, ok, err := s.personFacetTMDB(ctx, id)
+		if err != nil {
+			return core.FacetValue{}, err
+		}
+		if ok {
+			if found, ok, err := s.resolvePersonFacet(ctx, viewer, viewID, id, tmdb); err != nil || ok {
+				return found, err
+			}
+		} else if s.d.PersonByFacetID != nil {
+			// The person vocabulary names every credited person: an id it
+			// does not know is no one's.
+			return core.FacetValue{}, core.ErrNotFound
+		}
+	}
 	facets, err := s.Facets(ctx, viewer, device, viewID, kind)
 	if err != nil {
 		return core.FacetValue{}, err

@@ -30,9 +30,11 @@ import type { EtherUser } from "../../lib/types";
 import { localized, t, tn, tx } from "../../i18n";
 import { relativeTime } from "../../lib/format";
 import { useDebouncedValue } from "../../lib/hooks";
+import { ChannelApps } from "./ChannelApps";
 import { ChannelLogo } from "./ChannelLogo";
 import { MapGuideButton } from "./GuideData";
 import { LivePreview } from "./LivePreview";
+import { STABILITY } from "./stability";
 import { ScheduleTimeline, type TimelineElement } from "./ScheduleTimeline";
 import { Drawer } from "../../components/Drawer";
 import {
@@ -566,6 +568,31 @@ export function ChannelStudio({
                 </span>
               </span>
             </label>
+            <Field
+              label={t("Stream stability")}
+              htmlFor="ch-stability"
+              hint={
+                c.stability
+                  ? STABILITY.find((s) => s.value === c.stability)?.body()
+                  : t("Follows the stream stability chosen for every channel under Sources.")
+              }
+            >
+              <Select
+                id="ch-stability"
+                value={c.stability || ""}
+                onChange={(e) =>
+                  set({ stability: (e.currentTarget.value || undefined) as Channel["stability"] })
+                }
+              >
+                <option value="">{t("Same as every channel")}</option>
+                {STABILITY.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.title()}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <ChannelApps hidden={c.hiddenApps} onChange={(hiddenApps) => set({ hiddenApps })} />
           </section>
         ) : null}
         {tab === "guide" && !virtual ? (
@@ -643,7 +670,19 @@ export function ChannelStudio({
             <Field
               label={t("Logo URL")}
               htmlFor="ch-logo"
-              hint={t("Leave blank and Ether draws one from the name.")}
+              hint={
+                <>
+                  {t("Leave blank and Ether draws one from the name.")}
+                  {appleTVNeedsPublicLogo(c) ? (
+                    <>
+                      {" "}
+                      {t(
+                        "Apple TV shows this logo only when remote access is on, or when the logo is a public image link.",
+                      )}
+                    </>
+                  ) : null}
+                </>
+              }
             >
               <div className="flex items-center gap-3">
                 <ChannelLogo name={c.name} logo={c.logo} seed={c.id || c.name} size={36} />
@@ -655,6 +694,9 @@ export function ChannelStudio({
                 />
               </div>
             </Field>
+            {virtual ? (
+              <ChannelApps hidden={c.hiddenApps} onChange={(hiddenApps) => set({ hiddenApps })} />
+            ) : null}
             {virtual ? (
               <details className="rounded-xl border border-border bg-surface p-4">
                 <summary className="cursor-pointer text-sm font-medium text-fg">
@@ -927,6 +969,7 @@ function SourceHealth({ status }: { status?: SourceStatus }) {
     label: status.state,
     className: "bg-bg-subtle text-fg-subtle",
   };
+  const learned = status.learned;
   const detail = [
     status.failures ? tn(status.failures, "{count} failure", "{count} failures") : "",
     played ? t("played {when}", { when: relativeTime(played) }) : "",
@@ -934,6 +977,15 @@ function SourceHealth({ status }: { status?: SourceStatus }) {
       ? t("retry {when}", { when: relativeTime(retry) })
       : "",
     status.lastError ?? "",
+    learned?.damage ? t("picture damage seen") : "",
+    learned?.longGop ? t("keyframes far apart") : "",
+    learned?.stallsPerHour
+      ? tn(learned.stallsPerHour, "{count} stall per hour", "{count} stalls per hour")
+      : "",
+    learned?.formatChanges
+      ? tn(learned.formatChanges, "{count} format change", "{count} format changes")
+      : "",
+    learned?.startsConverted ? t("starts converted for a clean picture") : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1150,4 +1202,39 @@ function ViewerAccess({
       </div>
     </section>
   );
+}
+
+/**
+ * Plex for Apple TV draws guide logos only through Plex's cloud, which can
+ * fetch a public PNG or JPEG link but not an upload, an SVG, a generated logo
+ * or a LAN address unless remote access publishes the server. A shipped
+ * channel left blank uses Ether's own public artwork.
+ */
+function appleTVNeedsPublicLogo(c: { id: string; logo?: string }): boolean {
+  const logo = (c.logo || "").trim();
+  if (!logo) return !c.id.startsWith("showcase-");
+  try {
+    const u = new URL(logo);
+    const host = u.hostname.toLowerCase().replace(/\.$/, "");
+    if (!/^https?:$/.test(u.protocol) || u.username || /\.svg$/i.test(u.pathname)) return true;
+    if (!host.includes(".") || host.startsWith("[")) return true;
+    if (/\.(local|lan|home|home\.arpa|internal|localdomain|localhost|corp|intranet)$/.test(host)) {
+      return true;
+    }
+    const ip = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+    if (!ip) return false;
+    const a = Number(ip[1]);
+    const b = Number(ip[2]);
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  } catch {
+    return true;
+  }
 }

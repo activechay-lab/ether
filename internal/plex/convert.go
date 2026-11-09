@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/langtag"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
@@ -43,6 +43,9 @@ type renderOpts struct {
 	// availabilityInSQL is set for a catalogue page that already applied
 	// the same availability snapshot before counting and pagination.
 	availabilityInSQL bool
+	// mediaExcluded: the client excluded Media, so list rows skip building
+	// it (and every read behind it). Set by renderTitles.
+	mediaExcluded bool
 }
 
 // metadataKey is the item's "key": children list for containers, the item
@@ -131,15 +134,15 @@ func artIdentityStamp(u string) string {
 	return strconv.FormatUint(uint64(h.Sum32()), 10)
 }
 
-func overlayThumbStamp(t *core.Title, row plexmeta.Cached, ok bool) string {
-	if ok && row.ThumbURL != "" && (t.PosterPath == plexmeta.RemoteArt || t.StillPath == plexmeta.RemoteArt) {
+func overlayThumbStamp(t *core.Title, row frontend.CachedMetadataOverlay, ok bool) string {
+	if ok && row.ThumbURL != "" && (t.PosterPath == frontend.RemoteMetadataArt || t.StillPath == frontend.RemoteMetadataArt) {
 		return artIdentityStamp(row.ThumbURL)
 	}
 	return imageStamp(t)
 }
 
-func overlayArtStamp(t *core.Title, row plexmeta.Cached, ok bool) string {
-	if ok && row.ArtURL != "" && t.BackdropPath == plexmeta.RemoteArt {
+func overlayArtStamp(t *core.Title, row frontend.CachedMetadataOverlay, ok bool) string {
+	if ok && row.ArtURL != "" && t.BackdropPath == frontend.RemoteMetadataArt {
 		return artIdentityStamp(row.ArtURL)
 	}
 	return imageStamp(t)
@@ -152,6 +155,12 @@ func thumbURL(t *core.Title) string {
 
 func stampedThumbURL(t *core.Title, stamp string) string {
 	if t.PosterPath == "" && t.StillPath == "" {
+		// A movie or show with no artwork gets Ether's generated poster.
+		// Its stamp names the drawn image, so the URL changes (and client
+		// caches refetch) when the title gains a real poster.
+		if p, ok := artwork.ForTitle(t); ok {
+			return "/library/metadata/" + t.Key.String() + "/thumb/" + p.Stamp()
+		}
 		return ""
 	}
 	return "/library/metadata/" + t.Key.String() + "/thumb/" + stamp
@@ -415,7 +424,18 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *core.Title, o ren
 		m.UltraBlurColors = s.ultraBlurFor(t.Key, t.BackdropPath)
 	}
 
-	if o.media && isPlayable(t.Type) {
+	withMedia := o.media
+	if o.mediaExcluded && isPlayable(t.Type) {
+		if t.Runtime > 0 {
+			// What building Media would leave behind once it is excluded.
+			if s.downloadsAllowed(pr.User) {
+				m.AllowSync = model.Ptr(true)
+			}
+		} else {
+			withMedia = true // the row's duration comes from its Media
+		}
+	}
+	if withMedia && isPlayable(t.Type) {
 		var editionTitle string
 		m.Media, editionTitle = s.mediaFor(ctx, pr, t, detail, o.detail, o.session)
 		applyEditionTitle(&m, editionTitle)
@@ -1321,17 +1341,17 @@ var languages = map[string][3]string{
 // primaryLang is the display/code lookup key for a language: the
 // canonical primary subtag from langtag (region and script dropped).
 func primaryLang(code string) string {
-	if t, ok := langtag.ParseBCP47(code); ok {
-		return canonicalLanguagePrimary(t.Primary)
+	if t, ok := frontend.LanguagePrimary(code); ok {
+		return canonicalLanguagePrimary(t)
 	}
 	return strings.ToLower(strings.TrimSpace(code))
 }
 
-// sameLanguage is the symmetric view of langtag.MatchTier: true when
+// sameLanguage is the symmetric view of frontend.LanguageMatchTier: true when
 // the tier is > 0 — exact, or the same primary with at least one
 // generic side (pt × pt-br true; pt-br × pt-pt false).
 func sameLanguage(a, b string) bool {
-	return a != "" && b != "" && langtag.MatchTier(a, b) > 0
+	return a != "" && b != "" && frontend.LanguageMatchTier(a, b) > 0
 }
 
 func languageName(code string) string {
@@ -1370,10 +1390,21 @@ func languageTag(code string) string {
 // renderTitles renders a list, loading the user's watch state in one call.
 func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []core.Title, o renderOpts) []model.Metadata {
 	ctx = withStoredPolicy(ctx)
+	if o.media && pr.excludeMedia && listMediaSkip && !o.detail && !o.detailEpisodes && !o.session {
+		// The response drops Media (and mediaCount stands in for it), so
+		// light list rows need not build it, nor read what it is drawn
+		// from. Full rows keep it: their chapters, markers and probed
+		// duration are read alongside.
+		o.media, o.mediaExcluded = false, true
+	}
+	// The rendering's own Playable checks (resumed tracks) read the same
+	// series rows as admission.
+	ctx = s.withSeriesRows(ctx, pr.User, ts)
 	ts = s.openableTitles(ctx, pr.User, ts, o.availabilityInSQL || shelfContainsAll(ctx, ts))
 	if len(ts) == 0 {
 		return nil
 	}
+	s.warmTitleDetails(ts, o.storedOnly)
 	if d := s.d.Discovery; d != nil {
 		if d.Ratings != nil {
 			ctx = d.Ratings.WithSettingsSnapshot(ctx)
@@ -1574,12 +1605,6 @@ func (s *Server) applyLeafCounts(ctx context.Context, pr *Request, items []model
 	s.applyLeafCountsWith(ctx, pr, items, ts, memo, nil)
 }
 
-// listEpisodeStore answers many shows' episodes from the mirror at once,
-// exactly as Grandchildren would, for the shows it can (catalog).
-type listEpisodeStore interface {
-	StoredGrandchildren(context.Context, []core.RatingKey) (map[core.RatingKey][]core.Title, error)
-}
-
 // prefetchListEpisodes loads, in a few batched reads, the episodes and
 // watch state a list's shows need for their leaf counts, so the counts do
 // not load each show's episodes and state one show at a time. It covers
@@ -1598,61 +1623,17 @@ func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []cor
 }
 
 func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts []core.Title, selectionOnly bool) (showEpisodes, map[core.RatingKey]core.WatchStatus) {
-	store, ok := s.d.Catalog.(listEpisodeStore)
-	if !ok || s.d.State == nil || pr.User == nil {
-		return nil, nil
-	}
-	withSeasons := map[core.RatingKey]bool{}
-	for i := range ts {
-		if ts[i].Type == core.TypeSeason {
-			withSeasons[core.ShowKey(ts[i].Key.TMDB())] = true
-		}
-	}
-	var shows []core.RatingKey
-	for i := range ts {
-		if ts[i].Type == core.TypeShow && !withSeasons[ts[i].Key] {
-			shows = append(shows, ts[i].Key)
-		}
-	}
-	if len(shows) == 0 {
-		return nil, nil
-	}
+	batch := experience.EpisodeBatch{Catalog: s.d.Catalog, State: s.d.State}
 	if s.d.EpisodeOrder != nil {
-		grouped, err := s.d.EpisodeOrder.Grouped(ctx, pr.User, shows)
-		if err != nil {
-			return nil, nil
-		}
-		kept := shows[:0]
-		for _, k := range shows {
-			if !grouped[k] {
-				kept = append(kept, k)
-			}
-		}
-		shows = kept
+		batch.EpisodeOrder = s.d.EpisodeOrder
 	}
-	load := store.StoredGrandchildren
-	if selectionOnly {
-		if candidates, ok := s.d.Catalog.(interface {
-			StoredEpisodeCandidates(context.Context, []core.RatingKey) (map[core.RatingKey][]core.Title, error)
-		}); ok {
-			load = candidates.StoredEpisodeCandidates
-		}
+	found, states := batch.Load(ctx, pr.User, ts, selectionOnly)
+	if found == nil {
+		return nil, states
 	}
-	found, err := load(ctx, shows)
-	if err != nil || len(found) == 0 {
-		return nil, nil
-	}
-	memo := showEpisodes{}
-	var keys []core.RatingKey
+	memo := make(showEpisodes, len(found))
 	for show, eps := range found {
 		memo[show] = showEpisodeList{eps: eps}
-		for _, e := range eps {
-			keys = append(keys, e.Key)
-		}
-	}
-	states, err := s.d.State.GetMany(ctx, pr.User.ID, keys)
-	if err != nil {
-		return memo, nil
 	}
 	return memo, states
 }

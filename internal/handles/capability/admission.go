@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"strconv"
 	"strings"
 
@@ -14,15 +15,24 @@ import (
 // Limits are fixed by the issuing domain, never by a request. All writers for
 // a namespace must use the same limits. Expired rows remain charged until the
 // domain safely retires them; admission never evicts a live resource.
-type Limits struct{ PerScope, PerShard int }
+//
+// LiveAfterMillis, when positive, charges only headers expiring after it. It is
+// for domains whose expired rows authorize nothing and whose maintenance drains
+// them; storage is then bounded by that drain, not by admission. It must come
+// from the domain's trusted expiry clock and every writer must set it.
+type Limits struct {
+	PerScope, PerShard int
+	LiveAfterMillis    int64
+}
 
 // AdmitHeadersInTx reserves bounded storage in the domain transaction. A batch
 // has one namespace/viewer/surface, but may contain different devices. The
 // caller authorizes and inserts its typed records in this same transaction and
 // must roll back on any error. Existing rows (including pre-cutover headers)
-// count toward admission. This does not fence direct SQL or old binaries.
+// count toward admission, or only live ones under LiveAfterMillis. This does
+// not fence direct SQL or old binaries.
 func AdmitHeadersInTx(ctx context.Context, db *sql.DB, tx *sql.Tx, headers []Header, limits Limits) error {
-	if db == nil || tx == nil || len(headers) == 0 || len(headers) > HeaderBatchMax || limits.PerScope <= 0 || limits.PerShard < limits.PerScope {
+	if db == nil || tx == nil || len(headers) == 0 || len(headers) > HeaderBatchMax || limits.PerScope <= 0 || limits.PerShard < limits.PerScope || limits.LiveAfterMillis < 0 {
 		return ErrInvalidHeader
 	}
 	first := headers[0]
@@ -42,14 +52,20 @@ func AdmitHeadersInTx(ctx context.Context, db *sql.DB, tx *sql.Tx, headers []Hea
 		return err
 	}
 	shard := first.ViewerID % HeaderShardCount
+	// Both counts are range scans: capability_headers_scope and
+	// capability_headers_expiry end in expires. A zero cutoff charges every row.
+	cutoff := limits.LiveAfterMillis
+	if cutoff == 0 {
+		cutoff = math.MinInt64
+	}
 	var n int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM capability_headers WHERE namespace=? AND shard=? AND viewer_id=? AND surface=?`, first.Namespace, shard, first.ViewerID, first.Surface).Scan(&n); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM capability_headers WHERE namespace=? AND shard=? AND viewer_id=? AND surface=? AND expires>?`, first.Namespace, shard, first.ViewerID, first.Surface, cutoff).Scan(&n); err != nil {
 		return err
 	}
 	if n+len(headers) > limits.PerScope {
 		return &CapacityError{Scope: "viewer"}
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM capability_headers WHERE namespace=? AND shard=?`, first.Namespace, shard).Scan(&n); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM capability_headers WHERE namespace=? AND shard=? AND expires>?`, first.Namespace, shard, cutoff).Scan(&n); err != nil {
 		return err
 	}
 	if n+len(headers) > limits.PerShard {

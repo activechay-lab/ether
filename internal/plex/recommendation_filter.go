@@ -3,16 +3,16 @@ package plex
 import (
 	"context"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 type recommendationFilter interface {
-	FilterRecommendations(context.Context, *core.User, []core.Title) ([]core.Title, error)
+	FilterRecommendations(context.Context, *frontend.Viewer, []frontend.Title) ([]frontend.Title, error)
 }
 
 // recommendationCandidates preserves the original first source request and
 // expands only if a viewer exclusion leaves the bounded source page short.
-func (s *Server) recommendationCandidates(ctx context.Context, user *core.User, limit int, load func(context.Context, int) ([]core.Title, error)) ([]core.Title, error) {
+func (s *Server) recommendationCandidates(ctx context.Context, user *frontend.Viewer, limit int, load func(context.Context, int) ([]frontend.Title, error)) ([]frontend.Title, error) {
 	filter, ok := s.d.Recommender.(recommendationFilter)
 	if !ok || user == nil || limit <= 0 {
 		return load(ctx, limit)

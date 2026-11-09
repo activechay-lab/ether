@@ -166,7 +166,8 @@ func (r *Runtime) mediaSession(id string) (core.HLSSession, bool) {
 }
 
 type mediaReplica struct {
-	route   Route
-	adapter *remotetranscode.Adapter
-	session *remotetranscode.Session
+	route    Route
+	adapter  *remotetranscode.Adapter
+	session  *remotetranscode.Session
+	forgetAt time.Time // forgetTerminal grace deadline
 }

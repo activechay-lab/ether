@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -60,6 +60,12 @@ const (
 	unavailableRecheck = 5 * time.Minute
 )
 
+// AnimeCour maps a multi-cour TMDB anime season episode to its 1-based cour
+// (part) number and 1-based episode number within that cour.
+type AnimeCour interface {
+	LookupCour(ctx context.Context, req core.SearchRequest) (cour int, episode int, ok bool, err error)
+}
+
 // Options tunes a Service. Zero values get sensible defaults.
 type Options struct {
 	SearchObserved func(context.Context, *core.Title, []core.Release)
@@ -69,10 +75,13 @@ type Options struct {
 	// SeriesYearConflict reports whether the catalogue holds a different
 	// show titled title that first aired in year (see series_year.go).
 	SeriesYearConflict func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
-	Logger             *slog.Logger
-	Now                func() time.Time
-	MaxTraces          int
-	RetentionDays      int // posts older than this are penalised; 0 = no extra penalty
+	// AnimeCour maps multi-cour TMDB anime season episodes to their cour
+	// and cour-relative episode number; nil disables cour mapping.
+	AnimeCour     AnimeCour
+	Logger        *slog.Logger
+	Now           func() time.Time
+	MaxTraces     int
+	RetentionDays int // posts older than this are penalised; 0 = no extra penalty
 	// HealthTTL is how long a passed health check is trusted before the
 	// release is sampled again (default 6h; negative disables the cache).
 	HealthTTL time.Duration
@@ -190,6 +199,7 @@ type inflight struct {
 type Service struct {
 	years                     seriesYears
 	seriesYearConflict        func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
+	animeCour                 AnimeCour
 	availabilityGeneration    uint64
 	availabilityDeadlines     availabilityDeadlines
 	availabilityDeadlineByKey map[int64]*availabilityDeadline
@@ -214,6 +224,7 @@ type Service struct {
 	catalogLang      string // catalogue metadata language ("en-US"): the server's language
 	debridCachedOnly bool
 	scorer           *FormatScorer
+	indexerPriority  map[string]int // indexer id → Priority (lower ranks first)
 	scorerErr        error
 	sources          string // sourcesKey of the applied config
 
@@ -261,7 +272,7 @@ var _ core.Resolver = (*Service)(nil)
 // (typically *newznab.Manager); health may be nil (health checks are
 // then skipped); db may be nil (state then lives in memory).
 func New(indexer core.Indexer, health core.HealthChecker, db *sql.DB, cfg config.Config, opts Options) *Service {
-	s := &Service{seriesYearConflict: opts.SeriesYearConflict, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
+	s := &Service{seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
 		indexer: indexer, health: health, db: db,
 		bad: map[string]badMark{}, reps: map[string]reputation{},
 		avail: map[int64]availEntry{}, searchCache: map[string]searchCacheEntry{},
@@ -303,7 +314,11 @@ func (s *Service) UpdateConfig(cfg config.Config) {
 	s.quality = cfg.Quality
 	s.catalogLang = cfg.Catalog.Language
 	s.debridCachedOnly = cfg.Debrid.CachedOnly
-	s.scorer, s.scorerErr = NewFormatScorer(cfg.Resolver.CustomFormats, cfg.Resolver.CustomFormatScores)
+	s.scorer, s.scorerErr = NewFormatScorer(cfg.Resolver.CustomFormats)
+	s.indexerPriority = make(map[string]int, len(cfg.Indexers))
+	for _, ix := range cfg.Indexers {
+		s.indexerPriority[ix.ID] = ix.Priority
+	}
 	changed := s.sources != "" && s.sources != key
 	s.sources = key
 	s.cfgMu.Unlock()
@@ -529,6 +544,16 @@ func searchRequestFor(t *core.Title) core.SearchRequest {
 	return core.SearchRequest{Type: core.TypeMovie, IDs: t.IDs, Title: t.Title, OriginalTitle: t.OriginalTitle, Year: t.Year, Anime: isAnime(t), AlternativeTitles: t.AlternativeTitles, Released: t.Released}
 }
 
+func (s *Service) searchRequest(ctx context.Context, t *core.Title) core.SearchRequest {
+	req := searchRequestFor(t)
+	if s != nil && s.animeCour != nil && req.Anime && req.Type == core.TypeEpisode && req.Season > 0 && req.Episode > 1 && req.IDs.TMDB > 0 {
+		if cour, ep, ok, err := s.animeCour.LookupCour(ctx, req); err == nil && ok {
+			req.Cour, req.CourEpisode = cour, ep
+		}
+	}
+	return req
+}
+
 // isAnime reports a title whose releases follow anime conventions
 // (absolute episode numbers, fansub groups): TMDB's "anime" keyword, or
 // Japanese-language animation.
@@ -658,7 +683,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	}
 
 	ctx, inconclusive := withUnverifiedPool(ctx)
-	sreq := searchRequestFor(t)
+	sreq := s.searchRequest(ctx, t)
 	early := newSearchPreparation(ctx, s, req, sreq, profile, pinID)
 	defer early.close()
 	ctx = context.WithValue(ctx, searchPreparationKey{}, early)
@@ -890,7 +915,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	cands = s.prepareSources(ctx, cands, req.Title, &trace, &checks)
 	trace.SourcePreparationDuration = time.Since(prepareStart)
 	if rcfg.OptimisticStart && !preferTried {
-		if cands[0].rel.OpensOnDemand() && !core.OnDemandStreamsAllowed(ctx) {
+		if cands[0].rel.OpensOnDemand() && !core.OnDemandAllowedAt(ctx, cands[0].rel, 0) {
 			// Nothing ranked below the add-on stream may stand in for it.
 			trace.Err = errOnDemandForeground.Error()
 			return nil, errOnDemandForeground
@@ -972,7 +997,7 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	}
 	if len(downgrades) > 0 && ctx.Err() == nil {
 		sort.SliceStable(downgrades, func(i, j int) bool {
-			return compareCandidates(downgrades[i], downgrades[j], profile)
+			return compareCandidates(downgrades[i], downgrades[j])
 		})
 		index, nzb, verr := s.validateCandidates(ctx, downgrades, &trace, rcfg.HealthRace)
 		if verr == nil && index >= 0 {
@@ -1314,8 +1339,9 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 	// One instant ages every candidate. Reading the clock per release made
 	// identical releases differ by the nanoseconds between their scores, so
 	// ties broke on scoring order and clock resolution (a single tick on
-	// Windows) instead of on the ranking ladder.
+	// Windows) instead of on the ranking.
 	now := s.now()
+	rc := s.rankContext(profile, t, rcfg, now)
 	var cands []candidate
 	clientRejected := false
 	for ri, rel := range results {
@@ -1383,7 +1409,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			}
 			ct.Rejected = true
 			switch reason {
-			case "above profile max height", "above client max height", "below profile min height", "dolby vision not allowed for client", "video codec unsupported by client", "quality excluded by imported profile", "source recently failed health check; retrying later",
+			case ReasonAboveProfileMaxResolution, ReasonAboveClientMaxResolution, ReasonBelowProfileMinResolution, "dolby vision not allowed for client", "video codec unsupported by client", "quality excluded by imported profile", "source recently failed health check; retrying later",
 				// Size ranges are per profile: a remux too large for a
 				// download or mobile profile still plays for others.
 				"size too small for runtime", "size too large for runtime":
@@ -1396,12 +1422,21 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 				}
 			}
 			ct.Reason = reason
+			if reason == ReasonBelowProfileMinResolution && rel.Info.Height == 0 && floorHeight(rel.Info) > 0 {
+				ct.CompatibilityReason = fmt.Sprintf("height unknown; conservative %dp floor assumed", floorHeight(rel.Info))
+			}
 			if trace != nil {
 				trace.Candidates = append(trace.Candidates, ct)
 			}
 			continue
 		}
-		sc, err := s.scoreRelease(rel, profile, req.Client, t, now)
+		langOK := audioAcceptable(rel.Info, accepted)
+		langWanted := langOK && foreignTitleWantedAudio(rel.Info, wanted, t)
+		lowBitrate := bitrateScore(sizedForEpisode(rel), t) < 0
+		starved := lowBitrate || upscales[ri]
+		yearGuessed := seriesYearGuessed(rel, sreq)
+		facts := formatFacts{starved: starved, lowBitrate: lowBitrate, viewerLanguage: langWanted, yearDiffers: yearGuessed, pastRetention: s.pastRetention(rel, now)}
+		sc, err := s.scoreRelease(rel, profile, req.Client, t, policyResult, facts)
 		if errors.Is(err, errFormatTimeout) {
 			// One (possibly hostile) release name must not fail the whole
 			// resolution; it only loses its own place in the ranking.
@@ -1417,7 +1452,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			return nil, clientRejected, err
 		}
 		ct.CustomFormats = sc.matches
-		if minimum := minFormatScore(rcfg, profile); minimum != nil && sc.format < *minimum && !preferred {
+		if minimum := profile.MinCustomFormatScore; minimum != nil && sc.counted < *minimum && !preferred {
 			clientRejected = true
 			ct.Rejected = true
 			ct.Reason = "below minimum custom format score"
@@ -1427,7 +1462,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			continue
 		}
 		ct.CompatibilityReason = sc.compat
-		rel.Score = sc.total
+		rel.Score = float64(sc.total)
 		ct.Score = rel.Score
 		verified := verifiedIDs[rel.ID]
 		if verified {
@@ -1439,10 +1474,6 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			trace.Candidates = append(trace.Candidates, ct)
 			tr = len(trace.Candidates) - 1
 		}
-		langOK := audioAcceptable(rel.Info, accepted)
-		langWanted := langOK && foreignTitleWantedAudio(rel.Info, wanted, t)
-		lowBitrate := bitrateScore(sizedForEpisode(rel), t) < 0
-		starved := lowBitrate || upscales[ri]
 		bandwidth := s.deliveryFit(sizedForEpisode(rel), req.Client, t)
 		if trace != nil {
 			note := func(n string) {
@@ -1457,39 +1488,20 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			if bandwidth < 0 {
 				note("larger than the client's connection carries")
 			}
+			if yearGuessed {
+				note("series year differs but names no other show: ranked after correctly-labelled releases")
+			}
+			if !langOK {
+				note("ranked after releases in an accepted audio language")
+			}
 		}
-		yearGuessed := seriesYearGuessed(rel, sreq)
-		if yearGuessed && trace != nil {
-			trace.Candidates[tr].CompatibilityReason = strings.TrimPrefix(trace.Candidates[tr].CompatibilityReason+"; series year differs but names no other show: ranked after correctly-labelled releases", "; ")
-		}
-		if !langOK && trace != nil {
-			trace.Candidates[tr].CompatibilityReason = strings.TrimPrefix(trace.Candidates[tr].CompatibilityReason+"; ranked after releases in an accepted audio language", "; ")
-		}
-		cands = append(cands, candidate{fallback: fallback, policy: policyResult, rel: rel, trace: tr, verified: verified, langOK: langOK, langWanted: langWanted, starved: starved, quality: rankQuality(rel, profile, starved), bandwidth: bandwidth, yearGuessed: yearGuessed})
+		cands = append(cands, candidate{fallback: fallback, policy: policyResult, rel: rel, trace: tr, verified: verified, langOK: langOK, langWanted: langWanted, starved: starved, bandwidth: bandwidth, yearGuessed: yearGuessed, cf: sc.total, keys: keysFor(rel, starved, rc)})
 	}
 	if hot != nil && len(cands) > 0 {
-		releases := make([]core.Release, len(cands))
-		verified := make([]bool, len(cands))
-		for i := range cands {
-			releases[i], verified[i] = cands[i].rel, cands[i].verified
-		}
-		for _, step := range profile.EffectiveRanking() {
-			if !core.IsPluginRankingStep(step) {
-				continue
-			}
-			keys := hot.Rank(step, profile.RankingConfig[step], releases, verified)
-			if len(keys) != len(cands) {
-				continue
-			}
-			for i, key := range keys {
-				if cands[i].pluginKeys == nil {
-					cands[i].pluginKeys = map[string]int64{}
-				}
-				cands[i].pluginKeys[step] = key
-			}
-		}
+		s.addPluginScores(hot, profile, cands, trace)
 	}
 	if fallback {
+		order := sourceOrder(profile.QualityOrder)
 		sort.SliceStable(cands, func(i, j int) bool {
 			a, b := fallbackHeight(cands[i].rel.Info), fallbackHeight(cands[j].rel.Info)
 			if a != b {
@@ -1498,70 +1510,147 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			if len(profile.AllowedQualities) > 0 {
 				a, b := cands[i].rel.Info.Source, cands[j].rel.Info.Source
 				if a != b {
-					if order := compareFallbackSource(a, b, profile); order != 0 {
+					if order := compareFallbackSource(a, b, order); order != 0 {
 						return order > 0
 					}
 				}
 			}
-			return compareCandidates(cands[i], cands[j], profile)
+			return compareCandidates(cands[i], cands[j])
 		})
 		return cands, clientRejected, nil
 	}
-	return s.orderCandidates(cands, profile, req.Title, trace), clientRejected, nil
+	return s.orderCandidates(cands, req.Title, trace), clientRejected, nil
 }
 
-func (s *Service) orderCandidates(cands []candidate, profile core.QualityProfile, title *core.Title, trace *Trace) []candidate {
+func (s *Service) orderCandidates(cands []candidate, title *core.Title, trace *Trace) []candidate {
 	sort.SliceStable(cands, func(i, j int) bool {
-		return compareCandidates(cands[i], cands[j], profile)
+		return compareCandidates(cands[i], cands[j])
 	})
 	return s.routeSources(cands, title, trace)
 }
 
-// releaseScore is one release's total ranking score and its parts.
+// rankContext gathers what the comparer keys read for one ranking pass.
+func (s *Service) rankContext(profile core.QualityProfile, t *core.Title, rcfg config.Resolver, now time.Time) rankContext {
+	s.cfgMu.RLock()
+	scorer, priority := s.scorer, s.indexerPriority
+	s.cfgMu.RUnlock()
+	return rankContext{
+		profile:        profile,
+		title:          t,
+		now:            now,
+		preferSource:   preferredSource(rcfg.SourcePreference),
+		preferRevision: !scorer.scoresRevision(profile.CustomFormatScores),
+		priority:       priority,
+		reliability: func(indexer string) float64 {
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+			return s.reps[indexer].score()
+		},
+	}
+}
+
+// pastRetention reports a Usenet post older than the provider's retention.
+func (s *Service) pastRetention(rel core.Release, now time.Time) bool {
+	if s.retentionDays <= 0 || rel.Protocol != core.ProtocolUsenet || rel.PubDate.IsZero() {
+		return false
+	}
+	return now.Sub(rel.PubDate).Hours()/24 > float64(s.retentionDays)
+}
+
+// addPluginScores runs the profile's plugin ranking steps over the
+// candidates and adds each release's points to its custom format score. A
+// step that did not finish for every candidate adds nothing.
+func (s *Service) addPluginScores(hot RankingSession, profile core.QualityProfile, cands []candidate, trace *Trace) {
+	releases := make([]core.Release, len(cands))
+	verified := make([]bool, len(cands))
+	for i := range cands {
+		releases[i], verified[i] = cands[i].rel, cands[i].verified
+	}
+	steps := make([]string, 0, len(profile.PluginScores))
+	for step := range profile.PluginScores {
+		if core.IsPluginRankingStep(step) {
+			steps = append(steps, step)
+		}
+	}
+	slices.Sort(steps)
+	for _, step := range steps {
+		keys := hot.Rank(step, profile.PluginScores[step], releases, verified)
+		if len(keys) != len(cands) {
+			continue
+		}
+		for i, key := range keys {
+			points := int(max(min(key, maxPluginPoints), -maxPluginPoints))
+			if cands[i].pluginKeys == nil {
+				cands[i].pluginKeys = map[string]int64{}
+			}
+			cands[i].pluginKeys[step] = key
+			cands[i].cf += points
+			cands[i].rel.Score += float64(points)
+			if trace != nil && cands[i].trace >= 0 && cands[i].trace < len(trace.Candidates) && points != 0 {
+				ct := &trace.Candidates[cands[i].trace]
+				ct.Score = cands[i].rel.Score
+				ct.CustomFormats = append(ct.CustomFormats, FormatMatch{ID: step, Name: step, Score: points})
+			}
+		}
+	}
+}
+
+// maxPluginPoints bounds what one plugin step adds to a release's score.
+const maxPluginPoints = 100000
+
+// releaseScore is one release's custom format score and its parts.
 type releaseScore struct {
-	total   float64
-	format  int
+	total   int // every matching format: ranks the release
+	counted int // the owner's and imported formats: held to the minimum score
 	matches []FormatMatch
 	compat  string
 }
 
-// scoreRelease computes the ranking score of a release for a profile and
-// client: the profile score plus custom formats plus client compatibility.
-func (s *Service) scoreRelease(rel core.Release, profile core.QualityProfile, caps core.ClientCaps, t *core.Title, now time.Time) (releaseScore, error) {
+// scoreRelease scores a release for a profile and client: the owner's and
+// imported custom formats, Ether's built-in formats and the Prefer rules
+// that matched, each at the profile's score.
+func (s *Service) scoreRelease(rel core.Release, profile core.QualityProfile, caps core.ClientCaps, t *core.Title, policy releasepolicy.Result, facts formatFacts) (releaseScore, error) {
 	s.cfgMu.RLock()
 	scorer, scorerErr := s.scorer, s.scorerErr
 	s.cfgMu.RUnlock()
 	if scorerErr != nil {
 		return releaseScore{}, scorerErr
 	}
-	// An untagged release is in the title's original language (as the
-	// Starr apps assume), so "Language: Not English" does not match every
-	// ordinary English release. A torrent season pack's total size is not
-	// the episode's (sizedForEpisode), so size formats see it as unknown.
+	// A torrent season pack's total size is not the episode's
+	// (sizedForEpisode), so size formats see it as unknown.
 	formatRel := sizedForEpisode(rel)
-	if len(formatRel.Info.Languages) == 0 {
-		formatRel.Info.Languages = []string{assumedLanguage(t)}
-	}
-	formatScore, matches, err := scorer.ScoreForTitle(formatRel, profile.CustomFormatScores, originalLanguage(t))
+	counted, matches, err := scorer.ScoreForProfile(formatRel, profile.CustomFormatScores, t)
 	if err != nil {
 		return releaseScore{}, err
 	}
-	compatibility, note := compatibilityScore(sizedForEpisode(rel), caps, t)
-	return releaseScore{
-		total:   s.score(sizedForEpisode(rel), profile, t, now) + float64(formatScore) + compatibility,
-		format:  formatScore,
-		matches: matches,
-		compat:  note,
-	}, nil
-}
-
-// minFormatScore is the profile's minimum custom format score, else the
-// resolver-wide one; nil when neither is set.
-func minFormatScore(rcfg config.Resolver, profile core.QualityProfile) *int {
-	if profile.MinCustomFormatScore != nil {
-		return profile.MinCustomFormatScore
+	total := counted
+	revisionScored := false
+	for _, m := range matches {
+		revisionScored = revisionScored || (m.revision && m.Score != 0)
 	}
-	return rcfg.MinCustomFormatScore
+	for _, id := range builtinFormatMatches(formatRel, profile, caps, facts) {
+		if id == core.FormatRepackProper && revisionScored {
+			// The profile scores revisions with its own Repack/Proper
+			// format; the built-in one would count them twice.
+			continue
+		}
+		score, scored := profile.CustomFormatScores[id]
+		if !scored || score == 0 {
+			continue // a built-in format the profile doesn't use
+		}
+		total += score
+		matches = append(matches, FormatMatch{ID: id, Name: BuiltinFormatName(id), Score: score})
+	}
+	for _, r := range profile.ReleaseRules {
+		if r.Action != "prefer" || r.Disabled || policy.PreferRule(r.ID) <= 0 {
+			continue
+		}
+		id := core.RuleFormatPrefix + r.ID
+		score := profile.CustomFormatScores[id]
+		total += score
+		matches = append(matches, FormatMatch{ID: id, Name: r.Name, Score: score})
+	}
+	return releaseScore{total: total, counted: counted, matches: matches, compat: compatibilityNote(formatRel, caps, t)}, nil
 }
 
 // rejectReason returns "" to accept, or the reason to drop a release.
@@ -1676,25 +1765,29 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		if !releaseparse.SeriesYearMatches(releaseYear, sreq.Year) && (acceptYear == nil || !acceptYear(releaseYear)) {
 			return "series year mismatch"
 		}
-		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !releaseparse.EpisodeTitleMatches(rel.Name, sreq.EpisodeTitle) {
+		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !episodeTitleMatchesRelease(rel, sreq.EpisodeTitle) {
 			return "episode title mismatch"
 		}
 		if rel.Info.FullSeason {
-			// Usenet season packs are skipped in v1; a torrent pack streams
-			// the wanted episode's file through debrid (Release.Target).
-			if rel.Protocol != core.ProtocolTorrent {
+			// A pack streams the wanted episode's file (Release.Target):
+			// through debrid for a torrent, from the episode's own NZB
+			// files for Usenet. Other protocols cannot pick a file.
+			if rel.Protocol != core.ProtocolTorrent && rel.Protocol != core.ProtocolUsenet {
 				return "season pack (skipped in v1)"
 			}
-			if !packCoversSeason(rel.Info, sreq.Season) ||
-				(len(rel.Info.Episodes) > 0 && !slices.Contains(rel.Info.Episodes, sreq.Episode)) {
+			packEpisode := sreq.Episode
+			if rel.Info.Cour > 0 && rel.Info.Cour == sreq.Cour && sreq.CourEpisode > 0 {
+				packEpisode = sreq.CourEpisode
+			}
+			if !packCoversSeasonCour(rel.Info, sreq) ||
+				(len(rel.Info.Episodes) > 0 && !slices.Contains(rel.Info.Episodes, packEpisode)) {
 				return "season/episode mismatch"
 			}
 		} else if miniseriesPart > 0 {
 			if miniseriesPart != sreq.Episode {
 				return "season/episode mismatch"
 			}
-		} else if !releaseparse.EpisodeMatches(rel.Info, sreq.Season, sreq.Episode) &&
-			!releaseparse.EpisodeMatchesAbsolute(rel.Info, absoluteEpisode(sreq)) {
+		} else if !episodeMatchesRequest(rel.Info, sreq) {
 			return "season/episode mismatch"
 		}
 	} else {
@@ -1706,6 +1799,49 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		}
 	}
 	return ""
+}
+
+var reCourEpisodeMarker = regexp.MustCompile(`(?i)\b(?:S\d{1,2}|(?:Season|Saison|Stagione|Temporada)\s*\d{1,2})[\s._-]+(?:Part|Cour)[\s._-]*\d{1,2}(?:[\s._-]+-[\s._-]+|[\s._-]+E?)\d{1,3}(?:v\d)?\b`)
+
+func episodeTitleMatchesRelease(rel core.Release, want string) bool {
+	if rel.Info.Cour > 0 {
+		if rel.Info.FullSeason {
+			return true
+		}
+		name := reCourEpisodeMarker.ReplaceAllString(rel.Name, "S01E01")
+		return releaseparse.EpisodeTitleMatches(name, want)
+	}
+	return releaseparse.EpisodeTitleMatches(rel.Name, want)
+}
+
+func episodeMatchesRequest(info core.ReleaseInfo, sreq core.SearchRequest) bool {
+	if info.Cour == 1 && sreq.Cour > 1 {
+		return false
+	}
+	if info.Cour > 1 {
+		if sreq.Cour == info.Cour && sreq.CourEpisode > 0 && releaseparse.EpisodeMatches(info, sreq.Season, sreq.CourEpisode) {
+			return true
+		}
+		return false
+	}
+	return releaseparse.EpisodeMatches(info, sreq.Season, sreq.Episode) ||
+		releaseparse.EpisodeMatchesAbsolute(info, absoluteEpisode(sreq))
+}
+
+func packCoversSeasonCour(info core.ReleaseInfo, sreq core.SearchRequest) bool {
+	if !packCoversSeason(info, sreq.Season) {
+		return false
+	}
+	if info.Cour > 1 && sreq.Cour > 0 && info.Cour != sreq.Cour {
+		return false
+	}
+	if info.Cour > 1 && (sreq.Cour == 0 || sreq.CourEpisode <= 0) {
+		return false
+	}
+	if info.Cour == 1 && sreq.Cour > 1 {
+		return false
+	}
+	return true
 }
 
 func preferenceReason(result releasepolicy.Result) string {
@@ -1747,12 +1883,12 @@ func rejectPolicy(rel core.Release, t *core.Title, profile core.QualityProfile, 
 		if configured := configuredMaxHeight(profile); caps.MaxHeight > 0 &&
 			(configured == configuredUnlimited || caps.MaxHeight < configured) &&
 			rel.Info.Height > caps.MaxHeight {
-			return "above client max height"
+			return ReasonAboveClientMaxResolution
 		}
-		return "above profile max height"
+		return ReasonAboveProfileMaxResolution
 	}
 	if h := floorHeight(rel.Info); !preferred && profile.MinHeight > 0 && h > 0 && h < profile.MinHeight {
-		return "below profile min height"
+		return ReasonBelowProfileMinResolution
 	}
 	if !ceilingBypass && rel.Info.DolbyVision && !profile.AllowDolbyVision && !(rel.Info.HDR10 && profile.AllowHDR) {
 		return "dolby vision not allowed for client"
@@ -1898,18 +2034,24 @@ func regionTagConflicts(releaseTitle, wantTitle string, countries []string) bool
 // season pack gets a per-episode release ID: health, bad marks, pins and
 // cached bytes then apply to the episode file, not the whole pack.
 func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
-	if sreq.Type != core.TypeEpisode || rel.Protocol != core.ProtocolTorrent || sreq.Episode <= 0 {
+	if sreq.Type != core.TypeEpisode || sreq.Episode <= 0 {
+		return rel
+	}
+	// A Usenet season pack is narrowed to the episode's files when its NZB
+	// is fetched; other Usenet releases need no target.
+	if rel.Protocol != core.ProtocolTorrent && !(rel.Protocol == core.ProtocolUsenet && rel.Info.FullSeason) {
 		return rel
 	}
 	if rel.Target != nil {
 		target := *rel.Target
 		target.ShowYear, target.EpisodeTitle = sreq.Year, sreq.EpisodeTitle
 		target.AbsoluteEpisode = releaseparse.AnimeSearchEpisode(sreq)
+		target.Cour, target.CourEpisode = sreq.Cour, sreq.CourEpisode
 		target.ExpectedIDs, target.ReportedIDs = sreq.IDs, rel.TitleIDs
 		rel.Target = &target
 		return rel // enrich cached identities without deriving their ID again
 	}
-	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
+	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Cour: sreq.Cour, CourEpisode: sreq.CourEpisode, Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
 	rel.Target = &target
 	if rel.Info.FullSeason {
 		rel.ID = core.TargetReleaseID(rel.ID, target)
@@ -1920,60 +2062,10 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 // sizedForEpisode hides a season pack's total size from per-runtime size
 // checks and bitrate estimates.
 func sizedForEpisode(rel core.Release) core.Release {
-	if rel.Info.FullSeason && rel.Protocol == core.ProtocolTorrent {
+	if rel.Info.FullSeason {
 		rel.Size = 0
 	}
 	return rel
-}
-
-// languageScore applies a profile's language preferences, which are
-// opt-in (an unset profile is language-neutral) and may be ISO codes
-// ("fr", "es-419") or release language names. Audio decides: a release
-// declaring only other audio languages is pushed down, the preferred
-// language, MULTI or a bare DUAL (local dub plus the original) is not, and
-// another regional variant of a preferred language (Castilian for a Latino
-// preference) counts for less than the exact one. Subtitle-only declarations (VOSTFR) never stand in for audio;
-// they add a small bonus of their own.
-func languageScore(info core.ReleaseInfo, prefs []string) float64 {
-	if len(prefs) == 0 {
-		return 0
-	}
-	sc := 0.0
-	if len(info.Languages) > 0 {
-		ok := false
-		for _, l := range info.Languages {
-			if l == releaseparse.LanguageMulti || l == releaseparse.LanguageDual {
-				ok = true
-				continue
-			}
-			best := releaseparse.LanguageNoMatch
-			for _, pref := range prefs {
-				best = max(best, releaseparse.LanguageMatch(l, pref))
-			}
-			switch best {
-			case releaseparse.LanguageExactMatch:
-				ok = true
-				sc += 5
-			case releaseparse.LanguageBaseMatch:
-				ok = true
-				sc += 2
-			}
-		}
-		if !ok {
-			sc -= 25
-		}
-	}
-	for _, l := range info.SubtitleLanguages {
-		matched := false
-		for _, pref := range prefs {
-			matched = matched || releaseparse.LanguageMatch(l, pref) == releaseparse.LanguageExactMatch
-		}
-		if matched {
-			sc += 2
-			break
-		}
-	}
-	return sc
 }
 
 func packCoversSeason(info core.ReleaseInfo, season int) bool {
@@ -1988,118 +2080,29 @@ func packCoversSeason(info core.ReleaseInfo, season int) bool {
 	return false
 }
 
-func indexScore[T comparable](list []T, v T, per float64) float64 {
-	for i, x := range list {
-		if x == v {
-			return float64(len(list)-i) * per
-		}
-	}
-	return 0
-}
-
-// score ranks an accepted release against a profile. Higher is better.
-func (s *Service) score(rel core.Release, profile core.QualityProfile, t *core.Title, now time.Time) float64 {
-	info := rel.Info
-	var sc float64
-	// Resolution fit, 0-50 points. An uncapped profile scales against 4K
-	// so height stays one preference among the others, not the only one.
-	maxH := float64(profile.MaxHeight)
-	if maxH <= 0 {
-		maxH = 2160
-	}
-	switch {
-	case info.Height == 0:
-	case profile.MaxHeight > 0 && info.Height == profile.MaxHeight:
-		sc += 50
-	case info.Height >= profile.MinHeight && (profile.MaxHeight == 0 || info.Height <= profile.MaxHeight):
-		sc += 30 + 20*min(float64(info.Height)/maxH, 1)
-	default: // below floor
-		sc += 10 * float64(info.Height) / maxH
-	}
-	// Source / codec / audio preference order.
-	if v := indexScore(profile.PreferredSources, info.Source, 10); v > 0 {
-		sc += v
-	} else if info.Source != core.SourceUnknown && info.Source != core.SourceCam && info.Source != core.SourceScreener {
-		sc += 3
-	}
-	sc += indexScore(profile.PreferredCodecs, info.VideoCodec, 6)
-	sc += indexScore(profile.PreferredAudio, info.AudioCodec, 4)
-	if info.Atmos {
-		sc += 3
-	}
-	// HDR/DV.
-	if info.HDR10 {
-		if profile.AllowHDR {
-			sc += 8
-		} else {
-			sc -= 15
-		}
-	}
-	if info.DolbyVision && profile.AllowDolbyVision {
-		sc += 10
-	}
-	// Size sanity: in-range sizes get a small bonus, unknown size none.
-	cfgMin, cfgMax := profile.SizeBoundsFor(t)
-	if rel.Size > 0 && t.Runtime > 0 {
-		mbPerMin := float64(rel.Size) / (1 << 20) / t.Runtime.Minutes()
-		maxMBPerMin := effectiveMaxSizeMBPerMin(cfgMax, info)
-		if (cfgMin == 0 || mbPerMin >= cfgMin) &&
-			(maxMBPerMin == 0 || mbPerMin <= maxMBPerMin) {
-			sc += 5
-		}
-	}
-	if profile.PreferLargest && rel.Size > 0 {
-		if (profile.MaxHeight > 0 && info.Height >= profile.MaxHeight) || (profile.MaxHeight == 0 && info.Height >= 2160) {
-			sc += 100
-		}
-		if t != nil && t.Runtime > 0 {
-			mbPerMin := float64(rel.Size) / (1 << 20) / t.Runtime.Minutes()
-			ref := cfgMax
-			if ref <= 0 {
-				if maxH >= 2160 {
-					ref = 800
-				} else if maxH >= 1080 {
-					ref = 200
-				} else {
-					ref = 80
-				}
+// sourceOrder lists the release types a quality order names, in the order
+// they first appear.
+func sourceOrder(order []core.QualityItem) []core.Source {
+	var out []core.Source
+	for _, item := range order {
+		for _, q := range item.Qualities {
+			src, _, _ := strings.Cut(q, "-")
+			s := core.Source(src)
+			if src == "unknown" {
+				s = core.SourceUnknown
 			}
-			sc += 100 * min(mbPerMin/ref, 1)
-		} else {
-			gb := float64(rel.Size) / (1 << 30)
-			sc += 100 * min(gb/80, 1)
-		}
-	}
-	sc += bitrateScore(rel, t)
-	// Age penalty.
-	if !rel.PubDate.IsZero() {
-		ageDays := now.Sub(rel.PubDate).Hours() / 24
-		if ageDays > 0 {
-			sc -= math.Min(ageDays/365*2, 15)
-			if s.retentionDays > 0 && ageDays > float64(s.retentionDays) {
-				sc -= 20
+			if !slices.Contains(out, s) {
+				out = append(out, s)
 			}
 		}
 	}
-	// Grabs (log scale).
-	if rel.Grabs > 0 {
-		sc += math.Min(math.Log10(float64(rel.Grabs)+1)*3, 9)
-	}
-	if info.Proper || info.Repack {
-		sc += 6
-	}
-	sc += languageScore(info, profile.PreferredLanguages)
-	// Indexer reputation.
-	s.mu.RLock()
-	rep := s.reps[rel.Indexer]
-	s.mu.RUnlock()
-	sc += rep.score()
-	return sc
+	return out
 }
 
 // compareFallbackSource preserves an imported profile's order for sources it
-// names, and uses the usual source hierarchy for the remaining source types.
-func compareFallbackSource(a, b core.Source, p core.QualityProfile) int {
+// names (order, from sourceOrder), and uses the usual source hierarchy for
+// the remaining source types.
+func compareFallbackSource(a, b core.Source, order []core.Source) int {
 	level := func(s core.Source) int {
 		switch s {
 		case core.SourceRemux:
@@ -2118,7 +2121,7 @@ func compareFallbackSource(a, b core.Source, p core.QualityProfile) int {
 	}
 	rank := func(s core.Source) int {
 		best := -10000
-		for i, allowed := range p.PreferredSources {
+		for i, allowed := range order {
 			d := level(s) - level(allowed)
 			if d < 0 {
 				d = -d

@@ -233,6 +233,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed := queryBool(r, "EnableTranscoding", boolValue(body.EnableTranscoding, true))
 	intent := frontend.PlayIntent{Estimate: !playback, Options: opts, Position: time.Duration(body.StartTimeTicks) * 100 * time.Nanosecond, AllowTranscoding: &allowed, AudioSet: audioSet, SubtitleSet: subtitleSet}
+	// A posted DeviceProfile is this device's real declaration; detail pages
+	// warm with it later (frontend.DetailWarmer).
+	intent.DeclaredCaps = channel == "" && (len(body.DeviceProfile.DirectPlayProfiles) > 0 || len(body.DeviceProfile.TranscodingProfiles) > 0)
 	sourceID := body.MediaSourceId
 	idsQuery := route.Query(r.URL.Query(), "MediaSourceId")
 	if len(idsQuery) > 1 {
@@ -794,6 +797,7 @@ func (i *instance) playbackRoutes() error {
 }
 
 type timelineRequest struct {
+	AudioStreamIndex, SubtitleStreamIndex              *int
 	PlaySessionId, LiveStreamId, ItemId, MediaSourceId string
 	PositionTicks, RunTimeTicks                        json.Number
 	IsPaused                                           bool
@@ -841,6 +845,10 @@ func (i *instance) timeline(w http.ResponseWriter, r *http.Request, stopped, sta
 		state = "stopped"
 	}
 	report := frontend.Timeline{PlaybackID: body.PlaySessionId, Position: time.Duration(ticks) * 100 * time.Nanosecond, Duration: time.Duration(runtime) * 100 * time.Nanosecond, State: state}
+	if !started && !stopped {
+		report.AudioStreamIndex = body.AudioStreamIndex
+		report.SubtitleStreamIndex = body.SubtitleStreamIndex
+	}
 	recorded := false
 	if body.PlaySessionId != "" {
 		err = i.host.Sessions.Report(r.Context(), access, body.PlaySessionId, report)

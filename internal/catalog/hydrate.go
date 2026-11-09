@@ -174,3 +174,11 @@ func (c *Catalog) waitHydrations() {
 		<-h.done
 	}
 }
+
+// BackgroundBusy is how many refreshes run behind reads now: the
+// performance gate waits for none before each measured request.
+func (c *Catalog) BackgroundBusy() int {
+	c.hydrateMu.Lock()
+	defer c.hydrateMu.Unlock()
+	return len(c.hydrating)
+}

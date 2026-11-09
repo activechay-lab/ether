@@ -6,8 +6,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,6 +97,13 @@ func (r *continuousTSReader) Close() error {
 }
 
 type continuousSegmentIndex struct {
+	kicks                    chan struct{}
+	lastReceived             time.Time
+	lag                      time.Duration // publication lag of the newest segment
+	maxLag                   time.Duration // worst lag since the last progress report
+	peakLag                  time.Duration // worst lag within the last minute
+	peakAt                   time.Time
+	lagWarned                time.Time
 	policySeq                int64
 	policyTags               map[int64][]any
 	enc                      *continuousEncoder
@@ -126,14 +131,22 @@ func newContinuousSegmentIndex(e *continuousEncoder) *continuousSegmentIndex {
 	if bandwidth <= 0 {
 		bandwidth = videoBitrate(core.MediaInfo{}, d) + max(d.AudioBitrateKbps, 128)
 	}
-	return &continuousSegmentIndex{enc: e, duration: time.Second * time.Duration(g*f.FPSDen) / time.Duration(f.FPSNum), changed: make(chan struct{}), width: w, height: h, bandwidth: bandwidth * 1000}
+	return &continuousSegmentIndex{enc: e, duration: time.Second * time.Duration(g*f.FPSDen) / time.Duration(f.FPSNum), changed: make(chan struct{}), kicks: make(chan struct{}, 1), width: w, height: h, bandwidth: bandwidth * 1000}
+}
+
+// kick refreshes the index as soon as the store receives a file.
+func (s *continuousSegmentIndex) kick() {
+	select {
+	case s.kicks <- struct{}{}:
+	default:
+	}
 }
 func (s *continuousSegmentIndex) setStart(at time.Time) { s.mu.Lock(); s.start = at; s.mu.Unlock() }
 func (s *continuousSegmentIndex) ts(seq int64) string {
-	return filepath.Join(s.enc.dir, fmt.Sprintf("seg-%09d.ts", seq))
+	return fmt.Sprintf("seg-%09d.ts", seq)
 }
 func (s *continuousSegmentIndex) mp4(seq int64) string {
-	return filepath.Join(s.enc.dir, fmt.Sprintf("fragment-%09d.m4s", seq))
+	return fmt.Sprintf("fragment-%09d.m4s", seq)
 }
 func (s *continuousSegmentIndex) watch() {
 	timer := time.NewTicker(20 * time.Millisecond)
@@ -143,6 +156,8 @@ func (s *continuousSegmentIndex) watch() {
 		case <-s.enc.ctx.Done():
 			return
 		case <-timer.C:
+			s.refresh()
+		case <-s.kicks:
 			s.refresh()
 		}
 	}
@@ -154,7 +169,7 @@ func (s *continuousSegmentIndex) refresh() {
 		return
 	}
 	if s.codecs == "" {
-		if b, e := os.ReadFile(filepath.Join(s.enc.dir, "init.mp4")); e == nil {
+		if b, ok := s.enc.store.read("init.mp4"); ok {
 			if tracks, e := parseInitTracks(b); e == nil {
 				var codecs []string
 				for _, t := range tracks {
@@ -170,7 +185,7 @@ func (s *continuousSegmentIndex) refresh() {
 	}
 	// A machine suspend can outlast the live window. Recover the retained
 	// prefix from the muxer playlist rather than waiting forever for an evicted file.
-	if b, e := os.ReadFile(filepath.Join(s.enc.dir, "index.m3u8")); e == nil {
+	if b, ok := s.enc.store.read("index.m3u8"); ok {
 		for _, line := range strings.Split(string(b), "\n") {
 			if strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE:") {
 				first, e := strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-MEDIA-SEQUENCE:"), 10, 64)
@@ -188,15 +203,22 @@ func (s *continuousSegmentIndex) refresh() {
 		}
 	}
 	for {
-		if _, e := os.Stat(s.ts(s.next)); e != nil {
+		tsAt, ok := s.enc.store.has(s.ts(s.next))
+		if !ok {
 			break
 		}
-		if _, e := os.Stat(s.mp4(s.next)); e != nil {
+		mp4At, ok := s.enc.store.has(s.mp4(s.next))
+		if !ok {
 			break
 		}
-		// Both muxers use atomic temp-file publication. Only their shared finished
-		// prefix is visible, so a viewer can change delivery format at any boundary.
+		// Only the muxers' shared finished prefix is visible, so a viewer can
+		// change delivery format at any boundary.
 		segment := s.segment(s.next)
+		received := tsAt
+		if mp4At.After(received) {
+			received = mp4At
+		}
+		s.noteLagLocked(segment, received)
 		segment.PolicyTags = s.policyTags[s.next]
 		delete(s.policyTags, s.next)
 		s.segments = append(s.segments, segment)
@@ -213,8 +235,8 @@ func (s *continuousSegmentIndex) refresh() {
 			}
 			old := s.segments[0]
 			s.segments = s.segments[1:]
-			_ = os.Remove(s.ts(old.Seq))
-			_ = os.Remove(s.mp4(old.Seq))
+			s.enc.store.remove(s.ts(old.Seq))
+			s.enc.store.remove(s.mp4(old.Seq))
 		}
 		close(s.changed)
 		s.changed = make(chan struct{})
@@ -278,43 +300,33 @@ func (s *continuousSegmentIndex) Wait(ctx context.Context, after int64) (Segment
 		}
 	}
 }
-func (s *continuousSegmentIndex) open(seq int64, mp4 bool) (*os.File, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.segments) == 0 || seq < s.segments[0].Seq || seq >= s.next {
-		return nil, core.ErrNotFound
-	}
-	path := s.ts(seq)
-	if mp4 {
-		path = s.mp4(seq)
-	}
-	f, e := os.Open(path)
-	if os.IsNotExist(e) {
-		return nil, core.ErrNotFound
-	}
-	return f, e
-}
 func (s *continuousSegmentIndex) serve(w http.ResponseWriter, r *http.Request, seq int64, mp4 bool) {
-	f, e := s.open(seq, mp4)
-	if e != nil {
+	s.mu.Lock()
+	known := len(s.segments) > 0 && seq >= s.segments[0].Seq && seq < s.next
+	s.mu.Unlock()
+	if !known {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
-	s.serveOpen(w, r, f, mp4)
+	name := s.ts(seq)
+	if mp4 {
+		name = s.mp4(seq)
+	}
+	s.serveFile(w, r, name, mp4)
 }
-func (s *continuousSegmentIndex) serveOpen(w http.ResponseWriter, r *http.Request, f *os.File, mp4 bool) {
-	info, e := f.Stat()
+func (s *continuousSegmentIndex) serveFile(w http.ResponseWriter, r *http.Request, name string, mp4 bool) {
+	body, at, done, e := s.enc.store.open(name)
 	if e != nil {
 		http.NotFound(w, r)
 		return
 	}
+	defer done()
 	ctype := "video/mp2t"
 	if mp4 {
 		ctype = "video/mp4"
 	}
 	w.Header().Set("Content-Type", ctype)
-	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+	http.ServeContent(w, r, name, at, body)
 }
 func (s *continuousSegmentIndex) ServeTS(w http.ResponseWriter, r *http.Request, seq int64) {
 	s.serve(w, r, seq, false)
@@ -323,14 +335,54 @@ func (s *continuousSegmentIndex) ServeFMP4(w http.ResponseWriter, r *http.Reques
 	s.serve(w, r, seq, true)
 }
 func (s *continuousSegmentIndex) ServeInit(w http.ResponseWriter, r *http.Request) {
-	f, e := os.Open(filepath.Join(s.enc.dir, "init.mp4"))
-	if e != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer f.Close()
-	s.serveOpen(w, r, f, true)
+	s.serveFile(w, r, "init.mp4", true)
 }
+
+// Apple players stop a live item whose playlist gains no segment for 1.5
+// target durations. Publication lag is how much later than its own duration
+// after the previous one a segment became servable: the gap a client sees
+// beyond the cadence. Warn once it uses half the client's margin.
+func (s *continuousSegmentIndex) noteLagLocked(seg Segment, received time.Time) {
+	lag := time.Duration(0)
+	if !s.lastReceived.IsZero() {
+		lag = max(0, received.Sub(s.lastReceived)-seg.Duration)
+	}
+	s.lastReceived = received
+	s.lag = lag
+	s.maxLag = max(s.maxLag, lag)
+	if lag >= s.peakLag || time.Since(s.peakAt) > time.Minute {
+		s.peakLag, s.peakAt = lag, time.Now()
+	}
+	segment := s.enc.req.SegmentDuration
+	if segment <= 0 {
+		segment = 4 * time.Second
+	}
+	if margin := segment / 2; lag > margin/2 && time.Since(s.lagWarned) > time.Minute && s.enc.m != nil {
+		s.lagWarned = time.Now()
+		s.enc.m.log.Warn("continuous output published late", "session", s.enc.req.SessionID, "segment", seg.Seq, "late", lag, "schedLate", SchedulerLate(lag+time.Second), "clientMargin", margin, "droppedHistoryWrites", s.enc.store.droppedWrites())
+	}
+}
+
+// RecentLag is the worst publication lag within about the last minute.
+func (s *continuousSegmentIndex) RecentLag() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if time.Since(s.peakAt) > time.Minute {
+		return s.lag
+	}
+	return s.peakLag
+}
+
+// PublishLag reports the newest segment's publication lag and the worst
+// since the previous call.
+func (s *continuousSegmentIndex) PublishLag() (latest, worst time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	latest, worst = s.lag, s.maxLag
+	s.maxLag = s.lag
+	return latest, worst
+}
+
 func (s *continuousSegmentIndex) Format() (string, int, int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -365,7 +417,7 @@ func continuousWindow(window, duration time.Duration) int {
 func (s *continuousSegmentIndex) recordPolicy(tick int64, tags []any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	start, frames := continuousSegmentFrames(s.enc.req.Source, s.policySeq)
+	start, frames := continuousSegmentFrames(s.enc.req.Source, s.enc.req.SegmentDuration, s.enc.req.LiveSource, s.policySeq)
 	if tick >= start+frames {
 		s.policySeq++
 	}

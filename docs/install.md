@@ -626,15 +626,43 @@ page, then move on to the next.
 
 ## Updates
 
-By default, Ether checks the signed release feed once a day (stable or beta
+Ether checks the signed release feed about every 6 hours (stable or beta
 channel, chosen under **Maintenance › Updates**). You can turn update checks
-off completely with the **Check for updates** toggle on that page. Depending on
-your **Install updates automatically** setting, Ether either shows available
-updates in the console or applies them during the maintenance window: a
-verified binary self-replace (with an automatic rollback copy) or the platform
-installer (DMG/`EtherSetup.exe`). Linux packages and Docker containers update
-through your package manager or a new container image. Nothing is ever
-installed without a valid Ed25519 signature and SHA-256 match.
+off completely with the **Check for updates** toggle on that page.
+
+**Install updates automatically** is on for new installs (servers set up
+before v0.3.6 keep the setting they had; the Updates page suggests turning it
+on). With it on, Ether downloads a release early and installs it at a moment
+nobody notices:
+
+- inside the maintenance window (default 03:00–06:00 local time), once
+  nothing has played, transcoded or streamed Live TV for 10 minutes;
+- never while anyone is watching. A server busy through three windows in a
+  row installs the next time nobody has watched for 30 minutes;
+- right before installing it re-reads the feed, so a release that was pulled
+  is never installed, and a download for a pulled release is deleted;
+- stable releases roll out over a day: each server waits a share of that day
+  picked from a local hash of its server identity (nothing is sent anywhere),
+  so a bad release reaches few servers before it can be pulled. Beta releases
+  and **Update now** skip the wait;
+- a release marked as a security fix skips the rollout and the window and
+  installs at the next 10 quiet minutes.
+
+The new version then has to run healthily for 10 minutes; if it crash-loops,
+Ether restores the previous binary, skips that release and sends an *Update
+rolled back* notification. A successful install shows *Updated to X* on the
+Updates page and sends an *Update installed* notification. Clusters update one
+node at a time inside the window (see above).
+
+Installs Ether cannot replace by itself show the exact steps on the Updates
+page instead: the DMG download on macOS, `docker compose pull` (or Watchtower)
+for containers, and the `apt`/`dnf` command for Linux packages. Nothing is
+ever installed without a valid Ed25519 signature and SHA-256 match.
+
+Release publishers: `ether-release-sign manifest` writes the staged rollout
+(`-rollout-hours`, default 24 for stable and 0 for beta) and `-critical` into
+the signed manifest. The release workflow sets `-critical` when the release
+notes contain the line `<!-- ether-update: critical -->`.
 
 ### Database snapshots before upgrades
 

@@ -37,7 +37,7 @@ describe("Sources › Debrid", () => {
   it.each([
     ["/sources/usenet", "Usenet providers"],
     ["/sources/indexers", "Indexers"],
-    ["/sources/usage", "Debrid providers"],
+    ["/sources/elsewhere", "Debrid providers"],
   ])("opens %s as one tab level", async (path, region) => {
     renderApp(path);
     expect(await screen.findByRole("region", { name: region }, WAIT)).toBeInTheDocument();
@@ -181,7 +181,8 @@ describe("Sources › Indexers protocol", () => {
   it("shows each Prowlarr result's protocol", async () => {
     renderApp("/sources/indexers");
     await screen.findByRole("button", { name: "Edit Indexer One" }, WAIT);
-    fireEvent.click(screen.getByRole("button", { name: /Import from Prowlarr/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a source/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Prowlarr/ }));
     const drawer = await screen.findByRole("dialog", { name: "Import from Prowlarr" });
     fireEvent.change(within(drawer).getByLabelText("Prowlarr URL"), {
       target: { value: "http://localhost:9696" },

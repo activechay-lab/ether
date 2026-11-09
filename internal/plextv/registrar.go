@@ -412,6 +412,16 @@ func (r *Registrar) Trigger() {
 	}
 }
 
+// ListenerReady wakes the loop once this server serves TLS. A trust check
+// that ran before the listener existed (every restart) is then confirmed or
+// cleared at once instead of at the next tick.
+func (r *Registrar) ListenerReady() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
 // RequestPublish asks the running loop to publish connections now without
 // re-checking addresses (e.g. after cluster membership changed).
 func (r *Registrar) RequestPublish() {
@@ -1263,8 +1273,9 @@ func (r *Registrar) RenewCertificate(ctx context.Context, force bool) error {
 }
 
 // refreshCertTrust re-checks the installed plex.direct certificate on the
-// certificate schedule, sooner after a failed handshake, and again after a
-// reissue. Status polls only read the stored result.
+// certificate schedule, at the next tick after a first failed handshake (the
+// startup check runs before the listener serves), a minute after a confirmed
+// one, and again after a reissue. Status polls only read the stored result.
 func (r *Registrar) refreshCertTrust(ctx context.Context) {
 	if r.o.Certs == nil || ctx.Err() != nil {
 		return
@@ -1313,6 +1324,11 @@ func (r *Registrar) refreshCertTrust(ctx context.Context) {
 }
 
 func (r *Registrar) certTrustFresh(info CertInfo) bool {
+	if r.o.Certs.trustPending(info.Fingerprint) {
+		// One failed handshake is confirmed or cleared at the next tick
+		// (Tick), so a restart never leaves a false warning behind.
+		return false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if info.Fingerprint == "" || info.Fingerprint != r.trustFP || r.trustAt.IsZero() {

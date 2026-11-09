@@ -67,7 +67,7 @@ func TestSubtitleProbeExplicitPickIsolationAndRevocation(t *testing.T) {
 		}
 		return result.Session, result.Offers[0].ID
 	}
-	session, offer := search()
+	session, _ := search()
 	if downloads.Load() != 0 {
 		t.Fatal("listing downloaded a subtitle")
 	}
@@ -75,7 +75,7 @@ func TestSubtitleProbeExplicitPickIsolationAndRevocation(t *testing.T) {
 	if w.Code == 200 || downloads.Load() != 0 {
 		t.Fatalf("unoffered pick accepted: %d %s", w.Code, w.Body)
 	}
-	session, offer = search()
+	session, offer := search()
 	w = call("POST", "/subtitles/"+session+"/pick", `{"offer":"`+offer+`"}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"cues":1`) || !strings.Contains(w.Body.String(), `"cleaned":true`) || downloads.Load() != 1 {
 		t.Fatalf("pick %d %s", w.Code, w.Body)

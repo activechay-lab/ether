@@ -37,6 +37,8 @@ type execution struct {
 	retirement                    core.EncoderRetirement
 	stopping                      bool
 	reserved                      bool
+	outputReleased                bool      // ReleaseOutput succeeded after durable retirement
+	forgetAt                      time.Time // forgetTerminal grace deadline
 }
 
 // Supports is a side-effect-free admission gate. Unsupported requests must use
@@ -101,7 +103,7 @@ func (r *Runtime) StartPreparedHLS(ctx context.Context, viewer int64, prepared P
 		return nil, ErrDenied
 	}
 	r.mu.Lock()
-	if r.closed || (r.executions[q.SessionID] != nil && !r.executions[q.SessionID].retired) || (r.executions[q.SessionID] == nil && len(r.executions) >= r.o.HistoryCapacity) {
+	if !r.executionSlotLocked(q.SessionID) {
 		r.mu.Unlock()
 		return nil, ErrPending
 	}
@@ -524,10 +526,16 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
-		if x.retired && x.output != nil {
+		if x.retired && x.output != nil && !x.outputReleased {
 			// Stop has removed public admission and exact durable retirement was
 			// confirmed. Retry disposal when a last retained reader drains.
-			_ = r.ReleaseOutput(ctx, x.route.Fence.Session, x.route.Fence)
+			if r.ReleaseOutput(ctx, x.route.Fence.Session, x.route.Fence) == nil {
+				r.mu.Lock()
+				if current := r.executions[x.route.Fence.Session]; current != nil && current.route.Fence == x.route.Fence {
+					current.outputReleased = true
+				}
+				r.mu.Unlock()
+			}
 		}
 		if x.busy {
 			continue
@@ -737,7 +745,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			result = e
 		}
 	}
-
+	r.forgetTerminal(ctx)
 	return result
 }
 func (r *Runtime) retire(ctx context.Context, x *execution) error {

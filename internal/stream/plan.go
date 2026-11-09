@@ -17,6 +17,7 @@ const (
 	kindPlain planKind = "plain"
 	kindRAR   planKind = "rar"
 	kind7z    planKind = "7z"
+	kindZIP   planKind = "zip"
 	kindSplit planKind = "split"
 )
 
@@ -166,7 +167,7 @@ func (p *plan) buildLocked(version int) (*layout, error) {
 	}
 	l := &layout{version: version, size: p.size}
 	switch p.kind {
-	case kind7z:
+	case kind7z, kindZIP:
 		starts := make([]int64, len(p.info)+1)
 		for k, vi := range p.info {
 			if vi.size > math.MaxInt64-starts[k] {
@@ -184,7 +185,7 @@ func (p *plan) buildLocked(version int) (*layout, error) {
 			k := sort.Search(len(p.info), func(k int) bool { return starts[k+1] > off })
 			for rem > 0 {
 				if k >= len(p.info) {
-					return nil, fmt.Errorf("stream: 7z member extends past the last volume: %w", ErrCorrupt)
+					return nil, fmt.Errorf("stream: %s member extends past the last volume: %w", p.kind, ErrCorrupt)
 				}
 				take := starts[k+1] - off
 				if take > rem {
@@ -198,7 +199,7 @@ func (p *plan) buildLocked(version int) (*layout, error) {
 			}
 		}
 		if inner != p.size {
-			return nil, fmt.Errorf("stream: 7z extents cover %d of %d bytes: %w", inner, p.size, ErrCorrupt)
+			return nil, fmt.Errorf("stream: %s extents cover %d of %d bytes: %w", p.kind, inner, p.size, ErrCorrupt)
 		}
 	default:
 		var inner int64
@@ -336,7 +337,7 @@ func (p *plan) inspect(ctx context.Context, v verifier, k int) (volInfo, error) 
 			return volInfo{}, fmt.Errorf("stream: rar volume %d (%s): %w", k+1, pf.Name(), m.Streamable())
 		}
 		return volInfo{size: size, dataOff: f.DataOffset, dataSize: f.PackedSize}, nil
-	case kind7z:
+	case kind7z, kindZIP:
 		return volInfo{size: size}, nil
 	default:
 		return volInfo{size: size, dataOff: 0, dataSize: size}, nil

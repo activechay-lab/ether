@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/state"
 )
 
 // Frontend adapts the existing PMS handler to the frontend registry.
@@ -15,9 +14,9 @@ import (
 // downloads, and drops its watch subscription. The process-owned server
 // stays up so an in-flight request can finish.
 type Frontend struct {
-	NewServer  func() (*Server, error)
-	Server     *Server
-	WatchState *state.State
+	NewServer    func() (*Server, error)
+	Server       *Server
+	WatchRefresh frontend.WatchRefreshSubscriber
 	// ExplicitWatchOnly preserves spike mode: only cross-surface scrobbles refresh.
 	ExplicitWatchOnly bool
 	StatusFunc        func(context.Context) frontend.Status
@@ -48,8 +47,8 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 		f.Server.UsePlaybackBroker(host.Sessions)
 	}
 	instance := &plexInstance{sessions: host.Sessions, server: f.Server, status: f.StatusFunc, listeners: f.ListenersFunc}
-	if f.WatchState != nil {
-		instance.unsubscribe = subscribeWatchRefresh(f.WatchState, f.Server.WatchStateChanged, f.ExplicitWatchOnly)
+	if f.WatchRefresh != nil {
+		instance.unsubscribe = f.WatchRefresh(f.Server.WatchStateChanged, f.ExplicitWatchOnly)
 	}
 	return instance, nil
 }

@@ -504,7 +504,7 @@ func (s *Service) verify(parent context.Context) error {
 			continue
 		}
 		r, reason, e := s.d.Validator.FeedCandidate(parent, t, r)
-		state := "eligible"
+		var state string
 		verified := int64(0)
 		retry := s.now().Add(6 * time.Hour).Unix()
 		if e != nil {

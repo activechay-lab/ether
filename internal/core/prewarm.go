@@ -37,6 +37,11 @@ type PrewarmOptions struct {
 	// DuringPlayback allows the warm-up while the viewer already has an
 	// active session (a trailer, or the end of a film, is playing).
 	DuringPlayback bool `json:"duringPlayback,omitempty"`
+	// PlayIntent marks a detail warm-up from a device whose real caps are
+	// known. Held for a moment, it may open the one top-ranked add-on
+	// stream that its add-on reports debrid-cached (core.WithOnDemandWarm).
+	// Up Next and next-episode warm-ups imply it. Never set for browsing.
+	PlayIntent bool `json:"-"`
 }
 
 // Prewarmer is implemented by playback managers that can resolve, open,

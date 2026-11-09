@@ -182,6 +182,13 @@ type resumeStore struct {
 	// beforeLiveNote, when set, runs after the row commits and before the
 	// in-memory copy is published. Tests use it to expire the row in that window.
 	beforeLiveNote func()
+
+	// orphanSeen holds the index and probe rows the last orphan sweep found
+	// with no resume row (guarded by orphanMu); see sweepOrphans.
+	orphanMu   sync.Mutex
+	orphanSeen map[orphanRow]bool
+	// orphanNext is when ReconcilePins sweeps next (its goroutine only).
+	orphanNext time.Time
 }
 
 type resumeLive struct {
@@ -875,15 +882,9 @@ func (s *resumeStore) delete(ctx context.Context, userID int64, key core.RatingK
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM playback_resume WHERE user_id=? AND rating_key=?`, userID, int64(key)); err != nil {
-		return err
-	}
 	// The record expired: nothing prunes its keyframe index any more (a
 	// later save only replaces other releases' indexes for a live record).
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM playback_index WHERE user_id=? AND rating_key=?`, userID, int64(key)); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM playback_probe WHERE user_id=? AND rating_key=?`, userID, int64(key)); err != nil {
+	if err := s.deleteRows(ctx, userID, key, true); err != nil {
 		return err
 	}
 	s.gcNZB(ctx, hash)
@@ -891,29 +892,76 @@ func (s *resumeStore) delete(ctx context.Context, userID int64, key core.RatingK
 	return nil
 }
 
+// deleteRows deletes a viewer's resume row for a title and, with caches, the
+// keyframe indexes and probes of every release of it.
+func (s *resumeStore) deleteRows(ctx context.Context, userID int64, key core.RatingKey, caches bool) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM playback_resume WHERE user_id=? AND rating_key=?`, userID, int64(key)); err != nil {
+		return err
+	}
+	if !caches {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM playback_index WHERE user_id=? AND rating_key=?`, userID, int64(key)); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM playback_probe WHERE user_id=? AND rating_key=?`, userID, int64(key))
+	return err
+}
+
 // invalidateTitle drops a reusable source choice after an owner changes
 // release policy. This table contains source identities, not watch progress.
-// Keep the content-addressed payload and index caches for ordinary pruning.
-func (s *resumeStore) invalidateTitle(ctx context.Context, key core.RatingKey) error {
+// Each dropped choice takes its keyframe indexes and probes along, except
+// for a viewer with a session of the title on this node (a reopen of the
+// playing release reads them; the orphan sweep collects them after it ends),
+// and payloads no row references any more are collected.
+func (s *resumeStore) invalidateTitle(ctx context.Context, key core.RatingKey, sessions map[resumeKey]bool) error {
 	reqmemo.ForgetPrefix(ctx, "playback:resume:")
-	if key.Kind() != core.KindShow && key.Kind() != core.KindSeason {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM playback_resume WHERE rating_key=?`, int64(key))
-		if err == nil {
-			s.forgetFreshKey(key)
+	var drop []resumeRecord
+	single := key.Kind() != core.KindShow && key.Kind() != core.KindSeason
+	if single {
+		rows, err := s.db.QueryContext(ctx, `SELECT user_id, nzb_hash FROM playback_resume WHERE rating_key=?`, int64(key))
+		if err != nil {
+			return err
 		}
-		return err
-	}
-	records, err := s.all(ctx)
-	if err != nil {
-		return err
-	}
-	for _, rec := range records {
-		if titleIncludes(key, rec.key) {
-			if _, err := s.db.ExecContext(ctx, `DELETE FROM playback_resume WHERE user_id=? AND rating_key=?`, rec.userID, int64(rec.key)); err != nil {
+		for rows.Next() {
+			rec := resumeRecord{key: key}
+			if err := rows.Scan(&rec.userID, &rec.nzbHash); err != nil {
+				rows.Close()
 				return err
 			}
-			s.forgetFresh(rec.userID, rec.key)
+			drop = append(drop, rec)
 		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	} else {
+		records, err := s.all(ctx)
+		if err != nil {
+			return err
+		}
+		for _, rec := range records {
+			if titleIncludes(key, rec.key) {
+				drop = append(drop, rec)
+			}
+		}
+	}
+	hashes := map[string]bool{}
+	for _, rec := range drop {
+		if err := s.deleteRows(ctx, rec.userID, rec.key, !sessions[resumeKey{rec.userID, rec.key}]); err != nil {
+			return err
+		}
+		s.forgetFresh(rec.userID, rec.key)
+		if rec.nzbHash != "" {
+			hashes[rec.nzbHash] = true
+		}
+	}
+	if single {
+		s.forgetFreshKey(key)
+	}
+	for h := range hashes {
+		s.gcNZB(ctx, h)
 	}
 	return nil
 }

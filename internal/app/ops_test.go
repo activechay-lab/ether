@@ -92,9 +92,9 @@ func waitPhase(t *testing.T, base string, phase startup.Phase) (startup.Status, 
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	st, raw := fetchStatus(t, base)
+	_, raw := fetchStatus(t, base)
 	t.Fatalf("phase %q never reached; last %s", phase, raw)
-	return st, raw
+	return startup.Status{}, raw
 }
 
 // A clustered node whose PostgreSQL server is down answers only its
@@ -140,7 +140,6 @@ func TestServeShowsWaitingForTheDatabase(t *testing.T) {
 func writeBundle(t *testing.T, dataDir string, edit ...func(*config.Config)) string {
 	t.Helper()
 	src := t.TempDir()
-	store.SeedTestDataDir(t, src)
 	db, err := store.Open(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
@@ -347,7 +346,6 @@ func newOpsApp(t *testing.T) *App {
 	if err := cfg.Update(func(c *config.Config) error { c.Transcode.FFmpegPath = "/not-installed/ffmpeg"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	store.SeedTestDataDir(t, dir)
 	a, err := New(context.Background(), Options{DataDir: dir, Logger: quietLog()})
 	if err != nil {
 		t.Fatal(err)

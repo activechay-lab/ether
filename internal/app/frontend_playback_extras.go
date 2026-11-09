@@ -8,6 +8,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/extras"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 type extraSurface struct{ extras *extras.Service }
@@ -178,6 +179,14 @@ func (s subtitleSurface) Download(ctx context.Context, viewer *core.Viewer, devi
 	detail, err := s.exp.Item(ctx, frontend.ItemRequest{Viewer: viewer, Device: device, Key: key})
 	if err != nil {
 		return 0, err
+	}
+	if viewer == nil {
+		return 0, core.ErrUnauthorized
+	}
+	if s.app.db != nil {
+		if err := sessions.NewSubtitleIntents(s.app.db).Record(ctx, viewer.ID, key, true); err != nil {
+			return 0, err
+		}
 	}
 	info, err := s.app.subtitles.DownloadOnDemand(ctx, &detail.Title, fileID)
 	if err != nil {

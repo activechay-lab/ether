@@ -83,3 +83,58 @@ func TestConnCapDialHonorsContext(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A playback read queued behind read-ahead gets the next free host slot,
+// and the gate never admits more requests than the host cap.
+func TestHostGateUrgentFirst(t *testing.T) {
+	g := newHostGate(newConnCap(2))
+	ctx := context.Background()
+	no := func() bool { return false }
+	yes := func() bool { return true }
+	r1, _ := g.acquire(ctx, "cdn:443", no)
+	r2, _ := g.acquire(ctx, "cdn:443", no)
+	if _, ok := g.tryAcquire("cdn:443"); ok {
+		t.Fatal("hedge admitted over the cap")
+	}
+	order := make(chan string, 2)
+	go func() {
+		rel, _ := g.acquire(ctx, "cdn:443", no)
+		order <- "readahead"
+		rel()
+	}()
+	time.Sleep(20 * time.Millisecond) // the read-ahead queues first
+	go func() {
+		rel, _ := g.acquire(ctx, "cdn:443", yes)
+		order <- "urgent"
+		time.Sleep(10 * time.Millisecond)
+		rel()
+	}()
+	time.Sleep(20 * time.Millisecond)
+	r1()
+	if got := <-order; got != "urgent" {
+		t.Fatalf("first grant went to %s", got)
+	}
+	r2()
+	if got := <-order; got != "readahead" {
+		t.Fatalf("second grant went to %s", got)
+	}
+	// A cancelled waiter leaves no slot behind.
+	cctx, cancel := context.WithCancel(ctx)
+	hold1, _ := g.acquire(ctx, "cdn:443", no)
+	hold2, _ := g.acquire(ctx, "cdn:443", no)
+	done := make(chan error, 1)
+	go func() { _, err := g.acquire(cctx, "cdn:443", yes); done <- err }()
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("cancelled waiter was admitted")
+	}
+	hold1()
+	hold2()
+	g.mu.Lock()
+	busy, waiting := g.busy["cdn:443"], len(g.waiters["cdn:443"])
+	g.mu.Unlock()
+	if busy != 0 || waiting != 0 {
+		t.Fatalf("leaked busy=%d waiting=%d", busy, waiting)
+	}
+}

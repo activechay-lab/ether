@@ -110,6 +110,28 @@ func TestStartupSequenceAndRevocation(t *testing.T) {
 	if w = request(h, "/player_api.php?username=owner&password=main-password"); w.Code != 401 {
 		t.Fatal("accepted main password")
 	}
+	groupedHost, _ := testHost(t)
+	groupedHost.LiveTV = frontendtest.LiveTV{ChannelsFunc: func(context.Context, *frontend.Viewer) ([]frontend.LiveChannel, error) {
+		return []frontend.LiveChannel{{ID: "news", Name: "News", Kind: "iptv", Group: "News & Weather"}, {ID: "sport", Name: "Sport", Kind: "iptv", Group: "Sports"}}, nil
+	}}
+	grouped := mount(t, groupedHost)
+	var categories []map[string]any
+	response := request(grouped, "/player_api.php?"+authQuery()+"&action=get_live_categories")
+	if err := json.Unmarshal(response.Body.Bytes(), &categories); err != nil || len(categories) != 2 || categories[0]["category_name"] != "News & Weather" {
+		t.Fatalf("provider groups: %s %v", response.Body.String(), err)
+	}
+	categoryID := fmt.Sprint(categories[0]["category_id"])
+	for range 2 {
+		response = request(grouped, "/player_api.php?"+authQuery()+"&action=get_live_streams&category_id="+categoryID)
+		var selected []map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &selected); err != nil || len(selected) != 1 || selected[0]["name"] != "News" || selected[0]["category_id"] != categoryID {
+			t.Fatalf("stable filtered group: %s %v", response.Body.String(), err)
+		}
+	}
+	response = request(grouped, "/get.php?"+authQuery()+"&type=m3u_plus")
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `group-title="News & Weather"`) || !strings.Contains(response.Body.String(), `group-title="Sports"`) {
+		t.Fatalf("export groups: %d %s", response.Code, response.Body.String())
+	}
 	a.revoked = true
 	if w = request(h, "/player_api.php?"+authQuery()); w.Code != 401 {
 		t.Fatal("revocation ignored")

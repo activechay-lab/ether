@@ -216,3 +216,79 @@ func TestSwiftfinPlaybackIncludesMP3AndAC3(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestShieldVideoDefaultsAndOverrides(t *testing.T) {
+	for _, product := range []string{"Plex for Android (TV)", "Plezy"} {
+		id := Identity{Product: product, Platform: "Android", Device: "SHIELD Android TV"}
+		base := Playback(id, nil)
+		if base.MaxHeight != 2160 || !base.HDR10 || !slices.Equal(base.Video, []string{"h264", "hevc", "vp9"}) {
+			t.Fatalf("%s: %+v", product, base)
+		}
+		// P5/P8 policy permissions do not assert that the attached display
+		// and app advertised DV; runtime declarations still supply that flag.
+		if base.DolbyVision || !slices.Equal(Policy(id, nil).DolbyVisionProfiles, []int{5, 8}) {
+			t.Fatalf("%s: changed DV admission", product)
+		}
+		on := true
+		edited := Playback(id, []core.ClientCapabilityOverride{{ID: "shield", VideoCodecs: []string{"h264", "av1"}, DolbyVision: &on}})
+		if !edited.DolbyVision || !slices.Contains(edited.Video, "av1") {
+			t.Fatalf("%s: owner override lost: %+v", product, edited)
+		}
+	}
+	if got := Playback(Identity{Product: "Plex Web", Device: "SHIELD Android TV"}, nil).Video; !slices.Equal(got, []string{"h264"}) {
+		t.Fatalf("hardware patch granted browser codecs: %v", got)
+	}
+	if !slices.Contains(Playback(Identity{Product: "Plex for Android (TV)", Device: "Google TV"}, nil).Video, "av1") {
+		t.Fatal("Shield patch leaked into Google TV")
+	}
+}
+
+func TestSegmentedAudioRefused(t *testing.T) {
+	phone := Identity{Product: "Plex for Android (Mobile)", Platform: "Android", Device: "Pixel 9 Pro"}
+	shield := Identity{Product: "Plex for Android (TV)", Platform: "Android", Device: "SHIELD Android TV"}
+	chromecast := Identity{Product: "Plex for Android (TV)", Platform: "Android", Device: "Chromecast"}
+	onn := Identity{Product: "Plex for Android (TV)", Platform: "Android", Device: "onn. 4K Streaming Box"}
+	for _, tc := range []struct {
+		id    Identity
+		codec string
+		want  bool
+	}{
+		{phone, "eac3", true}, {phone, "dts", true}, {phone, "aac", false},
+		{shield, "eac3", false}, {shield, "dts", false}, {shield, "truehd", false},
+		{chromecast, "eac3", false}, {chromecast, "dts", true}, {onn, "truehd", true},
+		{Identity{Product: "Jellyfin Android", Platform: "Android"}, "eac3", false},
+	} {
+		if got := SegmentedAudioRefused(tc.id, tc.codec); got != tc.want {
+			t.Errorf("%s %s: refused=%v want %v", tc.id.Device+tc.id.Product, tc.codec, got, tc.want)
+		}
+	}
+}
+
+func TestStremioNativePlayers(t *testing.T) {
+	for _, c := range []struct {
+		id                Identity
+		record            string
+		hdr10, dv, truehd bool
+		dvProfiles        []int
+	}{
+		{Identity{Product: "Stremio", Platform: "Desktop"}, "stremio-native-desktop", true, true, true, []int{5, 8}},
+		{Identity{Product: "Stremio", Platform: "Android"}, "stremio-native-android", true, false, false, []int{8}},
+		{Identity{Product: "Nuvio", Platform: "Android"}, "stremio-native-android", true, false, false, []int{8}},
+		{Identity{Product: "Nuvio", Platform: "iOS"}, "nuvio-ios", true, false, false, []int{8}},
+	} {
+		got := Playback(c.id, nil)
+		if got.ID != c.record || got.HDR10 != c.hdr10 || got.DolbyVision != c.dv || slices.Contains(got.Audio, "truehd") != c.truehd || !slices.Contains(got.Video, "hevc") || got.MaxHeight != 2160 {
+			t.Errorf("%+v playback: %+v", c.id, got)
+		}
+		if p := Policy(c.id, nil); p.ID != c.record || !slices.Equal(p.DolbyVisionProfiles, c.dvProfiles) {
+			t.Errorf("%+v policy: %+v", c.id, p)
+		}
+		if !HasQuirk(c.id, "native-player-dynamic-range") {
+			t.Errorf("%+v: native player quirk missing", c.id)
+		}
+	}
+	web := Identity{Product: "Stremio"}
+	if got := Playback(web, nil); got.ID != "generic" || HasQuirk(web, "native-player-dynamic-range") {
+		t.Errorf("Stremio Web must stay generic: %+v", got)
+	}
+}

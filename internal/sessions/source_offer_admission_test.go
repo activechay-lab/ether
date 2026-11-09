@@ -2,8 +2,6 @@ package sessions
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -106,7 +104,7 @@ func TestSourceOfferHTTPAdmissionExpiryAndRevocationBoundaries(t *testing.T) {
 					defer broker.Close(ctx)
 					scope := frontend.VersionScope{Viewer: &core.Viewer{ID: 1}, Device: core.Device{ID: "tv"}, Protocol: "silo"}
 					item := core.MovieKey(1)
-					versionAPI, err := NewVersionHandles(db, broker, "silo")
+					versionAPI, err := NewVersionHandles(db, broker, "silo", testVersionKey)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -195,13 +193,9 @@ func TestSourceOfferHTTPAdmissionExpiryAndRevocationBoundaries(t *testing.T) {
 							_, err = db.Exec(`DELETE FROM sessions_detail_sources WHERE handle=?`, target.DetailSource)
 						}
 					} else {
-						digest := sha256.Sum256([]byte(target.VersionHandle))
-						value := hex.EncodeToString(digest[:])
-						if change == "expiry" {
-							_, err = db.Exec(`UPDATE capability_headers SET expires=1 WHERE namespace='sessions.version' AND digest=?`, value)
-						} else {
-							_, err = db.Exec(`DELETE FROM capability_headers WHERE namespace='sessions.version' AND digest=?`, value)
-						}
+						// A version id has no lifetime of its own; it retires
+						// when retention prunes its row.
+						_, err = db.Exec(`DELETE FROM sessions_version_ids WHERE handle=?`, target.VersionHandle)
 					}
 					if err != nil {
 						t.Fatal(err)

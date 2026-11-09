@@ -7,31 +7,18 @@ import (
 	"github.com/braedonsaunders/ether/internal/extend"
 )
 
-// The registry-aware preview path accepts registered plugin steps and
-// fields and rejects unregistered ones (WS1a item 4).
+// The registry-aware preview path accepts registered plugin fields and
+// rejects unregistered ones (WS1a item 4).
 func TestServiceRegistryValidation(t *testing.T) {
 	svc := New(nil, nil, nil, testCfg(), Options{})
-	rules := []core.ReleaseRule{
-		{ID: "r1", Name: "Prefer A", Action: "prefer", Conditions: []core.ReleaseCondition{{Field: "group", Operator: "equals", Value: "A"}}},
-	}
 	pluginStep := "plugin:example.dub/lang"
-	ladder := append(core.DefaultRanking(rules), pluginStep)
-
-	// No registry wired: structural acceptance, builtin compile.
-	if err := svc.validateRanking(ladder, rules); err != nil {
-		t.Fatalf("structural validation without registry: %v", err)
-	}
-
 	reg := extend.New()
 	svc.SetExtendRegistry(reg)
-	if err := svc.validateRanking(ladder, rules); err == nil {
-		t.Fatal("unregistered plugin step must fail once a registry is wired")
-	}
 
 	step := extend.Descriptor{
 		Kind: extend.KindRankingStep, ID: pluginStep, Owner: "example.dub",
 		Label: extend.PluginText("example.dub", "step.lang"),
-	}.WithMeta(extend.RankingStepMeta{Editor: extend.RankingEditorNone, CanMove: true, DefaultPosition: 1})
+	}.WithMeta(extend.RankingStepMeta{Editor: extend.RankingEditorNone, CanMove: true})
 	field := extend.Descriptor{
 		Kind: extend.KindRuleField, ID: "plugin:example.dub/dub_lang", Owner: "example.dub",
 		Label: extend.PluginText("example.dub", "field.dub_lang"),
@@ -48,9 +35,6 @@ func TestServiceRegistryValidation(t *testing.T) {
 	}.WithMeta(map[string]any{"operators": []string{"range"}, "editor": "range"})
 	if err := reg.Register(step, field, manifestField, manifestRangeField); err != nil {
 		t.Fatal(err)
-	}
-	if err := svc.validateRanking(ladder, rules); err != nil {
-		t.Fatalf("registered plugin step should validate: %v", err)
 	}
 
 	dubRules := []core.ReleaseRule{

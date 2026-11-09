@@ -23,7 +23,14 @@ func PlaylistEntries(ctx context.Context, viewer *core.User, source PlaylistRowS
 	if viewer == nil || source == nil {
 		return nil, false, errors.New("experience: missing viewer or playlist source")
 	}
-	playlists, err := source.List(ctx, viewer.ID)
+	list := source.List
+	if headers, ok := source.(interface {
+		ListHeaders(context.Context, int64) ([]core.Playlist, error)
+	}); ok {
+		// The cards never read the items.
+		list = headers.ListHeaders
+	}
+	playlists, err := list(ctx, viewer.ID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -126,7 +133,14 @@ func RecentPlaylists(ctx context.Context, viewer *core.User, source PlaylistRowS
 	if viewer == nil || source == nil {
 		return nil, false, nil
 	}
-	playlists, err := source.List(ctx, viewer.ID)
+	list := source.List
+	if headers, ok := source.(interface {
+		ListHeaders(context.Context, int64) ([]core.Playlist, error)
+	}); ok {
+		// The cards never read the items.
+		list = headers.ListHeaders
+	}
+	playlists, err := list(ctx, viewer.ID)
 	if err != nil {
 		return nil, false, err
 	}

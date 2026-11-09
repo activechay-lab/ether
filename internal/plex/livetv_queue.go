@@ -10,17 +10,17 @@ import (
 
 func (s *Server) livePlayQueue(pq playQueue, info livetv.SessionInfo) *model.MediaContainer {
 	md := s.liveSessionMetadata(info)
-	md.PlayQueueItemID = pq.items[0].id
+	md.PlayQueueItemID = pq.Items[0].ID
 	return &model.MediaContainer{
 		Size: 1, Identifier: model.LibraryIdentifier, Metadata: []model.Metadata{md},
 		Extra: []model.Attr{
-			model.A("playQueueID", pq.id),
-			model.A("playQueueSelectedItemID", pq.items[0].id),
+			model.A("playQueueID", pq.ID),
+			model.A("playQueueSelectedItemID", pq.Items[0].ID),
 			model.A("playQueueSelectedItemOffset", 0),
 			model.A("playQueueShuffled", false),
-			model.A("playQueueSourceURI", pq.sourceURI),
+			model.A("playQueueSourceURI", pq.SourceURI),
 			model.A("playQueueTotalCount", 1),
-			model.A("playQueueVersion", pq.version),
+			model.A("playQueueVersion", pq.Version),
 		},
 	}
 }
@@ -30,7 +30,7 @@ func (s *Server) writeLivePlayQueue(w http.ResponseWriter, r *http.Request, pq p
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	info, err := s.d.LiveTV.Session(r.Context(), pq.liveSession, FromContext(r.Context()).User)
+	info, err := s.d.LiveTV.Session(r.Context(), pq.LiveSession, FromContext(r.Context()).User)
 	if err != nil {
 		s.writeErr(w, r, err)
 		return

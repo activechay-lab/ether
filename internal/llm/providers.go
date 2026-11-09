@@ -62,7 +62,7 @@ func (c *Client) anthropicChat(ctx context.Context, base string, cfg config.LLM,
 			system = append(system, m.Content)
 			continue
 		}
-		req.Messages = append(req.Messages, anthropicMessage{Role: m.Role, Content: m.Content})
+		req.Messages = append(req.Messages, anthropicMessage(m))
 	}
 	req.System = strings.Join(system, "\n\n")
 	var out anthropicResponse

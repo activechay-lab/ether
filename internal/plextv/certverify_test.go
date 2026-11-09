@@ -119,16 +119,54 @@ func TestVerifyPlexDirectCertificate(t *testing.T) {
 		t.Fatalf("dates: ok=%v reason=%q", ok, reason)
 	}
 
+	if ok, _ := m.VerifyTrust(context.Background(), hash, "x."+hash+".plex.direct", "x."+hash+".plex.direct:32400"); !ok || dials != 2 {
+		t.Fatalf("re-verify: ok=%v dials=%d", ok, dials)
+	}
 	m.setTrustDial(func(context.Context, string, string, *tls.Config) error {
 		dials++
 		return context.DeadlineExceeded
 	})
+	// One failed handshake is not proof (a restart checks before its
+	// listener serves): the earlier result stands until a second confirms.
 	ok, reason = m.VerifyTrust(context.Background(), hash, "x."+hash+".plex.direct", "x."+hash+".plex.direct:32400")
-	if ok || reason != CertReasonHandshake || dials != 3 {
+	if !ok || reason != "" || dials != 4 || !m.trustPending(m.Info().Fingerprint) {
+		t.Fatalf("first failure: ok=%v reason=%q dials=%d", ok, reason, dials)
+	}
+	ok, reason = m.VerifyTrust(context.Background(), hash, "x."+hash+".plex.direct", "x."+hash+".plex.direct:32400")
+	if ok || reason != CertReasonHandshake || dials != 6 || m.trustPending(m.Info().Fingerprint) {
 		t.Fatalf("handshake: ok=%v reason=%q dials=%d", ok, reason, dials)
 	}
 	if m.Info().Verified {
 		t.Fatal("failed handshake stayed verified")
+	}
+}
+
+// A restart checks the certificate before its listener serves. That refused
+// dial must never become a warning: the next tick looks again and clears it.
+func TestRegistrarStartupHandshakeIsRecheckedNotReported(t *testing.T) {
+	now := time.Now()
+	const hash = "abc123def456abc123def456abc123de"
+	leaf, pair, roots := testPlexLeaf(t, hash, now, now.Add(time.Hour))
+	m := &CertManager{trustRoots: roots}
+	installLeaf(m, pair, leaf)
+	serving := false
+	m.setTrustDial(func(context.Context, string, string, *tls.Config) error {
+		if !serving {
+			return errors.New("connection refused")
+		}
+		return nil
+	})
+	cfg := testConfig()
+	cfg.Plex.CertHash = hash
+	r := &Registrar{o: RegistrarOptions{Config: &memConfig{cfg: cfg}, Certs: m, Now: time.Now, CertInterval: 7 * 24 * time.Hour}}
+	r.refreshCertTrust(context.Background())
+	if got := m.Info(); got.Verified || got.VerifyReason != "" {
+		t.Fatalf("startup check reported %+v", got)
+	}
+	serving = true
+	r.refreshCertTrust(context.Background())
+	if got := m.Info(); !got.Verified {
+		t.Fatalf("next tick did not clear the startup failure: %+v", got)
 	}
 }
 

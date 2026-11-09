@@ -18,7 +18,7 @@ type consoleEvidencePilotRow struct {
 // the selective candidate query; an exhausted window needs no second query.
 func (c *Catalog) consoleEvidencePilot(ctx context.Context, typ core.MediaType, where string, args []any, seek consoleSeekRange, limit int) ([]consoleEvidencePilotRow, bool, error) {
 	query := `WITH console_window AS MATERIALIZED (
- SELECT t.key,t.popularity FROM catalog_titles t INDEXED BY catalog_titles_console_pop_page
+ SELECT t.key,t.popularity FROM catalog_titles t` + c.indexedBy("catalog_titles_console_pop_page") + `
  WHERE t.type=? AND t.browsable=1 AND t.adult=0` + seek.predicate + `
  ORDER BY t.popularity DESC,t.key ASC LIMIT 4096
  ), console_matches AS MATERIALIZED (

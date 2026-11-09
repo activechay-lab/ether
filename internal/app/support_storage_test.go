@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"strings"
@@ -65,5 +66,53 @@ func TestSupportDatabaseAllocationSnapshot(t *testing.T) {
 	collectDatabaseStorage(db, &closed)
 	if closed.DatabaseAllocationStatus != "unavailable" {
 		t.Fatalf("closed database: %+v", closed)
+	}
+}
+
+// The interior-page walk must agree with dbstat page for page: a deep
+// narrow table and index (whose leaves are never read), and a table of
+// large values whose overflow pages are counted from its cells.
+func TestSupportBTreePagesMatchDBStat(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	for _, stmt := range []string{
+		`CREATE TABLE narrow(id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER NOT NULL)`,
+		`CREATE INDEX narrow_name ON narrow(name, n)`,
+		`CREATE TABLE pairs(a TEXT NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a, b)) WITHOUT ROWID`,
+		`CREATE TABLE blobs(id TEXT PRIMARY KEY, kind TEXT NOT NULL, size INTEGER NOT NULL, content BLOB NOT NULL)`,
+		`WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM s WHERE i<60000) INSERT INTO narrow SELECT i, printf('name-%08d-%s', i*7919 % 60000, hex(randomblob(6))), i FROM s`,
+		`WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM s WHERE i<40000) INSERT INTO pairs SELECT printf('k%06d', i % 997), i FROM s`,
+		`WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM s WHERE i<60) INSERT INTO blobs SELECT printf('d%03d', i), 'reel', i*9000, randomblob(i*9000) FROM s`,
+		`INSERT INTO blobs VALUES('small','image',40,randomblob(40)),('edge','image',4061,randomblob(4061))`,
+		`ANALYZE`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	objects, _, status := sqliteObjects(context.Background(), tx)
+	if status != "complete" {
+		t.Fatalf("status %s", status)
+	}
+	for _, o := range objects {
+		var want int64
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name=?`, o.Name).Scan(&want); err != nil {
+			t.Fatal(err)
+		}
+		if o.Bytes != want {
+			t.Errorf("%s: walk %d bytes, dbstat %d", o.Name, o.Bytes, want)
+		}
+	}
+	if len(objects) < 5 {
+		t.Fatalf("objects: %+v", objects)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -66,6 +67,8 @@ type StreamSourceStatus struct {
 	LastPlayed  time.Time `json:"lastPlayed,omitempty"`
 	RetryAfter  time.Time `json:"retryAfter,omitempty"`
 	LastError   string    `json:"lastError,omitempty"`
+	// Learned is what the source's history says about its media.
+	Learned *LearnedSourceHealth `json:"learned,omitempty"`
 }
 
 type streamSourceHealth struct {
@@ -182,19 +185,47 @@ func (s *Service) sourceStatus(channelID string, src StreamSource) StreamSourceS
 	return h.StreamSourceStatus
 }
 
-func (s *Service) recordStreamFailure(ss *session, rctx context.Context, err error) {
-	if rctx.Err() == nil {
-		s.recordSourceHealth(ss.info.Channel.ID, ss.inputSource, err, false)
-		ss.mu.Lock()
-		warn := ss.lastMediaWarning.IsZero() || time.Since(ss.lastMediaWarning) >= 5*time.Second
-		if warn {
-			ss.lastMediaWarning = time.Now()
-		}
-		ss.mu.Unlock()
-		if warn {
-			s.sessionLog(ss).Warn("live upstream media failed", Diagnose("media_fetch", err).LogAttrs()...)
-		}
+// orderedSourceCandidates lists a channel's enabled inputs, best first. Health
+// only orders them: a cooling-down source still appears, after every source
+// that is not, so recovery never waits out a cooldown while any input remains.
+// Within each health class owner priority decides; cooling sources come back
+// soonest-retry first. exclude skips source IDs (typically the one that just
+// failed). Invalid channel sources yield nil.
+func (s *Service) orderedSourceCandidates(c Channel, exclude ...string) []StreamSource {
+	if err := normalizeStreamSources(&c); err != nil {
+		return nil
 	}
+	type ranked struct {
+		src   StreamSource
+		class int
+		retry time.Time
+	}
+	var out []ranked
+	for _, src := range c.StreamSources {
+		if !src.Enabled || slices.Contains(exclude, src.ID) {
+			continue
+		}
+		st := s.sourceStatus(c.ID, src)
+		class := 0
+		switch st.State {
+		case "retry_ready":
+			class = 1
+		case "cooling_down":
+			class = 2
+		}
+		out = append(out, ranked{src: src, class: class, retry: st.RetryAfter})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].class != out[j].class {
+			return out[i].class < out[j].class
+		}
+		return out[i].class == 2 && out[i].retry.Before(out[j].retry)
+	})
+	list := make([]StreamSource, len(out))
+	for i, r := range out {
+		list[i] = r.src
+	}
+	return list
 }
 
 // StreamSourceStatuses is owner-only health, without source URLs or upstream
@@ -212,7 +243,9 @@ func (s *Service) StreamSourceStatuses(ctx context.Context, channelID string) ([
 	}
 	out := make([]StreamSourceStatus, 0, len(c.StreamSources))
 	for _, src := range c.StreamSources {
-		out = append(out, s.sourceStatus(c.ID, src))
+		st := s.sourceStatus(c.ID, src)
+		st.Learned = s.learnedHealth(c.ID, src)
+		out = append(out, st)
 	}
 	return out, nil
 }
@@ -268,6 +301,7 @@ func (s *Service) recordSourceHealth(channelID string, src StreamSource, err err
 		}
 	}
 	s.sourceHealth[key] = h
+	s.noteSourceOpen(channelID, src, err, played, h.RetryAfter)
 }
 
 // ResolveStreamSource resolves a channel's stream input at tune time. HTTP(S)
@@ -360,10 +394,9 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		ss.inputURL, ss.inputSource = resolvedURL, src
 		ss.inputHeaders = headers.Clone()
 		ss.info.MediaInfo, ss.relayInfo = nil, nil
-		ss.resources = map[string]string{}
 		// ffmpeg and ffprobe read this input through a loopback grant, never
 		// with the provider URL or headers on their command line.
-		err = s.grantInput(ss, grantSrc, headers)
+		err = s.grantDirectInput(ss, grantSrc, headers)
 		if err == nil {
 			err = s.startIPTVSource(attemptCtx, ss)
 		}
@@ -374,14 +407,8 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 			log.Info("live source ready", "elapsed", time.Since(started))
 			return nil
 		}
-		if ss.relay != nil {
-			ss.relay.Close()
-			ss.relay = nil
-		}
-		if ss.relayCancel != nil {
-			ss.relayCancel()
-			ss.relayCancel = nil
-		}
+		ss.owned.close()
+		ss.owned = nil
 		s.revokeInput(ss)
 		last = Diagnose("source_start", err)
 		if !errors.Is(ctx.Err(), context.Canceled) {

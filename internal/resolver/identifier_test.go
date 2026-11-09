@@ -83,7 +83,9 @@ func TestSeriesYearDisambiguatesInsteadOfFiltering(t *testing.T) {
 		}
 		return false, errors.New("lookup failed")
 	}})
-	profile := SelectProfile(cfg.Quality, webCaps(), nil)
+	// "Series year differs" is a TV-only format: only a Shows profile
+	// scores it, as Resolve picks for an episode.
+	profile := SelectProfileForMedia(cfg.Quality, webCaps(), nil, titleMedia(title))
 	sreq := searchRequestFor(title)
 	mk := func(id, name string) core.Release {
 		r := rel(id, name, 1500)

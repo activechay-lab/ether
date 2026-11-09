@@ -160,9 +160,15 @@ type Filter struct {
 	Studio             string         `json:"studio,omitempty"`
 	StudioFilters      []StringFilter `json:"studioFilters,omitempty"`
 	FirstCharacter     string         `json:"firstCharacter,omitempty"`
-	Query              string         `json:"query,omitempty"` // title substring
-	TitleFilters       []StringFilter `json:"titleFilters,omitempty"`
-	ReleasedFilters    []DateFilter   `json:"releasedFilters,omitempty"`
+	// NameStartsWith, NameStartsWithOrGreater and NameLessThan are
+	// Jellyfin and Emby's alphabet jump: bounds on the sort title in the
+	// same order as FirstCharacter's buckets (catalog sort_name.go).
+	NameStartsWith          string         `json:"nameStartsWith,omitempty"`
+	NameStartsWithOrGreater string         `json:"nameStartsWithOrGreater,omitempty"`
+	NameLessThan            string         `json:"nameLessThan,omitempty"`
+	Query                   string         `json:"query,omitempty"` // title substring
+	TitleFilters            []StringFilter `json:"titleFilters,omitempty"`
+	ReleasedFilters         []DateFilter   `json:"releasedFilters,omitempty"`
 	// MinContentRating is an additive share-policy predicate (plex.tv share
 	// filters). It does not replace MaxContentRating or ContentRatings.
 	MinContentRating string `json:"-"`
@@ -173,9 +179,27 @@ type Filter struct {
 	ExcludeCollectionNames []string `json:"-"`
 }
 
+// BrowseSeekable reports whether Browse continues a page after AfterKey in
+// q's sort order: one media type and one sort over a stored column (or the
+// key order). Other queries ignore AfterKey.
+func BrowseSeekable(q BrowseQuery) bool {
+	if q.CursorPage || q.SortLastViewed || len(q.SecondarySorts) > 0 || (q.Filter.Type != TypeMovie && q.Filter.Type != TypeShow) {
+		return false
+	}
+	switch q.Sort {
+	case SortTitle, SortPopularity, SortRating, SortYear, SortReleased, SortDuration, SortAdded:
+		return true
+	}
+	return false
+}
+
 type BrowseQuery struct {
 	// CursorPage selects the console keyset path. AfterKey is also the exclusive
-	// keyset cursor for SortKey exports.
+	// keyset cursor for SortKey exports, and for a single-type page with one
+	// scalar sort (title, popularity, rating, year, released, duration, or
+	// added for movies and series) it continues after that title in the
+	// sort order, with Offset counted from it. A seek whose title no longer
+	// matches fails with ErrSeekUnavailable; the caller pages by offset.
 	CursorPage bool
 	AfterKey   RatingKey
 
@@ -195,11 +219,45 @@ type BrowseQuery struct {
 	// NoTotal skips counting the filter's matches, which reads every title
 	// the filter admits. Page.Total is then offset plus the items returned.
 	NoTotal bool
+	// ListRows reads a key-ordered (SortKey) page as list rows instead of
+	// full titles (an export). Other page shapes ignore it.
+	ListRows *ListRows
+}
+
+// ListRows asks a key-ordered Browse page for a whole-library export's rows:
+// each title with Facts, what the catalogue's own policy reads for the
+// viewer (browsing rules, the release gate), and its directors and first
+// three cast members, but no other credits, alternative titles or aired
+// season and episode counts (a series keeps its stored ones). A title
+// Detail reports (one the caller judges on its full facts) comes back in
+// full. Partial titles never enter a shared cache.
+type ListRows struct {
+	Facts  TitleFacts
+	Detail func(Title) bool
 }
 
 type Page struct {
 	Items []Title
 	Total int
+}
+
+// AiredEpisodeTally counts one show's stored, aired episodes for a viewer
+// without reading them.
+type AiredEpisodeTally struct {
+	// Total is every aired episode of the show, the total the aired
+	// episode listing reports.
+	Total int
+	// Seasons counts, by season number, the aired episodes not in Judge and
+	// how many of those the viewer has played.
+	Seasons map[int]EpisodeTally
+	// Judge are the aired episodes the counts leave out: released after the
+	// settled time, or named by the caller.
+	Judge []RatingKey
+}
+
+// EpisodeTally is a count of aired episodes and how many were played.
+type EpisodeTally struct {
+	Aired, Played int
 }
 
 // Catalog is Ether's library: a local mirror of a TMDB slice plus on-demand
@@ -464,7 +522,12 @@ type SearchRequest struct {
 	// start (0 = unknown), and Anime marks a series whose releases are
 	// commonly numbered that way (additive).
 	AbsoluteEpisode int
-	Anime           bool
+	// Cour and CourEpisode are the 1-based cour (part) number within Season
+	// and the 1-based episode number within that cour for multi-cour anime
+	// seasons (0 when unmapped or Cour 1).
+	Cour        int
+	CourEpisode int
+	Anime       bool
 	// AlternativeTitles are other names of the movie or series (TMDB
 	// alternative titles) a release name may use; matching only, never
 	// part of a query or cache key (additive).

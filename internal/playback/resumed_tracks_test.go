@@ -37,7 +37,7 @@ func TestResumedTracksFollowTheResumeRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, PreferredCodecs: []string{"h264"}}
+	profile := core.QualityProfile{Name: "1080p", MaxHeight: 1080, CustomFormatScores: map[string]int{core.CodecFormat("h264"): 6}}
 	gates := &gateResolver{}
 	m := &Manager{
 		log:    slog.New(slog.DiscardHandler),

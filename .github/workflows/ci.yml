@@ -147,13 +147,25 @@ jobs:
           - os: ubuntu-latest
             shard: app-2
           - os: ubuntu-latest
+            shard: app-p
+          - os: ubuntu-latest
             shard: app-migrations
           - os: ubuntu-latest
             shard: app-3
           - os: ubuntu-latest
+            shard: transcode-matroska
+          - os: ubuntu-latest
+            shard: transcode-integration
+          - os: ubuntu-latest
             shard: transcode-playback
           - os: ubuntu-latest
-            shard: protocols-catalog
+            shard: plex
+          - os: ubuntu-latest
+            shard: catalog
+          - os: ubuntu-latest
+            shard: catalog-large
+          - os: ubuntu-latest
+            shard: protocols
           - os: ubuntu-latest
             shard: rest
           - os: windows-latest
@@ -171,14 +183,14 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Cache protocol specs
-        if: matrix.shard == 'protocols-catalog' || matrix.shard == 'rest' || matrix.shard == 'all'
+        if: matrix.shard == 'protocols' || matrix.shard == 'rest' || matrix.shard == 'all'
         id: specs
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ci-specs
           key: protocol-specs-${{ hashFiles('internal/conform/specs/manifest.json') }}
       - name: Stage protocol specs
-        if: matrix.shard == 'protocols-catalog' || matrix.shard == 'rest' || matrix.shard == 'all'
+        if: matrix.shard == 'protocols' || matrix.shard == 'rest' || matrix.shard == 'all'
         shell: bash
         env:
           SPECS_CACHE_HIT: ${{ steps.specs.outputs.cache-hit }}
@@ -325,13 +337,21 @@ jobs:
         shell: bash
         env:
           SHARD: ${{ matrix.shard }}
+          # -race implies checkptr, which checks every unsafe.Pointer
+          # conversion; the transpiled SQLite in modernc.org is made of them
+          # and spent about half of every database operation there. Our own
+          # packages keep checkptr; race detection is unchanged.
+          GOFLAGS: -gcflags=modernc.org/...=-d=checkptr=0
         run: |
           case "$SHARD" in
             app-1)
               go test -race -timeout 20m ./internal/app -run '^Test[A-F]'
               ;;
             app-2)
-              go test -race -timeout 20m ./internal/app -run '^Test[G-P]' -skip '^TestPrismUpgradeCandidateMigrationFailures$'
+              go test -race -timeout 20m ./internal/app -run '^Test[G-O]'
+              ;;
+            app-p)
+              go test -race -timeout 20m ./internal/app -run '^TestP' -skip '^TestPrismUpgradeCandidateMigrationFailures$'
               ;;
             app-migrations)
               # The failure-injection matrix takes about ten minutes alone.
@@ -341,11 +361,35 @@ jobs:
             app-3)
               go test -race -timeout 20m ./internal/app -run '^Test[^A-P]'
               ;;
-            transcode-playback)
-              go test -race -timeout 20m ./internal/transcode/... ./internal/playback/... ./internal/usenet/...
+            # internal/transcode alone outgrew one 20-minute -race budget
+            # (real-ffmpeg integration tests are most of it): three shards
+            # by test name, no cases dropped and no timeout raised.
+            transcode-matroska)
+              go test -race -timeout 20m ./internal/transcode -run '^TestIntegrationMatroska'
               ;;
-            protocols-catalog)
-              go test -race -timeout 20m ./internal/plex/... ./internal/frontends/... ./internal/catalog/... ./internal/resolver/... ./internal/debrid/...
+            transcode-integration)
+              go test -race -timeout 20m ./internal/transcode -run '^TestIntegration' -skip '^TestIntegrationMatroska'
+              ;;
+            transcode-playback)
+              go test -race -timeout 20m ./internal/transcode -skip '^TestIntegration'
+              go test -race -timeout 20m ./internal/playback/... ./internal/usenet/...
+              ;;
+            # internal/plex, internal/catalog and internal/resolver each ran
+            # close to a 20-minute -race budget while sharing one runner
+            # (run 42559337527): each heavy package gets its own shard, and
+            # catalog's large-catalogue tests (tens of thousands of titles)
+            # get one more. No cases dropped and no timeout raised.
+            plex)
+              go test -race -timeout 20m ./internal/plex/...
+              ;;
+            catalog)
+              go test -race -timeout 20m ./internal/catalog -skip 'Large|^TestSearchQualityGate$'
+              ;;
+            catalog-large)
+              go test -race -timeout 20m ./internal/catalog -run 'Large|^TestSearchQualityGate$'
+              ;;
+            protocols)
+              go test -race -timeout 20m ./internal/frontends/... ./internal/resolver/... ./internal/debrid/...
               ;;
             rest)
               # shellcheck disable=SC2016 # $ is a regex anchor
@@ -410,6 +454,11 @@ jobs:
       fail-fast: false
       matrix:
         package: [store, cluster, clusterconfig, clusterbus, clusterplayback, state, livetv, app, artwork/service, auth, backup, debrid, experience, handles/capability, identity, migrate, playback, playbackcontinuity, placement, plexwatch, sessions]
+        include:
+          # The node-local long-tail index on shared PostgreSQL: a node with no
+          # index yet falls back without errors; each node builds its own.
+          - package: catalog
+            run: Tail|ClusterNode
     services:
       postgres:
         # PostgreSQL 14 is Ether's minimum supported server version.
@@ -437,7 +486,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
           ETHER_TEST_POSTGRES: postgres://ether:ether@127.0.0.1:5432/ether?sslmode=disable
-        run: go test -count=1 -timeout 20m ./internal/${{ matrix.package }}/...
+          PACKAGE: ${{ matrix.package }}
+          RUN: ${{ matrix.run }}
+        run: go test -count=1 -timeout 20m ${RUN:+-run "$RUN"} "./internal/$PACKAGE/..."
 
   vulnerabilities:
     name: Go vulnerabilities
@@ -477,12 +528,26 @@ jobs:
           CGO_ENABLED: "0"
           ETHER_PERF_GATE: "1"
           ETHER_PERF_GATE_REPORT: ${{ runner.temp }}/perf-gate.md
+          ETHER_PERF_GATE_KEEP: ${{ runner.temp }}/perf-gate-private
         run: go test ./internal/app -run '^TestPerformanceGate$' -count=1 -timeout 60m -v
       - name: Publish the gate report
         if: always()
         shell: bash
         run: |
           if [ -f "$RUNNER_TEMP/perf-gate.md" ]; then cat "$RUNNER_TEMP/perf-gate.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Prepare sanitized performance evidence
+        if: always()
+        run: python3 scripts/perf-gate-artifacts.py "$RUNNER_TEMP"
+      - name: Retain performance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          # Never upload the private KEEP directory: it contains databases
+          # and raw request paths, including synthetic Stremio credentials.
+          path: ${{ runner.temp }}/perf-gate-artifacts/
+          retention-days: 14
+          if-no-files-found: error
 
   web:
     name: Web UI

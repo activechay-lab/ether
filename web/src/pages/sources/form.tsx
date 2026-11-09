@@ -264,13 +264,25 @@ export function useTests() {
 }
 
 /** Live health for the parts of the server a page controls, shown above its tabs. */
-export function HealthStrip({ ids }: { ids: HealthItem["id"][] }) {
+export function HealthStrip({
+  ids,
+  extra = [],
+}: {
+  ids: HealthItem["id"][];
+  extra?: HealthItem[];
+}) {
   const { health, dashboard } = useApp();
   if (!dashboard) return null;
-  const items = health.filter((h) => ids.includes(h.id));
+  // Only what the owner uses: an unused source ("off") is left out.
+  const items = ids
+    .map((id) => extra.find((h) => h.id === id) ?? health.find((h) => h.id === id))
+    .filter((h): h is HealthItem => !!h && h.level !== "off");
   if (!items.length) return null;
   return (
-    <ul aria-label={t("Status")} className="grid gap-3 sm:grid-cols-2">
+    <ul
+      aria-label={t("Status")}
+      className={`grid gap-3 sm:grid-cols-2 ${items.length >= 3 ? "xl:grid-cols-4" : ""}`}
+    >
       {items.map((h) => (
         <li key={h.id}>
           <Link

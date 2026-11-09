@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -176,3 +177,144 @@ func (i *instance) authorizedFile(w http.ResponseWriter, r *http.Request, viewer
 }
 
 var subtitleLanguage = regexp.MustCompile(`^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)$`)
+
+// tryServeSessionSubtitleResource intercepts ASS sidecar
+// (subtitles/{track}.ass) and Matroska font attachment routes
+// (subtitles/{track}/fonts and subtitles/{track}/fonts/{index}) after viewer
+// authentication, delegating extraction and authorization to the host
+// SessionSubtitleArtifacts capability.
+func (i *instance) tryServeSessionSubtitleResource(w http.ResponseWriter, r *http.Request, _ sessionMedia, access frontend.SessionAccess, sessionID, resource string) bool {
+	rest, ok := strings.CutPrefix(resource, "subtitles/")
+	if !ok || rest == "" {
+		return false
+	}
+	if trackStr, hasASS := strings.CutSuffix(rest, ".ass"); hasASS && !strings.Contains(trackStr, "/") {
+		i.serveSessionASSSubtitle(w, r, access, sessionID, trackStr)
+		return true
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) == 2 && parts[1] == "fonts" {
+		i.serveSessionSubtitleFonts(w, r, access, sessionID, parts[0], "")
+		return true
+	}
+	if len(parts) == 3 && parts[1] == "fonts" {
+		i.serveSessionSubtitleFonts(w, r, access, sessionID, parts[0], parts[2])
+		return true
+	}
+	return false
+}
+
+func parseSessionSubtitleTrackIndex(trackStr string) (int, bool) {
+	trackStr = strings.TrimSuffix(trackStr, ".ass")
+	trackStr = strings.TrimSuffix(trackStr, ".vtt")
+	trackIndex, err := strconv.Atoi(trackStr)
+	if err != nil || trackIndex < 0 {
+		return -1, false
+	}
+	return trackIndex, true
+}
+
+func parseSubtitleSyncQueryMS(r *http.Request) int {
+	raw := strings.TrimSpace(r.URL.Query().Get("sync_ms"))
+	if raw == "" {
+		return 0
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil || val < -10000 || val > 10000 {
+		return 0
+	}
+	return val
+}
+
+func writeSubtitleArtifactError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, frontend.ErrSubtitleFontsUnavailable):
+		problem(w, http.StatusUnprocessableEntity, "urn:ether:problem:subtitle-fonts-unavailable", "Subtitle font attachments unavailable", "Attached font payload exceeds the 48 MiB limit and could not be narrowed to script-referenced font attachments.")
+	case errors.Is(err, frontend.ErrSubtitleAuthoringUnavailable):
+		problem(w, http.StatusUnprocessableEntity, "urn:ether:problem:subtitle-fidelity-unavailable", "Authored subtitle fidelity unavailable", "Complete authored ASS/SSA subtitle styling is unavailable for this stream.")
+	case errors.Is(err, frontend.ErrUnauthorized):
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+	case errors.Is(err, frontend.ErrSourceGone):
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (i *instance) serveSessionASSSubtitle(w http.ResponseWriter, r *http.Request, access frontend.SessionAccess, sessionID, trackStr string) {
+	trackIndex, ok := parseSessionSubtitleTrackIndex(trackStr)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	artifacts, ok := i.host.Sessions.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	requireAuthored := false
+	if snap, found := i.rememberedPlan(sessionID); found {
+		requireAuthored = snap.requireAuthored
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("require_authored_fidelity")); q == "1" || strings.EqualFold(q, "true") {
+		requireAuthored = true
+	}
+	artifact, err := artifacts.ServeASSSubtitle(r.Context(), access, sessionID, trackIndex, parseSubtitleSyncQueryMS(r), requireAuthored)
+	if err != nil {
+		writeSubtitleArtifactError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/x-ssa; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(len(artifact.Data)))
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(artifact.Data)
+	}
+}
+
+func (i *instance) serveSessionSubtitleFonts(w http.ResponseWriter, r *http.Request, access frontend.SessionAccess, sessionID, trackStr, fontIdxStr string) {
+	fontIndex := -1
+	if fontIdxStr != "" {
+		parsed, err := strconv.Atoi(fontIdxStr)
+		if err != nil || parsed < 0 || parsed >= frontend.MaxSubtitleFontAttachments {
+			http.NotFound(w, r)
+			return
+		}
+		fontIndex = parsed
+	}
+	trackIndex, ok := parseSessionSubtitleTrackIndex(trackStr)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	artifacts, ok := i.host.Sessions.(frontend.SessionSubtitleArtifacts)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	if fontIndex >= 0 {
+		att, err := artifacts.SubtitleFontAttachment(r.Context(), access, sessionID, trackIndex, fontIndex)
+		if err != nil {
+			writeSubtitleArtifactError(w, r, err)
+			return
+		}
+		w.Header().Set("Content-Type", att.MIMEType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(att.Data)))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(att.Data)
+		}
+		return
+	}
+
+	items, err := artifacts.SubtitleFontBundle(r.Context(), access, sessionID, trackIndex)
+	if err != nil {
+		writeSubtitleArtifactError(w, r, err)
+		return
+	}
+	if items == nil {
+		items = []frontend.SubtitleFontBundleItem{}
+	}
+	reply(w, http.StatusOK, map[string]any{"items": items})
+}

@@ -1,13 +1,12 @@
 package livetv
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,9 +60,6 @@ func rewriteHLS(body []byte, base *url.URL, rewrite func(string) string) ([]byte
 	}
 	return []byte(strings.Join(lines, "\n")), nil
 }
-func (s *Service) upstream(ctx context.Context, raw string, r *http.Request) (*http.Response, error) {
-	return s.upstreamWithHeaders(ctx, raw, r, nil, raw)
-}
 
 func (s *Service) upstreamWithHeaders(ctx context.Context, raw string, r *http.Request, headers http.Header, source string, public ...http.Header) (*http.Response, error) {
 	originURL, err := url.Parse(source)
@@ -116,115 +112,37 @@ func (s *Service) upstreamWithHeaders(ctx context.Context, raw string, r *http.R
 	}
 	return nil, last
 }
+
+// ServeResource serves an init section or key of the session's owned
+// timeline. Provider URLs are never addressable through it.
 func (s *Service) ServeResource(w http.ResponseWriter, r *http.Request, id, key string, u *core.User) {
 	ss, err := s.getSession(r.Context(), id, u)
 	if err != nil {
 		writeStreamError(w, err)
 		return
 	}
+	if key == "index.m3u8" {
+		s.ServePlaylist(w, r, id, u)
+		return
+	}
 	ss.mu.Lock()
-	raw, ok := ss.resources[key]
+	lease := ss.owned
 	ss.mu.Unlock()
+	if lease == nil {
+		writeStreamError(w, core.ErrNotFound)
+		return
+	}
+	res, ok := lease.tl.resource(key)
 	if !ok {
 		writeStreamError(w, core.ErrNotFound)
 		return
 	}
-	var res *http.Response
-	var body []byte
-	// Buffer one bounded HLS object before publishing headers. A dropped
-	// connection can then be retried without corrupting the client response.
-	for attempt := 0; attempt < 3; attempt++ {
-		res, err = s.upstreamWithHeaders(r.Context(), raw, r, ss.inputHeaders, ss.inputURL, redirectMediaHeaders(ss.inputSource.Headers))
-		if err != nil {
-			s.recordStreamFailure(ss, r.Context(), err)
-			writeStreamError(w, err)
-			return
-		}
-		if res.StatusCode != 200 && res.StatusCode != 206 {
-			res.Body.Close()
-			if res.StatusCode >= 500 || res.StatusCode == 401 || res.StatusCode == 403 || res.StatusCode == 404 || res.StatusCode == 410 || res.StatusCode == 429 {
-				s.recordStreamFailure(ss, r.Context(), providerResponseError(res.StatusCode))
-			}
-			http.Error(w, "upstream stream unavailable", res.StatusCode)
-			return
-		}
-		body, err = io.ReadAll(io.LimitReader(res.Body, (64<<20)+1))
-		res.Body.Close()
-		if len(body) > 64<<20 {
-			http.Error(w, "upstream segment exceeds buffer limit", 502)
-			return
-		}
-		if err == nil {
-			break
-		}
-		if r.Context().Err() != nil {
-			writeStreamError(w, r.Context().Err())
-			return
-		}
-	}
-	if err != nil {
-		s.recordStreamFailure(ss, r.Context(), err)
-		writeStreamError(w, err)
-		return
-	}
-	content := res.Header.Get("Content-Type")
-	// Some providers label their binary AES keys as application/vnd.apple.mpegurl.
-	// The bytes identify a playlist; the MIME type alone cannot do so.
-	manifest := bytes.HasPrefix(bytes.TrimSpace(body), []byte("#EXTM3U"))
-	if manifest {
-		b := body
-		if len(b) > 4<<20 {
-			http.Error(w, "upstream playlist too large", 502)
-			return
-		}
-		base := res.Request.URL
-		rewritten, err := rewriteHLS(b, base, func(raw string) string {
-			resource := stableID(raw)
-			ss.mu.Lock()
-			if len(ss.resources) > 8192 { // Sessions expire; evict old references rather than grow without bound.
-				for k := range ss.resources {
-					if k != "index.m3u8" {
-						delete(ss.resources, k)
-						if len(ss.resources) < 4096 {
-							break
-						}
-					}
-				}
-			}
-			ss.resources[resource] = raw
-			ss.mu.Unlock()
-			return withAuth("/livetv/sessions/"+id+"/0/resource/"+resource, ss.streamGrant)
-		})
-		if err != nil {
-			http.Error(w, "unsupported upstream playlist", 502)
-			return
-		}
-		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-		w.Header().Set("Cache-Control", "no-store")
-		if r.Method != "HEAD" {
-			armWriteDeadline(w)
-			w.Write(rewritten)
-		}
-		return
-	}
-	if r.Method != http.MethodHead && len(body) > 0 {
-		s.touchMedia(ss)
-	}
-	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
-		if v := res.Header.Get(name); v != "" {
-			w.Header().Set(name, v)
-		}
-	}
-	if strings.Contains(strings.ToLower(content), "mpegurl") {
-		w.Header().Set("Content-Type", "application/octet-stream")
-	}
-	w.Header().Set("Cache-Control", "private, max-age=10")
-	armWriteDeadline(w)
-	observed := s.observeMedia(w, ss)
-	defer observed.done()
-	observed.WriteHeader(res.StatusCode)
-	if r.Method != "HEAD" {
-		_, _ = observed.Write(body)
+	w.Header().Set("Content-Type", res.ctype)
+	w.Header().Set("Content-Length", strconv.Itoa(len(res.data)))
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	if r.Method != http.MethodHead {
+		armWriteDeadline(w)
+		w.Write(res.data)
 	}
 }
 

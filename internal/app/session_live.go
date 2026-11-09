@@ -165,9 +165,7 @@ func rewriteSiloLivePlaylist(body []byte, sessionPrefix, base string) []byte {
 
 func rewriteSiloLiveURI(raw, sessionPrefix, base string) string {
 	rel := strings.TrimSpace(raw)
-	if strings.HasPrefix(rel, sessionPrefix) {
-		rel = strings.TrimPrefix(rel, sessionPrefix)
-	}
+	rel = strings.TrimPrefix(rel, sessionPrefix)
 	rel, _, _ = strings.Cut(rel, "?")
 	switch {
 	case rel == "index.m3u8":

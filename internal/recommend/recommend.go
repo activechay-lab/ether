@@ -11,7 +11,6 @@ import (
 	"math"
 	"sort"
 	"sync"
-	"time"
 )
 
 // TraktSource is the optional Trakt dependency (internal/trakt.Client).
@@ -44,22 +43,20 @@ type EventSource interface {
 
 // Options supplies only the dependencies used by related recommendations.
 type Options struct {
-	Catalog       core.Catalog
-	State         core.State
-	LLM           LLMSource
-	Logger        *slog.Logger
-	SourceTimeout time.Duration
-	Scorer        core.PersonalScorer
+	Catalog core.Catalog
+	State   core.State
+	LLM     LLMSource
+	Logger  *slog.Logger
+	Scorer  core.PersonalScorer
 }
 type Recommender struct {
-	catalog    core.Catalog
-	state      core.State
-	llm        LLMSource
-	log        *slog.Logger
-	srcTimeout time.Duration
-	scorerMu   sync.RWMutex
-	scorer     core.PersonalScorer
-	home       core.Recommender
+	catalog  core.Catalog
+	state    core.State
+	llm      LLMSource
+	log      *slog.Logger
+	scorerMu sync.RWMutex
+	scorer   core.PersonalScorer
+	home     core.Recommender
 }
 
 var _ core.Recommender = (*Recommender)(nil)
@@ -68,10 +65,7 @@ func New(o Options) *Recommender {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
-	if o.SourceTimeout <= 0 {
-		o.SourceTimeout = 3 * time.Second
-	}
-	return &Recommender{catalog: o.Catalog, state: o.State, llm: o.LLM, log: o.Logger, srcTimeout: o.SourceTimeout, scorer: o.Scorer}
+	return &Recommender{catalog: o.Catalog, state: o.State, llm: o.LLM, log: o.Logger, scorer: o.Scorer}
 }
 
 // SetHomeSource preserves the core.Recommender contract using the one production
@@ -157,10 +151,6 @@ func userIDOf(u *core.User) int64 {
 		return 0
 	}
 	return u.ID
-}
-
-func (r *Recommender) bounded(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, r.srcTimeout)
 }
 
 func dedupeTitles(items []core.Title) []core.Title {

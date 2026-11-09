@@ -143,3 +143,84 @@ func TestFailoverPrefersProbedCopyOverEarlierConversion(t *testing.T) {
 		})
 	}
 }
+
+// Speed adaptation must enforce the copy contract on every acquisition path,
+// including a pre-opened standby, and retain the old source on rejection.
+func TestDownFailoverCopyContractAcrossCandidatePaths(t *testing.T) {
+	for _, path := range []string{"serial", "race", "standby"} {
+		t.Run(path, func(t *testing.T) {
+			b := mkv("B", 20_000_000, 100*time.Second)
+			b.HDR = true
+			c := mkv("C", 10_000_000, 100*time.Second)
+			c.HDR = true
+			h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), b, c}, []string{"A", "B", "C"})
+			ps := h.prepare(owner, movieKey, "copy-contract")
+			s := h.m.lookup(ps.ID)
+			old := s.current()
+			f := &copyPreferenceHLS{fakeHLS: h.tr.addHLS(ps.ID), nonCopy: make(chan struct{})}
+			h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
+			if path == "race" {
+				h.m.deps.FetchNZB = func(ctx context.Context, r core.Release) ([]byte, error) { return []byte("nzb-" + r.ID), nil }
+			}
+			if path == "standby" {
+				h.m.prepareSpeedAlternate(old)
+				old.standby.mu.Lock()
+				done := old.standby.prepared
+				old.standby.mu.Unlock()
+				<-done
+			}
+			_, err := h.m.failoverWith(t.Context(), s, old, time.Second, failoverOpts{down: true})
+			if err == nil || s.current() != old || s.isClosed() {
+				t.Fatalf("incompatible speed replacement: err=%v closed=%v", err, s.isClosed())
+			}
+			select {
+			case <-f.swapC:
+				t.Fatal("conversion reached swap")
+			default:
+			}
+			if h.resolver.isBad("B") {
+				t.Fatal("copy incompatibility marked release bad")
+			}
+		})
+	}
+}
+
+type rejectedSpeedSwapHLS struct{ *fakeHLS }
+
+func (h *rejectedSpeedSwapHLS) SwapInput(context.Context, string, core.MediaInfo, time.Duration) error {
+	return core.ErrNotAvailable
+}
+
+func TestDownFailoverRejectedSwapConsumesAttempt(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("A", 80_000_000, 100*time.Second), mkv("B", 10_000_000, 100*time.Second)}, []string{"A", "B"}, func(h *harness, o *Options) {
+		speedOpts(o)
+		o.MaxDownFailovers = 1
+	})
+	ps := h.prepare(owner, movieKey, "rejected-swap")
+	s := h.m.lookup(ps.ID)
+	old := s.current()
+	f := &rejectedSpeedSwapHLS{h.tr.addHLS(ps.ID)}
+	h.m.deps.HLSLookup = func(string) (core.HLSSession, bool) { return f, true }
+	_, err := h.m.failoverWith(t.Context(), s, old, time.Second, failoverOpts{down: true})
+	if err == nil || s.current() != old || s.isClosed() {
+		t.Fatalf("rejected swap: err=%v closed=%v", err, s.isClosed())
+	}
+	s.mu.Lock()
+	misses := s.downMisses
+	s.mu.Unlock()
+	if misses != 1 {
+		t.Fatalf("rejected swap consumed %d attempts, want 1", misses)
+	}
+	h.clock.Advance(2 * time.Second)
+	feedFetches(s, 10, 64<<10, 200*time.Millisecond, h.clock.Now())
+	h.m.checkSpeeds()
+	s.speedMu.Lock()
+	checks := s.slowChecks
+	s.speedMu.Unlock()
+	if checks != 0 {
+		t.Fatal("speed monitor continued adaptation after attempt cap")
+	}
+	if h.resolver.isBad("A") || h.resolver.isBad("B") {
+		t.Fatal("rejected speed swap marked a release bad")
+	}
+}

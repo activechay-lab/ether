@@ -60,6 +60,9 @@ type inputRelay struct {
 	host   string // 127.0.0.1:port; "" until first use
 	grants map[[sha256.Size]byte]*inputGrant
 	bySess map[*session]*inputGrant
+	// health mirrors bySess for inputHealth, which must never wait on mu:
+	// grant changes hold it across a synchronous provider close.
+	health sync.Map // *session -> *inputGrant
 }
 
 type inputGrant struct {
@@ -72,8 +75,23 @@ type inputGrant struct {
 	cancel       context.CancelFunc
 	slots        chan struct{}
 	source       string // the capped provider account behind this input; "" none
+	// reserve is how far behind the live edge this input's reader plays
+	// (stabilityReserve for a Steady input, else zero); immutable.
+	reserve time.Duration
+	lead    time.Duration // extra join depth for a start window (grantSteadyInputLead); immutable
+	steady  bool          // feeds a real-time consumer (grantSteadyInput); immutable
+	// histChannel/histSrc name the source in its history (the session's
+	// original source entry, not the resolved URL); immutable.
+	histChannel string
+	histSrc     StreamSource
+	reported    atomic.Bool // the grant's session has been counted in history
+	service     *Service
 
 	mu               sync.Mutex
+	tap              *upstreamTap // the shared connection the root input reads through
+	hls              *hlsInput    // provider playlist state when the root input is HLS
+	watchers         map[*func(UpstreamEvent)]struct{}
+	snap             atomic.Pointer[healthSnap] // published health; see inputHealth
 	resources        map[string]*relayResource
 	byKey            map[string]string
 	order            []string
@@ -113,6 +131,29 @@ func tokenKey(token string) [sha256.Size]byte { return sha256.Sum256([]byte(toke
 // grantInput replaces the session's grant with one for src. The token is
 // the only credential; it reaches ffmpeg as a path component.
 func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header) error {
+	return s.grantInputFor(ss, src, headers, false, 0)
+}
+
+// grantSteadyInput is grantInput for a consumer that reads its input at
+// real time: Steady's frame clock, or an owned relay whose timeline paces
+// its output. A reader started behind the live edge then stays there, and
+// that distance is the channel's stability reserve. A consumer that reads
+// as fast as bytes arrive (an unpaced relay) would only turn a reserve into
+// a burst of segments; it uses grantInput.
+func (s *Service) grantSteadyInput(ss *session, src StreamSource, headers http.Header) error {
+	return s.grantInputFor(ss, src, headers, true, 0)
+}
+
+// grantSteadyInputLead is grantSteadyInput for a consumer that publishes a
+// start window ahead of real time as soon as it starts (an owned relay's
+// first segments): its reader joins lead deeper than the reserve, so the
+// reserve is still whole once that window is out. No lead is added when the
+// channel's preset holds no reserve (Fastest).
+func (s *Service) grantSteadyInputLead(ss *session, src StreamSource, headers http.Header, lead time.Duration) error {
+	return s.grantInputFor(ss, src, headers, true, max(lead, 0))
+}
+
+func (s *Service) grantInputFor(ss *session, src StreamSource, headers http.Header, steady bool, lead time.Duration) error {
 	c := ss.info.Channel
 	source := src.AuthSourceID
 	if source == "" && c.SourceID != "" && (src.ID == stableID(c.ID, "playlist") || len(c.StreamSources) <= 1) {
@@ -126,8 +167,19 @@ func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header)
 	if _, err := rand.Read(b[:]); err != nil {
 		return err
 	}
+	var reserve time.Duration
+	if steady {
+		reserve = s.stabilityReserve(c)
+	}
+	if reserve == 0 {
+		lead = 0
+	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	g := &inputGrant{
+	histSrc := src
+	if ss.inputSource.ID != "" {
+		histSrc = ss.inputSource
+	}
+	g := &inputGrant{reserve: reserve, lead: lead, steady: steady, service: s, histChannel: c.ID, histSrc: histSrc,
 		log:   s.sessionLog(ss).With("input", src.ID),
 		token: base64.RawURLEncoding.EncodeToString(b[:]), origin: relayOrigin(u), headers: headers.Clone(), mediaHeaders: redirectMediaHeaders(src.Headers),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, relayConcurrency), source: source,
@@ -150,6 +202,7 @@ func (s *Service) grantInput(ss *session, src StreamSource, headers http.Header)
 	}
 	r.grants[tokenKey(g.token)] = g
 	r.bySess[ss] = g
+	r.health.Store(ss, g)
 	return nil
 }
 
@@ -169,6 +222,8 @@ func (s *Service) transferInput(from, to *session) {
 		r.dropLocked(to, old)
 	}
 	r.bySess[to] = g
+	r.health.Delete(from)
+	r.health.Store(to, g)
 }
 
 // revokeInput ends the session's grant and any relay request using it.
@@ -182,6 +237,10 @@ func (s *Service) revokeInput(ss *session) {
 }
 
 func (r *inputRelay) dropLocked(ss *session, g *inputGrant) {
+	r.health.CompareAndDelete(ss, g)
+	if h := g.hlsIfAny(); h != nil {
+		h.flushEvidence()
+	}
 	g.cancel()
 	delete(r.grants, tokenKey(g.token))
 	delete(r.bySess, ss)
@@ -326,6 +385,10 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	if root && s.serveTapped(w, r, g, raw) {
 		return
 	}
+	// A Steady grant's segments may already be in memory.
+	if !root && s.servePrefetched(w, r, g, raw) {
+		return
+	}
 	select {
 	case g.slots <- struct{}{}:
 		defer func() { <-g.slots }()
@@ -336,7 +399,19 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	defer context.AfterFunc(g.ctx, cancel)()
-	res, err := s.relayFetch(ctx, cancel, g, raw, r)
+	segment := false
+	if h := g.hlsIfAny(); h != nil {
+		segment = h.isSegment(raw)
+	}
+	res, err := s.relayFetchAs(ctx, cancel, g, raw, r, segment)
+	if err == nil && res.StatusCode >= 400 || err != nil && r.Context().Err() == nil {
+		if h := g.hlsIfAny(); h != nil {
+			h.deliver(h.failedFetch(raw))
+			if segment {
+				h.segmentFailed()
+			}
+		}
+	}
 	if err != nil {
 		code := http.StatusBadGateway
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -363,8 +438,11 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	mpd := bytes.HasPrefix(head, []byte("<?xml")) || bytes.HasPrefix(head, []byte("<MPD")) ||
 		(bytes.HasPrefix(head, []byte("<")) && strings.Contains(ctype, "xml"))
 	if hls || mpd {
-		s.serveRelayManifest(w, g, res.Request.URL, body, hls)
+		s.serveRelayManifest(w, g, raw, res.Request.URL, body, hls)
 		return
+	}
+	if h := g.hlsIfAny(); h != nil {
+		h.servedSegment(raw)
 	}
 	for _, name := range []string{"Content-Length", "Content-Range", "Accept-Ranges"} {
 		if v := res.Header.Get(name); v != "" {
@@ -392,11 +470,18 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, base *url.URL, body io.Reader, hls bool) {
+func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, raw string, base *url.URL, body io.Reader, hls bool) {
 	b, err := io.ReadAll(io.LimitReader(body, relayManifestLimit+1))
 	if err != nil || len(b) > relayManifestLimit {
 		http.Error(w, "upstream manifest unavailable", http.StatusBadGateway)
 		return
+	}
+	if hls {
+		// Health, and for Steady the reserve window (reserve_hls.go).
+		var events []UpstreamEvent
+		h := g.hlsState()
+		b, events = h.media(raw, b, base)
+		h.deliver(events)
 	}
 	s.inputRelay.mu.Lock()
 	host := s.inputRelay.host
@@ -488,6 +573,16 @@ func scopeInputRedirects(client *http.Client, origin string, headers http.Header
 // relayIOTimeout; the body is then bounded by the caller's idle reader.
 // Errors never carry the upstream URL to the caller's response.
 func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *inputGrant, raw string, in *http.Request) (*http.Response, error) {
+	return s.relayFetchAs(ctx, cancel, g, raw, in, false)
+}
+
+// relayFetchAs fetches one upstream object. segment marks a media segment
+// named by a live HLS playlist: it is a short request that holds no provider
+// connection, so it is outside the grant's refusal accounting (whose 1 s
+// spacing exists for refused stream opens). One quick retry, then the error
+// goes straight back to ffmpeg, whose HLS demuxer skips the segment while
+// the reserve plays on; a slow answer would stall the decoder instead.
+func (s *Service) relayFetchAs(ctx context.Context, cancel context.CancelFunc, g *inputGrant, raw string, in *http.Request, segment bool) (*http.Response, error) {
 	client := *s.o.HTTPClient
 	client.Timeout = 0 // a live input is endless; idle time is bounded instead
 	ua := defaultUserAgent()
@@ -499,7 +594,9 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 	// A provider that sells connections counts every attempt; it gets one,
 	// not a burst of retries.
 	attempts := 3
-	if g.source != "" && s.sourceConnectionLimit(g.source) > 0 {
+	if segment {
+		attempts = 2
+	} else if g.source != "" && s.sourceConnectionLimit(g.source) > 0 {
 		attempts = 1
 	}
 	// Headers wait at most relayIOTimeout, and never past the opener's
@@ -528,7 +625,7 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 				req.Header.Set(name, v)
 			}
 		}
-		if !g.reserveUpstreamAttempt(ctx) {
+		if !segment && !g.reserveUpstreamAttempt(ctx) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -539,7 +636,9 @@ func (s *Service) relayFetch(ctx context.Context, cancel context.CancelFunc, g *
 		var timedOut atomic.Bool
 		t := time.AfterFunc(budget(), func() { timedOut.Store(true); cancel() })
 		res, err := client.Do(req)
-		g.finishUpstreamAttempt(err != nil || res.StatusCode >= 400)
+		if !segment {
+			g.finishUpstreamAttempt(err != nil || res.StatusCode >= 400)
+		}
 		t.Stop()
 		if timedOut.Load() || errors.Is(err, context.DeadlineExceeded) {
 			if res != nil {
@@ -653,4 +752,20 @@ func (g *inputGrant) finishUpstreamAttempt(failed bool) {
 		g.upstreamFailures = 0
 		g.upstreamRetryAt = time.Time{}
 	}
+}
+
+// joinDepth is how far behind the live edge a new reader of this grant
+// starts: the reserve plus any start window.
+func (g *inputGrant) joinDepth() time.Duration { return g.reserve + g.lead }
+
+// noteEvidence adds evidence to the history of the grant's source, counting
+// the grant's session once it has received media.
+func (g *inputGrant) noteEvidence(ev SourceEvidence) {
+	if g.service == nil || g.histSrc.ID == "" || ev.empty() {
+		return
+	}
+	if ev.Media > 0 && g.reported.CompareAndSwap(false, true) {
+		ev.newSession = true
+	}
+	g.service.noteSourceEvidence(g.histChannel, g.histSrc, ev)
 }

@@ -29,6 +29,24 @@ import (
 
 func init() {
 	store.Register("migrate", 1, `CREATE TABLE migrate_plans(id TEXT PRIMARY KEY, document TEXT NOT NULL, created INTEGER NOT NULL, imported INTEGER NOT NULL DEFAULT 0); CREATE TABLE migrate_objects(source TEXT NOT NULL, viewer INTEGER NOT NULL, kind TEXT NOT NULL, external TEXT NOT NULL, local_id INTEGER NOT NULL, PRIMARY KEY(source,viewer,kind,external)); CREATE TABLE migrate_watchlist(viewer INTEGER NOT NULL,key INTEGER NOT NULL,PRIMARY KEY(viewer,key));`)
+	// v2: plan retention finds old plans by age.
+	store.Register("migrate", 2, `CREATE INDEX migrate_plans_created ON migrate_plans(created);`)
+}
+
+// PlanRetention is how long a previewed plan stays importable. The owner
+// imports from the preview they just ran (the UI keeps a preview job for
+// 30 minutes); a day-old scan is stale. An imported plan's effects are
+// already applied and migrate_objects keeps list re-imports idempotent.
+const PlanRetention = 24 * time.Hour
+
+// Prune deletes plans older than PlanRetention, imported or not.
+func (s *Service) Prune(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	return store.PruneBatched(ctx, s.db,
+		`DELETE FROM migrate_plans WHERE id IN (SELECT id FROM migrate_plans WHERE created<? ORDER BY created LIMIT ?)`,
+		time.Now().Add(-PlanRetention).Unix())
 }
 
 type Service struct {

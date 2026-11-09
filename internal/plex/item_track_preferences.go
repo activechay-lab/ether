@@ -5,8 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/langtag"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
@@ -15,17 +14,17 @@ import (
 
 // Track language controls inherit through the series. Only cached information
 // for this item is consulted: a detail request never enumerates a series/library.
-func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *core.Title) *model.TrackPreferences {
-	if t.Type != core.TypeShow && t.Type != core.TypeSeason {
+func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *frontend.Title) *model.TrackPreferences {
+	if t.Type != frontend.TypeShow && t.Type != frontend.TypeSeason {
 		return nil
 	}
 	inherit := "Account default"
-	if t.Type == core.TypeSeason {
+	if t.Type == frontend.TypeSeason {
 		inherit = "Series default"
 	}
 	if translated, ok := preferenceInheritance[primaryLang(pr.Language)]; ok {
 		inherit = translated[0]
-		if t.Type == core.TypeSeason {
+		if t.Type == frontend.TypeSeason {
 			inherit = translated[1]
 		}
 	}
@@ -40,8 +39,7 @@ func (s *Server) itemTrackPreferences(ctx context.Context, pr *Request, t *core.
 	for _, kind := range []string{"audio", "subtitle"} {
 		var codes []string
 		for _, st := range info.Streams {
-			tag, _ := langtag.ParseBCP47(st.Language)
-			code := tag.Primary
+			code, _ := frontend.LanguagePrimary(st.Language)
 			if st.Type == kind && code != "" && code != "und" && !seen[code] {
 				seen[code] = true
 				codes = append(codes, code)

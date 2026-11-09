@@ -38,6 +38,7 @@ export function DomainPage({
   tabs,
   active,
   tabActions,
+  tabHref,
   children,
   className,
 }: {
@@ -50,6 +51,8 @@ export function DomainPage({
   status?: ReactNode;
   /** Route prefix; tabs navigate to `${base}/${key}`. */
   base: string;
+  /** Where a tab navigates instead, e.g. to carry a period shared by two tabs. */
+  tabHref?: (key: string) => string;
   tabs?: readonly PageTab[];
   active?: string;
   children: ReactNode;
@@ -66,16 +69,21 @@ export function DomainPage({
           ref={tabsRoot}
           className="flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-border"
         >
-          <div className="min-w-0 flex-1">
+          {/* Narrow screens wrap the tab actions onto their own line before the tabs collapse. */}
+          <div className="min-w-[min(100%,14rem)] flex-1">
             <OverflowTabs
               ariaLabel={t("{page} sections", { page: title })}
               active={active ?? tabs[0]!.key}
-              onSelect={(key) => keepScroll(tabsRoot, () => navigate(`${base}/${key}`))}
+              onSelect={(key) =>
+                keepScroll(tabsRoot, () => navigate(tabHref?.(key) ?? `${base}/${key}`))
+              }
               tabs={tabs.map((x) => ({ key: x.key, label: x.label, count: x.count }))}
             />
           </div>
           {tabActions ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2 pb-2">{tabActions}</div>
+            <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2 pb-2">
+              {tabActions}
+            </div>
           ) : null}
         </div>
       ) : null}

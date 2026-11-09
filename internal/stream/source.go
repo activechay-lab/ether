@@ -62,6 +62,8 @@ type source struct {
 	lastRead    atomic.Int64  // UnixNano of the last demand read
 	playWake    chan struct{} // coalesced wakeups of the playback read-ahead loop
 	playRunning bool          // protected by mu
+
+	meter deliveryMeter // network delivery for this source (delivery.go)
 }
 
 func newSource(e *Engine, rel *release, p *plan, releaseID string) *source {
@@ -73,12 +75,15 @@ func newSource(e *Engine, rel *release, p *plan, releaseID string) *source {
 		fo:     fetchOpts{cacheID: releaseID},
 		ctx:    ctx,
 		cancel: cancel,
-		raSem:  make(chan struct{}, e.opts.ReadAheadParallel),
+		raSem:  make(chan struct{}, maxAdaptiveParallel),
 
 		playWake: make(chan struct{}, 1),
 	}
 	s.fo.repairProgress = s.reportRepair
+	s.meter.owner = s
+	s.fo.meter = &s.meter
 	s.bulk.fo = s.fo
+	e.sources.Store(s, struct{}{})
 	return s
 }
 
@@ -97,6 +102,7 @@ func (s *source) Close() error {
 	s.mu.Unlock()
 	s.cancel()
 	s.raWG.Wait()
+	s.e.sources.Delete(s)
 	s.e.active.Add(-1)
 	s.e.release(s.rel)
 	return nil
@@ -200,8 +206,7 @@ func (s *source) read(ctx context.Context, p []byte, off int64, prio core.Priori
 		// A multi-clip Blu-ray feature gets one continuous timeline.
 		raw := func(dst []byte, from int64) (int, error) { return s.readWithDamageRecovery(ctx, dst, from, prio) }
 		if rerr := remux(s.plan.spans, p[:n], off, raw); rerr != nil {
-			// The bytes may be partly rewritten: serve none of them.
-			return 0, rerr
+			return 0, rerr // p holds timestamps only partly rewritten
 		}
 	}
 	return n, err
@@ -326,6 +331,11 @@ func (s *source) readAhead(off, n int64) {
 			// Sequential progress: grow the window with the bytes consumed.
 			c.window = min(windowCap, c.window+2*(end-c.next))
 			c.consumed += end - c.next
+			if c.consumed >= playMinConsumed {
+				// A playing reader's window must hold every fetch the
+				// adaptive concurrency allows, twice over.
+				c.window = max(c.window, min(windowCap, 2*int64(s.raLimit())*partSize))
+			}
 		}
 		c.next = max(c.next, end)
 	}
@@ -519,6 +529,11 @@ func (s *source) scheduleCursor(from, to int64, c *cursor) int64 {
 // Close is waiting for them (Add must not race Wait, and a worker must not
 // outlive the release reference Close drops).
 func (s *source) startRA(fn func() bool) bool {
+	// Only the scheduling pump starts workers, so the length check is exact
+	// enough: workers only ever leave.
+	if len(s.raSem) >= s.raLimit() {
+		return false
+	}
 	select {
 	case s.raSem <- struct{}{}:
 	default:
@@ -545,11 +560,12 @@ func (s *source) startRA(fn func() bool) bool {
 
 // prefetchRange warms a byte range of the video into the segment cache.
 func (e *Engine) prefetchRange(ctx context.Context, rel *release, p *plan, releaseID string, offset, length int64) error {
-	return e.prefetchRangeN(ctx, rel, p, releaseID, offset, length, e.opts.PrefetchParallel)
+	return e.prefetchRangeN(ctx, rel, p, releaseID, offset, length, e.opts.PrefetchParallel, nil)
 }
 
-// prefetchRangeN is prefetchRange with up to parallel concurrent fetches.
-func (e *Engine) prefetchRangeN(ctx context.Context, rel *release, p *plan, releaseID string, offset, length int64, parallel int) error {
+// prefetchRangeN is prefetchRange with up to parallel concurrent fetches;
+// meter, when set, accounts them to a playing source.
+func (e *Engine) prefetchRangeN(ctx context.Context, rel *release, p *plan, releaseID string, offset, length int64, parallel int, meter *deliveryMeter) error {
 	if offset < 0 {
 		offset = 0
 	}
@@ -559,7 +575,7 @@ func (e *Engine) prefetchRangeN(ctx context.Context, rel *release, p *plan, rele
 	if length > p.size-offset {
 		length = p.size - offset
 	}
-	fo := fetchOpts{cacheID: releaseID, noHot: e.cache != nil && releaseID != ""}
+	fo := fetchOpts{cacheID: releaseID, noHot: e.cache != nil && releaseID != "", meter: meter}
 	if err := p.ensure(ctx, verifier{e: e, prio: core.PriorityPrefetch, fo: fo}, volsOf(p.fetchPieces(offset, length))); err != nil {
 		return err
 	}

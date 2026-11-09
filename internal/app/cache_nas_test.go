@@ -11,7 +11,6 @@ import (
 
 func TestStandaloneNASValidationAndIdentity(t *testing.T) {
 	dbDir := t.TempDir()
-	store.SeedTestDataDir(t, dbDir)
 	db, err := store.Open(context.Background(), dbDir)
 	if err != nil {
 		t.Fatal(err)

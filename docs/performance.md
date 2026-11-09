@@ -155,21 +155,54 @@ twice:
   40,000 seasons and 240,000 episodes, 540k rows in all.
 
 Both carry the same household (three viewers with 20,000 history rows
-each), so only the library differs. Titles are made-up words, one in fifty
-with a common English word, so substring search matches about as sparsely
-as on a real catalogue. The App runs with the background WAL checkpointer,
-as `Run` does.
+each, drawn from a taste of 8,000 movies and 300 series, three playlists
+of 40, 600 and 3,000 items and 55 favourites), so only the library
+differs. Titles are made-up words, one in fifty with a common English
+word, so substring search matches about as sparsely as on a real
+catalogue. Every title carries TMDB-shaped detail in long-tail
+distributions (`LongTailShape` in `internal/perfharness/longtail.go`,
+fitted to a real mirror): credits (cast capped at 30, as the catalogue
+keeps it, plus directors, writers and crew; people dealt by preferential
+attachment, so most have one credit and a few have hundreds), keywords,
+genres, countries, studios, alternative titles, crowd recommendations,
+franchises and home-release checks. The rows go in with the catalogue's
+triggers set aside, and everything those triggers keep (search indexes,
+person names, genre pairs, show dates, episode counts, library tallies)
+is rebuilt from them; `TestGenerateMatchesLiveTriggers` proves the result
+is what a load with every trigger on writes. The App runs with the
+background WAL checkpointer, as `Run` does.
 
 On each library it starts a real App and replays one client per protocol
-(Plex, Infuse on Jellyfin, Emby, Silo, Stremio, the console). Then it
-compares every endpoint across the two libraries.
+(Plex for Apple TV and a second Apple TV, Plex Web, Infuse on Jellyfin,
+Emby, Silo, Stremio, the console) and Apple TV's playback writes (play
+queues, timeline, progress, scrobble, rating). The owner replays cold and
+twice warm; a second viewer replays once with that viewer's caches cold
+(the `first` phase), and the report shows the owner's cold work beside the
+second viewer's first pass. Then it compares every endpoint across the two
+libraries, the second viewer's first pass on its own.
 
 | an endpoint fails when, on the 10× library | threshold |
 |---|---|
-| rows read grow | more than 2× + 200 |
-| statements grow | more than 1.5× + 20 |
-| database time grows | more than 5× + 100 ms |
+| rows read grow (steps other than listings) | more than 2× + 200 (cold and first passes: 2× + 2000) |
+| a listing reads more than its titles render | any request: rows > Σ titles rendered × that type's most detail rows in the fixture + 200 |
+| statements grow (every pass) | more than 1.5× + 20 |
+| database time grows (warm median only) | more than 5× + 100 ms |
 | warm p50 | over 2 s |
+
+A listing step (browse class) whose response names its titles (Plex
+`Metadata`, Jellyfin and Emby `Items`, Silo `items`, Stremio `metas`) is
+held to what it renders rather than to the rows ratio: a page deep in a
+popularity order is famous titles on the large library and obscure ones on
+the small, and famous titles carry far more detail rows. The per-type cap
+is computed from the generated library (`perfharness.DetailCaps`: the most
+genre, keyword, alternative title, studio, country, credit and
+home-release rows any title of the type has, plus two rows per season for
+a series and ten for the title itself). A walk of the library breaks the
+bound at once; `TestPerfGateCatchesAPageWalk` proves it by injecting one.
+Cold and first passes are compared by statements and rows only: one cold
+sample on a shared runner is no measure of database time. The gate freezes
+the catalogue cache's wall-clock minute (`Catalog.FreezeCacheMinute`), so a
+replay crossing a minute counts the same statements.
 
 An indexed path does about the same work on both libraries. A path that
 walks the catalogue does ten times the work, so the gate does not depend on
@@ -181,7 +214,39 @@ that stayed flat so they can be removed; the list only shrinks.
 ```sh
 ETHER_PERF_GATE=1 go test ./internal/app -run TestPerformanceGate -v -timeout 60m
 ETHER_PERF_GATE=quick go test ./internal/app -run TestPerformanceGate -v   # a 5k/54k pair, not ratcheted
+ETHER_PERF_GATE=xlarge go test ./internal/app -run TestPerformanceGate -v -timeout 290m   # 128k/1.28M titles
 ```
+
+The `xlarge` pair is a full TMDB mirror, the design target: 1,278,768
+dated, non-adult titles (1,073,442 movies and 205,326 series), every series
+with its seasons and the episodes of the 300 series a household opened
+(the catalogue stores episodes when a season is opened), 1.69M catalogue
+rows in all, against a tenth of it. It takes too long for every push, so
+`.github/workflows/perf-nightly.yml` runs it nightly on main and on demand
+(`workflow_dispatch`, any ref). It uses the same debt file and thresholds.
+
+The nightly workflow runs the same pair on PostgreSQL too
+(`ETHER_PERF_GATE_PG=postgres://…`): each library is copied into a schema
+of its own as `ether cluster init` does, analysed, and replayed with the
+same steps and thresholds.
+
+On every push the PostgreSQL CI job also runs `TestPostgresHotPlans`
+(`internal/app/perf_pg_plans_test.go`, about a minute): it replays Home,
+Continue Watching and On Deck, sorted and filtered section pages, search
+and detail against a 2k-movie library on PostgreSQL 14, and explains every
+read those requests ran as a generic plan, twice: with the statistics
+ANALYZE leaves (a catalogue small next to a heavy viewer's history, where
+PostgreSQL likes to hash a whole catalogue subquery), and with every
+catalogue table's planner statistics scaled to a 1.3M-title mirror and the
+watch tables' to a large household (`pg_class.reltuples`). It fails on a
+hashed subplan over a catalogue table in either state, and at mirror scale
+on a sequential scan of a catalogue or watch table or a bitmap heap scan
+without an index condition. Writes, and statements PostgreSQL cannot
+prepare without parameter types, are listed as not checked.
+
+`go run ./cmd/etherperf fixture -scale large -out DIR` (also `quick`,
+`small`, `xsmall`, `xlarge`) writes a gate library as a data directory
+that `etherperf real -source DIR` replays.
 
 To work on one endpoint, narrow and keep the run:
 
@@ -192,6 +257,7 @@ To work on one endpoint, narrow and keep the run:
 | `ETHER_PERF_GATE_KEEP=/tmp/gate` | keep each scale's trace and database for `etherperf audit` |
 | `ETHER_PERF_TRACE_DEPTH=3` | record three callers per traced statement, to find an N+1's caller |
 | `ETHER_PERF_GATE_CPUPROFILE=/tmp/replay.out` | CPU profile of the large replay alone |
+| `ETHER_PERF_GATE_FIXTURES=/tmp/fixtures` | keep each generated library there and clone it on the next run instead of generating it again |
 
 ## Architecture
 
@@ -248,8 +314,58 @@ modernc's 16-bit atomic loads (which that lookup uses) take one global
 mutex, so a WAL the checkpointer cannot drain turns concurrent reads into a
 queue. The gate measured this: without a checkpointer its large replay took
 4 to 14 minutes, and with one about a minute. Long scans that pin an old
-snapshot (whole-catalogue counts, the collections index snapshot) keep a
-checkpoint from finishing, which is another reason they stay off requests.
+snapshot keep a checkpoint from finishing, which is another reason they
+stay off requests. Background readers of the whole catalogue (the
+collections index snapshot, the title search index) read 4000-key ranges in
+separate short statements instead. The integrity check and a backup's
+`VACUUM INTO` must read one snapshot, so they announce themselves
+(`store.BeginLongRead`), and bulk writers (the catalogue sync) call
+`store.WaitWALBudget` before each transaction: it waits, cancellably, for
+those reads to end and for the checkpoint to drain the WAL below
+`journal_size_limit`. Waiting is not a failure; only a wait longer than 15
+minutes returns `store.WALBlockedError`, which names the reader when it is
+ours.
+
+### Bulk catalogue writes
+
+The catalogue sync and detail fills write through `upsertItems`: many titles
+per transaction (the sync sizes its batches to about 500 ms of write-lock
+hold, `nextSyncBatch`; detail writes group-commit, `detail_writer.go`).
+Within a transaction:
+
+- a title's rating, votes and popularity wobble is written only when it
+  matters (`rating_drift.go`);
+- facets and credits are read once and written once per table for the
+  whole batch, only the difference (`join_batch.go`);
+- new titles are folded into the title search index, and new credits into
+  person names and their search index, in a statement or two instead of
+  one trigger per row (`fts_fold.go`). The triggers check a marker row
+  (`catalog_fts_bulk`) that exists only inside such a transaction, so every
+  other writer keeps them. `TestFTSFoldMatchesTrigger` and
+  `TestPersonNamesFoldMatchesTrigger` hold the folds equal to the triggers.
+
+### The viewer-policy epoch
+
+`viewer_policy_epoch` fences authorization snapshots: a fence passes only
+if nothing that could turn an allow into a deny was written since the
+snapshot. It moves for exactly those writes (`internal/viewerpolicy`):
+
+- always: rating, adult, type, browse membership, release, episode
+  placement, collection and the Plex share label on `catalog_titles`; a
+  title or credit removed; home-release outcomes; viewer, policy and
+  membership tables;
+- only while a safety policy or library rule reads them
+  (`viewer_policy_inputs`): genres and keywords (per value, plus a title's
+  set becoming empty or non-empty), studios, countries, language, year,
+  runtime, rating, votes and popularity;
+- never: a new title or credit (they can only add), credit details,
+  alternative titles, collection artwork, raw home-release dates.
+
+PostgreSQL advances it at most once per transaction. On SQLite a trigger
+fires per changed row, but a transaction still writes the epoch page once.
+Because detail fills no longer move it, the epoch is a usable cache key:
+model builds share catalogue browse results between viewers who browse
+under the owner's rules with no rating cap, keyed by it.
 
 ### Search
 
@@ -301,6 +417,27 @@ the library walk; a page end is remembered for the next page. It applies
 when that order is the sorted order and the episode set is the
 catalogue's. Before, it refreshed every series' seasons on the request.
 
+### Send what the client asked for
+
+Clients ask for less, and the reference servers answer less; Ether does the
+same, and builds less.
+
+- **Plex.** `excludeFields=` and PMS's allow-listed `excludeElements=`
+  (Media, Part, Genre, Country, Guid, Rating, Director, Writer, Role,
+  Producer) apply to every library container except a transcode decision;
+  Media leaves `mediaCount`, Part leaves `Media@partCount`. Plex for Apple TV
+  and Plex Web send `excludeFields=summary` on hubs and section pages. A
+  light list row whose Media is excluded does not build it, nor read what it
+  is drawn from (`internal/plex/response_shaping.go`; a test proves the
+  bytes match building it and leaving it out). On Deck and Continue
+  Watching are bounded by PMS's defaults: 40 rows (`OnDeckLimit`), watched
+  within 16 weeks (`OnDeckWindow`), new season premieres exempt
+  (`OnDeckIncludePremieres`).
+- **Jellyfin and Emby.** List rows carry the fields `Fields=` asks for.
+  Lists called without `Limit` answer the reference server's default
+  (Latest 20; movie recommendations five categories of eight; Similar 50),
+  and Ether's own bounded page where the reference has none.
+
 ### Caches
 
 - The catalogue keeps generation-stamped in-memory caches (titles, counts,
@@ -336,9 +473,7 @@ catalogue's. Before, it refreshed every series' seasons on the request.
   revision, effective policy, the owner's settings and the Home layout are
   hard inputs: a change is rebuilt on the request. For a restricted viewer
   the epoch is hard too. For an unrestricted viewer the epoch, catalogue
-  writes, the daypart and age refresh the screen behind the response (the
-  epoch also moves on catalogue and guide writes, millions of times on a
-  production server). Home builds never wait on TMDB; what the mirror
+  writes, the daypart and age refresh the screen behind the response. Home builds never wait on TMDB; what the mirror
   lacks is fetched behind the build and the catalogue write refreshes the
   screen.
 - Work a read starts but does not wait for (refreshes behind the read,
@@ -405,18 +540,46 @@ grow with the library.
    the gate covers it.
 
 
-## Xtream export (v0.3.5)
+## Xtream listings (v0.3.6)
 
-The focused synthetic checks use 100,001 movie titles and 250-row export pages.
-On the development Mac, the HTTP handler wrote 401 pages (about 31 MB JSON) to
-a discard writer in approximately 0.55 seconds. This isolates formatting and
-batched compact-ID allocation; it does not include real artwork signing,
-network transfer or client parsing. A separate first-pass walk of 100,001 rows
-through the real in-memory SQLite catalogue completed in approximately 13.1
-seconds, excluding fixture insertion. The keyset cursor avoids growing offsets
-and count queries. Listing retains a page at a time; series detail has a
-20,000-episode bound.
+IPTV apps download a whole library in one `get_vod_streams` or `get_series`
+response. Ether keeps those listings encoded on disk
+(`internal/frontend/kit/listcache`, under `<data>/cache/frontends/xtream`,
+capped at 1 GiB, emptied at start), so a list request streams a file with an
+`ETag`, `Last-Modified`, range support and a gzip copy instead of reading,
+authorizing, signing and encoding the library again.
 
-Reproduce with `CGO_ENABLED=0 go test ./internal/frontends/xtream -run TestLargeCatalogueExport -v`
-and `CGO_ENABLED=0 go test ./internal/catalog -run TestXtreamLargeCatalogueKeyset -v`.
-These are local synthetic checks, not real IPTV player app playback evidence.
+- **Exact policy.** A listing fills a slot (list kind, category, media origin,
+  viewer). Its stamp is the experience's `ExportPolicy` for each listed view
+  (the active viewer's restrictions, hidden titles, blocked facts, the plex.tv
+  share predicate, the viewer's catalogue rules) and the host's config,
+  account, safety, hidden-title and image-revocation generations. A listing is
+  never served to a request with another stamp.
+- **Bounded staleness.** A catalogue write retires the listing at once when the
+  viewer's policy judges titles on their facts (a rating cap, share filter,
+  blocked genres or keywords, section limits, own or household catalogue
+  rules). Otherwise the listing is served for up to 30 minutes after it was
+  read and rebuilt behind the response after a write, or once it is 2 minutes
+  old.
+- **Never slower than encoding.** With no servable listing a request follows the
+  build as it writes, getting bytes as soon as each page is encoded. Signing in
+  (`player_api`) and listing categories start the build ahead of the list. A
+  slot is not rebuilt speculatively again until its last speculative build was
+  fetched.
+- **Artwork.** Poster URLs are content tags whose claims live ten minutes in
+  memory. A listing keeps the page grants it signed, and serving it re-arms them
+  for the requesting credential (`ImagePageRenewer`) at most every 4 minutes.
+  Serve still rechecks credential, revocation and artwork policy.
+- **Build.** Pages are read in key order, signed by up to four concurrent signers
+  (signing is the slowest stage) and encoded in order.
+
+Performance gate, large tier (249k movies, 128 MB listing), development Mac
+under load from other jobs, `GOMAXPROCS=3`: building the movie listing takes
+8.0–9.0 s (it was 10.5–11 s with one signer). A served `get_vod_streams`
+answers in about 350 ms warm (2 statements), and `get_series` in about 14 ms.
+Before this, every request encoded the library itself and hit the gate's 15 s
+client cap on CI.
+
+Reproduce with `ETHER_PERF_GATE=1 ETHER_PERF_GATE_CLIENTS=xtream go test ./internal/app -run 'TestPerformanceGate$'`.
+The semantics are covered by `TestXtreamListingNeverServesStaleVisibility` and
+`TestListingLifecycle`.

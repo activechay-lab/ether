@@ -85,6 +85,7 @@ func (s *Service) Handler() http.Handler {
 		reply(w, 200, v)
 	})
 	m.HandleFunc("GET /infrastructure", s.infrastructure)
+	m.HandleFunc("GET /sources", s.sourceHistory)
 	m.HandleFunc("PUT /costs", func(w http.ResponseWriter, r *http.Request) {
 		var c Cost
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&c) != nil {

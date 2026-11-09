@@ -425,6 +425,11 @@ func TestRTXHonorsRunVBVBudgetAndRejectsQualityStarvation(t *testing.T) {
 	if argValue(args, "--max-bitrate") != "8000" || argValue(args, "--vbv-bufsize") != "64000" {
 		t.Fatalf("run reservoir ignored: %v", args)
 	}
+	s.Rate.Quality = false
+	args, _, err = buildRTXArgs(s)
+	if err != nil || argValue(args, "--max-bitrate") != "8000" || argValue(args, "--vbv-bufsize") != "64000" {
+		t.Fatalf("HLS rate contract ignored without quality reservoir: %v %v", args, err)
+	}
 	s.Rate.MaxrateKbps = 1000
 	if _, _, err := buildRTXArgs(s); err == nil {
 		t.Fatal("kept VSR at a quality-starved bitrate")

@@ -124,9 +124,9 @@ func TestTicketBatchRollbackAndConcurrentConsume(t *testing.T) {
 }
 
 func TestTicketBatchBoundsAndExpiry(t *testing.T) {
-	db, tickets, scope := fixture(t)
+	db, _, scope := fixture(t)
 	clock := time.Now()
-	tickets, _ = capability.NewTicketsWithClock(db, func() time.Time { return clock })
+	tickets, _ := capability.NewTicketsWithClock(db, func() time.Time { return clock })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	tooMany := make([]capability.TicketEntry, 41)
@@ -167,9 +167,9 @@ func TestTicketRejectsForeignDeviceJSON(t *testing.T) {
 // Deleting the source cascades only the typed child. The header stays charged
 // until bounded expiry cleanup; a live header must not be evicted.
 func TestTicketDeletedGrantOrphanQuotaRecovery(t *testing.T) {
-	db, tickets, scope := fixture(t)
+	db, _, scope := fixture(t)
 	clock := time.Now()
-	tickets, _ = capability.NewTicketsWithClock(db, func() time.Time { return clock })
+	tickets, _ := capability.NewTicketsWithClock(db, func() time.Time { return clock })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	other := strings.Repeat("b", 64)
@@ -214,9 +214,9 @@ func TestTicketDeletedGrantOrphanQuotaRecovery(t *testing.T) {
 
 // One expired orphan can free a saturated scope without evicting live rows.
 func TestTicketOrphanCapacityRecoveryAtSaturation(t *testing.T) {
-	db, tickets, scope := fixture(t)
+	db, _, scope := fixture(t)
 	clock := time.Now()
-	tickets, _ = capability.NewTicketsWithClock(db, func() time.Time { return clock })
+	tickets, _ := capability.NewTicketsWithClock(db, func() time.Time { return clock })
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	other := strings.Repeat("b", 64)

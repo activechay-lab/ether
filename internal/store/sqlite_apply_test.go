@@ -97,7 +97,9 @@ func TestSQLiteApplyIsSQLiteOnlyAndKeepsVersionBookkeeping(t *testing.T) {
 		}
 		return errors.New("probe rollback")
 	})
-	failed := filepath.Join(t.TempDir(), "ether.db")
+	// The upgrade of the existing database fails; a new database would be
+	// copied from an image that failed to build and never be written.
+	failed := filepath.Join(dir, "ether.db")
 	db, err = openSQLite(ctx, failed, nil, nil)
 	if err == nil {
 		db.Close()

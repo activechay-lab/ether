@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -172,10 +173,14 @@ type PersonMatch struct {
 // split by the caller). The match is a candidate set: on PostgreSQL it is a
 // substring match, so callers recheck names with their own word rules.
 func (c *Catalog) MatchPeople(ctx context.Context, terms []string, limit int) ([]PersonMatch, error) {
-	if len(terms) == 0 || limit <= 0 {
+	if limit <= 0 {
 		return nil, nil
 	}
-	q, args := c.matchPeopleSQL(terms, limit)
+	// No name: the most credited people, from the credit-count order.
+	q, args := `SELECT person_tmdb, name, credits FROM catalog_person_names WHERE credits>0 ORDER BY credits DESC, person_tmdb LIMIT ?`, []any{limit}
+	if len(terms) > 0 {
+		q, args = c.matchPeopleSQL(terms, limit)
+	}
 	rows, err := c.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -203,9 +208,21 @@ func (c *Catalog) matchPeopleSQL(terms []string, limit int) (string, []any) {
 		}
 		q = `SELECT person_tmdb, name, credits FROM catalog_person_names WHERE credits>0 AND ` + strings.Join(conds, " AND ") + ` ORDER BY credits DESC, person_tmdb LIMIT ?`
 	} else {
-		parts := make([]string, len(terms))
-		for i, term := range terms {
-			parts[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"*`
+		// The index keeps no positions (detail=none), so every quoted
+		// string must be one token: a term the tokenizer would split, such
+		// as "o’brien" typed with a curly apostrophe, becomes a prefix per
+		// word instead of a phrase FTS5 refuses. Splitting on more than
+		// unicode61 does only widens the candidate set callers recheck.
+		var parts []string
+		for _, term := range terms {
+			for _, word := range strings.FieldsFunc(term, func(r rune) bool {
+				return !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.Is(unicode.Co, r)
+			}) {
+				parts = append(parts, `"`+word+`"*`)
+			}
+		}
+		if len(parts) == 0 {
+			return `SELECT person_tmdb, name, credits FROM catalog_person_names WHERE 0 LIMIT ?`, []any{limit}
 		}
 		args = append(args, strings.Join(parts, " "))
 		q = `SELECT p.person_tmdb, p.name, p.credits FROM catalog_person_names_fts f JOIN catalog_person_names p ON p.person_tmdb=f.rowid
@@ -217,6 +234,9 @@ func (c *Catalog) matchPeopleSQL(terms []string, limit int) (string, []any) {
 
 // SearchPeople returns up to limit credited people matching terms, most credited first.
 func (c *Catalog) SearchPeople(ctx context.Context, terms []string, limit int) ([]core.Person, error) {
+	if len(terms) == 0 {
+		return nil, nil
+	}
 	matches, err := c.MatchPeople(ctx, terms, limit)
 	if err != nil || len(matches) == 0 {
 		return nil, err
@@ -251,6 +271,90 @@ func (c *Catalog) PersonCreditKeys(ctx context.Context, person int64, types []co
 		out = append(out, core.RatingKey(key))
 	}
 	return out, rows.Err()
+}
+
+// PersonCreditForms returns the distinct forms (name, and whether a
+// portrait is attached) a person's credits take on titles of types, with
+// PersonCreditKeys' title gate. It reads the person's own credit index,
+// never the library, and returns a handful of rows however many titles
+// credit them.
+func (c *Catalog) PersonCreditForms(ctx context.Context, person int64, types []core.MediaType) ([]core.PersonCreditForm, error) {
+	if person <= 0 || len(types) == 0 {
+		return nil, nil
+	}
+	in, args := personTypeArgs(person, types)
+	rows, err := c.db.QueryContext(ctx, `SELECT DISTINCT cr.name, CASE WHEN cr.thumb<>'' THEN 1 ELSE 0 END FROM catalog_credits cr JOIN catalog_titles t ON t.key=cr.key
+		WHERE cr.person_tmdb=? AND t.adult=0 AND t.type IN (`+in+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.PersonCreditForm
+	for rows.Next() {
+		var form core.PersonCreditForm
+		var portrait int
+		if err := rows.Scan(&form.Name, &portrait); err != nil {
+			return nil, err
+		}
+		form.Portrait = portrait != 0
+		out = append(out, form)
+	}
+	return out, rows.Err()
+}
+
+// PersonFormKeys returns up to limit keys after after, ascending, of the
+// titles of types that credit person in one of forms, with
+// PersonCreditKeys' title gate.
+func (c *Catalog) PersonFormKeys(ctx context.Context, person int64, types []core.MediaType, forms []core.PersonCreditForm, after core.RatingKey, limit int) ([]core.RatingKey, error) {
+	if person <= 0 || len(types) == 0 || len(forms) == 0 || limit <= 0 {
+		return nil, nil
+	}
+	in, args := personTypeArgs(person, types)
+	var portrait, plain []string
+	var portraitArgs, plainArgs []any
+	for _, form := range forms {
+		if form.Portrait {
+			portrait, portraitArgs = append(portrait, "?"), append(portraitArgs, form.Name)
+		} else {
+			plain, plainArgs = append(plain, "?"), append(plainArgs, form.Name)
+		}
+	}
+	var match []string
+	if len(portrait) > 0 {
+		match = append(match, `(cr.thumb<>'' AND cr.name IN (`+strings.Join(portrait, ",")+`))`)
+		args = append(args, portraitArgs...)
+	}
+	if len(plain) > 0 {
+		match = append(match, `(cr.thumb='' AND cr.name IN (`+strings.Join(plain, ",")+`))`)
+		args = append(args, plainArgs...)
+	}
+	args = append(args, int64(after), limit)
+	rows, err := c.db.QueryContext(ctx, `SELECT DISTINCT cr.key FROM catalog_credits cr JOIN catalog_titles t ON t.key=cr.key
+		WHERE cr.person_tmdb=? AND t.adult=0 AND t.type IN (`+in+`) AND (`+strings.Join(match, " OR ")+`) AND cr.key>?
+		ORDER BY cr.key LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.RatingKey
+	for rows.Next() {
+		var key int64
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out = append(out, core.RatingKey(key))
+	}
+	return out, rows.Err()
+}
+
+func personTypeArgs(person int64, types []core.MediaType) (string, []any) {
+	in := make([]string, 0, len(types))
+	args := []any{person}
+	for _, t := range types {
+		in = append(in, "?")
+		args = append(args, string(t))
+	}
+	return strings.Join(in, ","), args
 }
 
 // PersonByTMDB resolves one TMDB person from their credits: the person's

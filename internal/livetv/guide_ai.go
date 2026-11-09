@@ -182,9 +182,6 @@ func aiWords(s string) map[string]bool {
 	}
 	return out
 }
-func aiSimilarity(a, b string) float64 {
-	return aiNameOf(a).similarity(aiNameOf(b))
-}
 
 // aiName is a guide or channel name folded once for repeated comparison.
 type aiName struct {

@@ -350,6 +350,7 @@ export interface EtherConfig {
     unavailableCooloff: string;
     maxCandidates: number;
     sameQualityAlternatives: number;
+    alternativesPerResolution?: boolean;
     offerHigherVersions?: boolean;
     blockedGroups: string[] | null;
     blockedTerms: string[] | null;
@@ -359,7 +360,6 @@ export interface EtherConfig {
     sourcePreference?: string;
     sourceAlwaysFirst?: boolean;
     customFormats?: CustomFormatDefinition[] | null;
-    customFormatScores?: Record<string, number>;
   };
   quality: {
     profiles: QualityProfile[] | null;
@@ -403,6 +403,7 @@ export interface EtherConfig {
   liveTV?: {
     logoIndexUrl?: string;
     healthSweepMinutes?: number;
+    stability?: "fastest" | "balanced" | "rocksolid" | "";
   };
   subtitles?: {
     providers?: { id: string; kind: string; name?: string; enabled: boolean }[];
@@ -496,29 +497,39 @@ export interface QualityProfile {
   /** Set on imported profiles that automatic sync updates in place. */
   import?: ProfileImport;
   releaseRules?: ReleaseRule[] | null;
-  ranking?: string[] | null;
-  rankingConfig?: Record<string, Record<string, unknown>> | null;
+  /** Plugin ranking steps the profile uses, with their settings; each adds its points to the score. */
+  pluginScores?: Record<string, Record<string, unknown>> | null;
+  /** Qualities best first, as in Radarr/Sonarr; qualities in one item rank equally. */
+  qualityOrder?: QualityItem[] | null;
   name: string;
   maxHeight: number;
   minHeight: number;
   fallbackBelowMin?: boolean;
   allowHdr: boolean;
   allowDolbyVision: boolean;
-  preferredSources: string[] | null;
-  preferredCodecs: string[] | null;
-  preferredAudio: string[] | null;
   minSizeMbPerMin: number;
   maxSizeMbPerMin: number;
   episodeMinSizeMbPerMin?: number;
   episodeMaxSizeMbPerMin?: number;
-  preferLargest?: boolean;
   preferredLanguages: string[] | null;
   allowCam: boolean;
   /** Imported profiles: the only source-resolution pairs allowed, e.g. "webdl-1080". */
   allowedQualities?: string[] | null;
-  /** Imported profiles: custom format scores by trash ID, overriding the defaults. */
+  /**
+   * Every format the profile scores: custom formats by trash ID or name,
+   * Ether's built-in formats ("ether:…") and Prefer rules ("rule:<id>").
+   * A format not listed scores 0.
+   */
   customFormatScores?: Record<string, number> | null;
+  /** Releases whose custom formats score lower aren't played; null sets none. */
   minCustomFormatScore?: number | null;
+}
+
+/** One entry of a quality order: a quality, or a named group ranking equally. */
+export interface QualityItem {
+  name?: string;
+  /** "<source>-<height>", e.g. "webdl-1080"; source "unknown" names no source. */
+  qualities: string[];
 }
 
 export interface QualityRule {
@@ -612,15 +623,44 @@ export interface UpdateStatus {
     notes?: string;
     publishedAt?: string;
     staged: boolean;
+    /** A security fix: installs at the next quiet moment. */
+    critical?: boolean;
+    /** Staged rollout: installs on its own after this time. */
+    installAfter?: string;
+    /** Missed several maintenance windows: installs at the next long quiet moment. */
+    catchUp?: boolean;
+    /** Notify-only installs: the file to download by hand. */
+    downloadUrl?: string;
+    downloadName?: string;
   };
   capability: "self-apply" | "notify-only" | "disabled";
   capabilityReason?: string;
+  /** How a notify-only install is updated (internal/updater NotifyKind*). */
+  notifyKind?:
+    | "dev"
+    | "macos"
+    | "container"
+    | "deb"
+    | "rpm"
+    | "package"
+    | "unsupervised"
+    | "unwritable"
+    | "unknown"
+    | "installer";
+  channel?: string;
+  arch?: string;
+  catchUpQuietSeconds?: number;
+  /** The last update Ether installed itself, until dismissed. */
+  installed?: { from: string; to: string; at: string };
   state:
     | "idle"
     | "downloading"
     | "staged"
     | "waiting-for-window"
     | "waiting-for-idle"
+    | "waiting-for-rollout"
+    | "waiting-for-turn"
+    | "draining"
     | "applying"
     | "rolled-back";
   autoUpdate: boolean;

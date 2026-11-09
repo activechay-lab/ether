@@ -21,20 +21,20 @@ func TestRankingConfigValidatedOnSave(t *testing.T) {
 	a := &App{resolver: res}
 	cfg := config.Defaults(t.TempDir())
 	cfg.Indexers = nil
-	cfg.Quality.Profiles[0].RankingConfig = map[string]json.RawMessage{d.ID: json.RawMessage(`{"value":"bad"}`)}
+	cfg.Quality.Profiles[0].PluginScores = map[string]json.RawMessage{d.ID: json.RawMessage(`{"value":"bad"}`)}
 	errs := a.validateExtra(cfg)
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e.Field, "rankingConfig.plugin:test.dub/dub") {
+		if strings.Contains(e.Field, "pluginScores.plugin:test.dub/dub") {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("missing field error: %v", errs)
 	}
-	cfg.Quality.Profiles[0].RankingConfig[d.ID] = json.RawMessage(`{"value":true}`)
+	cfg.Quality.Profiles[0].PluginScores[d.ID] = json.RawMessage(`{"value":true}`)
 	for _, e := range a.validateExtra(cfg) {
-		if strings.Contains(e.Field, "rankingConfig") {
+		if strings.Contains(e.Field, "pluginScores") {
 			t.Fatalf("valid configuration rejected: %v", e)
 		}
 	}

@@ -275,9 +275,6 @@ type Version struct {
 	ETag         string     `json:"etag,omitempty"`
 	DateModified *time.Time `json:"dateModified,omitempty"`
 	PublishedAt  *time.Time `json:"publishedAt,omitempty"`
-	// FirstObservedAt is the first committed observation of this candidate offer.
-	// Nil means that no trustworthy observation was recorded.
-	FirstObservedAt *time.Time `json:"firstObservedAt,omitempty"`
 }
 type Marker struct {
 	Type       string
@@ -501,12 +498,19 @@ type PlayIntent struct {
 	// PreferRemux asks for a copy-only remux when source changes would
 	// otherwise disrupt the client. The broker still decides whether it applies.
 	PreferRemux bool
-	Plex        *PlexHints
+	// DeclaredCaps marks Caps built from this request's complete device
+	// declaration (a Jellyfin/Emby PlaybackInfo DeviceProfile, a Silo
+	// capability body). The broker keeps the latest such caps per device so
+	// a later detail page can warm the title with exactly what Play sends
+	// (DetailWarmer); generic caps are never remembered.
+	DeclaredCaps bool
+	Plex         *PlexHints
 }
 
 // PlexHints carries Plex-specific selections that cannot be represented by
 // neutral stream indexes. Only the Plex adapter should populate it.
 type PlexHints struct {
+	ManualSubtitle    bool // explicit request or stored manual choice, before preferences
 	Collection        string
 	MediaIndex        int
 	PartReleaseID     string
@@ -639,6 +643,10 @@ type SessionCapabilities struct {
 	IconURL                      string
 }
 type Timeline struct {
+	// Observed track indices are presence-aware client telemetry, not proof of
+	// manual intent. In particular Jellyfin Web emits ordinary timeupdate events.
+	AudioStreamIndex, SubtitleStreamIndex *int
+
 	// PlaybackID may be empty for clients that do not send one. The broker
 	// preserves its no-ID supersession semantics.
 	PlaybackID      string

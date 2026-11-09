@@ -17,7 +17,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/plextv"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // TestSpikePlexMetadataUsesSpikeCatalog reproduces the in-app spike wiring:
@@ -47,7 +46,6 @@ func TestSpikePlexMetadataUsesSpikeCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store.SeedTestDataDir(t, dir)
 	a, err := New(context.Background(), Options{
 		DataDir:    dir,
 		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),

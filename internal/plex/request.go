@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/identity"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -42,9 +42,12 @@ type Request struct {
 	HasPage       bool
 	pagingInvalid bool
 
-	Format   model.Format
-	RemoteIP netip.Addr
-	Remote   bool // not on a private/loopback network
+	Format model.Format
+	// excludeMedia: the response leaves Media out (excludeElements=Media),
+	// so listing rows skip building it.
+	excludeMedia bool
+	RemoteIP     netip.Addr
+	Remote       bool // not on a private/loopback network
 
 	User *core.User
 
@@ -76,7 +79,7 @@ func FromContext(ctx context.Context) *Request {
 }
 
 func withRequest(ctx context.Context, pr *Request) context.Context {
-	return context.WithValue(core.WithCatalogViewer(ctx, pr.User), ctxKey{}, pr)
+	return context.WithValue(core.WithCatalogViewer(core.WithLiveApp(ctx, "plex"), pr.User), ctxKey{}, pr)
 }
 
 // plexParam reads an X-Plex-* value from the header or the query string.
@@ -162,12 +165,13 @@ func ParseRequest(r *http.Request, trusted ...netip.Prefix) *Request {
 	}
 	pr.Platform = profileParam(r, "X-Plex-Platform")
 	pr.Device = profileParam(r, "X-Plex-Device")
+	pr.excludeMedia = excludesListMedia(r)
 	pr.Format = model.XML
 	if wantsJSON(r) {
 		pr.Format = model.JSON
 	}
 	var local bool
-	pr.RemoteIP, local = identity.ClientNet(r, trusted...)
+	pr.RemoteIP, local = clientnet.ClientNet(r, trusted...)
 	pr.Remote = !local
 	return pr
 }

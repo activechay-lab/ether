@@ -31,22 +31,40 @@ func (i *instance) facets(kind string) http.HandlerFunc {
 			http.Error(w, "Unavailable", 503)
 			return
 		}
-		if terms := route.Query(r.URL.Query(), "SearchTerm"); kind == "person" && len(terms) == 1 && strings.TrimSpace(terms[0]) != "" {
-			i.searchPersons(w, r, v, terms[0])
-			return
+		if kind == "person" {
+			// Without a term this is the most credited visible people: the
+			// person facet walked every credited title in the library.
+			term := ""
+			if terms := route.Query(r.URL.Query(), "SearchTerm"); len(terms) == 1 {
+				term = strings.TrimSpace(terms[0])
+			}
+			if _, ok := i.host.Experience.(frontend.PeopleReader); ok {
+				i.searchPersons(w, r, v, term)
+				return
+			}
 		}
-		facets, err := i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), kind)
+		offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", 50)
+		var page []frontend.FacetValue
+		total := 0
+		if pager, ok := i.host.Experience.(frontend.FacetPager); ok {
+			// A page of names and their count, not every studio listed
+			// to slice fifty.
+			page, total, err = pager.FacetPage(r.Context(), v, device(r), facetView(r), kind, offset, limit)
+		} else {
+			var facets []frontend.FacetValue
+			facets, err = i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), kind)
+			page, total = paging.Slice(facets, offset, limit), len(facets)
+		}
 		if err != nil {
 			http.Error(w, "Unavailable", 503)
 			return
 		}
-		offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", 50)
-		items := make([]any, 0)
+		items := make([]any, 0, len(page))
 		typeName := map[string]string{"genre": "Genre", "studio": "Studio", "person": "Person"}[kind]
-		for _, facet := range paging.Slice(facets, offset, limit) {
+		for _, facet := range page {
 			items = append(items, map[string]any{"Id": facet.ID, "Name": facet.Title, "Type": typeName, "ServerId": i.info.ID})
 		}
-		jsonReply(w, i.queryResult(items, len(facets), offset))
+		jsonReply(w, i.queryResult(items, total, offset))
 	}
 }
 

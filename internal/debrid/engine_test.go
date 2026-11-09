@@ -111,6 +111,15 @@ func TestEngineReadsWholeFileWithRanges(t *testing.T) {
 	if r.cache.puts.Load() == 0 {
 		t.Fatal("blocks were not cached")
 	}
+	// Statistics attributes every fetched byte to the account that served it.
+	st := r.eng.Stats()
+	var attributed int64
+	for _, n := range st.ProviderBytes {
+		attributed += n
+	}
+	if st.BytesFetched == 0 || len(st.ProviderBytes) != 1 || attributed != st.BytesFetched {
+		t.Fatalf("per-account bytes %v of %d", st.ProviderBytes, st.BytesFetched)
+	}
 }
 
 func TestEngineOpenWithFreshLinkMakesNoCalls(t *testing.T) {

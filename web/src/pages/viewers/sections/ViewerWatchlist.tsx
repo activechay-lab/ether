@@ -8,6 +8,7 @@ import { Section } from "../../../components/layout";
 import { getLocale, t, tx } from "../../../i18n";
 import { apiFetch, errorMessage } from "../../../lib/api";
 import { useAsync } from "../../../lib/hooks";
+import { titlePosterURL } from "../../../lib/titles";
 import type { DiscoverySettings } from "./WatchlistDefaults";
 
 type Item = {
@@ -116,11 +117,15 @@ export function ViewerWatchlist({ viewerId }: { viewerId: number }) {
             return (
               <li key={String(item.title.key)} className="flex items-center gap-3 py-2.5">
                 <Artwork
-                  src={
-                    item.title.posterPath
-                      ? `https://image.tmdb.org/t/p/w92${item.title.posterPath}`
-                      : undefined
-                  }
+                  src={titlePosterURL(
+                    {
+                      ...item.title,
+                      year: known(item.title.released)
+                        ? Number(item.title.released?.slice(0, 4))
+                        : undefined,
+                    },
+                    92,
+                  )}
                   alt=""
                   title={item.title.title}
                   className="h-12 w-8 shrink-0 rounded"

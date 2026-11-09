@@ -27,6 +27,8 @@ import (
 
 // BrokerDeps are the explicit dependencies shared by all protocol surfaces.
 type BrokerDeps struct {
+	// OnActualPlaying runs in a bounded worker after authenticated playing telemetry.
+	OnActualPlaying func(context.Context, *Broker, PlayingSubtitleSession)
 	// DistributedHLS is opt-in; unsupported plans stay local before reservation.
 	DistributedHLS DistributedHLS
 	Coordination   *Coordination
@@ -95,6 +97,13 @@ type brokerPlan struct {
 	external bool
 }
 type brokerSession struct {
+	observedSourceRevision string
+
+	manualSubtitle        bool
+	autoSubtitleIdentity  *int
+	autoSubtitleQueued    bool
+	autoSubtitleEpoch     uint64
+	autoSubtitleCancel    context.CancelFunc
 	distributed, restored bool
 	distributedSaved      time.Time
 	trickplay             *trickplay.Holder
@@ -146,6 +155,8 @@ type retiredSession struct {
 
 // Broker coordinates playback admission for every protocol, including Plex.
 type Broker struct {
+	autoSubtitleWG      sync.WaitGroup
+	autoSubtitleRunning int
 	sampleLimit         int
 	deps                BrokerDeps
 	startSlots          chan struct{}
@@ -166,6 +177,7 @@ type Broker struct {
 	lazyCleanupCancel   context.CancelFunc
 	lazyCleanupDone     chan struct{}
 	devices             map[deviceKey]frontend.SessionCapabilities
+	playCapsByDevice    map[deviceKey]rememberedPlayCaps
 	owners              *PlaybackOwners
 	gates               *Lifecycle
 	bindings            *BindingTable[frontend.PlayIntent]
@@ -207,7 +219,7 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 	if limit > 4096 {
 		return nil, errors.New("sessions: max pending starts exceeds 4096")
 	}
-	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlexActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewPlexStreamTable()}
+	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlexActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), playCapsByDevice: make(map[deviceKey]rememberedPlayCaps), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewPlexStreamTable()}
 	if d, ok := b.deps.DistributedHLS.(interface {
 		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
 	}); ok {
@@ -316,6 +328,7 @@ func copyRequest(r frontend.PlanRequest) frontend.PlanRequest {
 	r.Caps.SubtitleCodecs = slices.Clone(r.Caps.SubtitleCodecs)
 	r.Caps.DVProfiles = slices.Clone(r.Caps.DVProfiles)
 	r.Caps.VideoLevels = maps.Clone(r.Caps.VideoLevels)
+	r.Caps.VideoMaxHeights = maps.Clone(r.Caps.VideoMaxHeights)
 	r.Caps.VideoProfiles = maps.Clone(r.Caps.VideoProfiles)
 	for k, v := range r.Caps.VideoProfiles {
 		r.Caps.VideoProfiles[k] = slices.Clone(v)
@@ -399,22 +412,13 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 	v = confirmed
 	viewerCopy := *v
 	req.Viewer = &viewerCopy
-	req.Caps.Protocol = req.Protocol
-	req.Caps.ClientID = clientKey(req.Protocol, req.Device)
-	applySubtitleProfiles(&req.Caps)
-	if req.Caps.Remote && b.deps.RemoteBitrateLimit != nil {
-		if limit := b.deps.RemoteBitrateLimit(); limit > 0 && (req.Caps.MaxBitrateKbps == 0 || limit < req.Caps.MaxBitrateKbps) {
-			req.Caps.MaxBitrateKbps = limit
-		}
+	if req.Intent.DeclaredCaps && req.Item != 0 {
+		b.rememberPlayCaps(v, req.Protocol, req.Device, req.Item, req.Caps)
 	}
+	req.Caps = b.playCaps(v, req.Protocol, req.Device, req.Caps)
 	if b.deps.BitrateLimit != nil {
-		if limit := b.deps.BitrateLimit(v); limit > 0 {
-			if req.Caps.MaxBitrateKbps == 0 || limit < req.Caps.MaxBitrateKbps {
-				req.Caps.MaxBitrateKbps = limit
-			}
-			if req.Intent.Options.MaxBitrateKbps == 0 || limit < req.Intent.Options.MaxBitrateKbps {
-				req.Intent.Options.MaxBitrateKbps = limit
-			}
+		if limit := b.deps.BitrateLimit(v); limit > 0 && (req.Intent.Options.MaxBitrateKbps == 0 || limit < req.Intent.Options.MaxBitrateKbps) {
+			req.Intent.Options.MaxBitrateKbps = limit
 		}
 	}
 	if req.Channel != "" {
@@ -480,7 +484,17 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 			return frontend.PlayPlan{}, core.ErrNotAvailable
 		}
 		h := &versionHandles{db: b.deps.DB, broker: b, protocol: req.Protocol}
-		item, release, err := h.resolveRecord(ctx, frontend.VersionScope{Viewer: v, Device: req.Device, Protocol: req.Protocol, Caps: req.Caps}, req.Version)
+		scope := frontend.VersionScope{Viewer: v, Device: req.Device, Protocol: req.Protocol, Caps: req.Caps}
+		item, release, err := h.resolveRecord(ctx, scope, req.Version)
+		if errors.Is(err, core.ErrNotFound) {
+			// An id names one release. When this viewer is no longer offered
+			// it (the release went away), the title still plays: the
+			// automatic pick, never the stale release itself.
+			if parent, _, lerr := h.lookupRow(ctx, scope, req.Version); lerr == nil && parent == req.Item {
+				item, release, err = parent, "", nil
+				req.Intent.ExactVersion = false
+			}
+		}
 		if err != nil {
 			return frontend.PlayPlan{}, err
 		}
@@ -583,9 +597,6 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 				if ps.Resolution != nil && ps.Resolution.Release.ID != "" {
 					req.Version = ps.Resolution.Release.ID
 					release = ps.Resolution.Release.ID
-					if versionHandle != "" {
-						b.rebindVersionHandle(ctx, v.ID, string(req.Protocol), req.Device.ID, req.Item, versionHandle, release)
-					}
 				}
 			}
 		}
@@ -695,6 +706,11 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 	}
 	id := rand.Text()
 	etag := sourceRevision(ps)
+	if req.Intent.SubtitleSet || (req.Intent.Plex != nil && req.Intent.Plex.ManualSubtitle) {
+		if err := b.RecordAuthorizedSubtitleIntent(ctx, v.ID, req.Item, true); err != nil {
+			return frontend.PlayPlan{}, err
+		}
+	}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -877,7 +893,7 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	if deliverySession == "" {
 		deliverySession = id
 	}
-	s := &brokerSession{public: copySession(session), grant: grant, playID: ps.ID, clientID: p.request.Caps.ClientID, playbackID: playbackID, caps: p.request.Caps, opts: p.request.Intent.Options, decision: p.decision, allowTranscoding: p.request.Intent.AllowTranscoding, versionHandle: p.versionHandle, exactRelease: p.exactRelease, sourcePinned: p.pinned, sourceETag: p.etag, deliverySession: deliverySession}
+	s := &brokerSession{autoSubtitleIdentity: new(int), manualSubtitle: p.request.Intent.SubtitleSet || (p.request.Intent.Plex != nil && p.request.Intent.Plex.ManualSubtitle), public: copySession(session), grant: grant, playID: ps.ID, clientID: p.request.Caps.ClientID, playbackID: playbackID, caps: p.request.Caps, opts: p.request.Intent.Options, decision: p.decision, allowTranscoding: p.request.Intent.AllowTranscoding, versionHandle: p.versionHandle, exactRelease: p.exactRelease, sourcePinned: p.pinned, sourceETag: p.etag, deliverySession: deliverySession}
 	barrier, barrierErr := b.admitSessionBarrier(ctx, v.ID, string(req.Protocol), p.request.Device.ID, p.request.Item, ps.ID, id)
 	if barrierErr != nil {
 		if errors.Is(barrierErr, errTransferCommitUnknown) {
@@ -1163,6 +1179,10 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 		}
 		return nil
 	}
+	if err := b.observeSubtitleSelection(ctx, s, t); err != nil {
+		rollbackSequence()
+		return err
+	}
 	if t.Duration <= 0 {
 		if source, ok := b.deps.Playback.Session(s.playID); ok && source != nil && source.Info.Duration > 0 {
 			t.Duration = source.Info.Duration
@@ -1214,6 +1234,9 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 		return err
 	}
 	b.ensureTrickplay(ctx, s, t.Position)
+	if t.State == "playing" {
+		b.enqueueSubtitleWork(s)
+	}
 	return nil
 }
 
@@ -1375,6 +1398,9 @@ func (b *Broker) Stop(ctx context.Context, a frontend.SessionAccess, id string) 
 	return b.stopLocked(ctx, s)
 }
 func (b *Broker) stopLocked(ctx context.Context, s *brokerSession) error {
+	if s.autoSubtitleCancel != nil {
+		s.autoSubtitleCancel()
+	}
 	if s.distributed {
 		if storage, ok := b.deps.DistributedHLS.(neutralBindingStore); ok {
 			if err := storage.DeleteNeutralBinding(ctx, s.public.ID); err != nil {
@@ -1523,6 +1549,9 @@ func (b *Broker) Close(ctx context.Context) {
 	var ids, planIDs []string
 	seen := make(map[string]bool)
 	for _, s := range b.sessions {
+		if s.autoSubtitleCancel != nil {
+			s.autoSubtitleCancel()
+		}
 		if !seen[s.playID] {
 			ids = append(ids, s.playID)
 			seen[s.playID] = true
@@ -1535,6 +1564,7 @@ func (b *Broker) Close(ctx context.Context) {
 	for _, cancel := range transferCancels {
 		cancel()
 	}
+	b.autoSubtitleWG.Wait()
 	// Shutdown must still release sessions when its caller has already been
 	// canceled; bound the cleanup so an unresponsive gate cannot block forever.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), b.shutdownTimeout)

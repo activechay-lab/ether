@@ -282,6 +282,13 @@ func applyPending(dataDir string, now func() time.Time, ops fsOps) (*Report, err
 		rep.Status, rep.Error = "failed", swapErr.Error()
 		return rep, saveReport(dataDir, rep)
 	}
+	if mergeErr := mergeMedia(j.staged(), dataDir); mergeErr != nil {
+		if err := j.undo(); err != nil {
+			return rep, fmt.Errorf("restore failed (%v) and the original files could not be put back; they are in %s: %w", mergeErr, j.rollback(), err)
+		}
+		rep.Status, rep.Error = "failed", "could not install the backup's On Air media: "+mergeErr.Error()
+		return rep, saveReport(dataDir, rep)
+	}
 	p.Applied = true
 	if err := j.save(); err != nil {
 		if uerr := j.undo(); uerr != nil {
@@ -652,3 +659,50 @@ func statOK(path string) (fs.FileInfo, bool) {
 // WriteJSONDurable writes v as JSON to path atomically and durably,
 // owner-only (the same write the restore journal uses).
 func WriteJSONDurable(path string, v any) error { return writeJSON(path, v) }
+
+// mergeMedia adds the staged backup's On Air asset files to the data
+// directory's. Asset files are named by their sha256 and never change, so
+// one already present is the same file and is kept, and nothing is removed:
+// files the restored database no longer references are swept by On Air
+// later, which also makes an undo safe without journalling these moves.
+func mergeMedia(staged, dataDir string) error {
+	src := filepath.Join(staged, OnAirAssetDir)
+	shards, err := os.ReadDir(src)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for _, shard := range shards {
+		if !shard.IsDir() {
+			continue
+		}
+		files, err := os.ReadDir(filepath.Join(src, shard.Name()))
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			d := f.Name()
+			if !validDigest(d) || d[:2] != shard.Name() {
+				continue
+			}
+			dst := onairAssetPath(dataDir, d)
+			if _, err := os.Stat(dst); err == nil {
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+				return err
+			}
+			if err := os.Rename(filepath.Join(src, shard.Name(), d), dst); err != nil {
+				return err
+			}
+			// A fresh time keeps the orphan sweep's age guard from taking a
+			// restored file before the restored database is open.
+			_ = os.Chtimes(dst, now, now)
+		}
+		syncDir(filepath.Join(dataDir, OnAirAssetDir, shard.Name()))
+	}
+	return nil
+}

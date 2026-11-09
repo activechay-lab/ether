@@ -8,6 +8,7 @@ import { Section } from "../../components/layout";
 import { SettingsRow } from "../../components/SettingsRow";
 import { SortableList } from "../../components/Sortable";
 import { t, tn } from "../../i18n";
+import { useLocale } from "../../i18n/react";
 import { apiFetch } from "../../lib/api";
 import { isPluginDescriptor, textOf, useRegistry, type Descriptor } from "../../lib/extend";
 import { useAsync } from "../../lib/hooks";
@@ -368,44 +369,33 @@ export function PluginSourceCards({
 }
 
 /**
- * Displays plugin-contributed stream sources and their declared daily budgets
- * on the Sources -> Usage tab.
+ * Plugin-contributed stream sources with their declared daily caps, for the
+ * Sources › Statistics usage table.
  */
-export function PluginSourceUsage() {
+export function usePluginSourceSummaries(): {
+  id: string;
+  label: string;
+  kind: string;
+  summary: string;
+}[] {
   const { descriptors } = useRegistry<SourceKindMeta>("sourceKind");
-  const plugins = useMemo(() => descriptors.filter((d) => isPluginDescriptor(d)), [descriptors]);
-
-  if (plugins.length === 0) return null;
-
-  return (
-    <Section
-      title={t("Plugin sources")}
-      description={t(
-        "Stream sources contributed by enabled plugins and their declared daily caps.",
-      )}
-      bodyClassName="divide-y divide-border"
-    >
-      {plugins.map((d) => {
-        const label = textOf(d.label) || d.owner;
-        const cls = normalizeClass(d.meta?.class);
-        const abilities = (d.meta?.abilities ?? []).map(abilityLabel);
-        const limits = limitsSummary(d.meta?.limits);
-        return (
-          <div key={d.id} className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium text-fg">{label}</p>
-                <Badge variant="outline">{classBadgeLabel(cls)}</Badge>
-              </div>
-              <p className="text-xs text-fg-muted">
-                {[...abilities, ...(limits.length ? limits : [t("Automatic rate limits")])]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-          </div>
-        );
-      })}
-    </Section>
+  const { locale } = useLocale();
+  return useMemo(
+    () =>
+      descriptors
+        .filter((d) => isPluginDescriptor(d))
+        .map((d) => {
+          const abilities = (d.meta?.abilities ?? []).map(abilityLabel);
+          const limits = limitsSummary(d.meta?.limits);
+          return {
+            id: d.id,
+            label: textOf(d.label) || d.owner,
+            kind: classBadgeLabel(normalizeClass(d.meta?.class)),
+            summary: [...abilities, ...(limits.length ? limits : [t("Automatic rate limits")])]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        }),
+    [descriptors, locale],
   );
 }

@@ -8,7 +8,7 @@ import (
 )
 
 // Non-zero size gives every live configuration incarnation a distinct identity.
-type configVersion struct{ marker byte }
+type configVersion struct{ _ byte }
 
 // ConfigEvidence is an opaque, non-authorizing observation of the exact
 // installed config incarnation. It detects change-and-revert as well as a
@@ -19,6 +19,8 @@ type ConfigEvidence struct {
 }
 
 func cloneCatalogConfig(cfg config.Catalog) config.Catalog {
+	// The catalogue works with the effective bars: Off is the floor.
+	cfg.MinPopularity, cfg.MinVotes = cfg.Bars()
 	cfg.Exclusions = slices.Clone(cfg.Exclusions)
 	for i := range cfg.Exclusions {
 		cfg.Exclusions[i].Rules = slices.Clone(cfg.Exclusions[i].Rules)

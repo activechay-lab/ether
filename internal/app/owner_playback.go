@@ -16,6 +16,23 @@ type ownerPlayback struct {
 }
 
 func (p ownerPlayback) Sessions() []*core.PlaySession {
+	out := p.localSessions()
+	// Other cluster nodes' streams (nil on a standalone server).
+	if p.app != nil && p.app.playback != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		for _, s := range p.app.playback.RemoteSessions(ctx) {
+			if !s.PreparedOnly {
+				out = append(out, s)
+			}
+		}
+		cancel()
+	}
+	return out
+}
+
+// localSessions is this node's share of Sessions: in-memory snapshots only,
+// no cluster calls, so the console stream can watch it cheaply.
+func (p ownerPlayback) localSessions() []*core.PlaySession {
 	var live []*core.PlaySession
 	if p.app != nil && p.app.livetv != nil {
 		live = p.app.livetv.ViewingSessions()
@@ -43,18 +60,7 @@ func (p ownerPlayback) Sessions() []*core.PlaySession {
 			out = append(out, s)
 		}
 	}
-	out = append(out, live...)
-	// Other cluster nodes' streams (nil on a standalone server).
-	if p.app != nil && p.app.playback != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		for _, s := range p.app.playback.RemoteSessions(ctx) {
-			if !s.PreparedOnly {
-				out = append(out, s)
-			}
-		}
-		cancel()
-	}
-	return out
+	return append(out, live...)
 }
 func (p ownerPlayback) Session(id string) (*core.PlaySession, bool) {
 	for _, s := range p.Sessions() {

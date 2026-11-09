@@ -67,9 +67,8 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 	assets := []packAsset{}
 	for digest := range refs {
 		var a packAsset
-		var content []byte
 		a.Digest = digest
-		e = s.db.QueryRowContext(ctx, "SELECT name,kind,license,mime,content FROM onair_assets WHERE digest=?", digest).Scan(&a.Name, &a.Kind, &a.License, &a.MIME, &content)
+		e = s.db.QueryRowContext(ctx, "SELECT name,kind,license,mime FROM onair_assets WHERE digest=?", digest).Scan(&a.Name, &a.Kind, &a.License, &a.MIME)
 		if e != nil {
 			return nil, nil, fmt.Errorf("referenced Library asset %s is unavailable: %w", digest, e)
 		}
@@ -80,6 +79,10 @@ func (s *Service) ExportStylePack(ctx context.Context, id string) ([]byte, []str
 		}
 		// Source and attribution are held by the Library when available.
 		_ = s.db.QueryRowContext(ctx, "SELECT source,attribution FROM onair_assets WHERE digest=?", digest).Scan(&a.Source, &a.Attribution)
+		content, e := s.assetBytes(ctx, digest)
+		if e != nil {
+			return nil, nil, fmt.Errorf("referenced Library asset %s is unavailable: %w", digest, e)
+		}
 		files["assets/"+digest] = content
 		assets = append(assets, a)
 	}

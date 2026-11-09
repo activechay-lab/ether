@@ -62,7 +62,7 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 	o.MaxSize = min(o.MaxSize, int64(int(^uint(0)>>1)))
 	p := &Part{}
 	preamble := 0
-	// 1. Find =ybegin.
+	// 1. Find =ybegin (or fall back to UUEncode).
 	for {
 		line, err := lr.ReadLine()
 		if err != nil {
@@ -81,6 +81,9 @@ func DecodeLines(lr LineReader, opt *DecodeOptions) (*Part, error) {
 			}
 			p.Header = h
 			break
+		}
+		if _, ok := parseUUBegin(line); ok || isRawUUMLine(line) {
+			return decodeUU(lr, line, o)
 		}
 		preamble += len(line) + 2
 		if preamble > MaxPreambleSize {

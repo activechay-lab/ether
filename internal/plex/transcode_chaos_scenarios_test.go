@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
-	"github.com/braedonsaunders/ether/internal/mediaproc"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -69,7 +68,7 @@ func TestTranscodeChaosCorpusScenarios(t *testing.T) {
 								start := time.Now()
 								r := f.get(t, p, headers...)
 								if r.Code != 200 {
-									t.Fatalf("client request HTTP %d", r.Code)
+									t.Fatalf("client request HTTP %d: %s", r.Code, p)
 								}
 								if time.Since(start) > 20*time.Second {
 									t.Fatal("client wait exceeded 20 seconds")
@@ -91,20 +90,7 @@ func TestTranscodeChaosCorpusScenarios(t *testing.T) {
 									}
 								}
 								chaosCmd(t, fp, "-v", "error", "-show_streams", p)
-								// Stock FFmpeg's unindexed seek in this HLS TS excerpt
-								// emits an incomplete leading AAC packet too. A copied
-								// warning is not a playback failure: require a decoded
-								// opening keyframe, audio frames and normal whole decode.
-								stockSeekWarning := path != "dash" && name == "corpus-apple-bipbop.ts" && len(rec.requests) > 0 && rec.requests[len(rec.requests)-1].Decision.VideoCopy
-								chaosDecodeMedia(t, ff, fp, p, stockSeekWarning)
-								if stockSeekWarning {
-									ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-									out, err := mediaproc.CommandContext(ctx, 2*time.Minute, fp, "-v", "quiet", "-select_streams", "a:0", "-show_frames", "-show_entries", "frame=nb_samples", "-of", "csv=p=0", p).Output()
-									cancel()
-									if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-										t.Fatal("stock seek warning concealed all audio")
-									}
-								}
+								chaosDecodeMedia(t, ff, fp, p, false)
 							}
 							play := func(offset time.Duration, extra string) {
 								t.Helper()

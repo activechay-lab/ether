@@ -7,6 +7,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/backup"
 	"github.com/braedonsaunders/ether/internal/migrate"
+	"github.com/braedonsaunders/ether/internal/onair"
 )
 
 func (a *App) buildAdoption() {
@@ -18,6 +19,10 @@ func (a *App) buildAdoption() {
 		a.backups.SetCluster(backup.Node{ID: self.ID, Name: self.Name})
 	}
 	a.backups.SetRestart(a.scheduleRestart)
+	a.backups.SetOnAirMedia(backup.OnAirMedia{List: onair.BackupAssets, Path: func(d string) string {
+		return filepath.Join(a.opts.DataDir, backup.OnAirAssetDir, d[:2], d)
+	}})
+	a.wireTierMigration()
 	a.migration = migrate.New(a.db, a.catalog, migrate.Options{State: a.state, Logger: a.log.With("component", "migrate")})
 	if err := a.buildPlexServers(); err != nil {
 		a.log.Warn("plex media server sync unavailable", "err", err.Error())

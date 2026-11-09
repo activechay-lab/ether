@@ -37,6 +37,11 @@ type release struct {
 	plan     *plan
 	planErr  error // permanent rejection, cached
 
+	// namedMu serialises NameFiles; named is its result, kept so a later
+	// fetch of the same pack never probes its articles again.
+	namedMu sync.Mutex
+	named   []byte
+
 	p2           par2State
 	repairMu     sync.Mutex
 	repair       *repairSession
@@ -115,7 +120,7 @@ type builder struct {
 
 // candidate is something that may hold the main video.
 type candidate struct {
-	kind  nzb.Kind // KindVideo, KindRAR, KindSevenZip, KindSplit
+	kind  nzb.Kind // KindVideo, KindRAR, KindSevenZip, KindZIP, KindSplit
 	files []*postedFile
 	set   *nzb.Set
 	bytes int64
@@ -132,8 +137,15 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("%w: nothing recognisable among %d files", ErrNoPlayableFile, len(b.rel.files))
 	}
-	if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
-		return nil, err
+	// A season held in archives (an nzb.MetaEpisode hint) may list the sets
+	// of other episodes too: one of them being broken or protected says
+	// nothing about the wanted episode's set, so every set is tried.
+	_, hinted := b.rel.doc.EpisodeHint()
+	hinted = hinted && len(cands) > 1
+	if !hinted {
+		if err := b.checkCachedRAR(ctx, cands[0]); err != nil {
+			return nil, err
+		}
 	}
 	if b.candidateReady != nil {
 		b.candidateReady(cands[0].files)
@@ -145,7 +157,7 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		if err == nil && isISOName(p.name) {
 			// A disc image, plain, split or inside an archive: play its
 			// main feature, not the image. Further discs of the release join it.
-			p, err = b.expandISO(ctx, p, b.isoSiblings(ctx, cands, i))
+			p, err = b.expandISO(ctx, p, b.isoSiblings(cands, i))
 		}
 		if err == nil {
 			b.e.log.Debug("stream plan", "kind", p.kind, "name", p.name, "size", p.size, "volumes", len(p.vols))
@@ -163,7 +175,15 @@ func (b *builder) build(ctx context.Context) (*plan, error) {
 		// Only fall through to smaller candidates when this one simply had
 		// no video; a broken or protected main archive rejects the release.
 		if !errors.Is(err, ErrNoPlayableFile) {
-			return nil, err
+			if !hinted || !IsRejection(err) {
+				return nil, err
+			}
+			// Report the set's real fault over another set's "no such
+			// episode" when nothing plays.
+			if firstErr == nil || errors.Is(firstErr, ErrNoPlayableFile) {
+				firstErr = err
+			}
+			continue
 		}
 		if firstErr == nil {
 			firstErr = err
@@ -229,6 +249,8 @@ func (b *builder) planFor(ctx context.Context, c candidate) (*plan, error) {
 		return b.planRAR(ctx, c.files)
 	case nzb.KindSevenZip:
 		return b.plan7z(ctx, c.files)
+	case nzb.KindZIP:
+		return b.planZIP(ctx, c.files)
 	case nzb.KindSplit:
 		return b.planSplit(ctx, c.files)
 	}

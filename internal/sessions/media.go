@@ -393,7 +393,7 @@ func (b *Broker) currentMediaPolicy(ctx context.Context, viewer *core.Viewer, s 
 	}
 	viewer = confirmed
 	if s.live {
-		return b.deps.Live != nil && b.deps.Live.Allowed(ctx, viewer, s.public.Channel) == nil
+		return b.deps.Live != nil && b.deps.Live.Allowed(core.WithLiveApp(ctx, string(s.public.Protocol)), viewer, s.public.Channel) == nil
 	}
 	lookup := b.deps.MediaLookup
 	if lookup == nil {

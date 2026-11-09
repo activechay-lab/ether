@@ -1109,8 +1109,15 @@ func (i *instance) recommendations(w http.ResponseWriter, r *http.Request, want 
 		return
 	}
 	shelves := i.loadPersonalShelves(r.Context(), v, device(r))
+	// Jellyfin and Emby answer five categories of eight items unless asked
+	// otherwise (categoryLimit = 5, itemLimit = 8 on both servers).
+	categoryLimit := queryInt(r, "CategoryLimit", 5)
+	itemLimit := queryInt(r, "ItemLimit", queryInt(r, "Limit", 8))
 	categories := make([]any, 0, len(shelves))
 	for _, shelf := range shelves {
+		if len(categories) >= categoryLimit {
+			break
+		}
 		titles := make([]frontend.Title, 0, len(shelf.titles))
 		for _, title := range shelf.titles {
 			if recommendationTypeMatches(want, title.Type) {
@@ -1120,9 +1127,8 @@ func (i *instance) recommendations(w http.ResponseWriter, r *http.Request, want 
 		if len(titles) == 0 {
 			continue
 		}
-		limit := queryInt(r, "Limit", len(titles))
-		if limit > 0 && len(titles) > limit {
-			titles = titles[:limit]
+		if itemLimit >= 0 && len(titles) > itemLimit {
+			titles = titles[:itemLimit]
 		}
 		i.notePersonalDelivery(r, v, shelf, titles)
 		keys := make([]frontend.RatingKey, len(titles))
@@ -1136,6 +1142,7 @@ func (i *instance) recommendations(w http.ResponseWriter, r *http.Request, want 
 		}
 		items := make([]any, 0, len(titles))
 		images := i.gridImagesFor(r, titles)
+		i.prefetchParentArtwork(r, titles)
 		ratingFacts := i.pageRatingFacts(r, v, titles)
 		for _, title := range titles {
 			item := i.itemDTO(title, states[title.Key])

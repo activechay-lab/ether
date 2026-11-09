@@ -190,7 +190,7 @@ function Sparkline({
   );
 }
 
-function Fact({
+export function Fact({
   label,
   children,
   hint,

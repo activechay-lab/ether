@@ -3,8 +3,10 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
+	"sort"
 	"time"
 )
 
@@ -43,35 +45,85 @@ type MirrorItem struct {
 // titles are never shown, whatever the sync settings.
 const mirrorBrowsableWhere = `t.type IN ('movie','show') AND t.browsable=1 AND t.adult=0`
 
+// mirrorSnapshotChunk bounds the titles one snapshot statement reads. A
+// whole-catalogue statement holds its read snapshot until it finishes, and
+// while it does the WAL can neither be checkpointed past it nor restart, so
+// every concurrent read searches a growing WAL index. Each key range is read
+// in its own short statements instead.
+const mirrorSnapshotChunk = 4000
+
+// Snapshot reads every browsable title with its facets and credits, most
+// popular first. Ranges are read one after another, so the result is not one
+// point in time; the index that consumes it rebuilds when the fingerprint
+// moves.
 func (m *Mirror) Snapshot(ctx context.Context) ([]MirrorItem, error) {
-	rows, err := m.db.QueryContext(ctx, `SELECT t.key,t.type,t.title,t.sort_title,t.year,t.released_ts,t.added_at,t.runtime_sec,t.rating,t.vote_count,t.popularity,t.language,t.content_rating,t.collection_id,t.poster,t.backdrop,t.detail FROM catalog_titles t WHERE `+mirrorBrowsableWhere+` ORDER BY t.popularity DESC,t.key ASC`)
-	if err != nil {
+	var items []*MirrorItem
+	byKey := map[core.RatingKey]*MirrorItem{}
+	for lo, done := int64(-1<<63), false; !done; {
+		var hi int64
+		err := m.db.QueryRowContext(ctx, `SELECT key FROM catalog_titles WHERE key>? ORDER BY key LIMIT 1 OFFSET ?`, lo, mirrorSnapshotChunk-1).Scan(&hi)
+		if errors.Is(err, sql.ErrNoRows) {
+			hi, done = 1<<63-1, true
+		} else if err != nil {
+			return nil, err
+		}
+		if err := m.snapshotRange(ctx, lo, hi, &items, byKey); err != nil {
+			return nil, err
+		}
+		lo = hi
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Title.Popularity != items[j].Title.Popularity {
+			return items[i].Title.Popularity > items[j].Title.Popularity
+		}
+		return items[i].Title.Key < items[j].Title.Key
+	})
+	out := make([]MirrorItem, len(items))
+	for i, e := range items {
+		out[i] = *e
+	}
+	titles := make([]core.Title, len(out))
+	for i := range out {
+		titles[i] = out[i].Title
+	}
+	if err := applyAirAddedTimes(ctx, m.db, titles, m.now()); err != nil {
 		return nil, err
 	}
-	out := []MirrorItem{}
-	byKey := map[core.RatingKey]int{}
+	for i := range out {
+		out[i].Title.AddedAt = titles[i].AddedAt
+	}
+	return out, nil
+}
+
+// snapshotRange reads the titles with lo < key <= hi and their facets.
+func (m *Mirror) snapshotRange(ctx context.Context, lo, hi int64, items *[]*MirrorItem, byKey map[core.RatingKey]*MirrorItem) error {
+	const in = ` AND t.key>? AND t.key<=?`
+	rows, err := m.db.QueryContext(ctx, `SELECT t.key,t.type,t.title,t.sort_title,t.year,t.released_ts,t.added_at,t.runtime_sec,t.rating,t.vote_count,t.popularity,t.language,t.content_rating,t.collection_id,t.poster,t.backdrop,t.detail FROM catalog_titles t WHERE `+mirrorBrowsableWhere+in+` ORDER BY t.key`, lo, hi)
+	if err != nil {
+		return err
+	}
 	for rows.Next() {
-		var e MirrorItem
+		e := &MirrorItem{}
 		var released, runtime int64
 		t := &e.Title
 		if err := rows.Scan(&t.Key, &t.Type, &t.Title, &t.SortTitle, &t.Year, &released, &e.AddedAt, &runtime, &t.Rating, &t.VoteCount, &t.Popularity, &t.Language, &t.ContentRating, &t.CollectionID, &t.PosterPath, &t.BackdropPath, &e.Detailed); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
 		if released != 0 {
 			t.Released = time.Unix(released, 0).UTC()
 		}
 		t.Runtime = time.Duration(runtime) * time.Second
-		byKey[t.Key] = len(out)
-		out = append(out, e)
+		byKey[t.Key] = e
+		*items = append(*items, e)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	pairs := func(query string, apply func(*core.Title, string)) error {
-		rows, err := m.db.QueryContext(ctx, query)
+		rows, err := m.db.QueryContext(ctx, query, lo, hi)
 		if err != nil {
 			return err
 		}
@@ -82,8 +134,8 @@ func (m *Mirror) Snapshot(ctx context.Context) ([]MirrorItem, error) {
 			if err := rows.Scan(&k, &v); err != nil {
 				return err
 			}
-			if i, ok := byKey[k]; ok {
-				apply(&out[i].Title, v)
+			if e, ok := byKey[k]; ok {
+				apply(&e.Title, v)
 			}
 		}
 		return rows.Err()
@@ -92,32 +144,32 @@ func (m *Mirror) Snapshot(ctx context.Context) ([]MirrorItem, error) {
 		query string
 		apply func(*core.Title, string)
 	}{
-		{`SELECT g.key,g.genre FROM catalog_genres g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere + ` ORDER BY g.key,g.genre`, func(t *core.Title, v string) { t.Genres = append(t.Genres, v) }},
-		{`SELECT g.key,g.country FROM catalog_countries g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere, func(t *core.Title, v string) { t.Countries = append(t.Countries, v) }},
-		{`SELECT g.key,g.studio FROM catalog_studios g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere, func(t *core.Title, v string) { t.Studios = append(t.Studios, v) }},
-		{`SELECT g.key,g.keyword FROM catalog_keywords g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere, func(t *core.Title, v string) { t.Keywords = append(t.Keywords, v) }},
+		{`SELECT g.key,g.genre FROM catalog_genres g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere + in + ` ORDER BY g.key,g.genre`, func(t *core.Title, v string) { t.Genres = append(t.Genres, v) }},
+		{`SELECT g.key,g.country FROM catalog_countries g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere + in, func(t *core.Title, v string) { t.Countries = append(t.Countries, v) }},
+		{`SELECT g.key,g.studio FROM catalog_studios g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere + in, func(t *core.Title, v string) { t.Studios = append(t.Studios, v) }},
+		{`SELECT g.key,g.keyword FROM catalog_keywords g JOIN catalog_titles t ON t.key=g.key WHERE ` + mirrorBrowsableWhere + in, func(t *core.Title, v string) { t.Keywords = append(t.Keywords, v) }},
 	} {
 		if err := pairs(pair.query, pair.apply); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	rows, err = m.db.QueryContext(ctx, `SELECT c.key,c.person_tmdb,c.kind,COALESCE(p.imdb,'') FROM catalog_credits c JOIN catalog_titles t ON t.key=c.key LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE `+mirrorBrowsableWhere)
+	rows, err = m.db.QueryContext(ctx, `SELECT c.key,c.person_tmdb,c.kind,COALESCE(p.imdb,'') FROM catalog_credits c JOIN catalog_titles t ON t.key=c.key LEFT JOIN catalog_people p ON p.person_tmdb=c.person_tmdb WHERE `+mirrorBrowsableWhere+in, lo, hi)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var key core.RatingKey
 		var pid int64
 		var kind, imdb string
 		if err := rows.Scan(&key, &pid, &kind, &imdb); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
-		i, ok := byKey[key]
+		e, ok := byKey[key]
 		if !ok {
 			continue
 		}
-		t := &out[i].Title
+		t := &e.Title
 		p := core.Person{TMDB: pid, IMDB: imdb}
 		switch kind {
 		case "director":
@@ -130,22 +182,7 @@ func (m *Mirror) Snapshot(ctx context.Context) ([]MirrorItem, error) {
 			t.Cast = append(t.Cast, p)
 		}
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	titles := make([]core.Title, len(out))
-	for i := range out {
-		titles[i] = out[i].Title
-	}
-	if err = applyAirAddedTimes(ctx, m.db, titles, m.now()); err != nil {
-		return nil, err
-	}
-	for i := range out {
-		out[i].Title.AddedAt = titles[i].AddedAt
-	}
-	return out, nil
+	return rows.Err()
 }
 
 func (m *Mirror) Franchises(ctx context.Context) ([]core.Collection, error) {
@@ -182,6 +219,30 @@ func (m *Mirror) Franchises(ctx context.Context) ([]core.Collection, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// FranchiseRatedCounts is, per franchise Franchises lists, how many of its
+// browsable movies a viewer capped at level may watch (rated, at or below
+// the cap; contentrating.Exceeds), in one grouped read over the franchises'
+// members.
+func (m *Mirror) FranchiseRatedCounts(ctx context.Context, level int) (map[int64]int, error) {
+	rows, err := m.db.QueryContext(ctx, `SELECT collection_id, COUNT(CASE WHEN content_rating_rank>0 AND content_rating_rank<=? THEN 1 END)
+		FROM catalog_titles WHERE type='movie' AND browsable=1 AND collection_id>0
+		GROUP BY collection_id HAVING COUNT(*)>=2`, level)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
 }
 
 func (m *Mirror) CollectionArt(ctx context.Context, id int64) (core.Collection, error) {

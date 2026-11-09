@@ -3,8 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"regexp"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/catalog"
@@ -16,8 +21,10 @@ import (
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/remote"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/state"
+	"github.com/braedonsaunders/ether/internal/updater"
 )
 
 // buildPlex assembles the PMS-compatible front end. In spike mode the
@@ -78,6 +85,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	if !cfg.Spike.Enabled && a.availability != nil {
 		deps.Catalog = &availabilityCatalog{Catalog: a.catalog, availability: a.availability}
 		deps.FilterAvailable = a.availability.FilterDiscovery
+		deps.JudgedOnFacts = a.availability.JudgedOnFacts
 	}
 	if !cfg.Spike.Enabled {
 		deps.Search = a.searchSources()
@@ -88,7 +96,15 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		}
 		return a.availability.Prioritize(ctx, items)
 	}
-	deps.Variants = a.resolver       // "Play Version" release picker (cache-only)
+	deps.Variants = a.resolver // "Play Version" release picker (cache-only)
+	deps.LiveLogoKey = a.cfg.DerivedKey("ether-live-logo-v1")
+	deps.PublicURL = func() string {
+		if a.registrar == nil {
+			return ""
+		}
+		return publicPlexOrigin(a.registrar.Status().Connections)
+	}
+	deps.RepoFileURL = repoFileURL(sourceRef(updater.Version, updater.Commit, buildRevision()))
 	deps.DecisionTraces = a.resolver // latest resolution, for the support capture
 	clientID := func() string {
 		cfg := a.cfg.Read()
@@ -101,14 +117,14 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		}
 		return cfg.Plex.Token
 	}
-	deps.PlexGUID = plexguid.New(a.db, plexguid.Options{
+	guidService := plexguid.New(a.db, plexguid.Options{
 		HTTP:             a.opts.plextvHTTP,
 		Token:            plexToken,
 		ClientIdentifier: clientID,
 		Background:       true,
 	})
-	a.plexGUID = deps.PlexGUID
-	deps.PlexMeta = plexmeta.New(a.db, plexmeta.Options{
+	a.plexGUID, deps.PlexGUID = guidService, guidService
+	metadataService := plexmeta.New(a.db, plexmeta.Options{
 		HTTP:             a.opts.plextvHTTP,
 		Token:            plexToken,
 		ClientIdentifier: clientID,
@@ -124,11 +140,11 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		},
 		Background: true,
 	})
-	a.plexMeta = deps.PlexMeta
+	a.plexMeta, deps.PlexMeta = metadataService, metadataService
 	if err := a.buildPlexWatch(); err != nil {
 		return nil, fmt.Errorf("plex watch state: %w", err)
 	}
-	if !cfg.Spike.Enabled {
+	if !cfg.Spike.Enabled && a.episodeorder != nil {
 		// EpisodeOrder is TMDB-backed (build_integrations.go): metadataTitle
 		// prefers it over Catalog, and the real catalog does not know the
 		// spike catalog's KindLocal keys, so wiring it in spike mode makes
@@ -145,7 +161,9 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	// The remuxer is built once in buildIntegrations and shared with every
 	// front end. Support is the device-scoped "Record a problem" recorder.
 	deps.Downloads = a.downloadRemuxer
-	deps.Support = a.support
+	if a.support != nil {
+		deps.Support = a.support
+	}
 	deps.Extras = a.extras
 	deps.Prerolls = a.prerollProvider()
 	deps.Trickplay = a.trickplay.Borrow()
@@ -176,6 +194,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	if a.artwork != nil {
 		deps.ArtworkImages = a.artwork.Images
 		deps.ArtworkPalettes = a.artwork.Palettes
+		deps.GeneratedPosters = a.artwork.Generated
 	}
 	if !cfg.Spike.Enabled && a.db != nil {
 		db := a.db
@@ -224,7 +243,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	// Frontend unmount closes the server and the GUID worker. Server.Close is
 	// idempotent, so the app closer may run as well. Watch refresh stays on
 	// the Plex mount (ExplicitWatchOnly in spike), not a second subscription.
-	a.plexClose = func() { srv.Close(); deps.PlexGUID.Close(); deps.PlexMeta.Close() }
+	a.plexClose = func() { srv.Close(); guidService.Close(); metadataService.Close() }
 	a.closers = append(a.closers, func() { srv.Close() })
 	return srv, nil
 }
@@ -267,4 +286,74 @@ func (a *App) currentPlexServer() *plex.Server {
 	a.plexBuildMu.Lock()
 	defer a.plexBuildMu.Unlock()
 	return a.plexServer
+}
+
+// publicPlexOrigin is the origin of the first published public connection
+// (secure first): a public IP or a plex.direct name for one. Names that would
+// need a DNS lookup are skipped; this runs on request paths.
+func publicPlexOrigin(connections []remote.Connection) string {
+	for _, secure := range []bool{true, false} {
+		for _, c := range connections {
+			if c.Local || c.Relay {
+				continue
+			}
+			u, err := url.Parse(c.URI)
+			if err != nil || u.Host == "" || u.User != nil || (u.Scheme == "https") != secure || (u.Scheme != "https" && u.Scheme != "http") {
+				continue
+			}
+			host := u.Hostname()
+			ip := net.ParseIP(host)
+			if ip == nil {
+				ip, _, _ = remote.ParsePlexDirectHost(host)
+			}
+			if remote.IsPublicIP(ip) {
+				return u.Scheme + "://" + u.Host
+			}
+		}
+	}
+	return ""
+}
+
+// repoFileURL serves files committed to Ether's public repository through
+// jsDelivr, pinned to ref so a published URL never changes under a release.
+func repoFileURL(ref string) func(string) string {
+	return func(path string) string {
+		if ref == "" {
+			return ""
+		}
+		return "https://cdn.jsdelivr.net/gh/braedonsaunders/ether@" + ref + "/" + strings.TrimPrefix(path, "/")
+	}
+}
+
+var commitRef = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// sourceRef names the source this build came from: a release's tag
+// ("v0.3.6"), else the commit a development, PR or local build was made
+// from. "" when neither is known.
+func sourceRef(version, commit, revision string) string {
+	if v := strings.TrimSpace(version); v != "dev" && !strings.ContainsAny(v, "+/ ") {
+		if _, err := updater.ParseVersion(v); err == nil {
+			return "v" + strings.TrimPrefix(v, "v")
+		}
+	}
+	for _, c := range []string{commit, revision} {
+		if c = strings.ToLower(strings.TrimSpace(c)); commitRef.MatchString(c) {
+			return c
+		}
+	}
+	return ""
+}
+
+// buildRevision is the VCS commit Go stamped into this binary, if any.
+func buildRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
+		}
+	}
+	return ""
 }

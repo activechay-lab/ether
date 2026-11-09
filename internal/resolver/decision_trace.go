@@ -127,7 +127,7 @@ func decisionRank(winner string, c CandidateTrace) int {
 
 func ceilingRejection(reason string) bool {
 	switch reason {
-	case "above profile max height", "above client max height", "dolby vision not allowed for client", "size too large for runtime":
+	case ReasonAboveProfileMaxResolution, ReasonAboveClientMaxResolution, "dolby vision not allowed for client", "size too large for runtime":
 		return true
 	default:
 		return false

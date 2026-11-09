@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -92,12 +94,17 @@ func TestProviderAuthReachesProbeKeyMediaButNotAnonymousBackup(t *testing.T) {
 	req.Header.Set("X-Plex-Token", "viewer-only")
 	playlist := httptest.NewRecorder()
 	s.ServePlaylist(playlist, req, first.ID, u)
-	for _, path := range []string{"/key", "/media.ts"} {
-		out := httptest.NewRecorder()
-		s.ServeResource(out, req, first.ID, stableID(up.URL+path), u)
-		if out.Code != 200 {
-			t.Fatalf("authenticated %s failed: %d", path, out.Code)
-		}
+	keyURI := hlsURI.FindStringSubmatch(playlist.Body.String())
+	if playlist.Code != 200 || keyURI == nil || strings.Contains(playlist.Body.String(), up.URL) {
+		t.Fatalf("owned playlist: %d %s", playlist.Code, playlist.Body.String())
+	}
+	keyURL, _ := url.Parse(keyURI[1])
+	key := httptest.NewRecorder()
+	s.ServeResource(key, req, first.ID, path.Base(keyURL.Path), u)
+	media := httptest.NewRecorder()
+	s.ServeRelaySegment(media, req, first.ID, 0, u)
+	if key.Code != 200 || key.Body.String() != "0123456789abcdef" || media.Code != 200 || media.Body.String() != "media fixture" {
+		t.Fatalf("authenticated key/media failed: %d %d", key.Code, media.Code)
 	}
 	if mediaRequests.Load() != 1 {
 		t.Fatal("media did not reach the authenticated provider")

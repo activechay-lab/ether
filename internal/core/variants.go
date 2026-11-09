@@ -23,9 +23,9 @@ type ReleaseVariant struct {
 	Info MediaInfo `json:"info"`
 }
 
-// MaxVariants caps the Play Version picker: Auto, up to three same-quality
-// alternatives (the owner's setting), and up to three tiers and cuts. The
-// resolver and the Plex front end both read it so the two caps move together.
+// MaxVariants caps both version-menu modes, including Auto. The resolver
+// and Plex front end share this bound for tier/cut selection and balanced
+// alternatives across resolutions.
 const MaxVariants = 7
 
 // VariantResolver lists distinct candidate releases of a title for a client,

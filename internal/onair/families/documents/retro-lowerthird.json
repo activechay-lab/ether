@@ -2,294 +2,456 @@
   "v": 1,
   "moment": "lowerthird",
   "duration": 8,
-  "poster": 5.5,
+  "poster": 4.0,
+  "slots": [
+    "next.time",
+    "next.title",
+    "now.meta",
+    "now.title"
+  ],
   "layers": [
     {
-      "id": "lowerthird-envelope",
+      "id": "lower-third",
       "type": "group",
-      "opacity": {
-        "keys": [
-          [
-            0,
-            0
-          ],
-          [
-            0.5,
-            1,
-            "inOut"
-          ],
-          [
-            7.5,
-            1
-          ],
-          [
-            8,
-            0,
-            "inOut"
-          ]
-        ]
-      },
+      "name": "Lower third",
       "layers": [
         {
-          "id": "panel",
+          "id": "lt-stripes",
+          "type": "group",
+          "name": "Brand stripes",
+          "layers": [
+            {
+              "id": "lts-0",
+              "type": "path",
+              "name": "Stripe 1",
+              "path": "M0.0 0L150.0 0L144.0 6L-6.0 6Z",
+              "fill": "{accent}"
+            },
+            {
+              "id": "lts-1",
+              "type": "path",
+              "name": "Stripe 2",
+              "path": "M-10.0 10L140.0 10L134.0 16L-16.0 16Z",
+              "fill": "{control.detail5}"
+            },
+            {
+              "id": "lts-2",
+              "type": "path",
+              "name": "Stripe 3",
+              "path": "M-20.0 20L130.0 20L124.0 26L-26.0 26Z",
+              "fill": "{control.detail3}"
+            },
+            {
+              "id": "lts-3",
+              "type": "path",
+              "name": "Stripe 4",
+              "path": "M-30.0 30L120.0 30L114.0 36L-36.0 36Z",
+              "fill": "{glow}"
+            }
+          ],
+          "x": {
+            "keys": [
+              [
+                0.2,
+                -400
+              ],
+              [
+                0.7,
+                30,
+                "out"
+              ],
+              [
+                7.2,
+                30
+              ],
+              [
+                7.6,
+                -400,
+                "in"
+              ]
+            ]
+          },
+          "y": 892
+        },
+        {
+          "id": "bar-shadow",
           "type": "path",
-          "x": 120,
-          "y": 770,
+          "name": "Bar shadow",
+          "path": "M24.0 0L1084.0 0L1060 120L0 120Z",
+          "x": 160,
+          "y": 874,
+          "w": 1090,
+          "fill": "#000000@0.45",
+          "blur": 14,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.4,
+            "to": 1.0,
+            "ease": "out"
+          }
+        },
+        {
+          "id": "bar",
+          "type": "path",
+          "name": "Bar",
+          "path": "M24.0 0L1084.0 0L1060 120L0 120Z",
+          "x": 150,
+          "y": 862,
+          "w": 1090,
           "fill": {
             "linear": [
               0,
               0,
-              1250,
+              1060,
               0
             ],
             "stops": [
               [
                 0,
-                "#080b12@0.78"
+                "{bg}@0.95"
+              ],
+              [
+                0.6,
+                "{bg}@0.92"
               ],
               [
                 1,
-                "#080b12@0"
+                "{control.detail2}@0.92"
               ]
             ]
           },
-          "stroke": "{accent}",
-          "strokeWidth": 1,
-          "path": "M 30 0 H 1220 Q 1250 0 1250 30 V 120 Q 1250 150 1220 150 H 30 Q 0 150 0 120 V 30 Q 0 0 30 0 Z",
-          "name": "Panel"
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.4,
+            "to": 1.0,
+            "ease": "out"
+          }
         },
         {
-          "id": "kicker",
-          "type": "text",
-          "text": "{words.now}",
-          "x": 160,
-          "y": 815,
-          "size": 28,
-          "font": "{type.mono}",
-          "fill": "{accent}",
-          "fit": "shrink",
-          "maxWidth": 1600,
-          "opacity": {
-            "keys": [
+          "id": "bar-top",
+          "type": "rect",
+          "name": "Laser edge",
+          "x": 176,
+          "y": 861,
+          "w": 1060,
+          "h": 3,
+          "fill": {
+            "linear": [
+              0,
+              0,
+              1060,
+              0
+            ],
+            "stops": [
               [
                 0,
-                0
+                "{glow}"
               ],
               [
-                0.4,
-                0
-              ],
-              [
-                1.8,
                 1,
-                "out"
+                "{glow}@0"
               ]
             ]
           },
-          "name": "Kicker"
+          "glow": 8,
+          "reveal": {
+            "wipe": "ltr",
+            "from": 0.45,
+            "to": 1.1,
+            "ease": "out"
+          }
         },
         {
-          "id": "Title-group",
-          "name": "Channel title",
+          "id": "tag",
           "type": "group",
+          "name": "Now tab",
           "layers": [
             {
-              "id": "Title-treatment",
-              "name": "Chrome title",
+              "id": "tag-box",
+              "type": "path",
+              "name": "Now tab",
+              "path": "M9.6 0L309.6 0L300 48L0 48Z",
+              "w": 310,
+              "fill": {
+                "linear": [
+                  0,
+                  0,
+                  0,
+                  48
+                ],
+                "stops": [
+                  [
+                    0,
+                    "{accent}"
+                  ],
+                  [
+                    1,
+                    "{control.detail2}"
+                  ]
+                ]
+              }
+            },
+            {
+              "id": "tag-it",
               "type": "group",
+              "name": "Italic",
               "layers": [
                 {
-                  "id": "Title-weight0",
-                  "type": "text",
-                  "text": "{now.title}",
-                  "x": 158.2,
-                  "y": 880,
-                  "size": 60,
-                  "font": "{type.display}",
-                  "fill": "{text}",
-                  "fit": "shrink",
-                  "maxWidth": 1140,
-                  "opacity": {
-                    "keys": [
-                      [
-                        0,
-                        0
-                      ],
-                      [
-                        0.4,
-                        0
-                      ],
-                      [
-                        1.8,
-                        1,
-                        "out"
-                      ]
-                    ]
-                  },
-                  "name": "Chrome layer 1"
-                },
-                {
-                  "id": "Title-weight1",
-                  "type": "text",
-                  "text": "{now.title}",
-                  "x": 161.8,
-                  "y": 880,
-                  "size": 60,
-                  "font": "{type.display}",
-                  "fill": "{text}",
-                  "fit": "shrink",
-                  "maxWidth": 1140,
-                  "opacity": {
-                    "keys": [
-                      [
-                        0,
-                        0
-                      ],
-                      [
-                        0.4,
-                        0
-                      ],
-                      [
-                        1.8,
-                        1,
-                        "out"
-                      ]
-                    ]
-                  },
-                  "name": "Chrome layer 2"
-                },
-                {
-                  "id": "Title-weight2",
-                  "type": "text",
-                  "text": "{now.title}",
-                  "x": 160,
-                  "y": 878.2,
-                  "size": 60,
-                  "font": "{type.display}",
-                  "fill": "{text}",
-                  "fit": "shrink",
-                  "maxWidth": 1140,
-                  "opacity": {
-                    "keys": [
-                      [
-                        0,
-                        0
-                      ],
-                      [
-                        0.4,
-                        0
-                      ],
-                      [
-                        1.8,
-                        1,
-                        "out"
-                      ]
-                    ]
-                  },
-                  "name": "Chrome layer 3"
-                },
-                {
-                  "id": "Title-weight3",
-                  "type": "text",
-                  "text": "{now.title}",
-                  "x": 160,
-                  "y": 881.8,
-                  "size": 60,
-                  "font": "{type.display}",
-                  "fill": "{text}",
-                  "fit": "shrink",
-                  "maxWidth": 1140,
-                  "opacity": {
-                    "keys": [
-                      [
-                        0,
-                        0
-                      ],
-                      [
-                        0.4,
-                        0
-                      ],
-                      [
-                        1.8,
-                        1,
-                        "out"
-                      ]
-                    ]
-                  },
-                  "name": "Chrome layer 4"
-                },
-                {
-                  "id": "Title",
-                  "type": "text",
-                  "text": "{now.title}",
-                  "x": 160,
-                  "y": 880,
-                  "size": 60,
-                  "font": "{type.display}",
-                  "fill": "{text}",
-                  "fit": "shrink",
-                  "maxWidth": 1140,
-                  "opacity": {
-                    "keys": [
-                      [
-                        0,
-                        0
-                      ],
-                      [
-                        0.4,
-                        0
-                      ],
-                      [
-                        1.8,
-                        1,
-                        "out"
-                      ]
-                    ]
-                  },
-                  "name": "Chrome layer 5"
+                  "id": "tag-it-slant",
+                  "type": "group",
+                  "name": "Italic slant",
+                  "layers": [
+                    {
+                      "id": "tag-text",
+                      "type": "text",
+                      "name": "Now label",
+                      "text": "{words.now}",
+                      "x": 150.0,
+                      "y": 0,
+                      "size": 27,
+                      "font": "{type.display}",
+                      "fill": "{text}",
+                      "align": "center",
+                      "maxWidth": 260,
+                      "fit": "shrink",
+                      "track": 3
+                    }
+                  ],
+                  "rotate": 0.835232
                 }
-              ]
+              ],
+              "rotate": -0.735564,
+              "scaleX": 1.104988,
+              "scaleY": 0.904988,
+              "x": 6,
+              "y": 34.0
             }
-          ]
-        },
-        {
-          "id": "next",
-          "type": "text",
-          "text": "{words.upNext} {next.time} \u00b7 {next.title}",
-          "x": 160,
-          "y": 960,
-          "size": 30,
-          "font": "{type.display}",
-          "fill": "{text}",
-          "fit": "shrink",
-          "maxWidth": 1100,
-          "opacity": {
+          ],
+          "x": 186,
+          "y": {
             "keys": [
               [
-                0,
-                0
+                0.7,
+                872
               ],
               [
-                0.4,
-                0
-              ],
-              [
-                1.8,
-                1,
+                1.05,
+                816,
                 "out"
               ]
             ]
           },
-          "name": "Next"
+          "opacity": {
+            "keys": [
+              [
+                0.7,
+                0
+              ],
+              [
+                0.8,
+                1
+              ]
+            ]
+          }
+        },
+        {
+          "id": "title-mask",
+          "type": "group",
+          "name": "Title mask",
+          "layers": [
+            {
+              "id": "title-slide",
+              "type": "group",
+              "name": "Slide up",
+              "layers": [
+                {
+                  "id": "title-it",
+                  "type": "group",
+                  "name": "Italic",
+                  "layers": [
+                    {
+                      "id": "title-it-slant",
+                      "type": "group",
+                      "name": "Italic slant",
+                      "layers": [
+                        {
+                          "id": "title-sh",
+                          "type": "text",
+                          "name": "Title shadow",
+                          "blur": 3,
+                          "text": "{now.title}",
+                          "x": 3,
+                          "y": 3,
+                          "size": 58,
+                          "font": "{type.display}",
+                          "fill": "#000000@0.6",
+                          "maxWidth": 900,
+                          "fit": "shrink"
+                        },
+                        {
+                          "id": "title",
+                          "type": "text",
+                          "name": "Title",
+                          "text": "{now.title}",
+                          "x": 0,
+                          "y": 0,
+                          "size": 58,
+                          "font": "{type.display}",
+                          "fill": "{text}",
+                          "maxWidth": 900,
+                          "fit": "shrink"
+                        }
+                      ],
+                      "rotate": 0.825313
+                    }
+                  ],
+                  "rotate": -0.745483,
+                  "scaleX": 1.083195,
+                  "scaleY": 0.923195
+                }
+              ],
+              "y": {
+                "keys": [
+                  [
+                    0.8,
+                    90
+                  ],
+                  [
+                    1.35,
+                    0,
+                    "out"
+                  ]
+                ]
+              }
+            }
+          ],
+          "clip": "M-30 -70L970 -70L970 18L-30 18Z",
+          "x": 202,
+          "y": 928
+        },
+        {
+          "id": "meta-grp",
+          "type": "group",
+          "name": "Details",
+          "layers": [
+            {
+              "id": "meta",
+              "type": "text",
+              "name": "Details",
+              "text": "{now.meta}",
+              "x": 0,
+              "y": 0,
+              "size": 30,
+              "font": "{type.mono}",
+              "fill": "{control.detail4}",
+              "maxWidth": 900,
+              "fit": "shrink",
+              "track": 1
+            }
+          ],
+          "x": 194,
+          "y": 968,
+          "opacity": {
+            "keys": [
+              [
+                1.1,
+                0
+              ],
+              [
+                1.5,
+                1
+              ]
+            ]
+          }
+        },
+        {
+          "id": "later",
+          "type": "group",
+          "name": "Next strip",
+          "layers": [
+            {
+              "id": "later-box",
+              "type": "path",
+              "name": "Next strip",
+              "path": "M8.0 0L698.0 0L690 40L0 40Z",
+              "w": 710,
+              "fill": "{bg}@0.85"
+            },
+            {
+              "id": "later-time",
+              "type": "text",
+              "name": "Next time",
+              "text": "NEXT {next.time}",
+              "x": 26,
+              "y": 30,
+              "size": 30,
+              "font": "vt323",
+              "fill": "{glow}",
+              "glow": 6,
+              "maxWidth": 180,
+              "fit": "shrink",
+              "track": 1
+            },
+            {
+              "id": "later-title",
+              "type": "text",
+              "name": "Next title",
+              "text": "{next.title}",
+              "x": 200,
+              "y": 29,
+              "size": 26,
+              "font": "{type.mono}",
+              "fill": "{text}",
+              "maxWidth": 460,
+              "fit": "shrink"
+            }
+          ],
+          "x": 506,
+          "y": 820,
+          "opacity": {
+            "keys": [
+              [
+                1.3,
+                0
+              ],
+              [
+                1.7,
+                1
+              ]
+            ]
+          }
         }
       ],
-      "name": "Lowerthird envelope"
+      "opacity": {
+        "keys": [
+          [
+            0,
+            1
+          ],
+          [
+            7.25,
+            1
+          ],
+          [
+            7.7,
+            0
+          ]
+        ]
+      },
+      "x": {
+        "keys": [
+          [
+            7.1,
+            0
+          ],
+          [
+            7.7,
+            -60,
+            "in"
+          ]
+        ]
+      }
     }
   ],
-  "post": [],
-  "slots": [
-    "next.time",
-    "next.title",
-    "now.title"
-  ]
+  "post": []
 }

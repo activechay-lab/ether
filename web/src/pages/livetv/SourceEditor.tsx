@@ -109,6 +109,7 @@ export function SourceEditor({
   onDeleted: () => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState<SourceDraft>(emptySource());
+  const automaticInterval = useRef(0);
   const [kind, setKind] = useState<SourceKind>(initialKind);
   const [busy, setBusy] = useState<"" | "save" | "refresh" | "delete">("");
   const [error, setError] = useState("");
@@ -178,6 +179,7 @@ export function SourceEditor({
     Boolean(draft.kind?.startsWith("plugin:")) ||
     draft.playlistUrl.startsWith("plugin:");
   useEffect(() => {
+    automaticInterval.current = Math.max(0, source?.refreshHours ?? 0);
     setDraft(
       source
         ? {
@@ -191,6 +193,7 @@ export function SourceEditor({
             playlistUrl: source.playlistUrl ?? "",
             guideUrl: source.guideUrl ?? "",
             refreshHours: source.refreshHours,
+            activityRefreshMinutes: source.activityRefreshMinutes,
             useLiveTV: source.useLiveTV,
             useVOD: source.useVOD,
             auth: source.auth ? structuredClone(source.auth) : undefined,
@@ -912,13 +915,60 @@ export function SourceEditor({
             ariaLabel={t("Refresh")}
             size="sm"
             value={auto ? "auto" : "manual"}
-            onChange={(v) => setDraft({ ...draft, refreshHours: v === "auto" ? 0 : -1 })}
+            onChange={(v) => {
+              if (v === "manual") automaticInterval.current = Math.max(0, draft.refreshHours ?? 0);
+              setDraft({ ...draft, refreshHours: v === "auto" ? automaticInterval.current : -1 });
+            }}
             options={[
               { value: "auto", label: t("Automatic") },
               { value: "manual", label: t("Manual") },
             ]}
           />
         </Field>
+        {urlBacked && auto ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t("Maximum refresh interval (hours)")}>
+              <Input
+                type="number"
+                min={1}
+                max={8760}
+                aria-label={t("Maximum refresh interval (hours)")}
+                value={draft.refreshHours || 6}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    refreshHours: Math.max(1, Math.min(8760, Number(e.currentTarget.value) || 6)),
+                  })
+                }
+              />
+            </Field>
+            <Field
+              label={t("Refresh after inactivity")}
+              hint={t(
+                "Refreshes in the background when an app returns after five idle minutes. Apps keep using the last good playlist and guide.",
+              )}
+            >
+              <select
+                className="w-full rounded-lg border border-border bg-surface p-2 text-sm"
+                aria-label={t("Refresh after inactivity")}
+                value={draft.activityRefreshMinutes ?? 0}
+                onChange={(e) =>
+                  setDraft({ ...draft, activityRefreshMinutes: Number(e.currentTarget.value) })
+                }
+              >
+                <option value={0}>{t("Off")}</option>
+                {[...new Set([30, 60, 120, 360, draft.activityRefreshMinutes ?? 0])]
+                  .filter((minutes) => minutes > 0)
+                  .sort((a, b) => a - b)
+                  .map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {tn(minutes, "{count} minute", "{count} minutes")}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          </div>
+        ) : null}
       </section>
       <div className="space-y-3">
         {error ? (

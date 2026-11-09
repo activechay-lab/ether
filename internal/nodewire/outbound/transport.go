@@ -84,9 +84,9 @@ func New(endpoint string, config *tls.Config, timeout time.Duration, check func(
 		}
 		tc.Certificates[i] = c
 	}
-	// Never retain a caller-owned certificate map. Client selection uses the
-	// copied Certificates or the explicitly trusted GetClientCertificate callback.
-	tc.NameToCertificate = nil
+	// Client certificate selection uses the copied Certificates or the explicitly
+	// trusted GetClientCertificate callback; crypto/tls only consults the
+	// deprecated NameToCertificate map on the server side.
 	if tc.ServerName == "" {
 		tc.ServerName = u.Hostname()
 	}

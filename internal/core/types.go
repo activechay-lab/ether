@@ -6,6 +6,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -169,6 +170,9 @@ var (
 	// ErrPolicyUnconfirmed means the durable policy store could not be read.
 	// Callers may keep an unrestricted cached decision. Restricted viewers fail closed.
 	ErrPolicyUnconfirmed = errors.New("policy store unavailable")
+	// ErrSeekUnavailable means a page's seek title no longer matches its
+	// filter; the caller pages by offset instead.
+	ErrSeekUnavailable = errors.New("seek title unavailable")
 )
 
 // User is a Plex account with access to this server: the owner or a friend
@@ -250,6 +254,22 @@ type ClientCaps struct {
 	// for the client, or a Dolby Vision start stalled on this client
 	// (additive).
 	DolbyVisionBaseOnly bool `json:"dolbyVisionBaseOnly,omitempty"`
+
+	// ConvertSurroundAudio is set by an owner device rule that converts
+	// Dolby/DTS/TrueHD audio to AAC. SupportsAudio refuses those codecs even
+	// when a later layer (a client direct-play profile) lists them again
+	// (additive).
+	ConvertSurroundAudio bool `json:"convertSurroundAudio,omitempty"`
+
+	// VideoMaxHeights bounds one decoder, such as a legacy Plex
+	// videoDecoders=h264{resolution:1080} declaration. MaxHeight stays the
+	// ceiling of the tallest codec the client decodes (additive).
+	VideoMaxHeights map[string]int `json:"videoMaxHeights,omitempty"`
+
+	// SegmentedSurroundOff keeps Dolby/DTS/TrueHD audio out of copied
+	// segmented output because a start stalled on it for this client.
+	// Direct play of the original file is unaffected (additive).
+	SegmentedSurroundOff bool `json:"segmentedSurroundOff,omitempty"`
 }
 
 // AudioLimit applies to one audio codec, or all codecs when Codec is "*".
@@ -258,8 +278,34 @@ type AudioLimit struct {
 	Value             int
 }
 
-func (c ClientCaps) SupportsVideo(codec string) bool  { return contains(c.VideoCodecs, codec) }
-func (c ClientCaps) SupportsAudio(codec string) bool  { return contains(c.AudioCodecs, codec) }
+// IsSurroundAudioCodec reports the Dolby and DTS formats (AC-3, E-AC-3,
+// TrueHD, DTS) that the surround conversion rule replaces with AAC.
+func IsSurroundAudioCodec(c string) bool {
+	switch strings.ToLower(strings.TrimSpace(c)) {
+	case "eac3", "ec3", "e-ac3", "ac3", "dts", "dtshd", "dts-hd", "dtshd_ma", "dca", "dca-ma", "truehd", "mlp":
+		return true
+	}
+	return false
+}
+
+// FilterOutSurroundAudio returns codecs without surround audio formats.
+func FilterOutSurroundAudio(codecs []string) []string {
+	var kept []string
+	for _, c := range codecs {
+		if !IsSurroundAudioCodec(c) {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
+func (c ClientCaps) SupportsVideo(codec string) bool { return contains(c.VideoCodecs, codec) }
+func (c ClientCaps) SupportsAudio(codec string) bool {
+	if c.ConvertSurroundAudio && IsSurroundAudioCodec(codec) {
+		return false
+	}
+	return contains(c.AudioCodecs, codec)
+}
 func (c ClientCaps) SupportsContainer(ct string) bool { return contains(c.Containers, ct) }
 
 func contains(xs []string, x string) bool {
