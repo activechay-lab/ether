@@ -428,6 +428,17 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	// minute hits and misses as one that does not: the comparison is of
 	// work, not of when the replay ran.
 	a.catalog.FreezeCacheMinute()
+	// A production server builds the popularity rank at start and then
+	// moves popularity out of the title indexes (catalog rankLoop, under
+	// Run, which the gate does not call). Without both, every popularity
+	// page takes the pre-rank fallback that walks catalog_titles, which no
+	// running server serves.
+	if _, err := a.catalog.RebuildRank(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.catalog.ReplacePopularityIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
 	// The owner's Home is measured with their personalization model built
 	// (taste, bandit rows, crowd rows), as a production server serves it,
 	// not the cold-start screen a just-started server answers with.
