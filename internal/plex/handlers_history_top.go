@@ -5,15 +5,15 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
 )
 
-func (s *Server) historyStatsQuery(r *http.Request) (core.HistoryQuery, map[int64]core.User, error) {
+func (s *Server) historyStatsQuery(r *http.Request) (frontend.HistoryQuery, map[int64]frontend.User, error) {
 	pr := FromContext(r.Context())
-	q := core.HistoryQuery{Limit: 100}
-	users := map[int64]core.User{}
+	q := frontend.HistoryQuery{Limit: 100}
+	users := map[int64]frontend.User{}
 	if pr.User != nil {
 		users[pr.User.ID] = *pr.User
 		if !pr.User.IsOwner {
@@ -80,8 +80,8 @@ func (s *Server) handleHistoryTop(w http.ResponseWriter, r *http.Request) {
 		s.write(w, r, mc)
 		return
 	}
-	kind := map[int64]core.KeyKind{1: core.KindMovie, 2: core.KindShow, 3: core.KindSeason, 4: core.KindEpisode}[n]
-	store, ok := s.d.State.(core.HistoryTopStore)
+	kind := map[int64]frontend.KeyKind{1: frontend.KindMovie, 2: frontend.KindShow, 3: frontend.KindSeason, 4: frontend.KindEpisode}[n]
+	store, ok := s.d.State.(frontend.HistoryTopStore)
 	if !ok || kind == 0 {
 		s.write(w, r, mc)
 		return
@@ -93,7 +93,7 @@ func (s *Server) handleHistoryTop(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sec, ok := s.sectionByID(int(id))
-		if !ok || (sec.Type == core.TypeMovie) != (kind == core.KindMovie) {
+		if !ok || (sec.Type == frontend.TypeMovie) != (kind == frontend.KindMovie) {
 			s.write(w, r, mc)
 			return
 		}
@@ -103,15 +103,15 @@ func (s *Server) handleHistoryTop(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
-	keys := make([]core.RatingKey, len(rows))
-	counts := map[core.RatingKey]core.HistoryCount{}
+	keys := make([]frontend.RatingKey, len(rows))
+	counts := map[frontend.RatingKey]frontend.HistoryCount{}
 	for i, h := range rows {
 		keys[i] = h.Key
 		counts[h.Key] = h
 	}
 	titles := s.getTitles(r.Context(), keys)
 	// Fetch is batched; retain the rank selected by the statistics index.
-	byKey := map[core.RatingKey]core.Title{}
+	byKey := map[frontend.RatingKey]frontend.Title{}
 	for _, t := range titles {
 		byKey[t.Key] = t
 	}
@@ -125,7 +125,7 @@ func (s *Server) handleHistoryTop(w http.ResponseWriter, r *http.Request) {
 	mc.Metadata = s.renderTitles(r.Context(), pr, titles, renderOpts{media: true, storedOnly: true, detail: full, guids: full, detailEpisodes: full})
 	for i := range mc.Metadata {
 		md := &mc.Metadata[i]
-		key, _ := core.ParseRatingKey(md.RatingKey)
+		key, _ := frontend.ParseRatingKey(md.RatingKey)
 		h := counts[key]
 		if full {
 			continue
@@ -137,7 +137,7 @@ func (s *Server) handleHistoryTop(w http.ResponseWriter, r *http.Request) {
 				md.TopUsers = append(md.TopUsers, model.HistoryUser{ID: u.PlexID})
 			}
 		}
-		if kind == core.KindShow || kind == core.KindSeason {
+		if kind == frontend.KindShow || kind == frontend.KindSeason {
 			md.SkipCount = 0
 			md.LastRatedAt = 0
 			md.ViewCount = 0
@@ -150,7 +150,7 @@ func (s *Server) handleHistoryTop(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) handleHistoryTopUsers(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(r.Context())
-	key, err := core.ParseRatingKey(chi.URLParam(r, "key"))
+	key, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
 	if err != nil {
 		writeHTTPError(w, 404)
 		return
@@ -160,7 +160,7 @@ func (s *Server) handleHistoryTopUsers(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, 404)
 		return
 	}
-	if key.Kind() == core.KindSeason {
+	if key.Kind() == frontend.KindSeason {
 		writeHTTPError(w, 500)
 		return
 	}
@@ -170,7 +170,7 @@ func (s *Server) handleHistoryTopUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mc := &model.MediaContainer{}
-	if store, ok := s.d.State.(core.HistoryTopStore); ok {
+	if store, ok := s.d.State.(frontend.HistoryTopStore); ok {
 		rows, err := store.LifetimeUsers(r.Context(), key, q)
 		if err != nil {
 			s.writeErr(w, r, err)
@@ -199,7 +199,7 @@ func (s *Server) handleHistoryPopular(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, 404)
 		return
 	}
-	if sec.Type != core.TypeShow {
+	if sec.Type != frontend.TypeShow {
 		s.writeEmpty(w, r)
 		return
 	}

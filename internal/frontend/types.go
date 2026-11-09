@@ -54,6 +54,8 @@ type StringFilter = core.StringFilter
 type SortOrder = core.SortOrder
 type SortSpec = core.SortSpec
 type HistoryEntry = core.HistoryEntry
+type HistoryQuery = core.HistoryQuery
+type HistoryCount = core.HistoryCount
 type WatchPage = core.WatchPage
 type TitleFacts = core.TitleFacts
 

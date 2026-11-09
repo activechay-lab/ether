@@ -435,6 +435,32 @@ type PlaylistLibrary interface {
 	MovePlaylistItem(context.Context, *core.Viewer, core.RatingKey, int, int) error
 	DeletePlaylist(context.Context, *core.Viewer, core.RatingKey) error
 }
+
+// PlaylistEdit updates only explicitly supplied fields. Its storage stays
+// owned by core.
+type PlaylistEdit = core.PlaylistEdit
+
+// PlaylistMutation addresses members by stable item identity. Its storage
+// stays owned by core.
+type PlaylistMutation = core.PlaylistMutation
+
+// PlaylistEditor is the optional playlist field-edit capability a playlist
+// store may expose.
+type PlaylistEditor interface {
+	EditPlaylist(context.Context, int64, RatingKey, PlaylistEdit) (*Playlist, error)
+}
+
+// PlaylistMutator is the optional identity-addressed playlist mutation
+// capability a playlist store may expose.
+type PlaylistMutator interface {
+	MutatePlaylist(context.Context, int64, RatingKey, PlaylistMutation) (*Playlist, int, error)
+}
+
+// SmartPlaylists persists a section query for evaluation at read time.
+type SmartPlaylists interface {
+	CreateSmartPlaylist(ctx context.Context, userID int64, title, uri string) (*Playlist, error)
+}
+
 type NotInterestedEntry struct {
 	Key     core.RatingKey
 	AddedAt time.Time

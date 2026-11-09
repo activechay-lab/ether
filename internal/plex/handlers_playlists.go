@@ -11,8 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -72,8 +72,8 @@ func uriPath(uri string) (string, error) {
 
 // expandKey expands containers (show, season, collection, playlist) into
 // playable items.
-func (s *Server) expandKey(ctx context.Context, pr *Request, k core.RatingKey) ([]core.RatingKey, error) {
-	if k.Kind() == core.KindPlaylist {
+func (s *Server) expandKey(ctx context.Context, pr *Request, k frontend.RatingKey) ([]frontend.RatingKey, error) {
+	if k.Kind() == frontend.KindPlaylist {
 		pl, err := s.playlist(ctx, pr.User, k)
 		if err != nil {
 			return nil, err
@@ -85,7 +85,7 @@ func (s *Server) expandKey(ctx context.Context, pr *Request, k core.RatingKey) (
 			if err != nil {
 				return nil, err
 			}
-			var out []core.RatingKey
+			var out []frontend.RatingKey
 			for _, title := range titles {
 				keys, err := s.expandKey(ctx, pr, title.Key)
 				if err == nil {
@@ -98,16 +98,16 @@ func (s *Server) expandKey(ctx context.Context, pr *Request, k core.RatingKey) (
 			return capKeys(out), nil
 		}
 	}
-	selection := experience.PlaylistSelection{Playlists: s.d.Playlists, Collections: s.d.Collections, Visibility: s.visibility(), Children: func(ctx context.Context, key core.RatingKey) ([]core.Title, error) {
+	selection := experience.PlaylistSelection{Playlists: s.d.Playlists, Collections: s.d.Collections, Visibility: s.visibility(), Children: func(ctx context.Context, key frontend.RatingKey) ([]frontend.Title, error) {
 		return s.metadataChildren(ctx, pr, key)
-	}, Grandchildren: func(ctx context.Context, key core.RatingKey) ([]core.Title, error) {
+	}, Grandchildren: func(ctx context.Context, key frontend.RatingKey) ([]frontend.Title, error) {
 		return s.metadataGrandchildren(ctx, pr, key)
 	}}
 	return selection.Expand(ctx, pr.User, k)
 }
 
 // smartSectionURI keeps only a local section query, without client credentials.
-func (s *Server) smartSectionURI(u *core.User, uri string) (string, error) {
+func (s *Server) smartSectionURI(u *frontend.User, uri string) (string, error) {
 	p, err := uriPath(uri)
 	if err != nil {
 		return "", err
@@ -115,20 +115,20 @@ func (s *Server) smartSectionURI(u *core.User, uri string) (string, error) {
 	path, raw, _ := strings.Cut(p, "?")
 	m := reSectionPath.FindStringSubmatch(path)
 	if len(m) == 0 || m[2] != "all" {
-		return "", core.ErrNotFound
+		return "", frontend.ErrNotFound
 	}
 	id, _ := strconv.Atoi(m[1])
 	sec, ok := s.sectionByID(id)
 	if !ok || !s.canSeeSection(u, id) {
-		return "", core.ErrNotFound
+		return "", frontend.ErrNotFound
 	}
 	q, err := url.ParseQuery(raw)
 	if err != nil {
 		return "", err
 	}
 	t := typeFromParam(q.Get("type"))
-	if t != "" && t != sec.Type && !(sec.Type == core.TypeShow && (t == core.TypeSeason || t == core.TypeEpisode)) {
-		return "", core.ErrNotFound
+	if t != "" && t != sec.Type && !(sec.Type == frontend.TypeShow && (t == frontend.TypeSeason || t == frontend.TypeEpisode)) {
+		return "", frontend.ErrNotFound
 	}
 	var safe []string
 	for _, pair := range strings.Split(raw, "&") {
@@ -162,7 +162,7 @@ func (s *Server) smartPlaylistRequest(ctx context.Context, pr *Request, uri stri
 		t = sec.Type
 	}
 	br := s.parseBrowse(ctx, sec, t, pr.User, q, raw)
-	if t == core.TypeShow {
+	if t == frontend.TypeShow {
 		// Select episodes by the complete show predicate in SQL. Do not
 		// reinterpret show title/year/watch rules as episode rules or expand
 		// all matching shows in memory before paging.
@@ -172,21 +172,21 @@ func (s *Server) smartPlaylistRequest(ctx context.Context, pr *Request, uri stri
 			if pr.User != nil && s.d.State != nil {
 				uid = pr.User.ID
 			}
-			state := core.FilterGroup{UserID: uid, Unwatched: br.unwatched, InProgress: br.inProgress, LastViewedAfter: br.lastViewedAfter, LastViewedBefore: br.lastViewedBefore}
+			state := frontend.FilterGroup{UserID: uid, Unwatched: br.unwatched, InProgress: br.inProgress, LastViewedAfter: br.lastViewedAfter, LastViewedBefore: br.lastViewedBefore}
 			if show.Group == nil {
 				show.Group = &state
 			} else {
-				show.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*show.Group, state}}
+				show.Group = &frontend.FilterGroup{Operator: "and", Children: []frontend.FilterGroup{*show.Group, state}}
 			}
 			br.unwatched, br.inProgress = nil, nil
 			br.lastViewedAfter, br.lastViewedBefore = 0, 0
 		}
-		br.q.Filter = core.Filter{Type: core.TypeEpisode, Group: &core.FilterGroup{ParentOnly: true, Filter: &show}}
+		br.q.Filter = frontend.Filter{Type: frontend.TypeEpisode, Group: &frontend.FilterGroup{ParentOnly: true, Filter: &show}}
 	}
 	return br, nil
 }
 
-func (s *Server) smartPlaylistBrowse(ctx context.Context, pr *Request, uri string) ([]core.Title, int, int, error) {
+func (s *Server) smartPlaylistBrowse(ctx context.Context, pr *Request, uri string) ([]frontend.Title, int, int, error) {
 	br, err := s.smartPlaylistRequest(ctx, pr, uri)
 	if err != nil {
 		return nil, 0, 0, err
@@ -194,8 +194,8 @@ func (s *Server) smartPlaylistBrowse(ctx context.Context, pr *Request, uri strin
 	return s.browse(ctx, pr, br)
 }
 
-func titleKeys(ts []core.Title) []core.RatingKey {
-	out := make([]core.RatingKey, len(ts))
+func titleKeys(ts []frontend.Title) []frontend.RatingKey {
+	out := make([]frontend.RatingKey, len(ts))
 	for i := range ts {
 		out[i] = ts[i].Key
 	}
@@ -203,7 +203,7 @@ func titleKeys(ts []core.Title) []core.RatingKey {
 }
 
 // resolveURI turns a content URI into playable rating keys.
-func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]core.RatingKey, error) {
+func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]frontend.RatingKey, error) {
 	p, err := uriPath(uri)
 	if err != nil {
 		return nil, err
@@ -224,13 +224,13 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 		}
 		h, ok := s.findHub(ctx, pr, id, parseSectionList(q.Get("contentDirectoryID")), q.Get("metadataID"), maxExpand)
 		if !ok {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		// Use the rendered row so availability and viewer restrictions match
 		// the items the client was offered, including episode parent policy.
-		var out []core.RatingKey
+		var out []frontend.RatingKey
 		for _, md := range s.renderHub(ctx, pr, h, hubCtx{}).Metadata {
-			k, err := core.ParseRatingKey(md.RatingKey)
+			k, err := frontend.ParseRatingKey(md.RatingKey)
 			if err != nil {
 				continue
 			}
@@ -249,16 +249,16 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 		if err != nil {
 			return nil, err
 		}
-		var out []core.RatingKey
+		var out []frontend.RatingKey
 		for _, k := range keys {
 			// An addressed title (or the show above it) the viewer may
 			// not see never reaches a playlist or play queue. Policy only:
 			// discovery evidence hides a recent title from lists but must
 			// not stop a viewer queueing it to play.
 			switch k.Kind() {
-			case core.KindShow, core.KindSeason, core.KindMovie, core.KindEpisode:
+			case frontend.KindShow, frontend.KindSeason, frontend.KindMovie, frontend.KindEpisode:
 				if t, err := s.metadataTitle(ctx, pr, k); err == nil && !s.playableTitle(ctx, pr.User, t) {
-					return nil, core.ErrNotFound
+					return nil, frontend.ErrNotFound
 				}
 			}
 			sub, err := s.expandKey(ctx, pr, k)
@@ -273,7 +273,7 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 		return capKeys(out), nil
 	case reCollectionPath.MatchString(path):
 		m := reCollectionPath.FindStringSubmatch(path)
-		k, err := core.ParseRatingKey(m[1])
+		k, err := frontend.ParseRatingKey(m[1])
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +281,7 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 		return capKeys(keys), err
 	case rePlaylistPath.MatchString(path):
 		m := rePlaylistPath.FindStringSubmatch(path)
-		k, err := core.ParseRatingKey(m[1])
+		k, err := frontend.ParseRatingKey(m[1])
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +291,7 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 		id, _ := strconv.Atoi(m[1])
 		sec, ok := s.sectionByID(id)
 		if !ok || !s.canSeeSection(pr.User, id) {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		q, _ := url.ParseQuery(rawQuery)
 		br := s.parseBrowse(ctx, sec, sec.Type, pr.User, q, rawQuery)
@@ -300,7 +300,7 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 		if err != nil {
 			return nil, err
 		}
-		var out []core.RatingKey
+		var out []frontend.RatingKey
 		for _, t := range page.Items {
 			sub, err := s.expandKey(ctx, pr, t.Key)
 			if err == nil {
@@ -315,7 +315,7 @@ func (s *Server) resolveURI(ctx context.Context, pr *Request, uri string) ([]cor
 	return nil, fmt.Errorf("unsupported uri path %q", path)
 }
 
-func capKeys(ks []core.RatingKey) []core.RatingKey {
+func capKeys(ks []frontend.RatingKey) []frontend.RatingKey {
 	if len(ks) > maxExpand {
 		return ks[:maxExpand]
 	}
@@ -325,11 +325,11 @@ func capKeys(ks []core.RatingKey) []core.RatingKey {
 // ---------------------------------------------------------------------------
 // Playlists
 
-func (s *Server) playlist(ctx context.Context, u *core.User, k core.RatingKey) (*core.Playlist, error) {
+func (s *Server) playlist(ctx context.Context, u *frontend.User, k frontend.RatingKey) (*frontend.Playlist, error) {
 	return (experience.PlaylistSelection{Playlists: s.d.Playlists}).Get(ctx, u, k)
 }
 
-func (s *Server) playlistMetadata(ctx context.Context, pl *core.Playlist, omitState ...bool) model.Metadata {
+func (s *Server) playlistMetadata(ctx context.Context, pl *frontend.Playlist, omitState ...bool) model.Metadata {
 	rk := pl.Key.String()
 	count := len(pl.Items)
 	if pl.SmartURI != "" {
@@ -379,7 +379,7 @@ func (s *Server) playlistMetadata(ctx context.Context, pl *core.Playlist, omitSt
 // playlistDuration is the total runtime PMS reports on a playlist, from
 // the title-detail cache without blocking: it is omitted (0) until every
 // item's runtime is known, and unknown items are fetched in the background.
-func (s *Server) playlistDuration(items []core.RatingKey) int64 {
+func (s *Server) playlistDuration(items []frontend.RatingKey) int64 {
 	if s.titles == nil {
 		return 0
 	}
@@ -438,7 +438,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if q.Get("smart") == "1" {
 		uri, err := s.smartSectionURI(pr.User, q.Get("uri"))
-		store, ok := s.d.Playlists.(core.SmartPlaylists)
+		store, ok := s.d.Playlists.(frontend.SmartPlaylists)
 		if err != nil || !ok {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
@@ -452,7 +452,7 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 		s.write(w, r, &model.MediaContainer{Size: 1, Metadata: []model.Metadata{s.playlistMetadata(ctx, pl, true)}})
 		return
 	}
-	var keys []core.RatingKey
+	var keys []frontend.RatingKey
 	if uri := q.Get("uri"); uri != "" {
 		// Unresolvable sources are valid empty playlist creations.
 		if strings.HasPrefix(uri, "server://"+s.identity().MachineIdentifier+"/") || strings.HasPrefix(uri, "library://") {
@@ -490,12 +490,12 @@ func (s *Server) handlePlaylistCreate(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, mc)
 }
 
-func (s *Server) playlistFromParam(w http.ResponseWriter, r *http.Request) (*core.Playlist, bool) {
+func (s *Server) playlistFromParam(w http.ResponseWriter, r *http.Request) (*frontend.Playlist, bool) {
 	if !s.requirePlaylists(w, r) {
 		return nil, false
 	}
 	k, err := keyParam(r)
-	if err != nil || k.Kind() != core.KindPlaylist {
+	if err != nil || k.Kind() != frontend.KindPlaylist {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, false
 	}
@@ -526,7 +526,7 @@ func (s *Server) handlePlaylistEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	edit := core.PlaylistEdit{}
+	edit := frontend.PlaylistEdit{}
 	for _, field := range []struct {
 		name   string
 		target **string
@@ -544,7 +544,7 @@ func (s *Server) handlePlaylistEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if edit.Title != nil || edit.Summary != nil {
-		store, ok := s.d.Playlists.(core.PlaylistEditor)
+		store, ok := s.d.Playlists.(frontend.PlaylistEditor)
 		if !ok {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
@@ -597,7 +597,7 @@ func (s *Server) handlePlaylistItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		mc := &model.MediaContainer{RatingKey: pl.Key.String(), Title1: pl.Title, PlaylistType: "video", Smart: model.Ptr(true), LeafCount: model.Ptr(total)}
-		storedOnly := len(titles) > 0 && titles[0].Type == core.TypeEpisode
+		storedOnly := len(titles) > 0 && titles[0].Type == frontend.TypeEpisode
 		sqlAvailability, _ := s.d.Catalog.(interface{ BrowseAvailabilityInSQL() bool })
 		mc.Metadata = s.renderTitles(ctx, pr, titles, renderOpts{media: true, storedOnly: storedOnly, availabilityInSQL: sqlAvailability != nil && sqlAvailability.BrowseAvailabilityInSQL()})
 		if total > 0 {
@@ -607,12 +607,12 @@ func (s *Server) handlePlaylistItems(w http.ResponseWriter, r *http.Request) {
 			mc.Duration += md.Duration / 1000
 		}
 		if q.Get("includeMeta") == "1" {
-			types := map[core.MediaType]bool{}
+			types := map[frontend.MediaType]bool{}
 			for _, t := range titles {
 				types[t.Type] = true
-				if t.Type == core.TypeEpisode {
-					types[core.TypeShow] = true
-					types[core.TypeSeason] = true
+				if t.Type == frontend.TypeEpisode {
+					types[frontend.TypeShow] = true
+					types[frontend.TypeSeason] = true
 				}
 			}
 			mc.Meta = playlistItemsMeta(r, types)
@@ -652,12 +652,12 @@ func (s *Server) handlePlaylistAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	if pl.SmartURI != "" {
 		uri, err := s.smartSectionURI(FromContext(r.Context()).User, r.URL.Query().Get("uri"))
-		store, ok := s.d.Playlists.(core.PlaylistEditor)
+		store, ok := s.d.Playlists.(frontend.PlaylistEditor)
 		if err != nil || !ok {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
 		}
-		updated, err := store.EditPlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, core.PlaylistEdit{SmartURI: &uri})
+		updated, err := store.EditPlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, frontend.PlaylistEdit{SmartURI: &uri})
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -668,12 +668,12 @@ func (s *Server) handlePlaylistAdd(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	uri := r.URL.Query().Get("uri")
-	var keys []core.RatingKey
+	var keys []frontend.RatingKey
 	if strings.HasPrefix(uri, "server://"+s.identity().MachineIdentifier+"/") || strings.HasPrefix(uri, "library://") {
 		keys, _ = s.resolveURI(ctx, pr, uri)
 	}
-	if store, ok := s.d.Playlists.(core.PlaylistMutator); ok {
-		updated, added, err := store.MutatePlaylist(ctx, pr.User.ID, pl.Key, core.PlaylistMutation{Operation: "add", Items: keys})
+	if store, ok := s.d.Playlists.(frontend.PlaylistMutator); ok {
+		updated, added, err := store.MutatePlaylist(ctx, pr.User.ID, pl.Key, frontend.PlaylistMutation{Operation: "add", Items: keys})
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -682,7 +682,7 @@ func (s *Server) handlePlaylistAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requested := len(keys)
-	seen := make(map[core.RatingKey]bool, len(pl.Items)+len(keys))
+	seen := make(map[frontend.RatingKey]bool, len(pl.Items)+len(keys))
 	for _, key := range pl.Items {
 		seen[key] = true
 	}
@@ -705,7 +705,7 @@ func (s *Server) handlePlaylistAdd(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, &model.MediaContainer{Size: 1, Extra: []model.Attr{model.A("leafCountAdded", len(keys)), model.A("leafCountRequested", requested)}, Metadata: []model.Metadata{md}})
 }
 
-func itemIndexParam(r *http.Request, pl *core.Playlist) (int, bool) {
+func itemIndexParam(r *http.Request, pl *frontend.Playlist) (int, bool) {
 	id, err := strconv.Atoi(chi.URLParam(r, "item"))
 	if len(pl.ItemIDs) == len(pl.Items) && len(pl.ItemIDs) > 0 {
 		if err != nil {
@@ -733,10 +733,10 @@ func (s *Server) handlePlaylistRemove(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	if store, ok := s.d.Playlists.(core.PlaylistMutator); ok {
+	if store, ok := s.d.Playlists.(frontend.PlaylistMutator); ok {
 		item, _ := strconv.ParseInt(chi.URLParam(r, "item"), 10, 64)
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-		updated, _, err := store.MutatePlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, core.PlaylistMutation{Operation: "remove", ItemID: item, AfterID: after})
+		updated, _, err := store.MutatePlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, frontend.PlaylistMutation{Operation: "remove", ItemID: item, AfterID: after})
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -767,10 +767,10 @@ func (s *Server) handlePlaylistClear(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	if store, ok := s.d.Playlists.(core.PlaylistMutator); ok {
+	if store, ok := s.d.Playlists.(frontend.PlaylistMutator); ok {
 		item, _ := strconv.ParseInt(chi.URLParam(r, "item"), 10, 64)
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-		updated, _, err := store.MutatePlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, core.PlaylistMutation{Operation: "clear", ItemID: item, AfterID: after})
+		updated, _, err := store.MutatePlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, frontend.PlaylistMutation{Operation: "clear", ItemID: item, AfterID: after})
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -798,10 +798,10 @@ func (s *Server) handlePlaylistMove(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	if store, ok := s.d.Playlists.(core.PlaylistMutator); ok {
+	if store, ok := s.d.Playlists.(frontend.PlaylistMutator); ok {
 		item, _ := strconv.ParseInt(chi.URLParam(r, "item"), 10, 64)
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-		updated, _, err := store.MutatePlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, core.PlaylistMutation{Operation: "move", ItemID: item, AfterID: after})
+		updated, _, err := store.MutatePlaylist(r.Context(), FromContext(r.Context()).User.ID, pl.Key, frontend.PlaylistMutation{Operation: "move", ItemID: item, AfterID: after})
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -848,7 +848,7 @@ func (s *Server) handlePlaylistMove(w http.ResponseWriter, r *http.Request) {
 
 // handlePlaylistItemsAfterChange answers a mutation with the updated items,
 // as PMS does.
-func (s *Server) handlePlaylistItemsAfterChange(w http.ResponseWriter, r *http.Request, k core.RatingKey) {
+func (s *Server) handlePlaylistItemsAfterChange(w http.ResponseWriter, r *http.Request, k frontend.RatingKey) {
 	pl, err := s.playlist(r.Context(), FromContext(r.Context()).User, k)
 	if err != nil {
 		s.writeErr(w, r, err)

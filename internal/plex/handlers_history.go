@@ -1,7 +1,7 @@
 package plex
 
 import (
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
 	"net/http"
@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func historySection(s *Server, t *core.Title) string {
+func historySection(s *Server, t *frontend.Title) string {
 	sec, ok := s.sectionFor(t.Type)
 	if !ok {
 		return ""
@@ -39,18 +39,18 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	listHistory := false
 	if q.Has("metadataItemID") {
-		key := core.RatingKey(ids["metadataItemID"])
+		key := frontend.RatingKey(ids["metadataItemID"])
 		if key <= 0 || s.d.Catalog == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
 		valid := false
 		switch key.Kind() {
-		case core.KindCollection, core.KindSmart:
+		case frontend.KindCollection, frontend.KindSmart:
 			c, err := s.collection(ctx, pr.User, key)
 			valid = err == nil && c != nil
 			listHistory = true
-		case core.KindPlaylist:
+		case frontend.KindPlaylist:
 			pl, err := s.playlist(ctx, pr.User, key)
 			valid = err == nil && pl != nil
 			listHistory = true
@@ -121,7 +121,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// The existing 500-record ceiling bounds all joins and policy checks,
 	// including requests whose section or item filter has few matches.
 	hist, err := s.d.State.History(ctx, pr.User.ID, since, 500)
-	if store, ok := s.d.State.(core.HistoryStore); ok {
+	if store, ok := s.d.State.(frontend.HistoryStore); ok {
 		userID := accountUser
 		if pr.User.IsOwner && !q.Has("accountID") {
 			userID = 0
@@ -133,22 +133,22 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		if viewTypes[0] && viewTypes[1] {
 			vtype = -1
 		}
-		query := core.HistoryQuery{UserID: userID, ViewType: vtype, Asc: asc, Offset: int(ids["offset"]), Limit: 500}
+		query := frontend.HistoryQuery{UserID: userID, ViewType: vtype, Asc: asc, Offset: int(ids["offset"]), Limit: 500}
 		if section, ok := ids["librarySectionID"]; ok {
 			sec, found := s.sectionByID(int(section))
 			if !found {
 				s.write(w, r, mc)
 				return
 			}
-			if sec.Type == core.TypeMovie {
-				query.Kind = core.KindMovie
+			if sec.Type == frontend.TypeMovie {
+				query.Kind = frontend.KindMovie
 			} else {
-				query.Kind = core.KindEpisode
+				query.Kind = frontend.KindEpisode
 			}
 		}
 
 		if v, ok := ids["metadataItemID"]; ok {
-			query.Key = core.RatingKey(v)
+			query.Key = frontend.RatingKey(v)
 		}
 		if v, ok := ids["viewedAt>"]; ok {
 			query.Since = &v
@@ -171,16 +171,16 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if len(hist) > 500 {
 		hist = hist[:500]
 	}
-	keys := make([]core.RatingKey, 0, len(hist))
+	keys := make([]frontend.RatingKey, 0, len(hist))
 	for _, h := range hist {
 		keys = append(keys, h.Key)
 	}
 	titles := s.getTitles(ctx, dedupeKeys(keys))
-	byKey := map[core.RatingKey]*core.Title{}
+	byKey := map[frontend.RatingKey]*frontend.Title{}
 	for i := range titles {
 		byKey[titles[i].Key] = &titles[i]
 	}
-	visible := map[core.RatingKey]bool{}
+	visible := map[frontend.RatingKey]bool{}
 	for _, h := range hist {
 		if q.Has("accountID") && accounts[h.UserID] != ids["accountID"] {
 			continue
@@ -229,7 +229,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		if !t.Released.IsZero() {
 			md.OriginallyAvailableAt = t.Released.Format("2006-01-02")
 		}
-		if t.Type == core.TypeEpisode {
+		if t.Type == frontend.TypeEpisode {
 			md.GrandparentTitle = t.ShowTitle
 			md.Index = model.Ptr(t.Episode)
 			md.ParentIndex = model.Ptr(t.Season)
@@ -241,8 +241,8 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		if h.ViewType != 0 {
 			md.ViewType = model.Ptr(h.ViewType)
 		}
-		if t.Type == core.TypeEpisode {
-			md.ParentKey = "/library/metadata/" + core.SeasonKey(t.ShowKey.TMDB(), t.Season).String()
+		if t.Type == frontend.TypeEpisode {
+			md.ParentKey = "/library/metadata/" + frontend.SeasonKey(t.ShowKey.TMDB(), t.Season).String()
 			md.ParentThumb = md.ParentKey + "/thumb"
 			md.GrandparentThumb = "/library/metadata/" + t.ShowKey.String() + "/thumb"
 			md.GrandparentKey = "/library/metadata/" + t.ShowKey.String()
@@ -268,7 +268,7 @@ func (s *Server) handleHistoryItem(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, 404)
 		return
 	}
-	store, ok := s.d.State.(core.HistoryStore)
+	store, ok := s.d.State.(frontend.HistoryStore)
 	if !ok || pr.User == nil {
 		writeHTTPError(w, 404)
 		return
@@ -316,7 +316,7 @@ func (s *Server) handleHistoryItem(w http.ResponseWriter, r *http.Request) {
 	if !t.Released.IsZero() {
 		md.OriginallyAvailableAt = t.Released.Format("2006-01-02")
 	}
-	if t.Type == core.TypeEpisode {
+	if t.Type == frontend.TypeEpisode {
 		md.GrandparentTitle = t.ShowTitle
 		md.Index = model.Ptr(t.Episode)
 		md.ParentIndex = model.Ptr(t.Season)
