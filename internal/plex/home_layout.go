@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -15,7 +14,7 @@ import (
 func homeLayoutFacts(row model.Hub) (frontend.Hub, frontend.NeutralHomeRow) {
 	count := max(row.Size, len(row.Metadata)+len(row.Directory))
 	hub := frontend.Hub{ID: row.HubIdentifier, Title: row.Title, Type: frontend.MediaType(row.Type), Context: row.Context, ItemCount: count}
-	neutral := frontend.NeutralHomeRow{ID: row.HubIdentifier, Title: row.Title, Type: frontend.MediaType(row.Type), Purpose: experience.HomePurpose(frontend.Hub{ID: row.HubIdentifier, Type: frontend.MediaType(row.Type)}), ItemCount: count}
+	neutral := frontend.NeutralHomeRow{ID: row.HubIdentifier, Title: row.Title, Type: frontend.MediaType(row.Type), Purpose: frontend.HomePurpose(frontend.Hub{ID: row.HubIdentifier, Type: frontend.MediaType(row.Type)}), ItemCount: count}
 	return hub, neutral
 }
 
@@ -105,7 +104,7 @@ func (s *Server) arrangeHomeRows(ctx context.Context, pr *Request, hc frontend.H
 			return rows
 		}
 	}
-	indices, err := experience.ArrangeHome(ctx, s.d.Recommender, pr.User, hc, section, hubs, neutral)
+	indices, err := s.d.Experience.ArrangeHome(ctx, s.d.Recommender, pr.User, hc, section, hubs, neutral)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("Home layout unavailable", "error", err)

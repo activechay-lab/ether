@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -1024,7 +1023,7 @@ func extendedTitle(st frontend.StreamInfo, display, codec string) string {
 // (see Server.audioLanguages), then the stream flagged default, then the
 // first. Multi-language releases often flag a dub as default.
 func pickAudio(info frontend.MediaInfo, langs []string) int {
-	return experience.PickAudio(info, langs)
+	return frontend.PickAudio(info, langs)
 }
 
 func boolPtrIf(b bool) *bool {
@@ -1623,10 +1622,11 @@ func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []fro
 }
 
 func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts []frontend.Title, selectionOnly bool) (showEpisodes, map[frontend.RatingKey]frontend.WatchStatus) {
-	batch := experience.EpisodeBatch{Catalog: s.d.Catalog, State: s.d.State}
+	batchOpts := frontend.EpisodeBatchOptions{Catalog: s.d.Catalog, State: s.d.State}
 	if s.d.EpisodeOrder != nil {
-		batch.EpisodeOrder = s.d.EpisodeOrder
+		batchOpts.EpisodeOrder = s.d.EpisodeOrder
 	}
+	batch := s.d.Experience.NewEpisodeBatch(batchOpts)
 	found, states := batch.Load(ctx, pr.User, ts, selectionOnly)
 	if found == nil {
 		return nil, states

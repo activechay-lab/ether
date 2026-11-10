@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // Search resolves discovery-first keyword searches for the viewer's libraries.
@@ -25,12 +26,6 @@ type Search struct {
 	// Details reads in full the titles a candidate search returned partial
 	// (core.SearchCandidates); nil when the catalogue cannot.
 	Details func(context.Context, []core.Title) ([]core.Title, error)
-}
-
-// FamiliarSource is a watch-state store that can report a viewer's
-// history with titles (state.State).
-type FamiliarSource interface {
-	Familiar(ctx context.Context, userID int64, keys []core.RatingKey) (map[core.RatingKey]int, error)
 }
 
 // FamiliarFrom adapts a watch-state store to Search.Familiar; nil when the
@@ -134,14 +129,6 @@ func fullSearch(ctx context.Context) context.Context {
 	return core.WithSearchCandidates(ctx, nil)
 }
 
-// SearchResults retains whether an optional collection source handled the query.
-// A handled empty result must not fall back to keyword search.
-type SearchResults struct {
-	Collection       *core.Collection
-	Items            []core.Title
-	CollectionSearch bool
-}
-
 // TitleMatchScore is the catalogue relevance (core.Title.SearchScore) from
 // which a keyword result is the title the viewer typed, give or take an
 // article: such a title outranks a collection reading of the same words
@@ -193,3 +180,6 @@ func (s Search) filterCandidates(viewer *core.User, items []core.Title, allowed 
 	}
 	return filtered
 }
+
+type SearchResults = frontend.SearchResults
+type FamiliarSource = frontend.FamiliarSource

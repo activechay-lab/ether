@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -29,10 +28,11 @@ func (s *Server) timelineWatch(ctx context.Context, pr *Request, key frontend.Ra
 		}
 		offline = &n
 	}
-	persist := experience.PlexTimeline{Writer: writer, Now: s.now}
+	timelineOpts := frontend.PlexTimelineOptions{Writer: writer, Now: s.now}
 	if s.d.Discovery != nil && s.d.Discovery.Personal != nil {
-		persist.RestoreContinue = s.d.Discovery.Personal.RestoreContinue
+		timelineOpts.RestoreContinue = s.d.Discovery.Personal.RestoreContinue
 	}
+	persist := s.d.Experience.NewPlexTimeline(timelineOpts)
 	return persist.Store(ctx, pr.User.ID, key, offset, duration, status, r.URL.Query().Get("playQueueItemID"), offline)
 }
 func timelineWatchAttrs(mc *model.MediaContainer, result *frontend.TimelinePersistenceResult) {

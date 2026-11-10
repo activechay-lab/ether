@@ -4,12 +4,8 @@ import (
 	"context"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
-
-// VibeSource returns a viewer-scoped ephemeral collection and candidate items.
-type VibeSource interface {
-	VibeCollection(context.Context, *core.User, string) (*core.Collection, []core.Title, bool, error)
-}
 
 // VibeSearch resolves an optional natural-language collection source.
 type VibeSearch struct {
@@ -51,3 +47,5 @@ func (s VibeSearch) Find(ctx context.Context, viewer *core.User, query string) (
 	}
 	return collection, filtered, true, nil
 }
+
+type VibeSource = frontend.VibeSource

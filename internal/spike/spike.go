@@ -18,6 +18,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -193,6 +194,7 @@ func (l *Library) Deps() plex.Deps {
 	c := l.cfg()
 	return plex.Deps{
 		SessionStores:    sessions.NewPlexSessionStores(),
+		Experience:       experience.NewPlexExperience(),
 		Catalog:          l.Catalog(),
 		Collections:      l.Collections(),
 		Recommender:      l.Recommender(),

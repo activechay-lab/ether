@@ -3,6 +3,7 @@ package plex
 import (
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -16,7 +17,19 @@ func testDeps(d Deps) Deps {
 	if d.SessionStores == nil {
 		d.SessionStores = testStores()
 	}
+	if d.Experience == nil {
+		d.Experience = experience.NewPlexExperience()
+	}
 	return d
+}
+
+func TestNewServerRequiresExperience(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewServer without Experience did not panic")
+		}
+	}()
+	NewServer(Deps{SessionStores: testStores()})
 }
 
 func TestNewServerRequiresSessionStores(t *testing.T) {

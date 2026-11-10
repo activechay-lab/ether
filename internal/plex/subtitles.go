@@ -26,7 +26,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/subtext"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -118,7 +117,7 @@ func (s *Server) withCachedSidecars(ctx context.Context, u *frontend.User, t *fr
 // resolveSubtitle finds a chosen subtitle in info by language, codec, and
 // source. The old stream position is only a tie-break. -1 when info has none.
 func resolveSubtitle(want *frontend.StreamInfo, pos int, info frontend.MediaInfo) int {
-	return experience.ResolveSubtitle(want, pos, info)
+	return frontend.ResolveSubtitle(want, pos, info)
 }
 
 // resolveAudio retains the requested language across estimates and releases.
@@ -128,7 +127,7 @@ func resolveAudio(want *frontend.StreamInfo, pos int, info frontend.MediaInfo) i
 	if want == nil {
 		return -1
 	}
-	return experience.ResolveAudio(want, pos, info)
+	return frontend.ResolveAudio(want, pos, info)
 }
 
 // resolveSelection maps stored track identities onto the current positions. A
@@ -184,7 +183,7 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info fronten
 
 // resolvePlaySelection is resolveSelection for a play request.
 func resolvePlaySelection(p *playRequest, info frontend.MediaInfo) {
-	out, err := experience.TranslatePlexTrackIdentity(experience.PlexIssuedIdentity{
+	out, err := frontend.TranslatePlexTrackIdentity(frontend.PlexIssuedIdentity{
 		Audio: p.audioStream, AudioPosition: p.audioSel, AudioSet: p.audioSel >= 0,
 		Subtitle: p.subStream, SubtitlePosition: p.subSel, SubtitleSet: p.subSet,
 	}, info)

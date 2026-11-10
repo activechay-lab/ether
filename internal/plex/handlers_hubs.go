@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/homefilter"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/reqmemo"
@@ -85,9 +84,9 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 			h.Items = loader.LoadRowFacts(ctx, h.Items)
 		}
 
-		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
+		return (s.d.Experience.NewRowSelection(frontend.RowSelectionOptions{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
 			SameDayUnavailable: func(ctx context.Context, t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
-		}).Items(ctx, pr.User, h)
+		})).Items(ctx, pr.User, h)
 	}
 	// Filter the section and availability before rendering or paging. The
 	// resulting wire list is the canonical generation (including its counts).
@@ -270,7 +269,7 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 	picked, _ := reqmemo.Do(ctx, fmt.Sprintf("plex:continue:%p:%d:%s:%d:%t", s, uid, t, fetch, unfiltered), func() (selection, error) {
 		selector := s.continueExperience(pr)
 		if unfiltered {
-			selector.Filter = nil
+			selector = selector.WithoutFilter()
 		}
 		items, state, more := selector.Shelf(ctx, pr.User, t, fetch)
 		return selection{items, state, more}, nil
@@ -342,7 +341,7 @@ func (s *Server) recentlyAddedHub(ctx context.Context, pr *Request, sec Section,
 }
 
 func (s *Server) recentlyAddedHubPage(ctx context.Context, pr *Request, sec Section, count int, noTotal bool) (hubSpec, error) {
-	recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }}
+	recent := s.d.Experience.NewRecent(frontend.RecentOptions{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }})
 	items, more, err := recent.Added(ctx, pr.User, sec.Type, count, func(ctx context.Context, q frontend.BrowseQuery) (frontend.Page, error) {
 		q.NoTotal = noTotal
 		return s.catalogBrowse(ctx, q)
@@ -455,7 +454,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 	provisional := s.d.Recommender != nil && !hasRecommendedRows(hubs)
 	includeContinue := !metadataOptionOn(q.Get("excludeContinueWatching"))
 	hubs, ondeckHub, cwHomeSpec, cwHomeRendered := s.prepareHomeContinueAndOnDeck(ctx, pr, hc, hubs, selected, includeContinue, count)
-	assembly := experience.HomeAssembly[model.Hub]{
+	assembly := frontend.HomeAssembly[model.Hub]{
 		Render: func(hub frontend.Hub) model.Hub {
 			if hub.ID == "home.ondeck" && ondeckHub != nil {
 				return *ondeckHub
@@ -469,9 +468,9 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			if perDirectory && owner != directory {
 				// The layout needs the same painted item count, but the client
 				// will never receive this row's expensive metadata projection.
-				items := (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
+				items := (s.d.Experience.NewRowSelection(frontend.RowSelectionOptions{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
 					SameDayUnavailable: func(ctx context.Context, t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
-				}).Items(ctx, pr.User, hub)
+				})).Items(ctx, pr.User, hub)
 				items = s.availableForViewer(ctx, pr.User, s.visibleTitles(pr.User, items))
 				typ := string(hub.Type)
 				if typ == "" {
@@ -534,7 +533,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			return s.arrangeHomeRows(ctx, pr, hc, "home", rows, hubs, neutral)
 		},
 	}
-	rows, served := assembly.Rows(hubs, includeContinue, promotedOnly, len(sections) == 0 || perDirectory, experience.HomePurpose)
+	rows, served := assembly.Rows(hubs, includeContinue, promotedOnly, len(sections) == 0 || perDirectory, frontend.HomePurpose)
 	if perDirectory {
 		var filtered []model.Hub
 		for _, row := range rows {
@@ -612,11 +611,11 @@ func (s *Server) hubContext(pr *Request, section int) frontend.HubContext {
 // recommendHome asks for Home rows, with the request context when the
 // recommender adapts to it.
 func (s *Server) recommendHome(ctx context.Context, pr *Request, hc frontend.HubContext, count int) ([]frontend.Hub, error) {
-	return (experience.HomeSelection{Source: s.d.Recommender, Visibility: s.visibility(), Restricted: s.viewerRestricted(pr.User)}).Rows(ctx, pr.User, hc, "", count)
+	return (s.d.Experience.NewHomeSelection(frontend.HomeSelectionOptions{Source: s.d.Recommender, Visibility: s.visibility(), Restricted: s.viewerRestricted(pr.User)})).Rows(ctx, pr.User, hc, "", count)
 }
 
 func (s *Server) recommendSection(ctx context.Context, pr *Request, t frontend.MediaType, hc frontend.HubContext, count int) ([]frontend.Hub, error) {
-	return (experience.HomeSelection{Source: s.d.Recommender, Visibility: s.visibility(), Restricted: s.viewerRestricted(pr.User)}).Rows(ctx, pr.User, hc, t, count)
+	return (s.d.Experience.NewHomeSelection(frontend.HomeSelectionOptions{Source: s.d.Recommender, Visibility: s.visibility(), Restricted: s.viewerRestricted(pr.User)})).Rows(ctx, pr.User, hc, t, count)
 }
 
 // warmBrowseLink opens at most one already-visible playable after the hub
@@ -1122,10 +1121,10 @@ func (s *Server) relatedSourceVisible(ctx context.Context, pr *Request, k fronte
 	return s.detailRelated(ctx, pr).SourceVisible(ctx, pr.User, k)
 }
 
-func (s *Server) detailRelated(ctx context.Context, pr *Request) experience.DetailRelated {
-	return experience.DetailRelated{Source: s.d.Recommender, Visibility: s.visibility(), Get: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
+func (s *Server) detailRelated(ctx context.Context, pr *Request) frontend.DetailRelated {
+	return s.d.Experience.NewDetailRelated(frontend.DetailRelatedOptions{Source: s.d.Recommender, Visibility: s.visibility(), Get: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 		return s.metadataTitle(ctx, pr, key)
-	}}
+	}})
 }
 
 // handleMetadataHubs is /hubs/metadata/{key}[/related] and
@@ -1214,14 +1213,14 @@ func (s *Server) handlePostplay(w http.ResponseWriter, r *http.Request) {
 	count := countParam(r, 12)
 	mc := hubContainer()
 	mc.SetSyncProjection(false)
-	mc.Hub, err = experience.AssemblePostPlay(ctx, s.postPlaySelection(ctx, pr, k, !s.viewerRestricted(pr.User)), pr.User, k, count,
+	mc.Hub, err = frontend.AssemblePostPlay(ctx, s.postPlaySelection(ctx, pr, k, !s.viewerRestricted(pr.User)), pr.User, k, count,
 		func() (frontend.RatingKey, model.Hub, bool) {
 			hub, ok := s.upNextHub(ctx, pr, k)
 			if !ok {
 				return 0, model.Hub{}, false
 			}
 			return hub.Items[0].Key, s.renderHub(ctx, pr, hub, hubCtx{related: k}), true
-		}, func(row experience.PostPlayRow) (model.Hub, bool) { return s.postPlayHub(ctx, pr, k, row) },
+		}, func(row frontend.PostPlayRow) (model.Hub, bool) { return s.postPlayHub(ctx, pr, k, row) },
 		func(hub frontend.Hub) model.Hub { return s.renderHub(ctx, pr, hubSpec{Hub: hub}, hubCtx{related: k}) })
 	if err != nil {
 		s.log.Debug("postplay related hubs", "key", k, "err", err)
@@ -1815,7 +1814,7 @@ func (s *Server) searchTypes(u *frontend.User, sectionID int) []frontend.MediaTy
 	return out
 }
 
-func (s *Server) searchExperience() experience.Search {
+func (s *Server) searchExperience() frontend.Search {
 	unrestricted := func(u *frontend.User) bool { return !s.viewerRestricted(u) }
 	src := s.d.Search
 	if src.Catalog == nil {
@@ -1825,12 +1824,12 @@ func (s *Server) searchExperience() experience.Search {
 		if searcher == nil {
 			searcher, _ = s.d.Collections.(frontend.VibeSearcher)
 		}
-		src = experience.SearchSources{Catalog: s.d.Catalog.Search, Natural: experience.DiscoverySearch(s.d.Discovery), Familiar: experience.FamiliarFrom(s.d.State)}
+		src = frontend.SearchSources{Catalog: s.d.Catalog.Search, Natural: s.d.Experience.DiscoverySearch(s.d.Discovery), Familiar: s.d.Experience.FamiliarFrom(s.d.State)}
 		if searcher != nil {
 			src.Vibe = searcher
 		}
 	}
-	return src.For(s.visibility(), unrestricted)
+	return s.d.Experience.SearchFor(src, s.visibility(), unrestricted)
 }
 
 func (s *Server) runSearch(ctx context.Context, pr *Request, query string, sectionID, limit int) ([]frontend.Title, error) {

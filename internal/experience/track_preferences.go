@@ -10,20 +10,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
-// TrackPreferenceSource supplies persisted viewer rules and show choices.
-type TrackPreferenceSource interface {
-	Select(context.Context, int64, core.RatingKey, core.MediaInfo, string) (trackprefs.Selection, error)
-	GetRules(context.Context, int64) (trackprefs.Rules, error)
-}
-
-// TrackSelection holds positions in MediaInfo.Streams, not StreamInfo.Index.
-// Set flags distinguish an omitted selection from position zero, and an
-// explicit subtitle-off selection (-1) from an omitted subtitle choice.
-type TrackSelection struct {
-	Audio, Subtitle       int
-	AudioSet, SubtitleSet bool
-}
-
 // TrackPreferences applies persisted choices beneath explicit client choices.
 // GetTitle is optional; an episode with no original language uses its show's
 // language when it can be loaded, and otherwise retains the empty language.
@@ -170,3 +156,6 @@ func (p TrackPreferences) ScopedLimits(ctx context.Context, viewer *core.User, s
 	}
 	return opts, nil
 }
+
+type TrackPreferenceSource = frontend.TrackPreferenceSource
+type TrackSelection = frontend.TrackSelection

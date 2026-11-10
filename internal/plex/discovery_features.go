@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/go-chi/chi/v5"
@@ -27,12 +26,12 @@ func (s *Server) discoveryHubs(ctx context.Context, pr *Request, limit int) []hu
 	var out []hubSpec
 	add := func(purpose frontend.RowPurpose, load func(context.Context, *frontend.User, int) ([]frontend.Hub, error)) {
 		var hubs []frontend.Hub
-		selector := experience.DiscoverySelection{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }}
-		rows := selector.Load(ctx, pr.User, limit, func(ctx context.Context, fetch int) []experience.DiscoveryCandidate {
+		selector := s.d.Experience.NewDiscoverySelection(frontend.DiscoverySelectionOptions{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }})
+		rows := selector.Load(ctx, pr.User, limit, func(ctx context.Context, fetch int) []frontend.DiscoveryCandidate {
 			hubs, _ = load(ctx, pr.User, fetch)
-			candidates := make([]experience.DiscoveryCandidate, len(hubs))
+			candidates := make([]frontend.DiscoveryCandidate, len(hubs))
 			for i, hub := range hubs {
-				candidates[i] = experience.DiscoveryCandidate{Index: i, Purpose: purpose, Items: hub.Items}
+				candidates[i] = frontend.DiscoveryCandidate{Index: i, Purpose: purpose, Items: hub.Items}
 			}
 			return candidates
 		})

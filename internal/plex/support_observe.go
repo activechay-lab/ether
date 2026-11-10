@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/braedonsaunders/ether/internal/experience"
 )
 
 func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed time.Duration) {
@@ -42,7 +40,7 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 		ev.Duration = elapsed
 		ev.Cancelled = r.Context().Err() != nil
 		ev.Query = frontend.SafeDiagnosticQuery(r.URL.Query())
-		ev.DBQueries, ev.DBTime = experience.RequestDatabaseObservation(r.Context())
+		ev.DBQueries, ev.DBTime = s.d.Experience.RequestDatabaseObservation(r.Context())
 		if sr.sampling {
 			ev.Response = summarizePlexResponse(sr.sample, sr.truncated, sr.Header().Get("Content-Encoding"))
 		}

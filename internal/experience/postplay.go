@@ -3,14 +3,8 @@ package experience
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
-
-// PostPlayRow is a viewer-scoped set of ranked recommendations.
-// The presentation and protocol-specific identifiers belong to the frontend.
-type PostPlayRow struct {
-	Purpose core.RowPurpose
-	Items   []core.Title
-}
 
 // PostPlay constructs a recommendation row in the supplied rank order.
 func PostPlay(ctx context.Context, picks []core.PostPlayPick, viewer *core.User, visibility Visibility, seen map[core.RatingKey]bool, limit int) PostPlayRow {
@@ -43,3 +37,5 @@ func UniqueRelated(ctx context.Context, viewer *core.User, visibility Visibility
 	}
 	return out
 }
+
+type PostPlayRow = frontend.PostPlayRow

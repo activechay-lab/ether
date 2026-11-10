@@ -6,11 +6,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-type ExtrasSource interface {
-	Enabled() bool
-	List(context.Context, *core.Title, string) ([]frontend.ExtraClip, error)
-}
-
 // DetailExtras selects enabled clips in source order. Numeric dialect filters
 // are parsed by the adapter; an empty selection retains the complete list.
 func DetailExtras(ctx context.Context, source ExtrasSource, parent *core.Title, language string, wanted map[int]bool) ([]frontend.ExtraClip, error) {
@@ -32,3 +27,5 @@ func DetailExtras(ctx context.Context, source ExtrasSource, parent *core.Title, 
 	}
 	return out, nil
 }
+
+type ExtrasSource = frontend.ExtrasSource

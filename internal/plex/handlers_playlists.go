@@ -11,13 +11,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
 // maxExpand caps how many items a URI may expand to (a whole section).
-const maxExpand = experience.PlaylistExpandLimit
+const maxExpand = frontend.PlaylistExpandLimit
 
 var (
 	reMetadataPath   = regexp.MustCompile(`^/library/metadata/([\d,]+)(?:/(children|allLeaves|grandchildren))?/?$`)
@@ -98,11 +97,11 @@ func (s *Server) expandKey(ctx context.Context, pr *Request, k frontend.RatingKe
 			return capKeys(out), nil
 		}
 	}
-	selection := experience.PlaylistSelection{Playlists: s.d.Playlists, Collections: s.d.Collections, Visibility: s.visibility(), Children: func(ctx context.Context, key frontend.RatingKey) ([]frontend.Title, error) {
+	selection := s.d.Experience.NewPlaylistSelection(frontend.PlaylistSelectionOptions{Playlists: s.d.Playlists, Collections: s.d.Collections, Visibility: s.visibility(), Children: func(ctx context.Context, key frontend.RatingKey) ([]frontend.Title, error) {
 		return s.metadataChildren(ctx, pr, key)
 	}, Grandchildren: func(ctx context.Context, key frontend.RatingKey) ([]frontend.Title, error) {
 		return s.metadataGrandchildren(ctx, pr, key)
-	}}
+	}})
 	return selection.Expand(ctx, pr.User, k)
 }
 
@@ -326,7 +325,7 @@ func capKeys(ks []frontend.RatingKey) []frontend.RatingKey {
 // Playlists
 
 func (s *Server) playlist(ctx context.Context, u *frontend.User, k frontend.RatingKey) (*frontend.Playlist, error) {
-	return (experience.PlaylistSelection{Playlists: s.d.Playlists}).Get(ctx, u, k)
+	return (s.d.Experience.NewPlaylistSelection(frontend.PlaylistSelectionOptions{Playlists: s.d.Playlists})).Get(ctx, u, k)
 }
 
 func (s *Server) playlistMetadata(ctx context.Context, pl *frontend.Playlist, omitState ...bool) model.Metadata {

@@ -3,9 +3,10 @@ package experience
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-const PlaylistExpandLimit = 500
+const PlaylistExpandLimit = frontend.PlaylistExpandLimit
 
 // PlaylistSelection expands containers through viewer-bound metadata sources.
 // URI parsing and playlist presentation belong to the requesting adapter.

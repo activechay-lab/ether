@@ -4,14 +4,8 @@ import (
 	"context"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
-
-// DiscoveryCandidate contains a source row's neutral purpose and item candidates.
-type DiscoveryCandidate struct {
-	Index   int
-	Purpose core.RowPurpose
-	Items   []core.Title
-}
 
 // FilterDiscovery applies viewer visibility to each row before it is returned.
 func FilterDiscovery(ctx context.Context, viewer *core.User, visibility Visibility, rows []DiscoveryCandidate) []DiscoveryCandidate {
@@ -98,3 +92,5 @@ func loadDiscovery(ctx context.Context, viewer *core.User, visibility Visibility
 		fetch = min(fetch*2, 1000)
 	}
 }
+
+type DiscoveryCandidate = frontend.DiscoveryCandidate

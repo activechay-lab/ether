@@ -21,7 +21,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -86,6 +85,10 @@ type Deps struct {
 	// provides the session helpers it calls. Required: NewServer panics
 	// without it. The app wires sessions.NewPlexSessionStores().
 	SessionStores frontend.PlexSessionStores
+	// Experience constructs the experience selectors this server uses and
+	// provides its operations, including statistics defaults. Required:
+	// NewServer panics without it. The app wires experience.NewPlexExperience().
+	Experience frontend.PlexExperience
 	// GeneratedPosters draws Ether's poster for a movie or show with no
 	// artwork; nil leaves such titles without a thumb.
 	GeneratedPosters interface {
@@ -104,7 +107,7 @@ type Deps struct {
 	Discovery           *DiscoveryFeatures
 	// Search is the app's shared search (every frontend's); zero builds it
 	// from this server's own dependencies.
-	Search       experience.SearchSources
+	Search       frontend.SearchSources
 	LiveTV       *livetv.Service
 	AccessPolicy AccessPolicy
 	Catalog      frontend.Catalog
@@ -299,10 +302,13 @@ func NewServer(d Deps) *Server {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	d.Dashboard, d.Resources = experience.Statistics(d.Dashboard, d.Resources, d.Now)
+	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
 	ctx, cancel := context.WithCancel(context.Background())
 	if d.SessionStores == nil {
 		panic("plex: Deps.SessionStores is required (wire sessions.NewPlexSessionStores())")
+	}
+	if d.Experience == nil {
+		panic("plex: Deps.Experience is required (wire experience.NewPlexExperience())")
 	}
 	coord := d.SessionCoordination
 	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {

@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/reqmemo"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -34,19 +33,19 @@ func (s *Server) trackScope(ctx context.Context, key frontend.RatingKey) fronten
 	return scope
 }
 
-func (s *Server) trackPreferences() experience.TrackPreferences {
-	return experience.TrackPreferences{Source: s.d.TrackPreferences, GetTitle: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
+func (s *Server) trackPreferences() frontend.TrackPreferenceSelector {
+	return s.d.Experience.NewTrackPreferenceSelector(frontend.TrackPreferenceSelectorOptions{Source: s.d.TrackPreferences, GetTitle: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 		if s.d.Catalog == nil {
 			return nil, frontend.ErrNotAvailable
 		}
 		return &frontend.Title{Key: key, Language: s.showLanguage(ctx, key)}, nil
-	}}
+	}})
 }
 func (s *Server) preferredSelection(ctx context.Context, u *frontend.Viewer, key frontend.RatingKey, info frontend.MediaInfo, original string, sel selection) selection {
 	if s.d.TrackPreferences == nil || u == nil {
 		return sel
 	}
-	selected, err := s.trackPreferences().SelectScoped(ctx, u, key, info, original, s.trackScope(ctx, key), experience.TrackSelection{Audio: sel.audio, AudioSet: sel.audioSet, Subtitle: sel.subtitle, SubtitleSet: sel.subtitleSet}, func(err error) { s.log.Warn("scoped stream preferences unavailable", "error", err) })
+	selected, err := s.trackPreferences().SelectScoped(ctx, u, key, info, original, s.trackScope(ctx, key), frontend.TrackSelection{Audio: sel.audio, AudioSet: sel.audioSet, Subtitle: sel.subtitle, SubtitleSet: sel.subtitleSet}, func(err error) { s.log.Warn("scoped stream preferences unavailable", "error", err) })
 	if err != nil {
 		s.log.Warn("stream preferences unavailable", "error", err)
 		return sel
@@ -62,7 +61,7 @@ func (s *Server) applyStreamPreferences(ctx context.Context, pr *Request, p *pla
 	p.subSel, p.subSet = sel.subtitle, sel.subtitleSet
 	if s.d.TrackPreferences != nil && pr.User != nil {
 		prefs := s.trackPreferences()
-		if filters, err := prefs.AudioFilters(ctx, pr.User, info, experience.TrackSelection{Audio: p.audioSel}); err == nil {
+		if filters, err := prefs.AudioFilters(ctx, pr.User, info, frontend.TrackSelection{Audio: p.audioSel}); err == nil {
 			p.opts.AudioFilters = filters
 		}
 		scope := s.trackScope(ctx, p.key)
@@ -146,7 +145,7 @@ func (s *Server) addProbedStreamFeatures(ctx context.Context, key frontend.Ratin
 	if len(m.Chapter) > 0 {
 		m.ChapterSource = "media"
 	}
-	ranges, err := experience.PlaybackMarkerRanges(ctx, s.d.Markers, key, info)
+	ranges, err := s.d.Experience.PlaybackMarkerRanges(ctx, s.d.Markers, key, info)
 	if err != nil {
 		s.log.Debug("marker provider unavailable", "error", err)
 	}

@@ -47,7 +47,7 @@ func (a *App) experienceSearch(vis experience.Visibility) experience.Search {
 	unrestricted := func(viewer *core.User) bool {
 		return a.safety != nil && viewer != nil && !a.safety.Restricted(viewer)
 	}
-	return a.searchSources().For(vis, unrestricted)
+	return experience.SearchFor(a.searchSources(), vis, unrestricted)
 }
 
 // searchSources is the one search every frontend uses (Plex included):

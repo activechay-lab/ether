@@ -159,6 +159,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	deps.TrackPreferences = a.trackprefs
 	deps.SessionCoordination = a.sessionCoordination
 	deps.SessionStores = sessions.NewPlexSessionStores()
+	deps.Experience = experience.NewPlexExperience()
 	deps.Markers = a.markers
 	// The remuxer is built once in buildIntegrations and shared with every
 	// front end. Support is the device-scoped "Record a problem" recorder.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // Continue coordinates resume and next-episode selection using viewer-scoped dependencies.
@@ -358,4 +359,11 @@ func (c Continue) Shelf(ctx context.Context, viewer *core.User, kind core.MediaT
 		items = items[:limit]
 	}
 	return items, state, more
+}
+
+// WithoutFilter returns a copy with the personal filter disabled (the
+// unfiltered Continue Watching shelf path).
+func (c Continue) WithoutFilter() frontend.Continue {
+	c.Filter = nil
+	return c
 }

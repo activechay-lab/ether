@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -964,7 +963,7 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t frontend.MediaT
 	}); ok && u != nil {
 		// The plex.tv share predicate goes into the SQL, so pages fill
 		// and totals count only what this viewer may see.
-		f, br.none = experience.MergeShareFilter(f, share.BrowseShareFilter(u, t))
+		f, br.none = s.d.Experience.MergeShareFilter(f, share.BrowseShareFilter(u, t))
 	}
 	br.q.Filter = f
 	return br
@@ -1105,7 +1104,7 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]f
 		if share, ok := s.d.AccessPolicy.(interface {
 			BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
 		}); ok {
-			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
+			policy, _ = s.d.Experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
 		}
 		br.q.Filter.ChildVisibility = &policy
 	}
@@ -1740,7 +1739,7 @@ func (s *Server) sectionRecentlyViewed(w http.ResponseWriter, r *http.Request, s
 	mc := s.sectionContainer(sec)
 	mc.Title2 = "Recently Viewed"
 	if s.d.State != nil && pr.User != nil {
-		recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }}
+		recent := s.d.Experience.NewRecent(frontend.RecentOptions{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }})
 		history := s.d.State.History
 		if settings, ok := s.d.State.(interface {
 			RecentlyViewedSettings(context.Context, int64, time.Time, int) ([]frontend.HistoryEntry, error)

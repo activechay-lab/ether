@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -33,21 +32,21 @@ func (s *Server) postPlayPicks(ctx context.Context, pr *Request, key frontend.Ra
 	return picks
 }
 
-func (s *Server) postPlaySelection(ctx context.Context, pr *Request, key frontend.RatingKey, unrestricted bool) experience.PostPlaySelection {
-	selection := experience.PostPlaySelection{Visibility: s.visibility(), Unrestricted: unrestricted, Picks: func(ctx context.Context, fetch int) []frontend.PostPlayPick {
+func (s *Server) postPlaySelection(ctx context.Context, pr *Request, key frontend.RatingKey, unrestricted bool) frontend.PostPlaySelection {
+	opts := frontend.PostPlaySelectionOptions{Visibility: s.visibility(), Unrestricted: unrestricted, Picks: func(ctx context.Context, fetch int) []frontend.PostPlayPick {
 		return s.postPlayPicks(ctx, pr, key, fetch)
 	}}
 	if s.d.Recommender != nil {
-		selection.Related = func(ctx context.Context, count int) ([]frontend.Hub, error) {
+		opts.Related = func(ctx context.Context, count int) ([]frontend.Hub, error) {
 			return s.d.Recommender.Related(ctx, pr.User, key, count)
 		}
 	}
-	return selection
+	return s.d.Experience.NewPostPlaySelection(opts)
 }
 
 // postPlayHub renders ranked picks as one hub in post-play shape. The
 // prefix follows the just-watched title's family, like Related's hubs.
-func (s *Server) postPlayHub(ctx context.Context, pr *Request, key frontend.RatingKey, row experience.PostPlayRow) (model.Hub, bool) {
+func (s *Server) postPlayHub(ctx context.Context, pr *Request, key frontend.RatingKey, row frontend.PostPlayRow) (model.Hub, bool) {
 	items := row.Items
 	if len(items) == 0 {
 		return model.Hub{}, false

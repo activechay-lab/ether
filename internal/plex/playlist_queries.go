@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -477,7 +476,7 @@ func (s *Server) writeSmartPlaylistItems(w http.ResponseWriter, r *http.Request,
 		if share, ok := s.d.AccessPolicy.(interface {
 			BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
 		}); ok {
-			policy, _ = experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
+			policy, _ = s.d.Experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
 		}
 		source.q.Filter.ChildVisibility = &policy
 	}

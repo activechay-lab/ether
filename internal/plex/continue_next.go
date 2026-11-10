@@ -3,16 +3,16 @@ package plex
 import (
 	"context"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-func (s *Server) continueExperience(pr *Request) experience.Continue {
-	batch := experience.EpisodeBatch{Catalog: s.d.Catalog, State: s.d.State}
+func (s *Server) continueExperience(pr *Request) frontend.Continue {
+	batchOpts := frontend.EpisodeBatchOptions{Catalog: s.d.Catalog, State: s.d.State}
 	if s.d.EpisodeOrder != nil {
-		batch.EpisodeOrder = s.d.EpisodeOrder
+		batchOpts.EpisodeOrder = s.d.EpisodeOrder
 	}
-	deck := &experience.ContinueDeck{
+	batch := s.d.Experience.NewEpisodeBatch(batchOpts)
+	deckOpts := frontend.ContinueDeckOptions{
 		Load: func(ctx context.Context, shows []frontend.RatingKey) (map[frontend.RatingKey][]frontend.Title, map[frontend.RatingKey]frontend.WatchStatus) {
 			if pre, ok := s.d.Catalog.(interface {
 				PreloadStored(context.Context, []frontend.RatingKey)
@@ -38,11 +38,12 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 		},
 	}
 	if s.d.EpisodeOrder != nil {
-		deck.Order = func(ctx context.Context, show frontend.RatingKey, eps []frontend.Title) ([]frontend.Title, error) {
+		deckOpts.Order = func(ctx context.Context, show frontend.RatingKey, eps []frontend.Title) ([]frontend.Title, error) {
 			return s.d.EpisodeOrder.OrderStoredGrandchildren(ctx, pr.User, show, eps)
 		}
 	}
-	c := experience.Continue{ShowOnDeck: deck.Select, PrepareShowOnDeck: deck.Prepare, State: s.d.State, Now: s.now, FavoriteShows: s.d.FavoriteShows,
+	deck := s.d.Experience.NewContinueDeck(deckOpts)
+	opts := frontend.ContinueOptions{ShowOnDeck: deck.Select, PrepareShowOnDeck: deck.Prepare, State: s.d.State, Now: s.now, FavoriteShows: s.d.FavoriteShows,
 		Grandchildren: func(ctx context.Context, k frontend.RatingKey) ([]frontend.Title, error) {
 			return s.metadataGrandchildren(ctx, pr, k)
 		},
@@ -75,19 +76,19 @@ func (s *Server) continueExperience(pr *Request) experience.Continue {
 	if pre, ok := s.d.Catalog.(interface {
 		PreloadStored(context.Context, []frontend.RatingKey)
 	}); ok {
-		c.PrefetchTitles = pre.PreloadStored
+		opts.PrefetchTitles = pre.PreloadStored
 	}
 	if s.d.Discovery != nil && s.d.Discovery.Personal != nil {
-		c.Filter = s.d.Discovery.Personal.FilterContinue
+		opts.Filter = s.d.Discovery.Personal.FilterContinue
 	}
 	if s.d.EpisodeOrder != nil {
-		c.EpisodeOrder = s.d.EpisodeOrder
+		opts.EpisodeOrder = s.d.EpisodeOrder
 	}
 	if local, ok := s.d.Catalog.(interface {
 		ContinueEpisodes(context.Context, []frontend.RatingKey) (map[frontend.RatingKey]*frontend.Title, error)
 	}); ok {
-		c.NextEpisodes = local.ContinueEpisodes
+		opts.NextEpisodes = local.ContinueEpisodes
 	}
-	c.Filter = experience.ContinueFilter(c.State, c.Filter)
-	return c
+	opts.Filter = s.d.Experience.ContinueFilter(opts.State, opts.Filter)
+	return s.d.Experience.NewContinue(opts)
 }

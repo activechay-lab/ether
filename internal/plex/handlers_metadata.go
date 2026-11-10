@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -371,7 +370,7 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *frontend.Title, chi
 func (s *Server) sameDayUnavailable(ctx context.Context, pr *Request, t *frontend.Title) bool {
 	var source frontend.AvailabilitySource
 	source, _ = s.d.Variants.(frontend.AvailabilitySource)
-	return experience.SameDayUnavailable(ctx, t, s.now(), s.d.FilterAvailable, source)
+	return s.d.Experience.SameDayUnavailable(ctx, t, s.now(), s.d.FilterAvailable, source)
 }
 
 // showOnDeck picks the episode to resume or start next.
@@ -381,7 +380,7 @@ func (s *Server) showOnDeck(ctx context.Context, pr *Request, show frontend.Rati
 		return nil, nil
 	}
 	st := s.stateFor(ctx, pr, eps)
-	return experience.ShowOnDeck(eps, st, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
+	return s.d.Experience.ShowOnDeck(eps, st, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
 }
 
 const detailWarmWaitBudget = 4 * time.Second
@@ -453,7 +452,7 @@ func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []front
 		return nil
 	}
 	now := s.now()
-	return experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
+	return s.d.Experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
 }
 
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
@@ -827,8 +826,8 @@ func collectionDevice(ctx context.Context) string {
 	return frontend.ClassifyDevice(pr.Product, pr.Platform, pr.Device)
 }
 
-func (s *Server) collectionSelection() experience.ScopedCollection {
-	return experience.ScopedCollection{
+func (s *Server) collectionSelection() frontend.ScopedCollection {
+	return s.d.Experience.NewScopedCollection(frontend.ScopedCollectionOptions{
 		Collections:  s.d.Collections,
 		Visibility:   s.visibility(),
 		Now:          s.now,
@@ -837,7 +836,7 @@ func (s *Server) collectionSelection() experience.ScopedCollection {
 		Openable: func(ctx context.Context, viewer *frontend.User, items []frontend.Title) []frontend.Title {
 			return s.openableTitles(withStoredPolicy(ctx), viewer, items, false)
 		},
-	}
+	})
 }
 
 func (s *Server) lookupPlaceholder(ctx context.Context, pr *Request, key frontend.RatingKey, raw string) (*frontend.Title, frontend.RatingKey, error) {

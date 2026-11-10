@@ -14,7 +14,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -127,7 +126,7 @@ func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *frontend.Ti
 			want[n] = true
 		}
 	}
-	list, err := experience.DetailExtras(ctx, s.d.Extras, parent, s.viewerLanguage(pr), want)
+	list, err := s.d.Experience.DetailExtras(ctx, s.d.Extras, parent, s.viewerLanguage(pr), want)
 	if err != nil {
 		s.log.Debug("extras list", "key", parent.Key, "err", err)
 		return nil
