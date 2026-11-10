@@ -1,9 +1,13 @@
 package core
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+	"unicode"
+)
 
-// Plugin kind item envelope and library presentations (spec §2.2,
-// §3.2, §4.5, §6.2). These types are the frozen cross-slice contract:
+// Plugin kind item envelope and source query types (spec §2.2,
+// §3.2, §4.5). These types are the frozen cross-slice contract:
 // plugins declare kinds with them, pluginitems stores them, and the
 // protocol frontends project them. Keep edits additive.
 
@@ -75,48 +79,28 @@ type SourceCandidate struct {
 }
 
 // PluginLibraryKey is the library key a plugin kind owns
-// (spec §1.1): "pk-<pluginID>-<kindKey>", plugin id verbatim. The key
-// is an opaque unique slug; ownership is always read back from the
-// stored plugin/kind columns, never parsed out of the key.
+// (spec §1.1): "pk-" + slug(pluginID) + "-" + slug(kindKey), matching
+// internal/libraries.UpsertPluginLibrary. The key is an opaque unique
+// slug; ownership is always read back from the stored plugin/kind
+// columns, never parsed out of the key.
 func PluginLibraryKey(pluginID, kindKey string) string {
-	return "pk-" + pluginID + "-" + kindKey
+	return "pk-" + libraryKeySlug(pluginID) + "-" + libraryKeySlug(kindKey)
 }
 
-// Presentations says how a library is exposed to each client
-// protocol (spec §6.2). Declared by a plugin in its kind, editable by
-// the owner per library afterwards.
-type Presentations struct {
-	// AdapterOnly means the library is served only through one of the
-	// plugin's frontend adapters, never a generic protocol.
-	AdapterOnly  bool                      `json:"adapterOnly,omitempty"`
-	Plex         *PlexPresentation         `json:"plex,omitempty"`
-	MediaBrowser *MediaBrowserPresentation `json:"mediaBrowser,omitempty"`
-	Stremio      *StremioPresentation      `json:"stremio,omitempty"`
-	Xtream       *XtreamPresentation       `json:"xtream,omitempty"`
-	Silo         *SiloPresentation         `json:"silo,omitempty"`
-}
-
-// PlexPresentation maps kind levels onto a Plex section family: for
-// show, root->show, mid->season, leaf->episode; for movie, root or
-// leaf->movie.
-type PlexPresentation struct {
-	Base string `json:"base"` // movie|show|artist|photo
-}
-
-// MediaBrowserPresentation is shared by Jellyfin and Emby.
-type MediaBrowserPresentation struct {
-	CollectionType string            `json:"collectionType"`      // movies|tvshows|music|audiobooks|books|photos|homevideos
-	ItemTypes      map[string]string `json:"itemTypes,omitempty"` // level -> Movie|Series|Season|Episode|MusicAlbum|Audio|Book|PhotoAlbum|Photo
-}
-
-type StremioPresentation struct {
-	Type string `json:"type"` // movie|series|channel|tv
-}
-
-type XtreamPresentation struct {
-	Category string `json:"category"` // movie|series|live
-}
-
-type SiloPresentation struct {
-	Type string `json:"type"` // mirrors the MediaBrowser item family
+func libraryKeySlug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = false
+			b.WriteRune(r)
+		default:
+			dash = true
+		}
+	}
+	return b.String()
 }

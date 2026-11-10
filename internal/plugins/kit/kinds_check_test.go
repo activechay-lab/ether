@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins"
 )
 
@@ -17,8 +18,13 @@ func kitKind() plugins.MediaKindMeta {
 			{Key: "album", Label: "Album"},
 			{Key: "track", Label: "Track", Playable: true},
 		},
-		Present: plugins.Presentations{MediaBrowser: &plugins.MediaBrowserPresentation{CollectionType: "music"}},
-		Sync:    plugins.KindSyncDecl{Mode: plugins.KindSyncPush},
+		Present: core.Presentations{
+			MediaBrowser: &struct {
+				CollectionType string            `json:"collectionType"`
+				ItemTypes      map[string]string `json:"itemTypes,omitempty"`
+			}{CollectionType: "music"},
+		},
+		Sync: plugins.KindSyncDecl{Mode: plugins.KindSyncPush},
 	}
 }
 
@@ -66,7 +72,7 @@ func TestKitKindsLintParity(t *testing.T) {
 
 func TestValidateKindPage(t *testing.T) {
 	decl := kitKind()
-	page := plugins.KindPage{Items: []plugins.KindItem{
+	page := core.KindPage{Items: []core.KindItem{
 		{ID: "trk-1", Level: "track", ParentID: "alb-1", Title: "Dawn chorus", Playable: true},
 		{ID: "trk-1", Level: "track", ParentID: "alb-1", Title: "Dawn chorus again", Playable: true},
 		{ID: "bad id", Level: "side", Title: "Nope"},
@@ -75,7 +81,7 @@ func TestValidateKindPage(t *testing.T) {
 	if len(issues) < 3 {
 		t.Fatalf("want page-size, duplicate and envelope issues: %+v", issues)
 	}
-	good := plugins.KindPage{Items: page.Items[:1]}
+	good := core.KindPage{Items: page.Items[:1]}
 	if issues := ValidateKindPage(decl, good, 10); len(issues) != 0 {
 		t.Fatalf("valid page: %+v", issues)
 	}

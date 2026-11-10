@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
 	"github.com/braedonsaunders/ether/internal/httpjson"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Host is the set of Ether services a remote plugin may call back
@@ -35,6 +37,13 @@ type Host interface {
 
 	CollectionsUpsert(ctx context.Context, pluginID string, collection json.RawMessage) error
 
+	KindUpsert(ctx context.Context, pluginID, kindKey string, items []core.KindItem) (int, error)
+	KindDelete(ctx context.Context, pluginID, kindKey string, externalIDs []string) error
+	KindItems(ctx context.Context, pluginID, kindKey, cursor string, limit int) (core.KindPage, error)
+	ResolveSources(ctx context.Context, pluginID string, q core.SourceQuery) ([]core.SourceCandidate, error)
+	CachePut(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (string, error)
+	CacheOpen(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error)
+
 	Settings(ctx context.Context, pluginID string) (map[string]any, error)
 
 	NotifyOwner(ctx context.Context, pluginID, text string) error
@@ -47,6 +56,8 @@ const (
 	maxKVValueBytes    = 5 << 20
 	maxHostBodyBytes   = 1 << 20
 	maxCollectionBytes = 2 << 20
+	maxKindUpsertBytes = 8 << 20
+	maxCacheBlobBytes  = 256 << 20
 	defaultPageLimit   = 50
 	maxPageLimit       = 200
 )
@@ -87,6 +98,13 @@ func NewHostHandler(opts HostOptions) *HostHandler {
 	mux.HandleFunc("GET /ether/plugin-host/viewers/granted", h.viewerGranted)
 	mux.HandleFunc("POST /ether/plugin-host/viewers/watch-state", h.setWatchState)
 	mux.HandleFunc("POST /ether/plugin-host/collections/upsert", h.collectionsUpsert)
+	mux.HandleFunc("GET /ether/plugin-host/kinds/{kind}/items", h.kindItems)
+	mux.HandleFunc("POST /ether/plugin-host/kinds/{kind}/upsert", h.kindUpsert)
+	mux.HandleFunc("POST /ether/plugin-host/kinds/{kind}/delete", h.kindDelete)
+	mux.HandleFunc("POST /ether/plugin-host/sources/resolve", h.resolveSources)
+	mux.HandleFunc("PUT /ether/plugin-host/cache/{libraryKey}/{name...}", h.cachePut)
+	mux.HandleFunc("POST /ether/plugin-host/cache/{libraryKey}", h.cachePut)
+	mux.HandleFunc("GET /ether/plugin-host/cache/{blobRef...}", h.cacheOpen)
 	mux.HandleFunc("GET /ether/plugin-host/settings", h.settings)
 	mux.HandleFunc("POST /ether/plugin-host/notify", h.notify)
 	mux.HandleFunc("POST /ether/plugin-host/log", h.logLine)
@@ -229,7 +247,7 @@ func (h *HostHandler) setWatchState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// --- Collections, notify, log ---
+// --- Collections, kinds, sources, cache, notify, log ---
 
 func (h *HostHandler) collectionsUpsert(w http.ResponseWriter, r *http.Request) {
 	raw, err := readBody(w, r, maxCollectionBytes)
@@ -245,6 +263,113 @@ func (h *HostHandler) collectionsUpsert(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *HostHandler) kindItems(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := defaultPageLimit
+	if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
+		limit = v
+	}
+	if limit > maxPageLimit {
+		limit = maxPageLimit
+	}
+	page, err := h.host.KindItems(r.Context(), pluginIDOf(r), r.PathValue("kind"), q.Get("cursor"), limit)
+	if !h.finishErr(w, err) {
+		return
+	}
+	if page.Items == nil {
+		page.Items = []core.KindItem{}
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func (h *HostHandler) kindUpsert(w http.ResponseWriter, r *http.Request) {
+	raw, err := readBody(w, r, maxKindUpsertBytes)
+	if err != nil {
+		h.finishErr(w, err)
+		return
+	}
+	var items []core.KindItem
+	var envelope struct {
+		Items []core.KindItem `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Items != nil {
+		items = envelope.Items
+	} else if err := json.Unmarshal(raw, &items); err != nil {
+		writeHostError(w, http.StatusBadRequest, "invalid", `Body must be {"items": [...]} or a JSON array of KindItem`)
+		return
+	}
+	accepted, err := h.host.KindUpsert(r.Context(), pluginIDOf(r), r.PathValue("kind"), items)
+	if !h.finishErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "accepted": accepted})
+}
+
+func (h *HostHandler) kindDelete(w http.ResponseWriter, r *http.Request) {
+	raw, err := readBody(w, r, maxHostBodyBytes)
+	if err != nil {
+		h.finishErr(w, err)
+		return
+	}
+	var ids []string
+	var envelope struct {
+		IDs         []string `json:"ids"`
+		ExternalIDs []string `json:"externalIds"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil && (envelope.IDs != nil || envelope.ExternalIDs != nil) {
+		ids = envelope.IDs
+		if len(ids) == 0 {
+			ids = envelope.ExternalIDs
+		}
+	} else if err := json.Unmarshal(raw, &ids); err != nil {
+		writeHostError(w, http.StatusBadRequest, "invalid", `Body must be {"ids": [...]} or a JSON array of item ids`)
+		return
+	}
+	if !h.finishErr(w, h.host.KindDelete(r.Context(), pluginIDOf(r), r.PathValue("kind"), ids)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *HostHandler) resolveSources(w http.ResponseWriter, r *http.Request) {
+	var q core.SourceQuery
+	if !h.decode(w, r, maxHostBodyBytes, &q) {
+		return
+	}
+	cands, err := h.host.ResolveSources(r.Context(), pluginIDOf(r), q)
+	if !h.finishErr(w, err) {
+		return
+	}
+	if cands == nil {
+		cands = []core.SourceCandidate{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"candidates": cands})
+}
+
+func (h *HostHandler) cachePut(w http.ResponseWriter, r *http.Request) {
+	libraryKey := r.PathValue("libraryKey")
+	name := r.PathValue("name")
+	if name == "" {
+		name = r.URL.Query().Get("name")
+	}
+	body := io.LimitReader(r.Body, maxCacheBlobBytes+1)
+	ref, err := h.host.CachePut(r.Context(), pluginIDOf(r), libraryKey, name, body)
+	if !h.finishErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "blob": ref})
+}
+
+func (h *HostHandler) cacheOpen(w http.ResponseWriter, r *http.Request) {
+	rc, err := h.host.CacheOpen(r.Context(), pluginIDOf(r), r.PathValue("blobRef"))
+	if !h.finishErr(w, err) {
+		return
+	}
+	defer rc.Close()
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, "", time.Time{}, rc)
 }
 
 func (h *HostHandler) settings(w http.ResponseWriter, r *http.Request) {
@@ -364,7 +489,7 @@ func cleanMessage(err error) string {
 func pageParams(r *http.Request) (limit, offset int) {
 	q := r.URL.Query()
 	limit = defaultPageLimit
-	if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
+	if v, err := strconv.Atoi(q.Get("limit")) ; err == nil && v > 0 {
 		limit = v
 	}
 	if v, err := paging.ParseOffset(q.Get("offset"), limit); err == nil && v >= 0 {

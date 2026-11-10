@@ -832,6 +832,7 @@ func (s *storage) purge(ctx context.Context, plugin string) error {
 		`DELETE FROM onair_feed_values WHERE plugin=?`,
 		`DELETE FROM plugins_grants WHERE plugin=?`,
 		`DELETE FROM plugins_settings WHERE plugin=?`,
+		`DELETE FROM plugins_setup WHERE plugin=?`,
 		`DELETE FROM plugins_kv WHERE plugin=?`,
 		`DELETE FROM plugins_health WHERE plugin=?`,
 		`DELETE FROM plugins_outbox WHERE plugin=?`,

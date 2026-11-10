@@ -1,16 +1,19 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins/wasm"
 )
 
@@ -448,6 +451,94 @@ func (b hostBridge) CallHost(ctx context.Context, name string, raw json.RawMessa
 			col = args[0]
 		}
 		return result(nil, b.h.CollectionsUpsert(ctx, col))
+	case "kinds.upsert":
+		var items []core.KindItem
+		if len(args) > 1 {
+			if err := json.Unmarshal(args[1], &items); err != nil {
+				return nil, &wasm.Fault{Code: "bad_arguments", Message: "kinds.upsert takes (kind, items[])"}
+			}
+		}
+		accepted, err := b.h.KindUpsert(ctx, str(0), items)
+		if err != nil {
+			return nil, mapHostError(err)
+		}
+		return result(map[string]any{"accepted": accepted}, nil)
+	case "kinds.delete":
+		var ids []string
+		if len(args) > 1 {
+			if err := json.Unmarshal(args[1], &ids); err != nil {
+				return nil, &wasm.Fault{Code: "bad_arguments", Message: "kinds.delete takes (kind, ids[])"}
+			}
+		}
+		return result(nil, b.h.KindDelete(ctx, str(0), ids))
+	case "kinds.items":
+		page, err := b.h.KindItems(ctx, str(0), str(1), int(num(2)))
+		return result(page, err)
+	case "sources.resolve":
+		var q core.SourceQuery
+		if len(args) > 0 {
+			if err := json.Unmarshal(args[0], &q); err != nil {
+				return nil, &wasm.Fault{Code: "bad_arguments", Message: "sources.resolve takes a query object"}
+			}
+		}
+		cands, err := b.h.ResolveSources(ctx, q)
+		if err != nil {
+			return nil, mapHostError(err)
+		}
+		if cands == nil {
+			cands = []core.SourceCandidate{}
+		}
+		return result(map[string]any{"candidates": cands}, nil)
+	case "cache.put":
+		var body []byte
+		if len(args) > 2 {
+			var s string
+			if err := json.Unmarshal(args[2], &s); err == nil {
+				body = []byte(s)
+			} else {
+				var wrapped struct {
+					Body       string `json:"body"`
+					BodyBase64 string `json:"bodyBase64"`
+				}
+				if err := json.Unmarshal(args[2], &wrapped); err != nil {
+					return nil, &wasm.Fault{Code: "bad_arguments", Message: "cache.put takes (libraryKey, name, data)"}
+				}
+				body = []byte(wrapped.Body)
+				if wrapped.BodyBase64 != "" {
+					decoded, err := base64.StdEncoding.DecodeString(wrapped.BodyBase64)
+					if err != nil {
+						return nil, &wasm.Fault{Code: "bad_arguments", Message: "bodyBase64 is not valid base64"}
+					}
+					body = decoded
+				}
+			}
+		}
+		ref, err := b.h.CachePut(ctx, str(0), str(1), bytes.NewReader(body))
+		if err != nil {
+			return nil, mapHostError(err)
+		}
+		return result(map[string]any{"blob": ref}, nil)
+	case "cache.open":
+		rc, err := b.h.CacheOpen(ctx, str(0))
+		if err != nil {
+			return nil, mapHostError(err)
+		}
+		defer rc.Close()
+		data, err := io.ReadAll(io.LimitReader(rc, wasm.MaxHostResultBytes+1))
+		if err != nil {
+			return nil, mapHostError(err)
+		}
+		if len(data) > wasm.MaxHostResultBytes {
+			return nil, &wasm.Fault{Code: "host_error", Message: "cached blob exceeds host result size cap"}
+		}
+		out := map[string]any{}
+		if utf8.Valid(data) {
+			out["body"] = string(data)
+		} else {
+			out["body"] = ""
+			out["bodyBase64"] = base64.StdEncoding.EncodeToString(data)
+		}
+		return result(out, nil)
 	case "folders.list":
 		v, err := b.h.FoldersList(ctx, str(0), str(1))
 		return result(v, err)
@@ -473,9 +564,12 @@ func (b hostBridge) CallHost(ctx context.Context, name string, raw json.RawMessa
 
 func mapHostError(err error) error {
 	var input *CollectionInputError
+	var valid *ValidationError
 	switch {
 	case errors.As(err, &input):
 		return &wasm.Fault{Code: string(wasm.StatusInvalidInput), Message: input.Message}
+	case errors.As(err, &valid):
+		return &wasm.Fault{Code: string(wasm.StatusInvalidInput), Message: valid.Error()}
 	case errors.Is(err, ErrPermissionDenied):
 		return wasm.Forbidden(err.Error())
 	case errors.Is(err, context.DeadlineExceeded):

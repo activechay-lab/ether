@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins"
 	"github.com/braedonsaunders/ether/internal/safefetch"
 )
@@ -319,6 +320,59 @@ func (a HostAdapter) CollectionsUpsert(ctx context.Context, pluginID string, col
 		return err
 	}
 	return mapHostErr(h.CollectionsUpsert(ctx, collection))
+}
+
+func (a HostAdapter) KindUpsert(ctx context.Context, pluginID, kindKey string, items []core.KindItem) (int, error) {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := h.KindUpsert(ctx, kindKey, items)
+	return n, mapHostErr(err)
+}
+
+func (a HostAdapter) KindDelete(ctx context.Context, pluginID, kindKey string, externalIDs []string) error {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return err
+	}
+	return mapHostErr(h.KindDelete(ctx, kindKey, externalIDs))
+}
+
+func (a HostAdapter) KindItems(ctx context.Context, pluginID, kindKey, cursor string, limit int) (core.KindPage, error) {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return core.KindPage{}, err
+	}
+	page, err := h.KindItems(ctx, kindKey, cursor, limit)
+	return page, mapHostErr(err)
+}
+
+func (a HostAdapter) ResolveSources(ctx context.Context, pluginID string, q core.SourceQuery) ([]core.SourceCandidate, error) {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return nil, err
+	}
+	cands, err := h.ResolveSources(ctx, q)
+	return cands, mapHostErr(err)
+}
+
+func (a HostAdapter) CachePut(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (string, error) {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return "", err
+	}
+	ref, err := h.CachePut(ctx, libraryKey, name, r)
+	return ref, mapHostErr(err)
+}
+
+func (a HostAdapter) CacheOpen(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error) {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := h.CacheOpen(ctx, blobRef)
+	return rc, mapHostErr(err)
 }
 
 func (a HostAdapter) Settings(ctx context.Context, pluginID string) (map[string]any, error) {

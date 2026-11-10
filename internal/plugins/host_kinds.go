@@ -8,8 +8,9 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"sync"
 	"unicode/utf8"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // KindBackends are the Ether services the kind host calls end in: the
@@ -19,29 +20,38 @@ import (
 // debrid services, blobcache); the plugin id is always the caller's,
 // so a plugin can only ever reach its own kinds and cache.
 type KindBackends struct {
-	KindUpsert     func(ctx context.Context, pluginID, kindKey string, items []KindItem) (accepted int, err error)
+	KindUpsert     func(ctx context.Context, pluginID, kindKey string, items []core.KindItem) (accepted int, err error)
 	KindDelete     func(ctx context.Context, pluginID, kindKey string, externalIDs []string) error
-	KindItems      func(ctx context.Context, pluginID, kindKey, cursor string, limit int) (KindPage, error)
-	ResolveSources func(ctx context.Context, pluginID string, q SourceQuery) ([]SourceCandidate, error)
+	KindItems      func(ctx context.Context, pluginID, kindKey, cursor string, limit int) (core.KindPage, error)
+	ResolveSources func(ctx context.Context, pluginID string, q core.SourceQuery) ([]core.SourceCandidate, error)
 	CachePut       func(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (blobRef string, err error)
 	CacheOpen      func(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error)
 }
 
-// kindBackendsByManager holds the backends SetKindBackends installed
-// per Manager, so this file needs no new Manager field.
-var kindBackendsByManager sync.Map
-
-// SetKindBackends wires the kind host services. Called once at
-// startup by app wiring, like the Backends in Deps.
+// SetKindBackends wires the kind host services into the Manager's
+// Backends. Called once at startup by app wiring or in tests.
 func (m *Manager) SetKindBackends(b KindBackends) {
-	kindBackendsByManager.Store(m, b)
+	m.mu.Lock()
+	m.deps.Backends.KindUpsert = b.KindUpsert
+	m.deps.Backends.KindDelete = b.KindDelete
+	m.deps.Backends.KindItems = b.KindItems
+	m.deps.Backends.ResolveSources = b.ResolveSources
+	m.deps.Backends.CachePut = b.CachePut
+	m.deps.Backends.CacheOpen = b.CacheOpen
+	m.mu.Unlock()
 }
 
 func (m *Manager) kindBackends() KindBackends {
-	if b, ok := kindBackendsByManager.Load(m); ok {
-		return b.(KindBackends)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return KindBackends{
+		KindUpsert:     m.deps.Backends.KindUpsert,
+		KindDelete:     m.deps.Backends.KindDelete,
+		KindItems:      m.deps.Backends.KindItems,
+		ResolveSources: m.deps.Backends.ResolveSources,
+		CachePut:       m.deps.Backends.CachePut,
+		CacheOpen:      m.deps.Backends.CacheOpen,
 	}
-	return KindBackends{}
 }
 
 // Per-call caps for kind host services (spec §3.3 sizes, host side).
@@ -63,7 +73,7 @@ func ValidExternalID(id string) bool { return externalIDRe.MatchString(id) }
 // check (spec §3.3); this one is shared by the host and the kit so a
 // plugin is told the same thing everywhere. It returns a plain
 // reason, or "" when the item passes.
-func CheckKindItem(decl MediaKindMeta, it KindItem) string {
+func CheckKindItem(decl MediaKindMeta, it core.KindItem) string {
 	switch {
 	case !ValidExternalID(it.ID):
 		return "id must start with a letter or digit and use letters, digits, dot, dash, underscore or tilde, at most 128 characters"
@@ -142,12 +152,61 @@ func (h *host) kindCheck(ctx context.Context, kindKey string, caps ...Capability
 }
 
 type kindInverse struct {
-	Op    string   `json:"op"`
-	Kind  string   `json:"kind"`
-	Items []string `json:"items,omitempty"` // external ids touched
+	Op       string          `json:"op"`
+	Kind     string          `json:"kind"`
+	Items    []string        `json:"items,omitempty"`    // external ids touched (or created on upsert)
+	Previous []core.KindItem `json:"previous,omitempty"` // previous items before upsert or delete
 }
 
-func (h *host) KindUpsert(ctx context.Context, kindKey string, items []KindItem) (int, error) {
+// snapshotKindItems looks up any existing items for kindKey whose IDs
+// are in ids so a live KindUpsert or KindDelete can record a real
+// inverse in the journal.
+func (h *host) snapshotKindItems(ctx context.Context, kindKey string, ids []string) (existing []core.KindItem, missing []string) {
+	readFn := h.m.kindBackends().KindItems
+	if readFn == nil || len(ids) == 0 {
+		return nil, append([]string(nil), ids...)
+	}
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	found := make(map[string]core.KindItem, len(ids))
+	cursor := ""
+	seenCursor := map[string]bool{}
+	for pageNum := 0; pageNum < 50 && len(found) < len(want); pageNum++ {
+		seenCursor[cursor] = true
+		page, err := readFn(ctx, h.plugin, kindKey, cursor, MaxKindUpsertItems)
+		if err != nil {
+			break
+		}
+		for _, it := range page.Items {
+			if want[it.ID] {
+				if _, dup := found[it.ID]; !dup {
+					found[it.ID] = it
+				}
+			}
+		}
+		if page.NextCursor == "" || seenCursor[page.NextCursor] {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	seenID := map[string]bool{}
+	for _, id := range ids {
+		if seenID[id] {
+			continue
+		}
+		seenID[id] = true
+		if prev, ok := found[id]; ok {
+			existing = append(existing, prev)
+		} else {
+			missing = append(missing, id)
+		}
+	}
+	return existing, missing
+}
+
+func (h *host) KindUpsert(ctx context.Context, kindKey string, items []core.KindItem) (int, error) {
 	if err := h.requireWritableToolContext(ctx); err != nil {
 		return 0, err
 	}
@@ -175,7 +234,20 @@ func (h *host) KindUpsert(ctx context.Context, kindKey string, items []KindItem)
 	if backend == nil {
 		return 0, ErrUnavailable
 	}
-	return backend(ctx, h.plugin, kindKey, items)
+	prev, created := h.snapshotKindItems(ctx, kindKey, ids)
+	accepted, err := backend(ctx, h.plugin, kindKey, items)
+	if err != nil {
+		return 0, err
+	}
+	if err := h.journal(ctx, r, "kinds.upsert", kindKey, kindInverse{
+		Op:       "kinds.upsert",
+		Kind:     kindKey,
+		Items:    created,
+		Previous: prev,
+	}); err != nil {
+		return 0, err
+	}
+	return accepted, nil
 }
 
 func (h *host) KindDelete(ctx context.Context, kindKey string, externalIDs []string) error {
@@ -204,16 +276,25 @@ func (h *host) KindDelete(ctx context.Context, kindKey string, externalIDs []str
 	if backend == nil {
 		return ErrUnavailable
 	}
-	return backend(ctx, h.plugin, kindKey, externalIDs)
+	prev, _ := h.snapshotKindItems(ctx, kindKey, externalIDs)
+	if err := backend(ctx, h.plugin, kindKey, externalIDs); err != nil {
+		return err
+	}
+	return h.journal(ctx, r, "kinds.delete", kindKey, kindInverse{
+		Op:       "kinds.delete",
+		Kind:     kindKey,
+		Items:    externalIDs,
+		Previous: prev,
+	})
 }
 
-func (h *host) KindItems(ctx context.Context, kindKey, cursor string, limit int) (KindPage, error) {
+func (h *host) KindItems(ctx context.Context, kindKey, cursor string, limit int) (core.KindPage, error) {
 	if _, _, err := h.kindCheck(ctx, kindKey, CapCatalogProvider); err != nil {
-		return KindPage{}, err
+		return core.KindPage{}, err
 	}
 	backend := h.m.kindBackends().KindItems
 	if backend == nil {
-		return KindPage{}, ErrUnavailable
+		return core.KindPage{}, ErrUnavailable
 	}
 	if limit <= 0 {
 		limit = 200
@@ -224,7 +305,7 @@ func (h *host) KindItems(ctx context.Context, kindKey, cursor string, limit int)
 	return backend(ctx, h.plugin, kindKey, cursor, limit)
 }
 
-func (h *host) ResolveSources(ctx context.Context, q SourceQuery) ([]SourceCandidate, error) {
+func (h *host) ResolveSources(ctx context.Context, q core.SourceQuery) ([]core.SourceCandidate, error) {
 	r, g, err := h.record(ctx)
 	if err != nil {
 		return nil, err
@@ -266,12 +347,6 @@ func (h *host) ResolveSources(ctx context.Context, q SourceQuery) ([]SourceCandi
 	return backend(ctx, h.plugin, q)
 }
 
-// KindLibraryKey is the library key a plugin kind owns (spec §1.1):
-// "pk-<pluginID>-<kindKey>", with the plugin id verbatim.
-func KindLibraryKey(pluginID, kindKey string) string {
-	return "pk-" + pluginID + "-" + kindKey
-}
-
 func (h *host) CachePut(ctx context.Context, libraryKey, name string, r io.Reader) (string, error) {
 	if err := h.requireWritableToolContext(ctx); err != nil {
 		return "", err
@@ -289,7 +364,7 @@ func (h *host) CachePut(ctx context.Context, libraryKey, name string, r io.Reade
 	found := false
 	if man.Ether != nil {
 		for _, k := range man.Ether.Contributes.MediaKinds {
-			if KindLibraryKey(h.plugin, k.Key) == libraryKey {
+			if core.PluginLibraryKey(h.plugin, k.Key) == libraryKey {
 				decl, found = k, true
 			}
 		}

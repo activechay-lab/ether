@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins"
 )
 
@@ -66,7 +67,7 @@ func CheckKindUpgrade(prev, next plugins.Manifest) []Issue {
 // declaration: page size, per-item envelope rules, and that item ids
 // are not repeated inside the page. It is the offline half of the
 // browse/detail conformance checks (§9.4).
-func ValidateKindPage(decl plugins.MediaKindMeta, page plugins.KindPage, limit int) []Issue {
+func ValidateKindPage(decl plugins.MediaKindMeta, page core.KindPage, limit int) []Issue {
 	var out []Issue
 	if limit > 0 && len(page.Items) > limit {
 		out = append(out, Issue{Rule: "kinds", Field: "items", Message: fmt.Sprintf("page holds %d items, more than the %d requested", len(page.Items), limit)})

@@ -17,6 +17,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/agent/tools"
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/egress"
 	"github.com/braedonsaunders/ether/internal/extend"
 	"github.com/braedonsaunders/ether/internal/logredact"
@@ -43,6 +44,14 @@ type Backends struct {
 	CollectionsDelete func(ctx context.Context, doc json.RawMessage) error
 	// Notice posts a console notice ("console notice" in SPEC §5.2).
 	Notice func(text string)
+	// Kind host services (spec §3.6, §4.5, §5.4): plugin-item store,
+	// source resolver and per-library blob cache.
+	KindUpsert     func(ctx context.Context, pluginID, kindKey string, items []core.KindItem) (accepted int, err error)
+	KindDelete     func(ctx context.Context, pluginID, kindKey string, externalIDs []string) error
+	KindItems      func(ctx context.Context, pluginID, kindKey, cursor string, limit int) (core.KindPage, error)
+	ResolveSources func(ctx context.Context, pluginID string, q core.SourceQuery) ([]core.SourceCandidate, error)
+	CachePut       func(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (blobRef string, err error)
+	CacheOpen      func(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error)
 }
 
 // Deps are the plugin host's explicit dependencies.
@@ -488,6 +497,13 @@ func DeadlineFor(path string) time.Duration {
 		return 10 * time.Second
 	case strings.HasPrefix(path, "/subtitles/"), strings.HasPrefix(path, "/ether/subtitles/"):
 		return 5 * time.Second
+	case strings.HasPrefix(path, "/ether/v1/setup/"):
+		return 20 * time.Second
+	case strings.HasPrefix(path, "/ether/v1/kinds/"):
+		if strings.HasSuffix(path, "/resolve") || strings.HasSuffix(path, "/match") {
+			return 5 * time.Second
+		}
+		return 10 * time.Second
 	default:
 		return 30 * time.Second
 	}

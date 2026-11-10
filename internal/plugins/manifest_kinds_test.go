@@ -3,6 +3,8 @@ package plugins
 import (
 	"strings"
 	"testing"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 func contentManifest() Manifest {
@@ -37,9 +39,14 @@ func validMediaKind() MediaKindMeta {
 			{Key: "duration", Type: "duration", Label: "Duration"},
 		},
 		Art: []KindArt{{Role: "waveform", Label: "Waveform"}},
-		Present: Presentations{
-			Plex:         &PlexPresentation{Base: "show"},
-			MediaBrowser: &MediaBrowserPresentation{CollectionType: "music", ItemTypes: map[string]string{"album": "MusicAlbum", "track": "Audio"}},
+		Present: core.Presentations{
+			Plex: &struct {
+				Base string `json:"base"`
+			}{Base: "show"},
+			MediaBrowser: &struct {
+				CollectionType string            `json:"collectionType"`
+				ItemTypes      map[string]string `json:"itemTypes,omitempty"`
+			}{CollectionType: "music", ItemTypes: map[string]string{"album": "MusicAlbum", "track": "Audio"}},
 		},
 		Browse: KindBrowseDecl{Sorts: []string{"title", "added"}, Facets: []string{"genre"}, Search: true, SearchFields: []string{"recordist"}},
 		Sync:   KindSyncDecl{Mode: KindSyncPull, Refresh: "1h"},
@@ -57,7 +64,7 @@ func TestContentManifestValidates(t *testing.T) {
 	m.Ether.Contributes.FrontendAdapters = []FrontendAdapterMeta{
 		{Key: "feed", Label: "Recordings feed", ProtocolHint: "custom", PathPrefix: "/recordings"},
 	}
-	m.Ether.Contributes.MediaKinds[0].Present = Presentations{AdapterOnly: true}
+	m.Ether.Contributes.MediaKinds[0].Present = core.Presentations{AdapterOnly: true}
 	if err := m.Validate(); err != nil {
 		t.Fatalf("adapter only kind: %v", err)
 	}
@@ -117,9 +124,9 @@ func TestContentManifestRules(t *testing.T) {
 		}, "browse.searchFields[0]"},
 		{"search fields without search", func(m *Manifest) { kind(m).Browse.Search = false }, "browse.search"},
 		{"builtin art role", func(m *Manifest) { kind(m).Art[0].Role = "poster" }, "art[0].role"},
-		{"no presentation", func(m *Manifest) { kind(m).Present = Presentations{} }, ".present"},
+		{"no presentation", func(m *Manifest) { kind(m).Present = core.Presentations{} }, ".present"},
 		{"adapter only without adapter", func(m *Manifest) {
-			kind(m).Present = Presentations{AdapterOnly: true}
+			kind(m).Present = core.Presentations{AdapterOnly: true}
 		}, ".present.adapterOnly"},
 		{"plex show one level", func(m *Manifest) {
 			kind(m).Levels = []KindLevel{{Key: "track", Label: "Track", Playable: true}}

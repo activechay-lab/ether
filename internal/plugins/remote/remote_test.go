@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins/remotetest"
 	"io"
 	"net"
@@ -758,14 +759,23 @@ type fakeHost struct {
 	denyHistory bool
 	denyWatch   bool
 	denyColl    bool
+	denyKinds   bool
+	denySources bool
+	denyCache   bool
 	watchCalls  []string
 	collections []string
+	kindItems   map[string][]core.KindItem
+	blobs       map[string][]byte
 	notices     []string
 	logs        []string
 }
 
 func newFakeHost() *fakeHost {
-	return &fakeHost{kv: map[string]map[string][]byte{}}
+	return &fakeHost{
+		kv:        map[string]map[string][]byte{},
+		kindItems: map[string][]core.KindItem{},
+		blobs:     map[string][]byte{},
+	}
 }
 
 func (f *fakeHost) KVGet(_ context.Context, pluginID, key string) ([]byte, bool, error) {
@@ -856,6 +866,85 @@ func (f *fakeHost) CollectionsUpsert(_ context.Context, pluginID string, collect
 	f.collections = append(f.collections, pluginID+":"+string(collection))
 	f.mu.Unlock()
 	return nil
+}
+
+func (f *fakeHost) KindUpsert(_ context.Context, pluginID, kindKey string, items []core.KindItem) (int, error) {
+	if f.denyKinds {
+		return 0, ErrPermissionDenied
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := pluginID + ":" + kindKey
+	f.kindItems[k] = append(f.kindItems[k], items...)
+	return len(items), nil
+}
+
+func (f *fakeHost) KindDelete(_ context.Context, pluginID, kindKey string, externalIDs []string) error {
+	if f.denyKinds {
+		return ErrPermissionDenied
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := pluginID + ":" + kindKey
+	drop := map[string]bool{}
+	for _, id := range externalIDs {
+		drop[id] = true
+	}
+	var kept []core.KindItem
+	for _, it := range f.kindItems[k] {
+		if !drop[it.ID] {
+			kept = append(kept, it)
+		}
+	}
+	f.kindItems[k] = kept
+	return nil
+}
+
+func (f *fakeHost) KindItems(_ context.Context, pluginID, kindKey, _ string, _ int) (core.KindPage, error) {
+	if f.denyKinds {
+		return core.KindPage{}, ErrPermissionDenied
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return core.KindPage{Items: append([]core.KindItem(nil), f.kindItems[pluginID+":"+kindKey]...)}, nil
+}
+
+func (f *fakeHost) ResolveSources(_ context.Context, _ string, q core.SourceQuery) ([]core.SourceCandidate, error) {
+	if f.denySources {
+		return nil, ErrPermissionDenied
+	}
+	return []core.SourceCandidate{{InfoHash: "cand-1", Title: q.Query, Cached: true}}, nil
+}
+
+func (f *fakeHost) CachePut(_ context.Context, pluginID, libraryKey, _ string, r io.Reader) (string, error) {
+	if f.denyCache {
+		return "", ErrPermissionDenied
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	ref := "blob:" + pluginID + ":" + libraryKey
+	f.mu.Lock()
+	f.blobs[ref] = data
+	f.mu.Unlock()
+	return ref, nil
+}
+
+func (f *fakeHost) CacheOpen(_ context.Context, _, blobRef string) (io.ReadSeekCloser, error) {
+	if f.denyCache {
+		return nil, ErrPermissionDenied
+	}
+	f.mu.Lock()
+	data, ok := f.blobs[blobRef]
+	f.mu.Unlock()
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return struct {
+		*bytes.Reader
+		io.Closer
+	}{Reader: bytes.NewReader(data), Closer: io.NopCloser(nil)}, nil
 }
 
 func (f *fakeHost) Settings(_ context.Context, pluginID string) (map[string]any, error) {
@@ -985,6 +1074,48 @@ func TestPluginHostAPIEndpointsAuthAndGrants(t *testing.T) {
 	}
 	if len(fh.watchCalls) != 1 || len(fh.collections) != 1 || len(fh.notices) != 1 || len(fh.logs) != 1 {
 		t.Fatalf("unexpected recorded host calls: watch=%v coll=%v notices=%v logs=%v", fh.watchCalls, fh.collections, fh.notices, fh.logs)
+	}
+
+	// Kind upsert, list, delete, sources resolve, and blob cache put/open (plus 403 on revocation).
+	status, upOut := doHost(http.MethodPost, "/ether/plugin-host/kinds/rom/upsert", "cred-one", `{"items":[{"id":"smw","level":"game","title":"Super Mario World"}]}`)
+	if status != http.StatusOK || upOut["accepted"] != float64(1) {
+		t.Fatalf("kind upsert = %d %+v", status, upOut)
+	}
+	status, listKindOut := doHost(http.MethodGet, "/ether/plugin-host/kinds/rom/items", "cred-one", "")
+	if status != http.StatusOK || len(listKindOut["items"].([]any)) != 1 {
+		t.Fatalf("kind items = %d %+v", status, listKindOut)
+	}
+	if status, _ := doHost(http.MethodPost, "/ether/plugin-host/kinds/rom/delete", "cred-one", `{"ids":["smw"]}`); status != http.StatusOK {
+		t.Fatalf("kind delete status = %d", status)
+	}
+	fh.denyKinds = true
+	if status, _ := doHost(http.MethodPost, "/ether/plugin-host/kinds/rom/upsert", "cred-one", `{"items":[{"id":"smw","level":"game","title":"Super Mario World"}]}`); status != http.StatusForbidden {
+		t.Fatalf("denied kind upsert status = %d, want 403", status)
+	}
+
+	status, srcOut := doHost(http.MethodPost, "/ether/plugin-host/sources/resolve", "cred-one", `{"query":"Mario"}`)
+	if status != http.StatusOK || len(srcOut["candidates"].([]any)) != 1 {
+		t.Fatalf("sources resolve = %d %+v", status, srcOut)
+	}
+	fh.denySources = true
+	if status, _ := doHost(http.MethodPost, "/ether/plugin-host/sources/resolve", "cred-one", `{"query":"Mario"}`); status != http.StatusForbidden {
+		t.Fatalf("denied sources resolve status = %d, want 403", status)
+	}
+
+	status, cacheOut := doHost(http.MethodPut, "/ether/plugin-host/cache/pk-plugin-one-rom/smw.sfc", "cred-one", "ROMDATA")
+	if status != http.StatusOK || cacheOut["blob"] != "blob:plugin.one:pk-plugin-one-rom" {
+		t.Fatalf("cache put = %d %+v", status, cacheOut)
+	}
+	cacheReq, _ := http.NewRequest(http.MethodGet, srv.URL+"/ether/plugin-host/cache/blob:plugin.one:pk-plugin-one-rom", nil)
+	cacheReq.Header.Set(HeaderCredential, "cred-one")
+	cacheResp, err := http.DefaultClient.Do(cacheReq)
+	if err != nil {
+		t.Fatalf("cache open: %v", err)
+	}
+	cacheBody, _ := io.ReadAll(cacheResp.Body)
+	_ = cacheResp.Body.Close()
+	if cacheResp.StatusCode != http.StatusOK || string(cacheBody) != "ROMDATA" {
+		t.Fatalf("cache open = %d %q", cacheResp.StatusCode, cacheBody)
 	}
 }
 

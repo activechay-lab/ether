@@ -452,6 +452,43 @@ func (m *Manager) applyInverse(ctx context.Context, e JournalEntry) error {
 			return ErrUnavailable
 		}
 		return m.deps.Backends.CollectionsDelete(collectionContext(ctx, e.Plugin), inv.Doc)
+	case "kinds.upsert":
+		var inv kindInverse
+		if err := json.Unmarshal(e.Inverse, &inv); err != nil {
+			return err
+		}
+		b := m.kindBackends()
+		if len(inv.Previous) > 0 {
+			if b.KindUpsert == nil {
+				return ErrUnavailable
+			}
+			if _, err := b.KindUpsert(ctx, e.Plugin, inv.Kind, inv.Previous); err != nil {
+				return err
+			}
+		}
+		if len(inv.Items) > 0 {
+			if b.KindDelete == nil {
+				return ErrUnavailable
+			}
+			if err := b.KindDelete(ctx, e.Plugin, inv.Kind, inv.Items); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "kinds.delete":
+		var inv kindInverse
+		if err := json.Unmarshal(e.Inverse, &inv); err != nil {
+			return err
+		}
+		b := m.kindBackends()
+		if b.KindUpsert == nil {
+			return ErrUnavailable
+		}
+		if len(inv.Previous) > 0 {
+			_, err := b.KindUpsert(ctx, e.Plugin, inv.Kind, inv.Previous)
+			return err
+		}
+		return nil
 	default:
 		return fmt.Errorf("plugins: no inverse for journal op %q", e.Op)
 	}

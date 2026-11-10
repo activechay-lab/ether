@@ -486,6 +486,16 @@ type InstallOptions struct {
 	Shadow     bool
 	// AcceptAddedPermissions confirms an update that asks for more.
 	AcceptAddedPermissions bool
+	// ReplaceLibraries confirms a non-additive media-kind upgrade that
+	// replaces the plugin's library contents (spec §2.5).
+	ReplaceLibraries bool
+}
+
+func mediaKindsOf(m Manifest) []MediaKindMeta {
+	if m.Ether == nil {
+		return nil
+	}
+	return m.Ether.Contributes.MediaKinds
 }
 
 // Install installs (or updates to) a previewed source.
@@ -517,6 +527,11 @@ func (m *Manager) Install(ctx context.Context, p *Preview, opts InstallOptions) 
 			// Same-version reinstall is allowed (Studio); older is not.
 			if CompareSemVer(man.Version, cur.Version) < 0 {
 				return Record{}, fmt.Errorf("plugins: version %s is older than the installed %s; use rollback", man.Version, cur.Version)
+			}
+		}
+		if !opts.ReplaceLibraries {
+			if err := ValidateMediaKindsUpgrade(mediaKindsOf(cur.Manifest), mediaKindsOf(man)); err != nil {
+				return Record{}, err
 			}
 		}
 		added := PermissionDiff(cur.Manifest, man)
