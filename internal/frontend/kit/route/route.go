@@ -107,13 +107,40 @@ func (r *Router) Routes() []Route {
 	return out
 }
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(req.URL.Path, "/"), "/")
 	r.mu.RLock()
 	entries := append([]registered(nil), r.ordered...)
 	unmatched := r.unmatched
 	middleware := r.middleware
 	r.mu.RUnlock()
-	methodMismatch := false
+	served, methodMismatch := r.serve(w, req, entries, middleware)
+	// Like the ASP.NET servers these frontends emulate, a trailing slash
+	// is ignored when the exact path matches nothing (Jellyfin for Roku
+	// asks for /items/, #421). Paths that match today are untouched.
+	if !served && !methodMismatch && len(req.URL.Path) > 1 && strings.HasSuffix(req.URL.Path, "/") {
+		req.URL.Path = strings.TrimRight(req.URL.Path, "/")
+		req.URL.RawPath = ""
+		served, methodMismatch = r.serve(w, req, entries, middleware)
+	}
+	if served {
+		return
+	}
+	if methodMismatch {
+		if unmatched != nil {
+			unmatched(req, http.StatusMethodNotAllowed)
+		}
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if unmatched != nil {
+		unmatched(req, http.StatusNotFound)
+	}
+	http.NotFound(w, req)
+}
+
+// serve runs the first route matching req's path and method. It reports
+// whether one ran, and whether a route matched the path under another method.
+func (r *Router) serve(w http.ResponseWriter, req *http.Request, entries []registered, middleware func(Route, http.Handler) http.Handler) (served, methodMismatch bool) {
+	parts := strings.Split(strings.TrimPrefix(req.URL.Path, "/"), "/")
 	for _, e := range entries {
 		values := map[string]string{}
 		matched := true
@@ -154,19 +181,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			h = middleware(e.route, h)
 		}
 		h.ServeHTTP(w, req)
-		return
+		return true, methodMismatch
 	}
-	if methodMismatch {
-		if unmatched != nil {
-			unmatched(req, http.StatusMethodNotAllowed)
-		}
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if unmatched != nil {
-		unmatched(req, http.StatusNotFound)
-	}
-	http.NotFound(w, req)
+	return false, methodMismatch
 }
 
 // Query returns all values for keys matching name case-insensitively.

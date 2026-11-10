@@ -294,14 +294,16 @@ func (i *instance) browseRoutes() error {
 			if series != 0 {
 				titles, err = i.seriesNextUp(r, v, series)
 				if err != nil {
-					http.Error(w, "Unavailable", 503)
-					return
+					// Jellyfin never fails Next Up; some clients (Roku) exit on
+					// an error here, so answer an empty row and log it (#421).
+					i.logRowFailure(purpose, err)
+					titles = nil
 				}
 			} else {
 				rows, err := i.host.Experience.Rows(r.Context(), frontend.RowRequest{Viewer: v, Device: device(r), Placement: frontend.PlacementHome, Purpose: purpose})
 				if err != nil {
-					http.Error(w, "Unavailable", 503)
-					return
+					i.logRowFailure(purpose, err)
+					rows = nil
 				}
 				for _, row := range rows {
 					if row.Purpose != purpose {
@@ -1191,4 +1193,12 @@ func premiereDateFilter(op, raw string) (frontend.DateFilter, bool) {
 		}
 	}
 	return frontend.DateFilter{}, false
+}
+
+// logRowFailure records a home row that could not be built; the client is
+// answered an empty row instead of an error (#421).
+func (i *instance) logRowFailure(purpose frontend.RowPurpose, err error) {
+	if i.host.Log != nil {
+		i.host.Log.Warn("jellyfin row unavailable", "purpose", purpose, "err", err)
+	}
 }
