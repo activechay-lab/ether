@@ -36,7 +36,7 @@ func (s *Server) projectFileAvailability(r *http.Request, mc *model.MediaContain
 	if !metadataOptionOn(q.Get("checkFiles")) && !metadataOptionOn(q.Get("asyncCheckFiles")) && !metadataOptionOn(q.Get("checkFileAvailability")) {
 		return
 	}
-	checker, ok := s.d.Playback.(fileAvailabilityChecker)
+	checker, ok := s.playback().(fileAvailabilityChecker)
 	if !ok {
 		return
 	}

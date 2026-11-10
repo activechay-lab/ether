@@ -400,11 +400,11 @@ func startDetailPageWait(pr *Request) {
 // yet, so the first detail/season/show open renders the file's real audio and
 // subtitle tracks instead of an estimate.
 func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title) {
-	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
+	if t == nil || !isPlayable(t.Type) || s.playback() == nil {
 		return
 	}
 	if plexMobileOrTVBedrockClient(pr) {
-		if _, ok := s.d.Playback.(frontend.MetadataProber); ok {
+		if _, ok := s.playback().(frontend.MetadataProber); ok {
 			// A single wait: do not add speculative warmDetail's four seconds
 			// after the metadata probe's own bounded wait. Errors/timeouts
 			// preserve the normal detail response and background preparation.
@@ -413,7 +413,7 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 		}
 	}
 	caps := s.clientCapsForKey(pr, t.Key)
-	if warm, ok := s.d.Playback.(frontend.Prewarmer); ok {
+	if warm, ok := s.playback().(frontend.Prewarmer); ok {
 		// Plex builds these caps from the device's own profile: a held
 		// detail page may warm one cached add-on stream (PlayIntent).
 		warm.Prewarm(ctx, pr.User, t.Key, caps, frontend.PrewarmOptions{Reason: frontend.PrewarmDetail, PlayIntent: true})
@@ -421,18 +421,18 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 	if pr == nil || pr.User == nil {
 		return
 	}
-	if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
+	if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
 		return
 	}
 	if _, _, ok := s.resumedTracks(ctx, pr, t); ok {
 		return
 	}
-	if wp, ok := s.d.Playback.(frontend.WarmProber); ok {
+	if wp, ok := s.playback().(frontend.WarmProber); ok {
 		if _, warm := wp.WarmProbeInfo(pr.User, caps, t.Key); warm {
 			return
 		}
 	}
-	if waiter, ok := s.d.Playback.(frontend.WarmProbeWaiter); ok {
+	if waiter, ok := s.playback().(frontend.WarmProbeWaiter); ok {
 		budget := detailWarmWaitBudget
 		if !pr.detailWaitUntil.IsZero() {
 			budget = min(budget, time.Until(pr.detailWaitUntil))
@@ -1170,13 +1170,13 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *fronte
 // Prefer exact facts for the TV picker, without making a slow source fail
 // the detail page. Completed background probes are visible on later reads.
 func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *frontend.Title) error {
-	if pr == nil || pr.User == nil || s.d.Playback == nil {
+	if pr == nil || pr.User == nil || s.playback() == nil {
 		return nil
 	}
 	if _, _, exact := s.mediaInfoWithSource(ctx, pr, t); exact {
 		return nil
 	}
-	if prober, ok := s.d.Playback.(frontend.MetadataProber); ok {
+	if prober, ok := s.playback().(frontend.MetadataProber); ok {
 		if !pr.detailWaitUntil.IsZero() {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithDeadline(ctx, pr.detailWaitUntil)

@@ -97,7 +97,7 @@ func resampleBIF(data []byte, interval time.Duration) []byte {
 }
 
 func (s *Server) cancelTrickplayIfIdle(ps *frontend.PlaySession) {
-	if ps == nil || ps.Resolution == nil || s.d.Playback == nil {
+	if ps == nil || ps.Resolution == nil || s.playback() == nil {
 		return
 	}
 	releaseID := frontend.TrickplayCacheKey(ps)
@@ -105,7 +105,7 @@ func (s *Server) cancelTrickplayIfIdle(ps *frontend.PlaySession) {
 		return
 	}
 	idle := true
-	for _, active := range s.d.Playback.Sessions() {
+	for _, active := range s.playback().Sessions() {
 		if active != nil && active.Resolution != nil && frontend.TrickplayCacheKey(active) == releaseID {
 			idle = false
 			break
@@ -147,7 +147,7 @@ func (s *Server) indexPart(r *http.Request) (frontend.RatingKey, string, bool) {
 	pr := FromContext(r.Context())
 	id, err := strconv.ParseInt(chi.URLParam(r, "part"), 10, 64)
 	if err != nil || pr.User == nil ||
-		s.d.Playback == nil || s.catalog() == nil {
+		s.playback() == nil || s.catalog() == nil {
 		return 0, "", false
 	}
 	key, wantedReleaseID, found := s.partTitle(id)
@@ -161,7 +161,7 @@ func (s *Server) indexPart(r *http.Request) (frontend.RatingKey, string, bool) {
 	if policy, ok := s.policy().(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
 		return 0, "", false
 	}
-	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
+	ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, key)
 	if !ok || ps == nil || ps.Resolution == nil || ps.Resolution.Release.ID == "" {
 		return 0, "", false
 	}
@@ -173,10 +173,10 @@ func (s *Server) indexPart(r *http.Request) (frontend.RatingKey, string, bool) {
 }
 
 func (s *Server) previewAvailable(pr *Request, key frontend.RatingKey, release string) bool {
-	if s.d.Playback == nil || pr.User == nil {
+	if s.playback() == nil || pr.User == nil {
 		return false
 	}
-	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
+	ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, key)
 	if !ok || ps == nil || ps.Resolution == nil || ps.Resolution.Release.ID != release {
 		return false
 	}

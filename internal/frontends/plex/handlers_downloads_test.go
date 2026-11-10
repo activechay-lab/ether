@@ -15,6 +15,8 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // fakeRemuxer writes a small temp file per download, like the real
@@ -103,8 +105,10 @@ func newDownloadFixture(t *testing.T, downloadsOn bool) *downloadFixture {
 		Catalog: cat,
 		State:   newFakeState(),
 		Deps: Deps{
+			Host: frontend.Host{
+				Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: f.playback, Downloads: f.remux}),
+			},
 			Playback:          f.playback,
-			Downloads:         f.remux,
 			DisableEnrichment: true,
 		},
 	}
@@ -503,10 +507,10 @@ func TestDownloadMediaRechecksTitleVisibility(t *testing.T) {
 }
 
 type blockAllKeyword string
+
 func (blockAllKeyword) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (b blockAllKeyword) Allowed(_ *core.User, t *core.Title) bool {
 	for _, k := range t.Keywords {

@@ -11,10 +11,10 @@ import (
 )
 
 type forwardedPolicy struct{ denyWAN, denyTitle bool }
+
 func (forwardedPolicy) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (p *forwardedPolicy) Allowed(*core.User, *core.Title) bool { return !p.denyTitle }
 func (p *forwardedPolicy) CanPlay(_ *core.User, remote bool, _ time.Time) bool {
@@ -23,7 +23,7 @@ func (p *forwardedPolicy) CanPlay(_ *core.User, remote bool, _ time.Time) bool {
 
 func TestForwardedOwnerRechecksCurrentPolicyAndOriginalNetwork(t *testing.T) {
 	remote := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
-	owner := newFixture(func(d *testServerDeps) { d.Encoder = remote })
+	owner := newFixture(withTestEncoder(remote))
 	defer owner.srv.Close()
 	owner.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 	owner.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=policy-owner"))
@@ -32,7 +32,7 @@ func TestForwardedOwnerRechecksCurrentPolicyAndOriginalNetwork(t *testing.T) {
 		t.Fatal(start.Code, start.Body.String())
 	}
 	delegate := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}, forwardHandler: owner.srv, forwardID: "policy-owner"}
-	sender := newFixture(func(d *testServerDeps) { d.Encoder = delegate })
+	sender := newFixture(withTestEncoder(delegate))
 	defer sender.srv.Close()
 	path := "/video/:/transcode/universal/session/policy-owner/base/00042.ts"
 	policy := &forwardedPolicy{}
@@ -77,7 +77,7 @@ func TestForwardedOwnerRechecksCurrentPolicyAndOriginalNetwork(t *testing.T) {
 
 func TestForwardedMarkerOnlyAddsRestrictions(t *testing.T) {
 	remote := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
-	f := newFixture(func(d *testServerDeps) { d.Encoder = remote })
+	f := newFixture(withTestEncoder(remote))
 	defer f.srv.Close()
 	f.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 	f.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=spoof-policy"))

@@ -382,8 +382,8 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	searcher := s.subtitles
 	release := ""
-	if pr.User != nil && s.d.Playback != nil {
-		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil && ps.Resolution != nil {
+	if pr.User != nil && s.playback() != nil {
+		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil && ps.Resolution != nil {
 			release = ps.Resolution.Release.Name
 		}
 	}
@@ -692,7 +692,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 			from := entry.offset
 			if perr == nil && q.Get("offset") != "" {
 				from = p.offset
-			} else if ps, ok := s.d.Playback.SessionFor(entry.userID, entry.clientID, entry.key); ok && ps != nil && ps.ID == entry.playID && ps.ViewOffset != nil {
+			} else if ps, ok := s.playback().SessionFor(entry.userID, entry.clientID, entry.key); ok && ps != nil && ps.ID == entry.playID && ps.ViewOffset != nil {
 				// A conversion's player reopens the stream after a seek
 				// without naming its position; its timeline has.
 				from = time.Duration(*ps.ViewOffset) * time.Millisecond
@@ -724,7 +724,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		return
 	}
 	source := ""
-	if keyer, ok := s.d.Playback.(frontend.PlaybackSourceKeyer); ok {
+	if keyer, ok := s.playback().(frontend.PlaybackSourceKeyer); ok {
 		source = keyer.SourceKey(entry.playID)
 	}
 	reader, actual, err := timeline.OpenFormatFrom(st.ExternalURL, subtitleFormat(format), source)
@@ -767,7 +767,7 @@ func sessionSoftSubtitle(entry *transcodeEntry, pr *Request, dec frontend.Decisi
 }
 
 func (s *Server) serveSessionASS(w http.ResponseWriter, r *http.Request, sessionID string, index int) {
-	if s.d.Transcoder == nil {
+	if s.transcoder() == nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -824,17 +824,17 @@ const softSubtitleLead = 10 * time.Second
 // subtitleKeepAlive holds the connection through gaps in the dialogue. It
 // reports false, with nothing written, when the track cannot be read.
 func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID string, st frontend.StreamInfo, from time.Duration) bool {
-	streamer, ok := s.d.Transcoder.(subtitleStreamer)
-	if !ok || s.d.Playback == nil || playID == "" {
+	streamer, ok := s.transcoder().(subtitleStreamer)
+	if !ok || s.playback() == nil || playID == "" {
 		return false
 	}
-	input := s.d.Playback.InputURL(playID)
+	input := s.playback().InputURL(playID)
 	if input == "" {
 		return false
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	if keyer, ok := s.d.Playback.(frontend.PlaybackSourceKeyer); ok {
+	if keyer, ok := s.playback().(frontend.PlaybackSourceKeyer); ok {
 		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	if vtt, ok := streamer.CachedSubtitle(ctx, st.Index, st.Codec); ok {
@@ -920,15 +920,15 @@ func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID
 }
 
 func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st frontend.StreamInfo, format string) ([]byte, string, bool) {
-	ex, ok := s.d.Transcoder.(frontend.SubtitleExtractor)
-	if !ok || s.d.Playback == nil || playID == "" {
+	ex, ok := s.transcoder().(frontend.SubtitleExtractor)
+	if !ok || s.playback() == nil || playID == "" {
 		return nil, "", false
 	}
-	input := s.d.Playback.InputURL(playID)
+	input := s.playback().InputURL(playID)
 	if input == "" {
 		return nil, "", false
 	}
-	if keyer, ok := s.d.Playback.(frontend.PlaybackSourceKeyer); ok {
+	if keyer, ok := s.playback().(frontend.PlaybackSourceKeyer); ok {
 		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	var buf bytes.Buffer
@@ -950,7 +950,7 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st 
 
 func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, info frontend.StreamInfo) {
 	pr := FromContext(r.Context())
-	if pr == nil || pr.User == nil || info.Type != "subtitle" || s.d.Playback == nil {
+	if pr == nil || pr.User == nil || info.Type != "subtitle" || s.playback() == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -971,12 +971,12 @@ func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key
 		}
 	}
 	if playID == "" && pr.ClientID != "" {
-		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key); ok && ps != nil {
+		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, key); ok && ps != nil {
 			playID = ps.ID
 		}
 	}
 	if playID == "" {
-		for _, ps := range s.d.Playback.Sessions() {
+		for _, ps := range s.playback().Sessions() {
 			if ps.UserID == pr.User.ID && ps.Key == key {
 				playID = ps.ID
 				break

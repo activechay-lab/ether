@@ -623,7 +623,7 @@ func (s *Server) warmBrowseLink(ctx context.Context, pr *Request, rows []model.H
 	if pr == nil || pr.User == nil {
 		return
 	}
-	pw, ok := s.d.Playback.(frontend.Prewarmer)
+	pw, ok := s.playback().(frontend.Prewarmer)
 	if !ok {
 		return
 	}

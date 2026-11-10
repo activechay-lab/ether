@@ -160,7 +160,7 @@ func (s *Server) shelfSnapshotResult(ctx context.Context, pr *Request, h fronten
 		}
 	}
 	g := s.shelfGenerations[generation]
-	persist := s.d.DB != nil && (!g.persisted || (g.expires-now.Unix() < int64((24*time.Hour)/time.Second) && now.Sub(g.lastPersist) >= time.Hour))
+	persist := s.runtimeDB() != nil && (!g.persisted || (g.expires-now.Unix() < int64((24*time.Hour)/time.Second) && now.Sub(g.lastPersist) >= time.Hour))
 	if persist && g.persisted {
 		g.lastPersist = now
 		s.shelfGenerations[generation] = g
@@ -208,11 +208,11 @@ func (s *Server) recoverShelf(ctx context.Context, generation string) (shelfGene
 	if ok {
 		return g, true
 	}
-	if s.d.DB == nil {
+	if s.runtimeDB() == nil {
 		return shelfGeneration{}, false
 	}
 	var data string
-	err := s.d.DB.QueryRowContext(ctx, `SELECT scope,path,keys_json,expires_at FROM plex_shelf_generations WHERE generation=? AND expires_at>=?`, generation, s.now().Unix()).Scan(&g.scope, &g.path, &data, &g.expires)
+	err := s.runtimeDB().QueryRowContext(ctx, `SELECT scope,path,keys_json,expires_at FROM plex_shelf_generations WHERE generation=? AND expires_at>=?`, generation, s.now().Unix()).Scan(&g.scope, &g.path, &data, &g.expires)
 	if err != nil || json.Unmarshal([]byte(data), &g.keys) != nil {
 		return shelfGeneration{}, false
 	}

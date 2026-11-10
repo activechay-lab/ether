@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -52,7 +52,9 @@ func TestNeutralServerLibrariesMatchPlexIncludingSpike(t *testing.T) {
 		cfg := config.Config{}
 		cfg.Spike.Enabled = spike
 		deps := plex.Deps{
-			SessionStores:     sessions.NewSessionStores(),
+			Host: frontend.Host{
+				Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{}),
+			},
 			DisableEnrichment: true,
 		}
 		if spike {

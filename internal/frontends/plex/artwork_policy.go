@@ -18,11 +18,11 @@ func (s *Server) remoteArtworkAllowed(r *http.Request, u *url.URL) bool {
 	if !restricted {
 		return true
 	}
-	if s.d.DB == nil {
+	if s.runtimeDB() == nil {
 		return false
 	}
 	imagePath := "/" + path.Base(u.Path)
-	rows, err := s.d.DB.QueryContext(r.Context(), `SELECT key FROM catalog_titles WHERE adult=0 AND (poster=? OR backdrop=? OR still=? OR logo=?) LIMIT 20`, imagePath, imagePath, imagePath, imagePath)
+	rows, err := s.runtimeDB().QueryContext(r.Context(), `SELECT key FROM catalog_titles WHERE adult=0 AND (poster=? OR backdrop=? OR still=? OR logo=?) LIMIT 20`, imagePath, imagePath, imagePath, imagePath)
 	if err != nil {
 		return false
 	}

@@ -1265,6 +1265,8 @@ func newFixture(opts ...func(*testServerDeps)) *fixture {
 // fixturePlayback follows Server deps. Tests replace Playback after NewServer.
 type fixturePlayback struct{ f *fixture }
 
+func (p *fixturePlayback) UnwrapPlayback() core.Playback { return p.current() }
+
 func (p *fixturePlayback) current() core.Playback {
 	if p.f.srv != nil && p.f.srv.d.Playback != nil {
 		return p.f.srv.d.Playback
@@ -1346,6 +1348,8 @@ func (p *fixturePlayback) PlaybackProgress(userID int64, clientID string, key co
 }
 
 type fixtureTranscoder struct{ f *fixture }
+
+func (t fixtureTranscoder) UnwrapTranscoder() core.Transcoder { return t.current() }
 
 func (t fixtureTranscoder) current() core.Transcoder {
 	if t.f.srv != nil && t.f.srv.d.Transcoder != nil {
@@ -1444,6 +1448,10 @@ func (p fixtureProgress) Progress(ctx context.Context, viewer int64, key core.Ra
 }
 
 func (f *fixture) attachPlaybackBroker(d testServerDeps) {
+	var lrDeps sessions.LocalRuntimeDeps
+	if lr, ok := f.srv.host.Sessions.(*sessions.LocalRuntime); ok && lr != nil {
+		lrDeps = lr.Deps()
+	}
 	active := func(_ context.Context, id int64) (*core.Viewer, error) {
 		if id <= 0 {
 			return nil, core.ErrUnauthorized
@@ -1452,7 +1460,8 @@ func (f *fixture) attachPlaybackBroker(d testServerDeps) {
 	}
 	events := sessions.NewEventBus(nil, active)
 	broker, err := sessions.NewBroker(sessions.BrokerDeps{
-		DB: d.DB, Cluster: d.Cluster,
+		DB: d.DB, Cluster: lrDeps.Cluster, SessionHeartbeat: lrDeps.SessionHeartbeat,
+		Coordination: lrDeps.Coordination, Downloads: lrDeps.Downloads, DecisionTraces: lrDeps.DecisionTraces,
 		Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			if f.srv != nil && f.srv.catalog() != nil {
 				return f.srv.catalog().Get(ctx, key)
@@ -1489,8 +1498,10 @@ func (f *fixture) attachPlaybackBroker(d testServerDeps) {
 		panic(err)
 	}
 	f.broker = broker
-	f.srv.UsePlaybackBroker(sessions.BindSurface(broker, "plex"))
-	f.srv.UsePlexStreams(sessions.BindStreams(broker))
+	f.srv.usePlaybackBroker(sessions.BindSurface(broker, "plex"))
+	if lrDeps.Encoder != nil {
+		f.srv.usePlexEncoder(lrDeps.Encoder)
+	}
 }
 
 func (f *fixture) bindStream(key core.RatingKey, index int, info core.StreamInfo) int64 {
@@ -1538,8 +1549,7 @@ func mountTestBroker(s *Server, now func() time.Time) {
 	if err != nil {
 		panic(err)
 	}
-	s.UsePlaybackBroker(sessions.BindSurface(broker, "plex"))
-	s.UsePlexStreams(sessions.BindStreams(broker))
+	s.usePlaybackBroker(sessions.BindSurface(broker, "plex"))
 }
 
 type discardProgress struct{}
@@ -1647,7 +1657,9 @@ func (s *Server) setPlexMeta(m frontend.LibraryMetadata) {
 
 type testExtraStreams struct{ src any }
 
-func (t testExtraStreams) Lookup(k core.RatingKey) (frontend.Extra, bool) { return frontend.Extra{}, false }
+func (t testExtraStreams) Lookup(k core.RatingKey) (frontend.Extra, bool) {
+	return frontend.Extra{}, false
+}
 func (t testExtraStreams) Open(context.Context, core.RatingKey) (string, string, map[string]string, error) {
 	return "", "", nil, core.ErrNotFound
 }
@@ -1704,7 +1716,8 @@ func (t testPrerolls) Lookup(context.Context, frontend.RatingKey) (frontend.Extr
 func (t testPrerolls) Open(context.Context, frontend.RatingKey) (io.ReadSeekCloser, time.Time, error) {
 	return nil, time.Time{}, core.ErrNotFound
 }
-func (t testPrerolls) Started(context.Context, *frontend.Viewer, frontend.Device, frontend.RatingKey) {}
+func (t testPrerolls) Started(context.Context, *frontend.Viewer, frontend.Device, frontend.RatingKey) {
+}
 func (t testPrerolls) Active(ctx context.Context) bool {
 	if p, ok := t.src.(interface{ Active(context.Context) bool }); ok {
 		return p.Active(ctx)
@@ -1749,7 +1762,9 @@ func (t testPrerolls) RecordPlay(ctx context.Context, play frontend.PrerollPlay)
 	}
 }
 
-type testSubtitleCatalog struct{ src frontend.SubtitleSidecarSource }
+type testSubtitleCatalog struct {
+	src frontend.SubtitleSidecarSource
+}
 
 func (t testSubtitleCatalog) Enabled() bool { return true }
 func (t testSubtitleCatalog) Search(context.Context, *core.Viewer, core.Device, core.RatingKey, string) ([]frontend.SubtitleOffer, error) {

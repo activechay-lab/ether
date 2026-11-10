@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"net/http"
 	"sync"
 	"testing"
@@ -224,7 +223,7 @@ func TestOwnerActivityIncludesAndStopsLegacyAndBrokerSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plexServer := plex.NewServer(plex.Deps{SessionStores: sessions.NewSessionStores(), Playback: p, DisableEnrichment: true})
+	plexServer := plex.NewServer(plex.Deps{Host: frontend.Host{Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: p})}, Playback: p, DisableEnrichment: true})
 	defer plexServer.Close()
 	a := &App{plexServer: plexServer, frontends: &frontendRuntime{broker: broker}}
 	activity := (ownerPlayback{Playback: p, app: a}).Sessions()

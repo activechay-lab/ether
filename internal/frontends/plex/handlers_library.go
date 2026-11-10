@@ -1083,8 +1083,8 @@ func titleSortKey(t frontend.Title) string {
 // browse runs a catalogue query honouring paging and watch-state filters.
 func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]frontend.Title, int, int, error) {
 	offset, size := pr.pageOf(br.limit)
-	if pr.User != nil && s.d.Playback != nil {
-		for _, session := range s.d.Playback.Sessions() {
+	if pr.User != nil && s.playback() != nil {
+		for _, session := range s.playback().Sessions() {
 			if session != nil && session.UserID == pr.User.ID {
 				br.q.Filter.AvailabilityKeepKeys = append(br.q.Filter.AvailabilityKeepKeys, session.Key)
 			}

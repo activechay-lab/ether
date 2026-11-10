@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -57,10 +56,10 @@ func TestPlexPolicyProductionWiringKeepsOwnerSearch(t *testing.T) {
 	vp := surfaceViewerPolicy{app: a}
 	deps := plex.Deps{
 		Host: frontend.Host{
+			Sessions:     sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{}),
 			Identity:     frontend.BindAuth(policyTestAuth{}),
 			ViewerPolicy: vp,
 		},
-		SessionStores:     sessions.NewSessionStores(),
 		DisableEnrichment: true,
 	}
 	if vp.app.safety != policy {

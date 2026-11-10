@@ -3,7 +3,6 @@ package clusterplayback
 import (
 	"context"
 	"fmt"
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -158,18 +157,13 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
 	exp := experience.NewDirectService(experience.ServiceDeps{Catalog: fixtureCatalog{}, State: composedState{}})
 	deps := plex.Deps{
-		Host:              frontend.Host{Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
-		SessionStores:     sessions.NewSessionStores(),
+		Host:              frontend.Host{Sessions: sessions.BindSurface(broker, "plex"), Experience: exp, Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
 		Playback:          remote,
 		Transcoder:        decision,
-		Encoder:           broker,
 		DisableEnrichment: true,
 	}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
-	if _, err = (plex.Frontend{Server: publicOwner}).Mount(ctx, frontend.Host{Sessions: broker, Experience: exp}); err != nil {
-		t.Fatal(err)
-	}
 	if err = owner.BindPlexDelivery(publicOwner); err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +186,9 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	defer survivorBroker.Close(ctx)
 	deps.Playback = survivorRemote
 	deps.Transcoder = survivorDecision
-	deps.Encoder = survivorBroker
+	deps.Host.Sessions = sessions.BindSurface(survivorBroker, "plex")
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
-	if _, err = (plex.Frontend{Server: publicSender}).Mount(ctx, frontend.Host{Sessions: survivorBroker, Experience: exp}); err != nil {
-		t.Fatal(err)
-	}
 	if err = sender.BindPlexDelivery(publicSender); err != nil {
 		t.Fatal(err)
 	}

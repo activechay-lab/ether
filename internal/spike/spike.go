@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
@@ -38,7 +37,7 @@ type Options struct {
 	AcceptAnyToken bool
 	// FFprobePath overrides config.Transcode.FFprobePath / PATH lookup.
 	FFprobePath string
-	// DisableProbe skips ffprobe and estimates media info (tests).
+	// DisableProbe skips ffprobe and estimates media info (tests).\n
 	DisableProbe bool
 	// SessionIdle closes play sessions without activity (default 10 min).
 	SessionIdle time.Duration
@@ -208,6 +207,7 @@ func (l *Library) Deps() plex.Deps {
 	c := l.cfg()
 	return plex.Deps{
 		Host: frontend.Host{
+			Sessions:     sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: l.Playback(), Transcoder: l.Transcoder(), Logger: l.opts.Logger}),
 			Experience:   l.Experience(),
 			Identity:     frontend.BindAuth(l.Auth()),
 			Capabilities: frontend.BindClientRules(resolver.ApplyClientRulesForMedia),
@@ -218,10 +218,9 @@ func (l *Library) Deps() plex.Deps {
 				FriendlyName: c.Server.FriendlyName,
 			},
 		},
-		SessionStores: sessions.NewSessionStores(),
-		Playback:      l.Playback(),
-		Transcoder:    l.Transcoder(),
-		Sections:      []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}},
+		Playback:   l.Playback(),
+		Transcoder: l.Transcoder(),
+		Sections:   []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}},
 	}
 }
 
@@ -254,13 +253,19 @@ func (l *Library) OpenPlex() (*plex.Server, func(), error) {
 		srv.Close()
 		return nil, nil, err
 	}
-	if _, err := (plex.Frontend{Server: srv}).Mount(context.Background(), frontend.Host{Experience: l.Experience(), Sessions: broker}); err != nil {
+	inst, err := (plex.Frontend{Server: srv}).Mount(context.Background(), frontend.Host{
+		Experience: l.Experience(),
+		Sessions:   sessions.BindSurface(broker, "plex"),
+		Events:     events,
+	})
+	if err != nil {
 		broker.Close(context.Background())
 		events.Close()
 		srv.Close()
 		return nil, nil, err
 	}
 	return srv, func() {
+		_ = inst.Close(context.Background())
 		broker.Close(context.Background())
 		events.Close()
 	}, nil

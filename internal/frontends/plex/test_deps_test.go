@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
@@ -114,13 +113,33 @@ func (d testServerDeps) pageFreshnessFunc() func() frontend.PageFreshness {
 }
 
 // testStores returns the real sessions-backed store factory for tests.
-func testStores() frontend.SessionStores { return sessions.NewSessionStores() }
+func testStores() *sessions.LocalRuntime {
+	return sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{})
+}
+
+func withTestEncoder(enc frontend.SegmentedEncoder) func(*testServerDeps) {
+	return func(d *testServerDeps) {
+		d.Host.Sessions = sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Encoder: enc})
+	}
+}
 
 // testDeps fills the required host factories in d from the real
 // sessions implementations, leaving explicitly set fields alone.
 func testDeps(d Deps) Deps {
-	if d.SessionStores == nil {
-		d.SessionStores = testStores()
+	if d.Host.Sessions == nil {
+		d.Host.Sessions = sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{
+			Playback:   d.Playback,
+			Transcoder: d.Transcoder,
+			DB:         d.DB,
+			Logger:     d.Host.Log,
+		})
+	} else if lr, ok := d.Host.Sessions.(*sessions.LocalRuntime); ok {
+		lr.FillDefaults(sessions.LocalRuntimeDeps{
+			Playback:   d.Playback,
+			Transcoder: d.Transcoder,
+			DB:         d.DB,
+			Logger:     d.Host.Log,
+		})
 	}
 	if d.Host.Experience == nil {
 		d.Host.Experience = experience.NewDirectService(experience.ServiceDeps{Now: d.Host.Now})
@@ -129,7 +148,24 @@ func testDeps(d Deps) Deps {
 }
 
 func newTestServer(d testServerDeps) *Server {
-	srv := NewServer(testDeps(d.Deps))
+	var srv *Server
+	playFn := func() core.Playback {
+		if srv != nil && srv.d.Playback != nil {
+			return srv.d.Playback
+		}
+		return d.Playback
+	}
+	transFn := func() core.Transcoder {
+		if srv != nil && srv.d.Transcoder != nil {
+			return srv.d.Transcoder
+		}
+		return d.Transcoder
+	}
+	d.Deps = testDeps(d.Deps)
+	if lr, ok := d.Host.Sessions.(*sessions.LocalRuntime); ok {
+		lr.FillDefaults(sessions.LocalRuntimeDeps{PlaybackFunc: playFn, TranscoderFunc: transFn})
+	}
+	srv = NewServer(d.Deps)
 	srv.bindHost(frontend.Host{
 		Experience:    d.experienceService(),
 		PageFreshness: d.pageFreshnessFunc(),
@@ -241,11 +277,14 @@ func (s *Server) setRemoteClientSeen(fn func(string)) {
 
 func testServer(d Deps) *Server {
 	d = testDeps(d)
+	rt, _ := d.Host.Sessions.(frontend.SessionRuntime)
 	return &Server{
-		d:          d,
-		host:       d.Host,
-		experience: d.Host.Experience,
-		log:        slog.Default(),
+		d:             d,
+		host:          d.Host,
+		runtime:       rt,
+		streamRuntime: rt,
+		experience:    d.Host.Experience,
+		log:           slog.Default(),
 	}
 }
 

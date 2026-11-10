@@ -100,8 +100,7 @@ func (p surfacePlex) Deps(ctx context.Context) (frontend.PlexDeps, error) {
 		return frontend.PlexDeps{}, err
 	}
 	if p.runtime.broker != nil {
-		deps.Streams = sessions.BindStreams(p.runtime.broker)
-		deps.Encoder = p.runtime.broker
+		deps.Host.Sessions = scorecardSessions(p.runtime.app, sessions.BindSurface(p.runtime.broker, "plex"))
 	}
 	return deps, nil
 }
@@ -252,9 +251,13 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		if a.cfg != nil {
 			hostConfig = a.cfg.Read
 		}
+		currentCfg := cfg
+		if a.cfg != nil {
+			currentCfg = a.cfg.Read()
+		}
 		serverIdentity := frontend.ServerIdentity{
-			MachineID:    cfg.Server.MachineIdentifier,
-			FriendlyName: cfg.Server.FriendlyName,
+			MachineID:    currentCfg.Server.MachineIdentifier,
+			FriendlyName: currentCfg.Server.FriendlyName,
 			Version:      plextv.DefaultServerVersion,
 			Platform:     plexPlatform(),
 		}

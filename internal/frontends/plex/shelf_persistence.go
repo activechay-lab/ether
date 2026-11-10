@@ -50,7 +50,7 @@ func (s *Server) stageShelf(ctx context.Context, record shelfWrite) {
 // capacity: coalesce duplicate identities and drop a new batch on overload.
 func (s *Server) enqueueShelves(records map[string]shelfWrite) bool {
 	w := s.shelfWriter
-	if len(records) == 0 || s.d.DB == nil || w == nil || s.ctx.Err() != nil {
+	if len(records) == 0 || s.runtimeDB() == nil || w == nil || s.ctx.Err() != nil {
 		return false
 	}
 	w.mu.Lock()
@@ -145,7 +145,7 @@ func (s *Server) persistShelfBatch(ctx context.Context, batch map[string]shelfWr
 		args = append(args, key)
 	}
 	existing := map[string]int64{}
-	rows, err := s.d.DB.QueryContext(ctx, `SELECT generation,expires_at FROM plex_shelf_generations WHERE generation IN (`+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+`)`, args...)
+	rows, err := s.runtimeDB().QueryContext(ctx, `SELECT generation,expires_at FROM plex_shelf_generations WHERE generation IN (`+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+`)`, args...)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (s *Server) persistShelfBatch(ctx context.Context, batch map[string]shelfWr
 	if len(work) == 0 {
 		return nil
 	}
-	tx, err := s.d.DB.BeginTx(ctx, nil)
+	tx, err := s.runtimeDB().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

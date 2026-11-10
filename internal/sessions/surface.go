@@ -2,8 +2,11 @@ package sessions
 
 import (
 	"context"
+	"database/sql"
 	"io"
+	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/auth"
@@ -14,12 +17,6 @@ import (
 // BindSurface prevents an adapter from submitting another surface's identity.
 func BindSurface(b frontend.Sessions, protocol frontend.Protocol) frontend.Sessions {
 	return surface{broker: b, protocol: protocol}
-}
-
-// BindStreams is BindSurface for the Plex stream methods. The returned
-// value rejects any access whose protocol is not plex.
-func BindStreams(b *Broker) StreamBindings {
-	return surface{broker: b, protocol: "plex"}
 }
 
 type surface struct {
@@ -40,6 +37,23 @@ type surfaceEvents struct {
 func (s surfaceEvents) Subscribe(ctx context.Context, scope frontend.EventScope) (<-chan frontend.Event, error) {
 	scope.Protocol = s.protocol
 	return s.events.Subscribe(ctx, scope)
+}
+
+func (s surface) HasBroker() bool {
+	if rt := s.runtime(); rt != nil {
+		return rt.HasBroker()
+	}
+	return s.broker != nil
+}
+
+func (s surface) SegmentedEncoder() frontend.SegmentedEncoder {
+	if s.protocol != "plex" {
+		return nil
+	}
+	if rt := s.runtime(); rt != nil && rt.SegmentedEncoder() != nil {
+		return s
+	}
+	return nil
 }
 
 func (s surface) Plan(ctx context.Context, r frontend.PlanRequest) (frontend.PlayPlan, error) {
@@ -207,6 +221,9 @@ func UnderlyingBroker(s frontend.Sessions) *Broker {
 }
 
 func (s surface) StopPlayback(ctx context.Context, playID string) bool {
+	if rt := s.runtime(); rt != nil {
+		return rt.StopPlayback(ctx, playID)
+	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
 		return false
@@ -228,6 +245,9 @@ func (s surface) ReportItemProgress(ctx context.Context, a frontend.SessionAcces
 func (s surface) ReportProgress(ctx context.Context, a frontend.SessionAccess, item core.RatingKey, t frontend.Timeline) error {
 	if a.Protocol != s.protocol {
 		return core.ErrUnauthorized
+	}
+	if rt := s.runtime(); rt != nil {
+		return rt.ReportProgress(ctx, a, item, t)
 	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
@@ -311,7 +331,9 @@ func (s surface) TrickplayBIF(id string) ([]byte, bool) {
 }
 
 func (s surface) TrickplayFrame(id string, at time.Duration) ([]byte, bool) {
-	if tp, ok := s.broker.(interface{ TrickplayFrame(string, time.Duration) ([]byte, bool) }); ok {
+	if tp, ok := s.broker.(interface {
+		TrickplayFrame(string, time.Duration) ([]byte, bool)
+	}); ok {
 		return tp.TrickplayFrame(id, at)
 	}
 	return nil, false
@@ -327,6 +349,9 @@ func (s surface) PlexSessionForPlayback(ctx context.Context, a frontend.SessionA
 	if s.protocol != "plex" || a.Protocol != s.protocol {
 		return "", core.ErrUnauthorized
 	}
+	if rt := s.runtime(); rt != nil {
+		return rt.PlexSessionForPlayback(ctx, a, item, playbackID, transcodeID)
+	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
 		return "", core.ErrNotAvailable
@@ -337,6 +362,9 @@ func (s surface) PlexSessionForPlayback(ctx context.Context, a frontend.SessionA
 func (s surface) PlexSessionForSource(ctx context.Context, a frontend.SessionAccess, item frontend.RatingKey, playID string) (string, error) {
 	if s.protocol != "plex" || a.Protocol != s.protocol {
 		return "", core.ErrUnauthorized
+	}
+	if rt := s.runtime(); rt != nil {
+		return rt.PlexSessionForSource(ctx, a, item, playID)
 	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
@@ -349,6 +377,9 @@ func (s surface) PlexSessionSource(id string) (string, bool) {
 	if s.protocol != "plex" {
 		return "", false
 	}
+	if rt := s.runtime(); rt != nil {
+		return rt.PlexSessionSource(id)
+	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
 		return "", false
@@ -357,6 +388,13 @@ func (s surface) PlexSessionSource(id string) (string, bool) {
 }
 
 func (s surface) NotePlexEncoder(id string, format frontend.StreamFormat, decision core.Decision, offset time.Duration) {
+	if s.protocol != "plex" {
+		return
+	}
+	if rt := s.runtime(); rt != nil {
+		rt.NotePlexEncoder(id, format, decision, offset)
+		return
+	}
 	if b, ok := s.broker.(*Broker); ok {
 		b.NotePlexEncoder(id, format, decision, offset)
 	}
@@ -365,6 +403,9 @@ func (s surface) NotePlexEncoder(id string, format frontend.StreamFormat, decisi
 func (s surface) StopProtocol(ctx context.Context, protocol frontend.Protocol) error {
 	if protocol != s.protocol {
 		return core.ErrUnauthorized
+	}
+	if rt := s.runtime(); rt != nil {
+		return rt.StopProtocol(ctx, protocol)
 	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
@@ -423,30 +464,297 @@ func (s surface) ReportSample(ctx context.Context, a frontend.SessionAccess, id 
 	return reporter.ReportSample(ctx, a, id, sample)
 }
 
-// StreamBindings lives in internal/frontend (host_sessions_experience.go).
-type StreamBindings = frontend.StreamBindings
-
-// PlexActivities reaches the broker's Plex activity store.
-func (b *Broker) PlexActivities() frontend.PlaybackActivityStore {
-	if b == nil {
-		return nil
-	}
-	return b
-}
-
-// PlexActivities reaches the underlying broker's Plex activity store.
-func (s surface) PlexActivities() frontend.PlaybackActivityStore {
-	if src, ok := s.broker.(frontend.PlaybackActivitySource); ok {
-		return src.PlexActivities()
-	}
-	return nil
-}
-
 // RecordAuthorizedSubtitleIntent forwards to the underlying broker.
 func (s surface) RecordAuthorizedSubtitleIntent(ctx context.Context, viewer int64, key core.RatingKey, manual bool) error {
+	if rt := s.runtime(); rt != nil {
+		return rt.RecordAuthorizedSubtitleIntent(ctx, viewer, key, manual)
+	}
 	b, ok := s.broker.(*Broker)
 	if !ok {
 		return core.ErrNotAvailable
 	}
 	return b.RecordAuthorizedSubtitleIntent(ctx, viewer, key, manual)
+}
+
+func (s surface) ConfirmAdmission(ctx context.Context, viewer *core.Viewer, remote bool) (*core.Viewer, error) {
+	if s.protocol != "plex" {
+		return nil, core.ErrUnauthorized
+	}
+	if rt := s.runtime(); rt != nil {
+		return rt.ConfirmAdmission(ctx, viewer, remote)
+	}
+	b, ok := s.broker.(*Broker)
+	if !ok {
+		return viewer, nil
+	}
+	return b.ConfirmAdmission(ctx, viewer, remote)
+}
+
+func (s surface) runtime() frontend.SessionRuntime {
+	rt, _ := s.broker.(frontend.SessionRuntime)
+	return rt
+}
+
+func (s surface) Playback() frontend.Playback {
+	if rt := s.runtime(); rt != nil {
+		return rt.Playback()
+	}
+	return nil
+}
+
+func (s surface) Transcoder() frontend.Transcoder {
+	if rt := s.runtime(); rt != nil {
+		return rt.Transcoder()
+	}
+	return nil
+}
+
+func (s surface) Downloads() frontend.DownloadRemuxer {
+	if rt := s.runtime(); rt != nil {
+		return rt.Downloads()
+	}
+	return nil
+}
+
+func (s surface) SetDownloads(remuxer frontend.DownloadRemuxer) {
+	if rt := s.runtime(); rt != nil {
+		rt.SetDownloads(remuxer)
+	}
+}
+
+func (s surface) LatestDecision(key core.RatingKey) (core.DecisionTrace, bool) {
+	if rt := s.runtime(); rt != nil {
+		return rt.LatestDecision(key)
+	}
+	return core.DecisionTrace{}, false
+}
+
+func (s surface) DB() *sql.DB {
+	if rt := s.runtime(); rt != nil {
+		return rt.DB()
+	}
+	return nil
+}
+
+func (s surface) Cluster() frontend.ClusterNode {
+	if rt := s.runtime(); rt != nil {
+		return rt.Cluster()
+	}
+	return nil
+}
+
+func (s surface) SessionHeartbeat() time.Duration {
+	if rt := s.runtime(); rt != nil {
+		return rt.SessionHeartbeat()
+	}
+	return 0
+}
+
+func (s surface) PlaybackOwners() frontend.PlaybackOwners {
+	if rt := s.runtime(); rt != nil {
+		return rt.PlaybackOwners()
+	}
+	return nil
+}
+
+func (s surface) LifecycleGates() frontend.Lifecycle {
+	if rt := s.runtime(); rt != nil {
+		return rt.LifecycleGates()
+	}
+	return nil
+}
+
+func (s surface) NewDecisionArms(ctx context.Context, db *sql.DB, now func() time.Time, node string, log *slog.Logger, wg *sync.WaitGroup) frontend.DecisionArms {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewDecisionArms(ctx, db, now, node, log, wg)
+	}
+	return NewDecisionArms(ctx, db, now, node, log, wg)
+}
+
+func (s surface) NewStartGuard() frontend.StartGuard {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewStartGuard()
+	}
+	return &StartGuard{}
+}
+
+func (s surface) NewPlayQueues() frontend.PlayQueues {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewPlayQueues()
+	}
+	return NewPlayQueues()
+}
+
+func (s surface) NewVersionFlows(ctx context.Context, db *sql.DB) frontend.VersionFlows {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewVersionFlows(ctx, db)
+	}
+	return NewVersionFlows(ctx, db)
+}
+
+func (s surface) NewDownloadQueueStore() frontend.DownloadQueueStore {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewDownloadQueueStore()
+	}
+	return NewDownloadQueueStore()
+}
+
+func (s surface) NewVariantIDs(db *sql.DB, now func() time.Time) frontend.VariantIDs {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewVariantIDs(db, now)
+	}
+	return NewVariantIDs(db, now)
+}
+
+func (s surface) NewDownloadJob(playback frontend.Playback, remuxer frontend.DownloadRemuxer) frontend.DownloadJob {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewDownloadJob(playback, remuxer)
+	}
+	return DownloadJob{Playback: playback, Remuxer: remuxer}
+}
+
+func (s surface) NewDownloadQueuePersistence(queue frontend.DownloadQueueStore, db *sql.DB, artifacts frontend.DownloadRemuxer, log *slog.Logger, expiry func() time.Duration, storageID func() string, users func(context.Context) ([]core.User, error)) frontend.DownloadQueuePersistence {
+	if rt := s.runtime(); rt != nil {
+		return rt.NewDownloadQueuePersistence(queue, db, artifacts, log, expiry, storageID, users)
+	}
+	q, _ := queue.(*DownloadQueueStore)
+	if q == nil {
+		return DownloadQueuePersistence{}
+	}
+	return DownloadQueuePersistence{Queue: q, DB: db, Artifacts: artifacts, Log: log, Expiry: expiry, StorageID: storageID, Users: users}
+}
+
+func (s surface) PrepareSource(ctx context.Context, viewer *core.User, key core.RatingKey, caps core.ClientCaps, release string, wait time.Duration) (*core.PlaySession, error) {
+	if rt := s.runtime(); rt != nil {
+		return rt.PrepareSource(ctx, viewer, key, caps, release, wait)
+	}
+	return nil, core.ErrNotAvailable
+}
+
+func (s surface) PartSource(viewer int64, client string, key core.RatingKey, release string) frontend.PartSource {
+	if rt := s.runtime(); rt != nil {
+		return rt.PartSource(viewer, client, key, release)
+	}
+	return frontend.PartSource{}
+}
+
+func (s surface) ServePartSource(w http.ResponseWriter, r *http.Request, sourceID string) {
+	if rt := s.runtime(); rt != nil {
+		rt.ServePartSource(w, r, sourceID)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+func (s surface) ObserveStart(ctx context.Context, source frontend.HLSSession, id string) (frontend.StartObservation, bool) {
+	if rt := s.runtime(); rt != nil {
+		return rt.ObserveStart(ctx, source, id)
+	}
+	return ObserveStart(ctx, source, id)
+}
+
+func (s surface) ActivityStore() frontend.PlaybackActivityStore {
+	if rt := s.runtime(); rt != nil {
+		return rt.ActivityStore()
+	}
+	return nil
+}
+
+func (s surface) StartSegmentedHLS(ctx context.Context, u *core.User, playID, id string, req core.HLSRequest) (core.HLSSession, error) {
+	if s.protocol != "plex" {
+		return nil, core.ErrUnauthorized
+	}
+	enc, ok := s.broker.(frontend.SegmentedEncoder)
+	if !ok {
+		return nil, core.ErrNotAvailable
+	}
+	return enc.StartSegmentedHLS(ctx, u, playID, id, req)
+}
+
+func (s surface) SegmentedHLSSession(id string) (core.HLSSession, bool) {
+	if s.protocol != "plex" {
+		return nil, false
+	}
+	enc, ok := s.broker.(frontend.SegmentedEncoder)
+	if !ok {
+		return nil, false
+	}
+	return enc.SegmentedHLSSession(id)
+}
+
+func (s surface) StopSegmentedHLS(id string) bool {
+	if s.protocol != "plex" {
+		return false
+	}
+	enc, ok := s.broker.(frontend.SegmentedEncoder)
+	if !ok {
+		return false
+	}
+	return enc.StopSegmentedHLS(id)
+}
+
+func (s surface) ForwardEncodedMedia(w http.ResponseWriter, r *http.Request, id string) bool {
+	if s.protocol != "plex" {
+		return false
+	}
+	fwd, ok := s.broker.(frontend.EncodedMediaForwarder)
+	if !ok {
+		return false
+	}
+	return fwd.ForwardEncodedMedia(w, r, id)
+}
+
+func (s surface) ForwardGrantMedia(w http.ResponseWriter, r *http.Request, id string) bool {
+	if s.protocol != "plex" {
+		return false
+	}
+	fwd, ok := s.broker.(frontend.GrantMediaForwarder)
+	if !ok {
+		return false
+	}
+	return fwd.ForwardGrantMedia(w, r, id)
+}
+
+func (s surface) PlexHLSDistributed(id string) bool {
+	if s.protocol != "plex" {
+		return false
+	}
+	dist, ok := s.broker.(frontend.EncoderBindingStore)
+	if !ok {
+		return false
+	}
+	return dist.PlexHLSDistributed(id)
+}
+
+func (s surface) SavePlexBinding(ctx context.Context, id string, raw []byte) error {
+	if s.protocol != "plex" {
+		return core.ErrUnauthorized
+	}
+	store, ok := s.broker.(frontend.EncoderBindingStore)
+	if !ok {
+		return core.ErrNotAvailable
+	}
+	return store.SavePlexBinding(ctx, id, raw)
+}
+
+func (s surface) LoadPlexBinding(ctx context.Context, id string) ([]byte, error) {
+	if s.protocol != "plex" {
+		return nil, core.ErrUnauthorized
+	}
+	store, ok := s.broker.(frontend.EncoderBindingStore)
+	if !ok {
+		return nil, core.ErrNotAvailable
+	}
+	return store.LoadPlexBinding(ctx, id)
+}
+
+func (s surface) DeleteBinding(ctx context.Context, id string) error {
+	if s.protocol != "plex" {
+		return core.ErrUnauthorized
+	}
+	store, ok := s.broker.(frontend.EncoderBindingDeleter)
+	if !ok {
+		return core.ErrNotAvailable
+	}
+	return store.DeleteBinding(ctx, id)
 }

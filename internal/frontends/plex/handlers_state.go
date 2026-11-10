@@ -120,8 +120,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	user := pr.User
 	s.log.Debug("playback timeline", "user", user.ID, "client", pr.ClientID, "key", key, "state", state, "position", offset, "duration", duration)
 	var ps *frontend.PlaySession
-	if s.d.Playback != nil {
-		if p, ok := s.d.Playback.SessionFor(user.ID, pr.ClientID, key); ok {
+	if pb := s.playback(); pb != nil {
+		if p, ok := pb.SessionFor(user.ID, pr.ClientID, key); ok {
 			ps = p
 		}
 	}
@@ -132,9 +132,9 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	// encoder output can be buffered ahead of what the viewer actually saw.
 	failedProgressive := false
 	for _, id := range tids {
-		if s.d.Transcoder != nil {
+		if s.transcoder() != nil {
 			if session, ok := s.plexHLSSession(id); ok {
-				if failed, ok := session.(interface{ ProgressiveFailed() bool }); ok && failed.ProgressiveFailed() {
+				if failed, ok := session.(frontend.ProgressiveFailureSession); ok && failed.ProgressiveFailed() {
 					failedProgressive = true
 				}
 			}
@@ -198,7 +198,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		// The player took the media and never started. End this attempt
 		// with the reason; the stop below closes its encoder and source.
 		s.setTermination(tid, reason)
-		if failed, ok := s.d.Playback.(interface{ NoteFailedStart(string, string) }); ok && ps != nil {
+		if failed, ok := s.playback().(frontend.FailedStartRecorder); ok && ps != nil {
 			failed.NoteFailedStart(ps.ID, reason)
 		}
 		s.reportBrokerTimeline(ctx, pr, key, offset, duration, "stopped", sanitizeSessionID(q.Get("session")))
@@ -209,7 +209,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.transcodes.touch(id, s.now())
-		frontend.NotifyTranscodeActivity(s.d.Transcoder, id, state)
+		frontend.NotifyTranscodeActivity(s.transcoder(), id, state)
 	}
 	pqItem, _ := strconv.ParseInt(q.Get("playQueueItemID"), 10, 64)
 
@@ -243,7 +243,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if e, ok := s.transcodes.get(id); ok && e.userID == user.ID && e.clientID == pr.ClientID && e.key == key {
-				if s.d.Transcoder != nil {
+				if s.transcoder() != nil {
 					s.stopPlexHLS(id)
 				}
 				s.dropTranscode(id)
@@ -669,11 +669,9 @@ func (s *Server) terminateLocal(sid, reason string) bool {
 			}
 
 			s.setOwnerTermination(e.id, reason)
-			if s.d.Playback != nil {
-				if ps, ok := s.d.Playback.SessionFor(e.user.ID, e.client.ClientID, e.key); ok && ps != nil {
-					if stop, ok := s.playbackBroker.(interface {
-						StopPlayback(context.Context, string) bool
-					}); ok {
+			if pb := s.playback(); pb != nil {
+				if ps, ok := pb.SessionFor(e.user.ID, e.client.ClientID, e.key); ok && ps != nil {
+					if stop := s.brokerRuntime(); stop != nil {
 						if !stop.StopPlayback(s.ctx, ps.ID) {
 							s.adoptBrokerTimeline(s.ctx, &Request{User: &e.user, ClientID: e.client.ClientID, SessionID: e.client.SessionID}, e.key)
 							stop.StopPlayback(s.ctx, ps.ID)

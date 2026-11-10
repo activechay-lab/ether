@@ -190,10 +190,10 @@ func (s *Server) writeHomeBuild(w http.ResponseWriter, r *http.Request, b homeBu
 // this client: its rows render the session's probed media, so they are
 // built fresh and not stored.
 func (s *Server) liveSessionOnClient(pr *Request) bool {
-	if s.d.Playback == nil || pr.ClientID == "" {
+	if s.playback() == nil || pr.ClientID == "" {
 		return false
 	}
-	for _, ps := range s.d.Playback.Sessions() {
+	for _, ps := range s.playback().Sessions() {
 		if ps != nil && ps.UserID == pr.User.ID && ps.ClientID == pr.ClientID {
 			return true
 		}
@@ -490,7 +490,7 @@ func (s *Server) warmKey(ctx context.Context, pr *Request, key frontend.RatingKe
 	if key == 0 || pr == nil || pr.User == nil {
 		return
 	}
-	if pw, ok := s.d.Playback.(frontend.Prewarmer); ok {
+	if pw, ok := s.playback().(frontend.Prewarmer); ok {
 		pw.Prewarm(frontend.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), frontend.PrewarmOptions{Reason: frontend.PrewarmBrowse})
 	}
 }

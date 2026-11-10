@@ -72,8 +72,8 @@ func (s *Server) visibility() frontend.Visibility {
 	if s.catalog() != nil {
 		v.GetTitle = s.seriesTitle
 	}
-	if s.d.Playback != nil {
-		v.Sessions = s.d.Playback.Sessions
+	if s.playback() != nil {
+		v.Sessions = s.playback().Sessions
 	}
 	return v
 }

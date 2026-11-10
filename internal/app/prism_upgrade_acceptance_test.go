@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/libraries"
 
 	"github.com/braedonsaunders/ether/internal/auth"
@@ -440,12 +439,12 @@ func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth
 	t.Helper()
 	srv := plex.NewServer(plex.Deps{
 		Host: frontend.Host{
+			Sessions:   sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{DB: db, Logger: discardLog()}),
 			Identity:   frontend.BindAuth(users),
 			HostConfig: cfg.Get,
 			Now:        func() time.Time { return upgradeClock },
 			Log:        discardLog(),
 		},
-		SessionStores:     sessions.NewSessionStores(),
 		DB:                db,
 		DisableEnrichment: true,
 	})

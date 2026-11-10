@@ -49,15 +49,14 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 			if err != nil {
 				return nil, err
 			}
+			localSessions := deps.Host.Sessions
 			deps.Host = host
+			if rt, ok := deps.Host.Sessions.(frontend.SessionRuntime); !ok || (!rt.HasBroker() && rt.PlaybackOwners() == nil) {
+				if localSessions != nil {
+					deps.Host.Sessions = localSessions
+				}
+			}
 			srv := NewServer(deps)
-			if deps.Streams != nil {
-				srv.UsePlexStreams(deps.Streams)
-			}
-			if deps.Encoder != nil {
-				srv.UsePlexEncoder(deps.Encoder)
-			}
-			srv.bindHost(host)
 			host.Plex.BindServer(srv)
 			f.Server = srv
 		}
@@ -120,11 +119,11 @@ func (i *plexInstance) Close(ctx context.Context) error {
 		if i.unsubscribe != nil {
 			i.unsubscribe()
 		}
-		if stop, ok := i.sessions.(plexProtocolStop); ok {
+		if stop, ok := i.sessions.(frontend.ProtocolStopper); ok {
 			_ = stop.StopProtocol(ctx, "plex")
 		}
 		if i.server != nil {
-			i.server.releaseMountedPlayback()
+			i.server.unmountRuntime(i.sessions)
 		}
 	})
 	return nil

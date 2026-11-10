@@ -399,8 +399,8 @@ func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, 
 	if resolved.Container != "" {
 		info.Container = resolved.Container
 	}
-	if s.d.Transcoder != nil {
-		if pi, perr := s.d.Transcoder.Probe(ctx, resolved.Input()); perr == nil && pi != nil && pi.Video() != nil {
+	if s.transcoder() != nil {
+		if pi, perr := s.transcoder().Probe(ctx, resolved.Input()); perr == nil && pi != nil && pi.Video() != nil {
 			info = *pi
 		}
 	}
@@ -409,8 +409,8 @@ func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, 
 	}
 	applySelections(p, info, s.audioLanguages(pr.User))
 	var dec frontend.Decision
-	if s.d.Transcoder != nil {
-		dec = s.d.Transcoder.Decide(info, p.caps, p.opts)
+	if s.transcoder() != nil {
+		dec = s.transcoder().Decide(info, p.caps, p.opts)
 	} else {
 		dec = frontend.DecideTranscode(info, p.caps, p.opts, frontend.TranscodePolicy{RemoteMaxBitrateKbps: s.cfg().Transcode.RemoteMaxBitrateKbps})
 		if dec.Kind != frontend.DecisionDirectPlay {
@@ -511,7 +511,7 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 
 func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *frontend.Title, dash bool) {
 	ctx := r.Context()
-	if s.d.Transcoder == nil {
+	if s.transcoder() == nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -532,7 +532,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 	if dec.Container == "" {
 		dec.Container = "mpegts"
 	}
-	if existing, ok := s.d.Transcoder.Session(p.sessionID); ok && existing != nil {
+	if existing, ok := s.transcoder().Session(p.sessionID); ok && existing != nil {
 		if sess.started && sess.offset == p.offset {
 			if dash {
 				if ds, isDASH := existing.(frontend.DASHSession); isDASH {
@@ -549,7 +549,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 				return
 			}
 		}
-		s.d.Transcoder.Stop(p.sessionID)
+		s.transcoder().Stop(p.sessionID)
 	}
 	proto := ""
 	if dash {
@@ -558,7 +558,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 		proto = frontend.ProtocolHTTP
 		dec.Container = frontend.ContainerMatroska
 	}
-	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), frontend.HLSRequest{
+	hs, err := s.transcoder().StartHLS(context.WithoutCancel(ctx), frontend.HLSRequest{
 		SessionID: p.sessionID, InputURL: sess.resolved.Input(),
 		InputHeaders: sess.resolved.Headers, Info: sess.info,
 		Decision: dec, StartOffset: p.offset, Protocol: proto,
@@ -579,7 +579,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 	if dash {
 		ds, ok := hs.(frontend.DASHSession)
 		if !ok {
-			s.d.Transcoder.Stop(p.sessionID)
+			s.transcoder().Stop(p.sessionID)
 			writeHTTPError(w, http.StatusInternalServerError)
 			return
 		}
@@ -589,7 +589,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 	if p.protocol == frontend.ProtocolHTTP {
 		stream, ok := hs.(frontend.HTTPSession)
 		if !ok {
-			s.d.Transcoder.Stop(p.sessionID)
+			s.transcoder().Stop(p.sessionID)
 			writeHTTPError(w, http.StatusInternalServerError)
 			return
 		}
@@ -699,10 +699,10 @@ func (s *Server) featureForExtra(pr *Request, e frontend.ExtraClip) frontend.Rat
 // prewarmFeature starts background resolution and pre-buffering of the
 // feature while its trailer plays, deduplicated per viewer and feature.
 func (s *Server) prewarmFeature(ctx context.Context, pr *Request, feature frontend.RatingKey, caps frontend.ClientCaps) {
-	if feature == 0 || pr.User == nil || s.d.Playback == nil {
+	if feature == 0 || pr.User == nil || s.playback() == nil {
 		return
 	}
-	pw, ok := s.d.Playback.(frontend.Prewarmer)
+	pw, ok := s.playback().(frontend.Prewarmer)
 	if !ok {
 		return
 	}

@@ -6,6 +6,7 @@ package plex
 import (
 	"context"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -47,7 +48,7 @@ type SessionToucher interface {
 	Touch(sessionID string)
 }
 
-// Deps are the server's dependencies. Catalog, State, Host.Identity and Playback are
+// Deps are the server's dependencies. Host.Experience, Host.Identity and Host.Sessions are
 // required; the rest degrade gracefully when nil.
 type Deps = frontend.PlexDeps
 
@@ -76,13 +77,20 @@ type Server struct {
 	guidResolving    map[string]bool
 	home             *homeCache
 
-	d             Deps
-	host          frontend.Host
-	experience    frontend.Experience
-	personalHomes frontend.PersonalHomeStore
-	pageFreshness func() frontend.PageFreshness
-	log           *slog.Logger
-	router        chi.Router
+	d               Deps
+	host            frontend.Host
+	runtime         frontend.SessionRuntime
+	streamRuntime   frontend.SessionRuntime
+	initPlayback    frontend.Playback
+	initTranscoder  frontend.Transcoder
+	hostLazyStreams frontend.LazyStreams
+	hostLANStreams  frontend.LANLazyStreams
+	hostTickets     frontend.Tickets
+	experience      frontend.Experience
+	personalHomes   frontend.PersonalHomeStore
+	pageFreshness   func() frontend.PageFreshness
+	log             *slog.Logger
+	router          chi.Router
 
 	sections []Section
 
@@ -100,7 +108,6 @@ type Server struct {
 	images            frontend.ArtworkImageCache
 	channelLogos      frontend.UntrustedImageFetcher
 	channelRaster     frontend.SVGRasterizer
-	boundStreams      frontend.StreamBindings
 	trackPrefs        frontend.PlaybackTrackPreferences
 	markers           frontend.MarkerRanges
 	trickplay         frontend.TrickplayProvider
@@ -164,31 +171,34 @@ func NewServer(d Deps) *Server {
 		httpClient = &http.Client{Timeout: 20 * time.Second}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if d.SessionStores == nil {
-		panic("plex: Deps.SessionStores is required (wire sessions.NewSessionStores())")
+	rt, ok := host.Sessions.(frontend.SessionRuntime)
+	if !ok || rt == nil {
+		panic("plex: Host.Sessions (implementing frontend.SessionRuntime) is required")
 	}
-	coord := d.SessionCoordination
-	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
-		coord = d.SessionStores.NewCoordination()
+	db := rt.DB()
+	if db == nil {
+		db = d.DB
 	}
 	s := &Server{
 		activities:        map[string]model.Activity{},
-		plexEncoder:       d.Encoder,
-		boundStreams:      d.Streams,
 		d:                 d,
 		host:              host,
+		runtime:           rt,
+		streamRuntime:     rt,
+		initPlayback:      d.Playback,
+		initTranscoder:    d.Transcoder,
 		log:               log.With("component", "plex"),
 		imageURL:          func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path },
 		images:            frontend.NewArtworkRemoteCache(128<<20, httpClient),
 		channelLogos:      frontend.NewUntrustedImageFetcher(nil),
 		channelRaster:     frontend.NewSVGRasterizer(),
-		variantIDs:        newVariantIDRegistry(d.SessionStores, d.DB),
+		variantIDs:        newVariantIDRegistry(rt, db),
 		playIDs:           newPlayIdentities(),
-		downloads:         d.SessionStores.NewDownloadQueueStore(),
-		queues:            d.SessionStores.NewPlayQueues(),
+		downloads:         rt.NewDownloadQueueStore(),
+		queues:            rt.NewPlayQueues(),
 		sessions:          newSessionActivities(),
-		playbackOwners:    coord.PlaybackOwners(),
-		playbackLifecycle: coord.LifecycleGates(),
+		playbackOwners:    rt.PlaybackOwners(),
+		playbackLifecycle: rt.LifecycleGates(),
 		transcodes:        newTranscodeTable(),
 		readCaps:          newReadCapabilityStore(),
 		extraPlay:         newExtraPlayStore(newDirectHTTPClient(host.DirectProxy)),
@@ -198,6 +208,7 @@ func NewServer(d Deps) *Server {
 		ctx:               ctx,
 		cancel:            cancel,
 	}
+	s.usePlaybackBroker(host.Sessions)
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
@@ -205,13 +216,14 @@ func NewServer(d Deps) *Server {
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
 	s.queues.Configure(s.now, nil)
-	if d.DB != nil && d.Cluster == nil {
+	cluster := s.clusterNode()
+	if db != nil && cluster == nil {
 		// Standalone queues share the durable store without starting cluster sessions.
-		s.queues.Configure(s.now, newClusterState(s, d.DB, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
+		s.queues.Configure(s.now, newClusterState(s, db, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
 	}
-	if d.Cluster != nil && d.DB != nil {
-		s.cl = newClusterState(s, d.DB, d.Cluster)
-		s.versionFlows = newVersionFlowStore(s, d.DB)
+	if cluster != nil && db != nil {
+		s.cl = newClusterState(s, db, cluster)
+		s.versionFlows = newVersionFlowStore(s, db)
 		s.queues.Configure(s.now, s.cl.queuePersistence())
 	}
 	s.bindHost(host)
@@ -219,8 +231,8 @@ func NewServer(d Deps) *Server {
 	if s.cl != nil {
 		node = s.cl.self
 	}
-	s.starts = d.SessionStores.NewStartGuard()
-	s.decisionArms = d.SessionStores.NewDecisionArms(s.ctx, d.DB, s.now, node, s.log, &s.wg)
+	s.starts = rt.NewStartGuard()
+	s.decisionArms = rt.NewDecisionArms(s.ctx, db, s.now, node, s.log, &s.wg)
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
@@ -385,8 +397,20 @@ func (s *Server) bindHost(h frontend.Host) {
 		s.host.Experience = h.Experience
 		s.attachExperience(h.Experience)
 	}
+	if h.LazyStreams != nil {
+		s.host.LazyStreams = h.LazyStreams
+		s.hostLazyStreams = h.LazyStreams
+	}
+	if h.LANStreams != nil {
+		s.host.LANStreams = h.LANStreams
+		s.hostLANStreams = h.LANStreams
+	}
+	if h.Tickets != nil {
+		s.host.Tickets = h.Tickets
+		s.hostTickets = h.Tickets
+	}
 	if h.Sessions != nil {
-		s.UsePlaybackBroker(h.Sessions)
+		s.usePlaybackBroker(h.Sessions)
 	}
 }
 
@@ -401,7 +425,7 @@ func (s *Server) attachExperience(exp frontend.Experience) {
 		s.blurJobs = newBGQueue(s.ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
 		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
 		if s.ultra == nil {
-			s.ultra = frontend.NewArtworkPaletteCache(s.d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
+			s.ultra = frontend.NewArtworkPaletteCache(s.runtimeDB(), s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
 				var art frontend.ArtworkCollectionArt
 				if c, ok := s.collections().(frontend.ArtworkCollectionArt); ok {
 					art = c
@@ -489,8 +513,8 @@ func (s *Server) judgedOnFacts() func(context.Context) func(frontend.Title) bool
 func (s *Server) prioritizeAvailable() func(context.Context, []frontend.Title) []frontend.Title {
 	return s.exp().PrioritizeAvailableFunc()
 }
-func (s *Server) episodeOrder() frontend.EpisodeOrder       { return s.exp().EpisodeOrderSource() }
-func (s *Server) discovery() *frontend.DiscoveryFeatures    { return s.exp().DiscoveryFeatures() }
+func (s *Server) episodeOrder() frontend.EpisodeOrder    { return s.exp().EpisodeOrderSource() }
+func (s *Server) discovery() *frontend.DiscoveryFeatures { return s.exp().DiscoveryFeatures() }
 func (s *Server) dashboard() frontend.Dashboard {
 	if d := s.exp().DashboardSource(); d != nil {
 		return d
@@ -503,7 +527,69 @@ func (s *Server) resources() frontend.ResourceStatistics {
 	}
 	return noopResources{}
 }
-func (s *Server) libraryTitles() (movies, shows string)     { return s.exp().LibraryTitles() }
+func (s *Server) libraryTitles() (movies, shows string) { return s.exp().LibraryTitles() }
+
+func (s *Server) playback() frontend.Playback {
+	if s == nil {
+		return nil
+	}
+	if s.d.Playback != nil && s.d.Playback != s.initPlayback {
+		return s.d.Playback
+	}
+	if s.runtime != nil {
+		if p := s.runtime.Playback(); p != nil {
+			return p
+		}
+	}
+	if s.d.Playback != nil {
+		return s.d.Playback
+	}
+	return s.initPlayback
+}
+
+func (s *Server) transcoder() frontend.Transcoder {
+	if s == nil {
+		return nil
+	}
+	if s.d.Transcoder != nil && s.d.Transcoder != s.initTranscoder {
+		return s.d.Transcoder
+	}
+	if s.runtime != nil {
+		if t := s.runtime.Transcoder(); t != nil {
+			return t
+		}
+	}
+	if s.d.Transcoder != nil {
+		return s.d.Transcoder
+	}
+	return s.initTranscoder
+}
+
+func (s *Server) runtimeDB() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	if s.runtime != nil {
+		if db := s.runtime.DB(); db != nil {
+			return db
+		}
+	}
+	return s.d.DB
+}
+
+func (s *Server) clusterNode() frontend.ClusterNode {
+	if s == nil || s.runtime == nil {
+		return nil
+	}
+	return s.runtime.Cluster()
+}
+
+func (s *Server) sessionHeartbeat() time.Duration {
+	if s == nil || s.runtime == nil {
+		return 0
+	}
+	return s.runtime.SessionHeartbeat()
+}
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.router.ServeHTTP(w, r) }
@@ -519,7 +605,7 @@ func (s *Server) Done() <-chan struct{} { return s.ctx.Done() }
 // Close stops background goroutines and disconnects notification clients.
 func (s *Server) Close() error {
 	s.once.Do(func() {
-		if s.d.DB != nil {
+		if s.runtimeDB() != nil {
 			s.stopDownloadsForRestart()
 		} else {
 			s.releaseAllDownloads()
@@ -788,19 +874,19 @@ func (s *Server) releaseMountedPlayback() {
 	if s == nil {
 		return
 	}
-	s.UsePlaybackBroker(nil)
+	s.usePlaybackBroker(nil)
 	var ids []string
 	if s.transcodes != nil {
 		ids = s.transcodes.ids()
 	}
 	for _, id := range ids {
-		if s.d.Transcoder != nil {
+		if s.transcoder() != nil {
 			s.stopPlexHLS(id)
 		}
 		s.dropTranscode(id)
 	}
 
-	if s.d.DB != nil {
+	if s.runtimeDB() != nil {
 		s.stopDownloadsForRestart()
 		s.stageDownloads()
 	} else {
@@ -813,10 +899,16 @@ type noopDashboard struct{}
 func (noopDashboard) SeeDevice(string, string, string) frontend.StatisticsDevice {
 	return frontend.StatisticsDevice{}
 }
-func (noopDashboard) Devices() []frontend.StatisticsDevice                   { return nil }
-func (noopDashboard) Device(int64) (frontend.StatisticsDevice, bool)         { return frontend.StatisticsDevice{}, false }
-func (noopDashboard) Bandwidth(frontend.StatisticsQuery) frontend.StatisticsPage { return frontend.StatisticsPage{} }
-func (noopDashboard) Media(frontend.StatisticsQuery) frontend.StatisticsPage     { return frontend.StatisticsPage{} }
+func (noopDashboard) Devices() []frontend.StatisticsDevice { return nil }
+func (noopDashboard) Device(int64) (frontend.StatisticsDevice, bool) {
+	return frontend.StatisticsDevice{}, false
+}
+func (noopDashboard) Bandwidth(frontend.StatisticsQuery) frontend.StatisticsPage {
+	return frontend.StatisticsPage{}
+}
+func (noopDashboard) Media(frontend.StatisticsQuery) frontend.StatisticsPage {
+	return frontend.StatisticsPage{}
+}
 func (noopDashboard) RecordBytes(int64, string, string, string, string, bool, int64) {}
 func (noopDashboard) RecordPlay(int64, string, string, int, int64)                   {}
 

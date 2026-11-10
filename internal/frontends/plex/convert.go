@@ -554,7 +554,7 @@ func (s *Server) personTags(key frontend.RatingKey, ps []frontend.Person, kind s
 // real tracks must be rendered there: the estimate invents a single
 // audio track and no subtitles.
 func (s *Server) mediaInfoWithSource(ctx context.Context, pr *Request, t *frontend.Title) (frontend.MediaInfo, *frontend.PlaySession, bool) {
-	if s.d.Playback == nil || pr == nil {
+	if s.playback() == nil || pr == nil {
 		dur := time.Duration(0)
 		if t != nil {
 			dur = t.Runtime
@@ -562,20 +562,20 @@ func (s *Server) mediaInfoWithSource(ctx context.Context, pr *Request, t *fronte
 		return frontend.MediaInfo{Estimated: true, Duration: dur}, nil, false
 	}
 	if pr.User != nil {
-		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
+		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
 			return ps.Info, ps, !ps.Info.Estimated && len(ps.Info.Streams) > 0
 		}
 		if info, _, ok := s.resumedTracks(ctx, pr, t); ok {
 			return info, nil, true
 		}
-		if wp, ok := s.d.Playback.(frontend.WarmProber); ok {
+		if wp, ok := s.playback().(frontend.WarmProber); ok {
 			caps := s.clientCapsForKey(pr, t.Key)
 			if info, warm := wp.WarmProbeInfo(pr.User, caps, t.Key); warm {
 				return info, nil, true
 			}
 		}
 	}
-	info, ps := frontend.Estimate(ctx, s.d.Playback, pr.User, pr.ClientID, t, func() frontend.ClientCaps {
+	info, ps := frontend.Estimate(ctx, s.playback(), pr.User, pr.ClientID, t, func() frontend.ClientCaps {
 		return s.clientCapsForKey(pr, t.Key)
 	})
 	return info, ps, false
@@ -597,10 +597,10 @@ type resumedTrackSource interface {
 }
 
 func (s *Server) resumedTracks(ctx context.Context, pr *Request, t *frontend.Title) (frontend.MediaInfo, string, bool) {
-	if pr == nil || pr.User == nil || pr.User.ID <= 0 || t == nil || s.d.Playback == nil || !s.playableTitle(ctx, pr.User, t) {
+	if pr == nil || pr.User == nil || pr.User.ID <= 0 || t == nil || s.playback() == nil || !s.playableTitle(ctx, pr.User, t) {
 		return frontend.MediaInfo{}, "", false
 	}
-	src, ok := s.d.Playback.(resumedTrackSource)
+	src, ok := s.playback().(resumedTrackSource)
 	if !ok {
 		return frontend.MediaInfo{}, "", false
 	}

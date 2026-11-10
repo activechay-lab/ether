@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -198,8 +197,10 @@ func (e *liveEther) servePlex(log *slog.Logger, channels []livetv.Channel) (*liv
 	cfg.Server.MachineIdentifier = "c4a05c4a05c4a05c4a05c4a05c4a05c4a05c4a05"
 	cfg.Plex.Claimed = true
 	cfg.Plex.OwnerUsername = "owner"
+	plexLog := log.With("component", "plex")
 	e.plex = plex.NewServer(plex.Deps{
 		Host: frontend.Host{
+			Sessions:     sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Transcoder: e.manager, Logger: plexLog}),
 			Identity:     frontend.BindAuth(liveAuth{}),
 			Capabilities: frontend.BindClientRules(resolver.ApplyClientRulesForMedia),
 			HostConfig:   func() config.Config { return cfg },
@@ -212,10 +213,9 @@ func (e *liveEther) servePlex(log *slog.Logger, channels []livetv.Channel) (*liv
 			},
 			OwnerSubscription: func() (bool, []string) { return true, nil },
 			LiveTV:            e.service.Frontend(),
-			Log:               log.With("component", "plex"),
+			Log:               plexLog,
 		},
-		SessionStores: sessions.NewSessionStores(),
-		Transcoder:    e.manager,
+		Transcoder: e.manager,
 	})
 	if _, err := (plex.Frontend{Server: e.plex}).Mount(context.Background(), frontend.Host{LiveTV: e.service.Frontend()}); err != nil {
 		return nil, nil, err

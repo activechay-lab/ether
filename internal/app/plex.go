@@ -10,7 +10,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -53,7 +52,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 			DB:         a.db, // plex_ultrablur
 		}
 	}
-	deps.DecisionTraces = a.resolver // latest resolution, for the support capture
 	clientID := func() string {
 		cfg := a.cfg.Read()
 		return plexguid.ClientIdentifier(cfg.Plex.ClientIdentifier, cfg.Server.MachineIdentifier)
@@ -94,15 +92,22 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		metadataService.Close()
 		return frontend.PlexDeps{}, fmt.Errorf("plex watch state: %w", err)
 	}
-	deps.SessionCoordination = a.sessionCoordination
-	deps.SessionStores = sessions.NewSessionStores()
-	// The remuxer is built once in buildIntegrations and shared with every
-	// front end.
-	deps.Downloads = a.downloadRemuxer
 	deps.TracePlayback = a.tracePlayback
+	var cluster frontend.ClusterNode
 	if node := a.clusterNode(); node != nil && deps.DB != nil {
-		deps.Cluster = node
+		cluster = node
 	}
+	deps.Host.Sessions = sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{
+		Logger:         a.log.With("component", "plex"),
+		Playback:       deps.Playback,
+		Transcoder:     deps.Transcoder,
+		Downloads:      a.downloadRemuxer,
+		Trickplay:      a.trickplay.Borrow(),
+		DecisionTraces: a.resolver,
+		DB:             deps.DB,
+		Cluster:        cluster,
+		Coordination:   a.sessionCoordination,
+	})
 	return deps, nil
 }
 
