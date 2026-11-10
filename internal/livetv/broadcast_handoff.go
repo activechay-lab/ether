@@ -40,7 +40,7 @@ func (s *Service) steadyHandoff(ctx context.Context, ss *session) (SteadyFeed, e
 	if !s.steadyAllowed(ss) {
 		return nil, core.ErrNotAvailable
 	}
-	runner, ok := s.o.Transcoder.(transcode.ContinuousRunner)
+	runner, ok := s.transcoder().(transcode.ContinuousRunner)
 	if !ok {
 		return nil, core.ErrNotAvailable
 	}

@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -17,16 +18,25 @@ func TestBroadcastRequestCost(t *testing.T) {
 		for _, n := range []int{10, 500} {
 			t.Run(fmt.Sprintf("%s/%d", mode, n), func(t *testing.T) {
 				now := time.Unix(12000, 0).UTC()
-				s := testService(t, Options{Now: func() time.Time { return now }})
-				s.o.DB.Exec(`CREATE TABLE resolver_availability (rating_key INTEGER PRIMARY KEY)`)
-				s.o.Availability = sqlAvailability{s}
+				db, err := store.OpenMemory(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { db.Close() })
+				if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS resolver_availability (rating_key INTEGER PRIMARY KEY)`); err != nil {
+					t.Fatal(err)
+				}
+				opts := Options{DB: db, Now: func() time.Time { return now }, Availability: sqlAvailability{db}}
+				if mode == "personal" {
+					opts.Picker = personalTestPicker{}
+				}
+				s := testService(t, opts)
 				c := testChannel()
 				c.Items = nil
 				c.Mode = mode
 				if mode == "personal" {
 					c.Mode = ""
 					c.Personal = &PersonalRecipe{}
-					s.o.Picker = personalTestPicker{}
 				}
 				for i := 0; i < n; i++ {
 					c.Items = append(c.Items, Item{Key: core.MovieKey(int64(i + 1)), Title: "Title", DurationMS: 60000, Rating: "G"})
@@ -36,7 +46,9 @@ func TestBroadcastRequestCost(t *testing.T) {
 				}
 				u := core.User{ID: 1, IsOwner: true}
 				ss := &session{ctx: context.Background(), user: u, ready: true, info: SessionInfo{ID: "cost", UserID: u.ID, Channel: c}}
+				s.mu.Lock()
 				s.sessions["cost"] = ss
+				s.mu.Unlock()
 				tag := s.programmePolicy(context.Background(), Programme{Item: c.Items[0]})
 				seg := transcode.Segment{PolicyTags: []any{tag}, Seq: 0, Start: now.Add(-12 * time.Second), Duration: 12 * time.Second}
 				idx := costIndex{seg: seg}
@@ -103,17 +115,19 @@ func TestBroadcastRequestCost(t *testing.T) {
 				if s.broadcastSegmentAllowed(context.Background(), ss, seg) {
 					t.Fatal("cached decision survived channel change")
 				}
+				s.mu.Lock()
 				delete(s.sessions, "cost")
+				s.mu.Unlock()
 			})
 		}
 	}
 }
 
-type sqlAvailability struct{ s *Service }
+type sqlAvailability struct{ db *sql.DB }
 
 func (a sqlAvailability) Available(ctx context.Context, key core.RatingKey) (bool, bool) {
 	var x int
-	a.s.o.DB.QueryRowContext(ctx, `SELECT rating_key FROM resolver_availability WHERE rating_key=?`, key).Scan(&x)
+	a.db.QueryRowContext(ctx, `SELECT rating_key FROM resolver_availability WHERE rating_key=?`, key).Scan(&x)
 	return false, false
 }
 

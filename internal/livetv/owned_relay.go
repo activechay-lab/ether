@@ -544,7 +544,7 @@ func (p *relayProducer) reencodeDecision() (core.Decision, bool) {
 	p.mu.Lock()
 	info, dec := p.info, p.dec
 	p.mu.Unlock()
-	next := p.s.o.Transcoder.Decide(info, p.caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
+	next := p.s.transcoder().Decide(info, p.caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
 	if next.VideoCopy {
 		return next, false
 	}
@@ -720,7 +720,7 @@ func (p *relayProducer) reopenPlan(f mediaFormat) (core.MediaInfo, core.Decision
 		// play stays surround through the ordinary decision.
 		caps := p.caps
 		caps.AudioCodecs = []string{"aac"}
-		next := p.s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
+		next := p.s.transcoder().Decide(info, caps, core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
 		if !next.AudioCopy && !next.VideoCopy {
 			next.Container = prev.Container
 			dec = next

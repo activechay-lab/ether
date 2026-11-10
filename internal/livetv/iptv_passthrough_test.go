@@ -79,7 +79,9 @@ func TestIPTVFragmentedRelayRoutes(t *testing.T) {
 	}
 	ss := &session{info: SessionInfo{ID: "fragmented", UserID: 1, Channel: c}, user: *u, ready: true, relayInfo: &core.MediaInfo{Container: "fmp4"}}
 	ownedRelayFixture(t, s, ss, &fragmentedLiveFixture{}, core.Decision{Container: "fmp4", VideoCopy: true}, 2*time.Second)
+	s.mu.Lock()
 	s.sessions[ss.info.ID] = ss
+	s.mu.Unlock()
 	w := httptest.NewRecorder()
 	s.ServePlaylist(w, httptest.NewRequest("GET", "/", nil), ss.info.ID, u)
 	body := w.Body.String()

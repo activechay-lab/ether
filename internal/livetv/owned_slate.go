@@ -181,7 +181,7 @@ func (s *Service) slateFor(c Channel) func(slateProfile) *slateClip {
 }
 
 func (s *Service) ffmpegPath() string {
-	if f, ok := s.o.Transcoder.(interface{ FFmpegPath() string }); ok {
+	if f, ok := s.transcoder().(interface{ FFmpegPath() string }); ok {
 		return f.FFmpegPath()
 	}
 	return ""

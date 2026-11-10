@@ -110,10 +110,11 @@ func (s *Service) probeLiveCached(ctx context.Context, key, input string) (*core
 }
 
 func (s *Service) probeLiveUncached(ctx context.Context, input string) (*core.MediaInfo, error) {
-	if p, ok := s.o.Transcoder.(liveProber); ok {
+	tc := s.transcoder()
+	if p, ok := tc.(liveProber); ok {
 		return p.ProbeLive(ctx, input)
 	}
-	return s.o.Transcoder.Probe(ctx, input)
+	return tc.Probe(ctx, input)
 }
 
 func (s *Service) storeProbeLocked(key string, info core.MediaInfo) {

@@ -74,6 +74,7 @@ type Service struct {
 	sourceMu              sync.Mutex
 	sourceHealth          map[string]streamSourceHealth
 	history               sourceHistoryStore // learned per-source evidence (source_history.go)
+	transcoderMu          sync.RWMutex
 	o                     Options
 	kinds                 *KindRegistry
 	policyReads           atomic.Uint64
@@ -101,6 +102,19 @@ type Service struct {
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
 	direct           ownedServiceState // Direct-path owned timelines and slates (owned_*.go)
+}
+
+func (s *Service) transcoder() core.Transcoder {
+	s.transcoderMu.RLock()
+	tc := s.o.Transcoder
+	s.transcoderMu.RUnlock()
+	return tc
+}
+
+func (s *Service) setTranscoder(tc core.Transcoder) {
+	s.transcoderMu.Lock()
+	s.o.Transcoder = tc
+	s.transcoderMu.Unlock()
 }
 
 func New(o Options) (*Service, error) {
@@ -2195,6 +2209,7 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 		"programmes_unchanged", writes.ProgrammesKept, "channels_written", writes.ChannelsWritten, "channels_deleted", writes.ChannelsDeleted,
 		"guide_channels_written", writes.GuideChannelsWritten, "guide_channels_deleted", writes.GuideChannelsDeleted, "source_written", sourceWritten)
 	err = tx.Commit()
+	s.forgetSourceAuth(src.ID)
 	if err == nil {
 		s.wakeSourceRefresh()
 	}
@@ -2221,7 +2236,6 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 			s.invalidate(id, "")
 		}
 	}
-	s.forgetSourceAuth(src.ID)
 	if err == nil && src.Auth != nil && src.Auth.Type == "xtream" {
 		_, _ = s.o.DB.ExecContext(ctx, `UPDATE xtream_vod_refresh SET next=0 WHERE provider=?`, src.ID)
 		s.wakeVODLoop()
@@ -2365,6 +2379,7 @@ func (s *Service) SavePendingSource(ctx context.Context, src Source) (Source, er
 	if _, err = s.o.DB.ExecContext(ctx, `INSERT INTO livetv_sources(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, src.ID, b); err != nil {
 		return src, err
 	}
+	s.forgetSourceAuth(src.ID)
 	s.wakeSourceRefresh()
 	src.HasPlaylist = false
 	src.HasGuide = false
@@ -2471,6 +2486,7 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 		return err
 	}
 	err = tx.Commit()
+	s.forgetSourceAuth(id)
 	if err == nil {
 		s.invalidate("", id)
 		s.notifySourcesChanged()

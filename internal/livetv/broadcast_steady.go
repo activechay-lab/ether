@@ -198,10 +198,10 @@ func (r *broadcastRegistry) running(key broadcastKey) *broadcast {
 }
 
 func (s *Service) steadyHardware() bool {
-	if s.o.Transcoder == nil {
+	if s.transcoder() == nil {
 		return false
 	}
-	hw := s.o.Transcoder.HWAccel()
+	hw := s.transcoder().HWAccel()
 	return hw.Name != "" && hw.Name != "none"
 }
 
@@ -217,7 +217,7 @@ var errSteadyRefused = errors.New("live TV: continuous output declined")
 // steadyCapacity reports whether one more output of format f fits the host.
 // A transcoder that cannot size continuous outputs runs none for IPTV.
 func (s *Service) steadyCapacity(f transcode.RawFormat) (bool, float64, float64) {
-	source, ok := s.o.Transcoder.(continuousBudget)
+	source, ok := s.transcoder().(continuousBudget)
 	if !ok {
 		return false, 0, 0
 	}
@@ -275,7 +275,7 @@ type steadyAdmission struct {
 // bytes the probe already read on the same provider connection. It returns
 // a refusal reason when the tune must take a direct path.
 func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission, string, string) {
-	if _, ok := s.o.Transcoder.(continuousBudget); !ok {
+	if _, ok := s.transcoder().(continuousBudget); !ok {
 		return nil, steadyRefusedNoTranscoder, "transcoder runs no continuous outputs"
 	}
 	if s.broadcasts.steadyStrained() {
@@ -457,7 +457,7 @@ func (s *Service) steadyAllocation(c Channel, src StreamSource, f transcode.RawF
 	if s.stabilityPreset(c) == stabilityRockSolid {
 		return class, "", ""
 	}
-	if _, ok := s.o.Transcoder.(continuousBudget); !ok {
+	if _, ok := s.transcoder().(continuousBudget); !ok {
 		return class, steadyRefusedNoTranscoder, "transcoder runs no continuous outputs"
 	}
 	budget, hardware := s.continuousBudget()
@@ -472,7 +472,7 @@ func (s *Service) steadyAllocation(c Channel, src StreamSource, f transcode.RawF
 }
 
 func (s *Service) continuousBudget() (float64, bool) {
-	if source, ok := s.o.Transcoder.(continuousBudget); ok {
+	if source, ok := s.transcoder().(continuousBudget); ok {
 		return source.ContinuousBudget()
 	}
 	return 0, false

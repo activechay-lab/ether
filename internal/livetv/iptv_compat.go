@@ -14,7 +14,7 @@ import (
 // source needs conversion and the channel's screens ask for Steady.
 func (s *Service) relayPlan(ss *session, info core.MediaInfo) (dec core.Decision, cut time.Duration, steady bool) {
 	caps := relayCaps(ss.caps)
-	dec = s.o.Transcoder.Decide(info, caps, core.DecideOptions{DirectStream: !ss.info.Channel.Transcode, AudioStream: -1, SubtitleStream: -1})
+	dec = s.transcoder().Decide(info, caps, core.DecideOptions{DirectStream: !ss.info.Channel.Transcode, AudioStream: -1, SubtitleStream: -1})
 	steady = ss.steadyRefused == "" && s.screenStyle(ss.info.Channel, false) != "error" && (!dec.VideoCopy || !dec.AudioCopy)
 	if relayTSOnly(ss.caps) {
 		dec.Container = "mpegts"

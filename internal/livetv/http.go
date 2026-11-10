@@ -61,7 +61,7 @@ func (s *Service) ensureHTTP(ctx context.Context, ss *session, id string) (core.
 			}
 			continue
 		}
-		if s.o.Transcoder == nil {
+		if s.transcoder() == nil {
 			ss.mu.Unlock()
 			return nil, core.ErrNotAvailable
 		}
@@ -112,7 +112,7 @@ func (s *Service) startHTTPStream(ctx context.Context, ss *session, id string, i
 	}
 	copyInfo := *info
 	copyInfo.Duration = 0
-	dec := s.o.Transcoder.Decide(copyInfo, caps, core.DecideOptions{
+	dec := s.transcoder().Decide(copyInfo, caps, core.DecideOptions{
 		DirectStream: true, AudioStream: -1, SubtitleStream: -1, Protocol: core.ProtocolHTTP,
 	})
 	if dec.Kind == core.DecisionDirectPlay {
@@ -142,7 +142,7 @@ func (s *Service) startHTTPStream(ctx context.Context, ss *session, id string, i
 	}
 	ss.mu.Unlock()
 
-	hs, err := s.o.Transcoder.StartHLS(s.ctx, core.HLSRequest{
+	hs, err := s.transcoder().StartHLS(s.ctx, core.HLSRequest{
 		SessionID: "livetv-http-" + id, InputURL: input, LiveInput: liveInput,
 		Info: copyInfo, Decision: dec, Protocol: core.ProtocolHTTP, SegmentDuration: segmentDuration,
 	})

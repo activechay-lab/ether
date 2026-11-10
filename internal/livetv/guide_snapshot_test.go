@@ -21,9 +21,15 @@ func TestGuideSnapshotEquivalenceAndCost(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%d", mode, size), func(t *testing.T) {
 				ctx := context.Background()
 				now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
-				s := testService(t, Options{Now: func() time.Time { return now }, Picker: costPersonalPicker{size}})
-				s.o.DB.Exec(`CREATE TABLE resolver_availability (rating_key INTEGER PRIMARY KEY)`)
-				s.o.Availability = sqlAvailability{s}
+				db, err := store.OpenMemory(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { db.Close() })
+				if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS resolver_availability (rating_key INTEGER PRIMARY KEY)`); err != nil {
+					t.Fatal(err)
+				}
+				s := testService(t, Options{DB: db, Now: func() time.Time { return now }, Picker: costPersonalPicker{size}, Availability: sqlAvailability{db}})
 				c := testChannel()
 				c.Items = nil
 				c.Mode = mode

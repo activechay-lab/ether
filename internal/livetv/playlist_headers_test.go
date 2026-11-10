@@ -95,7 +95,10 @@ func TestPlaylistHeadersFollowMediaRedirectsOnly(t *testing.T) {
 					t.Fatalf("HLS media %d %d", out.Code, out.Body.Len())
 				}
 			} else {
-				input, err := s.relayInput(s.sessions[info.ID])
+				s.mu.Lock()
+				ss := s.sessions[info.ID]
+				s.mu.Unlock()
+				input, err := s.relayInput(ss)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -31,7 +31,7 @@ func TestSteadyHandoffSharesTheDirectConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.limit = 1
-	s.authCache.m["acct"] = e
+	s.setSourceEntry("acct", e)
 	cs, _ := s.Channels(ctx)
 	c := cs[0]
 	if err := normalizeStreamSources(&c); err != nil {

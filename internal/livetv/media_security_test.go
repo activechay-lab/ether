@@ -20,7 +20,9 @@ func TestOwnerPreviewResourceIsolatesActiveContent(t *testing.T) {
 	tl := newOwnedTimeline("security", s.logger(), nil, 0, nil)
 	tl.addResource("html", []byte(`<script>bad()</script>`), "video/mp4")
 	tl.addResource("svg", []byte(`<svg onload="bad()"/>`), "application/octet-stream")
+	s.mu.Lock()
 	s.sessions["security"] = &session{caps: core.ClientCaps{Product: previewCaps.Product, ClientID: "ether-preview-security"}, user: core.User{IsOwner: true}, ready: true, info: SessionInfo{ID: "security", UserID: 0, Channel: c}, inputURL: c.StreamURL, owned: &ownedLease{tl: tl, release: func() {}}}
+	s.mu.Unlock()
 	for _, key := range []string{"html", "svg"} {
 		w := httptest.NewRecorder()
 		s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/sessions/security/resource/"+key, nil))

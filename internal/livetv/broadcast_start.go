@@ -143,7 +143,7 @@ func (s *Service) startBroadcast(ctx context.Context, ss *session) error {
 	ss.mu.Lock()
 	c, user, caps, refused := ss.info.Channel, ss.user, ss.caps, ss.steadyRefused
 	ss.mu.Unlock()
-	runner, ok := s.o.Transcoder.(transcode.ContinuousRunner)
+	runner, ok := s.transcoder().(transcode.ContinuousRunner)
 	if !ok {
 		if c.Kind == "iptv" && refused == "" {
 			ss.mu.Lock()
@@ -264,7 +264,7 @@ func (s *Service) launchBroadcast(ctx context.Context, ss *session, l broadcastL
 	outputCaps.VideoCodecs = []string{"h264"}
 	outputCaps.AudioCodecs = []string{"aac"}
 	outputCaps.MaxHeight = outputHeight
-	decision := s.o.Transcoder.Decide(sourceInfo, outputCaps, core.DecideOptions{AudioStream: 1, SubtitleStream: -1})
+	decision := s.transcoder().Decide(sourceInfo, outputCaps, core.DecideOptions{AudioStream: 1, SubtitleStream: -1})
 	decision.Kind = core.DecisionTranscode
 	decision.VideoCopy = false
 	decision.AudioCopy = false

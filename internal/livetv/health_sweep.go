@@ -50,7 +50,7 @@ func (s *Service) wakeHealthSweep() {
 }
 
 func (s *Service) hasSweepableIPTV(ctx context.Context) bool {
-	if s.o.Transcoder == nil {
+	if s.transcoder() == nil {
 		return false
 	}
 	if s.o.HealthSweepMinutes != nil && s.o.HealthSweepMinutes() < 0 {
@@ -106,7 +106,7 @@ func (s *Service) healthSweepLoop() {
 		if s.o.HealthSweepMinutes != nil && s.o.HealthSweepMinutes() < 0 {
 			continue
 		}
-		if s.o.Transcoder != nil {
+		if s.transcoder() != nil {
 			s.sweepChannels(s.ctx)
 		}
 	}

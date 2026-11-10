@@ -13,6 +13,7 @@ import (
 	"path"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -211,27 +212,39 @@ func TestPersistenceImportsPoliciesAndAtomicFailure(t *testing.T) {
 
 type fakePlayback struct {
 	core.Playback
+	mu       sync.Mutex
 	prepared []*core.PlaySession
 	stopped  []string
 	groups   []string
 }
 
 func (f *fakePlayback) Prepare(_ context.Context, u *core.User, k core.RatingKey, c core.ClientCaps) (*core.PlaySession, error) {
-	ps := &core.PlaySession{ID: fmt.Sprint(len(f.prepared) + 1), UserID: u.ID, Key: k, ClientID: c.ClientID, Info: core.MediaInfo{Duration: time.Hour}}
-	f.prepared = append(f.prepared, ps)
-	return ps, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.prepareLocked(u, k, c, ""), nil
 }
-func (f *fakePlayback) PrepareChannel(ctx context.Context, u *core.User, k core.RatingKey, c core.ClientCaps, g string) (*core.PlaySession, error) {
+func (f *fakePlayback) PrepareChannel(_ context.Context, u *core.User, k core.RatingKey, c core.ClientCaps, g string) (*core.PlaySession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.groups = append(f.groups, g)
-	ps, err := f.Prepare(ctx, u, k, c)
-	if ps != nil {
-		ps.PlaybackGroup = g
-	}
-	return ps, err
+	return f.prepareLocked(u, k, c, g), nil
 }
-func (f *fakePlayback) InputURL(id string) string     { return "http://127.0.0.1/source/" + id }
-func (f *fakePlayback) Stop(id string)                { f.stopped = append(f.stopped, id) }
-func (f *fakePlayback) Sessions() []*core.PlaySession { return f.prepared }
+func (f *fakePlayback) prepareLocked(u *core.User, k core.RatingKey, c core.ClientCaps, g string) *core.PlaySession {
+	ps := &core.PlaySession{ID: fmt.Sprint(len(f.prepared) + 1), UserID: u.ID, Key: k, ClientID: c.ClientID, PlaybackGroup: g, Info: core.MediaInfo{Duration: time.Hour}}
+	f.prepared = append(f.prepared, ps)
+	return ps
+}
+func (f *fakePlayback) InputURL(id string) string { return "http://127.0.0.1/source/" + id }
+func (f *fakePlayback) Stop(id string) {
+	f.mu.Lock()
+	f.stopped = append(f.stopped, id)
+	f.mu.Unlock()
+}
+func (f *fakePlayback) Sessions() []*core.PlaySession {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*core.PlaySession(nil), f.prepared...)
+}
 func (f *fakePlayback) Failover(_ context.Context, id string, at time.Duration) (*core.PlaySession, error) {
 	return &core.PlaySession{ID: id, Info: core.MediaInfo{Duration: time.Hour}}, nil
 }
@@ -530,7 +543,7 @@ func TestIPTVRelativeManifestKeysRangesRetryAndReconnect(t *testing.T) {
 	}
 	// Forced normalization uses the same authenticated Live TV playlist route.
 	tc := &fakeTranscoder{}
-	s.o.Transcoder = tc
+	s.setTranscoder(tc)
 	c.Transcode = true
 	if _, e = s.SaveChannel(context.Background(), c); e != nil {
 		t.Fatal(e)
@@ -623,10 +636,16 @@ type fakeChannelLimiter struct {
 }
 
 func (f *fakeChannelLimiter) BeginChannel(*core.User, core.ClientCaps, string) error {
+	f.mu.Lock()
 	f.begun++
+	f.mu.Unlock()
 	return nil
 }
-func (f *fakeChannelLimiter) EndChannel(string) { f.ended++ }
+func (f *fakeChannelLimiter) EndChannel(string) {
+	f.mu.Lock()
+	f.ended++
+	f.mu.Unlock()
+}
 func TestChannelReservationReleasedOnStopAndPrepareFailure(t *testing.T) {
 	pb := &fakeChannelLimiter{fakePlayback: &fakePlayback{}}
 	s := testService(t, Options{Playback: pb, Now: func() time.Time { return time.Unix(7, 0) }})
@@ -641,7 +660,7 @@ func TestChannelReservationReleasedOnStopAndPrepareFailure(t *testing.T) {
 	if pb.begun != 1 || pb.ended != 1 || len(s.ViewingSessions()) != 0 {
 		t.Fatal("failed tune leaked a viewing reservation")
 	}
-	s.o.Transcoder = &fakeTranscoder{}
+	s.setTranscoder(&fakeTranscoder{})
 	info, e := s.Tune(context.Background(), u, c.ID, core.ClientCaps{})
 	if e != nil {
 		t.Fatal(e)

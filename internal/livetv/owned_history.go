@@ -58,7 +58,7 @@ func (s *Service) historyDecision(ss *session, info core.MediaInfo, dec core.Dec
 	if ev == "" {
 		return dec, ""
 	}
-	next := s.o.Transcoder.Decide(info, relayCaps(ss.caps), core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
+	next := s.transcoder().Decide(info, relayCaps(ss.caps), core.DecideOptions{DirectStream: false, AudioStream: -1, SubtitleStream: -1})
 	if next.VideoCopy {
 		return dec, ""
 	}

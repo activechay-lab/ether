@@ -55,7 +55,7 @@ func TestOneProviderConnectionPerChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.limit = 1
-	s.authCache.m["provider"] = e
+	s.setSourceEntry("provider", e)
 	cs, _ := s.Channels(ctx)
 	one, two := cs[0], cs[1]
 
@@ -129,5 +129,42 @@ func TestTapPacesNewProviderStreams(t *testing.T) {
 	}
 	if wait, err := r.reserveOpen("other", 0, 0, now); err != nil || wait != 0 {
 		t.Fatalf("unpaced source: %v %v", wait, err)
+	}
+}
+
+// A slow background sourceEntry fill started before ImportSource/DeleteSource
+// or setSourceEntry must not overwrite a fresher authCache entry once its DB
+// query returns (PostgreSQL multi-connection pool race).
+func TestAuthCacheRejectsStaleConcurrentFill(t *testing.T) {
+	s := testService(t, Options{})
+	ctx := context.Background()
+	if _, err := s.ImportSource(ctx, Source{
+		ID:       "provider",
+		Name:     "Provider",
+		Auth:     relayAuth(),
+		Playlist: "#EXTM3U\n#EXTINF:-1 tvg-id=\"one\",One\nhttp://example.invalid/live/1.ts\n",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.forgetSourceAuth("provider")
+
+	// Simulate a background loop reading authCache.gen before a mutation, then
+	// losing the race to setSourceEntry while its DB read is in flight.
+	s.authCache.mu.Lock()
+	staleGen := s.authCache.gen
+	s.authCache.mu.Unlock()
+
+	fresh := authEntry{limit: 1, at: s.o.Now()}
+	s.setSourceEntry("provider", fresh)
+
+	stale := authEntry{limit: 0, at: s.o.Now()}
+	s.authCache.mu.Lock()
+	if s.authCache.gen == staleGen {
+		s.authCache.m["provider"] = stale
+	}
+	s.authCache.mu.Unlock()
+
+	if got := s.sourceConnectionLimit("provider"); got != 1 {
+		t.Fatalf("stale background fill overwrote connection limit: got %d, want 1", got)
 	}
 }

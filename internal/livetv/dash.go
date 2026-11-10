@@ -72,7 +72,7 @@ func (s *Service) ensureDASH(ctx context.Context, ss *session, id string) (core.
 		return ds, nil
 	}
 	defer ss.mu.Unlock()
-	if ss.info.Channel.Kind != "iptv" || s.o.Transcoder == nil {
+	if ss.info.Channel.Kind != "iptv" || s.transcoder() == nil {
 		return nil, core.ErrNotAvailable
 	}
 	info := ss.info.MediaInfo
@@ -89,7 +89,7 @@ func (s *Service) ensureDASH(ctx context.Context, ss *session, id string) (core.
 	info = &copy
 	info.Duration = 0
 	ss.info.MediaInfo = info
-	dec := s.o.Transcoder.Decide(*info, ss.caps, core.DecideOptions{DirectStream: true, AudioStream: -1, SubtitleStream: -1})
+	dec := s.transcoder().Decide(*info, ss.caps, core.DecideOptions{DirectStream: true, AudioStream: -1, SubtitleStream: -1})
 	if dec.Kind == core.DecisionDirectPlay {
 		dec.Kind = core.DecisionRemux
 		dec.VideoCopy = true
@@ -99,7 +99,7 @@ func (s *Service) ensureDASH(ctx context.Context, ss *session, id string) (core.
 	if err != nil {
 		return nil, err
 	}
-	hs, err := s.o.Transcoder.StartHLS(s.ctx, core.HLSRequest{SessionID: "livetv-dash-" + id, InputURL: input, LiveInput: true, Info: *info, Decision: dec, Protocol: core.ProtocolDASH, SegmentDuration: segmentDuration})
+	hs, err := s.transcoder().StartHLS(s.ctx, core.HLSRequest{SessionID: "livetv-dash-" + id, InputURL: input, LiveInput: true, Info: *info, Decision: dec, Protocol: core.ProtocolDASH, SegmentDuration: segmentDuration})
 	if err != nil {
 		return nil, err
 	}

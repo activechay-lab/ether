@@ -66,7 +66,9 @@ func TestPlaylistForeignResourceDoesNotReceiveSourceHeaders(t *testing.T) {
 	ss := &session{ready: true, info: SessionInfo{ID: "scope", UserID: 1, Channel: c}, inputURL: c.StreamURL, inputSource: StreamSource{ID: "primary", URL: c.StreamURL, Enabled: true}, inputHeaders: http.Header{"Authorization": {"Bearer secret"}, "X-Provider-Secret": {"secret"}}, ctx: t.Context()}
 	ss.owned = s.acquirePassthrough(ss)
 	t.Cleanup(ss.owned.close)
+	s.mu.Lock()
 	s.sessions["scope"] = ss
+	s.mu.Unlock()
 	req := httptest.NewRequest("GET", "/", nil)
 	user := &core.User{ID: 1}
 	playlist := httptest.NewRecorder()

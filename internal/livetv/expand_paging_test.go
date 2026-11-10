@@ -36,8 +36,8 @@ func TestFilterChannelExpandsPastOneBrowsePage(t *testing.T) {
 		t.Fatalf("expanded %d items, want 1200", len(c.Items))
 	}
 	big := Channel{Kind: "virtual", Filter: &core.Filter{Type: core.TypeMovie}}
-	s.o.Catalog = pagedCatalog{n: 5000}
-	if err := s.expand(context.Background(), &big); err != nil {
+	s2 := testService(t, Options{Catalog: pagedCatalog{n: 5000}})
+	if err := s2.expand(context.Background(), &big); err != nil {
 		t.Fatal(err)
 	}
 	if len(big.Items) != 2000 {

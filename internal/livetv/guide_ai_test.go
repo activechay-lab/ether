@@ -237,8 +237,7 @@ func TestGuideAIRejectsStaleReview(t *testing.T) {
 
 func TestGuideAIUnconfiguredKeepsDeterministic(t *testing.T) {
 	f := &guideFake{labels: map[string]string{}}
-	s := seedGuideAI(t, f, 2)
-	s.o.GuideAI = nil
+	s := seedGuideAI(t, nil, 2)
 	r, e := s.MatchGuides(context.Background(), GuideMatchRequest{AI: "estimate"})
 	if e != nil {
 		t.Fatal(e)

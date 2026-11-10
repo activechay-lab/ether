@@ -441,10 +441,12 @@ func (s *Service) readGuide(ctx context.Context, raw string, h http.Header, f gu
 }
 
 // authCache keeps provider settings for the stream path, which asks for them
-// on every segment. Imports and deletes drop the entry.
+// on every segment. Imports and deletes drop the entry and advance gen so an
+// in-flight database read from before the mutation never repopulates stale data.
 type authCache struct {
-	mu sync.Mutex
-	m  map[string]authEntry
+	mu  sync.Mutex
+	gen uint64
+	m   map[string]authEntry
 }
 
 type authEntry struct {
@@ -460,7 +462,19 @@ const authCacheTTL = 30 * time.Second
 func (s *Service) forgetSourceAuth(id string) {
 	c := &s.authCache
 	c.mu.Lock()
+	c.gen++
 	delete(c.m, id)
+	c.mu.Unlock()
+}
+
+func (s *Service) setSourceEntry(id string, e authEntry) {
+	c := &s.authCache
+	c.mu.Lock()
+	c.gen++
+	if c.m == nil {
+		c.m = map[string]authEntry{}
+	}
+	c.m[id] = e
 	c.mu.Unlock()
 }
 
@@ -490,6 +504,7 @@ func (s *Service) sourceEntry(ctx context.Context, id string) (authEntry, error)
 	c := &s.authCache
 	c.mu.Lock()
 	e, ok := c.m[id]
+	gen := c.gen
 	c.mu.Unlock()
 	if ok && s.o.Now().Sub(e.at) < authCacheTTL {
 		return e, nil
@@ -515,10 +530,14 @@ func (s *Service) sourceEntry(ctx context.Context, id string) (authEntry, error)
 		e.gap = defaultTuneGap
 	}
 	c.mu.Lock()
-	if c.m == nil {
-		c.m = map[string]authEntry{}
+	if c.gen == gen {
+		if c.m == nil {
+			c.m = map[string]authEntry{}
+		}
+		c.m[id] = e
+	} else if cur, exists := c.m[id]; exists && s.o.Now().Sub(cur.at) < authCacheTTL {
+		e = cur
 	}
-	c.m[id] = e
 	c.mu.Unlock()
 	return e, nil
 }
