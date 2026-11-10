@@ -104,14 +104,11 @@ function ConnectAppsSession({ base, token }: { base: string; token: string }) {
       <div className="space-y-1">
         <h2 className="text-lg font-semibold">{t("Connect apps")}</h2>
       </div>
-      <div className="flex flex-wrap gap-3 md:flex-nowrap">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
         {apps
           .filter((id) => names[id])
           .map((id) => (
-            <div
-              key={id}
-              className="flex-1 min-w-40 rounded-xl border border-border bg-surface p-4 space-y-3"
-            >
+            <div key={id} className="space-y-3 rounded-xl border border-border bg-surface p-4">
               <div className="flex items-center gap-3 font-semibold">
                 {id === "plex" ? (
                   <PlexMark />

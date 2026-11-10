@@ -524,13 +524,37 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                           {m.problem ? (
                             <span className="block text-warning">{pmsProblemText(m.problem)}</span>
                           ) : null}
+                          {m.direction & 3 ? (
+                            <span className="flex flex-wrap gap-2 pt-2">
+                              {(m.direction & 2) !== 0 ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy || !enabled}
+                                  onClick={() => openBackfill("in", srv, account, m)}
+                                >
+                                  {t("Bring in full history from this server")}
+                                </Button>
+                              ) : null}
+                              {(m.direction & 1) !== 0 ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy || !enabled || !m.canSend}
+                                  onClick={() => openBackfill("out", srv, account, m)}
+                                >
+                                  {t("Send Ether's full history to this server")}
+                                </Button>
+                              ) : null}
+                            </span>
+                          ) : null}
                         </span>
                       ) : (
                         t("Not synced")
                       )
                     }
                     control={
-                      <span className="flex flex-wrap gap-2">
+                      <span className="flex shrink-0 flex-wrap justify-end gap-2">
                         {m && m.unmatched > 0 ? (
                           <Button
                             size="sm"
@@ -539,26 +563,6 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                             onClick={() => void openUnmatched(srv, m.userId)}
                           >
                             {tn(m.unmatched, "{count} unmatched title", "{count} unmatched titles")}
-                          </Button>
-                        ) : null}
-                        {m && (m.direction & 2) !== 0 ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy || !enabled}
-                            onClick={() => openBackfill("in", srv, account, m)}
-                          >
-                            {t("Bring in full history from this server")}
-                          </Button>
-                        ) : null}
-                        {m && (m.direction & 1) !== 0 ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy || !enabled || !m.canSend}
-                            onClick={() => openBackfill("out", srv, account, m)}
-                          >
-                            {t("Send Ether's full history to this server")}
                           </Button>
                         ) : null}
                         <Button

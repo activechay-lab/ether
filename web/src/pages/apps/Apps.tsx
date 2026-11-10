@@ -372,7 +372,7 @@ function ProtocolSettings({
           </SettingsSection>
         ) : null}
         {id !== "plex" && id !== "dlna" ? (
-          <SettingsSection title={t("Public address")}>
+          <SettingsSection title={t("Away from home")}>
             <SettingsRow
               title={<label htmlFor={`${id}-public-url`}>{t("Public address")}</label>}
               description={t(
@@ -386,7 +386,8 @@ function ProtocolSettings({
                   inputMode="url"
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="https://jelly.example.com"
+                  className="w-72"
+                  placeholder={`https://${id === "jellyfin" ? "jelly" : id}.example.com`}
                   value={draft.publicUrl ?? ""}
                   onChange={(e) => setDraft({ ...draft, publicUrl: e.currentTarget.value })}
                 />

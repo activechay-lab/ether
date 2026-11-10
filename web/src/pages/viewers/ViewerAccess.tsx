@@ -113,7 +113,7 @@ function ViewerLibraries({
               ))
             : null}
           {isOwner ? (
-            <p className="pt-2 text-sm text-fg-muted">
+            <p className="px-5 py-4 text-sm text-fg-muted">
               {t("The owner can always open every library.")}
             </p>
           ) : (
