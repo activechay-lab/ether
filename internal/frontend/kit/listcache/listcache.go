@@ -99,17 +99,19 @@ type Request struct {
 // Entry is one listing: written by its build, then served until it is
 // retired. Its files are removed once it is retired and nobody reads them.
 type Entry struct {
-	s       *Store
-	slot    string
-	state   State
-	id      string
-	owner   string
-	build   func(context.Context, *Entry) error
-	started atomic.Bool
-	body    *os.File
-	side    *os.File
-	images  *bufio.Writer
-	keepMu  sync.Mutex
+	s        *Store
+	slot     string
+	state    State
+	id       string
+	owner    string
+	build    func(context.Context, *Entry) error
+	openDone chan struct{}
+	openOK   bool
+	started  atomic.Bool
+	body     *os.File
+	side     *os.File
+	images   *bufio.Writer
+	keepMu   sync.Mutex
 
 	mu      sync.Mutex
 	wake    chan struct{}
@@ -232,7 +234,7 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, req Request) bool 
 	if s == nil {
 		return false
 	}
-	ready, follow, stale := s.acquire(req)
+	ready, follow, created, stale := s.acquire(req)
 	if ready != nil {
 		defer s.release(ready)
 		if stale {
@@ -242,11 +244,19 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, req Request) bool 
 		return s.serveFile(w, r, ready)
 	}
 	if follow == nil {
-		if follow = s.begin(req, false); follow == nil {
+		return false
+	}
+	defer s.release(follow)
+	if created {
+		if !s.open(follow) {
+			return false
+		}
+	} else {
+		<-follow.openDone
+		if !follow.openOK {
 			return false
 		}
 	}
-	defer s.release(follow)
 	s.start(follow)
 	s.follow(w, r, req, follow)
 	return true
@@ -256,12 +266,16 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, req Request) bool 
 // or matching build exists and the slot's last speculative build was
 // fetched (or is a day old).
 func (s *Store) Prepare(req Request) {
-	if s == nil || !s.wanted(req) {
+	if s == nil {
 		return
 	}
-	if e := s.begin(req, true); e != nil {
+	e := s.beginSpeculative(req)
+	if e == nil {
+		return
+	}
+	defer s.release(e)
+	if s.open(e) {
 		s.queue(e)
-		s.release(e)
 	}
 }
 
@@ -281,9 +295,11 @@ func (s *Store) rebuildDueLocked(e *Entry, now State) bool {
 	return u == nil || u.prepared.Before(e.state.At) || !now.At.Before(u.prepared.Add(rebuildFloor))
 }
 
-// acquire returns a servable listing or a build to follow, each with a
-// reference the caller releases. stale reports a listing to rebuild.
-func (s *Store) acquire(req Request) (ready, follow *Entry, stale bool) {
+// acquire returns a servable listing or a build to follow (registering one
+// atomically under s.mu when none is in flight), each with a reference the
+// caller releases. created reports that the caller owns opening follow's
+// files; stale reports a ready listing to rebuild behind the response.
+func (s *Store) acquire(req Request) (ready, follow *Entry, created, stale bool) {
 	now := req.State
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -293,14 +309,18 @@ func (s *Store) acquire(req Request) (ready, follow *Entry, stale bool) {
 		s.servedLocked(req.Slot, now.At)
 		b := s.building[req.Slot]
 		stale = s.rebuildDueLocked(e, now) && (b == nil || !followable(b, now))
-		return e, nil, stale
+		return e, nil, false, stale
 	}
 	if b := s.building[req.Slot]; b != nil && followable(b, now) {
 		b.refs++
 		s.servedLocked(req.Slot, now.At)
-		return nil, b, false
+		return nil, b, false, false
 	}
-	return nil, nil, false
+	e := s.registerLocked(req, false)
+	if e != nil {
+		s.servedLocked(req.Slot, now.At)
+	}
+	return nil, e, e != nil, false
 }
 
 func (s *Store) servedLocked(slot string, at time.Time) {
@@ -312,37 +332,36 @@ func (s *Store) servedLocked(slot string, at time.Time) {
 	u.served = at
 }
 
-func (s *Store) wanted(req Request) bool {
+func (s *Store) beginSpeculative(req Request) *Entry {
 	now := req.State
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || now.At.Before(s.paused) {
-		return false
+	if s.closed || now.At.Before(s.paused) || req.Build == nil {
+		return nil
 	}
 	if b := s.building[req.Slot]; b != nil && followable(b, now) {
-		return false
+		return nil
 	}
 	if e := s.ready[req.Slot]; e != nil && servable(e, now) && !s.rebuildDueLocked(e, now) {
-		return false
+		return nil
 	}
 	u := s.uses[req.Slot]
-	return u == nil || u.prepared.IsZero() || !u.served.Before(u.prepared) || now.At.Sub(u.prepared) >= Idle
+	if u != nil && !u.prepared.IsZero() && u.served.Before(u.prepared) && now.At.Sub(u.prepared) < Idle {
+		return nil
+	}
+	return s.registerLocked(req, true)
 }
 
-// begin registers a build of req and creates its files. The caller holds
-// one reference and the build another; nil means listings are unavailable.
-func (s *Store) begin(req Request, speculative bool) *Entry {
+// registerLocked claims req.Slot's in-flight build under s.mu before its
+// files are opened, so concurrent callers follow or skip it instead of
+// racing into separate whole-library builds. The caller holds one reference
+// and the build another.
+func (s *Store) registerLocked(req Request, speculative bool) *Entry {
+	if req.Build == nil || s.closed || req.State.At.Before(s.paused) {
+		return nil
+	}
 	var raw [12]byte
-	if req.Build == nil {
-		return nil
-	}
 	if _, err := rand.Read(raw[:]); err != nil {
-		return nil
-	}
-	e := &Entry{s: s, slot: req.Slot, state: req.State, id: hex.EncodeToString(raw[:]), owner: req.Owner, build: req.Build, wake: make(chan struct{}), refs: 2, renewed: map[string]time.Time{}}
-	s.mu.Lock()
-	if s.closed || req.State.At.Before(s.paused) {
-		s.mu.Unlock()
 		return nil
 	}
 	if speculative {
@@ -353,39 +372,60 @@ func (s *Store) begin(req Request, speculative bool) *Entry {
 		}
 		u.prepared = req.State.At
 	}
-	s.mu.Unlock()
-	var err error
-	if e.body, err = os.OpenFile(s.path(e.id, ".json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
-		s.pause()
-		return nil
-	}
-	if e.side, err = os.OpenFile(s.path(e.id, ".img"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
-		e.closeFiles()
-		e.removeFiles()
-		s.pause()
-		return nil
-	}
-	e.images = bufio.NewWriterSize(e.side, 64<<10)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		e.closeFiles()
-		e.removeFiles()
-		return nil
-	}
-	// Single-flight: a concurrent begin may have registered a build this
-	// request can follow while these files were being created. Follow it
-	// instead of orphaning a second whole-library build for the slot.
-	if b := s.building[req.Slot]; b != nil && b != e && followable(b, req.State) {
-		e.closeFiles()
-		e.removeFiles()
-		b.refs++
-		return b
+	e := &Entry{
+		s: s, slot: req.Slot, state: req.State, id: hex.EncodeToString(raw[:]),
+		owner: req.Owner, build: req.Build,
+		openDone: make(chan struct{}), wake: make(chan struct{}),
+		refs: 2, renewed: map[string]time.Time{},
 	}
 	s.building[req.Slot] = e
 	s.busy.Add(1)
 	s.wg.Add(1)
 	return e
+}
+
+// open creates e's files outside s.mu and releases any followers waiting on
+// openDone. On failure it retires the reservation and drops the build's
+// reference so callers fall back to encoding directly.
+func (s *Store) open(e *Entry) bool {
+	var err error
+	e.body, err = os.OpenFile(s.path(e.id, ".json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err == nil {
+		e.side, err = os.OpenFile(s.path(e.id, ".img"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	}
+	if err != nil {
+		e.closeFiles()
+		e.removeFiles()
+		s.pause()
+		s.abortOpen(e)
+		return false
+	}
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		e.closeFiles()
+		e.removeFiles()
+		s.abortOpen(e)
+		return false
+	}
+	e.images = bufio.NewWriterSize(e.side, 64<<10)
+	e.openOK = true
+	close(e.openDone)
+	return true
+}
+
+func (s *Store) abortOpen(e *Entry) {
+	s.mu.Lock()
+	if s.building[e.slot] == e {
+		delete(s.building, e.slot)
+	}
+	e.retired = true
+	s.releaseLocked(e)
+	s.mu.Unlock()
+	close(e.openDone)
+	s.busy.Add(-1)
+	s.wg.Done()
 }
 
 func (s *Store) pause() {

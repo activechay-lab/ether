@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -234,6 +235,61 @@ func TestConcurrentColdServesBuildOnce(t *testing.T) {
 	settle(t, s)
 	if built.Load() != 1 {
 		t.Fatalf("concurrent cold serves built %d listings", built.Load())
+	}
+}
+
+// Simultaneous cold Serve and Prepare calls must claim the slot before opening
+// files on disk so slow filesystem creation cannot race into multiple builds.
+func TestConcurrentColdServeAndPrepareBuildOnce(t *testing.T) {
+	s := New(t.TempDir())
+	t.Cleanup(s.Close)
+	var built atomic.Int64
+	req := Request{Slot: "series", State: State{Stamp: "a", Catalog: 1, At: s.now()}, Owner: "device",
+		Build: func(_ context.Context, e *Entry) error {
+			built.Add(1)
+			_, err := io.WriteString(e, `[{"series_id":1}]`)
+			return err
+		}}
+	const serves, prepares = 16, 8
+	var ready, done sync.WaitGroup
+	ready.Add(serves + prepares)
+	done.Add(serves + prepares)
+	start := make(chan struct{})
+	results := make(chan string, serves)
+	for range serves {
+		go func() {
+			defer done.Done()
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", "/list", nil)
+			ready.Done()
+			<-start
+			if !s.Serve(w, r, req) {
+				results <- "declined"
+				return
+			}
+			results <- w.Body.String()
+		}()
+	}
+	for range prepares {
+		go func() {
+			defer done.Done()
+			ready.Done()
+			<-start
+			s.Prepare(req)
+		}()
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
+	close(results)
+	for body := range results {
+		if body != `[{"series_id":1}]` {
+			t.Fatalf("cold serve body %q", body)
+		}
+	}
+	settle(t, s)
+	if built.Load() != 1 {
+		t.Fatalf("concurrent cold serve/prepare built %d listings", built.Load())
 	}
 }
 
