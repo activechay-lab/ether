@@ -145,7 +145,7 @@ export function handle(req: Request) {
           layout: "detail",
           header: [{ kind: "page-header", title: "$t:page_label", description: "$t:summary" }],
           body: [
-            { kind: "stat-tile", iconKey: "music", accent: "primary", label: "$t:items_synced", value: { $: "count" } },
+            { kind: "stat-tile", iconKey: "play", accent: "primary", label: "$t:items_synced", value: { $: "count" } },
           ],
         },
         data: { count: String(items.length) },

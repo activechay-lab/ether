@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/braedonsaunders/ether/sdk/go/kit/archivex"
 )
@@ -42,7 +41,6 @@ func EPUB(data []byte) (map[string]any, error) {
 			Date     string   `xml:"date"`
 			Subjects []string `xml:"subject"`
 			Desc     string   `xml:"description"`
-			Series   []string `xml:"meta[@name='calibre:series']"`
 		} `xml:"metadata"`
 	}
 	// encoding/xml matches local names, so dc: prefixes parse flat.
@@ -257,8 +255,6 @@ func decodeUTF16(b []byte, order binary.ByteOrder) string {
 	for i := 0; i+1 < len(b); i += 2 {
 		u = append(u, order.Uint16(b[i:]))
 	}
-	r, _ := utf8.DecodeRuneInString("x")
-	_ = r
 	return strings.TrimRight(string(utf16.Decode(u)), "\x00")
 }
 

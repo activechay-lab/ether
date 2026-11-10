@@ -161,12 +161,6 @@ func TestKindLibraryExample(t *testing.T) {
 	if fog.Title != "Fog Horn" || !fog.Playable {
 		t.Fatalf("track 2: %+v", fog)
 	}
-	// Fix the declared zip size to the fixture's real size via hints.
-	var hints map[string]any
-	if err := json.Unmarshal(fog.Hints, &hints); err != nil {
-		t.Fatal(err)
-	}
-
 	// Local (synced) search finds it; live search route answers too.
 	found, err := svc.Search(ctx, pluginitems.SearchQuery{LibraryID: libraryID, Query: "fog", Limit: 10})
 	if err != nil || len(found.Items) != 1 || found.Items[0].ID != "harbour-2" {
