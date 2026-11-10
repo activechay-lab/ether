@@ -148,7 +148,6 @@ func newVariantFixture(t *testing.T, playback core.Playback) *variantFixture {
 		Deps: Deps{
 			Playback:          playback,
 			Transcoder:        newFakeTranscoder(core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: "mkv"}),
-			Variants:          vr,
 			DisableEnrichment: true,
 		},
 	}
@@ -164,6 +163,7 @@ func newVariantFixture(t *testing.T, playback core.Playback) *variantFixture {
 	setDepsIdentity(&d, Identity{Version: "1.43.4.10903-e5521bd8c", Platform: "Linux"})
 	setDepsNow(&d, func() time.Time { return fixedNow })
 	srv := newTestServer(d)
+	srv.setVariants(vr)
 	t.Cleanup(func() { srv.Close() })
 	mountTestBroker(srv, func() time.Time { return fixedNow })
 	return &variantFixture{srv: srv, resolver: vr, playback: playback}

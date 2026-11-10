@@ -110,7 +110,10 @@ func (*Service) ShowOnDeck(eps []core.Title, st map[core.RatingKey]core.WatchSta
 func (*Service) RequestDatabaseObservation(ctx context.Context) (int64, time.Duration) {
 	return RequestDatabaseObservation(ctx)
 }
-func (*Service) PlaybackMarkerRanges(ctx context.Context, source frontend.MarkerRanges, key core.RatingKey, info core.MediaInfo) ([]frontend.MarkerRange, error) {
+func (s *Service) PlaybackMarkerRanges(ctx context.Context, source frontend.MarkerRanges, key core.RatingKey, info core.MediaInfo) ([]frontend.MarkerRange, error) {
+	if source == nil && s != nil {
+		source = s.d.Markers
+	}
 	return PlaybackMarkerRanges(ctx, source, key, info)
 }
 

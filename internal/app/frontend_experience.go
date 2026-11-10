@@ -299,7 +299,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 				result.Markers = experience.ItemMarkers(ctx, nil, title.Key, markerInfo)
 			}
 			if a.subtitles != nil {
-				info.Streams = append(info.Streams, (plexSubtitles{a}).CachedSidecars(ctx, title, u, info.Streams)...)
+				info.Streams = append(info.Streams, (subtitleSurface{app: a}).CachedSidecars(ctx, title, u, info.Streams)...)
 			}
 			result.Tracks = info.Streams
 			result.TracksEstimated = info.Estimated
@@ -442,6 +442,23 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	if a.hostResources != nil {
 		deps.Resources = a.hostResources
 	}
+	deps.LibraryGUIDsFunc = func() frontend.LibraryGUIDs {
+		a.plexBuildMu.Lock()
+		defer a.plexBuildMu.Unlock()
+		if a.plexGUID == nil {
+			return nil
+		}
+		return a.plexGUID
+	}
+	deps.LibraryMetadataFunc = func() frontend.LibraryMetadata {
+		a.plexBuildMu.Lock()
+		defer a.plexBuildMu.Unlock()
+		if a.plexMeta == nil {
+			return nil
+		}
+		return a.plexMeta
+	}
+	deps.Markers = a.markers
 	deps.LibraryTitles = a.libraryTitles
 	deps.Now = parityClock()
 	if a.db != nil {

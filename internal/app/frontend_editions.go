@@ -9,8 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-// surfaceEditions exposes probed local copies only. A miss is an empty list,
-// not a resolver search.
+// surfaceEditions exposes probed local copies and release variants.
 type surfaceEditions struct{ app *App }
 
 func (s surfaceEditions) Editions(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) ([]frontend.Version, error) {
@@ -83,4 +82,25 @@ func (s surfaceEditions) EditionsMany(ctx context.Context, _ *core.Viewer, _ cor
 		out[key] = versions
 	}
 	return out, nil
+}
+
+func (s surfaceEditions) Variants(ctx context.Context, req core.ResolveRequest, max int) ([]core.ReleaseVariant, error) {
+	if s.app == nil || s.app.resolver == nil {
+		return nil, nil
+	}
+	return s.app.resolver.Variants(ctx, req, max)
+}
+
+func (s surfaceEditions) RefillSearchCache(t *core.Title) <-chan struct{} {
+	if s.app == nil || s.app.resolver == nil {
+		return nil
+	}
+	return s.app.resolver.RefillSearchCache(t)
+}
+
+func (s surfaceEditions) Available(ctx context.Context, key core.RatingKey) (bool, bool) {
+	if s.app == nil || s.app.resolver == nil {
+		return false, false
+	}
+	return s.app.resolver.Available(ctx, key)
 }

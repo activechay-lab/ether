@@ -34,14 +34,14 @@ import (
 // SubtitleCatalog is optionally implemented by Deps.Subtitles: the sidecars
 // already cached for a title and viewer, without network access, skipping
 // streams embedded already lists (by ExternalURL) or covers (by language).
-type SubtitleCatalog = frontend.SubtitleSidecars
+type SubtitleCatalog = frontend.SubtitleSidecarCatalog
 
 // SubtitleOffer is one subtitle search result.
-type SubtitleOffer = frontend.SidecarOffer
+type SubtitleOffer = frontend.SubtitleSearchOffer
 
 // SubtitleSearch is optionally implemented by Deps.Subtitles: Plex's
 // on-demand subtitle search and pick.
-type SubtitleSearch = frontend.SubtitleSearch
+type SubtitleSearch = frontend.SubtitleSidecarSearch
 
 // infoWithSelectedSidecar keeps a chosen external subtitle on a metadata
 // stream list. Cached sidecars omit a language the file already embeds, so
@@ -85,11 +85,10 @@ func ensureSelectedSidecar(ps *frontend.PlaySession, want *frontend.StreamInfo) 
 // withCachedSidecars appends the viewer's cached sidecars that info does not
 // already list. It never touches the network.
 func (s *Server) withCachedSidecars(ctx context.Context, u *frontend.User, t *frontend.Title, info frontend.MediaInfo) frontend.MediaInfo {
-	c, ok := s.d.Subtitles.(SubtitleCatalog)
-	if !ok || t == nil {
+	if s.subtitles == nil || t == nil {
 		return info
 	}
-	extra := c.CachedSidecars(ctx, t, u, info.Streams)
+	extra := s.subtitles.CachedSidecars(ctx, t, u, info.Streams)
 	if len(extra) == 0 {
 		return info
 	}
@@ -377,11 +376,11 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	lang = frontend.NormalizeLanguage(lang)
 	mc := libraryContainer()
-	searcher, ok := s.d.Subtitles.(SubtitleSearch)
-	if !ok {
+	if s.subtitles == nil {
 		s.write(w, r, mc)
 		return
 	}
+	searcher := s.subtitles
 	release := ""
 	if pr.User != nil && s.d.Playback != nil {
 		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil && ps.Resolution != nil {
@@ -455,11 +454,11 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	searcher, ok := s.d.Subtitles.(SubtitleSearch)
-	if !ok {
+	if s.subtitles == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
+	searcher := s.subtitles
 	if !r.URL.Query().Has("key") {
 		s.handleSubtitleSearch(w, r)
 		return
@@ -503,8 +502,8 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) { sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st })
-		if s.d.TrackPreferences != nil {
-			if err := s.d.TrackPreferences.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
+		if s.trackPrefs != nil {
+			if err := s.trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
 				s.log.Warn("save stream preference", "error", err)
 			}
 		}
@@ -558,7 +557,7 @@ func (s *Server) finishSubtitleActivity(uuid string, userID int64) {
 
 // SubtitleUpload is optionally implemented by Deps.Subtitles: Plex Web's
 // "Upload Subtitles" (POST /library/metadata/{key}/subtitles).
-type SubtitleUpload = frontend.SubtitleUpload
+type SubtitleUpload = frontend.SubtitleSidecarUpload
 
 const maxUploadBytes = 16 << 20
 
@@ -582,11 +581,11 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
-	uploader, ok := s.d.Subtitles.(SubtitleUpload)
-	if !ok {
+	if s.subtitles == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
+	uploader := s.subtitles
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxUploadBytes+1))
 	if err != nil {
 		writeHTTPError(w, http.StatusBadRequest)
@@ -627,8 +626,8 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 	s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) {
 		sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st
 	})
-	if s.d.TrackPreferences != nil {
-		if err := s.d.TrackPreferences.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
+	if s.trackPrefs != nil {
+		if err := s.trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
 			s.log.Warn("save stream preference", "error", err)
 		}
 	}
@@ -714,7 +713,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		s.writeEmpty(w, r)
 		return
 	}
-	timeline := s.d.Subtitles
+	timeline := s.subtitles
 	if timeline == nil {
 		s.writeEmpty(w, r)
 		return
@@ -725,18 +724,10 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		return
 	}
 	source := ""
-	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
+	if keyer, ok := s.d.Playback.(frontend.PlaybackSourceKeyer); ok {
 		source = keyer.SourceKey(entry.playID)
 	}
-	var reader io.ReadCloser
-	var actual string
-	if from, ok := timeline.(interface {
-		OpenFormatFrom(string, string, string) (io.ReadCloser, string, error)
-	}); ok {
-		reader, actual, err = from.OpenFormatFrom(st.ExternalURL, subtitleFormat(format), source)
-	} else {
-		reader, actual, err = timeline.OpenFormat(st.ExternalURL, subtitleFormat(format))
-	}
+	reader, actual, err := timeline.OpenFormatFrom(st.ExternalURL, subtitleFormat(format), source)
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -788,9 +779,7 @@ func (s *Server) serveSessionASS(w http.ResponseWriter, r *http.Request, session
 	defer tick.Stop()
 	for {
 		if session, ok := s.plexHLSSession(sessionID); ok {
-			if ass, ok := session.(interface {
-				ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
-			}); ok && ass.ServeSoftSubtitle(w, r, index) {
+			if ass, ok := session.(frontend.SoftSubtitleServer); ok && ass.ServeSoftSubtitle(w, r, index) {
 				return
 			}
 			writeHTTPError(w, http.StatusNotFound)
@@ -845,7 +834,7 @@ func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
+	if keyer, ok := s.d.Playback.(frontend.PlaybackSourceKeyer); ok {
 		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	if vtt, ok := streamer.CachedSubtitle(ctx, st.Index, st.Codec); ok {
@@ -939,7 +928,7 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st 
 	if input == "" {
 		return nil, "", false
 	}
-	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
+	if keyer, ok := s.d.Playback.(frontend.PlaybackSourceKeyer); ok {
 		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	var buf bytes.Buffer

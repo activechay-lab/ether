@@ -53,7 +53,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 			DB:         a.db, // plex_ultrablur
 		}
 	}
-	deps.Variants = a.resolver       // "Play Version" release picker (cache-only)
 	deps.DecisionTraces = a.resolver // latest resolution, for the support capture
 	clientID := func() string {
 		cfg := a.cfg.Read()
@@ -72,16 +71,16 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		ClientIdentifier: clientID,
 		Background:       true,
 	})
-	a.plexGUID, deps.LibraryGUIDs = guidService, guidService
+	a.plexGUID = guidService
 	metadataService := plexmeta.New(a.db, plexmeta.Options{
 		HTTP:             a.opts.plextvHTTP,
 		Token:            plexToken,
 		ClientIdentifier: clientID,
 		GUID: func(ctx context.Context, k core.RatingKey) string {
-			if deps.LibraryGUIDs == nil {
+			if guidService == nil {
 				return ""
 			}
-			return deps.LibraryGUIDs.Cached(ctx, k)
+			return guidService.Cached(ctx, k)
 		},
 		Enabled: func() bool {
 			cfg := a.cfg.Read()
@@ -89,23 +88,17 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		},
 		Background: true,
 	})
-	a.plexMeta, deps.LibraryMetadata = metadataService, metadataService
+	a.plexMeta = metadataService
 	if err := a.buildPlexWatch(); err != nil {
 		guidService.Close()
 		metadataService.Close()
 		return frontend.PlexDeps{}, fmt.Errorf("plex watch state: %w", err)
 	}
-	deps.Subtitles = plexSubtitles{a}
-	deps.TrackPreferences = a.trackprefs
 	deps.SessionCoordination = a.sessionCoordination
 	deps.SessionStores = sessions.NewSessionStores()
-	deps.Markers = a.markers
 	// The remuxer is built once in buildIntegrations and shared with every
 	// front end.
 	deps.Downloads = a.downloadRemuxer
-	deps.Extras = newPlexExtras(a.extras)
-	deps.Prerolls = a.prerollProvider()
-	deps.Trickplay = a.trickplay.Borrow()
 	deps.TracePlayback = a.tracePlayback
 	if node := a.clusterNode(); node != nil && deps.DB != nil {
 		deps.Cluster = node

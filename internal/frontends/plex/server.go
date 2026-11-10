@@ -101,6 +101,15 @@ type Server struct {
 	channelLogos      frontend.UntrustedImageFetcher
 	channelRaster     frontend.SVGRasterizer
 	boundStreams      frontend.StreamBindings
+	trackPrefs        frontend.PlaybackTrackPreferences
+	markers           frontend.MarkerRanges
+	trickplay         frontend.TrickplayProvider
+	extras            frontend.ExtraStreams
+	prerolls          frontend.Prerolls
+	subtitles         frontend.SubtitleCatalog
+	variants          frontend.Editions
+	plexGUID          frontend.LibraryGUIDs
+	plexMeta          frontend.LibraryMetadata
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
 	versionFlows      *versionFlowStore
@@ -352,6 +361,26 @@ func (s *Server) bindHost(h frontend.Host) {
 		s.host.PageFreshness = h.PageFreshness
 		s.pageFreshness = h.PageFreshness
 	}
+	if h.TrackPreferences != nil {
+		s.host.TrackPreferences = h.TrackPreferences
+		s.trackPrefs = h.TrackPreferences
+	}
+	if h.ExtraStreams != nil {
+		s.host.ExtraStreams = h.ExtraStreams
+		s.extras = h.ExtraStreams
+	}
+	if h.Prerolls != nil {
+		s.host.Prerolls = h.Prerolls
+		s.prerolls = h.Prerolls
+	}
+	if h.Subtitles != nil {
+		s.host.Subtitles = h.Subtitles
+		s.subtitles = h.Subtitles
+	}
+	if h.Editions != nil {
+		s.host.Editions = h.Editions
+		s.variants = h.Editions
+	}
 	if h.Experience != nil {
 		s.host.Experience = h.Experience
 		s.attachExperience(h.Experience)
@@ -420,6 +449,24 @@ func (s *Server) exp() frontend.Experience {
 		return s.experience
 	}
 	return frontend.NoopExperience()
+}
+func (s *Server) libraryGUIDs() frontend.LibraryGUIDs {
+	if s == nil {
+		return nil
+	}
+	if s.plexGUID != nil {
+		return s.plexGUID
+	}
+	return s.exp().LibraryGUIDs()
+}
+func (s *Server) libraryMetadata() frontend.LibraryMetadata {
+	if s == nil {
+		return nil
+	}
+	if s.plexMeta != nil {
+		return s.plexMeta
+	}
+	return s.exp().LibraryMetadata()
 }
 func (s *Server) catalog() frontend.Catalog         { return s.exp().CatalogSource() }
 func (s *Server) collections() frontend.Collections { return s.exp().CollectionsSource() }

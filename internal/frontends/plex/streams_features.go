@@ -33,7 +33,7 @@ func (s *Server) trackScope(ctx context.Context, key frontend.RatingKey) fronten
 }
 
 func (s *Server) trackPreferences() frontend.TrackPreferenceSelector {
-	return s.exp().NewTrackPreferenceSelector(frontend.TrackPreferenceSelectorOptions{Source: s.d.TrackPreferences, GetTitle: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
+	return s.exp().NewTrackPreferenceSelector(frontend.TrackPreferenceSelectorOptions{Source: s.trackPrefs, GetTitle: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 		if s.catalog() == nil {
 			return nil, frontend.ErrNotAvailable
 		}
@@ -41,7 +41,7 @@ func (s *Server) trackPreferences() frontend.TrackPreferenceSelector {
 	}})
 }
 func (s *Server) preferredSelection(ctx context.Context, u *frontend.Viewer, key frontend.RatingKey, info frontend.MediaInfo, original string, sel selection) selection {
-	if s.d.TrackPreferences == nil || u == nil {
+	if s.trackPrefs == nil || u == nil {
 		return sel
 	}
 	selected, err := s.trackPreferences().SelectScoped(ctx, u, key, info, original, s.trackScope(ctx, key), frontend.TrackSelection{Audio: sel.audio, AudioSet: sel.audioSet, Subtitle: sel.subtitle, SubtitleSet: sel.subtitleSet}, func(err error) { s.log.Warn("scoped stream preferences unavailable", "error", err) })
@@ -58,7 +58,7 @@ func (s *Server) applyStreamPreferences(ctx context.Context, pr *Request, p *pla
 	sel = s.preferredSelection(ctx, pr.User, p.key, info, t.Language, sel)
 	p.audioSel = sel.audio
 	p.subSel, p.subSet = sel.subtitle, sel.subtitleSet
-	if s.d.TrackPreferences != nil && pr.User != nil {
+	if s.trackPrefs != nil && pr.User != nil {
 		prefs := s.trackPreferences()
 		if filters, err := prefs.AudioFilters(ctx, pr.User, info, frontend.TrackSelection{Audio: p.audioSel}); err == nil {
 			p.opts.AudioFilters = filters
@@ -73,7 +73,7 @@ func (s *Server) applyStreamPreferences(ctx context.Context, pr *Request, p *pla
 	}
 }
 func (s *Server) rememberStreamRequest(r *http.Request, user *frontend.Viewer, key frontend.RatingKey) {
-	if s.d.TrackPreferences == nil || user == nil {
+	if s.trackPrefs == nil || user == nil {
 		return
 	}
 	for _, kind := range []string{"audio", "subtitle"} {
@@ -90,12 +90,8 @@ func (s *Server) rememberStreamRequest(r *http.Request, user *frontend.Viewer, k
 			id = 0 // A malformed subtitle selector means None.
 		}
 		if id == -1 {
-			if resetter, ok := s.d.TrackPreferences.(interface {
-				ForgetChoice(context.Context, int64, frontend.RatingKey, string) error
-			}); ok {
-				if err := resetter.ForgetChoice(r.Context(), user.ID, key, kind); err != nil {
-					s.log.Warn("reset stream preference", "error", err)
-				}
+			if err := s.trackPrefs.ForgetChoice(r.Context(), user.ID, key, kind); err != nil {
+				s.log.Warn("reset stream preference", "error", err)
 			}
 			continue
 		}
@@ -115,7 +111,7 @@ func (s *Server) rememberStreamRequest(r *http.Request, user *frontend.Viewer, k
 			}
 			track = &binding.Info
 		}
-		if err = s.d.TrackPreferences.Remember(r.Context(), user.ID, key, kind, track); err != nil {
+		if err = s.trackPrefs.Remember(r.Context(), user.ID, key, kind, track); err != nil {
 			s.log.Warn("save stream preference", "error", err)
 		}
 	}
@@ -144,7 +140,7 @@ func (s *Server) addProbedStreamFeatures(ctx context.Context, key frontend.Ratin
 	if len(m.Chapter) > 0 {
 		m.ChapterSource = "media"
 	}
-	ranges, err := s.exp().PlaybackMarkerRanges(ctx, s.d.Markers, key, info)
+	ranges, err := s.exp().PlaybackMarkerRanges(ctx, s.markers, key, info)
 	if err != nil {
 		s.log.Debug("marker provider unavailable", "error", err)
 	}
@@ -169,7 +165,7 @@ func (s *Server) addProbedStreamFeatures(ctx context.Context, key frontend.Ratin
 }
 
 // SubtitleSource resolves cached OpenSubtitles and synchronized sidecars.
-type SubtitleSource = frontend.SubtitleSource
+type SubtitleSource = frontend.SubtitleSidecarSource
 
 func showLanguageMemoKey(show frontend.RatingKey) string {
 	return "plex:show-language:" + strconv.FormatInt(int64(show), 10)
@@ -192,7 +188,7 @@ func (s *Server) showLanguage(ctx context.Context, show frontend.RatingKey) stri
 // of episodes from distinct shows otherwise loaded each show on its own
 // (On Deck: hundreds). Shows the batch cannot vouch for are left to Get.
 func (s *Server) preloadShowLanguages(ctx context.Context, pr *Request, ts []frontend.Title, o renderOpts) {
-	if !reqmemo.Active(ctx) || s.d.TrackPreferences == nil || s.catalog() == nil || pr == nil || pr.User == nil || !o.media || (!o.detail && !o.detailEpisodes) {
+	if !reqmemo.Active(ctx) || s.trackPrefs == nil || s.catalog() == nil || pr == nil || pr.User == nil || !o.media || (!o.detail && !o.detailEpisodes) {
 		return
 	}
 	resolver, ok := s.catalog().(frontend.ShowParentResolver)
@@ -227,20 +223,14 @@ func (s *Server) preloadShowLanguages(ctx context.Context, pr *Request, ts []fro
 // preloadTrackChoices keeps detailed list rendering from reading each title's
 // remembered audio and subtitle choices separately.
 func (s *Server) preloadTrackChoices(ctx context.Context, pr *Request, ts []frontend.Title, o renderOpts) {
-	if pr == nil || pr.User == nil || !o.media || (!o.detail && !o.detailEpisodes) {
-		return
-	}
-	batch, ok := s.d.TrackPreferences.(interface {
-		PreloadChoices(context.Context, int64, []frontend.RatingKey) error
-	})
-	if !ok {
+	if s.trackPrefs == nil || pr == nil || pr.User == nil || !o.media || (!o.detail && !o.detailEpisodes) {
 		return
 	}
 	keys := make([]frontend.RatingKey, 0, len(ts))
 	for _, t := range ts {
 		keys = append(keys, t.Key)
 	}
-	if err := batch.PreloadChoices(ctx, pr.User.ID, keys); err != nil {
+	if err := s.trackPrefs.PreloadChoices(ctx, pr.User.ID, keys); err != nil {
 		s.log.Warn("preload stream preferences", "err", err)
 	}
 }

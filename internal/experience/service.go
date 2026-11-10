@@ -207,6 +207,11 @@ type ServiceDeps struct {
 	Discovery           *frontend.DiscoveryFeatures
 	Dashboard           frontend.Dashboard
 	Resources           frontend.ResourceStatistics
+	LibraryGUIDs        frontend.LibraryGUIDs
+	LibraryGUIDsFunc    func() frontend.LibraryGUIDs
+	LibraryMetadata     frontend.LibraryMetadata
+	LibraryMetadataFunc func() frontend.LibraryMetadata
+	Markers             frontend.MarkerRanges
 	LibraryTitles       func() (movies, shows string)
 	HomeRevision        func(context.Context, *core.User) (frontend.HomeRevision, error)
 	NoProviderWait      func(context.Context) context.Context
@@ -1654,6 +1659,32 @@ func (s *Service) RemoveFromContinue(ctx context.Context, v *core.Viewer, k core
 		}
 		return s.d.RemoveContinue(ctx, u, k)
 	})
+}
+
+func (s *Service) LibraryGUIDs() frontend.LibraryGUIDs {
+	if s == nil {
+		return nil
+	}
+	if s.d.LibraryGUIDsFunc != nil {
+		return s.d.LibraryGUIDsFunc()
+	}
+	return s.d.LibraryGUIDs
+}
+func (s *Service) LibraryMetadata() frontend.LibraryMetadata {
+	if s == nil {
+		return nil
+	}
+	if s.d.LibraryMetadataFunc != nil {
+		return s.d.LibraryMetadataFunc()
+	}
+	return s.d.LibraryMetadata
+}
+func (s *Service) Markers(ctx context.Context, key core.RatingKey, info core.MediaInfo) ([]frontend.MarkerRange, error) {
+	var src frontend.MarkerRanges
+	if s != nil {
+		src = s.d.Markers
+	}
+	return PlaybackMarkerRanges(ctx, src, key, info)
 }
 
 func (s *Service) sortTitles(ctx context.Context, items []core.Title, q frontend.ItemQuery) error {

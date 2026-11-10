@@ -3,7 +3,6 @@ package frontend
 import (
 	"context"
 	"database/sql"
-	"io"
 	"net/http"
 	"time"
 )
@@ -30,45 +29,6 @@ type SegmentedEncoder interface {
 	StopSegmentedHLS(string) bool
 }
 
-// SubtitleSource resolves cached OpenSubtitles and synchronized sidecars.
-type SubtitleSource interface {
-	OpenFormat(string, string) (io.ReadCloser, string, error)
-}
-
-// SubtitleSidecars is optionally implemented by PlexDeps.Subtitles: the sidecars
-// already cached for a title and viewer, without network access, skipping
-// streams embedded already lists (by ExternalURL) or covers (by language).
-type SubtitleSidecars interface {
-	CachedSidecars(ctx context.Context, t *Title, u *User, embedded []StreamInfo) []StreamInfo
-}
-
-// SidecarOffer is one subtitle search result.
-type SidecarOffer struct {
-	ID              int64  // provider file id, passed back to DownloadSubtitle
-	Language        string // ISO 639-1
-	Title           string // release or file name
-	Provider        string // "OpenSubtitles"
-	Score           int
-	HearingImpaired bool
-	Forced          bool
-	PerfectMatch    bool // matched the playing file's hash or release
-}
-
-// SubtitleSearch is optionally implemented by PlexDeps.Subtitles: Plex's
-// on-demand subtitle search and pick.
-type SubtitleSearch interface {
-	SearchSubtitles(ctx context.Context, t *Title, u *User, lang, release string) ([]SidecarOffer, error)
-	// DownloadSubtitle fetches an offer returned by SearchSubtitles for t
-	// and returns its sidecar stream; ErrNotFound for unknown offers.
-	DownloadSubtitle(ctx context.Context, t *Title, u *User, id int64) (StreamInfo, error)
-}
-
-// SubtitleUpload is optionally implemented by PlexDeps.Subtitles: Plex Web's
-// "Upload Subtitles" (POST /library/metadata/{key}/subtitles).
-type SubtitleUpload interface {
-	UploadSubtitle(ctx context.Context, t *Title, u *User, filename, format, language string, body []byte) (StreamInfo, error)
-}
-
 // PlexDeps are the Plex server's dependencies. Host supplies generic frontend
 // services; remaining session/media fields degrade gracefully when nil.
 type PlexDeps struct {
@@ -82,27 +42,14 @@ type PlexDeps struct {
 	// without it. The app wires sessions.NewSessionStores().
 	SessionStores       SessionStores
 	SessionCoordination Coordination
-	LibraryGUIDs        LibraryGUIDs
-	LibraryMetadata     LibraryMetadata
 	Playback            Playback
 	Transcoder          Transcoder
-	// Variants lists distinct release versions for "Play Version" detail
-	// pages (optional: without it, detail pages stay single-Media).
-	Variants VariantResolver
 	// DecisionTraces is the latest resolution for a title, copied into a
 	// support capture. Nil leaves playback unchanged.
 	DecisionTraces DecisionTraceSource
 	// Downloads remuxes resolved sources to temp MP4s for the Download
 	// Queue API; nil disables downloads (allowSync stays "0").
-	Downloads        DownloadRemuxer
-	TrackPreferences PlaybackTrackPreferences
-	Markers          MarkerRanges
-	Subtitles        SubtitleSource
-	Extras           ExtrasProvider
-	// Prerolls are owner pre-rolls (#298); nil leaves play queues and
-	// extras exactly as without the feature.
-	Prerolls  PrerollService
-	Trickplay TrickplayProvider
+	Downloads DownloadRemuxer
 
 	// Sections overrides the default Movies (1) and TV Shows (2) sections.
 	Sections []PlexSection

@@ -39,7 +39,8 @@ func TestLibraryGUIDLookup(t *testing.T) {
 	}
 	pg := plexguid.New(db, plexguid.Options{})
 	defer pg.Close()
-	f := newFixture(func(d *testServerDeps) { d.LibraryGUIDs = pg })
+	f := newFixture()
+	f.srv.setPlexGUID(pg)
 	defer f.srv.Close()
 	f.srv.setCatalog(guidCatalog{f.catalog})
 	for _, tc := range []struct {
@@ -195,7 +196,8 @@ func TestLibraryGUIDColdLookup(t *testing.T) {
 	defer upstream.Close()
 	pg := plexguid.New(db, plexguid.Options{BaseURL: upstream.URL, Token: func() string { return "fixture" }})
 	defer pg.Close()
-	f := newFixture(func(d *testServerDeps) { d.LibraryGUIDs = pg })
+	f := newFixture()
+	f.srv.setPlexGUID(pg)
 	defer f.srv.Close()
 	for i := 0; i < 2; i++ {
 		rec := f.get(t, "/library/all?guid="+url.QueryEscape(guid), jsonAccept...)

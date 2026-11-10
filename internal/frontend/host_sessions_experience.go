@@ -2001,4 +2001,9 @@ func (noopExperience) HomeRevision(context.Context, *User) (HomeRevision, bool, 
 	return HomeRevision{}, false, nil
 }
 func (noopExperience) NoProviderWait(ctx context.Context) context.Context { return ctx }
+func (noopExperience) LibraryGUIDs() LibraryGUIDs       { return nil }
+func (noopExperience) LibraryMetadata() LibraryMetadata { return nil }
+func (noopExperience) Markers(context.Context, RatingKey, MediaInfo) ([]MarkerRange, error) {
+	return nil, nil
+}
 

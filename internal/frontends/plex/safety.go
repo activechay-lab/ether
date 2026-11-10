@@ -40,17 +40,18 @@ func (s *Server) catalogBrowse(ctx context.Context, q frontend.BrowseQuery) (fro
 
 func (s *Server) visibleTitles(u *frontend.User, ts []frontend.Title) []frontend.Title {
 	out := s.visibility().TitlesAllowed(u, ts)
-	if !s.needPlexRatingFilter(u) || s.d.LibraryMetadata == nil {
+	metaSrc := s.libraryMetadata()
+	if !s.needPlexRatingFilter(u) || metaSrc == nil {
 		return out
 	}
 	keys := make([]frontend.RatingKey, 0, len(out))
 	for i := range out {
 		keys = append(keys, out[i].Key)
 	}
-	rows := s.d.LibraryMetadata.CachedMany(context.Background(), keys)
+	rows := metaSrc.CachedMany(context.Background(), keys)
 	var guids map[frontend.RatingKey]string
-	if s.d.LibraryGUIDs != nil {
-		guids = s.d.LibraryGUIDs.CachedMany(context.Background(), keys)
+	if guidSrc := s.libraryGUIDs(); guidSrc != nil {
+		guids = guidSrc.CachedMany(context.Background(), keys)
 	}
 	kept := out[:0]
 	for i := range out {

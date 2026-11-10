@@ -57,6 +57,7 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 			if deps.Encoder != nil {
 				srv.UsePlexEncoder(deps.Encoder)
 			}
+			srv.bindHost(host)
 			host.Plex.BindServer(srv)
 			f.Server = srv
 		}

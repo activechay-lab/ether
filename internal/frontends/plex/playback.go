@@ -973,7 +973,7 @@ func (s *Server) decisionMedia(t *frontend.Title, ps *frontend.PlaySession, dec 
 		}
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, s.now())
 	}
-	if ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(frontend.TrickplayCacheKey(ps)) {
+	if ps.Resolution != nil && s.trickplayAvailable(frontend.TrickplayCacheKey(ps)) {
 		m.Part[0].Indexes = "sd"
 	}
 	m.Selected = model.Ptr(true)
@@ -2315,12 +2315,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusForbidden)
 			return
 		}
-		deleter, ok := s.d.Subtitles.(subtitleDelete)
-		if !ok {
+		if s.subtitles == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
-		if err := deleter.DeleteSubtitle(r.Context(), binding.Key, pr.User, binding.Info); err != nil {
+		if err := s.subtitles.DeleteSubtitle(r.Context(), binding.Key, pr.User, binding.Info); err != nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
@@ -2329,10 +2328,8 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 				sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, nil
 			}
 		})
-		if resetter, ok := s.d.TrackPreferences.(interface {
-			ForgetChoice(context.Context, int64, frontend.RatingKey, string) error
-		}); ok {
-			if err := resetter.ForgetChoice(r.Context(), pr.User.ID, binding.Key, "subtitle"); err != nil {
+		if s.trackPrefs != nil {
+			if err := s.trackPrefs.ForgetChoice(r.Context(), pr.User.ID, binding.Key, "subtitle"); err != nil {
 				s.log.Warn("clear deleted subtitle preference", "error", err)
 			}
 		}

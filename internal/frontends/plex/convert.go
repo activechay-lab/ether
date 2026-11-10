@@ -682,7 +682,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *frontend.Title, w
 		}
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, s.now())
 	}
-	if ps != nil && ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(frontend.TrickplayCacheKey(ps)) {
+	if ps != nil && ps.Resolution != nil && s.trickplayAvailable(frontend.TrickplayCacheKey(ps)) {
 		m.Part[0].Indexes = "sd"
 	}
 	if withStreams || probedSource {
@@ -1436,8 +1436,9 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 			}
 		}
 	}
-	if s.d.LibraryGUIDs != nil {
-		guids = s.d.LibraryGUIDs.CachedMany(ctx, lookup)
+	guidSrc := s.libraryGUIDs()
+	if guidSrc != nil {
+		guids = guidSrc.CachedMany(ctx, lookup)
 	}
 	ctx = s.withPlexMeta(ctx, lookup, guids)
 	var order episodeOrderView
@@ -1450,7 +1451,7 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 		if !o.storedOnly {
 			s.applyEpisodeOrder(ctx, pr, &ts[i], &m, order)
 		}
-		if s.d.LibraryGUIDs != nil {
+		if guidSrc != nil {
 			k := ts[i].Key
 			if guid := guids[k]; guid != "" {
 				if !(ts[i].Type == frontend.TypeSeason && ts[i].Season >= 9000) {
@@ -1479,8 +1480,8 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 		}
 		out = append(out, m)
 	}
-	if s.d.LibraryGUIDs != nil && len(missingGUIDs) > 0 && !o.storedOnly {
-		s.d.LibraryGUIDs.Schedule(missingGUIDs...)
+	if guidSrc != nil && len(missingGUIDs) > 0 && !o.storedOnly {
+		guidSrc.Schedule(missingGUIDs...)
 	}
 	if !o.detail && !o.skipLeafCounts {
 		s.applyListLeafCountsOpts(ctx, pr, out, ts, o.storedOnly)

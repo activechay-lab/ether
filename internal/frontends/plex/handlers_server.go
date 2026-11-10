@@ -407,8 +407,8 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		if len(u.SubtitleLanguages) > 0 {
 			a.DefaultSubtitleLang = u.SubtitleLanguages[0]
 		}
-		if s.d.TrackPreferences != nil && viewerStoredSubtitlePreference(r.Context(), s.d.TrackPreferences, u.ID) {
-			if rules, err := s.d.TrackPreferences.GetRules(r.Context(), u.ID); err == nil {
+		if s.trackPrefs != nil && viewerStoredSubtitlePreference(r.Context(), s.trackPrefs, u.ID) {
+			if rules, err := s.trackPrefs.GetRules(r.Context(), u.ID); err == nil {
 				// Plex account subtitleMode: 0 manual, 1 with foreign audio, 2 always.
 				// Unset and off stay 0, which is the value already written for every account.
 				// Shared defaults (user 0) stay off this document so an untouched account
@@ -433,14 +433,7 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 // trackprefs row. Stores that cannot tell own from inherited still report
 // the GetRules result, which tests and older fakes rely on.
 func viewerStoredSubtitlePreference(ctx context.Context, prefs TrackPreferences, user int64) bool {
-	type own interface {
-		HasViewerRules(context.Context, int64) (bool, error)
-	}
-	checker, ok := prefs.(own)
-	if !ok {
-		return true
-	}
-	has, err := checker.HasViewerRules(ctx, user)
+	has, err := prefs.HasViewerRules(ctx, user)
 	return err == nil && has
 }
 
