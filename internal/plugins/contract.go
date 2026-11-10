@@ -407,6 +407,9 @@ type KindBrowseDecl struct {
 	Facets       []string `json:"facets,omitempty"`       // field keys; each must be indexed
 	Search       bool     `json:"search"`                 // full-text over the title plus SearchFields
 	SearchFields []string `json:"searchFields,omitempty"` // declared text fields included in search
+	// LiveSearch: client searches also call the plugin's /search route
+	// with a short budget; results are upserted and merged (§15.4).
+	LiveSearch bool `json:"liveSearch,omitempty"`
 }
 
 // Kind sync modes (spec §3.5 as narrowed by §15.4: no ondemand mode).

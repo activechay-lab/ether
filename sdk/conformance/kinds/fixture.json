@@ -1,0 +1,384 @@
+{
+  "comment": "Shared content-kind conformance fixture. Every SDK test loads this file, serves the dataset with its own generic provider/resolver/matcher, then replays calls and compares responses exactly (JSON deep equality). The dataset is the field-recordings kind from sdk/examples/kind-library: collection -> album -> track.",
+  "kind": {
+    "key": "recordings",
+    "label": "Field recordings",
+    "library": {
+      "name": "Field Recordings"
+    },
+    "levels": [
+      {
+        "key": "collection",
+        "label": "Collection"
+      },
+      {
+        "key": "album",
+        "label": "Album",
+        "container": true
+      },
+      {
+        "key": "track",
+        "label": "Track",
+        "playable": true
+      }
+    ],
+    "fields": [
+      {
+        "key": "genre",
+        "type": "string",
+        "label": "Genre",
+        "indexed": true
+      },
+      {
+        "key": "durationSec",
+        "type": "duration",
+        "label": "Duration"
+      }
+    ],
+    "present": {
+      "plex": {
+        "base": "show"
+      },
+      "mediaBrowser": {
+        "collectionType": "music",
+        "itemTypes": {
+          "collection": "MusicArtist",
+          "album": "MusicAlbum",
+          "track": "Audio"
+        }
+      }
+    },
+    "browse": {
+      "sorts": [
+        "title",
+        "index"
+      ],
+      "facets": [
+        "genre"
+      ],
+      "search": true,
+      "liveSearch": true
+    },
+    "sync": {
+      "mode": "pull",
+      "refresh": "1h"
+    }
+  },
+  "items": [
+    {
+      "id": "coast",
+      "level": "collection",
+      "title": "Coastal",
+      "childCount": 1,
+      "leafCount": 2
+    },
+    {
+      "id": "harbour",
+      "level": "album",
+      "parentId": "coast",
+      "title": "Harbour at Dawn",
+      "year": 2024,
+      "childCount": 2,
+      "leafCount": 2,
+      "fields": {
+        "genre": "ambient"
+      },
+      "hints": {
+        "zipUrl": "https://media.example/harbour.zip",
+        "zipSize": 4096
+      },
+      "etag": "a1"
+    },
+    {
+      "id": "harbour-1",
+      "level": "track",
+      "parentId": "harbour",
+      "title": "Gulls",
+      "playable": true,
+      "fields": {
+        "genre": "ambient",
+        "durationSec": 61
+      },
+      "hints": {
+        "member": "01-gulls.flac"
+      },
+      "etag": "t1"
+    },
+    {
+      "id": "harbour-2",
+      "level": "track",
+      "parentId": "harbour",
+      "index": 1,
+      "title": "Fog Horn",
+      "playable": true,
+      "fields": {
+        "genre": "ambient",
+        "durationSec": 84
+      },
+      "hints": {
+        "member": "02-fog-horn.flac",
+        "pageUrl": "https://media.example/tracks/{pageNumber}.flac"
+      },
+      "etag": "t2"
+    }
+  ],
+  "calls": [
+    {
+      "name": "browse roots",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/browse",
+      "body": {
+        "level": "collection",
+        "limit": 200
+      },
+      "expectStatus": 200,
+      "expect": {
+        "items": [
+          {
+            "id": "coast",
+            "level": "collection",
+            "title": "Coastal",
+            "childCount": 1,
+            "leafCount": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "browse children pages with cursor",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/browse",
+      "body": {
+        "parentId": "harbour",
+        "level": "track",
+        "limit": 1
+      },
+      "expectStatus": 200,
+      "expect": {
+        "items": [
+          {
+            "id": "harbour-1",
+            "level": "track",
+            "parentId": "harbour",
+            "title": "Gulls",
+            "playable": true,
+            "fields": {
+              "genre": "ambient",
+              "durationSec": 61
+            },
+            "hints": {
+              "member": "01-gulls.flac"
+            },
+            "etag": "t1"
+          }
+        ],
+        "nextCursor": "1"
+      }
+    },
+    {
+      "name": "browse second page terminates",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/browse",
+      "body": {
+        "parentId": "harbour",
+        "level": "track",
+        "limit": 1,
+        "cursor": "1"
+      },
+      "expectStatus": 200,
+      "expect": {
+        "items": [
+          {
+            "id": "harbour-2",
+            "level": "track",
+            "parentId": "harbour",
+            "index": 1,
+            "title": "Fog Horn",
+            "playable": true,
+            "fields": {
+              "genre": "ambient",
+              "durationSec": 84
+            },
+            "hints": {
+              "member": "02-fog-horn.flac",
+              "pageUrl": "https://media.example/tracks/{pageNumber}.flac"
+            },
+            "etag": "t2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/items/harbour",
+      "body": {},
+      "expectStatus": 200,
+      "expect": {
+        "id": "harbour",
+        "level": "album",
+        "parentId": "coast",
+        "title": "Harbour at Dawn",
+        "year": 2024,
+        "childCount": 2,
+        "leafCount": 2,
+        "fields": {
+          "genre": "ambient"
+        },
+        "hints": {
+          "zipUrl": "https://media.example/harbour.zip",
+          "zipSize": 4096
+        },
+        "etag": "a1"
+      }
+    },
+    {
+      "name": "live search finds by title",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/search",
+      "body": {
+        "query": "fog",
+        "limit": 10
+      },
+      "expectStatus": 200,
+      "expect": {
+        "items": [
+          {
+            "id": "harbour-2",
+            "level": "track",
+            "parentId": "harbour",
+            "index": 1,
+            "title": "Fog Horn",
+            "playable": true,
+            "fields": {
+              "genre": "ambient",
+              "durationSec": 84
+            },
+            "hints": {
+              "member": "02-fog-horn.flac",
+              "pageUrl": "https://media.example/tracks/{pageNumber}.flac"
+            },
+            "etag": "t2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "changes returns the full set once",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/changes",
+      "body": {
+        "cursor": "",
+        "limit": 500
+      },
+      "expectStatus": 200,
+      "expectIds": [
+        "coast",
+        "harbour",
+        "harbour-1",
+        "harbour-2"
+      ],
+      "expectComplete": true
+    },
+    {
+      "name": "resolve prefers container, keeps template fallback",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/resolve",
+      "body": {
+        "libraryKey": "pk-example-recordings",
+        "item": {
+          "id": "harbour-2",
+          "level": "track",
+          "parentId": "harbour",
+          "index": 1,
+          "title": "Fog Horn",
+          "playable": true,
+          "hints": {
+            "member": "02-fog-horn.flac",
+            "pageUrl": "https://media.example/tracks/{pageNumber}.flac"
+          }
+        }
+      },
+      "expectStatus": 200,
+      "expect": {
+        "sources": [
+          {
+            "id": "zip",
+            "pattern": "container",
+            "mime": "audio/flac",
+            "container": {
+              "format": "zip",
+              "volumes": [
+                {
+                  "url": "https://media.example/harbour.zip",
+                  "size": 4096
+                }
+              ],
+              "member": "02-fog-horn.flac"
+            }
+          },
+          {
+            "id": "direct",
+            "pattern": "range",
+            "mime": "audio/flac",
+            "url": "https://media.example/tracks/{pageNumber}.flac"
+          }
+        ]
+      }
+    },
+    {
+      "name": "match scores the title match highest",
+      "method": "POST",
+      "path": "/ether/v1/kinds/recordings/match",
+      "body": {
+        "item": {
+          "id": "harbour-2",
+          "level": "track",
+          "parentId": "harbour",
+          "index": 1,
+          "title": "Fog Horn",
+          "playable": true
+        },
+        "candidates": [
+          {
+            "infoHash": "ABC123",
+            "title": "Fog Horn (field recording)",
+            "size": 1000,
+            "seeders": 4
+          },
+          {
+            "infoHash": "DEF456",
+            "title": "City Traffic",
+            "size": 900,
+            "seeders": 9
+          }
+        ]
+      },
+      "expectStatus": 200,
+      "expectTopRef": "infohash:abc123"
+    },
+    {
+      "name": "setup test accepts a key",
+      "method": "POST",
+      "path": "/ether/v1/setup/account/test",
+      "body": {
+        "step": "account",
+        "fields": {
+          "apiKey": "fixture-key"
+        }
+      },
+      "expectStatus": 200,
+      "expect": {
+        "ok": true,
+        "detail": "Connected"
+      }
+    },
+    {
+      "name": "frontend adapter feed",
+      "method": "GET",
+      "path": "/ether/v1/frontend/feed/",
+      "expectStatus": 200,
+      "expectBodyContains": "Field Recordings"
+    }
+  ]
+}

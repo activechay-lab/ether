@@ -84,6 +84,7 @@ type Plugin struct {
 	host            Host
 	remoteOpts      RemoteHostOptions
 	pageRoutes      map[string]string
+	kindHandlers    *kindHandlers
 
 	mu              sync.RWMutex
 	settings        map[string]any
@@ -859,6 +860,10 @@ func (p *Plugin) Dispatch(ctx context.Context, req RawRequest) RawResponse {
 				return okJSON(res, http.StatusOK)
 			}
 		}
+	}
+
+	if resp, handled := p.dispatchKinds(pctx, method, path, req); handled {
+		return resp
 	}
 
 	return errorJSON(http.StatusNotFound, "not_found", "No route matched "+method+" "+path+".")

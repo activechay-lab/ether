@@ -2,6 +2,7 @@ package etherplugin
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +28,9 @@ type MockHost struct {
 	History       map[int64][]ViewerWatchEntry
 	WatchState    map[string]bool
 	Collections   []map[string]any
+	Kinds         map[string][]KindItem // kindKey -> pushed items, in upsert order
+	Sources       []SourceCandidate     // returned by ResolveSources
+	Blobs         map[string][]byte     // cache blob ref -> bytes
 	Folders       map[string][]FolderEntry
 	Notifications []string
 	Logs          []RecordedLog
@@ -43,6 +47,8 @@ func NewMockHost() *MockHost {
 		WatchState:  map[string]bool{},
 		Folders:     map[string][]FolderEntry{},
 		Collections: []map[string]any{},
+		Kinds:       map[string][]KindItem{},
+		Blobs:       map[string][]byte{},
 	}
 }
 
@@ -203,6 +209,101 @@ func (m *MockHost) Log(_ context.Context, level, message string, attrs map[strin
 	defer m.mu.Unlock()
 	m.Logs = append(m.Logs, RecordedLog{Level: level, Message: message, Attrs: attrs})
 	return nil
+}
+
+// KindUpsert records pushed items under their kind, replacing same-id items.
+func (m *MockHost) KindUpsert(_ context.Context, kindKey string, items []KindItem) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Kinds == nil {
+		m.Kinds = map[string][]KindItem{}
+	}
+	for _, it := range items {
+		replaced := false
+		for i, old := range m.Kinds[kindKey] {
+			if old.ID == it.ID {
+				m.Kinds[kindKey][i] = it
+				replaced = true
+			}
+		}
+		if !replaced {
+			m.Kinds[kindKey] = append(m.Kinds[kindKey], it)
+		}
+	}
+	return len(items), nil
+}
+
+// KindDelete drops recorded items by external id.
+func (m *MockHost) KindDelete(_ context.Context, kindKey string, externalIDs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	drop := map[string]bool{}
+	for _, id := range externalIDs {
+		drop[id] = true
+	}
+	kept := m.Kinds[kindKey][:0]
+	for _, it := range m.Kinds[kindKey] {
+		if !drop[it.ID] {
+			kept = append(kept, it)
+		}
+	}
+	m.Kinds[kindKey] = kept
+	return nil
+}
+
+// KindItems pages recorded items; the cursor is the last item id seen.
+func (m *MockHost) KindItems(_ context.Context, kindKey, cursor string, limit int) (KindPage, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if limit <= 0 {
+		limit = 200
+	}
+	var out []KindItem
+	after := cursor == ""
+	for _, it := range m.Kinds[kindKey] {
+		if !after {
+			after = it.ID == cursor
+			continue
+		}
+		out = append(out, it)
+		if len(out) == limit {
+			return KindPage{Items: out, NextCursor: it.ID}, nil
+		}
+	}
+	if out == nil {
+		out = []KindItem{}
+	}
+	return KindPage{Items: out}, nil
+}
+
+// ResolveSources returns the canned Sources.
+func (m *MockHost) ResolveSources(_ context.Context, _ SourceQuery) ([]SourceCandidate, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]SourceCandidate{}, m.Sources...), nil
+}
+
+// CachePut stores bytes under a sha256 blob ref, like the real cache.
+func (m *MockHost) CachePut(_ context.Context, _, _ string, data []byte) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Blobs == nil {
+		m.Blobs = map[string][]byte{}
+	}
+	ref := fmt.Sprintf("blob:%x", sha256.Sum256(data))
+	m.Blobs[ref] = append([]byte{}, data...)
+	return ref, nil
+}
+
+// CacheOpen reads stored blob bytes back.
+func (m *MockHost) CacheOpen(_ context.Context, blobRef string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	b, ok := m.Blobs[blobRef]
+	if !ok {
+		return nil, fmt.Errorf("blob %q not found", blobRef)
+	}
+	return append([]byte{}, b...), nil
 }
 
 // AssertValidViewSpec validates a ViewSpecDocument for structural rules and

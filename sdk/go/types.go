@@ -14,24 +14,29 @@ const (
 	KindNotificationChannel PluginKind = "notification_channel"
 	KindLiveTVSource        PluginKind = "livetv_source"
 	KindExtension           PluginKind = "extension"
+	KindContent             PluginKind = "content"
 )
 
 // Capability names a capability declared in manifest.ether.capabilities.
 type Capability string
 
 const (
-	CapStreamSource   Capability = "stream_source"
-	CapDebridProvider Capability = "debrid_provider"
-	CapListSource     Capability = "list_source"
-	CapLiveTV         Capability = "livetv_channels"
-	CapSubtitles      Capability = "subtitles"
-	CapMarkers        Capability = "markers"
-	CapNotify         Capability = "notify"
-	CapEvents         Capability = "events"
-	CapRankingStep    Capability = "ranking_step"
-	CapRuleCondition  Capability = "rule_condition"
-	CapTools          Capability = "tools"
-	CapUI             Capability = "ui"
+	CapStreamSource    Capability = "stream_source"
+	CapDebridProvider  Capability = "debrid_provider"
+	CapListSource      Capability = "list_source"
+	CapLiveTV          Capability = "livetv_channels"
+	CapSubtitles       Capability = "subtitles"
+	CapMarkers         Capability = "markers"
+	CapNotify          Capability = "notify"
+	CapEvents          Capability = "events"
+	CapRankingStep     Capability = "ranking_step"
+	CapRuleCondition   Capability = "rule_condition"
+	CapTools           Capability = "tools"
+	CapUI              Capability = "ui"
+	CapCatalogProvider Capability = "catalog_provider"
+	CapKindResolver    Capability = "kind_resolver"
+	CapFrontendAdapter Capability = "frontend_adapter"
+	CapMatcher         Capability = "matcher"
 )
 
 // Manifest is the EPP/1 manifest document served at GET /manifest.json.
@@ -126,6 +131,8 @@ type Permissions struct {
 	Collections string             `json:"collections,omitempty"`
 	Folders     string             `json:"folders,omitempty"`
 	Secrets     []string           `json:"secrets,omitempty"`
+	// Sources lets a kind resolver ask Ether to find bytes: ""|none|search|acquire.
+	Sources string `json:"sources,omitempty"`
 }
 
 // ViewerPermissions scopes viewer identity and watch-history access.
@@ -175,20 +182,148 @@ type FieldOption struct {
 
 // Contributes declares the descriptors a plugin contributes to Ether.
 type Contributes struct {
-	Source         *SourceMeta         `json:"source,omitempty"`
-	Channels       *ChannelsMeta       `json:"channels,omitempty"`
-	Subtitles      *SubtitlesMeta      `json:"subtitles,omitempty"`
-	Markers        *MarkersMeta        `json:"markers,omitempty"`
-	Notification   *NotificationMeta   `json:"notification,omitempty"`
-	Events         *EventsMeta         `json:"events,omitempty"`
-	Integration    *IntegrationMeta    `json:"integration,omitempty"`
-	ListSources    []ListSourceMeta    `json:"listSources,omitempty"`
-	RankingSteps   []RankingStepMeta   `json:"rankingSteps,omitempty"`
-	RuleConditions []RuleConditionMeta `json:"ruleConditions,omitempty"`
-	Tools          []ToolMeta          `json:"tools,omitempty"`
-	Pages          []PageMeta          `json:"pages,omitempty"`
-	Slots          []SlotMeta          `json:"slots,omitempty"`
-	Commands       []CommandMeta       `json:"commands,omitempty"`
+	Source           *SourceMeta           `json:"source,omitempty"`
+	Channels         *ChannelsMeta         `json:"channels,omitempty"`
+	Subtitles        *SubtitlesMeta        `json:"subtitles,omitempty"`
+	Markers          *MarkersMeta          `json:"markers,omitempty"`
+	Notification     *NotificationMeta     `json:"notification,omitempty"`
+	Events           *EventsMeta           `json:"events,omitempty"`
+	Integration      *IntegrationMeta      `json:"integration,omitempty"`
+	ListSources      []ListSourceMeta      `json:"listSources,omitempty"`
+	RankingSteps     []RankingStepMeta     `json:"rankingSteps,omitempty"`
+	RuleConditions   []RuleConditionMeta   `json:"ruleConditions,omitempty"`
+	Tools            []ToolMeta            `json:"tools,omitempty"`
+	Pages            []PageMeta            `json:"pages,omitempty"`
+	Slots            []SlotMeta            `json:"slots,omitempty"`
+	Commands         []CommandMeta         `json:"commands,omitempty"`
+	MediaKinds       []MediaKindMeta       `json:"mediaKinds,omitempty"`
+	FrontendAdapters []FrontendAdapterMeta `json:"frontendAdapters,omitempty"`
+	Setup            *SetupMeta            `json:"setup,omitempty"`
+}
+
+// Presentations declares how a library is published per protocol.
+type Presentations struct {
+	AdapterOnly bool `json:"adapterOnly,omitempty"`
+	Plex        *struct {
+		Base string `json:"base"` // movie|show|artist|photo
+	} `json:"plex,omitempty"`
+	MediaBrowser *struct {
+		CollectionType string            `json:"collectionType"`
+		ItemTypes      map[string]string `json:"itemTypes,omitempty"`
+	} `json:"mediaBrowser,omitempty"`
+	Stremio *struct {
+		Type string `json:"type"`
+	} `json:"stremio,omitempty"`
+	Xtream *struct {
+		Category string `json:"category"`
+	} `json:"xtream,omitempty"`
+	Silo *struct {
+		Type string `json:"type"`
+	} `json:"silo,omitempty"`
+}
+
+// MediaKindMeta declares one content kind; each kind becomes its own library.
+type MediaKindMeta struct {
+	Key     string          `json:"key"`
+	Label   string          `json:"label"`
+	Library KindLibraryDecl `json:"library"`
+	Levels  []KindLevel     `json:"levels"`
+	Fields  []KindField     `json:"fields,omitempty"`
+	Art     []KindArt       `json:"art,omitempty"`
+	Present Presentations   `json:"present"`
+	Browse  KindBrowseDecl  `json:"browse"`
+	Sync    KindSyncDecl    `json:"sync"`
+	Cache   *KindCacheDecl  `json:"cache,omitempty"`
+	Match   *KindMatchDecl  `json:"match,omitempty"`
+}
+
+// KindLibraryDecl is the library created for a kind on install.
+type KindLibraryDecl struct {
+	Name string `json:"name"`
+	Icon string `json:"icon,omitempty"`
+}
+
+// KindLevel is one hierarchy level of a kind.
+type KindLevel struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Playable  bool   `json:"playable,omitempty"`
+	Container bool   `json:"container,omitempty"`
+}
+
+// KindField is one declared item field.
+type KindField struct {
+	Key     string   `json:"key"`
+	Type    string   `json:"type"` // string|int|float|bool|date|duration|enum|strings|people
+	Label   string   `json:"label"`
+	Indexed bool     `json:"indexed,omitempty"`
+	Enum    []string `json:"enum,omitempty"`
+}
+
+// KindArt declares one artwork role beyond poster/backdrop/thumb/logo.
+type KindArt struct {
+	Role  string `json:"role"`
+	Label string `json:"label"`
+}
+
+// KindBrowseDecl is how a kind library is browsed.
+type KindBrowseDecl struct {
+	Sorts        []string `json:"sorts,omitempty"`
+	Facets       []string `json:"facets,omitempty"`
+	Search       bool     `json:"search"`
+	SearchFields []string `json:"searchFields,omitempty"`
+	// LiveSearch: client searches also call the plugin's /search route
+	// with a short budget; results are upserted and merged (§15.4).
+	LiveSearch bool `json:"liveSearch,omitempty"`
+}
+
+// Kind sync modes: pull (Ether walks browse/changes) or push (KindUpsert).
+const (
+	KindSyncPull = "pull"
+	KindSyncPush = "push"
+)
+
+// KindSyncDecl is how a kind's items reach Ether's store.
+type KindSyncDecl struct {
+	Mode    string `json:"mode"` // pull|push
+	Refresh string `json:"refresh,omitempty"`
+}
+
+// KindCacheDecl is the per-library blob cache budget; 0 means server default.
+type KindCacheDecl struct {
+	MaxBytes int64  `json:"maxBytes,omitempty"`
+	TTL      string `json:"ttl,omitempty"`
+}
+
+// KindMatchDecl holds matcher defaults for a kind.
+type KindMatchDecl struct {
+	ThresholdDefault float64 `json:"thresholdDefault,omitempty"`
+}
+
+// FrontendAdapterMeta declares one plugin-provided protocol surface.
+type FrontendAdapterMeta struct {
+	Key          string   `json:"key"`
+	Label        string   `json:"label"`
+	ProtocolHint string   `json:"protocolHint"` // opds|subsonic|custom
+	PathPrefix   string   `json:"pathPrefix"`
+	DefaultPort  int      `json:"defaultPort,omitempty"`
+	Clients      []string `json:"clients,omitempty"`
+	Auth         string   `json:"auth,omitempty"` // ether_token (default)|basic|none_lan
+}
+
+// SetupMeta declares guided setup for any plugin kind.
+type SetupMeta struct {
+	Steps []SetupStep `json:"steps"`
+}
+
+// SetupStep is one setup wizard step; an empty Test means saving is the step.
+type SetupStep struct {
+	Key      string   `json:"key"`
+	Label    string   `json:"label"`
+	Hint     string   `json:"hint,omitempty"`
+	Fields   []string `json:"fields"`
+	Test     string   `json:"test"`
+	Required bool     `json:"required"`
 }
 
 // SourceMeta describes a stream source contribution.

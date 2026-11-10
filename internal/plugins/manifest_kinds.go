@@ -176,6 +176,9 @@ func validateMediaKind(m Manifest, k MediaKindMeta, base string, hasProvider boo
 	if len(k.Browse.SearchFields) > 0 && !k.Browse.Search {
 		add(base+".browse.search", "searchFields need search to be set")
 	}
+	if k.Browse.LiveSearch && !hasProvider {
+		add(base+".browse.liveSearch", "live search needs the catalog_provider capability")
+	}
 
 	switch k.Sync.Mode {
 	case "":
