@@ -302,7 +302,6 @@ func NewServer(d Deps) *Server {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
 	ctx, cancel := context.WithCancel(context.Background())
 	if d.SessionStores == nil {
 		panic("plex: Deps.SessionStores is required (wire sessions.NewPlexSessionStores())")
@@ -310,6 +309,7 @@ func NewServer(d Deps) *Server {
 	if d.Experience == nil {
 		panic("plex: Deps.Experience is required (wire experience.NewPlexExperience())")
 	}
+	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
 	coord := d.SessionCoordination
 	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
 		coord = d.SessionStores.NewCoordination()

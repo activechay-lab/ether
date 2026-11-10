@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -223,7 +224,7 @@ func TestOwnerActivityIncludesAndStopsLegacyAndBrokerSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plexServer := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Playback: p, DisableEnrichment: true})
+	plexServer := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), Playback: p, DisableEnrichment: true})
 	defer plexServer.Close()
 	a := &App{plexServer: plexServer, frontends: &frontendRuntime{broker: broker}}
 	activity := (ownerPlayback{Playback: p, app: a}).Sessions()
