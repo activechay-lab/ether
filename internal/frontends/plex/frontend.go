@@ -49,9 +49,7 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 			if err != nil {
 				return nil, err
 			}
-			if deps.Logger == nil && host.Log != nil {
-				deps.Logger = host.Log
-			}
+			deps.Host = host
 			srv := NewServer(deps)
 			if deps.Streams != nil {
 				srv.UsePlexStreams(deps.Streams)

@@ -620,9 +620,7 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t frontend.MediaT
 		f.MaxContentRating = u.MaxContentRating
 	}
 
-	if blocks, ok := s.d.AccessPolicy.(interface {
-		BrowseBlocks(*frontend.User) ([]string, []string)
-	}); ok {
+	if blocks, ok := s.policy().(frontend.BrowseBlocksPolicy); ok {
 		f.ExcludeGenres, f.ExcludeKeywords = blocks.BrowseBlocks(u)
 	}
 	f.SaferPlexRating = s.plexMetaOn()
@@ -958,9 +956,7 @@ func (s *Server) parseBrowse(ctx context.Context, sec Section, t frontend.MediaT
 		}
 	}
 	br.applySortParam(q.Get("sort"), t)
-	if share, ok := s.d.AccessPolicy.(interface {
-		BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
-	}); ok && u != nil {
+	if share, ok := s.policy().(frontend.BrowseShareFilterPolicy); ok && u != nil {
 		// The plex.tv share predicate goes into the SQL, so pages fill
 		// and totals count only what this viewer may see.
 		f, br.none = s.d.Experience.MergeShareFilter(f, share.BrowseShareFilter(u, t))
@@ -1096,14 +1092,10 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]f
 	}
 	if pr.User != nil && br.q.Filter.Type == frontend.TypeEpisode {
 		policy := frontend.Filter{MaxContentRating: pr.User.MaxContentRating, SaferPlexRating: s.needPlexRatingFilter(pr.User)}
-		if blocks, ok := s.d.AccessPolicy.(interface {
-			BrowseBlocks(*frontend.User) ([]string, []string)
-		}); ok {
+		if blocks, ok := s.policy().(frontend.BrowseBlocksPolicy); ok {
 			policy.ExcludeGenres, policy.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
 		}
-		if share, ok := s.d.AccessPolicy.(interface {
-			BrowseShareFilter(*frontend.User, frontend.MediaType) frontend.Filter
-		}); ok {
+		if share, ok := s.policy().(frontend.BrowseShareFilterPolicy); ok {
 			policy, _ = s.d.Experience.MergeShareFilter(policy, share.BrowseShareFilter(pr.User, frontend.TypeEpisode))
 		}
 		br.q.Filter.ChildVisibility = &policy
@@ -1137,10 +1129,8 @@ func (s *Server) browse(ctx context.Context, pr *Request, br browseRequest) ([]f
 		}
 		br.sortLastViewed = false
 	}
-	_, hasBrowseBlocks := s.d.AccessPolicy.(interface {
-		BrowseBlocks(*frontend.User) ([]string, []string)
-	})
-	needsPostPolicy := s.d.AccessPolicy != nil && !hasBrowseBlocks && s.viewerRestricted(pr.User)
+	_, hasBrowseBlocks := s.policy().(frontend.BrowseBlocksPolicy)
+	needsPostPolicy := s.policy() != nil && !hasBrowseBlocks && s.viewerRestricted(pr.User)
 	if !needsPostPolicy {
 		q := br.q
 		q.Offset, q.Limit = offset, size
@@ -1615,9 +1605,7 @@ func (s *Server) handleOnDeck(w http.ResponseWriter, r *http.Request) {
 		if !episodeAllowed {
 			filter.Type = frontend.TypeMovie
 		}
-		if blocks, ok := s.d.AccessPolicy.(interface {
-			BrowseBlocks(*frontend.User) ([]string, []string)
-		}); ok {
+		if blocks, ok := s.policy().(frontend.BrowseBlocksPolicy); ok {
 			filter.ExcludeGenres, filter.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
 		}
 		child := filter
@@ -1812,9 +1800,7 @@ func (s *Server) handleRecentlyAdded(w http.ResponseWriter, r *http.Request) {
 				q.Filter.Group = &frontend.FilterGroup{Unwatched: &unwatched, UserID: pr.User.ID}
 			}
 		}
-		if blocks, ok := s.d.AccessPolicy.(interface {
-			BrowseBlocks(*frontend.User) ([]string, []string)
-		}); ok {
+		if blocks, ok := s.policy().(frontend.BrowseBlocksPolicy); ok {
 			q.Filter.ExcludeGenres, q.Filter.ExcludeKeywords = blocks.BrowseBlocks(pr.User)
 		}
 		child := q.Filter

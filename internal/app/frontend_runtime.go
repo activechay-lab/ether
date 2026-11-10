@@ -32,6 +32,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
+	"github.com/braedonsaunders/ether/internal/updater"
 	"github.com/braedonsaunders/ether/internal/watchparty"
 )
 
@@ -224,6 +225,8 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 			return value
 		},
 	})
+	repoFile := repoFileURL(sourceRef(updater.Version, updater.Commit, buildRevision()))
+	metadataHTTP := egress.Client(egress.CapMetadata, 20*time.Second)
 	r.registry = frontend.NewRegistry(func(id frontend.Protocol) frontend.Host {
 		settings := func() frontend.Settings {
 			value, err := r.control.Settings(r.ctx, id)
@@ -244,6 +247,29 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 			}
 			out["serverName"] = name
 			return out
+		}
+		var hostConfig func() frontend.HostConfig
+		if a.cfg != nil {
+			hostConfig = a.cfg.Read
+		}
+		serverIdentity := frontend.ServerIdentity{
+			MachineID:    cfg.Server.MachineIdentifier,
+			FriendlyName: cfg.Server.FriendlyName,
+			Version:      plextv.DefaultServerVersion,
+			Platform:     plexPlatform(),
+		}
+		ownerSub := func() (bool, []string) {
+			if a.registrar == nil {
+				return false, nil
+			}
+			st := a.registrar.Status()
+			return st.PlexPass, st.OwnerFeatures
+		}
+		publicOrigin := func() string {
+			if a.registrar == nil {
+				return ""
+			}
+			return publicPlexOrigin(a.registrar.Status().Connections)
 		}
 		experience := experiences[id]
 		if experience == nil {
@@ -335,18 +361,18 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		if id == "plex" {
 			plexHost = surfacePlex{runtime: r, spike: cfg.Spike}
 		}
-		return frontend.Host{Support: a.support, Plex: plexHost, IDs: ids.Codecs{Allocator: compact}, DirectProxy: egress.ProxyFunc(egress.CapDirect), Experience: experience, LastPlayedSource: surfaceLastPlayedSource{experience: experience, state: a.state}, VersionHandles: versionHandles, SourceOffers: sourceOffers, Editions: surfaceEditions{app: a}, VirtualPaths: surfaceVirtualPaths{experience: experience, index: &pathIndex{}, stamp: func(v *core.Viewer) string {
+		return frontend.Host{Support: a.support, Plex: plexHost, IDs: ids.Codecs{Allocator: compact}, DirectProxy: egress.ProxyFunc(egress.CapDirect), MetadataHTTP: metadataHTTP, Experience: experience, LastPlayedSource: surfaceLastPlayedSource{experience: experience, state: a.state}, VersionHandles: versionHandles, SourceOffers: sourceOffers, Editions: surfaceEditions{app: a}, VirtualPaths: surfaceVirtualPaths{experience: experience, index: &pathIndex{}, stamp: func(v *core.Viewer) string {
 			if v == nil || a.catalog == nil || a.cfg == nil {
 				return ""
 			}
 			return fmt.Sprintf("%d|%d|%d|%s|%v", a.catalog.WriteGeneration(), a.cfg.Generation(), v.ID, v.MaxContentRating, v.AllowedLibraries)
-		}, enabled: func() bool { _, ok := r.registry.Instance("webdav"); return ok }, base: func(ctx context.Context, req *http.Request) (string, error) { return r.surfaceURL(ctx, "webdav", req) }}, ViewerCapabilities: a.viewerCapabilities(local, experience), ViewerPolicy: surfaceViewerPolicy{app: a}, ImageGrants: imageGrants, Artwork: artwork, ExtraStreams: extraPlay, Cinema: cinema, Prerolls: prerollIntros, Subtitles: subtitleCatalog, Preferences: identity.NewPreferences(a.db, id), TrackPreferences: surfaceTrackPreferences{app: a}, LiveTV: surfaceLiveTV{app: a, surface: string(id), channelArtwork: channelArtwork, artwork: artwork}, Sessions: scorecardSessions(a, sessions.BindSurface(r.broker, id)), LazyStreams: lazy, LANStreams: lanStreams, Capabilities: surfaceCapabilities{app: a, surface: id}, Identity: surfaceIdentity{settings: settings, surface: id, resolver: resolver, local: local, grants: grants, quick: quick, login: login, poll: poll, times: times}, Events: sessions.BindEvents(r.events, id), Tickets: tickets, WatchParty: parties, Images: frontendImages{source: a.images}, Log: a.log.With("frontend", id), ClientSeen: func(deviceID string) { a.frontendClients.observe(id, deviceID) }, RemoteClientSeen: func(address string) {
+		}, enabled: func() bool { _, ok := r.registry.Instance("webdav"); return ok }, base: func(ctx context.Context, req *http.Request) (string, error) { return r.surfaceURL(ctx, "webdav", req) }}, ViewerCapabilities: a.viewerCapabilities(local, experience), ViewerPolicy: surfaceViewerPolicy{app: a}, ImageGrants: imageGrants, Artwork: artwork, ExtraStreams: extraPlay, Cinema: cinema, Prerolls: prerollIntros, Subtitles: subtitleCatalog, Preferences: identity.NewPreferences(a.db, id), TrackPreferences: surfaceTrackPreferences{app: a}, LiveTV: surfaceLiveTV{app: a, surface: string(id), channelArtwork: channelArtwork, artwork: artwork}, Sessions: scorecardSessions(a, sessions.BindSurface(r.broker, id)), LazyStreams: lazy, LANStreams: lanStreams, Capabilities: surfaceCapabilities{app: a, surface: id}, Identity: surfaceIdentity{settings: settings, surface: id, users: a.users, resolver: resolver, local: local, grants: grants, quick: quick, login: login, poll: poll, times: times}, Events: sessions.BindEvents(r.events, id), Tickets: tickets, WatchParty: parties, Images: frontendImages{source: a.images}, Log: a.log.With("frontend", id), ClientSeen: func(deviceID string) { a.frontendClients.observe(id, deviceID) }, RemoteClientSeen: func(address string) {
 			if a.registrar != nil {
 				a.registrar.ObserveRemoteClient(address)
 			}
 		}, ClientIP: a.frontendClientIP, ViewerPortalURL: r.viewerPortalURL, SecurePortalURL: r.viewerPortalSecureURL, SurfaceURL: func(ctx context.Context, req *http.Request) (string, error) {
 			return scorecardSurfaceURL(ctx, r, id, req)
-		}, LANViewer: lanViewer, PageFreshness: func() frontend.PageFreshness {
+		}, PublicOrigin: publicOrigin, RepoFileURL: repoFile, ServerIdentity: serverIdentity, OwnerSubscription: ownerSub, LANViewer: lanViewer, PageFreshness: func() frontend.PageFreshness {
 			f := a.browseFreshness()
 			if imageRevision != nil {
 				f.Images = imageRevision()
@@ -355,7 +381,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 				f.Grants = grants.Generation()
 			}
 			return f
-		}, Config: settings, MetadataLanguage: func() string {
+		}, Config: settings, HostConfig: hostConfig, Now: parityClock(), MetadataLanguage: func() string {
 			if a.cfg == nil {
 				return ""
 			}

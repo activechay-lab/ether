@@ -23,7 +23,7 @@ func TestPlaceholderArtworkAuthorization(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "overlay_off", true: "overlay_on"}[enabled], func(t *testing.T) {
 			f := newFixture(func(d *Deps) {
-				d.HTTPClient = upstream.Client()
+				setDepsHTTPClient(d, upstream.Client())
 			})
 			f.srv.setImageURL(func(path, size string) string { return upstream.URL + path })
 			defer f.srv.Close()

@@ -27,6 +27,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/handles/capability"
 	"github.com/braedonsaunders/ether/internal/plextv"
@@ -436,14 +437,18 @@ func assertUpgradeBoundary(t *testing.T) {
 
 func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth.Service, validator *upgradeValidator, titles func() (string, string)) {
 	t.Helper()
-	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewSessionStores(), Experience: experience.NewSelectors(),
-		Auth:              users,
-		Config:            cfg.Get,
+	srv := plex.NewServer(plex.Deps{
+		Host: frontend.Host{
+			Identity:   frontend.BindAuth(users),
+			HostConfig: cfg.Get,
+			Now:        func() time.Time { return upgradeClock },
+			Log:        discardLog(),
+		},
+		SessionStores:     sessions.NewSessionStores(),
+		Experience:        experience.NewSelectors(),
 		DB:                db,
 		DisableEnrichment: true,
 		LibraryTitles:     titles,
-		Logger:            discardLog(),
-		Now:               func() time.Time { return upgradeClock },
 	})
 	t.Cleanup(func() { srv.Close() })
 

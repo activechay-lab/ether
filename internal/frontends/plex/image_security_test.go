@@ -37,7 +37,7 @@ func TestRemoteArtworkCannotExecuteOnOwnerOrigin(t *testing.T) {
 			}))
 			defer upstream.Close()
 			f := newFixture(func(d *Deps) {
-				d.HTTPClient = upstream.Client()
+				setDepsHTTPClient(d, upstream.Client())
 			})
 			f.srv.setImageURL(func(path, size string) string { return upstream.URL + "/" + size + path })
 			defer f.srv.Close()

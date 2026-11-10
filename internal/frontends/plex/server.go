@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,7 +28,15 @@ const DefaultPMSVersion = "1.43.4.10903-e5521bd8c"
 
 // Identity is how the server presents itself. Empty fields fall back to the
 // config snapshot (friendly name, machine identifier) or sensible defaults.
-type Identity = frontend.PlexIdentity
+type Identity struct {
+	MachineIdentifier  string
+	FriendlyName       string
+	Version            string
+	Platform           string
+	PlatformVersion    string
+	MyPlexSubscription bool
+	OwnerFeatures      []string
+}
 
 // Section is a library section exposed to clients.
 type Section = frontend.PlexSection
@@ -38,7 +47,7 @@ type SessionToucher interface {
 	Touch(sessionID string)
 }
 
-// Deps are the server's dependencies. Catalog, State, Auth and Playback are
+// Deps are the server's dependencies. Catalog, State, Host.Identity and Playback are
 // required; the rest degrade gracefully when nil.
 type Deps = frontend.PlexDeps
 
@@ -68,6 +77,7 @@ type Server struct {
 	home             *homeCache
 
 	d      Deps
+	host   frontend.Host
 	log    *slog.Logger
 	router chi.Router
 
@@ -84,10 +94,8 @@ type Server struct {
 	clientSeen       func(string)
 	remoteClientSeen func(string)
 
-	images       frontend.ArtworkImageCache
-	channelLogos interface {
-		GetUntrustedURL(context.Context, string) ([]byte, string, error)
-	}
+	images            frontend.ArtworkImageCache
+	channelLogos      frontend.UntrustedImageFetcher
 	channelRaster     frontend.SVGRasterizer
 	boundStreams      frontend.StreamBindings
 	variantIDs        *variantIDRegistry
@@ -134,17 +142,14 @@ type Server struct {
 
 // NewServer builds the PMS API handler.
 func NewServer(d Deps) *Server {
-	if d.Logger == nil {
-		d.Logger = slog.Default()
+	host := d.Host
+	log := host.Log
+	if log == nil {
+		log = slog.Default()
 	}
-	if d.Config == nil {
-		d.Config = func() frontend.HostConfig { return frontend.HostConfig{} }
-	}
-	if d.HTTPClient == nil {
-		d.HTTPClient = &http.Client{Timeout: 20 * time.Second}
-	}
-	if d.Now == nil {
-		d.Now = time.Now
+	httpClient := host.MetadataHTTP
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 20 * time.Second}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if d.SessionStores == nil {
@@ -153,7 +158,6 @@ func NewServer(d Deps) *Server {
 	if d.Experience == nil {
 		panic("plex: Deps.Experience is required (wire experience.NewSelectors())")
 	}
-	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
 	coord := d.SessionCoordination
 	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
 		coord = d.SessionStores.NewCoordination()
@@ -163,10 +167,11 @@ func NewServer(d Deps) *Server {
 		plexEncoder:       d.Encoder,
 		boundStreams:      d.Streams,
 		d:                 d,
-		log:               d.Logger.With("component", "plex"),
+		host:              host,
+		log:               log.With("component", "plex"),
 		imageURL:          func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path },
-		images:            frontend.NewArtworkRemoteCache(128<<20, d.HTTPClient),
-		channelLogos:      frontend.NewUntrustedImageFetcher(d.HTTPClient),
+		images:            frontend.NewArtworkRemoteCache(128<<20, httpClient),
+		channelLogos:      frontend.NewUntrustedImageFetcher(nil),
 		channelRaster:     frontend.NewSVGRasterizer(),
 		variantIDs:        newVariantIDRegistry(d.SessionStores, d.DB),
 		playIDs:           newPlayIdentities(),
@@ -177,28 +182,29 @@ func NewServer(d Deps) *Server {
 		playbackLifecycle: coord.LifecycleGates(),
 		transcodes:        newTranscodeTable(),
 		readCaps:          newReadCapabilityStore(),
-		extraPlay:         newExtraPlayStore(d.DirectHTTP),
+		extraPlay:         newExtraPlayStore(newDirectHTTPClient(host.DirectProxy)),
 		selections:        newSelectionStore(),
 		notifier:          newNotifier(),
 		facets:            newFacetCache(),
 		ctx:               ctx,
 		cancel:            cancel,
 	}
+	s.d.Dashboard, s.d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, s.now)
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
 	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
-	s.queues.Configure(d.Now, nil)
+	s.queues.Configure(s.now, nil)
 	if d.DB != nil && d.Cluster == nil {
 		// Standalone queues share the durable store without starting cluster sessions.
-		s.queues.Configure(d.Now, newClusterState(s, d.DB, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
+		s.queues.Configure(s.now, newClusterState(s, d.DB, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
 	}
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
 		s.versionFlows = newVersionFlowStore(s, d.DB)
-		s.queues.Configure(d.Now, s.cl.queuePersistence())
+		s.queues.Configure(s.now, s.cl.queuePersistence())
 	}
 	if !d.DisableEnrichment && d.Catalog != nil {
 		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
@@ -224,6 +230,7 @@ func NewServer(d Deps) *Server {
 	}); ok && s.ultra != nil {
 		s.ultra.PersistFor(p.PersistsArtwork)
 	}
+	s.bindHost(host)
 	node := "standalone"
 	if s.cl != nil {
 		node = s.cl.self
@@ -249,37 +256,141 @@ func NewServer(d Deps) *Server {
 	return s
 }
 
-func (s *Server) bindHost(host frontend.Host) {
+func newDirectHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
+	if proxy == nil {
+		return nil
+	}
+	if tr, ok := http.DefaultTransport.(*http.Transport); ok && tr != nil {
+		cloned := tr.Clone()
+		cloned.Proxy = proxy
+		return &http.Client{Transport: cloned}
+	}
+	return &http.Client{Transport: &http.Transport{Proxy: proxy}}
+}
+
+// bindHost binds or updates the generic frontend host services on s.
+// Non-nil services in h replace existing ones so a partial test mount
+// preserves services configured at construction time.
+func (s *Server) bindHost(h frontend.Host) {
 	if s == nil {
 		return
 	}
-	// host.Support is a concrete pointer: assign it only when set, or the
-	// interface would hold a typed nil that passes every nil check.
-	s.support = nil
-	if host.Support != nil {
-		s.support = host.Support
+	if h.Support != nil {
+		s.host.Support = h.Support
+		s.support = h.Support
 	}
-	s.liveTV = host.LiveTV
-	s.clientSeen = host.ClientSeen
-	s.remoteClientSeen = host.RemoteClientSeen
-	s.artwork = host.Artwork
-	if host.Artwork != nil {
-		if rc := host.Artwork.RemoteCache(); rc != nil {
+	if h.Plex != nil {
+		s.host.Plex = h.Plex
+	}
+	if h.LiveTV != nil {
+		s.host.LiveTV = h.LiveTV
+		s.liveTV = h.LiveTV
+	}
+	if h.ClientSeen != nil {
+		s.host.ClientSeen = h.ClientSeen
+		s.clientSeen = h.ClientSeen
+	}
+	if h.RemoteClientSeen != nil {
+		s.host.RemoteClientSeen = h.RemoteClientSeen
+		s.remoteClientSeen = h.RemoteClientSeen
+	}
+	if h.Artwork != nil {
+		s.host.Artwork = h.Artwork
+		s.artwork = h.Artwork
+		if rc := h.Artwork.RemoteCache(); rc != nil {
 			s.images = rc
 		}
-		if pc := host.Artwork.PaletteCache(); pc != nil {
+		if pc := h.Artwork.PaletteCache(); pc != nil {
 			s.ultra = pc
 		}
-		if pr := host.Artwork.PosterRenderer(); pr != nil {
+		if pr := h.Artwork.PosterRenderer(); pr != nil {
 			s.generatedPosters = pr
 		}
-		if fn := host.Artwork.ImageURLFunc(); fn != nil {
+		if fn := h.Artwork.ImageURLFunc(); fn != nil {
 			s.imageURL = fn
 		}
 	}
-	s.hostImages = host.Images
-	s.imageGrants = host.ImageGrants
-	s.events = host.Events
+	if h.Images != nil {
+		s.host.Images = h.Images
+		s.hostImages = h.Images
+	}
+	if h.ImageGrants != nil {
+		s.host.ImageGrants = h.ImageGrants
+		s.imageGrants = h.ImageGrants
+	}
+	if h.Events != nil {
+		s.host.Events = h.Events
+		s.events = h.Events
+	}
+	if h.DirectProxy != nil {
+		s.host.DirectProxy = h.DirectProxy
+		if s.extraPlay != nil {
+			s.extraPlay.client = newDirectHTTPClient(h.DirectProxy)
+		}
+	}
+	if h.MetadataHTTP != nil {
+		s.host.MetadataHTTP = h.MetadataHTTP
+	}
+	if h.ViewerPolicy != nil {
+		s.host.ViewerPolicy = h.ViewerPolicy
+	}
+	if h.Capabilities != nil {
+		s.host.Capabilities = h.Capabilities
+	}
+	if h.Identity != nil {
+		s.host.Identity = h.Identity
+	}
+	if h.Log != nil {
+		s.host.Log = h.Log
+		s.log = h.Log.With("component", "plex")
+	}
+	if h.ClientIP != nil {
+		s.host.ClientIP = h.ClientIP
+	}
+	if h.SurfaceURL != nil {
+		s.host.SurfaceURL = h.SurfaceURL
+	}
+	if h.PublicOrigin != nil {
+		s.host.PublicOrigin = h.PublicOrigin
+	}
+	if h.RepoFileURL != nil {
+		s.host.RepoFileURL = h.RepoFileURL
+	}
+	if h.Config != nil {
+		s.host.Config = h.Config
+	}
+	if h.HostConfig != nil {
+		s.host.HostConfig = h.HostConfig
+	}
+	if h.Now != nil {
+		s.host.Now = h.Now
+	}
+	if h.ServerIdentity != (frontend.ServerIdentity{}) {
+		s.host.ServerIdentity = h.ServerIdentity
+	}
+	if h.OwnerSubscription != nil {
+		s.host.OwnerSubscription = h.OwnerSubscription
+	}
+	if h.MetadataLanguage != nil {
+		s.host.MetadataLanguage = h.MetadataLanguage
+	}
+	if h.Sessions != nil {
+		s.UsePlaybackBroker(h.Sessions)
+	}
+}
+
+func (s *Server) policy() frontend.AccessPolicy {
+	if s == nil {
+		return nil
+	}
+	return s.host.ViewerPolicy
+}
+
+func (s *Server) listUsers(ctx context.Context) ([]frontend.User, error) {
+	if s == nil || s.host.Identity == nil {
+		return nil, nil
+	}
+	return s.host.Identity.Users(ctx)
 }
 
 // ServeHTTP implements http.Handler.
@@ -316,15 +427,45 @@ func (s *Server) Close() error {
 	return nil
 }
 
-func (s *Server) now() time.Time { return s.d.Now() }
+func (s *Server) settings() frontend.Settings {
+	if s == nil || s.host.Config == nil {
+		return nil
+	}
+	return s.host.Config()
+}
 
-func (s *Server) cfg() frontend.HostConfig { return s.d.Config() }
+func (s *Server) hasConfig() bool {
+	return s != nil && s.host.HostConfig != nil
+}
+
+func (s *Server) now() time.Time {
+	if s != nil && s.host.Now != nil {
+		return s.host.Now()
+	}
+	return time.Now()
+}
+
+func (s *Server) cfg() frontend.HostConfig {
+	if s == nil || s.host.HostConfig == nil {
+		return frontend.HostConfig{}
+	}
+	return s.host.HostConfig()
+}
 
 // identity resolves the effective identity.
 func (s *Server) identity() Identity {
-	id := s.d.Identity
-	if s.d.OwnerSubscription != nil {
-		id.MyPlexSubscription, id.OwnerFeatures = s.d.OwnerSubscription()
+	var id Identity
+	if s != nil {
+		id = Identity{
+			MachineIdentifier: s.host.ServerIdentity.MachineID,
+			FriendlyName:      s.host.ServerIdentity.FriendlyName,
+			Version:           s.host.ServerIdentity.Version,
+			Platform:          s.host.ServerIdentity.Platform,
+			PlatformVersion:   s.host.ServerIdentity.PlatformVersion,
+		}
+		if s.host.OwnerSubscription != nil {
+			id.MyPlexSubscription, id.OwnerFeatures = s.host.OwnerSubscription()
+		}
 	}
 	c := s.cfg()
 	if id.MachineIdentifier == "" {
@@ -336,7 +477,11 @@ func (s *Server) identity() Identity {
 	if name := strings.TrimSpace(c.Server.FriendlyName); name != "" {
 		id.FriendlyName = name
 	} else if strings.TrimSpace(id.FriendlyName) == "" {
-		id.FriendlyName = "Ether"
+		if st := s.settings(); st != nil {
+			id.FriendlyName = frontend.AdvertisedName(st)
+		} else {
+			id.FriendlyName = "Ether"
+		}
 	}
 	if c.Plex.CompatibilityVersion != "" {
 		id.Version = c.Plex.CompatibilityVersion

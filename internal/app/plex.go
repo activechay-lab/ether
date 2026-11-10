@@ -4,19 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"net/url"
 	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"time"
 
 	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/egress"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
@@ -24,7 +21,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/remote"
-	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/updater"
@@ -41,17 +37,10 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		return frontend.PlexDeps{}, err
 	}
 	tc := a.activeTranscoder()
-	identity := plex.Identity{
-		MachineIdentifier: cfg.Server.MachineIdentifier,
-		FriendlyName:      cfg.Server.FriendlyName,
-		Version:           plextv.DefaultServerVersion,
-		Platform:          plexPlatform(),
-	}
 
 	var deps plex.Deps
 	if cfg.Spike.Enabled {
 		deps = a.spikeLibrary.Deps()
-		deps.Auth = a.users
 		if tc != nil {
 			deps.Transcoder = tc
 		}
@@ -67,7 +56,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 			Recommender: a.personalize,
 			State:       a.state,
 			Playlists:   a.playlists,
-			Auth:        a.users,
 			Playback:    playback,
 			Transcoder:  tc,
 			DB:          a.db, // plex_ultrablur
@@ -87,14 +75,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		}
 		return a.availability.Prioritize(ctx, items)
 	}
-	deps.Variants = a.resolver // "Play Version" release picker (cache-only)
-	deps.PublicURL = func() string {
-		if a.registrar == nil {
-			return ""
-		}
-		return publicPlexOrigin(a.registrar.Status().Connections)
-	}
-	deps.RepoFileURL = repoFileURL(sourceRef(updater.Version, updater.Commit, buildRevision()))
+	deps.Variants = a.resolver       // "Play Version" release picker (cache-only)
 	deps.DecisionTraces = a.resolver // latest resolution, for the support capture
 	clientID := func() string {
 		cfg := a.cfg.Read()
@@ -157,20 +138,8 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 	deps.Extras = newPlexExtras(a.extras)
 	deps.Prerolls = a.prerollProvider()
 	deps.Trickplay = a.trickplay.Borrow()
-	a.wirePlexPolicy(&deps)
 	deps.FavoriteShows = a.favoriteShows
-	deps.Now = parityClock()
-	deps.Config = a.cfg.Read
-	deps.ApplyClientRules = resolver.ApplyClientRulesForMedia
-	deps.HTTPClient = egress.Client(egress.CapMetadata, 20*time.Second)
-	deps.DirectHTTP = &http.Client{Transport: egress.Transport(egress.CapDirect)}
-	deps.Logger = a.log.With("component", "plex")
 	deps.TracePlayback = a.tracePlayback
-	deps.Identity = identity
-	deps.OwnerSubscription = func() (bool, []string) {
-		st := a.registrar.Status()
-		return st.PlexPass, st.OwnerFeatures
-	}
 	deps.LibraryTitles = a.libraryTitles
 	if a.stats != nil {
 		deps.Dashboard = a.stats.Dashboard()
@@ -183,7 +152,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 	}
 	if !cfg.Spike.Enabled && a.db != nil {
 		db := a.db
-		deps.HomeCache = &plex.HomeCacheSource{
+		deps.HomeCache = &frontend.PlexHomeCacheSource{
 			Revision: func(ctx context.Context, u *core.User) (experience.HomeRevision, error) {
 				return experience.ReadHomeRevision(ctx, db, u)
 			},
@@ -276,11 +245,6 @@ func plexPlatform() string {
 	default:
 		return "Linux"
 	}
-}
-
-// wirePlexPolicy supplies the same safety service to every Plex deployment.
-func (a *App) wirePlexPolicy(deps *plex.Deps) {
-	deps.AccessPolicy = a.safety
 }
 
 // currentPlexServer publishes lazy construction to playback callbacks. The

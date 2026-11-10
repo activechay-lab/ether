@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
@@ -74,6 +75,9 @@ type composedPolicy struct{ wan, hidden atomic.Bool }
 func (p *composedPolicy) Allowed(*core.User, *core.Title) bool { return !p.hidden.Load() }
 func (p *composedPolicy) CanPlay(_ *core.User, remote bool, _ time.Time) bool {
 	return !remote || !p.wan.Load()
+}
+func (*composedPolicy) SetMaxRating(context.Context, *core.User, string) error {
+	return core.ErrUnauthorized
 }
 
 type forwardOnlyEncoder struct{ r *Runtime }
@@ -210,7 +214,19 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{SessionStores: sessions.NewSessionStores(), Experience: experience.NewSelectors(), DB: db, Cluster: ownerNode, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, Encoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	deps := plex.Deps{
+		Host:              frontend.Host{Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
+		SessionStores:     sessions.NewSessionStores(),
+		Experience:        experience.NewSelectors(),
+		DB:                db,
+		Cluster:           ownerNode,
+		Catalog:           fixtureCatalog{},
+		State:             composedState{},
+		Playback:          remote,
+		Transcoder:        decision,
+		Encoder:           broker,
+		DisableEnrichment: true,
+	}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
 	publicOwner.UsePlaybackBroker(broker)
