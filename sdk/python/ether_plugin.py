@@ -430,6 +430,28 @@ class RemoteHostClient:
         self.viewers = _ViewersClient(self._call_json)
         self.collections = _CollectionsClient(self._call_json)
         self.notify = _NotifyClient(self._call_json)
+        self.kinds = _KindsClient(self._call_json)
+        self.cache = self._Cache(self)
+
+    class _Cache:
+        def __init__(self, parent: "RemoteHostClient") -> None:
+            self._p = parent
+
+        def _request(self, method: str, path: str, data: Optional[bytes] = None) -> bytes:
+            req = urllib.request.Request(
+                f"{self._p.base_url}{path}", data=data, method=method,
+                headers={"X-Ether-Plugin-Credential": self._p.credential},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+
+        def put(self, library_key: str, name: str, data: bytes) -> str:
+            q = urllib.parse.urlencode({"name": name})
+            raw = self._request("POST", f"/ether/plugin-host/cache/{urllib.parse.quote(library_key)}?{q}", data)
+            return str(json.loads(raw or b"{}").get("blob") or "")
+
+        def open(self, blob_ref: str) -> bytes:  # noqa: A002 - mirrors host naming
+            return self._request("GET", "/ether/plugin-host/cache/" + str(blob_ref).lstrip("/"))
 
     def _call_json(
         self,
@@ -1110,7 +1132,128 @@ class PluginInstance:
                         )
                     )
 
+        kinds_resp = self._dispatch_kinds(method, path, req, ctx)
+        if kinds_resp is not None:
+            return kinds_resp
+
         return _error_response(404, "not_found", f"No route matched {method} {path}.")
+
+    # -- Content kinds (Ether v0.3.8) -------------------------------------
+
+    def on_catalog(self, kind: str, provider: Any) -> None:
+        self._kind_catalog()[kind] = provider
+
+    def on_resolve(self, kind: str, resolver: Any) -> None:
+        self._kind_resolve()[kind] = resolver
+
+    def on_match(self, kind: str, matcher: Any) -> None:
+        self._kind_match()[kind] = matcher
+
+    def on_frontend(self, key: str, adapter: Any) -> None:
+        self._kind_frontend()[key] = adapter
+
+    def on_setup_test(self, tester: Any) -> None:
+        self._setup_tester = tester
+
+    onCatalog = on_catalog
+    onResolve = on_resolve
+    onMatch = on_match
+    onFrontend = on_frontend
+    onSetupTest = on_setup_test
+
+    def _kind_catalog(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_catalog_providers", {})
+
+    def _kind_resolve(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_kind_resolvers", {})
+
+    def _kind_match(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_kind_matchers", {})
+
+    def _kind_frontend(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_frontend_adapters", {})
+
+    def _dispatch_kinds(
+        self, method: str, path: str, req: Dict[str, Any], ctx: PluginContext
+    ) -> Optional[Dict[str, Any]]:
+        if not path.startswith("/ether/v1/"):
+            return None
+        parts = [urllib.parse.unquote(p) for p in path[len("/ether/v1/"):].split("/")]
+        try:
+            body = _parse_json_body(req.get("body"))
+        except Exception:
+            return _error_response(400, "invalid_json", "Request body must be valid JSON.")
+
+        if len(parts) == 3 and parts[0] == "setup" and parts[2] == "test":
+            tester = getattr(self, "_setup_tester", None)
+            if tester is None:
+                return _error_response(404, "not_found", "Setup test handler is not registered.")
+            body.setdefault("step", parts[1])
+            return _ok_response(tester.test_setup(ctx, body))
+
+        if len(parts) >= 2 and parts[0] == "frontend":
+            adapter = self._kind_frontend().get(parts[1])
+            if adapter is None:
+                return _error_response(404, "not_found", f'No frontend adapter is registered for "{parts[1]}".')
+            sub_path = "/" + "/".join(parts[2:])
+            status, headers, resp_body = adapter.handle(method, sub_path, dict(req.get("headers") or {}), req.get("body") or b"")
+            return {"status": int(status), "headers": dict(headers or {}), "body": resp_body}
+
+        if len(parts) < 3 or parts[0] != "kinds":
+            return None
+        kind, tail = parts[1], parts[2:]
+        body = dict(body)
+        body["kind"] = kind
+
+        def page(result: Any) -> Dict[str, Any]:
+            result = dict(result or {})
+            limit = int(body.get("limit") or 200)
+            items = list(result.get("items") or [])
+            if len(items) > limit:
+                items = items[:limit]
+            result["items"] = items
+            if not result.get("nextCursor"):
+                result.pop("nextCursor", None)
+            return _ok_response(result)
+
+        if tail == ["browse"] or tail == ["search"]:
+            provider = self._kind_catalog().get(kind)
+            if provider is None:
+                return _error_response(404, "not_found", f'No catalogue provider is registered for kind "{kind}".')
+            if tail == ["search"]:
+                search = getattr(provider, "search", None)
+                if not callable(search):
+                    return _error_response(501, "not_implemented", "This provider does not search.")
+                return page(search(ctx, body))
+            return page(provider.browse(ctx, body))
+        if len(tail) == 2 and tail[0] == "items":
+            provider = self._kind_catalog().get(kind)
+            if provider is None:
+                return _error_response(404, "not_found", f'No catalogue provider is registered for kind "{kind}".')
+            return _ok_response(provider.detail(ctx, kind, tail[1]))
+        if tail == ["changes"]:
+            provider = self._kind_catalog().get(kind)
+            changes = getattr(provider, "changes", None) if provider else None
+            if not callable(changes):
+                return _error_response(501, "not_implemented", "This provider has no changes feed.")
+            result = dict(changes(ctx, body) or {})
+            result.setdefault("upserts", [])
+            return _ok_response(result)
+        if tail == ["resolve"]:
+            resolver = self._kind_resolve().get(kind)
+            if resolver is None:
+                return _error_response(404, "not_found", f'No resolver is registered for kind "{kind}".')
+            result = dict(resolver.resolve(ctx, body) or {})
+            result.setdefault("sources", [])
+            return _ok_response(result)
+        if tail == ["match"]:
+            matcher = self._kind_match().get(kind)
+            if matcher is None:
+                return _error_response(404, "not_found", f'No matcher is registered for kind "{kind}".')
+            result = dict(matcher.match(ctx, body) or {})
+            result.setdefault("matches", [])
+            return _ok_response(result)
+        return _error_response(404, "not_found", "No kind route matched.")
 
 
 def plugin(
@@ -1550,8 +1693,54 @@ class MockHostClient:
         self.http = self._Http(self)
         self.catalog = self._Catalog(self)
         self.viewers = self._Viewers(self)
+        self.kind_store: Dict[str, List[Dict[str, Any]]] = {}
+        self.sources: List[Dict[str, Any]] = []
+        self.blobs: Dict[str, bytes] = {}
         self.collections = self._Collections(self)
         self.notify = self._Notify(self)
+        self.kinds = self._Kinds(self)
+        self.cache = self._Cache(self)
+
+    class _Kinds:
+        def __init__(self, parent: "MockHostClient") -> None:
+            self._p = parent
+
+        def upsert(self, kind: str, items: List[Dict[str, Any]]) -> int:
+            kept = {it.get("id"): it for it in self._p.kind_store.get(kind, [])}
+            for it in items:
+                kept[it.get("id")] = it
+            self._p.kind_store[kind] = list(kept.values())
+            return len(items)
+
+        def delete(self, kind: str, external_ids: List[str]) -> None:
+            drop = set(external_ids)
+            self._p.kind_store[kind] = [it for it in self._p.kind_store.get(kind, []) if it.get("id") not in drop]
+
+        def items(self, kind: str, cursor: str = "", limit: int = 200) -> Dict[str, Any]:
+            all_items = self._p.kind_store.get(kind, [])
+            start = 0
+            if cursor:
+                start = next((i + 1 for i, it in enumerate(all_items) if it.get("id") == cursor), len(all_items))
+            page = all_items[start:start + limit]
+            out: Dict[str, Any] = {"items": page}
+            if page and start + limit < len(all_items):
+                out["nextCursor"] = page[-1].get("id")
+            return out
+
+        def resolve_sources(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+            return list(self._p.sources)
+
+    class _Cache:
+        def __init__(self, parent: "MockHostClient") -> None:
+            self._p = parent
+
+        def put(self, library_key: str, name: str, data: bytes) -> str:
+            ref = "blob:" + hashlib.sha256(data).hexdigest()
+            self._p.blobs[ref] = bytes(data)
+            return ref
+
+        def open(self, blob_ref: str) -> bytes:  # noqa: A002 - mirrors host naming
+            return self._p.blobs[blob_ref]
 
     class _KV:
         def __init__(self, parent: "MockHostClient") -> None:
@@ -1920,6 +2109,185 @@ def create_test_harness(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Content kinds: base classes, host services, kit helpers (Ether v0.3.8)
+# ---------------------------------------------------------------------------
+
+
+class CatalogProvider:
+    """Serve browse/detail for one declared kind. Items are plain dicts in
+    the KindItem wire shape; requests are dicts with an extra ``kind`` key."""
+
+    def browse(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def detail(self, ctx: PluginContext, kind: str, item_id: str) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    # Optional: define `changes(ctx, req)` for delta pull sync and
+    # `search(ctx, req)` when the kind declares browse.liveSearch.
+
+
+class KindResolver:
+    """Turn a playable item into ordered playable sources."""
+
+    def resolve(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class KindMatcher:
+    """Score source candidates for one item (spec: matches, best first)."""
+
+    def match(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class FrontendAdapter:
+    """A plugin-provided protocol surface. Ether authenticates first;
+    `handle` receives X-Ether-Viewer headers and never a credential."""
+
+    def handle(
+        self, method: str, path: str, headers: Dict[str, str], body: bytes
+    ) -> Tuple[int, Dict[str, str], Union[bytes, str]]:
+        raise NotImplementedError
+
+
+class SetupTester:
+    """Answer /ether/v1/setup/{step}/test with {ok, detail, fields?}."""
+
+    def test_setup(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+# Spec-name aliases.
+Matcher = KindMatcher
+
+
+def candidate_ref(candidate: Dict[str, Any]) -> str:
+    """The stable ref matchers report for a source candidate."""
+    if candidate.get("infoHash"):
+        return "infohash:" + str(candidate["infoHash"]).lower()
+    if candidate.get("magnet"):
+        return "magnet:" + str(candidate["magnet"])
+    if candidate.get("nzbUrl"):
+        return "nzb:" + str(candidate["nzbUrl"])
+    return str(candidate.get("title") or "")
+
+
+def stream_url(item_id: str) -> str:
+    """The Ether ticket URL a frontend adapter embeds for an item's bytes."""
+    return "/ether/v1/kind-media/" + urllib.parse.quote(str(item_id), safe="")
+
+
+class _KindsClient:
+    def __init__(self, call_json: Callable[..., Any]) -> None:
+        self._call = call_json
+
+    def upsert(self, kind: str, items: List[Dict[str, Any]]) -> int:
+        result = self._call("POST", f"/ether/plugin-host/kinds/{urllib.parse.quote(kind)}/upsert", {"items": items})
+        return int((result or {}).get("accepted") or 0)
+
+    def delete(self, kind: str, external_ids: List[str]) -> None:
+        self._call("POST", f"/ether/plugin-host/kinds/{urllib.parse.quote(kind)}/delete", {"externalIds": external_ids})
+
+    def items(self, kind: str, cursor: str = "", limit: int = 200) -> Dict[str, Any]:
+        q = urllib.parse.urlencode({"cursor": cursor, "limit": limit})
+        return self._call("GET", f"/ether/plugin-host/kinds/{urllib.parse.quote(kind)}/items?{q}") or {"items": []}
+
+    def resolve_sources(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        result = self._call("POST", "/ether/plugin-host/sources/resolve", query)
+        return list((result or {}).get("candidates") or [])
+
+
+def archive_list(data: bytes) -> List[Dict[str, Any]]:
+    """List non-directory members of a zip/cbz/epub in archive order."""
+    import io
+    import zipfile
+
+    out: List[Dict[str, Any]] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for info in zf.infolist():
+            if not info.is_dir():
+                out.append({"index": len(out), "name": info.filename, "size": info.file_size})
+    return out
+
+
+def archive_read_member(data: bytes, name: str) -> bytes:
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return zf.read(name)
+
+
+def parse_feed(data: Union[bytes, str]) -> Dict[str, Any]:
+    """Parse RSS/Atom/JSON Feed into {title, summary, link, entries:[...]}."""
+    if isinstance(data, bytes):
+        data = data.decode("utf-8", errors="replace")
+    if data.lstrip().startswith("{"):
+        doc = json.loads(data)
+        return {
+            "title": doc.get("title", ""), "summary": doc.get("description", ""),
+            "link": doc.get("home_page_url", ""),
+            "entries": [
+                {
+                    "id": it.get("id") or it.get("url", ""), "title": it.get("title", ""),
+                    "summary": it.get("summary", ""), "link": it.get("url", ""),
+                    "audio": (it.get("attachments") or [{}])[0].get("url", ""),
+                    "date": it.get("date_published", ""),
+                }
+                for it in doc.get("items") or []
+            ],
+        }
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(data)
+
+    def local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    def child_text(el: Any, name: str) -> str:
+        for c in el:
+            if local(c.tag) == name:
+                return (c.text or "").strip()
+        return ""
+
+    if local(root.tag) == "feed":
+        entries = []
+        for e in root.iter():
+            if local(e.tag) != "entry":
+                continue
+            page = media = ""
+            for c in e:
+                if local(c.tag) == "link":
+                    if c.get("rel") == "enclosure":
+                        media = c.get("href", "")
+                    elif not page:
+                        page = c.get("href", "")
+            entries.append({"id": child_text(e, "id") or page, "title": child_text(e, "title"),
+                            "summary": child_text(e, "summary"), "link": page, "audio": media,
+                            "date": child_text(e, "updated")})
+        return {"title": child_text(root, "title"), "summary": child_text(root, "subtitle"), "link": "", "entries": entries}
+    channel = root
+    for e in root.iter():
+        if local(e.tag) == "channel":
+            channel = e
+            break
+    entries = []
+    for e in channel:
+        if local(e.tag) != "item":
+            continue
+        enc = ""
+        for c in e:
+            if local(c.tag) == "enclosure":
+                enc = c.get("url", "")
+        entries.append({"id": child_text(e, "guid") or child_text(e, "link"), "title": child_text(e, "title"),
+                        "summary": child_text(e, "description"), "link": child_text(e, "link"),
+                        "audio": enc, "date": child_text(e, "pubDate")})
+    return {"title": child_text(channel, "title"), "summary": child_text(channel, "description"),
+            "link": child_text(channel, "link"), "entries": entries}
+
+
 # Capability starter templates
 # ---------------------------------------------------------------------------
 

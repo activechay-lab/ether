@@ -57,6 +57,17 @@ export {
   type TestHarness,
 } from "./testing.ts";
 export {
+  candidateRef,
+  streamUrl,
+  type CatalogProvider,
+  type FrontendAdapter,
+  type KindMatcher,
+  type KindResolver,
+  type Matcher,
+  type SetupTester,
+} from "./kinds.ts";
+export { archiveList, parseFeed, scrapeLinks, scrapeText, type ArchiveMember, type ParsedFeed } from "./kit.ts";
+export {
   createCatalogTemplate,
   createSubtitlesTemplate,
   createScrobblerTemplate,

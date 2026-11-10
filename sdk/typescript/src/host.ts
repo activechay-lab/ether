@@ -98,6 +98,17 @@ export interface EtherHost {
   notify: {
     owner(text: string): MaybePromise<void>;
   };
+  /** Content-kind host services (remote + mock clients provide them). */
+  kinds?: {
+    upsert(kind: string, items: import("./types.ts").KindItem[]): MaybePromise<number>;
+    delete(kind: string, externalIds: string[]): MaybePromise<void>;
+    items(kind: string, cursor?: string, limit?: number): MaybePromise<import("./types.ts").KindPage>;
+    resolveSources(q: import("./types.ts").SourceQuery): MaybePromise<import("./types.ts").SourceCandidate[]>;
+  };
+  cache?: {
+    put(libraryKey: string, name: string, data: Uint8Array): MaybePromise<string>;
+    open(blobRef: string): MaybePromise<Uint8Array>;
+  };
   log(level: string, message: string, attrs?: Record<string, unknown>): MaybePromise<void>;
   abort(message?: string): never;
 }
@@ -493,6 +504,40 @@ export function createRemoteHostClient(opts: RemoteHostOptions = {}): EtherHost 
     notify: {
       async owner(text: string): Promise<void> {
         await callJson("POST", "/ether/plugin-host/notify", { text });
+      },
+    },
+    kinds: {
+      async upsert(kind, items) {
+        const r = await callJson<{ accepted: number }>("POST", `/ether/plugin-host/kinds/${encodeURIComponent(kind)}/upsert`, { items });
+        return r?.accepted ?? 0;
+      },
+      async delete(kind, externalIds) {
+        await callJson("POST", `/ether/plugin-host/kinds/${encodeURIComponent(kind)}/delete`, { externalIds });
+      },
+      async items(kind, cursor = "", limit = 200) {
+        return (await callJson("GET", `/ether/plugin-host/kinds/${encodeURIComponent(kind)}/items?cursor=${encodeURIComponent(cursor)}&limit=${limit}`)) ?? { items: [] };
+      },
+      async resolveSources(q) {
+        const r = await callJson<{ candidates: unknown[] }>("POST", "/ether/plugin-host/sources/resolve", q);
+        return (r?.candidates ?? []) as never[];
+      },
+    },
+    cache: {
+      async put(libraryKey, name, data) {
+        const resp = await doFetch(`${base}/ether/plugin-host/cache/${encodeURIComponent(libraryKey)}?name=${encodeURIComponent(name)}`, {
+          method: "POST",
+          headers: credential ? { "X-Ether-Plugin-Credential": credential } : {},
+          body: data as BodyInit,
+        });
+        if (!resp.ok) throw new Error(`plugin-host cache put: status ${resp.status}`);
+        return ((await resp.json()) as { blob?: string }).blob ?? "";
+      },
+      async open(blobRef) {
+        const resp = await doFetch(`${base}/ether/plugin-host/cache/${blobRef.replace(/^\//, "")}`, {
+          headers: credential ? { "X-Ether-Plugin-Credential": credential } : {},
+        });
+        if (!resp.ok) throw new Error(`plugin-host cache open: status ${resp.status}`);
+        return new Uint8Array(await resp.arrayBuffer());
       },
     },
     async log(level: string, message: string, attrs?: Record<string, unknown>): Promise<void> {

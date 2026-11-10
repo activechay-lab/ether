@@ -12,7 +12,7 @@
     "./templates": "./src/templates.ts"
   },
   "scripts": {
-    "test": "node --test src/sdk.test.ts",
+    "test": "node --test src/sdk.test.ts src/kinds.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "license": "MIT"

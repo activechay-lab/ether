@@ -40,6 +40,15 @@ import type {
 } from "./types.ts";
 import { PluginHttpError } from "./types.ts";
 import {
+  createKindHandlers,
+  dispatchKinds,
+  type CatalogProvider,
+  type FrontendAdapter,
+  type KindMatcher,
+  type KindResolver,
+  type SetupTester,
+} from "./kinds.ts";
+import {
   createHostedClient,
   createRemoteHostClient,
   isHostedRuntime,
@@ -123,6 +132,11 @@ export interface PluginInstance<S = Record<string, unknown>> {
   dispatch(req: RawRequest): Promise<RawResponse>;
   rank_key(candidate: CandidateFacts, config?: S): number;
   cond_match(candidate: CandidateFacts, operator: string, value: unknown): boolean;
+  onCatalog(kind: string, provider: CatalogProvider<S>): void;
+  onResolve(kind: string, resolver: KindResolver<S>): void;
+  onMatch(kind: string, matcher: KindMatcher<S>): void;
+  onFrontend(key: string, adapter: FrontendAdapter): void;
+  onSetupTest(tester: SetupTester<S>): void;
 }
 
 function getHeader(
@@ -297,6 +311,7 @@ export function plugin<S = Record<string, unknown>>(
   }
 
   const routes = def.routes ?? {};
+  const kindHandlers = createKindHandlers<S>();
   const i18n = createI18n(
     buildInlineStrings(manifest, def.strings),
     def.defaultLocale ?? "en",
@@ -689,6 +704,12 @@ export function plugin<S = Record<string, unknown>>(
       }
     }
 
+    if (path.startsWith("/ether/v1/")) {
+      return dispatchKinds(kindHandlers, req, ctx).then(
+        (r) => r ?? errorResponse(404, "not_found", `No route matched ${method} ${path}.`),
+      );
+    }
+
     return errorResponse(404, "not_found", `No route matched ${method} ${path}.`);
   }
 
@@ -756,6 +777,11 @@ export function plugin<S = Record<string, unknown>>(
     dispatch,
     rank_key: rankKey,
     cond_match: condMatch,
+    onCatalog: (kind, provider) => { kindHandlers.catalog.set(kind, provider); },
+    onResolve: (kind, resolver) => { kindHandlers.resolve.set(kind, resolver); },
+    onMatch: (kind, matcher) => { kindHandlers.match.set(kind, matcher); },
+    onFrontend: (key, adapter) => { kindHandlers.frontend.set(key, adapter); },
+    onSetupTest: (tester) => { kindHandlers.setup = tester; },
   };
 
   if (isHostedRuntime()) {

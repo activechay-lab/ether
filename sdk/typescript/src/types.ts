@@ -10,7 +10,8 @@ export type PluginKind =
   | "integration"
   | "notification_channel"
   | "livetv_source"
-  | "extension";
+  | "extension"
+  | "content";
 
 export type Capability =
   | "stream_source"
@@ -24,7 +25,11 @@ export type Capability =
   | "ranking_step"
   | "rule_condition"
   | "tools"
-  | "ui";
+  | "ui"
+  | "catalog_provider"
+  | "kind_resolver"
+  | "frontend_adapter"
+  | "matcher";
 
 export type EtherEventName =
   | "playback.started"
@@ -91,6 +96,8 @@ export interface Permissions {
   collections?: "none" | "write";
   folders?: "none" | "read";
   secrets?: string[];
+  /** Lets a kind resolver ask Ether to find bytes: search to look, acquire to open. */
+  sources?: "none" | "search" | "acquire";
 }
 
 export type SettingFieldKind =
@@ -274,6 +281,216 @@ export interface Contributes {
   pages?: PageMeta[];
   slots?: SlotMeta[];
   commands?: CommandMeta[];
+  mediaKinds?: MediaKindMeta[];
+  frontendAdapters?: FrontendAdapterMeta[];
+  setup?: SetupMeta;
+}
+
+/** How a library is published per protocol (Ether v0.3.8 content kinds). */
+export interface Presentations {
+  adapterOnly?: boolean;
+  plex?: { base: "movie" | "show" | "artist" | "photo" };
+  mediaBrowser?: { collectionType: string; itemTypes?: Record<string, string> };
+  stremio?: { type: "movie" | "series" | "channel" | "tv" };
+  xtream?: { category: string };
+  silo?: { type: string };
+}
+
+export interface KindLevel {
+  key: string;
+  label: string;
+  playable?: boolean;
+  container?: boolean;
+}
+
+export interface KindField {
+  key: string;
+  type: "string" | "int" | "float" | "bool" | "date" | "duration" | "enum" | "strings" | "people";
+  label: string;
+  indexed?: boolean;
+  enum?: string[];
+}
+
+export interface KindArt {
+  role: string;
+  label: string;
+}
+
+/** One declared content kind; each kind becomes its own library. */
+export interface MediaKindMeta {
+  key: string;
+  label: string;
+  library: { name: string; icon?: string };
+  levels: KindLevel[];
+  fields?: KindField[];
+  art?: KindArt[];
+  present: Presentations;
+  browse: {
+    sorts?: string[];
+    facets?: string[];
+    search: boolean;
+    searchFields?: string[];
+    /** Client searches also call /search live; results are upserted and merged. */
+    liveSearch?: boolean;
+  };
+  sync: { mode: "pull" | "push"; refresh?: string };
+  cache?: { maxBytes?: number; ttl?: string };
+  match?: { thresholdDefault?: number };
+}
+
+export interface FrontendAdapterMeta {
+  key: string;
+  label: string;
+  protocolHint: "opds" | "subsonic" | "custom";
+  pathPrefix: string;
+  defaultPort?: number;
+  clients?: string[];
+  auth?: "ether_token" | "basic" | "none_lan";
+}
+
+export interface SetupStep {
+  key: string;
+  label: string;
+  hint?: string;
+  fields: string[];
+  test: string;
+  required: boolean;
+}
+
+export interface SetupMeta {
+  steps: SetupStep[];
+}
+
+/** The standardised plugin item envelope. */
+export interface KindItem {
+  id: string;
+  level: string;
+  parentId?: string;
+  index?: number;
+  title: string;
+  sortTitle?: string;
+  summary?: string;
+  year?: number;
+  released?: number;
+  rating?: number;
+  playable?: boolean;
+  childCount?: number;
+  leafCount?: number;
+  art?: Array<{ role: string; url: string; width?: number; height?: number }>;
+  fields?: Record<string, unknown>;
+  hints?: Record<string, unknown>;
+  etag?: string;
+}
+
+export interface KindPage {
+  items: KindItem[];
+  nextCursor?: string;
+  total?: number;
+}
+
+export interface KindBrowseRequest {
+  kind: string;
+  parentId?: string;
+  level?: string;
+  cursor?: string;
+  limit?: number;
+  sort?: string;
+  facets?: Record<string, string[]>;
+  query?: string;
+}
+
+export interface KindChangePage {
+  upserts?: KindItem[];
+  deletes?: string[];
+  nextCursor?: string;
+  complete: boolean;
+}
+
+export interface SourceQuery {
+  kind: "indexer_search" | "debrid_check" | "debrid_acquire";
+  query?: string;
+  category?: string;
+  infoHashes?: string[];
+  infoHash?: string;
+  magnet?: string;
+}
+
+export interface SourceCandidate {
+  infoHash?: string;
+  magnet?: string;
+  nzbUrl?: string;
+  fileIndex?: number;
+  title?: string;
+  size?: number;
+  seeders?: number;
+  cached?: boolean;
+}
+
+export interface KindMatchRequest {
+  kind: string;
+  item: KindItem;
+  candidates: SourceCandidate[];
+  settings?: Record<string, unknown>;
+}
+
+export interface KindMatchScore {
+  candidateRef: string;
+  score: number;
+  reasons?: string[];
+}
+
+export interface PlayableSource {
+  id: string;
+  label?: string;
+  pattern: "range" | "download" | "direct" | "container" | "release";
+  mime: string;
+  size?: number;
+  durationSec?: number;
+  url?: string;
+  headers?: Record<string, string>;
+  blobRef?: string;
+  sha256?: string;
+  maxBytes?: number;
+  expiresAt?: number;
+  container?: {
+    format?: string;
+    volumes: Array<{ url?: string; headers?: Record<string, string>; blobRef?: string; size: number }>;
+    member?: string;
+    memberIndex?: number;
+    passwordSecret?: string;
+  };
+  release?: {
+    nzbUrl?: string;
+    magnet?: string;
+    infoHash?: string;
+    candidate?: SourceCandidate;
+    fileHint?: string;
+    passwordSecret?: string;
+  };
+}
+
+export interface KindResolveRequest {
+  kind: string;
+  libraryKey: string;
+  item: KindItem;
+  partIndex?: number;
+  client?: Record<string, unknown>;
+}
+
+export interface KindResolveResponse {
+  sources: PlayableSource[];
+  ttlSec?: number;
+}
+
+export interface SetupTestRequest {
+  step: string;
+  fields?: Record<string, unknown>;
+}
+
+export interface SetupTestResult {
+  ok: boolean;
+  detail?: string;
+  fields?: Record<string, string>;
 }
 
 export interface EtherManifestBlock {

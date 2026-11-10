@@ -44,6 +44,9 @@ export interface MockHostState {
   history: Map<number, ViewerWatchEntry[]>;
   watchState: Map<string, boolean>;
   collections: Record<string, unknown>[];
+  kinds: Map<string, import("./types.ts").KindItem[]>;
+  sources: import("./types.ts").SourceCandidate[];
+  blobs: Map<string, Uint8Array>;
   folders: Map<string, FolderEntry[]>;
   notifications: string[];
   logs: RecordedLog[];
@@ -62,6 +65,9 @@ export function createMockHostClient(initial?: Partial<MockHostState>): MockHost
     history: initial?.history ?? new Map<number, ViewerWatchEntry[]>(),
     watchState: initial?.watchState ?? new Map<string, boolean>(),
     collections: initial?.collections ?? [],
+    kinds: initial?.kinds ?? new Map(),
+    sources: initial?.sources ?? [],
+    blobs: initial?.blobs ?? new Map(),
     folders: initial?.folders ?? new Map<string, FolderEntry[]>(),
     notifications: initial?.notifications ?? [],
     logs: initial?.logs ?? [],
@@ -134,6 +140,41 @@ export function createMockHostClient(initial?: Partial<MockHostState>): MockHost
     notify: {
       owner: (text: string) => {
         state.notifications.push(text);
+      },
+    },
+    kinds: {
+      upsert: (kind, items) => {
+        const kept = new Map((state.kinds.get(kind) ?? []).map((it) => [it.id, it]));
+        for (const it of items) kept.set(it.id, it);
+        state.kinds.set(kind, [...kept.values()]);
+        return items.length;
+      },
+      delete: (kind, externalIds) => {
+        const drop = new Set(externalIds);
+        state.kinds.set(kind, (state.kinds.get(kind) ?? []).filter((it) => !drop.has(it.id)));
+      },
+      items: (kind, cursor = "", limit = 200) => {
+        const all = state.kinds.get(kind) ?? [];
+        const start = cursor ? all.findIndex((it) => it.id === cursor) + 1 : 0;
+        const pageItems = all.slice(start, start + limit);
+        const page: import("./types.ts").KindPage = { items: pageItems };
+        if (pageItems.length && start + limit < all.length) page.nextCursor = pageItems[pageItems.length - 1]?.id;
+        return page;
+      },
+      resolveSources: () => [...state.sources],
+    },
+    cache: {
+      put: async (_libraryKey, _name, data) => {
+        const digest = await globalThis.crypto.subtle.digest("SHA-256", data as BufferSource);
+        const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        const ref = `blob:${hex}`;
+        state.blobs.set(ref, new Uint8Array(data));
+        return ref;
+      },
+      open: (blobRef) => {
+        const b = state.blobs.get(blobRef);
+        if (!b) throw new Error(`blob ${blobRef} not found`);
+        return new Uint8Array(b);
       },
     },
     log: (level: string, message: string, attrs?: Record<string, unknown>) => {
