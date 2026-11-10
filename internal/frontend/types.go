@@ -23,6 +23,9 @@ type Decision = core.Decision
 type FacetValue = core.FacetValue
 type User = core.User
 
+// LibraryID names one library (built-ins 1 = Movies, 2 = TV Shows).
+type LibraryID = core.LibraryID
+
 // Home hub values stay owned by core. Adapters render hubs through these
 // aliases.
 type Hub = core.Hub
