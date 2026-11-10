@@ -22,13 +22,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/dlna"
 	"github.com/braedonsaunders/ether/internal/frontends/m3u"
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/frontends/silo"
 	"github.com/braedonsaunders/ether/internal/frontends/stremio"
 	"github.com/braedonsaunders/ether/internal/frontends/webdav"
 	"github.com/braedonsaunders/ether/internal/frontends/xtream"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/livetv"
-	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
@@ -63,6 +63,62 @@ type frontendRuntime struct {
 	discovery      plexDiscovery
 	newDiscovery   func() plexDiscovery
 	closed         bool
+}
+
+type surfacePlex struct {
+	runtime *frontendRuntime
+	spike   config.Spike
+}
+
+func (p surfacePlex) Server(ctx context.Context) (frontend.PlexServer, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if err := p.runtime.ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if srv := p.runtime.app.currentPlexServer(); srv != nil && !srv.Closed() {
+		return srv, true, nil
+	}
+	return nil, false, nil
+}
+
+func (p surfacePlex) Deps(ctx context.Context) (frontend.PlexDeps, error) {
+	if err := ctx.Err(); err != nil {
+		return frontend.PlexDeps{}, err
+	}
+	if err := p.runtime.ctx.Err(); err != nil {
+		return frontend.PlexDeps{}, err
+	}
+	current := p.runtime.app.cfg.Get()
+	// Domain construction fixes the spike library for this runtime. First mount
+	// uses current identity/settings without changing the underlying library.
+	current.Spike = p.spike
+	deps, err := p.runtime.app.buildPlex(ctx, current)
+	if err != nil {
+		return frontend.PlexDeps{}, err
+	}
+	if p.runtime.broker != nil {
+		deps.PlexStreams = sessions.BindPlexStreams(p.runtime.broker)
+		deps.PlexEncoder = p.runtime.broker
+	}
+	return deps, nil
+}
+
+func (p surfacePlex) BindServer(srv frontend.PlexServer) {
+	p.runtime.app.bindPlexServer(srv, p.spike.Enabled)
+}
+
+func (p surfacePlex) WatchRefresh(fn func(userID int64, key core.RatingKey)) func() {
+	return experiencepkg.BindWatchRefresh(p.runtime.app.state)(fn, p.spike.Enabled)
+}
+
+func (p surfacePlex) Status(ctx context.Context) frontend.Status {
+	return p.runtime.plexStatus(ctx)
+}
+
+func (p surfacePlex) Listeners() []frontend.ListenerSpec {
+	return p.runtime.plexListeners()
 }
 
 func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
@@ -275,7 +331,11 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		if a.subtitles != nil {
 			subtitleCatalog = subtitleSurface{app: a, exp: experience, surface: string(id)}
 		}
-		return frontend.Host{Support: a.support, IDs: ids.Codecs{Allocator: compact}, DirectProxy: egress.ProxyFunc(egress.CapDirect), Experience: experience, LastPlayedSource: surfaceLastPlayedSource{experience: experience, state: a.state}, VersionHandles: versionHandles, SourceOffers: sourceOffers, Editions: surfaceEditions{app: a}, VirtualPaths: surfaceVirtualPaths{experience: experience, index: &pathIndex{}, stamp: func(v *core.Viewer) string {
+		var plexHost frontend.PlexHost
+		if id == "plex" {
+			plexHost = surfacePlex{runtime: r, spike: cfg.Spike}
+		}
+		return frontend.Host{Support: a.support, Plex: plexHost, IDs: ids.Codecs{Allocator: compact}, DirectProxy: egress.ProxyFunc(egress.CapDirect), Experience: experience, LastPlayedSource: surfaceLastPlayedSource{experience: experience, state: a.state}, VersionHandles: versionHandles, SourceOffers: sourceOffers, Editions: surfaceEditions{app: a}, VirtualPaths: surfaceVirtualPaths{experience: experience, index: &pathIndex{}, stamp: func(v *core.Viewer) string {
 			if v == nil || a.catalog == nil || a.cfg == nil {
 				return ""
 			}
@@ -311,23 +371,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		return countFrontendStreams((ownerPlayback{Playback: a.playback, app: a}).Sessions()), true
 	}
 	r.control.sharedStatus = r.sharedStatus
-	if err := r.registry.Register(plex.Frontend{NewServer: func() (*plex.Server, error) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		current := a.cfg.Get()
-		// Domain construction fixes the spike library for this runtime. First mount
-		// uses current identity/settings without changing the underlying library.
-		current.Spike = cfg.Spike
-		handler, err := a.buildPlex(ctx, current)
-		if err != nil {
-			return nil, err
-		}
-		srv := handler.(*plex.Server)
-		srv.UsePlexStreams(sessions.BindPlexStreams(r.broker))
-		srv.UsePlexEncoder(r.broker)
-		return srv, nil
-	}, WatchRefresh: experiencepkg.BindWatchRefresh(a.state), ExplicitWatchOnly: cfg.Spike.Enabled, StatusFunc: r.plexStatus, ListenersFunc: r.plexListeners}); err != nil {
+	if err := r.registry.Register(plex.Frontend{}); err != nil {
 		return nil, err
 	}
 	if err := r.registry.Register(mediabrowser.Jellyfin{MachineID: cfg.Server.MachineIdentifier}); err != nil {

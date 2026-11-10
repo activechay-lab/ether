@@ -7,7 +7,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/caps"
-	"github.com/braedonsaunders/ether/internal/plex"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/resolver"
 )
 

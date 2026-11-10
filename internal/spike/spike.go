@@ -1,5 +1,5 @@
 // Package spike serves a handful of local video files as a Plex library so
-// the Plex front end (internal/plex) can be tested against official Plex
+// the Plex front end (internal/frontends/plex) can be tested against official Plex
 // apps before the Usenet engine exists. It implements core.Catalog and
 // core.Playback over the files, plus in-memory State, Playlists,
 // Collections, Recommender, Auth and a direct-play-only Transcoder.
@@ -20,7 +20,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/plex"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )

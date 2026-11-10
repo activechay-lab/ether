@@ -18,7 +18,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/egress"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/plex"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/plextv"
@@ -29,18 +30,15 @@ import (
 	"github.com/braedonsaunders/ether/internal/updater"
 )
 
-// buildPlex assembles the PMS-compatible front end. In spike mode the
-// library is the configured local files instead of the TMDB catalogue, but
-// auth, plex.tv registration and the transcoder are the real ones, so the
-// spike exercises the same path official apps will use.
-func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, error) {
+// buildPlex assembles the host services for the PMS-compatible front end. In
+// spike mode the library is the configured local files instead of the TMDB
+// catalogue, but auth, plex.tv registration and the transcoder are the real
+// ones, so the spike exercises the same path official apps will use.
+func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDeps, error) {
 	a.plexBuildMu.Lock()
 	defer a.plexBuildMu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if a.plexServer != nil && !a.plexServer.Closed() {
-		return a.plexServer, nil
+		return frontend.PlexDeps{}, err
 	}
 	tc := a.activeTranscoder()
 	identity := plex.Identity{
@@ -144,7 +142,9 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	})
 	a.plexMeta, deps.PlexMeta = metadataService, metadataService
 	if err := a.buildPlexWatch(); err != nil {
-		return nil, fmt.Errorf("plex watch state: %w", err)
+		guidService.Close()
+		metadataService.Close()
+		return frontend.PlexDeps{}, fmt.Errorf("plex watch state: %w", err)
 	}
 	if !cfg.Spike.Enabled && a.episodeorder != nil {
 		// EpisodeOrder is TMDB-backed (build_integrations.go): metadataTitle
@@ -220,9 +220,33 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 			deps.HomeCache.Layout = a.personalize.LayoutVersion
 		}
 	}
-	srv := plex.NewServer(deps)
+	return deps, nil
+}
+
+func (a *App) bindPlexServer(server frontend.PlexServer, spikeEnabled bool) {
+	srv, ok := server.(*plex.Server)
+	if !ok || srv == nil {
+		return
+	}
+	a.plexBuildMu.Lock()
 	a.plexServer = srv
-	if deps.HomeCache != nil && a.state != nil {
+	guidService, metadataService := a.plexGUID, a.plexMeta
+	// Frontend unmount closes the server and the GUID worker. Server.Close is
+	// idempotent, so the app closer may run as well. Watch refresh stays on
+	// the Plex mount (ExplicitWatchOnly in spike), not a second subscription.
+	a.plexClose = func() {
+		_ = srv.Close()
+		if guidService != nil {
+			guidService.Close()
+		}
+		if metadataService != nil {
+			metadataService.Close()
+		}
+	}
+	a.closers = append(a.closers, func() { _ = srv.Close() })
+	a.plexBuildMu.Unlock()
+
+	if !spikeEnabled && a.db != nil && a.state != nil {
 		// Rebuild the viewer's cached Home behind playback, so the Home a
 		// client opens after it stops is already current.
 		unsub := a.state.Subscribe(func(ev state.Event) {
@@ -246,12 +270,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		a.livetv.SetOnChange(srv.NotifyLiveLineup)
 	}
 	a.publishLibrarySections()
-	// Frontend unmount closes the server and the GUID worker. Server.Close is
-	// idempotent, so the app closer may run as well. Watch refresh stays on
-	// the Plex mount (ExplicitWatchOnly in spike), not a second subscription.
-	a.plexClose = func() { srv.Close(); guidService.Close(); metadataService.Close() }
-	a.closers = append(a.closers, func() { srv.Close() })
-	return srv, nil
 }
 
 // publishLibrarySections pushes the live Movies / TV Shows identities

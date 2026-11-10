@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	protocol "github.com/braedonsaunders/ether/internal/conform/plex"
-	server "github.com/braedonsaunders/ether/internal/plex"
+	server "github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/go-chi/chi/v5"
 )
 

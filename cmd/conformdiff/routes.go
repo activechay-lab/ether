@@ -14,7 +14,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
 	"github.com/braedonsaunders/ether/internal/frontends/stremio"
 	"github.com/braedonsaunders/ether/internal/frontends/webdav"
-	"github.com/braedonsaunders/ether/internal/plex"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 )
 
 // routes reports the actual router registrations of available frontends.

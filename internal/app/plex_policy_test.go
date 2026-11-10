@@ -10,7 +10,7 @@ import (
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/plex"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/safety"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"

@@ -32,7 +32,7 @@ func TestNeutralImplementationDoesNotImportPlex(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if name == "github.com/braedonsaunders/ether/internal/plex" || strings.HasPrefix(name, "github.com/braedonsaunders/ether/internal/plex/") {
+			if name == "github.com/braedonsaunders/ether/internal/frontends/plex" || strings.HasPrefix(name, "github.com/braedonsaunders/ether/internal/frontends/plex/") || name == "github.com/braedonsaunders/ether/internal/plex" || strings.HasPrefix(name, "github.com/braedonsaunders/ether/internal/plex/") {
 				t.Errorf("%s imports protocol implementation %s", entry.Name(), name)
 			}
 		}

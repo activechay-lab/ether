@@ -381,7 +381,7 @@ jobs:
             # catalog's large-catalogue tests (tens of thousands of titles)
             # get one more. No cases dropped and no timeout raised.
             plex)
-              go test -race -timeout 20m ./internal/plex/...
+              go test -race -timeout 20m ./internal/frontends/plex/...
               ;;
             catalog)
               go test -race -timeout 20m ./internal/catalog -skip 'Large|^TestSearchQualityGate$'

@@ -181,7 +181,7 @@ func runVODAVPlayer(o vodOptions) error {
 	if o.Transcode || o.PlayerOnly {
 		pattern = "^TestTranscodeChaosAVPlayer$"
 	}
-	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/plex", "-run", pattern, "-count=1", "-timeout=170m", "-json")
+	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/frontends/plex", "-run", pattern, "-count=1", "-timeout=170m", "-json")
 	cmd.Dir = o.RepoRoot
 	cmd.Env = append(os.Environ(), "CHAOS_FFMPEG="+o.FF, "CHAOS_FFPROBE="+o.FP, "CHAOS_CORPUS="+o.Fixtures, "CHAOS_AVVOD="+probe, "CHAOS_AVREPORT="+jsonl, "CHAOS_AVKEEP="+keep, "CHAOS_AVONLY="+o.Only, "GOMAXPROCS=2")
 	if o.Transcode {

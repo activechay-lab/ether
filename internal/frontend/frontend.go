@@ -317,6 +317,8 @@ type Host struct {
 	// PersonalHomes keeps the last personalized library list so the first
 	// UserViews after a restart can include it. Nil keeps that list in memory.
 	PersonalHomes PersonalHomeStore
+	// Plex supplies host services for the Plex frontend.
+	Plex PlexHost
 }
 
 // PersonalHomeStore persists one viewer's personalized library list.

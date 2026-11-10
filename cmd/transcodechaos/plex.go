@@ -19,7 +19,7 @@ func runPlex(ctx context.Context, ff, fp, fixtures, mode string) ([]result, erro
 	if mode == "full" {
 		pattern = "^TestTranscodeChaos(Plex|Clients|Matrix|PlexFaults|LiveRelay|LiveHardware|AppleRelay|DASHIFRelay|HTTPHardware|PCELongSeek|CorpusScenarios|DV5Graphs)$"
 	}
-	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/plex", "./internal/transcode", "-run", pattern, "-count=1", "-timeout=12m", "-json")
+	cmd := exec.CommandContext(ctx, "go", "test", "-p", "1", "-tags", "transcodechaos", "./internal/frontends/plex", "./internal/transcode", "-run", pattern, "-count=1", "-timeout=12m", "-json")
 	cmd.Env = append(os.Environ(), "CHAOS_FFMPEG="+ff, "CHAOS_FFPROBE="+fp, "CHAOS_CORPUS="+fixtures, "GOMAXPROCS=2")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
