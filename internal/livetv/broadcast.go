@@ -132,10 +132,18 @@ func (i *broadcastInput) run() {
 			return
 		}
 		if !i.wallStart.IsZero() {
-			at := i.wallStart.Add(time.Duration(i.parkedDuration.Load())).Add(time.Duration(frameNo) * time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum))
+			now := time.Now()
+			frameDur := time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum)
+			if !ready && now.After(i.wallStart) {
+				i.wallStart = now
+			}
+			at := i.wallStart.Add(time.Duration(i.parkedDuration.Load())).Add(time.Duration(frameNo) * frameDur)
 			frameNo++
-			if at.Add(time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum)).Before(time.Now()) {
-				continue
+			if at.Add(frameDur).Before(now) {
+				if len(i.frames) > 0 {
+					continue
+				}
+				i.wallStart = now.Add(-time.Duration(i.parkedDuration.Load())).Add(-time.Duration(frameNo) * frameDur)
 			}
 		}
 		if !ready {

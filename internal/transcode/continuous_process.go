@@ -31,6 +31,7 @@ func (s *rawSocket) url() string { return "tcp://" + s.ln.Addr().String() }
 func (s *rawSocket) accept() (net.Conn, error) {
 	c, e := s.ln.Accept()
 	if e != nil {
+		s.ln.Close()
 		return nil, e
 	}
 	s.mu.Lock()
@@ -42,6 +43,11 @@ func (s *rawSocket) accept() (net.Conn, error) {
 	s.conn = c
 	s.ln.Close()
 	return c, nil
+}
+func (s *rawSocket) expireAccept() {
+	if tl, ok := s.ln.(*net.TCPListener); ok {
+		_ = tl.SetDeadline(time.Now().Add(50 * time.Millisecond))
+	}
 }
 func (s *rawSocket) close() {
 	s.mu.Lock()
@@ -102,6 +108,9 @@ func (m *Manager) startContinuous(ctx context.Context, args []string, dir string
 		case <-m.stop:
 		case <-p.Done():
 			if drain {
+				for _, s := range sockets {
+					s.expireAccept()
+				}
 				c.err = p.Err()
 				if release != nil {
 					release()

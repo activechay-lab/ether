@@ -15,7 +15,7 @@ import (
 const (
 	virtualGuideRefreshEvery = 30 * time.Second
 	virtualGuideIdleWindow   = 15 * time.Minute
-	virtualGuideColdWait     = 750 * time.Millisecond
+	virtualGuideColdWait     = 5 * time.Second
 )
 
 type virtualGuideSnapshot struct {
