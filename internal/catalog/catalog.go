@@ -316,6 +316,7 @@ type Catalog struct {
 	frozenMinute atomic.Bool
 	cacheMu      sync.RWMutex
 	titleCache   map[core.RatingKey]cachedStoredTitle
+	titleSeq     uint64 // monotonic insertion counter under cacheMu
 	// exportCache holds the latest export pages' titles for the viewer
 	// that read them (queryListRows), so the page's image signer, which
 	// reads the same titles right after, does not read them again; and the
@@ -365,6 +366,7 @@ type cachedStoredTitle struct {
 	st     storedTitle
 	gen    uint64
 	minute int64
+	seq    uint64
 }
 
 type cachedCount struct {

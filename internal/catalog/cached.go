@@ -306,6 +306,8 @@ func (c *Catalog) rememberTitles(gen uint64, minute int64, items []core.Title) {
 	}
 }
 
+const titleCacheMax = 8192
+
 // putSnapshotLocked records the first title seen for this generation and
 // minute. The caller holds cacheMu. A later hydrate must not replace it:
 // a background browse can read a credit row another writer just changed.
@@ -319,10 +321,31 @@ func (c *Catalog) putSnapshotLocked(key core.RatingKey, gen uint64, minute int64
 	if ent, ok := c.titleCache[key]; ok && ent.gen == gen && ent.minute == minute {
 		return
 	}
-	if len(c.titleCache) >= 8192 {
-		c.titleCache = map[core.RatingKey]cachedStoredTitle{}
+	if len(c.titleCache) >= titleCacheMax {
+		// Drop stale generations/minutes first; if the current snapshot alone
+		// fills the bound, retain the newer half so a PreloadStored or list
+		// hydration crossing titleCacheMax never wipes entries just preloaded
+		// for the active request.
+		live := 0
+		for _, ent := range c.titleCache {
+			if ent.gen == gen && ent.minute == minute {
+				live++
+			}
+		}
+		var cutoff uint64
+		if live >= titleCacheMax && c.titleSeq > titleCacheMax/2 {
+			cutoff = c.titleSeq - titleCacheMax/2
+		}
+		keep := make(map[core.RatingKey]cachedStoredTitle, min(live+256, titleCacheMax))
+		for k, ent := range c.titleCache {
+			if ent.gen == gen && ent.minute == minute && ent.seq > cutoff {
+				keep[k] = ent
+			}
+		}
+		c.titleCache = keep
 	}
-	c.titleCache[key] = cachedStoredTitle{st: st, gen: gen, minute: minute}
+	c.titleSeq++
+	c.titleCache[key] = cachedStoredTitle{st: st, gen: gen, minute: minute, seq: c.titleSeq}
 }
 
 func (c *Catalog) CachedGetMany(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
