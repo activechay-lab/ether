@@ -163,9 +163,9 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		samplePath := supportDocumentPath(r.URL.Path)
-		sample := s.d.Support != nil && samplePath && s.d.Support.BeginSample(FromContext(r.Context()).ClientID)
+		sample := s.support != nil && samplePath && s.support.BeginSample(FromContext(r.Context()).ClientID)
 		if sample {
-			defer s.d.Support.EndSample()
+			defer s.support.EndSample()
 		}
 		sr := &statusRecorder{ResponseWriter: w, sampling: sample}
 		next.ServeHTTP(sr, r)
@@ -306,14 +306,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 					writeHTTPError(w, http.StatusForbidden)
 					return
 				}
-				if s.d.Hooks.OnClientSeen != nil {
-					s.d.Hooks.OnClientSeen(pr.ClientID)
+				if s.clientSeen != nil {
+					s.clientSeen(pr.ClientID)
 				}
-				if s.d.LiveTV != nil {
-					s.d.LiveTV.NoteClientActivity()
+				if s.liveTV != nil {
+					s.liveTV.NoteClientActivity()
 				}
-				if pr.Remote && s.d.Hooks.OnRemoteClientSeen != nil {
-					s.d.Hooks.OnRemoteClientSeen(pr.RemoteIP.String())
+				if pr.Remote && s.remoteClientSeen != nil {
+					s.remoteClientSeen(pr.RemoteIP.String())
 				}
 				if s.d.Dashboard != nil {
 					s.d.Dashboard.SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
@@ -341,8 +341,8 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				writeHTTPError(w, http.StatusForbidden)
 				return
 			}
-			if pr.Remote && s.d.Hooks.OnRemoteClientSeen != nil {
-				s.d.Hooks.OnRemoteClientSeen(pr.RemoteIP.String())
+			if pr.Remote && s.remoteClientSeen != nil {
+				s.remoteClientSeen(pr.RemoteIP.String())
 			}
 			s.observePlaybackRequestStart(r, pr)
 			next.ServeHTTP(w, r)
@@ -380,13 +380,13 @@ func (s *Server) acceptanceCurrent(r *http.Request) bool {
 }
 
 func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
-	if s.d.LiveTV == nil {
+	if s.liveTV == nil {
 		return false
 	}
 	if !capabilityPathOK(r) {
 		return false
 	}
-	u, ok := s.d.LiveTV.AuthenticateMediaGrant(r, s.activeViewer)
+	u, ok := s.liveTV.AuthenticateMediaGrant(r, s.activeViewer)
 	if !ok {
 		return false
 	}

@@ -223,7 +223,7 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 	var ct string
 	if highBackdrop {
 		_, path := d.Overlays.Paths(ctx, pr.User, t, lang)
-		image, err := s.images.Get(ctx, s.d.ImageURL(path, tmdbSize(backdropWidth)), s.now())
+		image, err := s.images.Get(ctx, s.imageURL(path, tmdbSize(backdropWidth)), s.now())
 		e = err
 		if err == nil {
 			data, ct = image.Data, image.ContentType
@@ -237,7 +237,7 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 	}
 	if d.Overlays.CustomPostersEnabled() {
 		if width, _ := strconv.Atoi(r.URL.Query().Get("width")); width > 0 && (kind == "" || kind == "poster") {
-			if resized, err := s.d.ArtworkStores.ResizePoster(data, width); err == nil {
+			if resized, err := frontend.ResizePoster(data, width); err == nil {
 				data = resized
 				ct = "image/jpeg"
 			}

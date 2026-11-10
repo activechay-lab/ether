@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
+	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"io"
 	"log/slog"
@@ -198,11 +200,14 @@ func (e *liveEther) servePlex(log *slog.Logger, channels []livetv.Channel) (*liv
 	cfg.Plex.Claimed = true
 	cfg.Plex.OwnerUsername = "owner"
 	e.plex = plex.NewServer(plex.Deps{
-		SessionStores: sessions.NewPlexSessionStores(), ArtworkStores: artworkservice.NewPlexArtworkStores(),
-		LiveTV: e.service.Frontend(), Auth: liveAuth{}, Transcoder: e.manager, ApplyClientRules: resolver.ApplyClientRulesForMedia,
+		SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(),
+		Auth: liveAuth{}, Transcoder: e.manager, ApplyClientRules: resolver.ApplyClientRulesForMedia,
 		Config: func() config.Config { return cfg }, Logger: log.With("component", "plex"),
 		Identity: plex.Identity{MachineIdentifier: cfg.Server.MachineIdentifier, FriendlyName: cfg.Server.FriendlyName, Version: "1.43.4.10903-e5521bd8c", Platform: "MacOSX", PlatformVersion: "26", MyPlexSubscription: true},
 	})
+	if _, err := (plex.Frontend{Server: e.plex}).Mount(context.Background(), frontend.Host{LiveTV: e.service.Frontend()}); err != nil {
+		return nil, nil, err
+	}
 	e.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Chaos-Judge")
 		began := time.Now()

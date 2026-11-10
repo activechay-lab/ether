@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
@@ -55,7 +55,6 @@ func TestNeutralServerLibrariesMatchPlexIncludingSpike(t *testing.T) {
 		deps := plex.Deps{
 			SessionStores:     sessions.NewPlexSessionStores(),
 			Experience:        experience.NewPlexExperience(),
-			ArtworkStores:     artworkservice.NewPlexArtworkStores(),
 			DisableEnrichment: true,
 		}
 		if spike {

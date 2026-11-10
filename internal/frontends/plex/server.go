@@ -29,10 +29,6 @@ const DefaultPMSVersion = "1.43.4.10903-e5521bd8c"
 // config snapshot (friendly name, machine identifier) or sensible defaults.
 type Identity = frontend.PlexIdentity
 
-// Hooks are optional callbacks into other components. They run on their own
-// goroutine and must be safe for concurrent use.
-type Hooks = frontend.PlexHooks
-
 // Section is a library section exposed to clients.
 type Section = frontend.PlexSection
 
@@ -76,6 +72,17 @@ type Server struct {
 	router chi.Router
 
 	sections []Section
+
+	artwork          frontend.Artwork
+	hostImages       frontend.Images
+	imageGrants      frontend.ImageGrants
+	events           frontend.Subscriber
+	imageURL         frontend.ImageURLFunc
+	generatedPosters frontend.TitlePosterRenderer
+	liveTV           frontend.LiveTV
+	support          frontend.DiagnosticRecorder
+	clientSeen       func(string)
+	remoteClientSeen func(string)
 
 	images       frontend.ArtworkImageCache
 	channelLogos interface {
@@ -133,14 +140,8 @@ func NewServer(d Deps) *Server {
 	if d.Config == nil {
 		d.Config = func() frontend.HostConfig { return frontend.HostConfig{} }
 	}
-	if d.ImageURL == nil {
-		d.ImageURL = func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path }
-	}
 	if d.HTTPClient == nil {
 		d.HTTPClient = &http.Client{Timeout: 20 * time.Second}
-	}
-	if d.ImageCacheBytes <= 0 {
-		d.ImageCacheBytes = 128 << 20
 	}
 	if d.Now == nil {
 		d.Now = time.Now
@@ -151,9 +152,6 @@ func NewServer(d Deps) *Server {
 	}
 	if d.Experience == nil {
 		panic("plex: Deps.Experience is required (wire experience.NewPlexExperience())")
-	}
-	if d.ArtworkStores == nil {
-		panic("plex: Deps.ArtworkStores is required (wire artworkservice.NewPlexArtworkStores())")
 	}
 	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
 	coord := d.SessionCoordination
@@ -166,9 +164,10 @@ func NewServer(d Deps) *Server {
 		boundStreams:      d.PlexStreams,
 		d:                 d,
 		log:               d.Logger.With("component", "plex"),
-		images:            d.ArtworkStores.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
-		channelLogos:      d.ArtworkStores.NewUntrustedImages(d.HTTPClient),
-		channelRaster:     d.ArtworkStores.NewSVGRasterizer(),
+		imageURL:          func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path },
+		images:            frontend.NewArtworkRemoteCache(128<<20, d.HTTPClient),
+		channelLogos:      frontend.NewUntrustedImageFetcher(d.HTTPClient),
+		channelRaster:     frontend.NewSVGRasterizer(),
 		variantIDs:        newVariantIDRegistry(d.SessionStores, d.DB),
 		playIDs:           newPlayIdentities(),
 		downloads:         d.SessionStores.NewDownloadQueueStore(),
@@ -184,9 +183,6 @@ func NewServer(d Deps) *Server {
 		facets:            newFacetCache(),
 		ctx:               ctx,
 		cancel:            cancel,
-	}
-	if d.ArtworkImages != nil {
-		s.images = d.ArtworkImages
 	}
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
@@ -215,21 +211,18 @@ func NewServer(d Deps) *Server {
 			// stored titles in one batch; each fetch then reads the cache.
 			s.titles.prefetch = pre.PreloadStored
 		}
-		s.ultra = d.ArtworkStores.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
+		s.ultra = frontend.NewArtworkPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
 			var art frontend.ArtworkCollectionArt
 			if c, ok := s.d.Collections.(frontend.ArtworkCollectionArt); ok {
 				art = c
 			}
-			return d.ArtworkStores.ComputeItemPalette(ctx, s.images, s.d.ImageURL, key, path, s.now(), art)
+			return frontend.ComputeArtworkItemPalette(ctx, s.images, s.imageURL, key, path, s.now(), art)
 		})
 	}
 	if p, ok := d.Catalog.(interface {
 		PersistsArtwork(context.Context, frontend.RatingKey) bool
 	}); ok && s.ultra != nil {
 		s.ultra.PersistFor(p.PersistsArtwork)
-	}
-	if d.ArtworkPalettes != nil {
-		s.ultra = d.ArtworkPalettes
 	}
 	node := "standalone"
 	if s.cl != nil {
@@ -254,6 +247,34 @@ func NewServer(d Deps) *Server {
 		s.cl.start()
 	}
 	return s
+}
+
+func (s *Server) bindHost(host frontend.Host) {
+	if s == nil {
+		return
+	}
+	s.support = host.Support
+	s.liveTV = host.LiveTV
+	s.clientSeen = host.ClientSeen
+	s.remoteClientSeen = host.RemoteClientSeen
+	s.artwork = host.Artwork
+	if host.Artwork != nil {
+		if rc := host.Artwork.RemoteCache(); rc != nil {
+			s.images = rc
+		}
+		if pc := host.Artwork.PaletteCache(); pc != nil {
+			s.ultra = pc
+		}
+		if pr := host.Artwork.PosterRenderer(); pr != nil {
+			s.generatedPosters = pr
+		}
+		if fn := host.Artwork.ImageURLFunc(); fn != nil {
+			s.imageURL = fn
+		}
+	}
+	s.hostImages = host.Images
+	s.imageGrants = host.ImageGrants
+	s.events = host.Events
 }
 
 // ServeHTTP implements http.Handler.
@@ -497,18 +518,6 @@ func (s *Server) janitor() {
 			}
 		}
 	}
-}
-
-// goHook runs fn on its own goroutine, recovering panics.
-func (s *Server) goHook(name string, fn func()) {
-	go func() {
-		defer func() {
-			if v := recover(); v != nil {
-				s.log.Error("hook panicked", "hook", name, "panic", v)
-			}
-		}()
-		fn()
-	}()
 }
 
 func trimSlash(p string) string { return strings.TrimSuffix(p, "/") }

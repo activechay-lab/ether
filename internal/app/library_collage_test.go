@@ -8,12 +8,14 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 )
 
 type collageState struct{ core.State }
 
 type collageArt struct {
+	frontendtest.Artwork
 	img frontend.Image
 }
 

@@ -39,6 +39,10 @@ type ArtworkTransform struct {
 type Artwork interface {
 	List(context.Context, ArtworkRequest) (images []Image, complete bool, err error)
 	Read(context.Context, ArtworkRequest, Image, ArtworkTransform) (data []byte, contentType string, err error)
+	RemoteCache() ArtworkImageCache
+	PaletteCache() ArtworkPaletteCache
+	PosterRenderer() TitlePosterRenderer
+	ImageURLFunc() ImageURLFunc
 }
 
 // ValidArtworkPath exposes the shared, pure artwork filename contract.

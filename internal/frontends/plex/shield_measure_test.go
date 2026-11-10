@@ -96,7 +96,6 @@ func newShieldMeasureRig(t *testing.T, mode string, cached bool) *shieldMeasureR
 	x.f = newFixture(func(d *Deps) {
 		d.Config = func() config.Config { return cfg }
 		d.DisableEnrichment = true
-		d.Hooks = Hooks{}
 	})
 	var err error
 	x.mgr, err = playback.New(playback.Deps{Catalog: x.f.catalog, State: x.f.state, Resolver: x.rs, Engine: x.engine, Transcoder: x.f.trans, SelectProfile: func(c core.ClientCaps, u *core.User, _ string) core.QualityProfile { return x.rs.ProfileFor(c, u) }, NativeProbe: func(ctx context.Context, src core.MediaSource) (*core.MediaInfo, error) {

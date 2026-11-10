@@ -156,8 +156,8 @@ func (s *Server) stampedThumbURL(t *frontend.Title, stamp string) string {
 		// A movie or show with no artwork gets Ether's generated poster.
 		// Its stamp names the drawn image, so the URL changes (and client
 		// caches refetch) when the title gains a real poster.
-		if s != nil && s.d.ArtworkStores != nil {
-			if st, ok := s.d.ArtworkStores.TitlePosterStamp(t); ok {
+		if s != nil {
+			if st, ok := frontend.TitlePosterStamp(t); ok {
 				return "/library/metadata/" + t.Key.String() + "/thumb/" + st
 			}
 		}

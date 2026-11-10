@@ -60,6 +60,7 @@ func (s *peopleHTTPState) update(key core.RatingKey, f func(*core.Title)) {
 
 type peopleUnusedState struct{ core.State }
 type peopleHTTPArtwork struct {
+	frontendtest.Artwork
 	state      *peopleHTTPState
 	beforeList func()
 	beforeRead func()

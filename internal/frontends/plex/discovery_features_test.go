@@ -170,7 +170,7 @@ func TestDiscoveryBackdropResolutionValidator(t *testing.T) {
 	}))
 	defer upstream.Close()
 	f.srv.images = artworkservice.NewRemoteCache(1024, http.DefaultClient)
-	f.srv.d.ImageURL = func(path, size string) string { return upstream.URL + "/" + size + path }
+	f.srv.setImageURL(func(path, size string) string { return upstream.URL + "/" + size + path })
 	f.srv.d.Discovery = (&discovery.Features{Overlays: overlays.New(discoveryDB(t), overlays.Options{})}).Frontend()
 	path := "/library/metadata/" + fightClub.Key.String() + "/discoveryPoster/version?kind=backdrop&width=2688"
 	first := f.request(t, "GET", path, nil)

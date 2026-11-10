@@ -306,6 +306,8 @@ type Host struct {
 	LANViewer func(context.Context, *http.Request) (*Viewer, error)
 	// ClientSeen reports an authenticated client's protocol-specific device ID.
 	ClientSeen func(deviceID string)
+	// RemoteClientSeen records authenticated inbound remote connectivity.
+	RemoteClientSeen func(address string)
 	// ClientIP resolves the transport peer using the configured trusted proxies.
 	ClientIP func(*http.Request) (netip.Addr, bool)
 	// PageFreshness invalidates cached browse bodies. Nil disables the cache.

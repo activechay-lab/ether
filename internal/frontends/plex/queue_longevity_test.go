@@ -24,7 +24,7 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 			clock.Store(fixedNow.UnixNano())
 			now := func() time.Time { return time.Unix(0, clock.Load()) }
 			f := newFixture(func(d *Deps) {
-				d.Now, d.DisableEnrichment, d.Hooks = now, true, Hooks{}
+				d.Now, d.DisableEnrichment = now, true
 				if shared {
 					d.DB = store.OpenTest(t)
 					d.Cluster = clusterbus.NewHub().Node("longevity")

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
@@ -196,7 +196,6 @@ func (l *Library) Deps() plex.Deps {
 	return plex.Deps{
 		SessionStores:    sessions.NewPlexSessionStores(),
 		Experience:       experience.NewPlexExperience(),
-		ArtworkStores:    artworkservice.NewPlexArtworkStores(),
 		Catalog:          l.Catalog(),
 		Collections:      l.Collections(),
 		Recommender:      l.Recommender(),

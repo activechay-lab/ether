@@ -3,8 +3,8 @@ package plex
 // NoteOwnerStop tells the Plex client why a stream is ending. The shared
 // broker stops the source.
 func (s *Server) NoteOwnerStop(id, reason string) {
-	if s.d.LiveTV != nil {
-		for _, v := range s.d.LiveTV.ViewingSessions() {
+	if s.liveTV != nil {
+		for _, v := range s.liveTV.ViewingSessions() {
 			if v.ID == id {
 				return
 			}

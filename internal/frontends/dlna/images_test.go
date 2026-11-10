@@ -13,6 +13,7 @@ import (
 )
 
 type posterArt struct {
+	frontendtest.Artwork
 	data []byte
 	hide bool
 }
@@ -60,16 +61,21 @@ func TestAlbumArtUsesCompositedPosterAndRevalidates(t *testing.T) {
 		t.Fatalf("image %d %q etag=%q", w.Code, w.Body.String(), w.Header().Get("ETag"))
 	}
 	etag := w.Header().Get("ETag")
-	again := httptest.NewRequest(http.MethodGet, "/dlna/images/42?v=overlay-v1", nil)
-	again.Header.Set("If-None-Match", etag)
+	r = httptest.NewRequest(http.MethodGet, "/dlna/images/42?v=overlay-v1", nil)
+	r.Header.Set("If-None-Match", etag)
 	w = httptest.NewRecorder()
-	inst.Handler().ServeHTTP(w, again)
-	if w.Code != http.StatusNotModified || w.Body.Len() != 0 {
-		t.Fatalf("revalidate %d %q", w.Code, w.Body.String())
+	inst.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusNotModified {
+		t.Fatalf("expected 304, got %d", w.Code)
+	}
+	host.Artwork = posterArt{data: []byte("composited-jpeg"), hide: true}
+	inst, err = (Frontend{MachineID: "machine"}).Mount(context.Background(), host)
+	if err != nil {
+		t.Fatal(err)
 	}
 	w = httptest.NewRecorder()
-	inst.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/dlna/images/99", nil))
-	if w.Code != 404 {
-		t.Fatalf("hidden %d", w.Code)
+	inst.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/dlna/images/42?v=overlay-v1", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected hidden image 404, got %d", w.Code)
 	}
 }

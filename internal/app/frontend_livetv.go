@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -21,6 +22,13 @@ type surfaceLiveTV struct {
 	surface        string // the app this lineup is for; the owner's per-app visibility applies
 	channelArtwork func(*core.Viewer, livetv.Channel) frontend.Image
 	artwork        frontend.Artwork
+}
+
+func (s surfaceLiveTV) host() frontend.LiveTV {
+	if s.app == nil || s.app.livetv == nil {
+		return nil
+	}
+	return s.app.livetv.Frontend()
 }
 
 func (s surfaceLiveTV) viewer(ctx context.Context, v *core.Viewer) (*core.User, error) {
@@ -226,6 +234,168 @@ func (s surfaceLiveTV) ResolveProgrammeGUID(ctx context.Context, v *core.Viewer,
 		return frontend.LiveProgramme{}, core.ErrNotFound
 	}
 	return *found, nil
+}
+
+func (s surfaceLiveTV) VisibleTo(ctx context.Context, u *frontend.User) bool {
+	h := s.host()
+	return h != nil && h.VisibleTo(ctx, u)
+}
+func (s surfaceLiveTV) ServeXMLTV(w http.ResponseWriter, r *http.Request, u *frontend.User) {
+	if h := s.host(); h != nil {
+		h.ServeXMLTV(w, r, u)
+	}
+}
+func (s surfaceLiveTV) Stop(ctx context.Context, id string, u *frontend.User) error {
+	h := s.host()
+	if h == nil {
+		return core.ErrNotAvailable
+	}
+	return h.Stop(ctx, id, u)
+}
+func (s surfaceLiveTV) ServeDASHPart(w http.ResponseWriter, r *http.Request, id string, u *frontend.User, rep, n int, init bool) {
+	if h := s.host(); h != nil {
+		h.ServeDASHPart(w, r, id, u, rep, n, init)
+	}
+}
+func (s surfaceLiveTV) ServePlaylist(w http.ResponseWriter, r *http.Request, id string, u *frontend.User) {
+	if h := s.host(); h != nil {
+		h.ServePlaylist(w, r, id, u)
+	}
+}
+func (s surfaceLiveTV) ServeRelaySegment(w http.ResponseWriter, r *http.Request, id string, n int, u *frontend.User) {
+	if h := s.host(); h != nil {
+		h.ServeRelaySegment(w, r, id, n, u)
+	}
+}
+func (s surfaceLiveTV) ServeResource(w http.ResponseWriter, r *http.Request, id, resource string, u *frontend.User) {
+	if h := s.host(); h != nil {
+		h.ServeResource(w, r, id, resource, u)
+	}
+}
+func (s surfaceLiveTV) AllowedChannels(ctx context.Context, u *frontend.User) ([]frontend.LiveTVChannel, error) {
+	h := s.host()
+	if h == nil {
+		return nil, core.ErrNotAvailable
+	}
+	return h.AllowedChannels(ctx, u)
+}
+func (s surfaceLiveTV) AllowedChannel(ctx context.Context, u *frontend.User, id string) (frontend.LiveTVChannel, error) {
+	h := s.host()
+	if h == nil {
+		return frontend.LiveTVChannel{}, core.ErrNotAvailable
+	}
+	return h.AllowedChannel(ctx, u, id)
+}
+func (s surfaceLiveTV) Channel(ctx context.Context, id string) (frontend.LiveTVChannel, error) {
+	h := s.host()
+	if h == nil {
+		return frontend.LiveTVChannel{}, core.ErrNotAvailable
+	}
+	return h.Channel(ctx, id)
+}
+func (s surfaceLiveTV) ChannelForViewer(ctx context.Context, u *frontend.User, id string) (frontend.LiveTVChannel, error) {
+	h := s.host()
+	if h == nil {
+		return frontend.LiveTVChannel{}, core.ErrNotAvailable
+	}
+	return h.ChannelForViewer(ctx, u, id)
+}
+func (s surfaceLiveTV) AllChannels(ctx context.Context) ([]frontend.LiveTVChannel, error) {
+	h := s.host()
+	if h == nil {
+		return nil, core.ErrNotAvailable
+	}
+	return h.AllChannels(ctx)
+}
+func (s surfaceLiveTV) ChannelPermitted(ctx context.Context, u *frontend.User, id string) (bool, error) {
+	h := s.host()
+	if h == nil {
+		return false, core.ErrNotAvailable
+	}
+	return h.ChannelPermitted(ctx, u, id)
+}
+func (s surfaceLiveTV) LineupChangedFor(u *frontend.User) time.Time {
+	if h := s.host(); h != nil {
+		return h.LineupChangedFor(u)
+	}
+	return time.Time{}
+}
+func (s surfaceLiveTV) GuideForChannels(ctx context.Context, u *frontend.User, from, until time.Time, channelIDs []string) ([]frontend.LiveTVProgramme, error) {
+	h := s.host()
+	if h == nil {
+		return nil, core.ErrNotAvailable
+	}
+	return h.GuideForChannels(ctx, u, from, until, channelIDs)
+}
+func (s surfaceLiveTV) GuideWindow(ctx context.Context, u *frontend.User, from, until time.Time) ([]frontend.LiveTVProgramme, error) {
+	h := s.host()
+	if h == nil {
+		return nil, core.ErrNotAvailable
+	}
+	return h.GuideWindow(ctx, u, from, until)
+}
+func (s surfaceLiveTV) GuideChannelLogo(ctx context.Context, c frontend.LiveTVChannel) string {
+	if h := s.host(); h != nil {
+		return h.GuideChannelLogo(ctx, c)
+	}
+	return ""
+}
+func (s surfaceLiveTV) TuneWithSession(ctx context.Context, u *frontend.User, id string, caps frontend.ClientCaps, sessionID string) (frontend.LiveTVSessionInfo, error) {
+	h := s.host()
+	if h == nil {
+		return frontend.LiveTVSessionInfo{}, core.ErrNotAvailable
+	}
+	return h.TuneWithSession(ctx, u, id, caps, sessionID)
+}
+func (s surfaceLiveTV) Sessions(ctx context.Context, u *frontend.User) []frontend.LiveTVSessionInfo {
+	if h := s.host(); h != nil {
+		return h.Sessions(ctx, u)
+	}
+	return nil
+}
+func (s surfaceLiveTV) Session(ctx context.Context, id string, u *frontend.User) (frontend.LiveTVSessionInfo, error) {
+	h := s.host()
+	if h == nil {
+		return frontend.LiveTVSessionInfo{}, core.ErrNotAvailable
+	}
+	return h.Session(ctx, id, u)
+}
+func (s surfaceLiveTV) ServeDASH(w http.ResponseWriter, r *http.Request, id string, u *frontend.User) error {
+	h := s.host()
+	if h == nil {
+		return core.ErrNotAvailable
+	}
+	return h.ServeDASH(w, r, id, u)
+}
+func (s surfaceLiveTV) ServeHTTP(w http.ResponseWriter, r *http.Request, id string, u *frontend.User) error {
+	h := s.host()
+	if h == nil {
+		return core.ErrNotAvailable
+	}
+	return h.ServeHTTP(w, r, id, u)
+}
+func (s surfaceLiveTV) ViewingSessions() []*frontend.PlaySession {
+	if h := s.host(); h != nil {
+		return h.ViewingSessions()
+	}
+	return nil
+}
+func (s surfaceLiveTV) NoteClientActivity() {
+	if h := s.host(); h != nil {
+		h.NoteClientActivity()
+	}
+}
+func (s surfaceLiveTV) AuthenticateMediaGrant(r *http.Request, active func(context.Context, int64) *frontend.User) (*frontend.User, bool) {
+	if h := s.host(); h != nil {
+		return h.AuthenticateMediaGrant(r, active)
+	}
+	return nil, false
+}
+func (s surfaceLiveTV) LogoKey() []byte {
+	if s.app != nil && s.app.cfg != nil {
+		return s.app.cfg.DerivedKey("ether-live-logo-v1")
+	}
+	return nil
 }
 
 var _ frontend.LiveTV = surfaceLiveTV{}

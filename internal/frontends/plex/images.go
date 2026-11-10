@@ -84,7 +84,7 @@ func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key fron
 // may see that has no artwork. Seasons and episodes point at their show's
 // thumb, so they reach this through the show.
 func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string, width int) bool {
-	if s.d.GeneratedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != frontend.KindMovie && key.Kind() != frontend.KindShow) {
+	if s.generatedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != frontend.KindMovie && key.Kind() != frontend.KindShow) {
 		return false
 	}
 	ctx := r.Context()
@@ -92,7 +92,7 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 	if err != nil || t == nil || t.Key != key || t.Adult || t.IsFutureRelease(s.now()) || !s.visibleTitle(ctx, FromContext(ctx).User, t) {
 		return false
 	}
-	data, ct, ok, err := s.d.ArtworkStores.RenderTitlePoster(ctx, s.d.GeneratedPosters, t, width)
+	data, ct, ok, err := frontend.RenderTitlePoster(ctx, s.generatedPosters, t, width)
 	if !ok || err != nil {
 		return false
 	}
@@ -119,7 +119,7 @@ func (s *Server) artPath(ctx context.Context, key frontend.RatingKey, element st
 	cfg.Catalog = refreshingArtworkCatalog{s.d.Catalog}
 	pr := FromContext(ctx)
 	cfg.CollectionDevice = pr.Device
-	return s.d.ArtworkStores.NewSource(cfg).ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: frontend.Device{Product: pr.Product, Platform: pr.Platform}}, element)
+	return frontend.NewArtworkSource(cfg).ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: frontend.Device{Product: pr.Product, Platform: pr.Platform}}, element)
 }
 
 // handleImage serves /library/metadata/{key}/{element}[/{ts}] and the
@@ -189,13 +189,13 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key fron
 				width = 500
 			}
 		}
-		s.serveRemoteImage(w, r, s.d.ImageURL(path, tmdbSize(width)))
+		s.serveRemoteImage(w, r, s.imageURL(path, tmdbSize(width)))
 		return
 	}
 	if width <= 0 {
 		width = defWidth
 	}
-	s.serveRemoteImage(w, r, s.d.ImageURL(path, tmdbSize(width)))
+	s.serveRemoteImage(w, r, s.imageURL(path, tmdbSize(width)))
 }
 
 // servePlexOverlayImage is the last-resort artwork path: only when the owner
@@ -307,7 +307,7 @@ func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request, key fr
 		return
 	}
 	// Keep the same w185 profile URL emitted by metadata before proxying; poster widths are not profile configuration. Width and height are intentionally ignored.
-	s.serveRemoteImage(w, r, s.d.ImageURL(imagePath, "w185"))
+	s.serveRemoteImage(w, r, s.imageURL(imagePath, "w185"))
 }
 func (s *Server) handlePersonImage(w http.ResponseWriter, r *http.Request) {
 	key, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
@@ -472,7 +472,7 @@ func (s *Server) allowedImageHost(host string) bool {
 	if frontend.MetadataImageHost(host) {
 		return true
 	}
-	ref, err := url.Parse(s.d.ImageURL("/x.jpg", "original"))
+	ref, err := url.Parse(s.imageURL("/x.jpg", "original"))
 	if err != nil {
 		return false
 	}

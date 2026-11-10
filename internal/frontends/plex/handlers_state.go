@@ -432,12 +432,6 @@ func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) 
 	}
 	s.log.Info("watch state changed", "user", pr.User.ID, "client", pr.ClientID,
 		"key", key, "watched", watched, "items", len(keys))
-	if watched {
-		if hook := s.d.Hooks.OnScrobble; hook != nil {
-			u := *pr.User
-			s.goHook("OnScrobble", func() { hook(&u, key) })
-		}
-	}
 	// An empty body has no Content-Type. tvOS treats that PUT as a failure
 	// and leaves the button on the label it had when the detail opened.
 	writeStateMutationOK(w)

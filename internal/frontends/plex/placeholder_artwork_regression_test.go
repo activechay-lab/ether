@@ -23,9 +23,9 @@ func TestPlaceholderArtworkAuthorization(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "overlay_off", true: "overlay_on"}[enabled], func(t *testing.T) {
 			f := newFixture(func(d *Deps) {
-				d.ImageURL = func(path, size string) string { return upstream.URL + path }
 				d.HTTPClient = upstream.Client()
 			})
+			f.srv.setImageURL(func(path, size string) string { return upstream.URL + path })
 			defer f.srv.Close()
 			ck := core.SmartKey(991)
 			title := core.Title{Key: core.MovieKey(991123), Type: core.TypeMovie, Title: "Future", Released: fixedNow.Add(48 * time.Hour), PosterPath: "/future.jpg", BackdropPath: "/future-art.jpg"}

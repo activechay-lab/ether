@@ -74,12 +74,12 @@ func (s *Server) writeNativeLiveTune(w http.ResponseWriter, r *http.Request, inf
 func (s *Server) liveSubscriptionSession(r *http.Request, key string) (frontend.LiveTVSessionInfo, error) {
 	user := FromContext(r.Context()).User
 	if id, err := strconv.ParseInt(key, 10, 64); err == nil {
-		for _, info := range s.d.LiveTV.Sessions(r.Context(), user) {
+		for _, info := range s.liveTV.Sessions(r.Context(), user) {
 			if info.SubscriptionID == id {
 				return info, nil
 			}
 		}
 		return frontend.LiveTVSessionInfo{}, frontend.ErrNotFound
 	}
-	return s.d.LiveTV.Session(r.Context(), key, user)
+	return s.liveTV.Session(r.Context(), key, user)
 }

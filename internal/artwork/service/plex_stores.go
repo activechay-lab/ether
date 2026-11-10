@@ -3,47 +3,32 @@ package service
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 )
 
-// NewPlexArtworkStores returns the frontend.PlexArtworkStores implementation
-// wired into plex.Deps by internal/app and tests.
-func NewPlexArtworkStores() frontend.PlexArtworkStores {
-	return plexArtworkStores{}
+func init() {
+	frontend.RegisterArtworkStores(
+		func(budget int64, client *http.Client) frontend.ArtworkImageCache {
+			return NewRemoteCache(budget, client)
+		},
+		func(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, frontend.RatingKey, string) (frontend.ArtworkPalette, error)) frontend.ArtworkPaletteCache {
+			return NewPaletteCache(db, submit, now, log, compute)
+		},
+		func(ctx context.Context, cache frontend.ArtworkImageCache, imageURL frontend.ImageURLFunc, key frontend.RatingKey, path string, now time.Time, art frontend.ArtworkCollectionArt) (frontend.ArtworkPalette, error) {
+			rc, _ := cache.(*RemoteCache)
+			return ComputeItemPalette(ctx, rc, imageURL, key, path, now, art)
+		},
+		newFrontendSource,
+	)
 }
 
-type plexArtworkStores struct{}
-
-func (plexArtworkStores) NewRemoteCache(budget int64, client *http.Client) frontend.ArtworkImageCache {
-	return NewRemoteCache(budget, client)
-}
-
-func (plexArtworkStores) NewUntrustedImages(client *http.Client) frontend.UntrustedImageFetcher {
-	return artwork.NewImages(artwork.ImagesOptions{HTTPClient: client})
-}
-
-func (plexArtworkStores) NewSVGRasterizer() frontend.SVGRasterizer {
-	return artwork.NewSVGRasterizer()
-}
-
-func (plexArtworkStores) NewPaletteCache(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, frontend.RatingKey, string) (frontend.ArtworkPalette, error)) frontend.ArtworkPaletteCache {
-	return NewPaletteCache(db, submit, now, log, compute)
-}
-
-func (plexArtworkStores) ComputeItemPalette(ctx context.Context, cache frontend.ArtworkImageCache, imageURL frontend.ImageURLFunc, key frontend.RatingKey, path string, now time.Time, art frontend.ArtworkCollectionArt) (frontend.ArtworkPalette, error) {
-	rc, _ := cache.(*RemoteCache)
-	return ComputeItemPalette(ctx, rc, imageURL, key, path, now, art)
-}
-
-func (plexArtworkStores) NewSource(cfg frontend.ArtworkSourceConfig) frontend.ArtworkSource {
+func newFrontendSource(cfg frontend.ArtworkSourceConfig) frontend.ArtworkSource {
 	rc, _ := cfg.Images.(*RemoteCache)
 	pc, _ := cfg.Palettes.(*PaletteCache)
 	src := Source{
@@ -62,83 +47,50 @@ func (plexArtworkStores) NewSource(cfg frontend.ArtworkSourceConfig) frontend.Ar
 		VirtualSeason:    cfg.VirtualSeason,
 		URLImages:        cfg.URLImages,
 		Raster:           cfg.Raster,
+		Generated:        cfg.Generated,
 	}
 	if cfg.LiveTV != nil {
 		src.LiveTV = liveTVSourceAdapter{host: cfg.LiveTV}
 	}
-	if gen, ok := cfg.Generated.(interface {
-		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
-	}); ok {
-		src.Generated = gen
-	}
-	return plexArtworkSource{Source: src}
+	return frontendArtworkSource{Source: src}
 }
 
-func (plexArtworkStores) ResizePoster(data []byte, width int) ([]byte, error) {
-	return artwork.ResizePoster(data, width)
-}
-
-func (plexArtworkStores) TitlePosterStamp(t *frontend.Title) (string, bool) {
-	p, ok := artwork.ForTitle(t)
-	if !ok {
-		return "", false
-	}
-	return p.Stamp(), true
-}
-
-func (plexArtworkStores) RenderTitlePoster(ctx context.Context, generated any, t *frontend.Title, width int) ([]byte, string, bool, error) {
-	gen, ok := generated.(interface {
-		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
-	})
-	if !ok || gen == nil {
-		return nil, "", false, nil
-	}
-	p, ok := artwork.ForTitle(t)
-	if !ok {
-		return nil, "", false, nil
-	}
-	p.Width = width
-	data, ct, err := gen.Title(ctx, p)
-	if err != nil {
-		return nil, "", false, err
-	}
-	return data, ct, true, nil
-}
-
-func (plexArtworkStores) DiagnoseLiveTV(stage string, err error) frontend.LiveTVTuneDiagnosis {
-	d := livetv.Diagnose(stage, err)
-	return frontend.LiveTVTuneDiagnosis{
-		Code:           d.Code,
-		Stage:          d.Stage,
-		UpstreamStatus: d.UpstreamStatus,
-		RetryAfter:     d.RetryAfter,
-		Message:        d.Error(),
-		LogAttrs:       d.LogAttrs(),
-	}
-}
-
-func (plexArtworkStores) VirtualDASHError(err error) (string, error, bool) {
-	var dashErr *livetv.VirtualDASHError
-	if !errors.As(err, &dashErr) {
-		return "", nil, false
-	}
-	return dashErr.Message, dashErr.Err, true
-}
-
-func (plexArtworkStores) ShowcaseLogo(c frontend.LiveTVChannel) (string, []byte, bool) {
-	return livetv.ShowcaseLogo(livetv.FromFrontendChannel(c))
-}
-
-type plexArtworkSource struct {
+type frontendArtworkSource struct {
 	Source
 }
 
-func (s plexArtworkSource) ChannelImage(viewer *frontend.Viewer, channel frontend.LiveTVChannel) frontend.Image {
+func (s frontendArtworkSource) ChannelImage(viewer *frontend.Viewer, channel frontend.LiveTVChannel) frontend.Image {
 	return s.Source.ChannelImage(viewer, livetv.FromFrontendChannel(channel))
 }
 
+// RemoteCache returns the underlying remote artwork cache for frontend.Artwork.
+func (a Source) RemoteCache() frontend.ArtworkImageCache {
+	if a.Images == nil {
+		return nil
+	}
+	return a.Images
+}
+
+// PaletteCache returns the underlying title palette cache for frontend.Artwork.
+func (a Source) PaletteCache() frontend.ArtworkPaletteCache {
+	if a.Palettes == nil {
+		return nil
+	}
+	return a.Palettes
+}
+
+// PosterRenderer returns the fallback title poster renderer for frontend.Artwork.
+func (a Source) PosterRenderer() frontend.TitlePosterRenderer {
+	return a.Generated
+}
+
+// ImageURLFunc returns the TMDB image URL builder for frontend.Artwork.
+func (a Source) ImageURLFunc() frontend.ImageURLFunc {
+	return a.ImageURL
+}
+
 type liveTVSourceAdapter struct {
-	host frontend.LiveTVHost
+	host frontend.LiveTV
 }
 
 func (a liveTVSourceAdapter) AllowedChannels(ctx context.Context, u *core.User) ([]livetv.Channel, error) {

@@ -75,7 +75,7 @@ func TestClientSeenOnlyAfterAuthentication(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	var seen []string
-	f.srv.d.Hooks.OnClientSeen = func(id string) { seen = append(seen, id) }
+	f.srv.setClientSeen(func(id string) { seen = append(seen, id) })
 	f.request(t, http.MethodGet, "/identity", map[string]string{"X-Plex-Token": "", "X-Plex-Client-Identifier": "public"})
 	f.request(t, http.MethodGet, "/library/sections", map[string]string{"X-Plex-Token": "bad", "X-Plex-Client-Identifier": "unauthorized"})
 	if len(seen) != 0 {
@@ -528,9 +528,9 @@ func TestPhotoTranscode(t *testing.T) {
 	f := newFixture()
 	f.srv.Close()
 	d := f.srv.d
-	d.ImageURL = func(path, size string) string { return tmdb.URL + "/t/p/" + size + path }
 	d.HTTPClient = tmdb.Client()
 	f.srv = NewServer(testDeps(d))
+	f.srv.setImageURL(func(path, size string) string { return tmdb.URL + "/t/p/" + size + path })
 	defer f.srv.Close()
 
 	rec := f.get(t, "/photo/:/transcode?width=300&height=450&minSize=1&upscale=1&url="+urlEsc("/library/metadata/1000000000000550/thumb/1759276800"))

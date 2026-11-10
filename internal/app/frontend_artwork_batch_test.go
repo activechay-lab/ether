@@ -11,10 +11,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-type batchProofArtwork struct{}
+type batchProofArtwork struct {
+	frontendtest.Artwork
+}
 
 func (batchProofArtwork) List(context.Context, frontend.ArtworkRequest) ([]frontend.Image, bool, error) {
 	return []frontend.Image{{Kind: frontend.ImagePoster, Path: "poster"}}, true, nil

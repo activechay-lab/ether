@@ -7,9 +7,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 )
 
-type publicArtworkLister struct{ lists int }
+type publicArtworkLister struct {
+	frontendtest.Artwork
+	lists int
+}
 
 func (l *publicArtworkLister) List(context.Context, frontend.ArtworkRequest) ([]frontend.Image, bool, error) {
 	l.lists++

@@ -557,8 +557,82 @@ func (f LiveTV) ResolveProgrammeGUID(ctx context.Context, v *core.Viewer, id str
 	}
 	return frontend.LiveProgramme{}, core.ErrNotFound
 }
+func (f LiveTV) VisibleTo(context.Context, *frontend.User) bool                      { return false }
+func (f LiveTV) ServeXMLTV(w http.ResponseWriter, r *http.Request, _ *frontend.User) { http.NotFound(w, r) }
+func (f LiveTV) Stop(context.Context, string, *frontend.User) error                  { return core.ErrNotFound }
+func (f LiveTV) ServeDASHPart(w http.ResponseWriter, r *http.Request, _ string, _ *frontend.User, _, _ int, _ bool) {
+	http.NotFound(w, r)
+}
+func (f LiveTV) ServePlaylist(w http.ResponseWriter, r *http.Request, _ string, _ *frontend.User) {
+	http.NotFound(w, r)
+}
+func (f LiveTV) ServeRelaySegment(w http.ResponseWriter, r *http.Request, _ string, _ int, _ *frontend.User) {
+	http.NotFound(w, r)
+}
+func (f LiveTV) ServeResource(w http.ResponseWriter, r *http.Request, _, _ string, _ *frontend.User) {
+	http.NotFound(w, r)
+}
+func (f LiveTV) AllowedChannels(context.Context, *frontend.User) ([]frontend.LiveTVChannel, error) {
+	return nil, nil
+}
+func (f LiveTV) AllowedChannel(context.Context, *frontend.User, string) (frontend.LiveTVChannel, error) {
+	return frontend.LiveTVChannel{}, core.ErrNotFound
+}
+func (f LiveTV) Channel(context.Context, string) (frontend.LiveTVChannel, error) {
+	return frontend.LiveTVChannel{}, core.ErrNotFound
+}
+func (f LiveTV) ChannelForViewer(context.Context, *frontend.User, string) (frontend.LiveTVChannel, error) {
+	return frontend.LiveTVChannel{}, core.ErrNotFound
+}
+func (f LiveTV) AllChannels(context.Context) ([]frontend.LiveTVChannel, error) { return nil, nil }
+func (f LiveTV) ChannelPermitted(context.Context, *frontend.User, string) (bool, error) {
+	return false, nil
+}
+func (f LiveTV) LineupChangedFor(*frontend.User) time.Time { return time.Time{} }
+func (f LiveTV) GuideForChannels(context.Context, *frontend.User, time.Time, time.Time, []string) ([]frontend.LiveTVProgramme, error) {
+	return nil, nil
+}
+func (f LiveTV) GuideWindow(context.Context, *frontend.User, time.Time, time.Time) ([]frontend.LiveTVProgramme, error) {
+	return nil, nil
+}
+func (f LiveTV) GuideChannelLogo(context.Context, frontend.LiveTVChannel) string { return "" }
+func (f LiveTV) TuneWithSession(context.Context, *frontend.User, string, frontend.ClientCaps, string) (frontend.LiveTVSessionInfo, error) {
+	return frontend.LiveTVSessionInfo{}, core.ErrNotFound
+}
+func (f LiveTV) Sessions(context.Context, *frontend.User) []frontend.LiveTVSessionInfo { return nil }
+func (f LiveTV) Session(context.Context, string, *frontend.User) (frontend.LiveTVSessionInfo, error) {
+	return frontend.LiveTVSessionInfo{}, core.ErrNotFound
+}
+func (f LiveTV) ServeDASH(http.ResponseWriter, *http.Request, string, *frontend.User) error {
+	return core.ErrNotFound
+}
+func (f LiveTV) ServeHTTP(http.ResponseWriter, *http.Request, string, *frontend.User) error {
+	return core.ErrNotFound
+}
+func (f LiveTV) ViewingSessions() []*frontend.PlaySession { return nil }
+func (f LiveTV) NoteClientActivity()                      {}
+func (f LiveTV) AuthenticateMediaGrant(*http.Request, func(context.Context, int64) *frontend.User) (*frontend.User, bool) {
+	return nil, false
+}
+func (f LiveTV) LogoKey() []byte { return nil }
 
 var _ frontend.LiveTV = LiveTV{}
+
+// Artwork is a default fake for frontend.Artwork.
+type Artwork struct{}
+
+func (Artwork) List(context.Context, frontend.ArtworkRequest) ([]frontend.Image, bool, error) {
+	return nil, false, nil
+}
+func (Artwork) Read(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error) {
+	return nil, "", core.ErrNotFound
+}
+func (Artwork) RemoteCache() frontend.ArtworkImageCache        { return nil }
+func (Artwork) PaletteCache() frontend.ArtworkPaletteCache     { return nil }
+func (Artwork) PosterRenderer() frontend.TitlePosterRenderer   { return nil }
+func (Artwork) ImageURLFunc() frontend.ImageURLFunc            { return nil }
+
+var _ frontend.Artwork = Artwork{}
 
 func (f Identity) IssueRefresh(ctx context.Context, token string, d core.Device) (string, error) {
 	if f.IssueRefreshFunc != nil {

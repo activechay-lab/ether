@@ -113,7 +113,6 @@ func newEtheLab(t *testing.T, resumed bool, remembered string, n int) *etheLab {
 	x.f = newFixture(func(d *Deps) {
 		d.Config = func() config.Config { return x.cfg }
 		d.DisableEnrichment = true
-		d.Hooks = Hooks{}
 	})
 	x.f.catalog.titles[x.title.Key] = x.title
 	x.f.state.set(ownerUser.ID, core.WatchStatus{Key: x.title.Key, ViewOffset: 10 * time.Minute})
@@ -144,8 +143,7 @@ func newEtheLab(t *testing.T, resumed bool, remembered string, n int) *etheLab {
 		x.f = newFixture(func(d *Deps) {
 			d.Config = func() config.Config { return x.cfg }
 			d.DisableEnrichment = true
-			d.Hooks = Hooks{}
-		})
+			})
 		x.f.catalog.titles[x.title.Key] = x.title
 		x.f.state.set(ownerUser.ID, core.WatchStatus{Key: x.title.Key, ViewOffset: 10 * time.Minute})
 		x.start(t)

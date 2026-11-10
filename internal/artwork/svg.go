@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/frontend"
 	kitimages "github.com/braedonsaunders/ether/internal/frontend/kit/images"
 	"github.com/braedonsaunders/ether/internal/lru"
 	"github.com/srwiley/oksvg"
@@ -34,8 +33,11 @@ const maxSVGBytes = 512 << 10
 
 var ErrSVG = errors.New("artwork: SVG cannot be safely rasterized")
 
-type RasterOptions = frontend.RasterOptions
-
+type RasterOptions struct {
+	Width, Height int
+	Format        string
+	Blur          bool
+}
 type rasterResult struct {
 	data        []byte
 	contentType string

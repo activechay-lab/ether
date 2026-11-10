@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
@@ -55,7 +55,6 @@ func TestPlexPolicyProductionWiringKeepsOwnerSearch(t *testing.T) {
 	deps := plex.Deps{
 		SessionStores:     sessions.NewPlexSessionStores(),
 		Experience:        experience.NewPlexExperience(),
-		ArtworkStores:     artworkservice.NewPlexArtworkStores(),
 		Catalog:           policyTestCatalog{titles: []core.Title{hidden, title}},
 		Auth:              policyTestAuth{},
 		DisableEnrichment: true,

@@ -23,20 +23,6 @@ type PlexIdentity struct {
 	OwnerFeatures      []string
 }
 
-// PlexHooks are optional callbacks into other components. They run on their own
-// goroutine and must be safe for concurrent use.
-type PlexHooks struct {
-	// OnClientSeen receives the client identifier after authentication.
-	OnClientSeen func(clientID string)
-	// OnRemoteClientSeen records authenticated inbound connectivity. The
-	// address has passed the configured trusted-proxy rules; no token is sent.
-	OnRemoteClientSeen func(address string)
-	// OnTimeline is called for every timeline update (prefetch uses it).
-	OnTimeline func(user *User, key RatingKey, offset, duration time.Duration, state string)
-	// OnScrobble is called when a user marks an item watched.
-	OnScrobble func(user *User, key RatingKey)
-}
-
 // PlexSection is a library section exposed to Plex clients.
 type PlexSection struct {
 	ID       int
@@ -121,14 +107,8 @@ type PlexSubtitleUpload interface {
 type PlexDeps struct {
 	// PlexEncoder optionally dispatches authenticated universal playback through
 	// the shared broker; nil preserves the existing local encoder path.
-	PlexEncoder     PlexEncoder
-	PlexStreams     PlexStreamAPI
-	ArtworkImages   ArtworkImageCache
-	ArtworkPalettes ArtworkPaletteCache
-	// ArtworkStores constructs the artwork caches/sources this server owns
-	// and provides the artwork and Live TV helpers it calls. Required:
-	// NewServer panics without it. The app wires artworkservice.NewPlexArtworkStores().
-	ArtworkStores PlexArtworkStores
+	PlexEncoder PlexEncoder
+	PlexStreams PlexStreamAPI
 	// SessionStores constructs the session stores this server owns and
 	// provides the session helpers it calls. Required: NewServer panics
 	// without it. The app wires sessions.NewPlexSessionStores().
@@ -137,9 +117,6 @@ type PlexDeps struct {
 	// provides its operations, including statistics defaults. Required:
 	// NewServer panics without it. The app wires experience.NewPlexExperience().
 	Experience PlexExperience
-	// GeneratedPosters draws Ether's poster for a movie or show with no
-	// artwork; nil leaves such titles without a thumb.
-	GeneratedPosters    any
 	SessionCoordination Coordination
 	// LibraryTitles returns the Movies / TV Shows library names from the
 	// libraries service (libraries 1/2); nil uses "Movies" / "TV Shows".
@@ -157,7 +134,6 @@ type PlexDeps struct {
 	// Search is the app's shared search (every frontend's); zero builds it
 	// from this server's own dependencies.
 	Search       SearchSources
-	LiveTV       LiveTVHost
 	AccessPolicy AccessPolicy
 	Catalog      Catalog
 	Collections  Collections
@@ -194,11 +170,8 @@ type PlexDeps struct {
 	Config func() HostConfig
 	// OwnerSubscription returns the current entitlement snapshot from plex.tv.
 	OwnerSubscription func() (active bool, features []string)
-	// ImageURL builds TMDB image URLs; defaults to image.tmdb.org.
-	ImageURL ImageURLFunc
 	Logger   *slog.Logger
 	Identity PlexIdentity
-	Hooks    PlexHooks
 
 	// Sections overrides the default Movies (1) and TV Shows (2) sections.
 	Sections []PlexSection
@@ -209,8 +182,6 @@ type PlexDeps struct {
 	// DirectHTTP proxies trailer bytes. Nil uses the default transport.
 	// The app wires the direct route so this package does not import egress.
 	DirectHTTP *http.Client
-	// ImageCacheBytes bounds the in-memory artwork cache (default 128 MiB).
-	ImageCacheBytes int64
 	// DB persists artwork data and ordered shelf-generation keys. Clustered
 	// nodes share this store so continuations survive failover and restarts.
 	// Optional: without it, these caches remain process-local.
@@ -230,9 +201,6 @@ type PlexDeps struct {
 	// PublicURL is this server's published public address
 	// ("https://<ip>.<hash>.plex.direct:<port>"), or "" without remote access.
 	PublicURL func() string
-	// LiveLogoKey signs token-free channel logo URLs; empty uses a
-	// process-local key.
-	LiveLogoKey []byte
 	// RepoFileURL is a public, immutable URL for a file committed to Ether's
 	// repository at the source this build came from, or "" when unknown.
 	RepoFileURL func(path string) string
@@ -242,8 +210,6 @@ type PlexDeps struct {
 	Dashboard Dashboard
 	// Resources is this node's host sample ring for /statistics/resources.
 	Resources ResourceStatistics
-	// Support records neutral request and playback facts. Nil leaves playback unchanged.
-	Support DiagnosticRecorder
 	// HomeCache serves Plex Home from memory (home_cache.go); nil builds
 	// every Home request.
 	HomeCache *PlexHomeCacheSource

@@ -30,10 +30,10 @@ func (a FrontendArtwork) cfg() frontend.ArtworkSourceConfig {
 		Collections:   s.d.Collections,
 		Playlists:     s.d.Playlists,
 		Visibility:    s.visibility(),
-		LiveTV:        s.d.LiveTV,
+		LiveTV:        s.liveTV,
 		Discovery:     s.d.Discovery,
 		Images:        s.images,
-		ImageURL:      s.d.ImageURL,
+		ImageURL:      s.imageURL,
 		Palettes:      s.ultra,
 		Now:           s.now,
 		Variants:      a.Variants,
@@ -41,15 +41,15 @@ func (a FrontendArtwork) cfg() frontend.ArtworkSourceConfig {
 		VirtualSeason: a.VirtualSeason,
 		URLImages:     a.URLImages,
 		Raster:        a.Raster,
-		Generated:     s.d.GeneratedPosters,
+		Generated:     s.generatedPosters,
 	}
 }
 
 func (a FrontendArtwork) source() frontend.ArtworkSource {
-	if a.Server == nil || a.Server.d.ArtworkStores == nil {
+	if a.Server == nil {
 		return nil
 	}
-	return a.Server.d.ArtworkStores.NewSource(a.cfg())
+	return frontend.NewArtworkSource(a.cfg())
 }
 
 func (a FrontendArtwork) List(ctx context.Context, req frontend.ArtworkRequest) ([]frontend.Image, bool, error) {
@@ -80,6 +80,34 @@ func (a FrontendArtwork) ChannelImage(v *frontend.Viewer, c frontend.LiveTVChann
 		return frontend.Image{}
 	}
 	return src.ChannelImage(v, c)
+}
+
+func (a FrontendArtwork) RemoteCache() frontend.ArtworkImageCache {
+	if a.Server == nil {
+		return nil
+	}
+	return a.Server.images
+}
+
+func (a FrontendArtwork) PaletteCache() frontend.ArtworkPaletteCache {
+	if a.Server == nil {
+		return nil
+	}
+	return a.Server.ultra
+}
+
+func (a FrontendArtwork) PosterRenderer() frontend.TitlePosterRenderer {
+	if a.Server == nil {
+		return nil
+	}
+	return a.Server.generatedPosters
+}
+
+func (a FrontendArtwork) ImageURLFunc() frontend.ImageURLFunc {
+	if a.Server == nil {
+		return nil
+	}
+	return a.Server.imageURL
 }
 
 type storedPolicyKey struct{}

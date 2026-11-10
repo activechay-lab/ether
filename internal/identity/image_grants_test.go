@@ -20,6 +20,7 @@ import (
 type imageFixture struct{ calls int }
 
 type scopedArtworkFixture struct {
+	frontendtest.Artwork
 	calls     int
 	request   frontend.ArtworkRequest
 	image     frontend.Image

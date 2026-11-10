@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -47,14 +47,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		Version:           plextv.DefaultServerVersion,
 		Platform:          plexPlatform(),
 	}
-	hooks := plex.Hooks{
-		OnClientSeen: func(id string) { a.frontendClients.observe("plex", id) },
-		OnRemoteClientSeen: func(address string) {
-			if a.registrar != nil {
-				a.registrar.ObserveRemoteClient(address)
-			}
-		},
-	}
 
 	var deps plex.Deps
 	if cfg.Spike.Enabled {
@@ -78,7 +70,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 			Auth:        a.users,
 			Playback:    playback,
 			Transcoder:  tc,
-			ImageURL:    a.tmdb.ImageURLFunc(),
 			DB:          a.db, // plex_ultrablur
 		}
 	}
@@ -97,7 +88,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		return a.availability.Prioritize(ctx, items)
 	}
 	deps.Variants = a.resolver // "Play Version" release picker (cache-only)
-	deps.LiveLogoKey = a.cfg.DerivedKey("ether-live-logo-v1")
 	deps.PublicURL = func() string {
 		if a.registrar == nil {
 			return ""
@@ -155,20 +145,15 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		deps.EpisodeOrder = a.episodeorder
 	}
 	deps.Discovery = a.discoveryFeatures.Frontend()
-	deps.LiveTV = a.livetv.Frontend()
 	deps.Subtitles = plexSubtitles{a}
 	deps.TrackPreferences = a.trackprefs
 	deps.SessionCoordination = a.sessionCoordination
 	deps.SessionStores = sessions.NewPlexSessionStores()
 	deps.Experience = experience.NewPlexExperience()
-	deps.ArtworkStores = artworkservice.NewPlexArtworkStores()
 	deps.Markers = a.markers
 	// The remuxer is built once in buildIntegrations and shared with every
-	// front end. Support is the device-scoped "Record a problem" recorder.
+	// front end.
 	deps.Downloads = a.downloadRemuxer
-	if a.support != nil {
-		deps.Support = a.support
-	}
 	deps.Extras = newPlexExtras(a.extras)
 	deps.Prerolls = a.prerollProvider()
 	deps.Trickplay = a.trickplay.Borrow()
@@ -187,7 +172,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		return st.PlexPass, st.OwnerFeatures
 	}
 	deps.LibraryTitles = a.libraryTitles
-	deps.Hooks = hooks
 	if a.stats != nil {
 		deps.Dashboard = a.stats.Dashboard()
 	}
@@ -196,11 +180,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 	}
 	if node := a.clusterNode(); node != nil && deps.DB != nil {
 		deps.Cluster = node
-	}
-	if a.artwork != nil {
-		deps.ArtworkImages = a.artwork.Images
-		deps.ArtworkPalettes = a.artwork.Palettes
-		deps.GeneratedPosters = a.artwork.Generated
 	}
 	if !cfg.Spike.Enabled && a.db != nil {
 		db := a.db

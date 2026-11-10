@@ -3,7 +3,7 @@ package plex
 import (
 	"testing"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -12,11 +12,8 @@ import (
 // testStores returns the real sessions-backed store factory for tests.
 func testStores() frontend.PlexSessionStores { return sessions.NewPlexSessionStores() }
 
-// testArtworkStores returns the real artwork-backed store factory for tests.
-func testArtworkStores() frontend.PlexArtworkStores { return artworkservice.NewPlexArtworkStores() }
-
 // testDeps fills the required host factories in d from the real
-// sessions/experience/artwork implementations, leaving explicitly set fields alone.
+// sessions/experience implementations, leaving explicitly set fields alone.
 func testDeps(d Deps) Deps {
 	if d.SessionStores == nil {
 		d.SessionStores = testStores()
@@ -24,10 +21,34 @@ func testDeps(d Deps) Deps {
 	if d.Experience == nil {
 		d.Experience = experience.NewPlexExperience()
 	}
-	if d.ArtworkStores == nil {
-		d.ArtworkStores = testArtworkStores()
-	}
 	return d
+}
+
+func (s *Server) setImageURL(fn frontend.ImageURLFunc) {
+	if fn == nil {
+		fn = func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path }
+	}
+	s.imageURL = fn
+}
+
+func (s *Server) setGeneratedPosters(g frontend.TitlePosterRenderer) {
+	s.generatedPosters = g
+}
+
+func (s *Server) setLiveTV(ltv frontend.LiveTV) {
+	s.liveTV = ltv
+}
+
+func (s *Server) setSupport(rec frontend.DiagnosticRecorder) {
+	s.support = rec
+}
+
+func (s *Server) setClientSeen(fn func(string)) {
+	s.clientSeen = fn
+}
+
+func (s *Server) setRemoteClientSeen(fn func(string)) {
+	s.remoteClientSeen = fn
 }
 
 func TestNewServerRequiresExperience(t *testing.T) {
@@ -36,7 +57,7 @@ func TestNewServerRequiresExperience(t *testing.T) {
 			t.Fatal("NewServer without Experience did not panic")
 		}
 	}()
-	NewServer(Deps{SessionStores: testStores(), ArtworkStores: testArtworkStores()})
+	NewServer(Deps{SessionStores: testStores()})
 }
 
 func TestNewServerRequiresSessionStores(t *testing.T) {
@@ -45,14 +66,5 @@ func TestNewServerRequiresSessionStores(t *testing.T) {
 			t.Fatal("NewServer without SessionStores did not panic")
 		}
 	}()
-	NewServer(Deps{Experience: experience.NewPlexExperience(), ArtworkStores: testArtworkStores()})
-}
-
-func TestNewServerRequiresArtworkStores(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("NewServer without ArtworkStores did not panic")
-		}
-	}()
-	NewServer(Deps{SessionStores: testStores(), Experience: experience.NewPlexExperience()})
+	NewServer(Deps{Experience: experience.NewPlexExperience()})
 }

@@ -42,13 +42,13 @@ func (s *Server) cloudGuideLogo(ctx context.Context, c frontend.LiveTVChannel, o
 	if publicLogoURL(c.Logo) {
 		return c.Logo
 	}
-	if path, _, ok := s.d.ArtworkStores.ShowcaseLogo(c); ok && s.d.RepoFileURL != nil {
+	if path, _, ok := frontend.ShowcaseLogo(c); ok && s.d.RepoFileURL != nil {
 		if u := s.d.RepoFileURL(path); u != "" {
 			return u
 		}
 	}
-	if c.Logo == "" && s.d.LiveTV != nil {
-		if guide := s.d.LiveTV.GuideChannelLogo(ctx, c); publicLogoURL(guide) {
+	if c.Logo == "" && s.liveTV != nil {
+		if guide := s.liveTV.GuideChannelLogo(ctx, c); publicLogoURL(guide) {
 			return guide
 		}
 	}
@@ -90,7 +90,10 @@ func publicLogoURL(raw string) bool {
 // liveLogoSignature authorizes signedLogoPrefix for one channel. The key is
 // derived per node and survives restarts, so cached guide URLs stay valid.
 func (s *Server) liveLogoSignature(id string) string {
-	key := s.d.LiveLogoKey
+	var key []byte
+	if s.liveTV != nil {
+		key = s.liveTV.LogoKey()
+	}
 	if len(key) == 0 {
 		s.liveLogoKeyOnce.Do(func() {
 			s.liveLogoKey = make([]byte, 32)
@@ -113,7 +116,7 @@ func (s *Server) handleSignedLiveLogo(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	c, err := s.d.LiveTV.Channel(r.Context(), id)
+	c, err := s.liveTV.Channel(r.Context(), id)
 	if err != nil || !c.Enabled {
 		writeHTTPError(w, http.StatusNotFound)
 		return

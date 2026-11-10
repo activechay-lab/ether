@@ -6,16 +6,19 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/artwork"
 )
 
-// LiveTVProvider is the EPG provider identifier reported on Plex Live TV routes.
-const LiveTVProvider = "tv.plex.providers.epg.xmltv:1"
-
 // RasterOptions configures an SVG-to-PNG/JPEG rasterization.
-type RasterOptions struct {
-	Width, Height int
-	Format        string
-	Blur          bool
+type RasterOptions = artwork.RasterOptions
+
+// TitlePoster describes an Ether-generated fallback poster for a title.
+type TitlePoster = artwork.TitlePoster
+
+// TitlePosterRenderer renders Ether's fallback poster for a title with no artwork.
+type TitlePosterRenderer interface {
+	Title(ctx context.Context, p TitlePoster) ([]byte, string, error)
 }
 
 // SVGRasterizer rasterizes SVG bytes or generated channel logos.
@@ -37,7 +40,7 @@ type ArtworkRemoteImage struct {
 	FetchedAt   time.Time
 }
 
-// ArtworkImageCache is the remote/transformed image cache used by Plex handlers.
+// ArtworkImageCache is the remote/transformed image cache used by frontend handlers.
 type ArtworkImageCache interface {
 	Get(ctx context.Context, u string, now time.Time) (*ArtworkRemoteImage, error)
 	RasterFormat(ctx context.Context, data []byte, ct, format string, now time.Time) ([]byte, string, error)
@@ -60,7 +63,7 @@ type ArtworkCollectionArt interface {
 	CollectionArtwork(ctx context.Context, viewer *User, key RatingKey, element string, width int) ([]byte, string, bool, error)
 }
 
-// ArtworkPaletteCache is the persistent title palette store used by Plex UltraBlur.
+// ArtworkPaletteCache is the persistent title palette store used by UltraBlur.
 type ArtworkPaletteCache interface {
 	Lookup(key RatingKey, path string) *ArtworkPalette
 	Preload(ctx context.Context, wants []ArtworkPaletteWant)
@@ -74,7 +77,7 @@ type ArtworkSourceConfig struct {
 	Collections      Collections
 	Playlists        Playlists
 	Visibility       Visibility
-	LiveTV           LiveTVHost
+	LiveTV           LiveTV
 	Discovery        *DiscoveryFeatures
 	Images           ArtworkImageCache
 	ImageURL         ImageURLFunc
@@ -85,7 +88,7 @@ type ArtworkSourceConfig struct {
 	VirtualSeason    func(context.Context, *User, RatingKey) (*Title, error)
 	URLImages        UntrustedImageFetcher
 	Raster           SVGRasterizer
-	Generated        any
+	Generated        TitlePosterRenderer
 }
 
 // ArtworkSource serves canonical artwork listings, reads, warming, and selection paths.
@@ -96,117 +99,95 @@ type ArtworkSource interface {
 	ArtPath(ctx context.Context, req ArtworkRequest, element string) (path string, defWidth int, err error)
 }
 
-// PlexArtworkStores constructs artwork caches/sources and exposes host-owned
-// artwork and Live TV helpers to internal/plex.
-type PlexArtworkStores interface {
-	NewRemoteCache(budget int64, client *http.Client) ArtworkImageCache
-	NewUntrustedImages(client *http.Client) UntrustedImageFetcher
-	NewSVGRasterizer() SVGRasterizer
-	NewPaletteCache(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, RatingKey, string) (ArtworkPalette, error)) ArtworkPaletteCache
-	ComputeItemPalette(ctx context.Context, cache ArtworkImageCache, imageURL ImageURLFunc, key RatingKey, path string, now time.Time, art ArtworkCollectionArt) (ArtworkPalette, error)
-	NewSource(cfg ArtworkSourceConfig) ArtworkSource
-	ResizePoster(data []byte, width int) ([]byte, error)
-	TitlePosterStamp(t *Title) (string, bool)
-	RenderTitlePoster(ctx context.Context, generated any, t *Title, width int) ([]byte, string, bool, error)
-	DiagnoseLiveTV(stage string, err error) LiveTVTuneDiagnosis
-	VirtualDASHError(err error) (message string, cause error, ok bool)
-	ShowcaseLogo(c LiveTVChannel) (repoPath string, png []byte, ok bool)
+var (
+	newRemoteCacheFunc   func(budget int64, client *http.Client) ArtworkImageCache
+	newPaletteCacheFunc  func(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, RatingKey, string) (ArtworkPalette, error)) ArtworkPaletteCache
+	computePaletteFunc   func(ctx context.Context, cache ArtworkImageCache, imageURL ImageURLFunc, key RatingKey, path string, now time.Time, art ArtworkCollectionArt) (ArtworkPalette, error)
+	newArtworkSourceFunc func(cfg ArtworkSourceConfig) ArtworkSource
+)
+
+// RegisterArtworkStores wires host artwork store constructors for frontends.
+func RegisterArtworkStores(
+	newRemoteCache func(budget int64, client *http.Client) ArtworkImageCache,
+	newPaletteCache func(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, RatingKey, string) (ArtworkPalette, error)) ArtworkPaletteCache,
+	computePalette func(ctx context.Context, cache ArtworkImageCache, imageURL ImageURLFunc, key RatingKey, path string, now time.Time, art ArtworkCollectionArt) (ArtworkPalette, error),
+	newSource func(cfg ArtworkSourceConfig) ArtworkSource,
+) {
+	newRemoteCacheFunc = newRemoteCache
+	newPaletteCacheFunc = newPaletteCache
+	computePaletteFunc = computePalette
+	newArtworkSourceFunc = newSource
 }
 
-// LiveTVItem is the frontend boundary representation of a scheduled programme's item metadata.
-type LiveTVItem struct {
-	Key          RatingKey
-	Title        string
-	EpisodeTitle string
-	ShowTitle    string
-	Summary      string
-	Rating       string
-	Thumb        string
-	Art          string
-	Genres       []string
-	GUID         string
-	ShowGUID     string
-	MediaType    string
-	Premiere     bool
-	Live         bool
-	Season       int
-	Episode      int
-	ReleasedMS   int64
+// NewArtworkRemoteCache constructs an in-memory remote artwork cache.
+func NewArtworkRemoteCache(budget int64, client *http.Client) ArtworkImageCache {
+	if newRemoteCacheFunc != nil {
+		return newRemoteCacheFunc(budget, client)
+	}
+	return nil
 }
 
-// LiveTVChannel is the frontend boundary representation of a Live TV channel.
-type LiveTVChannel struct {
-	ID            string
-	Number        string
-	Name          string
-	Kind          string
-	Enabled       bool
-	Logo          string
-	LogoMatched   bool
-	Rating        string
-	SourceID      string
-	GuideID       string
-	GuideSourceID string
-	Group         string
-	Personal      bool
+// NewUntrustedImageFetcher constructs an untrusted remote image fetcher.
+func NewUntrustedImageFetcher(client *http.Client) UntrustedImageFetcher {
+	return artwork.NewImages(artwork.ImagesOptions{HTTPClient: client})
 }
 
-// LiveTVProgramme is the frontend boundary representation of a guide airing.
-type LiveTVProgramme struct {
-	ID        string
-	ChannelID string
-	Start     time.Time
-	End       time.Time
-	Lens      string
-	Item      LiveTVItem
+// NewSVGRasterizer constructs an SVG rasterizer.
+func NewSVGRasterizer() SVGRasterizer {
+	return artwork.NewSVGRasterizer()
 }
 
-// LiveTVSessionInfo is the frontend boundary representation of an active Live TV tune session.
-type LiveTVSessionInfo struct {
-	ID             string
-	SubscriptionID int64
-	ActivityID     string
-	MediaInfo      *MediaInfo
-	Channel        LiveTVChannel
-	Programme      *LiveTVProgramme
-	StartedAt      time.Time
+// NewArtworkPaletteCache constructs a title palette cache.
+func NewArtworkPaletteCache(db *sql.DB, submit func(string, func(context.Context)) bool, now func() time.Time, log *slog.Logger, compute func(context.Context, RatingKey, string) (ArtworkPalette, error)) ArtworkPaletteCache {
+	if newPaletteCacheFunc != nil {
+		return newPaletteCacheFunc(db, submit, now, log, compute)
+	}
+	return nil
 }
 
-// LiveTVTuneDiagnosis is a structured classification of a Live TV tune or playback error.
-type LiveTVTuneDiagnosis struct {
-	Code           string
-	Stage          string
-	UpstreamStatus int
-	RetryAfter     time.Duration
-	Message        string
-	LogAttrs       []any
+// ComputeArtworkItemPalette computes the four-corner palette for an item.
+func ComputeArtworkItemPalette(ctx context.Context, cache ArtworkImageCache, imageURL ImageURLFunc, key RatingKey, path string, now time.Time, art ArtworkCollectionArt) (ArtworkPalette, error) {
+	if computePaletteFunc != nil {
+		return computePaletteFunc(ctx, cache, imageURL, key, path, now, art)
+	}
+	return ArtworkPalette{}, ErrNotAvailable
 }
 
-// LiveTVHost is the host-owned Live TV service interface consumed by internal/plex.
-type LiveTVHost interface {
-	VisibleTo(ctx context.Context, u *User) bool
-	ServeXMLTV(w http.ResponseWriter, r *http.Request, u *User)
-	Stop(ctx context.Context, id string, u *User) error
-	ServeDASHPart(w http.ResponseWriter, r *http.Request, id string, u *User, rep, n int, init bool)
-	ServePlaylist(w http.ResponseWriter, r *http.Request, id string, u *User)
-	ServeRelaySegment(w http.ResponseWriter, r *http.Request, id string, n int, u *User)
-	ServeResource(w http.ResponseWriter, r *http.Request, id, resource string, u *User)
-	AllowedChannels(ctx context.Context, u *User) ([]LiveTVChannel, error)
-	AllowedChannel(ctx context.Context, u *User, id string) (LiveTVChannel, error)
-	Channel(ctx context.Context, id string) (LiveTVChannel, error)
-	ChannelForViewer(ctx context.Context, u *User, id string) (LiveTVChannel, error)
-	Channels(ctx context.Context) ([]LiveTVChannel, error)
-	ChannelPermitted(ctx context.Context, u *User, id string) (bool, error)
-	LineupChangedFor(u *User) time.Time
-	GuideForChannels(ctx context.Context, u *User, from, until time.Time, channelIDs []string) ([]LiveTVProgramme, error)
-	Guide(ctx context.Context, u *User, from, until time.Time) ([]LiveTVProgramme, error)
-	GuideChannelLogo(ctx context.Context, c LiveTVChannel) string
-	TuneWithSession(ctx context.Context, u *User, id string, caps ClientCaps, sessionID string) (LiveTVSessionInfo, error)
-	Sessions(ctx context.Context, u *User) []LiveTVSessionInfo
-	Session(ctx context.Context, id string, u *User) (LiveTVSessionInfo, error)
-	ServeDASH(w http.ResponseWriter, r *http.Request, id string, u *User) error
-	ServeHTTP(w http.ResponseWriter, r *http.Request, id string, u *User) error
-	ViewingSessions() []*PlaySession
-	NoteClientActivity()
-	AuthenticateMediaGrant(r *http.Request, active func(context.Context, int64) *User) (*User, bool)
+// NewArtworkSource constructs an ArtworkSource from cfg.
+func NewArtworkSource(cfg ArtworkSourceConfig) ArtworkSource {
+	if newArtworkSourceFunc != nil {
+		return newArtworkSourceFunc(cfg)
+	}
+	return nil
+}
+
+// ResizePoster scales a poster JPEG to width.
+func ResizePoster(data []byte, width int) ([]byte, error) {
+	return artwork.ResizePoster(data, width)
+}
+
+// TitlePosterStamp returns the deterministic stamp for a title's generated poster.
+func TitlePosterStamp(t *Title) (string, bool) {
+	p, ok := artwork.ForTitle(t)
+	if !ok {
+		return "", false
+	}
+	return p.Stamp(), true
+}
+
+// RenderTitlePoster renders Ether's fallback poster for a title with no artwork.
+func RenderTitlePoster(ctx context.Context, generated TitlePosterRenderer, t *Title, width int) ([]byte, string, bool, error) {
+	if generated == nil {
+		return nil, "", false, nil
+	}
+	p, ok := artwork.ForTitle(t)
+	if !ok {
+		return nil, "", false, nil
+	}
+	p.Width = width
+	data, ct, err := generated.Title(ctx, p)
+	if err != nil {
+		return nil, "", false, err
+	}
+	return data, ct, true, nil
 }

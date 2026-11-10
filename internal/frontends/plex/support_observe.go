@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed time.Duration) {
-	if s == nil || s.d.Support == nil || r == nil || sr == nil {
+	if s == nil || s.support == nil || r == nil || sr == nil {
 		return
 	}
 	pr := FromContext(r.Context())
@@ -23,7 +23,7 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 		}
 	}
 	kind := frontend.ClassifyDiagnosticRequest(r.URL.Path, status, sr.Header().Get("Content-Type"), sr.written)
-	recording := s.d.Support.Recording()
+	recording := s.support.Recording()
 	ev := s.supportEvent(pr, kind)
 	ev.Method = r.Method
 	ev.Route = r.URL.Path
@@ -32,7 +32,7 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 	ev.Range = supportRange(r.Header.Get("Range"))
 	if recording {
 		if kind != frontend.DiagnosticKindDevice {
-			s.d.Support.Observe(ev)
+			s.support.Observe(ev)
 		}
 		ev.Kind = frontend.DiagnosticKindRequest
 		ev.Client = s.supportClientFacts(pr, s.declaredCaps(pr), "request")
@@ -53,21 +53,21 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 		// above already re-kinds every event to a request.
 		ev.Kind = frontend.DiagnosticKindRequest
 	}
-	s.d.Support.Observe(ev)
+	s.support.Observe(ev)
 }
 
 func (s *Server) observePlaybackReported(pr *Request) {
-	if s == nil || s.d.Support == nil || pr == nil || pr.User == nil {
+	if s == nil || s.support == nil || pr == nil || pr.User == nil {
 		return
 	}
-	s.d.Support.Observe(s.supportEvent(pr, frontend.DiagnosticKindPlaybackReported))
+	s.support.Observe(s.supportEvent(pr, frontend.DiagnosticKindPlaybackReported))
 }
 
 // observePlaybackDecision records a structured resolution for the support
 // capture. Viewer identity follows the same explicit export flags as requests;
 // the structured playback object itself never carries usernames or addresses.
 func (s *Server) observePlaybackDecision(ctx context.Context, pr *Request, p *playRequest, ps *frontend.PlaySession) {
-	if s == nil || s.d.Support == nil || s.d.DecisionTraces == nil || pr == nil || p == nil {
+	if s == nil || s.support == nil || s.d.DecisionTraces == nil || pr == nil || p == nil {
 		return
 	}
 	tr, ok := s.d.DecisionTraces.LatestDecision(p.key)
@@ -103,7 +103,7 @@ func (s *Server) observePlaybackDecision(ctx context.Context, pr *Request, p *pl
 	if ev.SessionKey == "" && ps != nil {
 		ev.SessionKey = ps.ID
 	}
-	s.d.Support.Observe(ev)
+	s.support.Observe(ev)
 }
 
 func (s *Server) playbackVariants(pr *Request, key frontend.RatingKey, tr frontend.DecisionTrace, requested string, requestedPart int64) []frontend.DiagnosticPlaybackVariant {
@@ -166,7 +166,7 @@ func (s *Server) supportEvent(pr *Request, kind frontend.DiagnosticKind) fronten
 // Capture the authenticated receipt before a long media handler can block.
 // A start has no response status and does not imply successful delivery.
 func (s *Server) observePlaybackRequestStart(r *http.Request, pr *Request) {
-	if s.d.Support == nil || !s.d.Support.Recording() || pr == nil || pr.User == nil || !frontend.DiagnosticPlaybackRequestPath(r.URL.Path) {
+	if s.support == nil || !s.support.Recording() || pr == nil || pr.User == nil || !frontend.DiagnosticPlaybackRequestPath(r.URL.Path) {
 		return
 	}
 	pr.supportAttempt = rand.Text()
@@ -176,16 +176,16 @@ func (s *Server) observePlaybackRequestStart(r *http.Request, pr *Request) {
 	ev.Range = supportRange(r.Header.Get("Range"))
 	ev.Client = s.supportClientFacts(pr, s.declaredCaps(pr), "request")
 	ev.Client.Inputs = supportClientInputs(r)
-	s.d.Support.Observe(ev)
+	s.support.Observe(ev)
 }
 
 func (s *Server) observeClientAdmission(pr *Request, caps frontend.ClientCaps) {
-	if s.d.Support == nil || !s.d.Support.Recording() || pr == nil || pr.User == nil {
+	if s.support == nil || !s.support.Recording() || pr == nil || pr.User == nil {
 		return
 	}
 	ev := s.supportEvent(pr, frontend.DiagnosticKindClientCapabilities)
 	ev.Client = s.supportClientFacts(pr, caps, "admission")
-	s.d.Support.Observe(ev)
+	s.support.Observe(ev)
 }
 
 func (s *Server) supportClientFacts(pr *Request, effective frontend.ClientCaps, stage string) *frontend.DiagnosticClientFacts {

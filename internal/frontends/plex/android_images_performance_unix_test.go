@@ -62,9 +62,9 @@ func TestAndroidPosterPagePerformance(t *testing.T) {
 	}))
 	defer upstream.Close()
 	f := newFixture(func(d *Deps) {
-		d.ImageURL = func(path, size string) string { return upstream.URL + path }
 		d.HTTPClient = upstream.Client()
 	})
+	f.srv.setImageURL(func(path, size string) string { return upstream.URL + path })
 	defer f.srv.Close()
 	targets := make([]string, posters)
 	for i := 0; i < posters; i++ {

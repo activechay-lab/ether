@@ -65,7 +65,6 @@ func TestVersionBrowseMeasurement(t *testing.T) {
 		d.Config = func() config.Config { return cfg }
 		d.DisableEnrichment = true
 		d.Variants = vr
-		d.Hooks = Hooks{}
 	})
 	defer f.srv.Close()
 	titles := make([]core.Title, 200)

@@ -2,14 +2,42 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-// Frontend returns the frontend.LiveTVHost adapter for this service, or nil when s is nil.
-func (s *Service) Frontend() frontend.LiveTVHost {
+func init() {
+	frontend.RegisterLiveTVHelpers(
+		func(stage string, err error) frontend.LiveTVTuneDiagnosis {
+			d := Diagnose(stage, err)
+			return frontend.LiveTVTuneDiagnosis{
+				Code:           d.Code,
+				Stage:          d.Stage,
+				UpstreamStatus: d.UpstreamStatus,
+				RetryAfter:     d.RetryAfter,
+				Message:        d.Error(),
+				LogAttrs:       d.LogAttrs(),
+			}
+		},
+		func(err error) (string, error, bool) {
+			var dashErr *VirtualDASHError
+			if !errors.As(err, &dashErr) {
+				return "", nil, false
+			}
+			return dashErr.Message, dashErr.Err, true
+		},
+		func(c frontend.LiveTVChannel) (string, []byte, bool) {
+			return ShowcaseLogo(FromFrontendChannel(c))
+		},
+	)
+}
+
+// Frontend returns the frontend.LiveTV adapter for this service, or nil when s is nil.
+func (s *Service) Frontend() frontend.LiveTV {
 	if s == nil {
 		return nil
 	}
@@ -126,6 +154,47 @@ type liveTVHost struct {
 	s *Service
 }
 
+func (h liveTVHost) Channels(ctx context.Context, v *core.Viewer) ([]frontend.LiveChannel, error) {
+	cs, err := h.s.AllowedChannels(ctx, v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]frontend.LiveChannel, len(cs))
+	for i, c := range cs {
+		out[i] = frontend.LiveChannel{ID: c.ID, Number: c.Number, Name: c.Name, Kind: c.Kind, Logo: c.Logo, Rating: c.Rating, Group: c.Group, Favorite: c.Favorite}
+	}
+	return out, nil
+}
+
+func (h liveTVHost) Guide(ctx context.Context, v *core.Viewer, q frontend.LiveGuideQuery) ([]frontend.LiveProgramme, error) {
+	var ps []Programme
+	var err error
+	if len(q.Channels) > 0 {
+		ps, err = h.s.GuideForChannels(ctx, v, q.From, q.Until, q.Channels)
+	} else {
+		ps, err = h.s.Guide(ctx, v, q.From, q.Until)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]frontend.LiveProgramme, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, frontend.LiveProgramme{ID: p.ID, ChannelID: p.ChannelID, Start: p.Start, End: p.End, Item: p.Item.Key, Title: p.Item.Title, Summary: p.Item.Summary, Rating: p.Item.Rating, ShowTitle: p.Item.ShowTitle, EpisodeTitle: p.Item.EpisodeTitle, Season: p.Item.Season, Episode: p.Item.Episode})
+		if q.Limit > 0 && len(out) >= q.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (h liveTVHost) ResolveChannelGUID(context.Context, *core.Viewer, string) (frontend.LiveChannel, error) {
+	return frontend.LiveChannel{}, core.ErrNotFound
+}
+
+func (h liveTVHost) ResolveProgrammeGUID(context.Context, *core.Viewer, string, frontend.LiveGuideQuery) (frontend.LiveProgramme, error) {
+	return frontend.LiveProgramme{}, core.ErrNotFound
+}
+
 func (h liveTVHost) VisibleTo(ctx context.Context, u *frontend.User) bool {
 	return h.s.VisibleTo(ctx, u)
 }
@@ -186,7 +255,7 @@ func (h liveTVHost) ChannelForViewer(ctx context.Context, u *frontend.User, id s
 	return ToFrontendChannel(c), nil
 }
 
-func (h liveTVHost) Channels(ctx context.Context) ([]frontend.LiveTVChannel, error) {
+func (h liveTVHost) AllChannels(ctx context.Context) ([]frontend.LiveTVChannel, error) {
 	cs, err := h.s.Channels(ctx)
 	if err != nil {
 		return nil, err
@@ -210,7 +279,7 @@ func (h liveTVHost) GuideForChannels(ctx context.Context, u *frontend.User, from
 	return toFrontendProgrammes(ps), nil
 }
 
-func (h liveTVHost) Guide(ctx context.Context, u *frontend.User, from, until time.Time) ([]frontend.LiveTVProgramme, error) {
+func (h liveTVHost) GuideWindow(ctx context.Context, u *frontend.User, from, until time.Time) ([]frontend.LiveTVProgramme, error) {
 	ps, err := h.s.Guide(ctx, u, from, until)
 	if err != nil {
 		return nil, err
@@ -265,4 +334,8 @@ func (h liveTVHost) NoteClientActivity() {
 
 func (h liveTVHost) AuthenticateMediaGrant(r *http.Request, active func(context.Context, int64) *frontend.User) (*frontend.User, bool) {
 	return h.s.AuthenticateMediaGrant(r, active)
+}
+
+func (h liveTVHost) LogoKey() []byte {
+	return nil
 }

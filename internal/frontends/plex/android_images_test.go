@@ -32,9 +32,9 @@ func TestAndroidPhotoConnectionAndFormat(t *testing.T) {
 	for _, product := range []string{"Plex for Android (Mobile)", "Plex for Android (TV)", "Plex Web", "Plezy"} {
 		t.Run(product, func(t *testing.T) {
 			f := newFixture(func(d *Deps) {
-				d.ImageURL = func(path, size string) string { return upstream.URL + "/t/p/" + size + path }
 				d.HTTPClient = upstream.Client()
 			})
+			f.srv.setImageURL(func(path, size string) string { return upstream.URL + "/t/p/" + size + path })
 			defer f.srv.Close()
 
 			android := strings.HasPrefix(product, "Plex for Android")

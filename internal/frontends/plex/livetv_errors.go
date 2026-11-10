@@ -15,7 +15,7 @@ func (s *Server) writeLiveTuneError(w http.ResponseWriter, r *http.Request, err 
 	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
 		return
 	}
-	detail := s.d.ArtworkStores.DiagnoseLiveTV("tune", err)
+	detail := frontend.DiagnoseLiveTV("tune", err)
 	status := http.StatusServiceUnavailable
 	if errors.Is(err, frontend.ErrNotFound) {
 		status = http.StatusNotFound

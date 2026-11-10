@@ -1247,10 +1247,7 @@ func newFixture(opts ...func(*Deps)) *fixture {
 			return c
 		},
 		Identity: Identity{Version: "1.43.4.10903-e5521bd8c", Platform: "Linux", PlatformVersion: "6.1"},
-		Hooks: Hooks{OnTimeline: func(u *core.User, k core.RatingKey, off, dur time.Duration, state string) {
-			f.hooks <- fmt.Sprintf("%s %s %d %s", u.Username, k, off.Milliseconds(), state)
-		}},
-		Now: func() time.Time { return fixedNow },
+		Now:      func() time.Time { return fixedNow },
 	}
 	for _, o := range opts {
 		o(&d)
@@ -1456,14 +1453,17 @@ func (f *fixture) attachPlaybackBroker(d Deps) {
 		Playback: &fixturePlayback{f: f}, Transcoder: fixtureTranscoder{f: f}, Progress: fixtureProgress{f: f}, Trickplay: fixtureTrickplay{f: f}, ActiveViewer: active,
 		CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 },
 		OnTimeline: func(v *core.Viewer, key core.RatingKey, pos, dur time.Duration, state string) {
-			if d.Hooks.OnTimeline == nil || v == nil {
+			if v == nil {
 				return
 			}
 			u := *v
 			if u.Username == "" && u.ID == ownerUser.ID {
 				u = ownerUser
 			}
-			d.Hooks.OnTimeline(&u, key, pos, dur, state)
+			select {
+			case f.hooks <- fmt.Sprintf("%s %s %d %s", u.Username, key, pos.Milliseconds(), state):
+			default:
+			}
 		},
 		OpenSubtitle: func(id, format string) (io.ReadCloser, string, error) {
 			if f.srv == nil || f.srv.d.Subtitles == nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -48,6 +49,7 @@ func TestAppHomeDesignerLayoutUsesRealEngineAndStableSidecars(t *testing.T) {
 }
 
 type artworkProbe struct {
+	frontendtest.Artwork
 	calls    int
 	complete bool
 	err      error

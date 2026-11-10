@@ -49,14 +49,8 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 			if err != nil {
 				return nil, err
 			}
-			if deps.Support == nil && host.Support != nil {
-				deps.Support = host.Support
-			}
 			if deps.Logger == nil && host.Log != nil {
 				deps.Logger = host.Log
-			}
-			if deps.Hooks.OnClientSeen == nil && host.ClientSeen != nil {
-				deps.Hooks.OnClientSeen = host.ClientSeen
 			}
 			srv := NewServer(deps)
 			if deps.PlexStreams != nil {
@@ -77,6 +71,7 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 	}
 	if f.Server != nil {
 		f.Server.UsePlaybackBroker(host.Sessions)
+		f.Server.bindHost(host)
 	}
 	status := f.StatusFunc
 	if status == nil && host.Plex != nil {

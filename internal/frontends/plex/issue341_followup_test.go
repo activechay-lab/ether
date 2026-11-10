@@ -17,7 +17,8 @@ import (
 
 func TestIssue341ArtworkRecording(t *testing.T) {
 	rec := diagnostics.New(diagnostics.Deps{Now: func() time.Time { return fixedNow }})
-	f := newFixture(func(d *Deps) { d.Support = rec })
+	f := newFixture()
+	f.srv.setSupport(rec)
 	defer f.srv.Close()
 	f.get(t, "/library/metadata/"+fightClub.Key.String())
 	capture, err := rec.Start("owner", diagnostics.StartIn{DeviceID: rec.Devices()[0].ID})
@@ -127,7 +128,8 @@ func (c issue341CancelledCatalog) Get(ctx context.Context, k core.RatingKey) (*c
 
 func TestIssue341CancelledMetadataIsNotNotFound(t *testing.T) {
 	recorder := diagnostics.New(diagnostics.Deps{Now: func() time.Time { return fixedNow }})
-	f := newFixture(func(d *Deps) { d.Support = recorder })
+	f := newFixture()
+	f.srv.setSupport(recorder)
 	defer f.srv.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -43,7 +43,7 @@ func TestVirtualChannelDASHPlaysThroughPlexWeb(t *testing.T) {
 	if _, err = service.SaveChannel(context.Background(), channel); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.LiveTV = service.Frontend()
+	f.srv.setLiveTV(service.Frontend())
 	f.srv.d.Identity.MyPlexSubscription = true
 
 	tune := f.request(t, "POST", "/livetv/dvrs/1/channels/4/tune", map[string]string{"Accept": "application/json", "X-Plex-Product": "Plex Web", "X-Plex-Platform": "Chrome"})

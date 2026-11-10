@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/libraries"
 
 	"github.com/braedonsaunders/ether/internal/auth"
@@ -436,12 +436,11 @@ func assertUpgradeBoundary(t *testing.T) {
 
 func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth.Service, validator *upgradeValidator, titles func() (string, string)) {
 	t.Helper()
-	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), ArtworkStores: artworkservice.NewPlexArtworkStores(),
+	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(),
 		Auth:              users,
 		Config:            cfg.Get,
 		DB:                db,
 		DisableEnrichment: true,
-		ImageCacheBytes:   1 << 20,
 		LibraryTitles:     titles,
 		Logger:            discardLog(),
 		Now:               func() time.Time { return upgradeClock },
