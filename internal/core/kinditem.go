@@ -19,7 +19,7 @@ type ItemRef string
 
 // KindItem is the standardised plugin item envelope (spec §3.2).
 type KindItem struct {
-	Ref        ItemRef                    `json:"-"` // assigned by Ether, never sent to the plugin
+	Ref        ItemRef                    `json:"-"`  // assigned by Ether, never sent to the plugin
 	ID         string                     `json:"id"` // externalID
 	Level      string                     `json:"level"`
 	ParentID   string                     `json:"parentId,omitempty"`
@@ -103,4 +103,67 @@ func libraryKeySlug(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// PlayableSource is one candidate way to acquire bytes for a KindItem or one of
+// its parts (spec §4.1). Multiple sources are tried in order.
+type PlayableSource struct {
+	ID          string            `json:"id"`
+	Label       string            `json:"label,omitempty"`
+	Pattern     string            `json:"pattern"` // "range" | "download" | "direct" | "container" | "release"
+	MIME        string            `json:"mime"`
+	Size        int64             `json:"size,omitempty"`
+	DurationSec float64           `json:"durationSec,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	BlobRef     string            `json:"blobRef,omitempty"`
+	SHA256      string            `json:"sha256,omitempty"`
+	MaxBytes    int64             `json:"maxBytes,omitempty"`
+	Container   *ContainerRef     `json:"container,omitempty"`
+	Release     *ReleaseHint      `json:"release,omitempty"`
+}
+
+// ContainerRef describes an archive member inside one or more volume streams
+// (spec §4.1, §5.3).
+type ContainerRef struct {
+	Format         string      `json:"format,omitempty"` // "" (sniff) | "rar" | "7z" | "zip"
+	Volumes        []VolumeRef `json:"volumes"`
+	Member         string      `json:"member,omitempty"`
+	MemberIndex    *int        `json:"memberIndex,omitempty"`
+	PasswordSecret string      `json:"passwordSecret,omitempty"`
+}
+
+// VolumeRef locates one archive volume by URL or blobcache reference (spec §4.1).
+type VolumeRef struct {
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	BlobRef string            `json:"blobRef,omitempty"`
+	Size    int64             `json:"size"`
+}
+
+// ReleaseHint hands an NZB, magnet, infohash, or pre-built Candidate to Ether's
+// existing Usenet / debrid / torrent acquisition pipeline (spec §4.1, §4.3).
+type ReleaseHint struct {
+	NZBURL         string           `json:"nzbUrl,omitempty"`
+	Magnet         string           `json:"magnet,omitempty"`
+	InfoHash       string           `json:"infoHash,omitempty"`
+	Candidate      *SourceCandidate `json:"candidate,omitempty"`
+	FileHint       string           `json:"fileHint,omitempty"`
+	PasswordSecret string           `json:"passwordSecret,omitempty"`
+}
+
+// KindResolveRequest is the payload sent to a plugin's kind_resolve handler
+// (spec §4.1).
+type KindResolveRequest struct {
+	LibraryKey string         `json:"libraryKey"`
+	Item       KindItem       `json:"item"`
+	PartIndex  *int           `json:"partIndex,omitempty"`
+	Client     map[string]any `json:"client,omitempty"`
+}
+
+// KindResolveResponse is the response returned by a plugin's kind_resolve
+// handler (spec §4.1).
+type KindResolveResponse struct {
+	Sources []PlayableSource `json:"sources"`
+	TTLSec  int              `json:"ttlSec,omitempty"`
 }

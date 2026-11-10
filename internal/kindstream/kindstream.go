@@ -62,75 +62,12 @@ type ByteSource interface {
 	Close() error
 }
 
-// PlayableSource is one candidate way to acquire bytes for a KindItem or one of
-// its parts (spec §4.1). Multiple sources are tried in order.
-type PlayableSource struct {
-	ID          string            `json:"id"`
-	Label       string            `json:"label,omitempty"`
-	Pattern     string            `json:"pattern"` // "range" | "download" | "direct" | "container" | "release"
-	MIME        string            `json:"mime"`
-	Size        int64             `json:"size,omitempty"`
-	DurationSec float64           `json:"durationSec,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	BlobRef     string            `json:"blobRef,omitempty"`
-	SHA256      string            `json:"sha256,omitempty"`
-	MaxBytes    int64             `json:"maxBytes,omitempty"`
-	Container   *ContainerRef     `json:"container,omitempty"`
-	Release     *ReleaseHint      `json:"release,omitempty"`
-}
-
-// ContainerRef describes an archive member inside one or more volume streams
-// (spec §4.1, §5.3).
-type ContainerRef struct {
-	Format         string      `json:"format,omitempty"` // "" (sniff) | "rar" | "7z" | "zip"
-	Volumes        []VolumeRef `json:"volumes"`
-	Member         string      `json:"member,omitempty"`
-	MemberIndex    *int        `json:"memberIndex,omitempty"`
-	PasswordSecret string      `json:"passwordSecret,omitempty"`
-}
-
-// VolumeRef locates one archive volume by URL or blobcache reference (spec §4.1).
-type VolumeRef struct {
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	BlobRef string            `json:"blobRef,omitempty"`
-	Size    int64             `json:"size"`
-}
-
-// ReleaseHint hands an NZB, magnet, infohash, or pre-built Candidate to Ether's
-// existing Usenet / debrid / torrent acquisition pipeline (spec §4.1, §4.3).
-type ReleaseHint struct {
-	NZBURL         string                `json:"nzbUrl,omitempty"`
-	Magnet         string                `json:"magnet,omitempty"`
-	InfoHash       string                `json:"infoHash,omitempty"`
-	Candidate      *core.SourceCandidate `json:"candidate,omitempty"`
-	FileHint       string                `json:"fileHint,omitempty"`
-	PasswordSecret string                `json:"passwordSecret,omitempty"`
-}
-
-// KindResolveRequest is the payload sent to a plugin's kind_resolve handler
-// (spec §4.1).
-type KindResolveRequest struct {
-	LibraryKey string         `json:"libraryKey"`
-	Item       core.KindItem  `json:"item"`
-	PartIndex  *int           `json:"partIndex,omitempty"`
-	Client     map[string]any `json:"client,omitempty"`
-}
-
-// KindResolveResponse is the response returned by a plugin's kind_resolve
-// handler (spec §4.1).
-type KindResolveResponse struct {
-	Sources []PlayableSource `json:"sources"`
-	TTLSec  int              `json:"ttlSec,omitempty"`
-}
-
 // Deps supplies the runtime dependencies needed by Open and OpenSources
 // (spec §5.1).
 type Deps struct {
 	HTTP             *http.Client
 	Cache            *blobcache.Namespace
-	OpenRelease      func(ctx context.Context, r ReleaseHint) (core.MediaSource, error)
+	OpenRelease      func(ctx context.Context, r core.ReleaseHint) (core.MediaSource, error)
 	Secret           func(ctx context.Context, name string) (string, error)
 	AllowHost        func(host string) bool
 	MaxDownloadBytes int64
@@ -138,9 +75,9 @@ type Deps struct {
 	Backoff          *HostBackoff
 }
 
-// Open resolves a single PlayableSource into a random-access ByteSource
+// Open resolves a single core.PlayableSource into a random-access ByteSource
 // according to its retrieval pattern (spec §4.3, §5.1).
-func Open(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error) {
+func Open(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -181,7 +118,7 @@ func Open(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error
 		return openDirectSource(ctx, src, deps)
 	case PatternContainer:
 		if src.Container == nil {
-			return nil, errors.New("kindstream: container pattern requires ContainerRef")
+			return nil, errors.New("kindstream: container pattern requires core.ContainerRef")
 		}
 		return OpenContainer(ctx, *src.Container, src.MIME, src.MaxBytes, deps)
 	case PatternRelease:
@@ -191,18 +128,18 @@ func Open(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error
 	}
 }
 
-// OpenSources tries each candidate PlayableSource in order, returning the first
+// OpenSources tries each candidate core.PlayableSource in order, returning the first
 // ByteSource that opens and validates cleanly. When all candidates fail (or
 // sources is empty), OpenSources returns an error wrapping
 // core.ErrSourceUnavailable (spec §4.5).
-func OpenSources(ctx context.Context, sources []PlayableSource, deps Deps) (ByteSource, PlayableSource, error) {
+func OpenSources(ctx context.Context, sources []core.PlayableSource, deps Deps) (ByteSource, core.PlayableSource, error) {
 	if len(sources) == 0 {
-		return nil, PlayableSource{}, core.ErrSourceUnavailable
+		return nil, core.PlayableSource{}, core.ErrSourceUnavailable
 	}
 	var errs []error
 	for _, cand := range sources {
 		if err := ctx.Err(); err != nil {
-			return nil, PlayableSource{}, err
+			return nil, core.PlayableSource{}, err
 		}
 		bs, err := Open(ctx, cand, deps)
 		if err == nil {
@@ -210,10 +147,10 @@ func OpenSources(ctx context.Context, sources []PlayableSource, deps Deps) (Byte
 		}
 		errs = append(errs, fmt.Errorf("source %q (%s): %w", cand.ID, cand.Pattern, err))
 	}
-	return nil, PlayableSource{}, fmt.Errorf("%w: %v", core.ErrSourceUnavailable, errors.Join(errs...))
+	return nil, core.PlayableSource{}, fmt.Errorf("%w: %v", core.ErrSourceUnavailable, errors.Join(errs...))
 }
 
-func openRangeSource(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error) {
+func openRangeSource(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, error) {
 	tmpl, err := ParseURLTemplate(src.URL, deps.AllowHost)
 	if err != nil {
 		return nil, err
@@ -301,7 +238,7 @@ func downloadFromNoRangeResponse(
 	return readIntoMemoryByteSource(combined, limit, noRange.size, expectedSHA256, defaultNameFromURL(rawURL), resolvedMIME)
 }
 
-func openDownloadSource(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error) {
+func openDownloadSource(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, error) {
 	limit := effectiveDownloadMaxBytes(src.MaxBytes, deps)
 	if limit > 0 && src.Size > limit {
 		return nil, fmt.Errorf("%w: declared size %d exceeds limit %d", ErrSizeLimitExceeded, src.Size, limit)
@@ -416,14 +353,14 @@ func openDownloadSource(ctx context.Context, src PlayableSource, deps Deps) (Byt
 	return readIntoMemoryByteSource(resp.Body, limit, expectedSize, src.SHA256, name, src.MIME)
 }
 
-// DirectSource represents a validated "direct" PlayableSource. Callers that
+// DirectSource represents a validated "direct" core.PlayableSource. Callers that
 // support client redirects (spec §4.3) can extract the target URL via
 // DirectURL() and issue a 307 Temporary Redirect without proxying bytes; callers
 // that require a ByteSource stream (such as tests or local transcode bridges)
 // can call ReadAt, which lazily opens the underlying HTTP source.
 type DirectSource struct {
 	ctx     context.Context
-	src     PlayableSource
+	src     core.PlayableSource
 	deps    Deps
 	url     string
 	headers map[string]string
@@ -441,13 +378,13 @@ func (d *DirectSource) DirectURL() string { return d.url }
 func (d *DirectSource) DirectHeaders() map[string]string { return d.headers }
 
 // AsDirectSource extracts the *DirectSource if bs was opened from a "direct"
-// PlayableSource.
+// core.PlayableSource.
 func AsDirectSource(bs ByteSource) (*DirectSource, bool) {
 	d, ok := bs.(*DirectSource)
 	return d, ok
 }
 
-func openDirectSource(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error) {
+func openDirectSource(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, error) {
 	tmpl, err := ParseURLTemplate(src.URL, deps.AllowHost)
 	if err != nil {
 		return nil, err
@@ -523,9 +460,9 @@ func (d *DirectSource) Close() error {
 	return nil
 }
 
-func openReleaseSource(ctx context.Context, src PlayableSource, deps Deps) (ByteSource, error) {
+func openReleaseSource(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, error) {
 	if src.Release == nil {
-		return nil, errors.New("kindstream: release pattern requires ReleaseHint")
+		return nil, errors.New("kindstream: release pattern requires core.ReleaseHint")
 	}
 	if deps.OpenRelease == nil {
 		return nil, errors.New("kindstream: OpenRelease dependency is not configured")
@@ -700,7 +637,7 @@ func finalizeSourceMIME(src ByteSource, declaredMIME, fallbackName string) (Byte
 // If the upstream returned an HTML error page (text/html) when the plugin
 // declared a non-HTML type, or if positive magic bytes belong to a different
 // media family than declared (e.g. audio/* vs image/*), ErrMIMEMismatch is
-// returned so OpenSources falls back to the next PlayableSource.
+// returned so OpenSources falls back to the next core.PlayableSource.
 // When magic bytes identify a more specific MIME within the same family (e.g.
 // image/png when declared was image/jpeg), the sniffed MIME wins (spec §5.1).
 func verifyAndResolveMIME(head []byte, declared string, filename string) (string, error) {

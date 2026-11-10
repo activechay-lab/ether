@@ -30,13 +30,13 @@ type openLeafEntry struct {
 // (current + next), and prefetches the next leaf when a read crosses 90% of the
 // current leaf.
 type Sequence struct {
-	leaves     []Leaf
-	starts     []int64 // cumulative start offsets (len == len(leaves)+1)
-	totalSize  int64
-	concatOK   bool
-	concatErr  error
-	name       string
-	mime       string
+	leaves    []Leaf
+	starts    []int64 // cumulative start offsets (len == len(leaves)+1)
+	totalSize int64
+	concatOK  bool
+	concatErr error
+	name      string
+	mime      string
 
 	mu     sync.Mutex
 	closed bool

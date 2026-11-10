@@ -12,6 +12,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/archive"
 	"github.com/braedonsaunders/ether/internal/blobcache"
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // OpenContainer opens an archive container (RAR4/RAR5/7z/ZIP) over one or more
@@ -22,8 +23,8 @@ import (
 // extracting the archive. Compressed ZIP members are sequentially decoded into
 // deps.Cache via ExtractMember; undecodable compressed archives (such as
 // compressed RAR) fail with ErrMemberUndecodable so the caller can fall back to
-// the next PlayableSource.
-func OpenContainer(ctx context.Context, c ContainerRef, declaredMIME string, maxBytes int64, deps Deps) (ByteSource, error) {
+// the next core.PlayableSource.
+func OpenContainer(ctx context.Context, c core.ContainerRef, declaredMIME string, maxBytes int64, deps Deps) (ByteSource, error) {
 	if len(c.Volumes) == 0 {
 		return nil, errors.New("kindstream: container has no volumes")
 	}
@@ -129,7 +130,7 @@ func OpenContainer(ctx context.Context, c ContainerRef, declaredMIME string, max
 // internal/archive, ExtractMember returns ErrMemberUndecodable.
 func ExtractMember(
 	ctx context.Context,
-	c ContainerRef,
+	c core.ContainerRef,
 	format archive.Format,
 	selected archive.Member,
 	nonDirIdx int,
@@ -217,7 +218,7 @@ func ExtractMember(
 	}, nil
 }
 
-func openVolumeRef(ctx context.Context, v VolumeRef, maxBytes int64, deps Deps) (ByteSource, error) {
+func openVolumeRef(ctx context.Context, v core.VolumeRef, maxBytes int64, deps Deps) (ByteSource, error) {
 	if strings.TrimSpace(v.BlobRef) != "" {
 		if deps.Cache == nil {
 			return nil, errors.New("kindstream: volume references blobRef but Cache is nil")
@@ -268,11 +269,11 @@ func openVolumeRef(ctx context.Context, v VolumeRef, maxBytes int64, deps Deps) 
 	return nil, err
 }
 
-func ensureVolumeCached(ctx context.Context, v VolumeRef, maxBytes int64, deps Deps) (ByteSource, error) {
+func ensureVolumeCached(ctx context.Context, v core.VolumeRef, maxBytes int64, deps Deps) (ByteSource, error) {
 	if strings.TrimSpace(v.BlobRef) != "" {
 		return deps.Cache.Open(blobcache.Ref(strings.TrimSpace(v.BlobRef)))
 	}
-	ps := PlayableSource{
+	ps := core.PlayableSource{
 		Pattern:  PatternDownload,
 		URL:      v.URL,
 		Headers:  v.Headers,
@@ -449,7 +450,7 @@ func memberDisplayName(p string) string {
 	return base
 }
 
-func containerExtractCacheKey(c ContainerRef, memberName string, nonDirIdx, itemIdx int) string {
+func containerExtractCacheKey(c core.ContainerRef, memberName string, nonDirIdx, itemIdx int) string {
 	h := sha256.New()
 	for _, v := range c.Volumes {
 		_, _ = io.WriteString(h, v.BlobRef)

@@ -94,8 +94,8 @@ func buildMinimalCompressedRAR() []byte {
 	// packSize (4), unpSize (4), hostOS (1), fileCRC (4), ftime (4), unpVer (1), method (1), nameSize (2), attr (4)
 	var meta [25]byte
 	meta[0] = byte(len(packed))
-	meta[4] = 100  // unpSize = 100
-	meta[17] = 29  // unpVer
+	meta[4] = 100   // unpSize = 100
+	meta[17] = 29   // unpVer
 	meta[18] = 0x33 // method = m3 (compressed!)
 	meta[19] = byte(len(name))
 	fileBody = append(fileBody, meta[:]...)
@@ -247,7 +247,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 			}
 			return "", fmt.Errorf("unknown secret %q", name)
 		},
-		OpenRelease: func(ctx context.Context, r ReleaseHint) (core.MediaSource, error) {
+		OpenRelease: func(ctx context.Context, r core.ReleaseHint) (core.MediaSource, error) {
 			if r.InfoHash == "archive-rar-release" {
 				return &fakeMediaSource{
 					id:   "rel-rar",
@@ -266,12 +266,12 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 	// 1. Table test across all 5 retrieval patterns.
 	patterns := []struct {
 		name    string
-		source  PlayableSource
+		source  core.PlayableSource
 		checkFn func(t *testing.T, bs ByteSource)
 	}{
 		{
 			name: "pattern=range",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:      "src-range",
 				Pattern: PatternRange,
 				MIME:    "application/octet-stream",
@@ -286,7 +286,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 		},
 		{
 			name: "pattern=download",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:       "src-download",
 				Pattern:  PatternDownload,
 				MIME:     "application/octet-stream",
@@ -298,7 +298,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 		},
 		{
 			name: "pattern=direct",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:      "src-direct",
 				Pattern: PatternDirect,
 				MIME:    "application/octet-stream",
@@ -318,13 +318,13 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 		},
 		{
 			name: "pattern=container (store-mode single RAR over HTTP)",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:      "src-container-rar",
 				Pattern: PatternContainer,
 				MIME:    "application/octet-stream",
-				Container: &ContainerRef{
+				Container: &core.ContainerRef{
 					Format: "rar",
-					Volumes: []VolumeRef{
+					Volumes: []core.VolumeRef{
 						{URL: srv.URL + "/archive/single.rar", Size: int64(len(rarSingleBytes))},
 					},
 					Member: "payload_a.bin",
@@ -333,12 +333,12 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 		},
 		{
 			name: "pattern=container (store-mode multi-volume RAR over HTTP)",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:      "src-container-multirar",
 				Pattern: PatternContainer,
 				MIME:    "application/octet-stream",
-				Container: &ContainerRef{
-					Volumes: []VolumeRef{
+				Container: &core.ContainerRef{
+					Volumes: []core.VolumeRef{
 						{URL: srv.URL + "/archive/part01.rar", Size: int64(len(rarPart1Bytes))},
 						{URL: srv.URL + "/archive/part02.rar", Size: int64(len(rarPart2Bytes))},
 					},
@@ -348,22 +348,22 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 		},
 		{
 			name: "pattern=release (direct MediaSource)",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:      "src-release",
 				Pattern: PatternRelease,
 				MIME:    "application/octet-stream",
-				Release: &ReleaseHint{
+				Release: &core.ReleaseHint{
 					InfoHash: "abc12345",
 				},
 			},
 		},
 		{
 			name: "pattern=release+container composition (RAR release)",
-			source: PlayableSource{
+			source: core.PlayableSource{
 				ID:      "src-release-rar",
 				Pattern: PatternRelease,
 				MIME:    "video/mp4",
-				Release: &ReleaseHint{
+				Release: &core.ReleaseHint{
 					InfoHash: "archive-rar-release",
 					FileHint: "payload_a.bin",
 				},
@@ -411,7 +411,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 
 	// 2. URL template placeholders ({itemIndex}, {pageNumber}, {byteStart}, {byteEnd}, {byteRange}).
 	t.Run("URLTemplatePlaceholders", func(t *testing.T) {
-		src1 := PlayableSource{
+		src1 := core.PlayableSource{
 			ID:      "tmpl-start-end",
 			Pattern: PatternRange,
 			MIME:    "application/octet-stream",
@@ -435,7 +435,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 			t.Fatalf("expanded URL path = %q, want /template/i-4/p-5?start=1000&end=1127", got)
 		}
 
-		src2 := PlayableSource{
+		src2 := core.PlayableSource{
 			ID:      "tmpl-byterange",
 			Pattern: PatternRange,
 			MIME:    "application/octet-stream",
@@ -463,7 +463,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 	// 3. Range-less upstream demotion from range to download.
 	t.Run("RangeDemotionToDownload", func(t *testing.T) {
 		// When MaxBytes is too small, range demotion must fail.
-		tooSmall := PlayableSource{
+		tooSmall := core.PlayableSource{
 			ID:       "demote-too-large",
 			Pattern:  PatternRange,
 			MIME:     "application/octet-stream",
@@ -475,7 +475,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 		}
 
 		// When within MaxBytes, range automatically demotes to download into blobcache.
-		allowed := PlayableSource{
+		allowed := core.PlayableSource{
 			ID:       "demote-ok",
 			Pattern:  PatternRange,
 			MIME:     "application/octet-stream",
@@ -498,7 +498,7 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 
 	// 4. Compressed-zip member extraction into blobcache + undecodable compressed RAR fallback + HTML MIME mismatch fallback.
 	t.Run("CompressedZIPExtractionAndFallback", func(t *testing.T) {
-		sources := []PlayableSource{
+		sources := []core.PlayableSource{
 			// Candidate 1: Upstream returns an HTML error page for an image/binary source -> ErrMIMEMismatch
 			{
 				ID:      "bad-html",
@@ -511,9 +511,9 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 				ID:      "undecodable-rar",
 				Pattern: PatternContainer,
 				MIME:    "application/octet-stream",
-				Container: &ContainerRef{
+				Container: &core.ContainerRef{
 					Format: "rar",
-					Volumes: []VolumeRef{
+					Volumes: []core.VolumeRef{
 						{URL: srv.URL + "/archive/compressed.rar", Size: int64(len(rarCompressedBytes))},
 					},
 					Member: "compressed.bin",
@@ -524,9 +524,9 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 				ID:      "deflate-zip",
 				Pattern: PatternContainer,
 				MIME:    "application/octet-stream",
-				Container: &ContainerRef{
+				Container: &core.ContainerRef{
 					Format: "zip",
-					Volumes: []VolumeRef{
+					Volumes: []core.VolumeRef{
 						{URL: srv.URL + "/archive/deflate.zip", Size: int64(len(zipDeflateBytes))},
 					},
 					Member: "book/payload_a.bin",
@@ -645,13 +645,13 @@ func TestKindStreamAllPatternsAndAcceptance(t *testing.T) {
 
 	// 6. Loopback transcode bridge helper.
 	t.Run("ServeLoopbackForTranscode", func(t *testing.T) {
-		bs, err := Open(ctx, PlayableSource{
+		bs, err := Open(ctx, core.PlayableSource{
 			ID:      "src-zip-stored",
 			Pattern: PatternContainer,
 			MIME:    "application/octet-stream",
-			Container: &ContainerRef{
+			Container: &core.ContainerRef{
 				Format: "zip",
-				Volumes: []VolumeRef{
+				Volumes: []core.VolumeRef{
 					{URL: srv.URL + "/archive/stored.zip", Size: int64(len(zipStoredBytes))},
 				},
 				Member: "book/payload_a.bin",
