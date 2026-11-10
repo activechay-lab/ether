@@ -718,12 +718,29 @@ func (s *Service) checkVirtualWindow(c Channel, from, until time.Time) error {
 
 // The frame planner reuses background availability gating too; polling its
 // upcoming window must not turn a large recipe into a continuous SQL sweep.
-func (s *Service) plannedChannel(c Channel) Channel {
+//
+// Playout must schedule from the same gated channel the guide was served
+// from. Snapshots are lazy and evicted when idle, so a tune can arrive with
+// no entry: build/await the snapshot (the planner worker may block briefly)
+// rather than fall back to the ungated channel, whose extra titles shift
+// every programme after them away from the guide the viewer is holding. If
+// the snapshot still cannot be had, gate exactly as its build does.
+func (s *Service) plannedChannel(ctx context.Context, c Channel) Channel {
 	s.virtualGuide.mu.RLock()
 	entry := s.virtualGuide.entries[c.ID]
 	s.virtualGuide.mu.RUnlock()
+	if entry == nil && c.Kind == "virtual" && c.Personal == nil {
+		if _, err := s.withVirtualGuide(ctx, []Channel{c}); err == nil {
+			s.virtualGuide.mu.RLock()
+			entry = s.virtualGuide.entries[c.ID]
+			s.virtualGuide.mu.RUnlock()
+		}
+	}
 	if entry != nil && entry.channel.Personal == nil {
 		return entry.playbackChannel
+	}
+	if c.Kind == "virtual" && c.Personal == nil {
+		return s.guideChannel(ctx, c)
 	}
 	return c
 }
