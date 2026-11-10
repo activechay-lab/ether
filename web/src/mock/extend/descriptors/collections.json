@@ -211,6 +211,23 @@
   },
   {
     "kind": "collectionSource",
+    "id": "friendsWatchlist",
+    "owner": "builtin",
+    "label": {
+      "source": "Friends' watchlists"
+    },
+    "hint": {
+      "source": "Titles from your configured Plex Friends' Watchlist RSS feed"
+    },
+    "icon": "users",
+    "order": 35,
+    "meta": {
+      "editor": "none",
+      "defaults": {}
+    }
+  },
+  {
+    "kind": "collectionSource",
     "id": "tmdbPerson",
     "owner": "builtin",
     "label": {

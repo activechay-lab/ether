@@ -116,6 +116,7 @@ export function SecretInput({
   id,
   ariaLabel,
   invalid,
+  disabled,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -123,6 +124,7 @@ export function SecretInput({
   id?: string;
   ariaLabel?: string;
   invalid?: boolean;
+  disabled?: boolean;
 }) {
   const isStored =
     value === REDACTED || value === "Saved" || /^https?:\/\/[^\s]+ \(saved\)$/.test(value);
@@ -133,6 +135,7 @@ export function SecretInput({
           id={id}
           aria-label={ariaLabel}
           aria-invalid={invalid || undefined}
+          disabled={disabled}
           type="text"
           value={value}
           placeholder={placeholder}
@@ -146,6 +149,7 @@ export function SecretInput({
           id={id}
           aria-label={ariaLabel}
           aria-invalid={invalid || undefined}
+          disabled={disabled}
           value={value}
           placeholder={placeholder}
           autoComplete="new-password"
@@ -297,7 +301,8 @@ export function Segmented<T extends string>({
                 onChange(next.value);
                 (
                   e.currentTarget.parentElement?.children[options.indexOf(next)] as
-                    HTMLElement | undefined
+                    | HTMLElement
+                    | undefined
                 )?.focus();
               }
             }}

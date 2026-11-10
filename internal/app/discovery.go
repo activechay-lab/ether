@@ -32,14 +32,47 @@ func (a *App) buildDiscovery() {
 	if a.cache != nil {
 		sourceCache = a.cache
 	}
-	a.watchlist = watchlist.New(a.db, watchlist.Options{Logger: a.log.With("component", "watchlist"), Catalog: a.catalog, Resolver: sourceResolver, Engine: sourceEngine, Cache: sourceCache, Trakt: a.trakt, Users: a.users.Users, Allowed: a.safety.Allowed, Notifier: a.notifications, Tokens: a.discoveryToken, ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier), PrewarmBytes: a.cfg.Get().Cache.PrefetchBytes, ResumeSchedule: a.clustered(), OnAvailable: func(ctx context.Context, userID int64, key core.RatingKey) {
-		if a.sessionEvents == nil {
-			return
+	a.watchlist = watchlist.New(a.db, watchlist.Options{
+		Logger:           a.log.With("component", "watchlist"),
+		Sealer:           a.cfg,
+		Catalog:          a.catalog,
+		Resolver:         sourceResolver,
+		Engine:           sourceEngine,
+		Cache:            sourceCache,
+		Trakt:            a.trakt,
+		Users:            a.users.Users,
+		Allowed:          a.safety.Allowed,
+		Notifier:         a.notifications,
+		Tokens:           a.discoveryToken,
+		ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier),
+		PrewarmBytes:     a.cfg.Get().Cache.PrefetchBytes,
+		ResumeSchedule:   a.clustered(), // a new leader continues the schedule
+		OnAvailable: func(ctx context.Context, userID int64, key core.RatingKey) {
+			if a.sessionEvents == nil {
+				return
+			}
+			if err := a.sessionEvents.Publish(ctx, frontend.Event{Type: "LibraryChanged", ViewerID: userID, Item: key}); err != nil && a.log != nil {
+				a.log.Warn("watchlist available event", "err", err)
+			}
+		},
+		OnFriendsRSSChanged: func(ctx context.Context) {
+			if a.collections != nil {
+				if err := a.collections.SyncFriendsWatchlist(ctx); err != nil && a.log != nil {
+					a.log.Warn("watchlist friends collection sync failed", "err", err)
+				}
+			}
+			if a.personalize != nil {
+				a.personalize.InvalidateOwnerRows()
+			}
+		},
+	})
+	if a.collections != nil {
+		ensureCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.collections.EnsureFriendsWatchlist(ensureCtx); err != nil && a.log != nil {
+			a.log.Warn("watchlist friends collection startup check failed", "err", err)
 		}
-		if err := a.sessionEvents.Publish(ctx, frontend.Event{Type: "LibraryChanged", ViewerID: userID, Item: key}); err != nil && a.log != nil {
-			a.log.Warn("watchlist available event", "err", err)
-		}
-	}}) // a new leader continues the schedule
+		cancel()
+	}
 	a.discoveryPersonal = personalize.NewDiscovery(a.db, a.catalog, a.state, a.safety.Allowed)
 	a.discoveryPersonal.NotInterested = a.notInterestedSignals
 	a.overlays = overlays.New(a.db, overlays.Options{CacheDir: filepath.Join(a.opts.DataDir, "cache", "overlays"), Images: a.images, Allowed: a.safety.Allowed, Ratings: a.ratings, FactsFor: a.overlayFacts, Variants: a.artworkVariants, Taste: func(ctx context.Context, u *core.User) []string {

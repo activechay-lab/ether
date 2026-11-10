@@ -49,9 +49,10 @@ type OnceNotifier interface {
 }
 
 // episodeRange returns the first and the newest released regular episodes
-// of a show or season that u may see. Specials (season 0) air out of order
-// and are often missing from indexers, so they are never "newest" and are
-// "first" only for a show with nothing else released.
+// of a show or season that u may see (or any non-adult episode when u == nil).
+// Specials (season 0) air out of order and are often missing from indexers,
+// so they are never "newest" and are "first" only for a show with nothing
+// else released.
 func (s *Service) episodeRange(ctx context.Context, u *core.User, t *core.Title) (first, newest *core.Title, err error) {
 	var episodes []core.Title
 	if t.Type == core.TypeSeason {
@@ -72,7 +73,7 @@ func (s *Service) episodeRange(ctx context.Context, u *core.User, t *core.Title)
 		if t.Adult {
 			e.Adult = true
 		}
-		if !e.IsReleased(now) || !s.allowed(u, e) {
+		if !e.IsReleased(now) || !s.allowedForSet(u, e) {
 			continue
 		}
 		if e.Season <= 0 {
@@ -100,7 +101,7 @@ func (s *Service) episodeKnown(ctx context.Context, userID int64, show, episode 
 	return known, err
 }
 
-// recordEpisode marks an episode handled for a viewer.
+// recordEpisode marks an episode handled for a viewer or household set.
 func (s *Service) recordEpisode(ctx context.Context, userID int64, show, episode core.RatingKey) error {
 	_, err := s.claimEpisode(ctx, userID, show, episode)
 	return err
@@ -117,14 +118,22 @@ func (s *Service) claimEpisode(ctx context.Context, userID int64, show, episode 
 	return n == 1, err
 }
 
-// newEpisode looks for a release of an available show's newest episode.
-// Once one is found, one transaction records the episode for the viewer and
-// (with alerts on, the first time any viewer finds it) creates its pending
+func (s *Service) newEpisode(ctx context.Context, cfg Settings, u *core.User, show, episode *core.Title) error {
+	var userID int64
+	if u != nil {
+		userID = u.ID
+	}
+	return s.newEpisodeForSet(ctx, cfg, userID, u, show, episode)
+}
+
+// newEpisodeForSet looks for a release of an available show's newest episode.
+// Once one is found, one transaction records the episode for the set and
+// (with alerts on, the first time any watchlist finds it) creates its pending
 // alert; the alert is then queued, and the episode prewarmed separately.
 // Until a release exists the show is checked again on the next due pass.
-func (s *Service) newEpisode(ctx context.Context, cfg Settings, u *core.User, show, episode *core.Title) error {
-	res, e := s.resolve(ctx, u, episode)
-	if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET checked=? WHERE user_id=? AND item_key=?`, s.o.Now().Unix(), u.ID, show.Key); err != nil {
+func (s *Service) newEpisodeForSet(ctx context.Context, cfg Settings, userID int64, resolveUser *core.User, show, episode *core.Title) error {
+	res, e := s.resolve(ctx, resolveUser, episode)
+	if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET checked=? WHERE user_id=? AND item_key=?`, s.o.Now().Unix(), userID, show.Key); err != nil {
 		return err
 	}
 	if e != nil || res == nil {
@@ -136,7 +145,7 @@ func (s *Service) newEpisode(ctx context.Context, cfg Settings, u *core.User, sh
 		return err
 	}
 	defer tx.Rollback()
-	rec, err := tx.ExecContext(ctx, `INSERT INTO watchlist_episodes(user_id,item_key,episode_key,at) VALUES(?,?,?,?) ON CONFLICT(user_id,item_key,episode_key) DO NOTHING`, u.ID, show.Key, episode.Key, now)
+	rec, err := tx.ExecContext(ctx, `INSERT INTO watchlist_episodes(user_id,item_key,episode_key,at) VALUES(?,?,?,?) ON CONFLICT(user_id,item_key,episode_key) DO NOTHING`, userID, show.Key, episode.Key, now)
 	if err != nil {
 		return err
 	}
@@ -159,7 +168,7 @@ func (s *Service) newEpisode(ctx context.Context, cfg Settings, u *core.User, sh
 		return err
 	}
 	if s.o.OnAvailable != nil {
-		s.o.OnAvailable(ctx, u.ID, episode.Key)
+		s.o.OnAvailable(ctx, userID, episode.Key)
 	}
 	if alert {
 		if err := s.sendAlert(ctx, episode.Key, episodeLabel(show, episode), now); err != nil {

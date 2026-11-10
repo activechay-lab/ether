@@ -1,5 +1,5 @@
 // Package watchlist ingests authorized viewers' watchlists and lazily checks
-// their release availability. It never adds content or writes to Plex/Trakt.
+// their release availability.
 package watchlist
 
 import (
@@ -11,10 +11,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/egress"
@@ -23,6 +25,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/schedule"
 	"github.com/braedonsaunders/ether/internal/store"
 )
+
+const Redacted = "••••"
 
 func init() {
 	store.Register("watchlist", 1, `
@@ -42,20 +46,25 @@ type Notifier interface {
 	TitleAvailable(context.Context, string) error
 }
 type Settings struct {
-	Enabled           bool `json:"enabled"`
-	Plex              bool `json:"plex"`
-	Trakt             bool `json:"trakt"`
-	Notify            bool `json:"notify"`
-	Prewarm           bool `json:"prewarm"`
-	CheckHours        int  `json:"checkHours"`
-	NaturalSearch     bool `json:"naturalSearch"`
-	Recaps            bool `json:"recaps"`
-	SubtitleTranslate bool `json:"subtitleTranslate"`
-	SpeechToText      bool `json:"speechToText"`
-	OverviewTranslate bool `json:"overviewTranslate"`
+	Enabled              bool           `json:"enabled"`
+	Plex                 bool           `json:"plex"`
+	PlexFriendsRSSURL    string         `json:"plexFriendsRssUrl"`
+	PlexOwnerRSSURL      string         `json:"plexOwnerRssUrl"`
+	PlexFriendsRSSStatus *RSSFeedStatus `json:"plexFriendsRssStatus,omitempty"`
+	PlexOwnerRSSStatus   *RSSFeedStatus `json:"plexOwnerRssStatus,omitempty"`
+	Trakt                bool           `json:"trakt"`
+	Notify               bool           `json:"notify"`
+	Prewarm              bool           `json:"prewarm"`
+	CheckHours           int            `json:"checkHours"`
+	NaturalSearch        bool           `json:"naturalSearch"`
+	Recaps               bool           `json:"recaps"`
+	SubtitleTranslate    bool           `json:"subtitleTranslate"`
+	SpeechToText         bool           `json:"speechToText"`
+	OverviewTranslate    bool           `json:"overviewTranslate"`
 }
 type Options struct {
 	Logger           *slog.Logger
+	Sealer           config.FieldSealer
 	Catalog          core.Catalog
 	Resolver         core.Resolver
 	Engine           core.Engine
@@ -81,6 +90,8 @@ type Options struct {
 	// OnAvailable runs when a watchlist title first becomes playable.
 	// The key is the movie, show, or newly released episode.
 	OnAvailable func(context.Context, int64, core.RatingKey)
+	// OnFriendsRSSChanged runs when the household "Friends' watchlists" set changes.
+	OnFriendsRSSChanged func(context.Context)
 }
 type Service struct {
 	db  *sql.DB
@@ -130,10 +141,16 @@ func New(db *sql.DB, o Options) *Service {
 	}
 	return &Service{db: db, o: o}
 }
-func (s *Service) Settings(ctx context.Context) (Settings, error) {
+
+func (s *Service) memoKey() string { return fmt.Sprintf("watchlist:settings:%p", s) }
+
+func friendsRSSContext() []string { return []string{"watchlist_settings", "plexFriendsRssUrl", "1"} }
+func ownerRSSContext() []string   { return []string{"watchlist_settings", "plexOwnerRssUrl", "1"} }
+
+func (s *Service) settings(ctx context.Context) (Settings, error) {
 	v := Settings{Plex: true, Trakt: true, CheckHours: 6}
 	// Every item of a list asks: read the row once per request.
-	row, err := reqmemo.Do(ctx, "watchlist:settings", func() (*string, error) {
+	row, err := reqmemo.Do(ctx, s.memoKey(), func() (*string, error) {
 		var raw string
 		err := s.db.QueryRowContext(ctx, `SELECT value FROM watchlist_settings WHERE id=1`).Scan(&raw)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -147,22 +164,154 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	if row == nil {
 		return v, nil
 	}
-	raw := *row
-	err = json.Unmarshal([]byte(raw), &v)
-	return v, err
+	if err = json.Unmarshal([]byte(*row), &v); err != nil {
+		return v, err
+	}
+	if v.PlexFriendsRSSURL, _, err = config.OpenWith(s.o.Sealer, v.PlexFriendsRSSURL, friendsRSSContext()...); err != nil {
+		return v, fmt.Errorf("watchlist: stored friends RSS URL: %w", err)
+	}
+	if v.PlexOwnerRSSURL, _, err = config.OpenWith(s.o.Sealer, v.PlexOwnerRSSURL, ownerRSSContext()...); err != nil {
+		return v, fmt.Errorf("watchlist: stored owner RSS URL: %w", err)
+	}
+	v.PlexFriendsRSSStatus = nil
+	v.PlexOwnerRSSStatus = nil
+	return v, nil
 }
+
+func (s *Service) encodeSettings(v Settings) (string, error) {
+	var err error
+	v.PlexFriendsRSSStatus = nil
+	v.PlexOwnerRSSStatus = nil
+	if v.PlexFriendsRSSURL, err = config.SealWith(s.o.Sealer, v.PlexFriendsRSSURL, friendsRSSContext()...); err != nil {
+		return "", fmt.Errorf("watchlist: seal friends RSS URL: %w", err)
+	}
+	if v.PlexOwnerRSSURL, err = config.SealWith(s.o.Sealer, v.PlexOwnerRSSURL, ownerRSSContext()...); err != nil {
+		return "", fmt.Errorf("watchlist: seal owner RSS URL: %w", err)
+	}
+	raw, err := json.Marshal(v)
+	return string(raw), err
+}
+
+// MigrateSecrets seals RSS URLs stored in plaintext; it returns 1 when it
+// rewrote the settings row. Unreadable rows are left untouched.
+func (s *Service) MigrateSecrets(ctx context.Context) (int, error) {
+	if s == nil || s.db == nil || s.o.Sealer == nil {
+		return 0, nil
+	}
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM watchlist_settings WHERE id=1`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var v Settings
+	if err = json.Unmarshal([]byte(raw), &v); err != nil {
+		return 0, err
+	}
+	friendsPlain, friendsLegacy, err := config.OpenWith(s.o.Sealer, v.PlexFriendsRSSURL, friendsRSSContext()...)
+	if err != nil {
+		return 0, fmt.Errorf("watchlist: stored friends RSS URL left unchanged: %w", err)
+	}
+	ownerPlain, ownerLegacy, err := config.OpenWith(s.o.Sealer, v.PlexOwnerRSSURL, ownerRSSContext()...)
+	if err != nil {
+		return 0, fmt.Errorf("watchlist: stored owner RSS URL left unchanged: %w", err)
+	}
+	if !friendsLegacy && !ownerLegacy {
+		return 0, nil
+	}
+	v.PlexFriendsRSSURL = friendsPlain
+	v.PlexOwnerRSSURL = ownerPlain
+	next, err := s.encodeSettings(v)
+	if err != nil || next == raw {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE watchlist_settings SET value=? WHERE id=1 AND value=?`, next, raw)
+	if err != nil {
+		return 0, err
+	}
+	reqmemo.Forget(ctx, s.memoKey())
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (s *Service) Settings(ctx context.Context) (Settings, error) {
+	v, err := s.settings(ctx)
+	if err != nil {
+		return v, err
+	}
+	v.PlexFriendsRSSStatus = s.feedStatus(ctx, v.PlexFriendsRSSURL, metaKeyFriendsRSS)
+	v.PlexOwnerRSSStatus = s.feedStatus(ctx, v.PlexOwnerRSSURL, metaKeyOwnerRSS)
+	if v.PlexFriendsRSSURL != "" {
+		v.PlexFriendsRSSURL = Redacted
+	}
+	if v.PlexOwnerRSSURL != "" {
+		v.PlexOwnerRSSURL = Redacted
+	}
+	return v, nil
+}
+
 func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
-	reqmemo.Forget(ctx, "watchlist:settings")
+	reqmemo.Forget(ctx, s.memoKey())
 	if v.CheckHours < 1 || v.CheckHours > 168 {
 		return errors.New("check interval must be between 1 and 168 hours")
 	}
-	raw, err := json.Marshal(v)
+	old, err := s.settings(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO watchlist_settings(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value`, string(raw))
-	return err
+	if v.PlexFriendsRSSURL == Redacted {
+		if old.PlexFriendsRSSURL == "" {
+			return errors.New("enter the Friends' Watchlist RSS URL")
+		}
+		v.PlexFriendsRSSURL = old.PlexFriendsRSSURL
+	} else {
+		v.PlexFriendsRSSURL = strings.TrimSpace(v.PlexFriendsRSSURL)
+		if err := validateRSSURL(v.PlexFriendsRSSURL); err != nil {
+			return err
+		}
+	}
+	if v.PlexOwnerRSSURL == Redacted {
+		if old.PlexOwnerRSSURL == "" {
+			return errors.New("enter Your Watchlist RSS URL")
+		}
+		v.PlexOwnerRSSURL = old.PlexOwnerRSSURL
+	} else {
+		v.PlexOwnerRSSURL = strings.TrimSpace(v.PlexOwnerRSSURL)
+		if err := validateRSSURL(v.PlexOwnerRSSURL); err != nil {
+			return err
+		}
+	}
+	raw, err := s.encodeSettings(v)
+	if err != nil {
+		return err
+	}
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO watchlist_settings(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value`, raw); err != nil {
+		return err
+	}
+	reqmemo.Forget(ctx, s.memoKey())
+	if v.PlexFriendsRSSURL != old.PlexFriendsRSSURL {
+		if v.PlexFriendsRSSURL == "" {
+			if err := s.clearFeedSource(ctx, sourcePlexFriendsRSS, metaKeyFriendsRSS); err != nil {
+				return err
+			}
+		} else {
+			s.resetFeedMeta(ctx, metaKeyFriendsRSS)
+		}
+	}
+	if v.PlexOwnerRSSURL != old.PlexOwnerRSSURL {
+		if v.PlexOwnerRSSURL == "" {
+			if err := s.clearFeedSource(ctx, sourcePlexOwnerRSS, metaKeyOwnerRSS); err != nil {
+				return err
+			}
+		} else {
+			s.resetFeedMeta(ctx, metaKeyOwnerRSS)
+		}
+	}
+	return nil
 }
+
 func (s *Service) allowed(u *core.User, t *core.Title) bool {
 	if u == nil || t == nil || t.Adult || contentrating.Exceeds(t.ContentRating, u.MaxContentRating) {
 		return false
@@ -182,6 +331,16 @@ func (s *Service) allowed(u *core.User, t *core.Title) bool {
 	}
 	return s.o.Allowed == nil || s.o.Allowed(u, t)
 }
+
+// allowedForSet applies viewer rules when u != nil, and household safety
+// (non-adult) when u == nil (the shared Friends' watchlists set).
+func (s *Service) allowedForSet(u *core.User, t *core.Title) bool {
+	if u != nil {
+		return s.allowed(u, t)
+	}
+	return t != nil && !t.Adult
+}
+
 func (s *Service) Remind(ctx context.Context, u *core.User, key core.RatingKey) error {
 	t, err := s.o.Catalog.Get(ctx, key)
 	if err != nil {
@@ -326,7 +485,7 @@ func (s *Service) replace(ctx context.Context, u *core.User, source string, ts [
 
 // Sync preserves the last successful snapshot when an upstream fails.
 func (s *Service) Sync(ctx context.Context, u *core.User) error {
-	cfg, err := s.Settings(ctx)
+	cfg, err := s.settings(ctx)
 	if err != nil {
 		return err
 	}
@@ -363,12 +522,23 @@ func (s *Service) Sync(ctx context.Context, u *core.User) error {
 	}
 	return errors.Join(errs...)
 }
+
 func (s *Service) Items(ctx context.Context, u *core.User) ([]Item, error) {
-	out := []Item{}
 	if u == nil {
-		return out, core.ErrUnauthorized
+		return []Item{}, core.ErrUnauthorized
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT title,source,added,checked,available FROM watchlist_items WHERE user_id=? ORDER BY added DESC,item_key`, u.ID)
+	return s.itemsForUser(ctx, u.ID, u)
+}
+
+// HouseholdItems returns released titles in the shared "Friends' watchlists"
+// set (user_id=0) for availability monitoring and inspection.
+func (s *Service) HouseholdItems(ctx context.Context) ([]Item, error) {
+	return s.itemsForUser(ctx, householdUserID, nil)
+}
+
+func (s *Service) itemsForUser(ctx context.Context, userID int64, policyUser *core.User) ([]Item, error) {
+	out := []Item{}
+	rows, err := s.db.QueryContext(ctx, `SELECT title,source,added,checked,available FROM watchlist_items WHERE user_id=? ORDER BY added DESC,item_key`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -381,11 +551,21 @@ func (s *Service) Items(ctx context.Context, u *core.User) ([]Item, error) {
 			return nil, err
 		}
 		var t core.Title
-		if json.Unmarshal([]byte(raw), &t) != nil || !t.IsReleased(s.o.Now()) || !s.allowed(u, &t) {
+		if json.Unmarshal([]byte(raw), &t) != nil || !t.IsReleased(s.o.Now()) || !s.allowedForSet(policyUser, &t) {
 			continue
 		}
 		if i, ok := byKey[t.Key]; ok {
 			out[i].Sources = append(out[i].Sources, source)
+			if checked > 0 {
+				if ct := time.Unix(checked, 0); out[i].CheckedAt.IsZero() || ct.After(out[i].CheckedAt) {
+					out[i].CheckedAt = ct
+				}
+			}
+			if available > 0 {
+				if at := time.Unix(available, 0); out[i].AvailableAt.IsZero() || at.Before(out[i].AvailableAt) {
+					out[i].AvailableAt = at
+				}
+			}
 			continue
 		}
 		it := Item{Title: t, Sources: []string{source}, AddedAt: time.Unix(added, 0)}
@@ -410,18 +590,38 @@ func (s *Service) Items(ctx context.Context, u *core.User) ([]Item, error) {
 func (s *Service) Check(ctx context.Context, u *core.User) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cfg, err := s.Settings(ctx)
+	cfg, err := s.settings(ctx)
 	if err != nil || !cfg.Enabled || s.o.Resolver == nil {
 		return err
-	}
-	if cfg.Notify {
-		if err := s.retryAlerts(ctx); err != nil {
-			return err
-		}
 	}
 	items, err := s.Items(ctx, u)
 	if err != nil {
 		return err
+	}
+	return s.checkSet(ctx, cfg, u.ID, u, u, items)
+}
+
+// CheckHousehold checks availability and prefetches releases for the shared
+// "Friends' watchlists" set within the same per-pass 20-title budget.
+func (s *Service) CheckHousehold(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg, err := s.settings(ctx)
+	if err != nil || !cfg.Enabled || s.o.Resolver == nil {
+		return err
+	}
+	items, err := s.HouseholdItems(ctx)
+	if err != nil {
+		return err
+	}
+	return s.checkSet(ctx, cfg, householdUserID, nil, s.ownerOrNil(ctx), items)
+}
+
+func (s *Service) checkSet(ctx context.Context, cfg Settings, userID int64, policyUser, resolveUser *core.User, items []Item) error {
+	if cfg.Notify {
+		if err := s.retryAlerts(ctx); err != nil {
+			return err
+		}
 	}
 	checked := 0
 	for _, it := range items {
@@ -432,7 +632,7 @@ func (s *Service) Check(ctx context.Context, u *core.User) error {
 		if fresh, e := s.o.Catalog.Get(ctx, t.Key); e == nil && fresh != nil {
 			t = *fresh
 		}
-		if !s.allowed(u, &t) || !t.IsReleased(s.o.Now()) {
+		if !s.allowedForSet(policyUser, &t) || !t.IsReleased(s.o.Now()) {
 			continue
 		}
 		resolveTitle := &t
@@ -440,14 +640,14 @@ func (s *Service) Check(ctx context.Context, u *core.User) error {
 		isShow := t.Type == core.TypeShow || t.Type == core.TypeSeason
 		if isShow {
 			var e error
-			if first, newest, e = s.episodeRange(ctx, u, &t); e != nil || first == nil {
+			if first, newest, e = s.episodeRange(ctx, policyUser, &t); e != nil || first == nil {
 				continue
 			}
 			resolveTitle = first
 		}
 		pending := false // a newer episode of an available show awaits a release
 		if isShow && !it.AvailableAt.IsZero() && newest != nil {
-			known, e := s.episodeKnown(ctx, u.ID, t.Key, newest.Key)
+			known, e := s.episodeKnown(ctx, userID, t.Key, newest.Key)
 			if e != nil {
 				return e
 			}
@@ -462,44 +662,44 @@ func (s *Service) Check(ctx context.Context, u *core.User) error {
 		}
 		checked++
 		if pending {
-			if err := s.newEpisode(ctx, cfg, u, &t, newest); err != nil {
+			if err := s.newEpisodeForSet(ctx, cfg, userID, resolveUser, &t, newest); err != nil {
 				return err
 			}
 			continue
 		}
 		wasAvailable := !it.AvailableAt.IsZero()
-		res, e := s.resolve(ctx, u, resolveTitle)
+		res, e := s.resolve(ctx, resolveUser, resolveTitle)
 		now := s.o.Now().Unix()
-		if _, err = s.db.ExecContext(ctx, `UPDATE watchlist_items SET checked=? WHERE user_id=? AND item_key=?`, now, u.ID, t.Key); err != nil {
+		if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET checked=? WHERE user_id=? AND item_key=?`, now, userID, t.Key); err != nil {
 			return err
 		}
 		if errors.Is(e, core.ErrNotAvailable) {
-			if _, err = s.db.ExecContext(ctx, `UPDATE watchlist_items SET available=0,notified=0,warmed=0 WHERE user_id=? AND item_key=?`, u.ID, t.Key); err != nil {
+			if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET available=0,notified=0,warmed=0 WHERE user_id=? AND item_key=?`, userID, t.Key); err != nil {
 				return err
 			}
 		}
 		if e != nil || res == nil {
 			continue
 		}
-		if _, err = s.db.ExecContext(ctx, `UPDATE watchlist_items SET available=CASE WHEN available=0 THEN ? ELSE available END,title=? WHERE user_id=? AND item_key=?`, now, mustTitle(t), u.ID, t.Key); err != nil {
+		if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET available=CASE WHEN available=0 THEN ? ELSE available END,title=? WHERE user_id=? AND item_key=?`, now, mustTitle(t), userID, t.Key); err != nil {
 			return err
 		}
 		if !wasAvailable && s.o.OnAvailable != nil {
-			s.o.OnAvailable(ctx, u.ID, t.Key)
+			s.o.OnAvailable(ctx, userID, t.Key)
 		}
 		if newest != nil {
 			// The show's episodes so far count as seen: only later ones are new.
-			if err := s.recordEpisode(ctx, u.ID, t.Key, newest.Key); err != nil {
+			if err := s.recordEpisode(ctx, userID, t.Key, newest.Key); err != nil {
 				return err
 			}
 		}
 		var notified, warmed int
-		if err = s.db.QueryRowContext(ctx, `SELECT MAX(notified),MAX(warmed) FROM watchlist_items WHERE user_id=? AND item_key=?`, u.ID, t.Key).Scan(&notified, &warmed); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT MAX(notified),MAX(warmed) FROM watchlist_items WHERE user_id=? AND item_key=?`, userID, t.Key).Scan(&notified, &warmed); err != nil {
 			return err
 		}
 		if cfg.Notify && notified == 0 && s.o.Notifier != nil {
 			if e := s.o.Notifier.TitleAvailable(ctx, t.Title); e == nil {
-				_, err = s.db.ExecContext(ctx, `UPDATE watchlist_items SET notified=1 WHERE user_id=? AND item_key=?`, u.ID, t.Key)
+				_, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET notified=1 WHERE user_id=? AND item_key=?`, userID, t.Key)
 				if err != nil {
 					return err
 				}
@@ -507,7 +707,7 @@ func (s *Service) Check(ctx context.Context, u *core.User) error {
 		}
 		if cfg.Prewarm && warmed == 0 && s.o.Engine != nil {
 			if s.prewarm(ctx, res) == nil {
-				_, err = s.db.ExecContext(ctx, `UPDATE watchlist_items SET warmed=1 WHERE user_id=? AND item_key=?`, u.ID, t.Key)
+				_, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET warmed=1 WHERE user_id=? AND item_key=?`, userID, t.Key)
 				if err != nil {
 					return err
 				}
@@ -545,7 +745,7 @@ func (s *Service) prewarm(ctx context.Context, res *core.Resolution) error {
 
 func mustTitle(t core.Title) string { raw, _ := json.Marshal(t); return string(raw) }
 func (s *Service) Hubs(ctx context.Context, u *core.User, limit int) ([]core.Hub, error) {
-	cfg, err := s.Settings(ctx)
+	cfg, err := s.settings(ctx)
 	if err != nil || !cfg.Enabled {
 		return nil, err
 	}
@@ -577,9 +777,10 @@ func (s *Service) Hubs(ctx context.Context, u *core.User, limit int) ([]core.Hub
 }
 
 // Run is cancelled by the app; individual viewers are isolated and bounded.
-// Run passes over every viewer (watchlist sync and availability check) at
-// once and then every SyncInterval; with ResumeSchedule the first pass
-// waits out the interval since the last recorded pass.
+// Run passes over every viewer (watchlist sync and availability check) plus
+// the shared household Friends' watchlists set at once and then every
+// SyncInterval; with ResumeSchedule the first pass waits out the interval
+// since the last recorded pass.
 func (s *Service) Run(ctx context.Context) {
 	if !schedule.Wait(ctx, s.o.Now, s.untilDue(ctx)) {
 		return
@@ -587,13 +788,22 @@ func (s *Service) Run(ctx context.Context) {
 
 	run := func() {
 		defer s.recordPass(ctx)
-		if s.o.Users == nil {
+		var us []core.User
+		if s.o.Users != nil {
+			var err error
+			us, err = s.o.Users(ctx)
+			if err != nil {
+				return
+			}
+		}
+		if ctx.Err() != nil {
 			return
 		}
-		us, err := s.o.Users(ctx)
-		if err != nil {
-			return
+		feedJob, feedCancel := context.WithTimeout(ctx, 3*time.Minute)
+		if err := s.syncRSSUsers(feedJob, us); err != nil {
+			s.o.Logger.Warn("watchlist rss sync failed", "err", err)
 		}
+		feedCancel()
 		for i := range us {
 			if ctx.Err() != nil {
 				return
@@ -607,6 +817,14 @@ func (s *Service) Run(ctx context.Context) {
 			}
 			cancel()
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		houseJob, houseCancel := context.WithTimeout(ctx, 3*time.Minute)
+		if err := s.CheckHousehold(houseJob); err != nil {
+			s.o.Logger.Warn("watchlist household check failed", "err", err)
+		}
+		houseCancel()
 	}
 	for ctx.Err() == nil {
 		run()
@@ -642,6 +860,23 @@ func (s *Service) recordPass(ctx context.Context) {
 		s.o.Logger.Warn("watchlist: record pass failed", "err", err)
 	}
 }
+
+func (s *Service) ownerOrNil(ctx context.Context) *core.User {
+	if s.o.Users == nil {
+		return nil
+	}
+	users, err := s.o.Users(ctx)
+	if err != nil {
+		return nil
+	}
+	for i := range users {
+		if users[i].IsOwner {
+			return &users[i]
+		}
+	}
+	return nil
+}
+
 func (s *Service) user(ctx context.Context, id int64) (*core.User, error) {
 	if s.o.Users == nil {
 		return nil, core.ErrNotFound

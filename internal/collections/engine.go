@@ -9,6 +9,7 @@ import (
 	"hash/fnv"
 	"math/rand/v2"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1137,12 +1138,14 @@ type personalRules struct {
 	unshared map[core.RatingKey]bool
 }
 
-// filterForUser applies a user's content-rating limit and personal rules
-// (watched, in progress) to built members.
+// filterForUser applies a user's library access, content-rating limit and
+// personal rules (watched, in progress) to built members.
 func (s *Service) filterForUser(ctx context.Context, keys []core.RatingKey, pr personalRules, user *core.User, snap *snapshot) []core.RatingKey {
 	max := ""
+	allowedLibs := false
 	if user != nil {
 		max = user.MaxContentRating
+		allowedLibs = len(user.AllowedLibraries) > 0
 	}
 	include, exclude := pr.include, pr.exclude
 	personal := len(include)+len(exclude) > 0
@@ -1153,7 +1156,7 @@ func (s *Service) filterForUser(ctx context.Context, keys []core.RatingKey, pr p
 			exposure = f
 		}
 	}
-	if max == "" && !personal && exposure == nil {
+	if max == "" && !personal && exposure == nil && !allowedLibs {
 		return keys
 	}
 	var statuses map[core.RatingKey]core.WatchStatus
@@ -1170,6 +1173,15 @@ func (s *Service) filterForUser(ctx context.Context, keys []core.RatingKey, pr p
 	ec := &evalCtx{now: s.now(), status: statuses}
 	out := make([]core.RatingKey, 0, len(keys))
 	for _, k := range keys {
+		if allowedLibs {
+			section := core.LibraryMovies
+			if k.Kind() != core.KindMovie {
+				section = core.LibraryShows
+			}
+			if !slices.Contains(user.AllowedLibraries, section) {
+				continue
+			}
+		}
 		var e *entry
 		if snap != nil {
 			e = snap.entries[k]
