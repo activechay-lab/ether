@@ -3978,6 +3978,7 @@
     "one": "{count} nový stream za tuto hodinu.",
     "other": "{count} nových streamů za tuto hodinu."
   },
+  "m_0e4c362c6fcb95": "Automaticky stáhnout titulky při spuštění přehrávání",
   "m_0e4d48c7e3420d": "Preferovaný jazyk, jiný region",
   "m_0e4d86e3c47baf": "Časové pásmo přehrávání",
   "m_0e4e507a5957a2": "Nejrychlejší start vybere zdroj, který se spouštěl rychleji. Nejprve Usenet a Nejprve Debrid rozhodují jen mezi rovnocennými vydáními. Možnosti Vždy upřednostní daný zdroj bez ohledu na kvalitu, s náhradou, když se nic nepřehraje.",
@@ -5643,6 +5644,7 @@
   "m_13cad2673500b4": "Žádné API dotazy · {period}",
   "m_13cc128f69897c": "Kdy",
   "m_13cdaeb8011811": "Vyhodnocuje se při každém dotazu Plexu",
+  "m_13cf34bbe61f6c": "Když nastavení titulků diváka vyžaduje titulky a žádné v jeho jazyce nejsou k dispozici, Ether jedny stáhne, jakmile se video začne přehrávat. Spotřebuje jedno stažení z OpenSubtitles na titul a diváka, takže standardní účty mohou vyčerpat limit dříve.",
   "m_13d31f2812bd82": "250 nejlepších pořadů IMDb",
   "m_13d63bca31825b": "Připnuté",
   "m_13d8ac75310228": "Neměňte, pokud se aplikace Plex odmítá připojit.",

@@ -3798,6 +3798,7 @@
     "one": "{count} nieuwe stream dit uur.",
     "other": "{count} nieuwe streams dit uur."
   },
+  "m_0e4c362c6fcb95": "Automatisch een ondertitel downloaden zodra het afspelen start",
   "m_0e4d48c7e3420d": "Voorkeurstaal, andere regio",
   "m_0e4d86e3c47baf": "Tijdzone voor afspelen",
   "m_0e4e507a5957a2": "Snelste start kiest de bron die sneller is gestart. Usenet eerst en Debrid eerst beslissen alleen tussen gelijkwaardige releases. De Altijd-opties geven die bron voorrang ongeacht de kwaliteit, met terugval als niets afspeelt.",
@@ -5363,6 +5364,7 @@
   "m_13cad2673500b4": "Geen API-aanroepen · {period}",
   "m_13cc128f69897c": "Wanneer",
   "m_13cdaeb8011811": "Beoordeeld wanneer Plex erom vraagt",
+  "m_13cf34bbe61f6c": "Wanneer de ondertitelinstelling van een kijker om ondertitels vraagt en er geen in zijn taal beschikbaar zijn, downloadt Ether er één zodra de video begint te spelen. Gebruikt één OpenSubtitles-download per titel per kijker, waardoor standaardaccounts sneller door hun tegoed heen kunnen raken.",
   "m_13d31f2812bd82": "IMDb Top 250-shows",
   "m_13d63bca31825b": "Vastgepind",
   "m_13d8ac75310228": "Laat dit met rust, tenzij een Plex-app geen verbinding wil maken.",

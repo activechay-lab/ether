@@ -3807,6 +3807,7 @@
     "one": "{count} new stream this hour.",
     "other": "{count} new streams this hour."
   },
+  "m_0e4c362c6fcb95": "Download a subtitle automatically when playback starts",
   "m_0e4d48c7e3420d": "Preferred language, other region",
   "m_0e4d86e3c47baf": "Playback timezone",
   "m_0e4e507a5957a2": "Start fastest picks whichever source has been quicker to start. Usenet first and Debrid first only decide between equal releases. The Always choices prefer that source regardless of quality, with fallback when nothing plays.",
@@ -5372,6 +5373,7 @@
   "m_13cad2673500b4": "No API hits · {period}",
   "m_13cc128f69897c": "When",
   "m_13cdaeb8011811": "Evaluated whenever Plex asks",
+  "m_13cf34bbe61f6c": "When a viewer's subtitle setting asks for subtitles and none in their language is available, Ether downloads one once the video starts playing. Uses one OpenSubtitles download per title per viewer, so standard accounts may run out sooner.",
   "m_13d31f2812bd82": "IMDb Top 250 Shows",
   "m_13d63bca31825b": "Pinned",
   "m_13d8ac75310228": "Leave this alone unless a Plex app refuses to connect.",

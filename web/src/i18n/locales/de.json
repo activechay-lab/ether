@@ -3798,6 +3798,7 @@
     "one": "{count} neuer Stream in dieser Stunde.",
     "other": "{count} neue Streams in dieser Stunde."
   },
+  "m_0e4c362c6fcb95": "Untertitel beim Start der Wiedergabe automatisch herunterladen",
   "m_0e4d48c7e3420d": "Bevorzugte Sprache, andere Region",
   "m_0e4d86e3c47baf": "Zeitzone der Wiedergabe",
   "m_0e4e507a5957a2": "Schnellster Start wählt die Quelle, die zuletzt schneller gestartet ist. Usenet zuerst und Debrid zuerst entscheiden nur zwischen gleichwertigen Releases. Die Optionen „Immer“ bevorzugen diese Quelle unabhängig von der Qualität, mit Ausweichen, wenn nichts abspielbar ist.",
@@ -5363,6 +5364,7 @@
   "m_13cad2673500b4": "Keine API-Zugriffe · {period}",
   "m_13cc128f69897c": "Wann",
   "m_13cdaeb8011811": "Wird bei jeder Plex-Anfrage ausgewertet",
+  "m_13cf34bbe61f6c": "Wenn die Untertiteleinstellung eines Zuschauers Untertitel anfordert und keine in seiner Sprache verfügbar sind, lädt Ether einen herunter, sobald das Video abgespielt wird. Verbraucht einen OpenSubtitles-Download pro Titel und Zuschauer, sodass Standardkonten schneller erschöpft sein können.",
   "m_13d31f2812bd82": "Die 250 besten Serien auf IMDb",
   "m_13d63bca31825b": "Angeheftet",
   "m_13d8ac75310228": "Lass das so, außer eine Plex-App verweigert die Verbindung.",

@@ -3978,6 +3978,7 @@
     "one": "{count} nowy strumień w tej godzinie.",
     "other": "{count} nowego strumienia w tej godzinie."
   },
+  "m_0e4c362c6fcb95": "Pobierz napisy automatycznie po rozpoczęciu odtwarzania",
   "m_0e4d48c7e3420d": "Preferowany język, inny region",
   "m_0e4d86e3c47baf": "Strefa czasowa odtwarzania",
   "m_0e4e507a5957a2": "Najszybszy start wybiera źródło, które szybciej rozpoczęło odtwarzanie. Najpierw Usenet i Najpierw Debrid rozstrzygają tylko między równorzędnymi wydaniami. Opcje Zawsze preferują dane źródło niezależnie od jakości, z przełączeniem, gdy nic nie działa.",
@@ -5643,6 +5644,7 @@
   "m_13cad2673500b4": "Brak wywołań API · {period}",
   "m_13cc128f69897c": "Kiedy",
   "m_13cdaeb8011811": "Obliczane przy każdym zapytaniu Plex",
+  "m_13cf34bbe61f6c": "Gdy ustawienie napisów widza wymaga napisów, a żadne w jego języku nie są dostępne, Ether pobiera jedne, gdy tylko wideo zacznie się odtwarzać. Zużywa jedno pobranie z OpenSubtitles na tytuł i na widza, więc standardowe konta mogą szybciej wyczerpać limit.",
   "m_13d31f2812bd82": "IMDb 250 najlepszych programów",
   "m_13d63bca31825b": "Przypięte",
   "m_13d8ac75310228": "Nie zmieniaj tego, chyba że aplikacja Plex odmawia połączenia.",

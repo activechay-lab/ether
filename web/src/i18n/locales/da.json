@@ -3798,6 +3798,7 @@
     "one": "{count} ny stream i denne time.",
     "other": "{count} nye streams i denne time."
   },
+  "m_0e4c362c6fcb95": "Hent automatisk en undertekst, når afspilningen starter",
   "m_0e4d48c7e3420d": "Foretrukket sprog, anden region",
   "m_0e4d86e3c47baf": "Afspilningstidszone",
   "m_0e4e507a5957a2": "Hurtigste start vælger den kilde, der har været hurtigst at starte. Usenet først og Debrid først afgør kun mellem lige gode udgivelser. Valgene Altid foretrækker den kilde uanset kvalitet, med reserve, hvis intet kan afspilles.",
@@ -5363,6 +5364,7 @@
   "m_13cad2673500b4": "Ingen API-kald · {period}",
   "m_13cc128f69897c": "Hvornår",
   "m_13cdaeb8011811": "Vurderes, hver gang Plex spørger",
+  "m_13cf34bbe61f6c": "Når en seers undertekstindstilling beder om undertekster, og der ikke findes nogen på deres sprog, henter Ether en, så snart videoen begynder at afspille. Bruger én OpenSubtitles-download pr. titel pr. seer, så standardkonti kan løbe tør tidligere.",
   "m_13d31f2812bd82": "IMDb Top 250-shows",
   "m_13d63bca31825b": "Fastgjort",
   "m_13d8ac75310228": "Lad det være, medmindre en Plex-app nægter at oprette forbindelse.",

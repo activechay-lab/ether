@@ -1223,6 +1223,17 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 },
                 kind: "secret",
               },
+              {
+                key: "automaticPreferred",
+                label: {
+                  source: "Download a subtitle automatically when playback starts",
+                },
+                help: {
+                  source:
+                    "When a viewer's subtitle setting asks for subtitles and none in their language is available, Ether downloads one once the video starts playing. Uses one OpenSubtitles download per title per viewer, so standard accounts may run out sooner.",
+                },
+                kind: "bool",
+              },
             ],
           },
         ],

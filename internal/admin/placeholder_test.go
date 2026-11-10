@@ -98,8 +98,11 @@ func TestPlaceholderSaveRequiresUnchangedDestination(t *testing.T) {
 	if code, body := put("llm", `{"model":"m2"}`); code != 200 || store.Get().LLM.APIKey != "fresh-llm" {
 		t.Fatalf("model edit: %d %s %+v", code, body, store.Get().LLM)
 	}
-	if code, body := put("opensubtitles", `{"enabled":true}`); code != 200 || store.Get().OpenSubtitles.Password != "os-pw" {
-		t.Fatalf("opensubtitles edit: %d %s", code, body)
+	if code, body := put("opensubtitles", `{"enabled":true,"automaticPreferred":true}`); code != 200 || store.Get().OpenSubtitles.Password != "os-pw" || !store.Get().OpenSubtitles.AutomaticPreferred {
+		t.Fatalf("opensubtitles edit: %d %s %+v", code, body, store.Get().OpenSubtitles)
+	}
+	if code, body := put("opensubtitles", `{"enabled":false}`); code != 200 || store.Get().OpenSubtitles.Password != "os-pw" || !store.Get().OpenSubtitles.AutomaticPreferred {
+		t.Fatalf("opensubtitles disable preserve automaticPreferred: %d %s %+v", code, body, store.Get().OpenSubtitles)
 	}
 }
 

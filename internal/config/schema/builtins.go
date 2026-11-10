@@ -153,6 +153,7 @@ func Builtins() []Builtin {
 				{Key: "apiKey", Label: extend.T("API key"), Kind: KindSecret},
 				{Key: "username", Label: extend.T("Username"), Kind: KindText},
 				{Key: "password", Label: extend.T("Password"), Kind: KindSecret},
+				{Key: "automaticPreferred", Label: extend.T("Download a subtitle automatically when playback starts"), Kind: KindBool, Help: extend.T("When a viewer's subtitle setting asks for subtitles and none in their language is available, Ether downloads one once the video starts playing. Uses one OpenSubtitles download per title per viewer, so standard accounts may run out sooner.")},
 			}},
 		}}},
 		// UPDATES

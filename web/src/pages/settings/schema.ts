@@ -650,6 +650,14 @@ export const OPENSUBTITLES: FieldGroup[] = localized(() => [
       { key: "apiKey", label: t("API key"), kind: "secret" },
       { key: "username", label: t("Username"), kind: "text" },
       { key: "password", label: t("Password"), kind: "secret" },
+      {
+        key: "automaticPreferred",
+        label: t("Download a subtitle automatically when playback starts"),
+        kind: "bool",
+        help: t(
+          "When a viewer's subtitle setting asks for subtitles and none in their language is available, Ether downloads one once the video starts playing. Uses one OpenSubtitles download per title per viewer, so standard accounts may run out sooner.",
+        ),
+      },
     ],
   },
 ]);

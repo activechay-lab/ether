@@ -3798,6 +3798,7 @@
     "one": "Bu saatte {count} yeni akış.",
     "other": "Bu saatte {count} yeni akış."
   },
+  "m_0e4c362c6fcb95": "Oynatma başladığında otomatik olarak bir altyazı indir",
   "m_0e4d48c7e3420d": "Tercih edilen dil, farklı bölge",
   "m_0e4d86e3c47baf": "Oynatma saat dilimi",
   "m_0e4e507a5957a2": "En hızlı başlangıç, başlaması daha hızlı olan kaynağı seçer. Önce Usenet ve Önce Debrid yalnızca eşit sürümler arasında karar verir. Her zaman seçenekleri kaliteden bağımsız olarak o kaynağı tercih eder; hiçbir şey oynatılamazsa diğerine geçer.",
@@ -5363,6 +5364,7 @@
   "m_13cad2673500b4": "API çağrısı yok · {period}",
   "m_13cc128f69897c": "Ne zaman",
   "m_13cdaeb8011811": "Plex her istediğinde değerlendirilir",
+  "m_13cf34bbe61f6c": "Bir izleyicinin altyazı ayarı altyazı istediğinde ve kendi dilinde hiç altyazı olmadığında, video oynatılmaya başlar başlamaz Ether bir tane indirir. Başlık ve izleyici başına bir OpenSubtitles indirmesi kullanır; bu nedenle standart hesapların kotası daha erken dolabilir.",
   "m_13d31f2812bd82": "IMDb'nin En İyi 250 Dizisi",
   "m_13d63bca31825b": "Sabitlenenler",
   "m_13d8ac75310228": "Bir Plex uygulaması bağlanmayı reddetmedikçe buna dokunmayın.",

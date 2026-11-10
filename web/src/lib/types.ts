@@ -416,6 +416,7 @@ export interface EtherConfig {
     apiKey: string;
     username: string;
     password: string;
+    automaticPreferred?: boolean;
   };
   llm: {
     enabled: boolean;

@@ -461,7 +461,13 @@ function defaultConfig(): EtherConfig {
     },
     trakt: { enabled: false, clientId: "", clientSecret: "" },
     plexServers: { enabled: true },
-    openSubtitles: { enabled: false, apiKey: "", username: "", password: "" },
+    openSubtitles: {
+      enabled: false,
+      apiKey: "",
+      username: "",
+      password: "",
+      automaticPreferred: false,
+    },
     llm: { enabled: true, provider: "ollama", baseUrl: "", apiKey: "", model: "llama3" },
     updates: {
       enabled: true,

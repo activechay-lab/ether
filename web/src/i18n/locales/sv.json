@@ -3798,6 +3798,7 @@
     "one": "{count} ny ström den här timmen.",
     "other": "{count} nya strömmar den här timmen."
   },
+  "m_0e4c362c6fcb95": "Ladda ner en undertext automatiskt när uppspelningen startar",
   "m_0e4d48c7e3420d": "Önskat språk, annan region",
   "m_0e4d86e3c47baf": "Uppspelningstidszon",
   "m_0e4e507a5957a2": "Snabbast start väljer den källa som har startat snabbast. Usenet först och Debrid först avgör bara mellan likvärdiga releaser. Alternativen Alltid föredrar den källan oavsett kvalitet, med reservväg när inget spelas upp.",
@@ -5363,6 +5364,7 @@
   "m_13cad2673500b4": "Inga API-anrop · {period}",
   "m_13cc128f69897c": "När",
   "m_13cdaeb8011811": "Utvärderas varje gång Plex frågar",
+  "m_13cf34bbe61f6c": "När en tittares undertextinställning begär undertexter och ingen finns tillgänglig på deras språk laddar Ether ner en så snart videon börjar spelas. Använder en OpenSubtitles-nedladdning per titel och tittare, så standardkonton kan ta slut tidigare.",
   "m_13d31f2812bd82": "IMDb Topp 250-program",
   "m_13d63bca31825b": "Fästa",
   "m_13d8ac75310228": "Låt det vara om inte en Plex-app vägrar ansluta.",

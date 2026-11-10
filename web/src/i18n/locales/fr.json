@@ -3888,6 +3888,7 @@
     "one": "{count} nouveau flux cette heure.",
     "other": "{count} nouveaux flux cette heure."
   },
+  "m_0e4c362c6fcb95": "Télécharger automatiquement des sous-titres au début de la lecture",
   "m_0e4d48c7e3420d": "Langue préférée, autre région",
   "m_0e4d86e3c47baf": "Fuseau horaire de lecture",
   "m_0e4e507a5957a2": "Démarrage le plus rapide choisit la source qui a démarré le plus vite. Usenet d’abord et Debrid d’abord ne départagent que des releases équivalentes. Les choix Toujours privilégient cette source quelle que soit la qualité, avec repli si rien ne se lit.",
@@ -5503,6 +5504,7 @@
   "m_13cad2673500b4": "Aucun appel API · {period}",
   "m_13cc128f69897c": "Quand",
   "m_13cdaeb8011811": "Évalué à chaque requête de Plex",
+  "m_13cf34bbe61f6c": "Lorsque le réglage des sous-titres d'un spectateur demande des sous-titres et qu'aucun n'est disponible dans sa langue, Ether en télécharge un dès que la vidéo commence à jouer. Utilise un téléchargement OpenSubtitles par titre et par spectateur, de sorte que les comptes standard peuvent atteindre leur limite plus tôt.",
   "m_13d31f2812bd82": "Top 250 des émissions IMDb",
   "m_13d63bca31825b": "Épinglés",
   "m_13d8ac75310228": "N’y touchez pas, sauf si une application Plex refuse de se connecter.",

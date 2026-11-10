@@ -3798,6 +3798,7 @@
     "one": "{count} uusi suoratoisto tällä tunnilla.",
     "other": "{count} uutta suoratoistoa tällä tunnilla."
   },
+  "m_0e4c362c6fcb95": "Lataa tekstitys automaattisesti toiston alkaessa",
   "m_0e4d48c7e3420d": "Ensisijainen kieli, eri alue",
   "m_0e4d86e3c47baf": "Toiston aikavyöhyke",
   "m_0e4e507a5957a2": "Nopein aloitus valitsee lähteen, joka on käynnistynyt nopeammin. Usenet ensin ja Debrid ensin ratkaisevat vain yhtä hyvien julkaisujen välillä. Aina-valinnat suosivat kyseistä lähdettä laadusta riippumatta ja siirtyvät varavaihtoehtoon, jos mikään ei toistu.",
@@ -5363,6 +5364,7 @@
   "m_13cad2673500b4": "Ei API-kutsuja · {period}",
   "m_13cc128f69897c": "Milloin",
   "m_13cdaeb8011811": "Arvioidaan aina, kun Plex pyytää",
+  "m_13cf34bbe61f6c": "Kun katsojan tekstitysasetus pyytää tekstitystä eikä hänen kielellään ole sellaista saatavilla, Ether lataa yhden heti kun videon toisto alkaa. Käyttää yhden OpenSubtitles-latauksen nimikettä ja katsojaa kohden, joten tavalliset tilit voivat kulua loppuun aiemmin.",
   "m_13d31f2812bd82": "IMDb:n 250 parasta esitystä",
   "m_13d63bca31825b": "Kiinnitetyt",
   "m_13d8ac75310228": "Jätä tämä ennalleen, ellei Plex-sovellus kieltäydy yhdistämästä.",

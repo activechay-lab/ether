@@ -3888,6 +3888,7 @@
     "one": "{count} nova transmissão nesta hora.",
     "other": "{count} novas transmissões nesta hora."
   },
+  "m_0e4c362c6fcb95": "Baixar uma legenda automaticamente quando a reprodução começar",
   "m_0e4d48c7e3420d": "Idioma preferido, outra região",
   "m_0e4d86e3c47baf": "Fuso horário da reprodução",
   "m_0e4e507a5957a2": "Início mais rápido escolhe a fonte que iniciou mais rápido. Usenet primeiro e Debrid primeiro só desempatam releases equivalentes. As opções Sempre preferem essa fonte independentemente da qualidade, com fallback quando nada é reproduzido.",
@@ -5503,6 +5504,7 @@
   "m_13cad2673500b4": "Nenhum acesso à API · {period}",
   "m_13cc128f69897c": "Quando",
   "m_13cdaeb8011811": "Avaliada sempre que o Plex solicitar",
+  "m_13cf34bbe61f6c": "Quando a configuração de legendas de um espectador pede legendas e nenhuma está disponível no idioma dele, o Ether baixa uma assim que o vídeo começa a tocar. Usa um download do OpenSubtitles por título e por espectador, então contas padrão podem atingir o limite mais cedo.",
   "m_13d31f2812bd82": "Os 250 melhores programas da IMDb",
   "m_13d63bca31825b": "Fixados",
   "m_13d8ac75310228": "Deixe como está, a menos que um app do Plex se recuse a conectar.",

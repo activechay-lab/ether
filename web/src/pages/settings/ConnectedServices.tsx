@@ -352,6 +352,11 @@ function mergeSection(
           apiKey: textField(section, "apiKey", base.openSubtitles.apiKey),
           username: textField(section, "username", base.openSubtitles.username),
           password: textField(section, "password", base.openSubtitles.password),
+          automaticPreferred: boolField(
+            section,
+            "automaticPreferred",
+            base.openSubtitles.automaticPreferred ?? false,
+          ),
         },
       };
     case "markers": {
