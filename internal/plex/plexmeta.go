@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/url"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -94,7 +93,7 @@ func (s *Server) plexMetaRatingOK(u *frontend.Viewer, t *frontend.Title, row fro
 	if !ok {
 		return true
 	}
-	return experience.MetadataOverlayRatingAllowed(u, t.ContentRating, row.ContentRating)
+	return frontend.MetadataOverlayRatingAllowed(u, t.ContentRating, row.ContentRating)
 }
 
 func (s *Server) plexMetaRatingAllowedCached(u *frontend.Viewer, t *frontend.Title, rows map[frontend.RatingKey]frontend.CachedMetadataOverlay, guids map[frontend.RatingKey]string) bool {
@@ -150,7 +149,7 @@ func overlayPeople(o frontend.CachedMetadataOverlay, kind string) []frontend.Met
 
 func applyPlexMetaTitle(t *frontend.Title, o frontend.MetadataOverlay) *frontend.Title {
 	cp := *t
-	experience.ApplyMetadataDisplay(&cp, o)
+	frontend.ApplyMetadataDisplay(&cp, o)
 	return &cp
 }
 

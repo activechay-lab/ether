@@ -584,7 +584,7 @@ func (s *Server) userSections(u *frontend.User) []Section {
 	}
 	var out []Section
 	for _, sec := range secs {
-		if experience.SectionAllowed(u, sec.ID) {
+		if frontend.SectionAllowed(u, sec.ID) {
 			out = append(out, sec)
 		}
 	}
@@ -594,7 +594,7 @@ func (s *Server) userSections(u *frontend.User) []Section {
 func (s *Server) canSeeSection(u *frontend.User, id int) bool {
 	for _, sec := range s.sections {
 		if sec.ID == id {
-			return u == nil || len(u.AllowedSections) == 0 || u.IsOwner || experience.SectionAllowed(u, sec.ID)
+			return u == nil || len(u.AllowedSections) == 0 || u.IsOwner || frontend.SectionAllowed(u, sec.ID)
 		}
 	}
 	return false

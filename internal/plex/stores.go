@@ -12,7 +12,7 @@ import (
 
 // slotHash is the visible id for a subtitle search offer. Offers are not
 // stream bindings; playback ids come from the broker.
-func slotHash(key frontend.RatingKey, slot string) int64 { return sessions.PlexWireID(key, slot) }
+func slotHash(key frontend.RatingKey, slot string) int64 { return frontend.PlexWireID(key, slot) }
 
 // ---------------------------------------------------------------------------
 // Stream selections (PUT /library/parts/{id}?audioStreamID=&subtitleStreamID=)

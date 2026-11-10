@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -58,7 +57,7 @@ func (s *Server) downloadsEnabled() bool {
 // allowSync="1"): the owner always, friends only with the owner's
 // AllowFriends setting unless the access policy decides per user.
 func (s *Server) downloadsAllowed(u *frontend.User) bool {
-	return experience.DownloadsAllowed(u, s.downloadsEnabled(), s.cfg().Downloads.AllowFriends, s.d.AccessPolicy)
+	return frontend.DownloadsAllowed(u, s.downloadsEnabled(), s.cfg().Downloads.AllowFriends, s.d.AccessPolicy)
 }
 
 // DownloadsAllowed exposes the same admission decision for informational

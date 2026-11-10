@@ -1766,7 +1766,7 @@ func (s *Server) hubReasoned(ctx context.Context, people peopleSearchResult, typ
 // (PersonCreditTitles) for vis's decisions for u: titles availability
 // judges on their facts are read in full, and vis resolves the shows of
 // seasons and episodes from their rows.
-func (s *Server) peopleVisibilityRows(ctx context.Context, batch peopleBatchCatalog, vis *experience.Visibility, u *frontend.User, rows map[frontend.RatingKey]frontend.Title) error {
+func (s *Server) peopleVisibilityRows(ctx context.Context, batch peopleBatchCatalog, vis *frontend.Visibility, u *frontend.User, rows map[frontend.RatingKey]frontend.Title) error {
 	ctx = withStoredPolicy(ctx)
 	judge, known := vis.FactJudge(frontend.WithCatalogViewer(ctx, u))
 	var detail, shows []frontend.RatingKey

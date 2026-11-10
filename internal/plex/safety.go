@@ -3,12 +3,11 @@ package plex
 import (
 	"context"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // AccessPolicy adds owner-defined restrictions to the mandatory title guard.
-type AccessPolicy = experience.AccessPolicy
+type AccessPolicy = frontend.AccessPolicy
 
 func (s *Server) saferFetchCount(u *frontend.User, want int) int {
 	if want <= 0 || !s.needPlexRatingFilter(u) {
@@ -63,11 +62,11 @@ func (s *Server) visibleTitles(u *frontend.User, ts []frontend.Title) []frontend
 }
 
 func (s *Server) titleAllowed(u *frontend.User, t *frontend.Title) bool {
-	return experience.TitleAllowed(s.d.AccessPolicy, u, t) && s.plexMetaRatingAllowed(u, t)
+	return frontend.TitleAllowed(s.d.AccessPolicy, u, t) && s.plexMetaRatingAllowed(u, t)
 }
 
-func (s *Server) visibility() experience.Visibility {
-	v := experience.Visibility{Policy: s.d.AccessPolicy, FilterAvailable: s.d.FilterAvailable, JudgedOnFacts: s.d.JudgedOnFacts,
+func (s *Server) visibility() frontend.Visibility {
+	v := frontend.Visibility{Policy: s.d.AccessPolicy, FilterAvailable: s.d.FilterAvailable, JudgedOnFacts: s.d.JudgedOnFacts,
 		SectionFor: func(t frontend.MediaType) (int, bool) { sec, ok := s.untitledSectionFor(t); return sec.ID, ok }}
 	if s.d.Catalog != nil {
 		v.GetTitle = s.seriesTitle
@@ -101,7 +100,7 @@ func (s *Server) visibleTitle(ctx context.Context, u *frontend.User, t *frontend
 
 // visibleTitleWith is visibleTitle through vis (s.visibility() with a
 // caller's own show lookup).
-func (s *Server) visibleTitleWith(ctx context.Context, vis experience.Visibility, u *frontend.User, t *frontend.Title) bool {
+func (s *Server) visibleTitleWith(ctx context.Context, vis frontend.Visibility, u *frontend.User, t *frontend.Title) bool {
 	if t == nil {
 		return false
 	}
@@ -133,7 +132,7 @@ func (s *Server) availableForViewer(ctx context.Context, u *frontend.User, ts []
 }
 
 func (s *Server) viewerRestricted(u *frontend.User) bool {
-	return experience.ViewerRestricted(s.d.AccessPolicy, u)
+	return frontend.ViewerRestricted(s.d.AccessPolicy, u)
 }
 
 type seriesRowsKey struct{}

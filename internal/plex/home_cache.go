@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
@@ -24,7 +23,7 @@ import (
 
 // Plex Home (/hubs, /hubs/promoted, /hubs/sections/{id}) is served from
 // memory. A screen is built once per viewer and request shape, encoded, and
-// stamped with the viewer's revision (experience.HomeRevision: watch state,
+// stamped with the viewer's revision (frontend.HomeRevision: watch state,
 // playlists, watchlist, favorites, exclusions, plus the policy epoch for a
 // restricted viewer), the viewer's effective policy, the owner's settings
 // and the Home layout. A
@@ -60,7 +59,7 @@ const (
 // Revision must be cheap and shared across cluster nodes (the database);
 // Layout and Catalog are local generations.
 type HomeCacheSource struct {
-	Revision func(context.Context, *frontend.User) (experience.HomeRevision, error)
+	Revision func(context.Context, *frontend.User) (frontend.HomeRevision, error)
 	// Layout changes when the owner saves the Home layout (hard).
 	Layout func() uint64
 	// Config changes when the owner's settings are replaced (hard).
@@ -260,7 +259,7 @@ func (s *Server) homeKey(route string, r *http.Request, pr *Request) string {
 
 // homeStamps returns the hard stamp (a mismatch rebuilds on the request)
 // and the soft one (a mismatch refreshes behind the response).
-func (s *Server) homeStamps(pr *Request, rev experience.HomeRevision) (string, string) {
+func (s *Server) homeStamps(pr *Request, rev frontend.HomeRevision) (string, string) {
 	src := s.d.HomeCache
 	restricted := s.viewerRestricted(pr.User)
 	userJSON, _ := json.Marshal(pr.User)

@@ -7,19 +7,12 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-// HomeRevision stamps a viewer's cached Home. Viewer changes the Home must
-// show on the very next request: the latest watch-state write (Continue
-// Watching, watched badges, ratings), playlists, watchlist, favorites and
-// "not interested" exclusions. Policy is the shared viewer-policy epoch:
-// it also moves on catalogue and guide changes, so only restricted viewers
-// treat it as a hard input. One statement of indexed point reads, whatever
-// the library or history size.
-type HomeRevision struct {
-	Viewer string
-	Policy int64
-}
+// HomeRevision is the frontend host contract type; see
+// internal/frontend/host_sessions_experience.go.
+type HomeRevision = frontend.HomeRevision
 
 func ReadHomeRevision(ctx context.Context, db *sql.DB, user *core.User) (HomeRevision, error) {
 	if db == nil || user == nil {

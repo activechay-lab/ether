@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"encoding/json"
-	"hash/fnv"
 	"io"
 	"net/http"
 	"net/url"
@@ -49,13 +48,9 @@ func NewPlexStreamTable() *PlexStreamTable {
 	return &PlexStreamTable{byID: map[int64]plexStreamRef{}}
 }
 
-// PlexWireID is the positive int32-range id Plex clients already parse.
-// Offer rows use it directly and are not stream bindings.
-func PlexWireID(key core.RatingKey, slot string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(strconv.FormatInt(int64(key), 10) + "/" + slot))
-	return int64(h.Sum64()%2_000_000_000) + 1
-}
+// PlexWireID lives in internal/frontend (host_sessions_experience.go);
+// this alias keeps the broker's stream table on the same ids.
+var PlexWireID = frontend.PlexWireID
 
 func plexStreamSlot(index int, info core.StreamInfo) string {
 	if info.External && info.ExternalURL != "" {
