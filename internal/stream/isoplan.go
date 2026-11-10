@@ -165,9 +165,11 @@ func (b *builder) expandISO(ctx context.Context, first *plan, siblings func(cont
 // minDiscFeaturePercent is how large, as a percentage of the first disc's
 // feature, a further disc's feature must be to join it. A bonus disc's longest
 // playlist (a "play all" of extras) is the main-feature candidate of its disc
-// too, and must not be appended to the film. The threshold is a conservative
-// guess, not derived from real releases: tune it with data.
-const minDiscFeaturePercent = 50
+// too, and must not be appended to the film. A second disc of a split
+// feature is usually 70-100% of the first (a 1 h 57 m disc plus 1 h 23 m is
+// 71%), while a bonus disc's "play all" is often 50-75% of a 2 h film. 65%
+// keeps the splits and drops most bonus discs; tune it with real releases.
+const minDiscFeaturePercent = 65
 
 // joinableDiscs keeps the discs, in order, whose feature is a real part of the
 // first disc's feature, so a bonus disc is not appended to the film.
