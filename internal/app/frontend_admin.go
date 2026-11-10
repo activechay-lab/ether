@@ -7,11 +7,13 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/remote"
 )
 
 type frontendStreamCountsKey struct{}
@@ -111,6 +113,9 @@ func (f *frontendControl) Settings(_ context.Context, id frontend.Protocol) (fro
 	for k, v := range cfg.Frontends[string(id)].Settings {
 		settings[k] = v
 	}
+	if publicURL := strings.TrimSpace(cfg.Frontends[string(id)].PublicURL); publicURL != "" {
+		settings["publicUrl"] = publicURL
+	}
 	if port := cfg.FrontendPorts[string(id)]; port > 0 {
 		settings["port"] = float64(port)
 	} else if port, ok := frontend.DefaultPort(id); ok {
@@ -143,6 +148,18 @@ func (f *frontendControl) PutSettings(_ context.Context, id frontend.Protocol, s
 		return frontend.ErrNotRegistered
 	}
 	s = withoutServerName(s)
+	// publicUrl is a host-owned setting stored on config.Frontend, like the
+	// port; keep it out of the protocol's own settings and validation. Plex
+	// does not take one (it keeps Plex.CustomURLs), so leave it in place
+	// there and let the Plex branch below reject it.
+	publicURL, hasPublicURL := "", false
+	if id != "plex" {
+		var err error
+		s, publicURL, hasPublicURL, err = extractPublicURL(s)
+		if err != nil {
+			return err
+		}
+	}
 	supported, err := f.registry.ValidateSettings(id, s)
 	if err != nil {
 		return err
@@ -169,6 +186,12 @@ func (f *frontendControl) PutSettings(_ context.Context, id frontend.Protocol, s
 			c.Frontends["plex"] = config.Frontend{Enabled: true}
 		}
 		v := c.Frontends[string(id)]
+		// Only a present publicUrl changes the stored address; a settings
+		// save that never heard of it must not clear the owner's address.
+		// A present empty value clears it.
+		if hasPublicURL {
+			v.PublicURL = publicURL
+		}
 		v.Settings = make(map[string]any, len(s))
 		for k, val := range s {
 			if k != "port" {
@@ -231,6 +254,35 @@ func (f *frontendControl) Reconcile(ctx context.Context, c config.Config) {
 			}
 		}
 	}
+}
+
+// extractPublicURL removes publicUrl from the settings and returns its
+// normalized value (empty clears the stored address). Present reports
+// whether the key was there at all.
+func extractPublicURL(s frontend.Settings) (out frontend.Settings, value string, present bool, err error) {
+	raw, present := s["publicUrl"]
+	if !present {
+		return s, "", false, nil
+	}
+	text, ok := raw.(string)
+	if !ok {
+		return s, "", true, errors.New("invalid public address")
+	}
+	text = strings.TrimSpace(text)
+	if text != "" {
+		c, parseErr := remote.ParseCustomURL(text)
+		if parseErr != nil {
+			return s, "", true, errors.New("invalid public address")
+		}
+		text = strings.TrimRight(c.URI, "/")
+	}
+	out = make(frontend.Settings, len(s))
+	for k, v := range s {
+		if k != "publicUrl" {
+			out[k] = v
+		}
+	}
+	return out, text, true, nil
 }
 
 func withoutServerName(s frontend.Settings) frontend.Settings {

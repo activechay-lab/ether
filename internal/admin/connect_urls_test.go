@@ -133,6 +133,61 @@ func TestValidateCustomURLsRejectsJunkAndKeepsCGNAT(t *testing.T) {
 	}
 }
 
+// An app with its own public address shows that address first, never the
+// Plex custom URL; Plex itself keeps using its custom URLs, and a junk
+// per-app address is rejected like a junk custom URL.
+func TestConsoleConnectURLsPerAppPublicAddress(t *testing.T) {
+	r := httptestRequest("192.168.1.5:32400")
+	cfg := config.Config{
+		Plex:      config.Plex{CustomURLs: []string{"https://plex.example.com"}},
+		Frontends: map[string]config.Frontend{"jellyfin": {Enabled: true, PublicURL: "https://jelly.example.com/"}},
+	}
+	got := consoleConnectURLs(r, "jellyfin", []string{"http://192.168.1.5:8096"}, cfg, nil)
+	if len(got) == 0 || got[0] != "https://jelly.example.com" {
+		t.Fatalf("connect URLs = %#v, want the Jellyfin public address first", got)
+	}
+	for _, candidate := range got {
+		if candidate == "https://plex.example.com/jellyfin" {
+			t.Fatalf("connect URLs = %#v, must not show the Plex host for Jellyfin", got)
+		}
+	}
+	// Emby has no address of its own, so it keeps today's behaviour.
+	got = consoleConnectURLs(r, "emby", nil, cfg, nil)
+	found := false
+	for _, candidate := range got {
+		if candidate == "https://plex.example.com/emby" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("emby connect URLs = %#v, want the shared advertised address", got)
+	}
+	// A publicUrl on Plex itself is ignored.
+	cfg.Frontends["plex"] = config.Frontend{Enabled: true, PublicURL: "https://wrong.example.com"}
+	if _, ok := frontendPublicURL(cfg, "plex"); ok {
+		t.Fatal("Plex must not use a per-frontend public address")
+	}
+
+	base := config.Defaults(os.TempDir())
+	base.Frontends = map[string]config.Frontend{"jellyfin": {Enabled: true, PublicURL: "jelly.example.com"}}
+	errs := ValidateConfig(base)
+	found = false
+	for _, e := range errs {
+		if e.Field == "frontends.jellyfin.publicUrl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ValidateConfig = %+v, want frontends.jellyfin.publicUrl error", errs)
+	}
+	base.Frontends["jellyfin"] = config.Frontend{Enabled: true, PublicURL: "https://jelly.example.com"}
+	for _, e := range ValidateConfig(base) {
+		if e.Field == "frontends.jellyfin.publicUrl" {
+			t.Fatalf("ValidateConfig rejected a valid public address: %+v", e)
+		}
+	}
+}
+
 func httptestRequest(host string) *http.Request {
 	r, err := http.NewRequest(http.MethodGet, "/ether/api/frontends/jellyfin/status", nil)
 	if err != nil {

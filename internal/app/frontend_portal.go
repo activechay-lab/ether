@@ -43,6 +43,11 @@ func (r *frontendRuntime) surfaceURL(ctx context.Context, id frontend.Protocol, 
 		cfg = r.app.cfg.Get()
 		trusted = r.app.trustedProxyPrefixes()
 	}
+	// An app with its own public address is reached at that address as-is,
+	// not at the Plex custom URL with this app's prefix appended.
+	if base, ok := frontendPublicOrigin(cfg, string(id)); ok {
+		return strings.TrimRight(base, "/"), nil
+	}
 	if base, ok := configuredOrigin(cfg, r.mainPort()); ok {
 		if len(shared) > 0 {
 			if resolved, err := surfaceSharedAddress(strings.TrimRight(base, "/")+"/ether/me", shared); err == nil {
@@ -268,6 +273,15 @@ func (r *frontendRuntime) viewerPortalSecureURL(ctx context.Context, req *http.R
 		connections = append(connections, remote.Connection{URI: raw, Custom: true})
 	}
 	return portalSecureAddress(ctx, ip, host, port, interfaces, connections)
+}
+
+// frontendPublicOrigin returns the app's own public address when the owner
+// set a valid one. Plex never uses it: Plex apps use Plex.CustomURLs.
+func frontendPublicOrigin(cfg config.Config, id string) (string, bool) {
+	if id == "plex" {
+		return "", false
+	}
+	return parseConfiguredURL(cfg.Frontends[id].PublicURL)
 }
 
 func configuredOrigin(cfg config.Config, defaultPort string) (string, bool) {

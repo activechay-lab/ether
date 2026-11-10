@@ -40,7 +40,12 @@ func consoleConnectURLs(r *http.Request, id string, urls []string, cfg config.Co
 		out = append(out, raw)
 	}
 	prefix := sharedPrefix(id)
-	if advScheme, advHost, advOK := advertisedOrigin(cfg); advOK && prefix != "" {
+	// An app with its own public address is reached at that address as-is;
+	// the Plex custom URL must not be presented as this app's address.
+	publicURL, hasPublicURL := frontendPublicURL(cfg, id)
+	if hasPublicURL {
+		add(publicURL)
+	} else if advScheme, advHost, advOK := advertisedOrigin(cfg); advOK && prefix != "" {
 		add(originURL(advScheme, advHost, prefix))
 	}
 	// Plex is the process the owner already opened. A bridge container's
@@ -67,7 +72,35 @@ func consoleConnectURLs(r *http.Request, id string, urls []string, cfg config.Co
 		}
 		add(raw)
 	}
-	return rankConnectURLs(out, host)
+	ranked := rankConnectURLs(out, host)
+	if hasPublicURL {
+		// The owner set this address for the app; it is the one to hand out.
+		rest := ranked[:0]
+		for _, candidate := range ranked {
+			if candidate != publicURL {
+				rest = append(rest, candidate)
+			}
+		}
+		ranked = append([]string{publicURL}, rest...)
+	}
+	return ranked
+}
+
+// frontendPublicURL returns the app's own public address when the owner set
+// a valid one. Plex never uses it: Plex apps use Plex.CustomURLs.
+func frontendPublicURL(cfg config.Config, id string) (string, bool) {
+	if id == "plex" {
+		return "", false
+	}
+	raw := strings.TrimSpace(cfg.Frontends[id].PublicURL)
+	if raw == "" {
+		return "", false
+	}
+	c, err := remote.ParseCustomURL(raw)
+	if err != nil || containerHost(c.Address) {
+		return "", false
+	}
+	return strings.TrimRight(c.URI, "/"), true
 }
 
 // rankConnectURLs puts the address the owner can hand to a device first.
@@ -196,6 +229,11 @@ func publicRouteHost(cfg config.Config, host string) bool {
 	}
 	for _, raw := range cfg.Plex.CustomURLs {
 		if c, err := remote.ParseCustomURL(raw); err == nil && !c.Local && strings.EqualFold(c.Address, host) {
+			return true
+		}
+	}
+	for _, fe := range cfg.Frontends {
+		if c, err := remote.ParseCustomURL(strings.TrimSpace(fe.PublicURL)); err == nil && !c.Local && strings.EqualFold(c.Address, host) {
 			return true
 		}
 	}

@@ -42,6 +42,7 @@ import {
 } from "../../components/AppStatusList";
 import { HomeStatusRow } from "./HomeStatus";
 import { awaySummary, usableAddresses } from "./reachability";
+import { validateCustomUrls } from "./plex-account";
 
 type FrontendInfo = {
   descriptor: {
@@ -69,6 +70,7 @@ type FrontendInfo = {
 };
 type Settings = {
   port?: number;
+  publicUrl?: string;
   serverName?: string;
   discovery?: boolean;
   quickConnect?: boolean;
@@ -295,6 +297,11 @@ function ProtocolSettings({
   const [error, setError] = useState<unknown>();
   async function save() {
     if (!draft) return;
+    const publicUrlError = validateCustomUrls(draft.publicUrl ? [draft.publicUrl] : []);
+    if (publicUrlError) {
+      setError(new Error(publicUrlError));
+      return;
+    }
     setSaving(true);
     setError(undefined);
     try {
@@ -362,6 +369,29 @@ function ProtocolSettings({
                 <Link to="/me">{t("Open your account")}</Link>
               </Button>
             </div>
+          </SettingsSection>
+        ) : null}
+        {id !== "plex" && id !== "dlna" ? (
+          <SettingsSection title={t("Public address")}>
+            <SettingsRow
+              title={<label htmlFor={`${id}-public-url`}>{t("Public address")}</label>}
+              description={t(
+                "The address viewers use to reach this app from outside your network, e.g. https://jelly.example.com",
+              )}
+              control={
+                <Input
+                  id={`${id}-public-url`}
+                  aria-label={t("Public address")}
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="https://jelly.example.com"
+                  value={draft.publicUrl ?? ""}
+                  onChange={(e) => setDraft({ ...draft, publicUrl: e.currentTarget.value })}
+                />
+              }
+            />
           </SettingsSection>
         ) : null}
         {id === "jellyfin" || id === "emby" ? (

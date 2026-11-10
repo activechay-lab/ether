@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -103,6 +104,15 @@ func qualityOrderError(order []core.QualityItem) string {
 		}
 	}
 	return ""
+}
+
+func sortedFrontendIDs(cfg config.Config) []string {
+	ids := make([]string, 0, len(cfg.Frontends))
+	for id := range cfg.Frontends {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func ValidateConfig(cfg config.Config) []FieldError {
@@ -230,6 +240,15 @@ func ValidateConfig(cfg config.Config) []FieldError {
 		if _, err := remote.ParseCustomURL(raw); err != nil {
 			v.add("plex.customUrls", "Enter full http:// or https:// server URLs, separated by commas.")
 			break
+		}
+	}
+	for _, id := range sortedFrontendIDs(cfg) {
+		raw := cfg.Frontends[id].PublicURL
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		if _, err := remote.ParseCustomURL(raw); err != nil {
+			v.add("frontends."+id+".publicUrl", "Enter a full http:// or https:// address, or leave it blank.")
 		}
 	}
 
