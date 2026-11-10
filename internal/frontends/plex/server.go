@@ -253,7 +253,12 @@ func (s *Server) bindHost(host frontend.Host) {
 	if s == nil {
 		return
 	}
-	s.support = host.Support
+	// host.Support is a concrete pointer: assign it only when set, or the
+	// interface would hold a typed nil that passes every nil check.
+	s.support = nil
+	if host.Support != nil {
+		s.support = host.Support
+	}
 	s.liveTV = host.LiveTV
 	s.clientSeen = host.ClientSeen
 	s.remoteClientSeen = host.RemoteClientSeen
