@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/stremio"
 	"io"
 	"net/http"
@@ -353,45 +354,6 @@ type CommandMeta struct {
 	Action string `json:"action"` // plugin action name
 }
 
-// Presentations says how a library is exposed to each client protocol
-// (spec §6.2). Slice A stores the same JSON on libraries.present; the
-// JSON shape is the cross-slice contract.
-type Presentations struct {
-	// AdapterOnly means the library is served only through one of the
-	// plugin's frontend adapters (§6.5), never a generic protocol.
-	AdapterOnly  bool                      `json:"adapterOnly,omitempty"`
-	Plex         *PlexPresentation         `json:"plex,omitempty"`
-	MediaBrowser *MediaBrowserPresentation `json:"mediaBrowser,omitempty"`
-	Stremio      *StremioPresentation      `json:"stremio,omitempty"`
-	Xtream       *XtreamPresentation       `json:"xtream,omitempty"`
-	Silo         *SiloPresentation         `json:"silo,omitempty"`
-}
-
-// PlexPresentation maps kind levels onto a Plex section family: for
-// show, root->show, mid->season, leaf->episode; for movie, root or
-// leaf->movie.
-type PlexPresentation struct {
-	Base string `json:"base"` // movie|show|artist|photo
-}
-
-// MediaBrowserPresentation is shared by Jellyfin and Emby.
-type MediaBrowserPresentation struct {
-	CollectionType string            `json:"collectionType"`      // movies|tvshows|music|audiobooks|books|photos|homevideos
-	ItemTypes      map[string]string `json:"itemTypes,omitempty"` // level -> Movie|Series|Season|Episode|MusicAlbum|Audio|Book|PhotoAlbum|Photo
-}
-
-type StremioPresentation struct {
-	Type string `json:"type"` // movie|series|channel|tv
-}
-
-type XtreamPresentation struct {
-	Category string `json:"category"` // movie|series|live
-}
-
-type SiloPresentation struct {
-	Type string `json:"type"` // mirrors the MediaBrowser item family
-}
-
 // MediaKindMeta declares one content kind (spec §2.1).
 type MediaKindMeta struct {
 	Key     string          `json:"key"` // ^[a-z][a-z0-9-]{0,31}$, unique in the plugin
@@ -400,7 +362,7 @@ type MediaKindMeta struct {
 	Levels  []KindLevel     `json:"levels"` // 1..5, first is the root
 	Fields  []KindField     `json:"fields,omitempty"`
 	Art     []KindArt       `json:"art,omitempty"` // roles beyond poster/backdrop/thumb/logo
-	Present Presentations   `json:"present"`
+	Present core.Presentations `json:"present"`
 	Browse  KindBrowseDecl  `json:"browse"`
 	Sync    KindSyncDecl    `json:"sync"`
 	Cache   KindCacheDecl   `json:"cache,omitempty"`
@@ -603,13 +565,13 @@ type Host interface {
 	// KindUpsert and KindDelete need catalog_provider and a push-mode
 	// kind (spec §3.6): the sync engine is the only writer for pull
 	// kinds. Writes are journalled in shadow mode without applying.
-	KindUpsert(ctx context.Context, kindKey string, items []KindItem) (accepted int, err error)
+	KindUpsert(ctx context.Context, kindKey string, items []core.KindItem) (accepted int, err error)
 	KindDelete(ctx context.Context, kindKey string, externalIDs []string) error
 	// KindItems reads the plugin's own library back, keyset-paged.
-	KindItems(ctx context.Context, kindKey, cursor string, limit int) (KindPage, error)
+	KindItems(ctx context.Context, kindKey, cursor string, limit int) (core.KindPage, error)
 	// ResolveSources needs kind_resolver and permissions.sources
 	// (search to look, acquire to open debrid content, §4.5).
-	ResolveSources(ctx context.Context, q SourceQuery) ([]SourceCandidate, error)
+	ResolveSources(ctx context.Context, q core.SourceQuery) ([]core.SourceCandidate, error)
 	// CachePut stores one blob in a kind library's cache namespace and
 	// returns its "blob:<sha256>" reference; CacheOpen reads one back.
 	CachePut(ctx context.Context, libraryKey, name string, r io.Reader) (blobRef string, err error)
@@ -630,66 +592,6 @@ type Host interface {
 	NotifyOwner(ctx context.Context, text string) error
 	// Log appends to the plugin's log ring (redacted, rate-limited).
 	Log(ctx context.Context, level, msg string, attrs map[string]any) error
-}
-
-// KindItem is the standardised plugin item envelope on host service
-// calls (spec §3.2, minus the host-assigned ItemRef, which never
-// crosses to the plugin). The JSON shape matches core.KindItem.
-type KindItem struct {
-	ID         string                     `json:"id"` // externalID
-	Level      string                     `json:"level"`
-	ParentID   string                     `json:"parentId,omitempty"`
-	Index      int                        `json:"index,omitempty"`
-	Title      string                     `json:"title"`
-	SortTitle  string                     `json:"sortTitle,omitempty"`
-	Summary    string                     `json:"summary,omitempty"`
-	Year       int                        `json:"year,omitempty"`
-	Released   int64                      `json:"released,omitempty"` // unix seconds
-	Rating     float64                    `json:"rating,omitempty"`
-	Playable   bool                       `json:"playable,omitempty"`
-	ChildCount int                        `json:"childCount,omitempty"`
-	LeafCount  int                        `json:"leafCount,omitempty"`
-	Art        []KindArtRef               `json:"art,omitempty"`
-	Fields     map[string]json.RawMessage `json:"fields,omitempty"`
-	Hints      json.RawMessage            `json:"hints,omitempty"` // opaque; echoed to the resolver verbatim
-	ETag       string                     `json:"etag,omitempty"`
-}
-
-// KindArtRef is one artwork reference on a KindItem.
-type KindArtRef struct {
-	Role   string `json:"role"`
-	URL    string `json:"url"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
-}
-
-// KindPage is one page of kind items.
-type KindPage struct {
-	Items      []KindItem `json:"items"`
-	NextCursor string     `json:"nextCursor,omitempty"` // opaque; absent = last page
-	Total      *int       `json:"total,omitempty"`
-}
-
-// SourceQuery asks Ether to find sources for a resolver (spec §4.5).
-type SourceQuery struct {
-	Kind       string   `json:"kind"` // indexer_search|debrid_check|debrid_acquire
-	Query      string   `json:"query,omitempty"`
-	Category   string   `json:"category,omitempty"`
-	InfoHashes []string `json:"infoHashes,omitempty"`
-	InfoHash   string   `json:"infoHash,omitempty"`
-	Magnet     string   `json:"magnet,omitempty"`
-}
-
-// SourceCandidate is one Ether-found release for a resolver to rank.
-type SourceCandidate struct {
-	InfoHash  string `json:"infoHash,omitempty"`
-	Magnet    string `json:"magnet,omitempty"`
-	NZBURL    string `json:"nzbUrl,omitempty"`
-	FileIndex int    `json:"fileIndex,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Size      int64  `json:"size,omitempty"`
-	Seeders   int    `json:"seeders,omitempty"`
-	Cached    bool   `json:"cached,omitempty"`
 }
 
 // FetchRequest is one plugin outbound HTTP call.
