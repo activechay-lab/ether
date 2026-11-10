@@ -2881,6 +2881,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
           machineId: "demo-pms",
           version: "1.43.4.10903",
           owner: "owner",
+          stepAside: false,
           checkedAt: Math.floor(Date.now() / 1000),
           problem: "",
           viewers: [
@@ -2911,6 +2912,14 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json([
           { direction: "in", ref: "9001", title: "Home Video", reason: "no_match", seenAt: 0 },
         ]);
+      if (seg[1] && seg[2] === "step-aside" && method === "PUT") {
+        const next = Boolean((body as { stepAside?: boolean }).stepAside);
+        const srv = servers.find((x) => (x as { id?: number }).id === Number(seg[1])) as
+          | { stepAside?: boolean }
+          | undefined;
+        if (srv) srv.stepAside = next;
+        return json(srv ?? servers[0]);
+      }
       if (seg[1] && method === "DELETE") {
         (state as { plexServers?: unknown[] }).plexServers = [];
         return new Response(null, { status: 204 });

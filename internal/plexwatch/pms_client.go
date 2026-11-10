@@ -345,6 +345,25 @@ func (c *pmsClient) sections(ctx context.Context, token string) ([]pmsSection, e
 	return list, nil
 }
 
+// sectionPage reads one page of a section's items with external GUIDs. libType
+// is 1 for movies, 2 for shows and 4 for episodes.
+func (c *pmsClient) sectionPage(ctx context.Context, token, section string, libType, start, size int) ([]pmsMetadata, error) {
+	q := url.Values{}
+	q.Set("type", strconv.Itoa(libType))
+	q.Set("includeGuids", "1")
+	q.Set("X-Plex-Container-Start", strconv.Itoa(start))
+	q.Set("X-Plex-Container-Size", strconv.Itoa(size))
+	var out pmsContainer
+	if err := c.get(ctx, "/library/sections/"+url.PathEscape(section)+"/all", q, token, &out); err != nil {
+		return nil, err
+	}
+	items := out.MediaContainer.Metadata
+	if len(items) > size {
+		items = items[:size]
+	}
+	return items, nil
+}
+
 // byGUID asks one section for the item whose primary GUID is guid. libType is
 // 1 for movies and 4 for episodes.
 func (c *pmsClient) byGUID(ctx context.Context, token, section string, libType int, guid string) ([]pmsMetadata, error) {
@@ -378,5 +397,7 @@ func (c *pmsClient) progress(ctx context.Context, token string, key int64, offse
 	q.Set("identifier", pmsIdentifier)
 	q.Set("time", strconv.FormatInt(offset.Milliseconds(), 10))
 	q.Set("state", "stopped")
-	return c.get(ctx, "/:/progress", q, token, nil)
+	return c.get(ctx, pathOrProgress, q, token, nil)
 }
+
+const pathOrProgress = "/:/progress"

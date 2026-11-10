@@ -13,10 +13,13 @@ import (
 
 // appCandidateRanker translates the neutral situation into the existing
 // personalization engine's request context without reassembling ranked rows.
-type appCandidateRanker struct{ app *App }
+type appCandidateRanker struct {
+	app      *App
+	fallback func(context.Context, *core.User, *core.Title) bool
+}
 
 func candidateHubContext(sit core.HomeSituation) core.HubContext {
-	return core.HubContext{Device: sit.Device, Daypart: sit.Daypart, Weekend: sit.Weekend, Now: sit.Now, SectionID: sit.LibraryID, Product: sit.Product, Platform: sit.Platform, SessionID: sit.SessionID, ClientID: sit.ClientID}
+	return core.HubContext{Device: sit.Device, Daypart: sit.Daypart, Weekend: sit.Weekend, Now: sit.Now, SectionID: sit.LibraryID, Product: sit.Product, Platform: sit.Platform, ClientID: sit.ClientID, SessionID: sit.SessionID}
 }
 func rankedCandidates(hubs []core.Hub, err error) ([]experience.RankedCandidate, error) {
 	if err != nil {
@@ -32,12 +35,18 @@ func rankedCandidates(hubs []core.Hub, err error) ([]experience.RankedCandidate,
 	return out, nil
 }
 func (r appCandidateRanker) Home(ctx context.Context, viewer *core.User, sit core.HomeSituation, limit int, allow func(context.Context, *core.User, *core.Title) bool) ([]experience.RankedCandidate, error) {
+	if allow == nil {
+		allow = r.fallback
+	}
 	if allow != nil {
 		return rankedCandidates(r.app.personalize.HomeCandidatesWithPolicy(ctx, viewer, candidateHubContext(sit), limit, allow))
 	}
 	return rankedCandidates(r.app.personalize.HomeCandidatesFor(ctx, viewer, candidateHubContext(sit), limit))
 }
 func (r appCandidateRanker) Library(ctx context.Context, viewer *core.User, kind core.MediaType, sit core.HomeSituation, limit int, allow func(context.Context, *core.User, *core.Title) bool) ([]experience.RankedCandidate, error) {
+	if allow == nil {
+		allow = r.fallback
+	}
 	if allow != nil {
 		return rankedCandidates(r.app.personalize.SectionCandidatesWithPolicy(ctx, viewer, kind, candidateHubContext(sit), limit, allow))
 	}
@@ -45,17 +54,18 @@ func (r appCandidateRanker) Library(ctx context.Context, viewer *core.User, kind
 }
 
 type appResumeCandidates struct {
-	app       *App
-	libraries []experience.Library
+	app        *App
+	libraries  []experience.Library
+	visibility experience.Visibility
 }
 
 func (r appResumeCandidates) Continue(ctx context.Context, viewer *core.User, limit int) ([]core.Title, error) {
-	return r.app.experienceContinue(ctx, viewer, r.libraries, limit)
+	return r.app.experienceContinue(ctx, viewer, r.libraries, r.visibility, limit)
 }
 
 // productionExperienceRows obtains real ranked candidate hubs from the shared
 // personalization engine. Protocol adapters must not call the engine directly.
-func (a *App) productionExperienceRows(ctx context.Context, req frontend.RowRequest, libraries []experience.Library, visibility experience.Visibility) ([]experience.RankedCandidate, error) {
+func (a *App) productionExperienceRows(ctx context.Context, req frontend.RowRequest, libraries []experience.Library, visibility experience.Visibility, stepAside *experience.StepAside) ([]experience.RankedCandidate, error) {
 	if req.Viewer == nil || a.personalize == nil {
 		return nil, core.ErrNotFound
 	}
@@ -64,7 +74,7 @@ func (a *App) productionExperienceRows(ctx context.Context, req frontend.RowRequ
 		if limit <= 0 {
 			limit = 20
 		}
-		items, err := a.experienceContinue(ctx, req.Viewer, libraries, limit)
+		items, err := a.experienceContinue(ctx, req.Viewer, libraries, visibility, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -74,11 +84,14 @@ func (a *App) productionExperienceRows(ctx context.Context, req frontend.RowRequ
 	if !ok {
 		return nil, core.ErrNotFound
 	}
-	hc := core.HubContext{Device: sit.Device, Daypart: sit.Daypart, Weekend: sit.Weekend, Now: sit.Now, SectionID: sit.LibraryID, Product: sit.Product, Platform: sit.Platform, SessionID: sit.SessionID, ClientID: sit.ClientID}
+	hc := core.HubContext{Device: sit.Device, Daypart: sit.Daypart, Weekend: sit.Weekend, Now: sit.Now, SectionID: sit.LibraryID, Product: sit.Product, Platform: sit.Platform, ClientID: sit.ClientID, SessionID: sit.SessionID}
 	switch req.Placement {
 	case frontend.PlacementHome, frontend.PlacementLibrary:
 		ranker := appCandidateRanker{app: a}
-		composer := experience.CandidateComposer{Ranker: ranker, Resume: appResumeCandidates{a, libraries}, Libraries: libraries, Visibility: visibility, Restricted: a.safety.Restricted}
+		if stepAside != nil && stepAside.Active() {
+			ranker.fallback = visibility.Visible
+		}
+		composer := experience.CandidateComposer{Ranker: ranker, Resume: appResumeCandidates{a, libraries, visibility}, Libraries: libraries, Visibility: visibility, Restricted: a.safety.Restricted}
 		return composer.Rows(ctx, req, sit)
 	case frontend.PlacementDetail:
 		if a.catalog == nil || req.Item == 0 {
@@ -108,16 +121,16 @@ func (a *App) productionExperienceRows(ctx context.Context, req frontend.RowRequ
 }
 
 // experienceContinue supplies the shared continue/next-up service with real app dependencies.
-func (a *App) experienceContinue(ctx context.Context, viewer *core.User, libraries []experience.Library, limit int) ([]core.Title, error) {
+func (a *App) experienceContinue(ctx context.Context, viewer *core.User, libraries []experience.Library, surfaceVis experience.Visibility, limit int) ([]core.Title, error) {
 	if a.state == nil || a.catalog == nil || a.safety == nil {
 		return nil, core.ErrNotFound
 	}
-	var filter func(context.Context, []core.Title) []core.Title
-	if a.availability != nil {
+	filter := surfaceVis.FilterAvailable
+	if filter == nil && a.availability != nil {
 		filter = a.availability.FilterDiscovery
 	}
-	var sessions func() []*core.PlaySession
-	if a.playback != nil {
+	sessions := surfaceVis.Sessions
+	if sessions == nil && a.playback != nil {
 		sessions = a.playback.Sessions
 	}
 	// Visibility reads each episode's show; the walk prefetches its shows in

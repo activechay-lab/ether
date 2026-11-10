@@ -5,6 +5,7 @@ import {
   Select,
   SettingsSection,
   Spinner,
+  Switch,
   toast,
 } from "@braedonsaunders/appkit-ui";
 import { useEffect, useState } from "react";
@@ -24,6 +25,7 @@ import {
   listPlexServers,
   pmsDirectionText,
   pmsProblemText,
+  setPlexServerStepAside,
   type PMSServer,
 } from "../../lib/plex-servers";
 
@@ -257,6 +259,17 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
     }
   };
 
+  const toggleStepAside = async (srv: PMSServer, next: boolean) => {
+    setBusy(true);
+    try {
+      replace(await setPlexServerStepAside(srv.id, next));
+    } catch {
+      toast.error(t("Plex Media Server settings were not saved."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openUnmatched = async (srv: PMSServer, viewer: number, after = "") => {
     setBusy(true);
     try {
@@ -378,6 +391,20 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
             {srv.problem ? (
               <p className="px-5 pb-3 text-sm text-warning">{pmsProblemText(srv.problem)}</p>
             ) : null}
+            <SettingsRow
+              title={t("Step aside for titles on this server")}
+              description={t(
+                "Hide movies, complete shows, and episodes this server already has from Plex apps.",
+              )}
+              control={
+                <Switch
+                  aria-label={t("Step aside for titles on this server")}
+                  checked={Boolean(srv.stepAside)}
+                  disabled={busy}
+                  onChange={(e) => void toggleStepAside(srv, e.currentTarget.checked)}
+                />
+              }
+            />
             {accts === "error" ? (
               <p className="px-5 pb-4 text-sm text-fg-muted">
                 {t("This server's people could not be listed.")}{" "}

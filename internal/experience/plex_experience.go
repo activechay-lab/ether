@@ -8,14 +8,36 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-type plexExperience struct{}
+type plexExperience struct {
+	stepAside *StepAside
+}
 
 // NewPlexExperience returns the experience-backed implementation of the
 // Plex experience host contract.
 func NewPlexExperience() frontend.PlexExperience { return plexExperience{} }
 
-func (plexExperience) NewRecent(o frontend.RecentOptions) frontend.Recent {
-	return Recent{Visibility: o.Visibility, Unrestricted: o.Unrestricted}
+// NewPlexExperienceWithStepAside returns a PlexExperience that disables
+// unrestricted fast-paths whenever stepAside holds matched titles, ensuring
+// owner and unrestricted viewers still run step-aside filtering across recent,
+// search, collection, discovery, and post-play paths.
+func NewPlexExperienceWithStepAside(stepAside *StepAside) frontend.PlexExperience {
+	return plexExperience{stepAside: stepAside}
+}
+
+func (p plexExperience) wrapUnrestricted(fn func(*core.User) bool) func(*core.User) bool {
+	if p.stepAside == nil || fn == nil {
+		return fn
+	}
+	return func(u *core.User) bool {
+		if p.stepAside.Active() {
+			return false
+		}
+		return fn(u)
+	}
+}
+
+func (p plexExperience) NewRecent(o frontend.RecentOptions) frontend.Recent {
+	return Recent{Visibility: o.Visibility, Unrestricted: p.wrapUnrestricted(o.Unrestricted)}
 }
 func (plexExperience) NewDetailRelated(o frontend.DetailRelatedOptions) frontend.DetailRelated {
 	return DetailRelated{Source: o.Source, Visibility: o.Visibility, Get: o.Get}
@@ -33,13 +55,13 @@ func (plexExperience) NewEpisodeBatch(o frontend.EpisodeBatchOptions) frontend.E
 func (plexExperience) NewContinueDeck(o frontend.ContinueDeckOptions) frontend.ContinueDeck {
 	return &ContinueDeck{Load: o.Load, Order: o.Order, Hydrate: o.Hydrate, Unavailable: o.Unavailable, Fallback: o.Fallback}
 }
-func (plexExperience) NewContinue(o frontend.ContinueOptions) frontend.Continue {
+func (p plexExperience) NewContinue(o frontend.ContinueOptions) frontend.Continue {
 	c := Continue{
 		ShowOnDeck: o.ShowOnDeck, PrepareShowOnDeck: o.PrepareShowOnDeck, PrefetchTitles: o.PrefetchTitles,
 		Filter: o.Filter, State: o.State, Now: o.Now, Grandchildren: o.Grandchildren,
 		NextEpisode: o.NextEpisode, NextEpisodes: o.NextEpisodes, Visible: o.Visible,
 		SameDayUnavailable: o.SameDayUnavailable, GetTitles: o.GetTitles, SectionAllowed: o.SectionAllowed,
-		OnError: o.OnError, FavoriteShows: o.FavoriteShows, Unrestricted: o.Unrestricted,
+		OnError: o.OnError, FavoriteShows: o.FavoriteShows, Unrestricted: p.wrapUnrestricted(o.Unrestricted),
 	}
 	if o.EpisodeOrder != nil {
 		c.EpisodeOrder = o.EpisodeOrder
@@ -49,26 +71,31 @@ func (plexExperience) NewContinue(o frontend.ContinueOptions) frontend.Continue 
 func (plexExperience) NewRowSelection(o frontend.RowSelectionOptions) frontend.RowSelection {
 	return RowSelection{Visibility: o.Visibility, PrioritizeAvailable: o.PrioritizeAvailable, SameDayUnavailable: o.SameDayUnavailable}
 }
-func (plexExperience) NewHomeSelection(o frontend.HomeSelectionOptions) frontend.HomeSelection {
-	return HomeSelection{Source: o.Source, Visibility: o.Visibility, Restricted: o.Restricted}
+func (p plexExperience) NewHomeSelection(o frontend.HomeSelectionOptions) frontend.HomeSelection {
+	restricted := o.Restricted || (p.stepAside != nil && p.stepAside.Active())
+	return HomeSelection{Source: o.Source, Visibility: o.Visibility, Restricted: restricted}
 }
-func (plexExperience) NewScopedCollection(o frontend.ScopedCollectionOptions) frontend.ScopedCollection {
-	return ScopedCollection{Collections: o.Collections, Visibility: o.Visibility, Now: o.Now, Unrestricted: o.Unrestricted, TitleAllowed: o.TitleAllowed, Openable: o.Openable}
+func (p plexExperience) NewScopedCollection(o frontend.ScopedCollectionOptions) frontend.ScopedCollection {
+	return ScopedCollection{Collections: o.Collections, Visibility: o.Visibility, Now: o.Now, Unrestricted: p.wrapUnrestricted(o.Unrestricted), TitleAllowed: o.TitleAllowed, Openable: o.Openable}
 }
 func (plexExperience) NewPlaylistSelection(o frontend.PlaylistSelectionOptions) frontend.PlaylistSelection {
 	return PlaylistSelection{Playlists: o.Playlists, Collections: o.Collections, Visibility: o.Visibility, Children: o.Children, Grandchildren: o.Grandchildren}
 }
-func (plexExperience) NewPostPlaySelection(o frontend.PostPlaySelectionOptions) frontend.PostPlaySelection {
-	return PostPlaySelection{Visibility: o.Visibility, Unrestricted: o.Unrestricted, Picks: o.Picks, Related: o.Related}
+func (p plexExperience) NewPostPlaySelection(o frontend.PostPlaySelectionOptions) frontend.PostPlaySelection {
+	unrestricted := o.Unrestricted
+	if p.stepAside != nil && p.stepAside.Active() {
+		unrestricted = false
+	}
+	return PostPlaySelection{Visibility: o.Visibility, Unrestricted: unrestricted, Picks: o.Picks, Related: o.Related}
 }
-func (plexExperience) NewDiscoverySelection(o frontend.DiscoverySelectionOptions) frontend.DiscoverySelection {
-	return DiscoverySelection{Visibility: o.Visibility, Unrestricted: o.Unrestricted}
+func (p plexExperience) NewDiscoverySelection(o frontend.DiscoverySelectionOptions) frontend.DiscoverySelection {
+	return DiscoverySelection{Visibility: o.Visibility, Unrestricted: p.wrapUnrestricted(o.Unrestricted)}
 }
 func (plexExperience) NewTrackPreferenceSelector(o frontend.TrackPreferenceSelectorOptions) frontend.TrackPreferenceSelector {
 	return TrackPreferences{Source: o.Source, GetTitle: o.GetTitle}
 }
-func (plexExperience) SearchFor(src frontend.SearchSources, vis frontend.Visibility, unrestricted func(*core.User) bool) frontend.Search {
-	return SearchFor(src, vis, unrestricted)
+func (p plexExperience) SearchFor(src frontend.SearchSources, vis frontend.Visibility, unrestricted func(*core.User) bool) frontend.Search {
+	return SearchFor(src, vis, p.wrapUnrestricted(unrestricted))
 }
 func (plexExperience) StatisticsDefaults(dashboard frontend.Dashboard, resources frontend.ResourceStatistics, now func() time.Time) (frontend.Dashboard, frontend.ResourceStatistics) {
 	return Statistics(dashboard, resources, now)

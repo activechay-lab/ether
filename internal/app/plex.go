@@ -199,6 +199,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 			deps.HomeCache.Layout = a.personalize.LayoutVersion
 		}
 	}
+	a.applyPlexStepAside(cfg.Spike.Enabled, &deps)
 	return deps, nil
 }
 

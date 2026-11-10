@@ -75,4 +75,21 @@ CREATE TABLE plexwatch_pms_unmatched (
   seen_at INTEGER NOT NULL,
   PRIMARY KEY (server_id, user_id, dir, ref)
 );`)
+	store.Register("plexwatch_pms", 2, `
+ALTER TABLE plexwatch_pms ADD COLUMN step_aside INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_pms ADD COLUMN held_synced_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_pms ADD COLUMN held_next_run INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_pms ADD COLUMN held_next_allowed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_pms ADD COLUMN held_lease INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plexwatch_pms ADD COLUMN held_failures INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE plexwatch_pms_held (
+  server_id INTEGER NOT NULL,
+  rating_key INTEGER NOT NULL,
+  show_key INTEGER NOT NULL DEFAULT 0,
+  season INTEGER NOT NULL DEFAULT 0,
+  episode INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (server_id, rating_key)
+);
+CREATE INDEX plexwatch_pms_held_key ON plexwatch_pms_held(rating_key);
+CREATE INDEX plexwatch_pms_held_show ON plexwatch_pms_held(server_id, show_key);`)
 }

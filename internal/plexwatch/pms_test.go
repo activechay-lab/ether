@@ -127,12 +127,45 @@ func (f *fakePMS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mc["Directory"] = []map[string]any{{"key": "1", "type": "movie"}, {"key": "2", "type": "show"}}
 	case strings.HasPrefix(r.URL.Path, "/library/sections/") && strings.HasSuffix(r.URL.Path, "/all"):
 		var hits []pmsMetadata
-		for _, it := range f.items {
-			if it.GUID == q.Get("guid") && ((q.Get("type") == "1" && it.Type == "movie") || (q.Get("type") == "4" && it.Type == "episode")) {
-				hits = append(hits, it)
-			}
+		wantGUID := q.Get("guid")
+		wantType := ""
+		switch q.Get("type") {
+		case "1":
+			wantType = "movie"
+		case "2":
+			wantType = "show"
+		case "4":
+			wantType = "episode"
 		}
-		pmsPage(mc, hits)
+		for _, it := range f.items {
+			if wantType != "" && it.Type != wantType {
+				continue
+			}
+			if q.Has("guid") && it.GUID != wantGUID {
+				continue
+			}
+			hits = append(hits, it)
+		}
+		sort.Slice(hits, func(i, j int) bool { return hits[i].RatingKey < hits[j].RatingKey })
+		start, _ := strconv.Atoi(r.Header.Get("X-Plex-Container-Start"))
+		size, _ := strconv.Atoi(r.Header.Get("X-Plex-Container-Size"))
+		if size > 0 {
+			total := len(hits)
+			if start > total {
+				start = total
+			}
+			end := min(total, start+size)
+			mc["totalSize"], mc["size"], mc["offset"] = total, end-start, start
+			if end > start {
+				list := make([]map[string]any, end-start)
+				for i, it := range hits[start:end] {
+					list[i] = pmsWire(it, false)
+				}
+				mc["Metadata"] = list
+			}
+		} else {
+			pmsPage(mc, hits)
+		}
 	case strings.HasPrefix(r.URL.Path, "/library/metadata/"):
 		id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/library/metadata/"), 10, 64)
 		it, ok := f.items[id]
@@ -671,5 +704,64 @@ func TestPMSGlobalSwitchPausesSchedulerAndManualSync(t *testing.T) {
 	f.mu.Unlock()
 	if requests == 0 {
 		t.Fatal("re-enabling did not resume sync")
+	}
+}
+
+func TestPMSStepAsideSyncAndToggle(t *testing.T) {
+	h := newPMSHarness(t)
+	f, srv := h.server("step-aside", 100, 0)
+	if srv.StepAside {
+		t.Fatal("stepAside must default to false")
+	}
+	if !h.svc.Held().Empty() {
+		t.Fatal("held snapshot must be empty when stepAside is off")
+	}
+
+	updated, err := h.svc.SetStepAside(h.ctx, srv.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.StepAside {
+		t.Fatal("stepAside did not persist as true")
+	}
+	if f.metadataReads != 0 {
+		t.Fatalf("section sync made %d per-item metadata reads, want 0", f.metadataReads)
+	}
+	snap := h.svc.Held()
+	if !snap.HasMovie(movieA) || !snap.HasMovie(movieB) || snap.HasMovie(movieC) {
+		t.Fatalf("unexpected held movies: %+v", snap.Movies)
+	}
+	if !snap.HasEpisode(episodeE) || !snap.HasShowEpisodes(showS) {
+		t.Fatalf("expected show %v and episode %v held: %+v", showS, episodeE, snap.Shows)
+	}
+	if got := snap.Shows[showS].Seasons[1]; len(got) != 1 || got[0] != 2 {
+		t.Fatalf("season episodes = %v, want [2]", got)
+	}
+
+	// Scheduled cadence picks up newly added episodes on the PMS.
+	ep3 := core.EpisodeKey(1399, 1, 3)
+	f.addItem(pmsMetadata{
+		RatingKey:            112,
+		Type:                 "episode",
+		Title:                "Lord Snow",
+		GUID:                 "plex://episode/e3",
+		GrandparentRatingKey: 110,
+		ParentIndex:          1,
+		Index:                3,
+	})
+	h.clock.Add(12 * time.Minute)
+	h.svc.RunOnce(h.ctx)
+	snap = h.svc.Held()
+	if !snap.HasEpisode(ep3) {
+		t.Fatalf("scheduled pass did not add %v", ep3)
+	}
+
+	// Turning step-aside off immediately clears the in-memory and stored sets.
+	updated, err = h.svc.SetStepAside(h.ctx, srv.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.StepAside || !h.svc.Held().Empty() {
+		t.Fatalf("stepAside not cleared: srv=%+v held=%+v", updated, h.svc.Held())
 	}
 }

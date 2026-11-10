@@ -23,6 +23,7 @@ export interface PMSServer {
   machineId: string;
   version: string;
   owner: string;
+  stepAside?: boolean;
   checkedAt: number;
   problem: string;
   viewers: PMSMapping[];
@@ -80,6 +81,13 @@ export function pmsDirectionText(direction: number): string {
 /** The single registry of owner-run Plex servers, shared by sync and one-time import. */
 export const listPlexServers = (signal?: AbortSignal) =>
   apiFetch<PMSServer[]>("/plex-servers", { signal });
+
+/** Update whether Ether hides titles already held by this Plex Media Server from Plex apps. */
+export const setPlexServerStepAside = (id: number, stepAside: boolean) =>
+  apiFetch<PMSServer>(`/plex-servers/${id}/step-aside`, {
+    method: "PUT",
+    body: JSON.stringify({ stepAside }),
+  });
 
 /** Read-only view of one viewer's owner-run Plex Media Server mappings. */
 export const listViewerPlexServers = (viewerId: number, signal?: AbortSignal) =>
