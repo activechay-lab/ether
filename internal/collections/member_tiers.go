@@ -51,35 +51,50 @@ func (s *Service) repairMemberTiers(ctx context.Context) {
 	if s.repairedTiers.Load() {
 		return
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT m.key, COALESCE(t.browsable, -1)
-FROM collections_members m
-LEFT JOIN catalog_titles t ON t.key = m.key
-WHERE t.key IS NULL OR (t.browsable = 0 AND t.adult = 0 AND t.type IN ('movie', 'show') AND t.released_ts <> 0)`)
+	// Collections reads only its own table: the catalogue decides which of
+	// these rows it may promote, and the mirror says which have no row yet.
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT key FROM collections_members`)
 	if err != nil {
 		return
 	}
-	var unpromoted []core.RatingKey
-	var missing []core.RatingKey
+	var members []core.RatingKey
 	for rows.Next() {
 		var k int64
-		var browsable int
-		if err := rows.Scan(&k, &browsable); err != nil {
+		if err := rows.Scan(&k); err != nil {
 			rows.Close()
 			return
 		}
-		rk := core.RatingKey(k)
-		if browsable < 0 {
-			missing = append(missing, rk)
-		} else {
-			unpromoted = append(unpromoted, rk)
-		}
+		members = append(members, core.RatingKey(k))
 	}
 	rows.Close()
 	if rows.Err() != nil {
 		return
 	}
-	if len(unpromoted) > 0 {
-		s.promoteMembers(ctx, unpromoted)
+	if len(members) == 0 {
+		s.repairedTiers.Store(true)
+		return
+	}
+	s.promoteMembers(ctx, members)
+	var missing []core.RatingKey
+	const lookupBatch = 500
+	for start := 0; start < len(members); start += lookupBatch {
+		if ctx.Err() != nil {
+			return
+		}
+		chunk := members[start:min(start+lookupBatch, len(members))]
+		stored, err := s.mirror.ValidKeys(ctx, chunk, true)
+		if err != nil {
+			return
+		}
+		have := make(map[core.RatingKey]bool, len(stored))
+		for _, k := range stored {
+			have[k] = true
+		}
+		for _, k := range chunk {
+			if !have[k] {
+				missing = append(missing, k)
+			}
+		}
 	}
 	complete := true
 	if len(missing) > 0 && s.cat != nil {

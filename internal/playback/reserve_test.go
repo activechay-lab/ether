@@ -389,6 +389,13 @@ func TestSourceDeliveryReporterPreventsFalseSpeedFailover(t *testing.T) {
 	ps := h.prepare(owner, movieKey, "net-delivery")
 	s := h.m.lookup(ps.ID)
 	g := s.current()
+	// The background index fill reads g.src; swap the source only after it
+	// has finished.
+	select {
+	case <-g.indexReady:
+	case <-time.After(10 * time.Second):
+		t.Fatal("index fill never finished")
+	}
 	rep := &reportingSource{MediaSource: g.src}
 	g.src = rep
 	f := &repairHLS{fakeHLS: h.tr.addHLS(ps.ID), buffer: core.RecoveryBuffer{Position: 10 * time.Second, ReadyUntil: 12 * time.Second}}

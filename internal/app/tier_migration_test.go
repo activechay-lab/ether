@@ -394,8 +394,13 @@ func schemaObjects(t *testing.T, db *sql.DB, typ string) []string {
 		if err := rows.Scan(&s); err != nil {
 			t.Fatal(err)
 		}
+		// catalog_rank_a and catalog_rank_b are the two sides of one
+		// double-buffered table; which side is live after a rebuild is not
+		// part of the schema.
+		s = strings.NewReplacer("catalog_rank_a", "catalog_rank_x", "catalog_rank_b", "catalog_rank_x").Replace(s)
 		out = append(out, s)
 	}
+	slices.Sort(out)
 	return out
 }
 
