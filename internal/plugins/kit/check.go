@@ -71,6 +71,9 @@ func Check(ctx context.Context, pkg *Package) (rep Report) {
 	// 3. Resolve and lint settings schema, including $t: references in every locale.
 	checkSettingsSchema(&rep, man, pkg.Files, stringsByLocale)
 
+	// 3a. Content-kind conformance notes beyond Validate (spec §9.4).
+	checkMediaKinds(&rep, man)
+
 	// 4. Validate SVG icon if present (rasterize and check legibility on light and dark).
 	checkIcon(&rep, ctx, man, pkg.Files)
 

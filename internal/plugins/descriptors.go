@@ -304,6 +304,19 @@ func PermissionSheet(man Manifest) (lines []string, needsViewers, needsFolders b
 		lines = append(lines, "Reads folders you choose")
 		needsFolders = true
 	}
+	switch normLevel(p.Sources) {
+	case "search":
+		lines = append(lines, "Searches your indexers for sources")
+	case "acquire":
+		lines = append(lines, "Searches your indexers and opens sources through your debrid accounts")
+	}
+	for _, k := range man.Ether.Contributes.MediaKinds {
+		name := k.Library.Name
+		if strings.HasPrefix(name, "$t:") {
+			name = k.Key
+		}
+		lines = append(lines, "Adds a library: "+name)
+	}
 	for range p.Secrets {
 		lines = append(lines, "Stores an access token")
 	}
@@ -356,6 +369,27 @@ func PermissionDiff(cur, next Manifest) []string {
 	}
 	if raised(a.Folders, b.Folders) {
 		added = append(added, "Reads folders you choose")
+	}
+	sourcesLevel := map[string]int{"none": 0, "search": 1, "acquire": 2}
+	if sourcesLevel[normLevel(b.Sources)] > sourcesLevel[normLevel(a.Sources)] {
+		if normLevel(b.Sources) == "acquire" {
+			added = append(added, "Searches your indexers and opens sources through your debrid accounts")
+		} else {
+			added = append(added, "Searches your indexers for sources")
+		}
+	}
+	haveKind := map[string]bool{}
+	for _, k := range cur.Ether.Contributes.MediaKinds {
+		haveKind[k.Key] = true
+	}
+	for _, k := range next.Ether.Contributes.MediaKinds {
+		if !haveKind[k.Key] {
+			name := k.Library.Name
+			if strings.HasPrefix(name, "$t:") {
+				name = k.Key
+			}
+			added = append(added, "Adds a library: "+name)
+		}
 	}
 	haveSecret := map[string]bool{}
 	for _, s := range a.Secrets {

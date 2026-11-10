@@ -104,12 +104,16 @@ var capabilityKinds = map[Capability]map[Kind]bool{
 	CapNotify:          {KindNotificationChannel: true},
 	CapRankingStep:     {KindExtension: true, KindIntegration: true},
 	CapRuleCondition:   {KindExtension: true, KindIntegration: true},
+	CapCatalogProvider: {KindContent: true},
+	CapKindResolver:    {KindContent: true},
+	CapMatcher:         {KindContent: true},
+	CapFrontendAdapter: {KindContent: true, KindExtension: true},
 	CapEvents:          nil, CapTools: nil, CapUI: nil,
 }
 
 var knownKinds = map[Kind]bool{
 	KindSource: true, KindIntegration: true, KindNotificationChannel: true,
-	KindLiveTVSource: true, KindExtension: true,
+	KindLiveTVSource: true, KindExtension: true, KindContent: true,
 }
 
 // IsStremioOnly reports whether m is a plain Stremio add-on (no ether block).
@@ -167,7 +171,7 @@ func (m Manifest) Validate() error {
 		add("ether.protocol", fmt.Sprintf("this version of Ether speaks plugin protocol %d", Protocol))
 	}
 	if !knownKinds[e.Kind] {
-		add("ether.kind", "must be source, integration, notification_channel, livetv_source or extension")
+		add("ether.kind", "must be source, integration, notification_channel, livetv_source, extension or content")
 	}
 	if e.Kind == "sign_in" {
 		add("ether.kind", "sign_in is reserved for a later release")
@@ -271,6 +275,9 @@ func (m Manifest) Validate() error {
 		}
 	}
 	validatePermissions(e.Permissions, add)
+	if normLevel(e.Permissions.Sources) != "none" && !m.HasCapability(CapKindResolver) {
+		add("ether.permissions.sources", "needs the kind_resolver capability")
+	}
 	validateSettings(e.Settings, add)
 	usesT := strings.HasPrefix(e.Summary, "$t:") || contributesUseT(e.Contributes)
 	if usesT {
@@ -311,6 +318,7 @@ func validatePermissions(p Permissions, add func(string, string)) {
 	level("ether.permissions.catalog", normLevel(p.Catalog), "none", "read")
 	level("ether.permissions.collections", normLevel(p.Collections), "none", "write")
 	level("ether.permissions.folders", normLevel(p.Folders), "none", "read")
+	level("ether.permissions.sources", normLevel(p.Sources), "none", "search", "acquire")
 	level("ether.permissions.viewers.identity", normLevel(p.Viewers.Identity), "none", "granted_viewers", "all")
 	level("ether.permissions.viewers.watch_history", normLevel(p.Viewers.WatchHistory), "none", "granted_viewers", "all")
 	level("ether.permissions.viewers.write_watch_state", normLevel(p.Viewers.WriteWatchState), "none", "granted_viewers")
@@ -431,6 +439,28 @@ func contributesUseT(c Contributes) bool {
 	if c.Integration != nil {
 		for _, s := range c.Integration.Adds {
 			check(s)
+		}
+	}
+	for _, k := range c.MediaKinds {
+		check(k.Label)
+		check(k.Library.Name)
+		for _, lv := range k.Levels {
+			check(lv.Label)
+		}
+		for _, f := range k.Fields {
+			check(f.Label)
+		}
+		for _, a := range k.Art {
+			check(a.Label)
+		}
+	}
+	for _, a := range c.FrontendAdapters {
+		check(a.Label)
+	}
+	if c.Setup != nil {
+		for _, s := range c.Setup.Steps {
+			check(s.Label)
+			check(s.Hint)
 		}
 	}
 	return any
@@ -639,6 +669,9 @@ func validateContributes(m Manifest, add func(string, string)) {
 			add(base+".action", "is required")
 		}
 	}
+	validateMediaKinds(m, add, label)
+	validateFrontendAdapters(m, add, label)
+	validateSetup(e, add, label)
 	if e.Kind == KindIntegration {
 		if c.Integration == nil {
 			add("ether.contributes.integration", "is required for the integration kind")
