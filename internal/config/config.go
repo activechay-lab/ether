@@ -161,6 +161,10 @@ type Usenet struct {
 	// (connections are dialled lazily and expire when idle). A provider's
 	// own MinIdle overrides this.
 	MinIdle int `json:"minIdle"`
+	// DisableNestedArchives stops playback from following a RAR set that is
+	// packed inside a RAR, 7z or ZIP archive (release.rar → movie.rar → mkv).
+	// Off, the default, plays it.
+	DisableNestedArchives bool `json:"disableNestedArchives,omitempty"`
 }
 
 // Repair bounds opportunistic PAR2 reconstruction. Disabled until the owner
