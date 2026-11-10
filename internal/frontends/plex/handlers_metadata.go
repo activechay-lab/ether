@@ -71,7 +71,8 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]frontend.Ratin
 		raw = decoded
 	}
 	if strings.Contains(raw, "://") {
-		if s.d.PlexGUID == nil {
+		guidSrc := s.libraryGUIDs()
+		if guidSrc == nil {
 			return nil, errors.New("no keys")
 		}
 		// A list of plex.tv identities (Infuse resolves its Watchlist row
@@ -82,7 +83,7 @@ func (s *Server) metadataKeys(ctx context.Context, raw string) ([]frontend.Ratin
 		var unknown []string
 		for _, guid := range guids {
 			guid = strings.TrimSpace(guid)
-			k, err := s.d.PlexGUID.ExactKey(ctx, guid)
+			k, err := guidSrc.ExactKey(ctx, guid)
 			if err != nil {
 				if len(guids) == 1 {
 					return nil, err
@@ -236,18 +237,16 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 				// Version discovery belongs to the open detail page, not to
 				// admission of the independent playback warm-up. Start it first
 				// so a warm-up that needs a search can join the same work.
-				if pr.User != nil && s.detailSearchAllowed(pr) {
-					if refiller, ok := s.d.Variants.(frontend.SearchCacheRefiller); ok {
-						// Repeated metadata fetches while the same page is being
-						// watched must not retry a failed search on every fetch.
-						watchKey := fmt.Sprintf("%d|%s|%d", pr.User.ID, pr.ClientID, t.Key)
-						s.variantWatch.mu.Lock()
-						watching := s.variantWatch.pending[watchKey]
-						s.variantWatch.mu.Unlock()
-						if !watching {
-							pr.detailRefillRequested = true
-							pr.detailRefill = refiller.RefillSearchCache(t)
-						}
+				if pr.User != nil && s.detailSearchAllowed(pr) && s.variants != nil {
+					// Repeated metadata fetches while the same page is being
+					// watched must not retry a failed search on every fetch.
+					watchKey := fmt.Sprintf("%d|%s|%d", pr.User.ID, pr.ClientID, t.Key)
+					s.variantWatch.mu.Lock()
+					watching := s.variantWatch.pending[watchKey]
+					s.variantWatch.mu.Unlock()
+					if !watching {
+						pr.detailRefillRequested = true
+						pr.detailRefill = s.variants.RefillSearchCache(t)
 					}
 				}
 				s.warmDetail(ctx, pr, t)
@@ -344,7 +343,7 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *frontend.Title, chi
 			}
 		}
 	}
-	if related && s.d.Recommender != nil {
+	if related && s.recommender() != nil {
 		if hubs, err := s.detailRelated(ctx, pr).Rows(ctx, pr.User, t.Key, 12); err == nil {
 			md.Related = &model.Related{Hub: s.renderHubs(ctx, pr, hubs, hubCtx{related: t.Key})}
 		} else {
@@ -368,9 +367,7 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *frontend.Title, chi
 // sameDayUnavailable is a local visibility lookup. Merely browsing must never
 // spend search quota trying to discover an upload.
 func (s *Server) sameDayUnavailable(ctx context.Context, pr *Request, t *frontend.Title) bool {
-	var source frontend.AvailabilitySource
-	source, _ = s.d.Variants.(frontend.AvailabilitySource)
-	return s.d.Experience.SameDayUnavailable(ctx, t, s.now(), s.d.FilterAvailable, source)
+	return s.exp().SameDayUnavailable(ctx, t, s.now(), s.filterAvailable(), s.variants)
 }
 
 // showOnDeck picks the episode to resume or start next.
@@ -380,7 +377,7 @@ func (s *Server) showOnDeck(ctx context.Context, pr *Request, show frontend.Rati
 		return nil, nil
 	}
 	st := s.stateFor(ctx, pr, eps)
-	return s.d.Experience.ShowOnDeck(eps, st, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
+	return s.exp().ShowOnDeck(eps, st, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
 }
 
 const detailWarmWaitBudget = 4 * time.Second
@@ -403,11 +400,11 @@ func startDetailPageWait(pr *Request) {
 // yet, so the first detail/season/show open renders the file's real audio and
 // subtitle tracks instead of an estimate.
 func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title) {
-	if t == nil || !isPlayable(t.Type) || s.d.Playback == nil {
+	if t == nil || !isPlayable(t.Type) || s.playback() == nil {
 		return
 	}
 	if plexMobileOrTVBedrockClient(pr) {
-		if _, ok := s.d.Playback.(frontend.MetadataProber); ok {
+		if _, ok := s.playback().(frontend.MetadataProber); ok {
 			// A single wait: do not add speculative warmDetail's four seconds
 			// after the metadata probe's own bounded wait. Errors/timeouts
 			// preserve the normal detail response and background preparation.
@@ -416,7 +413,7 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 		}
 	}
 	caps := s.clientCapsForKey(pr, t.Key)
-	if warm, ok := s.d.Playback.(frontend.Prewarmer); ok {
+	if warm, ok := s.playback().(frontend.Prewarmer); ok {
 		// Plex builds these caps from the device's own profile: a held
 		// detail page may warm one cached add-on stream (PlayIntent).
 		warm.Prewarm(ctx, pr.User, t.Key, caps, frontend.PrewarmOptions{Reason: frontend.PrewarmDetail, PlayIntent: true})
@@ -424,18 +421,18 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 	if pr == nil || pr.User == nil {
 		return
 	}
-	if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
+	if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
 		return
 	}
 	if _, _, ok := s.resumedTracks(ctx, pr, t); ok {
 		return
 	}
-	if wp, ok := s.d.Playback.(frontend.WarmProber); ok {
+	if wp, ok := s.playback().(frontend.WarmProber); ok {
 		if _, warm := wp.WarmProbeInfo(pr.User, caps, t.Key); warm {
 			return
 		}
 	}
-	if waiter, ok := s.d.Playback.(frontend.WarmProbeWaiter); ok {
+	if waiter, ok := s.playback().(frontend.WarmProbeWaiter); ok {
 		budget := detailWarmWaitBudget
 		if !pr.detailWaitUntil.IsZero() {
 			budget = min(budget, time.Until(pr.detailWaitUntil))
@@ -452,7 +449,7 @@ func (s *Server) seasonNextEpisode(ctx context.Context, pr *Request, eps []front
 		return nil
 	}
 	now := s.now()
-	return s.d.Experience.SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
+	return s.exp().SeasonNextEpisode(eps, s.stateFor(ctx, pr, eps), now, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) })
 }
 
 func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
@@ -519,7 +516,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		mc.ParentTitle = ""
 		// PMS always sends parentTitle here, empty.
 		mc.Extra = append(mc.Extra, model.A("parentTitle", ""))
-		if st, err := s.d.Catalog.Get(ctx, show); err == nil {
+		if st, err := s.catalog().Get(ctx, show); err == nil {
 			s.rememberTitle(st)
 			if st.ContentRating != "" {
 				mc.Extra = append(mc.Extra, model.A("grandparentContentRating", st.ContentRating))
@@ -721,8 +718,8 @@ func (s *Server) handleParent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	up := k.Parent()
-	if s.d.EpisodeOrder != nil && k.Kind() == frontend.KindEpisode {
-		if n, _, _, ok := s.d.EpisodeOrder.Position(r.Context(), FromContext(r.Context()).User, k); ok {
+	if s.episodeOrder() != nil && k.Kind() == frontend.KindEpisode {
+		if n, _, _, ok := s.episodeOrder().Position(r.Context(), FromContext(r.Context()).User, k); ok {
 			up = frontend.SeasonKey(k.TMDB(), n)
 		}
 	}
@@ -767,7 +764,7 @@ func (s *Server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 		limit = min(n, 100)
 	}
 	items, err := s.recommendationCandidates(ctx, pr.User, limit, func(ctx context.Context, fetch int) ([]frontend.Title, error) {
-		return s.d.Catalog.Similar(ctx, k, fetch)
+		return s.catalog().Similar(ctx, k, fetch)
 	})
 	if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 		s.writeErr(w, r, err)
@@ -827,8 +824,8 @@ func collectionDevice(ctx context.Context) string {
 }
 
 func (s *Server) collectionSelection() frontend.ScopedCollection {
-	return s.d.Experience.NewScopedCollection(frontend.ScopedCollectionOptions{
-		Collections:  s.d.Collections,
+	return s.exp().NewScopedCollection(frontend.ScopedCollectionOptions{
+		Collections:  s.collections(),
 		Visibility:   s.visibility(),
 		Now:          s.now,
 		Unrestricted: func(viewer *frontend.User) bool { return !s.viewerRestricted(viewer) },
@@ -907,13 +904,13 @@ func (s *Server) collectionRows(ctx context.Context, cs []frontend.Collection) [
 		return nil
 	}
 	var state map[frontend.RatingKey]frontend.WatchStatus
-	if pr := FromContext(ctx); pr != nil && pr.User != nil && s.d.State != nil {
+	if pr := FromContext(ctx); pr != nil && pr.User != nil && s.state() != nil {
 		keys := make([]frontend.RatingKey, len(cs))
 		for i := range cs {
 			keys[i] = cs[i].Key
 		}
 		var err error
-		if state, err = s.d.State.GetMany(ctx, pr.User.ID, keys); err != nil {
+		if state, err = s.state().GetMany(ctx, pr.User.ID, keys); err != nil {
 			state = nil
 		}
 	}
@@ -940,8 +937,8 @@ func (s *Server) sectionCollections(w http.ResponseWriter, r *http.Request, sec 
 	_, mc.Title2 = sectionTypeTitle(sec)
 	mc.ViewGroup = string(sec.Type)
 	var all []frontend.Collection
-	if s.d.Collections != nil {
-		cs, err := s.d.Collections.List(ctx, pr.User, sec.Type)
+	if s.collections() != nil {
+		cs, err := s.collections().List(ctx, pr.User, sec.Type)
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -962,9 +959,9 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	mc := libraryContainer()
-	if s.d.Collections != nil {
+	if s.collections() != nil {
 		for _, sec := range s.userSections(pr.User) {
-			cs, err := s.d.Collections.List(ctx, pr.User, sec.Type)
+			cs, err := s.collections().List(ctx, pr.User, sec.Type)
 			if err != nil {
 				s.writeErr(w, r, err)
 				return
@@ -1025,7 +1022,7 @@ func (s *Server) collectionItems(w http.ResponseWriter, r *http.Request, k front
 		mc.SetSyncProjection(true)
 	}
 	if !c.Upcoming {
-		sqlAvail, _ := s.d.Catalog.(interface{ BrowseAvailabilityInSQL() bool })
+		sqlAvail, _ := s.catalog().(frontend.SQLAvailabilityCatalog)
 		if sqlAvail != nil && sqlAvail.BrowseAvailabilityInSQL() && !s.viewerRestricted(pr.User) && shelfToken(r.URL.RawQuery) == "" && !s.plexMetaOn() {
 			page, err := s.collectionSelection().Page(ctx, pr.User, c, k, collectionDevice(ctx), offset, size)
 			if err != nil {
@@ -1173,13 +1170,13 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *fronte
 // Prefer exact facts for the TV picker, without making a slow source fail
 // the detail page. Completed background probes are visible on later reads.
 func (s *Server) probeDetailTracks(ctx context.Context, pr *Request, t *frontend.Title) error {
-	if pr == nil || pr.User == nil || s.d.Playback == nil {
+	if pr == nil || pr.User == nil || s.playback() == nil {
 		return nil
 	}
 	if _, _, exact := s.mediaInfoWithSource(ctx, pr, t); exact {
 		return nil
 	}
-	if prober, ok := s.d.Playback.(frontend.MetadataProber); ok {
+	if prober, ok := s.playback().(frontend.MetadataProber); ok {
 		if !pr.detailWaitUntil.IsZero() {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithDeadline(ctx, pr.detailWaitUntil)

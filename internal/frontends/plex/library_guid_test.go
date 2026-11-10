@@ -39,9 +39,10 @@ func TestLibraryGUIDLookup(t *testing.T) {
 	}
 	pg := plexguid.New(db, plexguid.Options{})
 	defer pg.Close()
-	f := newFixture(func(d *Deps) { d.PlexGUID = pg })
+	f := newFixture()
+	f.srv.setPlexGUID(pg)
 	defer f.srv.Close()
-	f.srv.d.Catalog = guidCatalog{f.catalog}
+	f.srv.setCatalog(guidCatalog{f.catalog})
 	for _, tc := range []struct {
 		path string
 		want []core.RatingKey
@@ -116,8 +117,8 @@ func (c guidCatalog) ByExternalID(ctx context.Context, source, id string) (*core
 func TestLibraryGUIDVisibilityAndPaging(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
-	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, AllowedLibraries: []core.LibraryID{2}}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
+	f.srv.testAuth().users["tvonly"] = core.User{ID: 31, AllowedLibraries: []core.LibraryID{2}}
 	for _, token := range []string{"kid", "tvonly"} {
 		for _, path := range []string{"/library/all?guid=tmdb://550&type=1", "/library/sections/1/all?guid=tmdb://550"} {
 			rec := f.get(t, path, "Accept", "application/json", "X-Plex-Token", token)
@@ -137,7 +138,7 @@ func TestLibraryGUIDVisibilityAndPaging(t *testing.T) {
 			case "future":
 				title.Released = fixedNow.Add(time.Hour)
 			case "availability":
-				f.srv.d.FilterAvailable = func(context.Context, []core.Title) []core.Title { return nil }
+				f.srv.setFilterAvailable(func(context.Context, []core.Title) []core.Title { return nil })
 			}
 			f.catalog.titles[title.Key] = title
 			rec := f.get(t, "/library/all?guid=tmdb://550&type=1", jsonAccept...)
@@ -195,7 +196,8 @@ func TestLibraryGUIDColdLookup(t *testing.T) {
 	defer upstream.Close()
 	pg := plexguid.New(db, plexguid.Options{BaseURL: upstream.URL, Token: func() string { return "fixture" }})
 	defer pg.Close()
-	f := newFixture(func(d *Deps) { d.PlexGUID = pg })
+	f := newFixture()
+	f.srv.setPlexGUID(pg)
 	defer f.srv.Close()
 	for i := 0; i < 2; i++ {
 		rec := f.get(t, "/library/all?guid="+url.QueryEscape(guid), jsonAccept...)

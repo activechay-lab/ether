@@ -299,6 +299,11 @@ type SessionMarkers struct {
 type ExtraStreams interface {
 	Lookup(core.RatingKey) (Extra, bool)
 	Open(context.Context, core.RatingKey) (container, rawURL string, headers map[string]string, err error)
+	Enabled() bool
+	List(ctx context.Context, parent *core.Title, lang string) ([]ExtraClip, error)
+	Clip(key core.RatingKey) (ExtraClip, bool)
+	Resolve(ctx context.Context, e ExtraClip) (ResolvedExtra, error)
+	PrewarmBytes() int64
 }
 
 // CinemaIntros returns playable trailers of other visible, unwatched movies
@@ -331,6 +336,11 @@ type Prerolls interface {
 	Lookup(ctx context.Context, key RatingKey) (Extra, bool)
 	Open(ctx context.Context, key RatingKey) (io.ReadSeekCloser, time.Time, error)
 	Started(ctx context.Context, viewer *Viewer, device Device, key RatingKey)
+	Active(ctx context.Context) bool
+	Pick(ctx context.Context, req PrerollRequest) (PrerollClip, bool)
+	Clip(ctx context.Context, key RatingKey) (PrerollClip, bool)
+	Thumb(ctx context.Context, key RatingKey) (string, bool)
+	RecordPlay(ctx context.Context, play PrerollPlay)
 }
 
 // SubtitleOffer is one subtitle search result. ID is the only value a later
@@ -348,6 +358,52 @@ type SubtitleCatalog interface {
 	Enabled() bool
 	Search(context.Context, *core.Viewer, core.Device, core.RatingKey, string) ([]SubtitleOffer, error)
 	Download(context.Context, *core.Viewer, core.Device, core.RatingKey, string) (int, error)
+	OpenFormat(id, format string) (io.ReadCloser, string, error)
+	OpenFormatFrom(id, format, source string) (io.ReadCloser, string, error)
+	CachedSidecars(ctx context.Context, t *Title, u *User, embedded []StreamInfo) []StreamInfo
+	SearchSubtitles(ctx context.Context, t *Title, u *User, lang, release string) ([]SubtitleSearchOffer, error)
+	DownloadSubtitle(ctx context.Context, t *Title, u *User, id int64) (StreamInfo, error)
+	UploadSubtitle(ctx context.Context, t *Title, u *User, filename, format, language string, body []byte) (StreamInfo, error)
+	DeleteSubtitle(ctx context.Context, key RatingKey, u *User, stream StreamInfo) error
+}
+
+// SubtitleSidecarSource resolves cached OpenSubtitles and synchronized sidecars.
+type SubtitleSidecarSource interface {
+	OpenFormat(string, string) (io.ReadCloser, string, error)
+}
+
+// SubtitleSidecarCatalog is optionally implemented by Host.Subtitles: the sidecars
+// already cached for a title and viewer, without network access, skipping
+// streams embedded already lists (by ExternalURL) or covers (by language).
+type SubtitleSidecarCatalog interface {
+	CachedSidecars(ctx context.Context, t *Title, u *User, embedded []StreamInfo) []StreamInfo
+}
+
+// SubtitleSearchOffer is one subtitle search result.
+type SubtitleSearchOffer struct {
+	ID              int64  // provider file id, passed back to DownloadSubtitle
+	Language        string // ISO 639-1
+	Title           string // release or file name
+	Provider        string // "OpenSubtitles"
+	Score           int
+	HearingImpaired bool
+	Forced          bool
+	PerfectMatch    bool // matched the playing file's hash or release
+}
+
+// SubtitleSidecarSearch is optionally implemented by Host.Subtitles: on-demand
+// subtitle search and pick returning a sidecar stream.
+type SubtitleSidecarSearch interface {
+	SearchSubtitles(ctx context.Context, t *Title, u *User, lang, release string) ([]SubtitleSearchOffer, error)
+	// DownloadSubtitle fetches an offer returned by SearchSubtitles for t
+	// and returns its sidecar stream; ErrNotFound for unknown offers.
+	DownloadSubtitle(ctx context.Context, t *Title, u *User, id int64) (StreamInfo, error)
+}
+
+// SubtitleSidecarUpload is optionally implemented by Host.Subtitles:
+// viewer-uploaded sidecar subtitles.
+type SubtitleSidecarUpload interface {
+	UploadSubtitle(ctx context.Context, t *Title, u *User, filename, format, language string, body []byte) (StreamInfo, error)
 }
 
 // Extra describes a playable trailer or clip. Key is the broker-facing item
@@ -474,6 +530,10 @@ type NotInterestedPage struct {
 // Experience applies viewer policy before returning any data. Browse operations
 // must not resolve or open a release. Policy is applied before pagination and limits.
 type Experience interface {
+	ExperienceServices
+	LibraryGUIDs() LibraryGUIDs
+	LibraryMetadata() LibraryMetadata
+	MarkerRanges
 	Views(context.Context, *core.Viewer) ([]View, error)
 	Collections(context.Context, *core.Viewer, core.Device, CollectionQuery) (CollectionPage, error)
 	NotInterested(context.Context, *core.Viewer, core.Device, PageQuery) (NotInterestedPage, error)
@@ -541,12 +601,12 @@ type PlayIntent struct {
 	// a later detail page can warm the title with exactly what Play sends
 	// (DetailWarmer); generic caps are never remembered.
 	DeclaredCaps bool
-	Plex         *PlexHints
+	Hints        *PlayHints
 }
 
-// PlexHints carries Plex-specific selections that cannot be represented by
+// PlayHints carries Plex-specific selections that cannot be represented by
 // neutral stream indexes. Only the Plex adapter should populate it.
-type PlexHints struct {
+type PlayHints struct {
 	ManualSubtitle    bool // explicit request or stored manual choice, before preferences
 	Collection        string
 	MediaIndex        int
@@ -813,6 +873,10 @@ type Sessions interface {
 	Sessions(context.Context, SessionAccess) ([]Session, error)
 	Recover(context.Context, string, string, time.Duration) error
 	TranscodeFor(context.Context, string) (core.HLSSession, bool)
+	TrickplayAvailable(string) bool
+	TrickplayBIF(string) ([]byte, bool)
+	TrickplayFrame(string, time.Duration) ([]byte, bool)
+	CancelTrickplay(string)
 	// Events includes events from all cluster nodes, filters by viewer unless owner access is authorized, and ends on cancellation.
 	Events(context.Context, EventScope) (<-chan Event, error)
 }
@@ -822,4 +886,14 @@ type Sessions interface {
 // still reports the item and its file-shaped MediaSourceId.
 type ItemProgress interface {
 	ReportItemProgress(context.Context, SessionAccess, core.RatingKey, Timeline) error
+}
+
+// PlaybackSourceKeyer reports the resolved source identity for a playback session.
+type PlaybackSourceKeyer interface {
+	SourceKey(playID string) string
+}
+
+// SoftSubtitleServer serves soft ASS subtitles directly from an active HLS remux session.
+type SoftSubtitleServer interface {
+	ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
 }

@@ -15,6 +15,8 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // fakeRemuxer writes a small temp file per download, like the real
@@ -99,21 +101,26 @@ func newDownloadFixture(t *testing.T, downloadsOn bool) *downloadFixture {
 		}
 		return c
 	}
-	f.srv = NewServer(testDeps(Deps{
-		Catalog:   cat,
-		State:     newFakeState(),
-		Auth:      f.auth,
-		Playback:  f.playback,
-		Downloads: f.remux,
-		Config:    cfg,
-		Identity:  Identity{Version: "1.43.4.10903-e5521bd8c", Platform: "Linux"},
-		Now: func() time.Time {
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			return f.now
+	d := testServerDeps{
+		Catalog: cat,
+		State:   newFakeState(),
+		Deps: Deps{
+			Host: frontend.Host{
+				Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: f.playback, Downloads: f.remux}),
+			},
+			Playback:          f.playback,
+			DisableEnrichment: true,
 		},
-		DisableEnrichment: true,
-	}))
+	}
+	setDepsAuth(&d, f.auth)
+	setDepsConfig(&d, cfg)
+	setDepsIdentity(&d, Identity{Version: "1.43.4.10903-e5521bd8c", Platform: "Linux"})
+	setDepsNow(&d, func() time.Time {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.now
+	})
+	f.srv = newTestServer(d)
 	t.Cleanup(func() { f.srv.Close() })
 	return f
 }
@@ -501,6 +508,10 @@ func TestDownloadMediaRechecksTitleVisibility(t *testing.T) {
 
 type blockAllKeyword string
 
+func (blockAllKeyword) SetMaxRating(context.Context, *core.User, string) error {
+	return core.ErrUnauthorized
+}
+
 func (b blockAllKeyword) Allowed(_ *core.User, t *core.Title) bool {
 	for _, k := range t.Keywords {
 		if k == string(b) {
@@ -514,10 +525,10 @@ func (b blockAllKeyword) Allowed(_ *core.User, t *core.Title) bool {
 // (episodes do not carry the show's keywords).
 func TestDownloadQueueRejectsEpisodeOfBlockedShow(t *testing.T) {
 	f := newDownloadFixture(t, true)
-	f.srv.d.AccessPolicy = blockAllKeyword("blocked")
+	f.srv.setTestPolicy(blockAllKeyword("blocked"))
 	show := breakingBad
 	show.Keywords = []string{"blocked"}
-	f.srv.d.Catalog.(*fakeCatalog).titles[show.Key] = show
+	f.srv.catalog().(*fakeCatalog).titles[show.Key] = show
 	qid := f.queue(t)
 	rec := f.do(t, http.MethodPost, "/downloadQueue/"+itoa(qid)+"/add?keys="+bbE1.Key.String(), ownerToken, nil)
 	if rec.Code != http.StatusNotFound {

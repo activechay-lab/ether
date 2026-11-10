@@ -2,7 +2,6 @@ package plex
 
 import (
 	"context"
-	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -16,8 +15,11 @@ func TestAccountSubtitleModeStaysManualUntilChanged(t *testing.T) {
 	db := store.OpenTest(t)
 	prefs := trackprefs.New(db)
 	user := core.User{ID: 7, Username: "ada", SubtitleLanguages: []string{"de"}}
-	plain := &Server{d: testDeps(Deps{Auth: &fakeAuth{users: map[string]core.User{"t": user}}}), log: slog.Default()}
-	withPrefs := &Server{d: testDeps(Deps{Auth: plain.d.Auth, TrackPreferences: prefs}), log: slog.Default()}
+	plain := testServer(Deps{})
+	plain.setTestAuth(&fakeAuth{users: map[string]core.User{"t": user}})
+	withPrefs := testServer(Deps{})
+	withPrefs.setTestAuth(plain.testAuth())
+	withPrefs.setTrackPreferences(prefs)
 	body := func(s *Server) string {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -70,7 +72,8 @@ func TestPlexSelectionHonoursSubtitleMode(t *testing.T) {
 	if err := prefs.PutRules(context.Background(), 7, rules); err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{d: testDeps(Deps{TrackPreferences: prefs}), log: slog.Default()}
+	srv := testServer(Deps{})
+	srv.setTrackPreferences(prefs)
 	info := core.MediaInfo{Streams: []core.StreamInfo{{Type: "audio", Language: "ja"}, {Type: "audio", Language: "en"}, {Type: "subtitle", Language: "en", Forced: true}, {Type: "subtitle", Language: "en"}}}
 	got := srv.preferredSelection(context.Background(), &core.User{ID: 7}, core.MovieKey(1), info, "ja", selection{})
 	if !got.subtitleSet || got.subtitle != 3 || got.audio != 0 {

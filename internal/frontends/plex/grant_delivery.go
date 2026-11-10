@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // grantPlexMediaID recognizes an opaque credential envelope, not its authority.
@@ -73,13 +75,11 @@ func (s *Server) forwardMissingPlexGrant(w http.ResponseWriter, r *http.Request,
 	if _, local := s.transcodes.get(id); local {
 		return false
 	}
-	forward, ok := s.currentPlexEncoder().(interface {
-		ForwardPlexGrantMedia(http.ResponseWriter, *http.Request, string) bool
-	})
+	forward, ok := s.currentPlexEncoder().(frontend.GrantMediaForwarder)
 	if !ok {
 		return false
 	}
 	// This is a terminal credential transfer. Never set pr.User/Capability,
 	// install a local entry, or resume the sender's authenticated handler chain.
-	return forward.ForwardPlexGrantMedia(w, r, id)
+	return forward.ForwardGrantMedia(w, r, id)
 }

@@ -554,7 +554,7 @@ func (s *Server) personTags(key frontend.RatingKey, ps []frontend.Person, kind s
 // real tracks must be rendered there: the estimate invents a single
 // audio track and no subtitles.
 func (s *Server) mediaInfoWithSource(ctx context.Context, pr *Request, t *frontend.Title) (frontend.MediaInfo, *frontend.PlaySession, bool) {
-	if s.d.Playback == nil || pr == nil {
+	if s.playback() == nil || pr == nil {
 		dur := time.Duration(0)
 		if t != nil {
 			dur = t.Runtime
@@ -562,20 +562,20 @@ func (s *Server) mediaInfoWithSource(ctx context.Context, pr *Request, t *fronte
 		return frontend.MediaInfo{Estimated: true, Duration: dur}, nil, false
 	}
 	if pr.User != nil {
-		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
+		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil {
 			return ps.Info, ps, !ps.Info.Estimated && len(ps.Info.Streams) > 0
 		}
 		if info, _, ok := s.resumedTracks(ctx, pr, t); ok {
 			return info, nil, true
 		}
-		if wp, ok := s.d.Playback.(frontend.WarmProber); ok {
+		if wp, ok := s.playback().(frontend.WarmProber); ok {
 			caps := s.clientCapsForKey(pr, t.Key)
 			if info, warm := wp.WarmProbeInfo(pr.User, caps, t.Key); warm {
 				return info, nil, true
 			}
 		}
 	}
-	info, ps := frontend.Estimate(ctx, s.d.Playback, pr.User, pr.ClientID, t, func() frontend.ClientCaps {
+	info, ps := frontend.Estimate(ctx, s.playback(), pr.User, pr.ClientID, t, func() frontend.ClientCaps {
 		return s.clientCapsForKey(pr, t.Key)
 	})
 	return info, ps, false
@@ -597,10 +597,10 @@ type resumedTrackSource interface {
 }
 
 func (s *Server) resumedTracks(ctx context.Context, pr *Request, t *frontend.Title) (frontend.MediaInfo, string, bool) {
-	if pr == nil || pr.User == nil || pr.User.ID <= 0 || t == nil || s.d.Playback == nil || !s.playableTitle(ctx, pr.User, t) {
+	if pr == nil || pr.User == nil || pr.User.ID <= 0 || t == nil || s.playback() == nil || !s.playableTitle(ctx, pr.User, t) {
 		return frontend.MediaInfo{}, "", false
 	}
-	src, ok := s.d.Playback.(resumedTrackSource)
+	src, ok := s.playback().(resumedTrackSource)
 	if !ok {
 		return frontend.MediaInfo{}, "", false
 	}
@@ -682,7 +682,7 @@ func (s *Server) mediaFor(ctx context.Context, pr *Request, t *frontend.Title, w
 		}
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, s.now())
 	}
-	if ps != nil && ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(frontend.TrickplayCacheKey(ps)) {
+	if ps != nil && ps.Resolution != nil && s.trickplayAvailable(frontend.TrickplayCacheKey(ps)) {
 		m.Part[0].Indexes = "sd"
 	}
 	if withStreams || probedSource {
@@ -1405,7 +1405,7 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 		return nil
 	}
 	s.warmTitleDetails(ts, o.storedOnly)
-	if d := s.d.Discovery; d != nil {
+	if d := s.discovery(); d != nil {
 		if d.Ratings != nil {
 			ctx = d.Ratings.WithSettingsSnapshot(ctx)
 		}
@@ -1436,8 +1436,9 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 			}
 		}
 	}
-	if s.d.PlexGUID != nil {
-		guids = s.d.PlexGUID.CachedMany(ctx, lookup)
+	guidSrc := s.libraryGUIDs()
+	if guidSrc != nil {
+		guids = guidSrc.CachedMany(ctx, lookup)
 	}
 	ctx = s.withPlexMeta(ctx, lookup, guids)
 	var order episodeOrderView
@@ -1450,7 +1451,7 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 		if !o.storedOnly {
 			s.applyEpisodeOrder(ctx, pr, &ts[i], &m, order)
 		}
-		if s.d.PlexGUID != nil {
+		if guidSrc != nil {
 			k := ts[i].Key
 			if guid := guids[k]; guid != "" {
 				if !(ts[i].Type == frontend.TypeSeason && ts[i].Season >= 9000) {
@@ -1479,8 +1480,8 @@ func (s *Server) renderTitles(ctx context.Context, pr *Request, ts []frontend.Ti
 		}
 		out = append(out, m)
 	}
-	if s.d.PlexGUID != nil && len(missingGUIDs) > 0 && !o.storedOnly {
-		s.d.PlexGUID.Schedule(missingGUIDs...)
+	if guidSrc != nil && len(missingGUIDs) > 0 && !o.storedOnly {
+		guidSrc.Schedule(missingGUIDs...)
 	}
 	if !o.detail && !o.skipLeafCounts {
 		s.applyListLeafCountsOpts(ctx, pr, out, ts, o.storedOnly)
@@ -1498,7 +1499,7 @@ type watchedEpisodesOfReader interface {
 }
 
 func (s *Server) applyListLeafCountsOpts(ctx context.Context, pr *Request, items []model.Metadata, ts []frontend.Title, storedOnly bool) {
-	if s.d.State == nil || pr.User == nil || len(items) == 0 {
+	if s.state() == nil || pr.User == nil || len(items) == 0 {
 		return
 	}
 	hasShowOrSeason := false
@@ -1513,7 +1514,7 @@ func (s *Server) applyListLeafCountsOpts(ctx context.Context, pr *Request, items
 	}
 	var watched []frontend.RatingKey
 	var err error
-	if reader, ok := s.d.State.(watchedEpisodesOfReader); ok {
+	if reader, ok := s.state().(watchedEpisodesOfReader); ok {
 		// Only the listed shows' history: a page never reads all of it.
 		seen := map[int64]bool{}
 		var shows []int64
@@ -1524,7 +1525,7 @@ func (s *Server) applyListLeafCountsOpts(ctx context.Context, pr *Request, items
 			}
 		}
 		watched, err = reader.WatchedEpisodesOf(ctx, pr.User.ID, shows)
-	} else if reader, ok := s.d.State.(watchedEpisodesReader); ok {
+	} else if reader, ok := s.state().(watchedEpisodesReader); ok {
 		watched, err = reader.WatchedEpisodes(ctx, pr.User.ID)
 	} else {
 		return
@@ -1583,14 +1584,14 @@ func (s *Server) applyListLeafCountsOpts(ctx context.Context, pr *Request, items
 }
 
 func (s *Server) stateFor(ctx context.Context, pr *Request, ts []frontend.Title) map[frontend.RatingKey]frontend.WatchStatus {
-	if s.d.State == nil || pr.User == nil || len(ts) == 0 {
+	if s.state() == nil || pr.User == nil || len(ts) == 0 {
 		return nil
 	}
 	keys := make([]frontend.RatingKey, len(ts))
 	for i := range ts {
 		keys[i] = ts[i].Key
 	}
-	st, err := s.d.State.GetMany(ctx, pr.User.ID, keys)
+	st, err := s.state().GetMany(ctx, pr.User.ID, keys)
 	if err != nil {
 		s.log.Warn("load watch state", "err", err)
 		return nil
@@ -1615,19 +1616,19 @@ func (s *Server) prefetchListEpisodes(ctx context.Context, pr *Request, ts []fro
 	// Leaf counts need only episode keys and numbering when no title policy
 	// can depend on hydrated fields. Unknown policies retain full metadata.
 	light := pr.User != nil && pr.User.MaxContentRating == "" && !s.viewerRestricted(pr.User)
-	if s.d.AccessPolicy != nil {
-		policy, known := s.d.AccessPolicy.(frontend.ArtworkAccessPolicy)
+	if s.policy() != nil {
+		policy, known := s.policy().(frontend.ArtworkAccessPolicy)
 		light = light && known && !policy.Restricted(pr.User)
 	}
 	return s.prefetchListEpisodesWith(ctx, pr, ts, light)
 }
 
 func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts []frontend.Title, selectionOnly bool) (showEpisodes, map[frontend.RatingKey]frontend.WatchStatus) {
-	batchOpts := frontend.EpisodeBatchOptions{Catalog: s.d.Catalog, State: s.d.State}
-	if s.d.EpisodeOrder != nil {
-		batchOpts.EpisodeOrder = s.d.EpisodeOrder
+	batchOpts := frontend.EpisodeBatchOptions{Catalog: s.catalog(), State: s.state()}
+	if s.episodeOrder() != nil {
+		batchOpts.EpisodeOrder = s.episodeOrder()
 	}
-	batch := s.d.Experience.NewEpisodeBatch(batchOpts)
+	batch := s.exp().NewEpisodeBatch(batchOpts)
 	found, states := batch.Load(ctx, pr.User, ts, selectionOnly)
 	if found == nil {
 		return nil, states
@@ -1642,7 +1643,7 @@ func (s *Server) prefetchListEpisodesWith(ctx context.Context, pr *Request, ts [
 // applyLeafCountsWith is applyLeafCounts with prefetched watch state for the
 // episodes of the shows memo already holds.
 func (s *Server) applyLeafCountsWith(ctx context.Context, pr *Request, items []model.Metadata, ts []frontend.Title, memo showEpisodes, states map[frontend.RatingKey]frontend.WatchStatus) {
-	if s.d.State == nil || pr.User == nil {
+	if s.state() == nil || pr.User == nil {
 		return
 	}
 	byKey := map[string]int{}
@@ -1738,10 +1739,15 @@ func (s *Server) audioLanguages(u *frontend.User) []string {
 	if u != nil {
 		langs = append(langs, u.AudioLanguages...)
 	}
-	if s.d.Config != nil {
-		if l := s.d.Config().Catalog.Language; l != "" {
-			langs = append(langs, strings.SplitN(l, "-", 2)[0])
-		}
+	l := ""
+	if s.host.MetadataLanguage != nil {
+		l = s.host.MetadataLanguage()
+	}
+	if l == "" {
+		l = s.cfg().Catalog.Language
+	}
+	if l != "" {
+		langs = append(langs, strings.SplitN(l, "-", 2)[0])
 	}
 	return langs
 }

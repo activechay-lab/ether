@@ -62,7 +62,7 @@ func TestAuthoredPlexRepresentationOwnerContract(t *testing.T) {
 	m := authoredManager(t)
 	const publicID = "authored-public"
 	remote := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
-	owner := newFixture(func(d *Deps) { d.PlexEncoder = remote })
+	owner := newFixture(withTestEncoder(remote))
 	defer owner.srv.Close()
 	owner.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 	startPath := "/video/:/transcode/universal/start.m3u8?path=/library/metadata/1000000000000550&session=" + publicID
@@ -72,7 +72,7 @@ func TestAuthoredPlexRepresentationOwnerContract(t *testing.T) {
 		t.Fatal(master.Code)
 	}
 	delegate := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}, forwardHandler: owner.srv, forwardID: publicID}
-	sender := newFixture(func(d *Deps) { d.PlexEncoder = delegate })
+	sender := newFixture(withTestEncoder(delegate))
 	defer sender.srv.Close()
 	entry, _ := owner.srv.transcodes.get(publicID)
 	resolve := func(base, child string) string {
@@ -186,10 +186,10 @@ func TestAuthoredPlexRepresentationOwnerContract(t *testing.T) {
 			if out.Code != 403 {
 				t.Fatal("grant bypassed different account owner", out.Code)
 			}
-			owner.srv.d.AccessPolicy = &forwardedPolicy{denyTitle: true}
+			owner.srv.setTestPolicy(&forwardedPolicy{denyTitle: true})
 			out = httptest.NewRecorder()
 			sender.srv.ServeHTTP(out, httptest.NewRequest("GET", target, nil))
-			owner.srv.d.AccessPolicy = nil
+			owner.srv.setTestPolicy(nil)
 			if out.Code != 403 {
 				t.Fatal("current title denial bypassed", out.Code)
 			}

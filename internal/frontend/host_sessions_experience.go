@@ -4,9 +4,11 @@ import (
 	"context"
 	crand "crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"hash/fnv"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -314,9 +316,9 @@ func DownloadsAllowed(viewer *core.User, ready, allowFriends bool, policy Access
 	return allowFriends
 }
 
-// PlexWireID is the positive int32-range id Plex clients already parse.
+// WireID is the positive int32-range id Plex clients already parse.
 // Offer rows use it directly and are not stream bindings.
-func PlexWireID(key core.RatingKey, slot string) int64 {
+func WireID(key core.RatingKey, slot string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(strconv.FormatInt(int64(key), 10) + "/" + slot))
 	return int64(h.Sum64()%2_000_000_000) + 1
@@ -375,6 +377,114 @@ type PlayQueue struct {
 
 	Rev      int64     // clustered: stored row revision
 	LoadedAt time.Time // clustered: when the cached copy was read or written
+}
+
+type storedItem struct {
+	ID    int64          `json:"i"`
+	Key   core.RatingKey `json:"k"`
+	Added bool           `json:"a,omitempty"`
+}
+
+type storedQueue struct {
+	ClientID      string         `json:"clientID,omitempty"`
+	Items         []storedItem   `json:"items"`
+	Original      []storedItem   `json:"original,omitempty"`
+	Selected      int            `json:"selected"`
+	Shuffled      bool           `json:"shuffled,omitempty"`
+	SourceURI     string         `json:"sourceURI,omitempty"`
+	PlaylistID    core.RatingKey `json:"playlistID,omitempty"`
+	PlaylistTitle string         `json:"playlistTitle,omitempty"`
+	Version       int            `json:"version"`
+	LastAdded     int64          `json:"lastAdded,omitempty"`
+	LiveSession   string         `json:"liveSession,omitempty"`
+}
+
+func toStored(items []QueueItem) []storedItem {
+	out := make([]storedItem, len(items))
+	for i, it := range items {
+		out[i] = storedItem(it)
+	}
+	return out
+}
+
+func fromStored(items []storedItem) []QueueItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]QueueItem, len(items))
+	for i, it := range items {
+		out[i] = QueueItem(it)
+	}
+	return out
+}
+
+func EncodeQueue(q *PlayQueue) (string, error) {
+	b, err := json.Marshal(storedQueue{ClientID: q.ClientID, Items: toStored(q.Items), Original: toStored(q.Original),
+		Selected: q.Selected, Shuffled: q.Shuffled, SourceURI: q.SourceURI, PlaylistID: q.PlaylistID,
+		PlaylistTitle: q.PlaylistTitle, Version: q.Version, LastAdded: q.LastAdded, LiveSession: q.LiveSession})
+	return string(b), err
+}
+
+func DecodeQueue(id, userID, rev, updated int64, data string) (*PlayQueue, error) {
+	var sq storedQueue
+	if err := json.Unmarshal([]byte(data), &sq); err != nil {
+		return nil, err
+	}
+	return &PlayQueue{ID: id, UserID: userID, ClientID: sq.ClientID, Items: fromStored(sq.Items),
+		Original: fromStored(sq.Original), Selected: sq.Selected, Shuffled: sq.Shuffled, SourceURI: sq.SourceURI,
+		PlaylistID: sq.PlaylistID, PlaylistTitle: sq.PlaylistTitle, Version: sq.Version, LastAdded: sq.LastAdded, LiveSession: sq.LiveSession,
+		UpdatedAt: time.UnixMilli(updated), Rev: rev}, nil
+}
+
+func ShuffleQueue(p *PlayQueue) {
+	if p.Shuffled || len(p.Items) < 2 || p.Selected < 0 || p.Selected >= len(p.Items) {
+		return
+	}
+	p.Original = append([]QueueItem(nil), p.Items...)
+	sel := p.Items[p.Selected]
+	rest := append(append([]QueueItem(nil), p.Items[:p.Selected]...), p.Items[p.Selected+1:]...)
+	rand.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
+	p.Items = append([]QueueItem{sel}, rest...)
+	p.Selected = 0
+	p.Shuffled = true
+	p.Version++
+}
+
+func UnshuffleQueue(p *PlayQueue) {
+	if !p.Shuffled {
+		return
+	}
+	var sel int64
+	if p.Selected >= 0 && p.Selected < len(p.Items) {
+		// Removing every item leaves no selection to restore.
+		sel = p.Items[p.Selected].ID
+	}
+	present := map[int64]bool{}
+	for _, it := range p.Items {
+		present[it.ID] = true
+	}
+	var items []QueueItem
+	for _, it := range p.Original {
+		if present[it.ID] {
+			items = append(items, it)
+		}
+	}
+	p.Items, p.Original, p.Shuffled = items, nil, false
+	for i, it := range p.Items {
+		if it.ID == sel {
+			p.Selected = i
+		}
+	}
+	p.Version++
+}
+
+func QueueItemIndex(items []QueueItem, id int64) int {
+	for i, it := range items {
+		if it.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // PlayQueuePersistence connects shared queue transactions to node invalidation
@@ -455,10 +565,10 @@ type StartHintKey struct {
 	Key      core.RatingKey
 }
 
-// PlexStreamBinding is one Plex-visible stream id. WireID is zero on bind;
-// BindPlexStream assigns it. SessionID is empty for library metadata and is
+// StreamBinding is one Plex-visible stream id. WireID is zero on bind;
+// BindStream assigns it. SessionID is empty for library metadata and is
 // the broker session id after Open.
-type PlexStreamBinding struct {
+type StreamBinding struct {
 	WireID    int64
 	SessionID string
 	Key       core.RatingKey
@@ -466,10 +576,10 @@ type PlexStreamBinding struct {
 	Info      core.StreamInfo
 }
 
-// PlexAdmission is the source and the version and track selections for one
+// PlanAdmission is the source and the version and track selections for one
 // Plex plan. Plan makes the direct, remux, or transcode decision from them.
 // Open publishes that decision. The adapter renders it and does not decide again.
-type PlexAdmission struct {
+type PlanAdmission struct {
 	Source               *core.PlaySession
 	Media                core.MediaInfo
 	Caps                 core.ClientCaps
@@ -500,10 +610,10 @@ type VersionSnapshot struct {
 	Until    time.Time
 }
 
-// PlexActivity is one Plex client's playback as the session list shows it.
+// PlaybackActivity is one Plex client's playback as the session list shows it.
 // The broker is the only store. Cluster rows for these activities use
 // protocol plex.
-type PlexActivity struct {
+type PlaybackActivity struct {
 	ID                                                     string
 	DecisionSeen                                           bool
 	PlayingSeen                                            bool
@@ -528,7 +638,7 @@ type StartObservation interface {
 	Info() core.MediaInfo
 }
 
-type PlexPartSource struct {
+type PartSource struct {
 	Session               *core.PlaySession
 	Matches               bool
 	PreviousID            string
@@ -564,10 +674,8 @@ func (q *DownloadQueue) Item(ID int64) *DownloadItem {
 func (e *DownloadPreparationError) Error() string { return e.Err.Error() }
 func (e *DownloadPreparationError) Unwrap() error { return e.Err }
 
-// Selections and BindingTable are generic and cannot be constructed
-// through the PlexSessionStores factory (Go interfaces have no generic
-// methods); their small generic implementations live here and sessions
-// aliases them.
+// Selections and BindingTable are generic; their small generic implementations
+// live here and sessions aliases them.
 
 // Selections stores per-viewer track choices. The adapter owns the value
 // shape and translates wire stream identifiers before updating a choice.
@@ -741,8 +849,8 @@ func (t *BindingTable[R]) ByPlayID(PlayID string) []string {
 
 // ---------------------------------------------------------------------------
 // Session store host contracts. Implementations live in internal/sessions;
-// the app wires them through PlexSessionStores. Value types shared across
-// the boundary are defined in this file; sessions aliases them.
+// the app wires them through Sessions (SessionRuntime). Value types shared
+// across the boundary are defined in this file; sessions aliases them.
 
 // PlaybackOwners is the v39 playback owner history.
 type PlaybackOwners interface {
@@ -757,13 +865,6 @@ type PlaybackOwners interface {
 type Lifecycle interface {
 	Acquire(ctx context.Context, key string) (func(), error)
 	References(key string) int
-}
-
-// Coordination holds the owner history and lifecycle gates shared by every
-// protocol adapter in one Ether process.
-type Coordination interface {
-	PlaybackOwners() PlaybackOwners
-	LifecycleGates() Lifecycle
 }
 
 // DecisionArms records armed playback decisions per owner and title.
@@ -841,26 +942,6 @@ type VariantIDs interface {
 	Prune(ctx context.Context, liveIDs []int64, liveRefs []VariantRef) (int64, error)
 }
 
-// PlexStreamTable is the Plex visible-id map.
-type PlexStreamTable interface {
-	Bind(binding PlexStreamBinding) (int64, error)
-	Lookup(id int64) (PlexStreamBinding, bool)
-}
-
-// PlexStreamAPI is the visible-id and sidecar surface Plex calls.
-type PlexStreamAPI interface {
-	BindPlexStream(context.Context, SessionAccess, PlexStreamBinding) (int64, error)
-	ResolvePlexStream(context.Context, SessionAccess, int64) (PlexStreamBinding, error)
-	OpenPlexSidecar(context.Context, SessionAccess, auth.Acceptance, int64) (io.ReadCloser, core.StreamInfo, error)
-}
-
-// PlexSources prepares and serves Plex direct-play part sources.
-type PlexSources interface {
-	Prepare(ctx context.Context, viewer *core.User, key core.RatingKey, caps core.ClientCaps, release string, wait time.Duration) (*core.PlaySession, error)
-	Part(viewer int64, client string, key core.RatingKey, release string) PlexPartSource
-	ServePart(w http.ResponseWriter, r *http.Request, sourceID string)
-}
-
 // DownloadJob runs one download preparation.
 type DownloadJob interface {
 	Run(ctx context.Context, q DownloadRequest) (string, int64, error)
@@ -894,63 +975,155 @@ func Estimate(ctx context.Context, playback Estimator, viewer *core.Viewer, clie
 	return playback.Estimate(ctx, title, caps()), nil
 }
 
-// PlexActivityStore is the broker's Plex session-list store.
-type PlexActivityStore interface {
-	HasPlexActivity(id string) bool
-	EnsurePlexActivity(id string, key int)
-	UpsertPlexActivity(id string, fn func(*PlexActivity)) PlexActivity
-	RemovePlexActivity(id string) (PlexActivity, bool)
-	ListPlexActivities() []PlexActivity
-	ExpirePlexActivities(now time.Time, ttl time.Duration) []PlexActivity
+// PlaybackDeliveredSession reports whether an encoder session has delivered playable output.
+type PlaybackDeliveredSession interface {
+	PlaybackDelivered() bool
 }
 
-// PlexActivitySource reaches the Plex activity store from a session broker
-// or its surface binding.
-type PlexActivitySource interface {
-	PlexActivities() PlexActivityStore
+// FacetFilterCatalog filters a facet within a library filter.
+type FacetFilterCatalog interface {
+	FacetFilter(ctx context.Context, f Filter, facet string) ([]FacetValue, error)
 }
 
-// PlexSessionStores constructs the session stores Plex owns and provides
-// the package-level session helpers Plex calls. Implemented in
-// internal/sessions, wired by the app (and spike).
-type PlexSessionStores interface {
-	NewCoordination() Coordination
+// PlaybackActivityStore is the broker's active session-list store.
+type PlaybackActivityStore interface {
+	HasActivity(id string) bool
+	EnsureActivity(id string, key int)
+	UpsertActivity(id string, fn func(*PlaybackActivity)) PlaybackActivity
+	RemoveActivity(id string) (PlaybackActivity, bool)
+	ListActivities() []PlaybackActivity
+	ExpireActivities(now time.Time, ttl time.Duration) []PlaybackActivity
+}
+
+// SegmentedEncoder is the universal segmented transcode session interface.
+type SegmentedEncoder interface {
+	StartSegmentedHLS(ctx context.Context, viewer *core.User, playID, id string, req core.HLSRequest) (core.HLSSession, error)
+	SegmentedHLSSession(id string) (core.HLSSession, bool)
+	StopSegmentedHLS(id string) bool
+}
+
+// EncodedMediaForwarder forwards media requests to a distributed encoder owner.
+type EncodedMediaForwarder interface {
+	ForwardEncodedMedia(w http.ResponseWriter, r *http.Request, id string) bool
+}
+
+// GrantMediaForwarder forwards grant-authorized media requests to a distributed encoder owner.
+type GrantMediaForwarder interface {
+	ForwardGrantMedia(w http.ResponseWriter, r *http.Request, id string) bool
+}
+
+// EncoderBindingStore persists distributed encoder bindings across cluster nodes.
+type EncoderBindingStore interface {
+	PlexHLSDistributed(id string) bool
+	SavePlexBinding(ctx context.Context, id string, raw []byte) error
+	LoadPlexBinding(ctx context.Context, id string) ([]byte, error)
+}
+
+// EncoderBindingDeleter removes a distributed encoder binding.
+type EncoderBindingDeleter interface {
+	DeleteBinding(ctx context.Context, id string) error
+}
+
+// FailedStartRecorder records a stalled or failed playback start against a source session.
+type FailedStartRecorder interface {
+	NoteFailedStart(sessionID, reason string)
+}
+
+// SourceRestorer restores a PlaySession snapshot on a node after failover.
+type SourceRestorer interface {
+	RestoreSource(context.Context, string, core.PlaySession) error
+}
+
+// WarmProbeControl settles or triggers detail warm-up probes on a Playback manager.
+type WarmProbeControl interface {
+	ParitySettlePending(context.Context) error
+	ParitySettleWarm(context.Context, *core.Viewer, core.RatingKey, core.ClientCaps) error
+	ParityProbeNow(context.Context, *core.Viewer, core.RatingKey, core.ClientCaps) error
+}
+
+// ProgressiveFailureSession reports whether a progressive stream failed.
+type ProgressiveFailureSession interface {
+	ProgressiveFailed() bool
+}
+
+// SegmentDurationSession reports the segment duration of an HLS session.
+type SegmentDurationSession interface {
+	SegmentDuration() time.Duration
+}
+
+// TouchableSession refreshes an active transcode session's idle timer.
+type TouchableSession interface {
+	Touch()
+}
+
+// EncoderStatusSession reports live encoder status metrics.
+type EncoderStatusSession interface {
+	EncoderStatus() *core.EncoderStatus
+}
+
+// ProtocolStopper stops all active sessions for a frontend protocol.
+type ProtocolStopper interface {
+	StopProtocol(ctx context.Context, protocol Protocol) error
+}
+
+// SessionRuntime provides the session-backed stores, source preparation,
+// stream bindings, and playback/transcoder runtime for protocol adapters.
+type SessionRuntime interface {
+	HasBroker() bool
+	SegmentedEncoder() SegmentedEncoder
+	Playback() Playback
+	Transcoder() Transcoder
+	Downloads() DownloadRemuxer
+	SetDownloads(DownloadRemuxer)
+	LatestDecision(key core.RatingKey) (core.DecisionTrace, bool)
+	DB() *sql.DB
+	Cluster() ClusterNode
+	SessionHeartbeat() time.Duration
+	PlaybackOwners() PlaybackOwners
+	LifecycleGates() Lifecycle
 	NewDecisionArms(ctx context.Context, db *sql.DB, now func() time.Time, node string, log *slog.Logger, wg *sync.WaitGroup) DecisionArms
 	NewStartGuard() StartGuard
 	NewPlayQueues() PlayQueues
 	NewVersionFlows(ctx context.Context, db *sql.DB) VersionFlows
 	NewDownloadQueueStore() DownloadQueueStore
 	NewVariantIDs(db *sql.DB, now func() time.Time) VariantIDs
-	NewPlexStreamTable() PlexStreamTable
-	NewDownloadJob(playback core.Playback, remuxer core.DownloadRemuxer) DownloadJob
-	NewDownloadQueuePersistence(queue DownloadQueueStore, db *sql.DB, artifacts core.DownloadRemuxer, log *slog.Logger, expiry func() time.Duration, storageID func() string, users func(context.Context) ([]core.User, error)) DownloadQueuePersistence
-	NewPlexSources(playback core.Playback, log *slog.Logger) PlexSources
-	ObserveStart(ctx context.Context, source core.HLSSession, id string) (StartObservation, bool)
-	EncodeQueue(q *PlayQueue) (string, error)
-	DecodeQueue(id, userID, rev, updated int64, data string) (*PlayQueue, error)
-	ShuffleQueue(p *PlayQueue)
-	UnshuffleQueue(p *PlayQueue)
-	QueueItemIndex(items []QueueItem, id int64) int
-	VariantHash(key core.RatingKey, releaseID string) int64
-	UnderlyingPlexActivityStore(s Sessions) PlexActivityStore
+	NewDownloadJob(playback Playback, remuxer DownloadRemuxer) DownloadJob
+	NewDownloadQueuePersistence(queue DownloadQueueStore, db *sql.DB, artifacts DownloadRemuxer, log *slog.Logger, expiry func() time.Duration, storageID func() string, users func(context.Context) ([]core.User, error)) DownloadQueuePersistence
+	PrepareSource(ctx context.Context, viewer *core.User, key core.RatingKey, caps core.ClientCaps, release string, wait time.Duration) (*core.PlaySession, error)
+	PartSource(viewer int64, client string, key core.RatingKey, release string) PartSource
+	ServePartSource(w http.ResponseWriter, r *http.Request, sourceID string)
+	ObserveStart(ctx context.Context, source HLSSession, id string) (StartObservation, bool)
+	ActivityStore() PlaybackActivityStore
+	BindStream(context.Context, SessionAccess, StreamBinding) (int64, error)
+	ResolveStream(context.Context, SessionAccess, int64) (StreamBinding, error)
+	OpenSidecar(context.Context, SessionAccess, auth.Acceptance, int64) (io.ReadCloser, core.StreamInfo, error)
+	NotePlexEncoder(id string, format StreamFormat, decision core.Decision, offset time.Duration)
+	PlexSessionForPlayback(ctx context.Context, a SessionAccess, item core.RatingKey, playbackID, transcodeID string) (string, error)
+	PlexSessionForSource(ctx context.Context, a SessionAccess, item core.RatingKey, playID string) (string, error)
+	PlexSessionSource(id string) (string, bool)
+	ReportProgress(ctx context.Context, a SessionAccess, item core.RatingKey, t Timeline) error
+	StopPlayback(ctx context.Context, playID string) bool
+	StopProtocol(ctx context.Context, protocol Protocol) error
+	RecordAuthorizedSubtitleIntent(ctx context.Context, viewer int64, key core.RatingKey, manual bool) error
+	ConfirmAdmission(ctx context.Context, viewer *core.Viewer, remote bool) (*core.Viewer, error)
 }
 
-// PlexAdmission is the source and the version and track selections for one
+// PlanAdmission is the source and the version and track selections for one
 // Plex plan. Plan makes the direct, remux, or transcode decision from them.
 // Open publishes that decision. The adapter renders it and does not decide again.
 type plexAdmissionKey struct{}
 
-// WithPlexAdmission attaches the prepared source for one Plex Plan call.
-func WithPlexAdmission(ctx context.Context, admit func(context.Context) (PlexAdmission, error)) context.Context {
+// WithPlanAdmission attaches the prepared source for one Plex Plan call.
+func WithPlanAdmission(ctx context.Context, admit func(context.Context) (PlanAdmission, error)) context.Context {
 	if admit == nil {
 		return ctx
 	}
 	return context.WithValue(ctx, plexAdmissionKey{}, admit)
 }
 
-// PlexAdmissionFrom returns the admission callback WithPlexAdmission attached.
-func PlexAdmissionFrom(ctx context.Context) (func(context.Context) (PlexAdmission, error), bool) {
-	admit, ok := ctx.Value(plexAdmissionKey{}).(func(context.Context) (PlexAdmission, error))
+// PlanAdmissionFrom returns the admission callback WithPlanAdmission attached.
+func PlanAdmissionFrom(ctx context.Context) (func(context.Context) (PlanAdmission, error), bool) {
+	admit, ok := ctx.Value(plexAdmissionKey{}).(func(context.Context) (PlanAdmission, error))
 	return admit, ok && admit != nil
 }
 
@@ -961,17 +1134,17 @@ type plexServe struct {
 
 type plexServeKey struct{}
 
-// WithPlexServe carries the request's remote bit and subtitle format into
-// ResolvePlexStream and OpenPlexSidecar without changing their signatures.
-func WithPlexServe(ctx context.Context, remote bool, format string) context.Context {
+// WithStreamServe carries the request's remote bit and subtitle format into
+// ResolveStream and OpenSidecar without changing their signatures.
+func WithStreamServe(ctx context.Context, remote bool, format string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, plexServeKey{}, plexServe{remote: remote, format: format})
 }
 
-// PlexServeFrom returns the remote bit and subtitle format WithPlexServe attached.
-func PlexServeFrom(ctx context.Context) (remote bool, format string) {
+// StreamServeFrom returns the remote bit and subtitle format WithStreamServe attached.
+func StreamServeFrom(ctx context.Context) (remote bool, format string) {
 	if ctx == nil {
 		return false, ""
 	}
@@ -1077,7 +1250,7 @@ type SearchResults struct {
 	CollectionSearch bool
 }
 
-// PlexIssuedIdentity is the selection resolvePlaySelection already holds
+// IssuedTrackIdentity is the selection resolvePlaySelection already holds
 // after the Plex adapter has accepted a stream ID from the item-scoped
 // issued registry. Positions are indexes into the full MediaInfo.Streams
 // slice from that issuance. They are not StreamInfo.Index values and they
@@ -1097,7 +1270,7 @@ type SearchResults struct {
 // legacy position-only choice and is preserved.
 //
 // The translator does not retain either pointer and does not pin a source.
-type PlexIssuedIdentity struct {
+type IssuedTrackIdentity struct {
 	Audio            *core.StreamInfo
 	AudioPosition    int
 	AudioSet         bool
@@ -1252,7 +1425,7 @@ func AssemblePostPlay[P any](ctx context.Context, selection PostPlaySelection, v
 
 // ---------------------------------------------------------------------------
 // Experience host contracts. Selector implementations live in
-// internal/experience; adapters build them through PlexExperience
+// internal/experience; adapters build them through Host.Experience
 // constructors from the option value types below and call the selector
 // interfaces. Generic home/postplay assembly orchestrates only these
 // contracts, so it lives here like the generic session tables.
@@ -1282,16 +1455,27 @@ type DetailRelatedOptions struct {
 	Get        func(context.Context, core.RatingKey) (*core.Title, error)
 }
 
-// PlexTimeline persists one Plex timeline report through the host writer.
-type PlexTimeline interface {
-	Store(ctx context.Context, user int64, key core.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (context.Context, *TimelinePersistenceResult, error)
-}
-
-// PlexTimelineOptions configures a PlexTimeline.
-type PlexTimelineOptions struct {
-	Writer          PlexTimelineWriter
-	Now             func() time.Time
-	RestoreContinue func(context.Context, int64, core.RatingKey) error
+// StoreTimeline persists one timeline report through the host writer and
+// restores continuation only when persistence changed.
+func StoreTimeline(ctx context.Context, writer TimelineWriter, now func() time.Time, restoreContinue func(context.Context, int64, core.RatingKey) error, user int64, key core.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (context.Context, *TimelinePersistenceResult, error) {
+	result, err := writer.StoreTimeline(ctx, user, key, offset, duration, status, queue, offline)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if result.Changed && (result.PlaybackState == "complete" || result.ViewOffset > time.Minute) {
+		if parents, ok := writer.(ParentToucher); ok {
+			_ = parents.TouchParents(ctx, user, key, now(), result.Completed)
+		}
+	}
+	if result.Changed {
+		if restore, ok := writer.(ContinueRestorer); ok {
+			_ = restore.RestoreContinue(ctx, user, key)
+		}
+		if restoreContinue != nil {
+			_ = restoreContinue(ctx, user, key)
+		}
+	}
+	return WithTimelineStored(ctx), &result, nil
 }
 
 // EpisodeOrderGrouped is the grouped-episode-order capability selectors use.
@@ -1464,13 +1648,12 @@ type Search interface {
 	Keyword(ctx context.Context, viewer *core.User, query string, types []core.MediaType, limit int) ([]core.Title, error)
 }
 
-// PlexExperience constructs the experience selectors Plex uses and
-// provides its package-level operations. Implemented in
-// internal/experience, wired by the app (and spike).
-type PlexExperience interface {
+// ExperienceServices exposes experience selectors, domain sources, and
+// package-level operations on Host.Experience. Implemented in
+// internal/experience (*Service) and wired on Host.Experience.
+type ExperienceServices interface {
 	NewRecent(RecentOptions) Recent
 	NewDetailRelated(DetailRelatedOptions) DetailRelated
-	NewPlexTimeline(PlexTimelineOptions) PlexTimeline
 	NewEpisodeBatch(EpisodeBatchOptions) EpisodeBatch
 	NewContinueDeck(ContinueDeckOptions) ContinueDeck
 	NewContinue(ContinueOptions) Continue
@@ -1489,11 +1672,30 @@ type PlexExperience interface {
 	DiscoverySearch(source *DiscoveryFeatures) func(context.Context, *core.User, string, int) ([]core.Title, bool)
 	FamiliarFrom(st any) func(context.Context, *core.User, []core.RatingKey) map[core.RatingKey]int
 	ContinueFilter(state core.State, personal func(context.Context, *core.User, []core.Title) []core.Title) func(context.Context, *core.User, []core.Title) []core.Title
-	SameDayUnavailable(ctx context.Context, title *core.Title, now time.Time, filter func(context.Context, []core.Title) []core.Title, source core.AvailabilitySource) bool
+	SameDayUnavailable(ctx context.Context, title *core.Title, now time.Time, filter func(context.Context, []core.Title) []core.Title, source AvailabilitySource) bool
 	SeasonNextEpisode(eps []core.Title, st map[core.RatingKey]core.WatchStatus, now time.Time, unavailable func(*core.Title) bool) *core.Title
 	ShowOnDeck(eps []core.Title, st map[core.RatingKey]core.WatchStatus, unavailable func(*core.Title) bool) *core.Title
 	RequestDatabaseObservation(ctx context.Context) (int64, time.Duration)
 	PlaybackMarkerRanges(ctx context.Context, source MarkerRanges, key core.RatingKey, info core.MediaInfo) ([]MarkerRange, error)
+
+	CatalogSource() core.Catalog
+	CollectionsSource() core.Collections
+	StateSource() core.State
+	PlaylistsSource() core.Playlists
+	RecommenderSource() core.Recommender
+	VibeSearchSource() VibeSearcher
+	SearchSources() SearchSources
+	FavoriteShowsFunc() func(context.Context, *core.User) (map[core.RatingKey]bool, error)
+	FilterAvailableFunc() func(context.Context, []core.Title) []core.Title
+	JudgedOnFactsFunc() func(context.Context) func(core.Title) bool
+	PrioritizeAvailableFunc() func(context.Context, []core.Title) []core.Title
+	EpisodeOrderSource() EpisodeOrder
+	DiscoveryFeatures() *DiscoveryFeatures
+	DashboardSource() Dashboard
+	ResourcesSource() ResourceStatistics
+	LibraryTitles() (movies, shows string)
+	HomeRevision(ctx context.Context, viewer *core.User) (HomeRevision, bool, error)
+	NoProviderWait(ctx context.Context) context.Context
 }
 
 // AssembleHome places the continue row at its ranked position and deduplicates
@@ -1750,7 +1952,7 @@ func (UnsupportedPlexTrackIdentityError) Is(target error) bool {
 //
 // The result positions are indexes in probed.Streams. Encoder indexes still
 // come from the selected StreamInfo.Index.
-func TranslatePlexTrackIdentity(issued PlexIssuedIdentity, probed core.MediaInfo) (TrackSelection, error) {
+func TranslatePlexTrackIdentity(issued IssuedTrackIdentity, probed core.MediaInfo) (TrackSelection, error) {
 	if issued.AudioSet != (issued.AudioPosition >= 0) {
 		return TrackSelection{}, UnsupportedPlexTrackIdentityError{Reason: "audio set flag does not match a nonnegative position"}
 	}
@@ -1777,4 +1979,203 @@ func TranslatePlexTrackIdentity(issued PlexIssuedIdentity, probed core.MediaInfo
 		out.Subtitle, out.SubtitleSet = -1, false
 	}
 	return out, nil
+}
+
+// NoopExperience returns a zero-value Experience implementation for unmounted
+// or partial test servers.
+func NoopExperience() Experience { return noopExperience{} }
+
+type noopExperience struct{}
+
+func (noopExperience) Views(context.Context, *Viewer) ([]View, error) {
+	return nil, nil
+}
+func (noopExperience) Collections(context.Context, *Viewer, Device, CollectionQuery) (CollectionPage, error) {
+	return CollectionPage{}, nil
+}
+func (noopExperience) NotInterested(context.Context, *Viewer, Device, PageQuery) (NotInterestedPage, error) {
+	return NotInterestedPage{}, nil
+}
+func (noopExperience) NotInterestedItem(context.Context, *Viewer, Device, RatingKey) (NotInterestedEntry, error) {
+	return NotInterestedEntry{}, ErrNotFound
+}
+func (noopExperience) ResolveExternal(context.Context, *Viewer, Device, ExternalRequest) (RatingKey, error) {
+	return 0, ErrNotFound
+}
+func (noopExperience) Rows(context.Context, RowRequest) ([]Row, error) {
+	return nil, nil
+}
+func (noopExperience) Item(context.Context, ItemRequest) (ItemDetail, error) {
+	return ItemDetail{}, ErrNotFound
+}
+func (noopExperience) Children(context.Context, *Viewer, Device, RatingKey, ItemQuery) (Page, error) {
+	return Page{}, nil
+}
+func (noopExperience) LibraryItems(context.Context, *Viewer, Device, string, ItemQuery) (Page, error) {
+	return Page{}, nil
+}
+func (noopExperience) Similar(context.Context, *Viewer, Device, RatingKey, ItemQuery) (SearchPage, error) {
+	return SearchPage{}, nil
+}
+func (noopExperience) Ancestors(context.Context, *Viewer, Device, RatingKey) ([]Title, error) {
+	return nil, nil
+}
+func (noopExperience) Facets(context.Context, *Viewer, Device, string, string) ([]FacetValue, error) {
+	return nil, nil
+}
+func (noopExperience) ResolveFacet(context.Context, *Viewer, Device, string, string, string) (FacetValue, error) {
+	return FacetValue{}, ErrNotFound
+}
+func (noopExperience) PersonFacetIDs(context.Context, *Viewer, Device, RatingKey, []int64) (map[int64]string, error) {
+	return nil, nil
+}
+func (noopExperience) NamedFacetIDs(context.Context, *Viewer, Device, RatingKey, string, []string) (map[string]string, error) {
+	return nil, nil
+}
+func (noopExperience) Search(context.Context, *Viewer, Device, string, ItemQuery) (SearchPage, error) {
+	return SearchPage{}, nil
+}
+func (noopExperience) UserData(context.Context, *Viewer, []RatingKey) (map[RatingKey]WatchStatus, error) {
+	return nil, nil
+}
+func (noopExperience) SetPlayed(context.Context, *Viewer, RatingKey) error {
+	return nil
+}
+func (noopExperience) SetUnplayed(context.Context, *Viewer, RatingKey) error {
+	return nil
+}
+func (noopExperience) SetFavorite(context.Context, *Viewer, RatingKey, bool) error {
+	return nil
+}
+func (noopExperience) SetNotInterested(context.Context, *Viewer, RatingKey, bool) error {
+	return nil
+}
+func (noopExperience) SetWatchlist(context.Context, *Viewer, RatingKey, bool) error {
+	return nil
+}
+func (noopExperience) SetEntityFavorite(context.Context, *Viewer, FavoriteRef, bool) error {
+	return nil
+}
+func (noopExperience) EntityFavorites(context.Context, *Viewer, []FavoriteRef) (map[FavoriteRef]bool, error) {
+	return nil, nil
+}
+func (noopExperience) ResolveEventSubject(context.Context, *Viewer, Device, FavoriteRef) (ResolvedEventSubject, error) {
+	return ResolvedEventSubject{}, ErrNotFound
+}
+func (noopExperience) SetRating(context.Context, *Viewer, RatingKey, float64) error {
+	return nil
+}
+func (noopExperience) SetLikes(context.Context, *Viewer, RatingKey, *bool) error {
+	return nil
+}
+func (noopExperience) RemoveFromContinue(context.Context, *Viewer, RatingKey) error {
+	return nil
+}
+func (noopExperience) NewRecent(RecentOptions) Recent { return nil }
+func (noopExperience) NewDetailRelated(DetailRelatedOptions) DetailRelated {
+	return nil
+}
+func (noopExperience) NewEpisodeBatch(EpisodeBatchOptions) EpisodeBatch {
+	return nil
+}
+func (noopExperience) NewContinueDeck(ContinueDeckOptions) ContinueDeck {
+	return nil
+}
+func (noopExperience) NewContinue(ContinueOptions) Continue { return nil }
+func (noopExperience) NewRowSelection(RowSelectionOptions) RowSelection {
+	return nil
+}
+func (noopExperience) NewHomeSelection(HomeSelectionOptions) HomeSelection {
+	return nil
+}
+func (noopExperience) NewScopedCollection(ScopedCollectionOptions) ScopedCollection {
+	return nil
+}
+func (noopExperience) NewPlaylistSelection(PlaylistSelectionOptions) PlaylistSelection {
+	return nil
+}
+func (noopExperience) NewPostPlaySelection(PostPlaySelectionOptions) PostPlaySelection {
+	return nil
+}
+func (noopExperience) NewDiscoverySelection(DiscoverySelectionOptions) DiscoverySelection {
+	return nil
+}
+func (noopExperience) NewTrackPreferenceSelector(TrackPreferenceSelectorOptions) TrackPreferenceSelector {
+	return nil
+}
+func (noopExperience) SearchFor(SearchSources, Visibility, func(*User) bool) Search {
+	return nil
+}
+func (noopExperience) StatisticsDefaults(d Dashboard, r ResourceStatistics, _ func() time.Time) (Dashboard, ResourceStatistics) {
+	return d, r
+}
+func (noopExperience) MergeShareFilter(filter, _ Filter) (Filter, bool) {
+	return filter, false
+}
+func (noopExperience) ArrangeHome(_ context.Context, _ Recommender, _ *User, _ HubContext, _ string, rows []Hub, _ []NeutralHomeRow) ([]int, error) {
+	idx := make([]int, len(rows))
+	for i := range rows {
+		idx[i] = i
+	}
+	return idx, nil
+}
+func (noopExperience) DetailExtras(context.Context, ExtrasSource, *Title, string, map[int]bool) ([]ExtraClip, error) {
+	return nil, nil
+}
+func (noopExperience) DiscoverySearch(*DiscoveryFeatures) func(context.Context, *User, string, int) ([]Title, bool) {
+	return nil
+}
+func (noopExperience) FamiliarFrom(any) func(context.Context, *User, []RatingKey) map[RatingKey]int {
+	return nil
+}
+func (noopExperience) ContinueFilter(_ State, personal func(context.Context, *User, []Title) []Title) func(context.Context, *User, []Title) []Title {
+	return personal
+}
+func (noopExperience) SameDayUnavailable(context.Context, *Title, time.Time, func(context.Context, []Title) []Title, AvailabilitySource) bool {
+	return false
+}
+func (noopExperience) SeasonNextEpisode([]Title, map[RatingKey]WatchStatus, time.Time, func(*Title) bool) *Title {
+	return nil
+}
+func (noopExperience) ShowOnDeck([]Title, map[RatingKey]WatchStatus, func(*Title) bool) *Title {
+	return nil
+}
+func (noopExperience) RequestDatabaseObservation(context.Context) (int64, time.Duration) {
+	return 0, 0
+}
+func (noopExperience) PlaybackMarkerRanges(context.Context, MarkerRanges, RatingKey, MediaInfo) ([]MarkerRange, error) {
+	return nil, nil
+}
+func (noopExperience) CatalogSource() Catalog         { return nil }
+func (noopExperience) CollectionsSource() Collections { return nil }
+func (noopExperience) StateSource() State             { return nil }
+func (noopExperience) PlaylistsSource() Playlists     { return nil }
+func (noopExperience) RecommenderSource() Recommender { return nil }
+func (noopExperience) VibeSearchSource() VibeSearcher { return nil }
+func (noopExperience) SearchSources() SearchSources   { return SearchSources{} }
+func (noopExperience) FavoriteShowsFunc() func(context.Context, *User) (map[RatingKey]bool, error) {
+	return nil
+}
+func (noopExperience) FilterAvailableFunc() func(context.Context, []Title) []Title {
+	return nil
+}
+func (noopExperience) JudgedOnFactsFunc() func(context.Context) func(Title) bool {
+	return nil
+}
+func (noopExperience) PrioritizeAvailableFunc() func(context.Context, []Title) []Title {
+	return nil
+}
+func (noopExperience) EpisodeOrderSource() EpisodeOrder      { return nil }
+func (noopExperience) DiscoveryFeatures() *DiscoveryFeatures { return nil }
+func (noopExperience) DashboardSource() Dashboard            { return nil }
+func (noopExperience) ResourcesSource() ResourceStatistics   { return nil }
+func (noopExperience) LibraryTitles() (string, string)       { return "", "" }
+func (noopExperience) HomeRevision(context.Context, *User) (HomeRevision, bool, error) {
+	return HomeRevision{}, false, nil
+}
+func (noopExperience) NoProviderWait(ctx context.Context) context.Context { return ctx }
+func (noopExperience) LibraryGUIDs() LibraryGUIDs                         { return nil }
+func (noopExperience) LibraryMetadata() LibraryMetadata                   { return nil }
+func (noopExperience) Markers(context.Context, RatingKey, MediaInfo) ([]MarkerRange, error) {
+	return nil, nil
 }

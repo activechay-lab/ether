@@ -59,7 +59,7 @@ func (s *Server) libraryByGUID(w http.ResponseWriter, r *http.Request, sec *Sect
 				continue
 			}
 			seen[key] = true
-			title, err := s.d.Catalog.Get(ctx, key)
+			title, err := s.catalog().Get(ctx, key)
 			if errors.Is(err, frontend.ErrNotFound) {
 				continue
 			}
@@ -108,11 +108,12 @@ func (s *Server) guidKeys(ctx context.Context, guid string, typ frontend.MediaTy
 	}
 	switch scheme {
 	case "plex":
-		if s.d.PlexGUID == nil {
+		guidSrc := s.libraryGUIDs()
+		if guidSrc == nil {
 			return nil, frontend.ErrNotFound
 		}
 		if strings.HasPrefix(cleanGUID, "plex://season/") || strings.HasPrefix(cleanGUID, "plex://episode/") {
-			k, err := s.d.PlexGUID.ExactKey(ctx, cleanGUID)
+			k, err := guidSrc.ExactKey(ctx, cleanGUID)
 			if err != nil {
 				if errors.Is(err, frontend.ErrAmbiguousLibraryGUID) {
 					return nil, frontend.ErrNotFound
@@ -121,7 +122,7 @@ func (s *Server) guidKeys(ctx context.Context, guid string, typ frontend.MediaTy
 			}
 			return []frontend.RatingKey{k}, nil
 		}
-		k, err := s.d.PlexGUID.Lookup(ctx, cleanGUID)
+		k, err := guidSrc.Lookup(ctx, cleanGUID)
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +138,7 @@ func (s *Server) guidKeys(ctx context.Context, guid string, typ frontend.MediaTy
 		if err != nil || n <= 0 || strings.ContainsAny(raw, "+- /") {
 			return nil, frontend.ErrNotFound
 		}
-		t, err := s.d.Catalog.ByExternalID(ctx, "imdb", id)
+		t, err := s.catalog().ByExternalID(ctx, "imdb", id)
 		if err != nil {
 			return nil, err
 		}
@@ -242,7 +243,7 @@ func (s *Server) tvdbGUIDKeys(ctx context.Context, id string, typ frontend.Media
 			return nil, frontend.ErrNotFound
 		}
 	}
-	t, err := s.d.Catalog.ByExternalID(ctx, "tvdb", showRaw)
+	t, err := s.catalog().ByExternalID(ctx, "tvdb", showRaw)
 	if err != nil {
 		return nil, err
 	}

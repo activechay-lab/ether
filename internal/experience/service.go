@@ -194,6 +194,28 @@ type ServiceDeps struct {
 
 	// Enrich must use cached or estimated data; it must never resolve releases.
 	Enrich func(context.Context, *core.User, core.Device, *core.Title) (frontend.ItemDetail, error)
+
+	Catalog             core.Catalog
+	Recommender         core.Recommender
+	VibeSearch          frontend.VibeSearcher
+	SearchSources       frontend.SearchSources
+	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
+	FilterAvailable     func(context.Context, []core.Title) []core.Title
+	JudgedOnFacts       func(context.Context) func(core.Title) bool
+	PrioritizeAvailable func(context.Context, []core.Title) []core.Title
+	EpisodeOrder        frontend.EpisodeOrder
+	Discovery           *frontend.DiscoveryFeatures
+	Dashboard           frontend.Dashboard
+	Resources           frontend.ResourceStatistics
+	LibraryGUIDs        frontend.LibraryGUIDs
+	LibraryGUIDsFunc    func() frontend.LibraryGUIDs
+	LibraryMetadata     frontend.LibraryMetadata
+	LibraryMetadataFunc func() frontend.LibraryMetadata
+	Markers             frontend.MarkerRanges
+	LibraryTitles       func() (movies, shows string)
+	HomeRevision        func(context.Context, *core.User) (frontend.HomeRevision, error)
+	NoProviderWait      func(context.Context) context.Context
+	Now                 func() time.Time
 }
 
 type Service struct {
@@ -211,6 +233,10 @@ func NewService(d ServiceDeps) (*Service, error) {
 	if d.Active == nil || d.Get == nil || d.Children == nil || d.State == nil || d.Rows == nil || d.Protocol == "" || d.Visibility.GetTitle == nil || d.Visibility.SectionFor == nil || d.Search.Catalog == nil {
 		return nil, errors.New("experience: incomplete service dependencies")
 	}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	d.Dashboard, d.Resources = Statistics(d.Dashboard, d.Resources, d.Now)
 	d.Libraries = append([]Library(nil), d.Libraries...)
 	d.Search.Visibility = d.Visibility
 	return &Service{d: d, cursors: &episodeCursors{}}, nil
@@ -1633,6 +1659,32 @@ func (s *Service) RemoveFromContinue(ctx context.Context, v *core.Viewer, k core
 		}
 		return s.d.RemoveContinue(ctx, u, k)
 	})
+}
+
+func (s *Service) LibraryGUIDs() frontend.LibraryGUIDs {
+	if s == nil {
+		return nil
+	}
+	if s.d.LibraryGUIDsFunc != nil {
+		return s.d.LibraryGUIDsFunc()
+	}
+	return s.d.LibraryGUIDs
+}
+func (s *Service) LibraryMetadata() frontend.LibraryMetadata {
+	if s == nil {
+		return nil
+	}
+	if s.d.LibraryMetadataFunc != nil {
+		return s.d.LibraryMetadataFunc()
+	}
+	return s.d.LibraryMetadata
+}
+func (s *Service) Markers(ctx context.Context, key core.RatingKey, info core.MediaInfo) ([]frontend.MarkerRange, error) {
+	var src frontend.MarkerRanges
+	if s != nil {
+		src = s.d.Markers
+	}
+	return PlaybackMarkerRanges(ctx, src, key, info)
 }
 
 func (s *Service) sortTitles(ctx context.Context, items []core.Title, q frontend.ItemQuery) error {

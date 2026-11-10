@@ -11,8 +11,8 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
+	"github.com/braedonsaunders/ether/internal/playback"
 )
 
 func (p *fakePlayback) CheckFileAvailability(_ context.Context, _ *core.User, key core.RatingKey, _ core.ClientCaps, _ string) (bool, error) {
@@ -89,7 +89,7 @@ func fileProbeManager(t *testing.T, f *fixture, res fileProbeResolver, engine *f
 }
 
 func TestMetadataFileChecksUseSourceWithoutPlaybackAdmission(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.DisableEnrichment = true })
+	f := newFixture(func(d *testServerDeps) { d.DisableEnrichment = true })
 	engine := &fileProbeEngine{}
 	m := fileProbeManager(t, f, fileProbeResolver{releases: []string{"checked"}}, engine)
 	f.srv.d.Playback = m
@@ -154,7 +154,7 @@ func TestFileAvailabilityOnlyDefinitiveEvidenceHidesAVersion(t *testing.T) {
 		{"version opens empty", fileProbeResolver{releases: []string{"b"}}, &fileProbeEngine{empty: map[string]bool{"b": true}}, "b", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(func(d *Deps) { d.DisableEnrichment = true })
+			f := newFixture(func(d *testServerDeps) { d.DisableEnrichment = true })
 			m := fileProbeManager(t, f, tc.resolver, tc.engine)
 			f.srv.d.Playback = m
 			defer f.srv.Close()

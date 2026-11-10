@@ -82,10 +82,9 @@ func (p ownerPlayback) Session(id string) (*core.PlaySession, bool) {
 	}
 	return nil, false
 }
+
 func (a *App) stopOwnerSession(id string) error {
-	if server := a.currentPlexServer(); server != nil {
-		server.NoteOwnerStop(id, "The server owner has ended this stream.")
-	}
+	a.frontends.noteOwnerStop(id, "The server owner has ended this stream.")
 	if a.frontends != nil && a.frontends.broker != nil {
 		a.frontends.broker.StopPlayback(context.Background(), id)
 	}

@@ -40,7 +40,7 @@ func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed tim
 		ev.Duration = elapsed
 		ev.Cancelled = r.Context().Err() != nil
 		ev.Query = frontend.SafeDiagnosticQuery(r.URL.Query())
-		ev.DBQueries, ev.DBTime = s.d.Experience.RequestDatabaseObservation(r.Context())
+		ev.DBQueries, ev.DBTime = s.exp().RequestDatabaseObservation(r.Context())
 		if sr.sampling {
 			ev.Response = summarizePlexResponse(sr.sample, sr.truncated, sr.Header().Get("Content-Encoding"))
 		}
@@ -67,10 +67,10 @@ func (s *Server) observePlaybackReported(pr *Request) {
 // capture. Viewer identity follows the same explicit export flags as requests;
 // the structured playback object itself never carries usernames or addresses.
 func (s *Server) observePlaybackDecision(ctx context.Context, pr *Request, p *playRequest, ps *frontend.PlaySession) {
-	if s == nil || s.support == nil || s.d.DecisionTraces == nil || pr == nil || p == nil {
+	if s == nil || s.support == nil || s.runtime == nil || pr == nil || p == nil {
 		return
 	}
-	tr, ok := s.d.DecisionTraces.LatestDecision(p.key)
+	tr, ok := s.runtime.LatestDecision(p.key)
 	if !ok {
 		return
 	}

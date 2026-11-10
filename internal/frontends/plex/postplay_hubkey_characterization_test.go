@@ -29,7 +29,7 @@ func TestPostplayRelatedHubKeyAuthorizationCharacterization(t *testing.T) {
 				parent.Adult = true
 				f.catalog.titles[parent.Key] = parent
 			case "unavailable":
-				f.srv.d.FilterAvailable = func(_ context.Context, items []core.Title) []core.Title {
+				f.srv.setFilterAvailable(func(_ context.Context, items []core.Title) []core.Title {
 					out := make([]core.Title, 0, len(items))
 					for _, item := range items {
 						if item.Key != candidate.Key {
@@ -37,11 +37,11 @@ func TestPostplayRelatedHubKeyAuthorizationCharacterization(t *testing.T) {
 						}
 					}
 					return out
-				}
+				})
 			}
 			f.catalog.titles[candidate.Key] = candidate
 			rec.fakeRecommender.related = []core.Hub{{ID: "movie.similar", Title: "Related", Type: core.TypeMovie, Items: []core.Title{candidate, fightClub}}}
-			f.srv.d.Auth.(*fakeAuth).users["restricted-postplay"] = core.User{ID: 902, AllowedLibraries: []core.LibraryID{1, 2}}
+			f.srv.testAuth().users["restricted-postplay"] = core.User{ID: 902, AllowedLibraries: []core.LibraryID{1, 2}}
 			// The source movie is visible to both viewers and is distinct from candidates.
 			source := core.Title{Key: core.MovieKey(905), Type: core.TypeMovie, Title: "Source", Released: fixedNow.AddDate(-1, 0, 0)}
 			f.catalog.titles[source.Key] = source

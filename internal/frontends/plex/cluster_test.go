@@ -22,10 +22,10 @@ func twoServers(t *testing.T) (*fixture, *fixture, *clusterbus.Hub) {
 	db := store.OpenTest(t)
 	hub := clusterbus.NewHub()
 	mk := func(name string) *fixture {
-		f := newFixture(func(d *Deps) {
-			d.DB, d.Cluster = db, hub.Node(name)
+		f := newFixture(func(d *testServerDeps) {
+			d.DB = db
+			d.Host.Sessions = sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{DB: db, Cluster: hub.Node(name), SessionHeartbeat: 50 * time.Millisecond})
 			d.DisableEnrichment = true
-			d.SessionHeartbeat = 50 * time.Millisecond
 		})
 		t.Cleanup(func() {
 			f.srv.Close()
@@ -155,8 +155,8 @@ func TestClusterOwnerStopReachesServingNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admitted := sessions.PlexAdmission{Source: ps, Media: ps.Info, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}
-	plexCtx := sessions.WithPlexAdmission(ctx, func(context.Context) (sessions.PlexAdmission, error) {
+	admitted := sessions.PlanAdmission{Source: ps, Media: ps.Info, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}
+	plexCtx := sessions.WithPlanAdmission(ctx, func(context.Context) (sessions.PlanAdmission, error) {
 		return admitted, nil
 	})
 	viewer := &core.Viewer{ID: friendUser.ID}
@@ -274,7 +274,7 @@ func TestClusterNotificationsReachOtherNodes(t *testing.T) {
 
 // A standalone server keeps sessions local while persisting its play queues.
 func TestStandaloneServerKeepsSessionsLocalAndQueuesDurable(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.DB = store.OpenTest(t) })
+	f := newFixture(func(d *testServerDeps) { d.DB = store.OpenTest(t) })
 	defer f.srv.Close()
 	if f.srv.cl != nil || !f.srv.queues.Persistent() {
 		t.Fatal("standalone session or durable queue wiring is incorrect")

@@ -2,7 +2,6 @@ package clusterplayback
 
 import (
 	"context"
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,10 +15,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
-	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
@@ -75,19 +75,22 @@ func (p *composedPolicy) Allowed(*core.User, *core.Title) bool { return !p.hidde
 func (p *composedPolicy) CanPlay(_ *core.User, remote bool, _ time.Time) bool {
 	return !remote || !p.wan.Load()
 }
+func (*composedPolicy) SetMaxRating(context.Context, *core.User, string) error {
+	return core.ErrUnauthorized
+}
 
 type forwardOnlyEncoder struct{ r *Runtime }
 
-func (e forwardOnlyEncoder) StartPlexHLS(context.Context, *core.User, string, string, core.HLSRequest) (core.HLSSession, error) {
+func (e forwardOnlyEncoder) StartSegmentedHLS(context.Context, *core.User, string, string, core.HLSRequest) (core.HLSSession, error) {
 	return nil, ErrDenied
 }
-func (e forwardOnlyEncoder) PlexHLSSession(string) (core.HLSSession, bool) { return nil, false }
-func (e forwardOnlyEncoder) StopPlexHLS(string) bool                       { return false }
-func (e forwardOnlyEncoder) ForwardPlexMedia(w http.ResponseWriter, q *http.Request, id string) bool {
-	return e.r.ForwardPlexMedia(w, q, id)
+func (e forwardOnlyEncoder) SegmentedHLSSession(string) (core.HLSSession, bool) { return nil, false }
+func (e forwardOnlyEncoder) StopSegmentedHLS(string) bool                       { return false }
+func (e forwardOnlyEncoder) ForwardEncodedMedia(w http.ResponseWriter, q *http.Request, id string) bool {
+	return e.r.ForwardEncodedMedia(w, q, id)
 }
-func (e forwardOnlyEncoder) ForwardPlexGrantMedia(w http.ResponseWriter, q *http.Request, id string) bool {
-	return e.r.ForwardPlexGrantMedia(w, q, id)
+func (e forwardOnlyEncoder) ForwardGrantMedia(w http.ResponseWriter, q *http.Request, id string) bool {
+	return e.r.ForwardGrantMedia(w, q, id)
 }
 
 func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
@@ -210,10 +213,16 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), DB: db, Cluster: ownerNode, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	exp := experience.NewDirectService(experience.ServiceDeps{Catalog: fixtureCatalog{}, State: composedState{}})
+	deps := plex.Deps{
+		Host:              frontend.Host{Sessions: sessions.BindSurface(broker, "plex"), Experience: exp, Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
+		DB:                db,
+		Playback:          remote,
+		Transcoder:        decision,
+		DisableEnrichment: true,
+	}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
-	publicOwner.UsePlaybackBroker(broker)
 	if err = owner.BindPlexDelivery(publicOwner); err != nil {
 		t.Fatal(err)
 	}
@@ -232,17 +241,15 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer senderBroker.Close(ctx)
-	deps.Playback, deps.Transcoder, deps.PlexEncoder = remoteSender, senderDecision, senderBroker
-	deps.Cluster = senderNode
+	deps.Playback, deps.Transcoder, deps.Host.Sessions = remoteSender, senderDecision, sessions.BindSurface(senderBroker, "plex")
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
-	publicSender.UsePlaybackBroker(senderBroker)
 	if err = sender.BindPlexDelivery(publicSender); err != nil {
 		t.Fatal(err)
 	}
 	forwardDeps := deps
-	forwardDeps.DB, forwardDeps.Cluster = nil, nil
-	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.PlexEncoder = remote, decision, forwardOnlyEncoder{r: owner}
+	forwardDeps.DB = nil
+	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.Host.Sessions = remote, decision, sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Sessions: sessions.BindSurface(broker, "plex"), Playback: remote, Transcoder: decision, Encoder: forwardOnlyEncoder{r: owner}})
 	publicForward := plex.NewServer(forwardDeps)
 	defer publicForward.Close()
 	startURI := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F" + core.MovieKey(1).String() + "&session=real-composed-plex&directPlay=0&directStream=1"
@@ -316,7 +323,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	q.RemoteAddr = start.RemoteAddr
 	q.Header = start.Header.Clone()
 	variant := httptest.NewRecorder()
-	if !owner.ForwardPlexMedia(variant, q, "real-composed-plex") {
+	if !owner.ForwardEncodedMedia(variant, q, "real-composed-plex") {
 		t.Fatal("variant was not forwarded")
 	}
 	if variant.Code != 200 {

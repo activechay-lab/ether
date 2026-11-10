@@ -3,7 +3,6 @@ package clusterplayback
 import (
 	"context"
 	"fmt"
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,10 +13,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/nodewire"
 	"github.com/braedonsaunders/ether/internal/placement"
 	"github.com/braedonsaunders/ether/internal/playback"
-	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
 
 	"testing"
@@ -155,10 +155,15 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	exp := experience.NewDirectService(experience.ServiceDeps{Catalog: fixtureCatalog{}, State: composedState{}})
+	deps := plex.Deps{
+		Host:              frontend.Host{Sessions: sessions.BindSurface(broker, "plex"), Experience: exp, Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
+		Playback:          remote,
+		Transcoder:        decision,
+		DisableEnrichment: true,
+	}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
-	publicOwner.UsePlaybackBroker(broker)
 	if err = owner.BindPlexDelivery(publicOwner); err != nil {
 		t.Fatal(err)
 	}
@@ -181,10 +186,9 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	defer survivorBroker.Close(ctx)
 	deps.Playback = survivorRemote
 	deps.Transcoder = survivorDecision
-	deps.PlexEncoder = survivorBroker
+	deps.Host.Sessions = sessions.BindSurface(survivorBroker, "plex")
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
-	publicSender.UsePlaybackBroker(survivorBroker)
 	if err = sender.BindPlexDelivery(publicSender); err != nil {
 		t.Fatal(err)
 	}

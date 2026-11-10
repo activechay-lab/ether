@@ -8,6 +8,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -23,11 +24,12 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 			var clock atomic.Int64
 			clock.Store(fixedNow.UnixNano())
 			now := func() time.Time { return time.Unix(0, clock.Load()) }
-			f := newFixture(func(d *Deps) {
-				d.Now, d.DisableEnrichment = now, true
+			f := newFixture(func(d *testServerDeps) {
+				setDepsNow(d, now)
+				d.DisableEnrichment = true
 				if shared {
 					d.DB = store.OpenTest(t)
-					d.Cluster = clusterbus.NewHub().Node("longevity")
+					d.Host.Sessions = sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{DB: d.DB, Cluster: clusterbus.NewHub().Node("longevity")})
 				}
 			})
 			defer f.srv.Close()

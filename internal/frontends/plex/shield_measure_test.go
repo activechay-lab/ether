@@ -93,8 +93,8 @@ func newShieldMeasureRig(t *testing.T, mode string, cached bool) *shieldMeasureR
 	svc := debrid.NewService(cfg.Debrid, debrid.Options{ProviderOptions: debrid.ProviderOptions{BaseURL: base, HTTPClient: x.upstream.Client()}})
 	x.engine = debrid.NewEngine(svc, debrid.EngineOptions{HTTPClient: x.upstream.Client(), HedgeDelay: -1})
 	x.rs = resolver.New(debrid.NewIndexer(x.idx, svc), nil, nil, cfg, resolver.Options{})
-	x.f = newFixture(func(d *Deps) {
-		d.Config = func() config.Config { return cfg }
+	x.f = newFixture(func(d *testServerDeps) {
+		setDepsConfig(d, func() config.Config { return cfg })
 		d.DisableEnrichment = true
 	})
 	var err error
@@ -118,7 +118,7 @@ func newShieldMeasureRig(t *testing.T, mode string, cached bool) *shieldMeasureR
 		t.Fatal(err)
 	}
 	x.f.srv.d.Playback = x.mgr
-	x.f.srv.d.Variants = x.rs
+	x.f.srv.setVariants(x.rs)
 	if cached {
 		done := x.rs.RefillSearchCache(&fightClub)
 		if done == nil {
@@ -219,7 +219,7 @@ func TestShieldSlowMetadataKeepsNormalResponseAndPublishesLater(t *testing.T) {
 	x.probeBlock = gate
 	// Make a version lookup wait its entire context allowance. It must share
 	// the probe budget, never add the usual three seconds after the probe.
-	x.f.srv.d.Variants = &shieldSlowVariants{VariantResolver: x.rs}
+	x.f.srv.setVariants(&shieldSlowVariants{VariantResolver: x.rs})
 	d, _, _, _ := x.view(t)
 	if d < 3800*time.Millisecond || d > 5500*time.Millisecond {
 		t.Fatalf("slow detail wait %s, want about four seconds total", d)
@@ -229,7 +229,7 @@ func TestShieldSlowMetadataKeepsNormalResponseAndPublishesLater(t *testing.T) {
 	if _, ok := x.mgr.WaitWarmProbe(t.Context(), &ownerUser, caps, fightClub.Key, time.Second); !ok {
 		t.Fatal("request timeout canceled background probe")
 	}
-	x.f.srv.d.Variants = x.rs
+	x.f.srv.setVariants(x.rs)
 	r := x.f.get(t, "/library/metadata/"+fightClub.Key.String(), "X-Plex-Product", "Plex for Android (TV)", "X-Plex-Platform", "Android")
 	if r.Code != 200 || len(subtitleTags(r.Body.String())) != 2 {
 		t.Fatalf("later detail lost completed probe: %d %s", r.Code, r.Body.String())

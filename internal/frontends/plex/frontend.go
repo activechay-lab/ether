@@ -9,10 +9,23 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-// Frontend adapts the existing PMS handler to the frontend registry.
+type frontendState struct {
+	mu     sync.Mutex
+	server *Server
+	closed bool
+}
+
+// NewFrontend returns a Plex frontend that lazily builds its server from
+// frontend.Host on first mount and retains it across toggles until Shutdown.
+func NewFrontend() Frontend {
+	return Frontend{state: &frontendState{}}
+}
+
+// Frontend adapts the PMS handler to the frontend registry.
 // Unmount stops this mount's broker sessions, encoders, trickplay, and
-// downloads, and drops its watch subscription. The process-owned server
-// stays up so an in-flight request can finish.
+// downloads, and drops its watch and home subscriptions. When constructed via
+// NewFrontend, the process-owned server stays up across toggles so an
+// in-flight request can finish and is closed on Shutdown.
 type Frontend struct {
 	NewServer    func() (*Server, error)
 	Server       *Server
@@ -21,71 +34,138 @@ type Frontend struct {
 	ExplicitWatchOnly bool
 	StatusFunc        func(context.Context) frontend.Status
 	ListenersFunc     func() []frontend.ListenerSpec
+
+	state *frontendState
 }
 
 func (f Frontend) Describe() frontend.Descriptor {
 	return frontend.Descriptor{ID: "plex", Name: "Plex", DefaultPort: 32400, SettingsSchema: frontend.PortSchema()}
 }
+
+// HasRetainedServer reports whether this frontend has constructed an active server.
+func (f Frontend) HasRetainedServer() bool {
+	if f.Server != nil {
+		return !f.Server.Closed()
+	}
+	if f.state == nil {
+		return false
+	}
+	f.state.mu.Lock()
+	defer f.state.mu.Unlock()
+	return f.state.server != nil && !f.state.server.Closed()
+}
+
+// Shutdown closes any retained server and prevents future mounts on this frontend.
+func (f Frontend) Shutdown(context.Context) error {
+	if f.state == nil {
+		return nil
+	}
+	f.state.mu.Lock()
+	f.state.closed = true
+	srv := f.state.server
+	f.state.server = nil
+	f.state.mu.Unlock()
+	if srv != nil {
+		return srv.Close()
+	}
+	return nil
+}
+
+// Prune prunes derived rows owned by the retained server, if constructed.
+func (f Frontend) Prune(ctx context.Context) (int64, error) {
+	if f.state != nil {
+		f.state.mu.Lock()
+		srv := f.state.server
+		f.state.mu.Unlock()
+		if srv != nil && !srv.Closed() {
+			return srv.Prune(ctx)
+		}
+		return 0, nil
+	}
+	if f.Server != nil && !f.Server.Closed() {
+		return f.Server.Prune(ctx)
+	}
+	return 0, nil
+}
+
 func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Instance, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if f.Server == nil && f.NewServer != nil {
+	srv := f.Server
+	ownsServer := false
+	if srv == nil && f.state != nil {
+		f.state.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			f.state.mu.Unlock()
+			return nil, err
+		}
+		if f.state.closed {
+			f.state.mu.Unlock()
+			return nil, errors.New("plex: frontend is shut down")
+		}
+		if f.state.server == nil || f.state.server.Closed() {
+			if f.NewServer != nil {
+				built, err := f.NewServer()
+				if err != nil {
+					f.state.mu.Unlock()
+					return nil, err
+				}
+				f.state.server = built
+			} else {
+				if _, ok := host.Sessions.(frontend.SessionRuntime); !ok {
+					f.state.mu.Unlock()
+					return nil, errors.New("plex: session runtime is unavailable")
+				}
+				f.state.server = NewServer(Deps{
+					Host:          host,
+					TracePlayback: host.TracePlayback,
+				})
+			}
+		}
+		srv = f.state.server
+		f.state.mu.Unlock()
+	} else if srv == nil && f.NewServer != nil {
 		var err error
-		f.Server, err = f.NewServer()
+		srv, err = f.NewServer()
 		if err != nil {
 			return nil, err
 		}
-	}
-	if f.Server == nil && host.Plex != nil {
-		retained, ok, err := host.Plex.Server(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			f.Server, _ = retained.(*Server)
-		} else {
-			deps, err := host.Plex.Deps(ctx)
-			if err != nil {
-				return nil, err
-			}
-			if deps.Logger == nil && host.Log != nil {
-				deps.Logger = host.Log
-			}
-			srv := NewServer(deps)
-			if deps.PlexStreams != nil {
-				srv.UsePlexStreams(deps.PlexStreams)
-			}
-			if deps.PlexEncoder != nil {
-				srv.UsePlexEncoder(deps.PlexEncoder)
-			}
-			host.Plex.BindServer(srv)
-			f.Server = srv
+	} else if srv == nil {
+		if _, ok := host.Sessions.(frontend.SessionRuntime); ok {
+			srv = NewServer(Deps{
+				Host:          host,
+				TracePlayback: host.TracePlayback,
+			})
+			ownsServer = true
 		}
 	}
-	if f.Server == nil {
+	if srv == nil {
 		return nil, errors.New("plex: frontend server is unavailable")
 	}
 	if err := ctx.Err(); err != nil {
+		if ownsServer {
+			_ = srv.Close()
+		}
 		return nil, err
 	}
-	if f.Server != nil {
-		f.Server.UsePlaybackBroker(host.Sessions)
-		f.Server.bindHost(host)
+	srv.bindHost(host)
+
+	explicitOnly := f.ExplicitWatchOnly || (host.HostConfig != nil && host.HostConfig().Spike.Enabled)
+	instance := &plexInstance{
+		sessions:   host.Sessions,
+		server:     srv,
+		ownsServer: ownsServer,
+		status:     f.StatusFunc,
+		listeners:  f.ListenersFunc,
 	}
-	status := f.StatusFunc
-	if status == nil && host.Plex != nil {
-		status = host.Plex.Status
-	}
-	listeners := f.ListenersFunc
-	if listeners == nil && host.Plex != nil {
-		listeners = host.Plex.Listeners
-	}
-	instance := &plexInstance{sessions: host.Sessions, server: f.Server, status: status, listeners: listeners}
 	if f.WatchRefresh != nil {
-		instance.unsubscribe = f.WatchRefresh(f.Server.WatchStateChanged, f.ExplicitWatchOnly)
-	} else if host.Plex != nil {
-		instance.unsubscribe = host.Plex.WatchRefresh(f.Server.WatchStateChanged)
+		instance.unsubscribe = f.WatchRefresh(srv.WatchStateChanged, explicitOnly)
+	} else if host.WatchRefresh != nil {
+		instance.unsubscribe = host.WatchRefresh(srv.WatchStateChanged, explicitOnly)
+	}
+	if !explicitOnly && host.HomeInvalidation != nil {
+		instance.unsubHome = host.HomeInvalidation(srv.ViewerHomeChanged)
 	}
 	return instance, nil
 }
@@ -95,7 +175,9 @@ type plexInstance struct {
 	// sessions is this mount's broker. The retained server is updated on each
 	// mount so its playback handlers publish through the current broker.
 	sessions    frontend.Sessions
+	ownsServer  bool
 	unsubscribe func()
+	unsubHome   func()
 	closeOnce   sync.Once
 	status      func(context.Context) frontend.Status
 	listeners   func() []frontend.ListenerSpec
@@ -115,21 +197,104 @@ func (i *plexInstance) Status(ctx context.Context) frontend.Status {
 	if i.status != nil {
 		return i.status(ctx)
 	}
-	return frontend.Status{}
+	version := DefaultPMSVersion
+	if i.server != nil {
+		version = i.server.identity().Version
+	}
+	return frontend.Status{
+		TargetVersion:    version,
+		LAN:              "unknown",
+		WAN:              "unknown",
+		Conformance:      "unknown",
+		LiveStreamsKnown: true,
+	}
 }
 func (i *plexInstance) Close(ctx context.Context) error {
 	i.closeOnce.Do(func() {
 		if i.unsubscribe != nil {
 			i.unsubscribe()
 		}
-		if stop, ok := i.sessions.(plexProtocolStop); ok {
+		if i.unsubHome != nil {
+			i.unsubHome()
+		}
+		if stop, ok := i.sessions.(frontend.ProtocolStopper); ok {
 			_ = stop.StopProtocol(ctx, "plex")
 		}
 		if i.server != nil {
-			i.server.releaseMountedPlayback()
+			i.server.unmountRuntime(i.sessions)
+			if i.ownsServer {
+				_ = i.server.Close()
+			}
 		}
 	})
 	return nil
 }
 
-var _ frontend.Frontend = Frontend{}
+func (i *plexInstance) NoteOwnerStop(sessionID, reason string) {
+	if i != nil && i.server != nil {
+		i.server.NoteOwnerStop(sessionID, reason)
+	}
+}
+
+func (i *plexInstance) NotifyLiveLineupChanged(viewerID int64) {
+	if i == nil || i.server == nil {
+		return
+	}
+	if viewerID > 0 {
+		i.server.NotifyLiveLineupFor(viewerID)
+		return
+	}
+	i.server.NotifyLiveLineup()
+}
+
+func (i *plexInstance) SupportViewer(ctx context.Context, viewer *frontend.User) (frontend.DiagnosticViewerFacts, error) {
+	if i == nil || i.server == nil {
+		return frontend.DiagnosticViewerFacts{}, errors.New("Plex unavailable")
+	}
+	return i.server.SupportViewer(ctx, viewer)
+}
+
+func (i *plexInstance) BackgroundBusy() int {
+	if i == nil || i.server == nil {
+		return 0
+	}
+	return i.server.BackgroundBusy()
+}
+
+func (i *plexInstance) Prune(ctx context.Context) (int64, error) {
+	if i == nil || i.server == nil || i.server.Closed() {
+		return 0, nil
+	}
+	return i.server.Prune(ctx)
+}
+
+func (i *plexInstance) PublishedLibraries() []frontend.PublishedLibrarySection {
+	if i == nil || i.server == nil {
+		return nil
+	}
+	secs := i.server.LibrarySections()
+	out := make([]frontend.PublishedLibrarySection, len(secs))
+	for idx, sec := range secs {
+		out[idx] = frontend.PublishedLibrarySection{
+			ID:       sec.ID,
+			Type:     sec.Type,
+			Title:    sec.Title,
+			UUID:     sec.UUID,
+			Language: sec.Language,
+		}
+	}
+	return out
+}
+
+var (
+	_ frontend.Frontend                 = Frontend{}
+	_ frontend.Shutdowner               = Frontend{}
+	_ frontend.DerivedPruner            = Frontend{}
+	_ frontend.Instance                 = (*plexInstance)(nil)
+	_ frontend.OwnerSessionStopper      = (*plexInstance)(nil)
+	_ frontend.LiveLineupObserver       = (*plexInstance)(nil)
+	_ frontend.ViewerDiagnostics        = (*plexInstance)(nil)
+	_ frontend.BackgroundWorker         = (*plexInstance)(nil)
+	_ frontend.DerivedPruner            = (*plexInstance)(nil)
+	_ frontend.PublishedLibraryProvider = (*plexInstance)(nil)
+)

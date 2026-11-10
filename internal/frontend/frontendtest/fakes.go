@@ -353,6 +353,102 @@ func (f Sessions) Events(c context.Context, s frontend.EventScope) (<-chan front
 	return ch, nil
 }
 
+func (f Experience) NewRecent(frontend.RecentOptions) frontend.Recent { return nil }
+func (f Experience) NewDetailRelated(frontend.DetailRelatedOptions) frontend.DetailRelated {
+	return nil
+}
+func (f Experience) NewEpisodeBatch(frontend.EpisodeBatchOptions) frontend.EpisodeBatch { return nil }
+func (f Experience) NewContinueDeck(frontend.ContinueDeckOptions) frontend.ContinueDeck { return nil }
+func (f Experience) NewContinue(frontend.ContinueOptions) frontend.Continue             { return nil }
+func (f Experience) NewRowSelection(frontend.RowSelectionOptions) frontend.RowSelection { return nil }
+func (f Experience) NewHomeSelection(frontend.HomeSelectionOptions) frontend.HomeSelection {
+	return nil
+}
+func (f Experience) NewScopedCollection(frontend.ScopedCollectionOptions) frontend.ScopedCollection {
+	return nil
+}
+func (f Experience) NewPlaylistSelection(frontend.PlaylistSelectionOptions) frontend.PlaylistSelection {
+	return nil
+}
+func (f Experience) NewPostPlaySelection(frontend.PostPlaySelectionOptions) frontend.PostPlaySelection {
+	return nil
+}
+func (f Experience) NewDiscoverySelection(frontend.DiscoverySelectionOptions) frontend.DiscoverySelection {
+	return nil
+}
+func (f Experience) NewTrackPreferenceSelector(frontend.TrackPreferenceSelectorOptions) frontend.TrackPreferenceSelector {
+	return nil
+}
+func (f Experience) SearchFor(frontend.SearchSources, frontend.Visibility, func(*core.User) bool) frontend.Search {
+	return nil
+}
+func (f Experience) StatisticsDefaults(d frontend.Dashboard, r frontend.ResourceStatistics, _ func() time.Time) (frontend.Dashboard, frontend.ResourceStatistics) {
+	return d, r
+}
+func (f Experience) MergeShareFilter(filter, _ core.Filter) (core.Filter, bool) {
+	return filter, false
+}
+func (f Experience) ArrangeHome(_ context.Context, _ core.Recommender, _ *core.User, _ core.HubContext, _ string, rows []core.Hub, _ []core.NeutralHomeRow) ([]int, error) {
+	idx := make([]int, len(rows))
+	for i := range rows {
+		idx[i] = i
+	}
+	return idx, nil
+}
+func (f Experience) DetailExtras(context.Context, frontend.ExtrasSource, *core.Title, string, map[int]bool) ([]frontend.ExtraClip, error) {
+	return nil, nil
+}
+func (f Experience) DiscoverySearch(*frontend.DiscoveryFeatures) func(context.Context, *core.User, string, int) ([]core.Title, bool) {
+	return nil
+}
+func (f Experience) FamiliarFrom(any) func(context.Context, *core.User, []core.RatingKey) map[core.RatingKey]int {
+	return nil
+}
+func (f Experience) ContinueFilter(_ core.State, personal func(context.Context, *core.User, []core.Title) []core.Title) func(context.Context, *core.User, []core.Title) []core.Title {
+	return personal
+}
+func (f Experience) SameDayUnavailable(context.Context, *core.Title, time.Time, func(context.Context, []core.Title) []core.Title, frontend.AvailabilitySource) bool {
+	return false
+}
+func (f Experience) SeasonNextEpisode([]core.Title, map[core.RatingKey]core.WatchStatus, time.Time, func(*core.Title) bool) *core.Title {
+	return nil
+}
+func (f Experience) ShowOnDeck([]core.Title, map[core.RatingKey]core.WatchStatus, func(*core.Title) bool) *core.Title {
+	return nil
+}
+func (f Experience) RequestDatabaseObservation(context.Context) (int64, time.Duration) {
+	return 0, 0
+}
+func (f Experience) PlaybackMarkerRanges(context.Context, frontend.MarkerRanges, core.RatingKey, core.MediaInfo) ([]frontend.MarkerRange, error) {
+	return nil, nil
+}
+func (f Experience) CatalogSource() core.Catalog             { return nil }
+func (f Experience) CollectionsSource() core.Collections     { return nil }
+func (f Experience) StateSource() core.State                 { return nil }
+func (f Experience) PlaylistsSource() core.Playlists         { return nil }
+func (f Experience) RecommenderSource() core.Recommender     { return nil }
+func (f Experience) VibeSearchSource() frontend.VibeSearcher { return nil }
+func (f Experience) SearchSources() frontend.SearchSources   { return frontend.SearchSources{} }
+func (f Experience) FavoriteShowsFunc() func(context.Context, *core.User) (map[core.RatingKey]bool, error) {
+	return nil
+}
+func (f Experience) FilterAvailableFunc() func(context.Context, []core.Title) []core.Title {
+	return nil
+}
+func (f Experience) JudgedOnFactsFunc() func(context.Context) func(core.Title) bool { return nil }
+func (f Experience) PrioritizeAvailableFunc() func(context.Context, []core.Title) []core.Title {
+	return nil
+}
+func (f Experience) EpisodeOrderSource() frontend.EpisodeOrder      { return nil }
+func (f Experience) DiscoveryFeatures() *frontend.DiscoveryFeatures { return nil }
+func (f Experience) DashboardSource() frontend.Dashboard            { return nil }
+func (f Experience) ResourcesSource() frontend.ResourceStatistics   { return nil }
+func (f Experience) LibraryTitles() (string, string)                { return "", "" }
+func (f Experience) HomeRevision(context.Context, *core.User) (frontend.HomeRevision, bool, error) {
+	return frontend.HomeRevision{}, false, nil
+}
+func (f Experience) NoProviderWait(ctx context.Context) context.Context { return ctx }
+
 var _ frontend.Experience = Experience{}
 var _ frontend.Sessions = Sessions{}
 
@@ -454,12 +550,29 @@ func (f Identity) Revoke(ctx context.Context, grant string) error {
 	return frontend.ErrIdentityUnavailable
 }
 func (f Identity) SetupComplete() bool { return f.SetupCompleteFunc != nil && f.SetupCompleteFunc() }
+func (f Identity) Accept(ctx context.Context, token string) (*core.Viewer, frontend.CredentialAcceptance, error) {
+	u, err := f.Resolve(ctx, token)
+	return u, frontend.CredentialAcceptance{}, err
+}
+func (f Identity) ReceiptCurrent(context.Context, frontend.CredentialAcceptance) error {
+	return core.ErrUnauthorized
+}
+func (f Identity) IssueDelegation(context.Context, int64) (string, error) {
+	return "", core.ErrUnauthorized
+}
+func (f Identity) ActiveUser(context.Context, int64) (*core.User, error) {
+	return nil, frontend.ErrIdentityUnavailable
+}
+func (f Identity) Users(context.Context) ([]core.User, error) {
+	return nil, nil
+}
 
 var _ frontend.SurfaceIdentity = Identity{}
 
 // Capabilities is a configurable fake for the host capability provider.
 type Capabilities struct {
-	BuildFunc func(context.Context, frontend.CapabilityRequest) (frontend.CapabilityResult, error)
+	BuildFunc            func(context.Context, frontend.CapabilityRequest) (frontend.CapabilityResult, error)
+	ApplyClientRulesFunc func(frontend.HostQualityConfig, core.ClientCaps, *core.Viewer, string) core.ClientCaps
 }
 
 func (f Capabilities) Build(ctx context.Context, req frontend.CapabilityRequest) (frontend.CapabilityResult, error) {
@@ -467,6 +580,13 @@ func (f Capabilities) Build(ctx context.Context, req frontend.CapabilityRequest)
 		return f.BuildFunc(ctx, req)
 	}
 	return frontend.CapabilityResult{}, nil
+}
+
+func (f Capabilities) ApplyClientRules(q frontend.HostQualityConfig, c core.ClientCaps, v *core.Viewer, media string) core.ClientCaps {
+	if f.ApplyClientRulesFunc != nil {
+		return f.ApplyClientRulesFunc(q, c, v, media)
+	}
+	return c
 }
 
 var _ frontend.Capabilities = Capabilities{}
@@ -557,9 +677,11 @@ func (f LiveTV) ResolveProgrammeGUID(ctx context.Context, v *core.Viewer, id str
 	}
 	return frontend.LiveProgramme{}, core.ErrNotFound
 }
-func (f LiveTV) VisibleTo(context.Context, *frontend.User) bool                      { return false }
-func (f LiveTV) ServeXMLTV(w http.ResponseWriter, r *http.Request, _ *frontend.User) { http.NotFound(w, r) }
-func (f LiveTV) Stop(context.Context, string, *frontend.User) error                  { return core.ErrNotFound }
+func (f LiveTV) VisibleTo(context.Context, *frontend.User) bool { return false }
+func (f LiveTV) ServeXMLTV(w http.ResponseWriter, r *http.Request, _ *frontend.User) {
+	http.NotFound(w, r)
+}
+func (f LiveTV) Stop(context.Context, string, *frontend.User) error { return core.ErrNotFound }
 func (f LiveTV) ServeDASHPart(w http.ResponseWriter, r *http.Request, _ string, _ *frontend.User, _, _ int, _ bool) {
 	http.NotFound(w, r)
 }
@@ -627,10 +749,10 @@ func (Artwork) List(context.Context, frontend.ArtworkRequest) ([]frontend.Image,
 func (Artwork) Read(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error) {
 	return nil, "", core.ErrNotFound
 }
-func (Artwork) RemoteCache() frontend.ArtworkImageCache        { return nil }
-func (Artwork) PaletteCache() frontend.ArtworkPaletteCache     { return nil }
-func (Artwork) PosterRenderer() frontend.TitlePosterRenderer   { return nil }
-func (Artwork) ImageURLFunc() frontend.ImageURLFunc            { return nil }
+func (Artwork) RemoteCache() frontend.ArtworkImageCache      { return nil }
+func (Artwork) PaletteCache() frontend.ArtworkPaletteCache   { return nil }
+func (Artwork) PosterRenderer() frontend.TitlePosterRenderer { return nil }
+func (Artwork) ImageURLFunc() frontend.ImageURLFunc          { return nil }
 
 var _ frontend.Artwork = Artwork{}
 
@@ -672,6 +794,32 @@ func (f TrackPreferences) SetSubtitle(ctx context.Context, v *core.Viewer, langu
 	}
 	return frontend.ErrPreferencesNotFound
 }
+
+func (Experience) LibraryGUIDs() frontend.LibraryGUIDs       { return nil }
+func (Experience) LibraryMetadata() frontend.LibraryMetadata { return nil }
+func (Experience) Markers(context.Context, core.RatingKey, core.MediaInfo) ([]frontend.MarkerRange, error) {
+	return nil, nil
+}
+
+func (Sessions) TrickplayAvailable(string) bool                      { return false }
+func (Sessions) TrickplayBIF(string) ([]byte, bool)                  { return nil, false }
+func (Sessions) TrickplayFrame(string, time.Duration) ([]byte, bool) { return nil, false }
+func (Sessions) CancelTrickplay(string)                              {}
+
+func (TrackPreferences) Select(context.Context, int64, core.RatingKey, core.MediaInfo, string) (frontend.PlaybackPreferenceSelection, error) {
+	return frontend.PlaybackPreferenceSelection{}, nil
+}
+func (TrackPreferences) Remember(context.Context, int64, core.RatingKey, string, *core.StreamInfo) error {
+	return nil
+}
+func (TrackPreferences) GetRules(context.Context, int64) (frontend.PlaybackPreferenceRules, error) {
+	return frontend.PlaybackPreferenceRules{}, nil
+}
+func (TrackPreferences) HasViewerRules(context.Context, int64) (bool, error) { return false, nil }
+func (TrackPreferences) ForgetChoice(context.Context, int64, core.RatingKey, string) error {
+	return nil
+}
+func (TrackPreferences) PreloadChoices(context.Context, int64, []core.RatingKey) error { return nil }
 
 func (f Sessions) ReportSample(ctx context.Context, a frontend.SessionAccess, id string, sample frontend.ProgressSample) (frontend.ReportOutcome, error) {
 	if f.ReportSampleFunc != nil {

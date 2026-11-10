@@ -12,7 +12,7 @@ import (
 
 func TestPlexGrantMissingEntryUsesOriginalOwnerPrecedenceAndPolicy(t *testing.T) {
 	remote := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
-	owner := newFixture(func(d *Deps) { d.PlexEncoder = remote })
+	owner := newFixture(withTestEncoder(remote))
 	defer owner.srv.Close()
 	owner.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 	owner.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=grant-owner"))
@@ -21,7 +21,7 @@ func TestPlexGrantMissingEntryUsesOriginalOwnerPrecedenceAndPolicy(t *testing.T)
 		t.Fatal(start.Code, start.Body.String())
 	}
 	delegate := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}, forwardHandler: owner.srv, forwardID: "grant-owner"}
-	sender := newFixture(func(d *Deps) { d.PlexEncoder = delegate })
+	sender := newFixture(withTestEncoder(delegate))
 	defer sender.srv.Close()
 	path := "/video/:/transcode/universal/session/grant-owner/base/00042.ts"
 	entry, _ := owner.srv.transcodes.get("grant-owner")
@@ -66,7 +66,7 @@ func TestPlexGrantMissingEntryUsesOriginalOwnerPrecedenceAndPolicy(t *testing.T)
 		t.Fatal("grant transfer fabricated local entry/encoder")
 	}
 	policy := &forwardedPolicy{denyWAN: true}
-	owner.srv.d.AccessPolicy = policy
+	owner.srv.setTestPolicy(policy)
 	if out := request(dual, "", "198.51.100.8:5000"); out.Code != 401 && out.Code != 403 {
 		t.Fatal("forwarded grant WAN restriction ignored", out.Code)
 	}
@@ -76,7 +76,7 @@ func TestPlexGrantMissingEntryUsesOriginalOwnerPrecedenceAndPolicy(t *testing.T)
 		t.Fatal("forwarded grant hidden title streamed", out.Code)
 	}
 	policy.denyTitle = false
-	delete(owner.srv.d.Auth.(*fakeAuth).users, ownerToken)
+	delete(owner.srv.testAuth().users, ownerToken)
 	if out := request(dual, "", "10.0.0.5:5000"); out.Code != 401 {
 		t.Fatal("revoked owner grant accepted", out.Code)
 	}
@@ -84,7 +84,7 @@ func TestPlexGrantMissingEntryUsesOriginalOwnerPrecedenceAndPolicy(t *testing.T)
 
 func TestPlexGrantTransferRejectsAmbiguityAndPreservesLocalNil(t *testing.T) {
 	delegate := &recordedPlexEncoder{sessions: map[string]core.HLSSession{}}
-	sender := newFixture(func(d *Deps) { d.PlexEncoder = delegate })
+	sender := newFixture(withTestEncoder(delegate))
 	defer sender.srv.Close()
 	path := "/video/:/transcode/universal/session/missing/base/00042.ts"
 	for _, suffix := range []string{"", "?" + streamGrantParam + "=one&" + streamGrantParam + "=two", "?" + strings.ToLower(streamGrantParam) + "=one", "?" + streamGrantParam + "=one&X-Plex-Token=invalid", "?" + streamGrantParam + "=one&" + readCapParam + "=a&" + readCapParam + "=b", "?" + streamGrantParam + "=", "?" + streamGrantParam + "=" + strings.Repeat("x", 513), "?" + streamGrantParam + "=%00"} {
@@ -115,7 +115,7 @@ func TestPlexGrantTransferRejectsAmbiguityAndPreservesLocalNil(t *testing.T) {
 	if out.Code != 401 || delegate.grantForwards == 0 {
 		t.Fatal("unknown owner changed closed behavior")
 	}
-	sender.srv.UsePlexEncoder(nil)
+	sender.srv.usePlexEncoder(nil)
 	before := delegate.grantForwards
 	out = httptest.NewRecorder()
 	sender.srv.ServeHTTP(out, httptest.NewRequest("GET", streamGrantURL(path, "one"), nil))
@@ -123,7 +123,7 @@ func TestPlexGrantTransferRejectsAmbiguityAndPreservesLocalNil(t *testing.T) {
 		t.Fatal("nil grant seam changed authentication")
 	}
 	// Failed authentication for an existing local entry never delegates elsewhere.
-	local := newFixture(func(d *Deps) { d.PlexEncoder = delegate })
+	local := newFixture(withTestEncoder(delegate))
 	defer local.srv.Close()
 	local.trans.decision = core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts"}
 	local.get(t, decisionPath("/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F1000000000000550&session=local-grant"))

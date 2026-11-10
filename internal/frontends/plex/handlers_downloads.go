@@ -19,7 +19,7 @@ import (
 // Offline downloads (PMS Download Queue API). Each queue belongs to one
 // (user, client); items move deciding -> waiting -> processing ->
 // available as the title is resolved with caps.Download set and its
-// streams are copied to a temporary faststart MP4 by Deps.Downloads.
+// streams are copied to a temporary faststart MP4 by SessionRuntime.Downloads().
 // Queue state is persisted asynchronously when a database is wired. Completed
 // files remain subject to the configured retention and disk budget.
 
@@ -49,14 +49,14 @@ var downloadSubscribeFeature = model.Feature{Flavor: "download", Type: "subscrib
 // downloadsEnabled reports whether the server can serve downloads at
 // all: owner setting on, remuxer and playback wired.
 func (s *Server) downloadsEnabled() bool {
-	return s.cfg().Downloads.Enabled && s.d.Downloads != nil && s.d.Playback != nil
+	return s.cfg().Downloads.Enabled && s.runtime != nil && s.runtime.Downloads() != nil && s.playback() != nil
 }
 
 // downloadsAllowed reports whether u may download (and so sees
 // allowSync="1"): the owner always, friends only with the owner's
 // AllowFriends setting unless the access policy decides per user.
 func (s *Server) downloadsAllowed(u *frontend.User) bool {
-	return frontend.DownloadsAllowed(u, s.downloadsEnabled(), s.cfg().Downloads.AllowFriends, s.d.AccessPolicy)
+	return frontend.DownloadsAllowed(u, s.downloadsEnabled(), s.cfg().Downloads.AllowFriends, s.policy())
 }
 
 // DownloadsAllowed exposes the same admission decision for informational
@@ -294,7 +294,7 @@ func (s *Server) downloadCaps(r *http.Request, pr *Request) frontend.ClientCaps 
 // expandDownloadKey turns a show/season key into its episodes; playable
 // keys pass through. Returns titles the user may see.
 func (s *Server) expandDownloadKey(ctx context.Context, u *frontend.User, k frontend.RatingKey) ([]frontend.Title, error) {
-	t, err := s.d.Catalog.Get(ctx, k)
+	t, err := s.catalog().Get(ctx, k)
 	if err != nil {
 		return nil, err
 	}
@@ -305,13 +305,13 @@ func (s *Server) expandDownloadKey(ctx context.Context, u *frontend.User, k fron
 	case frontend.TypeMovie, frontend.TypeEpisode:
 		return []frontend.Title{*t}, nil
 	case frontend.TypeSeason:
-		kids, err := s.d.Catalog.Children(ctx, k)
+		kids, err := s.catalog().Children(ctx, k)
 		if err != nil {
 			return nil, err
 		}
 		return s.visibleTitles(u, kids), nil
 	case frontend.TypeShow:
-		eps, err := s.d.Catalog.Grandchildren(ctx, k)
+		eps, err := s.catalog().Grandchildren(ctx, k)
 		if err != nil {
 			return nil, err
 		}
@@ -466,7 +466,7 @@ func (s *Server) handleDownloadQueueItemRestart(w http.ResponseWriter, r *http.R
 	if q == nil {
 		return
 	}
-	s.downloads.Restart(q, parseItemIDs(r), s.d.Downloads.ReleaseDownload)
+	s.downloads.Restart(q, parseItemIDs(r), s.runtime.Downloads().ReleaseDownload)
 	s.scheduleDownloads()
 	w.WriteHeader(http.StatusOK)
 }
@@ -475,8 +475,8 @@ func (s *Server) handleDownloadQueueItemRestart(w http.ResponseWriter, r *http.R
 // finished file (if any).
 func (s *Server) cancelDownloadItem(it *downloadItem) {
 	p := s.downloads.CancelItem(it)
-	if p != "" && s.d.Downloads != nil {
-		s.d.Downloads.ReleaseDownload(p)
+	if p != "" && s.runtime != nil && s.runtime.Downloads() != nil {
+		s.runtime.Downloads().ReleaseDownload(p)
 	}
 }
 
@@ -514,7 +514,7 @@ func (s *Server) handleDownloadItemDecision(w http.ResponseWriter, r *http.Reque
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	t, err := s.d.Catalog.Get(ctx, it.Key)
+	t, err := s.catalog().Get(ctx, it.Key)
 	if err == nil && !s.visibleTitle(ctx, pr.User, t) {
 		err = frontend.ErrNotFound // restrictions can change after queueing
 	}
@@ -560,7 +560,7 @@ func (s *Server) handleDownloadItemMedia(w http.ResponseWriter, r *http.Request)
 	s.downloads.Unlock()
 	// Restrictions can change after an item was queued: serve the cached
 	// file only while the viewer may still see the title.
-	if t, err := s.d.Catalog.Get(r.Context(), key); err != nil || !s.visibleTitle(r.Context(), FromContext(r.Context()).User, t) {
+	if t, err := s.catalog().Get(r.Context(), key); err != nil || !s.visibleTitle(r.Context(), FromContext(r.Context()).User, t) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -647,7 +647,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 	noRelease := func(err error) bool {
 		return err != nil && errors.Is(err, frontend.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
 	}
-	job := s.d.SessionStores.NewDownloadJob(s.d.Playback, s.d.Downloads)
+	job := s.runtime.NewDownloadJob(s.playback(), s.runtime.Downloads())
 	p, size, err := job.Run(ctx, frontend.DownloadRequest{Viewer: it.User, Item: it.Key, Caps: it.Caps, Run: run, NoRelease: noRelease,
 		Prepared: func(ps *frontend.PlaySession) (frontend.DecideOptions, error) {
 			if !s.downloads.Prepared(ctx, it, ps.Info) {
@@ -660,7 +660,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 			}
 			subtitle := -1
 			sel := resolveSelection(s.selections.get(viewerID, int64(it.Key)), ps.Info)
-			if title, err := s.d.Catalog.Get(ctx, it.Key); err == nil && title != nil {
+			if title, err := s.catalog().Get(ctx, it.Key); err == nil && title != nil {
 				sel = s.preferredSelection(ctx, it.User, it.Key, ps.Info, title.Language, sel)
 			}
 			if sel.subtitleSet && sel.subtitle >= 0 && sel.subtitle < len(ps.Info.Streams) {
@@ -708,7 +708,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		return
 	}
 	if !s.downloads.Complete(ctx, it, p, size, s.now()) {
-		s.d.Downloads.ReleaseDownload(p)
+		s.runtime.Downloads().ReleaseDownload(p)
 		return
 	}
 	s.retainDownload(p, it.ReadyAt)
@@ -724,9 +724,9 @@ func (s *Server) expireDownloads(now time.Time) {
 	if len(paths) > 0 {
 		s.stageDownloads()
 	}
-	if s.d.Downloads != nil {
+	if s.runtime != nil && s.runtime.Downloads() != nil {
 		for _, p := range paths {
-			s.d.Downloads.ReleaseDownload(p)
+			s.runtime.Downloads().ReleaseDownload(p)
 		}
 	}
 }

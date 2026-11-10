@@ -13,6 +13,16 @@ import (
 type HostConfig = config.Config
 type HostQualityConfig = config.Quality
 
+// ServerIdentity describes how this server presents its machine and build
+// identity. Empty fields fall back to HostConfig or runtime defaults.
+type ServerIdentity struct {
+	MachineID       string
+	FriendlyName    string
+	Version         string
+	Platform        string
+	PlatformVersion string
+}
+
 // Cluster coordination primitives used by protocol adapters when clustered.
 type ClusterBus = clusterbus.Bus
 type ClusterNode = clusterbus.Node

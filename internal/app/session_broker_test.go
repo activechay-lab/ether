@@ -3,14 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -199,8 +197,8 @@ func TestOwnerActivityIncludesAndStopsLegacyAndBrokerSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admitted := sessions.PlexAdmission{Source: plexSource, Media: plexSource.Info, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}
-	plexCtx := sessions.WithPlexAdmission(ctx, func(context.Context) (sessions.PlexAdmission, error) {
+	admitted := sessions.PlanAdmission{Source: plexSource, Media: plexSource.Info, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}
+	plexCtx := sessions.WithPlanAdmission(ctx, func(context.Context) (sessions.PlanAdmission, error) {
 		return admitted, nil
 	})
 	plexViewer := &core.Viewer{ID: 2}
@@ -225,9 +223,16 @@ func TestOwnerActivityIncludesAndStopsLegacyAndBrokerSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plexServer := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), Playback: p, DisableEnrichment: true})
+	plexServer := plex.NewServer(plex.Deps{Host: frontend.Host{Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: p})}, Playback: p, DisableEnrichment: true})
 	defer plexServer.Close()
-	a := &App{plexServer: plexServer, frontends: &frontendRuntime{broker: broker}}
+	reg := frontend.NewRegistry(func(frontend.Protocol) frontend.Host { return frontend.Host{} })
+	if err := reg.Register(plex.Frontend{Server: plexServer}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Mount(ctx, "plex"); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{frontends: &frontendRuntime{registry: reg, broker: broker}}
 	activity := (ownerPlayback{Playback: p, app: a}).Sessions()
 	if len(activity) != 2 {
 		t.Fatalf("activity has %d rows", len(activity))

@@ -28,7 +28,11 @@ func TestPlexRegistryTogglePreservesHandler(t *testing.T) {
 		handler.ServeHTTP(w, req)
 		return w
 	}
-	direct := call(a.plexServer, "/identity")
+	inst, ok := a.frontends.registry.Instance("plex")
+	if !ok {
+		t.Fatal("Plex not mounted")
+	}
+	direct := call(inst.Handler(), "/identity")
 	mounted := call(a.Handler(), "/identity")
 	if direct.Code != mounted.Code || !bytes.Equal(direct.Body.Bytes(), mounted.Body.Bytes()) {
 		t.Fatalf("registry changed Plex response: direct=%d %q mounted=%d %q", direct.Code, direct.Body, mounted.Code, mounted.Body)

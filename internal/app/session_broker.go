@@ -41,8 +41,11 @@ func (a *App) newSessionBroker(events *sessions.EventBus) (*sessions.Broker, err
 	}
 	if a.spikeLibrary != nil {
 		// Spike is the library, not a side path. The broker has to see the
-		// same sessions the Plex adapter prepares.
+		// same sessions and direct-play fallback transcoder the adapter uses.
 		playback = a.spikeLibrary.Playback()
+		if tc == nil {
+			tc = a.spikeLibrary.Transcoder()
+		}
 	}
 	return sessions.NewBroker(sessions.BrokerDeps{
 		OnActualPlaying:     a.automaticSubtitleWork,
@@ -51,6 +54,9 @@ func (a *App) newSessionBroker(events *sessions.EventBus) (*sessions.Broker, err
 		Coordination:        a.sessionCoordination,
 		OnProfileDiagnostic: scorecardProfileDiagnostic(a),
 		DB:                  a.db, Cluster: a.clusterNode(), Live: live,
+		Logger:         a.log.With("component", "plex"),
+		Downloads:      a.downloadRemuxer,
+		DecisionTraces: a.resolver,
 		Variants: func(ctx context.Context, v *core.Viewer, t *core.Title, caps core.ClientCaps) ([]core.ReleaseVariant, error) {
 			if a.resolver == nil {
 				return nil, core.ErrNotAvailable

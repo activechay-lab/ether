@@ -58,11 +58,9 @@ func plexMetaFixture(t *testing.T, use bool, rt http.RoundTripper) (*fixture, *p
 		Background:       true,
 	})
 	t.Cleanup(meta.Close)
-	f := newFixture(func(d *Deps) {
-		d.PlexGUID = pg
-		d.PlexMeta = meta
+	f := newFixture(func(d *testServerDeps) {
 		d.DB = db
-		d.Config = func() config.Config {
+		setDepsConfig(d, func() config.Config {
 			c := config.Config{}
 			c.Server.Port = 32400
 			c.Server.FriendlyName = "Ether Test"
@@ -71,8 +69,10 @@ func plexMetaFixture(t *testing.T, use bool, rt http.RoundTripper) (*fixture, *p
 			c.Plex.UsePlexMetadata = use
 			c.Plex.OwnerUsername = "owner"
 			return c
-		}
+		})
 	})
+	f.srv.setPlexGUID(pg)
+	f.srv.setPlexMeta(meta)
 	t.Cleanup(func() { _ = f.srv.Close() })
 	return f, meta
 }
@@ -166,7 +166,7 @@ func TestPlexMetaRequestPathDoesNotWait(t *testing.T) {
 func TestPlexMetaSaferRatingHidesTitle(t *testing.T) {
 	f, _ := plexMetaFixture(t, true, &plexMetaRoundTrip{body: `{}`})
 	storePlexOverlay(t, f.srv.d.DB, fightClub.Key, plexMetaGUID, plexmeta.Overlay{ContentRating: "R"})
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	pg := f.catalog.titles[fightClub.Key]
 	pg.ContentRating = "PG"
 	f.catalog.titles[fightClub.Key] = pg

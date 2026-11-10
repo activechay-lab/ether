@@ -34,13 +34,13 @@ func TestPhotoTranscodeDiscoveryArtwork(t *testing.T) {
 	if err := ov.SaveSettings(ctx, overlays.Settings{Enabled: true, Localize: true}); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.Discovery = (&discovery.Features{Overlays: ov, Localize: func(_ context.Context, title *core.Title, lang string) (*core.Title, error) {
+	f.srv.setDiscovery((&discovery.Features{Overlays: ov, Localize: func(_ context.Context, title *core.Title, lang string) (*core.Title, error) {
 		localized := *title
 		localized.PosterPath = "/" + lang + "-poster.jpg"
 		localized.BackdropPath = "/" + lang + "-backdrop.jpg"
 		localized.LogoPath = "/" + lang + "-logo.jpg"
 		return &localized, nil
-	}}).Frontend()
+	}}).Frontend())
 	pr := &Request{User: &ownerUser, Language: "fr"}
 	md := f.srv.metadata(ctx, pr, &fightClub, renderOpts{})
 	if !strings.Contains(md.Thumb, "/discoveryPoster/") {
@@ -74,7 +74,7 @@ func TestPhotoTranscodeDiscoveryArtwork(t *testing.T) {
 		})
 	}
 	// The nested URL cannot supply credentials or bypass viewer restrictions.
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
 	target := "/photo/:/transcode?url=" + url.QueryEscape(md.Thumb+"&X-Plex-Token="+ownerToken)
 	for token, want := range map[string]int{"kid": http.StatusNotFound, "invalid": http.StatusUnauthorized} {
 		before := images.calls
@@ -106,7 +106,7 @@ func TestPhotoTranscodePosterProvider(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	ov := overlays.New(discoveryDB(t), overlays.Options{Images: images})
-	f.srv.d.Discovery = (&discovery.Features{Overlays: ov}).Frontend()
+	f.srv.setDiscovery((&discovery.Features{Overlays: ov}).Frontend())
 	pr := &Request{User: &ownerUser}
 	md := f.srv.metadata(context.Background(), pr, &fightClub, renderOpts{})
 	if !strings.Contains(md.Thumb, "discoveryPoster") || strings.Contains(md.Thumb, "never-visible") {

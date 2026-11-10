@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -390,8 +391,8 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	var users []frontend.User
-	if s.d.Auth != nil {
-		if us, err := s.d.Auth.Users(r.Context()); err == nil {
+	if s.host.Identity != nil {
+		if us, err := s.listUsers(r.Context()); err == nil {
 			users = us
 		} else {
 			s.log.Warn("list users", "err", err)
@@ -406,8 +407,8 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		if len(u.SubtitleLanguages) > 0 {
 			a.DefaultSubtitleLang = u.SubtitleLanguages[0]
 		}
-		if s.d.TrackPreferences != nil && viewerStoredSubtitlePreference(r.Context(), s.d.TrackPreferences, u.ID) {
-			if rules, err := s.d.TrackPreferences.GetRules(r.Context(), u.ID); err == nil {
+		if s.trackPrefs != nil && viewerStoredSubtitlePreference(r.Context(), s.trackPrefs, u.ID) {
+			if rules, err := s.trackPrefs.GetRules(r.Context(), u.ID); err == nil {
 				// Plex account subtitleMode: 0 manual, 1 with foreign audio, 2 always.
 				// Unset and off stay 0, which is the value already written for every account.
 				// Shared defaults (user 0) stay off this document so an untouched account
@@ -432,14 +433,7 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 // trackprefs row. Stores that cannot tell own from inherited still report
 // the GetRules result, which tests and older fakes rely on.
 func viewerStoredSubtitlePreference(ctx context.Context, prefs TrackPreferences, user int64) bool {
-	type own interface {
-		HasViewerRules(context.Context, int64) (bool, error)
-	}
-	checker, ok := prefs.(own)
-	if !ok {
-		return true
-	}
-	has, err := checker.HasViewerRules(ctx, user)
+	has, err := prefs.HasViewerRules(ctx, user)
 	return err == nil && has
 }
 
@@ -456,12 +450,15 @@ func plexSubtitleMode(mode string) int {
 
 func (s *Server) handleSecurityToken(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(r.Context())
-	issuer, ok := s.d.Auth.(frontend.DelegationAuth)
-	if !ok || pr.User == nil || pr.User.Delegated {
+	if s.host.Identity == nil || pr.User == nil || pr.User.Delegated {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
-	token, err := issuer.IssueDelegation(r.Context(), pr.User.ID)
+	token, err := s.host.Identity.IssueDelegation(r.Context(), pr.User.ID)
+	if errors.Is(err, frontend.ErrUnauthorized) {
+		writeHTTPError(w, http.StatusForbidden)
+		return
+	}
 	if err != nil {
 		s.writeErr(w, r, err)
 		return

@@ -90,7 +90,7 @@ func TestClientSeenOnlyAfterAuthentication(t *testing.T) {
 func TestSectionRestriction(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 3, Username: "kid", AllowedLibraries: []core.LibraryID{1}}
+	f.srv.testAuth().users["kid"] = core.User{ID: 3, Username: "kid", AllowedLibraries: []core.LibraryID{1}}
 	rec := f.request(t, http.MethodGet, "/library/sections", map[string]string{"X-Plex-Token": "kid"})
 	if strings.Contains(rec.Body.String(), `title="TV Shows"`) {
 		t.Fatalf("restricted section visible: %s", rec.Body.String())
@@ -527,9 +527,9 @@ func TestPhotoTranscode(t *testing.T) {
 	defer tmdb.Close()
 	f := newFixture()
 	f.srv.Close()
-	d := f.srv.d
-	d.HTTPClient = tmdb.Client()
-	f.srv = NewServer(testDeps(d))
+	d := f.srv.currentTestDeps()
+	setDepsHTTPClient(&d, tmdb.Client())
+	f.srv = newTestServer(d)
 	f.srv.setImageURL(func(path, size string) string { return tmdb.URL + "/t/p/" + size + path })
 	defer f.srv.Close()
 
@@ -784,7 +784,7 @@ func TestHLSInitializationSegmentServedForNativePlayer(t *testing.T) {
 func TestPagingHugeContainerSize(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Recommender = &fakeRecommender{section: map[core.MediaType][]core.Hub{core.TypeMovie: {{ID: "movie.popular", Title: "Popular", Type: core.TypeMovie, Items: []core.Title{fightClub, alien}}}}}
+	f.srv.setRecommender(&fakeRecommender{section: map[core.MediaType][]core.Hub{core.TypeMovie: {{ID: "movie.popular", Title: "Popular", Type: core.TypeMovie, Items: []core.Title{fightClub, alien}}}}})
 	f.cols.cols[core.CollectionKey(77)] = core.Collection{Key: core.CollectionKey(77), Title: "Two", Kind: "franchise", Type: core.TypeMovie, ChildCount: 2}
 	f.cols.items[core.CollectionKey(77)] = []core.Title{fightClub, alien}
 	page := "X-Plex-Container-Start=1&X-Plex-Container-Size=2147483647"

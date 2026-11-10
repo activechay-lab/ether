@@ -24,9 +24,6 @@ func (a *App) quiesce(ctx context.Context, max time.Duration) bool {
 		if a.catalog != nil {
 			busy += a.catalog.BackgroundBusy()
 		}
-		if a.plexServer != nil {
-			busy += a.plexServer.BackgroundBusy()
-		}
 		if a.personalize != nil {
 			busy += a.personalize.BackgroundBusy()
 		}

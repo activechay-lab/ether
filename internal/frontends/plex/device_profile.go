@@ -355,7 +355,7 @@ func (s *Server) dv5CannotConvert(info frontend.MediaInfo, target *deviceMediaRu
 	if v == nil || v.DolbyVisionProfile != 5 || target == nil || profileContains(target.video, plexCodec(v.Codec)) {
 		return false
 	}
-	tm, ok := s.d.Transcoder.(dv5ToneMapper)
+	tm, ok := s.transcoder().(dv5ToneMapper)
 	return ok && !tm.ToneMapsDolbyVisionProfile5()
 }
 

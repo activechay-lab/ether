@@ -260,11 +260,11 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			return
 		}
 		pr := FromContext(r.Context())
-		if pr.Token != "" && s.d.Auth != nil {
+		if pr.Token != "" && s.host.Identity != nil {
 			u, receipt, err := s.acceptToken(r.Context(), pr.Token)
 			switch {
 			case err == nil && u != nil:
-				if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
+				if policy, ok := s.policy().(frontend.UserPolicySource); ok {
 					u = policy.UserPolicy(u)
 				}
 				if id := transcodeSessionID(r.URL.Path); id != "" {
@@ -315,8 +315,8 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if pr.Remote && s.remoteClientSeen != nil {
 					s.remoteClientSeen(pr.RemoteIP.String())
 				}
-				if s.d.Dashboard != nil {
-					s.d.Dashboard.SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
+				if s.dashboard() != nil {
+					s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
 				}
 				s.observePlaybackRequestStart(r, pr)
 				next.ServeHTTP(w, r)
@@ -355,14 +355,8 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
-type tokenAcceptor = frontend.CredentialAcceptor
-
 func (s *Server) acceptToken(ctx context.Context, token string) (*frontend.User, frontend.CredentialAcceptance, error) {
-	if acc, ok := s.d.Auth.(tokenAcceptor); ok {
-		return acc.Accept(ctx, token)
-	}
-	u, err := s.d.Auth.Authenticate(ctx, token)
-	return u, frontend.CredentialAcceptance{}, err
+	return s.host.Identity.Accept(ctx, token)
 }
 
 // acceptanceCurrent rechecks a receipt minted for this request. Requests that
@@ -372,11 +366,10 @@ func (s *Server) acceptanceCurrent(r *http.Request) bool {
 	if !ok {
 		return true
 	}
-	checker, ok := s.d.Auth.(tokenAcceptor)
-	if !ok {
+	if s.host.Identity == nil {
 		return false
 	}
-	return checker.ReceiptCurrent(r.Context(), receipt) == nil
+	return s.host.Identity.ReceiptCurrent(r.Context(), receipt) == nil
 }
 
 func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
@@ -390,12 +383,10 @@ func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
 	if !ok {
 		return false
 	}
-	if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
+	if policy, ok := s.policy().(frontend.UserPolicySource); ok {
 		u = policy.UserPolicy(u)
 	}
-	if fresh, ok := s.d.AccessPolicy.(interface {
-		ConfirmPlayback(context.Context, *frontend.User, bool, time.Time) (*frontend.User, error)
-	}); ok {
+	if fresh, ok := s.policy().(frontend.PlaybackConfirmationPolicy); ok {
 		confirmed, err := fresh.ConfirmPlayback(r.Context(), u, pr.ClientCaps(0).Remote, s.now())
 		if err != nil && !errors.Is(err, frontend.ErrPolicyUnconfirmed) {
 			return false
@@ -405,10 +396,10 @@ func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
 				return false
 			}
 			u = confirmed
-		} else if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
+		} else if policy, ok := s.policy().(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
 			return false
 		}
-	} else if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
+	} else if policy, ok := s.policy().(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
 		return false
 	}
 	pr.User = u
@@ -488,7 +479,7 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 		}
 		if mc.AllowSync != nil {
 			if mc.HasSyncProjection() {
-				if policy, ok := s.d.AccessPolicy.(frontend.DownloadAccessPolicy); ok && !policy.AllowDownloads(pr.User) {
+				if policy, ok := s.policy().(frontend.DownloadAccessPolicy); ok && !policy.AllowDownloads(pr.User) {
 					*mc.AllowSync = false
 				}
 				// A context capability is distinct from permission to fetch a file.

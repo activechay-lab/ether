@@ -149,7 +149,7 @@ func TestVersionIdentityAcrossPlayFlow(t *testing.T) {
 					}
 					subs := newFakeSubtitles()
 					subs.offers = []SubtitleOffer{{ID: 101, Language: "nl", Title: "Downloaded Dutch", Provider: "OpenSubtitles"}}
-					f.srv.d.Subtitles = subs
+					f.srv.setSubtitles(subs)
 					notifications, ok := f.srv.notifier.subscribe([]string{"activity"}, &ownerUser)
 					if !ok {
 						t.Fatal("activity subscription failed")
@@ -227,12 +227,11 @@ func TestVersionFlowSharedAcrossNodes(t *testing.T) {
 			rb := &fakeVariantResolver{byKey: map[core.RatingKey][]core.ReleaseVariant{}}
 			// Both frontends route the fake source through one broker owner;
 			// this test isolates version publication from encoder transport.
-			a.srv.UsePlaybackBroker(b.srv.playbackBroker)
-			a.srv.UsePlexStreams(b.srv.boundStreams)
+			a.srv.usePlaybackBroker(b.srv.playbackBroker)
 			a.srv.d.Playback = pb
-			a.srv.d.Variants = ra
+			a.srv.setVariants(ra)
 			b.srv.d.Playback = pb
-			b.srv.d.Variants = rb
+			b.srv.setVariants(rb)
 			path := "/library/metadata/" + fightClub.Key.String()
 			headers := []string{"Accept", "application/json", "X-Plex-Product", "Plex for Samsung"}
 			fetch := func(f *fixture, stage, target string) []wireMedia {
@@ -322,7 +321,7 @@ func TestVersionFlowPendingExpiry(t *testing.T) {
 	f.resolver.mu.Lock()
 	f.resolver.byKey[fightClub.Key] = full
 	f.resolver.mu.Unlock()
-	f.srv.d.Now = func() time.Time { return fixedNow.Add(versionPreplayTTL + time.Second) }
+	f.srv.setTestNow(func() time.Time { return fixedNow.Add(versionPreplayTTL + time.Second) })
 	next := f.get(t, path, "Accept", "application/json")
 	if got := decodeWireMedia(t, "abandoned pre-play", next.Body); len(got) != 3 {
 		t.Fatal("abandoned pre-play hid picker")
@@ -379,7 +378,7 @@ func TestAndroidTVSubtitleDownloadDuringPlayback(t *testing.T) {
 	subs := newFakeSubtitles()
 	subs.offers = []SubtitleOffer{{ID: 101, Language: "nl", Title: "Downloaded Dutch", Provider: "OpenSubtitles"}}
 	blocking := &blockingSubtitleDownload{subs, make(chan struct{}), make(chan struct{})}
-	f.srv.d.Subtitles = blocking
+	f.srv.setSubtitles(blocking)
 	search := decodeJSON(t, f.get(t, path+"/subtitles?language=nl", headers...))
 	offer := search["Stream"].([]any)[0].(map[string]any)["key"].(string)
 	if rec := put(path + "/subtitles?key=" + urlEsc(offer)); rec.Code != http.StatusOK {

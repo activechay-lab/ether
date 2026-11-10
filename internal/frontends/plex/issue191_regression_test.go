@@ -71,7 +71,7 @@ func TestIssue191ShieldDVHybridMultiVersionSubtitlesAndTautulli(t *testing.T) {
 	f.srv.d.Transcoder = shieldContractTranscoder{f.trans}
 
 	prefs := trackprefs.New(store.OpenTest(t))
-	f.srv.d.TrackPreferences = prefs
+	f.srv.setTrackPreferences(prefs)
 	rules := trackprefs.Default()
 	rules.SubtitleLanguages = []string{"en"}
 	rules.SubtitleMode = "always"
@@ -91,7 +91,7 @@ func TestIssue191ShieldDVHybridMultiVersionSubtitlesAndTautulli(t *testing.T) {
 		},
 	}
 	f.playback.info = probed
-	f.srv.d.Variants = &fakeVariantResolver{byKey: map[core.RatingKey][]core.ReleaseVariant{
+	f.srv.setVariants(&fakeVariantResolver{byKey: map[core.RatingKey][]core.ReleaseVariant{
 		fightClub.Key: {
 			mkDVHybridVariant("rel-auto", "Auto · 2160p WEB-DL · DD+ 5.1 · GRP", true, 15800),
 			mkDVHybridVariant("rel-alt1", "2160p WEB-DL · DD+ 5.1 · 5.2 GB · ALT1", false, 15200),
@@ -99,7 +99,7 @@ func TestIssue191ShieldDVHybridMultiVersionSubtitlesAndTautulli(t *testing.T) {
 			mkDVHybridVariant("rel-4k", "2160p WEB-DL · GRP", false, 15800),
 			mkVariant("rel-1080", "1080p WEB-DL · GRP (High Compatibility)", "", false, 1080, "h264", "eac3", false, 6200),
 		},
-	}}
+	}})
 	pb := &shieldMetadataPlayback{Playback: f.playback, facts: probed, ready: false}
 	f.srv.d.Playback = pb
 
@@ -269,7 +269,7 @@ func TestIssue191PlexIOSFirstOpenProbesEmbeddedSubtitles(t *testing.T) {
 		f := newFixture()
 		t.Cleanup(func() { _ = f.srv.Close() })
 		prefs := trackprefs.New(store.OpenTest(t))
-		f.srv.d.TrackPreferences = prefs
+		f.srv.setTrackPreferences(prefs)
 		rules := trackprefs.Default()
 		rules.SubtitleLanguages = []string{"en"}
 		rules.SubtitleMode = "always"

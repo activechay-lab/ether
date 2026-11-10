@@ -35,22 +35,23 @@ func (s *Server) catalogBrowse(ctx context.Context, q frontend.BrowseQuery) (fro
 	if s.plexMetaOn() {
 		q.Filter.SaferPlexRating = true
 	}
-	return s.d.Catalog.Browse(ctx, q)
+	return s.catalog().Browse(ctx, q)
 }
 
 func (s *Server) visibleTitles(u *frontend.User, ts []frontend.Title) []frontend.Title {
 	out := s.visibility().TitlesAllowed(u, ts)
-	if !s.needPlexRatingFilter(u) || s.d.PlexMeta == nil {
+	metaSrc := s.libraryMetadata()
+	if !s.needPlexRatingFilter(u) || metaSrc == nil {
 		return out
 	}
 	keys := make([]frontend.RatingKey, 0, len(out))
 	for i := range out {
 		keys = append(keys, out[i].Key)
 	}
-	rows := s.d.PlexMeta.CachedMany(context.Background(), keys)
+	rows := metaSrc.CachedMany(context.Background(), keys)
 	var guids map[frontend.RatingKey]string
-	if s.d.PlexGUID != nil {
-		guids = s.d.PlexGUID.CachedMany(context.Background(), keys)
+	if guidSrc := s.libraryGUIDs(); guidSrc != nil {
+		guids = guidSrc.CachedMany(context.Background(), keys)
 	}
 	kept := out[:0]
 	for i := range out {
@@ -62,17 +63,17 @@ func (s *Server) visibleTitles(u *frontend.User, ts []frontend.Title) []frontend
 }
 
 func (s *Server) titleAllowed(u *frontend.User, t *frontend.Title) bool {
-	return frontend.TitleAllowed(s.d.AccessPolicy, u, t) && s.plexMetaRatingAllowed(u, t)
+	return frontend.TitleAllowed(s.policy(), u, t) && s.plexMetaRatingAllowed(u, t)
 }
 
 func (s *Server) visibility() frontend.Visibility {
-	v := frontend.Visibility{Policy: s.d.AccessPolicy, FilterAvailable: s.d.FilterAvailable, JudgedOnFacts: s.d.JudgedOnFacts,
+	v := frontend.Visibility{Policy: s.policy(), FilterAvailable: s.filterAvailable(), JudgedOnFacts: s.judgedOnFacts(),
 		SectionFor: func(t frontend.MediaType) (int, bool) { sec, ok := s.untitledSectionFor(t); return sec.ID, ok }}
-	if s.d.Catalog != nil {
+	if s.catalog() != nil {
 		v.GetTitle = s.seriesTitle
 	}
-	if s.d.Playback != nil {
-		v.Sessions = s.d.Playback.Sessions
+	if s.playback() != nil {
+		v.Sessions = s.playback().Sessions
 	}
 	return v
 }
@@ -118,7 +119,7 @@ func (s *Server) admittedTitle(t *frontend.Title) bool {
 	if t == nil || t.IsFutureRelease(s.now()) {
 		return false
 	}
-	if catalog, ok := s.d.Catalog.(interface{ TitleOpenable(*frontend.Title) bool }); ok {
+	if catalog, ok := s.catalog().(frontend.TitleOpenabilityCatalog); ok {
 		return catalog.TitleOpenable(t)
 	}
 	return !t.Adult
@@ -132,7 +133,7 @@ func (s *Server) availableForViewer(ctx context.Context, u *frontend.User, ts []
 }
 
 func (s *Server) viewerRestricted(u *frontend.User) bool {
-	return frontend.ViewerRestricted(s.d.AccessPolicy, u)
+	return frontend.ViewerRestricted(s.policy(), u)
 }
 
 type seriesRowsKey struct{}
@@ -160,9 +161,7 @@ func (s *Server) withSeriesRows(ctx context.Context, u *frontend.User, ts []fron
 	if len(shows) == 0 {
 		return ctx
 	}
-	if rows, ok := s.d.Catalog.(interface {
-		CachedVisibilityRows(context.Context, []frontend.RatingKey, frontend.TitleFacts) (map[frontend.RatingKey]frontend.Title, error)
-	}); ok {
+	if rows, ok := s.catalog().(frontend.VisibilityRowsCatalog); ok {
 		parents, err := rows.CachedVisibilityRows(ctx, shows, s.visibility().TitleFacts(u))
 		if err == nil {
 			merged := make(map[frontend.RatingKey]frontend.Title, len(have)+len(parents))
@@ -175,9 +174,7 @@ func (s *Server) withSeriesRows(ctx context.Context, u *frontend.User, ts []fron
 			return context.WithValue(ctx, seriesRowsKey{}, merged)
 		}
 	}
-	if pre, ok := s.d.Catalog.(interface {
-		PreloadStored(context.Context, []frontend.RatingKey)
-	}); ok && len(shows) > 1 {
+	if pre, ok := s.catalog().(frontend.StoredTitlePreloader); ok && len(shows) > 1 {
 		pre.PreloadStored(ctx, shows)
 	}
 	return ctx

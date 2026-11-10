@@ -23,14 +23,14 @@ func (s *Server) forwardedOwnerPolicy(r *http.Request, pr *Request) bool {
 		return false
 	}
 	entry, ok := s.transcodes.get(id)
-	if !ok || !entry.started || entry.userID != pr.User.ID || entry.playID == "" || s.d.Catalog == nil || s.d.Playback == nil {
+	if !ok || !entry.started || entry.userID != pr.User.ID || entry.playID == "" || s.catalog() == nil || s.playback() == nil {
 		return false
 	}
 	viewer := s.activeViewer(r.Context(), pr.User.ID)
 	if viewer == nil || viewer.ID != entry.userID {
 		return false
 	}
-	if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
+	if policy, ok := s.policy().(frontend.UserPolicySource); ok {
 		viewer = policy.UserPolicy(viewer)
 	}
 	if viewer == nil || viewer.ID != entry.userID {
@@ -38,14 +38,14 @@ func (s *Server) forwardedOwnerPolicy(r *http.Request, pr *Request) bool {
 	}
 	// pr.Remote comes from restored original provenance, never a delivery peer's
 	// LAN address or an unauthenticated caller-provided origin/user header.
-	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(viewer, pr.Remote, s.now()) {
+	if policy, ok := s.policy().(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(viewer, pr.Remote, s.now()) {
 		return false
 	}
-	title, err := s.d.Catalog.Get(r.Context(), entry.key)
+	title, err := s.catalog().Get(r.Context(), entry.key)
 	if err != nil || title == nil || title.Key != entry.key || !s.playableTitle(r.Context(), viewer, title) {
 		return false
 	}
-	source, ok := s.d.Playback.Session(entry.playID)
+	source, ok := s.playback().Session(entry.playID)
 	if !ok || source == nil || source.ID != entry.playID || source.UserID != entry.userID || source.Key != entry.key {
 		return false
 	}

@@ -34,14 +34,14 @@ import (
 // SubtitleCatalog is optionally implemented by Deps.Subtitles: the sidecars
 // already cached for a title and viewer, without network access, skipping
 // streams embedded already lists (by ExternalURL) or covers (by language).
-type SubtitleCatalog = frontend.PlexSubtitleCatalog
+type SubtitleCatalog = frontend.SubtitleSidecarCatalog
 
 // SubtitleOffer is one subtitle search result.
-type SubtitleOffer = frontend.PlexSubtitleOffer
+type SubtitleOffer = frontend.SubtitleSearchOffer
 
 // SubtitleSearch is optionally implemented by Deps.Subtitles: Plex's
 // on-demand subtitle search and pick.
-type SubtitleSearch = frontend.PlexSubtitleSearch
+type SubtitleSearch = frontend.SubtitleSidecarSearch
 
 // infoWithSelectedSidecar keeps a chosen external subtitle on a metadata
 // stream list. Cached sidecars omit a language the file already embeds, so
@@ -85,11 +85,10 @@ func ensureSelectedSidecar(ps *frontend.PlaySession, want *frontend.StreamInfo) 
 // withCachedSidecars appends the viewer's cached sidecars that info does not
 // already list. It never touches the network.
 func (s *Server) withCachedSidecars(ctx context.Context, u *frontend.User, t *frontend.Title, info frontend.MediaInfo) frontend.MediaInfo {
-	c, ok := s.d.Subtitles.(SubtitleCatalog)
-	if !ok || t == nil {
+	if s.subtitles == nil || t == nil {
 		return info
 	}
-	extra := c.CachedSidecars(ctx, t, u, info.Streams)
+	extra := s.subtitles.CachedSidecars(ctx, t, u, info.Streams)
 	if len(extra) == 0 {
 		return info
 	}
@@ -167,7 +166,7 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info fronten
 
 // resolvePlaySelection is resolveSelection for a play request.
 func resolvePlaySelection(p *playRequest, info frontend.MediaInfo) {
-	out, err := frontend.TranslatePlexTrackIdentity(frontend.PlexIssuedIdentity{
+	out, err := frontend.TranslatePlexTrackIdentity(frontend.IssuedTrackIdentity{
 		Audio: p.audioStream, AudioPosition: p.audioSel, AudioSet: p.audioSel >= 0,
 		Subtitle: p.subStream, SubtitlePosition: p.subSel, SubtitleSet: p.subSet,
 	}, info)
@@ -212,10 +211,10 @@ func subtitleFormat(v string) string {
 // subtitles request the viewer may see.
 func (s *Server) subtitleTitle(r *http.Request) (*frontend.Title, bool) {
 	keys, err := parseKeys(chi.URLParam(r, "key"))
-	if err != nil || len(keys) != 1 || !isPlayableKey(keys[0]) || s.d.Catalog == nil {
+	if err != nil || len(keys) != 1 || !isPlayableKey(keys[0]) || s.catalog() == nil {
 		return nil, false
 	}
-	t, err := s.d.Catalog.Get(r.Context(), keys[0])
+	t, err := s.catalog().Get(r.Context(), keys[0])
 	if err != nil || t == nil || !s.visibleTitle(r.Context(), FromContext(r.Context()).User, t) {
 		return nil, false
 	}
@@ -377,14 +376,14 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	lang = frontend.NormalizeLanguage(lang)
 	mc := libraryContainer()
-	searcher, ok := s.d.Subtitles.(SubtitleSearch)
-	if !ok {
+	if s.subtitles == nil {
 		s.write(w, r, mc)
 		return
 	}
+	searcher := s.subtitles
 	release := ""
-	if pr.User != nil && s.d.Playback != nil {
-		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil && ps.Resolution != nil {
+	if pr.User != nil && s.playback() != nil {
+		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil && ps.Resolution != nil {
 			release = ps.Resolution.Release.Name
 		}
 	}
@@ -455,11 +454,11 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	searcher, ok := s.d.Subtitles.(SubtitleSearch)
-	if !ok {
+	if s.subtitles == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
+	searcher := s.subtitles
 	if !r.URL.Query().Has("key") {
 		s.handleSubtitleSearch(w, r)
 		return
@@ -503,8 +502,8 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) { sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st })
-		if s.d.TrackPreferences != nil {
-			if err := s.d.TrackPreferences.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
+		if s.trackPrefs != nil {
+			if err := s.trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
 				s.log.Warn("save stream preference", "error", err)
 			}
 		}
@@ -558,7 +557,7 @@ func (s *Server) finishSubtitleActivity(uuid string, userID int64) {
 
 // SubtitleUpload is optionally implemented by Deps.Subtitles: Plex Web's
 // "Upload Subtitles" (POST /library/metadata/{key}/subtitles).
-type SubtitleUpload = frontend.PlexSubtitleUpload
+type SubtitleUpload = frontend.SubtitleSidecarUpload
 
 const maxUploadBytes = 16 << 20
 
@@ -582,11 +581,11 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
-	uploader, ok := s.d.Subtitles.(SubtitleUpload)
-	if !ok {
+	if s.subtitles == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
+	uploader := s.subtitles
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxUploadBytes+1))
 	if err != nil {
 		writeHTTPError(w, http.StatusBadRequest)
@@ -627,8 +626,8 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 	s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) {
 		sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st
 	})
-	if s.d.TrackPreferences != nil {
-		if err := s.d.TrackPreferences.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
+	if s.trackPrefs != nil {
+		if err := s.trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
 			s.log.Warn("save stream preference", "error", err)
 		}
 	}
@@ -693,7 +692,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 			from := entry.offset
 			if perr == nil && q.Get("offset") != "" {
 				from = p.offset
-			} else if ps, ok := s.d.Playback.SessionFor(entry.userID, entry.clientID, entry.key); ok && ps != nil && ps.ID == entry.playID && ps.ViewOffset != nil {
+			} else if ps, ok := s.playback().SessionFor(entry.userID, entry.clientID, entry.key); ok && ps != nil && ps.ID == entry.playID && ps.ViewOffset != nil {
 				// A conversion's player reopens the stream after a seek
 				// without naming its position; its timeline has.
 				from = time.Duration(*ps.ViewOffset) * time.Millisecond
@@ -714,29 +713,21 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		s.writeEmpty(w, r)
 		return
 	}
-	timeline := s.d.Subtitles
+	timeline := s.subtitles
 	if timeline == nil {
 		s.writeEmpty(w, r)
 		return
 	}
-	title, err := s.d.Catalog.Get(r.Context(), entry.key)
+	title, err := s.catalog().Get(r.Context(), entry.key)
 	if err != nil || !s.visibleTitle(r.Context(), pr.User, title) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
 	source := ""
-	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
+	if keyer, ok := s.playback().(frontend.PlaybackSourceKeyer); ok {
 		source = keyer.SourceKey(entry.playID)
 	}
-	var reader io.ReadCloser
-	var actual string
-	if from, ok := timeline.(interface {
-		OpenFormatFrom(string, string, string) (io.ReadCloser, string, error)
-	}); ok {
-		reader, actual, err = from.OpenFormatFrom(st.ExternalURL, subtitleFormat(format), source)
-	} else {
-		reader, actual, err = timeline.OpenFormat(st.ExternalURL, subtitleFormat(format))
-	}
+	reader, actual, err := timeline.OpenFormatFrom(st.ExternalURL, subtitleFormat(format), source)
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -776,7 +767,7 @@ func sessionSoftSubtitle(entry *transcodeEntry, pr *Request, dec frontend.Decisi
 }
 
 func (s *Server) serveSessionASS(w http.ResponseWriter, r *http.Request, sessionID string, index int) {
-	if s.d.Transcoder == nil {
+	if s.transcoder() == nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -788,9 +779,7 @@ func (s *Server) serveSessionASS(w http.ResponseWriter, r *http.Request, session
 	defer tick.Stop()
 	for {
 		if session, ok := s.plexHLSSession(sessionID); ok {
-			if ass, ok := session.(interface {
-				ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
-			}); ok && ass.ServeSoftSubtitle(w, r, index) {
+			if ass, ok := session.(frontend.SoftSubtitleServer); ok && ass.ServeSoftSubtitle(w, r, index) {
 				return
 			}
 			writeHTTPError(w, http.StatusNotFound)
@@ -835,17 +824,17 @@ const softSubtitleLead = 10 * time.Second
 // subtitleKeepAlive holds the connection through gaps in the dialogue. It
 // reports false, with nothing written, when the track cannot be read.
 func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID string, st frontend.StreamInfo, from time.Duration) bool {
-	streamer, ok := s.d.Transcoder.(subtitleStreamer)
-	if !ok || s.d.Playback == nil || playID == "" {
+	streamer, ok := s.transcoder().(subtitleStreamer)
+	if !ok || s.playback() == nil || playID == "" {
 		return false
 	}
-	input := s.d.Playback.InputURL(playID)
+	input := s.playback().InputURL(playID)
 	if input == "" {
 		return false
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
+	if keyer, ok := s.playback().(frontend.PlaybackSourceKeyer); ok {
 		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	if vtt, ok := streamer.CachedSubtitle(ctx, st.Index, st.Codec); ok {
@@ -931,15 +920,15 @@ func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID
 }
 
 func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st frontend.StreamInfo, format string) ([]byte, string, bool) {
-	ex, ok := s.d.Transcoder.(frontend.SubtitleExtractor)
-	if !ok || s.d.Playback == nil || playID == "" {
+	ex, ok := s.transcoder().(frontend.SubtitleExtractor)
+	if !ok || s.playback() == nil || playID == "" {
 		return nil, "", false
 	}
-	input := s.d.Playback.InputURL(playID)
+	input := s.playback().InputURL(playID)
 	if input == "" {
 		return nil, "", false
 	}
-	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
+	if keyer, ok := s.playback().(frontend.PlaybackSourceKeyer); ok {
 		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	var buf bytes.Buffer
@@ -961,7 +950,7 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st 
 
 func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, info frontend.StreamInfo) {
 	pr := FromContext(r.Context())
-	if pr == nil || pr.User == nil || info.Type != "subtitle" || s.d.Playback == nil {
+	if pr == nil || pr.User == nil || info.Type != "subtitle" || s.playback() == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -982,12 +971,12 @@ func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key
 		}
 	}
 	if playID == "" && pr.ClientID != "" {
-		if ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key); ok && ps != nil {
+		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, key); ok && ps != nil {
 			playID = ps.ID
 		}
 	}
 	if playID == "" {
-		for _, ps := range s.d.Playback.Sessions() {
+		for _, ps := range s.playback().Sessions() {
 			if ps.UserID == pr.User.ID && ps.Key == key {
 				playID = ps.ID
 				break

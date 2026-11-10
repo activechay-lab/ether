@@ -630,10 +630,10 @@ func (p *playIdentities) expire(now time.Time, alive func(playIdentityKey) bool)
 }
 
 func (s *Server) playIdentityAlive(k playIdentityKey) bool {
-	if s.d.Playback == nil {
+	if s.playback() == nil {
 		return false
 	}
-	_, ok := s.d.Playback.SessionFor(k.userID, k.clientID, k.key)
+	_, ok := s.playback().SessionFor(k.userID, k.clientID, k.key)
 	return ok
 }
 

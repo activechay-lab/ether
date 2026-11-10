@@ -42,8 +42,8 @@ func (s *Server) cloudGuideLogo(ctx context.Context, c frontend.LiveTVChannel, o
 	if publicLogoURL(c.Logo) {
 		return c.Logo
 	}
-	if path, _, ok := frontend.ShowcaseLogo(c); ok && s.d.RepoFileURL != nil {
-		if u := s.d.RepoFileURL(path); u != "" {
+	if path, _, ok := frontend.ShowcaseLogo(c); ok && s.host.RepoFileURL != nil {
+		if u := s.host.RepoFileURL(path); u != "" {
 			return u
 		}
 	}
@@ -53,8 +53,8 @@ func (s *Server) cloudGuideLogo(ctx context.Context, c frontend.LiveTVChannel, o
 		}
 	}
 	base := origin
-	if s.d.PublicURL != nil {
-		if public := strings.TrimRight(s.d.PublicURL(), "/"); public != "" {
+	if s.host.PublicOrigin != nil {
+		if public := strings.TrimRight(s.host.PublicOrigin(), "/"); public != "" {
 			base = public
 		}
 	}

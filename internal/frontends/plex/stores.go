@@ -11,7 +11,7 @@ import (
 
 // slotHash is the visible id for a subtitle search offer. Offers are not
 // stream bindings; playback ids come from the broker.
-func slotHash(key frontend.RatingKey, slot string) int64 { return frontend.PlexWireID(key, slot) }
+func slotHash(key frontend.RatingKey, slot string) int64 { return frontend.WireID(key, slot) }
 
 // ---------------------------------------------------------------------------
 // Stream selections (PUT /library/parts/{id}?audioStreamID=&subtitleStreamID=)
@@ -213,16 +213,12 @@ func newFacetCache() *facetCache { return &facetCache{m: map[string]facetEntry{}
 
 const facetTTL = 10 * time.Minute
 
-type facetFilterCatalog interface {
-	FacetFilter(ctx context.Context, f frontend.Filter, facet string) ([]frontend.FacetValue, error)
-}
-
 func (s *Server) firstCharacter(ctx context.Context, f frontend.Filter) ([]frontend.FacetValue, error) {
 	f.FirstCharacter = ""
-	if fc, ok := s.d.Catalog.(facetFilterCatalog); ok {
+	if fc, ok := s.catalog().(frontend.FacetFilterCatalog); ok {
 		return fc.FacetFilter(ctx, f, "firstCharacter")
 	}
-	return s.d.Catalog.Facet(ctx, f.Type, "firstCharacter")
+	return s.catalog().Facet(ctx, f.Type, "firstCharacter")
 }
 
 func (s *Server) facet(ctx context.Context, t frontend.MediaType, name string) ([]frontend.FacetValue, error) {
@@ -236,7 +232,7 @@ func (s *Server) facet(ctx context.Context, t frontend.MediaType, name string) (
 	if ok && s.now().Sub(e.at) < facetTTL {
 		return e.vals, nil
 	}
-	vals, err := s.d.Catalog.Facet(ctx, t, name)
+	vals, err := s.catalog().Facet(ctx, t, name)
 	if err != nil {
 		return nil, err
 	}

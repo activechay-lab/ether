@@ -159,7 +159,8 @@ var (
 func newSubtitleFixture(t *testing.T) (*fixture, *fakeSubtitles) {
 	t.Helper()
 	subs := newFakeSubtitles()
-	f := newFixture(func(d *Deps) { d.Subtitles = subs })
+	f := newFixture()
+	f.srv.setSubtitles(subs)
 	t.Cleanup(func() { f.srv.Close() })
 	f.playback.info = estimateInfo
 	subs.cache(fightClub.Key, sidecar("en", "ether-subtitle:cached-en"))
@@ -301,7 +302,7 @@ func TestTrackPreferenceAlwaysSelectsCachedSidecar(t *testing.T) {
 	}
 	defer db.Close()
 	prefs := trackprefs.New(db)
-	f.srv.d.TrackPreferences = prefs
+	f.srv.setTrackPreferences(prefs)
 	r := trackprefs.Default()
 	r.SubtitleLanguages = []string{"en"}
 	r.SubtitleMode = "always"
@@ -733,7 +734,7 @@ func TestExplicitSubtitleWinsOverOffMode(t *testing.T) {
 	f, subs := newSubtitleFixture(t)
 	db := store.OpenTest(t)
 	prefs := trackprefs.New(db)
-	f.srv.d.TrackPreferences = prefs
+	f.srv.setTrackPreferences(prefs)
 	rules := trackprefs.Default()
 	rules.SubtitleMode = "off"
 	if err := prefs.PutRules(context.Background(), ownerUser.ID, rules); err != nil {
@@ -845,7 +846,7 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 	subs := newFakeSubtitles()
 	subs.cache(fightClub.Key, sidecar("es", "ether-subtitle:cached-es"))
 	subs.files["ether-subtitle:cached-es"] = spanishSidecarSRT
-	f.srv.d.Subtitles = subs
+	f.srv.setSubtitles(subs)
 
 	db := store.OpenTest(t)
 	prefs := trackprefs.New(db)
@@ -854,7 +855,7 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 	if err := prefs.PutRules(context.Background(), ownerUser.ID, rules); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.TrackPreferences = prefs
+	f.srv.setTrackPreferences(prefs)
 
 	const guid = "plex://movie/5d77688123d5a3001f4ed3df"
 	if _, err := db.Exec(`INSERT INTO plexguid_mappings(rating_key, guid, checked_at) VALUES(?,?,?)`, int64(fightClub.Key), guid, time.Now().Unix()); err != nil {
@@ -862,10 +863,10 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 	}
 	pg := plexguid.New(db, plexguid.Options{})
 	t.Cleanup(func() { pg.Close() })
-	f.srv.d.PlexGUID = pg
+	f.srv.setPlexGUID(pg)
 
 	const plexToken = "plex-tv-user-token"
-	f.srv.d.Auth.(*fakeAuth).users[plexToken] = ownerUser
+	f.srv.testAuth().users[plexToken] = ownerUser
 	hdr := append([]string{"X-Plex-Token", plexToken}, appleTV...)
 
 	key := fightClub.Key.String()
@@ -957,7 +958,7 @@ func TestSubtitleChoiceSurvivesVariantReorder(t *testing.T) {
 	if err := prefs.PutRules(context.Background(), ownerUser.ID, rules); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.TrackPreferences = prefs
+	f.srv.setTrackPreferences(prefs)
 
 	key := fightClub.Key.String()
 	meta := f.get(t, "/library/metadata/"+key, appleTV...)
@@ -1102,7 +1103,7 @@ func TestSubtitleApplyReturnsBeforeDownload(t *testing.T) {
 	f, subs := newSubtitleFixture(t)
 	subs.offers = []SubtitleOffer{{ID: 101, Language: "en"}}
 	blocking := &blockingSubtitleDownload{subs, make(chan struct{}), make(chan struct{})}
-	f.srv.d.Subtitles = blocking
+	f.srv.setSubtitles(blocking)
 	defer close(blocking.complete)
 	root := "/library/metadata/" + fightClub.Key.String() + "/subtitles"
 	mc := decodeJSON(t, f.get(t, root+"?language=en", jsonAccept...))

@@ -40,9 +40,58 @@ type TimelinePersistenceResult struct {
 	ViewCount          int
 	Changed, Completed bool
 }
-type PlexTimelineWriter interface {
-	PlexTimeline(context.Context, int64, RatingKey, time.Duration, time.Duration, string, string, *int) (TimelinePersistenceResult, error)
+type TimelineWriter interface {
+	StoreTimeline(context.Context, int64, RatingKey, time.Duration, time.Duration, string, string, *int) (TimelinePersistenceResult, error)
 }
+
+// ParentToucher updates parent season/show timestamps and completion counters
+// when an episode timeline commit changes state.
+type ParentToucher interface {
+	TouchParents(context.Context, int64, RatingKey, time.Time, bool) error
+}
+
+// ContinueRestorer clears a continue-watching dismissal when playback resumes.
+type ContinueRestorer interface {
+	RestoreContinue(context.Context, int64, RatingKey) error
+}
+
+// TreeScrobbler marks a title and its descendants watched or unwatched while
+// keeping parent counters independent of leaf totals.
+type TreeScrobbler interface {
+	ScrobbleTree(context.Context, int64, RatingKey, []RatingKey, bool) error
+}
+
+// ExactRater persists a rating while distinguishing clearing (-1) from zero.
+type ExactRater interface {
+	RateExact(context.Context, int64, RatingKey, float64) error
+}
+
+// LegacyProgressWriter persists a standalone playhead progress write without
+// full timeline session semantics.
+type LegacyProgressWriter interface {
+	LegacyProgress(context.Context, int64, RatingKey, time.Duration) error
+}
+
+// ContinueHider dismisses a title or show from continue-watching.
+type ContinueHider interface {
+	HideContinue(context.Context, int64, RatingKey) error
+}
+
+// CompletedShowsState reports which shows have had an episode completed in playback.
+type CompletedShowsState interface {
+	PlaybackCompletedShows(context.Context, int64, []RatingKey) (map[RatingKey]bool, error)
+}
+
+// PendingWatchState reports whether a viewer has uncommitted watch updates in flight.
+type PendingWatchState interface {
+	HasPendingWatch(int64) bool
+}
+
+// RecentlyViewedSettingsState reads history filtered by recently-viewed settings.
+type RecentlyViewedSettingsState interface {
+	RecentlyViewedSettings(context.Context, int64, time.Time, int) ([]HistoryEntry, error)
+}
+
 type timelineStoredKey struct{}
 
 func WithTimelineStored(ctx context.Context) context.Context {

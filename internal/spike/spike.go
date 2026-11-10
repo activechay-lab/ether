@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -37,7 +37,7 @@ type Options struct {
 	AcceptAnyToken bool
 	// FFprobePath overrides config.Transcode.FFprobePath / PATH lookup.
 	FFprobePath string
-	// DisableProbe skips ffprobe and estimates media info (tests).
+	// DisableProbe skips ffprobe and estimates media info (tests).\n
 	DisableProbe bool
 	// SessionIdle closes play sessions without activity (default 10 min).
 	SessionIdle time.Duration
@@ -189,29 +189,38 @@ func (l *Library) Recommender() core.Recommender { return recommender{l} }
 func (l *Library) Auth() core.Auth               { return l.auth }
 func (l *Library) Transcoder() core.Transcoder   { return l.trans }
 
+// Experience returns an experience.Service wired to the spike adapters.
+func (l *Library) Experience() *experience.Service {
+	return experience.NewDirectService(experience.ServiceDeps{
+		Catalog:       l.Catalog(),
+		Collections:   l.Collections(),
+		Recommender:   l.Recommender(),
+		State:         l.State(),
+		Playlists:     l.Playlists(),
+		SearchSources: experience.SearchSources{Catalog: l.Catalog().Search},
+	})
+}
+
 // Deps returns a plex.Deps wired to the spike adapters, a movies-only
 // section and the identity from the config.
 func (l *Library) Deps() plex.Deps {
 	c := l.cfg()
 	return plex.Deps{
-		SessionStores:    sessions.NewPlexSessionStores(),
-		Experience:       experience.NewPlexExperience(),
-		Catalog:          l.Catalog(),
-		Collections:      l.Collections(),
-		Recommender:      l.Recommender(),
-		State:            l.State(),
-		Playlists:        l.Playlists(),
-		Auth:             l.Auth(),
-		Playback:         l.Playback(),
-		Transcoder:       l.Transcoder(),
-		Config:           l.cfg,
-		ApplyClientRules: resolver.ApplyClientRulesForMedia,
-		Logger:           l.opts.Logger,
-		Identity: plex.Identity{
-			MachineIdentifier: c.Server.MachineIdentifier,
-			FriendlyName:      c.Server.FriendlyName,
+		Host: frontend.Host{
+			Sessions:     sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: l.Playback(), Transcoder: l.Transcoder(), Logger: l.opts.Logger}),
+			Experience:   l.Experience(),
+			Identity:     frontend.BindAuth(l.Auth()),
+			Capabilities: frontend.BindClientRules(resolver.ApplyClientRulesForMedia),
+			HostConfig:   l.cfg,
+			Log:          l.opts.Logger,
+			ServerIdentity: frontend.ServerIdentity{
+				MachineID:    c.Server.MachineIdentifier,
+				FriendlyName: c.Server.FriendlyName,
+			},
 		},
-		Sections: []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}},
+		Playback:   l.Playback(),
+		Transcoder: l.Transcoder(),
+		Sections:   []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}},
 	}
 }
 
@@ -244,8 +253,19 @@ func (l *Library) OpenPlex() (*plex.Server, func(), error) {
 		srv.Close()
 		return nil, nil, err
 	}
-	srv.UsePlaybackBroker(broker)
+	inst, err := (plex.Frontend{Server: srv}).Mount(context.Background(), frontend.Host{
+		Experience: l.Experience(),
+		Sessions:   sessions.BindSurface(broker, "plex"),
+		Events:     events,
+	})
+	if err != nil {
+		broker.Close(context.Background())
+		events.Close()
+		srv.Close()
+		return nil, nil, err
+	}
 	return srv, func() {
+		_ = inst.Close(context.Background())
 		broker.Close(context.Background())
 		events.Close()
 	}, nil

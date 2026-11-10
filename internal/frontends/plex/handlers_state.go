@@ -44,8 +44,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	origin := frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID}
-	if s.d.Dashboard != nil {
-		origin.DeviceID = s.d.Dashboard.SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform).ID
+	if s.dashboard() != nil {
+		origin.DeviceID = s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform).ID
 	}
 	ctx = frontend.WithWatchOrigin(ctx, origin)
 	unlockOwner, locked := s.lockPlaybackRequest(w, r)
@@ -94,7 +94,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		title, err := s.d.Catalog.Get(ctx, key)
+		title, err := s.catalog().Get(ctx, key)
 		if err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -120,8 +120,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	user := pr.User
 	s.log.Debug("playback timeline", "user", user.ID, "client", pr.ClientID, "key", key, "state", state, "position", offset, "duration", duration)
 	var ps *frontend.PlaySession
-	if s.d.Playback != nil {
-		if p, ok := s.d.Playback.SessionFor(user.ID, pr.ClientID, key); ok {
+	if pb := s.playback(); pb != nil {
+		if p, ok := pb.SessionFor(user.ID, pr.ClientID, key); ok {
 			ps = p
 		}
 	}
@@ -132,9 +132,9 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	// encoder output can be buffered ahead of what the viewer actually saw.
 	failedProgressive := false
 	for _, id := range tids {
-		if s.d.Transcoder != nil {
+		if s.transcoder() != nil {
 			if session, ok := s.plexHLSSession(id); ok {
-				if failed, ok := session.(interface{ ProgressiveFailed() bool }); ok && failed.ProgressiveFailed() {
+				if failed, ok := session.(frontend.ProgressiveFailureSession); ok && failed.ProgressiveFailed() {
 					failedProgressive = true
 				}
 			}
@@ -148,8 +148,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		if !found && s.d.State != nil {
-			if previous, err := s.d.State.Get(ctx, user.ID, key); err == nil {
+		if !found && s.state() != nil {
+			if previous, err := s.state().Get(ctx, user.ID, key); err == nil {
 				offset, duration = previous.ViewOffset, previous.Duration
 			}
 		}
@@ -198,7 +198,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		// The player took the media and never started. End this attempt
 		// with the reason; the stop below closes its encoder and source.
 		s.setTermination(tid, reason)
-		if failed, ok := s.d.Playback.(interface{ NoteFailedStart(string, string) }); ok && ps != nil {
+		if failed, ok := s.playback().(frontend.FailedStartRecorder); ok && ps != nil {
 			failed.NoteFailedStart(ps.ID, reason)
 		}
 		s.reportBrokerTimeline(ctx, pr, key, offset, duration, "stopped", sanitizeSessionID(q.Get("session")))
@@ -209,7 +209,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.transcodes.touch(id, s.now())
-		frontend.NotifyTranscodeActivity(s.d.Transcoder, id, state)
+		frontend.NotifyTranscodeActivity(s.transcoder(), id, state)
 	}
 	pqItem, _ := strconv.ParseInt(q.Get("playQueueItemID"), 10, 64)
 
@@ -243,7 +243,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if e, ok := s.transcodes.get(id); ok && e.userID == user.ID && e.clientID == pr.ClientID && e.key == key {
-				if s.d.Transcoder != nil {
+				if s.transcoder() != nil {
 					s.stopPlexHLS(id)
 				}
 				s.dropTranscode(id)
@@ -308,8 +308,8 @@ func (s *Server) lastKnownOffset(ctx context.Context, userID int64, tid string, 
 			return activity.offset
 		}
 	}
-	if s.d.State != nil {
-		if previous, err := s.d.State.Get(ctx, userID, key); err == nil && previous.ViewOffset <= previous.Duration {
+	if s.state() != nil {
+		if previous, err := s.state().Get(ctx, userID, key); err == nil && previous.ViewOffset <= previous.Duration {
 			return previous.ViewOffset
 		}
 	}
@@ -322,7 +322,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(ctx)
 	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	q := r.URL.Query()
-	if q.Get("key") == "" || q.Get("identifier") == "" || pr.User == nil || s.d.State == nil {
+	if q.Get("key") == "" || q.Get("identifier") == "" || pr.User == nil || s.state() == nil {
 		writeHTTPError(w, 400)
 		return
 	}
@@ -349,21 +349,21 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	known := false
 	switch key.Kind() {
 	case frontend.KindPlaylist:
-		if s.d.Playlists != nil {
-			_, err = s.d.Playlists.Get(ctx, pr.User.ID, key)
+		if s.playlists() != nil {
+			_, err = s.playlists().Get(ctx, pr.User.ID, key)
 			known = err == nil
 		}
 	case frontend.KindCollection, frontend.KindSmart:
 		_, err = s.collectionRaw(ctx, pr.User, key)
 		known = err == nil
 	default:
-		if s.d.Catalog != nil {
+		if s.catalog() != nil {
 			var title *frontend.Title
 			var e error
-			if stored, ok := s.d.Catalog.(frontend.StoredTitleLookup); ok {
+			if stored, ok := s.catalog().(frontend.StoredTitleLookup); ok {
 				title, e = stored.StoredTitle(ctx, key)
 			} else {
-				title, e = s.d.Catalog.Get(ctx, key)
+				title, e = s.catalog().Get(ctx, key)
 			}
 			known = e == nil && title != nil && s.titleVisible(pr.User, title)
 		}
@@ -373,12 +373,10 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	offset := time.Duration(n) * time.Millisecond
-	if legacy, ok := s.d.State.(interface {
-		LegacyProgress(context.Context, int64, frontend.RatingKey, time.Duration) error
-	}); ok {
+	if legacy, ok := s.state().(frontend.LegacyProgressWriter); ok {
 		err = legacy.LegacyProgress(ctx, pr.User.ID, key, offset)
 	} else {
-		err = s.d.State.Progress(ctx, pr.User.ID, key, offset, 0, q.Get("state"))
+		err = s.state().Progress(ctx, pr.User.ID, key, offset, 0, q.Get("state"))
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
@@ -399,7 +397,7 @@ func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) 
 	if !ok {
 		return
 	}
-	if title, err := s.d.Catalog.Get(ctx, key); err == nil && title != nil {
+	if title, err := s.catalog().Get(ctx, key); err == nil && title != nil {
 		ctx = frontend.WithHistoryTitle(ctx, title)
 	}
 	// Containers mark every episode.
@@ -409,10 +407,8 @@ func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) 
 			keys = ks
 		}
 	}
-	if native, ok := s.d.State.(interface {
-		PlexScrobble(context.Context, int64, frontend.RatingKey, []frontend.RatingKey, bool) error
-	}); ok {
-		if err := native.PlexScrobble(ctx, pr.User.ID, key, keys, watched); err != nil {
+	if native, ok := s.state().(frontend.TreeScrobbler); ok {
+		if err := native.ScrobbleTree(ctx, pr.User.ID, key, keys, watched); err != nil {
 			s.writeErr(w, r, err)
 			return
 		}
@@ -420,9 +416,9 @@ func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) 
 		for _, k := range keys {
 			var err error
 			if watched {
-				err = s.d.State.Scrobble(ctx, pr.User.ID, k)
+				err = s.state().Scrobble(ctx, pr.User.ID, k)
 			} else {
-				err = s.d.State.Unscrobble(ctx, pr.User.ID, k)
+				err = s.state().Unscrobble(ctx, pr.User.ID, k)
 			}
 			if err != nil {
 				s.writeErr(w, r, err)
@@ -452,9 +448,9 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rating > 0 {
-		promoter := s.d.VibeSearch
+		promoter := s.vibeSearch()
 		if promoter == nil {
-			promoter, _ = s.d.Collections.(frontend.VibeSearcher)
+			promoter, _ = s.collections().(frontend.VibeSearcher)
 		}
 		if promoter != nil {
 			if _, promoted, err := promoter.PromoteEphemeral(ctx, pr.User, key); err != nil {
@@ -466,12 +462,10 @@ func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if native, ok := s.d.State.(interface {
-		PlexRate(context.Context, int64, frontend.RatingKey, float64) error
-	}); ok {
-		err = native.PlexRate(ctx, pr.User.ID, key, rating)
+	if native, ok := s.state().(frontend.ExactRater); ok {
+		err = native.RateExact(ctx, pr.User.ID, key, rating)
 	} else {
-		err = s.d.State.Rate(ctx, pr.User.ID, key, math.Max(0, math.Min(10, rating)))
+		err = s.state().Rate(ctx, pr.User.ID, key, math.Max(0, math.Min(10, rating)))
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
@@ -490,7 +484,7 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 	pr := FromContext(ctx)
 	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	key, _ := frontend.ParseRatingKey(r.URL.Query().Get("ratingKey"))
-	if key == 0 || pr.User == nil || s.d.State == nil {
+	if key == 0 || pr.User == nil || s.state() == nil {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
@@ -498,9 +492,7 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	if hidden, ok := s.d.State.(interface {
-		HideContinue(context.Context, int64, frontend.RatingKey) error
-	}); ok {
+	if hidden, ok := s.state().(frontend.ContinueHider); ok {
 		if err := hidden.HideContinue(ctx, pr.User.ID, key); err != nil {
 			s.writeErr(w, r, err)
 			return
@@ -548,7 +540,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 			}
 			md = s.playlistMetadata(withRequest(ctx, viewer), pl, false)
 		} else {
-			t, err := s.d.Catalog.Get(ctx, e.key)
+			t, err := s.catalog().Get(ctx, e.key)
 			if err != nil {
 				continue
 			}
@@ -677,11 +669,9 @@ func (s *Server) terminateLocal(sid, reason string) bool {
 			}
 
 			s.setOwnerTermination(e.id, reason)
-			if s.d.Playback != nil {
-				if ps, ok := s.d.Playback.SessionFor(e.user.ID, e.client.ClientID, e.key); ok && ps != nil {
-					if stop, ok := s.playbackBroker.(interface {
-						StopPlayback(context.Context, string) bool
-					}); ok {
+			if pb := s.playback(); pb != nil {
+				if ps, ok := pb.SessionFor(e.user.ID, e.client.ClientID, e.key); ok && ps != nil {
+					if stop := s.brokerRuntime(); stop != nil {
 						if !stop.StopPlayback(s.ctx, ps.ID) {
 							s.adoptBrokerTimeline(s.ctx, &Request{User: &e.user, ClientID: e.client.ClientID, SessionID: e.client.SessionID}, e.key)
 							stop.StopPlayback(s.ctx, ps.ID)

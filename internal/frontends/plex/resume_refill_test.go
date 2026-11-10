@@ -110,8 +110,8 @@ func newEtheLab(t *testing.T, resumed bool, remembered string, n int) *etheLab {
 		x.idx.releases = append(x.idx.releases, core.Release{ID: fmt.Sprintf("offline-%d", i), GUID: fmt.Sprintf("offline-%d", i), Indexer: "offline", Name: name, Size: int64(1500+i*100) << 20, PubDate: fixedNow.Add(-24 * time.Hour), NZBURL: "offline", Info: releaseparse.Parse(name)})
 	}
 	x.engine = &etheLabEngine{finished: make(chan context.Context, 8)}
-	x.f = newFixture(func(d *Deps) {
-		d.Config = func() config.Config { return x.cfg }
+	x.f = newFixture(func(d *testServerDeps) {
+		setDepsConfig(d, func() config.Config { return x.cfg })
 		d.DisableEnrichment = true
 	})
 	x.f.catalog.titles[x.title.Key] = x.title
@@ -140,10 +140,10 @@ func newEtheLab(t *testing.T, resumed bool, remembered string, n int) *etheLab {
 		if err != nil {
 			t.Fatal(err)
 		}
-		x.f = newFixture(func(d *Deps) {
-			d.Config = func() config.Config { return x.cfg }
+		x.f = newFixture(func(d *testServerDeps) {
+			setDepsConfig(d, func() config.Config { return x.cfg })
 			d.DisableEnrichment = true
-			})
+		})
 		x.f.catalog.titles[x.title.Key] = x.title
 		x.f.state.set(ownerUser.ID, core.WatchStatus{Key: x.title.Key, ViewOffset: 10 * time.Minute})
 		x.start(t)
@@ -170,7 +170,7 @@ func (x *etheLab) start(t *testing.T) {
 		t.Fatal(err)
 	}
 	x.f.srv.d.Playback = x.mgr
-	x.f.srv.d.Variants = x.observed
+	x.f.srv.setVariants(x.observed)
 }
 func (x *etheLab) detail(t *testing.T, label string) []map[string]any {
 	t.Helper()

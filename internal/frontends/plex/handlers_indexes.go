@@ -13,16 +13,44 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
+func (s *Server) trickplayAvailable(id string) bool {
+	if s == nil || s.playbackBroker == nil || id == "" {
+		return false
+	}
+	return s.playbackBroker.TrickplayAvailable(id)
+}
+
+func (s *Server) trickplayBIF(id string) ([]byte, bool) {
+	if s == nil || s.playbackBroker == nil || id == "" {
+		return nil, false
+	}
+	return s.playbackBroker.TrickplayBIF(id)
+}
+
+func (s *Server) trickplayFrame(id string, at time.Duration) ([]byte, bool) {
+	if s == nil || s.playbackBroker == nil || id == "" {
+		return nil, false
+	}
+	return s.playbackBroker.TrickplayFrame(id, at)
+}
+
+func (s *Server) cancelTrickplay(id string) {
+	if s == nil || s.playbackBroker == nil || id == "" {
+		return
+	}
+	s.playbackBroker.CancelTrickplay(id)
+}
+
 // handleIndexBIF serves the sparse BIF snapshot for a currently available
 // part. Like direct part requests, it is scoped to the authenticated
 // viewer's active playback session.
 func (s *Server) handleIndexBIF(w http.ResponseWriter, r *http.Request) {
 	key, releaseID, ok := s.indexPart(r)
-	if !ok || chi.URLParam(r, "index") != "sd" || s.d.Trickplay == nil {
+	if !ok || chi.URLParam(r, "index") != "sd" {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	data, ok := s.d.Trickplay.TrickplayBIF(releaseID)
+	data, ok := s.trickplayBIF(releaseID)
 	if !ok || len(data) == 0 {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -69,7 +97,7 @@ func resampleBIF(data []byte, interval time.Duration) []byte {
 }
 
 func (s *Server) cancelTrickplayIfIdle(ps *frontend.PlaySession) {
-	if ps == nil || ps.Resolution == nil || s.d.Playback == nil {
+	if ps == nil || ps.Resolution == nil || s.playback() == nil {
 		return
 	}
 	releaseID := frontend.TrickplayCacheKey(ps)
@@ -77,16 +105,14 @@ func (s *Server) cancelTrickplayIfIdle(ps *frontend.PlaySession) {
 		return
 	}
 	idle := true
-	for _, active := range s.d.Playback.Sessions() {
+	for _, active := range s.playback().Sessions() {
 		if active != nil && active.Resolution != nil && frontend.TrickplayCacheKey(active) == releaseID {
 			idle = false
 			break
 		}
 	}
 	if idle {
-		if canceler, ok := s.d.Trickplay.(frontend.TrickplayCanceler); ok {
-			canceler.CancelTrickplay(releaseID)
-		}
+		s.cancelTrickplay(releaseID)
 	}
 }
 
@@ -95,7 +121,7 @@ func (s *Server) cancelTrickplayIfIdle(ps *frontend.PlaySession) {
 // request form.
 func (s *Server) handleIndexFrame(w http.ResponseWriter, r *http.Request) {
 	_, releaseID, ok := s.indexPart(r)
-	if !ok || chi.URLParam(r, "index") != "sd" || s.d.Trickplay == nil {
+	if !ok || chi.URLParam(r, "index") != "sd" {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -104,7 +130,7 @@ func (s *Server) handleIndexFrame(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	frame, ok := s.d.Trickplay.TrickplayFrame(releaseID, time.Duration(ms)*time.Millisecond)
+	frame, ok := s.trickplayFrame(releaseID, time.Duration(ms)*time.Millisecond)
 	if !ok {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -121,21 +147,21 @@ func (s *Server) indexPart(r *http.Request) (frontend.RatingKey, string, bool) {
 	pr := FromContext(r.Context())
 	id, err := strconv.ParseInt(chi.URLParam(r, "part"), 10, 64)
 	if err != nil || pr.User == nil ||
-		s.d.Playback == nil || s.d.Catalog == nil {
+		s.playback() == nil || s.catalog() == nil {
 		return 0, "", false
 	}
 	key, wantedReleaseID, found := s.partTitle(id)
 	if !found {
 		return 0, "", false
 	}
-	title, err := s.d.Catalog.Get(r.Context(), key)
+	title, err := s.catalog().Get(r.Context(), key)
 	if err != nil || !s.visibleTitle(r.Context(), pr.User, title) {
 		return 0, "", false
 	}
-	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
+	if policy, ok := s.policy().(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
 		return 0, "", false
 	}
-	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
+	ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, key)
 	if !ok || ps == nil || ps.Resolution == nil || ps.Resolution.Release.ID == "" {
 		return 0, "", false
 	}
@@ -147,13 +173,13 @@ func (s *Server) indexPart(r *http.Request) (frontend.RatingKey, string, bool) {
 }
 
 func (s *Server) previewAvailable(pr *Request, key frontend.RatingKey, release string) bool {
-	if s.d.Trickplay == nil || s.d.Playback == nil || pr.User == nil {
+	if s.playback() == nil || pr.User == nil {
 		return false
 	}
-	ps, ok := s.d.Playback.SessionFor(pr.User.ID, pr.ClientID, key)
+	ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, key)
 	if !ok || ps == nil || ps.Resolution == nil || ps.Resolution.Release.ID != release {
 		return false
 	}
 	id := frontend.TrickplayCacheKey(ps)
-	return id != "" && s.d.Trickplay.TrickplayAvailable(id)
+	return id != "" && s.trickplayAvailable(id)
 }

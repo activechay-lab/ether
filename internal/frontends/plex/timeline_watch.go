@@ -10,13 +10,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
 )
 
-type plexTimelineWriter = frontend.PlexTimelineWriter
+type plexTimelineWriter = frontend.TimelineWriter
 
 func (s *Server) timelineWatch(ctx context.Context, pr *Request, key frontend.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *frontend.TimelinePersistenceResult, error) {
 	if suppressTimelineWatch(ctx) {
 		return frontend.WithTimelineStored(ctx), nil, nil
 	}
-	writer, ok := s.d.State.(plexTimelineWriter)
+	writer, ok := s.state().(plexTimelineWriter)
 	if !ok {
 		return ctx, nil, nil
 	}
@@ -28,12 +28,11 @@ func (s *Server) timelineWatch(ctx context.Context, pr *Request, key frontend.Ra
 		}
 		offline = &n
 	}
-	timelineOpts := frontend.PlexTimelineOptions{Writer: writer, Now: s.now}
-	if s.d.Discovery != nil && s.d.Discovery.Personal != nil {
-		timelineOpts.RestoreContinue = s.d.Discovery.Personal.RestoreContinue
+	var restoreContinue func(context.Context, int64, frontend.RatingKey) error
+	if d := s.discovery(); d != nil && d.Personal != nil {
+		restoreContinue = d.Personal.RestoreContinue
 	}
-	persist := s.d.Experience.NewPlexTimeline(timelineOpts)
-	return persist.Store(ctx, pr.User.ID, key, offset, duration, status, r.URL.Query().Get("playQueueItemID"), offline)
+	return frontend.StoreTimeline(ctx, writer, s.now, restoreContinue, pr.User.ID, key, offset, duration, status, r.URL.Query().Get("playQueueItemID"), offline)
 }
 func timelineWatchAttrs(mc *model.MediaContainer, result *frontend.TimelinePersistenceResult) {
 	if result == nil {

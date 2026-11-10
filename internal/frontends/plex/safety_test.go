@@ -16,7 +16,7 @@ import (
 func TestRestrictedViewerCannotRetrieveHiddenTitles(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	key := fightClub.Key.String()
 	for _, path := range []string{"/library/metadata/" + key, "/library/metadata/" + key + "/thumb/1", "/library/parts/" + key + "/1/movie.mkv", "/photo/:/transcode?url=" + url.QueryEscape("/library/metadata/"+key+"/thumb/1"), "/library/metadata/" + breakingBad.Key.String() + "/children"} {
 		r := f.request(t, http.MethodGet, path, map[string]string{"X-Plex-Token": "kid"})
@@ -72,6 +72,10 @@ func TestRestrictedAbsoluteArtworkRequiresVisibleTitle(t *testing.T) {
 
 type keywordPolicy struct{ blocked string }
 
+func (keywordPolicy) SetMaxRating(context.Context, *core.User, string) error {
+	return core.ErrUnauthorized
+}
+
 func (p keywordPolicy) Allowed(u *core.User, t *core.Title) bool {
 	if u == nil || u.IsOwner {
 		return true
@@ -87,7 +91,7 @@ func (p keywordPolicy) Allowed(u *core.User, t *core.Title) bool {
 // Seasons and episodes do not carry the show's keywords, so a show blocked
 // by owner policy must also hide its children when addressed directly.
 func TestBlockedShowChildrenStayHidden(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.AccessPolicy = keywordPolicy{blocked: "blocked"} })
+	f := newFixture(func(d *testServerDeps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
 	defer f.srv.Close()
 	show := breakingBad
 	show.Keywords = []string{"blocked"}
@@ -121,7 +125,7 @@ func TestBlockedShowChildrenStayHidden(t *testing.T) {
 func TestRestrictedViewerQueuesAndPlaylistsHideTitles(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	pg := alien
 	pg.ContentRating = "PG"
 	f.catalog.titles[pg.Key] = pg
@@ -144,7 +148,7 @@ func TestRestrictedViewerQueuesAndPlaylistsHideTitles(t *testing.T) {
 // Up Next and a show's On Deck must not surface an episode of a show the
 // viewer's policy blocks, even when the episode lacks the show's keywords.
 func TestBlockedShowEpisodesStayOutOfUpNextAndOnDeck(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.AccessPolicy = keywordPolicy{blocked: "blocked"} })
+	f := newFixture(func(d *testServerDeps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
 	defer f.srv.Close()
 	show := breakingBad
 	show.Keywords = []string{"blocked"}
@@ -181,13 +185,13 @@ func (h historyState) History(context.Context, int64, time.Time, int) ([]core.Hi
 func TestHistoryHidesRestrictedTitles(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	pg := alien
 	pg.ContentRating = "PG"
 	f.catalog.titles[pg.Key] = pg
-	f.srv.d.State = historyState{fakeState: f.state, hist: []core.HistoryEntry{
+	f.srv.setState(historyState{fakeState: f.state, hist: []core.HistoryEntry{
 		{UserID: 30, Key: fightClub.Key, ViewedAt: fixedNow, ViewType: 1}, {UserID: 30, Key: pg.Key, ViewedAt: fixedNow, ViewType: 1},
-	}}
+	}})
 	rec := f.get(t, "/status/sessions/history/all?type=1", "X-Plex-Token", "kid")
 	if rec.Code != 200 || strings.Contains(rec.Body.String(), "Fjord Harbor") || !strings.Contains(rec.Body.String(), "Alien") {
 		t.Errorf("history: %d %s", rec.Code, rec.Body.String())
@@ -199,7 +203,7 @@ func TestHistoryHidesRestrictedTitles(t *testing.T) {
 func TestCollectionPosterFallbackSkipsHiddenItems(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	pg := alien
 	pg.ContentRating = "PG"
 	f.catalog.titles[pg.Key] = pg
@@ -218,7 +222,7 @@ func TestCollectionPosterFallbackSkipsHiddenItems(t *testing.T) {
 // On Deck pairs rendered items with their titles: a hidden in-progress
 // title must not shift another item's section attributes.
 func TestOnDeckHiddenTitleKeepsSectionAttributes(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.AccessPolicy = keywordPolicy{blocked: "blocked"} })
+	f := newFixture(func(d *testServerDeps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
 	defer f.srv.Close()
 	movie := fightClub
 	movie.Keywords = []string{"blocked"}
@@ -241,7 +245,7 @@ func TestOnDeckHiddenTitleKeepsSectionAttributes(t *testing.T) {
 func TestCollectionOfHiddenSectionIsNotFound(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, Username: "tvonly", AllowedLibraries: []core.LibraryID{2}}
+	f.srv.testAuth().users["tvonly"] = core.User{ID: 31, Username: "tvonly", AllowedLibraries: []core.LibraryID{2}}
 	key := core.CollectionKey(8091).String()
 	for _, path := range []string{"/library/collections/" + key, "/library/collections/" + key + "/children", "/library/metadata/" + key, "/library/collections/" + key + "/thumb/1"} {
 		if rec := f.get(t, path, "X-Plex-Token", "tvonly"); rec.Code != 404 {
@@ -258,7 +262,7 @@ func TestCollectionOfHiddenSectionIsNotFound(t *testing.T) {
 func TestRelatedRowsOfHiddenTitleAreNotFound(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	key := fightClub.Key.String()
 	for _, path := range []string{"/hubs/metadata/" + key, "/hubs/metadata/" + key + "/related", "/library/metadata/" + key + "/related", "/library/metadata/" + key + "/similar", "/hubs/metadata/" + key + "/postplay"} {
 		if rec := f.get(t, path, "X-Plex-Token", "kid"); rec.Code != 404 {
@@ -272,7 +276,7 @@ func TestRelatedRowsOfHiddenTitleAreNotFound(t *testing.T) {
 
 // allLeaves pages over the episodes the viewer may see.
 func TestAllLeavesPagesVisibleEpisodes(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.AccessPolicy = keywordPolicy{blocked: "blocked"} })
+	f := newFixture(func(d *testServerDeps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
 	defer f.srv.Close()
 	ep := bbE1
 	ep.Keywords = []string{"blocked"}
@@ -290,7 +294,7 @@ func TestAllLeavesPagesVisibleEpisodes(t *testing.T) {
 func TestRelatedRowsFailClosedOnLookupError(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
 	f.catalog.failOnce = map[core.RatingKey]bool{fightClub.Key: true}
 	if rec := f.get(t, "/hubs/metadata/"+fightClub.Key.String()+"/related", "X-Plex-Token", "kid"); rec.Code == 200 {
 		t.Fatalf("related rows served after a failed visibility lookup: %s", rec.Body.String())
@@ -300,12 +304,12 @@ func TestRelatedRowsFailClosedOnLookupError(t *testing.T) {
 // History and collection poster fallbacks apply the show's policy to its
 // episodes, like every other listing.
 func TestHistoryAndPosterHideBlockedShowEpisodes(t *testing.T) {
-	f := newFixture(func(d *Deps) { d.AccessPolicy = keywordPolicy{blocked: "blocked"} })
+	f := newFixture(func(d *testServerDeps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
 	defer f.srv.Close()
 	show := breakingBad
 	show.Keywords = []string{"blocked"}
 	f.catalog.titles[show.Key] = show
-	f.srv.d.State = historyState{fakeState: f.state, hist: []core.HistoryEntry{{UserID: friendUser.ID, Key: bbE1.Key, ViewedAt: fixedNow, ViewType: 1}}}
+	f.srv.setState(historyState{fakeState: f.state, hist: []core.HistoryEntry{{UserID: friendUser.ID, Key: bbE1.Key, ViewedAt: fixedNow, ViewType: 1}}})
 	if rec := f.get(t, "/status/sessions/history/all?type=1", "X-Plex-Token", friendToken); rec.Code != 200 || strings.Contains(rec.Body.String(), bbE1.Title) {
 		t.Errorf("history: %d %s", rec.Code, rec.Body.String())
 	}
@@ -323,7 +327,7 @@ func TestHistoryAndPosterHideBlockedShowEpisodes(t *testing.T) {
 func TestRecentAvailabilityAppliesToListsAndDirectMetadata(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.FilterAvailable = func(_ context.Context, ts []core.Title) []core.Title {
+	f.srv.setFilterAvailable(func(_ context.Context, ts []core.Title) []core.Title {
 		var out []core.Title
 		for _, v := range ts {
 			if v.Key != fightClub.Key {
@@ -331,7 +335,7 @@ func TestRecentAvailabilityAppliesToListsAndDirectMetadata(t *testing.T) {
 			}
 		}
 		return out
-	}
+	})
 	for _, path := range []string{"/library/metadata/" + fightClub.Key.String(), "/library/metadata/" + fightClub.Key.String() + "/thumb/1"} {
 		r := f.request(t, http.MethodGet, path, nil)
 		if r.Code != 404 {
@@ -349,7 +353,7 @@ func TestRecentAvailabilityAppliesToListsAndDirectMetadata(t *testing.T) {
 func TestAvailabilityDoesNotInterruptAnOpenViewerSession(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.FilterAvailable = func(context.Context, []core.Title) []core.Title { return nil }
+	f.srv.setFilterAvailable(func(context.Context, []core.Title) []core.Title { return nil })
 	user := &core.User{ID: 1, IsOwner: true}
 	if _, err := f.playback.Prepare(t.Context(), user, fightClub.Key, core.ClientCaps{ClientID: "watching"}); err != nil {
 		t.Fatal(err)
@@ -375,7 +379,7 @@ func TestCastPortraitTranscodeVisibility(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	f.srv.d.DB = db
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
 	cases := []struct {
 		name        string
 		key         core.RatingKey
@@ -386,7 +390,7 @@ func TestCastPortraitTranscodeVisibility(t *testing.T) {
 	}{
 		{"visible", core.MovieKey(1001), "PG", false, false, 200}, {"forbidden", core.MovieKey(1002), "R", false, false, 404}, {"future", core.MovieKey(1003), "PG", false, true, 404}, {"adult", core.MovieKey(1004), "PG", true, false, 404}, {"unknown-release", core.MovieKey(1005), "PG", false, false, 404},
 	}
-	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, AllowedLibraries: []core.LibraryID{2}}
+	f.srv.testAuth().users["tvonly"] = core.User{ID: 31, AllowedLibraries: []core.LibraryID{2}}
 	for _, c := range cases {
 		portrait := "/" + c.name + "-actor.jpg"
 		title := core.Title{Key: c.key, Type: core.TypeMovie, Title: c.name, ContentRating: c.rating, Adult: c.adult, Released: fixedNow.Add(-time.Hour), Cast: []core.Person{{Name: "Actor", TMDB: 123, ThumbPath: portrait}}}
@@ -487,8 +491,8 @@ func TestPersonPortraitUsesOnlyScopedTitleAndHonorsCancellation(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
 	cat := &portraitCountingCatalog{fakeCatalog: f.catalog}
-	f.srv.d.Catalog = cat
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
+	f.srv.setCatalog(cat)
+	f.srv.testAuth().users["kid"] = core.User{ID: 30, MaxContentRating: "PG"}
 	for i := 0; i < 100; i++ {
 		k := core.MovieKey(int64(2000 + i))
 		f.catalog.titles[k] = core.Title{Key: k, Type: core.TypeMovie, ContentRating: "R", Released: fixedNow.Add(-time.Hour), Cast: []core.Person{{ThumbPath: "/shared.jpg"}}}

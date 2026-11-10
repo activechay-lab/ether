@@ -6,10 +6,12 @@ package plex
 import (
 	"context"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,10 +29,24 @@ const DefaultPMSVersion = "1.43.4.10903-e5521bd8c"
 
 // Identity is how the server presents itself. Empty fields fall back to the
 // config snapshot (friendly name, machine identifier) or sensible defaults.
-type Identity = frontend.PlexIdentity
+type Identity struct {
+	MachineIdentifier  string
+	FriendlyName       string
+	Version            string
+	Platform           string
+	PlatformVersion    string
+	MyPlexSubscription bool
+	OwnerFeatures      []string
+}
 
 // Section is a library section exposed to clients.
-type Section = frontend.PlexSection
+type Section struct {
+	ID       int
+	Type     frontend.MediaType // movie or show
+	Title    string
+	UUID     string // stable; derived from the machine identifier when empty
+	Language string
+}
 
 // SessionToucher is optionally implemented by frontend.Playback to keep a play
 // session alive on timeline updates.
@@ -38,9 +54,26 @@ type SessionToucher interface {
 	Touch(sessionID string)
 }
 
-// Deps are the server's dependencies. Catalog, State, Auth and Playback are
+// Deps are the server's dependencies. Host.Experience, Host.Identity and Host.Sessions are
 // required; the rest degrade gracefully when nil.
-type Deps = frontend.PlexDeps
+type Deps struct {
+	Host       frontend.Host
+	Playback   frontend.Playback
+	Transcoder frontend.Transcoder
+
+	// Sections overrides the default Movies (1) and TV Shows (2) sections.
+	Sections []Section
+	// DB persists artwork data and ordered shelf-generation keys. Clustered
+	// nodes share this store so continuations survive failover and restarts.
+	// Optional: without it, these caches remain process-local.
+	DB *sql.DB
+	// DisableEnrichment turns off the background title-detail and
+	// UltraBlurColors work (the spike test library has nothing to fetch).
+	DisableEnrichment bool
+	// TracePlayback logs HLS/transcode requests when ETHER_TRACE_PLAYBACK=1.
+	// It does not change responses.
+	TracePlayback bool
+}
 
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
@@ -54,7 +87,7 @@ type Server struct {
 	shelfSerial      uint64
 	shelfWriter      *shelfPersistence
 	plexEncoderMu    sync.RWMutex
-	plexEncoder      PlexEncoder
+	plexEncoder      SegmentedEncoder
 	homeSharedMu     sync.Mutex
 	homeShared       map[string]*homeSharedEntry
 	shelfRefMu       sync.Mutex
@@ -67,9 +100,20 @@ type Server struct {
 	guidResolving    map[string]bool
 	home             *homeCache
 
-	d      Deps
-	log    *slog.Logger
-	router chi.Router
+	d               Deps
+	host            frontend.Host
+	runtime         frontend.SessionRuntime
+	streamRuntime   frontend.SessionRuntime
+	initPlayback    frontend.Playback
+	initTranscoder  frontend.Transcoder
+	hostLazyStreams frontend.LazyStreams
+	hostLANStreams  frontend.LANLazyStreams
+	hostTickets     frontend.Tickets
+	experience      frontend.Experience
+	personalHomes   frontend.PersonalHomeStore
+	pageFreshness   func() frontend.PageFreshness
+	log             *slog.Logger
+	router          chi.Router
 
 	sections []Section
 
@@ -84,12 +128,18 @@ type Server struct {
 	clientSeen       func(string)
 	remoteClientSeen func(string)
 
-	images       frontend.ArtworkImageCache
-	channelLogos interface {
-		GetUntrustedURL(context.Context, string) ([]byte, string, error)
-	}
+	images            frontend.ArtworkImageCache
+	channelLogos      frontend.UntrustedImageFetcher
 	channelRaster     frontend.SVGRasterizer
-	boundStreams      frontend.PlexStreamAPI
+	trackPrefs        frontend.PlaybackTrackPreferences
+	markers           frontend.MarkerRanges
+	trickplay         frontend.TrickplayProvider
+	extras            frontend.ExtraStreams
+	prerolls          frontend.Prerolls
+	subtitles         frontend.SubtitleCatalog
+	variants          frontend.Editions
+	plexGUID          frontend.LibraryGUIDs
+	plexMeta          frontend.LibraryMetadata
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
 	versionFlows      *versionFlowStore
@@ -134,102 +184,82 @@ type Server struct {
 
 // NewServer builds the PMS API handler.
 func NewServer(d Deps) *Server {
-	if d.Logger == nil {
-		d.Logger = slog.Default()
+	host := d.Host
+	if host.TracePlayback {
+		d.TracePlayback = true
 	}
-	if d.Config == nil {
-		d.Config = func() frontend.HostConfig { return frontend.HostConfig{} }
+	log := host.Log
+	if log == nil {
+		log = slog.Default()
 	}
-	if d.HTTPClient == nil {
-		d.HTTPClient = &http.Client{Timeout: 20 * time.Second}
-	}
-	if d.Now == nil {
-		d.Now = time.Now
+	httpClient := host.MetadataHTTP
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 20 * time.Second}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if d.SessionStores == nil {
-		panic("plex: Deps.SessionStores is required (wire sessions.NewPlexSessionStores())")
+	rt, ok := host.Sessions.(frontend.SessionRuntime)
+	if !ok || rt == nil {
+		panic("plex: Host.Sessions (implementing frontend.SessionRuntime) is required")
 	}
-	if d.Experience == nil {
-		panic("plex: Deps.Experience is required (wire experience.NewPlexExperience())")
-	}
-	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
-	coord := d.SessionCoordination
-	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
-		coord = d.SessionStores.NewCoordination()
+	spikeEnabled := host.HostConfig != nil && host.HostConfig().Spike.Enabled
+	db := d.DB
+	if db == nil && !spikeEnabled {
+		db = rt.DB()
 	}
 	s := &Server{
 		activities:        map[string]model.Activity{},
-		plexEncoder:       d.PlexEncoder,
-		boundStreams:      d.PlexStreams,
 		d:                 d,
-		log:               d.Logger.With("component", "plex"),
+		host:              host,
+		runtime:           rt,
+		streamRuntime:     rt,
+		initPlayback:      d.Playback,
+		initTranscoder:    d.Transcoder,
+		log:               log.With("component", "plex"),
 		imageURL:          func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path },
-		images:            frontend.NewArtworkRemoteCache(128<<20, d.HTTPClient),
-		channelLogos:      frontend.NewUntrustedImageFetcher(d.HTTPClient),
+		images:            frontend.NewArtworkRemoteCache(128<<20, httpClient),
+		channelLogos:      frontend.NewUntrustedImageFetcher(nil),
 		channelRaster:     frontend.NewSVGRasterizer(),
-		variantIDs:        newVariantIDRegistry(d.SessionStores, d.DB),
+		variantIDs:        newVariantIDRegistry(rt, db),
 		playIDs:           newPlayIdentities(),
-		downloads:         d.SessionStores.NewDownloadQueueStore(),
-		queues:            d.SessionStores.NewPlayQueues(),
+		downloads:         rt.NewDownloadQueueStore(),
+		queues:            rt.NewPlayQueues(),
 		sessions:          newSessionActivities(),
-		playbackOwners:    coord.PlaybackOwners(),
-		playbackLifecycle: coord.LifecycleGates(),
+		playbackOwners:    rt.PlaybackOwners(),
+		playbackLifecycle: rt.LifecycleGates(),
 		transcodes:        newTranscodeTable(),
 		readCaps:          newReadCapabilityStore(),
-		extraPlay:         newExtraPlayStore(d.DirectHTTP),
+		extraPlay:         newExtraPlayStore(newDirectHTTPClient(host.DirectProxy)),
 		selections:        newSelectionStore(),
 		notifier:          newNotifier(),
 		facets:            newFacetCache(),
 		ctx:               ctx,
 		cancel:            cancel,
 	}
+	s.usePlaybackBroker(host.Sessions)
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
 	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
 	s.sections = s.buildSections()
-	s.queues.Configure(d.Now, nil)
-	if d.DB != nil && d.Cluster == nil {
+	s.queues.Configure(s.now, nil)
+	cluster := s.clusterNode()
+	if db != nil && cluster == nil {
 		// Standalone queues share the durable store without starting cluster sessions.
-		s.queues.Configure(d.Now, newClusterState(s, d.DB, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
+		s.queues.Configure(s.now, newClusterState(s, db, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
 	}
-	if d.Cluster != nil && d.DB != nil {
-		s.cl = newClusterState(s, d.DB, d.Cluster)
-		s.versionFlows = newVersionFlowStore(s, d.DB)
-		s.queues.Configure(d.Now, s.cl.queuePersistence())
+	if cluster != nil && db != nil {
+		s.cl = newClusterState(s, db, cluster)
+		s.versionFlows = newVersionFlowStore(s, db)
+		s.queues.Configure(s.now, s.cl.queuePersistence())
 	}
-	if !d.DisableEnrichment && d.Catalog != nil {
-		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
-		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
-		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
-		if pre, ok := d.Catalog.(interface {
-			PreloadStored(context.Context, []frontend.RatingKey)
-		}); ok {
-			// Detail fetches scheduled together (a hub's shows) read their
-			// stored titles in one batch; each fetch then reads the cache.
-			s.titles.prefetch = pre.PreloadStored
-		}
-		s.ultra = frontend.NewArtworkPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
-			var art frontend.ArtworkCollectionArt
-			if c, ok := s.d.Collections.(frontend.ArtworkCollectionArt); ok {
-				art = c
-			}
-			return frontend.ComputeArtworkItemPalette(ctx, s.images, s.imageURL, key, path, s.now(), art)
-		})
-	}
-	if p, ok := d.Catalog.(interface {
-		PersistsArtwork(context.Context, frontend.RatingKey) bool
-	}); ok && s.ultra != nil {
-		s.ultra.PersistFor(p.PersistsArtwork)
-	}
+	s.bindHost(host)
 	node := "standalone"
 	if s.cl != nil {
 		node = s.cl.self
 	}
-	s.starts = d.SessionStores.NewStartGuard()
-	s.decisionArms = d.SessionStores.NewDecisionArms(s.ctx, d.DB, s.now, node, s.log, &s.wg)
+	s.starts = rt.NewStartGuard()
+	s.decisionArms = rt.NewDecisionArms(s.ctx, db, s.now, node, s.log, &s.wg)
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
@@ -238,48 +268,358 @@ func NewServer(d Deps) *Server {
 	s.router = s.routes()
 	s.wg.Add(1)
 	go s.janitor()
-	if d.HomeCache != nil && d.HomeCache.Revision != nil {
-		s.home = newHomeCache()
-		s.wg.Add(1)
-		go s.homeRefresher()
-	}
 	if s.cl != nil {
 		s.cl.start()
 	}
 	return s
 }
 
-func (s *Server) bindHost(host frontend.Host) {
+func newDirectHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
+	if proxy == nil {
+		return nil
+	}
+	if tr, ok := http.DefaultTransport.(*http.Transport); ok && tr != nil {
+		cloned := tr.Clone()
+		cloned.Proxy = proxy
+		return &http.Client{Transport: cloned}
+	}
+	return &http.Client{Transport: &http.Transport{Proxy: proxy}}
+}
+
+// bindHost binds or updates the generic frontend host services on s.
+// Non-nil services in h replace existing ones so a partial test mount
+// preserves services configured at construction time.
+func (s *Server) bindHost(h frontend.Host) {
 	if s == nil {
 		return
 	}
-	// host.Support is a concrete pointer: assign it only when set, or the
-	// interface would hold a typed nil that passes every nil check.
-	s.support = nil
-	if host.Support != nil {
-		s.support = host.Support
+	if h.Support != nil {
+		s.host.Support = h.Support
+		s.support = h.Support
 	}
-	s.liveTV = host.LiveTV
-	s.clientSeen = host.ClientSeen
-	s.remoteClientSeen = host.RemoteClientSeen
-	s.artwork = host.Artwork
-	if host.Artwork != nil {
-		if rc := host.Artwork.RemoteCache(); rc != nil {
+	if h.TracePlayback {
+		s.host.TracePlayback = true
+		s.d.TracePlayback = true
+	}
+	if h.LiveTV != nil {
+		s.host.LiveTV = h.LiveTV
+		s.liveTV = h.LiveTV
+	}
+	if h.ClientSeen != nil {
+		s.host.ClientSeen = h.ClientSeen
+		s.clientSeen = h.ClientSeen
+	}
+	if h.RemoteClientSeen != nil {
+		s.host.RemoteClientSeen = h.RemoteClientSeen
+		s.remoteClientSeen = h.RemoteClientSeen
+	}
+	if h.Artwork != nil {
+		s.host.Artwork = h.Artwork
+		s.artwork = h.Artwork
+		if rc := h.Artwork.RemoteCache(); rc != nil {
 			s.images = rc
 		}
-		if pc := host.Artwork.PaletteCache(); pc != nil {
+		if pc := h.Artwork.PaletteCache(); pc != nil {
 			s.ultra = pc
 		}
-		if pr := host.Artwork.PosterRenderer(); pr != nil {
+		if pr := h.Artwork.PosterRenderer(); pr != nil {
 			s.generatedPosters = pr
 		}
-		if fn := host.Artwork.ImageURLFunc(); fn != nil {
+		if fn := h.Artwork.ImageURLFunc(); fn != nil {
 			s.imageURL = fn
 		}
 	}
-	s.hostImages = host.Images
-	s.imageGrants = host.ImageGrants
-	s.events = host.Events
+	if h.Images != nil {
+		s.host.Images = h.Images
+		s.hostImages = h.Images
+	}
+	if h.ImageGrants != nil {
+		s.host.ImageGrants = h.ImageGrants
+		s.imageGrants = h.ImageGrants
+	}
+	if h.Events != nil {
+		s.host.Events = h.Events
+		s.events = h.Events
+	}
+	if h.DirectProxy != nil {
+		s.host.DirectProxy = h.DirectProxy
+		if s.extraPlay != nil {
+			s.extraPlay.client = newDirectHTTPClient(h.DirectProxy)
+		}
+	}
+	if h.MetadataHTTP != nil {
+		s.host.MetadataHTTP = h.MetadataHTTP
+	}
+	if h.ViewerPolicy != nil {
+		s.host.ViewerPolicy = h.ViewerPolicy
+	}
+	if h.Capabilities != nil {
+		s.host.Capabilities = h.Capabilities
+	}
+	if h.Identity != nil {
+		s.host.Identity = h.Identity
+	}
+	if h.Log != nil {
+		s.host.Log = h.Log
+		s.log = h.Log.With("component", "plex")
+	}
+	if h.ClientIP != nil {
+		s.host.ClientIP = h.ClientIP
+	}
+	if h.SurfaceURL != nil {
+		s.host.SurfaceURL = h.SurfaceURL
+	}
+	if h.PublicOrigin != nil {
+		s.host.PublicOrigin = h.PublicOrigin
+	}
+	if h.RepoFileURL != nil {
+		s.host.RepoFileURL = h.RepoFileURL
+	}
+	if h.Config != nil {
+		s.host.Config = h.Config
+	}
+	if h.HostConfig != nil {
+		s.host.HostConfig = h.HostConfig
+	}
+	if h.Now != nil {
+		s.host.Now = h.Now
+	}
+	if h.ServerIdentity != (frontend.ServerIdentity{}) {
+		s.host.ServerIdentity = h.ServerIdentity
+	}
+	if h.OwnerSubscription != nil {
+		s.host.OwnerSubscription = h.OwnerSubscription
+	}
+	if h.MetadataLanguage != nil {
+		s.host.MetadataLanguage = h.MetadataLanguage
+	}
+	if h.PersonalHomes != nil {
+		s.host.PersonalHomes = h.PersonalHomes
+		s.personalHomes = h.PersonalHomes
+	}
+	if h.PageFreshness != nil {
+		s.host.PageFreshness = h.PageFreshness
+		s.pageFreshness = h.PageFreshness
+	}
+	if h.TrackPreferences != nil {
+		s.host.TrackPreferences = h.TrackPreferences
+		s.trackPrefs = h.TrackPreferences
+	}
+	if h.ExtraStreams != nil {
+		s.host.ExtraStreams = h.ExtraStreams
+		s.extras = h.ExtraStreams
+	}
+	if h.Prerolls != nil {
+		s.host.Prerolls = h.Prerolls
+		s.prerolls = h.Prerolls
+	}
+	if h.Subtitles != nil {
+		s.host.Subtitles = h.Subtitles
+		s.subtitles = h.Subtitles
+	}
+	if h.Editions != nil {
+		s.host.Editions = h.Editions
+		s.variants = h.Editions
+	}
+	if h.Experience != nil {
+		s.host.Experience = h.Experience
+		s.attachExperience(h.Experience)
+	}
+	if h.LazyStreams != nil {
+		s.host.LazyStreams = h.LazyStreams
+		s.hostLazyStreams = h.LazyStreams
+	}
+	if h.LANStreams != nil {
+		s.host.LANStreams = h.LANStreams
+		s.hostLANStreams = h.LANStreams
+	}
+	if h.Tickets != nil {
+		s.host.Tickets = h.Tickets
+		s.hostTickets = h.Tickets
+	}
+	if h.Sessions != nil {
+		s.usePlaybackBroker(h.Sessions)
+	}
+}
+
+func (s *Server) attachExperience(exp frontend.Experience) {
+	if s == nil || exp == nil {
+		return
+	}
+	s.experience = exp
+	cat := s.catalog()
+	if !s.d.DisableEnrichment && cat != nil && s.titles == nil {
+		s.titleJobs = newBGQueue(s.ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
+		s.blurJobs = newBGQueue(s.ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
+		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
+		if s.ultra == nil {
+			s.ultra = frontend.NewArtworkPaletteCache(s.runtimeDB(), s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
+				var art frontend.ArtworkCollectionArt
+				if c, ok := s.collections().(frontend.ArtworkCollectionArt); ok {
+					art = c
+				}
+				return frontend.ComputeArtworkItemPalette(ctx, s.images, s.imageURL, key, path, s.now(), art)
+			})
+		}
+	}
+	if s.titles != nil {
+		if pre, ok := cat.(frontend.StoredTitlePreloader); ok {
+			s.titles.prefetch = pre.PreloadStored
+		} else {
+			s.titles.prefetch = nil
+		}
+	}
+	if p, ok := cat.(frontend.ArtworkPersistenceCatalog); ok && s.ultra != nil {
+		s.ultra.PersistFor(p.PersistsArtwork)
+	}
+	if s.home == nil {
+		if _, hasRev, _ := exp.HomeRevision(s.ctx, nil); hasRev {
+			s.home = newHomeCache()
+			s.wg.Add(1)
+			go s.homeRefresher()
+		}
+	}
+	s.sections = s.buildSections()
+}
+
+func (s *Server) policy() frontend.AccessPolicy {
+	if s == nil {
+		return nil
+	}
+	return s.host.ViewerPolicy
+}
+
+func (s *Server) listUsers(ctx context.Context) ([]frontend.User, error) {
+	if s == nil || s.host.Identity == nil {
+		return nil, nil
+	}
+	return s.host.Identity.Users(ctx)
+}
+
+func (s *Server) exp() frontend.Experience {
+	if s != nil && s.experience != nil {
+		return s.experience
+	}
+	return frontend.NoopExperience()
+}
+func (s *Server) libraryGUIDs() frontend.LibraryGUIDs {
+	if s == nil {
+		return nil
+	}
+	if s.plexGUID != nil {
+		return s.plexGUID
+	}
+	return s.exp().LibraryGUIDs()
+}
+func (s *Server) libraryMetadata() frontend.LibraryMetadata {
+	if s == nil {
+		return nil
+	}
+	if s.plexMeta != nil {
+		return s.plexMeta
+	}
+	return s.exp().LibraryMetadata()
+}
+func (s *Server) catalog() frontend.Catalog         { return s.exp().CatalogSource() }
+func (s *Server) collections() frontend.Collections { return s.exp().CollectionsSource() }
+func (s *Server) state() frontend.State             { return s.exp().StateSource() }
+func (s *Server) playlists() frontend.Playlists     { return s.exp().PlaylistsSource() }
+func (s *Server) recommender() frontend.Recommender { return s.exp().RecommenderSource() }
+func (s *Server) vibeSearch() frontend.VibeSearcher { return s.exp().VibeSearchSource() }
+func (s *Server) searchSources() frontend.SearchSources {
+	return s.exp().SearchSources()
+}
+func (s *Server) favoriteShows() func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error) {
+	return s.exp().FavoriteShowsFunc()
+}
+func (s *Server) filterAvailable() func(context.Context, []frontend.Title) []frontend.Title {
+	return s.exp().FilterAvailableFunc()
+}
+func (s *Server) judgedOnFacts() func(context.Context) func(frontend.Title) bool {
+	return s.exp().JudgedOnFactsFunc()
+}
+func (s *Server) prioritizeAvailable() func(context.Context, []frontend.Title) []frontend.Title {
+	return s.exp().PrioritizeAvailableFunc()
+}
+func (s *Server) episodeOrder() frontend.EpisodeOrder    { return s.exp().EpisodeOrderSource() }
+func (s *Server) discovery() *frontend.DiscoveryFeatures { return s.exp().DiscoveryFeatures() }
+func (s *Server) dashboard() frontend.Dashboard {
+	if d := s.exp().DashboardSource(); d != nil {
+		return d
+	}
+	return noopDashboard{}
+}
+func (s *Server) resources() frontend.ResourceStatistics {
+	if r := s.exp().ResourcesSource(); r != nil {
+		return r
+	}
+	return noopResources{}
+}
+func (s *Server) libraryTitles() (movies, shows string) { return s.exp().LibraryTitles() }
+
+func (s *Server) playback() frontend.Playback {
+	if s == nil {
+		return nil
+	}
+	if s.d.Playback != nil && s.d.Playback != s.initPlayback {
+		return s.d.Playback
+	}
+	if s.runtime != nil {
+		if p := s.runtime.Playback(); p != nil {
+			return p
+		}
+	}
+	if s.d.Playback != nil {
+		return s.d.Playback
+	}
+	return s.initPlayback
+}
+
+func (s *Server) transcoder() frontend.Transcoder {
+	if s == nil {
+		return nil
+	}
+	if s.d.Transcoder != nil && s.d.Transcoder != s.initTranscoder {
+		return s.d.Transcoder
+	}
+	if s.runtime != nil {
+		if t := s.runtime.Transcoder(); t != nil {
+			return t
+		}
+	}
+	if s.d.Transcoder != nil {
+		return s.d.Transcoder
+	}
+	return s.initTranscoder
+}
+
+func (s *Server) runtimeDB() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	if s.cfg().Spike.Enabled {
+		return s.d.DB
+	}
+	if s.runtime != nil {
+		if db := s.runtime.DB(); db != nil {
+			return db
+		}
+	}
+	return s.d.DB
+}
+
+func (s *Server) clusterNode() frontend.ClusterNode {
+	if s == nil || s.runtime == nil {
+		return nil
+	}
+	return s.runtime.Cluster()
+}
+
+func (s *Server) sessionHeartbeat() time.Duration {
+	if s == nil || s.runtime == nil {
+		return 0
+	}
+	return s.runtime.SessionHeartbeat()
 }
 
 // ServeHTTP implements http.Handler.
@@ -296,7 +636,7 @@ func (s *Server) Done() <-chan struct{} { return s.ctx.Done() }
 // Close stops background goroutines and disconnects notification clients.
 func (s *Server) Close() error {
 	s.once.Do(func() {
-		if s.d.DB != nil {
+		if s.runtimeDB() != nil {
 			s.stopDownloadsForRestart()
 		} else {
 			s.releaseAllDownloads()
@@ -316,15 +656,45 @@ func (s *Server) Close() error {
 	return nil
 }
 
-func (s *Server) now() time.Time { return s.d.Now() }
+func (s *Server) settings() frontend.Settings {
+	if s == nil || s.host.Config == nil {
+		return nil
+	}
+	return s.host.Config()
+}
 
-func (s *Server) cfg() frontend.HostConfig { return s.d.Config() }
+func (s *Server) hasConfig() bool {
+	return s != nil && s.host.HostConfig != nil
+}
+
+func (s *Server) now() time.Time {
+	if s != nil && s.host.Now != nil {
+		return s.host.Now()
+	}
+	return time.Now()
+}
+
+func (s *Server) cfg() frontend.HostConfig {
+	if s == nil || s.host.HostConfig == nil {
+		return frontend.HostConfig{}
+	}
+	return s.host.HostConfig()
+}
 
 // identity resolves the effective identity.
 func (s *Server) identity() Identity {
-	id := s.d.Identity
-	if s.d.OwnerSubscription != nil {
-		id.MyPlexSubscription, id.OwnerFeatures = s.d.OwnerSubscription()
+	var id Identity
+	if s != nil {
+		id = Identity{
+			MachineIdentifier: s.host.ServerIdentity.MachineID,
+			FriendlyName:      s.host.ServerIdentity.FriendlyName,
+			Version:           s.host.ServerIdentity.Version,
+			Platform:          s.host.ServerIdentity.Platform,
+			PlatformVersion:   s.host.ServerIdentity.PlatformVersion,
+		}
+		if s.host.OwnerSubscription != nil {
+			id.MyPlexSubscription, id.OwnerFeatures = s.host.OwnerSubscription()
+		}
 	}
 	c := s.cfg()
 	if id.MachineIdentifier == "" {
@@ -336,7 +706,11 @@ func (s *Server) identity() Identity {
 	if name := strings.TrimSpace(c.Server.FriendlyName); name != "" {
 		id.FriendlyName = name
 	} else if strings.TrimSpace(id.FriendlyName) == "" {
-		id.FriendlyName = "Ether"
+		if st := s.settings(); st != nil {
+			id.FriendlyName = frontend.AdvertisedName(st)
+		} else {
+			id.FriendlyName = "Ether"
+		}
 	}
 	if c.Plex.CompatibilityVersion != "" {
 		id.Version = c.Plex.CompatibilityVersion
@@ -369,9 +743,9 @@ func (s *Server) LibrarySections() []Section {
 func (s *Server) buildSections() []Section {
 	secs := s.d.Sections
 	if len(secs) == 0 {
-		secs = []Section{
-			{ID: 1, Type: frontend.TypeMovie},
-			{ID: 2, Type: frontend.TypeShow},
+		secs = []Section{{ID: 1, Type: frontend.TypeMovie}}
+		if !s.cfg().Spike.Enabled {
+			secs = append(secs, Section{ID: 2, Type: frontend.TypeShow})
 		}
 	}
 	out := make([]Section, len(secs))
@@ -410,10 +784,7 @@ func librarySectionTitle(t frontend.MediaType, movies, shows string) string {
 // IDs and UUIDs are not rewritten; UUIDs stay derived from section id only.
 // Empty library names already resolve to Movies and TV Shows.
 func (s *Server) withLibraryTitles(secs []Section) []Section {
-	var movies, shows string
-	if s.d.LibraryTitles != nil {
-		movies, shows = s.d.LibraryTitles()
-	}
+	movies, shows := s.libraryTitles()
 	out := append([]Section(nil), secs...)
 	for i := range out {
 		switch out[i].Type {
@@ -534,22 +905,46 @@ func (s *Server) releaseMountedPlayback() {
 	if s == nil {
 		return
 	}
-	s.UsePlaybackBroker(nil)
+	s.usePlaybackBroker(nil)
 	var ids []string
 	if s.transcodes != nil {
 		ids = s.transcodes.ids()
 	}
 	for _, id := range ids {
-		if s.d.Transcoder != nil {
+		if s.transcoder() != nil {
 			s.stopPlexHLS(id)
 		}
 		s.dropTranscode(id)
 	}
 
-	if s.d.DB != nil {
+	if s.runtimeDB() != nil {
 		s.stopDownloadsForRestart()
 		s.stageDownloads()
 	} else {
 		s.releaseAllDownloads()
 	}
+}
+
+type noopDashboard struct{}
+
+func (noopDashboard) SeeDevice(string, string, string) frontend.StatisticsDevice {
+	return frontend.StatisticsDevice{}
+}
+func (noopDashboard) Devices() []frontend.StatisticsDevice { return nil }
+func (noopDashboard) Device(int64) (frontend.StatisticsDevice, bool) {
+	return frontend.StatisticsDevice{}, false
+}
+func (noopDashboard) Bandwidth(frontend.StatisticsQuery) frontend.StatisticsPage {
+	return frontend.StatisticsPage{}
+}
+func (noopDashboard) Media(frontend.StatisticsQuery) frontend.StatisticsPage {
+	return frontend.StatisticsPage{}
+}
+func (noopDashboard) RecordBytes(int64, string, string, string, string, bool, int64) {}
+func (noopDashboard) RecordPlay(int64, string, string, int, int64)                   {}
+
+type noopResources struct{}
+
+func (noopResources) Query(int, int64, int64, int64, bool, bool, bool) []frontend.ResourceSample {
+	return nil
 }

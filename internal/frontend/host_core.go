@@ -14,7 +14,6 @@ import (
 type Auth = core.Auth
 type Catalog = core.Catalog
 type Collections = core.Collections
-type DecisionTraceSource = core.DecisionTraceSource
 type DownloadRemuxer = core.DownloadRemuxer
 type HomeLayoutSource = core.HomeLayoutSource
 type HubItemSource = core.HubItemSource
@@ -24,9 +23,6 @@ type Playback = core.Playback
 type PlaybackPrepareWithin = core.PlaybackPrepareWithin
 type Playlists = core.Playlists
 
-// PrerollService is the core pre-roll selection port. It is distinct from
-// the frontend Prerolls intro port above, which serves ready intros.
-type PrerollService = core.Prerolls
 type Recommender = core.Recommender
 type State = core.State
 type Transcoder = core.Transcoder

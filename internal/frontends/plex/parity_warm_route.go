@@ -3,7 +3,6 @@
 package plex
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 
@@ -20,14 +19,13 @@ func (s *Server) handleParityWarmSettled(w http.ResponseWriter, r *http.Request)
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
+	pb := s.playback()
+	settle, ok := pb.(frontend.WarmProbeControl)
+	if !ok || pb == nil {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
 	if r.URL.Query().Get("ratingKey") == "" {
-		settle, ok := s.d.Playback.(interface {
-			ParitySettlePending(context.Context) error
-		})
-		if !ok || s.d.Playback == nil {
-			writeHTTPError(w, http.StatusNotFound)
-			return
-		}
 		if err := settle.ParitySettlePending(r.Context()); err != nil {
 			writeHTTPError(w, http.StatusServiceUnavailable)
 			return
@@ -38,13 +36,6 @@ func (s *Server) handleParityWarmSettled(w http.ResponseWriter, r *http.Request)
 	key, err := strconv.ParseInt(r.URL.Query().Get("ratingKey"), 10, 64)
 	if err != nil || key <= 0 {
 		writeHTTPError(w, http.StatusBadRequest)
-		return
-	}
-	settle, ok := s.d.Playback.(interface {
-		ParitySettleWarm(context.Context, *frontend.Viewer, frontend.RatingKey, frontend.ClientCaps) error
-	})
-	if !ok || s.d.Playback == nil {
-		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
 	if err := settle.ParitySettleWarm(r.Context(), pr.User, frontend.RatingKey(key), s.clientCaps(pr)); err != nil {
@@ -67,10 +58,9 @@ func (s *Server) handleParityWarmProbe(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	probe, ok := s.d.Playback.(interface {
-		ParityProbeNow(context.Context, *frontend.Viewer, frontend.RatingKey, frontend.ClientCaps) error
-	})
-	if !ok || s.d.Playback == nil {
+	pb := s.playback()
+	probe, ok := pb.(frontend.WarmProbeControl)
+	if !ok || pb == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
