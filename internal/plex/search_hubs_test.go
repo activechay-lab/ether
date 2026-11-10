@@ -182,7 +182,7 @@ func TestHubSearchPeopleHonorsViewerSafetyAndVisibility(t *testing.T) {
 
 	auth := f.srv.d.Auth.(*fakeAuth)
 	auth.users["kid"] = core.User{ID: 30, Username: "kid", MaxContentRating: "PG"}
-	auth.users["tvonly"] = core.User{ID: 31, Username: "tvonly", AllowedSections: []int{2}}
+	auth.users["tvonly"] = core.User{ID: 31, Username: "tvonly", AllowedLibraries: []core.LibraryID{2}}
 
 	// Add an unreleased movie and an adult movie with unique actors.
 	unreleased := alien

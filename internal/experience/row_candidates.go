@@ -48,7 +48,7 @@ func (c CandidateComposer) Rows(ctx context.Context, req frontend.RowRequest, si
 	if req.Viewer == nil || c.Ranker == nil {
 		return nil, core.ErrNotFound
 	}
-	restricted := !req.Viewer.IsOwner && (req.Viewer.MaxContentRating != "" || len(req.Viewer.AllowedSections) > 0 || c.Restricted == nil || c.Restricted(req.Viewer))
+	restricted := !req.Viewer.IsOwner && (req.Viewer.MaxContentRating != "" || len(req.Viewer.AllowedLibraries) > 0 || c.Restricted == nil || c.Restricted(req.Viewer))
 	var allow func(context.Context, *core.User, *core.Title) bool
 	if restricted {
 		allow = c.Visibility.Visible

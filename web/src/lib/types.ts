@@ -248,8 +248,6 @@ export interface EtherConfig {
     port: number;
     bindAddress: string;
     friendlyName: string;
-    moviesLibraryName: string;
-    tvShowsLibraryName: string;
     machineIdentifier: string;
     logLevel: string;
     defaultStreamLimit: number;
@@ -617,7 +615,7 @@ export interface EtherUser {
   streamLimit: number;
   /** Content rating limit; "" is unrestricted. */
   maxContentRating: string;
-  allowedSections: number[] | null;
+  allowedLibraries: number[] | null;
 }
 
 /** GET /api/updates/ — the server's self-update manager. */

@@ -1,7 +1,6 @@
 package app
 
 import (
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -20,6 +19,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	"github.com/braedonsaunders/ether/internal/libraries"
 
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -144,8 +146,8 @@ func TestPrismUpgradeFromDelivered9503(t *testing.T) {
 	if got := maxMigration(t, snap, "auth"); got != 3 {
 		t.Fatalf("snapshot auth version %d, want the 9503 schema (3)", got)
 	}
-	if got := maxMigration(t, db, "auth"); got != 8 {
-		t.Fatalf("upgraded auth version %d, want 8", got)
+	if got := maxMigration(t, db, "auth"); got != 9 {
+		t.Fatalf("upgraded auth version %d, want 9", got)
 	}
 	// afdcb3f7 rejected capability_headers because that slice's base had not
 	// landed it. b7049abd is the reviewed inventory: capability_headers v3 is
@@ -223,11 +225,21 @@ func TestPrismUpgradeFromDelivered9503(t *testing.T) {
 		t.Fatalf("admin session did not remain an admin credential: %+v %v", sessionUser, err)
 	}
 
-	libs := (&App{cfg: cfg}).configuredLibraries()
+	libSvc, err := libraries.New(ctx, db, libraries.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if movies, shows := cfg.LegacyLibraryNames(); movies != "" || shows != "" {
+		if err := libSvc.MigrateConfigNames(ctx, movies, shows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	upgraded := &App{cfg: cfg, libraries: libSvc}
+	libs := upgraded.configuredLibraries()
 	if len(libs) != 2 || libs[0].ID != 1 || libs[1].ID != 2 || libs[0].Name != upgradeMovieLibrary || libs[1].Name != upgradeShowLibrary {
 		t.Fatalf("library identities %+v", libs)
 	}
-	assertPlexProtocol(t, db, cfg, users, validator)
+	assertPlexProtocol(t, db, cfg, users, validator, upgraded.libraryTitles)
 }
 
 func TestPrismUpgradeFailureDoesNotRestoreSnapshot(t *testing.T) {
@@ -345,7 +357,7 @@ func TestPrismUpgradePostgresPreservesDeliveredRows(t *testing.T) {
 		}
 		assertUpgradeTables(t, db, before)
 		assertPrismCandidateArtifacts(t, db)
-		if got := maxMigration(t, db, "auth"); got != 8 {
+		if got := maxMigration(t, db, "auth"); got != 9 {
 			t.Fatalf("postgres auth %d", got)
 		}
 		var sessions int
@@ -417,12 +429,12 @@ func assertUpgradeBoundary(t *testing.T) {
 	if known["plexwatch"] != 7 || known["state_plexwatch"] != 6 || known["watchsend"] != 2 {
 		t.Fatalf("account sync inventory plexwatch=%d state_plexwatch=%d watchsend=%d", known["plexwatch"], known["state_plexwatch"], known["watchsend"])
 	}
-	if known["auth"] != 8 || known["auth_sessions"] != 1 {
+	if known["auth"] != 9 || known["auth_sessions"] != 1 {
 		t.Fatalf("landed auth inventory auth=%d auth_sessions=%d", known["auth"], known["auth_sessions"])
 	}
 }
 
-func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth.Service, validator *upgradeValidator) {
+func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth.Service, validator *upgradeValidator, titles func() (string, string)) {
 	t.Helper()
 	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), ArtworkStores: artworkservice.NewPlexArtworkStores(),
 		Auth:              users,
@@ -430,6 +442,7 @@ func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth
 		DB:                db,
 		DisableEnrichment: true,
 		ImageCacheBytes:   1 << 20,
+		LibraryTitles:     titles,
 		Logger:            discardLog(),
 		Now:               func() time.Time { return upgradeClock },
 	})
@@ -472,9 +485,6 @@ func assertInstalledConfig(t *testing.T, cfg config.Config) {
 	if !cfg.SetupComplete || cfg.Server.MachineIdentifier != upgradeMachineID {
 		t.Fatalf("config complete=%v machine=%s", cfg.SetupComplete, cfg.Server.MachineIdentifier)
 	}
-	if cfg.Server.MoviesLibraryName != upgradeMovieLibrary || cfg.Server.TVShowsLibraryName != upgradeShowLibrary {
-		t.Fatalf("library names %q %q", cfg.Server.MoviesLibraryName, cfg.Server.TVShowsLibraryName)
-	}
 	// The installed profile served movies and shows; the upgrade splits it
 	// into a movie and a TV profile of the same name.
 	if cfg.Quality.Default != upgradeProfileName || len(cfg.Quality.Profiles) != 2 ||
@@ -511,8 +521,6 @@ func writeInstalledConfig(t *testing.T, dir string) {
 	cfg.SetupComplete = true
 	cfg.Server.MachineIdentifier = upgradeMachineID
 	cfg.Server.FriendlyName = "Prism Upgrade Fixture"
-	cfg.Server.MoviesLibraryName = upgradeMovieLibrary
-	cfg.Server.TVShowsLibraryName = upgradeShowLibrary
 	cfg.Server.Port = 32400
 	cfg.Plex.Claimed = true
 	cfg.Plex.OwnerPlexID = upgradeOwnerPlexID
@@ -537,6 +545,18 @@ func writeInstalledConfig(t *testing.T, dir string) {
 	}}
 	raw, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
+		t.Fatal(err)
+	}
+	// An installed pre-v0.3.8 server kept its library names in config.json;
+	// the upgrade moves them into the libraries table.
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := doc["server"].(map[string]any)
+	server["moviesLibraryName"] = upgradeMovieLibrary
+	server["tvShowsLibraryName"] = upgradeShowLibrary
+	if raw, err = json.MarshalIndent(doc, "", "  "); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), raw, 0o600); err != nil {

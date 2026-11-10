@@ -130,7 +130,7 @@ func TestRestrictedPlexHomeRouteFiltersCandidatesAndDuplicateRows(t *testing.T) 
 	f.catalog.titles[blockedTitle.Key] = blockedTitle
 	candidates := []core.Title{bbE1, blockedTitle, fightClub}
 	f.srv.d.Recommender = &fakeRecommender{home: []core.Hub{{ID: "home.policy", Title: "Visible", Promoted: true, Items: candidates}, {ID: "home.policy", Title: "Duplicate", Promoted: true, Items: candidates}}}
-	f.srv.d.Auth.(*fakeAuth).users["restricted-home"] = core.User{ID: 88, AllowedSections: []int{1, 2}}
+	f.srv.d.Auth.(*fakeAuth).users["restricted-home"] = core.User{ID: 88, AllowedLibraries: []core.LibraryID{1, 2}}
 	rec := f.request(t, http.MethodGet, "/hubs?excludeContinueWatching=1", map[string]string{"Accept": "application/json", "X-Plex-Token": "restricted-home"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())

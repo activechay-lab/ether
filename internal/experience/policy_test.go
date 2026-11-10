@@ -25,7 +25,7 @@ func TestTitleAllowed(t *testing.T) {
 }
 
 func TestSectionAllowed(t *testing.T) {
-	viewer := &core.User{AllowedSections: []int{2}}
+	viewer := &core.User{AllowedLibraries: []core.LibraryID{2}}
 	if !SectionAllowed(viewer, 2) || SectionAllowed(viewer, 3) {
 		t.Fatal("section restrictions were not applied")
 	}
@@ -37,7 +37,7 @@ func TestSectionAllowed(t *testing.T) {
 
 func TestVisibilityInheritedAndAvailability(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{ID: 7, AllowedSections: []int{1}}
+	viewer := &core.User{ID: 7, AllowedLibraries: []core.LibraryID{1}}
 	showKey := core.RatingKey(17)
 	episode := &core.Title{Key: 18, ShowKey: showKey, Type: core.TypeEpisode}
 	show := &core.Title{Key: showKey, Type: core.TypeShow, Adult: true}
@@ -58,7 +58,7 @@ func TestVisibilityInheritedAndAvailability(t *testing.T) {
 	if v.Visible(ctx, viewer, episode) || !v.Playable(ctx, viewer, episode) {
 		t.Fatal("discovery must hide unavailable item without denying playback")
 	}
-	viewer.AllowedSections = []int{2}
+	viewer.AllowedLibraries = []core.LibraryID{2}
 	if v.Playable(ctx, viewer, episode) {
 		t.Fatal("library restriction must apply")
 	}
@@ -92,7 +92,7 @@ func TestInheritedShowLookupFailure(t *testing.T) {
 
 func TestCollectionSectionRestriction(t *testing.T) {
 	v := Visibility{SectionFor: func(core.MediaType) (int, bool) { return 1, true }}
-	viewer := &core.User{AllowedSections: []int{2}}
+	viewer := &core.User{AllowedLibraries: []core.LibraryID{2}}
 	if v.CollectionAllowed(viewer, &core.Collection{Type: core.TypeMovie}) || v.CollectionAllowed(viewer, &core.Collection{Type: core.TypeShow}) {
 		t.Fatal("restricted collection was visible")
 	}

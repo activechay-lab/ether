@@ -7,25 +7,13 @@ export const SERVER: FieldGroup[] = localized(() => [
   {
     id: "identity",
     title: t("What viewers see"),
-    description: t("The names apps show for this server and its libraries."),
+    description: t("The name apps show for this server."),
     fields: [
       {
         key: "friendlyName",
         label: t("Server name"),
         kind: "text",
         help: t("How the server appears in apps."),
-      },
-      {
-        key: "moviesLibraryName",
-        label: t("Movies library name"),
-        kind: "text",
-        help: t("Name shown in Plex. A rename inside Plex does not stick."),
-      },
-      {
-        key: "tvShowsLibraryName",
-        label: t("TV Shows library name"),
-        kind: "text",
-        help: t("Name shown in Plex. A rename inside Plex does not stick."),
       },
     ],
   },

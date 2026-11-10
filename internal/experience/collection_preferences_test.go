@@ -32,7 +32,7 @@ func (f completeCollections) Items(_ context.Context, _ *core.User, k core.Ratin
 }
 func TestCollectionsFilterBeforePaginationAndCount(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{ID: 1, AllowedSections: []int{1}}
+	viewer := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}}
 	a, b, c := core.CollectionKey(1), core.CollectionKey(2), core.CollectionKey(3)
 	hidden := core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Adult: true}
 	allowed := core.Title{Key: core.MovieKey(2), Type: core.TypeMovie}

@@ -43,7 +43,7 @@ func (s *Server) sharedHome(ctx context.Context, pr *Request, hc frontend.HubCon
 		return hubs, discovery, filter, err
 	}
 	u := pr.User
-	key := fmt.Sprintf("%d|%t|%q|%v|%q|%q|%q|%q|%q|%q|%t|%s|%d|%d|%q", u.ID, u.IsOwner, u.MaxContentRating, u.AllowedSections, hc.ClientID, hc.SessionID, hc.Product, hc.Platform, hc.Device, hc.Daypart, hc.Weekend, hc.Now.Format("2006-01-02"), count, discoveryCount, pinned)
+	key := fmt.Sprintf("%d|%t|%q|%v|%q|%q|%q|%q|%q|%q|%t|%s|%d|%d|%q", u.ID, u.IsOwner, u.MaxContentRating, u.AllowedLibraries, hc.ClientID, hc.SessionID, hc.Product, hc.Platform, hc.Device, hc.Daypart, hc.Weekend, hc.Now.Format("2006-01-02"), count, discoveryCount, pinned)
 	now := time.Now()
 	s.homeSharedMu.Lock()
 	if s.homeShared == nil {

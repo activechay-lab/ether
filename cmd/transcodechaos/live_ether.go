@@ -1,12 +1,12 @@
 package main
 
 import (
-	"github.com/braedonsaunders/ether/internal/sessions"
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"io"
 	"log/slog"
 	"net/http"

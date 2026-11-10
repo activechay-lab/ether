@@ -36,7 +36,7 @@ func TestServiceEnforcesVisibilityBeforePagination(t *testing.T) {
 	vis := Visibility{SectionFor: func(core.MediaType) (int, bool) { return 2, true }, GetTitle: func(ctx context.Context, k core.RatingKey) (*core.Title, error) { return get(ctx, nil, k) }}
 	s, err := NewService(ServiceDeps{Active: func(_ context.Context, id int64) (*core.User, error) {
 		if id == 1 {
-			return &core.User{ID: 1, AllowedSections: []int{2}}, nil
+			return &core.User{ID: 1, AllowedLibraries: []core.LibraryID{2}}, nil
 		}
 		return nil, core.ErrNotFound
 	}, Libraries: []Library{{ID: 2, Type: core.TypeShow}}, Visibility: vis, Get: get, Children: func(context.Context, *core.User, core.RatingKey) ([]core.Title, error) {
@@ -228,7 +228,7 @@ func TestCollectionsAndPlaylistsDoNotExposeHiddenKeys(t *testing.T) {
 }
 
 func TestLibraryItemsPolicyBeforePaginationAndTotal(t *testing.T) {
-	v := &core.User{ID: 1, AllowedSections: []int{1}}
+	v := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}}
 	all := []core.Title{{Key: core.MovieKey(1), Type: core.TypeMovie, Adult: true}, {Key: core.MovieKey(2), Type: core.TypeMovie, Title: "ok"}, {Key: core.MovieKey(3), Type: core.TypeMovie, Title: "next"}}
 	s := &Service{d: ServiceDeps{Active: func(context.Context, int64) (*core.User, error) { return v, nil }, Libraries: []Library{{ID: 1, Type: core.TypeMovie}}, Visibility: Visibility{SectionFor: func(core.MediaType) (int, bool) { return 1, true }}, Browse: func(_ context.Context, q core.BrowseQuery) (core.Page, error) {
 		start := min(q.Offset, len(all))
@@ -373,7 +373,7 @@ func TestSimilarNotInterestedFiltersBeforePagination(t *testing.T) {
 }
 
 func TestAggregateLibrariesRespectsViewerSections(t *testing.T) {
-	v := &core.User{ID: 1, AllowedSections: []int{1}}
+	v := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}}
 	movie := core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "Movie"}
 	show := core.Title{Key: core.ShowKey(2), Type: core.TypeShow, Title: "Show"}
 	s := &Service{d: ServiceDeps{Active: func(context.Context, int64) (*core.User, error) { return v, nil }, Libraries: []Library{{ID: 1, Type: core.TypeMovie}, {ID: 2, Type: core.TypeShow}}, Visibility: Visibility{SectionFor: func(t core.MediaType) (int, bool) {

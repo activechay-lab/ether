@@ -59,7 +59,7 @@ func TestRecursiveMovieQuerySkipsShowExpansion(t *testing.T) {
 	if err != nil || page.Total != 2 || showCalls != 2 || expansions != 2 {
 		t.Fatalf("unfiltered query: %+v %v calls=%d/%d", page, err, showCalls, expansions)
 	}
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	q.Types = []core.MediaType{core.TypeMovie}
 	page, err = s.LibraryItems(ctx, viewer, core.Device{}, "", q)
 	if err != nil || page.Total != 1 || showCalls != 2 || expansions != 2 {

@@ -60,7 +60,7 @@ func (s *Service) readPeople(ctx context.Context, viewer *core.User, read func(*
 			return nil, core.ErrNotFound
 		}
 		owned := *access.Viewer
-		owned.AllowedSections = append([]int(nil), access.Viewer.AllowedSections...)
+		owned.AllowedLibraries = append([]core.LibraryID(nil), access.Viewer.AllowedLibraries...)
 		return &owned, nil
 	}
 	snapshot.d.Visibility.SectionFor = access.SectionFor

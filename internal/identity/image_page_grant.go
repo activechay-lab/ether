@@ -279,7 +279,7 @@ func (s *ImageGrantService) pageImages(ctx context.Context, viewer *core.Viewer,
 	if genFn != nil {
 		gen = genFn()
 	}
-	cacheKey := pageArtKey{viewer: viewer.ID, item: key, language: device.Language, rating: viewer.MaxContentRating, sections: sectionsKey(viewer.AllowedSections)}
+	cacheKey := pageArtKey{viewer: viewer.ID, item: key, language: device.Language, rating: viewer.MaxContentRating, sections: sectionsKey(viewer.AllowedLibraries)}
 	if genFn != nil {
 		s.artMu.Lock()
 		if s.art != nil && s.artGen == gen {
@@ -317,7 +317,7 @@ func (s *ImageGrantService) pageImages(ctx context.Context, viewer *core.Viewer,
 	return images, complete, nil
 }
 
-func sectionsKey(sections []int) string {
+func sectionsKey(sections []core.LibraryID) string {
 	if len(sections) == 0 {
 		return ""
 	}

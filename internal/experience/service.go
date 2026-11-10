@@ -432,7 +432,7 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 	// A plain library probe (the view list asks for one title) can use the
 	// catalogue total when this viewer has no extra visibility filter. The
 	// browse total already excludes adult and hidden titles.
-	plainTotal := bounded && !expand && q.Watched == nil && q.Favorite == nil && len(q.Types) == 0 && q.Season == nil && plainItemFilter(q.Filter) && v.MaxContentRating == "" && (v.IsOwner || len(v.AllowedSections) == 0) && s.d.Visibility.FilterAvailable == nil && s.d.Visibility.Policy == nil
+	plainTotal := bounded && !expand && q.Watched == nil && q.Favorite == nil && len(q.Types) == 0 && q.Season == nil && plainItemFilter(q.Filter) && v.MaxContentRating == "" && (v.IsOwner || len(v.AllowedLibraries) == 0) && s.d.Visibility.FilterAvailable == nil && s.d.Visibility.Policy == nil
 	if expand && wantShowEpisodes && s.d.Grandchildren == nil {
 		return core.Page{}, errors.New("experience: recursive library unavailable")
 	}

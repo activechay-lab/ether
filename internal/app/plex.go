@@ -186,6 +186,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		st := a.registrar.Status()
 		return st.PlexPass, st.OwnerFeatures
 	}
+	deps.LibraryTitles = a.libraryTitles
 	deps.Hooks = hooks
 	if a.stats != nil {
 		deps.Dashboard = a.stats.Dashboard()

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -165,7 +166,7 @@ func (m *kotlinModel) check(t *testing.T, where string, value any) {
 // viewer capabilities are known and the session list holds other surfaces.
 func TestJellyfinResponsesCarryKotlinRequiredFields(t *testing.T) {
 	const token, secret = "signed-in", "approved"
-	viewer := &frontend.Viewer{ID: 4, Username: "viewer", AllowedSections: []int{1}}
+	viewer := &frontend.Viewer{ID: 4, Username: "viewer", AllowedLibraries: []core.LibraryID{1}}
 	created := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	device := frontend.Device{ID: "tv", Client: "Jellyfin Android TV", DeviceName: "Android TV", Version: "0.18.2"}
 	identity := frontendtest.Identity{

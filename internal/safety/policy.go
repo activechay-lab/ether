@@ -472,7 +472,7 @@ func (s *Service) UserPolicy(u *core.User) *core.User {
 		return nil
 	}
 	out := *u
-	out.AllowedSections = append([]int(nil), u.AllowedSections...)
+	out.AllowedLibraries = append([]core.LibraryID(nil), u.AllowedLibraries...)
 	return &out
 }
 func (s *Service) BitrateLimit(u *core.User) int { return s.ForUser(u).MaxBitrateKbps }
@@ -483,7 +483,7 @@ func (s *Service) Restricted(u *core.User) bool {
 	}
 	p := s.ForUser(u)
 	share := s.shareFor(u)
-	return u.MaxContentRating != "" || len(u.AllowedSections) > 0 || len(p.BlockedGenres) > 0 || len(p.BlockedKeywords) > 0 ||
+	return u.MaxContentRating != "" || len(u.AllowedLibraries) > 0 || len(p.BlockedGenres) > 0 || len(p.BlockedKeywords) > 0 ||
 		share.FilterMovies != "" || share.FilterTelevision != ""
 }
 

@@ -25,7 +25,7 @@ func TestPlexOwnerAndRestrictedSearchParity(t *testing.T) {
 	f.srv.d.AccessPolicy = policy
 	f.srv.d.FilterAvailable = func(context.Context, []core.Title) []core.Title { return nil }
 	owner := &core.User{ID: 1, IsOwner: true}
-	restricted := &core.User{ID: 2, AllowedSections: []int{1}}
+	restricted := &core.User{ID: 2, AllowedLibraries: []core.LibraryID{1}}
 	for _, tc := range []struct {
 		name string
 		user *core.User
@@ -55,7 +55,7 @@ func TestPlexRecentOwnerKeepsUnrestrictedCandidates(t *testing.T) {
 		t.Fatal("missing movie section")
 	}
 	owner := &core.User{ID: 1, IsOwner: true}
-	restricted := &core.User{ID: 2, AllowedSections: []int{sec.ID}}
+	restricted := &core.User{ID: 2, AllowedLibraries: []core.LibraryID{core.LibraryID(sec.ID)}}
 	got, err := f.srv.recentlyAddedHub(context.Background(), &Request{User: owner}, sec, 1)
 	if err != nil || len(got.Items) != 1 {
 		t.Fatalf("owner row = %+v, %v", got, err)

@@ -39,7 +39,7 @@ func (a AdditionalRows) Rows(ctx context.Context, req frontend.RowRequest) ([]fr
 			rows = append(rows, frontend.Row{ID: "playlists", Title: "Recent Playlists", Purpose: core.RowPurpose("playlist"), Entries: entries, More: more})
 		}
 	}
-	restricted := !req.Viewer.IsOwner && (req.Viewer.MaxContentRating != "" || len(req.Viewer.AllowedSections) > 0 || a.Restricted == nil || a.Restricted(req.Viewer))
+	restricted := !req.Viewer.IsOwner && (req.Viewer.MaxContentRating != "" || len(req.Viewer.AllowedLibraries) > 0 || a.Restricted == nil || a.Restricted(req.Viewer))
 	for _, source := range []DiscoveryRowSource{a.Watchlist, a.Personal} {
 		if source == nil {
 			continue

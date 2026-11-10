@@ -45,11 +45,11 @@ func TitleAllowed(policy AccessPolicy, viewer *core.User, title *core.Title) boo
 // SectionAllowed applies a viewer's library restrictions to an existing section.
 // An empty restriction list means all sections, as it does for an owner.
 func SectionAllowed(viewer *core.User, id int) bool {
-	if viewer == nil || viewer.IsOwner || len(viewer.AllowedSections) == 0 {
+	if viewer == nil || viewer.IsOwner || len(viewer.AllowedLibraries) == 0 {
 		return true
 	}
-	for _, allowed := range viewer.AllowedSections {
-		if allowed == id {
+	for _, allowed := range viewer.AllowedLibraries {
+		if allowed == core.LibraryID(id) {
 			return true
 		}
 	}
@@ -256,7 +256,7 @@ func ViewerRestricted(policy AccessPolicy, u *core.User) bool {
 	if u.IsOwner {
 		return false
 	}
-	if u.MaxContentRating != "" || len(u.AllowedSections) > 0 {
+	if u.MaxContentRating != "" || len(u.AllowedLibraries) > 0 {
 		return true
 	}
 	if policy == nil {

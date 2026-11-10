@@ -102,7 +102,7 @@ func TestRelatedArtworkRechecksParentBeforeReturn(t *testing.T) {
 }
 
 func TestRelatedArtworkRejectsEpisodeWhenShowIsRestricted(t *testing.T) {
-	viewer := &core.User{ID: 1, MaxContentRating: "TV-PG", AllowedSections: []int{2}}
+	viewer := &core.User{ID: 1, MaxContentRating: "TV-PG", AllowedLibraries: []core.LibraryID{2}}
 	episode := core.EpisodeKey(5, 1, 1)
 	show := episode.Parent().Parent()
 	titles := map[core.RatingKey]*core.Title{

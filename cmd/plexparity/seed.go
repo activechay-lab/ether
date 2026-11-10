@@ -157,7 +157,7 @@ func seed(ctx context.Context, dir string) error {
 		u.SubtitleLanguages = []string{"en"}
 		if u.Username == "teen" {
 			u.MaxContentRating = "PG-13"
-			u.AllowedSections = []int{1}
+			u.AllowedLibraries = []core.LibraryID{1}
 		}
 		if u.Username == "child" {
 			u.MaxContentRating = "PG"
@@ -173,7 +173,7 @@ func seed(ctx context.Context, dir string) error {
 		if u.Username == "teen" || u.Username == "child" {
 			beforeRestriction := u
 			beforeRestriction.MaxContentRating = ""
-			beforeRestriction.AllowedSections = nil
+			beforeRestriction.AllowedLibraries = nil
 			for i := int64(23); i <= 60; i++ {
 				if err = watch.Remind(ctx, &beforeRestriction, core.MovieKey(10000+i)); err != nil {
 					return err

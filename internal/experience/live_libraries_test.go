@@ -12,7 +12,7 @@ func TestViewsFollowLiveNamesAndSectionPolicy(t *testing.T) {
 	s := &Service{d: ServiceDeps{
 		Active: func(_ context.Context, id int64) (*core.User, error) {
 			if id == 2 {
-				return &core.User{ID: id, AllowedSections: []int{1}}, nil
+				return &core.User{ID: id, AllowedLibraries: []core.LibraryID{1}}, nil
 			}
 			return &core.User{ID: id, IsOwner: true}, nil
 		},
@@ -48,7 +48,7 @@ func TestViewsCopyVirtualOriginAndSectionPolicy(t *testing.T) {
 	s := &Service{d: ServiceDeps{
 		Active: func(_ context.Context, id int64) (*core.User, error) {
 			if id == 2 {
-				return &core.User{ID: id, AllowedSections: []int{1}}, nil
+				return &core.User{ID: id, AllowedLibraries: []core.LibraryID{1}}, nil
 			}
 			return &core.User{ID: id, IsOwner: true}, nil
 		},

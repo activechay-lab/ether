@@ -34,13 +34,13 @@ func TestConfirmPlaybackSeesDurableRestrictionBeforeCacheReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	cached := *friend
-	cached.AllowedSections = nil
+	cached.AllowedLibraries = nil
 	fresh, err := policy.ConfirmPlayback(ctx, &cached, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fresh.AllowedSections) != 1 || fresh.AllowedSections[0] != 1 {
-		t.Fatalf("fresh sections = %#v", fresh.AllowedSections)
+	if len(fresh.AllowedLibraries) != 1 || fresh.AllowedLibraries[0] != 1 {
+		t.Fatalf("fresh sections = %#v", fresh.AllowedLibraries)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE auth_users SET active=0 WHERE id=?`, friend.ID); err != nil {
 		t.Fatal(err)

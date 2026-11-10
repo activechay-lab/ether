@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"sync"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -89,7 +90,7 @@ func (i *instance) viewFactKey(viewer *frontend.Viewer, viewID string) (viewFact
 	if i.host.PageFreshness == nil || viewer == nil {
 		return viewFactKey{}, 0, false
 	}
-	sections := append([]int(nil), viewer.AllowedSections...)
-	sort.Ints(sections)
+	sections := append([]core.LibraryID(nil), viewer.AllowedLibraries...)
+	slices.Sort(sections)
 	return viewFactKey{viewer: viewer.ID, view: viewID, rating: viewer.MaxContentRating, sections: fmt.Sprint(sections)}, i.host.PageFreshness().Catalog, true
 }

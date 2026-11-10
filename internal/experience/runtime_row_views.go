@@ -48,7 +48,7 @@ func RowViewRevision(ctx context.Context, db *sql.DB, user *core.User) (string, 
 	if err != nil {
 		return "", err
 	}
-	b, err := json.Marshal([]any{user.ID, user.IsOwner, user.MaxContentRating, user.AllowedSections, layout, favorites, exclusions, rules})
+	b, err := json.Marshal([]any{user.ID, user.IsOwner, user.MaxContentRating, user.AllowedLibraries, layout, favorites, exclusions, rules})
 	if err != nil {
 		return "", err
 	}

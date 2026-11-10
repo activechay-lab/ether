@@ -32,6 +32,10 @@ func TestNullablePlexIDMigrationPreservesCredentials(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE component='auth' AND version=4`); err != nil {
 		t.Fatal(err)
 	}
+	// auth/4 rebuilds auth_users with the pre-v0.3.8 column; auth/9 renames it again.
+	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE component='auth' AND version=9`); err != nil {
+		t.Fatal(err)
+	}
 	// identity_links migrates after auth, so a database still before auth/4
 	// cannot have it yet; auth/4 refuses to rebuild under unknown children.
 	if _, err := db.Exec(`DROP TABLE identity_links`); err != nil {

@@ -199,8 +199,6 @@ function defaultConfig(): EtherConfig {
       port: 32400,
       bindAddress: "0.0.0.0",
       friendlyName: "Living Room Ether",
-      moviesLibraryName: "Movies",
-      tvShowsLibraryName: "TV Shows",
       machineIdentifier: "mock-machine",
       logLevel: "info",
       defaultStreamLimit: 2,
@@ -717,7 +715,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
       lifecycle: v.lifecycle,
       streamLimit: 0,
       maxContentRating: v.id === 3 ? "PG" : "",
-      allowedSections: [],
+      allowedLibraries: [],
     })),
     favoritesMirror: new Map<number, boolean>(),
     dlnaGuests: [] as Viewer[],
@@ -2781,7 +2779,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
         lifecycle: viewer.lifecycle,
         streamLimit: 0,
         maxContentRating: "",
-        allowedSections: [],
+        allowedLibraries: [],
       });
       return json({ id }, 201);
     }
@@ -2818,7 +2816,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
         lifecycle: viewer.lifecycle,
         streamLimit: 0,
         maxContentRating: "",
-        allowedSections: [],
+        allowedLibraries: [],
       });
       return json({ id, url: "/ether/me#invite=mock-secret" }, 201);
     }

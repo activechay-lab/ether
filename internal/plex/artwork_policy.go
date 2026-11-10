@@ -11,7 +11,7 @@ import (
 // artwork already associated with a visible mirrored title.
 func (s *Server) remoteArtworkAllowed(r *http.Request, u *url.URL) bool {
 	viewer := FromContext(r.Context()).User
-	restricted := viewer == nil || viewer.MaxContentRating != "" || len(viewer.AllowedSections) > 0
+	restricted := viewer == nil || viewer.MaxContentRating != "" || len(viewer.AllowedLibraries) > 0
 	if policy, ok := s.d.AccessPolicy.(frontend.ArtworkAccessPolicy); ok {
 		restricted = restricted || policy.Restricted(viewer)
 	}

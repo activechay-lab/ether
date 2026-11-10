@@ -104,7 +104,7 @@ func TestSpikeBrokerRestrictedSectionTransition(t *testing.T) {
 				t.Fatal("app broker unavailable")
 			}
 			setSection := func(section int) error {
-				viewer.AllowedSections = []int{section}
+				viewer.AllowedLibraries = []core.LibraryID{core.LibraryID(section)}
 				return a.users.UpdateUser(ctx, *viewer)
 			}
 			plan := func(section int) error {

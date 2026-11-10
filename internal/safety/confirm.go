@@ -83,7 +83,7 @@ func (s *Service) cachedConfirm(id, epoch int64) (*core.User, Policy, bool) {
 		return nil, Policy{}, false
 	}
 	user := hit.user
-	user.AllowedSections = append([]int(nil), hit.user.AllowedSections...)
+	user.AllowedLibraries = append([]core.LibraryID(nil), hit.user.AllowedLibraries...)
 	return &user, hit.policy, true
 }
 
@@ -92,7 +92,7 @@ func (s *Service) storeConfirm(id, epoch int64, user *core.User, policy Policy) 
 		return
 	}
 	stored := *user
-	stored.AllowedSections = append([]int(nil), user.AllowedSections...)
+	stored.AllowedLibraries = append([]core.LibraryID(nil), user.AllowedLibraries...)
 	s.playbackMu.Lock()
 	defer s.playbackMu.Unlock()
 	if s.playbackEpoch == nil {
@@ -111,7 +111,7 @@ func confirmFallback(restricted bool) (*core.User, error) {
 func readFreshPlayback(ctx context.Context, tx *sql.Tx, u *core.User) (*core.User, Policy, error) {
 	var active, owner, streams int
 	var rating, allowed, plexSecs, raw string
-	err := tx.QueryRowContext(ctx, `SELECT active, is_owner, stream_limit, max_content_rating, allowed_sections, plex_sections, COALESCE((SELECT policy FROM safety_policies WHERE user_id=auth_users.id), '') FROM auth_users WHERE id=?`, u.ID).Scan(&active, &owner, &streams, &rating, &allowed, &plexSecs, &raw)
+	err := tx.QueryRowContext(ctx, `SELECT active, is_owner, stream_limit, max_content_rating, allowed_libraries, plex_sections, COALESCE((SELECT policy FROM safety_policies WHERE user_id=auth_users.id), '') FROM auth_users WHERE id=?`, u.ID).Scan(&active, &owner, &streams, &rating, &allowed, &plexSecs, &raw)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && active != 1) {
 		return nil, Policy{}, core.ErrUnauthorized
 	}
@@ -131,12 +131,16 @@ func readFreshPlayback(ctx context.Context, tx *sql.Tx, u *core.User) (*core.Use
 	out.IsOwner = owner == 1
 	out.StreamLimit = streams
 	out.MaxContentRating = rating
-	var sections, plex []int
+	var sections []core.LibraryID
+	var plex []int
 	_ = json.Unmarshal([]byte(allowed), &sections)
 	_ = json.Unmarshal([]byte(plexSecs), &plex)
 	if len(sections) == 0 && len(plex) > 0 && !out.IsOwner {
-		sections = plex
+		// Plex section id == LibraryID.
+		for _, sec := range plex {
+			sections = append(sections, core.LibraryID(sec))
+		}
 	}
-	out.AllowedSections = append([]int(nil), sections...)
+	out.AllowedLibraries = append([]core.LibraryID(nil), sections...)
 	return &out, policy, nil
 }

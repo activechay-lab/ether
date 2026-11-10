@@ -1,9 +1,9 @@
 package clusterplayback
 
 import (
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"context"
 	"fmt"
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"io"
 	"net/http"
 	"net/http/httptest"

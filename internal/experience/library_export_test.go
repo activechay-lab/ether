@@ -7,7 +7,7 @@ import (
 )
 
 func TestXtreamExportUsesDiscoveryAndViewerPolicy(t *testing.T) {
-	viewer := &core.User{ID: 1, AllowedSections: []int{1}}
+	viewer := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}}
 	titles := []core.Title{{Key: core.MovieKey(1), Type: core.TypeMovie, Adult: true}, {Key: core.MovieKey(2), Type: core.TypeMovie, Title: "Unavailable new release"}, {Key: core.MovieKey(3), Type: core.TypeMovie, Title: "Playable"}}
 	calls := 0
 	s := &Service{d: ServiceDeps{Active: func(context.Context, int64) (*core.User, error) { return viewer, nil }, Libraries: []Library{{ID: 1, Type: core.TypeMovie}}, Visibility: Visibility{SectionFor: func(core.MediaType) (int, bool) { return 1, true }, FilterAvailable: func(_ context.Context, ts []core.Title) []core.Title {

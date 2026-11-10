@@ -9,7 +9,7 @@
       "groups": [
         {
           "description": {
-            "source": "The names apps show for this server and its libraries."
+            "source": "The name apps show for this server."
           },
           "fields": [
             {
@@ -20,26 +20,6 @@
               "kind": "text",
               "label": {
                 "source": "Server name"
-              }
-            },
-            {
-              "help": {
-                "source": "Name shown in Plex. A rename inside Plex does not stick."
-              },
-              "key": "moviesLibraryName",
-              "kind": "text",
-              "label": {
-                "source": "Movies library name"
-              }
-            },
-            {
-              "help": {
-                "source": "Name shown in Plex. A rename inside Plex does not stick."
-              },
-              "key": "tvShowsLibraryName",
-              "kind": "text",
-              "label": {
-                "source": "TV Shows library name"
               }
             }
           ],
@@ -1724,7 +1704,7 @@
       "groups": [
         {
           "description": {
-            "source": "The names apps show for this server and its libraries."
+            "source": "The name apps show for this server."
           },
           "fields": [
             {
@@ -1735,26 +1715,6 @@
               "kind": "text",
               "label": {
                 "source": "Server name"
-              }
-            },
-            {
-              "help": {
-                "source": "Name shown in Plex. A rename inside Plex does not stick."
-              },
-              "key": "moviesLibraryName",
-              "kind": "text",
-              "label": {
-                "source": "Movies library name"
-              }
-            },
-            {
-              "help": {
-                "source": "Name shown in Plex. A rename inside Plex does not stick."
-              },
-              "key": "tvShowsLibraryName",
-              "kind": "text",
-              "label": {
-                "source": "TV Shows library name"
               }
             }
           ],

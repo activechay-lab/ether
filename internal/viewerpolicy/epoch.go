@@ -25,7 +25,7 @@ var tables = []string{
 	"livetv_policies", "livetv_channels", "livetv_sources", "livetv_programmes", "livetv_guide_channels", "safety_policies", "episodeorder_preferences", "episodeorder_groups",
 }
 
-const authPolicyColumns = "active, owner_enabled, plex_shared, is_owner, origin, plex_id, restricted, plex_sections, allowed_sections, max_content_rating"
+const authPolicyColumns = "active, owner_enabled, plex_shared, is_owner, origin, plex_id, restricted, plex_sections, allowed_libraries, max_content_rating"
 
 const schema = `CREATE TABLE viewer_policy_epoch (id INTEGER PRIMARY KEY CHECK(id=1), generation BIGINT NOT NULL CHECK(generation>=0)); INSERT INTO viewer_policy_epoch(id,generation) VALUES(1,1);`
 

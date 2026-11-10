@@ -70,8 +70,8 @@ func TestDeepShelfPagingAndRecentlyWatchedAgreement(t *testing.T) {
 		}
 	}
 	auth := f.srv.d.Auth.(*fakeAuth)
-	auth.users["movie-viewer"] = core.User{ID: ownerUser.ID, AllowedSections: []int{1}}
-	auth.users["tv-viewer"] = core.User{ID: ownerUser.ID, AllowedSections: []int{2}}
+	auth.users["movie-viewer"] = core.User{ID: ownerUser.ID, AllowedLibraries: []core.LibraryID{1}}
+	auth.users["tv-viewer"] = core.User{ID: ownerUser.ID, AllowedLibraries: []core.LibraryID{2}}
 	for _, tc := range []struct {
 		token string
 		want  int

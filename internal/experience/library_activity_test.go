@@ -34,7 +34,7 @@ func (s activityState) GetMany(_ context.Context, _ int64, keys []core.RatingKey
 
 func TestLibraryActivityDoesNotDependOnHomeAndFiltersBeforeLimit(t *testing.T) {
 	ctx := context.Background()
-	v := &core.User{ID: 1, MaxContentRating: "PG", AllowedSections: []int{1}}
+	v := &core.User{ID: 1, MaxContentRating: "PG", AllowedLibraries: []core.LibraryID{1}}
 	movie1 := core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "Hidden", ContentRating: "R"}
 	movie2 := core.Title{Key: core.MovieKey(2), Type: core.TypeMovie, Title: "Visible", ContentRating: "PG"}
 	movie3 := core.Title{Key: core.MovieKey(3), Type: core.TypeMovie, Title: "Older", ContentRating: "G"}
@@ -88,7 +88,7 @@ func TestLibraryActivityDoesNotDependOnHomeAndFiltersBeforeLimit(t *testing.T) {
 		t.Fatalf("restricted resume view: %v", err)
 	}
 	// The same child remains hidden by inherited show policy when the section is allowed.
-	v.AllowedSections = []int{1, 2}
+	v.AllowedLibraries = []core.LibraryID{1, 2}
 	s.d.AiredEpisodes = func(context.Context, core.RatingKey, int, int) (core.Page, error) {
 		return core.Page{Items: []core.Title{episode}, Total: 1}, nil
 	}
@@ -144,7 +144,7 @@ func TestLatestAddedGlobalMergesRealAddedTimes(t *testing.T) {
 }
 
 func TestLatestUngroupedTVFiltersBeforeLimit(t *testing.T) {
-	v := &core.User{ID: 1, AllowedSections: []int{2}, MaxContentRating: "TV-PG"}
+	v := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{2}, MaxContentRating: "TV-PG"}
 	show := core.Title{Key: core.ShowKey(5), Type: core.TypeShow, ContentRating: "TV-PG"}
 	hidden := core.Title{Key: core.EpisodeKey(5, 1, 1), Type: core.TypeEpisode, ShowKey: show.Key, ContentRating: "TV-MA"}
 	unknown := core.Title{Key: core.EpisodeKey(5, 1, 2), Type: core.TypeEpisode, ShowKey: show.Key, ContentRating: "TV-PG"}

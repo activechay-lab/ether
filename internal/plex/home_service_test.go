@@ -67,7 +67,7 @@ func TestPlexHomeRestrictedProjectionExcludesHiddenParent(t *testing.T) {
 	episode := core.Title{Key: core.EpisodeKey(42, 1, 1), ShowKey: core.ShowKey(42), Type: core.TypeEpisode}
 	rows := []model.Hub{{HubIdentifier: "a", Metadata: []model.Metadata{{RatingKey: episode.Key.String()}}}}
 	// This show is absent from the fake catalogue; inherited policy must fail closed.
-	user := &core.User{ID: 2, AllowedSections: []int{2}}
+	user := &core.User{ID: 2, AllowedLibraries: []core.LibraryID{2}}
 	// Verify the same inherited policy applied by the row service's adapter.
 	if !f.srv.viewerRestricted(user) || f.srv.visibleTitle(context.Background(), user, &episode) {
 		t.Fatal("fixture must deny hidden parent")

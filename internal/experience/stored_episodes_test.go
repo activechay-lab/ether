@@ -184,7 +184,7 @@ func TestStoredEpisodePageCarriesRestrictedViewerPredicates(t *testing.T) {
 		t.Fatalf("page and count filters differ:\n%+v\n%+v", paged[0], f)
 	}
 	// A library section the viewer may not open lists nothing, without a walk.
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	page, err = svc.LibraryItems(ctx, viewer, core.Device{}, "", q)
 	if err != nil || len(page.Items) != 0 || expanded != 0 {
 		t.Fatalf("disallowed section: %v %v expanded %d", keysOf(page.Items), err, expanded)

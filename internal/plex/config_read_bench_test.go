@@ -23,7 +23,6 @@ func benchConfigStore(tb testing.TB) *config.Store {
 		for i := range 4 {
 			c.Usenet.Providers = append(c.Usenet.Providers, config.UsenetProvider{ID: fmt.Sprintf("p%d", i), Name: "Provider", Host: "news.example", Port: 563, TLS: true, Username: "user", Password: "password", Connections: 50})
 		}
-		c.Server.TVShowsLibraryName = "Series"
 		return nil
 	}); err != nil {
 		tb.Fatal(err)
@@ -38,7 +37,7 @@ func BenchmarkTitleVisible(b *testing.B) {
 	store := benchConfigStore(b)
 	s := &Server{d: testDeps(Deps{Config: store.Read})}
 	s.sections = s.buildSections()
-	u := &core.User{ID: 2, AllowedSections: []int{1, 2}}
+	u := &core.User{ID: 2, AllowedLibraries: []core.LibraryID{1, 2}}
 	t := &core.Title{Key: core.EpisodeKey(1399, 1, 1), Type: core.TypeEpisode}
 	b.ReportAllocs()
 	for b.Loop() {
@@ -70,7 +69,7 @@ func TestVisibilityReadsNoConfiguration(t *testing.T) {
 	s := &Server{d: testDeps(Deps{Config: func() config.Config { reads++; return store.Read() }})}
 	s.sections = s.buildSections()
 	reads = 0
-	restricted := &core.User{ID: 2, AllowedSections: []int{2}}
+	restricted := &core.User{ID: 2, AllowedLibraries: []core.LibraryID{2}}
 	movie := &core.Title{Key: core.RatingKey(603), Type: core.TypeMovie}
 	episode := &core.Title{Key: core.EpisodeKey(1399, 1, 1), Type: core.TypeEpisode}
 	if s.titleVisible(restricted, movie) || !s.titleVisible(restricted, episode) {
@@ -91,7 +90,7 @@ func BenchmarkLeafCountVisibility(b *testing.B) {
 	store := benchConfigStore(b)
 	s := &Server{d: testDeps(Deps{Config: store.Read})}
 	s.sections = s.buildSections()
-	u := &core.User{ID: 2, AllowedSections: []int{1, 2}}
+	u := &core.User{ID: 2, AllowedLibraries: []core.LibraryID{1, 2}}
 	var eps []core.Title
 	for show := range 15 {
 		for e := range 300 {

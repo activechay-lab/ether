@@ -109,7 +109,7 @@ func TestAdjacentLibraryFiltersAndSortsBeforeSelection(t *testing.T) {
 
 func TestAdjacentChildrenRestrictedViewerAlternateOrderAndEdges(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{ID: 1, MaxContentRating: "TV-PG", AllowedSections: []int{2}}
+	viewer := &core.User{ID: 1, MaxContentRating: "TV-PG", AllowedLibraries: []core.LibraryID{2}}
 	show := core.Title{Key: core.ShowKey(5), Type: core.TypeShow, ContentRating: "TV-PG"}
 	first := core.Title{Key: core.EpisodeKey(5, 2, 1), Type: core.TypeEpisode, ShowKey: show.Key, Season: 2, Episode: 1, ContentRating: "TV-PG"}
 	blocked := core.Title{Key: core.EpisodeKey(5, 1, 2), Type: core.TypeEpisode, ShowKey: show.Key, Season: 1, Episode: 2, ContentRating: "TV-MA"}
@@ -159,7 +159,7 @@ func TestAdjacentChildrenRestrictedViewerAlternateOrderAndEdges(t *testing.T) {
 
 func TestAdjacentAggregateLibraryExcludesRestrictedSections(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{ID: 1, AllowedSections: []int{1}, MaxContentRating: "PG"}
+	viewer := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}, MaxContentRating: "PG"}
 	movieA := core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Title: "A", ContentRating: "G"}
 	movieB := core.Title{Key: core.MovieKey(2), Type: core.TypeMovie, Title: "B", ContentRating: "PG-13"}
 	movieC := core.Title{Key: core.MovieKey(3), Type: core.TypeMovie, Title: "C", ContentRating: "PG"}

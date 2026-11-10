@@ -10,7 +10,7 @@ import (
 
 func TestSearchDiscoveryAndFallback(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{AllowedSections: []int{1}}
+	viewer := &core.User{AllowedLibraries: []core.LibraryID{1}}
 	called := false
 	s := Search{
 		Visibility: Visibility{SectionFor: func(typ core.MediaType) (int, bool) {
@@ -55,7 +55,7 @@ func TestSearchCatalogueEnforcesViewerPolicy(t *testing.T) {
 			return []core.Title{{Key: 1, Type: core.TypeMovie}, {Key: 2, Type: core.TypeShow}, {Key: 3, Type: core.TypeMovie, Adult: true}}, nil
 		},
 	}
-	got, err := s.Find(context.Background(), &core.User{AllowedSections: []int{1}}, "query", []core.MediaType{core.TypeMovie}, 10)
+	got, err := s.Find(context.Background(), &core.User{AllowedLibraries: []core.LibraryID{1}}, "query", []core.MediaType{core.TypeMovie}, 10)
 	if err != nil || len(got) != 1 || got[0].Key != 1 {
 		t.Fatalf("unexpected results: %+v, %v", got, err)
 	}

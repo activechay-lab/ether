@@ -844,7 +844,7 @@ func (e *Engine) ownerScopeKey(user *core.User, section core.MediaType, d core.H
 	if e.opts.CatalogRulesRevision != nil {
 		ruleRevision = e.opts.CatalogRulesRevision(user)
 	}
-	scope = fmt.Sprint("|rules:", ruleRevision) + "|" + string(section) + "|" + fmt.Sprint(hash.Sum64(), user.MaxContentRating, user.AllowedSections, user.IsOwner)
+	scope = fmt.Sprint("|rules:", ruleRevision) + "|" + string(section) + "|" + fmt.Sprint(hash.Sum64(), user.MaxContentRating, user.AllowedLibraries, user.IsOwner)
 	prefix = strconv.FormatInt(user.ID, 10) + "|"
 	return prefix, scope
 }

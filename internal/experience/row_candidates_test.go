@@ -54,7 +54,7 @@ func TestCandidateComposerHomeVisitAndPolicy(t *testing.T) {
 		return &core.Title{Key: show, Adult: true}, nil
 	}}}
 	situation := core.HomeSituation{Now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ClientID: "client", SessionID: "visit", Device: "tv"}
-	req := frontend.RowRequest{Viewer: &core.User{ID: 1, AllowedSections: []int{1}}, Placement: frontend.PlacementHome, Limit: 3}
+	req := frontend.RowRequest{Viewer: &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}}, Placement: frontend.PlacementHome, Limit: 3}
 	got, err := composer.Rows(ctx, req, situation)
 	if err != nil || rank.calls != 1 || resume.calls != 1 || !reflect.DeepEqual(rank.seen, situation) || len(got) != 3 || got[0].Items[0].Key != good.Key || got[2].Items[0].Key != good.Key {
 		t.Fatalf("rows=%+v rank=%+v resume=%+v err=%v", got, rank, resume, err)
@@ -100,11 +100,11 @@ func TestCandidateComposerLibraryAndErrors(t *testing.T) {
 	rank := &candidateRankerFake{}
 	resume := &resumeCandidatesFake{}
 	c := CandidateComposer{Ranker: rank, Resume: resume, Libraries: []Library{{ID: 2, Type: core.TypeShow}}, Restricted: func(*core.User) bool { return false }}
-	req := frontend.RowRequest{Viewer: &core.User{ID: 1, AllowedSections: []int{1}}, Placement: frontend.PlacementLibrary, ViewID: "2"}
+	req := frontend.RowRequest{Viewer: &core.User{ID: 1, AllowedLibraries: []core.LibraryID{1}}, Placement: frontend.PlacementLibrary, ViewID: "2"}
 	if _, err := c.Rows(ctx, req, core.HomeSituation{}); !errors.Is(err, core.ErrNotFound) || rank.calls != 0 {
 		t.Fatal("denied library reached ranker", err)
 	}
-	req.Viewer.AllowedSections = []int{2}
+	req.Viewer.AllowedLibraries = []core.LibraryID{2}
 	if _, err := c.Rows(ctx, req, core.HomeSituation{ClientID: "x"}); err != nil || rank.calls != 1 || rank.kind != core.TypeShow || rank.seen.LibraryID != 2 || rank.seen.ClientID != "x" || rank.allow == nil {
 		t.Fatalf("library rank=%+v err=%v", rank, err)
 	}

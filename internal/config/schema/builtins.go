@@ -14,10 +14,8 @@ func Builtins() []Builtin {
 	return []Builtin{
 		// SERVER
 		{ID: "server", ConfigKey: "server", Label: extend.T("What viewers see"), Schema: Schema{Groups: []Group{
-			{ID: "identity", Title: extend.T("What viewers see"), Description: extend.T("The names apps show for this server and its libraries."), Fields: []Field{
+			{ID: "identity", Title: extend.T("What viewers see"), Description: extend.T("The name apps show for this server."), Fields: []Field{
 				{Key: "friendlyName", Label: extend.T("Server name"), Kind: KindText, Help: extend.T("How the server appears in apps.")},
-				{Key: "moviesLibraryName", Label: extend.T("Movies library name"), Kind: KindText, Help: extend.T("Name shown in Plex. A rename inside Plex does not stick.")},
-				{Key: "tvShowsLibraryName", Label: extend.T("TV Shows library name"), Kind: KindText, Help: extend.T("Name shown in Plex. A rename inside Plex does not stick.")},
 			}},
 			{ID: "connect", Title: extend.T("How apps connect"), Description: extend.T("The address apps use to reach this computer."), Fields: []Field{
 				{Key: "port", Label: extend.T("Port"), Kind: KindNumber, Help: extend.T("Plex apps expect 32400. A restart is needed after changing it."), Min: F(1), Max: F(65535), Step: F(1)},
@@ -232,10 +230,8 @@ func Builtins() []Builtin {
 		}}},
 		// clusterServerGroups()
 		{ID: "serverCluster", ConfigKey: "server", Label: extend.T("What viewers see"), Schema: Schema{Groups: []Group{
-			{ID: "identity", Title: extend.T("What viewers see"), Description: extend.T("The names apps show for this server and its libraries."), Fields: []Field{
+			{ID: "identity", Title: extend.T("What viewers see"), Description: extend.T("The name apps show for this server."), Fields: []Field{
 				{Key: "friendlyName", Label: extend.T("Server name"), Kind: KindText, Help: extend.T("How the server appears in apps.")},
-				{Key: "moviesLibraryName", Label: extend.T("Movies library name"), Kind: KindText, Help: extend.T("Name shown in Plex. A rename inside Plex does not stick.")},
-				{Key: "tvShowsLibraryName", Label: extend.T("TV Shows library name"), Kind: KindText, Help: extend.T("Name shown in Plex. A rename inside Plex does not stick.")},
 			}},
 			{ID: "connect", Title: extend.T("How apps connect"), Description: extend.T("The address apps use to reach this computer."), Fields: []Field{}, More: []Field{
 				{Key: "webFrameOrigins", Label: extend.T("Sites that may embed this page"), Kind: KindList, Help: extend.T("Exact addresses allowed to frame the owner page. Empty means nowhere."), Placeholder: "https://home.example.com"},

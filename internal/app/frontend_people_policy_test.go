@@ -183,7 +183,7 @@ func TestPeopleSnapshotPinsAlreadyRestrictedDurableViewer(t *testing.T) {
 	}
 	// The write precedes the entire snapshot and leaves the process auth cache
 	// stale. Merely reading the already-advanced epoch would not refresh it.
-	if _, err := a.db.ExecContext(ctx, `UPDATE auth_users SET is_owner=0,allowed_sections='[2]',max_content_rating='PG' WHERE id=?`, stale.ID); err != nil {
+	if _, err := a.db.ExecContext(ctx, `UPDATE auth_users SET is_owner=0,allowed_libraries='[2]',max_content_rating='PG' WHERE id=?`, stale.ID); err != nil {
 		t.Fatal(err)
 	}
 	cached, err := a.users.ActiveUser(ctx, stale.ID)
@@ -199,7 +199,7 @@ func TestPeopleSnapshotPinsAlreadyRestrictedDurableViewer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer access.Close()
-	if access.Viewer.IsOwner || access.Viewer.MaxContentRating != "PG" || len(access.Viewer.AllowedSections) != 1 || access.Viewer.AllowedSections[0] != 2 {
+	if access.Viewer.IsOwner || access.Viewer.MaxContentRating != "PG" || len(access.Viewer.AllowedLibraries) != 1 || access.Viewer.AllowedLibraries[0] != 2 {
 		t.Fatalf("stale viewer retained %+v", access.Viewer)
 	}
 	if err := access.Finish(ctx); err != nil {

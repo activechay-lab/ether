@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 	"unicode"
@@ -49,14 +48,6 @@ func scanLibrary(sc scanner) (core.Library, error) {
 		}
 	}
 	return lib, nil
-}
-
-func (s *Service) get(ctx context.Context, where string, arg any) (core.Library, error) {
-	lib, err := scanLibrary(s.db.QueryRowContext(ctx, `SELECT `+libraryCols+` FROM libraries WHERE `+where, arg))
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.Library{}, core.ErrNotFound
-	}
-	return lib, err
 }
 
 // insert writes lib (ID already allocated) inside tx and returns it

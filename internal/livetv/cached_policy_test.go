@@ -48,7 +48,7 @@ func TestCachedChannelPolicyIsScopedAndLocal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	viewer := &core.User{ID: 7, MaxContentRating: "PG", AllowedSections: []int{2}}
+	viewer := &core.User{ID: 7, MaxContentRating: "PG", AllowedLibraries: []core.LibraryID{2}}
 	channels, err := service.AllowedChannels(ctx, viewer)
 	if err != nil || len(channels) != 100 {
 		t.Fatalf("legacy allowed %d %v", len(channels), err)

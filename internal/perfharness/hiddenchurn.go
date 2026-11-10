@@ -51,7 +51,7 @@ func HiddenChurnRow(ctx context.Context, svc *availability.Service, scale Scale)
 		RowsMin: written, RowsMax: written,
 		// A little bookkeeping (current pointer, retire record, retention
 		// sweep) rides along; a copy of the set never fits under this.
-		RowsBound: 8 * 2 * HiddenChurnKeys,
+		RowsBound:  8 * 2 * HiddenChurnKeys,
 		QueriesMin: stmts, QueriesMax: stmts,
 		DBTime: stats.Hold, WarmP50: stats.Hold,
 	}, nil

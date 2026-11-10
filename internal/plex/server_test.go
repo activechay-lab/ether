@@ -90,7 +90,7 @@ func TestClientSeenOnlyAfterAuthentication(t *testing.T) {
 func TestSectionRestriction(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 3, Username: "kid", AllowedSections: []int{1}}
+	f.srv.d.Auth.(*fakeAuth).users["kid"] = core.User{ID: 3, Username: "kid", AllowedLibraries: []core.LibraryID{1}}
 	rec := f.request(t, http.MethodGet, "/library/sections", map[string]string{"X-Plex-Token": "kid"})
 	if strings.Contains(rec.Body.String(), `title="TV Shows"`) {
 		t.Fatalf("restricted section visible: %s", rec.Body.String())

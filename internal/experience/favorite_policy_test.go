@@ -154,14 +154,14 @@ func TestFavoriteAllowedPolicy(t *testing.T) {
 	if FavoriteAllowed(ctx, viewer, FavoriteSubject{Kind: FavoriteKindTitle, ID: movie.String()}, vis, sources) {
 		t.Fatal("adult title allowed")
 	}
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	sources.Title = func(context.Context, core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: movie, Type: core.TypeMovie, ContentRating: "G"}, nil
 	}
 	if FavoriteAllowed(ctx, viewer, FavoriteSubject{Kind: FavoriteKindTitle, ID: movie.String()}, vis, sources) {
 		t.Fatal("revoked section allowed")
 	}
-	viewer.AllowedSections = nil
+	viewer.AllowedLibraries = nil
 	collectionKey := core.CollectionKey(8)
 	sources.Collection = func(_ context.Context, got *core.User, key core.RatingKey) (*core.Collection, error) {
 		if got != viewer || key != collectionKey {
@@ -172,11 +172,11 @@ func TestFavoriteAllowedPolicy(t *testing.T) {
 	if !FavoriteAllowed(ctx, viewer, FavoriteSubject{Kind: FavoriteKindCollection, ID: collectionKey.String()}, vis, sources) {
 		t.Fatal("visible collection denied")
 	}
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	if FavoriteAllowed(ctx, viewer, FavoriteSubject{Kind: FavoriteKindCollection, ID: collectionKey.String()}, vis, sources) {
 		t.Fatal("hidden collection allowed")
 	}
-	viewer.AllowedSections = nil
+	viewer.AllowedLibraries = nil
 	sources.ChannelAllowed = func(_ context.Context, _ *core.User, id string) (bool, error) {
 		if id != "news" && id != "secret" {
 			t.Fatalf("channel %s", id)
@@ -344,11 +344,11 @@ func TestFavoriteTitlesCachedFailClosed(t *testing.T) {
 	if ok, err := FavoriteTitlesCached(ctx, viewer, []core.RatingKey{episode.Key}, vis, cached); err != nil || !ok {
 		t.Fatalf("visible episode %v %v", ok, err)
 	}
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	if ok, err := FavoriteTitlesCached(ctx, viewer, []core.RatingKey{episode.Key}, vis, cached); err != nil || ok {
 		t.Fatalf("revoked section %v %v", ok, err)
 	}
-	viewer.AllowedSections = nil
+	viewer.AllowedLibraries = nil
 	calls = 0
 	if ok, err := FavoriteTitlesCached(ctx, viewer, []core.RatingKey{episode.Key, core.MovieKey(9)}, vis, cached); err != nil || ok || calls != 1 {
 		t.Fatalf("missing title %v %v calls %d", ok, err, calls)

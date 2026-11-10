@@ -34,6 +34,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/langfeat"
+	"github.com/braedonsaunders/ether/internal/libraries"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/llm"
 	"github.com/braedonsaunders/ether/internal/logredact"
@@ -183,6 +184,7 @@ type App struct {
 	draining atomic.Bool
 
 	tmdb        *tmdb.Client
+	libraries   *libraries.Service
 	catalog     *catalog.Catalog
 	collections *collections.Service
 	images      *artwork.Images
@@ -477,6 +479,18 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	if err := a.importRestoredDump(ctx); err != nil {
 		a.Close()
 		return nil, err
+	}
+	// Libraries (v0.3.8 §1): seed Movies/TV Shows and move the retired
+	// config library names onto libraries 1/2 exactly once.
+	if a.libraries, err = libraries.New(ctx, a.db, libraries.Options{Logger: a.log}); err != nil {
+		a.Close()
+		return nil, fmt.Errorf("libraries: %w", err)
+	}
+	if moviesName, showsName := a.cfg.LegacyLibraryNames(); moviesName != "" || showsName != "" {
+		if err := a.libraries.MigrateConfigNames(ctx, moviesName, showsName); err != nil {
+			a.Close()
+			return nil, fmt.Errorf("libraries: migrate config names: %w", err)
+		}
 	}
 	if err := a.checkCredentialKey(ctx); err != nil {
 		a.Close()

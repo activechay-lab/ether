@@ -241,7 +241,7 @@ func TestOnDeckHiddenTitleKeepsSectionAttributes(t *testing.T) {
 func TestCollectionOfHiddenSectionIsNotFound(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, Username: "tvonly", AllowedSections: []int{2}}
+	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, Username: "tvonly", AllowedLibraries: []core.LibraryID{2}}
 	key := core.CollectionKey(8091).String()
 	for _, path := range []string{"/library/collections/" + key, "/library/collections/" + key + "/children", "/library/metadata/" + key, "/library/collections/" + key + "/thumb/1"} {
 		if rec := f.get(t, path, "X-Plex-Token", "tvonly"); rec.Code != 404 {
@@ -386,7 +386,7 @@ func TestCastPortraitTranscodeVisibility(t *testing.T) {
 	}{
 		{"visible", core.MovieKey(1001), "PG", false, false, 200}, {"forbidden", core.MovieKey(1002), "R", false, false, 404}, {"future", core.MovieKey(1003), "PG", false, true, 404}, {"adult", core.MovieKey(1004), "PG", true, false, 404}, {"unknown-release", core.MovieKey(1005), "PG", false, false, 404},
 	}
-	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, AllowedSections: []int{2}}
+	f.srv.d.Auth.(*fakeAuth).users["tvonly"] = core.User{ID: 31, AllowedLibraries: []core.LibraryID{2}}
 	for _, c := range cases {
 		portrait := "/" + c.name + "-actor.jpg"
 		title := core.Title{Key: c.key, Type: core.TypeMovie, Title: c.name, ContentRating: c.rating, Adult: c.adult, Released: fixedNow.Add(-time.Hour), Cast: []core.Person{{Name: "Actor", TMDB: 123, ThumbPath: portrait}}}

@@ -85,7 +85,7 @@ func TestPageCacheDropsBodyWhenRestrictionOrTokenChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child.AllowedSections = []int{1}
+	child.AllowedLibraries = []core.LibraryID{1}
 	if err = a.users.UpdateUser(ctx, *child); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestPageCacheDropsBodyWhenRestrictionOrTokenChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	child.MaxContentRating = ""
-	child.AllowedSections = nil
+	child.AllowedLibraries = nil
 	if err = a.users.UpdateUser(ctx, *child); err != nil {
 		t.Fatal(err)
 	}

@@ -93,8 +93,11 @@ type Deps struct {
 	// artwork; nil leaves such titles without a thumb.
 	GeneratedPosters    any
 	SessionCoordination frontend.Coordination
-	FavoriteShows       func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error)
-	FilterAvailable     func(context.Context, []frontend.Title) []frontend.Title
+	// LibraryTitles returns the Movies / TV Shows library names from the
+	// libraries service (libraries 1/2); nil uses "Movies" / "TV Shows".
+	LibraryTitles   func() (movies, shows string)
+	FavoriteShows   func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error)
+	FilterAvailable func(context.Context, []frontend.Title) []frontend.Title
 	// JudgedOnFacts reports, for a request, the titles FilterAvailable judges
 	// on their full facts (availability.Service.JudgedOnFacts).
 	JudgedOnFacts       func(context.Context) func(frontend.Title) bool
@@ -517,37 +520,36 @@ func (s *Server) buildSections() []Section {
 	return s.withLibraryTitles(out)
 }
 
-// librarySectionTitle is the Movies / TV Shows name Ether advertises to Plex.
-func librarySectionTitle(t frontend.MediaType, c frontend.HostConfig) string {
+// librarySectionTitle is the Movies / TV Shows name Ether advertises to
+// Plex, from libraries 1/2 via Deps.LibraryTitles.
+func librarySectionTitle(t frontend.MediaType, movies, shows string) string {
 	switch t {
 	case frontend.TypeShow, frontend.TypeSeason, frontend.TypeEpisode:
-		if n := strings.TrimSpace(c.Server.TVShowsLibraryName); n != "" {
+		if n := strings.TrimSpace(shows); n != "" {
 			return n
 		}
 		return "TV Shows"
 	default:
-		if n := strings.TrimSpace(c.Server.MoviesLibraryName); n != "" {
+		if n := strings.TrimSpace(movies); n != "" {
 			return n
 		}
 		return "Movies"
 	}
 }
 
-// withLibraryTitles copies secs and applies the configured library names.
+// withLibraryTitles copies secs and applies the library names.
 // IDs and UUIDs are not rewritten; UUIDs stay derived from section id only.
-// NewServer installs an empty config when none was provided. A hand-built
-// Server skips that, so a nil provider uses the same empty config. Empty
-// library names already resolve to Movies and TV Shows.
+// Empty library names already resolve to Movies and TV Shows.
 func (s *Server) withLibraryTitles(secs []Section) []Section {
-	var c frontend.HostConfig
-	if s.d.Config != nil {
-		c = s.cfg()
+	var movies, shows string
+	if s.d.LibraryTitles != nil {
+		movies, shows = s.d.LibraryTitles()
 	}
 	out := append([]Section(nil), secs...)
 	for i := range out {
 		switch out[i].Type {
 		case frontend.TypeMovie, frontend.TypeShow:
-			out[i].Title = librarySectionTitle(out[i].Type, c)
+			out[i].Title = librarySectionTitle(out[i].Type, movies, shows)
 		}
 	}
 	return out
@@ -592,7 +594,7 @@ func (s *Server) untitledSectionFor(t frontend.MediaType) (Section, bool) {
 // userSections lists the sections a user may see.
 func (s *Server) userSections(u *frontend.User) []Section {
 	secs := s.withLibraryTitles(s.sections)
-	if u == nil || len(u.AllowedSections) == 0 || u.IsOwner {
+	if u == nil || len(u.AllowedLibraries) == 0 || u.IsOwner {
 		return secs
 	}
 	var out []Section
@@ -607,7 +609,7 @@ func (s *Server) userSections(u *frontend.User) []Section {
 func (s *Server) canSeeSection(u *frontend.User, id int) bool {
 	for _, sec := range s.sections {
 		if sec.ID == id {
-			return u == nil || len(u.AllowedSections) == 0 || u.IsOwner || frontend.SectionAllowed(u, sec.ID)
+			return u == nil || len(u.AllowedLibraries) == 0 || u.IsOwner || frontend.SectionAllowed(u, sec.ID)
 		}
 	}
 	return false

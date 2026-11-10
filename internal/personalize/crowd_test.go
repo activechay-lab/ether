@@ -183,7 +183,7 @@ func TestCrowdLiftsConsensusIntoTop10(t *testing.T) {
 		}
 	}
 	// Restricted to the movie library: the fan series never appears.
-	movies := core.User{ID: 1, MaxContentRating: "PG-13", AllowedSections: []int{1}}
+	movies := core.User{ID: 1, MaxContentRating: "PG-13", AllowedLibraries: []core.LibraryID{1}}
 	for _, r := range crowdPreview(t, h, movies, "home").Rows {
 		for _, it := range r.Items {
 			if it.Type != core.TypeMovie && r.Source != core.RowSourcePlex {

@@ -267,7 +267,7 @@ func (c *Catalog) strictViewer(id int64, restricted bool) bool {
 }
 
 func userRestricted(u *core.User) bool {
-	return u != nil && (u.MaxContentRating != "" || len(u.AllowedSections) > 0)
+	return u != nil && (u.MaxContentRating != "" || len(u.AllowedLibraries) > 0)
 }
 
 // undecided reports a title f cannot judge that the catalogue holds no

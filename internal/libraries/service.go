@@ -7,12 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // List returns every library in owner order: sort, then id (§1.3).
-func (s *Service) List(ctx context.Context) ([]core.Library, error) {
+func (s *Service) listDB(ctx context.Context) ([]core.Library, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+libraryCols+` FROM libraries ORDER BY sort, id`)
 	if err != nil {
 		return nil, err
@@ -29,14 +30,79 @@ func (s *Service) List(ctx context.Context) ([]core.Library, error) {
 	return out, rows.Err()
 }
 
+// snapshotTTL bounds how long a rename on another cluster node can take to
+// reach this node; local writes invalidate the snapshot at once.
+const snapshotTTL = 30 * time.Second
+
+type snapshot struct {
+	gen  uint64
+	at   time.Time
+	libs []core.Library
+}
+
+// List returns every library in display order. Clients list libraries on
+// every section request, so reads come from an in-memory snapshot of the
+// (one row per library) table, refreshed on local writes and every
+// snapshotTTL.
+func (s *Service) List(ctx context.Context) ([]core.Library, error) {
+	libs, err := s.cached(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]core.Library, len(libs))
+	for i, lib := range libs {
+		out[i] = cloneLibrary(lib)
+	}
+	return out, nil
+}
+
 // Get returns one library by id, or core.ErrNotFound.
 func (s *Service) Get(ctx context.Context, id core.LibraryID) (core.Library, error) {
-	return s.get(ctx, `id = ?`, int64(id))
+	libs, err := s.cached(ctx)
+	if err != nil {
+		return core.Library{}, err
+	}
+	for _, lib := range libs {
+		if lib.ID == id {
+			return cloneLibrary(lib), nil
+		}
+	}
+	return core.Library{}, core.ErrNotFound
+}
+
+func (s *Service) cached(ctx context.Context) ([]core.Library, error) {
+	gen := s.gen.Load()
+	if snap := s.snap.Load(); snap != nil && snap.gen == gen && s.now().Sub(snap.at) < snapshotTTL {
+		return snap.libs, nil
+	}
+	libs, err := s.listDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.snap.Store(&snapshot{gen: gen, at: s.now(), libs: libs})
+	return libs, nil
+}
+
+func cloneLibrary(lib core.Library) core.Library {
+	if lib.Filter != nil {
+		f := *lib.Filter
+		lib.Filter = &f
+	}
+	return lib
 }
 
 // ByKey returns one library by its immutable slug, or core.ErrNotFound.
 func (s *Service) ByKey(ctx context.Context, key string) (core.Library, error) {
-	return s.get(ctx, `key = ?`, key)
+	libs, err := s.cached(ctx)
+	if err != nil {
+		return core.Library{}, err
+	}
+	for _, lib := range libs {
+		if lib.Key == key {
+			return cloneLibrary(lib), nil
+		}
+	}
+	return core.Library{}, core.ErrNotFound
 }
 
 // CreateFilter saves an owner filter-library (§1.5): a named

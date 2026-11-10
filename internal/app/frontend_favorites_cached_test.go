@@ -45,7 +45,7 @@ func TestFavoriteTitlesCachedInheritedPolicy(t *testing.T) {
 	if ok, err := experience.FavoriteTitlesCached(ctx, viewer, []core.RatingKey{episode.Key}, vis, cached); err != nil || !ok {
 		t.Fatalf("visible item denied: %v %v", ok, err)
 	}
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	if ok, err := experience.FavoriteTitlesCached(ctx, viewer, []core.RatingKey{episode.Key}, vis, cached); err != nil || ok {
 		t.Fatalf("revoked section allowed: %v %v", ok, err)
 	}
@@ -126,11 +126,11 @@ func TestFavoritePolicyDecisions(t *testing.T) {
 		},
 	}, true)
 	hidden := *collection
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	compareAllowed(experience.FavoriteSubject{Kind: experience.FavoriteKindCollection, ID: collectionKey.String()}, experience.FavoriteSources{
 		Collection: func(context.Context, *core.User, core.RatingKey) (*core.Collection, error) { return &hidden, nil },
 	}, false)
-	viewer.AllowedSections = nil
+	viewer.AllowedLibraries = nil
 	compareAllowed(experience.FavoriteSubject{Kind: experience.FavoriteKindCollection, ID: collectionKey.String()}, experience.FavoriteSources{
 		Collection: func(context.Context, *core.User, core.RatingKey) (*core.Collection, error) { return nil, dbErr },
 	}, false)

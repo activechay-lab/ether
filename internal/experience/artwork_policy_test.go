@@ -47,7 +47,7 @@ func TestAuthorizeArtworkAsUsesGivenViewer(t *testing.T) {
 	if err := s.AuthorizeArtworkAs(ctx, nil, core.Device{}, title.Key); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("nil viewer allowed: %v", err)
 	}
-	if err := s.AuthorizeArtworkAs(ctx, &core.User{ID: 3, AllowedSections: []int{2}}, core.Device{}, title.Key); !errors.Is(err, core.ErrNotFound) {
+	if err := s.AuthorizeArtworkAs(ctx, &core.User{ID: 3, AllowedLibraries: []core.LibraryID{2}}, core.Device{}, title.Key); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("section-restricted viewer allowed: %v", err)
 	}
 }

@@ -114,7 +114,7 @@ func (s *Service) ExportPolicy(ctx context.Context, viewer *core.Viewer, _ core.
 		rules, rulesJudged = s.d.ViewerRules(v)
 	}
 	facts := s.d.Visibility.TitleFacts(v)
-	sections := append([]int(nil), v.AllowedSections...)
+	sections := append([]core.LibraryID(nil), v.AllowedLibraries...)
 	if v.IsOwner {
 		sections = nil
 	}
@@ -122,7 +122,7 @@ func (s *Service) ExportPolicy(ctx context.Context, viewer *core.Viewer, _ core.
 		Viewer                      int64
 		Owner                       bool
 		MaxRating                   string
-		Sections                    []int
+		Sections                    []core.LibraryID
 		Library                     int
 		Type                        core.MediaType
 		None                        bool

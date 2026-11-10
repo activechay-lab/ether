@@ -42,13 +42,13 @@ func (d *Discovery) visible(u *core.User, t *core.Title) bool {
 	if u == nil || t == nil || t.Adult || contentrating.Exceeds(t.ContentRating, u.MaxContentRating) {
 		return false
 	}
-	section := 1
+	section := core.LibraryMovies
 	if t.Type != core.TypeMovie {
-		section = 2
+		section = core.LibraryShows
 	}
-	if len(u.AllowedSections) > 0 {
+	if len(u.AllowedLibraries) > 0 {
 		ok := false
-		for _, id := range u.AllowedSections {
+		for _, id := range u.AllowedLibraries {
 			ok = ok || id == section
 		}
 		if !ok {

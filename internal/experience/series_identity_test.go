@@ -10,7 +10,7 @@ import (
 
 func TestDetailFillsSeriesNameFromAuthorizedCachedParent(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{ID: 1, AllowedSections: []int{2}, MaxContentRating: "TV-PG"}
+	viewer := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{2}, MaxContentRating: "TV-PG"}
 	show := &core.Title{Key: core.ShowKey(55), Type: core.TypeShow, Title: "The Series", Year: 2004, ContentRating: "TV-PG"}
 	episode := &core.Title{Key: core.EpisodeKey(55, 1, 2), Type: core.TypeEpisode, ShowKey: show.Key, Title: "Episode", Year: 2020, ContentRating: "TV-PG"}
 	get := func(_ context.Context, key core.RatingKey) (*core.Title, error) {

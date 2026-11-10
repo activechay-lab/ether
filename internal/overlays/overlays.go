@@ -481,13 +481,13 @@ func (s *Service) visible(u *core.User, t *core.Title) bool {
 		if contentrating.Exceeds(t.ContentRating, u.MaxContentRating) {
 			return false
 		}
-		if len(u.AllowedSections) > 0 {
-			section := 1
+		if len(u.AllowedLibraries) > 0 {
+			section := core.LibraryMovies
 			if t.Type != core.TypeMovie {
-				section = 2
+				section = core.LibraryShows
 			}
 			found := false
-			for _, id := range u.AllowedSections {
+			for _, id := range u.AllowedLibraries {
 				found = found || id == section
 			}
 			if !found {

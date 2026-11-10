@@ -117,7 +117,7 @@ func legacyAdditionalRowsControl(ctx context.Context, req frontend.RowRequest, c
 			rows = append(rows, frontend.Row{ID: "playlists", Title: "Recent Playlists", Purpose: core.RowPurpose("playlist"), Entries: entries, More: more})
 		}
 	}
-	restricted := !req.Viewer.IsOwner && (req.Viewer.MaxContentRating != "" || len(req.Viewer.AllowedSections) > 0 || c.Restricted(req.Viewer))
+	restricted := !req.Viewer.IsOwner && (req.Viewer.MaxContentRating != "" || len(req.Viewer.AllowedLibraries) > 0 || c.Restricted(req.Viewer))
 	for _, source := range []DiscoveryRowSource{c.Watchlist, c.Personal} {
 		if source == nil {
 			continue

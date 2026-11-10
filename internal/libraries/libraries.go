@@ -89,10 +89,11 @@ type Options struct {
 // a table that holds one row per library, never per item, so no call
 // scales with library size.
 type Service struct {
-	db  *sql.DB
-	log *slog.Logger
-	now func() time.Time
-	gen atomic.Uint64
+	db   *sql.DB
+	log  *slog.Logger
+	now  func() time.Time
+	gen  atomic.Uint64
+	snap atomic.Pointer[snapshot]
 }
 
 // New seeds the two built-in libraries idempotently (§1.3) and returns

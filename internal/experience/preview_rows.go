@@ -22,12 +22,12 @@ func (a PreviewRows) Rows(ctx context.Context, u *core.User, hc core.HubContext,
 	var uid int64
 	var isOwner bool
 	var maxRating string
-	var allowedSecs []int
+	var allowedSecs []core.LibraryID
 	if u != nil {
 		uid = u.ID
 		isOwner = u.IsOwner
 		maxRating = u.MaxContentRating
-		allowedSecs = u.AllowedSections
+		allowedSecs = u.AllowedLibraries
 	}
 	base, _ := reqmemo.Do(ctx, fmt.Sprintf("experience:previewBase:%d:%t:%s:%v:%d", uid, isOwner, maxRating, allowedSecs, limit), func() ([]core.Hub, error) {
 		var hubs []core.Hub

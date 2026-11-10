@@ -125,7 +125,7 @@ func (i *instance) profileData(r *http.Request, v *frontend.Viewer) (map[string]
 	p["require_advisory_age"] = false
 	p["subtitle_language"] = subtitle
 	p["subtitle_mode"] = mode
-	p["library_restrictions_enabled"] = len(v.AllowedSections) > 0
+	p["library_restrictions_enabled"] = len(v.AllowedLibraries) > 0
 	p["allowed_library_ids"] = views
 	p["created_at"] = v.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
 	p["updated_at"] = updated.UTC().Format("2006-01-02T15:04:05.000Z")

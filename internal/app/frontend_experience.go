@@ -83,19 +83,29 @@ func (a *App) peopleIndex(ctx context.Context, terms []string, limit int) ([]exp
 	return out, nil
 }
 
+// libraryName is the live name of library id from the libraries
+// service, or fallback when the service is not wired (hand-built Apps
+// in tests) or the row cannot be read.
+func (a *App) libraryName(id core.LibraryID, fallback string) string {
+	if a.libraries != nil {
+		if lib, err := a.libraries.Get(context.Background(), id); err == nil {
+			if n := strings.TrimSpace(lib.Name); n != "" {
+				return n
+			}
+		}
+	}
+	return fallback
+}
+
+// libraryTitles is the live Movies / TV Shows name pair.
+func (a *App) libraryTitles() (movies, shows string) {
+	return a.libraryName(core.LibraryMovies, "Movies"), a.libraryName(core.LibraryShows, "TV Shows")
+}
+
 // configuredLibraries is the live Movies / TV Shows pair. IDs stay 1 and 2 so
 // saved ParentId and section UUIDs do not change when the owner renames them.
 func (a *App) configuredLibraries() []experience.Library {
-	movies, shows := "Movies", "TV Shows"
-	if a.cfg != nil {
-		c := a.cfg.Read()
-		if n := strings.TrimSpace(c.Server.MoviesLibraryName); n != "" {
-			movies = n
-		}
-		if n := strings.TrimSpace(c.Server.TVShowsLibraryName); n != "" {
-			shows = n
-		}
-	}
+	movies, shows := a.libraryTitles()
 	return []experience.Library{{ID: 1, Name: movies, Type: core.TypeMovie, Virtual: true}, {ID: 2, Name: shows, Type: core.TypeShow, Virtual: true}}
 }
 

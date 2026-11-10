@@ -23,7 +23,7 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
               source: "What viewers see",
             },
             description: {
-              source: "The names apps show for this server and its libraries.",
+              source: "The name apps show for this server.",
             },
             fields: [
               {
@@ -33,26 +33,6 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 },
                 help: {
                   source: "How the server appears in apps.",
-                },
-                kind: "text",
-              },
-              {
-                key: "moviesLibraryName",
-                label: {
-                  source: "Movies library name",
-                },
-                help: {
-                  source: "Name shown in Plex. A rename inside Plex does not stick.",
-                },
-                kind: "text",
-              },
-              {
-                key: "tvShowsLibraryName",
-                label: {
-                  source: "TV Shows library name",
-                },
-                help: {
-                  source: "Name shown in Plex. A rename inside Plex does not stick.",
                 },
                 kind: "text",
               },
@@ -1840,7 +1820,7 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
               source: "What viewers see",
             },
             description: {
-              source: "The names apps show for this server and its libraries.",
+              source: "The name apps show for this server.",
             },
             fields: [
               {
@@ -1850,26 +1830,6 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 },
                 help: {
                   source: "How the server appears in apps.",
-                },
-                kind: "text",
-              },
-              {
-                key: "moviesLibraryName",
-                label: {
-                  source: "Movies library name",
-                },
-                help: {
-                  source: "Name shown in Plex. A rename inside Plex does not stick.",
-                },
-                kind: "text",
-              },
-              {
-                key: "tvShowsLibraryName",
-                label: {
-                  source: "TV Shows library name",
-                },
-                help: {
-                  source: "Name shown in Plex. A rename inside Plex does not stick.",
                 },
                 kind: "text",
               },

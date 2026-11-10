@@ -14,7 +14,7 @@ func TestExperienceVisibilityAppliesLibraryAndInheritedPolicy(t *testing.T) {
 	v := experienceVisibility(nil, func(_ context.Context, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key, Type: core.TypeShow, Adult: true}, nil
 	}, nil, nil, []experience.Library{{ID: 1, Type: core.TypeMovie}, {ID: 2, Type: core.TypeShow}})
-	viewer := &core.User{ID: 1, AllowedSections: []int{2}}
+	viewer := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{2}}
 	if v.Visible(context.Background(), viewer, episode) {
 		t.Fatal("episode with hidden parent was visible")
 	}

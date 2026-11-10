@@ -661,7 +661,7 @@ func (e *Engine) homeWithPolicy(ctx context.Context, user *core.User, hc core.Hu
 	}
 	key := memoKey{user: u.ID, section: section, bucket: hc.Bucket(), day: day, hour: hc.Now.Hour(), limit: limit, model: m.version,
 		layout: layoutVer, stats: stats.at.UnixNano(), owner: ownerVer, cw: progressSig(inprog),
-		limits: u.MaxContentRating + "|" + fmt.Sprint(u.AllowedSections, u.IsOwner), intent: intentVer, tuning: tune.key(), exclusions: exclusionSig}
+		limits: u.MaxContentRating + "|" + fmt.Sprint(u.AllowedLibraries, u.IsOwner), intent: intentVer, tuning: tune.key(), exclusions: exclusionSig}
 	if lead != nil {
 		key.lead = lead.sig
 	}
@@ -891,12 +891,12 @@ func progressSig(sts []core.WatchStatus) string {
 // allowedFor returns the media types a viewer's allowed sections cover
 // (nil = everything).
 func (e *Engine) allowedFor(u *core.User) func(core.MediaType) bool {
-	if u == nil || u.IsOwner || len(u.AllowedSections) == 0 {
+	if u == nil || u.IsOwner || len(u.AllowedLibraries) == 0 {
 		return nil
 	}
 	ok := map[core.MediaType]bool{}
-	for _, id := range u.AllowedSections {
-		if t, found := e.opts.Sections[id]; found {
+	for _, id := range u.AllowedLibraries {
+		if t, found := e.opts.Sections[int(id)]; found {
 			ok[t] = true
 		}
 	}

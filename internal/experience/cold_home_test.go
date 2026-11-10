@@ -9,7 +9,7 @@ import (
 )
 
 func TestColdHomeRowsSkipHiddenLibrariesAndCapThePage(t *testing.T) {
-	viewer := &core.User{ID: 3, AllowedSections: []int{1}}
+	viewer := &core.User{ID: 3, AllowedLibraries: []core.LibraryID{1}}
 	libraries := []Library{{ID: 1, Name: "Movies", Type: core.TypeMovie}, {ID: 2, Name: "TV Shows", Type: core.TypeShow}}
 	var limits []int
 	rows, err := ColdHomeRows(context.Background(), viewer, libraries, Visibility{}, 500, []core.RatingKey{core.MovieKey(9)}, func(_ context.Context, q core.BrowseQuery) (core.Page, error) {
@@ -42,10 +42,10 @@ func TestLibrarySectionMapsEpisodesToShows(t *testing.T) {
 		t.Fatalf("episode library %d %v", id, ok)
 	}
 	v := BindVisibility(nil, nil, nil, nil, libraries)
-	if !v.TitleAllowed(&core.User{AllowedSections: []int{2}}, &core.Title{Type: core.TypeShow}) {
+	if !v.TitleAllowed(&core.User{AllowedLibraries: []core.LibraryID{2}}, &core.Title{Type: core.TypeShow}) {
 		t.Fatal("show library hidden")
 	}
-	if v.TitleAllowed(&core.User{AllowedSections: []int{2}}, &core.Title{Type: core.TypeMovie}) {
+	if v.TitleAllowed(&core.User{AllowedLibraries: []core.LibraryID{2}}, &core.Title{Type: core.TypeMovie}) {
 		t.Fatal("movie library visible")
 	}
 }

@@ -10,7 +10,7 @@ import (
 
 func TestPersonFacetIDsAuthorizeParentAndCredits(t *testing.T) {
 	ctx := context.Background()
-	viewer := &core.User{ID: 1, AllowedSections: []int{2}}
+	viewer := &core.User{ID: 1, AllowedLibraries: []core.LibraryID{2}}
 	show := core.Title{Key: core.ShowKey(1), Type: core.TypeShow}
 	episode := core.Title{Key: core.EpisodeKey(1, 1, 1), Type: core.TypeEpisode, ShowKey: show.Key, Cast: []core.Person{{TMDB: 10, Name: "Actor"}, {TMDB: 10, Name: "Actor"}, {TMDB: 99}}, Directors: []core.Person{{TMDB: 20, Name: "Director"}}, Writers: []core.Person{{TMDB: 30, Name: "Writer"}}, Crew: []core.Person{{TMDB: 40, Name: "Crew"}}}
 	titles := map[core.RatingKey]*core.Title{show.Key: &show, episode.Key: &episode}

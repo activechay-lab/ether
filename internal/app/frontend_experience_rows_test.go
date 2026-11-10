@@ -38,7 +38,7 @@ func TestExperienceHomeFallbackUsesVisibleLibrariesAndReleaseOrder(t *testing.T)
 	if viewer == nil {
 		t.Fatal("viewer missing")
 	}
-	viewer.AllowedSections = []int{1}
+	viewer.AllowedLibraries = []core.LibraryID{1}
 	viewer.MaxContentRating = "PG"
 	if err = a.users.UpdateUser(ctx, *viewer); err != nil {
 		t.Fatal(err)

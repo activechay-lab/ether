@@ -139,7 +139,7 @@ func TestScheduledEpisodeViewerGuardsAndAlternateOrder(t *testing.T) {
 			switch restriction {
 			case "section":
 				token = "movie-only"
-				f.srv.d.Auth.(*fakeAuth).users[token] = core.User{ID: 88, AllowedSections: []int{1}}
+				f.srv.d.Auth.(*fakeAuth).users[token] = core.User{ID: 88, AllowedLibraries: []core.LibraryID{1}}
 			case "rating":
 				token = "young"
 				f.srv.d.Auth.(*fakeAuth).users[token] = core.User{ID: 89, MaxContentRating: "PG"}
