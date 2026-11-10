@@ -96,7 +96,7 @@ export function Experience() {
               tone={startTone(h.startMedianMs) ?? "primary"}
             />
             <Kpi
-              label={t("Buffering")}
+              label={t("Stalls")}
               value={
                 <ToneValue
                   value={formatPerHour(h.bufferEventsPerHour)}
@@ -190,7 +190,7 @@ export function Experience() {
               },
               {
                 key: "buffering",
-                header: t("Buffering"),
+                header: t("Stalls"),
                 align: "right",
                 sortValue: (r) => r.metrics.bufferEventsPerHour ?? -1,
                 cell: (r) => (

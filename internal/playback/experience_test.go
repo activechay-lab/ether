@@ -38,17 +38,23 @@ func TestExperienceAccountsStartAndBufferingFromTimelines(t *testing.T) {
 	step("plex-tv", movieKey, 10*time.Second, 10*time.Second, "playing")
 	step("plex-tv", movieKey, 2*time.Second, 12*time.Second, "buffering")
 	step("plex-tv", movieKey, 4*time.Second, 12*time.Second, "playing") // 4 s stall
-	step("plex-tv", movieKey, time.Second, 13*time.Second, "buffering") // second stall
-	step("plex-tv", movieKey, time.Second, 13*time.Second, "paused")    // 1 s
-	step("plex-tv", movieKey, time.Second, 13*time.Second, "buffering") // third, still open
+	step("plex-tv", movieKey, time.Second, 13*time.Second, "buffering") // a 1 s blip
+	step("plex-tv", movieKey, time.Second, 13*time.Second, "paused")    // under the floor: not a stall
+	step("plex-tv", movieKey, time.Second, 13*time.Second, "buffering") // still open, only 2 s so far
 	h.clock.Advance(2 * time.Second)
-	if e := exp(plex.ID); e.StartTime != 3*time.Second || e.BufferEvents != 3 || e.Buffering != 7*time.Second {
+	if e := exp(plex.ID); e.StartTime != 3*time.Second || e.BufferEvents != 1 || e.Buffering != 4*time.Second {
 		t.Fatalf("plex buffering %+v", e)
 	}
 	step("plex-tv", movieKey, 0, 13*time.Second, "playing")
-	step("plex-tv", movieKey, time.Hour, 13*time.Second, "buffering") // a vanished client is capped
-	step("plex-tv", movieKey, time.Hour, 13*time.Second, "stopped")
-	if e := exp(plex.ID); e.BufferEvents != 4 || e.Buffering != 7*time.Second+bufferingCap {
+	// A seek: the player rebuffers at the new position. Not a stall.
+	step("plex-tv", movieKey, time.Second, 600*time.Second, "buffering")
+	step("plex-tv", movieKey, 6*time.Second, 600*time.Second, "playing")
+	if e := exp(plex.ID); e.BufferEvents != 1 || e.Buffering != 4*time.Second {
+		t.Fatalf("plex seek counted as a stall %+v", e)
+	}
+	step("plex-tv", movieKey, time.Hour, 600*time.Second, "buffering") // a vanished client is capped
+	step("plex-tv", movieKey, time.Hour, 600*time.Second, "stopped")
+	if e := exp(plex.ID); e.BufferEvents != 2 || e.Buffering != 4*time.Second+bufferingCap {
 		t.Fatalf("plex capped stall %+v", e)
 	}
 

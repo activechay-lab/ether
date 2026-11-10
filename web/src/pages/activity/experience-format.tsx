@@ -29,7 +29,7 @@ export function formatSeconds(ms: number | null | undefined): string {
 /** Buffering events per hour of playback, "—" when nothing was measured. */
 export function formatPerHour(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return DASH;
-  return t("{rate}/h", { rate: fixed(v, v < 10 ? 1 : 0) });
+  return t("{rate} per hour", { rate: fixed(v, v < 10 ? 1 : 0) });
 }
 
 export function formatMbps(kbps: number | null | undefined): string {
@@ -209,7 +209,7 @@ export function causeSentence(cause: ExperienceCause, viewerId: number): ReactNo
       );
     case "buffering":
       return tx(
-        "Playback buffers {rate} with no other clear cause. Their connection may be too slow; try a Mbps cap in their {limits}.",
+        "Playback stalls {rate} with no other clear cause. Their connection may be too slow; try a Mbps cap in their {limits}.",
         {
           rate: formatPerHour(cause.perHour),
           limits: link(`/viewers/${viewerId}/limits`, t("limits")),

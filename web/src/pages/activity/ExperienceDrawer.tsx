@@ -228,7 +228,7 @@ export function MetricFacts({ m, wide = false }: { m: ExperienceMetrics; wide?: 
         <ToneValue value={formatSeconds(m.startMedianMs)} tone={startTone(m.startMedianMs)} />
       </Fact>
       <Fact
-        label={t("Buffering")}
+        label={t("Stalls")}
         hint={
           m.measuredPlays
             ? t("{minutes} min in total", { minutes: Math.round(m.bufferMs / 60000) })

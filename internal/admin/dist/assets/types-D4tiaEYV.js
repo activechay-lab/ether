@@ -1,1 +1,0 @@
-import{a as t}from"./index-BoFWV5qg.js";const r=e=>{const n=e.title||e.username;return e.isOwner?t("{name} (owner)",{name:n}):n};function s(e){const n=-new Date().getTimezoneOffset();return`?days=${e.days}&user=${encodeURIComponent(e.user)}${e.year?`&year=${e.year}`:""}&tz=${n}`}const o=e=>Math.round(e/36e4)/10;export{s as a,o as h,r as v};

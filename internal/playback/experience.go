@@ -34,8 +34,10 @@ type experienceState struct {
 	baseAt  time.Time
 	basePos time.Duration
 
-	// Explicit buffering (Plex timelines).
+	// Explicit buffering (Plex timelines). A spell that began with a
+	// position jump is a seek, not a stall.
 	bufferingSince time.Time
+	bufferingSeek  bool
 	// Inferred stalls (Jellyfin, Emby, Silo).
 	lastAt  time.Time
 	lastPos time.Duration
@@ -75,12 +77,20 @@ func (e *experienceState) observe(now time.Time, explicit bool, pos time.Duratio
 	}
 	if explicit {
 		if !e.bufferingSince.IsZero() && state != "buffering" {
-			e.buffered += min(max(0, now.Sub(e.bufferingSince)), bufferingCap)
-			e.bufferingSince = time.Time{}
+			if d, ok := e.explicitStall(now); ok {
+				e.events++
+				e.buffered += d
+			}
+			e.bufferingSince, e.bufferingSeek = time.Time{}, false
 		}
 		if state == "buffering" && e.bufferingSince.IsZero() {
-			e.events++
 			e.bufferingSince = now
+			// Players rebuffer after every seek or scrub: a buffering
+			// report whose position left the playback line is the seek.
+			e.bufferingSeek = !e.lastAt.IsZero() && (pos < e.lastPos-time.Second || pos-e.lastPos > now.Sub(e.lastAt)+stallSeekSlack)
+		}
+		if state == "playing" || state == "paused" {
+			e.lastAt, e.lastPos = now, pos
 		}
 		return
 	}
@@ -150,10 +160,23 @@ func (e *experienceState) snapshot(now time.Time) *core.PlayExperience {
 			out.StartTime = max(0, e.pictureAt.Sub(e.requestedAt))
 		}
 	}
-	if !e.bufferingSince.IsZero() {
-		out.Buffering += min(max(0, now.Sub(e.bufferingSince)), bufferingCap)
+	if d, ok := e.explicitStall(now); ok {
+		out.BufferEvents++
+		out.Buffering += d
 	}
 	return out
+}
+
+// explicitStall reports a Plex buffering spell as a stall: one that began
+// mid-play (not with a seek) and lasted at least stallMinimum, the same
+// floor inferred stalls use. Shorter blips and post-seek rebuffering are not
+// counted.
+func (e *experienceState) explicitStall(now time.Time) (time.Duration, bool) {
+	if e.bufferingSince.IsZero() || e.bufferingSeek {
+		return 0, false
+	}
+	d := min(max(0, now.Sub(e.bufferingSince)), bufferingCap)
+	return d, d >= stallMinimum
 }
 
 // NotePlayRequest records when a frontend's play request for a prepared
