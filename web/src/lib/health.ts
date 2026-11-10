@@ -474,7 +474,7 @@ export function catalogHealth(v: unknown, now = new Date()): HealthItem {
   const base = {
     id: "catalog" as const,
     label: t("Catalog"),
-    href: "/catalog",
+    href: "/libraries",
   };
   const err = errorOf(v);
   if (err) return { ...base, level: "error", summary: err, details: [] };

@@ -72,7 +72,7 @@ export function settingsIndex(): SettingHit[] {
   const general = t("General");
   const quality = t("Quality");
   const playback = t("Playback");
-  const catalog = t("Catalog settings");
+  const catalog = t("Library settings");
   const plex = "Plex";
   const away = t("Away from home");
   return [
@@ -147,9 +147,9 @@ export function settingsIndex(): SettingHit[] {
     ),
     ...groupHits(S.DOWNLOADS, "/apps/plex/downloads", plex),
     // Catalog
-    ...groupHits(S.CATALOG, "/catalog/settings", catalog),
-    ...groupHits([UpcomingEpisodeSettings], "/catalog/settings", catalog),
-    ...rows("/catalog/settings", catalog, [
+    ...groupHits(S.CATALOG, "/libraries/settings", catalog),
+    ...groupHits([UpcomingEpisodeSettings], "/libraries/settings", catalog),
+    ...rows("/libraries/settings", catalog, [
       ["hide-obscure-titles", t("Hide obscure titles")],
       ["watchlist-monitoring", t("Watchlist monitoring")],
       ["plex-watchlists", t("Plex watchlists")],
@@ -159,7 +159,7 @@ export function settingsIndex(): SettingHit[] {
       ["plex-your-watchlist-rss", t("Your Watchlist RSS")],
       ["check-every", t("Check every")],
     ]),
-    ...rows("/catalog/settings", `${catalog} › ${t("New releases")}`, [
+    ...rows("/libraries/settings", `${catalog} › ${t("New releases")}`, [
       ["when-they-can-play", t("When they can play")],
       ["on-digital-release", t("On digital release")],
       ["home-release-offset", t("Home-release offset (days)")],

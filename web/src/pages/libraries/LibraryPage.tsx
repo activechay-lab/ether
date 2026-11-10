@@ -1,5 +1,5 @@
 import { Button, EmptyState } from "@braedonsaunders/appkit-ui";
-import { ArrowLeft, Layers, Plus } from "lucide-react";
+import { ArrowLeft, ChevronRight, Layers, Plus } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useApp } from "../../app-context";
@@ -41,11 +41,22 @@ function LibraryCollections({ library }: { library: Library }) {
       />
     );
   return (
-    <ul className="library-collections">
+    <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
       {applicable.map((c) => (
         <li key={c.id ?? c.name}>
-          <Link to={c.id ? `/collections/${c.id}` : "/collections"}>{c.name}</Link>
-          {c.description ? <span className="text-sm text-fg-muted"> · {c.description}</span> : null}
+          <Link
+            to={c.id ? `/collections/${c.id}` : "/collections"}
+            className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-surface-hover"
+          >
+            <Layers size={16} className="shrink-0 text-fg-muted" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium text-fg">{c.name}</span>
+              {c.description ? (
+                <span className="block truncate text-sm text-fg-muted">{c.description}</span>
+              ) : null}
+            </span>
+            <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
+          </Link>
         </li>
       ))}
     </ul>
@@ -144,19 +155,18 @@ export function LibraryPage() {
               }}
             />
           )
-        ) : tab === "collections" ? (
-          <LibraryCollections library={lib} />
         ) : tab === "rules" ? (
-          <>
-            <p className="pb-3 text-sm text-fg-muted">
-              {t(
-                "These rules are global: they decide what every Movies and TV Shows library shows. Editing them here edits them everywhere.",
-              )}
-            </p>
-            <CatalogSettings />
-          </>
+          <CatalogSettings embedded />
         ) : (
-          <LibrarySettings library={lib} onSaved={() => void library.reload()} />
+          <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-5xl space-y-5 px-5 py-5 lg:px-7">
+              {tab === "collections" ? (
+                <LibraryCollections library={lib} />
+              ) : (
+                <LibrarySettings library={lib} onSaved={() => void library.reload()} />
+              )}
+            </div>
+          </div>
         )}
       </Workspace>
       {savingAsLibrary ? (

@@ -125,8 +125,8 @@ const PAGES = localized<PageDef[]>(() => [
     ),
   },
   {
-    href: "/catalog",
-    title: t("Catalog"),
+    href: "/libraries",
+    title: t("Libraries"),
     sections: [
       {
         key: "rules",

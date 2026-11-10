@@ -1,6 +1,7 @@
 import { Button, EmptyState, SettingsSection, Switch, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   Clapperboard,
   EyeOff,
@@ -19,6 +20,7 @@ import { useApp } from "../../app-context";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { LevelBadge } from "../../components/status";
+import { DomainPage } from "../../components/layout";
 import { Workspace } from "../../components/workspace";
 import { t, tn } from "../../i18n";
 import { errorMessage } from "../../lib/api";
@@ -31,18 +33,27 @@ import { LibraryPage } from "./LibraryPage";
 import "./libraries.css";
 
 /** /libraries root: list, the global catalogue settings, one library. */
+function LibrarySettingsPage() {
+  const navigate = useNavigate();
+  return (
+    <Workspace
+      leading={
+        <Button size="sm" variant="ghost" onClick={() => navigate("/libraries")}>
+          <ArrowLeft size={14} /> {t("Libraries")}
+        </Button>
+      }
+      title={t("Library settings")}
+    >
+      <CatalogSettings />
+    </Workspace>
+  );
+}
+
 export default function Libraries() {
   return (
     <Routes>
       <Route index element={<LibrariesList />} />
-      <Route
-        path="settings"
-        element={
-          <Workspace title={t("Library settings")}>
-            <CatalogSettings />
-          </Workspace>
-        }
-      />
+      <Route path="settings/:tab?" element={<LibrarySettingsPage />} />
       <Route path=":id/:tab?" element={<LibraryPage />} />
       <Route path="*" element={<Navigate to="/libraries" replace />} />
     </Routes>
@@ -112,9 +123,10 @@ function LibrariesList() {
   };
 
   return (
-    <Workspace
+    <DomainPage
       title={t("Libraries")}
-      subtitle={t("Everything your viewers can open, in one place.")}
+      description={t("Everything your viewers can open, in one place.")}
+      base="/libraries"
       actions={
         <>
           <Button size="sm" variant="outline" onClick={() => navigate("/libraries/settings")}>
@@ -164,7 +176,7 @@ function LibrariesList() {
                   {lib.source === "builtin" && catalogHealth ? (
                     <LevelBadge
                       level={catalogHealth.level}
-                      label={catalogHealth.level === "ok" ? t("Healthy") : catalogHealth.summary}
+                      label={catalogHealth.level === "ok" ? t("Healthy") : t("Needs attention")}
                     />
                   ) : syncBad ? (
                     <LevelBadge level="error" label={t("Sync failed")} />
@@ -183,9 +195,10 @@ function LibrariesList() {
                     t("Only in this console for now")
                   )}
                 </p>
-                {syncBad ? (
+                {syncBad ||
+                (lib.source === "builtin" && catalogHealth && catalogHealth.level !== "ok") ? (
                   <p className="library-card-error" role="alert">
-                    {syncBad}
+                    {syncBad || catalogHealth?.summary}
                   </p>
                 ) : null}
                 <div className="library-card-actions">
@@ -215,24 +228,26 @@ function LibrariesList() {
                     <span>{t("Hidden")}</span>
                   </label>
                   <span className="flex-1" />
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label={t("Move {name} up", { name: lib.name })}
-                    disabled={busy || i === 0}
-                    onClick={() => move(lib, -1)}
-                  >
-                    <ArrowUp size={14} />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label={t("Move {name} down", { name: lib.name })}
-                    disabled={busy || i === libs.length - 1}
-                    onClick={() => move(lib, 1)}
-                  >
-                    <ArrowDown size={14} />
-                  </Button>
+                  <span className="inline-flex shrink-0 items-center">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={t("Move {name} up", { name: lib.name })}
+                      disabled={busy || i === 0}
+                      onClick={() => move(lib, -1)}
+                    >
+                      <ArrowUp size={14} />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={t("Move {name} down", { name: lib.name })}
+                      disabled={busy || i === libs.length - 1}
+                      onClick={() => move(lib, 1)}
+                    >
+                      <ArrowDown size={14} />
+                    </Button>
+                  </span>
                   {lib.source === "filter" ? (
                     <Button
                       size="icon"
@@ -263,7 +278,7 @@ function LibrariesList() {
         </div>
       )}
       <SettingsSection title={t("Good to know")}>
-        <p className="text-sm text-fg-muted">
+        <p className="px-5 py-4 text-sm text-fg-muted">
           {t(
             "A new saved-filter library stays in this console until you turn on “Show in apps” in its Settings tab. Plugin libraries arrive with their plugin and leave with it.",
           )}
@@ -315,6 +330,6 @@ function LibrariesList() {
           {t("This is the name viewers see in their apps. You can change it any time.")}
         </p>
       </Drawer>
-    </Workspace>
+    </DomainPage>
   );
 }

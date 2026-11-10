@@ -886,7 +886,7 @@ export function ConnectedServices({
             name="TMDB"
             enabled
             ready={secretConfigured(stored?.catalog?.tmdbKey)}
-            href="/catalog"
+            href="/libraries"
             usage={t("Names titles and supplies artwork throughout the catalog.")}
           >
             {tmdbForm}

@@ -73,7 +73,7 @@ function PresentationsEditor({ library, onSaved }: { library: Library; onSaved: 
 
   return (
     <SettingsSection title={t("Show in apps")}>
-      <p className="pb-2 text-sm text-fg-muted">
+      <p className="px-5 pt-4 pb-2 text-sm text-fg-muted">
         {t("Choose where this library appears. Anything off stays just in this console.")}
       </p>
       {row(
@@ -165,8 +165,8 @@ function FilterSummary({ library }: { library: Library }) {
   if (f.group) parts.push(t("plus your filter choices"));
   return (
     <SettingsSection title={t("What is in it")}>
-      <p className="text-sm">{parts.join(" · ")}</p>
-      <p className="pt-1 text-sm text-fg-muted">
+      <p className="px-5 pt-4 text-sm">{parts.join(" · ")}</p>
+      <p className="px-5 pt-1 pb-4 text-sm text-fg-muted">
         {t(
           "Titles stay in Movies and TV Shows too — this library is another way to reach them. The filter itself cannot be changed yet; delete and recreate the library to change it.",
         )}
@@ -289,18 +289,22 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
 
       {library.source === "builtin" ? (
         <SettingsSection title={t("Show in apps")}>
-          <p className="text-sm text-fg-muted">
-            {t("Movies and TV Shows appear in every app. Use “Hide from apps” above to hide one.")}
-          </p>
-          <p className="pt-2 text-sm">
-            <Link to="/metadata" className="text-primary underline">
-              {t("Metadata settings")}
-            </Link>
-            {" · "}
-            <Link to="/libraries/settings" className="text-primary underline">
-              {t("Catalog-wide settings")}
-            </Link>
-          </p>
+          <div className="px-5 py-4 text-sm">
+            <p className="text-fg-muted">
+              {t(
+                "Movies and TV Shows appear in every app. Use “Hide from apps” above to hide one.",
+              )}
+            </p>
+            <p className="pt-2">
+              <Link to="/metadata" className="text-primary underline">
+                {t("Metadata settings")}
+              </Link>
+              {" · "}
+              <Link to="/libraries/settings" className="text-primary underline">
+                {t("Catalog-wide settings")}
+              </Link>
+            </p>
+          </div>
         </SettingsSection>
       ) : (
         <PresentationsEditor library={library} onSaved={onSaved} />

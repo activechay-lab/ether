@@ -11,6 +11,7 @@ import { CacheExplorer } from "./CacheExplorer";
 import { selectionReason, shelfStateLabel } from "./reasons";
 import { WarmNewArrivals } from "../viewers/sections/WatchlistDefaults";
 import { LibraryCaches } from "../libraries/LibraryCache";
+import { librariesApi } from "../libraries/api";
 const CACHE_TABS = localized(
   () =>
     [
@@ -160,7 +161,11 @@ export default function Cache() {
   const { health } = useApp();
   const config = useAsync(() => api.getConfig(), []);
   const live = useAsync((signal) => apiFetch<CacheSnapshot>("/cache/", { signal }), []);
-  const tab = useRouteTab(CACHE_TABS);
+  // The Libraries tab lists plugin libraries' file caches; without one it has nothing to show.
+  const libraries = useAsync((signal) => librariesApi.list(signal), []);
+  const hasLibraryCaches = (libraries.data ?? []).some((l) => l.source === "plugin");
+  const cacheTabs = CACHE_TABS.filter((x) => x.key !== "libraries" || hasLibraryCaches);
+  const tab = useRouteTab(cacheTabs);
   // Keep the explorer live, and back off after failures.
   const [pollFailures, setPollFailures] = useState(0);
   useEffect(() => {
@@ -338,7 +343,7 @@ export default function Cache() {
             ariaLabel={t("Cache sections")}
             active={tab}
             onSelect={(key) => navigate(`/cache/${key}`)}
-            tabs={CACHE_TABS.map((tabDef) =>
+            tabs={cacheTabs.map((tabDef) =>
               tabDef.key === "explorer" && snap?.releases.length
                 ? { ...tabDef, count: snap.releases.length }
                 : tabDef,

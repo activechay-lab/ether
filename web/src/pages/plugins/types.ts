@@ -436,7 +436,8 @@ export function buildPlacements(descriptors: Descriptor[], pluginId: string): Pl
         const meta = (isPlainObject(d.meta) ? d.meta : {}) as { slot?: string };
         area = t("Console slot");
         if (meta.slot === "dashboard.panel") href = "/";
-        else if (meta.slot === "title.panel" || meta.slot === "actionMenu.title") href = "/catalog";
+        else if (meta.slot === "title.panel" || meta.slot === "actionMenu.title")
+          href = "/libraries";
         else if (meta.slot === "viewer.tab" || meta.slot === "actionMenu.viewer") href = "/viewers";
         else if (meta.slot === "actionMenu.collection") href = "/collections";
         else if (meta.slot === "actionMenu.release") href = "/releases";

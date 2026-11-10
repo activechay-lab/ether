@@ -1,13 +1,13 @@
 .libraries-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
 .library-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.75rem;
-  background: var(--surface);
+  background: var(--color-surface);
   padding: 1rem;
   display: flex;
   flex-direction: column;
@@ -22,7 +22,7 @@
   display: inline-flex;
   padding: 0.5rem;
   border-radius: 0.5rem;
-  background: var(--surface-hover);
+  background: var(--color-surface-hover);
 }
 .library-card-name {
   font-weight: 600;
@@ -34,14 +34,14 @@
 .library-card-meta,
 .library-card-apps {
   font-size: 0.85rem;
-  color: var(--fg-muted);
+  color: var(--color-fg-muted);
   display: flex;
   align-items: center;
   gap: 0.35rem;
 }
 .library-card-error {
   font-size: 0.85rem;
-  color: var(--danger, #b3261e);
+  color: var(--color-danger, #b3261e);
 }
 .library-card-actions {
   display: flex;
@@ -66,16 +66,16 @@
 .library-field select,
 .library-cache-input input,
 .library-present-row input {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.45rem;
-  background: var(--bg);
+  background: var(--color-bg);
   padding: 0.45rem 0.6rem;
 }
 .library-field small {
-  color: var(--fg-muted);
+  color: var(--color-fg-muted);
 }
 .library-field-error {
-  color: var(--danger, #b3261e);
+  color: var(--color-danger, #b3261e);
 }
 .library-present-row,
 .library-cache-input {
@@ -84,7 +84,7 @@
   gap: 0.5rem;
 }
 .library-setup-banner {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.6rem;
   padding: 0.75rem 1rem;
   display: flex;
@@ -124,10 +124,10 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.45rem;
   padding: 0.35rem 0.6rem;
-  background: var(--bg);
+  background: var(--color-bg);
 }
 .plugin-search input {
   background: transparent;
@@ -154,7 +154,7 @@
   width: 100%;
   object-fit: cover;
   border-radius: 0.5rem;
-  background: var(--surface-hover);
+  background: var(--color-surface-hover);
 }
 .plugin-card-fallback {
   display: grid;
@@ -168,7 +168,7 @@
 }
 .plugin-card-meta {
   font-size: 0.8rem;
-  color: var(--fg-muted);
+  color: var(--color-fg-muted);
 }
 .plugin-item-head {
   display: flex;
@@ -189,7 +189,7 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--fg-muted);
+  color: var(--color-fg-muted);
 }
 .plugin-item-children {
   display: flex;
@@ -206,12 +206,12 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.55rem;
   padding: 0.6rem 0.8rem;
 }
 .plugin-match-list li.is-chosen {
-  border-color: var(--primary);
+  border-color: var(--color-primary);
 }
 .plugin-match-ref {
   font-family: ui-monospace, monospace;
@@ -235,9 +235,9 @@
   text-align: left;
 }
 .setup-step.is-active {
-  border-color: var(--border);
-  background: var(--surface-hover);
+  border-color: var(--color-border);
+  background: var(--color-surface-hover);
 }
 .setup-step small {
-  color: var(--fg-muted);
+  color: var(--color-fg-muted);
 }

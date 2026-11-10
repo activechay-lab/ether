@@ -88,7 +88,8 @@ function ObscureTitles({ draft, onChange }: { draft: Obj; onChange: (next: Obj) 
   );
 }
 
-export function CatalogSettings() {
+/** embedded: shown inside a library's Rules tab, without the General/Rules sub-tabs. */
+export function CatalogSettings({ embedded = false }: { embedded?: boolean } = {}) {
   const { tab } = useParams();
   const navigate = useNavigate();
   const section = tab === "rules" ? "rules" : "library";
@@ -147,19 +148,21 @@ export function CatalogSettings() {
   return (
     <div className="catalog-scroll app-scroll">
       <div className="space-y-4 px-5 pb-5 pt-3 lg:px-7">
-        <div className="pb-1">
-          <SubtabNav
-            ariaLabel={t("Catalog settings")}
-            active={section}
-            onSelect={(key) =>
-              navigate(key === "rules" ? "/libraries/1/rules" : "/libraries/settings")
-            }
-            tabs={[
-              { key: "library", label: t("General") },
-              { key: "rules", label: t("Rules") },
-            ]}
-          />
-        </div>
+        {embedded ? null : (
+          <div className="pb-1">
+            <SubtabNav
+              ariaLabel={t("Catalog settings")}
+              active={section}
+              onSelect={(key) =>
+                navigate(key === "rules" ? "/libraries/settings/rules" : "/libraries/settings")
+              }
+              tabs={[
+                { key: "library", label: t("General") },
+                { key: "rules", label: t("Rules") },
+              ]}
+            />
+          </div>
+        )}
         {config.error ? (
           <ErrorPanel error={config.error} onRetry={() => void config.reload()} />
         ) : null}
@@ -170,7 +173,11 @@ export function CatalogSettings() {
         ) : section === "rules" ? (
           <>
             <p className="text-sm text-fg-muted">
-              {t("Global rules are the default for every viewer. Set exceptions in Viewers.")}
+              {embedded
+                ? t(
+                    "These rules are global: they decide what every Movies and TV Shows library shows. Editing them here edits them everywhere.",
+                  )
+                : t("Global rules are the default for every viewer. Set exceptions in Viewers.")}
             </p>
             <RulesPanel
               rules={rules}

@@ -592,7 +592,10 @@ function Shell() {
                 path="/catalog/settings"
                 element={<Navigate to="/libraries/settings" replace />}
               />
-              <Route path="/catalog/rules" element={<Navigate to="/libraries/1/rules" replace />} />
+              <Route
+                path="/catalog/rules"
+                element={<Navigate to="/libraries/settings/rules" replace />}
+              />
               <Route path="/catalog/*" element={<Navigate to="/libraries" replace />} />
               <Route
                 path="*"
