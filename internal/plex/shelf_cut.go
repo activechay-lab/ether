@@ -12,7 +12,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // The refresh interval selects a NEW generation only when building a screen.
@@ -22,7 +21,7 @@ const shelfMaxBytes = 32 << 20
 const shelfRetention = 7 * 24 * time.Hour
 
 func init() {
-	store.Register("plex_shelf_generations", 1, `
+	frontend.RegisterMigration("plex_shelf_generations", 1, `
 CREATE TABLE plex_shelf_generations (
  generation TEXT PRIMARY KEY,
  scope TEXT NOT NULL,

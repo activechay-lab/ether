@@ -5,12 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/braedonsaunders/ether/internal/store"
 	"net/netip"
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -50,7 +48,7 @@ const (
 type clusterState struct {
 	s      *Server
 	db     *sql.DB
-	node   clusterbus.Node
+	node   frontend.ClusterNode
 	self   string
 	origin string
 	unsubs []func()
@@ -75,8 +73,8 @@ type clusterState struct {
 	expireFail *faillog.Tracker
 }
 
-func newClusterState(s *Server, db *sql.DB, node clusterbus.Node) *clusterState {
-	return &clusterState{s: s, db: db, node: node, self: node.NodeID(), origin: clusterbus.NewOrigin(),
+func newClusterState(s *Server, db *sql.DB, node frontend.ClusterNode) *clusterState {
+	return &clusterState{s: s, db: db, node: node, self: node.NodeID(), origin: frontend.NewClusterOrigin(),
 		heartbeat: cmp.Or(s.d.SessionHeartbeat, sessionHeartbeat), ttl: sessionTTL,
 		kick: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 		syncFail:   faillog.New(s.log, "plex: cluster: heartbeat sessions"),
@@ -93,7 +91,7 @@ func (c *clusterState) start() {
 		c.node.Subscribe(topicNotify, c.onNotify),
 		c.node.Subscribe(topicTerminate, c.onTerminate),
 		c.node.Subscribe("invalidate:playqueue", c.onQueueChanged),
-		c.node.Subscribe(clusterbus.TopicResync, func([]byte) { c.s.queues.DropCache() }),
+		c.node.Subscribe(frontend.ClusterTopicResync, func([]byte) { c.s.queues.DropCache() }),
 	}
 	go c.loop()
 }
@@ -127,12 +125,12 @@ func (c *clusterState) publish(topic string, v any) {
 	if err != nil {
 		return
 	}
-	msg := clusterbus.Tag(c.origin, b)
-	if len(msg) > clusterbus.MaxPayload {
+	msg := frontend.TagClusterMessage(c.origin, b)
+	if len(msg) > frontend.ClusterMaxPayload {
 		c.s.log.Debug("plex: cluster event too large to share", "topic", topic, "bytes", len(msg))
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), clusterbus.PublishTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), frontend.ClusterPublishTimeout)
 	defer cancel()
 	if err := c.node.Publish(ctx, topic, msg); err != nil {
 		c.warn("publish "+topic, err)
@@ -141,7 +139,7 @@ func (c *clusterState) publish(topic string, v any) {
 
 // remote unwraps an event from another node (ok=false for our own).
 func (c *clusterState) remote(msg []byte, v any) bool {
-	origin, payload := clusterbus.Untag(msg)
+	origin, payload := frontend.UntagClusterMessage(msg)
 	if origin == c.origin {
 		return false
 	}
@@ -305,7 +303,7 @@ ON CONFLICT(id) DO UPDATE SET node_id=excluded.node_id, user_id=excluded.user_id
 	}
 	q := `DELETE FROM plex_sessions WHERE node_id=? AND surface IS NULL AND (protocol IS NULL OR protocol='plex')`
 	if len(entries) > 0 {
-		q += ` AND id NOT IN (` + store.Placeholders(len(entries)) + `)`
+		q += ` AND id NOT IN (` + frontend.SQLPlaceholders(len(entries)) + `)`
 	}
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return err

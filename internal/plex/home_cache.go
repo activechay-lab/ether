@@ -16,9 +16,8 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/reqmemo"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/reqmemo"
-	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // Plex Home (/hubs, /hubs/promoted, /hubs/sections/{id}) is served from
@@ -520,7 +519,7 @@ func (s *Server) warmKey(ctx context.Context, pr *Request, key frontend.RatingKe
 		return
 	}
 	if pw, ok := s.d.Playback.(frontend.Prewarmer); ok {
-		pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), frontend.PrewarmOptions{Reason: frontend.PrewarmBrowse})
+		pw.Prewarm(frontend.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), frontend.PrewarmOptions{Reason: frontend.PrewarmBrowse})
 	}
 }
 

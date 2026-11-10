@@ -19,17 +19,12 @@ func TestPlexProductionImportsStayInsideRecordedBoundary(t *testing.T) {
 	allowed := map[string]bool{
 		"github.com/braedonsaunders/ether/internal/artwork":                true,
 		"github.com/braedonsaunders/ether/internal/artwork/service":        true,
-		"github.com/braedonsaunders/ether/internal/clusterbus":             true,
-		"github.com/braedonsaunders/ether/internal/config":                 true,
-		"github.com/braedonsaunders/ether/internal/reqmemo":                true,
 		"github.com/braedonsaunders/ether/internal/experience":             true,
 		"github.com/braedonsaunders/ether/internal/frontend":               true,
-		"github.com/braedonsaunders/ether/internal/homefilter":             true,
 		"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet": true,
 		"github.com/braedonsaunders/ether/internal/livetv":                 true,
 		"github.com/braedonsaunders/ether/internal/plex/model":             true,
 		"github.com/braedonsaunders/ether/internal/sessions":               true,
-		"github.com/braedonsaunders/ether/internal/store":                  true,
 		"github.com/braedonsaunders/ether/internal/transcode":              true,
 	}
 	root := filepath.Join("..", "plex")

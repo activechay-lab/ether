@@ -9,7 +9,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"log/slog"
 	"net/http"
 	"runtime"
@@ -17,11 +16,11 @@ import (
 	"sync"
 	"time"
 
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/clusterbus"
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -135,9 +134,9 @@ type Deps struct {
 	// ApplyClientRules adjusts caps for the owner's quality rules. Nil leaves
 	// the request caps unchanged. The app wires resolver.ApplyClientRules so
 	// this package stays outside the resolver.
-	ApplyClientRules func(config.Quality, frontend.ClientCaps, *frontend.User, string) frontend.ClientCaps
+	ApplyClientRules func(frontend.HostQualityConfig, frontend.ClientCaps, *frontend.User, string) frontend.ClientCaps
 	// Config returns the current settings snapshot.
-	Config func() config.Config
+	Config func() frontend.HostConfig
 	// OwnerSubscription returns the current entitlement snapshot from plex.tv.
 	OwnerSubscription func() (active bool, features []string)
 	// ImageURL builds TMDB image URLs; defaults to image.tmdb.org.
@@ -167,7 +166,7 @@ type Deps struct {
 	// Cluster, when set (clustered nodes only; requires DB), shares play
 	// sessions, play queues, terminations and notifications with the other
 	// nodes. Nil keeps everything in this process.
-	Cluster clusterbus.Node
+	Cluster frontend.ClusterNode
 	// SessionHeartbeat is how often a clustered node refreshes its shared
 	// play sessions (default 10s).
 	SessionHeartbeat time.Duration
@@ -283,7 +282,7 @@ func NewServer(d Deps) *Server {
 		d.Logger = slog.Default()
 	}
 	if d.Config == nil {
-		d.Config = func() config.Config { return config.Config{} }
+		d.Config = func() frontend.HostConfig { return frontend.HostConfig{} }
 	}
 	if d.ImageURL == nil {
 		d.ImageURL = func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path }
@@ -339,7 +338,7 @@ func NewServer(d Deps) *Server {
 	s.queues.Configure(d.Now, nil)
 	if d.DB != nil && d.Cluster == nil {
 		// Standalone queues share the durable store without starting cluster sessions.
-		s.queues.Configure(d.Now, newClusterState(s, d.DB, clusterbus.NewHub().Node("standalone-queues")).queuePersistence())
+		s.queues.Configure(d.Now, newClusterState(s, d.DB, frontend.StandaloneClusterNode("standalone-queues")).queuePersistence())
 	}
 	if d.Cluster != nil && d.DB != nil {
 		s.cl = newClusterState(s, d.DB, d.Cluster)
@@ -433,7 +432,7 @@ func (s *Server) Close() error {
 
 func (s *Server) now() time.Time { return s.d.Now() }
 
-func (s *Server) cfg() config.Config { return s.d.Config() }
+func (s *Server) cfg() frontend.HostConfig { return s.d.Config() }
 
 // identity resolves the effective identity.
 func (s *Server) identity() Identity {
@@ -505,7 +504,7 @@ func (s *Server) buildSections() []Section {
 }
 
 // librarySectionTitle is the Movies / TV Shows name Ether advertises to Plex.
-func librarySectionTitle(t frontend.MediaType, c config.Config) string {
+func librarySectionTitle(t frontend.MediaType, c frontend.HostConfig) string {
 	switch t {
 	case frontend.TypeShow, frontend.TypeSeason, frontend.TypeEpisode:
 		if n := strings.TrimSpace(c.Server.TVShowsLibraryName); n != "" {
@@ -526,7 +525,7 @@ func librarySectionTitle(t frontend.MediaType, c config.Config) string {
 // Server skips that, so a nil provider uses the same empty config. Empty
 // library names already resolve to Movies and TV Shows.
 func (s *Server) withLibraryTitles(secs []Section) []Section {
-	var c config.Config
+	var c frontend.HostConfig
 	if s.d.Config != nil {
 		c = s.cfg()
 	}
