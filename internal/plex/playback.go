@@ -20,7 +20,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // Decision codes. PMS documents the classes (1xxx ok, 2xxx general error,
@@ -259,7 +258,7 @@ func androidFamilyClient(pr *Request) bool {
 	if pr == nil {
 		return false
 	}
-	return transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-list-all-tracks")
+	return frontend.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-list-all-tracks")
 }
 
 // plexAndroidClient identifies the official Android phone and TV players.
@@ -298,7 +297,7 @@ func androidImageSubtitle(pr *Request, info frontend.MediaInfo, opts frontend.De
 	}
 	for _, st := range info.Streams {
 		if st.Type == "subtitle" && !st.External && st.Index == opts.SubtitleStream {
-			return transcode.IsImageSubtitle(st.Codec)
+			return frontend.IsImageSubtitle(st.Codec)
 		}
 	}
 	return false
@@ -314,12 +313,12 @@ func matroskaCarriesText(p *playRequest, info frontend.MediaInfo) bool {
 	if p.protocol == frontend.ProtocolDASH {
 		return false
 	}
-	if p.protocol != frontend.ProtocolHTTP && transcode.HLSContainer(p.caps, "", "") != transcode.ContainerMatroska {
+	if p.protocol != frontend.ProtocolHTTP && frontend.HLSContainer(p.caps, "", "") != frontend.ContainerMatroska {
 		return false
 	}
 	for _, st := range info.Streams {
 		if st.Type == "subtitle" && st.Index == p.opts.SubtitleStream {
-			return !st.External && transcode.IsTextSubtitle(st.Codec)
+			return !st.External && frontend.IsTextSubtitle(st.Codec)
 		}
 	}
 	return false
@@ -624,7 +623,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*fro
 			}
 			// A quality/codec limit can require conversion even though the
 			// client allowed direct play.
-			if converting || transcode.Decide(ps.Info, p.caps, p.opts, transcode.Policy{}).Kind != frontend.DecisionDirectPlay {
+			if converting || frontend.DecideTranscode(ps.Info, p.caps, p.opts, frontend.TranscodePolicy{}).Kind != frontend.DecisionDirectPlay {
 				p.opts.BurnSubtitles = true
 			}
 		}
@@ -1022,7 +1021,7 @@ func (s *Server) decisionMedia(t *frontend.Title, ps *frontend.PlaySession, dec 
 			continue
 		}
 		if shaped, keep := applyStreamDecision(st, binding.Info, dec, selectedOnly, p.subtitles, p.softText); keep {
-			if plexAndroidClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && transcode.IsImageSubtitle(binding.Info.Codec) && p.protocol == frontend.ProtocolHLS {
+			if plexAndroidClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && frontend.IsImageSubtitle(binding.Info.Codec) && p.protocol == frontend.ProtocolHLS {
 				shaped.Location = "segments-av"
 				shaped.Extra = append(shaped.Extra, model.A("burn", "1"))
 			}
@@ -1100,9 +1099,9 @@ func applyTranscodeMedia(m *model.Media, dec frontend.Decision, protocol string)
 	m.AspectRatio = 0
 	m.Protocol = protocol
 	m.Container = "mpegts"
-	if dec.Container == transcode.ContainerFMP4 {
+	if dec.Container == frontend.ContainerFMP4 {
 		m.Container = "mp4"
-	} else if dec.Container == transcode.ContainerMatroska {
+	} else if dec.Container == frontend.ContainerMatroska {
 		m.Container = "mkv"
 	}
 	part.Container = m.Container
@@ -1235,7 +1234,7 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 		// text track (matroskaCarriesText); its row is the segments copy
 		// below, as PMS answers a text track it copies into Plex for
 		// Android's Matroska segments.
-		inSegments := text && dec.Container == transcode.ContainerMatroska && !dec.BurnSubtitles && dec.SubtitleStream >= 0 && dec.SubtitleStream == src.Index
+		inSegments := text && dec.Container == frontend.ContainerMatroska && !dec.BurnSubtitles && dec.SubtitleStream >= 0 && dec.SubtitleStream == src.Index
 		switch {
 		case subtitles == "none" && !inSegments:
 			st.Decision, st.Location = "ignore", ""
@@ -1249,7 +1248,7 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 		case dec.BurnSubtitles:
 			st.Decision = "burn"
 			st.Location = "segments-video"
-		case softText && text && dec.Container != transcode.ContainerMatroska:
+		case softText && text && dec.Container != frontend.ContainerMatroska:
 			st.Codec, st.Format = "ass", "ass"
 			st.Decision = "transcode"
 			st.Location = "segments-subs"
@@ -1272,7 +1271,7 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 		// not request a sidecar. The transcoder muxes that track on the
 		// same clock as the video; a sidecar key would describe a file
 		// this player never opens.
-		if st.Location == "sidecar" && dec.Container == transcode.ContainerMatroska && textSidecarCodec(st.Codec) && !dec.BurnSubtitles {
+		if st.Location == "sidecar" && dec.Container == frontend.ContainerMatroska && textSidecarCodec(st.Codec) && !dec.BurnSubtitles {
 			st.Decision = "copy"
 			st.Location = "segments-av"
 			st.Key = ""
@@ -1374,15 +1373,15 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		// fallback is MPEG-TS, which cannot carry the selected text track.
 		// Use the Android player's negotiated target even on this late handoff.
 		if plexAndroidClient(pr) {
-			dec.Container = transcode.HLSContainer(entry.caps, dec.VideoCodec, dec.AudioCodec)
+			dec.Container = frontend.HLSContainer(entry.caps, dec.VideoCodec, dec.AudioCodec)
 			if androidImageSubtitle(pr, ps.Info, entry.opts) {
 				opts := entry.opts
 				opts.DirectPlay, opts.BurnSubtitles = false, true
 				return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 			}
 		}
-		videoOK := dec.VideoCodec == "" || transcode.SegmentedVideoCopyOK(entry.caps, dec.VideoCodec)
-		audioOK := dec.AudioCodec == "" || transcode.SegmentedAudioCopyOK(entry.caps, dec.AudioCodec)
+		videoOK := dec.VideoCodec == "" || frontend.SegmentedVideoCopyOK(entry.caps, dec.VideoCodec)
+		audioOK := dec.AudioCodec == "" || frontend.SegmentedAudioCopyOK(entry.caps, dec.AudioCodec)
 		if !videoOK || !audioOK {
 			opts := entry.opts
 			opts.DirectPlay = false
@@ -1508,7 +1507,7 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 		if sd, ok := hs.(interface{ SegmentDuration() time.Duration }); ok {
 			segDur = sd.SegmentDuration()
 		}
-		bw = transcode.HLSCopyPeakKbps(info, segDur)
+		bw = frontend.HLSCopyPeakKbps(info, segDur)
 	} else if dec.BitrateKbps > 0 {
 		bw = dec.BitrateKbps
 	}
@@ -1531,7 +1530,7 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 			line += fmt.Sprintf(",FRAME-RATE=%.3f", v.FrameRate)
 		}
 	}
-	line += transcode.HLSVariantAttributes(info, dec)
+	line += frontend.HLSVariantAttributes(info, dec)
 	body := "#EXTM3U\n" + line + "\n" + s.mediaURL("session/"+sessionID+"/base/index.m3u8", sessionID, entry.streamToken) + "\n"
 	h := w.Header()
 	h.Set("Content-Type", "application/vnd.apple.mpegurl")
@@ -1612,8 +1611,8 @@ func (s *Server) handleTranscodeSession(w http.ResponseWriter, r *http.Request) 
 // segmentNumber extracts the segment index from names like "00012.ts",
 // "12.ts", "segment-12.m4s".
 func segmentNumber(name string) (int, bool) {
-	if name == transcode.InitSegmentName || name == transcode.MatroskaHeaderName {
-		return transcode.InitSegment, true
+	if name == frontend.InitSegmentName || name == frontend.MatroskaHeaderName {
+		return frontend.InitSegment, true
 	}
 	base := strings.TrimSuffix(name, filepath.Ext(name))
 	end := len(base)
@@ -1907,9 +1906,9 @@ func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
 			ts.Protocol = frontend.ProtocolHLS
 		}
 		switch te.decision.Container {
-		case transcode.ContainerMatroska:
+		case frontend.ContainerMatroska:
 			ts.Container = "mkv"
-		case transcode.ContainerFMP4:
+		case frontend.ContainerFMP4:
 			ts.Container = "mp4"
 		default:
 			if ts.Protocol == frontend.ProtocolHTTP {
@@ -1945,11 +1944,11 @@ func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
 		sub := te.info.Streams[te.subtitle]
 		codec := plexCodec(sub.Codec)
 		text := textSidecarCodec(codec)
-		inSegments := text && te.decision.Container == transcode.ContainerMatroska && te.decision.SubtitleStream >= 0 && te.decision.SubtitleStream == sub.Index
+		inSegments := text && te.decision.Container == frontend.ContainerMatroska && te.decision.SubtitleStream >= 0 && te.decision.SubtitleStream == sub.Index
 		softText := browserClient(&Request{Product: te.caps.Product})
 		switch {
 		case te.requested.subtitles == "none" && !inSegments:
-		case softText && text && te.decision.Container != transcode.ContainerMatroska:
+		case softText && text && te.decision.Container != frontend.ContainerMatroska:
 			ts.SubtitleDecision = "transcode"
 		default:
 			ts.SubtitleDecision = "copy"

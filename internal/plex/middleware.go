@@ -17,7 +17,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 type acceptanceContextKey struct{}
@@ -665,7 +664,7 @@ func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeHTTPError(w, http.StatusNotFound)
 	case errors.Is(err, frontend.ErrUnauthorized):
 		writeHTTPError(w, http.StatusUnauthorized)
-	case errors.Is(err, frontend.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
+	case errors.Is(err, frontend.ErrStreamLimit), errors.Is(err, frontend.ErrTooManyTranscodes):
 		w.Header().Set("Retry-After", "5")
 		writeHTTPError(w, http.StatusServiceUnavailable)
 	case errors.Is(err, frontend.ErrNotAvailable), errors.Is(err, frontend.ErrUnreleased), errors.Is(err, frontend.ErrDebridAuth), errors.Is(err, frontend.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, frontend.ErrPrepareSlow):

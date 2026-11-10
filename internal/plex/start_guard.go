@@ -5,7 +5,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 const (
@@ -25,7 +24,7 @@ func guardedStart(pr *Request, v *frontend.StreamInfo, d frontend.Decision) bool
 	if surroundCopied(pr, d) {
 		return true
 	}
-	return pr != nil && transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-ios-hdr10-base")
+	return pr != nil && frontend.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-ios-hdr10-base")
 }
 
 // surroundCopied reports a Plex for Android stream carrying copied Dolby or
@@ -69,7 +68,7 @@ func (s *Server) checkStartStall(pr *Request, key frontend.RatingKey, state stri
 		s.log.Warn("playback start stalled: segments delivered but the player never advanced",
 			"key", key, "client", pr.ClientID, "product", pr.Product, "platform", pr.Platform, "session", id,
 			"position", offset, "requested", live.RequestedPosition(), "videoCopy", d.VideoCopy, "stripDolbyVision", d.StripDolbyVision, "audioCopy", d.AudioCopy, "audio", d.AudioCodec)
-		if v != nil && d.VideoCopy && v.DolbyVision && !d.StripDolbyVision && transcode.HasHDR10Base(v, e.caps) {
+		if v != nil && d.VideoCopy && v.DolbyVision && !d.StripDolbyVision && frontend.HasHDR10Base(v, e.caps) {
 			s.starts.Remember(sessions.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID, Key: key}, now)
 			return stallTextDV
 		}

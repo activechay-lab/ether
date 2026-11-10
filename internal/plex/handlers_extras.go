@@ -17,7 +17,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // Extras (trailers and other clips) and Cinema Trailers. Extras never go
@@ -381,7 +380,7 @@ func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, 
 	if s.d.Transcoder != nil {
 		dec = s.d.Transcoder.Decide(info, p.caps, p.opts)
 	} else {
-		dec = transcode.Decide(info, p.caps, p.opts, transcode.Policy{RemoteMaxBitrateKbps: s.cfg().Transcode.RemoteMaxBitrateKbps})
+		dec = frontend.DecideTranscode(info, p.caps, p.opts, frontend.TranscodePolicy{RemoteMaxBitrateKbps: s.cfg().Transcode.RemoteMaxBitrateKbps})
 		if dec.Kind != frontend.DecisionDirectPlay {
 			return nil, errors.New("this client requires media conversion; install or configure FFmpeg")
 		}
@@ -528,7 +527,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 		proto = frontend.ProtocolDASH
 	} else if p.protocol == frontend.ProtocolHTTP {
 		proto = frontend.ProtocolHTTP
-		dec.Container = transcode.ContainerMatroska
+		dec.Container = frontend.ContainerMatroska
 	}
 	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), frontend.HLSRequest{
 		SessionID: p.sessionID, InputURL: sess.resolved.Input(),

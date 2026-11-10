@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // baseCaps is what a product/platform can play when the client sends no
@@ -66,7 +65,7 @@ func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []frontend.Client
 	if b.dvOff {
 		c.DolbyVisionBaseOnly = true
 	}
-	dv, subs, dvChanged, subsChanged := transcode.PolicyStamp(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, overrides)
+	dv, subs, dvChanged, subsChanged := frontend.PolicyStamp(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, overrides)
 	if dvChanged {
 		c.DVProfiles = dv
 	}
@@ -90,7 +89,7 @@ func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []frontend.Client
 }
 
 func playbackCaps(pr *Request, overrides []frontend.ClientCapabilityOverride) baseCaps {
-	got := transcode.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, overrides)
+	got := frontend.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, overrides)
 	return baseCaps{video: got.Video, audio: got.Audio, containers: got.Containers, maxHeight: got.MaxHeight, hdr10: got.HDR10, dv: got.DolbyVision, dvOff: got.DolbyVisionOff, heightLocked: got.HeightLocked}
 }
 
@@ -497,7 +496,7 @@ func applyLimitation(c *frontend.ClientCaps, a map[string]string) {
 			} else if numErr == nil && n > 0 {
 				// A profile-specific refusal must not disable other supported
 				// Dolby Vision profiles (recorded PMS measurement, 2026-10-17).
-				profiles := transcode.ClientPolicyFor(*c).DolbyVisionProfiles
+				profiles := frontend.ClientPolicyFor(*c).DolbyVisionProfiles
 				c.DVProfiles = slices.DeleteFunc(profiles, func(profile int) bool { return profile == n })
 				if len(c.DVProfiles) == 0 {
 					c.DolbyVision = false

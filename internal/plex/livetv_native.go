@@ -7,7 +7,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // PMS's channel-tune route serializes a rolling subscription, rather than an
@@ -48,7 +47,7 @@ func nativeLiveRequest(r *http.Request) bool {
 	if pr == nil {
 		return false
 	}
-	return transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-native-live-tune")
+	return frontend.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-native-live-tune")
 }
 
 func (s *Server) nativeLiveSubscriptionFor(info livetv.SessionInfo) nativeLiveSubscription {

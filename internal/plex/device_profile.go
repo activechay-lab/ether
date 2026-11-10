@@ -9,7 +9,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 type deviceMediaRule struct{ container, video, audio, subtitle, protocol, context string }
@@ -176,12 +175,12 @@ func (rule devicePlaybackRule) directReason(media model.Media, audio, subtitle i
 	}
 	subtitleAllowed := hasSubtitleRenderer && si >= 0 && subs[si].Index == nil
 	for _, r := range rule.output {
-		if r.context == "subtitle" && si >= 0 && (transcode.IsTextSubtitle(subs[si].Codec) || subs[si].Codec == "none") {
+		if r.context == "subtitle" && si >= 0 && (frontend.IsTextSubtitle(subs[si].Codec) || subs[si].Codec == "none") {
 			subtitleAllowed = true
 		}
 	}
 	for _, r := range rule.direct {
-		if r.context == "subtitle" && si >= 0 && transcode.IsTextSubtitle(subs[si].Codec) {
+		if r.context == "subtitle" && si >= 0 && frontend.IsTextSubtitle(subs[si].Codec) {
 			subtitleAllowed = true
 		}
 	}

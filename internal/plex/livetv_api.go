@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/transcode"
 	"html"
 	"net"
 	"net/http"
@@ -176,7 +175,7 @@ func (s *Server) registerLiveTVRoutes(r chi.Router) {
 		s.d.LiveTV.ServePlaylist(w, r, chi.URLParam(r, "session"), FromContext(r.Context()).User)
 	})
 	get("/livetv/sessions/{session}/{consumer}/relay/{segment}", func(w http.ResponseWriter, r *http.Request) {
-		n, ok := transcode.ParseSegmentName(chi.URLParam(r, "segment"))
+		n, ok := frontend.ParseSegmentName(chi.URLParam(r, "segment"))
 		if !ok {
 			writeHTTPError(w, 404)
 			return

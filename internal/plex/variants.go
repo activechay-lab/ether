@@ -40,7 +40,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 const variantRenderBudget = 3 * time.Second // incl. the resolver's in-flight wait
@@ -332,7 +331,7 @@ func variantInfoForClient(info frontend.MediaInfo, caps frontend.ClientCaps) fro
 	if v == nil || !v.DolbyVision {
 		return info
 	}
-	if (transcode.SupportsDVProfile(caps, v.DolbyVisionProfile) && !caps.DolbyVisionBaseOnly) || !transcode.HasHDR10Base(v, caps) {
+	if (frontend.SupportsDVProfile(caps, v.DolbyVisionProfile) && !caps.DolbyVisionBaseOnly) || !frontend.HasHDR10Base(v, caps) {
 		return info
 	}
 	streams := append([]frontend.StreamInfo(nil), info.Streams...)

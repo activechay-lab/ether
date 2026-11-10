@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/experience"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 func (s *Server) observeRequest(r *http.Request, sr *statusRecorder, elapsed time.Duration) {
@@ -195,8 +194,8 @@ func (s *Server) supportClientFacts(pr *Request, effective frontend.ClientCaps, 
 	if pr == nil {
 		return nil
 	}
-	base := transcode.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, nil)
-	owner := transcode.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, s.cfg().Clients.Overrides)
+	base := frontend.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, nil)
+	owner := frontend.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, s.cfg().Clients.Overrides)
 	declared := s.declaredCaps(pr)
 	return &frontend.DiagnosticClientFacts{
 		Stage: stage, Registry: base.ID, RegistryMaxHeight: base.MaxHeight, OwnerMaxHeight: owner.MaxHeight,

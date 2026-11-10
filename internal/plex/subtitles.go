@@ -30,7 +30,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/subtext"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // SubtitleCatalog is optionally implemented by Deps.Subtitles: the sidecars
@@ -164,7 +163,7 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info fronten
 		return
 	}
 	st := info.Streams[p.subSel]
-	if st.Type != "subtitle" || st.External || st.Index != p.opts.SubtitleStream || !transcode.BurnsSubtitle(st, p.caps, p.opts) {
+	if st.Type != "subtitle" || st.External || st.Index != p.opts.SubtitleStream || !frontend.BurnsSubtitle(st, p.caps, p.opts) {
 		return
 	}
 	ik := s.playIdentityFor(pr, p.key)
@@ -174,7 +173,7 @@ func (s *Server) burnOnlyShownSubtitle(pr *Request, p *playRequest, info fronten
 	shown, _ := s.playIDs.shownSubtitles(ik, s.now())
 	for i := range shown {
 		want := shown[i]
-		if want.External == st.External && transcode.IsImageSubtitle(want.Codec) == transcode.IsImageSubtitle(st.Codec) && resolveSubtitle(&want, -1, info) == p.subSel {
+		if want.External == st.External && frontend.IsImageSubtitle(want.Codec) == frontend.IsImageSubtitle(st.Codec) && resolveSubtitle(&want, -1, info) == p.subSel {
 			return
 		}
 	}
@@ -725,7 +724,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		}
 		// Embedded track: extract it from the playing source so a subtitle
 		// picked in-player renders without restarting the session.
-		if !s.writeEmbeddedSubtitle(w, r, entry.playID, st, format, entry.decision.Container == transcode.ContainerMatroska) {
+		if !s.writeEmbeddedSubtitle(w, r, entry.playID, st, format, entry.decision.Container == frontend.ContainerMatroska) {
 			s.writeEmpty(w, r)
 		}
 		return
@@ -775,7 +774,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		}
 		body, actual = []byte(subtext.RenderASS(cues)), "ass"
 	}
-	if actual == "vtt" && entry.decision.Container == transcode.ContainerMatroska {
+	if actual == "vtt" && entry.decision.Container == frontend.ContainerMatroska {
 		body = stampMatroskaVTT(body)
 	}
 	w.Header().Set("Content-Type", subtitleContentTypes[actual])
@@ -789,7 +788,7 @@ func sessionSoftSubtitle(entry *transcodeEntry, pr *Request, dec frontend.Decisi
 		return nil
 	}
 	st := entry.info.Streams[entry.subtitle]
-	if st.External || st.Type != "subtitle" || !transcode.IsTextSubtitle(st.Codec) {
+	if st.External || st.Type != "subtitle" || !frontend.IsTextSubtitle(st.Codec) {
 		return nil
 	}
 	return &st.Index
@@ -866,7 +865,7 @@ func (s *Server) writeEmbeddedASS(w http.ResponseWriter, r *http.Request, playID
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
-		ctx = transcode.WithSubtitleSource(ctx, keyer.SourceKey(playID))
+		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	if vtt, ok := streamer.CachedSubtitle(ctx, st.Index, st.Codec); ok {
 		if cues, err := subtext.ParseCues(string(vtt)); err == nil {
@@ -960,7 +959,7 @@ func (s *Server) extractEmbeddedSubtitle(ctx context.Context, playID string, st 
 		return nil, "", false
 	}
 	if keyer, ok := s.d.Playback.(interface{ SourceKey(string) string }); ok {
-		ctx = transcode.WithSubtitleSource(ctx, keyer.SourceKey(playID))
+		ctx = frontend.WithSubtitleSource(ctx, keyer.SourceKey(playID))
 	}
 	var buf bytes.Buffer
 	if err := ex.ExtractSubtitle(ctx, input, st.Index, st.Codec, &buf); err != nil || buf.Len() == 0 {
@@ -998,7 +997,7 @@ func (s *Server) serveEmbeddedStream(w http.ResponseWriter, r *http.Request, key
 		}
 		if playID == "" || e.updatedAt.After(bestAt) {
 			playID, bestAt = e.playID, e.updatedAt
-			matroska = e.decision.Container == transcode.ContainerMatroska
+			matroska = e.decision.Container == frontend.ContainerMatroska
 		}
 	}
 	if playID == "" && pr.ClientID != "" {

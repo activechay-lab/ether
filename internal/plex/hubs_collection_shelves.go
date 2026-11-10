@@ -12,7 +12,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // collectionShelvesQuirk names clients that lay out a library's promoted
@@ -27,7 +26,7 @@ import (
 const collectionShelvesQuirk = "plex-promoted-rows-as-collections"
 
 func (s *Server) wantsCollectionShelves(pr *Request) bool {
-	return pr != nil && transcode.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, collectionShelvesQuirk)
+	return pr != nil && frontend.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, collectionShelvesQuirk)
 }
 
 // defaultPinnedDirectories is the pinned-library list a client that sends

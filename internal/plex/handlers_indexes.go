@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
 // handleIndexBIF serves the sparse BIF snapshot for a currently available
@@ -48,21 +47,21 @@ func (s *Server) handleIndexBIF(w http.ResponseWriter, r *http.Request) {
 }
 
 func resampleBIF(data []byte, interval time.Duration) []byte {
-	b, err := transcode.ParseBIF(data)
+	b, err := frontend.ParseBIF(data)
 	if err != nil || b.Len() == 0 {
 		return nil
 	}
-	frames := make([]transcode.BIFFrame, 0, b.Len())
+	frames := make([]frontend.BIFFrame, 0, b.Len())
 	var last time.Duration
 	for i := 0; i < b.Len(); i++ {
 		at := b.Time(i)
 		if i > 0 && at-last < interval {
 			continue
 		}
-		frames = append(frames, transcode.BIFFrame{Time: at, JPEG: b.Frame(i)})
+		frames = append(frames, frontend.BIFFrame{Time: at, JPEG: b.Frame(i)})
 		last = at
 	}
-	out, err := transcode.MarshalBIF(frames)
+	out, err := frontend.MarshalBIF(frames)
 	if err != nil {
 		return nil
 	}
