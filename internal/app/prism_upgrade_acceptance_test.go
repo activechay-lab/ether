@@ -1,6 +1,7 @@
 package app
 
 import (
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -423,7 +424,7 @@ func assertUpgradeBoundary(t *testing.T) {
 
 func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth.Service, validator *upgradeValidator) {
 	t.Helper()
-	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(),
+	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), ArtworkStores: artworkservice.NewPlexArtworkStores(),
 		Auth:              users,
 		Config:            cfg.Get,
 		DB:                db,

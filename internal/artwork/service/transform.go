@@ -14,7 +14,7 @@ import (
 )
 
 // Palette holds neutral image corner colours, without protocol serialization flags.
-type Palette struct{ TopLeft, TopRight, BottomLeft, BottomRight string }
+type Palette = frontend.ArtworkPalette
 
 // renderUltraBlur paints the same four colours Plex provides to its clients.
 // Palette selection itself stays in the shared UltraBlur cache and pipeline.

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -16,7 +15,7 @@ func (s *Server) writeLiveTuneError(w http.ResponseWriter, r *http.Request, err 
 	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
 		return
 	}
-	detail := livetv.Diagnose("tune", err)
+	detail := s.d.ArtworkStores.DiagnoseLiveTV("tune", err)
 	status := http.StatusServiceUnavailable
 	if errors.Is(err, frontend.ErrNotFound) {
 		status = http.StatusNotFound
@@ -31,6 +30,6 @@ func (s *Server) writeLiveTuneError(w http.ResponseWriter, r *http.Request, err 
 	// A tune fails before the universal decision endpoint can explain it.
 	// Return the live reason in the negotiated Plex format, never VOD copy.
 	s.writeStatus(w, r, status, &model.MediaContainer{Size: 0, Extra: []model.Attr{
-		model.A("code", status), model.A("message", detail.Error()), model.A("status", detail.Error()),
+		model.A("code", status), model.A("message", detail.Message), model.A("status", detail.Message),
 	}})
 }

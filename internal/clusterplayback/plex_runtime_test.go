@@ -1,6 +1,7 @@
 package clusterplayback
 
 import (
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -209,7 +210,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), DB: db, Cluster: ownerNode, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	deps := plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), ArtworkStores: artworkservice.NewPlexArtworkStores(), DB: db, Cluster: ownerNode, Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
 	publicOwner.UsePlaybackBroker(broker)

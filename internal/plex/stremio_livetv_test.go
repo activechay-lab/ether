@@ -71,7 +71,7 @@ func TestStremioAddonGuideOnPlexGrid(t *testing.T) {
 	}
 	f := newFixture()
 	defer f.srv.Close()
-	f.srv.d.LiveTV = s
+	f.srv.d.LiveTV = s.Frontend()
 	f.srv.d.Identity.MyPlexSubscription = true
 	res := f.request(t, "GET", liveProviderPath+"/grid?date=2026-10-18&channelGridKey="+channels[0].ID, map[string]string{"Accept": "application/json"})
 	if res.Code != 200 || !strings.Contains(res.Body.String(), "Test broadcast") || strings.Contains(res.Body.String(), "secret") {
@@ -80,7 +80,7 @@ func TestStremioAddonGuideOnPlexGrid(t *testing.T) {
 }
 
 func TestMatchedChannelLogoUsesArtworkProxy(t *testing.T) {
-	c := livetv.Channel{ID: "channel", Logo: "https://example.test/logo.png", LogoMatched: true}
+	c := livetv.ToFrontendChannel(livetv.Channel{ID: "channel", Logo: "https://example.test/logo.png", LogoMatched: true})
 	if got := liveLogo(c); got != "/livetv/channels/channel/logo.png" {
 		t.Fatalf("matched logo path = %q", got)
 	}

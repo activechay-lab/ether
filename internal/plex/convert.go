@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -148,17 +147,19 @@ func overlayArtStamp(t *frontend.Title, row frontend.CachedMetadataOverlay, ok b
 }
 
 // thumbURL / artURL are our own artwork endpoints for an item.
-func thumbURL(t *frontend.Title) string {
-	return stampedThumbURL(t, imageStamp(t))
+func (s *Server) thumbURL(t *frontend.Title) string {
+	return s.stampedThumbURL(t, imageStamp(t))
 }
 
-func stampedThumbURL(t *frontend.Title, stamp string) string {
+func (s *Server) stampedThumbURL(t *frontend.Title, stamp string) string {
 	if t.PosterPath == "" && t.StillPath == "" {
 		// A movie or show with no artwork gets Ether's generated poster.
 		// Its stamp names the drawn image, so the URL changes (and client
 		// caches refetch) when the title gains a real poster.
-		if p, ok := artwork.ForTitle(t); ok {
-			return "/library/metadata/" + t.Key.String() + "/thumb/" + p.Stamp()
+		if s != nil && s.d.ArtworkStores != nil {
+			if st, ok := s.d.ArtworkStores.TitlePosterStamp(t); ok {
+				return "/library/metadata/" + t.Key.String() + "/thumb/" + st
+			}
 		}
 		return ""
 	}
@@ -210,7 +211,7 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 		Tagline:       t.Tagline,
 		Year:          t.Year,
 		ContentRating: t.ContentRating,
-		Thumb:         stampedThumbURL(t, thumbStamp),
+		Thumb:         s.stampedThumbURL(t, thumbStamp),
 		Art:           stampedArtURL(t, artStamp),
 		AddedAt:       unixOrZero(added),
 		UpdatedAt:     unixOrZero(t.UpdatedAt),
@@ -484,14 +485,14 @@ func (s *Server) imageTags(t *frontend.Title, show *frontend.Title, thumbStamp, 
 		}
 		showPath := "/library/metadata/" + showKey.String()
 		if t.Type == frontend.TypeSeason {
-			if th := stampedThumbURL(t, thumbStamp); th != "" {
+			if th := s.stampedThumbURL(t, thumbStamp); th != "" {
 				out = append(out, img("coverPoster", th))
 			} else {
 				out = append(out, img("coverPoster", showPath+"/thumb/"+thumbStamp))
 			}
 		} else {
 			out = append(out, img("coverPoster", showPath+"/thumb/"+thumbStamp))
-			if th := stampedThumbURL(t, thumbStamp); th != "" {
+			if th := s.stampedThumbURL(t, thumbStamp); th != "" {
 				out = append(out, img("snapshot", th))
 			}
 		}
@@ -504,7 +505,7 @@ func (s *Server) imageTags(t *frontend.Title, show *frontend.Title, thumbStamp, 
 			out = append(out, img("clearLogo", showPath+"/clearLogo/"+imageStamp(t)))
 		}
 	default:
-		if th := stampedThumbURL(t, thumbStamp); th != "" {
+		if th := s.stampedThumbURL(t, thumbStamp); th != "" {
 			out = append(out, img("coverPoster", th))
 		}
 		if a := stampedArtURL(t, artStamp); a != "" {

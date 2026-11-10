@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -50,7 +49,7 @@ func nativeLiveRequest(r *http.Request) bool {
 	return frontend.HasQuirk(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, "plex-native-live-tune")
 }
 
-func (s *Server) nativeLiveSubscriptionFor(info livetv.SessionInfo) nativeLiveSubscription {
+func (s *Server) nativeLiveSubscriptionFor(info frontend.LiveTVSessionInfo) nativeLiveSubscription {
 	md := s.liveSessionMetadata(info)
 	md.Extra = append(md.Extra, model.A("source", "server://"+s.identity().MachineIdentifier), model.A("itemType", "live"))
 	web := s.liveSubscriptionFor(info)
@@ -65,14 +64,14 @@ func (s *Server) nativeLiveSubscriptionFor(info livetv.SessionInfo) nativeLiveSu
 	}
 }
 
-func (s *Server) writeNativeLiveTune(w http.ResponseWriter, r *http.Request, info livetv.SessionInfo) {
+func (s *Server) writeNativeLiveTune(w http.ResponseWriter, r *http.Request, info frontend.LiveTVSessionInfo) {
 	w.Header().Set("X-Plex-Activity", info.ActivityID)
 	s.write(w, r, &nativeLiveContainer{Size: 1, Subscriptions: []nativeLiveSubscription{s.nativeLiveSubscriptionFor(info)}})
 }
 
 // A subscription key is not a stream UUID. Resolve it only through sessions the
 // authenticated viewer can access; knowing a numeric ID never grants access.
-func (s *Server) liveSubscriptionSession(r *http.Request, key string) (livetv.SessionInfo, error) {
+func (s *Server) liveSubscriptionSession(r *http.Request, key string) (frontend.LiveTVSessionInfo, error) {
 	user := FromContext(r.Context()).User
 	if id, err := strconv.ParseInt(key, 10, 64); err == nil {
 		for _, info := range s.d.LiveTV.Sessions(r.Context(), user) {
@@ -80,7 +79,7 @@ func (s *Server) liveSubscriptionSession(r *http.Request, key string) (livetv.Se
 				return info, nil
 			}
 		}
-		return livetv.SessionInfo{}, frontend.ErrNotFound
+		return frontend.LiveTVSessionInfo{}, frontend.ErrNotFound
 	}
 	return s.d.LiveTV.Session(r.Context(), key, user)
 }

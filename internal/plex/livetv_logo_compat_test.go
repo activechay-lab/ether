@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 )
 
@@ -31,7 +32,7 @@ func TestPlexWebGuideLogoUsesServerOriginAndViewer(t *testing.T) {
 	response := f.get(t, liveProviderPath+"/lineups/dvr/channels", "Accept", "application/json", "X-Plex-Product", "Plex Web")
 	channels := decodeJSON(t, response)["Channel"].([]any)
 	logo, err := url.Parse(channels[0].(map[string]any)["thumb"].(string))
-	if err != nil || logo.Scheme != "http" || logo.Host != "example.com" || logo.Path != liveLogo(channel) || logo.Query().Get("X-Plex-Token") != ownerToken {
+	if err != nil || logo.Scheme != "http" || logo.Host != "example.com" || logo.Path != liveLogo(livetv.ToFrontendChannel(channel)) || logo.Query().Get("X-Plex-Token") != ownerToken {
 		t.Fatal("Plex Web logo does not point to the authenticated server")
 	}
 	if rec := f.get(t, logo.RequestURI()); rec.Code != http.StatusOK {
@@ -56,7 +57,7 @@ func TestAndroidGuideLogoUsesServerOriginAndViewer(t *testing.T) {
 		response := f.get(t, args[0], args[1:]...)
 		channels := decodeJSON(t, response)["Channel"].([]any)
 		logo, err := url.Parse(channels[0].(map[string]any)["thumb"].(string))
-		if err != nil || logo.Scheme != "http" || logo.Host != "example.com" || logo.Path != liveLogo(channel) || logo.Query().Get("X-Plex-Token") != ownerToken {
+		if err != nil || logo.Scheme != "http" || logo.Host != "example.com" || logo.Path != liveLogo(livetv.ToFrontendChannel(channel)) || logo.Query().Get("X-Plex-Token") != ownerToken {
 			t.Fatalf("client %v logo does not point to authenticated server: %v", client, channels[0].(map[string]any)["thumb"])
 		}
 		if rec := f.get(t, logo.RequestURI()); rec.Code != http.StatusOK {
@@ -70,7 +71,7 @@ func TestPlexWebGuideLogoEscapesChannelID(t *testing.T) {
 	defer f.srv.Close()
 	r := httptest.NewRequest("GET", "http://example.com/livetv/dvr/channels", nil)
 	r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, &Request{Token: ownerToken, Product: "Plex Web"}))
-	got := f.srv.liveGuideLogo(r, livetv.Channel{ID: "a b%c"})
+	got := f.srv.liveGuideLogo(r, livetv.ToFrontendChannel(livetv.Channel{ID: "a b%c"}))
 	if !strings.HasPrefix(got, "http://example.com/livetv/channels/a%20b%25c/logo.png?") {
 		t.Fatalf("channel ID is not escaped exactly once: %s", got)
 	}
@@ -98,7 +99,7 @@ func TestLiveChannelLogoPlezyCompatibility(t *testing.T) {
 	fetch := &logoFetcher{data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="red"/></svg>`), contentType: "image/svg+xml"}
 	f.srv.channelLogos = fetch
 	for _, channel := range []livetv.Channel{generated, external} {
-		path := liveLogo(channel)
+		path := liveLogo(livetv.ToFrontendChannel(channel))
 		for _, target := range []string{path, "/photo/:/transcode?width=120&height=80&url=" + url.QueryEscape(path+"?X-Plex-Token=ignored"), "/photo/:/transcode?url=" + url.QueryEscape(strings.Replace(path, "logo.png", "logo.svg", 1))} {
 			rec := f.get(t, target, "X-Plex-Token", ownerToken)
 			if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
@@ -119,7 +120,7 @@ func TestLiveChannelLogoPlezyCompatibility(t *testing.T) {
 	}
 	// Unsafe SVG cannot trigger a fetch or active content in the client.
 	fetch.data = []byte(`<svg xmlns="http://www.w3.org/2000/svg"><image href="http://127.0.0.1/secret"/></svg>`)
-	rec := f.get(t, liveLogo(external))
+	rec := f.get(t, liveLogo(livetv.ToFrontendChannel(external)))
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("unsafe SVG fallback: %d %s", rec.Code, rec.Header().Get("Content-Type"))
 	}
@@ -129,7 +130,7 @@ func TestLiveChannelLogoPlezyCompatibility(t *testing.T) {
 	if err := service.SetChannelViewers(context.Background(), external.ID, livetv.ChannelViewers{Deny: []int64{friendUser.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{liveLogo(external), "/photo/:/transcode?url=" + url.QueryEscape(liveLogo(external)+"?X-Plex-Token="+ownerToken)} {
+	for _, target := range []string{liveLogo(livetv.ToFrontendChannel(external)), "/photo/:/transcode?url=" + url.QueryEscape(liveLogo(livetv.ToFrontendChannel(external))+"?X-Plex-Token="+ownerToken)} {
 		rec := f.get(t, target, "X-Plex-Token", friendToken)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("restricted %s: %d", target, rec.Code)
@@ -138,13 +139,13 @@ func TestLiveChannelLogoPlezyCompatibility(t *testing.T) {
 	if len(fetch.urls) != 4 {
 		t.Fatal("unauthorized request fetched artwork")
 	}
-	for _, target := range []string{"https://evil.example" + liveLogo(external), "http://169.254.169.254/latest/meta-data"} {
+	for _, target := range []string{"https://evil.example" + liveLogo(livetv.ToFrontendChannel(external)), "http://169.254.169.254/latest/meta-data"} {
 		if rec := f.get(t, "/photo/:/transcode?url="+url.QueryEscape(target)); rec.Code != http.StatusForbidden {
 			t.Fatalf("remote %s: %d", target, rec.Code)
 		}
 	}
 	f.srv.d.Identity.MyPlexSubscription = false
-	if rec := f.get(t, "/photo/:/transcode?url="+url.QueryEscape(liveLogo(external))); rec.Code != http.StatusNotFound {
+	if rec := f.get(t, "/photo/:/transcode?url="+url.QueryEscape(liveLogo(livetv.ToFrontendChannel(external)))); rec.Code != http.StatusNotFound {
 		t.Fatalf("disabled live TV: %d", rec.Code)
 	}
 }
@@ -164,7 +165,7 @@ func TestLiveChannelLogoBlocksPrivateSource(t *testing.T) {
 	}
 	for _, c := range channels {
 		if c.Name == "Private logo" {
-			rec := f.get(t, "/photo/:/transcode?url="+url.QueryEscape(liveLogo(c)))
+			rec := f.get(t, "/photo/:/transcode?url="+url.QueryEscape(liveLogo(livetv.ToFrontendChannel(c))))
 			if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" {
 				t.Fatalf("fallback: %d", rec.Code)
 			}
@@ -209,7 +210,7 @@ func TestLiveChannelLogoFallsBackToGuideLogo(t *testing.T) {
 	}
 	f.srv.channelLogos = fetch
 
-	rec := f.get(t, liveLogo(target), "X-Plex-Token", ownerToken)
+	rec := f.get(t, liveLogo(livetv.ToFrontendChannel(target)), "X-Plex-Token", ownerToken)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("expected 200 image/png, got %d %s", rec.Code, rec.Header().Get("Content-Type"))
 	}
@@ -283,7 +284,7 @@ func TestAppleTVGuideLogoIsCloudFetchable(t *testing.T) {
 		"https://nas.local/logo.png":            false,
 		"data:image/png;base64,AAAA":            false,
 	} {
-		c := livetv.Channel{ID: "c1", Logo: raw}
+		c := livetv.ToFrontendChannel(livetv.Channel{ID: "c1", Logo: raw})
 		if out := f.srv.cloudGuideLogo(ctx, c, "http://example.com"); (out == raw) != public {
 			t.Errorf("logo %q: published %q", raw, out)
 		}
@@ -298,13 +299,14 @@ func TestShowcaseChannelLogo(t *testing.T) {
 	defer f.srv.Close()
 	f.srv.d.RepoFileURL = func(path string) string { return "https://cdn.example/ether@v1/" + path }
 	ctx := context.Background()
-	c := livetv.Channel{ID: "showcase-chroma-80", Name: "CHROMA 80", Kind: "virtual"}
+	rawCh := livetv.Channel{ID: "showcase-chroma-80", Name: "CHROMA 80", Kind: "virtual"}
+	c := livetv.ToFrontendChannel(rawCh)
 	if got := f.srv.cloudGuideLogo(ctx, c, "http://example.com"); got != "https://cdn.example/ether@v1/internal/livetv/showcaselogos/v2/chroma-80.png" {
 		t.Fatalf("shipped logo: %q", got)
 	}
 	rec := httptest.NewRecorder()
 	f.srv.writeChannelLogo(rec, httptest.NewRequest("GET", "/livetv/channels/showcase-chroma-80/logo.png", nil), c, true, "private")
-	_, want, _ := livetv.ShowcaseLogo(c)
+	_, want, _ := livetv.ShowcaseLogo(rawCh)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !bytes.Equal(rec.Body.Bytes(), want) {
 		t.Fatalf("served logo: %d %s", rec.Code, rec.Header().Get("Content-Type"))
 	}
@@ -312,7 +314,7 @@ func TestShowcaseChannelLogo(t *testing.T) {
 	owner.Logo = "https://cdn.example.org/mine.png"
 	renamed := c
 	renamed.Name = "My 80s"
-	for _, edited := range []livetv.Channel{owner, renamed} {
+	for _, edited := range []frontend.LiveTVChannel{owner, renamed} {
 		if got := f.srv.cloudGuideLogo(ctx, edited, "http://example.com"); strings.Contains(got, "showcaselogos") {
 			t.Fatalf("owner edit lost: %q", got)
 		}

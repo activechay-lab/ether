@@ -2,10 +2,8 @@ package plex
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/artwork"
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
+
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/livetv"
 )
 
 // FrontendArtwork is a compatibility adapter for callers already holding a Plex
@@ -18,37 +16,70 @@ type FrontendArtwork struct {
 	URLImages     interface {
 		GetUntrustedURL(context.Context, string) ([]byte, string, error)
 	}
-	Raster *artwork.SVGRasterizer
+	Raster frontend.SVGRasterizer
 }
 
-func (a FrontendArtwork) source() artworkservice.Source {
+func (a FrontendArtwork) cfg() frontend.ArtworkSourceConfig {
 	if a.Server == nil {
-		return artworkservice.Source{}
+		return frontend.ArtworkSourceConfig{}
 	}
 	s := a.Server
 	stored, _ := s.d.Catalog.(frontend.StoredTitleLookup)
-	source := artworkservice.Source{Catalog: stored, Collections: s.d.Collections, Playlists: s.d.Playlists, Visibility: s.visibility(), Discovery: s.d.Discovery, Images: s.images, ImageURL: s.d.ImageURL, Palettes: s.ultra, Now: s.now, Variants: a.Variants, Metadata: a.Metadata, VirtualSeason: a.VirtualSeason, URLImages: a.URLImages, Raster: a.Raster}
-	if s.d.LiveTV != nil {
-		source.LiveTV = s.d.LiveTV
+	return frontend.ArtworkSourceConfig{
+		Catalog:       stored,
+		Collections:   s.d.Collections,
+		Playlists:     s.d.Playlists,
+		Visibility:    s.visibility(),
+		LiveTV:        s.d.LiveTV,
+		Discovery:     s.d.Discovery,
+		Images:        s.images,
+		ImageURL:      s.d.ImageURL,
+		Palettes:      s.ultra,
+		Now:           s.now,
+		Variants:      a.Variants,
+		Metadata:      a.Metadata,
+		VirtualSeason: a.VirtualSeason,
+		URLImages:     a.URLImages,
+		Raster:        a.Raster,
+		Generated:     s.d.GeneratedPosters,
 	}
-	source.Generated = s.d.GeneratedPosters
-	return source
 }
+
+func (a FrontendArtwork) source() frontend.ArtworkSource {
+	if a.Server == nil || a.Server.d.ArtworkStores == nil {
+		return nil
+	}
+	return a.Server.d.ArtworkStores.NewSource(a.cfg())
+}
+
 func (a FrontendArtwork) List(ctx context.Context, req frontend.ArtworkRequest) ([]frontend.Image, bool, error) {
-	if a.Server == nil {
+	src := a.source()
+	if src == nil {
 		return nil, false, frontend.ErrUnauthorized
 	}
-	return a.source().List(ctx, req)
+	return src.List(ctx, req)
 }
+
 func (a FrontendArtwork) Read(ctx context.Context, req frontend.ArtworkRequest, img frontend.Image, tr frontend.ArtworkTransform) ([]byte, string, error) {
-	if a.Server == nil {
+	src := a.source()
+	if src == nil {
 		return nil, "", frontend.ErrUnauthorized
 	}
-	return a.source().Read(ctx, req, img, tr)
+	return src.Read(ctx, req, img, tr)
 }
-func (a FrontendArtwork) Warm(t frontend.Title, d frontend.Device) { a.source().Warm(t, d) }
-func (a FrontendArtwork) ChannelImage(v *frontend.Viewer, c livetv.Channel) frontend.Image {
-	return a.source().ChannelImage(v, c)
+
+func (a FrontendArtwork) Warm(t frontend.Title, d frontend.Device) {
+	if src := a.source(); src != nil {
+		src.Warm(t, d)
+	}
+}
+
+func (a FrontendArtwork) ChannelImage(v *frontend.Viewer, c frontend.LiveTVChannel) frontend.Image {
+	src := a.source()
+	if src == nil {
+		return frontend.Image{}
+	}
+	return src.ChannelImage(v, c)
 }
 
 type storedPolicyKey struct{}

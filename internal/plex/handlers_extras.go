@@ -157,7 +157,7 @@ func (s *Server) extraMetadata(e frontend.ExtraClip, parent *frontend.Title, wit
 	if e.Source == prerollSource {
 		return s.prerollMetadata(e, frontend.PrerollClip{UpdatedAt: e.PublishedAt}, false)
 	}
-	thumb := thumbURL(parent)
+	thumb := s.thumbURL(parent)
 	if parent.BackdropPath != "" {
 		thumb = artURL(parent) // 16:9 backdrop suits trailer thumbs
 	}

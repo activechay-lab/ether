@@ -51,7 +51,7 @@ func liveFixture(t *testing.T, transcoders ...core.Transcoder) (*fixture, *livet
 	if e != nil || len(cs) != 1 {
 		t.Fatalf("channels: %v %+v", e, cs)
 	}
-	f.srv.d.LiveTV = service
+	f.srv.d.LiveTV = service.Frontend()
 	f.srv.d.Identity.MyPlexSubscription = true
 	return f, service, cs[0]
 }
@@ -606,7 +606,7 @@ func TestStreamTokenAloneFetchesPlaylistAndDASH(t *testing.T) {
 	if _, err = service.ImportSource(context.Background(), src); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.LiveTV = service
+	f.srv.d.LiveTV = service.Frontend()
 	f.srv.d.Identity.MyPlexSubscription = true
 
 	tune := f.request(t, "POST", "/livetv/dvrs/1/channels/7/tune", map[string]string{"Accept": "application/json"})
@@ -690,7 +690,7 @@ func TestVirtualChannelHLSFromStartPlaylistKeepsTheSession(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.LiveTV = service
+	f.srv.d.LiveTV = service.Frontend()
 	f.srv.d.Identity.MyPlexSubscription = true
 	headers := map[string]string{"Accept": "application/json", "X-Plex-Product": "Plex for Apple TV", "X-Plex-Platform": "tvOS", "X-Plex-Version": "2026.20.0"}
 	tune := f.request(t, "POST", "/livetv/dvrs/1/channels/4/tune", headers)

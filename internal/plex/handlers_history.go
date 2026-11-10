@@ -224,7 +224,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		md := model.HistoryMetadata{RatingKey: t.Key.String(), Key: "/library/metadata/" + t.Key.String(), Type: string(t.Type), Title: t.Title, Thumb: thumbURL(t), HistoryKey: "/status/sessions/history/" + strconv.FormatInt(h.ID, 10), ViewedAt: h.ViewedAt.Unix(), LibrarySectionID: historySection(s, t), DeviceID: h.DeviceID, AccountID: accounts[h.UserID]}
+		md := model.HistoryMetadata{RatingKey: t.Key.String(), Key: "/library/metadata/" + t.Key.String(), Type: string(t.Type), Title: t.Title, Thumb: s.thumbURL(t), HistoryKey: "/status/sessions/history/" + strconv.FormatInt(h.ID, 10), ViewedAt: h.ViewedAt.Unix(), LibrarySectionID: historySection(s, t), DeviceID: h.DeviceID, AccountID: accounts[h.UserID]}
 
 		if !t.Released.IsZero() {
 			md.OriginallyAvailableAt = t.Released.Format("2006-01-02")

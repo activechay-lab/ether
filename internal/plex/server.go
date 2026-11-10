@@ -16,13 +16,9 @@ import (
 	"sync"
 	"time"
 
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
-
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -79,8 +75,12 @@ type Deps struct {
 	// PlexEncoder optionally dispatches authenticated universal playback through
 	// the shared broker; nil preserves the existing local encoder path.
 	PlexEncoder     PlexEncoder
-	ArtworkImages   *artworkservice.RemoteCache
-	ArtworkPalettes *artworkservice.PaletteCache
+	ArtworkImages   frontend.ArtworkImageCache
+	ArtworkPalettes frontend.ArtworkPaletteCache
+	// ArtworkStores constructs the artwork caches/sources this server owns
+	// and provides the artwork and Live TV helpers it calls. Required:
+	// NewServer panics without it. The app wires artworkservice.NewPlexArtworkStores().
+	ArtworkStores frontend.PlexArtworkStores
 	// SessionStores constructs the session stores this server owns and
 	// provides the session helpers it calls. Required: NewServer panics
 	// without it. The app wires sessions.NewPlexSessionStores().
@@ -91,9 +91,7 @@ type Deps struct {
 	Experience frontend.PlexExperience
 	// GeneratedPosters draws Ether's poster for a movie or show with no
 	// artwork; nil leaves such titles without a thumb.
-	GeneratedPosters interface {
-		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
-	}
+	GeneratedPosters    any
 	SessionCoordination frontend.Coordination
 	FavoriteShows       func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []frontend.Title) []frontend.Title
@@ -108,7 +106,7 @@ type Deps struct {
 	// Search is the app's shared search (every frontend's); zero builds it
 	// from this server's own dependencies.
 	Search       frontend.SearchSources
-	LiveTV       *livetv.Service
+	LiveTV       frontend.LiveTVHost
 	AccessPolicy AccessPolicy
 	Catalog      frontend.Catalog
 	Collections  frontend.Collections
@@ -234,11 +232,11 @@ type Server struct {
 
 	sections []Section
 
-	images       *artworkservice.RemoteCache
+	images       frontend.ArtworkImageCache
 	channelLogos interface {
 		GetUntrustedURL(context.Context, string) ([]byte, string, error)
 	}
-	channelRaster     *artwork.SVGRasterizer
+	channelRaster     frontend.SVGRasterizer
 	boundStreams      frontend.PlexStreamAPI
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
@@ -263,7 +261,7 @@ type Server struct {
 
 	// Background enrichment (nil when disabled).
 	titles    *titleCache
-	ultra     *artworkservice.PaletteCache
+	ultra     frontend.ArtworkPaletteCache
 	titleJobs *bgQueue
 	blurJobs  *bgQueue
 
@@ -309,6 +307,9 @@ func NewServer(d Deps) *Server {
 	if d.Experience == nil {
 		panic("plex: Deps.Experience is required (wire experience.NewPlexExperience())")
 	}
+	if d.ArtworkStores == nil {
+		panic("plex: Deps.ArtworkStores is required (wire artworkservice.NewPlexArtworkStores())")
+	}
 	d.Dashboard, d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, d.Now)
 	coord := d.SessionCoordination
 	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
@@ -319,9 +320,9 @@ func NewServer(d Deps) *Server {
 		plexEncoder:       d.PlexEncoder,
 		d:                 d,
 		log:               d.Logger.With("component", "plex"),
-		images:            artworkservice.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
-		channelLogos:      artwork.NewImages(artwork.ImagesOptions{HTTPClient: d.HTTPClient}),
-		channelRaster:     artwork.NewSVGRasterizer(),
+		images:            d.ArtworkStores.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
+		channelLogos:      d.ArtworkStores.NewUntrustedImages(d.HTTPClient),
+		channelRaster:     d.ArtworkStores.NewSVGRasterizer(),
 		variantIDs:        newVariantIDRegistry(d.SessionStores, d.DB),
 		playIDs:           newPlayIdentities(),
 		downloads:         d.SessionStores.NewDownloadQueueStore(),
@@ -368,12 +369,12 @@ func NewServer(d Deps) *Server {
 			// stored titles in one batch; each fetch then reads the cache.
 			s.titles.prefetch = pre.PreloadStored
 		}
-		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (artworkservice.Palette, error) {
-			var art artworkservice.CollectionArt
-			if c, ok := s.d.Collections.(artworkservice.CollectionArt); ok {
+		s.ultra = d.ArtworkStores.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
+			var art frontend.ArtworkCollectionArt
+			if c, ok := s.d.Collections.(frontend.ArtworkCollectionArt); ok {
 				art = c
 			}
-			return artworkservice.ComputeItemPalette(ctx, s.images, s.d.ImageURL, key, path, s.now(), art)
+			return d.ArtworkStores.ComputeItemPalette(ctx, s.images, s.d.ImageURL, key, path, s.now(), art)
 		})
 	}
 	if p, ok := d.Catalog.(interface {

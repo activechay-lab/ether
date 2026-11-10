@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -154,12 +155,13 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 		deps.EpisodeOrder = a.episodeorder
 	}
 	deps.Discovery = a.discoveryFeatures.Frontend()
-	deps.LiveTV = a.livetv
+	deps.LiveTV = a.livetv.Frontend()
 	deps.Subtitles = plexSubtitles{a}
 	deps.TrackPreferences = a.trackprefs
 	deps.SessionCoordination = a.sessionCoordination
 	deps.SessionStores = sessions.NewPlexSessionStores()
 	deps.Experience = experience.NewPlexExperience()
+	deps.ArtworkStores = artworkservice.NewPlexArtworkStores()
 	deps.Markers = a.markers
 	// The remuxer is built once in buildIntegrations and shared with every
 	// front end. Support is the device-scoped "Record a problem" recorder.

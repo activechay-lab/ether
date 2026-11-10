@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
-	"github.com/braedonsaunders/ether/internal/livetv"
 )
 
 // Plex for Apple TV draws guide channel logos only from URLs that Plex's
@@ -38,11 +38,11 @@ func cloudGuideLogoClient(pr *Request) bool {
 // public repository at this build's release, else this server's signed,
 // token-free logo URL on its public address when remote access publishes
 // one, or on origin.
-func (s *Server) cloudGuideLogo(ctx context.Context, c livetv.Channel, origin string) string {
+func (s *Server) cloudGuideLogo(ctx context.Context, c frontend.LiveTVChannel, origin string) string {
 	if publicLogoURL(c.Logo) {
 		return c.Logo
 	}
-	if path, _, ok := livetv.ShowcaseLogo(c); ok && s.d.RepoFileURL != nil {
+	if path, _, ok := s.d.ArtworkStores.ShowcaseLogo(c); ok && s.d.RepoFileURL != nil {
 		if u := s.d.RepoFileURL(path); u != "" {
 			return u
 		}

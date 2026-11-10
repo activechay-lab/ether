@@ -493,7 +493,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	mc := s.itemContainer(parent.Type)
 	mc.Key = parent.Key.String()
 	mc.Nocache = model.Ptr(true)
-	mc.Thumb = thumbURL(parent)
+	mc.Thumb = s.thumbURL(parent)
 	mc.Art = artURL(parent)
 	var allLeaves *model.Directory
 	switch parent.Type {
@@ -507,7 +507,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		mc.ViewGroup = "season"
 		mc.ViewMode = 65593
 		if r.URL.Query().Get("excludeAllLeaves") != "1" {
-			allLeaves = &model.Directory{LeafCount: model.Ptr(parent.LeafCount), Thumb: thumbURL(parent), ViewedLeafCount: model.Ptr(0),
+			allLeaves = &model.Directory{LeafCount: model.Ptr(parent.LeafCount), Thumb: s.thumbURL(parent), ViewedLeafCount: model.Ptr(0),
 				Key: "/library/metadata/" + parent.Key.String() + "/allLeaves", Title: "All episodes"}
 		}
 	case frontend.TypeSeason:
@@ -1157,7 +1157,7 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *fronte
 	md.Key = "/library/metadata/" + t.Key.String() + "?collection=" + collection.String()
 	// Future placeholders use base TMDB artwork through the collection-scoped
 	// image handler; overlays and custom poster providers require released titles.
-	md.Thumb = thumbURL(t)
+	md.Thumb = s.thumbURL(t)
 	md.Art = artURL(t)
 	if md.Thumb != "" {
 		md.Thumb += "?collection=" + collection.String()

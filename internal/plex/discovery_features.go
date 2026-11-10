@@ -4,15 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/artwork"
-	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/go-chi/chi/v5"
 	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/plex/model"
+	"github.com/go-chi/chi/v5"
 )
 
 // DiscoveryFeatures is the shared discovery contract adapted by Plex.
@@ -237,7 +237,7 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 	}
 	if d.Overlays.CustomPostersEnabled() {
 		if width, _ := strconv.Atoi(r.URL.Query().Get("width")); width > 0 && (kind == "" || kind == "poster") {
-			if resized, err := artwork.ResizePoster(data, width); err == nil {
+			if resized, err := s.d.ArtworkStores.ResizePoster(data, width); err == nil {
 				data = resized
 				ct = "image/jpeg"
 			}

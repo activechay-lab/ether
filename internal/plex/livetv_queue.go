@@ -4,11 +4,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/livetv"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
-func (s *Server) livePlayQueue(pq playQueue, info livetv.SessionInfo) *model.MediaContainer {
+func (s *Server) livePlayQueue(pq playQueue, info frontend.LiveTVSessionInfo) *model.MediaContainer {
 	md := s.liveSessionMetadata(info)
 	md.PlayQueueItemID = pq.Items[0].ID
 	return &model.MediaContainer{

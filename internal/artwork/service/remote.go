@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/flight"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/lru"
 	"io"
 	"net/http"
@@ -19,12 +20,7 @@ const (
 	imageTTL      = 24 * time.Hour
 )
 
-type RemoteImage struct {
-	URL         string
-	Data        []byte
-	ContentType string
-	FetchedAt   time.Time
-}
+type RemoteImage = frontend.ArtworkRemoteImage
 
 type RemoteCache struct {
 	client *http.Client
@@ -46,6 +42,10 @@ func NewRemoteCache(budget int64, client *http.Client) *RemoteCache {
 }
 
 var ErrRemoteImageNotFound = errors.New("image not found")
+
+func (c *RemoteCache) IsNotFound(err error) bool {
+	return errors.Is(err, ErrRemoteImageNotFound)
+}
 
 // get returns the image at u, fetching it once for concurrent callers.
 func (c *RemoteCache) Get(ctx context.Context, u string, now time.Time) (*RemoteImage, error) {

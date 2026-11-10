@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
@@ -51,7 +52,12 @@ func TestNeutralServerLibrariesMatchPlexIncludingSpike(t *testing.T) {
 	for _, spike := range []bool{false, true} {
 		cfg := config.Config{}
 		cfg.Spike.Enabled = spike
-		deps := plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Experience: experience.NewPlexExperience(), DisableEnrichment: true}
+		deps := plex.Deps{
+			SessionStores:     sessions.NewPlexSessionStores(),
+			Experience:        experience.NewPlexExperience(),
+			ArtworkStores:     artworkservice.NewPlexArtworkStores(),
+			DisableEnrichment: true,
+		}
 		if spike {
 			deps.Sections = []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}}
 		}

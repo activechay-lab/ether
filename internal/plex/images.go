@@ -3,7 +3,6 @@ package plex
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -12,9 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/artwork"
-	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	kitimages "github.com/braedonsaunders/ether/internal/frontend/kit/images"
 )
 
 // setArtworkHeaders keeps remote SVG (or an upstream HTML error page) from
@@ -32,9 +30,7 @@ func setArtworkHeaders(h http.Header, contentType string) {
 // Artwork cache: an in-memory LRU of fetched TMDB images, with request
 // coalescing so a grid of posters is fetched once.
 
-var errImageNotFound = artworkservice.ErrRemoteImageNotFound
-
-func tmdbSize(w int) string { return artworkservice.TMDBSize(w) }
+func tmdbSize(w int) string { return kitimages.TMDBSize(w) }
 
 var tmdbSizeRe = regexp.MustCompile(`/t/p/(w\d+|h\d+|original)/`)
 
@@ -96,13 +92,8 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 	if err != nil || t == nil || t.Key != key || t.Adult || t.IsFutureRelease(s.now()) || !s.visibleTitle(ctx, FromContext(ctx).User, t) {
 		return false
 	}
-	p, ok := artwork.ForTitle(t)
-	if !ok {
-		return false
-	}
-	p.Width = width
-	data, ct, err := s.d.GeneratedPosters.Title(ctx, p)
-	if err != nil {
+	data, ct, ok, err := s.d.ArtworkStores.RenderTitlePoster(ctx, s.d.GeneratedPosters, t, width)
+	if !ok || err != nil {
 		return false
 	}
 	if data, ct, err = s.androidPhotoFormat(r, data, ct); err != nil {
@@ -122,12 +113,13 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 	}
 	return true
 }
+
 func (s *Server) artPath(ctx context.Context, key frontend.RatingKey, element string) (string, int, error) {
-	source := (FrontendArtwork{Server: s}).source()
-	source.Catalog = refreshingArtworkCatalog{s.d.Catalog}
+	cfg := (FrontendArtwork{Server: s}).cfg()
+	cfg.Catalog = refreshingArtworkCatalog{s.d.Catalog}
 	pr := FromContext(ctx)
-	source.CollectionDevice = pr.Device
-	return source.ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: frontend.Device{Product: pr.Product, Platform: pr.Platform}}, element)
+	cfg.CollectionDevice = pr.Device
+	return s.d.ArtworkStores.NewSource(cfg).ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: frontend.Device{Product: pr.Product, Platform: pr.Platform}}, element)
 }
 
 // handleImage serves /library/metadata/{key}/{element}[/{ts}] and the
@@ -227,7 +219,7 @@ func (s *Server) servePlexOverlayImage(w http.ResponseWriter, r *http.Request, k
 
 func (s *Server) serveRemoteImage(w http.ResponseWriter, r *http.Request, u string) {
 	if err := s.writeRemoteImage(w, r, u); err != nil {
-		if errors.Is(err, errImageNotFound) {
+		if s.images != nil && s.images.IsNotFound(err) {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}

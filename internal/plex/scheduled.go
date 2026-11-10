@@ -59,7 +59,7 @@ func (s *Server) scheduledMetadata(ctx context.Context, pr *Request, t *frontend
 	md.Summary = "Scheduled air date: " + t.Released.Format("2006-01-02") + ". Not available to play yet. " + md.Summary
 	// Base artwork uses the title-scoped handler, which repeats the schedule and
 	// viewer checks. Do not invoke overlays or a custom provider for placeholders.
-	md.Thumb = thumbURL(t)
+	md.Thumb = s.thumbURL(t)
 	md.Art = artURL(t)
 	md.Image = nil
 	return md

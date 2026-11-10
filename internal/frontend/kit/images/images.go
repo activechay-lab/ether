@@ -5,9 +5,25 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"strconv"
 )
 
 var ErrDimensions = errors.New("invalid image dimensions")
+
+var tmdbWidths = []int{92, 154, 185, 300, 342, 500, 780, 1280}
+
+// TMDBSize picks the smallest TMDB image variant at least w wide, or "original".
+func TMDBSize(w int) string {
+	if w <= 0 {
+		return "original"
+	}
+	for _, s := range tmdbWidths {
+		if s >= w {
+			return "w" + strconv.Itoa(s)
+		}
+	}
+	return "original"
+}
 
 // Resize returns a nearest-neighbour copy with explicit bounded dimensions.
 func Resize(src image.Image, width, height int) (*image.NRGBA, error) {

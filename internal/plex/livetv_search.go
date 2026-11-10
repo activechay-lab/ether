@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/braedonsaunders/ether/internal/livetv"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
@@ -23,7 +23,7 @@ func (s *Server) handleLiveChannelSearch(w http.ResponseWriter, r *http.Request)
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
-	mc := &model.MediaContainer{Identifier: livetv.Provider}
+	mc := &model.MediaContainer{Identifier: frontend.LiveTVProvider}
 	if query == "" {
 		s.write(w, r, mc)
 		return
@@ -63,7 +63,7 @@ func (s *Server) handleLiveChannelSearch(w http.ResponseWriter, r *http.Request)
 			categories = append(categories, c.Group)
 		}
 		ch := &model.SearchChannel{ID: c.ID, GridKey: c.ID, VCN: c.Number, Title: c.Name, ShortTitle: c.Name, Categories: categories,
-			Source: "server://" + s.identity().MachineIdentifier + "/" + livetv.Provider}
+			Source: "server://" + s.identity().MachineIdentifier + "/" + frontend.LiveTVProvider}
 		mc.SearchResult = append(mc.SearchResult, model.SearchResult{Score: score, Channel: ch})
 		sort.SliceStable(mc.SearchResult, func(i, j int) bool { return mc.SearchResult[i].Score > mc.SearchResult[j].Score })
 		if len(mc.SearchResult) > limit {

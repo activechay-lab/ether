@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/lru"
 
 	"github.com/braedonsaunders/ether/internal/store"
@@ -138,10 +139,7 @@ func (c *PaletteCache) set(key core.RatingKey, path string, colors *Palette) {
 }
 
 // ultraBlurWant is one item a listing is about to render.
-type PaletteWant struct {
-	Key  core.RatingKey
-	Path string
-}
+type PaletteWant = frontend.ArtworkPaletteWant
 
 // preload fills the memory cache from the database for items it doesn't
 // hold yet, in one query, so a restart doesn't recompute anything and a
@@ -238,9 +236,7 @@ func (c *PaletteCache) save(ctx context.Context, key core.RatingKey, path string
 
 // CollectionArt is generated collection artwork. Smart-collection UltraBlur
 // colours come from that image when it exists.
-type CollectionArt interface {
-	CollectionArtwork(context.Context, *core.User, core.RatingKey, string, int) ([]byte, string, bool, error)
-}
+type CollectionArt = frontend.ArtworkCollectionArt
 
 // ComputeItemPalette derives UltraBlur colours for one catalogue item.
 // A smart collection uses its generated art (custom collection art) when the

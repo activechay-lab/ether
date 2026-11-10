@@ -39,7 +39,7 @@ type Source struct {
 	URLImages     interface {
 		GetUntrustedURL(context.Context, string) ([]byte, string, error)
 	}
-	Raster   *artwork.SVGRasterizer
+	Raster   frontend.SVGRasterizer
 	Collages *LibraryCollageCache
 	// Generated draws Ether's poster for a movie or show with no artwork
 	// (*artwork.Renderer). Nil leaves such titles without a poster entry.
