@@ -71,7 +71,7 @@ func TestDelegationWorksAcrossNodesWithoutUpstreamValidation(t *testing.T) {
 	defer peer.Close()
 	before := v.calls.Load()
 	got, err := peer.Authenticate(ctx, token)
-	if err != nil || got.ID != alice.ID || len(got.AllowedSections) != 1 || got.AllowedSections[0] != 1 {
+	if err != nil || got.ID != alice.ID || len(got.AllowedLibraries) != 1 || got.AllowedLibraries[0] != 1 {
 		t.Fatalf("peer delegation: %+v %v", got, err)
 	}
 	if _, err := peer.Authenticate(ctx, delegationPrefix+"invalid"); !errors.Is(err, core.ErrUnauthorized) {

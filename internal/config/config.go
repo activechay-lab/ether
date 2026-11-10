@@ -103,12 +103,9 @@ type Server struct {
 	Port         int    `json:"port"`
 	BindAddress  string `json:"bindAddress"`
 	FriendlyName string `json:"friendlyName"`
-	// MoviesLibraryName is the Movies section title shown in Plex apps.
-	// Empty falls back to "Movies".
-	MoviesLibraryName string `json:"moviesLibraryName"`
-	// TVShowsLibraryName is the TV Shows section title shown in Plex apps.
-	// Empty falls back to "TV Shows".
-	TVShowsLibraryName string `json:"tvShowsLibraryName"`
+	// The Movies / TV Shows library names live on libraries 1/2 in
+	// internal/libraries (v0.3.8); the old moviesLibraryName /
+	// tvShowsLibraryName keys were migrated there and deleted here.
 	// MachineIdentifier is generated on first run and never changes.
 	MachineIdentifier string `json:"machineIdentifier"`
 	LogLevel          string `json:"logLevel"`
@@ -731,6 +728,13 @@ type Store struct {
 	// sealed elsewhere (the database) cannot have been sealed with it.
 	keyCreated bool
 
+	// legacyLibraryNames holds the pre-v0.3.8 server.moviesLibraryName /
+	// tvShowsLibraryName values Open read, captured before any rewrite
+	// of config.json can drop them. internal/libraries migrates them
+	// onto libraries 1/2 once (LegacyLibraryNames).
+	legacyMoviesLibraryName  string
+	legacyTVShowsLibraryName string
+
 	// Cluster mode (see shared.go). shared is nil on a standalone server,
 	// where config.json is the only source. writeMu sequences cluster-mode
 	// writers (Update, refresh) so mu is never held across database calls.
@@ -802,6 +806,18 @@ func Open(dataDir string) (*Store, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Capture the retired library-name keys before decode/save can
+		// drop them; a malformed extra read never blocks startup.
+		var legacyDoc struct {
+			Server struct {
+				MoviesLibraryName  string `json:"moviesLibraryName"`
+				TVShowsLibraryName string `json:"tvShowsLibraryName"`
+			} `json:"server"`
+		}
+		if json.Unmarshal(plain, &legacyDoc) == nil {
+			s.legacyMoviesLibraryName = strings.TrimSpace(legacyDoc.Server.MoviesLibraryName)
+			s.legacyTVShowsLibraryName = strings.TrimSpace(legacyDoc.Server.TVShowsLibraryName)
+		}
 		var dropped bool
 		if s.cfg, dropped, err = decodeStartupConfig(s.cfg, plain); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", s.path, err)
@@ -831,6 +847,18 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// LegacyLibraryNames returns the pre-v0.3.8 Movies / TV Shows library
+// names this store's config document carried at Open (empty when it
+// carried none). App wiring feeds them to
+// libraries.Service.MigrateConfigNames exactly once; the config
+// fields themselves are deleted.
+func (s *Store) LegacyLibraryNames() (movies, shows string) {
+	if s == nil {
+		return "", ""
+	}
+	return s.legacyMoviesLibraryName, s.legacyTVShowsLibraryName
 }
 
 // Read loads dataDir's settings without creating or rewriting anything:

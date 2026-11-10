@@ -192,11 +192,11 @@ type User struct {
 	Thumb     string `json:"thumb,omitempty"`
 	IsOwner   bool   `json:"isOwner"`
 
-	StreamLimit       int      `json:"streamLimit"`       // 0 = server default
-	MaxContentRating  string   `json:"maxContentRating"`  // "" = unrestricted, e.g. "PG-13", "TV-14"
-	SubtitleLanguages []string `json:"subtitleLanguages"` // ISO 639-1, preference order
-	AudioLanguages    []string `json:"audioLanguages"`
-	AllowedSections   []int    `json:"allowedSections"` // empty = all
+	StreamLimit       int         `json:"streamLimit"`       // 0 = server default
+	MaxContentRating  string      `json:"maxContentRating"`  // "" = unrestricted, e.g. "PG-13", "TV-14"
+	SubtitleLanguages []string    `json:"subtitleLanguages"` // ISO 639-1, preference order
+	AudioLanguages    []string    `json:"audioLanguages"`
+	AllowedLibraries  []LibraryID `json:"allowedLibraries"` // empty = all libraries (§1.4)
 }
 
 // ClientCaps is what a Plex client can play, derived from X-Plex-* headers,

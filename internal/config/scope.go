@@ -67,8 +67,6 @@ var mixedSections = map[string]map[string]Scope{
 		"bindAddress":        Local,
 		"logLevel":           Local,
 		"friendlyName":       Shared,
-		"moviesLibraryName":  Shared,
-		"tvShowsLibraryName": Shared,
 		"webFrameOrigins":    Shared,
 		"allowRemoteConsole": Shared,
 		"startupAnimation":   Shared, // console preference, the same on every node

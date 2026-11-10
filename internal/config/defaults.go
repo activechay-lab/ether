@@ -36,8 +36,6 @@ func Defaults(dataDir string) Config {
 			Port:               DefaultPort,
 			BindAddress:        "0.0.0.0",
 			FriendlyName:       "Ether",
-			MoviesLibraryName:  "Movies",
-			TVShowsLibraryName: "TV Shows",
 			MachineIdentifier:  randomID(20),
 			LogLevel:           "info",
 			DefaultStreamLimit: 2,

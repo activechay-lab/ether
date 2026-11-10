@@ -123,7 +123,7 @@ func TestAuthenticateKnownTokens(t *testing.T) {
 		t.Fatalf("%+v", u)
 	}
 	a, _ := s.Authenticate(ctx, "alice-access")
-	if a.IsOwner || len(a.AllowedSections) != 1 || a.AllowedSections[0] != 1 || a.Email != "a@example.com" {
+	if a.IsOwner || len(a.AllowedLibraries) != 1 || a.AllowedLibraries[0] != 1 || a.Email != "a@example.com" {
 		t.Fatalf("alice %+v", a)
 	}
 	if _, err := s.Authenticate(ctx, "dave-access"); !errors.Is(err, core.ErrUnauthorized) {
@@ -257,7 +257,7 @@ func TestSyncFriendsRemovesAccess(t *testing.T) {
 	if _, err := s.Authenticate(ctx, "alice-access"); !errors.Is(err, core.ErrUnauthorized) {
 		t.Fatal("old alice token kept")
 	}
-	if u, err := s.Authenticate(ctx, "alice-access-2"); err != nil || len(u.AllowedSections) != 0 {
+	if u, err := s.Authenticate(ctx, "alice-access-2"); err != nil || len(u.AllowedLibraries) != 0 {
 		t.Fatal(u, err)
 	}
 	// Profile fields kept when the sync omits them.
@@ -318,7 +318,7 @@ func TestUpdateUserAndPersistence(t *testing.T) {
 	alice.MaxContentRating = " PG-13 "
 	alice.SubtitleLanguages = []string{"EN", "fr", "en", ""}
 	alice.AudioLanguages = []string{"ja"}
-	alice.AllowedSections = []int{2}
+	alice.AllowedLibraries = []core.LibraryID{2}
 	alice.Username = "hacked" // identity fields are ignored
 	if err := s.UpdateUser(ctx, *alice); err != nil {
 		t.Fatal(err)
@@ -344,7 +344,7 @@ func TestUpdateUserAndPersistence(t *testing.T) {
 	}
 	b, _ := json.Marshal(got)
 	if got.StreamLimit != 1 || got.MaxContentRating != "PG-13" || strings.Join(got.SubtitleLanguages, ",") != "en,fr" ||
-		got.AudioLanguages[0] != "ja" || len(got.AllowedSections) != 1 || got.AllowedSections[0] != 2 || got.Username != "alice" {
+		got.AudioLanguages[0] != "ja" || len(got.AllowedLibraries) != 1 || got.AllowedLibraries[0] != 2 || got.Username != "alice" {
 		t.Fatalf("%s", b)
 	}
 	o, err := s2.Owner(ctx)

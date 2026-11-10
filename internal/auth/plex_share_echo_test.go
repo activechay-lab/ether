@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plextv"
 )
 
@@ -35,8 +36,8 @@ func TestUpdateUserDoesNotFreezePlexShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(current.AllowedSections, []int{1, 2}) {
-		t.Fatalf("effective sections %v, want the plex.tv share", current.AllowedSections)
+	if !slices.Equal(current.AllowedLibraries, []core.LibraryID{1, 2}) {
+		t.Fatalf("effective sections %v, want the plex.tv share", current.AllowedLibraries)
 	}
 	next := *current
 	next.AudioLanguages = []string{"nl"}
@@ -48,15 +49,15 @@ func TestUpdateUserDoesNotFreezePlexShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got.AllowedSections, []int{1, 2, 3}) || !slices.Equal(got.AudioLanguages, []string{"nl"}) {
-		t.Fatalf("after save and reshare: sections %v languages %v", got.AllowedSections, got.AudioLanguages)
+	if !slices.Equal(got.AllowedLibraries, []core.LibraryID{1, 2, 3}) || !slices.Equal(got.AudioLanguages, []string{"nl"}) {
+		t.Fatalf("after save and reshare: sections %v languages %v", got.AllowedLibraries, got.AudioLanguages)
 	}
 	// An explicit Ether restriction is still stored.
-	got.AllowedSections = []int{2}
+	got.AllowedLibraries = []core.LibraryID{2}
 	if err := s.UpdateUser(ctx, *got); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = s.ActiveUser(ctx, alice.ID); !slices.Equal(got.AllowedSections, []int{2}) {
-		t.Fatalf("explicit restriction lost: %v", got.AllowedSections)
+	if got, _ = s.ActiveUser(ctx, alice.ID); !slices.Equal(got.AllowedLibraries, []core.LibraryID{2}) {
+		t.Fatalf("explicit restriction lost: %v", got.AllowedLibraries)
 	}
 }

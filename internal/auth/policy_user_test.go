@@ -16,14 +16,14 @@ func TestPolicyUserReadsDurableRestrictions(t *testing.T) {
 	s := &Service{db: db}
 	// A remote writer need not have published a process-cache invalidation yet.
 	u, err := s.PolicyUser(ctx, 71)
-	if err != nil || len(u.AllowedSections) != 1 || u.AllowedSections[0] != 1 {
+	if err != nil || len(u.AllowedLibraries) != 1 || u.AllowedLibraries[0] != 1 {
 		t.Fatalf("user=%+v %v", u, err)
 	}
-	if _, err := db.Exec(`UPDATE auth_users SET max_content_rating='PG',allowed_sections='[2]' WHERE id=71`); err != nil {
+	if _, err := db.Exec(`UPDATE auth_users SET max_content_rating='PG',allowed_libraries='[2]' WHERE id=71`); err != nil {
 		t.Fatal(err)
 	}
 	u, err = s.PolicyUser(ctx, 71)
-	if err != nil || u.MaxContentRating != "PG" || len(u.AllowedSections) != 1 || u.AllowedSections[0] != 2 {
+	if err != nil || u.MaxContentRating != "PG" || len(u.AllowedLibraries) != 1 || u.AllowedLibraries[0] != 2 {
 		t.Fatalf("updated=%+v %v", u, err)
 	}
 	if _, err := db.Exec(`UPDATE auth_users SET active=0 WHERE id=71`); err != nil {

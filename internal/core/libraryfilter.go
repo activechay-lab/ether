@@ -93,7 +93,7 @@ func WithCatalogViewer(ctx context.Context, u *User) context.Context {
 	if u == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, catalogViewerKey{}, catalogViewer{id: u.ID, restricted: u.MaxContentRating != "" || len(u.AllowedSections) > 0})
+	return context.WithValue(ctx, catalogViewerKey{}, catalogViewer{id: u.ID, restricted: u.MaxContentRating != "" || len(u.AllowedLibraries) > 0})
 }
 
 type catalogViewer struct {
