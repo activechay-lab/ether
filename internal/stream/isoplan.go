@@ -149,6 +149,7 @@ func (b *builder) expandISO(ctx context.Context, first *plan, siblings func(cont
 			}
 		}
 		sort.SliceStable(group, func(i, j int) bool { return group[i].num < group[j].num })
+		group = joinableDiscs(group)
 	}
 	if len(group) > 1 {
 		b.e.log.Debug("multi-disc main feature", "key", d0.key, "discs", len(group))
@@ -161,7 +162,51 @@ func (b *builder) expandISO(ctx context.Context, first *plan, siblings func(cont
 	return b.isoPlan(group, name, discFiles(0, files, d0.an))
 }
 
+// minDiscFeaturePercent is how large, as a percentage of the first disc's
+// feature, a further disc's feature must be to join it. A bonus disc's longest
+// playlist (a "play all" of extras) is the main-feature candidate of its disc
+// too, and must not be appended to the film. The threshold is a conservative
+// guess, not derived from real releases: tune it with data.
+const minDiscFeaturePercent = 50
+
+// joinableDiscs keeps the discs, in order, whose feature is a real part of the
+// first disc's feature, so a bonus disc is not appended to the film.
+func joinableDiscs(group []*disc) []*disc {
+	if len(group) < 2 {
+		return group
+	}
+	out := group[:1:1]
+	for _, d := range group[1:] {
+		if sameFeature(group[0], d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// sameFeature reports whether d's main feature is at least minDiscFeaturePercent
+// of ref's, by authored duration or, when a disc has none, by clip bytes.
+func sameFeature(ref, d *disc) bool {
+	r, x := ref.an.DurationTicks, d.an.DurationTicks
+	if r <= 0 || x <= 0 {
+		r, x = featureBytes(ref.an), featureBytes(d.an)
+	}
+	return r > 0 && x*100 >= r*minDiscFeaturePercent
+}
+
+func featureBytes(an *iso.Analysis) int64 {
+	var n int64
+	for _, c := range an.MainFeature {
+		n += c.Size
+	}
+	return n
+}
+
 // isoFile is one file to play, with the disc it is on and its playlist timing.
+// Limitation: a clip plays whole. A PlayItem whose IN/OUT covers only part of
+// its clip still contributes every packet of it, and inTicks only sets the
+// delta, so packets outside IN/OUT get overlapping timestamps (rare for main
+// features).
 type isoFile struct {
 	iso.File
 	disc                   int

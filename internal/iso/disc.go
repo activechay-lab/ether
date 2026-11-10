@@ -12,9 +12,10 @@ import (
 )
 
 // discSuffixPattern matches volume labels like "AVATAR_FIRE_AND_ASH_DISC_1",
-// "MOVIE-CD2", "TITLE PART 3". Group 1 is the title, group 2 the disc
-// identifier (a number or a single letter).
-var discSuffixPattern = regexp.MustCompile(`(?i)^(.+?)[ _.\-]*(?:disc|cd|part|d|side)[ _.\-]*([0-9]+|[a-z])$`)
+// "MOVIE-CD2", "TITLE PART 3". Group 1 is the title; group 2 the disc
+// identifier (a number or a single letter), or group 3 for the short "D<n>"
+// form, which takes digits only so that SHOW_DS is not disc 19 of SHOW.
+var discSuffixPattern = regexp.MustCompile(`(?i)^(.+?)[ _.\-]*(?:(?:disc|cd|part|side)[ _.\-]*([0-9]+|[a-z])|d[ _.\-]*([0-9]+))$`)
 
 // GroupKey returns the key that groups the discs of one title, and this
 // disc's number. It prefers the volume label and falls back to the image's
@@ -31,7 +32,7 @@ func GroupKey(label, filename string) (key string, disc int) {
 			continue
 		}
 		if m := discSuffixPattern.FindStringSubmatch(c); m != nil {
-			return normaliseKey(m[1]), discNumber(m[2])
+			return normaliseKey(m[1]), discNumber(m[2] + m[3])
 		}
 	}
 	for _, c := range candidates {
