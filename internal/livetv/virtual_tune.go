@@ -8,12 +8,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// A virtual tune must not sit on one unplayable title until Plex gives up.
-// The first attempt is long enough for a cached resolve; later attempts share
-// whatever budget remains so a hung "not available yet" still reaches the
-// next item or the channel's fallback.
+// The guide's on-now title gets the whole cold-tune window to open: the
+// opening ident holds the screen meanwhile, and a slow resolve is not a reason
+// to air something else. Stand-ins after a real failure get a short budget
+// each, so a hung "not available yet" still reaches the channel's fallback.
 var (
 	virtualAttemptBudget = 6 * time.Second
+	virtualOnNowBudget   = broadcastColdProgrammeWait
 )
 
 const virtualMaxAttempts = 4
@@ -26,8 +27,9 @@ func (s *Service) knownUnavailable(ctx context.Context, key core.RatingKey) bool
 	return known && !ok
 }
 
-// virtualCandidates starts with the guide's on-now title, then the rest of
-// the running order, then fallback. Known-unplayable titles are skipped by
+// virtualCandidates starts with the guide's on-now title, then the channel's
+// fallback, then the running order: a stand-in never takes a later airing
+// while fallback programming exists. Known-unplayable titles are skipped by
 // the caller before Prepare.
 func (s *Service) virtualCandidates(c Channel, current Programme) []Programme {
 	now := s.o.Now()
@@ -44,14 +46,16 @@ func (s *Service) virtualCandidates(c Channel, current Programme) []Programme {
 		out = append(out, p)
 	}
 	add(current)
+	if c.Personal == nil {
+		for _, item := range c.Fallback {
+			add(standIn(c, item, now))
+		}
+	}
 	for _, p := range s.viewerSchedule(s.ctx, c, now, now.Add(24*time.Hour)) {
 		add(p)
 	}
 	if c.Personal != nil {
 		return out
-	}
-	for _, item := range c.Fallback {
-		add(standIn(c, item, now))
 	}
 	for _, block := range c.Blocks {
 		for _, item := range block.Items {

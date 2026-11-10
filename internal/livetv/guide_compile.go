@@ -15,15 +15,14 @@ type guideCompileResult struct {
 // guideCompileCache belongs to a single refresh pass, shared by all workers.
 // It retains only the current pass's new/shared tables, never a second lineup.
 type guideCompileCache struct {
-	mu               sync.Mutex
-	entries          map[string]*guideCompileResult
-	availabilityOnce sync.Once
-	availability     uint64
+	mu      sync.Mutex
+	entries map[string]*guideCompileResult
 }
 
-func (c *guideCompileCache) fingerprint(s *Service, channel Channel, revision uint64, now time.Time) string {
-	c.availabilityOnce.Do(func() { c.availability = s.snapshotAvailabilityEpoch(now) })
-	return s.snapshotFingerprintAt(channel, revision, c.availability)
+// A channel's guide depends on its programming, graphics and reels; never on
+// availability, which only changes what airs inside a slot.
+func (c *guideCompileCache) fingerprint(s *Service, channel Channel, revision uint64, _ time.Time) string {
+	return s.snapshotFingerprintAt(channel, revision)
 }
 func (c *guideCompileCache) remember(key string, snapshot *virtualGuideSnapshot) {
 	c.mu.Lock()

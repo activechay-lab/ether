@@ -8,7 +8,9 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-func TestGuideSkipsTitlesKnownToBeUnplayable(t *testing.T) {
+// One schedule: a title known to be unplayable keeps its slot in the guide
+// (it is replaced on air for that slot only), so later programmes never move.
+func TestGuideKeepsUnplayableTitlesInTheirSlots(t *testing.T) {
 	now := time.Unix(7, 0).UTC()
 	first := core.MovieKey(1)
 	second := core.MovieKey(2)
@@ -30,8 +32,8 @@ func TestGuideSkipsTitlesKnownToBeUnplayable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := s.programmes(context.Background(), c, now, now.Add(time.Second))
-	if err != nil || len(got) != 1 || got[0].Item.Key != second || got[0].Item.Title != "Second" {
-		t.Fatalf("guide kept an unplayable title: %+v %v", got, err)
+	if err != nil || len(got) != 1 || got[0].Item.Key != first {
+		t.Fatalf("availability reshaped the guide: %+v %v", got, err)
 	}
 	unknown := testService(t, Options{Now: func() time.Time { return now }})
 	plain, err := unknown.programmes(context.Background(), c, now, now.Add(time.Second))

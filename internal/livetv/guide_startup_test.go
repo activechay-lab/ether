@@ -42,14 +42,14 @@ func TestGuideStartupAdmission(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(gate) }) }
 	defer release()
-	availability := &startupAvailability{gate: gate}
+	availability := &startupCatalog{gate: gate}
 	type result struct {
 		s   *Service
 		err error
 	}
 	ready := make(chan result, 1)
 	go func() {
-		s, err := New(Options{DB: db, Now: func() time.Time { return now }, Availability: availability, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		s, err := New(Options{DB: db, Now: func() time.Time { return now }, Catalog: availability, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 		ready <- result{s, err}
 	}()
 	var s *Service
@@ -109,12 +109,14 @@ func TestGuideStartupAdmission(t *testing.T) {
 	}
 }
 
-type startupAvailability struct {
+type startupCatalog struct {
+	core.Catalog
 	gate            <-chan struct{}
 	active, maximum atomic.Int64
 }
 
-func (a *startupAvailability) Available(ctx context.Context, key core.RatingKey) (bool, bool) {
+// Get holds a dense channel's guide preparation until the gate opens.
+func (a *startupCatalog) Get(ctx context.Context, key core.RatingKey) (*core.Title, error) {
 	if key != core.MovieKey(2) {
 		n := a.active.Add(1)
 		defer a.active.Add(-1)
@@ -125,5 +127,5 @@ func (a *startupAvailability) Available(ctx context.Context, key core.RatingKey)
 		case <-ctx.Done():
 		}
 	}
-	return true, true
+	return &core.Title{Key: key, Type: core.TypeMovie, Title: "Title"}, nil
 }

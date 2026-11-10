@@ -44,19 +44,7 @@ func snapshotInputFingerprint(c Channel, revision uint64) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Service) snapshotAvailabilityEpoch(now time.Time) uint64 {
-	var availability uint64
-	if source, ok := s.o.Availability.(interface{ AvailabilityEpoch() uint64 }); ok {
-		availability = source.AvailabilityEpoch()
-	} else if s.o.Availability != nil {
-		// Third-party sources without an invalidation capability retain the former
-		// thirty-second availability refresh. The built-in resolver exposes epochs.
-		availability = uint64(now.Unix() / 30)
-	}
-	return availability
-}
-
-func (s *Service) snapshotFingerprintAt(c Channel, revision, availability uint64) string {
+func (s *Service) snapshotFingerprintAt(c Channel, revision uint64) string {
 	type durationInput struct {
 		Look, Moment, Name, Rating string
 		Duration                   time.Duration
@@ -67,11 +55,10 @@ func (s *Service) snapshotFingerprintAt(c Channel, revision, availability uint64
 		Snapshot *ReelSnapshot
 	}
 	deps := struct {
-		Programming  string
-		Availability uint64
-		Durations    []durationInput
-		Reels        []reelInput
-	}{Programming: snapshotInputFingerprint(c, revision), Availability: availability}
+		Programming string
+		Durations   []durationInput
+		Reels       []reelInput
+	}{Programming: snapshotInputFingerprint(c, revision)}
 	looks := []*ChannelLook{c.Look}
 	for _, b := range c.Blocks {
 		looks = append(looks, b.Breaks)

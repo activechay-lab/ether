@@ -212,7 +212,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			}
 			var ps *core.PlaySession
 			var err error
-			attempt, cancel := context.WithTimeout(ctx, virtualAttemptBudget)
+			budget := virtualAttemptBudget
+			if candidate.ID == programme.ID {
+				budget = virtualOnNowBudget
+			}
+			attempt, cancel := context.WithTimeout(ctx, budget)
 			group := "broadcast-" + c.ID
 			if c.Personal != nil {
 				group += "-viewer-" + strconv.FormatInt(p.user.ID, 10)

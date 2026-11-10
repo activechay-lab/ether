@@ -589,23 +589,22 @@ func TestIdleDemandZeroSnapshotsAndPostIdleRecovery(t *testing.T) {
 			t.Fatalf("first cold /guide missing programmes for %s", id)
 		}
 	}
-	afterColdCalls := avail.calls.Load()
-	if afterColdCalls == 0 {
-		t.Fatal("expected cold /guide to prepare snapshots via Availability")
+	if ltv.GuideSnapshotBuilds() == 0 {
+		t.Fatal("expected cold /guide to build snapshots")
 	}
 
 	// Wait briefly if background virtualGuideLoop is finishing its demand wake, then verify warm read reuses cache.
 	if err := ltv.RefreshGuide(ctx); err != nil {
 		t.Fatal(err)
 	}
-	warmBaseline := avail.calls.Load()
+	warmBaseline := ltv.GuideSnapshotBuilds()
 	clock.Set(clock.Now().Add(5 * time.Minute))
 	warmProgrammes, status := fetchGuide()
 	if status != http.StatusOK || len(warmProgrammes) == 0 {
 		t.Fatalf("warm /guide returned status=%d programmes=%d", status, len(warmProgrammes))
 	}
-	if got := avail.calls.Load(); got != warmBaseline {
-		t.Fatalf("warm /guide within idle window rebuilt snapshots: availability calls %d -> %d", warmBaseline, got)
+	if got := ltv.GuideSnapshotBuilds(); got != warmBaseline {
+		t.Fatalf("warm /guide within idle window rebuilt snapshots: builds %d -> %d", warmBaseline, got)
 	}
 
 	// Advance past the 15-minute idle window: snapshots evict and the next /guide rebuilds cleanly.
@@ -614,8 +613,8 @@ func TestIdleDemandZeroSnapshotsAndPostIdleRecovery(t *testing.T) {
 	if status != http.StatusOK || len(postIdleProgrammes) == 0 {
 		t.Fatalf("post-idle /guide returned status=%d programmes=%d", status, len(postIdleProgrammes))
 	}
-	if got := avail.calls.Load(); got <= warmBaseline {
-		t.Fatalf("expected post-idle /guide to rebuild evicted snapshots: availability calls stayed %d", got)
+	if got := ltv.GuideSnapshotBuilds(); got <= warmBaseline {
+		t.Fatalf("expected post-idle /guide to rebuild evicted snapshots: builds stayed %d", got)
 	}
 }
 

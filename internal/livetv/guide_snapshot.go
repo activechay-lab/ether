@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -47,6 +48,7 @@ type virtualGuideCache struct {
 	prepOnce       sync.Once
 	prepSem        chan struct{}
 	wake           chan struct{}
+	builds         atomic.Int64 // snapshot builds, for idle-cost checks
 }
 
 func (s *Service) acquirePrepSlot(ctx context.Context) (func(), error) {
@@ -759,6 +761,7 @@ func (s *Service) buildVirtualSnapshot(ctx context.Context, c Channel, now time.
 	}
 	recipe := compiled.fingerprint(s, c, revision, now)
 	build := func() (*virtualGuideSnapshot, error) {
+		s.virtualGuide.builds.Add(1)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
