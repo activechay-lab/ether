@@ -133,7 +133,7 @@ func showcaseRecipes() []showcaseRecipe {
 	build := func(e era) showcaseRecipe {
 		f, t := e.from, e.to
 		v := e.votes
-		r := showcaseRecipe{id: e.id, version: 2, number: e.number, name: e.name, lookID: e.look, reelID: e.reel, decade: e.decade, seed: int64(f), era: [2]int{f, t}}
+		r := showcaseRecipe{id: e.id, version: 3, number: e.number, name: e.name, lookID: e.look, reelID: e.reel, decade: e.decade, seed: int64(f), era: [2]int{f, t}}
 		r.blocks = []Block{
 			block("The Late Movie", 0, 2, everyDay, moviePool("Late movies", rated(films(f, t, lateFilm, e.filmVotes/2), ""), excluding("Animation", "Family"), 40)),
 			block("All-night reruns", 2, 6, everyDay, lineup("Overnight dramas", series(f-4, t, append(append([]string(nil), hour...), "Sci-Fi & Fantasy"), v/2, 38, 70), noToons, 4, 8, 7)),
@@ -161,7 +161,7 @@ func showcaseRecipes() []showcaseRecipe {
 		r.filler = lineup("Short cartoons", series(f-10, t, []string{"Animation", "Comedy", "Family", "Kids"}, 5, 3, 15), nil, 8, 8, 0)
 		return r
 	}
-	return []showcaseRecipe{
+	recipes := []showcaseRecipe{
 		build(era{id: "chroma-80", number: "1980", name: "CHROMA 80", look: "showcase-80", reel: "showcase-reel-80", decade: "1980s", from: 1978, to: 1989, votes: 40, filmVotes: 800,
 			monName: "Action night", primeMon: lineup("Monday action", series(1978, 1989, action, 80, 38, 70), noToons, 3, 6, 4),
 			wedName: "Drama night", primeWed: lineup("Wednesday dramas", series(1978, 1989, hour, 60, 38, 70), noFantasy, 3, 6, 4),
@@ -183,6 +183,39 @@ func showcaseRecipes() []showcaseRecipe {
 			primeComedyExclude: excluding("Animation", "Kids", "Family"),
 			lateNight:          lineup("Late-night animation", rated(series(2008, 2019, []string{"Animation"}, 450, 10, 35), ""), adultToons, 2, 6, 7)}),
 	}
+	for i := range recipes {
+		decadeOnly(&recipes[i], i == 0)
+	}
+	return recipes
+}
+
+// decadeOnly keeps every rule of a recipe inside its own decade, so a series or
+// film airs on one decade channel only: The Cleveland Show (2009) is ORBIT 00's,
+// never also SHIFT 10's. Only the earliest network reaches back further, for
+// the older reruns nobody else carries.
+func decadeOnly(r *showcaseRecipe, earliest bool) {
+	lo, err := strconv.Atoi(strings.TrimSuffix(r.decade, "s"))
+	if err != nil {
+		return
+	}
+	hi := lo + 9
+	clamp := func(f *core.Filter) {
+		if f == nil {
+			return
+		}
+		if !earliest && f.YearFrom < lo {
+			f.YearFrom = lo
+		}
+		if f.YearTo > hi {
+			f.YearTo = hi
+		}
+	}
+	for i := range r.blocks {
+		for j := range r.blocks[i].Sources {
+			clamp(r.blocks[i].Sources[j].Filter)
+		}
+	}
+	clamp(r.filler.Filter)
 }
 
 // channel is the recipe's saved form. Its block IDs are stable so a later
