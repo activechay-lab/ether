@@ -4,17 +4,30 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
 )
 
+func testConsoleUI() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html": &fstest.MapFile{
+			Data: []byte(`<!doctype html><html><head><script>document.documentElement.dataset.theme="dark";</script><script type="module" crossorigin src="/ether/assets/index-test.js"></script></head><body><div id="root"></div></body></html>`),
+		},
+		"assets/index-test.js": &fstest.MapFile{
+			Data: []byte(`console.log("ether");`),
+		},
+	}
+}
+
 func TestDashboardFramePolicy(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), UI: testConsoleUI()})
 	check := func(wantCSP, wantXFO string) {
 		t.Helper()
 		r := req(http.MethodGet, "/ether/", "")
@@ -72,36 +85,55 @@ func TestDashboardFramePolicy(t *testing.T) {
 // Every inline script the embedded console ships is allowed by hash, and
 // nothing else inline is.
 func TestConsoleScriptPolicyMatchesServedIndex(t *testing.T) {
+	assertScriptPolicy := func(t *testing.T, h *admin.Handler, expectStatus int) {
+		t.Helper()
+		rec := serve(h, req(http.MethodGet, "/ether/", ""))
+		if rec.Code != expectStatus {
+			t.Fatalf("GET /ether/: status %d, want %d", rec.Code, expectStatus)
+		}
+		csp := rec.Header().Get("Content-Security-Policy")
+		var scriptSrc string
+		for _, d := range strings.Split(csp, ";") {
+			if f := strings.Fields(d); len(f) > 0 && f[0] == "script-src" {
+				scriptSrc = strings.Join(f[1:], " ")
+			}
+		}
+		if strings.Contains(scriptSrc, "unsafe-inline") || strings.Contains(scriptSrc, "unsafe-eval") || !strings.HasPrefix(scriptSrc, "'self'") {
+			t.Fatalf("script-src %q", scriptSrc)
+		}
+		inline := regexp.MustCompile(`(?is)<script([^>]*)>(.*?)</script>`)
+		hashes := 0
+		for _, m := range inline.FindAllStringSubmatch(rec.Body.String(), -1) {
+			if strings.Contains(strings.ToLower(m[1]), "src=") {
+				continue
+			}
+			sum := sha256.Sum256([]byte(m[2]))
+			want := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+			if !strings.Contains(scriptSrc, want) {
+				t.Fatalf("inline script %q not allowed by %q", m[2], scriptSrc)
+			}
+			hashes++
+		}
+		if got := strings.Count(scriptSrc, "'sha256-"); got != hashes {
+			t.Fatalf("policy allows %d inline scripts, page has %d", got, hashes)
+		}
+	}
+
 	store := newStore(t, func(c *config.Config) { seededConfig(c); c.SetupComplete = true })
-	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
-	rec := serve(h, req(http.MethodGet, "/ether/", ""))
-	if rec.Code != 200 {
-		t.Skipf("embedded UI not built: %d", rec.Code)
-	}
-	csp := rec.Header().Get("Content-Security-Policy")
-	var scriptSrc string
-	for _, d := range strings.Split(csp, ";") {
-		if f := strings.Fields(d); len(f) > 0 && f[0] == "script-src" {
-			scriptSrc = strings.Join(f[1:], " ")
+	t.Run("fixture", func(t *testing.T) {
+		h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), UI: testConsoleUI()})
+		assertScriptPolicy(t, h, http.StatusOK)
+	})
+
+	t.Run("embedded", func(t *testing.T) {
+		if os.Getenv("ETHER_REQUIRE_BUILT_UI") == "1" && !admin.ConsoleBuilt() {
+			t.Fatal("ETHER_REQUIRE_BUILT_UI=1, but embedded UI is not built")
 		}
-	}
-	if strings.Contains(scriptSrc, "unsafe-inline") || strings.Contains(scriptSrc, "unsafe-eval") || !strings.HasPrefix(scriptSrc, "'self'") {
-		t.Fatalf("script-src %q", scriptSrc)
-	}
-	inline := regexp.MustCompile(`(?is)<script([^>]*)>(.*?)</script>`)
-	hashes := 0
-	for _, m := range inline.FindAllStringSubmatch(rec.Body.String(), -1) {
-		if strings.Contains(strings.ToLower(m[1]), "src=") {
-			continue
+		h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+		want := http.StatusServiceUnavailable
+		if admin.ConsoleBuilt() {
+			want = http.StatusOK
 		}
-		sum := sha256.Sum256([]byte(m[2]))
-		want := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
-		if !strings.Contains(scriptSrc, want) {
-			t.Fatalf("inline script %q not allowed by %q", m[2], scriptSrc)
-		}
-		hashes++
-	}
-	if got := strings.Count(scriptSrc, "'sha256-"); got != hashes {
-		t.Fatalf("policy allows %d inline scripts, page has %d", got, hashes)
-	}
+		assertScriptPolicy(t, h, want)
+	})
 }

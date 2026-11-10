@@ -14,8 +14,8 @@ LDFLAGS := -s -w \
 
 .PHONY: build test lint vet web spike run tray ffmpeg icons release-snapshot keys clean
 
-## build: server + tray + release-sign tool (CGO-free server)
-build:
+## build: web console + server + tray + release-sign tool (use `go build ./cmd/ether` for Go-only builds without Node)
+build: web
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/ether ./cmd/ether
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/ether-release-sign ./cmd/ether-release-sign
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/ether-tray ./cmd/ether-tray
@@ -41,16 +41,19 @@ lint: vet
 vet:
 	CGO_ENABLED=0 $(GO) vet ./...
 
-## web: build the admin/setup SPA (embedded via go:embed)
+## web: build the admin/setup SPA into internal/admin/dist (embedded via go:embed)
 web:
-	cd web && pnpm install --frozen-lockfile && pnpm build
+	scripts/build-web.sh
 
 ## spike: run a local files library (make spike FILES="movie.mp4 ...")
 spike:
 	CGO_ENABLED=0 $(GO) run ./cmd/ether --spike $(FILES)
 
-## run: run the server from source
+## run: run the server from source (builds web console first if pnpm is available)
 run:
+	@if [ ! -f internal/admin/dist/index.html ] && command -v pnpm >/dev/null 2>&1; then \
+		scripts/build-web.sh; \
+	fi
 	CGO_ENABLED=0 $(GO) run ./cmd/ether
 
 ## tray: run the tray (headless under CGO_ENABLED=0)
@@ -65,7 +68,7 @@ ffmpeg:
 icons:
 	$(GO) run scripts/generate-tray-icons.go cmd/ether-tray/assets
 
-## release-snapshot: goreleaser dry run (fetches pinned ffmpeg)
+## release-snapshot: goreleaser dry run (builds web console + stages pinned ffmpeg)
 release-snapshot:
 	goreleaser release --snapshot --clean --skip=docker,publish
 
@@ -75,3 +78,4 @@ keys:
 
 clean:
 	rm -rf dist
+	find internal/admin/dist -mindepth 1 ! -name .gitkeep -exec rm -rf {} +

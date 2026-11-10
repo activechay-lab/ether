@@ -25,6 +25,7 @@ package admin
 import (
 	"context"
 	"embed"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -39,6 +40,9 @@ import (
 
 //go:embed all:dist
 var distFS embed.FS
+
+//go:embed placeholder.html
+var placeholderHTML []byte
 
 // RedactedSecret is the placeholder shown in place of a stored secret.
 // A PUT that sends it back unchanged preserves the stored value.
@@ -105,7 +109,7 @@ type StatusFuncE func(ctx context.Context) (any, error)
 // dependencies (Plex sign-in, testers, traces, users, personalization,
 // collections, catalogue helper, image proxy) are required. Only the
 // tuning knobs, Logger/Logs, the dashboard status providers, Extensions,
-// ValidateExtra and DiskUsage have defaults or may be left empty.
+// ValidateExtra, DiskUsage and UI have defaults or may be left empty.
 type Deps struct {
 	ViewerCatalogRules ViewerCatalogRules
 	Frontends          FrontendAdmin
@@ -157,6 +161,9 @@ type Deps struct {
 	Support *diagnostics.Recorder
 	// Version is reported by /ether/api/bootstrap ("dev" when empty).
 	Version string
+	// UI overrides the embedded console bundle (tests). Nil serves the
+	// embedded internal/admin/dist directory.
+	UI fs.FS
 
 	// PlexAuth drives wizard step 1 (plex.tv PIN sign-in and claim).
 	PlexAuth PlexAuth
@@ -280,6 +287,8 @@ type Handler struct {
 	logs           *LogBuffer
 	mux            *http.ServeMux
 	version        string
+	ui             fs.FS
+	scriptCSP      string
 	pins           *pinHandles
 	portalPins     *pinHandles
 	linkPins       *pinHandles
@@ -308,7 +317,12 @@ func NewHandler(deps Deps) *Handler {
 	if version == "" {
 		version = "dev"
 	}
-	h := &Handler{deps: deps, log: deps.Logger, logs: deps.Logs, version: version, pins: newPINHandles(), portalPins: newPINHandles(), linkPins: newPINHandles(), authLimit: newAuthLimiter(), loginBodySlots: make(chan struct{}, 32)}
+	scriptCSP := consoleScriptPolicy()
+	if deps.UI != nil {
+		index, _ := fs.ReadFile(deps.UI, "index.html")
+		scriptCSP = scriptPolicy(index)
+	}
+	h := &Handler{deps: deps, log: deps.Logger, logs: deps.Logs, version: version, ui: deps.UI, scriptCSP: scriptCSP, pins: newPINHandles(), portalPins: newPINHandles(), linkPins: newPINHandles(), authLimit: newAuthLimiter(), loginBodySlots: make(chan struct{}, 32)}
 	h.mux = h.routes()
 	return h
 }

@@ -26,6 +26,11 @@ try {
   }
   if (-not $Ready) { throw "Installed server did not become ready" }
 
+  $Console = Invoke-WebRequest "http://127.0.0.1:32400/ether/" -TimeoutSec 5
+  if ($Console.StatusCode -ne 200 -or $Console.Content -notmatch 'id="root"') {
+    throw "Installed service did not serve embedded web console (status $($Console.StatusCode))"
+  }
+
   $TrayPath = Join-Path $Installed "ether-tray.exe"
   $PE = [IO.File]::ReadAllBytes($TrayPath)
   $Header = [BitConverter]::ToInt32($PE, 0x3c)
@@ -34,7 +39,7 @@ try {
   $Tray = Start-Process -FilePath $TrayPath -PassThru
   Start-Sleep -Seconds 3
   if ($Tray.HasExited) { throw "Desktop launcher exited $($Tray.ExitCode)" }
-  Write-Host "Installed service serves Plex identity; desktop launcher stays running."
+  Write-Host "Installed service serves Plex identity and embedded console; desktop launcher stays running."
 } finally {
   if ($Tray -and -not $Tray.HasExited) { Stop-Process -Id $Tray.Id -Force }
   $Uninstaller = Join-Path $Installed "Uninstall.exe"

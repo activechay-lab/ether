@@ -4,6 +4,8 @@
 /ether-tray
 /ether.exe
 /ether-tray.exe
+/internal/admin/dist/*
+!/internal/admin/dist/.gitkeep
 node_modules/
 .pnpm-store/
 *.db
@@ -17,6 +19,7 @@ node_modules/
 *.md
 /docs/benchmarks/
 !/README.md
+!/CONTRIBUTING.md
 !/CHANGELOG.md
 !/UPGRADING.md
 !/LEGAL.md

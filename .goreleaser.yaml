@@ -4,8 +4,7 @@
 # The macOS Ether.app/DMG and the Windows installer are built by native
 # jobs in release.yml (CGO tray on macOS, NSIS on Windows); goreleaser
 # produces the cross-platform server binaries, tarballs, .deb/.rpm and the
-# Docker image here. ffmpeg must be staged first:
-#   scripts/fetch-ffmpeg.sh all
+# Docker image here. before.hooks builds the web console and stages ffmpeg.
 version: 2
 
 project_name: ether
@@ -17,7 +16,9 @@ dist: dist/release
 before:
   hooks:
     - go mod tidy
-    # --clean removes dist before hooks run; stage dependencies here.
+    # --clean removes dist before hooks run; build the embedded console and
+    # stage dependencies here before compiling any binaries.
+    - sh scripts/build-web.sh
     - sh scripts/fetch-ffmpeg.sh all
     # darwin-universal ffmpeg for the universal macOS tarball (needs the
     # darwin builds staged; needs lipo or llvm-lipo on the runner).

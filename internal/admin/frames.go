@@ -52,16 +52,20 @@ func frameOrigins(origins []string) ([]string, error) {
 }
 
 func (h *Handler) frameHeaders(headers http.Header) {
+	policy := h.scriptCSP
+	if policy == "" {
+		policy = consoleScriptPolicy()
+	}
 	origins, err := frameOrigins(h.deps.Config.Get().Server.WebFrameOrigins)
 	if err != nil || len(origins) == 0 {
 		headers.Set("X-Frame-Options", "DENY")
-		headers.Set("Content-Security-Policy", "frame-ancestors 'none'; "+consoleScriptPolicy())
+		headers.Set("Content-Security-Policy", "frame-ancestors 'none'; "+policy)
 		return
 	}
 	// X-Frame-Options cannot express a cross-origin allowlist. CSP checks all
 	// ancestors and allows only these explicitly trusted dashboard origins.
 	headers.Del("X-Frame-Options")
-	headers.Set("Content-Security-Policy", "frame-ancestors "+strings.Join(origins, " ")+"; "+consoleScriptPolicy())
+	headers.Set("Content-Security-Policy", "frame-ancestors "+strings.Join(origins, " ")+"; "+policy)
 }
 
 // consoleScriptPolicy limits the console to its own bundled scripts plus the

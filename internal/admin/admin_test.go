@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
@@ -651,21 +652,38 @@ func TestDashboardDiskAndLogs(t *testing.T) {
 
 func TestSPAFallbackAndAssets(t *testing.T) {
 	store := newStore(t, func(c *config.Config) { c.SetupComplete = true })
-	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	ui := fstest.MapFS{
+		"index.html":    &fstest.MapFile{Data: []byte(`<!doctype html><div id="root"></div>`)},
+		"assets/app.js": &fstest.MapFile{Data: []byte(`export {};`)},
+	}
+	h := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store), UI: ui})
 	// Deep client route with no token: SPA shell is public so the login
 	// prompt can render; API data stays gated.
 	rec := serve(h, req(http.MethodGet, "/ether/settings/providers", ""))
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `id="root"`) {
 		t.Fatalf("SPA fallback: %d %s", rec.Code, rec.Body)
 	}
+	rec = serve(h, req(http.MethodGet, "/ether/assets/app.js", ""))
+	if rec.Code != 200 || !strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("SPA asset: %d %v", rec.Code, rec.Header())
+	}
 	rec = serve(h, req(http.MethodGet, "/ether/api/unknown", ""))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unknown API post-setup without token: got %d want 401", rec.Code)
 	}
-	// Bootstrap is public and secret-free.
-	rec = serve(h, req(http.MethodGet, "/ether/api/bootstrap", ""))
+	// Bootstrap is public and secret-free even when compiled without Node.
+	defaultH := admin.NewHandler(admin.Deps{Config: store, IsOwnerToken: storedOwner(store)})
+	rec = serve(defaultH, req(http.MethodGet, "/ether/api/bootstrap", ""))
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"setupComplete":true`) {
 		t.Fatalf("bootstrap: %d %s", rec.Code, rec.Body)
+	}
+	rec = serve(defaultH, req(http.MethodGet, "/ether/settings/providers", ""))
+	if admin.ConsoleBuilt() {
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `id="root"`) {
+			t.Fatalf("embedded SPA fallback: %d %s", rec.Code, rec.Body)
+		}
+	} else if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Ether console is not built") {
+		t.Fatalf("unbuilt SPA fallback: %d %s", rec.Code, rec.Body)
 	}
 }
 

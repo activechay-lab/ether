@@ -16,6 +16,7 @@ PY
 }
 trap cleanup EXIT
 git -C "$root" archive "$sha" | tar -x -C "$source_dir"
+(cd "$source_dir" && nice -n 10 scripts/build-web.sh)
 (cd "$source_dir" && nice -n 10 env CGO_ENABLED=0 GOMAXPROCS=4 "${GO_BINARY:-/data/bb/toolchains/go1.27.3/bin/go}" build -buildvcs=false -p 2 -trimpath -ldflags '-s -w' -o "$state/image/ether" ./cmd/ether)
 mkdir -p "$state/image/packaging/docker"
 (cd "$source_dir" && FFMPEG_OUT="$state/image/dist/ffmpeg" nice -n 10 scripts/fetch-ffmpeg.sh linux-amd64)

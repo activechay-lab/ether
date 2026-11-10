@@ -1,7 +1,7 @@
 # Build EtherSetup-<version>.exe on a Windows host/runner.
 #   pwsh packaging/windows/build-installer.ps1 -Version 1.2.0
-# Requires: Go, NSIS (makensis on PATH). Signing is optional and driven by
-# env vars: WINDOWS_CERT_PFX (path), WINDOWS_CERT_PASSWORD.
+# Requires: Go, Node 22+ with pnpm, NSIS (makensis on PATH). Signing is optional
+# and driven by env vars: WINDOWS_CERT_PFX (path), WINDOWS_CERT_PASSWORD.
 param(
   [Parameter(Mandatory = $true)][string]$Version,
   [string]$Arch = "amd64"
@@ -16,6 +16,18 @@ $ldflags = "-s -w" +
   " -X github.com/braedonsaunders/ether/internal/updater.Commit=$env:COMMIT" +
   " -X github.com/braedonsaunders/ether/internal/updater.PublicKeyB64=$env:ETHER_UPDATE_PUBLIC_KEY" +
   " -X github.com/braedonsaunders/ether/internal/tmdb.BundledKey=$env:ETHER_TMDB_BUNDLED_KEY"
+
+Write-Host "==> building web console (embedded by go:embed)"
+if (-not $env:NODE_OPTIONS) { $env:NODE_OPTIONS = "--max-old-space-size=4096" }
+Push-Location (Join-Path $Root "web")
+pnpm install --frozen-lockfile
+if ($LASTEXITCODE -ne 0) { throw "Web dependency install failed" }
+pnpm build
+if ($LASTEXITCODE -ne 0) { throw "Web console build failed" }
+Pop-Location
+if (-not (Test-Path (Join-Path $Root "internal\admin\dist\index.html"))) {
+  throw "Web console build did not produce internal\admin\dist\index.html"
+}
 
 Write-Host "==> building ether.exe + ether-tray.exe (windows/$Arch, CGO_ENABLED=0)"
 $env:CGO_ENABLED = "0"; $env:GOEXPERIMENT = "simd"; $env:GOOS = "windows"; $env:GOARCH = $Arch

@@ -270,7 +270,7 @@ Open **`http://localhost:32400/ether/`** and complete the setup wizard. If Plex 
 4. **Choose a cache preset** (an SSD with 32–50 GiB is plenty to start).
 5. **Catalogue:** official builds include a TMDB key; custom builds without a bundled key need a free [TMDB API key](https://www.themoviedb.org/settings/api). Add Trakt, Simkl, OpenSubtitles, or a local language model (Ollama/LM Studio) later under **Integrations**.
 
-**Documentation:** [**Installation & Clustering Guide**](docs/install.md) · [**Owner & User Guide**](docs/user-guide.md) · [**Multi-App Architecture & Watch Party**](docs/apps.md) · [**Performance Architecture**](docs/performance.md) · [**NAS & Homelab Templates**](packaging/community/README.md)
+**Documentation:** [**Installation & Clustering Guide**](docs/install.md) · [**Owner & User Guide**](docs/user-guide.md) · [**Multi-App Architecture & Watch Party**](docs/apps.md) · [**Performance Architecture**](docs/performance.md) · [**NAS & Homelab Templates**](packaging/community/README.md) · [**Building from Source & Contributing**](CONTRIBUTING.md)
 
 ---
 
@@ -390,6 +390,22 @@ Ether sends **no usage analytics, crash reports, or behavioural telemetry**. Eve
 6. **Cluster address detection (clustered nodes only):** each node checks its public IP every 10 minutes (`v4.plex.tv` first, then `api.ipify.org`, `icanhazip.com`, `ifconfig.me`). This has no switch.
 </details>
 
+<details>
+<summary><b>How do I build Ether from source?</b></summary>
+
+Use a blobless partial clone so Git skips historical asset blobs:
+
+```sh
+git clone --filter=blob:none https://github.com/braedonsaunders/ether.git
+cd ether
+```
+
+- **Full server with the `/ether/` web console (Go + Node 22+ + `pnpm` 10):** run `make build` (or `scripts/build-web.sh && CGO_ENABLED=0 go build ./cmd/ether`), and `make ffmpeg` to stage the pinned FFmpeg/FFprobe binaries. Multi-stage `docker build .` compiles the web console automatically.
+- **Go-only builds and tests (no Node required):** `CGO_ENABLED=0 go build ./...`, `CGO_ENABLED=0 go vet ./...`, and `go test ./internal/...` work directly on a clean checkout; `/ether/api/` and all client protocols run normally while `/ether/` serves a short build-instructions placeholder until `make web` is run.
+
+See [**CONTRIBUTING.md**](CONTRIBUTING.md) for full developer and pull-request instructions.
+</details>
+
 ---
 
 ## Where it stands today
@@ -443,4 +459,4 @@ Ether is an independent, clean-room implementation of the HTTP protocols used by
 
 "Plex" is a trademark of Plex, Inc. "Jellyfin" is a trademark of the Jellyfin project. "Emby" is a trademark of Emby LLC. "Silo" and "Stremio" are trademarks of their respective owners. Ether is **not affiliated with, sponsored by, or endorsed by Plex, Inc., the Jellyfin project, Emby LLC, Silo, or Stremio.** This product uses the TMDB API but is not endorsed or certified by TMDB.
 
-[**GPL-3.0 License**](LICENSE) · [**Legal**](LEGAL.md) · [**Third-Party Notices**](THIRD_PARTY_NOTICES.md)
+[**GPL-3.0 License**](LICENSE) · [**Contributing**](CONTRIBUTING.md) · [**Legal**](LEGAL.md) · [**Third-Party Notices**](THIRD_PARTY_NOTICES.md)
