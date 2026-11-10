@@ -11,10 +11,10 @@ import (
 
 // sharePolicy is a viewer policy with a plex.tv share predicate.
 type sharePolicy struct{ tv core.Filter }
+
 func (sharePolicy) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (sharePolicy) Allowed(*core.User, *core.Title) bool { return true }
 func (p sharePolicy) BrowseShareFilter(_ *core.User, typ core.MediaType) core.Filter {

@@ -78,6 +78,57 @@ type Frontend interface {
 // The host also checks common listener options before persistence.
 type SettingsValidator interface{ ValidateSettings(Settings) error }
 
+// Shutdowner is optionally implemented by a Frontend that retains process-owned
+// state across mounts so the host can release it once on runtime shutdown.
+type Shutdowner interface{ Shutdown(context.Context) error }
+
+// DerivedPruner is optionally implemented by a Frontend or Instance that owns
+// derived rows or caches pruned during background maintenance.
+type DerivedPruner interface {
+	Prune(context.Context) (int64, error)
+}
+
+// OwnerSessionStopper is optionally implemented by a mounted Instance that
+// delivers an owner stream-termination message to the client's timeline.
+type OwnerSessionStopper interface {
+	NoteOwnerStop(sessionID, reason string)
+}
+
+// LiveLineupObserver is optionally implemented by a mounted Instance that
+// notifies connected clients when the Live TV lineup changes. A non-positive
+// viewerID broadcasts to all viewers.
+type LiveLineupObserver interface {
+	NotifyLiveLineupChanged(viewerID int64)
+}
+
+// ViewerDiagnostics is optionally implemented by a mounted Instance that
+// contributes protocol-specific viewer facts to owner support bundles.
+type ViewerDiagnostics interface {
+	SupportViewer(context.Context, *core.User) (diagnostics.ViewerFacts, error)
+}
+
+// BackgroundWorker is optionally implemented by a mounted Instance that runs
+// asynchronous work behind requests.
+type BackgroundWorker interface {
+	BackgroundBusy() int
+}
+
+// PublishedLibrarySection describes a library section advertised to external
+// account directories.
+type PublishedLibrarySection struct {
+	ID       int
+	Type     MediaType
+	Title    string
+	UUID     string
+	Language string
+}
+
+// PublishedLibraryProvider is optionally implemented by a mounted Instance
+// that exposes canonical library sections for remote directory registration.
+type PublishedLibraryProvider interface {
+	PublishedLibraries() []PublishedLibrarySection
+}
+
 type Instance interface {
 	Handler() http.Handler
 	Listeners() []ListenerSpec
@@ -385,7 +436,12 @@ type Host struct {
 	Identity    SurfaceIdentity
 	IDs         ids.Codecs
 	Events      Subscriber
-	Tickets     Tickets
+	// WatchRefresh subscribes a mounted frontend to committed watch-state changes.
+	WatchRefresh WatchRefreshSubscriber
+	// HomeInvalidation subscribes a mounted frontend to committed state changes
+	// that invalidate a viewer's home screen.
+	HomeInvalidation HomeInvalidationSubscriber
+	Tickets          Tickets
 	// WatchParty is the shared Silo and Jellyfin room. Nil leaves both off.
 	WatchParty  WatchParty
 	Images      Images
@@ -415,6 +471,8 @@ type Host struct {
 	Config     func() Settings
 	HostConfig func() HostConfig
 	Now        func() time.Time
+	// TracePlayback logs HLS/transcode diagnostics when ETHER_TRACE_PLAYBACK=1.
+	TracePlayback bool
 	// ServerIdentity describes how this server presents its machine and build identity.
 	ServerIdentity ServerIdentity
 	// OwnerSubscription returns the current owner entitlement snapshot.
@@ -458,8 +516,6 @@ type Host struct {
 	// PersonalHomes keeps the last personalized library list so the first
 	// UserViews after a restart can include it. Nil keeps that list in memory.
 	PersonalHomes PersonalHomeStore
-	// Plex supplies host services for the Plex frontend.
-	Plex PlexHost
 }
 
 // PersonalHomeStore persists one viewer's personalized library list.
@@ -486,6 +542,7 @@ type Registry struct {
 	mu      sync.RWMutex
 	entries map[Protocol]*entry
 	host    func(Protocol) Host
+	closed  bool
 }
 type entry struct {
 	frontend   Frontend
@@ -545,6 +602,10 @@ func (r *Registry) ValidateSettings(id Protocol, settings Settings) (bool, error
 func (r *Registry) Mount(ctx context.Context, id Protocol) (Instance, error) {
 	for {
 		r.mu.Lock()
+		if r.closed {
+			r.mu.Unlock()
+			return nil, errors.New("frontend registry closed")
+		}
 		e, ok := r.entries[id]
 		if !ok {
 			r.mu.Unlock()
@@ -581,7 +642,7 @@ func (r *Registry) Mount(ctx context.Context, id Protocol) (Instance, error) {
 			err = errors.New("frontend returned nil instance")
 		}
 		r.mu.Lock()
-		if current := r.entries[id]; current != e || e.generation != generation {
+		if r.closed || r.entries[id] != e || e.generation != generation {
 			r.mu.Unlock()
 			if instance != nil {
 				_ = instance.Close(ctx)
@@ -656,6 +717,53 @@ func (r *Registry) Descriptors() []Descriptor {
 	r.mu.RUnlock()
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+// Shutdown marks the registry closed and releases process-retained state on
+// registered frontends that implement Shutdowner.
+func (r *Registry) Shutdown(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	r.closed = true
+	frontends := make([]Frontend, 0, len(r.entries))
+	for _, e := range r.entries {
+		frontends = append(frontends, e.frontend)
+	}
+	r.mu.Unlock()
+	var errs []error
+	for _, f := range frontends {
+		if s, ok := f.(Shutdowner); ok {
+			if err := s.Shutdown(ctx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Prune runs DerivedPruner on a registered frontend or its mounted instance.
+func (r *Registry) Prune(ctx context.Context, id Protocol) (int64, error) {
+	if r == nil {
+		return 0, nil
+	}
+	r.mu.RLock()
+	e, ok := r.entries[id]
+	var fe Frontend
+	var inst Instance
+	if ok {
+		fe = e.frontend
+		inst = e.instance
+	}
+	r.mu.RUnlock()
+	if p, ok := fe.(DerivedPruner); ok {
+		return p.Prune(ctx)
+	}
+	if p, ok := inst.(DerivedPruner); ok {
+		return p.Prune(ctx)
+	}
+	return 0, nil
 }
 
 func cloneDescriptor(d Descriptor) Descriptor {

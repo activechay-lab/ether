@@ -47,7 +47,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/overlays"
 	"github.com/braedonsaunders/ether/internal/personalize"
 	"github.com/braedonsaunders/ether/internal/playback"
-	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/plextv"
@@ -263,11 +262,10 @@ type App struct {
 	updates           *updateState
 	frontends         *frontendRuntime
 	frontendClients   *frontendClients
-	plexServer        *plex.Server
 	artwork           *artworkservice.Source
 	downloadRemuxer   core.DownloadRemuxer
-	plexBuildMu       sync.Mutex
-	plexClose         func()
+	plexMetaMu        sync.Mutex
+	plexMetaClose     func()
 	spikeLibrary      *spike.Library
 	handler           http.Handler
 	instanceLock      *instanceLock

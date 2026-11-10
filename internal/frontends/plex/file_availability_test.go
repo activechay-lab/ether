@@ -11,8 +11,8 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
+	"github.com/braedonsaunders/ether/internal/playback"
 )
 
 func (p *fakePlayback) CheckFileAvailability(_ context.Context, _ *core.User, key core.RatingKey, _ core.ClientCaps, _ string) (bool, error) {

@@ -174,12 +174,12 @@ func (a *App) buildPlexServers() error {
 	return nil
 }
 
-// lazyPlexGUID reads the Plex front end's GUID resolver when it exists.
+// lazyPlexGUID reads the Plex GUID resolver when it exists.
 type lazyPlexGUID struct{ a *App }
 
 func (g lazyPlexGUID) service() *plexguid.Service {
-	g.a.plexBuildMu.Lock()
-	defer g.a.plexBuildMu.Unlock()
+	g.a.plexMetaMu.Lock()
+	defer g.a.plexMetaMu.Unlock()
 	return g.a.plexGUID
 }
 

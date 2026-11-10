@@ -294,11 +294,7 @@ func (a *App) supportViewer(userID int64) (diagnostics.ViewerFacts, error) {
 	if err != nil {
 		return diagnostics.ViewerFacts{}, err
 	}
-	server := a.currentPlexServer()
-	if server == nil {
-		return diagnostics.ViewerFacts{}, errors.New("Plex unavailable")
-	}
-	v, err := server.SupportViewer(ctx, user)
+	v, err := a.frontends.supportViewer(ctx, user)
 	if err != nil {
 		return v, err
 	}

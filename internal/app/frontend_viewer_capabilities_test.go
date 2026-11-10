@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/safety"
 )
@@ -57,7 +58,12 @@ func TestViewerCapabilitiesPolicyAndMembership(t *testing.T) {
 		t.Fatalf("LAN policy: %+v", lan)
 	}
 	active, err := a.users.ActiveUser(ctx, id)
-	if err != nil || lan.CanDownload == nil || *lan.CanDownload != a.plexServer.DownloadsAllowed(active) {
+	inst, ok := a.frontends.registry.Instance("plex")
+	if !ok {
+		t.Fatal("Plex not mounted")
+	}
+	plexServer := inst.Handler().(*plex.Server)
+	if err != nil || lan.CanDownload == nil || *lan.CanDownload != plexServer.DownloadsAllowed(active) {
 		t.Fatalf("download policy: %+v, %v", lan, err)
 	}
 	remote, err := call(ctx, viewer, frontend.Device{}, netip.MustParseAddr("8.8.8.8"))

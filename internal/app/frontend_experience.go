@@ -443,16 +443,16 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		deps.Resources = a.hostResources
 	}
 	deps.LibraryGUIDsFunc = func() frontend.LibraryGUIDs {
-		a.plexBuildMu.Lock()
-		defer a.plexBuildMu.Unlock()
+		a.plexMetaMu.Lock()
+		defer a.plexMetaMu.Unlock()
 		if a.plexGUID == nil {
 			return nil
 		}
 		return a.plexGUID
 	}
 	deps.LibraryMetadataFunc = func() frontend.LibraryMetadata {
-		a.plexBuildMu.Lock()
-		defer a.plexBuildMu.Unlock()
+		a.plexMetaMu.Lock()
+		defer a.plexMetaMu.Unlock()
 		if a.plexMeta == nil {
 			return nil
 		}

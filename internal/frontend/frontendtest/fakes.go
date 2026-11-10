@@ -422,13 +422,13 @@ func (f Experience) RequestDatabaseObservation(context.Context) (int64, time.Dur
 func (f Experience) PlaybackMarkerRanges(context.Context, frontend.MarkerRanges, core.RatingKey, core.MediaInfo) ([]frontend.MarkerRange, error) {
 	return nil, nil
 }
-func (f Experience) CatalogSource() core.Catalog                                     { return nil }
-func (f Experience) CollectionsSource() core.Collections                             { return nil }
-func (f Experience) StateSource() core.State                                         { return nil }
-func (f Experience) PlaylistsSource() core.Playlists                                 { return nil }
-func (f Experience) RecommenderSource() core.Recommender                             { return nil }
-func (f Experience) VibeSearchSource() frontend.VibeSearcher                         { return nil }
-func (f Experience) SearchSources() frontend.SearchSources                           { return frontend.SearchSources{} }
+func (f Experience) CatalogSource() core.Catalog             { return nil }
+func (f Experience) CollectionsSource() core.Collections     { return nil }
+func (f Experience) StateSource() core.State                 { return nil }
+func (f Experience) PlaylistsSource() core.Playlists         { return nil }
+func (f Experience) RecommenderSource() core.Recommender     { return nil }
+func (f Experience) VibeSearchSource() frontend.VibeSearcher { return nil }
+func (f Experience) SearchSources() frontend.SearchSources   { return frontend.SearchSources{} }
 func (f Experience) FavoriteShowsFunc() func(context.Context, *core.User) (map[core.RatingKey]bool, error) {
 	return nil
 }
@@ -677,9 +677,11 @@ func (f LiveTV) ResolveProgrammeGUID(ctx context.Context, v *core.Viewer, id str
 	}
 	return frontend.LiveProgramme{}, core.ErrNotFound
 }
-func (f LiveTV) VisibleTo(context.Context, *frontend.User) bool                      { return false }
-func (f LiveTV) ServeXMLTV(w http.ResponseWriter, r *http.Request, _ *frontend.User) { http.NotFound(w, r) }
-func (f LiveTV) Stop(context.Context, string, *frontend.User) error                  { return core.ErrNotFound }
+func (f LiveTV) VisibleTo(context.Context, *frontend.User) bool { return false }
+func (f LiveTV) ServeXMLTV(w http.ResponseWriter, r *http.Request, _ *frontend.User) {
+	http.NotFound(w, r)
+}
+func (f LiveTV) Stop(context.Context, string, *frontend.User) error { return core.ErrNotFound }
 func (f LiveTV) ServeDASHPart(w http.ResponseWriter, r *http.Request, _ string, _ *frontend.User, _, _ int, _ bool) {
 	http.NotFound(w, r)
 }
@@ -747,10 +749,10 @@ func (Artwork) List(context.Context, frontend.ArtworkRequest) ([]frontend.Image,
 func (Artwork) Read(context.Context, frontend.ArtworkRequest, frontend.Image, frontend.ArtworkTransform) ([]byte, string, error) {
 	return nil, "", core.ErrNotFound
 }
-func (Artwork) RemoteCache() frontend.ArtworkImageCache        { return nil }
-func (Artwork) PaletteCache() frontend.ArtworkPaletteCache     { return nil }
-func (Artwork) PosterRenderer() frontend.TitlePosterRenderer   { return nil }
-func (Artwork) ImageURLFunc() frontend.ImageURLFunc            { return nil }
+func (Artwork) RemoteCache() frontend.ArtworkImageCache      { return nil }
+func (Artwork) PaletteCache() frontend.ArtworkPaletteCache   { return nil }
+func (Artwork) PosterRenderer() frontend.TitlePosterRenderer { return nil }
+func (Artwork) ImageURLFunc() frontend.ImageURLFunc          { return nil }
 
 var _ frontend.Artwork = Artwork{}
 
@@ -799,10 +801,10 @@ func (Experience) Markers(context.Context, core.RatingKey, core.MediaInfo) ([]fr
 	return nil, nil
 }
 
-func (Sessions) TrickplayAvailable(string) bool                  { return false }
-func (Sessions) TrickplayBIF(string) ([]byte, bool)              { return nil, false }
+func (Sessions) TrickplayAvailable(string) bool                      { return false }
+func (Sessions) TrickplayBIF(string) ([]byte, bool)                  { return nil, false }
 func (Sessions) TrickplayFrame(string, time.Duration) ([]byte, bool) { return nil, false }
-func (Sessions) CancelTrickplay(string)                          {}
+func (Sessions) CancelTrickplay(string)                              {}
 
 func (TrackPreferences) Select(context.Context, int64, core.RatingKey, core.MediaInfo, string) (frontend.PlaybackPreferenceSelection, error) {
 	return frontend.PlaybackPreferenceSelection{}, nil

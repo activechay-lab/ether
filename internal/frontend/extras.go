@@ -43,4 +43,3 @@ type ResolvedExtra struct {
 
 // Input returns the ffmpeg input.
 func (r ResolvedExtra) Input() string { return r.URL }
-

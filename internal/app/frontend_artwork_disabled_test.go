@@ -44,7 +44,7 @@ func TestPlexDisabledLocalOwnerArtworkAndStateWithoutServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if a.plexServer != nil || a.plexClose != nil {
+	if _, mounted := a.frontends.registry.Instance("plex"); mounted || a.frontends.plex.HasRetainedServer() || a.plexMetaClose != nil {
 		t.Fatal("disabled Plex was constructed")
 	}
 	local, err := identity.NewLocal(a.db)
@@ -99,7 +99,7 @@ func TestPlexDisabledLocalOwnerArtworkAndStateWithoutServer(t *testing.T) {
 			t.Fatalf("missing %s without Plex", want)
 		}
 	}
-	if a.plexServer != nil {
+	if _, mounted := a.frontends.registry.Instance("plex"); mounted || a.frontends.plex.HasRetainedServer() {
 		t.Fatal("artwork or state constructed Plex")
 	}
 	if err := a.cfg.Update(func(c *config.Config) error { c.Server.MachineIdentifier = "late-mount-identity"; return nil }); err != nil {
@@ -108,20 +108,21 @@ func TestPlexDisabledLocalOwnerArtworkAndStateWithoutServer(t *testing.T) {
 	if err := a.frontends.control.Toggle(ctx, "plex", true); err != nil {
 		t.Fatal(err)
 	}
-	if a.plexServer == nil {
+	inst, ok := a.frontends.registry.Instance("plex")
+	if !ok || !a.frontends.plex.HasRetainedServer() {
 		t.Fatal("enable did not construct adapter")
 	}
-	server := a.currentPlexServer()
+	handler := inst.Handler()
 	root := httptest.NewRecorder()
-	server.ServeHTTP(root, httptest.NewRequest("GET", "/identity", nil))
+	handler.ServeHTTP(root, httptest.NewRequest("GET", "/identity", nil))
 	if root.Code != 200 || !strings.Contains(root.Body.String(), "late-mount-identity") {
 		t.Fatalf("first mount ignored current identity: %d %s", root.Code, root.Body.String())
 	}
 	if err := a.frontends.control.Toggle(ctx, "plex", false); err != nil {
 		t.Fatal(err)
 	}
-	if a.currentPlexServer() != server {
-		t.Fatal("unmount replaced retained server")
+	if !a.frontends.plex.HasRetainedServer() {
+		t.Fatal("unmount lost retained server")
 	}
 	disabled := httptest.NewRecorder()
 	a.Handler().ServeHTTP(disabled, httptest.NewRequest("GET", "/identity", nil))
@@ -131,7 +132,7 @@ func TestPlexDisabledLocalOwnerArtworkAndStateWithoutServer(t *testing.T) {
 	if err := a.frontends.control.Toggle(ctx, "plex", true); err != nil {
 		t.Fatal(err)
 	}
-	if a.currentPlexServer() != server {
+	if inst2, ok := a.frontends.registry.Instance("plex"); !ok || inst2.Handler() != handler {
 		t.Fatal("remount constructed a second server")
 	}
 	if err := a.frontends.control.Toggle(ctx, "plex", false); err != nil {

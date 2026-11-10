@@ -207,10 +207,11 @@ func restrictedLeakProfile(t *testing.T, mode, shape string, got map[string]bool
 		}
 	}
 
-	plexHandler := a.currentPlexServer()
-	if plexHandler == nil {
+	plexInst, ok := a.frontends.registry.Instance("plex")
+	if !ok {
 		t.Fatal("plex server unavailable")
 	}
+	plexHandler := plexInst.Handler()
 	inst, err := a.frontends.registry.Mount(ctx, core.Protocol("jellyfin"))
 	if err != nil {
 		t.Fatal(err)

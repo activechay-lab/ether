@@ -10,47 +10,25 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/plexmeta"
-	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/remote"
-	"github.com/braedonsaunders/ether/internal/sessions"
-	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/updater"
 )
 
-// buildPlex assembles the host services for the PMS-compatible front end. In
-// spike mode the library is the configured local files instead of the TMDB
-// catalogue, but auth, plex.tv registration and the transcoder are the real
-// ones, so the spike exercises the same path official apps will use.
-func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDeps, error) {
-	a.plexBuildMu.Lock()
-	defer a.plexBuildMu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return frontend.PlexDeps{}, err
+// ensurePlexAccountServices lazily initializes Plex account metadata and
+// per-viewer watch-sync integrations once when the Plex surface is mounted.
+// Leaving them unconstructed while Plex is disabled keeps the state journal
+// gate closed and avoids idle metadata workers on Plex-free servers.
+func (a *App) ensurePlexAccountServices() error {
+	if a == nil || a.db == nil || a.cfg == nil {
+		return nil
 	}
-	tc := a.activeTranscoder()
-
-	var deps frontend.PlexDeps
-	if cfg.Spike.Enabled {
-		deps = a.spikeLibrary.Deps()
-		if tc != nil {
-			deps.Transcoder = tc
-		}
-	} else {
-		playback := core.Playback(a.playback)
-		if a.brokerPlayback != nil {
-			playback = a.brokerPlayback
-		}
-		deps = frontend.PlexDeps{
-			Playback:   playback,
-			Transcoder: tc,
-			DB:         a.db, // plex_ultrablur
-		}
+	a.plexMetaMu.Lock()
+	if a.plexGUID != nil {
+		a.plexMetaMu.Unlock()
+		return nil
 	}
 	clientID := func() string {
 		cfg := a.cfg.Read()
@@ -69,7 +47,6 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		ClientIdentifier: clientID,
 		Background:       true,
 	})
-	a.plexGUID = guidService
 	metadataService := plexmeta.New(a.db, plexmeta.Options{
 		HTTP:             a.opts.plextvHTTP,
 		Token:            plexToken,
@@ -86,94 +63,44 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (frontend.PlexDe
 		},
 		Background: true,
 	})
+	a.plexGUID = guidService
 	a.plexMeta = metadataService
 	if err := a.buildPlexWatch(); err != nil {
+		a.plexGUID = nil
+		a.plexMeta = nil
+		a.plexMetaMu.Unlock()
 		guidService.Close()
 		metadataService.Close()
-		return frontend.PlexDeps{}, fmt.Errorf("plex watch state: %w", err)
+		return fmt.Errorf("plex watch state: %w", err)
 	}
-	deps.TracePlayback = a.tracePlayback
-	var cluster frontend.ClusterNode
-	if node := a.clusterNode(); node != nil && deps.DB != nil {
-		cluster = node
+	a.plexMetaClose = func() {
+		guidService.Close()
+		metadataService.Close()
 	}
-	deps.Host.Sessions = sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{
-		Logger:         a.log.With("component", "plex"),
-		Playback:       deps.Playback,
-		Transcoder:     deps.Transcoder,
-		Downloads:      a.downloadRemuxer,
-		Trickplay:      a.trickplay.Borrow(),
-		DecisionTraces: a.resolver,
-		DB:             deps.DB,
-		Cluster:        cluster,
-		Coordination:   a.sessionCoordination,
-	})
-	return deps, nil
+	a.plexMetaMu.Unlock()
+	return nil
 }
 
-func (a *App) bindPlexServer(server frontend.PlexServer, spikeEnabled bool) {
-	srv, ok := server.(*plex.Server)
-	if !ok || srv == nil {
+func (a *App) closePlexAccountServices() {
+	if a == nil {
 		return
 	}
-	a.plexBuildMu.Lock()
-	a.plexServer = srv
-	guidService, metadataService := a.plexGUID, a.plexMeta
-	// Frontend unmount closes the server and the GUID worker. Server.Close is
-	// idempotent, so the app closer may run as well. Watch refresh stays on
-	// the Plex mount (ExplicitWatchOnly in spike), not a second subscription.
-	a.plexClose = func() {
-		_ = srv.Close()
-		if guidService != nil {
-			guidService.Close()
-		}
-		if metadataService != nil {
-			metadataService.Close()
-		}
+	a.plexMetaMu.Lock()
+	fn := a.plexMetaClose
+	a.plexMetaClose = nil
+	a.plexMetaMu.Unlock()
+	if fn != nil {
+		fn()
 	}
-	a.closers = append(a.closers, func() { _ = srv.Close() })
-	a.plexBuildMu.Unlock()
-
-	if !spikeEnabled && a.db != nil && a.state != nil {
-		// Rebuild the viewer's cached Home behind playback, so the Home a
-		// client opens after it stops is already current.
-		unsub := a.state.Subscribe(func(ev state.Event) {
-			switch ev.Kind {
-			case state.EventProgress:
-				if ev.State != "stopped" {
-					return
-				}
-			case state.EventCompleted, state.EventScrobble, state.EventUnscrobble, state.EventRated:
-			default:
-				return
-			}
-			srv.ViewerHomeChanged(ev.UserID)
-		})
-		go func() {
-			<-srv.Done()
-			unsub()
-		}()
-	}
-	if a.livetv != nil {
-		a.livetv.SetOnChange(srv.NotifyLiveLineup)
-	}
-	a.publishLibrarySections()
 }
 
 // publishLibrarySections pushes the live Movies / TV Shows identities
 // (including configured titles) to plex.tv account registration.
 func (a *App) publishLibrarySections() {
-	if a.plexServer == nil || a.registrar == nil {
+	if a == nil || a.frontends == nil {
 		return
 	}
-	libraries := make([]plextv.LibrarySection, 0)
-	for _, sec := range a.plexServer.LibrarySections() {
-		libraries = append(libraries, plextv.LibrarySection{
-			Key: sec.ID, Type: string(sec.Type), Title: sec.Title,
-			UUID: sec.UUID, Language: sec.Language,
-		})
-	}
-	a.registrar.SetLibrarySections(libraries)
+	a.frontends.publishLibrarySections()
 }
 
 func plexPlatform() string {
@@ -185,14 +112,6 @@ func plexPlatform() string {
 	default:
 		return "Linux"
 	}
-}
-
-// currentPlexServer publishes lazy construction to playback callbacks. The
-// mutex is released before callers invoke the adapter or shared playback.
-func (a *App) currentPlexServer() *plex.Server {
-	a.plexBuildMu.Lock()
-	defer a.plexBuildMu.Unlock()
-	return a.plexServer
 }
 
 // publicPlexOrigin is the origin of the first published public connection

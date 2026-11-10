@@ -143,7 +143,7 @@ func newEtheLab(t *testing.T, resumed bool, remembered string, n int) *etheLab {
 		x.f = newFixture(func(d *testServerDeps) {
 			setDepsConfig(d, func() config.Config { return x.cfg })
 			d.DisableEnrichment = true
-			})
+		})
 		x.f.catalog.titles[x.title.Key] = x.title
 		x.f.state.set(ownerUser.ID, core.WatchStatus{Key: x.title.Key, ViewOffset: 10 * time.Minute})
 		x.start(t)

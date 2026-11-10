@@ -12,10 +12,10 @@ import (
 )
 
 type collectionGridPolicy struct{ key core.RatingKey }
+
 func (collectionGridPolicy) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (p collectionGridPolicy) Allowed(_ *core.User, t *core.Title) bool { return t.Key != p.key }
 

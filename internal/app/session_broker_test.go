@@ -225,7 +225,14 @@ func TestOwnerActivityIncludesAndStopsLegacyAndBrokerSessions(t *testing.T) {
 	}
 	plexServer := plex.NewServer(plex.Deps{Host: frontend.Host{Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{Playback: p})}, Playback: p, DisableEnrichment: true})
 	defer plexServer.Close()
-	a := &App{plexServer: plexServer, frontends: &frontendRuntime{broker: broker}}
+	reg := frontend.NewRegistry(func(frontend.Protocol) frontend.Host { return frontend.Host{} })
+	if err := reg.Register(plex.Frontend{Server: plexServer}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Mount(ctx, "plex"); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{frontends: &frontendRuntime{registry: reg, broker: broker}}
 	activity := (ownerPlayback{Playback: p, app: a}).Sessions()
 	if len(activity) != 2 {
 		t.Fatalf("activity has %d rows", len(activity))

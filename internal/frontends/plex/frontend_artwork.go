@@ -13,8 +13,8 @@ type FrontendArtwork struct {
 	Variants      func(*frontend.Title, string) (*frontend.ArtworkImages, bool)
 	Metadata      func(context.Context, frontend.ArtworkRequest, frontend.Image) frontend.Image
 	VirtualSeason func(context.Context, *frontend.User, frontend.RatingKey) (*frontend.Title, error)
-	URLImages frontend.UntrustedImageFetcher
-	Raster frontend.SVGRasterizer
+	URLImages     frontend.UntrustedImageFetcher
+	Raster        frontend.SVGRasterizer
 }
 
 func (a FrontendArtwork) cfg() frontend.ArtworkSourceConfig {

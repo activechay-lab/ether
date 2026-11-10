@@ -14,35 +14,73 @@ import (
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
+type shutdownTestFrontend struct {
+	calls *atomic.Int32
+}
+
+func (shutdownTestFrontend) Describe() frontend.Descriptor {
+	return frontend.Descriptor{ID: "plex", Name: "Plex"}
+}
+
+func (shutdownTestFrontend) Mount(context.Context, frontend.Host) (frontend.Instance, error) {
+	return nil, errors.New("unused")
+}
+
+func (f shutdownTestFrontend) Shutdown(context.Context) error {
+	f.calls.Add(1)
+	return nil
+}
+
 func TestFrontendPartialRuntimeCloseIsSingleOwner(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	var watch, artwork, server atomic.Int32
-	a := &App{plexClose: func() { server.Add(1) }}
-	r := &frontendRuntime{app: a, ctx: ctx, cancel: cancel, stateUnsub: func() { watch.Add(1) }, artworkWait: func() { artwork.Add(1) }}
+	var watch, artwork, server, meta atomic.Int32
+	reg := frontend.NewRegistry(nil)
+	if err := reg.Register(shutdownTestFrontend{calls: &server}); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{plexMetaClose: func() { meta.Add(1) }}
+	r := &frontendRuntime{app: a, registry: reg, ctx: ctx, cancel: cancel, stateUnsub: func() { watch.Add(1) }, artworkWait: func() { artwork.Add(1) }}
 	r.close()
 	r.close()
-	if ctx.Err() == nil || watch.Load() != 1 || artwork.Load() != 1 || server.Load() != 1 || a.plexClose != nil {
-		t.Fatalf("close counts %d %d %d ctx=%v", watch.Load(), artwork.Load(), server.Load(), ctx.Err())
+	if ctx.Err() == nil || watch.Load() != 1 || artwork.Load() != 1 || server.Load() != 1 || meta.Load() != 1 || a.plexMetaClose != nil {
+		t.Fatalf("close counts %d %d %d %d ctx=%v", watch.Load(), artwork.Load(), server.Load(), meta.Load(), ctx.Err())
 	}
 }
 
 func TestPlexFactoryCancellationUnderConstructionLock(t *testing.T) {
-	a := &App{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	f := plex.NewFrontend()
+	f.NewServer = func() (*plex.Server, error) {
+		close(started)
+		<-release
+		return nil, errors.New("aborted")
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := f.Mount(context.Background(), frontend.Host{})
+		firstDone <- err
+	}()
+	<-started
 	ctx, cancel := context.WithCancel(context.Background())
-	a.plexBuildMu.Lock()
-	done := make(chan error, 1)
-	go func() { _, err := a.buildPlex(ctx, config.Config{}); done <- err }()
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := f.Mount(ctx, frontend.Host{})
+		secondDone <- err
+	}()
+	time.Sleep(10 * time.Millisecond)
 	cancel()
-	a.plexBuildMu.Unlock()
+	close(release)
+	<-firstDone
 	select {
-	case err := <-done:
+	case err := <-secondDone:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatal(err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancelled construction blocked")
 	}
-	if a.currentPlexServer() != nil || a.plexClose != nil {
+	if f.HasRetainedServer() {
 		t.Fatal("cancelled construction published a server")
 	}
 }
@@ -53,12 +91,10 @@ func TestNeutralServerLibrariesMatchPlexIncludingSpike(t *testing.T) {
 		cfg.Spike.Enabled = spike
 		deps := plex.Deps{
 			Host: frontend.Host{
-				Sessions: sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{}),
+				Sessions:   sessions.NewLocalRuntime(sessions.LocalRuntimeDeps{}),
+				HostConfig: func() config.Config { return cfg },
 			},
 			DisableEnrichment: true,
-		}
-		if spike {
-			deps.Sections = []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}}
 		}
 		server := plex.NewServer(deps)
 		got, want := serverLibraries(cfg), server.LibrarySections()

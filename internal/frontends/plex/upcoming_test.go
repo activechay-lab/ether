@@ -14,10 +14,10 @@ import (
 type scopedFakeCollections struct{ *fakeCollections }
 
 type denyTitlePolicy struct{}
+
 func (denyTitlePolicy) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (denyTitlePolicy) Allowed(_ *core.User, t *core.Title) bool { return t.Title != "Blocked" }
 

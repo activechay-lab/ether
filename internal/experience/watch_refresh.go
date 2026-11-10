@@ -19,6 +19,41 @@ func BindWatchRefresh(watch *state.State) frontend.WatchRefreshSubscriber {
 	}
 }
 
+// BindHomeInvalidation exposes committed viewer-home invalidations without
+// leaking state event types into a frontend. Each mount owns its subscription and close fence.
+func BindHomeInvalidation(watch *state.State) frontend.HomeInvalidationSubscriber {
+	if watch == nil {
+		return nil
+	}
+	return func(invalidate func(int64)) func() {
+		var mu sync.Mutex
+		active := true
+		unsubscribe := watch.Subscribe(func(ev state.Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !active {
+				return
+			}
+			switch ev.Kind {
+			case state.EventProgress:
+				if ev.State != "stopped" {
+					return
+				}
+			case state.EventCompleted, state.EventScrobble, state.EventUnscrobble, state.EventRated:
+			default:
+				return
+			}
+			invalidate(ev.UserID)
+		})
+		return func() {
+			mu.Lock()
+			active = false
+			mu.Unlock()
+			unsubscribe()
+		}
+	}
+}
+
 // State emits only after committing, including deferred cluster writes. Do not
 // refresh the library on every playing heartbeat: it churns recommendation rows
 // and duplicates the separate session-status notifications. Explicit Plex scrobbles

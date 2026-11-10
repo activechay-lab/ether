@@ -40,7 +40,13 @@ type Identity struct {
 }
 
 // Section is a library section exposed to clients.
-type Section = frontend.PlexSection
+type Section struct {
+	ID       int
+	Type     frontend.MediaType // movie or show
+	Title    string
+	UUID     string // stable; derived from the machine identifier when empty
+	Language string
+}
 
 // SessionToucher is optionally implemented by frontend.Playback to keep a play
 // session alive on timeline updates.
@@ -50,7 +56,24 @@ type SessionToucher interface {
 
 // Deps are the server's dependencies. Host.Experience, Host.Identity and Host.Sessions are
 // required; the rest degrade gracefully when nil.
-type Deps = frontend.PlexDeps
+type Deps struct {
+	Host       frontend.Host
+	Playback   frontend.Playback
+	Transcoder frontend.Transcoder
+
+	// Sections overrides the default Movies (1) and TV Shows (2) sections.
+	Sections []Section
+	// DB persists artwork data and ordered shelf-generation keys. Clustered
+	// nodes share this store so continuations survive failover and restarts.
+	// Optional: without it, these caches remain process-local.
+	DB *sql.DB
+	// DisableEnrichment turns off the background title-detail and
+	// UltraBlurColors work (the spike test library has nothing to fetch).
+	DisableEnrichment bool
+	// TracePlayback logs HLS/transcode requests when ETHER_TRACE_PLAYBACK=1.
+	// It does not change responses.
+	TracePlayback bool
+}
 
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
@@ -162,6 +185,9 @@ type Server struct {
 // NewServer builds the PMS API handler.
 func NewServer(d Deps) *Server {
 	host := d.Host
+	if host.TracePlayback {
+		d.TracePlayback = true
+	}
 	log := host.Log
 	if log == nil {
 		log = slog.Default()
@@ -175,9 +201,10 @@ func NewServer(d Deps) *Server {
 	if !ok || rt == nil {
 		panic("plex: Host.Sessions (implementing frontend.SessionRuntime) is required")
 	}
-	db := rt.DB()
-	if db == nil {
-		db = d.DB
+	spikeEnabled := host.HostConfig != nil && host.HostConfig().Spike.Enabled
+	db := d.DB
+	if db == nil && !spikeEnabled {
+		db = rt.DB()
 	}
 	s := &Server{
 		activities:        map[string]model.Activity{},
@@ -270,8 +297,9 @@ func (s *Server) bindHost(h frontend.Host) {
 		s.host.Support = h.Support
 		s.support = h.Support
 	}
-	if h.Plex != nil {
-		s.host.Plex = h.Plex
+	if h.TracePlayback {
+		s.host.TracePlayback = true
+		s.d.TracePlayback = true
 	}
 	if h.LiveTV != nil {
 		s.host.LiveTV = h.LiveTV
@@ -569,6 +597,9 @@ func (s *Server) runtimeDB() *sql.DB {
 	if s == nil {
 		return nil
 	}
+	if s.cfg().Spike.Enabled {
+		return s.d.DB
+	}
 	if s.runtime != nil {
 		if db := s.runtime.DB(); db != nil {
 			return db
@@ -712,9 +743,9 @@ func (s *Server) LibrarySections() []Section {
 func (s *Server) buildSections() []Section {
 	secs := s.d.Sections
 	if len(secs) == 0 {
-		secs = []Section{
-			{ID: 1, Type: frontend.TypeMovie},
-			{ID: 2, Type: frontend.TypeShow},
+		secs = []Section{{ID: 1, Type: frontend.TypeMovie}}
+		if !s.cfg().Spike.Enabled {
+			secs = append(secs, Section{ID: 2, Type: frontend.TypeShow})
 		}
 	}
 	out := make([]Section, len(secs))

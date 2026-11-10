@@ -12,10 +12,10 @@ import (
 var _ core.ArtworkAccessPolicy = (*safety.Service)(nil)
 
 type unknownPolicy struct{}
+
 func (unknownPolicy) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (unknownPolicy) Allowed(*core.User, *core.Title) bool { return true }
 

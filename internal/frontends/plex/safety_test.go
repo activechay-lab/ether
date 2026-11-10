@@ -71,10 +71,10 @@ func TestRestrictedAbsoluteArtworkRequiresVisibleTitle(t *testing.T) {
 }
 
 type keywordPolicy struct{ blocked string }
+
 func (keywordPolicy) SetMaxRating(context.Context, *core.User, string) error {
 	return core.ErrUnauthorized
 }
-
 
 func (p keywordPolicy) Allowed(u *core.User, t *core.Title) bool {
 	if u == nil || u.IsOwner {

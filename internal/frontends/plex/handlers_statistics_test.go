@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
+	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/stats"
 )
 
