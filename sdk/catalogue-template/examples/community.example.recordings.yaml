@@ -1,0 +1,24 @@
+id: community.example.recordings
+name: Field Recordings (example)
+summary: A library of field recordings beside Movies and TV Shows.
+description: Example content plugin - adds a field-recordings library, grouped into albums of tracks, from the source you connect. Placeholder URLs; see sdk/examples/kind-library.
+kind: content
+category: Libraries
+icon: https://example.invalid/icons/recordings.svg
+repo: https://github.com/example/community-example-recordings
+author: Ether Community
+license: MIT
+capabilities:
+  - catalog_provider
+  - kind_resolver
+  - matcher
+permissions:
+  network:
+    - media.example
+  sources: search
+versions:
+  - version: 1.0.0
+    url: https://github.com/example/community-example-recordings/releases/download/v1.0.0/community.example.recordings-1.0.0.etherpkg
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    releasedAt: "2026-11-10T00:00:00Z"
+    minEther: 0.3.8

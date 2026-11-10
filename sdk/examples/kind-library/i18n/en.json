@@ -1,0 +1,15 @@
+{
+  "summary": "A library of field recordings in every app, grouped into albums of tracks.",
+  "kind_label": "Field recordings",
+  "feed_label": "Recordings feed",
+  "page_label": "Library",
+  "setup_label": "Connect the source",
+  "setup_hint": "Where the recordings live, and the key if it needs one",
+  "source_url": "Source address",
+  "source_url_hint": "The service that lists the recordings; leave empty to use the built-in sample set",
+  "api_key": "API key",
+  "api_key_hint": "Sent with each request to the source; leave empty for an open source",
+  "connected": "Connected to the source.",
+  "missing_url": "Using the sample set until a source address is saved.",
+  "items_synced": "Items in the library"
+}

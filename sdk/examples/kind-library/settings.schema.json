@@ -1,0 +1,17 @@
+{
+  "fields": [
+    {
+      "key": "sourceUrl",
+      "kind": "url",
+      "label": "$t:source_url",
+      "hint": "$t:source_url_hint",
+      "default": ""
+    },
+    {
+      "key": "apiKey",
+      "kind": "secret",
+      "label": "$t:api_key",
+      "hint": "$t:api_key_hint"
+    }
+  ]
+}

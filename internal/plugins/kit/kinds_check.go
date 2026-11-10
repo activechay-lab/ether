@@ -200,14 +200,19 @@ func CheckKindProvider(ctx context.Context, decl plugins.MediaKindMeta, hasResol
 		out = append(out, ValidateKindPage(decl, core.KindPage{Items: changes.Upserts}, 0)...)
 	}
 
-	// Resolve the first playable item seen (roots, else root children).
+	// Resolve the first playable item seen, walking down the declared
+	// levels through the first item of each level until one is playable.
 	playable := findPlayable(roots)
-	if playable == nil && len(decl.Levels) > 1 {
+	parent := first
+	for depth := 1; playable == nil && depth < len(decl.Levels); depth++ {
 		var page core.KindPage
-		if status, ok := post(kindPath+"/browse", core.KindBrowseRequest{ParentID: first.ID, Level: levelKey(decl, 1), Limit: limit}, &page); ok && status >= 200 && status < 300 {
-			out = append(out, ValidateKindPage(decl, page, limit)...)
-			playable = findPlayable(page.Items)
+		status, ok := post(kindPath+"/browse", core.KindBrowseRequest{ParentID: parent.ID, Level: levelKey(decl, depth), Limit: limit}, &page)
+		if !ok || status < 200 || status >= 300 || len(page.Items) == 0 {
+			break
 		}
+		out = append(out, ValidateKindPage(decl, page, limit)...)
+		playable = findPlayable(page.Items)
+		parent = page.Items[0]
 	}
 	if hasResolver {
 		if playable == nil {

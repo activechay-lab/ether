@@ -1,0 +1,79 @@
+{
+  "id": "community.example.recordings",
+  "name": "Field Recordings (example)",
+  "version": "1.0.0",
+  "description": "Proof example for Ether content kinds: a three-level field-recordings library. Tests only; not shipped in the catalogue.",
+  "ether": {
+    "protocol": 1,
+    "kind": "content",
+    "capabilities": ["catalog_provider", "kind_resolver", "matcher", "frontend_adapter", "ui"],
+    "summary": "$t:summary",
+    "author": { "name": "Ether examples" },
+    "license": "MIT",
+    "runtime": { "kind": "hosted", "entry": "src/plugin.ts" },
+    "permissions": {
+      "network": ["media.example"],
+      "sources": "search",
+      "secrets": ["apiKey"]
+    },
+    "settings": { "$ref": "settings.schema.json" },
+    "strings": { "en": "i18n/en.json" },
+    "contributes": {
+      "mediaKinds": [
+        {
+          "key": "recordings",
+          "label": "$t:kind_label",
+          "library": { "name": "Field Recordings" },
+          "levels": [
+            { "key": "collection", "label": "Collection" },
+            { "key": "album", "label": "Album", "container": true },
+            { "key": "track", "label": "Track", "playable": true }
+          ],
+          "fields": [
+            { "key": "genre", "type": "string", "label": "Genre", "indexed": true },
+            { "key": "durationSec", "type": "duration", "label": "Duration" }
+          ],
+          "present": {
+            "plex": { "base": "show" },
+            "mediaBrowser": {
+              "collectionType": "music",
+              "itemTypes": { "album": "MusicAlbum", "track": "Audio" }
+            }
+          },
+          "browse": {
+            "sorts": ["title", "index"],
+            "facets": ["genre"],
+            "search": true,
+            "liveSearch": true
+          },
+          "sync": { "mode": "pull", "refresh": "1h" },
+          "match": { "thresholdDefault": 0.8 }
+        }
+      ],
+      "frontendAdapters": [
+        {
+          "key": "feed",
+          "label": "$t:feed_label",
+          "protocolHint": "opds",
+          "pathPrefix": "/opds",
+          "clients": ["OPDS readers"]
+        }
+      ],
+      "setup": {
+        "steps": [
+          {
+            "key": "account",
+            "label": "$t:setup_label",
+            "hint": "$t:setup_hint",
+            "fields": ["sourceUrl", "apiKey"],
+            "test": "/ether/v1/setup/account/test",
+            "required": true
+          }
+        ]
+      },
+      "pages": [
+        { "key": "library", "label": "$t:page_label", "route": "/ether/view/library" }
+      ]
+    }
+  }
+}

@@ -19,9 +19,13 @@ type fixtureHost struct {
 	kv                   map[string][]byte
 	folders              map[string][]plugins.FolderEntry
 	channel, guide, boot []byte
+	settings             map[string]any
 }
 
 func (h *fixtureHost) Settings(_ context.Context) (map[string]any, error) {
+	if h.settings != nil {
+		return h.settings, nil
+	}
 	if h.folders != nil {
 		return map[string]any{"folder": "/media"}, nil
 	}
