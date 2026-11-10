@@ -2,6 +2,7 @@
 
 ## 0.3.8
 
+- **Memory:** Ether now sets an automatic soft memory limit at startup (90% of the container/cgroup limit when one exists, otherwise half of physical RAM, floor 1 GiB; logged with its source), so memory no longer climbs unbounded on small machines; set `GOMEMLIMIT` to override — it always wins.
 - **Performance:** availability hidden sets publish only the titles that
   changed (interval membership instead of a full copy per refresh), so a
   large library no longer holds the database writer for ~1 s every minute

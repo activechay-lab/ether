@@ -28,6 +28,12 @@ type viewFactKey struct {
 	sections string
 }
 
+// viewFactCacheLimit bounds remembered (viewer, view) counts. Entries
+// are keyed by viewer, view, rating and section set, so without a cap
+// the map grows with every distinct combination ever browsed and is
+// never pruned (a stale generation only replaces its own key).
+const viewFactCacheLimit = 4096
+
 type viewFactCache struct {
 	mu sync.Mutex
 	m  map[viewFactKey]viewFact
@@ -70,6 +76,11 @@ func (c *viewFactCache) store(key viewFactKey, fact viewFact) {
 	defer c.mu.Unlock()
 	if c.m == nil {
 		c.m = map[viewFactKey]viewFact{}
+	}
+	if _, exists := c.m[key]; !exists && len(c.m) >= viewFactCacheLimit {
+		// Counts are cheap to recompute and generation-checked on
+		// read, so dropping the whole map when full is safe.
+		clear(c.m)
 	}
 	c.m[key] = fact
 }

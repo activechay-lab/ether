@@ -13,6 +13,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/clusterconfig"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/hoststat"
 	"github.com/braedonsaunders/ether/internal/service"
 	"github.com/braedonsaunders/ether/internal/startup"
 	"github.com/braedonsaunders/ether/internal/updater"
@@ -55,6 +56,9 @@ func serveWithConstructor(ctx context.Context, opts Options, construct func(cont
 	if log == nil {
 		log = slog.Default()
 	}
+	// Bound the heap before anything allocates in earnest: a
+	// container/RAM-aware soft limit, unless GOMEMLIMIT was set.
+	hoststat.ApplyMemoryLimit(log)
 	if opts.DataDir == "" {
 		opts.DataDir = config.DefaultDataDir()
 	}
