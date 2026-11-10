@@ -33,7 +33,7 @@ func (f *recommendationFilterFake) FilterRecommendations(_ context.Context, _ *c
 func TestRecommendationCandidatesBackfillsAndPreservesEmptyParity(t *testing.T) {
 	ctx := context.Background()
 	f := &recommendationFilterFake{}
-	s := &Server{d: Deps{Recommender: f}}
+	s := &Server{d: testDeps(Deps{Recommender: f})}
 	items := []core.Title{{Key: core.MovieKey(1)}, {Key: core.MovieKey(2)}, {Key: core.MovieKey(3)}, {Key: core.MovieKey(4)}}
 	var calls []int
 	load := func(_ context.Context, n int) ([]core.Title, error) {

@@ -48,8 +48,8 @@ func TestNeutralPlexHomeLayoutMatchesLegacySidecars(t *testing.T) {
 	neutral := &neutralRenderedLayout{renderedLayout: &renderedLayout{}}
 	rows := []model.Hub{{HubIdentifier: "a", Size: 1, Metadata: []model.Metadata{{Title: "A"}}}, {HubIdentifier: "b", Size: 2, Metadata: []model.Metadata{{Title: "B"}}}}
 	pr := &Request{User: &core.User{ID: 1}}
-	old := (&Server{d: Deps{Recommender: legacy}}).finalizeHomeRows(context.Background(), pr, core.HubContext{}, "home", rows)
-	got := (&Server{d: Deps{Recommender: neutral}}).finalizeHomeRows(context.Background(), pr, core.HubContext{}, "home", rows)
+	old := (&Server{d: testDeps(Deps{Recommender: legacy})}).finalizeHomeRows(context.Background(), pr, core.HubContext{}, "home", rows)
+	got := (&Server{d: testDeps(Deps{Recommender: neutral})}).finalizeHomeRows(context.Background(), pr, core.HubContext{}, "home", rows)
 	if !reflect.DeepEqual(got, old) || len(neutral.got) != 2 || neutral.got[1].ItemCount != 2 {
 		t.Fatalf("legacy=%+v neutral=%+v input=%+v", old, got, neutral.got)
 	}
@@ -61,7 +61,7 @@ func (r *renderedLayout) FinalizeHome(_ context.Context, _ *core.User, _ core.Hu
 }
 func TestFinalLayoutReceivesRenderedAvailability(t *testing.T) {
 	r := &renderedLayout{}
-	s := &Server{d: Deps{Recommender: r}}
+	s := &Server{d: testDeps(Deps{Recommender: r})}
 	rows := []model.Hub{
 		{HubIdentifier: "movie.inprogress.1", Size: 0},
 		{HubIdentifier: "movie.top10", Size: 10, Key: "/original/key", Metadata: []model.Metadata{{Title: "Original metadata"}}},

@@ -22,7 +22,7 @@ func TestPlexHomeServicePreservesDuplicateAndEmptySidecars(t *testing.T) {
 
 func TestPlexHomeServiceUsesLayoutOrder(t *testing.T) {
 	r := &renderedLayout{}
-	s := &Server{d: Deps{Recommender: r}}
+	s := &Server{d: testDeps(Deps{Recommender: r})}
 	rows := []model.Hub{{HubIdentifier: "first", Title: "First"}, {HubIdentifier: "second", Title: "Second"}}
 	got := s.finalizeHomeRows(context.Background(), &Request{User: &core.User{ID: 1}}, core.HubContext{}, "home", rows)
 	if !reflect.DeepEqual(got, []model.Hub{rows[1], rows[0]}) {
@@ -43,7 +43,7 @@ func TestPlexHomeLayoutPreservesLiveProgrammeSidecar(t *testing.T) {
 
 func TestPlexHomeNilViewerPreservesLayout(t *testing.T) {
 	r := &renderedLayout{}
-	s := &Server{d: Deps{Recommender: r}}
+	s := &Server{d: testDeps(Deps{Recommender: r})}
 	rows := []model.Hub{{HubIdentifier: "a"}, {HubIdentifier: "b"}}
 	got := s.finalizeHomeRows(context.Background(), &Request{}, core.HubContext{}, "home", rows)
 	if !reflect.DeepEqual(got, []model.Hub{rows[1], rows[0]}) {
@@ -53,7 +53,7 @@ func TestPlexHomeNilViewerPreservesLayout(t *testing.T) {
 
 func TestPlexHomeServiceErrorFallsBackToAuthorizedSidecars(t *testing.T) {
 	r := &renderedLayout{}
-	s := &Server{d: Deps{Recommender: r}}
+	s := &Server{d: testDeps(Deps{Recommender: r})}
 	rows := []model.Hub{{HubIdentifier: "a", Metadata: []model.Metadata{{RatingKey: "0"}}}, {HubIdentifier: "b"}}
 	got := s.finalizeHomeRows(context.Background(), &Request{User: &core.User{ID: 1}}, core.HubContext{}, "home", rows)
 	if !reflect.DeepEqual(got, []model.Hub{rows[1], rows[0]}) {
@@ -80,7 +80,7 @@ func TestPlexHomeRestrictedProjectionExcludesHiddenParent(t *testing.T) {
 
 func TestPlexHomeDuplicateLayoutMatchesLegacyLastWins(t *testing.T) {
 	r := &renderedLayout{}
-	s := &Server{d: Deps{Recommender: r}}
+	s := &Server{d: testDeps(Deps{Recommender: r})}
 	rows := []model.Hub{{HubIdentifier: "same", Title: "first"}, {HubIdentifier: "same", Title: "second"}}
 	pr := &Request{User: &core.User{ID: 1}}
 	want := s.finalizeHomeRows(context.Background(), pr, core.HubContext{}, "home", rows)
