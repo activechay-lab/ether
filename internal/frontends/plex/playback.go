@@ -886,7 +886,13 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *frontend
 	// The owner's "Convert Dolby and DTS to AAC" rule outranks the client's
 	// engine: a surround track it converted is never answered direct play.
 	ownerConverts := p.caps.ConvertSurroundAudio && dec.Kind != frontend.DecisionDirectPlay && !dec.AudioCopy
-	mdeDirect := p.mde && p.opts.DirectPlay && !dec.StripDolbyVision && !(plexAndroidClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == frontend.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 && !ownerConverts &&
+	// A quality the viewer picked below the source (maxVideoBitrate or
+	// videoResolution in this request) rules direct play out even for an
+	// MDE client: Plex for Mac re-asks with directPlay=1 after a quality
+	// change, and answering direct play makes it keep ranging the original
+	// part instead of calling start (#420).
+	belowSource := !dec.VideoCopy && qualityBelowSource(p.caps, ps.Info)
+	mdeDirect := p.mde && p.opts.DirectPlay && !belowSource && !dec.StripDolbyVision && !(plexAndroidClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == frontend.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 && !ownerConverts &&
 		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != frontend.DecisionDirectPlay)))
 	shown := dec
 	if mdeDirect {
@@ -951,6 +957,19 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *frontend
 	// PMS echoes the client identifier as the resource session.
 	mc.Extra = append(mc.Extra, model.A("resourceSession", cmp.Or(pr.SessionID, pr.ClientID)))
 	return mc
+}
+
+// qualityBelowSource reports whether the request's own quality limits
+// (applyDecisionQuery) are below the source: a bitrate cap under the
+// source bitrate, or an explicit resolution under the source height.
+func qualityBelowSource(caps frontend.ClientCaps, info frontend.MediaInfo) bool {
+	if caps.MaxBitrateKbps > 0 && !caps.DefaultRemoteBitrate && info.BitrateKbps > caps.MaxBitrateKbps {
+		return true
+	}
+	if v := info.Video(); v != nil && caps.ExplicitMaxHeight && caps.MaxHeight > 0 && v.Height > caps.MaxHeight {
+		return true
+	}
+	return false
 }
 
 // decisionMedia renders the Media with decision attributes.
