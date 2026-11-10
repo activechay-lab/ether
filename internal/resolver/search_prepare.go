@@ -223,6 +223,11 @@ func (p *searchPreparation) refillAfter(check *candidateCheck) {
 const (
 	discoveryWindow      = 500 * time.Millisecond
 	criticalPathDeadline = 4 * time.Second
+	// playStartDeadline bounds how long a healthy, profile-passing candidate
+	// waits for a better-ranked one still being checked. Without it a single
+	// slow indexer or check held Play to its 30 s timeout, past the client's
+	// own decision budget.
+	playStartDeadline = 6 * time.Second
 )
 
 func (p *searchPreparation) readyResults() []core.Release {
@@ -263,10 +268,11 @@ func (p *searchPreparation) readyResultsAfter(window time.Duration) []core.Relea
 				}
 				continue
 			}
+			overdue := time.Since(p.first) >= playStartDeadline
 			leadUncachedTorrent := lead >= 0 &&
 				protocolOf(p.ranked[lead].rel) == core.ProtocolTorrent &&
 				!p.svc.knownCached(p.ranked[lead].rel)
-			if lead >= 0 && !(leadUncachedTorrent && p.svc.knownCached(c.rel)) && (!equivalentHedge(p.ranked[lead], c, margin) || time.Since(p.first) < rankedSourceGrace) {
+			if lead >= 0 && !overdue && !(leadUncachedTorrent && p.svc.knownCached(c.rel)) && (!equivalentHedge(p.ranked[lead], c, margin) || time.Since(p.first) < rankedSourceGrace) {
 				continue
 			}
 			preference := p.svc.resolverCfg().SourcePreference
