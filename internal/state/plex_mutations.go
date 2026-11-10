@@ -88,9 +88,9 @@ func (s *State) ScrobbleTree(ctx context.Context, user int64, key core.RatingKey
 	})
 }
 
-// PlexTouchParents applies an episode playback's timestamps and independent
+// TouchParents applies an episode playback's timestamps and independent
 // completion counters to its two ancestors without manufacturing history.
-func (s *State) PlexTouchParents(ctx context.Context, user int64, key core.RatingKey, at time.Time, completed bool) error {
+func (s *State) TouchParents(ctx context.Context, user int64, key core.RatingKey, at time.Time, completed bool) error {
 	if key.Kind() != core.KindEpisode {
 		return nil
 	}

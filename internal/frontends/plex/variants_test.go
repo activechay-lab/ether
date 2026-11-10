@@ -142,13 +142,15 @@ func newVariantFixture(t *testing.T, playback core.Playback) *variantFixture {
 		facets:   map[string][]core.FacetValue{},
 	}
 	vr := &fakeVariantResolver{byKey: testVariantLists()}
-	d := Deps{
-		Catalog:           cat,
-		State:             newFakeState(),
-		Playback:          playback,
-		Transcoder:        newFakeTranscoder(core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: "mkv"}),
-		Variants:          vr,
-		DisableEnrichment: true,
+	d := testServerDeps{
+		Catalog: cat,
+		State:   newFakeState(),
+		Deps: Deps{
+			Playback:          playback,
+			Transcoder:        newFakeTranscoder(core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: "mkv"}),
+			Variants:          vr,
+			DisableEnrichment: true,
+		},
 	}
 	setDepsAuth(&d, &fakeAuth{users: map[string]core.User{ownerToken: ownerUser, friendToken: friendUser}})
 	setDepsConfig(&d, func() config.Config {
@@ -161,7 +163,7 @@ func newVariantFixture(t *testing.T, playback core.Playback) *variantFixture {
 	})
 	setDepsIdentity(&d, Identity{Version: "1.43.4.10903-e5521bd8c", Platform: "Linux"})
 	setDepsNow(&d, func() time.Time { return fixedNow })
-	srv := NewServer(testDeps(d))
+	srv := newTestServer(d)
 	t.Cleanup(func() { srv.Close() })
 	mountTestBroker(srv, func() time.Time { return fixedNow })
 	return &variantFixture{srv: srv, resolver: vr, playback: playback}

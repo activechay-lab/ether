@@ -214,14 +214,12 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
+	exp := experience.NewDirectService(experience.ServiceDeps{Catalog: fixtureCatalog{}, State: composedState{}})
 	deps := plex.Deps{
 		Host:              frontend.Host{Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
 		SessionStores:     sessions.NewSessionStores(),
-		Experience:        experience.NewSelectors(),
 		DB:                db,
 		Cluster:           ownerNode,
-		Catalog:           fixtureCatalog{},
-		State:             composedState{},
 		Playback:          remote,
 		Transcoder:        decision,
 		Encoder:           broker,
@@ -229,7 +227,9 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
-	publicOwner.UsePlaybackBroker(broker)
+	if _, err = (plex.Frontend{Server: publicOwner}).Mount(ctx, frontend.Host{Sessions: broker, Experience: exp}); err != nil {
+		t.Fatal(err)
+	}
 	if err = owner.BindPlexDelivery(publicOwner); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,9 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	deps.Cluster = senderNode
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
-	publicSender.UsePlaybackBroker(senderBroker)
+	if _, err = (plex.Frontend{Server: publicSender}).Mount(ctx, frontend.Host{Sessions: senderBroker, Experience: exp}); err != nil {
+		t.Fatal(err)
+	}
 	if err = sender.BindPlexDelivery(publicSender); err != nil {
 		t.Fatal(err)
 	}
@@ -261,6 +263,9 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	forwardDeps.Playback, forwardDeps.Transcoder, forwardDeps.Encoder = remote, decision, forwardOnlyEncoder{r: owner}
 	publicForward := plex.NewServer(forwardDeps)
 	defer publicForward.Close()
+	if _, err = (plex.Frontend{Server: publicForward}).Mount(ctx, frontend.Host{Sessions: broker, Experience: exp}); err != nil {
+		t.Fatal(err)
+	}
 	startURI := "/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F" + core.MovieKey(1).String() + "&session=real-composed-plex&directPlay=0&directStream=1"
 	start := httptest.NewRequest("GET", "https://public"+startURI, nil)
 	start.RemoteAddr = "192.168.1.9:1234"

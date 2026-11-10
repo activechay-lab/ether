@@ -61,7 +61,7 @@ func TestAndroidPosterPagePerformance(t *testing.T) {
 		w.Write(data)
 	}))
 	defer upstream.Close()
-	f := newFixture(func(d *Deps) {
+	f := newFixture(func(d *testServerDeps) {
 		setDepsHTTPClient(d, upstream.Client())
 	})
 	f.srv.setImageURL(func(path, size string) string { return upstream.URL + path })

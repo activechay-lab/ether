@@ -68,7 +68,6 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 		return nil, err
 	}
 	if f.Server != nil {
-		f.Server.UsePlaybackBroker(host.Sessions)
 		f.Server.bindHost(host)
 	}
 	status := f.StatusFunc

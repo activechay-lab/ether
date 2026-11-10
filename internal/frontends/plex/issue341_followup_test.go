@@ -133,13 +133,13 @@ func TestIssue341CancelledMetadataIsNotNotFound(t *testing.T) {
 	defer f.srv.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	original := f.srv.d.Catalog
+	original := f.srv.catalog()
 	f.get(t, "/library/metadata/"+fightClub.Key.String())
 	capture, err := recorder.Start("owner", diagnostics.StartIn{DeviceID: recorder.Devices()[0].ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.srv.d.Catalog = issue341CancelledCatalog{original, cancel}
+	f.srv.setCatalog(issue341CancelledCatalog{original, cancel})
 	r := httptest.NewRequest(http.MethodGet, "/library/metadata/"+fightClub.Key.String(), nil).WithContext(ctx)
 	r.Header.Set("X-Plex-Token", ownerToken)
 	r.Header.Set("X-Plex-Client-Identifier", "client-1")
@@ -155,7 +155,7 @@ func TestIssue341CancelledMetadataIsNotNotFound(t *testing.T) {
 	if len(view.Observations) != 1 || view.Observations[0].Status != 499 {
 		t.Fatalf("cancelled observation: %+v", view.Observations)
 	}
-	f.srv.d.Catalog = original
+	f.srv.setCatalog(original)
 	if got := f.get(t, r.URL.Path); got.Code != 200 {
 		t.Fatal(got.Code)
 	}

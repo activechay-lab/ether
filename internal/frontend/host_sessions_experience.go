@@ -1252,7 +1252,7 @@ func AssemblePostPlay[P any](ctx context.Context, selection PostPlaySelection, v
 
 // ---------------------------------------------------------------------------
 // Experience host contracts. Selector implementations live in
-// internal/experience; adapters build them through Selectors
+// internal/experience; adapters build them through Host.Experience
 // constructors from the option value types below and call the selector
 // interfaces. Generic home/postplay assembly orchestrates only these
 // contracts, so it lives here like the generic session tables.
@@ -1282,16 +1282,27 @@ type DetailRelatedOptions struct {
 	Get        func(context.Context, core.RatingKey) (*core.Title, error)
 }
 
-// TimelineStore persists one Plex timeline report through the host writer.
-type TimelineStore interface {
-	Store(ctx context.Context, user int64, key core.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (context.Context, *TimelinePersistenceResult, error)
-}
-
-// TimelineStoreOptions configures a TimelineStore.
-type TimelineStoreOptions struct {
-	Writer          TimelineWriter
-	Now             func() time.Time
-	RestoreContinue func(context.Context, int64, core.RatingKey) error
+// StoreTimeline persists one timeline report through the host writer and
+// restores continuation only when persistence changed.
+func StoreTimeline(ctx context.Context, writer TimelineWriter, now func() time.Time, restoreContinue func(context.Context, int64, core.RatingKey) error, user int64, key core.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (context.Context, *TimelinePersistenceResult, error) {
+	result, err := writer.StoreTimeline(ctx, user, key, offset, duration, status, queue, offline)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if result.Changed && (result.PlaybackState == "complete" || result.ViewOffset > time.Minute) {
+		if parents, ok := writer.(ParentToucher); ok {
+			_ = parents.TouchParents(ctx, user, key, now(), result.Completed)
+		}
+	}
+	if result.Changed {
+		if restore, ok := writer.(ContinueRestorer); ok {
+			_ = restore.RestoreContinue(ctx, user, key)
+		}
+		if restoreContinue != nil {
+			_ = restoreContinue(ctx, user, key)
+		}
+	}
+	return WithTimelineStored(ctx), &result, nil
 }
 
 // EpisodeOrderGrouped is the grouped-episode-order capability selectors use.
@@ -1464,13 +1475,12 @@ type Search interface {
 	Keyword(ctx context.Context, viewer *core.User, query string, types []core.MediaType, limit int) ([]core.Title, error)
 }
 
-// Selectors constructs the experience selectors Plex uses and
-// provides its package-level operations. Implemented in
-// internal/experience, wired by the app (and spike).
-type Selectors interface {
+// ExperienceServices exposes experience selectors, domain sources, and
+// package-level operations on Host.Experience. Implemented in
+// internal/experience (*Service) and wired on Host.Experience.
+type ExperienceServices interface {
 	NewRecent(RecentOptions) Recent
 	NewDetailRelated(DetailRelatedOptions) DetailRelated
-	NewTimelineStore(TimelineStoreOptions) TimelineStore
 	NewEpisodeBatch(EpisodeBatchOptions) EpisodeBatch
 	NewContinueDeck(ContinueDeckOptions) ContinueDeck
 	NewContinue(ContinueOptions) Continue
@@ -1489,11 +1499,30 @@ type Selectors interface {
 	DiscoverySearch(source *DiscoveryFeatures) func(context.Context, *core.User, string, int) ([]core.Title, bool)
 	FamiliarFrom(st any) func(context.Context, *core.User, []core.RatingKey) map[core.RatingKey]int
 	ContinueFilter(state core.State, personal func(context.Context, *core.User, []core.Title) []core.Title) func(context.Context, *core.User, []core.Title) []core.Title
-	SameDayUnavailable(ctx context.Context, title *core.Title, now time.Time, filter func(context.Context, []core.Title) []core.Title, source core.AvailabilitySource) bool
+	SameDayUnavailable(ctx context.Context, title *core.Title, now time.Time, filter func(context.Context, []core.Title) []core.Title, source AvailabilitySource) bool
 	SeasonNextEpisode(eps []core.Title, st map[core.RatingKey]core.WatchStatus, now time.Time, unavailable func(*core.Title) bool) *core.Title
 	ShowOnDeck(eps []core.Title, st map[core.RatingKey]core.WatchStatus, unavailable func(*core.Title) bool) *core.Title
 	RequestDatabaseObservation(ctx context.Context) (int64, time.Duration)
 	PlaybackMarkerRanges(ctx context.Context, source MarkerRanges, key core.RatingKey, info core.MediaInfo) ([]MarkerRange, error)
+
+	CatalogSource() core.Catalog
+	CollectionsSource() core.Collections
+	StateSource() core.State
+	PlaylistsSource() core.Playlists
+	RecommenderSource() core.Recommender
+	VibeSearchSource() VibeSearcher
+	SearchSources() SearchSources
+	FavoriteShowsFunc() func(context.Context, *core.User) (map[core.RatingKey]bool, error)
+	FilterAvailableFunc() func(context.Context, []core.Title) []core.Title
+	JudgedOnFactsFunc() func(context.Context) func(core.Title) bool
+	PrioritizeAvailableFunc() func(context.Context, []core.Title) []core.Title
+	EpisodeOrderSource() EpisodeOrder
+	DiscoveryFeatures() *DiscoveryFeatures
+	DashboardSource() Dashboard
+	ResourcesSource() ResourceStatistics
+	LibraryTitles() (movies, shows string)
+	HomeRevision(ctx context.Context, viewer *core.User) (HomeRevision, bool, error)
+	NoProviderWait(ctx context.Context) context.Context
 }
 
 // AssembleHome places the continue row at its ranked position and deduplicates
@@ -1778,3 +1807,198 @@ func TranslatePlexTrackIdentity(issued IssuedTrackIdentity, probed core.MediaInf
 	}
 	return out, nil
 }
+
+// NoopExperience returns a zero-value Experience implementation for unmounted
+// or partial test servers.
+func NoopExperience() Experience { return noopExperience{} }
+
+type noopExperience struct{}
+
+func (noopExperience) Views(context.Context, *Viewer) ([]View, error) {
+	return nil, nil
+}
+func (noopExperience) Collections(context.Context, *Viewer, Device, CollectionQuery) (CollectionPage, error) {
+	return CollectionPage{}, nil
+}
+func (noopExperience) NotInterested(context.Context, *Viewer, Device, PageQuery) (NotInterestedPage, error) {
+	return NotInterestedPage{}, nil
+}
+func (noopExperience) NotInterestedItem(context.Context, *Viewer, Device, RatingKey) (NotInterestedEntry, error) {
+	return NotInterestedEntry{}, ErrNotFound
+}
+func (noopExperience) ResolveExternal(context.Context, *Viewer, Device, ExternalRequest) (RatingKey, error) {
+	return 0, ErrNotFound
+}
+func (noopExperience) Rows(context.Context, RowRequest) ([]Row, error) {
+	return nil, nil
+}
+func (noopExperience) Item(context.Context, ItemRequest) (ItemDetail, error) {
+	return ItemDetail{}, ErrNotFound
+}
+func (noopExperience) Children(context.Context, *Viewer, Device, RatingKey, ItemQuery) (Page, error) {
+	return Page{}, nil
+}
+func (noopExperience) LibraryItems(context.Context, *Viewer, Device, string, ItemQuery) (Page, error) {
+	return Page{}, nil
+}
+func (noopExperience) Similar(context.Context, *Viewer, Device, RatingKey, ItemQuery) (SearchPage, error) {
+	return SearchPage{}, nil
+}
+func (noopExperience) Ancestors(context.Context, *Viewer, Device, RatingKey) ([]Title, error) {
+	return nil, nil
+}
+func (noopExperience) Facets(context.Context, *Viewer, Device, string, string) ([]FacetValue, error) {
+	return nil, nil
+}
+func (noopExperience) ResolveFacet(context.Context, *Viewer, Device, string, string, string) (FacetValue, error) {
+	return FacetValue{}, ErrNotFound
+}
+func (noopExperience) PersonFacetIDs(context.Context, *Viewer, Device, RatingKey, []int64) (map[int64]string, error) {
+	return nil, nil
+}
+func (noopExperience) NamedFacetIDs(context.Context, *Viewer, Device, RatingKey, string, []string) (map[string]string, error) {
+	return nil, nil
+}
+func (noopExperience) Search(context.Context, *Viewer, Device, string, ItemQuery) (SearchPage, error) {
+	return SearchPage{}, nil
+}
+func (noopExperience) UserData(context.Context, *Viewer, []RatingKey) (map[RatingKey]WatchStatus, error) {
+	return nil, nil
+}
+func (noopExperience) SetPlayed(context.Context, *Viewer, RatingKey) error {
+	return nil
+}
+func (noopExperience) SetUnplayed(context.Context, *Viewer, RatingKey) error {
+	return nil
+}
+func (noopExperience) SetFavorite(context.Context, *Viewer, RatingKey, bool) error {
+	return nil
+}
+func (noopExperience) SetNotInterested(context.Context, *Viewer, RatingKey, bool) error {
+	return nil
+}
+func (noopExperience) SetWatchlist(context.Context, *Viewer, RatingKey, bool) error {
+	return nil
+}
+func (noopExperience) SetEntityFavorite(context.Context, *Viewer, FavoriteRef, bool) error {
+	return nil
+}
+func (noopExperience) EntityFavorites(context.Context, *Viewer, []FavoriteRef) (map[FavoriteRef]bool, error) {
+	return nil, nil
+}
+func (noopExperience) ResolveEventSubject(context.Context, *Viewer, Device, FavoriteRef) (ResolvedEventSubject, error) {
+	return ResolvedEventSubject{}, ErrNotFound
+}
+func (noopExperience) SetRating(context.Context, *Viewer, RatingKey, float64) error {
+	return nil
+}
+func (noopExperience) SetLikes(context.Context, *Viewer, RatingKey, *bool) error {
+	return nil
+}
+func (noopExperience) RemoveFromContinue(context.Context, *Viewer, RatingKey) error {
+	return nil
+}
+func (noopExperience) NewRecent(RecentOptions) Recent { return nil }
+func (noopExperience) NewDetailRelated(DetailRelatedOptions) DetailRelated {
+	return nil
+}
+func (noopExperience) NewEpisodeBatch(EpisodeBatchOptions) EpisodeBatch {
+	return nil
+}
+func (noopExperience) NewContinueDeck(ContinueDeckOptions) ContinueDeck {
+	return nil
+}
+func (noopExperience) NewContinue(ContinueOptions) Continue { return nil }
+func (noopExperience) NewRowSelection(RowSelectionOptions) RowSelection {
+	return nil
+}
+func (noopExperience) NewHomeSelection(HomeSelectionOptions) HomeSelection {
+	return nil
+}
+func (noopExperience) NewScopedCollection(ScopedCollectionOptions) ScopedCollection {
+	return nil
+}
+func (noopExperience) NewPlaylistSelection(PlaylistSelectionOptions) PlaylistSelection {
+	return nil
+}
+func (noopExperience) NewPostPlaySelection(PostPlaySelectionOptions) PostPlaySelection {
+	return nil
+}
+func (noopExperience) NewDiscoverySelection(DiscoverySelectionOptions) DiscoverySelection {
+	return nil
+}
+func (noopExperience) NewTrackPreferenceSelector(TrackPreferenceSelectorOptions) TrackPreferenceSelector {
+	return nil
+}
+func (noopExperience) SearchFor(SearchSources, Visibility, func(*User) bool) Search {
+	return nil
+}
+func (noopExperience) StatisticsDefaults(d Dashboard, r ResourceStatistics, _ func() time.Time) (Dashboard, ResourceStatistics) {
+	return d, r
+}
+func (noopExperience) MergeShareFilter(filter, _ Filter) (Filter, bool) {
+	return filter, false
+}
+func (noopExperience) ArrangeHome(_ context.Context, _ Recommender, _ *User, _ HubContext, _ string, rows []Hub, _ []NeutralHomeRow) ([]int, error) {
+	idx := make([]int, len(rows))
+	for i := range rows {
+		idx[i] = i
+	}
+	return idx, nil
+}
+func (noopExperience) DetailExtras(context.Context, ExtrasSource, *Title, string, map[int]bool) ([]ExtraClip, error) {
+	return nil, nil
+}
+func (noopExperience) DiscoverySearch(*DiscoveryFeatures) func(context.Context, *User, string, int) ([]Title, bool) {
+	return nil
+}
+func (noopExperience) FamiliarFrom(any) func(context.Context, *User, []RatingKey) map[RatingKey]int {
+	return nil
+}
+func (noopExperience) ContinueFilter(_ State, personal func(context.Context, *User, []Title) []Title) func(context.Context, *User, []Title) []Title {
+	return personal
+}
+func (noopExperience) SameDayUnavailable(context.Context, *Title, time.Time, func(context.Context, []Title) []Title, AvailabilitySource) bool {
+	return false
+}
+func (noopExperience) SeasonNextEpisode([]Title, map[RatingKey]WatchStatus, time.Time, func(*Title) bool) *Title {
+	return nil
+}
+func (noopExperience) ShowOnDeck([]Title, map[RatingKey]WatchStatus, func(*Title) bool) *Title {
+	return nil
+}
+func (noopExperience) RequestDatabaseObservation(context.Context) (int64, time.Duration) {
+	return 0, 0
+}
+func (noopExperience) PlaybackMarkerRanges(context.Context, MarkerRanges, RatingKey, MediaInfo) ([]MarkerRange, error) {
+	return nil, nil
+}
+func (noopExperience) CatalogSource() Catalog         { return nil }
+func (noopExperience) CollectionsSource() Collections { return nil }
+func (noopExperience) StateSource() State             { return nil }
+func (noopExperience) PlaylistsSource() Playlists     { return nil }
+func (noopExperience) RecommenderSource() Recommender { return nil }
+func (noopExperience) VibeSearchSource() VibeSearcher { return nil }
+func (noopExperience) SearchSources() SearchSources   { return SearchSources{} }
+func (noopExperience) FavoriteShowsFunc() func(context.Context, *User) (map[RatingKey]bool, error) {
+	return nil
+}
+func (noopExperience) FilterAvailableFunc() func(context.Context, []Title) []Title {
+	return nil
+}
+func (noopExperience) JudgedOnFactsFunc() func(context.Context) func(Title) bool {
+	return nil
+}
+func (noopExperience) PrioritizeAvailableFunc() func(context.Context, []Title) []Title {
+	return nil
+}
+func (noopExperience) EpisodeOrderSource() EpisodeOrder      { return nil }
+func (noopExperience) DiscoveryFeatures() *DiscoveryFeatures { return nil }
+func (noopExperience) DashboardSource() Dashboard            { return nil }
+func (noopExperience) ResourcesSource() ResourceStatistics   { return nil }
+func (noopExperience) LibraryTitles() (string, string)                { return "", "" }
+func (noopExperience) HomeRevision(context.Context, *User) (HomeRevision, bool, error) {
+	return HomeRevision{}, false, nil
+}
+func (noopExperience) NoProviderWait(ctx context.Context) context.Context { return ctx }
+

@@ -31,7 +31,7 @@ func TestAndroidPhotoConnectionAndFormat(t *testing.T) {
 	defer upstream.Close()
 	for _, product := range []string{"Plex for Android (Mobile)", "Plex for Android (TV)", "Plex Web", "Plezy"} {
 		t.Run(product, func(t *testing.T) {
-			f := newFixture(func(d *Deps) {
+			f := newFixture(func(d *testServerDeps) {
 				setDepsHTTPClient(d, upstream.Client())
 			})
 			f.srv.setImageURL(func(path, size string) string { return upstream.URL + "/t/p/" + size + path })

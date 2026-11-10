@@ -13,9 +13,7 @@ type FrontendArtwork struct {
 	Variants      func(*frontend.Title, string) (*frontend.ArtworkImages, bool)
 	Metadata      func(context.Context, frontend.ArtworkRequest, frontend.Image) frontend.Image
 	VirtualSeason func(context.Context, *frontend.User, frontend.RatingKey) (*frontend.Title, error)
-	URLImages     interface {
-		GetUntrustedURL(context.Context, string) ([]byte, string, error)
-	}
+	URLImages frontend.UntrustedImageFetcher
 	Raster frontend.SVGRasterizer
 }
 
@@ -24,14 +22,14 @@ func (a FrontendArtwork) cfg() frontend.ArtworkSourceConfig {
 		return frontend.ArtworkSourceConfig{}
 	}
 	s := a.Server
-	stored, _ := s.d.Catalog.(frontend.StoredTitleLookup)
+	stored, _ := s.catalog().(frontend.StoredTitleLookup)
 	return frontend.ArtworkSourceConfig{
 		Catalog:       stored,
-		Collections:   s.d.Collections,
-		Playlists:     s.d.Playlists,
+		Collections:   s.collections(),
+		Playlists:     s.playlists(),
 		Visibility:    s.visibility(),
 		LiveTV:        s.liveTV,
-		Discovery:     s.d.Discovery,
+		Discovery:     s.discovery(),
 		Images:        s.images,
 		ImageURL:      s.imageURL,
 		Palettes:      s.ultra,
@@ -125,13 +123,11 @@ func withStoredPolicy(ctx context.Context) context.Context {
 // Hub lists use the mirrored show for the playable check.
 func (s *Server) artworkTitle(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 	if ctx != nil && ctx.Value(storedPolicyKey{}) != nil {
-		if cached, ok := s.d.Catalog.(interface {
-			CachedGet(context.Context, frontend.RatingKey) (*frontend.Title, error)
-		}); ok {
+		if cached, ok := s.catalog().(frontend.CachedTitleReader); ok {
 			return cached.CachedGet(ctx, key)
 		}
 	}
-	return s.d.Catalog.Get(ctx, key)
+	return s.catalog().Get(ctx, key)
 }
 
 var _ frontend.Artwork = FrontendArtwork{}

@@ -58,7 +58,7 @@ func plexMetaFixture(t *testing.T, use bool, rt http.RoundTripper) (*fixture, *p
 		Background:       true,
 	})
 	t.Cleanup(meta.Close)
-	f := newFixture(func(d *Deps) {
+	f := newFixture(func(d *testServerDeps) {
 		d.LibraryGUIDs = pg
 		d.LibraryMetadata = meta
 		d.DB = db

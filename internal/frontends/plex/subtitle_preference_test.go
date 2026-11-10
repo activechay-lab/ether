@@ -2,7 +2,6 @@ package plex
 
 import (
 	"context"
-	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -72,7 +71,7 @@ func TestPlexSelectionHonoursSubtitleMode(t *testing.T) {
 	if err := prefs.PutRules(context.Background(), 7, rules); err != nil {
 		t.Fatal(err)
 	}
-	srv := &Server{d: testDeps(Deps{TrackPreferences: prefs}), log: slog.Default()}
+	srv := testServer(Deps{TrackPreferences: prefs})
 	info := core.MediaInfo{Streams: []core.StreamInfo{{Type: "audio", Language: "ja"}, {Type: "audio", Language: "en"}, {Type: "subtitle", Language: "en", Forced: true}, {Type: "subtitle", Language: "en"}}}
 	got := srv.preferredSelection(context.Background(), &core.User{ID: 7}, core.MovieKey(1), info, "ja", selection{})
 	if !got.subtitleSet || got.subtitle != 3 || got.audio != 0 {

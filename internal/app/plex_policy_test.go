@@ -11,6 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/safety"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -60,8 +61,6 @@ func TestPlexPolicyProductionWiringKeepsOwnerSearch(t *testing.T) {
 			ViewerPolicy: vp,
 		},
 		SessionStores:     sessions.NewSessionStores(),
-		Experience:        experience.NewSelectors(),
-		Catalog:           policyTestCatalog{titles: []core.Title{hidden, title}},
 		DisableEnrichment: true,
 	}
 	if vp.app.safety != policy {
@@ -73,6 +72,12 @@ func TestPlexPolicyProductionWiringKeepsOwnerSearch(t *testing.T) {
 	}
 	srv := plex.NewServer(deps)
 	defer srv.Close()
+	if _, err := (plex.Frontend{Server: srv}).Mount(context.Background(), frontend.Host{
+		Sessions:   &frontendtest.Sessions{},
+		Experience: experience.NewDirectService(experience.ServiceDeps{Catalog: policyTestCatalog{titles: []core.Title{hidden, title}}}),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		token         string
 		first, second bool

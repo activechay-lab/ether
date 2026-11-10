@@ -156,12 +156,10 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
+	exp := experience.NewDirectService(experience.ServiceDeps{Catalog: fixtureCatalog{}, State: composedState{}})
 	deps := plex.Deps{
 		Host:              frontend.Host{Identity: frontend.BindAuth(auth), ViewerPolicy: policy, HostConfig: func() config.Config { return cfg }},
 		SessionStores:     sessions.NewSessionStores(),
-		Experience:        experience.NewSelectors(),
-		Catalog:           fixtureCatalog{},
-		State:             composedState{},
 		Playback:          remote,
 		Transcoder:        decision,
 		Encoder:           broker,
@@ -169,7 +167,9 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
-	publicOwner.UsePlaybackBroker(broker)
+	if _, err = (plex.Frontend{Server: publicOwner}).Mount(ctx, frontend.Host{Sessions: broker, Experience: exp}); err != nil {
+		t.Fatal(err)
+	}
 	if err = owner.BindPlexDelivery(publicOwner); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,9 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	deps.Encoder = survivorBroker
 	publicSender := plex.NewServer(deps)
 	defer publicSender.Close()
-	publicSender.UsePlaybackBroker(survivorBroker)
+	if _, err = (plex.Frontend{Server: publicSender}).Mount(ctx, frontend.Host{Sessions: survivorBroker, Experience: exp}); err != nil {
+		t.Fatal(err)
+	}
 	if err = sender.BindPlexDelivery(publicSender); err != nil {
 		t.Fatal(err)
 	}

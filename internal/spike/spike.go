@@ -190,23 +190,35 @@ func (l *Library) Recommender() core.Recommender { return recommender{l} }
 func (l *Library) Auth() core.Auth               { return l.auth }
 func (l *Library) Transcoder() core.Transcoder   { return l.trans }
 
-// Deps returns a plex.Deps wired to the spike adapters, a movies-only
-// section and the identity from the config.
-func (l *Library) Deps() plex.Deps {
-	return plex.Deps{
-		Host: frontend.Host{
-			Identity:     frontend.BindAuth(l.Auth()),
-			Capabilities: frontend.BindClientRules(resolver.ApplyClientRulesForMedia),
-			HostConfig:   l.cfg,
-			Log:          l.opts.Logger,
-		},
-		SessionStores: sessions.NewSessionStores(),
-		Experience:    experience.NewSelectors(),
+// Experience returns an experience.Service wired to the spike adapters.
+func (l *Library) Experience() *experience.Service {
+	return experience.NewDirectService(experience.ServiceDeps{
 		Catalog:       l.Catalog(),
 		Collections:   l.Collections(),
 		Recommender:   l.Recommender(),
 		State:         l.State(),
 		Playlists:     l.Playlists(),
+		SearchSources: experience.SearchSources{Catalog: l.Catalog().Search},
+	})
+}
+
+// Deps returns a plex.Deps wired to the spike adapters, a movies-only
+// section and the identity from the config.
+func (l *Library) Deps() plex.Deps {
+	c := l.cfg()
+	return plex.Deps{
+		Host: frontend.Host{
+			Experience:   l.Experience(),
+			Identity:     frontend.BindAuth(l.Auth()),
+			Capabilities: frontend.BindClientRules(resolver.ApplyClientRulesForMedia),
+			HostConfig:   l.cfg,
+			Log:          l.opts.Logger,
+			ServerIdentity: frontend.ServerIdentity{
+				MachineID:    c.Server.MachineIdentifier,
+				FriendlyName: c.Server.FriendlyName,
+			},
+		},
+		SessionStores: sessions.NewSessionStores(),
 		Playback:      l.Playback(),
 		Transcoder:    l.Transcoder(),
 		Sections:      []plex.Section{{ID: 1, Type: core.TypeMovie, Title: "Movies"}},
@@ -242,7 +254,12 @@ func (l *Library) OpenPlex() (*plex.Server, func(), error) {
 		srv.Close()
 		return nil, nil, err
 	}
-	srv.UsePlaybackBroker(broker)
+	if _, err := (plex.Frontend{Server: srv}).Mount(context.Background(), frontend.Host{Experience: l.Experience(), Sessions: broker}); err != nil {
+		broker.Close(context.Background())
+		events.Close()
+		srv.Close()
+		return nil, nil, err
+	}
 	return srv, func() {
 		broker.Close(context.Background())
 		events.Close()

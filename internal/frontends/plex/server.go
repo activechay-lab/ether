@@ -76,10 +76,13 @@ type Server struct {
 	guidResolving    map[string]bool
 	home             *homeCache
 
-	d      Deps
-	host   frontend.Host
-	log    *slog.Logger
-	router chi.Router
+	d             Deps
+	host          frontend.Host
+	experience    frontend.Experience
+	personalHomes frontend.PersonalHomeStore
+	pageFreshness func() frontend.PageFreshness
+	log           *slog.Logger
+	router        chi.Router
 
 	sections []Section
 
@@ -155,9 +158,6 @@ func NewServer(d Deps) *Server {
 	if d.SessionStores == nil {
 		panic("plex: Deps.SessionStores is required (wire sessions.NewSessionStores())")
 	}
-	if d.Experience == nil {
-		panic("plex: Deps.Experience is required (wire experience.NewSelectors())")
-	}
 	coord := d.SessionCoordination
 	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
 		coord = d.SessionStores.NewCoordination()
@@ -189,7 +189,6 @@ func NewServer(d Deps) *Server {
 		ctx:               ctx,
 		cancel:            cancel,
 	}
-	s.d.Dashboard, s.d.Resources = d.Experience.StatisticsDefaults(d.Dashboard, d.Resources, s.now)
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
 	s.wg.Add(1)
 	go s.writeShelves()
@@ -206,30 +205,6 @@ func NewServer(d Deps) *Server {
 		s.versionFlows = newVersionFlowStore(s, d.DB)
 		s.queues.Configure(s.now, s.cl.queuePersistence())
 	}
-	if !d.DisableEnrichment && d.Catalog != nil {
-		s.titleJobs = newBGQueue(ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
-		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
-		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
-		if pre, ok := d.Catalog.(interface {
-			PreloadStored(context.Context, []frontend.RatingKey)
-		}); ok {
-			// Detail fetches scheduled together (a hub's shows) read their
-			// stored titles in one batch; each fetch then reads the cache.
-			s.titles.prefetch = pre.PreloadStored
-		}
-		s.ultra = frontend.NewArtworkPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
-			var art frontend.ArtworkCollectionArt
-			if c, ok := s.d.Collections.(frontend.ArtworkCollectionArt); ok {
-				art = c
-			}
-			return frontend.ComputeArtworkItemPalette(ctx, s.images, s.imageURL, key, path, s.now(), art)
-		})
-	}
-	if p, ok := d.Catalog.(interface {
-		PersistsArtwork(context.Context, frontend.RatingKey) bool
-	}); ok && s.ultra != nil {
-		s.ultra.PersistFor(p.PersistsArtwork)
-	}
 	s.bindHost(host)
 	node := "standalone"
 	if s.cl != nil {
@@ -245,11 +220,6 @@ func NewServer(d Deps) *Server {
 	s.router = s.routes()
 	s.wg.Add(1)
 	go s.janitor()
-	if d.HomeCache != nil && d.HomeCache.Revision != nil {
-		s.home = newHomeCache()
-		s.wg.Add(1)
-		go s.homeRefresher()
-	}
 	if s.cl != nil {
 		s.cl.start()
 	}
@@ -374,9 +344,61 @@ func (s *Server) bindHost(h frontend.Host) {
 	if h.MetadataLanguage != nil {
 		s.host.MetadataLanguage = h.MetadataLanguage
 	}
+	if h.PersonalHomes != nil {
+		s.host.PersonalHomes = h.PersonalHomes
+		s.personalHomes = h.PersonalHomes
+	}
+	if h.PageFreshness != nil {
+		s.host.PageFreshness = h.PageFreshness
+		s.pageFreshness = h.PageFreshness
+	}
+	if h.Experience != nil {
+		s.host.Experience = h.Experience
+		s.attachExperience(h.Experience)
+	}
 	if h.Sessions != nil {
 		s.UsePlaybackBroker(h.Sessions)
 	}
+}
+
+func (s *Server) attachExperience(exp frontend.Experience) {
+	if s == nil || exp == nil {
+		return
+	}
+	s.experience = exp
+	cat := s.catalog()
+	if !s.d.DisableEnrichment && cat != nil && s.titles == nil {
+		s.titleJobs = newBGQueue(s.ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
+		s.blurJobs = newBGQueue(s.ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
+		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
+		if s.ultra == nil {
+			s.ultra = frontend.NewArtworkPaletteCache(s.d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
+				var art frontend.ArtworkCollectionArt
+				if c, ok := s.collections().(frontend.ArtworkCollectionArt); ok {
+					art = c
+				}
+				return frontend.ComputeArtworkItemPalette(ctx, s.images, s.imageURL, key, path, s.now(), art)
+			})
+		}
+	}
+	if s.titles != nil {
+		if pre, ok := cat.(frontend.StoredTitlePreloader); ok {
+			s.titles.prefetch = pre.PreloadStored
+		} else {
+			s.titles.prefetch = nil
+		}
+	}
+	if p, ok := cat.(frontend.ArtworkPersistenceCatalog); ok && s.ultra != nil {
+		s.ultra.PersistFor(p.PersistsArtwork)
+	}
+	if s.home == nil {
+		if _, hasRev, _ := exp.HomeRevision(s.ctx, nil); hasRev {
+			s.home = newHomeCache()
+			s.wg.Add(1)
+			go s.homeRefresher()
+		}
+	}
+	s.sections = s.buildSections()
 }
 
 func (s *Server) policy() frontend.AccessPolicy {
@@ -392,6 +414,49 @@ func (s *Server) listUsers(ctx context.Context) ([]frontend.User, error) {
 	}
 	return s.host.Identity.Users(ctx)
 }
+
+func (s *Server) exp() frontend.Experience {
+	if s != nil && s.experience != nil {
+		return s.experience
+	}
+	return frontend.NoopExperience()
+}
+func (s *Server) catalog() frontend.Catalog         { return s.exp().CatalogSource() }
+func (s *Server) collections() frontend.Collections { return s.exp().CollectionsSource() }
+func (s *Server) state() frontend.State             { return s.exp().StateSource() }
+func (s *Server) playlists() frontend.Playlists     { return s.exp().PlaylistsSource() }
+func (s *Server) recommender() frontend.Recommender { return s.exp().RecommenderSource() }
+func (s *Server) vibeSearch() frontend.VibeSearcher { return s.exp().VibeSearchSource() }
+func (s *Server) searchSources() frontend.SearchSources {
+	return s.exp().SearchSources()
+}
+func (s *Server) favoriteShows() func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error) {
+	return s.exp().FavoriteShowsFunc()
+}
+func (s *Server) filterAvailable() func(context.Context, []frontend.Title) []frontend.Title {
+	return s.exp().FilterAvailableFunc()
+}
+func (s *Server) judgedOnFacts() func(context.Context) func(frontend.Title) bool {
+	return s.exp().JudgedOnFactsFunc()
+}
+func (s *Server) prioritizeAvailable() func(context.Context, []frontend.Title) []frontend.Title {
+	return s.exp().PrioritizeAvailableFunc()
+}
+func (s *Server) episodeOrder() frontend.EpisodeOrder       { return s.exp().EpisodeOrderSource() }
+func (s *Server) discovery() *frontend.DiscoveryFeatures    { return s.exp().DiscoveryFeatures() }
+func (s *Server) dashboard() frontend.Dashboard {
+	if d := s.exp().DashboardSource(); d != nil {
+		return d
+	}
+	return noopDashboard{}
+}
+func (s *Server) resources() frontend.ResourceStatistics {
+	if r := s.exp().ResourcesSource(); r != nil {
+		return r
+	}
+	return noopResources{}
+}
+func (s *Server) libraryTitles() (movies, shows string)     { return s.exp().LibraryTitles() }
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.router.ServeHTTP(w, r) }
@@ -555,10 +620,7 @@ func librarySectionTitle(t frontend.MediaType, movies, shows string) string {
 // IDs and UUIDs are not rewritten; UUIDs stay derived from section id only.
 // Empty library names already resolve to Movies and TV Shows.
 func (s *Server) withLibraryTitles(secs []Section) []Section {
-	var movies, shows string
-	if s.d.LibraryTitles != nil {
-		movies, shows = s.d.LibraryTitles()
-	}
+	movies, shows := s.libraryTitles()
 	out := append([]Section(nil), secs...)
 	for i := range out {
 		switch out[i].Type {
@@ -697,4 +759,22 @@ func (s *Server) releaseMountedPlayback() {
 	} else {
 		s.releaseAllDownloads()
 	}
+}
+
+type noopDashboard struct{}
+
+func (noopDashboard) SeeDevice(string, string, string) frontend.StatisticsDevice {
+	return frontend.StatisticsDevice{}
+}
+func (noopDashboard) Devices() []frontend.StatisticsDevice                   { return nil }
+func (noopDashboard) Device(int64) (frontend.StatisticsDevice, bool)         { return frontend.StatisticsDevice{}, false }
+func (noopDashboard) Bandwidth(frontend.StatisticsQuery) frontend.StatisticsPage { return frontend.StatisticsPage{} }
+func (noopDashboard) Media(frontend.StatisticsQuery) frontend.StatisticsPage     { return frontend.StatisticsPage{} }
+func (noopDashboard) RecordBytes(int64, string, string, string, string, bool, int64) {}
+func (noopDashboard) RecordPlay(int64, string, string, int, int64)                   {}
+
+type noopResources struct{}
+
+func (noopResources) Query(int, int64, int64, int64, bool, bool, bool) []frontend.ResourceSample {
+	return nil
 }

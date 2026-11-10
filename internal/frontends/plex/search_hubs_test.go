@@ -177,7 +177,7 @@ func TestHubSearchPeopleHubsAndReasonedTitles(t *testing.T) {
 }
 
 func TestHubSearchPeopleHonorsViewerSafetyAndVisibility(t *testing.T) {
-	f := newFixture(func(d *Deps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
+	f := newFixture(func(d *testServerDeps) { setDepsPolicy(d, keywordPolicy{blocked: "blocked"}) })
 	defer f.srv.Close()
 
 	auth := f.srv.testAuth()

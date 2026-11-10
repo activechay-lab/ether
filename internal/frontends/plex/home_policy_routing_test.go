@@ -43,7 +43,8 @@ func (r *policyRoutingRecommender) SectionCandidatesWithPolicy(ctx context.Conte
 func TestRestrictedHomeAndSectionUsePolicyBeforeLimit(t *testing.T) {
 	ctx := context.Background()
 	r := &policyRoutingRecommender{items: []core.Title{{Key: core.MovieKey(1), Adult: true}, {Key: core.MovieKey(2), ContentRating: "PG"}, {Key: core.MovieKey(3), ContentRating: "PG"}}}
-	s := testServer(Deps{Recommender: r})
+	s := newTestServer(testServerDeps{Recommender: r})
+	defer s.Close()
 	for _, user := range []*core.User{{ID: 1, MaxContentRating: "PG"}, {ID: 2}} {
 		if user.ID == 2 {
 			s.setTestPolicy(unknownPolicy{})
@@ -87,7 +88,7 @@ func TestRestrictedLegacyRecommenderFailsClosed(t *testing.T) {
 	visible := core.Title{Key: core.MovieKey(5), Type: core.TypeMovie}
 	items := []core.Title{episode, unavailable, visible}
 	r := &fakeRecommender{home: []core.Hub{{ID: "home.test", Items: items}}, section: map[core.MediaType][]core.Hub{core.TypeMovie: {{ID: "movie.test", Items: items}}}}
-	s := testServer(Deps{Recommender: r, FilterAvailable: func(_ context.Context, titles []core.Title) []core.Title {
+	s := newTestServer(testServerDeps{Recommender: r, FilterAvailable: func(_ context.Context, titles []core.Title) []core.Title {
 		out := make([]core.Title, 0, len(titles))
 		for _, item := range titles {
 			if item.Key != unavailable.Key {
@@ -96,6 +97,7 @@ func TestRestrictedLegacyRecommenderFailsClosed(t *testing.T) {
 		}
 		return out
 	}})
+	defer s.Close()
 	s.setTestPolicy(unknownPolicy{})
 	for _, section := range []bool{false, true} {
 		var rows []core.Hub
@@ -130,7 +132,7 @@ func TestRestrictedPlexHomeRouteFiltersCandidatesAndDuplicateRows(t *testing.T) 
 	blockedTitle.Adult = true
 	f.catalog.titles[blockedTitle.Key] = blockedTitle
 	candidates := []core.Title{bbE1, blockedTitle, fightClub}
-	f.srv.d.Recommender = &fakeRecommender{home: []core.Hub{{ID: "home.policy", Title: "Visible", Promoted: true, Items: candidates}, {ID: "home.policy", Title: "Duplicate", Promoted: true, Items: candidates}}}
+	f.srv.setRecommender(&fakeRecommender{home: []core.Hub{{ID: "home.policy", Title: "Visible", Promoted: true, Items: candidates}, {ID: "home.policy", Title: "Duplicate", Promoted: true, Items: candidates}}})
 	f.srv.testAuth().users["restricted-home"] = core.User{ID: 88, AllowedLibraries: []core.LibraryID{1, 2}}
 	rec := f.request(t, http.MethodGet, "/hubs?excludeContinueWatching=1", map[string]string{"Accept": "application/json", "X-Plex-Token": "restricted-home"})
 	if rec.Code != http.StatusOK {

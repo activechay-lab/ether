@@ -74,9 +74,7 @@ func (c refreshingArtworkCatalog) StoredTitle(ctx context.Context, key frontend.
 
 // UndatedSearchHit forwards catalog.UndatedSearchHit to the artwork source.
 func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key frontend.RatingKey) bool {
-	u, ok := c.Catalog.(interface {
-		UndatedSearchHit(context.Context, frontend.RatingKey) bool
-	})
+	u, ok := c.Catalog.(frontend.UndatedSearchHitCatalog)
 	return ok && u.UndatedSearchHit(ctx, key)
 }
 
@@ -88,7 +86,7 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 		return false
 	}
 	ctx := r.Context()
-	t, err := (refreshingArtworkCatalog{s.d.Catalog}).StoredTitle(ctx, key)
+	t, err := (refreshingArtworkCatalog{s.catalog()}).StoredTitle(ctx, key)
 	if err != nil || t == nil || t.Key != key || t.Adult || t.IsFutureRelease(s.now()) || !s.visibleTitle(ctx, FromContext(ctx).User, t) {
 		return false
 	}
@@ -116,7 +114,7 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 
 func (s *Server) artPath(ctx context.Context, key frontend.RatingKey, element string) (string, int, error) {
 	cfg := (FrontendArtwork{Server: s}).cfg()
-	cfg.Catalog = refreshingArtworkCatalog{s.d.Catalog}
+	cfg.Catalog = refreshingArtworkCatalog{s.catalog()}
 	pr := FromContext(ctx)
 	cfg.CollectionDevice = pr.Device
 	return frontend.NewArtworkSource(cfg).ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: frontend.Device{Product: pr.Product, Platform: pr.Platform}}, element)
@@ -207,7 +205,7 @@ func (s *Server) servePlexOverlayImage(w http.ResponseWriter, r *http.Request, k
 	}
 	// This runs when the catalogue art path refused or had nothing, which
 	// includes titles this viewer may not see: check before serving.
-	t, err := s.d.Catalog.Get(r.Context(), key)
+	t, err := s.catalog().Get(r.Context(), key)
 	if err != nil || t == nil || t.Adult || !t.IsReleased(s.now()) || !s.visibleTitle(r.Context(), FromContext(r.Context()).User, t) {
 		return false
 	}

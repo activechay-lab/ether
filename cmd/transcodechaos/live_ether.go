@@ -22,7 +22,6 @@ import (
 	_ "github.com/braedonsaunders/ether/internal/artwork/service"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -216,7 +215,6 @@ func (e *liveEther) servePlex(log *slog.Logger, channels []livetv.Channel) (*liv
 			Log:               log.With("component", "plex"),
 		},
 		SessionStores: sessions.NewSessionStores(),
-		Experience:    experience.NewSelectors(),
 		Transcoder:    e.manager,
 	})
 	if _, err := (plex.Frontend{Server: e.plex}).Mount(context.Background(), frontend.Host{LiveTV: e.service.Frontend()}); err != nil {

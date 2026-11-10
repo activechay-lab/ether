@@ -23,7 +23,7 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 			var clock atomic.Int64
 			clock.Store(fixedNow.UnixNano())
 			now := func() time.Time { return time.Unix(0, clock.Load()) }
-			f := newFixture(func(d *Deps) {
+			f := newFixture(func(d *testServerDeps) {
 				setDepsNow(d, now)
 				d.DisableEnrichment = true
 				if shared {

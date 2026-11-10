@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
+	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/store"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
 )
@@ -133,12 +132,12 @@ func (f fakeMarkers) Markers(context.Context, core.RatingKey, core.MediaInfo) ([
 // with final="1" only on the last credits marker — even if a provider
 // mistakenly flags an earlier one.
 func TestMultipleCreditsMarkersRendering(t *testing.T) {
-	srv := &Server{d: testDeps(Deps{Markers: fakeMarkers{
+	srv := testServer(Deps{Markers: fakeMarkers{
 		{Type: "credits", StartMS: 5_800_000, EndMS: 6_000_000, Final: true},
 		{Type: "intro", StartMS: 30_000, EndMS: 90_000},
 		{Type: "credits", StartMS: 5_400_000, EndMS: 5_760_000, Final: true},
 		{Type: "recap", StartMS: 0, EndMS: 20_000},
-	}}), log: slog.Default()}
+	}})
 	info := core.MediaInfo{Duration: 100 * time.Minute}
 	var m model.Metadata
 	srv.addProbedStreamFeatures(context.Background(), core.MovieKey(603), info, &m)
