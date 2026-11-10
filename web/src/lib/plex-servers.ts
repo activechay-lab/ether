@@ -1,5 +1,19 @@
-import { t } from "../i18n";
+import { t, tn } from "../i18n";
 import { apiFetch } from "./api";
+
+export interface PMSBackfillStatus {
+  running: boolean;
+  processed: number;
+  total: number;
+  doneAt: number;
+}
+
+export interface PMSBackfillPreview {
+  remoteViews: number;
+  remoteKnown: boolean;
+  localWatched: number;
+  localInProgress: number;
+}
 
 export interface PMSMapping {
   accountId: number;
@@ -14,6 +28,8 @@ export interface PMSMapping {
   nextSync: number;
   problem: string;
   unmatched: number;
+  inBackfill?: PMSBackfillStatus;
+  outBackfill?: PMSBackfillStatus;
 }
 
 export interface PMSServer {
@@ -41,6 +57,8 @@ export interface PMSViewerMapping {
   nextSync: number;
   problem: string;
   unmatched: number;
+  inBackfill?: PMSBackfillStatus;
+  outBackfill?: PMSBackfillStatus;
 }
 
 export function pmsProblemText(code: string): string {
@@ -77,6 +95,56 @@ export function pmsDirectionText(direction: number): string {
   }
 }
 
+export function pmsBackfillLines(
+  m: Pick<PMSMapping, "direction" | "inBackfill" | "outBackfill">,
+  formatWhen: (seconds: number) => string,
+): string[] {
+  const lines: string[] = [];
+  if ((m.direction & 2) !== 0 && m.inBackfill) {
+    const b = m.inBackfill;
+    if (b.running) {
+      if (b.total > 0) {
+        lines.push(
+          t("Full history from this server: {processed} of {total} read…", {
+            processed: b.processed,
+            total: b.total,
+          }),
+        );
+      } else if (b.processed > 0) {
+        lines.push(
+          tn(
+            b.processed,
+            "Full history from this server: {count} entry read…",
+            "Full history from this server: {count} entries read…",
+          ),
+        );
+      } else {
+        lines.push(t("Full history from this server: queued…"));
+      }
+    } else if (b.doneAt > 0) {
+      lines.push(t("Full history from this server: done ({when})", { when: formatWhen(b.doneAt) }));
+    }
+  }
+  if ((m.direction & 1) !== 0 && m.outBackfill) {
+    const b = m.outBackfill;
+    if (b.running) {
+      if (b.total > 0) {
+        lines.push(
+          t("Full history to this server: {processed} of {total} checked…", {
+            processed: b.processed,
+            total: b.total,
+          }),
+        );
+      } else {
+        lines.push(t("Full history to this server: queued…"));
+      }
+    } else if (b.doneAt > 0) {
+      lines.push(t("Full history to this server: done ({when})", { when: formatWhen(b.doneAt) }));
+    }
+  }
+  return lines;
+}
+
 /** The single registry of owner-run Plex servers, shared by sync and one-time import. */
 export const listPlexServers = (signal?: AbortSignal) =>
   apiFetch<PMSServer[]>("/plex-servers", { signal });
@@ -84,3 +152,18 @@ export const listPlexServers = (signal?: AbortSignal) =>
 /** Read-only view of one viewer's owner-run Plex Media Server mappings. */
 export const listViewerPlexServers = (viewerId: number, signal?: AbortSignal) =>
   apiFetch<PMSViewerMapping[]>(`/viewers/${viewerId}/plex-servers`, { signal });
+
+export const getPlexServerBackfillPreview = (
+  serverId: number,
+  accountId: number,
+  signal?: AbortSignal,
+) =>
+  apiFetch<PMSBackfillPreview>(`/plex-servers/${serverId}/accounts/${accountId}/backfill`, {
+    signal,
+  });
+
+export const startPlexServerBackfill = (serverId: number, accountId: number, kind: "in" | "out") =>
+  apiFetch<PMSServer>(
+    `/plex-servers/${serverId}/accounts/${accountId}/${kind === "in" ? "backfill-in" : "backfill-out"}`,
+    { method: "POST" },
+  );

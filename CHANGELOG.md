@@ -13,6 +13,7 @@
 - **Subtitles:** **Download a subtitle automatically when playback starts** switch under **Integrations > OpenSubtitles** (`openSubtitles.automaticPreferred`, off by default) (#286).
 - **Trakt:** Viewers can connect Trakt from **Viewers > Limits** or on `/ether/me` using Trakt's activation code flow, syncing watch history, ratings and watchlists per viewer.
 - **Console:** **Plex Media Server sync** (**Integrations > Overview**) and **Plex account sync** (**Viewers > Limits**) are now named for what they sync with, and each viewer's **Limits** tab also shows their Plex Media Server mappings alongside their Plex account status.
+- **Plex Media Server sync:** per-mapping **Bring in full history from this server** and **Send Ether's full history to this server** actions under **Integrations > Plex Media Server sync** walk older watch history in pages in the background with live progress and never overwrite newer watch state on either side.
 
 ## 0.3.7 (2026-11-09)
 

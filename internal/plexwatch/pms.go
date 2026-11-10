@@ -50,6 +50,7 @@ type Servers struct {
 	enabled func() bool
 	// viewerExists confirms a mapping target is a real Ether viewer.
 	viewerExists func(context.Context, int64) (bool, error)
+	wake         chan struct{}
 	closed       chan struct{}
 	closeMu      sync.Mutex
 }
@@ -89,6 +90,13 @@ const (
 	pmsReceive = 2
 )
 
+// Backfill state stored in in_backfill / out_backfill.
+const (
+	pmsBackfillIdle    = 0
+	pmsBackfillRunning = 1
+	pmsBackfillQueued  = 2
+)
+
 // NewServers starts nothing; call Run under cluster leadership.
 func NewServers(o ServersOptions) (*Servers, error) {
 	if o.DB == nil || o.State == nil {
@@ -111,7 +119,14 @@ func NewServers(o ServersOptions) (*Servers, error) {
 	}
 	return &Servers{db: o.DB, state: o.State, sealer: o.Sealer, guid: o.GUID, catalog: o.Catalog,
 		http: &clone, client: o.ClientID, log: o.Logger, now: o.Now, viewerExists: o.ViewerExists,
-		enabled: o.Enabled, closed: make(chan struct{})}, nil
+		enabled: o.Enabled, wake: make(chan struct{}, 1), closed: make(chan struct{})}, nil
+}
+
+func (s *Servers) signal() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Close stops Run.
@@ -140,36 +155,56 @@ type PMSServer struct {
 	Viewers   []PMSMapping `json:"viewers"`
 }
 
+// PMSBackfillStatus reports a background full-history import or export for one mapping.
+type PMSBackfillStatus struct {
+	Running   bool  `json:"running"`
+	Processed int   `json:"processed"`
+	Total     int   `json:"total"`
+	DoneAt    int64 `json:"doneAt"`
+}
+
+// PMSBackfillPreview summarizes cheap counts before starting a full-history sync.
+type PMSBackfillPreview struct {
+	RemoteViews     int  `json:"remoteViews"`
+	RemoteKnown     bool `json:"remoteKnown"`
+	LocalWatched    int  `json:"localWatched"`
+	LocalInProgress int  `json:"localInProgress"`
+}
+
 // PMSMapping is one PMS account mapped to one Ether viewer.
 type PMSMapping struct {
-	AccountID   int64  `json:"accountId"`
-	AccountName string `json:"accountName"`
-	Owner       bool   `json:"owner"`
-	UserID      int64  `json:"userId"`
-	Direction   int    `json:"direction"`
-	Interval    int    `json:"interval"`
-	CanSend     bool   `json:"canSend"`
-	LastImport  int64  `json:"lastImport"`
-	LastSend    int64  `json:"lastSend"`
-	NextSync    int64  `json:"nextSync"`
-	Problem     string `json:"problem"`
-	Unmatched   int    `json:"unmatched"`
+	AccountID   int64             `json:"accountId"`
+	AccountName string            `json:"accountName"`
+	Owner       bool              `json:"owner"`
+	UserID      int64             `json:"userId"`
+	Direction   int               `json:"direction"`
+	Interval    int               `json:"interval"`
+	CanSend     bool              `json:"canSend"`
+	LastImport  int64             `json:"lastImport"`
+	LastSend    int64             `json:"lastSend"`
+	NextSync    int64             `json:"nextSync"`
+	Problem     string            `json:"problem"`
+	Unmatched   int               `json:"unmatched"`
+	InBackfill  PMSBackfillStatus `json:"inBackfill"`
+	OutBackfill PMSBackfillStatus `json:"outBackfill"`
 }
 
 // PMSViewerMapping is one owner-run server mapped to one Ether viewer, without tokens.
 type PMSViewerMapping struct {
-	ServerID    int64  `json:"serverId"`
-	ServerName  string `json:"serverName"`
-	AccountID   int64  `json:"accountId"`
-	AccountName string `json:"accountName"`
-	Owner       bool   `json:"owner"`
-	Direction   int    `json:"direction"`
-	Interval    int    `json:"interval"`
-	LastImport  int64  `json:"lastImport"`
-	LastSend    int64  `json:"lastSend"`
-	NextSync    int64  `json:"nextSync"`
-	Problem     string `json:"problem"`
-	Unmatched   int    `json:"unmatched"`
+	ServerID    int64             `json:"serverId"`
+	ServerName  string            `json:"serverName"`
+	AccountID   int64             `json:"accountId"`
+	AccountName string            `json:"accountName"`
+	Owner       bool              `json:"owner"`
+	Direction   int               `json:"direction"`
+	Interval    int               `json:"interval"`
+	LastImport  int64             `json:"lastImport"`
+	LastSend    int64             `json:"lastSend"`
+	NextSync    int64             `json:"nextSync"`
+	Problem     string            `json:"problem"`
+	Unmatched   int               `json:"unmatched"`
+	InBackfill  PMSBackfillStatus `json:"inBackfill"`
+	OutBackfill PMSBackfillStatus `json:"outBackfill"`
 }
 
 // PMSAccount is a PMS account and, when mapped, its viewer.
@@ -429,6 +464,8 @@ func (s *Servers) Server(ctx context.Context, id int64) (PMSServer, error) {
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT v.account_id,v.account_name,v.owner,v.user_id,v.direction,v.interval_min,v.token,
 		v.last_import,v.last_send,v.next_run,v.problem,
+		v.in_backfill,v.in_backfill_read,v.in_backfill_total,v.in_backfill_done,
+		v.out_backfill,v.out_backfill_sent,v.out_backfill_total,v.out_backfill_done,
 		(SELECT COUNT(*) FROM plexwatch_pms_unmatched u WHERE u.server_id=v.server_id AND u.user_id=v.user_id)
 		FROM plexwatch_pms_viewer v WHERE v.server_id=? ORDER BY v.account_id`, id)
 	if err != nil {
@@ -438,14 +475,19 @@ func (s *Servers) Server(ctx context.Context, id int64) (PMSServer, error) {
 	srv.Viewers = []PMSMapping{}
 	for rows.Next() {
 		var m PMSMapping
-		var owner int
+		var owner, inState, outState int
 		var token string
 		if err := rows.Scan(&m.AccountID, &m.AccountName, &owner, &m.UserID, &m.Direction, &m.Interval, &token,
-			&m.LastImport, &m.LastSend, &m.NextSync, &m.Problem, &m.Unmatched); err != nil {
+			&m.LastImport, &m.LastSend, &m.NextSync, &m.Problem,
+			&inState, &m.InBackfill.Processed, &m.InBackfill.Total, &m.InBackfill.DoneAt,
+			&outState, &m.OutBackfill.Processed, &m.OutBackfill.Total, &m.OutBackfill.DoneAt,
+			&m.Unmatched); err != nil {
 			return srv, err
 		}
 		m.Owner = owner != 0
 		m.CanSend = m.Owner || token != ""
+		m.InBackfill.Running = inState != pmsBackfillIdle && m.Direction&pmsReceive != 0
+		m.OutBackfill.Running = outState != pmsBackfillIdle && m.Direction&pmsSend != 0
 		m.NextSync /= int64(time.Second)
 		if m.Direction == 0 {
 			m.NextSync = 0
@@ -459,6 +501,8 @@ func (s *Servers) Server(ctx context.Context, id int64) (PMSServer, error) {
 func (s *Servers) ViewerServers(ctx context.Context, userID int64) ([]PMSViewerMapping, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT p.id,p.name,p.problem,v.account_id,v.account_name,v.owner,v.direction,v.interval_min,
 		v.last_import,v.last_send,v.next_run,v.problem,
+		v.in_backfill,v.in_backfill_read,v.in_backfill_total,v.in_backfill_done,
+		v.out_backfill,v.out_backfill_sent,v.out_backfill_total,v.out_backfill_done,
 		(SELECT COUNT(*) FROM plexwatch_pms_unmatched u WHERE u.server_id=v.server_id AND u.user_id=v.user_id)
 		FROM plexwatch_pms_viewer v
 		JOIN plexwatch_pms p ON p.id=v.server_id
@@ -471,12 +515,17 @@ func (s *Servers) ViewerServers(ctx context.Context, userID int64) ([]PMSViewerM
 	for rows.Next() {
 		var m PMSViewerMapping
 		var srvProblem string
-		var owner int
+		var owner, inState, outState int
 		if err := rows.Scan(&m.ServerID, &m.ServerName, &srvProblem, &m.AccountID, &m.AccountName, &owner,
-			&m.Direction, &m.Interval, &m.LastImport, &m.LastSend, &m.NextSync, &m.Problem, &m.Unmatched); err != nil {
+			&m.Direction, &m.Interval, &m.LastImport, &m.LastSend, &m.NextSync, &m.Problem,
+			&inState, &m.InBackfill.Processed, &m.InBackfill.Total, &m.InBackfill.DoneAt,
+			&outState, &m.OutBackfill.Processed, &m.OutBackfill.Total, &m.OutBackfill.DoneAt,
+			&m.Unmatched); err != nil {
 			return nil, err
 		}
 		m.Owner = owner != 0
+		m.InBackfill.Running = inState != pmsBackfillIdle && m.Direction&pmsReceive != 0
+		m.OutBackfill.Running = outState != pmsBackfillIdle && m.Direction&pmsSend != 0
 		m.NextSync /= int64(time.Second)
 		if m.Direction == 0 {
 			m.NextSync = 0
@@ -676,18 +725,23 @@ func (s *Servers) MapAccount(ctx context.Context, id, accountID int64, in PMSMap
 	// PMS history is read from a few minutes back to absorb clock skew.
 	gainSend := in.Direction&pmsSend != 0 && cur.direction&pmsSend == 0
 	gainRecv := in.Direction&pmsReceive != 0 && cur.direction&pmsReceive == 0
+	keepSend := in.Direction&pmsSend != 0
+	keepRecv := in.Direction&pmsReceive != 0
 	_, err = tx.ExecContext(ctx, `UPDATE plexwatch_pms_viewer SET account_name=?,owner=?,token=?,direction=?,interval_min=?,
 		out_cursor=CASE WHEN ?<>0 THEN ? ELSE out_cursor END,
 		out_key=CASE WHEN ?<>0 THEN 0 ELSE out_key END,
 		out_baseline=CASE WHEN ?<>0 THEN ? ELSE out_baseline END,
 		in_cursor=CASE WHEN ?<>0 THEN ? ELSE in_cursor END,
 		in_skip=CASE WHEN ?<>0 THEN 0 ELSE in_skip END,
+		in_backfill=CASE WHEN ?=0 THEN 0 ELSE in_backfill END,
+		out_backfill=CASE WHEN ?=0 THEN 0 ELSE out_backfill END,
 		next_run=CASE WHEN ?<>0 THEN ? ELSE next_run END,
 		problem=CASE WHEN ?=0 THEN '' ELSE problem END
 		WHERE server_id=? AND account_id=?`,
 		acct.Name, store.BoolInt(owner), sealed, in.Direction, in.Interval,
 		gainSend, nowNS, gainSend, gainSend, nowNS,
 		gainRecv, now.Add(-5*time.Minute).Unix(), gainRecv,
+		keepRecv, keepSend,
 		gainSend || gainRecv, nowNS, in.Direction,
 		id, accountID)
 	if err != nil {
@@ -696,6 +750,124 @@ func (s *Servers) MapAccount(ctx context.Context, id, accountID int64, in PMSMap
 	if err := tx.Commit(); err != nil {
 		return PMSServer{}, err
 	}
+	return s.Server(ctx, id)
+}
+
+// BackfillPreview returns cheap counts for the full-history confirm drawer:
+// this viewer's own watched and in-progress movie/episode rows in Ether, and
+// when receiving is on, the server's reported history size for this account.
+func (s *Servers) BackfillPreview(ctx context.Context, id, accountID int64) (PMSBackfillPreview, error) {
+	srv, err := s.loadServer(ctx, id)
+	if err != nil {
+		return PMSBackfillPreview{}, err
+	}
+	var userID int64
+	var direction int
+	err = s.db.QueryRowContext(ctx, `SELECT user_id,direction FROM plexwatch_pms_viewer WHERE server_id=? AND account_id=?`, id, accountID).
+		Scan(&userID, &direction)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PMSBackfillPreview{}, core.ErrNotFound
+	}
+	if err != nil {
+		return PMSBackfillPreview{}, err
+	}
+	var out PMSBackfillPreview
+	out.LocalWatched, out.LocalInProgress, err = s.viewerWatchCounts(ctx, userID)
+	if err != nil {
+		return PMSBackfillPreview{}, err
+	}
+	if direction&pmsReceive != 0 && s.syncEnabled() {
+		if token, terr := s.open(srv.token, srv.machineID); terr == nil {
+			if c, cerr := s.clientFor(srv.baseURL); cerr == nil {
+				c.enabled = s.syncEnabled
+				pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				items, total, herr := c.history(pctx, token, accountID, 0, 0, 1)
+				cancel()
+				if herr == nil {
+					out.RemoteKnown = true
+					out.RemoteViews = max(total, len(items))
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// BackfillIn queues a full PMS history walk from the beginning for one mapped
+// account. It runs in the background in pages under the mapping's lease and is
+// a no-op if a full history read is already queued or running.
+func (s *Servers) BackfillIn(ctx context.Context, id, accountID int64) (PMSServer, error) {
+	if _, err := s.loadServer(ctx, id); err != nil {
+		return PMSServer{}, err
+	}
+	var direction, state int
+	err := s.db.QueryRowContext(ctx, `SELECT direction,in_backfill FROM plexwatch_pms_viewer WHERE server_id=? AND account_id=?`, id, accountID).
+		Scan(&direction, &state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PMSServer{}, core.ErrNotFound
+	}
+	if err != nil {
+		return PMSServer{}, err
+	}
+	if direction&pmsReceive == 0 {
+		return PMSServer{}, ErrReceivingOff
+	}
+	nowNS := s.now().UnixNano()
+	if state != pmsBackfillIdle {
+		if _, err := s.db.ExecContext(ctx, `UPDATE plexwatch_pms_viewer SET next_run=CASE WHEN next_run>? THEN ? ELSE next_run END WHERE server_id=? AND account_id=?`,
+			nowNS, nowNS, id, accountID); err != nil {
+			return PMSServer{}, err
+		}
+		s.signal()
+		return s.Server(ctx, id)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE plexwatch_pms_viewer SET in_backfill=?,in_backfill_read=0,in_backfill_total=0,next_run=?
+		WHERE server_id=? AND account_id=? AND (direction&2)<>0 AND in_backfill=0`,
+		pmsBackfillQueued, nowNS, id, accountID); err != nil {
+		return PMSServer{}, err
+	}
+	s.signal()
+	return s.Server(ctx, id)
+}
+
+// BackfillOut queues a full send of this viewer's watched and in-progress
+// movies and episodes to one mapped server account. It runs in the background
+// in pages under the mapping's lease and is a no-op if already queued/running.
+func (s *Servers) BackfillOut(ctx context.Context, id, accountID int64) (PMSServer, error) {
+	if _, err := s.loadServer(ctx, id); err != nil {
+		return PMSServer{}, err
+	}
+	var direction, owner, state int
+	var token string
+	err := s.db.QueryRowContext(ctx, `SELECT direction,owner,token,out_backfill FROM plexwatch_pms_viewer WHERE server_id=? AND account_id=?`, id, accountID).
+		Scan(&direction, &owner, &token, &state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PMSServer{}, core.ErrNotFound
+	}
+	if err != nil {
+		return PMSServer{}, err
+	}
+	if direction&pmsSend == 0 {
+		return PMSServer{}, ErrSendingOff
+	}
+	if owner == 0 && token == "" {
+		return PMSServer{}, ErrPMSNeedsToken
+	}
+	nowNS := s.now().UnixNano()
+	if state != pmsBackfillIdle {
+		if _, err := s.db.ExecContext(ctx, `UPDATE plexwatch_pms_viewer SET next_run=CASE WHEN next_run>? THEN ? ELSE next_run END WHERE server_id=? AND account_id=?`,
+			nowNS, nowNS, id, accountID); err != nil {
+			return PMSServer{}, err
+		}
+		s.signal()
+		return s.Server(ctx, id)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE plexwatch_pms_viewer SET out_backfill=?,out_backfill_key=0,out_backfill_sent=0,out_backfill_total=0,next_run=?
+		WHERE server_id=? AND account_id=? AND (direction&1)<>0 AND out_backfill=0`,
+		pmsBackfillQueued, nowNS, id, accountID); err != nil {
+		return PMSServer{}, err
+	}
+	s.signal()
 	return s.Server(ctx, id)
 }
 

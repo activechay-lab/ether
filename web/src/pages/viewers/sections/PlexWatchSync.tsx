@@ -15,7 +15,12 @@ import { localized, t, tn, tx } from "../../../i18n";
 import { apiFetch, errorMessage } from "../../../lib/api";
 import { formatDateTime } from "../../../lib/format";
 import { useAsync } from "../../../lib/hooks";
-import { listViewerPlexServers, pmsDirectionText, pmsProblemText } from "../../../lib/plex-servers";
+import {
+  listViewerPlexServers,
+  pmsBackfillLines,
+  pmsDirectionText,
+  pmsProblemText,
+} from "../../../lib/plex-servers";
 
 type PlexWatchStatus = {
   connected: boolean;
@@ -347,6 +352,11 @@ function ViewerPlexServers({ viewerId }: { viewerId: number }) {
                     next: m.direction ? date(m.nextSync) : t("Off"),
                   })}
                 </span>
+                {pmsBackfillLines(m, date).map((line) => (
+                  <span key={line} className="block">
+                    {line}
+                  </span>
+                ))}
                 {m.problem ? (
                   <span className="block text-warning">{pmsProblemText(m.problem)}</span>
                 ) : null}

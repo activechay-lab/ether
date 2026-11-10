@@ -2902,11 +2902,33 @@ export function createFakeServer(opts: FakeOptions = {}) {
         },
       ];
       (state as { plexServers?: unknown[] }).plexServers = servers;
-      if (seg[2] === "accounts" && method === "GET")
+      if (seg[2] === "accounts" && !seg[3] && method === "GET")
         return json([
           { id: 1, name: "owner", owner: true, userId: 1 },
           { id: 2, name: "family", owner: false, userId: 0 },
         ]);
+      if (seg[2] === "accounts" && seg[4] === "backfill" && method === "GET")
+        return json({ remoteViews: 128, remoteKnown: true, localWatched: 64, localInProgress: 4 });
+      if (
+        seg[2] === "accounts" &&
+        (seg[4] === "backfill-in" || seg[4] === "backfill-out") &&
+        method === "POST"
+      ) {
+        const srv = servers[0] as { viewers?: Array<Record<string, unknown>> };
+        const acctId = Number(seg[3]);
+        const nowSec = Math.floor(Date.now() / 1000);
+        srv.viewers = (srv.viewers ?? []).map((m) =>
+          m.accountId === acctId
+            ? {
+                ...m,
+                ...(seg[4] === "backfill-in"
+                  ? { inBackfill: { running: false, processed: 128, total: 128, doneAt: nowSec } }
+                  : { outBackfill: { running: false, processed: 68, total: 68, doneAt: nowSec } }),
+              }
+            : m,
+        );
+        return json(srv);
+      }
       if (seg[2] === "unmatched")
         return json([
           { direction: "in", ref: "9001", title: "Home Video", reason: "no_match", seenAt: 0 },

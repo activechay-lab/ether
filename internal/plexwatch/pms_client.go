@@ -297,8 +297,8 @@ func (c *pmsClient) accounts(ctx context.Context, token string) ([]pmsAccount, e
 }
 
 // history reads one page of an account's views after the cursor second,
-// oldest first.
-func (c *pmsClient) history(ctx context.Context, token string, accountID, after int64, start, size int) ([]pmsMetadata, error) {
+// oldest first, and the server's matching row count when reported.
+func (c *pmsClient) history(ctx context.Context, token string, accountID, after int64, start, size int) ([]pmsMetadata, int, error) {
 	q := url.Values{}
 	q.Set("accountID", strconv.FormatInt(accountID, 10))
 	q.Set("sort", "viewedAt:asc")
@@ -307,13 +307,13 @@ func (c *pmsClient) history(ctx context.Context, token string, accountID, after 
 	q.Set("X-Plex-Container-Size", strconv.Itoa(size))
 	var out pmsContainer
 	if err := c.get(ctx, "/status/sessions/history/all", q, token, &out); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	items := out.MediaContainer.Metadata
 	if len(items) > size {
 		items = items[:size]
 	}
-	return items, nil
+	return items, max(int(out.MediaContainer.TotalSize), 0), nil
 }
 
 func (c *pmsClient) metadata(ctx context.Context, token string, key int64) (pmsMetadata, error) {
@@ -378,5 +378,7 @@ func (c *pmsClient) progress(ctx context.Context, token string, key int64, offse
 	q.Set("identifier", pmsIdentifier)
 	q.Set("time", strconv.FormatInt(offset.Milliseconds(), 10))
 	q.Set("state", "stopped")
-	return c.get(ctx, "/:/progress", q, token, nil)
+	return c.get(ctx, pathProgress, q, token, nil)
 }
+
+const pathProgress = "/:/progress"

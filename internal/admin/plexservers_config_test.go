@@ -121,4 +121,34 @@ func TestViewerPlexServersEndpoint(t *testing.T) {
 	if got[1].ServerName != "Bedroom PMS" || got[1].Direction != 0 || got[1].NextSync != 0 || got[1].Problem != "unreachable" {
 		t.Fatalf("mapping[1] = %+v", got[1])
 	}
+
+	// Backfill HTTP routes: direction guards and queueing without leaking tokens.
+	r = req(http.MethodPost, "/ether/api/plex-servers/1/accounts/2/backfill-out", "")
+	r.Header.Set("X-Plex-Token", ownerToken)
+	if res = serve(h, r); res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "sending_off") {
+		t.Fatalf("backfill-out with sending off = %d %s", res.Code, res.Body.String())
+	}
+	r = req(http.MethodPost, "/ether/api/plex-servers/2/accounts/4/backfill-in", "")
+	r.Header.Set("X-Plex-Token", ownerToken)
+	if res = serve(h, r); res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "receiving_off") {
+		t.Fatalf("backfill-in with receiving off = %d %s", res.Code, res.Body.String())
+	}
+	for _, route := range []string{
+		"/ether/api/plex-servers/1/accounts/1/backfill-in",
+		"/ether/api/plex-servers/1/accounts/1/backfill-out",
+	} {
+		r = req(http.MethodPost, route, "")
+		r.Header.Set("X-Plex-Token", ownerToken)
+		res = serve(h, r)
+		if res.Code != http.StatusOK || strings.Contains(res.Body.String(), "secret-") {
+			t.Fatalf("%s = %d %s", route, res.Code, res.Body.String())
+		}
+	}
+	var srv plexwatch.PMSServer
+	if err := json.Unmarshal(res.Body.Bytes(), &srv); err != nil {
+		t.Fatal(err)
+	}
+	if !srv.Viewers[0].InBackfill.Running || !srv.Viewers[0].OutBackfill.Running {
+		t.Fatalf("backfill status = %+v", srv.Viewers[0])
+	}
 }

@@ -673,3 +673,204 @@ func TestPMSGlobalSwitchPausesSchedulerAndManualSync(t *testing.T) {
 		t.Fatal("re-enabling did not resume sync")
 	}
 }
+
+func TestPMSFullHistoryBackfill(t *testing.T) {
+	h := newPMSHarness(t)
+	movieD := core.MovieKey(680)
+	h.guid.forward[movieD] = "plex://movie/d"
+	h.catalog.titles[movieD] = core.Title{Key: movieD, Type: core.TypeMovie, Title: "Pulp Fiction"}
+
+	// Seed pre-existing Ether state days before any server mapping is enabled:
+	// - movieB watched then unwatched locally 5 days ago (newer than PMS's 25d view)
+	// - movieC in progress locally 4 days ago (25m into 120m)
+	// - movieD in progress locally 10 days ago (15m into 120m)
+	start := h.clock.Now()
+	h.clock.Add(-10 * 24 * time.Hour)
+	if err := h.st.Progress(h.ctx, pmsViewer, movieD, 15*time.Minute, 2*time.Hour, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	h.clock.Add(5 * 24 * time.Hour) // start - 5d
+	if err := h.st.Scrobble(h.ctx, pmsViewer, movieB); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.Unscrobble(h.ctx, pmsViewer, movieB); err != nil {
+		t.Fatal(err)
+	}
+	h.clock.Add(24 * time.Hour) // start - 4d
+	if err := h.st.Progress(h.ctx, pmsViewer, movieC, 25*time.Minute, 2*time.Hour, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	h.clock.Add(4 * 24 * time.Hour) // back to start
+
+	a, srvA := h.server("server-a", 100, 0)
+	// 520 old views on movieA + episodeE + unmatched 103 + older movieB view:
+	// spans two passes (5 × 100 = 500 per pass) and tests newer-wins.
+	oldBase := start.Add(-30 * 24 * time.Hour)
+	for i := 0; i < 520; i++ {
+		a.view(1, 101, oldBase.Add(time.Duration(i)*time.Second))
+	}
+	a.view(1, 102, start.Add(-25*24*time.Hour)) // older than Ether's -5d unwatch
+	a.view(1, 111, start.Add(-20*24*time.Hour)) // episode
+	a.view(1, 103, start.Add(-15*24*time.Hour)) // unmatched
+
+	// Map with receiving only at 60m interval: direction guards hold and
+	// incremental sync ignores history older than now-5m.
+	if _, err := h.svc.MapAccount(h.ctx, srvA.ID, 1, PMSMappingInput{UserID: pmsViewer, Direction: pmsReceive, Interval: 60}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.BackfillOut(h.ctx, srvA.ID, 1); !errors.Is(err, ErrSendingOff) {
+		t.Fatalf("BackfillOut with sending off = %v, want ErrSendingOff", err)
+	}
+	h.pass()
+	if h.localWatched(movieA) || h.localWatched(episodeE) {
+		t.Fatal("regular pass imported pre-mapping history")
+	}
+
+	prev, err := h.svc.BackfillPreview(h.ctx, srvA.ID, 1)
+	if err != nil || !prev.RemoteKnown || prev.RemoteViews != 523 || prev.LocalWatched != 0 || prev.LocalInProgress != 2 {
+		t.Fatalf("preview = %+v, %v", prev, err)
+	}
+
+	// Starting BackfillIn does zero network work on the request path and is
+	// idempotent when pressed twice before or during paging.
+	a.mu.Lock()
+	reqBefore := len(a.requests)
+	a.mu.Unlock()
+	got, err := h.svc.BackfillIn(h.ctx, srvA.ID, 1)
+	if err != nil || !got.Viewers[0].InBackfill.Running {
+		t.Fatalf("BackfillIn = %+v, %v", got, err)
+	}
+	a.mu.Lock()
+	reqAfter := len(a.requests)
+	a.mu.Unlock()
+	if reqAfter != reqBefore {
+		t.Fatalf("BackfillIn made %d requests on the request path", reqAfter-reqBefore)
+	}
+	if got2, err := h.svc.BackfillIn(h.ctx, srvA.ID, 1); err != nil || !got2.Viewers[0].InBackfill.Running {
+		t.Fatalf("second BackfillIn = %+v, %v", got2, err)
+	}
+
+	// Pass 1 processes 500 rows (5 pages × 100) and reports progress.
+	h.svc.RunOnce(h.ctx)
+	got, err = h.svc.Server(h.ctx, srvA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bf := got.Viewers[0].InBackfill; !bf.Running || bf.Processed != 500 || bf.Total != 523 || bf.DoneAt != 0 {
+		t.Fatalf("after pass 1 InBackfill = %+v", bf)
+	}
+	// Pressing BackfillIn mid-run must not reset the 500-row progress.
+	if got, err = h.svc.BackfillIn(h.ctx, srvA.ID, 1); err != nil || got.Viewers[0].InBackfill.Processed != 500 {
+		t.Fatalf("mid-run BackfillIn reset progress: %+v, %v", got, err)
+	}
+
+	// Pass 2 runs after pmsCatchUp (1m, not the 60m interval) and finishes.
+	h.clock.Add(pmsCatchUp)
+	h.svc.RunOnce(h.ctx)
+	got, err = h.svc.Server(h.ctx, srvA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bf := got.Viewers[0].InBackfill; bf.Running || bf.Processed != 523 || bf.Total != 523 || bf.DoneAt == 0 {
+		t.Fatalf("after pass 2 InBackfill = %+v", bf)
+	}
+	if !h.localWatched(movieA) || !h.localWatched(episodeE) {
+		t.Fatal("full read did not import older matched history")
+	}
+	if h.localWatched(movieB) {
+		t.Fatal("older PMS view overwrote newer Ether unwatch")
+	}
+	un, err := h.svc.Unmatched(h.ctx, srvA.ID, pmsViewer, "")
+	if err != nil || len(un) != 1 || un[0].Ref != "103" {
+		t.Fatalf("unmatched after full read = %+v, %v", un, err)
+	}
+
+	// Repeating full read after completion does not increment view_count.
+	var countBefore int
+	if err := h.svc.db.QueryRow(`SELECT view_count FROM state_watch WHERE user_id=? AND rating_key=?`, pmsViewer, int64(movieA)).Scan(&countBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.BackfillIn(h.ctx, srvA.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.RunOnce(h.ctx)
+	h.clock.Add(pmsCatchUp)
+	h.svc.RunOnce(h.ctx)
+	var countAfter int
+	if err := h.svc.db.QueryRow(`SELECT view_count FROM state_watch WHERE user_id=? AND rating_key=?`, pmsViewer, int64(movieA)).Scan(&countAfter); err != nil {
+		t.Fatal(err)
+	}
+	if countAfter != countBefore {
+		t.Fatalf("repeating full read bumped view_count from %d to %d", countBefore, countAfter)
+	}
+
+	// Server B: test full send of old watched and in-progress rows, preserving
+	// newer PMS state and not duplicating on repeat.
+	b, srvB := h.server("server-b", 500, 0)
+	b.addItem(pmsMetadata{RatingKey: 504, Type: "movie", Title: "Fight Club", GUID: "plex://movie/c"})
+	b.addItem(pmsMetadata{RatingKey: 505, Type: "movie", Title: "Pulp Fiction", GUID: "plex://movie/d"})
+	// On B, movieA was watched and then unscrobbled 1 hour ago (newer than
+	// Ether's imported -30d watch mark), and movieD was finished 1 hour ago
+	// (newer/higher than Ether's -10d 15m progress).
+	b.view(1, 501, h.clock.Now().Add(-time.Hour))
+	b.mu.Lock()
+	b.stateLocked(1, 501).ViewCount = 0 // unscrobbled on B with LastViewedAt = now-1h
+	b.mu.Unlock()
+	b.view(1, 505, h.clock.Now().Add(-time.Hour))
+
+	if _, err := h.svc.MapAccount(h.ctx, srvB.ID, 1, PMSMappingInput{UserID: pmsViewer, Direction: pmsSend, Interval: 60}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.BackfillIn(h.ctx, srvB.ID, 1); !errors.Is(err, ErrReceivingOff) {
+		t.Fatalf("BackfillIn with receiving off = %v, want ErrReceivingOff", err)
+	}
+	// Regular pass sends nothing from before out_baseline.
+	h.pass()
+	if w := b.takeWrites(); len(w) != 0 {
+		t.Fatalf("regular pass sent pre-baseline rows: %v", w)
+	}
+
+	prevB, err := h.svc.BackfillPreview(h.ctx, srvB.ID, 1)
+	if err != nil || prevB.LocalWatched != 2 || prevB.LocalInProgress != 2 {
+		t.Fatalf("server B preview = %+v, %v", prevB, err)
+	}
+
+	gotB, err := h.svc.BackfillOut(h.ctx, srvB.ID, 1)
+	if err != nil || !gotB.Viewers[0].OutBackfill.Running {
+		t.Fatalf("BackfillOut = %+v, %v", gotB, err)
+	}
+	if w := b.takeWrites(); len(w) != 0 {
+		t.Fatalf("BackfillOut wrote on request path: %v", w)
+	}
+
+	h.svc.RunOnce(h.ctx)
+	gotB, err = h.svc.Server(h.ctx, srvB.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bf := gotB.Viewers[0].OutBackfill; bf.Running || bf.Processed != 4 || bf.Total != 4 || bf.DoneAt == 0 {
+		t.Fatalf("OutBackfill = %+v", bf)
+	}
+	// Expect episodeE (511) scrobbled and movieC (504) progress sent;
+	// movieA (501, newer unwatched on B) and movieD (505, watched on B) untouched.
+	writes := b.takeWrites()
+	sort.Strings(writes)
+	if len(writes) != 2 || writes[0] != "progress 1 504" || writes[1] != "scrobble 1 511" {
+		t.Fatalf("BackfillOut writes = %v, want [progress 1 504 scrobble 1 511]", writes)
+	}
+	if b.watched(1, 501) {
+		t.Fatal("older Ether watch mark overwrote newer PMS unwatch")
+	}
+	if !b.watched(1, 505) {
+		t.Fatal("older Ether progress overwrote watched PMS item")
+	}
+
+	// Repeating full send does not duplicate any writes.
+	if _, err := h.svc.BackfillOut(h.ctx, srvB.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.RunOnce(h.ctx)
+	if w := b.takeWrites(); len(w) != 0 {
+		t.Fatalf("repeated BackfillOut duplicated writes: %v", w)
+	}
+}

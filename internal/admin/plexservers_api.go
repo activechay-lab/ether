@@ -21,6 +21,9 @@ type PlexServers interface {
 	Accounts(ctx context.Context, id int64) ([]plexwatch.PMSAccount, error)
 	MapAccount(ctx context.Context, id, accountID int64, in plexwatch.PMSMappingInput) (plexwatch.PMSServer, error)
 	SyncNow(ctx context.Context, id int64) (plexwatch.PMSServer, error)
+	BackfillPreview(ctx context.Context, id, accountID int64) (plexwatch.PMSBackfillPreview, error)
+	BackfillIn(ctx context.Context, id, accountID int64) (plexwatch.PMSServer, error)
+	BackfillOut(ctx context.Context, id, accountID int64) (plexwatch.PMSServer, error)
 	Unmatched(ctx context.Context, id, userID int64, after string) ([]plexwatch.PMSUnmatched, error)
 }
 
@@ -37,6 +40,9 @@ func (h *Handler) plexServerRoutes(api func(string, http.HandlerFunc)) {
 	api("DELETE /api/plex-servers/{id}", h.handlePlexServerRemove)
 	api("GET /api/plex-servers/{id}/accounts", h.handlePlexServerAccounts)
 	api("PUT /api/plex-servers/{id}/accounts/{account}", h.handlePlexServerMap)
+	api("GET /api/plex-servers/{id}/accounts/{account}/backfill", h.handlePlexServerBackfillPreview)
+	api("POST /api/plex-servers/{id}/accounts/{account}/backfill-in", h.handlePlexServerBackfillIn)
+	api("POST /api/plex-servers/{id}/accounts/{account}/backfill-out", h.handlePlexServerBackfillOut)
 	api("POST /api/plex-servers/{id}/sync", h.handlePlexServerSync)
 	api("GET /api/plex-servers/{id}/unmatched", h.handlePlexServerUnmatched)
 }
@@ -74,6 +80,10 @@ func (h *Handler) plexServerError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "limit", "limit reached")
 	case errors.Is(err, plexwatch.ErrPMSNeedsToken):
 		writeError(w, http.StatusBadRequest, "needs_token", "sending to Plex for this person needs their own token for this server")
+	case errors.Is(err, plexwatch.ErrReceivingOff):
+		writeError(w, http.StatusBadRequest, "receiving_off", "reading from Plex is off for this person")
+	case errors.Is(err, plexwatch.ErrSendingOff):
+		writeError(w, http.StatusBadRequest, "sending_off", "sending to Plex is off for this person")
 	case errors.Is(err, core.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.Is(err, plexwatch.ErrPMSInvalid), errors.Is(err, errBadJSON):
@@ -186,6 +196,51 @@ func (h *Handler) handlePlexServerMap(w http.ResponseWriter, r *http.Request) {
 	srv, err := h.deps.PlexServers.MapAccount(r.Context(), id, account, plexwatch.PMSMappingInput{
 		UserID: body.UserID, Direction: body.Direction, Interval: body.Interval, Token: body.Token,
 	})
+	if err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, srv)
+}
+
+func (h *Handler) handlePlexServerBackfillPreview(w http.ResponseWriter, r *http.Request) {
+	id, ok := pmsPathID(r, "id")
+	account, ok2 := pmsPathID(r, "account")
+	if !ok || !ok2 {
+		h.plexServerError(w, core.ErrNotFound)
+		return
+	}
+	preview, err := h.deps.PlexServers.BackfillPreview(r.Context(), id, account)
+	if err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *Handler) handlePlexServerBackfillIn(w http.ResponseWriter, r *http.Request) {
+	id, ok := pmsPathID(r, "id")
+	account, ok2 := pmsPathID(r, "account")
+	if !ok || !ok2 {
+		h.plexServerError(w, core.ErrNotFound)
+		return
+	}
+	srv, err := h.deps.PlexServers.BackfillIn(r.Context(), id, account)
+	if err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, srv)
+}
+
+func (h *Handler) handlePlexServerBackfillOut(w http.ResponseWriter, r *http.Request) {
+	id, ok := pmsPathID(r, "id")
+	account, ok2 := pmsPathID(r, "account")
+	if !ok || !ok2 {
+		h.plexServerError(w, core.ErrNotFound)
+		return
+	}
+	srv, err := h.deps.PlexServers.BackfillOut(r.Context(), id, account)
 	if err != nil {
 		h.plexServerError(w, err)
 		return

@@ -7,7 +7,7 @@ import {
   Spinner,
   toast,
 } from "@braedonsaunders/appkit-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, MutationError } from "../../components/feedback";
@@ -21,9 +21,14 @@ import { api, apiFetch } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 
 import {
+  getPlexServerBackfillPreview,
   listPlexServers,
+  pmsBackfillLines,
   pmsDirectionText,
   pmsProblemText,
+  startPlexServerBackfill,
+  type PMSBackfillPreview,
+  type PMSMapping,
   type PMSServer,
 } from "../../lib/plex-servers";
 
@@ -51,6 +56,14 @@ type MappingDraft = {
   interval: number;
   token: string;
   hasToken: boolean;
+};
+type BackfillDraft = {
+  kind: "in" | "out";
+  server: PMSServer;
+  account: PMSAccount;
+  mapping: PMSMapping;
+  preview: PMSBackfillPreview | null;
+  loading: boolean;
 };
 
 const INTERVALS = [5, 10, 30, 60];
@@ -85,6 +98,10 @@ function errorText(e: unknown): string {
       return t("That address is a different Plex Media Server. Add it as a new server instead.");
     case "needs_token":
       return t("Sending to Plex for this person needs their own token for this server.");
+    case "receiving_off":
+      return t("Reading from Plex is turned off for this person.");
+    case "sending_off":
+      return t("Sending to Plex is turned off for this person.");
     case "address":
       return t("Enter the server address, like http://192.168.1.10:32400");
     case "limit":
@@ -149,6 +166,7 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
   const viewers = useAsync(() => api.viewers(), []);
   const [server, setServer] = useState<ServerDraft | null>(null);
   const [mapping, setMapping] = useState<MappingDraft | null>(null);
+  const [backfill, setBackfill] = useState<BackfillDraft | null>(null);
   const [accounts, setAccounts] = useState<Record<number, PMSAccount[] | "error">>({});
   const [unmatched, setUnmatched] = useState<{
     server: PMSServer;
@@ -158,9 +176,14 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const previewAbort = useRef<AbortController | null>(null);
 
   const replace = (next: PMSServer) =>
     servers.setData((servers.data ?? []).map((s) => (s.id === next.id ? next : s)));
+  const viewerName = (id: number) => {
+    const v = (viewers.data ?? []).find((x) => x.id === id);
+    return v ? v.title || v.username : t("Unknown viewer");
+  };
   const viewerLink = (id: number) => {
     const v = (viewers.data ?? []).find((x) => x.id === id);
     if (!v) return t("Unknown viewer");
@@ -257,6 +280,54 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
     }
   };
 
+  const closeBackfill = () => {
+    previewAbort.current?.abort();
+    previewAbort.current = null;
+    setBackfill(null);
+  };
+
+  const openBackfill = (kind: "in" | "out", srv: PMSServer, account: PMSAccount, m: PMSMapping) => {
+    previewAbort.current?.abort();
+    const ctrl = new AbortController();
+    previewAbort.current = ctrl;
+    setError(null);
+    setBackfill({ kind, server: srv, account, mapping: m, preview: null, loading: true });
+    void getPlexServerBackfillPreview(srv.id, account.id, ctrl.signal)
+      .then((preview) => {
+        if (ctrl.signal.aborted) return;
+        setBackfill((cur) =>
+          cur && cur.server.id === srv.id && cur.account.id === account.id && cur.kind === kind
+            ? { ...cur, preview, loading: false }
+            : cur,
+        );
+      })
+      .catch(() => {
+        if (ctrl.signal.aborted) return;
+        setBackfill((cur) =>
+          cur && cur.server.id === srv.id && cur.account.id === account.id && cur.kind === kind
+            ? { ...cur, loading: false }
+            : cur,
+        );
+      });
+  };
+
+  const confirmBackfill = async (draft: BackfillDraft) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await startPlexServerBackfill(draft.server.id, draft.account.id, draft.kind);
+      replace(next);
+      closeBackfill();
+      toast.success(
+        draft.kind === "in" ? t("Full history import started") : t("Full history send started"),
+      );
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openUnmatched = async (srv: PMSServer, viewer: number, after = "") => {
     setBusy(true);
     try {
@@ -276,6 +347,8 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
     }
   };
 
+  useEffect(() => () => previewAbort.current?.abort(), []);
+
   // Each server's people are listed live from that server, once per visit.
   const serverIDs = (servers.data ?? []).map((s) => s.id).join(",");
   useEffect(() => {
@@ -284,6 +357,25 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
     }
     // loadAccounts only sets state; re-running on accounts would refetch failures.
   }, [serverIDs]);
+
+  const anyBackfillRunning = (servers.data ?? []).some((s) =>
+    s.viewers.some((v) => v.inBackfill?.running || v.outBackfill?.running),
+  );
+  useEffect(() => {
+    if (!anyBackfillRunning) return;
+    let ctrl: AbortController | null = null;
+    const timer = setInterval(() => {
+      ctrl?.abort();
+      ctrl = new AbortController();
+      void listPlexServers(ctrl.signal)
+        .then((next) => servers.setData(next))
+        .catch(() => {});
+    }, 3000);
+    return () => {
+      clearInterval(timer);
+      ctrl?.abort();
+    };
+  }, [anyBackfillRunning]);
 
   const openMapping = (srv: PMSServer, account: PMSAccount) => {
     const m = srv.viewers.find((v) => v.accountId === account.id);
@@ -315,6 +407,9 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
 
   const list = servers.data;
   const canSend = mapping ? mapping.account.owner || mapping.hasToken || !!mapping.token : false;
+  const backfillAccountName = backfill
+    ? backfill.account.name || t("Plex account {id}", { id: backfill.account.id })
+    : "";
   return (
     <div className="space-y-5">
       <SettingsSection
@@ -392,6 +487,7 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
             ) : (
               accts.map((account) => {
                 const m = srv.viewers.find((v) => v.accountId === account.id);
+                const statusLines = m ? pmsBackfillLines(m, when) : [];
                 return (
                   <SettingsRow
                     key={account.id}
@@ -420,6 +516,11 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                               next: m.direction ? when(m.nextSync) : t("Off"),
                             })}
                           </span>
+                          {statusLines.map((line) => (
+                            <span key={line} className="block">
+                              {line}
+                            </span>
+                          ))}
                           {m.problem ? (
                             <span className="block text-warning">{pmsProblemText(m.problem)}</span>
                           ) : null}
@@ -438,6 +539,26 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                             onClick={() => void openUnmatched(srv, m.userId)}
                           >
                             {tn(m.unmatched, "{count} unmatched title", "{count} unmatched titles")}
+                          </Button>
+                        ) : null}
+                        {m && (m.direction & 2) !== 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy || !enabled}
+                            onClick={() => openBackfill("in", srv, account, m)}
+                          >
+                            {t("Bring in full history from this server")}
+                          </Button>
+                        ) : null}
+                        {m && (m.direction & 1) !== 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy || !enabled || !m.canSend}
+                            onClick={() => openBackfill("out", srv, account, m)}
+                          >
+                            {t("Send Ether's full history to this server")}
                           </Button>
                         ) : null}
                         <Button
@@ -648,6 +769,95 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                 />
               </Field>
             ) : null}
+          </div>
+        ) : null}
+      </Drawer>
+
+      <Drawer
+        open={!!backfill}
+        onClose={() => {
+          if (!busy) closeBackfill();
+        }}
+        title={
+          backfill?.kind === "out"
+            ? t("Send Ether's full history to this server")
+            : t("Bring in full history from this server")
+        }
+        footer={
+          <div className="flex w-full justify-end gap-2">
+            <Button variant="ghost" size="sm" disabled={busy} onClick={closeBackfill}>
+              {t("Cancel")}
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy || !enabled}
+              onClick={() => backfill && void confirmBackfill(backfill)}
+            >
+              {busy
+                ? t("Starting…")
+                : backfill?.kind === "out"
+                  ? t("Start send")
+                  : t("Start import")}
+            </Button>
+          </div>
+        }
+      >
+        {backfill ? (
+          <div className="space-y-4 text-sm">
+            {error ? <MutationError error={new Error(errorText(error))} /> : null}
+            <p>
+              {backfill.kind === "in"
+                ? t(
+                    "Ether will walk {server}'s full watch history for {account} in the background and merge matched movies and episodes into {viewer}'s history. Newer watch state in Ether is never overwritten, and unmatched titles are recorded as usual.",
+                    {
+                      server: backfill.server.name,
+                      account: backfillAccountName,
+                      viewer: viewerName(backfill.mapping.userId),
+                    },
+                  )
+                : t(
+                    "Ether will walk {viewer}'s watched and in-progress movies and episodes in the background and send matched titles to {server} for {account}. Newer watch state on the Plex server is never overwritten.",
+                    {
+                      viewer: viewerName(backfill.mapping.userId),
+                      server: backfill.server.name,
+                      account: backfillAccountName,
+                    },
+                  )}
+            </p>
+            <div className="rounded-md border border-border px-3 py-2.5 text-fg-muted">
+              {backfill.loading ? (
+                <Spinner size={14} label={t("Checking history size")} />
+              ) : backfill.preview ? (
+                backfill.kind === "in" ? (
+                  backfill.preview.remoteKnown ? (
+                    tn(
+                      backfill.preview.remoteViews,
+                      "{count} history entry on this Plex server for this account.",
+                      "{count} history entries on this Plex server for this account.",
+                    )
+                  ) : (
+                    t(
+                      "History count on this Plex server couldn't be read right now. Ether will still import it in pages once the server answers.",
+                    )
+                  )
+                ) : (
+                  t("{watched} and {inProgress} in Ether for this viewer.", {
+                    watched: tn(
+                      backfill.preview.localWatched,
+                      "{count} watched title",
+                      "{count} watched titles",
+                    ),
+                    inProgress: tn(
+                      backfill.preview.localInProgress,
+                      "{count} in-progress title",
+                      "{count} in-progress titles",
+                    ),
+                  })
+                )
+              ) : (
+                t("Runs in pages in the background without blocking playback or requests.")
+              )}
+            </div>
           </div>
         ) : null}
       </Drawer>
