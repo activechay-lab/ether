@@ -2,8 +2,12 @@ package archive
 
 import (
 	"bytes"
+	"compress/flate"
 	"encoding/binary"
 	"fmt"
+	"hash"
+	"hash/crc32"
+	"io"
 	"math"
 	"strings"
 )
@@ -235,6 +239,236 @@ func ListZIP(vols []Volume) ([]Member, error) {
 		members = append(members, m)
 	}
 	return members, nil
+}
+
+// OpenZIPMember sequentially decodes a ZIP member (stored or deflate) matched
+// by match(nonDirIndex, member). It verifies CRC-32 and uncompressed size when
+// the returned reader reaches EOF.
+func OpenZIPMember(vols []Volume, match func(nonDirIndex int, m Member) bool) (io.ReadCloser, Member, error) {
+	if len(vols) == 0 {
+		return nil, Member{}, fmt.Errorf("archive: zip has no volumes: %w", ErrNotArchive)
+	}
+	starts := make([]int64, len(vols)+1)
+	for i, v := range vols {
+		if v.Size < 0 {
+			return nil, Member{}, fmt.Errorf("archive: zip volume %d has negative size: %w", i, ErrCorrupt)
+		}
+		if v.Size > math.MaxInt64-starts[i] {
+			return nil, Member{}, fmt.Errorf("archive: zip volume sizes overflow: %w", ErrCorrupt)
+		}
+		starts[i+1] = starts[i] + v.Size
+	}
+	totalSize := starts[len(vols)]
+	if totalSize < zipEOCDLen {
+		return nil, Member{}, fmt.Errorf("archive: zip too short (%d bytes): %w", totalSize, ErrNotArchive)
+	}
+	mr := NewMultiReader(vols)
+
+	var head [8]byte
+	if err := readAt(mr, head[:4], 0, totalSize); err != nil {
+		return nil, Member{}, err
+	}
+	if Detect(head[:4]) != FormatZIP {
+		return nil, Member{}, fmt.Errorf("archive: zip missing PK signature: %w", ErrNotArchive)
+	}
+
+	tailLen := min(totalSize, int64(zipMaxTailSearch))
+	tailOff := totalSize - tailLen
+	tail := make([]byte, tailLen)
+	if err := readAt(mr, tail, tailOff, totalSize); err != nil {
+		return nil, Member{}, err
+	}
+
+	eocdIdx := findZIPEOCD(tail)
+	if eocdIdx < 0 {
+		return nil, Member{}, fmt.Errorf("archive: zip EOCD not found: %w", ErrCorrupt)
+	}
+	eocd := tail[eocdIdx : eocdIdx+zipEOCDLen]
+	cdDisk := uint32(binary.LittleEndian.Uint16(eocd[6:8]))
+	numRecords := uint64(binary.LittleEndian.Uint16(eocd[10:12]))
+	cdSize := uint64(binary.LittleEndian.Uint32(eocd[12:16]))
+	cdOffset := uint64(binary.LittleEndian.Uint32(eocd[16:20]))
+
+	if eocdIdx >= zip64LocLen && bytes.Equal(tail[eocdIdx-zip64LocLen:eocdIdx-zip64LocLen+4], sigZIP64Locator) {
+		loc := tail[eocdIdx-zip64LocLen : eocdIdx]
+		z64Disk := binary.LittleEndian.Uint32(loc[4:8])
+		z64Off := binary.LittleEndian.Uint64(loc[8:16])
+		var z64GlobalOff int64
+		if int(z64Disk) < len(vols) && z64Off <= uint64(vols[z64Disk].Size) {
+			z64GlobalOff = starts[z64Disk] + int64(z64Off)
+		} else if z64Off <= uint64(totalSize) {
+			z64GlobalOff = int64(z64Off)
+		} else {
+			return nil, Member{}, fmt.Errorf("archive: zip64 EOCD offset out of range: %w", ErrCorrupt)
+		}
+		var z64 [zip64EOCDMinLen]byte
+		if err := readAt(mr, z64[:], z64GlobalOff, totalSize); err != nil {
+			return nil, Member{}, err
+		}
+		if !bytes.Equal(z64[:4], sigZIP64EOCD) {
+			return nil, Member{}, fmt.Errorf("archive: zip64 EOCD signature mismatch: %w", ErrCorrupt)
+		}
+		cdDisk = binary.LittleEndian.Uint32(z64[20:24])
+		numRecords = binary.LittleEndian.Uint64(z64[32:40])
+		cdSize = binary.LittleEndian.Uint64(z64[40:48])
+		cdOffset = binary.LittleEndian.Uint64(z64[48:56])
+	}
+
+	if cdSize > zipMaxCDSize || numRecords > zipMaxMembers {
+		return nil, Member{}, fmt.Errorf("archive: zip central directory exceeds limit: %w", ErrUnsupported)
+	}
+
+	var cdGlobalOff int64
+	if len(vols) > 1 && int(cdDisk) < len(vols) && cdOffset <= uint64(vols[cdDisk].Size) &&
+		starts[cdDisk]+int64(cdOffset)+int64(cdSize) <= totalSize {
+		cdGlobalOff = starts[cdDisk] + int64(cdOffset)
+	} else if cdOffset <= uint64(totalSize) && int64(cdOffset)+int64(cdSize) <= totalSize {
+		cdGlobalOff = int64(cdOffset)
+	} else {
+		return nil, Member{}, fmt.Errorf("archive: zip central directory outside archive: %w", ErrCorrupt)
+	}
+
+	cd := make([]byte, cdSize)
+	if err := readAt(mr, cd, cdGlobalOff, totalSize); err != nil {
+		return nil, Member{}, err
+	}
+
+	pos := 0
+	nonDirIdx := 0
+	for i := uint64(0); i < numRecords; i++ {
+		if len(cd)-pos < zipCDHeaderMinLen || !bytes.Equal(cd[pos:pos+4], sigZIPCD) {
+			return nil, Member{}, fmt.Errorf("archive: zip central directory entry %d corrupt: %w", i, ErrCorrupt)
+		}
+		hdr := cd[pos : pos+zipCDHeaderMinLen]
+		flags := binary.LittleEndian.Uint16(hdr[8:10])
+		method := binary.LittleEndian.Uint16(hdr[10:12])
+		wantCRC := binary.LittleEndian.Uint32(hdr[16:20])
+		compSize := uint64(binary.LittleEndian.Uint32(hdr[20:24]))
+		uncompSize := uint64(binary.LittleEndian.Uint32(hdr[24:28]))
+		nameLen := int(binary.LittleEndian.Uint16(hdr[28:30]))
+		extraLen := int(binary.LittleEndian.Uint16(hdr[30:32]))
+		commentLen := int(binary.LittleEndian.Uint16(hdr[32:34]))
+		diskStart := uint32(binary.LittleEndian.Uint16(hdr[34:36]))
+		extAttrs := binary.LittleEndian.Uint32(hdr[38:42])
+		localOff := uint64(binary.LittleEndian.Uint32(hdr[42:46]))
+
+		recLen := zipCDHeaderMinLen + nameLen + extraLen + commentLen
+		if recLen > len(cd)-pos {
+			return nil, Member{}, fmt.Errorf("archive: zip central directory entry %d truncated: %w", i, ErrCorrupt)
+		}
+		nameBytes := cd[pos+zipCDHeaderMinLen : pos+zipCDHeaderMinLen+nameLen]
+		extra := cd[pos+zipCDHeaderMinLen+nameLen : pos+zipCDHeaderMinLen+nameLen+extraLen]
+		pos += recLen
+
+		if uncompSize == 0xffffffff || compSize == 0xffffffff || localOff == 0xffffffff || diskStart == 0xffff {
+			var err error
+			uncompSize, compSize, localOff, diskStart, err = parseZIP64Extra(extra, uncompSize, compSize, localOff, diskStart)
+			if err != nil {
+				return nil, Member{}, err
+			}
+		}
+		if uncompSize > math.MaxInt64 || compSize > math.MaxInt64 {
+			return nil, Member{}, fmt.Errorf("archive: zip member size overflows int64: %w", ErrCorrupt)
+		}
+
+		name := strings.ReplaceAll(string(nameBytes), `\`, "/")
+		isDir := strings.HasSuffix(name, "/") || (extAttrs&zipAttrDirectory != 0 && uncompSize == 0)
+		encrypted := (flags&0x01) != 0 || method == 99
+		stored := method == 0 && !encrypted && compSize == uncompSize
+
+		m := Member{
+			Name:      name,
+			Size:      int64(uncompSize),
+			Stored:    stored,
+			Encrypted: encrypted,
+			Dir:       isDir,
+			Method:    zipMethodName(method),
+		}
+		if isDir {
+			continue
+		}
+		curIdx := nonDirIdx
+		nonDirIdx++
+		if match == nil || !match(curIdx, m) {
+			continue
+		}
+		if encrypted {
+			return nil, m, fmt.Errorf("archive: zip member %q: %w", name, ErrEncrypted)
+		}
+		if method != 0 && method != 8 {
+			return nil, m, fmt.Errorf("archive: zip member %q method %s: %w", name, m.Method, ErrUnsupported)
+		}
+
+		var localGlobalOff int64
+		if len(vols) > 1 && int(diskStart) < len(vols) && localOff < uint64(vols[diskStart].Size) {
+			localGlobalOff = starts[diskStart] + int64(localOff)
+		} else if localOff < uint64(totalSize) {
+			localGlobalOff = int64(localOff)
+		} else {
+			return nil, m, fmt.Errorf("archive: zip member %q local header offset %d out of range: %w", name, localOff, ErrCorrupt)
+		}
+
+		var lfh [zipLocalHdrMinLen]byte
+		if err := readAt(mr, lfh[:], localGlobalOff, totalSize); err != nil {
+			return nil, m, err
+		}
+		if !bytes.Equal(lfh[:4], sigZIPLocal) {
+			return nil, m, fmt.Errorf("archive: zip member %q missing local header signature: %w", name, ErrCorrupt)
+		}
+		lfhNameLen := int64(binary.LittleEndian.Uint16(lfh[26:28]))
+		lfhExtraLen := int64(binary.LittleEndian.Uint16(lfh[28:30]))
+		dataOff := localGlobalOff + zipLocalHdrMinLen + lfhNameLen + lfhExtraLen
+		dataSize := int64(compSize)
+		if dataOff < 0 || dataSize < 0 || dataOff > totalSize || dataSize > totalSize-dataOff {
+			return nil, m, fmt.Errorf("archive: zip member %q data [%d,+%d) exceeds archive size %d: %w", name, dataOff, dataSize, totalSize, ErrCorrupt)
+		}
+
+		sec := io.NewSectionReader(mr, dataOff, dataSize)
+		var raw io.ReadCloser
+		if method == 0 {
+			raw = io.NopCloser(sec)
+		} else {
+			raw = flate.NewReader(sec)
+		}
+		return &zipVerifyReader{
+			rc:       raw,
+			crc:      crc32.NewIEEE(),
+			wantCRC:  wantCRC,
+			wantSize: int64(uncompSize),
+			name:     name,
+		}, m, nil
+	}
+	return nil, Member{}, fmt.Errorf("archive: zip member not found: %w", ErrCorrupt)
+}
+
+type zipVerifyReader struct {
+	rc       io.ReadCloser
+	crc      hash.Hash32
+	read     int64
+	wantCRC  uint32
+	wantSize int64
+	name     string
+}
+
+func (z *zipVerifyReader) Read(p []byte) (int, error) {
+	n, err := z.rc.Read(p)
+	if n > 0 {
+		z.read += int64(n)
+		_, _ = z.crc.Write(p[:n])
+	}
+	if err == io.EOF {
+		if z.read != z.wantSize {
+			return n, fmt.Errorf("archive: zip member %q unpacked %d bytes, want %d: %w", z.name, z.read, z.wantSize, ErrCorrupt)
+		}
+		if got := z.crc.Sum32(); got != z.wantCRC {
+			return n, fmt.Errorf("archive: zip member %q crc32 %#08x, want %#08x: %w", z.name, got, z.wantCRC, ErrCorrupt)
+		}
+	}
+	return n, err
+}
+
+func (z *zipVerifyReader) Close() error {
+	return z.rc.Close()
 }
 
 func findZIPEOCD(tail []byte) int {
