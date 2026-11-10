@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // Issue #396, maintenance variant: the provider pins the failed node into
@@ -645,6 +648,161 @@ func TestRerouteRedirectedReplayReadKeepsTheTokenHome(t *testing.T) {
 	}
 }
 
+// A 3xx from an ordinary, provider-signed link is not a replayed read: a
+// Location-less 302 comes back unanswered even to a client that follows
+// redirects, and it must keep the treatment it always had — retry the same
+// link, and if the answer never changes, fail as a source outage. Burning
+// the link budget on those answers turns transient CDN oddities into
+// ErrArticleMissing after four generations of refreshes.
+func TestOrdinaryRedirectedReadKeepsItsLinkAndClass(t *testing.T) {
+	h := newHarness(t, 4<<20, "torbox")
+	live := newMediaServer(t, 4<<20)
+	tor := h.provs["torbox-0"]
+	tor.mu.Lock()
+	tor.cached[testHash] = true
+	tor.mu.Unlock()
+	cfg := h.svc.Config()
+	cfg.ReadAheadChunks = -1
+	h.svc.UpdateConfig(cfg)
+	raw, err := h.svc.Acquire(context.Background(), torrentRelease("ordinary-redirect"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := DecodePayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := "ordinary-302"
+	pl.URL = live.issue(tok) // the provider's link stands on this edge for the whole test
+	raw = pl.Encode()
+
+	var links atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		links.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": pl.URL})
+	}))
+	defer api.Close()
+	h.svc.entryByID("torbox-0").p = fixtureTorBox(api.URL)
+
+	e := NewEngine(h.svc, EngineOptions{BlockSize: testBlock, HedgeDelay: -1, Logger: h.svc.log})
+	defer e.Close()
+	source, err := e.Open(context.Background(), "ordinary-redirect", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	buf := make([]byte, 4096)
+	if _, err := source.(readAtContexter).ReadAtContext(context.Background(), buf, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// The edge now answers every request for this link with a Location-less
+	// 302 — Go hands it back unanswered even to the ordinary client. Read
+	// past the blocks the first read cached, so the wire is really asked.
+	live.mu.Lock()
+	live.status[tok] = http.StatusFound
+	live.mu.Unlock()
+	const off = int64(3 << 20)
+	if _, err := source.(readAtContexter).ReadAtContext(context.Background(), buf, off); !errors.Is(err, core.ErrSourceUnavailable) {
+		t.Errorf("persistent Location-less 302: err=%v, want ErrSourceUnavailable as before the 3xx branch (not a burned ArticleMissing)", err)
+	}
+	if got := links.Load(); got != 0 {
+		t.Errorf("requestdl calls=%d, want 0: an unmarked link's redirect must not burn refreshes", got)
+	}
+	if p, _ := source.(*httpSource).f.payload(); p.URL != pl.URL || p.OnReplayEdge {
+		t.Errorf("the file ended on %s (replay=%v), want the unrefreshed signed link %s", p.URL, p.OnReplayEdge, pl.URL)
+	}
+}
+
+// A generation change during a FAILED probe: the wave must re-check the
+// link before spending the old snapshot's remaining candidates. When the
+// switch moved the file onto a route that is already usable, the mover's
+// win is reported — the way a won SUCCESSFUL probe reports it — instead of
+// the wave probing on and falsely claiming no route (and its cooldown).
+func TestResumeOnAnotherEdgeSwitchDuringFailedProbe(t *testing.T) {
+	h := newHarness(t, 4<<20, "torbox", "torbox")
+	edgeB := newMediaServer(t, 4<<20) // the freshest A edge: holds the probe, then proves it stale with a 204
+	edgeA := newMediaServer(t, 4<<20) // an honest A candidate: must not be asked after the switch
+	tor := h.provs["torbox-0"]
+	tor.mu.Lock()
+	tor.cached[testHash] = true
+	tor.mu.Unlock()
+	cfg := h.svc.Config()
+	cfg.ReadAheadChunks = -1
+	h.svc.UpdateConfig(cfg)
+	raw, err := h.svc.Acquire(context.Background(), torrentRelease("switch-failed-probe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := DecodePayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok1 := pl.URL[strings.LastIndex(pl.URL, "/")+1:]
+	e := NewEngine(h.svc, EngineOptions{BlockSize: testBlock, HedgeDelay: -1, Logger: h.svc.log})
+	defer e.Close()
+
+	e.recent.record("torbox-0", urlHost(edgeA.URL), e.now())
+	e.recent.record("torbox-0", urlHost(edgeB.URL), e.now().Add(time.Minute)) // freshest
+	h.svc.entryByID("torbox-0").p = fixtureTorBox("http://api.invalid")
+	h.svc.entryByID("torbox-1").p = fixtureTorBox("http://api.invalid")
+	source, err := e.Open(context.Background(), "switch-failed-probe", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	f := source.(*httpSource).f
+
+	edgeB.issue(tok1)
+	edgeB.status[tok1] = http.StatusNoContent // every probe of A's token here fails; only the held first one is gated
+	const off = int64(1 << 20)
+	probeRange := fmt.Sprintf("bytes=%d-%d", off, off+probeSample-1)
+	hold := make(chan struct{})
+	defer func() {
+		select {
+		case <-hold:
+		default:
+			close(hold)
+		}
+	}()
+	edgeB.gate[tok1+"|"+probeRange] = hold
+	edgeA.issue("honest") // a probe reaching edgeA would even 403 (unknown token): the point is that none arrives
+	failed := pl.URL
+	failedAddr := dialAddr(failed)
+	q := pl
+	q.Provider = "torbox-1" // a second opted-in TorBox account
+	q.URL = edgeB.issue("fresh-b")
+	q.Expires = q.Expires.Add(time.Hour)
+	usable := func(u string) bool {
+		return u != "" && dialAddr(u) != failedAddr && !e.backoff.down(urlHost(u))
+	}
+	seenB := edgeB.requests.Load()
+	res := make(chan [2]bool, 1)
+	go func() {
+		moved, replayed := f.resumeOnAnotherEdge(context.Background(), failed, usable, off)
+		res <- [2]bool{moved, replayed}
+	}()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if edgeB.requests.Load() > seenB {
+			break // the probe is held in flight
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the probe never reached the freshest edge")
+		}
+	}
+	f.adopt(q)
+	close(hold) // the probe may fail now: the link it will report on has moved
+	if got := <-res; got != [2]bool{true, false} {
+		t.Fatalf("moved/replayed=%v, want true/false: the switch moved the file to a usable route; a failed stale probe must not probe on and deny it", got)
+	}
+	if p, _ := f.payload(); p.URL != q.URL {
+		t.Fatalf("the helper overwrote the switch: %s, want %s", p.URL, q.URL)
+	}
+	if got := edgeA.requests.Load(); got != 0 {
+		t.Fatalf("edgeA took %d request(s), want 0: the wave probed the old ledger after the account switch", got)
+	}
+}
+
 func deref(p *string) string {
 	if p == nil {
 		return ""
@@ -728,5 +886,148 @@ func TestRecentEdgesAttributeToTheRequestSnapshot(t *testing.T) {
 				t.Fatalf("%s's ledger learned %s, a host whose blocks belong to the other account: URL and provider came from different snapshots", provider, host)
 			}
 		}
+	}
+}
+
+// An ordinary, unmarked read can see a 3xx too: Go hands a 304 (or a 300,
+// or a hop without its Location) back to callers even on a client that
+// follows redirects. That answer must stay on the ordinary lane — retry
+// the same URL, classify the failure as transient — instead of spending
+// the dead-link budget on CDN oddities and escalating into a missing
+// article.
+func TestRangeGetUnmarkedRedirectAnswerKeepsTransientClass(t *testing.T) {
+	h := newHarness(t, 4<<20, "torbox")
+	tor := h.provs["torbox-0"]
+	tor.mu.Lock()
+	tor.cached[testHash] = true
+	tor.mu.Unlock()
+	cfg := h.svc.Config()
+	cfg.ReadAheadChunks = -1
+	h.svc.UpdateConfig(cfg)
+
+	// A stubborn edge: it never answers with bytes, always a 304.
+	stubborn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer stubborn.Close()
+	// And every fresh link the provider mints lands on the same one.
+	var links atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		links.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": stubborn.URL + "/m/token"})
+	}))
+	defer api.Close()
+
+	raw, err := h.svc.Acquire(context.Background(), torrentRelease("ordinary-3xx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := DecodePayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.svc.entryByID("torbox-0").p = fixtureTorBox(api.URL)
+	asked := pl
+	asked.URL = stubborn.URL + "/m/token"
+	e := NewEngine(h.svc, EngineOptions{BlockSize: testBlock, HedgeDelay: -1, Logger: h.svc.log})
+	defer e.Close()
+	source, err := e.Open(context.Background(), "ordinary-3xx", asked.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	_, err = source.(readAtContexter).ReadAtContext(context.Background(), make([]byte, 4096), 0)
+	if !errors.Is(err, core.ErrSourceUnavailable) {
+		t.Fatalf("ordinary 3xx answer error = %v, want %v: a CDN oddity must not escalate into a missing article", err, core.ErrSourceUnavailable)
+	}
+	if got := links.Load(); got != 0 {
+		t.Fatalf("the ordinary 3xx answer minted %d fresh link(s), want 0: retries stay on the snapshot that has not been marked a replay", got)
+	}
+}
+
+// The wave must notice an account switch even when the in-flight probe
+// never answers with bytes: a failed probe that continues on the stale
+// snapshot mints the next candidate from the old token and probes it on
+// the old account's ledger, exactly what a successful stale probe forbids.
+func TestResumeOnAnotherEdgeFailedProbeYieldsToAccountSwitch(t *testing.T) {
+	h := newHarness(t, 4<<20, "torbox", "realdebrid")
+	edgeA := newMediaServer(t, 4<<20) // second candidate: must not be asked
+	edgeB := newMediaServer(t, 4<<20) // freshest: carries the pinned token, stalls the probe
+	tor := h.provs["torbox-0"]
+	tor.mu.Lock()
+	tor.cached[testHash] = true
+	tor.mu.Unlock()
+	cfg := h.svc.Config()
+	cfg.ReadAheadChunks = -1
+	h.svc.UpdateConfig(cfg)
+	raw, err := h.svc.Acquire(context.Background(), torrentRelease("failed-probe-switch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := DecodePayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok1 := pl.URL[strings.LastIndex(pl.URL, "/")+1:]
+	e := NewEngine(h.svc, EngineOptions{BlockSize: testBlock, HedgeDelay: -1, Logger: h.svc.log})
+	defer e.Close()
+
+	e.recent.record("torbox-0", urlHost(edgeA.URL), e.now())
+	e.recent.record("torbox-0", urlHost(edgeB.URL), e.now().Add(time.Minute))
+
+	h.svc.entryByID("torbox-0").p = fixtureTorBox("http://api.invalid")
+	source, err := e.Open(context.Background(), "failed-probe-switch", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	f := source.(*httpSource).f
+
+	// edgeB never issues tok1: when the gate lifts, the probe wakes to a
+	// refused token and answers false. edgeA issues nothing either — a
+	// probe that reached it would fail too; the point is that it must not
+	// arrive: minted from a snapshot the file already left, it would
+	// probe with the account the switch replaced.
+	const off = int64(1 << 20)
+	probeRange := fmt.Sprintf("bytes=%d-%d", off, off+probeSample-1)
+	hold := make(chan struct{})
+	defer func() {
+		select {
+		case <-hold:
+		default:
+			close(hold)
+		}
+	}()
+	edgeB.gate[tok1+"|"+probeRange] = hold // hold the first probe until the account has switched
+	failed := pl.URL
+	failedAddr := dialAddr(failed)
+	usable := func(u string) bool {
+		return u != "" && dialAddr(u) != failedAddr && !e.backoff.down(urlHost(u))
+	}
+	seenB := edgeB.requests.Load()
+	res := make(chan [2]bool, 1)
+	go func() {
+		moved, replayed := f.resumeOnAnotherEdge(context.Background(), failed, usable, off)
+		res <- [2]bool{moved, replayed}
+	}()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if edgeB.requests.Load() > seenB {
+			break // the probe is held in flight
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the probe never reached the freshest edge")
+		}
+	}
+	q := pl
+	q.Provider = "realdebrid-1" // an account that never opted in
+	q.URL = h.media.URL + "/m/rd-token"
+	q.Expires = q.Expires.Add(time.Hour)
+	f.adopt(q)
+	close(hold) // the probe may answer now: it wakes to a refused token
+	if got := <-res; got != [2]bool{false, false} {
+		t.Fatalf("moved/replayed=%v, want false/false: the new account is not opted in", got)
+	}
+	if got := edgeA.requests.Load(); got != 0 {
+		t.Fatalf("the second edge took %d request(s), none expected: a failed probe continued the wave on the stale snapshot", got)
 	}
 }

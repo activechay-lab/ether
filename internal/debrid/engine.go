@@ -1355,9 +1355,12 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 		}
 		rerouted = false
 		rctx := ctx
+		// One flag for both lanes: the mark that mints the request with a
+		// redirect-refusing client also decides who answers its 3xx below.
+		replayRead := !payload.IsDirect() && !payload.IsPluginProvider() && payload.OnReplayEdge
 		if payload.IsDirect() || payload.IsPluginProvider() {
 			rctx = withDirect(ctx, payload)
-		} else if payload.OnReplayEdge {
+		} else if replayRead {
 			rctx = withReplay(ctx)
 		}
 		if isAnalysisRead(ctx) {
@@ -1489,16 +1492,19 @@ func (f *remoteFile) rangeGet(ctx context.Context, start, end int64, urgent bool
 				return nil, tm, servedBy{}, pauseErr
 			}
 			drain(resp)
-		case resp.StatusCode/100 == 3:
-			// A link that answers with a redirect instead of our bytes
-			// does not stand where it is. Only a replayed read lands
-			// here — its client refuses hops so the hop cannot receive
-			// the signed URL as Go's Referer header, token included, and
-			// an ordinary link's client already followed its redirects
-			// (a loop errors out as transport). Count it with the dead
-			// links and take a fresh one (which clears the marker): the
-			// just-succeeded wave's spacing bars a reroute, but not the
-			// need for another link.
+		case resp.StatusCode/100 == 3 && replayRead:
+			// A replayed read's client refuses hops: a link that answers
+			// with a redirect instead of our bytes does not stand where
+			// it is, and the hop it refused would have received the
+			// signed URL as Go's Referer header, token included. Count
+			// it with the dead links and take a fresh one (which clears
+			// the marker): the just-succeeded wave's spacing bars a
+			// reroute, but not the need for another link. An unmarked
+			// read's 3xx — a 304, a 300, or a hop without its Location,
+			// which Go hands back even to a client that follows — stays
+			// on the ordinary lane below: retrying there keeps the
+			// transient class instead of escalating a CDN oddity into
+			// a missing article.
 			drain(resp)
 			f.mu.Lock()
 			if gen != f.failedGen {

@@ -255,9 +255,7 @@ func (f *remoteFile) resumeOnAnotherEdge(ctx context.Context, failed string, usa
 				continue // never hand the token to a host outside this provider's CDN
 			}
 			u := withHost(p.URL, host)
-			if u == "" || u == p.URL || !f.e.probeLink(ctx, u, off, f.size) {
-				continue
-			}
+			probed := u != "" && u != p.URL && f.e.probeLink(ctx, u, off, f.size)
 			f.mu.Lock()
 			if f.gen != gen { // a refresh or adopt moved the link while the probe ran
 				p, gen = f.pl, f.gen
@@ -268,9 +266,15 @@ func (f *remoteFile) resumeOnAnotherEdge(ctx context.Context, failed string, usa
 				// The next request must be vetted and minted by the NEW
 				// snapshot's provider: an old account's edge may not
 				// accept the new account's token, and only the new
-				// account's ledger may be probed with it at all.
+				// account's ledger may be probed with it at all. A probe
+				// that never answered bytes must notice the move too:
+				// the next candidate would be minted from the old token.
 				changed = true
 				break // rebuild approver and candidate list, then re-run the wave
+			}
+			if !probed {
+				f.mu.Unlock()
+				continue // same snapshot, unresponsive candidate: try the next
 			}
 			f.pl.URL = u
 			f.pl.OnReplayEdge = true // the read that follows must not hop off this edge
