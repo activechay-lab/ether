@@ -155,6 +155,8 @@ export function settingsIndex(): SettingHit[] {
       ["plex-watchlists", t("Plex watchlists")],
       ["trakt-watchlists", t("Trakt watchlists")],
       ["tell-me-too", t("Tell me too")],
+      ["plex-friends-watchlist-rss", t("Friends' Watchlist RSS")],
+      ["plex-your-watchlist-rss", t("Your Watchlist RSS")],
       ["check-every", t("Check every")],
     ]),
     ...rows("/catalog/settings", `${catalog} › ${t("New releases")}`, [

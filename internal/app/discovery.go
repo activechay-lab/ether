@@ -32,7 +32,7 @@ func (a *App) buildDiscovery() {
 	if a.cache != nil {
 		sourceCache = a.cache
 	}
-	a.watchlist = watchlist.New(a.db, watchlist.Options{Logger: a.log.With("component", "watchlist"), Catalog: a.catalog, Resolver: sourceResolver, Engine: sourceEngine, Cache: sourceCache, Trakt: a.trakt, Users: a.users.Users, Allowed: a.safety.Allowed, Notifier: a.notifications, Tokens: a.discoveryToken, ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier), PrewarmBytes: a.cfg.Get().Cache.PrefetchBytes, ResumeSchedule: a.clustered(), OnAvailable: func(ctx context.Context, userID int64, key core.RatingKey) {
+	a.watchlist = watchlist.New(a.db, watchlist.Options{Logger: a.log.With("component", "watchlist"), Sealer: a.cfg, Catalog: a.catalog, Resolver: sourceResolver, Engine: sourceEngine, Cache: sourceCache, Trakt: a.trakt, Users: a.users.Users, Allowed: a.safety.Allowed, Notifier: a.notifications, Tokens: a.discoveryToken, ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier), PrewarmBytes: a.cfg.Get().Cache.PrefetchBytes, ResumeSchedule: a.clustered(), OnAvailable: func(ctx context.Context, userID int64, key core.RatingKey) {
 		if a.sessionEvents == nil {
 			return
 		}

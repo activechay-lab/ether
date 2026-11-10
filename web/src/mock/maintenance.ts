@@ -36,7 +36,7 @@ export function createMaintenance() {
     lastAttempt: Math.floor((now - 4 * day) / 1000),
     lastStatus: "sent",
   };
-  let discovery = {
+  let discovery: Record<string, unknown> = {
     enabled: true,
     plex: true,
     trakt: false,
@@ -49,6 +49,29 @@ export function createMaintenance() {
     speechToText: false,
     overviewTranslate: false,
   };
+  function applyDiscoverySave(incoming: Record<string, unknown>) {
+    const next: Record<string, unknown> = { ...discovery, ...incoming };
+    for (const [urlKey, statusKey] of [
+      ["plexFriendsRssUrl", "plexFriendsRssStatus"],
+      ["plexOwnerRssUrl", "plexOwnerRssStatus"],
+    ] as const) {
+      const raw = typeof next[urlKey] === "string" ? next[urlKey].trim() : "";
+      if (!raw) {
+        delete next[urlKey];
+        delete next[statusKey];
+      } else {
+        next[urlKey] = "••••";
+        next[statusKey] ??= {
+          configured: true,
+          lastRead: 0,
+          imported: 0,
+          skippedFriends: 0,
+          unmatchedTitles: 0,
+        };
+      }
+    }
+    discovery = next;
+  }
   const diagnostics = {
     compatibilityVersion: "1.43.4",
     latestPublicVersion: "1.43.4",
@@ -105,8 +128,16 @@ export function createMaintenance() {
       case "GET /discovery/settings":
         return { status: 200, body: discovery };
       case "PUT /discovery/settings":
-        discovery = { ...discovery, ...(body as object) };
+        applyDiscoverySave((body ?? {}) as Record<string, unknown>);
         return { status: 200, body: discovery };
+      case "POST /discovery/rss/sync": {
+        const ts = Math.floor(Date.now() / 1000);
+        for (const statusKey of ["plexFriendsRssStatus", "plexOwnerRssStatus"] as const) {
+          const cur = discovery[statusKey] as Record<string, unknown> | undefined;
+          if (cur?.configured) discovery[statusKey] = { ...cur, lastRead: ts };
+        }
+        return { status: 200, body: discovery };
+      }
       case "POST /discovery/translate":
         return {
           status: 200,

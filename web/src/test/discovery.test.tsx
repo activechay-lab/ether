@@ -6,8 +6,10 @@ import { renderAppWith } from "./routes";
 const WAIT = { timeout: 4000 };
 
 /** `/discovery/settings` and one viewer's watchlist, layered over the fake backend. */
-function discoveryRoutes(opts: { enabled?: boolean; items?: unknown[] } = {}) {
-  let settings = {
+function discoveryRoutes(
+  opts: { enabled?: boolean; items?: unknown[]; extra?: Record<string, unknown> } = {},
+) {
+  let settings: Record<string, unknown> = {
     enabled: opts.enabled ?? false,
     plex: true,
     trakt: true,
@@ -19,11 +21,55 @@ function discoveryRoutes(opts: { enabled?: boolean; items?: unknown[] } = {}) {
     subtitleTranslate: false,
     speechToText: false,
     overviewTranslate: false,
+    ...opts.extra,
   };
   let items = opts.items ?? [];
   return (method: string, path: string, body: unknown) => {
     if (path === "/discovery/settings") {
-      if (method === "PUT") settings = body as typeof settings;
+      if (method === "PUT") {
+        const next: Record<string, unknown> = { ...settings, ...(body as Record<string, unknown>) };
+        if (typeof next.plexFriendsRssUrl === "string" && next.plexFriendsRssUrl.trim() !== "") {
+          next.plexFriendsRssUrl = "••••";
+          next.plexFriendsRssStatus = {
+            configured: true,
+            lastRead: 1_760_000_000,
+            imported: 3,
+            skippedFriends: 2,
+            unmatchedTitles: 1,
+          };
+        } else {
+          delete next.plexFriendsRssUrl;
+          delete next.plexFriendsRssStatus;
+        }
+        if (typeof next.plexOwnerRssUrl === "string" && next.plexOwnerRssUrl.trim() !== "") {
+          next.plexOwnerRssUrl = "••••";
+          next.plexOwnerRssStatus = {
+            configured: true,
+            lastRead: 1_760_000_000,
+            imported: 1,
+            skippedFriends: 0,
+            unmatchedTitles: 0,
+          };
+        } else {
+          delete next.plexOwnerRssUrl;
+          delete next.plexOwnerRssStatus;
+        }
+        settings = next;
+      }
+      return settings;
+    }
+    if (method === "POST" && path === "/discovery/rss/sync") {
+      settings = {
+        ...settings,
+        plexFriendsRssStatus: {
+          configured: true,
+          lastRead: 1_760_000_600,
+          imported: 4,
+          skippedFriends: 0,
+          unmatchedTitles: 0,
+          problem: "rate_limited",
+        },
+      };
       return settings;
     }
     const m = /^\/discovery\/users\/\d+\/(.*)$/.exec(path);
@@ -109,6 +155,39 @@ describe("Watchlists (Catalog settings)", () => {
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
     );
+  });
+
+  it("saves Plex Friends' Watchlist RSS URLs, redacts them on reload, and shows import status", async () => {
+    const { fake } = renderAppWith("/catalog/settings", discoveryRoutes({ enabled: true }));
+    const friendsRss = await screen.findByLabelText("Friends' Watchlist RSS", {}, WAIT);
+    fireEvent.change(friendsRss, {
+      target: { value: "https://rss.plex.tv/11111111-2222-3333-4444-555555555555" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(puts(fake, "/discovery/settings")).toContainEqual(
+        expect.objectContaining({
+          enabled: true,
+          plexFriendsRssUrl: "https://rss.plex.tv/11111111-2222-3333-4444-555555555555",
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
+    );
+    expect(screen.getByLabelText("Friends' Watchlist RSS")).toHaveValue("••••");
+    expect(
+      screen.getByText("Saved. Leave as is to keep it, or type a new value to replace it."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/3 items imported/)).toBeInTheDocument();
+    expect(screen.getByText(/Skipped: 2 unknown friends, 1 unmatched title/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Read RSS feeds now/ }));
+    await waitFor(() => expect(calls(fake, "POST", "/discovery/rss/sync")).toHaveLength(1));
+    expect(await screen.findByText(/4 items imported/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Plex asked Ether to slow down. Ether will try again."),
+    ).toBeInTheDocument();
   });
 });
 

@@ -35,7 +35,23 @@ func (s *Service) Router() http.Handler {
 			http.Error(w, e.Error(), 400)
 			return
 		}
-		reply(w, v)
+		out, e := s.Settings(r.Context())
+		if e != nil {
+			http.Error(w, "Settings unavailable", 500)
+			return
+		}
+		reply(w, out)
+	})
+	r.Post("/rss/sync", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+		defer cancel()
+		_ = s.SyncRSS(ctx)
+		out, e := s.Settings(r.Context())
+		if e != nil {
+			http.Error(w, "Settings unavailable", 500)
+			return
+		}
+		reply(w, out)
 	})
 	r.Route("/users/{id}", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
@@ -130,6 +146,7 @@ func (s *Service) Router() http.Handler {
 		r.Post("/sync", func(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 			defer cancel()
+			_ = s.SyncRSS(ctx)
 			if e := s.Sync(ctx, viewer(r)); e != nil {
 				http.Error(w, e.Error(), 502)
 				return
