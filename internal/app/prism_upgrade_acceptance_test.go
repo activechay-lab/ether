@@ -26,6 +26,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/handles/capability"
 	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/plextv"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -421,7 +422,7 @@ func assertUpgradeBoundary(t *testing.T) {
 
 func assertPlexProtocol(t *testing.T, db *sql.DB, cfg *config.Store, users *auth.Service, validator *upgradeValidator) {
 	t.Helper()
-	srv := plex.NewServer(plex.Deps{
+	srv := plex.NewServer(plex.Deps{SessionStores: sessions.NewPlexSessionStores(),
 		Auth:              users,
 		Config:            cfg.Get,
 		DB:                db,

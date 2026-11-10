@@ -3,6 +3,13 @@ package clusterplayback
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/nodewire"
@@ -10,12 +17,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strings"
-	"sync/atomic"
 
 	"testing"
 	"time"
@@ -152,7 +153,7 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	cfg.Plex.Claimed = true
 	cfg.Server.MachineIdentifier = "offline-machine"
 	cfg.Server.TrustedProxyCIDRs = []string{"10.1.0.0/16"}
-	deps := plex.Deps{Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
+	deps := plex.Deps{SessionStores: sessions.NewPlexSessionStores(), Catalog: fixtureCatalog{}, State: composedState{}, Auth: auth, AccessPolicy: policy, Playback: remote, Transcoder: decision, PlexEncoder: broker, DisableEnrichment: true, Config: func() config.Config { return cfg }}
 	publicOwner := plex.NewServer(deps)
 	defer publicOwner.Close()
 	publicOwner.UsePlaybackBroker(broker)
