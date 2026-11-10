@@ -232,9 +232,28 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 	}
 }
 
+// emptyAliasSize is the byte size of an in-GOP placeholder segment for HLS
+// containers whose players join fragments into a single stream, or 0 when
+// aliases duplicate the covering segment directly (MPEG-TS, DASH).
+func (s *Session) emptyAliasSize() int64 {
+	if s.isDASH() {
+		return 0
+	}
+	switch s.container {
+	case ContainerMatroska:
+		return emptyClusterSize
+	case ContainerFMP4:
+		return emptyFMP4Size
+	default:
+		return 0
+	}
+}
+
 // coveringSegLocked is the latest segment at or before n that holds a
-// real Matroska GOP, or -1 if none is still on disk.
+// real GOP (larger than an empty alias placeholder), or -1 if none is still
+// on disk.
 func (s *Session) coveringSegLocked(t, n int) int {
+	maxAlias := s.emptyAliasSize()
 	if t < 0 || t >= len(s.done) {
 		return -1
 	}
@@ -243,15 +262,15 @@ func (s *Session) coveringSegLocked(t, n int) int {
 		if err != nil {
 			return -1
 		}
-		if st.Size() > emptyClusterSize {
+		if st.Size() > maxAlias {
 			return k
 		}
 	}
 	return -1
 }
 
-// decodableMKVLocked is the file to serve for Matroska segment n of track
-// t to a fresh decoder: n itself, or for an empty Cluster (a segment
+// decodableMKVLocked is the file to serve for segment n of track t to a
+// fresh decoder: n itself, or for an empty alias placeholder (a segment
 // inside a GOP longer than a segment, chunks.go) the earlier segment
 // holding that GOP; false when it is no longer on disk.
 func (s *Session) decodableMKVLocked(t, n int) (string, bool) {
@@ -499,7 +518,7 @@ func (s *Session) serveInit(w http.ResponseWriter, r *http.Request, t int) {
 			// delete) this one as soon as the lock is released, and the
 			// open handle keeps serving the bytes the lookup chose.
 			f, err := os.Open(filepath.Join(s.dir, name))
-			if err == nil && s.container == ContainerMatroska && r.Method != http.MethodHead {
+			if err == nil && s.emptyAliasSize() > 0 && r.Method != http.MethodHead {
 				// An init GET starts a decoder. Its first media GET needs
 				// a GOP even when it follows the previous decoder's last
 				// segment; metadata-only HEAD probes do not reset it.

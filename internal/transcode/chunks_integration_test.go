@@ -124,8 +124,8 @@ func (e *realEnv) videoSpanKey(t *testing.T, container string, init, seg []byte,
 	return first - shift, last - shift, key
 }
 
-// joinedMonotonic decodes a joined Matroska stream and requires its video
-// frames to never go backwards.
+// joinedMonotonic decodes a joined Matroska or fMP4 stream and requires its
+// video frames to never go backwards.
 func (e *realEnv) joinedMonotonic(t *testing.T, file string) {
 	t.Helper()
 	cmd := mediaproc.CommandContext(t.Context(), 2*time.Minute, e.ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=best_effort_timestamp_time", "-of", "csv=p=0", file)
@@ -527,18 +527,19 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 				init0 = fetch(t, hs, InitSegment)
 			}
 			// Each segment holds the GOPs starting in its range; one inside
-			// a GOP longer than a segment repeats that GOP (TS, fMP4) or is
-			// an empty Cluster (Matroska). Every segment with video starts on
-			// a keyframe and decodes alone, and together they cover the
-			// title from the first segment fetched without gaps.
+			// a GOP longer than a segment repeats that GOP (TS) or is an
+			// empty placeholder in order (HLS fMP4, Matroska). Every segment
+			// with video starts on a keyframe and decodes alone, and
+			// together they cover the title from the first segment fetched
+			// without gaps.
 			check := func(from, to int, label string) {
 				t.Helper()
 				covered := -1.0
 				for n := from; n < to; n++ {
 					seg := fetch(t, hs, n)
 					name := fmt.Sprintf("%s-%s-%d", label, container, n)
-					if container == ContainerMatroska && len(seg) < 64 {
-						continue // an empty Cluster inside a long GOP
+					if (container == ContainerMatroska || container == ContainerFMP4) && len(seg) < 64 {
+						continue // an empty placeholder inside a long GOP
 					}
 					first, end := e.videoSpan(t, container, init0, seg, name)
 					// A restart that continues playback starts its first segment
@@ -557,14 +558,14 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 				}
 			}
 			check(0, total, "first")
-			if container == ContainerMatroska {
-				// Plex joins the header and successive fragments into one
+			if container == ContainerMatroska || container == ContainerFMP4 {
+				// Players join the init and successive fragments into one
 				// stream: in order, it must decode and never run backwards.
 				joined := append([]byte(nil), init0...)
 				for n := 0; n < total; n++ {
 					joined = append(joined, fetch(t, hs, n)...)
 				}
-				e.joinedMonotonic(t, e.writeTemp(t, "noindex-joined.mkv", joined))
+				e.joinedMonotonic(t, e.writeTemp(t, "noindex-joined."+segmentExt(container), joined))
 			}
 			// Seeks with every segment cached: a fresh client asks for a
 			// segment inside a GOP (an alias) or starting one; what it gets
@@ -577,7 +578,7 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 					t.Fatalf("%s retry changed bytes: %d -> %d", name, len(seg), len(retry))
 				}
 				// A connection interrupted halfway through the seek response
-				// resumes the same GOP, even for a cached Matroska alias.
+				// resumes the same GOP, even for a cached alias.
 				offset := len(seg) / 2
 				req := httptest.NewRequest(http.MethodGet, "/segment", nil)
 				req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
@@ -590,10 +591,10 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 					t.Errorf("%s holds video %.3f-%.3f, playlist says %.3f-%.3f", name, first, end, starts[n], starts[n+1])
 				}
 			}
-			if container == ContainerMatroska {
+			if container == ContainerMatroska || container == ContainerFMP4 {
 				_ = fetch(t, hs, 14)
 				head := httptest.NewRecorder()
-				hs.ServeSegment(head, httptest.NewRequest(http.MethodHead, "/0.mkv", nil), 0)
+				hs.ServeSegment(head, httptest.NewRequest(http.MethodHead, "/0."+segmentExt(container), nil), 0)
 				if head.Code != http.StatusOK || head.Body.Len() != 0 {
 					t.Fatalf("HEAD segment: %d bytes=%d", head.Code, head.Body.Len())
 				}
@@ -621,18 +622,18 @@ func TestIntegrationCopyWithoutKeyframeIndex(t *testing.T) {
 			}
 			check(mid, total, "restart")
 			// A failover inside a GOP whose start is already published: the
-			// new run must not repeat that GOP (Plex's joined Matroska
-			// stream would run backwards).
+			// new run must not repeat that GOP (joined Matroska and HLS fMP4
+			// streams would run backwards).
 			if err := hs.SwapInput(context.Background(), e.url("noindex-10s.mkv"), *info, 25*time.Second); err != nil {
 				t.Fatal(err)
 			}
 			check(6, total, "swap")
-			if container == ContainerMatroska {
+			if container == ContainerMatroska || container == ContainerFMP4 {
 				joined := append([]byte(nil), init0...)
 				for n := 0; n < total; n++ {
 					joined = append(joined, fetch(t, hs, n)...)
 				}
-				e.joinedMonotonic(t, e.writeTemp(t, "noindex-swap-joined.mkv", joined))
+				e.joinedMonotonic(t, e.writeTemp(t, "noindex-swap-joined."+segmentExt(container), joined))
 			}
 		})
 	}

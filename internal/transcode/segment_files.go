@@ -1,6 +1,9 @@
 package transcode
 
-import "net/http"
+import (
+	"net/http"
+	"os"
+)
 
 type segmentAvailability uint8
 
@@ -23,16 +26,14 @@ func (s *Session) segmentFilesLocked(track, n int, method string) ([]string, seg
 		return nil, segmentFinalizing
 	}
 	paths := []string{s.trackSegPath(track, n)}
-	if s.container == ContainerMatroska {
+	if s.emptyAliasSize() > 0 {
 		prev, served := s.mkvDelivery[track]
 		seek := !served || (prev.segment != n-1 && prev.segment != n) || (prev.segment == n && prev.seek)
 		if !seek {
 			// Sequential prefetch while n-1 is still on the wire must
-			// keep the empty Cluster so the Matroska clock advances.
-			// Treating inflight[n-1] as a seek replayed the 41:20 GOP
-			// for 620–694 and froze the Plex tvOS timer. Force a GOP
-			// only when that covering keyframe has not been served yet
-			// (resume after the 0/1 probe).
+			// keep the empty placeholder so a continuous player's clock
+			// advances. Force a GOP only when that covering keyframe has
+			// not been served yet (resume after the 0/1 probe).
 			if cover := s.coveringSegLocked(track, n); cover >= 0 && cover > prev.segment {
 				seek = true
 			}
@@ -41,6 +42,7 @@ func (s *Session) segmentFilesLocked(track, n int, method string) ([]string, seg
 			path, ok := s.decodableMKVLocked(track, n)
 			if !ok {
 				delete(done, n)
+				_ = os.Remove(s.trackSegPath(track, n))
 				return nil, segmentRetry
 			}
 			paths[0] = path

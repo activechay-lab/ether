@@ -164,8 +164,8 @@ func (s *Session) noteInitLocked(r *run, t int) error {
 	if err := s.holdInitEditsLocked(r, t); err != nil {
 		return err
 	}
-	if r.edits != nil && len(r.edits.absent) > 0 {
-		return nil // the empty video track cannot replace the retained init
+	if r.edits != nil && (len(r.edits.absent) > 0 || r.edits.keepInit) {
+		return nil // partial track init cannot replace the retained init
 	}
 	for len(s.initFiles) <= t {
 		s.initFiles = append(s.initFiles, "")
@@ -305,6 +305,10 @@ func (s *Session) publishBoundaryAliasLocked(n int) bool {
 	dst := s.trackSegPath(t, n)
 	if s.container == ContainerMatroska {
 		if os.WriteFile(dst, emptyCluster(s.segStart(n)+matroskaOrigin), 0o644) != nil {
+			return false
+		}
+	} else if s.container == ContainerFMP4 && !s.isDASH() {
+		if os.WriteFile(dst, emptyFMP4(uint32(n+1)), 0o644) != nil {
 			return false
 		}
 	} else if linkOrCopy(s.trackSegPath(t, n-1), dst) != nil {

@@ -84,13 +84,22 @@ type runEdits struct {
 	// shifted lists the files already moved, so a repeated poll never
 	// moves one twice.
 	shifted map[string]bool
-	// Tracks with no edit list may only be omitted from every fragment.
+	// Tracks with no edit list that must be omitted from every fragment.
 	absent map[uint32]bool
+	// unpatchedShift records retained shifts for tracks whose init omitted
+	// an elst box (e.g. soun on a video-only preroll chunk) so fragments
+	// still move onto the retained clock while keeping the retained init.
+	unpatchedShift map[uint32]int64
+	// keepInit keeps the retained init rather than replacing it with this
+	// run's partial init.
+	keepInit bool
 	// published: the run's init passed checkPublishedEdits.
 	published bool
 	// failed: the run's output could not be held to the clock.
 	failed bool
 }
+
+var errNoEditList = errors.New("has no edit list to move")
 
 func prepareRunEditsForPath(r *run, retained map[string]trackEdit, path string) error {
 	if r.edits != nil && r.edits.ready {
@@ -123,17 +132,38 @@ func prepareRunEditsForPath(r *run, retained map[string]trackEdit, path string) 
 			}
 			p, err := elstPatch(b, t.TrackID, d)
 			if err != nil {
-				if path == "" || t.Handler != "vide" {
+				if path == "" {
 					return err
 				}
-				if e := requireAbsentTrack(path, t.TrackID); e != nil {
+				switch t.Handler {
+				case "vide":
+					if e := requireAbsentTrack(path, t.TrackID); e != nil {
+						return err
+					}
+					if re.absent == nil {
+						re.absent = map[uint32]bool{}
+					}
+					re.absent[t.TrackID] = true
+					re.keepInit = true
+					continue
+				case "soun":
+					if !errors.Is(err, errNoEditList) {
+						return err
+					}
+					// A seek whose preroll chunk is video-only writes init.mp4
+					// before any audio packet arrives, omitting soun's elst box
+					// while later chunks carry audio. Keep the retained init and
+					// shift later audio fragments onto ret.shift.
+					re.keepInit = true
+					re.delta[t.TrackID] = d
+					if re.unpatchedShift == nil {
+						re.unpatchedShift = map[uint32]int64{}
+					}
+					re.unpatchedShift[t.TrackID] = ret.shift
+					continue
+				default:
 					return err
 				}
-				if re.absent == nil {
-					re.absent = map[uint32]bool{}
-				}
-				re.absent[t.TrackID] = true
-				continue
 			}
 			patches = append(patches, p)
 			re.delta[t.TrackID] = d
@@ -174,7 +204,7 @@ func elstPatch(b []byte, id uint32, d int64) (filePatch, error) {
 			}
 			elst, ok := path(b, trak, "edts", "elst")
 			if !ok {
-				return filePatch{}, fmt.Errorf("fmp4: track %d has no edit list to move", id)
+				return filePatch{}, fmt.Errorf("fmp4: track %d %w", id, errNoEditList)
 			}
 			p := elst.payload(b)
 			at, version, _, err := mediaEdit(p)
@@ -569,17 +599,21 @@ func (s *Session) holdInitEditsLocked(r *run, t int) error {
 		return nil
 	}
 	c, retained := s.clockLocked(r, t)
-	if r.edits != nil && len(r.edits.absent) > 0 {
+	if r.edits != nil && (len(r.edits.absent) > 0 || r.edits.keepInit) {
 		if retained == nil || s.initFileLocked(t) == "" {
-			return errors.New("fmp4: no retained init for audio-only tail")
+			return errors.New("fmp4: no retained init for partial track init")
 		}
-		audio := map[string]trackEdit{}
+		present := map[string]trackEdit{}
 		for name, edit := range retained {
-			if !r.edits.absent[edit.id] {
-				audio[name] = edit
+			if r.edits.absent[edit.id] {
+				continue
 			}
+			if _, unpatched := r.edits.unpatchedShift[edit.id]; unpatched {
+				continue
+			}
+			present[name] = edit
 		}
-		if _, err := checkPublishedEdits(audio, filepath.Join(r.spec.Dir, r.spec.InitName)); err != nil {
+		if _, err := checkPublishedEdits(present, filepath.Join(r.spec.Dir, r.spec.InitName)); err != nil {
 			return err
 		}
 		r.edits.published = true
