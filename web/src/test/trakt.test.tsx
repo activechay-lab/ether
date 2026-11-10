@@ -40,10 +40,19 @@ function withTraktRoutes(
   };
 }
 
+// AppKit's SettingsSection renders an unlabelled <section>: find it through
+// its visible "Trakt" heading.
+async function traktSection(): Promise<HTMLElement> {
+  const heading = await screen.findByRole("heading", { name: "Trakt" }, WAIT);
+  const section = heading.closest("section");
+  if (!section) throw new Error("Trakt heading is not inside a section");
+  return section as HTMLElement;
+}
+
 describe("Viewer Trakt linking", () => {
   it("disables Connect and links to Integrations › Trakt when Trakt is not configured", async () => {
     renderApp("/viewers/4/limits");
-    const section = await screen.findByRole("region", { name: "Trakt" }, WAIT);
+    const section = await traktSection();
     expect(within(section).getByRole("button", { name: "Connect" })).toBeDisabled();
     const link = within(section).getByRole("link", { name: "Integrations › Trakt" });
     expect(link).toHaveAttribute("href", "/services/trakt");
@@ -115,7 +124,7 @@ describe("Viewer Trakt linking", () => {
       }),
     );
 
-    const section = await screen.findByRole("region", { name: "Trakt" }, WAIT);
+    const section = await traktSection();
     expect(within(section).getByText("Not connected")).toBeInTheDocument();
     fireEvent.click(within(section).getByRole("button", { name: "Connect" }));
 
@@ -167,7 +176,7 @@ describe("Viewer Trakt linking", () => {
       }),
     );
 
-    const section = await screen.findByRole("region", { name: "Trakt" }, WAIT);
+    const section = await traktSection();
     fireEvent.click(within(section).getByRole("button", { name: "Connect" }));
     const dialog = await screen.findByRole("dialog", { name: "Connect Trakt" }, WAIT);
     expect(
@@ -258,7 +267,7 @@ describe("Viewer Trakt linking", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Me />);
-    const section = await screen.findByRole("region", { name: "Trakt" }, WAIT);
+    const section = await traktSection();
     expect(within(section).getByText("Not connected")).toBeInTheDocument();
     fireEvent.click(within(section).getByRole("button", { name: "Connect" }));
 
