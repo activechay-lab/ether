@@ -100,6 +100,7 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 		})
 	}
 
+	a.libraryHandlers(m)
 	a.discoveryHandlers(m)
 	adoptionHandlers(a, m)
 	a.extensibilityHandlers(m)
