@@ -105,7 +105,13 @@ func (b *builder) planRAR(ctx context.Context, vols []*postedFile) (*plan, error
 	if _, ok := b.rel.doc.EpisodeHint(); ok && n > 1 {
 		// A season in one archive: the wanted episode is not the member that
 		// spans the set from volume 1, so the uniform-layout shortcut below
-		// does not apply. Read every volume's headers.
+		// does not apply. Read every volume's headers, unless the set is
+		// plainly one other episode.
+		if other, err := b.holdsOnlyOtherEpisode(ctx, vols); err != nil {
+			return nil, err
+		} else if other {
+			return nil, fmt.Errorf("%w: rar %s holds a single other episode", ErrNoPlayableFile, vols[0].Name())
+		}
 		return b.rarFullScan(ctx, vols)
 	}
 	var v0 *archive.RARVolume
@@ -241,6 +247,55 @@ func (b *builder) planRAR(ctx context.Context, vols []*postedFile) (*plan, error
 		}
 	}
 	return p, nil
+}
+
+// holdsOnlyOtherEpisode is a two-fetch pre-filter for a hinted set: when its
+// first volume opens with a stored video that is not the wanted episode and
+// continues to the last volume, whose only content is that member's tail, the
+// whole set is that one member and its other volumes need not be read. Any
+// doubt (a read error, another member anywhere) answers false.
+func (b *builder) holdsOnlyOtherEpisode(ctx context.Context, vols []*postedFile) (bool, error) {
+	h, ok := b.rel.doc.EpisodeHint()
+	if !ok || len(vols) < 2 {
+		return false, nil
+	}
+	ends := []*postedFile{vols[0], vols[len(vols)-1]}
+	if err := b.heads(ctx, ends); err != nil {
+		return false, err
+	}
+	var parsed [2]*archive.RARVolume
+	for i, pf := range ends {
+		v, err := archive.ReadRARVolume(b.reader(ctx, pf), pf.Size(), b.rarOptions(ctx, 0))
+		if err != nil {
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			return false, nil
+		}
+		parsed[i] = v
+	}
+	var first *archive.RARFile
+	for i := range parsed[0].Files {
+		if f := &parsed[0].Files[i]; !f.Dir {
+			first = f
+			break
+		}
+	}
+	if first == nil || !first.SplitAfter || !first.Stored || first.Encrypted ||
+		!nzb.IsVideoExt(path.Ext(first.Name)) || memberMatchesHint(h, first.Name) {
+		return false, nil
+	}
+	tail := 0
+	for _, f := range parsed[1].Files {
+		if f.Dir {
+			continue
+		}
+		if !f.SplitBefore || f.Name != first.Name {
+			return false, nil
+		}
+		tail++
+	}
+	return tail > 0, nil
 }
 
 // rarFullScan reads the headers of every volume and composes members.
@@ -479,14 +534,19 @@ func (b *builder) chooseMember(members []archive.Member) *archive.Member {
 	}
 	var matching []archive.Member
 	for _, m := range members {
-		info := releaseparse.Parse(path.Base(strings.ReplaceAll(m.Name, `\`, "/")))
-		if releaseparse.EpisodeMatches(info, h.Season, h.Episode) ||
-			(h.Absolute > 0 && releaseparse.EpisodeMatchesAbsolute(info, h.Absolute)) ||
-			(len(info.Episodes) == 0 && releaseparse.ClassicPackEpisodeMatches(m.Name, h.Season, h.Episode)) {
+		if memberMatchesHint(h, m.Name) {
 			matching = append(matching, m)
 		}
 	}
 	return chooseMember(matching)
+}
+
+// memberMatchesHint reports whether an archive member's name is the episode h.
+func memberMatchesHint(h nzb.EpisodeHint, name string) bool {
+	info := releaseparse.Parse(path.Base(strings.ReplaceAll(name, `\`, "/")))
+	return releaseparse.EpisodeMatches(info, h.Season, h.Episode) ||
+		(h.Absolute > 0 && releaseparse.EpisodeMatchesAbsolute(info, h.Absolute)) ||
+		(len(info.Episodes) == 0 && releaseparse.ClassicPackEpisodeMatches(name, h.Season, h.Episode))
 }
 
 // pickRARFile chooses the likely video among the file headers of a volume.
@@ -525,7 +585,18 @@ func (b *builder) checkRARVolume(v *archive.RARVolume) error {
 	if v == nil {
 		return nil
 	}
-	main := pickRARFile(v.Files, v.Format)
+	files := v.Files
+	if h, ok := b.rel.doc.EpisodeHint(); ok {
+		// A season archive: only the wanted episode's member matters, so
+		// another episode's compression or encryption must not reject it.
+		files = nil
+		for _, f := range v.Files {
+			if memberMatchesHint(h, f.Name) {
+				files = append(files, f)
+			}
+		}
+	}
+	main := pickRARFile(files, v.Format)
 	if main == nil {
 		return nil
 	}

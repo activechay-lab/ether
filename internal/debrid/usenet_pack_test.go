@@ -169,3 +169,37 @@ func TestEpisodeNZBNamedSetsNeverFallBackToOpaqueArchive(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestEpisodeNZBOpaqueArchiveOfAnotherSeasonIsNotKept(t *testing.T) {
+	data := packNZB(
+		`&quot;Show.S01.part001.rar&quot; yEnc (1/1)`,
+		`&quot;Show.S02.part001.rar&quot; yEnc (1/1)`,
+	)
+	out, err := EpisodeNZB(data, &core.ReleaseTarget{Season: 1, Episode: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := nzb.Parse(out)
+	if len(doc.Files) != 1 || !strings.Contains(doc.Files[0].Name, "S01") {
+		t.Fatalf("want only the S01 set, got %d files", len(doc.Files))
+	}
+	if _, err := EpisodeNZB(data, &core.ReleaseTarget{Season: 3, Episode: 1}); err == nil {
+		t.Fatal("season 3 must not fall back to a named season's set")
+	}
+}
+
+func TestEpisodeNZBOutputIsDeterministic(t *testing.T) {
+	data := []byte(strings.Replace(string(packNZB(`&quot;q9Zr7Tb2Wc8Hn4Jd.part001.rar&quot; yEnc (1/1)`)),
+		`<meta type="password">pw</meta>`, `<meta type="password">pw</meta><meta type="a">1</meta><meta type="b">2</meta><meta type="c">3</meta>`, 1))
+	tgt := &core.ReleaseTarget{Season: 1, Episode: 2}
+	first, err := EpisodeNZB(data, tgt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50; i++ {
+		again, _ := EpisodeNZB(data, tgt)
+		if string(again) != string(first) {
+			t.Fatal("subset bytes differ between calls")
+		}
+	}
+}
