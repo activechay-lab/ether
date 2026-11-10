@@ -238,7 +238,7 @@ export function QualityOrderSection({ draft, patch }: { draft: QualityProfile; p
  * releases with that audio.
  */
 export function LanguageSection({ draft, patch }: { draft: QualityProfile; patch: Patch }) {
-  const locale = useLocale();
+  const { locale } = useLocale();
   const stored = draft.language?.trim() || "original";
   const { options, current } = useMemo(() => {
     const display = (code: string) => {

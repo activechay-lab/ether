@@ -161,7 +161,7 @@ func TestConsolePreviewsAndAppliesTrashProfile(t *testing.T) {
 	for _, fm := range plan.Formats {
 		statuses[fm.Name] = fm.Status
 	}
-	if statuses["BR-DISK"] != FormatPresent || statuses["FreeLeech"] != FormatUnsupported || len(plan.Warnings) < 3 {
+	if statuses["BR-DISK"] != FormatPresent || statuses["FreeLeech"] != FormatUnsupported || len(plan.Warnings) < 2 || plan.Profile.Language != "original" {
 		t.Fatalf("second plan %+v", plan)
 	}
 }

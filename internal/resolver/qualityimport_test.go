@@ -36,7 +36,12 @@ func TestImportQualityProfileSkipsQualitiesEtherCannotMatch(t *testing.T) {
 		t.Fatalf("skipped %v app %q", imp.Skipped, imp.App)
 	}
 	joined := strings.Join(imp.Warnings, "\n")
-	for _, want := range []string{"Left out Raw-HD, SDTV", "Upgrade and cutoff", "original language"} {
+	// An original-language profile maps onto the profile Language field
+	// (Radarr-style) instead of becoming a warning.
+	if p.Language != "original" {
+		t.Errorf("language %q, want original", p.Language)
+	}
+	for _, want := range []string{"Left out Raw-HD, SDTV", "Upgrade and cutoff"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("warnings lack %q:\n%s", want, joined)
 		}
