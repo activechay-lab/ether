@@ -1289,7 +1289,9 @@ RETURNING id`,
 		}
 	}
 	// Friends no longer in the list lost access.
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM auth_users WHERE is_owner=0 AND plex_id IS NOT NULL`)
+	// Only friends who still have access can lose it: users already
+	// deactivated by an earlier sync are not counted (or rewritten) again.
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM auth_users WHERE is_owner=0 AND plex_id IS NOT NULL AND (active=1 OR plex_shared=1)`)
 	if err != nil {
 		return err
 	}

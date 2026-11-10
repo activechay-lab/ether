@@ -463,7 +463,10 @@ func fillGap(out *[]Programme, c Channel, filler []Item, fromCursor, end, winFro
 	}
 	// Each day starts further into the filler, so a short gap at the same
 	// time of night is not the same filler every night.
-	i := int((fromCursor.Unix() / 86400) % int64(len(filler)))
+	// Non-negative even for a cursor before 1970 (a zero time reaches here
+	// on a cold build): Go's % keeps the dividend's sign.
+	n := int64(len(filler))
+	i := int(((fromCursor.Unix()/86400)%n + n) % n)
 	for cursor.Before(end) && len(*out) < 20000 {
 		// Prefer the next filler that fits whole; cut one only when none does.
 		pick := i % len(filler)
