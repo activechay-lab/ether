@@ -249,21 +249,46 @@ func (s *Session) emptyAliasSize() int64 {
 	}
 }
 
+func isEmptyFMP4(b []byte) bool {
+	if len(b) != emptyFMP4Size {
+		return false
+	}
+	ref := emptyFMP4(0)
+	return bytes.Equal(b[:44], ref[:44]) && bytes.Equal(b[48:], ref[48:])
+}
+
 // coveringSegLocked is the latest segment at or before n that holds a
-// real GOP (larger than an empty alias placeholder), or -1 if none is still
-// on disk.
+// real GOP (not an empty alias placeholder), or -1 if none is still on disk.
 func (s *Session) coveringSegLocked(t, n int) int {
-	maxAlias := s.emptyAliasSize()
 	if t < 0 || t >= len(s.done) {
 		return -1
 	}
 	for k := n; k >= 0 && s.done[t][k]; k-- {
-		st, err := os.Stat(s.trackSegPath(t, k))
+		path := s.trackSegPath(t, k)
+		st, err := os.Stat(path)
 		if err != nil {
 			return -1
 		}
-		if st.Size() > maxAlias {
-			return k
+		switch s.container {
+		case ContainerMatroska:
+			if st.Size() > emptyClusterSize {
+				return k
+			}
+		case ContainerFMP4:
+			if st.Size() != emptyFMP4Size {
+				return k
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return -1
+			}
+			if !isEmptyFMP4(b) {
+				return k
+			}
+		default:
+			if st.Size() > 0 {
+				return k
+			}
 		}
 	}
 	return -1
