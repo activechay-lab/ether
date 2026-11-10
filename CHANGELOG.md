@@ -10,7 +10,7 @@
 
 - **Apps:** per-app **Public address** (Apps > Jellyfin, Emby, etc.) so an app routed through its own host name (e.g. `jelly.example.com`) shows that address on Connect and `/ether/me` instead of the Plex host; Plex keeps its custom server URLs, and apps without one keep the server-wide address (#413).
 - **Subtitles:** **Download a subtitle automatically when playback starts** switch under **Integrations > OpenSubtitles** (`openSubtitles.automaticPreferred`, off by default) (#286).
-- **Watchlists:** paste Plex's **Friends' Watchlist RSS** and **Your Watchlist RSS** URLs under **Catalog > Settings > Watchlists** to import shared friends' watchlists without storing viewer Plex tokens, sealed at rest and synced into Ether watchlists, Home availability rows, alerts, and linked Trakt accounts (#337).
+- **Watchlists:** paste Plex's **Friends' Watchlist RSS** and **Your Watchlist RSS** URLs under **Catalog > Settings > Watchlists** (sealed at rest): because Plex's friends feed does not say which friend added what, Friends' Watchlist RSS publishes a shared **Your friends want to watch** Home row and collection while feeding availability checks, alerts, and warm-up alongside the owner's watchlist (#337).
 - **Trakt:** Viewers can connect Trakt from **Viewers > Limits** or on `/ether/me` using Trakt's activation code flow, syncing watch history, ratings and watchlists per viewer.
 - **Console:** **Plex Media Server sync** (**Integrations > Overview**) and **Plex account sync** (**Viewers > Limits**) are now named for what they sync with, and each viewer's **Limits** tab also shows their Plex Media Server mappings alongside their Plex account status.
 

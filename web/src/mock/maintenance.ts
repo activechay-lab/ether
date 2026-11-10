@@ -65,7 +65,6 @@ export function createMaintenance() {
           configured: true,
           lastRead: 0,
           imported: 0,
-          skippedFriends: 0,
           unmatchedTitles: 0,
         };
       }

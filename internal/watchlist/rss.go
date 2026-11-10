@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +20,10 @@ import (
 )
 
 const (
+	// householdUserID stores the unattributed "Friends' watchlists" set as
+	// watchlist-owned rows without associating them with any individual viewer.
+	householdUserID int64 = 0
+
 	sourcePlexFriendsRSS = "plex-friends-rss"
 	sourcePlexOwnerRSS   = "plex-rss"
 
@@ -39,19 +42,17 @@ type RSSFeedStatus struct {
 	Configured      bool   `json:"configured"`
 	LastRead        int64  `json:"lastRead"`
 	Imported        int    `json:"imported"`
-	SkippedFriends  int    `json:"skippedFriends"`
 	UnmatchedTitles int    `json:"unmatchedTitles"`
 	Problem         string `json:"problem,omitempty"`
 }
 
 type rssMeta struct {
 	URLHash         string `json:"urlHash,omitempty"`
-	ViewersHash     string `json:"viewersHash,omitempty"`
+	OwnerID         int64  `json:"ownerId,omitempty"`
 	ETag            string `json:"etag,omitempty"`
 	LastModified    string `json:"lastModified,omitempty"`
 	LastRead        int64  `json:"lastRead,omitempty"`
 	Imported        int    `json:"imported"`
-	SkippedFriends  int    `json:"skippedFriends"`
 	UnmatchedTitles int    `json:"unmatchedTitles"`
 	Problem         string `json:"problem,omitempty"`
 }
@@ -71,8 +72,6 @@ type rssXMLItem struct {
 	Title      string        `xml:"title"`
 	Guids      []rssGUID     `xml:"guid"`
 	Links      []rssLink     `xml:"link"`
-	Authors    []string      `xml:"author"`
-	Creators   []string      `xml:"creator"`
 	Categories []rssCategory `xml:"category"`
 }
 
@@ -80,14 +79,7 @@ type rssAtom struct {
 	Title      string        `xml:"title"`
 	ID         string        `xml:"id"`
 	Links      []rssLink     `xml:"link"`
-	Authors    []rssAtomUser `xml:"author"`
 	Categories []rssCategory `xml:"category"`
-}
-
-type rssAtomUser struct {
-	Name  string `xml:"name"`
-	Email string `xml:"email"`
-	Text  string `xml:",chardata"`
 }
 
 type rssGUID struct {
@@ -102,17 +94,14 @@ type rssLink struct {
 }
 
 type rssCategory struct {
-	Value  string `xml:",chardata"`
-	Term   string `xml:"term,attr"`
-	Domain string `xml:"domain,attr"`
+	Value string `xml:",chardata"`
+	Term  string `xml:"term,attr"`
 }
 
 type rssItem struct {
 	Title      string
 	Guids      []string
 	Links      []string
-	Authors    []string
-	Creators   []string
 	Categories []rssCategory
 }
 
@@ -138,7 +127,8 @@ func validateRSSURL(raw string) error {
 	return nil
 }
 
-// SyncRSS polls configured Plex watchlist RSS feeds across active Ether viewers.
+// SyncRSS polls configured Plex watchlist RSS feeds: the household "Friends'
+// watchlists" set (unattributed) and the owner's "Your Watchlist" feed.
 func (s *Service) SyncRSS(ctx context.Context) error {
 	cfg, err := s.settings(ctx)
 	if err != nil {
@@ -147,12 +137,12 @@ func (s *Service) SyncRSS(ctx context.Context) error {
 	if !cfg.Enabled || (cfg.PlexFriendsRSSURL == "" && cfg.PlexOwnerRSSURL == "") {
 		return nil
 	}
-	if s.o.Users == nil {
-		return nil
-	}
-	us, err := s.o.Users(ctx)
-	if err != nil {
-		return err
+	var us []core.User
+	if cfg.PlexOwnerRSSURL != "" && s.o.Users != nil {
+		us, err = s.o.Users(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	return s.syncRSSUsers(ctx, us)
 }
@@ -167,27 +157,37 @@ func (s *Service) syncRSSUsers(ctx context.Context, us []core.User) error {
 	}
 	var errs []error
 	if cfg.PlexFriendsRSSURL != "" {
-		if e := s.pollRSSFeed(ctx, cfg.PlexFriendsRSSURL, metaKeyFriendsRSS, sourcePlexFriendsRSS, true, us); e != nil {
+		if e := s.pollRSSFeed(ctx, cfg.PlexFriendsRSSURL, metaKeyFriendsRSS, sourcePlexFriendsRSS, true, nil); e != nil {
 			errs = append(errs, e)
 		}
 	}
 	if cfg.PlexOwnerRSSURL != "" {
-		if e := s.pollRSSFeed(ctx, cfg.PlexOwnerRSSURL, metaKeyOwnerRSS, sourcePlexOwnerRSS, false, us); e != nil {
+		var owner *core.User
+		for i := range us {
+			if us[i].IsOwner {
+				owner = &us[i]
+				break
+			}
+		}
+		if e := s.pollRSSFeed(ctx, cfg.PlexOwnerRSSURL, metaKeyOwnerRSS, sourcePlexOwnerRSS, false, owner); e != nil {
 			errs = append(errs, e)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source string, friendsFeed bool, us []core.User) error {
+func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source string, friendsFeed bool, owner *core.User) error {
 	if s.o.Catalog == nil {
 		return errors.New("Plex watchlist RSS requires a catalog")
 	}
 	urlHash := sha256Hex(feedURL)
-	vHash := hashViewers(us)
 	meta := s.readRSSMeta(ctx, metaKey)
 	if meta.URLHash != urlHash {
 		meta = rssMeta{URLHash: urlHash}
+	}
+	var ownerID int64
+	if owner != nil {
+		ownerID = owner.ID
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
@@ -198,7 +198,8 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 	}
 	req.Header.Set("Accept", "application/rss+xml, application/xml, text/xml;q=0.9, application/json;q=0.5, */*;q=0.1")
 	req.Header.Set("User-Agent", "Ether")
-	if meta.ViewersHash == vHash {
+	canConditional := friendsFeed || (ownerID > 0 && meta.OwnerID == ownerID)
+	if canConditional {
 		if meta.ETag != "" {
 			req.Header.Set("If-None-Match", meta.ETag)
 		}
@@ -232,7 +233,7 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 		if lm := strings.TrimSpace(resp.Header.Get("Last-Modified")); lm != "" {
 			meta.LastModified = lm
 		}
-		meta.ViewersHash = vHash
+		meta.OwnerID = ownerID
 		s.writeRSSMeta(ctx, metaKey, meta)
 		return nil
 	case http.StatusOK:
@@ -258,22 +259,9 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 		return err
 	}
 
-	matcher := newViewerMatcher(us)
-	byUser := make(map[int64][]core.Title)
-	skippedFriends := 0
+	var resolved []core.Title
 	unmatchedTitles := 0
-
 	for _, it := range items {
-		var target *core.User
-		if friendsFeed {
-			target = matcher.matchFriend(extractRSSItemFriend(it))
-		} else {
-			target = matcher.owner
-		}
-		if target == nil {
-			skippedFriends++
-			continue
-		}
 		title, e := s.resolveRSSItem(ctx, it)
 		if e != nil {
 			// Preserve the last good snapshot and conditional headers on a transient
@@ -286,23 +274,30 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 			unmatchedTitles++
 			continue
 		}
-		byUser[target.ID] = append(byUser[target.ID], *title)
+		resolved = append(resolved, *title)
 	}
 
-	imported, err := s.replaceFeedSnapshot(ctx, source, us, byUser)
+	var imported int
+	if friendsFeed {
+		imported, err = s.replaceHouseholdFeedSnapshot(ctx, source, resolved)
+	} else {
+		imported, err = s.replaceOwnerFeedSnapshot(ctx, source, owner, resolved)
+	}
 	if err != nil {
 		meta.Problem = rssProblemMetadata
 		s.writeRSSMeta(ctx, metaKey, meta)
 		return err
 	}
+	if friendsFeed {
+		s.notifyFriendsRSSChanged(ctx)
+	}
 
 	meta.URLHash = urlHash
-	meta.ViewersHash = vHash
+	meta.OwnerID = ownerID
 	meta.ETag = strings.TrimSpace(resp.Header.Get("ETag"))
 	meta.LastModified = strings.TrimSpace(resp.Header.Get("Last-Modified"))
 	meta.LastRead = s.o.Now().Unix()
 	meta.Imported = imported
-	meta.SkippedFriends = skippedFriends
 	meta.UnmatchedTitles = unmatchedTitles
 	meta.Problem = ""
 	s.writeRSSMeta(ctx, metaKey, meta)
@@ -336,8 +331,6 @@ func parseRSSItems(data []byte) ([]rssItem, error) {
 	for _, x := range xmlItems {
 		it := rssItem{
 			Title:      strings.TrimSpace(x.Title),
-			Authors:    x.Authors,
-			Creators:   x.Creators,
 			Categories: x.Categories,
 		}
 		for _, g := range x.Guids {
@@ -369,17 +362,6 @@ func parseRSSItems(data []byte) ([]rssItem, error) {
 				it.Links = append(it.Links, v)
 			}
 		}
-		for _, a := range e.Authors {
-			if n := strings.TrimSpace(a.Name); n != "" {
-				it.Authors = append(it.Authors, n)
-			}
-			if em := strings.TrimSpace(a.Email); em != "" {
-				it.Authors = append(it.Authors, em)
-			}
-			if tx := strings.TrimSpace(a.Text); tx != "" && a.Name == "" && a.Email == "" {
-				it.Authors = append(it.Authors, tx)
-			}
-		}
 		out = append(out, it)
 	}
 	return out, nil
@@ -391,9 +373,6 @@ func parsePlexRSSJSON(data []byte) ([]rssItem, error) {
 			Title    string   `json:"title"`
 			Link     string   `json:"link"`
 			Guids    []string `json:"guids"`
-			Author   string   `json:"author"`
-			Creator  string   `json:"creator"`
-			User     string   `json:"user"`
 			Category string   `json:"category"`
 		} `json:"items"`
 	}
@@ -412,186 +391,12 @@ func parsePlexRSSJSON(data []byte) ([]rssItem, error) {
 		if l := strings.TrimSpace(x.Link); l != "" {
 			it.Links = append(it.Links, l)
 		}
-		for _, c := range []string{x.Creator, x.User} {
-			if v := strings.TrimSpace(c); v != "" {
-				it.Creators = append(it.Creators, v)
-			}
-		}
-		if a := strings.TrimSpace(x.Author); a != "" {
-			it.Authors = append(it.Authors, a)
-		}
 		if cat := strings.TrimSpace(x.Category); cat != "" {
 			it.Categories = append(it.Categories, rssCategory{Value: cat})
 		}
 		out = append(out, it)
 	}
 	return out, nil
-}
-
-// extractRSSItemFriend is the SINGLE POINT OF ADJUSTMENT for extracting which
-// Plex friend watchlisted an RSS <item>.
-//
-// Note on Plex's public rss.plex.tv format: Plex's combined "friendsWatchlist"
-// RSS 2.0 XML omits <author> and <dc:creator> for privacy and uses <category>
-// only for the media type ("movie" / "show"). When per-item attribution is
-// present (via <dc:creator>, <author>, <category domain="friend|user">, or a
-// non-media <category>), candidates are returned in priority order; when absent,
-// an empty slice is returned so the item is counted as skipped rather than
-// attributed to the wrong viewer.
-func extractRSSItemFriend(it rssItem) []string {
-	var out []string
-	seen := map[string]bool{}
-	add := func(raw string) {
-		v := strings.TrimSpace(raw)
-		if v == "" {
-			return
-		}
-		k := strings.ToLower(v)
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, v)
-		}
-	}
-	addAuthorLike := func(raw string) {
-		v := strings.TrimSpace(raw)
-		if v == "" {
-			return
-		}
-		// Handle RFC 822 RSS <author> forms like "alice@example.com (alice)"
-		// and "alice <alice@example.com>" as well as plain usernames or IDs.
-		if i := strings.IndexByte(v, '('); i >= 0 {
-			if j := strings.LastIndexByte(v, ')'); j > i+1 {
-				add(v[i+1 : j])
-			}
-			add(v[:i])
-			return
-		}
-		if i := strings.IndexByte(v, '<'); i >= 0 {
-			if j := strings.LastIndexByte(v, '>'); j > i+1 {
-				add(v[:i])
-				add(v[i+1 : j])
-				return
-			}
-		}
-		add(v)
-	}
-
-	for _, c := range it.Creators {
-		addAuthorLike(c)
-	}
-	for _, a := range it.Authors {
-		addAuthorLike(a)
-	}
-	for _, cat := range it.Categories {
-		val := strings.TrimSpace(cat.Value)
-		if val == "" {
-			val = strings.TrimSpace(cat.Term)
-		}
-		if val == "" {
-			continue
-		}
-		dom := strings.ToLower(strings.TrimSpace(cat.Domain))
-		if dom == "friend" || dom == "user" || dom == "viewer" || dom == "account" || dom == "plex" || dom == "author" || dom == "creator" {
-			add(val)
-		}
-	}
-	for _, cat := range it.Categories {
-		val := strings.TrimSpace(cat.Value)
-		if val == "" {
-			val = strings.TrimSpace(cat.Term)
-		}
-		if val == "" || isMediaOrFeedCategory(val) {
-			continue
-		}
-		add(val)
-	}
-	return out
-}
-
-func isMediaOrFeedCategory(raw string) bool {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "movie", "movies", "film", "films", "show", "shows", "tv", "series", "episode", "episodes", "season", "seasons",
-		"watchlist", "my watchlist", "friends watchlist", "friends' watchlist", "your watchlist", "your friends' watchlist":
-		return true
-	default:
-		return false
-	}
-}
-
-type viewerMatcher struct {
-	owner      *core.User
-	byPlexID   map[int64]*core.User
-	byUUID     map[string][]*core.User
-	byUsername map[string][]*core.User
-	byEmail    map[string][]*core.User
-	byTitle    map[string][]*core.User
-}
-
-func newViewerMatcher(us []core.User) viewerMatcher {
-	m := viewerMatcher{
-		byPlexID:   make(map[int64]*core.User, len(us)),
-		byUUID:     make(map[string][]*core.User, len(us)),
-		byUsername: make(map[string][]*core.User, len(us)),
-		byEmail:    make(map[string][]*core.User, len(us)),
-		byTitle:    make(map[string][]*core.User, len(us)),
-	}
-	for i := range us {
-		u := &us[i]
-		if u.IsOwner && m.owner == nil {
-			m.owner = u
-		}
-		if u.PlexID > 0 {
-			m.byPlexID[u.PlexID] = u
-		}
-		if k := strings.ToLower(strings.TrimSpace(u.UUID)); k != "" {
-			m.byUUID[k] = append(m.byUUID[k], u)
-		}
-		if k := strings.ToLower(strings.TrimSpace(u.Username)); k != "" {
-			m.byUsername[k] = append(m.byUsername[k], u)
-		}
-		if k := strings.ToLower(strings.TrimSpace(u.Email)); k != "" {
-			m.byEmail[k] = append(m.byEmail[k], u)
-		}
-		if k := strings.ToLower(strings.TrimSpace(u.Title)); k != "" {
-			m.byTitle[k] = append(m.byTitle[k], u)
-		}
-	}
-	return m
-}
-
-func (m viewerMatcher) matchFriend(candidates []string) *core.User {
-	for _, raw := range candidates {
-		cand := strings.TrimSpace(raw)
-		if cand == "" {
-			continue
-		}
-		idRaw := cand
-		for _, prefix := range []string{"plex://user/", "plex://", "plex:", "id:", "user:"} {
-			if strings.HasPrefix(strings.ToLower(idRaw), prefix) {
-				idRaw = strings.TrimSpace(idRaw[len(prefix):])
-				break
-			}
-		}
-		if id, err := strconv.ParseInt(idRaw, 10, 64); err == nil && id > 0 {
-			if u, ok := m.byPlexID[id]; ok {
-				return u
-			}
-		}
-		key := strings.ToLower(cand)
-		if list := m.byUUID[key]; len(list) == 1 {
-			return list[0]
-		}
-		if list := m.byUsername[key]; len(list) == 1 {
-			return list[0]
-		}
-		if list := m.byEmail[key]; len(list) == 1 {
-			return list[0]
-		}
-		if list := m.byTitle[key]; len(list) == 1 {
-			return list[0]
-		}
-	}
-	return nil
 }
 
 type externalRef struct {
@@ -660,7 +465,11 @@ func (s *Service) resolveRSSItem(ctx context.Context, it rssItem) (*core.Title, 
 
 func rssItemMediaType(it rssItem) core.MediaType {
 	for _, c := range it.Categories {
-		switch strings.ToLower(strings.TrimSpace(c.Value)) {
+		val := strings.TrimSpace(c.Value)
+		if val == "" {
+			val = strings.TrimSpace(c.Term)
+		}
+		switch strings.ToLower(val) {
 		case "movie", "movies", "film":
 			return core.TypeMovie
 		case "show", "shows", "tv", "series":
@@ -822,118 +631,157 @@ func leadingDigits(s string) string {
 	return s[:i]
 }
 
-// replaceFeedSnapshot atomically reconciles a feed's watchlist_items rows for
-// every viewer, removing items only when they came from this feed source, and
-// pushes newly added titles to a viewer's linked Trakt account when available.
-func (s *Service) replaceFeedSnapshot(ctx context.Context, source string, us []core.User, byUser map[int64][]core.Title) (int, error) {
-	usersByID := make(map[int64]*core.User, len(us))
-	userIDSet := make(map[int64]bool, len(us))
-	for i := range us {
-		u := &us[i]
-		usersByID[u.ID] = u
-		if len(byUser[u.ID]) > 0 {
-			userIDSet[u.ID] = true
-		}
-	}
-
+// replaceHouseholdFeedSnapshot atomically reconciles the shared household
+// "Friends' watchlists" set (user_id=0, source="plex-friends-rss").
+func (s *Service) replaceHouseholdFeedSnapshot(ctx context.Context, source string, titles []core.Title) (int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
-	existingRows, err := tx.QueryContext(ctx, `SELECT DISTINCT user_id FROM watchlist_items WHERE source=?`, source)
-	if err != nil {
-		return 0, err
-	}
-	for existingRows.Next() {
-		var uid int64
-		if err := existingRows.Scan(&uid); err != nil {
-			existingRows.Close()
-			return 0, err
-		}
-		userIDSet[uid] = true
-	}
-	if err := existingRows.Err(); err != nil {
-		existingRows.Close()
-		return 0, err
-	}
-	existingRows.Close()
-
-	uids := make([]int64, 0, len(userIDSet))
-	for uid := range userIDSet {
-		uids = append(uids, uid)
-	}
-	sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
-
-	type traktPush struct {
-		uid   int64
-		title core.Title
-	}
-	var toPush []traktPush
+	keys := make(map[core.RatingKey]bool, len(titles))
 	imported := 0
 	changed := false
 	now := s.o.Now().Unix()
 
-	for _, uid := range uids {
-		u := usersByID[uid]
-		keys := map[core.RatingKey]bool{}
-		if u != nil {
-			for _, t := range byUser[uid] {
-				if keys[t.Key] || !s.allowed(u, &t) {
-					continue
-				}
-				keys[t.Key] = true
-				imported++
-
-				var existed bool
-				if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM watchlist_items WHERE user_id=? AND item_key=?)`, uid, t.Key).Scan(&existed); err != nil {
-					return 0, err
-				}
-				raw, err := json.Marshal(t)
-				if err != nil {
-					return 0, err
-				}
-				if _, err := tx.ExecContext(ctx, `INSERT INTO watchlist_items(user_id,item_key,source,title,added) VALUES(?,?,?,?,?) ON CONFLICT(user_id,item_key,source) DO UPDATE SET title=excluded.title`, uid, t.Key, source, string(raw), now); err != nil {
-					return 0, err
-				}
-				changed = true
-				if !existed {
-					toPush = append(toPush, traktPush{uid: uid, title: t})
-				}
-			}
+	for _, t := range titles {
+		if t.Adult || keys[t.Key] {
+			continue
 		}
-
-		rows, err := tx.QueryContext(ctx, `SELECT item_key FROM watchlist_items WHERE user_id=? AND source=?`, uid, source)
+		keys[t.Key] = true
+		added := now - int64(imported)
+		imported++
+		raw, err := json.Marshal(t)
 		if err != nil {
 			return 0, err
 		}
-		var removed []core.RatingKey
-		for rows.Next() {
-			var k core.RatingKey
-			if err := rows.Scan(&k); err != nil {
-				rows.Close()
-				return 0, err
-			}
-			if !keys[k] {
-				removed = append(removed, k)
-			}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO watchlist_items(user_id,item_key,source,title,added) VALUES(?,?,?,?,?) ON CONFLICT(user_id,item_key,source) DO UPDATE SET title=excluded.title`, householdUserID, t.Key, source, string(raw), added); err != nil {
+			return 0, err
 		}
-		if err := rows.Err(); err != nil {
+		changed = true
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT user_id,item_key FROM watchlist_items WHERE source=?`, source)
+	if err != nil {
+		return 0, err
+	}
+	type pair struct {
+		uid int64
+		key core.RatingKey
+	}
+	var removed []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.uid, &p.key); err != nil {
 			rows.Close()
 			return 0, err
 		}
+		if p.uid != householdUserID || !keys[p.key] {
+			removed = append(removed, p)
+		}
+	}
+	if err := rows.Err(); err != nil {
 		rows.Close()
+		return 0, err
+	}
+	rows.Close()
 
-		for _, k := range removed {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM watchlist_items WHERE user_id=? AND source=? AND item_key=?`, uid, source, k); err != nil {
+	for _, p := range removed {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM watchlist_items WHERE user_id=? AND source=? AND item_key=?`, p.uid, source, p.key); err != nil {
+			return 0, err
+		}
+		if err := forgetEpisodes(ctx, tx, p.uid, p.key); err != nil {
+			return 0, err
+		}
+		changed = true
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	if changed {
+		s.gen.Add(1)
+	}
+	return imported, nil
+}
+
+// replaceOwnerFeedSnapshot atomically reconciles the owner's "Your Watchlist"
+// RSS rows (user_id=owner.ID, source="plex-rss") and pushes newly added titles
+// to the owner's linked Trakt account when available.
+func (s *Service) replaceOwnerFeedSnapshot(ctx context.Context, source string, owner *core.User, titles []core.Title) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	keys := map[core.RatingKey]bool{}
+	var toPush []core.Title
+	imported := 0
+	changed := false
+	now := s.o.Now().Unix()
+
+	if owner != nil {
+		for _, t := range titles {
+			if keys[t.Key] || !s.allowed(owner, &t) {
+				continue
+			}
+			keys[t.Key] = true
+			added := now - int64(imported)
+			imported++
+
+			var existed bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM watchlist_items WHERE user_id=? AND item_key=?)`, owner.ID, t.Key).Scan(&existed); err != nil {
 				return 0, err
 			}
-			if err := forgetEpisodes(ctx, tx, uid, k); err != nil {
+			raw, err := json.Marshal(t)
+			if err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO watchlist_items(user_id,item_key,source,title,added) VALUES(?,?,?,?,?) ON CONFLICT(user_id,item_key,source) DO UPDATE SET title=excluded.title`, owner.ID, t.Key, source, string(raw), added); err != nil {
 				return 0, err
 			}
 			changed = true
+			if !existed {
+				toPush = append(toPush, t)
+			}
 		}
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT user_id,item_key FROM watchlist_items WHERE source=?`, source)
+	if err != nil {
+		return 0, err
+	}
+	type pair struct {
+		uid int64
+		key core.RatingKey
+	}
+	var removed []pair
+	for rows.Next() {
+		var p pair
+		if err := rows.Scan(&p.uid, &p.key); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if owner == nil || p.uid != owner.ID || !keys[p.key] {
+			removed = append(removed, p)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	for _, p := range removed {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM watchlist_items WHERE user_id=? AND source=? AND item_key=?`, p.uid, source, p.key); err != nil {
+			return 0, err
+		}
+		if err := forgetEpisodes(ctx, tx, p.uid, p.key); err != nil {
+			return 0, err
+		}
+		changed = true
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -943,16 +791,18 @@ func (s *Service) replaceFeedSnapshot(ctx context.Context, source string, us []c
 		s.gen.Add(1)
 	}
 
-	if writer, ok := s.o.Trakt.(traktWriter); ok && len(toPush) > 0 {
-		for _, p := range toPush {
-			if ctx.Err() != nil {
-				break
-			}
-			pushCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			_, pushErr := writer.SetWatchlist(pushCtx, p.uid, p.title, true)
-			cancel()
-			if pushErr != nil {
-				s.o.Logger.Warn("watchlist rss trakt push failed", "user", p.uid, "item", p.title.Key, "err", pushErr)
+	if owner != nil && len(toPush) > 0 {
+		if writer, ok := s.o.Trakt.(traktWriter); ok {
+			for _, t := range toPush {
+				if ctx.Err() != nil {
+					break
+				}
+				pushCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+				_, pushErr := writer.SetWatchlist(pushCtx, owner.ID, t, true)
+				cancel()
+				if pushErr != nil {
+					s.o.Logger.Warn("watchlist rss trakt push failed", "user", owner.ID, "item", t.Key, "err", pushErr)
+				}
 			}
 		}
 	}
@@ -1006,7 +856,16 @@ func (s *Service) clearFeedSource(ctx context.Context, source, metaKey string) e
 	if len(removed) > 0 {
 		s.gen.Add(1)
 	}
+	if source == sourcePlexFriendsRSS {
+		s.notifyFriendsRSSChanged(ctx)
+	}
 	return nil
+}
+
+func (s *Service) notifyFriendsRSSChanged(ctx context.Context) {
+	if s.o.OnFriendsRSSChanged != nil {
+		s.o.OnFriendsRSSChanged(ctx)
+	}
 }
 
 func (s *Service) resetFeedMeta(ctx context.Context, metaKey string) {
@@ -1045,7 +904,6 @@ func (s *Service) feedStatus(ctx context.Context, feedURL, metaKey string) *RSSF
 		Configured:      true,
 		LastRead:        m.LastRead,
 		Imported:        m.Imported,
-		SkippedFriends:  m.SkippedFriends,
 		UnmatchedTitles: m.UnmatchedTitles,
 		Problem:         m.Problem,
 	}
@@ -1054,13 +912,4 @@ func (s *Service) feedStatus(ctx context.Context, feedURL, metaKey string) *RSSF
 func sha256Hex(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
-}
-
-func hashViewers(us []core.User) string {
-	parts := make([]string, len(us))
-	for i, u := range us {
-		parts[i] = fmt.Sprintf("%d:%d:%s:%s:%s:%s:%t", u.ID, u.PlexID, strings.ToLower(u.UUID), strings.ToLower(u.Username), strings.ToLower(u.Email), strings.ToLower(u.Title), u.IsOwner)
-	}
-	sort.Strings(parts)
-	return sha256Hex(strings.Join(parts, "|"))
 }

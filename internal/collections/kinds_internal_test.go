@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuiltinSourceKindsAllRegistered(t *testing.T) {
-	want := []string{"anilistList", "catalog", "letterboxdList", "mdblist", "stevenlu", "titles",
+	want := []string{"anilistList", "catalog", "friendsWatchlist", "letterboxdList", "mdblist", "stevenlu", "titles",
 		"tmdbCollection", "tmdbCompany", "tmdbDiscover", "tmdbKeyword", "tmdbList", "tmdbNetwork",
 		"tmdbPerson", "tmdbUserList", "traktList", "watchProvider"}
 	reg := NewKindRegistry()
@@ -27,8 +27,8 @@ func TestBuiltinSourceKindsAllRegistered(t *testing.T) {
 
 func TestSourceKindDescriptors(t *testing.T) {
 	ds := BuiltinDescriptors()
-	if len(ds) != 16 {
-		t.Fatalf("descriptors = %d, want 16", len(ds))
+	if len(ds) != 17 {
+		t.Fatalf("descriptors = %d, want 17", len(ds))
 	}
 	seen := map[string]bool{}
 	for _, d := range ds {
@@ -51,7 +51,7 @@ func TestSourceKindDescriptors(t *testing.T) {
 		}
 		seen[d.ID] = true
 	}
-	for _, id := range []string{"catalog", "tmdbList", "stevenlu"} {
+	for _, id := range []string{"catalog", "friendsWatchlist", "tmdbList", "stevenlu"} {
 		if !seen[id] {
 			t.Errorf("missing descriptor %s", id)
 		}

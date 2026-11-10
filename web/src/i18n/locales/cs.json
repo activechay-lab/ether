@@ -3731,7 +3731,6 @@
   "m_0d1f1b787ec8dd": "OMDb má IMDb, kritiky z Rotten Tomatoes a Metacritic. MDBList přidává skóre diváků a Letterboxd.",
   "m_0d1f6dd8c9032a": "Pravidlo {n} · až {height}",
   "m_0d216b3e837354": "Pracovní dny",
-  "m_0d22428088f149": "Přeskočeno: {titles}",
   "m_0d230affc51dd0": "Nezpracované parametry TMDB Discover",
   "m_0d249e77e89d57": "Připojuje se k {hosts}",
   "m_0d25b73224564f": "Podíl ochrany rozkoukaných (%)",
@@ -4730,6 +4729,7 @@
   "m_107c55bf7f5fde": "Zabarvuje generovaný artwork. Automaticky se přizpůsobí hlavnímu plakátu.",
   "m_107e66090c813c": "Tato adresa patří jinému Plex Media Serveru. Přidejte ho raději jako nový server.",
   "m_10815a5071e78a": "Vzdálené ovládání není z tohoto serveru dostupné.",
+  "m_10816f12b17447": "Seznamy ke zhlédnutí přátel",
   "m_1082d1a6a743cc": "Účet Simkl byl připojen.",
   "m_1083e252cdd4f4": "Vybrat všechny výsledky",
   "m_1084ceab8e0923": {
@@ -5790,7 +5790,6 @@
   "m_13e93b002ed997": "Nastavení Plex",
   "m_13e99ad5170e51": "pátek",
   "m_13ea41bed26d28": "Z vašeho zdroje definic",
-  "m_13eacb38068609": "Přeskočeno: {friends}, {titles}",
   "m_13ebf7f944d6af": "Průběh obnovy",
   "m_13edb133a93e1f": "Změna úložiště uložena. Pro použití nového backendu nebo složky restartujte tento uzel. Přehled zobrazuje aktuálně aktivní mezipaměť.",
   "m_13f084dd5ec346": "Telegram",
@@ -5836,6 +5835,7 @@
   "m_1412bc6ed8b387": "Televizní seriál odvysílá během týdne nové epizody.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Začněte šablonou a za minutu z ní udělejte vlastní.",
+  "m_14145c19c85b71": "Tituly z nakonfigurovaného kanálu RSS seznamu ke zhlédnutí přátel na Plexu",
   "m_141495099a3f43": "Oprava vypnuta",
   "m_1415dc20b5f18b": "Nabídka verzí",
   "m_1415f80559468f": "Skryto pro {who}: žádné odpovídající tituly",
@@ -6161,7 +6161,6 @@
   "m_152fe8e481d949": "Náhled sekvence",
   "m_1530a071c3f814": "Délka",
   "m_1530ad92e449d6": "Přijato",
-  "m_153143704324a8": "Vložte adresu RSS „Your Friends' Watchlist“ z nastavení seznamu k zhlédnutí na plex.tv pro import seznamů sdílených přátel.",
   "m_15334f416c151e": "Barva záře",
   "m_1533da94ee9abd": "Pojmenujte pre-roll.",
   "m_15364765e67f5a": "URL vlastního obrázku",
@@ -7211,12 +7210,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Vydání z Usenetu se streamují od vašich poskytovatelů Usenetu.",
-  "m_18c36824a6efa8": {
-    "one": "{count} neznámý přítel",
-    "few": "{count} neznámí přátelé",
-    "many": "{count} neznámého přítele",
-    "other": "{count} neznámých přátel"
-  },
   "m_18c4104ed97612": "Filmy s vynikajícím hodnocením od tisíců diváků.",
   "m_18ca1c5dc775ca": "Tento divák již nemá přístup k serveru. Jeho historie je zachována.",
   "m_18cac20f7cbd3e": "Souběžná stahování na diváka",
@@ -8082,6 +8075,12 @@
   "m_1bb559e4ea8260": "Průměrný datový tok",
   "m_1bb5fa24d90bf6": "Kopírovat cestu pro výměnu",
   "m_1bb65e264e929e": "Kontrast textu: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} titul v sadě",
+    "few": "{count} tituly v sadě",
+    "many": "{count} titulu v sadě",
+    "other": "{count} titulů v sadě"
+  },
   "m_1bb6ee1903edda": "Lidé a společnosti",
   "m_1bb801da11773e": "O zobrazení a umístění rozhoduje personalizace",
   "m_1bb961e2b8b420": "Účet debridu",
@@ -9204,6 +9203,7 @@
     "one": "{count} jádro",
     "other": "{count} jader"
   },
+  "m_1f9aedfc11eaaf": "Vložte adresu RSS „Your Friends' Watchlist“ z nastavení Watchlistu na plex.tv. Plex neuvádí, který přítel co přidal, proto se zobrazují společně jako sdílený řádek „Your friends want to watch“.",
   "m_1f9c0615e0256b": "Hodnocení {rating} nebo nižší",
   "m_1f9dc6f1f797f7": "Filtry",
   "m_1f9edee8c79e28": "Trendy TV tohoto týdne",

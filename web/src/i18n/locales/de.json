@@ -3563,7 +3563,6 @@
   "m_0d1f1b787ec8dd": "OMDb liefert IMDb, Rotten-Tomatoes-Kritiker und Metacritic. MDBList ergänzt Publikums- und Letterboxd-Wertungen.",
   "m_0d1f6dd8c9032a": "Regel {n} · bis {height}",
   "m_0d216b3e837354": "Wochentage",
-  "m_0d22428088f149": "Übersprungen: {titles}",
   "m_0d230affc51dd0": "Rohe TMDB-Discover-Parameter",
   "m_0d249e77e89d57": "Verbindet sich mit {hosts}",
   "m_0d25b73224564f": "Anteil des Fortsetzungsschutzes (%)",
@@ -4508,6 +4507,7 @@
   "m_107c55bf7f5fde": "Färbt generiertes Artwork ein. „Automatisch“ passt sich dem ersten Poster an.",
   "m_107e66090c813c": "Diese Adresse gehört zu einem anderen Plex Media Server. Füge ihn stattdessen als neuen Server hinzu.",
   "m_10815a5071e78a": "Fernsteuerung ist von diesem Server aus nicht verfügbar.",
+  "m_10816f12b17447": "Watchlists von Freunden",
   "m_1082d1a6a743cc": "Simkl-Konto verbunden.",
   "m_1083e252cdd4f4": "Alle Treffer auswählen",
   "m_1084ceab8e0923": {
@@ -5506,7 +5506,6 @@
   "m_13e93b002ed997": "Plex-Einstellungen",
   "m_13e99ad5170e51": "Freitag",
   "m_13ea41bed26d28": "Aus deiner Definitionsquelle",
-  "m_13eacb38068609": "Übersprungen: {friends}, {titles}",
   "m_13ebf7f944d6af": "Fortschritt der Wiederherstellung",
   "m_13edb133a93e1f": "Speicheränderung gespeichert. Starte diesen Knoten neu, um das neue Backend oder den neuen Ordner zu verwenden. Die Übersicht zeigt den aktuell aktiven Cache.",
   "m_13f084dd5ec346": "Telegram",
@@ -5550,6 +5549,7 @@
   "m_1412bc6ed8b387": "TV-Serien, die innerhalb einer Woche neue Folgen ausstrahlen.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Starte mit einer Vorlage und mach sie in einer Minute zu deiner.",
+  "m_14145c19c85b71": "Titel aus deinem konfigurierten RSS-Feed für die Plex-Watchlists deiner Freunde",
   "m_141495099a3f43": "Reparatur deaktiviert",
   "m_1415dc20b5f18b": "Versionsmenü",
   "m_1415f80559468f": "Ausgeblendet für {who}: keine passenden Titel",
@@ -5855,7 +5855,6 @@
   "m_152fe8e481d949": "Sequenzvorschau",
   "m_1530a071c3f814": "Laufzeit",
   "m_1530ad92e449d6": "Akzeptiert",
-  "m_153143704324a8": "Füge die RSS-URL „Your Friends' Watchlist“ aus den Merklisten-Einstellungen auf plex.tv ein, um die Merklisten freigegebener Freunde zu importieren.",
   "m_15334f416c151e": "Leuchtfarbe",
   "m_1533da94ee9abd": "Gib dem Pre-Roll einen Namen.",
   "m_15364765e67f5a": "URL des eigenen Bildes",
@@ -6853,10 +6852,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-Releases werden von deinen Usenet-Anbietern gestreamt.",
-  "m_18c36824a6efa8": {
-    "one": "{count} unbekannter Freund",
-    "other": "{count} unbekannte Freunde"
-  },
   "m_18c4104ed97612": "Filme mit hervorragenden Bewertungen von Tausenden von Zuschauern.",
   "m_18ca1c5dc775ca": "Dieser Zuschauer hat keinen Serverzugriff mehr. Sein Verlauf bleibt erhalten.",
   "m_18cac20f7cbd3e": "Gleichzeitige Downloads pro Zuschauer",
@@ -7689,6 +7684,10 @@
   "m_1bb559e4ea8260": "Ø Bitrate",
   "m_1bb5fa24d90bf6": "Pfad zum Einlösen kopieren",
   "m_1bb65e264e929e": "Textkontrast: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} Titel im Satz",
+    "other": "{count} Titel im Satz"
+  },
   "m_1bb6ee1903edda": "Personen und Unternehmen",
   "m_1bb801da11773e": "Die Personalisierung entscheidet, ob und wo",
   "m_1bb961e2b8b420": "Debrid-Konto",
@@ -8753,6 +8752,7 @@
     "one": "{count} Kern",
     "other": "{count} Kerne"
   },
+  "m_1f9aedfc11eaaf": "Füge die RSS-URL für „Your Friends' Watchlist“ aus den Watchlist-Einstellungen auf plex.tv ein. Da Plex nicht angibt, welcher Freund welchen Titel hinzugefügt hat, erscheint alles gemeinsam als geteilte Reihe „Your friends want to watch“.",
   "m_1f9c0615e0256b": "Altersfreigabe bis {rating}",
   "m_1f9dc6f1f797f7": "Filter",
   "m_1f9edee8c79e28": "TV-Trends dieser Woche",

@@ -3563,7 +3563,6 @@
   "m_0d1f1b787ec8dd": "OMDb har IMDb, Rotten Tomatoes-kritiker och Metacritic. MDBList lägger till publik- och Letterboxd-betyg.",
   "m_0d1f6dd8c9032a": "Regel {n} · upp till {height}",
   "m_0d216b3e837354": "Vardagar",
-  "m_0d22428088f149": "Hoppade över: {titles}",
   "m_0d230affc51dd0": "Råa TMDB Discover-parametrar",
   "m_0d249e77e89d57": "Ansluter till {hosts}",
   "m_0d25b73224564f": "Andel för återupptagningsskydd (%)",
@@ -4508,6 +4507,7 @@
   "m_107c55bf7f5fde": "Färgsätter genererat omslag. Automatisk matchar huvudaffischen.",
   "m_107e66090c813c": "Den adressen hör till en annan Plex Media Server. Lägg till den som en ny server i stället.",
   "m_10815a5071e78a": "Fjärrstyrning är inte tillgänglig från den här servern.",
+  "m_10816f12b17447": "Vänners bevakningslistor",
   "m_1082d1a6a743cc": "Simkl-kontot har anslutits.",
   "m_1083e252cdd4f4": "Välj alla träffar",
   "m_1084ceab8e0923": {
@@ -5506,7 +5506,6 @@
   "m_13e93b002ed997": "Plex-inställningar",
   "m_13e99ad5170e51": "fredag",
   "m_13ea41bed26d28": "Från din definitionskälla",
-  "m_13eacb38068609": "Hoppade över: {friends}, {titles}",
   "m_13ebf7f944d6af": "Återställningsförlopp",
   "m_13edb133a93e1f": "Lagringsändringen sparades. Starta om den här noden för att använda den nya backenden eller mappen. Översikten visar den cache som är aktiv just nu.",
   "m_13f084dd5ec346": "Telegram",
@@ -5550,6 +5549,7 @@
   "m_1412bc6ed8b387": "TV-serier som sänder nya avsnitt under veckan.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Börja med en mall och gör den till din på en minut.",
+  "m_14145c19c85b71": "Titlar från ditt konfigurerade RSS-flöde för vänners bevakningslistor i Plex",
   "m_141495099a3f43": "Reparation avstängd",
   "m_1415dc20b5f18b": "Versionsmeny",
   "m_1415f80559468f": "Dold för {who}: inga matchande titlar",
@@ -5855,7 +5855,6 @@
   "m_152fe8e481d949": "Förhandsvisning av sekvens",
   "m_1530a071c3f814": "Speltid",
   "m_1530ad92e449d6": "Godkänd",
-  "m_153143704324a8": "Klistra in RSS-adressen ”Your Friends' Watchlist” från Watchlist-inställningarna på plex.tv för att importera delade vänners bevakningslistor.",
   "m_15334f416c151e": "Glödfärg",
   "m_1533da94ee9abd": "Ge din pre-roll ett namn.",
   "m_15364765e67f5a": "Egen bild-URL",
@@ -6853,10 +6852,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-releaser streamas från dina Usenet-leverantörer.",
-  "m_18c36824a6efa8": {
-    "one": "{count} okänd vän",
-    "other": "{count} okända vänner"
-  },
   "m_18c4104ed97612": "Filmer med enastående betyg från tusentals tittare.",
   "m_18ca1c5dc775ca": "Den här tittaren har inte längre serveråtkomst. Deras historik behålls.",
   "m_18cac20f7cbd3e": "Samtidiga nedladdningar per tittare",
@@ -7689,6 +7684,10 @@
   "m_1bb559e4ea8260": "Snittbithastighet",
   "m_1bb5fa24d90bf6": "Kopiera inbytessökväg",
   "m_1bb65e264e929e": "Textkontrast: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} titel i gruppen",
+    "other": "{count} titlar i gruppen"
+  },
   "m_1bb6ee1903edda": "Personer och bolag",
   "m_1bb801da11773e": "Personalisering avgör om och var",
   "m_1bb961e2b8b420": "Debrid-konto",
@@ -8753,6 +8752,7 @@
     "one": "{count} kärna",
     "other": "{count} kärnor"
   },
+  "m_1f9aedfc11eaaf": "Klistra in RSS-adressen för ”Your Friends' Watchlist” från Watchlist-inställningarna på plex.tv. Plex anger inte vilken vän som lade till vad, så det visas som en gemensam rad ”Your friends want to watch”.",
   "m_1f9c0615e0256b": "Åldersgräns {rating} eller lägre",
   "m_1f9dc6f1f797f7": "Filter",
   "m_1f9edee8c79e28": "Trendig TV den här veckan",

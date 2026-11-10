@@ -3563,7 +3563,6 @@
   "m_0d1f1b787ec8dd": "OMDb; IMDb, Rotten Tomatoes eleştirmenleri ve Metacritic puanlarını içerir. MDBList izleyici ve Letterboxd puanlarını ekler.",
   "m_0d1f6dd8c9032a": "Kural {n} · en çok {height}",
   "m_0d216b3e837354": "Hafta içi",
-  "m_0d22428088f149": "Atlanan: {titles}",
   "m_0d230affc51dd0": "Ham TMDB keşfet parametreleri",
   "m_0d249e77e89d57": "{hosts} adreslerine bağlanır",
   "m_0d25b73224564f": "Devam koruma payı (%)",
@@ -4508,6 +4507,7 @@
   "m_107c55bf7f5fde": "Oluşturulan görseli renklendirir. Otomatik, ilk posterle eşleşir.",
   "m_107e66090c813c": "Bu adres farklı bir Plex Media Server. Bunun yerine yeni bir sunucu olarak ekleyin.",
   "m_10815a5071e78a": "Bu sunucudan uzaktan denetimler kullanılamıyor.",
+  "m_10816f12b17447": "Arkadaşların izleme listeleri",
   "m_1082d1a6a743cc": "Simkl hesabı bağlandı.",
   "m_1083e252cdd4f4": "Tüm eşleşmeleri seç",
   "m_1084ceab8e0923": {
@@ -5506,7 +5506,6 @@
   "m_13e93b002ed997": "Plex ayarları",
   "m_13e99ad5170e51": "cuma",
   "m_13ea41bed26d28": "Tanım kaynağınızdan",
-  "m_13eacb38068609": "Atlanan: {friends}, {titles}",
   "m_13ebf7f944d6af": "Geri yükleme ilerlemesi",
   "m_13edb133a93e1f": "Depolama değişikliği kaydedildi. Yeni arka ucu veya klasörü kullanmak için bu düğümü yeniden başlatın. Genel bakış, şu anda etkin olan önbelleği gösterir.",
   "m_13f084dd5ec346": "Telegram",
@@ -5550,6 +5549,7 @@
   "m_1412bc6ed8b387": "Hafta içi yeni bölümleri yayınlanacak diziler.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Bir şablonla başlayın ve bir dakikada kendinize göre uyarlayın.",
+  "m_14145c19c85b71": "Yapılandırılan Plex Arkadaşların İzleme Listesi RSS akışındaki yapımlar",
   "m_141495099a3f43": "Onarım devre dışı",
   "m_1415dc20b5f18b": "Sürüm menüsü",
   "m_1415f80559468f": "{who} için gizlendi: eşleşen içerik yok",
@@ -5855,7 +5855,6 @@
   "m_152fe8e481d949": "Sekans önizlemesi",
   "m_1530a071c3f814": "Süre",
   "m_1530ad92e449d6": "Kabul edildi",
-  "m_153143704324a8": "Paylaşılan arkadaşlarınızın izleme listelerini içe aktarmak için plex.tv İzleme Listesi ayarlarından “Your Friends' Watchlist” RSS URL'sini yapıştırın.",
   "m_15334f416c151e": "Parıltı rengi",
   "m_1533da94ee9abd": "Pre-roll'a bir ad verin.",
   "m_15364765e67f5a": "Özel görsel URL'si",
@@ -6853,10 +6852,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet sürümleri Usenet sağlayıcılarınızdan akışa alınır.",
-  "m_18c36824a6efa8": {
-    "one": "{count} bilinmeyen arkadaş",
-    "other": "{count} bilinmeyen arkadaş"
-  },
   "m_18c4104ed97612": "Binlerce izleyiciden olağanüstü derecelendirme alan filmler.",
   "m_18ca1c5dc775ca": "Bu izleyicinin artık sunucu erişimi yok. Geçmişi korunuyor.",
   "m_18cac20f7cbd3e": "İzleyici başına eşzamanlı indirmeler",
@@ -7689,6 +7684,10 @@
   "m_1bb559e4ea8260": "Ort. bit hızı",
   "m_1bb5fa24d90bf6": "Değişim yolunu kopyala",
   "m_1bb65e264e929e": "Metin kontrastı: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "Sette {count} yapım",
+    "other": "Sette {count} yapım"
+  },
   "m_1bb6ee1903edda": "Kişiler ve şirketler",
   "m_1bb801da11773e": "Yerleşimi ve gösterilip gösterilmeyeceğini kişiselleştirme belirler",
   "m_1bb961e2b8b420": "Debrid hesabı",
@@ -8753,6 +8752,7 @@
     "one": "{count} çekirdek",
     "other": "{count} çekirdek"
   },
+  "m_1f9aedfc11eaaf": "plex.tv İzleme Listesi ayarlarından “Your Friends' Watchlist” RSS adresini yapıştırın. Plex hangi arkadaşın ne eklediğini belirtmediği için içerikler ortak bir “Your friends want to watch” satırı olarak gösterilir.",
   "m_1f9c0615e0256b": "{rating} veya altı",
   "m_1f9dc6f1f797f7": "Filtreler",
   "m_1f9edee8c79e28": "Bu Haftanın Trendi TV",

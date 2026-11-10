@@ -5,46 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
+	"github.com/braedonsaunders/ether/internal/collections"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 )
-
-type rssFakeCatalog struct {
-	core.Catalog
-	titles map[core.RatingKey]core.Title
-	imdb   map[string]core.Title
-	tvdb   map[string]core.Title
-}
-
-func (c rssFakeCatalog) Get(_ context.Context, k core.RatingKey) (*core.Title, error) {
-	t, ok := c.titles[k]
-	if !ok {
-		return nil, core.ErrNotFound
-	}
-	return &t, nil
-}
-
-func (c rssFakeCatalog) ByExternalID(_ context.Context, source, id string) (*core.Title, error) {
-	switch source {
-	case "imdb":
-		if t, ok := c.imdb[id]; ok {
-			return &t, nil
-		}
-	case "tvdb":
-		if t, ok := c.tvdb[id]; ok {
-			return &t, nil
-		}
-	}
-	return nil, core.ErrNotFound
-}
 
 type rssFakeTrakt struct {
 	mu     sync.Mutex
@@ -83,80 +58,102 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 	}
 
 	now := time.Date(2026, 11, 10, 15, 0, 0, 0, time.UTC)
-	movie1 := core.Title{Key: core.MovieKey(101), Type: core.TypeMovie, Title: "Dune", ContentRating: "PG-13", Released: now.Add(-48 * time.Hour), IDs: core.IDs{TMDB: 101, IMDB: "tt1160419"}}
-	movie2 := core.Title{Key: core.MovieKey(102), Type: core.TypeMovie, Title: "Arrival", ContentRating: "PG-13", Released: now.Add(-48 * time.Hour), IDs: core.IDs{TMDB: 102, IMDB: "tt2543164"}}
-	show1 := core.Title{Key: core.ShowKey(201), Type: core.TypeShow, Title: "Severance", ContentRating: "TV-MA", Released: now.Add(-48 * time.Hour), IDs: core.IDs{TMDB: 201, TVDB: 371980}}
-	movieOwner := core.Title{Key: core.MovieKey(103), Type: core.TypeMovie, Title: "Blade Runner 2049", ContentRating: "R", Released: now.Add(-48 * time.Hour), IDs: core.IDs{TMDB: 103, IMDB: "tt1856101"}}
-
-	cat := rssFakeCatalog{
-		titles: map[core.RatingKey]core.Title{
-			movie1.Key:     movie1,
-			movie2.Key:     movie2,
-			show1.Key:      show1,
-			movieOwner.Key: movieOwner,
-		},
-		imdb: map[string]core.Title{
-			"tt1160419": movie1,
-			"tt2543164": movie2,
-			"tt1856101": movieOwner,
-		},
-		tvdb: map[string]core.Title{
-			"371980": show1,
-		},
+	movie1 := core.Title{
+		Key: core.MovieKey(101), Type: core.TypeMovie, Title: "Dune", Year: 2021,
+		ContentRating: "PG-13", Released: now.Add(-48 * time.Hour),
+		Rating: 8.0, Popularity: 80, VoteCount: 1000, PosterPath: "/dune.jpg",
+		IDs: core.IDs{TMDB: 101, IMDB: "tt1160419"},
+	}
+	movie2 := core.Title{
+		Key: core.MovieKey(102), Type: core.TypeMovie, Title: "Arrival", Year: 2016,
+		ContentRating: "PG-13", Released: now.Add(-48 * time.Hour),
+		Rating: 7.9, Popularity: 75, VoteCount: 1000, PosterPath: "/arrival.jpg",
+		IDs: core.IDs{TMDB: 102, IMDB: "tt2543164"},
+	}
+	show1 := core.Title{
+		Key: core.ShowKey(201), Type: core.TypeShow, Title: "Severance", Year: 2022,
+		ContentRating: "TV-MA", Released: now.Add(-48 * time.Hour),
+		Rating: 8.7, Popularity: 90, VoteCount: 1000, PosterPath: "/severance.jpg",
+		IDs: core.IDs{TMDB: 201, TVDB: 371980},
+	}
+	upcomingMovie := core.Title{
+		Key: core.MovieKey(104), Type: core.TypeMovie, Title: "Dune Messiah", Year: 2026,
+		ContentRating: "PG-13", Released: now.Add(24 * time.Hour),
+		Rating: 8.2, Popularity: 85, VoteCount: 500, PosterPath: "/messiah.jpg",
+		IDs: core.IDs{TMDB: 104, IMDB: "tt15239678"},
+	}
+	movieOwner := core.Title{
+		Key: core.MovieKey(103), Type: core.TypeMovie, Title: "Blade Runner 2049", Year: 2017,
+		ContentRating: "R", Released: now.Add(-48 * time.Hour),
+		Rating: 8.0, Popularity: 70, VoteCount: 1000, PosterPath: "/br2049.jpg",
+		IDs: core.IDs{TMDB: 103, IMDB: "tt1856101"},
 	}
 
-	users := []core.User{
-		{ID: 1, PlexID: 42, Username: "owner", Title: "Owner", IsOwner: true},
-		{ID: 2, PlexID: 1001, Username: "alice", Title: "Alice", Email: "alice@example.com"},
-		{ID: 3, PlexID: 1002, Username: "bob", Title: "Bob", Email: "bob@example.com"},
-		{ID: 4, PlexID: 1003, Username: "carol", Title: "Carol", Email: "carol@example.com"},
+	catCfg := config.Catalog{Language: "en-US", Region: "US", MinPopularity: 1, MinVotes: 1}
+	cat, err := catalog.New(db, nil, catCfg, slog.Default())
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, title := range []core.Title{movie1, movie2, show1, upcomingMovie, movieOwner} {
+		if err := cat.UpsertTitle(ctx, title, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cols, err := collections.New(
+		db,
+		cat,
+		slog.Default(),
+		collections.WithIndexTTL(0),
+		collections.WithLiveTTL(0),
+		collections.WithNow(func() time.Time { return now }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	owner := core.User{ID: 1, PlexID: 42, Username: "owner", Title: "Owner", IsOwner: true}
+	alice := core.User{ID: 2, PlexID: 1001, Username: "alice", Title: "Alice", Email: "alice@example.com"}
+	teen := core.User{ID: 3, PlexID: 1002, Username: "teen", Title: "Teen", MaxContentRating: "PG-13"}
+	moviesOnly := core.User{ID: 4, PlexID: 1003, Username: "moviesonly", Title: "Movies Only", AllowedLibraries: []core.LibraryID{core.LibraryMovies}}
+	strictKid := core.User{ID: 5, PlexID: 1004, Username: "kid", Title: "Kid", MaxContentRating: "G"}
+	users := []core.User{owner, alice, teen, moviesOnly, strictKid}
 
 	var mu sync.Mutex
 	etag := `"feed-v1"`
 	lastMod := "Tue, 10 Nov 2026 15:00:00 GMT"
+	// Real rss.plex.tv Friends' Watchlist XML carries no per-friend attribution.
 	friendsXML := `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss version="2.0">
   <channel>
-    <title>Friends Watchlist</title>
+    <title>Plex Watchlist for Owner's Friends</title>
     <item>
       <title>Dune (2021)</title>
-      <dc:creator>alice</dc:creator>
       <category>movie</category>
       <guid isPermaLink="false">imdb://tt1160419</guid>
     </item>
     <item>
       <title>Arrival (2016)</title>
-      <dc:creator>alice</dc:creator>
       <category>movie</category>
       <guid isPermaLink="false">tmdb://102</guid>
     </item>
     <item>
       <title>Severance (2022)</title>
-      <author>1002</author>
       <category>show</category>
       <guid isPermaLink="false">tvdb://371980</guid>
     </item>
     <item>
+      <title>Dune Messiah (2026)</title>
+      <category>movie</category>
+      <guid isPermaLink="false">imdb://tt15239678</guid>
+    </item>
+    <item>
       <title>Dune (2021)</title>
-      <category domain="friend">carol@example.com</category>
       <category>movie</category>
       <link>https://www.themoviedb.org/movie/101-dune</link>
     </item>
     <item>
-      <title>Mystery Friend Pick</title>
-      <dc:creator>not-a-viewer</dc:creator>
-      <category>movie</category>
-      <guid isPermaLink="false">imdb://tt1160419</guid>
-    </item>
-    <item>
-      <title>Privacy Redacted Item</title>
-      <category>movie</category>
-      <guid isPermaLink="false">imdb://tt1160419</guid>
-    </item>
-    <item>
       <title>Unknown Catalogue Title</title>
-      <dc:creator>bob</dc:creator>
       <category>movie</category>
       <guid isPermaLink="false">imdb://tt9999999</guid>
     </item>
@@ -204,21 +201,37 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	trakt := &rssFakeTrakt{linked: map[int64]bool{2: true}}
+	trakt := &rssFakeTrakt{linked: map[int64]bool{owner.ID: true, alice.ID: true}}
 	res := &fakeResolver{}
+	eng := &fakeEngine{}
+	prov := &fakeProvenance{}
 	note := &fakeNotifier{}
+	var availMu sync.Mutex
+	var onAvail []string
 	s := New(db, Options{
 		Sealer:   sealer,
 		Catalog:  cat,
 		Resolver: res,
+		Engine:   eng,
+		Cache:    prov,
 		Notifier: note,
 		Trakt:    trakt,
 		Users:    func(context.Context) ([]core.User, error) { return users, nil },
 		Now:      func() time.Time { return now },
+		OnAvailable: func(_ context.Context, userID int64, key core.RatingKey) {
+			availMu.Lock()
+			onAvail = append(onAvail, fmt.Sprintf("%d:%d", userID, key))
+			availMu.Unlock()
+		},
+		OnFriendsRSSChanged: func(ctx context.Context) {
+			if err := cols.SyncFriendsWatchlist(ctx); err != nil {
+				t.Errorf("SyncFriendsWatchlist: %v", err)
+			}
+		},
 	})
 
-	// Alice already has movie1 from a token-based Plex import: must dedupe and survive feed removal.
-	if err := s.upsert(ctx, 2, "plex", movie1); err != nil {
+	// Alice has movie1 on her own Plex watchlist: must stay isolated from the household Friends' RSS set.
+	if err := s.upsert(ctx, alice.ID, "plex", movie1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,6 +244,7 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 		PlexFriendsRSSURL: friendsURL,
 		PlexOwnerRSSURL:   ownerURL,
 		Notify:            true,
+		Prewarm:           true,
 		CheckHours:        6,
 	})
 	rec := httptest.NewRecorder()
@@ -240,6 +254,9 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "friends-secret-uuid") || strings.Contains(rec.Body.String(), "owner-secret-uuid") {
 		t.Fatalf("API response leaked RSS URL: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "skippedFriends") {
+		t.Fatalf("API response still exposes dead skippedFriends field: %s", rec.Body.String())
 	}
 	var apiCfg Settings
 	if err := json.Unmarshal(rec.Body.Bytes(), &apiCfg); err != nil {
@@ -264,7 +281,8 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 		t.Fatalf("PUT redacted = %d: %s", rec2.Code, rec2.Body.String())
 	}
 
-	// Poll 1: imports across Alice, Bob, Carol, and Owner; counts unknown friends & unmatched title.
+	// Poll 1: Friends' Watchlist RSS populates one household-scoped set (user_id=0, source="plex-friends-rss");
+	// Your Watchlist RSS still attributes to Owner and pushes to Owner's Trakt.
 	if err := s.SyncRSS(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -273,43 +291,155 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	fst := gotCfg.PlexFriendsRSSStatus
-	if fst == nil || !fst.Configured || fst.LastRead != now.Unix() || fst.Imported != 4 || fst.SkippedFriends != 2 || fst.UnmatchedTitles != 1 || fst.Problem != "" {
+	if fst == nil || !fst.Configured || fst.LastRead != now.Unix() || fst.Imported != 4 || fst.UnmatchedTitles != 1 || fst.Problem != "" {
 		t.Fatalf("friends status = %+v", fst)
 	}
 	ost := gotCfg.PlexOwnerRSSStatus
-	if ost == nil || !ost.Configured || ost.Imported != 1 || ost.Problem != "" {
+	if ost == nil || !ost.Configured || ost.Imported != 1 || ost.UnmatchedTitles != 0 || ost.Problem != "" {
 		t.Fatalf("owner status = %+v", ost)
 	}
 
-	// Alice has movie1 (deduped across "plex" + "plex-friends-rss") and movie2 (newly pushed to Trakt).
-	aliceItems, err := s.Items(ctx, &users[1])
-	if err != nil || len(aliceItems) != 2 {
+	// Stored household rows hold all 4 resolved titles (including upcomingMovie);
+	// HouseholdItems returns the 3 released ones in feed order, with no viewer attribution.
+	var storedHousehold int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM watchlist_items WHERE user_id=0 AND source='plex-friends-rss'`).Scan(&storedHousehold); err != nil || storedHousehold != 4 {
+		t.Fatalf("stored household rows = %d (%v), want 4", storedHousehold, err)
+	}
+	household, err := s.HouseholdItems(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotHouseholdKeys := make([]core.RatingKey, 0, len(household))
+	for _, it := range household {
+		if !slices.Equal(it.Sources, []string{"plex-friends-rss"}) {
+			t.Fatalf("household item sources = %v, want [plex-friends-rss]", it.Sources)
+		}
+		gotHouseholdKeys = append(gotHouseholdKeys, it.Title.Key)
+	}
+	wantReleasedKeys := []core.RatingKey{movie1.Key, movie2.Key, show1.Key}
+	if !slices.Equal(gotHouseholdKeys, wantReleasedKeys) {
+		t.Fatalf("released household keys = %v, want %v", gotHouseholdKeys, wantReleasedKeys)
+	}
+
+	// Viewers' personal watchlists are NOT polluted by Friends' RSS; Owner still gets Your Watchlist RSS + Trakt push.
+	if aliceItems, err := s.Items(ctx, &alice); err != nil || len(aliceItems) != 1 || aliceItems[0].Title.Key != movie1.Key || !slices.Equal(aliceItems[0].Sources, []string{"plex"}) {
 		t.Fatalf("alice items = %+v (%v)", aliceItems, err)
+	}
+	if teenItems, err := s.Items(ctx, &teen); err != nil || len(teenItems) != 0 {
+		t.Fatalf("teen items = %+v (%v)", teenItems, err)
+	}
+	if ownerItems, err := s.Items(ctx, &owner); err != nil || len(ownerItems) != 1 || ownerItems[0].Title.Key != movieOwner.Key {
+		t.Fatalf("owner items = %+v (%v)", ownerItems, err)
 	}
 	trakt.mu.Lock()
 	pushedCopy := append([]string(nil), trakt.pushed...)
 	trakt.mu.Unlock()
-	if len(pushedCopy) != 1 || pushedCopy[0] != fmt.Sprintf("2:%d:true", movie2.Key) {
-		t.Fatalf("trakt pushes = %v (movie1 was already on watchlist, movie2 should push once)", pushedCopy)
+	if !slices.Equal(pushedCopy, []string{fmt.Sprintf("%d:%d:true", owner.ID, movieOwner.Key)}) {
+		t.Fatalf("trakt pushes = %v (only owner's RSS should push to Trakt)", pushedCopy)
 	}
 
-	// Bob got show1 (via PlexID <author>), Carol got movie1 (via email <category domain="friend"> + TMDB link), Owner got movieOwner.
-	if bobItems, err := s.Items(ctx, &users[2]); err != nil || len(bobItems) != 1 || bobItems[0].Title.Key != show1.Key {
-		t.Fatalf("bob items = %+v (%v)", bobItems, err)
+	// Collection & Home/section row "Your friends want to watch" appear via existing collections machinery,
+	// with released titles in feed order, nothing naming any friend, and per-viewer content/library rules applied.
+	findFriendsCol := func(u *core.User, media core.MediaType) *core.Collection {
+		t.Helper()
+		list, err := cols.List(ctx, u, media)
+		if err != nil {
+			t.Fatalf("cols.List(%s): %v", u.Username, err)
+		}
+		for i := range list {
+			if list[i].Title == collections.FriendsWatchlistTitle {
+				return &list[i]
+			}
+		}
+		return nil
 	}
-	if carolItems, err := s.Items(ctx, &users[3]); err != nil || len(carolItems) != 1 || carolItems[0].Title.Key != movie1.Key {
-		t.Fatalf("carol items = %+v (%v)", carolItems, err)
+	findFriendsRow := func(u *core.User) *core.CollectionRow {
+		t.Helper()
+		rows, err := cols.HomeRowsFor(ctx, u, core.HubContext{})
+		if err != nil {
+			t.Fatalf("cols.HomeRowsFor(%s): %v", u.Username, err)
+		}
+		for i := range rows {
+			if rows[i].Hub.Title == collections.FriendsWatchlistTitle {
+				return &rows[i]
+			}
+		}
+		return nil
 	}
-	if ownerItems, err := s.Items(ctx, &users[0]); err != nil || len(ownerItems) != 1 || ownerItems[0].Title.Key != movieOwner.Key {
-		t.Fatalf("owner items = %+v (%v)", ownerItems, err)
+	pageKeys := func(items []core.Title) []core.RatingKey {
+		out := make([]core.RatingKey, 0, len(items))
+		for _, it := range items {
+			out = append(out, it.Key)
+		}
+		return out
 	}
 
-	// Downstream rows & availability notification work identically to token-based imports.
-	if err := s.Check(ctx, &users[3]); err != nil {
+	aliceCol := findFriendsCol(&alice, "")
+	if aliceCol == nil {
+		t.Fatalf("expected %q collection for alice", collections.FriendsWatchlistTitle)
+	}
+	for _, u := range users {
+		if strings.Contains(strings.ToLower(aliceCol.Title+" "+aliceCol.Summary), u.Username) {
+			t.Fatalf("collection leaked viewer name %q: title=%q summary=%q", u.Username, aliceCol.Title, aliceCol.Summary)
+		}
+	}
+	alicePage, err := cols.Items(ctx, &alice, aliceCol.Key, 0, 50)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if hubs, err := s.Hubs(ctx, &users[3], 12); err != nil || len(hubs) != 1 || hubs[0].ID != "watchlist.available" || note.calls != 1 {
-		t.Fatalf("carol hubs=%+v notifications=%d err=%v", hubs, note.calls, err)
+	if !slices.Equal(pageKeys(alicePage.Items), []core.RatingKey{movie1.Key, movie2.Key, show1.Key}) {
+		t.Fatalf("alice collection items = %v, want [movie1 movie2 show1]", pageKeys(alicePage.Items))
+	}
+	if movieSectionCol := findFriendsCol(&alice, core.TypeMovie); movieSectionCol == nil || movieSectionCol.ChildCount != 2 {
+		t.Fatalf("movie section collection = %+v", movieSectionCol)
+	}
+	if showSectionCol := findFriendsCol(&alice, core.TypeShow); showSectionCol == nil || showSectionCol.ChildCount != 1 {
+		t.Fatalf("show section collection = %+v", showSectionCol)
+	}
+	aliceRow := findFriendsRow(&alice)
+	if aliceRow == nil || !aliceRow.HomeRow || !aliceRow.SectionRow || !aliceRow.Hub.Promoted {
+		t.Fatalf("alice Home row = %+v", aliceRow)
+	}
+	if !slices.Equal(pageKeys(aliceRow.Hub.Items), []core.RatingKey{movie1.Key, movie2.Key, show1.Key}) {
+		t.Fatalf("alice Home row items = %v, want [movie1 movie2 show1]", pageKeys(aliceRow.Hub.Items))
+	}
+
+	// Content rating & library restrictions apply per viewer.
+	teenCol := findFriendsCol(&teen, "")
+	if teenCol == nil {
+		t.Fatal("expected collection for teen")
+	}
+	teenPage, err := cols.Items(ctx, &teen, teenCol.Key, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(pageKeys(teenPage.Items), []core.RatingKey{movie1.Key, movie2.Key}) {
+		t.Fatalf("teen (PG-13) collection items = %v, want TV-MA filtered out", pageKeys(teenPage.Items))
+	}
+	if teenRow := findFriendsRow(&teen); teenRow == nil || !slices.Equal(pageKeys(teenRow.Hub.Items), []core.RatingKey{movie1.Key, movie2.Key}) {
+		t.Fatalf("teen (PG-13) Home row = %+v", teenRow)
+	}
+	if moviesRow := findFriendsRow(&moviesOnly); moviesRow == nil || !slices.Equal(pageKeys(moviesRow.Hub.Items), []core.RatingKey{movie1.Key, movie2.Key}) {
+		t.Fatalf("moviesOnly Home row = %+v, want show filtered out", moviesRow)
+	}
+	if findFriendsCol(&strictKid, "") != nil || findFriendsRow(&strictKid) != nil {
+		t.Fatal("strictKid (G) should not see collection or row when no items pass rating cap")
+	}
+
+	// Availability monitoring and prefetch work on the household set:
+	// released movies movie1 & movie2 resolve, notify, warm cache with CacheCauseWatchlist, and fire OnAvailable;
+	// upcomingMovie is held back until its release date arrives.
+	if err := s.CheckHousehold(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if res.calls != 2 || eng.calls != 2 || note.calls != 2 || !prov.has("release-1", core.CacheCauseWatchlist) {
+		t.Fatalf("household check before upcoming release: resolver=%d engine=%d notify=%d prov=%+v", res.calls, eng.calls, note.calls, prov.seen)
+	}
+	availMu.Lock()
+	gotAvail1 := append([]string(nil), onAvail...)
+	availMu.Unlock()
+	if !slices.Equal(gotAvail1, []string{fmt.Sprintf("0:%d", movie1.Key), fmt.Sprintf("0:%d", movie2.Key)}) {
+		t.Fatalf("OnAvailable after CheckHousehold = %v", gotAvail1)
 	}
 
 	// Poll 2: conditional request hits 304 Not Modified; items and counts remain intact, LastRead advances.
@@ -324,12 +454,28 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 		t.Fatalf("conditional request: hits=%d 304s=%d", gotHits, got304)
 	}
 	gotCfg, _ = s.Settings(ctx)
-	if gotCfg.PlexFriendsRSSStatus.LastRead != now.Unix() || gotCfg.PlexFriendsRSSStatus.Imported != 4 {
+	if gotCfg.PlexFriendsRSSStatus.LastRead != now.Unix() || gotCfg.PlexFriendsRSSStatus.Imported != 4 || gotCfg.PlexFriendsRSSStatus.UnmatchedTitles != 1 {
 		t.Fatalf("status after 304 = %+v", gotCfg.PlexFriendsRSSStatus)
 	}
 
-	// Poll 3: feed updates (new ETag), removing movie1 & movie2 from Alice and show1 from Bob.
-	// Alice's movie1 MUST remain (came from token-based "plex" too), while movie2 and Bob's show1 are removed!
+	// Advance past upcomingMovie's release date (48h > CheckHours): CheckHousehold re-verifies movie1 & movie2
+	// without re-notifying or re-warming them, and newly notifies + prefetches upcomingMovie!
+	now = now.Add(48 * time.Hour)
+	if err := s.CheckHousehold(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if res.calls != 5 || eng.calls != 3 || note.calls != 3 {
+		t.Fatalf("upcomingMovie release monitoring: resolver=%d engine=%d notify=%d", res.calls, eng.calls, note.calls)
+	}
+	availMu.Lock()
+	gotAvail2 := append([]string(nil), onAvail...)
+	availMu.Unlock()
+	if !slices.Equal(gotAvail2, []string{fmt.Sprintf("0:%d", movie1.Key), fmt.Sprintf("0:%d", movie2.Key), fmt.Sprintf("0:%d", upcomingMovie.Key)}) {
+		t.Fatalf("OnAvailable after upcoming release = %v", gotAvail2)
+	}
+
+	// Poll 3: feed updates (new ETag), removing Arrival, Severance, and Dune Messiah — leaving only Dune.
+	// Removal updates the household set AND the collection/Home row, while keeping Alice's personal watchlist intact.
 	mu.Lock()
 	etag = `"feed-v2"`
 	friendsXML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -337,7 +483,6 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
   <channel>
     <item>
       <title>Dune (2021)</title>
-      <category domain="friend">carol</category>
       <category>movie</category>
       <guid isPermaLink="false">imdb://tt1160419</guid>
     </item>
@@ -349,16 +494,29 @@ func TestPlexRSSFeedImportLifecycle(t *testing.T) {
 	if err := s.SyncRSS(ctx); err != nil {
 		t.Fatal(err)
 	}
-	aliceAfter, err := s.Items(ctx, &users[1])
-	if err != nil || len(aliceAfter) != 1 || aliceAfter[0].Title.Key != movie1.Key {
-		t.Fatalf("alice after feed removal = %+v (%v)", aliceAfter, err)
-	}
-	bobAfter, err := s.Items(ctx, &users[2])
-	if err != nil || len(bobAfter) != 0 {
-		t.Fatalf("bob after feed removal = %+v (%v)", bobAfter, err)
-	}
 	gotCfg, _ = s.Settings(ctx)
-	if gotCfg.PlexFriendsRSSStatus.Imported != 1 {
-		t.Fatalf("imported after removal = %+v", gotCfg.PlexFriendsRSSStatus)
+	if gotCfg.PlexFriendsRSSStatus.Imported != 1 || gotCfg.PlexFriendsRSSStatus.UnmatchedTitles != 0 {
+		t.Fatalf("status after feed removal = %+v", gotCfg.PlexFriendsRSSStatus)
+	}
+	householdAfter, err := s.HouseholdItems(ctx)
+	if err != nil || len(householdAfter) != 1 || householdAfter[0].Title.Key != movie1.Key {
+		t.Fatalf("household after removal = %+v (%v)", householdAfter, err)
+	}
+	if aliceRowAfter := findFriendsRow(&alice); aliceRowAfter == nil || !slices.Equal(pageKeys(aliceRowAfter.Hub.Items), []core.RatingKey{movie1.Key}) {
+		t.Fatalf("alice row after removal = %+v", aliceRowAfter)
+	}
+	if aliceAfter, err := s.Items(ctx, &alice); err != nil || len(aliceAfter) != 1 || aliceAfter[0].Title.Key != movie1.Key {
+		t.Fatalf("alice personal watchlist after feed removal = %+v (%v)", aliceAfter, err)
+	}
+
+	// Clearing PlexFriendsRSSURL empties the household set and hides the shared row/collection.
+	if err := s.SaveSettings(ctx, Settings{Enabled: true, Plex: true, PlexFriendsRSSURL: "", PlexOwnerRSSURL: Redacted, CheckHours: 6}); err != nil {
+		t.Fatal(err)
+	}
+	if householdCleared, err := s.HouseholdItems(ctx); err != nil || len(householdCleared) != 0 {
+		t.Fatalf("household after URL clear = %+v (%v)", householdCleared, err)
+	}
+	if findFriendsCol(&alice, "") != nil || findFriendsRow(&alice) != nil {
+		t.Fatal("expected collection and Home row to hide once Friends' RSS set is empty")
 	}
 }

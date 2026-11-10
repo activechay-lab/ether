@@ -3570,7 +3570,6 @@
   "m_0d1f1b787ec8dd": "OMDb has IMDb, Rotten Tomatoes critics and Metacritic. MDBList adds audience and Letterboxd scores.",
   "m_0d1f6dd8c9032a": "Rule {n} · up to {height}",
   "m_0d216b3e837354": "Weekdays",
-  "m_0d22428088f149": "Skipped: {titles}",
   "m_0d230affc51dd0": "Raw TMDB discover parameters",
   "m_0d249e77e89d57": "Connects to {hosts}",
   "m_0d25b73224564f": "Resume protection share (%)",
@@ -4515,6 +4514,7 @@
   "m_107c55bf7f5fde": "Tints generated artwork. Automatic matches the lead poster.",
   "m_107e66090c813c": "That address is a different Plex Media Server. Add it as a new server instead.",
   "m_10815a5071e78a": "Remote controls are not available from this server.",
+  "m_10816f12b17447": "Friends' watchlists",
   "m_1082d1a6a743cc": "Simkl account connected.",
   "m_1083e252cdd4f4": "Select all matches",
   "m_1084ceab8e0923": {
@@ -5513,7 +5513,6 @@
   "m_13e93b002ed997": "Plex settings",
   "m_13e99ad5170e51": "Friday",
   "m_13ea41bed26d28": "From your definitions source",
-  "m_13eacb38068609": "Skipped: {friends}, {titles}",
   "m_13ebf7f944d6af": "Restore progress",
   "m_13edb133a93e1f": "Storage change saved. Restart this node to use the new backend or folder. The overview shows the currently active cache.",
   "m_13f084dd5ec346": "Telegram",
@@ -5557,6 +5556,7 @@
   "m_1412bc6ed8b387": "TV series airing new episodes within the week.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Start from a template and make it yours in a minute.",
+  "m_14145c19c85b71": "Titles from your configured Plex Friends' Watchlist RSS feed",
   "m_141495099a3f43": "Repair disabled",
   "m_1415dc20b5f18b": "Version menu",
   "m_1415f80559468f": "Hidden for {who}: no matching titles",
@@ -5862,7 +5862,6 @@
   "m_152fe8e481d949": "Sequence preview",
   "m_1530a071c3f814": "Runtime",
   "m_1530ad92e449d6": "Accepted",
-  "m_153143704324a8": "Paste the “Your Friends' Watchlist” RSS URL from plex.tv Watchlist settings to import shared friends' watchlists.",
   "m_15334f416c151e": "Glow colour",
   "m_1533da94ee9abd": "Give the pre-roll a name.",
   "m_15364765e67f5a": "Custom image URL",
@@ -6863,10 +6862,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet releases stream from your Usenet providers.",
-  "m_18c36824a6efa8": {
-    "one": "{count} unknown friend",
-    "other": "{count} unknown friends"
-  },
   "m_18c4104ed97612": "Films with outstanding ratings from thousands of viewers.",
   "m_18ca1c5dc775ca": "This viewer no longer has server access. Their history is retained.",
   "m_18cac20f7cbd3e": "Downloads at once per viewer",
@@ -7704,6 +7699,10 @@
   "m_1bb559e4ea8260": "Avg bitrate",
   "m_1bb5fa24d90bf6": "Copy exchange path",
   "m_1bb65e264e929e": "Text contrast: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} title in set",
+    "other": "{count} titles in set"
+  },
   "m_1bb6ee1903edda": "People & companies",
   "m_1bb801da11773e": "Personalization decides whether and where",
   "m_1bb961e2b8b420": "Debrid account",
@@ -8771,6 +8770,7 @@
     "one": "{count} core",
     "other": "{count} cores"
   },
+  "m_1f9aedfc11eaaf": "Paste the “Your Friends' Watchlist” RSS URL from plex.tv Watchlist settings. Plex doesn't say which friend added what, so it shows as a shared “Your friends want to watch” row.",
   "m_1f9c0615e0256b": "Rated {rating} or lower",
   "m_1f9dc6f1f797f7": "Filters",
   "m_1f9edee8c79e28": "Trending TV This Week",

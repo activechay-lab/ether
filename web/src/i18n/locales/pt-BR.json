@@ -3646,7 +3646,6 @@
   "m_0d1f1b787ec8dd": "O OMDb tem IMDb, crítica do Rotten Tomatoes e Metacritic. O MDBList acrescenta notas do público e do Letterboxd.",
   "m_0d1f6dd8c9032a": "Regra {n} · até {height}",
   "m_0d216b3e837354": "Dias úteis",
-  "m_0d22428088f149": "Ignorados: {titles}",
   "m_0d230affc51dd0": "Parâmetros discover do TMDB em formato bruto",
   "m_0d249e77e89d57": "Conecta-se a {hosts}",
   "m_0d25b73224564f": "Parcela de proteção de retomada (%)",
@@ -4618,6 +4617,7 @@
   "m_107c55bf7f5fde": "Colore a arte gerada. Automático combina com o pôster principal.",
   "m_107e66090c813c": "Esse endereço é de outro Plex Media Server. Adicione-o como um novo servidor.",
   "m_10815a5071e78a": "Os controles remotos não estão disponíveis neste servidor.",
+  "m_10816f12b17447": "Listas de interesses dos amigos",
   "m_1082d1a6a743cc": "Conta do Simkl conectada.",
   "m_1083e252cdd4f4": "Selecionar todos os resultados",
   "m_1084ceab8e0923": {
@@ -5647,7 +5647,6 @@
   "m_13e93b002ed997": "Configurações do Plex",
   "m_13e99ad5170e51": "sexta-feira",
   "m_13ea41bed26d28": "Da sua fonte de definições",
-  "m_13eacb38068609": "Ignorados: {friends}, {titles}",
   "m_13ebf7f944d6af": "Progresso da restauração",
   "m_13edb133a93e1f": "Alteração de armazenamento salva. Reinicie este nó para usar o novo backend ou pasta. A visão geral mostra o cache ativo no momento.",
   "m_13f084dd5ec346": "Telegram",
@@ -5692,6 +5691,7 @@
   "m_1412bc6ed8b387": "Série de TV exibindo novos episódios durante a semana.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Comece com um modelo e deixe-o com a sua cara em um minuto.",
+  "m_14145c19c85b71": "Títulos do feed RSS configurado da Lista de interesses dos amigos no Plex",
   "m_141495099a3f43": "Reparo desativado",
   "m_1415dc20b5f18b": "Menu de versões",
   "m_1415f80559468f": "Oculta para {who}: nenhum título correspondente",
@@ -6007,7 +6007,6 @@
   "m_152fe8e481d949": "Prévia da sequência",
   "m_1530a071c3f814": "Duração",
   "m_1530ad92e449d6": "Aceito",
-  "m_153143704324a8": "Cole o URL RSS “Your Friends' Watchlist” das configurações da lista para assistir em plex.tv para importar as listas dos amigos compartilhados.",
   "m_15334f416c151e": "Cor do brilho",
   "m_1533da94ee9abd": "Dê um nome ao pre-roll.",
   "m_15364765e67f5a": "URL da imagem personalizada",
@@ -7031,11 +7030,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Os releases do Usenet fazem streaming dos seus provedores Usenet.",
-  "m_18c36824a6efa8": {
-    "one": "{count} amigo desconhecido",
-    "many": "{count} amigos desconhecidos",
-    "other": "{count} amigos desconhecidos"
-  },
   "m_18c4104ed97612": "Filmes com avaliações excelentes de milhares de espectadores.",
   "m_18ca1c5dc775ca": "Este espectador não tem mais acesso ao servidor. O histórico dele é mantido.",
   "m_18cac20f7cbd3e": "Downloads simultâneos por espectador",
@@ -7884,6 +7878,11 @@
   "m_1bb559e4ea8260": "Taxa de bits média",
   "m_1bb5fa24d90bf6": "Copiar caminho de troca",
   "m_1bb65e264e929e": "Contraste do texto: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} título no conjunto",
+    "many": "{count} títulos no conjunto",
+    "other": "{count} títulos no conjunto"
+  },
   "m_1bb6ee1903edda": "Pessoas e empresas",
   "m_1bb801da11773e": "A personalização decide se e onde aparece",
   "m_1bb961e2b8b420": "Conta debrid",
@@ -8977,6 +8976,7 @@
     "one": "{count} núcleo",
     "other": "{count} núcleos"
   },
+  "m_1f9aedfc11eaaf": "Cole a URL RSS de “Your Friends' Watchlist” nas configurações da Lista de interesses em plex.tv. O Plex não informa qual amigo adicionou cada item, então tudo aparece junto na fileira compartilhada “Your friends want to watch”.",
   "m_1f9c0615e0256b": "Classificação {rating} ou menor",
   "m_1f9dc6f1f797f7": "Filtros",
   "m_1f9edee8c79e28": "Tendências de TV desta semana",

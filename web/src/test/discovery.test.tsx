@@ -34,7 +34,6 @@ function discoveryRoutes(
             configured: true,
             lastRead: 1_760_000_000,
             imported: 3,
-            skippedFriends: 2,
             unmatchedTitles: 1,
           };
         } else {
@@ -47,7 +46,6 @@ function discoveryRoutes(
             configured: true,
             lastRead: 1_760_000_000,
             imported: 1,
-            skippedFriends: 0,
             unmatchedTitles: 0,
           };
         } else {
@@ -65,7 +63,6 @@ function discoveryRoutes(
           configured: true,
           lastRead: 1_760_000_600,
           imported: 4,
-          skippedFriends: 0,
           unmatchedTitles: 0,
           problem: "rate_limited",
         },
@@ -157,9 +154,14 @@ describe("Watchlists (Catalog settings)", () => {
     );
   });
 
-  it("saves Plex Friends' Watchlist RSS URLs, redacts them on reload, and shows import status", async () => {
+  it("saves Plex Friends' Watchlist RSS URLs, redacts them on reload, and shows shared-row status", async () => {
     const { fake } = renderAppWith("/catalog/settings", discoveryRoutes({ enabled: true }));
     const friendsRss = await screen.findByLabelText("Friends' Watchlist RSS", {}, WAIT);
+    expect(
+      screen.getByText(
+        /Plex doesn't say which friend added what, so it shows as a shared “Your friends want to watch” row\./,
+      ),
+    ).toBeInTheDocument();
     fireEvent.change(friendsRss, {
       target: { value: "https://rss.plex.tv/11111111-2222-3333-4444-555555555555" },
     });
@@ -179,12 +181,13 @@ describe("Watchlists (Catalog settings)", () => {
     expect(
       screen.getByText("Saved. Leave as is to keep it, or type a new value to replace it."),
     ).toBeInTheDocument();
-    expect(screen.getByText(/3 items imported/)).toBeInTheDocument();
-    expect(screen.getByText(/Skipped: 2 unknown friends, 1 unmatched title/)).toBeInTheDocument();
+    expect(screen.getByText(/3 titles in set/)).toBeInTheDocument();
+    expect(screen.getByText(/1 unmatched title/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Read RSS feeds now/ }));
     await waitFor(() => expect(calls(fake, "POST", "/discovery/rss/sync")).toHaveLength(1));
-    expect(await screen.findByText(/4 items imported/)).toBeInTheDocument();
+    expect(await screen.findByText(/4 titles in set/)).toBeInTheDocument();
+    expect(screen.getByText(/0 unmatched titles/)).toBeInTheDocument();
     expect(
       screen.getByText("Plex asked Ether to slow down. Ether will try again."),
     ).toBeInTheDocument();

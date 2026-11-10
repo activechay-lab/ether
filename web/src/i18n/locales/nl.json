@@ -3563,7 +3563,6 @@
   "m_0d1f1b787ec8dd": "OMDb heeft IMDb, Rotten Tomatoes-critici en Metacritic. MDBList voegt publiek- en Letterboxd-scores toe.",
   "m_0d1f6dd8c9032a": "Regel {n} · tot {height}",
   "m_0d216b3e837354": "Doordeweeks",
-  "m_0d22428088f149": "Overgeslagen: {titles}",
   "m_0d230affc51dd0": "Ruwe TMDB-discover-parameters",
   "m_0d249e77e89d57": "Maakt verbinding met {hosts}",
   "m_0d25b73224564f": "Aandeel hervatbescherming (%)",
@@ -4508,6 +4507,7 @@
   "m_107c55bf7f5fde": "Kleurt gegenereerd artwork. Automatisch sluit aan bij de hoofdposter.",
   "m_107e66090c813c": "Dat adres hoort bij een andere Plex Media Server. Voeg hem toe als nieuwe server.",
   "m_10815a5071e78a": "Bediening op afstand is niet beschikbaar vanaf deze server.",
+  "m_10816f12b17447": "Kijklijsten van vrienden",
   "m_1082d1a6a743cc": "Simkl-account verbonden.",
   "m_1083e252cdd4f4": "Alle overeenkomsten selecteren",
   "m_1084ceab8e0923": {
@@ -5506,7 +5506,6 @@
   "m_13e93b002ed997": "Plex-instellingen",
   "m_13e99ad5170e51": "vrijdag",
   "m_13ea41bed26d28": "Uit je definitiebron",
-  "m_13eacb38068609": "Overgeslagen: {friends}, {titles}",
   "m_13ebf7f944d6af": "Voortgang van herstel",
   "m_13edb133a93e1f": "Opslagwijziging opgeslagen. Start deze node opnieuw op om de nieuwe backend of map te gebruiken. Het overzicht toont de momenteel actieve cache.",
   "m_13f084dd5ec346": "Telegram",
@@ -5550,6 +5549,7 @@
   "m_1412bc6ed8b387": "Tv-series die binnen een week nieuwe afleveringen uitzenden.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Begin met een sjabloon en maak het in een minuut helemaal van jou.",
+  "m_14145c19c85b71": "Titels uit je ingestelde Plex-RSS-feed met kijklijsten van vrienden",
   "m_141495099a3f43": "Herstel uitgeschakeld",
   "m_1415dc20b5f18b": "Versiemenu",
   "m_1415f80559468f": "Verborgen voor {who}: geen overeenkomende titels",
@@ -5855,7 +5855,6 @@
   "m_152fe8e481d949": "Reeksvoorbeeld",
   "m_1530a071c3f814": "Speelduur",
   "m_1530ad92e449d6": "Geaccepteerd",
-  "m_153143704324a8": "Plak de RSS-URL ‘Your Friends' Watchlist’ uit de Watchlist-instellingen op plex.tv om de watchlists van gedeelde vrienden te importeren.",
   "m_15334f416c151e": "Gloedkleur",
   "m_1533da94ee9abd": "Geef de pre-roll een naam.",
   "m_15364765e67f5a": "Eigen afbeeldings-URL",
@@ -6853,10 +6852,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-releases streamen vanaf je Usenet-providers.",
-  "m_18c36824a6efa8": {
-    "one": "{count} onbekende vriend",
-    "other": "{count} onbekende vrienden"
-  },
   "m_18c4104ed97612": "Films met uitstekende beoordelingen van duizenden kijkers.",
   "m_18ca1c5dc775ca": "Deze kijker heeft geen servertoegang meer. Hun geschiedenis blijft behouden.",
   "m_18cac20f7cbd3e": "Gelijktijdige downloads per kijker",
@@ -7689,6 +7684,10 @@
   "m_1bb559e4ea8260": "Gem. bitrate",
   "m_1bb5fa24d90bf6": "Inwisselpad kopiëren",
   "m_1bb65e264e929e": "Tekstcontrast: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} titel in reeks",
+    "other": "{count} titels in reeks"
+  },
   "m_1bb6ee1903edda": "Personen en bedrijven",
   "m_1bb801da11773e": "Personalisatie bepaalt of en waar",
   "m_1bb961e2b8b420": "Debrid-account",
@@ -8753,6 +8752,7 @@
     "one": "{count} core",
     "other": "{count} cores"
   },
+  "m_1f9aedfc11eaaf": "Plak de RSS-URL van “Your Friends' Watchlist” uit de Watchlist-instellingen op plex.tv. Plex vermeldt niet welke vriend wat heeft toegevoegd, dus dit verschijnt als één gedeelde rij “Your friends want to watch”.",
   "m_1f9c0615e0256b": "Classificatie {rating} of lager",
   "m_1f9dc6f1f797f7": "Filters",
   "m_1f9edee8c79e28": "Populaire tv deze week",

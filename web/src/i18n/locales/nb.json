@@ -3563,7 +3563,6 @@
   "m_0d1f1b787ec8dd": "OMDb har IMDb, Rotten Tomatoes-kritikere og Metacritic. MDBList legger til publikums- og Letterboxd-vurderinger.",
   "m_0d1f6dd8c9032a": "Regel {n} · opptil {height}",
   "m_0d216b3e837354": "Ukedager",
-  "m_0d22428088f149": "Hoppet over: {titles}",
   "m_0d230affc51dd0": "Rå TMDB discover-parametere",
   "m_0d249e77e89d57": "Kobler til {hosts}",
   "m_0d25b73224564f": "Andel for fortsettelsesbeskyttelse (%)",
@@ -4508,6 +4507,7 @@
   "m_107c55bf7f5fde": "Farger genererte omslag. Automatisk tilpasses hovedplakaten.",
   "m_107e66090c813c": "Den adressen er en annen Plex Media Server. Legg den til som en ny server i stedet.",
   "m_10815a5071e78a": "Fjernstyring er ikke tilgjengelig fra denne serveren.",
+  "m_10816f12b17447": "Venners overvåkningslister",
   "m_1082d1a6a743cc": "Simkl-kontoen er koblet til.",
   "m_1083e252cdd4f4": "Velg alle treff",
   "m_1084ceab8e0923": {
@@ -5506,7 +5506,6 @@
   "m_13e93b002ed997": "Plex-innstillinger",
   "m_13e99ad5170e51": "fredag",
   "m_13ea41bed26d28": "Fra definisjonskilden din",
-  "m_13eacb38068609": "Hoppet over: {friends}, {titles}",
   "m_13ebf7f944d6af": "Fremdrift for gjenoppretting",
   "m_13edb133a93e1f": "Lagringsendringen er lagret. Start denne noden på nytt for å bruke den nye backenden eller mappen. Oversikten viser hurtigbufferen som er aktiv nå.",
   "m_13f084dd5ec346": "Telegram",
@@ -5550,6 +5549,7 @@
   "m_1412bc6ed8b387": "TV-serier som sender nye episoder i løpet av uken.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Start med en mal og gjør den til din på et minutt.",
+  "m_14145c19c85b71": "Titler fra den konfigurerte RSS-feeden for venners overvåkningsliste i Plex",
   "m_141495099a3f43": "Reparasjon deaktivert",
   "m_1415dc20b5f18b": "Versjonsmeny",
   "m_1415f80559468f": "Skjult for {who}: ingen samsvarende titler",
@@ -5855,7 +5855,6 @@
   "m_152fe8e481d949": "Forhåndsvis sekvens",
   "m_1530a071c3f814": "Spilletid",
   "m_1530ad92e449d6": "Godtatt",
-  "m_153143704324a8": "Lim inn RSS-URL-en «Your Friends' Watchlist» fra Watchlist-innstillingene på plex.tv for å importere delte venners se-lister.",
   "m_15334f416c151e": "Glødfarge",
   "m_1533da94ee9abd": "Gi pre-rollen et navn.",
   "m_15364765e67f5a": "Egendefinert bilde-URL",
@@ -6853,10 +6852,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-utgivelser strømmes fra Usenet-leverandørene dine.",
-  "m_18c36824a6efa8": {
-    "one": "{count} ukjent venn",
-    "other": "{count} ukjente venner"
-  },
   "m_18c4104ed97612": "Filmer med fremragende rangeringer fra tusenvis av seere.",
   "m_18ca1c5dc775ca": "Denne seeren har ikke lenger serveradgang. Historikken deres beholdes.",
   "m_18cac20f7cbd3e": "Nedlastinger samtidig per seer",
@@ -7689,6 +7684,10 @@
   "m_1bb559e4ea8260": "Gj.sn. bitrate",
   "m_1bb5fa24d90bf6": "Kopier innbyttingssti",
   "m_1bb65e264e929e": "Tekstkontrast: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} tittel i settet",
+    "other": "{count} titler i settet"
+  },
   "m_1bb6ee1903edda": "Personer og selskaper",
   "m_1bb801da11773e": "Personalisering avgjør om og hvor",
   "m_1bb961e2b8b420": "Debrid-konto",
@@ -8753,6 +8752,7 @@
     "one": "{count} kjerne",
     "other": "{count} kjerner"
   },
+  "m_1f9aedfc11eaaf": "Lim inn RSS-adressen for «Your Friends' Watchlist» fra Watchlist-innstillingene på plex.tv. Plex oppgir ikke hvilken venn som la til hva, så det vises som en delt rad kalt «Your friends want to watch».",
   "m_1f9c0615e0256b": "Aldersgrense {rating} eller lavere",
   "m_1f9dc6f1f797f7": "Filtre",
   "m_1f9edee8c79e28": "Trendende TV denne uken",

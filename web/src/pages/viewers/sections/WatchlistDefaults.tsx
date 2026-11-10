@@ -14,7 +14,6 @@ export type RSSFeedStatus = {
   configured: boolean;
   lastRead: number;
   imported: number;
-  skippedFriends: number;
   unmatchedTitles: number;
   problem?: string;
 };
@@ -102,34 +101,24 @@ const RSS_PROBLEMS = localized<Record<string, string>>(() => ({
   network: t("Plex RSS could not be reached. Ether will try again."),
 }));
 
-function FeedStatusLine({
-  status,
-  includeFriends,
-}: {
-  status?: RSSFeedStatus;
-  includeFriends: boolean;
-}) {
+function FeedStatusLine({ status, sharedSet }: { status?: RSSFeedStatus; sharedSet: boolean }) {
   if (!status?.configured) return null;
   const when = status.lastRead
     ? formatDateTime(new Date(status.lastRead * 1000))
     : t("Not read yet");
-  const imported = tn(status.imported, "{count} item imported", "{count} items imported");
-  const skippedTitles = tn(
+  const imported = sharedSet
+    ? tn(status.imported, "{count} title in set", "{count} titles in set")
+    : tn(status.imported, "{count} item imported", "{count} items imported");
+  const unmatched = tn(
     status.unmatchedTitles,
     "{count} unmatched title",
     "{count} unmatched titles",
   );
-  const skipped = includeFriends
-    ? t("Skipped: {friends}, {titles}", {
-        friends: tn(status.skippedFriends, "{count} unknown friend", "{count} unknown friends"),
-        titles: skippedTitles,
-      })
-    : t("Skipped: {titles}", { titles: skippedTitles });
   const problem = status.problem ? (RSS_PROBLEMS[status.problem] ?? RSS_PROBLEMS.network) : "";
   return (
     <span className="mt-1.5 block space-y-1 text-xs text-fg-muted">
       <span className="block">
-        {t("Last read: {when}", { when })} · {imported} · {skipped}
+        {t("Last read: {when}", { when })} · {imported} · {unmatched}
       </span>
       {problem ? (
         <span className="inline-flex items-center gap-1.5 text-warning">
@@ -230,9 +219,9 @@ export function WatchlistAlerts() {
           description={
             <>
               {t(
-                "Paste the “Your Friends' Watchlist” RSS URL from plex.tv Watchlist settings to import shared friends' watchlists.",
+                "Paste the “Your Friends' Watchlist” RSS URL from plex.tv Watchlist settings. Plex doesn't say which friend added what, so it shows as a shared “Your friends want to watch” row.",
               )}
-              <FeedStatusLine status={s.doc.data?.plexFriendsRssStatus} includeFriends />
+              <FeedStatusLine status={s.doc.data?.plexFriendsRssStatus} sharedSet />
             </>
           }
           control={
@@ -254,7 +243,7 @@ export function WatchlistAlerts() {
           description={
             <>
               {t("Optional “Your Watchlist” RSS URL from plex.tv for the owner's watchlist.")}
-              <FeedStatusLine status={s.doc.data?.plexOwnerRssStatus} includeFriends={false} />
+              <FeedStatusLine status={s.doc.data?.plexOwnerRssStatus} sharedSet={false} />
             </>
           }
           control={

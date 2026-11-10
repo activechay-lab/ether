@@ -3563,7 +3563,6 @@
   "m_0d1f1b787ec8dd": "OMDb sisältää IMDb:n, Rotten Tomatoesin kriitikot ja Metacriticin. MDBList lisää yleisön ja Letterboxdin pisteet.",
   "m_0d1f6dd8c9032a": "Sääntö {n} · enintään {height}",
   "m_0d216b3e837354": "Arkipäivät",
-  "m_0d22428088f149": "Ohitettu: {titles}",
   "m_0d230affc51dd0": "TMDB discover -parametrit sellaisenaan",
   "m_0d249e77e89d57": "Yhdistää kohteisiin {hosts}",
   "m_0d25b73224564f": "Jatkamissuojan osuus (%)",
@@ -4508,6 +4507,7 @@
   "m_107c55bf7f5fde": "Sävyttää luodun kuvituksen. Automaattinen vastaa pääjulistetta.",
   "m_107e66090c813c": "Osoite kuuluu toiselle Plex Media Serverille. Lisää se sen sijaan uutena palvelimena.",
   "m_10815a5071e78a": "Etähallinta ei ole käytettävissä tältä palvelimelta.",
+  "m_10816f12b17447": "Ystävien katselulistat",
   "m_1082d1a6a743cc": "Simkl-tili yhdistetty.",
   "m_1083e252cdd4f4": "Valitse kaikki osumat",
   "m_1084ceab8e0923": {
@@ -5506,7 +5506,6 @@
   "m_13e93b002ed997": "Plex-asetukset",
   "m_13e99ad5170e51": "perjantai",
   "m_13ea41bed26d28": "Määrityslähteestäsi",
-  "m_13eacb38068609": "Ohitettu: {friends}, {titles}",
   "m_13ebf7f944d6af": "Palautuksen eteneminen",
   "m_13edb133a93e1f": "Tallennustilan muutos tallennettu. Käynnistä tämä solmu uudelleen ottaaksesi uuden taustajärjestelmän tai kansion käyttöön. Yleiskatsaus näyttää tällä hetkellä aktiivisen välimuistin.",
   "m_13f084dd5ec346": "Telegram",
@@ -5550,6 +5549,7 @@
   "m_1412bc6ed8b387": "TV-sarja näyttää uusia jaksoja viikon sisällä.",
   "m_1412cb656f0532": "Amblin Entertainment",
   "m_14132e092b57a4": "Aloita mallista ja tee siitä omasi minuutissa.",
+  "m_14145c19c85b71": "Nimikkeet määritetystä Plexin ystävien katselulistan RSS-syötteestä",
   "m_141495099a3f43": "Korjaus pois käytöstä",
   "m_1415dc20b5f18b": "Versiovalikko",
   "m_1415f80559468f": "Piilotettu kohteelta {who}: ei vastaavia nimikkeitä",
@@ -5855,7 +5855,6 @@
   "m_152fe8e481d949": "Jakson esikatselu",
   "m_1530a071c3f814": "Kesto",
   "m_1530ad92e449d6": "Hyväksytty",
-  "m_153143704324a8": "Liitä ”Your Friends' Watchlist” -RSS-osoite plex.tv:n seurantalista-asetuksista tuodaksesi jaettujen kavereiden seurantalistat.",
   "m_15334f416c151e": "Hohdon väri",
   "m_1533da94ee9abd": "Anna pre-rollille nimi.",
   "m_15364765e67f5a": "Oman kuvan URL-osoite",
@@ -6853,10 +6852,6 @@
   },
   "m_18c2dedfb86736": "{name} ({media})",
   "m_18c3486bf7b025": "Usenet-julkaisut toistetaan Usenet-palveluntarjoajiltasi.",
-  "m_18c36824a6efa8": {
-    "one": "{count} tuntematon kaveri",
-    "other": "{count} tuntematonta kaveria"
-  },
   "m_18c4104ed97612": "Elokuvia, jotka ovat saaneet erinomaisia arvioita tuhansilta katsojilta.",
   "m_18ca1c5dc775ca": "Tällä katselijalla ei ole enää palvelimen käyttöoikeutta. Hänen historiansa säilyy.",
   "m_18cac20f7cbd3e": "Latauksia kerrallaan katselijaa kohti",
@@ -7689,6 +7684,10 @@
   "m_1bb559e4ea8260": "Keskim. bittinopeus",
   "m_1bb5fa24d90bf6": "Kopioi vaihtopolku",
   "m_1bb65e264e929e": "Tekstin kontrasti: {ratio}:1",
+  "m_1bb6c9d6bac9a6": {
+    "one": "{count} nimike joukossa",
+    "other": "{count} nimikettä joukossa"
+  },
   "m_1bb6ee1903edda": "Henkilöt ja yhtiöt",
   "m_1bb801da11773e": "Personointi päättää, näytetäänkö ja missä",
   "m_1bb961e2b8b420": "Debrid-tili",
@@ -8753,6 +8752,7 @@
     "one": "{count} ydin",
     "other": "{count} ydintä"
   },
+  "m_1f9aedfc11eaaf": "Liitä plex.tv:n Watchlist-asetuksista ”Your Friends' Watchlist” -RSS-osoite. Plex ei kerro, kuka ystävistä lisäsi minkäkin nimikkeen, joten ne näkyvät yhteisenä ”Your friends want to watch” -rivinä.",
   "m_1f9c0615e0256b": "Ikäraja {rating} tai alle",
   "m_1f9dc6f1f797f7": "Suodattimet",
   "m_1f9edee8c79e28": "Trendaavat TV-ohjelmat tällä viikolla",

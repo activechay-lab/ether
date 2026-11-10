@@ -301,6 +301,7 @@ func builtinSourceKinds() []SourceKind {
 		tmdbListKind{},
 		tmdbUserListKind{},
 		titlesKind{},
+		friendsWatchlistKind{},
 		personKind{},
 		lookupKind{id: "tmdbCollection", order: 50, label: extend.T("TMDB collection"), hint: extend.T("A franchise such as “The Lord of the Rings”"), icon: "layers", lookup: "collection", entity: "collection"},
 		lookupKind{id: "tmdbKeyword", order: 60, label: extend.T("Keyword"), hint: extend.T("Titles tagged with a TMDB keyword"), icon: "tag", lookup: "keyword", entity: "keyword", param: "with_keywords"},

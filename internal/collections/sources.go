@@ -205,6 +205,8 @@ func (s *Service) gather(ctx context.Context, sp *core.CollectionSpec, src core.
 
 func sourceName(src core.CollectionSource) string {
 	switch src.Kind {
+	case "friendsWatchlist":
+		return "your friends' watchlists"
 	case "tmdbUserList":
 		return "the TMDB list"
 	case "traktList":
