@@ -17,7 +17,7 @@ import (
 func TestDeliveredMainMigrationBoundary(t *testing.T) {
 	known := store.KnownMigrations()
 	want := map[string]int{
-		"auth":                   8,
+		"auth":                   9,
 		"auth_sessions":          1,
 		"experience_receipts":    5,
 		"experience_row_views":   3,

@@ -173,6 +173,9 @@ var tierUntouchedTables = []string{
 	"livetv_programmes", "livetv_guide_", "livetv_numbers", "livetv_sources", "livetv_policies",
 	"livetv_channel_epoch", "livetv_plex_guide_gate", "livetv_source_history", "artwork_image_",
 	"subtitles_auto_attempts", "subtitles_auto_provider_pause",
+	// Libraries hold owner filter definitions and plugin-owned items; a
+	// plugin match naming a removed title is promoted again on open.
+	"libraries", "libraries_", "plugin_", "plugins_setup",
 	// Id mappings (see above).
 	"frontend_compact_ids", "frontend_compact_id_counters", "silo_source_offer_ids", "frontend_client_families", "frontend_clients_seen",
 	// Accounts, identity, sessions and devices.

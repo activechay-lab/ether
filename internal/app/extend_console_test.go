@@ -22,7 +22,7 @@ func TestConsoleDescriptorsRegister(t *testing.T) {
 	// Sidebar order and grouping, exactly as the old navigation() list.
 	wantNav := []struct{ id, group, route string }{
 		{"overview", "", "/"}, {"activity", "", "/activity"}, {"viewers", "", "/viewers"},
-		{"catalog", "library", "/catalog"}, {"collections", "library", "/collections"},
+		{"libraries", "library", "/libraries"}, {"collections", "library", "/collections"},
 		{"home", "library", "/home"}, {"livetv", "library", "/livetv"},
 		{"calendar", "library", "/calendar"}, {"metadata", "library", "/metadata"},
 		{"sources", "streaming", "/sources"}, {"releases", "streaming", "/quality"},
@@ -44,7 +44,7 @@ func TestConsoleDescriptorsRegister(t *testing.T) {
 	}
 	for group, ids := range map[string][]string{
 		"":          {"overview", "activity", "viewers"},
-		"library":   {"catalog", "collections", "home", "livetv", "calendar", "metadata"},
+		"library":   {"libraries", "collections", "home", "livetv", "calendar", "metadata"},
 		"streaming": {"sources", "playback", "releases", "cache"},
 		"server":    {"general", "apps", "integrations", "plugins", "notifications", "cluster", "maintenance"},
 	} {
