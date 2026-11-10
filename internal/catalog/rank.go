@@ -349,11 +349,18 @@ func (c *Catalog) rebuildRank(ctx context.Context) (RankRebuild, error) {
 	}
 	// Reclaim the retired copy's rows and secondary indexes now that the view
 	// names the newly built copy instead of keeping two full copies on disk.
+	// A failed reclaim leaves the retired copy on disk until the next
+	// rebuild drops it; the swap itself already succeeded, so it is logged,
+	// not returned.
 	oldTable := "catalog_rank_" + live
+	var reclaimErr error
 	if !pg {
-		_ = exec(`DROP TABLE IF EXISTS `+oldTable, strings.TrimSuffix(rankTableSQL(live, bigint), ";"))
+		reclaimErr = exec(`DROP TABLE IF EXISTS `+oldTable, strings.TrimSuffix(rankTableSQL(live, bigint), ";"))
 	} else {
-		_ = exec(append([]string{`SET LOCAL lock_timeout = '2s'`}, append(dropRankIndexesSQL(live), `TRUNCATE `+oldTable)...)...)
+		reclaimErr = exec(append([]string{`SET LOCAL lock_timeout = '2s'`}, append(dropRankIndexesSQL(live), `TRUNCATE `+oldTable)...)...)
+	}
+	if reclaimErr != nil {
+		c.log.Warn("catalog: retired popularity rank copy kept until the next rebuild", "table", oldTable, "err", reclaimErr)
 	}
 	c.rankReady.Store(true)
 	c.writeGen.Add(1)
