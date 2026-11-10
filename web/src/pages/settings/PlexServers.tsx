@@ -8,19 +8,24 @@ import {
   toast,
 } from "@braedonsaunders/appkit-ui";
 import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, MutationError } from "../../components/feedback";
 import { Field, SecretInput } from "../../components/fields";
 import { IntegrationAppCard } from "../../components/IntegrationAppCard";
 import { PlexMark } from "../../components/integration-brands";
-import { useLocation } from "react-router-dom";
 import { SettingsRow } from "../../components/SettingsRow";
-import { t, tn } from "../../i18n";
+import { t, tn, tx } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import { api, apiFetch } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 
-import { listPlexServers, type PMSServer } from "../../lib/plex-servers";
+import {
+  listPlexServers,
+  pmsDirectionText,
+  pmsProblemText,
+  type PMSServer,
+} from "../../lib/plex-servers";
 
 interface PMSAccount {
   id: number;
@@ -50,27 +55,6 @@ type MappingDraft = {
 
 const INTERVALS = [5, 10, 30, 60];
 
-function problemText(code: string): string {
-  switch (code) {
-    case "token":
-      return t("The server refused its token. Edit the server and paste a new token.");
-    case "account_token":
-      return t("The server refused this person's token. Paste a new one.");
-    case "unreachable":
-      return t("Ether can't reach this server. Check that it's running and the address is right.");
-    case "rate_limited":
-      return t("The server asked Ether to slow down. Sync resumes on its own.");
-    case "server":
-      return t("The server reported an error. Ether will try again.");
-    case "forbidden":
-      return t("The server didn't allow this. Check that the token is the server owner's.");
-    case "":
-      return "";
-    default:
-      return t("Sync stopped on an unexpected error. Ether will try again.");
-  }
-}
-
 function reasonText(code: string): string {
   switch (code) {
     case "no_match":
@@ -83,19 +67,6 @@ function reasonText(code: string): string {
       return t("No Plex identity yet");
     default:
       return t("Not matched");
-  }
-}
-
-function directionText(direction: number): string {
-  switch (direction) {
-    case 1:
-      return t("Ether → Plex");
-    case 2:
-      return t("Plex → Ether");
-    case 3:
-      return t("Both");
-    default:
-      return t("Off");
   }
 }
 
@@ -143,9 +114,9 @@ export function PlexServersCard({
   const attention = list.some((s) => s.problem || s.viewers.some((v) => v.problem));
   return (
     <IntegrationAppCard
-      identity={{ id: "plexservers", name: t("Plex watch sync") }}
+      identity={{ id: "plexservers", name: t("Plex Media Server sync") }}
       logo={<PlexMark />}
-      description={t("Sync watched marks with other Plex Media Servers you run alongside Ether.")}
+      description={t("Keeps watch state in step with your own Plex Media Servers, per viewer.")}
       enabled={enabled}
       busy={busy || servers.loading}
       disabled={disabled || !!servers.error}
@@ -164,7 +135,9 @@ export function PlexServersCard({
         )
       }
       configureHref="/services/plexservers"
-      configureLabel={list.length ? t("Manage Plex watch sync") : t("Set up Plex watch sync")}
+      configureLabel={
+        list.length ? t("Manage Plex Media Server sync") : t("Set up Plex Media Server sync")
+      }
     />
   );
 }
@@ -188,9 +161,14 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
 
   const replace = (next: PMSServer) =>
     servers.setData((servers.data ?? []).map((s) => (s.id === next.id ? next : s)));
-  const viewerName = (id: number) => {
+  const viewerLink = (id: number) => {
     const v = (viewers.data ?? []).find((x) => x.id === id);
-    return v ? v.title || v.username : t("Unknown viewer");
+    if (!v) return t("Unknown viewer");
+    return (
+      <Link to={`/viewers/${v.id}/limits`} className="font-medium text-primary hover:underline">
+        {v.title || v.username}
+      </Link>
+    );
   };
 
   const loadAccounts = async (srv: PMSServer) => {
@@ -398,7 +376,7 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
               </span>
             </h2>
             {srv.problem ? (
-              <p className="px-5 pb-3 text-sm text-warning">{problemText(srv.problem)}</p>
+              <p className="px-5 pb-3 text-sm text-warning">{pmsProblemText(srv.problem)}</p>
             ) : null}
             {accts === "error" ? (
               <p className="px-5 pb-4 text-sm text-fg-muted">
@@ -429,9 +407,9 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                       m ? (
                         <span className="space-y-0.5">
                           <span className="block">
-                            {t("{viewer} · {direction} · every {interval}", {
-                              viewer: viewerName(m.userId),
-                              direction: directionText(m.direction),
+                            {tx("{viewer} · {direction} · every {interval}", {
+                              viewer: viewerLink(m.userId),
+                              direction: pmsDirectionText(m.direction),
                               interval: tn(m.interval, "{count} minute", "{count} minutes"),
                             })}
                           </span>
@@ -443,7 +421,7 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                             })}
                           </span>
                           {m.problem ? (
-                            <span className="block text-warning">{problemText(m.problem)}</span>
+                            <span className="block text-warning">{pmsProblemText(m.problem)}</span>
                           ) : null}
                         </span>
                       ) : (
@@ -631,7 +609,7 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
               >
                 {[0, 1, 2, 3].map((d) => (
                   <option key={d} value={d}>
-                    {directionText(d)}
+                    {pmsDirectionText(d)}
                   </option>
                 ))}
               </Select>

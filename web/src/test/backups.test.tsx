@@ -71,7 +71,7 @@ describe("Backups & import", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Server" })).toBeEnabled());
     await choose("Server", "Source Plex");
     expect(screen.queryByLabelText("Plex server URL")).toBeNull();
-    expect(screen.getByRole("link", { name: "Manage Plex watch sync" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Manage Plex Media Server sync" })).toHaveAttribute(
       "href",
       "/ether/services/plexservers",
     );

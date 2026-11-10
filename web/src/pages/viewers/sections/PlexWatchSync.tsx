@@ -8,12 +8,14 @@ import {
 } from "@braedonsaunders/appkit-ui";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { ErrorPanel } from "../../../components/feedback";
 import { SettingsRow } from "../../../components/SettingsRow";
 import { localized, t, tn, tx } from "../../../i18n";
 import { apiFetch, errorMessage } from "../../../lib/api";
 import { formatDateTime } from "../../../lib/format";
 import { useAsync } from "../../../lib/hooks";
+import { listViewerPlexServers, pmsDirectionText, pmsProblemText } from "../../../lib/plex-servers";
 
 type PlexWatchStatus = {
   connected: boolean;
@@ -60,8 +62,21 @@ function approvalUrl(raw?: string): string {
   }
 }
 
-/** One viewer's Plex account watch sync, on their Limits tab. */
+/**
+ * One viewer's Plex watch-sync area on their Limits tab: their own Plex
+ * account on plex.tv (when they have a Plex account id) and a read-only view
+ * of their owner-run Plex Media Server mappings.
+ */
 export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: number }) {
+  return (
+    <>
+      {plexId > 0 ? <PlexAccountSync viewerId={viewerId} /> : null}
+      <ViewerPlexServers viewerId={viewerId} />
+    </>
+  );
+}
+
+function PlexAccountSync({ viewerId }: { viewerId: number }) {
   const status = useAsync(
     (signal) => apiFetch<PlexWatchStatus>(`/viewers/${viewerId}/plex-watch`, { signal }),
     [viewerId],
@@ -78,21 +93,20 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
       status.setData(next);
       if (done) toast.success(done);
     } catch (e) {
-      toast.error(t("Plex watch sync was not updated"), { description: errorMessage(e) });
+      toast.error(t("Plex account sync was not updated"), { description: errorMessage(e) });
       void status.reload();
     } finally {
       setBusy(false);
     }
   };
 
-  if (plexId <= 0) return null;
   if (status.error) {
     return <ErrorPanel error={status.error} onRetry={() => void status.reload()} />;
   }
   if (!status.data) {
     return (
       <div className="py-6 text-center">
-        <Spinner size={18} label={t("Loading Plex watch sync")} />
+        <Spinner size={18} label={t("Loading Plex account sync")} />
       </div>
     );
   }
@@ -106,7 +120,12 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
     void run("", "PUT", { direction, interval });
 
   return (
-    <SettingsSection title={t("Plex account watch sync")}>
+    <SettingsSection
+      title={t("Plex account sync")}
+      description={t(
+        "Keeps this viewer's watched and in-progress status in step with their Plex account.",
+      )}
+    >
       <SettingsRow
         title={
           <span className="inline-flex items-center gap-2">
@@ -118,7 +137,7 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
             >
               <button
                 type="button"
-                aria-label={t("About Plex watch sync")}
+                aria-label={t("About Plex account sync")}
                 className="text-fg-muted"
               >
                 ?
@@ -268,6 +287,74 @@ export function PlexWatchSync({ viewerId, plexId }: { viewerId: number; plexId: 
           ) : null}
         </div>
       ) : null}
+    </SettingsSection>
+  );
+}
+
+function ViewerPlexServers({ viewerId }: { viewerId: number }) {
+  const servers = useAsync((signal) => listViewerPlexServers(viewerId, signal), [viewerId]);
+  if (servers.error) {
+    return <ErrorPanel error={servers.error} onRetry={() => void servers.reload()} />;
+  }
+  if (!servers.data) {
+    return (
+      <div className="py-6 text-center">
+        <Spinner size={18} label={t("Loading Plex Media Server sync")} />
+      </div>
+    );
+  }
+  const list = Array.isArray(servers.data) ? servers.data : [];
+  const date = (seconds: number) =>
+    seconds ? formatDateTime(new Date(seconds * 1000)) : t("Never");
+  const manageLink = (
+    <Link to="/services/plexservers" className="text-sm font-medium text-primary hover:underline">
+      {t("Manage in Integrations › Plex Media Server sync")}
+    </Link>
+  );
+  return (
+    <SettingsSection
+      title={t("Plex Media Server sync")}
+      description={t("Keeps watch state in step with your own Plex Media Servers, per viewer.")}
+      footer={list.length > 0 ? manageLink : undefined}
+    >
+      {list.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-fg-muted">
+          {t("This viewer isn't mapped to any of your Plex servers.")} {manageLink}
+        </p>
+      ) : (
+        list.map((m) => (
+          <SettingsRow
+            key={`${m.serverId}:${m.accountId}`}
+            title={m.serverName}
+            description={
+              <span className="space-y-0.5">
+                <span className="block">
+                  {m.accountName
+                    ? t("{account} · {direction} · every {interval}", {
+                        account: m.accountName,
+                        direction: pmsDirectionText(m.direction),
+                        interval: tn(m.interval, "{count} minute", "{count} minutes"),
+                      })
+                    : t("{direction} · every {interval}", {
+                        direction: pmsDirectionText(m.direction),
+                        interval: tn(m.interval, "{count} minute", "{count} minutes"),
+                      })}
+                </span>
+                <span className="block">
+                  {t("Last read {last} · Last sent {sent} · Next {next}", {
+                    last: date(m.lastImport),
+                    sent: date(m.lastSend),
+                    next: m.direction ? date(m.nextSync) : t("Off"),
+                  })}
+                </span>
+                {m.problem ? (
+                  <span className="block text-warning">{pmsProblemText(m.problem)}</span>
+                ) : null}
+              </span>
+            }
+          />
+        ))
+      )}
     </SettingsSection>
   );
 }

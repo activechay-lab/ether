@@ -4392,6 +4392,71 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json(homeFor(id, q.get("device") ?? "tv", at, q.get("section") ?? "home"));
       }
       if (seg[2] === "refresh" && method === "POST") return new Response(null, { status: 204 });
+      if (seg[2] === "plex-servers" && method === "GET") {
+        const servers = (
+          state as {
+            plexServers?: {
+              id: number;
+              name: string;
+              problem?: string;
+              viewers?: {
+                accountId: number;
+                accountName: string;
+                owner: boolean;
+                userId: number;
+                direction: number;
+                interval: number;
+                lastImport: number;
+                lastSend: number;
+                nextSync: number;
+                problem: string;
+                unmatched: number;
+              }[];
+            }[];
+          }
+        ).plexServers ?? [
+          {
+            id: 1,
+            name: "Living room PMS",
+            problem: "",
+            viewers: [
+              {
+                accountId: 1,
+                accountName: "owner",
+                owner: true,
+                userId: 1,
+                direction: 3,
+                interval: 10,
+                lastImport: Math.floor(Date.now() / 1000) - 240,
+                lastSend: Math.floor(Date.now() / 1000) - 240,
+                nextSync: Math.floor(Date.now() / 1000) + 360,
+                problem: "",
+                unmatched: 1,
+              },
+            ],
+          },
+        ];
+        return json(
+          servers.flatMap((srv) =>
+            (srv.viewers ?? [])
+              .filter((m) => m.userId === id)
+              .map((m) => ({
+                serverId: srv.id,
+                serverName: srv.name,
+                accountId: m.accountId,
+                accountName: m.accountName,
+                owner: m.owner,
+                direction: m.direction,
+                interval: m.interval,
+                lastImport: m.lastImport,
+                lastSend: m.lastSend,
+                nextSync: m.direction ? m.nextSync : 0,
+                problem: m.problem || srv.problem || "",
+                unmatched: m.unmatched,
+              })),
+          ),
+        );
+      }
       if (seg[2] === "plex-watch") {
         const cur = plexWatch.get(id) ?? {
           connected: false,

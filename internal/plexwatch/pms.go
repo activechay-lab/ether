@@ -156,6 +156,22 @@ type PMSMapping struct {
 	Unmatched   int    `json:"unmatched"`
 }
 
+// PMSViewerMapping is one owner-run server mapped to one Ether viewer, without tokens.
+type PMSViewerMapping struct {
+	ServerID    int64  `json:"serverId"`
+	ServerName  string `json:"serverName"`
+	AccountID   int64  `json:"accountId"`
+	AccountName string `json:"accountName"`
+	Owner       bool   `json:"owner"`
+	Direction   int    `json:"direction"`
+	Interval    int    `json:"interval"`
+	LastImport  int64  `json:"lastImport"`
+	LastSend    int64  `json:"lastSend"`
+	NextSync    int64  `json:"nextSync"`
+	Problem     string `json:"problem"`
+	Unmatched   int    `json:"unmatched"`
+}
+
 // PMSAccount is a PMS account and, when mapped, its viewer.
 type PMSAccount struct {
 	ID     int64  `json:"id"`
@@ -437,6 +453,40 @@ func (s *Servers) Server(ctx context.Context, id int64) (PMSServer, error) {
 		srv.Viewers = append(srv.Viewers, m)
 	}
 	return srv, rows.Err()
+}
+
+// ViewerServers returns the server mappings for one Ether viewer.
+func (s *Servers) ViewerServers(ctx context.Context, userID int64) ([]PMSViewerMapping, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT p.id,p.name,p.problem,v.account_id,v.account_name,v.owner,v.direction,v.interval_min,
+		v.last_import,v.last_send,v.next_run,v.problem,
+		(SELECT COUNT(*) FROM plexwatch_pms_unmatched u WHERE u.server_id=v.server_id AND u.user_id=v.user_id)
+		FROM plexwatch_pms_viewer v
+		JOIN plexwatch_pms p ON p.id=v.server_id
+		WHERE v.user_id=? ORDER BY p.id, v.account_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PMSViewerMapping{}
+	for rows.Next() {
+		var m PMSViewerMapping
+		var srvProblem string
+		var owner int
+		if err := rows.Scan(&m.ServerID, &m.ServerName, &srvProblem, &m.AccountID, &m.AccountName, &owner,
+			&m.Direction, &m.Interval, &m.LastImport, &m.LastSend, &m.NextSync, &m.Problem, &m.Unmatched); err != nil {
+			return nil, err
+		}
+		m.Owner = owner != 0
+		m.NextSync /= int64(time.Second)
+		if m.Direction == 0 {
+			m.NextSync = 0
+		}
+		if m.Problem == "" {
+			m.Problem = srvProblem
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // Accounts lists the server's accounts live, with their current viewer.

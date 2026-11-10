@@ -14,6 +14,7 @@ import (
 // owner runs (*plexwatch.Servers). Tokens go in and never come back out.
 type PlexServers interface {
 	List(ctx context.Context) ([]plexwatch.PMSServer, error)
+	ViewerServers(ctx context.Context, userID int64) ([]plexwatch.PMSViewerMapping, error)
 	Add(ctx context.Context, name, baseURL, token string) (plexwatch.PMSServer, error)
 	Update(ctx context.Context, id int64, name, baseURL, token string) (plexwatch.PMSServer, error)
 	Remove(ctx context.Context, id int64) error
@@ -26,6 +27,7 @@ type PlexServers interface {
 var _ PlexServers = (*plexwatch.Servers)(nil)
 
 func (h *Handler) plexServerRoutes(api func(string, http.HandlerFunc)) {
+	api("GET /api/viewers/{id}/plex-servers", h.handleViewerPlexServers)
 	if h.deps.PlexServers == nil {
 		return
 	}
@@ -37,6 +39,23 @@ func (h *Handler) plexServerRoutes(api func(string, http.HandlerFunc)) {
 	api("PUT /api/plex-servers/{id}/accounts/{account}", h.handlePlexServerMap)
 	api("POST /api/plex-servers/{id}/sync", h.handlePlexServerSync)
 	api("GET /api/plex-servers/{id}/unmatched", h.handlePlexServerUnmatched)
+}
+
+func (h *Handler) handleViewerPlexServers(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.viewerByID(w, r)
+	if !ok {
+		return
+	}
+	if h.deps.PlexServers == nil {
+		writeJSON(w, http.StatusOK, []plexwatch.PMSViewerMapping{})
+		return
+	}
+	list, err := h.deps.PlexServers.ViewerServers(r.Context(), u.ID)
+	if err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 func (h *Handler) plexServerError(w http.ResponseWriter, err error) {
