@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // slotHash is the visible id for a subtitle search offer. Offers are not
@@ -33,11 +32,11 @@ type selection struct {
 }
 
 type selectionStore struct {
-	store *sessions.Selections[selection]
+	store *frontend.Selections[selection]
 }
 
 func newSelectionStore() *selectionStore {
-	return &selectionStore{store: sessions.NewSelections[selection]()}
+	return &selectionStore{store: frontend.NewSelections[selection]()}
 }
 func (s *selectionStore) get(userID, partID int64) selection { return s.store.Get(userID, partID) }
 func (s *selectionStore) update(userID, partID int64, fn func(*selection)) {
@@ -88,18 +87,18 @@ type stoppedTranscode struct {
 
 type transcodeTable struct {
 	load      func(string) (*transcodeEntry, bool)
-	table     *sessions.BindingTable[playRequest]
+	table     *frontend.BindingTable[playRequest]
 	stoppedMu sync.Mutex
 	stopped   map[string]stoppedTranscode
 }
 
 func newTranscodeTable() *transcodeTable {
-	return &transcodeTable{table: sessions.NewBindingTable[playRequest](), stopped: map[string]stoppedTranscode{}}
+	return &transcodeTable{table: frontend.NewBindingTable[playRequest](), stopped: map[string]stoppedTranscode{}}
 }
-func (e *transcodeEntry) binding() *sessions.Binding[playRequest] {
-	return &sessions.Binding[playRequest]{ID: e.id, StreamToken: e.streamToken, PlayID: e.playID, PlaybackID: e.playbackID, UserID: e.userID, ClientID: e.clientID, Key: e.key, Requested: e.requested, Decision: e.decision, Info: e.info, Subtitle: e.subtitle, Caps: e.caps, Opts: e.opts, Offset: e.offset, Started: e.started, UpdatedAt: e.updatedAt, FailKey: e.failKey, FailErr: e.failErr, FailedAt: e.failedAt}
+func (e *transcodeEntry) binding() *frontend.Binding[playRequest] {
+	return &frontend.Binding[playRequest]{ID: e.id, StreamToken: e.streamToken, PlayID: e.playID, PlaybackID: e.playbackID, UserID: e.userID, ClientID: e.clientID, Key: e.key, Requested: e.requested, Decision: e.decision, Info: e.info, Subtitle: e.subtitle, Caps: e.caps, Opts: e.opts, Offset: e.offset, Started: e.started, UpdatedAt: e.updatedAt, FailKey: e.failKey, FailErr: e.failErr, FailedAt: e.failedAt}
 }
-func plexBinding(b *sessions.Binding[playRequest]) *transcodeEntry {
+func plexBinding(b *frontend.Binding[playRequest]) *transcodeEntry {
 	return &transcodeEntry{id: b.ID, streamToken: b.StreamToken, playID: b.PlayID, playbackID: b.PlaybackID, userID: b.UserID, clientID: b.ClientID, key: b.Key, requested: b.Requested, decision: b.Decision, info: b.Info, subtitle: b.Subtitle, caps: b.Caps, opts: b.Opts, offset: b.Offset, started: b.Started, updatedAt: b.UpdatedAt, failKey: b.FailKey, failErr: b.FailErr, failedAt: b.FailedAt}
 }
 func (t *transcodeTable) put(e *transcodeEntry) {

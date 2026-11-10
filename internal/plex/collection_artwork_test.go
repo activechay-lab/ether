@@ -53,7 +53,7 @@ func TestGeneratedCollectionArtwork(t *testing.T) {
 	art := &artCollections{fakeCollections: f.cols}
 	d := f.srv.d
 	d.Collections = art
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 
 	// The collection's thumb URL carries its update stamp.
@@ -95,7 +95,7 @@ func TestCustomCollectionArtEndpoint(t *testing.T) {
 	art := &artCollections{fakeCollections: f.cols, allowArt: true}
 	d := f.srv.d
 	d.Collections = art
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 
 	stamp := strconv.FormatInt(updated.Unix(), 10)

@@ -162,7 +162,7 @@ func TestUltraBlurComputedLazilyAndPersisted(t *testing.T) {
 	f.srv.Close()
 	d := f.srv.d
 	d.DB = db
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 
 	first := f.get(t, "/library/metadata/1000000000000550", jsonAccept...)
 	if strings.Contains(first.Body.String(), "UltraBlurColors") {
@@ -191,7 +191,7 @@ func TestUltraBlurComputedLazilyAndPersisted(t *testing.T) {
 	f.srv.Close()
 
 	// Restart: the colours come from plex_ultrablur on the first render.
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 	rec := f.get(t, "/library/sections/1/all", jsonAccept...)
 	if !strings.Contains(rec.Body.String(), `"topLeft":"`+u.TopLeft+`"`) {
@@ -224,7 +224,7 @@ func TestCloseDoesNotWaitForSlowArtwork(t *testing.T) {
 	cdn := &blockingCDN{started: make(chan struct{}, 1)}
 	d := f.srv.d
 	d.HTTPClient = &http.Client{Transport: cdn}
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	f.get(t, "/library/metadata/1000000000000550")
 	select {
 	case <-cdn.started:
@@ -293,7 +293,7 @@ func TestHubItemsEnrichedFromDetail(t *testing.T) {
 	summary := fightClub
 	summary.Cast, summary.Directors, summary.Writers, summary.Studios, summary.ContentRating, summary.Tagline = nil, nil, nil, nil, "", ""
 	d.Recommender = &fakeRecommender{home: []core.Hub{{ID: "trending", Title: "Trending", Type: core.TypeMovie, Items: []core.Title{summary}}}}
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 
 	rec := f.get(t, "/hubs")
@@ -326,7 +326,7 @@ func TestEnrichFailureKeepsSummaryAndRetriesLater(t *testing.T) {
 	now := fixedNow
 	var mu sync.Mutex
 	d.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 	for i := 0; i < 3; i++ {
 		if rec := f.get(t, "/hubs"); rec.Code != http.StatusOK {

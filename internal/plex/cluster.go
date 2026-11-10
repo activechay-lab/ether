@@ -12,7 +12,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // Clustering. A clustered node (Deps.Cluster set) shares with the others:
@@ -560,8 +559,8 @@ func parseAddr(s string) netip.Addr {
 	return a
 }
 
-func (c *clusterState) queuePersistence() *sessions.PlayQueuePersistence {
-	return &sessions.PlayQueuePersistence{DB: c.db, Counter: c.counter,
+func (c *clusterState) queuePersistence() *frontend.PlayQueuePersistence {
+	return &frontend.PlayQueuePersistence{DB: c.db, Counter: c.counter,
 		Invalidate: func(id int64) { c.publish("invalidate:playqueue", queueEvent{ID: id}) },
 		Warn:       c.warn, ExpireResult: func(err error) {
 			if err != nil {

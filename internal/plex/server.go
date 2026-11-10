@@ -25,7 +25,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // DefaultPMSVersion is reported when Identity.Version is empty. Clients gate
@@ -83,12 +82,16 @@ type Deps struct {
 	PlexEncoder     PlexEncoder
 	ArtworkImages   *artworkservice.RemoteCache
 	ArtworkPalettes *artworkservice.PaletteCache
+	// SessionStores constructs the session stores this server owns and
+	// provides the session helpers it calls. Required: NewServer panics
+	// without it. The app wires sessions.NewPlexSessionStores().
+	SessionStores frontend.PlexSessionStores
 	// GeneratedPosters draws Ether's poster for a movie or show with no
 	// artwork; nil leaves such titles without a thumb.
 	GeneratedPosters interface {
 		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
 	}
-	SessionCoordination *sessions.Coordination
+	SessionCoordination frontend.Coordination
 	FavoriteShows       func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error)
 	FilterAvailable     func(context.Context, []frontend.Title) []frontend.Title
 	// JudgedOnFacts reports, for a request, the titles FilterAvailable judges
@@ -233,17 +236,17 @@ type Server struct {
 		GetUntrustedURL(context.Context, string) ([]byte, string, error)
 	}
 	channelRaster     *artwork.SVGRasterizer
-	boundStreams      sessions.PlexStreamAPI
+	boundStreams      frontend.PlexStreamAPI
 	variantIDs        *variantIDRegistry
 	playIDs           *playIdentities
 	versionFlows      *versionFlowStore
 	variantWatch      variantWatches
-	downloads         *downloadStore
-	queues            *playQueueStore
+	downloads         frontend.DownloadQueueStore
+	queues            frontend.PlayQueues
 	sessions          *sessionActivities
 	playbackBroker    frontend.Sessions
-	playbackOwners    *sessions.PlaybackOwners
-	playbackLifecycle *sessions.Lifecycle
+	playbackOwners    frontend.PlaybackOwners
+	playbackLifecycle frontend.Lifecycle
 	transcodes        *transcodeTable
 	progressiveStops  progressiveStopGuard
 	readCaps          *readCapabilityStore
@@ -265,10 +268,10 @@ type Server struct {
 	// janitor drops those whose client never reports again.
 	termMu       sync.Mutex
 	terms        map[string]termination
-	decisionArms *sessions.DecisionArms
+	decisionArms frontend.DecisionArms
 
 	// Stalled-start watches and Dolby Vision base-layer fallbacks.
-	starts sessions.StartGuard
+	starts frontend.StartGuard
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -298,9 +301,12 @@ func NewServer(d Deps) *Server {
 	}
 	d.Dashboard, d.Resources = experience.Statistics(d.Dashboard, d.Resources, d.Now)
 	ctx, cancel := context.WithCancel(context.Background())
+	if d.SessionStores == nil {
+		panic("plex: Deps.SessionStores is required (wire sessions.NewPlexSessionStores())")
+	}
 	coord := d.SessionCoordination
-	if coord == nil || coord.Owners == nil || coord.Gates == nil {
-		coord = sessions.NewCoordination()
+	if coord == nil || coord.PlaybackOwners() == nil || coord.LifecycleGates() == nil {
+		coord = d.SessionStores.NewCoordination()
 	}
 	s := &Server{
 		activities:        map[string]model.Activity{},
@@ -310,13 +316,13 @@ func NewServer(d Deps) *Server {
 		images:            artworkservice.NewRemoteCache(d.ImageCacheBytes, d.HTTPClient),
 		channelLogos:      artwork.NewImages(artwork.ImagesOptions{HTTPClient: d.HTTPClient}),
 		channelRaster:     artwork.NewSVGRasterizer(),
-		variantIDs:        newVariantIDRegistry(d.DB),
+		variantIDs:        newVariantIDRegistry(d.SessionStores, d.DB),
 		playIDs:           newPlayIdentities(),
-		downloads:         newDownloadStore(),
-		queues:            newPlayQueueStore(),
+		downloads:         d.SessionStores.NewDownloadQueueStore(),
+		queues:            d.SessionStores.NewPlayQueues(),
 		sessions:          newSessionActivities(),
-		playbackOwners:    coord.Owners,
-		playbackLifecycle: coord.Gates,
+		playbackOwners:    coord.PlaybackOwners(),
+		playbackLifecycle: coord.LifecycleGates(),
 		transcodes:        newTranscodeTable(),
 		readCaps:          newReadCapabilityStore(),
 		extraPlay:         newExtraPlayStore(d.DirectHTTP),
@@ -376,7 +382,8 @@ func NewServer(d Deps) *Server {
 	if s.cl != nil {
 		node = s.cl.self
 	}
-	s.decisionArms = sessions.NewDecisionArms(s.ctx, d.DB, s.now, node, s.log, &s.wg)
+	s.starts = d.SessionStores.NewStartGuard()
+	s.decisionArms = d.SessionStores.NewDecisionArms(s.ctx, d.DB, s.now, node, s.log, &s.wg)
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)

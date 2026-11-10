@@ -530,7 +530,7 @@ func TestPhotoTranscode(t *testing.T) {
 	d := f.srv.d
 	d.ImageURL = func(path, size string) string { return tmdb.URL + "/t/p/" + size + path }
 	d.HTTPClient = tmdb.Client()
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 
 	rec := f.get(t, "/photo/:/transcode?width=300&height=450&minSize=1&upscale=1&url="+urlEsc("/library/metadata/1000000000000550/thumb/1759276800"))

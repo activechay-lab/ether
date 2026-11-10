@@ -3,29 +3,8 @@ package sessions
 import (
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
-
-// PlexActivity is one Plex client's playback as the session list shows it.
-// The broker is the only store. Cluster rows for these activities use
-// protocol plex.
-type PlexActivity struct {
-	ID                                                     string
-	DecisionSeen                                           bool
-	PlayingSeen                                            bool
-	SessionKey                                             int
-	User                                                   core.User
-	ClientID, Product, Version, Platform, PlatformVersion  string
-	Device, DeviceName, Model, Vendor, SessionID, RemoteIP string
-	ProfileName                                            string
-	Remote                                                 bool
-	Key                                                    core.RatingKey
-	State                                                  string
-	Offset, Duration                                       time.Duration
-	PlayQueueItemID                                        int64
-	TranscodeID                                            string
-	StartedAt, UpdatedAt                                   time.Time
-}
 
 func (b *Broker) HasPlexActivity(id string) bool {
 	if b == nil || id == "" {
@@ -108,3 +87,5 @@ func (b *Broker) ExpirePlexActivities(now time.Time, ttl time.Duration) []PlexAc
 	}
 	return out
 }
+
+type PlexActivity = frontend.PlexActivity

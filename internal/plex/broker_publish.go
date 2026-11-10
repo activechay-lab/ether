@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // UsePlaybackBroker attaches the shared session broker. Mounted Plex playback
@@ -14,7 +13,7 @@ import (
 func (s *Server) UsePlaybackBroker(b frontend.Sessions) {
 	if s != nil {
 		s.playbackBroker = b
-		s.sessions.bind(sessions.UnderlyingBroker(b))
+		s.sessions.bind(s.d.SessionStores.UnderlyingPlexActivityStore(b))
 	}
 }
 
@@ -56,11 +55,11 @@ func (s *Server) plexAccess(pr *Request) frontend.SessionAccess {
 
 // openPlexPlan runs version and track resolution inside Plan, then publishes
 // the decision Plan made. The adapter renders that decision.
-func (s *Server) openPlexPlan(ctx context.Context, pr *Request, p *playRequest, admit func(context.Context) (sessions.PlexAdmission, error)) (frontend.Decision, error) {
+func (s *Server) openPlexPlan(ctx context.Context, pr *Request, p *playRequest, admit func(context.Context) (frontend.PlexAdmission, error)) (frontend.Decision, error) {
 	if s == nil || s.playbackBroker == nil || pr == nil || pr.User == nil || p == nil || p.sessionID == "" || admit == nil {
 		return frontend.Decision{}, frontend.ErrNotAvailable
 	}
-	ctx = sessions.WithPlexAdmission(ctx, admit)
+	ctx = frontend.WithPlexAdmission(ctx, admit)
 	plan, err := s.playbackBroker.Plan(ctx, s.plexPlanRequest(pr, p))
 	if err != nil {
 		return frontend.Decision{}, fmt.Errorf("Plex broker plan: %w", err)
@@ -77,8 +76,8 @@ func (s *Server) publishBrokerPlayback(ctx context.Context, pr *Request, p *play
 	if ps == nil {
 		return frontend.Decision{}, frontend.ErrNotAvailable
 	}
-	return s.openPlexPlan(ctx, pr, p, func(context.Context) (sessions.PlexAdmission, error) {
-		return sessions.PlexAdmission{
+	return s.openPlexPlan(ctx, pr, p, func(context.Context) (frontend.PlexAdmission, error) {
+		return frontend.PlexAdmission{
 			Source: ps, Media: ps.Info, Caps: p.caps, Options: p.opts, PreferRemux: p.mde, Protocol: p.protocol,
 			RemoteMaxBitrateKbps: s.cfg().Transcode.RemoteMaxBitrateKbps,
 		}, nil
@@ -179,7 +178,9 @@ type plexProtocolStop interface {
 }
 
 func (s *Server) recordManualSubtitle(ctx context.Context, viewer int64, key frontend.RatingKey, manual bool) error {
-	if b := sessions.UnderlyingBroker(s.playbackBroker); b != nil {
+	if b, ok := s.playbackBroker.(interface {
+		RecordAuthorizedSubtitleIntent(context.Context, int64, frontend.RatingKey, bool) error
+	}); ok {
 		return b.RecordAuthorizedSubtitleIntent(ctx, viewer, key, manual)
 	}
 	return nil

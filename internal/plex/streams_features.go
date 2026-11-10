@@ -11,7 +11,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/reqmemo"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // TrackPreferences is optional. Selections are stream slice positions; saved
@@ -106,7 +105,7 @@ func (s *Server) rememberStreamRequest(r *http.Request, user *frontend.Viewer, k
 		if kind == "subtitle" && id == 0 {
 		} else {
 			pr := FromContext(r.Context())
-			binding, rerr := s.resolveIssuedStream(sessions.WithPlexServe(r.Context(), pr.Remote, ""), user, pr.ClientID, id)
+			binding, rerr := s.resolveIssuedStream(frontend.WithPlexServe(r.Context(), pr.Remote, ""), user, pr.ClientID, id)
 			if rerr != nil {
 				if !streamMiss(rerr) {
 					return

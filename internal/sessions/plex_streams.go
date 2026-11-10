@@ -20,17 +20,6 @@ import (
 
 const maxPlexStreamRefs = 200_000
 
-// PlexStreamBinding is one Plex-visible stream id. WireID is zero on bind;
-// BindPlexStream assigns it. SessionID is empty for library metadata and is
-// the broker session id after Open.
-type PlexStreamBinding struct {
-	WireID    int64
-	SessionID string
-	Key       core.RatingKey
-	Index     int
-	Info      core.StreamInfo
-}
-
 // PlexStreamTable is the visible-id map. Plex offer ids are not stored here.
 type PlexStreamTable struct {
 	mu   sync.Mutex
@@ -123,30 +112,6 @@ func (t *PlexStreamTable) Lookup(id int64) (PlexStreamBinding, bool) {
 	return ref.binding, ok
 }
 
-type plexServe struct {
-	remote bool
-	format string
-}
-
-type plexServeKey struct{}
-
-// WithPlexServe carries the request's remote bit and subtitle format into
-// ResolvePlexStream and OpenPlexSidecar without changing their signatures.
-func WithPlexServe(ctx context.Context, remote bool, format string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, plexServeKey{}, plexServe{remote: remote, format: format})
-}
-
-func plexServeFrom(ctx context.Context) plexServe {
-	if ctx == nil {
-		return plexServe{}
-	}
-	v, _ := ctx.Value(plexServeKey{}).(plexServe)
-	return v
-}
-
 // BindPlexStream assigns the visible id. WireID on the binding must be zero.
 // Library metadata calls this before a viewer is known, so it does not
 // authorize. Resolve and Open do.
@@ -224,7 +189,7 @@ func (b *Broker) OpenPlexSidecar(ctx context.Context, access frontend.SessionAcc
 }
 
 func (b *Broker) confirmPlex(ctx context.Context, access frontend.SessionAccess) (*core.Viewer, error) {
-	return b.confirm(ctx, access.Viewer, core.ClientCaps{Remote: plexServeFrom(ctx).remote})
+	return b.confirm(ctx, access.Viewer, core.ClientCaps{Remote: plexServeRemote(ctx)})
 }
 
 func (b *Broker) plexSessionOwned(id string, viewer int64) bool {
@@ -237,7 +202,7 @@ func (b *Broker) plexSessionOwned(id string, viewer int64) bool {
 func (b *Broker) openExternalSidecar(ctx context.Context, s *brokerSession, info core.StreamInfo) (io.ReadCloser, core.StreamInfo, error) {
 	src := info.ExternalURL
 	if strings.HasPrefix(src, "ether-subtitle:") {
-		format := plexServeFrom(ctx).format
+		_, format := frontend.PlexServeFrom(ctx)
 		if format == "" {
 			format = "srt"
 		}
@@ -294,3 +259,14 @@ func (b *Broker) openExternalSidecar(ctx context.Context, s *brokerSession, info
 }
 
 var plexSidecarClient = egress.Client(egress.CapDirect, 20*time.Second)
+
+// PlexStreamBinding and the PlexServe context helpers live in
+// internal/frontend (host_sessions_experience.go).
+type PlexStreamBinding = frontend.PlexStreamBinding
+
+var WithPlexServe = frontend.WithPlexServe
+
+func plexServeRemote(ctx context.Context) bool {
+	remote, _ := frontend.PlexServeFrom(ctx)
+	return remote
+}

@@ -16,13 +16,6 @@ func BindSurface(b frontend.Sessions, protocol frontend.Protocol) frontend.Sessi
 	return surface{broker: b, protocol: protocol}
 }
 
-// PlexStreamAPI is the visible-id and sidecar surface Plex calls.
-type PlexStreamAPI interface {
-	BindPlexStream(context.Context, frontend.SessionAccess, PlexStreamBinding) (int64, error)
-	ResolvePlexStream(context.Context, frontend.SessionAccess, int64) (PlexStreamBinding, error)
-	OpenPlexSidecar(context.Context, frontend.SessionAccess, auth.Acceptance, int64) (io.ReadCloser, core.StreamInfo, error)
-}
-
 // BindPlexStreams is BindSurface for the Plex stream methods. The returned
 // value rejects any access whose protocol is not plex.
 func BindPlexStreams(b *Broker) PlexStreamAPI {
@@ -379,4 +372,32 @@ func (s surface) ReportSample(ctx context.Context, a frontend.SessionAccess, id 
 		return "", core.ErrNotAvailable
 	}
 	return reporter.ReportSample(ctx, a, id, sample)
+}
+
+// PlexStreamAPI lives in internal/frontend (host_sessions_experience.go).
+type PlexStreamAPI = frontend.PlexStreamAPI
+
+// PlexActivities reaches the broker's Plex activity store.
+func (b *Broker) PlexActivities() frontend.PlexActivityStore {
+	if b == nil {
+		return nil
+	}
+	return b
+}
+
+// PlexActivities reaches the underlying broker's Plex activity store.
+func (s surface) PlexActivities() frontend.PlexActivityStore {
+	if src, ok := s.broker.(frontend.PlexActivitySource); ok {
+		return src.PlexActivities()
+	}
+	return nil
+}
+
+// RecordAuthorizedSubtitleIntent forwards to the underlying broker.
+func (s surface) RecordAuthorizedSubtitleIntent(ctx context.Context, viewer int64, key core.RatingKey, manual bool) error {
+	b, ok := s.broker.(*Broker)
+	if !ok {
+		return core.ErrNotAvailable
+	}
+	return b.RecordAuthorizedSubtitleIntent(ctx, viewer, key, manual)
 }

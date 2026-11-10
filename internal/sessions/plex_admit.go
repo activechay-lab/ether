@@ -10,34 +10,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
-// PlexAdmission is the source and the version and track selections for one
-// Plex plan. Plan makes the direct, remux, or transcode decision from them.
-// Open publishes that decision. The adapter renders it and does not decide again.
-type PlexAdmission struct {
-	Source               *core.PlaySession
-	Media                core.MediaInfo
-	Caps                 core.ClientCaps
-	Options              core.DecideOptions
-	PreferRemux          bool
-	Protocol             string
-	RemoteMaxBitrateKbps int
-}
-
-type plexAdmissionKey struct{}
-
-// WithPlexAdmission attaches the prepared source for one Plex Plan call.
-func WithPlexAdmission(ctx context.Context, admit func(context.Context) (PlexAdmission, error)) context.Context {
-	if admit == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, plexAdmissionKey{}, admit)
-}
-
-func plexAdmissionFrom(ctx context.Context) (func(context.Context) (PlexAdmission, error), bool) {
-	admit, ok := ctx.Value(plexAdmissionKey{}).(func(context.Context) (PlexAdmission, error))
-	return admit, ok && admit != nil
-}
-
 func validPlexTranscodeID(id string) bool {
 	if id == "" || len(id) > 128 {
 		return false
@@ -364,3 +336,9 @@ func (b *Broker) dropPlexPlan(id string) {
 		b.releasePlanSource(plan.source.ID, plan.pinned)
 	}
 }
+
+// PlexAdmission and its context helpers live in internal/frontend
+// (host_sessions_experience.go).
+type PlexAdmission = frontend.PlexAdmission
+
+var WithPlexAdmission = frontend.WithPlexAdmission

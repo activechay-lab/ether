@@ -85,7 +85,7 @@ func TestCustomCollectionArtworkCannotExecuteOnOwnerOrigin(t *testing.T) {
 	f.cols.items[key] = []core.Title{alien}
 	d := f.srv.d
 	d.Collections = &customURLCollections{fakeCollections: f.cols, images: artwork.NewImages(artwork.ImagesOptions{HTTPClient: upstream.Client()}), url: upstream.URL + "/poster.svg"}
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 	for _, path := range []string{
 		"/library/metadata/" + key.String() + "/thumb?X-Plex-Token=" + friendToken,

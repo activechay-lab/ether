@@ -1255,7 +1255,7 @@ func newFixture(opts ...func(*Deps)) *fixture {
 	for _, o := range opts {
 		o(&d)
 	}
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	f.attachPlaybackBroker(d)
 	return f
 }

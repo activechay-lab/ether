@@ -1,7 +1,7 @@
 package plex
 
-import "github.com/braedonsaunders/ether/internal/sessions"
+import "github.com/braedonsaunders/ether/internal/frontend"
 
-func (s *Server) plexSources() sessions.PlexSources {
-	return sessions.PlexSources{Playback: s.d.Playback, Log: s.log}
+func (s *Server) plexSources() frontend.PlexSources {
+	return s.d.SessionStores.NewPlexSources(s.d.Playback, s.log)
 }

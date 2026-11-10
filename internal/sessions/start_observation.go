@@ -5,15 +5,9 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/remotetranscode"
 )
-
-// StartObservation is the evidence used by stalled-start detection.
-type StartObservation interface {
-	core.PlaybackPosition
-	Decision() core.Decision
-	Info() core.MediaInfo
-}
 
 // ObserveStart accepts local evidence directly; remote evidence must be fresh
 // and belong to the requested execution. A failed read never uses cached data.
@@ -35,3 +29,5 @@ func ObserveStart(ctx context.Context, source core.HLSSession, id string) (Start
 	}
 	return sample, true
 }
+
+type StartObservation = frontend.StartObservation

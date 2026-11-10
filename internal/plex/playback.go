@@ -19,7 +19,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // Decision codes. PMS documents the classes (1xxx ok, 2xxx general error,
@@ -453,7 +452,7 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 		p.subSel, p.subSet, p.subStream = sel.subtitle, true, sel.subtitleStream
 	}
 	if id, err := strconv.ParseInt(q.Get("audioStreamID"), 10, 64); err == nil {
-		binding, rerr := s.resolveIssuedStream(sessions.WithPlexServe(r.Context(), pr.Remote, ""), pr.User, pr.ClientID, id)
+		binding, rerr := s.resolveIssuedStream(frontend.WithPlexServe(r.Context(), pr.Remote, ""), pr.User, pr.ClientID, id)
 		if rerr != nil && !streamMiss(rerr) {
 			return playRequest{}, rerr
 		}
@@ -467,7 +466,7 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 			if id == 0 {
 				p.subSel, p.subSet, p.subStream, p.subNamed = -1, true, nil, true
 			} else {
-				binding, rerr := s.resolveIssuedStream(sessions.WithPlexServe(r.Context(), pr.Remote, ""), pr.User, pr.ClientID, id)
+				binding, rerr := s.resolveIssuedStream(frontend.WithPlexServe(r.Context(), pr.Remote, ""), pr.User, pr.ClientID, id)
 				if rerr != nil && !streamMiss(rerr) {
 					return playRequest{}, rerr
 				}
@@ -582,11 +581,11 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*fro
 		}
 		s.playIDs.endAdmission(ik, p.mediaID, release, admitted, s.now())
 	}()
-	dec, err := s.openPlexPlan(ctx, pr, p, func(ctx context.Context) (sessions.PlexAdmission, error) {
+	dec, err := s.openPlexPlan(ctx, pr, p, func(ctx context.Context) (frontend.PlexAdmission, error) {
 		var prepErr error
 		ps, prepErr = s.preparePlayback(ctx, pr, p)
 		if prepErr != nil {
-			return sessions.PlexAdmission{}, prepErr
+			return frontend.PlexAdmission{}, prepErr
 		}
 		// Tracks cached or picked since the session's media was enriched (a
 		// subtitle search pick mid-playback) join its streams for this
@@ -649,9 +648,9 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*fro
 			p.caps.TranscodeAudioCodecs = kept
 		}
 		if err := s.applyDeviceProfile(pr, t, ps, p); err != nil {
-			return sessions.PlexAdmission{}, err
+			return frontend.PlexAdmission{}, err
 		}
-		return sessions.PlexAdmission{
+		return frontend.PlexAdmission{
 			Source: ps, Media: ps.Info, Caps: p.caps, Options: p.opts, PreferRemux: p.mde, Protocol: p.protocol,
 			RemoteMaxBitrateKbps: s.cfg().Transcode.RemoteMaxBitrateKbps,
 		}, nil
@@ -1363,7 +1362,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 	entry.playbackID = pr.SessionID
 	s.transcodes.put(entry)
 
-	dec := sessions.HLSDecision(entry.decision, p.opts.DirectPlay, func() frontend.Decision {
+	dec := frontend.HLSDecision(entry.decision, p.opts.DirectPlay, func() frontend.Decision {
 		resolvePlaySelection(&p, ps.Info)
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)
@@ -2179,8 +2178,8 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	}
 	audioDefault := q.Has("audioStreamID") && audioErr == nil && audioID == -1
 	subDefault := q.Has("subtitleStreamID") && subErr == nil && subID == -1
-	ctx := sessions.WithPlexServe(r.Context(), pr.Remote, "")
-	var audio *sessions.PlexStreamBinding
+	ctx := frontend.WithPlexServe(r.Context(), pr.Remote, "")
+	var audio *frontend.PlexStreamBinding
 	if v := q.Get("audioStreamID"); v != "" && !audioDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
@@ -2200,7 +2199,7 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	clearSub := q.Has("subtitleStreamID") && (subErr != nil || subID == 0)
-	var sub *sessions.PlexStreamBinding
+	var sub *frontend.PlexStreamBinding
 	if v := q.Get("subtitleStreamID"); v != "" && !subDefault {
 		if sid, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if sid == 0 {
@@ -2345,7 +2344,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	receipt, _ := acceptanceFrom(r.Context())
-	reader, info, err := s.boundStreams.OpenPlexSidecar(sessions.WithPlexServe(r.Context(), pr.Remote, format), s.plexStreamAccess(pr.User), receipt, id)
+	reader, info, err := s.boundStreams.OpenPlexSidecar(frontend.WithPlexServe(r.Context(), pr.Remote, format), s.plexStreamAccess(pr.User), receipt, id)
 	if err != nil || reader == nil {
 		if reader != nil {
 			_ = reader.Close()

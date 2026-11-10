@@ -16,7 +16,7 @@ func TestDownloadQueueSurvivesRestart(t *testing.T) {
 	deps := f.srv.d
 	f.srv.Close()
 	deps.DB = store.OpenTest(t)
-	f.srv = NewServer(deps)
+	f.srv = NewServer(testDeps(deps))
 	qid := f.queue(t)
 	rec := f.do(t, http.MethodPost, "/downloadQueue/"+itoa(qid)+"/add?key="+fightClub.Key.String(), ownerToken, nil)
 	if rec.Code != 200 {
@@ -25,7 +25,7 @@ func TestDownloadQueueSurvivesRestart(t *testing.T) {
 	it := f.waitStatus(t, qid, downloadAvailable)
 	id := int64(it["id"].(float64))
 	f.srv.Close()
-	f.srv = NewServer(deps)
+	f.srv = NewServer(testDeps(deps))
 	if got := f.queue(t); got != qid {
 		t.Fatalf("queue changed: %d => %d", qid, got)
 	}
@@ -94,7 +94,7 @@ func TestOfflineTranscodeFollowsClaim(t *testing.T) {
 	cfg.Plex.Token = ""
 	deps.Config = func() config.Config { return cfg }
 	f.srv.Close()
-	f.srv = NewServer(deps)
+	f.srv = NewServer(testDeps(deps))
 	rec := f.do(t, http.MethodGet, "/", ownerToken, nil)
 	if _, ok := decodeContainer(t, rec)["offlineTranscode"]; ok {
 		t.Fatalf("unclaimed offlineTranscode: %s", rec.Body.String())
@@ -107,7 +107,7 @@ func TestDownloadPendingRestartsWithFreshRun(t *testing.T) {
 	f.srv.Close()
 	deps.DB = store.OpenTest(t)
 	f.remux.block = make(chan struct{})
-	f.srv = NewServer(deps)
+	f.srv = NewServer(testDeps(deps))
 	qid := f.queue(t)
 	rec := f.do(t, http.MethodPost, "/downloadQueue/"+itoa(qid)+"/add?key="+fightClub.Key.String()+"&maxVideoBitrate=4000", ownerToken, nil)
 	if rec.Code != 200 {
@@ -128,7 +128,7 @@ func TestDownloadPendingRestartsWithFreshRun(t *testing.T) {
 	}
 	f.srv.Close()
 	close(f.remux.block)
-	f.srv = NewServer(deps)
+	f.srv = NewServer(testDeps(deps))
 	f.waitStatus(t, qid, downloadAvailable)
 	f.remux.mu.Lock()
 	reqs := append([]core.DownloadRemuxRequest(nil), f.remux.requests...)

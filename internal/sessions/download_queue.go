@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 const (
@@ -18,42 +19,6 @@ const (
 	downloadExpired    = "expired"
 	downloadDone       = "done" // queue-level only
 )
-
-type DownloadItem struct {
-	ID      int64
-	QueueID int64
-	Key     core.RatingKey
-	Title   string // display Title, for the served filename
-
-	Caps core.ClientCaps // as requested at add time (Download set at Run)
-	User *core.User
-
-	Status   string
-	Error    string
-	Progress float64 // 0..1
-	Started  bool
-	Cancel   context.CancelFunc
-	// Run numbers each start of the Item, so a restarted job gets its own
-	// playback session instead of sharing (and later stopping) the
-	// previous Run's.
-	Run int64
-
-	Path       string
-	Size       int64
-	ReadyAt    time.Time
-	VideoCodec string
-	AudioCodec string
-	Duration   time.Duration
-	Bandwidth  int // requested maxVideoBitrate, kbps
-	Burn       bool
-}
-
-type DownloadQueue struct {
-	ID       int64
-	UserID   int64
-	ClientID string
-	Items    []*DownloadItem
-}
 
 type DownloadQueueStore struct {
 	Mu        sync.Mutex
@@ -97,15 +62,6 @@ func (st *DownloadQueueStore) QueueByID(ID, UserID int64, ClientID string) *Down
 	return q
 }
 
-func (q *DownloadQueue) Item(ID int64) *DownloadItem {
-	for _, it := range q.Items {
-		if it.ID == ID {
-			return it
-		}
-	}
-	return nil
-}
-
 func (st *DownloadQueueStore) Add(q *DownloadQueue, u *core.User, t core.Title, caps core.ClientCaps, burn bool) *DownloadItem {
 	st.Mu.Lock()
 	defer st.Mu.Unlock()
@@ -124,12 +80,6 @@ func (st *DownloadQueueStore) Add(q *DownloadQueue, u *core.User, t core.Title, 
 	}
 	q.Items = append(q.Items, it)
 	return it
-}
-
-type DownloadStart struct {
-	Item    *DownloadItem
-	Context context.Context
-	Run     int64
 }
 
 // StartReady atomically reserves each eligible run before any worker starts.
@@ -166,7 +116,7 @@ func (st *DownloadQueueStore) StartReady(ctx context.Context, perUser int, allow
 			it.Status = downloadDeciding
 			it.Run = st.NextRun
 			active[it.User.ID]++
-			jobs = append(jobs, DownloadStart{it, ctx, it.Run})
+			jobs = append(jobs, DownloadStart{Item: it, Context: ctx, Run: it.Run})
 		}
 	}
 	st.Mu.Unlock()
@@ -307,4 +257,35 @@ func (st *DownloadQueueStore) Complete(ctx context.Context, it *DownloadItem, pa
 	it.Path, it.Size, it.ReadyAt = path, size, now
 	it.Progress, it.Status = 1, downloadAvailable
 	return true
+}
+
+// Download value types live in internal/frontend
+// (host_sessions_experience.go).
+type DownloadItem = frontend.DownloadItem
+type DownloadQueue = frontend.DownloadQueue
+type DownloadStart = frontend.DownloadStart
+
+// Lock locks the store mutex (frontend.DownloadQueueStore contract).
+func (s *DownloadQueueStore) Lock() { s.Mu.Lock() }
+
+// Unlock unlocks the store mutex.
+func (s *DownloadQueueStore) Unlock() { s.Mu.Unlock() }
+
+// WakeDownloads nudges the persistence writer without blocking.
+func (s *DownloadQueueStore) WakeDownloads() {
+	select {
+	case s.Wake <- struct{}{}:
+	default:
+	}
+}
+
+// AllItems snapshots every queued item under the store lock.
+func (s *DownloadQueueStore) AllItems() []*DownloadItem {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	var items []*DownloadItem
+	for _, q := range s.Queues {
+		items = append(items, q.Items...)
+	}
+	return items
 }

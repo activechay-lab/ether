@@ -200,7 +200,7 @@ func TestFrontendArtworkUsesGeneratedCollectionPoster(t *testing.T) {
 	f.cols.items[key] = []core.Title{alien}
 	d := f.srv.d
 	d.Collections = &artCollections{fakeCollections: f.cols}
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 	source := FrontendArtwork{Server: f.srv}
 	req := frontend.ArtworkRequest{Viewer: &ownerUser, Item: key}

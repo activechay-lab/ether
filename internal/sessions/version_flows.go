@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -24,16 +25,8 @@ CREATE INDEX plex_version_flows_expiry ON plex_version_flows(expires);`)
 	store.RegisterViewerTable("plex_version_flows", "plex_version_flows", "user_id", store.ViewerMergeDrop)
 }
 
-const VersionPreplayTTL = 90 * time.Second
 const versionFlowIdentityTTL = 30 * time.Minute
 const versionFlowDBTimeout = 5 * time.Second
-const (
-	VersionRead = iota
-	VersionOffer
-	VersionFreeze
-	VersionEnd
-	VersionTouch
-)
 
 // Only the facts needed to render versions are shared. No descriptors, URLs,
 // credentials, full releases or viewer-authorized metadata are persisted.
@@ -43,11 +36,6 @@ type storedVersion struct {
 	Edition string         `json:"e,omitempty"`
 	Auto    bool           `json:"a,omitempty"`
 	Info    core.MediaInfo `json:"m"`
-}
-type VersionSnapshot struct {
-	Variants []core.ReleaseVariant
-	Frozen   bool
-	Until    time.Time
 }
 type versionFlowResult struct {
 	VersionSnapshot
@@ -65,13 +53,6 @@ type VersionFlows struct {
 	ctx      context.Context
 	db       *sql.DB
 	commands chan versionFlowCommand
-}
-
-// VersionFlowKey scopes issued versions to one viewer, client and title.
-type VersionFlowKey struct {
-	UserID   int64
-	ClientID string
-	Key      core.RatingKey
 }
 
 // NewVersionFlows binds the worker to the host lifetime. The host must run Run
@@ -221,5 +202,17 @@ ON CONFLICT(user_id,client_id,title_key) DO UPDATE SET
 	for i, x := range rows {
 		out[i] = core.ReleaseVariant{ID: x.ID, Label: x.Label, Edition: x.Edition, Auto: x.Auto, Release: core.Release{ID: x.ID}, Info: x.Info}
 	}
-	return VersionSnapshot{out, frozen != 0, time.UnixMilli(expires)}, nil
+	return VersionSnapshot{Variants: out, Frozen: frozen != 0, Until: time.UnixMilli(expires)}, nil
 }
+
+type VersionFlowKey = frontend.VersionFlowKey
+type VersionSnapshot = frontend.VersionSnapshot
+
+const (
+	VersionRead       = frontend.VersionRead
+	VersionOffer      = frontend.VersionOffer
+	VersionFreeze     = frontend.VersionFreeze
+	VersionEnd        = frontend.VersionEnd
+	VersionTouch      = frontend.VersionTouch
+	VersionPreplayTTL = frontend.VersionPreplayTTL
+)

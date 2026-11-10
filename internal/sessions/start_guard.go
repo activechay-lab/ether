@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // Stalled-start protection. A native player can accept a decision, fetch
@@ -48,15 +48,6 @@ type startWatch struct {
 	played      time.Duration // reported position advanced with the clock
 	deliveredAt time.Time     // first timeline holding startStallAhead of media
 	done        bool          // disarmed after playback, or fired
-}
-
-// StartHintKey names one remembered fallback. A title Key is the Dolby
-// Vision HDR10-base hint for that title; a zero Key is client-wide: this
-// viewer's client stalled on surround audio copied into segmented output.
-type StartHintKey struct {
-	UserID   int64
-	ClientID string
-	Key      core.RatingKey
 }
 
 // StartGuard holds bounded per-session watches and per-title fallbacks.
@@ -175,3 +166,5 @@ func (g *StartGuard) expireLocked(now time.Time) {
 		}
 	}
 }
+
+type StartHintKey = frontend.StartHintKey

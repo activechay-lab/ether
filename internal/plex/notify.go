@@ -13,7 +13,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // ---------------------------------------------------------------------------
@@ -48,7 +47,7 @@ type sessionActivities struct {
 	mu     sync.Mutex
 	local  map[string]playEntry
 	next   int
-	broker *sessions.Broker
+	broker frontend.PlexActivityStore
 }
 
 func newSessionActivities() *sessionActivities {
@@ -58,7 +57,7 @@ func newSessionActivities() *sessionActivities {
 func trackID(userID int64, clientID, sessionID string) string {
 	return fmt.Sprintf("%d/%s/%s", userID, clientID, sessionID)
 }
-func (t *sessionActivities) bind(b *sessions.Broker) {
+func (t *sessionActivities) bind(b frontend.PlexActivityStore) {
 	if t == nil {
 		return
 	}
@@ -66,7 +65,7 @@ func (t *sessionActivities) bind(b *sessions.Broker) {
 	t.broker = b
 	t.mu.Unlock()
 }
-func (t *sessionActivities) mounted() *sessions.Broker {
+func (t *sessionActivities) mounted() frontend.PlexActivityStore {
 	if t == nil {
 		return nil
 	}
@@ -109,7 +108,7 @@ func (t *sessionActivities) update(id string, fn func(*playEntry)) playEntry {
 		return zero
 	}
 	if b := t.mounted(); b != nil {
-		act := b.UpsertPlexActivity(id, func(a *sessions.PlexActivity) {
+		act := b.UpsertPlexActivity(id, func(a *frontend.PlexActivity) {
 			e := activityEntry(*a)
 			fn(&e)
 			*a = entryActivity(e)
@@ -191,7 +190,7 @@ func (t *sessionActivities) expire(now time.Time, ttl time.Duration) []playEntry
 	return out
 }
 
-func activityEntry(a sessions.PlexActivity) playEntry {
+func activityEntry(a frontend.PlexActivity) playEntry {
 	e := playEntry{id: a.ID, sessionKey: a.SessionKey, decisionSeen: a.DecisionSeen, playingSeen: a.PlayingSeen, user: a.User, key: a.Key, state: a.State, offset: a.Offset, duration: a.Duration, playQueueItemID: a.PlayQueueItemID, transcodeID: a.TranscodeID, startedAt: a.StartedAt, updatedAt: a.UpdatedAt}
 	e.client = Request{ClientID: a.ClientID, Product: a.Product, Version: a.Version, Platform: a.Platform, PlatformVersion: a.PlatformVersion, Device: a.Device, DeviceName: a.DeviceName, Model: a.Model, Vendor: a.Vendor, ProfileName: a.ProfileName, SessionID: a.SessionID, Remote: a.Remote}
 	if a.RemoteIP != "" {
@@ -200,8 +199,8 @@ func activityEntry(a sessions.PlexActivity) playEntry {
 	return e
 }
 
-func entryActivity(e playEntry) sessions.PlexActivity {
-	a := sessions.PlexActivity{ID: e.id, SessionKey: e.sessionKey, DecisionSeen: e.decisionSeen, PlayingSeen: e.playingSeen, User: e.user, ClientID: e.client.ClientID, Product: e.client.Product, Version: e.client.Version, Platform: e.client.Platform, PlatformVersion: e.client.PlatformVersion, Device: e.client.Device, DeviceName: e.client.DeviceName, Model: e.client.Model, Vendor: e.client.Vendor, ProfileName: e.client.ProfileName, SessionID: e.client.SessionID, Remote: e.client.Remote, Key: e.key, State: e.state, Offset: e.offset, Duration: e.duration, PlayQueueItemID: e.playQueueItemID, TranscodeID: e.transcodeID, StartedAt: e.startedAt, UpdatedAt: e.updatedAt}
+func entryActivity(e playEntry) frontend.PlexActivity {
+	a := frontend.PlexActivity{ID: e.id, SessionKey: e.sessionKey, DecisionSeen: e.decisionSeen, PlayingSeen: e.playingSeen, User: e.user, ClientID: e.client.ClientID, Product: e.client.Product, Version: e.client.Version, Platform: e.client.Platform, PlatformVersion: e.client.PlatformVersion, Device: e.client.Device, DeviceName: e.client.DeviceName, Model: e.client.Model, Vendor: e.client.Vendor, ProfileName: e.client.ProfileName, SessionID: e.client.SessionID, Remote: e.client.Remote, Key: e.key, State: e.state, Offset: e.offset, Duration: e.duration, PlayQueueItemID: e.playQueueItemID, TranscodeID: e.transcodeID, StartedAt: e.startedAt, UpdatedAt: e.updatedAt}
 	if e.client.RemoteIP.IsValid() {
 		a.RemoteIP = e.client.RemoteIP.String()
 	}

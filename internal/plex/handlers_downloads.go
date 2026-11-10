@@ -14,7 +14,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // Offline downloads (PMS Download Queue API). Each queue belongs to one
@@ -79,11 +78,9 @@ func (s *Server) requireDownloads(w http.ResponseWriter, r *http.Request) bool {
 // ---------------------------------------------------------------------------
 // Store
 
-type downloadItem = sessions.DownloadItem
-type downloadQueue = sessions.DownloadQueue
-type downloadStore = sessions.DownloadQueueStore
-
-func newDownloadStore() *downloadStore { return sessions.NewDownloadQueueStore() }
+type downloadItem = frontend.DownloadItem
+type downloadQueue = frontend.DownloadQueue
+type downloadStore = frontend.DownloadQueueStore
 
 func queueStatus(q *downloadQueue) string {
 	seen := map[string]bool{}
@@ -211,9 +208,9 @@ func (s *Server) downloadQueueParam(w http.ResponseWriter, r *http.Request) *dow
 }
 
 func (s *Server) writeQueue(w http.ResponseWriter, r *http.Request, q *downloadQueue) {
-	s.downloads.Mu.Lock()
+	s.downloads.Lock()
 	m := downloadQueueModel{ID: q.ID, ItemCount: len(q.Items), Status: queueStatus(q)}
-	s.downloads.Mu.Unlock()
+	s.downloads.Unlock()
 	s.write(w, r, &downloadContainer{Size: 1, Queue: []downloadQueueModel{m}})
 }
 
@@ -397,7 +394,7 @@ func parseItemIDs(r *http.Request) []int64 {
 }
 
 func (s *Server) writeDownloadItems(w http.ResponseWriter, r *http.Request, q *downloadQueue, only map[int64]bool) {
-	s.downloads.Mu.Lock()
+	s.downloads.Lock()
 	items := []downloadQueueItemModel{}
 	for _, it := range q.Items {
 		if only != nil && !only[it.ID] {
@@ -405,7 +402,7 @@ func (s *Server) writeDownloadItems(w http.ResponseWriter, r *http.Request, q *d
 		}
 		items = append(items, itemModel(it))
 	}
-	s.downloads.Mu.Unlock()
+	s.downloads.Unlock()
 	s.write(w, r, &downloadContainer{Size: len(items), Items: items})
 }
 
@@ -494,9 +491,9 @@ func (s *Server) downloadItemParam(w http.ResponseWriter, r *http.Request) (*dow
 		writeHTTPError(w, http.StatusBadRequest)
 		return nil, nil
 	}
-	s.downloads.Mu.Lock()
+	s.downloads.Lock()
 	it := q.Item(ids[0])
-	s.downloads.Mu.Unlock()
+	s.downloads.Unlock()
 	if it == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, nil
@@ -525,9 +522,9 @@ func (s *Server) handleDownloadItemDecision(w http.ResponseWriter, r *http.Reque
 		s.writeErr(w, r, err)
 		return
 	}
-	s.downloads.Mu.Lock()
+	s.downloads.Lock()
 	m := itemModel(it)
-	s.downloads.Mu.Unlock()
+	s.downloads.Unlock()
 	mc := s.itemContainer(t.Type)
 	md := s.metadata(ctx, pr, t, renderOpts{detail: true, media: true})
 	decisionItem(&md)
@@ -558,9 +555,9 @@ func (s *Server) handleDownloadItemMedia(w http.ResponseWriter, r *http.Request)
 	if it == nil {
 		return
 	}
-	s.downloads.Mu.Lock()
+	s.downloads.Lock()
 	status, p, readyAt, title, key := it.Status, it.Path, it.ReadyAt, it.Title, it.Key
-	s.downloads.Mu.Unlock()
+	s.downloads.Unlock()
 	// Restrictions can change after an item was queued: serve the cached
 	// file only while the viewer may still see the title.
 	if t, err := s.d.Catalog.Get(r.Context(), key); err != nil || !s.visibleTitle(r.Context(), FromContext(r.Context()).User, t) {
@@ -650,8 +647,8 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 	noRelease := func(err error) bool {
 		return err != nil && errors.Is(err, frontend.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
 	}
-	job := sessions.DownloadJob{Playback: s.d.Playback, Remuxer: s.d.Downloads}
-	p, size, err := job.Run(ctx, sessions.DownloadRequest{Viewer: it.User, Item: it.Key, Caps: it.Caps, Run: run, NoRelease: noRelease,
+	job := s.d.SessionStores.NewDownloadJob(s.d.Playback, s.d.Downloads)
+	p, size, err := job.Run(ctx, frontend.DownloadRequest{Viewer: it.User, Item: it.Key, Caps: it.Caps, Run: run, NoRelease: noRelease,
 		Prepared: func(ps *frontend.PlaySession) (frontend.DecideOptions, error) {
 			if !s.downloads.Prepared(ctx, it, ps.Info) {
 				return frontend.DecideOptions{}, ctx.Err()
@@ -682,7 +679,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		}})
 
 	if err != nil {
-		var preparation *sessions.DownloadPreparationError
+		var preparation *frontend.DownloadPreparationError
 		if errors.As(err, &preparation) {
 			if ctx.Err() != nil {
 				return
@@ -740,12 +737,7 @@ func (s *Server) releaseAllDownloads() {
 	if s.downloads == nil {
 		return
 	}
-	var items []*downloadItem
-	s.downloads.Mu.Lock()
-	for _, q := range s.downloads.Queues {
-		items = append(items, q.Items...)
-	}
-	s.downloads.Mu.Unlock()
+	items := s.downloads.AllItems()
 	for _, it := range items {
 		s.cancelDownloadItem(it)
 	}

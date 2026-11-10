@@ -99,7 +99,7 @@ func newDownloadFixture(t *testing.T, downloadsOn bool) *downloadFixture {
 		}
 		return c
 	}
-	f.srv = NewServer(Deps{
+	f.srv = NewServer(testDeps(Deps{
 		Catalog:   cat,
 		State:     newFakeState(),
 		Auth:      f.auth,
@@ -113,7 +113,7 @@ func newDownloadFixture(t *testing.T, downloadsOn bool) *downloadFixture {
 			return f.now
 		},
 		DisableEnrichment: true,
-	})
+	}))
 	t.Cleanup(func() { f.srv.Close() })
 	return f
 }

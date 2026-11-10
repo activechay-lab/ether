@@ -10,7 +10,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // stateKey reads the item key from ratingKey= or key=.
@@ -210,7 +209,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.transcodes.touch(id, s.now())
-		sessions.NotifyTranscodeActivity(s.d.Transcoder, id, state)
+		frontend.NotifyTranscodeActivity(s.d.Transcoder, id, state)
 	}
 	pqItem, _ := strconv.ParseInt(q.Get("playQueueItemID"), 10, 64)
 

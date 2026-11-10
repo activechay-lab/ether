@@ -142,7 +142,7 @@ func newVariantFixture(t *testing.T, playback core.Playback) *variantFixture {
 		facets:   map[string][]core.FacetValue{},
 	}
 	vr := &fakeVariantResolver{byKey: testVariantLists()}
-	srv := NewServer(Deps{
+	srv := NewServer(testDeps(Deps{
 		Catalog:           cat,
 		State:             newFakeState(),
 		Auth:              &fakeAuth{users: map[string]core.User{ownerToken: ownerUser, friendToken: friendUser}},
@@ -160,7 +160,7 @@ func newVariantFixture(t *testing.T, playback core.Playback) *variantFixture {
 		},
 		Identity: Identity{Version: "1.43.4.10903-e5521bd8c", Platform: "Linux"},
 		Now:      func() time.Time { return fixedNow },
-	})
+	}))
 	t.Cleanup(func() { srv.Close() })
 	mountTestBroker(srv, func() time.Time { return fixedNow })
 	return &variantFixture{srv: srv, resolver: vr, playback: playback}
@@ -375,7 +375,7 @@ func TestVariantIDRegistryStablePersisted(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	r1 := newVariantIDRegistry(db)
+	r1 := newVariantIDRegistry(testStores(), db)
 	id := r1.idFor(fightClub.Key, "rel-4k")
 	if id < 8_000_000_000_000_000 || id >= 1<<53 {
 		t.Fatalf("id %d out of range", id)
@@ -388,7 +388,7 @@ func TestVariantIDRegistryStablePersisted(t *testing.T) {
 		t.Fatalf("persisted rows = %d (err %v), want 1", rows, err)
 	}
 	// A fresh registry over the same DB (restart) resolves the same id.
-	r2 := newVariantIDRegistry(db)
+	r2 := newVariantIDRegistry(testStores(), db)
 	if got := r2.idFor(fightClub.Key, "rel-4k"); got != id {
 		t.Fatalf("persisted id %d != %d", got, id)
 	}
@@ -400,7 +400,7 @@ func TestVariantIDRegistryStablePersisted(t *testing.T) {
 
 func TestVariantIDCollisionProbeAndPartTitle(t *testing.T) {
 	db := store.OpenTest(t)
-	r := newVariantIDRegistry(db)
+	r := newVariantIDRegistry(testStores(), db)
 	h := variantHash(fightClub.Key, "rel-x")
 	squatter := variantRef{key: alien.Key, releaseID: "other"}
 	if _, err := db.ExecContext(context.Background(), `INSERT INTO variants_ids(media_id,rating_key,release_id,last_seen) VALUES(?,?,?,?)`, h, int64(squatter.key), squatter.releaseID, time.Now().Unix()); err != nil {

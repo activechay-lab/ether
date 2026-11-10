@@ -13,7 +13,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/reqmemo"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 func queueFlag(q url.Values, name string) (bool, bool) {
@@ -187,7 +186,7 @@ func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
 			p.Selected = prefixAt // playback starts with the first trailer
 		}
 		if shuffle {
-			shuffleQueue(p)
+			s.d.SessionStores.ShuffleQueue(p)
 		}
 	})
 	if err != nil {
@@ -386,7 +385,7 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				p.Original = nil
 				p.Version++
 			case "remove":
-				idx := indexOfItem(p.Items, itemID)
+				idx := s.d.SessionStores.QueueItemIndex(p.Items, itemID)
 				if idx < 0 {
 					bad = true
 					return
@@ -402,7 +401,7 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				p.ReanchorAdded()
 				p.Version++
 			case "move":
-				idx := indexOfItem(p.Items, itemID)
+				idx := s.d.SessionStores.QueueItemIndex(p.Items, itemID)
 				if idx < 0 {
 					bad = true
 					return
@@ -419,12 +418,12 @@ func (s *Server) handlePlayQueueMutate(op string) http.HandlerFunc {
 				rest := append(append([]pqItem(nil), p.Items[:idx]...), p.Items[idx+1:]...)
 				to := 0
 				if after, err := strconv.ParseInt(q.Get("after"), 10, 64); err == nil && after > 0 {
-					if a := indexOfItem(rest, after); a >= 0 {
+					if a := s.d.SessionStores.QueueItemIndex(rest, after); a >= 0 {
 						to = a + 1
 					}
 				}
 				p.Items = append(rest[:to], append([]pqItem{it}, rest[to:]...)...)
-				p.Selected = indexOfItem(p.Items, selID)
+				p.Selected = s.d.SessionStores.QueueItemIndex(p.Items, selID)
 				p.ReanchorAdded()
 				p.Version++
 			}
@@ -471,7 +470,7 @@ func (s *Server) writePlayQueue(w http.ResponseWriter, r *http.Request, pq playQ
 		id, err := strconv.ParseInt(q.Get("center"), 10, 64)
 		center = -1
 		if err == nil {
-			center = indexOfItem(pq.Items, id)
+			center = s.d.SessionStores.QueueItemIndex(pq.Items, id)
 		}
 	}
 	lo, hi := 0, 0
@@ -643,14 +642,8 @@ func validQueueWindow(q url.Values) bool {
 	return true
 }
 
-type pqItem = sessions.QueueItem
-type playQueue = sessions.PlayQueue
-type playQueueStore = sessions.PlayQueues
+type pqItem = frontend.QueueItem
+type playQueue = frontend.PlayQueue
+type playQueueStore = frontend.PlayQueues
 
-const maxQueues = sessions.MaxPlayQueues
-
-var newPlayQueueStore = sessions.NewPlayQueues
-var shuffleQueue = sessions.ShuffleQueue
-var indexOfItem = sessions.QueueItemIndex
-var encodeQueue = sessions.EncodeQueue
-var decodeQueue = sessions.DecodeQueue
+const maxQueues = frontend.MaxPlayQueues

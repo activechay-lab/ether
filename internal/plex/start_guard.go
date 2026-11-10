@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 const (
@@ -51,7 +50,7 @@ func (s *Server) checkStartStall(pr *Request, key frontend.RatingKey, state stri
 			s.starts.Forget(id)
 			continue
 		}
-		live, ok := sessions.ObserveStart(s.ctx, out, id)
+		live, ok := s.d.SessionStores.ObserveStart(s.ctx, out, id)
 		if !ok {
 			continue
 		}
@@ -69,7 +68,7 @@ func (s *Server) checkStartStall(pr *Request, key frontend.RatingKey, state stri
 			"key", key, "client", pr.ClientID, "product", pr.Product, "platform", pr.Platform, "session", id,
 			"position", offset, "requested", live.RequestedPosition(), "videoCopy", d.VideoCopy, "stripDolbyVision", d.StripDolbyVision, "audioCopy", d.AudioCopy, "audio", d.AudioCodec)
 		if v != nil && d.VideoCopy && v.DolbyVision && !d.StripDolbyVision && frontend.HasHDR10Base(v, e.caps) {
-			s.starts.Remember(sessions.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID, Key: key}, now)
+			s.starts.Remember(frontend.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID, Key: key}, now)
 			return stallTextDV
 		}
 		if surroundCopied(pr, d) {
@@ -83,13 +82,13 @@ func (s *Server) checkStartStall(pr *Request, key frontend.RatingKey, state stri
 
 // dvBaseOnly reports a remembered Dolby Vision stall for this start.
 func (s *Server) dvBaseOnly(pr *Request, key frontend.RatingKey) bool {
-	return pr != nil && pr.User != nil && s.starts.BaseOnly(sessions.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID, Key: key}, s.now())
+	return pr != nil && pr.User != nil && s.starts.BaseOnly(frontend.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID, Key: key}, s.now())
 }
 
 // surroundHintKey is the client-wide hint (zero Key) that this viewer's
 // client stalled on copied surround audio.
-func surroundHintKey(pr *Request) sessions.StartHintKey {
-	return sessions.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID}
+func surroundHintKey(pr *Request) frontend.StartHintKey {
+	return frontend.StartHintKey{UserID: pr.User.ID, ClientID: pr.ClientID}
 }
 
 // segmentedSurroundOff reports a remembered surround-audio stall for this

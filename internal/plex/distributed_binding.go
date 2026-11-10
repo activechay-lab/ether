@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 type durablePlexBinding interface {
@@ -15,7 +14,7 @@ type durablePlexBinding interface {
 	LoadPlexBinding(context.Context, string) ([]byte, error)
 }
 type plexBindingSnapshot struct {
-	Binding   sessions.Binding[struct{}]
+	Binding   frontend.Binding[struct{}]
 	ReadToken string
 	Source    frontend.PlaySession
 }
@@ -34,7 +33,7 @@ func (s *Server) saveDistributedBinding(ctx context.Context, id string) error {
 		return frontend.ErrNotAvailable
 	}
 	b := entry.binding()
-	snapshot := plexBindingSnapshot{Binding: sessions.Binding[struct{}]{ID: b.ID, StreamToken: b.StreamToken, PlayID: b.PlayID, PlaybackID: b.PlaybackID, UserID: b.UserID, ClientID: b.ClientID, Key: b.Key, Decision: b.Decision, Info: b.Info, Subtitle: b.Subtitle, Caps: b.Caps, Opts: b.Opts, Offset: b.Offset, Started: b.Started, UpdatedAt: b.UpdatedAt}, ReadToken: s.readCaps.token(id), Source: *ps}
+	snapshot := plexBindingSnapshot{Binding: frontend.Binding[struct{}]{ID: b.ID, StreamToken: b.StreamToken, PlayID: b.PlayID, PlaybackID: b.PlaybackID, UserID: b.UserID, ClientID: b.ClientID, Key: b.Key, Decision: b.Decision, Info: b.Info, Subtitle: b.Subtitle, Caps: b.Caps, Opts: b.Opts, Offset: b.Offset, Started: b.Started, UpdatedAt: b.UpdatedAt}, ReadToken: s.readCaps.token(id), Source: *ps}
 	snapshot.Source.Source = nil
 	raw, err := json.Marshal(snapshot)
 	if err != nil {

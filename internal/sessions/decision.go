@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -120,22 +121,5 @@ func (b *Broker) recordPlaybackDecision(playID string, dec core.Decision) {
 	}
 }
 
-// HLSDecision applies the v39 start-time decision rules. A client may reject
-// direct play after its initial decision; in that case reconsider is called
-// before selecting the segmented output. forcedStream, when supplied, applies
-// adapter output constraints only when a still-direct decision is forced to HLS.
-func HLSDecision(dec core.Decision, allowDirect bool, reconsider func() core.Decision, forcedStream func(core.Decision) core.Decision) core.Decision {
-	if dec.Kind == core.DecisionDirectPlay && !allowDirect {
-		dec = reconsider()
-	}
-	if dec.Kind == core.DecisionDirectPlay {
-		dec.Kind, dec.VideoCopy, dec.AudioCopy, dec.Container = core.DecisionRemux, true, true, "mpegts"
-		if forcedStream != nil {
-			dec = forcedStream(dec)
-		}
-	}
-	if dec.Container == "" {
-		dec.Container = "mpegts"
-	}
-	return dec
-}
+// HLSDecision lives in internal/frontend (host_sessions_experience.go).
+var HLSDecision = frontend.HLSDecision

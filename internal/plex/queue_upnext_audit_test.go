@@ -9,7 +9,7 @@ import (
 // Explicit additions have their own block after the playing item; original
 // queue entries have newer IDs too, so ID comparisons cannot identify that block.
 func TestQueueUpNextBlockSurvivesPersistence(t *testing.T) {
-	s := newPlayQueueStore()
+	s := testStores().NewPlayQueues()
 	keys := []core.RatingKey{core.MovieKey(1), core.MovieKey(2), core.MovieKey(3)}
 	q, err := s.CreateWith(1, "client", keys, time.Now(), nil)
 	if err != nil {
@@ -29,11 +29,11 @@ func TestQueueUpNextBlockSurvivesPersistence(t *testing.T) {
 			t.Fatalf("item %d = %v, want %v", i, q.Items[i].Key, key)
 		}
 	}
-	encoded, err := encodeQueue(&q)
+	encoded, err := testStores().EncodeQueue(&q)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := decodeQueue(q.ID, q.UserID, 1, time.Now().UnixMilli(), encoded)
+	restored, err := testStores().DecodeQueue(q.ID, q.UserID, 1, time.Now().UnixMilli(), encoded)
 	if err != nil {
 		t.Fatal(err)
 	}

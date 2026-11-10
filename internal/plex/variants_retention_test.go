@@ -16,7 +16,7 @@ func TestVariantPruneKeepsHeldIDsAndNeverReusesOne(t *testing.T) {
 	ctx := context.Background()
 	db := store.OpenTest(t)
 	clock := time.Now()
-	r := newVariantIDRegistryAt(db, func() time.Time { return clock })
+	r := newVariantIDRegistryAt(testStores(), db, func() time.Time { return clock })
 	day := 24 * time.Hour
 
 	live := variantRef{key: fightClub.Key, releaseID: "rel-live"}
@@ -78,7 +78,7 @@ func TestVariantPruneKeepsHeldIDsAndNeverReusesOne(t *testing.T) {
 	if again == slot {
 		t.Fatal("re-listed id took the squatter's slot")
 	}
-	restarted := newVariantIDRegistry(db)
+	restarted := newVariantIDRegistry(testStores(), db)
 	if got, ok := restarted.lookup(again); !ok || got != old {
 		t.Fatalf("re-listed id %d after restart = %v %v", again, got, ok)
 	}

@@ -390,7 +390,7 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 		return frontend.PlayPlan{}, core.ErrUnauthorized
 	}
 	if req.Protocol == "plex" {
-		if admit, ok := plexAdmissionFrom(ctx); ok {
+		if admit, ok := frontend.PlexAdmissionFrom(ctx); ok {
 			return b.planPlexAdmission(ctx, req, admit)
 		}
 	}

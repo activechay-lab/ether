@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // DownloadJob owns one offline source lease, including bounded quality retries
@@ -14,21 +15,6 @@ type DownloadJob struct {
 	Playback core.Playback
 	Remuxer  core.DownloadRemuxer
 }
-
-type DownloadRequest struct {
-	Viewer    *core.User
-	Item      core.RatingKey
-	Caps      core.ClientCaps
-	Run       int64
-	NoRelease func(error) bool
-	Prepared  func(*core.PlaySession) (core.DecideOptions, error)
-	Progress  func(float64)
-}
-
-type DownloadPreparationError struct{ Err error }
-
-func (e *DownloadPreparationError) Error() string { return e.Err.Error() }
-func (e *DownloadPreparationError) Unwrap() error { return e.Err }
 
 func (j DownloadJob) Run(ctx context.Context, q DownloadRequest) (string, int64, error) {
 	caps := q.Caps
@@ -64,3 +50,8 @@ func (j DownloadJob) Run(ctx context.Context, q DownloadRequest) (string, int64,
 		ViewerID: viewer, Caps: caps, Options: opts,
 	}, q.Progress)
 }
+
+// DownloadRequest and DownloadPreparationError live in internal/frontend
+// (host_sessions_experience.go).
+type DownloadRequest = frontend.DownloadRequest
+type DownloadPreparationError = frontend.DownloadPreparationError

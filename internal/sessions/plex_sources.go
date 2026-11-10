@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // PlexSources is the trusted source-lifetime boundary used after the adapter's
@@ -40,13 +41,6 @@ func (s PlexSources) Prepare(ctx context.Context, viewer *core.User, key core.Ra
 	return s.Playback.Prepare(ctx, viewer, key, caps)
 }
 
-type PlexPartSource struct {
-	Session               *core.PlaySession
-	Matches               bool
-	PreviousID            string
-	AnonymousContinuation bool
-}
-
 // Part retains an existing source where possible, including the unique
 // anonymous part continuation. A variant mismatch records the previous source
 // so admission can recognize a fallback to that same live session.
@@ -76,3 +70,5 @@ func (s PlexSources) Part(viewer int64, client string, key core.RatingKey, relea
 func (s PlexSources) ServePart(w http.ResponseWriter, r *http.Request, sourceID string) {
 	s.Playback.ServeRange(w, r.WithContext(core.WithPlexPart(r.Context())), sourceID)
 }
+
+type PlexPartSource = frontend.PlexPartSource

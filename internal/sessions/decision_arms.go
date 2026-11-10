@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 	"log/slog"
 	"sync"
@@ -11,14 +12,6 @@ import (
 )
 
 const decisionDBTimeout = 5 * time.Second
-
-// DecisionOwner identifies the authenticated public player, independently of
-// its encoder delivery handle.
-type DecisionOwner struct {
-	ID                  string
-	UserID              int64
-	ClientID, SessionID string
-}
 
 // DecisionArms owns per-player decision authorization and durable publication.
 // The host cancels ctx and joins wg before clearing its durable rows on shutdown.
@@ -274,3 +267,5 @@ func (s *DecisionArms) ClearOwn() {
 		s.log.Warn("clear playback decision arms", "err", err)
 	}
 }
+
+type DecisionOwner = frontend.DecisionOwner

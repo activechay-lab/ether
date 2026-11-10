@@ -7,52 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"math/rand/v2"
 	"sync"
 	"time"
 )
 
-// PlayQueuePersistence connects shared queue transactions to node invalidation
-// and outage reporting. Configure it before serving requests.
-type PlayQueuePersistence struct {
-	DB           *sql.DB
-	Counter      func(context.Context, string, int) (int64, error)
-	Invalidate   func(int64)
-	Warn         func(string, error)
-	ExpireResult func(error)
-}
-
 const playQueueDBTimeout = 5 * time.Second
-
-type QueueItem struct {
-	ID    int64
-	Key   core.RatingKey
-	Added bool // explicit Up Next addition, distinct from original queue members
-}
-
-type PlayQueue struct {
-	ID               int64
-	UserID           int64
-	ClientID         string
-	Items            []QueueItem
-	Original         []QueueItem // order before shuffle
-	Selected         int         // index into items
-	Shuffled         bool
-	SourceURI        string
-	PlaylistID       core.RatingKey
-	PlaylistTitle    string
-	Version          int
-	LastAdded        int64
-	UpdatedAt        time.Time
-	SuppressItem     int64
-	SuppressRows     bool // mutation response only
-	SuppressMetadata bool
-	ForceOffsetZero  bool
-	LiveSession      string // live queues resolve through LiveTV, never the catalogue
-
-	Rev      int64     // clustered: stored row revision
-	LoadedAt time.Time // clustered: when the cached copy was read or written
-}
 
 type PlayQueues struct {
 	mu     sync.Mutex
@@ -62,8 +23,6 @@ type PlayQueues struct {
 	cl     *PlayQueuePersistence // nil on a standalone server
 	now    func() time.Time
 }
-
-const MaxPlayQueues = 2000
 
 // queueCacheTTL bounds how long a clustered node trusts its cached copy of
 // a queue without re-reading it (bus invalidations normally refresh it
@@ -164,13 +123,6 @@ func (s *PlayQueues) With(id, userID int64, now time.Time, fn func(q *PlayQueue)
 		q.UpdatedAt = now
 	}
 	return q.Snapshot(), true
-}
-
-func (q *PlayQueue) Snapshot() PlayQueue {
-	cp := *q
-	cp.Items = append([]QueueItem(nil), q.Items...)
-	cp.Original = append([]QueueItem(nil), q.Original...)
-	return cp
 }
 
 func (s *PlayQueues) Get(id, userID int64) (PlayQueue, bool) {
@@ -572,16 +524,6 @@ func QueueItemIndex(items []QueueItem, id int64) int {
 	return -1
 }
 
-// writePlayQueue renders a queue window around the selected item.
-func (q *PlayQueue) ReanchorAdded() {
-	if q.LastAdded == 0 {
-		return
-	}
-	for i := max(0, q.Selected+1); i < len(q.Items) && q.Items[i].Added; i++ {
-		q.LastAdded = q.Items[i].ID
-	}
-}
-
 // Controls preserve the playing identity while every other slot receives a
 // newly allocated identity. This also applies when the requested state repeats.
 func (s *PlayQueues) Reshuffle(q *PlayQueue, shuffled bool) {
@@ -774,3 +716,11 @@ func queueRowError(err error) error {
 	}
 	return fmt.Errorf("plex: play queue store: %w", err)
 }
+
+// Play-queue value types live in internal/frontend
+// (host_sessions_experience.go); aliases keep this package on them.
+type PlayQueuePersistence = frontend.PlayQueuePersistence
+type QueueItem = frontend.QueueItem
+type PlayQueue = frontend.PlayQueue
+
+const MaxPlayQueues = frontend.MaxPlayQueues

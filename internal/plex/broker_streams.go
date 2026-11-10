@@ -5,12 +5,11 @@ import (
 	"errors"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // UsePlexStreams binds visible stream ids and sidecar reads to the broker.
 // Pass sessions.BindPlexStreams(broker).
-func (s *Server) UsePlexStreams(api sessions.PlexStreamAPI) {
+func (s *Server) UsePlexStreams(api frontend.PlexStreamAPI) {
 	if s != nil {
 		s.boundStreams = api
 	}
@@ -24,7 +23,7 @@ func (s *Server) assignStream(ctx context.Context, u *frontend.Viewer, key front
 	if s == nil || s.boundStreams == nil {
 		return 0
 	}
-	id, err := s.boundStreams.BindPlexStream(ctx, s.plexStreamAccess(u), sessions.PlexStreamBinding{
+	id, err := s.boundStreams.BindPlexStream(ctx, s.plexStreamAccess(u), frontend.PlexStreamBinding{
 		Key: key, Index: index, Info: info, SessionID: sessionID,
 	})
 	if err != nil {
@@ -33,9 +32,9 @@ func (s *Server) assignStream(ctx context.Context, u *frontend.Viewer, key front
 	return id
 }
 
-func (s *Server) resolveStream(ctx context.Context, u *frontend.Viewer, id int64) (sessions.PlexStreamBinding, error) {
+func (s *Server) resolveStream(ctx context.Context, u *frontend.Viewer, id int64) (frontend.PlexStreamBinding, error) {
 	if s == nil || s.boundStreams == nil {
-		return sessions.PlexStreamBinding{}, frontend.ErrNotFound
+		return frontend.PlexStreamBinding{}, frontend.ErrNotFound
 	}
 	return s.boundStreams.ResolvePlexStream(ctx, s.plexStreamAccess(u), id)
 }
@@ -44,7 +43,7 @@ func (s *Server) resolveStream(ctx context.Context, u *frontend.Viewer, id int64
 // authorizes it and names the title; when a probe or failover moved that
 // id onto another track for this client, the track it names now is
 // returned instead of the title-wide binding.
-func (s *Server) resolveIssuedStream(ctx context.Context, u *frontend.Viewer, clientID string, id int64) (sessions.PlexStreamBinding, error) {
+func (s *Server) resolveIssuedStream(ctx context.Context, u *frontend.Viewer, clientID string, id int64) (frontend.PlexStreamBinding, error) {
 	binding, err := s.resolveStream(ctx, u, id)
 	if err != nil || u == nil || s.playIDs == nil {
 		return binding, err

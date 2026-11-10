@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 	"sync"
 	"time"
 )
@@ -13,14 +12,16 @@ type variantRef struct {
 	key       frontend.RatingKey
 	releaseID string
 }
-type variantIDRegistry struct{ shared *sessions.VariantIDs }
+type variantIDRegistry struct{ shared frontend.VariantIDs }
 
-func newVariantIDRegistry(db *sql.DB) *variantIDRegistry { return newVariantIDRegistryAt(db, time.Now) }
-func newVariantIDRegistryAt(db *sql.DB, now func() time.Time) *variantIDRegistry {
-	return &variantIDRegistry{shared: sessions.NewVariantIDs(db, now)}
+func newVariantIDRegistry(stores frontend.PlexSessionStores, db *sql.DB) *variantIDRegistry {
+	return newVariantIDRegistryAt(stores, db, time.Now)
+}
+func newVariantIDRegistryAt(stores frontend.PlexSessionStores, db *sql.DB, now func() time.Time) *variantIDRegistry {
+	return &variantIDRegistry{shared: stores.NewVariantIDs(db, now)}
 }
 func variantHash(key frontend.RatingKey, release string) int64 {
-	return sessions.VariantHash(key, release)
+	return frontend.VariantHash(key, release)
 }
 func (r *variantIDRegistry) idFor(key frontend.RatingKey, release string) int64 {
 	return r.shared.IDFor(key, release)
@@ -39,9 +40,9 @@ func (r *variantIDRegistry) prune(ctx context.Context, ids []int64, refs []varia
 	if r == nil {
 		return 0, nil
 	}
-	shared := make([]sessions.VariantRef, 0, len(refs))
+	shared := make([]frontend.VariantRef, 0, len(refs))
 	for _, ref := range refs {
-		shared = append(shared, sessions.VariantRef{Key: ref.key, ReleaseID: ref.releaseID})
+		shared = append(shared, frontend.VariantRef{Key: ref.key, ReleaseID: ref.releaseID})
 	}
 	return r.shared.Prune(ctx, ids, shared)
 }

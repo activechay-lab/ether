@@ -72,7 +72,7 @@ func TestQueueLongevityActiveTimelineSurvivesExpiry(t *testing.T) {
 // Queue capacity must not turn equal timestamps into random eviction of the
 // queue that a client has just created.
 func TestQueueCapacityKeepsNewestWhenTimestampsTie(t *testing.T) {
-	qs := newPlayQueueStore()
+	qs := testStores().NewPlayQueues()
 	qs.Configure(func() time.Time { return fixedNow }, nil)
 	for i := 0; i < maxQueues+100; i++ {
 		q, err := qs.CreateWith(ownerUser.ID, "burst-"+strconv.Itoa(i), []core.RatingKey{alien.Key}, fixedNow, nil)

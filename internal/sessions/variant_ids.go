@@ -3,13 +3,12 @@ package sessions
 import (
 	"context"
 	"database/sql"
-	"hash/fnv"
 	"log/slog"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -24,19 +23,14 @@ CREATE UNIQUE INDEX variants_ids_pair ON variants_ids(rating_key, release_id);`)
 }
 
 const (
-	variantIDBase  = 9_000_000_000_000_000
-	variantIDSpace = 7_199_254_740_990 // ids stay below 2^53
+	variantIDBase  = frontend.VariantIDBase
+	variantIDSpace = frontend.VariantIDSpace
 
 	maxVariantIDs = 200_000
 )
 
 // ---------------------------------------------------------------------------
 // Variant Media/Part ids
-
-type VariantRef struct {
-	Key       core.RatingKey
-	ReleaseID string
-}
 
 // variantEntry is a registry id's mapping and its last_seen as last read
 // or touched (Unix seconds; see variants_retention.go).
@@ -93,11 +87,8 @@ func (r *VariantIDs) loadLocked() {
 	}
 }
 
-func VariantHash(key core.RatingKey, releaseID string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(strconv.FormatInt(int64(key), 10) + "/" + releaseID))
-	return variantIDBase + int64(h.Sum64()%variantIDSpace) + 1
-}
+// VariantHash lives in internal/frontend (host_sessions_experience.go).
+var VariantHash = frontend.VariantHash
 
 // idFor returns the stable Media/Part id of a non-Auto variant.
 func (r *VariantIDs) IDFor(key core.RatingKey, releaseID string) int64 {
@@ -147,3 +138,5 @@ func (r *VariantIDs) Lookup(id int64) (VariantRef, bool) {
 	}
 	return e.ref, ok
 }
+
+type VariantRef = frontend.VariantRef

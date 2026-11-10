@@ -2,15 +2,14 @@ package plex
 
 import (
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 	"time"
 )
 
-func decisionOwner(pr *Request) sessions.DecisionOwner {
+func decisionOwner(pr *Request) frontend.DecisionOwner {
 	if pr.User == nil {
-		return sessions.DecisionOwner{}
+		return frontend.DecisionOwner{}
 	}
-	return sessions.DecisionOwner{ID: trackID(pr.User.ID, pr.ClientID, pr.SessionID), UserID: pr.User.ID, ClientID: pr.ClientID, SessionID: pr.SessionID}
+	return frontend.DecisionOwner{ID: trackID(pr.User.ID, pr.ClientID, pr.SessionID), UserID: pr.User.ID, ClientID: pr.ClientID, SessionID: pr.SessionID}
 }
 func (s *Server) armDecision(pr *Request, key frontend.RatingKey) {
 	s.decisionArms.Arm(decisionOwner(pr), key)

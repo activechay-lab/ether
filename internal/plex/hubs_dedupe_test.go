@@ -18,7 +18,7 @@ func TestHomeHubsDropRecommenderDuplicates(t *testing.T) {
 		{ID: "home.continue", Title: "Continue Watching", Context: "hub.home.continue", Promoted: true, Items: []core.Title{fightClub}},
 		{ID: "trending.week.movie", Title: "Trending This Week", Type: core.TypeMovie, Context: "hub.movie.trending", Promoted: true, Items: []core.Title{fightClub}},
 	}}
-	f.srv = NewServer(d)
+	f.srv = NewServer(testDeps(d))
 	defer f.srv.Close()
 
 	rec := f.get(t, "/hubs", "Accept", "application/json")

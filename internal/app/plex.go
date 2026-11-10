@@ -23,6 +23,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/remote"
 	"github.com/braedonsaunders/ether/internal/resolver"
+	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/updater"
 )
@@ -157,6 +158,7 @@ func (a *App) buildPlex(ctx context.Context, cfg config.Config) (http.Handler, e
 	deps.Subtitles = plexSubtitles{a}
 	deps.TrackPreferences = a.trackprefs
 	deps.SessionCoordination = a.sessionCoordination
+	deps.SessionStores = sessions.NewPlexSessionStores()
 	deps.Markers = a.markers
 	// The remuxer is built once in buildIntegrations and shared with every
 	// front end. Support is the device-scoped "Record a problem" recorder.

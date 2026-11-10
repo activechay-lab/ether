@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // handleStartHTTP is /video/:/transcode/universal/start (no extension):
@@ -86,7 +85,7 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 	entry.playbackID = pr.SessionID
 	s.transcodes.put(entry)
 
-	dec := sessions.HLSDecision(entry.decision, p.opts.DirectPlay, func() frontend.Decision {
+	dec := frontend.HLSDecision(entry.decision, p.opts.DirectPlay, func() frontend.Decision {
 		resolvePlaySelection(&p, ps.Info)
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)

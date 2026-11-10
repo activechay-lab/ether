@@ -15,7 +15,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
-	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // renderOpts controls how much of an item is rendered.
@@ -576,7 +575,7 @@ func (s *Server) mediaInfoWithSource(ctx context.Context, pr *Request, t *fronte
 			}
 		}
 	}
-	info, ps := sessions.Estimate(ctx, s.d.Playback, pr.User, pr.ClientID, t, func() frontend.ClientCaps {
+	info, ps := frontend.Estimate(ctx, s.d.Playback, pr.User, pr.ClientID, t, func() frontend.ClientCaps {
 		return s.clientCapsForKey(pr, t.Key)
 	})
 	return info, ps, false
