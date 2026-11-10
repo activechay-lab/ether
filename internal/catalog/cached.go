@@ -238,7 +238,7 @@ func (c *Catalog) RecentShows(ctx context.Context, since time.Time) ([]core.Titl
 
 // RecentEpisodes is the bounded evidence window used before episode paging.
 func (c *Catalog) RecentEvidenceEpisodes(ctx context.Context, since time.Time) ([]core.Title, error) {
-	return c.queryTitles(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE type='episode' AND adult=0 AND release_known=1 AND released_ts>? AND released_ts<=? ORDER BY released_ts`, since.Unix(), c.now().Unix())
+	return c.queryTitles(ctx, `SELECT `+titleCols+` FROM catalog_titles WHERE type='episode' AND adult=0 AND release_known=1 AND released_ts>? AND released_ts<=? ORDER BY released_ts, key`, since.Unix(), c.now().Unix())
 }
 
 // CachedDiscoveryEpisodes returns regular episode metadata without hydration or

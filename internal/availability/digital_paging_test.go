@@ -59,7 +59,7 @@ func TestDigitalPagingCutSurvivesDateAndGenerationChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.HiddenMovieGeneration != pinned.HiddenMovieGeneration {
+	if next.HiddenMovieSeq != pinned.HiddenMovieSeq {
 		t.Fatal("publication moved an active cut")
 	}
 	stable, err := c.Browse(ctx, core.BrowseQuery{Filter: next, Sort: core.SortTitle, Offset: 10, Limit: 10})
@@ -148,14 +148,14 @@ func TestShowPagingCutAndFilterIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.HiddenShowGeneration != after.HiddenShowGeneration {
+	if before.HiddenShowSeq != after.HiddenShowSeq {
 		t.Fatal("new pointer/group or generation shifted cut")
 	}
 	other, err := x.s.PagingFilter(core.WithBrowseScope(t.Context(), "another-client"), filter())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if other.HiddenShowGeneration == before.HiddenShowGeneration {
+	if other.HiddenShowSeq == before.HiddenShowSeq {
 		t.Fatal("new client inherited an older sequence")
 	}
 	x.now = x.now.Add(6 * time.Minute)
@@ -167,7 +167,7 @@ func TestShowPagingCutAndFilterIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if expired.HiddenShowGeneration == before.HiddenShowGeneration {
+	if expired.HiddenShowSeq == before.HiddenShowSeq {
 		t.Fatal("expired cut did not advance")
 	}
 }

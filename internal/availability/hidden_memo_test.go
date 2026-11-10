@@ -70,7 +70,7 @@ func TestHiddenSetStaysFreshBetweenWarmCycles(t *testing.T) {
 }
 
 // Republishing an unchanged set keeps its published rows answering: the
-// generation stays current with every member present.
+// seq stays current with every member present and no new rows written.
 func TestPublishHiddenUnchangedKeepsPublishedRows(t *testing.T) {
 	x := setup(t)
 	keys := []core.RatingKey{core.ShowKey(1), core.ShowKey(2), core.ShowKey(3)}
@@ -79,16 +79,23 @@ func TestPublishHiddenUnchangedKeepsPublishedRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var gen string
-	if err := x.s.db.QueryRowContext(t.Context(), `SELECT generation FROM availability_hidden_current WHERE kind=?`, hiddenShows).Scan(&gen); err != nil {
+	var seq int64
+	if err := x.s.db.QueryRowContext(t.Context(), `SELECT seq FROM availability_hidden_current WHERE kind=?`, hiddenShows).Scan(&seq); err != nil {
 		t.Fatal(err)
 	}
 	var n int
-	if err := x.s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM availability_hidden WHERE kind=? AND generation=?`, hiddenShows, gen).Scan(&n); err != nil {
+	if err := x.s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM availability_hidden WHERE kind=? AND from_seq<=? AND to_seq>?`, hiddenShows, seq, seq).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != len(keys) {
-		t.Fatalf("published generation holds %d of %d keys", n, len(keys))
+		t.Fatalf("published snapshot holds %d of %d keys", n, len(keys))
+	}
+	var total int
+	if err := x.s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM availability_hidden WHERE kind=?`, hiddenShows).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if total != len(keys) {
+		t.Fatalf("unchanged republishes wrote %d rows for %d keys", total, len(keys))
 	}
 }
 

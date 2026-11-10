@@ -38,7 +38,7 @@ func (c *Catalog) consoleGateConditions(f core.Filter) ([]string, []any) {
 	}
 	movie, show := (*p)()
 	known := `EXISTS(SELECT 1 FROM availability_hidden_current gc WHERE gc.kind=t.type AND ((gc.kind='movie' AND gc.policy=?) OR (gc.kind='show' AND gc.policy=?)))`
-	held := `t.key IN (SELECT gh.rating_key FROM availability_hidden_current gc JOIN availability_hidden gh ON gh.kind=gc.kind AND gh.generation=gc.generation WHERE ((gc.kind='movie' AND gc.policy=?) OR (gc.kind='show' AND gc.policy=?)))`
+	held := `t.key IN (SELECT gh.rating_key FROM availability_hidden_current gc JOIN availability_hidden gh ON gh.kind=gc.kind AND gh.from_seq<=gc.seq AND gh.to_seq>gc.seq WHERE ((gc.kind='movie' AND gc.policy=?) OR (gc.kind='show' AND gc.policy=?)))`
 	switch f.ReleaseGate {
 	case "held":
 		return []string{held}, []any{movie, show}

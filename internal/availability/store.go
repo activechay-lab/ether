@@ -25,15 +25,19 @@ func init() {
 	// rebuilt on demand after restore.
 	store.RegisterLocalTable("availability_hidden")
 	store.RegisterLocalTable("availability_hidden_current")
+	store.RegisterLocalTable("availability_hidden_retired")
 	store.RegisterRestore("availability_hidden", func(context.Context, *sql.Tx) (func(context.Context, *sql.Tx) error, error) {
 		return func(ctx context.Context, tx *sql.Tx) error {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM availability_hidden`); err != nil {
 				return err
 			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM availability_hidden_retired`); err != nil {
+				return err
+			}
 			_, err := tx.ExecContext(ctx, `DELETE FROM availability_hidden_current`)
 			return err
 		}, nil
-	}, "availability_hidden", "availability_hidden_current")
+	}, "availability_hidden", "availability_hidden_current", "availability_hidden_retired")
 
 	// Rebuild availability_hidden as WITHOUT ROWID on SQLite and drop accumulated
 	// 64-char-digest generations from 0.3.6. Own component so availability stays
@@ -51,6 +55,59 @@ CREATE TABLE availability_hidden (
 		return err
 	})
 	store.RegisterDialect("availability_hidden_slim", 1, store.Postgres, `DELETE FROM availability_hidden_current; DELETE FROM availability_hidden;`)
+
+	// Interval membership: a key is hidden in snapshot N iff
+	// from_seq<=N<to_seq (to_seq=max int64 while current), so publishing
+	// writes only the delta instead of a full new generation. Converts the
+	// current generation to seq 1 and drops retired generations. Own
+	// component, like availability_hidden_slim, so availability stays at 6.
+	store.RegisterAfter("availability_hidden_intervals", "availability_hidden_slim")
+	store.Register("availability_hidden_intervals", 1, "SELECT 1;")
+	store.RegisterSQLiteApply("availability_hidden_intervals", 1, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+CREATE TABLE availability_hidden_new (
+ kind TEXT NOT NULL, rating_key INTEGER NOT NULL, from_seq INTEGER NOT NULL,
+ to_seq INTEGER NOT NULL, PRIMARY KEY(kind,rating_key,from_seq)
+) WITHOUT ROWID;
+INSERT INTO availability_hidden_new(kind,rating_key,from_seq,to_seq)
+ SELECT h.kind,h.rating_key,1,9223372036854775807 FROM availability_hidden h
+ JOIN availability_hidden_current c ON c.kind=h.kind AND c.generation=h.generation;
+DROP TABLE availability_hidden;
+ALTER TABLE availability_hidden_new RENAME TO availability_hidden;
+CREATE INDEX availability_hidden_toseq ON availability_hidden(kind,to_seq,rating_key);
+CREATE TABLE availability_hidden_current_new (
+ kind TEXT PRIMARY KEY, seq INTEGER NOT NULL, policy TEXT NOT NULL
+);
+INSERT INTO availability_hidden_current_new(kind,seq,policy) SELECT kind,1,policy FROM availability_hidden_current;
+DROP TABLE availability_hidden_current;
+ALTER TABLE availability_hidden_current_new RENAME TO availability_hidden_current;
+CREATE TABLE availability_hidden_retired (
+ kind TEXT NOT NULL, seq INTEGER NOT NULL, retired_at INTEGER NOT NULL,
+ PRIMARY KEY(kind,seq)
+) WITHOUT ROWID;`)
+		return err
+	})
+	store.RegisterDialect("availability_hidden_intervals", 1, store.Postgres, `
+CREATE TABLE availability_hidden_new (
+ kind TEXT NOT NULL, rating_key BIGINT NOT NULL, from_seq BIGINT NOT NULL,
+ to_seq BIGINT NOT NULL, PRIMARY KEY(kind,rating_key,from_seq)
+);
+INSERT INTO availability_hidden_new(kind,rating_key,from_seq,to_seq)
+ SELECT h.kind,h.rating_key,1,9223372036854775807 FROM availability_hidden h
+ JOIN availability_hidden_current c ON c.kind=h.kind AND c.generation=h.generation;
+DROP TABLE availability_hidden;
+ALTER TABLE availability_hidden_new RENAME TO availability_hidden;
+CREATE INDEX availability_hidden_toseq ON availability_hidden(kind,to_seq,rating_key);
+CREATE TABLE availability_hidden_current_new (
+ kind TEXT PRIMARY KEY, seq BIGINT NOT NULL, policy TEXT NOT NULL
+);
+INSERT INTO availability_hidden_current_new(kind,seq,policy) SELECT kind,1,policy FROM availability_hidden_current;
+DROP TABLE availability_hidden_current;
+ALTER TABLE availability_hidden_current_new RENAME TO availability_hidden_current;
+CREATE TABLE availability_hidden_retired (
+ kind TEXT NOT NULL, seq BIGINT NOT NULL, retired_at BIGINT NOT NULL,
+ PRIMARY KEY(kind,seq)
+);`)
 
 	store.RegisterAfter("availability_checks_retention", "availability_coverage")
 	store.Register("availability_checks_retention", 1, `CREATE INDEX availability_title_checks_prune ON availability_title_checks(next_check, checked_at);`)
@@ -198,28 +255,32 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 			n, _ := res.RowsAffected()
 			total += n
 		}
+		_, _ = s.db.ExecContext(ctx, `DELETE FROM availability_hidden_retired WHERE kind=?`, hiddenMovies)
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM availability_hidden_current WHERE kind=?`, hiddenMovies)
 	}
 	for _, kind := range []string{hiddenMovies, hiddenShows, hiddenEpisodes} {
-		var cur string
-		err := s.db.QueryRowContext(ctx, `SELECT generation FROM availability_hidden_current WHERE kind=?`, kind).Scan(&cur)
+		var cur int64
+		err := s.db.QueryRowContext(ctx, `SELECT seq FROM availability_hidden_current WHERE kind=?`, kind).Scan(&cur)
 		if errors.Is(err, sql.ErrNoRows) {
-			res, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=? AND created_at<?`, kind, now-hiddenRetentionSeconds)
+			// No reader can pin a seq without a current row.
+			res, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=?`, kind)
 			if err != nil {
 				return total, err
 			}
 			n, _ := res.RowsAffected()
 			total += n
+			if _, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden_retired WHERE kind=?`, kind); err != nil {
+				return total, err
+			}
 			continue
 		}
 		if err != nil {
 			return total, err
 		}
-		res, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=? AND (generation<? OR generation>?) AND created_at<?`, kind, cur, cur, now-hiddenRetentionSeconds)
+		n, err := pruneHiddenRetention(ctx, s.db, kind, cur, now)
 		if err != nil {
 			return total, err
 		}
-		n, _ := res.RowsAffected()
 		total += n
 	}
 	checksCutoff := s.now().Add(-90 * 24 * time.Hour).Unix()

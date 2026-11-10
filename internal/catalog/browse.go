@@ -591,23 +591,26 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	// the int. Compare the flag numerically with an int argument instead.
 	conds = append(conds, "t.release_known=1 AND (t.released_ts<=? OR (t.type='movie' AND ?<>0))")
 	args = append(args, nowTS, flagInt(c.config().ShowUpcomingMovies))
-	for _, hidden := range []struct{ kind, generation string }{
-		{"movie", f.HiddenMovieGeneration}, {"show", f.HiddenShowGeneration},
+	for _, hidden := range []struct {
+		kind string
+		seq  int64
+	}{
+		{"movie", f.HiddenMovieSeq}, {"show", f.HiddenShowSeq},
 	} {
-		if hidden.generation != "" {
-			conds = append(conds, "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind=? AND ah.generation=? AND ah.rating_key=t.key)")
-			args = append(args, hidden.kind, hidden.generation)
+		if hidden.seq != 0 {
+			conds = append(conds, "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind=? AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=t.key)")
+			args = append(args, hidden.kind, hidden.seq, hidden.seq)
 		}
 	}
 	// Facets query children directly rather than through storedEpisodesWhere.
 	// They inherit their show's decision and episodes apply their own too.
-	if (f.Type == core.TypeEpisode || f.Type == core.TypeSeason) && f.HiddenShowGeneration != "" {
-		conds = append(conds, "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='show' AND ah.generation=? AND ah.rating_key=t.show_key)")
-		args = append(args, f.HiddenShowGeneration)
+	if (f.Type == core.TypeEpisode || f.Type == core.TypeSeason) && f.HiddenShowSeq != 0 {
+		conds = append(conds, "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='show' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=t.show_key)")
+		args = append(args, f.HiddenShowSeq, f.HiddenShowSeq)
 	}
-	if f.Type == core.TypeEpisode && f.HiddenEpisodeGeneration != "" {
-		clause := "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='episode' AND ah.generation=? AND ah.rating_key=t.key)"
-		args = append(args, f.HiddenEpisodeGeneration)
+	if f.Type == core.TypeEpisode && f.HiddenEpisodeSeq != 0 {
+		clause := "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='episode' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=t.key)"
+		args = append(args, f.HiddenEpisodeSeq, f.HiddenEpisodeSeq)
 		if len(f.AvailabilityKeepKeys) > 0 {
 			clause = "(" + clause + " OR t.key IN (" + placeholders(len(f.AvailabilityKeepKeys)) + "))"
 			for _, key := range f.AvailabilityKeepKeys {
@@ -650,7 +653,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	}
 	// Rule browsing gates like everything else: its totals must match the
 	// titles queryTitles hands back, which never include ungated movies.
-	if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieGeneration != "") {
+	if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieSeq != 0) {
 		gateSQL := homeReleaseSQL("t")
 		if cfg.ShowUpcomingMovies {
 			gateSQL = "(t.type='movie' AND t.release_known=1 AND t.released_ts>? OR (" + gateSQL + "))"
@@ -659,7 +662,7 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		conds = append(conds, gateSQL)
 		args = append(args, homeReleaseCutoff(c.now()), homeReleaseDeadline(c.now(), cfg.HomeReleaseOffsetDays))
 	}
-	if f.DigitalDiscovery && f.HiddenMovieGeneration == "" {
+	if f.DigitalDiscovery && f.HiddenMovieSeq == 0 {
 		// FilterDiscovery admits digital-mode movies only when a passed
 		// home date is known. Local and explicitly upcoming movies bypass
 		// that evidence window, as they do in the availability service.
@@ -1189,7 +1192,7 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 // availability evidence rather than with the filter: hidden-set
 // generations and the viewer's playing titles.
 func facetFamilyKey(f core.Filter, facet string) string {
-	f.HiddenMovieGeneration, f.HiddenShowGeneration, f.HiddenEpisodeGeneration = "", "", ""
+	f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = 0, 0, 0
 	f.AvailabilityKeepKeys = nil
 	return "family|" + fmt.Sprintf("%+v|%s", f, facet)
 }

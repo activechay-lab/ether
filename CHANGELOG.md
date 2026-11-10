@@ -2,6 +2,11 @@
 
 ## 0.3.8
 
+- **Performance:** availability hidden sets publish only the titles that
+  changed (interval membership instead of a full copy per refresh), so a
+  large library no longer holds the database writer for ~1 s every minute
+  or two and churns the database file; an unchanged set writes nothing.
+
 - **Apps:** per-app **Public address** (Apps > Jellyfin, Emby, etc.) so an app routed through its own host name (e.g. `jelly.example.com`) shows that address on Connect and `/ether/me` instead of the Plex host; Plex keeps its custom server URLs, and apps without one keep the server-wide address (#413).
 
 ## 0.3.7 (2026-11-09)

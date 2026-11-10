@@ -186,9 +186,9 @@ func viewerBrowseFilter(filter core.Filter, v *core.User, ex LibraryPageExclusio
 		return filter, false, false
 	}
 	filter.ExcludeKeys = append(append([]core.RatingKey{}, filter.ExcludeKeys...), ex.Keys...)
-	filter.HiddenMovieGeneration = ex.Availability.HiddenMovieGeneration
-	filter.HiddenShowGeneration = ex.Availability.HiddenShowGeneration
-	filter.HiddenEpisodeGeneration = ex.Availability.HiddenEpisodeGeneration
+	filter.HiddenMovieSeq = ex.Availability.HiddenMovieSeq
+	filter.HiddenShowSeq = ex.Availability.HiddenShowSeq
+	filter.HiddenEpisodeSeq = ex.Availability.HiddenEpisodeSeq
 	filter.DigitalDiscovery = ex.Availability.DigitalDiscovery
 	filter.DigitalDateEvidence = ex.Availability.DigitalDateEvidence
 	filter.HomeReleaseOffsetDays = ex.Availability.HomeReleaseOffsetDays

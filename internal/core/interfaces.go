@@ -87,10 +87,11 @@ type Filter struct {
 	HomeReleaseOffsetDays int  `json:"-"`
 	// AvailabilityKeepKeys are the viewer's active playback sessions.
 	AvailabilityKeepKeys []RatingKey `json:"-"`
-	// Availability generations pin one evaluated hidden set across SQL reads.
-	HiddenMovieGeneration   string `json:"-"`
-	HiddenShowGeneration    string `json:"-"`
-	HiddenEpisodeGeneration string `json:"-"`
+	// Availability hidden-set seqs pin one evaluated hidden set (an
+	// interval snapshot) across SQL reads. Zero means unpinned.
+	HiddenMovieSeq   int64 `json:"-"`
+	HiddenShowSeq    int64 `json:"-"`
+	HiddenEpisodeSeq int64 `json:"-"`
 	// ChildVisibility is the viewer policy evaluated on hydrated episodes.
 	ChildVisibility *Filter            `json:"-"`
 	RuleVisibility  string             `json:"-"` // owner-only rules browser: hidden or shown

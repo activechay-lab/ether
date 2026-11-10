@@ -74,7 +74,7 @@ func (c *Catalog) countStoredEpisodesBySeries(ctx context.Context, f core.Filter
 	// it is few episodes (the evidence window), subtracted below, where a
 	// direct count would join every stored episode.
 	rest := f
-	rest.HiddenEpisodeGeneration, rest.AvailabilityKeepKeys = "", nil
+	rest.HiddenEpisodeSeq, rest.AvailabilityKeepKeys = 0, nil
 	if conds, _ := c.childFilterConds("e", rest, nil); len(conds) > 0 {
 		return 0, false, nil
 	}
@@ -131,12 +131,12 @@ func (c *Catalog) countStoredEpisodesBySeries(ctx context.Context, f core.Filter
 			return 0, false, err
 		}
 	}
-	if f.HiddenEpisodeGeneration != "" {
+	if f.HiddenEpisodeSeq != 0 {
 		// Aired episodes of admitted series in the published hidden set,
 		// less those kept and those already excluded above.
-		vals := []any{f.HiddenEpisodeGeneration, c.now().Unix()}
+		vals := []any{f.HiddenEpisodeSeq, f.HiddenEpisodeSeq, c.now().Unix()}
 		q := `SELECT COUNT(*) FROM availability_hidden ah JOIN catalog_titles e ON e.key=ah.rating_key JOIN catalog_titles t ON t.key=e.show_key
-		WHERE ah.kind='episode' AND ah.generation=? AND e.type='episode' AND e.adult=0 AND e.release_known=1 AND e.released_ts<=? AND ` + episodes
+		WHERE ah.kind='episode' AND ah.from_seq<=? AND ah.to_seq>? AND e.type='episode' AND e.adult=0 AND e.release_known=1 AND e.released_ts<=? AND ` + episodes
 		vals = append(vals, episodeArgs...)
 		for _, keys := range [][]core.RatingKey{f.AvailabilityKeepKeys, childExclude} {
 			if len(keys) == 0 {

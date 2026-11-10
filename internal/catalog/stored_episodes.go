@@ -23,8 +23,8 @@ var (
 func splitStoredFilter(f core.Filter, childKind core.KeyKind) (show core.Filter, childExclude []core.RatingKey) {
 	show = core.Filter{
 		KnownAddedDate:         f.KnownAddedDate,
-		HiddenMovieGeneration:  f.HiddenMovieGeneration,
-		HiddenShowGeneration:   f.HiddenShowGeneration,
+		HiddenMovieSeq:         f.HiddenMovieSeq,
+		HiddenShowSeq:          f.HiddenShowSeq,
 		ExcludeGenres:          f.ExcludeGenres,
 		ExcludeKeywords:        f.ExcludeKeywords,
 		Type:                   core.TypeShow,
@@ -62,9 +62,9 @@ func splitStoredFilter(f core.Filter, childKind core.KeyKind) (show core.Filter,
 func (c *Catalog) childFilterConds(alias string, f core.Filter, childExclude []core.RatingKey) ([]string, []any) {
 	var conds []string
 	var args []any
-	if alias == "e" && f.HiddenEpisodeGeneration != "" {
-		clause := "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='episode' AND ah.generation=? AND ah.rating_key=" + alias + ".key)"
-		args = append(args, f.HiddenEpisodeGeneration)
+	if alias == "e" && f.HiddenEpisodeSeq != 0 {
+		clause := "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='episode' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=" + alias + ".key)"
+		args = append(args, f.HiddenEpisodeSeq, f.HiddenEpisodeSeq)
 		if len(f.AvailabilityKeepKeys) > 0 {
 			clause = "(" + clause + " OR " + alias + ".key IN (" + placeholders(len(f.AvailabilityKeepKeys)) + "))"
 			for _, key := range f.AvailabilityKeepKeys {

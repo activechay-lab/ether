@@ -317,10 +317,10 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	}
 	moviesOnlyGate := false
 	cfg := c.config()
-	if cfg.ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieGeneration != "") {
+	if cfg.ReleaseMode == config.ModeDigital && !(f.DigitalDiscovery && f.HiddenMovieSeq != 0) {
 		moviesOnlyGate = true
 	}
-	if f.DigitalDiscovery && f.HiddenMovieGeneration == "" {
+	if f.DigitalDiscovery && f.HiddenMovieSeq == 0 {
 		moviesOnlyGate = true
 	}
 	if moviesOnlyGate && f.Type != core.TypeShow {
@@ -401,7 +401,7 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
 	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.HomeReleaseOffsetDays, rest.AvailabilityKeepKeys = false, false, 0, nil
-	rest.HiddenMovieGeneration, rest.HiddenShowGeneration, rest.HiddenEpisodeGeneration = "", "", ""
+	rest.HiddenMovieSeq, rest.HiddenShowSeq, rest.HiddenEpisodeSeq = 0, 0, 0
 	rest.ExcludeKeys, rest.KnownAddedDate = nil, false
 	return s, filterUnset(rest)
 }
@@ -589,12 +589,15 @@ func (c *Catalog) tallyUnsettled(s tallyShape, f core.Filter) (string, []any) {
 	// released in between must be re-checked rather than taken from the
 	// tally. U may hold more titles than needed, never fewer.
 	unsettledArgs = append(unsettledArgs, c.now().Add(-time.Hour).Unix())
-	for _, hidden := range []struct{ kind, generation string }{
-		{string(core.TypeMovie), f.HiddenMovieGeneration}, {string(core.TypeShow), f.HiddenShowGeneration},
+	for _, hidden := range []struct {
+		kind string
+		seq  int64
+	}{
+		{string(core.TypeMovie), f.HiddenMovieSeq}, {string(core.TypeShow), f.HiddenShowSeq},
 	} {
-		if hidden.generation != "" {
-			unsettled = append(unsettled, `SELECT rating_key FROM availability_hidden WHERE kind=? AND generation=?`)
-			unsettledArgs = append(unsettledArgs, hidden.kind, hidden.generation)
+		if hidden.seq != 0 {
+			unsettled = append(unsettled, `SELECT rating_key FROM availability_hidden WHERE kind=? AND from_seq<=? AND to_seq>?`)
+			unsettledArgs = append(unsettledArgs, hidden.kind, hidden.seq, hidden.seq)
 		}
 	}
 	if len(f.ExcludeKeys) > 0 {

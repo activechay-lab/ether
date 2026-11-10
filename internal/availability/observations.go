@@ -5,6 +5,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
 	"github.com/braedonsaunders/ether/internal/store"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -122,6 +123,10 @@ func (s *Service) attachRetained(ctx context.Context, titles map[core.RatingKey]
 	for n := range byName {
 		names = append(names, n)
 	}
+	// Map order must not choose the 500-name batches: with the per-batch
+	// LIMIT 2000 below, a shuffled batch drops different feed items each
+	// pass, so a stable library's hidden set flapped every refresh.
+	sort.Strings(names)
 	type pending struct {
 		source, gen, raw string
 		seen             int64
@@ -136,7 +141,7 @@ func (s *Service) attachRetained(ctx context.Context, titles map[core.RatingKey]
 			args = append(args, n)
 		}
 		args = append(args, input.retentionCutoff().Unix())
-		rows, err := s.db.QueryContext(ctx, `SELECT source_id,generation,payload,seen_at FROM availability_feed_items WHERE match_title IN (`+strings.Join(marks, ",")+`) AND seen_at>=? ORDER BY seen_at DESC LIMIT 2000`, args...)
+		rows, err := s.db.QueryContext(ctx, `SELECT source_id,generation,payload,seen_at FROM availability_feed_items WHERE match_title IN (`+strings.Join(marks, ",")+`) AND seen_at>=? ORDER BY seen_at DESC, source_id, id LIMIT 2000`, args...)
 		if err != nil {
 			continue
 		}

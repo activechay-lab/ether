@@ -439,6 +439,13 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 	if err := a.catalog.ReplacePopularityIndexes(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Background hidden-set publication under evidence churn: its rows
+	// written must track the churned keys, not the set (nor the library).
+	hiddenChurn, err := perfharness.HiddenChurnRow(ctx, a.availability, scale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%s: hidden churn republish wrote %d rows, writer held %s", name, hiddenChurn.RowsMax, hiddenChurn.DBTime)
 	// The owner's Home is measured with their personalization model built
 	// (taste, bandit rows, crowd rows), as a production server serves it,
 	// not the cold-start screen a just-started server answers with.
@@ -581,6 +588,7 @@ func runPerfScale(t *testing.T, name string, scale perfharness.Scale) []*perfhar
 		t.Fatal(err)
 	}
 	rows := perfharness.Summarize(r.Results(), byTag, cs)
+	rows = append(rows, hiddenChurn)
 	perfharness.ApplyPageBound(rows, r.Results(), byTag, caps)
 	if t.Failed() {
 		t.Log(appLog.String())

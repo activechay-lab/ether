@@ -97,14 +97,14 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 	// An episode and a season never count toward a movie or series library.
 	exec(`INSERT INTO catalog_titles(key,type,title,sort_title,released_ts,browsable,adult,detail) VALUES(?,?,?,?,?,1,0,1)`, int64(core.EpisodeKey(1, 1, 1)), "episode", "e", "e", now.Add(-time.Hour*30).Unix())
 	// The availability component owns this table; its schema as there.
-	exec(`CREATE TABLE IF NOT EXISTS availability_hidden(kind TEXT NOT NULL,generation TEXT NOT NULL,rating_key BIGINT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(kind,generation,rating_key))`)
+	exec(`CREATE TABLE IF NOT EXISTS availability_hidden(kind TEXT NOT NULL,rating_key BIGINT NOT NULL,from_seq BIGINT NOT NULL,to_seq BIGINT NOT NULL,PRIMARY KEY(kind,rating_key,from_seq))`)
 	for _, k := range keys {
 		if rng.IntN(4) == 0 {
 			kind := "movie"
 			if k.Kind() == core.KindShow {
 				kind = "show"
 			}
-			exec(`INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES(?,?,?,0)`, kind, "g-"+kind, int64(k))
+			exec(`INSERT INTO availability_hidden(kind,rating_key,from_seq,to_seq) VALUES(?,?,1,9223372036854775807)`, kind, int64(k))
 		}
 	}
 	excluded := []core.RatingKey{keys[3], keys[50], keys[150], core.MovieKey(9999)}
@@ -123,25 +123,25 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		{Type: core.TypeMovie, Genres: []string{"Drama"}},
 		{Type: core.TypeShow, Kids: true},
 		{Genres: []string{"Kids"}, Kids: true},
-		{Type: core.TypeMovie, HiddenMovieGeneration: "g-movie"},
-		{Type: core.TypeShow, HiddenShowGeneration: "g-show", Genres: []string{"Comedy"}},
-		{HiddenMovieGeneration: "g-movie", HiddenShowGeneration: "g-show"},
-		{Type: core.TypeMovie, HiddenMovieGeneration: "g-movie", DigitalDiscovery: true, DigitalDateEvidence: true},
-		{Type: core.TypeShow, HiddenShowGeneration: "g-show", DigitalDiscovery: true},
+		{Type: core.TypeMovie, HiddenMovieSeq: 7},
+		{Type: core.TypeShow, HiddenShowSeq: 7, Genres: []string{"Comedy"}},
+		{HiddenMovieSeq: 7, HiddenShowSeq: 7},
+		{Type: core.TypeMovie, HiddenMovieSeq: 7, DigitalDiscovery: true, DigitalDateEvidence: true},
+		{Type: core.TypeShow, HiddenShowSeq: 7, DigitalDiscovery: true},
 		// A restricted viewer: rating cap, key exclusions, empty block lists.
-		{Type: core.TypeMovie, MaxContentRating: "PG-13", ExcludeKeys: excluded, ExcludeGenres: []string{}, ExcludeKeywords: []string{}, CatalogViewerID: 5, HiddenMovieGeneration: "g-movie"},
+		{Type: core.TypeMovie, MaxContentRating: "PG-13", ExcludeKeys: excluded, ExcludeGenres: []string{}, ExcludeKeywords: []string{}, CatalogViewerID: 5, HiddenMovieSeq: 7},
 		{Type: core.TypeShow, MinContentRating: "PG", MaxContentRating: "TV-MA", Genres: []string{"Horror"}, ExcludeKeys: excluded},
 		{MaxContentRating: "R", KnownAddedDate: true},
 		{Type: core.TypeMovie, Countries: []string{"US"}},
 		{Type: core.TypeMovie, YearFrom: 1990, YearTo: 1999},
-		{Type: core.TypeShow, YearFrom: 2003, MaxContentRating: "TV-14", HiddenShowGeneration: "g-show", ExcludeKeys: excluded},
+		{Type: core.TypeShow, YearFrom: 2003, MaxContentRating: "TV-14", HiddenShowSeq: 7, ExcludeKeys: excluded},
 		{YearTo: 2010},
 		{Type: core.TypeMovie, YearFrom: 1995, YearTo: 1995},
 		{Type: core.TypeMovie, Years: []int{1984, 1999, 2001, 1999}},
 		{Type: core.TypeMovie, Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
-		{Type: core.TypeShow, Genres: []string{"Drama"}, MaxContentRating: "TV-14", HiddenShowGeneration: "g-show", Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
-		{Type: core.TypeShow, Countries: []string{"GB"}, MaxContentRating: "TV-14", ExcludeKeys: excluded, HiddenShowGeneration: "g-show"},
-		{Countries: []string{"FR"}, HiddenMovieGeneration: "g-movie"},
+		{Type: core.TypeShow, Genres: []string{"Drama"}, MaxContentRating: "TV-14", HiddenShowSeq: 7, Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
+		{Type: core.TypeShow, Countries: []string{"GB"}, MaxContentRating: "TV-14", ExcludeKeys: excluded, HiddenShowSeq: 7},
+		{Countries: []string{"FR"}, HiddenMovieSeq: 7},
 		// Alphabet jumps on bucket edges: Plex firstCharacter and Jellyfin's
 		// NameStartsWith=B, NameLessThan=A ("#") and NameStartsWithOrGreater.
 		{Type: core.TypeMovie, FirstCharacter: "B"},
@@ -149,7 +149,7 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		{Type: core.TypeShow, NameStartsWith: "z"},
 		{NameLessThan: "A"},
 		{Type: core.TypeMovie, NameStartsWith: "É"},
-		{Type: core.TypeMovie, NameStartsWithOrGreater: "M", MaxContentRating: "PG-13", ExcludeKeys: excluded, HiddenMovieGeneration: "g-movie"},
+		{Type: core.TypeMovie, NameStartsWithOrGreater: "M", MaxContentRating: "PG-13", ExcludeKeys: excluded, HiddenMovieSeq: 7},
 		{Type: core.TypeShow, NameStartsWithOrGreater: "b", NameLessThan: "N", Group: &core.FilterGroup{UserID: 7, Unwatched: &unwatched}},
 		// Counted directly: these must still agree with their pages.
 		{Type: core.TypeMovie, Genres: []string{"Drama", "Comedy"}},
@@ -471,7 +471,7 @@ func TestRestrictedEpisodeTotalsMatchPages(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
-	exec(`CREATE TABLE IF NOT EXISTS availability_hidden(kind TEXT NOT NULL,generation TEXT NOT NULL,rating_key BIGINT NOT NULL,created_at BIGINT NOT NULL,PRIMARY KEY(kind,generation,rating_key))`)
+	exec(`CREATE TABLE IF NOT EXISTS availability_hidden(kind TEXT NOT NULL,rating_key BIGINT NOT NULL,from_seq BIGINT NOT NULL,to_seq BIGINT NOT NULL,PRIMARY KEY(kind,rating_key,from_seq))`)
 	ratings := []string{"", "TV-Y", "TV-PG", "TV-14", "TV-MA", "NR", "PG-13"}
 	collections := []string{"", "", "Hidden", " hidden ", "Other"}
 	released := func() int64 {
@@ -500,7 +500,7 @@ func TestRestrictedEpisodeTotalsMatchPages(t *testing.T) {
 				int64(key), int64(core.ShowKey(s)), 1+e/4, e, released(), flagInt(rng.IntN(12) == 0), r, rank, collections[rng.IntN(len(collections))])
 			episodes = append(episodes, key)
 			if rng.IntN(6) == 0 {
-				exec(`INSERT INTO availability_hidden(kind,generation,rating_key,created_at) VALUES('episode','g-ep',?,0)`, int64(key))
+				exec(`INSERT INTO availability_hidden(kind,rating_key,from_seq,to_seq) VALUES('episode',?,1,9223372036854775807)`, int64(key))
 			}
 		}
 	}
@@ -508,7 +508,7 @@ func TestRestrictedEpisodeTotalsMatchPages(t *testing.T) {
 	filters := []core.Filter{
 		{},
 		{ChildVisibility: &core.Filter{MaxContentRating: "TV-14"}, MaxContentRating: "TV-14"},
-		{ChildVisibility: &share, MaxContentRating: "TV-14", ExcludeCollectionNames: []string{"hidden"}, HiddenEpisodeGeneration: "g-ep", ExcludeKeys: []core.RatingKey{episodes[3], episodes[40]}},
+		{ChildVisibility: &share, MaxContentRating: "TV-14", ExcludeCollectionNames: []string{"hidden"}, HiddenEpisodeSeq: 7, ExcludeKeys: []core.RatingKey{episodes[3], episodes[40]}},
 		{ChildVisibility: &core.Filter{MinContentRating: "TV-PG", ContentRatings: []string{"TV-PG", "TV-14", "NR"}, IncludeCollectionNames: []string{"other"}}},
 		{ChildVisibility: &core.Filter{MaxContentRating: "XYZ"}},
 	}

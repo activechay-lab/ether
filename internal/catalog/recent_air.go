@@ -81,11 +81,11 @@ func (c *Catalog) recentAir(ctx context.Context, typ core.MediaType, exclude []c
 func (c *Catalog) recentMovieKeys(ctx context.Context, now int64, exclude []core.RatingKey, f core.Filter, offset, limit int) ([]core.RatingKey, []int64, error) {
 	args := []any{now}
 	notIn := ""
-	if f.HiddenMovieGeneration != "" {
-		notIn += ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='movie' AND ah.generation=? AND ah.rating_key=catalog_titles.key)`
-		args = append(args, f.HiddenMovieGeneration)
+	if f.HiddenMovieSeq != 0 {
+		notIn += ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='movie' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=catalog_titles.key)`
+		args = append(args, f.HiddenMovieSeq, f.HiddenMovieSeq)
 	}
-	if f.DigitalDiscovery && f.HiddenMovieGeneration == "" {
+	if f.DigitalDiscovery && f.HiddenMovieSeq == 0 {
 		if f.DigitalDateEvidence {
 			notIn += ` AND ((key>=? AND key<?) OR EXISTS (SELECT 1 FROM catalog_home_release dh WHERE dh.key=catalog_titles.key AND dh.checked=1 AND dh.earliest_ts<>0 AND dh.earliest_ts<=?))`
 			args = append(args, int64(core.LocalKey(0)), int64(core.LocalKey(0))+1000000000000000, homeReleaseDeadline(time.Unix(now, 0).UTC(), f.HomeReleaseOffsetDays))
@@ -127,9 +127,9 @@ func (c *Catalog) recentShowKeys(ctx context.Context, now int64, exclude []core.
 	}
 	hidden := ""
 	args := []any{now}
-	if f.HiddenShowGeneration != "" {
-		hidden = ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='show' AND ah.generation=? AND ah.rating_key=e.show_key)`
-		args = append(args, f.HiddenShowGeneration)
+	if f.HiddenShowSeq != 0 {
+		hidden = ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='show' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=e.show_key)`
+		args = append(args, f.HiddenShowSeq, f.HiddenShowSeq)
 	}
 	rows, err := c.db.QueryContext(ctx, `SELECT e.show_key, e.released_ts FROM catalog_titles e
 WHERE e.type='episode' AND e.adult=0 AND e.release_known=1 AND e.released_ts<=?

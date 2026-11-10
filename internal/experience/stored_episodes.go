@@ -147,7 +147,7 @@ func (s *Service) storedEpisodePage(ctx context.Context, v *core.User, library *
 			break
 		}
 		after = batch[len(batch)-1].Key
-		kept, err := s.visibleEpisodes(ctx, v, batch, q, show.HiddenShowGeneration != "")
+		kept, err := s.visibleEpisodes(ctx, v, batch, q, show.HiddenShowSeq != 0)
 		if err != nil {
 			return core.Page{}, false, err
 		}
