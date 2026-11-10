@@ -52,7 +52,12 @@ var messyStations = []string{"ESPN 2", "ESPN", "Fox Sports 1", "Fox Sports 2", "
 func seedGuideAI(t *testing.T, f *guideFake, count int) *Service {
 	t.Helper()
 	ctx := context.Background()
-	s := testService(t, Options{GuideAI: f, Now: func() time.Time { return guideTestNow }})
+	o := Options{Now: func() time.Time { return guideTestNow }}
+	if f != nil {
+		// A nil *guideFake in the interface would read as configured.
+		o.GuideAI = f
+	}
+	s := testService(t, o)
 	var xmlChannels []string
 	regions := []string{"US", "CA", "UK", "AU", "NZ", "DE", "FR", "IT", "ES", "BR"}
 	for _, region := range regions {
@@ -93,7 +98,9 @@ func seedGuideAI(t *testing.T, f *guideFake, count int) *Service {
 		if _, e = tx.Exec(`INSERT INTO livetv_channels(id,data) VALUES(?,?)`, id, string(b)); e != nil {
 			t.Fatal(e)
 		}
-		f.labels[id] = region + ": " + name + " HD"
+		if f != nil {
+			f.labels[id] = region + ": " + name + " HD"
+		}
 	}
 	if e = tx.Commit(); e != nil {
 		t.Fatal(e)
