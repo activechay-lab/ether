@@ -1,6 +1,6 @@
 import { negotiateLocale, type AppLocale } from "@braedonsaunders/appkit-i18n";
 import { rememberedLocale } from "../../i18n";
-import { LANGUAGE_TAGS, REGION_CODES } from "../catalog/CatalogPickers";
+import { LANGUAGE_TAGS, REGION_CODES } from "../libraries/browser/CatalogPickers";
 import type { StreamRules } from "../viewers/shared";
 
 /** Audio choice that ranks the title's original language first. */

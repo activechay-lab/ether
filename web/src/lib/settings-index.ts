@@ -8,7 +8,7 @@
 import { t } from "../i18n";
 import type { FieldDef, FieldGroup } from "../pages/settings/SchemaForm";
 import * as S from "../pages/settings/schema";
-import { UpcomingEpisodeSettings } from "../pages/catalog/HomeReleaseSettings";
+import { UpcomingEpisodeSettings } from "../pages/libraries/browser/HomeReleaseSettings";
 
 export interface SettingHit {
   /** Stable row id, independent of display language. */

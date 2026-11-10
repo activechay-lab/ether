@@ -24,6 +24,7 @@ import { FromPlexDefaults } from "./FromPlexDefaults";
 import { ViewerLiveTVAccess } from "./sections/ViewerLiveTV";
 import { ViewerSimkl } from "./sections/ViewerSimkl";
 import { KID_PRESETS, ListText, normalizePolicy, type SafetyPolicy } from "./shared";
+import { librariesApi } from "../libraries/api";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => ({
   value: h,
@@ -46,6 +47,99 @@ function TimeZoneSelect({ value, onChange }: { value: string; onChange: (zone: s
       searchable
       {...searchSelectLabels()}
     />
+  );
+}
+
+/** Libraries this viewer can open (empty restriction = every library, §1.4). */
+function ViewerLibraries({
+  userId,
+  allowed,
+  isOwner,
+  onSaved,
+}: {
+  userId: number;
+  allowed?: number[] | null;
+  isOwner?: boolean;
+  onSaved: () => void;
+}) {
+  const libs = useAsync((signal) => librariesApi.list(signal), []);
+  const [draft, setDraft] = useState<number[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const all = libs.data ?? [];
+  const current = draft ?? allowed ?? [];
+  const unrestricted = current.length === 0;
+  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(allowed ?? []);
+  const toggleLibrary = (id: number, on: boolean) =>
+    setDraft((prev) => {
+      const base = prev ?? allowed ?? [];
+      return on ? [...base, id].sort((a, b) => a - b) : base.filter((x) => x !== id);
+    });
+  return (
+    <SettingsSection
+      title={t("Libraries this viewer can open")}
+      description={t(
+        "With every library allowed, new libraries open for this viewer too. Pick libraries to limit them to just those.",
+      )}
+    >
+      {libs.loading ? (
+        <LoadingRows rows={2} />
+      ) : (
+        <>
+          <SettingsRow
+            title={t("All libraries")}
+            control={
+              <Switch
+                aria-label={t("All libraries")}
+                checked={unrestricted || Boolean(isOwner)}
+                disabled={Boolean(isOwner)}
+                onChange={(e) => setDraft(e.target.checked ? [] : all.map((l) => l.id))}
+              />
+            }
+          />
+          {!unrestricted && !isOwner
+            ? all.map((l) => (
+                <SettingsRow
+                  key={l.id}
+                  title={l.name}
+                  control={
+                    <Switch
+                      aria-label={l.name}
+                      checked={current.includes(l.id)}
+                      onChange={(e) => toggleLibrary(l.id, e.target.checked)}
+                    />
+                  }
+                />
+              ))
+            : null}
+          {isOwner ? (
+            <p className="pt-2 text-sm text-fg-muted">
+              {t("The owner can always open every library.")}
+            </p>
+          ) : (
+            <div className="pt-2">
+              <Button
+                size="sm"
+                disabled={!dirty || saving}
+                onClick={() => {
+                  setSaving(true);
+                  api
+                    .updateUser(userId, { allowedLibraries: current })
+                    .then(() => {
+                      toast.success(t("Saved"));
+                      setDraft(null);
+                      onSaved();
+                    })
+                    .catch((e: unknown) => toast.error(errorMessage(e)))
+                    .finally(() => setSaving(false));
+                }}
+              >
+                {t("Save")}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </SettingsSection>
   );
 }
 
@@ -200,6 +294,13 @@ export function ViewerAccess({ viewer }: { viewer: Viewer }) {
               }
             />
           </SettingsSection>
+
+          <ViewerLibraries
+            userId={id}
+            allowed={user?.allowedLibraries}
+            isOwner={user?.isOwner}
+            onSaved={() => void users.reload()}
+          />
 
           <SettingsSection title={t("Playback restrictions")}>
             {user && l ? (

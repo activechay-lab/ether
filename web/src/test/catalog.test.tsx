@@ -57,7 +57,7 @@ describe("Catalog workspace", () => {
       { name: "Inspect Seven" },
       { timeout: 15000 },
     );
-    expect(screen.getByRole("heading", { name: "Catalog", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Movies", level: 1 })).toBeInTheDocument();
     fireEvent.click(inspect);
     const detail = await screen.findByRole("dialog", { name: "Seven" });
     expect(await within(detail).findByText("A detailed overview")).toBeInTheDocument();

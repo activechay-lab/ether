@@ -1,9 +1,9 @@
 import { Badge } from "@braedonsaunders/appkit-ui";
 import { TrendingUp } from "lucide-react";
-import { t, tn } from "../../i18n";
-import { apiFetch } from "../../lib/api";
-import { useAsync, useInterval } from "../../lib/hooks";
-import { relativeTime } from "../../lib/format";
+import { t, tn } from "../../../i18n";
+import { apiFetch } from "../../../lib/api";
+import { useAsync, useInterval } from "../../../lib/hooks";
+import { relativeTime } from "../../../lib/format";
 
 type Chart = {
   mediaType: string;

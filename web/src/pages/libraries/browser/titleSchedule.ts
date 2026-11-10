@@ -1,5 +1,5 @@
-import { getLocale, localized, t } from "../../i18n";
-import { apiFetch } from "../../lib/api";
+import { getLocale, localized, t } from "../../../i18n";
+import { apiFetch } from "../../../lib/api";
 
 /** One episode in a show's schedule; airDate is YYYY-MM-DD, empty when not announced. */
 export interface ScheduleEpisode {

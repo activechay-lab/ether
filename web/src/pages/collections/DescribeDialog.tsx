@@ -18,8 +18,8 @@ import { api, ApiError, apiStream, errorMessage } from "../../lib/api";
 import type { CollectionSpec } from "../../lib/contract";
 import { normalizeSpec } from "../../lib/rules";
 import { readAgentStream } from "../plugins/LiveStage";
-import { CatalogBrowser } from "../catalog/Catalog";
-import { TitleInspector } from "../catalog/TitleInspector";
+import { CatalogBrowser } from "../libraries/browser/Catalog";
+import { TitleInspector } from "../libraries/browser/TitleInspector";
 import { DescribeWall } from "./DescribeWall";
 
 /** The agent route whose turns build one collection and outlive a reload. */

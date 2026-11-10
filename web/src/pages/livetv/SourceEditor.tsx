@@ -26,7 +26,7 @@ import { SubtabNav } from "../../components/layout";
 import { localized, t, tn } from "../../i18n";
 import { useLocale } from "../../i18n/react";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
-import { REGION_CODES } from "../catalog/CatalogPickers";
+import { REGION_CODES } from "../libraries/browser/CatalogPickers";
 import { browserLanguageList, regionFromLocales, regionFromTimeZone } from "../setup/language";
 import { api, errorMessage } from "../../lib/api";
 import { isPluginDescriptor, textOf, useRegistry, type Descriptor } from "../../lib/extend";

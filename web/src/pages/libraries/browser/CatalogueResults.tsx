@@ -1,9 +1,9 @@
 import { Button } from "@braedonsaunders/appkit-ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Artwork } from "../../components/Artwork";
-import type { TitleCard } from "../../lib/contract";
-import { fixed } from "../../lib/format";
-import { t, tn } from "../../i18n";
+import { Artwork } from "../../../components/Artwork";
+import type { TitleCard } from "../../../lib/contract";
+import { fixed } from "../../../lib/format";
+import { t, tn } from "../../../i18n";
 import "./CatalogueResults.css";
 
 export interface CatalogueResultsProps {

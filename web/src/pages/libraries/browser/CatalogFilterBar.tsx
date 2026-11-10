@@ -1,10 +1,10 @@
 import { Button, Input } from "@braedonsaunders/appkit-ui";
 import { Plus, Search, Sparkles, Undo2, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { t } from "../../i18n";
+import { t } from "../../../i18n";
 import { catalogValueLabel } from "./catalogValueLabel";
-import { api, apiFetch } from "../../lib/api";
-import { useAsync, useDebouncedValue } from "../../lib/hooks";
+import { api, apiFetch } from "../../../lib/api";
+import { useAsync, useDebouncedValue } from "../../../lib/hooks";
 import { compileQuery, emptyQuery, readQuery, type Chip, type QueryState } from "./catalogQuery";
 
 type Field = {

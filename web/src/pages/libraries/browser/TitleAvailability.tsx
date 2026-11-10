@@ -9,20 +9,20 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ErrorPanel } from "../../components/feedback";
-import { t, tn } from "../../i18n";
-import type { TitleDetail } from "../../lib/contract";
-import { formatBytes } from "../../lib/format";
-import { useAsync } from "../../lib/hooks";
+import { ErrorPanel } from "../../../components/feedback";
+import { t, tn } from "../../../i18n";
+import type { TitleDetail } from "../../../lib/contract";
+import { formatBytes } from "../../../lib/format";
+import { useAsync } from "../../../lib/hooks";
 import {
   qualityLabel,
   rangeLabel,
   releaseConsole,
   type ConsoleRelease,
   type ConsoleSearch,
-} from "../../lib/releases";
-import { localToday } from "../calendar/model";
-import { searchLink } from "../releases/Pinned";
+} from "../../../lib/releases";
+import { localToday } from "../../calendar/model";
+import { searchLink } from "../../releases/Pinned";
 import { useReleaseEvidence } from "./TitleInspector";
 import { airLabel, episodeState } from "./TitleEpisodes";
 import { shortCode, type ScheduleEpisode, type ShowSchedule } from "./titleSchedule";

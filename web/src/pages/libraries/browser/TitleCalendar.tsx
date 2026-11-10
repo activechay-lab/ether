@@ -1,12 +1,12 @@
 import { Spinner, cn } from "@braedonsaunders/appkit-ui";
 import { ArrowUpRight, CalendarDays, Moon } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Artwork } from "../../components/Artwork";
-import { ErrorPanel } from "../../components/feedback";
-import { t, tn } from "../../i18n";
-import type { TitleDetail } from "../../lib/contract";
-import type { AsyncState } from "../../lib/hooks";
-import { daysBetween, formatDay, localToday, relativeDay } from "../calendar/model";
+import { Artwork } from "../../../components/Artwork";
+import { ErrorPanel } from "../../../components/feedback";
+import { t, tn } from "../../../i18n";
+import type { TitleDetail } from "../../../lib/contract";
+import type { AsyncState } from "../../../lib/hooks";
+import { daysBetween, formatDay, localToday, relativeDay } from "../../calendar/model";
 import { statusLabel } from "./TitleInspector";
 import { EpisodeBadges } from "./TitleEpisodes";
 import {

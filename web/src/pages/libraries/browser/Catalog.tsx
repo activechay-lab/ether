@@ -1,4 +1,4 @@
-import { SubtabNav } from "../../components/layout";
+import { SubtabNav } from "../../../components/layout";
 import { Button, EmptyState, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowRight,
@@ -13,18 +13,18 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useApp } from "../../app-context";
-import { Drawer } from "../../components/Drawer";
-import { TitleSearch } from "../../components/pickers";
-import { ErrorPanel, PosterSkeletons } from "../../components/feedback";
-import { LevelBadge } from "../../components/status";
-import { ToolbarPicker } from "../../components/ToolbarPicker";
-import { Workspace } from "../../components/workspace";
-import { localized, t, tn, tx } from "../../i18n";
-import { api, apiFetch } from "../../lib/api";
-import { useAsync, useDebouncedValue } from "../../lib/hooks";
+import { useApp } from "../../../app-context";
+import { Drawer } from "../../../components/Drawer";
+import { TitleSearch } from "../../../components/pickers";
+import { ErrorPanel, PosterSkeletons } from "../../../components/feedback";
+import { LevelBadge } from "../../../components/status";
+import { ToolbarPicker } from "../../../components/ToolbarPicker";
+import { Workspace } from "../../../components/workspace";
+import { localized, t, tn, tx } from "../../../i18n";
+import { api, apiFetch } from "../../../lib/api";
+import { useAsync, useDebouncedValue } from "../../../lib/hooks";
 import { CatalogSettings } from "./CatalogSettings";
-import type { CollectionSpec } from "../../lib/contract";
+import type { CollectionSpec } from "../../../lib/contract";
 import { TitleInspector } from "./TitleInspector";
 import { CatalogueResults } from "./CatalogueResults";
 import "./catalog.css";
@@ -53,7 +53,7 @@ export default function Catalog() {
   const onSettings = settings || visibility;
   const { health, refreshDashboard } = useApp();
   const status = health.find((h) => h.id === "catalog");
-  const catalogPath = `/catalog${params.size ? `?${params}` : ""}`;
+  const catalogPath = `/libraries${params.size ? `?${params}` : ""}`;
   const actions = (
     <>
       {status && !onSettings ? (
@@ -67,7 +67,7 @@ export default function Catalog() {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => navigate(onSettings ? catalogPath : "/catalog/settings")}
+        onClick={() => navigate(onSettings ? catalogPath : "/libraries/settings")}
       >
         {onSettings ? <ArrowLeft size={14} /> : <Settings2 size={14} />}
         {onSettings ? t("Back to catalog") : t("Settings")}
@@ -93,6 +93,21 @@ export default function Catalog() {
   );
 }
 
+/** AND a saved library filter into a compiled browse filter (spec §11). */
+export function mergeLibraryFilter(
+  compiled: Record<string, unknown>,
+  saved?: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!saved || !Object.keys(saved).length) return compiled;
+  const leaf = { operator: "and", filter: saved };
+  const group = (compiled as { group?: unknown }).group;
+  const { group: _group, ...rest } = compiled as { group?: unknown };
+  return {
+    ...rest,
+    group: { operator: "and", children: [...(group ? [group] : []), leaf] },
+  };
+}
+
 export function CatalogBrowser({
   params,
   setParams,
@@ -101,10 +116,13 @@ export function CatalogBrowser({
   collection,
   heading,
   headerActions,
+  libraryScope,
 }: {
   heading?: string;
   headerActions?: ReactNode;
   ruleFilter?: { ruleVisibility: string; rules: string; ruleFallback: string };
+  /** Pin the browser to one library: its media type, plus its saved filter ANDed in. */
+  libraryScope?: { type: string; filter?: Record<string, unknown> };
   /** Browse one collection's titles, in its own order, instead of the catalogue. */
   collection?: CollectionSpec;
   params: URLSearchParams;
@@ -122,7 +140,11 @@ export function CatalogBrowser({
   }, []);
   const query = params.get("q") ?? "";
   const debouncedQuery = useDebouncedValue(query, 300);
-  const type = ["movie", "show"].includes(params.get("type") ?? "") ? params.get("type")! : "";
+  const type = libraryScope
+    ? libraryScope.type
+    : ["movie", "show"].includes(params.get("type") ?? "")
+      ? params.get("type")!
+      : "";
   const genre = params.get("genre") ?? "";
   const decade = params.get("decade") ?? "";
   const waiting = params.get("waiting") === "1";
@@ -140,7 +162,7 @@ export function CatalogBrowser({
   const cursorParams = new URLSearchParams(params);
   ["page", "title", "view"].forEach((key) => cursorParams.delete(key));
   cursorParams.sort();
-  const cursorIdentity = `${cursorParams}|${JSON.stringify(ruleFilter)}|${JSON.stringify(collection)}`;
+  const cursorIdentity = `${cursorParams}|${JSON.stringify(ruleFilter)}|${JSON.stringify(collection)}|${JSON.stringify(libraryScope)}`;
   const [cursorPage, setCursorPage] = useState({ identity: "", after: "", page: 1 });
   const activeCursor = cursorPage.identity === cursorIdentity ? cursorPage : { after: "", page: 1 };
   const page = collection ? collectionPageNumber : activeCursor.page;
@@ -149,6 +171,12 @@ export function CatalogBrowser({
   const advancedRaw = params.get("filters") || "";
   const advanced = useDebouncedValue(advancedRaw, 250);
   const viewer = params.get("viewer") || "";
+  const compiledFilter = advanced ? compileQuery(readQuery(advanced), viewer) : {};
+  const mergedFilter = mergeLibraryFilter(
+    compiledFilter as Record<string, unknown>,
+    libraryScope?.filter,
+  );
+  const filterParam = Object.keys(mergedFilter).length ? JSON.stringify(mergedFilter) : undefined;
   const [lookupOpen, setLookupOpen] = useState(false);
   // Router transitions can update the URL before the previous controls commit.
   // Merge rapid interactions into the latest requested state, not a stale render.
@@ -208,9 +236,7 @@ export function CatalogBrowser({
                 waiting: waiting ? "1" : "",
                 sort,
                 noTotal: "1",
-                filter: advanced
-                  ? JSON.stringify(compileQuery(readQuery(advanced), viewer))
-                  : undefined,
+                filter: filterParam,
                 secondarySort: secondarySort || undefined,
                 secondaryDesc: secondarySort ? (secondaryDesc ? "1" : "0") : undefined,
                 desc: desc ? "1" : "0",
@@ -261,7 +287,7 @@ export function CatalogBrowser({
         waiting: waiting ? "1" : "",
         countOnly: "1",
       });
-      if (advanced) p.set("filter", JSON.stringify(compileQuery(readQuery(advanced), viewer)));
+      if (filterParam) p.set("filter", filterParam);
       if (ruleFilter) Object.entries(ruleFilter).forEach(([key, value]) => p.set(key, value));
       for (let attempt = 0; attempt < 24; attempt++) {
         const result = await apiFetch<{ total: number; pending: boolean; totalExact: boolean }>(
@@ -516,16 +542,20 @@ export function CatalogBrowser({
         }}
       />
       <div className="catalog-toolbar">
-        <SubtabNav
-          ariaLabel={t("Catalog media type")}
-          active={type || "all"}
-          onSelect={(v) => update("type", v === "all" ? "" : v)}
-          tabs={[
-            { key: "all", label: t("All titles") },
-            { key: "movie", label: t("Movies") },
-            { key: "show", label: t("TV shows") },
-          ]}
-        />
+        {libraryScope ? (
+          <span />
+        ) : (
+          <SubtabNav
+            ariaLabel={t("Catalog media type")}
+            active={type || "all"}
+            onSelect={(v) => update("type", v === "all" ? "" : v)}
+            tabs={[
+              { key: "all", label: t("All titles") },
+              { key: "movie", label: t("Movies") },
+              { key: "show", label: t("TV shows") },
+            ]}
+          />
+        )}
         <div className="catalog-tools">
           {watchlistPicker()}
           <Button size="sm" variant="ghost" onClick={() => setLookupOpen(true)}>

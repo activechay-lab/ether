@@ -37,7 +37,7 @@ describe("registry navigation", () => {
     expect(groups[0]!.items.map((i) => i.href)).toEqual(["/", "/activity", "/viewers"]);
     expect(groups[0]!.items.map((i) => i.label)).toEqual(["Overview", "Activity", "Viewers"]);
     expect(groups[1]!.items.map((i) => i.href)).toEqual([
-      "/catalog",
+      "/libraries",
       "/collections",
       "/home",
       "/livetv",

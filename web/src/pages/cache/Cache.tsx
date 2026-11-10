@@ -10,12 +10,14 @@ import { CacheOverview } from "./CacheOverview";
 import { CacheExplorer } from "./CacheExplorer";
 import { selectionReason, shelfStateLabel } from "./reasons";
 import { WarmNewArrivals } from "../viewers/sections/WatchlistDefaults";
+import { LibraryCaches } from "../libraries/LibraryCache";
 const CACHE_TABS = localized(
   () =>
     [
       { key: "overview", label: t("Overview") },
       { key: "explorer", label: t("Explorer") },
       { key: "preloading", label: t("Preloading") },
+      { key: "libraries", label: t("Libraries") },
     ] as const,
 );
 import { Drawer } from "../../components/Drawer";
@@ -349,11 +351,15 @@ export default function Cache() {
               ? t("Cache overview")
               : tab === "explorer"
                 ? t("Cache explorer")
-                : t("Cache preloading")
+                : tab === "libraries"
+                  ? t("Library file caches")
+                  : t("Cache preloading")
           }
           className={cn(
             "app-scroll flex min-h-0 flex-1 flex-col bg-bg",
-            tab === "overview" ? "overflow-y-auto cockpit:overflow-hidden" : "overflow-hidden",
+            tab === "overview" || tab === "libraries"
+              ? "overflow-y-auto cockpit:overflow-hidden"
+              : "overflow-hidden",
           )}
         >
           {error ? (
@@ -398,6 +404,10 @@ export default function Cache() {
                 onPin={(releaseId, pinned) => void action("pin", { releaseId, pinned })}
                 onClear={(id, title, block) => void clearRelease(id, title, block)}
               />
+            </div>
+          ) : tab === "libraries" ? (
+            <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-5">
+              <LibraryCaches />
             </div>
           ) : (
             <div className="app-scroll mx-auto grid min-h-0 w-full max-w-[1600px] flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-12 lg:overflow-hidden">

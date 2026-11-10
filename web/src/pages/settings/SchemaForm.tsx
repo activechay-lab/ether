@@ -24,7 +24,7 @@ import { textOf, useRegistry, type ExtendText } from "../../lib/extend";
 import { humanizeKey, isPlainObject } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import { REDACTED } from "../../lib/types";
-import { LANGUAGE_TAGS } from "../catalog/CatalogPickers";
+import { LANGUAGE_TAGS } from "../libraries/browser/CatalogPickers";
 
 type Obj = Record<string, unknown>;
 

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchAgentStatus, cancelAgentTurn } from "../../components/agent/agentApi";
-import { api, apiStream } from "../../lib/api";
-import type { CollectionPreview, CollectionSpec } from "../../lib/contract";
-import { normalizeSpec } from "../../lib/rules";
-import { useAsync } from "../../lib/hooks";
-import { readAgentStream } from "../plugins/LiveStage";
+import { fetchAgentStatus, cancelAgentTurn } from "../../../components/agent/agentApi";
+import { api, apiStream } from "../../../lib/api";
+import type { CollectionPreview, CollectionSpec } from "../../../lib/contract";
+import { normalizeSpec } from "../../../lib/rules";
+import { useAsync } from "../../../lib/hooks";
+import { readAgentStream } from "../../plugins/LiveStage";
 
 export interface AISearchResult {
   key: string;

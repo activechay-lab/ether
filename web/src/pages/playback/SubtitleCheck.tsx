@@ -6,7 +6,7 @@ import { TitleSearch } from "../../components/pickers";
 import { t } from "../../i18n";
 import { useLocale } from "../../i18n/react";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
-import { LANGUAGE_TAGS } from "../catalog/CatalogPickers";
+import { LANGUAGE_TAGS } from "../libraries/browser/CatalogPickers";
 import { apiFetch, errorMessage } from "../../lib/api";
 import type { TitleCard } from "../../lib/contract";
 

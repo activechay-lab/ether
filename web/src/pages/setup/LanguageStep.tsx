@@ -5,7 +5,7 @@ import { Field } from "../../components/fields";
 import { searchSelectLabels } from "../../i18n/appkit-labels";
 import { loadLocale, LOCALES, rememberLocale, t, type Locale } from "../../i18n";
 import { useLocale } from "../../i18n/react";
-import { LANGUAGE_TAGS, REGION_CODES } from "../catalog/CatalogPickers";
+import { LANGUAGE_TAGS, REGION_CODES } from "../libraries/browser/CatalogPickers";
 import {
   ORIGINAL_AUDIO,
   REGIONAL_TRACK_TAGS,

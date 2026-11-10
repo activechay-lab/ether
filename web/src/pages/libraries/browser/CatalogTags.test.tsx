@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CatalogTags } from "./CatalogTags";
-import { apiFetch } from "../../lib/api";
-vi.mock("../../lib/api", () => ({ apiFetch: vi.fn() }));
+import { apiFetch } from "../../../lib/api";
+vi.mock("../../../lib/api", () => ({ apiFetch: vi.fn() }));
 
 describe("catalogue owner tags", () => {
   it("edits a bounded annotation list without changing provider keywords", async () => {

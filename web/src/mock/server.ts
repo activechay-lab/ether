@@ -2525,6 +2525,194 @@ export function createFakeServer(opts: FakeOptions = {}) {
   // ---- Router ------------------------------------------------------------------------
 
   const viewerCatalogRules = new Map<number, unknown>();
+
+  const mockLibs: Record<string, unknown>[] = [
+    {
+      id: 1,
+      key: "movies",
+      name: "Movies",
+      source: "builtin",
+      mediaType: "movie",
+      sort: 1,
+      hidden: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      itemCount: 1200,
+    },
+    {
+      id: 2,
+      key: "shows",
+      name: "TV Shows",
+      source: "builtin",
+      mediaType: "show",
+      sort: 2,
+      hidden: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      itemCount: 800,
+    },
+    {
+      id: 3,
+      key: "pk-demo-book",
+      name: "Books",
+      source: "plugin",
+      pluginId: "demo",
+      kindKey: "book",
+      present: {},
+      sort: 3,
+      hidden: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      itemCount: 2,
+      pluginName: "Demo books",
+      kind: {
+        key: "book",
+        label: "Books",
+        library: { name: "Books" },
+        levels: [{ key: "book", label: "Book", playable: true }],
+        fields: [{ key: "author", type: "string", label: "Author", indexed: true }],
+        present: {},
+        browse: { sorts: ["title"], facets: ["author"], search: true },
+        sync: { mode: "push" },
+      },
+      sync: { pluginId: "demo", kindKey: "book", generation: 1, items: 2 },
+    },
+  ];
+  const mockMatches: Record<string, unknown>[] = [];
+  function mockLibraries(method: string, seg: string[], url: URL, body: unknown): Response {
+    const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+    if (seg[0] === "plugins-setup") {
+      if (method === "GET")
+        return json({
+          pluginId: seg[1],
+          pluginName: "Demo books",
+          steps: [],
+          blockers: [],
+          settings: {},
+          schema: {},
+          kinds: [],
+          libraries: mockLibs.filter((l) => l.pluginId === seg[1]),
+        });
+      if (seg[2] === "settings") return json({ fieldErrors: null });
+      return json({ ok: true });
+    }
+    if (!seg[1]) {
+      if (method === "POST") {
+        const id = Math.max(0, ...mockLibs.map((l) => Number(l.id))) + 1;
+        const lib = {
+          id,
+          key: `lib-${id}`,
+          name: String(b.name ?? "Library"),
+          source: "filter",
+          filter: b.filter,
+          present: b.present ?? {},
+          sort: id,
+          hidden: false,
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+        };
+        mockLibs.push(lib);
+        return json(lib, 201);
+      }
+      return json({ libraries: [...mockLibs].sort((a, z) => Number(a.sort) - Number(z.sort)) });
+    }
+    const lib = mockLibs.find((l) => l.id === Number(seg[1]));
+    if (!lib) return err(404, "not_found", "Library not found");
+    if (!seg[2]) {
+      if (method === "PATCH") {
+        Object.assign(lib, b);
+        return json(lib);
+      }
+      if (method === "DELETE") {
+        if (lib.source === "builtin" || lib.source === "plugin")
+          return err(409, "conflict", "Cannot delete");
+        mockLibs.splice(mockLibs.indexOf(lib), 1);
+        return new Response(null, { status: 204 });
+      }
+      return json(lib);
+    }
+    if (seg[2] === "items") {
+      const items =
+        lib.source === "plugin"
+          ? [
+              {
+                ref: "pk:demo:book:b1",
+                key: 1,
+                id: "b1",
+                level: "book",
+                title: "Dune",
+                playable: true,
+                fields: { author: "Herbert" },
+              },
+            ]
+          : [];
+      const q = (url.searchParams.get("q") || "").toLowerCase();
+      const shown = q ? items.filter((i) => i.title.toLowerCase().includes(q)) : items;
+      return json({ items: shown, total: shown.length });
+    }
+    if (seg[2] === "facets")
+      return json({ field: seg[3], values: [{ value: "Herbert", count: 1 }] });
+    if (seg[2] === "sync") return json({ upserted: 1, deleted: 0, skipped: 0 });
+    if (seg[2] === "cache") {
+      if (seg[3])
+        return json({ libraryId: lib.id, used: 0, blobs: 0, maxBytes: 2147483648, ttlSeconds: 0 });
+      return json({
+        libraryId: lib.id,
+        used: 0,
+        blobs: 0,
+        maxBytes: 2147483648,
+        ttlSeconds: 0,
+        sharedUsed: 0,
+        sharedBlobs: 0,
+        sharedCap: 10737418240,
+      });
+    }
+    if (seg[2] === "setup")
+      return json({
+        pluginId: lib.pluginId,
+        pluginName: lib.pluginName ?? "",
+        steps: [],
+        blockers: [],
+        settings: {},
+        schema: {},
+        kinds: [],
+        libraries: [lib],
+      });
+    if (seg[2] === "item") {
+      const ref = decodeURIComponent(seg[3] ?? "");
+      if (seg[4] === "match") {
+        if (method === "PUT") {
+          mockMatches.length = 0;
+          mockMatches.push({
+            itemRef: ref,
+            candidateRef: String(b.candidateRef ?? ""),
+            score: 1,
+            source: "manual",
+            chosen: true,
+            updatedAt: 1,
+          });
+        }
+        if (method === "DELETE") mockMatches.length = 0;
+        return json({ matches: mockMatches });
+      }
+      return json({
+        item: {
+          ref,
+          key: 1,
+          id: "b1",
+          level: "book",
+          title: "Dune",
+          playable: true,
+          fields: { author: "Herbert" },
+        },
+        children: [],
+        matches: mockMatches,
+        kind: lib.kind,
+      });
+    }
+    return err(404, "not_found", "not found");
+  }
+
   async function handle(method: string, url: URL, body: unknown): Promise<Response> {
     const p = url.pathname.replace(/^\/ether\/api/, "");
     if (method === "GET" && p.startsWith("/viewer-plex-defaults/")) {
@@ -2558,6 +2746,9 @@ export function createFakeServer(opts: FakeOptions = {}) {
     const q = url.searchParams;
     const seg = p.split("/").filter(Boolean);
     const route = `${method} /${seg.join("/")}`;
+    if (seg[0] === "libraries" || seg[0] === "plugins-setup") {
+      return mockLibraries(method, seg, url, body);
+    }
     if (seg[0] === "cluster" && seg[1] === "nodes" && seg[3] === "role-preflight") {
       const node = clusterNodes().find((n) => n.id === seg[2]);
       if (!node || q.get("boot") !== node.incarnation)

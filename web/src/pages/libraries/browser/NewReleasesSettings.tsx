@@ -2,20 +2,20 @@ import { Play, CalendarDays, Zap } from "lucide-react";
 import { Input, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { MoreOptions } from "../../components/ConfigSection";
-import { SaveBar, useDraft } from "../../components/SaveBar";
-import { SettingsRow } from "../../components/SettingsRow";
-import { t, tn, tx } from "../../i18n";
-import { api, apiFetch } from "../../lib/api";
-import { formatNumber, relativeTime } from "../../lib/format";
-import { useAsync, useInterval } from "../../lib/hooks";
+import { MoreOptions } from "../../../components/ConfigSection";
+import { SaveBar, useDraft } from "../../../components/SaveBar";
+import { SettingsRow } from "../../../components/SettingsRow";
+import { t, tn, tx } from "../../../i18n";
+import { api, apiFetch } from "../../../lib/api";
+import { formatNumber, relativeTime } from "../../../lib/format";
+import { useAsync, useInterval } from "../../../lib/hooks";
 import {
   applyReleaseMode,
   customRequestCeiling,
   releaseMode,
   type ReleaseMode,
-} from "../../lib/release-mode";
-import type { AvailabilityConfig } from "../../lib/types";
+} from "../../../lib/release-mode";
+import type { AvailabilityConfig } from "../../../lib/types";
 
 interface Summary {
   ready: number;
@@ -168,7 +168,7 @@ export function NewReleasesSettings({
           {tx("{ready} ready · {waiting} · checked {when}", {
             ready: formatNumber(summary.data.ready),
             waiting: (
-              <Link to="/catalog?waiting=1&type=movie" className="text-primary underline">
+              <Link to="/libraries/1?waiting=1" className="text-primary underline">
                 {tn(
                   summary.data.waiting,
                   "{count} waiting for a release",

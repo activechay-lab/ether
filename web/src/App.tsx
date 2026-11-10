@@ -107,7 +107,7 @@ const Activity = lazy(() => import("./pages/activity/Activity"));
 const Notifications = lazy(() => import("./pages/notifications/Notifications"));
 const LiveTV = lazy(() => import("./pages/livetv/LiveTV"));
 const Calendar = lazy(() => import("./pages/calendar/Calendar"));
-const Catalog = lazy(() => import("./pages/catalog/Catalog"));
+const Libraries = lazy(() => import("./pages/libraries/Libraries"));
 const Metadata = lazy(() => import("./pages/metadata/Metadata"));
 const Sources = lazy(() => import("./pages/sources/Sources"));
 const Quality = lazy(() => import("./pages/releases/Releases"));
@@ -404,7 +404,7 @@ const BUILTIN_PAGES: Record<
   },
   livetv: { element: <LiveTV />, suffix: "/:tab?" },
   calendar: { element: <Calendar />, suffix: "/:view?" },
-  catalog: { element: <Catalog />, suffix: "/:tab?" },
+  libraries: { element: <Libraries />, suffix: "/*" },
   metadata: { element: <Metadata />, suffix: "/:tab?" },
   sources: { element: <Sources />, suffix: "/:tab?/:section?" },
   releases: { element: <Quality />, suffix: "/:tab?" },
@@ -417,6 +417,14 @@ const BUILTIN_PAGES: Record<
   cluster: { element: <ClusterPage /> },
   maintenance: { element: <MaintenancePage />, suffix: "/:tab?/:backupTab?" },
 };
+
+/** Old catalogue bookmarks land in the matching library, query intact (one release). */
+function CatalogRedirect() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const id = params.get("type") === "show" ? 2 : 1;
+  return <Navigate to={`/libraries/${id}${location.search}`} replace />;
+}
 
 function Shell() {
   const { boot } = useApp();
@@ -579,6 +587,13 @@ function Shell() {
                     )),
                   ];
                 })}
+              <Route path="/catalog" element={<CatalogRedirect />} />
+              <Route
+                path="/catalog/settings"
+                element={<Navigate to="/libraries/settings" replace />}
+              />
+              <Route path="/catalog/rules" element={<Navigate to="/libraries/1/rules" replace />} />
+              <Route path="/catalog/*" element={<Navigate to="/libraries" replace />} />
               <Route
                 path="*"
                 element={

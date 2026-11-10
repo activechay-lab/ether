@@ -32,7 +32,7 @@ import {
   withRuleScores,
 } from "../../lib/qualityRanking";
 import type { QualityItem, QualityProfile, ReleaseRule } from "../../lib/types";
-import { LANGUAGE_TAGS } from "../catalog/CatalogPickers";
+import { LANGUAGE_TAGS } from "../libraries/browser/CatalogPickers";
 import { REGIONAL_TRACK_TAGS, baseLanguage } from "../setup/language";
 import { OrderButtons, swap } from "../sources/form";
 import {

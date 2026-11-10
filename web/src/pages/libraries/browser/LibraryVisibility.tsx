@@ -14,17 +14,17 @@ import {
   Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Drawer } from "../../components/Drawer";
-import { Artwork } from "../../components/Artwork";
-import { Segmented } from "../../components/fields";
-import { t, tn } from "../../i18n";
-import { apiFetch } from "../../lib/api";
-import { formatNumber } from "../../lib/format";
-import type { Rule, RuleField } from "../../lib/contract";
-import { useAsync, useDebouncedValue } from "../../lib/hooks";
-import { describeRule, fieldMeta, isRuleComplete, type FieldMeta } from "../../lib/rules";
-import { titlePosterURL } from "../../lib/titles";
-import { RuleRow } from "../collections/RuleRow";
+import { Drawer } from "../../../components/Drawer";
+import { Artwork } from "../../../components/Artwork";
+import { Segmented } from "../../../components/fields";
+import { t, tn } from "../../../i18n";
+import { apiFetch } from "../../../lib/api";
+import { formatNumber } from "../../../lib/format";
+import type { Rule, RuleField } from "../../../lib/contract";
+import { useAsync, useDebouncedValue } from "../../../lib/hooks";
+import { describeRule, fieldMeta, isRuleComplete, type FieldMeta } from "../../../lib/rules";
+import { titlePosterURL } from "../../../lib/titles";
+import { RuleRow } from "../../collections/RuleRow";
 
 export type VisibilityRule = {
   name: string;

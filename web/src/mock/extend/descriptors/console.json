@@ -447,18 +447,18 @@
   },
   {
     "kind": "navItem",
-    "id": "catalog",
+    "id": "libraries",
     "owner": "builtin",
     "label": {
-      "source": "Catalog"
+      "source": "Libraries"
     },
     "hint": {},
     "icon": "Library",
     "group": "library",
     "order": 10,
     "meta": {
-      "route": "/catalog",
-      "page": "catalog"
+      "route": "/libraries",
+      "page": "libraries"
     }
   },
   {
@@ -887,27 +887,27 @@
   },
   {
     "kind": "page",
-    "id": "catalog",
+    "id": "libraries",
     "owner": "builtin",
     "label": {
-      "source": "Catalog"
+      "source": "Libraries"
     },
     "hint": {},
     "icon": "Library",
     "group": "library",
     "order": 10,
     "meta": {
-      "route": "/catalog",
+      "route": "/libraries",
       "navGroup": "library",
       "inNav": true,
       "keywords": {
-        "source": "catalogue movies shows browse search library"
+        "source": "catalogue catalog movies shows browse search library libraries"
       },
       "sections": [
         {
           "key": "settings",
           "label": {
-            "source": "Catalog settings"
+            "source": "Library settings"
           },
           "keywords": {
             "source": "tmdb language region popularity new releases playable digital"

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CatalogueResults, type CatalogueResultsProps } from "./CatalogueResults";
 import type { ReactNode } from "react";
-import type { TitleCard } from "../../lib/contract";
+import type { TitleCard } from "../../../lib/contract";
 const titles = (start: number, count: number): TitleCard[] =>
   Array.from({ length: count }, (_, i) => ({
     key: String(start + i),

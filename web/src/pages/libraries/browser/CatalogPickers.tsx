@@ -1,9 +1,9 @@
 import { SearchSelect } from "@braedonsaunders/appkit-ui";
 import { useMemo } from "react";
-import { SettingsRow } from "../../components/SettingsRow";
-import { searchSelectLabels } from "../../i18n/appkit-labels";
-import { t } from "../../i18n";
-import { useLocale } from "../../i18n/react";
+import { SettingsRow } from "../../../components/SettingsRow";
+import { searchSelectLabels } from "../../../i18n/appkit-labels";
+import { t } from "../../../i18n";
+import { useLocale } from "../../../i18n/react";
 
 export const LANGUAGE_TAGS = [
   "en-US",

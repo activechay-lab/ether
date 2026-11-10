@@ -1,10 +1,10 @@
 import { Button, toast } from "@braedonsaunders/appkit-ui";
 import { Archive } from "lucide-react";
 import { useState } from "react";
-import { t } from "../../i18n";
-import { apiFetch, errorMessage } from "../../lib/api";
-import { useAsync, useInterval } from "../../lib/hooks";
-import { tierMigrationLine, type TierMigration } from "../../lib/health";
+import { t } from "../../../i18n";
+import { apiFetch, errorMessage } from "../../../lib/api";
+import { useAsync, useInterval } from "../../../lib/hooks";
+import { tierMigrationLine, type TierMigration } from "../../../lib/health";
 
 /**
  * The one-off library tidy after the two-tier upgrade: an Off install's

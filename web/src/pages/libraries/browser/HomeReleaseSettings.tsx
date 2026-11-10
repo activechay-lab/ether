@@ -1,9 +1,9 @@
-import { useAsync, useInterval } from "../../lib/hooks";
-import { localized, t } from "../../i18n";
-import { apiFetch } from "../../lib/api";
+import { useAsync, useInterval } from "../../../lib/hooks";
+import { localized, t } from "../../../i18n";
+import { apiFetch } from "../../../lib/api";
 import { Activity, CheckCheck, Plus } from "lucide-react";
-import { formatNumber } from "../../lib/format";
-import type { FieldGroup } from "../settings/SchemaForm";
+import { formatNumber } from "../../../lib/format";
+import type { FieldGroup } from "../../settings/SchemaForm";
 
 export const UpcomingEpisodeSettings: FieldGroup = localized(() => ({
   title: t("Upcoming content"),

@@ -21,7 +21,7 @@ import { ToolbarPicker } from "../../components/ToolbarPicker";
 import { Workspace } from "../../components/workspace";
 import { t, tn } from "../../i18n";
 import { useAsync, useInterval } from "../../lib/hooks";
-import { TitleInspector } from "../catalog/TitleInspector";
+import { TitleInspector } from "../libraries/browser/TitleInspector";
 import { AgendaView } from "./AgendaView";
 import { DayList } from "./DayList";
 import { MonthView } from "./MonthView";

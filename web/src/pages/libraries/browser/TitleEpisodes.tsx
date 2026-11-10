@@ -1,14 +1,14 @@
 import { Badge, Button, Spinner, cn } from "@braedonsaunders/appkit-ui";
 import { CalendarClock, ChevronDown, Clock, Pin, Search, Star, Tv } from "lucide-react";
-import { SeasonPinDrawer } from "../releases/SeasonPinDrawer";
+import { SeasonPinDrawer } from "../../releases/SeasonPinDrawer";
 import { useEffect, useRef, useState } from "react";
-import { Artwork } from "../../components/Artwork";
-import { ErrorPanel } from "../../components/feedback";
-import { t } from "../../i18n";
-import type { TitleDetail } from "../../lib/contract";
-import { fixed } from "../../lib/format";
-import { useAsync, type AsyncState } from "../../lib/hooks";
-import { daysBetween, localToday, relativeDay } from "../calendar/model";
+import { Artwork } from "../../../components/Artwork";
+import { ErrorPanel } from "../../../components/feedback";
+import { t } from "../../../i18n";
+import type { TitleDetail } from "../../../lib/contract";
+import { fixed } from "../../../lib/format";
+import { useAsync, type AsyncState } from "../../../lib/hooks";
+import { daysBetween, localToday, relativeDay } from "../../calendar/model";
 import type { EpisodeFocus } from "./TitleInspector";
 import {
   capitalized,

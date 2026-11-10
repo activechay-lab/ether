@@ -1,29 +1,29 @@
-import { SubtabNav } from "../../components/layout";
+import { SubtabNav } from "../../../components/layout";
 import { CheckCircle2, AlertTriangle } from "lucide-react";
 import { SettingsSection, Spinner, toast } from "@braedonsaunders/appkit-ui";
-import { Segmented } from "../../components/fields";
-import { MoreOptions } from "../../components/ConfigSection";
+import { Segmented } from "../../../components/fields";
+import { MoreOptions } from "../../../components/ConfigSection";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCallback, useMemo, useState } from "react";
-import { useApp } from "../../app-context";
-import { SaveBar, useDraft } from "../../components/SaveBar";
-import { ErrorPanel } from "../../components/feedback";
-import { t, tn } from "../../i18n";
-import { relativeTime } from "../../lib/format";
-import { api, apiFetch, ApiError, errorMessage } from "../../lib/api";
-import { useAsync, useDebouncedValue } from "../../lib/hooks";
-import { isRuleComplete } from "../../lib/rules";
-import { asObj, SchemaField, type FieldGroup } from "../settings/SchemaForm";
+import { useApp } from "../../../app-context";
+import { SaveBar, useDraft } from "../../../components/SaveBar";
+import { ErrorPanel } from "../../../components/feedback";
+import { t, tn } from "../../../i18n";
+import { relativeTime } from "../../../lib/format";
+import { api, apiFetch, ApiError, errorMessage } from "../../../lib/api";
+import { useAsync, useDebouncedValue } from "../../../lib/hooks";
+import { isRuleComplete } from "../../../lib/rules";
+import { asObj, SchemaField, type FieldGroup } from "../../settings/SchemaForm";
 import { CatalogPickers, isCatalogPicker } from "./CatalogPickers";
-import { CATALOG } from "../settings/schema";
+import { CATALOG } from "../../settings/schema";
 import { CatalogActivity, UpcomingEpisodeSettings } from "./HomeReleaseSettings";
-import { WatchlistAlerts } from "../viewers/sections/WatchlistDefaults";
+import { WatchlistAlerts } from "../../viewers/sections/WatchlistDefaults";
 import { NewReleasesSettings, useAvailabilityDraft } from "./NewReleasesSettings";
 import { RulesPanel, type VisibilityRule } from "./LibraryVisibility";
 import { TrendingStatus } from "./TrendingStatus";
 import { TierMigrationStatus } from "./TierMigrationStatus";
-import { LevelBadge } from "../../components/status";
-import { SettingsRow } from "../../components/SettingsRow";
+import { LevelBadge } from "../../../components/status";
+import { SettingsRow } from "../../../components/SettingsRow";
 import "./catalog.css";
 
 type Obj = Record<string, unknown>;
@@ -151,7 +151,9 @@ export function CatalogSettings() {
           <SubtabNav
             ariaLabel={t("Catalog settings")}
             active={section}
-            onSelect={(key) => navigate(key === "rules" ? "/catalog/rules" : "/catalog/settings")}
+            onSelect={(key) =>
+              navigate(key === "rules" ? "/libraries/1/rules" : "/libraries/settings")
+            }
             tabs={[
               { key: "library", label: t("General") },
               { key: "rules", label: t("Rules") },

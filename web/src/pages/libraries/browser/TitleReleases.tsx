@@ -1,10 +1,10 @@
 import { Badge, Spinner, cn } from "@braedonsaunders/appkit-ui";
 import { Clapperboard, Disc3, MonitorPlay, Sparkles, Ticket, Tv } from "lucide-react";
 import { Fragment, useState } from "react";
-import { ErrorPanel } from "../../components/feedback";
-import { getLocale, t } from "../../i18n";
-import type { AsyncState } from "../../lib/hooks";
-import { daysBetween, localToday, relativeDay } from "../calendar/model";
+import { ErrorPanel } from "../../../components/feedback";
+import { getLocale, t } from "../../../i18n";
+import type { AsyncState } from "../../../lib/hooks";
+import { daysBetween, localToday, relativeDay } from "../../calendar/model";
 import {
   RELEASE_KIND_LABEL,
   countryName,

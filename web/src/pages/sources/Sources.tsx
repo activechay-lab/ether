@@ -10,7 +10,7 @@ import { IPTVProviders } from "./IPTV";
 import { DebridSources } from "./Debrid";
 import { HealthStrip } from "./form";
 import { IndexerList } from "./Indexers";
-import { NewReleaseBudgetSection } from "../catalog/NewReleasesSettings";
+import { NewReleaseBudgetSection } from "../libraries/browser/NewReleasesSettings";
 import { UsenetProviders } from "./Usenet";
 import { SourceStatistics, StatisticsPeriod } from "./statistics/Statistics";
 import { AddSourceGallery, type GalleryChoice } from "./cards";

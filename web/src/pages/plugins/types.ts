@@ -89,6 +89,8 @@ export interface PluginManifest {
     runtime?: { kind?: string; entry?: string; module?: string };
     permissions?: DeclaredPermissions;
     contributes?: {
+      mediaKinds?: { key: string; label: string; library: { name: string } }[];
+      setup?: { steps: { key: string; label: string; required: boolean }[] };
       events?: { subscribe?: string[] };
       pages?: { key: string; label: string; route: string }[];
       slots?: { slot: string; key: string; label: string; route: string }[];

@@ -1,4 +1,4 @@
-import { t } from "../../i18n";
+import { t } from "../../../i18n";
 /** Translate finite enum labels at render time; wire values remain canonical. */
 export function catalogValueLabel(field: string, value: string): string {
   if (field === "gate") {

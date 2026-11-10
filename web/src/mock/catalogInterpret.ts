@@ -1,4 +1,4 @@
-import type { Chip } from "../pages/catalog/catalogQuery";
+import type { Chip } from "../pages/libraries/browser/catalogQuery";
 /** Deterministic mock-provider response for preview flows only. */
 export function interpretDemo(text: string): Chip[] {
   let rest = text.trim();

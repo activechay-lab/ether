@@ -36,6 +36,7 @@ import { contributionTab, primaryContribution } from "./drawer/kinds";
 import { PluginContributions } from "./drawer/PluginContributions";
 import { PluginOverview } from "./drawer/PluginOverview";
 import { PluginSetup } from "./drawer/PluginSetup";
+import { SetupWizard } from "../libraries/SetupWizard";
 import { MenuItem } from "./MenuItem";
 import { openInStudio } from "./openInStudio";
 import {
@@ -71,6 +72,7 @@ export function InstalledPluginDrawer({
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [tab, setTab] = useState<DrawerTab>("overview");
+  const [setupWizard, setSetupWizard] = useState(false);
   const [detail, setDetail] = useState<PluginDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -412,6 +414,31 @@ export function InstalledPluginDrawer({
                 </Button>
               }
             />
+          ) : null}
+          {detail.manifest.ether?.contributes?.mediaKinds?.length ? (
+            <Banner
+              icon={<Info size={16} className="text-primary" />}
+              text={t("Adds libraries: {names}", {
+                names: detail.manifest.ether.contributes.mediaKinds
+                  .map((k) => k.library.name)
+                  .join(", "),
+              })}
+              action={
+                <span className="flex gap-2">
+                  {detail.manifest.ether?.contributes?.setup ? (
+                    <Button size="sm" variant="outline" onClick={() => setSetupWizard(true)}>
+                      {t("Run setup")}
+                    </Button>
+                  ) : null}
+                  <Button size="sm" onClick={() => navigate("/libraries")}>
+                    {t("Open Libraries")}
+                  </Button>
+                </span>
+              }
+            />
+          ) : null}
+          {setupWizard ? (
+            <SetupWizard pluginId={detail.id} onClose={() => setSetupWizard(false)} />
           ) : null}
           {!detail.enabled ? (
             <Banner

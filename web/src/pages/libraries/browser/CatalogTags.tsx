@@ -1,9 +1,9 @@
 import { Badge, Button, Input } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
-import { t } from "../../i18n";
-import { apiFetch } from "../../lib/api";
-import { useAsync } from "../../lib/hooks";
-import { ErrorPanel } from "../../components/feedback";
+import { t } from "../../../i18n";
+import { apiFetch } from "../../../lib/api";
+import { useAsync } from "../../../lib/hooks";
+import { ErrorPanel } from "../../../components/feedback";
 
 export function CatalogTags({ titleKey }: { titleKey: string }) {
   const path = `/catalog/title/${encodeURIComponent(titleKey)}/tags`;

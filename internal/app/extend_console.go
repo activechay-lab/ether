@@ -62,11 +62,11 @@ func consolePages() []consolePage {
 			Route: "/viewers", InNav: true, Mobile: true,
 			Keywords: T("users friends accounts people"),
 		}},
-		{id: "catalog", label: T("Catalog"), icon: "Library", order: 10, meta: extend.PageMeta{
-			Route: "/catalog", NavGroup: extend.NavGroupLibrary, InNav: true,
-			Keywords: T("catalogue movies shows browse search library"),
+		{id: "libraries", label: T("Libraries"), icon: "Library", order: 10, meta: extend.PageMeta{
+			Route: "/libraries", NavGroup: extend.NavGroupLibrary, InNav: true,
+			Keywords: T("catalogue catalog movies shows browse search library libraries"),
 			Sections: []extend.PageSection{
-				section("settings", T("Catalog settings"), T("tmdb language region popularity new releases playable digital")),
+				section("settings", T("Library settings"), T("tmdb language region popularity new releases playable digital")),
 			},
 		}},
 		{id: "collections", label: T("Collections"), icon: "Layers", order: 20, meta: extend.PageMeta{

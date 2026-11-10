@@ -7,7 +7,7 @@ import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { t } from "../../i18n";
 import { apiFetch } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
-import { RulesPanel, type VisibilityRule } from "../catalog/LibraryVisibility";
+import { RulesPanel, type VisibilityRule } from "../libraries/browser/LibraryVisibility";
 
 type Policy = {
   mode: string;
