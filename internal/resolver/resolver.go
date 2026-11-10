@@ -1244,7 +1244,17 @@ func (s *Service) searchCached(ctx context.Context, req core.SearchRequest, fres
 		mark := s.refillRetryAfter[key]
 		s.bgMu.Unlock()
 		if done != nil {
+			// A viewer's Play joins the detail search only briefly: that search
+			// waits for every indexer, so after playStartDeadline Play runs its
+			// own progressive search instead of a slow indexer's timeout.
+			var bound <-chan time.Time
+			if !core.SpeculativeIndexerWork(ctx) {
+				t := time.NewTimer(playStartDeadline)
+				defer t.Stop()
+				bound = t.C
+			}
 			select {
+			case <-bound:
 			case <-done:
 				if results, ok := s.peekSearchCache(key); ok {
 					return results, true, nil

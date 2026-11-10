@@ -223,10 +223,11 @@ func (p *searchPreparation) refillAfter(check *candidateCheck) {
 const (
 	discoveryWindow      = 500 * time.Millisecond
 	criticalPathDeadline = 4 * time.Second
-	// playStartDeadline bounds how long a healthy, profile-passing candidate
-	// waits for a better-ranked one still being checked. Without it a single
-	// slow indexer or check held Play to its 30 s timeout, past the client's
-	// own decision budget.
+	// playStartDeadline bounds how long a viewer's Play waits on indexers that
+	// have not answered. After it, Play validates what has arrived (foreground
+	// checks may add a torrent to the debrid account) while the stragglers
+	// finish into the search cache. Without it one slow indexer held Play to
+	// its 30 s timeout, past the client's own decision budget.
 	playStartDeadline = 6 * time.Second
 )
 
@@ -268,11 +269,10 @@ func (p *searchPreparation) readyResultsAfter(window time.Duration) []core.Relea
 				}
 				continue
 			}
-			overdue := time.Since(p.first) >= playStartDeadline
 			leadUncachedTorrent := lead >= 0 &&
 				protocolOf(p.ranked[lead].rel) == core.ProtocolTorrent &&
 				!p.svc.knownCached(p.ranked[lead].rel)
-			if lead >= 0 && !overdue && !(leadUncachedTorrent && p.svc.knownCached(c.rel)) && (!equivalentHedge(p.ranked[lead], c, margin) || time.Since(p.first) < rankedSourceGrace) {
+			if lead >= 0 && !(leadUncachedTorrent && p.svc.knownCached(c.rel)) && (!equivalentHedge(p.ranked[lead], c, margin) || time.Since(p.first) < rankedSourceGrace) {
 				continue
 			}
 			preference := p.svc.resolverCfg().SourcePreference
@@ -335,13 +335,19 @@ func (p *searchPreparation) searchLive(ctx context.Context, indexer core.Streami
 		case a := <-done:
 			return a.releases, false, a.err
 		case <-ticker.C:
-			if ready := p.readyResults(); len(ready) > 0 {
+			ready := p.readyResults()
+			why := "source discovery finished on playable candidate"
+			if len(ready) == 0 {
+				ready = p.overdueResults(ctx)
+				why = "source discovery stopped waiting on slow indexers"
+			}
+			if len(ready) > 0 {
 				if ctx.Err() != nil {
 					cancel()
 					<-done
 					return nil, false, ctx.Err()
 				}
-				p.svc.log.Info("source discovery finished on playable candidate", "candidates", len(ready), "elapsed", time.Since(p.first))
+				p.svc.log.Info(why, "candidates", len(ready), "elapsed", time.Since(p.first))
 				p.partial.Store(true)
 				// SearchWith keeps running on bgCtx; the worker defers cancel.
 				p.svc.keepSearchCancel(cancel)
@@ -353,6 +359,22 @@ func (p *searchPreparation) searchLive(ctx context.Context, indexer core.Streami
 			return nil, false, ctx.Err()
 		}
 	}
+}
+
+// overdueResults hands a viewer's Play everything that has arrived once
+// playStartDeadline has passed with no early check healthy (early checks run
+// on the background budget, so an uncached torrent waits for foreground
+// validation). Speculative and background work keeps waiting for the fleet.
+func (p *searchPreparation) overdueResults(ctx context.Context) []core.Release {
+	if core.SpeculativeIndexerWork(ctx) || core.IsBackgroundCheck(ctx) {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.disabled || p.first.IsZero() || len(p.all) == 0 || time.Since(p.first) < playStartDeadline {
+		return nil
+	}
+	return append([]core.Release(nil), p.all...)
 }
 
 // keepSearchCancel marks cancel as owned by the background search so an
