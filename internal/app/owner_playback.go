@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -21,7 +22,7 @@ func (p ownerPlayback) Sessions() []*core.PlaySession {
 	if p.app != nil && p.app.playback != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		for _, s := range p.app.playback.RemoteSessions(ctx) {
-			if !s.PreparedOnly {
+			if !s.PreparedOnly && !liveProgrammeSource(s) {
 				out = append(out, s)
 			}
 		}
@@ -58,12 +59,21 @@ func (p ownerPlayback) localSessions() []*core.PlaySession {
 		local = backend.Sessions()
 	}
 	for _, s := range local {
-		if !s.PreparedOnly && (s.PlaybackGroup == "" || !groups[s.PlaybackGroup]) {
-			out = append(out, s)
+		if s.PreparedOnly || (s.PlaybackGroup != "" && groups[s.PlaybackGroup]) || liveProgrammeSource(s) {
+			continue
 		}
+		out = append(out, s)
 	}
 	return append(out, live...)
 }
+
+// liveProgrammeSource recognises the source a Live TV channel opens to feed its
+// broadcast (the programme it is airing). It belongs to the channel's viewing
+// row, not to a viewer of its own, even when the backend could not group it.
+func liveProgrammeSource(s *core.PlaySession) bool {
+	return strings.HasPrefix(s.ClientID, "channel-input/") || strings.HasPrefix(s.Client.ClientID, "channel-input/")
+}
+
 func (p ownerPlayback) Session(id string) (*core.PlaySession, bool) {
 	for _, s := range p.Sessions() {
 		if s.ID == id {
