@@ -52,19 +52,19 @@ type wireXMLDoc struct {
 }
 
 // Regression for #191 Comment #27 (daimikegor support bundle):
-// 1. Multi-version 4K DV.HDR + 1080p SDR item on 2017 NVIDIA Shield (darcy,
-//    HDR10-capable, no Dolby Vision) must advertise the compatible 4K HDR10
-//    base layer across Media[0..3] rather than exposing DOVIProfile="8" on
-//    Media[0] and causing Bedrock MDE to hijack playback onto an unprobed
-//    sibling or 1080p SDR bestCompat variant with 0 subtitle streams.
-// 2. DV-capable clients (e.g. Apple TV, Profile 8 capable) keep DOVIProfile="8"
-//    across all 4K DV variants so Media[0..3] stay consistent.
-// 3. Both Play #1 and back-out + re-entry Play #2 preserve English (SRT)
-//    selected="1" and mux subrip into HLS MKV with StripDolbyVision on darcy.
-// 4. Active HLS MKV Direct Stream reports Part@decision="transcode",
-//    Media@selected="1", TranscodeSession@container="mkv", videoDecision="copy",
-//    and subtitleDecision="copy" on /status/sessions so Tautulli reports Direct
-//    Stream instead of Direct Play.
+//  1. Multi-version 4K DV.HDR + 1080p SDR item on 2017 NVIDIA Shield (darcy,
+//     HDR10-capable, no Dolby Vision) must advertise the compatible 4K HDR10
+//     base layer across Media[0..3] rather than exposing DOVIProfile="8" on
+//     Media[0] and causing Bedrock MDE to hijack playback onto an unprobed
+//     sibling or 1080p SDR bestCompat variant with 0 subtitle streams.
+//  2. DV-capable clients (e.g. Apple TV, Profile 8 capable) keep DOVIProfile="8"
+//     across all 4K DV variants so Media[0..3] stay consistent.
+//  3. Both Play #1 and back-out + re-entry Play #2 preserve English (SRT)
+//     selected="1" and mux subrip into HLS MKV with StripDolbyVision on darcy.
+//  4. Active HLS MKV Direct Stream reports Part@decision="transcode",
+//     Media@selected="1", TranscodeSession@container="mkv", videoDecision="copy",
+//     and subtitleDecision="copy" on /status/sessions so Tautulli reports Direct
+//     Stream instead of Direct Play.
 func TestIssue191ShieldDVHybridMultiVersionSubtitlesAndTautulli(t *testing.T) {
 	f := newFixture()
 	defer f.srv.Close()
