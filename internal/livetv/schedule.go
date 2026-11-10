@@ -95,9 +95,14 @@ func weeklySchedule(c Channel, from, until time.Time) []Programme {
 	var out []Programme
 	// Repeat gaps remember what aired before the query window. Simulating
 	// that lookback (and no further) keeps two overlapping queries equal.
+	// Shipped showcase reels carry updated_at=0; only reels with a real post-epoch
+	// revision timestamp anchor the schedule before the bounded repeat lookback.
 	origin := from.Add(-lookback(c))
-	if c.reel != nil && !c.reel.Anchor.IsZero() && c.reel.Anchor.Before(from) {
+	if c.reel != nil && !c.reel.Anchor.IsZero() && c.reel.Anchor.Unix() > 0 && c.reel.Anchor.Before(from) {
 		origin = c.reel.Anchor.Add(-lookback(c))
+		if origin.Unix() < 0 {
+			origin = c.reel.Anchor
+		}
 	}
 	day := dayStart(origin, loc)
 	if day.After(origin) {

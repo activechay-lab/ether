@@ -35,7 +35,11 @@ func (s *Service) Reel(ctx context.Context, id string) (Reel, error) {
 	if e = json.Unmarshal([]byte(b), &r); e != nil {
 		return r, e
 	}
-	r.Anchor = time.Unix(anchor, 0).UTC()
+	// Shipped reels store updated_at=0 so schedules across any day include pods
+	// without anchoring weeklySchedule to 1970-01-01.
+	if anchor > 0 {
+		r.Anchor = time.Unix(anchor, 0).UTC()
+	}
 	order := r.Clips
 	r.Clips = []ReelClip{}
 	rows, e := s.db.QueryContext(ctx, "SELECT data FROM onair_reel_clips WHERE reel_id=? ORDER BY created_at,id", id)

@@ -78,7 +78,11 @@ func (c Channel) podItems(at time.Time, budget time.Duration) []Item {
 	}
 	limit := time.Duration(p.MaxSeconds) * time.Second
 	if p.ClockAlignment == "half" {
-		remaining := time.Duration(1800-at.Unix()%1800) * time.Second
+		rem := at.Unix() % 1800
+		if rem < 0 {
+			rem += 1800
+		}
+		remaining := time.Duration(1800-rem) * time.Second
 		if remaining < limit {
 			limit = remaining
 		}
@@ -110,7 +114,8 @@ func (c Channel) podItems(at time.Time, budget time.Duration) []Item {
 	})
 	// Rotate a stable daily permutation by the pod clock, preserving reproducibility.
 	if len(pool) > 0 {
-		n := int(at.Unix()/int64(interval/time.Second)) % len(pool)
+		lp := int64(len(pool))
+		n := int(((at.Unix()/int64(interval/time.Second))%lp + lp) % lp)
 		pool = append(pool[n:], pool[:n]...)
 	}
 	var spots []Item
