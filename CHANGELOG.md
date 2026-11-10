@@ -22,6 +22,14 @@
 - **Console:** Home designer bottom bulk bar and much faster first load; Cache
   Explorer **Clear** without blocking (#402); **Latest season premiere** and
   **Latest aired episode** collection rules (#406).
+- **Live TV:** decade channels keep to their own decade; Live TV does no
+  background work while nobody watches; a channel's programme feed is not a
+  second stream on Overview/Activity.
+- **Late fixes:** Experience counts real stalls per hour; Plex Media/Part lists
+  stay stable (#389) and DV-stripped variants keep subtitles (#191); Emby startup
+  calls (#327); live Overview/health; Radarr-style profile Language; season
+  release pinning (#318); home-release offset (#362); parser fixes (#335, #360);
+  diagnostics keep every rejection (#365).
 
 ## 0.3.6 (2026-11-09)
 
