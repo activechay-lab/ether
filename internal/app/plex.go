@@ -328,10 +328,12 @@ func repoFileURL(ref string) func(string) string {
 var commitRef = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 // sourceRef names the source this build came from: a release's tag
-// ("v0.3.6"), else the commit a development, PR or local build was made
-// from. "" when neither is known.
+// ("v0.3.6"), else the commit a release candidate, development, PR or local
+// build was made from. "" when neither is known.
 func sourceRef(version, commit, revision string) string {
-	if v := strings.TrimSpace(version); v != "dev" && !strings.ContainsAny(v, "+/ ") {
+	// Release candidates (0.3.7-rc.3) are not tagged on GitHub: only a
+	// release version names a tag; anything else is pinned to its commit.
+	if v := strings.TrimSpace(version); v != "dev" && !strings.ContainsAny(v, "+/ -") {
 		if _, err := updater.ParseVersion(v); err == nil {
 			return "v" + strings.TrimPrefix(v, "v")
 		}

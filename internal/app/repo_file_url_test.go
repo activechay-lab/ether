@@ -8,7 +8,8 @@ func TestSourceRef(t *testing.T) {
 	sha := "4661ae7ca0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5"
 	for _, c := range []struct{ version, commit, revision, want string }{
 		{"0.3.6", sha, "", "v0.3.6"},
-		{"v0.3.6-beta.1", "", "", "v0.3.6-beta.1"},
+		{"0.3.7-rc.3", sha, "", sha}, // release candidates are not tagged
+		{"v0.3.6-beta.1", "", "", ""},
 		{"dev", "4661ae7ca", sha, "4661ae7ca"},
 		{"pr-412", sha, "", sha},
 		{"dev", "", sha, sha},
