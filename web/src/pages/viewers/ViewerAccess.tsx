@@ -23,6 +23,7 @@ import { PlexWatchSync } from "./sections/PlexWatchSync";
 import { FromPlexDefaults } from "./FromPlexDefaults";
 import { ViewerLiveTVAccess } from "./sections/ViewerLiveTV";
 import { ViewerSimkl } from "./sections/ViewerSimkl";
+import { ViewerTrakt } from "./sections/ViewerTrakt";
 import { KID_PRESETS, ListText, normalizePolicy, type SafetyPolicy } from "./shared";
 import { librariesApi } from "../libraries/api";
 
@@ -213,6 +214,7 @@ export function ViewerAccess({ viewer }: { viewer: Viewer }) {
   const l = limits.draft;
   const p = rules.draft;
   const noUser = users.data && (!user || !l);
+  const trakt = config.data?.trakt;
   const simkl = config.data?.simkl;
   return (
     <div className="space-y-6">
@@ -381,7 +383,10 @@ export function ViewerAccess({ viewer }: { viewer: Viewer }) {
       <PlexWatchSync viewerId={id} plexId={viewer.plexId} />
 
       {config.data ? (
-        <ViewerSimkl viewerId={id} ready={Boolean(simkl?.enabled && simkl.clientId.trim())} />
+        <>
+          <ViewerTrakt viewerId={id} ready={Boolean(trakt?.enabled && trakt.clientId.trim())} />
+          <ViewerSimkl viewerId={id} ready={Boolean(simkl?.enabled && simkl.clientId.trim())} />
+        </>
       ) : null}
 
       <SaveBar

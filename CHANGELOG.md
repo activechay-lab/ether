@@ -10,6 +10,7 @@
 
 - **Apps:** per-app **Public address** (Apps > Jellyfin, Emby, etc.) so an app routed through its own host name (e.g. `jelly.example.com`) shows that address on Connect and `/ether/me` instead of the Plex host; Plex keeps its custom server URLs, and apps without one keep the server-wide address (#413).
 - **Subtitles:** **Download a subtitle automatically when playback starts** switch under **Integrations > OpenSubtitles** (`openSubtitles.automaticPreferred`, off by default) (#286).
+- **Trakt:** Viewers can connect Trakt from **Viewers > Limits** or on `/ether/me` using Trakt's activation code flow, syncing watch history, ratings and watchlists per viewer.
 
 ## 0.3.7 (2026-11-09)
 

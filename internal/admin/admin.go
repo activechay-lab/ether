@@ -271,6 +271,10 @@ type Deps struct {
 	// Nil hides the routes.
 	PlexWatch PlexWatch
 
+	// Trakt is the per-viewer Trakt OAuth device-code integration.
+	// Nil answers 503.
+	Trakt Trakt
+
 	// Prerolls backs /api/admin/prerolls*. Nil hides the routes.
 	Prerolls Prerolls
 
@@ -376,6 +380,10 @@ func (h *Handler) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/me/favorites-mirror", h.portalFavoritesMirror)
 	mux.HandleFunc("GET /api/me/apps", h.portalConnectApps)
 	mux.HandleFunc("POST /api/me/apps/{surface}", h.portalConnectApps)
+	mux.HandleFunc("GET /api/me/trakt", h.portalTraktStatus)
+	mux.HandleFunc("POST /api/me/trakt/device", h.portalTraktStart)
+	mux.HandleFunc("POST /api/me/trakt/poll", h.portalTraktPoll)
+	mux.HandleFunc("POST /api/me/trakt/disconnect", h.portalTraktDisconnect)
 	mux.HandleFunc("POST /api/me/link/plex", h.limitIdentityAuth(h.handlePlexLinkStart))
 	mux.HandleFunc("GET /api/me/link/plex/{handle}", h.limitIdentityPoll(h.handlePlexLinkPoll))
 	mux.HandleFunc("POST /api/me/invite", h.handleInviteCreate)

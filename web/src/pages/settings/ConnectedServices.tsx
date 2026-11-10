@@ -20,6 +20,7 @@ import { TestButton, type TestState } from "../../components/fields";
 import { IntegrationAppCard } from "../../components/IntegrationAppCard";
 import { secretConfigured } from "../../components/IntegrationAccount";
 import { SimklMark, TraktMark, TmdbMark } from "../../components/integration-brands";
+import { useOwnerViewerPath } from "../../components/pickers";
 import { SaveBar } from "../../components/SaveBar";
 import { LevelBadge } from "../../components/status";
 import { localized, t, tx } from "../../i18n";
@@ -407,6 +408,7 @@ export function ConnectedServices({
 }) {
   const { refreshDashboard } = useApp();
   const navigate = useNavigate();
+  const ownerPath = useOwnerViewerPath();
   const { tab: requested } = useParams();
   const config = useAsync(() => api.getConfig(), []);
   const ratings = useAsync(() => apiFetch<RatingSettings>("/discovery/ratings/settings"), []);
@@ -935,7 +937,11 @@ export function ConnectedServices({
                   ? "/playback/extras"
                   : s.tab === "llm"
                     ? "/home"
-                    : "/viewers"
+                    : s.tab === "trakt"
+                      ? ownerPath === "/viewers"
+                        ? "/viewers"
+                        : `${ownerPath}/limits`
+                      : "/viewers"
               }
               usage={
                 s.tab === "introdb"
@@ -944,7 +950,11 @@ export function ConnectedServices({
                     ? t("Supplies subtitles during playback.")
                     : s.tab === "llm"
                       ? t("Powers search, collections and Home recommendations.")
-                      : t("Connect viewer accounts to sync watch history.")
+                      : s.tab === "trakt"
+                        ? t(
+                            "Connect Trakt under each viewer's Limits tab, or let viewers connect at /ether/me.",
+                          )
+                        : t("Connect viewer accounts to sync watch history.")
               }
             >
               {s.form ? (

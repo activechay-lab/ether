@@ -4,6 +4,7 @@ import { Alert, AlertDescription, Button, Card, Input, Label } from "@braedonsau
 import { PasswordInput, Segmented } from "../../components/fields";
 import { EtherLogo } from "../../components/brand";
 import { ConnectApps } from "./ConnectApps";
+import { PortalTrakt } from "./PortalTrakt";
 import SignInMethods from "./SignInMethods";
 
 const SESSION_KEY = "ether.viewerPortal";
@@ -502,6 +503,7 @@ export default function Me() {
         {signedIn ? (
           <>
             <ConnectApps base="/me" token={token} />
+            <PortalTrakt token={token} />
             <SignInMethods base="/me" token={token} />
           </>
         ) : null}

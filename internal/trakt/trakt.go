@@ -149,6 +149,9 @@ type Client struct {
 	scMu     sync.Mutex
 	lastScro map[scrobbleKey]scrobbleState
 
+	devMu   sync.Mutex
+	devices map[int64]*deviceFlow
+
 	pollUnit time.Duration // device poll interval unit (tests shrink it)
 	claimID  string        // this node's name on claimed import-queue rows
 }
@@ -199,7 +202,8 @@ func New(opts Options) *Client {
 		http: opts.HTTPClient, log: opts.Logger, now: opts.Now, maxWait: opts.MaxRetryAfter,
 		notify: make(chan struct{}, 1), done: make(chan struct{}), qsize: opts.QueueSize,
 		minPost: opts.MinPostInterval, cache: map[string]*cacheEntry{}, ttl: opts.CacheTTL,
-		lastScro: map[scrobbleKey]scrobbleState{}, pollUnit: time.Second, claimID: opts.NodeID,
+		lastScro: map[scrobbleKey]scrobbleState{}, devices: map[int64]*deviceFlow{},
+		pollUnit: time.Second, claimID: opts.NodeID,
 	}
 }
 
@@ -298,7 +302,7 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, token
 		if err != nil {
 			return resp.StatusCode, nil, err
 		}
-		if resp.StatusCode == http.StatusTooManyRequests && attempt == 0 && ctx.Err() == nil {
+		if resp.StatusCode == http.StatusTooManyRequests && path != "/oauth/device/token" && attempt == 0 && ctx.Err() == nil {
 			wait, ok := retryafter.Parse(retryAfter, c.now(), c.maxWait)
 			if !ok {
 				wait = c.maxWait
@@ -369,11 +373,14 @@ func (c *Client) Connected(ctx context.Context, userID int64) bool {
 	return err == nil && ok
 }
 
-// Disconnect removes a user's stored tokens.
+// Disconnect removes a user's stored tokens and clears any pending device code.
 func (c *Client) Disconnect(ctx context.Context, userID int64) error {
 	if c.db == nil {
 		return fmt.Errorf("trakt: no database configured")
 	}
+	c.devMu.Lock()
+	delete(c.devices, userID)
+	c.devMu.Unlock()
 	_, err := c.db.ExecContext(ctx, `DELETE FROM trakt_tokens WHERE user_id=?`, userID)
 	c.invalidateUser(userID)
 	return err

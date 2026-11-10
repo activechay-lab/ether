@@ -662,6 +662,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const qualityMock = createQualityMock();
   const safetyPolicies = new Map<number, Record<string, unknown>>();
   const simklAccounts = new Map<number, { connected: boolean; lastSync?: string }>();
+  const traktAccounts = new Map<number, { connected: boolean; username?: string }>();
   const extendMock = createExtendMock();
   const prerolls = createPrerollsMock({
     seed: opts.prerolls,
@@ -4535,6 +4536,42 @@ export function createFakeServer(opts: FakeOptions = {}) {
         state.pausedViewers.delete(id);
         state.removedViewers.add(id);
         return json({ merged: true, into });
+      }
+      if (seg[2] === "trakt") {
+        if (!target || state.removedViewers.has(id)) return err(404, "not_found", "no such viewer");
+        const configured = Boolean(
+          state.config.trakt.enabled && state.config.trakt.clientId.trim(),
+        );
+        const cur = traktAccounts.get(id) ?? { connected: false };
+        const portalUrl = "https://ether.example/ether/me";
+        if (!seg[3] && method === "GET") {
+          return json({ configured, ...cur, portalUrl });
+        }
+        if (seg[3] === "device" && method === "POST") {
+          if (!configured) return err(409, "not_configured", "Trakt is not configured");
+          return json({
+            configured: true,
+            ...cur,
+            status: "pending",
+            portalUrl,
+            device: {
+              userCode: "TRKT-1234",
+              verificationUrl: "https://trakt.tv/activate",
+              expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+              interval: 5,
+            },
+          });
+        }
+        if (seg[3] === "poll" && method === "POST") {
+          if (!configured) return err(409, "not_configured", "Trakt is not configured");
+          const next = { connected: true, username: target.username || "viewer" };
+          traktAccounts.set(id, next);
+          return json({ configured: true, ...next, status: "authorized", portalUrl });
+        }
+        if (seg[3] === "disconnect" && method === "POST") {
+          traktAccounts.delete(id);
+          return json({ configured, connected: false, portalUrl });
+        }
       }
       if (seg[2] === "invite" && method === "POST") {
         if (!target || state.removedViewers.has(id)) return err(404, "not_found", "no such viewer");
