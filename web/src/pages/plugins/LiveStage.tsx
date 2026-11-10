@@ -1,3 +1,4 @@
+import { Switch } from "@braedonsaunders/appkit-ui";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
@@ -57,6 +58,13 @@ function runDraft(id: string, path: string, query?: Record<string, string>) {
   return apiFetch<RunResult>(`/plugins/studio/projects/${encodeURIComponent(id)}/run`, {
     method: "POST",
     body: JSON.stringify({ method: "GET", path, query }),
+  });
+}
+
+function runDraftPost(id: string, path: string, body: Record<string, unknown>) {
+  return apiFetch<RunResult>(`/plugins/studio/projects/${encodeURIComponent(id)}/run`, {
+    method: "POST",
+    body: JSON.stringify({ method: "POST", path, body }),
   });
 }
 
@@ -152,6 +160,152 @@ async function draftCatalog(
   return null;
 }
 
+interface MediaKindDecl {
+  key: string;
+  label?: string;
+  library?: { name?: string };
+  levels?: { key: string; label?: string }[];
+  present?: {
+    adapterOnly?: boolean;
+    plex?: { base?: string };
+    mediaBrowser?: { collectionType?: string };
+    stremio?: { type?: string };
+    xtream?: { category?: string };
+    silo?: { type?: string };
+  };
+  browse?: { liveSearch?: boolean };
+}
+
+interface KindPreviewData {
+  decl: MediaKindDecl;
+  manifestText: string;
+  moment: Extract<Moment, { kind: "library" }>;
+}
+
+function kindProjections(decl: MediaKindDecl): { protocol: string; summary: string }[] {
+  const out: { protocol: string; summary: string }[] = [];
+  const levels = decl.levels ?? [];
+  const p = decl.present ?? {};
+  if (p.plex) {
+    const base =
+      p.plex.base === "movie" ? t("Movies")
+      : p.plex.base === "artist" ? t("Music")
+      : p.plex.base === "photo" ? t("Photos")
+      : t("TV Shows");
+    let summary = t("Shows as a {base} library", { base });
+    if ((p.plex.base === "show" || p.plex.base === "artist") && levels.length > 3) {
+      summary += t("; Plex nests three levels, so {level} and deeper are flattened with their order kept", {
+        level: levels[3]?.key ?? "",
+      });
+    }
+    out.push({ protocol: "Plex", summary });
+  }
+  if (p.mediaBrowser)
+    out.push({
+      protocol: t("Jellyfin and Emby"),
+      summary: t("Shows as a {type} library", { type: p.mediaBrowser.collectionType ?? "" }),
+    });
+  if (p.stremio)
+    out.push({ protocol: "Stremio", summary: t("Adds a {type} catalogue", { type: p.stremio.type ?? "" }) });
+  if (p.xtream)
+    out.push({ protocol: "Xtream", summary: t("Adds a {type} category", { type: p.xtream.category ?? "" }) });
+  if (p.silo)
+    out.push({ protocol: "Silo", summary: t("Shows as a {type} library", { type: p.silo.type ?? "" }) });
+  if (!out.length)
+    out.push({
+      protocol: t("Plugin surface"),
+      summary: p.adapterOnly
+        ? t("Served only through the plugin's own app surface")
+        : t("Not shown in apps yet; pick where this library appears"),
+    });
+  return out;
+}
+
+/** A content-kind draft as the library Ether will build from it. */
+async function draftKindPreview(id: string, manifestText: string | undefined): Promise<KindPreviewData | null> {
+  if (manifestText === undefined) {
+    const p = await apiFetch<{ project: { files: Record<string, string> } }>(
+      `/plugins/studio/projects/${encodeURIComponent(id)}`,
+    );
+    manifestText = p.project.files["manifest.json"];
+  }
+  let man: { name?: string; ether?: { contributes?: { mediaKinds?: MediaKindDecl[] } } } = {};
+  try {
+    man = JSON.parse(manifestText ?? "{}");
+  } catch {
+    return null;
+  }
+  const decl = man.ether?.contributes?.mediaKinds?.[0];
+  if (!decl?.key) return null;
+  const levels = decl.levels ?? [];
+  type Item = { id: string; level: string; parentId?: string; title: string; playable?: boolean; index?: number };
+  const browse = async (parentId: string, level: string): Promise<Item[]> => {
+    const r = await runDraftPost(id, `/ether/v1/kinds/${decl.key}/browse`, { parentId, level, limit: 10 });
+    return ((r.body?.items as Item[] | undefined) ?? []).slice(0, 10);
+  };
+  const depthOf = new Map<string, number>();
+  const sample: Item[] = [];
+  let playable: Item | undefined;
+  const add = (items: Item[], depth: number) => {
+    for (const it of items) {
+      depthOf.set(it.id, depth);
+      sample.push(it);
+      if (!playable && it.playable) playable = it;
+    }
+  };
+  const roots = levels[0] ? await browse("", levels[0].key).catch(() => []) : [];
+  add(roots, 0);
+  if (levels[1] && roots[0]) {
+    const children = await browse(roots[0].id, levels[1].key).catch(() => []);
+    add(children, 1);
+    if (levels[2] && children[0] && !playable) add(await browse(children[0].id, levels[2].key).catch(() => []), 2);
+  }
+  let dryRun: KindPreviewData["moment"]["dryRun"];
+  if (playable) {
+    const r = await runDraftPost(id, `/ether/v1/kinds/${decl.key}/resolve`, {
+      libraryKey: "",
+      item: playable,
+    }).catch(() => null);
+    const sources = (r?.body?.sources as Record<string, unknown>[] | undefined) ?? [];
+    if (sources.length) {
+      dryRun = {
+        title: playable.title,
+        sources: sources.map((s) => {
+          const container = s.container as { member?: string; volumes?: { url?: string }[] } | undefined;
+          const raw = String(s.url ?? container?.volumes?.[0]?.url ?? "");
+          const expanded = raw
+            .replaceAll("{itemIndex}", String(playable!.index ?? 0))
+            .replaceAll("{pageNumber}", String((playable!.index ?? 0) + 1));
+          const detail = container
+            ? t("{member} inside {url}", { member: container.member ?? "", url: expanded })
+            : expanded;
+          return { pattern: String(s.pattern ?? ""), detail };
+        }),
+      };
+    }
+  }
+  return {
+    decl,
+    manifestText: manifestText ?? "",
+    moment: {
+      kind: "library",
+      tool: "kinds",
+      title: decl.library?.name || decl.label || man.name || decl.key,
+      levels: levels.map((l) => l.label || l.key).join(" → "),
+      items: sample.slice(0, 25).map((it) => ({
+        key: it.id,
+        title: it.title,
+        level: it.level,
+        depth: depthOf.get(it.id) ?? 0,
+        playable: it.playable,
+      })),
+      projections: kindProjections(decl),
+      liveSearch: Boolean(decl.browse?.liveSearch),
+      dryRun,
+    },
+  };
+}
+
 /** The draft's own data in the surface it will extend, for the editor. */
 export function NativePreview({
   projectId,
@@ -167,12 +321,25 @@ export function NativePreview({
   const [guide, setGuide] = useState<GuideChannel[] | null>(null);
   const [catalog, setCatalog] = useState<CatalogPreview | null>(null);
   const [sources, setSources] = useState<{ title: string; tiles: StreamTile[] } | null>(null);
+  const [kindPreview, setKindPreview] = useState<KindPreviewData | null>(null);
+  const [liveSearch, setLiveSearch] = useState<boolean | null>(null);
+  const [liveSearchSaving, setLiveSearchSaving] = useState(false);
   useEffect(() => {
     let live = true;
     setGuide(null);
     setSources(null);
     setCatalog(null);
-    if (template === "addon") {
+    setKindPreview(null);
+    setLiveSearch(null);
+    if (template === "content_kind" || (manifest ?? "").includes("mediaKinds")) {
+      void draftKindPreview(projectId, manifest)
+        .then((k) => {
+          if (!live) return;
+          setKindPreview(k);
+          setLiveSearch(k ? Boolean(k.decl.browse?.liveSearch) : null);
+        })
+        .catch(() => undefined);
+    } else if (template === "addon") {
       void draftCatalog(projectId, manifest)
         .then((c) => live && setCatalog(c))
         .catch(() => undefined);
@@ -189,6 +356,49 @@ export function NativePreview({
       live = false;
     };
   }, [projectId, template, epoch]);
+  if (kindPreview) {
+    const toggleLiveSearch = async (next: boolean) => {
+      setLiveSearch(next);
+      setLiveSearchSaving(true);
+      try {
+        const man = JSON.parse(kindPreview.manifestText) as {
+          ether?: { contributes?: { mediaKinds?: Record<string, unknown>[] } };
+        };
+        for (const k of man.ether?.contributes?.mediaKinds ?? []) {
+          const browse = (k.browse as Record<string, unknown> | undefined) ?? {};
+          browse.liveSearch = next;
+          k.browse = browse;
+        }
+        await apiFetch(`/plugins/studio/projects/${encodeURIComponent(projectId)}/files`, {
+          method: "PUT",
+          body: JSON.stringify({ files: { "manifest.json": JSON.stringify(man, null, 2) + "\n" } }),
+        });
+      } catch {
+        setLiveSearch(!next);
+      } finally {
+        setLiveSearchSaving(false);
+      }
+    };
+    return (
+      <div className="space-y-3">
+        <MomentView moment={{ ...kindPreview.moment, liveSearch: liveSearch ?? kindPreview.moment.liveSearch }} />
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-fg">{t("Live search")}</p>
+            <p className="text-sm text-fg-muted">
+              {t("Searches in apps also ask this plugin, with a short time limit. Ether keeps what it finds, so repeats are instant. Turn it off when the source is slow or cannot search.")}
+            </p>
+          </div>
+          <Switch
+            checked={liveSearch ?? false}
+            disabled={liveSearchSaving}
+            onChange={(e) => void toggleLiveSearch(e.currentTarget.checked)}
+            aria-label={t("Live search")}
+          />
+        </div>
+      </div>
+    );
+  }
   if (catalog?.items.length) {
     return (
       <MomentView
@@ -341,7 +551,10 @@ export async function momentsForTool(
           issues: [...new Set(issues)].slice(0, 6).map((issue) => issue.slice(0, 600)),
         });
       }
-      if (project?.id && project.template === "channels") {
+      if (project?.id && project.template === "content_kind") {
+        const k = await draftKindPreview(project.id, undefined).catch(() => null);
+        if (k) out.push(k.moment);
+      } else if (project?.id && project.template === "channels") {
         const channels = await draftGuide(project.id).catch(() => []);
         if (channels.length)
           out.push({ kind: "guide", tool: name, title: t("On now in Live TV"), channels });
@@ -361,6 +574,39 @@ export async function momentsForTool(
       }
       if (!out.length) out.push({ kind: "repair", text: t("Saved the draft") });
       return out;
+    }
+    case "plugin_replay": {
+      const kinds = (output?.kinds as { kinds?: Record<string, any>[] } | undefined)?.kinds ?? [];
+      return kinds.map((k): Moment => ({
+        kind: "library",
+        tool: name,
+        title: String(k.libraryName || k.label || k.key || ""),
+        levels: ((k.levels as string[] | undefined) ?? []).join(" → "),
+        items: ((k.sample as Record<string, any>[] | undefined) ?? []).map((it, i) => ({
+          key: String(it.id ?? i),
+          title: String(it.title ?? ""),
+          level: String(it.level ?? ""),
+          depth: Math.max(0, ((k.levels as string[] | undefined) ?? []).indexOf(String(it.level ?? ""))),
+          playable: Boolean(it.playable),
+        })),
+        projections: ((k.projections as { protocol?: string; summary?: string }[] | undefined) ?? []).map((p) => ({
+          protocol: String(p.protocol ?? ""),
+          summary: String(p.summary ?? ""),
+        })),
+        liveSearch: Boolean(k.liveSearch),
+        dryRun: k.dryRun
+          ? {
+              title: String((k.dryRun as Record<string, any>).title ?? ""),
+              sources: (((k.dryRun as Record<string, any>).sources as Record<string, any>[] | undefined) ?? []).map((s) => ({
+                pattern: String(s.pattern ?? ""),
+                detail: String(s.expanded || s.url || s.member || ""),
+              })),
+            }
+          : undefined,
+        issues: ((k.issues as { message?: string }[] | undefined) ?? [])
+          .map((i) => i.message)
+          .filter((m): m is string => typeof m === "string"),
+      }));
     }
     case "plugin_install":
       return [{ kind: "repair", text: t("Prepared the install for your approval") }];

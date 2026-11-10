@@ -38,11 +38,15 @@ type CreateProjectOptions struct {
 	Name       string `json:"name,omitempty"`
 	Slot       string `json:"slot,omitempty"`
 	StremioURL string `json:"stremioUrl,omitempty"`
+	// LiveSearch, when set, writes browse.liveSearch on every declared
+	// media kind: client searches also ask the plugin live (§15.4).
+	LiveSearch *bool `json:"liveSearch,omitempty"`
 }
 
 // Templates returns Studio's starter templates in display order, native surfaces first.
 func Templates() []Template {
 	return []Template{
+		templateContentKind(),
 		templateChannels(),
 		templateVideoSource(),
 		templateStremioRemix(),
@@ -1060,6 +1064,21 @@ func applyProjectOptions(tpl Template, opts CreateProjectOptions) (pluginID, nam
 	if u, err := url.Parse(strings.TrimSpace(opts.StremioURL)); err == nil && u.Host != "" {
 		if src, ok := files["src/plugin.ts"]; ok {
 			files["src/plugin.ts"] = fmt.Sprintf("// Upstream Stremio add-on host: %s\n", u.Host) + src
+		}
+	}
+
+	if opts.LiveSearch != nil && contributes != nil {
+		if kinds, ok := contributes["mediaKinds"].([]any); ok {
+			for _, k := range kinds {
+				if kind, ok := k.(map[string]any); ok {
+					browse, _ := kind["browse"].(map[string]any)
+					if browse == nil {
+						browse = map[string]any{}
+						kind["browse"] = browse
+					}
+					browse["liveSearch"] = *opts.LiveSearch
+				}
+			}
 		}
 	}
 

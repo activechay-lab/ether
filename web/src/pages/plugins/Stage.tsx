@@ -28,6 +28,18 @@ export type Moment =
       total: number;
     }
   | { kind: "checks"; title: string; items: string[]; failed?: boolean[]; issues?: string[] }
+  | {
+      kind: "library";
+      tool: string;
+      title: string;
+      /** "collection → album → track", as the library page nests it. */
+      levels: string;
+      items: { key: string; title: string; level: string; depth: number; playable?: boolean }[];
+      projections: { protocol: string; summary: string }[];
+      liveSearch: boolean;
+      dryRun?: { title: string; sources: { pattern: string; detail: string }[] };
+      issues?: string[];
+    }
   | { kind: "done"; text: string };
 
 export interface StreamTile {
@@ -129,6 +141,61 @@ export function MomentView({ moment }: { moment: Moment }) {
                 <p key={i} className="whitespace-pre-wrap break-words">
                   {issue}
                 </p>
+              ))}
+            </div>
+          ) : null}
+        </Panel>
+      );
+    case "library":
+      return (
+        <Panel title={moment.title} tool={moment.tool}>
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-fg-muted">
+            {moment.levels}
+          </p>
+          <ul className="space-y-1.5">
+            {moment.items.map((it, i) => (
+              <li
+                key={it.key}
+                className="stage-pop flex items-center gap-2.5 rounded-lg border border-border bg-bg-subtle px-3 py-2"
+                style={{ animationDelay: `${i * 120}ms`, marginLeft: `${it.depth * 1.25}rem` }}
+              >
+                <Monogram name={it.title} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{it.title}</span>
+                <span className="text-xs text-fg-muted">{it.level}</span>
+                {it.playable ? <Badge variant="secondary">{t("Plays")}</Badge> : null}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 space-y-1 border-t border-border pt-3 text-sm text-fg-muted">
+            {moment.projections.map((p) => (
+              <p key={p.protocol}>
+                <span className="font-medium text-fg">{p.protocol}</span> — {p.summary}
+              </p>
+            ))}
+            <p>
+              {moment.liveSearch
+                ? t("Live search is on: searches in apps also ask this plugin, and Ether keeps what it finds.")
+                : t("Live search is off: searches only look in what Ether has already synced.")}
+            </p>
+          </div>
+          {moment.dryRun ? (
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="text-sm font-medium text-fg">
+                {t("Playing {title} would use", { title: moment.dryRun.title })}
+              </p>
+              <ul className="mt-1.5 space-y-1 text-sm text-fg-muted">
+                {moment.dryRun.sources.map((s, i) => (
+                  <li key={i} className="break-words">
+                    <span className="font-medium text-fg">{s.pattern}</span> — {s.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {moment.issues?.length ? (
+            <div role="status" className="mt-3 space-y-1 border-t border-border pt-3 text-sm text-warning">
+              {moment.issues.map((issue, i) => (
+                <p key={i} className="whitespace-pre-wrap break-words">{issue}</p>
               ))}
             </div>
           ) : null}

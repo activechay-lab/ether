@@ -42,7 +42,6 @@
       "mediaBrowser": {
         "collectionType": "music",
         "itemTypes": {
-          "collection": "MusicArtist",
           "album": "MusicAlbum",
           "track": "Audio"
         }

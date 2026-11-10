@@ -57,8 +57,8 @@ func TestTemplatesAllValidAndRunnable(t *testing.T) {
 	ctx := context.Background()
 
 	tpls := Templates()
-	if len(tpls) != 9 {
-		t.Fatalf("expected 9 templates, got %d", len(tpls))
+	if len(tpls) != 10 {
+		t.Fatalf("expected 10 templates, got %d", len(tpls))
 	}
 
 	for _, tpl := range tpls {
