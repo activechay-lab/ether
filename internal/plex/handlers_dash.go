@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
@@ -67,20 +66,20 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusGone)
 		return
 	}
-	p.protocol = core.ProtocolDASH
+	p.protocol = frontend.ProtocolDASH
 	if !s.transcodes.claim(p.sessionID, pr.User.ID, pr.ClientID, s.now()) {
 		writePlaybackStatus(w, http.StatusForbidden)
 		return
 	}
 	// A slow decision leaves acquisition running. Join that shared flight
 	// below; only a completed source failure should short-circuit start.
-	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
+	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, frontend.ErrPrepareSlow) {
 		s.log.Info("start DASH playback failed", "key", p.key, "reason", playbackMessage(err), "err", err, "decision", "remembered")
 		s.writeStartErr(w, r, pr, err)
 		return
 	}
 	entry, ok := s.transcodes.get(p.sessionID)
-	var ps *core.PlaySession
+	var ps *frontend.PlaySession
 	if ok && entry.key == p.key && entry.userID == pr.User.ID {
 		ps, ok = s.d.Playback.Session(entry.playID)
 	}
@@ -105,9 +104,9 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 	s.transcodes.put(entry)
 
 	dec := entry.decision
-	if dec.Kind == core.DecisionDirectPlay {
+	if dec.Kind == frontend.DecisionDirectPlay {
 		// The client asked for DASH anyway: remux.
-		dec.Kind, dec.VideoCopy, dec.AudioCopy = core.DecisionRemux, true, true
+		dec.Kind, dec.VideoCopy, dec.AudioCopy = frontend.DecisionRemux, true, true
 		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false
@@ -119,7 +118,7 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		// The MPD spans the whole title whatever the offset, so a repeated
 		// start for the same decision keeps the session (and its finished
 		// segments); a new decision request starts afresh.
-		if ds, isDASH := existing.(core.DASHSession); isDASH && entry.started {
+		if ds, isDASH := existing.(frontend.DASHSession); isDASH && entry.started {
 			s.notePlexEncoder(p.sessionID, frontend.StreamDASH, dec, p.offset)
 			unlockEncoder()
 			unlockOwner()
@@ -128,7 +127,7 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		}
 		s.stopPlexHLS(p.sessionID)
 	}
-	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
+	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, frontend.HLSRequest{
 		SoftSubtitleStream: sessionSoftSubtitle(entry, pr, dec),
 		SessionID:          p.sessionID,
 		ReleaseID:          ps.SourceReleaseID(),
@@ -136,13 +135,13 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		Info:               ps.Info,
 		Decision:           dec,
 		StartOffset:        p.offset,
-		Protocol:           core.ProtocolDASH,
+		Protocol:           frontend.ProtocolDASH,
 	})
 	if err != nil {
 		s.writeStartErr(w, r, pr, err)
 		return
 	}
-	ds, ok := hs.(core.DASHSession)
+	ds, ok := hs.(frontend.DASHSession)
 	if !ok {
 		s.log.Error("transcoder returned a non-DASH session", "session", p.sessionID)
 		s.stopPlexHLS(p.sessionID)
@@ -157,7 +156,7 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 }
 
 // dashSession resolves the session and representation of a segment URL.
-func (s *Server) dashSession(w http.ResponseWriter, r *http.Request) (core.DASHSession, int, bool) {
+func (s *Server) dashSession(w http.ResponseWriter, r *http.Request) (frontend.DASHSession, int, bool) {
 	if s.d.Transcoder == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, 0, false
@@ -172,7 +171,7 @@ func (s *Server) dashSession(w http.ResponseWriter, r *http.Request) (core.DASHS
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, 0, false
 	}
-	ds, ok := hs.(core.DASHSession)
+	ds, ok := hs.(frontend.DASHSession)
 	if !ok {
 		writeHTTPError(w, http.StatusNotFound)
 		return nil, 0, false
@@ -211,11 +210,11 @@ func (s *Server) handleDASHSegment(w http.ResponseWriter, r *http.Request) {
 // Plex Web request a representation that dashReps never builds.
 func dashDecisionMedia(m *model.Media) {
 	m.Container = "mp4"
-	m.Protocol = core.ProtocolDASH
+	m.Protocol = frontend.ProtocolDASH
 	for i := range m.Part {
 		part := &m.Part[i]
 		part.Container = "mp4"
-		part.Protocol = core.ProtocolDASH
+		part.Protocol = frontend.ProtocolDASH
 		for j := range part.Stream {
 			st := &part.Stream[j]
 			switch st.StreamType {

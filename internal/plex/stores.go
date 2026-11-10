@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
 
 // slotHash is the visible id for a subtitle search offer. Offers are not
 // stream bindings; playback ids come from the broker.
-func slotHash(key core.RatingKey, slot string) int64 { return sessions.PlexWireID(key, slot) }
+func slotHash(key frontend.RatingKey, slot string) int64 { return sessions.PlexWireID(key, slot) }
 
 // ---------------------------------------------------------------------------
 // Stream selections (PUT /library/parts/{id}?audioStreamID=&subtitleStreamID=)
@@ -23,13 +23,13 @@ func slotHash(key core.RatingKey, slot string) int64 { return sessions.PlexWireI
 type selection struct {
 	audio       int // position in MediaInfo.Streams
 	audioSet    bool
-	audioStream *core.StreamInfo
+	audioStream *frontend.StreamInfo
 	subtitle    int // position, -1 = none
 	subtitleSet bool
 	// subtitleStream is the chosen subtitle's identity (language, codec,
 	// and source), not its position. A later variant order can put a
 	// different track in the old slot; resolveSubtitle finds this one.
-	subtitleStream *core.StreamInfo
+	subtitleStream *frontend.StreamInfo
 }
 
 type selectionStore struct {
@@ -50,24 +50,24 @@ func (s *selectionStore) update(userID, partID int64, fn func(*selection)) {
 type transcodeEntry struct {
 	id          string // client "session" param
 	streamToken string // independent random capability; never a client-chosen ID
-	playID      string // core.PlaySession.ID
+	playID      string // frontend.PlaySession.ID
 	playbackID  string // explicit X-Plex-Session-Identifier owning this encoder
 	userID      int64
 	clientID    string
-	key         core.RatingKey
+	key         frontend.RatingKey
 	requested   playRequest // original decision/start inputs, before policy refinement
-	decision    core.Decision
-	info        core.MediaInfo
+	decision    frontend.Decision
+	info        frontend.MediaInfo
 	subtitle    int // selected subtitle's position in info, -1 = none
-	caps        core.ClientCaps
-	opts        core.DecideOptions
+	caps        frontend.ClientCaps
+	opts        frontend.DecideOptions
 	offset      time.Duration
 	started     bool // StartHLS ran
 	updatedAt   time.Time
 	// A failed decision for this binding (failKey, failErr at failedAt):
 	// the start request that follows it answers with the same error at
 	// once instead of resolving again, including media loader retries.
-	failKey  core.RatingKey
+	failKey  frontend.RatingKey
 	failErr  error
 	failedAt time.Time
 }
@@ -131,13 +131,13 @@ func (t *transcodeTable) get(id string) (*transcodeEntry, bool) {
 	}
 	return plexBinding(b), true
 }
-func (t *transcodeTable) fail(id string, userID int64, clientID string, key core.RatingKey, err error, now time.Time) {
+func (t *transcodeTable) fail(id string, userID int64, clientID string, key frontend.RatingKey, err error, now time.Time) {
 	// awaitSource fails before gated admission has claimed a binding.
 	if t.table.Claim(id, userID, clientID, now) {
 		t.table.Fail(id, userID, clientID, key, err, now)
 	}
 }
-func (t *transcodeTable) takeFailure(id string, userID int64, key core.RatingKey, now time.Time) (error, bool) {
+func (t *transcodeTable) takeFailure(id string, userID int64, key frontend.RatingKey, now time.Time) (error, bool) {
 	e, ok := t.table.Get(id)
 	if !ok || e.UserID != userID || e.FailKey != key || e.FailErr == nil || now.Sub(e.FailedAt) >= decisionFailureTTL {
 		return nil, false
@@ -190,7 +190,7 @@ func (t *transcodeTable) wasStoppedBy(id string, userID int64, now time.Time) bo
 	}
 	return st.userID == userID
 }
-func (t *transcodeTable) forClient(userID int64, clientID string, key core.RatingKey) []string {
+func (t *transcodeTable) forClient(userID int64, clientID string, key frontend.RatingKey) []string {
 	return t.table.ForClient(userID, clientID, key)
 }
 func (t *transcodeTable) expire(now time.Time, ttl time.Duration) []string {
@@ -206,7 +206,7 @@ type facetCache struct {
 }
 
 type facetEntry struct {
-	vals []core.FacetValue
+	vals []frontend.FacetValue
 	at   time.Time
 }
 
@@ -215,10 +215,10 @@ func newFacetCache() *facetCache { return &facetCache{m: map[string]facetEntry{}
 const facetTTL = 10 * time.Minute
 
 type facetFilterCatalog interface {
-	FacetFilter(ctx context.Context, f core.Filter, facet string) ([]core.FacetValue, error)
+	FacetFilter(ctx context.Context, f frontend.Filter, facet string) ([]frontend.FacetValue, error)
 }
 
-func (s *Server) firstCharacter(ctx context.Context, f core.Filter) ([]core.FacetValue, error) {
+func (s *Server) firstCharacter(ctx context.Context, f frontend.Filter) ([]frontend.FacetValue, error) {
 	f.FirstCharacter = ""
 	if fc, ok := s.d.Catalog.(facetFilterCatalog); ok {
 		return fc.FacetFilter(ctx, f, "firstCharacter")
@@ -226,9 +226,9 @@ func (s *Server) firstCharacter(ctx context.Context, f core.Filter) ([]core.Face
 	return s.d.Catalog.Facet(ctx, f.Type, "firstCharacter")
 }
 
-func (s *Server) facet(ctx context.Context, t core.MediaType, name string) ([]core.FacetValue, error) {
+func (s *Server) facet(ctx context.Context, t frontend.MediaType, name string) ([]frontend.FacetValue, error) {
 	if name == "firstCharacter" {
-		return s.firstCharacter(ctx, core.Filter{Type: t})
+		return s.firstCharacter(ctx, frontend.Filter{Type: t})
 	}
 	k := string(t) + "/" + name
 	s.facets.mu.Lock()
@@ -249,7 +249,7 @@ func (s *Server) facet(ctx context.Context, t core.MediaType, name string) ([]co
 
 // facetTitle maps a filter value (a facet key or already a title) to the
 // facet title the catalogue filters on.
-func (s *Server) facetTitle(ctx context.Context, t core.MediaType, name, value string) string {
+func (s *Server) facetTitle(ctx context.Context, t frontend.MediaType, name, value string) string {
 	if _, err := strconv.Atoi(value); err != nil {
 		// A facet's values are its titles; only a numeric key can name a
 		// different title. Looking a name up counted the facet over the

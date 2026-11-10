@@ -4,18 +4,18 @@ import (
 	"context"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 )
 
 // homeLayoutFacts is the renderer's layout report: identity, title, type,
 // context and the painted item count. Metadata, keys and programme sidecars
 // stay on the wire row. Callers record the report when they paint the row.
-func homeLayoutFacts(row model.Hub) (core.Hub, core.NeutralHomeRow) {
+func homeLayoutFacts(row model.Hub) (frontend.Hub, frontend.NeutralHomeRow) {
 	count := max(row.Size, len(row.Metadata)+len(row.Directory))
-	hub := core.Hub{ID: row.HubIdentifier, Title: row.Title, Type: core.MediaType(row.Type), Context: row.Context, ItemCount: count}
-	neutral := core.NeutralHomeRow{ID: row.HubIdentifier, Title: row.Title, Type: core.MediaType(row.Type), Purpose: experience.HomePurpose(core.Hub{ID: row.HubIdentifier, Type: core.MediaType(row.Type)}), ItemCount: count}
+	hub := frontend.Hub{ID: row.HubIdentifier, Title: row.Title, Type: frontend.MediaType(row.Type), Context: row.Context, ItemCount: count}
+	neutral := frontend.NeutralHomeRow{ID: row.HubIdentifier, Title: row.Title, Type: frontend.MediaType(row.Type), Purpose: experience.HomePurpose(frontend.Hub{ID: row.HubIdentifier, Type: frontend.MediaType(row.Type)}), ItemCount: count}
 	return hub, neutral
 }
 
@@ -23,9 +23,9 @@ func homeLayoutFacts(row model.Hub) (core.Hub, core.NeutralHomeRow) {
 // projections ahead of HomeAssembly so On Deck participates in layout slot
 // placement, Off rules, and page row budgets while suppressing duplicate
 // resume shelves.
-func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, hc core.HubContext, hubs []core.Hub, selected map[string]bool, includeContinue bool, count int) ([]core.Hub, *model.Hub, hubSpec, model.Hub) {
-	stripOnDeck := func(in []core.Hub) []core.Hub {
-		out := make([]core.Hub, 0, len(in))
+func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, hc frontend.HubContext, hubs []frontend.Hub, selected map[string]bool, includeContinue bool, count int) ([]frontend.Hub, *model.Hub, hubSpec, model.Hub) {
+	stripOnDeck := func(in []frontend.Hub) []frontend.Hub {
+		out := make([]frontend.Hub, 0, len(in))
 		for _, h := range in {
 			if h.ID != "home.ondeck" {
 				out = append(out, h)
@@ -44,7 +44,7 @@ func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, 
 	spec := s.continueHub(ctx, pr, cwGlobal, Section{}, count)
 	episodes := spec.Items[:0]
 	for _, item := range spec.Items {
-		if item.Type == core.TypeEpisode {
+		if item.Type == frontend.TypeEpisode {
 			episodes = append(episodes, item)
 		}
 	}
@@ -64,7 +64,7 @@ func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, 
 	cwShown := selected == nil || selected["home.continue"]
 	if cwShown {
 		if layout, ok := s.d.Recommender.(interface {
-			HomeRowEnabled(context.Context, *core.User, core.HubContext, string) bool
+			HomeRowEnabled(context.Context, *frontend.User, frontend.HubContext, string) bool
 		}); ok && !layout.HomeRowEnabled(ctx, pr.User, hc, "home.continue") {
 			cwShown = false
 		}
@@ -72,7 +72,7 @@ func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, 
 	if len(ondeck.Metadata) == 0 || (same && cwShown) {
 		return stripOnDeck(hubs), nil, cwSpec, cwRendered
 	}
-	out := make([]core.Hub, 0, len(hubs)+1)
+	out := make([]frontend.Hub, 0, len(hubs)+1)
 	replaced := false
 	for _, h := range hubs {
 		if h.ID == "home.ondeck" {
@@ -93,15 +93,15 @@ func (s *Server) prepareHomeContinueAndOnDeck(ctx context.Context, pr *Request, 
 // arrangeHomeRows reorders painted rows from facts captured at paint time.
 // A missing provider or a layout error leaves the original rows in place.
 // Empty and duplicate rows are dropped by the hubs handlers after this returns.
-func (s *Server) arrangeHomeRows(ctx context.Context, pr *Request, hc core.HubContext, section string, rows []model.Hub, hubs []core.Hub, neutral []core.NeutralHomeRow) []model.Hub {
+func (s *Server) arrangeHomeRows(ctx context.Context, pr *Request, hc frontend.HubContext, section string, rows []model.Hub, hubs []frontend.Hub, neutral []frontend.NeutralHomeRow) []model.Hub {
 	if len(rows) != len(hubs) || len(rows) != len(neutral) {
 		if s.log != nil {
 			s.log.Warn("Home layout unavailable", "error", "paint facts diverged")
 		}
 		return rows
 	}
-	if _, ok := s.d.Recommender.(core.NeutralHomeLayoutSource); !ok {
-		if _, layout := s.d.Recommender.(core.HomeLayoutSource); !layout {
+	if _, ok := s.d.Recommender.(frontend.NeutralHomeLayoutSource); !ok {
+		if _, layout := s.d.Recommender.(frontend.HomeLayoutSource); !layout {
 			return rows
 		}
 	}

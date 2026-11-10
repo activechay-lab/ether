@@ -1,6 +1,6 @@
 // Package plex is Ether's Plex Media Server front end: the HTTP API that
 // official Plex apps (Web, iOS, Apple TV, Android, TVs) talk to. Everything
-// behind it is reached through internal/core interfaces.
+// behind it is reached through internal/frontend host interfaces.
 package plex
 
 import (
@@ -22,7 +22,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/artwork"
 	"github.com/braedonsaunders/ether/internal/clusterbus"
 	"github.com/braedonsaunders/ether/internal/config"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/livetv"
@@ -57,21 +56,21 @@ type Hooks struct {
 	// address has passed the configured trusted-proxy rules; no token is sent.
 	OnRemoteClientSeen func(address string)
 	// OnTimeline is called for every timeline update (prefetch uses it).
-	OnTimeline func(user *core.User, key core.RatingKey, offset, duration time.Duration, state string)
+	OnTimeline func(user *frontend.User, key frontend.RatingKey, offset, duration time.Duration, state string)
 	// OnScrobble is called when a user marks an item watched.
-	OnScrobble func(user *core.User, key core.RatingKey)
+	OnScrobble func(user *frontend.User, key frontend.RatingKey)
 }
 
 // Section is a library section exposed to clients.
 type Section struct {
 	ID       int
-	Type     core.MediaType // movie or show
+	Type     frontend.MediaType // movie or show
 	Title    string
 	UUID     string // stable; derived from the machine identifier when empty
 	Language string
 }
 
-// SessionToucher is optionally implemented by core.Playback to keep a play
+// SessionToucher is optionally implemented by frontend.Playback to keep a play
 // session alive on timeline updates.
 type SessionToucher interface {
 	Touch(sessionID string)
@@ -91,12 +90,12 @@ type Deps struct {
 		Title(context.Context, artwork.TitlePoster) ([]byte, string, error)
 	}
 	SessionCoordination *sessions.Coordination
-	FavoriteShows       func(context.Context, *core.User) (map[core.RatingKey]bool, error)
-	FilterAvailable     func(context.Context, []core.Title) []core.Title
+	FavoriteShows       func(context.Context, *frontend.User) (map[frontend.RatingKey]bool, error)
+	FilterAvailable     func(context.Context, []frontend.Title) []frontend.Title
 	// JudgedOnFacts reports, for a request, the titles FilterAvailable judges
 	// on their full facts (availability.Service.JudgedOnFacts).
-	JudgedOnFacts       func(context.Context) func(core.Title) bool
-	PrioritizeAvailable func(context.Context, []core.Title) []core.Title
+	JudgedOnFacts       func(context.Context) func(frontend.Title) bool
+	PrioritizeAvailable func(context.Context, []frontend.Title) []frontend.Title
 	EpisodeOrder        frontend.EpisodeOrder
 	PlexGUID            frontend.LibraryGUIDs
 	PlexMeta            frontend.LibraryMetadata
@@ -106,43 +105,43 @@ type Deps struct {
 	Search       experience.SearchSources
 	LiveTV       *livetv.Service
 	AccessPolicy AccessPolicy
-	Catalog      core.Catalog
-	Collections  core.Collections
-	VibeSearch   core.VibeSearcher
-	Recommender  core.Recommender
-	State        core.State
-	Playlists    core.Playlists
-	Auth         core.Auth
-	Playback     core.Playback
-	Transcoder   core.Transcoder
+	Catalog      frontend.Catalog
+	Collections  frontend.Collections
+	VibeSearch   frontend.VibeSearcher
+	Recommender  frontend.Recommender
+	State        frontend.State
+	Playlists    frontend.Playlists
+	Auth         frontend.Auth
+	Playback     frontend.Playback
+	Transcoder   frontend.Transcoder
 	// Variants lists distinct release versions for "Play Version" detail
 	// pages (optional: without it, detail pages stay single-Media).
-	Variants core.VariantResolver
+	Variants frontend.VariantResolver
 	// DecisionTraces is the latest resolution for a title, copied into a
 	// support capture. Nil leaves playback unchanged.
-	DecisionTraces core.DecisionTraceSource
+	DecisionTraces frontend.DecisionTraceSource
 	// Downloads remuxes resolved sources to temp MP4s for the Download
 	// Queue API; nil disables downloads (allowSync stays "0").
-	Downloads        core.DownloadRemuxer
+	Downloads        frontend.DownloadRemuxer
 	TrackPreferences TrackPreferences
 	Markers          MarkerProvider
 	Subtitles        SubtitleSource
 	Extras           ExtrasProvider
 	// Prerolls are owner pre-rolls (#298); nil leaves play queues and
 	// extras exactly as without the feature.
-	Prerolls  core.Prerolls
-	Trickplay core.TrickplayProvider
+	Prerolls  frontend.PrerollService
+	Trickplay frontend.TrickplayProvider
 
 	// ApplyClientRules adjusts caps for the owner's quality rules. Nil leaves
 	// the request caps unchanged. The app wires resolver.ApplyClientRules so
 	// this package stays outside the resolver.
-	ApplyClientRules func(config.Quality, core.ClientCaps, *core.User, string) core.ClientCaps
+	ApplyClientRules func(config.Quality, frontend.ClientCaps, *frontend.User, string) frontend.ClientCaps
 	// Config returns the current settings snapshot.
 	Config func() config.Config
 	// OwnerSubscription returns the current entitlement snapshot from plex.tv.
 	OwnerSubscription func() (active bool, features []string)
 	// ImageURL builds TMDB image URLs; defaults to image.tmdb.org.
-	ImageURL core.ImageURLFunc
+	ImageURL frontend.ImageURLFunc
 	Logger   *slog.Logger
 	Identity Identity
 	Hooks    Hooks
@@ -352,13 +351,13 @@ func NewServer(d Deps) *Server {
 		s.blurJobs = newBGQueue(ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
 		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
 		if pre, ok := d.Catalog.(interface {
-			PreloadStored(context.Context, []core.RatingKey)
+			PreloadStored(context.Context, []frontend.RatingKey)
 		}); ok {
 			// Detail fetches scheduled together (a hub's shows) read their
 			// stored titles in one batch; each fetch then reads the cache.
 			s.titles.prefetch = pre.PreloadStored
 		}
-		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key core.RatingKey, path string) (artworkservice.Palette, error) {
+		s.ultra = artworkservice.NewPaletteCache(d.DB, s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (artworkservice.Palette, error) {
 			var art artworkservice.CollectionArt
 			if c, ok := s.d.Collections.(artworkservice.CollectionArt); ok {
 				art = c
@@ -367,7 +366,7 @@ func NewServer(d Deps) *Server {
 		})
 	}
 	if p, ok := d.Catalog.(interface {
-		PersistsArtwork(context.Context, core.RatingKey) bool
+		PersistsArtwork(context.Context, frontend.RatingKey) bool
 	}); ok && s.ultra != nil {
 		s.ultra.PersistFor(p.PersistsArtwork)
 	}
@@ -486,8 +485,8 @@ func (s *Server) buildSections() []Section {
 	secs := s.d.Sections
 	if len(secs) == 0 {
 		secs = []Section{
-			{ID: 1, Type: core.TypeMovie},
-			{ID: 2, Type: core.TypeShow},
+			{ID: 1, Type: frontend.TypeMovie},
+			{ID: 2, Type: frontend.TypeShow},
 		}
 	}
 	out := make([]Section, len(secs))
@@ -506,9 +505,9 @@ func (s *Server) buildSections() []Section {
 }
 
 // librarySectionTitle is the Movies / TV Shows name Ether advertises to Plex.
-func librarySectionTitle(t core.MediaType, c config.Config) string {
+func librarySectionTitle(t frontend.MediaType, c config.Config) string {
 	switch t {
-	case core.TypeShow, core.TypeSeason, core.TypeEpisode:
+	case frontend.TypeShow, frontend.TypeSeason, frontend.TypeEpisode:
 		if n := strings.TrimSpace(c.Server.TVShowsLibraryName); n != "" {
 			return n
 		}
@@ -534,7 +533,7 @@ func (s *Server) withLibraryTitles(secs []Section) []Section {
 	out := append([]Section(nil), secs...)
 	for i := range out {
 		switch out[i].Type {
-		case core.TypeMovie, core.TypeShow:
+		case frontend.TypeMovie, frontend.TypeShow:
 			out[i].Title = librarySectionTitle(out[i].Type, c)
 		}
 	}
@@ -552,7 +551,7 @@ func (s *Server) sectionByID(id int) (Section, bool) {
 }
 
 // sectionFor returns the section an item of type t lives in.
-func (s *Server) sectionFor(t core.MediaType) (Section, bool) {
+func (s *Server) sectionFor(t frontend.MediaType) (Section, bool) {
 	sec, ok := s.untitledSectionFor(t)
 	if !ok {
 		return Section{}, false
@@ -563,11 +562,11 @@ func (s *Server) sectionFor(t core.MediaType) (Section, bool) {
 // untitledSectionFor is sectionFor without the configured title. A
 // visibility check needs only the section id, and runs for every title a
 // page shows, so it reads no configuration.
-func (s *Server) untitledSectionFor(t core.MediaType) (Section, bool) {
-	want := core.TypeMovie
+func (s *Server) untitledSectionFor(t frontend.MediaType) (Section, bool) {
+	want := frontend.TypeMovie
 	switch t {
-	case core.TypeShow, core.TypeSeason, core.TypeEpisode:
-		want = core.TypeShow
+	case frontend.TypeShow, frontend.TypeSeason, frontend.TypeEpisode:
+		want = frontend.TypeShow
 	}
 	for _, sec := range s.sections {
 		if sec.Type == want {
@@ -578,7 +577,7 @@ func (s *Server) untitledSectionFor(t core.MediaType) (Section, bool) {
 }
 
 // userSections lists the sections a user may see.
-func (s *Server) userSections(u *core.User) []Section {
+func (s *Server) userSections(u *frontend.User) []Section {
 	secs := s.withLibraryTitles(s.sections)
 	if u == nil || len(u.AllowedSections) == 0 || u.IsOwner {
 		return secs
@@ -592,7 +591,7 @@ func (s *Server) userSections(u *core.User) []Section {
 	return out
 }
 
-func (s *Server) canSeeSection(u *core.User, id int) bool {
+func (s *Server) canSeeSection(u *frontend.User, id int) bool {
 	for _, sec := range s.sections {
 		if sec.ID == id {
 			return u == nil || len(u.AllowedSections) == 0 || u.IsOwner || experience.SectionAllowed(u, sec.ID)

@@ -14,7 +14,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/artwork"
 	artworkservice "github.com/braedonsaunders/ether/internal/artwork/service"
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -51,18 +50,18 @@ func resizeTMDBURL(u string, width int) string {
 // Handlers
 
 // artPath picks the TMDB path for an item's element.
-type refreshingArtworkCatalog struct{ core.Catalog }
+type refreshingArtworkCatalog struct{ frontend.Catalog }
 
 // memoryTitles is the catalogue's read of titles held without a row
 // (catalog.MemoryTitle).
 type memoryTitles interface {
-	MemoryTitle(context.Context, core.RatingKey) (*core.Title, bool, error)
+	MemoryTitle(context.Context, frontend.RatingKey) (*frontend.Title, bool, error)
 }
 
 // StoredTitle reads a stored title through Get, which refreshes a stale
 // row. A search or list hit without a row is read from memory: fetching its
 // thumbnail must not promote it into the library (Get would).
-func (c refreshingArtworkCatalog) StoredTitle(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+func (c refreshingArtworkCatalog) StoredTitle(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 	if m, ok := c.Catalog.(memoryTitles); ok {
 		t, stored, err := m.MemoryTitle(ctx, key)
 		switch {
@@ -71,16 +70,16 @@ func (c refreshingArtworkCatalog) StoredTitle(ctx context.Context, key core.Rati
 		case t != nil:
 			return t, nil
 		case !stored:
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 	}
 	return c.Get(ctx, key)
 }
 
 // UndatedSearchHit forwards catalog.UndatedSearchHit to the artwork source.
-func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key core.RatingKey) bool {
+func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key frontend.RatingKey) bool {
 	u, ok := c.Catalog.(interface {
-		UndatedSearchHit(context.Context, core.RatingKey) bool
+		UndatedSearchHit(context.Context, frontend.RatingKey) bool
 	})
 	return ok && u.UndatedSearchHit(ctx, key)
 }
@@ -88,8 +87,8 @@ func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key core
 // serveGeneratedPoster serves Ether's poster for a movie or show the viewer
 // may see that has no artwork. Seasons and episodes point at their show's
 // thumb, so they reach this through the show.
-func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, key core.RatingKey, element string, width int) bool {
-	if s.d.GeneratedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != core.KindMovie && key.Kind() != core.KindShow) {
+func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string, width int) bool {
+	if s.d.GeneratedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != frontend.KindMovie && key.Kind() != frontend.KindShow) {
 		return false
 	}
 	ctx := r.Context()
@@ -123,18 +122,18 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 	}
 	return true
 }
-func (s *Server) artPath(ctx context.Context, key core.RatingKey, element string) (string, int, error) {
+func (s *Server) artPath(ctx context.Context, key frontend.RatingKey, element string) (string, int, error) {
 	source := (FrontendArtwork{Server: s}).source()
 	source.Catalog = refreshingArtworkCatalog{s.d.Catalog}
 	pr := FromContext(ctx)
 	source.CollectionDevice = pr.Device
-	return source.ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: core.Device{Product: pr.Product, Platform: pr.Platform}}, element)
+	return source.ArtPath(ctx, frontend.ArtworkRequest{Viewer: pr.User, Item: key, Device: frontend.Device{Product: pr.Product, Platform: pr.Platform}}, element)
 }
 
 // handleImage serves /library/metadata/{key}/{element}[/{ts}] and the
 // collection/playlist equivalents.
 func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
-	key, err := core.ParseRatingKey(chi.URLParam(r, "key"))
+	key, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -150,7 +149,7 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 	s.serveItemImage(w, r, key, element, width)
 }
 
-func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key core.RatingKey, element string, width int) {
+func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string, width int) {
 	if key.IsPreroll() && s.prerollThumb(w, r, key) {
 		return
 	}
@@ -175,7 +174,7 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key core
 			return
 		}
 		path := t.PosterPath
-		if t.Type == core.TypeEpisode {
+		if t.Type == frontend.TypeEpisode {
 			path = t.StillPath
 		}
 		if element == "art" || element == "background" {
@@ -209,7 +208,7 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key core
 
 // servePlexOverlayImage is the last-resort artwork path: only when the owner
 // toggle is on and this key already has a cached overlay URL for the element.
-func (s *Server) servePlexOverlayImage(w http.ResponseWriter, r *http.Request, key core.RatingKey, element string) bool {
+func (s *Server) servePlexOverlayImage(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string) bool {
 	remote := s.plexMetaRemoteImage(r.Context(), key, element)
 	if remote == "" {
 		return false
@@ -264,7 +263,7 @@ func (s *Server) writeRemoteImage(w http.ResponseWriter, r *http.Request, u stri
 }
 
 // Person artwork is scoped to one title so authorization requires one catalog lookup.
-func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request, key core.RatingKey, kind, identity string) {
+func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, kind, identity string) {
 	if r.Context().Err() != nil {
 		return
 	}
@@ -273,7 +272,7 @@ func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request, key co
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	var people []core.Person
+	var people []frontend.Person
 	switch kind {
 	case "actor":
 		people = t.Cast
@@ -319,7 +318,7 @@ func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request, key co
 	s.serveRemoteImage(w, r, s.d.ImageURL(imagePath, "w185"))
 }
 func (s *Server) handlePersonImage(w http.ResponseWriter, r *http.Request) {
-	key, err := core.ParseRatingKey(chi.URLParam(r, "key"))
+	key, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
 	if err != nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -403,7 +402,7 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if m := discoveryImageRe.FindStringSubmatch(path); m != nil {
-			key, err := core.ParseRatingKey(m[1])
+			key, err := frontend.ParseRatingKey(m[1])
 			if err != nil {
 				writeHTTPError(w, http.StatusNotFound)
 				return
@@ -417,7 +416,7 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if m := personImageRe.FindStringSubmatch(path); m != nil {
-			key, err := core.ParseRatingKey(m[1])
+			key, err := frontend.ParseRatingKey(m[1])
 			if err != nil {
 				writeHTTPError(w, http.StatusNotFound)
 				return
@@ -426,7 +425,7 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if m := metadataImageRe.FindStringSubmatch(path); m != nil {
-			key, err := core.ParseRatingKey(m[1])
+			key, err := frontend.ParseRatingKey(m[1])
 			if err != nil {
 				writeHTTPError(w, http.StatusNotFound)
 				return
@@ -441,7 +440,7 @@ func (s *Server) handlePhotoTranscode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if m := playlistImageRe.FindStringSubmatch(path); m != nil {
-			key, err := core.ParseRatingKey(m[1])
+			key, err := frontend.ParseRatingKey(m[1])
 			if err != nil {
 				writeHTTPError(w, http.StatusNotFound)
 				return

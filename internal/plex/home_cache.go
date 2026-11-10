@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -60,7 +60,7 @@ const (
 // Revision must be cheap and shared across cluster nodes (the database);
 // Layout and Catalog are local generations.
 type HomeCacheSource struct {
-	Revision func(context.Context, *core.User) (experience.HomeRevision, error)
+	Revision func(context.Context, *frontend.User) (experience.HomeRevision, error)
 	// Layout changes when the owner saves the Home layout (hard).
 	Layout func() uint64
 	// Config changes when the owner's settings are replaced (hard).
@@ -78,7 +78,7 @@ type HomeCacheSource struct {
 type homeBuild struct {
 	mc *model.MediaContainer
 	// served is the recommender's view of the written rows (impressions).
-	served map[string]core.Hub
+	served map[string]frontend.Hub
 	// section is the personalization context's section (0 = Home).
 	section int
 	// provisional: the recommender had no rows yet.
@@ -99,7 +99,7 @@ type homeEntry struct {
 	usedAt      time.Time
 	provisional bool
 	impressions []homeImpression
-	warm        core.RatingKey
+	warm        frontend.RatingKey
 	section     int
 	build       homeBuildFunc
 	tmpl        *http.Request // the latest request of this shape, detached
@@ -414,7 +414,7 @@ func (s *Server) refreshHome(key string) {
 	defer cancel()
 	ctx = withRequest(ctx, &prc)
 	if s.plexMetaOn() {
-		ctx = core.WithPlexSaferRating(ctx)
+		ctx = frontend.WithPlexSaferRating(ctx)
 	}
 	ctx = reqmemo.With(ctx)
 	pr := FromContext(ctx)
@@ -476,12 +476,12 @@ func gzipBody(body []byte) []byte {
 // row's identity and its item keys (the recommender reads nothing else).
 type homeImpression struct {
 	id, title string
-	keys      []core.RatingKey
+	keys      []frontend.RatingKey
 }
 
 // impressionHubs is what recordImpressions reports for the written rows.
-func (s *Server) impressionHubs(pr *Request, written []model.Hub, served map[string]core.Hub) []homeImpression {
-	if _, ok := s.d.Recommender.(core.ImpressionSink); !ok || pr.User == nil {
+func (s *Server) impressionHubs(pr *Request, written []model.Hub, served map[string]frontend.Hub) []homeImpression {
+	if _, ok := s.d.Recommender.(frontend.ImpressionSink); !ok || pr.User == nil {
 		return nil
 	}
 	out := make([]homeImpression, 0, len(written))
@@ -491,7 +491,7 @@ func (s *Server) impressionHubs(pr *Request, written []model.Hub, served map[str
 			continue
 		}
 		items := s.filterAllowed(pr.User, h.Items)
-		keys := make([]core.RatingKey, len(items))
+		keys := make([]frontend.RatingKey, len(items))
 		for i := range items {
 			keys[i] = items[i].Key
 		}
@@ -500,28 +500,28 @@ func (s *Server) impressionHubs(pr *Request, written []model.Hub, served map[str
 	return out
 }
 
-func (s *Server) recordCompactImpressions(pr *Request, hc core.HubContext, rows []homeImpression) {
-	sink, ok := s.d.Recommender.(core.ImpressionSink)
+func (s *Server) recordCompactImpressions(pr *Request, hc frontend.HubContext, rows []homeImpression) {
+	sink, ok := s.d.Recommender.(frontend.ImpressionSink)
 	if !ok || pr.User == nil || len(rows) == 0 {
 		return
 	}
-	hubs := make([]core.Hub, len(rows))
+	hubs := make([]frontend.Hub, len(rows))
 	for i, r := range rows {
-		items := make([]core.Title, len(r.keys))
+		items := make([]frontend.Title, len(r.keys))
 		for j, k := range r.keys {
 			items[j].Key = k
 		}
-		hubs[i] = core.Hub{ID: r.id, Title: r.title, Items: items}
+		hubs[i] = frontend.Hub{ID: r.id, Title: r.title, Items: items}
 	}
 	sink.RecordImpressions(pr.User, hc, hubs)
 }
 
-func (s *Server) warmKey(ctx context.Context, pr *Request, key core.RatingKey) {
+func (s *Server) warmKey(ctx context.Context, pr *Request, key frontend.RatingKey) {
 	if key == 0 || pr == nil || pr.User == nil {
 		return
 	}
-	if pw, ok := s.d.Playback.(core.Prewarmer); ok {
-		pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), core.PrewarmOptions{Reason: core.PrewarmBrowse})
+	if pw, ok := s.d.Playback.(frontend.Prewarmer); ok {
+		pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), frontend.PrewarmOptions{Reason: frontend.PrewarmBrowse})
 	}
 }
 

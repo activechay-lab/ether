@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/faillog"
@@ -235,9 +234,9 @@ func (s *Server) parse(next http.Handler) http.Handler {
 			return
 		}
 		ctx := withRequest(r.Context(), pr)
-		ctx = core.WithBrowseScope(ctx, browseScope(r, pr))
+		ctx = frontend.WithBrowseScope(ctx, browseScope(r, pr))
 		if s.plexMetaOn() {
-			ctx = core.WithPlexSaferRating(ctx)
+			ctx = frontend.WithPlexSaferRating(ctx)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -266,7 +265,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			u, receipt, err := s.acceptToken(r.Context(), pr.Token)
 			switch {
 			case err == nil && u != nil:
-				if policy, ok := s.d.AccessPolicy.(core.UserPolicySource); ok {
+				if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
 					u = policy.UserPolicy(u)
 				}
 				if id := transcodeSessionID(r.URL.Path); id != "" {
@@ -323,7 +322,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				s.observePlaybackRequestStart(r, pr)
 				next.ServeHTTP(w, r)
 				return
-			case err == nil, errors.Is(err, core.ErrUnauthorized), errors.Is(err, core.ErrNotFound):
+			case err == nil, errors.Is(err, frontend.ErrUnauthorized), errors.Is(err, frontend.ErrNotFound):
 				// Stale or unknown token: playlist/segment reads may still
 				// pass with a live stream grant or minted read capability.
 			case errors.Is(err, r.Context().Err()):
@@ -359,7 +358,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 
 type tokenAcceptor = frontend.CredentialAcceptor
 
-func (s *Server) acceptToken(ctx context.Context, token string) (*core.User, frontend.CredentialAcceptance, error) {
+func (s *Server) acceptToken(ctx context.Context, token string) (*frontend.User, frontend.CredentialAcceptance, error) {
 	if acc, ok := s.d.Auth.(tokenAcceptor); ok {
 		return acc.Accept(ctx, token)
 	}
@@ -392,14 +391,14 @@ func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
 	if !ok {
 		return false
 	}
-	if policy, ok := s.d.AccessPolicy.(core.UserPolicySource); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.UserPolicySource); ok {
 		u = policy.UserPolicy(u)
 	}
 	if fresh, ok := s.d.AccessPolicy.(interface {
-		ConfirmPlayback(context.Context, *core.User, bool, time.Time) (*core.User, error)
+		ConfirmPlayback(context.Context, *frontend.User, bool, time.Time) (*frontend.User, error)
 	}); ok {
 		confirmed, err := fresh.ConfirmPlayback(r.Context(), u, pr.ClientCaps(0).Remote, s.now())
-		if err != nil && !errors.Is(err, core.ErrPolicyUnconfirmed) {
+		if err != nil && !errors.Is(err, frontend.ErrPolicyUnconfirmed) {
 			return false
 		}
 		if err == nil {
@@ -407,10 +406,10 @@ func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
 				return false
 			}
 			u = confirmed
-		} else if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
+		} else if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
 			return false
 		}
-	} else if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
+	} else if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(u, pr.ClientCaps(0).Remote, s.now()) {
 		return false
 	}
 	pr.User = u
@@ -490,7 +489,7 @@ func (s *Server) encodeResponse(r *http.Request, v any) ([]byte, error) {
 		}
 		if mc.AllowSync != nil {
 			if mc.HasSyncProjection() {
-				if policy, ok := s.d.AccessPolicy.(core.DownloadAccessPolicy); ok && !policy.AllowDownloads(pr.User) {
+				if policy, ok := s.d.AccessPolicy.(frontend.DownloadAccessPolicy); ok && !policy.AllowDownloads(pr.User) {
 					*mc.AllowSync = false
 				}
 				// A context capability is distinct from permission to fetch a file.
@@ -662,14 +661,14 @@ const notAvailableRetryAfter = "30"
 // writeErr maps a component error to an HTTP status.
 func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, core.ErrNotFound):
+	case errors.Is(err, frontend.ErrNotFound):
 		writeHTTPError(w, http.StatusNotFound)
-	case errors.Is(err, core.ErrUnauthorized):
+	case errors.Is(err, frontend.ErrUnauthorized):
 		writeHTTPError(w, http.StatusUnauthorized)
-	case errors.Is(err, core.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
+	case errors.Is(err, frontend.ErrStreamLimit), errors.Is(err, transcode.ErrTooManyTranscodes):
 		w.Header().Set("Retry-After", "5")
 		writeHTTPError(w, http.StatusServiceUnavailable)
-	case errors.Is(err, core.ErrNotAvailable), errors.Is(err, core.ErrUnreleased), errors.Is(err, core.ErrDebridAuth), errors.Is(err, core.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, core.ErrPrepareSlow):
+	case errors.Is(err, frontend.ErrNotAvailable), errors.Is(err, frontend.ErrUnreleased), errors.Is(err, frontend.ErrDebridAuth), errors.Is(err, frontend.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, frontend.ErrPrepareSlow):
 		// The title exists; nothing can play it right now (no release yet,
 		// nothing cached, no sources, a rejected debrid key). A 404 here
 		// reads as "this item is gone" and Plex apps show a bare "404

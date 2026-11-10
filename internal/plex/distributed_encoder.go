@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // PlexEncoder is an opt-in trusted host seam implemented by the shared broker.
@@ -16,8 +16,8 @@ import (
 // Session/Stop true means the broker owns responsibility, even when Session is
 // nil because start is pending. Transport errors must never turn true into false.
 type PlexEncoder interface {
-	StartPlexHLS(context.Context, *core.User, string, string, core.HLSRequest) (core.HLSSession, error)
-	PlexHLSSession(string) (core.HLSSession, bool)
+	StartPlexHLS(context.Context, *frontend.User, string, string, frontend.HLSRequest) (frontend.HLSSession, error)
+	PlexHLSSession(string) (frontend.HLSSession, bool)
 	StopPlexHLS(string) bool
 }
 
@@ -34,16 +34,16 @@ func (s *Server) currentPlexEncoder() PlexEncoder {
 	defer s.plexEncoderMu.RUnlock()
 	return s.plexEncoder
 }
-func (s *Server) startPlexHLS(ctx context.Context, viewer *core.User, playID, id string, req core.HLSRequest) (core.HLSSession, error) {
+func (s *Server) startPlexHLS(ctx context.Context, viewer *frontend.User, playID, id string, req frontend.HLSRequest) (frontend.HLSSession, error) {
 	if encoder := s.currentPlexEncoder(); encoder != nil {
 		return encoder.StartPlexHLS(ctx, viewer, playID, id, req)
 	}
 	if s.d.Transcoder == nil {
-		return nil, core.ErrNotAvailable
+		return nil, frontend.ErrNotAvailable
 	}
 	return s.d.Transcoder.StartHLS(ctx, req)
 }
-func (s *Server) plexHLSSession(id string) (core.HLSSession, bool) {
+func (s *Server) plexHLSSession(id string) (frontend.HLSSession, bool) {
 	if encoder := s.currentPlexEncoder(); encoder != nil {
 		if session, owned := encoder.PlexHLSSession(id); owned {
 			return session, true

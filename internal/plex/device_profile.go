@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
@@ -351,7 +351,7 @@ type dv5ToneMapper interface{ ToneMapsDolbyVisionProfile5() bool }
 // by tone-mapping through the RPU; only an encoder without that mapper must
 // refuse. An encoder that does not report the capability is checked again
 // when the conversion starts.
-func (s *Server) dv5CannotConvert(info core.MediaInfo, target *deviceMediaRule) bool {
+func (s *Server) dv5CannotConvert(info frontend.MediaInfo, target *deviceMediaRule) bool {
 	v := info.Video()
 	if v == nil || v.DolbyVisionProfile != 5 || target == nil || profileContains(target.video, plexCodec(v.Codec)) {
 		return false
@@ -370,7 +370,7 @@ type profileDecisionError struct {
 
 func (e *profileDecisionError) Error() string { return e.message }
 
-func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySession, p *playRequest) error {
+func (s *Server) applyDeviceProfile(pr *Request, t *frontend.Title, ps *frontend.PlaySession, p *playRequest) error {
 	rule, ok := deviceProfile(pr)
 	if !ok {
 		if !p.opts.DirectPlay && pr.ProfileExtra != "" {
@@ -394,10 +394,10 @@ func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySes
 	rule = extendDeviceProfile(rule, pr.ProfileExtra)
 	if p.caps.ConvertSurroundAudio {
 		for i := range rule.direct {
-			rule.direct[i].audio = strings.Join(core.FilterOutSurroundAudio(splitList(rule.direct[i].audio)), ",")
+			rule.direct[i].audio = strings.Join(frontend.FilterOutSurroundAudio(splitList(rule.direct[i].audio)), ",")
 		}
 	}
-	source := s.decisionMedia(t, ps, core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: ps.Info.Container}, *p, pr.User)
+	source := s.decisionMedia(t, ps, frontend.Decision{Kind: frontend.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: ps.Info.Container}, *p, pr.User)
 	sel := selection{audio: -1, subtitle: -1, subtitleSet: true}
 	for i, st := range ps.Info.Streams {
 		if st.Type == "audio" && st.Index == p.opts.AudioStream {
@@ -429,7 +429,7 @@ func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySes
 				p.caps.VideoCodecs = addUnique(p.caps.VideoCodecs, st.Codec)
 			}
 			if st.Type == "audio" {
-				if !p.caps.ConvertSurroundAudio || !core.IsSurroundAudioCodec(st.Codec) {
+				if !p.caps.ConvertSurroundAudio || !frontend.IsSurroundAudioCodec(st.Codec) {
 					p.caps.AudioCodecs = addUnique(p.caps.AudioCodecs, st.Codec)
 				}
 			}
@@ -460,7 +460,7 @@ func (s *Server) applyDeviceProfile(pr *Request, t *core.Title, ps *core.PlaySes
 	if target.audio != "" {
 		codecs := splitList(target.audio)
 		if p.caps.ConvertSurroundAudio {
-			codecs = core.FilterOutSurroundAudio(codecs)
+			codecs = frontend.FilterOutSurroundAudio(codecs)
 			if len(codecs) == 0 {
 				codecs = []string{"aac"}
 			}
@@ -482,7 +482,7 @@ func profileErrorContainer(pr *Request, p playRequest, e *profileDecisionError) 
 // Legacy decoder declarations may provide a playable default track even when
 // the source's default codec needs conversion. Explicit viewer picks take
 // precedence over this automatic compatibility choice.
-func (s *Server) selectLegacyDecoderAudio(pr *Request, p *playRequest, info core.MediaInfo) {
+func (s *Server) selectLegacyDecoderAudio(pr *Request, p *playRequest, info frontend.MediaInfo) {
 	if pr == nil || pr.ClientCapabilities == "" || p.audioStream != nil {
 		return
 	}
@@ -507,7 +507,7 @@ func (s *Server) selectLegacyDecoderAudio(pr *Request, p *playRequest, info core
 			return
 		}
 	}
-	var compatible core.MediaInfo
+	var compatible frontend.MediaInfo
 	for _, st := range info.Streams {
 		if st.Type == "audio" && slices.Contains(decoders, normalizeCodec(st.Codec)) {
 			compatible.Streams = append(compatible.Streams, st)
@@ -527,7 +527,7 @@ func (s *Server) selectLegacyDecoderAudio(pr *Request, p *playRequest, info core
 	}
 }
 
-func applyDeviceTargetLimits(rule devicePlaybackRule, target *deviceMediaRule, info core.MediaInfo, p *playRequest) {
+func applyDeviceTargetLimits(rule devicePlaybackRule, target *deviceMediaRule, info frontend.MediaInfo, p *playRequest) {
 	for _, l := range rule.limits {
 		n, err := strconv.Atoi(l.value)
 		if err != nil || n <= 0 || l.comparison != "UpperBound" {
@@ -538,7 +538,7 @@ func applyDeviceTargetLimits(rule devicePlaybackRule, target *deviceMediaRule, i
 				if codec != "*" && !profileContains(target.audio, codec) {
 					continue
 				}
-				p.caps.AudioLimits = append(p.caps.AudioLimits, core.AudioLimit{Codec: normalizeCodec(codec), Name: l.field, Type: "upperBound", Value: n})
+				p.caps.AudioLimits = append(p.caps.AudioLimits, frontend.AudioLimit{Codec: normalizeCodec(codec), Name: l.field, Type: "upperBound", Value: n})
 			}
 			continue
 		}
@@ -597,7 +597,7 @@ func applyDeviceTargetLimits(rule devicePlaybackRule, target *deviceMediaRule, i
 
 // applyExtraTranscodeTargetLimits applies X-Plex-Client-Profile-Extra
 // videoTranscodeTarget upper bounds when conversion has been selected (#408).
-func applyExtraTranscodeTargetLimits(extra, protocol string, target *deviceMediaRule, info core.MediaInfo, p *playRequest) {
+func applyExtraTranscodeTargetLimits(extra, protocol string, target *deviceMediaRule, info frontend.MediaInfo, p *playRequest) {
 	targetVideo := "*"
 	if target != nil && target.video != "" {
 		targetVideo = target.video

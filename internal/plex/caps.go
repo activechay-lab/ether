@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
 
@@ -24,23 +24,23 @@ type baseCaps struct {
 	heightLocked bool
 }
 
-// ClientCaps derives core.ClientCaps for the request. remoteMaxKbps caps
+// ClientCaps derives frontend.ClientCaps for the request. remoteMaxKbps caps
 // the bitrate of remote clients (0 = unlimited).
-func (pr *Request) ClientCaps(remoteMaxKbps int) core.ClientCaps {
+func (pr *Request) ClientCaps(remoteMaxKbps int) frontend.ClientCaps {
 	return pr.ClientCapsWith(remoteMaxKbps, nil)
 }
 
 // ClientCapsWith is ClientCaps with owner registry overrides applied before
 // the request's own profile and capability headers.
-func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []core.ClientCapabilityOverride) core.ClientCaps {
+func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []frontend.ClientCapabilityOverride) frontend.ClientCaps {
 	if pr == nil {
-		return core.ClientCaps{}
+		return frontend.ClientCaps{}
 	}
 	// Plex Web's browser split, desktop mpv clients, Plezy's platform split
 	// and the Fire TV 4K Max model patch all live in the registry. An owner
 	// override sits under the headers this request actually sent.
 	b := playbackCaps(pr, overrides)
-	c := core.ClientCaps{
+	c := frontend.ClientCaps{
 		Protocol:        "plex",
 		Product:         pr.Product,
 		Platform:        pr.Platform,
@@ -89,16 +89,16 @@ func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []core.ClientCapa
 	return c
 }
 
-func playbackCaps(pr *Request, overrides []core.ClientCapabilityOverride) baseCaps {
+func playbackCaps(pr *Request, overrides []frontend.ClientCapabilityOverride) baseCaps {
 	got := transcode.PlaybackDefaultsFor(pr.Product, pr.Platform, pr.Device, pr.Model, pr.Version, overrides)
 	return baseCaps{video: got.Video, audio: got.Audio, containers: got.Containers, maxHeight: got.MaxHeight, hdr10: got.HDR10, dv: got.DolbyVision, dvOff: got.DolbyVisionOff, heightLocked: got.HeightLocked}
 }
 
 // declaredCaps is the registry plus this request's headers, before a quality
 // rule changes the ceiling.
-func (s *Server) declaredCaps(pr *Request) core.ClientCaps {
+func (s *Server) declaredCaps(pr *Request) frontend.ClientCaps {
 	if pr == nil {
-		return core.ClientCaps{}
+		return frontend.ClientCaps{}
 	}
 	return pr.ClientCapsWith(s.cfg().Transcode.RemoteMaxBitrateKbps, s.cfg().Clients.Overrides)
 }
@@ -119,7 +119,7 @@ type profileExtraEvidence struct {
 // HEVC alone never implies HDR10 (Braedon #136); browser name alone never
 // promotes. An early thin Profile-Extra may still tone-map; a later start with
 // the full report remuxes.
-func promoteWebHDRFromProfile(c *core.ClientCaps, product string, ev profileExtraEvidence) {
+func promoteWebHDRFromProfile(c *frontend.ClientCaps, product string, ev profileExtraEvidence) {
 	if !strings.Contains(strings.ToLower(product), "plex web") {
 		return
 	}
@@ -183,25 +183,25 @@ func limitationValue(a map[string]string) string {
 	return a["value"]
 }
 
-// clientCaps derives core.ClientCaps for the request and applies any
+// clientCaps derives frontend.ClientCaps for the request and applies any
 // matching client rule override from the server's quality configuration.
 // The override stays behind Deps so this package does not import the resolver.
-func (s *Server) clientCaps(pr *Request) core.ClientCaps {
+func (s *Server) clientCaps(pr *Request) frontend.ClientCaps {
 	return s.clientCapsForKey(pr, 0)
 }
 
-func (s *Server) clientCapsForKey(pr *Request, key core.RatingKey) core.ClientCaps {
+func (s *Server) clientCapsForKey(pr *Request, key frontend.RatingKey) frontend.ClientCaps {
 	cfg := s.cfg()
 	caps := s.declaredCaps(pr)
 	if s.d.ApplyClientRules == nil {
 		return caps
 	}
-	media := core.MediaAny
+	media := frontend.MediaAny
 	switch key.Kind() {
-	case core.KindMovie:
-		media = core.MediaMovie
-	case core.KindEpisode:
-		media = core.MediaTV
+	case frontend.KindMovie:
+		media = frontend.MediaMovie
+	case frontend.KindEpisode:
+		media = frontend.MediaTV
 	}
 	return s.d.ApplyClientRules(cfg.Quality, caps, pr.User, media)
 }
@@ -301,7 +301,7 @@ func addUnique(xs []string, add ...string) []string {
 	return xs
 }
 
-func applyProfileExtra(c *core.ClientCaps, extra string) profileExtraEvidence {
+func applyProfileExtra(c *frontend.ClientCaps, extra string) profileExtraEvidence {
 	var ev profileExtraEvidence
 	for _, d := range ParseProfileExtra(extra) {
 		a := d.Args
@@ -318,7 +318,7 @@ func applyProfileExtra(c *core.ClientCaps, extra string) profileExtraEvidence {
 			c.AudioCodecs = addUnique(c.AudioCodecs, splitList(a["audioCodec"])...)
 			if ct := a["container"]; ct != "" {
 				c.Containers = addUnique(c.Containers, splitList(ct)...)
-				if a["protocol"] == core.ProtocolHLS {
+				if a["protocol"] == frontend.ProtocolHLS {
 					c.HLSContainers = addUnique(c.HLSContainers, splitList(ct)...)
 				}
 			}
@@ -337,7 +337,7 @@ func applyProfileExtra(c *core.ClientCaps, extra string) profileExtraEvidence {
 			if (strings.EqualFold(c.Product, "PM4K") || strings.EqualFold(c.Product, "Plex for Kodi")) && a["scope"] == "videoAudioCodec" {
 				n, err := strconv.Atoi(limitationValue(a))
 				if err == nil && n > 0 && ((a["name"] == "audio.channels" && n <= 32) || (a["name"] == "audio.bitrate" && n <= 100000) || (a["name"] == "audio.samplingRate" && n <= 192000)) && (a["type"] == "upperBound" || a["type"] == "lowerBound") && (a["name"] == "audio.channels" || a["name"] == "audio.bitrate" || a["name"] == "audio.samplingRate") {
-					c.AudioLimits = append(c.AudioLimits, core.AudioLimit{Codec: normalizeCodec(a["scopeName"]), Name: a["name"], Type: a["type"], Value: n})
+					c.AudioLimits = append(c.AudioLimits, frontend.AudioLimit{Codec: normalizeCodec(a["scopeName"]), Name: a["name"], Type: a["type"], Value: n})
 				}
 			}
 			if limitationDeniesHDR(a) {
@@ -422,7 +422,7 @@ func h264LevelMaxHeight(level int) int {
 	}
 }
 
-func applyLimitation(c *core.ClientCaps, a map[string]string) {
+func applyLimitation(c *frontend.ClientCaps, a map[string]string) {
 	scope := a["scope"]
 	if scope != "videoCodec" && scope != "videoAudioCodec" && scope != "transcodeTarget" && scope != "videoContainer" {
 		return
@@ -514,7 +514,7 @@ func applyLimitation(c *core.ClientCaps, a map[string]string) {
 
 // applyLegacyCapabilities parses the old X-Plex-Client-Capabilities header,
 // e.g. "protocols=http-live-streaming,http-mp4-streaming;videoDecoders=h264{profile:high&resolution:1080&level:51},h265;audioDecoders=mp3,aac{bitrate:160000},ac3".
-func applyLegacyCapabilities(c *core.ClientCaps, s string) {
+func applyLegacyCapabilities(c *frontend.ClientCaps, s string) {
 	for _, part := range strings.Split(s, ";") {
 		k, v, ok := strings.Cut(part, "=")
 		if !ok {
@@ -552,7 +552,7 @@ func applyLegacyCapabilities(c *core.ClientCaps, s string) {
 
 // decoderCeiling is the tallest per-decoder bound across the client's video
 // codecs, or 0 when any of them is unbounded.
-func decoderCeiling(c core.ClientCaps) int {
+func decoderCeiling(c frontend.ClientCaps) int {
 	ceiling := 0
 	for _, codec := range c.VideoCodecs {
 		h := c.VideoMaxHeights[codec]
@@ -611,7 +611,7 @@ func splitDecoders(s string) []decoder {
 
 // applyDecisionQuery refines caps with per-request transcode parameters
 // (maxVideoBitrate, videoResolution, location).
-func applyDecisionQuery(c *core.ClientCaps, q url.Values) {
+func applyDecisionQuery(c *frontend.ClientCaps, q url.Values) {
 	for _, name := range []string{"maxVideoBitrate", "videoBitrate"} {
 		if n, err := strconv.Atoi(q.Get(name)); err == nil && n > 0 {
 			c.DefaultRemoteBitrate = false

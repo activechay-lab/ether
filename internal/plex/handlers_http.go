@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 )
@@ -43,8 +42,8 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusBadRequest)
 		return
 	}
-	p.protocol = core.ProtocolHTTP
-	p.opts.Protocol = core.ProtocolHTTP
+	p.protocol = frontend.ProtocolHTTP
+	p.opts.Protocol = frontend.ProtocolHTTP
 	unlockEncoder, lockErr := s.lockEncoder(ctx, p.sessionID)
 	if lockErr != nil {
 		return
@@ -66,7 +65,7 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry, ok := s.transcodes.get(p.sessionID)
-	var ps *core.PlaySession
+	var ps *frontend.PlaySession
 	if ok && entry.key == p.key && entry.userID == pr.User.ID {
 		ps, ok = s.d.Playback.Session(entry.playID)
 	}
@@ -87,23 +86,23 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 	entry.playbackID = pr.SessionID
 	s.transcodes.put(entry)
 
-	dec := sessions.HLSDecision(entry.decision, p.opts.DirectPlay, func() core.Decision {
+	dec := sessions.HLSDecision(entry.decision, p.opts.DirectPlay, func() frontend.Decision {
 		resolvePlaySelection(&p, ps.Info)
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)
-	}, func(dec core.Decision) core.Decision {
+	}, func(dec frontend.Decision) frontend.Decision {
 		if len(entry.caps.TranscodeAudioCodecs) > 0 && dec.AudioCodec != "" && !slices.Contains(entry.caps.TranscodeAudioCodecs, dec.AudioCodec) {
 			opts := entry.opts
 			opts.DirectPlay = false
 			opts.DirectStream = true
-			opts.Protocol = core.ProtocolHTTP
+			opts.Protocol = frontend.ProtocolHTTP
 			return s.d.Transcoder.Decide(ps.Info, entry.caps, opts)
 		}
 		return dec
 	})
 	if existing, ok := s.plexHLSSession(p.sessionID); ok && existing != nil {
 		if entry.started && entry.offset == p.offset {
-			if hs, ok := existing.(core.HTTPSession); ok {
+			if hs, ok := existing.(frontend.HTTPSession); ok {
 				if failed, ok := hs.(interface{ ProgressiveFailed() bool }); ok && failed.ProgressiveFailed() && r.Header.Get("Range") == "" {
 					http.Error(w, "progressive transcode failed; start a new session", http.StatusBadGateway)
 					return
@@ -117,21 +116,21 @@ func (s *Server) handleStartHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.stopPlexHLS(p.sessionID)
 	}
-	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
+	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, frontend.HLSRequest{
 		SessionID:      p.sessionID,
 		ReleaseID:      ps.SourceReleaseID(),
 		InputURL:       s.d.Playback.InputURL(ps.ID),
 		Info:           ps.Info,
 		Decision:       dec,
 		StartOffset:    p.offset,
-		Protocol:       core.ProtocolHTTP,
+		Protocol:       frontend.ProtocolHTTP,
 		CopyTimestamps: p.copyTimestamps,
 	})
 	if err != nil {
 		s.writeStartErr(w, r, pr, err)
 		return
 	}
-	stream, ok := hs.(core.HTTPSession)
+	stream, ok := hs.(frontend.HTTPSession)
 	if !ok {
 		s.log.Error("transcoder returned a non-HTTP session", "session", p.sessionID)
 		s.stopPlexHLS(p.sessionID)

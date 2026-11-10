@@ -14,7 +14,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
@@ -38,10 +37,10 @@ type extraSession struct {
 	clientID  string
 	extra     frontend.ExtraClip
 	resolved  frontend.ResolvedExtra
-	info      core.MediaInfo
-	decision  core.Decision
-	caps      core.ClientCaps
-	opts      core.DecideOptions
+	info      frontend.MediaInfo
+	decision  frontend.Decision
+	caps      frontend.ClientCaps
+	opts      frontend.DecideOptions
 	offset    time.Duration
 	started   bool
 	updatedAt time.Time
@@ -84,7 +83,7 @@ func (st *extraPlayStore) put(s *extraSession) {
 }
 
 // shouldWarm deduplicates feature prewarms per viewer for ten minutes.
-func (st *extraPlayStore) shouldWarm(userID int64, feature core.RatingKey, now time.Time) bool {
+func (st *extraPlayStore) shouldWarm(userID int64, feature frontend.RatingKey, now time.Time) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	k := fmt.Sprintf("%d|%d", userID, int64(feature))
@@ -122,7 +121,7 @@ func (s *Server) viewerLanguage(pr *Request) string {
 
 // extrasFor lists a title's playable extras, honouring the extraTypes
 // filter (comma-separated Plex numeric types) when present.
-func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *core.Title, extraTypes string) []frontend.ExtraClip {
+func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *frontend.Title, extraTypes string) []frontend.ExtraClip {
 	want := map[int]bool{}
 	for _, part := range strings.Split(extraTypes, ",") {
 		if n, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
@@ -139,15 +138,15 @@ func (s *Server) extrasFor(ctx context.Context, pr *Request, parent *core.Title,
 
 // extraEstimateInfo is the virtual media info of an extra before (or
 // without) a probe: hosted trailers are overwhelmingly H.264/AAC MP4.
-func extraEstimateInfo(e frontend.ExtraClip) core.MediaInfo {
+func extraEstimateInfo(e frontend.ExtraClip) frontend.MediaInfo {
 	h := e.Size
 	if h <= 0 {
 		h = 720
 	}
 	w := h * 16 / 9
-	return core.MediaInfo{
+	return frontend.MediaInfo{
 		Container: "mp4", Duration: e.Duration, BitrateKbps: 8000, Estimated: true,
-		Streams: []core.StreamInfo{
+		Streams: []frontend.StreamInfo{
 			{Index: 0, Type: "video", Codec: "h264", Width: w, Height: h, Default: true},
 			{Index: 1, Type: "audio", Codec: "aac", Channels: 2, Default: true, Language: e.Language},
 		},
@@ -156,9 +155,9 @@ func extraEstimateInfo(e frontend.ExtraClip) core.MediaInfo {
 
 // extraMetadata renders one extra as PMS does: a clip Video with a
 // subtype and numeric extra type, carrying a single Media/Part.
-func (s *Server) extraMetadata(e frontend.ExtraClip, parent *core.Title, withMedia bool) model.Metadata {
+func (s *Server) extraMetadata(e frontend.ExtraClip, parent *frontend.Title, withMedia bool) model.Metadata {
 	if e.Source == prerollSource {
-		return s.prerollMetadata(e, core.PrerollClip{UpdatedAt: e.PublishedAt}, false)
+		return s.prerollMetadata(e, frontend.PrerollClip{UpdatedAt: e.PublishedAt}, false)
 	}
 	thumb := thumbURL(parent)
 	if parent.BackdropPath != "" {
@@ -168,7 +167,7 @@ func (s *Server) extraMetadata(e frontend.ExtraClip, parent *core.Title, withMed
 		RatingKey:       e.Key.String(),
 		Key:             "/library/metadata/" + e.Key.String(),
 		ParentRatingKey: parent.Key.String(),
-		GUID:            guidFor(&core.Title{Key: e.Key}),
+		GUID:            guidFor(&frontend.Title{Key: e.Key}),
 		Type:            "clip",
 		Subtype:         e.Subtype,
 		Title:           e.Title,
@@ -191,7 +190,7 @@ func (s *Server) extraMetadata(e frontend.ExtraClip, parent *core.Title, withMed
 		md.LibrarySectionTitle = sec.Title
 	}
 	if withMedia {
-		syn := &core.Title{Key: e.Key, Type: core.TypeMovie, Title: e.Title, Runtime: e.Duration}
+		syn := &frontend.Title{Key: e.Key, Type: frontend.TypeMovie, Title: e.Title, Runtime: e.Duration}
 		md.Media = []model.Media{buildMedia(syn, extraEstimateInfo(e), 1)}
 		if md.Duration == 0 {
 			md.Duration = md.Media[0].Duration
@@ -202,7 +201,7 @@ func (s *Server) extraMetadata(e frontend.ExtraClip, parent *core.Title, withMed
 
 // extraMetadataByKey renders a registered extra whose parent the viewer
 // may see.
-func (s *Server) extraMetadataByKey(ctx context.Context, pr *Request, key core.RatingKey) (model.Metadata, bool) {
+func (s *Server) extraMetadataByKey(ctx context.Context, pr *Request, key frontend.RatingKey) (model.Metadata, bool) {
 	if key.IsPreroll() {
 		e, clip, ok := s.prerollExtra(ctx, key)
 		if !ok {
@@ -229,13 +228,13 @@ func (s *Server) handleExtras(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	k, err := keyParam(r)
-	if err != nil || k.Kind() == core.KindExtra {
+	if err != nil || k.Kind() == frontend.KindExtra {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
 	parent, err := s.metadataTitle(ctx, pr, k)
 	if err == nil && !s.visibleTitle(ctx, pr.User, parent) {
-		err = core.ErrNotFound
+		err = frontend.ErrNotFound
 	}
 	if err != nil {
 		s.writeErr(w, r, err)
@@ -254,17 +253,17 @@ func (s *Server) handleExtras(w http.ResponseWriter, r *http.Request) {
 
 // extraKeyFromRequest returns the KindExtra key a universal playback
 // request addresses, when it addresses one.
-func extraKeyFromRequest(r *http.Request) (core.RatingKey, bool) {
+func extraKeyFromRequest(r *http.Request) (frontend.RatingKey, bool) {
 	q := r.URL.Query()
 	for _, name := range []string{"path", "key", "ratingKey"} {
-		if k := keyFromPath(q.Get(name)); k.Kind() == core.KindExtra {
+		if k := keyFromPath(q.Get(name)); k.Kind() == frontend.KindExtra {
 			return k, true
 		}
 	}
 	return 0, false
 }
 
-func (s *Server) parseExtraPlayRequest(r *http.Request, key core.RatingKey) playRequest {
+func (s *Server) parseExtraPlayRequest(r *http.Request, key frontend.RatingKey) playRequest {
 	pr := FromContext(r.Context())
 	q := r.URL.Query()
 	caps := s.clientCaps(pr)
@@ -273,7 +272,7 @@ func (s *Server) parseExtraPlayRequest(r *http.Request, key core.RatingKey) play
 	if p.protocol == "" {
 		p.protocol = "hls"
 	}
-	p.opts = core.DecideOptions{
+	p.opts = frontend.DecideOptions{
 		DirectPlay: q.Get("directPlay") != "0", DirectStream: q.Get("directStream") != "0",
 		MaxBitrateKbps: caps.MaxBitrateKbps, MaxHeight: parseResolutionHeight(q.Get("videoResolution")),
 		AudioStream: -1, SubtitleStream: -1,
@@ -320,7 +319,7 @@ func (s *Server) handleExtraPlayback(w http.ResponseWriter, r *http.Request) boo
 		writeHTTPError(w, http.StatusNotFound)
 		return true
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.Remote, s.now()) {
 		writeHTTPError(w, http.StatusForbidden)
 		return true
 	}
@@ -329,10 +328,10 @@ func (s *Server) handleExtraPlayback(w http.ResponseWriter, r *http.Request) boo
 }
 
 // serveExtraPlayback runs an authorized extra's decision or start request.
-func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *Request, key core.RatingKey, e frontend.ExtraClip, parent *core.Title) {
+func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *Request, key frontend.RatingKey, e frontend.ExtraClip, parent *frontend.Title) {
 	ctx := r.Context()
 	p := s.parseExtraPlayRequest(r, key)
-	if policy, ok := s.d.AccessPolicy.(core.BitrateAccessPolicy); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.BitrateAccessPolicy); ok {
 		if limit := policy.BitrateLimit(pr.User); limit > 0 && (p.caps.MaxBitrateKbps == 0 || limit < p.caps.MaxBitrateKbps) {
 			p.caps.MaxBitrateKbps = limit
 			p.opts.MaxBitrateKbps = limit
@@ -344,11 +343,11 @@ func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *
 	case strings.HasSuffix(r.URL.Path, "/decision"):
 		s.extraDecision(w, r, pr, p, e, parent)
 	case strings.HasSuffix(r.URL.Path, "/start.mpd"):
-		p.protocol = core.ProtocolDASH
+		p.protocol = frontend.ProtocolDASH
 		s.extraStart(w, r, pr, p, e, parent, true)
 	case strings.HasSuffix(r.URL.Path, "/start"):
-		p.protocol = core.ProtocolHTTP
-		p.opts.Protocol = core.ProtocolHTTP
+		p.protocol = frontend.ProtocolHTTP
+		p.opts.Protocol = frontend.ProtocolHTTP
 		s.extraStart(w, r, pr, p, e, parent, false)
 	default:
 		s.extraStart(w, r, pr, p, e, parent, false)
@@ -359,7 +358,7 @@ func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *
 // recording the session for the start endpoints and transcode stop.
 func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, e frontend.ExtraClip) (*extraSession, error) {
 	if !s.transcodes.claim(p.sessionID, pr.User.ID, pr.ClientID, s.now()) {
-		return nil, core.ErrUnauthorized
+		return nil, frontend.ErrUnauthorized
 	}
 	resolved, err := s.resolveExtra(ctx, e)
 	if err != nil {
@@ -378,12 +377,12 @@ func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, 
 		info.Duration = e.Duration
 	}
 	applySelections(p, info, s.audioLanguages(pr.User))
-	var dec core.Decision
+	var dec frontend.Decision
 	if s.d.Transcoder != nil {
 		dec = s.d.Transcoder.Decide(info, p.caps, p.opts)
 	} else {
 		dec = transcode.Decide(info, p.caps, p.opts, transcode.Policy{RemoteMaxBitrateKbps: s.cfg().Transcode.RemoteMaxBitrateKbps})
-		if dec.Kind != core.DecisionDirectPlay {
+		if dec.Kind != frontend.DecisionDirectPlay {
 			return nil, errors.New("this client requires media conversion; install or configure FFmpeg")
 		}
 	}
@@ -408,11 +407,11 @@ func (s *Server) prepareExtra(ctx context.Context, pr *Request, p *playRequest, 
 func (s *Server) resolveExtra(ctx context.Context, e frontend.ExtraClip) (frontend.ResolvedExtra, error) {
 	if e.Source == prerollSource {
 		if s.d.Prerolls == nil {
-			return frontend.ResolvedExtra{}, core.ErrNotFound
+			return frontend.ResolvedExtra{}, frontend.ErrNotFound
 		}
 		clip, ok := s.d.Prerolls.Clip(ctx, e.Key)
 		if !ok {
-			return frontend.ResolvedExtra{}, core.ErrNotFound
+			return frontend.ResolvedExtra{}, frontend.ErrNotFound
 		}
 		return frontend.ResolvedExtra{URL: clip.Path, Container: "mp4"}, nil
 	}
@@ -430,7 +429,7 @@ func (s *Server) extraSessionFor(ctx context.Context, pr *Request, p *playReques
 	return s.prepareExtra(ctx, pr, p, e)
 }
 
-func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *core.Title) {
+func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *frontend.Title) {
 	ctx := r.Context()
 	sess, err := s.prepareExtra(ctx, pr, &p, e)
 	if err != nil {
@@ -454,8 +453,8 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 		s.write(w, r, mc)
 		return
 	}
-	syn := &core.Title{Key: e.Key, Type: core.TypeMovie, Title: e.Title, Runtime: sess.info.Duration}
-	ps := &core.PlaySession{ID: "extra:" + p.sessionID, UserID: pr.User.ID, ClientID: pr.ClientID, Key: e.Key, Info: sess.info, StartedAt: s.now()}
+	syn := &frontend.Title{Key: e.Key, Type: frontend.TypeMovie, Title: e.Title, Runtime: sess.info.Duration}
+	ps := &frontend.PlaySession{ID: "extra:" + p.sessionID, UserID: pr.User.ID, ClientID: pr.ClientID, Key: e.Key, Info: sess.info, StartedAt: s.now()}
 	md := s.extraMetadata(e, parent, false)
 	decisionItem(&md)
 	md.Media = []model.Media{s.decisionMedia(syn, ps, sess.decision, p, pr.User)}
@@ -466,7 +465,7 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 	mc.Metadata = []model.Metadata{md}
 	mc.Size = 1
 	mc.SetDecision()
-	if sess.decision.Kind == core.DecisionDirectPlay {
+	if sess.decision.Kind == frontend.DecisionDirectPlay {
 		mc.Extra = []model.Attr{
 			model.A("directPlayDecisionCode", codeDirectPlayOK), model.A("directPlayDecisionText", textDirectPlayOK),
 			model.A("generalDecisionCode", codeDirectPlayOK), model.A("generalDecisionText", textDirectPlayOK),
@@ -482,7 +481,7 @@ func (s *Server) extraDecision(w http.ResponseWriter, r *http.Request, pr *Reque
 	s.write(w, r, mc)
 }
 
-func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *core.Title, dash bool) {
+func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request, p playRequest, e frontend.ExtraClip, parent *frontend.Title, dash bool) {
 	ctx := r.Context()
 	if s.d.Transcoder == nil {
 		writeHTTPError(w, http.StatusServiceUnavailable)
@@ -499,8 +498,8 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 		return
 	}
 	dec := sess.decision
-	if dec.Kind == core.DecisionDirectPlay {
-		dec.Kind, dec.VideoCopy, dec.AudioCopy, dec.Container = core.DecisionRemux, true, true, "mpegts"
+	if dec.Kind == frontend.DecisionDirectPlay {
+		dec.Kind, dec.VideoCopy, dec.AudioCopy, dec.Container = frontend.DecisionRemux, true, true, "mpegts"
 	}
 	if dec.Container == "" {
 		dec.Container = "mpegts"
@@ -508,12 +507,12 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 	if existing, ok := s.d.Transcoder.Session(p.sessionID); ok && existing != nil {
 		if sess.started && sess.offset == p.offset {
 			if dash {
-				if ds, isDASH := existing.(core.DASHSession); isDASH {
+				if ds, isDASH := existing.(frontend.DASHSession); isDASH {
 					s.serveStreamManifest(w, r, p.sessionID, ds.ServeManifest)
 					return
 				}
-			} else if p.protocol == core.ProtocolHTTP {
-				if hs, ok := existing.(core.HTTPSession); ok {
+			} else if p.protocol == frontend.ProtocolHTTP {
+				if hs, ok := existing.(frontend.HTTPSession); ok {
 					hs.ServeHTTP(w, r)
 					return
 				}
@@ -526,12 +525,12 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 	}
 	proto := ""
 	if dash {
-		proto = core.ProtocolDASH
-	} else if p.protocol == core.ProtocolHTTP {
-		proto = core.ProtocolHTTP
+		proto = frontend.ProtocolDASH
+	} else if p.protocol == frontend.ProtocolHTTP {
+		proto = frontend.ProtocolHTTP
 		dec.Container = transcode.ContainerMatroska
 	}
-	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), core.HLSRequest{
+	hs, err := s.d.Transcoder.StartHLS(context.WithoutCancel(ctx), frontend.HLSRequest{
 		SessionID: p.sessionID, InputURL: sess.resolved.Input(),
 		InputHeaders: sess.resolved.Headers, Info: sess.info,
 		Decision: dec, StartOffset: p.offset, Protocol: proto,
@@ -550,7 +549,7 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 		s.bindTranscodeStarted(entry, dec, p.offset)
 	}
 	if dash {
-		ds, ok := hs.(core.DASHSession)
+		ds, ok := hs.(frontend.DASHSession)
 		if !ok {
 			s.d.Transcoder.Stop(p.sessionID)
 			writeHTTPError(w, http.StatusInternalServerError)
@@ -559,8 +558,8 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 		s.serveStreamManifest(w, r, p.sessionID, ds.ServeManifest)
 		return
 	}
-	if p.protocol == core.ProtocolHTTP {
-		stream, ok := hs.(core.HTTPSession)
+	if p.protocol == frontend.ProtocolHTTP {
+		stream, ok := hs.(frontend.HTTPSession)
 		if !ok {
 			s.d.Transcoder.Stop(p.sessionID)
 			writeHTTPError(w, http.StatusInternalServerError)
@@ -577,8 +576,8 @@ func (s *Server) extraStart(w http.ResponseWriter, r *http.Request, pr *Request,
 // It returns false when the part is not an extra.
 func (s *Server) handleExtraPart(w http.ResponseWriter, r *http.Request) bool {
 	id, err := strconv.ParseInt(chi.URLParam(r, "part"), 10, 64)
-	key := core.RatingKey(id)
-	if err != nil || key.Kind() != core.KindExtra {
+	key := frontend.RatingKey(id)
+	if err != nil || key.Kind() != frontend.KindExtra {
 		return false
 	}
 	if key.IsPreroll() {
@@ -601,7 +600,7 @@ func (s *Server) handleExtraPart(w http.ResponseWriter, r *http.Request) bool {
 		writeHTTPError(w, http.StatusNotFound)
 		return true
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.Remote, s.now()) {
 		writeHTTPError(w, http.StatusForbidden)
 		return true
 	}
@@ -657,7 +656,7 @@ func (s *Server) handleExtraPart(w http.ResponseWriter, r *http.Request) bool {
 // featureForExtra finds the feature an extra is masking: the first
 // non-extra playable item after it in the viewer's play queue (a Cinema
 // Trailer's feature), else the extra's own parent when playable.
-func (s *Server) featureForExtra(pr *Request, e frontend.ExtraClip) core.RatingKey {
+func (s *Server) featureForExtra(pr *Request, e frontend.ExtraClip) frontend.RatingKey {
 	if pr.User != nil && s.queues != nil {
 		if key := s.queues.FollowingPlayable(pr.User.ID, e.Key, isPlayableKey); key != 0 {
 			return key
@@ -671,11 +670,11 @@ func (s *Server) featureForExtra(pr *Request, e frontend.ExtraClip) core.RatingK
 
 // prewarmFeature starts background resolution and pre-buffering of the
 // feature while its trailer plays, deduplicated per viewer and feature.
-func (s *Server) prewarmFeature(ctx context.Context, pr *Request, feature core.RatingKey, caps core.ClientCaps) {
+func (s *Server) prewarmFeature(ctx context.Context, pr *Request, feature frontend.RatingKey, caps frontend.ClientCaps) {
 	if feature == 0 || pr.User == nil || s.d.Playback == nil {
 		return
 	}
-	pw, ok := s.d.Playback.(core.Prewarmer)
+	pw, ok := s.d.Playback.(frontend.Prewarmer)
 	if !ok {
 		return
 	}
@@ -686,28 +685,28 @@ func (s *Server) prewarmFeature(ctx context.Context, pr *Request, feature core.R
 	if s.d.Extras != nil {
 		bytes = s.d.Extras.PrewarmBytes()
 	}
-	scheduled := pw.Prewarm(context.WithoutCancel(ctx), pr.User, feature, caps, core.PrewarmOptions{
-		Reason: core.PrewarmTrailer, PrefetchBytes: bytes, DuringPlayback: true,
+	scheduled := pw.Prewarm(context.WithoutCancel(ctx), pr.User, feature, caps, frontend.PrewarmOptions{
+		Reason: frontend.PrewarmTrailer, PrefetchBytes: bytes, DuringPlayback: true,
 	})
 	s.log.Info("trailer prewarm", "feature", feature, "user", pr.User.Username, "scheduled", scheduled, "bytes", bytes)
 }
 
 // cinemaTrailerKeys picks up to n trailers of other, unwatched movies
 // for this viewer (PMS Cinema Trailers semantics), in candidate order.
-func (s *Server) cinemaTrailerKeys(ctx context.Context, pr *Request, feature core.RatingKey, n int) []core.RatingKey {
+func (s *Server) cinemaTrailerKeys(ctx context.Context, pr *Request, feature frontend.RatingKey, n int) []frontend.RatingKey {
 	if n <= 0 || s.d.Extras == nil || !s.d.Extras.Enabled() || s.d.Catalog == nil {
 		return nil
 	}
 	if n > frontend.MaxExtras {
 		n = frontend.MaxExtras
 	}
-	candidates, err := s.recommendationCandidates(ctx, pr.User, 24, func(ctx context.Context, fetch int) ([]core.Title, error) {
+	candidates, err := s.recommendationCandidates(ctx, pr.User, 24, func(ctx context.Context, fetch int) ([]frontend.Title, error) {
 		items, err := s.d.Catalog.Similar(ctx, feature, fetch)
 		if err == nil && len(items) > 0 {
 			return items, nil
 		}
-		page, err := s.d.Catalog.Browse(ctx, core.BrowseQuery{
-			Filter: core.Filter{Type: core.TypeMovie}, Sort: core.SortPopularity, Desc: true, Limit: fetch,
+		page, err := s.d.Catalog.Browse(ctx, frontend.BrowseQuery{
+			Filter: frontend.Filter{Type: frontend.TypeMovie}, Sort: frontend.SortPopularity, Desc: true, Limit: fetch,
 		})
 		return page.Items, err
 	})
@@ -717,14 +716,14 @@ func (s *Server) cinemaTrailerKeys(ctx context.Context, pr *Request, feature cor
 	candidates = s.visibleTitles(pr.User, candidates)
 	state := s.stateFor(ctx, pr, candidates)
 	lang := s.viewerLanguage(pr)
-	var out []core.RatingKey
+	var out []frontend.RatingKey
 	checked := 0
 	for i := range candidates {
 		c := candidates[i]
 		if len(out) >= n || checked >= 12 {
 			break
 		}
-		if c.Key == feature || c.Type != core.TypeMovie || state[c.Key].ViewCount > 0 {
+		if c.Key == feature || c.Type != frontend.TypeMovie || state[c.Key].ViewCount > 0 {
 			continue
 		}
 		checked++

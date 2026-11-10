@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/plex/model"
 	"github.com/braedonsaunders/ether/internal/sessions"
@@ -65,29 +64,29 @@ const (
 
 func playbackMessage(err error) string {
 	switch {
-	case errors.Is(err, core.ErrUnreleased):
+	case errors.Is(err, frontend.ErrUnreleased):
 		return "This title has not been released yet. Playback is unavailable."
-	case errors.Is(err, core.ErrDebridAuth):
+	case errors.Is(err, frontend.ErrDebridAuth):
 		return msgDebridAuth
-	case errors.Is(err, core.ErrNoTorrentSources):
+	case errors.Is(err, frontend.ErrNoTorrentSources):
 		return msgNoTorrentSources
-	case errors.Is(err, core.ErrNoSources):
+	case errors.Is(err, frontend.ErrNoSources):
 		return msgNoSources
-	case errors.Is(err, core.ErrDownloadQueued):
+	case errors.Is(err, frontend.ErrDownloadQueued):
 		return msgDownloadQueued
-	case errors.As(err, new(*core.UncachedError)), onlyNotCached(err):
+	case errors.As(err, new(*frontend.UncachedError)), onlyNotCached(err):
 		return notCachedMessage(err)
 	case errors.Is(err, context.DeadlineExceeded):
 		return "The source timed out. Try again later."
-	case errors.Is(err, core.ErrSourceUnavailable), errors.Is(err, core.ErrArticleMissing), errors.Is(err, core.ErrArticleCorrupt), errors.Is(err, core.ErrReleaseRejected):
+	case errors.Is(err, frontend.ErrSourceUnavailable), errors.Is(err, frontend.ErrArticleMissing), errors.Is(err, frontend.ErrArticleCorrupt), errors.Is(err, frontend.ErrReleaseRejected):
 		return "The source could not be opened or is incomplete. Try again later."
-	case errors.Is(err, core.ErrNotAvailable):
+	case errors.Is(err, frontend.ErrNotAvailable):
 		return msgNotAvailable
-	case errors.Is(err, core.ErrStreamLimit):
+	case errors.Is(err, frontend.ErrStreamLimit):
 		return msgStreamLimit
-	case errors.Is(err, core.ErrPrepareSlow):
+	case errors.Is(err, frontend.ErrPrepareSlow):
 		return msgPrepareSlow
-	case errors.Is(err, core.ErrBudgetExhausted):
+	case errors.Is(err, frontend.ErrBudgetExhausted):
 		return "Indexers are temporarily at their limit. Ether will retry automatically; previously cached releases may still play."
 	}
 	return msgPlayFailed
@@ -110,9 +109,9 @@ func (s *Server) writeStartErr(w http.ResponseWriter, r *http.Request, pr *Reque
 	status := http.StatusBadRequest
 	w.Header().Del("Retry-After")
 	switch {
-	case errors.Is(err, core.ErrNotFound), errors.Is(err, core.ErrNotAvailable):
+	case errors.Is(err, frontend.ErrNotFound), errors.Is(err, frontend.ErrNotAvailable):
 		status = http.StatusNotFound
-	case errors.Is(err, core.ErrUnauthorized):
+	case errors.Is(err, frontend.ErrUnauthorized):
 		status = http.StatusForbidden
 	}
 	writePlaybackStatus(w, status)
@@ -127,39 +126,39 @@ func writePlaybackStatus(w http.ResponseWriter, status int) {
 	w.WriteHeader(status)
 }
 
-// notCachedMessage words a failure whose every cause is core.ErrNotCached:
+// notCachedMessage words a failure whose every cause is frontend.ErrNotCached:
 // the account's download limit or a refused download first (the owner can
 // act on those), then what the resolver said about the owner's setting and
-// Usenet (*core.UncachedError), the same reason Quality › History records.
+// Usenet (*frontend.UncachedError), the same reason Quality › History records.
 func notCachedMessage(err error) string {
 	switch {
-	case errors.Is(err, core.ErrDownloadPaused):
+	case errors.Is(err, frontend.ErrDownloadPaused):
 		return msgDownloadPaused
-	case errors.Is(err, core.ErrDownloadLimit):
+	case errors.Is(err, frontend.ErrDownloadLimit):
 		return msgDownloadLimit
-	case errors.Is(err, core.ErrDownloadRefused):
+	case errors.Is(err, frontend.ErrDownloadRefused):
 		return msgDownloadRefused
 	}
-	var ue *core.UncachedError
+	var ue *frontend.UncachedError
 	if !errors.As(err, &ue) {
 		return msgNotCached
 	}
 	switch {
-	case ue.CachedOnly && ue.Usenet == core.UsenetNone:
+	case ue.CachedOnly && ue.Usenet == frontend.UsenetNone:
 		return msgNotCachedOnlyNoNZB
-	case ue.CachedOnly && ue.Usenet == core.UsenetFailed:
+	case ue.CachedOnly && ue.Usenet == frontend.UsenetFailed:
 		return msgNotCachedOnlyBadNZB
 	case ue.CachedOnly:
 		return msgNotCachedOnly
-	case ue.Usenet == core.UsenetNone:
+	case ue.Usenet == frontend.UsenetNone:
 		return msgNotCachedNoNZB
-	case ue.Usenet == core.UsenetFailed:
+	case ue.Usenet == frontend.UsenetFailed:
 		return msgNotCachedBadNZB
 	}
 	return msgNotCached
 }
 
-// onlyNotCached reports whether every cause in err is core.ErrNotCached
+// onlyNotCached reports whether every cause in err is frontend.ErrNotCached
 // (uncached, blocked or add-refused on the debrid accounts). The resolver
 // joins one error per failed candidate, so "every" means each joined branch;
 // errors.Is alone would match a single uncached torrent among Usenet
@@ -167,7 +166,7 @@ func notCachedMessage(err error) string {
 // the general message.
 func onlyNotCached(err error) bool {
 	for err != nil {
-		if err == core.ErrNotCached {
+		if err == frontend.ErrNotCached {
 			return true
 		}
 		switch x := err.(type) {
@@ -194,17 +193,17 @@ func onlyNotCached(err error) bool {
 // playRequest is a parsed decision/start request.
 type playRequest struct {
 	manualSubtitle bool
-	key            core.RatingKey
+	key            frontend.RatingKey
 	collection     string
-	caps           core.ClientCaps
-	opts           core.DecideOptions
+	caps           frontend.ClientCaps
+	opts           frontend.DecideOptions
 	sessionID      string // client transcode session id
 	offset         time.Duration
 	protocol       string
 	copyTimestamps bool
-	audioSel       int              // stream position, -1 = default
-	audioStream    *core.StreamInfo // selected identity, remapped after probing
-	subSel         int              // stream position, -1 = none/default
+	audioSel       int                  // stream position, -1 = default
+	audioStream    *frontend.StreamInfo // selected identity, remapped after probing
+	subSel         int                  // stream position, -1 = none/default
 	subSet         bool
 	// subNamed: this request's subtitleStreamID named the subtitle (or
 	// None). Otherwise the selection is the stored or preferred one, which
@@ -213,7 +212,7 @@ type playRequest struct {
 	subNamed bool
 	// subStream is the subtitle picked by id (request or stored), to be
 	// found again in the session's MediaInfo (resolvePlaySelection).
-	subStream     *core.StreamInfo
+	subStream     *frontend.StreamInfo
 	profileResult *deviceProfileResult
 	// mediaIndex is the "Play Version" position the viewer picked
 	// (0 = Auto / not sent); partReleaseID names the release directly
@@ -293,7 +292,7 @@ func plexMobileOrTVBedrockClient(pr *Request) bool {
 
 // androidImageSubtitle is retained for native file playback, but must be burned
 // once playback is converted: our segmented muxer carries text, not images.
-func androidImageSubtitle(pr *Request, info core.MediaInfo, opts core.DecideOptions) bool {
+func androidImageSubtitle(pr *Request, info frontend.MediaInfo, opts frontend.DecideOptions) bool {
 	if !plexAndroidClient(pr) {
 		return false
 	}
@@ -311,11 +310,11 @@ func androidImageSubtitle(pr *Request, info core.MediaInfo, opts core.DecideOpti
 // the same request that ends in a Direct Stream: the player then reads the
 // track from the Matroska segments as it would from the file, so the run
 // has to mux it. Dropping it left the remux with no subtitle (#191).
-func matroskaCarriesText(p *playRequest, info core.MediaInfo) bool {
-	if p.protocol == core.ProtocolDASH {
+func matroskaCarriesText(p *playRequest, info frontend.MediaInfo) bool {
+	if p.protocol == frontend.ProtocolDASH {
 		return false
 	}
-	if p.protocol != core.ProtocolHTTP && transcode.HLSContainer(p.caps, "", "") != transcode.ContainerMatroska {
+	if p.protocol != frontend.ProtocolHTTP && transcode.HLSContainer(p.caps, "", "") != transcode.ContainerMatroska {
 		return false
 	}
 	for _, st := range info.Streams {
@@ -341,7 +340,7 @@ func browserClient(pr *Request) bool {
 func (p playRequest) sameSettings(other playRequest) bool {
 	p.profileResult, other.profileResult = nil, nil
 	p.offset, other.offset = 0, 0
-	p.caps, other.caps = core.ClientCaps{}, core.ClientCaps{}
+	p.caps, other.caps = frontend.ClientCaps{}, frontend.ClientCaps{}
 	p.listAllTracks, other.listAllTracks = false, false
 	p.variantRelease, other.variantRelease = "", ""
 	p.mediaID, other.mediaID = 0, 0
@@ -421,12 +420,12 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	}
 	if p.protocol == "" {
 		if strings.HasSuffix(r.URL.Path, "/start") && !strings.HasSuffix(r.URL.Path, "/start.m3u8") && !strings.HasSuffix(r.URL.Path, "/start.mpd") {
-			p.protocol = core.ProtocolHTTP
+			p.protocol = frontend.ProtocolHTTP
 		} else {
 			p.protocol = "hls"
 		}
 	}
-	p.opts = core.DecideOptions{
+	p.opts = frontend.DecideOptions{
 		DirectPlay:     q.Get("directPlay") != "0",
 		DirectStream:   q.Get("directStream") != "0",
 		MaxBitrateKbps: caps.MaxBitrateKbps,
@@ -493,9 +492,9 @@ func (s *Server) parsePlayRequest(r *http.Request) (playRequest, error) {
 	return p, nil
 }
 
-func isPlayableKey(k core.RatingKey) bool {
+func isPlayableKey(k frontend.RatingKey) bool {
 	switch k.Kind() {
-	case core.KindMovie, core.KindEpisode, core.KindLocal:
+	case frontend.KindMovie, frontend.KindEpisode, frontend.KindLocal:
 		return true
 	}
 	return false
@@ -518,7 +517,7 @@ func sanitizeSessionID(s string) string {
 }
 
 // applySelections maps stream positions to DecideOptions stream indexes.
-func applySelections(p *playRequest, info core.MediaInfo, langs []string) {
+func applySelections(p *playRequest, info frontend.MediaInfo, langs []string) {
 	audio := p.audioSel
 	if audio < 0 || audio >= len(info.Streams) {
 		audio = pickAudio(info, langs)
@@ -536,31 +535,31 @@ func applySelections(p *playRequest, info core.MediaInfo, langs []string) {
 }
 
 // prepare resolves the title for this client and makes the decision.
-func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*core.Title, *core.PlaySession, core.Decision, error) {
+func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*frontend.Title, *frontend.PlaySession, frontend.Decision, error) {
 	requested := *p
 	if s.d.Playback == nil {
-		return nil, nil, core.Decision{}, errors.New("playback not configured")
+		return nil, nil, frontend.Decision{}, errors.New("playback not configured")
 	}
 	t, err := s.d.Catalog.Get(ctx, p.key)
 	if err != nil || (t != nil && t.IsFutureRelease(s.now())) {
 		if title, _, e := s.lookupPlaceholder(ctx, pr, p.key, p.collection); e == nil {
-			return title, nil, core.Decision{}, core.ErrUnreleased
+			return title, nil, frontend.Decision{}, frontend.ErrUnreleased
 		}
 		if err == nil {
-			err = core.ErrNotFound
+			err = frontend.ErrNotFound
 		}
 	}
 	if err != nil {
-		return nil, nil, core.Decision{}, err
+		return nil, nil, frontend.Decision{}, err
 	}
 	// Policy only: discovery evidence never blocks a play attempt.
 	if !s.playableTitle(ctx, pr.User, t) {
-		return nil, nil, core.Decision{}, core.ErrNotFound
+		return nil, nil, frontend.Decision{}, frontend.ErrNotFound
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, p.caps.Remote, s.now()) {
-		return nil, nil, core.Decision{}, core.ErrUnauthorized
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, p.caps.Remote, s.now()) {
+		return nil, nil, frontend.Decision{}, frontend.ErrUnauthorized
 	}
-	if policy, ok := s.d.AccessPolicy.(core.BitrateAccessPolicy); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.BitrateAccessPolicy); ok {
 		if limit := policy.BitrateLimit(pr.User); limit > 0 && (p.caps.MaxBitrateKbps == 0 || limit < p.caps.MaxBitrateKbps) {
 			p.caps.MaxBitrateKbps = limit
 			p.opts.MaxBitrateKbps = limit
@@ -568,14 +567,14 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 	}
 	s.observeClientAdmission(pr, p.caps)
 	if !s.transcodes.claim(p.sessionID, pr.User.ID, pr.ClientID, s.now()) {
-		return t, nil, core.Decision{}, core.ErrUnauthorized
+		return t, nil, frontend.Decision{}, frontend.ErrUnauthorized
 	}
 	// The version list this client was issued stays pinned while the
 	// session is admitted, so a page render racing a background refill
 	// cannot move the Media the request's mediaIndex names.
 	ik := s.playIdentityFor(pr, p.key)
 	s.playIDs.beginAdmission(ik, s.now())
-	var ps *core.PlaySession
+	var ps *frontend.PlaySession
 	admitted := false
 	defer func() {
 		release := ""
@@ -621,11 +620,11 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 			converting := !p.opts.DirectPlay || ps.RequiresRemux
 			if onDemandSession(ps) && p.mde && p.opts.DirectStream && ps.Resolution != nil {
 				protocol := ps.Resolution.Release.Protocol
-				converting = converting || (protocol != core.ProtocolHTTP && protocol != core.ProtocolTorrent)
+				converting = converting || (protocol != frontend.ProtocolHTTP && protocol != frontend.ProtocolTorrent)
 			}
 			// A quality/codec limit can require conversion even though the
 			// client allowed direct play.
-			if converting || transcode.Decide(ps.Info, p.caps, p.opts, transcode.Policy{}).Kind != core.DecisionDirectPlay {
+			if converting || transcode.Decide(ps.Info, p.caps, p.opts, transcode.Policy{}).Kind != frontend.DecisionDirectPlay {
 				p.opts.BurnSubtitles = true
 			}
 		}
@@ -659,7 +658,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 		}, nil
 	})
 	if err != nil {
-		return t, nil, core.Decision{}, err
+		return t, nil, frontend.Decision{}, err
 	}
 	p.mediaID = s.admittedMedia(p)
 	admitted = true
@@ -680,7 +679,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*cor
 	return t, ps, dec, nil
 }
 
-func onDemandSession(ps *core.PlaySession) bool {
+func onDemandSession(ps *frontend.PlaySession) bool {
 	return ps.Resolution != nil && !strings.HasPrefix(ps.Resolution.Release.ID, "local:")
 }
 
@@ -746,7 +745,7 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusBadRequest)
 			return
 		}
-		if errors.Is(err, core.ErrNotFound) && t == nil {
+		if errors.Is(err, frontend.ErrNotFound) && t == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
@@ -772,10 +771,10 @@ const decisionSourceWait = 12 * time.Second
 // decision will use. The search is the playback manager's shared flight:
 // the gated admission that follows finds the prepared session at once.
 // When the search outlasts decisionSourceWait it keeps running for the
-// client's retry and the decision answers core.ErrPrepareSlow. Explicit
+// client's retry and the decision answers frontend.ErrPrepareSlow. Explicit
 // version picks and requests this cannot pre-check go straight on.
-func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) (*core.Title, error) {
-	pw, ok := s.d.Playback.(core.PlaybackPrepareWithin)
+func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) (*frontend.Title, error) {
+	pw, ok := s.d.Playback.(frontend.PlaybackPrepareWithin)
 	if !ok || pr == nil || pr.User == nil || s.d.Catalog == nil {
 		return nil, nil
 	}
@@ -790,10 +789,10 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 	if err != nil || t == nil || !s.playableTitle(ctx, pr.User, t) {
 		return nil, nil
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, p.caps.Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, p.caps.Remote, s.now()) {
 		return nil, nil
 	}
-	if policy, ok := s.d.AccessPolicy.(core.BitrateAccessPolicy); ok {
+	if policy, ok := s.d.AccessPolicy.(frontend.BitrateAccessPolicy); ok {
 		if limit := policy.BitrateLimit(pr.User); limit > 0 && (p.caps.MaxBitrateKbps == 0 || limit < p.caps.MaxBitrateKbps) {
 			p.caps.MaxBitrateKbps = limit
 		}
@@ -813,7 +812,7 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 // decisionError is the decision response for a failed resolve: no Media,
 // and the reason in every *DecisionText so whichever field a client shows
 // carries the message instead of a spinner.
-func (s *Server) decisionError(ctx context.Context, pr *Request, t *core.Title, err error, p playRequest) *model.MediaContainer {
+func (s *Server) decisionError(ctx context.Context, pr *Request, t *frontend.Title, err error, p playRequest) *model.MediaContainer {
 	var profileErr *profileDecisionError
 	if errors.As(err, &profileErr) {
 		return profileErrorContainer(pr, p, profileErr)
@@ -870,7 +869,7 @@ func decisionItem(md *model.Metadata) {
 	}
 }
 
-func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Title, ps *core.PlaySession, dec core.Decision, p playRequest) *model.MediaContainer {
+func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *frontend.Title, ps *frontend.PlaySession, dec frontend.Decision, p playRequest) *model.MediaContainer {
 	mc := s.itemContainer(t.Type)
 	md := s.metadata(ctx, pr, t, renderOpts{detail: true})
 	decisionItem(&md)
@@ -884,16 +883,16 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	// does not have (an AC3 track estimated as AAC for a browser). When
 	// Ether's own decision must convert a stream for this client, say so
 	// instead of "Direct play OK", whatever directStream says (#246).
-	mustConvert := dec.Kind == core.DecisionTranscode || (dec.Kind != core.DecisionDirectPlay && (!dec.VideoCopy || !dec.AudioCopy))
+	mustConvert := dec.Kind == frontend.DecisionTranscode || (dec.Kind != frontend.DecisionDirectPlay && (!dec.VideoCopy || !dec.AudioCopy))
 	pm4k := strings.EqualFold(pr.Product, "PM4K") || strings.EqualFold(pr.Product, "Plex for Kodi")
 	// The owner's "Convert Dolby and DTS to AAC" rule outranks the client's
 	// engine: a surround track it converted is never answered direct play.
-	ownerConverts := p.caps.ConvertSurroundAudio && dec.Kind != core.DecisionDirectPlay && !dec.AudioCopy
-	mdeDirect := p.mde && p.opts.DirectPlay && !dec.StripDolbyVision && !(plexAndroidClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == core.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 && !ownerConverts &&
-		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != core.DecisionDirectPlay)))
+	ownerConverts := p.caps.ConvertSurroundAudio && dec.Kind != frontend.DecisionDirectPlay && !dec.AudioCopy
+	mdeDirect := p.mde && p.opts.DirectPlay && !dec.StripDolbyVision && !(plexAndroidClient(pr) && dec.BurnSubtitles) && (!pm4k || dec.Kind == frontend.DecisionDirectPlay) && len(p.opts.AudioFilters) == 0 && !ownerConverts &&
+		!(onDemandSession(ps) && (mustConvert || (p.opts.DirectStream && dec.Kind != frontend.DecisionDirectPlay)))
 	shown := dec
 	if mdeDirect {
-		shown = core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: ps.Info.Container}
+		shown = frontend.Decision{Kind: frontend.DecisionDirectPlay, VideoCopy: true, AudioCopy: true, Container: ps.Info.Container}
 	}
 	p.listAllTracks = androidFamilyClient(pr)
 	p.softText = browserClient(pr)
@@ -914,7 +913,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 			model.A("mdeDecisionCode", codeDirectPlayOK),
 			model.A("mdeDecisionText", textDirectPlayOK),
 		}
-	case dec.Kind == core.DecisionDirectPlay:
+	case dec.Kind == frontend.DecisionDirectPlay:
 		mc.Extra = []model.Attr{
 			model.A("directPlayDecisionCode", codeDirectPlayOK),
 			model.A("directPlayDecisionText", textDirectPlayOK),
@@ -946,7 +945,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 	}
 	if pm4k && p.mde && !mdeDirect {
 		code, text := codeConversionOK, textConversionOK
-		if dec.Kind == core.DecisionDirectPlay {
+		if dec.Kind == frontend.DecisionDirectPlay {
 			code, text = codeDirectPlayOK, textDirectPlayOK
 		}
 		mc.Extra = append(mc.Extra, model.A("mdeDecisionCode", code), model.A("mdeDecisionText", text))
@@ -957,7 +956,7 @@ func (s *Server) decisionContainer(ctx context.Context, pr *Request, t *core.Tit
 }
 
 // decisionMedia renders the Media with decision attributes.
-func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Decision, p playRequest, u *core.User) model.Media {
+func (s *Server) decisionMedia(t *frontend.Title, ps *frontend.PlaySession, dec frontend.Decision, p playRequest, u *frontend.User) model.Media {
 	stamp := ps.StartedAt.Unix()
 	if stamp <= 0 {
 		stamp = 1
@@ -976,7 +975,7 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 		}
 		m.Part[0].Key = s.playIDs.partKey(ik, m.ID, m.Part[0].Key, s.now())
 	}
-	if ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(core.TrickplayCacheKey(ps)) {
+	if ps.Resolution != nil && s.d.Trickplay != nil && s.d.Trickplay.TrickplayAvailable(frontend.TrickplayCacheKey(ps)) {
 		m.Part[0].Indexes = "sd"
 	}
 	m.Selected = model.Ptr(true)
@@ -1012,7 +1011,7 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 	}
 	streams = playableStreams
 	selectedOnly := info.Estimated || !p.listAllTracks
-	if dec.Kind == core.DecisionDirectPlay {
+	if dec.Kind == frontend.DecisionDirectPlay {
 		return directPlayMedia(m, streams, selectedOnly, p.subtitles)
 	}
 	applyTranscodeMedia(&m, dec, p.protocol)
@@ -1023,7 +1022,7 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 			continue
 		}
 		if shaped, keep := applyStreamDecision(st, binding.Info, dec, selectedOnly, p.subtitles, p.softText); keep {
-			if plexAndroidClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && transcode.IsImageSubtitle(binding.Info.Codec) && p.protocol == core.ProtocolHLS {
+			if plexAndroidClient(&Request{Product: p.caps.Product, Device: p.caps.Device}) && shaped.Decision == "burn" && transcode.IsImageSubtitle(binding.Info.Codec) && p.protocol == frontend.ProtocolHLS {
 				shaped.Location = "segments-av"
 				shaped.Extra = append(shaped.Extra, model.A("burn", "1"))
 			}
@@ -1031,10 +1030,10 @@ func (s *Server) decisionMedia(t *core.Title, ps *core.PlaySession, dec core.Dec
 		}
 	}
 	part.Stream = kept
-	if p.protocol == core.ProtocolDASH {
+	if p.protocol == frontend.ProtocolDASH {
 		dashDecisionMedia(&m)
 	}
-	if p.protocol == core.ProtocolHTTP {
+	if p.protocol == frontend.ProtocolHTTP {
 		for i := range kept {
 			if kept[i].Location == "segments-av" || kept[i].Location == "segments-video" {
 				kept[i].Location = "direct"
@@ -1092,7 +1091,7 @@ func textSidecarCodec(codec string) bool {
 }
 
 // applyTranscodeMedia describes the output container and media dimensions.
-func applyTranscodeMedia(m *model.Media, dec core.Decision, protocol string) {
+func applyTranscodeMedia(m *model.Media, dec frontend.Decision, protocol string) {
 	part := &m.Part[0]
 	// Describe the actual HLS segment container so native MDE does not see
 	// HEVC paired with the MPEG-TS container it cannot use.
@@ -1108,7 +1107,7 @@ func applyTranscodeMedia(m *model.Media, dec core.Decision, protocol string) {
 	}
 	part.Container = m.Container
 	part.Protocol = protocol
-	if protocol == core.ProtocolHTTP {
+	if protocol == frontend.ProtocolHTTP {
 		// Plex Desktop's Matroska stream: Media/Part carry container=mkv
 		// and no protocol attribute.
 		m.Protocol = ""
@@ -1165,7 +1164,7 @@ func applyTranscodeMedia(m *model.Media, dec core.Decision, protocol string) {
 // decision="transcode", location="segments-subs") and read from
 // /video/:/transcode/universal/subtitles; a text track copied into
 // Matroska segments keeps its format.
-func applyStreamDecision(st model.Stream, src core.StreamInfo, dec core.Decision, selectedOnly bool, subtitles string, softText bool) (model.Stream, bool) {
+func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.Decision, selectedOnly bool, subtitles string, softText bool) (model.Stream, bool) {
 	idx := st.Index
 	st.Index = nil // segments carry their own stream layout
 	switch st.StreamType {
@@ -1332,13 +1331,13 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 	}
 	// A slow decision leaves acquisition running. Join that shared flight
 	// below; only a completed source failure should short-circuit start.
-	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
+	if err, failed := s.transcodes.takeFailure(p.sessionID, pr.User.ID, p.key, s.now()); failed && !errors.Is(err, frontend.ErrPrepareSlow) {
 		s.log.Info("start playback failed", "key", p.key, "reason", playbackMessage(err), "err", err, "decision", "remembered")
 		s.writeStartErr(w, r, pr, err)
 		return
 	}
 	entry, ok := s.transcodes.get(p.sessionID)
-	var ps *core.PlaySession
+	var ps *frontend.PlaySession
 	if ok && entry.key == p.key && entry.userID == pr.User.ID {
 		ps, ok = s.d.Playback.Session(entry.playID)
 	}
@@ -1365,11 +1364,11 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 	entry.playbackID = pr.SessionID
 	s.transcodes.put(entry)
 
-	dec := sessions.HLSDecision(entry.decision, p.opts.DirectPlay, func() core.Decision {
+	dec := sessions.HLSDecision(entry.decision, p.opts.DirectPlay, func() frontend.Decision {
 		resolvePlaySelection(&p, ps.Info)
 		applySelections(&p, ps.Info, s.audioLanguages(pr.User))
 		return s.d.Transcoder.Decide(ps.Info, p.caps, p.opts)
-	}, func(dec core.Decision) core.Decision {
+	}, func(dec frontend.Decision) frontend.Decision {
 		// A client may request HLS after accepting an MDE direct-play
 		// decision (notably stable HTTP/debrid files). HLSDecision's legacy
 		// fallback is MPEG-TS, which cannot carry the selected text track.
@@ -1402,7 +1401,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		}
 		s.stopPlexHLS(p.sessionID)
 	}
-	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, core.HLSRequest{
+	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, frontend.HLSRequest{
 		SoftSubtitleStream: sessionSoftSubtitle(entry, pr, dec),
 		SessionID:          p.sessionID,
 		ReleaseID:          ps.SourceReleaseID(),
@@ -1450,7 +1449,7 @@ func singleRungHLSClient(r *http.Request, entry *transcodeEntry) bool {
 	return false
 }
 
-func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, sessionID string, hs core.HLSSession, info core.MediaInfo, dec core.Decision) {
+func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, sessionID string, hs frontend.HLSSession, info frontend.MediaInfo, dec frontend.Decision) {
 	if err := s.saveDistributedBinding(r.Context(), sessionID); err != nil {
 		http.Error(w, "playback unavailable", 503)
 		return
@@ -1461,7 +1460,7 @@ func (s *Server) writeMasterPlaylist(w http.ResponseWriter, r *http.Request, ses
 	// rung's encoder lazily on its first segment request. The primary
 	// rung keeps the historic "base" URI.
 	baseBandwidth := 0
-	if ls, ok := hs.(core.HLSLadderSession); ok {
+	if ls, ok := hs.(frontend.HLSLadderSession); ok {
 		rungs := ls.Rungs()
 		if singleRungHLSClient(r, entry) && len(rungs) > 1 {
 			rungs = rungs[:1]
@@ -1572,7 +1571,7 @@ func (s *Server) handleTranscodeSession(w http.ResponseWriter, r *http.Request) 
 	// ABR ladder: session/{id}/{rung}/index.m3u8 and .../{rung}/{seg}.ts.
 	// The primary rung is "base"; sessions without a ladder fall through
 	// to the historic single-rung handling.
-	if ls, isLadder := hs.(core.HLSLadderSession); isLadder {
+	if ls, isLadder := hs.(frontend.HLSLadderSession); isLadder {
 		if rungID, _, found := strings.Cut(rest, "/"); found {
 			for _, rg := range ls.Rungs() {
 				if rg.ID != rungID {
@@ -1800,7 +1799,9 @@ func (s *Server) servedTranscodeSessionModel(te *transcodeEntry) model.Transcode
 	if !ok || hs == nil {
 		return ts
 	}
-	src, ok := hs.(interface{ EncoderStatus() *core.EncoderStatus })
+	src, ok := hs.(interface {
+		EncoderStatus() *frontend.EncoderStatus
+	})
 	if !ok {
 		return ts
 	}
@@ -1816,11 +1817,11 @@ func (s *Server) servedTranscodeSessionModel(te *transcodeEntry) model.Transcode
 // (te.started). Tautulli and Plex Dashboard inspect Part@decision on the
 // session's Media to distinguish Direct Play (Part@decision omitted) from
 // Direct Stream (Part@decision="transcode" with VideoDecision="copy").
-func (s *Server) sessionTranscodeMedia(t *core.Title, te *transcodeEntry, viewer *Request) (model.Media, bool) {
+func (s *Server) sessionTranscodeMedia(t *frontend.Title, te *transcodeEntry, viewer *Request) (model.Media, bool) {
 	if t == nil || te == nil || !te.started || viewer == nil || viewer.User == nil {
 		return model.Media{}, false
 	}
-	ps := &core.PlaySession{Info: te.info, StartedAt: t.UpdatedAt}
+	ps := &frontend.PlaySession{Info: te.info, StartedAt: t.UpdatedAt}
 	if s.d.Playback != nil {
 		if live, ok := s.d.Playback.Session(te.playID); ok && live != nil {
 			ps = live
@@ -1834,11 +1835,13 @@ func (s *Server) sessionTranscodeMedia(t *core.Title, te *transcodeEntry, viewer
 		ps = &cp
 	}
 	dec := te.decision
-	if dec.Kind == core.DecisionDirectPlay {
-		dec.Kind = core.DecisionRemux
+	if dec.Kind == frontend.DecisionDirectPlay {
+		dec.Kind = frontend.DecisionRemux
 	}
 	if hs, ok := s.plexHLSSession(te.id); ok && hs != nil {
-		if src, ok := hs.(interface{ EncoderStatus() *core.EncoderStatus }); ok {
+		if src, ok := hs.(interface {
+			EncoderStatus() *frontend.EncoderStatus
+		}); ok {
 			if st := src.EncoderStatus(); st != nil && st.Rung != "" && st.Rung != "base" && !st.Decision.VideoCopy {
 				dec = st.Decision
 			}
@@ -1854,7 +1857,7 @@ func (s *Server) sessionTranscodeMedia(t *core.Title, te *transcodeEntry, viewer
 		if te.opts.Protocol != "" {
 			p.protocol = te.opts.Protocol
 		} else {
-			p.protocol = core.ProtocolHLS
+			p.protocol = frontend.ProtocolHLS
 		}
 	}
 	ik := s.playIdentityFor(viewer, t.Key)
@@ -1896,12 +1899,12 @@ func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
 	}
 	if te.started {
 		switch cmp.Or(te.opts.Protocol, te.requested.protocol) {
-		case core.ProtocolDASH:
-			ts.Protocol = core.ProtocolDASH
-		case core.ProtocolHTTP:
-			ts.Protocol = core.ProtocolHTTP
+		case frontend.ProtocolDASH:
+			ts.Protocol = frontend.ProtocolDASH
+		case frontend.ProtocolHTTP:
+			ts.Protocol = frontend.ProtocolHTTP
 		default:
-			ts.Protocol = core.ProtocolHLS
+			ts.Protocol = frontend.ProtocolHLS
 		}
 		switch te.decision.Container {
 		case transcode.ContainerMatroska:
@@ -1909,7 +1912,7 @@ func transcodeSessionModel(te *transcodeEntry) model.TranscodeSess {
 		case transcode.ContainerFMP4:
 			ts.Container = "mp4"
 		default:
-			if ts.Protocol == core.ProtocolHTTP {
+			if ts.Protocol == frontend.ProtocolHTTP {
 				ts.Container = "mkv"
 			} else {
 				ts.Container = "mpegts"
@@ -2004,7 +2007,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	if policy, ok := s.d.AccessPolicy.(core.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
+	if policy, ok := s.d.AccessPolicy.(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, pr.ClientCaps(0).Remote, s.now()) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
@@ -2015,7 +2018,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			if pr.SessionID != "" && id != sanitizeSessionID(pr.SessionID) {
 				continue // a distinct playback attempt must be allowed to retry
 			}
-			if err, failed := s.transcodes.takeFailure(id, pr.User.ID, key, s.now()); failed && !errors.Is(err, core.ErrPrepareSlow) {
+			if err, failed := s.transcodes.takeFailure(id, pr.User.ID, key, s.now()); failed && !errors.Is(err, frontend.ErrPrepareSlow) {
 				s.writePartErr(w, r, pr, err)
 				return
 			}
@@ -2026,7 +2029,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	live, anonymousContinuation := source.PreviousID, source.AnonymousContinuation
 	if anonymousContinuation {
 		if confirm, supported := s.playbackBroker.(interface {
-			ConfirmPlexAdmission(context.Context, *core.Viewer, bool) (*core.Viewer, error)
+			ConfirmPlexAdmission(context.Context, *frontend.Viewer, bool) (*frontend.Viewer, error)
 		}); supported {
 			viewer, err := confirm.ConfirmPlexAdmission(ctx, pr.User, pr.ClientCaps(0).Remote)
 			if err != nil || viewer == nil || viewer.ID != pr.User.ID || !s.playableTitle(ctx, viewer, title) {
@@ -2038,7 +2041,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	if !ok || ps == nil {
 		t, err := s.d.Catalog.Get(ctx, key)
 		if err == nil && !s.titleVisible(pr.User, t) {
-			err = core.ErrNotFound
+			err = frontend.ErrNotFound
 		}
 		if err != nil {
 			s.writeErr(w, r, err)
@@ -2105,7 +2108,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		// Plex Web's Download button is a plain part read; only the viewer
 		// policy (an owner override or plex.tv allowSync=0) refuses it. The
 		// download queue being off is a different feature.
-		if p, ok := s.d.AccessPolicy.(core.DownloadAccessPolicy); ok && !p.AllowDownloads(pr.User) {
+		if p, ok := s.d.AccessPolicy.(frontend.DownloadAccessPolicy); ok && !p.AllowDownloads(pr.User) {
 			writeHTTPError(w, http.StatusForbidden)
 			return
 		}
@@ -2124,7 +2127,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 // Part acquisition failures distinguish an absent provider file from a failed
 // upstream transport; the conversion start routes retain their own contract.
 func (s *Server) writePartErr(w http.ResponseWriter, r *http.Request, pr *Request, err error) {
-	if errors.Is(err, core.ErrNotFound) || errors.Is(err, core.ErrNotAvailable) || errors.Is(err, core.ErrUnauthorized) || errors.Is(err, core.ErrStreamLimit) || errors.Is(err, core.ErrPrepareSlow) {
+	if errors.Is(err, frontend.ErrNotFound) || errors.Is(err, frontend.ErrNotAvailable) || errors.Is(err, frontend.ErrUnauthorized) || errors.Is(err, frontend.ErrStreamLimit) || errors.Is(err, frontend.ErrPrepareSlow) {
 		s.writeStartErr(w, r, pr, err)
 		return
 	}
@@ -2243,13 +2246,13 @@ func (s *Server) handlePartSelect(w http.ResponseWriter, r *http.Request) {
 	})
 	if clearSub || sub != nil {
 		// This client now shows the track it picked (burnOnlyShownSubtitle).
-		var picked *core.StreamInfo
+		var picked *frontend.StreamInfo
 		if sub != nil {
 			picked = &sub.Info
 		}
-		s.playIDs.pickSubtitle(s.playIdentityFor(pr, core.RatingKey(id)), picked, s.now())
+		s.playIDs.pickSubtitle(s.playIdentityFor(pr, frontend.RatingKey(id)), picked, s.now())
 	}
-	s.rememberStreamRequest(r, pr.User, core.RatingKey(id))
+	s.rememberStreamRequest(r, pr.User, frontend.RatingKey(id))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -2291,7 +2294,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	binding, rerr := s.resolveIssuedStream(r.Context(), pr.User, pr.ClientID, id)
 	if rerr != nil {
-		if errors.Is(rerr, core.ErrUnauthorized) {
+		if errors.Is(rerr, frontend.ErrUnauthorized) {
 			writeHTTPError(w, http.StatusUnauthorized)
 			return
 		}
@@ -2329,7 +2332,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			}
 		})
 		if resetter, ok := s.d.TrackPreferences.(interface {
-			ForgetChoice(context.Context, int64, core.RatingKey, string) error
+			ForgetChoice(context.Context, int64, frontend.RatingKey, string) error
 		}); ok {
 			if err := resetter.ForgetChoice(r.Context(), pr.User.ID, binding.Key, "subtitle"); err != nil {
 				s.log.Warn("clear deleted subtitle preference", "error", err)
@@ -2348,7 +2351,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		if reader != nil {
 			_ = reader.Close()
 		}
-		if errors.Is(err, core.ErrUnauthorized) {
+		if errors.Is(err, frontend.ErrUnauthorized) {
 			writeHTTPError(w, http.StatusUnauthorized)
 			return
 		}

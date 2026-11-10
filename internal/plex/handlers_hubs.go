@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/homefilter"
@@ -30,7 +29,7 @@ import (
 // the full row again.
 type hubCtx struct {
 	section int
-	related core.RatingKey
+	related frontend.RatingKey
 	// visible caps the rendered items of a hub whose candidate window is
 	// wider (section hubs assemble a stable window for later pages).
 	visible int
@@ -39,7 +38,7 @@ type hubCtx struct {
 // hubSpec is a hub plus the PMS presentation details Ether generates for
 // its own rows (key, promoted flag, watch state).
 type hubSpec struct {
-	core.Hub
+	frontend.Hub
 	key        string // overrides the computed key
 	noPromoted bool   // omit the promoted attribute (section rows)
 	// included stamps includedAt on the items, as PMS's
@@ -48,10 +47,10 @@ type hubSpec struct {
 	// plain keeps episodes in list form (the Home hero row); other rows
 	// carry episodes in full, as PMS does.
 	plain bool
-	state map[core.RatingKey]core.WatchStatus
+	state map[frontend.RatingKey]frontend.WatchStatus
 }
 
-func hubItemsKey(h core.Hub, hc hubCtx) string {
+func hubItemsKey(h frontend.Hub, hc hubCtx) string {
 	if h.Key != 0 {
 		return "/library/collections/" + h.Key.String() + "/children"
 	}
@@ -80,22 +79,22 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 			}
 		}
 	}
-	build := func() []core.Title {
+	build := func() []frontend.Title {
 		if loader, ok := s.d.Catalog.(interface {
-			LoadRowFacts(context.Context, []core.Title) []core.Title
+			LoadRowFacts(context.Context, []frontend.Title) []frontend.Title
 		}); ok {
 			h.Items = loader.LoadRowFacts(ctx, h.Items)
 		}
 
 		return (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
-			SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
+			SameDayUnavailable: func(ctx context.Context, t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
 		}).Items(ctx, pr.User, h)
 	}
 	// Filter the section and availability before rendering or paging. The
 	// resulting wire list is the canonical generation (including its counts).
 	if hc.section != 0 && hs.state == nil && hs.key == "" {
 		if sec, ok := s.sectionByID(hc.section); ok {
-			if view, ok := core.SectionView(h, sec.Type); ok {
+			if view, ok := frontend.SectionView(h, sec.Type); ok {
 				h = view
 			} else {
 				h.Items = nil
@@ -104,7 +103,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 	}
 	related := hc.related != 0
 	pinned := hc.section != 0 && hs.state == nil && hs.key == ""
-	var sourceItems []core.Title
+	var sourceItems []frontend.Title
 	render := func() []model.Metadata {
 		sourceItems = build()
 		if !pinned && hc.visible > 0 && len(sourceItems) > hc.visible {
@@ -117,8 +116,8 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 	generation := ""
 	if pinned {
 		h.More = false
-		var selected []core.Title
-		selected, generation = s.shelfSnapshot(ctx, pr, h, hc, func() ([]core.Title, []model.Metadata) {
+		var selected []frontend.Title
+		selected, generation = s.shelfSnapshot(ctx, pr, h, hc, func() ([]frontend.Title, []model.Metadata) {
 			// A generation stores membership, not card presentation. Apply the
 			// same admission checks as renderTitles, but defer watch counts,
 			// artwork, GUIDs and episode-order decoration to the visible page.
@@ -128,7 +127,7 @@ func (s *Server) renderHub(ctx context.Context, pr *Request, hs hubSpec, hc hubC
 			if h.Key != 0 && !h.Key.IsEphemeral() && s.d.Collections != nil {
 				if c, err := s.collectionRaw(ctx, pr.User, h.Key); err == nil && (hs.Hub.More || c.ChildCount > len(sourceItems)) {
 					if page, err := s.collectionSelection().Page(ctx, pr.User, c, h.Key, collectionDevice(ctx), 0, int(^uint(0)>>1)); err == nil && len(page.Items) > 0 {
-						seen := make(map[core.RatingKey]bool, len(sourceItems)+len(page.Items))
+						seen := make(map[frontend.RatingKey]bool, len(sourceItems)+len(page.Items))
 						for _, item := range sourceItems {
 							seen[item.Key] = true
 						}
@@ -222,7 +221,7 @@ func stampIncluded(md []model.Metadata) {
 	}
 }
 
-func (s *Server) renderHubs(ctx context.Context, pr *Request, hubs []core.Hub, hc hubCtx) []model.Hub {
+func (s *Server) renderHubs(ctx context.Context, pr *Request, hubs []frontend.Hub, hc hubCtx) []model.Hub {
 	out := make([]model.Hub, 0, len(hubs))
 	for _, h := range hubs {
 		out = append(out, s.renderHub(ctx, pr, hubSpec{Hub: h}, hc))
@@ -252,22 +251,22 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 	// row or page asking for more answers the whole bounded deck.
 	bounded := count >= plexOnDeckLimit
 	count = min(count, plexOnDeckLimit)
-	t := core.MediaType("")
+	t := frontend.MediaType("")
 	if sec.ID != 0 {
 		t = sec.Type
 	}
 	// Home renders resume and On Deck from the same selection. Share that
 	// request-local work before either row filters its own membership.
 	type selection struct {
-		items []core.Title
-		state map[core.RatingKey]core.WatchStatus
+		items []frontend.Title
+		state map[frontend.RatingKey]frontend.WatchStatus
 		more  bool
 	}
 	uid := int64(0)
 	if pr.User != nil {
 		uid = pr.User.ID
 	}
-	unfiltered := v == cwSection && sec.Type == core.TypeShow
+	unfiltered := v == cwSection && sec.Type == frontend.TypeShow
 	fetch := s.saferFetchCount(pr.User, count)
 	picked, _ := reqmemo.Do(ctx, fmt.Sprintf("plex:continue:%p:%d:%s:%d:%t", s, uid, t, fetch, unfiltered), func() (selection, error) {
 		selector := s.continueExperience(pr)
@@ -277,20 +276,20 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 		items, state, more := selector.Shelf(ctx, pr.User, t, fetch)
 		return selection{items, state, more}, nil
 	})
-	items, state, more := append([]core.Title(nil), picked.items...), maps.Clone(picked.state), picked.more
+	items, state, more := append([]frontend.Title(nil), picked.items...), maps.Clone(picked.state), picked.more
 	if windowed := s.onDeckWindowed(items, state); len(windowed) < len(items) {
 		// Newest first: the window cut the tail, and the overflow
 		// candidate behind it is older still.
 		items, more = windowed, false
 	}
-	if v == cwSection && sec.Type == core.TypeShow && pr.User != nil {
+	if v == cwSection && sec.Type == frontend.TypeShow && pr.User != nil {
 		if gate, ok := s.d.State.(interface {
-			PlaybackCompletedShows(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error)
+			PlaybackCompletedShows(context.Context, int64, []frontend.RatingKey) (map[frontend.RatingKey]bool, error)
 		}); ok {
-			shows := make([]core.RatingKey, 0, len(items))
+			shows := make([]frontend.RatingKey, 0, len(items))
 			for _, item := range items {
 				if state[item.Key].ViewOffset <= 0 {
-					shows = append(shows, core.ShowKey(item.Key.TMDB()))
+					shows = append(shows, frontend.ShowKey(item.Key.TMDB()))
 				}
 			}
 			completed, err := gate.PlaybackCompletedShows(ctx, pr.User.ID, shows)
@@ -299,7 +298,7 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 			} else {
 				out := items[:0]
 				for _, item := range items {
-					if state[item.Key].ViewOffset > 0 || completed[core.ShowKey(item.Key.TMDB())] {
+					if state[item.Key].ViewOffset > 0 || completed[frontend.ShowKey(item.Key.TMDB())] {
 						out = append(out, item)
 					}
 				}
@@ -317,7 +316,7 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 		items = resuming
 	}
 	items = s.takeVisible(pr.User, items, count)
-	hs := hubSpec{Hub: core.Hub{Title: "Continue Watching", Style: "hero", Promoted: true}, state: state}
+	hs := hubSpec{Hub: frontend.Hub{Title: "Continue Watching", Style: "hero", Promoted: true}, state: state}
 	switch v {
 	case cwHome:
 		hs.ID, hs.Context, hs.key, hs.plain = "home.continue", "hub.home.continue", "/hubs/home/continueWatching", true
@@ -328,10 +327,10 @@ func (s *Server) continueHub(ctx context.Context, pr *Request, v cwVariant, sec 
 		id := strconv.Itoa(sec.ID)
 		hs.Style, hs.noPromoted = "shelf", true
 		hs.key = "/hubs/sections/" + id + "/continueWatching/items"
-		if sec.Type == core.TypeShow {
-			hs.ID, hs.Context, hs.Type = "tv.inprogress."+id, "hub.tv.inprogress", core.TypeEpisode
+		if sec.Type == frontend.TypeShow {
+			hs.ID, hs.Context, hs.Type = "tv.inprogress."+id, "hub.tv.inprogress", frontend.TypeEpisode
 		} else {
-			hs.ID, hs.Context, hs.Type = "movie.inprogress."+id, "hub.movie.inprogress", core.TypeMovie
+			hs.ID, hs.Context, hs.Type = "movie.inprogress."+id, "hub.movie.inprogress", frontend.TypeMovie
 		}
 	}
 	hs.More = more && !bounded
@@ -344,8 +343,8 @@ func (s *Server) recentlyAddedHub(ctx context.Context, pr *Request, sec Section,
 }
 
 func (s *Server) recentlyAddedHubPage(ctx context.Context, pr *Request, sec Section, count int, noTotal bool) (hubSpec, error) {
-	recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *core.User) bool { return !s.viewerRestricted(u) }}
-	items, more, err := recent.Added(ctx, pr.User, sec.Type, count, func(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	recent := experience.Recent{Visibility: s.visibility(), Unrestricted: func(u *frontend.User) bool { return !s.viewerRestricted(u) }}
+	items, more, err := recent.Added(ctx, pr.User, sec.Type, count, func(ctx context.Context, q frontend.BrowseQuery) (frontend.Page, error) {
 		q.NoTotal = noTotal
 		return s.catalogBrowse(ctx, q)
 	})
@@ -353,8 +352,8 @@ func (s *Server) recentlyAddedHubPage(ctx context.Context, pr *Request, sec Sect
 		return hubSpec{}, err
 	}
 	id := strconv.Itoa(sec.ID)
-	hs := hubSpec{Hub: core.Hub{Title: "Recently Added in " + sec.Title, Type: sec.Type, Style: "shelf", Promoted: true, Items: items}}
-	if sec.Type == core.TypeShow {
+	hs := hubSpec{Hub: frontend.Hub{Title: "Recently Added in " + sec.Title, Type: sec.Type, Style: "shelf", Promoted: true, Items: items}}
+	if sec.Type == frontend.TypeShow {
 		hs.ID, hs.Context, hs.Type = "tv.recentlyadded."+id, "hub.tv.recentlyadded", ""
 		hs.key = "/hubs/home/recentlyAdded?type=2&sectionID=" + id
 	} else {
@@ -378,7 +377,7 @@ func parseSectionList(s string) []int {
 
 // hubInSections reports whether a hub's items belong to one of the
 // sections (mixed hubs always match).
-func (s *Server) hubInSections(h core.Hub, ids []int) bool {
+func (s *Server) hubInSections(h frontend.Hub, ids []int) bool {
 	if len(ids) == 0 || h.Type == "" {
 		return true
 	}
@@ -427,8 +426,8 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 	}
 	hc := s.hubContext(pr, 0)
 	mc := hubContainer()
-	var hubs []core.Hub
-	var sharedDiscovery []core.Hub
+	var hubs []frontend.Hub
+	var sharedDiscovery []frontend.Hub
 	if perDirectory {
 		var err error
 		var filter *homefilter.Snapshot
@@ -458,7 +457,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 	includeContinue := !metadataOptionOn(q.Get("excludeContinueWatching"))
 	hubs, ondeckHub, cwHomeSpec, cwHomeRendered := s.prepareHomeContinueAndOnDeck(ctx, pr, hc, hubs, selected, includeContinue, count)
 	assembly := experience.HomeAssembly[model.Hub]{
-		Render: func(hub core.Hub) model.Hub {
+		Render: func(hub frontend.Hub) model.Hub {
 			if hub.ID == "home.ondeck" && ondeckHub != nil {
 				return *ondeckHub
 			}
@@ -472,7 +471,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 				// The layout needs the same painted item count, but the client
 				// will never receive this row's expensive metadata projection.
 				items := (experience.RowSelection{Visibility: s.visibility(), PrioritizeAvailable: s.d.PrioritizeAvailable,
-					SameDayUnavailable: func(ctx context.Context, t *core.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
+					SameDayUnavailable: func(ctx context.Context, t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) },
 				}).Items(ctx, pr.User, hub)
 				items = s.availableForViewer(ctx, pr.User, s.visibleTitles(pr.User, items))
 				typ := string(hub.Type)
@@ -489,8 +488,8 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 		},
 		Identity:    func(row model.Hub) string { return row.HubIdentifier },
 		Report:      homeLayoutFacts,
-		InLibraries: func(hub core.Hub) bool { return perDirectory || s.hubInSections(hub, sections) },
-		Continue: func() (core.Hub, model.Hub) {
+		InLibraries: func(hub frontend.Hub) bool { return perDirectory || s.hubInSections(hub, sections) },
+		Continue: func() (frontend.Hub, model.Hub) {
 			return cwHomeSpec.Hub, cwHomeRendered
 		},
 		Playlists: func() (model.Hub, bool) {
@@ -500,8 +499,8 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			hub, _, ok := s.playlistsHubProjection(ctx, pr, count)
 			return hub, ok
 		},
-		Discovery: func() []core.Hub {
-			hubs := append([]core.Hub(nil), sharedDiscovery...)
+		Discovery: func() []frontend.Hub {
+			hubs := append([]frontend.Hub(nil), sharedDiscovery...)
 			if !perDirectory {
 				for _, spec := range s.discoveryHubs(ctx, pr, count) {
 					hubs = append(hubs, spec.Hub)
@@ -532,7 +531,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 			return *hub, true
 		},
 		Keep: func(row model.Hub) bool { return selected == nil || selected[row.HubIdentifier] },
-		Layout: func(rows []model.Hub, hubs []core.Hub, neutral []core.NeutralHomeRow) []model.Hub {
+		Layout: func(rows []model.Hub, hubs []frontend.Hub, neutral []frontend.NeutralHomeRow) []model.Hub {
 			return s.arrangeHomeRows(ctx, pr, hc, "home", rows, hubs, neutral)
 		},
 	}
@@ -573,7 +572,7 @@ func (s *Server) buildHomeHubs(r *http.Request, promotedOnly bool) homeBuild {
 
 // hasRecommendedRows reports recommender rows beyond the Continue Watching
 // placeholder: without them the viewer's model was not ready yet.
-func hasRecommendedRows(hubs []core.Hub) bool {
+func hasRecommendedRows(hubs []frontend.Hub) bool {
 	for _, h := range hubs {
 		if h.ID != "home.continue" {
 			return true
@@ -585,12 +584,12 @@ func hasRecommendedRows(hubs []core.Hub) bool {
 // Library hub namespaces identify their source independently of the request.
 // Everything else belongs to the first pinned directory.
 func (s *Server) homeDirectoryForHub(id string) string {
-	var typ core.MediaType
+	var typ frontend.MediaType
 	switch {
 	case strings.HasPrefix(id, "movie."):
-		typ = core.TypeMovie
+		typ = frontend.TypeMovie
 	case strings.HasPrefix(id, "tv."):
-		typ = core.TypeShow
+		typ = frontend.TypeShow
 	default:
 		return ""
 	}
@@ -603,8 +602,8 @@ func (s *Server) homeDirectoryForHub(id string) string {
 // hubContext is the personalization context of a hubs request: the
 // device class from the client's X-Plex-* headers, and the daypart and
 // weekend flag in server local time.
-func (s *Server) hubContext(pr *Request, section int) core.HubContext {
-	hc := core.NewHubContext(s.now().Local(), pr.Product, pr.Platform, pr.Device)
+func (s *Server) hubContext(pr *Request, section int) frontend.HubContext {
+	hc := frontend.NewHubContext(s.now().Local(), pr.Product, pr.Platform, pr.Device)
 	hc.SectionID = section
 	hc.ClientID = pr.ClientID
 	hc.SessionID = pr.SessionID
@@ -613,11 +612,11 @@ func (s *Server) hubContext(pr *Request, section int) core.HubContext {
 
 // recommendHome asks for Home rows, with the request context when the
 // recommender adapts to it.
-func (s *Server) recommendHome(ctx context.Context, pr *Request, hc core.HubContext, count int) ([]core.Hub, error) {
+func (s *Server) recommendHome(ctx context.Context, pr *Request, hc frontend.HubContext, count int) ([]frontend.Hub, error) {
 	return (experience.HomeSelection{Source: s.d.Recommender, Visibility: s.visibility(), Restricted: s.viewerRestricted(pr.User)}).Rows(ctx, pr.User, hc, "", count)
 }
 
-func (s *Server) recommendSection(ctx context.Context, pr *Request, t core.MediaType, hc core.HubContext, count int) ([]core.Hub, error) {
+func (s *Server) recommendSection(ctx context.Context, pr *Request, t frontend.MediaType, hc frontend.HubContext, count int) ([]frontend.Hub, error) {
 	return (experience.HomeSelection{Source: s.d.Recommender, Visibility: s.visibility(), Restricted: s.viewerRestricted(pr.User)}).Rows(ctx, pr.User, hc, t, count)
 }
 
@@ -630,7 +629,7 @@ func (s *Server) warmBrowseLink(ctx context.Context, pr *Request, rows []model.H
 	if pr == nil || pr.User == nil {
 		return
 	}
-	pw, ok := s.d.Playback.(core.Prewarmer)
+	pw, ok := s.d.Playback.(frontend.Prewarmer)
 	if !ok {
 		return
 	}
@@ -638,14 +637,14 @@ func (s *Server) warmBrowseLink(ctx context.Context, pr *Request, rows []model.H
 	if !ok {
 		return
 	}
-	pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), core.PrewarmOptions{Reason: core.PrewarmBrowse})
+	pw.Prewarm(store.DetachQueryStats(context.WithoutCancel(ctx)), pr.User, key, s.clientCaps(pr), frontend.PrewarmOptions{Reason: frontend.PrewarmBrowse})
 }
 
 // firstBrowseWarmKey is the first movie or episode in a row of the viewer's
 // own progress (Continue Watching, a section's in-progress row or On Deck).
 // Rows of recommendations, trending or anything else are never warmed: each
 // warm-up searches the indexers for a title the viewer may never play.
-func firstBrowseWarmKey(rows []model.Hub) (core.RatingKey, bool) {
+func firstBrowseWarmKey(rows []model.Hub) (frontend.RatingKey, bool) {
 	ownProgress := func(id string) bool {
 		id = strings.ToLower(id)
 		return strings.Contains(id, "continue") || strings.Contains(id, "inprogress") || strings.Contains(id, "ondeck")
@@ -658,7 +657,7 @@ func firstBrowseWarmKey(rows []model.Hub) (core.RatingKey, bool) {
 			if md.Type != "" && md.Type != "movie" && md.Type != "episode" {
 				continue
 			}
-			k, err := core.ParseRatingKey(md.RatingKey)
+			k, err := frontend.ParseRatingKey(md.RatingKey)
 			if err != nil || !isPlayableKey(k) {
 				continue
 			}
@@ -671,12 +670,12 @@ func firstBrowseWarmKey(rows []model.Hub) (core.RatingKey, bool) {
 // recordImpressions hands the rows actually written, in response order, to
 // the recommender's impression sink when it has one. Sinks record
 // asynchronously; this never delays the response, which is already sent.
-func (s *Server) recordImpressions(pr *Request, hc core.HubContext, written []model.Hub, served map[string]core.Hub) {
-	sink, ok := s.d.Recommender.(core.ImpressionSink)
+func (s *Server) recordImpressions(pr *Request, hc frontend.HubContext, written []model.Hub, served map[string]frontend.Hub) {
+	sink, ok := s.d.Recommender.(frontend.ImpressionSink)
 	if !ok || pr.User == nil || len(written) == 0 {
 		return
 	}
-	out := make([]core.Hub, 0, len(written))
+	out := make([]frontend.Hub, 0, len(written))
 	for _, mh := range written {
 		if h, ok := served[mh.HubIdentifier]; ok {
 			h.Items = s.filterAllowed(pr.User, h.Items)
@@ -697,7 +696,7 @@ func (s *Server) playlistsHubProjection(ctx context.Context, pr *Request, count 
 		return model.Hub{}, frontend.Row{}, false
 	}
 	owned := pls[:0:0]
-	viewed := map[core.RatingKey]int64{}
+	viewed := map[frontend.RatingKey]int64{}
 	for _, pl := range pls {
 		if pl.UserID != pr.User.ID {
 			continue
@@ -725,7 +724,7 @@ func (s *Server) playlistsHubProjection(ctx context.Context, pr *Request, count 
 		Style:         "shelf",
 		Promoted:      model.Ptr(true),
 	}
-	row := frontend.Row{ID: "home.playlists", Title: "Recent Playlists", Purpose: core.RowPurpose("playlist"), Style: "shelf", Promoted: true, More: more}
+	row := frontend.Row{ID: "home.playlists", Title: "Recent Playlists", Purpose: frontend.RowPurpose("playlist"), Style: "shelf", Promoted: true, More: more}
 	keys := make([]string, 0, len(pls))
 	for i := range pls {
 		h.Metadata = append(h.Metadata, s.playlistListingMetadata(ctx, &pls[i]))
@@ -760,7 +759,7 @@ func (s *Server) handleContinueWatching(w http.ResponseWriter, r *http.Request) 
 		}
 		if len(allowed) == 0 {
 			if len(parseSectionList(raw)) > 0 {
-				mc.Hub = []model.Hub{s.renderHub(ctx, pr, hubSpec{Hub: core.Hub{ID: "continueWatching", Title: "Continue Watching"}}, hubCtx{})}
+				mc.Hub = []model.Hub{s.renderHub(ctx, pr, hubSpec{Hub: frontend.Hub{ID: "continueWatching", Title: "Continue Watching"}}, hubCtx{})}
 				mc.Size = 1
 				s.write(w, r, mc)
 			} else {
@@ -785,7 +784,7 @@ func (s *Server) handleContinueWatching(w http.ResponseWriter, r *http.Request) 
 		// page limit so unavailable entries cannot displace visible items.
 		spec.Items = s.availableForViewer(ctx, pr.User, spec.Items)
 		if sec.ID != 0 {
-			items := make([]core.Title, 0, len(spec.Items))
+			items := make([]frontend.Title, 0, len(spec.Items))
 			for _, title := range spec.Items {
 				if section, ok := s.untitledSectionFor(title.Type); ok && section.ID == sec.ID {
 					items = append(items, title)
@@ -803,7 +802,7 @@ func (s *Server) handleContinueWatching(w http.ResponseWriter, r *http.Request) 
 	hub := s.renderHub(ctx, pr, spec, hubCtx{})
 	if r.URL.Query().Get("contentDirectoryID") != "" {
 		if layout, ok := s.d.Recommender.(interface {
-			HomeRowEnabled(context.Context, *core.User, core.HubContext, string) bool
+			HomeRowEnabled(context.Context, *frontend.User, frontend.HubContext, string) bool
 		}); ok && !layout.HomeRowEnabled(ctx, pr.User, s.hubContext(pr, 0), "home.continue") {
 			writeHTTPError(w, http.StatusNotFound)
 			return
@@ -900,9 +899,9 @@ func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 	mc.LibrarySectionUUID = sec.UUID
 	hc := hubCtx{section: sec.ID, visible: visibleCount}
 	pc := s.hubContext(pr, sec.ID)
-	served := map[string]core.Hub{}
-	var layoutHubs []core.Hub
-	var layoutNeutral []core.NeutralHomeRow
+	served := map[string]frontend.Hub{}
+	var layoutHubs []frontend.Hub
+	var layoutNeutral []frontend.NeutralHomeRow
 	add := func(hs hubSpec) {
 		mh := s.renderHub(ctx, pr, hs, hc)
 		mc.Hub = append(mc.Hub, mh)
@@ -937,13 +936,13 @@ func (s *Server) buildSectionHubs(r *http.Request, sec Section) homeBuild {
 	// Mixed discovery rows (watchlist, Rediscover) keep this section's
 	// titles.
 	for _, hs := range s.discoveryHubs(ctx, pr, count) {
-		if h, ok := core.SectionView(hs.Hub, sec.Type); ok {
+		if h, ok := frontend.SectionView(hs.Hub, sec.Type); ok {
 			hs.Hub = h
 			add(hs)
 		}
 	}
 	sectionName := "movies"
-	if sec.Type == core.TypeShow {
+	if sec.Type == frontend.TypeShow {
 		sectionName = "shows"
 	}
 	mc.Hub = stableHomeHubs(s.arrangeHomeRows(ctx, pr, pc, sectionName, mc.Hub, layoutHubs, layoutNeutral))
@@ -987,7 +986,7 @@ func (s *Server) handleHubItems(w http.ResponseWriter, r *http.Request) {
 		if len(sections) == 1 {
 			hc.section = sections[0]
 		}
-		if k, err := core.ParseRatingKey(q.Get("metadataID")); err == nil {
+		if k, err := frontend.ParseRatingKey(q.Get("metadataID")); err == nil {
 			hc.related = k
 		}
 		mc.Metadata = s.renderHub(ctx, pr, hs, hc).Metadata
@@ -1021,7 +1020,7 @@ func (s *Server) sectionFromHubID(id string) (Section, bool) {
 func (s *Server) findHub(ctx context.Context, pr *Request, id string, sections []int, metadataID string, count int) (hubSpec, bool) {
 	switch {
 	case id == "tv.upnext":
-		k, err := core.ParseRatingKey(metadataID)
+		k, err := frontend.ParseRatingKey(metadataID)
 		if err != nil || !s.relatedSourceVisible(ctx, pr, k) {
 			return hubSpec{}, false
 		}
@@ -1057,7 +1056,7 @@ func (s *Server) findHub(ctx context.Context, pr *Request, id string, sections [
 		if len(sections) == 1 {
 			// A section's copy of a mixed row ("More" from a library).
 			if sec, ok := s.sectionByID(sections[0]); ok {
-				if v, ok := core.SectionView(h.Hub, sec.Type); ok {
+				if v, ok := frontend.SectionView(h.Hub, sec.Type); ok {
 					h.Hub = v
 				}
 			}
@@ -1067,7 +1066,7 @@ func (s *Server) findHub(ctx context.Context, pr *Request, id string, sections [
 	if s.d.Recommender == nil {
 		return hubSpec{}, false
 	}
-	if k, err := core.ParseRatingKey(metadataID); err == nil && s.relatedSourceVisible(ctx, pr, k) {
+	if k, err := frontend.ParseRatingKey(metadataID); err == nil && s.relatedSourceVisible(ctx, pr, k) {
 		if hubs, err := s.d.Recommender.Related(ctx, pr.User, k, count); err == nil {
 			for _, h := range hubs {
 				if h.ID == id {
@@ -1095,7 +1094,7 @@ func (s *Server) findHub(ctx context.Context, pr *Request, id string, sections [
 			}
 		}
 	}
-	if src, ok := s.d.Recommender.(core.HubItemSource); ok {
+	if src, ok := s.d.Recommender.(frontend.HubItemSource); ok {
 		secID := 0
 		if len(sections) == 1 {
 			secID = sections[0]
@@ -1120,12 +1119,12 @@ func containsInt(xs []int, x int) bool {
 // related/post-play/similar request is about: its rows are built from the
 // title's own credits and collection, and are not the viewer's to see when
 // the title is hidden. Non-title keys are left to their own handlers.
-func (s *Server) relatedSourceVisible(ctx context.Context, pr *Request, k core.RatingKey) bool {
+func (s *Server) relatedSourceVisible(ctx context.Context, pr *Request, k frontend.RatingKey) bool {
 	return s.detailRelated(ctx, pr).SourceVisible(ctx, pr.User, k)
 }
 
 func (s *Server) detailRelated(ctx context.Context, pr *Request) experience.DetailRelated {
-	return experience.DetailRelated{Source: s.d.Recommender, Visibility: s.visibility(), Get: func(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+	return experience.DetailRelated{Source: s.d.Recommender, Visibility: s.visibility(), Get: func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 		return s.metadataTitle(ctx, pr, key)
 	}}
 }
@@ -1136,7 +1135,7 @@ func (s *Server) handleMetadataHubs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	k, err := keyParam(r)
-	if err == nil && k.Kind() == core.KindPlaylist {
+	if err == nil && k.Kind() == frontend.KindPlaylist {
 		if s.d.Playlists == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
@@ -1151,7 +1150,7 @@ func (s *Server) handleMetadataHubs(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !s.relatedSourceVisible(ctx, pr, k) && strings.HasPrefix(r.URL.Path, "/hubs/") {
 		// Only genuinely absent catalogue identities receive the legacy empty
 		// response; authorization failures retain a refusal.
-		if _, lookupErr := s.metadataTitle(ctx, pr, k); errors.Is(lookupErr, core.ErrNotFound) {
+		if _, lookupErr := s.metadataTitle(ctx, pr, k); errors.Is(lookupErr, frontend.ErrNotFound) {
 			s.write(w, r, hubContainer())
 			return
 		}
@@ -1170,7 +1169,7 @@ func (s *Server) handleMetadataHubs(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.d.Recommender != nil {
 		hubs, err := s.detailRelated(ctx, pr).Rows(ctx, pr.User, k, countParam(r, 12))
-		if err != nil && !errors.Is(err, core.ErrNotFound) {
+		if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 			s.log.Debug("related hubs", "key", k, "err", err)
 		}
 		mc.Hub = s.renderHubs(ctx, pr, hubs, hubCtx{related: k})
@@ -1181,11 +1180,11 @@ func (s *Server) handleMetadataHubs(w http.ResponseWriter, r *http.Request) {
 
 // upNextHub is shared by post-play and the advertised shelf-items URL so
 // clients can reload the row or use it as a play-queue source.
-func (s *Server) upNextHub(ctx context.Context, pr *Request, k core.RatingKey) (hubSpec, bool) {
-	if k.Kind() != core.KindEpisode {
+func (s *Server) upNextHub(ctx context.Context, pr *Request, k frontend.RatingKey) (hubSpec, bool) {
+	if k.Kind() != frontend.KindEpisode {
 		return hubSpec{}, false
 	}
-	ep, state := s.showOnDeck(ctx, pr, core.ShowKey(k.TMDB()), nil)
+	ep, state := s.showOnDeck(ctx, pr, frontend.ShowKey(k.TMDB()), nil)
 	if ep == nil || ep.Key == k || !s.visibleTitle(ctx, pr.User, ep) {
 		return hubSpec{}, false
 	}
@@ -1196,8 +1195,8 @@ func (s *Server) upNextHub(ctx context.Context, pr *Request, k core.RatingKey) (
 	if !active {
 		return hubSpec{}, false
 	}
-	return hubSpec{Hub: core.Hub{ID: "tv.upnext", Title: upNextTitle(pr.Language), Type: core.TypeEpisode,
-		Context: "hub.tv.upnext", Items: []core.Title{*ep}}, state: state}, true
+	return hubSpec{Hub: frontend.Hub{ID: "tv.upnext", Title: upNextTitle(pr.Language), Type: frontend.TypeEpisode,
+		Context: "hub.tv.upnext", Items: []frontend.Title{*ep}}, state: state}, true
 }
 
 // handlePostplay is /hubs/metadata/{key}/postplay. An episode with a
@@ -1208,7 +1207,7 @@ func (s *Server) upNextHub(ctx context.Context, pr *Request, k core.RatingKey) (
 func (s *Server) handlePostplay(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	k, err := core.ParseRatingKey(chi.URLParam(r, "key"))
+	k, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
 	if err != nil || !s.relatedSourceVisible(ctx, pr, k) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
@@ -1217,14 +1216,14 @@ func (s *Server) handlePostplay(w http.ResponseWriter, r *http.Request) {
 	mc := hubContainer()
 	mc.SetSyncProjection(false)
 	mc.Hub, err = experience.AssemblePostPlay(ctx, s.postPlaySelection(ctx, pr, k, !s.viewerRestricted(pr.User)), pr.User, k, count,
-		func() (core.RatingKey, model.Hub, bool) {
+		func() (frontend.RatingKey, model.Hub, bool) {
 			hub, ok := s.upNextHub(ctx, pr, k)
 			if !ok {
 				return 0, model.Hub{}, false
 			}
 			return hub.Items[0].Key, s.renderHub(ctx, pr, hub, hubCtx{related: k}), true
 		}, func(row experience.PostPlayRow) (model.Hub, bool) { return s.postPlayHub(ctx, pr, k, row) },
-		func(hub core.Hub) model.Hub { return s.renderHub(ctx, pr, hubSpec{Hub: hub}, hubCtx{related: k}) })
+		func(hub frontend.Hub) model.Hub { return s.renderHub(ctx, pr, hubSpec{Hub: hub}, hubCtx{related: k}) })
 	if err != nil {
 		s.log.Debug("postplay related hubs", "key", k, "err", err)
 	}
@@ -1262,19 +1261,19 @@ var searchHubDefs = []struct {
 }
 
 type peopleSearchCatalog interface {
-	SearchPeople(ctx context.Context, terms []string, limit int) ([]core.Person, error)
-	PersonCreditKeys(ctx context.Context, person int64, types []core.MediaType, limit int) ([]core.RatingKey, error)
+	SearchPeople(ctx context.Context, terms []string, limit int) ([]frontend.Person, error)
+	PersonCreditKeys(ctx context.Context, person int64, types []frontend.MediaType, limit int) ([]frontend.RatingKey, error)
 }
 
 // peopleBatchCatalog reads every searched person's credits and their
 // titles' visibility rows in a few statements (catalog/people_batch.go).
 type peopleBatchCatalog interface {
-	PersonCreditTitles(ctx context.Context, persons []int64, types []core.MediaType, limit int, facts core.TitleFacts) (map[int64][]core.PersonCredit, map[core.RatingKey]core.Title, error)
-	CachedVisibilityRows(ctx context.Context, keys []core.RatingKey, facts core.TitleFacts) (map[core.RatingKey]core.Title, error)
+	PersonCreditTitles(ctx context.Context, persons []int64, types []frontend.MediaType, limit int, facts frontend.TitleFacts) (map[int64][]frontend.PersonCredit, map[frontend.RatingKey]frontend.Title, error)
+	CachedVisibilityRows(ctx context.Context, keys []frontend.RatingKey, facts frontend.TitleFacts) (map[frontend.RatingKey]frontend.Title, error)
 }
 
 type reasonedTitle struct {
-	title       core.Title
+	title       frontend.Title
 	reason      string
 	reasonID    string
 	reasonTitle string
@@ -1285,7 +1284,7 @@ type peopleSearchResult struct {
 	actorsMore    bool
 	directors     []model.Directory
 	directorsMore bool
-	titles        map[core.MediaType][]reasonedTitle
+	titles        map[frontend.MediaType][]reasonedTitle
 	// rows: titles are visibility rows, to be read in full when shown.
 	rows bool
 	// actorScores and directorScores are each directory's relevance.
@@ -1325,7 +1324,7 @@ func searchFoldName(s string) string {
 // titleSearchScore is a result's relevance: the catalogue's score when it
 // has one, otherwise one by its place among n. It orders results and hubs;
 // clients are sent it capped at 1 (reportedScore).
-func titleSearchScore(t *core.Title, i, n int) float64 {
+func titleSearchScore(t *frontend.Title, i, n int) float64 {
 	if t.SearchScore > 0 {
 		return t.SearchScore
 	}
@@ -1361,16 +1360,16 @@ func personMatchesTerms(name string, terms []string) bool {
 	return true
 }
 
-func personInList(people []core.Person, tmdb int64) (core.Person, bool) {
+func personInList(people []frontend.Person, tmdb int64) (frontend.Person, bool) {
 	for _, p := range people {
 		if p.TMDB == tmdb {
 			return p, true
 		}
 	}
-	return core.Person{}, false
+	return frontend.Person{}, false
 }
 
-func personSearchDirectory(sec Section, person core.Person, kind string, count int, thumbKey core.RatingKey, inHub bool) model.Directory {
+func personSearchDirectory(sec Section, person frontend.Person, kind string, count int, thumbKey frontend.RatingKey, inHub bool) model.Directory {
 	idStr := strconv.FormatInt(person.TMDB, 10)
 	secIDStr := strconv.Itoa(sec.ID)
 	tagType := 6
@@ -1378,7 +1377,7 @@ func personSearchDirectory(sec Section, person core.Person, kind string, count i
 		tagType = 4
 	}
 	secType := 1
-	if sec.Type == core.TypeShow {
+	if sec.Type == frontend.TypeShow {
 		secType = 2
 	}
 	attrs := []model.Attr{
@@ -1449,7 +1448,7 @@ func stampDirectoryScores(dirs []model.Directory, scores []float64) {
 // searchPeople queries the indexed people table and resolves visible
 // actor/director hubs and reasoned titles for the viewer.
 func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, sectionID, limit int, inHub bool) peopleSearchResult {
-	out := peopleSearchResult{titles: map[core.MediaType][]reasonedTitle{}}
+	out := peopleSearchResult{titles: map[frontend.MediaType][]reasonedTitle{}}
 	ps, ok := s.d.Catalog.(peopleSearchCatalog)
 	if !ok {
 		return out
@@ -1462,14 +1461,14 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 	if len(allowedTypes) == 0 {
 		return out
 	}
-	queryTypes := make([]core.MediaType, 0, len(allowedTypes)+1)
-	allowedSet := map[core.MediaType]bool{}
+	queryTypes := make([]frontend.MediaType, 0, len(allowedTypes)+1)
+	allowedSet := map[frontend.MediaType]bool{}
 	for _, t := range allowedTypes {
 		allowedSet[t] = true
 		queryTypes = append(queryTypes, t)
-		if t == core.TypeShow {
-			allowedSet[core.TypeEpisode] = true
-			queryTypes = append(queryTypes, core.TypeEpisode)
+		if t == frontend.TypeShow {
+			allowedSet[frontend.TypeEpisode] = true
+			queryTypes = append(queryTypes, frontend.TypeEpisode)
 		}
 	}
 	var secs []Section
@@ -1487,7 +1486,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		return out
 	}
 	// An explicit search: rules the owner limited to browsing do not apply.
-	catVis, _ := s.d.Catalog.(interface{ SearchVisible(*core.Title) bool })
+	catVis, _ := s.d.Catalog.(interface{ SearchVisible(*frontend.Title) bool })
 	// The batched path judges rows; it resolves their shows from rows too.
 	vis := s.visibility()
 	now := s.now()
@@ -1499,7 +1498,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		return personSearchScore(query, candidates[i].Name) > personSearchScore(query, candidates[j].Name)
 	})
 	walkBudget, partialBudget := limit+limit/2, max(limit/2, 3)
-	var walked []core.Person
+	var walked []frontend.Person
 	budgetSpent := false
 	for _, cand := range candidates {
 		if !personMatchesTerms(cand.Name, terms) {
@@ -1527,8 +1526,8 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 	// titles carry only what their visibility needs; the ones a hub can
 	// show are read in full below.
 	type personTitles struct {
-		titles []core.Title
-		role   func(t *core.Title, kind string) (core.Person, bool)
+		titles []frontend.Title
+		role   func(t *frontend.Title, kind string) (frontend.Person, bool)
 	}
 	byPerson := make([]personTitles, len(walked))
 	batch, batched := s.d.Catalog.(peopleBatchCatalog)
@@ -1545,11 +1544,11 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 			return out
 		}
 		for i, p := range walked {
-			roles := map[core.RatingKey]map[string]core.Person{}
-			var titles []core.Title
+			roles := map[frontend.RatingKey]map[string]frontend.Person{}
+			var titles []frontend.Title
 			for _, cr := range credits[p.TMDB] {
 				if roles[cr.Key] == nil {
-					roles[cr.Key] = map[string]core.Person{}
+					roles[cr.Key] = map[string]frontend.Person{}
 					if t, ok := rows[cr.Key]; ok {
 						titles = append(titles, t)
 					}
@@ -1558,7 +1557,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 					roles[cr.Key][cr.Kind] = cr.Person
 				}
 			}
-			byPerson[i] = personTitles{titles: titles, role: func(t *core.Title, kind string) (core.Person, bool) {
+			byPerson[i] = personTitles{titles: titles, role: func(t *frontend.Title, kind string) (frontend.Person, bool) {
 				person, ok := roles[t.Key][kind]
 				return person, ok
 			}}
@@ -1570,7 +1569,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 				continue
 			}
 			tmdbID := p.TMDB
-			byPerson[i] = personTitles{titles: s.getTitles(withStoredPolicy(ctx), keys), role: func(t *core.Title, kind string) (core.Person, bool) {
+			byPerson[i] = personTitles{titles: s.getTitles(withStoredPolicy(ctx), keys), role: func(t *frontend.Title, kind string) (frontend.Person, bool) {
 				if kind == "cast" {
 					return personInList(t.Cast, tmdbID)
 				}
@@ -1587,7 +1586,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		type secHit struct {
 			count     int
 			thumbPath string
-			thumbKey  core.RatingKey
+			thumbKey  frontend.RatingKey
 		}
 		actorSecs := map[int]*secHit{}
 		directorSecs := map[int]*secHit{}
@@ -1651,7 +1650,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		for _, sec := range secs {
 			if h := actorSecs[sec.ID]; h != nil && h.count > 0 {
 				if len(out.actors) < limit {
-					person := core.Person{TMDB: cand.TMDB, Name: cand.Name, ThumbPath: h.thumbPath}
+					person := frontend.Person{TMDB: cand.TMDB, Name: cand.Name, ThumbPath: h.thumbPath}
 					out.actors = append(out.actors, personSearchDirectory(sec, person, "actor", h.count, h.thumbKey, inHub))
 					out.actorScores = append(out.actorScores, personSearchScore(query, cand.Name))
 				} else {
@@ -1660,7 +1659,7 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 			}
 			if h := directorSecs[sec.ID]; h != nil && h.count > 0 {
 				if len(out.directors) < limit {
-					person := core.Person{TMDB: cand.TMDB, Name: cand.Name, ThumbPath: h.thumbPath}
+					person := frontend.Person{TMDB: cand.TMDB, Name: cand.Name, ThumbPath: h.thumbPath}
 					out.directors = append(out.directors, personSearchDirectory(sec, person, "director", h.count, h.thumbKey, inHub))
 					out.directorScores = append(out.directorScores, personSearchScore(query, cand.Name))
 				} else {
@@ -1674,11 +1673,11 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 		out.actorsMore = out.actorsMore || len(out.actors) >= limit
 		out.directorsMore = out.directorsMore || len(out.directors) >= limit
 	}
-	seenByType := map[core.MediaType]map[core.RatingKey]bool{}
+	seenByType := map[frontend.MediaType]map[frontend.RatingKey]bool{}
 	addReasoned := func(rt reasonedTitle) {
 		seen := seenByType[rt.title.Type]
 		if seen == nil {
-			seen = map[core.RatingKey]bool{}
+			seen = map[frontend.RatingKey]bool{}
 			seenByType[rt.title.Type] = seen
 		}
 		if seen[rt.title.Key] {
@@ -1707,27 +1706,27 @@ func (s *Server) searchPeople(ctx context.Context, pr *Request, query string, se
 // hubSearchCandidates asks the catalogue for the search's candidate window
 // as rows with what the viewer's policy reads, and returns how a hub reads
 // the rows it shows as list items. Nil when the catalogue cannot.
-func (s *Server) hubSearchCandidates(ctx context.Context, u *core.User) (context.Context, func([]core.Title) ([]core.Title, error)) {
+func (s *Server) hubSearchCandidates(ctx context.Context, u *frontend.User) (context.Context, func([]frontend.Title) ([]frontend.Title, error)) {
 	list, ok := s.d.Catalog.(interface {
-		SearchListDetails(context.Context, []core.Title) ([]core.Title, error)
+		SearchListDetails(context.Context, []frontend.Title) ([]frontend.Title, error)
 	})
 	if !ok {
 		return ctx, nil
 	}
 	vis := s.visibility()
-	judge, known := vis.FactJudge(core.WithCatalogViewer(ctx, u))
+	judge, known := vis.FactJudge(frontend.WithCatalogViewer(ctx, u))
 	if !known {
 		return ctx, nil
 	}
-	ctx = core.WithSearchCandidates(ctx, &core.SearchCandidates{Facts: vis.TitleFacts(u), Detail: judge})
-	return ctx, func(items []core.Title) ([]core.Title, error) { return list.SearchListDetails(ctx, items) }
+	ctx = frontend.WithSearchCandidates(ctx, &frontend.SearchCandidates{Facts: vis.TitleFacts(u), Detail: judge})
+	return ctx, func(items []frontend.Title) ([]frontend.Title, error) { return list.SearchListDetails(ctx, items) }
 }
 
 // hubReasoned is the titles people found for a hub of typ: those not in seen,
 // in order, as many as fill room and one more (the hub's More), read in
 // full when they are visibility rows. A title no longer readable gives its
 // place to the next, as it did when every reasoned title was read first.
-func (s *Server) hubReasoned(ctx context.Context, people peopleSearchResult, typ core.MediaType, seen map[core.RatingKey]bool, room int) []reasonedTitle {
+func (s *Server) hubReasoned(ctx context.Context, people peopleSearchResult, typ frontend.MediaType, seen map[frontend.RatingKey]bool, room int) []reasonedTitle {
 	var cands []reasonedTitle
 	for _, rt := range people.titles[typ] {
 		if !seen[rt.title.Key] {
@@ -1745,11 +1744,11 @@ func (s *Server) hubReasoned(ctx context.Context, people peopleSearchResult, typ
 	for next := 0; len(out) < want && next < len(cands); {
 		part := cands[next:min(next+want-len(out), len(cands))]
 		next += len(part)
-		keys := make([]core.RatingKey, len(part))
+		keys := make([]frontend.RatingKey, len(part))
 		for i, rt := range part {
 			keys[i] = rt.title.Key
 		}
-		full := map[core.RatingKey]core.Title{}
+		full := map[frontend.RatingKey]frontend.Title{}
 		for _, t := range s.getTitles(withStoredPolicy(ctx), keys) {
 			full[t.Key] = t
 		}
@@ -1767,11 +1766,11 @@ func (s *Server) hubReasoned(ctx context.Context, people peopleSearchResult, typ
 // (PersonCreditTitles) for vis's decisions for u: titles availability
 // judges on their facts are read in full, and vis resolves the shows of
 // seasons and episodes from their rows.
-func (s *Server) peopleVisibilityRows(ctx context.Context, batch peopleBatchCatalog, vis *experience.Visibility, u *core.User, rows map[core.RatingKey]core.Title) error {
+func (s *Server) peopleVisibilityRows(ctx context.Context, batch peopleBatchCatalog, vis *experience.Visibility, u *frontend.User, rows map[frontend.RatingKey]frontend.Title) error {
 	ctx = withStoredPolicy(ctx)
-	judge, known := vis.FactJudge(core.WithCatalogViewer(ctx, u))
-	var detail, shows []core.RatingKey
-	seenShow := map[core.RatingKey]bool{}
+	judge, known := vis.FactJudge(frontend.WithCatalogViewer(ctx, u))
+	var detail, shows []frontend.RatingKey
+	seenShow := map[frontend.RatingKey]bool{}
 	for key, t := range rows {
 		if !known || (judge != nil && judge(t)) {
 			detail = append(detail, key)
@@ -1794,20 +1793,20 @@ func (s *Server) peopleVisibilityRows(ctx context.Context, batch peopleBatchCata
 		return err
 	}
 	get := vis.GetTitle
-	vis.GetTitle = func(ctx context.Context, key core.RatingKey) (*core.Title, error) {
+	vis.GetTitle = func(ctx context.Context, key frontend.RatingKey) (*frontend.Title, error) {
 		if t, ok := parents[key]; ok {
 			return &t, nil
 		}
 		if get == nil {
-			return nil, core.ErrNotFound
+			return nil, frontend.ErrNotFound
 		}
 		return get(ctx, key)
 	}
 	return nil
 }
 
-func (s *Server) searchTypes(u *core.User, sectionID int) []core.MediaType {
-	var out []core.MediaType
+func (s *Server) searchTypes(u *frontend.User, sectionID int) []frontend.MediaType {
+	var out []frontend.MediaType
 	for _, sec := range s.userSections(u) {
 		if sectionID > 0 && sec.ID != sectionID {
 			continue
@@ -1818,14 +1817,14 @@ func (s *Server) searchTypes(u *core.User, sectionID int) []core.MediaType {
 }
 
 func (s *Server) searchExperience() experience.Search {
-	unrestricted := func(u *core.User) bool { return !s.viewerRestricted(u) }
+	unrestricted := func(u *frontend.User) bool { return !s.viewerRestricted(u) }
 	src := s.d.Search
 	if src.Catalog == nil {
 		// A server built outside the app (tests, spike mode) searches its
 		// own dependencies the same way.
 		searcher := s.d.VibeSearch
 		if searcher == nil {
-			searcher, _ = s.d.Collections.(core.VibeSearcher)
+			searcher, _ = s.d.Collections.(frontend.VibeSearcher)
 		}
 		src = experience.SearchSources{Catalog: s.d.Catalog.Search, Natural: experience.DiscoverySearch(s.d.Discovery), Familiar: experience.FamiliarFrom(s.d.State)}
 		if searcher != nil {
@@ -1835,13 +1834,13 @@ func (s *Server) searchExperience() experience.Search {
 	return src.For(s.visibility(), unrestricted)
 }
 
-func (s *Server) runSearch(ctx context.Context, pr *Request, query string, sectionID, limit int) ([]core.Title, error) {
+func (s *Server) runSearch(ctx context.Context, pr *Request, query string, sectionID, limit int) ([]frontend.Title, error) {
 	result, err := s.searchExperience().Resolve(ctx, pr.User, query, s.searchTypes(pr.User, sectionID), s.saferFetchCount(pr.User, limit), false)
 	result.Items = s.takeVisible(pr.User, result.Items, limit)
 	return result.Items, err
 }
 
-func (s *Server) collectionDirectory(ctx context.Context, c *core.Collection) model.Directory {
+func (s *Server) collectionDirectory(ctx context.Context, c *frontend.Collection) model.Directory {
 	m := s.collectionMetadata(c, ctx)
 	return model.Directory{
 		Key: "/library/collections/" + c.Key.String() + "/children", Type: "collection",
@@ -1891,8 +1890,8 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 	// Hub items render as list items (three cast members, directors,
 	// genres): the catalogue reads those facts for the titles a hub shows,
 	// not every credit, keyword and alternative title, and returns the rest
-	// of its window as rows (core.SearchCandidates).
-	searchCtx, listDetails := s.hubSearchCandidates(core.WithSearchListFacts(ctx), pr.User)
+	// of its window as rows (frontend.SearchCandidates).
+	searchCtx, listDetails := s.hubSearchCandidates(frontend.WithSearchListFacts(ctx), pr.User)
 	result, err := s.searchExperience().Resolve(searchCtx, pr.User, query, s.searchTypes(pr.User, sectionID), fetch, true)
 	people := <-peopleDone
 	if err != nil {
@@ -1900,15 +1899,15 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vibe, res, isVibe := result.Collection, result.Items, result.CollectionSearch
-	byType := map[core.MediaType][]core.Title{}
+	byType := map[frontend.MediaType][]frontend.Title{}
 	for _, t := range res {
 		byType[t.Type] = append(byType[t.Type], t)
 	}
-	allowed := map[core.MediaType]bool{}
+	allowed := map[frontend.MediaType]bool{}
 	for _, t := range s.searchTypes(pr.User, sectionID) {
 		allowed[t] = true
-		if t == core.TypeShow {
-			allowed[core.TypeEpisode] = true
+		if t == frontend.TypeShow {
+			allowed[frontend.TypeEpisode] = true
 		}
 	}
 	// PMS returns every result hub, empty ones included: those with results
@@ -1918,12 +1917,12 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 	for _, hd := range searchHubDefs {
 		top := 0.0
 		switch hd.id {
-		case string(core.TypeMovie), string(core.TypeShow), string(core.TypeEpisode):
-			mediaType := core.MediaType(hd.typ)
-			var items []core.Title
+		case string(frontend.TypeMovie), string(frontend.TypeShow), string(frontend.TypeEpisode):
+			mediaType := frontend.MediaType(hd.typ)
+			var items []frontend.Title
 			reasons := map[string]reasonedTitle{}
 			if allowed[mediaType] {
-				seen := map[core.RatingKey]bool{}
+				seen := map[frontend.RatingKey]bool{}
 				for _, t := range byType[mediaType] {
 					seen[t.Key] = true
 					items = append(items, t)
@@ -1944,7 +1943,7 @@ func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			h := core.Hub{ID: hd.id, Title: hd.title, Type: mediaType, Items: items, More: more, Style: "shelf"}
+			h := frontend.Hub{ID: hd.id, Title: hd.title, Type: mediaType, Items: items, More: more, Style: "shelf"}
 			scores := make(map[string]float64, len(items))
 			relevant := make(map[string]bool, len(items))
 			for i := range items {
@@ -2127,16 +2126,16 @@ func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
 	searchCollections := false
 	searchPeopleFlag := q.Get("searchTypes") == ""
 	if st := q.Get("searchTypes"); st != "" {
-		allow := map[core.MediaType]bool{}
+		allow := map[frontend.MediaType]bool{}
 		for _, v := range strings.Split(st, ",") {
 			switch strings.TrimSpace(v) {
 			case "movies", "movie":
-				allow[core.TypeMovie] = true
+				allow[frontend.TypeMovie] = true
 			case "collections", "collection":
 				searchCollections = true
 			case "tv", "shows", "show":
-				allow[core.TypeShow] = true
-				allow[core.TypeEpisode] = true
+				allow[frontend.TypeShow] = true
+				allow[frontend.TypeEpisode] = true
 			case "people", "person", "actors", "actor", "directors", "director":
 				searchPeopleFlag = true
 			}
@@ -2188,7 +2187,7 @@ func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
 		if directories == "" && q.Get("searchTypes") != "" {
 			var ids []string
 			for _, sec := range s.userSections(pr.User) {
-				if sec.Type == core.TypeMovie && containsExactSearchToken(q.Get("searchTypes"), "movies") || sec.Type == core.TypeShow && containsExactSearchToken(q.Get("searchTypes"), "tv") {
+				if sec.Type == frontend.TypeMovie && containsExactSearchToken(q.Get("searchTypes"), "movies") || sec.Type == frontend.TypeShow && containsExactSearchToken(q.Get("searchTypes"), "tv") {
 					ids = append(ids, strconv.Itoa(sec.ID))
 				}
 			}
