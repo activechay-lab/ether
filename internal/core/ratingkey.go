@@ -28,7 +28,8 @@ import (
 //	                collections; database ids stay far below both
 //	KindPlaylist    payload = local playlist id
 //	KindExtra       payload = compact extra id from the extras registry
-//	KindLocal       payload = local file id (spike / test library)
+//	KindLocal       payload = local file id (spike / test library), or
+//	                PluginKeyBase + seq for plugin items (spec §2.2)
 type RatingKey int64
 
 type KeyKind int
@@ -47,13 +48,54 @@ const (
 
 const keyBase = 1_000_000_000_000_000 // 10^15
 
+// PluginKeyBase and PluginKeyMaxSeq carve out the KindLocal payload range
+// [PluginKeyBase+1, PluginKeyBase+PluginKeyMaxSeq) for plugin items while
+// keeping every RatingKey below 2^53 (spec §2.2).
+const (
+	PluginKeyBase   int64 = 5_000_000_000_000
+	PluginKeyMaxSeq int64 = 2_000_000_000_000
+)
+
 func MovieKey(tmdb int64) RatingKey    { return RatingKey(int64(KindMovie)*keyBase + tmdb) }
 func ShowKey(tmdb int64) RatingKey     { return RatingKey(int64(KindShow)*keyBase + tmdb) }
 func CollectionKey(id int64) RatingKey { return RatingKey(int64(KindCollection)*keyBase + id) }
 func SmartKey(id int64) RatingKey      { return RatingKey(int64(KindSmart)*keyBase + id) }
 func PlaylistKey(id int64) RatingKey   { return RatingKey(int64(KindPlaylist)*keyBase + id) }
 func ExtraKey(id int64) RatingKey      { return RatingKey(int64(KindExtra)*keyBase + id) }
-func LocalKey(id int64) RatingKey      { return RatingKey(int64(KindLocal)*keyBase + id) }
+
+func LocalKey(id int64) RatingKey {
+	if id >= PluginKeyBase {
+		panic(fmt.Sprintf("core.LocalKey: payload %d overlaps PluginKeyBase (%d)", id, PluginKeyBase))
+	}
+	return RatingKey(int64(KindLocal)*keyBase + id)
+}
+
+// PluginKey builds a plugin item RatingKey from a stored sequence number in
+// [1, PluginKeyMaxSeq) (spec §2.2).
+func PluginKey(seq int64) RatingKey {
+	if seq < 1 || seq >= PluginKeyMaxSeq {
+		panic(fmt.Sprintf("core.PluginKey: seq %d out of range [1, %d)", seq, PluginKeyMaxSeq))
+	}
+	return RatingKey(int64(KindLocal)*keyBase + PluginKeyBase + seq)
+}
+
+// IsPluginKey reports whether k is a plugin item RatingKey (spec §2.2).
+func (k RatingKey) IsPluginKey() bool {
+	if k.Kind() != KindLocal {
+		return false
+	}
+	p := k.payload()
+	return p > PluginKeyBase && p < PluginKeyBase+PluginKeyMaxSeq
+}
+
+// PluginSeq returns the stored sequence number (1 .. PluginKeyMaxSeq-1) of a
+// plugin item RatingKey, or 0 when k is not a plugin key.
+func (k RatingKey) PluginSeq() int64 {
+	if !k.IsPluginKey() {
+		return 0
+	}
+	return k.payload() - PluginKeyBase
+}
 
 // SectionCollectionKey gives a persisted smart collection a distinct Plex
 // identity per library. The reserved range is below ephemeral smart keys.

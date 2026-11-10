@@ -62,3 +62,61 @@ func TestEphemeralSmartKeysAvoidYearInReview(t *testing.T) {
 		t.Fatal("database smart key or movie key reported ephemeral")
 	}
 }
+
+func TestPluginKeyAndLocalKeyGuard(t *testing.T) {
+	first := PluginKey(1)
+	last := PluginKey(PluginKeyMaxSeq - 1)
+	if !first.IsPluginKey() || first.PluginSeq() != 1 || first.Kind() != KindLocal || !first.Valid() {
+		t.Fatalf("PluginKey(1) = %d, isPlugin=%v seq=%d", first, first.IsPluginKey(), first.PluginSeq())
+	}
+	if !last.IsPluginKey() || last.PluginSeq() != PluginKeyMaxSeq-1 || int64(last) >= 1<<53 {
+		t.Fatalf("PluginKey(max) = %d exceeds 2^53 or invalid", last)
+	}
+	if p, err := ParseRatingKey(first.String()); err != nil || p != first || !p.IsPluginKey() {
+		t.Fatalf("ParseRatingKey(PluginKey(1)) = %v, %v", p, err)
+	}
+	local := LocalKey(PluginKeyBase - 1)
+	if local.IsPluginKey() || local.PluginSeq() != 0 {
+		t.Fatalf("LocalKey(%d) reported as plugin key", local)
+	}
+	if MovieKey(1).IsPluginKey() {
+		t.Fatal("MovieKey reported as plugin key")
+	}
+	assertPanics := func(name string, fn func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Fatalf("%s did not panic", name)
+			}
+		}()
+		fn()
+	}
+	assertPanics("LocalKey(PluginKeyBase)", func() { LocalKey(PluginKeyBase) })
+	assertPanics("PluginKey(0)", func() { PluginKey(0) })
+	assertPanics("PluginKey(PluginKeyMaxSeq)", func() { PluginKey(PluginKeyMaxSeq) })
+}
+
+func TestItemRefParse(t *testing.T) {
+	ref := NewItemRef("com.example.books", "audiobook", "book-01_a.2~z")
+	if !ref.Valid() || ref.Plugin() != "com.example.books" || ref.Kind() != "audiobook" || ref.External() != "book-01_a.2~z" {
+		t.Fatalf("ItemRef(%q) parsed wrong: plugin=%q kind=%q ext=%q", ref, ref.Plugin(), ref.Kind(), ref.External())
+	}
+	if got, err := ParseItemRef(ref.String()); err != nil || got != ref {
+		t.Fatalf("ParseItemRef(%q) = %q, %v", ref, got, err)
+	}
+	for _, bad := range []string{
+		"",
+		"pk:",
+		"pk:plugin:kind:",
+		"pk::kind:id",
+		"pk:plugin::id",
+		"pk:plugin:kind:bad/slash",
+		"pk:plugin:kind:bad:colon",
+		"pk:plugin:kind:-starts-with-dash",
+		"other:plugin:kind:id",
+	} {
+		if _, err := ParseItemRef(bad); err == nil || ItemRef(bad).Valid() {
+			t.Fatalf("expected %q to be rejected", bad)
+		}
+	}
+}

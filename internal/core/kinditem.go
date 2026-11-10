@@ -2,12 +2,13 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"unicode"
 )
 
 // Plugin kind item envelope and source query types (spec §2.2,
-// §3.2, §4.5). These types are the frozen cross-slice contract:
+// §3.2, §4.5, §7). These types are the frozen cross-slice contract:
 // plugins declare kinds with them, pluginitems stores them, and the
 // protocol frontends project them. Keep edits additive.
 
@@ -17,9 +18,97 @@ import (
 // only ever see their own external ids.
 type ItemRef string
 
+// NewItemRef formats the canonical ItemRef for (pluginID, kindKey, externalID).
+func NewItemRef(pluginID, kindKey, externalID string) ItemRef {
+	return ItemRef("pk:" + pluginID + ":" + kindKey + ":" + externalID)
+}
+
+// ValidExternalID reports whether id is a legal plugin external id
+// (spec §2.2: ^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$, no ':' or '/').
+func ValidExternalID(id string) bool {
+	if len(id) == 0 || len(id) > 128 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		alnum := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+		if i == 0 {
+			if !alnum {
+				return false
+			}
+			continue
+		}
+		if !alnum && c != '.' && c != '_' && c != '~' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// Parse splits r into (pluginID, kindKey, externalID) and reports
+// whether r is a well-formed ItemRef (spec §2.2).
+func (r ItemRef) Parse() (pluginID, kindKey, externalID string, ok bool) {
+	s, hasPrefix := strings.CutPrefix(string(r), "pk:")
+	if !hasPrefix {
+		return "", "", "", false
+	}
+	p1 := strings.IndexByte(s, ':')
+	if p1 <= 0 {
+		return "", "", "", false
+	}
+	pluginID = s[:p1]
+	rest := s[p1+1:]
+	p2 := strings.IndexByte(rest, ':')
+	if p2 <= 0 {
+		return "", "", "", false
+	}
+	kindKey = rest[:p2]
+	externalID = rest[p2+1:]
+	if strings.ContainsRune(pluginID, '/') || strings.ContainsRune(kindKey, '/') || !ValidExternalID(externalID) {
+		return "", "", "", false
+	}
+	return pluginID, kindKey, externalID, true
+}
+
+// ParseItemRef validates s and returns it as an ItemRef.
+func ParseItemRef(s string) (ItemRef, error) {
+	ref := ItemRef(s)
+	if _, _, _, ok := ref.Parse(); !ok {
+		return "", fmt.Errorf("itemRef %q: invalid format", s)
+	}
+	return ref, nil
+}
+
+// Valid reports whether r is a well-formed ItemRef.
+func (r ItemRef) Valid() bool {
+	_, _, _, ok := r.Parse()
+	return ok
+}
+
+// Plugin returns the pluginID component of r, or "" if r is invalid.
+func (r ItemRef) Plugin() string {
+	p, _, _, _ := r.Parse()
+	return p
+}
+
+// Kind returns the kindKey component of r, or "" if r is invalid.
+func (r ItemRef) Kind() string {
+	_, k, _, _ := r.Parse()
+	return k
+}
+
+// External returns the externalID component of r, or "" if r is invalid.
+func (r ItemRef) External() string {
+	_, _, e, _ := r.Parse()
+	return e
+}
+
+func (r ItemRef) String() string { return string(r) }
+
 // KindItem is the standardised plugin item envelope (spec §3.2).
 type KindItem struct {
 	Ref        ItemRef                    `json:"-"`  // assigned by Ether, never sent to the plugin
+	Key        RatingKey                  `json:"-"`  // allocated PluginKey(seq), populated on store reads
 	ID         string                     `json:"id"` // externalID
 	Level      string                     `json:"level"`
 	ParentID   string                     `json:"parentId,omitempty"`
@@ -52,6 +141,46 @@ type KindPage struct {
 	Items      []KindItem `json:"items"`
 	NextCursor string     `json:"nextCursor,omitempty"` // opaque; absent = last page
 	Total      *int       `json:"total,omitempty"`      // provider claim; Ether never trusts it for its own totals
+}
+
+// KindBrowseRequest is the request body sent to a catalog_provider
+// browse or search route (spec §3.1, §3.2).
+type KindBrowseRequest struct {
+	ParentID string              `json:"parentId,omitempty"`
+	Level    string              `json:"level,omitempty"`
+	Cursor   string              `json:"cursor,omitempty"`
+	Limit    int                 `json:"limit,omitempty"`
+	Sort     string              `json:"sort,omitempty"`
+	Facets   map[string][]string `json:"facets,omitempty"`
+	Query    string              `json:"query,omitempty"`
+}
+
+// KindChangePage is one delta page returned by POST /ether/v1/kinds/{kind}/changes
+// during pull sync (spec §3.5).
+type KindChangePage struct {
+	Upserts    []KindItem `json:"upserts,omitempty"`
+	Deletes    []string   `json:"deletes,omitempty"` // externalIDs
+	NextCursor string     `json:"nextCursor,omitempty"`
+	Complete   bool       `json:"complete"`
+}
+
+// KindMatchRequest is the request body sent to POST /ether/v1/kinds/{kind}/match (spec §7).
+type KindMatchRequest struct {
+	Item       KindItem          `json:"item"`
+	Candidates []SourceCandidate `json:"candidates"`
+	Settings   map[string]any    `json:"settings,omitempty"`
+}
+
+// KindMatchScore is one candidate score returned by a matcher (spec §7).
+type KindMatchScore struct {
+	CandidateRef string   `json:"candidateRef"`
+	Score        float64  `json:"score"`
+	Reasons      []string `json:"reasons,omitempty"`
+}
+
+// KindMatchResponse is the response from POST /ether/v1/kinds/{kind}/match (spec §7).
+type KindMatchResponse struct {
+	Matches []KindMatchScore `json:"matches"`
 }
 
 // SourceQuery asks Ether to find sources for a kind resolver
@@ -119,6 +248,7 @@ type PlayableSource struct {
 	BlobRef     string            `json:"blobRef,omitempty"`
 	SHA256      string            `json:"sha256,omitempty"`
 	MaxBytes    int64             `json:"maxBytes,omitempty"`
+	ExpiresAt   int64             `json:"expiresAt,omitempty"`
 	Container   *ContainerRef     `json:"container,omitempty"`
 	Release     *ReleaseHint      `json:"release,omitempty"`
 }
