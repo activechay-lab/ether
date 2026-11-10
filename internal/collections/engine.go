@@ -9,7 +9,6 @@ import (
 	"hash/fnv"
 	"math/rand/v2"
 	"net/url"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1145,7 +1144,7 @@ func (s *Service) filterForUser(ctx context.Context, keys []core.RatingKey, pr p
 	allowedLibs := false
 	if user != nil {
 		max = user.MaxContentRating
-		allowedLibs = len(user.AllowedLibraries) > 0
+		allowedLibs = !user.IsOwner && len(user.AllowedLibraries) > 0
 	}
 	include, exclude := pr.include, pr.exclude
 	personal := len(include)+len(exclude) > 0
@@ -1174,11 +1173,11 @@ func (s *Service) filterForUser(ctx context.Context, keys []core.RatingKey, pr p
 	out := make([]core.RatingKey, 0, len(keys))
 	for _, k := range keys {
 		if allowedLibs {
-			section := core.LibraryMovies
-			if k.Kind() != core.KindMovie {
-				section = core.LibraryShows
+			kind := core.TypeShow
+			if k.Kind() == core.KindMovie {
+				kind = core.TypeMovie
 			}
-			if !slices.Contains(user.AllowedLibraries, section) {
+			if !user.AllowsLibrary(core.CanonicalLibraryForTitle(kind)) {
 				continue
 			}
 		}
