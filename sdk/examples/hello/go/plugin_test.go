@@ -25,7 +25,9 @@ import (
 	etherplugin "github.com/braedonsaunders/ether/sdk/go"
 )
 
-type noopHost struct{}
+// noopHost answers the host calls this example makes; any other Host method
+// panics through the nil embedded interface.
+type noopHost struct{ plugins.Host }
 
 type parityHost struct {
 	noopHost
