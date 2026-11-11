@@ -162,12 +162,14 @@ func ApplyMemoryLimit(log *slog.Logger) {
 		switch {
 		case source == LimitSourceEnv:
 			log.Info("memory limit: GOMEMLIMIT from the environment is in effect; not overriding", "gomemlimit", env)
+			go watchMemoryLimit(log, false, 0)
 		case limit <= 0:
 			log.Warn("memory limit: could not determine container limit or physical RAM; leaving the Go default (set GOMEMLIMIT to bound the heap)")
 		default:
 			debug.SetMemoryLimit(limit)
 			log.Info("memory limit set", "limit_bytes", limit, "limit_mib", limit>>20, "source", source,
 				"cgroup_limit_bytes", cgroup, "physical_ram_bytes", ram)
+			go watchMemoryLimit(log, true, memoryCeiling(cgroup, ram))
 		}
 	})
 }

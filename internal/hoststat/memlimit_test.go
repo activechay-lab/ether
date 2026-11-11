@@ -109,3 +109,31 @@ func TestParseMemTotal(t *testing.T) {
 		t.Fatal("missing MemTotal must be 0")
 	}
 }
+
+// The guard raises an automatic limit only when GC load comes from a live
+// heap pressed against the limit, and never past the ceiling.
+func TestGuardDecision(t *testing.T) {
+	const gib = int64(1) << 30
+	prev := gcSample{gcCPU: 100, totalCPU: 1000}
+	cases := []struct {
+		name        string
+		gc, total   float64
+		live        int64
+		limit, ceil int64
+		next        int64
+		thrashing   bool
+	}{
+		{"healthy GC", 102, 1240, 2 * gib, 3 * gib, 6 * gib, 0, false},
+		{"churn below the limit", 190, 1240, 1 * gib, 3 * gib, 6 * gib, 0, false},
+		{"thrash raises to twice the live heap", 300, 1240, 2800 << 20, 3 * gib, 8 * gib, 5600 << 20, true},
+		{"raise capped at ceiling", 300, 1240, 2800 << 20, 3 * gib, 4 * gib, 4 * gib, true},
+		{"already at ceiling", 300, 1240, 2800 << 20, 3 * gib, 3 * gib, 0, true},
+		{"unknown ceiling only reports", 300, 1240, 2800 << 20, 3 * gib, 0, 0, true},
+	}
+	for _, c := range cases {
+		next, thrashing := guardDecision(prev, gcSample{gcCPU: c.gc, totalCPU: c.total, live: uint64(c.live)}, c.limit, c.ceil)
+		if next != c.next || thrashing != c.thrashing {
+			t.Errorf("%s: got (%d, %v), want (%d, %v)", c.name, next, thrashing, c.next, c.thrashing)
+		}
+	}
+}
