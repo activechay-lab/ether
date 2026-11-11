@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
@@ -29,17 +30,7 @@ func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.Handle
 	}{
 		{"GET", "/System/Info/Public", func(w http.ResponseWriter, r *http.Request) {
 			info := getInfo()
-			address := info.LocalAddress
-			if address == "" && r.Host != "" {
-				scheme := "http"
-				if r.TLS != nil {
-					scheme = "https"
-				}
-				address = scheme + "://" + r.Host
-			}
-			if prefix, ok := r.Context().Value(prefixKey{}).(string); ok && address != "" {
-				address = strings.TrimRight(address, "/") + prefix
-			}
+			address := requestAddress(info, r)
 			if info.ProductName == "Emby Server" {
 				jsonReply(w, map[string]any{"Id": info.ID, "ServerName": info.ServerName, "Version": info.Version, "LocalAddress": address, "LocalAddresses": []string{address}, "RemoteAddresses": []string{address}, "WanAddress": address})
 				return
@@ -106,6 +97,36 @@ func endpointInfo(r *http.Request, clientIP func(*http.Request) (netip.Addr, boo
 	local := ok && ip.IsLoopback()
 	network := local || ok && (ip.IsPrivate() || ip.IsLinkLocalUnicast())
 	return map[string]bool{"IsLocal": local, "IsInNetwork": network}
+}
+
+// requestAddress is the externally reachable base URL a client should use,
+// honouring a mount prefix and the request's own host when the host supplied
+// no fixed local address.
+func requestAddress(info PublicInfo, r *http.Request) string {
+	address := info.LocalAddress
+	if address == "" && r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		address = scheme + "://" + r.Host
+	}
+	if prefix, ok := r.Context().Value(prefixKey{}).(string); ok && address != "" {
+		address = strings.TrimRight(address, "/") + prefix
+	}
+	return address
+}
+
+// requestPort is the port the client reached this surface on. It returns 0
+// when the Host carries no explicit port, so the caller falls back to the
+// configured listener port.
+func requestPort(r *http.Request) int {
+	if _, port, err := net.SplitHostPort(r.Host); err == nil {
+		if n, err := strconv.Atoi(port); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 type prefixKey struct{}
