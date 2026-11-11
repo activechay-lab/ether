@@ -27,11 +27,13 @@ import {
 } from "../../components/fields";
 import { Section } from "../../components/layout";
 import { SortableList } from "../../components/Sortable";
+import { SaveBar, useDraft } from "../../components/SaveBar";
 import { SettingsRow } from "../../components/SettingsRow";
 import { api, errorMessage, newId } from "../../lib/api";
 import { isPlainObject } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import type { Indexer, IndexerProtocol, SiteDefinition, SiteTestResult } from "../../lib/types";
+import { useResolver } from "../releases/resolverDraft";
 import { searchIdentityOptions } from "../settings/schema";
 import { ClientIdentity } from "./ClientIdentity";
 import { hasUsableDebrid } from "./Debrid";
@@ -890,5 +892,60 @@ export function IndexerList({
         ) : null}
       </RecordDrawer>
     </>
+  );
+}
+
+/**
+ * Sources › Indexers: the owner switch that lets a detail page's
+ * file-availability check open on-demand add-on stream links. Off by
+ * default; when off an undecided check never hides Play. Warm-ups,
+ * prefetch, discovery and idle background work always refuse.
+ */
+export function AddonStreamsSection() {
+  const { config, resolver } = useResolver();
+  const saved = useMemo(
+    () => (resolver ? Boolean(resolver.openOnDemandAddonStreams) : null),
+    [resolver],
+  );
+  const { draft, setDraft, dirty, reset } = useDraft<boolean>(saved);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  if (config.error) return <ErrorPanel error={config.error} onRetry={() => void config.reload()} />;
+  if (draft === null) return null;
+  async function submit() {
+    if (draft === null) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.putSection("resolver", { openOnDemandAddonStreams: draft });
+      toast.success(t("Setting saved"));
+      await config.reload();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <SettingsSection title={t("Add-on streams")}>
+      <BoolRow
+        label={t("Let availability checks open add-on streams")}
+        value={draft}
+        help={t(
+          "Off by default. When on, the file check behind a detail page may open an on-demand add-on link within its existing timeouts and limits. Opening a link can make the add-on fetch, import or download the release. Warm-ups, prefetch and other background work never open links.",
+        )}
+        onChange={setDraft}
+      />
+      <SaveBar
+        dirty={dirty}
+        saving={saving}
+        error={error}
+        onSave={submit}
+        onDiscard={() => {
+          reset();
+          setError(null);
+        }}
+      />
+    </SettingsSection>
   );
 }

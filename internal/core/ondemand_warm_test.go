@@ -32,3 +32,35 @@ func TestOnDemandWarmOpensOnlyTheTopCachedStream(t *testing.T) {
 		t.Fatal("budget refusal ignored")
 	}
 }
+
+// A client's file-availability check may open an on-demand add-on stream only
+// when the owner enabled it (WithOnDemandStreamsForAvailability). The mark
+// admits that one check and nothing else: speculative work, background checks
+// and work marked WithoutOnDemandStreams keep refusing, and a denied check
+// stays denied even when both marks are set.
+func TestAvailabilityCheckOpensOnDemandStreamsOnly(t *testing.T) {
+	spec, _ := WithSpeculative(context.Background())
+	warm := WithIndexerPurpose(spec, IndexerPurposeWarmup)
+	rel := Release{ID: "a", Protocol: ProtocolHTTP, StreamURL: "https://addon/a", StreamOnDemand: true}
+	if OnDemandStreamsAllowed(warm) {
+		t.Fatal("a warm-up opened an on-demand stream without permission")
+	}
+	allowed := WithOnDemandStreamsForAvailability(warm)
+	if !OnDemandStreamsAllowed(allowed) {
+		t.Fatal("the permitted availability check could not open an on-demand stream")
+	}
+	if !OnDemandAllowedAt(allowed, rel, 0) {
+		t.Fatal("the permitted availability check was refused the top on-demand stream")
+	}
+	if !OnDemandAllowedAt(allowed, rel, 3) {
+		t.Fatal("the permitted availability check should admit any rank")
+	}
+	// Nothing else gets the mark: plain warm-ups, discovery and idle work.
+	if OnDemandStreamsAllowed(warm) || OnDemandStreamsAllowed(spec) {
+		t.Fatal("the mark leaked to other speculative work")
+	}
+	// An explicit deny still wins when both marks are present.
+	if OnDemandStreamsAllowed(WithoutOnDemandStreams(WithOnDemandStreamsForAvailability(warm))) {
+		t.Fatal("WithoutOnDemandStreams did not override the availability mark")
+	}
+}

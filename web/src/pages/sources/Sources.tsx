@@ -9,7 +9,7 @@ import { ProwlarrImport } from "../../components/ProwlarrImport";
 import { IPTVProviders } from "./IPTV";
 import { DebridSources } from "./Debrid";
 import { HealthStrip } from "./form";
-import { IndexerList } from "./Indexers";
+import { AddonStreamsSection, IndexerList } from "./Indexers";
 import { NewReleaseBudgetSection } from "../libraries/browser/NewReleasesSettings";
 import { UsenetProviders } from "./Usenet";
 import { SourceStatistics, StatisticsPeriod } from "./statistics/Statistics";
@@ -108,6 +108,7 @@ export default function Sources() {
       {top === "indexers" ? (
         <>
           <IndexerList version={version} addRequest={indexerAdd} />
+          <AddonStreamsSection />
           <NewReleaseBudgetSection />
         </>
       ) : null}
