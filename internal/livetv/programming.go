@@ -329,9 +329,20 @@ func effectiveBlockLook(base, override *ChannelLook) *ChannelLook {
 		}
 		look.Ident = base.Ident
 		look.UpNext = base.UpNext
-		look.Tonight = base.Tonight
+		if look.Tonight == nil {
+			look.Tonight = base.Tonight
+		}
 		look.OffAir = base.OffAir
 		look.Bug = base.Bug
+		if look.BeforeBreak == nil && base.BeforeBreak != nil {
+			look.BeforeBreak = append([]string(nil), base.BeforeBreak...)
+		}
+		if look.AfterBreak == nil && base.AfterBreak != nil {
+			look.AfterBreak = append([]string(nil), base.AfterBreak...)
+		}
+		if look.BetweenProgrammes == nil && base.BetweenProgrammes != nil {
+			look.BetweenProgrammes = append([]string(nil), base.BetweenProgrammes...)
+		}
 		assets := map[string]string{}
 		for k, v := range base.MomentAssets {
 			assets[k] = v

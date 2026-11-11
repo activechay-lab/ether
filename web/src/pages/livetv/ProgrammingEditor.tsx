@@ -21,6 +21,7 @@ import { ClockRows } from "./onair/ClockRows";
 import { BreakPatternEditor, breakPatternPreset } from "./onair/BreakPatternEditor";
 import { personalRecipe } from "./onair/defaults";
 import { ChannelLook, OnAirAsset, Reel, onair } from "./onair/model";
+import { RundownOrderEditor } from "./onair/RundownOrderEditor";
 
 function detectedBreaks(channel: Channel): number {
   const counts = new Map<number, number>();
@@ -152,7 +153,7 @@ export function ProgrammingEditor({
     } else {
       const pin = pins.findIndex((p) => p.id === editRequest.pinId);
       const block = blocks.findIndex((b) => b.id === editRequest.blockId);
-      if (pin >= 0) setEditing({ kind: "pin", index: pin, value: structuredClone(pins[pin]!) });
+      if (pin >= 0) setEditing({ kind: "pin", index: iPin(pin), value: structuredClone(pins[pin]!) });
       else if (block >= 0)
         setEditing({ kind: "block", index: block, value: structuredClone(blocks[block]!) });
     }
@@ -606,6 +607,9 @@ export function ProgrammingEditor({
     </div>
   );
 }
+function iPin(pin: number): number {
+  return pin;
+}
 function Sources({
   sources,
   onChange,
@@ -981,6 +985,7 @@ function Breaks({
               />
             </Field>
           )}
+          <RundownOrderEditor value={value} onChange={set} includeBetween={false} />
         </>
       )}
     </div>
@@ -1015,7 +1020,7 @@ function Creative({
           [
             { key: "ident", label: t("Ident") },
             { key: "upnext", label: t("Up next") },
-            { key: "tonight", label: t("Tonight") },
+            { key: "tonight", label: t("Upcoming shows") },
             { key: "break", label: t("Break") },
             { key: "back", label: t("Back") },
           ] as const
@@ -1042,7 +1047,7 @@ function Creative({
         [
           { key: "ident", label: t("Ident when tuning in") },
           { key: "upNext", label: t("Up next") },
-          { key: "tonight", label: t("Coming up tonight") },
+          { key: "tonight", label: t("Upcoming shows") },
         ] as const
       ).map((x) => (
         <SettingsRow
@@ -1115,6 +1120,9 @@ function Creative({
           />
         }
       />
+      <div className="border-t border-border pt-3">
+        <RundownOrderEditor value={value} onChange={set} />
+      </div>
     </div>
   );
 }

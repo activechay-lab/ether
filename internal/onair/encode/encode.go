@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -49,21 +50,31 @@ type Options struct {
 	AudioVolume         *float64
 }
 
-// WithWorkers is also used by the reproducible four-worker Phase 0 measurement.
-func WithWorkers(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA, n, fps int, audio, out string, workers int) error {
-	return WithOptions(ctx, ffmpegPath, frames, n, fps, audio, out, Options{Workers: workers})
+// StreamWriter encodes sequential RGBA frames into an atomic content-addressed
+// master MP4 while a cold moment is simultaneously airing live.
+type StreamWriter struct {
+	cancel    context.CancelFunc
+	cmd       *mediaproc.Cmd
+	pipe      io.WriteCloser
+	stderr    bytes.Buffer
+	tmpPath   string
+	audioTemp string
+	outPath   string
+	width     int
+	height    int
+	expected  int
+	written   int
+	closed    bool
 }
-func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA, n, fps int, audio, out string, opts Options) error {
-	workers := opts.Workers
-	if workers == 0 {
-		workers = max(1, runtime.GOMAXPROCS(0)/2)
-	}
+
+// StartStream launches an FFmpeg master encoder identical in profile to WithOptions.
+func StartStream(ctx context.Context, ffmpegPath string, n, fps int, audio, out string, opts Options) (*StreamWriter, error) {
 	limit := opts.MaxSeconds
 	if limit == 0 {
 		limit = 28
 	}
 	if limit < 4 || limit > 600 {
-		return fmt.Errorf("invalid master duration limit")
+		return nil, fmt.Errorf("invalid master duration limit")
 	}
 	width, height := opts.Width, opts.Height
 	if width == 0 {
@@ -73,44 +84,163 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 		height = 1080
 	}
 	if width < 2 || width > 1920 || height < 2 || height > 1080 || width%2 != 0 || height%2 != 0 {
-		return fmt.Errorf("invalid encode dimensions")
+		return nil, fmt.Errorf("invalid encode dimensions")
 	}
+	var audioTemp string
 	if opts.Audio != nil && audio == "" && fps == 30 && n > 0 && n%120 == 0 && n <= limit*30 {
 		f, e := os.CreateTemp(filepath.Dir(out), ".onair-audio-*.wav")
 		if e != nil {
-			return e
+			return nil, e
 		}
-		audio = f.Name()
-		defer os.Remove(audio)
+		audioTemp = f.Name()
+		audio = audioTemp
 		e = WriteWAV(f, *opts.Audio, n/fps)
 		f.Close()
 		if e != nil {
-			return e
+			os.Remove(audioTemp)
+			return nil, e
 		}
 	}
-
-	if n <= 0 || fps != 30 || n%120 != 0 || n > limit*30 || workers < 1 {
-		return fmt.Errorf("master requires 30 fps, 4-second multiples, within the declared duration limit")
+	if n <= 0 || fps != 30 || n%120 != 0 || n > limit*30 {
+		if audioTemp != "" {
+			os.Remove(audioTemp)
+		}
+		return nil, fmt.Errorf("master requires 30 fps, 4-second multiples, within the declared duration limit")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		if audioTemp != "" {
+			os.Remove(audioTemp)
+		}
+		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	streamCtx, cancel := context.WithCancel(ctx)
 	tmp, e := os.CreateTemp(filepath.Dir(out), ".onair-*.mp4")
 	if e != nil {
-		return e
+		cancel()
+		if audioTemp != "" {
+			os.Remove(audioTemp)
+		}
+		return nil, e
 	}
-	path := tmp.Name()
+	tmpPath := tmp.Name()
 	tmp.Close()
-	defer os.Remove(path)
+
+	args, e := masterFFmpegArgs(width, height, n, fps, audio, tmpPath, opts)
+	if e != nil {
+		cancel()
+		os.Remove(tmpPath)
+		if audioTemp != "" {
+			os.Remove(audioTemp)
+		}
+		return nil, e
+	}
+	var cmd *mediaproc.Cmd
+	if runtime.GOOS != "windows" {
+		cmd = mediaproc.CommandContext(streamCtx, mediaproc.EncodeTimeout, "nice", append([]string{"-n", "10", ffmpegPath}, args...)...)
+	} else {
+		cmd = mediaproc.CommandContext(streamCtx, mediaproc.EncodeTimeout, ffmpegPath, args...)
+		lowerRenderPriority(cmd.Cmd)
+	}
+	w := &StreamWriter{
+		cancel:    cancel,
+		cmd:       cmd,
+		tmpPath:   tmpPath,
+		audioTemp: audioTemp,
+		outPath:   out,
+		width:     width,
+		height:    height,
+		expected:  n,
+	}
+	cmd.Stderr = &w.stderr
+	pipe, e := cmd.StdinPipe()
+	if e != nil {
+		w.Abort()
+		return nil, e
+	}
+	w.pipe = pipe
+	if e = cmd.Start(); e != nil {
+		w.Abort()
+		return nil, e
+	}
+	return w, nil
+}
+
+func (w *StreamWriter) WriteFrame(frame *image.RGBA) error {
+	if w == nil || w.closed {
+		return fmt.Errorf("stream writer closed")
+	}
+	if frame == nil || frame.Rect.Dx() != w.width || frame.Rect.Dy() != w.height {
+		return fmt.Errorf("frame %d must be %dx%d", w.written, w.width, w.height)
+	}
+	for y := frame.Rect.Min.Y; y < frame.Rect.Max.Y; y++ {
+		off := frame.PixOffset(frame.Rect.Min.X, y)
+		row := frame.Pix[off : off+w.width*4]
+		if _, err := w.pipe.Write(row); err != nil {
+			return fmt.Errorf("frame pipe: %w", err)
+		}
+	}
+	w.written++
+	return nil
+}
+
+func (w *StreamWriter) Close() error {
+	if w == nil || w.closed {
+		return nil
+	}
+	w.closed = true
+	defer func() {
+		w.cancel()
+		os.Remove(w.tmpPath)
+		if w.audioTemp != "" {
+			os.Remove(w.audioTemp)
+		}
+	}()
+	if w.written != w.expected {
+		w.cancel()
+		if w.pipe != nil {
+			_ = w.pipe.Close()
+		}
+		if w.cmd != nil && w.cmd.Process != nil {
+			_ = w.cmd.Wait()
+		}
+		return fmt.Errorf("incomplete master: wrote %d of %d frames", w.written, w.expected)
+	}
+	if w.pipe != nil {
+		_ = w.pipe.Close()
+	}
+	if err := w.cmd.Wait(); err != nil {
+		return fmt.Errorf("ffmpeg: %w: %.2048s", err, w.stderr.String())
+	}
+	return os.Rename(w.tmpPath, w.outPath)
+}
+
+func (w *StreamWriter) Abort() {
+	if w == nil || w.closed {
+		return
+	}
+	w.closed = true
+	w.cancel()
+	if w.pipe != nil {
+		_ = w.pipe.Close()
+	}
+	if w.cmd != nil && w.cmd.Process != nil {
+		_ = w.cmd.Wait()
+	}
+	if w.tmpPath != "" {
+		_ = os.Remove(w.tmpPath)
+	}
+	if w.audioTemp != "" {
+		_ = os.Remove(w.audioTemp)
+	}
+}
+
+func masterFFmpegArgs(width, height, n, fps int, audio, path string, opts Options) ([]string, error) {
 	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", fmt.Sprintf("%dx%d", width, height), "-r", strconv.Itoa(fps), "-i", "pipe:0"}
 	if audio != "" {
 		args = append(args, "-i", audio)
 	} else {
 		args = append(args, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
 	}
-
 	for _, sound := range opts.Sounds {
 		args = append(args, "-i", sound.Path)
 	}
@@ -141,42 +271,46 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 		}
 		ceiling, err := rate(opts.MaxRate)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		buffer, err := rate(opts.BufferSize)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		video := ceiling - max(256000, ceiling/10)
 		if video < 64000 {
-			return fmt.Errorf("bitrate ceiling too low")
+			return nil, fmt.Errorf("bitrate ceiling too low")
 		}
 		args = append(args[:len(args)-1], "-maxrate", strconv.Itoa(video), "-bufsize", strconv.Itoa(buffer), "-x264-params", "vbv-init=0.1", path)
 	}
 	if opts.AudioVolume != nil {
 		v := *opts.AudioVolume
 		if v < 0 || v > 1 {
-			return fmt.Errorf("invalid audio volume")
+			return nil, fmt.Errorf("invalid audio volume")
 		}
 		args = append(args[:len(args)-1], "-af", fmt.Sprintf("volume=%f", v), path)
 	}
-	var cmd *mediaproc.Cmd
-	// nice execs ffmpeg, so CommandContext owns the encoder PID directly.
-	if runtime.GOOS != "windows" {
-		cmd = mediaproc.CommandContext(ctx, mediaproc.EncodeTimeout, "nice", append([]string{"-n", "10", ffmpegPath}, args...)...)
-	} else {
-		cmd = mediaproc.CommandContext(ctx, mediaproc.EncodeTimeout, ffmpegPath, args...)
-		lowerRenderPriority(cmd.Cmd)
+	return args, nil
+}
+
+// WithWorkers is also used by the reproducible four-worker Phase 0 measurement.
+func WithWorkers(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA, n, fps int, audio, out string, workers int) error {
+	return WithOptions(ctx, ffmpegPath, frames, n, fps, audio, out, Options{Workers: workers})
+}
+func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA, n, fps int, audio, out string, opts Options) error {
+	workers := opts.Workers
+	if workers == 0 {
+		workers = max(1, runtime.GOMAXPROCS(0)/2)
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	pipe, e := cmd.StdinPipe()
-	if e != nil {
-		return e
+	if workers < 1 {
+		return fmt.Errorf("master requires 30 fps, 4-second multiples, within the declared duration limit")
 	}
-	if e = cmd.Start(); e != nil {
-		return e
+	writer, err := StartStream(ctx, ffmpegPath, n, fps, audio, out, opts)
+	if err != nil {
+		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	type result struct {
 		i     int
 		frame *image.RGBA
@@ -242,19 +376,12 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 					renderErr = p.err
 					break
 				}
-				if p.frame == nil || p.frame.Rect.Dx() != width || p.frame.Rect.Dy() != height {
+				if p.frame == nil || p.frame.Rect.Dx() != writer.width || p.frame.Rect.Dy() != writer.height {
 					renderErr = fmt.Errorf("frame %d must be 1920x1080", next)
 					break
 				}
-				for y := p.frame.Rect.Min.Y; y < p.frame.Rect.Max.Y; y++ {
-					off := p.frame.PixOffset(p.frame.Rect.Min.X, y)
-					row := p.frame.Pix[off : off+width*4]
-					if _, e = pipe.Write(row); e != nil {
-						renderErr = fmt.Errorf("frame pipe: %w", e)
-						break
-					}
-				}
-				if renderErr != nil {
+				if err := writer.WriteFrame(p.frame); err != nil {
+					renderErr = err
 					break
 				}
 				next++
@@ -264,18 +391,14 @@ func WithOptions(ctx context.Context, ffmpegPath string, frames func(int) *image
 	close(jobs)
 	if renderErr != nil {
 		cancel()
-	}
-	pipe.Close()
-	e = cmd.Wait()
-	cancel()
-	wg.Wait()
-	if renderErr != nil {
+		writer.Abort()
+		wg.Wait()
 		return renderErr
 	}
-	if e != nil {
-		return fmt.Errorf("ffmpeg: %w: %.2048s", e, stderr.String())
-	}
-	return os.Rename(path, out)
+	err = writer.Close()
+	cancel()
+	wg.Wait()
+	return err
 }
 
 func rate(s string) (int, error) {

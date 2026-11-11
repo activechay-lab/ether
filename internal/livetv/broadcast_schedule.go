@@ -3,8 +3,9 @@ package livetv
 import (
 	"context"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/faillog"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/faillog"
 )
 
 type reelClipCache interface {
@@ -62,10 +63,11 @@ func (s *Service) openReelClipPath(c Channel, reelID, clipID string) string {
 }
 
 // A missing master changes only the airing's input. It never changes schedule
-// spans, programme identities, or the guide. The clock latches the live fallback
-// for that whole moment; a master that arrives late is available next time.
+// spans, programme identities, or the guide. When graphics supports live
+// real-time rendering (>= 1.0x), cold moments render animated directly into the
+// stream and save reusable masters while airing instead of falling back to a still.
 // An unresolvable reel link clip skips silently for its slot, filling with a
-// cached clip from the same reel, channel/block filler, or the live break plate.
+// cached clip from the same reel, channel/block filler, or an animated break bumper.
 func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until time.Time, check bool) []Programme {
 	c = s.graphicsChannel(c)
 	ps := Schedule(c, from, until)
@@ -141,10 +143,30 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 			_, ready = s.o.Graphics.Clip(ctx, request)
 		}
 		if !ready {
-			s.o.Graphics.Ensure(ctx, request)
-			if !orig.Start.After(from) {
-				s.recordGraphicsSkip(c, orig, fmt.Errorf("master not cached at airing boundary"))
-				orig.graphicsFallback = true
+			if lm, ok := s.o.Graphics.(liveMomentSource); ok {
+				allowed, speedX, reason := lm.LiveRenderAllowed(request)
+				if allowed {
+					// Pre-render distant moments via the bounded queue; imminent or
+					// active moments render live and save directly in OpenMoment.
+					if orig.Start.After(from.Add(broadcastPrewarm)) {
+						req := request
+						req.Boundary = orig.Start
+						s.o.Graphics.Ensure(ctx, req)
+					}
+				} else if !orig.Start.After(from) {
+					if reason == "" {
+						reason = "live render unavailable"
+					}
+					s.noteMomentPlayout(c.ID, orig.Item.Slate, "fallback", speedX, reason)
+					s.recordGraphicsSkip(c, orig, fmt.Errorf("%s", reason))
+					orig.graphicsFallback = true
+				}
+			} else {
+				s.o.Graphics.Ensure(ctx, request)
+				if !orig.Start.After(from) {
+					s.recordGraphicsSkip(c, orig, fmt.Errorf("master not cached at airing boundary"))
+					orig.graphicsFallback = true
+				}
 			}
 		}
 		out = append(out, orig)
@@ -229,6 +251,31 @@ func (s *Service) substituteReelSlot(ctx context.Context, c Channel, orig Progra
 				End:        orig.End,
 				Item:       filler,
 			}}
+		}
+	}
+
+	// When On Air live moment rendering is available and no reel clip or filler
+	// is cached yet, loop the look's animated break bumper instead of a still.
+	if lm, ok := s.o.Graphics.(liveMomentSource); ok && c.Look != nil && c.Look.LookID != "" {
+		if dur, ok := c.momentDuration("break"); ok && dur > 0 {
+			id := orig.ID + "-break-anim"
+			bp := Programme{
+				ID:         id,
+				graphicsID: id,
+				BlockID:    orig.BlockID,
+				Start:      orig.Start,
+				End:        orig.End,
+				Item: Item{
+					Slate:      "break",
+					Title:      "Commercial break",
+					DurationMS: orig.End.Sub(orig.Start).Milliseconds(),
+				},
+			}
+			req := s.clipRequest(c, bp, ps)
+			if allowed, _, _ := lm.LiveRenderAllowed(req); allowed {
+				bp.graphicsRequest = &req
+				return []Programme{bp}
+			}
 		}
 	}
 

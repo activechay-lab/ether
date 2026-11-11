@@ -75,6 +75,9 @@ export type ChannelLook = {
   momentAssets?: Record<string, string>;
   breakPlacement?: "natural" | "even" | "between";
   tonight?: boolean;
+  beforeBreak?: string[];
+  afterBreak?: string[];
+  betweenProgrammes?: string[];
   bug?: BugSettings;
   breakPattern?: BreakPattern;
   lookId: string;

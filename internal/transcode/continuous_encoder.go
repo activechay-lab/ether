@@ -1,7 +1,6 @@
 package transcode
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,16 +19,90 @@ var _ ContinuousRunner = (*Manager)(nil)
 type continuousEncoder struct {
 	speed atomic.Uint64
 	*continuousProcess
-	req     EncoderRequest
-	dir     string
-	frames  chan RawFrame
-	writeMu chan struct{}
-	tick    int64
-	workers sync.WaitGroup
-	index   *continuousSegmentIndex
-	stream  *continuousFanout
-	store   *continuousStore
-	m       *Manager
+	closeOnce     sync.Once
+	mu            sync.Mutex
+	child         *continuousChild
+	fatalErr      error
+	hasRTXFailure bool
+	rtxFailed     continuousRTXAttemptKey
+	req           EncoderRequest
+	dir           string
+	frames        chan RawFrame
+	writeMu       chan struct{}
+	tick          int64
+	workers       sync.WaitGroup
+	index         *continuousSegmentIndex
+	stream        *continuousFanout
+	store         *continuousStore
+	m             *Manager
+}
+
+func (e *continuousEncoder) setChild(c *continuousChild) {
+	e.mu.Lock()
+	e.child = c
+	if c != nil && c.proc != nil && e.continuousProcess != nil {
+		e.continuousProcess.proc = c.proc.proc
+		e.continuousProcess.sockets = c.proc.sockets
+		e.continuousProcess.done = c.proc.done
+		e.continuousProcess.stderr = c.proc.stderr
+	}
+	e.mu.Unlock()
+}
+
+func (e *continuousEncoder) currentChild() *continuousChild {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.child
+}
+
+func (e *continuousEncoder) fail(err error) {
+	e.mu.Lock()
+	if e.fatalErr == nil {
+		e.fatalErr = err
+	}
+	e.mu.Unlock()
+	e.cancel()
+}
+
+func (e *continuousEncoder) writeError() error {
+	e.mu.Lock()
+	err := e.fatalErr
+	c := e.child
+	e.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if c != nil && c.proc != nil {
+		return c.proc.writeError()
+	}
+	return io.ErrClosedPipe
+}
+
+func (e *continuousEncoder) recoverFromRTXFailure(child **continuousChild, tick int64, startup []int64) error {
+	old := *child
+	err := old.failure()
+	e.recordRTXFailure(old.attemptKey)
+	if e.m != nil && e.m.log != nil {
+		e.m.log.Warn("continuous RTX Video exited; falling back to ordinary encoder",
+			"session", e.req.SessionID,
+			"tick", tick,
+			"err", err)
+	}
+	old.forceClose()
+
+	resumeSeq := e.index.nextSeq()
+	if resumeSeq > 0 && resumeSeq < int64(len(startup)) {
+		resumeSeq = int64(len(startup))
+	}
+	tsOffsetTick, _ := continuousSegmentFrames(e.req.Source, e.req.SegmentDuration, e.req.LiveSource, resumeSeq)
+	replacement, startErr := e.startOrdinaryChild(resumeSeq, tick, tsOffsetTick)
+	if startErr != nil {
+		return startErr
+	}
+	e.setChild(replacement)
+	e.index.setBandwidth(e.ordinaryBandwidthBps())
+	*child = replacement
+	return nil
 }
 
 // StartEncoder starts a fixed rendition. Scaling stays in ffmpeg (one scale per
@@ -71,145 +144,178 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 			os.RemoveAll(dir)
 		}
 	}()
-	sockets := make([]*rawSocket, 0, 2)
-	for range 2 {
-		s, e := newRawSocket()
-		if e != nil {
-			for _, s := range sockets {
-				s.close()
-			}
-			return nil, e
-		}
-		sockets = append(sockets, s)
-	}
-	defer func() {
-		if !ok {
-			for _, s := range sockets {
-				s.close()
-			}
-		}
-	}()
 	if r.SessionID == "" {
 		r.SessionID = randomHex(12)
 	}
-	enc := &continuousEncoder{req: r, dir: dir, frames: make(chan RawFrame, 8), writeMu: make(chan struct{}, 1), stream: newContinuousFanout(), m: m}
+	encCtx, encCancel := context.WithCancel(ctx)
+	enc := &continuousEncoder{
+		continuousProcess: &continuousProcess{ctx: encCtx, cancel: encCancel, done: make(chan struct{}), stderr: newTailBuffer(24)},
+		req:               r,
+		dir:               dir,
+		frames:            make(chan RawFrame, 8),
+		writeMu:           make(chan struct{}, 1),
+		stream:            newContinuousFanout(),
+		m:                 m,
+	}
 	enc.index = newContinuousSegmentIndex(enc)
 	// Keep about 30 s of each container in memory: the live window clients
 	// read, served without touching the disk.
 	keep := int((30*time.Second + r.SegmentDuration - 1) / r.SegmentDuration)
 	enc.store, e = newContinuousStore(dir, keep, enc.index.kick)
 	if e != nil {
+		encCancel()
 		return nil, e
 	}
 	defer func() {
 		if !ok {
+			encCancel()
 			enc.store.close()
 		}
 	}()
-	args := m.continuousEncodeArgs(r, sockets, enc.store.url())
-	p, e := m.startContinuous(ctx, args, dir, false, sockets, enc.stream, func() { release(); enc.stream.close(); enc.store.close(); _ = removeAllRetry(dir) }, func(line string) {
-		if value, ok := strings.CutPrefix(line, "speed="); ok {
-			if speed, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(value), "x"), 64); err == nil && speed > 0 {
-				enc.speed.Store(math.Float64bits(speed))
-			}
-		}
-	})
+
+	child, e := enc.startGeneration(0, 0, 0)
 	if e != nil {
 		return nil, e
 	}
-	enc.continuousProcess = p
+
+	cleanup := sync.OnceFunc(func() {
+		release()
+		enc.stream.close()
+		enc.store.close()
+		_ = removeAllRetry(dir)
+	})
+
 	go enc.index.watch()
-	// Each stream drains independently; probing or mux scheduling cannot deadlock
-	// the other input. Sparse pictures carry output-clock timestamps, PCM is complete.
-	type picture struct {
-		video []byte
-		tick  int64
-	}
-	video := make(chan picture, 8)
-	audio := make(chan []byte, 8)
-	enc.workers.Add(2)
-	go func() {
-		defer enc.workers.Done()
-		c, err := sockets[0].accept()
-		if err != nil {
-			return
-		}
-		if _, err = c.Write(rawVideoHeader(r.Source)); err != nil {
-			p.cancel()
-			return
-		}
-		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case frame, ok := <-video:
-				if !ok {
-					return
-				}
-				if err = writeRawVideo(c, frame.video, frame.tick, r.Source); err != nil {
-					p.cancel()
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		defer enc.workers.Done()
-		c, err := sockets[1].accept()
-		if err != nil {
-			return
-		}
-		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case pcm, ok := <-audio:
-				if !ok {
-					return
-				}
-				if _, err = io.Copy(c, bytes.NewReader(pcm)); err != nil {
-					p.cancel()
-					return
-				}
-			}
-		}
-	}()
+
+	g, startup, steady := continuousLadder(r.Source, r.SegmentDuration, r.LiveSource)
 	enc.workers.Add(1)
 	go func() {
 		defer enc.workers.Done()
-		defer close(video)
-		defer close(audio)
+		defer cleanup()
+		defer encCancel()
+		defer func() {
+			if child != nil {
+				child.forceClose()
+			}
+		}()
+
 		var tick int64
 		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case f := <-enc.frames:
-				vch, ach := video, audio
+			var f RawFrame
+			gotFrame := false
+			for !gotFrame {
+				var rtxDied <-chan struct{}
+				if child.rtx {
+					rtxDied = child.rtxDone
+				}
+				select {
+				case <-enc.ctx.Done():
+					return
+				case <-m.stop:
+					return
+				case <-child.proc.done:
+					if enc.ctx.Err() != nil {
+						return
+					}
+					if !child.rtx {
+						enc.fail(child.proc.result())
+						return
+					}
+					if err := enc.recoverFromRTXFailure(&child, tick, startup); err != nil {
+						enc.fail(err)
+						return
+					}
+				case <-rtxDied:
+					if enc.ctx.Err() != nil {
+						return
+					}
+					if err := enc.recoverFromRTXFailure(&child, tick, startup); err != nil {
+						enc.fail(err)
+						return
+					}
+				case f = <-enc.frames:
+					gotFrame = true
+				}
+			}
+
+			if tick >= steady && (tick-steady)%g == 0 && enc.wantBoundarySwap(child) {
+				seq := int64(len(startup)) + (tick-steady)/g
+				child.drainInputsAndWait(enc, seq)
+				next, swapErr := enc.startGeneration(seq, tick, tick)
+				if swapErr != nil {
+					child = nil
+					enc.fail(swapErr)
+					return
+				}
+				child = next
+			}
+
+			for {
+				localTick := tick - child.startTick
+				vch, ach := child.video, child.audio
 				// Ten input pictures/s under pressure; fps repeats after scale/format.
 				// Still send a timestamp at least every three ticks so mux progress continues.
-				if f.RepeatVideo && tick%3 != 0 {
+				if !child.rtx && f.RepeatVideo && localTick%3 != 0 {
 					vch = nil
 				}
+				recovered := false
 				for vch != nil || ach != nil {
+					var rtxDied <-chan struct{}
+					if child.rtx {
+						rtxDied = child.rtxDone
+					}
 					select {
-					case vch <- picture{f.Video, tick}:
+					case vch <- continuousPicture{f.Video, localTick}:
 						vch = nil
 					case ach <- f.PCM:
 						ach = nil
-					case <-p.ctx.Done():
+					case <-enc.ctx.Done():
 						return
+					case <-m.stop:
+						return
+					case <-child.proc.done:
+						if enc.ctx.Err() != nil {
+							return
+						}
+						if !child.rtx {
+							enc.fail(child.proc.result())
+							return
+						}
+						if err := enc.recoverFromRTXFailure(&child, tick, startup); err != nil {
+							enc.fail(err)
+							return
+						}
+						recovered = true
+						vch, ach = nil, nil
+					case <-rtxDied:
+						if enc.ctx.Err() != nil {
+							return
+						}
+						if err := enc.recoverFromRTXFailure(&child, tick, startup); err != nil {
+							enc.fail(err)
+							return
+						}
+						recovered = true
+						vch, ach = nil, nil
 					}
 				}
-				tick++
+				if !recovered {
+					break
+				}
 			}
+			tick++
 		}
 	}()
 	ok = true
 	clean = false
 	return enc, nil
 }
+
 func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, base string) []string {
+	return m.continuousEncodeArgsAt(r, s, base, 0, 0)
+}
+
+func (m *Manager) continuousEncodeArgsAt(r EncoderRequest, s []*rawSocket, base string, startSeq, tsOffsetTick int64) []string {
 	f := r.Source
 	rate := fmt.Sprintf("%d/%d", f.FPSNum, f.FPSDen)
 	args := []string{"-hide_banner", "-loglevel", "warning", "-stats_period", "1", "-progress", "pipe:2", "-nostdin", "-y", "-filter_threads", "1"}
@@ -277,21 +383,14 @@ func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, base st
 	if strings.HasSuffix(enc, "_qsv") || strings.HasSuffix(enc, "_videotoolbox") {
 		pix = "nv12"
 	}
-	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", continuousKeyframeExpr(f, r.SegmentDuration, r.LiveSource), "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
-	// Tee encodes once and muxes the identical packets into all delivery forms.
-	duration := float64(g*f.FPSDen) / float64(f.FPSNum)
-	ds := strconv.FormatFloat(duration, 'f', 6, 64)
-	window := continuousWindow(r.DVRWindow, time.Second*time.Duration(g*f.FPSDen)/time.Duration(f.FPSNum)) + 3
-	initial := strconv.FormatFloat(duration/4, 'f', 6, 64)
-	// Every finished file is PUT to the encoder's in-memory store over
-	// loopback; ffmpeg never writes to (or waits on) a disk. A tee option
-	// value escapes ':' once for the tee and once for the option parser.
-	opt := strings.ReplaceAll(base, ":", `\\\:`)
-	put := "method=PUT:http_persistent=1"
-	outputs := []string{fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_flags=independent_segments:%s:hls_segment_filename=%sseg-%%09d.ts]%sindex.m3u8", ds, initial, window, put, opt, base), fmt.Sprintf("[f=hls:hls_time=%s:hls_init_time=%s:hls_list_size=%d:hls_segment_type=fmp4:hls_fmp4_init_filename=init.mp4:hls_flags=independent_segments:%s:hls_segment_filename=%sfragment-%%09d.m4s]%sfragments.m3u8", ds, initial, window, put, opt, base)}
-	outputs = append(outputs, "[f=mpegts:mpegts_flags=resend_headers]pipe:1")
-	return append(args, "-f", "tee", strings.Join(outputs, "|"))
+	keyExpr := continuousKeyframeExpr(f, r.SegmentDuration, r.LiveSource)
+	if startSeq > 0 {
+		keyExpr = fmt.Sprintf("expr:gte(n,n_forced*%d)", g)
+	}
+	args = append(args, "-pix_fmt", pix, "-bf", "0", "-g", strconv.Itoa(g), "-keyint_min", strconv.Itoa(g/4), "-sc_threshold", "0", "-force_key_frames", keyExpr, "-flags", "+global_header+cgop", "-c:a", "aac", "-b:a", fmt.Sprintf("%dk", max(r.Decision.AudioBitrateKbps, 128)), "-ar", "48000", "-ac", "2")
+	return append(args, continuousTeeArgs(r, base, startSeq, tsOffsetTick)...)
 }
+
 func (e *continuousEncoder) Write(ctx context.Context, f RawFrame) error {
 	f.Video = append([]byte(nil), f.Video...)
 	f.PCM = append([]byte(nil), f.PCM...)
@@ -338,19 +437,25 @@ func (e *continuousEncoder) RecentPublishLag() time.Duration { return e.index.Re
 func (e *continuousEncoder) RealtimeSpeed() float64          { return math.Float64frombits(e.speed.Load()) }
 func (e *continuousEncoder) Diagnostics() string {
 	progress := map[string]string{}
-	for line := range strings.SplitSeq(e.stderr.String(), "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if ok {
-			progress[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	if c := e.currentChild(); c != nil && c.proc != nil && c.proc.stderr != nil {
+		for line := range strings.SplitSeq(c.proc.stderr.String(), "\n") {
+			key, value, ok := strings.Cut(line, "=")
+			if ok {
+				progress[strings.TrimSpace(key)] = strings.TrimSpace(value)
+			}
 		}
 	}
 	lag, worst := e.index.PublishLag()
 	return fmt.Sprintf("queued=%d frame=%s fps=%s speed=%s outTimeUS=%s publishLag=%s worstLag=%s droppedHistory=%d", len(e.frames), progress["frame"], progress["fps"], progress["speed"], progress["out_time_us"], lag.Round(time.Millisecond), worst.Round(time.Millisecond), e.store.droppedWrites())
 }
 func (e *continuousEncoder) Close() error {
-	e.continuousProcess.close()
+	e.closeOnce.Do(func() {
+		e.cancel()
+		if c := e.currentChild(); c != nil {
+			c.forceClose()
+		}
+	})
 	e.workers.Wait()
-	e.stream.close()
 	return nil
 }
 

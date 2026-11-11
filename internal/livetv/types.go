@@ -118,6 +118,9 @@ type Block struct {
 }
 type ChannelLook struct {
 	MomentAssets         map[string]string `json:"momentAssets,omitempty"`
+	BeforeBreak          []string          `json:"beforeBreak,omitempty"`
+	AfterBreak           []string          `json:"afterBreak,omitempty"`
+	BetweenProgrammes    []string          `json:"betweenProgrammes,omitempty"`
 	BreakPlacement       string            `json:"breakPlacement,omitempty"`
 	Tonight              *bool             `json:"tonight,omitempty"`
 	Bug                  *core.BugSettings `json:"bug,omitempty"`

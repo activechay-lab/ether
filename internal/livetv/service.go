@@ -85,8 +85,12 @@ type Service struct {
 	onChange              func()
 	sessions              map[string]*session
 	// watched is when each channel was last tuned or playing (guarded by
-	// mu): only channels watched lately are pre-warmed.
-	watched map[string]time.Time
+	// mu). activeWatched tracks channels with an active viewer right now.
+	watched       map[string]time.Time
+	activeWatched map[string]time.Time
+	warmMu        sync.Mutex
+	warmed        map[warmTarget]time.Time
+	vis           broadcastVisibilityState
 
 	progressMu       sync.Mutex
 	progress         map[string]*progressTracker
@@ -303,7 +307,6 @@ func (s *Service) maintain() {
 		}
 	}
 	defer timer.Stop()
-	warmed := map[core.RatingKey]time.Time{}
 	wasio := false
 	for {
 		if !s.maintainActive() {
@@ -334,7 +337,7 @@ func (s *Service) maintain() {
 			steps("refreshReels", s.refreshReels)
 			steps("ensureGraphics", s.ensureGraphics)
 			if s.o.Warm != nil {
-				steps("warmProgrammes", func() { s.warmProgrammes(warmed) })
+				steps("warmProgrammes", s.warmProgrammes)
 			}
 		}
 		timer.Reset(15 * time.Second)
@@ -355,15 +358,15 @@ func (s *Service) maintain() {
 			steps("refreshReels", s.refreshReels)
 			steps("ensureGraphics", s.ensureGraphics)
 			if s.o.Warm != nil {
-				steps("warmProgrammes", func() { s.warmProgrammes(warmed) })
+				steps("warmProgrammes", s.warmProgrammes)
 			}
 		}
 	}
 }
 
-func (s *Service) warmProgrammes(warmed map[core.RatingKey]time.Time) {
-	recent := s.recentlyWatched()
-	if len(recent) == 0 {
+func (s *Service) warmProgrammes() {
+	active := s.activeWatchedChannels()
+	if len(active) == 0 {
 		return
 	}
 	cs, err := s.virtualChannels(s.ctx)
@@ -379,34 +382,52 @@ func (s *Service) warmProgrammes(warmed map[core.RatingKey]time.Time) {
 	sort.SliceStable(cs, func(i, j int) bool { return watchedAt[cs[i].ID].After(watchedAt[cs[j].ID]) })
 	admitted := 0
 	for _, c := range cs {
-		// A channel nobody has watched lately is not pre-warmed:
-		// warming resolves every scheduled item, around the clock.
-		if !c.Enabled || c.Kind != "virtual" || !recent[c.ID] {
+		// Strictly demand-driven: only channels with an active viewer warm content,
+		// and at most ONE lookahead item per watched channel.
+		if !c.Enabled || c.Kind != "virtual" || !active[c.ID] {
 			continue
 		}
 		if admitted >= 2 {
 			break
 		}
 		admitted++
-		ps := Schedule(s.graphicsChannel(c), s.o.Now(), s.o.Now().Add(3*time.Minute))
-		for _, p := range ps {
-			if p.Item.Key == 0 || s.o.Now().Sub(warmed[p.Item.Key]) < channelWarmRefresh(p, s.o.Now()) {
+		now := s.o.Now()
+		ps := Schedule(s.graphicsChannel(c), now, now.Add(defaultProgrammeWarmLead+time.Minute))
+		targets, breakReturn := selectChannelWarmTargets(ps, now, defaultProgrammeWarmLead)
+		for idx, p := range targets {
+			offset := p.Offset(maxTime(now, p.Start))
+			wk := warmTarget{channelID: c.ID, key: p.Item.Key, offsetSec: int64(offset / time.Second)}
+			s.warmMu.Lock()
+			if s.warmed == nil {
+				s.warmed = map[warmTarget]time.Time{}
+			}
+			last := s.warmed[wk]
+			s.warmMu.Unlock()
+			if now.Sub(last) < channelWarmRefresh(p, now) {
 				continue
 			}
+			if !s.isActivelyWatched(c.ID) {
+				break
+			}
 			ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
-			err := s.o.Warm(ctx, p.Item.Key, p.Offset(maxTime(s.o.Now(), p.Start)))
+			err := s.o.Warm(ctx, p.Item.Key, offset)
 			cancel()
 			if err == nil {
-				warmed[p.Item.Key] = s.o.Now()
+				s.warmMu.Lock()
+				s.warmed[wk] = s.o.Now()
+				s.warmMu.Unlock()
+				s.noteWarmExecuted(idx > 0 && breakReturn)
 			}
 		}
 	}
-	for k, t := range warmed {
-		if s.o.Now().Sub(t) > time.Hour {
-			delete(warmed, k)
+	now := s.o.Now()
+	s.warmMu.Lock()
+	for k, t := range s.warmed {
+		if now.Sub(t) > time.Hour {
+			delete(s.warmed, k)
 		}
 	}
-
+	s.warmMu.Unlock()
 }
 
 func (s *Service) expireSessions() {
@@ -774,6 +795,9 @@ func validateChannel(c *Channel) error {
 		if err := c.Look.Bug.Validate(); err != nil {
 			return err
 		}
+		if err := validateLookRundown(c.Look); err != nil {
+			return err
+		}
 	}
 	if c.Look != nil && c.Look.BreakPattern != nil {
 		if e := c.Look.BreakPattern.Validate(); e != nil {
@@ -878,6 +902,9 @@ func validateChannel(c *Channel) error {
 		if err := check(b.Filler); err != nil {
 			return err
 		}
+		if err := validateLookRundown(b.Breaks); err != nil {
+			return err
+		}
 		if err := checkPlay(b.Mode, b.Align, b.Fit, b.RepeatDays, b.Watched); err != nil {
 			return err
 		}
@@ -890,6 +917,11 @@ func validateChannel(c *Channel) error {
 			if blocksOverlap(b, c.Blocks[j]) {
 				return fmt.Errorf("UTC time blocks must be nonoverlapping, within 00:00–24:00, and contain programming")
 			}
+		}
+	}
+	for _, pin := range c.Pins {
+		if err := validateLookRundown(pin.Breaks); err != nil {
+			return err
 		}
 	}
 	if err := validateProgramming(c, check); err != nil {

@@ -2,16 +2,94 @@ package livetv
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/onair"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
 	"github.com/braedonsaunders/ether/internal/onair/signal"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )
+
+type liveMomentSource interface {
+	LiveRenderAllowed(r core.ClipRequest) (allowed bool, speedX float64, reason string)
+	OpenMoment(ctx context.Context, r core.ClipRequest, width, height, fpsNum, fpsDen int, loop bool, openClip func(ctx context.Context, path string, loop bool) (onair.FrameReader, error)) (*onair.MomentStream, string, error)
+	CachedStandby(ctx context.Context, lookID string) (core.ClipRef, bool)
+	StandbyMoment(lookID string) (string, bool)
+}
+
+type decoderFrameReader struct {
+	mu      sync.Mutex
+	callCtx context.Context
+	dec     transcode.Decoder
+}
+
+func (r *decoderFrameReader) setCallCtx(ctx context.Context) {
+	r.mu.Lock()
+	r.callCtx = ctx
+	r.mu.Unlock()
+}
+
+func (r *decoderFrameReader) ReadFrame(video []byte) ([]byte, error) {
+	r.mu.Lock()
+	ctx := r.callCtx
+	r.mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	f, err := r.dec.Next(ctx)
+	if err != nil {
+		return nil, err
+	}
+	copy(video, f.Video)
+	return f.PCM, nil
+}
+
+func (r *decoderFrameReader) Close() error {
+	return r.dec.Close()
+}
+
+type momentStreamDecoder struct {
+	s          *Service
+	channelID  string
+	moment     string
+	mode       string
+	stream     *onair.MomentStream
+	baseReader *decoderFrameReader
+	format     transcode.RawFormat
+}
+
+func (d *momentStreamDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
+	if err := ctx.Err(); err != nil {
+		return transcode.RawFrame{}, err
+	}
+	if d.baseReader != nil {
+		d.baseReader.setCallCtx(ctx)
+	}
+	video := make([]byte, d.format.Width*d.format.Height*3/2)
+	audio, err := d.stream.ReadFrame(video)
+	if err != nil {
+		if errors.Is(err, onair.ErrLiveBelowRealtime) && d.s != nil {
+			d.s.noteMomentPlayout(d.channelID, d.moment, "fallback", d.stream.SpeedX(), err.Error())
+		}
+		return transcode.RawFrame{}, err
+	}
+	return transcode.RawFrame{Video: video, PCM: audio}, nil
+}
+
+func (d *momentStreamDecoder) Close() error {
+	err := d.stream.Close()
+	if d.s != nil && d.stream.SpeedX() > 0 {
+		d.s.noteMomentSpeed(d.stream.SpeedX())
+	}
+	return err
+}
 
 func (s *Service) screenDefaults(c Channel) config.LiveTVScreens {
 	defaults := config.LiveTVScreens{NoSignal: "error", OffAir: "card", ApplyTo: "converted"}
@@ -111,6 +189,38 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 			}
 		}
 	}
+	if lm, ok := s.o.Graphics.(liveMomentSource); ok {
+		var attached *decoderFrameReader
+		stream, mode, err := lm.OpenMoment(ctx, request, format.Width, format.Height, format.FPSNum, format.FPSDen, loop, func(cctx context.Context, path string, clipLoop bool) (onair.FrameReader, error) {
+			dec, dErr := runner.StartDecoder(cctx, transcode.DecoderRequest{
+				SessionID: "graphics-" + filepath.Base(path),
+				InputURL:  path,
+				Format:    format,
+				Loop:      clipLoop,
+			})
+			if dErr != nil {
+				return nil, dErr
+			}
+			attached = &decoderFrameReader{callCtx: cctx, dec: dec}
+			return attached, nil
+		})
+		if err != nil {
+			if errors.Is(err, onair.ErrLiveBelowRealtime) {
+				s.noteMomentPlayout(request.ChannelID, request.Moment, "fallback", 0, mode)
+			}
+			return nil, nil, err
+		}
+		s.noteMomentPlayout(request.ChannelID, request.Moment, mode, stream.SpeedX(), "")
+		return &momentStreamDecoder{
+			s:          s,
+			channelID:  request.ChannelID,
+			moment:     request.Moment,
+			mode:       mode,
+			stream:     stream,
+			baseReader: attached,
+			format:     format,
+		}, nil, nil
+	}
 	clip, ok := s.o.Graphics.Clip(ctx, request)
 	if !ok {
 		s.o.Graphics.Ensure(ctx, request)
@@ -119,13 +229,51 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 	decoder, err := runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: "graphics-" + clip.Hash, InputURL: clip.Path, Format: format, Loop: loop})
 	return decoder, nil, err
 }
+
+func (p *scheduleBroadcastPlanner) standbyPlan() (broadcastPlan, bool) {
+	c := p.channel
+	if c.Look == nil || c.Look.LookID == "" || p.s == nil || p.s.o.Graphics == nil {
+		return broadcastPlan{}, false
+	}
+	lm, ok := p.s.o.Graphics.(liveMomentSource)
+	if !ok {
+		return broadcastPlan{}, false
+	}
+	clip, ok := lm.CachedStandby(context.Background(), c.Look.LookID)
+	if !ok || clip.Path == "" {
+		return broadcastPlan{}, false
+	}
+	return broadcastPlan{
+		id:      "standby-" + c.ID + "-" + clip.Hash,
+		element: "standby",
+		open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+			d, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{
+				SessionID: "standby-" + clip.Hash,
+				InputURL:  clip.Path,
+				Format:    p.format,
+				Loop:      true,
+			})
+			return d, nil, err
+		},
+	}, true
+}
+
 func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
+	if standby, ok := p.standbyPlan(); ok {
+		standby.id = "screen-" + standby.id
+		return standby
+	}
 	return p.s.screenPlan(p.channel, p.runner, p.format)
 }
 
-// Keep a style plate ready independently of provider outage screens. A missing
-// scheduled master is presentation fallback, never a source reconnection.
+// Keep a style plate ready independently of provider outage screens. Once the
+// look's animated standby/break/ident master exists in cache, loop it directly
+// so holds never freeze on a still.
 func (p *scheduleBroadcastPlanner) momentScreen() broadcastPlan {
+	if standby, ok := p.standbyPlan(); ok {
+		standby.id = "moment-" + standby.id
+		return standby
+	}
 	c := p.channel
 	request := p.s.clipRequest(c, Programme{Item: Item{Slate: "ident"}})
 	request.Bind["screen.reason"] = "moment"
@@ -318,7 +466,7 @@ func (s *Service) launchBroadcast(ctx context.Context, ss *session, l broadcastL
 	if c.Kind == "iptv" {
 		s.sessionLog(ss).Info("live playback path selected", append([]any{"path", "steady", "width", format.Width, "height", format.Height, "fps", rate, "rendition_height", outputHeight, "bitrate_kbps", bitrate}, l.logAttrs...)...)
 	}
-	lease, err := s.broadcasts.acquire(ctx, key, id, decision, create)
+	lease, err := s.broadcasts.acquire(ctx, key, id, decision, create, caps)
 	if err != nil {
 		return nil, core.MediaInfo{}, err
 	}

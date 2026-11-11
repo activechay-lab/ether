@@ -14,6 +14,7 @@ import { onair, type ChannelLook, type Moment } from "./model";
 import { LookTile } from "./Stage";
 import { InfoTip } from "./RecipeTab";
 import { ChannelScreens } from "./ScreenPicker";
+import { RundownOrderEditor } from "./RundownOrderEditor";
 
 import { BugControls, resolveBug } from "./BugControls";
 export function LookTab({
@@ -40,6 +41,7 @@ export function LookTab({
     lookId: "",
     ident: true,
     upNext: true,
+    tonight: true,
     offAir: true,
     breaks: "",
     breakContent: "look",
@@ -149,7 +151,16 @@ export function LookTab({
                 playOnHover={false}
               />
               <span className="block py-1">
-                {[t("Ident"), t("Tonight"), t("Up next"), t("Break"), t("Back"), t("Off air")][i]}
+                {
+                  [
+                    t("Ident"),
+                    t("Upcoming shows"),
+                    t("Up next"),
+                    t("Break"),
+                    t("Back"),
+                    t("Off air"),
+                  ][i]
+                }
               </span>
             </button>
           ))}
@@ -159,6 +170,31 @@ export function LookTab({
         <h3 className="pb-2 text-xs font-semibold uppercase tracking-wider text-fg-muted">
           {t("On this channel")}
         </h3>
+        <SettingsRow
+          title={
+            <span className="flex items-center gap-2">
+              {t("Upcoming shows")}
+              <InfoTip text={t("Shows the next 3–4 programmes on air.")} />
+            </span>
+          }
+          control={
+            <Switch
+              checked={settings.tonight ?? !!settings.upNext}
+              aria-label={t("Upcoming shows")}
+              onChange={(e) => set({ tonight: e.currentTarget.checked })}
+            />
+          }
+        />
+        <SettingsRow
+          title={t("Up next")}
+          control={
+            <Switch
+              checked={settings.upNext}
+              aria-label={t("Up next")}
+              onChange={(e) => set({ upNext: e.currentTarget.checked })}
+            />
+          }
+        />
         <SettingsRow
           title={t("Off-air screen")}
           control={
@@ -192,6 +228,12 @@ export function LookTab({
             </Select>
           }
         />
+      </section>
+      <section className="space-y-3 border-t border-border pt-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
+          {t("Break rundown")}
+        </h3>
+        <RundownOrderEditor value={settings} onChange={set} />
       </section>
       {look ? (
         <section className="space-y-4 border-t border-border pt-4">

@@ -57,6 +57,8 @@ type Options struct {
 	Artwork        func(context.Context, string) (image.Image, error)
 	// Render is a seam for verifying that Ensure never executes work inline.
 	Render func(context.Context, scene.Document, raster.Bindings, string) error
+	// RenderFrame is an optional seam for testing live frame rasterization speed gates.
+	RenderFrame func(scene.Document, raster.Bindings, float64, int, int) *image.RGBA
 	// NormalizeClip is a seam for normalizing downloaded link media in offline tests.
 	NormalizeClip func(ctx context.Context, reel Reel, src, out string) (time.Duration, error)
 	// ValidateURL, ArchiveOrigin, HTTPClient and Now are seams for offline unit tests.
@@ -136,6 +138,11 @@ type Service struct {
 	cache          map[string]entry
 	pins           map[string]time.Time
 	pending        map[string]bool
+	liveSaving     map[string]bool
+	liveSpeed      map[string]liveSpeedRecord
+	vis            VisibilitySnapshot
+	lastVisLog     time.Time
+	lastVisMode    string
 	// failed holds a retry time per content hash after a render error, so a
 	// boundary that re-requests every tick cannot spin a failing render.
 	failed        map[string]failure
@@ -187,7 +194,7 @@ func New(o Options) (*Service, error) {
 		linkFail.Now = o.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), upcomingWake: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, linkCache: map[string]linkEntry{}, reelClipIndex: map[string]reelClipMeta{}, linkChannels: map[string]map[string]bool{}, linkCancels: map[string]context.CancelFunc{}, manualLink: map[string]bool{}, linkFailLog: linkFail, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
+	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), upcomingWake: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, linkCache: map[string]linkEntry{}, reelClipIndex: map[string]reelClipMeta{}, linkChannels: map[string]map[string]bool{}, linkCancels: map[string]context.CancelFunc{}, manualLink: map[string]bool{}, linkFailLog: linkFail, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, liveSaving: map[string]bool{}, liveSpeed: map[string]liveSpeedRecord{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
 
 	if e := s.seed(ctx); e != nil {
 		cancel()
@@ -210,14 +217,16 @@ func New(o Options) (*Service, error) {
 	s.loadCache()
 	s.loadLinkCache()
 	s.loadReels()
+	for _, l := range ls {
+		s.refreshLookHashes(l)
+	}
 
 	s.resumeConversions()
 	s.resumeImports()
-	// No startup warming: rendering is viewer-driven. Looks render when a
-	// watched channel needs them (watchUpcoming/Ensure) or when the owner
-	// saves one in the console (enqueueLook). Warming every enabled
-	// channel's scenes at boot kept installs that never open Live TV
-	// rendering for hours after an upgrade invalidated the masters.
+	// Strict demand-driven rule: zero background rendering at boot, showcase
+	// install, or look save. Looks render only when an active viewer tunes a
+	// channel using them (rendered live + saved on cold boundary or via
+	// watchUpcoming for actively watched channels).
 	return s, nil
 }
 
@@ -270,6 +279,32 @@ func (s *Service) Duration(id, m string) (time.Duration, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.looks[id]
+	if !ok {
+		return 0, false
+	}
+	if m == "standby" {
+		if v, found := l.Roles["standby"]; found {
+			for _, sc := range l.Scenes {
+				if sc.Role == "standby" && sc.Enabled {
+					return time.Duration(v.Duration * float64(time.Second)), true
+				}
+			}
+		}
+		for _, fallback := range []string{"break", "ident"} {
+			for _, sc := range l.Scenes {
+				if sc.Role == fallback && sc.Enabled {
+					if _, valid := scene.StandbyBase(sc.Document); valid {
+						dur := sc.Document.Duration
+						if v, found := l.Roles[fallback]; found && v.Duration > 0 {
+							dur = v.Duration
+						}
+						return time.Duration(dur * float64(time.Second)), true
+					}
+				}
+			}
+		}
+		return 0, false
+	}
 	v, found := l.Roles[m]
 	enabled := false
 	for _, sc := range l.Scenes {
@@ -280,7 +315,10 @@ func (s *Service) Duration(id, m string) (time.Duration, bool) {
 	}
 	return time.Duration(v.Duration * float64(time.Second)), ok && found && enabled
 }
-func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
+
+// planRaw resolves the full scene document and full caller bindings (including
+// live programme/viewer slots and overlay metadata).
+func (s *Service) planRaw(r core.ClipRequest) (renderJob, bool) {
 	var plugin PluginSegment
 	isPlugin := strings.HasPrefix(r.Moment, "plugin:")
 	if isPlugin {
@@ -351,6 +389,30 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		if role, found := l.Roles[r.Moment]; found {
 			d.Duration = role.Duration
 		}
+	} else if r.Moment == "standby" && ok {
+		selected, ok = pickScene(l, r)
+		if ok {
+			d = selected.Document
+		} else {
+			for _, fallback := range []string{"break", "ident"} {
+				pick := r
+				pick.Moment = fallback
+				if sc, found := pickScene(l, pick); found {
+					if base, valid := scene.StandbyBase(sc.Document); valid {
+						selected = sc
+						selected.ID = sc.ID + "-standby"
+						selected.Role = "standby"
+						selected.Sounds = nil
+						d = base
+						ok = true
+						break
+					}
+				}
+			}
+		}
+		if !ok {
+			return renderJob{}, false
+		}
 	} else {
 		selected, ok = pickScene(l, r)
 		if !ok && r.AssetDigest == "" {
@@ -383,6 +445,12 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		b = families.Defaults("signal")
 		for k := range b.Slots {
 			b.Slots[k] = ""
+		}
+	}
+	if f != "signal" && l.Name != "" {
+		b.Slots["channel.name"] = l.Name
+		if l.Brand.Tagline != "" {
+			b.Slots["offair.message"] = l.Brand.Tagline
 		}
 	}
 	for k, v := range r.Bind {
@@ -435,7 +503,6 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		b.Tokens["words.tagline"] = v
 	}
 
-	// Scene selection is represented by its document and media; the internal prewarm selector is not a cache input.
 	cacheRequest := r
 	cacheRequest.Bind = map[string]string{}
 	for k, v := range r.Bind {
@@ -452,7 +519,80 @@ func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
 		Request  core.ClipRequest
 	}{b, cacheRequest}, r.Art, encode.Profile)
 	return renderJob{Boundary: r.Boundary, Scene: selected, AssetDigest: assetDigest, Hash: h, Look: l.ID, Doc: d, Bind: raster.Bindings{Bindings: b, Assets: plugin.Images}, Request: r}, h != ""
+}
 
+// plan resolves the durable content-addressed master job for r:
+//   - Static look moments (ident, break, back, offair, standby): 1 master per look.
+//   - Split live-slot moments (upnext, tonight, welcome, etc.): 1 slot-free base
+//     master per look; slot foreground layers composite live at air time.
+//   - Unsplittable live-slot moments: never cached to disk (returns ok=false so
+//     they render live per airing without growing the master cache).
+func (s *Service) plan(r core.ClipRequest) (renderJob, bool) {
+	j, ok := s.planRaw(r)
+	if !ok {
+		return renderJob{}, false
+	}
+	isPlugin := strings.HasPrefix(r.Moment, "plugin:")
+	isScreen := strings.HasPrefix(r.Moment, "screen.")
+	if isPlugin || isScreen || r.AssetDigest != "" || r.Moment == "bug" || r.Moment == "lowerthird" {
+		return j, true
+	}
+
+	if scene.HasLiveSlots(j.Doc) {
+		baseDoc, _, splittable := scene.SplitSlotLayers(j.Doc)
+		if !splittable {
+			return renderJob{}, false
+		}
+		j.Doc = baseDoc
+	}
+
+	s.mu.Lock()
+	l := s.looks[j.Look]
+	s.mu.Unlock()
+	if l.ID == "" && j.Look == "" {
+		l = familyLook("clean", "Clean")
+	}
+
+	// Normalize cache identity strictly to the look + selected scene + look brand,
+	// excluding ChannelID, channel.name overrides, and per-programme slots/artwork.
+	staticSlots := map[string]string{
+		"brand.logo":   l.Brand.Logo,
+		"channel.name": l.Name,
+	}
+	if l.Brand.Tagline != "" {
+		staticSlots["offair.message"] = l.Brand.Tagline
+	}
+	j.Bind.Slots = staticSlots
+
+	cacheReq := core.ClipRequest{
+		LookID: j.Look,
+		Moment: r.Moment,
+	}
+	if accent := r.Bind["channel.accent"]; accent != "" {
+		cacheReq.Bind = map[string]string{"channel.accent": accent}
+	}
+	if tagline := r.Bind["channel.tagline"]; tagline != "" {
+		if cacheReq.Bind == nil {
+			cacheReq.Bind = map[string]string{}
+		}
+		cacheReq.Bind["channel.tagline"] = tagline
+	}
+
+	// Clear per-programme Art from j.Request copy used when executing base master
+	// while keeping ChannelID and Boundary on j.Request for scheduling/cancel.
+	execReq := r
+	execReq.Art = nil
+	j.Request = execReq
+
+	j.Hash = encode.Hash(raster.Version+":"+s.resources, j.Doc, struct {
+		Brand Brand
+		Scene StyleScene
+		Asset string
+	}{l.Brand, j.Scene, j.AssetDigest}, struct {
+		Bindings scene.Bindings
+		Request  core.ClipRequest
+	}{j.Bind.Bindings, cacheReq}, map[string]string(nil), encode.Profile)
+	return j, j.Hash != ""
 }
 func (s *Service) Clip(_ context.Context, r core.ClipRequest) (core.ClipRef, bool) {
 	if r.ReelClipID != "" {
@@ -505,7 +645,7 @@ func (s *Service) Ensure(_ context.Context, r core.ClipRequest) {
 	l := s.looks[r.LookID]
 	s.mu.Unlock()
 	variants := []core.ClipRequest{r}
-	if r.AssetDigest == "" && !strings.HasPrefix(r.Moment, "screen.") && !strings.HasPrefix(r.Moment, "plugin:") {
+	if r.AssetDigest == "" && !strings.HasPrefix(r.Moment, "screen.") && !strings.HasPrefix(r.Moment, "plugin:") && r.Moment != "standby" {
 		variants = nil
 		for _, sc := range l.Scenes {
 			if sc.Enabled && sc.Role == r.Moment {
@@ -593,6 +733,9 @@ func (s *Service) enqueue(j renderJob) bool {
 			s.hashChannel[j.Hash] = ch
 		}
 	}
+	if s.liveSaving[j.Hash] {
+		return true
+	}
 	if s.pending[j.Hash] {
 		if imminent {
 			return s.queueLiveLocked(j)
@@ -633,77 +776,31 @@ func (s *Service) enqueue(j renderJob) bool {
 		return false
 	}
 }
-func (s *Service) enqueueLook(l Look) {
-	if s.o.StaticRequests != nil {
-		s.enqueue(renderJob{Hash: "plan-" + l.ID + "-" + newID(), prepare: func(ctx context.Context) error { s.queueLook(l, s.o.StaticRequests(ctx, l.ID)); return nil }})
-		return
-	}
-	s.queueLook(l, nil)
-}
-func (s *Service) queueLook(l Look, requests []core.ClipRequest) {
-	if len(requests) == 0 {
-		ids := l.ChannelIDs
-		if len(ids) == 0 {
-			ids = []string{""}
-		}
-		moments := []string{}
-		for role := range l.Roles {
-			moments = append(moments, role)
-		}
-		for _, id := range ids {
-			for _, m := range moments {
-				requests = append(requests, core.ClipRequest{LookID: l.ID, Moment: m, ChannelID: id, Bind: map[string]string{"channel.name": l.Name}})
-			}
-		}
-	}
 
-	// Render progress covers every enabled scene, including roles whose live slots
-	// will be populated only when a schedule request arrives.
-	channels := map[string]core.ClipRequest{}
-	seen := map[string]bool{}
-	for _, r := range requests {
-		channels[r.ChannelID] = r
-		seen[r.ChannelID+"\x00"+r.Moment] = true
-	}
-	for channel, base := range channels {
-		for _, sc := range l.Scenes {
-			key := channel + "\x00" + sc.Role
-			if sc.Enabled && !seen[key] {
-				r := base
-				r.Moment = sc.Role
-				r.AssetDigest = ""
-				r.Art = nil
-				requests = append(requests, r)
-				seen[key] = true
-			}
-		}
-	}
-	jobs := []renderJob{}
+// refreshLookHashes updates a look's content-addressed cache progress snapshot
+// without queueing any background renders. Rendering happens strictly on demand
+// when an active viewer watches a channel using the look.
+func (s *Service) refreshLookHashes(l Look) {
 	hashes := []string{}
-	for _, r := range requests {
-		for _, sc := range l.Scenes {
-			if !sc.Enabled || sc.Role != r.Moment {
-				continue
-			}
-			bind := map[string]string{}
-			for k, v := range r.Bind {
-				bind[k] = v
-			}
-			bind["studio.scene"] = sc.ID
-			r.Bind = bind
-			if j, ok := s.plan(r); ok {
-				jobs = append(jobs, j)
-				hashes = append(hashes, j.Hash)
-			}
+	seen := map[string]bool{}
+	for _, sc := range l.Scenes {
+		if !sc.Enabled || sc.Role == "bug" || sc.Role == "lowerthird" {
+			continue
+		}
+		r := core.ClipRequest{
+			LookID: l.ID,
+			Moment: sc.Role,
+			Bind:   map[string]string{"studio.scene": sc.ID, "channel.name": l.Name},
+		}
+		if j, ok := s.plan(r); ok && !seen[j.Hash] {
+			seen[j.Hash] = true
+			hashes = append(hashes, j.Hash)
 		}
 	}
 	s.mu.Lock()
 	s.lookJobs[l.ID] = hashes
 	s.refreshProgress(l.ID)
 	s.mu.Unlock()
-	for _, j := range jobs {
-		s.enqueue(j)
-	}
 }
 
 // refreshProgress is called under mu and counts only the current saved revision.
@@ -737,6 +834,14 @@ func (s *Service) preparationAtLocked(j renderJob) time.Time {
 	return j.Boundary.Add(-2 * cost)
 }
 
+func (s *Service) liveJobBeforeLocked(a, b renderJob) bool {
+	pa, pb := s.preparationAtLocked(a), s.preparationAtLocked(b)
+	if pa.Equal(pb) {
+		return a.Boundary.Before(b.Boundary)
+	}
+	return pa.Before(pb)
+}
+
 // Called under mu. Only ordinary work waiting for a background slot is preemptible.
 func (s *Service) queueLiveLocked(j renderJob) bool {
 	if s.activeHash == j.Hash && !s.activeBoundary.IsZero() {
@@ -748,14 +853,14 @@ func (s *Service) queueLiveLocked(j renderJob) bool {
 			if !old.Boundary.After(time.Now()) || j.Boundary.Before(old.Boundary) {
 				s.liveJobs[i] = j
 				sort.SliceStable(s.liveJobs, func(i, j int) bool {
-					return s.preparationAtLocked(s.liveJobs[i]).Before(s.preparationAtLocked(s.liveJobs[j]))
+					return s.liveJobBeforeLocked(s.liveJobs[i], s.liveJobs[j])
 				})
 			}
 			return true
 		}
 	}
 	if len(s.liveJobs) >= 128 {
-		if !s.preparationAtLocked(j).Before(s.preparationAtLocked(s.liveJobs[len(s.liveJobs)-1])) {
+		if !s.liveJobBeforeLocked(j, s.liveJobs[len(s.liveJobs)-1]) {
 			return false
 		}
 		delete(s.pending, s.liveJobs[len(s.liveJobs)-1].Hash)
@@ -763,7 +868,7 @@ func (s *Service) queueLiveLocked(j renderJob) bool {
 	}
 	s.liveJobs = append(s.liveJobs, j)
 	sort.SliceStable(s.liveJobs, func(i, j int) bool {
-		return s.preparationAtLocked(s.liveJobs[i]).Before(s.preparationAtLocked(s.liveJobs[j]))
+		return s.liveJobBeforeLocked(s.liveJobs[i], s.liveJobs[j])
 	})
 	if s.activeCancel != nil && s.activeBoundary.IsZero() {
 		s.activeCancel()
@@ -874,7 +979,7 @@ func (s *Service) watchUpcoming() {
 			}
 		}
 		s.mu.Lock()
-		active := len(wanted) > 0 || len(s.pins) > 0 || s.o.Members != nil
+		active := len(wanted) > 0 || s.o.Members != nil
 		s.mu.Unlock()
 		if active {
 			arm(30 * time.Second)
@@ -965,7 +1070,7 @@ func (s *Service) process(j renderJob) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 	s.mu.Lock()
-	if _, cached := s.cache[j.Hash]; cached {
+	if _, cached := s.cache[j.Hash]; cached || s.liveSaving[j.Hash] {
 		delete(s.pending, j.Hash)
 		s.mu.Unlock()
 		return
@@ -1002,6 +1107,7 @@ func (s *Service) process(j renderJob) {
 	}
 	if e != nil && s.ctx.Err() == nil && !errors.Is(e, context.Canceled) && j.scene() {
 		s.mu.Lock()
+		s.vis.MastersFailed++
 		if s.failed == nil {
 			s.failed = map[string]failure{}
 		}
@@ -1067,6 +1173,10 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	}
 	defer func() {
 		elapsed := time.Since(started)
+		speedX := 0.0
+		if elapsed > 0 && j.Doc.Duration > 0 {
+			speedX = j.Doc.Duration / elapsed.Seconds()
+		}
 		s.mu.Lock()
 		key := j.Look + "/" + j.Doc.Moment
 		if s.renderTimes == nil {
@@ -1074,8 +1184,19 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		}
 		previous := s.renderTimes[key]
 		s.renderTimes[key] = max(elapsed, (previous*3+elapsed)/4)
+		if err == nil {
+			s.vis.MastersRendered++
+			if speedX > 0 {
+				s.vis.LastSpeedX = speedX
+			}
+		}
+		masters := s.vis.MastersRendered
 		s.mu.Unlock()
-		s.o.Logger.Debug("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", err == nil)
+		if err == nil {
+			s.o.Logger.Info("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed.Round(time.Millisecond), "render_speed_x", round2(speedX), "masters_rendered", masters)
+		} else {
+			s.o.Logger.Debug("onair master render ended", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", false)
+		}
 	}()
 	if e := s.loadAssets(ctx, &j); e != nil {
 		return e
@@ -1120,7 +1241,11 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 			return fmt.Errorf("ffmpeg unavailable")
 		}
 		opts := encode.Options{Workers: 2, Audio: j.Doc.Audio, Sounds: sounds, Background: background}
-		frames := func(i int) *image.RGBA { return raster.Render(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }
+		renderFn := s.o.RenderFrame
+		if renderFn == nil {
+			renderFn = raster.Render
+		}
+		frames := func(i int) *image.RGBA { return renderFn(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }
 		if strings.HasPrefix(j.Doc.Moment, "plugin:") {
 			opts.MaxSeconds = 600
 			// Long static data cards need one rasterization, not thousands.

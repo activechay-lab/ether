@@ -81,10 +81,11 @@ type Decoder interface {
 
 type EncoderRequest struct {
 	SessionID       string
-	Source          RawFormat     // what Write receives
-	Decision        core.Decision // output codec, size, bitrate, audio; fixed for life; HW from HWAccel
-	SegmentDuration time.Duration // 4 s; keyframe exactly at every segment start
-	DVRWindow       time.Duration // segments kept on node-local disk for timeshift (30 min default; 0 = live window only)
+	Source          RawFormat       // what Write receives
+	Decision        core.Decision   // output codec, size, bitrate, audio; fixed for life; HW from HWAccel
+	ClientCaps      core.ClientCaps // viewer limits used for optional RTX VSR upscale headroom
+	SegmentDuration time.Duration   // 4 s; keyframe exactly at every segment start
+	DVRWindow       time.Duration   // segments kept on node-local disk for timeshift (30 min default; 0 = live window only)
 	// LiveSource marks a provider (IPTV) channel: rate control may use one
 	// segment of VBV buffer under the ceiling, so keyframes of moving
 	// pictures are not starved. Scheduled channels keep a one-second bound.
