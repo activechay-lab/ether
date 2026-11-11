@@ -48,6 +48,11 @@ type BrokerDeps struct {
 	// it replaces SelectTracks and must preserve the unscoped behavior.
 	SelectScopedTracks func(context.Context, *core.Viewer, core.Device, *core.Title, core.MediaInfo, core.DecideOptions, bool, bool) (core.DecideOptions, error)
 	Lookup             func(context.Context, *core.Viewer, core.Device, core.RatingKey) (*core.Title, error)
+	// KindSource, when set, supplies non-catalogue plugin kind items: the
+	// projected title and an opener for its bytes. A plugin key in Plan is
+	// prepared through KindPlayback so it shares the decision, HLS and
+	// stream-limit machinery with catalogue titles (spec §15.1).
+	KindSource func(context.Context, *core.Viewer, core.RatingKey) (*core.KindInput, error)
 	// MediaLookup checks current title policy using local facts only; it must
 	// never resolve a release or fetch remote metadata on a segment request.
 	// If nil, Lookup must satisfy the same requirement.
@@ -431,6 +436,12 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 		}
 		return b.planLive(ctx, req, v)
 	}
+	if req.Item.IsPluginKey() && b.deps.KindSource != nil {
+		if req.Version != "" || req.Intent.ExactVersion || req.ExpectedSourceETag != "" || req.DetailSource != "" {
+			return frontend.PlayPlan{}, core.ErrNotAvailable
+		}
+		return b.planKind(ctx, req, v)
+	}
 	title, err := b.deps.Lookup(ctx, v, req.Device, req.Item)
 	if err != nil {
 		return frontend.PlayPlan{}, err
@@ -647,40 +658,10 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 			b.releasePlanSource(ps.ID, pinned)
 		}
 	}()
-	if req.Intent.AudioOrdinal != nil || req.Intent.SubtitleStreamIndex != nil {
-		if ps.Info.Estimated {
-			return frontend.PlayPlan{}, frontend.ErrTrackSourceUnavailable
-		}
-		if req.ExpectedSourceETag == "" {
-			req.ExpectedSourceETag = sourceRevision(ps)
-			if req.ExpectedSourceETag == "" {
-				return frontend.PlayPlan{}, frontend.ErrTrackSourceUnavailable
-			}
-		}
-	}
-	if req.ExpectedSourceETag != "" {
-		pins, ok := b.deps.Playback.(core.PlaybackRevisionPin)
-		if !ok {
-			if req.Intent.AudioOrdinal != nil || req.Intent.SubtitleStreamIndex != nil {
-				return frontend.PlayPlan{}, frontend.ErrTrackSourceUnavailable
-			}
-			return frontend.PlayPlan{}, frontend.ErrSourceGone
-		}
-		if err := pins.PinSourceRevision(ctx, ps.ID, req.ExpectedSourceETag); err != nil {
-			if ctx.Err() != nil {
-				return frontend.PlayPlan{}, ctx.Err()
-			}
-			if errors.Is(err, core.ErrSourceChanged) {
-				return frontend.PlayPlan{}, frontend.ErrSourceGone
-			}
-			return frontend.PlayPlan{}, err
-		}
-		pinned = true
-		current, ok := b.deps.Playback.Session(ps.ID)
-		if !ok || current == nil || sourceRevision(current) != req.ExpectedSourceETag {
-			return frontend.PlayPlan{}, frontend.ErrSourceGone
-		}
-		ps = current
+	var pinErr error
+	ps, pinned, pinErr = b.pinRequestedTracks(ctx, &req, ps)
+	if pinErr != nil {
+		return frontend.PlayPlan{}, pinErr
 	}
 	if err := bindSourceTracks(&req.Intent, ps.Info); err != nil {
 		return frontend.PlayPlan{}, err
@@ -814,9 +795,17 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	if p.live {
 		return b.openLive(ctx, req, p, v)
 	}
-	title, err := b.deps.Lookup(ctx, v, req.Device, p.request.Item)
-	if err != nil {
-		return frontend.Session{}, err
+	var title *core.Title
+	if p.request.Item.IsPluginKey() && b.deps.KindSource != nil {
+		if in, kerr := b.deps.KindSource(ctx, v, p.request.Item); kerr == nil && in != nil {
+			title = in.Title
+		}
+	} else {
+		var lerr error
+		title, lerr = b.deps.Lookup(ctx, v, req.Device, p.request.Item)
+		if lerr != nil {
+			return frontend.Session{}, lerr
+		}
 	}
 	if title == nil || title.Key != p.request.Item || (!title.Released.IsZero() && title.Released.After(b.deps.Now())) {
 		return frontend.Session{}, core.ErrNotFound
