@@ -555,6 +555,39 @@ func flagInt(b bool) int {
 	return 0
 }
 
+// TitleInFilter reports whether the title key is a member of the saved
+// filter f (a filter library's predicate), using the same indexed SQL the
+// library browse runs: one indexed read of catalog_titles by key, never a
+// walk. The saved filter is used verbatim (type, genres, keywords, year,
+// tags and any advanced group), with the runtime fields browse injects
+// (viewer, date windows, rule preview, availability keys) left zero so
+// membership is a property of the saved filter alone, not of who is asking.
+func (c *Catalog) TitleInFilter(ctx context.Context, f core.Filter, key core.RatingKey) (bool, error) {
+	f.LocalOnly = true
+	f.IncludeKeys = []core.RatingKey{key}
+	f.ExcludeKeys = nil
+	f.CatalogViewerID = 0
+	f.RuleVisibility = ""
+	f.PreviewRules = nil
+	f.PreviewFallback = ""
+	f.ApplyCanonicalInPreview = false
+	f.CatalogCandidates = false
+	f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = 0, 0, 0
+	f.AvailabilityKeepKeys = nil
+	f.UpdatedAfter, f.UpdatedBefore, f.AddedAfter, f.AddedBefore = 0, 0, 0, 0
+	f.DigitalDiscovery = false
+	f.DigitalDateEvidence = false
+	where, args, err := c.browseWhere(f)
+	if err != nil {
+		return false, err
+	}
+	var n int
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles AS t WHERE `+where, args...).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	// Positive metadata flags retain their source meaning; absence is unknown.
 	if f.Anime {
