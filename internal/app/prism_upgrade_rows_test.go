@@ -126,19 +126,30 @@ func withoutSeededMeta(t *testing.T, name string, rows []string) []string {
 	return kept
 }
 
+type upgradeColumnRename struct {
+	to        string
+	component string
+	version   int
+}
+
 // upgradeRenamedColumns are delivered columns a later migration renamed;
-// their values must survive under the new name.
-var upgradeRenamedColumns = map[string]map[string]string{
-	"auth_users": {"allowed_sections": "allowed_libraries"}, // auth/9 (v0.3.8 libraries)
+// their values must survive under the new name once that migration applies
+// (and under the original name when a PostgreSQL transaction rolls back).
+var upgradeRenamedColumns = map[string]map[string]upgradeColumnRename{
+	"auth_users": {"allowed_sections": {to: "allowed_libraries", component: "auth", version: 9}}, // auth/9 (v0.3.8 libraries)
 }
 
 func assertUpgradeTables(t *testing.T, db *sql.DB, before map[string]upgradeTable) {
 	t.Helper()
+	applied, err := store.AppliedMigrations(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, table := range before {
 		columns := append([]string(nil), table.columns...)
 		for i, col := range columns {
-			if renamed, ok := upgradeRenamedColumns[name][col]; ok {
-				columns[i] = renamed
+			if rename, ok := upgradeRenamedColumns[name][col]; ok && applied[rename.component] >= rename.version {
+				columns[i] = rename.to
 			}
 		}
 		if got := withoutSeededMeta(t, name, readUpgradeRows(t, db, name, columns)); !reflect.DeepEqual(got, withoutSeededMeta(t, name, table.rows)) {

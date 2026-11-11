@@ -26,13 +26,17 @@ func TestNullablePlexIDMigrationPreservesCredentials(t *testing.T) {
 	if _, err := db.Exec(`ALTER TABLE auth_users DROP COLUMN plex_shared`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`ALTER TABLE auth_users RENAME COLUMN allowed_libraries TO allowed_sections`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE component='auth' AND version=6`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE component='auth' AND version=4`); err != nil {
 		t.Fatal(err)
 	}
-	// auth/4 rebuilds auth_users with the pre-v0.3.8 column; auth/9 renames it again.
+	// auth/4 rebuilds auth_users on SQLite and alters plex_id in place on
+	// PostgreSQL; auth/9 then renames allowed_sections to allowed_libraries.
 	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE component='auth' AND version=9`); err != nil {
 		t.Fatal(err)
 	}
