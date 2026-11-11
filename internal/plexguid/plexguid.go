@@ -31,6 +31,11 @@ func init() {
 	store.Register("plexguid", 4, `CREATE TABLE plexguid_parentage(rating_key INTEGER PRIMARY KEY, parent_key INTEGER NOT NULL, parent_guid TEXT NOT NULL);`)
 	store.Register("plexguid", 5, `CREATE INDEX plexguid_parentage_parent ON plexguid_parentage(parent_key);`)
 	store.Register("plexguid", 2, `CREATE INDEX plexguid_mappings_guid ON plexguid_mappings(guid);`)
+	// A mapping is only served when this record matches its guid: the
+	// canonical Plex record's external ids (TMDB) and, for a movie or show,
+	// its title and year. Rows written before this table existed have no
+	// record, so they stay withheld until the repair worker re-verifies them.
+	store.Register("plexguid", 6, `CREATE TABLE plexguid_identity(rating_key INTEGER PRIMARY KEY, guid TEXT NOT NULL, tmdb INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', year INTEGER NOT NULL DEFAULT 0);`)
 }
 
 const (
@@ -181,9 +186,12 @@ func (s *Service) worker() {
 	}
 }
 
-// repairMappings revisits legacy identities without withholding them. It
-// alternates unverified entries with children whose parentage was not
-// recorded, so legacy children get priority without starving other work.
+// repairMappings re-verifies stored identities under the current rule and
+// revisits children whose parentage was not recorded. It alternates the two
+// queues so legacy children get priority without starving other work. A row
+// stored before identity records existed (or under a looser rule) carries no
+// plexguid_identity row, so it is withheld until this pass proves it again or
+// drops it; that is how an already-stored wrong plex:// mapping is retired.
 func (s *Service) repairMappings() {
 	defer s.wg.Done()
 	tick := time.NewTicker(time.Second)
@@ -191,7 +199,7 @@ func (s *Service) repairMappings() {
 	var after [2]int64
 	var turn int
 	queries := [2]string{
-		`SELECT m.rating_key FROM plexguid_mappings m WHERE m.rating_key>? AND NOT EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key AND v.guid=m.guid) ORDER BY m.rating_key LIMIT 1`,
+		`SELECT m.rating_key FROM plexguid_mappings m WHERE m.rating_key>? AND NOT EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid) ORDER BY m.rating_key LIMIT 1`,
 		`SELECT m.rating_key FROM plexguid_mappings m WHERE m.rating_key>? AND m.rating_key>=3000000000000000 AND m.rating_key<5000000000000000 AND m.guid<>'' AND NOT EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key) ORDER BY m.rating_key LIMIT 1`,
 	}
 	for {
@@ -275,10 +283,14 @@ func resolvableKey(k core.RatingKey) bool {
 	}
 }
 
+// identityVerified is the condition under which a stored mapping may be
+// served: it must carry an identity record recorded for the same guid.
+const identityVerified = `EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key AND v.guid=m.guid) AND EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid)`
+
 // Cached is safe for lists: no network requests or credentials are needed.
 func (s *Service) Cached(ctx context.Context, k core.RatingKey) string {
 	var guid string
-	_ = s.db.QueryRowContext(ctx, `SELECT guid FROM plexguid_mappings m WHERE rating_key=? AND checked_at>?`, int64(k), time.Now().Add(-cacheTTL).Unix()).Scan(&guid)
+	_ = s.db.QueryRowContext(ctx, `SELECT m.guid FROM plexguid_mappings m WHERE m.rating_key=? AND m.checked_at>? AND `+identityVerified, int64(k), time.Now().Add(-cacheTTL).Unix()).Scan(&guid)
 	return guid
 }
 
@@ -310,7 +322,7 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 		end := min(start+chunkSize, len(uniq))
 		chunk := uniq[start:end]
 		var b strings.Builder
-		b.WriteString(`SELECT rating_key,guid FROM plexguid_mappings WHERE rating_key IN (`)
+		b.WriteString(`SELECT m.rating_key,m.guid FROM plexguid_mappings m WHERE m.rating_key IN (`)
 		args := make([]any, 0, len(chunk)+1)
 		for i, k := range chunk {
 			if i > 0 {
@@ -319,7 +331,7 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 			b.WriteByte('?')
 			args = append(args, int64(k))
 		}
-		b.WriteString(`) AND checked_at>?`)
+		b.WriteString(`) AND m.checked_at>? AND ` + identityVerified)
 		args = append(args, cutoff)
 		rows, err := s.db.QueryContext(ctx, b.String(), args...)
 		if err != nil {
@@ -343,17 +355,34 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 func (s *Service) freshCached(ctx context.Context, k core.RatingKey) (string, bool) {
 	var cached string
 	var at int64
-	if e := s.db.QueryRowContext(ctx, `SELECT guid,checked_at FROM plexguid_mappings m WHERE rating_key=? AND EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key AND v.guid=m.guid) AND (rating_key<3000000000000000 OR rating_key>=5000000000000000 OR guid='' OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))`, int64(k)).Scan(&cached, &at); e == nil && time.Since(time.Unix(at, 0)) < recheckInterval {
+	if e := s.db.QueryRowContext(ctx, `SELECT m.guid,m.checked_at FROM plexguid_mappings m WHERE m.rating_key=? AND (m.guid='' OR `+identityVerified+`) AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000 OR m.guid='' OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))`, int64(k)).Scan(&cached, &at); e == nil && time.Since(time.Unix(at, 0)) < recheckInterval {
 		return cached, true
 	}
 	return "", false
 }
 
-func (s *Service) storeMapping(ctx context.Context, k core.RatingKey, guid string, now int64) error {
-	return s.storeMappingUnder(ctx, k, guid, now, 0, "")
+// identityRecord is the evidence that a plex:// guid belongs to one local
+// title: the canonical Plex record's TMDB id and, for movies and shows, its
+// title and year. An empty GUID (no verified identity) stores no record.
+type identityRecord struct {
+	GUID  string
+	TMDB  int64
+	Title string
+	Year  int
 }
 
-func (s *Service) storeMappingUnder(ctx context.Context, k core.RatingKey, guid string, now int64, parent core.RatingKey, parentGUID string) error {
+// storeMapping records a title's own identity. A guid is stored with the
+// evidence its resolution proved; storeMapping's callers each supply it.
+func (s *Service) storeMapping(ctx context.Context, k core.RatingKey, id identityRecord, now int64) error {
+	return s.storeMappingIdentity(ctx, k, id, now, 0, "")
+}
+
+func (s *Service) storeMappingUnder(ctx context.Context, k core.RatingKey, id identityRecord, now int64, parent core.RatingKey, parentGUID string) error {
+	return s.storeMappingIdentity(ctx, k, id, now, parent, parentGUID)
+}
+
+func (s *Service) storeMappingIdentity(ctx context.Context, k core.RatingKey, id identityRecord, now int64, parent core.RatingKey, parentGUID string) error {
+	guid := id.GUID
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -374,7 +403,7 @@ func (s *Service) storeMappingUnder(ctx context.Context, k core.RatingKey, guid 
 		// Delete only children whose recorded parentage proves they belong
 		// to the old tree. Unknown legacy children stay available.
 		remove := func(query string, args ...any) error {
-			for _, table := range []string{"plexguid_verified", "plexguid_mappings", "plexguid_parentage"} {
+			for _, table := range []string{"plexguid_verified", "plexguid_identity", "plexguid_mappings", "plexguid_parentage"} {
 				if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE rating_key IN (`+query+`)`, args...); err != nil {
 					return err
 				}
@@ -403,8 +432,10 @@ func (s *Service) storeMappingUnder(ctx context.Context, k core.RatingKey, guid 
 			ranges = append(ranges, [2]core.RatingKey{core.EpisodeKey(k.TMDB(), k.Season(), 0), core.EpisodeKey(k.TMDB(), k.Season()+1, 0)})
 		}
 		for _, bounds := range ranges {
-			if _, err = tx.ExecContext(ctx, `DELETE FROM plexguid_verified WHERE rating_key>=? AND rating_key<?`, int64(bounds[0]), int64(bounds[1])); err != nil {
-				return err
+			for _, table := range []string{"plexguid_verified", "plexguid_identity"} {
+				if _, err = tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE rating_key>=? AND rating_key<?`, int64(bounds[0]), int64(bounds[1])); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -413,6 +444,17 @@ func (s *Service) storeMappingUnder(ctx context.Context, k core.RatingKey, guid 
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO plexguid_verified(rating_key,guid) VALUES(?,?) ON CONFLICT(rating_key) DO UPDATE SET guid=excluded.guid`, int64(k), guid); err != nil {
 		return err
+	}
+	// Only a verified, externally identified record may be served; any other
+	// mapping is stored without proof so no client sees an unverified guid.
+	verified := id.TMDB > 0
+	if _, err = tx.ExecContext(ctx, `DELETE FROM plexguid_identity WHERE rating_key=?`, int64(k)); err != nil {
+		return err
+	}
+	if verified {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO plexguid_identity(rating_key,guid,tmdb,title,year) VALUES(?,?,?,?,?) ON CONFLICT(rating_key) DO UPDATE SET guid=excluded.guid,tmdb=excluded.tmdb,title=excluded.title,year=excluded.year`, int64(k), guid, id.TMDB, id.Title, id.Year); err != nil {
+			return err
+		}
 	}
 	if parent != 0 {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO plexguid_parentage(rating_key,parent_key,parent_guid) VALUES(?,?,?) ON CONFLICT(rating_key) DO UPDATE SET parent_key=excluded.parent_key,parent_guid=excluded.parent_guid`, int64(k), int64(parent), parentGUID); err != nil {
@@ -440,10 +482,10 @@ func (s *Service) Resolve(ctx context.Context, k core.RatingKey) (string, error)
 		}
 		guid, err := s.resolveMovieOrShow(ctx, k, kind, typ)
 		if err == nil && guid == "" {
-			// Existing mappings are served until re-verified (#289); one that
-			// no longer verifies (a namesake from another year or country)
-			// is dropped so Plex apps stop loading its cast and metadata.
-			_, _ = s.db.ExecContext(ctx, `DELETE FROM plexguid_mappings WHERE rating_key=? AND NOT EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=plexguid_mappings.rating_key AND v.guid=plexguid_mappings.guid)`, int64(k))
+			// A namesake from another year or an unverified title no longer
+			// proves a mapping; drop it so Plex apps stop loading its cast
+			// and metadata instead of retaining a wrong plex:// identity.
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM plexguid_mappings WHERE rating_key=? AND guid<>'' AND NOT EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=plexguid_mappings.rating_key AND i.guid=plexguid_mappings.guid)`, int64(k))
 		}
 		return guid, err
 	case core.KindSeason:
@@ -464,6 +506,7 @@ type providerItem struct {
 	ParentIndex     *int   `json:"parentIndex"`
 	ParentGUID      string `json:"parentGuid"`
 	GrandparentGUID string `json:"grandparentGuid"`
+	Title           string `json:"title"`
 	IDs             []struct {
 		ID string `json:"id"`
 	} `json:"Guid"`
@@ -574,40 +617,94 @@ func hasExternalID(item providerItem, want ...string) bool {
 	return false
 }
 
-// verifyTitle checks the canonical metadata record, not just a search hit.
-func (s *Service) verifyTitle(ctx context.Context, k core.RatingKey, kind, guid string) (bool, error) {
+// localIdentity is what Ether knows about a local title, read once per
+// resolution so verification can compare identity rather than title text.
+type localIdentity struct {
+	year int
+}
+
+func (s *Service) localIdentity(ctx context.Context, k core.RatingKey) localIdentity {
+	var li localIdentity
+	_ = s.db.QueryRowContext(ctx, `SELECT year FROM catalog_titles WHERE key=?`, int64(k)).Scan(&li.year)
+	return li
+}
+
+// verifyTitle checks the canonical metadata record, not just a search hit, and
+// returns the identity it established. A guid verifies only when the record
+// carries the local title's TMDB id and a year that cannot be a namesake: the
+// title and year must agree within the release-year tolerance. Without a
+// title/year match the external ids alone are not proof for a movie or show.
+func (s *Service) verifyTitle(ctx context.Context, k core.RatingKey, kind, guid string, li localIdentity) (identityRecord, bool, error) {
 	items, err := s.getItems(ctx, "/library/metadata/"+guidHex(guid, kind), url.Values{"includeGuids": {"1"}})
 	if errors.Is(err, core.ErrNotFound) {
-		return false, nil // no canonical record: not verified
+		return identityRecord{}, false, nil // no canonical record: not verified
 	}
 	if err != nil {
-		return false, err
+		return identityRecord{}, false, err
 	}
-	var year int
-	var imdb string
-	_ = s.db.QueryRowContext(ctx, `SELECT year,imdb FROM catalog_titles WHERE key=?`, int64(k)).Scan(&year, &imdb)
+	if id := s.verifyItems(ctx, k, kind, guid, items, li); id.GUID != "" {
+		return id, true, nil
+	}
+	return identityRecord{}, false, nil
+}
+
+// verifyItems is verifyTitle over a canonical record already fetched.
+func (s *Service) verifyItems(ctx context.Context, k core.RatingKey, kind, guid string, items []providerItem, li localIdentity) identityRecord {
+	tmdbID := fmt.Sprintf("tmdb://%d", k.TMDB())
+	titleWanted := kind == "movie" || kind == "show"
+	localTitle := ""
+	if titleWanted {
+		localTitle, _ = s.localTitle(ctx, k)
+	}
 	for _, item := range items {
 		if item.GUID != guid || item.Type != kind {
 			continue
 		}
-		// TMDB and Plex years can differ by one (festival vs release); a
-		// namesake from another decade cannot.
-		if year > 0 && item.Year > 0 && (item.Year < year-1 || item.Year > year+1) {
+		if !hasExternalID(item, tmdbID) {
 			continue
 		}
-		if hasExternalID(item, fmt.Sprintf("tmdb://%d", k.TMDB()), externalIMDB(imdb)) {
-			return true, nil
+		// TMDB and Plex years can differ by one (festival vs release); a
+		// namesake from another year cannot. Where Ether has the local year,
+		// it is the discriminator; the title must also agree.
+		if li.year > 0 && item.Year > 0 && (item.Year < li.year-1 || item.Year > li.year+1) {
+			continue
 		}
+		// When the canonical record and the local catalogue both name the
+		// work, those titles must be the same work. Without both, the exact
+		// TMDB id is the only identity available.
+		if titleWanted && localTitle != "" && item.Title != "" && !titlesAgree(localTitle, item.Title) {
+			continue
+		}
+		return identityRecord{GUID: guid, TMDB: k.TMDB(), Title: item.Title, Year: item.Year}
 	}
-	return false, nil
+	return identityRecord{}
 }
 
-func externalIMDB(id string) string {
-	if id == "" {
-		return ""
+func (s *Service) localTitle(ctx context.Context, k core.RatingKey) (string, bool) {
+	var title string
+	if err := s.db.QueryRowContext(ctx, `SELECT title FROM catalog_titles WHERE key=?`, int64(k)).Scan(&title); err != nil {
+		return "", false
 	}
-	return "imdb://" + id
+	return title, true
 }
+
+// titlesAgree reports whether a canonical Plex title names the same work as
+// the local title. It normalises case, whitespace and a trailing release year
+// ("Runner (2026)") and requires equality: a different title that merely shares
+// a leading word is a namesake, never the same work.
+func titlesAgree(local, canonical string) bool {
+	return normalizeTitle(local) == normalizeTitle(canonical)
+}
+
+// normalizeTitle folds a title for identity comparison: case, surrounding and
+// repeated whitespace, and trailing release years ("Runner (2026)").
+func normalizeTitle(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = trailingYear.ReplaceAllString(s, "")
+	return strings.Join(strings.Fields(s), " ")
+}
+
+var trailingYear = regexp.MustCompile(`\s*\(?(19|20)\d{2}\)?$`)
 
 func (s *Service) resolveMovieOrShow(ctx context.Context, k core.RatingKey, kind, typ string) (string, error) {
 	external := fmt.Sprintf("tmdb://%d", k.TMDB())
@@ -615,28 +712,31 @@ func (s *Service) resolveMovieOrShow(ctx context.Context, k core.RatingKey, kind
 	if err != nil {
 		return "", err
 	}
-	found := ""
+	li := s.localIdentity(ctx, k)
+	var found identityRecord
+	foundGUID := ""
 	for _, item := range items {
 		if item.Type != kind || !validKindGUID(item.GUID, kind) {
 			continue
 		}
-		if hasExternalID(item, external) {
-			ok, err := s.verifyTitle(ctx, k, kind, item.GUID)
-			if err != nil {
-				return "", err
-			}
-			if !ok {
-				continue
-			}
-			if found != "" && found != item.GUID {
-				return "", fmt.Errorf("ambiguous Plex identity")
-			}
-			found = item.GUID
+		if !hasExternalID(item, external) {
+			continue
 		}
+		id, ok, err := s.verifyTitle(ctx, k, kind, item.GUID, li)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			continue
+		}
+		if foundGUID != "" && foundGUID != item.GUID {
+			return "", fmt.Errorf("ambiguous Plex identity")
+		}
+		found, foundGUID = id, item.GUID
 	}
 	now := time.Now().Unix()
 	err = s.storeMapping(ctx, k, found, now)
-	return found, err
+	return foundGUID, err
 }
 
 func (s *Service) resolveSeason(ctx context.Context, k core.RatingKey) (string, error) {
@@ -651,7 +751,7 @@ func (s *Service) resolveSeason(ctx context.Context, k core.RatingKey) (string, 
 	}
 	showHex := guidHex(showGUID, "show")
 	if showHex == "" {
-		_ = s.storeMapping(ctx, k, "", time.Now().Unix())
+		_ = s.storeMapping(ctx, k, identityRecord{}, time.Now().Unix())
 		return "", nil
 	}
 	children, err := s.getChildren(ctx, showHex)
@@ -672,7 +772,7 @@ func (s *Service) resolveSeason(ctx context.Context, k core.RatingKey) (string, 
 	}
 	for n, guid := range seen {
 		sk := core.SeasonKey(showID, n)
-		if err := s.storeMappingUnder(ctx, sk, guid, now, showKey, showGUID); err != nil {
+		if err := s.storeMappingIdentity(ctx, sk, identityRecord{GUID: guid, TMDB: showID}, now, showKey, showGUID); err != nil {
 			return "", err
 		}
 		if n == seasonNum {
@@ -680,7 +780,7 @@ func (s *Service) resolveSeason(ctx context.Context, k core.RatingKey) (string, 
 		}
 	}
 	if found == "" {
-		if err := s.storeMappingUnder(ctx, k, "", now, showKey, showGUID); err != nil {
+		if err := s.storeMappingIdentity(ctx, k, identityRecord{}, now, showKey, showGUID); err != nil {
 			return "", err
 		}
 	}
@@ -700,7 +800,7 @@ func (s *Service) resolveEpisode(ctx context.Context, k core.RatingKey) (string,
 	}
 	seasonHex := guidHex(seasonGUID, "season")
 	if seasonHex == "" {
-		_ = s.storeMapping(ctx, k, "", time.Now().Unix())
+		_ = s.storeMapping(ctx, k, identityRecord{}, time.Now().Unix())
 		return "", nil
 	}
 	children, err := s.getChildren(ctx, seasonHex)
@@ -721,7 +821,7 @@ func (s *Service) resolveEpisode(ctx context.Context, k core.RatingKey) (string,
 	}
 	for n, guid := range seen {
 		ek := core.EpisodeKey(showID, seasonNum, n)
-		if err := s.storeMappingUnder(ctx, ek, guid, now, seasonKey, seasonGUID); err != nil {
+		if err := s.storeMappingIdentity(ctx, ek, identityRecord{GUID: guid, TMDB: showID}, now, seasonKey, seasonGUID); err != nil {
 			return "", err
 		}
 		if n == epNum {
@@ -729,7 +829,7 @@ func (s *Service) resolveEpisode(ctx context.Context, k core.RatingKey) (string,
 		}
 	}
 	if found == "" {
-		if err := s.storeMappingUnder(ctx, k, "", now, seasonKey, seasonGUID); err != nil {
+		if err := s.storeMappingIdentity(ctx, k, identityRecord{}, now, seasonKey, seasonGUID); err != nil {
 			return "", err
 		}
 	}

@@ -40,11 +40,19 @@ func TestBrowseSaferPlexRatingSQLAndGUIDMatch(t *testing.T) {
 	}
 	payload, _ := json.Marshal(plexmeta.Overlay{ContentRating: "R"})
 	level := int(contentrating.LevelOf("R"))
-	if _, err := db.Exec(`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?)`, int64(pg.Key), "plex://movie/aaaaaaaaaaaaaaaaaaaaaaaa", now.Unix()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?)`, int64(remap.Key), "plex://movie/bbbbbbbbbbbbbbbbbbbbbbbb", now.Unix()); err != nil {
-		t.Fatal(err)
+	for _, row := range []struct {
+		key  core.RatingKey
+		guid string
+	}{{pg.Key, "plex://movie/aaaaaaaaaaaaaaaaaaaaaaaa"}, {remap.Key, "plex://movie/bbbbbbbbbbbbbbbbbbbbbbbb"}} {
+		if _, err := db.Exec(`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?)`, int64(row.key), row.guid, now.Unix()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO plexguid_verified(rating_key,guid) VALUES(?,?)`, int64(row.key), row.guid); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO plexguid_identity(rating_key,guid,tmdb) VALUES(?,?,?)`, int64(row.key), row.guid, row.key.TMDB()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := db.Exec(`INSERT INTO plexmeta_titles(rating_key,guid,payload,fetched_at,rating_level) VALUES(?,?,?,?,?)`, int64(pg.Key), "plex://movie/aaaaaaaaaaaaaaaaaaaaaaaa", string(payload), now.Unix(), level); err != nil {
 		t.Fatal(err)

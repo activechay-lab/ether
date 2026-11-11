@@ -77,7 +77,7 @@ func (s *Service) Lookup(ctx context.Context, guid string) (core.RatingKey, erro
 	} else if !validKindGUID(guid, kind) {
 		return 0, core.ErrNotFound
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT rating_key FROM plexguid_mappings WHERE guid=? AND checked_at>? LIMIT 2`, guid, time.Now().Add(-cacheTTL).Unix())
+	rows, err := s.db.QueryContext(ctx, `SELECT m.rating_key FROM plexguid_mappings m WHERE m.guid=? AND m.checked_at>? AND `+identityVerified+` LIMIT 2`, guid, time.Now().Add(-cacheTTL).Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -137,20 +137,15 @@ func (s *Service) Lookup(ctx context.Context, guid string) (core.RatingKey, erro
 	if found == 0 {
 		return 0, core.ErrNotFound
 	}
-	var year int
-	_ = s.db.QueryRowContext(ctx, `SELECT year FROM catalog_titles WHERE key=?`, int64(found)).Scan(&year)
-	if year > 0 {
-		matched := false
-		for _, item := range items {
-			if item.GUID == guid && item.Type == kind && item.Year == year {
-				matched = true
-			}
-		}
-		if !matched {
-			return 0, core.ErrNotFound
-		}
+	// The reverse direction must not be looser than forward resolution: the
+	// canonical record must carry the same title and a year that cannot be a
+	// namesake, and the identity it proves is what gets stored. Reuse the
+	// record already fetched rather than calling Plex a second time.
+	id := s.verifyItems(ctx, found, kind, guid, items, s.localIdentity(ctx, found))
+	if id.GUID == "" {
+		return 0, core.ErrNotFound
 	}
-	return found, s.storeMapping(ctx, found, guid, time.Now().Unix())
+	return found, s.storeMappingIdentity(ctx, found, id, time.Now().Unix(), 0, "")
 }
 
 // Verified is one stored title whose plex:// GUID passed verification.
@@ -170,6 +165,7 @@ func (s *Service) VerifiedRange(ctx context.Context, after, below core.RatingKey
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT m.rating_key, m.guid FROM plexguid_mappings m
 		JOIN plexguid_verified v ON v.rating_key=m.rating_key AND v.guid=m.guid
+		JOIN plexguid_identity i ON i.rating_key=m.rating_key AND i.guid=m.guid
 		WHERE m.rating_key>? AND m.rating_key<? AND m.guid<>''
 		  AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000
 		       OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))

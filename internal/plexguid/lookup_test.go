@@ -23,8 +23,8 @@ func TestLookupVerifiedIdentity(t *testing.T) {
 		want             core.RatingKey
 		wantErr          bool
 	}{
-		{"movie", movie, `{"guid":"` + movie + `","type":"movie","Guid":[{"id":"tmdb://550"}]}`, core.MovieKey(550), false},
-		{"show", show, `{"guid":"` + show + `","type":"show","Guid":[{"id":"tmdb://1396"}]}`, core.ShowKey(1396), false},
+		{"movie", movie, `{"guid":"` + movie + `","type":"movie","title":"Fight Club","year":1999,"Guid":[{"id":"tmdb://550"}]}`, core.MovieKey(550), false},
+		{"show", show, `{"guid":"` + show + `","type":"show","title":"Boundary Bay","year":2008,"Guid":[{"id":"tmdb://1396"}]}`, core.ShowKey(1396), false},
 		{"wrong guid", movie, `{"guid":"plex://movie/5d7768265af944001f1f6977","type":"movie","Guid":[{"id":"tmdb://550"}]}`, 0, true},
 		{"wrong type", movie, `{"guid":"` + movie + `","type":"show","Guid":[{"id":"tmdb://550"}]}`, 0, true},
 		{"missing external", movie, `{"guid":"` + movie + `","type":"movie"}`, 0, true},
@@ -98,16 +98,16 @@ func TestLookupBoundaries(t *testing.T) {
 	if _, e := pg.Lookup(ctx, guid); !errors.Is(e, core.ErrNotFound) {
 		t.Fatal(e)
 	}
-	if e := pg.storeMapping(ctx, core.MovieKey(550), guid, time.Now().Add(-2*cacheTTL).Unix()); e != nil {
+	if e := pg.storeMapping(ctx, core.MovieKey(550), identityRecord{GUID: guid, TMDB: 550, Title: "Fight Club", Year: 1999}, time.Now().Add(-2*cacheTTL).Unix()); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := pg.Lookup(ctx, guid); !errors.Is(e, core.ErrNotFound) {
 		t.Fatalf("expired cache accepted: %v", e)
 	}
-	if e := pg.storeMapping(ctx, core.MovieKey(550), guid, time.Now().Unix()); e != nil {
+	if e := pg.storeMapping(ctx, core.MovieKey(550), identityRecord{GUID: guid, TMDB: 550, Title: "Fight Club", Year: 1999}, time.Now().Unix()); e != nil {
 		t.Fatal(e)
 	}
-	if e := pg.storeMapping(ctx, core.MovieKey(551), guid, time.Now().Unix()); e != nil {
+	if e := pg.storeMapping(ctx, core.MovieKey(551), identityRecord{GUID: guid, TMDB: 551, Title: "Fight Club", Year: 1999}, time.Now().Unix()); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := pg.Lookup(ctx, guid); e == nil {
@@ -144,7 +144,7 @@ func TestExactKeyDoesNotDeriveEpisodeFromShow(t *testing.T) {
 	const epGUID = "plex://episode/602e5e2294f08e002d003344"
 	show := core.ShowKey(1396)
 	ep := core.EpisodeKey(1396, 1, 1)
-	if err := pg.storeMapping(ctx, show, showGUID, time.Now().Unix()); err != nil {
+	if err := pg.storeMapping(ctx, show, identityRecord{GUID: showGUID, TMDB: 1396}, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if k, err := pg.ExactKey(ctx, epGUID); !errors.Is(err, core.ErrNotFound) || k != 0 {
@@ -153,14 +153,14 @@ func TestExactKeyDoesNotDeriveEpisodeFromShow(t *testing.T) {
 	if k, err := pg.ExactKey(ctx, showGUID); err != nil || k != show {
 		t.Fatalf("show %v %v", k, err)
 	}
-	if err := pg.storeMapping(ctx, ep, epGUID, time.Now().Unix()); err != nil {
+	if err := pg.storeMapping(ctx, ep, identityRecord{GUID: epGUID, TMDB: 1396}, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if k, err := pg.ExactKey(ctx, epGUID); err != nil || k != ep {
 		t.Fatalf("episode %v %v", k, err)
 	}
 	other := core.EpisodeKey(1396, 1, 2)
-	if err := pg.storeMapping(ctx, other, epGUID, time.Now().Unix()); err != nil {
+	if err := pg.storeMapping(ctx, other, identityRecord{GUID: epGUID, TMDB: 1396}, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pg.ExactKey(ctx, epGUID); !errors.Is(err, ErrAmbiguous) {

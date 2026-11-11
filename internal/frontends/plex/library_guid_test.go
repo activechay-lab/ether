@@ -26,15 +26,15 @@ func TestLibraryGUIDLookup(t *testing.T) {
 	}
 	defer db.Close()
 	const guid = "plex://movie/5d7768265af944001f1f6976"
-	if _, err = db.Exec(`INSERT INTO plexguid_mappings VALUES(?,?,?)`, int64(fightClub.Key), guid, time.Now().Unix()); err != nil {
+	if err = storeVerifiedGUID(db, fightClub.Key, guid, 550, "Fjord Harbor", 1999); err != nil {
 		t.Fatal(err)
 	}
 	const showGUID = "plex://show/5d9c086c46115600200aa2fe"
-	if _, err = db.Exec(`INSERT INTO plexguid_mappings VALUES(?,?,?)`, int64(breakingBad.Key), showGUID, time.Now().Unix()); err != nil {
+	if err = storeVerifiedGUID(db, breakingBad.Key, showGUID, 1396, "Boundary Bay", 2008); err != nil {
 		t.Fatal(err)
 	}
 	const epGUID = "plex://episode/602e5e2294f08e002d003344"
-	if _, err = db.Exec(`INSERT INTO plexguid_mappings VALUES(?,?,?)`, int64(bbE1.Key), epGUID, time.Now().Unix()); err != nil {
+	if err = storeVerifiedGUID(db, bbE1.Key, epGUID, 1396, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	pg := plexguid.New(db, plexguid.Options{})
