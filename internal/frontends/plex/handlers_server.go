@@ -33,15 +33,19 @@ func (s *Server) serverInfoAttrs(providers bool, viewer *frontend.User) []model.
 	if c.Plex.Claimed || c.Plex.Token != "" {
 		signIn, mapping = "ok", "mapped"
 	}
+	// The transcoder and playback come from the shared session runtime
+	// since Prism; the raw deps are empty in production wiring, which told
+	// Plex Web the server cannot transcode (#432).
+	tc, pb := s.transcoder(), s.playback()
 	active := 0
-	if s.d.Transcoder != nil && s.d.Playback != nil {
-		for _, ps := range s.d.Playback.Sessions() {
+	if tc != nil && pb != nil {
+		for _, ps := range pb.Sessions() {
 			if len(s.transcodes.forClient(ps.UserID, ps.ClientID, ps.Key)) > 0 {
 				active++
 			}
 		}
 	}
-	canTranscode := s.d.Transcoder != nil
+	canTranscode := tc != nil
 	attrs := []model.Attr{
 		model.A("allowCameraUpload", false),
 		model.A("allowChannelAccess", false),
