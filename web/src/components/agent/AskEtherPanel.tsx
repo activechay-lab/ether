@@ -35,6 +35,8 @@ const KNOWN_TOOLS = [
   "collection_create_from_prompt",
   "release_blocklist",
   "release_pin",
+  "quality_profiles",
+  "quality_order_set",
   "format_scores_set",
   "rule_add",
   "source_add_stremio",

@@ -115,6 +115,10 @@ func builtinToolLabel(name, fallback string) extend.Text {
 		return extend.T("Blocklist a release")
 	case "release_pin":
 		return extend.T("Pin a release")
+	case "quality_profiles":
+		return extend.T("Quality profiles")
+	case "quality_order_set":
+		return extend.T("Change quality order")
 	case "format_scores_set":
 		return extend.T("Change custom format scores")
 	case "rule_add":
@@ -658,13 +662,32 @@ func (ps *appProfileService) Profiles(ctx context.Context) ([]builtin.ProfileInf
 	out := make([]builtin.ProfileInfo, 0, len(cfg.Quality.Profiles))
 	for _, p := range cfg.Quality.Profiles {
 		out = append(out, builtin.ProfileInfo{
-			Name:   p.Name,
-			Media:  p.MediaType,
-			Scores: maps.Clone(p.CustomFormatScores),
-			Rules:  append([]core.ReleaseRule(nil), p.ReleaseRules...),
+			Name:               p.Name,
+			Media:              p.MediaType,
+			Scores:             maps.Clone(p.CustomFormatScores),
+			Rules:              append([]core.ReleaseRule(nil), p.ReleaseRules...),
+			QualityOrder:       config.CloneQualityOrder(p.QualityOrder),
+			Language:           p.Language,
+			PreferredLanguages: append([]string(nil), p.PreferredLanguages...),
+			MaxHeight:          p.MaxHeight,
+			MinHeight:          p.MinHeight,
+			AllowedQualities:   append([]string(nil), p.AllowedQualities...),
 		})
 	}
 	return out, nil
+}
+
+func (ps *appProfileService) SetQualityOrder(ctx context.Context, profile, media string, order []core.QualityItem) error {
+	return ps.a.saveValidated(func(c *config.Config) error {
+		for i := range c.Quality.Profiles {
+			p := &c.Quality.Profiles[i]
+			if strings.EqualFold(p.Name, profile) && p.MediaType == media {
+				p.QualityOrder = config.CloneQualityOrder(order)
+				return nil
+			}
+		}
+		return tools.Userf("no profile named %q", profile)
+	})
 }
 
 func (ps *appProfileService) SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error {

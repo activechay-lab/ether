@@ -274,3 +274,35 @@ Owner decisions on this design (v0.3.6):
   for. Any accepts every language. A specific language rejects releases
   whose audio isn't in it — multi/dual-audio releases pass, and a release
   that declares no audio counts as the title's original language.
+
+## Changing quality groups through MCP
+
+`quality_profiles` reads each profile's media, quality groups, custom format
+scores, language settings and limits. `quality_order_set` proposes replacing
+one profile's groups; the owner approves the change in the console. Pass
+`media` when movie and TV profiles share a name. Other profile settings stay
+as configured.
+
+For a viewer who wants Spanish 1080p ahead of English 4K, read the profile
+first, then put the relevant 1080p and 2160p qualities in one group. Keep
+other groups in their existing order. The existing `ether:viewer-language`
+score can then decide between those resolutions. For example, a shared WEB
+group is:
+
+```json
+{
+  "profile": "4K",
+  "media": "tv",
+  "qualityOrder": [
+    {"name": "HD and UHD WEB", "qualities": ["webdl-2160", "webrip-2160", "webdl-1080", "webrip-1080"]}
+  ]
+}
+```
+
+The argument replaces the entire order: include any other groups you want
+to retain. Unlisted qualities rank below listed ones; an empty order makes
+all qualities equal. Grouping changes the priority of every scored format
+within that group, not only language. Existing Proper/Repack revision
+preferences still apply before scores (S2 above). A profile's language rules, allowed
+qualities, size and resolution limits, and the device and availability
+checks still apply. A language score alone cannot outrank a higher group.

@@ -276,7 +276,7 @@ func writeTools(d Deps) []tools.Tool {
 		}),
 		tool(tools.Tool{
 			Name: "format_scores_set", Title: "Change custom format scores",
-			Description: "Propose custom format scores for a quality profile. Releases rank by quality first, then by the sum of their custom format scores, as in Radarr and Sonarr. Keys are custom format ids: the owner's or imported formats, Ether's built-in formats (ether:remux, ether:hdr, ether:codec-hevc, ether:audio-truehd, ether:viewer-language, ether:audio-transcode and the rest) or Prefer rules (rule:<id>). A score of 0 removes the format from the profile. Omit profile for the first (default) profile.",
+			Description: "Propose custom format scores for a quality profile. Releases rank by quality group first, then by the sum of their custom format scores, as in Radarr and Sonarr. Read quality_profiles first; use quality_order_set to group qualities when a language preference should outrank resolution. Keys are custom format ids: the owner's or imported formats, Ether's built-in formats (ether:remux, ether:hdr, ether:codec-hevc, ether:audio-truehd, ether:viewer-language, ether:audio-transcode and the rest) or Prefer rules (rule:<id>). A score of 0 removes the format from the profile. Omit profile for the first (default) profile.",
 			InputSchema: schema(map[string]any{
 				"profile": pString("Profile name; defaults to the first profile", 80),
 				"media":   pEnum("Which media's profile, when a movie and a TV profile share the name", "movie", "tv"),
