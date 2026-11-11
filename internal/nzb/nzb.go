@@ -358,6 +358,10 @@ func charsetReader(label string, input io.Reader) (io.Reader, error) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
 	case "utf-8", "utf8", "us-ascii", "ascii", "":
 		return input, nil
+	case "utf-16", "utf-16le", "utf-16be", "unicode":
+		// Downloads are transcoded from UTF-16 to UTF-8 when fetched
+		// (newznab.unwrapNZB); the declaration keeps its original label.
+		return input, nil
 	case "iso-8859-1", "iso8859-1", "latin1", "latin-1", "iso-8859-15", "windows-1252", "cp1252":
 		b, err := io.ReadAll(input)
 		if err != nil {

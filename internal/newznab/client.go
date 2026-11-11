@@ -2,7 +2,6 @@ package newznab
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -1629,29 +1628,18 @@ func (c *Client) fetchNZB(ctx context.Context, r core.Release) ([]byte, bool, er
 	if err != nil {
 		return nil, true, err
 	}
-	// Gzipped NZB payload (magic bytes) — Go's transport only undoes
-	// Content-Encoding, not a stored .nzb.gz body.
-	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
-		gz, err := gzip.NewReader(bytes.NewReader(body))
-		if err != nil {
-			return nil, true, fmt.Errorf("newznab: gunzip NZB: %w", err)
-		}
-		body, err = io.ReadAll(io.LimitReader(gz, c.maxNZB+1))
-		gz.Close()
-		if err != nil {
-			return nil, true, err
-		}
-		if int64(len(body)) > c.maxNZB {
-			return nil, true, fmt.Errorf("newznab: NZB exceeds %d bytes", c.maxNZB)
-		}
+	nzb, kind, ok, err := unwrapNZB(body, c.maxNZB)
+	if err != nil {
+		return nil, true, err
 	}
-	trimmed := bytes.TrimSpace(body)
-	if !bytes.Contains(bytes.ToLower(trimmed[:min(len(trimmed), 2048)]), []byte("<nzb")) {
+	if !ok {
+		// A Newznab error document (bad API key, grab limit) says why.
 		if _, perr := parseFeed(body, c.Name()); perr != nil {
 			return nil, true, perr
 		}
-		return nil, true, fmt.Errorf("newznab: response for %q is not an NZB", r.Name)
+		return nil, true, fmt.Errorf("newznab: response for %q is not an NZB: the indexer sent %s", r.Name, kind)
 	}
+	body = nzb
 	c.saveNZB(r.ID, body)
 	return body, true, nil
 }
