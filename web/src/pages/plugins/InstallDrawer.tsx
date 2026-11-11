@@ -300,9 +300,9 @@ export function InstallDrawer({
               <Artwork
                 src={preview.manifest.ether?.icon ?? preview.manifest.logo}
                 alt={preview.manifest.name}
-                title={preview.manifest.name}
-                icon={kindIcon(kind, 20)}
-                className="size-12 shrink-0 rounded-lg border border-border"
+                title=""
+                icon={kindIcon(kind, 18)}
+                className="size-10 shrink-0 rounded-lg border border-border"
               />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
