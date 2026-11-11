@@ -24,16 +24,19 @@ import (
 // delivered blocks is a spare route for a file whose own edge died. The
 // evidence belongs to the account that saw it: one provider's edge says
 // nothing about another's, and a signed link's token must not leave its
-// account. Freshness is the only other admission test: an edge not seen
-// recently is not worth a probe.
+// account. Recent successes are preferred. Older provider-issued
+// authorities are retained separately as unproven candidates and require
+// the same strict probe before adoption.
 type recentEdges struct {
 	mu sync.Mutex
 	at map[string]map[string]time.Time // provider account -> edge host -> block completion
 }
 
 const (
-	recentEdgeTTL   = 10 * time.Minute
-	recentEdgeTries = 3 // remembered edges one reroute wave probes, freshest first
+	recentEdgeTTL     = 10 * time.Minute
+	edgeProbeBudget   = 2 * time.Second // one stalled edge must not consume the whole wave
+	edgeProbeCooldown = 30 * time.Second
+	recentEdgeTries   = 3 // remembered edges one reroute wave probes, freshest first
 )
 
 // record notes that host delivered a complete block for this provider
@@ -215,9 +218,10 @@ func cdnReplayApproval(impl Provider) (cdnEdgeApprover, bool) {
 	return approver, true
 }
 
-// resumeOnAnotherEdge replays the file's current link on an edge the
-// engine has served completed blocks from for the same provider account
-// (recentEdges). While the provider pins the failed host into every
+// resumeOnAnotherEdge replays the file's current link onto a candidate
+// edge: recent completed-block hosts (recentEdges) are preferred,
+// followed by persisted provider-issued authorities from the same account
+// (knownCDNHosts). While the provider pins the failed host into every
 // regenerated link, no API answer moves the file — but the link's path and
 // token stand on another edge, which is a new route the file can take
 // without the provider's help. Only providers that opt in
@@ -247,16 +251,76 @@ func (f *remoteFile) resumeOnAnotherEdge(ctx context.Context, failed string, usa
 			return false, false
 		}
 		hosts := f.e.recent.freshest(p.Provider, urlHost(failed), f.e.backoff.down, f.e.now())
-		if len(hosts) > recentEdgeTries {
-			hosts = hosts[:recentEdgeTries] // probe the freshest few, not the whole map
-		}
+		hosts = append(hosts, f.e.svc.knownCDNHosts(ctx, p.Provider)...)
+		seen := make(map[string]bool)
+		unique := make([]string, 0, len(hosts))
 		for _, host := range hosts {
+			if !seen[host] {
+				seen[host] = true
+				unique = append(unique, host)
+			}
+		}
+		hosts = unique
+		cursorKey := p.Provider
+		f.mu.Lock()
+		cursor := ""
+		if f.edgeCursorKey == cursorKey {
+			cursor = f.edgeCursorHost
+		}
+		f.mu.Unlock()
+		// A fast refusal consumes a probe too. Continue beyond the last
+		// attempted host, even after a token refresh, so early failures cannot hide a
+		// healthy candidate later in the list on every recovery wave.
+		for i, host := range hosts {
+			if host == cursor {
+				hosts = append(append([]string(nil), hosts[i+1:]...), hosts[:i+1]...)
+				break
+			}
+		}
+		tries := 0
+		for _, host := range hosts {
+			if ctx.Err() != nil {
+				return false, false
+			}
+			if host == urlHost(failed) || f.e.backoff.down(host) {
+				continue
+			}
 			if !approver.approvesCDNEdge(p.URL, host) {
 				continue // never hand the token to a host outside this provider's CDN
 			}
 			u := withHost(p.URL, host)
-			probed := u != "" && u != p.URL && f.e.probeLink(ctx, u, off, f.size)
+			if u == "" || u == p.URL {
+				continue
+			}
+			key := p.Provider + "|" + u
 			f.mu.Lock()
+			now := f.e.now()
+			for k, until := range f.edgeProbeAfter {
+				if !now.Before(until) {
+					delete(f.edgeProbeAfter, k)
+				}
+			}
+			wait := now.Before(f.edgeProbeAfter[key])
+			f.mu.Unlock()
+			if wait {
+				continue
+			}
+			if tries >= recentEdgeTries {
+				break
+			}
+			tries++
+			f.mu.Lock()
+			f.edgeCursorKey, f.edgeCursorHost = cursorKey, host
+			f.mu.Unlock()
+			pctx, cancel := context.WithTimeout(ctx, edgeProbeBudget)
+			probed := f.e.probeLink(pctx, u, off, f.size)
+			timedOut := pctx.Err() != nil && ctx.Err() == nil
+			cancel()
+			f.mu.Lock()
+			if ctx.Err() != nil {
+				f.mu.Unlock()
+				return false, false
+			}
 			if f.gen != gen { // a refresh or adopt moved the link while the probe ran
 				p, gen = f.pl, f.gen
 				f.mu.Unlock()
@@ -273,6 +337,12 @@ func (f *remoteFile) resumeOnAnotherEdge(ctx context.Context, failed string, usa
 				break // rebuild approver and candidate list, then re-run the wave
 			}
 			if !probed {
+				if f.edgeProbeAfter == nil {
+					f.edgeProbeAfter = make(map[string]time.Time)
+				}
+				if timedOut && len(f.edgeProbeAfter) < knownEdgeLimit {
+					f.edgeProbeAfter[key] = f.e.now().Add(edgeProbeCooldown)
+				}
 				f.mu.Unlock()
 				continue // same snapshot, unresponsive candidate: try the next
 			}

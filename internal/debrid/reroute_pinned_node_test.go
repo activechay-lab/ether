@@ -91,8 +91,8 @@ func TestRerouteReplaysPinnedLinkOnAnotherEdge(t *testing.T) {
 			t.Fatalf("%s read after the pinned node died: n=%d err=%v", read.name, n, err)
 		}
 	}
-	if got := links.Load(); got != rerouteLinks {
-		t.Fatalf("requestdl calls=%d, want %d (all pinned; the replay itself must ask the API nothing)", got, rerouteLinks)
+	if got := links.Load(); got != 0 {
+		t.Fatalf("requestdl calls=%d, want %d (all pinned; the replay itself must ask the API nothing)", got, 0)
 	}
 }
 
@@ -187,8 +187,8 @@ func TestRerouteNeverHandsTheTokenToAnotherProvidersEdge(t *testing.T) {
 			t.Fatalf("%s read after the pinned node died: n=%d err=%v", read.name, n, err)
 		}
 	}
-	if got := links.Load(); got != rerouteLinks {
-		t.Fatalf("requestdl calls=%d, want %d (the replay itself must ask the API nothing)", got, rerouteLinks)
+	if got := links.Load(); got != 0 {
+		t.Fatalf("requestdl calls=%d, want %d (the replay itself must ask the API nothing)", got, 0)
 	}
 	if got := foreign.requests.Load() - foreignSeen; got != 0 {
 		t.Fatalf("another account's edge answered %d replay requests; the signed path left its provider", got)
@@ -571,13 +571,11 @@ func TestRerouteRedirectedReplayReadKeepsTheTokenHome(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	relief := live.issue("relief") // the provider's second answer: a fresh link, on the live edge
+	relief := live.issue("relief") // the refresh after a refused redirect returns a fresh provider link
 	var links atomic.Int32
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u := pl.URL // pinned to the dead node, as in the incident
-		if links.Add(1) > 3 {
-			u = relief // until it releases a fresh link
-		}
+		links.Add(1) // replay itself now asks for no links before the redirected read
+		u := relief
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": u})
 	}))
 	defer api.Close()
@@ -620,8 +618,8 @@ func TestRerouteRedirectedReplayReadKeepsTheTokenHome(t *testing.T) {
 		live.mu.Unlock()
 		t.Fatalf("the wave left the file on %s (replay=%v), want the provider's fresh link %s; live saw [%s]", p.URL, p.OnReplayEdge, relief, rs)
 	}
-	if got := links.Load(); got != 4 {
-		t.Fatalf("requestdl calls=%d, want 4 (a pinned wave, then one dead-link refresh for the redirected read)", got)
+	if got := links.Load(); got != 1 {
+		t.Fatalf("requestdl calls=%d, want 1 (only the dead-link refresh for the redirected read)", got)
 	}
 	// Readback, the round-three way: relink copies the payload it is
 	// handed, so a forced refresh must retire the replay marker at the

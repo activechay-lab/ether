@@ -85,6 +85,8 @@ type Service struct {
 	entries []*entry          // configured providers in priority order
 	plugins map[string]*entry // native plugin providers, not serialized into config
 
+	cdnEdges knownCDNEdges
+
 	knownMu sync.Mutex
 	known   map[string]knownState // providerID|hash
 
@@ -722,6 +724,7 @@ func (s *Service) storedPayload(ctx context.Context, key string) (Payload, bool)
 }
 
 func (s *Service) savePayload(ctx context.Context, p Payload) {
+	s.rememberCDNEdge(ctx, p)
 	if s.db == nil || p.Key == "" {
 		return
 	}

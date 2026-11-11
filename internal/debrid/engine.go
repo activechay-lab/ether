@@ -552,11 +552,16 @@ type remoteFile struct {
 	mu              sync.Mutex
 	pl              Payload
 	gen             int
-	linkFails       int           // link generations that failed in a row
-	failedGen       int           // last generation counted in linkFails (-1 = none)
-	rerouteAt       time.Time     // next link-regeneration wave allowed after a host failure
-	rerouteSem      chan struct{} // one reroute wave at a time; waiters reuse its result
-	mediaHealthyKey string        // a shared cooldown must not interrupt another healthy file
+	linkFails       int                  // link generations that failed in a row
+	failedGen       int                  // last generation counted in linkFails (-1 = none)
+	replayAt        time.Time            // replay probes have their own pacing, independent of API backoff
+	edgeProbeAfter  map[string]time.Time // failed probes are specific to this file and signed URL
+	replayURL       string               // a newly signed link may be probed immediately
+	edgeCursorKey   string               // provider whose candidates were last probed for this file
+	edgeCursorHost  string               // last actual probe; next wave starts after this host
+	rerouteAt       time.Time            // next link-regeneration wave allowed after a host failure
+	rerouteSem      chan struct{}        // one reroute wave at a time; waiters reuse its result
+	mediaHealthyKey string               // a shared cooldown must not interrupt another healthy file
 	mediaPauseKey   string
 	mediaPause      mediaPause
 
@@ -721,19 +726,11 @@ const (
 	rerouteCooldown = 20 * time.Second // after a wave that found none
 )
 
-// reroute replaces the link of a file whose CDN node failed a request. The
-// providers balance fresh links across edge nodes (TorBox requestdl, Real-
-// Debrid and AllDebrid unrestrict, Premiumize directdl), so a new link for
-// the same file usually lands on a live node and the byte range resumes
-// there: same file, same offsets. A link on the failed node, or on another
-// node that keeps failing, is not a new route, so one wave asks for up to
-// rerouteLinks links and then for the same file on another provider.
-// Readers that failed together share one wave, and waves are spaced per
-// file, so an outage cannot loop on the provider API. When the provider
-// pins the failed node into every regenerated link, the wave's last move
-// is replaying the file's link on a CDN edge the engine has seen live
-// (resumeOnAnotherEdge). It reports whether the file now streams from
-// another node.
+// reroute first tries the existing signed link on another approved edge.
+// Replay and provider API refresh have independent budgets and pacing:
+// an unresponsive API or a sticky routing answer must not suppress replay.
+// Readers share one wave. A changed URL can be probed immediately, while
+// identical failed probes and API waves remain bounded separately.
 func (f *remoteFile) reroute(ctx context.Context, failed string, gen int, start int64) bool {
 	if f.e.svc == nil || f.e.backoff == nil {
 		return false
@@ -748,17 +745,50 @@ func (f *remoteFile) reroute(ctx context.Context, failed string, gen int, start 
 		return false
 	}
 	defer func() { <-f.rerouteSem }()
-	if p, g := f.payload(); g != gen && usable(p.URL) {
-		return true // a reader that failed alongside this one already moved the file
-	}
-	f.mu.Lock()
-	if f.e.now().Before(f.rerouteAt) {
-		f.mu.Unlock()
+	if ctx.Err() != nil {
 		return false
 	}
+	if p, g := f.payload(); g != gen && usable(p.URL) {
+		return true
+	}
+	replay := func() bool {
+		p, _ := f.payload()
+		f.mu.Lock()
+		replayKey := p.Provider + "|" + p.URL
+		due := replayKey != f.replayURL || !f.e.now().Before(f.replayAt)
+		if due {
+			f.replayURL = replayKey
+			f.replayAt = f.e.now().Add(rerouteSpacing)
+		}
+		f.mu.Unlock()
+		if !due || ctx.Err() != nil {
+			return false
+		}
+		rctx, cancel := context.WithTimeout(ctx, rerouteBudget)
+		moved, replayed := f.resumeOnAnotherEdge(rctx, failed, usable, start)
+		cancel()
+		if replayed {
+			f.mu.Lock()
+			f.replayURL = ""
+			f.replayAt = time.Time{}
+			f.mu.Unlock()
+			np, _ := f.payload()
+			f.e.log.Info("debrid media link replayed on an approved edge", "release", f.id,
+				"failedHost", urlHost(failed), "host", urlHost(np.URL))
+		}
+		return moved
+	}
+	// This is deliberately above the API cooldown, with its own context.
+	if replay() {
+		return true
+	}
+	f.mu.Lock()
+	apiDue := !f.e.now().Before(f.rerouteAt)
 	f.mu.Unlock()
+	if !apiDue || ctx.Err() != nil {
+		return false
+	}
 	wctx, cancel := context.WithTimeout(ctx, rerouteBudget)
-	defer cancel()
 	p, _ := f.payload()
 	moved := false
 	for i := 1; i <= rerouteLinks && !moved; i++ {
@@ -781,14 +811,11 @@ func (f *remoteFile) reroute(ctx context.Context, failed string, gen int, start 
 				"failedHost", urlHost(failed), "provider", np.Provider, "host", urlHost(np.URL))
 		}
 	}
-	if !moved && wctx.Err() == nil {
-		var replayed bool
-		moved, replayed = f.resumeOnAnotherEdge(wctx, failed, usable, start)
-		if replayed { // moved without replayed: a refresh won the move, not this wave
-			np, _ := f.payload()
-			f.e.log.Info("debrid media link replayed on an edge seen live", "release", f.id,
-				"failedHost", urlHost(failed), "host", urlHost(np.URL))
-		}
+	cancel()
+	// A refresh may have supplied a new token on the same pinned host.
+	// Probe it with the replay budget, never with the exhausted API budget.
+	if !moved {
+		moved = replay()
 	}
 	wait := rerouteSpacing
 	if !moved {
