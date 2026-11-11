@@ -625,23 +625,18 @@ func (s *Service) filterPluginTitles(ctx context.Context, v *core.User, items []
 			return nil, err
 		}
 	}
-	var favorites map[core.RatingKey]bool
-	if q.Favorite != nil && s.d.IsFavoriteMany != nil {
-		keys := make([]core.RatingKey, len(items))
-		for i := range items {
-			keys[i] = items[i].Key
-		}
-		var err error
-		favorites, err = s.d.IsFavoriteMany(ctx, v, keys)
-		if err != nil {
-			return nil, err
-		}
+	// Plugin library titles are not favourites in this build: they are not in
+	// the catalogue the favourites policy reads, so favouriting one is refused
+	// and none is ever stored. Honour the filter directly rather than asking
+	// the favourites store, whose policy check answers ErrForbidden for keys it
+	// cannot resolve and would fail the whole page (Jellyfin answered 503 to
+	// `Filters=IsFavorite` on a plugin library).
+	if q.Favorite != nil && *q.Favorite {
+		return []core.Title{}, nil
 	}
 	sub := q
 	sub.Watched = nil
-	if favorites != nil {
-		sub.Favorite = nil
-	}
+	sub.Favorite = nil
 	out := make([]core.Title, 0, len(items))
 	for _, t := range items {
 		if v.MaxContentRating != "" && t.ContentRating != "" && contentrating.Exceeds(t.ContentRating, v.MaxContentRating) {
@@ -651,9 +646,6 @@ func (s *Service) filterPluginTitles(ctx context.Context, v *core.User, items []
 			continue
 		}
 		if q.Watched != nil && (watched[t.Key].ViewCount > 0) != *q.Watched {
-			continue
-		}
-		if q.Favorite != nil && favorites != nil && favorites[t.Key] != *q.Favorite {
 			continue
 		}
 		ok, err := s.matchesUserQuery(ctx, v, t, sub)

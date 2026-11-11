@@ -798,6 +798,14 @@ func (i *instance) playbackRoutes() error {
 		if err := i.router.Handle(method, "/Videos/{id}/{name}", http.HandlerFunc(i.streamAlias)); err != nil {
 			return err
 		}
+		if i.protocol == "jellyfin" {
+			// Music clients (Jellyfin Web, Finamp) stream audio through
+			// /Audio/{id}/stream and /Audio/{id}/universal; the same handler
+			// serves both since it reads the item id and stream name.
+			if err := i.router.Handle(method, "/Audio/{id}/{name}", http.HandlerFunc(i.streamAlias)); err != nil {
+				return err
+			}
+		}
 	}
 	if err := i.router.Handle("GET", "/MediaSegments/{itemId}", http.HandlerFunc(i.mediaSegments)); err != nil {
 		return err
@@ -811,7 +819,7 @@ func (i *instance) playbackRoutes() error {
 	for _, entry := range []struct {
 		path    string
 		stopped bool
-	}{{"/Sessions/Playing", false}, {"/Sessions/Playing/Progress", false}, {"/Sessions/Playing/Stopped", true}} {
+	}{{"/Sessions/Playing", false}, {"/Sessions/Playing/Progress", false}, {"/Sessions/Playing/Ping", false}, {"/Sessions/Playing/Stopped", true}} {
 		stop := entry.stopped
 		started := entry.path == "/Sessions/Playing"
 		if err := i.router.Handle("POST", entry.path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { i.timeline(w, r, stop, started) })); err != nil {

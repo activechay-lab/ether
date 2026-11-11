@@ -35,6 +35,9 @@ func (i *instance) clientCompatibilityRoutes() error {
 		{"/Items/{id}/InstantMix", i.emptyItemCompanions},
 		{"/LiveTv/Timers", i.emptyOptionalItems}, {"/LiveTv/SeriesTimers", i.emptyOptionalItems},
 		{"/LiveTv/Recordings/Folders", i.emptyOptionalItems},
+		{"/Years", i.years},
+		{"/Years/{year}", i.year},
+		{"/UserItems/{id}/UserData", i.userItemData},
 	} {
 		if err := i.router.Handle("GET", entry.path, entry.handler); err != nil {
 			return err
@@ -268,4 +271,95 @@ func (i *instance) emptyOptionalArray(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonReply(w, []any{})
+}
+
+// years lists the production years a filter can offer, from the same year
+// facet /Items/Filters reads. Jellyfin Web and Swiftfin ask GET /Years to build
+// their year filter; it must exist, not only the embedded Filters list.
+func (i *instance) years(w http.ResponseWriter, r *http.Request) {
+	v, _, err := i.viewer(r)
+	if err != nil || v == nil {
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	if i.host.Experience == nil {
+		http.Error(w, "Unavailable", 503)
+		return
+	}
+	facets, err := i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), "year")
+	if err != nil {
+		http.Error(w, "Unavailable", 503)
+		return
+	}
+	offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", 50)
+	if limit <= 0 {
+		limit = 50
+	}
+	items := make([]any, 0, len(facets))
+	for _, facet := range facets {
+		n, e := strconv.Atoi(facet.Title)
+		if e != nil {
+			continue
+		}
+		id, e := ids.GUID(ids.View, int64(n))
+		if e != nil {
+			continue
+		}
+		items = append(items, map[string]any{"Name": facet.Title, "Id": id, "Type": "Year", "ServerId": i.info.ID, "ProductionYear": n})
+	}
+	start := min(max(offset, 0), len(items))
+	end := min(start+limit, len(items))
+	jsonReply(w, i.queryResult(items[start:end], len(items), offset))
+}
+
+// year answers GET /Years/{year} with the year item a client opened. Its items
+// are reachable through /Items?Years=, which clients use for the listing.
+func (i *instance) year(w http.ResponseWriter, r *http.Request) {
+	v, _, err := i.viewer(r)
+	if err != nil || v == nil {
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	raw := r.PathValue("year")
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	id, err := ids.GUID(ids.View, int64(n))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	jsonReply(w, map[string]any{"Name": raw, "Id": id, "Type": "Year", "ServerId": i.info.ID, "ProductionYear": n, "IsFolder": true})
+}
+
+// userItemData answers GET /UserItems/{id}/UserData, which Jellyfin Web reads
+// for an item's played, favorite and resume state outside a full detail load.
+func (i *instance) userItemData(w http.ResponseWriter, r *http.Request) {
+	v, _, err := i.viewer(r)
+	if err != nil || v == nil {
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	if i.host.Experience == nil {
+		http.Error(w, "Unavailable", 503)
+		return
+	}
+	key, err := ids.ParseRatingKeyGUID(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := i.host.Experience.Item(i.identityContext(r), frontend.ItemRequest{Viewer: v, Device: device(r), Key: key}); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	idsWire := ids.RatingKeyGUID(key)
+	state, err := i.host.Experience.UserData(i.identityContext(r), v, []frontend.RatingKey{key})
+	if err != nil {
+		http.Error(w, "Unavailable", 503)
+		return
+	}
+	jsonReply(w, i.userDataDTO(idsWire, state[key]))
 }

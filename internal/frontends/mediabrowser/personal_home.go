@@ -892,7 +892,13 @@ func (i *instance) stampPersonalHandles(key string, handles map[string]string) {
 func (i *instance) writePersonalItems(w http.ResponseWriter, r *http.Request, v *frontend.Viewer, number int64) {
 	shelf, ok := i.personalByNumber(r, v, number)
 	if !ok {
-		http.NotFound(w, r)
+		// A personalised view id read from an earlier /UserViews can rotate out
+		// before a client opens it (Swiftfin, Findroid and Streamyfin browse a
+		// view folder with SortBy=SortName). Real Jellyfin answers an unknown
+		// parent with an empty page, never 404, and the Latest/Resume paths
+		// below already do this; do the same here so the folder still opens.
+		offset := queryInt(r, "StartIndex", 0)
+		i.replyItems(w, r, i.queryResult([]any{}, 0, offset))
 		return
 	}
 	q := itemQuery(r)
