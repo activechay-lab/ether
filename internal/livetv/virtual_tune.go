@@ -33,6 +33,17 @@ func (s *Service) knownUnavailable(ctx context.Context, key core.RatingKey) bool
 // the caller before Prepare.
 func (s *Service) virtualCandidates(c Channel, current Programme) []Programme {
 	now := s.o.Now()
+	// A prewarm/retry for a future or still-prewarming slot calls this before
+	// its own airtime. Scheduling the lookahead window from raw "now" would
+	// then start it before current.Start, pulling in whatever programme is
+	// still nominally airing at that moment - stale, already-aired content -
+	// in as a fallback candidate. Anchor the window to the target slot's own
+	// start so every fallback is strictly at or after the programme being
+	// planned, never behind it.
+	start := now
+	if current.Start.After(start) {
+		start = current.Start
+	}
 	var out []Programme
 	seen := map[core.RatingKey]struct{}{}
 	add := func(p Programme) {
@@ -51,7 +62,7 @@ func (s *Service) virtualCandidates(c Channel, current Programme) []Programme {
 			add(standIn(c, item, now))
 		}
 	}
-	for _, p := range s.viewerSchedule(s.ctx, c, now, now.Add(24*time.Hour)) {
+	for _, p := range s.viewerSchedule(s.ctx, c, start, start.Add(24*time.Hour)) {
 		add(p)
 	}
 	if c.Personal != nil {
