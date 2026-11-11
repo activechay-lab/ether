@@ -12,12 +12,18 @@ func (s *Server) metadataTitle(ctx context.Context, pr *Request, k frontend.Rati
 	if t, ok := shelfMember(ctx, k); ok {
 		return &t, nil
 	}
+	if k.IsPluginKey() {
+		return s.kindItem(ctx, pr, k)
+	}
 	if s.episodeOrder() != nil {
 		return s.episodeOrder().Get(ctx, pr.User, k)
 	}
 	return s.catalog().Get(ctx, k)
 }
 func (s *Server) metadataChildren(ctx context.Context, pr *Request, k frontend.RatingKey) ([]frontend.Title, error) {
+	if k.IsPluginKey() {
+		return s.kindChildren(ctx, pr, k)
+	}
 	if s.episodeOrder() != nil {
 		return s.episodeOrder().Children(ctx, pr.User, k)
 	}

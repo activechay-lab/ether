@@ -35,6 +35,10 @@ func typeNumber(t frontend.MediaType) int {
 		return typeNumSeason
 	case frontend.TypeEpisode:
 		return typeNumEpisode
+	case frontend.MediaType(plexBaseArtist):
+		return typeNumArtist
+	case frontend.MediaType(plexBasePhoto):
+		return typeNumPhoto
 	}
 	return 0
 }
@@ -49,6 +53,14 @@ func typeFromParam(s string) frontend.MediaType {
 		return frontend.TypeSeason
 	case "4", "episode", "episodes":
 		return frontend.TypeEpisode
+	case "8", "artist", "artists":
+		return frontend.MediaType(plexBaseArtist)
+	case "9", "album", "albums":
+		return frontend.MediaType(plexBaseAlbum)
+	case "10", "track", "tracks":
+		return frontend.MediaType(plexBaseTrack)
+	case "13", "photo", "photos":
+		return frontend.MediaType(plexBasePhoto)
 	case "18", "collection":
 		return "collection"
 	}
@@ -136,10 +148,16 @@ func sectionPrefs(sec Section) []model.Setting {
 }
 
 func sectionTypeTitle(sec Section) (typeTitle, all string) {
-	if sec.Type == frontend.TypeShow {
+	switch string(sec.Type) {
+	case plexBaseShow:
 		return "TV Shows", "All Shows"
+	case plexBaseArtist:
+		return "Artists", "All Artists"
+	case plexBasePhoto:
+		return "Photos", "All Photos"
+	default:
+		return "Movies", "All Movies"
 	}
-	return "Movies", "All Movies"
 }
 
 func (s *Server) sectionContainer(sec Section) *model.MediaContainer {
@@ -1272,6 +1290,12 @@ func (s *Server) sectionList(w http.ResponseWriter, r *http.Request, sec Section
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
+	// Plugin and filter libraries are served from the Experience's plugin
+	// store, not the TMDB catalogue (spec §6.4).
+	if isKindSection(sec) {
+		s.sectionKindList(w, r, sec, sub)
+		return
+	}
 	q := r.URL.Query()
 	if sub == "unwatched" && q.Has("type") {
 		if _, err := strconv.ParseInt(q.Get("type"), 10, 32); err != nil {
