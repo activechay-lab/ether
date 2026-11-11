@@ -136,7 +136,19 @@ func (s *Service) expandProgramSource(ctx context.Context, src *ProgramSource, d
 			items[i].SourceID = src.ID
 		}
 	}
-	return items, err
+	// A title the resolver already knows is unplayable (e.g. a catalogued
+	// episode with no cached or fetchable source) would otherwise sit baked
+	// into the schedule forever, hitting the live broadcast's runtime
+	// fallback on every single cycle instead of just once. Drop it here, at
+	// build time, so a repeating channel never schedules a slot that can
+	// never air.
+	kept := items[:0]
+	for _, it := range items {
+		if !s.knownUnavailable(ctx, it.Key) {
+			kept = append(kept, it)
+		}
+	}
+	return kept, err
 }
 
 func validateProgramming(c *Channel, check func([]Item) error) error {
