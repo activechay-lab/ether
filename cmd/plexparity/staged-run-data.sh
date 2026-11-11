@@ -230,6 +230,10 @@ done
 mkdir -p "$root/baseline/cmd/parityseed" "$root/candidate/cmd/plexparity"
 cp "$root/harness/seed.go" "$root/baseline/cmd/parityseed/seed.go"
 cp "$root/harness/ranker_fixture.go" "$root/baseline/cmd/parityseed/ranker_fixture.go"
+# Viewer library restrictions were AllowedSections []int before v0.3.8.
+if ! grep -q 'AllowedLibraries' "$root/baseline/internal/core/types.go"; then
+  sed -i -e 's/AllowedLibraries = \[\]core.LibraryID{1}/AllowedSections = []int{1}/' -e 's/AllowedLibraries = nil/AllowedSections = nil/' "$root/baseline/cmd/parityseed/seed.go"
+fi
 # The current seed imports packages the baseline tree may not have yet.
 # They are stdlib-only, so the baseline module can compile them.
 if [ ! -d "$root/baseline/internal/contentrating" ] && [ -d "$root/driver/internal/contentrating" ]; then
