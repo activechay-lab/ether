@@ -174,6 +174,10 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		return core.Page{Items: items, Total: total}, nil
 	}
 	pageWhere, pageArgs := where, args
+	// A title-sorted page probes a positive studio filter per row instead of
+	// enumerating every matching title; the total (above) keeps the
+	// studio-index-driven IN-list form.
+	pageWhere = c.studioProbe(pageWhere, q.Filter)
 	keysetHint := ""
 	if q.Sort == core.SortKey && q.AfterKey > 0 {
 		pageWhere += " AND t.key>?"
@@ -1030,14 +1034,16 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	}
 	// Positive studio filters name their studios from the vocabulary
 	// (studio_names.go) and find the titles from catalog_studios' (studio,
-	// key) index, never asking every title for its studios.
+	// key) index, never asking every title for its studios. The count and
+	// the seek drive from the studio index; a title-sorted page probes each
+	// title it walks instead (studioProbe), so a dense studio does not
+	// enumerate its whole matching set per request.
 	byStudio := func(names string, nameArgs []any) {
-		conds = append(conds, `t.key IN (SELECT s.key FROM catalog_studios s WHERE s.studio IN (`+names+`))`)
+		conds = append(conds, studioINListSQL(names))
 		args = append(args, nameArgs...)
 	}
 	if f.Studio != "" && len(f.StudioFilters) == 0 {
-		conds = append(conds, `t.key IN (SELECT bs.key FROM catalog_studios bs WHERE bs.studio=?)`)
-		args = append(args, f.Studio)
+		byStudio(`SELECT ?`, []any{f.Studio})
 	}
 	for _, sf := range f.StudioFilters {
 		val := strings.ToLower(sf.Value)
