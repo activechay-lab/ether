@@ -25,6 +25,10 @@ var supportQueryKeys = map[string]bool{
 	"isplayed": true, "sortorder": true,
 	"videobitrate": true, "maxvideobitrate": true, "videoquality": true, "videoresolution": true,
 	"directplay": true, "directstream": true, "hasmde": true, "mediaindex": true, "partindex": true, "protocol": true,
+	// Jellyfin/Emby listing shape: enumerations, never names or ids.
+	"includeitemtypes": true, "excludeitemtypes": true, "mediatypes": true, "sortby": true, "fields": true,
+	"filters": true, "isfavorite": true, "ismissing": true, "isunaired": true, "collapseboxsetitems": true,
+	"enabletotalrecordcount": true, "imagetypelimit": true, "enableimagetypes": true,
 }
 
 var supportFieldNames = map[string]bool{

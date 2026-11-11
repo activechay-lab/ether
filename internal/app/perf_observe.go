@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"github.com/braedonsaunders/ether/internal/diagnostics"
 	"log/slog"
 	"net/http"
 	"os"
@@ -227,6 +228,9 @@ func (p *perfObserver) budget(surface string, r *http.Request, contentType strin
 	p.mu.Unlock()
 	attrs := []any{"surface", surface, "method", r.Method, "route", routeShape(r.URL.Path), "duration", elapsed.Round(time.Millisecond),
 		"queries", stats.Queries(), "writes", stats.Writes(), "rows", stats.Rows(), "db_time", stats.DBTime().Round(time.Millisecond), "lock_wait", stats.LockWait().Round(time.Millisecond)}
+	if q := diagnostics.SafeQuery(r.URL.Query()); q != "" {
+		attrs = append(attrs, "query", q)
+	}
 	for i, st := range stats.Statements() {
 		if i == 3 {
 			break
