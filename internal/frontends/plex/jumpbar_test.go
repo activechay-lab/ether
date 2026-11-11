@@ -30,7 +30,9 @@ func TestFirstCharacterJumpbarOffsetsMatchTitleSortEveryLetter(t *testing.T) {
 			},
 		}},
 	}
-	c, err := catalog.New(store.OpenTest(t), nil, cfg, nil)
+	c, err := catalog.New(store.OpenTest(t), nil, cfg, nil, catalog.WithLibraryPolicies(catalog.LibraryPolicies{
+		MovieRules: cfg.Exclusions,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
