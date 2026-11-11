@@ -7,6 +7,17 @@ import { errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import { artUrl, librariesApi, type KindItem, type Library, type MatchRecord } from "./api";
 
+/** Seconds as m:ss or h:mm:ss for fields a plugin declares as durations. */
+function durationText(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n < 0) return fieldText(v);
+  const total = Math.round(n);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
 function fieldText(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (Array.isArray(v)) return v.map(fieldText).filter(Boolean).join(", ");
@@ -83,7 +94,11 @@ export function PluginItemDrawer({
               <h3>{t("Details")}</h3>
               <dl className="plugin-item-fields">
                 {kind.fields.map((f) => {
-                  const text = fieldText(item.fields?.[f.key]);
+                  const raw = item.fields?.[f.key];
+                  const text =
+                    f.type === "duration" && raw !== undefined && raw !== null && raw !== ""
+                      ? durationText(raw)
+                      : fieldText(raw);
                   if (!text) return null;
                   return (
                     <div key={f.key}>

@@ -836,6 +836,18 @@ func (c *librariesConsole) setupFor(ctx context.Context, pluginID string) (map[s
 	for _, st := range state {
 		byStep[st.Step] = st
 	}
+	// The setup view shows the plugin's own "$t:" text resolved, never the
+	// raw keys.
+	resolveText := func(v string) string {
+		key, ok := strings.CutPrefix(strings.TrimSpace(v), "$t:")
+		if !ok {
+			return v
+		}
+		if got, ok := mgr.ResolveText(ctx, pluginID, key, "en"); ok && strings.TrimSpace(got) != "" {
+			return got
+		}
+		return key
+	}
 	steps := []setupStepDTO{}
 	blockers := []string{}
 	if e := rec.Manifest.EffectiveEther(); e != nil && e.Contributes.Setup != nil {
@@ -845,6 +857,7 @@ func (c *librariesConsole) setupFor(ctx context.Context, pluginID string) (map[s
 			if status == "" {
 				status = plugins.SetupPending
 			}
+			s.Label, s.Hint = resolveText(s.Label), resolveText(s.Hint)
 			steps = append(steps, setupStepDTO{SetupStep: s, Status: status, Detail: st.Detail})
 			if s.Required && status != plugins.SetupOK && status != plugins.SetupSkipped {
 				blockers = append(blockers, s.Key)
@@ -864,6 +877,15 @@ func (c *librariesConsole) setupFor(ctx context.Context, pluginID string) (map[s
 		for _, lib := range libs {
 			if lib.Source == core.LibraryPlugin && lib.PluginID == pluginID {
 				libraries = append(libraries, c.decorate(ctx, lib))
+			}
+		}
+	}
+	if len(schema) > 0 {
+		var doc any
+		if json.Unmarshal(schema, &doc) == nil {
+			doc = resolveSchemaText(doc, resolveText)
+			if b, err := json.Marshal(doc); err == nil {
+				schema = b
 			}
 		}
 	}
@@ -1029,4 +1051,30 @@ func (c *librariesConsole) setupHandler() http.Handler {
 		libJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 	return mux
+}
+
+// resolveSchemaText resolves "$t:" references in a plugin settings schema's
+// human text (labels, hints, help, placeholders, option labels).
+func resolveSchemaText(v any, resolve func(string) string) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, child := range t {
+			switch k {
+			case "label", "hint", "help", "placeholder", "title", "description":
+				if str, ok := child.(string); ok {
+					t[k] = resolve(str)
+					continue
+				}
+			}
+			t[k] = resolveSchemaText(child, resolve)
+		}
+		return t
+	case []any:
+		for i := range t {
+			t[i] = resolveSchemaText(t[i], resolve)
+		}
+		return t
+	default:
+		return v
+	}
 }
