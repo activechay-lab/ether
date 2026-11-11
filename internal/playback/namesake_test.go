@@ -2,29 +2,33 @@ package playback
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// namesakeResolver makes the harness's catalog titles look ambiguous (a
-// namesake exists) and reports a conflicting identifier for a chosen release.
-type namesakeResolver struct {
-	*fakeResolver
-	mu         sync.Mutex
-	ambiguous  bool
-	conflicts  map[string]bool
-	namesakeCh chan struct{}
+// namesakeCatalog overrides the harness catalogue's Namesakes answer and
+// records how often playback asked.
+type namesakeCatalog struct {
+	*fakeCatalog
+	namesakes map[core.RatingKey]bool
+	asked     int
 }
 
-func (r *namesakeResolver) NamesakeTitles(context.Context, *core.Title) bool { return r.ambiguous }
+func (c *namesakeCatalog) Namesakes(_ context.Context, key core.RatingKey) (bool, error) {
+	c.asked++
+	return c.namesakes[key], nil
+}
 
-func (r *namesakeResolver) NamesakeConflict(_ context.Context, _ *core.Title, rel core.Release) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.conflicts[rel.ID]
+// withReleaseIDs stamps the reported identifiers the resolver would attach
+// to a release, so the identifier gate sees an explicit conflict.
+func (h *harness) withReleaseIDs(releaseID string, ids core.IDs) {
+	for i := range h.resolver.candidates {
+		if h.resolver.candidates[i].ID == releaseID {
+			h.resolver.candidates[i].TitleIDs = ids
+		}
+	}
 }
 
 // TestNamesakeRuntimeRejectsWrongFilm is the lasting invariant: two namesake
@@ -37,8 +41,8 @@ func TestNamesakeRuntimeRejectsWrongFilm(t *testing.T) {
 	probed := 85 * time.Minute
 	h := newHarness(t, []*fakeRelease{mkv("wrong", 100_000, probed), mkv("right", 100_000, catalogue)}, []string{"wrong", "right"})
 	h.catalog.titles[movieKey] = &core.Title{Key: movieKey, Type: core.TypeMovie, Title: "Runner", Year: 2026, Runtime: catalogue}
-	r := &namesakeResolver{fakeResolver: h.resolver, ambiguous: true}
-	h.m.deps.Resolver = r
+	cat := &namesakeCatalog{fakeCatalog: h.catalog, namesakes: map[core.RatingKey]bool{movieKey: true}}
+	h.m.deps.Catalog = cat
 
 	ps := h.prepare(owner, movieKey, "c1")
 	if got := ps.Info.Duration; got != catalogue {
@@ -59,8 +63,8 @@ func TestNamesakeNonAmbiguousKeepsExtendedCut(t *testing.T) {
 	probed := 130 * time.Minute // an extended cut
 	h := newHarness(t, []*fakeRelease{mkv("extended", 100_000, probed)}, []string{"extended"})
 	h.catalog.titles[movieKey] = &core.Title{Key: movieKey, Type: core.TypeMovie, Title: "Runner", Year: 2026, Runtime: catalogue}
-	r := &namesakeResolver{fakeResolver: h.resolver, ambiguous: false}
-	h.m.deps.Resolver = r
+	cat := &namesakeCatalog{fakeCatalog: h.catalog, namesakes: map[core.RatingKey]bool{}}
+	h.m.deps.Catalog = cat
 
 	ps := h.prepare(owner, movieKey, "c1")
 	if got := ps.Info.Duration; got != probed {
@@ -76,9 +80,10 @@ func TestNamesakeNonAmbiguousKeepsExtendedCut(t *testing.T) {
 func TestNamesakeIdentifierConflictSkipsRelease(t *testing.T) {
 	// Both carry the catalogue runtime so the duration gate leaves them alone.
 	h := newHarness(t, []*fakeRelease{mkv("other", 100_000, 98*time.Minute), mkv("this", 100_000, 98*time.Minute)}, []string{"other", "this"})
-	h.catalog.titles[movieKey] = &core.Title{Key: movieKey, Type: core.TypeMovie, Title: "Runner", Year: 2026, Runtime: 98 * time.Minute}
-	r := &namesakeResolver{fakeResolver: h.resolver, ambiguous: true, conflicts: map[string]bool{"other": true}}
-	h.m.deps.Resolver = r
+	h.catalog.titles[movieKey] = &core.Title{Key: movieKey, Type: core.TypeMovie, Title: "Runner", Year: 2026, Runtime: 98 * time.Minute, IDs: core.IDs{TMDB: 100}}
+	h.withReleaseIDs("other", core.IDs{TMDB: 200})
+	cat := &namesakeCatalog{fakeCatalog: h.catalog, namesakes: map[core.RatingKey]bool{movieKey: true}}
+	h.m.deps.Catalog = cat
 
 	ps := h.prepare(owner, movieKey, "c1")
 	if h.m.lookup(ps.ID) == nil {
@@ -90,6 +95,20 @@ func TestNamesakeIdentifierConflictSkipsRelease(t *testing.T) {
 	}
 	if reason, ok := h.resolver.bad["other"]; !ok || reason != "release names the other title" {
 		t.Fatalf("bad reason = %q, want identifier conflict", reason)
+	}
+}
+
+// TestNamesakeLookupCachedOnce proves playback asks the catalogue once per
+// title, not once per candidate.
+func TestNamesakeLookupCachedOnce(t *testing.T) {
+	h := newHarness(t, []*fakeRelease{mkv("wrong", 100_000, 85*time.Minute), mkv("right", 100_000, 98*time.Minute)}, []string{"wrong", "right"})
+	h.catalog.titles[movieKey] = &core.Title{Key: movieKey, Type: core.TypeMovie, Title: "Runner", Year: 2026, Runtime: 98 * time.Minute}
+	cat := &namesakeCatalog{fakeCatalog: h.catalog, namesakes: map[core.RatingKey]bool{movieKey: true}}
+	h.m.deps.Catalog = cat
+
+	h.prepare(owner, movieKey, "c1")
+	if cat.asked != 1 {
+		t.Fatalf("namesake lookups = %d, want 1 (cached per title)", cat.asked)
 	}
 }
 

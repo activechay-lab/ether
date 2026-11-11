@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
 // Namesake runtime gate. Two catalogue movies can share a normalized title
@@ -23,38 +24,64 @@ const (
 	namesakeRuntimeSlackRatio = 0.12
 )
 
-// NamesakeAware, implemented by the resolver, indexes normalized titles for
-// bounded namesake lookups and answers whether a release's reported external
-// identifiers name a different catalogue title.
-type NamesakeAware interface {
-	// NamesakeTitles reports a same-media-type catalogue title whose
-	// normalized title matches t's and whose year is within one year of
-	// t's (never t itself).
-	NamesakeTitles(ctx context.Context, t *core.Title) bool
-	// NamesakeConflict reports a release whose reported identifiers
-	// explicitly name a different catalogue title than t.
-	NamesakeConflict(ctx context.Context, t *core.Title, r core.Release) bool
-}
-
-func (m *Manager) namesakes(ctx context.Context, t *core.Title) (NamesakeAware, bool) {
-	if t == nil || m.deps.Resolver == nil || t.KindLevel != "" {
-		return nil, false
-	}
-	n, ok := m.deps.Resolver.(NamesakeAware)
-	return n, ok
+// NamesakeCatalog, implemented by the catalogue, reports whether another
+// catalogue title namesakes key. The answer is an on-demand indexed lookup;
+// playback caches it per title for the life of the manager so a title's
+// reselection does not repeat it.
+type NamesakeCatalog interface {
+	Namesakes(ctx context.Context, key core.RatingKey) (bool, error)
 }
 
 // namesakeRequest reports whether t is one of two namesake catalogue titles.
+// Plugin kind projections (KindLevel set) are not catalogue titles and are
+// never gated.
 func (m *Manager) namesakeRequest(ctx context.Context, t *core.Title) bool {
-	n, ok := m.namesakes(ctx, t)
-	return ok && n.NamesakeTitles(ctx, t)
+	if t == nil || t.KindLevel != "" || t.Key == 0 {
+		return false
+	}
+	cat, ok := m.deps.Catalog.(NamesakeCatalog)
+	if !ok {
+		return false
+	}
+	if ans, ok := m.namesakeLookup(t.Key); ok {
+		return ans
+	}
+	ans, err := cat.Namesakes(ctx, t.Key)
+	if err != nil {
+		m.log.Debug("namesake lookup failed", "key", t.Key, "err", err)
+		return false
+	}
+	m.rememberNamesake(t.Key, ans)
+	return ans
+}
+
+// namesakeLookup returns a cached answer for key, if the manager holds one.
+func (m *Manager) namesakeLookup(key core.RatingKey) (bool, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ans, ok := m.namesake[key]
+	return ans, ok
+}
+
+// rememberNamesake caches a namesake answer for key.
+func (m *Manager) rememberNamesake(key core.RatingKey, ans bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.namesake == nil {
+		m.namesake = map[core.RatingKey]bool{}
+	}
+	m.namesake[key] = ans
 }
 
 // namesakeTitleConflict reports whether r's reported identifiers name a
-// different catalogue title than t.
-func (m *Manager) namesakeTitleConflict(ctx context.Context, t *core.Title, r core.Release) bool {
-	n, ok := m.namesakes(ctx, t)
-	return ok && n.NamesakeConflict(ctx, t, r)
+// different catalogue title than t. Only explicit identifier conflicts count;
+// missing identifiers carry no evidence.
+func namesakeTitleConflict(t *core.Title, r core.Release) bool {
+	if t == nil || t.IDs == (core.IDs{}) || r.TitleIDs == (core.IDs{}) {
+		return false
+	}
+	_, conflict := releaseparse.CompareTitleIDs(r.TitleIDs, t.IDs)
+	return conflict
 }
 
 // namesakeDurationMismatch reports whether a probed duration contradicts the
@@ -74,5 +101,5 @@ func (m *Manager) releaseNamesakeRejected(ctx context.Context, s *session, r cor
 	if s.title == nil || !m.namesakeRequest(ctx, s.title) {
 		return false
 	}
-	return m.namesakeTitleConflict(ctx, s.title, r)
+	return namesakeTitleConflict(s.title, r)
 }
