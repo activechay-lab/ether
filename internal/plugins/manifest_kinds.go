@@ -72,9 +72,11 @@ func validateMediaKind(m Manifest, k MediaKindMeta, base string, hasProvider boo
 		add(base+".key", "must be lower case letters, digits and dashes, at most 32 characters")
 	}
 	label(base+".label", k.Label, 60)
-	label(base+".library.name", k.Library.Name, 60)
-	if unsafePath(k.Library.Icon) {
-		add(base+".library.icon", "must stay inside the package")
+	if k.Library != (KindLibraryDecl{}) {
+		label(base+".library.name", k.Library.Name, 60)
+		if unsafePath(k.Library.Icon) {
+			add(base+".library.icon", "must stay inside the package")
+		}
 	}
 
 	if len(k.Levels) < 1 || len(k.Levels) > 5 {
@@ -182,7 +184,7 @@ func validateMediaKind(m Manifest, k MediaKindMeta, base string, hasProvider boo
 
 	switch k.Sync.Mode {
 	case "":
-		if hasProvider {
+		if hasProvider && k.HasLibrary() {
 			add(base+".sync.mode", "a catalog provider kind must be pull or push")
 		}
 	case KindSyncPull, KindSyncPush:
@@ -242,7 +244,9 @@ func validatePresentations(m Manifest, k MediaKindMeta, base string, levelKeys m
 		return
 	}
 	if protocols == 0 {
-		add(base, "declare at least one protocol presentation, or adapterOnly with a frontend adapter")
+		if k.HasLibrary() {
+			add(base, "declare at least one protocol presentation, or adapterOnly with a frontend adapter")
+		}
 		return
 	}
 	levels := len(k.Levels)
@@ -338,6 +342,13 @@ func (m Manifest) MediaKindByKey(key string) (MediaKindMeta, bool) {
 		}
 	}
 	return MediaKindMeta{}, false
+}
+
+// HasLibrary reports whether this media kind declares a library block.
+// Creating a library is optional per kind: a kind without a library block
+// (for example, a resolver-only kind) creates no library.
+func (k MediaKindMeta) HasLibrary() bool {
+	return strings.TrimSpace(k.Library.Name) != ""
 }
 
 // Level returns the declared level with this key and its position.

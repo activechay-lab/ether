@@ -75,6 +75,18 @@ func TestContentManifestValidates(t *testing.T) {
 	if err := m.Validate(); err != nil {
 		t.Fatalf("resolver only kind: %v", err)
 	}
+	// A mediaKind without a library block creates no library and needs no
+	// presentation or sync mode.
+	m = contentManifest()
+	m.Ether.Contributes.MediaKinds[0].Library = KindLibraryDecl{}
+	m.Ether.Contributes.MediaKinds[0].Present = core.Presentations{}
+	m.Ether.Contributes.MediaKinds[0].Sync = KindSyncDecl{}
+	if m.Ether.Contributes.MediaKinds[0].HasLibrary() {
+		t.Fatal("empty Library block must report HasLibrary() == false")
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("kind without library block: %v", err)
+	}
 }
 
 func TestContentManifestRules(t *testing.T) {
@@ -256,5 +268,19 @@ func TestContentPermissionSheet(t *testing.T) {
 	cur := baseManifest()
 	if diff := PermissionDiff(cur, m); len(diff) == 0 {
 		t.Fatal("content upgrade must ask again for new permissions")
+	}
+
+	// A kind without a library block must not claim it adds a library, and
+	// adding a library block on upgrade must surface in PermissionDiff.
+	noLib := contentManifest()
+	noLib.Ether.Contributes.MediaKinds[0].Library = KindLibraryDecl{}
+	noLib.Ether.Contributes.MediaKinds[0].Present = core.Presentations{}
+	noLibLines, _, _ := PermissionSheet(noLib)
+	if strings.Contains(strings.Join(noLibLines, "\n"), "Adds a library:") {
+		t.Fatalf("kind without library must not emit Adds a library: %v", noLibLines)
+	}
+	diff := PermissionDiff(noLib, m)
+	if !strings.Contains(strings.Join(diff, "\n"), "Adds a library: Field recordings") {
+		t.Fatalf("adding library declaration must appear in PermissionDiff, got %v", diff)
 	}
 }

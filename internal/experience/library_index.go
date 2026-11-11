@@ -268,9 +268,10 @@ func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []co
 	}
 	// The played and favorite checks ran for the whole page above.
 	q.Watched, q.Favorite = nil, nil
+	vis := withoutSectionCheck(s.d.Visibility)
 	kept := items
 	if !availabilityInSQL {
-		kept = s.d.Visibility.Available(ctx, v, items)
+		kept = vis.Available(ctx, v, items)
 	}
 	have := make(map[core.RatingKey]bool, len(kept))
 	for _, title := range kept {
@@ -278,7 +279,7 @@ func (s *Service) indexedPageHolds(ctx context.Context, v *core.User, items []co
 	}
 	for i := range items {
 		title := items[i]
-		if !have[title.Key] || !s.d.Visibility.TitleAllowed(v, &title) || !s.d.Visibility.Playable(ctx, v, &title) {
+		if !have[title.Key] || !vis.TitleAllowed(v, &title) || !vis.Playable(ctx, v, &title) {
 			return false
 		}
 		ok, err := s.matchesUserQuery(ctx, v, title, q)

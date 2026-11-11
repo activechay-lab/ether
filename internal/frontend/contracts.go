@@ -49,6 +49,15 @@ type View struct {
 	// Virtual is true only when the host asserts this library has no physical
 	// locations. False means the host did not assert virtual origin.
 	Virtual bool
+	// LibraryID is the stable integer identity in the libraries store.
+	LibraryID core.LibraryID
+	// KindKey and PluginID are set for plugin-provided libraries (empty for
+	// built-in and filter libraries).
+	KindKey  string
+	PluginID string
+	// Native is the protocol-native presentation string on the bound protocol
+	// (for example, MediaBrowser CollectionType or Plex base type).
+	Native string
 }
 
 // RowEntryKind identifies a neutral entry independently of wire formats.
@@ -304,6 +313,34 @@ type ExtraStreams interface {
 	Clip(key core.RatingKey) (ExtraClip, bool)
 	Resolve(ctx context.Context, e ExtraClip) (ResolvedExtra, error)
 	PrewarmBytes() int64
+}
+
+// KindMedia is an opened byte-addressable stream for a plugin kind item.
+type KindMedia struct {
+	io.ReaderAt
+	io.Closer
+	Size     int64
+	MIME     string
+	Duration time.Duration
+	Name     string
+}
+
+// KindLeaf is one playable leaf entry within a plugin kind container item.
+type KindLeaf struct {
+	Index    int
+	Title    string
+	Key      core.RatingKey
+	Duration time.Duration
+	Size     int64
+	MIME     string
+}
+
+// KindStreams opens byte-addressable media and lists playable leaves for
+// plugin-provided content kinds (spec §6.1). Callers authorize viewer access
+// through viewer policy; nil on Host means plugin kind media is unavailable.
+type KindStreams interface {
+	OpenKind(ctx context.Context, viewer *core.Viewer, key core.RatingKey, accept []string) (*KindMedia, error)
+	KindLeaves(ctx context.Context, viewer *core.Viewer, parent core.RatingKey) ([]KindLeaf, error)
 }
 
 // CinemaIntros returns playable trailers of other visible, unwatched movies
@@ -678,7 +715,7 @@ type PlayPlan struct {
 	Media     core.MediaInfo
 	Decision  core.Decision
 	// Alternatives are evaluated against this same source and client policy.
-	// DirectStream denotes copy-only remux, without encoding either stream.
+	// DirectPlay, DirectStream, Transcoding are evaluated against this same source.
 	DirectPlay, DirectStream, Transcoding bool
 	// HLS reports whether this resolved source can be delivered as HLS under
 	// the declared client profile. Encoder capacity is checked at stream start.
