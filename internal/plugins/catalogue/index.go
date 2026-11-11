@@ -37,7 +37,7 @@ type Entry struct {
 	Description  string              `json:"description,omitempty" yaml:"description,omitempty"`
 	Kind         string              `json:"kind" yaml:"kind"`
 	Category     string              `json:"category,omitempty" yaml:"category,omitempty"`
-	Icon         string              `json:"icon,omitempty" yaml:"icon,omitempty"`
+	Icon         string              `json:"icon,omitempty" yaml:"icon"`
 	Repo         string              `json:"repo,omitempty" yaml:"repo,omitempty"`
 	Homepage     string              `json:"homepage,omitempty" yaml:"homepage,omitempty"`
 	Author       string              `json:"author,omitempty" yaml:"author,omitempty"`
@@ -230,7 +230,7 @@ func (e Entry) Validate() error {
 	}
 	switch plugins.Kind(e.Kind) {
 	case plugins.KindSource, plugins.KindIntegration, plugins.KindNotificationChannel,
-		plugins.KindLiveTVSource, plugins.KindExtension:
+		plugins.KindLiveTVSource, plugins.KindExtension, plugins.KindContent:
 	default:
 		return fmt.Errorf("unknown kind %q", e.Kind)
 	}

@@ -228,7 +228,12 @@ func (m *Manager) TestSetupStep(ctx context.Context, pluginID, stepKey string) (
 	}
 	if step.Test == "" {
 		res := SetupTestResult{OK: true}
-		return res, m.store.putSetupState(ctx, pluginID, stepKey, SetupOK, "")
+		if err := m.store.putSetupState(ctx, pluginID, stepKey, SetupOK, ""); err != nil {
+			return res, err
+		}
+		m.syncDescriptors(ctx, r)
+		m.broadcast(ctx)
+		return res, nil
 	}
 	settings, err := m.HostFor(pluginID).Settings(ctx)
 	if err != nil {
@@ -249,6 +254,8 @@ func (m *Manager) TestSetupStep(ctx context.Context, pluginID, stepKey string) (
 	resp, err := m.Call(callCtx, pluginID, Request{Method: "POST", Path: step.Test, Body: body})
 	if err != nil {
 		_ = m.store.putSetupState(ctx, pluginID, stepKey, SetupFailed, "The plugin did not answer")
+		m.syncDescriptors(ctx, r)
+		m.broadcast(ctx)
 		return SetupTestResult{OK: false, Detail: "The plugin did not answer"}, nil
 	}
 	var res SetupTestResult
@@ -269,6 +276,8 @@ func (m *Manager) TestSetupStep(ctx context.Context, pluginID, stepKey string) (
 	if err := m.store.putSetupState(ctx, pluginID, stepKey, status, res.Detail); err != nil {
 		return SetupTestResult{}, err
 	}
+	m.syncDescriptors(ctx, r)
+	m.broadcast(ctx)
 	return res, nil
 }
 
@@ -282,5 +291,10 @@ func (m *Manager) SkipSetupStep(ctx context.Context, pluginID, stepKey string) e
 	if _, ok := setupStepOf(r, stepKey); !ok {
 		return fmt.Errorf("%w: plugin has no setup step %q", ErrUnavailable, stepKey)
 	}
-	return m.store.putSetupState(ctx, pluginID, stepKey, SetupSkipped, "")
+	if err := m.store.putSetupState(ctx, pluginID, stepKey, SetupSkipped, ""); err != nil {
+		return err
+	}
+	m.syncDescriptors(ctx, r)
+	m.broadcast(ctx)
+	return nil
 }

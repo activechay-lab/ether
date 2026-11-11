@@ -433,6 +433,9 @@ type Host struct {
 	Editions    Editions
 	LazyStreams LazyStreams
 	LANStreams  LANLazyStreams
+	// KindStreams opens byte-addressable media and lists playable leaves for
+	// plugin-provided content kinds. Nil means plugin kind media is unavailable.
+	KindStreams KindStreams
 	Identity    SurfaceIdentity
 	IDs         ids.Codecs
 	Events      Subscriber
@@ -529,8 +532,8 @@ type PersonalHomeStore interface {
 // PageFreshness is every input of a cached browse response. A change drops
 // the cached body. ArtBucket rotates image grants before they expire.
 type PageFreshness struct {
-	Catalog, Config, Layout, Watch, Favorite, Hidden, Listed, Images, Grants, Accounts, Safety uint64
-	ArtBucket                                                                                  int64
+	Catalog, Config, Layout, Watch, Favorite, Hidden, Listed, Images, Grants, Accounts, Safety, Libraries, KindSync uint64
+	ArtBucket                                                                                                       int64
 }
 
 var ErrNotRegistered = errors.New("frontend not registered")

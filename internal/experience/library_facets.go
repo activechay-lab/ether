@@ -122,6 +122,17 @@ func (s *Service) facetLibraries(v *core.User, viewID string) ([]Library, error)
 // them, never every studio of the library.
 func (s *Service) FacetPage(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, name string, offset, limit int) ([]core.FacetValue, int, error) {
 	ctx = core.WithCatalogViewer(ctx, viewer)
+	if s.d.PluginLibraries != nil && viewID != "" {
+		if id, err := strconv.Atoi(viewID); err == nil {
+			if lib, err := s.d.PluginLibraries.Library(ctx, core.LibraryID(id)); err == nil && lib.Source != core.LibraryBuiltin {
+				facets, err := s.Facets(ctx, viewer, device, viewID, name)
+				if err != nil {
+					return nil, 0, err
+				}
+				return paging.Slice(facets, offset, limit), len(facets), nil
+			}
+		}
+	}
 	if out, total, ok, err := s.pagedFacets(ctx, viewer, viewID, name, max(offset, 0), limit); err != nil || ok {
 		return out, total, err
 	}

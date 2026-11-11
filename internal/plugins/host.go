@@ -141,6 +141,22 @@ func (h *host) SecretGet(ctx context.Context, name string) (string, error) {
 	return h.m.store.openSecret(h.plugin, name, stored)
 }
 
+// AllowNetworkHost reports whether pluginID is enabled, still holds its
+// network grant, and declared hostName in permissions.network.
+func (m *Manager) AllowNetworkHost(ctx context.Context, pluginID, hostName string) bool {
+	h := &host{m: m, plugin: pluginID}
+	r, g, err := h.record(ctx)
+	if err != nil || r.Manifest.Ether == nil {
+		return false
+	}
+	if err := h.deny(r, g, "network", "", func(string) bool {
+		return hostAllowed(r.Manifest.Ether.Permissions.Network, hostName)
+	}); err != nil {
+		return false
+	}
+	return true
+}
+
 // hostAllowed matches a host against the manifest network list.
 func hostAllowed(patterns []string, host string) bool {
 	host = strings.ToLower(host)

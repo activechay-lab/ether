@@ -17,6 +17,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"github.com/braedonsaunders/ether/internal/livetv"
+	"github.com/braedonsaunders/ether/internal/plugins/adapters"
 	"github.com/braedonsaunders/ether/internal/resolver"
 	"github.com/braedonsaunders/ether/internal/viewerpolicy"
 )
@@ -460,6 +461,14 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	}
 	deps.Markers = a.markers
 	deps.LibraryTitles = a.libraryTitles
+	if a.pluginsRT != nil && a.pluginsRT.kindCatalog != nil {
+		deps.PluginLibraries = a.pluginsRT.kindCatalog
+	} else if a.libraries != nil {
+		deps.PluginLibraries = adapters.AttachKindCatalog(context.Background(), adapters.KindCatalogDeps{
+			Libraries: a.libraries,
+			Logger:    a.log,
+		})
+	}
 	deps.Now = parityClock()
 	if a.db != nil {
 		db := a.db
@@ -485,13 +494,20 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	if a.cfg != nil {
 		detail.enabled = func() bool { return a.cfg.Read().Personalize.MicroReasons }
 	}
-	return &surfaceExperience{Service: service, receipts: receipts, protocol: protocol, artwork: artworkSource, active: a.users.ActiveUser, rowViews: rowViews, detail: detail, generation: func(ctx context.Context) (int64, error) {
+	return &surfaceExperience{Service: service, receipts: receipts, protocol: protocol, artwork: artworkSource, pluginLibs: deps.PluginLibraries, active: a.users.ActiveUser, rowViews: rowViews, detail: detail, generation: func(ctx context.Context) (int64, error) {
 		return viewerpolicy.Read(ctx, a.db)
 	}, catalogGen: func() uint64 {
-		if a.catalog == nil {
-			return 0
+		var gen uint64
+		if a.catalog != nil {
+			gen = a.catalog.WriteGeneration()
 		}
-		return a.catalog.WriteGeneration()
+		if a.libraries != nil {
+			gen = gen*1099511628211 ^ a.libraries.Generation()
+		}
+		if a.pluginsRT != nil && a.pluginsRT.pluginitems != nil {
+			gen = gen*1099511628211 ^ a.pluginsRT.pluginitems.Generation()
+		}
+		return gen
 	}, posters: func(ctx context.Context, typ core.MediaType, limit int) ([]core.Title, error) {
 		if a.catalog == nil {
 			return nil, core.ErrNotAvailable
@@ -501,8 +517,8 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		return a.personalize != nil && a.personalize.ModelReady(id)
 	}, publicUsers: a.users.Users, publicEpoch: func() uint64 {
 		// The policy epoch: any change to accounts, owner content
-		// policy (safety/config) or the catalogue drops cached public
-		// artwork verdicts.
+		// policy (safety/config), libraries or the catalogue drops cached
+		// public artwork verdicts.
 		var gen uint64
 		if a.users != nil {
 			gen = a.users.Generation()
@@ -516,6 +532,12 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		if a.catalog != nil {
 			gen = gen*1099511628211 ^ a.catalog.WriteGeneration()
 		}
+		if a.libraries != nil {
+			gen = gen*1099511628211 ^ a.libraries.Generation()
+		}
+		if a.pluginsRT != nil && a.pluginsRT.pluginitems != nil {
+			gen = gen*1099511628211 ^ a.pluginsRT.pluginitems.Generation()
+		}
 		return gen
 	}}, nil
 }
@@ -525,6 +547,7 @@ type surfaceExperience struct {
 	receipts    *experience.Receipts
 	protocol    core.Protocol
 	artwork     frontend.Artwork
+	pluginLibs  experience.PluginLibraries
 	active      func(context.Context, int64) (*core.User, error)
 	rowViews    *experience.RowViewService
 	playability func(context.Context, frontend.ItemRequest) *bool
@@ -618,6 +641,9 @@ func (s *surfaceExperience) libraryMediaType(ctx context.Context, viewer *fronte
 	}
 	for _, view := range views {
 		if view.ID == want {
+			if view.PluginID != "" {
+				return "", false
+			}
 			return view.Type, true
 		}
 	}
@@ -680,18 +706,45 @@ func (s *surfaceExperience) ItemArtworkPage(ctx context.Context, viewer *core.Vi
 		return nil, err
 	}
 	out := make(map[core.RatingKey][]frontend.Image, len(titles))
-	if s.artwork == nil {
-		return out, nil
+	var pluginKeys []core.RatingKey
+	var tmdbTitles []core.Title
+	for _, t := range titles {
+		if t.Key.IsPluginKey() {
+			pluginKeys = append(pluginKeys, t.Key)
+		} else {
+			tmdbTitles = append(tmdbTitles, t)
+		}
 	}
-	if page, ok := s.artwork.(frontend.PageArtwork); ok {
-		return page.ListPage(ctx, viewer, device, titles)
-	}
-	for i := range titles {
-		images, _, err := s.artwork.List(frontend.WithArtworkTitle(ctx, &titles[i]), frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: titles[i].Key})
+	if len(pluginKeys) > 0 && s.pluginLibs != nil {
+		pivs, err := s.pluginLibs.ItemsMany(ctx, pluginKeys)
 		if err != nil {
 			return nil, err
 		}
-		out[titles[i].Key] = images
+		for _, k := range pluginKeys {
+			if piv, ok := pivs[k]; ok {
+				out[k] = piv.Images
+			}
+		}
+	}
+	if len(tmdbTitles) == 0 || s.artwork == nil {
+		return out, nil
+	}
+	if page, ok := s.artwork.(frontend.PageArtwork); ok {
+		tmdbOut, err := page.ListPage(ctx, viewer, device, tmdbTitles)
+		if err != nil {
+			return nil, err
+		}
+		for k, imgs := range tmdbOut {
+			out[k] = imgs
+		}
+		return out, nil
+	}
+	for i := range tmdbTitles {
+		images, _, err := s.artwork.List(frontend.WithArtworkTitle(ctx, &tmdbTitles[i]), frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: tmdbTitles[i].Key})
+		if err != nil {
+			return nil, err
+		}
+		out[tmdbTitles[i].Key] = images
 	}
 	return out, nil
 }
@@ -701,6 +754,16 @@ func (s *surfaceExperience) ItemArtwork(ctx context.Context, viewer *core.Viewer
 	if err != nil {
 		return nil, false, err
 	}
+	if key.IsPluginKey() {
+		if s.pluginLibs == nil {
+			return nil, false, core.ErrNotAvailable
+		}
+		piv, err := s.pluginLibs.Item(ctx, key)
+		if err != nil {
+			return nil, false, err
+		}
+		return piv.Images, true, nil
+	}
 	if s.artwork == nil {
 		return nil, false, core.ErrNotAvailable
 	}
@@ -709,6 +772,16 @@ func (s *surfaceExperience) ItemArtwork(ctx context.Context, viewer *core.Viewer
 
 func (s *surfaceExperience) RelatedArtwork(ctx context.Context, viewer *core.Viewer, device core.Device, key core.RatingKey) (frontend.RelatedArtwork, error) {
 	service, err := experience.NewRelatedArtworkService(experience.RelatedArtworkDeps{Authorize: s.Service.AuthorizeArtwork, List: func(ctx context.Context, active *core.Viewer, device core.Device, key core.RatingKey) ([]frontend.Image, bool, error) {
+		if key.IsPluginKey() {
+			if s.pluginLibs == nil {
+				return nil, false, core.ErrNotAvailable
+			}
+			piv, err := s.pluginLibs.Item(ctx, key)
+			if err != nil {
+				return nil, false, err
+			}
+			return piv.Images, true, nil
+		}
 		if s.artwork == nil {
 			return nil, false, core.ErrNotAvailable
 		}
@@ -722,7 +795,10 @@ func (s *surfaceExperience) RelatedArtwork(ctx context.Context, viewer *core.Vie
 
 func (s *surfaceExperience) Item(ctx context.Context, req frontend.ItemRequest) (frontend.ItemDetail, error) {
 	detail, err := s.Service.Item(ctx, req)
-	if err == nil && detail.Title.Key != 0 && s.playability != nil {
+	if err != nil || req.Key.IsPluginKey() || detail.Title.Key.IsPluginKey() {
+		return detail, err
+	}
+	if detail.Title.Key != 0 && s.playability != nil {
 		if detail.Title.Type == core.TypeShow || detail.Title.Type == core.TypeSeason {
 			playable := false
 			detail.CanPlay = &playable
@@ -730,8 +806,8 @@ func (s *surfaceExperience) Item(ctx context.Context, req frontend.ItemRequest) 
 			detail.CanPlay = s.playability(ctx, req)
 		}
 	}
-	if err != nil || s.artwork == nil {
-		return detail, err
+	if s.artwork == nil {
+		return detail, nil
 	}
 	// The service has already authorized the item. Resolve the active user
 	// again before passing it to the artwork policy; do not trust caller fields.
@@ -920,6 +996,9 @@ func (s *surfaceExperience) warmArtwork(items []core.Title, device core.Device) 
 		return
 	}
 	for _, item := range items {
+		if item.Key.IsPluginKey() {
+			continue
+		}
 		warmer.Warm(item, device)
 	}
 }

@@ -311,6 +311,9 @@ func PermissionSheet(man Manifest) (lines []string, needsViewers, needsFolders b
 		lines = append(lines, "Searches your indexers and opens sources through your debrid accounts")
 	}
 	for _, k := range man.Ether.Contributes.MediaKinds {
+		if !k.HasLibrary() {
+			continue
+		}
 		name := k.Library.Name
 		if strings.HasPrefix(name, "$t:") {
 			name = k.Key
@@ -378,12 +381,14 @@ func PermissionDiff(cur, next Manifest) []string {
 			added = append(added, "Searches your indexers for sources")
 		}
 	}
-	haveKind := map[string]bool{}
+	haveKindLib := map[string]bool{}
 	for _, k := range cur.Ether.Contributes.MediaKinds {
-		haveKind[k.Key] = true
+		if k.HasLibrary() {
+			haveKindLib[k.Key] = true
+		}
 	}
 	for _, k := range next.Ether.Contributes.MediaKinds {
-		if !haveKind[k.Key] {
+		if k.HasLibrary() && !haveKindLib[k.Key] {
 			name := k.Library.Name
 			if strings.HasPrefix(name, "$t:") {
 				name = k.Key

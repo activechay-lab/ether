@@ -5,32 +5,45 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/agent/tools"
 	"github.com/braedonsaunders/ether/internal/blobcache"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
+	"github.com/braedonsaunders/ether/internal/extend"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/kindstream"
+	"github.com/braedonsaunders/ether/internal/libraries"
 	"github.com/braedonsaunders/ether/internal/pluginitems"
 	"github.com/braedonsaunders/ether/internal/plugins"
+	"github.com/braedonsaunders/ether/internal/plugins/adapters"
 	"github.com/braedonsaunders/ether/internal/plugins/kit"
 	"github.com/braedonsaunders/ether/internal/plugins/wasm"
+	"github.com/braedonsaunders/ether/internal/state"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-// The kind-library proof (spec §13): everything that works on slices
-// A/B/C/E runs for real here — pack + conformance, hosted execution,
-// pull sync into the plugin-item store, store browse/search, track 2
-// opened through the container pattern byte-for-byte, a pinned manual
-// match, and the store purge. The parts that need slice D (Manager
-// install creating the library, Experience/client-surface browse,
-// removal through the Manager) are in TestKindLibraryEndToEndSliceD,
-// skipped and labelled until D lands.
+// The kind-library proof (spec §13): TestKindLibraryExample exercises
+// pack + conformance, hosted execution, pull sync, store browse/search,
+// container range reads, manual match pinning, and store purge directly;
+// TestKindLibraryEndToEndSliceD exercises the full Manager → KindCatalog
+// → KindResolver → Experience client-surface flow through install, setup,
+// offline browse, container playback, and Manager.Remove purge; and
+// TestNonKindPluginCreatesNoLibrary proves non-kind plugins (hello) never
+// create a library or touch the libraries store.
 
 type runtimeCaller struct{ rt plugins.Runtime }
 
@@ -245,11 +258,444 @@ func TestKindLibraryExample(t *testing.T) {
 	}
 }
 
-// TestKindLibraryEndToEndSliceD holds the assertions that need slice D
-// (kind adapters + Experience dispatch): installing the example into a
-// test Ether creates its library, client surfaces browse it from the
-// store with the plugin stopped, and removing the plugin purges the
-// library, its items and its blob cache. Un-skip when D lands.
+type mediaExampleTransport struct {
+	target string
+	base   http.RoundTripper
+}
+
+func (t mediaExampleTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Hostname() == "media.example" {
+		u, err := url.Parse(t.target)
+		if err != nil {
+			return nil, err
+		}
+		clone := req.Clone(req.Context())
+		clone.URL.Scheme = u.Scheme
+		clone.URL.Host = u.Host
+		rt := t.base
+		if rt == nil {
+			rt = http.DefaultTransport
+		}
+		return rt.RoundTrip(clone)
+	}
+	return nil, errors.New("unexpected network host: " + req.URL.Hostname())
+}
+
+type faultableRuntime struct {
+	inner plugins.Runtime
+	fail  *atomic.Bool
+}
+
+func (r faultableRuntime) Call(ctx context.Context, req plugins.Request) (plugins.Response, error) {
+	if r.fail.Load() {
+		return plugins.Response{}, errors.New("runtime offline")
+	}
+	return r.inner.Call(ctx, req)
+}
+
+func (r faultableRuntime) Close() error { return r.inner.Close() }
+
+func buildFixedSizeHarbourZip(t *testing.T, totalSize int, track1, track2 []byte) []byte {
+	t.Helper()
+	write := func(comment string) []byte {
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		for _, entry := range []struct {
+			name string
+			data []byte
+		}{
+			{"01-gulls.flac", track1},
+			{"02-fog-horn.flac", track2},
+		} {
+			hdr := &zip.FileHeader{Name: entry.name, Method: zip.Store}
+			w, err := zw.CreateHeader(hdr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write(entry.data); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if comment != "" {
+			if err := zw.SetComment(comment); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+	base := write("")
+	if len(base) > totalSize {
+		t.Fatalf("base zip %d exceeds target %d", len(base), totalSize)
+	}
+	padded := write(strings.Repeat("p", totalSize-len(base)))
+	if len(padded) != totalSize {
+		t.Fatalf("padded zip length = %d, want %d", len(padded), totalSize)
+	}
+	return padded
+}
+
 func TestKindLibraryEndToEndSliceD(t *testing.T) {
-	t.Skip("slice D (adapters + Experience dispatch) has not landed: Manager install → library, MediaBrowser browse, removal purge")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	track1 := []byte("gulls fixture bytes\n")
+	track2 := []byte("fog horn fixture bytes\n")
+	// kind-library's plugin.ts declares zipSize: 4096 on /harbour.zip.
+	zipBytes := buildFixedSizeHarbourZip(t, 4096, track1, track2)
+	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/harbour.zip" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, "harbour.zip", time.Time{}, bytes.NewReader(zipBytes))
+	}))
+	defer media.Close()
+
+	dataDir := t.TempDir()
+	cfg, err := config.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := store.OpenTest(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	libs, err := libraries.New(ctx, db, libraries.Options{Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := state.New(db, state.Options{Logger: log})
+
+	engine := wasm.NewEngine(log)
+	defer engine.Close()
+
+	var offline atomic.Bool
+	baseFactory := plugins.HostedRuntimeFactory(engine)
+
+	mgr, err := plugins.New(plugins.Deps{
+		DB:           db,
+		Sealer:       cfg,
+		CheckPackage: kit.CheckInstall,
+		Registry:     extend.New(),
+		Tools:        tools.NewCatalogue(),
+		Logger:       log,
+		IsLeader:     func() bool { return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.RegisterRuntime("hosted", func(inst plugins.Installed) (plugins.Runtime, error) {
+		rt, err := baseFactory(inst)
+		if err != nil {
+			return nil, err
+		}
+		return faultableRuntime{inner: rt, fail: &offline}, nil
+	})
+
+	itemsSvc, err := pluginitems.New(ctx, db, pluginitems.Options{
+		Caller:   mgr,
+		Health:   mgr,
+		Logger:   log,
+		IsLeader: func() bool { return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer itemsSvc.Close()
+
+	blobDir := filepath.Join(dataDir, "blobcache")
+	blobs, err := blobcache.Open(blobDir, blobcache.Options{Logger: log, SweepPeriod: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blobs.Close()
+
+	kc := adapters.AttachKindCatalog(ctx, adapters.KindCatalogDeps{
+		Manager:   mgr,
+		Libraries: libs,
+		Items:     itemsSvc,
+		Blobs:     blobs,
+		BlobDir:   blobDir,
+		Logger:    log,
+	})
+	kr := adapters.NewKindResolver(adapters.KindResolverDeps{
+		Manager:   mgr,
+		Libraries: libs,
+		Items:     itemsSvc,
+		Blobs:     blobs,
+		Catalog:   kc,
+		HTTP:      &http.Client{Transport: mediaExampleTransport{target: media.URL}},
+		Logger:    log,
+	})
+	cachePut, cacheOpen := blobs.HostBackends(kc.QuotaFor)
+	mgr.SetKindBackends(plugins.KindBackends{
+		KindUpsert:     itemsSvc.KindUpsert,
+		KindDelete:     itemsSvc.KindDelete,
+		KindItems:      itemsSvc.KindItems,
+		ResolveSources: kr.ResolveSources,
+		CachePut:       cachePut,
+		CacheOpen:      cacheOpen,
+	})
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	owner := &core.User{ID: 1, Username: "owner", IsOwner: true}
+	builtins := []experience.Library{
+		{ID: int(core.LibraryMovies), Name: "Movies", Type: core.TypeMovie, Virtual: true},
+		{ID: int(core.LibraryShows), Name: "TV Shows", Type: core.TypeShow, Virtual: true},
+	}
+	vis := experience.BindVisibility(nil, func(context.Context, core.RatingKey) (*core.Title, error) {
+		return nil, core.ErrNotFound
+	}, nil, nil, builtins)
+	exp, err := experience.NewService(experience.ServiceDeps{
+		Active: func(_ context.Context, id int64) (*core.User, error) {
+			if id == 1 {
+				return owner, nil
+			}
+			return nil, core.ErrNotFound
+		},
+		Libraries:       builtins,
+		Visibility:      vis,
+		State:           st,
+		Rows:            &experience.RowsService{},
+		Protocol:        "jellyfin",
+		PluginLibraries: kc,
+		Get:             func(context.Context, *core.User, core.RatingKey) (*core.Title, error) { return nil, core.ErrNotFound },
+		Children:        func(context.Context, *core.User, core.RatingKey) ([]core.Title, error) { return nil, nil },
+		Browse:          func(context.Context, core.BrowseQuery) (core.Page, error) { return core.Page{}, nil },
+		Search: experience.Search{
+			Catalog: func(context.Context, string, []core.MediaType, int) ([]core.Title, error) { return nil, nil },
+		},
+		IsFavorite:          func(context.Context, *core.User, core.RatingKey) (bool, error) { return false, nil },
+		IsFavoriteMany:      func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error) { return nil, nil },
+		IsNotInterested:     func(context.Context, *core.User, core.RatingKey) (bool, error) { return false, nil },
+		IsNotInterestedMany: func(context.Context, *core.User, []core.RatingKey) (map[core.RatingKey]bool, error) { return nil, nil },
+		IsWatchlisted:       func(context.Context, *core.User, core.RatingKey) (bool, error) { return false, nil },
+		IsWatchlistedMany:   func(context.Context, int64, []core.RatingKey) (map[core.RatingKey]bool, error) { return nil, nil },
+		Enrich: func(_ context.Context, _ *core.User, _ core.Device, title *core.Title) (frontend.ItemDetail, error) {
+			return frontend.ItemDetail{Title: *title}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pack and install kind-library through Manager.
+	pkg, err := kit.LoadDir("kind-library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := kit.Pack(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := mgr.PreviewInstall(ctx, plugins.Source{Kind: "pkg", Pkg: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := mgr.Install(ctx, preview, plugins.InstallOptions{AcceptAddedPermissions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Required setup step "account" gates client surface visibility until completed.
+	viewsBefore, err := exp.Views(ctx, owner)
+	if err != nil || len(viewsBefore) != 2 {
+		t.Fatalf("expected 2 builtin views before setup completed, got %+v %v", viewsBefore, err)
+	}
+
+	if _, err := mgr.Configure(ctx, rec.ID, map[string]any{
+		"sourceUrl": "https://media.example",
+		"apiKey":    "fixture-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stepRes, err := mgr.TestSetupStep(ctx, rec.ID, "account")
+	if err != nil || !stepRes.OK {
+		t.Fatalf("TestSetupStep(account): %+v %v", stepRes, err)
+	}
+
+	// Wait for initial pull sync to populate the Field Recordings library.
+	var recView frontend.View
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		views, _ := exp.Views(ctx, owner)
+		for _, v := range views {
+			if v.PluginID == rec.ID {
+				recView = v
+			}
+		}
+		if recView.ID != "" {
+			if cnt, err := exp.LibraryCount(ctx, owner, recView.ID); err == nil && cnt == 1 {
+				break
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if recView.ID == "" || recView.Name != "Field Recordings" || recView.Native != "music" {
+		t.Fatalf("expected MediaBrowser music view for Field Recordings, got %+v", recView)
+	}
+
+	// Resolve and stream track 2 byte-for-byte through KindResolver + container zip + blobcache.
+	roots, err := exp.LibraryItems(ctx, owner, core.Device{}, recView.ID, frontend.ItemQuery{Limit: 10})
+	if err != nil || len(roots.Items) != 1 || roots.Items[0].Title != "Coastal" {
+		t.Fatalf("LibraryItems roots: %+v %v", roots, err)
+	}
+	albums, err := exp.Children(ctx, owner, core.Device{}, roots.Items[0].Key, frontend.ItemQuery{Limit: 10})
+	if err != nil || len(albums.Items) != 1 || albums.Items[0].Title != "Harbour at Dawn" {
+		t.Fatalf("Children albums: %+v %v", albums, err)
+	}
+	tracks, err := exp.Children(ctx, owner, core.Device{}, albums.Items[0].Key, frontend.ItemQuery{Limit: 10})
+	if err != nil || len(tracks.Items) != 2 || tracks.Items[1].Title != "Fog Horn" {
+		t.Fatalf("Children tracks: %+v %v", tracks, err)
+	}
+	fogKey := tracks.Items[1].Key
+
+	km, err := kr.OpenKind(ctx, owner, fogKey, nil)
+	if err != nil {
+		t.Fatalf("OpenKind(Fog Horn): %v", err)
+	}
+	gotBytes := make([]byte, km.Size)
+	if _, err := km.ReadAt(gotBytes, 0); err != nil && err != io.EOF {
+		t.Fatal(err)
+	}
+	_ = km.Close()
+	if !bytes.Equal(gotBytes, track2) {
+		t.Fatalf("OpenKind track2 bytes = %q, want %q", gotBytes, track2)
+	}
+
+	libRow, err := libs.Get(ctx, recView.LibraryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nsDir := filepath.Join(blobDir, libRow.Key)
+	if _, err := os.Stat(nsDir); err != nil {
+		t.Fatalf("expected zip directory cached in blobcache namespace %s: %v", nsDir, err)
+	}
+
+	// Stop/fault the plugin runtime: client surfaces continue browsing from the local store.
+	offline.Store(true)
+	offlineRoots, err := exp.LibraryItems(ctx, owner, core.Device{}, recView.ID, frontend.ItemQuery{Limit: 10})
+	if err != nil || len(offlineRoots.Items) != 1 || offlineRoots.Items[0].Title != "Coastal" {
+		t.Fatalf("offline LibraryItems failed when plugin stopped: %+v %v", offlineRoots, err)
+	}
+	offlineDetail, err := exp.Item(ctx, frontend.ItemRequest{Viewer: owner, Key: fogKey})
+	if err != nil || offlineDetail.Title.Title != "Fog Horn" {
+		t.Fatalf("offline Item failed when plugin stopped: %+v %v", offlineDetail, err)
+	}
+
+	// Removing the plugin purges pluginitems, libraries, and blobcache.
+	if err := mgr.Remove(ctx, rec.ID, false); err != nil {
+		t.Fatalf("mgr.Remove: %v", err)
+	}
+	remainingLibs, err := libs.List(ctx)
+	if err != nil || len(remainingLibs) != 2 {
+		t.Fatalf("expected only Movies and TV Shows after Remove, got %+v %v", remainingLibs, err)
+	}
+	if kinds, err := itemsSvc.ListKinds(ctx, rec.ID); err != nil || len(kinds) != 0 {
+		t.Fatalf("expected 0 plugin kinds after Remove, got %+v %v", kinds, err)
+	}
+	if _, err := os.Stat(nsDir); !os.IsNotExist(err) {
+		t.Fatalf("expected blobcache namespace %s removed on Remove, stat err = %v", nsDir, err)
+	}
+}
+
+func TestNonKindPluginCreatesNoLibrary(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dataDir := t.TempDir()
+	cfg, err := config.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := store.OpenTest(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	libs, err := libraries.New(ctx, db, libraries.Options{Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	genBefore := libs.Generation()
+
+	engine := wasm.NewEngine(log)
+	defer engine.Close()
+
+	mgr, err := plugins.New(plugins.Deps{
+		DB:           db,
+		Sealer:       cfg,
+		CheckPackage: kit.CheckInstall,
+		Registry:     extend.New(),
+		Tools:        tools.NewCatalogue(),
+		Logger:       log,
+		IsLeader:     func() bool { return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.RegisterRuntime("hosted", plugins.HostedRuntimeFactory(engine))
+
+	itemsSvc, err := pluginitems.New(ctx, db, pluginitems.Options{
+		Caller:   mgr,
+		Health:   mgr,
+		Logger:   log,
+		IsLeader: func() bool { return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer itemsSvc.Close()
+
+	blobDir := filepath.Join(dataDir, "blobcache")
+	blobs, err := blobcache.Open(blobDir, blobcache.Options{Logger: log, SweepPeriod: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blobs.Close()
+
+	adapters.AttachKindCatalog(ctx, adapters.KindCatalogDeps{
+		Manager:   mgr,
+		Libraries: libs,
+		Items:     itemsSvc,
+		Blobs:     blobs,
+		BlobDir:   blobDir,
+		Logger:    log,
+	})
+	if err := mgr.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	pkg, err := kit.LoadDir(filepath.Join("hello", "typescript"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := kit.Pack(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := mgr.PreviewInstall(ctx, plugins.Source{Kind: "pkg", Pkg: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := mgr.Install(ctx, preview, plugins.InstallOptions{AcceptAddedPermissions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if libs.Generation() != genBefore {
+		t.Fatalf("installing non-kind hello plugin touched libraries store: gen %d != %d", libs.Generation(), genBefore)
+	}
+	allLibs, err := libs.List(ctx)
+	if err != nil || len(allLibs) != 2 {
+		t.Fatalf("expected only 2 builtin libraries after installing hello, got %+v %v", allLibs, err)
+	}
+	if kinds, err := itemsSvc.ListKinds(ctx, rec.ID); err != nil || len(kinds) != 0 {
+		t.Fatalf("expected 0 plugin kinds for hello plugin, got %+v %v", kinds, err)
+	}
+	if entries, err := os.ReadDir(blobDir); err != nil || len(entries) != 0 {
+		t.Fatalf("expected 0 blobcache namespace dirs for hello plugin, got %v %v", entries, err)
+	}
 }

@@ -21,10 +21,9 @@ import (
 // Owner console API for Libraries (spec §11, slice H). Mounted as the
 // "libraries" admin extension, so every route sits behind the owner
 // API's LAN, token and CSRF boundaries like the cache extension.
-// Slice D will own the long-lived pluginitems/blobcache wiring for
-// client request paths; until then this handler opens its own
-// instances lazily (pluginitems.New and blobcache.Open are idempotent
-// over the same store/directory) so the console works today.
+// Shares the long-lived pluginitems/blobcache services built by
+// buildPlugins when present, falling back to lazy open in unit tests
+// that construct App without pluginsRT.
 
 type librariesConsole struct {
 	app *App
@@ -44,17 +43,21 @@ func (a *App) libraryHandlers(m map[string]http.Handler) {
 }
 
 func (c *librariesConsole) services() (*pluginitems.Service, *blobcache.Cache, error) {
+	if c.app.pluginsRT != nil && c.app.pluginsRT.pluginitems != nil && c.app.pluginsRT.blobcache != nil {
+		return c.app.pluginsRT.pluginitems, c.app.pluginsRT.blobcache, nil
+	}
 	c.once.Do(func() {
 		ctx := context.Background()
 		opts := pluginitems.Options{Logger: c.app.log}
 		if c.app.pluginsRT != nil && c.app.pluginsRT.mgr != nil {
 			opts.Caller = c.app.pluginsRT.mgr
+			opts.Health = c.app.pluginsRT.mgr
 		}
 		if c.items, c.err = pluginitems.New(ctx, c.app.db, opts); c.err != nil {
 			return
 		}
 		c.blobs, c.err = blobcache.Open(filepath.Join(c.app.opts.DataDir, "blobcache"),
-			blobcache.Options{Logger: c.app.log})
+			blobcache.Options{Logger: c.app.log, DiskUsage: c.app.opts.diskUsage})
 	})
 	return c.items, c.blobs, c.err
 }
@@ -731,9 +734,8 @@ func (c *librariesConsole) handleCachePut(w http.ResponseWriter, r *http.Request
 		libError(w, http.StatusBadRequest, "Cache limits cannot be negative")
 		return
 	}
-	// Owner quota overrides are session-lived until a persisted
-	// per-library quota lands with slice D's cache wiring; the kind's
-	// declared cap (or the 2 GiB default) applies again at restart.
+	// Owner quota overrides are session-lived; the kind's declared cap (or
+	// the 2 GiB default) applies again at restart.
 	ns.SetQuota(blobcache.Quota{MaxBytes: body.MaxBytes, TTL: time.Duration(body.TTLSeconds) * time.Second})
 	ns.Sweep()
 	libJSON(w, http.StatusOK, cacheDTO(lib, ns))

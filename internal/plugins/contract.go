@@ -234,8 +234,8 @@ type Contributes struct {
 	Pages          []PageMeta          `json:"pages,omitempty"`
 	Slots          []SlotMeta          `json:"slots,omitempty"`
 	Commands       []CommandMeta       `json:"commands,omitempty"`
-	// MediaKinds declares the content kinds this plugin serves; each
-	// one becomes its own library (spec §2.1).
+	// MediaKinds declares the content kinds this plugin serves; each entry
+	// that declares a library block becomes its own library (spec §2.1).
 	MediaKinds []MediaKindMeta `json:"mediaKinds,omitempty"`
 	// FrontendAdapters declares protocol surfaces this plugin serves
 	// through Ether's generic adapter frontend (spec §6.5).
@@ -356,20 +356,20 @@ type CommandMeta struct {
 
 // MediaKindMeta declares one content kind (spec §2.1).
 type MediaKindMeta struct {
-	Key     string          `json:"key"` // ^[a-z][a-z0-9-]{0,31}$, unique in the plugin
-	Label   string          `json:"label"`
-	Library KindLibraryDecl `json:"library"`
-	Levels  []KindLevel     `json:"levels"` // 1..5, first is the root
-	Fields  []KindField     `json:"fields,omitempty"`
-	Art     []KindArt       `json:"art,omitempty"` // roles beyond poster/backdrop/thumb/logo
-	Present core.Presentations `json:"present"`
-	Browse  KindBrowseDecl  `json:"browse"`
-	Sync    KindSyncDecl    `json:"sync"`
-	Cache   KindCacheDecl   `json:"cache,omitempty"`
-	Match   KindMatchDecl   `json:"match,omitempty"`
+	Key     string             `json:"key"` // ^[a-z][a-z0-9-]{0,31}$, unique in the plugin
+	Label   string             `json:"label"`
+	Library KindLibraryDecl    `json:"library,omitzero"`
+	Levels  []KindLevel        `json:"levels"`           // 1..5, first is the root
+	Fields  []KindField        `json:"fields,omitempty"` //
+	Art     []KindArt          `json:"art,omitempty"`    // roles beyond poster/backdrop/thumb/logo
+	Present core.Presentations `json:"present,omitzero"`
+	Browse  KindBrowseDecl     `json:"browse"`
+	Sync    KindSyncDecl       `json:"sync"`
+	Cache   KindCacheDecl      `json:"cache,omitempty"`
+	Match   KindMatchDecl      `json:"match,omitempty"`
 }
 
-// KindLibraryDecl is the library created for a kind on install.
+// KindLibraryDecl is the optional library created for a kind on install.
 type KindLibraryDecl struct {
 	Name string `json:"name"` // default name; the owner may rename it after
 	Icon string `json:"icon,omitempty"`

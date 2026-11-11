@@ -304,6 +304,12 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 					if a.cfg != nil {
 						gen ^= a.cfg.Generation()
 					}
+					if a.libraries != nil {
+						gen ^= a.libraries.Generation()
+					}
+					if a.pluginsRT != nil && a.pluginsRT.pluginitems != nil {
+						gen ^= a.pluginsRT.pluginitems.Generation()
+					}
 					return gen
 				})
 				imageGrants = svc
@@ -324,11 +330,22 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		if a.subtitles != nil {
 			subtitleCatalog = subtitleSurface{app: a, exp: experience, surface: string(id)}
 		}
-		return frontend.Host{Support: a.support, IDs: ids.Codecs{Allocator: compact}, DirectProxy: egress.ProxyFunc(egress.CapDirect), MetadataHTTP: metadataHTTP, Experience: experience, LastPlayedSource: surfaceLastPlayedSource{experience: experience, state: a.state}, VersionHandles: versionHandles, SourceOffers: sourceOffers, Editions: surfaceEditions{app: a}, VirtualPaths: surfaceVirtualPaths{experience: experience, index: &pathIndex{}, stamp: func(v *core.Viewer) string {
+		var kindStreams frontend.KindStreams
+		if a.pluginsRT != nil && a.pluginsRT.kindResolver != nil {
+			kindStreams = a.pluginsRT.kindResolver
+		}
+		return frontend.Host{Support: a.support, IDs: ids.Codecs{Allocator: compact}, DirectProxy: egress.ProxyFunc(egress.CapDirect), MetadataHTTP: metadataHTTP, Experience: experience, KindStreams: kindStreams, LastPlayedSource: surfaceLastPlayedSource{experience: experience, state: a.state}, VersionHandles: versionHandles, SourceOffers: sourceOffers, Editions: surfaceEditions{app: a}, VirtualPaths: surfaceVirtualPaths{experience: experience, index: &pathIndex{}, stamp: func(v *core.Viewer) string {
 			if v == nil || a.catalog == nil || a.cfg == nil {
 				return ""
 			}
-			return fmt.Sprintf("%d|%d|%d|%s|%v", a.catalog.WriteGeneration(), a.cfg.Generation(), v.ID, v.MaxContentRating, v.AllowedLibraries)
+			var libGen, kindGen uint64
+			if a.libraries != nil {
+				libGen = a.libraries.Generation()
+			}
+			if a.pluginsRT != nil && a.pluginsRT.pluginitems != nil {
+				kindGen = a.pluginsRT.pluginitems.Generation()
+			}
+			return fmt.Sprintf("%d|%d|%d|%d|%d|%s|%v", a.catalog.WriteGeneration(), a.cfg.Generation(), libGen, kindGen, v.ID, v.MaxContentRating, v.AllowedLibraries)
 		}, enabled: func() bool { _, ok := r.registry.Instance("webdav"); return ok }, base: func(ctx context.Context, req *http.Request) (string, error) { return r.surfaceURL(ctx, "webdav", req) }}, ViewerCapabilities: a.viewerCapabilities(local, experience), ViewerPolicy: surfaceViewerPolicy{app: a}, ImageGrants: imageGrants, Artwork: artwork, ExtraStreams: extraPlay, Cinema: cinema, Prerolls: prerollIntros, Subtitles: subtitleCatalog, Preferences: identity.NewPreferences(a.db, id), TrackPreferences: surfaceTrackPreferences{app: a}, LiveTV: surfaceLiveTV{app: a, surface: string(id), channelArtwork: channelArtwork, artwork: artwork}, Sessions: scorecardSessions(a, sessions.BindSurface(r.broker, id)), LazyStreams: lazy, LANStreams: lanStreams, Capabilities: surfaceCapabilities{app: a, surface: id}, Identity: surfaceIdentity{settings: settings, surface: id, users: a.users, resolver: resolver, local: local, grants: grants, quick: quick, login: login, poll: poll, times: times}, Events: sessions.BindEvents(r.events, id), WatchRefresh: watchRefresh, HomeInvalidation: homeInvalidation, Tickets: tickets, WatchParty: parties, Images: frontendImages{source: a.images}, Log: a.log.With("frontend", id), ClientSeen: func(deviceID string) { a.frontendClients.observe(id, deviceID) }, RemoteClientSeen: func(address string) {
 			if a.registrar != nil {
 				a.registrar.ObserveRemoteClient(address)
@@ -794,6 +811,12 @@ func (a *App) browseFreshness() frontend.PageFreshness {
 	}
 	if a.personalize != nil {
 		f.Layout = a.personalize.LayoutVersion()
+	}
+	if a.libraries != nil {
+		f.Libraries = a.libraries.Generation()
+	}
+	if a.pluginsRT != nil && a.pluginsRT.pluginitems != nil {
+		f.KindSync = a.pluginsRT.pluginitems.Generation()
 	}
 	return f
 }

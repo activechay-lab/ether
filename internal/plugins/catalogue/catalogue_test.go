@@ -149,11 +149,20 @@ func TestLoadCatalogueTemplateDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEntriesDir(%s): %v", dir, err)
 	}
-	if len(idx.Entries) != 1 {
-		t.Fatalf("expected one template entry, got %d", len(idx.Entries))
+	if len(idx.Entries) != 2 {
+		t.Fatalf("expected 2 template entries, got %d", len(idx.Entries))
 	}
-	if got := idx.Entries[0].Permissions.Viewers.WatchHistory; got != "granted_viewers" {
-		t.Fatalf("watch history permission lost: %q", got)
+	byID := map[string]Entry{}
+	for _, e := range idx.Entries {
+		byID[e.ID] = e
+	}
+	rec, ok := byID["community.example.recordings"]
+	if !ok || rec.Kind != string(plugins.KindContent) || rec.Permissions.Sources != "search" {
+		t.Fatalf("unexpected content template entry: %+v", rec)
+	}
+	wrapped, ok := byID["community.example.wrapped"]
+	if !ok || wrapped.Permissions.Viewers.WatchHistory != "granted_viewers" {
+		t.Fatalf("watch history permission lost: %+v", wrapped)
 	}
 }
 
