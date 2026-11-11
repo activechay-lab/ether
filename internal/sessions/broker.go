@@ -658,40 +658,10 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 			b.releasePlanSource(ps.ID, pinned)
 		}
 	}()
-	if req.Intent.AudioOrdinal != nil || req.Intent.SubtitleStreamIndex != nil {
-		if ps.Info.Estimated {
-			return frontend.PlayPlan{}, frontend.ErrTrackSourceUnavailable
-		}
-		if req.ExpectedSourceETag == "" {
-			req.ExpectedSourceETag = sourceRevision(ps)
-			if req.ExpectedSourceETag == "" {
-				return frontend.PlayPlan{}, frontend.ErrTrackSourceUnavailable
-			}
-		}
-	}
-	if req.ExpectedSourceETag != "" {
-		pins, ok := b.deps.Playback.(core.PlaybackRevisionPin)
-		if !ok {
-			if req.Intent.AudioOrdinal != nil || req.Intent.SubtitleStreamIndex != nil {
-				return frontend.PlayPlan{}, frontend.ErrTrackSourceUnavailable
-			}
-			return frontend.PlayPlan{}, frontend.ErrSourceGone
-		}
-		if err := pins.PinSourceRevision(ctx, ps.ID, req.ExpectedSourceETag); err != nil {
-			if ctx.Err() != nil {
-				return frontend.PlayPlan{}, ctx.Err()
-			}
-			if errors.Is(err, core.ErrSourceChanged) {
-				return frontend.PlayPlan{}, frontend.ErrSourceGone
-			}
-			return frontend.PlayPlan{}, err
-		}
-		pinned = true
-		current, ok := b.deps.Playback.Session(ps.ID)
-		if !ok || current == nil || sourceRevision(current) != req.ExpectedSourceETag {
-			return frontend.PlayPlan{}, frontend.ErrSourceGone
-		}
-		ps = current
+	var pinErr error
+	ps, pinned, pinErr = b.pinRequestedTracks(ctx, &req, ps)
+	if pinErr != nil {
+		return frontend.PlayPlan{}, pinErr
 	}
 	if err := bindSourceTracks(&req.Intent, ps.Info); err != nil {
 		return frontend.PlayPlan{}, err

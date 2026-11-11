@@ -49,11 +49,20 @@ func (b *Broker) planKind(ctx context.Context, req frontend.PlanRequest, v *core
 	}
 	b.acquirePlanSource(ps.ID, !existed)
 	stored := false
+	pinned := false
 	defer func() {
 		if !stored {
-			b.releasePlanSource(ps.ID, false)
+			b.releasePlanSource(ps.ID, pinned)
 		}
 	}()
+
+	ps, pinned, err = b.pinRequestedTracks(ctx, &req, ps)
+	if err != nil {
+		return frontend.PlayPlan{}, err
+	}
+	if err := bindSourceTracks(&req.Intent, ps.Info); err != nil {
+		return frontend.PlayPlan{}, err
+	}
 
 	if b.deps.SelectScopedTracks != nil || b.deps.SelectTracks != nil {
 		var selected core.DecideOptions
@@ -85,7 +94,7 @@ func (b *Broker) planKind(ctx context.Context, req frontend.PlanRequest, v *core
 		b.mu.Unlock()
 		return frontend.PlayPlan{}, core.ErrNotAvailable
 	}
-	b.plans[id] = brokerPlan{request: req, source: ps, decision: dec, created: b.deps.Now(), requested: requested, etag: etag}
+	b.plans[id] = brokerPlan{request: req, source: ps, decision: dec, created: b.deps.Now(), requested: requested, etag: etag, pinned: pinned}
 	stored = true
 	b.mu.Unlock()
 	direct, remux, transcoding := b.planAlternatives(ps, req)
