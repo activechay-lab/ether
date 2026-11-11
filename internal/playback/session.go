@@ -210,6 +210,11 @@ type session struct {
 	profileKey            string // profileKey of the resolving profile
 	originalLanguage      string // catalogue language when this session was selected
 	startedAt             time.Time
+	// kindOpen opens a non-catalogue plugin item's bytes (spec §15.1). When
+	// set, the session bypasses resolution/failover and opens this source
+	// directly, then runs the normal probe/decision pipeline.
+	kindOpen     func(ctx context.Context) (core.MediaSource, error)
+	kindSourceID string
 
 	// virtual is the byte/time layout of the first generation: the file the
 	// client was told about. Direct-play byte offsets are always in these

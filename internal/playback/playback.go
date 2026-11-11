@@ -343,6 +343,9 @@ type flight struct {
 	abandoned int
 	sess      *session
 	err       error
+	// kind, when set, makes this flight open a non-catalogue plugin item
+	// instead of resolving a catalogue title (spec §15.1).
+	kind *core.KindInput
 }
 
 // releaseLabel prefers the release name and falls back to the indexer.
@@ -1037,7 +1040,7 @@ func (m *Manager) expireAbandonedFlight(fk flightKey, f *flight, gen int) {
 func (m *Manager) runFlight(ctx context.Context, f *flight, fk flightKey, user *core.User, caps core.ClientCaps) {
 	defer close(f.done)
 	defer f.cancel()
-	s, err := m.prepare(ctx, fk.id, user, caps, fk.prefer, fk.exact, fk.deferSupersession, f)
+	s, err := m.prepare(ctx, fk.id, user, caps, fk.prefer, fk.exact, fk.deferSupersession, f.kind, f)
 	m.mu.Lock()
 	if m.flights[fk] == f {
 		delete(m.flights, fk)
@@ -1059,7 +1062,7 @@ func (m *Manager) runFlight(ctx context.Context, f *flight, fk flightKey, user *
 	}
 }
 
-func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, caps core.ClientCaps, prefer string, exact, deferSupersession bool, f *flight) (*session, error) {
+func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, caps core.ClientCaps, prefer string, exact, deferSupersession bool, kind *core.KindInput, f *flight) (*session, error) {
 	sources := f.sources
 	log := m.log.With("user", userLabel(user), "client", caps.ClientID, "key", id.key)
 	if err := m.reserve(ctx, user, id); err != nil {
@@ -1076,9 +1079,20 @@ func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, cap
 		}
 	}()
 
-	title, err := m.deps.Catalog.Get(ctx, id.key)
-	if err != nil {
-		return nil, fmt.Errorf("playback: title %s: %w", id.key, err)
+	var title *core.Title
+	if kind != nil {
+		// A plugin kind item is not in the catalogue: its projected Title
+		// travels with the input.
+		title = kind.Title
+		if title == nil || title.Key != id.key {
+			return nil, core.ErrNotFound
+		}
+	} else {
+		var err error
+		title, err = m.deps.Catalog.Get(ctx, id.key)
+		if err != nil {
+			return nil, fmt.Errorf("playback: title %s: %w", id.key, err)
+		}
 	}
 	if title == nil || title.IsFutureRelease(m.now()) {
 		return nil, fmt.Errorf("playback: title is not released: %w", core.ErrUnreleased)
@@ -1088,6 +1102,10 @@ func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, cap
 	}
 	profile := m.selectProfile(caps, user, title.Key)
 	s := newSession(randomID(16), id, user, caps, title, profileKey(profile), m.now())
+	if kind != nil {
+		s.kindOpen = kind.Open
+		s.kindSourceID = kind.SourceID
+	}
 	s.sources = sources
 	defer func() {
 		if !registered {
@@ -1103,7 +1121,13 @@ func (m *Manager) prepare(ctx context.Context, id identity, user *core.User, cap
 	m.mu.Unlock()
 
 	openStart := time.Now()
-	g, err := m.openInitial(ctx, s, profile)
+	var g *generation
+	var err error
+	if kind != nil {
+		g, err = m.openKindInitial(ctx, s)
+	} else {
+		g, err = m.openInitial(ctx, s, profile)
+	}
 	if os.Getenv("ETHER_TRACE_PLAYBACK") != "" {
 		var relID string
 		var dur time.Duration
