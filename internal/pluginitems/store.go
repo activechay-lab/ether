@@ -52,20 +52,20 @@ type rowScanner interface {
 
 func scanItemRow(sc rowScanner) (core.KindItem, core.LibraryID, int64, error) {
 	var (
-		it          core.KindItem
-		refStr      string
-		seq         int64
-		pluginID    string
-		kindKey     string
-		libID       int64
-		parentRef   string
-		idx         int64
-		year        int64
-		playable    int
-		childCount  int64
-		leafCount   int64
-		hintsRaw    string
-		fieldsRaw   string
+		it         core.KindItem
+		refStr     string
+		seq        int64
+		pluginID   string
+		kindKey    string
+		libID      int64
+		parentRef  string
+		idx        int64
+		year       int64
+		playable   int
+		childCount int64
+		leafCount  int64
+		hintsRaw   string
+		fieldsRaw  string
 	)
 	if err := sc.Scan(
 		&refStr, &seq, &pluginID, &kindKey, &libID, &it.ID, &parentRef, &it.Level, &idx,

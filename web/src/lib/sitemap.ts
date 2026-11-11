@@ -136,9 +136,7 @@ const PAGES = localized<PageDef[]>(() => [
       {
         key: "1/settings",
         title: t("Movies · Settings"),
-        keywords: searchTerms(
-          msg("tmdb language region obscure new releases playable digital"),
-        ),
+        keywords: searchTerms(msg("tmdb language region obscure new releases playable digital")),
       },
       {
         key: "2/rules",

@@ -261,7 +261,18 @@ export function CatalogBrowser({
       }
       return null;
     },
-    [libraryId, debouncedQuery, type, genre, decade, waiting, advanced, viewer, ruleFilter, specKey],
+    [
+      libraryId,
+      debouncedQuery,
+      type,
+      genre,
+      decade,
+      waiting,
+      advanced,
+      viewer,
+      ruleFilter,
+      specKey,
+    ],
   );
   // A collection is at most a few hundred titles: its filters run here.
   const collectionPage = useMemo(() => {

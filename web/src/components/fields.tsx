@@ -301,8 +301,7 @@ export function Segmented<T extends string>({
                 onChange(next.value);
                 (
                   e.currentTarget.parentElement?.children[options.indexOf(next)] as
-                    | HTMLElement
-                    | undefined
+                    HTMLElement | undefined
                 )?.focus();
               }
             }}

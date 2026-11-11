@@ -160,7 +160,9 @@ export function MomentView({ moment }: { moment: Moment }) {
                 style={{ animationDelay: `${i * 120}ms`, marginLeft: `${it.depth * 1.25}rem` }}
               >
                 <Monogram name={it.title} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{it.title}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                  {it.title}
+                </span>
                 <span className="text-xs text-fg-muted">{it.level}</span>
                 {it.playable ? <Badge variant="secondary">{t("Plays")}</Badge> : null}
               </li>
@@ -174,7 +176,9 @@ export function MomentView({ moment }: { moment: Moment }) {
             ))}
             <p>
               {moment.liveSearch
-                ? t("Live search is on: searches in apps also ask this plugin, and Ether keeps what it finds.")
+                ? t(
+                    "Live search is on: searches in apps also ask this plugin, and Ether keeps what it finds.",
+                  )
                 : t("Live search is off: searches only look in what Ether has already synced.")}
             </p>
           </div>
@@ -193,9 +197,14 @@ export function MomentView({ moment }: { moment: Moment }) {
             </div>
           ) : null}
           {moment.issues?.length ? (
-            <div role="status" className="mt-3 space-y-1 border-t border-border pt-3 text-sm text-warning">
+            <div
+              role="status"
+              className="mt-3 space-y-1 border-t border-border pt-3 text-sm text-warning"
+            >
               {moment.issues.map((issue, i) => (
-                <p key={i} className="whitespace-pre-wrap break-words">{issue}</p>
+                <p key={i} className="whitespace-pre-wrap break-words">
+                  {issue}
+                </p>
               ))}
             </div>
           ) : null}

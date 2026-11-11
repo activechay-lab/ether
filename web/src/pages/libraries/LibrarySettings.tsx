@@ -341,9 +341,7 @@ function TmdbSourceSection({ library }: { library: Library }) {
           <div className="space-y-5">
             {groups.map((g, i) => (
               <SettingsSection key={g.id ?? i} title={g.title}>
-                {g.id === "browsable" ? (
-                  <ObscureTitles draft={draft} onChange={setDraft} />
-                ) : null}
+                {g.id === "browsable" ? <ObscureTitles draft={draft} onChange={setDraft} /> : null}
                 {g.fields.map((f, j) =>
                   f.kind === "group" || isCatalogPicker(f.key) ? null : (
                     <SchemaField

@@ -300,8 +300,12 @@ const STARTERS = [
     template: "content_kind",
     icon: Library,
     title: () => t("A new library"),
-    description: () => t("Your own library of books, audio, photos or anything else, beside Movies and TV Shows in every app."),
-    prompt: () => t("Build a library of field recordings, grouped into albums of tracks, from my source"),
+    description: () =>
+      t(
+        "Your own library of books, audio, photos or anything else, beside Movies and TV Shows in every app.",
+      ),
+    prompt: () =>
+      t("Build a library of field recordings, grouped into albums of tracks, from my source"),
   },
   {
     template: "channels",

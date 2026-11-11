@@ -43,12 +43,7 @@ export function NewLibraryDrawer({
   }
 
   if (typeof step === "object") {
-    return (
-      <SetupWizard
-        pluginId={step.pluginId}
-        onClose={() => onPluginOpened(step.libId)}
-      />
-    );
+    return <SetupWizard pluginId={step.pluginId} onClose={() => onPluginOpened(step.libId)} />;
   }
 
   const pickPlugin = async (source: PluginLibrarySource) => {
@@ -114,8 +109,10 @@ export function NewLibraryDrawer({
 
           {sources.map((src) => {
             const kindLabel =
-              src.kinds.map((k) => k.library?.name || k.label).filter(Boolean).join(", ") ||
-              src.pluginName;
+              src.kinds
+                .map((k) => k.library?.name || k.label)
+                .filter(Boolean)
+                .join(", ") || src.pluginName;
             return (
               <button
                 key={src.pluginId}
@@ -145,7 +142,11 @@ export function NewLibraryDrawer({
           <p className="text-sm text-fg-muted">
             {tx("Want books, audiobooks, comics, or music? {link} that provides a library.", {
               link: (
-                <Link to="/plugins" onClick={onClose} className="font-medium text-primary underline">
+                <Link
+                  to="/plugins"
+                  onClick={onClose}
+                  className="font-medium text-primary underline"
+                >
                   {t("Install a plugin")}
                 </Link>
               ),

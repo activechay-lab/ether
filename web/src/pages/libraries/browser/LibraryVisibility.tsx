@@ -427,7 +427,9 @@ export function RulesPanel({
             refreshHealth={async () => {}}
             ruleFilter={ruleFilter}
             libraryScope={
-              libraryId ? { id: libraryId, type: mediaType ?? "", filter: libraryFilter } : undefined
+              libraryId
+                ? { id: libraryId, type: mediaType ?? "", filter: libraryFilter }
+                : undefined
             }
           />
         ) : null}

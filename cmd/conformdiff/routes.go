@@ -12,9 +12,9 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/dlna"
 	"github.com/braedonsaunders/ether/internal/frontends/m3u"
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/frontends/stremio"
 	"github.com/braedonsaunders/ether/internal/frontends/webdav"
-	"github.com/braedonsaunders/ether/internal/frontends/plex"
 )
 
 // routes reports the actual router registrations of available frontends.

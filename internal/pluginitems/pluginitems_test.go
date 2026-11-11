@@ -480,12 +480,12 @@ func testFTSScopedPerLibrary(t *testing.T) {
 }
 
 type fakeSyncCaller struct {
-	mu           sync.Mutex
-	rootPages    map[string]core.KindPage
-	childPages   map[string]core.KindPage
-	changesPages map[string]core.KindChangePage
+	mu               sync.Mutex
+	rootPages        map[string]core.KindPage
+	childPages       map[string]core.KindPage
+	changesPages     map[string]core.KindChangePage
 	changesSupported bool
-	browseCalls  int
+	browseCalls      int
 }
 
 func (f *fakeSyncCaller) Call(_ context.Context, _ string, req plugins.Request) (plugins.Response, error) {

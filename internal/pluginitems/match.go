@@ -213,9 +213,9 @@ func (s *Service) ListMatches(ctx context.Context, itemRef core.ItemRef) ([]Matc
 	var out []MatchRecord
 	for rows.Next() {
 		var (
-			rec                  MatchRecord
-			refStr, reasonsJSON  string
-			chosenInt            int
+			rec                 MatchRecord
+			refStr, reasonsJSON string
+			chosenInt           int
 		)
 		if err := rows.Scan(
 			&refStr, &rec.CandidateRef, &rec.Score, &reasonsJSON, &rec.Source, &chosenInt, &rec.UpdatedAt,

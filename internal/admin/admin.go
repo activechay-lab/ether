@@ -254,7 +254,7 @@ type Deps struct {
 	CatalogHelper CatalogHelper
 	// TitleSchedules backs the catalogue drawer's episode and release tabs;
 	// nil disables them.
-	TitleSchedules    TitleSchedules
+	TitleSchedules      TitleSchedules
 	CatalogVisibility   func(context.Context, []core.LibraryExclusion, string, core.LibraryID) (any, error)
 	LibraryBrowseFilter func(context.Context, core.LibraryID, core.Filter) (core.Filter, error)
 	// WaitingReleaseKeys are in-window movies still hidden from viewers.

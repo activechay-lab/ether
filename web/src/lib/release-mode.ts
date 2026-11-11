@@ -57,7 +57,11 @@ export function applyReleaseModeFor(
 ): AvailabilityConfig {
   const movieMode: ReleaseMode = kind === "movie" ? mode : releaseModeFor(cfg, "movie");
   const showMode: ReleaseMode =
-    kind === "show" ? (mode === "immediate" ? "immediate" : "playable") : releaseModeFor(cfg, "show");
+    kind === "show"
+      ? mode === "immediate"
+        ? "immediate"
+        : "playable"
+      : releaseModeFor(cfg, "show");
   const next: AvailabilityConfig = {
     ...cfg,
     mode: movieMode,

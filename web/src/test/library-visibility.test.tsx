@@ -131,9 +131,9 @@ describe("Library visibility", () => {
       expect(screen.getByText(/^visible of /)).toBeInTheDocument();
       expect(screen.getByText("800 movies")).toBeInTheDocument();
     });
-    expect(
-      fake.state.calls.find((c) => c.path.includes("preview"))?.body,
-    ).toMatchObject({ libraryId: 1 });
+    expect(fake.state.calls.find((c) => c.path.includes("preview"))?.body).toMatchObject({
+      libraryId: 1,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Delete rule 1" }));
     await settleUi(() => {
       expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();

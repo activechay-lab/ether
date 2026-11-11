@@ -19,9 +19,9 @@ import (
 // Mapping rules:
 //   - Title.Key = item.Key (a PluginKey(seq))
 //   - Title.Type:
-//     - Single-level playable kind -> TypeMovie
-//     - 2-level hierarchy (e.g. channel -> video) -> root = TypeShow, leaf = TypeEpisode
-//     - 3-level hierarchy (e.g. series -> season -> episode) -> TypeShow / TypeSeason / TypeEpisode
+//   - Single-level playable kind -> TypeMovie
+//   - 2-level hierarchy (e.g. channel -> video) -> root = TypeShow, leaf = TypeEpisode
+//   - 3-level hierarchy (e.g. series -> season -> episode) -> TypeShow / TypeSeason / TypeEpisode
 //   - Title.Title = item.Title
 //   - Title.SortTitle = SortTitle(item.Title) or FoldSortTitle(item.SortTitle)
 //   - Title.Summary = item.Summary + formatted declared non-empty fields at the end

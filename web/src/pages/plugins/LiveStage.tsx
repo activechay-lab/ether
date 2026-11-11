@@ -188,15 +188,21 @@ function kindProjections(decl: MediaKindDecl): { protocol: string; summary: stri
   const p = decl.present ?? {};
   if (p.plex) {
     const base =
-      p.plex.base === "movie" ? t("Movies")
-      : p.plex.base === "artist" ? t("Music")
-      : p.plex.base === "photo" ? t("Photos")
-      : t("TV Shows");
+      p.plex.base === "movie"
+        ? t("Movies")
+        : p.plex.base === "artist"
+          ? t("Music")
+          : p.plex.base === "photo"
+            ? t("Photos")
+            : t("TV Shows");
     let summary = t("Shows as a {base} library", { base });
     if ((p.plex.base === "show" || p.plex.base === "artist") && levels.length > 3) {
-      summary += t("; Plex nests three levels, so {level} and deeper are flattened with their order kept", {
-        level: levels[3]?.key ?? "",
-      });
+      summary += t(
+        "; Plex nests three levels, so {level} and deeper are flattened with their order kept",
+        {
+          level: levels[3]?.key ?? "",
+        },
+      );
     }
     out.push({ protocol: "Plex", summary });
   }
@@ -206,11 +212,20 @@ function kindProjections(decl: MediaKindDecl): { protocol: string; summary: stri
       summary: t("Shows as a {type} library", { type: p.mediaBrowser.collectionType ?? "" }),
     });
   if (p.stremio)
-    out.push({ protocol: "Stremio", summary: t("Adds a {type} catalogue", { type: p.stremio.type ?? "" }) });
+    out.push({
+      protocol: "Stremio",
+      summary: t("Adds a {type} catalogue", { type: p.stremio.type ?? "" }),
+    });
   if (p.xtream)
-    out.push({ protocol: "Xtream", summary: t("Adds a {type} category", { type: p.xtream.category ?? "" }) });
+    out.push({
+      protocol: "Xtream",
+      summary: t("Adds a {type} category", { type: p.xtream.category ?? "" }),
+    });
   if (p.silo)
-    out.push({ protocol: "Silo", summary: t("Shows as a {type} library", { type: p.silo.type ?? "" }) });
+    out.push({
+      protocol: "Silo",
+      summary: t("Shows as a {type} library", { type: p.silo.type ?? "" }),
+    });
   if (!out.length)
     out.push({
       protocol: t("Plugin surface"),
@@ -222,7 +237,10 @@ function kindProjections(decl: MediaKindDecl): { protocol: string; summary: stri
 }
 
 /** A content-kind draft as the library Ether will build from it. */
-async function draftKindPreview(id: string, manifestText: string | undefined): Promise<KindPreviewData | null> {
+async function draftKindPreview(
+  id: string,
+  manifestText: string | undefined,
+): Promise<KindPreviewData | null> {
   if (manifestText === undefined) {
     const p = await apiFetch<{ project: { files: Record<string, string> } }>(
       `/plugins/studio/projects/${encodeURIComponent(id)}`,
@@ -238,9 +256,20 @@ async function draftKindPreview(id: string, manifestText: string | undefined): P
   const decl = man.ether?.contributes?.mediaKinds?.[0];
   if (!decl?.key) return null;
   const levels = decl.levels ?? [];
-  type Item = { id: string; level: string; parentId?: string; title: string; playable?: boolean; index?: number };
+  type Item = {
+    id: string;
+    level: string;
+    parentId?: string;
+    title: string;
+    playable?: boolean;
+    index?: number;
+  };
   const browse = async (parentId: string, level: string): Promise<Item[]> => {
-    const r = await runDraftPost(id, `/ether/v1/kinds/${decl.key}/browse`, { parentId, level, limit: 10 });
+    const r = await runDraftPost(id, `/ether/v1/kinds/${decl.key}/browse`, {
+      parentId,
+      level,
+      limit: 10,
+    });
     return ((r.body?.items as Item[] | undefined) ?? []).slice(0, 10);
   };
   const depthOf = new Map<string, number>();
@@ -258,7 +287,8 @@ async function draftKindPreview(id: string, manifestText: string | undefined): P
   if (levels[1] && roots[0]) {
     const children = await browse(roots[0].id, levels[1].key).catch(() => []);
     add(children, 1);
-    if (levels[2] && children[0] && !playable) add(await browse(children[0].id, levels[2].key).catch(() => []), 2);
+    if (levels[2] && children[0] && !playable)
+      add(await browse(children[0].id, levels[2].key).catch(() => []), 2);
   }
   let dryRun: KindPreviewData["moment"]["dryRun"];
   if (playable) {
@@ -271,7 +301,8 @@ async function draftKindPreview(id: string, manifestText: string | undefined): P
       dryRun = {
         title: playable.title,
         sources: sources.map((s) => {
-          const container = s.container as { member?: string; volumes?: { url?: string }[] } | undefined;
+          const container = s.container as
+            { member?: string; volumes?: { url?: string }[] } | undefined;
           const raw = String(s.url ?? container?.volumes?.[0]?.url ?? "");
           const expanded = raw
             .replaceAll("{itemIndex}", String(playable!.index ?? 0))
@@ -381,12 +412,19 @@ export function NativePreview({
     };
     return (
       <div className="space-y-3">
-        <MomentView moment={{ ...kindPreview.moment, liveSearch: liveSearch ?? kindPreview.moment.liveSearch }} />
+        <MomentView
+          moment={{
+            ...kindPreview.moment,
+            liveSearch: liveSearch ?? kindPreview.moment.liveSearch,
+          }}
+        />
         <div className="flex items-start justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
           <div>
             <p className="text-sm font-medium text-fg">{t("Live search")}</p>
             <p className="text-sm text-fg-muted">
-              {t("Searches in apps also ask this plugin, with a short time limit. Ether keeps what it finds, so repeats are instant. Turn it off when the source is slow or cannot search.")}
+              {t(
+                "Searches in apps also ask this plugin, with a short time limit. Ether keeps what it finds, so repeats are instant. Turn it off when the source is slow or cannot search.",
+              )}
             </p>
           </div>
           <Switch
@@ -586,10 +624,15 @@ export async function momentsForTool(
           key: String(it.id ?? i),
           title: String(it.title ?? ""),
           level: String(it.level ?? ""),
-          depth: Math.max(0, ((k.levels as string[] | undefined) ?? []).indexOf(String(it.level ?? ""))),
+          depth: Math.max(
+            0,
+            ((k.levels as string[] | undefined) ?? []).indexOf(String(it.level ?? "")),
+          ),
           playable: Boolean(it.playable),
         })),
-        projections: ((k.projections as { protocol?: string; summary?: string }[] | undefined) ?? []).map((p) => ({
+        projections: (
+          (k.projections as { protocol?: string; summary?: string }[] | undefined) ?? []
+        ).map((p) => ({
           protocol: String(p.protocol ?? ""),
           summary: String(p.summary ?? ""),
         })),
@@ -597,7 +640,10 @@ export async function momentsForTool(
         dryRun: k.dryRun
           ? {
               title: String((k.dryRun as Record<string, any>).title ?? ""),
-              sources: (((k.dryRun as Record<string, any>).sources as Record<string, any>[] | undefined) ?? []).map((s) => ({
+              sources: (
+                ((k.dryRun as Record<string, any>).sources as Record<string, any>[] | undefined) ??
+                []
+              ).map((s) => ({
                 pattern: String(s.pattern ?? ""),
                 detail: String(s.expanded || s.url || s.member || ""),
               })),

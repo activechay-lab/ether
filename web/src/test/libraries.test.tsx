@@ -17,7 +17,11 @@ describe("Libraries workspace", () => {
 
   it("shows Browse, Rules, and Settings tabs on a TMDB library without Collections", async () => {
     renderApp("/libraries/1");
-    const nav = await screen.findByRole("tablist", { name: "Library sections" }, { timeout: 15000 });
+    const nav = await screen.findByRole(
+      "tablist",
+      { name: "Library sections" },
+      { timeout: 15000 },
+    );
     expect(within(nav).getByText("Browse")).toBeInTheDocument();
     expect(within(nav).getByText("Rules")).toBeInTheDocument();
     expect(within(nav).getByText("Settings")).toBeInTheDocument();
@@ -28,7 +32,9 @@ describe("Libraries workspace", () => {
     const { fake } = renderApp("/libraries");
     fireEvent.click(await screen.findByRole("button", { name: "New library" }, { timeout: 15000 }));
     expect(await screen.findByText("Where do titles come from?")).toBeInTheDocument();
-    expect(await screen.findByText("From Demo books · EPUB and audiobook library")).toBeInTheDocument();
+    expect(
+      await screen.findByText("From Demo books · EPUB and audiobook library"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Movies or TV from TMDB/ }));
     fireEvent.change(await screen.findByLabelText("Library name"), {
       target: { value: "Weekend films" },

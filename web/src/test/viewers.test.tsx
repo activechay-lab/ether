@@ -553,7 +553,11 @@ it("imports viewers from connected Plex servers via drawer", async () => {
   const importBtn = await screen.findByRole("button", { name: /Import from Plex/i }, WAIT);
   fireEvent.click(importBtn);
 
-  const drawer = await screen.findByRole("dialog", { name: /Import users from connected Plex servers/i }, WAIT);
+  const drawer = await screen.findByRole(
+    "dialog",
+    { name: /Import users from connected Plex servers/i },
+    WAIT,
+  );
   expect(drawer).toBeInTheDocument();
   expect(await within(drawer).findByText("Old Plex Server", {}, WAIT)).toBeInTheDocument();
   expect(within(drawer).getByText("PlexFriend")).toBeInTheDocument();
@@ -574,7 +578,9 @@ it("imports viewers from connected Plex servers via drawer", async () => {
   expect(await within(drawer).findByText(/\/invite\/test-token/, {}, WAIT)).toBeInTheDocument();
 
   // Test search filtering by Plex username
-  const searchInput = within(drawer).getByPlaceholderText(/Search by account name or Plex username/i);
+  const searchInput = within(drawer).getByPlaceholderText(
+    /Search by account name or Plex username/i,
+  );
   fireEvent.change(searchInput, { target: { value: "NonExistent" } });
   expect(within(drawer).queryByText("PlexFriend")).toBeNull();
   expect(within(drawer).getByText(/No accounts match "NonExistent"/i)).toBeInTheDocument();
@@ -582,7 +588,10 @@ it("imports viewers from connected Plex servers via drawer", async () => {
   // Verify accessibility and external link to Plex.tv
   expect(searchInput).toHaveAttribute("aria-label", "Search by account name or Plex username");
   const manageLink = within(drawer).getByRole("link", { name: /Manage Library Access/i });
-  expect(manageLink).toHaveAttribute("href", "https://app.plex.tv/desktop/#!/settings/manage-library-access");
+  expect(manageLink).toHaveAttribute(
+    "href",
+    "https://app.plex.tv/desktop/#!/settings/manage-library-access",
+  );
 
   fireEvent.change(searchInput, { target: { value: "PlexFriend" } });
   expect(within(drawer).getByText("PlexFriend")).toBeInTheDocument();

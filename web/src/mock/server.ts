@@ -3881,8 +3881,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
         const reqLib = reqLibId ? mockLibs.find((l) => l.id === reqLibId) : undefined;
         const reqType = reqLib
           ? String(
-              reqLib.mediaType ??
-                ((reqLib.filter as { type?: string } | undefined)?.type || ""),
+              reqLib.mediaType ?? ((reqLib.filter as { type?: string } | undefined)?.type || ""),
             )
           : "";
         const scopedCatalog = reqType ? catalog.filter((t) => t.type === reqType) : catalog;

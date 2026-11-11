@@ -489,7 +489,7 @@ func cleanMessage(err error) string {
 func pageParams(r *http.Request) (limit, offset int) {
 	q := r.URL.Query()
 	limit = defaultPageLimit
-	if v, err := strconv.Atoi(q.Get("limit")) ; err == nil && v > 0 {
+	if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
 		limit = v
 	}
 	if v, err := paging.ParseOffset(q.Get("offset"), limit); err == nil && v >= 0 {
