@@ -205,7 +205,7 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 		RatingKey:     t.Key.String(),
 		Key:           metadataKey(t.Key, t.Type),
 		GUID:          guidFor(t),
-		Type:          string(t.Type),
+		Type:          s.plexTypeFor(t),
 		Title:         t.Title,
 		Summary:       t.Summary,
 		Tagline:       t.Tagline,

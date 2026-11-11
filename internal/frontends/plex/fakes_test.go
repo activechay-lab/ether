@@ -803,6 +803,38 @@ func (p *fakePlayback) Session(id string) (*core.PlaySession, bool) {
 	return ps, ok
 }
 
+// PrepareKind lets fakePlayback stand in for the real KindPlayback manager:
+// it opens the plugin item's bytes and registers a play session, so a plugin
+// key served through a Plex part URL streams through the same fake range path
+// a catalogue title uses.
+func (p *fakePlayback) PrepareKind(_ context.Context, u *core.User, in core.KindInput, caps core.ClientCaps) (*core.PlaySession, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if in.Title == nil {
+		return nil, core.ErrNotAvailable
+	}
+	if in.Open != nil {
+		if src, err := in.Open(context.Background()); err == nil && src != nil {
+			if src.Size() > 0 {
+				buf := make([]byte, src.Size())
+				if _, err := src.ReadAt(buf, 0); err == nil {
+					p.data = buf
+				}
+			}
+			_ = src.Close()
+		}
+	}
+	p.prepared++
+	id := fmt.Sprintf("kind-%d-%s-%d", u.ID, caps.ClientID, in.Title.Key)
+	ps := &core.PlaySession{ID: id, UserID: u.ID, ClientID: caps.ClientID, Key: in.Title.Key, Info: p.info, StartedAt: fixedNow, Resolution: &core.Resolution{Release: core.Release{ID: "kind:" + in.SourceID}}}
+	p.sessions[id] = ps
+	return ps, nil
+}
+
+func (p *fakePlayback) SessionForKind(u int64, client string, k core.RatingKey) (*core.PlaySession, bool) {
+	return p.SessionFor(u, client, k)
+}
+
 func (p *fakePlayback) SessionFor(u int64, client string, k core.RatingKey) (*core.PlaySession, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

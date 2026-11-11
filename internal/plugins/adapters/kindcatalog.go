@@ -821,6 +821,7 @@ func (c *KindCatalog) projectItems(ctx context.Context, rec pluginitems.KindReco
 			return core.Title{}, false
 		}
 		rt := pluginitems.Project(root, rec.Decl, lib.Present)
+		rt.LibraryID = lib.ID
 		if rt.ContentRating == "" {
 			rt.ContentRating = extractContentRating(root.Fields)
 		}
@@ -831,6 +832,7 @@ func (c *KindCatalog) projectItems(ctx context.Context, rec pluginitems.KindReco
 	out := make([]core.Title, len(items))
 	for i, it := range items {
 		t := pluginitems.Project(it, rec.Decl, lib.Present)
+		t.LibraryID = lib.ID
 		if t.ContentRating == "" {
 			t.ContentRating = extractContentRating(it.Fields)
 		}

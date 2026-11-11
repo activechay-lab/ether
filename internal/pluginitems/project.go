@@ -44,6 +44,7 @@ func Project(item core.KindItem, decl plugins.MediaKindMeta, present core.Presen
 	t := core.Title{
 		Key:        item.Key,
 		Type:       mediaType,
+		KindLevel:  item.Level,
 		Title:      item.Title,
 		SortTitle:  sortTitle,
 		Summary:    projectSummary(item, decl),

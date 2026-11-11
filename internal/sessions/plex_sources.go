@@ -16,6 +16,26 @@ import (
 type PartSources struct {
 	Playback core.Playback
 	Log      *slog.Logger
+	// KindSource, when set, supplies plugin kind items so a plugin key served
+	// through a Plex part URL opens through the shared KindPlayback pipeline
+	// (spec §15.1) instead of the catalogue Prepare path.
+	KindSource func(context.Context, *core.Viewer, core.RatingKey) (*core.KindInput, error)
+}
+
+// prepareKind opens a plugin kind key through the shared KindPlayback pipeline.
+func (s PartSources) prepareKind(ctx context.Context, viewer *core.User, key core.RatingKey, caps core.ClientCaps) (*core.PlaySession, error) {
+	kp, ok := s.Playback.(core.KindPlayback)
+	if !ok || s.KindSource == nil {
+		return nil, core.ErrNotAvailable
+	}
+	in, err := s.KindSource(ctx, viewer, key)
+	if err != nil || in == nil {
+		return nil, core.ErrNotFound
+	}
+	if in.Title == nil || in.Title.Key != key {
+		return nil, core.ErrNotFound
+	}
+	return kp.PrepareKind(ctx, viewer, *in, caps)
 }
 
 // Prepare bounds acquisition while leaving shared source flights and normal
@@ -24,6 +44,14 @@ type PartSources struct {
 func (s PartSources) Prepare(ctx context.Context, viewer *core.User, key core.RatingKey, caps core.ClientCaps, release string, wait time.Duration) (*core.PlaySession, error) {
 	if s.Playback == nil {
 		return nil, core.ErrNotAvailable
+	}
+	// A plugin kind key opens through the shared KindPlayback pipeline, never
+	// the catalogue Prepare path (spec §15.1).
+	if key.IsPluginKey() && s.KindSource != nil {
+		if release != "" {
+			return nil, core.ErrNotAvailable
+		}
+		return s.prepareKind(ctx, viewer, key, caps)
 	}
 	if p, ok := s.Playback.(core.PlaybackPrepareWithin); ok {
 		if _, err := p.PrepareWithin(ctx, wait, viewer, key, caps, release, false); err != nil {
@@ -46,6 +74,14 @@ func (s PartSources) Prepare(ctx context.Context, viewer *core.User, key core.Ra
 // so admission can recognize a fallback to that same live session.
 func (s PartSources) Part(viewer int64, client string, key core.RatingKey, release string) PartSource {
 	ps, ok := s.Playback.SessionFor(viewer, client, key)
+	if key.IsPluginKey() {
+		// A plugin kind session is not in the catalogue SessionFor index.
+		if kp, isKind := s.Playback.(core.KindPlayback); isKind {
+			if kps, found := kp.SessionForKind(viewer, client, key); found && kps != nil {
+				ps, ok = kps, true
+			}
+		}
+	}
 	anonymous := false
 	if client == "" {
 		if p, supported := s.Playback.(interface {

@@ -538,7 +538,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*fro
 	if s.playback() == nil {
 		return nil, nil, frontend.Decision{}, errors.New("playback not configured")
 	}
-	t, err := s.catalog().Get(ctx, p.key)
+	t, err := s.metadataTitle(ctx, pr, p.key)
 	if err != nil || (t != nil && t.IsFutureRelease(s.now())) {
 		if title, _, e := s.lookupPlaceholder(ctx, pr, p.key, p.collection); e == nil {
 			return title, nil, frontend.Decision{}, frontend.ErrUnreleased
@@ -551,7 +551,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*fro
 		return nil, nil, frontend.Decision{}, err
 	}
 	// Policy only: discovery evidence never blocks a play attempt.
-	if !s.playableTitle(ctx, pr.User, t) {
+	if !s.pluginAwarePlayable(ctx, pr.User, t) {
 		return nil, nil, frontend.Decision{}, frontend.ErrNotFound
 	}
 	if policy, ok := s.policy().(frontend.PlaybackAccessPolicy); ok && !policy.CanPlay(pr.User, p.caps.Remote, s.now()) {
@@ -2017,8 +2017,8 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	title, titleErr := s.catalog().Get(ctx, key)
-	if titleErr != nil || !s.playableTitle(ctx, pr.User, title) {
+	title, titleErr := s.metadataTitle(ctx, pr, key)
+	if titleErr != nil || !s.pluginAwarePlayable(ctx, pr.User, title) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -2045,15 +2045,15 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	if anonymousContinuation {
 		if confirm := s.brokerRuntime(); confirm != nil {
 			viewer, err := confirm.ConfirmAdmission(ctx, pr.User, pr.ClientCaps(0).Remote)
-			if err != nil || viewer == nil || viewer.ID != pr.User.ID || !s.playableTitle(ctx, viewer, title) {
+			if err != nil || viewer == nil || viewer.ID != pr.User.ID || !s.pluginAwarePlayable(ctx, viewer, title) {
 				writeHTTPError(w, http.StatusForbidden)
 				return
 			}
 		}
 	}
 	if !ok || ps == nil {
-		t, err := s.catalog().Get(ctx, key)
-		if err == nil && !s.titleVisible(pr.User, t) {
+		t, err := s.metadataTitle(ctx, pr, key)
+		if err == nil && !t.Key.IsPluginKey() && !s.titleVisible(pr.User, t) {
 			err = frontend.ErrNotFound
 		}
 		if err != nil {
@@ -2109,7 +2109,10 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if !already {
+		// A plugin kind key opens through the shared KindPlayback pipeline; when
+		// no broker is mounted (standalone runtime, fixture) it is served
+		// directly from the prepared kind session without a broker publish.
+		if !already && (s.broker() != nil || !key.IsPluginKey()) {
 			if _, err := s.publishBrokerPlayback(ctx, pr, &partPlay, ps); err != nil {
 				s.log.Info("direct play broker publish failed", "key", key, "err", err)
 				s.writeErr(w, r, err)
