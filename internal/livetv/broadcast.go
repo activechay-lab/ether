@@ -58,6 +58,7 @@ type broadcastPlan struct {
 	mediaKey               core.RatingKey
 	sourceOffset           time.Duration
 	interstitial, fallback bool
+	liveMoment             bool
 	element                string
 	policy                 *broadcastPolicyTag
 	fill                   bool
@@ -214,6 +215,7 @@ type broadcast struct {
 	later                map[string]*broadcastInput
 	future               map[string]broadcastPlan
 	opening              map[string]bool
+	openingAt            map[string]time.Time
 	retry                map[string]time.Time
 	lastFrame            transcode.RawFrame
 	freshAt              time.Time
@@ -253,6 +255,8 @@ type broadcast struct {
 	airedProgramme bool
 	coldHoldUntil  time.Time
 	coldHoldFrame  []byte
+	holdMode       string
+	holdSince      time.Time
 }
 
 func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planner broadcastPlanner, format transcode.RawFormat) (*broadcast, error) {
@@ -263,7 +267,7 @@ func newBroadcast(ctx context.Context, runner transcode.ContinuousRunner, planne
 		return nil, fmt.Errorf("broadcast requires runners and a planner")
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
+	b := &broadcast{ctx: ctx, cancel: cancel, runner: runner, planner: planner, format: format, origin: time.Now(), black: blackFrame(format, 0).Video, dvr: broadcastDVR, renditions: map[string]*broadcastRendition{}, opening: map[string]bool{}, openingAt: map[string]time.Time{}, retry: map[string]time.Time{}, prepared: make(chan broadcastPrepared, 4), retryRequests: make(chan struct{}, 1), lastViewer: time.Now()}
 	b.created = b.origin
 	b.segment = segmentDuration
 	if source, ok := planner.(interface{ segmentDuration() time.Duration }); ok {
@@ -334,7 +338,7 @@ func (b *broadcast) close() {
 	b.startMu.Unlock()
 	b.wg.Wait()
 }
-func (b *broadcast) addRendition(ctx context.Context, id string, decision core.Decision) (transcode.SegmentIndex, error) {
+func (b *broadcast) addRendition(ctx context.Context, id string, decision core.Decision, caps ...core.ClientCaps) (transcode.SegmentIndex, error) {
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
 	b.mu.Lock()
@@ -354,9 +358,13 @@ func (b *broadcast) addRendition(ctx context.Context, id string, decision core.D
 		return nil, fmt.Errorf("channel rendition limit reached")
 	}
 	b.mu.Unlock()
+	var clientCaps core.ClientCaps
+	if len(caps) > 0 {
+		clientCaps = caps[0]
+	}
 	lifetime, cancel := context.WithCancel(b.ctx)
 	stop := context.AfterFunc(ctx, cancel)
-	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, SegmentDuration: b.segment, DVRWindow: b.dvr, LiveSource: b.burstNoWait})
+	encoder, err := b.runner.StartEncoder(lifetime, transcode.EncoderRequest{SessionID: id, Source: b.format, Decision: decision, ClientCaps: clientCaps, SegmentDuration: b.segment, DVRWindow: b.dvr, LiveSource: b.burstNoWait})
 	stop()
 	if err != nil {
 		cancel()
@@ -476,6 +484,7 @@ func (b *broadcast) open(plan broadcastPlan, now time.Time) {
 		return
 	}
 	b.opening[plan.id] = true
+	b.openingAt[plan.id] = time.Now()
 	age := time.Duration(0)
 	if !plan.start.IsZero() {
 		age = now.Sub(plan.start)
@@ -527,6 +536,7 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 		select {
 		case result := <-b.prepared:
 			delete(b.opening, result.plan.id)
+			delete(b.openingAt, result.plan.id)
 			if result.err != nil {
 				b.noteFailure(result.plan, result.err, now)
 				if result.plan.id == b.intro.id {
@@ -722,6 +732,41 @@ func (b *broadcast) podExtensionUntil(now time.Time) time.Time {
 	return now.Add(broadcastStartup)
 }
 
+func (b *broadcast) standbyContinuationPlan() (broadcastPlan, bool) {
+	if source, ok := b.planner.(interface{ standbyPlan() (broadcastPlan, bool) }); ok {
+		if standby, ok := source.standbyPlan(); ok {
+			standby.id = "pod-fill-" + standby.id
+			standby.failed = nil
+			return standby, true
+		}
+	}
+	return broadcastPlan{}, false
+}
+
+func (b *broadcast) liveMomentPending(plan broadcastPlan) bool {
+	if !plan.interstitial || !plan.liveMoment || plan.fallback {
+		return false
+	}
+	if _, decided := b.momentInputs[plan.id]; decided {
+		return false
+	}
+	input := b.current
+	if input == nil || input.plan.id != plan.id {
+		input = b.next
+	}
+	if input == nil || input.plan.id != plan.id {
+		input = b.later[plan.id]
+	}
+	if input != nil && len(input.frames) > 0 {
+		return false
+	}
+	if b.opening[plan.id] {
+		at := b.openingAt[plan.id]
+		return at.IsZero() || time.Since(at) < 500*time.Millisecond
+	}
+	return input != nil && input.lastFrameAt.IsZero() && !input.openedAt.IsZero() && time.Since(input.openedAt) < 500*time.Millisecond
+}
+
 func (b *broadcast) step(now time.Time) bool {
 	b.burstReady = false
 	fresh := false
@@ -734,9 +779,13 @@ func (b *broadcast) step(now time.Time) bool {
 		if current.programme && b.lastPodPlan.id != "" && b.plannedID != "" {
 			b.closeInput(b.continuation)
 			b.continuation = nil
-			b.continuationPlan = b.lastPodPlan
-			b.continuationPlan.id = "pod-fill-" + b.lastPodPlan.id
-			b.continuationPlan.failed = nil
+			if standby, ok := b.standbyContinuationPlan(); ok {
+				b.continuationPlan = standby
+			} else {
+				b.continuationPlan = b.lastPodPlan
+				b.continuationPlan.id = "pod-fill-" + b.lastPodPlan.id
+				b.continuationPlan.failed = nil
+			}
 			b.continuationUntil = b.podExtensionUntil(now)
 			b.continuationFrame = b.lastPodFrame
 			b.lastPodPlan = broadcastPlan{}
@@ -780,6 +829,10 @@ func (b *broadcast) step(now time.Time) bool {
 		b.closeInput(b.fallback)
 		b.fallback = nil
 	}
+	if b.momentCard != nil && b.momentCard.plan.id != b.momentCardPlan.id {
+		b.closeInput(b.momentCard)
+		b.momentCard = nil
+	}
 	b.accept(now, current, next)
 	// Keep one bounded screen input prewarmed while programmes play. A stall
 	// then cuts to its first frame at the 1.5 s deadline, without raster/decoder
@@ -810,13 +863,18 @@ func (b *broadcast) step(now time.Time) bool {
 		}
 		if !retained && b.current.plan.interstitial && current.programme && !b.current.lastFrameAt.IsZero() {
 			b.closeInput(b.continuation)
-			b.continuation = b.current
-			b.continuationPlan = b.current.plan
-			b.continuationPlan.id = "pod-fill-" + b.current.plan.id
-			b.continuationPlan.failed = nil
+			b.continuation = nil
+			if standby, ok := b.standbyContinuationPlan(); ok {
+				b.continuationPlan = standby
+			} else {
+				b.continuation = b.current
+				b.continuationPlan = b.current.plan
+				b.continuationPlan.id = "pod-fill-" + b.current.plan.id
+				b.continuationPlan.failed = nil
+				retained = true
+			}
 			b.continuationUntil = b.podExtensionUntil(now)
 			b.continuationFrame = b.lastFrame
-			retained = true
 		}
 		if !retained {
 			b.closeInput(b.current)
@@ -864,10 +922,24 @@ func (b *broadcast) step(now time.Time) bool {
 			b.open(plan, now)
 		}
 	}
+	// Give live-rendered On Air moments a bounded window to deliver frame 0 on
+	// cold tune or ahead-of-clock startup burst before latching fallback.
+	frameDuration := time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)
+	if !introActive && b.tick == 0 && b.liveMomentPending(current) && time.Since(b.origin) < 500*time.Millisecond {
+		b.origin = time.Now()
+		return false
+	}
+	if b.bursting && now.After(time.Now()) {
+		if !introActive && b.liveMomentPending(current) {
+			return false
+		}
+		if next != nil && !next.start.After(now.Add(frameDuration)) && b.liveMomentPending(*next) {
+			return false
+		}
+	}
 	// The last tick before a moment selects its input once. Decoders that
 	// become ready after that deadline must not replace a live fallback in
 	// the middle of the interval.
-	frameDuration := time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)
 	if next != nil && !next.start.After(now.Add(frameDuration)) {
 		b.latchMomentInput(*next, now)
 	}
@@ -902,6 +974,11 @@ func (b *broadcast) step(now time.Time) bool {
 				}
 				if b.current.lastFrameAt.IsZero() && current.programme {
 					b.logger.Debug("broadcast programme first aired", "input", current.id, "prepareLatency", now.Sub(b.current.started), "sinceOutputStart", now.Sub(b.origin))
+					if handoff, ok := b.planner.(interface {
+						noteHandoff(core.RatingKey, time.Duration, time.Time)
+					}); ok {
+						handoff.noteHandoff(current.mediaKey, current.sourceOffset, now)
+					}
 				}
 				if current.programme {
 					b.airedProgramme = true
@@ -927,6 +1004,13 @@ func (b *broadcast) step(now time.Time) bool {
 					b.retry[current.id] = current.end
 				} else {
 					b.noteFailure(current, err, now)
+					if current.interstitial {
+						if b.momentInputs == nil {
+							b.momentInputs = map[string]broadcastMomentInput{}
+						}
+						b.momentInputs[current.id] = broadcastMomentInput{fallback: true, end: current.end}
+						momentFallback = true
+					}
 				}
 				b.closeInput(b.current)
 				b.current = nil
@@ -1137,10 +1221,26 @@ func (b *broadcast) step(now time.Time) bool {
 	if momentFallback && !introActive {
 		mode = "fallback/" + current.id
 	}
+	isHoldMode := mode == "hold" || mode == "pod-extension" || mode == "cold-hold" || (mode == "screen" && current.programme)
+	if isHoldMode {
+		if b.holdSince.IsZero() {
+			b.holdSince = now
+			b.holdMode = mode
+		}
+	} else if !b.holdSince.IsZero() {
+		if dur := now.Sub(b.holdSince); dur > 0 {
+			if holder, ok := b.planner.(interface{ noteHold(string, time.Duration) }); ok {
+				holder.noteHold(b.holdMode, dur)
+			}
+		}
+		b.holdSince = time.Time{}
+		b.holdMode = ""
+	}
 	// PCM follows the output tick, including fractional frame rates. Never let a
 	// malformed decoder chunk shift every subsequent audio timestamp.
 	pcm := make([]byte, samples*b.format.Channels*2)
 	copy(pcm, frame.PCM)
+	frame.PCM = pcm
 	frame.PCM = pcm
 	cut := mode != b.mode
 	if cut {

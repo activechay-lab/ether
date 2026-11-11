@@ -167,6 +167,7 @@ func (s *Service) startOwnedHLS(request context.Context, ss *session, req core.H
 }
 
 func (ss *session) close(s *Service) {
+	defer s.onChannelSessionClosed(ss.info.Channel.ID)
 	defer s.endPersonal(ss.info.Channel, ss.info.UserID)
 	if ss.startupCancel != nil {
 		ss.startupCancel()

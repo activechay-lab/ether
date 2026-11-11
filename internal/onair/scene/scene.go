@@ -144,7 +144,7 @@ func (d Document) Estimate() Cost {
 	return c
 }
 func (d Document) Validate() error {
-	if d.V != 1 || (!strings.HasPrefix(d.Moment, "plugin:") && !one(d.Moment, "ident upnext tonight break back offair welcome bug lowerthird screen.card screen.static screen.bars screen.brb screen.testcard")) {
+	if d.V != 1 || (!strings.HasPrefix(d.Moment, "plugin:") && !one(d.Moment, "ident upnext tonight break back offair standby welcome bug lowerthird screen.card screen.static screen.bars screen.brb screen.testcard")) {
 		return fmt.Errorf("unsupported scene version or moment")
 	}
 	maxDuration := 30.0

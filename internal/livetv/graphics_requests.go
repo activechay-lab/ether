@@ -2,24 +2,24 @@ package livetv
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/core"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// GraphicsRequests is a background-only planning snapshot. Empty lookID limits
-// it to watched channels: rendering is viewer-driven, so an enabled channel
-// nobody watches - clock, blocks or plain lineup - costs no renders, and a
-// cold tune-in airs the graphics fallback until its clips land. Near
-// boundaries sort first across all channels so a long future rundown cannot
-// fill the render queue ahead of an imminent element.
-// A lookID requests static clips for every channel using that saved look.
+// GraphicsRequests is a demand-driven planning snapshot. Empty lookID limits it
+// strictly to channels with an active viewer: an enabled channel nobody watches
+// — clock, blocks, showcase or plain lineup — costs zero renders and zero reel
+// link resolutions. Near boundaries sort first across watched channels so a
+// distant element never queues ahead of an imminent boundary.
+// A non-empty lookID answers explicit console look queries.
 func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.ClipRequest {
-	var recent map[string]bool
+	var active map[string]bool
 	if lookID == "" {
-		recent = s.recentlyWatched()
-		if len(recent) == 0 {
+		active = s.activeWatchedChannels()
+		if len(active) == 0 {
 			return nil
 		}
 	}
@@ -41,7 +41,7 @@ func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.Cl
 			if c.Look == nil || c.Look.LookID != lookID {
 				continue
 			}
-		} else if !recent[c.ID] {
+		} else if !active[c.ID] {
 			continue
 		}
 		c = s.graphicsChannel(c)
@@ -57,17 +57,61 @@ func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.Cl
 			lead = max(lead, renderer.RenderLead(channelLook, ""))
 		}
 		horizon := max(lead, 15*time.Minute)
-		for _, m := range []string{"ident", "offair", "break"} {
+		// Reusable look masters (1 per look) warm once on first watch, ordered
+		// behind imminent timed boundaries.
+		for _, m := range []string{"standby", "ident", "break", "back", "offair"} {
 			if c.Look == nil {
 				continue
 			}
-			// Reusable style warm-up has no airing deadline; it remains
-			// ordinary cancellable background work.
 			pending = append(pending, scheduled{time.Time{}, s.clipRequest(c, Programme{Item: Item{Slate: m}, Start: now, End: now})})
 		}
 		if lookID == "" {
-			snapshot := Schedule(c, now, now.Add(horizon+24*time.Hour))
+			// Scan far enough ahead to cover the watched channel's current show
+			// segment so the next commercial pod's link clips resolve ahead of time.
+			podHorizon := max(horizon, 60*time.Minute)
+			snapshot := Schedule(c, now, now.Add(podHorizon+24*time.Hour))
+
+			// Identify reel clips belonging to any active pod and the single next
+			// upcoming commercial pod during the current segment.
+			nextPodClips := map[string]bool{}
+			seenFuturePod := false
+			inFuturePod := false
 			for _, p := range snapshot {
+				if p.End.Before(now) || p.End.Equal(now) {
+					continue
+				}
+				if p.Start.After(now.Add(podHorizon)) {
+					break
+				}
+				isPod := interstitial(p.Item)
+				if !p.Start.After(now) && p.End.After(now) {
+					if p.Item.ReelClipID != "" {
+						nextPodClips[p.ID] = true
+					}
+					continue
+				}
+				if isPod {
+					if !seenFuturePod || inFuturePod {
+						seenFuturePod = true
+						inFuturePod = true
+						if p.Item.ReelClipID != "" {
+							nextPodClips[p.ID] = true
+						}
+					}
+				} else if inFuturePod {
+					// First non-pod item after the upcoming pod ends that pod.
+					inFuturePod = false
+				}
+			}
+
+			for _, p := range snapshot {
+				if p.End.Before(now) || p.End.Equal(now) {
+					continue
+				}
+				if p.Item.ReelClipID != "" && nextPodClips[p.ID] {
+					pending = append(pending, scheduled{p.Start, s.clipRequest(c, p, snapshot)})
+					continue
+				}
 				momentLead := 3 * time.Minute
 				if renderer != nil {
 					momentLead = max(momentLead, renderer.RenderLead(channelLook, p.Item.Slate))
@@ -84,7 +128,15 @@ func (s *Service) GraphicsRequests(ctx context.Context, lookID string) []core.Cl
 			}
 		}
 	}
-	sort.SliceStable(pending, func(i, j int) bool { return pending[i].at.Before(pending[j].at) })
+	// Nearest non-zero boundary sorts first; zero-time reusable masters sort after
+	// imminent boundaries so an active channel's upcoming cut always wins first.
+	sort.SliceStable(pending, func(i, j int) bool {
+		iz, jz := pending[i].at.IsZero(), pending[j].at.IsZero()
+		if iz != jz {
+			return !iz
+		}
+		return pending[i].at.Before(pending[j].at)
+	})
 	out := make([]core.ClipRequest, 0, len(pending))
 	for _, p := range pending {
 		request := p.request

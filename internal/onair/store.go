@@ -227,7 +227,9 @@ func (s *Service) saveLook(ctx context.Context, l Look) (Look, error) {
 		s.mu.Lock()
 		s.looks[l.ID] = l
 		s.mu.Unlock()
-		s.enqueueLook(l)
+		// Never eagerly render on look save; only update cached-hash accounting
+		// and wake watchUpcoming in case an active viewer is currently watching.
+		s.refreshLookHashes(l)
 		s.WakeUpcoming()
 	}
 	return l, e

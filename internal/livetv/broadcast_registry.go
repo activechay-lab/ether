@@ -39,7 +39,55 @@ func (r *broadcastRegistry) hasActive() bool {
 	return len(r.outputs) > 0
 }
 
-func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id string, decision core.Decision, create func() (*broadcast, error)) (*broadcastLease, error) {
+func (r *broadcastRegistry) hasViewers(channelID string) bool {
+	if channelID == "" {
+		return false
+	}
+	r.mu.Lock()
+	var matches []*broadcast
+	for key, b := range r.outputs {
+		if key.channelID == channelID && b != nil {
+			matches = append(matches, b)
+		}
+	}
+	r.mu.Unlock()
+	for _, b := range matches {
+		b.mu.Lock()
+		active := !b.closed && b.viewers > 0
+		b.mu.Unlock()
+		if active {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *broadcastRegistry) watchedChannelIDs() map[string]bool {
+	r.mu.Lock()
+	type entry struct {
+		channelID string
+		b         *broadcast
+	}
+	entries := make([]entry, 0, len(r.outputs))
+	for key, b := range r.outputs {
+		if key.channelID != "" && b != nil {
+			entries = append(entries, entry{channelID: key.channelID, b: b})
+		}
+	}
+	r.mu.Unlock()
+	out := map[string]bool{}
+	for _, ent := range entries {
+		ent.b.mu.Lock()
+		active := !ent.b.closed && ent.b.viewers > 0
+		ent.b.mu.Unlock()
+		if active {
+			out[ent.channelID] = true
+		}
+	}
+	return out
+}
+
+func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id string, decision core.Decision, create func() (*broadcast, error), caps ...core.ClientCaps) (*broadcastLease, error) {
 	// Keep the requested channel warm while yielding other grace-period
 	// encoders. A same-channel reopen must retain its encoded live window.
 	r.mu.Lock()
@@ -92,7 +140,7 @@ func (r *broadcastRegistry) acquire(ctx context.Context, key broadcastKey, id st
 	if onAcquire != nil {
 		onAcquire()
 	}
-	if _, err := b.addRendition(ctx, id, decision); err != nil {
+	if _, err := b.addRendition(ctx, id, decision, caps...); err != nil {
 		return nil, err
 	}
 	b.logger.Debug("broadcast viewer attached", "running", running, "rendition", id)

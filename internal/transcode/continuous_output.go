@@ -1,6 +1,7 @@
 package transcode
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -113,6 +114,7 @@ type continuousSegmentIndex struct {
 	start                    time.Time
 	duration                 time.Duration
 	changed                  chan struct{}
+	initRaw                  []byte
 	codecs                   string
 	width, height, bandwidth int
 }
@@ -142,6 +144,19 @@ func (s *continuousSegmentIndex) kick() {
 	}
 }
 func (s *continuousSegmentIndex) setStart(at time.Time) { s.mu.Lock(); s.start = at; s.mu.Unlock() }
+func (s *continuousSegmentIndex) nextSeq() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.next
+}
+func (s *continuousSegmentIndex) setBandwidth(bps int) {
+	if bps <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.bandwidth = bps
+	s.mu.Unlock()
+}
 func (s *continuousSegmentIndex) ts(seq int64) string {
 	return fmt.Sprintf("seg-%09d.ts", seq)
 }
@@ -168,19 +183,18 @@ func (s *continuousSegmentIndex) refresh() {
 	if s.start.IsZero() {
 		return
 	}
-	if s.codecs == "" {
-		if b, ok := s.enc.store.read("init.mp4"); ok {
-			if tracks, e := parseInitTracks(b); e == nil {
-				var codecs []string
-				for _, t := range tracks {
-					codecs = append(codecs, t.Codecs)
-					if t.Handler == "vide" {
-						s.width = t.Width
-						s.height = t.Height
-					}
+	if b, ok := s.enc.store.read("init.mp4"); ok && !bytes.Equal(b, s.initRaw) {
+		if tracks, e := parseInitTracks(b); e == nil {
+			var codecs []string
+			for _, t := range tracks {
+				codecs = append(codecs, t.Codecs)
+				if t.Handler == "vide" {
+					s.width = t.Width
+					s.height = t.Height
 				}
-				s.codecs = strings.Join(codecs, ",")
 			}
+			s.codecs = strings.Join(codecs, ",")
+			s.initRaw = append(s.initRaw[:0], b...)
 		}
 	}
 	// A machine suspend can outlast the live window. Recover the retained

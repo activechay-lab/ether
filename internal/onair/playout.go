@@ -11,7 +11,7 @@ import (
 // Overlay prepares an immutable scene and decoded resources for the playout
 // background planner. It never renders; frame ticks evaluate the pure renderer.
 func (s *Service) Overlay(ctx context.Context, r core.ClipRequest) (scene.Document, raster.Bindings, bool) {
-	j, ok := s.plan(r)
+	j, ok := s.planRaw(r)
 	if !ok {
 		return scene.Document{}, raster.Bindings{}, false
 	}
@@ -51,7 +51,7 @@ func (s *Service) Overlay(ctx context.Context, r core.ClipRequest) (scene.Docume
 // LiveStatic reports readiness without requiring a rendered clip for a scene
 // whose analogue background is supplied continuously by the Signal engine.
 func (s *Service) LiveStatic(ctx context.Context, r core.ClipRequest) bool {
-	j, ok := s.plan(r)
+	j, ok := s.planRaw(r)
 	if !ok {
 		return false
 	}

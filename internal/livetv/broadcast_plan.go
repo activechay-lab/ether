@@ -38,6 +38,27 @@ type scheduleBroadcastPlanner struct {
 
 func (p *scheduleBroadcastPlanner) startupLead() time.Duration { return 12 * time.Second }
 
+func (p *scheduleBroadcastPlanner) noteHold(kind string, dur time.Duration) {
+	if p.s != nil {
+		p.s.noteHoldComplete(p.channel.ID, kind, dur)
+	}
+}
+
+func (p *scheduleBroadcastPlanner) noteHandoff(key core.RatingKey, offset time.Duration, at time.Time) {
+	if p.s == nil || key == 0 {
+		return
+	}
+	wk := warmTarget{channelID: p.channel.ID, key: key, offsetSec: int64(offset / time.Second)}
+	p.s.warmMu.Lock()
+	warmedAt, ok := p.s.warmed[wk]
+	p.s.warmMu.Unlock()
+	lead := time.Duration(0)
+	if ok && at.After(warmedAt) {
+		lead = at.Sub(warmedAt)
+	}
+	p.s.noteProgrammeHandoff(p.channel.ID, lead)
+}
+
 func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)
 	p.requests = make(chan time.Time, 1)
@@ -75,6 +96,7 @@ func (p *scheduleBroadcastPlanner) planWorker() {
 			p.mu.Lock()
 			p.window = ps
 			p.mu.Unlock()
+			p.s.triggerBreakWarm(c.ID, ps, now)
 		}
 	}
 }
@@ -142,8 +164,13 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 	} else if programme.Item.Key != 0 {
 		element = "programme"
 	}
-	plan := broadcastPlan{mediaKey: programme.Item.Key, sourceOffset: programme.sourceOffset, interstitial: interstitial(programme.Item), fallback: programme.graphicsFallback, element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: broadcastProgrammeID(programme), start: programme.Start, end: programme.End}
-	if interstitial(programme.Item) {
+	isInterstitial := interstitial(programme.Item)
+	liveMoment := false
+	if isInterstitial && programme.Item.ReelClipID == "" && p.s != nil {
+		_, liveMoment = p.s.o.Graphics.(liveMomentSource)
+	}
+	plan := broadcastPlan{mediaKey: programme.Item.Key, sourceOffset: programme.sourceOffset, interstitial: isInterstitial, liveMoment: liveMoment, fallback: programme.graphicsFallback, element: element, policy: programme.policyTag, programme: programme.Item.Key != 0, id: broadcastProgrammeID(programme), start: programme.Start, end: programme.End}
+	if isInterstitial {
 		plan.failed = func(err error) time.Time {
 			p.s.recordGraphicsSkip(p.channel, programme, err)
 			// Refresh the input decision without changing any schedule boundary.
@@ -188,7 +215,13 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			} else {
 				request = p.s.clipRequest(c, programme)
 			}
-			decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, programme.Item.Slate == offAirSlate)
+			loop := programme.Item.Slate == offAirSlate || programme.Item.Slate == "standby"
+			if !loop && programme.Item.Slate == "break" {
+				if dur, ok := c.momentDuration("break"); ok && dur > 0 && programme.End.Sub(programme.Start) > dur {
+					loop = true
+				}
+			}
+			decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, loop)
 			if err != nil && programme.Item.Slate == offAirSlate {
 				return p.s.openSignalDecoder(ctx, p.s.screenRequest(c, offAirSlate), p.format)
 			}
