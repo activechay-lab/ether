@@ -2112,7 +2112,12 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		// A plugin kind key opens through the shared KindPlayback pipeline; when
 		// no broker is mounted (standalone runtime, fixture) it is served
 		// directly from the prepared kind session without a broker publish.
-		if !already && (s.broker() != nil || !key.IsPluginKey()) {
+		// A native player (Samsung AVPlay) drops Plex headers on media reads
+		// and carries only a token on the URL, so there is no client identity
+		// to register a broker session under; PMS serves the part without one,
+		// and so must we (the read already passed token auth, title visibility
+		// and CanPlay).
+		if !already && pr.ClientID != "" && (s.broker() != nil || !key.IsPluginKey()) {
 			if _, err := s.publishBrokerPlayback(ctx, pr, &partPlay, ps); err != nil {
 				s.log.Info("direct play broker publish failed", "key", key, "err", err)
 				s.writeErr(w, r, err)
