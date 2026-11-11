@@ -88,6 +88,7 @@ func (a *App) newSessionBroker(events *sessions.EventBus) (*sessions.Broker, err
 		Lookup: func(ctx context.Context, v *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			return a.sessionTitle(ctx, v, key, visibility, false)
 		},
+		KindSource: a.kindSourceFunc(),
 		MediaLookup: func(ctx context.Context, v *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			return a.sessionTitle(ctx, v, key, visibility, true)
 		},

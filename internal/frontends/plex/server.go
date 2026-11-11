@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
 )
@@ -43,10 +44,16 @@ type Identity struct {
 // Section is a library section exposed to clients.
 type Section struct {
 	ID       int
-	Type     frontend.MediaType // movie or show
+	Type     frontend.MediaType // native base: movie, show, artist, photo
 	Title    string
 	UUID     string // stable; derived from the machine identifier when empty
 	Language string
+	// LibraryID is the stable integer identity in the libraries store.
+	LibraryID core.LibraryID
+	// PluginID and KindKey are set for plugin-provided libraries (empty for
+	// built-in and filter libraries).
+	PluginID string
+	KindKey  string
 }
 
 // SessionToucher is optionally implemented by frontend.Playback to keep a play
@@ -925,17 +932,35 @@ func (s *Server) buildSections() []Section {
 	}
 	out := make([]Section, len(secs))
 	for i, sec := range secs {
-		if sec.Language == "" {
-			sec.Language = "en-US"
+		if sec.LibraryID == 0 && (sec.ID == int(core.LibraryMovies) || sec.ID == int(core.LibraryShows)) {
+			sec.LibraryID = core.LibraryID(sec.ID)
 		}
-		if sec.UUID == "" {
-			sum := sha1.Sum([]byte(fmt.Sprintf("%s/section/%d", s.identity().MachineIdentifier, sec.ID)))
-			h := hex.EncodeToString(sum[:16])
-			sec.UUID = h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
-		}
-		out[i] = sec
+		out[i] = s.sectionDefaults(sec)
 	}
+	// Published plugin and filter libraries join the same section list
+	// (spec §6.4). Each keeps its own stable UUID derived from its library id.
+	kindSecs := s.publishedKindSections(s.ctx)
+	for i := range kindSecs {
+		kindSecs[i] = s.sectionDefaults(kindSecs[i])
+	}
+	out = mergeKindSections(out, kindSecs)
 	return s.withLibraryTitles(out)
+}
+
+// sectionDefaults fills the language and the stable, library-id-derived UUID
+// every section carries. The UUID is derived from the section id, which for
+// every Plex-published library is the library id (spec §6.4), so existing
+// built-in sections keep their UUIDs and every client keeps its state.
+func (s *Server) sectionDefaults(sec Section) Section {
+	if sec.Language == "" {
+		sec.Language = "en-US"
+	}
+	if sec.UUID == "" {
+		sum := sha1.Sum([]byte(fmt.Sprintf("%s/section/%d", s.identity().MachineIdentifier, sec.ID)))
+		h := hex.EncodeToString(sum[:16])
+		sec.UUID = h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
+	}
+	return sec
 }
 
 // librarySectionTitle is the Movies / TV Shows name Ether advertises to

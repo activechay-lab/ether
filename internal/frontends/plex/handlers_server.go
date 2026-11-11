@@ -152,10 +152,16 @@ func sectionPivots(sec Section) []model.Pivot {
 }
 
 func agentFor(t frontend.MediaType) (agent, scanner string) {
-	if t == frontend.TypeShow {
+	switch string(t) {
+	case plexBaseShow:
 		return "tv.plex.agents.series", "Plex TV Series"
+	case plexBaseArtist:
+		return "tv.plex.agents.music", "Plex Music"
+	case plexBasePhoto:
+		return "tv.plex.agents.photo", "Plex Photo"
+	default:
+		return "tv.plex.agents.movie", "Plex Movie"
 	}
-	return "tv.plex.agents.movie", "Plex Movie"
 }
 
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
