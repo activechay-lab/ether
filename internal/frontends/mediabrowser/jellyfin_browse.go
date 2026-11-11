@@ -303,7 +303,7 @@ func (i *instance) shapeJellyfinItem(r *http.Request, viewer *frontend.Viewer, i
 	if fields["overview"] {
 		setMissing(item, "Overview", title.Summary)
 	}
-	if fields["genres"] {
+	if fields["genres"] || !jellyfinListFile(r) {
 		if len(title.Genres) > 0 {
 			setMissing(item, "Genres", title.Genres)
 		} else {

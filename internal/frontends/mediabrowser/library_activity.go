@@ -28,19 +28,43 @@ func latestPlayedQuery(r *http.Request) (bool, bool, error) {
 	return played, true, nil
 }
 
-func activityView(r *http.Request) (string, error) {
+// activityView reads ParentId as a library view. parentId naming an item
+// (a series or season) is not a view and reports exists=false so the resume
+// path can scope to that item instead of 404ing: Jellyfin for Roku asks
+// /UserItems/Resume?parentId=<series> to show a resume button (#421).
+func activityView(r *http.Request) (string, bool, error) {
 	values := route.Query(r.URL.Query(), "ParentId")
 	if len(values) > 1 {
-		return "", errors.New("ambiguous parent")
+		return "", false, errors.New("ambiguous parent")
 	}
 	if len(values) == 0 || values[0] == "" {
-		return "", nil
+		return "", true, nil
 	}
 	n, err := ids.ParseGUID(ids.View, values[0])
 	if err != nil {
-		return "", err
+		if _, keyErr := ids.ParseRatingKeyGUID(values[0]); keyErr == nil {
+			return "", false, nil
+		}
+		return "", false, err
 	}
-	return ids.Decimal(n), nil
+	return ids.Decimal(n), true, nil
+}
+
+// activityParentKey is the series or season a resume query is scoped to, or 0
+// when ParentId is absent or names a library view.
+func activityParentKey(r *http.Request) frontend.RatingKey {
+	values := route.Query(r.URL.Query(), "ParentId")
+	if len(values) != 1 || values[0] == "" {
+		return 0
+	}
+	if _, err := ids.ParseGUID(ids.View, values[0]); err == nil {
+		return 0
+	}
+	key, err := ids.ParseRatingKeyGUID(values[0])
+	if err != nil {
+		return 0
+	}
+	return key
 }
 
 func (i *instance) libraryActivity(w http.ResponseWriter, r *http.Request, latest bool) {
@@ -50,9 +74,19 @@ func (i *instance) libraryActivity(w http.ResponseWriter, r *http.Request, lates
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	view, err := activityView(r)
+	view, isView, err := activityView(r)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if !isView {
+		// A parentId naming an item scopes a resume row to that series or
+		// season. Latest has no item-parent form here, so it stays a 404.
+		if latest {
+			http.NotFound(w, r)
+			return
+		}
+		i.resumeUnderParent(w, r, viewer)
 		return
 	}
 	defaultLimit := 50
@@ -180,6 +214,73 @@ func (i *instance) libraryActivity(w http.ResponseWriter, r *http.Request, lates
 		return
 	}
 	i.writeListedTitles(w, r, viewer, titles, added, total, totalExact, offset, latest)
+}
+
+// resumeUnderParent answers /UserItems/Resume?parentId=<series or season>:
+// the resumable descendants of that item. Jellyfin for Roku asks this for the
+// resume button on a series or season page (#421). A parent that is not an
+// item, or an item with no resumable child, is an empty result, never an
+// error: some clients treat any error here as fatal.
+func (i *instance) resumeUnderParent(w http.ResponseWriter, r *http.Request, viewer *frontend.Viewer) {
+	parent := activityParentKey(r)
+	if parent == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	offset, limit := queryInt(r, "StartIndex", 0), queryInt(r, "Limit", 50)
+	if limit == 0 {
+		i.replyItems(w, r, i.queryResult([]any{}, 0, offset))
+		return
+	}
+	if i.host.Experience == nil {
+		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	requireExact := true
+	if values := route.Query(r.URL.Query(), "EnableTotalRecordCount"); len(values) == 1 {
+		requireExact, _ = strconv.ParseBool(values[0])
+	}
+	q := frontend.ItemQuery{Types: resumeUnderParentTypes(r), Recursive: true, Limit: showChildPageMax}
+	page, err := i.host.Experience.Children(r.Context(), viewer, device(r), parent, q)
+	if err != nil {
+		if errors.Is(err, frontend.ErrNotFound) {
+			i.replyItems(w, r, i.queryResult([]any{}, 0, offset))
+			return
+		}
+		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	keys := make([]frontend.RatingKey, 0, len(page.Items))
+	for _, title := range page.Items {
+		keys = append(keys, title.Key)
+	}
+	states, err := i.host.Experience.UserData(r.Context(), viewer, keys)
+	if err != nil {
+		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var resumable []frontend.Title
+	for _, title := range page.Items {
+		if states[title.Key].ViewOffset > 0 {
+			resumable = append(resumable, title)
+		}
+	}
+	total := len(resumable)
+	start := min(offset, total)
+	end := min(start+limit, total)
+	i.writeListedTitles(w, r, viewer, resumable[start:end], nil, total, requireExact, offset, false)
+}
+
+// resumeUnderParentTypes mirrors the resume row: playable movies and episodes.
+func resumeUnderParentTypes(r *http.Request) []frontend.MediaType {
+	for _, value := range route.Query(r.URL.Query(), "MediaTypes") {
+		for _, typ := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(typ), "Video") {
+				return []frontend.MediaType{"movie", "episode"}
+			}
+		}
+	}
+	return []frontend.MediaType{"movie", "episode"}
 }
 
 func (i *instance) writeListedTitles(w http.ResponseWriter, r *http.Request, viewer *frontend.Viewer, titles []frontend.Title, added map[frontend.RatingKey]any, total int, totalExact bool, offset int, latest bool) {
