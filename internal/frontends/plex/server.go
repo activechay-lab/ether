@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -75,9 +76,44 @@ type Deps struct {
 	TracePlayback bool
 }
 
+type runtimeState struct {
+	runtime        frontend.SessionRuntime
+	playbackBroker frontend.Sessions
+	streamRuntime  frontend.SessionRuntime
+}
+
+type expHolder struct {
+	exp frontend.Experience
+}
+
+type hostServices struct {
+	support          frontend.DiagnosticRecorder
+	liveTV           frontend.LiveTV
+	clientSeen       func(string)
+	remoteClientSeen func(string)
+	images           frontend.ArtworkImageCache
+	ultra            frontend.ArtworkPaletteCache
+	generatedPosters frontend.TitlePosterRenderer
+	imageURL         frontend.ImageURLFunc
+	trackPrefs       frontend.PlaybackTrackPreferences
+	extras           frontend.ExtraStreams
+	prerolls         frontend.Prerolls
+	subtitles        frontend.SubtitleCatalog
+	variants         frontend.Editions
+}
+
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
+	bindMu      sync.Mutex
+	rtState     atomic.Pointer[runtimeState]
+	hostPtr     atomic.Pointer[frontend.Host]
+	svcPtr      atomic.Pointer[hostServices]
+	expState    atomic.Pointer[expHolder]
+	sectionsPtr atomic.Pointer[[]Section]
+	titlesPtr   atomic.Pointer[titleCache]
+	homePtr     atomic.Pointer[homeCache]
+
 	activityMu       sync.Mutex
 	activities       map[string]model.Activity
 	shelfMu          sync.Mutex
@@ -100,27 +136,18 @@ type Server struct {
 	guidResolving    map[string]bool
 	home             *homeCache
 
-	d               Deps
-	host            frontend.Host
-	runtime         frontend.SessionRuntime
-	streamRuntime   frontend.SessionRuntime
-	initPlayback    frontend.Playback
-	initTranscoder  frontend.Transcoder
-	hostLazyStreams frontend.LazyStreams
-	hostLANStreams  frontend.LANLazyStreams
-	hostTickets     frontend.Tickets
-	experience      frontend.Experience
-	personalHomes   frontend.PersonalHomeStore
-	pageFreshness   func() frontend.PageFreshness
-	log             *slog.Logger
-	router          chi.Router
+	d              Deps
+	host           frontend.Host
+	runtime        frontend.SessionRuntime
+	streamRuntime  frontend.SessionRuntime
+	initPlayback   frontend.Playback
+	initTranscoder frontend.Transcoder
+	experience     frontend.Experience
+	log            *slog.Logger
+	router         chi.Router
 
 	sections []Section
 
-	artwork          frontend.Artwork
-	hostImages       frontend.Images
-	imageGrants      frontend.ImageGrants
-	events           frontend.Subscriber
 	imageURL         frontend.ImageURLFunc
 	generatedPosters frontend.TitlePosterRenderer
 	liveTV           frontend.LiveTV
@@ -236,12 +263,14 @@ func NewServer(d Deps) *Server {
 		cancel:            cancel,
 	}
 	s.usePlaybackBroker(host.Sessions)
+	initHost := host
+	s.hostPtr.Store(&initHost)
+	initSvc := s.svc()
+	s.svcPtr.Store(&initSvc)
 	s.shelfWriter = &shelfPersistence{pending: map[string]shelfWrite{}, active: map[string]bool{}, wake: make(chan struct{}, 1)}
-	s.wg.Add(1)
-	go s.writeShelves()
-	s.variantIDs.start(ctx, &s.wg)
 	s.transcodes.load = s.loadDistributedBinding
-	s.sections = s.buildSections()
+	initSecs := s.buildSections()
+	s.sectionsPtr.Store(&initSecs)
 	s.queues.Configure(s.now, nil)
 	cluster := s.clusterNode()
 	if db != nil && cluster == nil {
@@ -253,25 +282,136 @@ func NewServer(d Deps) *Server {
 		s.versionFlows = newVersionFlowStore(s, db)
 		s.queues.Configure(s.now, s.cl.queuePersistence())
 	}
-	s.bindHost(host)
 	node := "standalone"
 	if s.cl != nil {
 		node = s.cl.self
 	}
 	s.starts = rt.NewStartGuard()
+	s.router = s.routes()
+	s.bindHost(host)
+	s.wg.Add(1)
+	go s.writeShelves()
+	s.variantIDs.start(ctx, &s.wg)
 	s.decisionArms = rt.NewDecisionArms(s.ctx, db, s.now, node, s.log, &s.wg)
 	s.clearOwnDecisionArms()
 	s.loadDownloads()
 	s.wg.Add(1)
 	go s.writeDownloads(s.downloadPersistence())
 	s.scheduleDownloads()
-	s.router = s.routes()
 	s.wg.Add(1)
 	go s.janitor()
 	if s.cl != nil {
 		s.cl.start()
 	}
 	return s
+}
+
+func (s *Server) loadRuntimeState() runtimeState {
+	if s == nil {
+		return runtimeState{}
+	}
+	if p := s.rtState.Load(); p != nil {
+		return *p
+	}
+	return runtimeState{
+		runtime:        s.runtime,
+		playbackBroker: s.playbackBroker,
+		streamRuntime:  s.streamRuntime,
+	}
+}
+
+func (s *Server) sessionRuntime() frontend.SessionRuntime { return s.loadRuntimeState().runtime }
+func (s *Server) broker() frontend.Sessions               { return s.loadRuntimeState().playbackBroker }
+func (s *Server) streams() frontend.SessionRuntime        { return s.loadRuntimeState().streamRuntime }
+
+func (s *Server) getHost() frontend.Host {
+	if s == nil {
+		return frontend.Host{}
+	}
+	if p := s.hostPtr.Load(); p != nil {
+		return *p
+	}
+	return s.host
+}
+
+func (s *Server) mutateHost(fn func(*frontend.Host)) {
+	if s == nil {
+		return
+	}
+	s.bindMu.Lock()
+	cur := s.getHost()
+	fn(&cur)
+	s.hostPtr.Store(&cur)
+	s.bindMu.Unlock()
+}
+
+func (s *Server) svc() hostServices {
+	if s == nil {
+		return hostServices{}
+	}
+	if p := s.svcPtr.Load(); p != nil {
+		return *p
+	}
+	return hostServices{
+		support:          s.support,
+		liveTV:           s.liveTV,
+		clientSeen:       s.clientSeen,
+		remoteClientSeen: s.remoteClientSeen,
+		images:           s.images,
+		ultra:            s.ultra,
+		generatedPosters: s.generatedPosters,
+		imageURL:         s.imageURL,
+		trackPrefs:       s.trackPrefs,
+		extras:           s.extras,
+		prerolls:         s.prerolls,
+		subtitles:        s.subtitles,
+		variants:         s.variants,
+	}
+}
+
+func (s *Server) mutateServices(fn func(*hostServices)) {
+	if s == nil {
+		return
+	}
+	s.bindMu.Lock()
+	cur := s.svc()
+	fn(&cur)
+	s.svcPtr.Store(&cur)
+	s.bindMu.Unlock()
+}
+
+func (s *Server) tracePlaybackEnabled() bool {
+	return s != nil && (s.getHost().TracePlayback || s.d.TracePlayback)
+}
+
+func (s *Server) getSections() []Section {
+	if s == nil {
+		return nil
+	}
+	if p := s.sectionsPtr.Load(); p != nil {
+		return *p
+	}
+	return s.sections
+}
+
+func (s *Server) titleDetails() *titleCache {
+	if s == nil {
+		return nil
+	}
+	if p := s.titlesPtr.Load(); p != nil {
+		return p
+	}
+	return s.titles
+}
+
+func (s *Server) homeCache() *homeCache {
+	if s == nil {
+		return nil
+	}
+	if p := s.homePtr.Load(); p != nil {
+		return p
+	}
+	return s.home
 }
 
 func newDirectHTTPClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
@@ -293,212 +433,228 @@ func (s *Server) bindHost(h frontend.Host) {
 	if s == nil {
 		return
 	}
+	s.bindMu.Lock()
+	curHost := s.getHost()
+	curSvc := s.svc()
 	if h.Support != nil {
-		s.host.Support = h.Support
-		s.support = h.Support
+		curHost.Support = h.Support
+		curSvc.support = h.Support
 	}
 	if h.TracePlayback {
-		s.host.TracePlayback = true
-		s.d.TracePlayback = true
+		curHost.TracePlayback = true
 	}
 	if h.LiveTV != nil {
-		s.host.LiveTV = h.LiveTV
-		s.liveTV = h.LiveTV
+		curHost.LiveTV = h.LiveTV
+		curSvc.liveTV = h.LiveTV
 	}
 	if h.ClientSeen != nil {
-		s.host.ClientSeen = h.ClientSeen
-		s.clientSeen = h.ClientSeen
+		curHost.ClientSeen = h.ClientSeen
+		curSvc.clientSeen = h.ClientSeen
 	}
 	if h.RemoteClientSeen != nil {
-		s.host.RemoteClientSeen = h.RemoteClientSeen
-		s.remoteClientSeen = h.RemoteClientSeen
+		curHost.RemoteClientSeen = h.RemoteClientSeen
+		curSvc.remoteClientSeen = h.RemoteClientSeen
 	}
 	if h.Artwork != nil {
-		s.host.Artwork = h.Artwork
-		s.artwork = h.Artwork
+		curHost.Artwork = h.Artwork
 		if rc := h.Artwork.RemoteCache(); rc != nil {
-			s.images = rc
+			curSvc.images = rc
 		}
 		if pc := h.Artwork.PaletteCache(); pc != nil {
-			s.ultra = pc
+			curSvc.ultra = pc
 		}
 		if pr := h.Artwork.PosterRenderer(); pr != nil {
-			s.generatedPosters = pr
+			curSvc.generatedPosters = pr
 		}
 		if fn := h.Artwork.ImageURLFunc(); fn != nil {
-			s.imageURL = fn
+			curSvc.imageURL = fn
 		}
 	}
 	if h.Images != nil {
-		s.host.Images = h.Images
-		s.hostImages = h.Images
+		curHost.Images = h.Images
 	}
 	if h.ImageGrants != nil {
-		s.host.ImageGrants = h.ImageGrants
-		s.imageGrants = h.ImageGrants
+		curHost.ImageGrants = h.ImageGrants
 	}
 	if h.Events != nil {
-		s.host.Events = h.Events
-		s.events = h.Events
+		curHost.Events = h.Events
 	}
 	if h.DirectProxy != nil {
-		s.host.DirectProxy = h.DirectProxy
+		curHost.DirectProxy = h.DirectProxy
 		if s.extraPlay != nil {
-			s.extraPlay.client = newDirectHTTPClient(h.DirectProxy)
+			s.extraPlay.setClient(newDirectHTTPClient(h.DirectProxy))
 		}
 	}
 	if h.MetadataHTTP != nil {
-		s.host.MetadataHTTP = h.MetadataHTTP
+		curHost.MetadataHTTP = h.MetadataHTTP
 	}
 	if h.ViewerPolicy != nil {
-		s.host.ViewerPolicy = h.ViewerPolicy
+		curHost.ViewerPolicy = h.ViewerPolicy
 	}
 	if h.Capabilities != nil {
-		s.host.Capabilities = h.Capabilities
+		curHost.Capabilities = h.Capabilities
 	}
 	if h.Identity != nil {
-		s.host.Identity = h.Identity
+		curHost.Identity = h.Identity
 	}
 	if h.Log != nil {
-		s.host.Log = h.Log
-		s.log = h.Log.With("component", "plex")
+		curHost.Log = h.Log
 	}
 	if h.ClientIP != nil {
-		s.host.ClientIP = h.ClientIP
+		curHost.ClientIP = h.ClientIP
 	}
 	if h.SurfaceURL != nil {
-		s.host.SurfaceURL = h.SurfaceURL
+		curHost.SurfaceURL = h.SurfaceURL
 	}
 	if h.PublicOrigin != nil {
-		s.host.PublicOrigin = h.PublicOrigin
+		curHost.PublicOrigin = h.PublicOrigin
 	}
 	if h.RepoFileURL != nil {
-		s.host.RepoFileURL = h.RepoFileURL
+		curHost.RepoFileURL = h.RepoFileURL
 	}
 	if h.Config != nil {
-		s.host.Config = h.Config
+		curHost.Config = h.Config
 	}
 	if h.HostConfig != nil {
-		s.host.HostConfig = h.HostConfig
+		curHost.HostConfig = h.HostConfig
 	}
 	if h.Now != nil {
-		s.host.Now = h.Now
+		curHost.Now = h.Now
 	}
 	if h.ServerIdentity != (frontend.ServerIdentity{}) {
-		s.host.ServerIdentity = h.ServerIdentity
+		curHost.ServerIdentity = h.ServerIdentity
 	}
 	if h.OwnerSubscription != nil {
-		s.host.OwnerSubscription = h.OwnerSubscription
+		curHost.OwnerSubscription = h.OwnerSubscription
 	}
 	if h.MetadataLanguage != nil {
-		s.host.MetadataLanguage = h.MetadataLanguage
+		curHost.MetadataLanguage = h.MetadataLanguage
 	}
 	if h.PersonalHomes != nil {
-		s.host.PersonalHomes = h.PersonalHomes
-		s.personalHomes = h.PersonalHomes
+		curHost.PersonalHomes = h.PersonalHomes
 	}
 	if h.PageFreshness != nil {
-		s.host.PageFreshness = h.PageFreshness
-		s.pageFreshness = h.PageFreshness
+		curHost.PageFreshness = h.PageFreshness
 	}
 	if h.TrackPreferences != nil {
-		s.host.TrackPreferences = h.TrackPreferences
-		s.trackPrefs = h.TrackPreferences
+		curHost.TrackPreferences = h.TrackPreferences
+		curSvc.trackPrefs = h.TrackPreferences
 	}
 	if h.ExtraStreams != nil {
-		s.host.ExtraStreams = h.ExtraStreams
-		s.extras = h.ExtraStreams
+		curHost.ExtraStreams = h.ExtraStreams
+		curSvc.extras = h.ExtraStreams
 	}
 	if h.Prerolls != nil {
-		s.host.Prerolls = h.Prerolls
-		s.prerolls = h.Prerolls
+		curHost.Prerolls = h.Prerolls
+		curSvc.prerolls = h.Prerolls
 	}
 	if h.Subtitles != nil {
-		s.host.Subtitles = h.Subtitles
-		s.subtitles = h.Subtitles
+		curHost.Subtitles = h.Subtitles
+		curSvc.subtitles = h.Subtitles
 	}
 	if h.Editions != nil {
-		s.host.Editions = h.Editions
-		s.variants = h.Editions
+		curHost.Editions = h.Editions
+		curSvc.variants = h.Editions
 	}
 	if h.Experience != nil {
-		s.host.Experience = h.Experience
-		s.attachExperience(h.Experience)
+		curHost.Experience = h.Experience
 	}
 	if h.LazyStreams != nil {
-		s.host.LazyStreams = h.LazyStreams
-		s.hostLazyStreams = h.LazyStreams
+		curHost.LazyStreams = h.LazyStreams
 	}
 	if h.LANStreams != nil {
-		s.host.LANStreams = h.LANStreams
-		s.hostLANStreams = h.LANStreams
+		curHost.LANStreams = h.LANStreams
 	}
 	if h.Tickets != nil {
-		s.host.Tickets = h.Tickets
-		s.hostTickets = h.Tickets
+		curHost.Tickets = h.Tickets
 	}
+	if h.Sessions != nil {
+		curHost.Sessions = h.Sessions
+	}
+	s.hostPtr.Store(&curHost)
+	s.svcPtr.Store(&curSvc)
+	if h.Experience != nil {
+		s.attachExperienceLocked(h.Experience, &curSvc)
+	}
+	s.bindMu.Unlock()
 	if h.Sessions != nil {
 		s.usePlaybackBroker(h.Sessions)
 	}
 }
 
-func (s *Server) attachExperience(exp frontend.Experience) {
+func (s *Server) attachExperienceLocked(exp frontend.Experience, curSvc *hostServices) {
 	if s == nil || exp == nil {
 		return
 	}
-	s.experience = exp
-	cat := s.catalog()
-	if !s.d.DisableEnrichment && cat != nil && s.titles == nil {
+	s.expState.Store(&expHolder{exp: exp})
+	cat := exp.CatalogSource()
+	titles := s.titleDetails()
+	if !s.d.DisableEnrichment && cat != nil && titles == nil {
 		s.titleJobs = newBGQueue(s.ctx, &s.wg, titleFetchWorkers, titleFetchQueueLen)
 		s.blurJobs = newBGQueue(s.ctx, &s.wg, ultraBlurWorkers, ultraBlurQueueLen)
-		s.titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
-		if s.ultra == nil {
-			s.ultra = frontend.NewArtworkPaletteCache(s.runtimeDB(), s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
+		titles = newTitleCache(s.titleJobs, s.now, s.log, s.enrichFetch)
+		s.titlesPtr.Store(titles)
+		if curSvc.ultra == nil {
+			curSvc.ultra = frontend.NewArtworkPaletteCache(s.runtimeDB(), s.blurJobs.submit, s.now, s.log, func(ctx context.Context, key frontend.RatingKey, path string) (frontend.ArtworkPalette, error) {
 				var art frontend.ArtworkCollectionArt
 				if c, ok := s.collections().(frontend.ArtworkCollectionArt); ok {
 					art = c
 				}
-				return frontend.ComputeArtworkItemPalette(ctx, s.images, s.imageURL, key, path, s.now(), art)
+				svc := s.svc()
+				return frontend.ComputeArtworkItemPalette(ctx, svc.images, svc.imageURL, key, path, s.now(), art)
 			})
+			cp := *curSvc
+			s.svcPtr.Store(&cp)
 		}
 	}
-	if s.titles != nil {
+	if titles != nil {
 		if pre, ok := cat.(frontend.StoredTitlePreloader); ok {
-			s.titles.prefetch = pre.PreloadStored
+			titles.setPrefetch(pre.PreloadStored)
 		} else {
-			s.titles.prefetch = nil
+			titles.setPrefetch(nil)
 		}
 	}
-	if p, ok := cat.(frontend.ArtworkPersistenceCatalog); ok && s.ultra != nil {
-		s.ultra.PersistFor(p.PersistsArtwork)
+	if p, ok := cat.(frontend.ArtworkPersistenceCatalog); ok && curSvc.ultra != nil {
+		curSvc.ultra.PersistFor(p.PersistsArtwork)
 	}
-	if s.home == nil {
+	if s.homeCache() == nil {
 		if _, hasRev, _ := exp.HomeRevision(s.ctx, nil); hasRev {
-			s.home = newHomeCache()
+			hc := newHomeCache()
+			s.homePtr.Store(hc)
 			s.wg.Add(1)
 			go s.homeRefresher()
 		}
 	}
-	s.sections = s.buildSections()
+	secs := s.buildSections()
+	s.sectionsPtr.Store(&secs)
 }
 
 func (s *Server) policy() frontend.AccessPolicy {
 	if s == nil {
 		return nil
 	}
-	return s.host.ViewerPolicy
+	return s.getHost().ViewerPolicy
 }
 
 func (s *Server) listUsers(ctx context.Context) ([]frontend.User, error) {
-	if s == nil || s.host.Identity == nil {
+	if s == nil {
 		return nil, nil
 	}
-	return s.host.Identity.Users(ctx)
+	id := s.getHost().Identity
+	if id == nil {
+		return nil, nil
+	}
+	return id.Users(ctx)
 }
 
 func (s *Server) exp() frontend.Experience {
-	if s != nil && s.experience != nil {
-		return s.experience
+	if s != nil {
+		if p := s.expState.Load(); p != nil && p.exp != nil {
+			return p.exp
+		}
+		if s.experience != nil {
+			return s.experience
+		}
 	}
 	return frontend.NoopExperience()
 }
@@ -564,8 +720,8 @@ func (s *Server) playback() frontend.Playback {
 	if s.d.Playback != nil && s.d.Playback != s.initPlayback {
 		return s.d.Playback
 	}
-	if s.runtime != nil {
-		if p := s.runtime.Playback(); p != nil {
+	if rt := s.sessionRuntime(); rt != nil {
+		if p := rt.Playback(); p != nil {
 			return p
 		}
 	}
@@ -582,8 +738,8 @@ func (s *Server) transcoder() frontend.Transcoder {
 	if s.d.Transcoder != nil && s.d.Transcoder != s.initTranscoder {
 		return s.d.Transcoder
 	}
-	if s.runtime != nil {
-		if t := s.runtime.Transcoder(); t != nil {
+	if rt := s.sessionRuntime(); rt != nil {
+		if t := rt.Transcoder(); t != nil {
 			return t
 		}
 	}
@@ -600,8 +756,8 @@ func (s *Server) runtimeDB() *sql.DB {
 	if s.cfg().Spike.Enabled {
 		return s.d.DB
 	}
-	if s.runtime != nil {
-		if db := s.runtime.DB(); db != nil {
+	if rt := s.sessionRuntime(); rt != nil {
+		if db := rt.DB(); db != nil {
 			return db
 		}
 	}
@@ -609,17 +765,25 @@ func (s *Server) runtimeDB() *sql.DB {
 }
 
 func (s *Server) clusterNode() frontend.ClusterNode {
-	if s == nil || s.runtime == nil {
+	if s == nil {
 		return nil
 	}
-	return s.runtime.Cluster()
+	rt := s.sessionRuntime()
+	if rt == nil {
+		return nil
+	}
+	return rt.Cluster()
 }
 
 func (s *Server) sessionHeartbeat() time.Duration {
-	if s == nil || s.runtime == nil {
+	if s == nil {
 		return 0
 	}
-	return s.runtime.SessionHeartbeat()
+	rt := s.sessionRuntime()
+	if rt == nil {
+		return 0
+	}
+	return rt.SessionHeartbeat()
 }
 
 // ServeHTTP implements http.Handler.
@@ -657,43 +821,54 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) settings() frontend.Settings {
-	if s == nil || s.host.Config == nil {
+	if s == nil {
 		return nil
 	}
-	return s.host.Config()
+	h := s.getHost()
+	if h.Config == nil {
+		return nil
+	}
+	return h.Config()
 }
 
 func (s *Server) hasConfig() bool {
-	return s != nil && s.host.HostConfig != nil
+	return s != nil && s.getHost().HostConfig != nil
 }
 
 func (s *Server) now() time.Time {
-	if s != nil && s.host.Now != nil {
-		return s.host.Now()
+	if s != nil {
+		if fn := s.getHost().Now; fn != nil {
+			return fn()
+		}
 	}
 	return time.Now()
 }
 
 func (s *Server) cfg() frontend.HostConfig {
-	if s == nil || s.host.HostConfig == nil {
+	if s == nil {
 		return frontend.HostConfig{}
 	}
-	return s.host.HostConfig()
+	h := s.getHost()
+	if h.HostConfig == nil {
+		return frontend.HostConfig{}
+	}
+	return h.HostConfig()
 }
 
 // identity resolves the effective identity.
 func (s *Server) identity() Identity {
 	var id Identity
 	if s != nil {
+		h := s.getHost()
 		id = Identity{
-			MachineIdentifier: s.host.ServerIdentity.MachineID,
-			FriendlyName:      s.host.ServerIdentity.FriendlyName,
-			Version:           s.host.ServerIdentity.Version,
-			Platform:          s.host.ServerIdentity.Platform,
-			PlatformVersion:   s.host.ServerIdentity.PlatformVersion,
+			MachineIdentifier: h.ServerIdentity.MachineID,
+			FriendlyName:      h.ServerIdentity.FriendlyName,
+			Version:           h.ServerIdentity.Version,
+			Platform:          h.ServerIdentity.Platform,
+			PlatformVersion:   h.ServerIdentity.PlatformVersion,
 		}
-		if s.host.OwnerSubscription != nil {
-			id.MyPlexSubscription, id.OwnerFeatures = s.host.OwnerSubscription()
+		if h.OwnerSubscription != nil {
+			id.MyPlexSubscription, id.OwnerFeatures = h.OwnerSubscription()
 		}
 	}
 	c := s.cfg()
@@ -737,7 +912,7 @@ func (s *Server) identity() Identity {
 // registration. Titles follow the live config so renames publish to plex.tv.
 // The copy prevents publishers from changing local libraries.
 func (s *Server) LibrarySections() []Section {
-	return s.withLibraryTitles(s.sections)
+	return s.withLibraryTitles(s.getSections())
 }
 
 func (s *Server) buildSections() []Section {
@@ -797,7 +972,7 @@ func (s *Server) withLibraryTitles(secs []Section) []Section {
 
 // sectionByID returns the section with the given id.
 func (s *Server) sectionByID(id int) (Section, bool) {
-	for _, sec := range s.withLibraryTitles(s.sections) {
+	for _, sec := range s.withLibraryTitles(s.getSections()) {
 		if sec.ID == id {
 			return sec, true
 		}
@@ -823,7 +998,7 @@ func (s *Server) untitledSectionFor(t frontend.MediaType) (Section, bool) {
 	case frontend.TypeShow, frontend.TypeSeason, frontend.TypeEpisode:
 		want = frontend.TypeShow
 	}
-	for _, sec := range s.sections {
+	for _, sec := range s.getSections() {
 		if sec.Type == want {
 			return sec, true
 		}
@@ -833,7 +1008,7 @@ func (s *Server) untitledSectionFor(t frontend.MediaType) (Section, bool) {
 
 // userSections lists the sections a user may see.
 func (s *Server) userSections(u *frontend.User) []Section {
-	secs := s.withLibraryTitles(s.sections)
+	secs := s.withLibraryTitles(s.getSections())
 	if u == nil || len(u.AllowedLibraries) == 0 || u.IsOwner {
 		return secs
 	}
@@ -847,7 +1022,7 @@ func (s *Server) userSections(u *frontend.User) []Section {
 }
 
 func (s *Server) canSeeSection(u *frontend.User, id int) bool {
-	for _, sec := range s.sections {
+	for _, sec := range s.getSections() {
 		if sec.ID == id {
 			return u == nil || len(u.AllowedLibraries) == 0 || u.IsOwner || frontend.SectionAllowed(u, sec.ID)
 		}

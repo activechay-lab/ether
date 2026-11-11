@@ -12,10 +12,11 @@ func (s *Server) plexStreamAccess(u *frontend.Viewer) frontend.SessionAccess {
 }
 
 func (s *Server) assignStream(ctx context.Context, u *frontend.Viewer, key frontend.RatingKey, index int, info frontend.StreamInfo, sessionID string) int64 {
-	if s == nil || s.streamRuntime == nil {
+	rt := s.streams()
+	if s == nil || rt == nil {
 		return 0
 	}
-	id, err := s.streamRuntime.BindStream(ctx, s.plexStreamAccess(u), frontend.StreamBinding{
+	id, err := rt.BindStream(ctx, s.plexStreamAccess(u), frontend.StreamBinding{
 		Key: key, Index: index, Info: info, SessionID: sessionID,
 	})
 	if err != nil {
@@ -25,10 +26,11 @@ func (s *Server) assignStream(ctx context.Context, u *frontend.Viewer, key front
 }
 
 func (s *Server) resolveStream(ctx context.Context, u *frontend.Viewer, id int64) (frontend.StreamBinding, error) {
-	if s == nil || s.streamRuntime == nil {
+	rt := s.streams()
+	if s == nil || rt == nil {
 		return frontend.StreamBinding{}, frontend.ErrNotFound
 	}
-	return s.streamRuntime.ResolveStream(ctx, s.plexStreamAccess(u), id)
+	return rt.ResolveStream(ctx, s.plexStreamAccess(u), id)
 }
 
 // resolveIssuedStream resolves a stream id a client sent back. The broker

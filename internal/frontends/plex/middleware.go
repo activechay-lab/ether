@@ -163,9 +163,9 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		samplePath := supportDocumentPath(r.URL.Path)
-		sample := s.support != nil && samplePath && s.support.BeginSample(FromContext(r.Context()).ClientID)
+		sample := s.svc().support != nil && samplePath && s.svc().support.BeginSample(FromContext(r.Context()).ClientID)
 		if sample {
-			defer s.support.EndSample()
+			defer s.svc().support.EndSample()
 		}
 		sr := &statusRecorder{ResponseWriter: w, sampling: sample}
 		next.ServeHTTP(sr, r)
@@ -176,7 +176,7 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 			return
 		}
 		pr := FromContext(r.Context())
-		if s.d.TracePlayback && traceTranscodePath(r.URL.Path) {
+		if s.tracePlaybackEnabled() && traceTranscodePath(r.URL.Path) {
 			status := sr.status
 			if status == 0 {
 				status = http.StatusOK
@@ -260,7 +260,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			return
 		}
 		pr := FromContext(r.Context())
-		if pr.Token != "" && s.host.Identity != nil {
+		if pr.Token != "" && s.getHost().Identity != nil {
 			u, receipt, err := s.acceptToken(r.Context(), pr.Token)
 			switch {
 			case err == nil && u != nil:
@@ -306,14 +306,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 					writeHTTPError(w, http.StatusForbidden)
 					return
 				}
-				if s.clientSeen != nil {
-					s.clientSeen(pr.ClientID)
+				if s.svc().clientSeen != nil {
+					s.svc().clientSeen(pr.ClientID)
 				}
-				if s.liveTV != nil {
-					s.liveTV.NoteClientActivity()
+				if s.svc().liveTV != nil {
+					s.svc().liveTV.NoteClientActivity()
 				}
-				if pr.Remote && s.remoteClientSeen != nil {
-					s.remoteClientSeen(pr.RemoteIP.String())
+				if pr.Remote && s.svc().remoteClientSeen != nil {
+					s.svc().remoteClientSeen(pr.RemoteIP.String())
 				}
 				if s.dashboard() != nil {
 					s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
@@ -341,8 +341,8 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				writeHTTPError(w, http.StatusForbidden)
 				return
 			}
-			if pr.Remote && s.remoteClientSeen != nil {
-				s.remoteClientSeen(pr.RemoteIP.String())
+			if pr.Remote && s.svc().remoteClientSeen != nil {
+				s.svc().remoteClientSeen(pr.RemoteIP.String())
 			}
 			s.observePlaybackRequestStart(r, pr)
 			next.ServeHTTP(w, r)
@@ -356,7 +356,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 }
 
 func (s *Server) acceptToken(ctx context.Context, token string) (*frontend.User, frontend.CredentialAcceptance, error) {
-	return s.host.Identity.Accept(ctx, token)
+	return s.getHost().Identity.Accept(ctx, token)
 }
 
 // acceptanceCurrent rechecks a receipt minted for this request. Requests that
@@ -366,20 +366,20 @@ func (s *Server) acceptanceCurrent(r *http.Request) bool {
 	if !ok {
 		return true
 	}
-	if s.host.Identity == nil {
+	if s.getHost().Identity == nil {
 		return false
 	}
-	return s.host.Identity.ReceiptCurrent(r.Context(), receipt) == nil
+	return s.getHost().Identity.ReceiptCurrent(r.Context(), receipt) == nil
 }
 
 func (s *Server) authenticateLiveGrant(r *http.Request, pr *Request) bool {
-	if s.liveTV == nil {
+	if s.svc().liveTV == nil {
 		return false
 	}
 	if !capabilityPathOK(r) {
 		return false
 	}
-	u, ok := s.liveTV.AuthenticateMediaGrant(r, s.activeViewer)
+	u, ok := s.svc().liveTV.AuthenticateMediaGrant(r, s.activeViewer)
 	if !ok {
 		return false
 	}

@@ -391,7 +391,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	var users []frontend.User
-	if s.host.Identity != nil {
+	if s.getHost().Identity != nil {
 		if us, err := s.listUsers(r.Context()); err == nil {
 			users = us
 		} else {
@@ -407,8 +407,8 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		if len(u.SubtitleLanguages) > 0 {
 			a.DefaultSubtitleLang = u.SubtitleLanguages[0]
 		}
-		if s.trackPrefs != nil && viewerStoredSubtitlePreference(r.Context(), s.trackPrefs, u.ID) {
-			if rules, err := s.trackPrefs.GetRules(r.Context(), u.ID); err == nil {
+		if tp := s.svc().trackPrefs; tp != nil && viewerStoredSubtitlePreference(r.Context(), tp, u.ID) {
+			if rules, err := tp.GetRules(r.Context(), u.ID); err == nil {
 				// Plex account subtitleMode: 0 manual, 1 with foreign audio, 2 always.
 				// Unset and off stay 0, which is the value already written for every account.
 				// Shared defaults (user 0) stay off this document so an untouched account
@@ -450,11 +450,12 @@ func plexSubtitleMode(mode string) int {
 
 func (s *Server) handleSecurityToken(w http.ResponseWriter, r *http.Request) {
 	pr := FromContext(r.Context())
-	if s.host.Identity == nil || pr.User == nil || pr.User.Delegated {
+	id := s.getHost().Identity
+	if id == nil || pr.User == nil || pr.User.Delegated {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
-	token, err := s.host.Identity.IssueDelegation(r.Context(), pr.User.ID)
+	token, err := id.IssueDelegation(r.Context(), pr.User.ID)
 	if errors.Is(err, frontend.ErrUnauthorized) {
 		writeHTTPError(w, http.StatusForbidden)
 		return

@@ -25,13 +25,13 @@ func (a plexSourceAccess) ServePart(w http.ResponseWriter, r *http.Request, sour
 }
 
 func (s *Server) prepareSource(ctx context.Context, viewer *frontend.User, key frontend.RatingKey, caps frontend.ClientCaps, release string, wait time.Duration) (*frontend.PlaySession, error) {
-	return s.runtime.PrepareSource(ctx, viewer, key, caps, release, wait)
+	return s.sessionRuntime().PrepareSource(ctx, viewer, key, caps, release, wait)
 }
 
 func (s *Server) partSource(viewer int64, client string, key frontend.RatingKey, release string) frontend.PartSource {
-	return s.runtime.PartSource(viewer, client, key, release)
+	return s.sessionRuntime().PartSource(viewer, client, key, release)
 }
 
 func (s *Server) servePartSource(w http.ResponseWriter, r *http.Request, sourceID string) {
-	s.runtime.ServePartSource(w, r, sourceID)
+	s.sessionRuntime().ServePartSource(w, r, sourceID)
 }

@@ -28,7 +28,7 @@ func (s *Server) handleLiveChannelSearch(w http.ResponseWriter, r *http.Request)
 		s.write(w, r, mc)
 		return
 	}
-	channels, err := s.liveTV.AllowedChannels(r.Context(), FromContext(r.Context()).User)
+	channels, err := s.svc().liveTV.AllowedChannels(r.Context(), FromContext(r.Context()).User)
 	if err != nil {
 		s.writeErr(w, r, err)
 		return

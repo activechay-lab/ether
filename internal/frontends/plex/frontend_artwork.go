@@ -22,24 +22,25 @@ func (a FrontendArtwork) cfg() frontend.ArtworkSourceConfig {
 		return frontend.ArtworkSourceConfig{}
 	}
 	s := a.Server
+	svc := s.svc()
 	stored, _ := s.catalog().(frontend.StoredTitleLookup)
 	return frontend.ArtworkSourceConfig{
 		Catalog:       stored,
 		Collections:   s.collections(),
 		Playlists:     s.playlists(),
 		Visibility:    s.visibility(),
-		LiveTV:        s.liveTV,
+		LiveTV:        svc.liveTV,
 		Discovery:     s.discovery(),
-		Images:        s.images,
-		ImageURL:      s.imageURL,
-		Palettes:      s.ultra,
+		Images:        svc.images,
+		ImageURL:      svc.imageURL,
+		Palettes:      svc.ultra,
 		Now:           s.now,
 		Variants:      a.Variants,
 		Metadata:      a.Metadata,
 		VirtualSeason: a.VirtualSeason,
 		URLImages:     a.URLImages,
 		Raster:        a.Raster,
-		Generated:     s.generatedPosters,
+		Generated:     svc.generatedPosters,
 	}
 }
 

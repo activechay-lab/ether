@@ -1449,7 +1449,7 @@ func (p fixtureProgress) Progress(ctx context.Context, viewer int64, key core.Ra
 
 func (f *fixture) attachPlaybackBroker(d testServerDeps) {
 	var lrDeps sessions.LocalRuntimeDeps
-	if lr, ok := f.srv.host.Sessions.(*sessions.LocalRuntime); ok && lr != nil {
+	if lr, ok := f.srv.getHost().Sessions.(*sessions.LocalRuntime); ok && lr != nil {
 		lrDeps = lr.Deps()
 	}
 	active := func(_ context.Context, id int64) (*core.Viewer, error) {
@@ -1487,10 +1487,10 @@ func (f *fixture) attachPlaybackBroker(d testServerDeps) {
 			}
 		},
 		OpenSubtitle: func(id, format string) (io.ReadCloser, string, error) {
-			if f.srv == nil || f.srv.subtitles == nil {
+			if f.srv == nil || f.srv.svc().subtitles == nil {
 				return nil, "", core.ErrNotAvailable
 			}
-			return f.srv.subtitles.OpenFormat(id, format)
+			return f.srv.svc().subtitles.OpenFormat(id, format)
 		},
 		Events: events, Now: f.srv.now,
 	})
@@ -1539,10 +1539,11 @@ func mountTestBroker(s *Server, now func() time.Time) {
 		CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 },
 		OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},
 		OpenSubtitle: func(id, format string) (io.ReadCloser, string, error) {
-			if s.subtitles == nil {
+			subs := s.svc().subtitles
+			if subs == nil {
 				return nil, "", core.ErrNotAvailable
 			}
-			return s.subtitles.OpenFormat(id, format)
+			return subs.OpenFormat(id, format)
 		},
 		Events: events, Now: now,
 	})
@@ -1566,9 +1567,7 @@ func (t *fakeTranscoder) StartDecoder(_ context.Context, r transcode.DecoderRequ
 }
 
 func (s *Server) setTrackPreferences(tp frontend.PlaybackTrackPreferences) {
-	if s != nil {
-		s.trackPrefs = tp
-	}
+	s.mutateServices(func(svc *hostServices) { svc.trackPrefs = tp })
 }
 
 func (s *Server) setMarkers(m frontend.MarkerRanges) {
@@ -1587,60 +1586,60 @@ func (s *Server) setExtras(ex any) {
 	if s == nil {
 		return
 	}
-	if ex == nil {
-		s.extras = nil
-		return
+	var val frontend.ExtraStreams
+	if ex != nil {
+		if es, ok := ex.(frontend.ExtraStreams); ok {
+			val = es
+		} else {
+			val = testExtraStreams{src: ex}
+		}
 	}
-	if es, ok := ex.(frontend.ExtraStreams); ok {
-		s.extras = es
-		return
-	}
-	s.extras = testExtraStreams{src: ex}
+	s.mutateServices(func(svc *hostServices) { svc.extras = val })
 }
 
 func (s *Server) setPrerolls(p any) {
 	if s == nil {
 		return
 	}
-	if p == nil {
-		s.prerolls = nil
-		return
+	var val frontend.Prerolls
+	if p != nil {
+		if pr, ok := p.(frontend.Prerolls); ok {
+			val = pr
+		} else {
+			val = testPrerolls{src: p}
+		}
 	}
-	if pr, ok := p.(frontend.Prerolls); ok {
-		s.prerolls = pr
-		return
-	}
-	s.prerolls = testPrerolls{src: p}
+	s.mutateServices(func(svc *hostServices) { svc.prerolls = val })
 }
 
 func (s *Server) setSubtitles(sub frontend.SubtitleSidecarSource) {
 	if s == nil {
 		return
 	}
-	if sub == nil {
-		s.subtitles = nil
-		return
+	var val frontend.SubtitleCatalog
+	if sub != nil {
+		if sc, ok := sub.(frontend.SubtitleCatalog); ok {
+			val = sc
+		} else {
+			val = testSubtitleCatalog{src: sub}
+		}
 	}
-	if sc, ok := sub.(frontend.SubtitleCatalog); ok {
-		s.subtitles = sc
-		return
-	}
-	s.subtitles = testSubtitleCatalog{src: sub}
+	s.mutateServices(func(svc *hostServices) { svc.subtitles = val })
 }
 
 func (s *Server) setVariants(v frontend.VariantResolver) {
 	if s == nil {
 		return
 	}
-	if v == nil {
-		s.variants = nil
-		return
+	var val frontend.Editions
+	if v != nil {
+		if ed, ok := v.(frontend.Editions); ok {
+			val = ed
+		} else {
+			val = testEditions{src: v}
+		}
 	}
-	if ed, ok := v.(frontend.Editions); ok {
-		s.variants = ed
-		return
-	}
-	s.variants = testEditions{src: v}
+	s.mutateServices(func(svc *hostServices) { svc.variants = val })
 }
 
 func (s *Server) setPlexGUID(g frontend.LibraryGUIDs) {

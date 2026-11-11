@@ -28,7 +28,10 @@ func (s *Server) applyHubDetailOptions(ctx context.Context, mc *model.MediaConta
 			if err != nil {
 				continue
 			}
-			title := s.titles.get(frontend.RatingKey(n))
+			var title *frontend.Title
+			if titles := s.titleDetails(); titles != nil {
+				title = titles.get(frontend.RatingKey(n))
+			}
 			if title == nil {
 				// Cache eviction must not erase a requested block. Production
 				// adapters use a local point read without remote discovery.

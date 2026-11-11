@@ -109,7 +109,7 @@ func newHomeCache() *homeCache {
 func (s *Server) serveHome(w http.ResponseWriter, r *http.Request, route string, build homeBuildFunc) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	if s.home == nil || pr == nil || pr.User == nil || s.liveSessionOnClient(pr) {
+	if s.homeCache() == nil || pr == nil || pr.User == nil || s.liveSessionOnClient(pr) {
 		s.writeHomeBuild(w, r, build(ctx, r))
 		return
 	}
@@ -122,15 +122,15 @@ func (s *Server) serveHome(w http.ResponseWriter, r *http.Request, route string,
 	hard, soft := s.homeStamps(pr, rev)
 	for waited := false; ; waited = true {
 		now := time.Now()
-		s.home.mu.Lock()
-		e := s.home.entries[key]
+		s.homeCache().mu.Lock()
+		e := s.homeCache().entries[key]
 		if e != nil && e.hard == hard && now.Sub(e.builtAt) < homeMaxStale && (!e.provisional || now.Sub(e.builtAt) < homeProvisionalRefresh) {
 			e.usedAt = now
 			e.tmpl, e.pr = detachedTemplate(r, pr)
 			stale := e.soft != soft || now.Sub(e.builtAt) >= homeRefreshAfter
 			body, gz, offset, total := e.body, e.gz, e.offset, e.total
 			impressions, warm, section := e.impressions, e.warm, e.section
-			s.home.mu.Unlock()
+			s.homeCache().mu.Unlock()
 			if stale {
 				s.queueHomeRefresh(key)
 			}
@@ -143,7 +143,7 @@ func (s *Server) serveHome(w http.ResponseWriter, r *http.Request, route string,
 			// A background rebuild for exactly this revision (after the
 			// viewer's playback stopped) is running: wait for it.
 			done := e.flight.done
-			s.home.mu.Unlock()
+			s.homeCache().mu.Unlock()
 			select {
 			case <-done:
 				continue
@@ -151,7 +151,7 @@ func (s *Server) serveHome(w http.ResponseWriter, r *http.Request, route string,
 				return
 			}
 		}
-		s.home.mu.Unlock()
+		s.homeCache().mu.Unlock()
 		break
 	}
 	b := build(ctx, s.homeBuildRequest(r))
@@ -240,8 +240,8 @@ func (s *Server) homeStamps(pr *Request, rev frontend.HomeRevision) (string, str
 	restricted := s.viewerRestricted(pr.User)
 	userJSON, _ := json.Marshal(pr.User)
 	var layout, config, catalog uint64
-	if s.pageFreshness != nil {
-		f := s.pageFreshness()
+	if fn := s.getHost().PageFreshness; fn != nil {
+		f := fn()
 		layout, config, catalog = f.Layout, f.Config, f.Catalog
 	}
 	hard := rev.Viewer + "|" + strconv.FormatUint(layout, 36) + "|" + strconv.FormatUint(config, 36) + "|" + strconv.FormatBool(restricted) + "|" + strconv.FormatBool(pr.User.Delegated) + "|" + string(userJSON)
@@ -268,7 +268,7 @@ func (s *Server) storeHome(e *homeEntry) {
 	for _, r := range e.impressions {
 		e.size += int64(len(r.id)+len(r.title)) + 8*int64(len(r.keys)) + 64
 	}
-	c := s.home
+	c := s.homeCache()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if old := c.entries[e.key]; old != nil {
@@ -300,7 +300,7 @@ func (s *Server) storeHome(e *homeEntry) {
 }
 
 func (s *Server) queueHomeRefresh(key string) {
-	c := s.home
+	c := s.homeCache()
 	c.mu.Lock()
 	e := c.entries[key]
 	if e == nil || e.queued {
@@ -323,18 +323,18 @@ func (s *Server) queueHomeRefresh(key string) {
 // ViewerHomeChanged rebuilds the viewer's recently used Home screens in the
 // background, so the next Home after playback stops is already current.
 func (s *Server) ViewerHomeChanged(viewerID int64) {
-	if s == nil || s.home == nil {
+	if s == nil || s.homeCache() == nil {
 		return
 	}
 	now := time.Now()
 	var keys []string
-	s.home.mu.Lock()
-	for k, e := range s.home.entries {
+	s.homeCache().mu.Lock()
+	for k, e := range s.homeCache().entries {
 		if e.viewer == viewerID && now.Sub(e.usedAt) < homeKeepWarm {
 			keys = append(keys, k)
 		}
 	}
-	s.home.mu.Unlock()
+	s.homeCache().mu.Unlock()
 	for _, k := range keys {
 		s.queueHomeRefresh(k)
 	}
@@ -350,18 +350,18 @@ func (s *Server) homeRefresher() {
 		select {
 		case <-s.ctx.Done():
 			return
-		case key := <-s.home.queue:
+		case key := <-s.homeCache().queue:
 			s.refreshHome(key)
 		case <-t.C:
 			now := time.Now()
 			var keys []string
-			s.home.mu.Lock()
-			for k, e := range s.home.entries {
+			s.homeCache().mu.Lock()
+			for k, e := range s.homeCache().entries {
 				if now.Sub(e.usedAt) < homeKeepWarm && now.Sub(e.builtAt) >= homeRewarmAge {
 					keys = append(keys, k)
 				}
 			}
-			s.home.mu.Unlock()
+			s.homeCache().mu.Unlock()
 			for _, k := range keys {
 				s.queueHomeRefresh(k)
 			}
@@ -370,7 +370,7 @@ func (s *Server) homeRefresher() {
 }
 
 func (s *Server) refreshHome(key string) {
-	c := s.home
+	c := s.homeCache()
 	c.mu.Lock()
 	e := c.entries[key]
 	if e == nil {
@@ -499,10 +499,10 @@ func (s *Server) warmKey(ctx context.Context, pr *Request, key frontend.RatingKe
 // behind a response: the performance gate waits for none before each
 // measured request.
 func (s *Server) BackgroundBusy() int {
-	if s.home == nil {
+	if s.homeCache() == nil {
 		return 0
 	}
-	c := s.home
+	c := s.homeCache()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := len(c.queue)

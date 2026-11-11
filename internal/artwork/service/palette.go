@@ -70,7 +70,9 @@ type PaletteCache struct {
 // serving.
 func (c *PaletteCache) PersistFor(persist func(context.Context, core.RatingKey) bool) {
 	if c != nil {
+		c.mu.Lock()
 		c.persist = persist
+		c.mu.Unlock()
 	}
 }
 
@@ -122,7 +124,10 @@ func (c *PaletteCache) schedule(key core.RatingKey, path string) {
 			return
 		}
 		c.set(key, path, &colors)
-		if c.persist == nil || c.persist(ctx, key) {
+		c.mu.Lock()
+		persist := c.persist
+		c.mu.Unlock()
+		if persist == nil || persist(ctx, key) {
 			c.save(ctx, key, path, colors)
 		}
 	})

@@ -5,7 +5,10 @@ import ()
 // waitBackground blocks until the enrichment queues are idle. A finished
 // title fetch can queue colour work, so it loops until both are quiet.
 func (s *Server) waitBackground() {
-	if s.titleJobs == nil {
+	s.bindMu.Lock()
+	titleJobs, blurJobs := s.titleJobs, s.blurJobs
+	s.bindMu.Unlock()
+	if titleJobs == nil {
 		if source, ok := s.libraryGUIDs().(interface{ Wait() }); ok {
 			source.Wait()
 		}
@@ -15,8 +18,8 @@ func (s *Server) waitBackground() {
 		return
 	}
 	for i := 0; i < 4; i++ {
-		s.titleJobs.wait()
-		s.blurJobs.wait()
+		titleJobs.wait()
+		blurJobs.wait()
 		if source, ok := s.libraryGUIDs().(interface{ Wait() }); ok {
 			source.Wait()
 		}

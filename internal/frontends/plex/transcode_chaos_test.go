@@ -159,7 +159,7 @@ func TestTranscodeChaosPlex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.srv.runtime.SetDownloads(dl)
+		f.srv.sessionRuntime().SetDownloads(dl)
 		q := f.queue(t)
 		rec := f.do(t, http.MethodPost, "/downloadQueue/"+itoa(q)+"/add?keys=/library/metadata/"+fightClub.Key.String(), ownerToken, nil)
 		if rec.Code != 200 {

@@ -58,12 +58,17 @@ const memoryMetadataEntries = 16 << 10
 // keep their hashes in a bounded memory cache. Call before serving.
 func (q *MetadataQueue) PersistFor(persist func(context.Context, core.RatingKey) bool) {
 	if q != nil {
+		q.mu.Lock()
 		q.persist = persist
+		q.mu.Unlock()
 	}
 }
 
 func (q *MetadataQueue) persistable(ctx context.Context, req frontend.ArtworkRequest) bool {
-	return q.persist == nil || req.Item == 0 || q.persist(ctx, req.Item)
+	q.mu.Lock()
+	persist := q.persist
+	q.mu.Unlock()
+	return persist == nil || req.Item == 0 || persist(ctx, req.Item)
 }
 
 type artworkMetadata struct {

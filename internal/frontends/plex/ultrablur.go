@@ -17,10 +17,10 @@ func wirePalette(p frontend.ArtworkPalette) model.UltraBlurColors {
 }
 
 func (s *Server) ultraBlurFor(key frontend.RatingKey, backdrop string) *model.UltraBlurColors {
-	if s.ultra == nil || backdrop == "" {
+	if s.svc().ultra == nil || backdrop == "" {
 		return nil
 	}
-	p := s.ultra.Lookup(key, backdrop)
+	p := s.svc().ultra.Lookup(key, backdrop)
 	if p == nil {
 		return nil
 	}
@@ -28,7 +28,7 @@ func (s *Server) ultraBlurFor(key frontend.RatingKey, backdrop string) *model.Ul
 	return &result
 }
 func (s *Server) preloadUltraBlur(ctx context.Context, titles []frontend.Title) {
-	if s.ultra == nil {
+	if s.svc().ultra == nil {
 		return
 	}
 	wants := make([]frontend.ArtworkPaletteWant, 0, len(titles))
@@ -37,7 +37,7 @@ func (s *Server) preloadUltraBlur(ctx context.Context, titles []frontend.Title) 
 			wants = append(wants, frontend.ArtworkPaletteWant{Key: t.Key, Path: t.BackdropPath})
 		}
 	}
-	s.ultra.Preload(ctx, wants)
+	s.svc().ultra.Preload(ctx, wants)
 }
 func ultraBlurType(t frontend.MediaType) bool {
 	return t == frontend.TypeMovie || t == frontend.TypeShow

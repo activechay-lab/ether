@@ -227,7 +227,7 @@ func TestVersionFlowSharedAcrossNodes(t *testing.T) {
 			rb := &fakeVariantResolver{byKey: map[core.RatingKey][]core.ReleaseVariant{}}
 			// Both frontends route the fake source through one broker owner;
 			// this test isolates version publication from encoder transport.
-			a.srv.usePlaybackBroker(b.srv.playbackBroker)
+			a.srv.usePlaybackBroker(b.srv.broker())
 			a.srv.d.Playback = pb
 			a.srv.setVariants(ra)
 			b.srv.d.Playback = pb

@@ -42,19 +42,19 @@ func (s *Server) cloudGuideLogo(ctx context.Context, c frontend.LiveTVChannel, o
 	if publicLogoURL(c.Logo) {
 		return c.Logo
 	}
-	if path, _, ok := frontend.ShowcaseLogo(c); ok && s.host.RepoFileURL != nil {
-		if u := s.host.RepoFileURL(path); u != "" {
+	if path, _, ok := frontend.ShowcaseLogo(c); ok && s.getHost().RepoFileURL != nil {
+		if u := s.getHost().RepoFileURL(path); u != "" {
 			return u
 		}
 	}
-	if c.Logo == "" && s.liveTV != nil {
-		if guide := s.liveTV.GuideChannelLogo(ctx, c); publicLogoURL(guide) {
+	if c.Logo == "" && s.svc().liveTV != nil {
+		if guide := s.svc().liveTV.GuideChannelLogo(ctx, c); publicLogoURL(guide) {
 			return guide
 		}
 	}
 	base := origin
-	if s.host.PublicOrigin != nil {
-		if public := strings.TrimRight(s.host.PublicOrigin(), "/"); public != "" {
+	if s.getHost().PublicOrigin != nil {
+		if public := strings.TrimRight(s.getHost().PublicOrigin(), "/"); public != "" {
 			base = public
 		}
 	}
@@ -91,8 +91,8 @@ func publicLogoURL(raw string) bool {
 // derived per node and survives restarts, so cached guide URLs stay valid.
 func (s *Server) liveLogoSignature(id string) string {
 	var key []byte
-	if s.liveTV != nil {
-		key = s.liveTV.LogoKey()
+	if s.svc().liveTV != nil {
+		key = s.svc().liveTV.LogoKey()
 	}
 	if len(key) == 0 {
 		s.liveLogoKeyOnce.Do(func() {
@@ -116,7 +116,7 @@ func (s *Server) handleSignedLiveLogo(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	c, err := s.liveTV.Channel(r.Context(), id)
+	c, err := s.svc().liveTV.Channel(r.Context(), id)
 	if err != nil || !c.Enabled {
 		writeHTTPError(w, http.StatusNotFound)
 		return

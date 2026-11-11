@@ -1740,8 +1740,8 @@ func (s *Server) audioLanguages(u *frontend.User) []string {
 		langs = append(langs, u.AudioLanguages...)
 	}
 	l := ""
-	if s.host.MetadataLanguage != nil {
-		l = s.host.MetadataLanguage()
+	if fn := s.getHost().MetadataLanguage; fn != nil {
+		l = fn()
 	}
 	if l == "" {
 		l = s.cfg().Catalog.Language

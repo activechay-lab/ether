@@ -237,7 +237,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 				// Version discovery belongs to the open detail page, not to
 				// admission of the independent playback warm-up. Start it first
 				// so a warm-up that needs a search can join the same work.
-				if pr.User != nil && s.detailSearchAllowed(pr) && s.variants != nil {
+				if variants := s.svc().variants; pr.User != nil && s.detailSearchAllowed(pr) && variants != nil {
 					// Repeated metadata fetches while the same page is being
 					// watched must not retry a failed search on every fetch.
 					watchKey := fmt.Sprintf("%d|%s|%d", pr.User.ID, pr.ClientID, t.Key)
@@ -246,7 +246,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 					s.variantWatch.mu.Unlock()
 					if !watching {
 						pr.detailRefillRequested = true
-						pr.detailRefill = s.variants.RefillSearchCache(t)
+						pr.detailRefill = variants.RefillSearchCache(t)
 					}
 				}
 				s.warmDetail(ctx, pr, t)
@@ -367,7 +367,7 @@ func (s *Server) detail(ctx context.Context, pr *Request, t *frontend.Title, chi
 // sameDayUnavailable is a local visibility lookup. Merely browsing must never
 // spend search quota trying to discover an upload.
 func (s *Server) sameDayUnavailable(ctx context.Context, pr *Request, t *frontend.Title) bool {
-	return s.exp().SameDayUnavailable(ctx, t, s.now(), s.filterAvailable(), s.variants)
+	return s.exp().SameDayUnavailable(ctx, t, s.now(), s.filterAvailable(), s.svc().variants)
 }
 
 // showOnDeck picks the episode to resume or start next.

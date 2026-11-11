@@ -103,7 +103,7 @@ func TestAndroidPosterPagePerformance(t *testing.T) {
 		return time.Duration(ru.Utime.Sec+ru.Stime.Sec)*time.Second + time.Duration(ru.Utime.Usec+ru.Stime.Usec)*time.Microsecond
 	}
 	for _, state := range []string{"cold", "warm"} {
-		f.srv.images = artworkservice.NewRemoteCache(128<<20, upstream.Client())
+		f.srv.setImages(artworkservice.NewRemoteCache(128<<20, upstream.Client()))
 		if state == "warm" {
 			page()
 		}
@@ -112,7 +112,7 @@ func TestAndroidPosterPagePerformance(t *testing.T) {
 		var usedCPU time.Duration
 		for i := 0; i < samples; i++ {
 			if state == "cold" {
-				f.srv.images = artworkservice.NewRemoteCache(128<<20, upstream.Client())
+				f.srv.setImages(artworkservice.NewRemoteCache(128<<20, upstream.Client()))
 			}
 			beforeCPU := cpu()
 			start := time.Now()

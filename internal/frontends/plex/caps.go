@@ -192,7 +192,8 @@ func (s *Server) clientCaps(pr *Request) frontend.ClientCaps {
 func (s *Server) clientCapsForKey(pr *Request, key frontend.RatingKey) frontend.ClientCaps {
 	cfg := s.cfg()
 	caps := s.declaredCaps(pr)
-	if s.host.Capabilities == nil {
+	h := s.getHost()
+	if h.Capabilities == nil {
 		return caps
 	}
 	media := frontend.MediaAny
@@ -202,7 +203,7 @@ func (s *Server) clientCapsForKey(pr *Request, key frontend.RatingKey) frontend.
 	case frontend.KindEpisode:
 		media = frontend.MediaTV
 	}
-	return s.host.Capabilities.ApplyClientRules(cfg.Quality, caps, pr.User, media)
+	return h.Capabilities.ApplyClientRules(cfg.Quality, caps, pr.User, media)
 }
 
 // Directive is one parsed X-Plex-Client-Profile-Extra directive, e.g.

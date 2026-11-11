@@ -85,10 +85,10 @@ func ensureSelectedSidecar(ps *frontend.PlaySession, want *frontend.StreamInfo) 
 // withCachedSidecars appends the viewer's cached sidecars that info does not
 // already list. It never touches the network.
 func (s *Server) withCachedSidecars(ctx context.Context, u *frontend.User, t *frontend.Title, info frontend.MediaInfo) frontend.MediaInfo {
-	if s.subtitles == nil || t == nil {
+	if s.svc().subtitles == nil || t == nil {
 		return info
 	}
-	extra := s.subtitles.CachedSidecars(ctx, t, u, info.Streams)
+	extra := s.svc().subtitles.CachedSidecars(ctx, t, u, info.Streams)
 	if len(extra) == 0 {
 		return info
 	}
@@ -376,11 +376,11 @@ func (s *Server) handleSubtitleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	lang = frontend.NormalizeLanguage(lang)
 	mc := libraryContainer()
-	if s.subtitles == nil {
+	if s.svc().subtitles == nil {
 		s.write(w, r, mc)
 		return
 	}
-	searcher := s.subtitles
+	searcher := s.svc().subtitles
 	release := ""
 	if pr.User != nil && s.playback() != nil {
 		if ps, ok := s.playback().SessionFor(pr.User.ID, pr.ClientID, t.Key); ok && ps != nil && ps.Resolution != nil {
@@ -454,11 +454,11 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	if s.subtitles == nil {
+	if s.svc().subtitles == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	searcher := s.subtitles
+	searcher := s.svc().subtitles
 	if !r.URL.Query().Has("key") {
 		s.handleSubtitleSearch(w, r)
 		return
@@ -502,8 +502,8 @@ func (s *Server) handleSubtitlePick(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) { sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st })
-		if s.trackPrefs != nil {
-			if err := s.trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
+		if s.svc().trackPrefs != nil {
+			if err := s.svc().trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
 				s.log.Warn("save stream preference", "error", err)
 			}
 		}
@@ -581,11 +581,11 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusForbidden)
 		return
 	}
-	if s.subtitles == nil {
+	if s.svc().subtitles == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	uploader := s.subtitles
+	uploader := s.svc().subtitles
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxUploadBytes+1))
 	if err != nil {
 		writeHTTPError(w, http.StatusBadRequest)
@@ -626,8 +626,8 @@ func (s *Server) handleSubtitleUpload(w http.ResponseWriter, r *http.Request) {
 	s.selections.update(pr.User.ID, int64(t.Key), func(sel *selection) {
 		sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, &st
 	})
-	if s.trackPrefs != nil {
-		if err := s.trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
+	if s.svc().trackPrefs != nil {
+		if err := s.svc().trackPrefs.Remember(ctx, pr.User.ID, t.Key, "subtitle", &st); err != nil {
 			s.log.Warn("save stream preference", "error", err)
 		}
 	}
@@ -713,7 +713,7 @@ func (s *Server) handleTranscodeSubtitles(w http.ResponseWriter, r *http.Request
 		s.writeEmpty(w, r)
 		return
 	}
-	timeline := s.subtitles
+	timeline := s.svc().subtitles
 	if timeline == nil {
 		s.writeEmpty(w, r)
 		return

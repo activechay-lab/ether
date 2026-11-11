@@ -93,7 +93,7 @@ func TestFrontendRetainsActiveRequestSessionAndImmutableHostOnRemount(t *testing
 	var releaseOnce sync.Once
 	releaseRequest := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseRequest()
-	f.srv.images = artworkservice.NewRemoteCache(1024, &http.Client{Transport: heldArtworkTransport{started, release}})
+	f.srv.setImages(artworkservice.NewRemoteCache(1024, &http.Client{Transport: heldArtworkTransport{started, release}}))
 	adapter := Frontend{Server: f.srv}
 	first, err := adapter.Mount(ctx, frontend.Host{Sessions: firstHost})
 	if err != nil {

@@ -49,7 +49,8 @@ var downloadSubscribeFeature = model.Feature{Flavor: "download", Type: "subscrib
 // downloadsEnabled reports whether the server can serve downloads at
 // all: owner setting on, remuxer and playback wired.
 func (s *Server) downloadsEnabled() bool {
-	return s.cfg().Downloads.Enabled && s.runtime != nil && s.runtime.Downloads() != nil && s.playback() != nil
+	rt := s.sessionRuntime()
+	return s.cfg().Downloads.Enabled && rt != nil && rt.Downloads() != nil && s.playback() != nil
 }
 
 // downloadsAllowed reports whether u may download (and so sees
@@ -466,7 +467,7 @@ func (s *Server) handleDownloadQueueItemRestart(w http.ResponseWriter, r *http.R
 	if q == nil {
 		return
 	}
-	s.downloads.Restart(q, parseItemIDs(r), s.runtime.Downloads().ReleaseDownload)
+	s.downloads.Restart(q, parseItemIDs(r), s.sessionRuntime().Downloads().ReleaseDownload)
 	s.scheduleDownloads()
 	w.WriteHeader(http.StatusOK)
 }
@@ -475,8 +476,8 @@ func (s *Server) handleDownloadQueueItemRestart(w http.ResponseWriter, r *http.R
 // finished file (if any).
 func (s *Server) cancelDownloadItem(it *downloadItem) {
 	p := s.downloads.CancelItem(it)
-	if p != "" && s.runtime != nil && s.runtime.Downloads() != nil {
-		s.runtime.Downloads().ReleaseDownload(p)
+	if rt := s.sessionRuntime(); p != "" && rt != nil && rt.Downloads() != nil {
+		rt.Downloads().ReleaseDownload(p)
 	}
 }
 
@@ -647,7 +648,8 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 	noRelease := func(err error) bool {
 		return err != nil && errors.Is(err, frontend.ErrNotAvailable) && playbackMessage(err) == msgNotAvailable
 	}
-	job := s.runtime.NewDownloadJob(s.playback(), s.runtime.Downloads())
+	rt := s.sessionRuntime()
+	job := rt.NewDownloadJob(s.playback(), rt.Downloads())
 	p, size, err := job.Run(ctx, frontend.DownloadRequest{Viewer: it.User, Item: it.Key, Caps: it.Caps, Run: run, NoRelease: noRelease,
 		Prepared: func(ps *frontend.PlaySession) (frontend.DecideOptions, error) {
 			if !s.downloads.Prepared(ctx, it, ps.Info) {
@@ -708,7 +710,7 @@ func (s *Server) processDownloadItem(ctx context.Context, it *downloadItem, run 
 		return
 	}
 	if !s.downloads.Complete(ctx, it, p, size, s.now()) {
-		s.runtime.Downloads().ReleaseDownload(p)
+		s.sessionRuntime().Downloads().ReleaseDownload(p)
 		return
 	}
 	s.retainDownload(p, it.ReadyAt)
@@ -724,9 +726,9 @@ func (s *Server) expireDownloads(now time.Time) {
 	if len(paths) > 0 {
 		s.stageDownloads()
 	}
-	if s.runtime != nil && s.runtime.Downloads() != nil {
+	if rt := s.sessionRuntime(); rt != nil && rt.Downloads() != nil {
 		for _, p := range paths {
-			s.runtime.Downloads().ReleaseDownload(p)
+			rt.Downloads().ReleaseDownload(p)
 		}
 	}
 }

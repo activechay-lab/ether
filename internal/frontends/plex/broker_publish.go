@@ -12,7 +12,7 @@ func (s *Server) unmountRuntime(b frontend.Sessions) {
 	if s == nil {
 		return
 	}
-	if b != nil && s.playbackBroker == b {
+	if b != nil && s.broker() == b {
 		s.usePlaybackBroker(nil)
 	}
 	s.releaseMountedPlayback()
@@ -24,37 +24,46 @@ func (s *Server) usePlaybackBroker(b frontend.Sessions) {
 	if s == nil {
 		return
 	}
-	if b == nil {
-		s.playbackBroker = nil
-		s.sessions.bind(nil)
-		return
+	s.bindMu.Lock()
+	cur := s.loadRuntimeState()
+	next := runtimeState{
+		runtime:       cur.runtime,
+		streamRuntime: cur.streamRuntime,
 	}
-	if rt, ok := b.(frontend.SessionRuntime); ok {
-		if rt.HasBroker() {
-			s.runtime = rt
-			s.playbackBroker = b
-			s.streamRuntime = rt
-		} else {
-			if s.runtime == nil || rt.PlaybackOwners() != nil {
-				s.runtime = rt
+	var act frontend.PlaybackActivityStore
+	var enc SegmentedEncoder
+	if b != nil {
+		if rt, ok := b.(frontend.SessionRuntime); ok {
+			if rt.HasBroker() {
+				next.runtime = rt
+				next.playbackBroker = b
+				next.streamRuntime = rt
+			} else {
+				if next.runtime == nil || rt.PlaybackOwners() != nil {
+					next.runtime = rt
+				}
+				next.playbackBroker = nil
 			}
-			s.playbackBroker = nil
+			act = rt.ActivityStore()
+			enc = rt.SegmentedEncoder()
+		} else {
+			next.playbackBroker = b
 		}
-		s.sessions.bind(rt.ActivityStore())
-		if enc := rt.SegmentedEncoder(); enc != nil {
-			s.usePlexEncoder(enc)
-		}
-		return
 	}
-	s.playbackBroker = b
-	s.sessions.bind(nil)
+	s.rtState.Store(&next)
+	s.bindMu.Unlock()
+	s.sessions.bind(act)
+	if enc != nil {
+		s.usePlexEncoder(enc)
+	}
 }
 
 func (s *Server) brokerRuntime() frontend.SessionRuntime {
-	if s == nil || s.playbackBroker == nil {
+	b := s.broker()
+	if b == nil {
 		return nil
 	}
-	rt, _ := s.playbackBroker.(frontend.SessionRuntime)
+	rt, _ := b.(frontend.SessionRuntime)
 	return rt
 }
 
@@ -97,15 +106,16 @@ func (s *Server) plexAccess(pr *Request) frontend.SessionAccess {
 // openPlexPlan runs version and track resolution inside Plan, then publishes
 // the decision Plan made. The adapter renders that decision.
 func (s *Server) openPlexPlan(ctx context.Context, pr *Request, p *playRequest, admit func(context.Context) (frontend.PlanAdmission, error)) (frontend.Decision, error) {
-	if s == nil || s.playbackBroker == nil || pr == nil || pr.User == nil || p == nil || p.sessionID == "" || admit == nil {
+	b := s.broker()
+	if s == nil || b == nil || pr == nil || pr.User == nil || p == nil || p.sessionID == "" || admit == nil {
 		return frontend.Decision{}, frontend.ErrNotAvailable
 	}
 	ctx = frontend.WithPlanAdmission(ctx, admit)
-	plan, err := s.playbackBroker.Plan(ctx, s.plexPlanRequest(pr, p))
+	plan, err := b.Plan(ctx, s.plexPlanRequest(pr, p))
 	if err != nil {
 		return frontend.Decision{}, fmt.Errorf("Plex broker plan: %w", err)
 	}
-	_, err = s.playbackBroker.Open(ctx, frontend.OpenRequest{Protocol: "plex", PlanID: plan.ID, Viewer: pr.User, Device: frontend.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}})
+	_, err = b.Open(ctx, frontend.OpenRequest{Protocol: "plex", PlanID: plan.ID, Viewer: pr.User, Device: frontend.Device{ID: pr.ClientID, Client: pr.Product, Product: pr.Product, Version: pr.Version, Platform: pr.Platform, DeviceName: pr.Device, Language: pr.Language}})
 	if err != nil {
 		return frontend.Decision{}, fmt.Errorf("Plex broker open: %w", err)
 	}
@@ -150,7 +160,8 @@ func (s *Server) reportBrokerTimeline(ctx context.Context, pr *Request, key fron
 		id = s.adoptBrokerTimeline(ctx, pr, key)
 	}
 	if id != "" {
-		return s.playbackBroker.Report(ctx, access, id, timeline) == nil
+		b := s.broker()
+		return b != nil && b.Report(ctx, access, id, timeline) == nil
 	}
 	return rt.ReportProgress(ctx, access, key, timeline) == nil
 }

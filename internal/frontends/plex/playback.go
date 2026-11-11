@@ -1760,7 +1760,9 @@ func (s *Server) handleTranscodeStop(w http.ResponseWriter, r *http.Request) {
 				if lookupErr == nil && sid != "" {
 					playID, known := lookup.PlexSessionSource(sid)
 					if sid == id || (known && playID == e.playID) {
-						_ = s.playbackBroker.Stop(r.Context(), s.plexAccess(pr), sid)
+						if b := s.broker(); b != nil {
+							_ = b.Stop(r.Context(), s.plexAccess(pr), sid)
+						}
 					}
 				}
 			}
@@ -2299,7 +2301,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	if _, ext, ok := strings.Cut(chi.URLParam(r, "stream"), "."); ok {
 		format = subtitleFormat(ext)
 	}
-	if s.streamRuntime == nil || pr == nil || pr.User == nil {
+	if s.streams() == nil || pr == nil || pr.User == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
@@ -2328,11 +2330,12 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			writeHTTPError(w, http.StatusForbidden)
 			return
 		}
-		if s.subtitles == nil {
+		subs := s.svc().subtitles
+		if subs == nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
-		if err := s.subtitles.DeleteSubtitle(r.Context(), binding.Key, pr.User, binding.Info); err != nil {
+		if err := subs.DeleteSubtitle(r.Context(), binding.Key, pr.User, binding.Info); err != nil {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
@@ -2341,8 +2344,8 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 				sel.subtitle, sel.subtitleSet, sel.subtitleStream = -1, true, nil
 			}
 		})
-		if s.trackPrefs != nil {
-			if err := s.trackPrefs.ForgetChoice(r.Context(), pr.User.ID, binding.Key, "subtitle"); err != nil {
+		if tp := s.svc().trackPrefs; tp != nil {
+			if err := tp.ForgetChoice(r.Context(), pr.User.ID, binding.Key, "subtitle"); err != nil {
 				s.log.Warn("clear deleted subtitle preference", "error", err)
 			}
 		}
@@ -2354,11 +2357,12 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	receipt, _ := acceptanceFrom(r.Context())
-	if s.streamRuntime == nil {
+	rt := s.streams()
+	if rt == nil {
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	reader, info, err := s.streamRuntime.OpenSidecar(frontend.WithStreamServe(r.Context(), pr.Remote, format), s.plexStreamAccess(pr.User), receipt, id)
+	reader, info, err := rt.OpenSidecar(frontend.WithStreamServe(r.Context(), pr.Remote, format), s.plexStreamAccess(pr.User), receipt, id)
 	if err != nil || reader == nil {
 		if reader != nil {
 			_ = reader.Close()

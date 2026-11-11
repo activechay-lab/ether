@@ -63,10 +63,11 @@ func (s *Server) refuseCapability(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) activeViewer(ctx context.Context, id int64) *frontend.User {
-	if s.host.Identity == nil {
+	ident := s.getHost().Identity
+	if ident == nil {
 		return nil
 	}
-	u, err := s.host.Identity.ActiveUser(ctx, id)
+	u, err := ident.ActiveUser(ctx, id)
 	if err == nil {
 		return u
 	}

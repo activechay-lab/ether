@@ -30,7 +30,7 @@ func (s *Server) writeLivePlayQueue(w http.ResponseWriter, r *http.Request, pq p
 		writeHTTPError(w, http.StatusNotFound)
 		return
 	}
-	info, err := s.liveTV.Session(r.Context(), pq.LiveSession, FromContext(r.Context()).User)
+	info, err := s.svc().liveTV.Session(r.Context(), pq.LiveSession, FromContext(r.Context()).User)
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
@@ -51,12 +51,12 @@ func (s *Server) handleLiveTimeline(w http.ResponseWriter, r *http.Request) bool
 	}
 	id := strings.TrimPrefix(key, "/livetv/sessions/")
 	pr := FromContext(r.Context())
-	if _, err := s.liveTV.Session(r.Context(), id, pr.User); err != nil {
+	if _, err := s.svc().liveTV.Session(r.Context(), id, pr.User); err != nil {
 		s.writeErr(w, r, err)
 		return true
 	}
 	if r.URL.Query().Get("state") == "stopped" {
-		if err := s.liveTV.Stop(r.Context(), id, pr.User); err != nil {
+		if err := s.svc().liveTV.Stop(r.Context(), id, pr.User); err != nil {
 			s.writeErr(w, r, err)
 			return true
 		}

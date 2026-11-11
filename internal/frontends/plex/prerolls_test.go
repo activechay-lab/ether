@@ -70,7 +70,7 @@ func TestPrerollAbsentLeavesPlayQueuesByteIdentical(t *testing.T) {
 		f.srv.setPrerolls(p)
 		// Artwork colours fill in the background on first sight; they are
 		// unrelated to pre-rolls, so keep them out of the comparison.
-		f.srv.ultra = nil
+		f.srv.setUltra(nil)
 		var out [][]byte
 		for _, target := range targets {
 			for _, accept := range []string{"application/json", "application/xml"} {

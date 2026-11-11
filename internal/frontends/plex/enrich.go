@@ -59,6 +59,15 @@ func newTitleCache(q *bgQueue, now func() time.Time, log *slog.Logger, fetch fun
 	return &titleCache{fetch: fetch, q: q, now: now, log: log, items: lru.New(lru.Options[frontend.RatingKey, *titleEntry]{MaxEntries: titleCacheEntries})}
 }
 
+func (c *titleCache) setPrefetch(fn func(context.Context, []frontend.RatingKey)) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.prefetch = fn
+	c.mu.Unlock()
+}
+
 // stale reports that key has no entry or an expired one. c.mu is held.
 func (c *titleCache) staleLocked(key frontend.RatingKey) (*frontend.Title, bool) {
 	e, ok := c.items.Get(key)
@@ -88,10 +97,15 @@ func (c *titleCache) get(key frontend.RatingKey) *frontend.Title {
 // read in one batch (prefetch), then each is fetched from what it read.
 // The list's own get calls then schedule nothing for them.
 func (c *titleCache) warm(keys []frontend.RatingKey) {
-	if c.prefetch == nil || len(keys) < 2 {
+	if len(keys) < 2 {
 		return
 	}
 	c.mu.Lock()
+	prefetch := c.prefetch
+	if prefetch == nil {
+		c.mu.Unlock()
+		return
+	}
 	var batch []frontend.RatingKey
 	for _, key := range keys {
 		if _, stale := c.staleLocked(key); stale && !c.batching[key] {
@@ -118,7 +132,7 @@ func (c *titleCache) warm(keys []frontend.RatingKey) {
 		fctx, cancel := context.WithTimeout(ctx, titleFetchTimeout)
 		defer cancel()
 		if len(batch) > 1 {
-			c.prefetch(fctx, batch)
+			prefetch(fctx, batch)
 		}
 		for _, key := range batch {
 			c.fetchOne(ctx, fctx, key)
@@ -264,7 +278,8 @@ func mergeDetail(t *frontend.Title, d *frontend.Title) {
 // will ask the detail cache for (enrich, showOfOpts): movies and shows that
 // lack it, and the shows of seasons and episodes.
 func (s *Server) warmTitleDetails(ts []frontend.Title, storedOnly bool) {
-	if s.titles == nil {
+	titles := s.titleDetails()
+	if titles == nil {
 		return
 	}
 	var keys []frontend.RatingKey
@@ -298,14 +313,15 @@ func (s *Server) warmTitleDetails(ts []frontend.Title, storedOnly bool) {
 			}
 		}
 	}
-	s.titles.warm(keys)
+	titles.warm(keys)
 }
 
 // enrich returns t with list-summary gaps filled from the detail cache.
 // Movies and shows are enriched from their own detail; t is returned
 // unchanged when nothing is cached yet (a fetch is scheduled).
 func (s *Server) enrich(t *frontend.Title) *frontend.Title {
-	if s.titles == nil {
+	titles := s.titleDetails()
+	if titles == nil {
 		return t
 	}
 	switch t.Type {
@@ -321,7 +337,7 @@ func (s *Server) enrich(t *frontend.Title) *frontend.Title {
 	if !lacksDetail(t) {
 		return t
 	}
-	d := s.titles.get(t.Key)
+	d := titles.get(t.Key)
 	if d == nil {
 		return t
 	}
@@ -331,7 +347,8 @@ func (s *Server) enrich(t *frontend.Title) *frontend.Title {
 }
 
 func (s *Server) showOfOpts(t *frontend.Title, storedOnly bool) *frontend.Title {
-	if s.titles == nil || (t.Type != frontend.TypeSeason && t.Type != frontend.TypeEpisode) {
+	titles := s.titleDetails()
+	if titles == nil || (t.Type != frontend.TypeSeason && t.Type != frontend.TypeEpisode) {
 		return nil
 	}
 	show := t.ShowKey
@@ -345,20 +362,21 @@ func (s *Server) showOfOpts(t *frontend.Title, storedOnly bool) *frontend.Title 
 		return nil
 	}
 	if storedOnly {
-		return s.titles.peek(show)
+		return titles.peek(show)
 	}
-	return s.titles.get(show)
+	return titles.get(show)
 }
 
 // rememberTitle caches a detailed title fetched for a detail page.
 func (s *Server) rememberTitle(t *frontend.Title) {
-	if s.titles == nil || t == nil {
+	titles := s.titleDetails()
+	if titles == nil || t == nil {
 		return
 	}
 	switch t.Key.Kind() {
 	case frontend.KindMovie, frontend.KindShow:
 		if !lacksDetail(t) {
-			s.titles.put(t)
+			titles.put(t)
 		}
 	}
 }

@@ -82,7 +82,7 @@ func (c refreshingArtworkCatalog) UndatedSearchHit(ctx context.Context, key fron
 // may see that has no artwork. Seasons and episodes point at their show's
 // thumb, so they reach this through the show.
 func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string, width int) bool {
-	if s.generatedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != frontend.KindMovie && key.Kind() != frontend.KindShow) {
+	if s.svc().generatedPosters == nil || (element != "thumb" && element != "poster") || (key.Kind() != frontend.KindMovie && key.Kind() != frontend.KindShow) {
 		return false
 	}
 	ctx := r.Context()
@@ -90,7 +90,7 @@ func (s *Server) serveGeneratedPoster(w http.ResponseWriter, r *http.Request, ke
 	if err != nil || t == nil || t.Key != key || t.Adult || t.IsFutureRelease(s.now()) || !s.visibleTitle(ctx, FromContext(ctx).User, t) {
 		return false
 	}
-	data, ct, ok, err := frontend.RenderTitlePoster(ctx, s.generatedPosters, t, width)
+	data, ct, ok, err := frontend.RenderTitlePoster(ctx, s.svc().generatedPosters, t, width)
 	if !ok || err != nil {
 		return false
 	}
@@ -187,13 +187,13 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key fron
 				width = 500
 			}
 		}
-		s.serveRemoteImage(w, r, s.imageURL(path, tmdbSize(width)))
+		s.serveRemoteImage(w, r, s.svc().imageURL(path, tmdbSize(width)))
 		return
 	}
 	if width <= 0 {
 		width = defWidth
 	}
-	s.serveRemoteImage(w, r, s.imageURL(path, tmdbSize(width)))
+	s.serveRemoteImage(w, r, s.svc().imageURL(path, tmdbSize(width)))
 }
 
 // servePlexOverlayImage is the last-resort artwork path: only when the owner
@@ -217,7 +217,7 @@ func (s *Server) servePlexOverlayImage(w http.ResponseWriter, r *http.Request, k
 
 func (s *Server) serveRemoteImage(w http.ResponseWriter, r *http.Request, u string) {
 	if err := s.writeRemoteImage(w, r, u); err != nil {
-		if s.images != nil && s.images.IsNotFound(err) {
+		if s.svc().images != nil && s.svc().images.IsNotFound(err) {
 			writeHTTPError(w, http.StatusNotFound)
 			return
 		}
@@ -229,7 +229,7 @@ func (s *Server) serveRemoteImage(w http.ResponseWriter, r *http.Request, u stri
 }
 
 func (s *Server) writeRemoteImage(w http.ResponseWriter, r *http.Request, u string) error {
-	img, err := s.images.Get(r.Context(), u, s.now())
+	img, err := s.svc().images.Get(r.Context(), u, s.now())
 	if err != nil {
 		return err
 	}
@@ -305,7 +305,7 @@ func (s *Server) servePersonImage(w http.ResponseWriter, r *http.Request, key fr
 		return
 	}
 	// Keep the same w185 profile URL emitted by metadata before proxying; poster widths are not profile configuration. Width and height are intentionally ignored.
-	s.serveRemoteImage(w, r, s.imageURL(imagePath, "w185"))
+	s.serveRemoteImage(w, r, s.svc().imageURL(imagePath, "w185"))
 }
 func (s *Server) handlePersonImage(w http.ResponseWriter, r *http.Request) {
 	key, err := frontend.ParseRatingKey(chi.URLParam(r, "key"))
@@ -470,7 +470,7 @@ func (s *Server) allowedImageHost(host string) bool {
 	if frontend.MetadataImageHost(host) {
 		return true
 	}
-	ref, err := url.Parse(s.imageURL("/x.jpg", "original"))
+	ref, err := url.Parse(s.svc().imageURL("/x.jpg", "original"))
 	if err != nil {
 		return false
 	}
@@ -490,7 +490,7 @@ func photoQueryValue(q url.Values, name string) string {
 // Honor explicit Android formats through the shared, byte-bounded variant
 // cache. Authorization remains in the source handler, before cache lookup.
 func (s *Server) androidPhotoFormat(r *http.Request, data []byte, ct string) ([]byte, string, error) {
-	return s.images.RasterFormat(r.Context(), data, ct, androidPhotoOutputFormat(r), s.now())
+	return s.svc().images.RasterFormat(r.Context(), data, ct, androidPhotoOutputFormat(r), s.now())
 }
 
 func androidPhotoOutputFormat(r *http.Request) string {

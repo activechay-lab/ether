@@ -26,39 +26,44 @@ import (
 // instantly when the trailer ends.
 
 func (s *Server) extrasSource() frontend.ExtrasSource {
-	return s.extras
+	return s.svc().extras
 }
 
 func (s *Server) extrasEnabled() bool {
-	return s.extras != nil && s.extras.Enabled()
+	ex := s.svc().extras
+	return ex != nil && ex.Enabled()
 }
 
 func (s *Server) extrasList(ctx context.Context, parent *frontend.Title, lang string) ([]frontend.ExtraClip, error) {
-	if s.extras == nil {
+	ex := s.svc().extras
+	if ex == nil {
 		return nil, nil
 	}
-	return s.extras.List(ctx, parent, lang)
+	return ex.List(ctx, parent, lang)
 }
 
 func (s *Server) extrasLookup(key frontend.RatingKey) (frontend.ExtraClip, bool) {
-	if s.extras == nil {
+	ex := s.svc().extras
+	if ex == nil {
 		return frontend.ExtraClip{}, false
 	}
-	return s.extras.Clip(key)
+	return ex.Clip(key)
 }
 
 func (s *Server) extrasResolve(ctx context.Context, e frontend.ExtraClip) (frontend.ResolvedExtra, error) {
-	if s.extras == nil {
+	ex := s.svc().extras
+	if ex == nil {
 		return frontend.ResolvedExtra{}, frontend.ErrNotFound
 	}
-	return s.extras.Resolve(ctx, e)
+	return ex.Resolve(ctx, e)
 }
 
 func (s *Server) extrasPrewarmBytes() (int64, bool) {
-	if s.extras == nil {
+	ex := s.svc().extras
+	if ex == nil {
 		return 0, false
 	}
-	return s.extras.PrewarmBytes(), true
+	return ex.PrewarmBytes(), true
 }
 
 // extraSession is one resolved extra playback (decision + transcode).
@@ -93,6 +98,28 @@ func newExtraPlayStore(client *http.Client) *extraPlayStore {
 		warmed:   map[string]time.Time{},
 		client:   client,
 	}
+}
+
+func (st *extraPlayStore) setClient(client *http.Client) {
+	if st == nil || client == nil {
+		return
+	}
+	st.mu.Lock()
+	st.client = client
+	st.mu.Unlock()
+}
+
+func (st *extraPlayStore) httpClient() *http.Client {
+	if st == nil {
+		return http.DefaultClient
+	}
+	st.mu.Lock()
+	c := st.client
+	st.mu.Unlock()
+	if c == nil {
+		return http.DefaultClient
+	}
+	return c
 }
 
 func (st *extraPlayStore) get(id string) (*extraSession, bool) {
@@ -240,7 +267,7 @@ func (s *Server) extraMetadataByKey(ctx context.Context, pr *Request, key fronte
 		}
 		return s.prerollMetadata(e, clip, true), true
 	}
-	if s.extras == nil {
+	if s.svc().extras == nil {
 		return model.Metadata{}, false
 	}
 	e, ok := s.extrasLookup(key)
@@ -650,10 +677,7 @@ func (s *Server) handleExtraPart(w http.ResponseWriter, r *http.Request) bool {
 	if rng := r.Header.Get("Range"); rng != "" {
 		req.Header.Set("Range", rng)
 	}
-	client := http.DefaultClient
-	if s.extraPlay != nil && s.extraPlay.client != nil {
-		client = s.extraPlay.client
-	}
+	client := s.extraPlay.httpClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() == nil {

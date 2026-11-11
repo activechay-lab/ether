@@ -223,7 +223,8 @@ func (s *Server) serveDiscoveryPoster(w http.ResponseWriter, r *http.Request, k 
 	var ct string
 	if highBackdrop {
 		_, path := d.Overlays.Paths(ctx, pr.User, t, lang)
-		image, err := s.images.Get(ctx, s.imageURL(path, tmdbSize(backdropWidth)), s.now())
+		svc := s.svc()
+		image, err := svc.images.Get(ctx, svc.imageURL(path, tmdbSize(backdropWidth)), s.now())
 		e = err
 		if err == nil {
 			data, ct = image.Data, image.ContentType

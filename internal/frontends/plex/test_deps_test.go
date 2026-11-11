@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,28 +149,31 @@ func testDeps(d Deps) Deps {
 }
 
 func newTestServer(d testServerDeps) *Server {
-	var srv *Server
+	var srvPtr atomic.Pointer[Server]
 	playFn := func() core.Playback {
-		if srv != nil && srv.d.Playback != nil {
+		if srv := srvPtr.Load(); srv != nil && srv.d.Playback != nil {
 			return srv.d.Playback
 		}
 		return d.Playback
 	}
 	transFn := func() core.Transcoder {
-		if srv != nil && srv.d.Transcoder != nil {
+		if srv := srvPtr.Load(); srv != nil && srv.d.Transcoder != nil {
 			return srv.d.Transcoder
 		}
 		return d.Transcoder
+	}
+	if d.Deps.Host.Experience == nil {
+		d.Deps.Host.Experience = d.experienceService()
+	}
+	if pf := d.pageFreshnessFunc(); pf != nil {
+		d.Deps.Host.PageFreshness = pf
 	}
 	d.Deps = testDeps(d.Deps)
 	if lr, ok := d.Host.Sessions.(*sessions.LocalRuntime); ok {
 		lr.FillDefaults(sessions.LocalRuntimeDeps{PlaybackFunc: playFn, TranscoderFunc: transFn})
 	}
-	srv = NewServer(d.Deps)
-	srv.bindHost(frontend.Host{
-		Experience:    d.experienceService(),
-		PageFreshness: d.pageFreshnessFunc(),
-	})
+	srv := NewServer(d.Deps)
+	srvPtr.Store(srv)
 	return srv
 }
 
@@ -178,7 +182,8 @@ func (s *Server) currentTestDeps() testServerDeps {
 		return testServerDeps{}
 	}
 	deps := s.d
-	deps.Host = s.host
+	deps.Host = s.getHost()
+	deps.Host.Experience = nil
 	var libTitles func() (string, string)
 	if m, sh := s.exp().LibraryTitles(); m != "" || sh != "" {
 		libTitles = func() (string, string) { return m, sh }
@@ -207,7 +212,6 @@ func (s *Server) currentTestDeps() testServerDeps {
 func (s *Server) updateTestDeps(fn func(*testServerDeps)) {
 	d := s.currentTestDeps()
 	fn(&d)
-	s.d = d.Deps
 	s.bindHost(frontend.Host{
 		Experience:    d.experienceService(),
 		PageFreshness: d.pageFreshnessFunc(),
@@ -252,27 +256,35 @@ func (s *Server) setImageURL(fn frontend.ImageURLFunc) {
 	if fn == nil {
 		fn = func(path, size string) string { return "https://image.tmdb.org/t/p/" + size + path }
 	}
-	s.imageURL = fn
+	s.mutateServices(func(svc *hostServices) { svc.imageURL = fn })
+}
+
+func (s *Server) setImages(cache frontend.ArtworkImageCache) {
+	s.mutateServices(func(svc *hostServices) { svc.images = cache })
+}
+
+func (s *Server) setUltra(cache frontend.ArtworkPaletteCache) {
+	s.mutateServices(func(svc *hostServices) { svc.ultra = cache })
 }
 
 func (s *Server) setGeneratedPosters(g frontend.TitlePosterRenderer) {
-	s.generatedPosters = g
+	s.mutateServices(func(svc *hostServices) { svc.generatedPosters = g })
 }
 
 func (s *Server) setLiveTV(ltv frontend.LiveTV) {
-	s.liveTV = ltv
+	s.mutateServices(func(svc *hostServices) { svc.liveTV = ltv })
 }
 
 func (s *Server) setSupport(rec frontend.DiagnosticRecorder) {
-	s.support = rec
+	s.mutateServices(func(svc *hostServices) { svc.support = rec })
 }
 
 func (s *Server) setClientSeen(fn func(string)) {
-	s.clientSeen = fn
+	s.mutateServices(func(svc *hostServices) { svc.clientSeen = fn })
 }
 
 func (s *Server) setRemoteClientSeen(fn func(string)) {
-	s.remoteClientSeen = fn
+	s.mutateServices(func(svc *hostServices) { svc.remoteClientSeen = fn })
 }
 
 func testServer(d Deps) *Server {
@@ -312,21 +324,23 @@ func depsConfig[T any](d *T) func() config.Config {
 }
 
 func (s *Server) setTestConfig(fn func() config.Config) {
-	s.host.HostConfig = fn
-	if fn == nil {
-		s.host.Config = nil
-		return
-	}
-	s.host.Config = func() frontend.Settings {
-		return frontend.Settings{"serverName": fn().Server.FriendlyName}
-	}
+	s.mutateHost(func(h *frontend.Host) {
+		h.HostConfig = fn
+		if fn == nil {
+			h.Config = nil
+			return
+		}
+		h.Config = func() frontend.Settings {
+			return frontend.Settings{"serverName": fn().Server.FriendlyName}
+		}
+	})
 }
 
 func (s *Server) testConfig() func() config.Config {
 	if s == nil {
 		return nil
 	}
-	return s.host.HostConfig
+	return s.getHost().HostConfig
 }
 
 func setDepsNow[T any](d *T, fn func() time.Time) {
@@ -343,7 +357,7 @@ func depsNow[T any](d *T) func() time.Time {
 }
 
 func (s *Server) setTestNow(fn func() time.Time) {
-	s.host.Now = fn
+	s.mutateHost(func(h *frontend.Host) { h.Now = fn })
 }
 
 func setDepsIdentity[T any](d *T, id Identity) {
@@ -373,27 +387,31 @@ func setDepsIdentity[T any](d *T, id Identity) {
 }
 
 func (s *Server) setTestIdentity(id Identity) {
-	s.host.ServerIdentity = frontend.ServerIdentity{
-		MachineID:       id.MachineIdentifier,
-		FriendlyName:    id.FriendlyName,
-		Version:         id.Version,
-		Platform:        id.Platform,
-		PlatformVersion: id.PlatformVersion,
-	}
 	sub, feats := id.MyPlexSubscription, append([]string(nil), id.OwnerFeatures...)
-	s.host.OwnerSubscription = func() (bool, []string) { return sub, feats }
+	s.mutateHost(func(h *frontend.Host) {
+		h.ServerIdentity = frontend.ServerIdentity{
+			MachineID:       id.MachineIdentifier,
+			FriendlyName:    id.FriendlyName,
+			Version:         id.Version,
+			Platform:        id.Platform,
+			PlatformVersion: id.PlatformVersion,
+		}
+		h.OwnerSubscription = func() (bool, []string) { return sub, feats }
+	})
 }
 
 func (s *Server) setTestSubscription(sub bool) {
-	var feats []string
-	if s.host.OwnerSubscription != nil {
-		_, feats = s.host.OwnerSubscription()
-	}
-	s.host.OwnerSubscription = func() (bool, []string) { return sub, feats }
+	s.mutateHost(func(h *frontend.Host) {
+		var feats []string
+		if h.OwnerSubscription != nil {
+			_, feats = h.OwnerSubscription()
+		}
+		h.OwnerSubscription = func() (bool, []string) { return sub, feats }
+	})
 }
 
 func (s *Server) setTestPlatformVersion(v string) {
-	s.host.ServerIdentity.PlatformVersion = v
+	s.mutateHost(func(h *frontend.Host) { h.ServerIdentity.PlatformVersion = v })
 }
 
 func setDepsOwnerSubscription[T any](d *T, fn func() (bool, []string)) {
@@ -403,7 +421,7 @@ func setDepsOwnerSubscription[T any](d *T, fn func() (bool, []string)) {
 }
 
 func (s *Server) setTestOwnerSubscription(fn func() (bool, []string)) {
-	s.host.OwnerSubscription = fn
+	s.mutateHost(func(h *frontend.Host) { h.OwnerSubscription = fn })
 }
 
 func setDepsRepoFileURL[T any](d *T, fn func(string) string) {
@@ -413,7 +431,7 @@ func setDepsRepoFileURL[T any](d *T, fn func(string) string) {
 }
 
 func (s *Server) setTestRepoFileURL(fn func(string) string) {
-	s.host.RepoFileURL = fn
+	s.mutateHost(func(h *frontend.Host) { h.RepoFileURL = fn })
 }
 
 func setDepsPublicURL[T any](d *T, fn func() string) {
@@ -423,7 +441,7 @@ func setDepsPublicURL[T any](d *T, fn func() string) {
 }
 
 func (s *Server) setTestPublicURL(fn func() string) {
-	s.host.PublicOrigin = fn
+	s.mutateHost(func(h *frontend.Host) { h.PublicOrigin = fn })
 }
 
 func setDepsAuth[T any](d *T, a core.Auth) {
@@ -433,11 +451,11 @@ func setDepsAuth[T any](d *T, a core.Auth) {
 }
 
 func (s *Server) setTestAuth(a core.Auth) {
-	s.host.Identity = frontend.BindAuth(a)
+	s.mutateHost(func(h *frontend.Host) { h.Identity = frontend.BindAuth(a) })
 }
 
 func (s *Server) testAuth() *fakeAuth {
-	if u, ok := s.host.Identity.(interface{ UnwrapAuth() core.Auth }); ok {
+	if u, ok := s.getHost().Identity.(interface{ UnwrapAuth() core.Auth }); ok {
 		fa, _ := u.UnwrapAuth().(*fakeAuth)
 		return fa
 	}
@@ -451,7 +469,7 @@ func setDepsPolicy[T any](d *T, p frontend.ViewerPolicy) {
 }
 
 func (s *Server) setTestPolicy(p frontend.ViewerPolicy) {
-	s.host.ViewerPolicy = p
+	s.mutateHost(func(h *frontend.Host) { h.ViewerPolicy = p })
 }
 
 func setDepsHTTPClient[T any](d *T, c *http.Client) {

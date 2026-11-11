@@ -19,39 +19,39 @@ import (
 const prerollSource = "preroll"
 
 func (s *Server) prerollsActive(ctx context.Context) bool {
-	return s.prerolls != nil && s.prerolls.Active(ctx)
+	return s.svc().prerolls != nil && s.svc().prerolls.Active(ctx)
 }
 
 func (s *Server) prerollsPick(ctx context.Context, req frontend.PrerollRequest) (frontend.PrerollClip, bool) {
-	if s.prerolls == nil {
+	if s.svc().prerolls == nil {
 		return frontend.PrerollClip{}, false
 	}
-	return s.prerolls.Pick(ctx, req)
+	return s.svc().prerolls.Pick(ctx, req)
 }
 
 func (s *Server) prerollsClip(ctx context.Context, key frontend.RatingKey) (frontend.PrerollClip, bool) {
-	if s.prerolls == nil {
+	if s.svc().prerolls == nil {
 		return frontend.PrerollClip{}, false
 	}
-	return s.prerolls.Clip(ctx, key)
+	return s.svc().prerolls.Clip(ctx, key)
 }
 
 func (s *Server) prerollsThumb(ctx context.Context, key frontend.RatingKey) (string, bool) {
-	if s.prerolls == nil {
+	if s.svc().prerolls == nil {
 		return "", false
 	}
-	return s.prerolls.Thumb(ctx, key)
+	return s.svc().prerolls.Thumb(ctx, key)
 }
 
 func (s *Server) prerollsRecordPlay(ctx context.Context, play frontend.PrerollPlay) {
-	if s.prerolls != nil {
-		s.prerolls.RecordPlay(ctx, play)
+	if s.svc().prerolls != nil {
+		s.svc().prerolls.RecordPlay(ctx, play)
 	}
 }
 
 // prerollExtra returns a ready pre-roll as an extra.
 func (s *Server) prerollExtra(ctx context.Context, key frontend.RatingKey) (frontend.ExtraClip, frontend.PrerollClip, bool) {
-	if s.prerolls == nil || !key.IsPreroll() {
+	if s.svc().prerolls == nil || !key.IsPreroll() {
 		return frontend.ExtraClip{}, frontend.PrerollClip{}, false
 	}
 	clip, ok := s.prerollsClip(ctx, key)
@@ -156,7 +156,7 @@ func (s *Server) prerollPart(w http.ResponseWriter, r *http.Request, key fronten
 
 // prerollStarted records the play against the feature it precedes.
 func (s *Server) prerollStarted(ctx context.Context, pr *Request, e frontend.ExtraClip) {
-	if e.Source != prerollSource || s.prerolls == nil || pr.User == nil {
+	if e.Source != prerollSource || s.svc().prerolls == nil || pr.User == nil {
 		return
 	}
 	play := frontend.PrerollPlay{Viewer: pr.User, Key: e.Key, Client: pr.Product}
@@ -178,7 +178,7 @@ func prerollFeatureTitle(t *frontend.Title) string {
 
 // prerollThumb serves a pre-roll's thumbnail for /library/metadata images.
 func (s *Server) prerollThumb(w http.ResponseWriter, r *http.Request, key frontend.RatingKey) bool {
-	if s.prerolls == nil || !key.IsPreroll() {
+	if s.svc().prerolls == nil || !key.IsPreroll() {
 		return false
 	}
 	path, ok := s.prerollsThumb(r.Context(), key)
@@ -206,7 +206,7 @@ func (s *Server) prerollThumb(w http.ResponseWriter, r *http.Request, key fronte
 // A client that asked for Cinema Trailers (extrasPrefixCount) declared a
 // fresh play; otherwise a saved resume point means a resume.
 func (s *Server) prerollKey(ctx context.Context, pr *Request, feature frontend.RatingKey, cinema bool) (frontend.RatingKey, string) {
-	if s.prerolls == nil || pr.User == nil || (feature.Kind() != frontend.KindMovie && feature.Kind() != frontend.KindEpisode) || !s.prerollsActive(ctx) {
+	if s.svc().prerolls == nil || pr.User == nil || (feature.Kind() != frontend.KindMovie && feature.Kind() != frontend.KindEpisode) || !s.prerollsActive(ctx) {
 		return 0, ""
 	}
 	t, err := s.metadataTitle(ctx, pr, feature)

@@ -14,31 +14,35 @@ import (
 )
 
 func (s *Server) trickplayAvailable(id string) bool {
-	if s == nil || s.playbackBroker == nil || id == "" {
+	b := s.broker()
+	if s == nil || b == nil || id == "" {
 		return false
 	}
-	return s.playbackBroker.TrickplayAvailable(id)
+	return b.TrickplayAvailable(id)
 }
 
 func (s *Server) trickplayBIF(id string) ([]byte, bool) {
-	if s == nil || s.playbackBroker == nil || id == "" {
+	b := s.broker()
+	if s == nil || b == nil || id == "" {
 		return nil, false
 	}
-	return s.playbackBroker.TrickplayBIF(id)
+	return b.TrickplayBIF(id)
 }
 
 func (s *Server) trickplayFrame(id string, at time.Duration) ([]byte, bool) {
-	if s == nil || s.playbackBroker == nil || id == "" {
+	b := s.broker()
+	if s == nil || b == nil || id == "" {
 		return nil, false
 	}
-	return s.playbackBroker.TrickplayFrame(id, at)
+	return b.TrickplayFrame(id, at)
 }
 
 func (s *Server) cancelTrickplay(id string) {
-	if s == nil || s.playbackBroker == nil || id == "" {
+	b := s.broker()
+	if s == nil || b == nil || id == "" {
 		return
 	}
-	s.playbackBroker.CancelTrickplay(id)
+	b.CancelTrickplay(id)
 }
 
 // handleIndexBIF serves the sparse BIF snapshot for a currently available

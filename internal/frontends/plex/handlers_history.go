@@ -104,7 +104,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	accounts := map[int64]int64{pr.User.ID: pr.User.PlexID}
 	accountUser := pr.User.ID
-	if pr.User.IsOwner && s.host.Identity != nil {
+	if pr.User.IsOwner && s.getHost().Identity != nil {
 		users, _ := s.listUsers(ctx)
 		accountUser = -1
 		for _, u := range users {
@@ -303,7 +303,7 @@ func (s *Server) handleHistoryItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accountID := pr.User.PlexID
-	if pr.User.IsOwner && s.host.Identity != nil {
+	if pr.User.IsOwner && s.getHost().Identity != nil {
 		users, _ := s.listUsers(r.Context())
 		for _, u := range users {
 			if u.ID == h.UserID {

@@ -84,7 +84,7 @@ func TestPlaylistKnownDurationBeyondSmallPage(t *testing.T) {
 	defer f.srv.Close()
 	title := fightClub
 	title.Runtime = 1800689 * time.Millisecond
-	f.srv.titles.put(&title)
+	f.srv.titleDetails().put(&title)
 	keys := make([]core.RatingKey, 201)
 	for i := range keys {
 		keys[i] = title.Key

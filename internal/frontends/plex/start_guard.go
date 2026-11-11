@@ -50,7 +50,7 @@ func (s *Server) checkStartStall(pr *Request, key frontend.RatingKey, state stri
 			s.starts.Forget(id)
 			continue
 		}
-		live, ok := s.runtime.ObserveStart(s.ctx, out, id)
+		live, ok := s.sessionRuntime().ObserveStart(s.ctx, out, id)
 		if !ok {
 			continue
 		}

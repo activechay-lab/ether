@@ -379,13 +379,14 @@ func (s *Server) playlistMetadata(ctx context.Context, pl *frontend.Playlist, om
 // the title-detail cache without blocking: it is omitted (0) until every
 // item's runtime is known, and unknown items are fetched in the background.
 func (s *Server) playlistDuration(items []frontend.RatingKey) int64 {
-	if s.titles == nil {
+	titles := s.titleDetails()
+	if titles == nil {
 		return 0
 	}
 	var seconds int64
 	known := true
 	for _, key := range items {
-		title := s.titles.get(key)
+		title := titles.get(key)
 		if title == nil || title.Runtime <= 0 {
 			known = false
 			continue

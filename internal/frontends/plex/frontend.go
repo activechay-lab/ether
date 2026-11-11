@@ -94,6 +94,7 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 	}
 	srv := f.Server
 	ownsServer := false
+	boundAtCreate := false
 	if srv == nil && f.state != nil {
 		f.state.mu.Lock()
 		if err := ctx.Err(); err != nil {
@@ -121,6 +122,7 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 					Host:          host,
 					TracePlayback: host.TracePlayback,
 				})
+				boundAtCreate = true
 			}
 		}
 		srv = f.state.server
@@ -138,6 +140,7 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 				TracePlayback: host.TracePlayback,
 			})
 			ownsServer = true
+			boundAtCreate = true
 		}
 	}
 	if srv == nil {
@@ -149,7 +152,9 @@ func (f Frontend) Mount(ctx context.Context, host frontend.Host) (frontend.Insta
 		}
 		return nil, err
 	}
-	srv.bindHost(host)
+	if !boundAtCreate {
+		srv.bindHost(host)
+	}
 
 	explicitOnly := f.ExplicitWatchOnly || (host.HostConfig != nil && host.HostConfig().Spike.Enabled)
 	instance := &plexInstance{

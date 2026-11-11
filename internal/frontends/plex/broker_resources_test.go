@@ -31,7 +31,7 @@ func TestBrokerPublishesSelectedTracksHLSAndDASH(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 			}
-			if got := publishedPlexSession(t, f.srv.playbackBroker, tc.session); got != tc.session {
+			if got := publishedPlexSession(t, f.srv.broker(), tc.session); got != tc.session {
 				t.Fatalf("broker session %q", got)
 			}
 		})
@@ -43,7 +43,7 @@ func TestUnmountReleasesPlaybackResources(t *testing.T) {
 	defer f.srv.Close()
 	dt := &dashTranscoder{fakeTranscoder: f.trans, dash: map[string]*fakeDASH{}}
 	f.srv.d.Transcoder = dt
-	broker := f.srv.playbackBroker
+	broker := f.srv.broker()
 	inst, err := Frontend{Server: f.srv}.Mount(context.Background(), frontend.Host{Sessions: broker})
 	if err != nil {
 		t.Fatal(err)
