@@ -864,6 +864,15 @@ func TestRecentEdgesAttributeToTheRequestSnapshot(t *testing.T) {
 	}()
 	buf := make([]byte, flipBlock)
 	for i := 0; i < 512; i++ {
+		if i%32 == 16 {
+			// The goroutine races adoptions against reads; this inline flip makes
+			// sure both accounts serve some blocks even when the scheduler never
+			// runs that goroutine mid-loop (slow CI runners).
+			q := base
+			q.Expires = time.Now().Add(2 * time.Hour)
+			q.Provider, q.URL = "torbox-0", torHostEdge.issue(fmt.Sprintf("inline%d", i))
+			f.adopt(q)
+		}
 		if _, err := source.(readAtContexter).ReadAtContext(context.Background(), buf, int64(i)*flipBlock); err != nil {
 			close(stop)
 			t.Fatalf("flipped read %d: %v", i, err)

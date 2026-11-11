@@ -112,10 +112,18 @@ func TestEngineReadsWholeFileWithRanges(t *testing.T) {
 		t.Fatal("blocks were not cached")
 	}
 	// Statistics attributes every fetched byte to the account that served it.
-	st := r.eng.Stats()
+	// Readahead may still be landing a block between the two counters; wait
+	// for the engine to go quiet before comparing them.
+	var st EngineStats
 	var attributed int64
-	for _, n := range st.ProviderBytes {
-		attributed += n
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		st, attributed = r.eng.Stats(), 0
+		for _, n := range st.ProviderBytes {
+			attributed += n
+		}
+		if attributed == st.BytesFetched || time.Now().After(deadline) {
+			break
+		}
 	}
 	if st.BytesFetched == 0 || len(st.ProviderBytes) != 1 || attributed != st.BytesFetched {
 		t.Fatalf("per-account bytes %v of %d", st.ProviderBytes, st.BytesFetched)
