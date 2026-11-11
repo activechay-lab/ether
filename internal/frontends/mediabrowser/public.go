@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
+	"github.com/braedonsaunders/ether/internal/webclient"
 )
 
 // PublicInfo is supplied by the host, so the server identity remains stable
@@ -19,7 +20,7 @@ type PublicInfo struct {
 	ID, ServerName, LocalAddress, Version, ProductName string
 }
 
-func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.HandlerFunc, clientIP func(*http.Request) (netip.Addr, bool)) error {
+func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.HandlerFunc, clientIP func(*http.Request) (netip.Addr, bool), webClient *webclient.Installer) error {
 	if picker == nil {
 		picker = func(w http.ResponseWriter, _ *http.Request) { jsonReply(w, []any{}) }
 	}
@@ -64,13 +65,8 @@ func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.Handle
 			w.WriteHeader(http.StatusOK)
 		}},
 		{"POST", "/System/Ping", func(w http.ResponseWriter, _ *http.Request) { jsonReply(w, getInfo().ProductName) }},
-		{"GET", "/web", webPage},
 		{"GET", "/web/{path...}", func(w http.ResponseWriter, r *http.Request) {
-			if getInfo().ProductName == "Emby Server" && r.PathValue("path") != "" {
-				http.NotFound(w, r)
-				return
-			}
-			webPage(w, r)
+			serveWeb(w, r, getInfo().ProductName == "Emby Server", webClient)
 		}},
 		{"GET", "/Users/Public", picker},
 		{"GET", "/System/Endpoint", func(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +75,26 @@ func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.Handle
 		{"GET", "/System/Ping", func(w http.ResponseWriter, _ *http.Request) {
 			jsonReply(w, getInfo().ProductName)
 		}},
+	}
+	// Real Jellyfin sends the bare root to the web client once it is
+	// installed. Emby never registers this route and keeps its 404.
+	if getInfo().ProductName != "Emby Server" {
+		handlers = append(handlers, struct {
+			method, path string
+			handler      http.HandlerFunc
+		}{"GET", "/", func(w http.ResponseWriter, r *http.Request) {
+			if webClient != nil {
+				if st, _ := webClient.State(); st == webclient.StatusReady {
+					target := "/web/"
+					if prefix, ok := r.Context().Value(prefixKey{}).(string); ok {
+						target = prefix + target
+					}
+					http.Redirect(w, r, target, http.StatusFound)
+					return
+				}
+			}
+			webPage(w, r)
+		}})
 	}
 	for _, h := range handlers {
 		if err := r.Handle(h.method, h.path, h.handler); err != nil {
@@ -129,7 +145,9 @@ func StripPrefix(prefix string, next http.Handler) http.Handler {
 	})
 }
 
-func webPage(w http.ResponseWriter, r *http.Request) {
+func webPage(w http.ResponseWriter, r *http.Request) { webPageWithNote(w, r, "") }
+
+func webPageWithNote(w http.ResponseWriter, r *http.Request, note string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	w.Header().Set("Vary", "Accept-Language")
@@ -179,7 +197,11 @@ func webPage(w http.ResponseWriter, r *http.Request) {
 	if address != "" {
 		addressHTML = fmt.Sprintf(`<p>%s</p><p><code>%s</code></p>`, html.EscapeString(addressLabels[lang]), html.EscapeString(address))
 	}
-	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="%s"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ether</title><style>body{margin:0;background:#0e1116;color:#e7e9ee;font:16px/1.45 system-ui,sans-serif}main{max-width:36rem;margin:4rem auto;padding:0 1.25rem}h1{font-size:1.5rem;font-weight:650}p,li{color:#b7bdc9}code{color:#e7e9ee}a{color:#8eb6ff}</style><main><h1>%s</h1><p>%s</p>%s<p>%s</p><ul><li><a href="https://github.com/jarnedemeulemeester/findroid">Findroid</a></li><li><a href="https://github.com/jellyfin/swiftfin">Swiftfin</a></li><li><a href="https://github.com/jellyfin/jellyfin-media-player">Jellyfin Media Player</a></li></ul></main></html>`, lang, html.EscapeString(c.heading), html.EscapeString(c.instruction), addressHTML, html.EscapeString(appLabels[lang]))
+	noteHTML := ""
+	if note != "" {
+		noteHTML = fmt.Sprintf(`<p>%s</p>`, html.EscapeString(note))
+	}
+	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="%s"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ether</title><style>body{margin:0;background:#0e1116;color:#e7e9ee;font:16px/1.45 system-ui,sans-serif}main{max-width:36rem;margin:4rem auto;padding:0 1.25rem}h1{font-size:1.5rem;font-weight:650}p,li{color:#b7bdc9}code{color:#e7e9ee}a{color:#8eb6ff}</style><main><h1>%s</h1><p>%s</p>%s<p>%s</p>%s<ul><li><a href="https://github.com/jarnedemeulemeester/findroid">Findroid</a></li><li><a href="https://github.com/jellyfin/swiftfin">Swiftfin</a></li><li><a href="https://github.com/jellyfin/jellyfin-media-player">Jellyfin Media Player</a></li></ul></main></html>`, lang, html.EscapeString(c.heading), html.EscapeString(c.instruction), addressHTML, html.EscapeString(appLabels[lang]), noteHTML)
 }
 
 var addressLabels = map[string]string{
