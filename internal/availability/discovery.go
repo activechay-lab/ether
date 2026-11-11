@@ -20,7 +20,7 @@ func (s *Service) waitHidden(ctx context.Context, kind string, input discoverySn
 	s.visibilityMu.Lock()
 	revision := s.visibilityRevision
 	s.visibilityMu.Unlock()
-	if h != nil && h.key == key && (!requireFresh || h.fresh(key, revision, s.now())) {
+	if h != nil && h.key == key && (!requireFresh || h.fresh(key, revision, s.now(), s.hiddenFreshness())) {
 		return h, nil
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -37,7 +37,7 @@ func (s *Service) waitHidden(ctx context.Context, kind string, input discoverySn
 			running := s.refreshing[kind] > 0
 			revision = s.visibilityRevision
 			s.visibilityMu.Unlock()
-			if h != nil && h.key == key && (!requireFresh || h.fresh(key, revision, s.now())) {
+			if h != nil && h.key == key && (!requireFresh || h.fresh(key, revision, s.now(), s.hiddenFreshness())) {
 				return h, nil
 			}
 			if !running {
@@ -324,14 +324,29 @@ type hiddenSet struct {
 
 // fresh reports whether the set still answers for these inputs: the same
 // settings, no observation or invalidation since, and younger than
-// hiddenFreshFor (other cluster nodes write evidence too, and titles leave
-// the window as time passes). The Service re-warms every minute; a much
-// shorter freshness made every browse a few seconds after a pass queue
-// another full evidence pass behind it, back to back while anyone browsed.
-const hiddenFreshFor = 45 * time.Second
+// the freshness window. Every local evidence write already invalidates the
+// set (clearVisibility), so on a single server the window only covers
+// titles crossing a date boundary and can be long: production profiling
+// showed the 45 s window re-running every kind's evidence pass ~80 times an
+// hour (1.5 GB of garbage per 15 min while idle). In a cluster other nodes
+// write evidence this node is not told about, so it keeps the short window.
+// The Service re-warms every minute; a much shorter freshness made every
+// browse a few seconds after a pass queue another full evidence pass behind
+// it, back to back while anyone browsed.
+const (
+	hiddenFreshFor        = 5 * time.Minute
+	hiddenFreshForCluster = 45 * time.Second
+)
 
-func (h *hiddenSet) fresh(key string, revision uint64, now time.Time) bool {
-	return h.key == key && h.revision == revision && now.Sub(h.at) < hiddenFreshFor && !now.Before(h.at)
+func (h *hiddenSet) fresh(key string, revision uint64, now time.Time, within time.Duration) bool {
+	return h.key == key && h.revision == revision && now.Sub(h.at) < within && !now.Before(h.at)
+}
+
+func (s *Service) hiddenFreshness() time.Duration {
+	if s.d.Clustered {
+		return hiddenFreshForCluster
+	}
+	return hiddenFreshFor
 }
 
 func hiddenKey(kind string, input discoverySnapshot) string {
@@ -358,7 +373,7 @@ func (s *Service) currentHidden(kind string, input discoverySnapshot) *hiddenSet
 	key := hiddenKey(kind, input)
 	s.visibilityMu.Lock()
 	h := s.hiddenSets[kind]
-	stale := h == nil || !h.fresh(key, s.visibilityRevision, input.now)
+	stale := h == nil || !h.fresh(key, s.visibilityRevision, input.now, s.hiddenFreshness())
 	s.visibilityMu.Unlock()
 	if stale {
 		s.refreshHidden(kind)

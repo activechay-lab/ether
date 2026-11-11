@@ -54,17 +54,22 @@ func (c *gateCountingCatalog) ConsoleGateChanged() { c.changed++ }
 // The hidden answer stays fresh for most of the warm cycle: with a
 // shorter life every browse after a few seconds queued another full
 // evidence pass behind the last, back to back for as long as anyone
-// browsed.
+// browsed. Clustered nodes keep the short window (other nodes' evidence is
+// not signalled); a single server, whose own evidence writes invalidate the
+// set, keeps it for minutes.
 func TestHiddenSetStaysFreshBetweenWarmCycles(t *testing.T) {
 	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	h := &hiddenSet{key: "k", revision: 3, at: at}
-	if !h.fresh("k", 3, at.Add(30*time.Second)) {
+	if !h.fresh("k", 3, at.Add(30*time.Second), hiddenFreshForCluster) {
 		t.Fatal("hidden set went stale inside the warm cycle")
 	}
-	if h.fresh("k", 3, at.Add(time.Minute)) {
-		t.Fatal("hidden set outlived the warm cycle")
+	if h.fresh("k", 3, at.Add(time.Minute), hiddenFreshForCluster) {
+		t.Fatal("clustered hidden set outlived the warm cycle")
 	}
-	if h.fresh("k", 4, at.Add(time.Second)) || h.fresh("other", 3, at.Add(time.Second)) {
+	if !h.fresh("k", 3, at.Add(4*time.Minute), hiddenFreshFor) || h.fresh("k", 3, at.Add(6*time.Minute), hiddenFreshFor) {
+		t.Fatal("single-server hidden set window wrong")
+	}
+	if h.fresh("k", 4, at.Add(time.Second), hiddenFreshFor) || h.fresh("other", 3, at.Add(time.Second), hiddenFreshFor) {
 		t.Fatal("hidden set answered for other inputs")
 	}
 }

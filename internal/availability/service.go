@@ -58,6 +58,9 @@ type Deps struct {
 	// the request path; Close stops them. False runs each refresh inline,
 	// before the request that found its answer stale.
 	Async bool
+	// Clustered: other nodes write release evidence this node is not told
+	// about, so hidden sets expire on the short cluster window.
+	Clustered bool
 }
 type Service struct {
 	verdictMu          sync.Mutex
