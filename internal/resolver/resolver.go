@@ -260,6 +260,8 @@ type Service struct {
 
 	con consoleState // pins, release memory, health results, history (console.go)
 
+	namesake namesakeState // normalized-title index for the namesake gate (namesake.go)
+
 	extend extendState // descriptor registry for ranking/rules (extend_registry.go)
 
 	invalMu sync.Mutex
