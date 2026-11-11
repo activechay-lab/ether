@@ -775,6 +775,32 @@ func TestSetupGatingOfflineBrowseRolesAndRemovePurge(t *testing.T) {
 		t.Fatalf("R-rated track must be hidden from PG viewer, got %v", err)
 	}
 
+	// KeyForRef / RefsForKeys round-trip the ItemRef identity used by Stremio.
+	// Owner may resolve either; the restricted viewer may map a visible key to
+	// its ref but a hidden library's key stays unresolvable.
+	track1Refs, err := h.resolver.RefsForKeys(ctx, h.users[1], []core.RatingKey{track1Key, albumKey})
+	if err != nil || len(track1Refs) != 2 {
+		t.Fatalf("RefsForKeys owner: %+v %v", track1Refs, err)
+	}
+	trackRef := track1Refs[track1Key]
+	if !trackRef.Valid() || trackRef.Kind() != "recordings" {
+		t.Fatalf("track ref: %q", trackRef)
+	}
+	gotKey, err := h.resolver.KeyForRef(ctx, h.users[1], trackRef)
+	if err != nil || gotKey != track1Key {
+		t.Fatalf("KeyForRef round trip: %v %v", gotKey, err)
+	}
+	if _, err := h.resolver.KeyForRef(ctx, h.users[1], trackRef); err != nil {
+		t.Fatalf("KeyForRef owner: %v", err)
+	}
+	outsider := &core.User{ID: 3, Username: "outsider", AllowedLibraries: []core.LibraryID{core.LibraryMovies}}
+	if _, err := h.resolver.KeyForRef(ctx, outsider, trackRef); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("KeyForRef for a viewer outside the library: %v", err)
+	}
+	if _, err := h.resolver.KeyForRef(ctx, h.users[1], core.NewItemRef("field", "recordings", "nope")); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("KeyForRef for an unknown ref: %v", err)
+	}
+
 	// RolesOff and SetEnabled(false) hide without deleting items.
 	if _, err := h.mgr.SetRoles(ctx, pluginID, []plugins.Capability{plugins.CapCatalogProvider}); err != nil {
 		t.Fatal(err)

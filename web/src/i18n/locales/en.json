@@ -1247,7 +1247,6 @@
     "other": "{count} downloads today · no daily limit set"
   },
   "m_0470673a4a1224": "Transcode slots",
-  "m_0472038a22c491": "Only in this console for now",
   "m_04736065ec00ca": {
     "one": "{count} API request a day",
     "other": "{count} API requests a day"
@@ -8941,6 +8940,7 @@
   "m_1fdad0b15cb157": "Custom format definitions",
   "m_1fdbb599d542fe": "until {date}",
   "m_1fdc064b963229": "Kept private. Leave [configured] unchanged to retain the saved URL.",
+  "m_1fdc62d4ba7181": "Not shown in any app yet",
   "m_1fdda9559f19b7": "Ether couldn't change how pre-rolls are picked.",
   "m_1fddcd7c1dea78": "none",
   "m_1fde2db89ccee9": "Series opening",

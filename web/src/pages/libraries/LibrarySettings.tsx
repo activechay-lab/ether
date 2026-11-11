@@ -40,6 +40,9 @@ function defaultPlexBase(lib: Library): string {
   return lib.mediaType === "show" || lib.filter?.type === "show" ? "show" : "movie";
 }
 function defaultMBType(lib: Library): string {
+  const declared =
+    lib.present?.mediaBrowser?.collectionType ?? lib.kind?.present?.mediaBrowser?.collectionType;
+  if (declared) return declared;
   return defaultPlexBase(lib) === "show" ? "tvshows" : "movies";
 }
 
@@ -556,11 +559,6 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
               </Link>
             </p>
           </div>
-        </SettingsSection>
-      ) : library.source === "plugin" ? (
-        // Apps can't show plugin libraries yet (v0.3.9).
-        <SettingsSection title={t("Show in apps")}>
-          <p className="px-5 py-4 text-sm text-fg-muted">{t("Only in this console for now")}</p>
         </SettingsSection>
       ) : (
         <PresentationsEditor library={library} onSaved={onSaved} />

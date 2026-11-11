@@ -1303,7 +1303,6 @@
     "other": "{count} pobrania dzisiaj · brak dziennego limitu"
   },
   "m_0470673a4a1224": "Miejsca transkodowania",
-  "m_0472038a22c491": "Na razie tylko w tej konsoli",
   "m_04736065ec00ca": {
     "few": "{count} żądania API dziennie",
     "many": "{count} żądań API dziennie",
@@ -9396,6 +9395,7 @@
   "m_1fdad0b15cb157": "Definicje formatów niestandardowych",
   "m_1fdbb599d542fe": "do {date}",
   "m_1fdc064b963229": "Przechowywany prywatnie. Pozostaw [configured] bez zmian, aby zachować zapisany adres URL.",
+  "m_1fdc62d4ba7181": "Jeszcze nie jest widoczna w żadnej aplikacji",
   "m_1fdda9559f19b7": "Ether nie mógł zmienić sposobu wybierania pre-rolli.",
   "m_1fddcd7c1dea78": "brak",
   "m_1fde2db89ccee9": "Otwarcie serialu",

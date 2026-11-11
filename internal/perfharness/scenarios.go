@@ -310,9 +310,16 @@ func discoverViews(vars map[string]string, body []byte) {
 	for _, it := range r.Items {
 		// Personal libraries can carry a movies or tvshows collection type
 		// too; the library views are the ones without the personal bit.
-		if n, err := ids.ParseGUID(ids.View, it.ID); err == nil && ids.PersonalView(n) {
+		n, err := ids.ParseGUID(ids.View, it.ID)
+		if err == nil && ids.PersonalView(n) {
 			setOnce(vars, "personalView", it.ID)
 			continue
+		}
+		// Libraries beyond the builtins 1 and 2 are plugin (or filter)
+		// libraries; record the first so a browse step covers it when one
+		// is installed.
+		if err == nil && n > 2 {
+			setOnce(vars, "pluginView", it.ID)
 		}
 		switch it.CollectionType {
 		case "movies":

@@ -207,6 +207,54 @@ func (r *KindResolver) KindLeaves(ctx context.Context, viewer *core.Viewer, pare
 	return out, nil
 }
 
+// KeyForRef implements frontend.KindRefKeys. It maps a plugin ItemRef to the
+// stored item's RatingKey, refusing hidden libraries and viewers who cannot
+// open them.
+func (r *KindResolver) KeyForRef(ctx context.Context, viewer *core.Viewer, ref core.ItemRef) (core.RatingKey, error) {
+	if r == nil || r.items == nil || r.libs == nil || !ref.Valid() {
+		return 0, core.ErrNotFound
+	}
+	item, libID, err := r.items.GetByRef(ctx, ref)
+	if err != nil {
+		return 0, core.ErrNotFound
+	}
+	lib, err := r.libs.Get(ctx, libID)
+	if err != nil || lib.Hidden || viewer == nil || viewer.ID <= 0 || !viewer.AllowsLibrary(lib.ID) {
+		return 0, core.ErrNotFound
+	}
+	if r.authorize != nil {
+		if err := r.authorize(ctx, viewer, item.Key); err != nil {
+			return 0, err
+		}
+	}
+	return item.Key, nil
+}
+
+// RefsForKeys implements frontend.KindRefKeys. It returns the ItemRef of each
+// key the viewer may see; unknown or unauthorized keys are omitted. The page
+// is caller-bounded, so this is a handful of indexed reads, never a walk.
+func (r *KindResolver) RefsForKeys(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]core.ItemRef, error) {
+	out := make(map[core.RatingKey]core.ItemRef, len(keys))
+	if r == nil || r.items == nil || r.libs == nil || viewer == nil || viewer.ID <= 0 {
+		return out, nil
+	}
+	for _, key := range keys {
+		if !key.IsPluginKey() {
+			continue
+		}
+		item, libID, err := r.items.GetByKey(ctx, key)
+		if err != nil {
+			continue
+		}
+		lib, err := r.libs.Get(ctx, libID)
+		if err != nil || lib.Hidden || !viewer.AllowsLibrary(lib.ID) {
+			continue
+		}
+		out[key] = item.Ref
+	}
+	return out, nil
+}
+
 // ResolveSources implements plugins.KindBackends.ResolveSources for plugins
 // granted permissions.sources ("search" or "acquire"). Capability and
 // permission checks are enforced upstream in plugins/host_kinds.go.

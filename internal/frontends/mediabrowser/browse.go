@@ -151,6 +151,31 @@ func (i *instance) markUnreleased(item map[string]any, title frontend.Title) {
 	delete(item, "MediaStreams")
 }
 
+// mediaBrowserCollectionType picks the Jellyfin/Emby CollectionType for a view.
+// A plugin library carries its declared MediaBrowser collection type in
+// View.Native (music, audiobooks, books, photos, homevideos, …); a built-in or
+// host-synthesised view names the type in View.Type. The remaining values are
+// the Jellyfin/Emby closed set.
+func mediaBrowserCollectionType(view frontend.View) string {
+	if view.Native != "" {
+		return view.Native
+	}
+	switch view.Type {
+	case "show", "tvshows":
+		return "tvshows"
+	case "music":
+		return "music"
+	case "livetv":
+		return "livetv"
+	case "homevideos":
+		return "homevideos"
+	case "books", "audiobooks", "photos", "musicvideos", "boxsets", "mixed":
+		return string(view.Type)
+	default:
+		return "movies"
+	}
+}
+
 // collectionFolder is one library view. The id is the view GUID, not a title.
 func (i *instance) collectionFolder(r *http.Request, v *frontend.Viewer, view frontend.View) (map[string]any, bool) {
 	viewNum, e := ids.ParseDecimal(view.ID)
@@ -161,13 +186,7 @@ func (i *instance) collectionFolder(r *http.Request, v *frontend.Viewer, view fr
 	if e != nil {
 		return nil, false
 	}
-	kind := "movies"
-	switch view.Type {
-	case "show":
-		kind = "tvshows"
-	case "livetv":
-		kind = "livetv"
-	}
+	kind := mediaBrowserCollectionType(view)
 	item := map[string]any{"Id": viewID, "Name": view.Name, "Type": "CollectionFolder", "CollectionType": kind, "IsFolder": true, "ServerId": i.info.ID, "SortName": view.Name, "DisplayPreferencesId": viewID, "CanDelete": false, "CanDownload": false, "ProviderIds": map[string]string{}}
 	if i.protocol == "emby" {
 		i.embyViewDTO(item)

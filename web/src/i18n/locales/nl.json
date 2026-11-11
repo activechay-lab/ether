@@ -1247,7 +1247,6 @@
     "other": "{count} downloads vandaag · geen daglimiet ingesteld"
   },
   "m_0470673a4a1224": "Transcodeerplaatsen",
-  "m_0472038a22c491": "Voorlopig alleen in deze console",
   "m_04736065ec00ca": {
     "one": "{count} API-verzoek per dag",
     "other": "{count} API-verzoeken per dag"
@@ -8920,6 +8919,7 @@
   "m_1fdad0b15cb157": "Definities van eigen formaten",
   "m_1fdbb599d542fe": "tot {date}",
   "m_1fdc064b963229": "Blijft privé. Laat [configured] ongewijzigd om de opgeslagen URL te behouden.",
+  "m_1fdc62d4ba7181": "Nog niet in een app te zien",
   "m_1fdda9559f19b7": "Ether kon niet wijzigen hoe pre-rolls worden gekozen.",
   "m_1fddcd7c1dea78": "geen",
   "m_1fde2db89ccee9": "Serie-opening",

@@ -162,7 +162,7 @@ function LibrariesList() {
                   ) : shown.length ? (
                     t("In apps: {apps}", { apps: shown.map(protocolLabel).join(", ") })
                   ) : (
-                    t("Only in this console for now")
+                    t("Not shown in any app yet")
                   )}
                 </p>
                 {syncBad ||

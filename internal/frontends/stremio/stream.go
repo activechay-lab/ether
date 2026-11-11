@@ -50,16 +50,31 @@ func (i *instance) stream(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	id, err := ids.ParseStremio(strings.TrimSuffix(raw, ".json"))
-	if err != nil || (typ == "series" && !id.HasEpisode) {
-		http.NotFound(w, r)
-		return
-	}
+	rawID := strings.TrimSuffix(raw, ".json")
 	device := deviceFor(credential)
-	key, err := i.resolveID(r, viewer, device, typ, id)
-	if err != nil {
-		http.NotFound(w, r)
-		return
+	var key frontend.RatingKey
+	if frontend.ItemRef(rawID).Valid() {
+		refs, ok := i.host.KindStreams.(frontend.KindRefKeys)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		key, err = refs.KeyForRef(r.Context(), viewer, frontend.ItemRef(rawID))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+	} else {
+		id, e := ids.ParseStremio(rawID)
+		if e != nil || (typ == "series" && !id.HasEpisode) {
+			http.NotFound(w, r)
+			return
+		}
+		key, err = i.resolveID(r, viewer, device, typ, id)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	ip, ok := i.host.ClientIP(r)
 	if !ok {

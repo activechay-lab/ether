@@ -1188,13 +1188,8 @@ func (i *instance) virtualFolders(w http.ResponseWriter, r *http.Request) {
 		if i.protocol == "jellyfin" && view.Virtual {
 			entry["Locations"] = []string{}
 		}
-		switch view.Type {
-		case "movie", "movies":
-			entry["CollectionType"] = "movies"
-		case "show", "tvshows":
-			entry["CollectionType"] = "tvshows"
-		case "music", "musicvideos", "homevideos", "boxsets", "books", "mixed":
-			entry["CollectionType"] = view.Type
+		if ct := mediaBrowserCollectionType(view); ct != "" {
+			entry["CollectionType"] = ct
 		}
 		result = append(result, entry)
 	}

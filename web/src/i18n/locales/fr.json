@@ -1275,7 +1275,6 @@
     "other": "{count} téléchargements aujourd’hui · aucune limite quotidienne définie"
   },
   "m_0470673a4a1224": "Places de transcodage",
-  "m_0472038a22c491": "Uniquement dans cette console pour le moment",
   "m_04736065ec00ca": {
     "many": "{count} de requêtes API par jour",
     "one": "{count} requête API par jour",
@@ -9151,6 +9150,7 @@
   "m_1fdad0b15cb157": "Définitions de formats personnalisés",
   "m_1fdbb599d542fe": "jusqu’au {date}",
   "m_1fdc064b963229": "Gardée privée. Laissez [configured] inchangé pour conserver l’URL enregistrée.",
+  "m_1fdc62d4ba7181": "Pas encore affiché dans une application",
   "m_1fdda9559f19b7": "Ether n’a pas pu modifier le choix des pré-rolls.",
   "m_1fddcd7c1dea78": "aucune",
   "m_1fde2db89ccee9": "Ouverture de série",

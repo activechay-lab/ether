@@ -33,6 +33,11 @@ type Scale struct {
 	Viewers             int
 	HistoryPerViewer    int
 	InProgressPerViewer int
+	// PluginItems seeds one plugin library with this many flat, playable
+	// items. The perf harness browses it through the console and the plugin
+	// item store at the scale's size, so a request path that scales with a
+	// plugin library fails the browse class bounds (§12 row F).
+	PluginItems int
 }
 
 // Rows is the number of catalogue rows the scale produces.
@@ -47,6 +52,7 @@ func (s Scale) Rows() int {
 // Divide shrinks the library by n, keeping the household.
 func (s Scale) Divide(n int) Scale {
 	s.Movies, s.Shows = max(s.Movies/n, 1), max(s.Shows/n, 1)
+	s.PluginItems = s.PluginItems / n
 	return s
 }
 
@@ -54,8 +60,9 @@ func (s Scale) Divide(n int) Scale {
 func (s Scale) Titles() int { return s.Movies + s.Shows }
 
 // LargeScale is the CI gate's library: 500k+ catalogue rows and a
-// household with deep watch history.
-var LargeScale = Scale{Movies: 250_000, Shows: 10_000, SeasonsPerShow: 4, EpisodesPerSeason: 6, Viewers: 2, HistoryPerViewer: 20_000, InProgressPerViewer: 40}
+// household with deep watch history. Its plugin library holds a million
+// items, the acceptance size for plugin-library browse (§12 row F).
+var LargeScale = Scale{Movies: 250_000, Shows: 10_000, SeasonsPerShow: 4, EpisodesPerSeason: 6, Viewers: 2, HistoryPerViewer: 20_000, InProgressPerViewer: 40, PluginItems: 1_000_000}
 
 // SmallScale is LargeScale's household over a tenth of its library; the
 // gate compares the two, so only the library differs.
@@ -66,7 +73,7 @@ var SmallScale = LargeScale.Divide(10)
 // counts), each series with two seasons stored and the episodes of 300
 // opened series, as the long-tail universe (longtail.go) mirrors it. Its
 // pair is XLargeScale.Divide(10).
-var XLargeScale = Scale{Movies: 1_073_442, Shows: 205_326, SeasonsPerShow: 2, EpisodesPerSeason: 13, EpisodeShows: 300, Viewers: 2, HistoryPerViewer: 20_000, InProgressPerViewer: 40}
+var XLargeScale = Scale{Movies: 1_073_442, Shows: 205_326, SeasonsPerShow: 2, EpisodesPerSeason: 13, EpisodeShows: 300, Viewers: 2, HistoryPerViewer: 20_000, InProgressPerViewer: 40, PluginItems: 1_000_000}
 
 var fixtureGenres = []string{"Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery", "Romance", "Science Fiction", "Thriller", "War", "Western", "TV Movie"}
 
@@ -127,6 +134,11 @@ func generate(ctx context.Context, db *sql.DB, s Scale, now time.Time, live bool
 	}
 	if err := g.viewers(s); err != nil {
 		return fmt.Errorf("viewers: %w", err)
+	}
+	if s.PluginItems > 0 {
+		if err := seedPluginLibrary(ctx, db, s.PluginItems); err != nil {
+			return fmt.Errorf("plugin library: %w", err)
+		}
 	}
 	if _, err := db.ExecContext(ctx, `ANALYZE`); err != nil {
 		return err

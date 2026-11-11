@@ -1303,7 +1303,6 @@
     "other": "{count} stažení dnes · bez denního limitu"
   },
   "m_0470673a4a1224": "Místa pro překódování",
-  "m_0472038a22c491": "Zatím jen v této konzoli",
   "m_04736065ec00ca": {
     "few": "{count} požadavky API denně",
     "many": "{count} požadavku API denně",
@@ -9396,6 +9395,7 @@
   "m_1fdad0b15cb157": "Definice vlastních formátů",
   "m_1fdbb599d542fe": "do {date}",
   "m_1fdc064b963229": "Uchováno v soukromí. Ponechte [configured] beze změny, aby se zachovala uložená URL.",
+  "m_1fdc62d4ba7181": "Zatím se nezobrazuje v žádné aplikaci",
   "m_1fdda9559f19b7": "Ether nedokázal změnit způsob výběru pre-rollů.",
   "m_1fddcd7c1dea78": "žádné",
   "m_1fde2db89ccee9": "Otevření seriálu",

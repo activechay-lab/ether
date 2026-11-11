@@ -1247,7 +1247,6 @@
     "other": "{count} nedladdningar i dag · ingen daglig gräns satt"
   },
   "m_0470673a4a1224": "Omkodningsplatser",
-  "m_0472038a22c491": "Bara i den här konsolen än så länge",
   "m_04736065ec00ca": {
     "one": "{count} API-förfrågan per dag",
     "other": "{count} API-förfrågningar per dag"
@@ -8920,6 +8919,7 @@
   "m_1fdad0b15cb157": "Definitioner av egna format",
   "m_1fdbb599d542fe": "till {date}",
   "m_1fdc064b963229": "Hålls privat. Lämna [configured] oförändrat för att behålla den sparade URL:en.",
+  "m_1fdc62d4ba7181": "Visas inte i någon app ännu",
   "m_1fdda9559f19b7": "Ether kunde inte ändra hur pre-rolls väljs.",
   "m_1fddcd7c1dea78": "ingen",
   "m_1fde2db89ccee9": "Serieöppning",

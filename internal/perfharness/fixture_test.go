@@ -12,6 +12,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/libraries"
+	"github.com/braedonsaunders/ether/internal/pluginitems"
 	_ "github.com/braedonsaunders/ether/internal/state" // migrations
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -42,6 +44,46 @@ func TestGenerateBuildsTheScale(t *testing.T) {
 	}
 	if titles != s.Rows() || history != 3*30 || fts == 0 || triggers == 0 {
 		t.Fatalf("titles %d (want %d) history %d fts %d triggers %d", titles, s.Rows(), history, fts, triggers)
+	}
+}
+
+func TestGenerateSeedsPluginLibraryBrowsable(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := SmallScale.Divide(50)
+	s.Viewers, s.HistoryPerViewer = 0, 0
+	s.PluginItems = 500
+	if err := Generate(ctx, db, s, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := pluginitems.New(ctx, db, pluginitems.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(items.Close)
+	libs, err := libraries.New(ctx, db, libraries.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := libs.Get(ctx, pluginFixtureLibraryID)
+	if err != nil || lib.Source != core.LibraryPlugin || lib.KindKey != pluginFixtureKindKey {
+		t.Fatalf("plugin library: %+v %v", lib, err)
+	}
+	if lib.Present.MediaBrowser == nil || lib.Present.MediaBrowser.CollectionType != "movies" || lib.Present.Stremio == nil {
+		t.Fatalf("plugin library presentation: %+v", lib.Present)
+	}
+	tally, err := items.LibraryTally(ctx, pluginFixtureLibraryID)
+	if err != nil || tally["clip"] != 500 {
+		t.Fatalf("tally: %+v %v", tally, err)
+	}
+	page, err := items.Browse(ctx, pluginitems.BrowseQuery{LibraryID: pluginFixtureLibraryID, Level: "clip", Limit: 48})
+	if err != nil || len(page.Items) != 48 || page.NextCursor == "" {
+		t.Fatalf("browse: %d items, cursor %q, err %v", len(page.Items), page.NextCursor, err)
 	}
 }
 
