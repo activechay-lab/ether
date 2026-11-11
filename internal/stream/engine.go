@@ -76,14 +76,11 @@ type Options struct {
 	// downloaded into the disk segment cache ahead of its reader (0 = off;
 	// see playahead.go). It needs the cache and a SetPlaybackDuration hint.
 	PlaybackReadAhead time.Duration
-	// DisableNestedArchives stops following a RAR set packed inside an archive
-	// (config Usenet.DisableNestedArchives).
-	DisableNestedArchives bool
 }
 
 // OptionsFromConfig derives options from the owner settings.
 func OptionsFromConfig(cfg config.Config) Options {
-	return Options{HealthSamples: cfg.Resolver.HealthSamples, Repair: cfg.Usenet.Repair, PlaybackReadAhead: cfg.EffectiveCache().PlaybackReadAhead(), DisableNestedArchives: cfg.Usenet.DisableNestedArchives}
+	return Options{HealthSamples: cfg.Resolver.HealthSamples, Repair: cfg.Usenet.Repair, PlaybackReadAhead: cfg.EffectiveCache().PlaybackReadAhead()}
 }
 
 func (o Options) withDefaults() Options {

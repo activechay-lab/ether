@@ -45,9 +45,6 @@ func (b *builder) tryNested(ctx context.Context, vols []*postedFile, members []a
 // It returns ErrNoPlayableFile when the archive holds no inner RAR set with a
 // video. anon, when not nil, is the only member sniffed for a signature.
 func (b *builder) planNested(ctx context.Context, vols []*postedFile, outer []archive.Member, anon *archive.Member, concat bool) (*plan, error) {
-	if b.e.opts.DisableNestedArchives {
-		return nil, ErrNoPlayableFile
-	}
 	if err := b.heads(ctx, vols); err != nil {
 		return nil, err
 	}
@@ -389,7 +386,7 @@ func sliceExtents(extents []archive.Extent, off, n int64) ([]archive.Extent, err
 // volume starts with a RAR signature, i.e. is a volume of a nested set rather
 // than the video. Named members are never read.
 func (b *builder) startsWithRAR(ctx context.Context, first *postedFile, f *archive.RARFile) bool {
-	if b.e.opts.DisableNestedArchives || f.Encrypted || nzb.Classify(f.Name).Kind != nzb.KindUnknown || f.PackedSize < archive.SignatureLen {
+	if f.Encrypted || nzb.Classify(f.Name).Kind != nzb.KindUnknown || f.PackedSize < archive.SignatureLen {
 		return false
 	}
 	head := make([]byte, archive.SignatureLen)

@@ -3,7 +3,6 @@ package stream
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/pbkdf2"
@@ -254,17 +253,6 @@ func TestNestedRARObfuscatedInnerNames(t *testing.T) {
 			doc := postVolumes(t, f, 60_000, outer, newStyle("release"))
 			checkNested(t, newTestEngine(t, f, nil, Options{}), "obf", doc, video)
 		})
-	}
-}
-
-func TestNestedRARDisabled(t *testing.T) {
-	video := mkvBytes(53, 600_000)
-	outer := nestedRAR(t, video, 5, 200_000, 5, 300_000, newStyle("Movie.2024.1080p"))
-	f := newFakeFetcher()
-	doc := postVolumes(t, f, 60_000, outer, newStyle("release"))
-	e := newTestEngine(t, f, nil, Options{DisableNestedArchives: true})
-	if _, err := e.Open(context.Background(), "off", doc); !errors.Is(err, ErrNoPlayableFile) {
-		t.Fatalf("Open err = %v, want ErrNoPlayableFile", err)
 	}
 }
 
