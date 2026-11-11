@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -62,7 +63,10 @@ func (c *Controller) Sync(ctx context.Context) error {
 		desired[AdapterID(d.PluginID, d.Meta.Key)] = d
 	}
 	var errs []error
-	// Register adapters that appeared.
+	// Register adapters that appeared, and re-register ones whose
+	// declaration changed (a plugin upgrade may alter libraries, prefix or
+	// auth). Re-registering unmounts first, so the new definition takes
+	// effect without a restart.
 	ids := make([]frontend.Protocol, 0, len(desired))
 	for id := range desired {
 		ids = append(ids, id)
@@ -70,10 +74,16 @@ func (c *Controller) Sync(ctx context.Context) error {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	for _, id := range ids {
 		c.mu.Lock()
-		_, known := c.live[id]
+		prev, known := c.live[id]
 		c.mu.Unlock()
-		if known {
+		if known && reflect.DeepEqual(prev, desired[id]) {
 			continue
+		}
+		if known {
+			if err := c.unregister(ctx, id); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		}
 		if err := c.register(ctx, desired[id]); err != nil {
 			errs = append(errs, err)

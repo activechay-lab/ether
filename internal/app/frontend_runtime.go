@@ -409,6 +409,13 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 	if err := r.registry.Register(m3u.Frontend{}); err != nil {
 		return nil, err
 	}
+	// Plugin-provided protocol surfaces (spec §6.5): register one generic
+	// adapter frontend per declaration and keep them in step with plugin
+	// lifecycle. OnSync replays every installed plugin, so this also does
+	// the initial registration.
+	if _, err := a.buildAdapterController(r.registry); err != nil {
+		return nil, err
+	}
 	if cfg.Frontends == nil || cfg.Frontends["plex"].Enabled {
 		if err := r.control.listeners.start(ctx, "plex"); err != nil {
 			return nil, err

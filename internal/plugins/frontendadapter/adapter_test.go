@@ -1,6 +1,7 @@
 package frontendadapter
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -373,4 +374,149 @@ type fakeCatalog struct {
 
 func (c *fakeCatalog) EnabledAdapters(context.Context) ([]Declaration, error) {
 	return c.decls, nil
+}
+
+// TestSyncReRegistersOnDeclarationChange proves a plugin upgrade that
+// changes an adapter's declaration re-registers it under the same protocol.
+func TestSyncReRegistersOnDeclarationChange(t *testing.T) {
+	reg := frontend.NewRegistry(func(frontend.Protocol) frontend.Host {
+		return testHost(map[string]*core.Viewer{"tok1": viewerWithLibraries(7, "A", core.LibraryMovies)})
+	})
+	mgr := &fakeManager{handler: func(req plugins.Request) (plugins.Response, io.ReadCloser, error) {
+		return plugins.Response{Status: 200}, io.NopCloser(strings.NewReader("ok")), nil
+	}}
+	cat := &fakeCatalog{decls: []Declaration{testDecl(core.LibraryMovies)}}
+	ctrl, err := NewController(reg, mgr, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := ctrl.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	id := AdapterID("plug1", "feed")
+	before := descriptorFor(reg, id)
+	if before == nil {
+		t.Fatal("adapter not registered")
+	}
+	// Change the declaration (new libraries) and re-sync.
+	cat.decls = []Declaration{testDecl(core.LibraryShows)}
+	if err := ctrl.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after := descriptorFor(reg, id)
+	if after == nil {
+		t.Fatal("adapter lost on re-register")
+	}
+	// Same protocol id, re-registered (still exactly one descriptor).
+	count := 0
+	for _, d := range reg.Descriptors() {
+		if d.ID == id {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("descriptors for %s = %d, want 1", id, count)
+	}
+}
+
+func descriptorFor(reg *frontend.Registry, id frontend.Protocol) *frontend.Descriptor {
+	for _, d := range reg.Descriptors() {
+		if d.ID == id {
+			dd := d
+			return &dd
+		}
+	}
+	return nil
+}
+
+// TestMediaHandlerRedeemsTicketAndServesRange proves the kind-media endpoint
+// opens through KindStreams, honours Range, and refuses an expired ticket.
+func TestMediaHandlerRedeemsTicketAndServesRange(t *testing.T) {
+	issuer := NewTicketIssuer()
+	now := time.Unix(2000, 0)
+	issuer.now = func() time.Time { return now }
+	issuer.SetTTL(30 * time.Second)
+
+	var opened []string
+	handler := NewMediaHandler(MediaDeps{
+		Tickets: issuer,
+		Viewer: func(_ context.Context, id int64) (*core.Viewer, error) {
+			return viewerWithLibraries(id, "Alice", core.LibraryMovies), nil
+		},
+		Open: func(_ context.Context, _ *core.Viewer, ref string, accept []string) (*frontend.KindMedia, error) {
+			opened = append(opened, ref)
+			body := []byte("0123456789")
+			return &frontend.KindMedia{
+				ReaderAt: bytes.NewReader(body),
+				Closer:   io.NopCloser(nil),
+				Size:     int64(len(body)),
+				MIME:     "application/epub+zip",
+				Name:     "book",
+			}, nil
+		},
+	})
+	if handler == nil {
+		t.Fatal("handler nil")
+	}
+	token, err := issuer.Issue(StreamGrant{ViewerID: 7, ItemID: "plug:kind:book-1", Adapter: "feed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Full request.
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, KindMediaPath+token, nil))
+	if rec.Code != 200 || rec.Body.String() != "0123456789" {
+		t.Fatalf("full: status=%d body=%q", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Accept-Ranges") != "bytes" {
+		t.Errorf("Accept-Ranges = %q", rec.Header().Get("Accept-Ranges"))
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/epub+zip" {
+		t.Errorf("Content-Type = %q", got)
+	}
+
+	// Ranged request.
+	req := httptest.NewRequest(http.MethodGet, KindMediaPath+token, nil)
+	req.Header.Set("Range", "bytes=2-5")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("range: status = %d, want 206", rec.Code)
+	}
+	if rec.Body.String() != "2345" {
+		t.Errorf("range body = %q, want 2345", rec.Body.String())
+	}
+	if len(opened) != 2 || opened[0] != "plug:kind:book-1" {
+		t.Fatalf("opened refs = %v", opened)
+	}
+
+	// Expired ticket is refused and opens nothing further.
+	now = now.Add(31 * time.Second)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, KindMediaPath+token, nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expired: status = %d, want 404", rec.Code)
+	}
+	if len(opened) != 2 {
+		t.Fatalf("expired ticket opened an item")
+	}
+}
+
+// TestMediaHandlerRejectsUnknownToken proves a bad token is a 404.
+func TestMediaHandlerRejectsUnknownToken(t *testing.T) {
+	handler := NewMediaHandler(MediaDeps{
+		Tickets: NewTicketIssuer(),
+		Viewer:  func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 1}, nil },
+		Open: func(context.Context, *core.Viewer, string, []string) (*frontend.KindMedia, error) {
+			t.Fatal("open called for unknown token")
+			return nil, nil
+		},
+	})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, KindMediaPath+"nope", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
 }

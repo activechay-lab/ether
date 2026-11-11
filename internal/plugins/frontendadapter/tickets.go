@@ -110,6 +110,25 @@ func (t *TicketIssuer) StreamURL(grant StreamGrant) (string, error) {
 	return "/ether/v1/kind-media/" + token, nil
 }
 
+// Redeem returns the grant a live ticket authorizes, or ErrTicketInvalid if
+// it is unknown or expired. The kind-media endpoint uses it: the ticket
+// itself is the proof (short-lived and unguessable), so the request carries
+// no separate credential. The grant's viewer and item scope what may be
+// opened.
+func (t *TicketIssuer) Redeem(token string) (StreamGrant, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tk, ok := t.tickets[token]
+	if !ok {
+		return StreamGrant{}, ErrTicketInvalid
+	}
+	if !t.now().Before(tk.expires) {
+		delete(t.tickets, token)
+		return StreamGrant{}, ErrTicketInvalid
+	}
+	return tk.grant, nil
+}
+
 // Sweep drops expired tickets; the host may call it periodically.
 func (t *TicketIssuer) Sweep() {
 	t.mu.Lock()

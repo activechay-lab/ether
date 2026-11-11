@@ -465,6 +465,11 @@ type FrontendAdapterMeta struct {
 	DefaultPort  int      `json:"defaultPort,omitempty"`
 	Clients      []string `json:"clients,omitempty"`
 	Auth         string   `json:"auth,omitempty"` // ether_token (default)|basic|none_lan
+	// Libraries lists the plugin's media-kind keys this adapter publishes.
+	// Ether resolves each key to the library the kind created and admits a
+	// viewer only to the libraries they may see; a viewer who sees none of
+	// them is answered 404. Empty means the adapter is not library-scoped.
+	Libraries []string `json:"libraries,omitempty"`
 }
 
 // SetupMeta declares guided setup for any plugin kind (spec §8).
