@@ -40,13 +40,15 @@ func init() {
 }
 
 const (
-	cacheTTL         = 30 * 24 * time.Hour
-	recheckInterval  = 24 * time.Hour
-	bgWorkers        = 2
-	bgQueueSize      = 256
-	bgLookupTimeout  = 3 * time.Second
-	childrenPageSize = 50
-	maxChildrenItems = 2500
+	cacheTTL          = 30 * 24 * time.Hour
+	recheckInterval   = 24 * time.Hour
+	bgWorkers         = 2
+	bgQueueSize       = 256
+	bgLookupTimeout   = 3 * time.Second
+	childrenPageSize  = 50
+	maxChildrenItems  = 2500
+	priorityQueueSize = 256
+	namesakeCacheMax  = 4096
 )
 
 type Options struct {
@@ -56,6 +58,13 @@ type Options struct {
 	BaseURL          string
 	Token            func() string
 	Background       bool
+	// Namesakes reports whether the catalogue holds another title of the same
+	// type that shares this key's normalized name and a near year. A legacy
+	// mapping (stored before identity records existed) on a title with a
+	// namesake cannot be trusted: the guid may name the other work. It is an
+	// optional dependency, injected by the app so this package never imports
+	// the catalogue. Nil disables the check.
+	Namesakes func(context.Context, core.RatingKey) (bool, error)
 }
 
 type Service struct {
@@ -74,6 +83,17 @@ type Service struct {
 	// than served from the hot-path cache: the repair worker's rows.
 	force map[core.RatingKey]bool
 	jobs  chan core.RatingKey
+	// priority is a bounded, deduped queue of keys a read path found withheld
+	// as a legacy namesake. repairMappings drains it before advancing its scan
+	// cursor so those rows are re-verified within seconds; a full queue drops
+	// the request and the background scan eventually reaches the row.
+	priority   chan core.RatingKey
+	prioQueued map[core.RatingKey]bool
+	// namesakeCache remembers the (rare, indexed) namesake answer per key so
+	// the read path never repeats the lookup. It is only consulted for legacy
+	// rows, which repair converts or drops, so it stays small; namesakeCacheMax
+	// bounds it regardless.
+	namesakeCache map[core.RatingKey]bool
 }
 
 func New(db *sql.DB, o Options) *Service {
@@ -91,16 +111,19 @@ func New(db *sql.DB, o Options) *Service {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
-		db:      db,
-		o:       o,
-		ctx:     ctx,
-		cancel:  cancel,
-		pending: map[core.RatingKey]bool{},
-		force:   map[core.RatingKey]bool{},
+		db:            db,
+		o:             o,
+		ctx:           ctx,
+		cancel:        cancel,
+		pending:       map[core.RatingKey]bool{},
+		force:         map[core.RatingKey]bool{},
+		prioQueued:    map[core.RatingKey]bool{},
+		namesakeCache: map[core.RatingKey]bool{},
 	}
 	s.idle = sync.NewCond(&s.mu)
 	if o.Background {
 		s.jobs = make(chan core.RatingKey, bgQueueSize)
+		s.priority = make(chan core.RatingKey, priorityQueueSize)
 		for i := 0; i < bgWorkers; i++ {
 			s.wg.Add(1)
 			go s.worker()
@@ -225,6 +248,17 @@ func (s *Service) repairMappings() {
 		if s.o.Token == nil || s.o.Token() == "" {
 			continue
 		}
+		// Read-path withheld keys are re-verified before the scan advances:
+		// a client is actively rendering them wrong right now.
+		select {
+		case k := <-s.priority:
+			s.mu.Lock()
+			delete(s.prioQueued, k)
+			s.mu.Unlock()
+			s.queueRepair(k)
+			continue
+		default:
+		}
 		var key int64
 		queue := turn
 		turn = 1 - turn
@@ -307,10 +341,125 @@ func resolvableKey(k core.RatingKey) bool {
 // withholds it. Every mapping must still be verified.
 const identityVerified = `(NOT EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key) OR EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key AND v.guid=m.guid)) AND (NOT EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key) OR EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid))`
 
+// identityExists is true when the mapping row for m carries an identity record
+// matching its guid. A false value on a row with a guid is what makes it a
+// legacy row: one that identityVerified serves only because no record exists.
+const identityExists = `EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid)`
+
+// hasNamesake reports whether the catalogue holds another title that shares
+// this key's name and a near year. The answer is cached per key: it is read on
+// the hot path and only ever for legacy rows. A lookup error is not cached and
+// is treated as "no namesake" so a transient catalogue error cannot withhold
+// every mapping.
+func (s *Service) hasNamesake(ctx context.Context, k core.RatingKey) bool {
+	if s == nil || s.o.Namesakes == nil {
+		return false
+	}
+	s.mu.Lock()
+	v, ok := s.namesakeCache[k]
+	s.mu.Unlock()
+	if ok {
+		return v
+	}
+	has, err := s.o.Namesakes(ctx, k)
+	if err != nil {
+		return false
+	}
+	s.mu.Lock()
+	if len(s.namesakeCache) < namesakeCacheMax {
+		s.namesakeCache[k] = has
+	}
+	s.mu.Unlock()
+	return has
+}
+
+// legacyMapping reports whether k currently has a stored guid served only as a
+// legacy row (no identity record for it). One indexed primary-key read.
+func (s *Service) legacyMapping(ctx context.Context, k core.RatingKey) bool {
+	var legacy bool
+	_ = s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM plexguid_mappings m WHERE m.rating_key=? AND m.guid<>'' AND NOT (`+identityExists+`))`, int64(k)).Scan(&legacy)
+	return legacy
+}
+
+// withheldLegacy reports whether a stored mapping for k must not be served
+// because it is a legacy row on a title the catalogue says has a namesake. The
+// guid may name the other work, so it is withheld from every read path and the
+// key is enqueued for priority re-verification. Non-legacy rows (a verified
+// identity record exists) and rows on namesake-free titles keep serving.
+func (s *Service) withheldLegacy(ctx context.Context, k core.RatingKey) bool {
+	if s == nil || s.o.Namesakes == nil {
+		return false
+	}
+	if !s.legacyMapping(ctx, k) {
+		return false
+	}
+	if !s.hasNamesake(ctx, k) {
+		return false
+	}
+	s.enqueuePriority(k)
+	return true
+}
+
+// enqueuePriority hands a read-path-withheld key to repairMappings ahead of its
+// background scan. The queue is bounded and deduped; when it is full the key is
+// dropped (the scan still reaches it eventually). No-op when Background is off.
+func (s *Service) enqueuePriority(k core.RatingKey) {
+	if s == nil || s.priority == nil || s.ctx.Err() != nil {
+		return
+	}
+	if !resolvableKey(k) {
+		return
+	}
+	s.mu.Lock()
+	if s.prioQueued[k] {
+		s.mu.Unlock()
+		return
+	}
+	s.prioQueued[k] = true
+	s.mu.Unlock()
+	select {
+	case s.priority <- k:
+	default:
+		s.mu.Lock()
+		delete(s.prioQueued, k)
+		s.mu.Unlock()
+	}
+}
+
+// queueRepair marks k for forced re-verification and sends it to a worker. It
+// returns false when the key is already pending or the worker queue is full.
+func (s *Service) queueRepair(k core.RatingKey) bool {
+	if !resolvableKey(k) {
+		return false
+	}
+	s.mu.Lock()
+	if s.pending[k] {
+		s.mu.Unlock()
+		return false
+	}
+	s.pending[k] = true
+	s.force[k] = true
+	s.mu.Unlock()
+	select {
+	case s.jobs <- k:
+		return true
+	default:
+		s.done(k)
+		return false
+	}
+}
+
 // Cached is safe for lists: no network requests or credentials are needed.
+// A legacy row whose title has a catalogue namesake is withheld (the guid may
+// name the other work) and its key is enqueued for priority re-verification.
 func (s *Service) Cached(ctx context.Context, k core.RatingKey) string {
 	var guid string
-	_ = s.db.QueryRowContext(ctx, `SELECT m.guid FROM plexguid_mappings m WHERE m.rating_key=? AND m.checked_at>? AND `+identityVerified, int64(k), time.Now().Add(-cacheTTL).Unix()).Scan(&guid)
+	var hasIdentity bool
+	_ = s.db.QueryRowContext(ctx, `SELECT m.guid, `+identityExists+` FROM plexguid_mappings m WHERE m.rating_key=? AND m.checked_at>? AND `+identityVerified, int64(k), time.Now().Add(-cacheTTL).Unix()).Scan(&guid, &hasIdentity)
+	if guid != "" && !hasIdentity && s.hasNamesake(ctx, k) {
+		s.enqueuePriority(k)
+		return ""
+	}
 	return guid
 }
 
@@ -342,7 +491,7 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 		end := min(start+chunkSize, len(uniq))
 		chunk := uniq[start:end]
 		var b strings.Builder
-		b.WriteString(`SELECT m.rating_key,m.guid FROM plexguid_mappings m WHERE m.rating_key IN (`)
+		b.WriteString(`SELECT m.rating_key,m.guid, ` + identityExists + ` FROM plexguid_mappings m WHERE m.rating_key IN (`)
 		args := make([]any, 0, len(chunk)+1)
 		for i, k := range chunk {
 			if i > 0 {
@@ -360,8 +509,15 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 		for rows.Next() {
 			var rk int64
 			var guid string
-			if err := rows.Scan(&rk, &guid); err == nil && guid != "" {
-				out[core.RatingKey(rk)] = guid
+			var hasIdentity bool
+			if err := rows.Scan(&rk, &guid, &hasIdentity); err == nil && guid != "" {
+				k := core.RatingKey(rk)
+				// A legacy row on a namesake title is withheld, never served.
+				if !hasIdentity && s.hasNamesake(ctx, k) {
+					s.enqueuePriority(k)
+					continue
+				}
+				out[k] = guid
 			}
 		}
 		if err := rows.Err(); err != nil {
@@ -375,7 +531,14 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 func (s *Service) freshCached(ctx context.Context, k core.RatingKey) (string, bool) {
 	var cached string
 	var at int64
-	if e := s.db.QueryRowContext(ctx, `SELECT m.guid,m.checked_at FROM plexguid_mappings m WHERE m.rating_key=? AND (m.guid='' OR `+identityVerified+`) AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000 OR m.guid='' OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))`, int64(k)).Scan(&cached, &at); e == nil && time.Since(time.Unix(at, 0)) < recheckInterval {
+	var hasIdentity bool
+	if e := s.db.QueryRowContext(ctx, `SELECT m.guid,m.checked_at, `+identityExists+` FROM plexguid_mappings m WHERE m.rating_key=? AND (m.guid='' OR `+identityVerified+`) AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000 OR m.guid='' OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))`, int64(k)).Scan(&cached, &at, &hasIdentity); e == nil && time.Since(time.Unix(at, 0)) < recheckInterval {
+		// A legacy row on a namesake title is not fresh: resolution re-verifies
+		// it inline, which either proves the guid or drops it.
+		if cached != "" && !hasIdentity && s.hasNamesake(ctx, k) {
+			s.enqueuePriority(k)
+			return "", false
+		}
 		return cached, true
 	}
 	return "", false

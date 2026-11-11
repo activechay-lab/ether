@@ -48,6 +48,11 @@ func (s *Service) ExactKey(ctx context.Context, guid string) (core.RatingKey, er
 	if n != 1 || !found.Valid() || found.Kind() != kind {
 		return 0, ErrAmbiguous
 	}
+	// A legacy row on a namesake title is not a usable identity: withhold it
+	// and let the priority repair prove or drop it.
+	if s.withheldLegacy(ctx, found) {
+		return 0, core.ErrNotFound
+	}
 	return found, nil
 }
 
@@ -101,6 +106,9 @@ func (s *Service) Lookup(ctx context.Context, guid string) (core.RatingKey, erro
 		return 0, err
 	}
 	if cached != 0 {
+		if s.withheldLegacy(ctx, cached) {
+			return 0, core.ErrNotFound
+		}
 		return cached, nil
 	}
 	if s.o.Token == nil || s.o.Token() == "" {
