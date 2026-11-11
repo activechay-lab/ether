@@ -79,8 +79,8 @@ type Response struct {
 // service method: kv.get, kv.put, kv.delete, kv.list, secret.get,
 // http.fetch, catalog.search, catalog.get, viewers.history,
 // viewers.setWatchState, collections.upsert, kinds.upsert, kinds.delete,
-// kinds.items, sources.resolve, cache.put, cache.open, folders.list,
-// folders.stat, notify.owner, log. Args is a JSON array of positional
+// kinds.items, sources.resolve, cache.put, cache.open, frontend.streamURL,
+// folders.list, folders.stat, notify.owner, log. Args is a JSON array of positional
 // arguments; the result is any JSON value. Return a *Fault to classify the
 // failure (forbidden for a missing or revoked grant).
 type Host interface {
@@ -97,7 +97,7 @@ var DefaultCosts = map[string]int64{
 	"secret.get": 5, "http.fetch": 100, "addon.get": 100, "catalog.search": 50, "catalog.get": 20,
 	"viewers.history": 50, "viewers.setWatchState": 50, "collections.upsert": 50,
 	"kinds.upsert": 50, "kinds.delete": 50, "kinds.items": 20,
-	"sources.resolve": 100, "cache.put": 50, "cache.open": 20,
+	"sources.resolve": 100, "cache.put": 50, "cache.open": 20, "frontend.streamURL": 5,
 	"folders.list": 20, "folders.stat": 20, "notify.owner": 20, "settings.get": 5,
 }
 

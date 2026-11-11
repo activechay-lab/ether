@@ -68,6 +68,16 @@ func TestContentManifestValidates(t *testing.T) {
 	if err := m.Validate(); err != nil {
 		t.Fatalf("adapter only kind: %v", err)
 	}
+	// A declared library kind key on the adapter is valid.
+	m = contentManifest()
+	m.Ether.Capabilities = append(m.Ether.Capabilities, CapFrontendAdapter)
+	m.Ether.Contributes.FrontendAdapters = []FrontendAdapterMeta{
+		{Key: "feed", Label: "Recordings feed", ProtocolHint: "custom", PathPrefix: "/recordings", Libraries: []string{"recording"}},
+	}
+	m.Ether.Contributes.MediaKinds[0].Present = core.Presentations{AdapterOnly: true}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("adapter with declared library kind: %v", err)
+	}
 	// Resolver-only content with no sync is valid but owns no sync.
 	m = contentManifest()
 	m.Ether.Capabilities = []Capability{CapKindResolver}
@@ -175,6 +185,14 @@ func TestContentManifestRules(t *testing.T) {
 			m.Ether.Capabilities = append(m.Ether.Capabilities, CapFrontendAdapter)
 			m.Ether.Contributes.FrontendAdapters = []FrontendAdapterMeta{{Key: "feed", Label: "Recordings feed", ProtocolHint: "custom", PathPrefix: "recordings"}}
 		}, "frontendAdapters[0].pathPrefix"},
+		{"adapter unknown library kind", func(m *Manifest) {
+			m.Ether.Capabilities = append(m.Ether.Capabilities, CapFrontendAdapter)
+			m.Ether.Contributes.FrontendAdapters = []FrontendAdapterMeta{{Key: "feed", Label: "Recordings feed", ProtocolHint: "custom", PathPrefix: "/recordings", Libraries: []string{"missing"}}}
+		}, "frontendAdapters[0].libraries[0]"},
+		{"adapter duplicate library kind", func(m *Manifest) {
+			m.Ether.Capabilities = append(m.Ether.Capabilities, CapFrontendAdapter)
+			m.Ether.Contributes.FrontendAdapters = []FrontendAdapterMeta{{Key: "feed", Label: "Recordings feed", ProtocolHint: "custom", PathPrefix: "/recordings", Libraries: []string{"recording", "recording"}}}
+		}, "frontendAdapters[0].libraries[1]"},
 		{"setup field not in schema", func(m *Manifest) {
 			m.Ether.Contributes.Setup.Steps[0].Fields = []string{"password"}
 		}, "setup.steps[0].fields[0]"},

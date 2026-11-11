@@ -602,6 +602,35 @@ func (r *Registry) ValidateSettings(id Protocol, settings Settings) (bool, error
 	return true, validator.ValidateSettings(settings)
 }
 
+// Unregister removes a frontend so a plugin-provided surface can be
+// withdrawn without restarting Ether. It refuses while the frontend is
+// mounted and waits out any in-flight mount or unmount, then deletes the
+// entry under the registry lock so a concurrent Mount sees it gone.
+func (r *Registry) Unregister(id Protocol) error {
+	for {
+		r.mu.Lock()
+		e, ok := r.entries[id]
+		if !ok {
+			r.mu.Unlock()
+			return ErrNotRegistered
+		}
+		if wait := e.transition; wait != nil {
+			r.mu.Unlock()
+			select {
+			case <-wait:
+				continue
+			}
+		}
+		if e.instance != nil {
+			r.mu.Unlock()
+			return ErrAlreadyMounted
+		}
+		delete(r.entries, id)
+		r.mu.Unlock()
+		return nil
+	}
+}
+
 func (r *Registry) Mount(ctx context.Context, id Protocol) (Instance, error) {
 	for {
 		r.mu.Lock()

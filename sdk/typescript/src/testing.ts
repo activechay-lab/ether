@@ -51,6 +51,8 @@ export interface MockHostState {
   notifications: string[];
   logs: RecordedLog[];
   httpHandler: (req: HostFetchRequest) => HostFetchResponse | Promise<HostFetchResponse>;
+  /** The most recent frontend.streamUrl call: [viewerId, itemRef]. */
+  lastStreamUrl?: [number, string];
 }
 
 export interface MockHostClient extends EtherHost {
@@ -175,6 +177,12 @@ export function createMockHostClient(initial?: Partial<MockHostState>): MockHost
         const b = state.blobs.get(blobRef);
         if (!b) throw new Error(`blob ${blobRef} not found`);
         return new Uint8Array(b);
+      },
+    },
+    frontend: {
+      streamUrl: (viewerId: number, itemRef: string) => {
+        state.lastStreamUrl = [viewerId, itemRef];
+        return `/ether/v1/kind-media/mock-${viewerId}`;
       },
     },
     log: (level: string, message: string, attrs?: Record<string, unknown>) => {

@@ -32,6 +32,67 @@ func installContent(t *testing.T, env *testEnv) Record {
 	return rec
 }
 
+// TestHostStreamURL exercises the frontend adapter StreamURL host service:
+// it requires the frontend_adapter capability, an authenticated viewer on
+// the call context, and delegates to the backend which enforces item
+// ownership and library visibility.
+func TestHostStreamURL(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	man := contentManifest()
+	man.Ether.Contributes.MediaKinds[0].Sync = KindSyncDecl{Mode: KindSyncPush}
+	man.Ether.Capabilities = append(man.Ether.Capabilities, CapFrontendAdapter)
+	man.Ether.Contributes.FrontendAdapters = []FrontendAdapterMeta{
+		{Key: "feed", Label: "Records feed", ProtocolHint: "opds", PathPrefix: "/opds", Libraries: []string{"recording"}},
+	}
+	raw, err := json.Marshal(man)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := env.m.PreviewInstall(ctx, Source{Kind: "studio", Manifest: raw, Files: map[string][]byte{"dist/plugin.js": []byte("// library")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := env.m.Install(ctx, p, InstallOptions{AcceptAddedPermissions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := env.m.HostFor(rec.ID)
+
+	var gotViewer int64
+	var gotItem string
+	env.m.SetKindBackends(KindBackends{
+		StreamURL: func(_ context.Context, pluginID string, viewerID int64, itemRef string) (string, error) {
+			if pluginID != rec.ID {
+				t.Errorf("backend plugin scope: %s", pluginID)
+			}
+			gotViewer, gotItem = viewerID, itemRef
+			return "/ether/v1/kind-media/ticket-1", nil
+		},
+	})
+
+	// No viewer on the context: refused.
+	if _, err := h.StreamURL(ctx, "ref"); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("stream url without viewer: %v", err)
+	}
+	// With a viewer, the backend mints the URL.
+	viewerCtx := WithViewer(ctx, 7)
+	u, err := h.StreamURL(viewerCtx, "pk:recording:trk-1")
+	if err != nil || u != "/ether/v1/kind-media/ticket-1" {
+		t.Fatalf("stream url: %q %v", u, err)
+	}
+	if gotViewer != 7 || gotItem != "pk:recording:trk-1" {
+		t.Fatalf("backend got viewer=%d item=%q", gotViewer, gotItem)
+	}
+	// A capability the owner switched off denies the call.
+	if _, err := env.m.SetRoles(ctx, rec.ID, []Capability{CapFrontendAdapter}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.StreamURL(viewerCtx, "pk:recording:trk-1"); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("stream url without adapter capability: %v", err)
+	}
+}
+
 func TestHostKindServices(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := context.Background()
@@ -314,6 +375,7 @@ func (h *memHost) CachePut(context.Context, string, string, io.Reader) (string, 
 func (h *memHost) CacheOpen(context.Context, string) (io.ReadSeekCloser, error) {
 	return nil, ErrUnavailable
 }
+func (h *memHost) StreamURL(context.Context, string) (string, error) { return "", ErrUnavailable }
 
 func errFrom(b []byte, err error) error {
 	if err != nil {

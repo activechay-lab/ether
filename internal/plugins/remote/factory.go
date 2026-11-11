@@ -375,6 +375,15 @@ func (a HostAdapter) CacheOpen(ctx context.Context, pluginID, blobRef string) (i
 	return rc, mapHostErr(err)
 }
 
+func (a HostAdapter) StreamURL(ctx context.Context, pluginID string, viewerID int64, itemRef string) (string, error) {
+	h, err := a.host(pluginID)
+	if err != nil {
+		return "", err
+	}
+	u, err := h.StreamURL(plugins.WithViewer(ctx, viewerID), itemRef)
+	return u, mapHostErr(err)
+}
+
 func (a HostAdapter) Settings(ctx context.Context, pluginID string) (map[string]any, error) {
 	if a.SettingsWithSecrets != nil {
 		if _, err := a.host(pluginID); err != nil {

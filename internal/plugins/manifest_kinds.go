@@ -329,6 +329,16 @@ func validateFrontendAdapters(m Manifest, add func(string, string), label func(s
 		if a.Auth != "" && !map[string]bool{"ether_token": true, "basic": true, "none_lan": true}[a.Auth] {
 			add(base+".auth", "must be ether_token, basic or none_lan")
 		}
+		seenLib := map[string]bool{}
+		for j, key := range a.Libraries {
+			if !kindKeyRe.MatchString(key) || seenLib[key] {
+				add(fmt.Sprintf("%s.libraries[%d]", base, j), "must name a declared media kind key")
+			}
+			seenLib[key] = true
+			if _, ok := m.MediaKindByKey(key); !ok {
+				add(fmt.Sprintf("%s.libraries[%d]", base, j), "must name a media kind declared by this plugin")
+			}
+		}
 	}
 }
 

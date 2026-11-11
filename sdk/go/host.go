@@ -81,6 +81,11 @@ type Host interface {
 	ResolveSources(ctx context.Context, q SourceQuery) ([]SourceCandidate, error)
 	CachePut(ctx context.Context, libraryKey, name string, data []byte) (blobRef string, err error)
 	CacheOpen(ctx context.Context, blobRef string) ([]byte, error)
+	// StreamURL mints a short-lived, scoped ticket for one of this plugin's
+	// own kind items and returns the Ether stream URL to embed in a
+	// frontend adapter response (spec §6.5). viewerID is the viewer the
+	// adapter authenticated.
+	StreamURL(ctx context.Context, viewerID int64, itemRef string) (string, error)
 }
 
 // RemoteHostOptions configures a RemoteHostClient for sidecar plugins.
@@ -485,4 +490,18 @@ func (c *RemoteHostClient) CacheOpen(ctx context.Context, blobRef string) ([]byt
 		return nil, fmt.Errorf("plugin-host cache open: status %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// StreamURL mints a scoped stream ticket and returns the Ether stream URL
+// for one of this plugin's own kind items (spec §6.5).
+func (c *RemoteHostClient) StreamURL(ctx context.Context, viewerID int64, itemRef string) (string, error) {
+	var out struct {
+		URL string `json:"url"`
+	}
+	_, err := c.callJSON(ctx, http.MethodPost, "/ether/plugin-host/frontend/stream-url",
+		map[string]any{"viewerId": viewerID, "itemRef": itemRef}, &out, false)
+	if err != nil {
+		return "", err
+	}
+	return out.URL, nil
 }

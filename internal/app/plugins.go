@@ -27,6 +27,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/plugins"
 	"github.com/braedonsaunders/ether/internal/plugins/adapters"
 	"github.com/braedonsaunders/ether/internal/plugins/catalogue"
+	"github.com/braedonsaunders/ether/internal/plugins/frontendadapter"
 	"github.com/braedonsaunders/ether/internal/plugins/kit"
 	"github.com/braedonsaunders/ether/internal/plugins/remote"
 	"github.com/braedonsaunders/ether/internal/plugins/studio"
@@ -47,6 +48,11 @@ type pluginRuntime struct {
 	blobcache     *blobcache.Cache
 	kindCatalog   *adapters.KindCatalog
 	kindResolver  *adapters.KindResolver
+	// adapterCtrl keeps plugin-provided frontend adapters registered with
+	// the frontend registry; adapterTickets mints the scoped stream tickets
+	// adapter responses embed.
+	adapterCtrl    *frontendadapter.Controller
+	adapterTickets *frontendadapter.TicketIssuer
 }
 
 func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRuntime, error) {
@@ -380,6 +386,7 @@ func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRunti
 		Logger: a.log,
 	})
 	cachePut, cacheOpen := blobs.HostBackends(kindCatalog.QuotaFor)
+	adapterTickets := frontendadapter.NewTicketIssuer()
 	mgr.SetKindBackends(plugins.KindBackends{
 		KindUpsert:     itemsSvc.KindUpsert,
 		KindDelete:     itemsSvc.KindDelete,
@@ -387,6 +394,7 @@ func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRunti
 		ResolveSources: kindResolver.ResolveSources,
 		CachePut:       cachePut,
 		CacheOpen:      cacheOpen,
+		StreamURL:      a.adapterStreamURL(adapterTickets),
 	})
 
 	if err := mgr.Start(ctx); err != nil {
@@ -503,17 +511,18 @@ func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRunti
 		unsubscribe()
 	})
 	return &pluginRuntime{
-		subtitleProbe: subtitleProbe,
-		mgr:           mgr,
-		cat:           cat,
-		studio:        studioSvc,
-		tunnel:        tunnel,
-		pairing:       pairing,
-		pluginHost:    host,
-		pluginitems:   itemsSvc,
-		blobcache:     blobs,
-		kindCatalog:   kindCatalog,
-		kindResolver:  kindResolver,
+		subtitleProbe:  subtitleProbe,
+		mgr:            mgr,
+		cat:            cat,
+		studio:         studioSvc,
+		tunnel:         tunnel,
+		pairing:        pairing,
+		pluginHost:     host,
+		pluginitems:    itemsSvc,
+		blobcache:      blobs,
+		kindCatalog:    kindCatalog,
+		kindResolver:   kindResolver,
+		adapterTickets: adapterTickets,
 	}, nil
 }
 

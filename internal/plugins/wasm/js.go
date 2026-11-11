@@ -90,6 +90,7 @@ globalThis.ether = (() => {
     sources: { resolve: (q) => call("sources.resolve", [q == null ? {} : q]) },
     cache: { put: (lib, name, data) => call("cache.put", [lib, name == null ? "" : name, data == null ? "" : data]),
              open: (blobRef) => call("cache.open", [blobRef]) },
+    frontend: { streamURL: (itemRef) => call("frontend.streamURL", [itemRef]) },
     folders: { list: (root, path) => call("folders.list", [root, path == null ? "" : path]),
                stat: (root, path) => call("folders.stat", [root, path]) },
     notify: { owner: (text) => call("notify.owner", [text]) },

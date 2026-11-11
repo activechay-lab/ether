@@ -138,6 +138,30 @@ class KindsConformanceTest(unittest.TestCase):
         feed = parse_feed('<rss><channel><title>T</title><item><title>E</title><guid>g1</guid><enclosure url="https://x/e.mp3"/></item></channel></rss>')
         self.assertEqual(feed["entries"][0]["audio"], "https://x/e.mp3")
 
+    def test_stream_url_host_service(self):
+        from ether_plugin import PluginContext, stream_url
+
+        host = create_mock_host_client()
+        ctx = PluginContext(
+            manifest={},
+            settings={},
+            locale="en",
+            pick_token=None,
+            request_id=None,
+            headers={"X-Ether-Viewer": "7"},
+            query={},
+            ether=host,
+            i18n=None,
+        )
+        url = ctx.stream_url("pk:recordings:a")
+        self.assertTrue(url.startswith("/ether/v1/kind-media/"))
+        self.assertEqual(host.last_stream_url, (7, "pk:recordings:a"))
+        self.assertEqual(stream_url(ctx, "pk:recordings:a"), url)
+        # No viewer header: refused.
+        ctx.headers = {}
+        with self.assertRaises(RuntimeError):
+            ctx.stream_url("pk:recordings:a")
+
 
 if __name__ == "__main__":
     unittest.main()

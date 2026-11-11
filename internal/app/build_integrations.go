@@ -98,6 +98,7 @@ func (a *App) buildIntegrations(ctx context.Context, cfg config.Config) error {
 	a.closers = append(a.closers, a.frontends.close)
 	a.cfg.Subscribe(a.frontends.reconcile)
 	mux := http.NewServeMux()
+	a.mountAdapterMedia(mux)
 	mux.Handle("/ether/", a.perf.wrap("console", lanOnly(a.buildAdmin(), a.cfg.TrustedProxyCIDRs, a.cfg.AllowRemoteConsole)))
 	a.mountExtensibility(mux)
 	mux.HandleFunc("/ether", func(w http.ResponseWriter, r *http.Request) {

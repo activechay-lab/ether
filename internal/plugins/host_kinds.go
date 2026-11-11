@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -26,6 +27,10 @@ type KindBackends struct {
 	ResolveSources func(ctx context.Context, pluginID string, q core.SourceQuery) ([]core.SourceCandidate, error)
 	CachePut       func(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (blobRef string, err error)
 	CacheOpen      func(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error)
+	// StreamURL mints a scoped stream ticket for one of the plugin's own
+	// kind items for one viewer and returns the Ether stream URL (spec
+	// §6.5). The backend re-checks item ownership and library visibility.
+	StreamURL func(ctx context.Context, pluginID string, viewerID int64, itemRef string) (string, error)
 }
 
 // SetKindBackends wires the kind host services into the Manager's
@@ -38,6 +43,7 @@ func (m *Manager) SetKindBackends(b KindBackends) {
 	m.deps.Backends.ResolveSources = b.ResolveSources
 	m.deps.Backends.CachePut = b.CachePut
 	m.deps.Backends.CacheOpen = b.CacheOpen
+	m.deps.Backends.StreamURL = b.StreamURL
 	m.mu.Unlock()
 }
 
@@ -51,6 +57,7 @@ func (m *Manager) kindBackends() KindBackends {
 		ResolveSources: m.deps.Backends.ResolveSources,
 		CachePut:       m.deps.Backends.CachePut,
 		CacheOpen:      m.deps.Backends.CacheOpen,
+		StreamURL:      m.deps.Backends.StreamURL,
 	}
 }
 
@@ -383,6 +390,70 @@ func (h *host) CachePut(ctx context.Context, libraryKey, name string, r io.Reade
 	// A single blob can never exceed the whole per-library quota.
 	limited := io.LimitReader(r, decl.Cache.EffectiveMaxBytes()+1)
 	return backend(ctx, h.plugin, libraryKey, name, limited)
+}
+
+// viewerContextKey carries the authenticated viewer of a proxied request
+// into a plugin call, so a host service can act as that viewer without the
+// plugin passing (or being trusted with) the identity.
+type viewerContextKey struct{}
+
+// WithViewer attaches a viewer id to a plugin call context.
+func WithViewer(ctx context.Context, viewerID int64) context.Context {
+	return context.WithValue(ctx, viewerContextKey{}, viewerID)
+}
+
+// ViewerFromContext returns the viewer attached by WithViewer, if any.
+func ViewerFromContext(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(viewerContextKey{}).(int64)
+	return id, ok
+}
+
+// withViewerHeader reads the X-Ether-Viewer header the frontend adapter
+// proxy injects and attaches that viewer to the context. A missing or
+// malformed header leaves the context unchanged.
+func withViewerHeader(ctx context.Context, headers map[string]string) context.Context {
+	if headers == nil {
+		return ctx
+	}
+	raw := headers["X-Ether-Viewer"]
+	if raw == "" {
+		return ctx
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return ctx
+	}
+	return WithViewer(ctx, id)
+}
+
+// StreamURL mints a scoped stream ticket for one of the plugin's own kind
+// items and returns the Ether stream URL (spec §6.5). The viewer is the one
+// the proxied request authenticated, carried on the call context as
+// X-Ether-Viewer. The backend re-checks that the item belongs to this plugin
+// and that the viewer may see its library.
+func (h *host) StreamURL(ctx context.Context, itemRef string) (string, error) {
+	rec, _, err := h.record(ctx)
+	if err != nil {
+		return "", err
+	}
+	man := rec.Manifest
+	man.Ether = man.EffectiveEther()
+	if man.Ether == nil || !man.HasCapability(CapFrontendAdapter) {
+		h.noteDenied(string(CapFrontendAdapter))
+		return "", fmt.Errorf("%w: %s", ErrPermissionDenied, CapFrontendAdapter)
+	}
+	viewerID, ok := ViewerFromContext(ctx)
+	if !ok || viewerID <= 0 {
+		return "", fmt.Errorf("%w: stream url needs an authenticated viewer", ErrPermissionDenied)
+	}
+	if strings.TrimSpace(itemRef) == "" {
+		return "", fmt.Errorf("plugins: stream url needs an item ref")
+	}
+	backend := h.m.kindBackends().StreamURL
+	if backend == nil {
+		return "", ErrUnavailable
+	}
+	return backend(ctx, h.plugin, viewerID, itemRef)
 }
 
 func (h *host) CacheOpen(ctx context.Context, blobRef string) (io.ReadSeekCloser, error) {

@@ -81,6 +81,44 @@ func TestRegistryLifecycle(t *testing.T) {
 		t.Fatal(instance.closed)
 	}
 }
+func TestUnregisterLifecycle(t *testing.T) {
+	ctx := context.Background()
+	r := NewRegistry(func(Protocol) Host { return Host{} })
+	f := &testFrontend{id: "plugin:plug1:feed", instance: &testInstance{}}
+	if err := r.Register(f); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Unregister("missing"); !errors.Is(err, ErrNotRegistered) {
+		t.Fatalf("unregister missing = %v", err)
+	}
+	if _, err := r.Mount(ctx, f.id); err != nil {
+		t.Fatal(err)
+	}
+	// Refuses while mounted, and the instance is untouched.
+	if err := r.Unregister(f.id); !errors.Is(err, ErrAlreadyMounted) {
+		t.Fatalf("unregister mounted = %v, want ErrAlreadyMounted", err)
+	}
+	if _, ok := r.Instance(f.id); !ok {
+		t.Fatal("instance lost on refused unregister")
+	}
+	if err := r.Unmount(ctx, f.id); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Unregister(f.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Instance(f.id); ok {
+		t.Fatal("still mounted")
+	}
+	if _, err := r.Mount(ctx, f.id); !errors.Is(err, ErrNotRegistered) {
+		t.Fatalf("mount after unregister = %v", err)
+	}
+	// A fresh frontend may reuse the freed id.
+	if err := r.Register(f); err != nil {
+		t.Fatalf("re-register after unregister = %v", err)
+	}
+}
+
 func TestFailedMountCanRetry(t *testing.T) {
 	r := NewRegistry(func(Protocol) Host { return Host{} })
 	f := &testFrontend{id: "test", err: errors.New("failed"), instance: &testInstance{}}

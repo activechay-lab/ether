@@ -465,6 +465,11 @@ type FrontendAdapterMeta struct {
 	DefaultPort  int      `json:"defaultPort,omitempty"`
 	Clients      []string `json:"clients,omitempty"`
 	Auth         string   `json:"auth,omitempty"` // ether_token (default)|basic|none_lan
+	// Libraries lists the plugin's media-kind keys this adapter publishes.
+	// Ether resolves each key to the library the kind created and admits a
+	// viewer only to the libraries they may see; a viewer who sees none of
+	// them is answered 404. Empty means the adapter is not library-scoped.
+	Libraries []string `json:"libraries,omitempty"`
 }
 
 // SetupMeta declares guided setup for any plugin kind (spec §8).
@@ -579,6 +584,14 @@ type Host interface {
 	// returns its "blob:<sha256>" reference; CacheOpen reads one back.
 	CachePut(ctx context.Context, libraryKey, name string, r io.Reader) (blobRef string, err error)
 	CacheOpen(ctx context.Context, blobRef string) (io.ReadSeekCloser, error)
+
+	// StreamURL mints a short-lived, scoped ticket for one of this
+	// plugin's own kind items and returns the Ether stream URL a frontend
+	// adapter embeds instead of a plugin URL (spec §6.5). The viewer is
+	// the one the proxied request authenticated (X-Ether-Viewer); items
+	// from another plugin, or a library the viewer cannot see, are
+	// refused. Bytes are then served by Ether, never by the plugin.
+	StreamURL(ctx context.Context, itemRef string) (string, error)
 
 	// FoldersList and FoldersStat need folders: read and an owner-picked
 	// root. They never return file contents.
