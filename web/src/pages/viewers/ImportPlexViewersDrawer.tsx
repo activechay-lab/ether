@@ -286,7 +286,7 @@ export function ImportPlexViewersDrawer({
             icon={<MonitorSmartphone />}
             title={t("No connected Plex Media Servers found")}
             description={t(
-              "Connect your Plex Media Server under Integrations › Plex watch sync first to discover and import its users.",
+              "Connect your Plex Media Server under Integrations › Plex Media Server Sync first to discover and import its users.",
             )}
             action={
               <Button
@@ -296,7 +296,7 @@ export function ImportPlexViewersDrawer({
                   navigate("/services/plexservers");
                 }}
               >
-                <ExternalLink size={14} /> {t("Go to Plex watch sync")}
+                <ExternalLink size={14} /> {t("Go to Plex Media Server Sync")}
               </Button>
             }
           />
