@@ -10,7 +10,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"github.com/braedonsaunders/ether/internal/releasepolicy"
 	"github.com/braedonsaunders/ether/internal/remote"
 )
@@ -176,10 +175,16 @@ func ValidateConfig(cfg config.Config) []FieldError {
 	default:
 		v.add("availability.effort", "must be gentle, normal, unlimited, or custom")
 	}
-	switch a.Mode {
-	case "", config.ModePlayable, config.ModeDigital, config.ModeImmediate:
-	default:
-		v.add("availability.mode", "must be playable, digital, or immediate")
+	for _, m := range []struct{ field, val string }{
+		{"availability.mode", a.Mode},
+		{"availability.movieMode", a.MovieMode},
+		{"availability.showMode", a.ShowMode},
+	} {
+		switch m.val {
+		case "", config.ModePlayable, config.ModeDigital, config.ModeImmediate:
+		default:
+			v.add(m.field, "must be playable, digital, or immediate")
+		}
 	}
 
 	if cfg.SharedCache != nil {
@@ -402,9 +407,6 @@ func ValidateConfig(cfg config.Config) []FieldError {
 
 	if cfg.Catalog.MinPopularity < 0 {
 		v.add("catalog.minPopularity", "must be >= 0")
-	}
-	if _, err := libraryfilter.CompilePolicy(cfg.Catalog.Exclusions, cfg.Catalog.VisibilityDefault); err != nil {
-		v.add("catalog.exclusions", "%s", err.Error())
 	}
 	if cfg.Catalog.MinVotes < 0 {
 		v.add("catalog.minVotes", "must be >= 0")

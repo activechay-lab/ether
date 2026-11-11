@@ -78,7 +78,7 @@ const PAGES = localized<PageDef[]>(() => [
     sections: [],
     keywords: searchTerms(
       msg(
-        "users friends accounts people overview home taste recent activity audio subtitles limits sign-in devices lists alerts",
+        "users friends accounts people overview home taste recent activity audio subtitles limits sign-in devices lists alerts watchlist monitoring",
       ),
     ),
   },
@@ -129,16 +129,26 @@ const PAGES = localized<PageDef[]>(() => [
     title: t("Libraries"),
     sections: [
       {
-        key: "rules",
-        title: t("Rules"),
-        keywords: searchTerms(msg("hide show rules library exclusions")),
+        key: "1/rules",
+        title: t("Movies · Rules"),
+        keywords: searchTerms(msg("hide show rules movie exclusions visibility")),
       },
       {
-        key: "settings",
-        title: t("Catalog settings"),
+        key: "1/settings",
+        title: t("Movies · Settings"),
         keywords: searchTerms(
-          msg("tmdb language region obscure new releases playable digital watchlist monitoring"),
+          msg("tmdb language region obscure new releases playable digital"),
         ),
+      },
+      {
+        key: "2/rules",
+        title: t("TV Shows · Rules"),
+        keywords: searchTerms(msg("hide show rules tv exclusions visibility")),
+      },
+      {
+        key: "2/settings",
+        title: t("TV Shows · Settings"),
+        keywords: searchTerms(msg("tmdb language region obscure new releases episodes")),
       },
     ],
     keywords: searchTerms(msg("catalogue movies shows browse search library")),

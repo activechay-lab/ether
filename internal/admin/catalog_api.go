@@ -99,6 +99,21 @@ func (h *Handler) handleCatalogBrowse(w http.ResponseWriter, r *http.Request) {
 		q.Filter.Type = mediaTypeParam(p.Get("type"))
 	}
 	q.Filter.LocalOnly = true
+	if rawLib := p.Get("libraryId"); rawLib != "" {
+		libID, err := strconv.ParseInt(rawLib, 10, 64)
+		if err != nil || libID <= 0 {
+			writeError(w, 400, "invalid_filter", "Invalid library id")
+			return
+		}
+		if h.deps.LibraryBrowseFilter != nil {
+			sf, err := h.deps.LibraryBrowseFilter(r.Context(), core.LibraryID(libID), q.Filter)
+			if err != nil {
+				writeError(w, 404, "not_found", "Library not found")
+				return
+			}
+			q.Filter = sf
+		}
+	}
 
 	if p.Has("q") {
 		q.Filter.Query = strings.TrimSpace(p.Get("q"))
@@ -488,7 +503,7 @@ func (h *Handler) handleCatalogTitle(w http.ResponseWriter, r *http.Request) {
 		Seasons: t.ChildCount, Episodes: t.LeafCount}
 	av := h.deps.Config.Get().Availability
 	now := time.Now()
-	d.HomeReleaseAgeAdmitted = av.EffectiveMode() == config.ModeDigital && catalog.HomeReleaseAgeAdmitted(t, now) && (!t.HomeReleaseChecked || t.HomeReleased.IsZero() || catalog.HomeReleaseAdmission(t.HomeReleased, av.HomeReleaseOffsetDays).After(now))
+	d.HomeReleaseAgeAdmitted = av.ModeFor(string(t.Type)) == config.ModeDigital && catalog.HomeReleaseAgeAdmitted(t, now) && (!t.HomeReleaseChecked || t.HomeReleased.IsZero() || catalog.HomeReleaseAdmission(t.HomeReleased, av.HomeReleaseOffsetDays).After(now))
 	if t.OriginalTitle != t.Title {
 		d.OriginalTitle = t.OriginalTitle
 	}
@@ -599,6 +614,7 @@ func (h *Handler) handleVisibilityPreview(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Exclusions        []core.LibraryExclusion `json:"exclusions"`
 		VisibilityDefault string                  `json:"visibilityDefault"`
+		LibraryID         core.LibraryID          `json:"libraryId"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&body); err != nil {
 		writeError(w, 400, "bad_json", "Invalid filter")
@@ -608,7 +624,7 @@ func (h *Handler) handleVisibilityPreview(w http.ResponseWriter, r *http.Request
 		writeError(w, 400, "invalid_filter", "Could not preview catalogue")
 		return
 	}
-	p, err := h.deps.CatalogVisibility(r.Context(), body.Exclusions, body.VisibilityDefault)
+	p, err := h.deps.CatalogVisibility(r.Context(), body.Exclusions, body.VisibilityDefault, body.LibraryID)
 	if err != nil {
 		writeError(w, 500, "preview_failed", "Could not preview catalogue")
 		return

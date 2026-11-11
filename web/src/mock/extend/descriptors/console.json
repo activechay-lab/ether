@@ -799,7 +799,7 @@
       "inNav": true,
       "mobile": true,
       "keywords": {
-        "source": "users friends accounts people"
+        "source": "users friends accounts people watchlist monitoring"
       }
     }
   },
@@ -905,12 +905,39 @@
       },
       "sections": [
         {
-          "key": "settings",
+          "key": "1/rules",
           "label": {
-            "source": "Library settings"
+            "source": "Movies · Rules"
+          },
+          "keywords": {
+            "source": "hide show rules movie exclusions visibility"
+          }
+        },
+        {
+          "key": "1/settings",
+          "label": {
+            "source": "Movies · Settings"
           },
           "keywords": {
             "source": "tmdb language region popularity new releases playable digital"
+          }
+        },
+        {
+          "key": "2/rules",
+          "label": {
+            "source": "TV Shows · Rules"
+          },
+          "keywords": {
+            "source": "hide show rules tv exclusions visibility"
+          }
+        },
+        {
+          "key": "2/settings",
+          "label": {
+            "source": "TV Shows · Settings"
+          },
+          "keywords": {
+            "source": "tmdb language region popularity new releases episodes"
           }
         }
       ]

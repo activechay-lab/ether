@@ -11,10 +11,17 @@ import (
 )
 
 // publishPolicyConfig is the config store's policy bump: it records what the
-// new catalogue rules read and advances the epoch in one transaction.
+// canonical library rules read and advances the epoch in one transaction.
 func (a *App) publishPolicyConfig() error {
 	in := viewerpolicy.Inputs{}
-	viewerpolicy.RulesInputs(in, a.cfg.Get().Catalog.Exclusions)
+	var pol catalog.LibraryPolicies
+	if a.catalog != nil {
+		pol = a.catalog.LibraryPolicies()
+	} else {
+		pol = a.loadLibraryPolicies(context.Background())
+	}
+	viewerpolicy.RulesInputs(in, pol.MovieRules)
+	viewerpolicy.RulesInputs(in, pol.ShowRules)
 	return viewerpolicy.PublishConfig(context.Background(), a.db, in)
 }
 

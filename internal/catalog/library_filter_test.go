@@ -67,7 +67,7 @@ func TestLibraryFilterPreviewBrowseAndPolicyAgree(t *testing.T) {
 				hidden++
 			}
 		}
-		c.UpdateConfig(config.Catalog{Exclusions: specs})
+		setTestPolicies(t, c, specs, "")
 		p, err := c.Browse(ctx, core.BrowseQuery{})
 		if err != nil || p.Total != len(titles)-hidden {
 			t.Fatalf("SQL/evaluator differ: total=%d hidden=%d err=%v", p.Total, hidden, err)
@@ -103,7 +103,7 @@ func TestLibraryFilterPreviewBrowseAndPolicyAgree(t *testing.T) {
 			}
 		}
 	}
-	c.UpdateConfig(config.Catalog{})
+	setTestPolicies(t, c, nil, "")
 	p, _ := c.Browse(ctx, core.BrowseQuery{})
 	if p.Total != 5 {
 		t.Fatal("clearing rules left cached exclusions", p.Total)
@@ -253,7 +253,7 @@ func TestContentRatingNotInAgreesAndExcludesMissing(t *testing.T) {
 		if len(want) != len(titles) {
 			t.Fatalf("%s: expected a decision for every title", specs[0].Name)
 		}
-		c.UpdateConfig(config.Catalog{Exclusions: specs})
+		setTestPolicies(t, c, specs, "")
 		page, err := c.Browse(ctx, core.BrowseQuery{Limit: len(titles)})
 		if err != nil {
 			t.Fatal(err)
@@ -327,7 +327,7 @@ func TestFilterVisibilityUsesKnownLocalContentRating(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c, err := New(db, nil, config.Catalog{Exclusions: specs}, nil)
+	c, err := New(db, nil, config.Catalog{}, nil, WithLibraryPolicies(testPolicies(specs, "")))
 	if err != nil {
 		t.Fatal(err)
 	}

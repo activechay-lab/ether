@@ -203,8 +203,26 @@ func (a *App) buildAdmin() http.Handler {
 			}
 			return a.availability.HiddenMovies(ctx)
 		},
-		CatalogVisibility: func(ctx context.Context, specs []core.LibraryExclusion, fallback string) (any, error) {
+		CatalogVisibility: func(ctx context.Context, specs []core.LibraryExclusion, fallback string, libraryID core.LibraryID) (any, error) {
+			if libraryID > 0 && a.libraries != nil {
+				lib, err := a.libraries.Get(ctx, libraryID)
+				if err != nil {
+					return nil, err
+				}
+				sf := libraryScopeFilter(lib, core.Filter{RuleVisibility: "all"})
+				return a.catalog.PreviewVisibilityScoped(ctx, specs, fallback, &sf)
+			}
 			return a.catalog.PreviewVisibilityPolicy(ctx, specs, fallback)
+		},
+		LibraryBrowseFilter: func(ctx context.Context, libraryID core.LibraryID, req core.Filter) (core.Filter, error) {
+			if a.libraries == nil {
+				return req, core.ErrNotFound
+			}
+			lib, err := a.libraries.Get(ctx, libraryID)
+			if err != nil {
+				return req, err
+			}
+			return libraryScopeFilter(lib, req), nil
 		},
 		Images:          a.images,
 		TitlePosters:    a.titlePosters(),

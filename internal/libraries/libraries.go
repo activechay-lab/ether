@@ -59,6 +59,14 @@ CREATE UNIQUE INDEX libraries_plugin_kind ON libraries(plugin_id, kind_key) WHER
 CREATE TABLE libraries_seq (id BIGINT PRIMARY KEY, next BIGINT NOT NULL);
 CREATE TABLE libraries_state (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '');
 `)
+	store.Register("libraries", 2, `
+ALTER TABLE libraries ADD COLUMN rules TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE libraries ADD COLUMN visibility_default TEXT NOT NULL DEFAULT '';
+`)
+	store.RegisterDialect("libraries", 2, store.Postgres, `
+ALTER TABLE libraries ADD COLUMN rules TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE libraries ADD COLUMN visibility_default TEXT NOT NULL DEFAULT '';
+`)
 }
 
 var (

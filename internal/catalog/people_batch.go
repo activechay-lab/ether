@@ -7,7 +7,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -136,10 +135,7 @@ type personKey struct {
 // the stored rows, plus the facts visibility rules and the release gate
 // read when they read any, without credits or alternative titles.
 func (c *Catalog) CachedVisibleTitles(ctx context.Context, keys []core.RatingKey, cfg config.Catalog, now time.Time) (map[core.RatingKey]core.Title, error) {
-	filter, err := libraryfilter.CompilePolicy(cfg.Exclusions, cfg.VisibilityDefault)
-	if err != nil {
-		return nil, err
-	}
+	filter := c.visibilityFilter()
 	digital := cfg.ReleaseMode == config.ModeDigital
 	out := make(map[core.RatingKey]core.Title, len(keys))
 	for part := range store.Chunks(keys, 200) {

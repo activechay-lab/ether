@@ -1149,9 +1149,8 @@ func (s *Service) filterForUser(ctx context.Context, keys []core.RatingKey, pr p
 	include, exclude := pr.include, pr.exclude
 	personal := len(include)+len(exclude) > 0
 	var exposure *libraryfilter.Filter
-	if s.catCfg != nil {
-		cfg := s.catCfg()
-		if f, err := libraryfilter.CompilePolicy(cfg.Exclusions, cfg.VisibilityDefault); err == nil && !f.Passive() {
+	if vp, ok := s.cat.(interface{ VisibilityFilter() *libraryfilter.Filter }); ok {
+		if f := vp.VisibilityFilter(); f != nil && !f.Passive() {
 			exposure = f
 		}
 	}

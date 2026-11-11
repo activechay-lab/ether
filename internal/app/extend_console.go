@@ -60,13 +60,16 @@ func consolePages() []consolePage {
 		}},
 		{id: "viewers", label: T("Viewers"), icon: "Users", order: 30, meta: extend.PageMeta{
 			Route: "/viewers", InNav: true, Mobile: true,
-			Keywords: T("users friends accounts people"),
+			Keywords: T("users friends accounts people watchlist monitoring"),
 		}},
 		{id: "libraries", label: T("Libraries"), icon: "Library", order: 10, meta: extend.PageMeta{
 			Route: "/libraries", NavGroup: extend.NavGroupLibrary, InNav: true,
 			Keywords: T("catalogue catalog movies shows browse search library libraries"),
 			Sections: []extend.PageSection{
-				section("settings", T("Library settings"), T("tmdb language region popularity new releases playable digital")),
+				section("1/rules", T("Movies · Rules"), T("hide show rules movie exclusions visibility")),
+				section("1/settings", T("Movies · Settings"), T("tmdb language region popularity new releases playable digital")),
+				section("2/rules", T("TV Shows · Rules"), T("hide show rules tv exclusions visibility")),
+				section("2/settings", T("TV Shows · Settings"), T("tmdb language region popularity new releases episodes")),
 			},
 		}},
 		{id: "collections", label: T("Collections"), icon: "Layers", order: 20, meta: extend.PageMeta{

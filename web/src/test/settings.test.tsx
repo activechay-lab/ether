@@ -76,7 +76,7 @@ describe("Settings", () => {
     expect(screen.queryByText("Jellyfin TV")).toBeNull();
   });
   it("saves automatic franchise visibility without changing other catalog settings", async () => {
-    const { fake } = renderApp("/catalog/settings");
+    const { fake } = renderApp("/libraries/1/settings");
     const toggle = await screen.findByLabelText("Hide automatic franchise collections", {}, WAIT);
     expect(toggle).not.toBeChecked();
     const before = { ...fake.state.config.catalog };

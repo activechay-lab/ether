@@ -90,7 +90,7 @@ func TestSearchSummaryProjection(t *testing.T) {
 			if !fresh {
 				t.Fatal("summary reused stale full-title facets")
 			}
-			c.UpdateConfig(config.Catalog{Exclusions: []core.LibraryExclusion{{MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "genre", Op: "is", Value: json.RawMessage(`"Blocked"`)}}}}})
+			setTestPolicies(t, c, []core.LibraryExclusion{{MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "genre", Op: "is", Value: json.RawMessage(`"Blocked"`)}}}}, "")
 			summary, err = c.Search(summaryCtx, "star", []core.MediaType{core.TypeMovie}, 200)
 			if err != nil || len(summary) != 199 {
 				t.Fatalf("active policy results %d: %v", len(summary), err)

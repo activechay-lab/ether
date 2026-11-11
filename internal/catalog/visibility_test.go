@@ -50,7 +50,7 @@ func TestFirstCharacterJumpbarOffsetsMatchTitleSortEveryLetter(t *testing.T) {
 			},
 		},
 	}
-	c, err := New(store.OpenTest(t), nil, cfg, nil)
+	c, err := New(store.OpenTest(t), nil, cfg, nil, WithLibraryPolicies(testPolicies(cfg.Exclusions, cfg.VisibilityDefault)))
 	if err != nil {
 		t.Fatal(err)
 	}

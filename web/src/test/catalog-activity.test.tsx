@@ -4,7 +4,7 @@ import { renderAppWith } from "./routes";
 
 describe("Catalog recent activity", () => {
   it("reports real cross-media sync counters", async () => {
-    renderAppWith("/catalog/settings", (_method, path) => {
+    renderAppWith("/libraries/1/settings", (_method, path) => {
       if (path === "/status/catalog")
         return {
           value: { lastSync: "2026-11-02T12:00:00Z", sync: { titlesAdded: 42, titlesSeen: 1234 } },
@@ -19,7 +19,7 @@ describe("Catalog recent activity", () => {
   });
 
   it("does not fabricate activity before the first sync", async () => {
-    renderAppWith("/catalog/settings", (_method, path) => {
+    renderAppWith("/libraries/1/settings", (_method, path) => {
       if (path === "/status/catalog")
         return {
           value: { lastSync: "0001-01-01T00:00:00Z", sync: { titlesAdded: 0, titlesSeen: 0 } },

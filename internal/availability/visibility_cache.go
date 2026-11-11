@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"time"
 )
@@ -110,7 +111,10 @@ func (s *Service) FilterDiscoveryCurrent(ctx context.Context, items []core.Title
 func (s *Service) answeredSets(input discoverySnapshot) map[core.MediaType]*hiddenSet {
 	out := map[core.MediaType]*hiddenSet{}
 	for kind, typ := range map[string]core.MediaType{hiddenMovies: core.TypeMovie, hiddenShows: core.TypeShow} {
-		if kind == hiddenMovies && input.availability.DisableMovieEvidenceGate {
+		if kind == hiddenMovies && movieImmediate(input.availability) {
+			continue
+		}
+		if kind == hiddenShows && input.availability.ShowMode == config.ModeImmediate {
 			continue
 		}
 		s.visibilityMu.Lock()

@@ -9,6 +9,11 @@ import (
 	"github.com/braedonsaunders/ether/internal/libraryfilter"
 )
 
+// VisibilityFilter returns the compiled canonical library visibility filter.
+func (c *Catalog) VisibilityFilter() *libraryfilter.Filter {
+	return c.visibilityFilter()
+}
+
 // visibilityFilter is the discovery filter: every rule applies.
 func (c *Catalog) visibilityFilter() *libraryfilter.Filter {
 	c.cfgMu.RLock()
@@ -180,16 +185,25 @@ func (c *Catalog) PreviewVisibility(ctx context.Context, specs []core.LibraryExc
 }
 
 func (c *Catalog) PreviewVisibilityPolicy(ctx context.Context, specs []core.LibraryExclusion, fallback string) (any, error) {
+	return c.PreviewVisibilityScoped(ctx, specs, fallback, nil)
+}
+
+func (c *Catalog) PreviewVisibilityScoped(ctx context.Context, specs []core.LibraryExclusion, fallback string, scopeFilter *core.Filter) (any, error) {
 	f, err := libraryfilter.CompilePolicy(specs, fallback)
 	if err != nil {
 		return nil, err
 	}
 	where, args := f.SQLHidden()
 	p := VisibilityPreview{Items: []core.Title{}, Shown: []core.Title{}, Rules: []VisibilityRulePreview{}}
-	// The catalogue rules act on: browsable titles, behind the release gate
-	// when "On digital release" is on, the same set browsing and queryTitles see.
 	scope, scopeArgs := mirrorBrowsableWhere, []any(nil)
-	if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital {
+	if scopeFilter != nil {
+		sf := *scopeFilter
+		sf.RuleVisibility = "all"
+		scope, scopeArgs, err = c.browseWhere(sf)
+		if err != nil {
+			return nil, err
+		}
+	} else if cfg := c.config(); cfg.ReleaseMode == config.ModeDigital {
 		scope += " AND " + homeReleaseSQL("t")
 		scopeArgs = []any{homeReleaseCutoff(c.now()), homeReleaseDeadline(c.now(), cfg.HomeReleaseOffsetDays)}
 	}

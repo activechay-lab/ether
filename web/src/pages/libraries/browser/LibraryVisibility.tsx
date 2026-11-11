@@ -99,14 +99,21 @@ function conditionLine(rule: Rule) {
 }
 
 /** "Hide · Genre is Horror, Thriller". The stored name stays in the drawer. */
-function ruleLabel(rule: VisibilityRule) {
+function ruleLabel(rule: VisibilityRule, pinnedMediaType?: "movie" | "show") {
   const action = actionOf(rule) === "show" ? t("Show") : t("Hide");
   const bits = rule.rules.filter(isRuleComplete).map(conditionLine);
   const body =
     rule.match === "any" && bits.length > 1
       ? bits.reduce((left, right) => t("{left} or {right}", { left, right }))
       : bits.join(" · ");
-  const media = rule.mediaType === "movie" ? t("Movies") : rule.mediaType === "show" ? t("TV") : "";
+  const media =
+    pinnedMediaType && (rule.mediaType === pinnedMediaType || rule.mediaType === "mixed")
+      ? ""
+      : rule.mediaType === "movie"
+        ? t("Movies")
+        : rule.mediaType === "show"
+          ? t("TV")
+          : "";
   const scope = browsingOnly(rule) ? t("Browsing only") : "";
   return [action, body, media, scope].filter(Boolean).join(" · ");
 }
@@ -117,12 +124,18 @@ export function RulesPanel({
   onRules,
   onFallback,
   region,
+  libraryId,
+  mediaType,
+  libraryFilter,
 }: {
   rules: VisibilityRule[];
   fallback: string;
   onRules: (rules: VisibilityRule[]) => void;
   onFallback: (value: string) => void;
   region: string;
+  libraryId?: number;
+  mediaType?: "movie" | "show";
+  libraryFilter?: Record<string, unknown>;
 }) {
   const [browse, setBrowse] = useState<"hidden" | "shown" | null>(null);
   const [browseParams, setBrowseParams] = useState(new URLSearchParams());
@@ -138,7 +151,7 @@ export function RulesPanel({
   const [drag, setDrag] = useState<number | null>(null);
   const [fresh, setFresh] = useState<number | null>(null);
   const complete = rules.every((g) => g.rules.length > 0 && g.rules.every(isRuleComplete));
-  const spec = useMemo(() => ({ rules, fallback }), [rules, fallback]);
+  const spec = useMemo(() => ({ rules, fallback, libraryId }), [rules, fallback, libraryId]);
   const draft = useDebouncedValue(spec, 400);
   const preview = useAsync(
     async (signal) => {
@@ -146,6 +159,7 @@ export function RulesPanel({
       return apiFetch<Preview>("/catalog/visibility/preview", {
         method: "POST",
         body: JSON.stringify({
+          ...(draft.libraryId ? { libraryId: draft.libraryId } : {}),
           exclusions: draft.rules,
           visibilityDefault: draft.fallback === "hide" ? "hide" : "show",
         }),
@@ -177,11 +191,17 @@ export function RulesPanel({
           <Library className="shrink-0 text-primary" size={24} aria-hidden />
           {preview.loading
             ? t("Loading titles…")
-            : tn(
-                preview.data?.total ?? 0,
-                "{count} title in your catalog",
-                "{count} titles in your catalog",
-              )}
+            : libraryId
+              ? tn(
+                  preview.data?.total ?? 0,
+                  "{count} title in this library",
+                  "{count} titles in this library",
+                )
+              : tn(
+                  preview.data?.total ?? 0,
+                  "{count} title in your catalog",
+                  "{count} titles in your catalog",
+                )}
         </div>
         <div className="ml-6 border-l-2 border-border pl-5 space-y-4">
           <ArrowDown className="text-fg-muted" size={20} aria-hidden />
@@ -226,13 +246,23 @@ export function RulesPanel({
                     className="col-span-5 min-w-0 flex-1 text-left"
                     onClick={() => setOpen(i)}
                   >
-                    <span className="block text-sm font-medium sm:truncate">{ruleLabel(rule)}</span>
+                    <span className="block text-sm font-medium sm:truncate">
+                      {ruleLabel(rule, mediaType)}
+                    </span>
                   </button>
                   {counts ? (
                     <span className="shrink-0 text-xs text-fg-muted">
-                      {tn(counts.movies, "{count} movie", "{count} movies")}
-                      {" · "}
-                      {tn(counts.shows, "{count} show", "{count} shows")}
+                      {mediaType === "movie" ? (
+                        tn(counts.movies, "{count} movie", "{count} movies")
+                      ) : mediaType === "show" ? (
+                        tn(counts.shows, "{count} show", "{count} shows")
+                      ) : (
+                        <>
+                          {tn(counts.movies, "{count} movie", "{count} movies")}
+                          {" · "}
+                          {tn(counts.shows, "{count} show", "{count} shows")}
+                        </>
+                      )}
                     </span>
                   ) : null}
                   <Button
@@ -299,7 +329,7 @@ export function RulesPanel({
                 {
                   name: "",
                   action: "hide",
-                  mediaType: "mixed",
+                  mediaType: mediaType ?? "mixed",
                   match: "all",
                   rules: [blank()],
                 },
@@ -346,10 +376,18 @@ export function RulesPanel({
               </p>
               {(preview.data?.hidden ?? 0) > 0 ? (
                 <p className="mt-2 text-xs text-fg-muted">
-                  {t("Hidden: {movies} · {shows}", {
-                    movies: tn(preview.data?.movies ?? 0, "{count} movie", "{count} movies"),
-                    shows: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
-                  })}
+                  {mediaType === "movie"
+                    ? t("Hidden: {count}", {
+                        count: tn(preview.data?.movies ?? 0, "{count} movie", "{count} movies"),
+                      })
+                    : mediaType === "show"
+                      ? t("Hidden: {count}", {
+                          count: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
+                        })
+                      : t("Hidden: {movies} · {shows}", {
+                          movies: tn(preview.data?.movies ?? 0, "{count} movie", "{count} movies"),
+                          shows: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
+                        })}
                 </p>
               ) : null}
             </>
@@ -388,13 +426,16 @@ export function RulesPanel({
             setParams={setBrowseParams}
             refreshHealth={async () => {}}
             ruleFilter={ruleFilter}
+            libraryScope={
+              libraryId ? { id: libraryId, type: mediaType ?? "", filter: libraryFilter } : undefined
+            }
           />
         ) : null}
       </Drawer>
       <Drawer
         open={editing != null}
         onClose={() => setOpen(null)}
-        title={editing ? editing.name.trim() || ruleLabel(editing) : t("Rule")}
+        title={editing ? editing.name.trim() || ruleLabel(editing, mediaType) : t("Rule")}
         size="lg"
       >
         {editing && open != null ? (
@@ -417,16 +458,18 @@ export function RulesPanel({
                   { value: "hide", label: t("Hide") },
                 ]}
               />
-              <Segmented
-                ariaLabel={t("Rule media")}
-                value={editing.mediaType}
-                onChange={(v) => update(open, { mediaType: v })}
-                options={[
-                  { value: "mixed", label: t("Movies + TV") },
-                  { value: "movie", label: t("Movies") },
-                  { value: "show", label: t("TV") },
-                ]}
-              />
+              {!mediaType ? (
+                <Segmented
+                  ariaLabel={t("Rule media")}
+                  value={editing.mediaType}
+                  onChange={(v) => update(open, { mediaType: v })}
+                  options={[
+                    { value: "mixed", label: t("Movies + TV") },
+                    { value: "movie", label: t("Movies") },
+                    { value: "show", label: t("TV") },
+                  ]}
+                />
+              ) : null}
               <Segmented
                 ariaLabel={t("Rule match")}
                 value={editing.match}
@@ -474,7 +517,7 @@ export function RulesPanel({
                 rule={rule}
                 index={j}
                 kind="include"
-                mediaType={editing.mediaType}
+                mediaType={mediaType ?? editing.mediaType}
                 region={region}
                 allowedFields={FIELDS}
                 metaFor={metaFor}

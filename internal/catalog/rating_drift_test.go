@@ -24,7 +24,7 @@ func TestRatingDriftKeepsThresholdsExact(t *testing.T) {
 	on := time.Unix((day+ratingReconcileDays*3001)*86400+3600, 0).UTC()
 	now := off
 	rule := core.LibraryExclusion{MediaType: "mixed", Match: "all", Rules: []core.CollectionRule{{Field: "rating", Op: "gte", Value: []byte(`7.5`)}}}
-	c, err := New(db, nil, config.Catalog{MinVotes: 100, Exclusions: []core.LibraryExclusion{rule}}, nil, WithNow(func() time.Time { return now }))
+	c, err := New(db, nil, config.Catalog{MinVotes: 100}, nil, WithNow(func() time.Time { return now }), WithLibraryPolicies(testPolicies([]core.LibraryExclusion{rule}, "")))
 	if err != nil {
 		t.Fatal(err)
 	}

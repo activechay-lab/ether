@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/libraryfilter"
 )
 
 // List returns every library in owner order: sort, then id (§1.3).
@@ -83,10 +84,33 @@ func (s *Service) cached(ctx context.Context) ([]core.Library, error) {
 	return libs, nil
 }
 
+func cloneRule(r core.LibraryExclusion) core.LibraryExclusion {
+	if len(r.Rules) > 0 {
+		conds := make([]core.CollectionRule, len(r.Rules))
+		for i, c := range r.Rules {
+			if len(c.Value) > 0 {
+				v := make(json.RawMessage, len(c.Value))
+				copy(v, c.Value)
+				c.Value = v
+			}
+			conds[i] = c
+		}
+		r.Rules = conds
+	}
+	return r
+}
+
 func cloneLibrary(lib core.Library) core.Library {
 	if lib.Filter != nil {
 		f := *lib.Filter
 		lib.Filter = &f
+	}
+	if len(lib.Rules) > 0 {
+		rules := make([]core.LibraryExclusion, len(lib.Rules))
+		for i, r := range lib.Rules {
+			rules[i] = cloneRule(r)
+		}
+		lib.Rules = rules
 	}
 	return lib
 }
@@ -241,6 +265,61 @@ func (s *Service) SetPresent(ctx context.Context, id core.LibraryID, p core.Pres
 		return err
 	}
 	return s.setColumn(ctx, id, "present", string(b))
+}
+
+// SetRules validates and stores TMDB visibility rules and default visibility
+// on a built-in or filter library. Rules on a single-type library are pinned
+// to that library's media type.
+func (s *Service) SetRules(ctx context.Context, id core.LibraryID, rules []core.LibraryExclusion, visibilityDefault string) error {
+	lib, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if lib.Source == core.LibraryPlugin {
+		return fmt.Errorf("%w: plugin libraries do not have TMDB visibility rules", ErrInvalid)
+	}
+	pinnedType := ""
+	switch {
+	case lib.ID == core.LibraryMovies || lib.MediaType == core.TypeMovie || (lib.Filter != nil && lib.Filter.Type == core.TypeMovie):
+		pinnedType = string(core.TypeMovie)
+	case lib.ID == core.LibraryShows || lib.MediaType == core.TypeShow || (lib.Filter != nil && lib.Filter.Type == core.TypeShow):
+		pinnedType = string(core.TypeShow)
+	}
+	normalized := make([]core.LibraryExclusion, len(rules))
+	for i, r := range rules {
+		cp := cloneRule(r)
+		if pinnedType != "" {
+			cp.MediaType = pinnedType
+		} else if cp.MediaType == "" {
+			cp.MediaType = "mixed"
+		}
+		normalized[i] = cp
+	}
+	if _, err := libraryfilter.CompilePolicy(normalized, visibilityDefault); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalid, err.Error())
+	}
+	vis := ""
+	if visibilityDefault == "hide" {
+		vis = "hide"
+	}
+	rulesJSON := "[]"
+	if len(normalized) > 0 {
+		b, err := json.Marshal(normalized)
+		if err != nil {
+			return err
+		}
+		rulesJSON = string(b)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE libraries SET rules = ?, visibility_default = ?, updated_at = ? WHERE id = ?`,
+		rulesJSON, vis, s.now().Unix(), int64(id))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return core.ErrNotFound
+	}
+	s.gen.Add(1)
+	return nil
 }
 
 // Delete removes a filter or plugin library. Built-ins are refused:

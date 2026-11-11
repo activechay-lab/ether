@@ -32,7 +32,7 @@ func (a *App) supportDeps() diagnostics.Deps {
 		InstallType:  supportInstallType(container),
 		Uptime:       func() time.Duration { return time.Since(started) },
 		Secrets:      func() []string { return supportSecrets(a.cfg.Get()) },
-		Settings:     func() (diagnostics.Settings, error) { return supportSettings(a.cfg.Get()), nil },
+		Settings:     func() (diagnostics.Settings, error) { return a.supportSettings(a.cfg.Get()), nil },
 		Sessions:     a.supportSessions,
 		Hardware:     a.supportHardware,
 		Storage:      a.supportStorage,
@@ -50,7 +50,7 @@ func supportSecrets(cfg config.Config) []string {
 	return out
 }
 
-func supportSettings(cfg config.Config) diagnostics.Settings {
+func (a *App) supportSettings(cfg config.Config) diagnostics.Settings {
 	name, height, hdr := profileFacts(cfg, cfg.Quality.Default)
 	out := diagnostics.Settings{
 		LogLevel:              cfg.Server.LogLevel,
@@ -70,9 +70,14 @@ func supportSettings(cfg config.Config) diagnostics.Settings {
 		ReleaseMode:           cfg.Availability.EffectiveMode(),
 		ShowUpcomingEpisodes:  cfg.Catalog.ShowUpcomingEpisodes,
 		ShowUpcomingMovies:    cfg.Catalog.ShowUpcomingMovies,
-		VisibilityDefault:     cfg.Catalog.VisibilityDefault,
+		VisibilityDefault:     "show",
 	}
-	for _, r := range cfg.Catalog.Exclusions {
+	pol := a.loadLibraryPolicies(context.Background())
+	if pol.MovieDefault == "hide" && pol.ShowDefault == "hide" {
+		out.VisibilityDefault = "hide"
+	}
+	allRules := append(append([]core.LibraryExclusion{}, pol.MovieRules...), pol.ShowRules...)
+	for _, r := range allRules {
 		if len(out.CatalogRules) >= 100 {
 			out.CatalogRulesTruncated = true
 			break

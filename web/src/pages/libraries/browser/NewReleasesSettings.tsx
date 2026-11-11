@@ -10,9 +10,10 @@ import { api, apiFetch } from "../../../lib/api";
 import { formatNumber, relativeTime } from "../../../lib/format";
 import { useAsync, useInterval } from "../../../lib/hooks";
 import {
-  applyReleaseMode,
+  applyReleaseModeFor,
   customRequestCeiling,
-  releaseMode,
+  releaseModeFor,
+  type ReleaseMediaType,
   type ReleaseMode,
 } from "../../../lib/release-mode";
 import type { AvailabilityConfig } from "../../../lib/types";
@@ -23,12 +24,14 @@ interface Summary {
   lastChecked?: number;
 }
 
-const MODES: {
+interface ModeOption {
   value: ReleaseMode;
   recommended?: boolean;
   title: () => string;
   body: () => string;
-}[] = [
+}
+
+const MOVIE_MODES: ModeOption[] = [
   {
     value: "playable",
     recommended: true,
@@ -48,6 +51,23 @@ const MODES: {
     value: "immediate",
     title: () => t("Right away"),
     body: () => t("Every new movie shows immediately, even if it's only in theatres."),
+  },
+];
+
+const SHOW_MODES: ModeOption[] = [
+  {
+    value: "playable",
+    recommended: true,
+    title: () => t("When they can play"),
+    body: () =>
+      t(
+        "A new episode or show appears once Ether finds a release you can play with your quality settings. Ether checks for you automatically.",
+      ),
+  },
+  {
+    value: "immediate",
+    title: () => t("Right away"),
+    body: () => t("Every new episode or show appears as soon as its air date arrives."),
   },
 ];
 
@@ -103,22 +123,33 @@ function HomeReleaseOffsetRow({
   );
 }
 
-/** The three release modes share one availability setting. */
+/** Per-library release mode: movies have three modes; TV shows have two. */
 export function NewReleasesSettings({
   availability,
   onAvailability,
+  mediaType = "movie",
 }: {
   availability: AvailabilityConfig;
   onAvailability: (next: AvailabilityConfig) => void;
+  mediaType?: ReleaseMediaType;
 }) {
-  const summary = useAsync((signal) => apiFetch<Summary>("/availability/summary", { signal }), []);
-  useInterval(() => void summary.reload(), 30000);
-  const mode = releaseMode(availability);
+  const summary = useAsync(
+    (signal) =>
+      mediaType === "movie"
+        ? apiFetch<Summary>("/availability/summary", { signal })
+        : Promise.resolve(null),
+    [mediaType],
+  );
+  useInterval(() => {
+    if (mediaType === "movie") void summary.reload();
+  }, 30000);
+  const mode = releaseModeFor(availability, mediaType);
+  const modes = mediaType === "show" ? SHOW_MODES : MOVIE_MODES;
 
   return (
     <SettingsSection title={t("New releases")}>
       <div className="new-release-modes" role="radiogroup" aria-label={t("New releases")}>
-        {MODES.map((item) => {
+        {modes.map((item) => {
           const selected = mode === item.value;
           const Icon =
             item.value === "playable" ? Play : item.value === "digital" ? CalendarDays : Zap;
@@ -130,7 +161,7 @@ export function NewReleasesSettings({
                 aria-checked={selected}
                 className={`new-release-card${selected ? " is-selected" : ""}`}
                 onClick={() => {
-                  onAvailability(applyReleaseMode(availability, item.value));
+                  onAvailability(applyReleaseModeFor(availability, mediaType, item.value));
                 }}
               >
                 <Icon className="new-release-card-icon" aria-hidden="true" />
@@ -160,10 +191,10 @@ export function NewReleasesSettings({
           );
         })}
       </div>
-      {mode === "digital" ? (
+      {mediaType === "movie" && mode === "digital" ? (
         <HomeReleaseOffsetRow availability={availability} onChange={onAvailability} />
       ) : null}
-      {mode === "playable" && summary.data ? (
+      {mediaType === "movie" && mode === "playable" && summary.data ? (
         <p className="new-release-status">
           {tx("{ready} ready · {waiting} · checked {when}", {
             ready: formatNumber(summary.data.ready),

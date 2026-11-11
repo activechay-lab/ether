@@ -589,15 +589,6 @@ function Shell() {
                 })}
               <Route path="/catalog" element={<CatalogRedirect />} />
               <Route
-                path="/catalog/settings"
-                element={<Navigate to="/libraries/settings" replace />}
-              />
-              <Route
-                path="/catalog/rules"
-                element={<Navigate to="/libraries/settings/rules" replace />}
-              />
-              <Route path="/catalog/*" element={<Navigate to="/libraries" replace />} />
-              <Route
                 path="*"
                 element={
                   registryLoading ? (

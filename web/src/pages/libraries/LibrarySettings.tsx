@@ -1,17 +1,34 @@
-import { Button, SettingsSection, Switch, toast } from "@braedonsaunders/appkit-ui";
-import { RefreshCw, Wand2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Button, SettingsSection, Spinner, Switch, toast } from "@braedonsaunders/appkit-ui";
+import { AlertTriangle, CheckCircle2, RefreshCw, Wand2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useApp } from "../../app-context";
+import { MoreOptions } from "../../components/ConfigSection";
+import { ErrorPanel } from "../../components/feedback";
+import { Segmented } from "../../components/fields";
+import { SaveBar, useDraft } from "../../components/SaveBar";
 import { SettingsRow } from "../../components/SettingsRow";
+import { LevelBadge } from "../../components/status";
 import { ToolbarPicker } from "../../components/ToolbarPicker";
-import { t } from "../../i18n";
-import { errorMessage } from "../../lib/api";
-import { formatDateTime } from "../../lib/format";
+import { t, tn } from "../../i18n";
+import { api, ApiError, apiFetch, errorMessage } from "../../lib/api";
+import { formatDateTime, relativeTime } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
+import type { ReleaseMediaType } from "../../lib/release-mode";
+import { isRuleComplete } from "../../lib/rules";
+import { CATALOG } from "../settings/schema";
+import { asObj, SchemaField, type FieldGroup } from "../settings/SchemaForm";
 import { librariesApi, type Library, type Presentations } from "./api";
+import { CatalogPickers, isCatalogPicker } from "./browser/CatalogPickers";
+import { CatalogActivity, UpcomingEpisodeSettings } from "./browser/HomeReleaseSettings";
 import { NewReleasesSettings, useAvailabilityDraft } from "./browser/NewReleasesSettings";
+import { TierMigrationStatus } from "./browser/TierMigrationStatus";
+import { TrendingStatus } from "./browser/TrendingStatus";
 import { LibraryCacheCard } from "./LibraryCache";
 import { SetupWizard } from "./SetupWizard";
+import "./browser/catalog.css";
+
+type Obj = Record<string, unknown>;
 
 const PLEX_BASES = ["movie", "show", "artist", "photo"];
 const MB_TYPES = ["movies", "tvshows", "music", "audiobooks", "books", "photos", "homevideos"];
@@ -24,6 +41,65 @@ function defaultPlexBase(lib: Library): string {
 }
 function defaultMBType(lib: Library): string {
   return defaultPlexBase(lib) === "show" ? "tvshows" : "movies";
+}
+
+function briefGroup(g: FieldGroup): FieldGroup {
+  return {
+    ...g,
+    description: undefined,
+    fields: g.fields.map((f) =>
+      "help" in f && typeof f.help === "string" && f.help.length > 90
+        ? { ...f, help: undefined }
+        : f,
+    ),
+  };
+}
+
+/** Off / Some / Most for catalog.minPopularity + catalog.minVotes. Some is the default. */
+const OBSCURE_PRESETS = {
+  off: { minPopularity: 0, minVotes: 0 },
+  some: { minPopularity: 5, minVotes: 100 },
+  most: { minPopularity: 15, minVotes: 500 },
+} as const;
+type ObscurePreset = keyof typeof OBSCURE_PRESETS;
+
+function obscurePreset(draft: Obj): ObscurePreset | "custom" {
+  const pop = Number(draft.minPopularity ?? 0);
+  const votes = Number(draft.minVotes ?? 0);
+  for (const [key, v] of Object.entries(OBSCURE_PRESETS))
+    if (v.minPopularity === pop && v.minVotes === votes) return key as ObscurePreset;
+  return "custom";
+}
+
+function ObscureTitles({ draft, onChange }: { draft: Obj; onChange: (next: Obj) => void }) {
+  const preset = obscurePreset(draft);
+  return (
+    <SettingsRow
+      setting="hide-obscure-titles"
+      title={t("Hide obscure titles")}
+      description={
+        preset === "custom"
+          ? t("Custom limits are set under More options.")
+          : preset === "off"
+            ? t(
+                "Browse lists every title with a real audience. Everything else is still found by search.",
+              )
+            : t("Hidden titles are still found by search.")
+      }
+      control={
+        <Segmented
+          ariaLabel={t("Hide obscure titles")}
+          value={preset === "custom" ? "" : preset}
+          onChange={(v) => onChange({ ...draft, ...OBSCURE_PRESETS[v as ObscurePreset] })}
+          options={[
+            { value: "off", label: t("Off") },
+            { value: "some", label: t("Some") },
+            { value: "most", label: t("Most") },
+          ]}
+        />
+      }
+    />
+  );
 }
 
 /** "Show in apps", per protocol (spec §6.2, §15.3). Builtins are synthesised. */
@@ -175,17 +251,196 @@ function FilterSummary({ library }: { library: Library }) {
   );
 }
 
-function ReleaseSection() {
+function ReleaseSection({ mediaType }: { mediaType: ReleaseMediaType }) {
   const availability = useAvailabilityDraft();
   if (!availability.draft) return null;
   return (
     <>
       <NewReleasesSettings
+        mediaType={mediaType}
         availability={availability.draft}
         onAvailability={availability.setDraft}
       />
       {availability.saveBar}
     </>
+  );
+}
+
+/** Shared TMDB catalog thresholds, language/region, and sync health on every TMDB library. */
+function TmdbSourceSection({ library }: { library: Library }) {
+  const { health, dashboard, refreshDashboard } = useApp();
+  const catalogStatus = asObj(dashboard?.sections.catalog);
+  const titleCount =
+    Number(catalogStatus.browsableMovies ?? catalogStatus.movies ?? 0) +
+    Number(catalogStatus.browsableShows ?? catalogStatus.shows ?? 0);
+  const catalogHealth = health.find((h) => h.id === "catalog");
+  const config = useAsync(() => api.getConfig(), []);
+  const stored = config.data ? asObj(config.data.catalog) : null;
+  const { draft, setDraft, dirty, reset } = useDraft<Obj>(stored);
+  const [error, setError] = useState<unknown>(null);
+  const [saving, setSaving] = useState(false);
+
+  const rules = useMemo(() => library.rules ?? [], [library.rules]);
+  const fallback = library.visibilityDefault === "hide" ? "hide" : "show";
+  const rulesReady = rules.every((g) => g.rules.length > 0 && g.rules.every(isRuleComplete));
+  const visibility = useAsync(
+    async (signal) => {
+      if (!rulesReady) return null;
+      return apiFetch<{ total: number; visible: number; hidden: number }>(
+        "/catalog/visibility/preview",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            libraryId: library.id,
+            exclusions: rules,
+            visibilityDefault: fallback,
+          }),
+          signal,
+        },
+      );
+    },
+    [library.id, rules, fallback, rulesReady],
+  );
+
+  const save = useCallback(async () => {
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.putSection("catalog", draft);
+      toast.success(t("Settings saved"));
+      await config.reload();
+      void refreshDashboard();
+    } catch (e) {
+      setError(e);
+      if (!(e instanceof ApiError)) toast.error(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [config, draft, refreshDashboard]);
+
+  const groups = [...CATALOG, UpcomingEpisodeSettings].map(briefGroup);
+
+  return (
+    <section className="space-y-4 pt-3" aria-label={t("Source: TMDB")}>
+      <div>
+        <h2 className="text-base font-semibold text-fg">{t("Source: TMDB")}</h2>
+        <p className="text-sm text-fg-muted">
+          {t("These settings apply to every library that uses TMDB.")}
+        </p>
+      </div>
+      {config.error ? (
+        <ErrorPanel error={config.error} onRetry={() => void config.reload()} />
+      ) : null}
+      {!draft ? (
+        <div className="py-10 text-center">
+          <Spinner size={20} label={t("Loading settings")} />
+        </div>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="space-y-5">
+            {groups.map((g, i) => (
+              <SettingsSection key={g.id ?? i} title={g.title}>
+                {g.id === "browsable" ? (
+                  <ObscureTitles draft={draft} onChange={setDraft} />
+                ) : null}
+                {g.fields.map((f, j) =>
+                  f.kind === "group" || isCatalogPicker(f.key) ? null : (
+                    <SchemaField
+                      key={`${f.key}-${j}`}
+                      def={f}
+                      value={draft[f.key]}
+                      path={`catalog.${f.key}`}
+                      errors={{}}
+                      onChange={(v) => setDraft({ ...draft, [f.key]: v })}
+                    />
+                  ),
+                )}
+                {g.fields.some((f) => isCatalogPicker(f.key)) ? (
+                  <CatalogPickers
+                    language={draft.language}
+                    region={draft.region}
+                    refreshInterval={draft.refreshInterval}
+                    onChange={(key, value) => setDraft({ ...draft, [key]: value })}
+                  />
+                ) : null}
+                {g.more?.length ? (
+                  <MoreOptions
+                    setting={g.id}
+                    label={t("More options: {title}", { title: g.title ?? "" })}
+                  >
+                    {g.more.map((f, j) => (
+                      <SchemaField
+                        key={`more-${f.key}-${j}`}
+                        def={f}
+                        value={draft[f.key]}
+                        path={`catalog.${f.key}`}
+                        errors={{}}
+                        onChange={(v) => setDraft({ ...draft, [f.key]: v })}
+                      />
+                    ))}
+                  </MoreOptions>
+                ) : null}
+              </SettingsSection>
+            ))}
+          </div>
+          <aside className="space-y-5">
+            {catalogHealth ? (
+              <section
+                className="rounded-xl border border-border bg-surface p-5"
+                aria-label={t("Your catalog")}
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  {catalogHealth.level === "ok" ? (
+                    <CheckCircle2 size={36} className="text-success" />
+                  ) : (
+                    <AlertTriangle size={36} className="text-warning" />
+                  )}
+                  <h3 className="text-lg font-semibold">{t("Your catalog")}</h3>
+                </div>
+                <p className="text-xs text-fg-muted">{t("Catalog size before rules")}</p>
+                <p className="mt-1 text-3xl font-semibold tabular-nums">
+                  {tn(visibility.data?.total ?? titleCount, "{count} title", "{count} titles")}
+                </p>
+                <p className="mt-2 text-sm">
+                  {visibility.data
+                    ? tn(
+                        visibility.data.visible ?? visibility.data.total - visibility.data.hidden,
+                        "{count} shown after your rules",
+                        "{count} shown after your rules",
+                      )
+                    : t("Checking your rules…")}
+                </p>
+                <p className="mt-2 text-sm text-fg-muted">
+                  {catalogStatus.lastSync
+                    ? t("Synced {when}", { when: relativeTime(String(catalogStatus.lastSync)) })
+                    : t("Not synced yet")}
+                </p>
+                <div className="mt-4">
+                  <LevelBadge level={catalogHealth.level} />
+                </div>
+                {catalogHealth.level === "warn" ? (
+                  <p className="mt-3 break-words text-sm text-warning">{catalogHealth.summary}</p>
+                ) : null}
+              </section>
+            ) : null}
+            <TierMigrationStatus />
+            <CatalogActivity />
+            <TrendingStatus />
+          </aside>
+        </div>
+      )}
+      <SaveBar
+        dirty={dirty}
+        saving={saving}
+        error={error}
+        onSave={() => void save()}
+        onDiscard={() => {
+          reset();
+          setError(null);
+        }}
+      />
+    </section>
   );
 }
 
@@ -232,9 +487,11 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
   };
 
   const blockers = setup.data?.blockers ?? [];
+  const canonicalMediaType: ReleaseMediaType =
+    defaultPlexBase(library) === "show" ? "show" : "movie";
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-4">
       {library.source === "plugin" && blockers.length ? (
         <p role="alert" className="library-setup-banner">
           {t("This library is waiting for setup. Finish it and the library can appear in apps.")}{" "}
@@ -299,10 +556,6 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
               <Link to="/metadata" className="text-primary underline">
                 {t("Metadata settings")}
               </Link>
-              {" · "}
-              <Link to="/libraries/settings" className="text-primary underline">
-                {t("Catalog-wide settings")}
-              </Link>
             </p>
           </div>
         </SettingsSection>
@@ -312,7 +565,12 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
 
       {library.source === "filter" ? <FilterSummary library={library} /> : null}
 
-      {library.source !== "plugin" ? <ReleaseSection /> : null}
+      {library.source !== "plugin" ? (
+        <>
+          <ReleaseSection mediaType={canonicalMediaType} />
+          <TmdbSourceSection library={library} />
+        </>
+      ) : null}
 
       {library.source === "plugin" ? (
         <>

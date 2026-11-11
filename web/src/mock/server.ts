@@ -2580,10 +2580,32 @@ export function createFakeServer(opts: FakeOptions = {}) {
     },
   ];
   const mockMatches: Record<string, unknown>[] = [];
+  function hydrateLib(lib: Record<string, unknown>) {
+    if (lib.source !== "plugin" && lib.rules === undefined) {
+      const cat = state.config.catalog as { exclusions?: unknown[]; visibilityDefault?: string };
+      lib.rules = structuredClone(cat.exclusions ?? []);
+      lib.visibilityDefault = cat.visibilityDefault ?? "show";
+    }
+    return lib;
+  }
   function mockLibraries(method: string, seg: string[], url: URL, body: unknown): Response {
     const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
     if (seg[0] === "plugins-setup") {
-      if (method === "GET")
+      if (!seg[1] && method === "GET") {
+        const demoLibs = mockLibs.filter((l) => l.pluginId === "demo");
+        return json({
+          plugins: [
+            {
+              pluginId: "demo",
+              pluginName: "Demo books",
+              summary: "EPUB and audiobook library",
+              kinds: demoLibs.map((l) => l.kind).filter(Boolean),
+              libraries: demoLibs,
+            },
+          ],
+        });
+      }
+      if (method === "GET" || (method === "POST" && seg[2] === "ensure"))
         return json({
           pluginId: seg[1],
           pluginName: "Demo books",
@@ -2591,7 +2613,10 @@ export function createFakeServer(opts: FakeOptions = {}) {
           blockers: [],
           settings: {},
           schema: {},
-          kinds: [],
+          kinds: mockLibs
+            .filter((l) => l.pluginId === seg[1])
+            .map((l) => l.kind)
+            .filter(Boolean),
           libraries: mockLibs.filter((l) => l.pluginId === seg[1]),
         });
       if (seg[2] === "settings") return json({ fieldErrors: null });
@@ -2606,6 +2631,8 @@ export function createFakeServer(opts: FakeOptions = {}) {
           name: String(b.name ?? "Library"),
           source: "filter",
           filter: b.filter,
+          rules: Array.isArray(b.rules) ? b.rules : [],
+          visibilityDefault: String(b.visibilityDefault ?? "show"),
           present: b.present ?? {},
           sort: id,
           hidden: false,
@@ -2615,10 +2642,13 @@ export function createFakeServer(opts: FakeOptions = {}) {
         mockLibs.push(lib);
         return json(lib, 201);
       }
-      return json({ libraries: [...mockLibs].sort((a, z) => Number(a.sort) - Number(z.sort)) });
+      return json({
+        libraries: [...mockLibs].map(hydrateLib).sort((a, z) => Number(a.sort) - Number(z.sort)),
+      });
     }
     const lib = mockLibs.find((l) => l.id === Number(seg[1]));
     if (!lib) return err(404, "not_found", "Library not found");
+    hydrateLib(lib);
     if (!seg[2]) {
       if (method === "PATCH") {
         Object.assign(lib, b);
@@ -3847,27 +3877,36 @@ export function createFakeServer(opts: FakeOptions = {}) {
       case "GET /collections/template-bundles":
         return json({ bundles: TEMPLATE_BUNDLES });
       case "POST /catalog/visibility/preview": {
+        const reqLibId = Number((body as { libraryId?: number }).libraryId ?? 0);
+        const reqLib = reqLibId ? mockLibs.find((l) => l.id === reqLibId) : undefined;
+        const reqType = reqLib
+          ? String(
+              reqLib.mediaType ??
+                ((reqLib.filter as { type?: string } | undefined)?.type || ""),
+            )
+          : "";
+        const scopedCatalog = reqType ? catalog.filter((t) => t.type === reqType) : catalog;
         const groups =
           (body as { exclusions: { mediaType: string; match: string; rules: Rule[] }[] })
             .exclusions ?? [];
         const hits = (g: (typeof groups)[number]) =>
-          catalog.filter(
+          scopedCatalog.filter(
             (t) =>
               (g.mediaType === "mixed" || g.mediaType === t.type) &&
               (g.match === "any"
                 ? g.rules.some((r) => fieldValues(t, r.field).length > 0 && matches(t, r))
                 : g.rules.every((r) => fieldValues(t, r.field).length > 0 && matches(t, r))),
           );
-        const items = catalog.filter((t) =>
+        const items = scopedCatalog.filter((t) =>
           hiddenByRules(
             t,
             groups,
             String((body as { visibilityDefault?: string }).visibilityDefault ?? "show"),
           ),
         );
-        const shown = catalog.filter((t) => !items.includes(t));
+        const shown = scopedCatalog.filter((t) => !items.includes(t));
         return json({
-          total: catalog.length,
+          total: scopedCatalog.length,
           hidden: items.length,
           visible: shown.length,
           movies: items.filter((t) => t.type === "movie").length,
@@ -3879,7 +3918,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
               shows: hit.filter((t) => t.type === "show").length,
             };
           }),
-          unknownCountry: catalog.filter((t) => !fieldValues(t, "country").length).length,
+          unknownCountry: scopedCatalog.filter((t) => !fieldValues(t, "country").length).length,
           items: items.slice(0, 48).map(card),
           shown: shown.slice(0, 48).map(card),
         });

@@ -227,7 +227,7 @@ func TestAvailabilityCatalogFirstCharacterMatchesBrowse(t *testing.T) {
 			}},
 		}
 		labCfg.Usenet.Providers = []config.UsenetProvider{{Host: "fake", Enabled: true}}
-		labCat, err := catalog.New(roDB, nil, labCfg.Catalog, slog.New(slog.DiscardHandler))
+		labCat, err := catalog.New(roDB, nil, labCfg.Catalog, slog.New(slog.DiscardHandler), catalog.WithLibraryPolicies(catalog.LibraryPolicies{MovieRules: labCfg.Catalog.Exclusions}))
 		if err != nil {
 			t.Fatal(err)
 		}

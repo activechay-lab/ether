@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
@@ -78,8 +79,12 @@ func TestCachedCreditTitlesUsesOwnedConfigAndTime(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("open snapshot %+v %v", rows, err)
 	}
-	cfg := config.Catalog{Exclusions: []core.LibraryExclusion{{Name: "Blocked genre", MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "genre", Op: "is", Value: json.RawMessage(`"Thriller"`)}}}}}
+	cfg := config.Catalog{}
+	if err := c.SetLibraryPolicies(catalog.LibraryPolicies{MovieRules: []core.LibraryExclusion{{Name: "Blocked genre", MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "genre", Op: "is", Value: json.RawMessage(`"Thriller"`)}}}}}); err != nil {
+		t.Fatal(err)
+	}
 	rows, err = c.CachedCreditTitles(ctx, keys, cfg, now)
+	_ = c.SetLibraryPolicies(catalog.LibraryPolicies{})
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("leased exclusion ignored %+v %v", rows, err)
 	}

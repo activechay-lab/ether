@@ -77,7 +77,27 @@ func ratingCatalog(t *testing.T, srv *httptest.Server, cfg config.Catalog) (*cat
 	client := tmdb.New("testkey", slog.Default(), tmdb.WithBaseURL(srv.URL), tmdb.WithCacheTTL(0))
 	t.Cleanup(client.Close)
 	cfg.Language, cfg.MinPopularity, cfg.MinVotes, cfg.RefreshInterval = "en-US", 1, 1, config.Duration(24*time.Hour)
-	c, err := catalog.New(db, client, cfg, slog.Default())
+	var opts []catalog.Option
+	if len(cfg.Exclusions) > 0 || cfg.VisibilityDefault != "" {
+		var mr, sr []core.LibraryExclusion
+		for _, r := range cfg.Exclusions {
+			mc := r
+			mc.MediaType = "movie"
+			sc := r
+			sc.MediaType = "show"
+			switch r.MediaType {
+			case "movie":
+				mr = append(mr, mc)
+			case "show":
+				sr = append(sr, sc)
+			default:
+				mr = append(mr, mc)
+				sr = append(sr, sc)
+			}
+		}
+		opts = append(opts, catalog.WithLibraryPolicies(catalog.LibraryPolicies{MovieRules: mr, MovieDefault: cfg.VisibilityDefault, ShowRules: sr, ShowDefault: cfg.VisibilityDefault}))
+	}
+	c, err := catalog.New(db, client, cfg, slog.Default(), opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

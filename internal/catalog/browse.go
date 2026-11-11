@@ -60,7 +60,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(c.policyKeyFilter(q.Filter)) + fmt.Sprintf("|rules:%s:%#v:%s", q.Filter.RuleVisibility, q.Filter.PreviewRules, q.Filter.PreviewFallback)
+	ckey := c.consoleAvailabilityCacheKey(q.Filter) + "|" + browseFilterKey(c.policyKeyFilter(q.Filter)) + fmt.Sprintf("|rules:%s:%v:%#v:%s|extra:%#v:%s", q.Filter.RuleVisibility, q.Filter.ApplyCanonicalInPreview, q.Filter.PreviewRules, q.Filter.PreviewFallback, q.Filter.ExtraRules, q.Filter.ExtraFallback)
 	bkey := fmt.Sprintf("after:%d|", q.AfterKey) + fmt.Sprintf("%s|%s|%v|%v|%d|%d|%v", ckey, q.Sort, q.Desc, q.SecondarySorts, offset, limit, q.NoTotal)
 	cacheable := !groupHasState(q.Filter.Group)
 	// An export page holds partial titles (ListRows) and is read once per
@@ -629,16 +629,25 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		args = append(args, nowTS)
 	}
 	if f.RuleVisibility != "" {
-		policy, err := libraryfilter.CompilePolicy(f.PreviewRules, f.PreviewFallback)
-		if err != nil {
-			return "", nil, err
+		if f.ApplyCanonicalInPreview {
+			if policy := c.viewerFilter(f.CatalogViewerID, false); policy != nil {
+				clause, a := c.policySQLHidden(f.CatalogViewerID, policy)
+				conds = append(conds, clause)
+				args = append(args, a...)
+			}
 		}
-		clause, values := policy.SQLHidden()
-		if f.RuleVisibility == "shown" {
-			clause = "NOT (" + clause + ")"
+		if f.RuleVisibility != "all" {
+			policy, err := libraryfilter.CompilePolicy(f.PreviewRules, f.PreviewFallback)
+			if err != nil {
+				return "", nil, err
+			}
+			clause, values := policy.SQLHidden()
+			if f.RuleVisibility == "shown" {
+				clause = "NOT (" + clause + ")"
+			}
+			conds = append(conds, "("+clause+")")
+			args = append(args, values...)
 		}
-		conds = append(conds, "("+clause+")")
-		args = append(args, values...)
 	} else if policy := c.viewerFilter(f.CatalogViewerID, false); !f.CatalogCandidates && policy != nil {
 		clause, a := c.policySQLHidden(f.CatalogViewerID, policy)
 		conds = append(conds, clause)
@@ -649,6 +658,17 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 			if u := policy.SQLUndecidable(); u != "0=1" {
 				conds = append(conds, "NOT (t.detail=0 AND "+u+")")
 			}
+		}
+	}
+	if len(f.ExtraRules) > 0 || f.ExtraFallback != "" {
+		extra, err := libraryfilter.CompilePolicy(f.ExtraRules, f.ExtraFallback)
+		if err != nil {
+			return "", nil, err
+		}
+		if !extra.Passive() {
+			clause, values := extra.SQLHidden()
+			conds = append(conds, "NOT ("+clause+")")
+			args = append(args, values...)
 		}
 	}
 	// Rule browsing gates like everything else: its totals must match the
