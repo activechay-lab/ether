@@ -29,7 +29,7 @@ cleanup() {
  ssh -o BatchMode=yes "$host" bash -s -- "$remote" <<'CLEAN'
 set -euo pipefail
 root=$1
-docker run --rm --network none -v "$root":/cleanup prism-go:1.27.3 chown -R "$(id -u):$(id -g)" /cleanup
+docker run --rm --network none -v "$root":/cleanup prism-go:1.27.4 chown -R "$(id -u):$(id -g)" /cleanup
 rm -rf -- "$root"
 CLEAN
 }

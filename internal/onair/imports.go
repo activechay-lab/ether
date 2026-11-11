@@ -129,14 +129,6 @@ func (t importTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 func (t importTransport) CloseIdleConnections() { t.base.CloseIdleConnections() }
 
-func importGET(ctx context.Context, c *http.Client, raw string) (*http.Response, error) {
-	return importGETWithHeaders(ctx, c, raw, nil)
-}
-
-func importGETWithHeaders(ctx context.Context, c *http.Client, raw string, headers map[string]string) (*http.Response, error) {
-	return importGETValidated(ctx, c, raw, headers, publicImportURL)
-}
-
 func importGETValidated(ctx context.Context, c *http.Client, raw string, headers map[string]string, validate func(context.Context, string) error) (*http.Response, error) {
 	if validate != nil {
 		if e := validate(ctx, raw); e != nil {

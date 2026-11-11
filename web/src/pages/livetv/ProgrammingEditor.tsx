@@ -153,7 +153,8 @@ export function ProgrammingEditor({
     } else {
       const pin = pins.findIndex((p) => p.id === editRequest.pinId);
       const block = blocks.findIndex((b) => b.id === editRequest.blockId);
-      if (pin >= 0) setEditing({ kind: "pin", index: iPin(pin), value: structuredClone(pins[pin]!) });
+      if (pin >= 0)
+        setEditing({ kind: "pin", index: iPin(pin), value: structuredClone(pins[pin]!) });
       else if (block >= 0)
         setEditing({ kind: "block", index: block, value: structuredClone(blocks[block]!) });
     }

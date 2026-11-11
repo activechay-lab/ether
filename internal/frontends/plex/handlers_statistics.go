@@ -385,7 +385,7 @@ func (w *countWriter) Flush() {
 }
 
 func (s *Server) noteStreamBytes(r *http.Request, n int64) {
-	if n <= 0 || s.dashboard() == nil {
+	if n <= 0 {
 		return
 	}
 	pr := FromContext(r.Context())

@@ -548,10 +548,6 @@ func spanishEpisodeMatches(raw, spaced string) []spanishChapterMatch {
 	return out
 }
 
-func spanishEpisodeLocations(spaced string) [][]int {
-	return spanishEpisodeLocationsWithRaw("", spaced)
-}
-
 func spanishEpisodeLocationsWithRaw(raw, spaced string) [][]int {
 	matches := spanishEpisodeMatches(raw, spaced)
 	out := make([][]int, 0, len(matches))
@@ -561,10 +557,6 @@ func spanishEpisodeLocationsWithRaw(raw, spaced string) [][]int {
 	return out
 }
 
-func spanishEpisodeIndex(spaced string) []int {
-	return spanishEpisodeIndexWithRaw("", spaced)
-}
-
 func spanishEpisodeIndexWithRaw(raw, spaced string) []int {
 	for _, m := range spanishEpisodeMatches(raw, spaced) {
 		if m.loc[0] > 0 {
@@ -572,12 +564,6 @@ func spanishEpisodeIndexWithRaw(raw, spaced string) []int {
 		}
 	}
 	return nil
-}
-
-// parseEpisodes fills seasons and episodes and returns the offset of the
-// marker it read them from, or -1.
-func parseEpisodes(spaced, upper string, info *core.ReleaseInfo) int {
-	return parseEpisodesWithRaw("", spaced, upper, info)
 }
 
 func parseEpisodesWithRaw(raw, spaced, upper string, info *core.ReleaseInfo) int {

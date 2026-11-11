@@ -470,8 +470,7 @@ func (c *Catalog) IncludeTitle(ctx context.Context, key core.RatingKey) (Browsab
 		if uerr := c.upsert(ctx, summary, upsertOpts{browsable: true}); uerr != nil {
 			return BrowsabilityStatus{}, uerr
 		}
-		st, err = c.loadByKey(ctx, key)
-		if err != nil {
+		if _, err = c.loadByKey(ctx, key); err != nil {
 			return BrowsabilityStatus{}, err
 		}
 	} else {

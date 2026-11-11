@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -227,9 +226,6 @@ func (s *Server) setCollections(v frontend.Collections) {
 func (s *Server) setState(v frontend.State) {
 	s.updateTestDeps(func(d *testServerDeps) { d.State = v })
 }
-func (s *Server) setPlaylists(v frontend.Playlists) {
-	s.updateTestDeps(func(d *testServerDeps) { d.Playlists = v })
-}
 func (s *Server) setRecommender(v frontend.Recommender) {
 	s.updateTestDeps(func(d *testServerDeps) { d.Recommender = v })
 }
@@ -281,10 +277,6 @@ func (s *Server) setSupport(rec frontend.DiagnosticRecorder) {
 
 func (s *Server) setClientSeen(fn func(string)) {
 	s.mutateServices(func(svc *hostServices) { svc.clientSeen = fn })
-}
-
-func (s *Server) setRemoteClientSeen(fn func(string)) {
-	s.mutateServices(func(svc *hostServices) { svc.remoteClientSeen = fn })
 }
 
 func testServer(d Deps) *Server {
@@ -349,13 +341,6 @@ func setDepsNow[T any](d *T, fn func() time.Time) {
 	}
 }
 
-func depsNow[T any](d *T) func() time.Time {
-	if h := hostOf(d); h != nil {
-		return h.Now
-	}
-	return nil
-}
-
 func (s *Server) setTestNow(fn func() time.Time) {
 	s.mutateHost(func(h *frontend.Host) { h.Now = fn })
 }
@@ -386,20 +371,6 @@ func setDepsIdentity[T any](d *T, id Identity) {
 	}
 }
 
-func (s *Server) setTestIdentity(id Identity) {
-	sub, feats := id.MyPlexSubscription, append([]string(nil), id.OwnerFeatures...)
-	s.mutateHost(func(h *frontend.Host) {
-		h.ServerIdentity = frontend.ServerIdentity{
-			MachineID:       id.MachineIdentifier,
-			FriendlyName:    id.FriendlyName,
-			Version:         id.Version,
-			Platform:        id.Platform,
-			PlatformVersion: id.PlatformVersion,
-		}
-		h.OwnerSubscription = func() (bool, []string) { return sub, feats }
-	})
-}
-
 func (s *Server) setTestSubscription(sub bool) {
 	s.mutateHost(func(h *frontend.Host) {
 		var feats []string
@@ -420,24 +391,8 @@ func setDepsOwnerSubscription[T any](d *T, fn func() (bool, []string)) {
 	}
 }
 
-func (s *Server) setTestOwnerSubscription(fn func() (bool, []string)) {
-	s.mutateHost(func(h *frontend.Host) { h.OwnerSubscription = fn })
-}
-
-func setDepsRepoFileURL[T any](d *T, fn func(string) string) {
-	if h := hostOf(d); h != nil {
-		h.RepoFileURL = fn
-	}
-}
-
 func (s *Server) setTestRepoFileURL(fn func(string) string) {
 	s.mutateHost(func(h *frontend.Host) { h.RepoFileURL = fn })
-}
-
-func setDepsPublicURL[T any](d *T, fn func() string) {
-	if h := hostOf(d); h != nil {
-		h.PublicOrigin = fn
-	}
 }
 
 func (s *Server) setTestPublicURL(fn func() string) {
@@ -476,22 +431,6 @@ func setDepsHTTPClient[T any](d *T, c *http.Client) {
 	if h := hostOf(d); h != nil {
 		h.MetadataHTTP = c
 	}
-}
-
-func setDepsDirectHTTP[T any](d *T, c *http.Client) {
-	h := hostOf(d)
-	if h == nil {
-		return
-	}
-	if c == nil {
-		h.DirectProxy = nil
-		return
-	}
-	if tr, ok := c.Transport.(*http.Transport); ok && tr != nil && tr.Proxy != nil {
-		h.DirectProxy = tr.Proxy
-		return
-	}
-	h.DirectProxy = func(*http.Request) (*url.URL, error) { return nil, nil }
 }
 
 func TestNewServerRequiresSessionStores(t *testing.T) {

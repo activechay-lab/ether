@@ -382,7 +382,7 @@ func TestTraktDeviceFlowRoutes(t *testing.T) {
 
 	// Polling 6s after slow_down (< 10s) must still be gated server-side.
 	advance(6 * time.Second)
-	rec = serve(h, ownerReq(http.MethodPost, bobBase+"/poll"))
+	serve(h, ownerReq(http.MethodPost, bobBase+"/poll"))
 	if _, tokHits := upstream.hits(); tokHits != 2 {
 		t.Fatalf("expected slow_down interval gating (2 hits), got %d", tokHits)
 	}

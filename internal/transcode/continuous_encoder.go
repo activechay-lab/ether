@@ -311,10 +311,6 @@ func (m *Manager) StartEncoder(ctx context.Context, r EncoderRequest) (Continuou
 	return enc, nil
 }
 
-func (m *Manager) continuousEncodeArgs(r EncoderRequest, s []*rawSocket, base string) []string {
-	return m.continuousEncodeArgsAt(r, s, base, 0, 0)
-}
-
 func (m *Manager) continuousEncodeArgsAt(r EncoderRequest, s []*rawSocket, base string, startSeq, tsOffsetTick int64) []string {
 	f := r.Source
 	rate := fmt.Sprintf("%d/%d", f.FPSNum, f.FPSDen)

@@ -26,7 +26,7 @@ COPY web/ ./
 RUN pnpm build && test -f /src/internal/admin/dist/index.html
 
 # ---- build the server (pure Go) -------------------------------------------
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 # go.mod replaces qjs with the vendored sandbox fork; it must exist before download.

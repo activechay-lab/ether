@@ -81,7 +81,6 @@ func (s *Server) requireDownloads(w http.ResponseWriter, r *http.Request) bool {
 
 type downloadItem = frontend.DownloadItem
 type downloadQueue = frontend.DownloadQueue
-type downloadStore = frontend.DownloadQueueStore
 
 func queueStatus(q *downloadQueue) string {
 	seen := map[string]bool{}

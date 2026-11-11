@@ -10,7 +10,7 @@ printf 'baseline=%s candidate=%s\n' "$baseline" "$candidate"
 mkdir -p "$HOME/prism-test/.cache/ffmpeg"
 dir=$(mktemp -d "$HOME/prism-test/plexparity.ci.XXXXXXXX")
 cleanup() {
- docker run --rm --network none -v "$dir":/cleanup prism-go:1.27.3 chown -R "$(id -u):$(id -g)" /cleanup
+ docker run --rm --network none -v "$dir":/cleanup prism-go:1.27.4 chown -R "$(id -u):$(id -g)" /cleanup
  rm -rf -- "$dir"
 }
 trap cleanup EXIT
@@ -27,10 +27,10 @@ cp "$root/internal/playback/parity_warm_settle.go" "$root/internal/frontends/ple
 bash "$root/scripts/fetch-ffmpeg.sh" linux-amd64
 mkdir -p "$HOME/prism-test/.cache/ffmpeg/linux-amd64"
 cp -a "$root/dist/ffmpeg/linux-amd64/." "$HOME/prism-test/.cache/ffmpeg/linux-amd64/"
-printf 'FROM golang:1.27.3\nRUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils unzip >/dev/null && rm -rf /var/lib/apt/lists/*\n' | docker build -q -t prism-go:1.27.3 - >/dev/null
+printf 'FROM golang:1.27.4\nRUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils unzip >/dev/null && rm -rf /var/lib/apt/lists/*\n' | docker build -q -t prism-go:1.27.4 - >/dev/null
 # Download dependencies before isolating the actual build and execution.
 for tree in baseline candidate driver; do
- docker run --rm -v "$dir/$tree":/src -w /src -v prism-gomod:/go/pkg/mod -v prism-gobuild:/root/.cache/go-build -e CGO_ENABLED=0 prism-go:1.27.3 go mod download
+ docker run --rm -v "$dir/$tree":/src -w /src -v prism-gomod:/go/pkg/mod -v prism-gobuild:/root/.cache/go-build -e CGO_ENABLED=0 prism-go:1.27.4 go mod download
 done
 # Run both the ordinary world and the independently trained active-ranker
 # world. The actual comparisons remain inside the offline container.

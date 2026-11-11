@@ -60,7 +60,7 @@ type VisibilitySnapshot struct {
 }
 
 type liveOutFrame struct {
-	video []byte
+	video *[]byte
 	audio []byte
 	err   error
 }
@@ -138,7 +138,7 @@ func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
 	if fr.err != nil {
 		return nil, fr.err
 	}
-	copy(video, fr.video)
+	copy(video, *fr.video)
 	if m.videoPool != nil {
 		m.videoPool.Put(fr.video)
 	}
@@ -431,7 +431,7 @@ func (s *Service) startLiveMomentStream(
 	}
 
 	outBytes := width * height * 3 / 2
-	videoPool := &sync.Pool{New: func() any { return make([]byte, outBytes) }}
+	videoPool := &sync.Pool{New: func() any { b := make([]byte, outBytes); return &b }}
 	outCh := make(chan liveOutFrame, 6)
 	runCtx, cancelRun := context.WithCancel(s.ctx)
 
@@ -666,7 +666,8 @@ func (s *Service) startLiveMomentStream(
 								if mapped > nextIdx && nextIdx < passFrames-1 {
 									break
 								}
-								yuv := videoPool.Get().([]byte)
+								yuvBuf := videoPool.Get().(*[]byte)
+								yuv := *yuvBuf
 								if renderW == width && renderH == height {
 									rgbaToI420(im, yuv, width, height)
 								} else {
@@ -681,7 +682,7 @@ func (s *Service) startLiveMomentStream(
 								globalOutTick++
 								outCursorInPass++
 
-								frameOut := liveOutFrame{video: yuv, audio: audioBytes}
+								frameOut := liveOutFrame{video: yuvBuf, audio: audioBytes}
 								select {
 								case outCh <- frameOut:
 								default:
@@ -692,7 +693,7 @@ func (s *Service) startLiveMomentStream(
 										cs := consumerStopped
 										stopMu.Unlock()
 										if cs {
-											videoPool.Put(yuv)
+											videoPool.Put(yuvBuf)
 											break
 										}
 										select {
@@ -700,7 +701,7 @@ func (s *Service) startLiveMomentStream(
 											sent = true
 										case <-time.After(10 * time.Millisecond):
 										case <-passCtx.Done():
-											videoPool.Put(yuv)
+											videoPool.Put(yuvBuf)
 											sent = true
 										}
 									}

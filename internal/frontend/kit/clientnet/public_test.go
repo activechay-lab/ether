@@ -20,7 +20,7 @@ func TestIsPublicIPAndParsePlexDirectHost(t *testing.T) {
 	if !ok || !ip.Equal(net.ParseIP("8.8.8.8")) || hash != "abcdef" || !IsPublicIP(ip) {
 		t.Fatalf("unexpected v4 parse: ip=%v hash=%q ok=%v", ip, hash, ok)
 	}
-	ip, hash, ok = ParsePlexDirectHost("192-168-1-5.abcdef.plex.direct")
+	ip, _, ok = ParsePlexDirectHost("192-168-1-5.abcdef.plex.direct")
 	if !ok || IsPublicIP(ip) {
 		t.Fatalf("expected private plex.direct IP: ip=%v ok=%v", ip, ok)
 	}

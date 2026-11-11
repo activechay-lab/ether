@@ -12,7 +12,7 @@ import (
 
 func TestCatalogueOverridesNeverWeakenSafety(t *testing.T) {
 	db := store.OpenTest(t)
-	c, err := catalog.New(db, nil, config.Catalog{VisibilityDefault: "hide"}, nil)
+	c, err := catalog.New(db, nil, config.Catalog{}, nil, catalog.WithLibraryPolicies(catalog.LibraryPolicies{MovieDefault: "hide", ShowDefault: "hide"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestCatalogueOverridesNeverWeakenSafety(t *testing.T) {
 	u := &core.User{ID: 1, MaxContentRating: "PG"}
 	title := &core.Title{Type: core.TypeMovie, ContentRating: "PG", Released: time.Now().Add(-24 * time.Hour)}
 	if s.Allowed(u, title) {
-		t.Fatal("global default hide bypassed")
+		t.Fatal("library default hide bypassed")
 	}
 	if err := c.PutViewerRules(t.Context(), u.ID, catalog.ViewerRules{Mode: "custom", VisibilityDefault: "show"}); err != nil {
 		t.Fatal(err)

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -644,7 +645,9 @@ func TestSetupGatingOfflineBrowseRolesAndRemovePurge(t *testing.T) {
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		tally, _ := h.items.LibraryTally(ctx, pluginView.LibraryID)
-		if tally["track"] == 2 {
+		// The initial walk ends with a /changes probe after its upserts; wait for it so
+		// the background sync is finished before calls are counted below.
+		if tally["track"] == 2 && slices.Contains(h.rt.paths(), "/ether/v1/kinds/recordings/changes") {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)

@@ -44,9 +44,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	origin := frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID}
-	if s.dashboard() != nil {
-		origin.DeviceID = s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform).ID
-	}
+	origin.DeviceID = s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform).ID
 	ctx = frontend.WithWatchOrigin(ctx, origin)
 	unlockOwner, locked := s.lockPlaybackRequest(w, r)
 	if !locked {

@@ -315,9 +315,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				if pr.Remote && s.svc().remoteClientSeen != nil {
 					s.svc().remoteClientSeen(pr.RemoteIP.String())
 				}
-				if s.dashboard() != nil {
-					s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
-				}
+				s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform)
 				s.observePlaybackRequestStart(r, pr)
 				next.ServeHTTP(w, r)
 				return

@@ -644,6 +644,5 @@ func validQueueWindow(q url.Values) bool {
 
 type pqItem = frontend.QueueItem
 type playQueue = frontend.PlayQueue
-type playQueueStore = frontend.PlayQueues
 
 const maxQueues = frontend.MaxPlayQueues

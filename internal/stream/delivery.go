@@ -242,19 +242,6 @@ func (e *Engine) peerWantedParallel(self *source) []int {
 	return peers
 }
 
-// activeStreams counts recent readers and sources with outstanding fetches.
-func (e *Engine) activeStreams() int64 {
-	cutoff := time.Now().Add(-activeStreamWindow).UnixNano()
-	var n int64
-	e.sources.Range(func(k, _ any) bool {
-		if k.(*source).isActiveAt(cutoff) {
-			n++
-		}
-		return true
-	})
-	return n
-}
-
 // acquire coordinates speculative fetches across near read-ahead and disk
 // play-ahead. Demand reads bypass it. Disk play-ahead (PriorityPrefetch) is
 // capped at PrefetchParallel (and at most half of limit), yields whenever near
