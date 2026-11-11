@@ -176,6 +176,13 @@ func TestPersonalHomeViewsAreStableRankedAndAttributed(t *testing.T) {
 	if restrictedLatest.Code != 200 || strings.TrimSpace(restrictedLatest.Body.String()) != "[]" {
 		t.Fatal(restrictedLatest.Code, restrictedLatest.Body.String())
 	}
+	// Browsing an unknown or rotated-out personal view (a Swiftfin/Findroid
+	// folder open) answers an empty page, never 404, like real Jellyfin.
+	restrictedBrowseGone := call(restricted, http.MethodGet, "/Items?ParentId="+becauseID+"&SortBy=SortName", "")
+	var goneItems struct{ Items []map[string]any }
+	if restrictedBrowseGone.Code != 200 || json.Unmarshal(restrictedBrowseGone.Body.Bytes(), &goneItems) != nil || len(goneItems.Items) != 0 {
+		t.Fatal(restrictedBrowseGone.Code, restrictedBrowseGone.Body.String())
+	}
 	ownLatest := waitFor(t, func() *httptest.ResponseRecorder { return call(restricted, http.MethodGet, "/UserViews", "") }, "Dune and Similar")
 	var restrictedViews struct{ Items []map[string]any }
 	if json.Unmarshal(ownLatest.Body.Bytes(), &restrictedViews) != nil {
