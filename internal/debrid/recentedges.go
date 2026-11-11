@@ -84,7 +84,12 @@ func (r *recentEdges) freshest(provider, exclude string, down func(string) bool,
 		}
 		fresh = append(fresh, seen{k, t})
 	}
-	sort.Slice(fresh, func(i, j int) bool { return fresh[i].at.After(fresh[j].at) })
+	sort.Slice(fresh, func(i, j int) bool {
+		if fresh[i].at.Equal(fresh[j].at) {
+			return fresh[i].host < fresh[j].host
+		}
+		return fresh[i].at.After(fresh[j].at)
+	})
 	out := make([]string, 0, len(fresh))
 	for _, s := range fresh {
 		out = append(out, s.host)

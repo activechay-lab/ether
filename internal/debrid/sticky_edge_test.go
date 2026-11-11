@@ -222,3 +222,20 @@ func TestReplayFastFailuresDoNotStarveLaterCandidate(t *testing.T) {
 		})
 	}
 }
+
+func TestReplayCandidateOrderStableAtEqualTimestamps(t *testing.T) {
+	var edges recentEdges
+	now := time.Now()
+	for _, host := range []string{"edge-d", "edge-b", "edge-c", "edge-a"} {
+		edges.record("account", host, now)
+	}
+	edges.record("account", "newest", now.Add(time.Second))
+	// The cursor resumes after a host, so equal-time entries must have a
+	// stable order rather than a fresh map-iteration order on each wave.
+	for i := 0; i < 100; i++ {
+		got := strings.Join(edges.freshest("account", "", nil, now), ",")
+		if got != "newest,edge-a,edge-b,edge-c,edge-d" {
+			t.Fatalf("candidate order changed: %s", got)
+		}
+	}
+}
