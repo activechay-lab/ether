@@ -7,7 +7,7 @@ import {
   toast,
 } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
-import { Plus, RefreshCw, Users } from "lucide-react";
+import { MonitorSmartphone, Plus, RefreshCw, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppOptional } from "../../app-context";
 import { ErrorPanel } from "../../components/feedback";
@@ -29,6 +29,7 @@ import type { EtherUser } from "../../lib/types";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
 import { isActiveViewer, isPlexSource, LifecycleBadges, lifecycleOf } from "./lifecycle";
 import { AddViewerDrawer } from "./ManageViewers";
+import { ImportPlexViewersDrawer } from "./ImportPlexViewersDrawer";
 import { PlexAccessNote } from "./ViewerStatus";
 
 type PeopleFilter = "all" | "active" | "paused" | "plex";
@@ -40,6 +41,7 @@ export default function ViewersList() {
     app?.boot.plexEnabled !== false && isPlainObject(remote) && remote.claimed === true;
   const [adding, setAdding] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [version, setVersion] = useState(0);
   const syncPlex = async () => {
     setSyncing(true);
@@ -65,6 +67,9 @@ export default function ViewersList() {
               <RefreshCw size={14} /> {syncing ? t("Syncing…") : t("Sync shared users")}
             </Button>
           ) : null}
+          <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
+            <MonitorSmartphone size={14} /> {t("Import from Plex")}
+          </Button>
           <Button size="sm" onClick={() => setAdding(true)}>
             <Plus size={14} /> {t("Add viewer")}
           </Button>
@@ -76,6 +81,15 @@ export default function ViewersList() {
         open={adding}
         onClose={() => setAdding(false)}
         onCreated={() => setVersion((v) => v + 1)}
+        onOpenPlexImport={() => {
+          setAdding(false);
+          setImporting(true);
+        }}
+      />
+      <ImportPlexViewersDrawer
+        open={importing}
+        onClose={() => setImporting(false)}
+        onImported={() => setVersion((v) => v + 1)}
       />
     </DomainPage>
   );
