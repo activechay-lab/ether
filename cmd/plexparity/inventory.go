@@ -80,6 +80,9 @@ var unprobedRoutes = map[string]string{
 	// guard them (metadata_guid_list_test.go, livetv_logo_compat_test.go).
 	"/library/metadata/plex:/*":           "new route in v0.3.6 (Infuse Watchlist plex:// identity paths); baselines answer 404",
 	"/livetv/logos/{channel}/{signature}": "new route in v0.3.6 (Apple TV guide logos); baselines answer 404 and the signature is an HMAC under a per-node key",
+	// New in v0.3.8; v0.2.58 and main answer 404. Unit tests in
+	// internal/frontends/plex guard it.
+	"/library/metadata/{key}/subscription/modes": "new route in v0.3.8 (Plex for Mac download subscription modes, #365); baselines answer 404",
 }
 
 func inventorySummary() string { m := missingRoutes(); return strings.Join(m, ", ") }
