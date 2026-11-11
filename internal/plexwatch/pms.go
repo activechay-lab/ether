@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -53,6 +54,12 @@ type Servers struct {
 	wake         chan struct{}
 	closed       chan struct{}
 	closeMu      sync.Mutex
+
+	heldMu      sync.Mutex
+	heldRev     atomic.Uint64
+	held        atomic.Pointer[HeldSnapshot]
+	warmedMu    sync.Mutex
+	warmedShows map[core.RatingKey]struct{}
 }
 
 // PMSCatalog verifies matched titles and resolves IMDb/TVDB identifiers.
@@ -117,9 +124,12 @@ func NewServers(o ServersOptions) (*Servers, error) {
 	if o.ClientID == "" {
 		o.ClientID = plexguid.ClientIdentifier("", "")
 	}
-	return &Servers{db: o.DB, state: o.State, sealer: o.Sealer, guid: o.GUID, catalog: o.Catalog,
+	s := &Servers{db: o.DB, state: o.State, sealer: o.Sealer, guid: o.GUID, catalog: o.Catalog,
 		http: &clone, client: o.ClientID, log: o.Logger, now: o.Now, viewerExists: o.ViewerExists,
-		enabled: o.Enabled, wake: make(chan struct{}, 1), closed: make(chan struct{})}, nil
+		enabled: o.Enabled, wake: make(chan struct{}, 1), closed: make(chan struct{}),
+		warmedShows: map[core.RatingKey]struct{}{}}
+	_ = s.reloadHeldSnapshot(context.Background())
+	return s, nil
 }
 
 func (s *Servers) signal() {
@@ -150,6 +160,7 @@ type PMSServer struct {
 	MachineID string       `json:"machineId"`
 	Version   string       `json:"version"`
 	Owner     string       `json:"owner"`
+	StepAside bool         `json:"stepAside"`
 	CheckedAt int64        `json:"checkedAt"`
 	Problem   string       `json:"problem"`
 	Viewers   []PMSMapping `json:"viewers"`
@@ -252,6 +263,7 @@ type pmsServerRow struct {
 	baseURL   string
 	token     string
 	machineID string
+	stepAside bool
 }
 
 func (s *Servers) seal(plain string, ctx ...string) (string, error) {
@@ -377,7 +389,7 @@ func (s *Servers) Update(ctx context.Context, id int64, name, baseURL, token str
 	if sealed, err = s.seal(token, machine); err != nil {
 		return PMSServer{}, err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE plexwatch_pms SET name=?,base_url=?,token=?,version=?,owner_name=?,checked_at=?,problem='' WHERE id=?`,
+	_, err = s.db.ExecContext(ctx, `UPDATE plexwatch_pms SET name=?,base_url=?,token=?,version=?,owner_name=?,checked_at=?,problem='',held_failures=0,held_next_allowed=0 WHERE id=?`,
 		name, u.String(), sealed, version, owner, s.now().Unix(), id)
 	if err != nil {
 		return PMSServer{}, err
@@ -390,7 +402,7 @@ func (s *Servers) Update(ctx context.Context, id int64, name, baseURL, token str
 	return s.Server(ctx, id)
 }
 
-// Remove forgets a server, its mappings, cursors, matches and echo records.
+// Remove forgets a server, its mappings, cursors, matches, held titles and echo records.
 func (s *Servers) Remove(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -402,22 +414,28 @@ func (s *Servers) Remove(ctx context.Context, id int64) error {
 		`DELETE FROM plexwatch_pms_item WHERE server_id=?`,
 		`DELETE FROM plexwatch_pms_sent WHERE server_id=?`,
 		`DELETE FROM plexwatch_pms_unmatched WHERE server_id=?`,
+		`DELETE FROM plexwatch_pms_held WHERE server_id=?`,
 		`DELETE FROM plexwatch_pms WHERE id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.reloadHeldSnapshot(ctx)
 }
 
 func (s *Servers) loadServer(ctx context.Context, id int64) (pmsServerRow, error) {
 	var r pmsServerRow
-	err := s.db.QueryRowContext(ctx, `SELECT id,name,base_url,token,machine_id FROM plexwatch_pms WHERE id=?`, id).
-		Scan(&r.id, &r.name, &r.baseURL, &r.token, &r.machineID)
+	var stepAside int
+	err := s.db.QueryRowContext(ctx, `SELECT id,name,base_url,token,machine_id,step_aside FROM plexwatch_pms WHERE id=?`, id).
+		Scan(&r.id, &r.name, &r.baseURL, &r.token, &r.machineID, &stepAside)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, core.ErrNotFound
 	}
+	r.stepAside = stepAside != 0
 	return r, err
 }
 
@@ -454,14 +472,16 @@ func (s *Servers) List(ctx context.Context) ([]PMSServer, error) {
 // Server returns one server and its mappings.
 func (s *Servers) Server(ctx context.Context, id int64) (PMSServer, error) {
 	var srv PMSServer
-	err := s.db.QueryRowContext(ctx, `SELECT id,name,base_url,machine_id,version,owner_name,checked_at,problem FROM plexwatch_pms WHERE id=?`, id).
-		Scan(&srv.ID, &srv.Name, &srv.URL, &srv.MachineID, &srv.Version, &srv.Owner, &srv.CheckedAt, &srv.Problem)
+	var stepAside int
+	err := s.db.QueryRowContext(ctx, `SELECT id,name,base_url,machine_id,version,owner_name,step_aside,checked_at,problem FROM plexwatch_pms WHERE id=?`, id).
+		Scan(&srv.ID, &srv.Name, &srv.URL, &srv.MachineID, &srv.Version, &srv.Owner, &stepAside, &srv.CheckedAt, &srv.Problem)
 	if errors.Is(err, sql.ErrNoRows) {
 		return srv, core.ErrNotFound
 	}
 	if err != nil {
 		return srv, err
 	}
+	srv.StepAside = stepAside != 0
 	rows, err := s.db.QueryContext(ctx, `SELECT v.account_id,v.account_name,v.owner,v.user_id,v.direction,v.interval_min,v.token,
 		v.last_import,v.last_send,v.next_run,v.problem,
 		v.in_backfill,v.in_backfill_read,v.in_backfill_total,v.in_backfill_done,

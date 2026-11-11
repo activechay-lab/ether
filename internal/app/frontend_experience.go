@@ -45,23 +45,50 @@ func (a *App) groupedShows(ctx context.Context, viewer *core.User, shows []core.
 	return a.episodeorder.Grouped(ctx, viewer, shows)
 }
 
-func (a *App) experienceSearch(vis experience.Visibility) experience.Search {
+func (a *App) experienceSearch(vis experience.Visibility, stepAside *experience.StepAside) experience.Search {
 	unrestricted := func(viewer *core.User) bool {
+		if stepAside != nil && stepAside.Active() {
+			return false
+		}
 		return a.safety != nil && viewer != nil && !a.safety.Restricted(viewer)
 	}
-	return experience.SearchFor(a.searchSources(), vis, unrestricted)
+	return experience.SearchFor(a.searchSourcesFor(stepAside), vis, unrestricted)
 }
 
 // searchSources is the one search every frontend uses (Plex included):
 // the catalogue with the owner's availability rules, natural-language
 // search, viewer affinity and collection readings.
 func (a *App) searchSources() experience.SearchSources {
+	return a.searchSourcesFor(nil)
+}
+
+func (a *App) searchSourcesFor(stepAside *experience.StepAside) experience.SearchSources {
 	src := experience.SearchSources{Catalog: a.catalog.Search, Details: a.catalog.SearchDetails}
 	if a.availability != nil && !a.cfg.Read().Spike.Enabled {
 		src.Catalog = (&availabilityCatalog{Catalog: a.catalog, availability: a.availability}).Search
 	}
+	if stepAside != nil {
+		baseCatalog := src.Catalog
+		src.Catalog = func(ctx context.Context, q string, types []core.MediaType, n int) ([]core.Title, error) {
+			ts, err := baseCatalog(ctx, q, types, n)
+			if err != nil {
+				return nil, err
+			}
+			return stepAside.FilterAvailable(ctx, ts), nil
+		}
+	}
 	if a.discoveryFeatures != nil {
 		src.Natural = experience.DiscoverySearch(a.discoveryFeatures.Frontend())
+		if stepAside != nil {
+			baseNatural := src.Natural
+			src.Natural = func(ctx context.Context, viewer *core.User, query string, limit int) ([]core.Title, bool) {
+				ts, ok := baseNatural(ctx, viewer, query, limit)
+				if !ok {
+					return nil, false
+				}
+				return stepAside.FilterAvailable(core.WithCatalogViewer(ctx, viewer), ts), true
+			}
+		}
 	}
 	if a.state != nil {
 		src.Familiar = experience.FamiliarFrom(a.state)
@@ -121,11 +148,15 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		return nil, errors.New("experience: dependencies unavailable")
 	}
 	libs := a.configuredLibraries()
+	stepAside := a.newStepAsideFor(protocol)
 	filter := func(ctx context.Context, ts []core.Title) []core.Title {
 		if a.availability == nil {
 			return ts
 		}
 		return a.availability.FilterDiscovery(ctx, ts)
+	}
+	if stepAside != nil {
+		filter = stepAside.WrapAvailable(filter)
 	}
 	sessions := func() []*core.PlaySession {
 		if a.playback == nil {
@@ -144,7 +175,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	}
 	rowVis := vis
 	source := experience.CandidateRowSource{Kind: a.personalize.SemanticRowKind, Load: func(ctx context.Context, req frontend.RowRequest) ([]experience.RankedCandidate, error) {
-		return a.productionExperienceRows(ctx, req, libs, rowVis)
+		return a.productionExperienceRows(ctx, req, libs, rowVis, stepAside)
 	}, Additional: func(ctx context.Context, req frontend.RowRequest) ([]frontend.Row, error) {
 		return a.experienceAdditionalRows(core.WithLiveApp(ctx, string(protocol)), req, a.playlists, rowVis)
 	}}
@@ -194,6 +225,54 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	if err != nil {
 		return nil, err
 	}
+	airedEpisodeTallies := a.catalog.AiredEpisodeTallies
+	if stepAside != nil {
+		airedEpisodeTallies = func(ctx context.Context, userID int64, shows []core.RatingKey, settled time.Time, judge []core.RatingKey) (map[core.RatingKey]core.AiredEpisodeTally, error) {
+			heldEps := stepAside.HeldEpisodesForShows(ctx, shows)
+			if len(heldEps) == 0 {
+				return a.catalog.AiredEpisodeTallies(ctx, userID, shows, settled, judge)
+			}
+			if len(judge)+len(heldEps) <= 400 {
+				combined := append(append([]core.RatingKey(nil), judge...), heldEps...)
+				return a.catalog.AiredEpisodeTallies(ctx, userID, shows, settled, combined)
+			}
+			out := make(map[core.RatingKey]core.AiredEpisodeTally, len(shows))
+			for _, show := range shows {
+				if _, dup := out[show]; dup {
+					continue
+				}
+				showHeld := stepAside.HeldEpisodesForShows(ctx, []core.RatingKey{show})
+				combined := append(append([]core.RatingKey(nil), judge...), showHeld...)
+				part, err := a.catalog.AiredEpisodeTallies(ctx, userID, []core.RatingKey{show}, settled, combined)
+				if err != nil {
+					return nil, err
+				}
+				for k, v := range part {
+					out[k] = v
+				}
+			}
+			return out, nil
+		}
+	}
+	episodesUnranked := a.catalog.EpisodesUnranked
+	if stepAside != nil {
+		episodesUnranked = func(ctx context.Context) (bool, error) {
+			if stepAside.HasAnyEpisodes() {
+				return false, nil
+			}
+			return a.catalog.EpisodesUnranked(ctx)
+		}
+	}
+	countUnplayedAired := a.catalog.CountUnplayedAired
+	if stepAside != nil {
+		countUnplayedAired = func(ctx context.Context, userID int64, keys []core.RatingKey, maxRating string) (map[core.RatingKey]int, error) {
+			counts, err := a.catalog.CountUnplayedAired(ctx, userID, keys, maxRating)
+			if err != nil {
+				return nil, err
+			}
+			return stepAside.AdjustUnplayedCounts(ctx, userID, keys, counts)
+		}
+	}
 	deps := experience.ServiceDeps{BeginPeopleRead: a.beginPeopleRead, NotInterestedSource: func(ctx context.Context, u *core.User) ([]frontend.NotInterestedEntry, error) {
 		entries, _, err := a.notInterested.Snapshot(ctx, u)
 		if err != nil {
@@ -204,12 +283,12 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			out = append(out, frontend.NotInterestedEntry{Key: entry.Key, AddedAt: entry.AddedAt})
 		}
 		return out, nil
-	}, ByExternalID: a.catalog.ByExternalID, Active: a.users.PolicyUser, Libraries: libs, LiveLibraries: a.configuredLibraries, Visibility: vis, State: a.state, Rows: rows, Protocol: protocol, Browse: a.catalog.Browse, PageExclusions: newLibraryPageExclusions(a), ViewerRules: a.catalog.ViewerRulesJudge, FacetFilter: a.catalog.FacetFilter, FacetPage: a.catalog.FacetPage, StudioByFacetID: a.catalog.StudioByFacetID, PersonByFacetID: a.catalog.PersonByFacetID, CountWatched: a.catalog.CountWatched, CountBrowsable: a.catalog.CountBrowsable, CreditItems: a.catalog.CachedCreditItems, PeopleIndex: a.peopleIndex, PersonCredits: a.catalog.PersonCreditKeys, PersonCreditsMany: a.catalog.PersonCreditsMany, RankingDetails: a.catalog.RankingDetails, PersonCreditForms: a.catalog.PersonCreditForms, PersonFormKeys: a.catalog.PersonFormKeys, AiredEpisodes: a.catalog.CachedAiredEpisodes, AiredEpisodesMany: a.catalog.CachedAiredEpisodesMany, AiredEpisodeTallies: a.catalog.AiredEpisodeTallies, EpisodesSettledBefore: func(ctx context.Context) time.Time {
+	}, ByExternalID: a.catalog.ByExternalID, Active: a.users.PolicyUser, Libraries: libs, LiveLibraries: a.configuredLibraries, Visibility: vis, State: a.state, Rows: rows, Protocol: protocol, Browse: a.catalog.Browse, PageExclusions: newLibraryPageExclusionsFor(a, stepAside), ViewerRules: a.catalog.ViewerRulesJudge, FacetFilter: a.catalog.FacetFilter, FacetPage: a.catalog.FacetPage, StudioByFacetID: a.catalog.StudioByFacetID, PersonByFacetID: a.catalog.PersonByFacetID, CountWatched: a.catalog.CountWatched, CountBrowsable: a.catalog.CountBrowsable, CreditItems: a.catalog.CachedCreditItems, PeopleIndex: a.peopleIndex, PersonCredits: a.catalog.PersonCreditKeys, PersonCreditsMany: a.catalog.PersonCreditsMany, RankingDetails: a.catalog.RankingDetails, PersonCreditForms: a.catalog.PersonCreditForms, PersonFormKeys: a.catalog.PersonFormKeys, AiredEpisodes: a.catalog.CachedAiredEpisodes, AiredEpisodesMany: a.catalog.CachedAiredEpisodesMany, AiredEpisodeTallies: airedEpisodeTallies, EpisodesSettledBefore: func(ctx context.Context) time.Time {
 		if a.availability == nil {
 			return time.Time{}
 		}
 		return a.availability.EpisodesSettledBefore(ctx)
-	}, StoredEpisodes: experience.StoredEpisodeDeps{Page: a.catalog.StoredEpisodesByKey, Count: a.catalog.CountStoredEpisodes, Unranked: a.catalog.EpisodesUnranked, Customized: func(ctx context.Context, u *core.User) (bool, error) {
+	}, StoredEpisodes: experience.StoredEpisodeDeps{Page: a.catalog.StoredEpisodesByKey, Count: a.catalog.CountStoredEpisodes, Unranked: episodesUnranked, Customized: func(ctx context.Context, u *core.User) (bool, error) {
 		if a.episodeorder == nil {
 			return false, nil
 		}
@@ -224,7 +303,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			}
 		}
 		return a.catalog.RecentAirFiltered(ctx, typ, f, offset, limit)
-	}, CountUnplayedAired: a.catalog.CountUnplayedAired, SimilarSource: a.catalog.Similar, FilterRecommendations: a.personalize.FilterRecommendations, Collections: a.collections, Playlists: a.playlists, Scheduled: a.scheduledEpisodes, Grouped: a.groupedShows, Search: a.experienceSearch(vis), CachedGet: a.catalog.CachedGet, CachedGetMany: a.catalog.CachedGetMany, ArtworkGet: a.catalog.ArtworkTitle, ArtworkGetMany: a.catalog.ArtworkTitles, ArtworkRows: a.catalog.ArtworkRows, ParentTitles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
+	}, CountUnplayedAired: countUnplayedAired, SimilarSource: a.catalog.Similar, FilterRecommendations: a.personalize.FilterRecommendations, Collections: a.collections, Playlists: a.playlists, Scheduled: a.scheduledEpisodes, Grouped: a.groupedShows, Search: a.experienceSearch(vis, stepAside), CachedGet: a.catalog.CachedGet, CachedGetMany: a.catalog.CachedGetMany, ArtworkGet: a.catalog.ArtworkTitle, ArtworkGetMany: a.catalog.ArtworkTitles, ArtworkRows: a.catalog.ArtworkRows, ParentTitles: func(ctx context.Context, keys []core.RatingKey) (map[core.RatingKey]core.Title, error) {
 		return a.catalog.ResolveShowParents(ctx, keys)
 	}, Get: func(ctx context.Context, u *core.User, k core.RatingKey) (*core.Title, error) {
 		if a.episodeorder != nil {
@@ -247,6 +326,9 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		}
 		return a.catalog.Grandchildren(ctx, k)
 	}, SeasonEpisodes: func(ctx context.Context, u *core.User, show core.RatingKey, season, offset, limit int) (core.Page, bool, error) {
+		if stepAside != nil && stepAside.HasShowEpisodes(core.WithCatalogViewer(ctx, u), show) {
+			return core.Page{}, false, nil
+		}
 		if a.episodeorder != nil {
 			pref, err := a.episodeorder.Preference(ctx, u.ID, show)
 			if err != nil {
@@ -495,7 +577,14 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		detail.enabled = func() bool { return a.cfg.Read().Personalize.MicroReasons }
 	}
 	return &surfaceExperience{Service: service, receipts: receipts, protocol: protocol, artwork: artworkSource, pluginLibs: deps.PluginLibraries, active: a.users.ActiveUser, rowViews: rowViews, detail: detail, generation: func(ctx context.Context) (int64, error) {
-		return viewerpolicy.Read(ctx, a.db)
+		gen, err := viewerpolicy.Read(ctx, a.db)
+		if err != nil || stepAside == nil {
+			return gen, err
+		}
+		if heldGen := stepAside.Generation(); heldGen != 0 {
+			gen = int64(uint64(gen)*1099511628211 ^ heldGen)
+		}
+		return gen, nil
 	}, catalogGen: func() uint64 {
 		var gen uint64
 		if a.catalog != nil {
@@ -508,6 +597,11 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			gen = gen*1099511628211 ^ a.pluginsRT.pluginitems.Generation()
 		}
 		return gen
+	}, rowGen: func() uint64 {
+		if stepAside == nil {
+			return 0
+		}
+		return stepAside.Generation()
 	}, posters: func(ctx context.Context, typ core.MediaType, limit int) ([]core.Title, error) {
 		if a.catalog == nil {
 			return nil, core.ErrNotAvailable
@@ -538,6 +632,11 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		if a.pluginsRT != nil && a.pluginsRT.pluginitems != nil {
 			gen = gen*1099511628211 ^ a.pluginsRT.pluginitems.Generation()
 		}
+		if stepAside != nil {
+			if heldGen := stepAside.Generation(); heldGen != 0 {
+				gen = gen*1099511628211 ^ heldGen
+			}
+		}
 		return gen
 	}}, nil
 }
@@ -554,6 +653,7 @@ type surfaceExperience struct {
 	detail      detailPersonalization
 	generation  func(context.Context) (int64, error)
 	catalogGen  func() uint64
+	rowGen      func() uint64
 	posters     func(context.Context, core.MediaType, int) ([]core.Title, error)
 	modelReady  func(int64) bool
 	rowMu       sync.Mutex
@@ -582,6 +682,66 @@ func (s *surfaceExperience) PolicyGeneration(ctx context.Context) (int64, error)
 		return 0, nil
 	}
 	return s.generation(ctx)
+}
+
+// stepAsideActive reports whether this surface has step-aside held titles that
+// must not be bypassed by an unrestricted (owner) fast-path. Only the Plex
+// surface builds a step-aside policy, so rowGen is zero everywhere else.
+func (s *surfaceExperience) stepAsideActive() bool {
+	return s != nil && s.rowGen != nil && s.rowGen() != 0
+}
+
+// wrapUnrestricted disables an unrestricted fast-path while step-aside holds
+// titles, so owners still run filtered selection instead of bypassing it. It
+// mirrors the per-protocol Plex experience wrapper the feature shipped with,
+// now that every protocol mounts from the shared surface.
+func (s *surfaceExperience) wrapUnrestricted(fn func(*core.User) bool) func(*core.User) bool {
+	if !s.stepAsideActive() {
+		return fn
+	}
+	return func(u *core.User) bool {
+		if s.stepAsideActive() {
+			return false
+		}
+		if fn == nil {
+			return false
+		}
+		return fn(u)
+	}
+}
+
+func (s *surfaceExperience) NewRecent(o frontend.RecentOptions) frontend.Recent {
+	o.Unrestricted = s.wrapUnrestricted(o.Unrestricted)
+	return s.Service.NewRecent(o)
+}
+
+func (s *surfaceExperience) NewContinue(o frontend.ContinueOptions) frontend.Continue {
+	o.Unrestricted = s.wrapUnrestricted(o.Unrestricted)
+	return s.Service.NewContinue(o)
+}
+
+func (s *surfaceExperience) NewScopedCollection(o frontend.ScopedCollectionOptions) frontend.ScopedCollection {
+	o.Unrestricted = s.wrapUnrestricted(o.Unrestricted)
+	return s.Service.NewScopedCollection(o)
+}
+
+func (s *surfaceExperience) NewDiscoverySelection(o frontend.DiscoverySelectionOptions) frontend.DiscoverySelection {
+	o.Unrestricted = s.wrapUnrestricted(o.Unrestricted)
+	return s.Service.NewDiscoverySelection(o)
+}
+
+func (s *surfaceExperience) NewHomeSelection(o frontend.HomeSelectionOptions) frontend.HomeSelection {
+	if s.stepAsideActive() {
+		o.Restricted = true
+	}
+	return s.Service.NewHomeSelection(o)
+}
+
+func (s *surfaceExperience) NewPostPlaySelection(o frontend.PostPlaySelectionOptions) frontend.PostPlaySelection {
+	if s.stepAsideActive() {
+		o.Unrestricted = false
+	}
+	return s.Service.NewPostPlaySelection(o)
 }
 
 func (s *surfaceExperience) ListRowViews(ctx context.Context, req frontend.RowViewRequest) ([]frontend.RowView, error) {
@@ -921,8 +1081,13 @@ func (s *surfaceExperience) rowCacheKey(req frontend.RowRequest) (string, uint64
 	key := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%s\n%d\n%t", s.protocol, viewer, req.Device.ID, req.Placement, req.ViewID, req.Purpose, limit, ready)
 	// Home stays cached for the TTL. Catalogue write generation is not part of
 	// the key: a background title refresh bumps it on every provider hydrate
-	// and was forcing the next Home to rebuild.
-	return key, 0
+	// and was forcing the next Home to rebuild. Step-aside revision is rare and
+	// invalidates immediately when a server finishes syncing or toggles.
+	var gen uint64
+	if s.rowGen != nil {
+		gen = s.rowGen()
+	}
+	return key, gen
 }
 
 func cloneHomeRows(in []frontend.Row) []frontend.Row {
