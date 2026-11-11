@@ -31,6 +31,12 @@ type User = core.User
 // LibraryID names one library (built-ins 1 = Movies, 2 = TV Shows).
 type LibraryID = core.LibraryID
 
+// The built-in libraries.
+const (
+	LibraryMovies = core.LibraryMovies
+	LibraryShows  = core.LibraryShows
+)
+
 // Home hub values stay owned by core. Adapters render hubs through these
 // aliases.
 type Hub = core.Hub

@@ -616,10 +616,8 @@ func (r *Registry) Unregister(id Protocol) error {
 		}
 		if wait := e.transition; wait != nil {
 			r.mu.Unlock()
-			select {
-			case <-wait:
-				continue
-			}
+			<-wait
+			continue
 		}
 		if e.instance != nil {
 			r.mu.Unlock()

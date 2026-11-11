@@ -20,7 +20,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
 )
@@ -49,7 +48,7 @@ type Section struct {
 	UUID     string // stable; derived from the machine identifier when empty
 	Language string
 	// LibraryID is the stable integer identity in the libraries store.
-	LibraryID core.LibraryID
+	LibraryID frontend.LibraryID
 	// PluginID and KindKey are set for plugin-provided libraries (empty for
 	// built-in and filter libraries).
 	PluginID string
@@ -932,8 +931,8 @@ func (s *Server) buildSections() []Section {
 	}
 	out := make([]Section, len(secs))
 	for i, sec := range secs {
-		if sec.LibraryID == 0 && (sec.ID == int(core.LibraryMovies) || sec.ID == int(core.LibraryShows)) {
-			sec.LibraryID = core.LibraryID(sec.ID)
+		if sec.LibraryID == 0 && (sec.ID == int(frontend.LibraryMovies) || sec.ID == int(frontend.LibraryShows)) {
+			sec.LibraryID = frontend.LibraryID(sec.ID)
 		}
 		out[i] = s.sectionDefaults(sec)
 	}

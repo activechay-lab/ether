@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
@@ -31,7 +30,7 @@ const (
 
 // ownerViewer is the synthetic viewer used to enumerate every published
 // library, independent of any client. An owner sees all libraries.
-func ownerViewer() *core.Viewer { return &core.User{IsOwner: true} }
+func ownerViewer() *frontend.Viewer { return &frontend.User{IsOwner: true} }
 
 // publishedKindSections returns one Section per Plex-published plugin or
 // filter library, from the Experience's view list. It is the only place a
@@ -60,7 +59,7 @@ func (s *Server) publishedKindSections(ctx context.Context) []Section {
 			ID:        id,
 			Type:      frontend.MediaType(base),
 			Title:     v.Name,
-			LibraryID: core.LibraryID(id),
+			LibraryID: frontend.LibraryID(id),
 			PluginID:  v.PluginID,
 			KindKey:   v.KindKey,
 		})
@@ -108,40 +107,18 @@ func mergeKindSections(base []Section, extra []Section) []Section {
 }
 
 // sectionForLibrary returns the section for a library id (spec §6.4).
-func (s *Server) sectionForLibrary(id core.LibraryID) (Section, bool) {
+func (s *Server) sectionForLibrary(id frontend.LibraryID) (Section, bool) {
 	for _, sec := range s.withLibraryTitles(s.getSections()) {
-		if sec.LibraryID == id || core.LibraryID(sec.ID) == id {
+		if sec.LibraryID == id || frontend.LibraryID(sec.ID) == id {
 			return sec, true
 		}
 	}
 	return Section{}, false
 }
 
-// sectionForItem returns the section an item lives in (spec §6.4). inSection
-// is the section the current listing is scoped to; 0 means "no section
-// context", where the item's canonical library is used.
-func (s *Server) sectionForItem(t *frontend.Title, inSection int) (Section, bool) {
-	if inSection != 0 {
-		if sec, ok := s.sectionByID(inSection); ok {
-			return sec, true
-		}
-	}
-	if t == nil {
-		return Section{}, false
-	}
-	if t.Key.IsPluginKey() {
-		// A plugin item has no catalogue section; without listing context its
-		// canonical section is its own plugin library, which the caller must
-		// supply via inSection. Callers that cannot answer return none rather
-		// than guess a built-in section from the projected type.
-		return Section{}, false
-	}
-	return s.sectionFor(t.Type)
-}
-
 // isKindSection reports whether sec is a plugin or filter library section,
 // i.e. one whose items come from the Experience's plugin store rather than
 // the TMDB catalogue.
 func isKindSection(sec Section) bool {
-	return sec.LibraryID != core.LibraryMovies && sec.LibraryID != core.LibraryShows && sec.LibraryID != 0
+	return sec.LibraryID != frontend.LibraryMovies && sec.LibraryID != frontend.LibraryShows && sec.LibraryID != 0
 }
