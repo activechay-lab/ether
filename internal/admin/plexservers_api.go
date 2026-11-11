@@ -17,6 +17,7 @@ type PlexServers interface {
 	ViewerServers(ctx context.Context, userID int64) ([]plexwatch.PMSViewerMapping, error)
 	Add(ctx context.Context, name, baseURL, token string) (plexwatch.PMSServer, error)
 	Update(ctx context.Context, id int64, name, baseURL, token string) (plexwatch.PMSServer, error)
+	SetStepAside(ctx context.Context, id int64, stepAside bool) (plexwatch.PMSServer, error)
 	Remove(ctx context.Context, id int64) error
 	Accounts(ctx context.Context, id int64) ([]plexwatch.PMSAccount, error)
 	MapAccount(ctx context.Context, id, accountID int64, in plexwatch.PMSMappingInput) (plexwatch.PMSServer, error)
@@ -37,6 +38,7 @@ func (h *Handler) plexServerRoutes(api func(string, http.HandlerFunc)) {
 	api("GET /api/plex-servers", h.handlePlexServers)
 	api("POST /api/plex-servers", h.handlePlexServerAdd)
 	api("PUT /api/plex-servers/{id}", h.handlePlexServerUpdate)
+	api("PUT /api/plex-servers/{id}/step-aside", h.handlePlexServerStepAside)
 	api("DELETE /api/plex-servers/{id}", h.handlePlexServerRemove)
 	api("GET /api/plex-servers/{id}/accounts", h.handlePlexServerAccounts)
 	api("PUT /api/plex-servers/{id}/accounts/{account}", h.handlePlexServerMap)
@@ -142,6 +144,27 @@ func (h *Handler) handlePlexServerUpdate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	srv, err := h.deps.PlexServers.Update(r.Context(), id, body.Name, body.URL, body.Token)
+	if err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, srv)
+}
+
+func (h *Handler) handlePlexServerStepAside(w http.ResponseWriter, r *http.Request) {
+	id, ok := pmsPathID(r, "id")
+	if !ok {
+		h.plexServerError(w, core.ErrNotFound)
+		return
+	}
+	var body struct {
+		StepAside bool `json:"stepAside"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	srv, err := h.deps.PlexServers.SetStepAside(r.Context(), id, body.StepAside)
 	if err != nil {
 		h.plexServerError(w, err)
 		return

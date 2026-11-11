@@ -60,6 +60,17 @@ func (m *mockPlexServers) MapAccount(ctx context.Context, id, accountID int64, i
 func (m *mockPlexServers) SyncNow(ctx context.Context, id int64) (plexwatch.PMSServer, error) {
 	return plexwatch.PMSServer{}, nil
 }
+func (m *mockPlexServers) SetStepAside(ctx context.Context, id int64, stepAside bool) (plexwatch.PMSServer, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.servers {
+		if m.servers[i].ID == id {
+			m.servers[i].StepAside = stepAside
+			return m.servers[i], nil
+		}
+	}
+	return plexwatch.PMSServer{ID: id, StepAside: stepAside}, nil
+}
 func (m *mockPlexServers) Unmatched(ctx context.Context, id, userID int64, after string) ([]plexwatch.PMSUnmatched, error) {
 	return nil, nil
 }

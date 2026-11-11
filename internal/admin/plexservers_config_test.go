@@ -152,3 +152,62 @@ func TestViewerPlexServersEndpoint(t *testing.T) {
 		t.Fatalf("backfill status = %+v", srv.Viewers[0])
 	}
 }
+
+func TestPlexServerStepAsideEndpoint(t *testing.T) {
+	cfgStore := newStore(t, func(c *config.Config) {
+		seededConfig(c)
+		c.SetupComplete = true
+	})
+	db := store.OpenTest(t)
+	st := state.New(db, state.Options{})
+	svc, err := plexwatch.NewServers(plexwatch.ServersOptions{
+		DB:     db,
+		State:  st,
+		Sealer: cfgStore,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+
+	if _, err := db.Exec(`INSERT INTO plexwatch_pms(id,name,base_url,token,machine_id,problem) VALUES
+		(1,'Living room PMS','http://127.0.0.1:1','secret-srv-1','m1','')`); err != nil {
+		t.Fatal(err)
+	}
+
+	h := admin.NewHandler(admin.Deps{
+		Config:       cfgStore,
+		IsOwnerToken: storedOwner(cfgStore),
+		PlexServers:  svc,
+	})
+
+	if res := serve(h, req(http.MethodPut, "/ether/api/plex-servers/1/step-aside", `{"stepAside":true}`)); res.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth status = %d", res.Code)
+	}
+
+	r := req(http.MethodPut, "/ether/api/plex-servers/999/step-aside", `{"stepAside":true}`)
+	r.Header.Set("X-Plex-Token", ownerToken)
+	if res := serve(h, r); res.Code != http.StatusNotFound {
+		t.Fatalf("missing server status = %d: %s", res.Code, res.Body.String())
+	}
+
+	for _, want := range []bool{true, false} {
+		body := `{"stepAside":false}`
+		if want {
+			body = `{"stepAside":true}`
+		}
+		r := req(http.MethodPut, "/ether/api/plex-servers/1/step-aside", body)
+		r.Header.Set("X-Plex-Token", ownerToken)
+		res := serve(h, r)
+		if res.Code != http.StatusOK {
+			t.Fatalf("put stepAside=%v: %d %s", want, res.Code, res.Body.String())
+		}
+		var srv plexwatch.PMSServer
+		if err := json.Unmarshal(res.Body.Bytes(), &srv); err != nil {
+			t.Fatal(err)
+		}
+		if srv.StepAside != want {
+			t.Fatalf("got stepAside=%v, want %v", srv.StepAside, want)
+		}
+	}
+}

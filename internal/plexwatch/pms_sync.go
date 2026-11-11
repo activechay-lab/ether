@@ -76,7 +76,7 @@ func (s *Servers) Run(ctx context.Context) {
 	}
 }
 
-// RunOnce syncs up to pmsDuePerTick due mappings.
+// RunOnce syncs up to pmsDuePerTick due mappings and step-aside inventories.
 func (s *Servers) syncEnabled() bool { return s.enabled == nil || s.enabled() }
 
 func (s *Servers) RunOnce(ctx context.Context) {
@@ -106,12 +106,15 @@ func (s *Servers) RunOnce(ctx context.Context) {
 			s.log.Info("plex media server sync paused", "server", d.server, "account", d.account, "err", err.Error())
 		}
 	}
+	s.runDueHeld(ctx)
 }
 
-// SyncNow runs every mapping of one server now. A server that asked Ether
-// to wait (HTTP 429) is still left alone until it said.
+// SyncNow runs every mapping of one server now (and its step-aside inventory
+// when enabled). A server that asked Ether to wait (HTTP 429) is still left
+// alone until it said.
 func (s *Servers) SyncNow(ctx context.Context, id int64) (PMSServer, error) {
-	if _, err := s.loadServer(ctx, id); err != nil {
+	srv, err := s.loadServer(ctx, id)
+	if err != nil {
 		return PMSServer{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT account_id FROM plexwatch_pms_viewer WHERE server_id=? AND direction<>0 ORDER BY account_id`, id)
@@ -131,7 +134,17 @@ func (s *Servers) SyncNow(ctx context.Context, id int64) (PMSServer, error) {
 			return PMSServer{}, err
 		}
 	}
+	if srv.stepAside {
+		if err := s.syncHeld(ctx, id); err != nil && ctx.Err() != nil {
+			return PMSServer{}, err
+		}
+	}
 	return s.Server(ctx, id)
+}
+
+type pmsCachedItem struct {
+	ratingKey core.RatingKey
+	checkedAt int64
 }
 
 type pmsPair struct {
@@ -158,6 +171,7 @@ type pmsPair struct {
 	sections                    []pmsSection
 	sectionsLoaded              bool
 	pulled, pushed              bool
+	items                       map[int64]pmsCachedItem
 }
 
 func (s *Servers) syncPair(ctx context.Context, serverID, accountID int64) error {
@@ -329,8 +343,12 @@ func (s *Servers) finishPair(ctx context.Context, p *pmsPair, err error) error {
 		return e
 	}
 	if isStatus && st.Status == http.StatusTooManyRequests {
-		// One server's limit covers every account it serves.
+		// One server's limit covers every account and inventory pass it serves.
 		if _, e := s.db.ExecContext(ctx, `UPDATE plexwatch_pms_viewer SET next_allowed=CASE WHEN next_allowed<? THEN ? ELSE next_allowed END WHERE server_id=?`,
+			nextAllowed, nextAllowed, p.serverID); e != nil {
+			return e
+		}
+		if _, e := s.db.ExecContext(ctx, `UPDATE plexwatch_pms SET held_next_allowed=CASE WHEN held_next_allowed<? THEN ? ELSE held_next_allowed END WHERE id=?`,
 			nextAllowed, nextAllowed, p.serverID); e != nil {
 			return e
 		}
@@ -910,6 +928,12 @@ func (s *Servers) keyFromMetadata(ctx context.Context, p *pmsPair, md pmsMetadat
 			return 0, "no_match", nil
 		}
 		return k, "", err
+	case "show":
+		k, err := s.keyFromIDs(ctx, pmsIDs(md), core.TypeShow)
+		if k == 0 && err == nil {
+			return 0, "no_match", nil
+		}
+		return k, "", err
 	case "episode":
 		season, episode := int(md.ParentIndex), int(md.Index)
 		if show := md.showKey(); show > 0 && episodeNumbersFit(season, episode) {
@@ -943,12 +967,28 @@ func (s *Servers) keyFromMetadata(ctx context.Context, p *pmsPair, md pmsMetadat
 
 // showKey maps a PMS show to an Ether show, cached like any item.
 func (s *Servers) showKey(ctx context.Context, p *pmsPair, pmsShow int64) (core.RatingKey, error) {
+	if p.items != nil {
+		if item, ok := p.items[pmsShow]; ok {
+			if item.ratingKey > 0 {
+				return item.ratingKey, nil
+			}
+			if s.now().Sub(time.Unix(item.checkedAt, 0)) < pmsNoMatchRetry {
+				return 0, nil
+			}
+		}
+	}
 	var cached, checked int64
 	err := s.db.QueryRowContext(ctx, `SELECT rating_key,checked_at FROM plexwatch_pms_item WHERE server_id=? AND pms_key=?`, p.serverID, pmsShow).Scan(&cached, &checked)
 	switch {
 	case err == nil && cached > 0:
+		if p.items != nil {
+			p.items[pmsShow] = pmsCachedItem{ratingKey: core.RatingKey(cached), checkedAt: checked}
+		}
 		return core.RatingKey(cached), nil
 	case err == nil && s.now().Sub(time.Unix(checked, 0)) < pmsNoMatchRetry:
+		if p.items != nil {
+			p.items[pmsShow] = pmsCachedItem{checkedAt: checked}
+		}
 		return 0, nil
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return 0, err
@@ -966,9 +1006,13 @@ func (s *Servers) showKey(ctx context.Context, p *pmsPair, pmsShow int64) (core.
 			return 0, err
 		}
 	}
+	checked = s.now().Unix()
 	_, err = s.db.ExecContext(ctx, `INSERT INTO plexwatch_pms_item(server_id,pms_key,rating_key,checked_at) VALUES(?,?,?,?)
 		ON CONFLICT(server_id,pms_key) DO UPDATE SET rating_key=excluded.rating_key,checked_at=excluded.checked_at`,
-		p.serverID, pmsShow, int64(k), s.now().Unix())
+		p.serverID, pmsShow, int64(k), checked)
+	if err == nil && p.items != nil {
+		p.items[pmsShow] = pmsCachedItem{ratingKey: k, checkedAt: checked}
+	}
 	return k, err
 }
 
@@ -1008,7 +1052,12 @@ func pmsIDs(md pmsMetadata) []pmsID {
 	return out
 }
 
+type storedTitleCatalog interface {
+	StoredTitle(ctx context.Context, key core.RatingKey) (*core.Title, error)
+}
+
 func (s *Servers) keyFromIDs(ctx context.Context, ids []pmsID, typ core.MediaType) (core.RatingKey, error) {
+	stored, hasStored := s.catalog.(storedTitleCatalog)
 	for _, id := range ids {
 		if id.source == "tmdb" {
 			n, err := strconv.ParseInt(id.value, 10, 64)
@@ -1021,6 +1070,17 @@ func (s *Servers) keyFromIDs(ctx context.Context, ids []pmsID, typ core.MediaTyp
 			}
 			if s.catalog == nil {
 				return k, nil
+			}
+			if hasStored {
+				if st, serr := stored.StoredTitle(ctx, k); serr == nil && st != nil {
+					if st.Adult {
+						continue
+					}
+					if st.Type == typ {
+						return k, nil
+					}
+					continue
+				}
 			}
 			t, err := s.catalog.Get(ctx, k)
 			if errors.Is(err, core.ErrNotFound) {
