@@ -34,10 +34,10 @@ func TestHydrateAndVisibilityDoNotRepeatFacets(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c, err := New(db, nil, config.Catalog{Exclusions: []core.LibraryExclusion{{
+	c, err := New(db, nil, config.Catalog{}, nil, WithLibraryPolicies(testPolicies([]core.LibraryExclusion{{
 		Name: "hide missing genre", MediaType: "movie", Match: "all", Action: "hide",
 		Rules: []core.CollectionRule{{Field: "genre", Op: "is", Value: []byte(`"Missing"`)}},
-	}}}, nil)
+	}}, "")))
 	if err != nil {
 		t.Fatal(err)
 	}

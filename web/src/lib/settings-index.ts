@@ -72,7 +72,8 @@ export function settingsIndex(): SettingHit[] {
   const general = t("General");
   const quality = t("Quality");
   const playback = t("Playback");
-  const catalog = t("Library settings");
+  const moviesSettings = t("Movies · Settings");
+  const viewers = t("Viewers");
   const plex = "Plex";
   const away = t("Away from home");
   return [
@@ -146,11 +147,20 @@ export function settingsIndex(): SettingHit[] {
       plex,
     ),
     ...groupHits(S.DOWNLOADS, "/apps/plex/downloads", plex),
-    // Catalog
-    ...groupHits(S.CATALOG, "/libraries/settings", catalog),
-    ...groupHits([UpcomingEpisodeSettings], "/libraries/settings", catalog),
-    ...rows("/libraries/settings", catalog, [
+    // Libraries (TMDB source & per-library new releases)
+    ...groupHits(S.CATALOG, "/libraries/1/settings", moviesSettings),
+    ...groupHits([UpcomingEpisodeSettings], "/libraries/1/settings", moviesSettings),
+    ...rows("/libraries/1/settings", moviesSettings, [
       ["hide-obscure-titles", t("Hide obscure titles")],
+    ]),
+    ...rows("/libraries/1/settings", `${moviesSettings} › ${t("New releases")}`, [
+      ["when-they-can-play", t("When they can play")],
+      ["on-digital-release", t("On digital release")],
+      ["home-release-offset", t("Home-release offset (days)")],
+      ["right-away", t("Right away")],
+    ]),
+    // Viewers (Watchlist monitoring)
+    ...rows("/viewers", viewers, [
       ["watchlist-monitoring", t("Watchlist monitoring")],
       ["plex-watchlists", t("Plex watchlists")],
       ["trakt-watchlists", t("Trakt watchlists")],
@@ -158,12 +168,6 @@ export function settingsIndex(): SettingHit[] {
       ["plex-friends-watchlist-rss", t("Friends' Watchlist RSS")],
       ["plex-your-watchlist-rss", t("Your Watchlist RSS")],
       ["check-every", t("Check every")],
-    ]),
-    ...rows("/libraries/settings", `${catalog} › ${t("New releases")}`, [
-      ["when-they-can-play", t("When they can play")],
-      ["on-digital-release", t("On digital release")],
-      ["home-release-offset", t("Home-release offset (days)")],
-      ["right-away", t("Right away")],
     ]),
     // Sources
     ...groupHits(S.DEBRID, "/sources/debrid", t("Debrid"), () => "debrid"),

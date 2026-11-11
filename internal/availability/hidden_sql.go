@@ -234,8 +234,8 @@ func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter,
 		return f, nil
 	}
 	input := s.snapshotFor(ctx)
-	f.DigitalDiscovery = input.availability.EffectiveMode() == config.ModeDigital
-	f.DigitalDateEvidence = input.availability.DigitalDateEvidence
+	f.DigitalDiscovery = input.availability.ModeFor("movie") == config.ModeDigital
+	f.DigitalDateEvidence = input.availability.DigitalDateEvidence || f.DigitalDiscovery
 	if f.DigitalDateEvidence {
 		f.HomeReleaseOffsetDays = input.availability.HomeReleaseOffsetDays
 	}
@@ -256,13 +256,13 @@ func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter,
 		return f, nil
 	}
 	var kinds []string
-	if f.Type != core.TypeMovie {
+	if f.Type != core.TypeMovie && input.availability.ShowMode != config.ModeImmediate {
 		kinds = append(kinds, hiddenShows)
 	}
-	if (f.Type == "" || f.Type == core.TypeMovie) && (f.DigitalDiscovery || !input.availability.DisableMovieEvidenceGate) {
+	if (f.Type == "" || f.Type == core.TypeMovie) && !movieImmediate(input.availability) {
 		kinds = append(kinds, hiddenMovies)
 	}
-	if f.Type == core.TypeEpisode {
+	if f.Type == core.TypeEpisode && input.availability.ShowMode != config.ModeImmediate {
 		kinds = append(kinds, hiddenEpisodes)
 	}
 	for _, kind := range kinds {

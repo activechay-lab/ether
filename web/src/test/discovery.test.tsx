@@ -128,9 +128,9 @@ function metadataRoutes() {
   };
 }
 
-describe("Watchlists (Catalog settings)", () => {
+describe("Watchlists (Viewers)", () => {
   it("starts monitoring and notifications off and saves opt-in settings in place", async () => {
-    const { fake } = renderAppWith("/catalog/settings", discoveryRoutes());
+    const { fake } = renderAppWith("/viewers", discoveryRoutes());
     const enabled = await screen.findByLabelText("Watchlist monitoring", {}, WAIT);
     expect(enabled).not.toBeChecked();
     expect(screen.getByLabelText("Tell me too")).not.toBeChecked();
@@ -155,7 +155,7 @@ describe("Watchlists (Catalog settings)", () => {
   });
 
   it("saves Plex Friends' Watchlist RSS URLs, redacts them on reload, and shows shared-row status", async () => {
-    const { fake } = renderAppWith("/catalog/settings", discoveryRoutes({ enabled: true }));
+    const { fake } = renderAppWith("/viewers", discoveryRoutes({ enabled: true }));
     const friendsRss = await screen.findByLabelText("Friends' Watchlist RSS", {}, WAIT);
     expect(
       screen.getByText(

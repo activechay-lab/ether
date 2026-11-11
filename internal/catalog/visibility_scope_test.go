@@ -58,7 +58,7 @@ func TestVisibilityScopeDiscoveryOnlyKeepsSearchAndLookup(t *testing.T) {
 		{core.VisibilityEverywhere, false},
 		{"", false}, // saved rules without a scope keep hiding everywhere
 	} {
-		c.UpdateConfig(config.Catalog{Exclusions: onlyUS(tc.scope)})
+		setTestPolicies(t, c, onlyUS(tc.scope), "")
 
 		// Discovery: library browse, hub rows, New Releases and Trending
 		// (browse SQL), recommendations (FilterVisibility), Visible.
@@ -126,10 +126,10 @@ func TestVisibilityDefaultHideAppliesToBrowse(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c.UpdateConfig(config.Catalog{VisibilityDefault: "hide", Exclusions: []core.LibraryExclusion{{
+	setTestPolicies(t, c, []core.LibraryExclusion{{
 		Action: "show", MediaType: "mixed", Match: "all",
 		Rules: []core.CollectionRule{{Field: "country", Op: "in", Value: json.RawMessage(`["US"]`)}},
-	}}})
+	}}, "hide")
 	page, err := c.Browse(ctx, core.BrowseQuery{})
 	if err != nil {
 		t.Fatal(err)

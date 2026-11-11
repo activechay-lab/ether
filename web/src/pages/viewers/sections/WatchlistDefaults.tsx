@@ -130,7 +130,7 @@ function FeedStatusLine({ status, sharedSet }: { status?: RSSFeedStatus; sharedS
   );
 }
 
-/** Server-wide watchlist monitoring, edited in place on Library settings. */
+/** Server-wide watchlist monitoring, edited in place on Viewers. */
 export function WatchlistAlerts() {
   const s = useDiscoverySettings();
   const [syncingRss, setSyncingRss] = useState(false);
@@ -327,7 +327,7 @@ export function WarmNewArrivals() {
         <SettingsRow
           title={<label htmlFor="watchlist-prewarm">{t("Warm up new arrivals")}</label>}
           description={t(
-            "Fetch the opening minutes as soon as a title becomes available, so it starts quickly. Needs watchlist monitoring in Library settings.",
+            "Fetch the opening minutes as soon as a title becomes available, so it starts quickly. Needs watchlist monitoring in Viewers.",
           )}
           control={
             <Switch

@@ -21,11 +21,11 @@ func TestCatalogMatchesInstalledPolicyConfig(t *testing.T) {
 	if !ok || !evidence.Current() {
 		t.Fatal("initial evidence missing")
 	}
-	invalid := initial
-	invalid.Exclusions = []core.LibraryExclusion{{Name: "invalid", MediaType: "invalid"}}
-	c.UpdateConfig(invalid)
-	if c.MatchesConfig(invalid) || !c.MatchesConfig(initial) {
-		t.Fatal("rejected config was reported installed")
+	if err := c.SetLibraryPolicies(LibraryPolicies{MovieRules: []core.LibraryExclusion{{Name: "invalid", MediaType: "invalid"}}}); err == nil {
+		t.Fatal("expected invalid library policy to be rejected")
+	}
+	if !evidence.Current() || !c.MatchesConfig(initial) {
+		t.Fatal("rejected library policy invalidated current evidence")
 	}
 	next := initial
 	next.ReleaseMode = config.ModeDigital
@@ -37,20 +37,29 @@ func TestCatalogMatchesInstalledPolicyConfig(t *testing.T) {
 	if evidence.Current() {
 		t.Fatal("config A-B-A revived old evidence")
 	}
-	if fresh, ok := c.CaptureConfigEvidence(initial); !ok || !fresh.Current() {
+	fresh, ok := c.CaptureConfigEvidence(initial)
+	if !ok || !fresh.Current() {
 		t.Fatal("fresh evidence missing")
+	}
+	if err := c.SetLibraryPolicies(LibraryPolicies{MovieDefault: "hide"}); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Current() {
+		t.Fatal("SetLibraryPolicies did not invalidate prior evidence")
 	}
 }
 
 func TestCatalogConfigDoesNotAliasCallerRules(t *testing.T) {
+	pol := LibraryPolicies{MovieRules: []core.LibraryExclusion{{Name: "country", MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "country", Op: "is", Value: []byte(`"US"`)}}}}}
 	cfg := config.Catalog{Exclusions: []core.LibraryExclusion{{Name: "country", MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "country", Op: "is", Value: []byte(`"US"`)}}}}}
 	expected := cloneCatalogConfig(cfg)
-	c, err := New(store.OpenTest(t), nil, cfg, nil)
+	c, err := New(store.OpenTest(t), nil, cfg, nil, WithLibraryPolicies(pol))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg.Exclusions[0].Rules[0].Value[1] = 'X'
-	if !c.MatchesConfig(expected) {
+	pol.MovieRules[0].Rules[0].Value[1] = 'X'
+	if !c.MatchesConfig(expected) || c.LibraryPolicies().MovieRules[0].Rules[0].Value[1] != 'U' {
 		t.Fatal("constructor retained caller-owned rule bytes")
 	}
 	c.UpdateConfig(expected)

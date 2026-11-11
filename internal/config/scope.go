@@ -285,7 +285,7 @@ func toDoc(c Config) map[string]any {
 }
 
 func syncDerived(c *Config) {
-	c.Catalog.ReleaseMode = c.Availability.EffectiveMode()
+	c.Catalog.ReleaseMode = c.Availability.ModeFor("movie")
 	c.Catalog.HomeReleaseOffsetDays = c.Availability.HomeReleaseOffsetDays
 }
 

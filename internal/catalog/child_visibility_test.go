@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
@@ -48,6 +47,6 @@ func TestEpisodePolicyCountAndPages(t *testing.T) {
 	check([]core.RatingKey{core.EpisodeKey(101, 1, 1), core.EpisodeKey(101, 1, 3)})
 	// A mixed catalogue rule applies to the show, not its episodes.
 	policy.ExcludeKeywords = nil
-	c.UpdateConfig(config.Catalog{Exclusions: []core.LibraryExclusion{{MediaType: "mixed", Match: "all", Rules: []core.CollectionRule{{Field: "keyword", Op: "in", Value: json.RawMessage(`["blocked"]`)}}}}})
+	setTestPolicies(t, c, []core.LibraryExclusion{{MediaType: "mixed", Match: "all", Rules: []core.CollectionRule{{Field: "keyword", Op: "in", Value: json.RawMessage(`["blocked"]`)}}}}, "")
 	check([]core.RatingKey{core.EpisodeKey(101, 1, 1), core.EpisodeKey(101, 1, 3), core.EpisodeKey(101, 1, 4)})
 }

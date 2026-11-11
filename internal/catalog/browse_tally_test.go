@@ -179,6 +179,7 @@ func TestBrowseTallyTotalsMatchPages(t *testing.T) {
 		t.Helper()
 		for ci, cfg := range configs {
 			c.UpdateConfig(cfg)
+			setTestPolicies(t, c, cfg.Exclusions, cfg.VisibilityDefault)
 			for fi, f := range filters {
 				ff := c.viewerPaging(ctx, f)
 				where, args, err := c.browseWhere(ff)

@@ -94,9 +94,12 @@ type Filter struct {
 	HiddenEpisodeSeq int64 `json:"-"`
 	// ChildVisibility is the viewer policy evaluated on hydrated episodes.
 	ChildVisibility *Filter            `json:"-"`
-	RuleVisibility  string             `json:"-"` // owner-only rules browser: hidden or shown
-	PreviewRules    []LibraryExclusion `json:"-"`
-	PreviewFallback string             `json:"-"`
+	RuleVisibility          string             `json:"-"` // owner-only rules browser: hidden, shown or all
+	ApplyCanonicalInPreview bool               `json:"-"` // filter-library rules preview keeps canonical rules
+	PreviewRules            []LibraryExclusion `json:"-"`
+	PreviewFallback         string             `json:"-"`
+	ExtraRules              []LibraryExclusion `json:"-"` // saved rules on a filter library
+	ExtraFallback           string             `json:"-"`
 	KnownAddedDate  bool               `json:"-"` // only released/aired titles, before pagination
 	// ExcludeKeys applies local visibility policy before counting and pagination.
 	ExcludeKeys []RatingKey `json:"-"`

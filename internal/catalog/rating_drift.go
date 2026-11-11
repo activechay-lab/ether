@@ -84,7 +84,9 @@ func (c *Catalog) ratingCuts() ratingCuts {
 			}
 		}
 	}
-	add(cfg.Exclusions)
+	pol := c.LibraryPolicies()
+	add(pol.MovieRules)
+	add(pol.ShowRules)
 	c.viewerRules.RLock()
 	for _, v := range c.viewerRules.entries {
 		add(v.document.Exclusions)

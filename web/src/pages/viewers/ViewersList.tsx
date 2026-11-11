@@ -29,6 +29,7 @@ import type { EtherUser } from "../../lib/types";
 import { pagedTableLabels } from "../../i18n/appkit-labels";
 import { isActiveViewer, isPlexSource, LifecycleBadges, lifecycleOf } from "./lifecycle";
 import { AddViewerDrawer } from "./ManageViewers";
+import { WatchlistAlerts } from "./sections/WatchlistDefaults";
 import { PlexAccessNote } from "./ViewerStatus";
 
 type PeopleFilter = "all" | "active" | "paused" | "plex";
@@ -71,7 +72,10 @@ export default function ViewersList() {
         </div>
       }
     >
-      <People key={version} />
+      <div className="space-y-6">
+        <People key={version} />
+        <WatchlistAlerts />
+      </div>
       <AddViewerDrawer
         open={adding}
         onClose={() => setAdding(false)}

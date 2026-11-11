@@ -1,4 +1,5 @@
 import { apiFetch } from "../../lib/api";
+import type { VisibilityRule } from "./browser/LibraryVisibility";
 
 /** Owner API shapes for /libraries and /plugins-setup (spec §11). */
 
@@ -57,6 +58,8 @@ export interface Library {
   pluginId?: string;
   kindKey?: string;
   filter?: Record<string, unknown>;
+  rules?: VisibilityRule[];
+  visibilityDefault?: string;
   present?: Presentations;
   sort: number;
   hidden: boolean;
@@ -132,6 +135,14 @@ export interface PluginSetup {
   libraries: Library[];
 }
 
+export interface PluginLibrarySource {
+  pluginId: string;
+  pluginName: string;
+  summary?: string;
+  kinds: MediaKind[];
+  libraries: Library[];
+}
+
 export const librariesApi = {
   list: (signal?: AbortSignal) =>
     apiFetch<{ libraries: Library[] }>("/libraries", { signal }).then((r) => r.libraries),
@@ -191,6 +202,14 @@ export const librariesApi = {
     apiFetch<LibraryCache>(`/libraries/${id}/cache/sweep`, { method: "POST" }),
   purgeCache: (id: number) =>
     apiFetch<LibraryCache>(`/libraries/${id}/cache/purge`, { method: "POST" }),
+  listPluginSources: (signal?: AbortSignal) =>
+    apiFetch<{ plugins: PluginLibrarySource[] }>("/plugins-setup", { signal }).then(
+      (r) => r.plugins ?? [],
+    ),
+  ensurePluginSetup: (plugin: string) =>
+    apiFetch<PluginSetup>(`/plugins-setup/${encodeURIComponent(plugin)}/ensure`, {
+      method: "POST",
+    }),
   setup: (plugin: string, signal?: AbortSignal) =>
     apiFetch<PluginSetup>(`/plugins-setup/${encodeURIComponent(plugin)}`, { signal }),
   librarySetup: (id: number, signal?: AbortSignal) =>

@@ -70,6 +70,7 @@ func testSearchCandidates(t *testing.T, indexed bool) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c.UpdateConfig(tc.cfg)
+			setTestPolicies(t, c, tc.cfg.Exclusions, tc.cfg.VisibilityDefault)
 			if got := c.policyFacts(c.visibilityFor(ctx)); got != tc.window {
 				t.Fatalf("window facts %b, want %b", got, tc.window)
 			}

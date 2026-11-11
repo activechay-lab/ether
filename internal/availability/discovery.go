@@ -53,6 +53,10 @@ func EvidenceWindow(t core.Title, now time.Time) bool {
 	return evidenceWindow(t, now, config.Availability{})
 }
 
+func movieImmediate(cfg config.Availability) bool {
+	return cfg.ModeFor("movie") == config.ModeImmediate || (cfg.MovieMode == "" && cfg.EffectiveMode() != config.ModeDigital && cfg.DisableMovieEvidenceGate)
+}
+
 func evidenceWindow(t core.Title, now time.Time, cfg config.Availability) bool {
 	if t.Released.IsZero() || t.Key.Kind() == core.KindLocal {
 		return false
@@ -60,13 +64,14 @@ func evidenceWindow(t core.Title, now time.Time, cfg config.Availability) bool {
 	age := now.Sub(t.Released)
 	switch t.Type {
 	case core.TypeMovie:
-		if cfg.EffectiveMode() == config.ModeDigital {
+		mode := cfg.ModeFor("movie")
+		if mode == config.ModeDigital {
 			adm := catalogHomeReleaseAdmission(t.HomeReleased, cfg.HomeReleaseOffsetDays)
 			return adm.IsZero() || now.Sub(adm) < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 		}
-		return !cfg.DisableMovieEvidenceGate && age < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
+		return !movieImmediate(cfg) && age < time.Duration(cfg.EffectiveMovieEvidenceDays())*24*time.Hour
 	case core.TypeEpisode, core.TypeShow:
-		return age < episodeEvidence
+		return cfg.ShowMode != config.ModeImmediate && age < episodeEvidence
 	}
 	return false
 }
@@ -79,7 +84,11 @@ const episodeEvidence = 24 * time.Hour
 // FilterDiscovery keeps an episode without looking for evidence, at the
 // clock the request's later FilterDiscovery calls use.
 func (s *Service) EpisodesSettledBefore(ctx context.Context) time.Time {
-	return s.snapshotFor(ctx).now.Add(-episodeEvidence)
+	snap := s.snapshotFor(ctx)
+	if snap.availability.ShowMode == config.ModeImmediate {
+		return snap.now
+	}
+	return snap.now.Add(-episodeEvidence)
 }
 
 // FilterDiscovery reads local observations only. A feed listing establishes
@@ -97,7 +106,7 @@ func (s *Service) filterReleaseDiscovery(ctx context.Context, items []core.Title
 	if len(keys) == 0 {
 		return items
 	}
-	if input.availability.EffectiveMode() == config.ModeDigital {
+	if input.availability.ModeFor("movie") == config.ModeDigital {
 		var movies []core.RatingKey
 		var rest []core.Title
 		for _, t := range items {
@@ -108,7 +117,7 @@ func (s *Service) filterReleaseDiscovery(ctx context.Context, items []core.Title
 			}
 		}
 		acceptable := map[core.RatingKey]bool{}
-		if input.availability.DigitalDateEvidence {
+		if input.availability.DigitalDateEvidence || input.availability.ModeFor("movie") == config.ModeDigital {
 			s.acceptDigitalReleases(ctx, movies, input.now, input.availability.HomeReleaseOffsetDays, acceptable)
 		}
 		out := s.filterReleaseEvidence(ctx, rest, input)
@@ -193,13 +202,13 @@ func (s *Service) filterReleaseEvidence(ctx context.Context, items []core.Title,
 		}
 		rows.Close()
 	}
-	if input.availability.DigitalDateEvidence {
+	if input.availability.DigitalDateEvidence || input.availability.ModeFor("movie") == config.ModeDigital {
 		s.acceptDigitalReleases(ctx, keys, input.now, input.availability.HomeReleaseOffsetDays, acceptable)
 	}
 	// Close the cursor before policy checks, which may read the same database.
 	var pairs []feedPair
 	for _, o := range observations {
-		if input.availability.EffectiveMode() == config.ModeDigital && titles[o.key].Type == core.TypeMovie {
+		if input.availability.ModeFor("movie") == config.ModeDigital && titles[o.key].Type == core.TypeMovie {
 			continue
 		}
 		if acceptable[o.key] || (o.state == "unknown" && o.revision > 0) || o.state == "unavailable" {
@@ -239,7 +248,7 @@ func (s *Service) filterReleaseEvidence(ctx context.Context, items []core.Title,
 // mirror only. No per-title provider lookup or historical catalogue walk occurs.
 func (s *Service) HiddenMovies(ctx context.Context) []core.RatingKey {
 	input := s.snapshotFor(ctx)
-	if input.availability.DisableMovieEvidenceGate {
+	if movieImmediate(input.availability) {
 		return nil
 	}
 	return s.hidden(ctx, hiddenMovies, input)
@@ -248,17 +257,26 @@ func (s *Service) HiddenMovies(ctx context.Context) []core.RatingKey {
 // DigitalDiscovery reports the discovery policy for the current request.
 func (s *Service) DigitalDiscovery(ctx context.Context) (bool, bool) {
 	a := s.snapshotFor(ctx).availability
-	return a.EffectiveMode() == config.ModeDigital, a.DigitalDateEvidence
+	digital := a.ModeFor("movie") == config.ModeDigital
+	return digital, a.DigitalDateEvidence || digital
 }
 
 // HiddenShows excludes first-day series before SQL pagination, just as movies.
 func (s *Service) HiddenShows(ctx context.Context) []core.RatingKey {
-	return s.hidden(ctx, hiddenShows, s.snapshotFor(ctx))
+	input := s.snapshotFor(ctx)
+	if input.availability.ShowMode == config.ModeImmediate {
+		return nil
+	}
+	return s.hidden(ctx, hiddenShows, input)
 }
 
 // HiddenEpisodes is the first-day episode evidence decision for SQL paging.
 func (s *Service) HiddenEpisodes(ctx context.Context) []core.RatingKey {
-	return s.hidden(ctx, hiddenEpisodes, s.snapshotFor(ctx))
+	input := s.snapshotFor(ctx)
+	if input.availability.ShowMode == config.ModeImmediate {
+		return nil
+	}
+	return s.hidden(ctx, hiddenEpisodes, input)
 }
 
 const (
@@ -272,7 +290,7 @@ const (
 func (s *Service) recent(ctx context.Context, kind string, input discoverySnapshot) ([]core.Title, bool, error) {
 	switch kind {
 	case hiddenMovies:
-		if input.availability.EffectiveMode() == config.ModeDigital {
+		if input.availability.ModeFor("movie") == config.ModeDigital {
 			if c, ok := s.d.Catalog.(interface {
 				DigitalEvidenceMovies(context.Context, time.Time) ([]core.Title, error)
 			}); ok {
@@ -433,11 +451,13 @@ func (s *Service) refreshHidden(kind string) {
 // warmHidden keeps sets current between requests.
 func (s *Service) warmHidden() {
 	input := s.discoverySnapshot()
-	if input.availability.EffectiveMode() == config.ModeDigital || !input.availability.DisableMovieEvidenceGate {
+	if !movieImmediate(input.availability) {
 		s.currentHidden(hiddenMovies, input)
 	}
-	s.currentHidden(hiddenShows, input)
-	s.currentHidden(hiddenEpisodes, input)
+	if input.availability.ShowMode != config.ModeImmediate {
+		s.currentHidden(hiddenShows, input)
+		s.currentHidden(hiddenEpisodes, input)
+	}
 }
 
 func (s *Service) computeHidden(ctx context.Context, kind string) {

@@ -1,69 +1,121 @@
-import { Button, EmptyState } from "@braedonsaunders/appkit-ui";
-import { ArrowLeft, ChevronRight, Layers, Plus } from "lucide-react";
-import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Button, toast } from "@braedonsaunders/appkit-ui";
+import { ArrowLeft, Plus } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useApp } from "../../app-context";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
 import { SubtabNav } from "../../components/layout";
+import { SaveBar, useDraft } from "../../components/SaveBar";
 import { LevelBadge } from "../../components/status";
 import { Workspace } from "../../components/workspace";
 import { t } from "../../i18n";
-import { api } from "../../lib/api";
+import { api, ApiError, errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
+import { isRuleComplete } from "../../lib/rules";
+import { asObj } from "../settings/SchemaForm";
 import { librariesApi, type Library } from "./api";
 import { CatalogBrowser } from "./browser/Catalog";
-import { CatalogSettings } from "./browser/CatalogSettings";
+import { RulesPanel, type VisibilityRule } from "./browser/LibraryVisibility";
 import { FilterLibraryEditor } from "./FilterLibraryEditor";
 import { LibrarySettings } from "./LibrarySettings";
 import { PluginBrowse } from "./PluginBrowse";
 
-/** Collections that apply to this library, deep-linking to the Studio drawer. */
-function LibraryCollections({ library }: { library: Library }) {
-  const collections = useAsync(() => api.collections(), []);
-  const type = library.mediaType || library.filter?.type;
-  const applicable = (collections.data ?? []).filter(
-    (c) => !type || c.mediaType === "mixed" || c.mediaType === type,
+interface RulesDraft {
+  rules: VisibilityRule[];
+  visibilityDefault: string;
+}
+
+function LibraryRulesTab({
+  library,
+  mediaType,
+  scopeFilter,
+  onSaved,
+}: {
+  library: Library;
+  mediaType: "movie" | "show";
+  scopeFilter?: Record<string, unknown>;
+  onSaved: () => void;
+}) {
+  const stored = useMemo<RulesDraft>(
+    () => ({
+      rules: library.rules ?? [],
+      visibilityDefault: library.visibilityDefault === "hide" ? "hide" : "show",
+    }),
+    [library.rules, library.visibilityDefault],
   );
-  if (collections.loading) return <LoadingRows />;
-  if (!applicable.length)
-    return (
-      <EmptyState
-        icon={<Layers size={22} aria-hidden />}
-        title={t("No collections for this library yet")}
-        description={t("Collections gather matching titles into rows and library tabs.")}
-        action={
-          <Link to="/collections/new">
-            <Button size="sm">
-              <Plus size={14} /> {t("New collection")}
-            </Button>
-          </Link>
-        }
-      />
-    );
+  const { draft, setDraft, dirty, reset } = useDraft<RulesDraft>(stored);
+  const config = useAsync(() => api.getConfig(), []);
+  const region = String(asObj(config.data?.catalog).region ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const rules = draft?.rules ?? stored.rules;
+  const fallback = draft?.visibilityDefault ?? stored.visibilityDefault;
+  const rulesReady = rules.every((g) => g.rules.length > 0 && g.rules.every(isRuleComplete));
+
+  const save = useCallback(async () => {
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await librariesApi.patch(library.id, {
+        rules: draft.rules,
+        visibilityDefault: draft.visibilityDefault,
+      });
+      toast.success(t("Settings saved"));
+      onSaved();
+    } catch (e) {
+      setError(e);
+      if (!(e instanceof ApiError)) toast.error(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, library.id, onSaved]);
+
+  const intro =
+    library.source === "filter"
+      ? mediaType === "show"
+        ? t("TV Shows rules apply first; rules here narrow this library further.")
+        : t("Movies rules apply first; rules here narrow this library further.")
+      : mediaType === "show"
+        ? t(
+            "Rules for TV Shows apply across every app and saved-filter TV library. Set viewer exceptions in Viewers.",
+          )
+        : t(
+            "Rules for Movies apply across every app and saved-filter movie library. Set viewer exceptions in Viewers.",
+          );
+
   return (
-    <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
-      {applicable.map((c) => (
-        <li key={c.id ?? c.name}>
-          <Link
-            to={c.id ? `/collections/${c.id}` : "/collections"}
-            className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-surface-hover"
-          >
-            <Layers size={16} className="shrink-0 text-fg-muted" aria-hidden />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-fg">{c.name}</span>
-              {c.description ? (
-                <span className="block truncate text-sm text-fg-muted">{c.description}</span>
-              ) : null}
-            </span>
-            <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <div className="catalog-scroll app-scroll">
+      <div className="mx-auto max-w-6xl space-y-4 px-5 pb-5 pt-4 lg:px-7">
+        <p className="text-sm text-fg-muted">{intro}</p>
+        <RulesPanel
+          libraryId={library.id}
+          mediaType={mediaType}
+          libraryFilter={scopeFilter}
+          rules={rules}
+          fallback={fallback}
+          region={region}
+          onRules={(next) => setDraft({ rules: next, visibilityDefault: fallback })}
+          onFallback={(value) => setDraft({ rules, visibilityDefault: value })}
+        />
+        <SaveBar
+          dirty={dirty}
+          saving={saving}
+          error={error}
+          disabled={dirty && !rulesReady}
+          onSave={() => void save()}
+          onDiscard={() => {
+            reset();
+            setError(null);
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
-/** One library: Browse · Collections · Rules · Settings (spec §11). */
+/** One library: Browse · Rules · Settings. */
 export function LibraryPage() {
   const { id: rawId, tab: rawTab } = useParams();
   const navigate = useNavigate();
@@ -94,11 +146,10 @@ export function LibraryPage() {
       </Workspace>
     );
 
-  const canCollections = lib.source !== "plugin";
+  const canRules = lib.source !== "plugin";
   const tabs = [
     { key: "browse", label: t("Browse") },
-    ...(canCollections ? [{ key: "collections", label: t("Collections") }] : []),
-    ...(canCollections ? [{ key: "rules", label: t("Rules") }] : []),
+    ...(canRules ? [{ key: "rules", label: t("Rules") }] : []),
     { key: "settings", label: t("Settings") },
   ];
   const tab = tabs.some((x) => x.key === rawTab) ? rawTab! : "browse";
@@ -150,21 +201,26 @@ export function LibraryPage() {
               setParams={setParams}
               refreshHealth={refreshDashboard}
               libraryScope={{
+                id: lib.id,
                 type: catalogType,
                 filter: scopeFilter as Record<string, unknown> | undefined,
               }}
             />
           )
         ) : tab === "rules" ? (
-          <CatalogSettings embedded />
+          <LibraryRulesTab
+            library={lib}
+            mediaType={catalogType === "show" ? "show" : "movie"}
+            scopeFilter={scopeFilter as Record<string, unknown> | undefined}
+            onSaved={() => {
+              void library.reload();
+              void refreshDashboard();
+            }}
+          />
         ) : (
           <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-5xl space-y-5 px-5 py-5 lg:px-7">
-              {tab === "collections" ? (
-                <LibraryCollections library={lib} />
-              ) : (
-                <LibrarySettings library={lib} onSaved={() => void library.reload()} />
-              )}
+              <LibrarySettings library={lib} onSaved={() => void library.reload()} />
             </div>
           </div>
         )}

@@ -64,7 +64,7 @@ func TestExplainBrowsabilityAndOwnerIncludes(t *testing.T) {
 			},
 		},
 	}
-	c, err := New(db, fakeTMDB, cfg, nil)
+	c, err := New(db, fakeTMDB, cfg, nil, WithLibraryPolicies(testPolicies(cfg.Exclusions, cfg.VisibilityDefault)))
 	if err != nil {
 		t.Fatal(err)
 	}

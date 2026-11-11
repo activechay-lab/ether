@@ -1,7 +1,6 @@
 import { Button, EmptyState, Switch, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   Clapperboard,
   EyeOff,
@@ -10,7 +9,6 @@ import {
   Pencil,
   Plug,
   Plus,
-  Settings2,
   Trash2,
   Tv,
 } from "lucide-react";
@@ -19,41 +17,21 @@ import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useApp } from "../../app-context";
 import { Drawer } from "../../components/Drawer";
 import { ErrorPanel, LoadingRows } from "../../components/feedback";
-import { LevelBadge } from "../../components/status";
 import { DomainPage } from "../../components/layout";
-import { Workspace } from "../../components/workspace";
+import { LevelBadge } from "../../components/status";
 import { t, tn } from "../../i18n";
 import { errorMessage } from "../../lib/api";
 import { formatNumber } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import { librariesApi, publishedTo, type Library } from "./api";
-import { CatalogSettings } from "./browser/CatalogSettings";
-import { FilterLibraryEditor } from "./FilterLibraryEditor";
+import { NewLibraryDrawer } from "./FilterLibraryEditor";
 import { LibraryPage } from "./LibraryPage";
 import "./libraries.css";
-
-/** /libraries root: list, the global catalogue settings, one library. */
-function LibrarySettingsPage() {
-  const navigate = useNavigate();
-  return (
-    <Workspace
-      leading={
-        <Button size="sm" variant="ghost" onClick={() => navigate("/libraries")}>
-          <ArrowLeft size={14} /> {t("Libraries")}
-        </Button>
-      }
-      title={t("Library settings")}
-    >
-      <CatalogSettings />
-    </Workspace>
-  );
-}
 
 export default function Libraries() {
   return (
     <Routes>
       <Route index element={<LibrariesList />} />
-      <Route path="settings/:tab?" element={<LibrarySettingsPage />} />
       <Route path=":id/:tab?" element={<LibraryPage />} />
       <Route path="*" element={<Navigate to="/libraries" replace />} />
     </Routes>
@@ -128,17 +106,9 @@ function LibrariesList() {
       description={t("Everything your viewers can open, in one place.")}
       base="/libraries"
       actions={
-        <>
-          <Button size="sm" variant="outline" onClick={() => navigate("/libraries/settings")}>
-            <Settings2 size={14} /> {t("Library settings")}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => navigate("/plugins")}>
-            <Plug size={14} /> {t("From a plugin")}
-          </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus size={14} /> {t("New library")}
-          </Button>
-        </>
+        <Button size="sm" onClick={() => setCreating(true)}>
+          <Plus size={14} /> {t("New library")}
+        </Button>
       }
     >
       {list.error ? <ErrorPanel error={list.error} onRetry={() => void list.reload()} /> : null}
@@ -278,12 +248,17 @@ function LibrariesList() {
         </div>
       )}
       {creating ? (
-        <FilterLibraryEditor
+        <NewLibraryDrawer
           onClose={() => setCreating(false)}
           onCreated={(lib) => {
             setCreating(false);
             void list.reload();
             navigate(`/libraries/${lib.id}`);
+          }}
+          onPluginOpened={(libId) => {
+            setCreating(false);
+            void list.reload();
+            if (libId) navigate(`/libraries/${libId}`);
           }}
         />
       ) : null}

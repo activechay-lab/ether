@@ -27,13 +27,15 @@ type condition struct {
 	levels []contentrating.Level
 }
 type rule struct {
+	name               string
 	action, typ, match string
 	discovery          bool // hide from discovery only; search ignores it
 	rules              []condition
 }
 type Filter struct {
-	rules    []rule
-	fallback string // show or hide
+	rules         []rule
+	movieFallback string // show or hide
+	showFallback  string // show or hide
 }
 
 // CompilePolicy compiles ordered rules. fallback is "show" or "hide" for
@@ -49,10 +51,11 @@ func CompilePolicy(specs []core.LibraryExclusion, fallback string) (*Filter, err
 	if len(specs) > 32 {
 		return nil, fmt.Errorf("at most 32 exclusion groups")
 	}
-	f := &Filter{fallback: fallback}
+	f := &Filter{movieFallback: fallback, showFallback: fallback}
 	for i, s := range specs {
 		// A name is optional. The owner UI labels a rule from its conditions.
-		if len(strings.TrimSpace(s.Name)) > 120 {
+		name := strings.TrimSpace(s.Name)
+		if len(name) > 120 {
 			return nil, fmt.Errorf("group %d name must be at most 120 characters", i+1)
 		}
 		action := s.Action
@@ -71,7 +74,7 @@ func CompilePolicy(specs []core.LibraryExclusion, fallback string) (*Filter, err
 		if len(s.Rules) == 0 || len(s.Rules) > 20 {
 			return nil, fmt.Errorf("group %d needs 1–20 conditions", i+1)
 		}
-		g := rule{action: action, typ: s.MediaType, match: s.Match}
+		g := rule{name: name, action: action, typ: s.MediaType, match: s.Match}
 		switch s.Scope {
 		case "", core.VisibilityEverywhere:
 		case core.VisibilityDiscovery:
@@ -93,6 +96,47 @@ func CompilePolicy(specs []core.LibraryExclusion, fallback string) (*Filter, err
 		f.rules = append(f.rules, g)
 	}
 	return f, nil
+}
+
+// CompileLibraryPolicies compiles the canonical Movies (library 1) and TV Shows
+// (library 2) policies into a single Filter used across all client protocols
+// and the console. Each library may independently hold up to 32 rules and its
+// own default visibility ("show" or "hide").
+func CompileLibraryPolicies(movies []core.LibraryExclusion, movieFallback string, shows []core.LibraryExclusion, showFallback string) (*Filter, error) {
+	mSpecs := make([]core.LibraryExclusion, len(movies))
+	for i, r := range movies {
+		r.MediaType = string(core.TypeMovie)
+		mSpecs[i] = r
+	}
+	mf, err := CompilePolicy(mSpecs, movieFallback)
+	if err != nil {
+		return nil, fmt.Errorf("movies rules: %w", err)
+	}
+	sSpecs := make([]core.LibraryExclusion, len(shows))
+	for i, r := range shows {
+		r.MediaType = string(core.TypeShow)
+		sSpecs[i] = r
+	}
+	sf, err := CompilePolicy(sSpecs, showFallback)
+	if err != nil {
+		return nil, fmt.Errorf("shows rules: %w", err)
+	}
+	f := &Filter{
+		movieFallback: mf.movieFallback,
+		showFallback:  sf.showFallback,
+		rules:         make([]rule, 0, len(mf.rules)+len(sf.rules)),
+	}
+	f.rules = append(f.rules, mf.rules...)
+	f.rules = append(f.rules, sf.rules...)
+	return f, nil
+}
+
+// RuleName returns the optional owner name of compiled rule index, or "".
+func (f *Filter) RuleName(index int) string {
+	if f == nil || index < 0 || index >= len(f.rules) {
+		return ""
+	}
+	return f.rules[index].name
 }
 
 func compileCondition(r core.CollectionRule) (condition, error) {
@@ -281,7 +325,11 @@ func (f *Filter) ForSearch() *Filter {
 	if f == nil {
 		return nil
 	}
-	out := &Filter{fallback: f.fallback, rules: make([]rule, 0, len(f.rules))}
+	out := &Filter{
+		movieFallback: f.movieFallback,
+		showFallback:  f.showFallback,
+		rules:         make([]rule, 0, len(f.rules)),
+	}
 	for _, g := range f.rules {
 		if !g.discovery {
 			out.rules = append(out.rules, g)
@@ -317,15 +365,33 @@ func (f *Filter) Facts() core.TitleFacts {
 
 // Passive reports that the filter hides nothing.
 func (f *Filter) Passive() bool {
-	return f == nil || (len(f.rules) == 0 && f.fallback != "hide")
+	return f == nil || (len(f.rules) == 0 && f.movieFallback != "hide" && f.showFallback != "hide")
+}
+
+// FallbackForType returns "show" or "hide" for the given media type.
+func (f *Filter) FallbackForType(typ core.MediaType) string {
+	if f == nil {
+		return "show"
+	}
+	fb := f.movieFallback
+	if typ == core.TypeShow || typ == core.TypeSeason || typ == core.TypeEpisode {
+		fb = f.showFallback
+	}
+	if fb == "" {
+		return "show"
+	}
+	return fb
 }
 
 // Fallback is "show" or "hide".
 func (f *Filter) Fallback() string {
-	if f == nil || f.fallback == "" {
+	if f == nil {
 		return "show"
 	}
-	return f.fallback
+	if f.movieFallback == "hide" || f.showFallback == "hide" {
+		return "hide"
+	}
+	return "show"
 }
 
 // MatchedHideRule evaluates f's ordered rules against t and reports whether t
@@ -349,7 +415,7 @@ func (f *Filter) MatchedHideRule(t *core.Title) (hidden bool, index int, byFallb
 			return false, -1, false
 		}
 	}
-	if f.fallback == "hide" {
+	if f.FallbackForType(t.Type) == "hide" {
 		return true, -1, true
 	}
 	return false, -1, false
@@ -563,11 +629,18 @@ func (c condition) known(t *core.Title) bool {
 // as first-match. A show rule or a hide default compiles to a CASE so the
 // first match wins.
 func (f *Filter) SQLHidden() (string, []any) {
-	if f == nil || (len(f.rules) == 0 && f.fallback != "hide") {
+	if f.Passive() {
 		return "0=1", nil
 	}
 	if len(f.rules) == 0 {
-		return "1=1", nil
+		switch {
+		case f.movieFallback == "hide" && f.showFallback == "hide":
+			return "1=1", nil
+		case f.movieFallback == "hide":
+			return "t.type='movie'", nil
+		default:
+			return "t.type='show'", nil
+		}
 	}
 	if f.legacyOr() {
 		return f.sqlOr()
@@ -587,13 +660,16 @@ func (f *Filter) SQLHidden() (string, []any) {
 		b.WriteString(" THEN ")
 		b.WriteString(bit)
 	}
-	elseBit := "0"
-	if f.fallback == "hide" {
-		elseBit = "1"
+	switch {
+	case f.movieFallback == "hide" && f.showFallback == "hide":
+		b.WriteString(" ELSE 1 END=1")
+	case f.movieFallback == "hide":
+		b.WriteString(" WHEN t.type='movie' THEN 1 ELSE 0 END=1")
+	case f.showFallback == "hide":
+		b.WriteString(" WHEN t.type='show' THEN 1 ELSE 0 END=1")
+	default:
+		b.WriteString(" ELSE 0 END=1")
 	}
-	b.WriteString(" ELSE ")
-	b.WriteString(elseBit)
-	b.WriteString(" END=1")
 	return b.String(), args
 }
 
@@ -603,7 +679,8 @@ func (f *Filter) SQLHiddenForType(typ core.MediaType) (string, []any) {
 	if f == nil {
 		return "0=1", nil
 	}
-	copy := &Filter{fallback: f.fallback}
+	fb := f.FallbackForType(typ)
+	copy := &Filter{movieFallback: fb, showFallback: fb}
 	for _, r := range f.rules {
 		if r.typ == "mixed" || r.typ == string(typ) {
 			r.typ = "mixed"
@@ -614,7 +691,7 @@ func (f *Filter) SQLHiddenForType(typ core.MediaType) (string, []any) {
 }
 
 func (f *Filter) legacyOr() bool {
-	if f.fallback == "hide" {
+	if f.movieFallback == "hide" || f.showFallback == "hide" {
 		return false
 	}
 	for _, g := range f.rules {

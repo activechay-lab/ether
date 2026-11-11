@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // Non-zero size gives every live configuration incarnation a distinct identity.
@@ -18,16 +19,27 @@ type ConfigEvidence struct {
 	version *configVersion
 }
 
+func cloneExclusionSlice(in []core.LibraryExclusion) []core.LibraryExclusion {
+	out := slices.Clone(in)
+	for i := range out {
+		out[i].Rules = slices.Clone(out[i].Rules)
+		for j := range out[i].Rules {
+			out[i].Rules[j].Value = slices.Clone(out[i].Rules[j].Value)
+		}
+	}
+	return out
+}
+
+func cloneLibraryPolicies(p LibraryPolicies) LibraryPolicies {
+	p.MovieRules = cloneExclusionSlice(p.MovieRules)
+	p.ShowRules = cloneExclusionSlice(p.ShowRules)
+	return p
+}
+
 func cloneCatalogConfig(cfg config.Catalog) config.Catalog {
 	// The catalogue works with the effective bars: Off is the floor.
 	cfg.MinPopularity, cfg.MinVotes = cfg.Bars()
-	cfg.Exclusions = slices.Clone(cfg.Exclusions)
-	for i := range cfg.Exclusions {
-		cfg.Exclusions[i].Rules = slices.Clone(cfg.Exclusions[i].Rules)
-		for j := range cfg.Exclusions[i].Rules {
-			cfg.Exclusions[i].Rules[j].Value = slices.Clone(cfg.Exclusions[i].Rules[j].Value)
-		}
-	}
+	cfg.Exclusions = cloneExclusionSlice(cfg.Exclusions)
 	return cfg
 }
 

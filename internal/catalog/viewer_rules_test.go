@@ -16,7 +16,7 @@ func TestViewerRulesIsolationAndScopes(t *testing.T) {
 	db := store.OpenTest(t)
 	rule := core.LibraryExclusion{Name: "French", MediaType: "movie", Match: "all", Scope: core.VisibilityDiscovery, Rules: []core.CollectionRule{{Field: "language", Op: "is", Value: json.RawMessage(`"fr"`)}}}
 	cfg := config.Catalog{Exclusions: []core.LibraryExclusion{rule}}
-	c, err := New(db, nil, cfg, nil)
+	c, err := New(db, nil, cfg, nil, WithLibraryPolicies(testPolicies(cfg.Exclusions, cfg.VisibilityDefault)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,12 +60,12 @@ func TestViewerRulesIsolationAndScopes(t *testing.T) {
 	}
 	// Reordering unrelated global rules cannot move an exemption to another rule.
 	cfg.Exclusions = append([]core.LibraryExclusion{{Name: "English", MediaType: "movie", Match: "all", Rules: []core.CollectionRule{{Field: "language", Op: "is", Value: json.RawMessage(`"en"`)}}}}, rule)
-	c.UpdateConfig(cfg)
+	setTestPolicies(t, c, cfg.Exclusions, cfg.VisibilityDefault)
 	check(1, 0)
 	if err := c.PutViewerRules(t.Context(), a.ID, ViewerRules{Mode: "custom", VisibilityDefault: "show"}); err != nil {
 		t.Fatal(err)
 	}
-	c, err = New(db, nil, cfg, nil)
+	c, err = New(db, nil, cfg, nil, WithLibraryPolicies(testPolicies(cfg.Exclusions, cfg.VisibilityDefault)))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -249,6 +249,7 @@ type Catalog struct {
 	configUpdateMu    sync.Mutex // serializes transitions without blocking config readers
 	cfgMu             sync.RWMutex
 	cfg               config.Catalog
+	libPolicies       LibraryPolicies
 	cfgVersion        *configVersion
 	log               *slog.Logger
 	clock             atomic.Value // func() time.Time
@@ -407,6 +408,56 @@ type listEntry struct {
 // Option customises a Catalog.
 type Option func(*Catalog)
 
+// LibraryPolicies holds the canonical Movies (id=1) and TV Shows (id=2)
+// visibility rules and defaults.
+type LibraryPolicies struct {
+	MovieRules   []core.LibraryExclusion
+	MovieDefault string
+	ShowRules    []core.LibraryExclusion
+	ShowDefault  string
+}
+
+// WithLibraryPolicies installs initial canonical library visibility policies.
+func WithLibraryPolicies(p LibraryPolicies) Option {
+	return func(c *Catalog) { c.libPolicies = cloneLibraryPolicies(p) }
+}
+
+// LibraryPolicies returns a deep copy of the active canonical library policies.
+func (c *Catalog) LibraryPolicies() LibraryPolicies {
+	if c == nil {
+		return LibraryPolicies{}
+	}
+	c.cfgMu.RLock()
+	defer c.cfgMu.RUnlock()
+	return cloneLibraryPolicies(c.libPolicies)
+}
+
+// SetLibraryPolicies compiles and installs new canonical library policies.
+func (c *Catalog) SetLibraryPolicies(p LibraryPolicies) error {
+	p = cloneLibraryPolicies(p)
+	f, err := libraryfilter.CompileLibraryPolicies(p.MovieRules, p.MovieDefault, p.ShowRules, p.ShowDefault)
+	if err != nil {
+		return err
+	}
+	search := f.ForSearch()
+	c.configUpdateMu.Lock()
+	defer c.configUpdateMu.Unlock()
+	c.cfgMu.Lock()
+	c.libPolicies = p
+	c.visibility = f
+	c.searchVis = search
+	c.cfgVersion = &configVersion{}
+	c.writeGen.Add(1)
+	c.cfgMu.Unlock()
+	if err := c.recompileViewerRules(p); err != nil {
+		c.log.Error("catalog: recompile viewer rules", "err", err)
+	}
+	c.listMu.Lock()
+	c.listCache = map[string]listEntry{}
+	c.listMu.Unlock()
+	return nil
+}
+
 // WithStartupContext carries cancellation and upgrade progress into constructor backfills.
 func WithStartupContext(ctx context.Context) Option {
 	return func(c *Catalog) { c.startupContext = ctx }
@@ -469,15 +520,11 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 		log = slog.Default()
 	}
 	cfg = cloneCatalogConfig(cfg)
-	visibility, err := libraryfilter.CompilePolicy(cfg.Exclusions, cfg.VisibilityDefault)
-	if err != nil {
-		return nil, err
-	}
 	stale := cfg.RefreshInterval.D()
 	if stale <= 0 {
 		stale = 24 * time.Hour
 	}
-	c := &Catalog{visibility: visibility, searchVis: visibility.ForSearch(), db: db, cfg: cfg, cfgVersion: &configVersion{}, log: log, hydrateSlots: make(chan struct{}, hydrateLimit),
+	c := &Catalog{db: db, cfg: cfg, cfgVersion: &configVersion{}, log: log, hydrateSlots: make(chan struct{}, hydrateLimit),
 		staleAfter: stale, listTTL: 15 * time.Minute, yearGap: 100 * time.Millisecond, yearAhead: make(chan core.RatingKey, 256),
 		genres: map[string]map[int]string{}, listCache: map[string]listEntry{},
 		titleCache: map[core.RatingKey]cachedStoredTitle{}, countCache: map[string]cachedCount{},
@@ -489,6 +536,12 @@ func New(db *sql.DB, client TMDB, cfg config.Catalog, log *slog.Logger, opts ...
 	for _, fn := range opts {
 		fn(c)
 	}
+	visibility, err := libraryfilter.CompileLibraryPolicies(c.libPolicies.MovieRules, c.libPolicies.MovieDefault, c.libPolicies.ShowRules, c.libPolicies.ShowDefault)
+	if err != nil {
+		return nil, err
+	}
+	c.visibility = visibility
+	c.searchVis = visibility.ForSearch()
 	if err := c.reloadViewerRules(context.Background()); err != nil {
 		return nil, err
 	}
@@ -518,24 +571,13 @@ func (e *simpleError) Error() string { return e.s }
 // UpdateConfig swaps the catalogue config (wire to config.Store.Subscribe).
 func (c *Catalog) UpdateConfig(cfg config.Catalog) {
 	cfg = cloneCatalogConfig(cfg)
-	f, err := libraryfilter.CompilePolicy(cfg.Exclusions, cfg.VisibilityDefault)
-	if err != nil {
-		c.log.Error("catalog: invalid visibility rules")
-		return
-	}
-	search := f.ForSearch()
 	c.configUpdateMu.Lock()
 	defer c.configUpdateMu.Unlock()
 	c.cfgMu.Lock()
 	c.cfg = cfg
-	c.visibility = f
-	c.searchVis = search
 	c.cfgVersion = &configVersion{}
 	c.writeGen.Add(1)
 	c.cfgMu.Unlock()
-	if err := c.recompileViewerRules(cfg.Exclusions, cfg.VisibilityDefault); err != nil {
-		c.log.Error("catalog: recompile viewer rules", "err", err)
-	}
 	c.listMu.Lock()
 	c.listCache = map[string]listEntry{}
 	c.listMu.Unlock()

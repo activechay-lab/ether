@@ -250,13 +250,23 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 	var total int64
 	now := s.now().Unix()
 	avail := s.cfg().Availability
-	if avail.EffectiveMode() != config.ModeDigital && avail.DisableMovieEvidenceGate {
+	if movieImmediate(avail) {
 		if res, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=?`, hiddenMovies); err == nil {
 			n, _ := res.RowsAffected()
 			total += n
 		}
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM availability_hidden_retired WHERE kind=?`, hiddenMovies)
 		_, _ = s.db.ExecContext(ctx, `DELETE FROM availability_hidden_current WHERE kind=?`, hiddenMovies)
+	}
+	if avail.ShowMode == config.ModeImmediate {
+		for _, kind := range []string{hiddenShows, hiddenEpisodes} {
+			if res, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=?`, kind); err == nil {
+				n, _ := res.RowsAffected()
+				total += n
+			}
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM availability_hidden_retired WHERE kind=?`, kind)
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM availability_hidden_current WHERE kind=?`, kind)
+		}
 	}
 	for _, kind := range []string{hiddenMovies, hiddenShows, hiddenEpisodes} {
 		var cur int64

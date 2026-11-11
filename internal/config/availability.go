@@ -36,7 +36,9 @@ type Availability struct {
 	HomeReleaseOffsetDays int `json:"homeReleaseOffsetDays,omitempty"`
 	// Mode is playable, digital, or immediate. Empty is derived from the
 	// gate and date flags so existing configs keep working.
-	Mode string `json:"mode,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	MovieMode string `json:"movieMode,omitempty"`
+	ShowMode  string `json:"showMode,omitempty"`
 }
 
 // IndexerCap is one indexer's own limit. DailyLimit 0 means the indexer
@@ -74,25 +76,40 @@ func (a Availability) EffectiveMode() string {
 	return ModePlayable
 }
 
-// ApplyMode writes the engine flags for EffectiveMode. Gentle/Unlimited
+// ModeFor returns the release mode for kind ("movie" -> MovieMode, anything
+// else -> ShowMode), falling back to EffectiveMode() when unset.
+func (a Availability) ModeFor(kind string) string {
+	m := a.ShowMode
+	if kind == "movie" {
+		m = a.MovieMode
+	}
+	switch m {
+	case ModePlayable, ModeDigital, ModeImmediate:
+		return m
+	default:
+		return a.EffectiveMode()
+	}
+}
+
+// ApplyMode writes the engine flags for EffectiveMode / ModeFor. Gentle/Unlimited
 // presets become the self-tuned normal budget unless the owner set a ceiling.
 func (a *Availability) ApplyMode() {
 	mode := a.EffectiveMode()
 	a.Mode = mode
-	switch mode {
+	movieMode := a.ModeFor("movie")
+	showMode := a.ModeFor("show")
+	switch movieMode {
 	case ModeDigital:
-		a.Monitor = false
 		a.DisableMovieEvidenceGate = false
 		a.DigitalDateEvidence = true
 	case ModeImmediate:
-		a.Monitor = false
 		a.DisableMovieEvidenceGate = true
 		a.DigitalDateEvidence = false
 	default:
-		a.Monitor = true
 		a.DisableMovieEvidenceGate = false
 		a.DigitalDateEvidence = false
 	}
+	a.Monitor = movieMode == ModePlayable || showMode == ModePlayable
 	if a.Effort == "gentle" || a.Effort == "unlimited" {
 		a.Effort = "normal"
 	}

@@ -517,6 +517,7 @@ export const api = {
   // ---- Catalogue helpers ---------------------------------------------------------
   browseCatalog: (
     params: {
+      libraryId?: number;
       noTotal?: string;
       cursor?: string;
       after?: string;

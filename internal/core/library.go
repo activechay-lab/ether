@@ -35,6 +35,11 @@ type Library struct {
 	// Filter only: the saved browse predicate, stored verbatim and fed to
 	// catalog browseWhere. Type inside Filter pins movie|show.
 	Filter *Filter `json:"filter,omitempty"`
+	// Visibility rules for TMDB-sourced libraries. Built-in libraries 1 and 2
+	// govern canonical movie/show visibility across every protocol; filter
+	// libraries may carry additional rules on top of their canonical library.
+	Rules             []LibraryExclusion `json:"rules,omitempty"`
+	VisibilityDefault string             `json:"visibilityDefault,omitempty"`
 	// Presentation: how protocols expose this library (§6.2). For builtins
 	// this is synthesised, not stored.
 	Present   Presentations `json:"present,omitempty"`

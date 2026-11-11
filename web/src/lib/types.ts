@@ -942,6 +942,8 @@ export interface AvailabilityConfig {
   movieEvidenceDays?: number;
   /** playable, digital, or immediate. Empty is derived from the gate flags. */
   mode?: string;
+  movieMode?: string;
+  showMode?: string;
   /** gentle, normal, unlimited, or custom. Empty is treated as normal. */
   effort?: string;
   catchUp?: boolean;

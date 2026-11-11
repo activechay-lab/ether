@@ -48,10 +48,28 @@ func RuleIdentity(rule core.LibraryExclusion) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
-func compileViewerRules(p ViewerRules, global []core.LibraryExclusion, fallback string) (*libraryfilter.Filter, error) {
+
+func withMediaType(rule core.LibraryExclusion, mt string) core.LibraryExclusion {
+	rule.MediaType = mt
+	return rule
+}
+
+// IsRuleExempt checks whether rule is exempted by skip, matching both its own
+// identity and legacy unscoped ("mixed" / "") identities from before rules
+// moved onto individual Movies and TV Shows libraries.
+func IsRuleExempt(skip map[string]bool, rule core.LibraryExclusion) bool {
+	if len(skip) == 0 {
+		return false
+	}
+	return skip[RuleIdentity(rule)] ||
+		skip[RuleIdentity(withMediaType(rule, "mixed"))] ||
+		skip[RuleIdentity(withMediaType(rule, ""))]
+}
+
+func compileViewerRules(p ViewerRules, pol LibraryPolicies) (*libraryfilter.Filter, error) {
 	switch p.Mode {
 	case "", "inherit":
-		return libraryfilter.CompilePolicy(global, fallback)
+		return libraryfilter.CompileLibraryPolicies(pol.MovieRules, pol.MovieDefault, pol.ShowRules, pol.ShowDefault)
 	case "custom":
 		return libraryfilter.CompilePolicy(p.Exclusions, p.VisibilityDefault)
 	case "exempt":
@@ -59,26 +77,32 @@ func compileViewerRules(p ViewerRules, global []core.LibraryExclusion, fallback 
 		for _, id := range p.Exemptions {
 			skip[id] = true
 		}
-		rules := make([]core.LibraryExclusion, 0, len(global))
-		for _, rule := range global {
-			if !skip[RuleIdentity(rule)] {
-				rules = append(rules, rule)
+		movies := make([]core.LibraryExclusion, 0, len(pol.MovieRules))
+		for _, rule := range pol.MovieRules {
+			if !IsRuleExempt(skip, rule) {
+				movies = append(movies, rule)
 			}
 		}
-		return libraryfilter.CompilePolicy(rules, fallback)
+		shows := make([]core.LibraryExclusion, 0, len(pol.ShowRules))
+		for _, rule := range pol.ShowRules {
+			if !IsRuleExempt(skip, rule) {
+				shows = append(shows, rule)
+			}
+		}
+		return libraryfilter.CompileLibraryPolicies(movies, pol.MovieDefault, shows, pol.ShowDefault)
 	default:
 		return nil, fmt.Errorf("invalid catalogue rule mode")
 	}
 }
 
-// recompileViewerRules follows a global config change using the already-loaded
-// documents. Config callbacks must never wait for a database connection.
-func (c *Catalog) recompileViewerRules(global []core.LibraryExclusion, fallback string) error {
+// recompileViewerRules follows a library policy change using the already-loaded
+// documents. Policy callbacks must never wait for a database connection.
+func (c *Catalog) recompileViewerRules(pol LibraryPolicies) error {
 	c.viewerRules.Lock()
 	defer c.viewerRules.Unlock()
 	entries := make(map[int64]compiledViewerRules, len(c.viewerRules.entries))
 	for id, v := range c.viewerRules.entries {
-		f, err := compileViewerRules(v.document, global, fallback)
+		f, err := compileViewerRules(v.document, pol)
 		if err != nil {
 			return err
 		}
@@ -95,7 +119,7 @@ func (c *Catalog) reloadViewerRules(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
-	cfg := c.config()
+	pol := c.LibraryPolicies()
 	entries := map[int64]compiledViewerRules{}
 	for rows.Next() {
 		var id int64
@@ -107,7 +131,7 @@ func (c *Catalog) reloadViewerRules(ctx context.Context) error {
 		if err := json.Unmarshal([]byte(raw), &v.document); err != nil {
 			return err
 		}
-		v.browse, err = compileViewerRules(v.document, cfg.Exclusions, cfg.VisibilityDefault)
+		v.browse, err = compileViewerRules(v.document, pol)
 		if err != nil {
 			return err
 		}
@@ -125,7 +149,7 @@ func (c *Catalog) reloadViewerRules(ctx context.Context) error {
 
 // ReadViewerRulesInputs is the per-viewer rules source of a viewer-policy
 // inputs rebuild: what every stored custom document reads. Inherit and exempt
-// documents read a subset of the global rules, which the config source has.
+// documents read a subset of the canonical library rules.
 func ReadViewerRulesInputs(ctx context.Context, tx *sql.Tx) (viewerpolicy.Inputs, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT document FROM catalog_viewer_rules`)
 	if err != nil {
@@ -147,14 +171,16 @@ func ReadViewerRulesInputs(ctx context.Context, tx *sql.Tx) (viewerpolicy.Inputs
 	return in, rows.Err()
 }
 
-// PolicyInputs lists what the installed global rules read, and whether the
-// installed config is expected (a rejected update keeps the previous rules).
+// PolicyInputs lists what the installed canonical library rules read, and
+// whether the installed config is expected.
 func (c *Catalog) PolicyInputs(expected config.Catalog) (viewerpolicy.Inputs, bool) {
 	if _, ok := c.CaptureConfigEvidence(expected); !ok {
 		return nil, false
 	}
+	pol := c.LibraryPolicies()
 	in := viewerpolicy.Inputs{}
-	viewerpolicy.RulesInputs(in, expected.Exclusions)
+	viewerpolicy.RulesInputs(in, pol.MovieRules)
+	viewerpolicy.RulesInputs(in, pol.ShowRules)
 	return in, true
 }
 
@@ -196,8 +222,8 @@ func (c *Catalog) PutViewerRules(ctx context.Context, id int64, p ViewerRules) e
 	if id <= 0 {
 		return fmt.Errorf("invalid viewer")
 	}
-	cfg := c.config()
-	if _, err := compileViewerRules(p, cfg.Exclusions, cfg.VisibilityDefault); err != nil {
+	pol := c.LibraryPolicies()
+	if _, err := compileViewerRules(p, pol); err != nil {
 		return err
 	}
 	raw, err := json.Marshal(p)

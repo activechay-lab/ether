@@ -11,22 +11,23 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-const libraryCols = `id, key, name, source, media_type, plugin_id, kind_key, filter, present, sort, hidden, created_at, updated_at`
+const libraryCols = `id, key, name, source, media_type, plugin_id, kind_key, filter, rules, visibility_default, present, sort, hidden, created_at, updated_at`
 
 type scanner interface{ Scan(...any) error }
 
 func scanLibrary(sc scanner) (core.Library, error) {
 	var lib core.Library
 	var id, sort, created, updated int64
-	var source, mediaType, filterJSON, presentJSON string
+	var source, mediaType, filterJSON, rulesJSON, visDefault, presentJSON string
 	var hidden int
 	if err := sc.Scan(&id, &lib.Key, &lib.Name, &source, &mediaType, &lib.PluginID, &lib.KindKey,
-		&filterJSON, &presentJSON, &sort, &hidden, &created, &updated); err != nil {
+		&filterJSON, &rulesJSON, &visDefault, &presentJSON, &sort, &hidden, &created, &updated); err != nil {
 		return core.Library{}, err
 	}
 	lib.ID = core.LibraryID(id)
 	lib.Source = core.LibrarySource(source)
 	lib.MediaType = core.MediaType(mediaType)
+	lib.VisibilityDefault = visDefault
 	lib.Sort = int(sort)
 	lib.Hidden = hidden != 0
 	if created > 0 {
@@ -41,6 +42,15 @@ func scanLibrary(sc scanner) (core.Library, error) {
 			return core.Library{}, err
 		}
 		lib.Filter = &f
+	}
+	if rulesJSON != "" && rulesJSON != "[]" {
+		var rules []core.LibraryExclusion
+		if err := json.Unmarshal([]byte(rulesJSON), &rules); err != nil {
+			return core.Library{}, err
+		}
+		if len(rules) > 0 {
+			lib.Rules = rules
+		}
 	}
 	if presentJSON != "" {
 		if err := json.Unmarshal([]byte(presentJSON), &lib.Present); err != nil {
@@ -63,6 +73,14 @@ func (s *Service) insert(ctx context.Context, tx *sql.Tx, lib core.Library) (cor
 		}
 		filterJSON = string(b)
 	}
+	rulesJSON := "[]"
+	if len(lib.Rules) > 0 {
+		b, err := json.Marshal(lib.Rules)
+		if err != nil {
+			return core.Library{}, err
+		}
+		rulesJSON = string(b)
+	}
 	presentJSON, err := json.Marshal(lib.Present)
 	if err != nil {
 		return core.Library{}, err
@@ -71,9 +89,9 @@ func (s *Service) insert(ctx context.Context, tx *sql.Tx, lib core.Library) (cor
 	if lib.Hidden {
 		hidden = 1
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO libraries(`+libraryCols+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = tx.ExecContext(ctx, `INSERT INTO libraries(`+libraryCols+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		int64(lib.ID), lib.Key, lib.Name, string(lib.Source), string(lib.MediaType), lib.PluginID, lib.KindKey,
-		filterJSON, string(presentJSON), lib.Sort, hidden, lib.CreatedAt.Unix(), lib.UpdatedAt.Unix())
+		filterJSON, rulesJSON, lib.VisibilityDefault, string(presentJSON), lib.Sort, hidden, lib.CreatedAt.Unix(), lib.UpdatedAt.Unix())
 	if err != nil {
 		return core.Library{}, err
 	}

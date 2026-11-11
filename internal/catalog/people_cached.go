@@ -3,7 +3,6 @@ package catalog
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/config"
-	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -37,10 +36,7 @@ func (c *Catalog) CachedCreditItems(ctx context.Context, after core.RatingKey, l
 // against the caller's immutable config and time, including inherited parents.
 // The caller must hold the config lease and fence durable changes separately.
 func (c *Catalog) CachedCreditTitles(ctx context.Context, keys []core.RatingKey, cfg config.Catalog, now time.Time) (map[core.RatingKey]core.Title, error) {
-	filter, err := libraryfilter.CompilePolicy(cfg.Exclusions, cfg.VisibilityDefault)
-	if err != nil {
-		return nil, err
-	}
+	filter := c.visibilityFilter()
 	// Credit proofs must see a credit written by another process during this
 	// cache minute. The minute snapshot stays in place for ordinary reads.
 	titles, err := c.cachedGetMany(ctx, keys, false)

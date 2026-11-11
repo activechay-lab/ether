@@ -510,6 +510,10 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		return nil, fmt.Errorf("migrate app overrides: %w", err)
 	}
 	cfg = a.cfg.Get()
+	if err := a.libraries.MigrateConfigRules(ctx, cfg.Catalog.Exclusions, cfg.Catalog.VisibilityDefault); err != nil {
+		a.Close()
+		return nil, fmt.Errorf("libraries: migrate config rules: %w", err)
+	}
 	// Recheck after the shared settings overlay and override migration, before
 	// constructing services. Role/address settings remain node-local.
 	if err := a.validateRuntimeSettings(cfg.Server, dbCfg); err != nil {

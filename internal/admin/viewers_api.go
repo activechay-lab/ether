@@ -19,6 +19,7 @@ type ViewerCatalogRules interface {
 	RefreshViewerRules(context.Context) error
 	ViewerRules(int64) catalog.ViewerRules
 	PutViewerRules(context.Context, int64, catalog.ViewerRules) error
+	LibraryPolicies() catalog.LibraryPolicies
 }
 
 // Personalization is the engine behind the viewers, Home Designer and
@@ -487,10 +488,39 @@ func (h *Handler) handleViewerCatalogRules(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	cfg := h.deps.Config.Get().Catalog
-	ids := make([]string, len(cfg.Exclusions))
-	for i, rule := range cfg.Exclusions {
+	pol := service.LibraryPolicies()
+	combined := make([]core.LibraryExclusion, 0, len(pol.MovieRules)+len(pol.ShowRules))
+	combined = append(combined, pol.MovieRules...)
+	combined = append(combined, pol.ShowRules...)
+	ids := make([]string, len(combined))
+	for i, rule := range combined {
 		ids[i] = catalog.RuleIdentity(rule)
 	}
-	writeJSON(w, 200, map[string]any{"policy": service.ViewerRules(u.ID), "globalRules": append([]core.LibraryExclusion{}, cfg.Exclusions...), "globalDefault": cfg.VisibilityDefault, "globalIDs": ids})
+	vr := service.ViewerRules(u.ID)
+	if len(vr.Exemptions) > 0 {
+		skip := map[string]bool{}
+		for _, id := range vr.Exemptions {
+			skip[id] = true
+		}
+		norm := make([]string, 0, len(vr.Exemptions))
+		seen := map[string]bool{}
+		for i, rule := range combined {
+			if catalog.IsRuleExempt(skip, rule) && !seen[ids[i]] {
+				seen[ids[i]] = true
+				norm = append(norm, ids[i])
+			}
+		}
+		for _, id := range vr.Exemptions {
+			if !seen[id] {
+				seen[id] = true
+				norm = append(norm, id)
+			}
+		}
+		vr.Exemptions = norm
+	}
+	globalDefault := "show"
+	if pol.MovieDefault == "hide" && pol.ShowDefault == "hide" {
+		globalDefault = "hide"
+	}
+	writeJSON(w, 200, map[string]any{"policy": vr, "globalRules": combined, "globalDefault": globalDefault, "globalIDs": ids})
 }

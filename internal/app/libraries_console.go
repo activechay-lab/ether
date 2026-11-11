@@ -14,6 +14,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/blobcache"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/libraries"
+	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"github.com/braedonsaunders/ether/internal/pluginitems"
 	"github.com/braedonsaunders/ether/internal/plugins"
 )
@@ -167,7 +168,11 @@ func (c *librariesConsole) decorate(ctx context.Context, lib core.Library) libra
 // filter library: the library's saved filter is ANDed with the
 // request filter through a FilterGroup (the same composition
 // experience/library_index.go uses for viewer state).
-func (c *librariesConsole) browseTitles(ctx context.Context, lib core.Library, req core.Filter, q core.BrowseQuery) (core.Page, error) {
+// libraryScopeFilter merges a library's media type, saved filter and extra
+// rules onto req. When req.RuleVisibility != "" (rule preview browsing),
+// saved ExtraRules on a filter library are omitted so draft PreviewRules
+// evaluate cleanly over the canonical+filter candidate pool.
+func libraryScopeFilter(lib core.Library, req core.Filter) core.Filter {
 	f := req
 	f.LocalOnly = true
 	if lib.MediaType != "" {
@@ -176,17 +181,29 @@ func (c *librariesConsole) browseTitles(ctx context.Context, lib core.Library, r
 	if lib.Filter != nil && lib.Filter.Type != "" {
 		f.Type = lib.Filter.Type
 	}
-	if lib.Source == core.LibraryFilter && lib.Filter != nil {
-		saved := *lib.Filter
-		saved.Type = "" // already pinned above; keep the group type-free
-		child := core.FilterGroup{Operator: "and", Filter: &saved}
-		if f.Group != nil {
-			f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*f.Group, child}}
-		} else {
-			f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{child}}
+	if lib.Source == core.LibraryFilter {
+		if lib.Filter != nil {
+			saved := *lib.Filter
+			saved.Type = "" // already pinned above; keep the group type-free
+			child := core.FilterGroup{Operator: "and", Filter: &saved}
+			if f.Group != nil {
+				f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{*f.Group, child}}
+			} else {
+				f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{child}}
+			}
+		}
+		if f.RuleVisibility != "" {
+			f.ApplyCanonicalInPreview = true
+		} else if len(lib.Rules) > 0 || lib.VisibilityDefault != "" {
+			f.ExtraRules = lib.Rules
+			f.ExtraFallback = lib.VisibilityDefault
 		}
 	}
-	q.Filter = f
+	return f
+}
+
+func (c *librariesConsole) browseTitles(ctx context.Context, lib core.Library, req core.Filter, q core.BrowseQuery) (core.Page, error) {
+	q.Filter = libraryScopeFilter(lib, req)
 	if q.Sort == "" {
 		q.Sort = core.SortPopularity
 		q.Desc = true
@@ -260,11 +277,13 @@ func (c *librariesConsole) handler() http.Handler {
 			return
 		}
 		var body struct {
-			Name    *string             `json:"name"`
-			Hidden  *bool               `json:"hidden"`
-			Sort    *int                `json:"sort"`
-			Present *core.Presentations `json:"present"`
-			Filter  *core.Filter        `json:"filter"`
+			Name              *string                  `json:"name"`
+			Hidden            *bool                    `json:"hidden"`
+			Sort              *int                     `json:"sort"`
+			Present           *core.Presentations      `json:"present"`
+			Filter            *core.Filter             `json:"filter"`
+			Rules             *[]core.LibraryExclusion `json:"rules"`
+			VisibilityDefault *string                  `json:"visibilityDefault"`
 		}
 		if !decodeLibBody(w, r, &body) {
 			return
@@ -300,6 +319,34 @@ func (c *librariesConsole) handler() http.Handler {
 			if err := svc.SetPresent(ctx, lib.ID, *body.Present); err != nil {
 				libError(w, libErrStatus(err), "Could not update where the library appears")
 				return
+			}
+		}
+		if body.Rules != nil || body.VisibilityDefault != nil {
+			if lib.Source == core.LibraryPlugin {
+				libError(w, http.StatusBadRequest, "Plugin libraries do not use TMDB visibility rules")
+				return
+			}
+			rules := lib.Rules
+			if body.Rules != nil {
+				rules = *body.Rules
+			}
+			visDefault := lib.VisibilityDefault
+			if body.VisibilityDefault != nil {
+				visDefault = *body.VisibilityDefault
+			}
+			if _, err := libraryfilter.CompilePolicy(rules, visDefault); err != nil {
+				libError(w, http.StatusBadRequest, "Invalid visibility rules")
+				return
+			}
+			if err := svc.SetRules(ctx, lib.ID, rules, visDefault); err != nil {
+				libError(w, libErrStatus(err), "Could not save visibility rules")
+				return
+			}
+			if lib.ID == core.LibraryMovies || lib.ID == core.LibraryShows {
+				if err := c.app.refreshLibraryPolicies(ctx); err != nil {
+					libError(w, http.StatusBadRequest, err.Error())
+					return
+				}
 			}
 		}
 		fresh, err := svc.Get(ctx, lib.ID)
@@ -847,6 +894,91 @@ func (c *librariesConsole) setupHandler() http.Handler {
 		}
 		return true
 	}
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		if c.app.pluginsRT == nil || c.app.pluginsRT.mgr == nil {
+			libJSON(w, http.StatusOK, map[string]any{"plugins": []any{}})
+			return
+		}
+		recs, err := c.app.pluginsRT.mgr.List(r.Context())
+		if err != nil {
+			libError(w, http.StatusInternalServerError, "Could not list plugins")
+			return
+		}
+		var libs []core.Library
+		if c.app.libraries != nil {
+			libs, _ = c.app.libraries.List(r.Context())
+		}
+		out := []map[string]any{}
+		for _, rec := range recs {
+			e := rec.Manifest.EffectiveEther()
+			if e == nil || len(e.Contributes.MediaKinds) == 0 {
+				continue
+			}
+			pluginLibs := []libraryDTO{}
+			for _, lib := range libs {
+				if lib.Source == core.LibraryPlugin && lib.PluginID == rec.ID {
+					pluginLibs = append(pluginLibs, c.decorate(r.Context(), lib))
+				}
+			}
+			out = append(out, map[string]any{
+				"pluginId":   rec.ID,
+				"pluginName": rec.Name,
+				"summary":    rec.Manifest.Description,
+				"kinds":      e.Contributes.MediaKinds,
+				"libraries":  pluginLibs,
+			})
+		}
+		libJSON(w, http.StatusOK, map[string]any{"plugins": out})
+	})
+	mux.HandleFunc("POST /{plugin}/ensure", func(w http.ResponseWriter, r *http.Request) {
+		if !guard(w) {
+			return
+		}
+		ctx := r.Context()
+		pluginID := r.PathValue("plugin")
+		rec, err := c.app.pluginsRT.mgr.Get(ctx, pluginID)
+		if err != nil {
+			libError(w, http.StatusNotFound, "Plugin not found")
+			return
+		}
+		e := rec.Manifest.EffectiveEther()
+		if e == nil || len(e.Contributes.MediaKinds) == 0 {
+			libError(w, http.StatusBadRequest, "This plugin does not contribute a library kind")
+			return
+		}
+		items, _, err := c.services()
+		if err != nil {
+			libError(w, http.StatusInternalServerError, "Plugin items are unavailable")
+			return
+		}
+		for _, decl := range e.Contributes.MediaKinds {
+			name := strings.TrimSpace(decl.Library.Name)
+			if name == "" {
+				name = strings.TrimSpace(decl.Label)
+			}
+			if name == "" {
+				name = rec.Name
+			}
+			lib, err := c.app.libraries.UpsertPluginLibrary(ctx, pluginID, decl.Key, libraries.PluginLibraryDecl{
+				Name:    name,
+				Present: decl.Present,
+			})
+			if err != nil {
+				libError(w, libErrStatus(err), "Could not create plugin library")
+				return
+			}
+			if _, err := items.UpsertKind(ctx, pluginID, lib.ID, decl, false); err != nil {
+				libError(w, http.StatusBadRequest, "Could not initialize plugin library kind")
+				return
+			}
+		}
+		out, err := c.setupFor(ctx, pluginID)
+		if err != nil {
+			libError(w, http.StatusNotFound, "Plugin not found")
+			return
+		}
+		libJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /{plugin}", func(w http.ResponseWriter, r *http.Request) {
 		if !guard(w) {
 			return

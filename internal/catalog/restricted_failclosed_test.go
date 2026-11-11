@@ -20,7 +20,7 @@ import (
 func TestRestrictedViewerRulesFailClosedOnUnknownFields(t *testing.T) {
 	db := store.OpenTest(t)
 	global := []core.LibraryExclusion{{Name: "Horror", MediaType: "mixed", Match: "all", Rules: []core.CollectionRule{{Field: "genre", Op: "in", Value: json.RawMessage(`["Horror"]`)}}}}
-	c, err := New(db, nil, config.Catalog{Exclusions: global}, nil)
+	c, err := New(db, nil, config.Catalog{}, nil, WithLibraryPolicies(testPolicies(global, "")))
 	if err != nil {
 		t.Fatal(err)
 	}

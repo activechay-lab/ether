@@ -208,7 +208,7 @@ func TestFilterVisibilityBeyondChunk(t *testing.T) {
 		Name: "hide last genre", MediaType: "mixed", Match: "all",
 		Rules: []core.CollectionRule{{Field: "genre", Op: "in", Value: json.RawMessage(`["genre-0249"]`)}},
 	}}
-	c, err := New(store.OpenTest(t), nil, config.Catalog{Exclusions: specs}, nil)
+	c, err := New(store.OpenTest(t), nil, config.Catalog{}, nil, WithLibraryPolicies(testPolicies(specs, "")))
 	if err != nil {
 		t.Fatal(err)
 	}

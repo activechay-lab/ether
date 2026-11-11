@@ -8,7 +8,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -18,10 +17,7 @@ import (
 // because their visibility can inherit parent facts. The caller owns the policy
 // lease and must repeat this read and fence changes before publishing results.
 func (c *Catalog) CachedPortraitTitles(ctx context.Context, subjects map[core.RatingKey][]int64, cfg config.Catalog, now time.Time) (map[core.RatingKey]core.Title, error) {
-	filter, err := libraryfilter.CompilePolicy(cfg.Exclusions, cfg.VisibilityDefault)
-	if err != nil {
-		return nil, err
-	}
+	filter := c.visibilityFilter()
 	var keys, children []core.RatingKey
 	for key := range subjects {
 		if key.Kind() == core.KindMovie || key.Kind() == core.KindShow {
@@ -33,6 +29,7 @@ func (c *Catalog) CachedPortraitTitles(ctx context.Context, subjects map[core.Ra
 	slices.Sort(keys)
 	out := make(map[core.RatingKey]core.Title, len(subjects))
 	if len(children) > 0 {
+		var err error
 		out, err = c.CachedCreditTitles(ctx, children, cfg, now)
 		if err != nil {
 			return nil, err

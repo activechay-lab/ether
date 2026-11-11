@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
+import "../pages/libraries/Libraries";
 import { createFakeServer } from "../mock/server";
 import { calls, renderApp, settleUi } from "./harness";
 import { renderAppWith } from "./routes";
@@ -14,14 +15,14 @@ describe("Library visibility", () => {
   it.each(["hidden", "shown"])(
     "browses %s rules with the shared catalog search",
     async (visibility) => {
-      const { fake } = renderAppWith("/catalog/rules", (_method, path) => {
+      const { fake } = renderAppWith("/libraries/1/rules", (_method, path) => {
         if (path === "/catalog/visibility/preview")
           return {
             total: 1000,
             hidden: 400,
             visible: 600,
-            movies: 200,
-            shows: 200,
+            movies: 400,
+            shows: 0,
             items: Array.from({ length: 24 }, (_, i) => ({
               key: `hidden-${i}`,
               title: `Hidden ${i}`,
@@ -50,6 +51,7 @@ describe("Library visibility", () => {
           requests.some((call) => {
             const params = new URL(call.path, "http://localhost").searchParams;
             return (
+              params.get("libraryId") === "1" &&
               params.get("ruleVisibility") === visibility &&
               params.get("q") === "Dune" &&
               params.has("rules")
@@ -61,7 +63,7 @@ describe("Library visibility", () => {
   );
 
   it.each([null, undefined])("keeps empty previews usable when items is %s", async (items) => {
-    const { fake } = renderAppWith("/catalog/rules", (_method, path) => {
+    const { fake } = renderAppWith("/libraries/1/rules", (_method, path) => {
       if (path === "/catalog/visibility/preview")
         return { total: 63996, hidden: 0, movies: 0, shows: 0, unknownCountry: 16721, items };
     });
@@ -75,14 +77,15 @@ describe("Library visibility", () => {
     expect(screen.getAllByRole("button", { name: "Browse" })[0]).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Add rule" }));
     expect(screen.getByLabelText("Rule name")).toHaveValue("");
-    expect(calls(fake, "PUT", "/config/catalog")).toHaveLength(0);
+    expect(screen.queryByRole("radiogroup", { name: "Rule media" })).not.toBeInTheDocument();
+    expect(calls(fake, "PATCH", "/libraries/1")).toHaveLength(0);
   });
 
-  it("previews stored rules and saves the catalog draft", async () => {
+  it("previews stored rules on the library and saves via PATCH /libraries/:id", async () => {
     const exclusions = [
       {
         name: "Country boundary",
-        mediaType: "mixed",
+        mediaType: "movie",
         match: "all",
         rules: [{ field: "country", op: "in", value: ["IN"] }],
       },
@@ -102,11 +105,11 @@ describe("Library visibility", () => {
           fake.state.calls.push({ method, path: path + url.search, body });
           return new Response(
             JSON.stringify({
-              total: 55000,
-              hidden: n ? 1200 : 0,
+              total: 35000,
+              hidden: n ? 800 : 0,
               movies: n ? 800 : 0,
-              shows: n ? 400 : 0,
-              rules: n ? [{ movies: 800, shows: 400 }] : [],
+              shows: 0,
+              rules: n ? [{ movies: 800, shows: 0 }] : [],
               items: [],
               shown: [],
             }),
@@ -117,28 +120,31 @@ describe("Library visibility", () => {
       }),
     );
     render(
-      <MemoryRouter initialEntries={["/catalog/rules"]}>
+      <MemoryRouter initialEntries={["/libraries/1/rules"]}>
         <App />
       </MemoryRouter>,
     );
     await settleUi(() => {
       expect(screen.getByText(/Hide · Country is IN/)).toBeInTheDocument();
       expect(fake.state.calls.filter((c) => c.path.includes("preview")).length).toBeGreaterThan(0);
-      expect(screen.getByText("Hidden: 800 movies · 400 shows")).toBeInTheDocument();
+      expect(screen.getByText("Hidden: 800 movies")).toBeInTheDocument();
       expect(screen.getByText(/^visible of /)).toBeInTheDocument();
-      expect(screen.getByText("800 movies · 400 shows")).toBeInTheDocument();
+      expect(screen.getByText("800 movies")).toBeInTheDocument();
     });
+    expect(
+      fake.state.calls.find((c) => c.path.includes("preview"))?.body,
+    ).toMatchObject({ libraryId: 1 });
     fireEvent.click(screen.getByRole("button", { name: "Delete rule 1" }));
     await settleUi(() => {
       expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
     });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await settleUi(() => {
-      expect(calls(fake, "PUT", "/config/catalog")).toHaveLength(1);
+      expect(calls(fake, "PATCH", "/libraries/1")).toHaveLength(1);
     });
-    expect(calls(fake, "PUT", "/config/catalog")[0]?.body).toMatchObject({
-      exclusions: [],
-      language: "en-US",
+    expect(calls(fake, "PATCH", "/libraries/1")[0]?.body).toMatchObject({
+      rules: [],
+      visibilityDefault: "show",
     });
   });
 
@@ -149,11 +155,11 @@ describe("Library visibility", () => {
         document.body.textContent?.includes("No rules yet. Everything is shown.") ?? false;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    renderApp("/catalog/rules", {}, (server) => {
+    renderApp("/libraries/1/rules", {}, (server) => {
       (server.state.config.catalog as { exclusions?: unknown }).exclusions = [
         {
           name: "Stored group",
-          mediaType: "mixed",
+          mediaType: "movie",
           match: "all",
           rules: [{ field: "country", op: "in", value: ["IN"] }],
         },
@@ -172,7 +178,7 @@ describe("Library visibility", () => {
       {
         name: "",
         action: "hide",
-        mediaType: "mixed",
+        mediaType: "movie",
         match: "all",
         rules: [{ field: "genre", op: "in", value: ["Horror"] }],
       },
@@ -198,7 +204,7 @@ describe("Library visibility", () => {
       }),
     );
     render(
-      <MemoryRouter initialEntries={["/catalog/rules"]}>
+      <MemoryRouter initialEntries={["/libraries/1/rules"]}>
         <App />
       </MemoryRouter>,
     );
@@ -212,17 +218,18 @@ describe("Library visibility", () => {
   });
 
   it("does not save an unfinished rule", async () => {
-    const { fake } = renderApp("/catalog/rules");
+    const { fake } = renderApp("/libraries/1/rules");
     await settleUi(() => {
       expect(screen.getByText("No rules yet. Everything is shown.")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole("button", { name: "Add rule" }));
     expect(screen.getByLabelText("Rule name")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
-    expect(calls(fake, "PUT", "/config/catalog")).toHaveLength(0);
+    expect(calls(fake, "PATCH", "/libraries/1")).toHaveLength(0);
   });
+
   it("shows a stored film-and-TV allowlist as rating levels", async () => {
-    renderApp("/catalog/rules", {}, (server) => {
+    renderApp("/libraries/1/rules", {}, (server) => {
       (server.state.config.catalog as { exclusions?: unknown }).exclusions = [
         {
           name: "Family",
@@ -243,12 +250,12 @@ describe("Library visibility", () => {
   });
 
   it("limits a hide rule to browsing and saves its scope", async () => {
-    const { fake } = renderApp("/catalog/rules", {}, (server) => {
+    const { fake } = renderApp("/libraries/1/rules", {}, (server) => {
       (server.state.config.catalog as { exclusions?: unknown }).exclusions = [
         {
           name: "",
           action: "hide",
-          mediaType: "mixed",
+          mediaType: "movie",
           match: "all",
           rules: [{ field: "country", op: "notIn", value: ["US"] }],
         },
@@ -275,21 +282,21 @@ describe("Library visibility", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await settleUi(() => {
-      expect(calls(fake, "PUT", "/config/catalog")).toHaveLength(1);
+      expect(calls(fake, "PATCH", "/libraries/1")).toHaveLength(1);
     });
-    expect(calls(fake, "PUT", "/config/catalog")[0]?.body).toMatchObject({
-      exclusions: [{ action: "hide", scope: "discovery" }],
+    expect(calls(fake, "PATCH", "/libraries/1")[0]?.body).toMatchObject({
+      rules: [{ action: "hide", scope: "discovery" }],
     });
   });
 
   it("offers the browsing-only choice for hide rules alone", async () => {
-    renderApp("/catalog/rules", {}, (server) => {
+    renderApp("/libraries/1/rules", {}, (server) => {
       (server.state.config.catalog as { exclusions?: unknown }).exclusions = [
         {
           name: "",
           action: "hide",
           scope: "discovery",
-          mediaType: "mixed",
+          mediaType: "movie",
           match: "all",
           rules: [{ field: "country", op: "notIn", value: ["US"] }],
         },
@@ -310,6 +317,5 @@ describe("Library visibility", () => {
     await settleUi(() => {
       expect(screen.queryByRole("button", { name: "Where to hide" })).not.toBeInTheDocument();
     });
-    expect(screen.queryByText(/· Browsing only/)).not.toBeInTheDocument();
   });
 });

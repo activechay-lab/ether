@@ -2,28 +2,23 @@ import { SubtabNav } from "../../../components/layout";
 import { Button, EmptyState, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowRight,
-  ArrowLeft,
   Bookmark,
   LayoutGrid,
   List,
   RefreshCw,
   Search,
-  Settings2,
   LoaderCircle,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useApp } from "../../../app-context";
 import { Drawer } from "../../../components/Drawer";
 import { TitleSearch } from "../../../components/pickers";
 import { ErrorPanel, PosterSkeletons } from "../../../components/feedback";
-import { LevelBadge } from "../../../components/status";
 import { ToolbarPicker } from "../../../components/ToolbarPicker";
-import { Workspace } from "../../../components/workspace";
 import { localized, t, tn, tx } from "../../../i18n";
 import { api, apiFetch } from "../../../lib/api";
 import { useAsync, useDebouncedValue } from "../../../lib/hooks";
-import { CatalogSettings } from "./CatalogSettings";
 import type { CollectionSpec } from "../../../lib/contract";
 import { TitleInspector } from "./TitleInspector";
 import { CatalogueResults } from "./CatalogueResults";
@@ -43,55 +38,6 @@ const SORTS = localized(() => [
   { value: "year", label: t("Year") },
   { value: "duration", label: t("Runtime") },
 ]);
-
-export default function Catalog() {
-  const { tab } = useParams();
-  const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const settings = tab === "settings";
-  const visibility = tab === "rules";
-  const onSettings = settings || visibility;
-  const { health, refreshDashboard } = useApp();
-  const status = health.find((h) => h.id === "catalog");
-  const catalogPath = `/libraries${params.size ? `?${params}` : ""}`;
-  const actions = (
-    <>
-      {status && !onSettings ? (
-        <span className="hidden xl:inline-flex">
-          <LevelBadge
-            level={status.level}
-            label={status.level === "ok" ? t("Catalog healthy") : status.summary}
-          />
-        </span>
-      ) : null}
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => navigate(onSettings ? catalogPath : "/libraries/settings")}
-      >
-        {onSettings ? <ArrowLeft size={14} /> : <Settings2 size={14} />}
-        {onSettings ? t("Back to catalog") : t("Settings")}
-      </Button>
-    </>
-  );
-  if (onSettings)
-    return (
-      <Workspace title={t("Catalog")} actions={actions}>
-        <CatalogSettings />
-      </Workspace>
-    );
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <CatalogBrowser
-        params={params}
-        setParams={setParams}
-        refreshHealth={refreshDashboard}
-        heading={t("Catalog")}
-        headerActions={actions}
-      />
-    </div>
-  );
-}
 
 /** AND a saved library filter into a compiled browse filter (spec §11). */
 export function mergeLibraryFilter(
@@ -121,8 +67,8 @@ export function CatalogBrowser({
   heading?: string;
   headerActions?: ReactNode;
   ruleFilter?: { ruleVisibility: string; rules: string; ruleFallback: string };
-  /** Pin the browser to one library: its media type, plus its saved filter ANDed in. */
-  libraryScope?: { type: string; filter?: Record<string, unknown> };
+  /** Pin the browser to one library: its id, media type, plus its saved filter ANDed in. */
+  libraryScope?: { id?: number; type: string; filter?: Record<string, unknown> };
   /** Browse one collection's titles, in its own order, instead of the catalogue. */
   collection?: CollectionSpec;
   params: URLSearchParams;
@@ -204,7 +150,9 @@ export function CatalogBrowser({
         : Promise.resolve(null),
     [specKey],
   );
+  const libraryId = libraryScope?.id;
   const browseRequestKey = JSON.stringify([
+    libraryId,
     debouncedQuery,
     type,
     genre,
@@ -229,6 +177,7 @@ export function CatalogBrowser({
             .browseCatalog(
               {
                 ...ruleFilter,
+                libraryId,
                 q: debouncedQuery,
                 type,
                 genre,
@@ -248,6 +197,7 @@ export function CatalogBrowser({
             )
             .then((result) => ({ ...result, requestKey: browseRequestKey })),
     [
+      libraryId,
       debouncedQuery,
       type,
       genre,
@@ -266,6 +216,7 @@ export function CatalogBrowser({
     ],
   );
   const countKey = JSON.stringify([
+    libraryId,
     debouncedQuery,
     type,
     genre,
@@ -287,6 +238,7 @@ export function CatalogBrowser({
         waiting: waiting ? "1" : "",
         countOnly: "1",
       });
+      if (libraryId) p.set("libraryId", String(libraryId));
       if (filterParam) p.set("filter", filterParam);
       if (ruleFilter) Object.entries(ruleFilter).forEach(([key, value]) => p.set(key, value));
       for (let attempt = 0; attempt < 24; attempt++) {
@@ -309,7 +261,7 @@ export function CatalogBrowser({
       }
       return null;
     },
-    [debouncedQuery, type, genre, decade, waiting, advanced, viewer, ruleFilter, specKey],
+    [libraryId, debouncedQuery, type, genre, decade, waiting, advanced, viewer, ruleFilter, specKey],
   );
   // A collection is at most a few hundred titles: its filters run here.
   const collectionPage = useMemo(() => {
