@@ -951,6 +951,15 @@ func (i *instance) items(w http.ResponseWriter, r *http.Request) {
 	if i.writeLiveItemsByID(w, r, v) {
 		return
 	}
+	if parent := route.Query(r.URL.Query(), "ParentId"); len(parent) == 1 && i.liveTVEnabled() {
+		// Opening the Live TV folder (Jellyfin Web's Live TV library) browses
+		// its channels; without this the folder 404'd while /LiveTv/Channels
+		// worked. Answer the same channel list.
+		if n, e := ids.ParseGUID(ids.View, parent[0]); e == nil && n == liveTVViewNumber {
+			i.writeLiveChannelItems(w, r, v)
+			return
+		}
+	}
 	if i.host.Experience == nil {
 		http.Error(w, "Unavailable", 503)
 		return

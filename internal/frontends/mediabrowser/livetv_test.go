@@ -184,6 +184,11 @@ func TestLiveTVInfoViewChannelAndOnNow(t *testing.T) {
 		if views.Code != 200 || !strings.Contains(views.Body.String(), `"CollectionType":"livetv"`) || !strings.Contains(views.Body.String(), `"Name":"Live TV"`) {
 			t.Fatal(front.Describe().ID, views.Code, views.Body.String())
 		}
+		liveView, _ := ids.GUID(ids.View, liveTVViewNumber)
+		folder := call("/Items?ParentId=" + liveView + "&Limit=20")
+		if folder.Code != 200 || !strings.Contains(folder.Body.String(), `"Name":"News"`) || strings.Contains(folder.Body.String(), `"TotalRecordCount":0`) {
+			t.Fatal(front.Describe().ID, folder.Code, folder.Body.String())
+		}
 		id, _ := ids.StringGUID(ids.Channel, "channel-1")
 		one := call("/LiveTv/Channels/" + id)
 		if one.Code != 200 || !strings.Contains(one.Body.String(), `"Name":"News"`) || !strings.Contains(one.Body.String(), `"Type":"TvChannel"`) || strings.Contains(one.Body.String(), `"Items"`) {
