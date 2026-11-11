@@ -120,6 +120,12 @@ func (m *Manager) summary(r Record, h Health) Summary {
 	}
 	if r.Manifest.Ether != nil {
 		s.Summary = r.Manifest.Ether.Summary
+		if key, ok := strings.CutPrefix(s.Summary, "$t:"); ok {
+			s.Summary = key
+			if v, ok := m.ResolveText(context.Background(), r.ID, key, "en"); ok && strings.TrimSpace(v) != "" {
+				s.Summary = v
+			}
+		}
 		s.Icon = r.Manifest.Ether.Icon
 		for _, c := range r.Manifest.Ether.Capabilities {
 			s.Capabilities = append(s.Capabilities, string(c))

@@ -130,6 +130,8 @@ export interface PluginDetail extends PluginSummary {
 
 export interface InstallPreview {
   manifest: PluginManifest;
+  /** Manifest summary with any "$t:" reference resolved by the server. */
+  summary?: string;
   permissions: string[];
   needsViewers: boolean;
   needsFolders: boolean;

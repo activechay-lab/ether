@@ -145,6 +145,7 @@ export function InstallDrawer({
 
   const canPreview = Boolean(pkgFile || url.trim().length > 0);
   const summary =
+    preview?.summary ||
     preview?.manifest.ether?.summary ||
     preview?.manifest.description ||
     t("No description provided.");

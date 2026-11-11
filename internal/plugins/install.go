@@ -40,7 +40,10 @@ type Source struct {
 
 // Preview is what the install sheet shows before the owner confirms.
 type Preview struct {
-	Manifest         Manifest `json:"manifest"`
+	Manifest Manifest `json:"manifest"`
+	// Summary is the manifest summary with any "$t:" reference resolved
+	// from the package's own strings.
+	Summary          string   `json:"summary,omitempty"`
 	PermissionLines  []string `json:"permissions"`
 	NeedsViewers     bool     `json:"needsViewers"`
 	NeedsFolders     bool     `json:"needsFolders"`
@@ -408,6 +411,9 @@ func (p *Preview) resolve() error {
 				return &ValidationError{[]FieldError{{"ether.runtime", "the entry file is missing from the package"}}}
 			}
 		}
+	}
+	if man := p.Manifest; man.Ether != nil {
+		p.Summary = pluginText(p.resolvedStrings, man.Ether.Summary)
 	}
 	return nil
 }

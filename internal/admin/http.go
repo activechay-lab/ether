@@ -151,7 +151,9 @@ func csrfOK(r *http.Request) bool {
 			if csvUploads[r.URL.Path] && (strings.EqualFold(ct, "text/csv") || strings.EqualFold(ct, "application/octet-stream")) {
 				return true
 			}
-			if (prerollVideoUpload(r.URL.Path) || onairUpload(r.URL.Path)) && strings.EqualFold(ct, "multipart/form-data") {
+			// Plugin install posts the package and its install options
+			// (grants, shadow) together as multipart from the console.
+			if (prerollVideoUpload(r.URL.Path) || onairUpload(r.URL.Path) || r.URL.Path == "/api/plugins/install") && strings.EqualFold(ct, "multipart/form-data") {
 				return true
 			}
 		}
