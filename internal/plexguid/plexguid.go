@@ -403,24 +403,25 @@ func (s *Service) hasNamesake(ctx context.Context, k core.RatingKey) bool {
 	return has
 }
 
-// legacyMapping reports whether k currently has a stored guid served only as a
-// legacy row (no identity record for it). One indexed primary-key read.
-func (s *Service) legacyMapping(ctx context.Context, k core.RatingKey) bool {
-	var legacy bool
-	_ = s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM plexguid_mappings m WHERE m.rating_key=? AND m.guid<>'' AND NOT (`+identityExists+`))`, int64(k)).Scan(&legacy)
-	return legacy
+// unprovenMapping reports whether k currently has a stored guid not proved
+// under the current rule: a legacy row (no identity record) or one whose
+// identity predates the credit check. One indexed primary-key read.
+func (s *Service) unprovenMapping(ctx context.Context, k core.RatingKey) bool {
+	var unproven bool
+	_ = s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM plexguid_mappings m WHERE m.rating_key=? AND m.guid<>'' AND (NOT (`+identityExists+`) OR `+staleCreditsRule+`))`, int64(k)).Scan(&unproven)
+	return unproven
 }
 
 // withheldLegacy reports whether a stored mapping for k must not be served
-// because it is a legacy row on a title the catalogue says has a namesake. The
-// guid may name the other work, so it is withheld from every read path and the
-// key is enqueued for priority re-verification. Non-legacy rows (a verified
-// identity record exists) and rows on namesake-free titles keep serving.
+// because it is unproven (legacy, or verified before the credit check) on a
+// title the catalogue says has a namesake. The guid may name the other work,
+// so it is withheld from every read path and the key is enqueued for priority
+// re-verification. Proven rows and rows on namesake-free titles keep serving.
 func (s *Service) withheldLegacy(ctx context.Context, k core.RatingKey) bool {
 	if s == nil || s.o.Namesakes == nil {
 		return false
 	}
-	if !s.legacyMapping(ctx, k) {
+	if !s.unprovenMapping(ctx, k) {
 		return false
 	}
 	if !s.hasNamesake(ctx, k) {
@@ -506,7 +507,7 @@ func (s *Service) Cached(ctx context.Context, k core.RatingKey) string {
 	if guid == "" {
 		return ""
 	}
-	if !hasIdentity && s.hasNamesake(ctx, k) {
+	if (!hasIdentity || staleCredits) && s.hasNamesake(ctx, k) {
 		s.enqueuePriority(k)
 		return ""
 	}
@@ -581,8 +582,8 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 		}
 		_ = rows.Close()
 		for _, c := range cands {
-			// A legacy row on a namesake title is withheld, never served.
-			if !c.hasIdentity && s.hasNamesake(ctx, c.key) {
+			// An unproven row on a namesake title is withheld, never served.
+			if (!c.hasIdentity || c.staleCredits) && s.hasNamesake(ctx, c.key) {
 				s.enqueuePriority(c.key)
 				continue
 			}
@@ -602,9 +603,9 @@ func (s *Service) freshCached(ctx context.Context, k core.RatingKey) (string, bo
 	var at int64
 	var hasIdentity, staleCredits bool
 	if e := s.db.QueryRowContext(ctx, `SELECT m.guid,m.checked_at, `+identityExists+`, `+staleCreditsRule+` FROM plexguid_mappings m WHERE m.rating_key=? AND (m.guid='' OR `+identityVerified+`) AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000 OR m.guid='' OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))`, int64(k)).Scan(&cached, &at, &hasIdentity, &staleCredits); e == nil && time.Since(time.Unix(at, 0)) < recheckInterval {
-		// A legacy row on a namesake title is not fresh: resolution re-verifies
-		// it inline, which either proves the guid or drops it.
-		if cached != "" && !hasIdentity && s.hasNamesake(ctx, k) {
+		// An unproven row on a namesake title is not fresh: it is withheld
+		// until re-verified, which either proves the guid or drops it.
+		if cached != "" && (!hasIdentity || staleCredits) && s.hasNamesake(ctx, k) {
 			s.enqueuePriority(k)
 			return "", false
 		}
