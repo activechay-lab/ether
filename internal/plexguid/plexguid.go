@@ -506,24 +506,34 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 		if err != nil {
 			continue
 		}
+		// Read the chunk before consulting the namesake lookup: the latter
+		// issues its own queries, and a cursor must not be open across them.
+		type candidate struct {
+			key         core.RatingKey
+			guid        string
+			hasIdentity bool
+		}
+		var cands []candidate
 		for rows.Next() {
 			var rk int64
 			var guid string
 			var hasIdentity bool
 			if err := rows.Scan(&rk, &guid, &hasIdentity); err == nil && guid != "" {
-				k := core.RatingKey(rk)
-				// A legacy row on a namesake title is withheld, never served.
-				if !hasIdentity && s.hasNamesake(ctx, k) {
-					s.enqueuePriority(k)
-					continue
-				}
-				out[k] = guid
+				cands = append(cands, candidate{key: core.RatingKey(rk), guid: guid, hasIdentity: hasIdentity})
 			}
 		}
 		if err := rows.Err(); err != nil {
 			slog.Default().Warn("plexguid: cached mappings not fully loaded", "err", err)
 		}
 		_ = rows.Close()
+		for _, c := range cands {
+			// A legacy row on a namesake title is withheld, never served.
+			if !c.hasIdentity && s.hasNamesake(ctx, c.key) {
+				s.enqueuePriority(c.key)
+				continue
+			}
+			out[c.key] = c.guid
+		}
 	}
 	return out
 }

@@ -67,6 +67,17 @@ func TestLegacyNamesakeRowWithheldAndRepaired(t *testing.T) {
 	if _, err := s.ExactKey(ctx, runnerBad); err == nil {
 		t.Fatal("namesake legacy row served by ExactKey")
 	}
+	// VerifiedRange (the plexwatch import path) must not hand the wrong guid
+	// to the wrong title either.
+	verified, err := s.VerifiedRange(ctx, 0, core.MovieKey(1_000_000), 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range verified {
+		if v.Key == core.MovieKey(770) {
+			t.Fatalf("namesake legacy row served by VerifiedRange: %q", v.GUID)
+		}
+	}
 	// The namesake-free legacy row keeps serving.
 	if got := s.Cached(ctx, core.MovieKey(550)); got != fightGood {
 		t.Fatalf("namesake-free legacy row withheld: %q", got)
