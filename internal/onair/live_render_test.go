@@ -139,6 +139,10 @@ func TestLiveRenderSaveWhileAiringRealFFmpegAndRestartDurability(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg not available in PATH")
 	}
+	// This test covers save-while-airing and restart durability, not machine
+	// speed: never let a loaded runner trip the real-time gate.
+	defer func(g, f float64) { liveSpeedGrace, liveSpeedFloor = g, f }(liveSpeedGrace, liveSpeedFloor)
+	liveSpeedFloor = 0
 
 	ctx := context.Background()
 	dbDir := t.TempDir()
@@ -316,6 +320,9 @@ func TestLiveRenderSaveWhileAiringRealFFmpegAndRestartDurability(t *testing.T) {
 }
 
 func TestLiveRenderSpeedGateFallbackAndVisibilityLog(t *testing.T) {
+	// This test is about the gate itself: judge after a short window.
+	defer func(g, f float64) { liveSpeedGrace, liveSpeedFloor = g, f }(liveSpeedGrace, liveSpeedFloor)
+	liveSpeedGrace = 0.2
 	ctx := context.Background()
 	db, err := store.Open(ctx, t.TempDir())
 	if err != nil {

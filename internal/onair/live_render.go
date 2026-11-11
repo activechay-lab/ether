@@ -26,6 +26,16 @@ import (
 // >= 1.0x real time and playout must fall back for this moment.
 var ErrLiveBelowRealtime = errors.New("onair: live render speed below 1.0x realtime")
 
+// The mid-stream speed gate judges cumulative render speed only after
+// liveSpeedGrace seconds of generated video (ffmpeg start-up and first-frame
+// costs dip the early average), and falls back below liveSpeedFloor so
+// brief load spikes don't cut a transition short. Variables so tests that
+// exercise save-while-airing don't depend on the machine's speed.
+var (
+	liveSpeedGrace = 2.0
+	liveSpeedFloor = 0.9
+)
+
 // FrameReader matches transcode.Decoder without coupling onair to transcode.
 type FrameReader interface {
 	ReadFrame(video []byte) (audio []byte, err error)
@@ -623,7 +633,7 @@ func (s *Service) startLiveMomentStream(
 
 						// Speed gate: if live rendering cannot sustain >= 1.0x realtime
 						// after warming up initial worker pipeline, fall back cleanly.
-						if renderedCount >= 6 && ms.lastSpeedX > 0 && ms.lastSpeedX < 1.0 {
+						if genSec >= liveSpeedGrace && ms.lastSpeedX > 0 && ms.lastSpeedX < liveSpeedFloor {
 							s.recordSlowMoment(baseJob.Look, ms.moment, ms.lastSpeedX)
 							s.noteTransition("fallback", ms.lastSpeedX)
 							s.o.Logger.Info("onair live render below realtime; falling back",
