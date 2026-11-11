@@ -1132,7 +1132,7 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 			}
 			f.e.log.Warn("debrid body interrupted; retrying same file", "release", f.id,
 				"offset", idx*f.e.block, "attempt", bodyRetries, "err", sanitize(err))
-			if errors.Is(err, errBodyStalled) {
+			if errors.Is(err, errBodyStalled) && served.host != "" {
 				// Valid headers do not prove that this host can deliver a block.
 				// Route a stalled body through the same bounded recovery as a
 				// failed connection, preserving the first incomplete offset.
