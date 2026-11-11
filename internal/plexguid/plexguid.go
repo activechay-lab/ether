@@ -47,6 +47,9 @@ func init() {
 	// already-mapped title whose Plex record carries merged credits is
 	// corrected without blanking the whole library.
 	store.Register("plexguid", 7, `ALTER TABLE plexguid_identity ADD COLUMN credits_rule INTEGER NOT NULL DEFAULT 0;`)
+	// The credit check now also compares a movie's cast when its directors
+	// agree; records proved under the director-only check are re-verified.
+	store.Register("plexguid", 8, `UPDATE plexguid_identity SET credits_rule=0 WHERE credits_rule=1;`)
 }
 
 const (
@@ -1042,23 +1045,26 @@ func (s *Service) verifyItems(ctx context.Context, k core.RatingKey, kind, guid 
 // A merged Plex record's credits are only evidence when both sides list some.
 // Where the canonical record and the catalogue both name at least one
 // director, they must share one (a merged record names a wholly different
-// director). A movie with no director on either side falls back to its
-// top-billed cast the same way.
-const topBilledCast = 5
+// director). A movie's cast is checked too whenever both sides list one: a
+// merged record can keep the right director and carry another film's cast
+// (Runner 2026 directed by Scott Waugh with the 1962 Runner's cast), and the
+// TV and mobile apps show that cast by the plex:// guid.
+const topBilledCast = 10
 
 // creditsAgree reports whether the canonical record's credits are consistent
 // with the catalogue title's. It withholds only on positive disagreement:
-// where both sides name directors those names must share one; where neither
-// side names a director a movie's top-billed cast stands in. If either side
-// has no credits at all this is today's rule (accept).
+// where both sides name directors those names must share one, and where both
+// sides list a movie's cast the record must include one of the catalogue's
+// top-billed names. If either side has no credits of a kind, that kind is
+// not evidence.
 func creditsAgree(kind string, item providerItem, li localIdentity) bool {
 	dirs, localDirs := personNames(item.Director), li.directors
-	if len(dirs) > 0 && len(localDirs) > 0 {
-		return namesOverlap(dirs, localDirs)
+	if len(dirs) > 0 && len(localDirs) > 0 && !namesOverlap(dirs, localDirs) {
+		return false
 	}
-	if len(dirs) == 0 && len(localDirs) == 0 && kind == "movie" {
-		if cast := personNames(item.Role); len(cast) > 0 && len(li.cast) > 0 {
-			return namesOverlap(cast, li.cast)
+	if kind == "movie" {
+		if cast := personNames(item.Role); len(cast) > 0 && len(li.cast) > 0 && !namesOverlap(cast, li.cast) {
+			return false
 		}
 	}
 	return true
