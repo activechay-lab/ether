@@ -1,4 +1,4 @@
-import { Button, EmptyState, SettingsSection, Switch, toast } from "@braedonsaunders/appkit-ui";
+import { Button, EmptyState, Switch, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowDown,
   ArrowLeft,
@@ -277,13 +277,6 @@ function LibrariesList() {
           })}
         </div>
       )}
-      <SettingsSection title={t("Good to know")}>
-        <p className="px-5 py-4 text-sm text-fg-muted">
-          {t(
-            "A new saved-filter library stays in this console until you turn on “Show in apps” in its Settings tab. Plugin libraries arrive with their plugin and leave with it.",
-          )}
-        </p>
-      </SettingsSection>
       {creating ? (
         <FilterLibraryEditor
           onClose={() => setCreating(false)}

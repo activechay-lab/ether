@@ -304,7 +304,7 @@ function ViewerPlexServers({ viewerId }: { viewerId: number }) {
   if (!servers.data) {
     return (
       <div className="py-6 text-center">
-        <Spinner size={18} label={t("Loading Plex Media Server sync")} />
+        <Spinner size={18} label={t("Loading Plex Media Server Sync")} />
       </div>
     );
   }
@@ -313,12 +313,12 @@ function ViewerPlexServers({ viewerId }: { viewerId: number }) {
     seconds ? formatDateTime(new Date(seconds * 1000)) : t("Never");
   const manageLink = (
     <Link to="/services/plexservers" className="text-sm font-medium text-primary hover:underline">
-      {t("Manage in Integrations › Plex Media Server sync")}
+      {t("Manage in Integrations › Plex Media Server Sync")}
     </Link>
   );
   return (
     <SettingsSection
-      title={t("Plex Media Server sync")}
+      title={t("Plex Media Server Sync")}
       description={t("Keeps watch state in step with your own Plex Media Servers, per viewer.")}
       footer={list.length > 0 ? manageLink : undefined}
     >

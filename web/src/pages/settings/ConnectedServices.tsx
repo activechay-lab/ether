@@ -84,7 +84,7 @@ export function integrationTabs(
     tmdb: "TMDB",
     trakt: "Trakt",
     simkl: "Simkl",
-    plexservers: t("Plex Media Server sync"),
+    plexservers: t("Plex Media Server Sync"),
     llm: t("Language model"),
     opensubtitles: "OpenSubtitles",
     ratings: t("Ratings"),
@@ -127,7 +127,7 @@ const SERVICES: Service[] = localized(() => [
     configKey: "plexServers",
     endpoint: "plexservers",
     flag: "enabled",
-    label: t("Plex Media Server sync"),
+    label: t("Plex Media Server Sync"),
     groups: [],
   },
   {

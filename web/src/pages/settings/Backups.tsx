@@ -808,9 +808,9 @@ function PlexImport({ users }: { users: EtherUser[] | null }) {
           title={<label htmlFor="plex-import-server">{t("Server")}</label>}
           description={
             <>
-              {t("Choose a server from Plex Media Server sync.")}{" "}
+              {t("Choose a server from Plex Media Server Sync.")}{" "}
               <a className="text-primary hover:underline" href="/ether/services/plexservers">
-                {t("Manage Plex Media Server sync")}
+                {t("Manage Plex Media Server Sync")}
               </a>
             </>
           }
@@ -824,7 +824,7 @@ function PlexImport({ users }: { users: EtherUser[] | null }) {
             disabled={servers.loading || !!servers.error}
             onChange={(e) => edit(setServerID)(e.currentTarget.value)}
           >
-            <option value="">{t("Choose a server from Plex Media Server sync.")}</option>
+            <option value="">{t("Choose a server from Plex Media Server Sync.")}</option>
             {(servers.data ?? []).map((server) => (
               <option key={server.id} value={server.id}>
                 {server.name}

@@ -147,7 +147,7 @@ describe("Plex watch sync", () => {
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeEnabled();
   });
 
-  it("renders Plex account sync and Plex Media Server sync as distinct blocks", async () => {
+  it("renders Plex account sync and Plex Media Server Sync as distinct blocks", async () => {
     let servers: unknown[] = [
       {
         serverId: 1,
@@ -174,7 +174,7 @@ describe("Plex watch sync", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole("heading", { name: "Plex Media Server sync" }),
+      await screen.findByRole("heading", { name: "Plex Media Server Sync" }),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Keeps watch state in step with your own Plex Media Servers, per viewer."),
@@ -188,7 +188,7 @@ describe("Plex watch sync", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Manage in Integrations › Plex Media Server sync" }),
+      screen.getByRole("link", { name: "Manage in Integrations › Plex Media Server Sync" }),
     ).toHaveAttribute("href", "/services/plexservers");
 
     servers = [];
@@ -202,7 +202,7 @@ describe("Plex watch sync", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Plex account sync" })).toBeNull();
     expect(
-      screen.getByRole("link", { name: "Manage in Integrations › Plex Media Server sync" }),
+      screen.getByRole("link", { name: "Manage in Integrations › Plex Media Server Sync" }),
     ).toHaveAttribute("href", "/services/plexservers");
   });
 });

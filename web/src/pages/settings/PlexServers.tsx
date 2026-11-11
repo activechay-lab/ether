@@ -131,7 +131,7 @@ export function PlexServersCard({
   const attention = list.some((s) => s.problem || s.viewers.some((v) => v.problem));
   return (
     <IntegrationAppCard
-      identity={{ id: "plexservers", name: t("Plex Media Server sync") }}
+      identity={{ id: "plexservers", name: t("Plex Media Server Sync") }}
       logo={<PlexMark />}
       description={t("Keeps watch state in step with your own Plex Media Servers, per viewer.")}
       enabled={enabled}
@@ -153,7 +153,7 @@ export function PlexServersCard({
       }
       configureHref="/services/plexservers"
       configureLabel={
-        list.length ? t("Manage Plex Media Server sync") : t("Set up Plex Media Server sync")
+        list.length ? t("Manage Plex Media Server Sync") : t("Set up Plex Media Server Sync")
       }
     />
   );
@@ -274,7 +274,7 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
     try {
       replace(await apiFetch<PMSServer>(`/plex-servers/${srv.id}/sync`, { method: "POST" }));
     } catch {
-      toast.error(t("Plex Media Server sync didn't run"));
+      toast.error(t("Plex Media Server Sync didn't run"));
     } finally {
       setBusy(false);
     }
