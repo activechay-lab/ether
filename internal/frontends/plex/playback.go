@@ -2051,6 +2051,15 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// A clientless part read is a native player (Samsung AVPlay) that drops
+	// Plex headers and carries only a token on the URL. It may only attach to
+	// this viewer's live session for the item, so it cannot open a stream
+	// outside the user's stream limit or outside session accounting. With no
+	// live session to continue, refuse (PMS has nothing to serve either).
+	if pr.ClientID == "" && (!ok || ps == nil) {
+		writeHTTPError(w, http.StatusUnauthorized)
+		return
+	}
 	if !ok || ps == nil {
 		t, err := s.metadataTitle(ctx, pr, key)
 		if err == nil && !t.Key.IsPluginKey() && !s.titleVisible(pr.User, t) {
@@ -2112,12 +2121,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		// A plugin kind key opens through the shared KindPlayback pipeline; when
 		// no broker is mounted (standalone runtime, fixture) it is served
 		// directly from the prepared kind session without a broker publish.
-		// A native player (Samsung AVPlay) drops Plex headers on media reads
-		// and carries only a token on the URL, so there is no client identity
-		// to register a broker session under; PMS serves the part without one,
-		// and so must we (the read already passed token auth, title visibility
-		// and CanPlay).
-		if !already && pr.ClientID != "" && (s.broker() != nil || !key.IsPluginKey()) {
+		if !already && (s.broker() != nil || !key.IsPluginKey()) {
 			if _, err := s.publishBrokerPlayback(ctx, pr, &partPlay, ps); err != nil {
 				s.log.Info("direct play broker publish failed", "key", key, "err", err)
 				s.writeErr(w, r, err)
