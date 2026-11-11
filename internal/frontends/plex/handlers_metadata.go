@@ -733,6 +733,52 @@ func (s *Server) handleParent(w http.ResponseWriter, r *http.Request) {
 	s.renderSingle(w, r, up)
 }
 
+// handleSubscriptionModes is /library/metadata/{key}/subscription/modes.
+// Plex for Mac's built-in server asks for it before it creates a download;
+// a 404 ends the Download flow (#365). PMS answers the item as one
+// Directory (guid, ratingKey, thumb, title, type, year) in a library
+// container carrying its section and type, captured from PMS 1.43.
+func (s *Server) handleSubscriptionModes(w http.ResponseWriter, r *http.Request) {
+	k, err := keyParam(r)
+	if err != nil {
+		writeHTTPError(w, http.StatusNotFound)
+		return
+	}
+	ctx := r.Context()
+	pr := FromContext(ctx)
+	t, err := s.metadataTitle(ctx, pr, k)
+	if err == nil && !s.visibleTitle(ctx, pr.User, t) {
+		err = frontend.ErrNotFound
+	}
+	if err != nil {
+		s.writeErr(w, r, err)
+		return
+	}
+	md := s.metadata(ctx, pr, t, renderOpts{})
+	dir := model.Directory{Extra: []model.Attr{
+		model.A("guid", md.GUID),
+		model.A("ratingKey", md.RatingKey),
+		model.A("thumb", md.Thumb),
+		model.A("title", md.Title),
+		model.A("type", md.Type),
+	}}
+	if md.Year > 0 {
+		dir.Extra = append(dir.Extra, model.A("year", md.Year))
+	}
+	mc := &model.MediaContainer{
+		Identifier:      model.LibraryIdentifier,
+		MediaTagPrefix:  model.MediaTagPrefix,
+		MediaTagVersion: model.MediaTagVersion,
+		Directory:       []model.Directory{dir},
+		Size:            1,
+		Extra:           []model.Attr{model.A("type", md.Type)},
+	}
+	if sec, ok := s.sectionFor(t.Type); ok {
+		mc.LibrarySectionID = model.Ptr(sec.ID)
+	}
+	s.write(w, r, mc)
+}
+
 // renderSingle writes one item as a detail container.
 func (s *Server) renderSingle(w http.ResponseWriter, r *http.Request, k frontend.RatingKey) {
 	ctx := r.Context()

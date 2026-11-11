@@ -91,6 +91,7 @@ func (s *Server) routes() chi.Router {
 	get("/library/metadata/{key}/related", s.handleMetadataHubs)
 	get("/library/metadata/{key}/similar", s.handleSimilar)
 	get("/library/metadata/{key}/onDeck", s.handleItemOnDeck)
+	get("/library/metadata/{key}/subscription/modes", s.handleSubscriptionModes)
 	get("/library/metadata/{key}/parent", s.handleParent)
 	get("/library/metadata/{key}/grandparent", s.handleParent)
 	get("/library/metadata/{key}/extras", s.handlePlaylistExtras)
