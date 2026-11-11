@@ -21,6 +21,7 @@ describe("collection source kinds from the registry", () => {
       [
         "anilistList",
         "catalog",
+        "friendsWatchlist",
         "letterboxdList",
         "mdblist",
         "stevenlu",
