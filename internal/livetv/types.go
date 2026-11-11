@@ -414,13 +414,14 @@ type Options struct {
 	Reels         func(context.Context, string) (ReelSnapshot, error)
 	InputUser     func(context.Context) (*core.User, error)
 	StyleScreens  func(string) *config.LiveTVScreens
-	// AudioLanguage is the server's catalogue language ("en-US"), the
-	// fallback when a programme's original-language audio is absent.
-	AudioLanguage func() string
-	Watchlist     interface{ Generation() uint64 }
-	Picker        core.PersonalPicker
-	State         core.State
-	Users         interface {
+	// AudioTrack applies a user's stream preferences to a programme and
+	// returns the chosen position in info.Streams, or -1 for no preference.
+	// original is the title's original language.
+	AudioTrack func(ctx context.Context, user *core.User, key core.RatingKey, info core.MediaInfo, original string) int
+	Watchlist  interface{ Generation() uint64 }
+	Picker     core.PersonalPicker
+	State      core.State
+	Users      interface {
 		Users(context.Context) ([]core.User, error)
 	}
 	PersonalChanged func(int64)

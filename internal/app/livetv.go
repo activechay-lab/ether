@@ -41,7 +41,7 @@ func (a *App) buildLiveTV() error {
 	}, ScanPolicy: func() markers.BreakScanPolicy {
 		c := a.cfg.Read().LiveTV
 		return markers.BreakScanPolicy{DailyBytes: c.BreakScanDailyBytes, ReleaseBytes: c.BreakScanReleaseBytes, LargeReleaseBytes: c.BreakScanLargeReleaseBytes, AllowLarge: c.BreakScanAllowLarge}
-	}}, GuideAI: a.llm, Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.liveTVInputUser, StyleScreens: a.onair.StyleScreens, AudioLanguage: func() string { return a.cfg.Get().Catalog.Language }, PersonalChanged: func(viewer int64) {
+	}}, GuideAI: a.llm, Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.liveTVInputUser, StyleScreens: a.onair.StyleScreens, AudioTrack: a.liveTVAudioTrack, PersonalChanged: func(viewer int64) {
 		a.frontends.notifyLiveLineup(viewer)
 	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), Showcase: parityShowcase(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, Stability: func() string { return a.cfg.Read().LiveTV.Stability }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey, at time.Duration) error {
 		if !a.registrar.Status().PlexPass {
@@ -84,4 +84,18 @@ func (a *App) liveTVInputUser(ctx context.Context) (*core.User, error) {
 		return &core.User{ID: core.SetupOwnerID, Username: "setup-owner", IsOwner: true}, nil
 	}
 	return nil, err
+}
+
+// liveTVAudioTrack chooses a channel programme's audio with the user's stream
+// preferences, the same rules normal playback applies.
+func (a *App) liveTVAudioTrack(ctx context.Context, user *core.User, key core.RatingKey, info core.MediaInfo, original string) int {
+	if a.trackprefs == nil || user == nil {
+		return -1
+	}
+	sel, err := a.trackprefs.Select(ctx, user.ID, key, info, original)
+	if err != nil {
+		a.log.Warn("livetv: stream preferences for channel audio", "err", err, "key", key)
+		return -1
+	}
+	return sel.Audio
 }

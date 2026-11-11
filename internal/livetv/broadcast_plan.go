@@ -335,7 +335,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 					seeked = true
 				}
 			}
-			audio := p.s.programmeAudioTrack(ctx, ps.Info, candidate.Item.Key)
+			audio := p.s.programmeAudioTrack(ctx, &p.user, ps.Info, candidate.Item.Key)
 			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: input, Offset: trim, Seeked: seeked, Format: p.format, AudioIndex: audio})
 			if err != nil {
 				p.s.o.Playback.Stop(ps.ID)
