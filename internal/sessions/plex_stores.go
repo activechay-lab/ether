@@ -169,11 +169,11 @@ func (b *Broker) ActivityStore() frontend.PlaybackActivityStore {
 // LocalRuntimeDeps configures a standalone SessionRuntime when no full
 // session broker is mounted.
 type LocalRuntimeDeps struct {
-	Sessions         frontend.Sessions
-	Encoder          frontend.SegmentedEncoder
-	Logger           *slog.Logger
-	Playback         core.Playback
-	PlaybackFunc     func() core.Playback
+	Sessions     frontend.Sessions
+	Encoder      frontend.SegmentedEncoder
+	Logger       *slog.Logger
+	Playback     core.Playback
+	PlaybackFunc func() core.Playback
 	// KindSource supplies plugin kind items so a plugin key published through
 	// the standalone runtime opens via KindPlayback (spec §15.1).
 	KindSource       func(context.Context, *core.Viewer, core.RatingKey) (*core.KindInput, error)

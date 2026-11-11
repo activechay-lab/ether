@@ -10,6 +10,7 @@ type Title = core.Title
 type Collection = core.Collection
 type Person = core.Person
 type RatingKey = core.RatingKey
+
 // ItemRef is a plugin item's stable identity (spec §2.2). Protocols that
 // address plugin items by their ItemRef verbatim (Stremio's "pk:" id) exchange
 // it through the host seam rather than importing core.

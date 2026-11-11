@@ -187,7 +187,9 @@ func (f *pluginLazy) Issue(_ context.Context, credential string, request fronten
 	f.issued = true
 	return "/sessions/lazy/scoped/file", nil
 }
-func (*pluginLazy) ServeHTTP(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusPartialContent) }
+func (*pluginLazy) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusPartialContent)
+}
 
 func contains(list []string, want string) bool {
 	for _, v := range list {
