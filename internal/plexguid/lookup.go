@@ -53,6 +53,8 @@ func (s *Service) ExactKey(ctx context.Context, guid string) (core.RatingKey, er
 	if s.withheldLegacy(ctx, found) {
 		return 0, core.ErrNotFound
 	}
+	// A served identity predating the credit check is re-verified soon.
+	s.recheckStaleCredits(ctx, found)
 	return found, nil
 }
 
@@ -171,7 +173,7 @@ func (s *Service) VerifiedRange(ctx context.Context, after, below core.RatingKey
 	if limit <= 0 || limit > 500 {
 		limit = 500
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT m.rating_key, m.guid, `+identityExists+` FROM plexguid_mappings m
+	rows, err := s.db.QueryContext(ctx, `SELECT m.rating_key, m.guid, `+identityExists+`, `+staleCreditsRule+` FROM plexguid_mappings m
 		WHERE m.rating_key>? AND m.rating_key<? AND m.guid<>'' AND `+identityVerified+`
 		  AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000
 		       OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))
@@ -182,14 +184,15 @@ func (s *Service) VerifiedRange(ctx context.Context, after, below core.RatingKey
 	// Read every row before consulting the namesake lookup: the latter issues
 	// its own queries, and a cursor must not be open across them.
 	type candidate struct {
-		key         core.RatingKey
-		guid        string
-		hasIdentity bool
+		key          core.RatingKey
+		guid         string
+		hasIdentity  bool
+		staleCredits bool
 	}
 	var cands []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.key, &c.guid, &c.hasIdentity); err != nil {
+		if err := rows.Scan(&c.key, &c.guid, &c.hasIdentity, &c.staleCredits); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -208,6 +211,11 @@ func (s *Service) VerifiedRange(ctx context.Context, after, below core.RatingKey
 		if !c.hasIdentity && s.hasNamesake(ctx, c.key) {
 			s.enqueuePriority(c.key)
 			continue
+		}
+		// A served row whose identity predates the credit check is re-verified
+		// soon but still imported.
+		if c.staleCredits {
+			s.enqueuePriority(c.key)
 		}
 		if kind, ok := guidKind(c.guid); ok && kind == c.key.Kind() {
 			out = append(out, Verified{Key: c.key, GUID: c.guid})
