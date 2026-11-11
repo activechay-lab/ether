@@ -16,10 +16,12 @@ import (
 	"time"
 )
 
-// liveTVViewNumber is the stable library id for the Live TV user view.
-// Library sections are 1 (movies) and 2 (shows). This id is not a catalogue
-// section; clients open it as CollectionType livetv.
-const liveTVViewNumber int64 = 3
+// liveTVViewNumber is the stable view id for the Live TV user view. It is not
+// a library: libraries are small positive ids (1 Movies, 2 TV Shows, then each
+// library the owner adds), so this uses a reserved high bit that no library id
+// or personal view (ids.PersonalViewBit) sets. Clients open it as
+// CollectionType livetv.
+const liveTVViewNumber int64 = 1 << 61
 
 func (i *instance) liveTVEnabled() bool { return i != nil && i.host.LiveTV != nil }
 
