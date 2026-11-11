@@ -74,6 +74,23 @@ func (i *instance) embyItemDetailDTO(m map[string]any, d frontend.ItemDetail) {
 			m[key] = []any{}
 		}
 	}
+	switch d.Title.Type {
+	case "show":
+		// Emby answers an empty AirDays array and the default Aired display
+		// order for a series. ChildCount is the number of seasons this viewer
+		// can list. None of these walk the library.
+		if _, ok := m["AirDays"]; !ok {
+			m["AirDays"] = []any{}
+		}
+		if _, ok := m["DisplayOrder"]; !ok {
+			m["DisplayOrder"] = "Aired"
+		}
+		if d.Title.ChildCount > 0 {
+			if _, ok := m["ChildCount"]; !ok {
+				m["ChildCount"] = d.Title.ChildCount
+			}
+		}
+	}
 	if id, ok := m["Id"].(string); ok && id != "" {
 		m["PresentationUniqueKey"] = id
 		m["Etag"] = embyETag(id)
@@ -215,6 +232,21 @@ var embyListGated = map[string]string{
 	"LockedFields":         "settings",
 }
 
+// embyListEmptyFields names the collection keys an Emby list row always
+// carries as an array when the request's Fields asks for them, even when the
+// item has none. Ether builds rows with the detail DTO, which drops an absent
+// collection; Emby answers an empty array instead, and clients iterate it.
+var embyListEmptyFields = map[string]string{
+	"People":         "people",
+	"Studios":        "studios",
+	"GenreItems":     "genres",
+	"Genres":         "genres",
+	"Chapters":       "chapters",
+	"RemoteTrailers": "remotetrailers",
+	"Taglines":       "taglines",
+	"MediaSources":   "mediasources",
+}
+
 // embyListFields trims an Emby list row to what the request's Fields asked
 // for. Detail responses keep the full DTO.
 func (i *instance) embyListFields(r *http.Request, item map[string]any) {
@@ -226,5 +258,14 @@ func (i *instance) embyListFields(r *http.Request, item map[string]any) {
 		if !fields[field] {
 			delete(item, key)
 		}
+	}
+	for key, field := range embyListEmptyFields {
+		if fields[field] {
+			if _, ok := item[key]; !ok {
+				item[key] = []any{}
+			}
+			continue
+		}
+		delete(item, key)
 	}
 }

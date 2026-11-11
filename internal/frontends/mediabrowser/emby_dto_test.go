@@ -55,6 +55,50 @@ func TestEmbyItemDetailUsesKnownSourceFacts(t *testing.T) {
 	}
 }
 
+// TestEmbyListFieldsEmitsRequestedCollections checks that an Emby list row
+// carries the collection keys the request's Fields names as arrays, matching
+// Emby's presence semantics, and drops them otherwise.
+func TestEmbyListFieldsEmitsRequestedCollections(t *testing.T) {
+	i := &instance{protocol: "emby"}
+	item := map[string]any{"Id": "x"}
+	r := httptest.NewRequest("GET", "/Users/1/Items?Fields=People,Studios,Genres,Chapters,RemoteTrailers,Taglines,MediaSources", nil)
+	i.embyListFields(r, item)
+	for _, key := range []string{"People", "Studios", "GenreItems", "Chapters", "RemoteTrailers", "Taglines", "MediaSources"} {
+		v, ok := item[key].([]any)
+		if !ok || v == nil {
+			t.Fatalf("%s not an empty array: %#v", key, item[key])
+		}
+	}
+	bare := map[string]any{"Id": "x", "People": []any{map[string]any{"Name": "n"}}}
+	i.embyListFields(httptest.NewRequest("GET", "/Users/1/Items", nil), bare)
+	if _, ok := bare["People"]; ok {
+		t.Fatalf("ungated collection survived: %#v", bare)
+	}
+}
+
+// TestEmbySeriesDetailFacts checks the series-only detail keys Emby clients
+// read: an empty AirDays array, the default Aired display order and the
+// season child count.
+func TestEmbySeriesDetailFacts(t *testing.T) {
+	i := &instance{protocol: "emby"}
+	m := map[string]any{}
+	i.embyItemDetailDTO(m, frontend.ItemDetail{Title: frontend.Title{Type: "show", ChildCount: 3}})
+	if days, ok := m["AirDays"].([]any); !ok || days == nil {
+		t.Fatalf("AirDays: %#v", m["AirDays"])
+	}
+	if m["DisplayOrder"] != "Aired" || m["ChildCount"] != 3 {
+		t.Fatalf("series facts: %#v", m)
+	}
+	movie := map[string]any{}
+	i.embyItemDetailDTO(movie, frontend.ItemDetail{Title: frontend.Title{Type: "movie"}})
+	if _, ok := movie["AirDays"]; ok {
+		t.Fatalf("AirDays leaked to a movie: %#v", movie)
+	}
+	if _, ok := movie["DisplayOrder"]; ok {
+		t.Fatalf("DisplayOrder leaked to a movie: %#v", movie)
+	}
+}
+
 func TestEmbyItemBaseDoesNotChangeJellyfin(t *testing.T) {
 	title := frontend.Title{Title: "Example", SortTitle: "Example, The", Type: "movie", IDs: core.IDs{IMDB: "tt1234567", TMDB: 42}}
 	emby := (&instance{protocol: "emby"}).itemDTO(title, frontend.WatchStatus{})
