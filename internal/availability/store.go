@@ -8,6 +8,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -223,6 +224,9 @@ func (s *Service) spend(ctx context.Context, kind string, n, limit int64) error 
 }
 func (s *Service) remember(ctx context.Context, f core.ReleaseFeed, t core.Title, r core.Release, policy string) error {
 	defer s.clearVisibility()
+	if r.Info.Title == "" && r.Name != "" {
+		r.Info = releaseparse.Parse(r.Name)
+	}
 	raw, err := s.encode(r)
 	if err != nil {
 		return err
@@ -237,6 +241,7 @@ func (s *Service) remember(ctx context.Context, f core.ReleaseFeed, t core.Title
  generation=excluded.generation`, r.ID, t.Key, f.ID, f.Generation, raw, t.Title, r.Name, r.Protocol, now, now, t.Popularity, policy, releasePolicyDigest(r))
 	if err == nil {
 		s.publishConsoleEvidence(ctx, t.Key, r, f.ID, policy, -1)
+		_ = s.maybeOpenGateFromRelease(ctx, f, t, r, s.now(), false)
 	}
 	return err
 }
@@ -250,7 +255,7 @@ func (s *Service) Prune(ctx context.Context) (int64, error) {
 	var total int64
 	now := s.now().Unix()
 	avail := s.cfg().Availability
-	if avail.EffectiveMode() != config.ModeDigital && avail.DisableMovieEvidenceGate {
+	if avail.ModeFor(hiddenMovies) != config.ModeDigital && avail.DisableMovieEvidenceGate {
 		if res, err := s.db.ExecContext(ctx, `DELETE FROM availability_hidden WHERE kind=?`, hiddenMovies); err == nil {
 			n, _ := res.RowsAffected()
 			total += n

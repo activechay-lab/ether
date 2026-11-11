@@ -225,6 +225,7 @@ type tmdbRef struct{ client TMDB }
 type Catalog struct {
 	consoleEvidencePolicy atomic.Pointer[func() string]
 	consoleGatePolicies   atomic.Pointer[func() (string, string)]
+	consoleGateFilter     atomic.Pointer[func() core.Filter]
 	// consoleGateGen counts hidden-set publications. Only release-gate
 	// filters read the current sets directly, so it keys their caches
 	// instead of invalidating the whole catalogue.
@@ -575,6 +576,9 @@ func (c *Catalog) SetTMDB(client TMDB) {
 		c.remoteSearches.reset()
 	}
 }
+
+// TMDBConfigured reports whether a remote TMDB client is attached.
+func (c *Catalog) TMDBConfigured() bool { return c.tmdb() != nil }
 
 func (c *Catalog) tmdb() TMDB {
 	if c == nil {

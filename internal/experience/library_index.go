@@ -79,7 +79,9 @@ func (s *Service) indexedLibraryPage(ctx context.Context, v *core.User, library 
 func (s *Service) browsePageEnd(ctx context.Context, v *core.User, q core.BrowseQuery) (core.Page, error) {
 	var key string
 	if s.cursors != nil && q.Limit > 0 && core.BrowseSeekable(q) {
-		sum := sha256.Sum256([]byte(fmt.Sprintf("%d|%+v|%s|%v|%v", v.ID, q.Filter, q.Sort, q.Desc, q.NoTotal)))
+		cf := q.Filter
+		cf.MovieGateCutoff, cf.ShowGateCutoff, cf.EpisodeGateCutoff, cf.GateNow, cf.GateRev = cf.MovieGateCutoff/60, cf.ShowGateCutoff/60, cf.EpisodeGateCutoff/60, cf.GateNow/60, 0
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%d|%+v|%s|%v|%v", v.ID, cf, q.Sort, q.Desc, q.NoTotal)))
 		key = "page|" + hex.EncodeToString(sum[:16]) + "|"
 		if after, ok := s.cursors.get(key + strconv.Itoa(q.Offset)); ok && q.Offset > 0 {
 			seek := q
@@ -186,6 +188,13 @@ func viewerBrowseFilter(filter core.Filter, v *core.User, ex LibraryPageExclusio
 		return filter, false, false
 	}
 	filter.ExcludeKeys = append(append([]core.RatingKey{}, filter.ExcludeKeys...), ex.Keys...)
+	filter.GatePolicy = ex.Availability.GatePolicy
+	filter.MovieGateCutoff = ex.Availability.MovieGateCutoff
+	filter.ShowGateCutoff = ex.Availability.ShowGateCutoff
+	filter.EpisodeGateCutoff = ex.Availability.EpisodeGateCutoff
+	filter.GateNow = ex.Availability.GateNow
+	filter.GateUpcomingMovies = ex.Availability.GateUpcomingMovies
+	filter.GateRev = ex.Availability.GateRev
 	filter.HiddenMovieSeq = ex.Availability.HiddenMovieSeq
 	filter.HiddenShowSeq = ex.Availability.HiddenShowSeq
 	filter.HiddenEpisodeSeq = ex.Availability.HiddenEpisodeSeq

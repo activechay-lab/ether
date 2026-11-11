@@ -6,53 +6,58 @@ import (
 	"testing"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/catalog"
+	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-type pagedEpisodeCatalog struct{ *fakeCatalog }
-
-func (c *pagedEpisodeCatalog) RecentEvidenceEpisodes(_ context.Context, since time.Time) ([]core.Title, error) {
-	var out []core.Title
-	for _, t := range c.titles {
-		if t.Type == core.TypeEpisode && t.Released.After(since) {
-			out = append(out, t)
-		}
-	}
-	return out, nil
-}
-
-// A page must not use an episode decision invalidated by a release change.
-func TestPagedEpisodeDecisionWaitsForInvalidation(t *testing.T) {
+func TestPagedEpisodeStickyGateSQL(t *testing.T) {
 	x := setup(t)
-	ep := core.Title{Key: core.EpisodeKey(99, 1, 1), Type: core.TypeEpisode, Title: "Episode", Released: x.now.Add(-time.Hour)}
-	x.cat.titles[ep.Key] = ep
-	x.s.d.Catalog = &pagedEpisodeCatalog{x.cat}
-	x.s.d.Async = true
-	defer x.s.Close()
-	input := x.s.discoverySnapshot()
-	x.s.visibilityMu.Lock()
-	for _, kind := range []string{hiddenMovies, hiddenShows, hiddenEpisodes} {
-		x.s.hiddenSets[kind] = &hiddenSet{key: hiddenKey(kind, input), at: x.now, covered: map[core.RatingKey]bool{ep.Key: true}, hidden: map[core.RatingKey]bool{}}
-	}
-	x.s.visibilityMu.Unlock()
-	x.s.clearVisibility()
-	f, err := x.s.PagingFilter(t.Context(), core.Filter{Type: core.TypeEpisode})
+	ctx := context.Background()
+	c, err := catalog.New(x.s.db, nil, config.Catalog{}, nil, catalog.WithNow(func() time.Time { return x.now }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var count int
-	if err := x.s.db.QueryRow(`SELECT COUNT(*) FROM availability_hidden WHERE kind='episode' AND from_seq<=? AND to_seq>? AND rating_key=?`, f.HiddenEpisodeSeq, f.HiddenEpisodeSeq, ep.Key).Scan(&count); err != nil {
+	x.s.d.Catalog = c
+	show := core.Title{Key: core.ShowKey(99), Type: core.TypeShow, Title: "Show", Released: x.now.Add(-time.Hour)}
+	ep := core.Title{Key: core.EpisodeKey(99, 1, 1), ShowKey: show.Key, Type: core.TypeEpisode, Title: "Episode", ShowTitle: "Show", Season: 1, Episode: 1, Released: x.now.Add(-time.Hour)}
+	if err := c.UpsertTitle(ctx, show, true); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatal("invalidated unavailable episode was not excluded")
+	if err := c.UpsertTitle(ctx, ep, true); err != nil {
+		t.Fatal(err)
+	}
+	f, err := x.s.PagingFilter(ctx, core.Filter{Type: core.TypeEpisode})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := c.Browse(ctx, core.BrowseQuery{Filter: f, Limit: 10})
+	if err != nil || page.Total != 0 {
+		t.Fatalf("ungated episode visible: %+v %v", page, err)
+	}
+	if err := x.s.remember(ctx, x.f.sources[0], ep, x.release("ep1"), x.s.policy()); err != nil {
+		t.Fatal(err)
+	}
+	f, err = x.s.PagingFilter(ctx, core.Filter{Type: core.TypeEpisode})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = c.Browse(ctx, core.BrowseQuery{Filter: f, Limit: 10})
+	if err != nil || page.Total != 1 || page.Items[0].Key != ep.Key {
+		t.Fatalf("opened episode missing: %+v %v", page, err)
+	}
+	x.s.Invalidate(ctx, "ep1")
+	f, err = x.s.PagingFilter(ctx, core.Filter{Type: core.TypeEpisode})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = c.Browse(ctx, core.BrowseQuery{Filter: f, Limit: 10})
+	if err != nil || page.Total != 1 {
+		t.Fatalf("Invalidate closed sticky episode gate: %+v %v", page, err)
 	}
 }
 
-// Delta publication: publishing A+x-y inserts only x and closes only y, a
-// reader pinned to the older seq still sees precisely A, and republishing
-// the unchanged set writes no membership rows. Covers the empty set too.
 func TestPublishHiddenDeltaKeepsPinnedSnapshots(t *testing.T) {
 	x := setup(t)
 	ctx := t.Context()
@@ -113,7 +118,6 @@ func TestPublishHiddenDeltaKeepsPinnedSnapshots(t *testing.T) {
 	if after != before+1 {
 		t.Fatalf("seq did not advance by one: %d -> %d", before, after)
 	}
-	// One insert (c) and one close (a): 3 interval rows, not a fresh copy.
 	if rowCount() != 3 {
 		t.Fatalf("delta publish left %d rows, want 3", rowCount())
 	}
@@ -131,12 +135,20 @@ func TestPublishHiddenDeltaKeepsPinnedSnapshots(t *testing.T) {
 	}
 }
 
-// SQLite's 64-bit rating keys must remain 64-bit on PostgreSQL.
 func TestHiddenMigrationTranslatesToPostgres(t *testing.T) {
 	ddl := store.TranslateDDL(hiddenMigration)
 	for _, want := range []string{"rating_key BIGINT NOT NULL", "created_at BIGINT NOT NULL", "PRIMARY KEY(kind,generation,rating_key)"} {
 		if !strings.Contains(ddl, want) {
 			t.Fatalf("translated migration missing %q", want)
+		}
+	}
+}
+
+func TestGateMigrationTranslatesToPostgres(t *testing.T) {
+	ddl := store.TranslateDDL(gateMigration)
+	for _, want := range []string{"rating_key BIGINT NOT NULL", "PRIMARY KEY(policy, rating_key)", "availability_title_checks_due"} {
+		if !strings.Contains(ddl, want) {
+			t.Fatalf("translated gate migration missing %q: %s", want, ddl)
 		}
 	}
 }

@@ -62,6 +62,7 @@ func walkableFilter(f core.Filter) bool {
 	f.YearFrom, f.YearTo, f.Years, f.ExcludeYears = 0, 0, nil, nil
 	f.CatalogViewerID, f.CatalogRuleRevision = 0, 0
 	f.DigitalDiscovery, f.DigitalDateEvidence, f.HomeReleaseOffsetDays, f.AvailabilityKeepKeys = false, false, 0, nil
+	clearGateFields(&f)
 	f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = 0, 0, 0
 	f.ExcludeKeys, f.ExcludeGenres, f.ExcludeKeywords = nil, nil, nil
 	f.MaxContentRating, f.MinContentRating, f.SaferPlexRating, f.ContentRatings, f.ExcludeContentRatings = "", "", false, nil, nil

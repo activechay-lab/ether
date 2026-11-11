@@ -116,7 +116,9 @@ func TestDiscoverySnapshotConcurrentUpdateAndInvalidation(t *testing.T) {
 	var copies atomic.Int64
 	x.s.cfg = func() config.Config { copies.Add(1); return settings.Get() }
 	title := x.cat.titles[core.MovieKey(1)]
-	if err := x.s.remember(t.Context(), x.f.sources[0], title, x.release("good"), x.s.policy()); err != nil {
+	title.HomeReleased = x.now.Add(-time.Hour)
+	x.cat.titles[title.Key] = title
+	if err := x.s.retainFeed(t.Context(), x.f.sources[0], []core.Release{{ID: "good", Name: "Film.2020.1080p.WEB-DL", Indexer: "Fake"}}); err != nil {
 		t.Fatal(err)
 	}
 	v := &blockingCandidate{fakeValidator: x.v, entered: make(chan struct{}), resume: make(chan struct{})}
@@ -218,7 +220,9 @@ func TestDiscoverySnapshotRecentOperations(t *testing.T) {
 	copies := 0
 	x.s.cfg = func() config.Config { copies++; return settings.Get() }
 	title := x.cat.titles[core.MovieKey(1)]
-	if err := x.s.retainFeed(t.Context(), x.f.sources[0], []core.Release{x.release("retained")}); err != nil {
+	title.HomeReleased = x.now.Add(-time.Hour)
+	x.cat.titles[title.Key] = title
+	if err := x.s.retainFeed(t.Context(), x.f.sources[0], []core.Release{{ID: "retained", Name: "Film.2020.1080p.WEB-DL", Indexer: "Fake"}}); err != nil {
 		t.Fatal(err)
 	}
 	copies = 0

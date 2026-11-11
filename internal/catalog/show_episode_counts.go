@@ -74,6 +74,7 @@ func (c *Catalog) countStoredEpisodesBySeries(ctx context.Context, f core.Filter
 	// it is few episodes (the evidence window), subtracted below, where a
 	// direct count would join every stored episode.
 	rest := f
+	clearGateFields(&rest)
 	rest.HiddenEpisodeSeq, rest.AvailabilityKeepKeys = 0, nil
 	if conds, _ := c.childFilterConds("e", rest, nil); len(conds) > 0 {
 		return 0, false, nil
@@ -130,6 +131,29 @@ func (c *Catalog) countStoredEpisodesBySeries(ctx context.Context, f core.Filter
 		if err := c.db.QueryRowContext(ctx, q, vals...).Scan(&hidden); err != nil {
 			return 0, false, err
 		}
+	}
+	if f.GatePolicy != "" && f.EpisodeGateCutoff != 0 {
+		gNow := gateNowTS(f, c.now().Unix())
+		vals := []any{f.EpisodeGateCutoff, gNow, f.GatePolicy, c.now().Unix()}
+		q := `SELECT COUNT(*) FROM catalog_titles e JOIN catalog_titles t ON t.key=e.show_key
+		WHERE e.type='episode' AND e.adult=0 AND e.release_known=1 AND e.released_ts>? AND e.released_ts<=?
+		AND NOT EXISTS (SELECT 1 FROM availability_gate ag WHERE ag.policy=? AND ag.rating_key=e.key LIMIT 1 OFFSET 0)
+		AND e.released_ts<=? AND ` + episodes
+		vals = append(vals, episodeArgs...)
+		for _, keys := range [][]core.RatingKey{f.AvailabilityKeepKeys, childExclude} {
+			if len(keys) == 0 {
+				continue
+			}
+			q += ` AND e.key NOT IN (` + placeholders(len(keys)) + `)`
+			for _, k := range keys {
+				vals = append(vals, k)
+			}
+		}
+		var unavailable int
+		if err := c.db.QueryRowContext(ctx, q, vals...).Scan(&unavailable); err != nil {
+			return 0, false, err
+		}
+		hidden += unavailable
 	}
 	if f.HiddenEpisodeSeq != 0 {
 		// Aired episodes of admitted series in the published hidden set,

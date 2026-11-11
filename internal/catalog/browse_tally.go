@@ -401,6 +401,7 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 	rest.MaxContentRating, rest.MinContentRating, rest.SaferPlexRating = "", "", false
 	rest.CatalogCandidates, rest.CatalogViewerID, rest.CatalogRuleRevision = false, 0, 0
 	rest.DigitalDiscovery, rest.DigitalDateEvidence, rest.HomeReleaseOffsetDays, rest.AvailabilityKeepKeys = false, false, 0, nil
+	clearGateFields(&rest)
 	rest.HiddenMovieSeq, rest.HiddenShowSeq, rest.HiddenEpisodeSeq = 0, 0, 0
 	rest.ExcludeKeys, rest.KnownAddedDate = nil, false
 	return s, filterUnset(rest)
@@ -580,15 +581,31 @@ func (s tallyShape) rankDims(dims string, dimArgs []any, member string, memberAr
 // tallyUnsettled is U: the titles of s's types where the listing's predicate
 // and the tally's can disagree.
 func (c *Catalog) tallyUnsettled(s tallyShape, f core.Filter) (string, []any) {
-	unsettled := []string{`SELECT key FROM catalog_titles WHERE type IN (` + placeholders(len(s.types)) + `) AND released_ts>?`}
+	var unsettled []string
 	var unsettledArgs []any
-	for _, typ := range s.types {
-		unsettledArgs = append(unsettledArgs, typ)
-	}
 	// An hour early: browseWhere read the clock a moment ago, and a title
 	// released in between must be re-checked rather than taken from the
 	// tally. U may hold more titles than needed, never fewer.
-	unsettledArgs = append(unsettledArgs, c.now().Add(-time.Hour).Unix())
+	baseCutoff := c.now().Add(-time.Hour).Unix()
+	if f.GatePolicy != "" && (f.MovieGateCutoff != 0 || f.ShowGateCutoff != 0) {
+		for _, typ := range s.types {
+			cutoff := baseCutoff
+			if typ == string(core.TypeMovie) && f.MovieGateCutoff != 0 && f.MovieGateCutoff < cutoff {
+				cutoff = f.MovieGateCutoff
+			}
+			if typ == string(core.TypeShow) && f.ShowGateCutoff != 0 && f.ShowGateCutoff < cutoff {
+				cutoff = f.ShowGateCutoff
+			}
+			unsettled = append(unsettled, `SELECT key FROM catalog_titles WHERE type=? AND released_ts>?`)
+			unsettledArgs = append(unsettledArgs, typ, cutoff)
+		}
+	} else {
+		unsettled = append(unsettled, `SELECT key FROM catalog_titles WHERE type IN (`+placeholders(len(s.types))+`) AND released_ts>?`)
+		for _, typ := range s.types {
+			unsettledArgs = append(unsettledArgs, typ)
+		}
+		unsettledArgs = append(unsettledArgs, baseCutoff)
+	}
 	for _, hidden := range []struct {
 		kind string
 		seq  int64

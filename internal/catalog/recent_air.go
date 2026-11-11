@@ -81,6 +81,10 @@ func (c *Catalog) recentAir(ctx context.Context, typ core.MediaType, exclude []c
 func (c *Catalog) recentMovieKeys(ctx context.Context, now int64, exclude []core.RatingKey, f core.Filter, offset, limit int) ([]core.RatingKey, []int64, error) {
 	args := []any{now}
 	notIn := ""
+	if mc, ma := movieGateSQL("catalog_titles", f, now); mc != "" {
+		notIn += ` AND ` + mc
+		args = append(args, ma...)
+	}
 	if f.HiddenMovieSeq != 0 {
 		notIn += ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='movie' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=catalog_titles.key)`
 		args = append(args, f.HiddenMovieSeq, f.HiddenMovieSeq)
@@ -126,14 +130,23 @@ func (c *Catalog) recentShowKeys(ctx context.Context, now int64, exclude []core.
 		bound = 4000
 	}
 	hidden := ""
+	showGate := ""
 	args := []any{now}
+	if sc, sa := showGateSQL("s", f, now); sc != "" {
+		showGate = ` AND ` + sc
+		args = append(args, sa...)
+	}
+	if ec, ea := episodeGateSQL("e", f, now); ec != "" {
+		hidden += ` AND ` + ec
+		args = append(args, ea...)
+	}
 	if f.HiddenShowSeq != 0 {
-		hidden = ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='show' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=e.show_key)`
+		hidden += ` AND NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='show' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=e.show_key)`
 		args = append(args, f.HiddenShowSeq, f.HiddenShowSeq)
 	}
 	rows, err := c.db.QueryContext(ctx, `SELECT e.show_key, e.released_ts FROM catalog_titles e
 WHERE e.type='episode' AND e.adult=0 AND e.release_known=1 AND e.released_ts<=?
-AND EXISTS (SELECT 1 FROM catalog_titles s WHERE s.key=e.show_key AND s.browsable=1 AND s.adult=0)
+AND EXISTS (SELECT 1 FROM catalog_titles s WHERE s.key=e.show_key AND s.browsable=1 AND s.adult=0`+showGate+`)
 `+hidden+` ORDER BY e.released_ts DESC, e.key ASC
 LIMIT ?`, append(args, bound)...)
 	if err != nil {

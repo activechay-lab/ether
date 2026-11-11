@@ -239,7 +239,7 @@ func TestSummaryCountsReadyAndWaiting(t *testing.T) {
 	waiting.Key = core.MovieKey(2)
 	waiting.Title = "Waiting"
 	x.cat.titles[waiting.Key] = waiting
-	x.s.d.Catalog = probeCatalog{fakeCatalog: x.cat}
+	x.s.d.Catalog = probeCatalog{fakeCatalog: x.cat, homes: map[core.RatingKey]time.Time{ready.Key: x.now.Add(-time.Hour)}}
 	x.s.d.Search = func(_ context.Context, req core.SearchRequest) ([]core.Release, error) {
 		if req.Title != "Film" {
 			return nil, nil

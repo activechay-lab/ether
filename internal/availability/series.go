@@ -2,6 +2,7 @@ package availability
 
 import (
 	"context"
+
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
@@ -11,7 +12,7 @@ func (s *Service) filterDiscovery(ctx context.Context, items []core.Title, input
 	var shows, releases []core.Title
 	var keys []core.RatingKey
 	for _, t := range items {
-		if t.Type == core.TypeShow && EvidenceWindow(t, input.now) {
+		if t.Type == core.TypeShow && evidenceWindow(t, input.now, input.availability) {
 			shows = append(shows, t)
 			keys = append(keys, t.Key)
 		} else {

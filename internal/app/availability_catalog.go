@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+
 	"github.com/braedonsaunders/ether/internal/availability"
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
@@ -59,9 +60,17 @@ func (c *availabilityCatalog) Grandchildren(ctx context.Context, k core.RatingKe
 	return c.availability.FilterDiscovery(ctx, c.Catalog.FilterVisibility(ctx, ts)), nil
 }
 func (c *availabilityCatalog) Search(ctx context.Context, q string, types []core.MediaType, n int) ([]core.Title, error) {
-	ts, e := c.Catalog.Search(ctx, q, types, n)
+	gf, err := c.availability.PagingFilter(ctx, core.Filter{})
+	if err != nil {
+		return nil, err
+	}
+	ts, e := c.Catalog.Search(catalog.WithGateFilter(ctx, gf), q, types, n)
 	if e != nil {
 		return nil, e
 	}
-	return c.availability.FilterDiscovery(ctx, c.Catalog.FilterVisibility(ctx, ts)), nil
+	vis := c.Catalog.FilterVisibility(ctx, ts)
+	if c.Catalog.TMDBConfigured() {
+		return c.availability.FilterDiscovery(ctx, vis), nil
+	}
+	return vis, nil
 }

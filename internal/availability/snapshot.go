@@ -17,21 +17,34 @@ type discoverySnapshot struct {
 	now                time.Time
 	availability       config.Availability
 	policy             string
+	gatePolicy         string
 	feeds              []core.ReleaseFeed
 	usenet, torrent    bool
 }
 
 func (s *Service) discoverySnapshot() discoverySnapshot {
 	c := s.cfg()
-	feeds := slices.Clone(s.d.Feeds.FeedSources())
-	for i := range feeds {
-		feeds[i].Categories = slices.Clone(feeds[i].Categories)
+	var feeds []core.ReleaseFeed
+	if s.d.Feeds != nil {
+		feeds = slices.Clone(s.d.Feeds.FeedSources())
+		for i := range feeds {
+			feeds[i].Categories = slices.Clone(feeds[i].Categories)
+		}
 	}
 	a := c.Availability
 	a.IndexerIDs = slices.Clone(a.IndexerIDs)
+	policy := s.policyForConfig(c)
+	usenet := settingsUsable(c, "")
+	torrent := settingsUsable(c, core.ProtocolTorrent)
 	return discoverySnapshot{
-		showUpcomingMovies: c.Catalog.ShowUpcomingMovies, now: s.now(), availability: a, policy: settingsPolicy(c), feeds: feeds,
-		usenet: settingsUsable(c, ""), torrent: settingsUsable(c, core.ProtocolTorrent),
+		showUpcomingMovies: c.Catalog.ShowUpcomingMovies,
+		now:                s.now(),
+		availability:       a,
+		policy:             policy,
+		gatePolicy:         computeGatePolicy(policy, usenet, torrent, feeds),
+		feeds:              feeds,
+		usenet:             usenet,
+		torrent:            torrent,
 	}
 }
 

@@ -9,7 +9,8 @@ resolver's existing policies rather than a second rules engine.
 ## Owner controls
 
 Sources → Availability provides monitoring, selective validation, participating
-feeds, debrid participation, preference for checked recommendations and optional
+feeds, debrid participation, per-type release modes (`MovieMode`, `ShowMode`,
+falling back to `Mode`), preference for checked recommendations and optional
 newly available shelves. Monitoring and validation start disabled. Presentation
 preferences start enabled and can benefit from ordinary playback observations.
 
@@ -32,7 +33,7 @@ normal account limits. Every feed page, provider API request and source read goe
 through admission before network work. Ordinary playback does not use the
 background allowance. Shared worker contexts retain the admission hook.
 
-## Discovery and evidence
+## Sticky release gate and bounded retry schedule
 
 Newznab/Torznab recent-release pages use an empty `t=search` request, following the
 incremental model documented by [Radarr](https://wiki.servarr.com/radarr/faq#how-does-radarr-work).
@@ -44,78 +45,56 @@ needs (at most `MaxPages` per sync), resuming an unfinished gap every minute
 while its allowance has room. A first sync starts at the head; **catch-up**
 (optional) also walks recent history. Failed requests do not advance the cursor.
 
-Feeds detect; title searches are events. A movie in the window is searched by id
-once when it enters the window, once when its digital or physical date arrives,
-and once after its found release proves unplayable (plus finishing a search an
-outage or allowance cut short). A search asks one source at a time in priority
-order and stops at the first acceptable release. Nothing is searched on a timer.
+In-window titles without an open gate row are checked via an indexed due-retry
+table (`availability_title_checks_due`) anchored to the movie's digital/physical
+release date (falling back to theatrical) or the episode's air date on the
+bounded ladder `[0, 30m, 1h, 90m, 2h, 150m, 3h, 4h, 8h]` and then every `24h`
+until the evidence window ends. At most `probeBatch` (10) due titles are searched
+per minute, ordered by priority (unchecked first-look, watchlisted, and post-date
+titles first), asking one source at a time and stopping at the first acceptable
+release. On an idle server with no due rows, the scheduler performs one indexed
+due-retry query returning zero rows and no catalogue scan or set rebuild.
+
+Once a title's gate (`availability_gate`, keyed by `(policy, rating_key)`) opens
+under a policy fingerprint, it **never closes**: `Invalidate` retracts that
+specific release's evidence in `availability_releases` and console evidence so
+playback/search move on to alternative releases, and time passing never re-hides
+the title. Only a policy, profile, or source-generation change starts a fresh
+gate policy fingerprint.
+
+Because opening is irreversible, opening is strict against pre-release fakes:
+
+- **Verified evidence** opens the gate immediately: a successful background
+  health check that read real video (`VerifyFeedCandidate`), a definitive cached
+  debrid copy (`CacheCheck`), or successful ordinary playback (`Observe`).
+- **Unverified feed/search matches** open the gate immediately **only after** the
+  title's official date has passed (movie digital/physical release date, episode
+  air date). Before that date, an unverified profile-accepted match leaves the
+  gate shut and queues the candidate in `availability_releases` for background
+  verification within the validation allowance.
 
 Matching scans local title identities and resolves episodes locally; it does not
 call TMDB for every feed item. Conflicting identifiers and ambiguous title matches
 are rejected. A season pack only contributes known, already-aired episodes, and
 its health check is targeted to the chosen episode using the existing resolver.
 
-The queue prioritizes popular titles, checks one candidate per title per pass,
-and defers extra candidates when the title already has fresh successful evidence.
-It never searches the entire catalogue in the background. Playback attempts can
-reuse discovered descriptors before normal search, with a five-second shortlist
-budget. Viewer/device policy is always reapplied on that path.
+Library browse, rows, facets, episode counts and search evaluate the sticky gate
+directly inside their existing SQL queries via an indexed `EXISTS` lookup on
+`availability_gate(policy, rating_key)` combined with request-clock window
+bounds — zero extra round trips, zero Go-side filtering of title lists, and zero
+in-memory hidden-set recomputation. Durable release verdicts live in
+`availability_verdicts` (pruned with feed items and capped at 60,000 rows) so
+policy changes reuse or re-evaluate retained observations cleanly.
 
-Debrid cache lookups are batched and capability-dependent. Background validation
-can inspect existing account items and validate a bounded HTTPS range; it never
-starts an uncached download or adds torrents. Unsupported cache APIs leave
-availability unknown. A debrid account by itself is not a global discovery feed;
-recent torrent discovery requires a configured Torznab source. Usenet, debrid,
-both, and no playback provider are supported configurations.
-
-Successful evidence is source-, title-, policy- and configuration-specific. It
-expires after six hours. Configuration changes invalidate old positives. A source
-failure never creates a title-wide negative. Timeout, exhausted allowance and
-unsupported checks remain unknown. Normal resolver health-cache hits do not renew
-evidence timestamps. Sampled health is useful evidence, not a guarantee of all
-bytes or all clients.
-
-Discovery filtering captures one isolated settings value, policy fingerprint,
-source list and clock reading per operation. Nested episode and retained-release
-reads, pagination exclusions, recommendation priority and newly available shelves
-reuse those inputs. The next operation sees settings and source-generation
-changes; existing observation invalidation still prevents stale memo writes.
-`config.Store.Get` retains its deep-copy isolation. Background admission remains
-live so owner pauses and allowance changes take effect during background work.
-Resolver candidate checks still apply their existing policy; this snapshot does
-not bypass access, identity or quality checks or promise to remove all Home delay.
-
-Library pages and section hubs never judge feed releases inside a request.
-They read the last computed hidden set for the evidence window; a set older
-than fifteen seconds, or older than a new observation or invalidation, is
-served while one background refresh recomputes it. Before the first set
-exists every title in the window stays hidden, as it would until evidence
-arrives. Each refresh asks the resolver only about (title, release) pairs
-without a durable verdict under the current policy key (profile, resolver
-settings, catalogue language, rule fields): verdicts live in
-`availability_verdicts`, bound to the release descriptor and the title facts
-matching reads, pruned with feed items and capped at 60,000 rows. A refresh
-stores its verdicts before it publishes its set. A browse request that judges
-queues its verdicts for one writer instead of writing, and reads count the
-queue as stored, so no section load judges a release twice. Short-lived
-gates (blocklist marks, a brief health-failure skip) are reapplied on every
-read; hosted ranking sessions make every verdict short-lived.
-
-Only fresh checked movies move ahead within popular/trending/recommendation
-shelves; no items are removed. Explicit chronology and Continue Watching retain
-their order. Newly available shelves mean first successfully checked by this
-server, not necessarily a film's worldwide premiere.
+Recommendation priority and newly available shelves still require fresh (6-hour)
+checked evidence (`verifiedKeys`), distinct from sticky browse visibility.
 
 ## Operations
 
-The existing cluster leader runs one scheduler; cursors, observations and atomic
-usage counters are durable in the shared database. Hot settings are respected by
-admission. Checks pause while local playback is active. Each cycle is bounded,
-cancellation propagates, transient outcomes back off, and descriptors expire
-after 30 days with a hard retention cap of 30,000 observations. Signed release
-locators are sealed using the config store; owner status never exposes them.
-
-Tests use fake feeds/providers and local HTTP fixtures. They cover admission,
-account reserve, midnight reset, restart/overlap/gaps, identity conflicts,
-source/policy invalidation, stale evidence, disabled-provider behavior, diverse
-candidate selection, resolver reuse, and budget propagation across shared workers.
+The existing cluster leader runs one scheduler; cursors, sticky gate rows,
+observations and atomic usage counters are durable in the shared database. Hot
+settings are respected by admission. Checks pause while local playback is active.
+Each cycle is bounded, cancellation propagates, transient outcomes back off, and
+descriptors expire after 30 days with a hard retention cap of 30,000 observations.
+Signed release locators are sealed using the config store; owner status never
+exposes them.

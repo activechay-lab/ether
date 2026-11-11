@@ -12,22 +12,94 @@ func (c *Catalog) SetConsoleGatePolicies(provider func() (string, string)) {
 	c.consoleGatePolicies.Store(&provider)
 }
 
-// ConsoleGateChanged records a new published hidden set. Ordinary browse
+// SetConsoleGateFilter installs the sticky availability_gate filter provider for
+// owner console ReleaseGate queries ("held", "admitted", "unknown").
+func (c *Catalog) SetConsoleGateFilter(provider func() core.Filter) {
+	c.consoleGateFilter.Store(&provider)
+}
+
+// ConsoleGateChanged records a new published gate change. Ordinary browse
 // filters carry the generations they read, so only release-gate results
 // are keyed by it (consoleGateKey); the catalogue's other caches stay.
 func (c *Catalog) ConsoleGateChanged() { c.consoleGateGen.Add(1) }
 
-// consoleGateKey separates cached release-gate results by hidden-set
-// publication; it is empty for filters without a release gate.
+// consoleGateKey separates cached release-gate results by gate publication;
+// it is empty for filters without a release gate.
 func (c *Catalog) consoleGateKey(f core.Filter) string {
 	if !hasConsoleGate(f) {
 		return ""
 	}
 	return "|gate-gen:" + strconv.FormatUint(c.consoleGateGen.Load(), 10)
 }
+
 func (c *Catalog) consoleGateConditions(f core.Filter) ([]string, []any) {
 	if f.ReleaseGate == "" {
 		return nil, nil
+	}
+	if gfFn := c.consoleGateFilter.Load(); gfFn != nil {
+		gf := (*gfFn)()
+		nowTS := c.now().Unix()
+		mc, ma := movieGateSQL("t", gf, nowTS)
+		sc, sa := showGateSQL("t", gf, nowTS)
+		movieKnown := mc != ""
+		showKnown := sc != ""
+		var knownConds []string
+		if movieKnown {
+			knownConds = append(knownConds, "t.type='movie'")
+		}
+		if showKnown {
+			knownConds = append(knownConds, "t.type='show'")
+		}
+		known := "1=0"
+		if len(knownConds) == 1 {
+			known = knownConds[0]
+		} else if len(knownConds) == 2 {
+			known = "(t.type='movie' OR t.type='show')"
+		}
+		switch f.ReleaseGate {
+		case "unknown":
+			return []string{"NOT (" + known + ")"}, nil
+		case "admitted":
+			if !movieKnown && !showKnown {
+				return []string{"1=0"}, nil
+			}
+			var parts []string
+			var args []any
+			if movieKnown {
+				parts = append(parts, "(t.type='movie' AND "+mc+")")
+				args = append(args, ma...)
+			}
+			if showKnown {
+				parts = append(parts, "(t.type='show' AND "+sc+")")
+				args = append(args, sa...)
+			}
+			if len(parts) == 1 {
+				return []string{parts[0]}, args
+			}
+			return []string{"(" + parts[0] + " OR " + parts[1] + ")"}, args
+		case "held":
+			if !movieKnown && !showKnown {
+				return []string{"1=0"}, nil
+			}
+			var parts []string
+			var args []any
+			if movieKnown {
+				parts = append(parts, "(t.type='movie' AND t.released_ts>? AND NOT "+mc+")")
+				args = append(args, gf.MovieGateCutoff)
+				args = append(args, ma...)
+			}
+			if showKnown {
+				parts = append(parts, "(t.type='show' AND t.released_ts>? AND NOT "+sc+")")
+				args = append(args, gf.ShowGateCutoff)
+				args = append(args, sa...)
+			}
+			if len(parts) == 1 {
+				return []string{parts[0]}, args
+			}
+			return []string{"(" + parts[0] + " OR " + parts[1] + ")"}, args
+		default:
+			return []string{"1=0"}, nil
+		}
 	}
 	p := c.consoleGatePolicies.Load()
 	if p == nil {
@@ -49,6 +121,7 @@ func (c *Catalog) consoleGateConditions(f core.Filter) ([]string, []any) {
 	}
 	return []string{"1=0"}, nil
 }
+
 func hasConsoleGate(f core.Filter) bool {
 	if f.ReleaseGate != "" {
 		return true
@@ -70,10 +143,14 @@ func hasConsoleGate(f core.Filter) bool {
 	}
 	return group(f.Group)
 }
+
 func (c *Catalog) consoleAvailabilityCacheKey(f core.Filter) string {
 	key := c.evidencePolicy()
 	if hasConsoleGate(f) {
-		if p := c.consoleGatePolicies.Load(); p != nil {
+		if gfFn := c.consoleGateFilter.Load(); gfFn != nil {
+			gf := (*gfFn)()
+			key += "|gate:" + gf.GatePolicy + ":" + strconv.FormatInt(minuteBound(gf.MovieGateCutoff), 10) + ":" + strconv.FormatInt(minuteBound(gf.ShowGateCutoff), 10)
+		} else if p := c.consoleGatePolicies.Load(); p != nil {
 			movie, show := (*p)()
 			key += "|gate:" + movie + ":" + show
 		}

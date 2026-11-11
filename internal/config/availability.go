@@ -37,6 +37,9 @@ type Availability struct {
 	// Mode is playable, digital, or immediate. Empty is derived from the
 	// gate and date flags so existing configs keep working.
 	Mode string `json:"mode,omitempty"`
+	// MovieMode and ShowMode override Mode per library media type when set.
+	MovieMode string `json:"movieMode,omitempty"`
+	ShowMode  string `json:"showMode,omitempty"`
 }
 
 // IndexerCap is one indexer's own limit. DailyLimit 0 means the indexer
@@ -74,25 +77,40 @@ func (a Availability) EffectiveMode() string {
 	return ModePlayable
 }
 
-// ApplyMode writes the engine flags for EffectiveMode. Gentle/Unlimited
-// presets become the self-tuned normal budget unless the owner set a ceiling.
+// ModeFor returns the availability mode for kind ("movie" uses MovieMode,
+// everything else uses ShowMode), falling back to EffectiveMode(). Legacy
+// flag-only configs where Mode and ShowMode are unset keep DisableMovieEvidenceGate
+// scoped to movies so episodes remain playable-gated until Mode is set.
+func (a Availability) ModeFor(kind string) string {
+	if kind == "movie" {
+		switch a.MovieMode {
+		case ModePlayable, ModeDigital, ModeImmediate:
+			return a.MovieMode
+		}
+		return a.EffectiveMode()
+	}
+	switch a.ShowMode {
+	case ModePlayable, ModeDigital, ModeImmediate:
+		return a.ShowMode
+	}
+	switch a.Mode {
+	case ModePlayable, ModeDigital, ModeImmediate:
+		return a.Mode
+	}
+	return ModePlayable
+}
+
+// ApplyMode writes the engine flags for EffectiveMode and any per-type modes.
+// Gentle/Unlimited presets become the self-tuned normal budget unless the owner
+// set a ceiling.
 func (a *Availability) ApplyMode() {
 	mode := a.EffectiveMode()
 	a.Mode = mode
-	switch mode {
-	case ModeDigital:
-		a.Monitor = false
-		a.DisableMovieEvidenceGate = false
-		a.DigitalDateEvidence = true
-	case ModeImmediate:
-		a.Monitor = false
-		a.DisableMovieEvidenceGate = true
-		a.DigitalDateEvidence = false
-	default:
-		a.Monitor = true
-		a.DisableMovieEvidenceGate = false
-		a.DigitalDateEvidence = false
-	}
+	movieMode := a.ModeFor("movie")
+	showMode := a.ModeFor("show")
+	a.Monitor = movieMode == ModePlayable || showMode == ModePlayable
+	a.DisableMovieEvidenceGate = movieMode == ModeImmediate
+	a.DigitalDateEvidence = movieMode == ModeDigital
 	if a.Effort == "gentle" || a.Effort == "unlimited" {
 		a.Effort = "normal"
 	}

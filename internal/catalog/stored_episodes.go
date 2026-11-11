@@ -23,6 +23,11 @@ var (
 func splitStoredFilter(f core.Filter, childKind core.KeyKind) (show core.Filter, childExclude []core.RatingKey) {
 	show = core.Filter{
 		KnownAddedDate:         f.KnownAddedDate,
+		GatePolicy:             f.GatePolicy,
+		ShowGateCutoff:         f.ShowGateCutoff,
+		EpisodeGateCutoff:      f.EpisodeGateCutoff,
+		GateNow:                f.GateNow,
+		GateRev:                f.GateRev,
 		HiddenMovieSeq:         f.HiddenMovieSeq,
 		HiddenShowSeq:          f.HiddenShowSeq,
 		ExcludeGenres:          f.ExcludeGenres,
@@ -62,6 +67,12 @@ func splitStoredFilter(f core.Filter, childKind core.KeyKind) (show core.Filter,
 func (c *Catalog) childFilterConds(alias string, f core.Filter, childExclude []core.RatingKey) ([]string, []any) {
 	var conds []string
 	var args []any
+	if alias == "e" {
+		if ec, ea := episodeGateSQL(alias, f, c.now().Unix()); ec != "" {
+			conds = append(conds, ec)
+			args = append(args, ea...)
+		}
+	}
 	if alias == "e" && f.HiddenEpisodeSeq != 0 {
 		clause := "NOT EXISTS (SELECT 1 FROM availability_hidden ah WHERE ah.kind='episode' AND ah.from_seq<=? AND ah.to_seq>? AND ah.rating_key=" + alias + ".key)"
 		args = append(args, f.HiddenEpisodeSeq, f.HiddenEpisodeSeq)

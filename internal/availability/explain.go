@@ -36,7 +36,7 @@ func (s *Service) Explain(ctx context.Context, key core.RatingKey) (TitleEvidenc
 	}
 	out := TitleEvidence{CheckedAt: checked, NextCheck: next, Reason: reason}
 	if visible {
-		if state == "found" || s.hasPlayableObservation(ctx, key) {
+		if state == "found" || s.isGateOpen(ctx, s.currentGatePolicy(), key) || s.hasPlayableObservation(ctx, key) {
 			out.Code = "playable"
 			return out, nil
 		}

@@ -681,7 +681,16 @@ func (c *Catalog) searchLiteral(ctx context.Context, query, types string, year, 
 	if c.rankReady.Load() {
 		pop = "COALESCE((SELECT -r.rk FROM catalog_rank r WHERE r.key=catalog_titles.key), popularity)"
 	}
-	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE ` + adult + `type IN (` + types + `) AND ` + match + ` ORDER BY CASE WHEN ?>0 AND year=? THEN 0 ELSE 1 END, ` + pop + ` DESC LIMIT ?`
+	gateWhere := ""
+	var gateArgs []any
+	if !unfiltered {
+		if gc, ga := c.searchGateConds(ctx, "catalog_titles"); gc != "" {
+			gateWhere = " AND " + gc
+			gateArgs = ga
+		}
+	}
+	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE ` + adult + `type IN (` + types + `) AND ` + match + gateWhere + ` ORDER BY CASE WHEN ?>0 AND year=? THEN 0 ELSE 1 END, ` + pop + ` DESC LIMIT ?`
+	args = append(args, gateArgs...)
 	args = append(args, year, year, n)
 	if deferFacts {
 		return c.querySearchRows(ctx, unfiltered, partial, q, args...)
@@ -1230,7 +1239,14 @@ func (c *Catalog) searchCandidateRows(ctx context.Context, keys []core.RatingKey
 	for i, k := range keys {
 		args[i] = int64(k)
 	}
-	titles, err := c.querySearchRows(ctx, unfiltered, partial, `SELECT `+titleCols+` FROM catalog_titles WHERE key IN (`+placeholders(len(keys))+`)`, args...)
+	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE key IN (` + placeholders(len(keys)) + `)`
+	if !unfiltered {
+		if gc, ga := c.searchGateConds(ctx, "catalog_titles"); gc != "" {
+			q += " AND " + gc
+			args = append(args, ga...)
+		}
+	}
+	titles, err := c.querySearchRows(ctx, unfiltered, partial, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1290,6 +1306,12 @@ func (c *Catalog) searchCandidates(ctx context.Context, keys []core.RatingKey, u
 		at[k] = i
 	}
 	q := `SELECT ` + titleCols + ` FROM catalog_titles WHERE key IN (` + placeholders(len(keys)) + `)`
+	if !unfiltered {
+		if gc, ga := c.searchGateConds(ctx, "catalog_titles"); gc != "" {
+			q += " AND " + gc
+			args = append(args, ga...)
+		}
+	}
 	var titles []core.Title
 	var err error
 	if unfiltered {
