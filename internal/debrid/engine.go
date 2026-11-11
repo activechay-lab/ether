@@ -1132,7 +1132,16 @@ func (f *remoteFile) fetchRun(ctx context.Context, first int64, fls []*blockFlig
 			}
 			f.e.log.Warn("debrid body interrupted; retrying same file", "release", f.id,
 				"offset", idx*f.e.block, "attempt", bodyRetries, "err", sanitize(err))
-			if bodyRetries == 1 {
+			if errors.Is(err, errBodyStalled) {
+				// Valid headers do not prove that this host can deliver a block.
+				// Route a stalled body through the same bounded recovery as a
+				// failed connection, preserving the first incomplete offset.
+				p, gen := f.payload()
+				if !p.IsDirect() && !p.IsPluginProvider() &&
+					served.provider == p.Provider && served.host == urlHost(p.URL) {
+					f.reroute(reqCtx, p.URL, gen, idx*f.e.block)
+				}
+			} else if bodyRetries == 1 {
 				_, gen := f.payload()
 				f.moveFromHost(reqCtx, gen)
 			}
