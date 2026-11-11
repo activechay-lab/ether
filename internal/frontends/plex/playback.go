@@ -2052,13 +2052,13 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// A clientless part read is a native player (Samsung AVPlay) that drops
-	// Plex headers and carries only a token on the URL. It may only attach to
-	// this viewer's live session for the item, so it cannot open a stream
-	// outside the user's stream limit or outside session accounting. With no
-	// live session to continue, refuse (PMS has nothing to serve either).
+	// Plex headers and carries only a token on the URL. With no live session to
+	// continue it still plays (PMS serves it), so adopt a synthetic device
+	// identity: the read then prepares and publishes an accounted session under
+	// the broker, subject to stream limits and visible in /status/sessions.
+	// Repeated reads from the same player reuse that one session below.
 	if pr.ClientID == "" && (!ok || ps == nil) {
-		writeHTTPError(w, http.StatusUnauthorized)
-		return
+		pr.adoptNativeDevice(r)
 	}
 	if !ok || ps == nil {
 		t, err := s.metadataTitle(ctx, pr, key)
