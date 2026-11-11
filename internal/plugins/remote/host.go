@@ -44,6 +44,10 @@ type Host interface {
 	CachePut(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (string, error)
 	CacheOpen(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error)
 
+	// StreamURL mints a scoped stream ticket for one of the plugin's own
+	// kind items for viewerID and returns the Ether stream URL (spec §6.5).
+	StreamURL(ctx context.Context, pluginID string, viewerID int64, itemRef string) (string, error)
+
 	Settings(ctx context.Context, pluginID string) (map[string]any, error)
 
 	NotifyOwner(ctx context.Context, pluginID, text string) error
@@ -105,6 +109,7 @@ func NewHostHandler(opts HostOptions) *HostHandler {
 	mux.HandleFunc("PUT /ether/plugin-host/cache/{libraryKey}/{name...}", h.cachePut)
 	mux.HandleFunc("POST /ether/plugin-host/cache/{libraryKey}", h.cachePut)
 	mux.HandleFunc("GET /ether/plugin-host/cache/{blobRef...}", h.cacheOpen)
+	mux.HandleFunc("POST /ether/plugin-host/frontend/stream-url", h.frontendStreamURL)
 	mux.HandleFunc("GET /ether/plugin-host/settings", h.settings)
 	mux.HandleFunc("POST /ether/plugin-host/notify", h.notify)
 	mux.HandleFunc("POST /ether/plugin-host/log", h.logLine)
@@ -370,6 +375,24 @@ func (h *HostHandler) cacheOpen(w http.ResponseWriter, r *http.Request) {
 	defer rc.Close()
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, "", time.Time{}, rc)
+}
+
+// frontendStreamURL mints a scoped stream ticket for one of the plugin's
+// own kind items and returns the Ether stream URL (spec §6.5). The viewer
+// id is the one the adapter proxied the request for.
+func (h *HostHandler) frontendStreamURL(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ViewerID int64  `json:"viewerId"`
+		ItemRef  string `json:"itemRef"`
+	}
+	if !h.decode(w, r, maxHostBodyBytes, &body) {
+		return
+	}
+	u, err := h.host.StreamURL(r.Context(), pluginIDOf(r), body.ViewerID, body.ItemRef)
+	if !h.finishErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": u})
 }
 
 func (h *HostHandler) settings(w http.ResponseWriter, r *http.Request) {

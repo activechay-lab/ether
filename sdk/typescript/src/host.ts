@@ -109,6 +109,14 @@ export interface EtherHost {
     put(libraryKey: string, name: string, data: Uint8Array): MaybePromise<string>;
     open(blobRef: string): MaybePromise<Uint8Array>;
   };
+  /**
+   * Frontend-adapter host services (spec §6.5). streamUrl mints a scoped,
+   * short-lived Ether stream URL for one of this plugin's own kind items;
+   * bytes are then served by Ether, never by the plugin.
+   */
+  frontend?: {
+    streamUrl(viewerId: number, itemRef: string): MaybePromise<string>;
+  };
   log(level: string, message: string, attrs?: Record<string, unknown>): MaybePromise<void>;
   abort(message?: string): never;
 }
@@ -152,6 +160,9 @@ interface GlobalEtherBindings {
     };
     notify: {
       owner: (text: string) => void;
+    };
+    frontend: {
+      streamURL: (itemRef: string) => { url: string };
     };
   };
 }
@@ -286,6 +297,15 @@ export function createHostedClient(): EtherHost {
           return;
         }
         callHost("notify.owner", [text]);
+      },
+    },
+    frontend: {
+      streamUrl(viewerId: number, itemRef: string): string {
+        // The hosted binding is viewer-scoped by Ether already; the viewerId
+        // argument is accepted for parity with the remote client.
+        void viewerId;
+        const r = callHost<{ url: string }>("frontend.streamURL", [itemRef]);
+        return r?.url ?? "";
       },
     },
     log(level: string, message: string, attrs?: Record<string, unknown>): void {
@@ -538,6 +558,15 @@ export function createRemoteHostClient(opts: RemoteHostOptions = {}): EtherHost 
         });
         if (!resp.ok) throw new Error(`plugin-host cache open: status ${resp.status}`);
         return new Uint8Array(await resp.arrayBuffer());
+      },
+    },
+    frontend: {
+      async streamUrl(viewerId: number, itemRef: string): Promise<string> {
+        const r = await callJson<{ url: string }>("POST", "/ether/plugin-host/frontend/stream-url", {
+          viewerId,
+          itemRef,
+        });
+        return r?.url ?? "";
       },
     },
     async log(level: string, message: string, attrs?: Record<string, unknown>): Promise<void> {

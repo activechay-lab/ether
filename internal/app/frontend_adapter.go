@@ -109,6 +109,46 @@ func (a *App) syncAdapters(ctx context.Context) {
 	}
 }
 
+// adapterStreamURL builds the host backend behind Host.StreamURL (spec
+// §6.5): it mints a scoped stream ticket for one of a plugin's own kind
+// items for one viewer, after re-checking item ownership and library
+// visibility. The item must belong to the calling plugin and its library
+// must be visible to the viewer; anything else is refused.
+func (a *App) adapterStreamURL(issuer *frontendadapter.TicketIssuer) func(ctx context.Context, pluginID string, viewerID int64, itemRef string) (string, error) {
+	return func(ctx context.Context, pluginID string, viewerID int64, itemRef string) (string, error) {
+		if issuer == nil || a.pluginsRT == nil || a.pluginsRT.pluginitems == nil || a.libraries == nil {
+			return "", plugins.ErrUnavailable
+		}
+		ref, err := core.ParseItemRef(itemRef)
+		if err != nil {
+			return "", core.ErrNotFound
+		}
+		if ref.Plugin() != pluginID {
+			return "", plugins.ErrPermissionDenied
+		}
+		if viewerID <= 0 || a.users == nil {
+			return "", plugins.ErrPermissionDenied
+		}
+		viewer, err := a.users.PolicyUser(ctx, viewerID)
+		if err != nil || viewer == nil {
+			return "", plugins.ErrPermissionDenied
+		}
+		_, libID, err := a.pluginsRT.pluginitems.GetByRef(ctx, ref)
+		if err != nil {
+			return "", core.ErrNotFound
+		}
+		lib, err := a.libraries.Get(ctx, libID)
+		if err != nil || lib.Hidden || !viewer.AllowsLibrary(lib.ID) {
+			return "", core.ErrNotFound
+		}
+		return issuer.StreamURL(frontendadapter.StreamGrant{
+			ViewerID: viewerID,
+			ItemID:   ref.String(),
+			Adapter:  pluginID,
+		})
+	}
+}
+
 // mountAdapterMedia registers the public kind-media endpoint. It is not
 // LAN-only: a remote client follows the short-lived ticket URL from a
 // plugin adapter response, and the ticket itself is the credential.

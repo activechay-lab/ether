@@ -270,6 +270,24 @@ func TestKindHostMockAndKit(t *testing.T) {
 	if err != nil || accepted != 1 {
 		t.Fatalf("upsert: %d %v", accepted, err)
 	}
+	// StreamURL mints a scoped URL for one of this plugin's own items and
+	// takes the viewer from the request headers.
+	pctx := &etherplugin.Context{
+		Context: ctx,
+		Headers: map[string]string{"X-Ether-Viewer": "7"},
+		Ether:   host,
+	}
+	u, err := pctx.StreamURL("pk:recordings:a")
+	if err != nil || !strings.HasPrefix(u, "/ether/v1/kind-media/") {
+		t.Fatalf("stream url: %q %v", u, err)
+	}
+	if host.LastStreamURLViewer != 7 || host.LastStreamURLItem != "pk:recordings:a" {
+		t.Fatalf("stream url scope: viewer=%d item=%q", host.LastStreamURLViewer, host.LastStreamURLItem)
+	}
+	// A request without a viewer cannot mint a URL.
+	if _, err := (&etherplugin.Context{Context: ctx, Ether: host}).StreamURL("pk:recordings:a"); err == nil {
+		t.Fatal("stream url without a viewer was accepted")
+	}
 	page, err := host.KindItems(ctx, "recordings", "", 10)
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("items: %+v %v", page.Items, err)

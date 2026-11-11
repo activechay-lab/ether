@@ -411,6 +411,19 @@ class _NotifyClient:
         self._call("POST", "/ether/plugin-host/notify", {"text": str(text)})
 
 
+class _FrontendClient:
+    def __init__(self, call_json: Callable[..., Any]) -> None:
+        self._call = call_json
+
+    def stream_url(self, viewer_id: int, item_ref: str) -> str:
+        result = self._call(
+            "POST",
+            "/ether/plugin-host/frontend/stream-url",
+            {"viewerId": int(viewer_id), "itemRef": str(item_ref)},
+        )
+        return str((result or {}).get("url") or "")
+
+
 class RemoteHostClient:
     """Host client for remote/sidecar plugins talking to `/ether/plugin-host/*`."""
 
@@ -432,6 +445,7 @@ class RemoteHostClient:
         self.notify = _NotifyClient(self._call_json)
         self.kinds = _KindsClient(self._call_json)
         self.cache = self._Cache(self)
+        self.frontend = _FrontendClient(self._call_json)
 
     class _Cache:
         def __init__(self, parent: "RemoteHostClient") -> None:
@@ -544,6 +558,21 @@ class PluginContext:
 
     def t(self, key: str, params: Optional[Dict[str, Any]] = None) -> str:
         return self.i18n.t(key, params=params, locale=self.locale)
+
+    def stream_url(self, item_ref: str) -> str:
+        """Mint a scoped Ether stream URL for one of this plugin's own kind
+        items (spec §6.5). The viewer is the one Ether authenticated on this
+        request (X-Ether-Viewer); bytes are served by Ether, not the plugin."""
+        if self.ether is None:
+            raise RuntimeError("stream url: no host service available")
+        raw = _get_header(self.headers, "X-Ether-Viewer")
+        try:
+            viewer_id = int(str(raw).strip()) if raw is not None else 0
+        except (TypeError, ValueError):
+            viewer_id = 0
+        if viewer_id <= 0:
+            raise RuntimeError("stream url: no authenticated viewer on this request")
+        return self.ether.frontend.stream_url(viewer_id, str(item_ref))
 
 
 def _get_header(headers: Optional[Dict[str, Any]], name: str) -> Optional[str]:
@@ -1682,6 +1711,7 @@ class MockHostClient:
         self.collections_list: List[Dict[str, Any]] = []
         self.notifications: List[str] = []
         self.logs: List[Dict[str, Any]] = []
+        self.last_stream_url: Optional[Tuple[int, str]] = None
         self.http_handler: Callable[[Dict[str, Any]], Dict[str, Any]] = lambda req: {
             "status": 200,
             "headers": {"Content-Type": "application/json"},
@@ -1700,6 +1730,15 @@ class MockHostClient:
         self.notify = self._Notify(self)
         self.kinds = self._Kinds(self)
         self.cache = self._Cache(self)
+        self.frontend = self._Frontend(self)
+
+    class _Frontend:
+        def __init__(self, parent: "MockHostClient") -> None:
+            self._p = parent
+
+        def stream_url(self, viewer_id: int, item_ref: str) -> str:
+            self._p.last_stream_url = (int(viewer_id), str(item_ref))
+            return f"/ether/v1/kind-media/mock-{int(viewer_id)}"
 
     class _Kinds:
         def __init__(self, parent: "MockHostClient") -> None:
@@ -2174,9 +2213,10 @@ def candidate_ref(candidate: Dict[str, Any]) -> str:
     return str(candidate.get("title") or "")
 
 
-def stream_url(item_id: str) -> str:
-    """The Ether ticket URL a frontend adapter embeds for an item's bytes."""
-    return "/ether/v1/kind-media/" + urllib.parse.quote(str(item_id), safe="")
+def stream_url(ctx: PluginContext, item_ref: str) -> str:
+    """Mint an Ether stream URL for one of this plugin's own kind items
+    (spec §6.5). Kept as a thin wrapper over PluginContext.stream_url."""
+    return ctx.stream_url(item_ref)
 
 
 class _KindsClient:

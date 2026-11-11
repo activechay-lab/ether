@@ -474,6 +474,12 @@ func (b hostBridge) CallHost(ctx context.Context, name string, raw json.RawMessa
 	case "kinds.items":
 		page, err := b.h.KindItems(ctx, str(0), str(1), int(num(2)))
 		return result(page, err)
+	case "frontend.streamURL":
+		u, err := b.h.StreamURL(ctx, str(0))
+		if err != nil {
+			return nil, mapHostError(err)
+		}
+		return result(map[string]any{"url": u}, nil)
 	case "sources.resolve":
 		var q core.SourceQuery
 		if len(args) > 0 {

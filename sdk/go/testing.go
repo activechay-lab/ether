@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -35,6 +36,9 @@ type MockHost struct {
 	Notifications []string
 	Logs          []RecordedLog
 	FetchHandler  func(ctx context.Context, req HostFetchRequest) (HostFetchResponse, error)
+	// LastStreamURLViewer/Item record the most recent StreamURL call.
+	LastStreamURLViewer int64
+	LastStreamURLItem   string
 }
 
 // NewMockHost creates an initialized MockHost.
@@ -304,6 +308,16 @@ func (m *MockHost) CacheOpen(_ context.Context, blobRef string) ([]byte, error) 
 		return nil, fmt.Errorf("blob %q not found", blobRef)
 	}
 	return append([]byte{}, b...), nil
+}
+
+// StreamURL mints a deterministic stand-in URL and records the last call, so
+// a plugin's frontend adapter can be tested without a real ticket issuer.
+func (m *MockHost) StreamURL(_ context.Context, viewerID int64, itemRef string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.LastStreamURLViewer = viewerID
+	m.LastStreamURLItem = itemRef
+	return "/ether/v1/kind-media/mock-" + strconv.FormatInt(viewerID, 10), nil
 }
 
 // AssertValidViewSpec validates a ViewSpecDocument for structural rules and

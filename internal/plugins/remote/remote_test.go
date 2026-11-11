@@ -951,6 +951,10 @@ func (f *fakeHost) Settings(_ context.Context, pluginID string) (map[string]any,
 	return map[string]any{"plugin": pluginID}, nil
 }
 
+func (f *fakeHost) StreamURL(_ context.Context, pluginID string, viewerID int64, itemRef string) (string, error) {
+	return fmt.Sprintf("/ether/v1/kind-media/%s-%d-%s", pluginID, viewerID, itemRef), nil
+}
+
 func (f *fakeHost) NotifyOwner(_ context.Context, pluginID, text string) error {
 	f.mu.Lock()
 	f.notices = append(f.notices, pluginID+":"+text)

@@ -585,6 +585,14 @@ type Host interface {
 	CachePut(ctx context.Context, libraryKey, name string, r io.Reader) (blobRef string, err error)
 	CacheOpen(ctx context.Context, blobRef string) (io.ReadSeekCloser, error)
 
+	// StreamURL mints a short-lived, scoped ticket for one of this
+	// plugin's own kind items and returns the Ether stream URL a frontend
+	// adapter embeds instead of a plugin URL (spec §6.5). The viewer is
+	// the one the proxied request authenticated (X-Ether-Viewer); items
+	// from another plugin, or a library the viewer cannot see, are
+	// refused. Bytes are then served by Ether, never by the plugin.
+	StreamURL(ctx context.Context, itemRef string) (string, error)
+
 	// FoldersList and FoldersStat need folders: read and an owner-picked
 	// root. They never return file contents.
 	FoldersList(ctx context.Context, root, path string) ([]FolderEntry, error)

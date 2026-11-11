@@ -52,6 +52,9 @@ type Backends struct {
 	ResolveSources func(ctx context.Context, pluginID string, q core.SourceQuery) ([]core.SourceCandidate, error)
 	CachePut       func(ctx context.Context, pluginID, libraryKey, name string, r io.Reader) (blobRef string, err error)
 	CacheOpen      func(ctx context.Context, pluginID, blobRef string) (io.ReadSeekCloser, error)
+	// StreamURL mints a scoped stream ticket for one of a plugin's own kind
+	// items for one viewer and returns the Ether stream URL (spec §6.5).
+	StreamURL func(ctx context.Context, pluginID string, viewerID int64, itemRef string) (string, error)
 }
 
 // Deps are the plugin host's explicit dependencies.
@@ -436,7 +439,7 @@ func (m *Manager) CallStream(ctx context.Context, pluginID string, req Request) 
 	}
 	req.PluginID = pluginID
 
-	ctx, cancel := context.WithTimeout(ctx, DeadlineFor(req.Path))
+	ctx, cancel := context.WithTimeout(withViewerHeader(ctx, req.Headers), DeadlineFor(req.Path))
 	resp, body, err := s.CallStream(ctx, req)
 	if err != nil {
 		cancel()
@@ -542,7 +545,7 @@ func (m *Manager) Call(ctx context.Context, pluginID string, req Request) (Respo
 	if r.Manifest.SpeaksStremio() {
 		deadline = stremioDeadline(req.Path)
 	}
-	cctx, cancel := context.WithTimeout(ctx, deadline)
+	cctx, cancel := context.WithTimeout(withViewerHeader(ctx, req.Headers), deadline)
 	defer cancel()
 	if req.Headers == nil {
 		req.Headers = map[string]string{}

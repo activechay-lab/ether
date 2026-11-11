@@ -6,6 +6,7 @@ import {
   createMockHostClient,
   parseFeed,
   plugin,
+  streamUrl,
   type CatalogProvider,
   type KindItem,
   type KindMatcher,
@@ -126,4 +127,17 @@ test("mock host kinds, cache and feed kit", async () => {
   assert.equal((await host.kinds!.items("recordings")).items.length, 0);
   const feed = parseFeed('<rss><channel><title>T</title><item><title>E</title><guid>g1</guid><enclosure url="https://x/e.mp3"/></item></channel></rss>');
   assert.equal(feed.entries[0]!.audio, "https://x/e.mp3");
+});
+
+test("frontend stream url host service", async () => {
+  const host = createMockHostClient();
+  const ctx = {
+    ether: host,
+    headers: { "X-Ether-Viewer": "7" } as Record<string, string | string[]>,
+  } as unknown as Parameters<typeof streamUrl>[0];
+  const url = await streamUrl(ctx, "pk:recordings:a");
+  assert.ok(url.startsWith("/ether/v1/kind-media/"));
+  assert.deepEqual(host.state.lastStreamUrl, [7, "pk:recordings:a"]);
+  const noViewer = { ether: host, headers: {} } as unknown as Parameters<typeof streamUrl>[0];
+  await assert.rejects(() => streamUrl(noViewer, "pk:recordings:a"));
 });

@@ -64,9 +64,23 @@ export function candidateRef(c: SourceCandidate): string {
   return c.title ?? "";
 }
 
-/** The Ether ticket URL a frontend adapter embeds for an item's bytes. */
-export function streamUrl(itemId: string): string {
-  return `/ether/v1/kind-media/${encodeURIComponent(itemId)}`;
+/**
+ * Mint a scoped, short-lived Ether stream URL for one of this plugin's own
+ * kind items (spec §6.5). The viewer is the one Ether authenticated on this
+ * request (X-Ether-Viewer); bytes are served by Ether, never by the plugin.
+ */
+export async function streamUrl<S = Record<string, unknown>>(
+  ctx: PluginContext<S>,
+  itemRef: string,
+): Promise<string> {
+  if (!ctx.ether?.frontend) throw new Error("stream url: no host service available");
+  const raw = ctx.headers["X-Ether-Viewer"] ?? ctx.headers["x-ether-viewer"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const viewerId = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(viewerId) || viewerId <= 0) {
+    throw new Error("stream url: no authenticated viewer on this request");
+  }
+  return ctx.ether.frontend.streamUrl(viewerId, itemRef);
 }
 
 export interface KindHandlers<S = Record<string, unknown>> {

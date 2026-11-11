@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -298,12 +299,20 @@ func (p *Plugin) OnFrontend(key string, a FrontendAdapter) { p.kinds().frontend[
 // OnSetupTest registers the handler for /ether/v1/setup/{step}/test.
 func (p *Plugin) OnSetupTest(t SetupTester) { p.kinds().setup = t }
 
-// StreamURL builds the Ether ticket URL a frontend adapter embeds for an
-// item's bytes. The ticket is minted by Ether when the adapter response
-// is proxied; plugins use this stable shape and never stream media
-// themselves through the adapter path.
-func StreamURL(itemID string) string {
-	return "/ether/v1/kind-media/" + url.PathEscape(itemID)
+// StreamURL mints a short-lived, scoped ticket for one of this plugin's own
+// kind items and returns the Ether stream URL to embed in a frontend adapter
+// response (spec §6.5). The viewer is taken from the request's X-Ether-Viewer
+// header, which Ether injects after authenticating; the plugin never sees a
+// credential. Bytes are served by Ether from the ticket, never by the plugin.
+func (c *Context) StreamURL(itemRef string) (string, error) {
+	if c.Ether == nil {
+		return "", errors.New("stream url: no host service available")
+	}
+	viewerID, err := strconv.ParseInt(strings.TrimSpace(c.Headers["X-Ether-Viewer"]), 10, 64)
+	if err != nil || viewerID <= 0 {
+		return "", errors.New("stream url: no authenticated viewer on this request")
+	}
+	return c.Ether.StreamURL(c.Context, viewerID, itemRef)
 }
 
 // dispatchKinds handles the /ether/v1/kinds, /ether/v1/setup and
