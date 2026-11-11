@@ -858,7 +858,7 @@ func TestWaysToWatchSubtitleReread(t *testing.T) {
 	f.srv.setTrackPreferences(prefs)
 
 	const guid = "plex://movie/5d77688123d5a3001f4ed3df"
-	if _, err := db.Exec(`INSERT INTO plexguid_mappings(rating_key, guid, checked_at) VALUES(?,?,?)`, int64(fightClub.Key), guid, time.Now().Unix()); err != nil {
+	if err := storeVerifiedGUID(db, fightClub.Key, guid, 550, "Fjord Harbor", 1999); err != nil {
 		t.Fatal(err)
 	}
 	pg := plexguid.New(db, plexguid.Options{})

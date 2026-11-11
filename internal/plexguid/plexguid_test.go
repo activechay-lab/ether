@@ -12,13 +12,6 @@ import (
 	"testing"
 )
 
-func boolInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
-}
-
 func TestExactIdentityRequiredAndCached(t *testing.T) {
 	for _, tc := range []struct{ name, ids, want string }{{"exact", `[{"id":"tmdb://550"}]`, "plex://movie/5d7768265af944001f1f6976"}, {"mismatch", `[{"id":"tmdb://551"}]`, ""}, {"absent", `[]`, ""}} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -29,6 +22,7 @@ func TestExactIdentityRequiredAndCached(t *testing.T) {
 			}
 			defer db.Close()
 			calls := 0
+			const canonical = "plex://movie/5d7768265af944001f1f6976"
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				if (r.URL.Path == "/library/metadata/matches" && r.URL.Query().Get("guid") != "tmdb://550") || r.Header.Get("X-Plex-Token") != "fixture" {
@@ -37,7 +31,9 @@ func TestExactIdentityRequiredAndCached(t *testing.T) {
 				if r.Header.Get("X-Plex-Client-Identifier") != "install-id" {
 					t.Fatalf("client id %q", r.Header.Get("X-Plex-Client-Identifier"))
 				}
-				w.Write([]byte(`{"MediaContainer":{"Metadata":[{"guid":"plex://movie/5d7768265af944001f1f6976","type":"movie","Guid":` + tc.ids + `}]}}`))
+				// The canonical record carries the title and year; the
+				// search hit is verified against it, so identity needs both.
+				w.Write([]byte(`{"MediaContainer":{"Metadata":[{"guid":"` + canonical + `","type":"movie","title":"Fight Club","year":1999,"Guid":` + tc.ids + `}]}}`))
 			}))
 			defer srv.Close()
 			s := New(db, Options{BaseURL: srv.URL, Token: func() string { return "fixture" }, ClientIdentifier: func() string { return "install-id" }})
@@ -52,6 +48,13 @@ func TestExactIdentityRequiredAndCached(t *testing.T) {
 			}
 		})
 	}
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func TestPerInstallClientIdentifier(t *testing.T) {

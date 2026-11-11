@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -1865,4 +1866,25 @@ func (t testEditions) Available(ctx context.Context, key core.RatingKey) (bool, 
 		return a.Available(ctx, key)
 	}
 	return false, false
+}
+
+// storeVerifiedGUID records a plex:// identity with the proof plexguid
+// requires to serve it: the verified mapping plus its identity record.
+func storeVerifiedGUID(db *sql.DB, key core.RatingKey, guid string, tmdb int64, title string, year int) error {
+	now := time.Now().Unix()
+	for _, q := range []string{
+		`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?)`,
+		`INSERT INTO plexguid_verified(rating_key,guid) VALUES(?,?)`,
+	} {
+		if _, err := db.Exec(q, func() []any {
+			if strings.Contains(q, "checked_at") {
+				return []any{int64(key), guid, now}
+			}
+			return []any{int64(key), guid}
+		}()...); err != nil {
+			return err
+		}
+	}
+	_, err := db.Exec(`INSERT INTO plexguid_identity(rating_key,guid,tmdb,title,year) VALUES(?,?,?,?,?)`, int64(key), guid, tmdb, title, year)
+	return err
 }

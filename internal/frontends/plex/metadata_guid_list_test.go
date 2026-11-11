@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/braedonsaunders/ether/internal/plexguid"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -20,10 +19,11 @@ func TestMetadataByPlexGUIDList(t *testing.T) {
 	}
 	defer db.Close()
 	const movie, show = "plex://movie/5d7768265af944001f1f6976", "plex://show/5d9c086c46115600200aa2fe"
-	for k, guid := range map[int64]string{int64(fightClub.Key): movie, int64(breakingBad.Key): show} {
-		if _, err = db.Exec(`INSERT INTO plexguid_mappings VALUES(?,?,?)`, k, guid, time.Now().Unix()); err != nil {
-			t.Fatal(err)
-		}
+	if err = storeVerifiedGUID(db, fightClub.Key, movie, 550, "Fjord Harbor", 1999); err != nil {
+		t.Fatal(err)
+	}
+	if err = storeVerifiedGUID(db, breakingBad.Key, show, 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
 	}
 	pg := plexguid.New(db, plexguid.Options{})
 	defer pg.Close()

@@ -39,7 +39,7 @@ const plexMetaGUID = "plex://movie/5d7768265af944001f1f6976"
 func plexMetaFixture(t *testing.T, use bool, rt http.RoundTripper) (*fixture, *plexmeta.Service) {
 	t.Helper()
 	db := store.OpenTest(t)
-	if _, err := db.Exec(`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?)`, int64(fightClub.Key), plexMetaGUID, time.Now().Unix()); err != nil {
+	if err := storeVerifiedGUID(db, fightClub.Key, plexMetaGUID, 550, "Fjord Harbor", 1999); err != nil {
 		t.Fatal(err)
 	}
 	pg := plexguid.New(db, plexguid.Options{})
@@ -201,8 +201,10 @@ func TestPlexMetaGUIDMismatchIgnored(t *testing.T) {
 func TestPlexMetaNoGUIDDoesNotSchedule(t *testing.T) {
 	rt := &plexMetaRoundTrip{body: `{"MediaContainer":{"Metadata":[]}}`}
 	f, meta := plexMetaFixture(t, true, rt)
-	if _, err := f.srv.d.DB.Exec(`DELETE FROM plexguid_mappings`); err != nil {
-		t.Fatal(err)
+	for _, table := range []string{"plexguid_mappings", "plexguid_verified", "plexguid_identity"} {
+		if _, err := f.srv.d.DB.Exec(`DELETE FROM ` + table); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.get(t, "/library/metadata/"+fightClub.Key.String(), jsonAccept...)
 	meta.Wait()
