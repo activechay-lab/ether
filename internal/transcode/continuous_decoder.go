@@ -150,7 +150,7 @@ func (m *Manager) StartDecoder(ctx context.Context, r DecoderRequest) (Decoder, 
 		audioFilter = liveAudioJumps(liveForwardJump(r, u)) + "ashowinfo," + "aresample=48000:async=1"
 	}
 	videoFilter += fmt.Sprintf("setpts=N*%d/(%d*TB)", f.FPSDen, f.FPSNum)
-	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", "0:a:0", "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
+	args = append(args, "-i", r.InputURL, "-map", "0:v:0", "-vf", videoFilter, "-pix_fmt", "yuv420p", "-c:v", "rawvideo", "-threads:v", "1", "-f", "rawvideo", sockets[0].url(), "-map", fmt.Sprintf("0:a:%d", max(r.AudioIndex, 0)), "-af", audioFilter, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-f", "s16le", sockets[1].url())
 	d := &continuousDecoder{readDone: make(chan struct{}), ptsStop: ptsStop}
 	d.audioStart.Store(-1)
 	p, e := m.startContinuous(ctx, args, "", true, sockets, nil, nil, func(line string) {

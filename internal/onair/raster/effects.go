@@ -13,24 +13,33 @@ import (
 // parallelLines runs fn over disjoint [lo,hi) ranges of n lines. Pixel
 // work in this file is per-line independent and exact: splitting lines
 // across cores changes no output byte. Small frames stay on one goroutine.
+// lineSlots bounds extra raster worker goroutines across every concurrent
+// render (graphics masters, live moments, previews). Without a shared bound
+// each call fanned out to eight workers and a watched channel's renders took
+// most of the machine, starving its own frame clock.
+var lineSlots = make(chan struct{}, max(2, runtime.NumCPU()/3))
+
 func parallelLines(n int, fn func(lo, hi int)) {
-	workers := runtime.GOMAXPROCS(0)
+	workers := min(runtime.GOMAXPROCS(0), 8)
 	if workers <= 1 || n < 256 {
 		fn(0, n)
 		return
-	}
-	if workers > 8 {
-		workers = 8
 	}
 	chunk := (n + workers - 1) / workers
 	var wg sync.WaitGroup
 	for lo := 0; lo < n; lo += chunk {
 		hi := min(n, lo+chunk)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		select {
+		case lineSlots <- struct{}{}:
+			wg.Add(1)
+			go func() {
+				defer func() { <-lineSlots; wg.Done() }()
+				fn(lo, hi)
+			}()
+		default:
+			// No free slot: do this chunk on the calling goroutine.
 			fn(lo, hi)
-		}()
+		}
 	}
 	wg.Wait()
 }

@@ -59,6 +59,9 @@ type DecoderRequest struct {
 	// unknown). Demuxer-private options are only valid for their own demuxer.
 	InputFormat string
 	Loop        bool // repeat a local cached master seamlessly; incompatible with Live and URLs
+	// AudioIndex is the input's audio track to decode, counted among its
+	// audio streams (0 = first). Callers pick it by language.
+	AudioIndex int
 }
 
 // ErrInputChanged reports that a live input changed its codec or stream set

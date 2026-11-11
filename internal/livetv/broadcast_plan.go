@@ -17,6 +17,16 @@ import (
 // scheduleBroadcastPlanner snapshots the channel recipe. An edited recipe gets
 // a new planner when P4 replaces the channel output after lineup invalidation.
 type scheduleBroadcastPlanner struct {
+	// standby memoizes the look's cached standby clip: the frame loop asks
+	// every step, and resolving it re-clones and re-hashes the scene
+	// document (about half a core per channel, with 250 ms frame-clock
+	// slips on production).
+	standbyMu   sync.Mutex
+	standbyLook string
+	standbyRef  core.ClipRef
+	standbyOK   bool
+	standbyAt   time.Time
+
 	workerCtx    context.Context
 	workerCancel context.CancelFunc
 	workerDone   chan struct{}
@@ -325,7 +335,8 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 					seeked = true
 				}
 			}
-			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: input, Offset: trim, Seeked: seeked, Format: p.format})
+			audio := p.s.programmeAudioTrack(ctx, ps.Info, candidate.Item.Key)
+			decoder, err := p.runner.StartDecoder(ctx, transcode.DecoderRequest{SessionID: group + "-" + candidate.ID, InputURL: input, Offset: trim, Seeked: seeked, Format: p.format, AudioIndex: audio})
 			if err != nil {
 				p.s.o.Playback.Stop(ps.ID)
 				last = err

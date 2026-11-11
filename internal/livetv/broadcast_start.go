@@ -239,7 +239,7 @@ func (p *scheduleBroadcastPlanner) standbyPlan() (broadcastPlan, bool) {
 	if !ok {
 		return broadcastPlan{}, false
 	}
-	clip, ok := lm.CachedStandby(context.Background(), c.Look.LookID)
+	clip, ok := p.cachedStandby(lm, c.Look.LookID)
 	if !ok || clip.Path == "" {
 		return broadcastPlan{}, false
 	}
@@ -256,6 +256,31 @@ func (p *scheduleBroadcastPlanner) standbyPlan() (broadcastPlan, bool) {
 			return d, nil, err
 		},
 	}, true
+}
+
+// cachedStandby answers the look's standby clip from a short memo: a hit
+// stays valid for 30 s, a miss is retried after 5 s so a newly rendered
+// standby is picked up quickly.
+func (p *scheduleBroadcastPlanner) cachedStandby(lm liveMomentSource, lookID string) (core.ClipRef, bool) {
+	now := time.Now()
+	p.standbyMu.Lock()
+	if p.standbyLook == lookID && !p.standbyAt.IsZero() {
+		ttl := 5 * time.Second
+		if p.standbyOK {
+			ttl = 30 * time.Second
+		}
+		if now.Sub(p.standbyAt) < ttl {
+			ref, ok := p.standbyRef, p.standbyOK
+			p.standbyMu.Unlock()
+			return ref, ok
+		}
+	}
+	p.standbyMu.Unlock()
+	ref, ok := lm.CachedStandby(context.Background(), lookID)
+	p.standbyMu.Lock()
+	p.standbyLook, p.standbyRef, p.standbyOK, p.standbyAt = lookID, ref, ok, now
+	p.standbyMu.Unlock()
+	return ref, ok
 }
 
 func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {

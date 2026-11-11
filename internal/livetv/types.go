@@ -414,6 +414,9 @@ type Options struct {
 	Reels         func(context.Context, string) (ReelSnapshot, error)
 	InputUser     func(context.Context) (*core.User, error)
 	StyleScreens  func(string) *config.LiveTVScreens
+	// AudioLanguage is the server's catalogue language ("en-US"), the
+	// fallback when a programme's original-language audio is absent.
+	AudioLanguage func() string
 	Watchlist     interface{ Generation() uint64 }
 	Picker        core.PersonalPicker
 	State         core.State
