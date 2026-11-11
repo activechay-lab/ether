@@ -22,12 +22,17 @@ func (i *instance) meta(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	id, err := ids.ParseStremio(strings.TrimSuffix(raw, ".json"))
+	rawID := strings.TrimSuffix(raw, ".json")
+	device := deviceFor(credential)
+	if frontend.ItemRef(rawID).Valid() {
+		i.metaPluginItem(w, r, credential, viewer, device, typ, rawID)
+		return
+	}
+	id, err := ids.ParseStremio(rawID)
 	if err != nil || id.HasEpisode {
 		http.NotFound(w, r)
 		return
 	}
-	device := deviceFor(credential)
 	key, err := i.resolveID(r, viewer, device, typ, id)
 	if err != nil {
 		http.NotFound(w, r)
@@ -70,6 +75,63 @@ func (i *instance) meta(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				videos = append(videos, map[string]any{"id": episodeID, "title": episode.Title, "season": episode.Season, "episode": episode.Episode, "overview": episode.Summary})
+			}
+			offset += len(page.Items)
+			if len(page.Items) == 0 || offset >= page.Total {
+				break
+			}
+		}
+		meta["videos"] = videos
+	}
+	writeJSON(w, map[string]any{"meta": meta})
+}
+
+// metaPluginItem answers a pk: ItemRef meta request (spec §6.4). The ItemRef
+// resolves to the stored item's RatingKey through the host seam; children of a
+// series presentation are addressed by their own pk: ItemRefs.
+func (i *instance) metaPluginItem(w http.ResponseWriter, r *http.Request, credential string, viewer *frontend.Viewer, device frontend.Device, typ, rawID string) {
+	refs, ok := i.host.KindStreams.(frontend.KindRefKeys)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	key, err := refs.KeyForRef(r.Context(), viewer, frontend.ItemRef(rawID))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	detail, err := i.host.Experience.Item(r.Context(), frontend.ItemRequest{Viewer: viewer, Device: device, Key: key})
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	title := detail.Title
+	meta := map[string]any{"id": rawID, "type": typ, "name": title.Title, "description": stremioDescription(r, i.host.Experience, viewer, title), "genres": title.Genres}
+	if title.Year > 0 {
+		meta["releaseInfo"] = strconv.Itoa(title.Year)
+	}
+	if poster := i.artwork(r, credential, viewer, device, []frontend.Title{title})[title.Key]; poster != "" {
+		meta["poster"] = poster
+	}
+	if typ == "series" {
+		videos := make([]map[string]any, 0)
+		for offset := 0; ; {
+			page, e := i.host.Experience.Children(r.Context(), viewer, device, key, frontend.ItemQuery{Offset: offset, Limit: 500, Recursive: true})
+			if e != nil {
+				http.Error(w, "Unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			keys := make([]frontend.RatingKey, 0, len(page.Items))
+			for _, child := range page.Items {
+				keys = append(keys, child.Key)
+			}
+			childRefs, _ := refs.RefsForKeys(r.Context(), viewer, keys)
+			for _, child := range page.Items {
+				childRef := childRefs[child.Key]
+				if childRef == "" {
+					continue
+				}
+				videos = append(videos, map[string]any{"id": string(childRef), "title": child.Title, "season": child.Season, "episode": child.Episode, "overview": child.Summary})
 			}
 			offset += len(page.Items)
 			if len(page.Items) == 0 || offset >= page.Total {

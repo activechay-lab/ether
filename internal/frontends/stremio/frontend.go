@@ -173,10 +173,43 @@ func (i *instance) manifest(w http.ResponseWriter, r *http.Request) {
 			catalogs = append(catalogs, map[string]any{"type": typ, "id": "ether-" + row.id, "name": row.name, "extra": []any{map[string]any{"name": "skip"}}})
 		}
 	}
+	// One catalog per published plugin library whose presentation is a valid
+	// Stremio type (spec §6.4). The library's catalog id is ether-lib-<id>;
+	// its metas address plugin items as pk: ItemRefs.
+	catalogs = append(catalogs, i.libraryCatalogs(r, viewer)...)
 	writeJSON(w, map[string]any{
 		"id": "org.ether.viewer", "version": "1.0.0", "name": "Ether",
-		"types": []string{"movie", "series"}, "resources": []string{"catalog", "meta", "stream"},
-		"idPrefixes": []string{"tmdb:", "tt"},
+		"types": []string{"movie", "series", "channel", "tv"}, "resources": []string{"catalog", "meta", "stream"},
+		"idPrefixes": []string{"tmdb:", "tt", "pk:"},
 		"catalogs":   catalogs,
 	})
+}
+
+// libraryCatalogs lists catalogs for plugin libraries the viewer may open and
+// whose Stremio presentation type is one Stremio accepts. Built-in movies and
+// TV shows keep their existing ether-movies/ether-series aliases and are not
+// repeated here.
+func (i *instance) libraryCatalogs(r *http.Request, viewer *frontend.Viewer) []any {
+	if i.host.Experience == nil {
+		return nil
+	}
+	views, err := i.host.Experience.Views(r.Context(), viewer)
+	if err != nil {
+		return nil
+	}
+	out := make([]any, 0, len(views))
+	for _, view := range views {
+		if view.LibraryID <= 2 {
+			continue
+		}
+		typ := stremioLibraryType(view)
+		if typ == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"type": typ, "id": libraryCatalogID(view.ID), "name": view.Name,
+			"extra": []any{map[string]any{"name": "skip"}},
+		})
+	}
+	return out
 }

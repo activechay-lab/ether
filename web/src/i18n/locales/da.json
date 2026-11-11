@@ -1247,7 +1247,6 @@
     "other": "{count} downloads i dag · ingen daglig grænse"
   },
   "m_0470673a4a1224": "Transkodningspladser",
-  "m_0472038a22c491": "Kun i denne konsol indtil videre",
   "m_04736065ec00ca": {
     "one": "{count} API-forespørgsel om dagen",
     "other": "{count} API-forespørgsler om dagen"
@@ -8920,6 +8919,7 @@
   "m_1fdad0b15cb157": "Definitioner af brugerdefinerede formater",
   "m_1fdbb599d542fe": "til {date}",
   "m_1fdc064b963229": "Holdes privat. Lad [configured] stå uændret for at beholde den gemte URL.",
+  "m_1fdc62d4ba7181": "Vises ikke i nogen app endnu",
   "m_1fdda9559f19b7": "Ether kunne ikke ændre, hvordan pre-rolls vælges.",
   "m_1fddcd7c1dea78": "ingen",
   "m_1fde2db89ccee9": "Serieåbning",

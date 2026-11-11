@@ -46,6 +46,10 @@ func jellyfinLibrarySteps(f string) []Step {
 		{Name: "progress report", Class: classDetail, Method: http.MethodPost, Path: "/Sessions/Playing/Progress", Body: `{"ItemId":"{movieId}","PositionTicks":6000000000,"IsPaused":false}`},
 		{Name: "mark played", Class: classDetail, Method: http.MethodPost, Path: "/UserPlayedItems/{movieId}?userId={userId}"},
 		{Name: "mark unplayed", Class: classDetail, Method: http.MethodDelete, Path: "/UserPlayedItems/{movieId}?userId={userId}"},
+		// A plugin library, when one is installed, browses through the same
+		// indexed plugin-item store: skipped on a fixture without one.
+		{Name: "plugin library p1", Class: classBrowse, Path: "/Items?excludeLocationTypes=Virtual&fields=" + f + "&limit=50&parentId={pluginView}&recursive=true&sortBy=SortName&sortOrder=Ascending&startIndex=0&userId={userId}"},
+		{Name: "plugin library deep", Class: classBrowse, Path: "/Items?excludeLocationTypes=Virtual&fields=" + f + "&limit=50&parentId={pluginView}&recursive=true&sortBy=SortName&sortOrder=Ascending&startIndex=24000&userId={userId}"},
 		{Name: "mark series played", Class: classDetail, Method: http.MethodPost, Path: "/UserPlayedItems/{seriesId}?userId={userId}"},
 		{Name: "mark series unplayed", Class: classDetail, Method: http.MethodDelete, Path: "/UserPlayedItems/{seriesId}?userId={userId}"},
 		{Name: "favorite", Class: classDetail, Method: http.MethodPost, Path: "/UserFavoriteItems/{movieId}?userId={userId}"},
@@ -102,6 +106,40 @@ func consoleLibrarySteps() []Step {
 		{Name: "experience", Class: classConsole, Path: "/experience/"},
 		{Name: "experience viewer", Class: classConsole, Path: "/experience/viewers/{viewerId}"},
 		{Name: "insights ranker", Class: classConsole, Path: "/insights/ranker"},
+		// The Libraries page and one plugin library's browser. The library id
+		// is discovered from the list; the browse steps are skipped when the
+		// fixture has no plugin library.
+		{Name: "libraries", Class: classConsole, Path: "/libraries", Discover: discoverPluginLibrary},
+		{Name: "plugin library items", Class: classConsole, Path: "/libraries/{pluginLibrary}/items?limit=48", Discover: discoverPluginLibrary},
+		{Name: "plugin library items deep", Class: classConsole, Path: "/libraries/{pluginLibrary}/items?limit=48&cursor={pluginLibraryCursor}"},
+		{Name: "plugin library facets genre", Class: classConsole, Path: "/libraries/{pluginLibrary}/facets/genre"},
+	}
+}
+
+// discoverPluginLibrary records the first plugin library's id and the first
+// page's next cursor from the Libraries list and browse responses.
+func discoverPluginLibrary(vars map[string]string, body []byte) {
+	var list struct {
+		Libraries []struct {
+			ID     int64  `json:"id"`
+			Source string `json:"source"`
+		} `json:"libraries"`
+	}
+	if json.Unmarshal(body, &list) == nil {
+		for _, lib := range list.Libraries {
+			if lib.Source == "plugin" {
+				setOnce(vars, "pluginLibrary", strconv.FormatInt(lib.ID, 10))
+				break
+			}
+		}
+	}
+	if vars["pluginLibrary"] != "" && vars["pluginLibraryCursor"] == "" {
+		var page struct {
+			NextCursor string `json:"nextCursor"`
+		}
+		if json.Unmarshal(body, &page) == nil && page.NextCursor != "" {
+			vars["pluginLibraryCursor"] = url.QueryEscape(page.NextCursor)
+		}
 	}
 }
 

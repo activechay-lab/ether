@@ -1247,7 +1247,6 @@
     "other": "{count} latausta tänään · ei päivärajaa"
   },
   "m_0470673a4a1224": "Transkoodauspaikat",
-  "m_0472038a22c491": "Vain tässä konsolissa toistaiseksi",
   "m_04736065ec00ca": {
     "one": "{count} API-pyyntö päivässä",
     "other": "{count} API-pyyntöä päivässä"
@@ -8920,6 +8919,7 @@
   "m_1fdad0b15cb157": "Omien formaattien määritykset",
   "m_1fdbb599d542fe": "{date} asti",
   "m_1fdc064b963229": "Pidetään yksityisenä. Jätä [configured] ennalleen säilyttääksesi tallennetun URL-osoitteen.",
+  "m_1fdc62d4ba7181": "Ei vielä näy missään sovelluksessa",
   "m_1fdda9559f19b7": "Ether ei voinut muuttaa pre-rollien valintatapaa.",
   "m_1fddcd7c1dea78": "ei yhtään",
   "m_1fde2db89ccee9": "Sarjan avaus",

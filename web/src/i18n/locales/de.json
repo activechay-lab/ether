@@ -1247,7 +1247,6 @@
     "other": "{count} Downloads heute · kein Tageslimit festgelegt"
   },
   "m_0470673a4a1224": "Transkodierungsplätze",
-  "m_0472038a22c491": "Vorläufig nur in dieser Konsole",
   "m_04736065ec00ca": {
     "one": "{count} API-Anfrage pro Tag",
     "other": "{count} API-Anfragen pro Tag"
@@ -8920,6 +8919,7 @@
   "m_1fdad0b15cb157": "Definitionen eigener Formate",
   "m_1fdbb599d542fe": "bis {date}",
   "m_1fdc064b963229": "Wird privat gehalten. Lass [configured] unverändert, um die gespeicherte URL zu behalten.",
+  "m_1fdc62d4ba7181": "Noch in keiner App sichtbar",
   "m_1fdda9559f19b7": "Ether konnte nicht ändern, wie Pre-Rolls ausgewählt werden.",
   "m_1fddcd7c1dea78": "keins",
   "m_1fde2db89ccee9": "Serienauftakt",

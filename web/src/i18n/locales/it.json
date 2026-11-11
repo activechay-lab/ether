@@ -1275,7 +1275,6 @@
     "other": "{count} download oggi · nessun limite giornaliero impostato"
   },
   "m_0470673a4a1224": "Posti di transcodifica",
-  "m_0472038a22c491": "Per ora solo in questa console",
   "m_04736065ec00ca": {
     "many": "{count} richieste API al giorno",
     "one": "{count} richiesta API al giorno",
@@ -9155,6 +9154,7 @@
   "m_1fdad0b15cb157": "Definizioni dei formati personalizzati",
   "m_1fdbb599d542fe": "fino al {date}",
   "m_1fdc064b963229": "Mantenuto privato. Lascia [configured] invariato per conservare l'URL salvato.",
+  "m_1fdc62d4ba7181": "Non ancora mostrato in nessuna app",
   "m_1fdda9559f19b7": "Ether non è riuscito a cambiare il modo in cui vengono scelti i pre-roll.",
   "m_1fddcd7c1dea78": "nessuno",
   "m_1fde2db89ccee9": "Apertura della serie",

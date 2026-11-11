@@ -343,6 +343,17 @@ type KindStreams interface {
 	KindLeaves(ctx context.Context, viewer *core.Viewer, parent core.RatingKey) ([]KindLeaf, error)
 }
 
+// KindRefKeys maps between plugin RatingKeys and their ItemRefs for a viewer
+// who may see them. Protocols that address plugin items by their ItemRef
+// verbatim (the Stremio "pk:" identity, spec §2.2) use it to build catalog
+// ids and to dispatch meta/stream requests back to the stored item. It is
+// optional: frontends type-assert for it and 404 when the host does not
+// implement it.
+type KindRefKeys interface {
+	KeyForRef(ctx context.Context, viewer *core.Viewer, ref core.ItemRef) (core.RatingKey, error)
+	RefsForKeys(ctx context.Context, viewer *core.Viewer, keys []core.RatingKey) (map[core.RatingKey]core.ItemRef, error)
+}
+
 // CinemaIntros returns playable trailers of other visible, unwatched movies
 // to play before feature. An empty slice means cinema intros are off or none match.
 type CinemaIntros interface {
