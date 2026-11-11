@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -118,6 +119,33 @@ func readSegment(path string, size int64) ([]byte, error) {
 		return nil, errCorrupt
 	}
 	return payload, nil
+}
+
+// peekSegment reads a segment file's header and the first n payload bytes,
+// checking the magic, the recorded length and the file size against size.
+// The payload checksum is not verified (that needs the whole payload).
+func peekSegment(path string, size int64, n int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if st.Size() != size+headerSize {
+		return nil, errCorrupt
+	}
+	want := headerSize + int(min(int64(n), size))
+	b := make([]byte, want)
+	if _, err := io.ReadFull(f, b); err != nil {
+		return nil, err
+	}
+	if [4]byte(b[:4]) != headerMagic || binary.LittleEndian.Uint64(b[8:16]) != uint64(size) {
+		return nil, errCorrupt
+	}
+	return b[headerSize:], nil
 }
 
 // writeFileAtomic writes data to path via a temp file in the same directory

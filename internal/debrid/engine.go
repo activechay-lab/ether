@@ -879,6 +879,34 @@ func (f *remoteFile) diskGet(idx int64) ([]byte, bool) {
 	return raw[8:], true
 }
 
+// segmentPeeker is the segment cache's cheap presence check
+// (segcache.Cache.Peek): header and payload prefix only.
+type segmentPeeker interface {
+	Peek(releaseID string, segment, n int) ([]byte, int64, bool)
+}
+
+// diskHas reports whether this file's block idx is on disk, checking its
+// size and file tag without reading the block. Preload verification uses
+// it; diskGet read and checksummed every shelved block on each pass.
+func (f *remoteFile) diskHas(idx int64) bool {
+	if f.e.cache == nil {
+		return false
+	}
+	p, ok := f.e.cache.(segmentPeeker)
+	if !ok {
+		_, ok = f.diskGet(idx)
+		return ok
+	}
+	prefix, size, ok := p.Peek(f.id, int(idx), 8)
+	if !ok || size != 8+f.blockLen(idx) || !bytes.Equal(prefix, f.tag[:]) {
+		f.bmu.Lock()
+		delete(f.stored, idx)
+		f.bmu.Unlock()
+		return false
+	}
+	return true
+}
+
 func (f *remoteFile) diskPut(idx int64, data []byte) {
 	if f.e.cache == nil {
 		return

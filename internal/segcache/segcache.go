@@ -276,6 +276,47 @@ func (c *Cache) Get(releaseID string, segment int) ([]byte, bool) {
 	return data, true
 }
 
+// Peek returns the first n payload bytes of a cached segment and its
+// payload size, reading only the header and that prefix: no checksum, no
+// recency update, no mtime touch. It answers "is this block still on disk,
+// and whose is it" for preload verification, which used Get and so read
+// and checksummed every cached block of every shelved title on each pass
+// (gigabytes of garbage an hour on an idle server). A damaged payload is
+// still caught by Get when the block is actually read.
+func (c *Cache) Peek(releaseID string, segment, n int) ([]byte, int64, bool) {
+	if c.shared != nil {
+		data, ok := c.shared.get(releaseID, segment)
+		if !ok {
+			return nil, 0, false
+		}
+		return data[:min(n, len(data))], int64(len(data)), true
+	}
+	st := c.stripe(releaseID, segment)
+	st.RLock()
+	defer st.RUnlock()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, 0, false
+	}
+	r := c.rels[releaseID]
+	var e *entry
+	if r != nil {
+		e = r.segs[segment]
+	}
+	if e == nil {
+		c.mu.Unlock()
+		return nil, 0, false
+	}
+	size, dir := e.size, r.dir
+	c.mu.Unlock()
+	prefix, err := peekSegment(filepath.Join(dir, segName(segment)), size, n)
+	if err != nil {
+		return nil, 0, false
+	}
+	return prefix, size, true
+}
+
 // Has reports whether the segment is indexed. No disk IO, no recency update.
 func (c *Cache) Has(releaseID string, segment int) bool {
 	if c.shared != nil {

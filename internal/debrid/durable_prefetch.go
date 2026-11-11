@@ -31,7 +31,7 @@ func (e *Engine) DurablePrefetch(ctx context.Context, id string, payload []byte,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, ok := f.diskGet(idx); ok {
+		if f.diskHas(idx) {
 			continue
 		}
 		data, err := f.block(ctx, idx, fetchPrefetch, 1, ctx)
@@ -39,7 +39,7 @@ func (e *Engine) DurablePrefetch(ctx context.Context, id string, payload []byte,
 			return err
 		}
 		f.diskPut(idx, data)
-		if _, ok := f.diskGet(idx); !ok {
+		if !f.diskHas(idx) {
 			return errors.New("debrid: preload block was not retained on disk")
 		}
 	}
