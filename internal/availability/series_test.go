@@ -36,19 +36,25 @@ func TestPremiereSeriesRequiresVisibleEpisode(t *testing.T) {
 	x.s.d.Validator = suitabilityValidator{x.v, r}
 	show := core.Title{Key: core.ShowKey(7), Type: core.TypeShow, Title: "Series", Language: "en", Released: x.now.Add(-time.Hour)}
 	x.cat.titles[show.Key] = show
-	check := func(want bool) {
+	check := func(target core.Title, want bool) {
 		t.Helper()
 		x.s.clearVisibility()
-		got := x.s.FilterDiscovery(t.Context(), []core.Title{show})
+		got := x.s.FilterDiscovery(t.Context(), []core.Title{target})
 		if (len(got) == 1) != want {
 			t.Fatalf("show visible=%v want %v", len(got) == 1, want)
 		}
 		hidden := x.s.HiddenShows(t.Context())
-		if (len(hidden) == 1) == want {
+		isHidden := false
+		for _, k := range hidden {
+			if k == target.Key {
+				isHidden = true
+			}
+		}
+		if isHidden == want {
 			t.Fatalf("pagination exclusions=%v, visible=%v", hidden, want)
 		}
 	}
-	check(false)
+	check(show, false)
 	put := func(id, name string) {
 		t.Helper()
 		if err := x.s.retainFeed(t.Context(), x.f.sources[0], []core.Release{{ID: id, Name: name, Indexer: "Fake"}}); err != nil {
@@ -57,37 +63,40 @@ func TestPremiereSeriesRequiresVisibleEpisode(t *testing.T) {
 	}
 	put("wrong", "Series.S01E02.1080p.WEB-DL")
 	put("cam", "Series.S01E01.1080p.CAM")
-	check(false)
+	put("pack", "Series.S01.1080p.WEB-DL") // Unsupported Usenet packs are not playable evidence.
+	check(show, false)
 	put("good", "Series.S01E01.1080p.WEB-DL")
-	check(true) // Feed arrived before any episode metadata.
+	check(show, true) // Feed arrived before any episode metadata.
 	x.s.Invalidate(t.Context(), "good")
-	check(false)
-	put("pack", "Series.S01.1080p.WEB-DL")
-	check(false) // Unsupported Usenet packs are not playable evidence.
-	put("good2", "Series.S01E01.1080p.WEB-DL")
-	check(true)
+	check(show, true) // Sticky gate stays open once opened.
 	x.f.sources[0].Generation = "changed"
-	check(false)
+	check(show, false)
 	x.f.sources[0].Generation = "one"
-	check(true)
+	check(show, true)
 	ep := core.Title{Key: core.EpisodeKey(7, 1, 1), ShowKey: show.Key, Type: core.TypeEpisode, Season: 1, Episode: 1, Released: x.now.Add(time.Hour)}
 	x.cat.titles[ep.Key] = ep
-	check(false) // Actual future date beats fallback.
+	check(show, false) // Actual future date beats fallback.
 	ep.Released = time.Time{}
 	x.cat.titles[ep.Key] = ep
-	check(false)
+	check(show, false)
 	ep.Released = x.now.Add(-time.Hour)
 	x.cat.titles[ep.Key] = ep
-	check(true)
+	check(show, true)
 	ep.Adult = true
 	x.cat.titles[ep.Key] = ep
-	check(false)
+	check(show, false)
 	ep.Adult = false
 	x.cat.titles[ep.Key] = ep
-	x.s.Invalidate(t.Context(), "good2")
-	check(false)
+	check(show, true)
+
+	// A second premiere series with no evidence unlocks after the 24h assumption.
+	show2 := core.Title{Key: core.ShowKey(8), Type: core.TypeShow, Title: "Other", Language: "en", Released: x.now.Add(-2 * time.Hour)}
+	ep2 := core.Title{Key: core.EpisodeKey(8, 1, 1), ShowKey: show2.Key, Type: core.TypeEpisode, Season: 1, Episode: 1, Released: show2.Released}
+	x.cat.titles[show2.Key] = show2
+	x.cat.titles[ep2.Key] = ep2
+	check(show2, false)
 	x.now = x.now.Add(23 * time.Hour)
-	check(true) // Existing 24h episode assumption.
+	check(show2, true)
 	if x.f.calls != 0 || x.v.calls != 0 {
 		t.Fatal("browsing spent provider quota")
 	}

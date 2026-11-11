@@ -1,141 +1,96 @@
 package availability
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
-	"sort"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// A title probe searches by id for a movie inside the evidence window. A
-// release counts only when it would pass the owner's quality profile.
-//
-// Release feeds do the detecting: each indexer's feed is read once per sync
-// and matched locally against every waiting title, at no cost per title.
-// A title is searched only on events, never on a timer:
-//   - once when it enters the window (its releases predate the feeds),
-//   - once when its digital or physical release date arrives (when releases
-//     land, including on sources without a feed),
-//   - once after its found release proved unplayable,
-//   - and to finish a search an outage or the allowance cut short.
-//
-// Playback still searches every source when a viewer opens or plays it.
-// Each probe asks one source at a time in priority order and stops at the
-// first acceptable release.
+// probeDue executes one indexed due-items query against
+// availability_title_checks_due and searches at most probeBatch gated titles
+// per cycle within the configured daily allowances, popular/watchlisted first.
 func (s *Service) probeDue(ctx context.Context) error {
-	if s.d.Search == nil || !s.cfg().Availability.Monitor {
+	_, cfg := s.discoverySnap()
+	if s.d.Search == nil || !cfg.Monitor {
 		return nil
 	}
-	cat, ok := s.d.Catalog.(interface {
-		RecentMovies(context.Context, time.Time) ([]core.Title, error)
-	})
-	if !ok {
-		return nil
-	}
-	cfg := s.cfg().Availability
-	since := s.now().Add(-time.Duration(cfg.EffectiveMovieEvidenceDays()) * 24 * time.Hour)
-	movies, err := cat.RecentMovies(ctx, since)
-	if err != nil || len(movies) == 0 {
+	if err := s.seedDueChecks(ctx, cfg); err != nil {
 		return err
 	}
-	homes := map[core.RatingKey]time.Time{}
-	checked := map[core.RatingKey]bool{}
-	if h, ok := s.d.Catalog.(interface {
-		HomeReleases(context.Context, []core.RatingKey) (map[core.RatingKey]time.Time, error)
-	}); ok {
-		keys := make([]core.RatingKey, len(movies))
-		for i := range movies {
-			keys[i] = movies[i].Key
-		}
-		if got, e := h.HomeReleases(ctx, keys); e == nil {
-			homes = got
-			for k := range got {
-				checked[k] = true
-			}
-		}
+	if !s.hasGateTable {
+		return nil
 	}
-	// Titles whose release has since been found unplayable are looked for
-	// again, whatever their cadence.
-	unavailable := map[core.RatingKey]time.Time{}
-	if v, ok := s.d.Validator.(interface {
-		KnownUnavailableSince(context.Context, []core.RatingKey) map[core.RatingKey]time.Time
-	}); ok {
-		keys := make([]core.RatingKey, len(movies))
-		for i := range movies {
-			keys[i] = movies[i].Key
-		}
-		unavailable = v.KnownUnavailableSince(ctx, keys)
+
+	now := s.now()
+	nowTS := now.Unix()
+	rows, err := s.db.QueryContext(ctx, `SELECT rating_key,kind,anchor_ts,window_end_ts,priority FROM availability_title_checks WHERE next_check>0 AND next_check<=? ORDER BY priority DESC,next_check ASC LIMIT ?`, nowTS, probeBatch)
+	if err != nil {
+		return err
 	}
-	watch := map[core.RatingKey]bool{}
-	if s.d.Watchlist != nil {
-		if keys, e := s.d.Watchlist(ctx); e == nil {
-			watch = keys
-		}
+	type dueRow struct {
+		key       core.RatingKey
+		kind      string
+		anchor    int64
+		windowEnd int64
+		priority  float64
 	}
-	type item struct {
-		t     core.Title
-		score float64
-		check titleCheck
-	}
-	var due []item
-	for _, t := range movies {
-		if !t.IsReleased(s.now()) {
-			continue
-		}
-		check, err := s.titleCheck(ctx, t.Key)
-		if err != nil {
+	var due []dueRow
+	for rows.Next() {
+		var k int64
+		var r dueRow
+		if err := rows.Scan(&k, &r.kind, &r.anchor, &r.windowEnd, &r.priority); err != nil {
+			rows.Close()
 			return err
 		}
-		state := check.state
-		digital := time.Time{}
-		if checked[t.Key] {
-			digital = homes[t.Key]
-		}
-		// First look, an unfinished search, or a digital date that arrived
-		// since the last look.
-		dueNow := state == "" || (!check.next.IsZero() && !s.now().Before(check.next)) ||
-			(!digital.IsZero() && !digital.After(s.now()) && digital.After(check.checked))
-		if state == "found" {
-			// A found title is available like any other; playback searches
-			// for itself. It is looked for again only if its release turned
-			// out unplayable, which hides it until another is found.
-			since, ok := unavailable[t.Key]
-			dueNow = ok && since.After(check.checked)
-		}
-		if !dueNow {
-			continue
-		}
-		score := t.Popularity
-		if watch[t.Key] {
-			score += 1000
-		}
-		if !digital.IsZero() && !digital.After(s.now()) {
-			score += 2000
-		} else if !digital.IsZero() && digital.Sub(s.now()) < 72*time.Hour {
-			score += 800
-		}
-		due = append(due, item{t, score, check})
+		r.key = core.RatingKey(k)
+		due = append(due, r)
 	}
-	sort.SliceStable(due, func(i, j int) bool { return due[i].score > due[j].score })
-	// At most probeBatch titles per one-minute cycle, most important first:
-	// a backlog (a first start, a long stop) drains over minutes instead of
-	// bursting at every indexer at once.
-	for i, it := range due {
+	err = rows.Err()
+	rows.Close()
+	if err != nil || len(due) == 0 {
+		return err
+	}
+
+	gp := s.currentGatePolicy()
+	for _, item := range due {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if i >= probeBatch {
-			break
+		basePrio := item.priority
+		if basePrio >= firstLookPriorityBoost {
+			basePrio -= firstLookPriorityBoost
 		}
-		err := s.probeOne(ctx, it.t)
+		if item.windowEnd > 0 && nowTS >= item.windowEnd {
+			_, _ = s.db.ExecContext(ctx, `UPDATE availability_title_checks SET next_check=0,priority=? WHERE rating_key=?`, basePrio, int64(item.key))
+			continue
+		}
+		if s.isGateOpen(ctx, gp, item.key) {
+			_, _ = s.db.ExecContext(ctx, `UPDATE availability_title_checks SET next_check=0,state='found',reason='',priority=? WHERE rating_key=?`, basePrio, int64(item.key))
+			continue
+		}
+		t, e := s.d.Catalog.CachedTitle(ctx, item.key)
+		if e != nil || t == nil || t.Adult {
+			_, _ = s.db.ExecContext(ctx, `UPDATE availability_title_checks SET next_check=0,priority=? WHERE rating_key=?`, basePrio, int64(item.key))
+			continue
+		}
+		if !t.IsReleased(now) {
+			nextAt := nextRetryAfter(item.anchor, item.windowEnd, nowTS)
+			if !t.Released.IsZero() && t.Released.Unix() > nowTS && (nextAt == 0 || t.Released.Unix() < nextAt) {
+				nextAt = t.Released.Unix()
+			}
+			_, _ = s.db.ExecContext(ctx, `UPDATE availability_title_checks SET next_check=? WHERE rating_key=?`, nextAt, int64(item.key))
+			continue
+		}
+		err := s.probeOneDue(ctx, *t, item.anchor, item.windowEnd, basePrio)
 		if err != nil {
 			if benign(err) {
 				return err
 			}
-			s.log.Warn("title probe failed", "title", it.t.Title, "error", err)
+			s.log.Warn("title probe failed", "title", t.Title, "error", err)
 		}
 	}
 	return nil
@@ -150,25 +105,68 @@ const (
 	probeRetry = 6 * time.Hour
 )
 
-// probeOne searches the selected sources for t one at a time, in priority
-// order, and stops at the first release the owner's profile accepts.
-func (s *Service) probeOne(ctx context.Context, t core.Title) error {
-	req := core.SearchRequest{Type: t.Type, IDs: t.IDs, Title: t.Title, OriginalTitle: t.OriginalTitle, Year: t.Year, AlternativeTitles: t.AlternativeTitles, Released: t.Released}
+// probeOneDue searches the selected sources (and search-only addons) for t one
+// at a time in priority order, stopping at the first profile-accepted release.
+func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windowEndTS int64, basePrio float64) error {
+	if t.Type == core.TypeEpisode && t.ShowKey != 0 {
+		if show, err := s.d.Catalog.CachedTitle(ctx, t.ShowKey); err == nil && show != nil {
+			t.ShowIDs = show.IDs
+			if t.ShowTitle == "" {
+				t.ShowTitle = show.Title
+			}
+			t.ShowOriginalTitle = show.OriginalTitle
+			t.ShowYear = show.Year
+			if t.Language == "" {
+				t.Language = show.Language
+			}
+		}
+	}
+	req := core.SearchRequest{
+		Type:              t.Type,
+		IDs:               t.IDs,
+		Title:             t.Title,
+		OriginalTitle:     t.OriginalTitle,
+		Year:              t.Year,
+		AlternativeTitles: t.AlternativeTitles,
+		Released:          t.Released,
+	}
+	if t.Type == core.TypeEpisode {
+		req.IDs = t.ShowIDs
+		req.Title = cmp.Or(t.ShowTitle, t.Title)
+		req.OriginalTitle = t.ShowOriginalTitle
+		req.Year = cmp.Or(t.ShowYear, t.Year)
+		req.Season = t.Season
+		req.Episode = t.Episode
+		req.EpisodeTitle = t.Title
+	}
+
 	sources := s.d.Feeds.FeedSources()
-	ids := s.cfg().Availability.IndexerIDs
+	_, cfg := s.discoverySnap()
+	ids := cfg.IndexerIDs
 	policy := s.policy()
 	quality := ""
 	asked, denied, failed := 0, 0, 0
+
+	var targets []core.ReleaseFeed
 	for _, f := range sources {
-		// Background work stays on the indexers the owner gave it
-		// (Availability.IndexerIDs); playback still searches every indexer.
-		if !selected(ids, f.ID) {
-			continue
+		if selected(ids, f.ID) {
+			targets = append(targets, f)
 		}
-		skip := make(map[string]bool, len(sources))
-		for _, other := range sources {
-			if other.ID != f.ID {
-				skip[other.ID] = true
+	}
+	// Support search-only installations (Stremio add-ons, debrid scrapers) that
+	// have no Newznab/Torznab feed sources registered.
+	if len(sources) == 0 && len(ids) == 0 {
+		targets = []core.ReleaseFeed{{ID: "probe", Name: "probe", Generation: "probe", Supported: true}}
+	}
+
+	for _, f := range targets {
+		var skip map[string]bool
+		if len(sources) > 0 {
+			skip = make(map[string]bool, len(sources))
+			for _, other := range sources {
+				if other.ID != f.ID {
+					skip[other.ID] = true
+				}
 			}
 		}
 		bctx, cancel := context.WithTimeout(core.WithUnattendedSearch(core.WithIndexerSkip(s.budgetContext(ctx, titleSearch), skip)), probeSourceTimeout)
@@ -178,8 +176,6 @@ func (s *Service) probeOne(ctx context.Context, t core.Title) error {
 			return ctx.Err()
 		}
 		if err != nil && len(releases) == 0 {
-			// A spent allowance decides nothing; a slow or failing source
-			// is asked again later, never on the next minute's cycle.
 			if errors.Is(err, core.ErrBudgetExhausted) || errors.Is(err, context.Canceled) {
 				denied++
 			} else {
@@ -188,7 +184,8 @@ func (s *Service) probeOne(ctx context.Context, t core.Title) error {
 			continue
 		}
 		asked++
-		for _, r := range s.cachedTorrents(ctx, releases) {
+		kept, verifiedHashes := s.cachedTorrentsWithVerified(ctx, releases)
+		for _, r := range kept {
 			accepted, reason, e := s.d.Validator.FeedCandidate(ctx, &t, r)
 			if e != nil {
 				return e
@@ -201,40 +198,58 @@ func (s *Service) probeOne(ctx context.Context, t core.Title) error {
 			}
 			src := feedFor(sources, accepted)
 			if src.ID == "" {
-				src = core.ReleaseFeed{ID: "probe", Name: accepted.Indexer, Generation: "probe", Supported: true}
+				src = core.ReleaseFeed{ID: "probe", Name: accepted.Indexer, Generation: "probe", Protocol: accepted.Protocol, Supported: true}
 			}
 			if e = s.remember(ctx, src, t, accepted, policy); e != nil {
 				return e
 			}
-			return s.saveTitleCheck(ctx, t.Key, "found", "", time.Time{})
+			if accepted.InfoHash != "" && verifiedHashes[accepted.InfoHash] {
+				_ = s.openGate(ctx, s.currentGatePolicy(), t.Key, src.ID, s.now().Unix())
+			}
+			if s.isGateOpen(ctx, s.currentGatePolicy(), t.Key) {
+				return s.saveTitleCheckDue(ctx, t.Key, "found", "", 0, basePrio)
+			}
+			// Pre-official-date unverified match: queued in availability_releases
+			// for verification; keep bounded retry active until verified or date passes.
+			nextAt := nextRetryAfter(anchorTS, windowEndTS, s.now().Unix())
+			return s.saveTitleCheckDue(ctx, t.Key, "searching", "", nextAt, basePrio)
 		}
 	}
 	if asked == 0 && failed == 0 && denied > 0 {
-		// Nothing was asked: the title stays due and the pass ends.
 		return core.ErrBudgetExhausted
 	}
-	// A search cut short is finished later: after a source failure, or
-	// once the daily allowances reset (UTC midnight).
-	next := time.Time{}
+	now := s.now()
+	nowTS := now.Unix()
+	nextAt := nextRetryAfter(anchorTS, windowEndTS, nowTS)
 	if failed > 0 {
-		next = s.now().Add(probeRetry)
+		backoff := now.Add(probeRetry).Unix()
+		if nextAt == 0 || backoff > nextAt {
+			if windowEndTS == 0 || backoff < windowEndTS {
+				nextAt = backoff
+			}
+		}
 	}
 	if denied > 0 {
-		now := s.now().UTC()
-		next = time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC).Add(time.Duration(uint64(t.Key)*2654435761%3600) * time.Second)
+		u := now.UTC()
+		reset := time.Date(u.Year(), u.Month(), u.Day()+1, 0, 0, 0, 0, time.UTC).Add(time.Duration(uint64(t.Key)*2654435761%3600) * time.Second).Unix()
+		if nextAt == 0 || reset > nextAt {
+			if windowEndTS == 0 || reset < windowEndTS {
+				nextAt = reset
+			}
+		}
 	}
 	switch {
 	case quality != "":
-		return s.saveTitleCheck(ctx, t.Key, "quality", quality, next)
+		return s.saveTitleCheckDue(ctx, t.Key, "quality", quality, nextAt, basePrio)
 	case asked == 0:
-		return s.saveTitleCheck(ctx, t.Key, "none", "Search could not be completed", next)
+		return s.saveTitleCheckDue(ctx, t.Key, "none", "Search could not be completed", nextAt, basePrio)
 	}
-	return s.saveTitleCheck(ctx, t.Key, "none", "", next)
+	return s.saveTitleCheckDue(ctx, t.Key, "none", "", nextAt, basePrio)
 }
 
-func (s *Service) cachedTorrents(ctx context.Context, rs []core.Release) []core.Release {
+func (s *Service) cachedTorrentsWithVerified(ctx context.Context, rs []core.Release) ([]core.Release, map[string]bool) {
 	if s.d.CacheCheck == nil {
-		return rs
+		return rs, nil
 	}
 	var hashes []string
 	for _, r := range rs {
@@ -243,22 +258,26 @@ func (s *Service) cachedTorrents(ctx context.Context, rs []core.Release) []core.
 		}
 	}
 	if len(hashes) == 0 {
-		return rs
+		return rs, nil
 	}
 	bctx, cancel := context.WithTimeout(s.budgetContext(ctx, verifyCheck), 15*time.Second)
 	cached, definitive := s.d.CacheCheck(bctx, hashes)
 	cancel()
 	if !definitive {
-		return rs
+		return rs, nil
 	}
+	verified := map[string]bool{}
 	out := rs[:0]
 	for _, r := range rs {
-		if r.Protocol == core.ProtocolTorrent && r.InfoHash != "" && !cached[r.InfoHash] {
-			continue
+		if r.Protocol == core.ProtocolTorrent && r.InfoHash != "" {
+			if !cached[r.InfoHash] {
+				continue
+			}
+			verified[r.InfoHash] = true
 		}
 		out = append(out, r)
 	}
-	return out
+	return out, verified
 }
 
 func feedFor(feeds []core.ReleaseFeed, r core.Release) core.ReleaseFeed {
@@ -270,8 +289,8 @@ func feedFor(feeds []core.ReleaseFeed, r core.Release) core.ReleaseFeed {
 	return core.ReleaseFeed{}
 }
 
-// titleCheck is a title's last probe: when, what it found, and when an
-// unfinished search is to be finished (zero: nothing pending).
+// titleCheck is a title's last probe: when, what it found, and when the next
+// scheduled retry runs (zero: nothing pending).
 type titleCheck struct {
 	checked, next time.Time
 	state, reason string
@@ -294,16 +313,10 @@ func (s *Service) titleCheck(ctx context.Context, key core.RatingKey) (titleChec
 	return c, nil
 }
 
-// saveTitleCheck records a probe; next is when an unfinished search is
-// finished (zero: nothing pending).
-func (s *Service) saveTitleCheck(ctx context.Context, key core.RatingKey, state, reason string, next time.Time) error {
-	nextAt := int64(0)
-	if !next.IsZero() {
-		nextAt = next.Unix()
-	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO availability_title_checks(rating_key,checked_at,next_check,state,reason) VALUES(?,?,?,?,?)
- ON CONFLICT(rating_key) DO UPDATE SET checked_at=excluded.checked_at,next_check=excluded.next_check,state=excluded.state,reason=excluded.reason`,
-		int64(key), s.now().Unix(), nextAt, state, reason)
+func (s *Service) saveTitleCheckDue(ctx context.Context, key core.RatingKey, state, reason string, nextAt int64, priority float64) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO availability_title_checks(rating_key,checked_at,next_check,state,reason,priority) VALUES(?,?,?,?,?,?)
+ ON CONFLICT(rating_key) DO UPDATE SET checked_at=excluded.checked_at,next_check=excluded.next_check,state=excluded.state,reason=excluded.reason,priority=excluded.priority`,
+		int64(key), s.now().Unix(), nextAt, state, reason, priority)
 	return err
 }
 

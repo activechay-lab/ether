@@ -62,6 +62,8 @@ func TestSectionLoadsJudgeNoFeedReleaseOnceVerdictsExist(t *testing.T) {
 	v := &countingValidator{Service: r}
 	x.s.d.Validator, x.s.d.Catalog = v, recentMovies{x.cat}
 	movie := x.cat.titles[core.MovieKey(1)]
+	movie.HomeReleased = x.now.Add(-time.Hour)
+	x.cat.titles[movie.Key] = movie
 	feed := []core.Release{
 		{ID: "a", Name: "Film.2020.1080p.WEB-DL.DDP5.1.H.264-GRP", Indexer: "Fake", Size: 6 << 30},
 		{ID: "b", Name: "Film.2020.720p.WEB-DL.DDP5.1.H.264-GRP", Indexer: "Fake", Size: 3 << 30},

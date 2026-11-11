@@ -130,6 +130,29 @@ func (c *Catalog) ReleaseMatches(ctx context.Context, releases []core.Release) (
 		if e != nil {
 			return nil, e
 		}
+		if len(eps) == 0 {
+			seasonOne := false
+			for _, s := range r.Info.Seasons {
+				if s == 1 {
+					seasonOne = true
+				}
+			}
+			if releaseparse.EpisodeMatches(r.Info, 1, 1) || (r.Info.FullSeason && seasonOne) {
+				var hasRegular bool
+				if err := c.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM catalog_titles WHERE show_key=? AND type='episode' AND season>0)`, int64(keys[0])).Scan(&hasRegular); err == nil && !hasRegular {
+					if show, e := c.CachedTitle(ctx, keys[0]); e == nil && !show.Adult && show.IsReleased(c.now()) {
+						out[r.ID] = []core.Title{{
+							Key: core.EpisodeKey(show.Key.TMDB(), 1, 1), Type: core.TypeEpisode,
+							ShowKey: show.Key, ShowIDs: show.IDs, ShowTitle: show.Title,
+							ShowOriginalTitle: show.OriginalTitle, ShowYear: show.Year,
+							Season: 1, Episode: 1, Released: show.Released, Language: show.Language,
+						}}
+					}
+				}
+			}
+			continue
+		}
+		show, _ := c.CachedTitle(ctx, keys[0])
 		for _, t := range eps {
 			season := false
 			for _, s := range r.Info.Seasons {
@@ -138,6 +161,16 @@ func (c *Catalog) ReleaseMatches(ctx context.Context, releases []core.Release) (
 				}
 			}
 			if releaseparse.EpisodeMatches(r.Info, t.Season, t.Episode) || (r.Info.FullSeason && season) {
+				if show != nil {
+					t.ShowKey, t.ShowIDs = show.Key, show.IDs
+					if t.ShowTitle == "" {
+						t.ShowTitle = show.Title
+					}
+					t.ShowOriginalTitle, t.ShowYear = show.OriginalTitle, show.Year
+					if t.Language == "" {
+						t.Language = show.Language
+					}
+				}
 				out[r.ID] = append(out[r.ID], t)
 			}
 		}

@@ -103,9 +103,17 @@ func (c *Catalog) searchByPopularity(ctx context.Context, query string, n int, u
 		}
 		return s.lastPop
 	}
+	gateWhere := ""
+	var gateArgs []any
+	if !unfiltered {
+		if gc, ga := c.searchGateConds(ctx, "catalog_titles"); gc != "" {
+			gateWhere = " AND " + gc
+			gateArgs = ga
+		}
+	}
 	fetch := func(s *searchStream) error {
-		q := `SELECT key, popularity FROM catalog_titles WHERE type='` + s.typ + `' AND browsable=?` + adult + ` AND ` + match
-		args := []any{s.browsable, like, like, like}
+		q := `SELECT key, popularity FROM catalog_titles WHERE type='` + s.typ + `' AND browsable=?` + adult + ` AND ` + match + gateWhere
+		args := append([]any{s.browsable, like, like, like}, gateArgs...)
 		if s.started {
 			q += ` AND popularity<=? AND (popularity<? OR key>?)`
 			args = append(args, s.lastPop, s.lastPop, s.lastKey)
@@ -120,10 +128,11 @@ func (c *Catalog) searchByPopularity(ctx context.Context, query string, n int, u
 			if adult != "" {
 				radult = ` AND r.adult=0`
 			}
-			q = `SELECT r.key, -r.rk FROM catalog_rank r ` + join + ` catalog_titles ON catalog_titles.key=r.key WHERE r.type='` + s.typ + `' AND r.browsable=?` + radult + ` AND ` + match
+			q = `SELECT r.key, -r.rk FROM catalog_rank r ` + join + ` catalog_titles ON catalog_titles.key=r.key WHERE r.type='` + s.typ + `' AND r.browsable=?` + radult + ` AND ` + match + gateWhere
+			args = append([]any{s.browsable, like, like, like}, gateArgs...)
 			if s.started {
 				q += ` AND r.rk>=? AND (r.rk>? OR r.key>?)`
-				args = []any{s.browsable, like, like, like, -s.lastPop, -s.lastPop, s.lastKey}
+				args = append(args, -s.lastPop, -s.lastPop, s.lastKey)
 			}
 			q += ` ORDER BY r.rk ASC, r.key ASC LIMIT ?`
 		}

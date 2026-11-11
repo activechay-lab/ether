@@ -2,6 +2,7 @@ package availability
 
 import (
 	"context"
+
 	"github.com/braedonsaunders/ether/internal/core"
 )
 

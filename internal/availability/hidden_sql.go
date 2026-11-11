@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -20,28 +19,18 @@ import (
 )
 
 const (
-	// hiddenRetentionSeconds covers the 5-minute pagingCut lifetime plus a
-	// 1-minute in-flight query slack so paginated clients see an immutable cut.
 	hiddenRetentionSeconds = 6 * 60
-	// maxRetiredHiddenSeqs bounds how many retired snapshots stay readable.
-	maxRetiredHiddenSeqs = 5
-	hiddenInsertBatch    = 500
-	// hiddenOpenSeq marks a still-current interval: from_seq<=N<to_seq.
-	hiddenOpenSeq = math.MaxInt64
+	maxRetiredHiddenSeqs   = 5
+	hiddenInsertBatch      = 500
+	hiddenOpenSeq          = math.MaxInt64
 )
 
-// hiddenDB is the query surface shared by *sql.DB and *sql.Tx.
 type hiddenDB interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// pruneHiddenRetention deletes intervals no retained snapshot can still see.
-// Retained seqs are the current seq plus the newest maxRetiredHiddenSeqs
-// retired seqs inside hiddenRetentionSeconds; retire times are monotonic in
-// seq, so they form a contiguous range [floor, curSeq] and an interval is
-// needed iff to_seq > floor.
 func pruneHiddenRetention(ctx context.Context, db hiddenDB, kind string, curSeq, now int64) (int64, error) {
 	floor := curSeq
 	rows, err := db.QueryContext(ctx, `SELECT seq FROM availability_hidden_retired WHERE kind=? AND retired_at>=? ORDER BY seq DESC LIMIT ?`, kind, now-hiddenRetentionSeconds, maxRetiredHiddenSeqs)
@@ -84,9 +73,7 @@ type HiddenPublish struct {
 }
 
 // PublishHiddenSet publishes keys as kind's hidden set under the current
-// policy. It exists for the library-scale performance harness, which
-// publishes a set, churns a few dozen keys, and republishes to prove the
-// rows written track the delta, not the set.
+// policy. Retained for the library-scale performance harness.
 func (s *Service) PublishHiddenSet(ctx context.Context, kind string, keys []core.RatingKey) (HiddenPublish, error) {
 	switch kind {
 	case hiddenMovies, hiddenShows, hiddenEpisodes:
@@ -102,11 +89,6 @@ func (s *Service) publishHidden(ctx context.Context, kind, policy string, keys [
 	return err
 }
 
-// publishHiddenMeasured writes only the delta between the current published
-// set and keys: membership is an interval [from_seq,to_seq) per key,
-// publishing seq N+1 inserts added keys and closes removed ones. An
-// unchanged set (and policy) writes nothing. Older seqs stay readable for
-// in-flight paging.
 func (s *Service) publishHiddenMeasured(ctx context.Context, kind, policy string, keys []core.RatingKey) (HiddenPublish, error) {
 	sorted := append([]core.RatingKey(nil), keys...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
@@ -127,8 +109,6 @@ func (s *Service) publishHiddenMeasured(ctx context.Context, kind, policy string
 		return HiddenPublish{}, err
 	}
 	published := err == nil
-	// Current membership, in rating_key order via the (kind,to_seq,rating_key)
-	// index, merged against sorted to get the delta.
 	var added, removed []core.RatingKey
 	rows, err := tx.QueryContext(ctx, `SELECT rating_key FROM availability_hidden WHERE kind=? AND to_seq=? ORDER BY rating_key`, kind, int64(hiddenOpenSeq))
 	if err != nil {
@@ -162,8 +142,6 @@ func (s *Service) publishHiddenMeasured(ctx context.Context, kind, policy string
 	changed := setChanged || prevPolicy != policy
 	s.log.Debug("availability hidden publish", "kind", kind, "added", len(added), "removed", len(removed), "set", len(sorted), "published", published)
 	if !changed {
-		// Unchanged set and policy: write nothing (retention runs on the
-		// next changing publish and in Prune).
 		return HiddenPublish{Seq: prevSeq, Hold: time.Since(started)}, nil
 	}
 	newSeq := prevSeq
@@ -222,121 +200,62 @@ func (s *Service) publishHiddenMeasured(ctx context.Context, kind, policy string
 	return stats, nil
 }
 
-type pagingCut struct {
-	at                   time.Time
-	movie, show, episode int64
-}
-
-// PagingFilter captures the current hidden-set seqs once. On a new
-// installation the first set is computed before it can be used for a page.
+// PagingFilter attaches the sticky availability_gate policy and request-clock
+// evidence window bounds to f with zero SQL round trips in steady state. On
+// legacy read-only databases without availability_gate, it falls back to any
+// published availability_hidden_current seqs without issuing writes.
 func (s *Service) PagingFilter(ctx context.Context, f core.Filter) (core.Filter, error) {
 	if f.IncludeKeys != nil {
 		return f, nil
 	}
 	input := s.snapshotFor(ctx)
-	f.DigitalDiscovery = input.availability.ModeFor("movie") == config.ModeDigital
-	f.DigitalDateEvidence = input.availability.DigitalDateEvidence || f.DigitalDiscovery
+	movieMode := input.availability.ModeFor(hiddenMovies)
+	showMode := input.availability.ModeFor(hiddenShows)
+	f.DigitalDiscovery = movieMode == config.ModeDigital
+	f.DigitalDateEvidence = input.availability.DigitalDateEvidence
 	if f.DigitalDateEvidence {
 		f.HomeReleaseOffsetDays = input.availability.HomeReleaseOffsetDays
 	}
-	// A tokenless client shares this cut with all requests for the same filter.
-	// Adapters supply a client/section/sort scope; callers without one share
-	// a cut by filter. Policy changes select a new cut immediately.
-	cutKey := core.BrowseScope(ctx) + ":" + hiddenKey("paging", input) + ":" + pagingFilterKey(f)
-	s.visibilityMu.Lock()
-	cut, pinned := s.pagingCuts[cutKey]
-	s.visibilityMu.Unlock()
-	if pinned && input.now.Sub(cut.at) < 5*time.Minute && !input.now.Before(cut.at) {
-		f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = cut.movie, cut.show, cut.episode
-		for kind, seq := range map[string]int64{hiddenMovies: cut.movie, hiddenShows: cut.show, hiddenEpisodes: cut.episode} {
-			if seq != 0 {
-				s.currentHidden(kind, input)
-			}
+	if s.hasGateTable {
+		s.ensureGatePolicySeeded(ctx, input)
+		f.GatePolicy = input.gatePolicy
+		f.GateNow = input.now.Unix()
+		f.GateUpcomingMovies = input.showUpcomingMovies
+		f.GateRev = s.gateRev.Load()
+		if movieMode == config.ModePlayable && !input.availability.DisableMovieEvidenceGate {
+			f.MovieGateCutoff = input.now.Add(-time.Duration(input.availability.EffectiveMovieEvidenceDays()) * 24 * time.Hour).Unix()
+		}
+		if showMode == config.ModePlayable {
+			f.EpisodeGateCutoff = input.now.Add(-episodeEvidence).Unix()
+			f.ShowGateCutoff = f.EpisodeGateCutoff
 		}
 		return f, nil
 	}
-	var kinds []string
-	if f.Type != core.TypeMovie && input.availability.ShowMode != config.ModeImmediate {
-		kinds = append(kinds, hiddenShows)
-	}
-	if (f.Type == "" || f.Type == core.TypeMovie) && !movieImmediate(input.availability) {
-		kinds = append(kinds, hiddenMovies)
-	}
-	if f.Type == core.TypeEpisode && input.availability.ShowMode != config.ModeImmediate {
-		kinds = append(kinds, hiddenEpisodes)
-	}
-	for _, kind := range kinds {
-		var seq int64
-		var policy string
-		err := s.db.QueryRowContext(ctx, `SELECT seq,policy FROM availability_hidden_current WHERE kind=?`, kind).Scan(&seq, &policy)
-		want := hiddenPolicy(kind, input)
-		if err == nil && policy != want {
-			if _, e := s.waitHidden(ctx, kind, input, true); e != nil {
-				return f, e
-			}
-			err = s.db.QueryRowContext(ctx, `SELECT seq,policy FROM availability_hidden_current WHERE kind=?`, kind).Scan(&seq, &policy)
-			if err == nil && policy != want {
-				return f, fmt.Errorf("availability: %s policy changed during refresh", kind)
-			}
-		}
-		if err != nil {
-			if err != sql.ErrNoRows {
-				return f, err
-			}
-			// waitHidden starts (or joins) a bounded refresh and propagates failures.
-			if _, e := s.waitHidden(ctx, kind, input, true); e != nil {
-				return f, fmt.Errorf("availability: initialize %s: %w", kind, e)
-			}
-			if e := s.db.QueryRowContext(ctx, `SELECT seq FROM availability_hidden_current WHERE kind=?`, kind).Scan(&seq); e != nil {
-				return f, e
-			}
-		} else {
-			s.currentHidden(kind, input)
-		}
-		switch kind {
-		case hiddenMovies:
-			f.HiddenMovieSeq = seq
-		case hiddenShows:
-			f.HiddenShowSeq = seq
-		case hiddenEpisodes:
-			f.HiddenEpisodeSeq = seq
-		}
-	}
 
-	s.visibilityMu.Lock()
-	if s.pagingCuts == nil {
-		s.pagingCuts = map[string]pagingCut{}
-	}
-	for key, old := range s.pagingCuts {
-		if input.now.Sub(old.at) >= 5*time.Minute {
-			delete(s.pagingCuts, key)
+	// Legacy read-only database fallback.
+	for _, kind := range []string{hiddenMovies, hiddenShows, hiddenEpisodes} {
+		if kind == hiddenMovies && (!f.DigitalDiscovery && (movieMode == config.ModeImmediate || input.availability.DisableMovieEvidenceGate)) {
+			continue
+		}
+		if kind != hiddenMovies && showMode != config.ModePlayable {
+			continue
+		}
+		var seq int64
+		if err := s.db.QueryRowContext(ctx, `SELECT seq FROM availability_hidden_current WHERE kind=?`, kind).Scan(&seq); err == nil {
+			switch kind {
+			case hiddenMovies:
+				f.HiddenMovieSeq = seq
+			case hiddenShows:
+				f.HiddenShowSeq = seq
+			case hiddenEpisodes:
+				f.HiddenEpisodeSeq = seq
+			}
 		}
 	}
-	// Concurrent first pages must converge on the same cut.
-	if old, ok := s.pagingCuts[cutKey]; ok && input.now.Sub(old.at) < 5*time.Minute {
-		f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = old.movie, old.show, old.episode
-	} else {
-		s.pagingCuts[cutKey] = pagingCut{input.now, f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq}
-	}
-	s.visibilityMu.Unlock()
 	return f, nil
 }
 
 func hiddenPolicy(kind string, input discoverySnapshot) string {
 	sum := sha256.Sum256([]byte(hiddenKey(kind, input)))
 	return hex.EncodeToString(sum[:])
-}
-
-// Runtime pointer addresses and previously attached generations are not filter
-// identity. Nested groups are serialized by value, including their SQL filters.
-func pagingFilterKey(f core.Filter) string {
-	group, child := f.Group, f.ChildVisibility
-	f.Group, f.ChildVisibility = nil, nil
-	f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = 0, 0, 0
-	raw, _ := json.Marshal(group)
-	childKey := ""
-	if child != nil {
-		childKey = pagingFilterKey(*child)
-	}
-	return fmt.Sprintf("%+v|%s|%s", f, raw, childKey)
 }

@@ -87,8 +87,17 @@ type Filter struct {
 	HomeReleaseOffsetDays int  `json:"-"`
 	// AvailabilityKeepKeys are the viewer's active playback sessions.
 	AvailabilityKeepKeys []RatingKey `json:"-"`
+	// GatePolicy and Gate* bounds evaluate the sticky availability_gate
+	// table directly in SQL without materializing hidden sets.
+	GatePolicy         string `json:"-"`
+	MovieGateCutoff    int64  `json:"-"`
+	ShowGateCutoff     int64  `json:"-"`
+	EpisodeGateCutoff  int64  `json:"-"`
+	GateNow            int64  `json:"-"`
+	GateUpcomingMovies bool   `json:"-"`
+	GateRev            uint64 `json:"-"`
 	// Availability hidden-set seqs pin one evaluated hidden set (an
-	// interval snapshot) across SQL reads. Zero means unpinned.
+	// interval snapshot) across SQL reads on legacy read-only databases.
 	HiddenMovieSeq   int64 `json:"-"`
 	HiddenShowSeq    int64 `json:"-"`
 	HiddenEpisodeSeq int64 `json:"-"`

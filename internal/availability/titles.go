@@ -96,6 +96,7 @@ func (s *Service) evidenceSources(ctx context.Context, movies []core.Title) map[
 			names[f.ID] = f.Name
 		}
 	}
+	gp := s.currentGatePolicy()
 	for start := 0; start < len(movies); start += 400 {
 		batch := movies[start:min(start+400, len(movies))]
 		marks := make([]string, len(batch))
@@ -103,6 +104,23 @@ func (s *Service) evidenceSources(ctx context.Context, movies []core.Title) map[
 		for i, t := range batch {
 			marks[i] = "?"
 			args[i] = int64(t.Key)
+		}
+		if s.hasGateTable && gp != "" {
+			gateArgs := append([]any{gp}, args...)
+			if rows, err := s.db.QueryContext(ctx, `SELECT rating_key,source_id FROM availability_gate WHERE policy=? AND rating_key IN (`+strings.Join(marks, ",")+`)`, gateArgs...); err == nil {
+				for rows.Next() {
+					var key int64
+					var source string
+					if rows.Scan(&key, &source) == nil && source != "" {
+						name := names[source]
+						if name == "" {
+							name = source
+						}
+						out[core.RatingKey(key)] = name
+					}
+				}
+				rows.Close()
+			}
 		}
 		rows, err := s.db.QueryContext(ctx, `SELECT rating_key,source_id FROM availability_releases WHERE state NOT IN ('unavailable','policy') AND rating_key IN (`+strings.Join(marks, ",")+`)`, args...)
 		if err != nil {

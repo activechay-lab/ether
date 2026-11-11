@@ -2,16 +2,14 @@ package availability
 
 import (
 	"context"
+
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/releaseparse"
-	"github.com/braedonsaunders/ether/internal/store"
-	"sort"
-	"strconv"
-	"strings"
 )
 
 // RecordSearch retains descriptors from an actual requested search. It does not
-// initiate searches, grab media or claim health. Policy is reevaluated on reads.
+// initiate searches, grab media or claim health. Post-date accepted matches
+// open availability_gate immediately; pre-date matches queue verification.
 func (s *Service) RecordSearch(ctx context.Context, t *core.Title, rs []core.Release) {
 	if t == nil || !evidenceWindow(*t, s.now(), s.cfg().Availability) || !t.IsReleased(s.now()) {
 		return
@@ -19,15 +17,24 @@ func (s *Service) RecordSearch(ctx context.Context, t *core.Title, rs []core.Rel
 	feeds := map[string]core.ReleaseFeed{}
 	for _, f := range s.d.Feeds.FeedSources() {
 		feeds[f.Name] = f
+		if f.ID != "" {
+			feeds[f.ID] = f
+		}
 	}
 	policy := s.policy()
 	for _, r := range rs {
 		if ctx.Err() != nil {
 			return
 		}
-		f, ok := feeds[r.Indexer]
-		if !ok || r.ID == "" {
+		if r.ID == "" {
 			continue
+		}
+		f, ok := feeds[r.Indexer]
+		if !ok {
+			if r.Indexer == "" {
+				continue
+			}
+			f = core.ReleaseFeed{ID: "probe", Name: r.Indexer, Generation: "probe", Protocol: r.Protocol, Supported: true}
 		}
 		if err := s.remember(ctx, f, *t, r, policy); err != nil {
 			return
@@ -103,161 +110,4 @@ func (s *Service) retainFeed(ctx context.Context, f core.ReleaseFeed, rs []core.
 		}
 	}
 	return nil
-}
-
-func (s *Service) attachRetained(ctx context.Context, titles map[core.RatingKey]*core.Title, feeds map[string]core.ReleaseFeed, input discoverySnapshot) {
-	byName := map[string][]*core.Title{}
-	for _, t := range titles {
-		names := []string{t.Title, t.OriginalTitle}
-		if t.Type == core.TypeEpisode {
-			names = []string{t.ShowTitle, t.ShowOriginalTitle}
-		}
-		for _, name := range names {
-			n := releaseparse.NormalizeTitle(name)
-			if n != "" {
-				byName[n] = append(byName[n], t)
-			}
-		}
-	}
-	names := make([]string, 0, len(byName))
-	for n := range byName {
-		names = append(names, n)
-	}
-	// Map order must not choose the 500-name batches: with the per-batch
-	// LIMIT 2000 below, a shuffled batch drops different feed items each
-	// pass, so a stable library's hidden set flapped every refresh.
-	sort.Strings(names)
-	type pending struct {
-		source, gen, raw string
-		seen             int64
-	}
-	var work []pending
-	for start := 0; start < len(names); start += 500 {
-		ns := names[start:min(start+500, len(names))]
-		args := make([]any, 0, len(ns)+1)
-		marks := make([]string, len(ns))
-		for i, n := range ns {
-			marks[i] = "?"
-			args = append(args, n)
-		}
-		args = append(args, input.retentionCutoff().Unix())
-		rows, err := s.db.QueryContext(ctx, `SELECT source_id,generation,payload,seen_at FROM availability_feed_items WHERE match_title IN (`+strings.Join(marks, ",")+`) AND seen_at>=? ORDER BY seen_at DESC, source_id, id LIMIT 2000`, args...)
-		if err != nil {
-			continue
-		}
-		for rows.Next() {
-			var p pending
-			if rows.Scan(&p.source, &p.gen, &p.raw, &p.seen) == nil {
-				work = append(work, p)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			s.log.Warn("availability retained releases not fully loaded", "err", err)
-		}
-		rows.Close()
-	}
-	policy := input.policy
-	type observed struct {
-		r    core.Release
-		t    *core.Title
-		feed core.ReleaseFeed
-		p    pending
-	}
-	var candidates []observed
-	var pairs []feedPair
-	for _, p := range work {
-		f, ok := feeds[p.source]
-		if !ok || f.Generation != p.gen || !input.usable(f.Protocol) {
-			continue
-		}
-		r, err := s.decode(p.raw)
-		if err != nil {
-			continue
-		}
-		r.Info = releaseparse.Parse(r.Name)
-		for _, t := range byName[releaseparse.NormalizeTitle(r.Info.Title)] {
-			if t.Type == core.TypeEpisode && !releaseparse.EpisodeMatches(r.Info, t.Season, t.Episode) {
-				season := false
-				for _, n := range r.Info.Seasons {
-					if n == t.Season {
-						season = true
-					}
-				}
-				if !r.Info.FullSeason || !season {
-					continue
-				}
-			}
-			if t.Type == core.TypeMovie && (len(r.Info.Seasons) > 0 || len(r.Info.Episodes) > 0) {
-				continue
-			}
-			candidates = append(candidates, observed{r: r, t: t, feed: f, p: p})
-			pairs = append(pairs, feedPair{t: t, r: r})
-		}
-	}
-	var found []observed
-	for i, ok := range s.judge(ctx, pairs, false) {
-		if ok {
-			found = append(found, candidates[i])
-		}
-	}
-	if len(found) == 0 {
-		return
-	}
-	// This runs on browse requests (Home rows filter new releases), so it
-	// must not write what is already recorded: an observation of the same
-	// feed generation is a no-op for the upsert below. Reading the stored
-	// generations first keeps a repeat request write-free, and the rest
-	// share one transaction instead of one commit each (#238: 668 no-op
-	// writes made one Home request take 41 s on a NAS hard drive).
-	stored := s.storedGenerations(ctx, titles)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	wrote := false
-	for _, o := range found {
-		if gen, ok := stored[observationKey(o.r.ID, o.t.Key, o.feed.ID)]; ok && gen == o.feed.Generation {
-			continue
-		}
-		// Same-generation observations preserve invalidation and their original date.
-		if _, err := tx.ExecContext(ctx, `INSERT INTO availability_releases(id,rating_key,source_id,generation,payload,title,name,protocol,first_seen,last_seen,priority,policy,policy_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id,rating_key,source_id) DO UPDATE SET generation=excluded.generation,payload=excluded.payload,policy_digest=excluded.policy_digest,first_seen=excluded.first_seen,last_seen=excluded.last_seen,state='observed',verified_at=0,first_verified=0,next_check=0,revision=availability_releases.revision+1 WHERE availability_releases.generation<>excluded.generation`, o.r.ID, o.t.Key, o.feed.ID, o.feed.Generation, o.p.raw, o.t.Title, o.r.Name, o.r.Protocol, o.p.seen, o.p.seen, o.t.Popularity, policy, releasePolicyDigest(o.r)); err != nil {
-			return
-		}
-		wrote = true
-	}
-	if wrote {
-		_ = tx.Commit()
-	}
-}
-
-func observationKey(id string, key core.RatingKey, source string) string {
-	return id + "\x00" + strconv.FormatInt(int64(key), 10) + "\x00" + source
-}
-
-// storedGenerations returns the recorded feed generation of every release
-// observation for titles.
-func (s *Service) storedGenerations(ctx context.Context, titles map[core.RatingKey]*core.Title) map[string]string {
-	keys := make([]any, 0, len(titles))
-	for k := range titles {
-		keys = append(keys, int64(k))
-	}
-	out := map[string]string{}
-	for start := 0; start < len(keys); start += 500 {
-		batch := keys[start:min(start+500, len(keys))]
-		marks := store.Placeholders(len(batch))
-		rows, err := s.db.QueryContext(ctx, `SELECT id,rating_key,source_id,generation FROM availability_releases WHERE rating_key IN (`+marks+`)`, batch...)
-		if err != nil {
-			return out
-		}
-		for rows.Next() {
-			var id, source, gen string
-			var key int64
-			if rows.Scan(&id, &key, &source, &gen) == nil {
-				out[observationKey(id, core.RatingKey(key), source)] = gen
-			}
-		}
-		rows.Close()
-	}
-	return out
 }

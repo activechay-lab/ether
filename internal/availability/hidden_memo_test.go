@@ -1,48 +1,10 @@
 package availability
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
-
-type countingRecent struct {
-	*fakeCatalog
-	calls int
-}
-
-func (c *countingRecent) RecentShows(ctx context.Context, since time.Time) ([]core.Title, error) {
-	c.calls++
-	return c.fakeCatalog.RecentShows(ctx, since)
-}
-
-// Every library page excludes the hidden evidence-window titles, so the
-// answer is memoized: a second page reads no catalogue, and a new
-// observation recomputes it at once.
-func TestHiddenTitlesAreMemoizedUntilAnObservation(t *testing.T) {
-	x := setup(t)
-	recent := &countingRecent{fakeCatalog: x.cat}
-	x.s.d.Catalog = recent
-	show := core.Title{Key: core.ShowKey(7), Type: core.TypeShow, Title: "Series", Language: "en", Released: x.now.Add(-time.Hour)}
-	x.cat.titles[show.Key] = show
-	for range 3 {
-		if hidden := x.s.HiddenShows(t.Context()); len(hidden) != 1 || hidden[0] != show.Key {
-			t.Fatalf("hidden: %v", hidden)
-		}
-	}
-	if recent.calls != 1 {
-		t.Fatalf("read the recent catalogue %d times for three pages", recent.calls)
-	}
-	if err := x.s.retainFeed(t.Context(), x.f.sources[0], []core.Release{{ID: "x", Name: "Other.S01E01.1080p.WEB-DL", Indexer: "Fake"}}); err != nil {
-		t.Fatal(err)
-	}
-	x.s.HiddenShows(t.Context())
-	if recent.calls != 2 {
-		t.Fatalf("an observation did not recompute the hidden titles (%d reads)", recent.calls)
-	}
-}
 
 type gateCountingCatalog struct {
 	*fakeCatalog
@@ -51,26 +13,21 @@ type gateCountingCatalog struct {
 
 func (c *gateCountingCatalog) ConsoleGateChanged() { c.changed++ }
 
-// The hidden answer stays fresh for most of the warm cycle: with a
-// shorter life every browse after a few seconds queued another full
-// evidence pass behind the last, back to back for as long as anyone
-// browsed. Clustered nodes keep the short window (other nodes' evidence is
-// not signalled); a single server, whose own evidence writes invalidate the
-// set, keeps it for minutes.
-func TestHiddenSetStaysFreshBetweenWarmCycles(t *testing.T) {
-	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	h := &hiddenSet{key: "k", revision: 3, at: at}
-	if !h.fresh("k", 3, at.Add(30*time.Second), hiddenFreshForCluster) {
-		t.Fatal("hidden set went stale inside the warm cycle")
+// openGate notifies the catalogue and bumps gateRev only when a new
+// (policy, rating_key) row is inserted; duplicate observations are no-ops.
+func TestOpenGateNotifiesCatalogOnlyOnNewRow(t *testing.T) {
+	x := setup(t)
+	cat := &gateCountingCatalog{fakeCatalog: x.cat}
+	x.s.d.Catalog = cat
+	gp := x.s.currentGatePolicy()
+	before := x.s.gateRev.Load()
+	for range 3 {
+		if err := x.s.openGate(t.Context(), gp, core.MovieKey(1), "f", x.now.Unix()); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if h.fresh("k", 3, at.Add(time.Minute), hiddenFreshForCluster) {
-		t.Fatal("clustered hidden set outlived the warm cycle")
-	}
-	if !h.fresh("k", 3, at.Add(4*time.Minute), hiddenFreshFor) || h.fresh("k", 3, at.Add(6*time.Minute), hiddenFreshFor) {
-		t.Fatal("single-server hidden set window wrong")
-	}
-	if h.fresh("k", 4, at.Add(time.Second), hiddenFreshFor) || h.fresh("other", 3, at.Add(time.Second), hiddenFreshFor) {
-		t.Fatal("hidden set answered for other inputs")
+	if cat.changed != 1 || x.s.gateRev.Load() != before+1 {
+		t.Fatalf("duplicate openGate changed=%d rev=%d->%d", cat.changed, before, x.s.gateRev.Load())
 	}
 }
 
@@ -104,9 +61,6 @@ func TestPublishHiddenUnchangedKeepsPublishedRows(t *testing.T) {
 	}
 }
 
-// Republishing the same hidden set must keep the catalogue's page cache:
-// a refresh on a large library otherwise made every browse a cache miss.
-// A new set or policy still invalidates it.
 func TestPublishHiddenInvalidatesOnlyOnChange(t *testing.T) {
 	x := setup(t)
 	cat := &gateCountingCatalog{fakeCatalog: x.cat}

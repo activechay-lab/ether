@@ -478,6 +478,7 @@ func (c *Catalog) policyKeyFilter(f core.Filter) core.Filter {
 // browseFilterKey distinguishes a nil IncludeKeys (no restriction) from an
 // empty list (match nothing). fmt %+v prints both as [].
 func browseFilterKey(f core.Filter) string {
+	f = normalizeGateCacheFilter(f)
 	group := f.Group
 	f.Group = nil
 	childVisibility := f.ChildVisibility
@@ -591,6 +592,10 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 	// the int. Compare the flag numerically with an int argument instead.
 	conds = append(conds, "t.release_known=1 AND (t.released_ts<=? OR (t.type='movie' AND ?<>0))")
 	args = append(args, nowTS, flagInt(c.config().ShowUpcomingMovies))
+	if gc, ga := browseGateConds(f, nowTS); len(gc) > 0 {
+		conds = append(conds, gc...)
+		args = append(args, ga...)
+	}
 	for _, hidden := range []struct {
 		kind string
 		seq  int64
@@ -1165,7 +1170,7 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	fkey := fmt.Sprintf("%+v|%s", f, facet) + c.consoleGateKey(f)
+	fkey := fmt.Sprintf("%+v|%s", normalizeGateCacheFilter(f), facet) + c.consoleGateKey(f)
 	c.cacheMu.RLock()
 	ent, cached := c.facetCache[fkey]
 	c.cacheMu.RUnlock()
@@ -1212,6 +1217,7 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 // availability evidence rather than with the filter: hidden-set
 // generations and the viewer's playing titles.
 func facetFamilyKey(f core.Filter, facet string) string {
+	clearGateFields(&f)
 	f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = 0, 0, 0
 	f.AvailabilityKeepKeys = nil
 	return "family|" + fmt.Sprintf("%+v|%s", f, facet)
@@ -1271,7 +1277,7 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	fkey := fmt.Sprintf("%+v|%s", f, facet)
+	fkey := fmt.Sprintf("%+v|%s", normalizeGateCacheFilter(f), facet) + c.consoleGateKey(f)
 	base, args, err := c.browseWhere(f)
 	if err != nil {
 		return nil, err

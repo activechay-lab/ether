@@ -1,9 +1,11 @@
 // Package availability discovers releases incrementally and spends a bounded
 // background allowance validating useful candidates. Recent releases require
-// evidence for discovery; older catalogue entries need no background search.
+// sticky, profile-aware evidence for discovery; older catalogue entries need no
+// background search.
 package availability
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -14,10 +16,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 	"github.com/braedonsaunders/ether/internal/schedule"
 )
 
@@ -54,27 +58,22 @@ type Deps struct {
 	// indexer (zero: no spacing), so feeds, gap pages and title searches
 	// never burst at an indexer.
 	Pace time.Duration
-	// Async runs evidence refreshes on the service's own goroutines, off
-	// the request path; Close stops them. False runs each refresh inline,
-	// before the request that found its answer stale.
-	Async bool
-	// Clustered: other nodes write release evidence this node is not told
-	// about, so hidden sets expire on the short cluster window.
+	// Async and Clustered are retained for Deps compatibility; availability_gate
+	// is shared SQL state with no background hidden-set recomputation.
+	Async     bool
 	Clustered bool
 }
+
 type Service struct {
 	verdictMu          sync.Mutex
 	verdictQueue       verdictQueue // guarded by verdictMu
 	visibilityMu       sync.Mutex
 	visibilityRevision uint64
 	visibilityCache    map[string]visibilityEntry
-	pagingCuts         map[string]pagingCut  // guarded by visibilityMu
-	hiddenSets         map[string]*hiddenSet // by kind; guarded by visibilityMu
-	refreshing         map[string]int        // kind -> 1 refreshing, 2 another pass queued
 	bgCtx              context.Context
 	bgStop             context.CancelFunc
 	bg                 sync.WaitGroup
-	closed             bool // guarded by visibilityMu; no refresh starts after Close
+	closed             bool // guarded by visibilityMu
 	db                 *sql.DB
 	cfg                func() config.Config
 	d                  Deps
@@ -82,6 +81,16 @@ type Service struct {
 	log                *slog.Logger
 	runMu              sync.Mutex
 	cacheSeeded        bool
+	hasGateTable       bool
+	gateRev            atomic.Uint64
+	seededMu           sync.RWMutex
+	seededPolicies     map[string]bool
+	lastPrune          time.Time
+	lastVerifyPolicy   string
+	checksSeeded       bool
+	checksCatalogGen   uint64
+	checksCatalogPtr   any
+	checksPolicy       string
 	snapMu             sync.RWMutex
 	snap               discoverySnap
 	paceMu             sync.Mutex
@@ -91,10 +100,11 @@ type Service struct {
 // discoverySnap is the policy hash and availability settings for one config
 // generation. Browse checks reuse it instead of cloning the whole config.
 type discoverySnap struct {
-	gen    uint64
-	policy string
-	avail  config.Availability
-	ready  bool
+	gen             uint64
+	policy          string
+	avail           config.Availability
+	usenet, torrent bool
+	ready           bool
 }
 
 func New(d Deps) (*Service, error) {
@@ -107,10 +117,29 @@ func New(d Deps) (*Service, error) {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
-	s := &Service{db: d.DB, cfg: d.Config, d: d, now: d.Now, log: d.Logger, hiddenSets: map[string]*hiddenSet{}, verdictQueue: verdictQueue{behind: true}}
+	s := &Service{
+		db:           d.DB,
+		cfg:          d.Config,
+		d:            d,
+		now:          d.Now,
+		log:          d.Logger,
+		verdictQueue: verdictQueue{behind: true},
+	}
 	s.bgCtx, s.bgStop = context.WithCancel(context.Background())
+	if rows, err := d.DB.Query(`SELECT 1 FROM availability_gate LIMIT 0`); err == nil {
+		rows.Close()
+		s.hasGateTable = true
+	}
 	if c, ok := d.Catalog.(interface{ SetConsoleAvailabilityPolicy(func() string) }); ok {
 		c.SetConsoleAvailabilityPolicy(s.policy)
+	}
+	if s.hasGateTable {
+		if c, ok := d.Catalog.(interface{ SetConsoleGateFilter(func() core.Filter) }); ok {
+			c.SetConsoleGateFilter(func() core.Filter {
+				f, _ := s.PagingFilter(context.Background(), core.Filter{})
+				return f
+			})
+		}
 	}
 	if c, ok := d.Catalog.(interface{ SetConsoleGatePolicies(func() (string, string)) }); ok {
 		c.SetConsoleGatePolicies(func() (string, string) {
@@ -128,7 +157,7 @@ func New(d Deps) (*Service, error) {
 	return s, nil
 }
 
-// Close stops background evidence refreshes and waits for them.
+// Close stops background verdict writers and waits for them.
 func (s *Service) Close() {
 	s.visibilityMu.Lock()
 	s.closed = true
@@ -164,35 +193,67 @@ func (s *Service) policy() string {
 	return stamp
 }
 
-// discoverySnap reads the config once per generation. A browse of many rows
-// used to clone it on every visibility check.
-func (s *Service) discoverySnap() (string, config.Availability) {
+func (s *Service) policyForConfig(c config.Config) string {
 	if s.d.ConfigGeneration == nil {
-		c := s.cfg()
-		return policyOf(c), c.Availability
+		return policyOf(c)
 	}
 	gen := s.d.ConfigGeneration()
 	s.snapMu.RLock()
 	if s.snap.ready && s.snap.gen == gen {
-		stamp, avail := s.snap.policy, s.snap.avail
+		stamp := s.snap.policy
 		s.snapMu.RUnlock()
-		return stamp, avail
+		return stamp
+	}
+	s.snapMu.RUnlock()
+	stamp := policyOf(c)
+	if s.d.ConfigGeneration() == gen {
+		s.snapMu.Lock()
+		if !(s.snap.ready && s.snap.gen == gen) {
+			s.snap = discoverySnap{gen: gen, policy: stamp, avail: c.Availability, usenet: settingsUsable(c, ""), torrent: settingsUsable(c, core.ProtocolTorrent), ready: true}
+		} else {
+			stamp = s.snap.policy
+		}
+		s.snapMu.Unlock()
+	}
+	return stamp
+}
+
+// discoverySnap reads the config once per generation. A browse of many rows
+// used to clone it on every visibility check.
+func (s *Service) discoverySnapFull() (string, config.Availability, bool, bool) {
+	if s.d.ConfigGeneration == nil {
+		c := s.cfg()
+		return policyOf(c), c.Availability, settingsUsable(c, ""), settingsUsable(c, core.ProtocolTorrent)
+	}
+	gen := s.d.ConfigGeneration()
+	s.snapMu.RLock()
+	if s.snap.ready && s.snap.gen == gen {
+		stamp, avail, u, t := s.snap.policy, s.snap.avail, s.snap.usenet, s.snap.torrent
+		s.snapMu.RUnlock()
+		return stamp, avail, u, t
 	}
 	s.snapMu.RUnlock()
 	c := s.cfg()
+	u, t := settingsUsable(c, ""), settingsUsable(c, core.ProtocolTorrent)
 	if s.d.ConfigGeneration() != gen {
-		return policyOf(c), c.Availability
+		return policyOf(c), c.Availability, u, t
 	}
 	stamp := policyOf(c)
 	s.snapMu.Lock()
 	if !(s.snap.ready && s.snap.gen == gen) {
-		s.snap = discoverySnap{gen: gen, policy: stamp, avail: c.Availability, ready: true}
+		s.snap = discoverySnap{gen: gen, policy: stamp, avail: c.Availability, usenet: u, torrent: t, ready: true}
 	} else {
 		stamp = s.snap.policy
 		c.Availability = s.snap.avail
+		u, t = s.snap.usenet, s.snap.torrent
 	}
 	s.snapMu.Unlock()
-	return stamp, c.Availability
+	return stamp, c.Availability, u, t
+}
+
+func (s *Service) discoverySnap() (string, config.Availability) {
+	stamp, avail, _, _ := s.discoverySnapFull()
+	return stamp, avail
 }
 
 func policyOf(c config.Config) string {
@@ -205,7 +266,7 @@ func settingsPolicy(c config.Config) string {
 	return hex.EncodeToString(sum[:])
 }
 func (s *Service) budgets() config.Availability {
-	raw := s.cfg().Availability
+	_, raw := s.discoverySnap()
 	var caps []config.IndexerCap
 	if s.d.Feeds != nil {
 		for _, f := range s.d.Feeds.FeedSources() {
@@ -254,9 +315,6 @@ func settingsUsable(c config.Config, protocol string) bool {
 }
 func (s *Service) Run(ctx context.Context) {
 	s.backfillConsoleEvidence(ctx)
-	// Answer the first browse from evidence judged before the restart,
-	// not from a full evaluation inside the request.
-	s.warmHidden()
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -267,7 +325,6 @@ func (s *Service) Run(ctx context.Context) {
 			if err := s.Cycle(ctx); err != nil && !benign(err) {
 				s.log.Warn("availability cycle failed", "error", err)
 			}
-			s.warmHidden()
 			timer.Reset(time.Minute)
 		}
 	}
@@ -277,7 +334,7 @@ func (s *Service) Cycle(ctx context.Context) error {
 		return nil
 	}
 	defer s.runMu.Unlock()
-	cfg := s.cfg().Availability
+	_, cfg := s.discoverySnap()
 	if !s.cacheSeeded {
 		if err := s.seedCached(ctx); err != nil {
 			return err
@@ -320,7 +377,7 @@ func (s *Service) Cycle(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if !s.cfg().Availability.Monitor {
+			if _, cur := s.discoverySnap(); !cur.Monitor {
 				break
 			}
 			err := s.syncFeed(ctx, w.f, w.scheduled)
@@ -345,7 +402,14 @@ func (s *Service) Cycle(ctx context.Context) error {
 	if err := s.probeDue(ctx); err != nil && !benign(err) {
 		s.log.Warn("availability title probe failed", "error", err)
 	}
-	return s.prune(ctx)
+	now := s.now()
+	if s.lastPrune.IsZero() || schedule.Due(now, s.lastPrune, 30*time.Minute) {
+		if err := s.prune(ctx); err != nil {
+			return err
+		}
+		s.lastPrune = now
+	}
+	return nil
 }
 
 type queued struct {
@@ -357,15 +421,26 @@ type queued struct {
 }
 
 func (s *Service) verify(parent context.Context) error {
-	defer s.clearVisibility()
-	policy := s.policy()
+	policy, cfg := s.discoverySnap()
 	now := s.now().Unix()
+	if s.lastVerifyPolicy == policy {
+		var hasDue bool
+		if err := s.db.QueryRowContext(parent, `SELECT EXISTS(SELECT 1 FROM availability_releases WHERE next_check<=?)`, now).Scan(&hasDue); err == nil && !hasDue {
+			return nil
+		}
+	}
+	defer s.clearVisibility()
 	sources := map[string]core.ReleaseFeed{}
 	var allowed []string
-	args := []any{now, policy}
+	args := []any{now}
+	where := "next_check<=?"
+	if s.lastVerifyPolicy != policy {
+		where = "(next_check<=? OR policy<>?)"
+		args = append(args, policy)
+	}
 	for _, f := range s.d.Feeds.FeedSources() {
 		sources[f.ID] = f
-		if selected(s.cfg().Availability.IndexerIDs, f.ID) && s.usable(f.Protocol) {
+		if selected(cfg.IndexerIDs, f.ID) && s.usable(f.Protocol) {
 			allowed = append(allowed, "(source_id=? AND generation=?)")
 			args = append(args, f.ID, f.Generation)
 		}
@@ -377,7 +452,7 @@ func (s *Service) verify(parent context.Context) error {
 	rows, err := s.db.QueryContext(parent, `SELECT id,rating_key,source_id,generation,payload,policy,attempts,revision FROM (
  SELECT id,rating_key,source_id,generation,payload,policy,attempts,revision,priority,first_seen,
  ROW_NUMBER() OVER (PARTITION BY rating_key ORDER BY CASE WHEN verified_at=0 THEN 0 ELSE 1 END,last_seen DESC,id) AS position
- FROM availability_releases WHERE (next_check<=? OR policy<>?) AND (`+strings.Join(allowed, " OR ")+`)
+ FROM availability_releases WHERE `+where+` AND (`+strings.Join(allowed, " OR ")+`)
  ) AS candidates WHERE position=1 ORDER BY priority DESC,first_seen DESC LIMIT 256`, args...)
 	if err != nil {
 		return err
@@ -396,11 +471,15 @@ func (s *Service) verify(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	rawScanned := len(work)
+	if rawScanned == 0 {
+		s.lastVerifyPolicy = policy
+		return nil
+	}
 	// Preflight locally before spending any provider calls. Deferred rows move
 	// out of the queue so disabled sources cannot starve useful candidates.
 	var eligible []queued
 	hashes := []string{}
-	cfg := s.cfg().Availability
 	fresh := map[core.RatingKey]bool{}
 	for _, k := range s.verifiedKeys(parent) {
 		fresh[k] = true
@@ -450,12 +529,19 @@ func (s *Service) verify(parent context.Context) error {
 		}
 	}
 	work = eligible
+	if len(work) == 0 {
+		if rawScanned < 256 {
+			s.lastVerifyPolicy = policy
+		}
+		return nil
+	}
 	// Do not issue cache lookups once the daily validation allowance is spent.
 	var used int64
 	_ = s.db.QueryRowContext(parent, `SELECT used FROM availability_budget WHERE day=? AND resource='checks'`, s.now().UTC().Format("2006-01-02")).Scan(&used)
 	if cfg.Checks <= 0 || used >= int64(cfg.Checks) {
 		return core.ErrBudgetExhausted
 	}
+	gp := s.currentGatePolicy()
 	if len(hashes) > 0 && s.d.CacheCheck != nil {
 		bctx, cancel := context.WithTimeout(s.budgetContext(parent, verifyCheck), 15*time.Second)
 		cached, definitive := s.d.CacheCheck(bctx, hashes)
@@ -478,6 +564,10 @@ func (s *Service) verify(parent context.Context) error {
 				v := 0
 				if cached[r.InfoHash] {
 					v = 1
+					var curRev int64
+					if err := s.db.QueryRowContext(parent, `SELECT revision FROM availability_releases WHERE id=? AND rating_key=? AND source_id=?`, q.id, int64(q.key), q.source).Scan(&curRev); err == nil && curRev == q.revision {
+						_ = s.openGate(parent, gp, q.key, q.source, now)
+					}
 				}
 				projectionRelease := r
 				projectionRelease.ID = q.id
@@ -490,7 +580,7 @@ func (s *Service) verify(parent context.Context) error {
 		sort.SliceStable(work, func(i, j int) bool { return preferred[work[i].id] && !preferred[work[j].id] })
 	}
 	for _, q := range work {
-		c := s.cfg().Availability
+		_, c := s.discoverySnap()
 		if parent.Err() != nil {
 			return parent.Err()
 		}
@@ -551,15 +641,23 @@ func (s *Service) verify(parent context.Context) error {
 				retry = s.now().Add(time.Duration(min(360, 5*(1<<min(q.attempts, 6)))) * time.Minute).Unix()
 			}
 		}
-		_, err = s.db.ExecContext(parent, `UPDATE availability_releases SET state=?,reason=?,verified_at=?,checked_id=?,
+		res, err := s.db.ExecContext(parent, `UPDATE availability_releases SET state=?,reason=?,verified_at=?,checked_id=?,
  first_verified=CASE WHEN first_verified=0 AND ?>0 THEN ? ELSE first_verified END,
  policy=?,next_check=?,attempts=attempts+1 WHERE id=? AND rating_key=? AND source_id=? AND generation=? AND revision=?`, state, reason, verified, r.ID, verified, verified, policy, retry, q.id, q.key, q.source, q.generation, q.revision)
 		if err != nil {
 			return err
 		}
+		if state == "verified" {
+			if n, _ := res.RowsAffected(); n > 0 {
+				_ = s.openGate(parent, s.currentGatePolicy(), q.key, q.source, verified)
+			}
+		}
 		projectionRelease := r
 		projectionRelease.ID = q.id
 		s.publishConsoleEvidence(parent, q.key, projectionRelease, q.source, policy, -1)
+	}
+	if rawScanned < 256 && len(eligible) < 24 {
+		s.lastVerifyPolicy = policy
 	}
 	return nil
 }
@@ -568,11 +666,14 @@ func (s *Service) verify(parent context.Context) error {
 // and prepared sessions without health evidence do not call this method.
 func (s *Service) Observe(ctx context.Context, t *core.Title, r core.Release) {
 	defer s.clearVisibility()
-	if t == nil || !t.IsReleased(s.now()) {
+	if t == nil || t.Adult || !t.IsReleased(s.now()) {
 		return
 	}
+	if r.Info.Title == "" && r.Name != "" {
+		r.Info = releaseparse.Parse(r.Name)
+	}
 	for _, f := range s.d.Feeds.FeedSources() {
-		if f.Name == r.Indexer {
+		if f.Name == r.Indexer || f.ID == r.Indexer {
 			policy := s.policy()
 			if err := s.remember(ctx, f, *t, r, policy); err != nil {
 				return
@@ -586,14 +687,20 @@ func (s *Service) Observe(ctx context.Context, t *core.Title, r core.Release) {
 				return
 			}
 			now := s.now().Unix()
-			_, err = s.db.ExecContext(ctx, `UPDATE availability_releases SET state='verified',reason='Health check reused from playback resolution',verified_at=?,first_verified=CASE WHEN first_verified=0 THEN ? ELSE first_verified END,policy=?,next_check=? WHERE id=? AND rating_key=? AND source_id=? AND revision=? AND generation=?`, now, now, policy, now+int64((6*time.Hour).Seconds()), r.ID, t.Key, f.ID, revision, f.Generation)
+			res, err := s.db.ExecContext(ctx, `UPDATE availability_releases SET state='verified',reason='Health check reused from playback resolution',verified_at=?,first_verified=CASE WHEN first_verified=0 THEN ? ELSE first_verified END,policy=?,next_check=? WHERE id=? AND rating_key=? AND source_id=? AND revision=? AND generation=?`, now, now, policy, now+int64((6*time.Hour).Seconds()), r.ID, t.Key, f.ID, revision, f.Generation)
 			if err != nil {
 				s.log.Debug("availability observation could not be saved", "error", err)
 			} else {
+				if n, _ := res.RowsAffected(); n > 0 {
+					_ = s.openGate(ctx, s.currentGatePolicy(), t.Key, f.ID, now)
+				}
 				s.publishConsoleEvidence(ctx, t.Key, r, f.ID, policy, -1)
 			}
 			return
 		}
+	}
+	if _, reason, err := s.d.Validator.FeedCandidate(ctx, t, r); err == nil && reason == "" {
+		_ = s.openGate(ctx, s.currentGatePolicy(), t.Key, cmp.Or(r.Indexer, "playback"), s.now().Unix())
 	}
 }
 
@@ -628,8 +735,9 @@ func (s *Service) Candidates(ctx context.Context, t *core.Title) []core.Release 
 	return out
 }
 
-// Invalidate retracts positive evidence immediately when playback or the owner
-// invalidates a release. The title and its other sources remain discoverable.
+// Invalidate retracts positive evidence on that release when playback or the
+// owner invalidates a source so ranking/search move on to alternatives. It
+// never closes availability_gate once a title's gate has opened.
 func (s *Service) Invalidate(ctx context.Context, id string) {
 	s.invalidateConsoleEvidence(ctx, id)
 	defer s.clearVisibility()
