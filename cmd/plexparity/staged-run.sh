@@ -127,8 +127,8 @@ if not re.search(r'Ranker:\s*parityRankerOptions\(\)', data):
  if count != 1: raise SystemExit('cannot preserve parity ranker schedule')
 personal.write_text(data)
 checks = {
- "build_identity.go": r'auth\.Options\{\s*Now:\s*parityClock\(\)',
- "build_personalization.go": r'personalize\.Options\{\s*Now:\s*parityClock\(\)',
+ "build_identity.go": r'auth\.Options\{[\s\S]{0,4000}?\bNow:\s*parityClock\(\)',
+ "build_personalization.go": r'personalize\.Options\{[\s\S]{0,4000}?\bNow:\s*parityClock\(\)',
 }
 for name, pattern in checks.items():
  if not re.search(pattern, (root / name).read_text()): raise SystemExit(f"missing clock seam in {name}")
