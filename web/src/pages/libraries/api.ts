@@ -235,6 +235,8 @@ export const librariesApi = {
 export function publishedTo(lib: Library): string[] {
   if (lib.hidden) return [];
   if (lib.source === "builtin") return ["plex", "mediaBrowser", "stremio", "xtream", "silo"];
+  // No app serves plugin libraries yet (v0.3.9); they are console-only.
+  if (lib.source === "plugin") return [];
   const p = lib.present ?? {};
   const out: string[] = [];
   if (p.adapterOnly) out.push("adapter");

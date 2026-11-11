@@ -557,6 +557,11 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
             </p>
           </div>
         </SettingsSection>
+      ) : library.source === "plugin" ? (
+        // Apps can't show plugin libraries yet (v0.3.9).
+        <SettingsSection title={t("Show in apps")}>
+          <p className="px-5 py-4 text-sm text-fg-muted">{t("Only in this console for now")}</p>
+        </SettingsSection>
       ) : (
         <PresentationsEditor library={library} onSaved={onSaved} />
       )}

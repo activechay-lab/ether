@@ -194,7 +194,11 @@ export function LibraryPage() {
         />
         {tab === "browse" ? (
           lib.source === "plugin" ? (
-            <PluginBrowse library={lib} />
+            <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
+              <div className="space-y-5 px-5 py-5 lg:px-7">
+                <PluginBrowse library={lib} />
+              </div>
+            </div>
           ) : (
             <CatalogBrowser
               params={params}

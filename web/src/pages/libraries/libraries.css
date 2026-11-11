@@ -84,6 +84,7 @@
   gap: 0.5rem;
 }
 .library-setup-banner {
+  font-size: 0.875rem;
   border: 1px solid var(--color-border);
   border-radius: 0.6rem;
   padding: 0.75rem 1rem;
