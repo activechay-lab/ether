@@ -25,13 +25,38 @@ func WithoutOnDemandStreams(ctx context.Context) context.Context {
 	return context.WithValue(ctx, noOnDemandKey{}, true)
 }
 
+type onDemandAvailabilityKey struct{}
+
+// WithOnDemandStreamsForAvailability marks ctx as the client's
+// file-availability check with the owner's "let availability checks open
+// add-on streams" setting on. That one check may open on-demand add-on
+// stream links within its existing timeouts and concurrency limits even
+// though it is speculative warm-up work that otherwise must not. The mark is
+// granted to no other work — not warm-ups, prefetch, discovery or background
+// checks — and the caller sets it only when the setting is on. When off, the
+// check is marked WithoutOnDemandStreams instead and answers ErrForegroundOnly.
+func WithOnDemandStreamsForAvailability(ctx context.Context) context.Context {
+	return context.WithValue(ctx, onDemandAvailabilityKey{}, true)
+}
+
+// onDemandStreamsForAvailability reports whether ctx is that one check.
+func onDemandStreamsForAvailability(ctx context.Context) bool {
+	v, _ := ctx.Value(onDemandAvailabilityKey{}).(bool)
+	return v
+}
+
 // OnDemandStreamsAllowed reports whether ctx may open an on-demand stream
-// link: Play, failover and the owner's own checks may. Speculative indexer
-// work (warm-ups, prefetch, detail discovery), background checks and work
-// marked WithoutOnDemandStreams may not; they answer ErrForegroundOnly.
+// link: Play, failover and the owner's own checks may, and a
+// WithOnDemandStreamsForAvailability file-availability check may when the
+// owner enabled it. Speculative indexer work (warm-ups, prefetch, detail
+// discovery), background checks and work marked WithoutOnDemandStreams may
+// not; they answer ErrForegroundOnly.
 func OnDemandStreamsAllowed(ctx context.Context) bool {
 	if v, _ := ctx.Value(noOnDemandKey{}).(bool); v {
 		return false
+	}
+	if onDemandStreamsForAvailability(ctx) {
+		return true
 	}
 	return !SpeculativeIndexerWork(ctx) && !IsBackgroundCheck(ctx)
 }

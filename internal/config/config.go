@@ -403,6 +403,14 @@ type Resolver struct {
 	// the same quality tier may be and still be moved first for its
 	// source (0 = 25).
 	SourceScoreMargin float64 `json:"sourceScoreMargin,omitempty"`
+	// OpenOnDemandAddonStreams lets a client's file-availability check on a
+	// detail page open on-demand add-on stream links within its existing
+	// timeout and concurrency limits. Opening such a link can make the
+	// add-on fetch, import or download the release. It applies only to that
+	// one check: warm-ups, prefetch, discovery and idle background work keep
+	// refusing. Off by default, which leaves behaviour unchanged; when off,
+	// an undecided check never hides Play.
+	OpenOnDemandAddonStreams bool `json:"openOnDemandAddonStreams,omitempty"`
 }
 
 type Quality struct {

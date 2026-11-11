@@ -361,6 +361,8 @@ export interface EtherConfig {
     sourcePreference?: string;
     sourceAlwaysFirst?: boolean;
     customFormats?: CustomFormatDefinition[] | null;
+    /** Let a detail page's file-availability check open on-demand add-on streams. */
+    openOnDemandAddonStreams?: boolean;
   };
   quality: {
     profiles: QualityProfile[] | null;
