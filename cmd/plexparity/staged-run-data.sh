@@ -116,6 +116,11 @@ for name, changes in replacements.items():
   if old in ('deps.Config = a.cfg.Read', 'deps.Config = a.cfg.Get') and 'deps.Config = a.cfg.' not in text: continue
   hooks = set(re.findall(r'parity\w+\(', new))
   if text.count(old) == 0 and hooks and all(h in text for h in hooks): continue
+  if old.endswith('.Options{\n'):
+   i = text.find(old)
+   window = text[i:i+4000] if i >= 0 else ''
+   inserted = [l.strip().rstrip(',') for l in new[len(old):].splitlines() if l.strip()]
+   if inserted and all(f.replace(' ', '') in window.replace(' ', '').replace('\t', '') for f in inserted): continue
   if text.count(old) != 1: raise SystemExit(f"cannot apply parity seam: {path}: expected exactly one {old!r}")
   text = text.replace(old, new, 1)
  path.write_text(text)
