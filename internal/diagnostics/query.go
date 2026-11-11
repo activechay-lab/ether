@@ -12,6 +12,8 @@ import (
 var supportQueryValue = regexp.MustCompile(`^[A-Za-z0-9_,-]{0,256}$`)
 var supportDirectoryValue = regexp.MustCompile(`^(?:[0-9]+|playlists)(?:,(?:[0-9]+|playlists))*$`)
 var supportNumericValue = regexp.MustCompile(`^[0-9]{1,10}$`)
+var supportEnumList = regexp.MustCompile(`^[A-Za-z0-9]{1,40}(, ?[A-Za-z0-9]{1,40}){0,15}$`)
+
 var supportQueryKeys = map[string]bool{
 	"contentdirectoryid": true, "pinnedcontentdirectoryid": true,
 	"excludecontinuewatching": true, "count": true, "excludeelements": true,
@@ -70,6 +72,11 @@ func SafeQuery(q url.Values) string {
 				valid = v == "hls" || v == "http" || v == "dash"
 			case "sortorder":
 				valid = strings.EqualFold(v, "ascending") || strings.EqualFold(v, "descending")
+			case "includeitemtypes", "excludeitemtypes", "mediatypes", "sortby", "fields", "filters", "enableimagetypes",
+				"isfavorite", "ismissing", "isunaired", "collapseboxsetitems", "enabletotalrecordcount":
+				// Client enumerations and booleans: names of types, fields and
+				// filters, never user text.
+				valid = supportEnumList.MatchString(v)
 			}
 			if name == "contentdirectoryid" || name == "pinnedcontentdirectoryid" {
 				valid = supportDirectoryValue.MatchString(v)

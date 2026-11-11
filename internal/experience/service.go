@@ -621,6 +621,11 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		recursiveBatch = recursiveBatch[:0]
 		return nil
 	}
+	if page, ok, err := s.favoriteRecursivePage(ctx, v, library, q); err != nil {
+		return core.Page{}, err
+	} else if ok {
+		return page, nil
+	}
 	if page, ok, err := s.storedEpisodePage(ctx, v, library, q); err != nil {
 		return core.Page{}, err
 	} else if ok {
