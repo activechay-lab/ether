@@ -31,10 +31,11 @@ func init() {
 	store.Register("plexguid", 4, `CREATE TABLE plexguid_parentage(rating_key INTEGER PRIMARY KEY, parent_key INTEGER NOT NULL, parent_guid TEXT NOT NULL);`)
 	store.Register("plexguid", 5, `CREATE INDEX plexguid_parentage_parent ON plexguid_parentage(parent_key);`)
 	store.Register("plexguid", 2, `CREATE INDEX plexguid_mappings_guid ON plexguid_mappings(guid);`)
-	// A mapping is only served when this record matches its guid: the
-	// canonical Plex record's external ids (TMDB) and, for a movie or show,
-	// its title and year. Rows written before this table existed have no
-	// record, so they stay withheld until the repair worker re-verifies them.
+	// A newly written mapping records the canonical Plex record's external id
+	// (TMDB) and, for a movie or show, its title and year, and is served only
+	// while that record matches its guid. Rows written before this table
+	// existed have no record: they keep serving as legacy while the repair
+	// worker re-verifies each under the stricter rule.
 	store.Register("plexguid", 6, `CREATE TABLE plexguid_identity(rating_key INTEGER PRIMARY KEY, guid TEXT NOT NULL, tmdb INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', year INTEGER NOT NULL DEFAULT 0);`)
 }
 
@@ -69,7 +70,10 @@ type Service struct {
 	mu      sync.Mutex
 	idle    *sync.Cond
 	pending map[core.RatingKey]bool
-	jobs    chan core.RatingKey
+	// force marks queued keys whose cached mapping must be re-verified rather
+	// than served from the hot-path cache: the repair worker's rows.
+	force map[core.RatingKey]bool
+	jobs  chan core.RatingKey
 }
 
 func New(db *sql.DB, o Options) *Service {
@@ -92,6 +96,7 @@ func New(db *sql.DB, o Options) *Service {
 		ctx:     ctx,
 		cancel:  cancel,
 		pending: map[core.RatingKey]bool{},
+		force:   map[core.RatingKey]bool{},
 	}
 	s.idle = sync.NewCond(&s.mu)
 	if o.Background {
@@ -180,7 +185,15 @@ func (s *Service) worker() {
 				defer s.done(k)
 				rctx, cancel := context.WithTimeout(s.ctx, bgLookupTimeout)
 				defer cancel()
-				_, _ = s.Resolve(rctx, k)
+				s.mu.Lock()
+				forced := s.force[k]
+				delete(s.force, k)
+				s.mu.Unlock()
+				if forced {
+					_, _ = s.reverify(rctx, k)
+				} else {
+					_, _ = s.Resolve(rctx, k)
+				}
 			}()
 		}
 	}
@@ -190,8 +203,9 @@ func (s *Service) worker() {
 // revisits children whose parentage was not recorded. It alternates the two
 // queues so legacy children get priority without starving other work. A row
 // stored before identity records existed (or under a looser rule) carries no
-// plexguid_identity row, so it is withheld until this pass proves it again or
-// drops it; that is how an already-stored wrong plex:// mapping is retired.
+// plexguid_identity row; it keeps serving on the hot path while this pass
+// checks its stored guid against the canonical Plex record, granting the
+// identity record when it proves out and dropping it otherwise.
 func (s *Service) repairMappings() {
 	defer s.wg.Done()
 	tick := time.NewTicker(time.Second)
@@ -246,6 +260,7 @@ func (s *Service) repairMappings() {
 			continue
 		}
 		s.pending[k] = true
+		s.force[k] = true
 		s.mu.Unlock()
 		select {
 		case s.jobs <- k:
@@ -262,6 +277,7 @@ func (s *Service) repairMappings() {
 func (s *Service) done(k core.RatingKey) {
 	s.mu.Lock()
 	delete(s.pending, k)
+	delete(s.force, k)
 	if len(s.pending) == 0 {
 		s.idle.Broadcast()
 	}
@@ -284,8 +300,12 @@ func resolvableKey(k core.RatingKey) bool {
 }
 
 // identityVerified is the condition under which a stored mapping may be
-// served: it must carry an identity record recorded for the same guid.
-const identityVerified = `EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key AND v.guid=m.guid) AND EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid)`
+// served. A mapping written under this rule carries an identity record for the
+// same guid. A mapping stored before identity records existed (a legacy row)
+// has no record and keeps serving while repairMappings re-verifies it; once a
+// record exists it must match, so a re-verification that disproves the guid
+// withholds it. Every mapping must still be verified.
+const identityVerified = `(NOT EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key) OR EXISTS (SELECT 1 FROM plexguid_verified v WHERE v.rating_key=m.rating_key AND v.guid=m.guid)) AND (NOT EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key) OR EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid))`
 
 // Cached is safe for lists: no network requests or credentials are needed.
 func (s *Service) Cached(ctx context.Context, k core.RatingKey) string {
@@ -465,11 +485,57 @@ func (s *Service) storeMappingIdentity(ctx context.Context, k core.RatingKey, id
 }
 
 func (s *Service) Resolve(ctx context.Context, k core.RatingKey) (string, error) {
+	return s.resolve(ctx, k, true)
+}
+
+// reverify is the repair worker's entry point. For a stored movie or show it
+// re-checks the existing guid against its canonical record: a pass grants the
+// identity record so the row keeps serving, a fail falls back to a fresh
+// search (which may find the right guid) and otherwise drops the mapping. Any
+// other key (season, episode, or an empty-guid negative cache) resolves
+// through the normal path without the hot-cache shortcut.
+func (s *Service) reverify(ctx context.Context, k core.RatingKey) (string, error) {
+	if !resolvableKey(k) || (k.Kind() != core.KindMovie && k.Kind() != core.KindShow) {
+		return s.resolve(ctx, k, false)
+	}
+	if s.o.Token == nil || s.o.Token() == "" {
+		return "", core.ErrUnauthorized
+	}
+	kind := "movie"
+	if k.Kind() == core.KindShow {
+		kind = "show"
+	}
+	var stored string
+	if err := s.db.QueryRowContext(ctx, `SELECT guid FROM plexguid_mappings WHERE rating_key=?`, int64(k)).Scan(&stored); err != nil {
+		stored = ""
+	}
+	if validKindGUID(stored, kind) {
+		id, ok, err := s.verifyTitle(ctx, k, kind, stored, s.localIdentity(ctx, k))
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			// Keep the exact stored guid and record its proof.
+			if _, err := s.db.ExecContext(ctx, `INSERT INTO plexguid_verified(rating_key,guid) VALUES(?,?) ON CONFLICT(rating_key) DO UPDATE SET guid=excluded.guid`, int64(k), stored); err != nil {
+				return "", err
+			}
+			return stored, s.storeMappingIdentity(ctx, k, id, time.Now().Unix(), 0, "")
+		}
+	}
+	return s.resolve(ctx, k, false)
+}
+
+// resolve is Resolve with an explicit fresh-cache gate. The repair worker
+// calls it with useCache=false so a legacy row (which serves on the hot path
+// without proof) is still re-verified under the stricter rule.
+func (s *Service) resolve(ctx context.Context, k core.RatingKey, useCache bool) (string, error) {
 	if !resolvableKey(k) {
 		return "", nil
 	}
-	if cached, ok := s.freshCached(ctx, k); ok {
-		return cached, nil
+	if useCache {
+		if cached, ok := s.freshCached(ctx, k); ok {
+			return cached, nil
+		}
 	}
 	if s.o.Token == nil || s.o.Token() == "" {
 		return "", core.ErrUnauthorized

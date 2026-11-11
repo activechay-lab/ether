@@ -164,9 +164,7 @@ func (s *Service) VerifiedRange(ctx context.Context, after, below core.RatingKey
 		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT m.rating_key, m.guid FROM plexguid_mappings m
-		JOIN plexguid_verified v ON v.rating_key=m.rating_key AND v.guid=m.guid
-		JOIN plexguid_identity i ON i.rating_key=m.rating_key AND i.guid=m.guid
-		WHERE m.rating_key>? AND m.rating_key<? AND m.guid<>''
+		WHERE m.rating_key>? AND m.rating_key<? AND m.guid<>'' AND `+identityVerified+`
 		  AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000
 		       OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))
 		ORDER BY m.rating_key LIMIT ?`, int64(after), int64(below), limit)

@@ -88,8 +88,9 @@ func TestChildProofFollowsParentMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A legacy child carries no parentage. When its parent changes, its
-	// identity proof is dropped with the rest of the old tree's children, so it
-	// is withheld until the repair worker re-verifies it under the new tree.
+	// identity proof is dropped with the rest of the old tree's children; it
+	// then has no identity record, so it keeps serving as legacy until the
+	// repair worker re-verifies it under the new tree.
 	legacy := core.SeasonKey(1396, 2)
 	const legacyGUID = "plex://season/eeeeeeeeeeeeeeeeeeeeeeee"
 	if err = s.storeMapping(ctx, legacy, identityRecord{GUID: legacyGUID, TMDB: 1396}, now); err != nil {
@@ -104,8 +105,8 @@ func TestChildProofFollowsParentMapping(t *testing.T) {
 	if _, err = s.ExactKey(ctx, episodeGUID); err == nil {
 		t.Fatal("stale reverse mapping exposed")
 	}
-	if s.Cached(ctx, legacy) != "" {
-		t.Fatal("legacy child of a changed parent still served")
+	if s.Cached(ctx, legacy) != legacyGUID {
+		t.Fatal("legacy child was withheld")
 	}
 	if _, ok := s.freshCached(ctx, legacy); ok {
 		t.Fatal("legacy child still marked fresh")
@@ -170,5 +171,82 @@ func TestSameTitleDifferentYearNotMatched(t *testing.T) {
 				t.Fatalf("Cached=%q, want %q", s.Cached(ctx, core.MovieKey(770)), want)
 			}
 		})
+	}
+}
+
+// A mapping stored before identity records existed (no plexguid_identity or
+// plexguid_verified row) keeps serving on the hot path so an upgrade does not
+// blank a large library's plex:// guids. Resolve re-verifies it under the
+// stricter rule: a wrong legacy identity is dropped, a right one gains its
+// identity record and keeps serving.
+func TestLegacyRowServesUntilRepairDropsWrongOne(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec(`INSERT INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?)`, int64(core.MovieKey(770)), "movie", 770, "Runner", 2026); err != nil {
+		t.Fatal(err)
+	}
+	const (
+		legacyGood = "plex://movie/5d7768265af944001f1f6976"
+		legacyBad  = "plex://movie/5d7768265af944001f1f6962"
+	)
+	now := time.Now().Unix()
+	// Two legacy rows: one whose canonical record agrees, one whose canonical
+	// record is the 1962 namesake.
+	if _, err = db.Exec(`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?), (?,?,?)`,
+		int64(core.MovieKey(770)), legacyBad, now, int64(core.MovieKey(550)), legacyGood, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?)`, int64(core.MovieKey(550)), "movie", 550, "Runner", 1962); err != nil {
+		t.Fatal(err)
+	}
+	s := New(db, Options{})
+	defer s.Close()
+	// Legacy rows serve on the hot path before any repair.
+	if got := s.Cached(ctx, core.MovieKey(770)); got != legacyBad {
+		t.Fatalf("legacy wrong row not served before repair: %q", got)
+	}
+	if got := s.Cached(ctx, core.MovieKey(550)); got != legacyGood {
+		t.Fatalf("legacy right row not served before repair: %q", got)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/library/metadata/matches":
+			// No search hit proves identity for either title; verification must
+			// come from each canonical record.
+			fmt.Fprint(w, `{"MediaContainer":{"Metadata":[]}}`)
+		case "/library/metadata/5d7768265af944001f1f6976":
+			fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"guid":%q,"type":"movie","title":"Runner","year":1962,"Guid":[{"id":"tmdb://550"}]}]}}`, legacyGood)
+		case "/library/metadata/5d7768265af944001f1f6962":
+			fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"guid":%q,"type":"movie","title":"Runner","year":1962,"Guid":[{"id":"tmdb://770"}]}]}}`, legacyBad)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	s.o.BaseURL = srv.URL
+	s.o.Token = func() string { return "fixture" }
+	// Repair re-verifies each legacy row's stored guid against its canonical
+	// record. The wrong one (1962 namesake of a 2026 film) fails, and with no
+	// search hit to replace it, is dropped; the right one's record agrees and
+	// it keeps serving with an identity record.
+	if _, err = s.reverify(ctx, core.MovieKey(770)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.reverify(ctx, core.MovieKey(550)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Cached(ctx, core.MovieKey(770)); got != "" {
+		t.Fatalf("wrong legacy identity survived repair: %q", got)
+	}
+	if got := s.Cached(ctx, core.MovieKey(550)); got != legacyGood {
+		t.Fatalf("right legacy identity lost after repair: %q", got)
+	}
+	var n int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM plexguid_identity WHERE rating_key=? AND guid=?`, int64(core.MovieKey(550)), legacyGood).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("right legacy row not granted identity record: n=%d err=%v", n, err)
 	}
 }
