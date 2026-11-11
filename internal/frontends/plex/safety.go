@@ -81,12 +81,29 @@ func (s *Server) visibility() frontend.Visibility {
 // openableTitles is the common row/detail admission decision. A pinned shelf
 // retains its availability cut, but never bypasses current authorization.
 func (s *Server) openableTitles(ctx context.Context, u *frontend.User, ts []frontend.Title, pinned bool) []frontend.Title {
+	// Plugin items are authorized by the Experience when projected; the
+	// catalogue openability and built-in visibility checks do not know them,
+	// so keep them without those filters (spec §6.4).
+	var kind, catalog []frontend.Title
+	for i := range ts {
+		if ts[i].Key.IsPluginKey() {
+			kind = append(kind, ts[i])
+		} else {
+			catalog = append(catalog, ts[i])
+		}
+	}
+	out := kind[:0]
+	for i := range kind {
+		if s.plexMetaRatingAllowed(u, &kind[i]) {
+			out = append(out, kind[i])
+		}
+	}
+	ts = catalog
 	ts = s.visibleTitles(u, ts)
 	ctx = s.withSeriesRows(ctx, u, ts)
 	if !pinned {
 		ts = s.availableForViewer(ctx, u, ts)
 	}
-	out := make([]frontend.Title, 0, len(ts))
 	for _, t := range ts {
 		if s.admittedTitle(&t) && s.playableTitle(ctx, u, &t) {
 			out = append(out, t)
@@ -127,6 +144,19 @@ func (s *Server) admittedTitle(t *frontend.Title) bool {
 
 func (s *Server) playableTitle(ctx context.Context, u *frontend.User, t *frontend.Title) bool {
 	return s.visibility().Playable(ctx, u, t) && s.plexMetaRatingAllowed(u, t)
+}
+
+// pluginAwarePlayable is playableTitle for plugin items. A plugin item's
+// canonical library is its own; the visibility policy's SectionFor maps a
+// projected MediaType onto a built-in section, which would wrongly test a
+// music/photo item against Movies or TV Shows. Plugin items are authorized by
+// the Experience when the metadata lookup succeeds (it checks the viewer
+// against the owning library), so no built-in section check applies.
+func (s *Server) pluginAwarePlayable(ctx context.Context, u *frontend.User, t *frontend.Title) bool {
+	if t != nil && t.Key.IsPluginKey() {
+		return s.plexMetaRatingAllowed(u, t)
+	}
+	return s.playableTitle(ctx, u, t)
 }
 func (s *Server) availableForViewer(ctx context.Context, u *frontend.User, ts []frontend.Title) []frontend.Title {
 	return s.visibility().Available(ctx, u, ts)

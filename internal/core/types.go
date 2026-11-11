@@ -49,6 +49,13 @@ type Title struct {
 	Type MediaType `json:"type"`
 	IDs  IDs       `json:"ids"`
 
+	// Plugin kind projections (spec §6.3, additive). KindLevel is the
+	// declared MediaKindMeta level key a projected plugin item came from
+	// (empty for catalogue titles); LibraryID is the owning library, set so
+	// protocols can type and section a plugin item without a re-lookup.
+	KindLevel string    `json:"kindLevel,omitempty"`
+	LibraryID LibraryID `json:"-"`
+
 	// Seasons and episodes.
 	ShowKey           RatingKey `json:"showKey,omitempty"`
 	ShowIDs           IDs       `json:"showIds,omitempty"`

@@ -137,14 +137,14 @@ func (b *Broker) PrepareSource(ctx context.Context, viewer *core.User, key core.
 	if b == nil {
 		return nil, core.ErrNotAvailable
 	}
-	return (PartSources{Playback: b.Playback(), Log: b.deps.Logger}).Prepare(ctx, viewer, key, caps, release, wait)
+	return (PartSources{Playback: b.Playback(), Log: b.deps.Logger, KindSource: b.deps.KindSource}).Prepare(ctx, viewer, key, caps, release, wait)
 }
 
 func (b *Broker) PartSource(viewer int64, client string, key core.RatingKey, release string) frontend.PartSource {
 	if b == nil {
 		return frontend.PartSource{}
 	}
-	return (PartSources{Playback: b.Playback(), Log: b.deps.Logger}).Part(viewer, client, key, release)
+	return (PartSources{Playback: b.Playback(), Log: b.deps.Logger, KindSource: b.deps.KindSource}).Part(viewer, client, key, release)
 }
 
 func (b *Broker) ServePartSource(w http.ResponseWriter, r *http.Request, sourceID string) {
@@ -174,6 +174,9 @@ type LocalRuntimeDeps struct {
 	Logger           *slog.Logger
 	Playback         core.Playback
 	PlaybackFunc     func() core.Playback
+	// KindSource supplies plugin kind items so a plugin key published through
+	// the standalone runtime opens via KindPlayback (spec §15.1).
+	KindSource       func(context.Context, *core.Viewer, core.RatingKey) (*core.KindInput, error)
 	Transcoder       core.Transcoder
 	TranscoderFunc   func() core.Transcoder
 	Downloads        core.DownloadRemuxer
@@ -216,6 +219,9 @@ func (r *LocalRuntime) FillDefaults(d LocalRuntimeDeps) {
 	}
 	if r.deps.PlaybackFunc == nil {
 		r.deps.PlaybackFunc = d.PlaybackFunc
+	}
+	if r.deps.KindSource == nil {
+		r.deps.KindSource = d.KindSource
 	}
 	if r.deps.Transcoder == nil {
 		r.deps.Transcoder = d.Transcoder
@@ -374,14 +380,14 @@ func (r *LocalRuntime) PrepareSource(ctx context.Context, viewer *core.User, key
 	if r == nil {
 		return nil, core.ErrNotAvailable
 	}
-	return (PartSources{Playback: r.playback(), Log: r.deps.Logger}).Prepare(ctx, viewer, key, caps, release, wait)
+	return (PartSources{Playback: r.playback(), Log: r.deps.Logger, KindSource: r.deps.KindSource}).Prepare(ctx, viewer, key, caps, release, wait)
 }
 
 func (r *LocalRuntime) PartSource(viewer int64, client string, key core.RatingKey, release string) frontend.PartSource {
 	if r == nil {
 		return frontend.PartSource{}
 	}
-	return (PartSources{Playback: r.playback(), Log: r.deps.Logger}).Part(viewer, client, key, release)
+	return (PartSources{Playback: r.playback(), Log: r.deps.Logger, KindSource: r.deps.KindSource}).Part(viewer, client, key, release)
 }
 
 func (r *LocalRuntime) ServePartSource(w http.ResponseWriter, req *http.Request, sourceID string) {

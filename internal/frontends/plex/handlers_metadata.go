@@ -202,7 +202,10 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			}
 		default:
 			t, err := s.metadataTitle(ctx, pr, k)
-			if err == nil && !s.visibleTitle(ctx, pr.User, t) {
+			// A plugin item is authorized by the Experience lookup itself; the
+			// built-in visibility policy maps a projected type onto a built-in
+			// section and would wrongly hide a music/photo item.
+			if err == nil && !k.IsPluginKey() && !s.visibleTitle(ctx, pr.User, t) {
 				err = frontend.ErrNotFound
 			}
 			// Policy/storage reads can fail closed on cancellation. Do not turn
@@ -470,7 +473,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parent, err := s.metadataTitle(ctx, pr, k)
-	if err == nil && !s.visibleTitle(ctx, pr.User, parent) {
+	if err == nil && !k.IsPluginKey() && !s.visibleTitle(ctx, pr.User, parent) {
 		err = frontend.ErrNotFound
 	}
 	if err != nil {
@@ -485,6 +488,10 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	kids, err := s.metadataChildren(ctx, pr, k)
 	if err != nil && !errors.Is(err, frontend.ErrNotFound) {
 		s.writeErr(w, r, err)
+		return
+	}
+	if k.IsPluginKey() {
+		s.writeKindChildren(w, r, pr, parent, kids)
 		return
 	}
 	mc := s.itemContainer(parent.Type)
@@ -516,7 +523,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		mc.ParentTitle = ""
 		// PMS always sends parentTitle here, empty.
 		mc.Extra = append(mc.Extra, model.A("parentTitle", ""))
-		if st, err := s.catalog().Get(ctx, show); err == nil {
+		if st, err := s.catalog().Get(ctx, show); err == nil && st != nil {
 			s.rememberTitle(st)
 			if st.ContentRating != "" {
 				mc.Extra = append(mc.Extra, model.A("grandparentContentRating", st.ContentRating))
@@ -645,7 +652,7 @@ func (s *Server) handleAllLeaves(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parent, err := s.metadataTitle(ctx, pr, k)
-	if err == nil && !s.visibleTitle(ctx, pr.User, parent) {
+	if err == nil && !k.IsPluginKey() && !s.visibleTitle(ctx, pr.User, parent) {
 		err = frontend.ErrNotFound
 	}
 	if err != nil {

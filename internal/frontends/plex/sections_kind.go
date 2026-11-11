@@ -145,9 +145,3 @@ func (s *Server) sectionForItem(t *frontend.Title, inSection int) (Section, bool
 func isKindSection(sec Section) bool {
 	return sec.LibraryID != core.LibraryMovies && sec.LibraryID != core.LibraryShows && sec.LibraryID != 0
 }
-
-// kindBaseForSection is the Plex base of a section's library (movie, show,
-// artist, photo).
-func kindBaseForSection(sec Section) string {
-	return string(sec.Type)
-}

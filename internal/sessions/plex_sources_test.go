@@ -50,3 +50,63 @@ func TestPlexSourcesPreserveBoundedAdmission(t *testing.T) {
 		t.Fatalf("automatic fallback: %+v %v", ps, err)
 	}
 }
+
+// kindSourcePlayback implements both core.Playback (via the embedded probe) and
+// core.KindPlayback, so PartSources routes a plugin key through PrepareKind
+// rather than the catalogue Prepare path.
+type kindSourcePlayback struct {
+	core.Playback
+	kindPrepared int
+	kindSession  *core.PlaySession
+}
+
+func (k *kindSourcePlayback) SessionFor(int64, string, core.RatingKey) (*core.PlaySession, bool) {
+	return nil, false
+}
+
+func (k *kindSourcePlayback) PrepareKind(_ context.Context, u *core.User, in core.KindInput, caps core.ClientCaps) (*core.PlaySession, error) {
+	k.kindPrepared++
+	if in.Title == nil {
+		return nil, core.ErrNotAvailable
+	}
+	k.kindSession = &core.PlaySession{ID: "kind", UserID: u.ID, Key: in.Title.Key, ClientID: caps.ClientID}
+	return k.kindSession, nil
+}
+
+func (k *kindSourcePlayback) SessionForKind(u int64, client string, key core.RatingKey) (*core.PlaySession, bool) {
+	if k.kindSession != nil && k.kindSession.UserID == u && k.kindSession.ClientID == client && k.kindSession.Key == key {
+		return k.kindSession, true
+	}
+	return nil, false
+}
+
+func TestPartSourcesRoutesPluginKeyThroughKindPlayback(t *testing.T) {
+	key := core.PluginKey(7)
+	play := &kindSourcePlayback{}
+	source := PartSources{
+		Playback: play,
+		KindSource: func(_ context.Context, _ *core.Viewer, k core.RatingKey) (*core.KindInput, error) {
+			if k != key {
+				return nil, core.ErrNotFound
+			}
+			title := &core.Title{Key: key, Type: core.TypeEpisode}
+			return &core.KindInput{Title: title, SourceID: k.String()}, nil
+		},
+	}
+	ps, err := source.Prepare(context.Background(), &core.User{ID: 7}, key, core.ClientCaps{ClientID: "device"}, "", time.Second)
+	if err != nil || ps == nil || ps.ID != "kind" {
+		t.Fatalf("plugin Prepare = %v %v", ps, err)
+	}
+	if play.kindPrepared != 1 {
+		t.Fatalf("KindPlayback.PrepareKind calls = %d, want 1", play.kindPrepared)
+	}
+	got := source.Part(7, "device", key, "")
+	if !got.Matches || got.Session == nil || got.Session.ID != "kind" {
+		t.Fatalf("Part plugin = %+v", got)
+	}
+	// A plugin key with a version release is refused: plugin items have no
+	// catalogue variants.
+	if _, err := source.Prepare(context.Background(), &core.User{ID: 7}, key, core.ClientCaps{ClientID: "device"}, "v1", time.Second); !errors.Is(err, core.ErrNotAvailable) {
+		t.Fatalf("plugin Prepare with release = %v, want ErrNotAvailable", err)
+	}
+}
