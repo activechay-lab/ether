@@ -31,11 +31,14 @@ function env(name: string): string | undefined {
 }
 
 async function nodeFs(): Promise<typeof import("node:fs")> {
-  return (await import("node:fs")) as typeof import("node:fs");
+  // A computed specifier keeps a hosted bundle from resolving the Node module.
+  const spec = "node:" + "fs";
+  return (await import(/* @vite-ignore */ spec)) as typeof import("node:fs");
 }
 
 async function nodeOs(): Promise<typeof import("node:os")> {
-  return (await import("node:os")) as typeof import("node:os");
+  const spec = "node:" + "os";
+  return (await import(/* @vite-ignore */ spec)) as typeof import("node:os");
 }
 
 export function serverBase(base: string | undefined): string {
