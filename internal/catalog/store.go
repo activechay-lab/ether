@@ -754,8 +754,10 @@ SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', 
 		// the in-season number is already counted from the series start: it
 		// exceeds the season's own episode count, so adding the prior
 		// seasons' total again double-counts it (749 -> 1497). A normal
-		// per-season index never exceeds its season's count.
-		if own := seasons[t.Season]; own > 0 && t.Episode > own {
+		// per-season index never exceeds its season's count, and requiring
+		// it to pass the prior seasons' total too keeps an airing season
+		// whose count lags (E9 of 8 listed) on the per-season path.
+		if own := seasons[t.Season]; own > 0 && t.Episode > own && t.Episode > total {
 			t.AbsoluteEpisode = t.Episode
 		} else if total >= 0 {
 			t.AbsoluteEpisode = total + t.Episode
