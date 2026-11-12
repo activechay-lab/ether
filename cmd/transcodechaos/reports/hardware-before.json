@@ -1,9 +1,0 @@
-[
-  {
-    "Scenario": "hardware-failure",
-    "Path": "mpegts/videotoolbox",
-    "Status": "FAIL",
-    "Detail": "segment 1 HTTP 502 after 0s",
-    "Milliseconds": 4796
-  }
-]

@@ -1,4 +1,0 @@
-[
-  {"Scenario":"corrupt-live-encoder-interruption","Path":"plex/live-relay","Status":"FAIL","Detail":"next relay segment HTTP 502 on release-based branch","Milliseconds":4860},
-  {"Scenario":"live-hardware-failure","Path":"plex/live-relay/videotoolbox","Status":"FAIL","Detail":"live recovery restarted hardware rather than software","Milliseconds":8950}
-]

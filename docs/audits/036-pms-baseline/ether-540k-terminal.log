@@ -1,8 +1,0 @@
-etherperf: restart, then discover Ether 540k's ids
-etherperf: cold: 40 steps, each after a restart
-etherperf: cold 1/40: plex-appletv /identity
-etherperf: cold 11/40: plex-appletv /hubs/sections/movies
-etherperf: cold 21/40: plex-appletv shows allLeaves deep
-etherperf: cold 31/40: plex-appletv movie postplay
-etherperf: warm: one priming pass, then 20 rounds
-etherperf: report: /data/036-work/i/ether-036-pms-work/runs/ether-540k/report.md

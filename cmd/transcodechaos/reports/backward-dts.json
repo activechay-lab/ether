@@ -1,9 +1,0 @@
-[
-  {
-    "Scenario": "input-backward-dts",
-    "Path": "mpegts/none",
-    "Status": "PASS",
-    "Detail": "",
-    "Milliseconds": 581
-  }
-]

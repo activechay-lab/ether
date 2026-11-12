@@ -1,9 +1,0 @@
-[
-  {
-    "Scenario": "persistent-stall-then-recover",
-    "Path": "mpegts/none",
-    "Status": "FAIL",
-    "Detail": "segment 0 HTTP 504 after 5.001s",
-    "Milliseconds": 5125
-  }
-]

@@ -1,9 +1,0 @@
-[
-  {
-    "Scenario": "hardware-failure-fmp4",
-    "Path": "fmp4/videotoolbox",
-    "Status": "PASS",
-    "Detail": "",
-    "Milliseconds": 5042
-  }
-]

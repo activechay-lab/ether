@@ -1,4 +1,0 @@
-[
-  {"Scenario":"corrupt-live-encoder-interruption","Path":"plex/live-relay","Status":"PASS","Detail":"next segment decoded and playlist advanced with discontinuity","Milliseconds":8890},
-  {"Scenario":"live-hardware-failure","Path":"plex/live-relay/videotoolbox","Status":"PASS","Detail":"software continuation decoded and playlist advanced with discontinuity","Milliseconds":9140}
-]
