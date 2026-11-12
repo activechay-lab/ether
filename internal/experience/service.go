@@ -499,8 +499,21 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 			return core.Page{}, core.ErrNotFound
 		}
 		stored = &lib
-		mt, _, ok := s.publishedLibrary(ctx, lib)
-		if !ok || !v.AllowsLibrary(lib.ID) {
+		// A collection library is browsed typed whatever protocol
+		// presentations it has yet (a new library is console-only and
+		// opts into apps later, §15.3); every other source must be
+		// published to the protocol asking.
+		mt := filterMediaType(lib)
+		if lib.Source != core.LibraryCollection {
+			var ok bool
+			mt, _, ok = s.publishedLibrary(ctx, lib)
+			if !ok {
+				return core.Page{}, core.ErrNotFound
+			}
+		} else if lib.Hidden {
+			return core.Page{}, core.ErrNotFound
+		}
+		if !v.AllowsLibrary(lib.ID) {
 			return core.Page{}, core.ErrNotFound
 		}
 		if lib.Source == core.LibraryPlugin {
@@ -635,7 +648,9 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		return core.Page{}, err
 	} else if ok {
 		return page, nil
-	} else if stored != nil && stored.Source == core.LibraryCollection {
+	} else if stored != nil && stored.Source == core.LibraryCollection && !indexedBrowseQuery(library, q) {
+		// A sort or request shape SQL cannot page uses the bounded
+		// in-process walk; an indexed page already returned above.
 		return s.collectionLibraryScan(ctx, v, library, q, stored.CollectionID)
 	}
 	for offset := 0; ; {
