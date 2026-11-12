@@ -110,6 +110,7 @@ func (a *App) buildAdmin() http.Handler {
 			return err
 		},
 		TestOpenSubtitles: subtitles.Test,
+		TestSubDL:         subtitles.TestSubDL,
 		TestTrakt:         trakt.Test,
 		TestIntroDB: func(ctx context.Context, apiKey string) error {
 			return markers.Probe(ctx, "", apiKey)

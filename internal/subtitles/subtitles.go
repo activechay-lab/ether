@@ -57,13 +57,16 @@ const defaultBaseURL = "https://api.opensubtitles.com/api/v1"
 // Options construct a Service. Config is a snapshot; call UpdateConfig on
 // config changes if desired.
 type Options struct {
-	Config     config.OpenSubtitles
-	Providers  []config.SubtitleProvider
-	CacheDir   string // data dir subfolder for downloaded subtitles
-	BaseURL    string // override for tests
-	HTTPClient *http.Client
-	Logger     *slog.Logger
-	UserAgent  string // OpenSubtitles requires an app User-Agent
+	Config           config.OpenSubtitles
+	SubDL            config.SubDL
+	Providers        []config.SubtitleProvider
+	CacheDir         string // data dir subfolder for downloaded subtitles
+	BaseURL          string // override for tests
+	SubDLURL         string // override for tests
+	SubDLDownloadURL string // override for tests
+	HTTPClient       *http.Client
+	Logger           *slog.Logger
+	UserAgent        string // OpenSubtitles requires an app User-Agent
 	// NegativeTTL is how long "no subtitle found" for a title+language is
 	// remembered before searching again (default 6h).
 	NegativeTTL time.Duration
@@ -82,10 +85,13 @@ type Options struct {
 // disk cache.
 type Service struct {
 	cfg             config.OpenSubtitles
+	subdl           config.SubDL
 	providers       []config.SubtitleProvider
 	pluginProviders map[string]PluginProvider
 	dir             string
 	base            string
+	subdlBase       string
+	subdlDownload   string
 	http            *http.Client
 	log             *slog.Logger
 	agent           string
@@ -123,6 +129,12 @@ func New(opts Options) *Service {
 	if opts.BaseURL == "" {
 		opts.BaseURL = defaultBaseURL
 	}
+	if opts.SubDLURL == "" {
+		opts.SubDLURL = subdlBaseURL
+	}
+	if opts.SubDLDownloadURL == "" {
+		opts.SubDLDownloadURL = subdlDownloadURL
+	}
 	if opts.HTTPClient == nil {
 		opts.HTTPClient = egress.Client(egress.CapMetadata, 30*time.Second)
 	}
@@ -156,11 +168,14 @@ func New(opts Options) *Service {
 		}
 	}
 	return &Service{
-		cfg:       opts.Config,
-		providers: append([]config.SubtitleProvider(nil), opts.Providers...),
-		dir:       opts.CacheDir,
-		base:      strings.TrimSuffix(opts.BaseURL, "/"),
-		http:      opts.HTTPClient, log: opts.Logger, agent: opts.UserAgent,
+		cfg:           opts.Config,
+		subdl:         opts.SubDL,
+		providers:     append([]config.SubtitleProvider(nil), opts.Providers...),
+		dir:           opts.CacheDir,
+		base:          strings.TrimSuffix(opts.BaseURL, "/"),
+		subdlBase:     strings.TrimSuffix(opts.SubDLURL, "/"),
+		subdlDownload: strings.TrimSuffix(opts.SubDLDownloadURL, "/"),
+		http:          opts.HTTPClient, log: opts.Logger, agent: opts.UserAgent,
 		negative:       map[string]time.Time{},
 		negTTL:         opts.NegativeTTL,
 		maxWait:        opts.MaxRetryAfter,
@@ -215,6 +230,13 @@ func (s *Service) UpdateConfig(cfg config.OpenSubtitles) {
 	s.mu.Lock()
 	s.cfg = cfg
 	s.token = ""
+	s.mu.Unlock()
+}
+
+// UpdateSubDL swaps the SubDL settings (e.g. from config.Store.Subscribe).
+func (s *Service) UpdateSubDL(cfg config.SubDL) {
+	s.mu.Lock()
+	s.subdl = cfg
 	s.mu.Unlock()
 }
 
@@ -696,6 +718,16 @@ func (s *Service) download(ctx context.Context, c Candidate) ([]byte, error) {
 			return nil, err
 		}
 		return unzipSubtitleCandidate(raw, c)
+	}
+	if c.ProviderID == config.SubtitleProviderSubDL {
+		if parsed, err := url.Parse(c.DownloadURL); err == nil && parsed.Host != "" {
+			release, err := acquireDownloadHost(ctx, strings.ToLower(parsed.Host))
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+		}
+		return s.downloadSubDL(ctx, c)
 	}
 	link, err := s.requestLink(ctx, c)
 	if err != nil {

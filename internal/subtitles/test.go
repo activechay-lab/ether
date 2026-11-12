@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,6 +20,41 @@ import (
 // API-key-only request.
 func Test(ctx context.Context, cfg config.OpenSubtitles) error {
 	return test(ctx, &http.Client{Timeout: 10 * time.Second}, defaultBaseURL, cfg)
+}
+
+// TestSubDL validates the owner's SubDL API key with one search request.
+func TestSubDL(ctx context.Context, cfg config.SubDL) error {
+	return testSubDL(ctx, &http.Client{Timeout: 10 * time.Second}, subdlBaseURL, cfg)
+}
+
+func testSubDL(ctx context.Context, hc *http.Client, base string, cfg config.SubDL) error {
+	key := strings.TrimSpace(cfg.APIKey)
+	if key == "" {
+		return errors.New("a SubDL API key is required")
+	}
+	base = strings.TrimSuffix(base, "/")
+	u := base + "/subtitles?api_key=" + url.QueryEscape(key) + "&type=movie&film_name=inception"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-API-Key", key)
+	req.Header.Set("User-Agent", "Ether v1")
+	req.Header.Set("Accept", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("subdl: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return nil
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return errors.New("SubDL rejected the API key")
+	default:
+		return fmt.Errorf("subdl: %s: %s", resp.Status, truncate(string(body), 120))
+	}
 }
 
 func test(ctx context.Context, hc *http.Client, base string, cfg config.OpenSubtitles) error {

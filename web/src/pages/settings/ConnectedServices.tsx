@@ -51,6 +51,7 @@ export type ServiceTab =
   | "plexservers"
   | "llm"
   | "opensubtitles"
+  | "subdl"
   | "ratings"
   | "introdb";
 
@@ -66,6 +67,7 @@ const TAB_ORDER: ServiceTab[] = [
   "simkl",
   "llm",
   "opensubtitles",
+  "subdl",
   "ratings",
   "introdb",
 ];
@@ -87,6 +89,7 @@ export function integrationTabs(
     plexservers: t("Plex Media Server Sync"),
     llm: t("Language model"),
     opensubtitles: "OpenSubtitles",
+    subdl: "SubDL",
     ratings: t("Ratings"),
     introdb: "TheIntroDB",
   };
@@ -100,7 +103,7 @@ export function integrationTabs(
 
 interface Service {
   tab: Exclude<ServiceTab, "overview" | "ratings">;
-  configKey: "plexServers" | "trakt" | "simkl" | "llm" | "openSubtitles" | "markers";
+  configKey: "plexServers" | "trakt" | "simkl" | "llm" | "openSubtitles" | "subdl" | "markers";
   endpoint: string;
   /** Boolean this card's switch writes. Omitted fields stay stored. */
   flag: "enabled" | "theIntroDb";
@@ -185,6 +188,16 @@ const SERVICES: Service[] = localized(() => [
     groups: S.OPENSUBTITLES,
     testLabel: t("Test OpenSubtitles"),
     test: (v) => api.testOpenSubtitles(v as EtherConfig["openSubtitles"]),
+  },
+  {
+    tab: "subdl",
+    configKey: "subdl",
+    endpoint: "subdl",
+    flag: "enabled",
+    label: "SubDL",
+    groups: S.SUBDL,
+    testLabel: t("Test SubDL"),
+    test: (v) => api.testSubDL(v as EtherConfig["subdl"]),
   },
   {
     tab: "introdb",
@@ -358,6 +371,14 @@ function mergeSection(
             "automaticPreferred",
             base.openSubtitles.automaticPreferred ?? false,
           ),
+        },
+      };
+    case "subdl":
+      return {
+        ...base,
+        subdl: {
+          enabled: boolField(section, "enabled", base.subdl?.enabled ?? false),
+          apiKey: textField(section, "apiKey", base.subdl?.apiKey ?? ""),
         },
       };
     case "markers": {
@@ -933,7 +954,7 @@ export function ConnectedServices({
               disabled={locked}
               test={testButton}
               href={
-                s.tab === "introdb" || s.tab === "opensubtitles"
+                s.tab === "introdb" || s.tab === "opensubtitles" || s.tab === "subdl"
                   ? "/playback/extras"
                   : s.tab === "llm"
                     ? "/home"
@@ -946,7 +967,7 @@ export function ConnectedServices({
               usage={
                 s.tab === "introdb"
                   ? t("Choose intro lookups in Playback › Extras.")
-                  : s.tab === "opensubtitles"
+                  : s.tab === "opensubtitles" || s.tab === "subdl"
                     ? t("Supplies subtitles during playback.")
                     : s.tab === "llm"
                       ? t("Powers search, collections and Home recommendations.")
@@ -1211,6 +1232,21 @@ function ServiceOverview({
           configureLabel={
             on("opensubtitles") ? t("Manage OpenSubtitles") : t("Set up OpenSubtitles")
           }
+        />
+        <IntegrationAppCard
+          identity={{ id: "subdl", name: "SubDL" }}
+          description={t("Fetch subtitles from SubDL when a release doesn't include them.")}
+          status={switchStatus(
+            on("subdl"),
+            Boolean(saved("subdl").apiKey),
+            t("Needs an API key"),
+          )}
+          enabled={on("subdl")}
+          busy={locked || busyId === "subdl"}
+          disabled={switchesHeld}
+          onToggle={(next) => onToggle(service("subdl"), next)}
+          configureHref="/services/subdl"
+          configureLabel={on("subdl") ? t("Manage SubDL") : t("Set up SubDL")}
         />
         <IntegrationAppCard
           identity={{ id: "introdb", name: "TheIntroDB" }}

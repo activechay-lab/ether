@@ -155,6 +155,7 @@ func (a *App) applyServerConfig(c config.Config) {
 	a.llm.UpdateConfig(c.LLM)
 	a.trakt.UpdateConfig(c.Trakt)
 	a.subtitles.UpdateConfig(c.OpenSubtitles)
+	a.subtitles.UpdateSubDL(c.SubDL)
 	a.subtitles.UpdateProviders(c.Subtitles.Providers)
 	a.publishLibrarySections()
 	a.registrar.Trigger()

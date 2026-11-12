@@ -118,6 +118,7 @@ func ValidateConfig(cfg config.Config) []FieldError {
 	v := &validator{}
 	ids := map[string]bool{}
 	openSubtitles := false
+	subdl := false
 	for i, provider := range cfg.Subtitles.Providers {
 		field := fmt.Sprintf("subtitles.providers[%d]", i)
 		if strings.TrimSpace(provider.ID) == "" || ids[provider.ID] {
@@ -130,6 +131,11 @@ func ValidateConfig(cfg config.Config) []FieldError {
 				v.add(field+".kind", "OpenSubtitles can only appear once")
 			}
 			openSubtitles = true
+		case config.SubtitleProviderSubDL:
+			if subdl {
+				v.add(field+".kind", "SubDL can only appear once")
+			}
+			subdl = true
 		default:
 			if !strings.HasPrefix(provider.Kind, "plugin:") || !strings.HasSuffix(provider.Kind, "/subtitles") || provider.ID != provider.Kind {
 				v.add(field+".kind", "unknown subtitle provider")
