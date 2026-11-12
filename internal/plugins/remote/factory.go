@@ -47,8 +47,12 @@ type Factory struct {
 //     sidecar connects out; calls go over Factory.Tunnel.
 //   - an http(s) manifest URL, or any other http(s) URL that is not
 //     a github.com repo page: URL mode against that base.
-//   - a github.com repo URL: a repo is not an endpoint, so the
-//     plugin is served by a sidecar over the tunnel.
+//   - a github.com repo URL: a repo is not an endpoint, so an Ether
+//     plugin is served by a sidecar over the tunnel. A plain Stremio
+//     add-on published as static files in the repo (manifest.json at
+//     its root, e.g. "USA TV Next") needs no sidecar: its routes are
+//     read from raw.githubusercontent.com, where the installer found
+//     its manifest.
 func (f *Factory) RuntimeFactory() plugins.RuntimeFactory {
 	return func(inst plugins.Installed) (plugins.Runtime, error) {
 		if inst.Manifest.Ether != nil && inst.Manifest.Ether.Runtime.Kind != "" &&
@@ -56,6 +60,11 @@ func (f *Factory) RuntimeFactory() plugins.RuntimeFactory {
 			return nil, fmt.Errorf("plugin %s: remote factory cannot open runtime kind %q", inst.ID, inst.Manifest.Ether.Runtime.Kind)
 		}
 		mode, base := endpointFor(inst.SourceURL)
+		if mode == endpointTunnel && inst.Manifest.IsStremioOnly() {
+			if raw, ok := githubRawBase(inst.SourceURL); ok {
+				mode, base = endpointURL, raw
+			}
+		}
 		switch mode {
 		case endpointTunnel:
 			if f.Tunnel == nil {
@@ -116,6 +125,32 @@ func endpointFor(source string) (endpointMode, string) {
 	default:
 		return endpointNone, ""
 	}
+}
+
+// githubRawBase maps a github.com repo link to the raw-file base its
+// static Stremio routes are served from: the branch the link names
+// (/tree/<branch> or /blob/<branch>/...), else HEAD, which GitHub
+// resolves to the default branch.
+func githubRawBase(source string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(source))
+	if err != nil || !strings.EqualFold(u.Hostname(), "github.com") {
+		return "", false
+	}
+	parts := strings.FieldsFunc(u.Path, func(r rune) bool { return r == '/' })
+	if len(parts) < 2 {
+		return "", false
+	}
+	owner, repo := parts[0], strings.TrimSuffix(parts[1], ".git")
+	ref := "HEAD"
+	if len(parts) >= 4 && (parts[2] == "tree" || parts[2] == "blob") {
+		ref = parts[3]
+	}
+	for _, seg := range []string{owner, repo, ref} {
+		if seg == "" || seg == "." || seg == ".." {
+			return "", false
+		}
+	}
+	return "https://raw.githubusercontent.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(ref), true
 }
 
 // contractRuntime adapts a transport Runtime to plugins.Runtime.

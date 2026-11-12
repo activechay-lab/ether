@@ -1172,10 +1172,11 @@ func TestFactoryAndContractAdapter(t *testing.T) {
 		t.Fatalf("lanRT.Call: status=%d err=%v", resp.Status, err)
 	}
 
-	// GitHub source URL selects the tunnel runtime.
+	// An Ether plugin from a GitHub source URL selects the tunnel runtime.
 	tunRT, err := open(plugins.Installed{
 		ID:        "org.example.tun",
 		SourceURL: "https://github.com/example/ether-plugin",
+		Manifest:  plugins.Manifest{Ether: &plugins.EtherBlock{}},
 	})
 	if err != nil {
 		t.Fatalf("open tunnel runtime: %v", err)
