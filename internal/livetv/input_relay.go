@@ -3,6 +3,7 @@ package livetv
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -123,6 +124,31 @@ func relayName(stem, p string) string {
 		return stem + ext
 	}
 	return stem
+}
+
+// relaySegmentExt are the media extensions a provider may carry in a query
+// value (a redirect target) for an extensionless segment URL.
+var relaySegmentExt = map[string]bool{".ts": true, ".m4s": true, ".mp4": true, ".m4a": true, ".m4v": true, ".aac": true, ".ac3": true, ".ec3": true, ".mp3": true, ".vtt": true, ".webvtt": true, ".cmfv": true, ".cmfa": true, ".m3u8": true}
+
+// relayMediaName names a resource a playlist refers to. ffmpeg refuses an HLS
+// segment whose URL has no media extension (allowed_segment_extensions), and
+// FAST providers (Amagi, ad-insertion beacons) name segments without one, so
+// such a resource takes the extension its URL carries elsewhere (a
+// redirect_url query value), else ".ts". ffmpeg still probes the bytes.
+func relayMediaName(u *url.URL) string {
+	if ext := strings.ToLower(path.Ext(u.Path)); relayExt.MatchString(ext) {
+		return "media" + ext
+	}
+	for _, vals := range u.Query() {
+		for _, v := range vals {
+			if inner, err := url.Parse(v); err == nil && inner.Host != "" {
+				if ext := strings.ToLower(path.Ext(inner.Path)); relaySegmentExt[ext] {
+					return "media" + ext
+				}
+			}
+		}
+	}
+	return "media.ts"
 }
 
 func tokenKey(token string) [sha256.Size]byte { return sha256.Sum256([]byte(token)) }
@@ -291,8 +317,11 @@ func (s *Service) startRelayLocked() error {
 
 // relayURL registers an exact upstream URL with the grant.
 func (g *inputGrant) relayURL(host, raw string) string {
-	u, _ := url.Parse(raw)
-	return g.register(host, "e\x00"+raw, &relayResource{name: relayName("media", u.Path), url: raw})
+	u, err := url.Parse(raw)
+	if err != nil {
+		u = &url.URL{}
+	}
+	return g.register(host, "e\x00"+raw, &relayResource{name: relayMediaName(u), url: raw})
 }
 
 func (g *inputGrant) register(host, key string, res *relayResource) string {
@@ -431,6 +460,26 @@ func (s *Service) serveInputRelay(w http.ResponseWriter, r *http.Request) {
 	idle := time.AfterFunc(relayIOTimeout, cancel)
 	defer idle.Stop()
 	body := bufio.NewReaderSize(&idleReader{r: res.Body, t: idle}, 32<<10)
+	// Some providers gzip a playlist without saying so (no Content-Encoding),
+	// and Go's transport only decodes declared gzip. Decode it here, or ffmpeg
+	// reads compressed bytes as a playlist ("Invalid data").
+	if magic, _ := body.Peek(2); len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		packed, _ := io.ReadAll(io.LimitReader(body, relayManifestLimit+1))
+		if len(packed) <= relayManifestLimit {
+			if zr, err := gzip.NewReader(bytes.NewReader(packed)); err == nil {
+				plain, err := io.ReadAll(io.LimitReader(zr, relayManifestLimit+1))
+				zr.Close()
+				if err == nil && len(plain) <= relayManifestLimit {
+					if t := bytes.TrimLeft(bytes.TrimPrefix(plain, []byte("\xef\xbb\xbf")), " \t\r\n"); bytes.HasPrefix(t, []byte("#EXTM3U")) {
+						s.serveRelayManifest(w, g, raw, res.Request.URL, bytes.NewReader(plain), true)
+						return
+					}
+				}
+			}
+		}
+		// Not a compressed playlist: relay the bytes untouched.
+		body = bufio.NewReaderSize(io.MultiReader(bytes.NewReader(packed), body), 32<<10)
+	}
 	head := sniffHead(body)
 	ctype := strings.ToLower(res.Header.Get("Content-Type"))
 	hls := bytes.HasPrefix(head, []byte("#EXTM3U"))
