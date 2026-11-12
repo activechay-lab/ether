@@ -90,6 +90,88 @@ func TestLibrariesConsoleCRUDAndFilterBrowse(t *testing.T) {
 	}
 }
 
+func TestLibrariesConsoleCollectionSource(t *testing.T) {
+	a := setupTestApp(t, true)
+	ctx := context.Background()
+	for _, title := range []core.Title{
+		{Key: core.MovieKey(201), Type: core.TypeMovie, Title: "Listed Film", Year: 2005, Released: time.Date(2005, 1, 1, 0, 0, 0, 0, time.UTC), HomeReleased: time.Date(2005, 6, 1, 0, 0, 0, 0, time.UTC)},
+		{Key: core.MovieKey(202), Type: core.TypeMovie, Title: "Unlisted Film", Year: 2006, Released: time.Date(2006, 1, 1, 0, 0, 0, 0, time.UTC), HomeReleased: time.Date(2006, 6, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		if err := a.catalog.UpsertTitle(ctx, title, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Persist a collection whose members are exactly the listed film.
+	now := time.Now().UTC()
+	for _, stmt := range []string{
+		`INSERT INTO collections_specs(id,slug,builtin,owner_user_id,spec_json,enabled,created_at,updated_at,last_built_at,build_hash,changed_at)
+		 VALUES(31,'',0,0,'{}',1,?,?,?,'built',?)`,
+		`INSERT INTO collections_members(spec_id,pos,key,shared) VALUES(31,0,?,1)`,
+	} {
+		args := []any{now.Unix(), now.Unix(), now.Unix(), now.Unix()}
+		if strings.Contains(stmt, "collections_members") {
+			args = []any{int64(core.MovieKey(201))}
+		}
+		if _, err := a.db.ExecContext(ctx, stmt, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c := &librariesConsole{app: a}
+	h := c.handler()
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		var r *http.Request
+		if body != "" {
+			r = httptest.NewRequest(method, path, strings.NewReader(body))
+		} else {
+			r = httptest.NewRequest(method, path, nil)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	w := call("GET", "/collection-sources", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":31`) {
+		t.Fatalf("collection sources %d %s", w.Code, w.Body)
+	}
+
+	w = call("POST", "/", `{"name":"MDBList picks","collectionId":31,"mediaType":"movie"}`)
+	if w.Code != 201 {
+		t.Fatalf("create %d %s", w.Code, w.Body)
+	}
+	var lib libraryDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if lib.Source != core.LibraryCollection || lib.CollectionID != 31 || lib.MediaType != core.TypeMovie {
+		t.Fatalf("created library = %+v", lib)
+	}
+	if lib.Present.Plex != nil || lib.Present.MediaBrowser != nil {
+		t.Fatalf("new collection library must be console-only: %+v", lib.Present)
+	}
+	id := strconv.FormatInt(int64(lib.ID), 10)
+	w = call("GET", "/"+id+"/items", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Listed Film") || strings.Contains(w.Body.String(), "Unlisted Film") {
+		t.Fatalf("collection browse %d %s", w.Code, w.Body)
+	}
+
+	// Deleting the collection leaves the library empty, never a 500.
+	if _, err := a.db.ExecContext(ctx, `DELETE FROM collections_members WHERE spec_id=31`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.ExecContext(ctx, `DELETE FROM collections_specs WHERE id=31`); err != nil {
+		t.Fatal(err)
+	}
+	w = call("GET", "/"+id+"/items", "")
+	if w.Code != 200 || strings.Contains(w.Body.String(), "Listed Film") {
+		t.Fatalf("deleted collection browse %d %s", w.Code, w.Body)
+	}
+	if w = call("GET", "/"+id, ""); w.Code != 200 {
+		t.Fatalf("deleted collection decorate %d %s", w.Code, w.Body)
+	}
+}
+
 func TestLibrariesConsolePluginItemMatchPinClear(t *testing.T) {
 	a := setupTestApp(t, true)
 	ctx := context.Background()

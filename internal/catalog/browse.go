@@ -173,6 +173,25 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		c.kickMovieYears(items)
 		return core.Page{Items: items, Total: total}, nil
 	}
+	if q.Filter.CollectionMembers != 0 {
+		// A collection library reads its page straight from the semi-join:
+		// the cached page keys cannot promise to follow a rebuild, and the
+		// count always comes from the predicates above.
+		items, err := c.queryPagedTitles(ctx, `SELECT `+prefixedCols("t")+` FROM catalog_titles t WHERE `+where+` ORDER BY `+browseOrder(q)+`, t.key ASC LIMIT ? OFFSET ?`, append(append([]any{}, args...), limit, offset)...)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if q.Sort == core.SortAdded {
+			if err := applyAirAddedTimes(ctx, c.db, items, c.now()); err != nil {
+				return core.Page{}, err
+			}
+		}
+		if items == nil {
+			items = []core.Title{}
+		}
+		c.kickMovieYears(items)
+		return core.Page{Items: items, Total: total}, nil
+	}
 	pageWhere, pageArgs := where, args
 	// A title-sorted page probes a positive studio filter per row instead of
 	// enumerating every matching title; the total (above) keeps the
@@ -569,6 +588,7 @@ func flagInt(b bool) int {
 func (c *Catalog) TitleInFilter(ctx context.Context, f core.Filter, key core.RatingKey) (bool, error) {
 	f.LocalOnly = true
 	f.IncludeKeys = []core.RatingKey{key}
+	f.CollectionMembers = 0
 	f.ExcludeKeys = nil
 	f.CatalogViewerID = 0
 	f.RuleVisibility = ""
@@ -743,6 +763,14 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		for _, key := range f.AvailabilityKeepKeys {
 			args = append(args, key)
 		}
+	}
+	if f.CollectionMembers != 0 {
+		// A collection library is a semi-join on the collection's
+		// materialised members, never a list of keys in memory. Only a
+		// shared member is shown to everyone; per-viewer rules are the
+		// collection engine's business, not this page's.
+		conds = append(conds, "EXISTS (SELECT 1 FROM collections_members cm WHERE cm.spec_id=? AND cm.key=t.key AND cm.shared=1)")
+		args = append(args, f.CollectionMembers)
 	}
 	if f.IncludeKeys != nil {
 		if len(f.IncludeKeys) == 0 {

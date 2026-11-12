@@ -412,6 +412,11 @@ func (c *Catalog) tallyShape(f core.Filter) (tallyShape, bool) {
 		// Even empty: browseWhere matches nothing for an empty list.
 		return s, false
 	}
+	if f.CollectionMembers != 0 {
+		// A collection's membership is a semi-join the tally tables do not
+		// keep; the count reads the page predicate instead.
+		return s, false
+	}
 	rest := f
 	rest.Type, rest.Genres, rest.Kids, rest.Countries = "", nil, false, nil
 	rest.Studio, rest.StudioFilters = "", nil

@@ -392,7 +392,7 @@ func (s *Service) LibraryCount(ctx context.Context, viewer *core.Viewer, viewID 
 		switch lib.Source {
 		case core.LibraryPlugin:
 			return s.d.PluginLibraries.Count(ctx, lib)
-		case core.LibraryFilter:
+		case core.LibraryFilter, core.LibraryCollection:
 			page, err := s.LibraryItems(ctx, v, core.Device{}, viewID, frontend.ItemQuery{Limit: 1})
 			if err != nil {
 				return 0, err
@@ -507,13 +507,28 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		return core.Page{}, core.ErrNotFound
 	}
 	var library *Library
+	var stored *core.Library
 	if s.d.PluginLibraries != nil {
 		lib, err := s.d.PluginLibraries.Library(ctx, core.LibraryID(id))
 		if err != nil {
 			return core.Page{}, core.ErrNotFound
 		}
-		mt, _, ok := s.publishedLibrary(ctx, lib)
-		if !ok || !v.AllowsLibrary(lib.ID) {
+		stored = &lib
+		// A collection library is browsed typed whatever protocol
+		// presentations it has yet (a new library is console-only and
+		// opts into apps later, §15.3); every other source must be
+		// published to the protocol asking.
+		mt := filterMediaType(lib)
+		if lib.Source != core.LibraryCollection {
+			var ok bool
+			mt, _, ok = s.publishedLibrary(ctx, lib)
+			if !ok {
+				return core.Page{}, core.ErrNotFound
+			}
+		} else if lib.Hidden {
+			return core.Page{}, core.ErrNotFound
+		}
+		if !v.AllowsLibrary(lib.ID) {
 			return core.Page{}, core.ErrNotFound
 		}
 		if lib.Source == core.LibraryPlugin {
@@ -522,9 +537,7 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		if s.d.Browse == nil {
 			return core.Page{}, core.ErrNotFound
 		}
-		if lib.Source == core.LibraryFilter {
-			q.Filter = mergeLibraryFilter(q.Filter, lib.Filter)
-		}
+		q.Filter = s.libraryBrowseFilter(ctx, v, lib, q.Filter)
 		library = &Library{ID: int(lib.ID), Name: lib.Name, Type: mt, Virtual: true}
 	} else {
 		libs := s.libraries()
@@ -660,6 +673,10 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		return core.Page{}, err
 	} else if ok {
 		return page, nil
+	} else if stored != nil && stored.Source == core.LibraryCollection && !indexedBrowseQuery(library, q) {
+		// A sort or request shape SQL cannot page uses the bounded
+		// in-process walk; an indexed page already returned above.
+		return s.collectionLibraryScan(ctx, v, library, q, stored.CollectionID)
 	}
 	for offset := 0; ; {
 		filter := q.Filter
@@ -2353,8 +2370,12 @@ func (s *Service) Facets(ctx context.Context, viewer *core.Viewer, device core.D
 			return nil, core.ErrNotFound
 		}
 		switch lib.Source {
-		case core.LibraryPlugin:
-			return s.pluginLibraryFacets(ctx, viewer, lib, name)
+		case core.LibraryPlugin, core.LibraryCollection:
+			if lib.Source == core.LibraryPlugin {
+				return s.pluginLibraryFacets(ctx, viewer, lib, name)
+			}
+			// A collection library's facet values are counted over the same
+			// SQL semi-join as its page, then the walk stays the last word.
 		case core.LibraryFilter:
 			if out, ok, err := s.filterLibraryFacets(ctx, viewer, lib, name); err != nil || ok {
 				return out, err

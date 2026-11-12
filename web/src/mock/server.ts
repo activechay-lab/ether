@@ -2624,6 +2624,22 @@ export function createFakeServer(opts: FakeOptions = {}) {
       if (seg[2] === "settings") return json({ fieldErrors: null });
       return json({ ok: true });
     }
+    if (seg[1] === "collection-sources") {
+      // The "From a collection" picker: the owner's collections, never their
+      // members.
+      return json({
+        collections: state.collections
+          .filter((c) => typeof c.id === "string")
+          .map((c, i) => ({
+            // Seeded collections are addressed by slug (c1, c2, builtin-
+            // recent); the owner one the picker offers is a number.
+            id: /^\d+$/.test(c.id ?? "") ? Number(c.id) : 31 + i,
+            name: c.name,
+            mediaType: c.mediaType,
+            itemCount: c.itemCount ?? 0,
+          })),
+      });
+    }
     if (!seg[1]) {
       if (method === "POST") {
         const id = Math.max(0, ...mockLibs.map((l) => Number(l.id))) + 1;
@@ -2631,8 +2647,10 @@ export function createFakeServer(opts: FakeOptions = {}) {
           id,
           key: `lib-${id}`,
           name: String(b.name ?? "Library"),
-          source: "filter",
-          filter: b.filter,
+          source: b.collectionId ? "collection" : "filter",
+          collectionId: b.collectionId,
+          mediaType: b.mediaType,
+          filter: b.collectionId ? undefined : b.filter,
           rules: Array.isArray(b.rules) ? b.rules : [],
           visibilityDefault: String(b.visibilityDefault ?? "show"),
           present: b.present ?? {},

@@ -50,6 +50,36 @@ describe("Libraries workspace", () => {
     ).toBeInTheDocument();
   });
 
+  it("creates a library from a collection through the From a collection step", async () => {
+    const { fake } = renderApp("/libraries");
+    fireEvent.click(await screen.findByRole("button", { name: "New library" }, { timeout: 15000 }));
+    fireEvent.click(await screen.findByRole("button", { name: /From a collection/ }));
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(await screen.findByText("New library from a collection")).toBeInTheDocument();
+    // Pick the first collection offered; its name seeds the library name.
+    // Every collection card carries its title count; the first reads
+    // "10 titles" in the mock. The wait absorbs the drawer's entry animation
+    // before the card can take a click.
+    const option = await screen.findByRole("button", { name: /Edge of Your Seat/ });
+    fireEvent.click(option);
+    // The card keeps the current selection.
+    await settleUi(() => expect(option.getAttribute("aria-current")).toBe("true"));
+    const input = screen.getByLabelText("Library name") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "List picks" } });
+    await settleUi(() => expect(input.value).toBe("List picks"));
+    const create = screen.getByRole("button", { name: "Create library" }) as HTMLButtonElement;
+
+    await settleUi(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
+
+    await settleUi(() => {
+      const post = calls(fake, "POST", "/libraries").at(-1);
+      expect(post?.body).toMatchObject({ name: "List picks", mediaType: "movie" });
+      expect(typeof (post?.body as { collectionId?: unknown }).collectionId).toBe("number");
+    });
+  });
+
   it("links to Plugins when no content-kind plugin is installed, and ensures plugin setup when picked", async () => {
     renderAppWith("/libraries", (_method, path) => {
       if (path === "/plugins-setup") return { plugins: [] };

@@ -163,6 +163,14 @@ func (c *librariesConsole) decorate(ctx context.Context, lib core.Library) libra
 		if page, err := c.browseTitles(ctx, lib, core.Filter{}, core.BrowseQuery{Limit: 1}); err == nil {
 			dto.ItemCount = &page.Total
 		}
+	case core.LibraryCollection:
+		// A deleted collection leaves the library empty: the browse reads
+		// no members rather than failing the console listing.
+		if page, err := c.browseTitles(ctx, lib, core.Filter{}, core.BrowseQuery{Limit: 1}); err == nil {
+			dto.ItemCount = &page.Total
+		} else if c.app.log != nil {
+			c.app.log.Warn("libraries: collection library could not be counted", "id", int64(lib.ID), "collection", lib.CollectionID, "err", err)
+		}
 	}
 	return dto
 }
@@ -194,6 +202,13 @@ func libraryScopeFilter(lib core.Library, req core.Filter) core.Filter {
 			} else {
 				f.Group = &core.FilterGroup{Operator: "and", Children: []core.FilterGroup{child}}
 			}
+		}
+	}
+	if lib.Source == core.LibraryFilter || lib.Source == core.LibraryCollection {
+		if lib.Source == core.LibraryCollection && lib.CollectionID > 0 {
+			// Exactly the collection's titles: a SQL semi-join, so the
+			// page reads one statement whatever the collection's size.
+			f.CollectionMembers = lib.CollectionID
 		}
 		if f.RuleVisibility != "" {
 			f.ApplyCanonicalInPreview = true
@@ -247,9 +262,14 @@ func (c *librariesConsole) handler() http.Handler {
 	})
 	mux.HandleFunc("POST /{$}", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Name    string              `json:"name"`
-			Filter  core.Filter         `json:"filter"`
-			Present *core.Presentations `json:"present"`
+			Name   string      `json:"name"`
+			Filter core.Filter `json:"filter"`
+			// A collection library instead of a filter library: the id of
+			// the owner collection whose titles it shows, and the type it
+			// is browsed as.
+			CollectionID int64               `json:"collectionId"`
+			MediaType    core.MediaType      `json:"mediaType"`
+			Present      *core.Presentations `json:"present"`
 		}
 		if !decodeLibBody(w, r, &body) {
 			return
@@ -260,7 +280,13 @@ func (c *librariesConsole) handler() http.Handler {
 		if body.Present != nil {
 			present = *body.Present
 		}
-		lib, err := c.app.libraries.CreateFilter(r.Context(), body.Name, body.Filter, present)
+		var lib core.Library
+		var err error
+		if body.CollectionID > 0 {
+			lib, err = c.app.libraries.CreateCollection(r.Context(), body.Name, body.CollectionID, body.MediaType, present)
+		} else {
+			lib, err = c.app.libraries.CreateFilter(r.Context(), body.Name, body.Filter, present)
+		}
 		if err != nil {
 			libError(w, libErrStatus(err), "Could not create the library")
 			return
@@ -382,6 +408,7 @@ func (c *librariesConsole) handler() http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /{id}/items", c.handleItems)
+	mux.HandleFunc("GET /collection-sources", c.handleCollectionSources)
 	mux.HandleFunc("GET /{id}/facets/{field...}", c.handleFacets)
 	mux.HandleFunc("GET /{id}/item/{ref}/match", c.handleMatchGet)
 	mux.HandleFunc("PUT /{id}/item/{ref}/match", c.handleMatchPin)
@@ -485,6 +512,43 @@ func (c *librariesConsole) handleItems(w http.ResponseWriter, r *http.Request) {
 		page.Items = []core.Title{}
 	}
 	libJSON(w, http.StatusOK, map[string]any{"items": page.Items, "total": page.Total})
+}
+
+// collectionSourceDTO is one collection the New library picker can bind a
+// library to: its public id, name and the media type its members are.
+type collectionSourceDTO struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType"`
+	ItemCount int    `json:"itemCount"`
+	BuiltIn   bool   `json:"builtIn,omitempty"`
+}
+
+// handleCollectionSources lists the owner's collections for the "From a
+// collection" step. It reads the stored specifications and their counts,
+// never the members, so the list is one indexed read whatever their size.
+func (c *librariesConsole) handleCollectionSources(w http.ResponseWriter, r *http.Request) {
+	if c.app.collections == nil {
+		libJSON(w, http.StatusOK, map[string]any{"collections": []collectionSourceDTO{}})
+		return
+	}
+	specs, err := c.app.collections.ListSpecs(r.Context())
+	if err != nil {
+		libError(w, libErrStatus(err), "Could not list collections")
+		return
+	}
+	out := make([]collectionSourceDTO, 0, len(specs))
+	for _, sp := range specs {
+		id, err := strconv.ParseInt(sp.ID, 10, 64)
+		if err != nil || id <= 0 {
+			// A built-in collection is addressed by slug and cannot back a
+			// typed library; leave it out of the picker.
+			continue
+		}
+		mt := sp.MediaType
+		out = append(out, collectionSourceDTO{ID: id, Name: sp.Name, MediaType: mt, ItemCount: sp.ItemCount, BuiltIn: sp.BuiltIn})
+	}
+	libJSON(w, http.StatusOK, map[string]any{"collections": out})
 }
 
 func (c *librariesConsole) handleFacets(w http.ResponseWriter, r *http.Request) {

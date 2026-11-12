@@ -172,6 +172,70 @@ func (s *Service) CreateFilter(ctx context.Context, name string, f core.Filter, 
 	return lib, nil
 }
 
+// CreateCollection saves an owner collection-library (§1.5): a named
+// library that shows exactly the titles of one owner collection (an
+// MDBList list, a Trakt list, a smart rule, a hand-made list…). The
+// collection id is stored as given; whether it still names a collection
+// is checked when the library is browsed, so a deleted collection leaves
+// the library empty rather than failing the read. mediaType pins
+// movie|show like a filter library. The caller passes the zero
+// Presentations for the console-only default (§15.3).
+func (s *Service) CreateCollection(ctx context.Context, name string, collectionID int64, mediaType core.MediaType, p core.Presentations) (core.Library, error) {
+	name = strings.TrimSpace(name)
+	slug := slugify(name)
+	if name == "" || slug == "" {
+		return core.Library{}, fmt.Errorf("%w: collection library needs a name with letters or digits", ErrInvalid)
+	}
+	if collectionID <= 0 {
+		return core.Library{}, fmt.Errorf("%w: collection library needs a collection", ErrInvalid)
+	}
+	if mediaType != core.TypeMovie && mediaType != core.TypeShow {
+		return core.Library{}, fmt.Errorf("%w: collection library type must be movie or show", ErrInvalid)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return core.Library{}, err
+	}
+	defer tx.Rollback()
+	id, err := nextID(ctx, tx)
+	if err != nil {
+		return core.Library{}, err
+	}
+	key, err := freeKey(ctx, tx, slug)
+	if err != nil {
+		return core.Library{}, err
+	}
+	lib, err := s.insert(ctx, tx, core.Library{
+		ID: id, Key: key, Name: name, Source: core.LibraryCollection,
+		MediaType: mediaType, CollectionID: collectionID, Present: p, Sort: int(id),
+	})
+	if err != nil {
+		return core.Library{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return core.Library{}, err
+	}
+	s.gen.Add(1)
+	return lib, nil
+}
+
+// CollectionMember reports whether key is a shared member of the owner
+// collection collectionID: one indexed read of collections_members by
+// (spec_id, key). A deleted collection has no members and reports false,
+// never an error, so a collection library simply shows nothing.
+func (s *Service) CollectionMember(ctx context.Context, collectionID int64, key core.RatingKey) (bool, error) {
+	if collectionID <= 0 || key == 0 {
+		return false, nil
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM collections_members WHERE spec_id=? AND key=? AND shared=1 LIMIT 1`,
+		collectionID, int64(key)).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // UpsertPluginLibrary returns the library for one plugin media kind,
 // creating it on first install (§2.5). An existing library is
 // returned untouched: the stored name and presentation are
