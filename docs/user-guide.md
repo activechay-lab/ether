@@ -62,6 +62,18 @@ LG/Samsung TVs, and up to five TV devices for Android TV or Fire TV; Live TV
 requires Premiere. Availability and device limits can change, so consult Emby's
 matrix. Ether does not provide or emulate an Emby Premiere entitlement.
 
+### Choose a version
+
+When a title has more than one release, the Jellyfin and Emby apps' version
+picker lists Ether's top ranked releases: an **Auto** entry, which is the
+release Ether picks for the device, followed by each ranked release named by
+its resolution, source, codec/HDR, audio and size, such as
+`2160p WEB-DL HEVC DV · TrueHD 7.1 · 18.4 GB`. Picking a version plays exactly
+that release. **Auto** avoids a video transcode when another release can play
+directly or remux for the device, trying up to three next-ranked releases
+before it accepts a video transcode; an audio-only conversion does not count
+as a reason to switch.
+
 ## Silo apps
 
 Silo support is in development. Ether's Silo surface uses port 8090 by default;
