@@ -38,6 +38,7 @@ type LiveGuideQuery struct {
 // LiveTVItem is the frontend boundary representation of a scheduled programme's item metadata.
 type LiveTVItem struct {
 	Key          RatingKey
+	ShowKey      RatingKey
 	Title        string
 	EpisodeTitle string
 	ShowTitle    string
