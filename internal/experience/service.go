@@ -146,6 +146,10 @@ type ServiceDeps struct {
 	// episodes in key order. Optional; without it the listing walks the
 	// library.
 	StoredEpisodes StoredEpisodeDeps
+	// PlayedEpisodes answers a recursive, episodes-only played listing
+	// (Filters=IsPlayed, SortBy=DatePlayed) from the viewer's watch rows.
+	// Optional; without it the listing walks the library.
+	PlayedEpisodes PlayedEpisodeDeps
 	AddedTimes     func(context.Context, []core.RatingKey) (map[core.RatingKey]time.Time, error)
 	// RecentAir is the indexed date-added window. Nil keeps the catalogue scan.
 	RecentAir func(context.Context, core.MediaType, int, int) ([]core.Title, bool, error)
@@ -627,6 +631,11 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		return page, nil
 	}
 	if page, ok, err := s.storedEpisodePage(ctx, v, library, q); err != nil {
+		return core.Page{}, err
+	} else if ok {
+		return page, nil
+	}
+	if page, ok, err := s.playedEpisodePage(ctx, v, library, 0, q); err != nil {
 		return core.Page{}, err
 	} else if ok {
 		return page, nil
@@ -1403,6 +1412,11 @@ func (s *Service) Children(ctx context.Context, viewer *core.Viewer, device core
 
 	var items []core.Title
 	if q.Recursive && key.Kind() == core.KindShow {
+		if page, ok, err := s.playedEpisodePage(ctx, v, &Library{Type: core.TypeShow}, key, q); err != nil {
+			return core.Page{}, err
+		} else if ok {
+			return page, nil
+		}
 		if s.d.Grandchildren == nil {
 			return core.Page{}, errors.New("experience: recursive children unavailable")
 		}
@@ -2102,6 +2116,10 @@ func (s *Service) sortTitles(ctx context.Context, items []core.Title, q frontend
 	}
 	switch q.Sort {
 	case core.SortTitle, core.SortReleased, core.SortAdded, core.SortRating, core.SortPopularity:
+	case core.SortPlayed:
+		// A played order comes from the viewer's watch rows, which the
+		// catalogue rows do not carry; the listing already produced it.
+		return nil
 	default:
 		return errors.New("experience: unsupported sort")
 	}

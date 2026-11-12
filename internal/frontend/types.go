@@ -90,6 +90,7 @@ const (
 	SortAdded      = core.SortAdded
 	SortDuration   = core.SortDuration
 	SortPopularity = core.SortPopularity
+	SortPlayed     = core.SortPlayed
 	SortRating     = core.SortRating
 	SortReleased   = core.SortReleased
 	SortTitle      = core.SortTitle

@@ -21,6 +21,10 @@ const (
 	SortDuration   SortOrder = "duration"
 	SortAdded      SortOrder = "added"   // movie/episode release or air date; series and seasons use the latest aired episode, then the premiere
 	SortUpdated    SortOrder = "updated" // actual catalogue metadata update time
+	// SortPlayed orders a viewer's played titles by when they last played
+	// them (Jellyfin/Emby "DatePlayed"). It is served from the viewer's watch
+	// rows, never the catalogue's sort columns.
+	SortPlayed SortOrder = "played"
 )
 
 // SortSpec pairs a catalogue sort column with its direction.
