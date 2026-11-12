@@ -2,8 +2,8 @@ package mediabrowser
 
 import (
 	"net/http/httptest"
-	"strings"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )

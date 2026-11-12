@@ -155,7 +155,7 @@ type ServiceDeps struct {
 	// rows, in episode key order. Optional; without it the listing reads the
 	// favorite keys in process.
 	FavoriteEpisodes FavoriteEpisodeDeps
-	AddedTimes     func(context.Context, []core.RatingKey) (map[core.RatingKey]time.Time, error)
+	AddedTimes       func(context.Context, []core.RatingKey) (map[core.RatingKey]time.Time, error)
 	// RecentAir is the indexed date-added window. Nil keeps the catalogue scan.
 	RecentAir func(context.Context, core.MediaType, int, int) ([]core.Title, bool, error)
 	// CountUnplayedAired counts aired episodes with no play. Nil keeps the episode list.
