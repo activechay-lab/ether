@@ -2,6 +2,7 @@
 package raster
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -44,6 +45,7 @@ type render struct {
 	t      float64
 	w, h   int
 	parsed map[string]*opentype.Font
+	cache  map[string]layerPlate
 }
 
 func Render(doc scene.Document, bindings Bindings, t float64, w, h int) *image.RGBA {
@@ -54,7 +56,7 @@ func Render(doc scene.Document, bindings Bindings, t float64, w, h int) *image.R
 	if doc.Validate() != nil {
 		return dst
 	}
-	r := render{bindings, t, w, h, map[string]*opentype.Font{}}
+	r := render{bindings, t, w, h, map[string]*opentype.Font{}, nil}
 	r.layers(dst, doc.Layers, matrix{a: float64(w) / 1920, d: float64(h) / 1080}, 1, nil)
 	r.post(dst, doc.Post)
 	return dst
@@ -78,6 +80,22 @@ func random(seed uint32, i int) float64 {
 func (r *render) layers(dst *image.RGBA, ls []scene.Layer, parent matrix, opacity float64, clip *image.Alpha) {
 	for _, l := range ls {
 		if l.Hidden || (l.Start > 0 && r.t < l.Start) || (l.End > 0 && r.t >= l.End) {
+			continue
+		}
+		if r.cache != nil && clip == nil && !moving(l) && plainBlend(l) {
+			data, _ := json.Marshal(l)
+			id := string(data)
+			key := fmt.Sprint(parent, opacity)
+			plate, ok := r.cache[id]
+			if !ok || plate.key != key {
+				full := image.NewRGBA(dst.Bounds())
+				child := *r
+				child.cache = nil
+				child.layers(full, []scene.Layer{l}, parent, opacity, nil)
+				plate = layerPlate{key: key, image: cropPlate(full)}
+				r.cache[id] = plate
+			}
+			draw.Draw(dst, plate.image.Rect, plate.image, plate.image.Rect.Min, draw.Over)
 			continue
 		}
 		for rep := 0; rep < max(1, l.Repeat); rep++ {

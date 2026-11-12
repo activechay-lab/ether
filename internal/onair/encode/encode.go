@@ -21,7 +21,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/onair/scene"
 )
 
-const Profile = "1080p30-h264-high-l4.0-yuv420p-g120-aac48k-stereo-v1"
+const Profile = "720p30-h264-high-l4.0-yuv420p-g120-aac48k-stereo-v2"
 
 // Hash uses encoding/json's stable map ordering, with length-delimited inputs.
 func Hash(rendererVersion string, doc, tokens, bindings, assetDigests, profile any) string {
@@ -41,6 +41,7 @@ func Encode(ctx context.Context, ffmpegPath string, frames func(int) *image.RGBA
 // Options allows Signal loops to honor a negotiated session ceiling and size.
 type Options struct {
 	Workers, Width, Height int
+	InputArgs, VideoArgs   []string
 	Sounds                 []SoundInput
 	Background             *VideoInput
 	// MaxSeconds is 28 for look moments; plugin segments may opt into 600.
@@ -236,6 +237,7 @@ func (w *StreamWriter) Abort() {
 
 func masterFFmpegArgs(width, height, n, fps int, audio, path string, opts Options) ([]string, error) {
 	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", fmt.Sprintf("%dx%d", width, height), "-r", strconv.Itoa(fps), "-i", "pipe:0"}
+	args = append(append([]string{}, opts.InputArgs...), args...)
 	if audio != "" {
 		args = append(args, "-i", audio)
 	} else {
@@ -264,7 +266,32 @@ func masterFFmpegArgs(width, height, n, fps int, audio, path string, opts Option
 	if len(filters) > 0 {
 		args = append(args, "-filter_complex", strings.Join(filters, ";"))
 	}
-	args = append(args, "-map", videoMap, "-map", audioMap, "-t", strconv.FormatFloat(float64(n)/float64(fps), 'f', 6, 64), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", "2", "-profile:v", "high", "-level:v", "4.0", "-pix_fmt", "yuv420p", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", path)
+	args = append(args, "-map", videoMap, "-map", audioMap, "-t", strconv.FormatFloat(float64(n)/float64(fps), 'f', 6, 64), "-c:v", "libx264", "-preset", "superfast", "-crf", "20", "-threads", strconv.Itoa(max(2, runtime.NumCPU()/4)), "-profile:v", "high", "-level:v", "4.0", "-pix_fmt", "yuv420p", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", path)
+	if len(opts.VideoArgs) > 0 {
+		start, end := -1, -1
+		for i, a := range args {
+			if a == "-c:v" {
+				start = i
+			}
+			if a == "-profile:v" {
+				end = i
+				break
+			}
+		}
+		if start >= 0 && end > start {
+			args = append(append(append([]string{}, args[:start]...), opts.VideoArgs...), args[end:]...)
+		}
+	}
+	// Hardware frames must remain on the device through the encoder.
+	for _, a := range opts.VideoArgs {
+		if a == "h264_vaapi" {
+			for j := range args {
+				if args[j] == "-pix_fmt" && j+1 < len(args) && args[j+1] == "yuv420p" {
+					args[j+1] = "vaapi"
+				}
+			}
+		}
+	}
 	if opts.MaxRate != "" {
 		if opts.BufferSize == "" {
 			opts.BufferSize = opts.MaxRate
@@ -281,7 +308,7 @@ func masterFFmpegArgs(width, height, n, fps int, audio, path string, opts Option
 		if video < 64000 {
 			return nil, fmt.Errorf("bitrate ceiling too low")
 		}
-		args = append(args[:len(args)-1], "-maxrate", strconv.Itoa(video), "-bufsize", strconv.Itoa(buffer), "-x264-params", "vbv-init=0.1", path)
+		args = append(args[:len(args)-1], "-maxrate", strconv.Itoa(video), "-bufsize", strconv.Itoa(buffer), path)
 	}
 	if opts.AudioVolume != nil {
 		v := *opts.AudioVolume

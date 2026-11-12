@@ -9,6 +9,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/onair/encode"
 	"github.com/braedonsaunders/ether/internal/onair/families"
 	"github.com/braedonsaunders/ether/internal/onair/raster"
+	"github.com/braedonsaunders/ether/internal/onair/scene"
 	"image"
 	"image/png"
 	"os"
@@ -27,6 +28,16 @@ func main() {
 	still := flag.Bool("still", false, "render poster PNG only")
 	flag.Parse()
 	doc, e := families.Get(*family, *moment)
+	if e != nil && *moment == "standby" {
+		doc, e = families.Get(*family, "break")
+		if e == nil {
+			var ok bool
+			doc, ok = scene.StandbyBase(doc)
+			if !ok {
+				panic("no standby base")
+			}
+		}
+	}
 	if e != nil {
 		panic(e)
 	}
@@ -51,11 +62,21 @@ func main() {
 	if e != nil {
 		panic(e)
 	}
+	if *moment == "standby" {
+		doc = scene.ShortLoop(doc)
+	}
+	seq := raster.NewSequence(doc, bind, *width, *width*9/16)
 	start := time.Now()
-	e = encode.WithOptions(context.Background(), bin, func(i int) *image.RGBA { return raster.Render(doc, bind, float64(i)/30, *width, *width*9/16) }, int(doc.Duration)*30, 30, "", *out, encode.Options{Workers: 4, Width: *width, Height: *width * 9 / 16, MaxRate: *ceiling, BufferSize: *ceiling, Audio: doc.Audio})
+	e = encode.WithOptions(context.Background(), bin, func(i int) *image.RGBA {
+		t := float64(i) / 30
+		if *moment == "standby" {
+			t = min(t, doc.Duration-t)
+		}
+		return seq.Frame(t)
+	}, int(doc.Duration)*30, 30, "", *out, encode.Options{Workers: 1, Width: *width, Height: *width * 9 / 16, MaxRate: *ceiling, BufferSize: *ceiling, Audio: doc.Audio})
 	if e != nil {
 		panic(e)
 	}
 	elapsed := time.Since(start)
-	fmt.Printf("%s/%s: clip=%gs frames=%d workers=4 GOMAXPROCS=%d wall=%s ratio=%.3fx\n", *family, *moment, doc.Duration, int(doc.Duration)*30, runtime.GOMAXPROCS(0), elapsed, float64(elapsed)/float64(time.Duration(doc.Duration)*time.Second))
+	fmt.Printf("%s/%s: clip=%gs frames=%d workers=1 GOMAXPROCS=%d wall=%s render_speed_x=%.3fx\n", *family, *moment, doc.Duration, int(doc.Duration)*30, runtime.GOMAXPROCS(0), elapsed, doc.Duration/elapsed.Seconds())
 }

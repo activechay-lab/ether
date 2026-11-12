@@ -17,10 +17,10 @@ import (
 // render (graphics masters, live moments, previews). Without a shared bound
 // each call fanned out to eight workers and a watched channel's renders took
 // most of the machine, starving its own frame clock.
-var lineSlots = make(chan struct{}, max(2, runtime.NumCPU()/3))
+var lineSlots = make(chan struct{}, max(1, runtime.NumCPU()/4-1))
 
 func parallelLines(n int, fn func(lo, hi int)) {
-	workers := min(runtime.GOMAXPROCS(0), 8)
+	workers := min(runtime.GOMAXPROCS(0), max(2, runtime.NumCPU()/4))
 	if workers <= 1 || n < 256 {
 		fn(0, n)
 		return
