@@ -47,6 +47,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.Filter.LocalOnly && q.CursorPage {
 		return c.consoleCursorPage(ctx, q)
 	}
+
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
@@ -169,6 +170,25 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 		}
 		if q.NoTotal {
 			total = offset + len(items)
+		}
+		c.kickMovieYears(items)
+		return core.Page{Items: items, Total: total}, nil
+	}
+	if q.Filter.CollectionMembers != 0 {
+		// A collection library reads its page straight from the semi-join:
+		// the cached page keys cannot promise to follow a rebuild, and the
+		// count always comes from the predicates above.
+		items, err := c.queryPagedTitles(ctx, `SELECT `+prefixedCols("t")+` FROM catalog_titles t WHERE `+where+` ORDER BY `+browseOrder(q)+`, t.key ASC LIMIT ? OFFSET ?`, append(append([]any{}, args...), limit, offset)...)
+		if err != nil {
+			return core.Page{}, err
+		}
+		if q.Sort == core.SortAdded {
+			if err := applyAirAddedTimes(ctx, c.db, items, c.now()); err != nil {
+				return core.Page{}, err
+			}
+		}
+		if items == nil {
+			items = []core.Title{}
 		}
 		c.kickMovieYears(items)
 		return core.Page{Items: items, Total: total}, nil

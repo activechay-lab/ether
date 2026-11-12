@@ -103,6 +103,45 @@ func TestFilterAndPluginLibraries(t *testing.T) {
 	}
 }
 
+func TestCreateCollectionLibrary(t *testing.T) {
+	s, db := openService(t)
+	ctx := context.Background()
+
+	lib, err := s.CreateCollection(ctx, "MDBList picks", 42, core.TypeMovie, core.Presentations{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Source != core.LibraryCollection || lib.CollectionID != 42 || lib.MediaType != core.TypeMovie || lib.Key != "mdblist-picks" {
+		t.Fatalf("collection library = %+v", lib)
+	}
+	// The collection id round-trips through the store.
+	var stored int64
+	if err := db.QueryRowContext(ctx, `SELECT collection_id FROM libraries WHERE id=?`, int64(lib.ID)).Scan(&stored); err != nil || stored != 42 {
+		t.Fatalf("stored collection_id = %d, %v", stored, err)
+	}
+	got, err := s.Get(ctx, lib.ID)
+	if err != nil || got.CollectionID != 42 || got.Source != core.LibraryCollection {
+		t.Fatalf("round-trip = %+v, %v", got, err)
+	}
+
+	if _, err := s.CreateCollection(ctx, "No source", 0, core.TypeMovie, core.Presentations{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing collection = %v, want ErrInvalid", err)
+	}
+	if _, err := s.CreateCollection(ctx, "Bad type", 42, core.TypeEpisode, core.Presentations{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("episode type = %v, want ErrInvalid", err)
+	}
+	if _, err := s.CreateCollection(ctx, "!!!", 42, core.TypeMovie, core.Presentations{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unslugifiable name = %v, want ErrInvalid", err)
+	}
+	// Collection libraries are console-only like filter ones and may be deleted.
+	if lib.Present.Plex != nil || lib.Present.MediaBrowser != nil || lib.Present.Stremio != nil || lib.Present.AdapterOnly {
+		t.Fatalf("new library must be console-only: %+v", lib.Present)
+	}
+	if err := s.Delete(ctx, lib.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOwnerEditsAndDelete(t *testing.T) {
 	s, _ := openService(t)
 	ctx := context.Background()
