@@ -629,7 +629,9 @@ func (s *Service) loadReels() {
 			}
 			if c.Status == "ready" {
 				if st, e := os.Stat(filepath.Join(s.o.Dir, "reel-"+c.ID+".mp4")); e == nil && st.Size() > 0 {
+					s.mu.Lock()
 					s.reelReady[c.ID] = true
+					s.mu.Unlock()
 				}
 			}
 		}

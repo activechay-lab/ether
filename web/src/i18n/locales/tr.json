@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Program",
   "m_03a78e28ac4a93": "Günü düzenlemek için bir gün bölümü veya program bloğu ekleyin.",
   "m_03a83b35a93323": "İntro ve jenerik zamanları IntroDB'den.",
+  "m_03a9d03d902695": "Canlı TV ayarları",
   "m_03abee25fafc93": "Bir diziyi DVD, mutlak veya hikâye sırasında gösterin. Oynatma özgün bölüm numaralarını korur.",
   "m_03acc54b13526c": "Kanal kaydedildi",
   "m_03b06978a0c496": "Seçili satırları {status} yap",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Bu adres farklı bir Plex Media Server. Bunun yerine yeni bir sunucu olarak ekleyin.",
   "m_10815a5071e78a": "Bu sunucudan uzaktan denetimler kullanılamıyor.",
   "m_10816f12b17447": "Arkadaşların izleme listeleri",
+  "m_1081a82a29d87e": "Şimdi değil",
   "m_1082d1a6a743cc": "Simkl hesabı bağlandı.",
   "m_1083e252cdd4f4": "Tüm eşleşmeleri seç",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} dizi",
     "other": "{count} dizi"
   },
+  "m_1399a627c83e1c": "On yıllara göre dört kanal dahildir.",
   "m_139b8ded964f74": "Günler ve saatler bu tarayıcının saat dilimini kullanır. İzleme süresi, 60 saniyeden uzun araları ve bir cihazla eşleştirilemeyen eşzamanlı oturumları içermez.",
   "m_139c53184ae84d": "Eşleşenleri hariç tut",
   "m_139d73afa66352": "{name} zaten Canlı TV'de",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Bu kuralın hangi başlıklar için profil seçebileceği.",
   "m_183815c6a27403": "{role} sahnesi ekle",
   "m_1839a1952915f3": "X ölçeği",
+  "m_183ab4689851c1": "Canlı TV ister misiniz?",
   "m_183ae29a79ca63": "Bu düğümün veritabanıyla olay bağlantısı kesik; bu nedenle diğer düğümlerde yapılan değişiklikler ona geç ulaşabilir.",
   "m_183b86f1f56580": "Ether'e ulaşılamıyor",
   "m_183bcb896e9d74": "başlık görünüyor",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Kanal listesi",
   "m_1ac946fceccf3d": "Yayın kararlılığı {name} olarak ayarlandı",
   "m_1ac96195e626ad": "Ether tasarımı",
+  "m_1ac9fed8f36220": "Canlı TV’yi kapat",
   "m_1acae0294a1669": "Kural {n} sürükle",
   "m_1acbb68bd15774": {
     "one": "saatte {count} takılma",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Kurulum bağlantısı",
   "m_1f6efbd7eae067": "Yedeğin alındığı tarih",
   "m_1f6f6d8a5a635a": "Ether, kitaplığınızı TMDB'den oluşturur, bu nedenle bir TMDB API anahtarı gereklidir. Ücretsizdir: {link}, ardından buraya yapıştırıp test edin.",
+  "m_1f7016a0ea3efe": "Şimdi kaynak ekle",
   "m_1f7223c74bf3d9": "Bir izleyici seçin",
   "m_1f7969b9559bf0": "Minimum popülerlik",
   "m_1f79b14cede513": "Kaynağı kaldır",

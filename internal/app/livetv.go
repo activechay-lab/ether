@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/admin"
@@ -14,6 +16,29 @@ import (
 )
 
 func (a *App) buildLiveTV() error {
+	// Resolve the additive switch once from existing owner state, before workers start.
+	if a.cfg.Read().LiveTV.Enabled == nil {
+		enabled := false
+		var count int
+		if err := a.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM livetv_sources`).Scan(&count); err == nil && count > 0 {
+			enabled = true
+		}
+		rows, err := a.db.QueryContext(context.Background(), `SELECT data FROM livetv_channels`)
+		if err == nil {
+			for rows.Next() {
+				var raw string
+				var c livetv.Channel
+				if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &c) == nil && c.Enabled {
+					enabled = true
+					break
+				}
+			}
+			rows.Close()
+		}
+		if err := a.cfg.Update(func(c *config.Config) error { c.LiveTV.Enabled = &enabled; return nil }); err != nil {
+			return err
+		}
+	}
 	if err := a.buildOnAir(); err != nil {
 		return err
 	}
@@ -29,7 +54,7 @@ func (a *App) buildLiveTV() error {
 	if a.transcoder != nil {
 		ffmpeg = a.transcoder.FFmpegPath()
 	}
-	svc, err := livetv.New(livetv.Options{SessionsChanged: a.notifySessionsChanged, SourcesChanged: a.publishDashboard, VODChanged: func() {
+	svc, err := livetv.New(livetv.Options{Enabled: func() bool { v := a.cfg.Read().LiveTV.Enabled; return v != nil && *v }, SessionsChanged: a.notifySessionsChanged, SourcesChanged: a.publishDashboard, VODChanged: func() {
 		if a.resolver != nil {
 			a.resolver.SourcesChanged(context.Background())
 		}
@@ -61,12 +86,28 @@ func (a *App) buildLiveTV() error {
 	svc.SetOnChange(func() {
 		a.frontends.notifyLiveLineup(0)
 	})
+	var enabledMu sync.Mutex
+	wasEnabled := svc.Enabled()
 	a.cfg.Subscribe(func(config.Config) {
+		enabledMu.Lock()
+		defer enabledMu.Unlock()
+		enabled := svc.Enabled()
+		if enabled {
+			a.onair.SetEnabled(true)
+		}
+		if enabled && !wasEnabled {
+			if err := svc.EnableShowcaseDefaults(context.Background()); err != nil {
+				a.log.Warn("live showcase enable failed", "error", err)
+			}
+		}
+		wasEnabled = enabled
+		svc.ReconcileEnabled()
+		a.onair.SetEnabled(svc.Enabled())
 		if err := svc.RefreshGuide(context.Background()); err != nil {
 			a.log.Warn("live guide configuration refresh failed", "error", err)
 		}
 	})
-	a.onair.Start()
+	a.onair.SetEnabled(svc.Enabled())
 	a.closers = append(a.closers, func() { svc.Close() })
 	return nil
 }

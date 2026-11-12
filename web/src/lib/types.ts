@@ -416,6 +416,7 @@ export interface EtherConfig {
     sourceOrder?: string[];
   };
   liveTV?: {
+    enabled?: boolean;
     logoIndexUrl?: string;
     healthSweepMinutes?: number;
     stability?: "fastest" | "balanced" | "rocksolid" | "";

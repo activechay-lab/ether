@@ -157,7 +157,7 @@ func (s *Service) waitVOD(timer *time.Timer, d time.Duration) bool {
 
 func (s *Service) vodLoop() {
 	defer s.wg.Done()
-	timer := time.NewTimer(time.Second)
+	timer := s.newTimer(time.Second)
 	defer timer.Stop()
 	select {
 	case <-s.ctx.Done():
@@ -220,6 +220,9 @@ func (s *Service) vodLoop() {
 // RefreshVOD streams large lists into a transaction. Unchanged revisions keep
 // cached details; a failed refresh never removes the previous index.
 func (s *Service) RefreshVOD(ctx context.Context, id string) (err error) {
+	if !s.Enabled() {
+		return core.ErrNotAvailable
+	}
 	if !s.vodRefreshMu.TryLock() {
 		return ErrProviderBusy
 	}

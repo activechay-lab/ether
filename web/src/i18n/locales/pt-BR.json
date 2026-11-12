@@ -1057,6 +1057,7 @@
   "m_03a67ea49a76e6": "Programa",
   "m_03a78e28ac4a93": "Adicione uma faixa horária ou bloco de programação para organizar o dia.",
   "m_03a83b35a93323": "Tempos de abertura e créditos do IntroDB.",
+  "m_03a9d03d902695": "Configurações de TV ao vivo",
   "m_03abee25fafc93": "Mostre uma série em ordem de DVD, absoluta ou de história. A reprodução mantém os números originais.",
   "m_03acc54b13526c": "Canal salvo",
   "m_03b06978a0c496": "Definir as linhas selecionadas como {status}",
@@ -4719,6 +4720,7 @@
   "m_107e66090c813c": "Esse endereço é de outro Plex Media Server. Adicione-o como um novo servidor.",
   "m_10815a5071e78a": "Os controles remotos não estão disponíveis neste servidor.",
   "m_10816f12b17447": "Listas de interesses dos amigos",
+  "m_1081a82a29d87e": "Agora não",
   "m_1082d1a6a743cc": "Conta do Simkl conectada.",
   "m_1083e252cdd4f4": "Selecionar todos os resultados",
   "m_1084ceab8e0923": {
@@ -5674,6 +5676,7 @@
     "one": "{count} série",
     "other": "{count} séries"
   },
+  "m_1399a627c83e1c": "Quatro canais por década estão incluídos.",
   "m_139b8ded964f74": "Os dias e horários usam o fuso horário deste navegador. O tempo assistido exclui pausas maiores que 60 segundos e sessões simultâneas que não podem ser associadas a um dispositivo.",
   "m_139c53184ae84d": "Deixar resultados de fora",
   "m_139d73afa66352": "{name} já está em TV ao vivo",
@@ -7004,6 +7007,7 @@
   "m_1837d867f508a4": "Para quais títulos esta regra pode escolher um perfil.",
   "m_183815c6a27403": "Adicionar cena: {role}",
   "m_1839a1952915f3": "Escala X",
+  "m_183ab4689851c1": "Quer TV ao vivo?",
   "m_183ae29a79ca63": "A conexão de eventos deste nó com o banco de dados está fora do ar, então as alterações feitas em outros nós podem chegar com atraso.",
   "m_183b86f1f56580": "Não foi possível acessar o Ether",
   "m_183bcb896e9d74": "títulos visíveis",
@@ -7783,6 +7787,7 @@
   "m_1ac92994b09ea0": "Grade de canais",
   "m_1ac946fceccf3d": "Estabilidade da transmissão definida como {name}",
   "m_1ac96195e626ad": "Design do Ether",
+  "m_1ac9fed8f36220": "Desativar TV ao vivo",
   "m_1acae0294a1669": "Arrastar a regra {n}",
   "m_1acbb68bd15774": {
     "many": "{count} travamentos por hora",
@@ -9125,6 +9130,7 @@
   "m_1f6e9a6fca8bf1": "Link de instalação",
   "m_1f6efbd7eae067": "Backup criado",
   "m_1f6f6d8a5a635a": "O Ether cria sua biblioteca a partir do TMDB, então uma chave de API do TMDB é obrigatória. Ela é gratuita: {link}, depois cole-a aqui e teste.",
+  "m_1f7016a0ea3efe": "Adicionar uma fonte agora",
   "m_1f7223c74bf3d9": "Escolha um espectador",
   "m_1f7969b9559bf0": "Popularidade mínima",
   "m_1f79b14cede513": "Remover fonte",

@@ -386,7 +386,7 @@ func (h *sourceHistoryStore) seedHealth() {
 
 func (h *sourceHistoryStore) loop(db *sql.DB) {
 	defer h.s.wg.Done()
-	flush := time.NewTimer(historyFlushEvery)
+	flush := h.s.newTimer(historyFlushEvery)
 	if !flush.Stop() {
 		select {
 		case <-flush.C:
@@ -397,7 +397,7 @@ func (h *sourceHistoryStore) loop(db *sql.DB) {
 	armed := false
 	var refreshC <-chan time.Time
 	if h.pg {
-		refresh := time.NewTicker(historyRefreshEvery)
+		refresh := h.s.newTicker(historyRefreshEvery)
 		defer refresh.Stop()
 		refreshC = refresh.C
 	}

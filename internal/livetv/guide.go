@@ -1177,6 +1177,9 @@ func (s *Service) RefreshSource(ctx context.Context, id string) (Source, error) 
 }
 
 func (s *Service) refreshSource(ctx context.Context, id, reason string) (Source, error) {
+	if !s.Enabled() {
+		return Source{}, core.ErrNotAvailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
 	defer cancel()
 	release, err := s.acquireRefresh(ctx, id)
@@ -1348,7 +1351,7 @@ func (s *Service) nextSourceRefreshWait(ctx context.Context) (time.Duration, boo
 
 func (s *Service) refreshLoop() {
 	defer s.wg.Done()
-	timer := time.NewTimer(refreshCheckInterval)
+	timer := s.newTimer(refreshCheckInterval)
 	if !timer.Stop() {
 		select {
 		case <-timer.C:

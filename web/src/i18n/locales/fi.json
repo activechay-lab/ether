@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Ohjelma",
   "m_03a78e28ac4a93": "Lisää vuorokaudenaika tai ohjelmalohko päivän järjestämiseksi.",
   "m_03a83b35a93323": "Intron ja lopputekstien ajat IntroDB:stä.",
+  "m_03a9d03d902695": "Suoran TV:n asetukset",
   "m_03abee25fafc93": "Näytä sarja DVD-, absoluuttisessa tai tarinajärjestyksessä. Toisto säilyttää alkuperäiset jaksot.",
   "m_03acc54b13526c": "Kanava tallennettu",
   "m_03b06978a0c496": "Aseta valituille riveille {status}",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Osoite kuuluu toiselle Plex Media Serverille. Lisää se sen sijaan uutena palvelimena.",
   "m_10815a5071e78a": "Etähallinta ei ole käytettävissä tältä palvelimelta.",
   "m_10816f12b17447": "Ystävien katselulistat",
+  "m_1081a82a29d87e": "Ei nyt",
   "m_1082d1a6a743cc": "Simkl-tili yhdistetty.",
   "m_1083e252cdd4f4": "Valitse kaikki osumat",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} sarja",
     "other": "{count} sarjaa"
   },
+  "m_1399a627c83e1c": "Mukana on neljä vuosikymmenkanavaa.",
   "m_139b8ded964f74": "Päivät ja tunnit käyttävät tämän selaimen aikavyöhykettä. Katseluaika ei sisällä yli 60 sekunnin taukoja eikä samanaikaisia istuntoja, joita ei voida yhdistää laitteeseen.",
   "m_139c53184ae84d": "Jätä osumat pois",
   "m_139d73afa66352": "{name} on jo Live-TV:ssä",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Mille nimikkeille tämä sääntö voi valita profiilin.",
   "m_183815c6a27403": "Lisää {role}-kohtaus",
   "m_1839a1952915f3": "X-skaalaus",
+  "m_183ab4689851c1": "Haluatko suoran TV:n?",
   "m_183ae29a79ca63": "Tämän solmun tapahtumayhteys tietokantaan on poikki, joten muilla solmuilla tehdyt muutokset voivat saavuttaa sen myöhässä.",
   "m_183b86f1f56580": "Etheriin ei saada yhteyttä",
   "m_183bcb896e9d74": "nimikettä näkyvissä",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Kanavalista",
   "m_1ac946fceccf3d": "Lähetyksen vakaudeksi asetettu {name}",
   "m_1ac96195e626ad": "Etherin suunnitelma",
+  "m_1ac9fed8f36220": "Poista suora TV käytöstä",
   "m_1acae0294a1669": "Vedä sääntö {n}",
   "m_1acbb68bd15774": {
     "one": "{count} katkos tunnissa",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Asennuslinkki",
   "m_1f6efbd7eae067": "Varmuuskopio tehty",
   "m_1f6f6d8a5a635a": "Ether rakentaa kirjastosi TMDB:stä, joten TMDB API -avain on pakollinen. Se on ilmainen: {link}, liitä se sitten tähän ja testaa se.",
+  "m_1f7016a0ea3efe": "Lisää lähde nyt",
   "m_1f7223c74bf3d9": "Valitse katselija",
   "m_1f7969b9559bf0": "Vähimmäissuosio",
   "m_1f79b14cede513": "Poista lähde",

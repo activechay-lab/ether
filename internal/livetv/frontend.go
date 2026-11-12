@@ -241,6 +241,9 @@ func (h liveTVHost) AllowedChannel(ctx context.Context, u *frontend.User, id str
 }
 
 func (h liveTVHost) Channel(ctx context.Context, id string) (frontend.LiveTVChannel, error) {
+	if !h.s.Enabled() {
+		return frontend.LiveTVChannel{}, core.ErrNotAvailable
+	}
 	c, err := h.s.Channel(ctx, id)
 	if err != nil {
 		return frontend.LiveTVChannel{}, err
@@ -257,6 +260,9 @@ func (h liveTVHost) ChannelForViewer(ctx context.Context, u *frontend.User, id s
 }
 
 func (h liveTVHost) AllChannels(ctx context.Context) ([]frontend.LiveTVChannel, error) {
+	if !h.s.Enabled() {
+		return nil, nil
+	}
 	cs, err := h.s.Channels(ctx)
 	if err != nil {
 		return nil, err

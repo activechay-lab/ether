@@ -33,6 +33,9 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	lifecycleMu sync.Mutex
+	running     bool
+
 	activityWake          chan struct{}
 	noActivitySources     atomic.Bool
 	sourceWake            chan struct{}
@@ -128,6 +131,12 @@ func New(o Options) (*Service, error) {
 	if o.Logger == nil {
 		o.Logger = slog.Default().With("component", "livetv")
 	}
+	if o.NewTimer == nil {
+		o.NewTimer = time.NewTimer
+	}
+	if o.NewTicker == nil {
+		o.NewTicker = time.NewTicker
+	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -152,18 +161,59 @@ func New(o Options) (*Service, error) {
 	s.personalWake = make(chan struct{}, 1)
 	s.sweepWake = make(chan struct{}, 1)
 	s.broadcasts.onAcquire = s.wakeMaintenance
-	if o.Picker != nil && o.Users != nil {
+	s.virtualGuide.wake = make(chan struct{}, 1)
+	s.ReconcileEnabled()
+	return s, nil
+}
+
+// Enabled is shared by protocol surfaces and all background work admission.
+func (s *Service) Enabled() bool { return s.o.Enabled == nil || s.o.Enabled() }
+
+// ReconcileEnabled drains workers before changing their lifetime context.
+func (s *Service) ReconcileEnabled() {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	enabled := s.Enabled()
+	if enabled == s.running {
+		return
+	}
+	if !enabled {
+		s.cancel()
+		s.broadcasts.close()
+		s.wg.Wait()
+		s.waitVirtualGuideInflight()
+		s.mu.Lock()
+		all := s.sessions
+		s.sessions = map[string]*session{}
+		s.watched = nil
+		s.activeWatched = nil
+		s.mu.Unlock()
+		for _, ss := range all {
+			ss.close(s)
+		}
+		s.virtualGuide.mu.Lock()
+		s.virtualGuide.entries = nil
+		s.virtualGuide.mu.Unlock()
+		s.running = false
+		return
+	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.broadcasts.mu.Lock()
+	s.broadcasts.closed = false
+	s.broadcasts.mu.Unlock()
+	s.running = true
+	if s.o.Picker != nil && s.o.Users != nil {
 		s.wg.Add(1)
 		go s.personalLoop()
 	}
 	s.virtualGuide.wake = make(chan struct{}, 1)
 	s.wg.Add(1)
 	go s.virtualGuideLoop()
-	if o.BreakInput != nil && o.BreakAnalyzer != nil {
+	if s.o.BreakInput != nil && s.o.BreakAnalyzer != nil {
 		s.wg.Add(1)
 		go s.breakLoop()
 	}
-	if o.Showcase && o.Catalog != nil {
+	if s.o.Showcase && s.o.Catalog != nil {
 		s.wg.Add(1)
 		go s.showcaseLoop()
 	}
@@ -173,7 +223,6 @@ func New(o Options) (*Service, error) {
 	go s.refreshLoop()
 	go s.healthSweepLoop()
 	s.history.start(s)
-	return s, nil
 }
 
 // A neutral playback identity is shared by source requests. Explicit source
@@ -299,7 +348,7 @@ func (s *Service) maintainActive() bool {
 func (s *Service) maintain() {
 	defer s.wg.Done()
 	steps := s.maintenanceSteps()
-	timer := time.NewTimer(15 * time.Second)
+	timer := s.newTimer(15 * time.Second)
 	if !timer.Stop() {
 		select {
 		case <-timer.C:
@@ -1073,6 +1122,9 @@ func (s *Service) SavePolicy(ctx context.Context, p Policy) error {
 	return err
 }
 func (s *Service) allowed(ctx context.Context, u *core.User, c Channel, p *Programme) bool {
+	if !s.Enabled() {
+		return false
+	}
 	var lookup func(context.Context, core.RatingKey) (*core.Title, error)
 	if s.o.Catalog != nil {
 		lookup = s.o.Catalog.Get
@@ -1216,6 +1268,9 @@ func (s *Service) AllowedChannelsForIDs(ctx context.Context, u *core.User, ids [
 }
 
 func (s *Service) allowedChannels(ctx context.Context, u *core.User, ids []string) ([]Channel, error) {
+	if !s.Enabled() {
+		return nil, nil
+	}
 	ctx, pol, err := s.withPolicy(ctx, u)
 	if err != nil {
 		return nil, err
@@ -1291,6 +1346,9 @@ func (s *Service) allowedChannels(ctx context.Context, u *core.User, ids []strin
 // policy check as AllowedChannels without loading the lineup. Plex tune used
 // the whole list only to find the requested channel.
 func (s *Service) AllowedChannel(ctx context.Context, u *core.User, key string) (Channel, error) {
+	if !s.Enabled() {
+		return Channel{}, core.ErrNotAvailable
+	}
 	ctx, _, err := s.withPolicy(ctx, u)
 	if err != nil {
 		return Channel{}, err
@@ -1348,6 +1406,9 @@ func (s *Service) allowedChannelRecord(ctx context.Context, u *core.User, c Chan
 // repeat checks for the same channel without another guide read. Callers that
 // are not looking at a live channel must not call this.
 func (s *Service) ChannelPermitted(ctx context.Context, u *core.User, id string) (bool, error) {
+	if !s.Enabled() {
+		return false, nil
+	}
 	if u == nil || id == "" {
 		return false, nil
 	}
@@ -1578,6 +1639,9 @@ func channelFromSummary(c ChannelSummary) Channel {
 }
 
 func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time, ids []string) ([]Programme, error) {
+	if !s.Enabled() {
+		return nil, nil
+	}
 	if !until.After(from) || until.Sub(from) > 7*24*time.Hour {
 		return nil, fmt.Errorf("guide window must be positive and at most 7 days")
 	}
@@ -1924,6 +1988,9 @@ func (s *Service) readURL(ctx context.Context, raw string, max int64) (string, e
 // Owner changes to mapping, enabled state, channel numbering, favourites and
 // restrictions survive refresh.
 func (s *Service) ImportSource(ctx context.Context, src Source) (Source, error) {
+	if !s.Enabled() {
+		return Source{}, core.ErrNotAvailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
 	defer cancel()
 	if src.ID == "" {
@@ -2334,6 +2401,9 @@ func (s *Service) SavePendingSource(ctx context.Context, src Source) (Source, er
 // ImportUpload streams a raw playlist or guide body (gzip is decompressed
 // while reading) into an existing source.
 func (s *Service) ImportUpload(ctx context.Context, id, part string, body io.Reader) (Source, error) {
+	if !s.Enabled() {
+		return Source{}, core.ErrNotAvailable
+	}
 	src, err := s.storedSourceByID(ctx, id)
 	if err != nil {
 		return src, err
@@ -2440,4 +2510,17 @@ func (s *Service) DeleteSource(ctx context.Context, id string) error {
 		s.bumpLineup()
 	}
 	return err
+}
+
+func (s *Service) newTimer(d time.Duration) *time.Timer {
+	if s.o.NewTimer != nil {
+		return s.o.NewTimer(d)
+	}
+	return time.NewTimer(d)
+}
+func (s *Service) newTicker(d time.Duration) *time.Ticker {
+	if s.o.NewTicker != nil {
+		return s.o.NewTicker(d)
+	}
+	return time.NewTicker(d)
 }

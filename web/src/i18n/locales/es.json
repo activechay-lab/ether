@@ -1057,6 +1057,7 @@
   "m_03a67ea49a76e6": "Programa",
   "m_03a78e28ac4a93": "Añade una franja horaria o un bloque de programación para organizar el día.",
   "m_03a83b35a93323": "Tiempos de intro y créditos de IntroDB.",
+  "m_03a9d03d902695": "Ajustes de TV en directo",
   "m_03abee25fafc93": "Presenta una serie en orden DVD, absoluto o de historia. La reproducción conserva los números originales.",
   "m_03acc54b13526c": "Canal guardado",
   "m_03b06978a0c496": "Cambiar las filas seleccionadas a {status}",
@@ -4719,6 +4720,7 @@
   "m_107e66090c813c": "Esa dirección es de otro Plex Media Server. Añádelo como servidor nuevo.",
   "m_10815a5071e78a": "Los controles remotos no están disponibles desde este servidor.",
   "m_10816f12b17447": "Listas de seguimiento de amigos",
+  "m_1081a82a29d87e": "Ahora no",
   "m_1082d1a6a743cc": "Cuenta de Simkl conectada.",
   "m_1083e252cdd4f4": "Seleccionar todas las coincidencias",
   "m_1084ceab8e0923": {
@@ -5674,6 +5676,7 @@
     "one": "{count} serie",
     "other": "{count} series"
   },
+  "m_1399a627c83e1c": "Se incluyen cuatro canales por décadas.",
   "m_139b8ded964f74": "Los días y las horas usan la zona horaria de este navegador. El tiempo de visualización excluye las pausas de más de 60 segundos y las sesiones simultáneas que no se pueden asociar a un dispositivo.",
   "m_139c53184ae84d": "Excluir coincidencias",
   "m_139d73afa66352": "{name} ya está en TV en directo",
@@ -7004,6 +7007,7 @@
   "m_1837d867f508a4": "Para qué títulos esta regla puede elegir un perfil.",
   "m_183815c6a27403": "Añadir escena: {role}",
   "m_1839a1952915f3": "Escala X",
+  "m_183ab4689851c1": "¿Quieres TV en directo?",
   "m_183ae29a79ca63": "La conexión de eventos de este nodo con la base de datos está caída, así que los cambios hechos en otros nodos pueden llegarle con retraso.",
   "m_183b86f1f56580": "No se puede conectar con Ether",
   "m_183bcb896e9d74": "títulos visibles",
@@ -7779,6 +7783,7 @@
   "m_1ac92994b09ea0": "Parrilla",
   "m_1ac946fceccf3d": "Estabilidad de la emisión: {name}",
   "m_1ac96195e626ad": "Diseño de Ether",
+  "m_1ac9fed8f36220": "Desactivar TV en directo",
   "m_1acae0294a1669": "Arrastrar la regla {n}",
   "m_1acbb68bd15774": {
     "many": "{count} interrupciones por hora",
@@ -9121,6 +9126,7 @@
   "m_1f6e9a6fca8bf1": "Enlace de instalación",
   "m_1f6efbd7eae067": "Copia de seguridad creada",
   "m_1f6f6d8a5a635a": "Ether crea tu biblioteca a partir de TMDB, así que se necesita una clave de API de TMDB. Es gratuita: {link}, pégala aquí y pruébala.",
+  "m_1f7016a0ea3efe": "Añadir una fuente ahora",
   "m_1f7223c74bf3d9": "Elige un espectador",
   "m_1f7969b9559bf0": "Popularidad mínima",
   "m_1f79b14cede513": "Eliminar fuente",
