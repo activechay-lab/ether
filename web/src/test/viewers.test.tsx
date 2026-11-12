@@ -160,7 +160,10 @@ describe("Viewers", () => {
     fireEvent.click(more);
     expect(await screen.findByLabelText("Different limit for Live TV")).toBeInTheDocument();
     // Simkl is off in the fake, so the viewer page links to its setup.
-    const hint = await screen.findByText(/to connect this viewer's account/, {}, WAIT);
+    const simklSection = (await screen.findByText("Simkl", { selector: "h2" }, WAIT)).closest(
+      "section",
+    )!;
+    const hint = within(simklSection).getByText(/to connect this viewer's account/);
     expect(within(hint).getByRole("link", { name: "Integrations" })).toHaveAttribute(
       "href",
       "/services/simkl",

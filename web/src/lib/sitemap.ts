@@ -374,6 +374,12 @@ const PAGES = localized<PageDef[]>(() => [
         keywords: searchTerms(msg("simkl sync history")),
       },
       {
+        key: "mdblist",
+        href: "/services/overview#mdblist",
+        title: "MDBList",
+        keywords: searchTerms(msg("mdblist sync history")),
+      },
+      {
         key: "llm",
         href: "/services/overview#llm",
         title: t("Language model"),

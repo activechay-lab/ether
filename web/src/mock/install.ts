@@ -43,6 +43,7 @@ export function installMockBackend(): void {
     c.catalog.tmdbKey = "[configured]";
     c.trakt = { enabled: true, clientId: "ether-trakt", clientSecret: "[configured]" };
     c.simkl = { enabled: true, clientId: "ether-simkl", clientSecret: "[configured]" };
+    c.mdblist = { enabled: true };
     c.openSubtitles = {
       enabled: true,
       apiKey: "[configured]",

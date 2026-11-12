@@ -34,6 +34,7 @@ var sealedTables = []struct{ table, column string }{
 	{"simkl_devices", "device_code"},
 	{"simkl_tokens", "access_token"},
 	{"simkl_tokens", "refresh_token"},
+	{"mdblist_accounts", "api_key"},
 	{"trakt_tokens", "access_token"},
 	{"trakt_tokens", "refresh_token"},
 	{"notify_channels", "config"},

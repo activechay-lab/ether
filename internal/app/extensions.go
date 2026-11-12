@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/braedonsaunders/ether/internal/mdblist"
 	"github.com/braedonsaunders/ether/internal/simkl"
 
 	"github.com/braedonsaunders/ether/internal/admin"
@@ -19,6 +20,18 @@ func (a *App) extensionHandlers() map[string]http.Handler {
 	m := map[string]http.Handler{"safety/policies": a.safety.Handler()}
 	m["viewer-plex-defaults"] = a.users.PlexDefaultsHandler()
 	m["simkl"] = simkl.Handler(simkl.HandlerDeps{Device: a.simklDevice, Service: a.simklService, Enabled: func() bool { c := a.cfg.Get().Simkl; return c.Enabled && c.ClientID != "" }, Viewer: func(ctx context.Context, id int64) bool {
+		users, err := a.users.Users(ctx)
+		if err != nil {
+			return false
+		}
+		for _, u := range users {
+			if u.ID == id {
+				return true
+			}
+		}
+		return false
+	}})
+	m["mdblist"] = mdblist.Handler(mdblist.HandlerDeps{Tokens: a.mdblistTokens, Service: a.mdblistService, Enabled: func() bool { return a.cfg.Get().MDBList.Enabled }, Viewer: func(ctx context.Context, id int64) bool {
 		users, err := a.users.Users(ctx)
 		if err != nil {
 			return false

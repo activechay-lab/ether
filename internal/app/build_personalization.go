@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/favorites"
 	"github.com/braedonsaunders/ether/internal/llm"
+	"github.com/braedonsaunders/ether/internal/mdblist"
 	"github.com/braedonsaunders/ether/internal/notinterested"
 	"github.com/braedonsaunders/ether/internal/personalize"
 	"github.com/braedonsaunders/ether/internal/recommend"
@@ -96,6 +97,18 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 		}
 	})
 	a.closers = append(a.closers, unsubSimkl)
+	a.mdblistTokens = &mdblist.TokenStore{DB: a.db, Sealer: a.cfg}
+	unsubMDBList := a.state.Subscribe(func(ev state.Event) {
+		if !a.cfg.Get().MDBList.Enabled {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := mdblist.Enqueue(ctx, a.db, ev); err != nil {
+			a.log.Warn("mdblist: enqueue failed", "err", err)
+		}
+	})
+	a.closers = append(a.closers, unsubMDBList)
 	a.closers = append(a.closers, a.trakt.Close)
 	a.llm = llm.New(llm.ServiceOptions{
 		Client:  llm.NewClient(llm.ClientOptions{Config: cfg.LLM, Logger: log.With("component", "llm")}),
