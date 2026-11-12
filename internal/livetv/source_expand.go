@@ -13,10 +13,17 @@ import (
 
 // droppedUnavailableKey carries a running count of titles dropped as
 // known-unavailable during one expand() call. expand() copies the final
-// count onto Channel.DroppedUnavailable, which availabilityRecheckLoop uses
-// to find channels worth re-expanding later (see expand() in service.go and
-// availabilityRecheckLoop below).
+// count onto Channel.DroppedUnavailable, which maybeRecheckAvailability uses
+// to find a channel worth re-expanding on its next tune or guide request
+// (see expand() in service.go and maybeRecheckAvailability below).
 type droppedUnavailableKey struct{}
+
+// availabilityRecheckFloor bounds how often a channel with dropped titles
+// gets re-expanded. Most drops (season-0 specials with no release, ever)
+// never recover, so re-expanding on literally every tune or guide request
+// would cost real work for nothing; six hours keeps a recovered title from
+// sitting out for long once it's cached, without paying that cost per request.
+const availabilityRecheckFloor = 6 * time.Hour
 
 // expandProgramSource runs only while saving or rebuilding background snapshots.
 // Persisted Items are the sole input to the deterministic playout engine.
@@ -295,67 +302,112 @@ func validateProgramming(c *Channel, check func([]Item) error) error {
 	return nil
 }
 
-// availabilityRecheckLoop re-expands every ordinary (non-showcase,
-// non-personal) virtual channel that last dropped a known-unavailable
-// title, so a title that finishes caching later gets picked back up without
-// anyone having to touch the source selection just to force a re-expand.
-// Mirrors showcaseLoop's own self-healing refresh (showcase.go), extended to
-// channels built by hand through "pick a show/movie, click apply" rather
-// than a shipped recipe - those have no other timer bringing them back.
-func (s *Service) availabilityRecheckLoop() {
-	defer s.wg.Done()
-	timer := time.NewTimer(5 * time.Minute)
-	defer timer.Stop()
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-timer.C:
-		}
-		s.recheckDroppedChannels(s.ctx)
-		timer.Reset(5 * time.Minute)
+// maybeRecheckAvailability kicks off a background re-expand of c when it's
+// worth one: an ordinary (non-personal) virtual channel whose last expand()
+// dropped a known-unavailable title, not re-checked within
+// availabilityRecheckFloor. Call this from a request path that already has
+// the channel in hand - a tune or a guide lookup - never from a timer: idle
+// channels (including ones that will never recover) must cost nothing.
+func (s *Service) maybeRecheckAvailability(c Channel) {
+	if c.Kind != "virtual" || c.Personal != nil || c.DroppedUnavailable == 0 {
+		return
 	}
+	if s.o.Now().UnixMilli()-c.LastExpandedAt < availabilityRecheckFloor.Milliseconds() {
+		return
+	}
+	s.recheckMu.Lock()
+	if s.recheckInFlight == nil {
+		s.recheckInFlight = map[string]bool{}
+	}
+	if s.recheckInFlight[c.ID] {
+		s.recheckMu.Unlock()
+		return
+	}
+	s.recheckInFlight[c.ID] = true
+	s.recheckMu.Unlock()
+	go func() {
+		defer func() {
+			s.recheckMu.Lock()
+			delete(s.recheckInFlight, c.ID)
+			s.recheckMu.Unlock()
+		}()
+		s.recheckChannelAvailability(s.ctx, c.ID)
+	}()
 }
 
-// recheckDroppedChannels is a best-effort pass: any failure (a flaky
-// catalogue, a channel mid-airing) just skips that channel for this tick -
-// there is no save to protect here, the next tick tries again.
-func (s *Service) recheckDroppedChannels(ctx context.Context) {
-	cs, err := s.Channels(ctx)
+// recheckChannelAvailability re-expands one channel and writes the result
+// back only if the programme keys actually changed, so a channel whose
+// drops never recover doesn't churn its stored row or the guide on every
+// retry - only Channel.LastExpandedAt advances, which is enough to hold off
+// the next attempt until the floor passes again.
+func (s *Service) recheckChannelAvailability(ctx context.Context, id string) {
+	if s.channelBusy(id) {
+		return // never move a programme under a viewer; a later tune retries
+	}
+	var showcased int
+	if err := s.o.DB.QueryRowContext(ctx, `SELECT 1 FROM livetv_showcase WHERE channel_id=?`, id).Scan(&showcased); err == nil {
+		return // showcaseLoop already keeps this one current
+	}
+	c, err := s.Channel(ctx, id)
+	if err != nil || c.Kind != "virtual" || c.Personal != nil || c.DroppedUnavailable == 0 {
+		return
+	}
+	before := channelItemKeys(c)
+	if err := s.expand(ctx, &c); err != nil {
+		return
+	}
+	c.LastExpandedAt = s.o.Now().UnixMilli()
+	if err := validateChannel(&c); err != nil {
+		return
+	}
+	data, err := json.Marshal(c)
 	if err != nil {
 		return
 	}
-	showcased := map[string]bool{}
-	if rows, err := s.o.DB.QueryContext(ctx, `SELECT channel_id FROM livetv_showcase`); err == nil {
-		for rows.Next() {
-			var id string
-			if rows.Scan(&id) == nil {
-				showcased[id] = true
-			}
-		}
-		rows.Close()
+	if _, err := s.o.DB.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=?`, data, id); err != nil {
+		return
 	}
-	for _, c := range cs {
-		if c.Kind != "virtual" || c.Personal != nil || c.DroppedUnavailable == 0 || showcased[c.ID] {
-			continue
-		}
-		if s.channelBusy(c.ID) {
-			continue // never move a programme under a viewer; retry next pass
-		}
-		if err := s.expand(ctx, &c); err != nil {
-			continue
-		}
-		if err := validateChannel(&c); err != nil {
-			continue
-		}
-		data, err := json.Marshal(c)
-		if err != nil {
-			continue
-		}
-		if _, err := s.o.DB.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=?`, data, c.ID); err != nil {
-			continue
-		}
-		s.invalidate(c.ID, "")
-		_ = s.refreshVirtualGuideIfWarm(ctx)
+	if itemKeysEqual(before, channelItemKeys(c)) {
+		// Same programming: the write above only advanced LastExpandedAt
+		// (so the next attempt waits out the floor again) - nothing a
+		// viewer could see actually changed, so skip invalidating caches
+		// and nudging the guide.
+		return
 	}
+	s.invalidate(id, "")
+	_ = s.refreshVirtualGuideIfWarm(ctx)
+}
+
+// channelItemKeys flattens every item key a channel schedules - the
+// top-level items plus each block's and pin's own items - so
+// recheckChannelAvailability can tell whether a re-expand actually changed
+// anything the playout engine would ever read.
+func channelItemKeys(c Channel) []core.RatingKey {
+	keys := make([]core.RatingKey, 0, len(c.Items))
+	for _, it := range c.Items {
+		keys = append(keys, it.Key)
+	}
+	for _, b := range c.Blocks {
+		for _, it := range b.Items {
+			keys = append(keys, it.Key)
+		}
+	}
+	for _, p := range c.Pins {
+		for _, it := range p.Items {
+			keys = append(keys, it.Key)
+		}
+	}
+	return keys
+}
+
+func itemKeysEqual(a, b []core.RatingKey) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

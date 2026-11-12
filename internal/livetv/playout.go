@@ -253,6 +253,7 @@ func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID s
 	if err != nil {
 		return SessionInfo{}, err
 	}
+	s.maybeRecheckAvailability(c)
 	c = s.personalChannel(ctx, c, u)
 	ps, err := s.programmes(ctx, c, s.o.Now(), s.o.Now().Add(time.Second))
 	if err != nil {

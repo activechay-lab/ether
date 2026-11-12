@@ -92,6 +92,12 @@ type Service struct {
 	warmed        map[warmTarget]time.Time
 	vis           broadcastVisibilityState
 
+	// recheckMu/recheckInFlight dedupe maybeRecheckAvailability
+	// (source_expand.go): a tune and a guide request landing in the same
+	// instant for the same channel must not start two concurrent re-expands.
+	recheckMu       sync.Mutex
+	recheckInFlight map[string]bool
+
 	progressMu       sync.Mutex
 	progress         map[string]*progressTracker
 	lineupMu         sync.Mutex
@@ -166,10 +172,6 @@ func New(o Options) (*Service, error) {
 	if o.Showcase && o.Catalog != nil {
 		s.wg.Add(1)
 		go s.showcaseLoop()
-	}
-	if o.Catalog != nil {
-		s.wg.Add(1)
-		go s.availabilityRecheckLoop()
 	}
 	s.wg.Add(4)
 	go s.vodLoop()
@@ -964,6 +966,7 @@ func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 		if err := s.expand(ctx, &c); err != nil {
 			return c, err
 		}
+		c.LastExpandedAt = s.o.Now().UnixMilli()
 	}
 	if err := validateChannel(&c); err != nil {
 		return c, err
@@ -1631,6 +1634,11 @@ func (s *Service) guide(ctx context.Context, u *core.User, from, until time.Time
 				continue
 			}
 			cs = append(cs, channelFromSummary(c))
+		}
+	}
+	for _, c := range cs {
+		if c.Kind == "virtual" {
+			s.maybeRecheckAvailability(c)
 		}
 	}
 

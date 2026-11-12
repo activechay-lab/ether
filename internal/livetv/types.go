@@ -184,11 +184,21 @@ type Channel struct {
 	momentHistory        *momentHistory
 	DVRMinutes           int             `json:"dvrMinutes,omitempty"`
 	// DroppedUnavailable is how many titles the last expand() dropped as
-	// known-unavailable. availabilityRecheckLoop (source_expand.go) uses a
-	// nonzero count to find channels worth a periodic re-expand, so a title
-	// that finishes caching later gets picked back up without anyone having
-	// to touch the source selection.
+	// known-unavailable. A nonzero count, paired with LastExpandedAt, is
+	// what maybeRecheckAvailability (source_expand.go) uses to decide a
+	// tuned or guide-requested channel is worth a background re-expand, so
+	// a title that finishes caching later gets picked back up without
+	// anyone having to touch the source selection.
 	DroppedUnavailable   int             `json:"droppedUnavailable,omitempty"`
+	// LastExpandedAt is when expand() last ran for this channel on its
+	// behalf, in unix milliseconds. Set explicitly by SaveChannel and
+	// recheckChannelAvailability only - never inside expand() itself, since
+	// showcase.go's refresh diffs the full marshaled channel to decide
+	// whether anything changed, and a wall-clock field touched on every
+	// call would defeat that unchanged check. Lets maybeRecheckAvailability
+	// apply a floor between re-expand attempts instead of repeating the
+	// work on every tune.
+	LastExpandedAt       int64           `json:"lastExpandedAt,omitempty"`
 	Personal             *PersonalRecipe `json:"personal,omitempty"`
 	personalViewer       *core.User
 	Screens              *ChannelScreens `json:"screens,omitempty"`
