@@ -164,6 +164,32 @@ type PMSServer struct {
 	CheckedAt int64        `json:"checkedAt"`
 	Problem   string       `json:"problem"`
 	Viewers   []PMSMapping `json:"viewers"`
+	// StepAsideStatus explains what the step-aside scan last did, so the
+	// console can show whether the held set is complete or still converging.
+	// Nil when step-aside is off.
+	StepAsideStatus *PMSStepAsideStatus `json:"stepAsideStatus,omitempty"`
+}
+
+// Step-aside scan states as the console shows them.
+const (
+	StepAsideStateNever    = "never"
+	StepAsideStateComplete = "complete"
+	StepAsideStateMatching = "matching"
+	StepAsideStateFailed   = "failed"
+)
+
+// PMSStepAsideStatus reports the state of one server's step-aside scan without
+// scanning the catalogue: counts come from indexed rows written by the scan.
+type PMSStepAsideStatus struct {
+	State        string `json:"state"`
+	Movies       int    `json:"movies"`
+	ShowsFull    int    `json:"showsFull"`
+	ShowsPartial int    `json:"showsPartial"`
+	Episodes     int    `json:"episodes"`
+	Unmatched    int64  `json:"unmatched"`
+	LastSynced   int64  `json:"lastSynced"`
+	LastScan     int64  `json:"lastScan"`
+	Problem      string `json:"problem"`
 }
 
 // PMSBackfillStatus reports a background full-history import or export for one mapping.
@@ -482,6 +508,13 @@ func (s *Servers) Server(ctx context.Context, id int64) (PMSServer, error) {
 		return srv, err
 	}
 	srv.StepAside = stepAside != 0
+	if srv.StepAside {
+		status, err := s.stepAsideStatus(ctx, id)
+		if err != nil {
+			return srv, err
+		}
+		srv.StepAsideStatus = &status
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT v.account_id,v.account_name,v.owner,v.user_id,v.direction,v.interval_min,v.token,
 		v.last_import,v.last_send,v.next_run,v.problem,
 		v.in_backfill,v.in_backfill_read,v.in_backfill_total,v.in_backfill_done,

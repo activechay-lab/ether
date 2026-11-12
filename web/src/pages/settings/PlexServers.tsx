@@ -15,6 +15,7 @@ import { ErrorPanel, MutationError } from "../../components/feedback";
 import { Field, SecretInput } from "../../components/fields";
 import { IntegrationAppCard } from "../../components/IntegrationAppCard";
 import { PlexMark } from "../../components/integration-brands";
+import { TitleSearch } from "../../components/pickers";
 import { SettingsRow } from "../../components/SettingsRow";
 import { t, tn, tx } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
@@ -23,15 +24,18 @@ import { useAsync } from "../../lib/hooks";
 
 import {
   getPlexServerBackfillPreview,
+  explainPlexServerStepAside,
   listPlexServers,
   pmsBackfillLines,
   pmsDirectionText,
   pmsProblemText,
+  pmsStepAsideStateText,
   setPlexServerStepAside,
   startPlexServerBackfill,
   type PMSBackfillPreview,
   type PMSMapping,
   type PMSServer,
+  type PMSStepAsideExplanation,
 } from "../../lib/plex-servers";
 
 interface PMSAccount {
@@ -115,6 +119,53 @@ function errorText(e: unknown): string {
 
 const when = (seconds: number) => (seconds ? formatDateTime(new Date(seconds * 1000)) : t("Never"));
 
+/** One plain-language explanation of a step-aside answer, for a non-technical owner. */
+function stepAsideCauseText(a: PMSStepAsideExplanation): string {
+  switch (a.cause) {
+    case "held":
+      return a.kind === "movie"
+        ? t("Hidden on Plex apps: {server} holds this movie.", {
+            server: a.servers.join(", ") || t("your server"),
+          })
+        : t("Hidden on Plex apps: {server} has every aired episode of this show.", {
+            server: a.servers.join(", ") || t("your server"),
+          });
+    case "missing_episodes":
+      return t(
+        "Still showing: {server} is missing {count} aired {episodes} of this show, so Ether keeps the whole show for them.",
+        {
+          server: a.servers.join(", ") || t("your server"),
+          count: a.missing.length + a.missingMore,
+          episodes: a.missing.length + a.missingMore === 1 ? t("episode") : t("episodes"),
+        },
+      );
+    case "no_episode_list":
+      return t(
+        "Still showing: Ether has not loaded this show's episode list yet, so it cannot tell whether your server has them all. It will happen on its own — no action needed.",
+      );
+    case "not_held":
+      return t("Still showing: no step-aside server holds this title yet.");
+    case "scan_capped":
+      return t(
+        "Still showing: Ether is still matching your server's library. Large libraries take a few minutes; this page will update on its own.",
+      );
+    case "scan_failed":
+      return t(
+        "Still showing: the last check of this server failed, so Ether isn't sure what it holds. It will try again.",
+      );
+    case "not_scanned":
+      return t("Still showing: this server has not been checked yet. The first check runs shortly.");
+    case "step_aside_off":
+      return t(
+        "Still showing: step aside is off for every server. Turn it on above to hide titles your server already has.",
+      );
+    case "not_found":
+      return t("Ether doesn't know this title.");
+    default:
+      return t("Still showing: Ether has no explanation yet.");
+  }
+}
+
 /** Uses the overview persistence queue and global switch lock. */
 export function PlexServersCard({
   enabled,
@@ -178,6 +229,11 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [explain, setExplain] = useState<{
+    server: PMSServer;
+    answer: PMSStepAsideExplanation | null;
+    loading: boolean;
+  } | null>(null);
   const previewAbort = useRef<AbortController | null>(null);
 
   const replace = (next: PMSServer) =>
@@ -341,6 +397,22 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
     }
   };
 
+  const openExplain = (srv: PMSServer, key: number) => {
+    const ctrl = new AbortController();
+    previewAbort.current?.abort();
+    previewAbort.current = ctrl;
+    setExplain({ server: srv, answer: null, loading: true });
+    void explainPlexServerStepAside(key, ctrl.signal)
+      .then((answer) => {
+        if (ctrl.signal.aborted) return;
+        setExplain((cur) => (cur ? { ...cur, answer, loading: false } : cur));
+      })
+      .catch(() => {
+        if (ctrl.signal.aborted) return;
+        setExplain((cur) => (cur ? { ...cur, loading: false } : cur));
+      });
+  };
+
   const openUnmatched = async (srv: PMSServer, viewer: number, after = "") => {
     setBusy(true);
     try {
@@ -488,16 +560,57 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
             ) : null}
             <SettingsRow
               title={t("Step aside for titles on this server")}
-              description={t(
-                "Hide movies, complete shows, and episodes this server already has from Plex apps.",
-              )}
+              description={
+                <span className="space-y-0.5">
+                  <span className="block">
+                    {t(
+                      "Hide movies, complete shows, and episodes this server already has from Plex apps.",
+                    )}
+                  </span>
+                  {srv.stepAside && srv.stepAsideStatus ? (
+                    <span className="block">
+                      {t(
+                        "{state} · {movies} movies, {shows} shows, {episodes} episodes stepped aside · last checked {when}",
+                        {
+                          state: pmsStepAsideStateText(srv.stepAsideStatus.state),
+                          movies: srv.stepAsideStatus.movies,
+                          shows: srv.stepAsideStatus.showsFull + srv.stepAsideStatus.showsPartial,
+                          episodes: srv.stepAsideStatus.episodes,
+                          when: when(srv.stepAsideStatus.lastScan),
+                        },
+                      )}
+                    </span>
+                  ) : null}
+                  {srv.stepAside && srv.stepAsideStatus?.unmatched ? (
+                    <span className="block">
+                      {tn(
+                        srv.stepAsideStatus.unmatched,
+                        "{count} title on this server didn't match Ether and was skipped.",
+                        "{count} titles on this server didn't match Ether and were skipped.",
+                      )}
+                    </span>
+                  ) : null}
+                </span>
+              }
               control={
-                <Switch
-                  aria-label={t("Step aside for titles on this server")}
-                  checked={Boolean(srv.stepAside)}
-                  disabled={busy}
-                  onChange={(e) => void toggleStepAside(srv, e.currentTarget.checked)}
-                />
+                <span className="flex shrink-0 items-center gap-3">
+                  {srv.stepAside ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setExplain({ server: srv, answer: null, loading: false })}
+                    >
+                      {t("Why is a title still showing?")}
+                    </Button>
+                  ) : null}
+                  <Switch
+                    aria-label={t("Step aside for titles on this server")}
+                    checked={Boolean(srv.stepAside)}
+                    disabled={busy}
+                    onChange={(e) => void toggleStepAside(srv, e.currentTarget.checked)}
+                  />
+                </span>
               }
             />
             {accts === "error" ? (
@@ -933,6 +1046,67 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                 {t("Load more")}
               </Button>
             ) : null}
+          </div>
+        ) : null}
+      </Drawer>
+
+      <Drawer
+        open={!!explain}
+        onClose={() => {
+          previewAbort.current?.abort();
+          setExplain(null);
+        }}
+        title={t("Why is a title still showing?")}
+        description={t(
+          "Pick a movie or show. Ether explains exactly why it is hidden from Plex apps or still showing, using what it knows about {server}.",
+          { server: explain?.server.name ?? "" },
+        )}
+      >
+        {explain ? (
+          <div className="space-y-4 text-sm">
+            <TitleSearch
+              action="select"
+              includeUnbrowsable
+              label={t("Search a movie or show")}
+              placeholder={t("Search a movie or show…")}
+              onPick={(title) => openExplain(explain.server, Number(title.key))}
+            />
+            {explain.loading ? (
+              <div className="rounded-md border border-border px-3 py-2.5">
+                <Spinner size={14} label={t("Checking the title")} />
+              </div>
+            ) : explain.answer ? (
+              <div className="space-y-2 rounded-md border border-border px-3 py-2.5">
+                <div className="font-medium">
+                  {explain.answer.title || t("Title {key}", { key: explain.answer.key })}
+                </div>
+                <p className="text-fg-muted">{stepAsideCauseText(explain.answer)}</p>
+                {explain.answer.kind === "show" && explain.answer.cause === "missing_episodes" ? (
+                  <div className="space-y-1">
+                    <p className="text-fg-muted">
+                      {t("{held} of {aired} aired episodes are on {server}. Missing:", {
+                        held: explain.answer.heldEpisodes,
+                        aired: explain.answer.airedRegular,
+                        server: explain.answer.servers.join(", ") || t("your server"),
+                      })}
+                    </p>
+                    <p className="text-fg-muted">
+                      {[...explain.answer.missing, ...(explain.answer.missingMore
+                        ? [
+                            t("and {count} more", {
+                              count: explain.answer.missingMore,
+                            }),
+                          ]
+                        : [])].join(", ")}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-fg-muted">
+                {t("Search for a movie or show to see why it is hidden or still showing.")}
+              </p>
+            )}
           </div>
         ) : null}
       </Drawer>

@@ -18,6 +18,7 @@ type PlexServers interface {
 	Add(ctx context.Context, name, baseURL, token string) (plexwatch.PMSServer, error)
 	Update(ctx context.Context, id int64, name, baseURL, token string) (plexwatch.PMSServer, error)
 	SetStepAside(ctx context.Context, id int64, stepAside bool) (plexwatch.PMSServer, error)
+	ExplainStepAside(ctx context.Context, key core.RatingKey) (plexwatch.StepAsideExplanation, error)
 	Remove(ctx context.Context, id int64) error
 	Accounts(ctx context.Context, id int64) ([]plexwatch.PMSAccount, error)
 	MapAccount(ctx context.Context, id, accountID int64, in plexwatch.PMSMappingInput) (plexwatch.PMSServer, error)
@@ -36,6 +37,7 @@ func (h *Handler) plexServerRoutes(api func(string, http.HandlerFunc)) {
 		return
 	}
 	api("GET /api/plex-servers", h.handlePlexServers)
+	api("GET /api/plex-servers/step-aside/explain", h.handlePlexServerStepAsideExplain)
 	api("POST /api/plex-servers", h.handlePlexServerAdd)
 	api("PUT /api/plex-servers/{id}", h.handlePlexServerUpdate)
 	api("PUT /api/plex-servers/{id}/step-aside", h.handlePlexServerStepAside)
@@ -170,6 +172,26 @@ func (h *Handler) handlePlexServerStepAside(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, srv)
+}
+
+// handlePlexServerStepAsideExplain answers "why is a title still showing?" for
+// one movie or show key without scanning the catalogue or the Plex server.
+func (h *Handler) handlePlexServerStepAsideExplain(w http.ResponseWriter, r *http.Request) {
+	if h.deps.PlexServers == nil {
+		writeError(w, http.StatusNotFound, "not_found", "not found")
+		return
+	}
+	key, err := strconv.ParseInt(r.URL.Query().Get("key"), 10, 64)
+	if err != nil || key <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid", "a title key is required")
+		return
+	}
+	explain, err := h.deps.PlexServers.ExplainStepAside(r.Context(), core.RatingKey(key))
+	if err != nil {
+		h.plexServerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, explain)
 }
 
 func (h *Handler) handlePlexServerRemove(w http.ResponseWriter, r *http.Request) {

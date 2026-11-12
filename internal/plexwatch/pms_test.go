@@ -296,6 +296,7 @@ type fakeView struct {
 type fakeCatalog struct {
 	titles   map[core.RatingKey]core.Title
 	external map[string]core.RatingKey // "source:id:type"
+	aired    map[core.RatingKey][]core.RatingKey
 }
 
 func (c *fakeCatalog) Get(_ context.Context, k core.RatingKey) (*core.Title, error) {
@@ -304,6 +305,16 @@ func (c *fakeCatalog) Get(_ context.Context, k core.RatingKey) (*core.Title, err
 		return nil, core.ErrNotFound
 	}
 	return &t, nil
+}
+
+func (c *fakeCatalog) AiredShowEpisodes(_ context.Context, shows []core.RatingKey) (map[core.RatingKey][]core.RatingKey, error) {
+	out := map[core.RatingKey][]core.RatingKey{}
+	for _, s := range shows {
+		if eps, ok := c.aired[s]; ok {
+			out[s] = eps
+		}
+	}
+	return out, nil
 }
 
 func (c *fakeCatalog) ByExternalIDForType(_ context.Context, source, id string, typ core.MediaType) (*core.Title, error) {
