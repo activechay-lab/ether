@@ -3,7 +3,6 @@ package playback
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -47,7 +46,7 @@ func (m *Manager) CheckFileAvailability(ctx context.Context, user *core.User, ke
 	} else {
 		ctx = core.WithoutOnDemandStreams(ctx)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, m.config().Plex.FileCheckTimeoutOrDefault())
 	defer cancel()
 	if release != "" {
 		if checker, ok := m.deps.Resolver.(core.ReleaseBlockChecker); ok {
