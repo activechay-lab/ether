@@ -181,20 +181,19 @@ func (a *App) discoveryToken(ctx context.Context, id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return discoveryViewerToken(ctx, u, a.users.HomeMember(id), a.cfg.Read().Plex.Token, a.plextv.HomeUserToken)
+}
+
+func discoveryViewerToken(ctx context.Context, u *core.User, home bool, ownerToken string, switchHome func(context.Context, string, int64, string) (string, error)) (string, error) {
 	if u.IsOwner {
-		return a.cfg.Read().Plex.Token, nil
+		return ownerToken, nil
 	}
-	users, err := a.users.AllUsers(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, record := range users {
-		if record.ID == id && record.Active && record.Home && record.Restricted {
-			return a.plextv.HomeUserToken(ctx, a.cfg.Read().Plex.Token, u.PlexID, "")
-		}
+	if home {
+		return switchHome(ctx, ownerToken, u.PlexID, "")
 	}
 	return "", core.ErrUnauthorized
 }
+
 func (a *App) artworkVariants(ctx context.Context, t *core.Title, lang string) (overlays.Artwork, error) {
 	images, err := a.tmdb.ArtworkVariants(ctx, t, lang)
 	if err != nil {

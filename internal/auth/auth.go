@@ -1444,6 +1444,14 @@ type UserInfo struct {
 	HasPlex      bool `json:"hasPlex"`
 }
 
+// HomeMember reports active Plex Home membership with a constant-time lookup.
+func (s *Service) HomeMember(id int64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r := s.users[id]
+	return r != nil && r.Active && r.Home
+}
+
 // AllUsers lists every known user including those who lost access.
 func (s *Service) AllUsers(ctx context.Context) ([]UserInfo, error) {
 	s.mu.RLock()

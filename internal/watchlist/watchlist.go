@@ -21,6 +21,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/egress"
 	"github.com/braedonsaunders/ether/internal/plexguid"
+	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/schedule"
 	"github.com/braedonsaunders/ether/internal/store"
@@ -483,8 +484,17 @@ func (s *Service) replace(ctx context.Context, u *core.User, source string, ts [
 	return nil
 }
 
+// SyncResult describes the Plex outcome of an explicit viewer sync.
+type SyncResult struct {
+	Plex  string `json:"plex"`
+	Count int    `json:"count"`
+}
+
 // Sync preserves the last successful snapshot when an upstream fails.
 func (s *Service) Sync(ctx context.Context, u *core.User) error {
+	return s.syncViewer(ctx, u, &SyncResult{})
+}
+func (s *Service) syncViewer(ctx context.Context, u *core.User, result *SyncResult) error {
 	cfg, err := s.settings(ctx)
 	if err != nil {
 		return err
@@ -493,6 +503,7 @@ func (s *Service) Sync(ctx context.Context, u *core.User) error {
 		return core.ErrUnauthorized
 	}
 	var errs []error
+	result.Plex = "disabled"
 	if !cfg.Enabled {
 		return nil
 	}
@@ -500,17 +511,37 @@ func (s *Service) Sync(ctx context.Context, u *core.User) error {
 		token, e := s.o.Tokens(ctx, u.ID)
 		switch {
 		case errors.Is(e, core.ErrUnauthorized):
+			result.Plex = "friend"
 			// plex.tv issues the server no token for an account shared from
 			// outside Plex Home (#337): its watchlist can't be read, which is
 			// expected, not a failed sync. Trakt below still syncs.
+		case errors.Is(e, plextv.ErrHomePINRequired):
+			result.Plex = "pin"
+			errs = append(errs, e)
 		case e != nil:
-			errs = append(errs, errors.New("Plex watchlist requires this viewer's account token"))
+			result.Plex = "refused"
+			errs = append(errs, e)
 		case token != "":
+			result.Plex = "synced"
 			ts, e := s.plex(ctx, token)
 			if e == nil {
 				e = s.replace(ctx, u, "plex", ts)
+				if e == nil {
+					keys := map[core.RatingKey]bool{}
+					for _, title := range ts {
+						if s.allowed(u, &title) {
+							keys[title.Key] = true
+						}
+					}
+					result.Count = len(keys)
+				}
+			}
+			if e != nil {
+				result.Plex = "refused"
 			}
 			errs = append(errs, e)
+		default:
+			result.Plex = "refused"
 		}
 	}
 	if cfg.Trakt && s.o.Trakt != nil {

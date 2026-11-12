@@ -78,6 +78,9 @@ function discoveryRoutes(
       );
       return {};
     }
+    if (method === "POST" && rest === "sync") {
+      return { items, plex: "synced", count: items.length, failed: false };
+    }
     return items;
   };
 }
