@@ -19,6 +19,7 @@ import (
 
 // Source has no protocol server or protocol wire model dependencies.
 type Source struct {
+	LandscapeThumb   bool
 	Catalog          core.StoredTitleLookup
 	CollectionDevice string
 	Collections      core.Collections
@@ -197,6 +198,10 @@ func (a Source) ChannelImage(viewer *core.Viewer, channel livetv.Channel) fronte
 }
 
 func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]frontendArtworkEntry, bool, error) {
+	if a.LandscapeThumb {
+		// Public cache tags must resolve to the same descriptor for every viewer.
+		req.Device.Language = ""
+	}
 	ctx = withVisMemo(ctx)
 	if req.Viewer == nil || ((req.Item == 0) == (req.Channel == "")) {
 		return nil, false, core.ErrUnauthorized
@@ -256,7 +261,13 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 		if !frontend.ArtworkKindWanted(ctx, kind) {
 			return
 		}
-		ref := artworkReference(req, kind, source)
+		identityReq := req
+		if a.LandscapeThumb {
+			viewer := *req.Viewer
+			viewer.ID = 0
+			identityReq.Viewer = &viewer
+		}
+		ref := artworkReference(identityReq, kind, source)
 		entry.image = frontend.Image{Kind: kind, Path: ref, Tag: ref, Subject: entry.subject}
 		entry.virtualSeason = virtualSeason
 		entries = append(entries, entry)
@@ -268,6 +279,31 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 	for _, item := range []struct{ kind, element string }{{frontend.ImagePoster, "poster"}, {frontend.ImageThumb, "thumb"}, {frontend.ImageBackdrop, "art"}, {frontend.ImageLogo, "logo"}, {frontend.ImageBanner, "banner"}} {
 		if !frontend.ArtworkKindWanted(ctx, item.kind) {
 			// A page signer seals only its wanted kinds.
+			continue
+		}
+		if a.LandscapeThumb && item.kind == frontend.ImageThumb {
+			if title != nil {
+				path := title.BackdropPath
+				if a.Variants != nil {
+					if variants, ready := a.Variants(title, req.Device.Language); ready && variants != nil {
+						for _, file := range variants.Backdrops {
+							if !artwork.ValidPath(file.FilePath) || file.Width <= file.Height {
+								continue
+							}
+							if path == "" {
+								path = file.FilePath
+							}
+							if file.ISO639 != "" && file.ISO639 == title.Language {
+								path = file.FilePath
+								break
+							}
+						}
+					}
+				}
+				if artwork.ValidPath(path) {
+					add(item.kind, "landscape\x00"+path, frontendArtworkEntry{remotePath: path})
+				}
+			}
 			continue
 		}
 		path, _, err := s.ArtPath(ctx, req, item.element)
@@ -490,4 +526,10 @@ func fallbackParents(ctx context.Context, titles []core.Title) []core.RatingKey 
 		}
 	}
 	return out
+}
+
+// ForSurface keeps Plex poster thumbs while MediaBrowser uses landscape artwork.
+func (a Source) ForSurface(protocol core.Protocol) frontend.Artwork {
+	a.LandscapeThumb = protocol == "jellyfin" || protocol == "emby"
+	return &a
 }

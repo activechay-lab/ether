@@ -125,7 +125,13 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 
 	experiences := make(map[frontend.Protocol]frontend.Experience)
 	for _, protocol := range []frontend.Protocol{"plex", "jellyfin", "emby", "silo"} {
-		experience, err := a.newSurfaceExperience(protocol, artwork)
+		surfaceArtwork := artwork
+		if source, ok := artwork.(interface {
+			ForSurface(core.Protocol) frontend.Artwork
+		}); ok {
+			surfaceArtwork = source.ForSurface(protocol)
+		}
+		experience, err := a.newSurfaceExperience(protocol, surfaceArtwork)
 		if err != nil {
 			return nil, err
 		}
@@ -237,6 +243,12 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 				return ""
 			}
 			return publicPlexOrigin(a.registrar.Status().Connections)
+		}
+		artwork := artwork
+		if source, ok := artwork.(interface {
+			ForSurface(core.Protocol) frontend.Artwork
+		}); ok {
+			artwork = source.ForSurface(id)
 		}
 		experience := experiences[id]
 		if experience == nil {
