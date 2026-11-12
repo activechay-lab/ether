@@ -98,6 +98,7 @@ func decodeBody(s string) ([]byte, error) {
 // ErrDisconnected. Runtimes obtained from RuntimeFor resolve the
 // current connection at call time, so they survive reconnects.
 type TunnelServer struct {
+	onConnect    func(pluginID string)
 	auth         CredentialResolver
 	locale       string
 	maxBytes     int64
@@ -135,6 +136,21 @@ type TunnelOptions struct {
 	// DefaultCallTimeout.
 	Timeout time.Duration
 	Logger  *slog.Logger
+}
+
+// SetOnConnect installs a hook run (in its own goroutine) each time a
+// sidecar connects, so the host can refresh the plugin's health at once
+// instead of showing the failures recorded while it was away.
+func (s *TunnelServer) SetOnConnect(f func(pluginID string)) {
+	s.mu.Lock()
+	s.onConnect = f
+	s.mu.Unlock()
+}
+
+func (s *TunnelServer) connectHook() func(string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.onConnect
 }
 
 // NewTunnelServer builds a tunnel endpoint. Mount Handler at
@@ -260,6 +276,9 @@ func (s *TunnelServer) serve(ctx context.Context, ws *websocket.Conn, pluginID, 
 		old.teardown(ErrDisconnected)
 	}
 	s.log.Info("plugin tunnel connected", "plugin", pluginID, "connection", conn.id)
+	if f := s.connectHook(); f != nil {
+		go f(pluginID)
+	}
 
 	var wg sync.WaitGroup
 	if s.pingInterval > 0 {

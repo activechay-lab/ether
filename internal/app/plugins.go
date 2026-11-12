@@ -248,6 +248,13 @@ func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRunti
 	factory := &remote.Factory{Tunnel: tunnel, TrustedLAN: remote.GrantsLAN(mgr.GrantsOf), Logger: log}
 	mgr.RegisterRuntime("remote", factory.RuntimeFactory())
 	mgr.SetSidecarState(factory.SidecarState)
+	// A sidecar that (re)connects is checked at once, so the console does
+	// not keep showing the failures recorded while it was away.
+	tunnel.SetOnConnect(func(pluginID string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = mgr.CheckHealth(ctx, pluginID)
+	})
 	host := remote.NewHostHandler(remote.HostOptions{Host: remote.HostAdapter{HostFor: mgr.HostFor, SettingsWithSecrets: mgr.PluginSettings}, Auth: auth, Logger: log})
 	pairing := remote.NewPairing(a.db, grants, func(ctx context.Context) (int64, error) {
 		owner, err := a.users.Owner(ctx)
