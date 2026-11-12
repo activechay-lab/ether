@@ -422,13 +422,28 @@ func embySDK() Client {
 
 // moonfin is the Jellyfin TV client that reported the played-episode listing
 // (#405): its home screen asks for played episodes sorted by DatePlayed, a
-// spotlight filtered on HasBackdrop, and CommunityRating/PremiereDate rows.
-// The played listing must follow the viewer's watch rows, never the library.
+// spotlight filtered on HasBackdrop, and CommunityRating/PremiereDate rows,
+// and its Favorites screen asks one IsFavorite listing per IncludeItemTypes
+// kind (Movie/Series/BoxSet fast; Episode from the favorites; Person and the
+// music kinds empty). The played listing must follow the viewer's watch rows
+// and the Episode favorites the viewer's favorite rows, never the library.
 func moonfin() Client {
 	f := "UserData,SeriesId"
+	// Moonfin's Favorites screen asks one request per type (#405); the six
+	// non-video kinds must answer empty or cheap, never walk the library.
+	fav := "ProductionYear,ImageTags,BackdropImageTags,ParentBackdropItemId,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,UserData,Status,MediaStreams,AlbumPrimaryImageTag,ProviderIds"
 	return Client{Name: "moonfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Moonfin", "1.0", "Android TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
 		{Name: "/UserViews", Class: classHome, Path: "/UserViews?userId={userId}", Discover: discoverViews},
 		{Name: "played episodes", Class: classHome, Path: "/Items?IncludeItemTypes=Episode&Filters=IsPlayed&Recursive=true&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Fields=" + f + "&userId={userId}"},
+		{Name: "favorites Movie", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=Movie&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites Series", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=Series&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites BoxSet", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=BoxSet&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites Episode", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=Episode&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites Person", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=Person&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites MusicAlbum", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=MusicAlbum&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites MusicArtist", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=MusicArtist&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites MusicVideo", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=MusicVideo&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
+		{Name: "favorites Audio", Class: classHome, Path: "/Items?userId={userId}&Recursive=true&Filters=IsFavorite&IncludeItemTypes=Audio&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=30&EnableTotalRecordCount=true&Fields=" + fav},
 		{Name: "spotlight HasBackdrop", Class: classHome, Path: "/Items?SortBy=Random&Limit=10&HasBackdrop=true&Recursive=true&IncludeItemTypes=Movie%2CSeries&userId={userId}"},
 		{Name: "top CommunityRating", Class: classBrowse, Path: "/Items?SortBy=CommunityRating&Limit=60&Recursive=true&IncludeItemTypes=Movie%2CSeries&Fields=BackdropImageTags&userId={userId}"},
 		{Name: "recent PremiereDate", Class: classBrowse, Path: "/Items?SortBy=PremiereDate&Limit=16&Recursive=true&IncludeItemTypes=Movie%2CSeries&userId={userId}"},

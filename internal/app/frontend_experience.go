@@ -293,7 +293,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			return false, nil
 		}
 		return a.episodeorder.Customized(ctx, u)
-	}}, AddedTimes: a.catalog.CachedAddedTimes, PlayedEpisodes: experience.PlayedEpisodeDeps{Page: a.catalog.PlayedEpisodesByLastViewed, Count: a.catalog.CountPlayedEpisodes}, RecentAir: func(ctx context.Context, typ core.MediaType, offset, limit int) ([]core.Title, bool, error) {
+	}}, AddedTimes: a.catalog.CachedAddedTimes, PlayedEpisodes: experience.PlayedEpisodeDeps{Page: a.catalog.PlayedEpisodesByLastViewed, Count: a.catalog.CountPlayedEpisodes}, FavoriteEpisodes: experience.FavoriteEpisodeDeps{Page: a.catalog.FavoriteEpisodesByKey, Count: a.catalog.CountFavoriteEpisodes}, RecentAir: func(ctx context.Context, typ core.MediaType, offset, limit int) ([]core.Title, bool, error) {
 		f := core.Filter{Type: typ}
 		if a.availability != nil {
 			var err error

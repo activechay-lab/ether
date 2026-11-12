@@ -150,6 +150,11 @@ type ServiceDeps struct {
 	// (Filters=IsPlayed, SortBy=DatePlayed) from the viewer's watch rows.
 	// Optional; without it the listing walks the library.
 	PlayedEpisodes PlayedEpisodeDeps
+	// FavoriteEpisodes answers a recursive, episodes-only favorite listing
+	// (Filters=IsFavorite, IncludeItemTypes=Episode) from the viewer's favorite
+	// rows, in episode key order. Optional; without it the listing reads the
+	// favorite keys in process.
+	FavoriteEpisodes FavoriteEpisodeDeps
 	AddedTimes     func(context.Context, []core.RatingKey) (map[core.RatingKey]time.Time, error)
 	// RecentAir is the indexed date-added window. Nil keeps the catalogue scan.
 	RecentAir func(context.Context, core.MediaType, int, int) ([]core.Title, bool, error)
@@ -434,6 +439,12 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 	if err != nil {
 		return core.Page{}, err
 	}
+	// A request whose IncludeItemTypes names only kinds no accessible library
+	// can present can never match: answer empty without listing #405's
+	// Person/Music* favorites asks used to scan the whole TV library.
+	if !s.requestedTypesServable(ctx, v, q) {
+		return core.Page{Items: []core.Title{}}, nil
+	}
 	if viewID == "" {
 		if q.Sort == "" {
 			q.Sort = core.SortPopularity
@@ -625,7 +636,12 @@ func (s *Service) LibraryItems(ctx context.Context, viewer *core.Viewer, device 
 		recursiveBatch = recursiveBatch[:0]
 		return nil
 	}
-	if page, ok, err := s.favoriteRecursivePage(ctx, v, library, q); err != nil {
+	if page, ok, err := s.favoriteEpisodePage(ctx, v, library, 0, q); err != nil {
+		return core.Page{}, err
+	} else if ok {
+		return page, nil
+	}
+	if page, ok, err := s.favoriteRecursivePage(ctx, v, library, 0, q); err != nil {
 		return core.Page{}, err
 	} else if ok {
 		return page, nil
@@ -1412,6 +1428,16 @@ func (s *Service) Children(ctx context.Context, viewer *core.Viewer, device core
 
 	var items []core.Title
 	if q.Recursive && key.Kind() == core.KindShow {
+		if page, ok, err := s.favoriteEpisodePage(ctx, v, &Library{Type: core.TypeShow}, key, q); err != nil {
+			return core.Page{}, err
+		} else if ok {
+			return page, nil
+		}
+		if page, ok, err := s.favoriteRecursivePage(ctx, v, &Library{Type: core.TypeShow}, key, q); err != nil {
+			return core.Page{}, err
+		} else if ok {
+			return page, nil
+		}
 		if page, ok, err := s.playedEpisodePage(ctx, v, &Library{Type: core.TypeShow}, key, q); err != nil {
 			return core.Page{}, err
 		} else if ok {

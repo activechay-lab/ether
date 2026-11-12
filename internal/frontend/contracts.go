@@ -207,6 +207,14 @@ type ItemQuery struct {
 	Sort          core.SortOrder
 	Desc          bool
 	Types         []core.MediaType
+	// UnservedTypes names the client's requested item kinds (Jellyfin/Emby
+	// IncludeItemTypes, lowercased) that do not map to a core.MediaType. Empty
+	// Types with a non-empty UnservedTypes means the client named only kinds
+	// the catalogue cannot hold: the request must answer empty, not list every
+	// type (Moonfin's Favorites screen asks for Person and the music kinds,
+	// #405). A plugin library whose presentation declares the kind still
+	// serves it; callers consult configured libraries before answering empty.
+	UnservedTypes []string
 	Recursive     bool
 	Season        *int // Optional presented season number.
 	Filter        core.Filter

@@ -2,6 +2,7 @@ package mediabrowser
 
 import (
 	"net/http/httptest"
+	"strings"
 	"slices"
 	"testing"
 	"time"
@@ -38,5 +39,35 @@ func TestItemQueryYearsAndPremiereDates(t *testing.T) {
 	}
 	if got[">="] != time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC).Unix() || got["<="] != time.Date(2004, 5, 6, 0, 0, 0, 0, time.UTC).Unix() {
 		t.Error(got)
+	}
+}
+
+// TestItemQueryUnservedTypes records the item kinds the catalogue cannot hold
+// so a listing of only those answers empty instead of dropping the filter
+// (#405: Person, MusicVideo, MusicArtist, MusicAlbum, Audio, MusicVideo). The
+// four catalogue kinds still map to Types.
+func TestItemQueryUnservedTypes(t *testing.T) {
+	q := itemQuery(httptest.NewRequest("GET", "/Items?IncludeItemTypes=Episode", nil))
+	if len(q.Types) != 1 || q.Types[0] != "episode" || len(q.UnservedTypes) != 0 {
+		t.Fatalf("Episode: types %v unserved %v", q.Types, q.UnservedTypes)
+	}
+	for _, kind := range []string{"Person", "MusicVideo", "MusicArtist", "MusicAlbum", "Audio"} {
+		q := itemQuery(httptest.NewRequest("GET", "/Items?IncludeItemTypes="+kind, nil))
+		if len(q.Types) != 0 {
+			t.Fatalf("%s: mapped to types %v", kind, q.Types)
+		}
+		if len(q.UnservedTypes) != 1 || q.UnservedTypes[0] != strings.ToLower(kind) {
+			t.Fatalf("%s: unserved %v", kind, q.UnservedTypes)
+		}
+	}
+	// A mixed request keeps the mappable kinds and records the rest.
+	q = itemQuery(httptest.NewRequest("GET", "/Items?IncludeItemTypes=Movie,Person", nil))
+	if len(q.Types) != 1 || q.Types[0] != "movie" || len(q.UnservedTypes) != 1 || q.UnservedTypes[0] != "person" {
+		t.Fatalf("mixed: types %v unserved %v", q.Types, q.UnservedTypes)
+	}
+	// No IncludeItemTypes at all is unrestricted, not unserved.
+	q = itemQuery(httptest.NewRequest("GET", "/Items?Recursive=true", nil))
+	if len(q.Types) != 0 || len(q.UnservedTypes) != 0 {
+		t.Fatalf("unrestricted: types %v unserved %v", q.Types, q.UnservedTypes)
 	}
 }
