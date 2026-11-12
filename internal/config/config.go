@@ -253,18 +253,27 @@ const (
 	IndexerKindNewznab   = "newznab"
 	IndexerKindCardigann = "cardigann"
 	IndexerKindStremio   = "stremio"
+	// IndexerKindZilean is a self-hosted Zilean (DMM hash index) whose
+	// Torznab API is searched like any other torrent indexer; URL is the
+	// Zilean base URL, not its Torznab endpoint.
+	IndexerKindZilean = "zilean"
 	// IndexerKindAddon is an installed plugin's streams (an Ether source
 	// plugin or a Stremio add-on installed from Plugins), searched like an
 	// indexer. Rows of this kind are made at run time, never saved.
 	IndexerKindAddon = "addon"
 )
 
-// IsTorrent reports whether the indexer's results are torrents (Torznab or
-// a Stremio add-on).
-func (ix Indexer) IsTorrent() bool { return ix.Protocol == "torrent" || ix.IsStremio() || ix.IsAddon() }
+// IsTorrent reports whether the indexer's results are torrents (Torznab,
+// a Stremio add-on or a Zilean hash index).
+func (ix Indexer) IsTorrent() bool {
+	return ix.Protocol == "torrent" || ix.IsStremio() || ix.IsZilean() || ix.IsAddon()
+}
 
 // IsStremio reports whether the indexer is a Stremio stream add-on.
 func (ix Indexer) IsStremio() bool { return ix.Kind == IndexerKindStremio }
+
+// IsZilean reports whether the indexer is a self-hosted Zilean instance.
+func (ix Indexer) IsZilean() bool { return ix.Kind == IndexerKindZilean }
 
 // IsBuiltin reports whether the indexer is a built-in site.
 func (ix Indexer) IsBuiltin() bool { return ix.Kind == IndexerKindCardigann }
