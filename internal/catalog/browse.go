@@ -506,7 +506,15 @@ func browseFilterKey(f core.Filter) string {
 	f.Group = nil
 	childVisibility := f.ChildVisibility
 	f.ChildVisibility = nil
-	key := fmt.Sprintf("%+v", f)
+	// A large exclusion set (step aside holds tens of thousands of titles)
+	// keys by digest: formatting every key on each request would cost more
+	// than the page it caches.
+	excluded := ""
+	if len(f.ExcludeKeys) > inlineKeyLimit {
+		excluded = "|excluded:" + keySetDigest(f.ExcludeKeys)
+		f.ExcludeKeys = nil
+	}
+	key := fmt.Sprintf("%+v", f) + excluded
 	if childVisibility != nil {
 		key += "|child:" + browseFilterKey(*childVisibility)
 	}
@@ -783,10 +791,9 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 	}
 	if len(f.ExcludeKeys) > 0 {
-		conds = append(conds, "t.key NOT IN ("+placeholders(len(f.ExcludeKeys))+")")
-		for _, k := range f.ExcludeKeys {
-			args = append(args, k)
-		}
+		cond, a := c.keyMembership("t.key", true, f.ExcludeKeys)
+		conds = append(conds, cond)
+		args = append(args, a...)
 	}
 	switch f.Type {
 	case core.TypeMovie, core.TypeShow:

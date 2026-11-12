@@ -17,6 +17,11 @@ import (
 
 const maxIndexedExclusions = 2000
 
+// maxIndexedExclusionSet bounds the hidden keys one SQL page may exclude.
+// The catalogue binds a large set as one array (catalog keyMembership), so
+// step aside's tens of thousands of held titles stay on the indexed path.
+const maxIndexedExclusionSet = 1_000_000
+
 // indexedLibraryPage asks the catalogue for the requested offset and limit.
 // It is used only when the SQL predicate already includes this viewer's
 // exclusions. A page that still fails the in-process checks is refused so the
@@ -122,7 +127,7 @@ func (s *Service) userStateFilter(ctx context.Context, v *core.User, filter core
 			return filter, false, false, nil
 		}
 		keys, all, err := s.d.FavoriteTitleKeys(ctx, v, maxIndexedExclusions)
-		if err != nil || !all || len(filter.ExcludeKeys)+len(keys) > maxIndexedExclusions {
+		if err != nil || !all || len(keys) > maxIndexedExclusions {
 			return filter, false, false, err
 		}
 		if *q.Favorite {
@@ -184,7 +189,7 @@ func (s *Service) watchedTotal(ctx context.Context, v *core.User, filter core.Fi
 // plex.tv share predicate. fits is false when the exclusions are too large
 // for one predicate; none reports that no title can match.
 func viewerBrowseFilter(filter core.Filter, v *core.User, ex LibraryPageExclusions, typ core.MediaType) (out core.Filter, fits, none bool) {
-	if len(ex.Keys) > maxIndexedExclusions || len(ex.ExcludeGenres) > 64 || len(ex.ExcludeKeywords) > 64 {
+	if len(ex.Keys) > maxIndexedExclusionSet || len(ex.ExcludeGenres) > 64 || len(ex.ExcludeKeywords) > 64 {
 		return filter, false, false
 	}
 	filter.ExcludeKeys = append(append([]core.RatingKey{}, filter.ExcludeKeys...), ex.Keys...)

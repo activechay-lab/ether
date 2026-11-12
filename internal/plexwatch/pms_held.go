@@ -5,18 +5,26 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
+// Step aside reads whole Plex Media Server libraries: owners hold tens of
+// thousands of movies and hundreds of thousands of episodes. The caps bound
+// memory against a runaway server, never a real library; only lookups that
+// may leave the machine (a title missing from the local catalogue) are
+// rationed per pass.
 const (
-	pmsHeldPage            = 200
-	pmsHeldCap             = 50_000
-	pmsHeldItemCacheCap    = 100_000
+	pmsHeldPage            = 500
+	pmsHeldCap             = 2_000_000
+	pmsHeldItemCacheCap    = 2_000_000
 	pmsHeldUncachedLookups = 500
-	pmsHeldWarmShows       = 25
+	pmsHeldWarmShows       = 1000
+	pmsHeldWarmParallel    = 6
 )
 
 // HeldShow summarizes the seasons and episodes held across step-aside PMS
@@ -288,6 +296,9 @@ func (s *Servers) runHeldPass(ctx context.Context, serverID int64) (bool, error)
 					matchedShows[showKey] = struct{}{}
 				}
 			}
+			if err := s.flushHeldItems(ctx, p); err != nil {
+				return err
+			}
 			if len(items) < pmsHeldPage {
 				break
 			}
@@ -355,16 +366,26 @@ func (s *Servers) runHeldPass(ctx context.Context, serverID int64) (bool, error)
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
-	if gc, ok := s.catalog.(grandchildrenCatalog); ok && len(matchedShows) > 0 {
-		s.warmMatchedShows(ctx, gc, matchedShows)
-	}
 	if err := s.reloadHeldSnapshot(ctx); err != nil {
 		return false, err
+	}
+	// A show is judged complete against its aired episodes in the local
+	// catalogue, so every matched show's episode list must be stored. Load
+	// what is missing now, bounded per pass; another pass follows within a
+	// minute until every show is loaded.
+	if gc, ok := s.catalog.(grandchildrenCatalog); ok && len(matchedShows) > 0 {
+		if s.warmMatchedShows(ctx, gc, matchedShows) {
+			capped = true
+		}
 	}
 	return capped, nil
 }
 
-func (s *Servers) warmMatchedShows(ctx context.Context, gc grandchildrenCatalog, shows map[core.RatingKey]struct{}) {
+// warmMatchedShows stores the episode lists of matched shows not yet loaded
+// this process, pmsHeldWarmShows per pass across pmsHeldWarmParallel
+// workers, and reports whether shows remain. Grandchildren reads a stored
+// list locally, so after a restart already-loaded shows cost one local read.
+func (s *Servers) warmMatchedShows(ctx context.Context, gc grandchildrenCatalog, shows map[core.RatingKey]struct{}) bool {
 	keys := make([]core.RatingKey, 0, len(shows))
 	s.warmedMu.Lock()
 	for k := range shows {
@@ -374,23 +395,39 @@ func (s *Servers) warmMatchedShows(ctx context.Context, gc grandchildrenCatalog,
 	}
 	s.warmedMu.Unlock()
 	if len(keys) == 0 {
-		return
+		return false
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	warmed := 0
+	more := len(keys) > pmsHeldWarmShows
+	keys = keys[:min(len(keys), pmsHeldWarmShows)]
+	work := make(chan core.RatingKey)
+	var wg sync.WaitGroup
+	for range pmsHeldWarmParallel {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for k := range work {
+				if _, err := gc.Grandchildren(ctx, k); err != nil {
+					continue
+				}
+				s.warmedMu.Lock()
+				if len(s.warmedShows) < pmsHeldCap {
+					s.warmedShows[k] = struct{}{}
+				}
+				s.warmedMu.Unlock()
+			}
+		}()
+	}
 	for _, k := range keys {
-		if ctx.Err() != nil || warmed >= pmsHeldWarmShows {
+		if ctx.Err() != nil {
+			more = true
 			break
 		}
-		if _, err := gc.Grandchildren(ctx, k); err == nil {
-			s.warmedMu.Lock()
-			if len(s.warmedShows) < pmsHeldCap {
-				s.warmedShows[k] = struct{}{}
-			}
-			s.warmedMu.Unlock()
-			warmed++
-		}
+		work <- k
 	}
+	close(work)
+	wg.Wait()
+	return more
 }
 
 func (s *Servers) loadCachedItems(ctx context.Context, serverID int64) (map[int64]pmsCachedItem, error) {
@@ -434,16 +471,16 @@ func (s *Servers) matchHeldMetadata(ctx context.Context, p *pmsPair, md pmsMetad
 		if show := md.showKey(); show > 0 && episodeNumbersFit(season, episode) {
 			if item, ok := p.items[show]; ok && item.ratingKey > 0 {
 				epKey := core.EpisodeKey(item.ratingKey.TMDB(), season, episode)
-				checked := s.now().Unix()
-				if _, err := s.db.ExecContext(ctx, `INSERT INTO plexwatch_pms_item(server_id,pms_key,rating_key,checked_at) VALUES(?,?,?,?)
-					ON CONFLICT(server_id,pms_key) DO UPDATE SET rating_key=excluded.rating_key,checked_at=excluded.checked_at`,
-					p.serverID, pmsKey, int64(epKey), checked); err != nil {
-					return 0, false, err
-				}
-				p.items[pmsKey] = pmsCachedItem{ratingKey: epKey, checkedAt: checked}
+				s.cacheHeldItem(p, pmsKey, epKey)
 				return epKey, false, nil
 			}
 		}
+	}
+	// A movie or show the local catalogue already stores by its TMDB id
+	// matches without leaving the machine, so it is never rationed.
+	if key := s.localHeldKey(ctx, md); key != 0 {
+		s.cacheHeldItem(p, pmsKey, key)
+		return key, false, nil
 	}
 	if skipUncached {
 		return 0, false, nil
@@ -452,14 +489,78 @@ func (s *Servers) matchHeldMetadata(ctx context.Context, p *pmsPair, md pmsMetad
 	if err != nil {
 		return 0, true, err
 	}
-	checked := s.now().Unix()
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO plexwatch_pms_item(server_id,pms_key,rating_key,checked_at) VALUES(?,?,?,?)
-		ON CONFLICT(server_id,pms_key) DO UPDATE SET rating_key=excluded.rating_key,checked_at=excluded.checked_at`,
-		p.serverID, pmsKey, int64(key), checked); err != nil {
-		return 0, true, err
-	}
-	p.items[pmsKey] = pmsCachedItem{ratingKey: key, checkedAt: checked}
+	s.cacheHeldItem(p, pmsKey, key)
 	return key, true, nil
+}
+
+// localHeldKey matches a movie or show by a TMDB id the catalogue stores,
+// reading only the local database.
+func (s *Servers) localHeldKey(ctx context.Context, md pmsMetadata) core.RatingKey {
+	stored, ok := s.catalog.(storedTitleCatalog)
+	if !ok || (md.Type != "movie" && md.Type != "show") {
+		return 0
+	}
+	for _, id := range pmsIDs(md) {
+		if id.source != "tmdb" {
+			continue
+		}
+		n, err := strconv.ParseInt(id.value, 10, 64)
+		if err != nil || n <= 0 {
+			continue
+		}
+		key, typ := core.MovieKey(n), core.TypeMovie
+		if md.Type == "show" {
+			key, typ = core.ShowKey(n), core.TypeShow
+		}
+		if st, err := stored.StoredTitle(ctx, key); err == nil && st != nil && !st.Adult && st.Type == typ {
+			return key
+		}
+	}
+	return 0
+}
+
+// cacheHeldItem records a match in memory and queues its plexwatch_pms_item
+// row; flushHeldItems writes queued rows in one transaction per page.
+func (s *Servers) cacheHeldItem(p *pmsPair, pmsKey int64, key core.RatingKey) {
+	checked := s.now().Unix()
+	p.items[pmsKey] = pmsCachedItem{ratingKey: key, checkedAt: checked}
+	p.heldPending = append(p.heldPending, pmsHeldItemRow{pmsKey: pmsKey, ratingKey: int64(key), checkedAt: checked})
+}
+
+type pmsHeldItemRow struct{ pmsKey, ratingKey, checkedAt int64 }
+
+func (s *Servers) flushHeldItems(ctx context.Context, p *pmsPair) error {
+	if len(p.heldPending) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	const chunk = 200
+	for start := 0; start < len(p.heldPending); start += chunk {
+		part := p.heldPending[start:min(start+chunk, len(p.heldPending))]
+		var sb strings.Builder
+		sb.WriteString(`INSERT INTO plexwatch_pms_item(server_id,pms_key,rating_key,checked_at) VALUES `)
+		args := make([]any, 0, len(part)*4)
+		for i, r := range part {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(`(?,?,?,?)`)
+			args = append(args, p.serverID, r.pmsKey, r.ratingKey, r.checkedAt)
+		}
+		sb.WriteString(` ON CONFLICT(server_id,pms_key) DO UPDATE SET rating_key=excluded.rating_key,checked_at=excluded.checked_at`)
+		if _, err := tx.ExecContext(ctx, sb.String(), args...); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	p.heldPending = p.heldPending[:0]
+	return nil
 }
 
 func (s *Servers) finishHeld(ctx context.Context, serverID, lease int64, interval, prevFailures int, capped bool, err error) error {

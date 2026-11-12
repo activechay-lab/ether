@@ -155,23 +155,25 @@ type pmsPair struct {
 	lease                       int64
 	client                      *pmsClient
 	serverToken, writeToken     string
-	inCursor                    int64
-	inSkip                      int
-	inBackfill                  int
-	inBackfillRead              int
-	inBackfillTotal             int
-	inBackfillDone              int64
-	outCursor, outKey           int64
-	outBaseline                 int64
-	outBackfill                 int
-	outBackfillKey              int64
-	outBackfillSent             int
-	outBackfillTotal            int
-	outBackfillDone             int64
-	sections                    []pmsSection
-	sectionsLoaded              bool
-	pulled, pushed              bool
-	items                       map[int64]pmsCachedItem
+	// heldPending queues step-aside item matches for one batched write.
+	heldPending       []pmsHeldItemRow
+	inCursor          int64
+	inSkip            int
+	inBackfill        int
+	inBackfillRead    int
+	inBackfillTotal   int
+	inBackfillDone    int64
+	outCursor, outKey int64
+	outBaseline       int64
+	outBackfill       int
+	outBackfillKey    int64
+	outBackfillSent   int
+	outBackfillTotal  int
+	outBackfillDone   int64
+	sections          []pmsSection
+	sectionsLoaded    bool
+	pulled, pushed    bool
+	items             map[int64]pmsCachedItem
 }
 
 func (s *Servers) syncPair(ctx context.Context, serverID, accountID int64) error {

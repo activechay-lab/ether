@@ -26,9 +26,6 @@ func newLibraryPageExclusionsFor(a *App, stepAside *experience.StepAside) func(c
 		if stepAside != nil {
 			if keys, active := stepAside.ExcludedKeys(ctx, viewer, typ); active {
 				out.Keys = append(out.Keys, keys...)
-				if len(out.Keys) > 2000 {
-					out.AvailabilityInSQL = false
-				}
 			}
 		}
 		if a != nil && a.safety != nil {

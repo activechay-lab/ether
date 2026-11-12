@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -58,7 +59,19 @@ type StepAside struct {
 
 	mu     sync.RWMutex
 	cached *compiledStepAside
+	// refreshing is set while a background recompile runs; lastRefresh
+	// spaces recompiles caused only by catalogue writes.
+	refreshing  atomic.Bool
+	lastRefresh atomic.Int64
 }
+
+// stepAsideBucket is how often show completeness is re-judged against the
+// clock (episodes that have since aired), and stepAsideRefreshGap the least
+// time between recompiles caused only by catalogue writes.
+const (
+	stepAsideBucket     = 10 * 60
+	stepAsideRefreshGap = 15 * time.Second
+)
 
 type stepAsideCacheKey struct {
 	heldRev  uint64
@@ -377,16 +390,41 @@ func (s *StepAside) compiled(ctx context.Context) *compiledStepAside {
 	ck := stepAsideCacheKey{
 		heldRev:  h.Rev,
 		writeGen: writeGen,
-		minute:   s.opts.Now().Unix() / 60,
+		minute:   s.opts.Now().Unix() / stepAsideBucket,
 	}
 	s.mu.RLock()
-	if s.cached != nil && s.cached.key == ck {
-		got := s.cached
-		s.mu.RUnlock()
-		return got
-	}
+	cur := s.cached
 	s.mu.RUnlock()
+	if cur != nil && cur.key == ck {
+		return cur
+	}
+	if cur != nil {
+		// Never recompile on a request: completeness reads every matched
+		// show's aired episodes. Serve the last answer and refresh it in the
+		// background (one at a time, spaced unless the held set changed).
+		s.refreshAsync(h, ck, cur.key.heldRev != ck.heldRev)
+		return cur
+	}
+	return s.compile(ctx, h, ck)
+}
 
+func (s *StepAside) refreshAsync(h StepAsideHeld, ck stepAsideCacheKey, heldChanged bool) {
+	if !heldChanged && time.Since(time.Unix(0, s.lastRefresh.Load())) < stepAsideRefreshGap {
+		return
+	}
+	if !s.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer s.refreshing.Store(false)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		s.compile(ctx, h, ck)
+		s.lastRefresh.Store(time.Now().UnixNano())
+	}()
+}
+
+func (s *StepAside) compile(ctx context.Context, h StepAsideHeld, ck stepAsideCacheKey) *compiledStepAside {
 	showHasEps := make(map[core.RatingKey]struct{}, len(h.Shows))
 	heldByShow := make(map[core.RatingKey][]core.RatingKey, len(h.Shows))
 	showSet := make(map[core.RatingKey]struct{}, len(h.Shows))

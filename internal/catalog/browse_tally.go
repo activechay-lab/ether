@@ -662,10 +662,9 @@ func (c *Catalog) tallyUnsettled(s tallyShape, f core.Filter) (string, []any) {
 		}
 	}
 	if len(f.ExcludeKeys) > 0 {
-		unsettled = append(unsettled, `SELECT key FROM catalog_titles WHERE key IN (`+placeholders(len(f.ExcludeKeys))+`)`)
-		for _, k := range f.ExcludeKeys {
-			unsettledArgs = append(unsettledArgs, k)
-		}
+		cond, a := c.keyMembership("key", false, f.ExcludeKeys)
+		unsettled = append(unsettled, `SELECT key FROM catalog_titles WHERE `+cond)
+		unsettledArgs = append(unsettledArgs, a...)
 	}
 	return strings.Join(unsettled, ` UNION `), unsettledArgs
 }

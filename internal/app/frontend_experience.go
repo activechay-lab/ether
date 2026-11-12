@@ -95,6 +95,9 @@ func (a *App) searchSourcesFor(stepAside *experience.StepAside) experience.Searc
 	}
 	if a.collections != nil {
 		src.Vibe = a.collections
+		if stepAside != nil {
+			src.Vibe = stepAsideVibe{VibeSearcher: a.collections, stepAside: stepAside}
+		}
 	}
 	return src
 }
@@ -496,10 +499,16 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		deps.Related = a.recommend
 	}
 	cat := core.Catalog(a.catalog)
+	// The surface's availability filter and search sources carry step aside:
+	// Plex paths read FilterAvailableFunc and SearchSources directly, so the
+	// bare availability filter here let held titles through every list and
+	// search on Plex apps.
 	if a.availability != nil {
 		cat = &availabilityCatalog{Catalog: a.catalog, availability: a.availability}
-		deps.FilterAvailable = a.availability.FilterDiscovery
+		deps.FilterAvailable = filter
 		deps.JudgedOnFacts = a.availability.JudgedOnFacts
+	} else if stepAside != nil {
+		deps.FilterAvailable = filter
 	}
 	deps.Catalog = cat
 	if a.discoveryPersonal != nil {
@@ -507,7 +516,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	}
 	deps.Recommender = a.personalize
 	deps.VibeSearch = a.collections
-	deps.SearchSources = a.searchSources()
+	deps.SearchSources = a.searchSourcesFor(stepAside)
 	deps.FavoriteShows = a.favoriteShows
 	deps.PrioritizeAvailable = func(ctx context.Context, items []core.Title) []core.Title {
 		if a.availability == nil {
@@ -1207,4 +1216,19 @@ func (s *surfaceExperience) ReportRowInteraction(ctx context.Context, i frontend
 		return experience.ErrReceipt
 	}
 	return s.receipts.Report(ctx, i)
+}
+
+// stepAsideVibe drops titles a step-aside Plex Media Server holds from a
+// collection search, which an unrestricted viewer otherwise sees unfiltered.
+type stepAsideVibe struct {
+	core.VibeSearcher
+	stepAside *experience.StepAside
+}
+
+func (v stepAsideVibe) VibeCollection(ctx context.Context, user *core.User, query string) (*core.Collection, []core.Title, bool, error) {
+	c, items, ok, err := v.VibeSearcher.VibeCollection(ctx, user, query)
+	if err != nil || !ok {
+		return c, items, ok, err
+	}
+	return c, v.stepAside.FilterAvailable(core.WithCatalogViewer(ctx, user), items), ok, nil
 }
