@@ -1236,11 +1236,7 @@ function ServiceOverview({
         <IntegrationAppCard
           identity={{ id: "subdl", name: "SubDL" }}
           description={t("Fetch subtitles from SubDL when a release doesn't include them.")}
-          status={switchStatus(
-            on("subdl"),
-            Boolean(saved("subdl").apiKey),
-            t("Needs an API key"),
-          )}
+          status={switchStatus(on("subdl"), Boolean(saved("subdl").apiKey), t("Needs an API key"))}
           enabled={on("subdl")}
           busy={locked || busyId === "subdl"}
           disabled={switchesHeld}

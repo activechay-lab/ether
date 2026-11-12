@@ -65,6 +65,8 @@ func missingRoutes() []string {
 // unprobedRoutes are GET routes the offline parity world cannot compare
 // byte for byte, each with the reason. They are not counted as covered.
 var unprobedRoutes = map[string]string{
+	"/service/ultrablur/colors":                                            "colours come from the artwork palette cache, which the offline world does not warm",
+	"/services/ultrablur/colors":                                           "colours come from the artwork palette cache, which the offline world does not warm",
 	"/library/parts/{part}/{changestamp}/":                                 "PM4K bare changestamp route has no offline parity request",
 	"/statistics/resources":                                                "live host CPU and memory samples differ between any two processes",
 	"/{ttype:video|music|audio|subtitles}/:/transcode/universal/start":     "Plex for Mac's protocol=http conversion streams from a live FFmpeg the offline world does not run",

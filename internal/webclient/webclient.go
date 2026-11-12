@@ -218,11 +218,16 @@ func (in *Installer) install(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	if err := Extract(f, tmp); err != nil {
+	err = Extract(f, tmp)
+	// Close before the rename: Windows refuses to rename a directory that
+	// holds an open file.
+	f.Close()
+	if err != nil {
 		return "", err
 	}
-	_ = os.Remove(archive)
+	if err := os.Remove(archive); err != nil {
+		return "", fmt.Errorf("remove archive: %w", err)
+	}
 
 	// Replace any stale install only after the new one is complete.
 	if err := os.RemoveAll(parent); err != nil {

@@ -194,7 +194,16 @@ export function ProgrammingEditor({
           end: 1230,
           days: weekdays,
           date: kind === "special" ? new Date().toISOString().slice(0, 10) : undefined,
-          sources: [{ ...newSource(), kind: "show", strip: true, order: "order", startSeason: 1, startEpisode: 1 }],
+          sources: [
+            {
+              ...newSource(),
+              kind: "show",
+              strip: true,
+              order: "order",
+              startSeason: 1,
+              startEpisode: 1,
+            },
+          ],
           items: [],
         },
       });

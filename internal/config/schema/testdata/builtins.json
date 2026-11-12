@@ -1327,6 +1327,26 @@
               "label": {
                 "source": "Optional TheIntroDB key"
               }
+            },
+            {
+              "help": {
+                "source": "Add the open SkipDB lookup as a second source, cached per episode and runtime."
+              },
+              "key": "skipDb",
+              "kind": "bool",
+              "label": {
+                "source": "Also look up SkipDB"
+              }
+            },
+            {
+              "help": {
+                "source": "Reading SkipDB is open; a key only raises its rate limit."
+              },
+              "key": "skipDbApiKey",
+              "kind": "secret",
+              "label": {
+                "source": "Optional SkipDB key"
+              }
             }
           ],
           "title": {

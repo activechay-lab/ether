@@ -118,8 +118,8 @@ func TestConsoleDescriptorsRegister(t *testing.T) {
 		t.Errorf("commands: actions=%d suggestions=%d, want 7 and 4", actions, suggestions)
 	}
 	integrations := r.List(extend.KindIntegration)
-	if len(integrations) != 7 {
-		t.Fatalf("integrations = %d, want 7", len(integrations))
+	if len(integrations) != 8 {
+		t.Fatalf("integrations = %d, want 8", len(integrations))
 	}
 	for _, d := range integrations {
 		meta, err := extend.MetaOf[extend.IntegrationMeta](d)

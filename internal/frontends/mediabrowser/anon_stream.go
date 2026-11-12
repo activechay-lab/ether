@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
@@ -31,14 +30,14 @@ const anonSessionCap = 1024
 type anonEntry struct {
 	sessionID string
 	peerAddr  netip.Addr
-	item      core.RatingKey
+	item      frontend.RatingKey
 	channel   string
 	version   string
 	detailSrc string
 	// sourceID is the MediaSource Id PlaybackInfo returned (an Auto switch
 	// returns a release handle the client then names as mediaSourceId).
 	sourceID string
-	viewer   core.Viewer
+	viewer   frontend.Viewer
 	device   frontend.Device
 	expires  time.Time
 	seq      uint64
@@ -54,7 +53,7 @@ type anonIndex struct {
 
 type anonKey struct {
 	peer netip.Addr
-	item core.RatingKey
+	item frontend.RatingKey
 }
 
 func newAnonIndex() *anonIndex {
@@ -87,7 +86,7 @@ func (x *anonIndex) remember(e anonEntry) {
 }
 
 // lookup returns the newest unexpired entry for a peer and item.
-func (x *anonIndex) lookup(peer netip.Addr, item core.RatingKey) (anonEntry, bool) {
+func (x *anonIndex) lookup(peer netip.Addr, item frontend.RatingKey) (anonEntry, bool) {
 	if !peer.IsValid() || item == 0 {
 		return anonEntry{}, false
 	}
@@ -173,7 +172,7 @@ func (i *instance) peerAddr(r *http.Request) netip.Addr {
 // can be served as that viewer. Only item streams are indexed: a live
 // channel is opened and read through the LiveStreams endpoints, and a
 // credential-less channel request has no session to match against.
-func (i *instance) rememberAnonymousSession(r *http.Request, viewer *core.Viewer, sessionID string, item core.RatingKey, channel string, device frontend.Device, version, detailSrc, sourceID string) {
+func (i *instance) rememberAnonymousSession(r *http.Request, viewer *frontend.Viewer, sessionID string, item frontend.RatingKey, channel string, device frontend.Device, version, detailSrc, sourceID string) {
 	if i.anon == nil || viewer == nil || sessionID == "" || item == 0 {
 		return
 	}

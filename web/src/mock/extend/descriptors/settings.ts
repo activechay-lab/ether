@@ -1408,6 +1408,27 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 },
                 kind: "secret",
               },
+              {
+                key: "skipDb",
+                label: {
+                  source: "Also look up SkipDB",
+                },
+                help: {
+                  source:
+                    "Add the open SkipDB lookup as a second source, cached per episode and runtime.",
+                },
+                kind: "bool",
+              },
+              {
+                key: "skipDbApiKey",
+                label: {
+                  source: "Optional SkipDB key",
+                },
+                help: {
+                  source: "Reading SkipDB is open; a key only raises its rate limit.",
+                },
+                kind: "secret",
+              },
             ],
           },
         ],
