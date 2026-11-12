@@ -136,6 +136,10 @@ type Health struct {
 	// budget; zero once a ranking finishes in time again.
 	RankingSkipped   int64     `json:"rankingSkipped"`
 	RankingSkippedAt time.Time `json:"rankingSkippedAt,omitempty"`
+	// Sidecar is "waiting" while a plugin that runs as its own program
+	// (a remote plugin with no URL endpoint) has no sidecar connected.
+	// It is computed live for the console, never stored.
+	Sidecar string `json:"sidecar,omitempty"`
 }
 
 // JournalEntry is one recorded write and its inverse.

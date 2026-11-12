@@ -1916,6 +1916,7 @@
   "m_06ab5bc940f91a": "Pré-mettre en mémoire tampon le film",
   "m_06abf945245d58": "Taux de réussite (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Ce plugin s’exécute comme un programme à part sur un autre ordinateur. Choisissez Connecter un sidecar ci-dessous pour obtenir un code d’association, puis lancez le programme avec. Tant qu’il n’est pas connecté, rien de ce que fournit le plugin ne fonctionne.",
   "m_06ad75c747fb05": "Chargement des titres",
   "m_06ae57f84b5535": "État de visionnage",
   "m_06af05c5006c47": "Films familiaux et de réflexion sur la période de Pâques, synchronisés depuis MDBList.",
@@ -5374,6 +5375,7 @@
   "m_12a7d1abcca956": "Choisissez d’abord un spectateur et un titre.",
   "m_12a80efdf4f584": "La base de données est accessible et vide.",
   "m_12a8bdbce2ca23": "est d’au moins",
+  "m_12aa011cf34df4": "En attente de son sidecar",
   "m_12aa0c192d5439": "Rogner la fin du calque",
   "m_12abe161fa2886": "Impossible de joindre le flux RSS Plex. Ether réessaiera.",
   "m_12ac7fffa3512c": "Problème",
@@ -7117,6 +7119,7 @@
   "m_18bd55e69b5f1d": "Sauf si l’une correspond",
   "m_18bd817048dd75": "Jeton du propriétaire (X-Plex-Token)",
   "m_18be0bd9e87648": "Activez les notes externes et enregistrez pour vérifier les scores d’un titre.",
+  "m_18befe6972b637": "{name} a besoin de son sidecar en marche",
   "m_18c01ee79716fd": {
     "many": "{count} d’heures",
     "one": "{count} heure",

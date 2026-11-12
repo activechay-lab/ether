@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "Hauptfilm vorab puffern",
   "m_06abf945245d58": "Erfolgsquote (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Dieses Plugin läuft als eigenes Programm auf einem anderen Computer. Wähle unten „Sidecar verbinden“, um einen Kopplungscode zu erhalten, und starte das Programm damit. Bis es verbunden ist, funktioniert nichts, was das Plugin bereitstellt.",
   "m_06ad75c747fb05": "Titel werden geladen",
   "m_06ae57f84b5535": "Wiedergabestatus",
   "m_06af05c5006c47": "Familien- und Reflexionsfilme zur Osterzeit, synchronisiert von MDBList.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Wähl zuerst einen Zuschauer und einen Titel.",
   "m_12a80efdf4f584": "Die Datenbank ist erreichbar und leer.",
   "m_12a8bdbce2ca23": "ist mindestens",
+  "m_12aa011cf34df4": "Wartet auf seinen Sidecar",
   "m_12aa0c192d5439": "Ebenenende kürzen",
   "m_12abe161fa2886": "Plex-RSS war nicht erreichbar. Ether versucht es erneut.",
   "m_12ac7fffa3512c": "Problem",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Außer wenn eine zutrifft",
   "m_18bd817048dd75": "Besitzer-Token (X-Plex-Token)",
   "m_18be0bd9e87648": "Schalte externe Bewertungen ein und speichere, um die Wertungen eines Titels zu prüfen.",
+  "m_18befe6972b637": "{name} braucht seinen laufenden Sidecar",
   "m_18c01ee79716fd": {
     "one": "{count} Stunde",
     "other": "{count} Stunden"

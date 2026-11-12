@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "Forudbuffer hovedfilmen",
   "m_06abf945245d58": "Succesrate (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Dette plugin kører som sit eget program på en anden computer. Vælg Tilslut en sidecar nedenfor for at få en parringskode, og start programmet med den. Indtil det er forbundet, virker intet af det, plugin'et leverer.",
   "m_06ad75c747fb05": "Indlæser titler",
   "m_06ae57f84b5535": "Afspilningsstatus",
   "m_06af05c5006c47": "Familie- og reflekterende film fra påskesæsonen, synkroniseret fra MDBList.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Vælg først en seer og en titel.",
   "m_12a80efdf4f584": "Databasen kan nås og er tom.",
   "m_12a8bdbce2ca23": "er mindst",
+  "m_12aa011cf34df4": "Venter på sin sidecar",
   "m_12aa0c192d5439": "Beskær lagets slutning",
   "m_12abe161fa2886": "Plex RSS kunne ikke nås. Ether prøver igen.",
   "m_12ac7fffa3512c": "Problem",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Undtagen når en matcher",
   "m_18bd817048dd75": "Ejertoken (X-Plex-Token)",
   "m_18be0bd9e87648": "Slå eksterne vurderinger til, og gem for at tjekke en titels scorer.",
+  "m_18befe6972b637": "{name} skal have sin sidecar kørende",
   "m_18c01ee79716fd": {
     "one": "{count} time",
     "other": "{count} timer"

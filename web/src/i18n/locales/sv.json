@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "Förbuffra huvudfilmen",
   "m_06abf945245d58": "Framgångsandel (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Det här tillägget körs som ett eget program på en annan dator. Välj Anslut en sidecar nedan för att få en parkopplingskod och starta programmet med den. Tills det ansluter fungerar inget som tillägget erbjuder.",
   "m_06ad75c747fb05": "Läser in titlar",
   "m_06ae57f84b5535": "Visningsstatus",
   "m_06af05c5006c47": "Familje- och reflekterande filmer under påsksäsongen, synkroniserade från MDBList.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Välj en tittare och en titel först.",
   "m_12a80efdf4f584": "Databasen kan nås och är tom.",
   "m_12a8bdbce2ca23": "är minst",
+  "m_12aa011cf34df4": "Väntar på sin sidecar",
   "m_12aa0c192d5439": "Trimma lagrets slut",
   "m_12abe161fa2886": "Plex RSS kunde inte nås. Ether försöker igen.",
   "m_12ac7fffa3512c": "Problem",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Utom när något matchar",
   "m_18bd817048dd75": "Ägartoken (X-Plex-Token)",
   "m_18be0bd9e87648": "Slå på externa betyg och spara för att kontrollera en titels betyg.",
+  "m_18befe6972b637": "{name} behöver sin sidecar igång",
   "m_18c01ee79716fd": {
     "one": "{count} timme",
     "other": "{count} timmar"

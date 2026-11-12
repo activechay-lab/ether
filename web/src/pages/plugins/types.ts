@@ -23,6 +23,8 @@ export interface PluginSummary {
   health: string;
   /** The plain-language reason behind a non-ok health. */
   healthReason?: string;
+  /** "waiting" while a plugin that runs as its own program has no sidecar connected. */
+  healthSidecar?: string;
   capabilities?: string[];
   sourceKind?: string;
   stremioOnly?: boolean;
@@ -45,6 +47,8 @@ export interface PluginHealth {
   egressBytes: number;
   /** Resolves since its last complete ranking that left its ranking step out for running out of time. */
   rankingSkipped?: number;
+  /** "waiting" while a plugin that runs as its own program has no sidecar connected. */
+  sidecar?: string;
   rankingSkippedAt?: string;
 }
 

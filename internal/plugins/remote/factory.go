@@ -59,12 +59,7 @@ func (f *Factory) RuntimeFactory() plugins.RuntimeFactory {
 			inst.Manifest.Ether.Runtime.Kind != "remote" {
 			return nil, fmt.Errorf("plugin %s: remote factory cannot open runtime kind %q", inst.ID, inst.Manifest.Ether.Runtime.Kind)
 		}
-		mode, base := endpointFor(inst.SourceURL)
-		if mode == endpointTunnel && inst.Manifest.IsStremioOnly() {
-			if raw, ok := githubRawBase(inst.SourceURL); ok {
-				mode, base = endpointURL, raw
-			}
-		}
+		mode, base := endpointOf(inst.SourceURL, inst.Manifest)
 		switch mode {
 		case endpointTunnel:
 			if f.Tunnel == nil {
@@ -95,6 +90,31 @@ func (f *Factory) RuntimeFactory() plugins.RuntimeFactory {
 			return nil, fmt.Errorf("plugin %s: no remote endpoint in source URL", inst.ID)
 		}
 	}
+}
+
+// endpointOf picks a plugin's endpoint: endpointFor, except that a plain
+// Stremio add-on from a GitHub repo reads its static routes from
+// raw.githubusercontent.com instead of waiting for a sidecar.
+func endpointOf(source string, man plugins.Manifest) (endpointMode, string) {
+	mode, base := endpointFor(source)
+	if mode == endpointTunnel && man.IsStremioOnly() {
+		if raw, ok := githubRawBase(source); ok {
+			return endpointURL, raw
+		}
+	}
+	return mode, base
+}
+
+// SidecarState reports whether a remote plugin is served by a sidecar over
+// the tunnel and whether that sidecar is connected now (plugins.SidecarState).
+func (f *Factory) SidecarState(r plugins.Record) (needsSidecar, connected bool) {
+	if r.Manifest.RuntimeKind() != "remote" {
+		return false, false
+	}
+	if mode, _ := endpointOf(r.SourceURL, r.Manifest); mode != endpointTunnel {
+		return false, false
+	}
+	return true, f.Tunnel != nil && f.Tunnel.IsConnected(r.ID)
 }
 
 type endpointMode int

@@ -45,4 +45,12 @@ func TestGitHubStaticAddonUsesRawFiles(t *testing.T) {
 	if _, ok := plugin.(*contractRuntime).inner.(*URLClient); ok {
 		t.Fatal("an Ether plugin from GitHub must keep its sidecar tunnel")
 	}
+
+	f := &Factory{Tunnel: tunnel}
+	if needs, _ := f.SidecarState(plugins.Record{ID: "addon.x", SourceURL: "https://github.com/o/r"}); needs {
+		t.Fatal("a static add-on from GitHub must not wait for a sidecar")
+	}
+	if needs, connected := f.SidecarState(plugins.Record{ID: "org.example.p", SourceURL: "https://github.com/o/r", Manifest: plugins.Manifest{Ether: &plugins.EtherBlock{}}}); !needs || connected {
+		t.Fatalf("an Ether plugin from GitHub with no sidecar: needs=%v connected=%v, want true false", needs, connected)
+	}
 }

@@ -1959,6 +1959,7 @@
   "m_06ab5bc940f91a": "Wstępnie buforuj film właściwy",
   "m_06abf945245d58": "Wskaźnik sukcesu (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Ta wtyczka działa jako osobny program na innym komputerze. Wybierz poniżej Połącz sidecar, aby otrzymać kod parowania, a następnie uruchom z nim program. Dopóki się nie połączy, nic, co zapewnia wtyczka, nie działa.",
   "m_06ad75c747fb05": "Ładowanie tytułów",
   "m_06ae57f84b5535": "Stan oglądania",
   "m_06af05c5006c47": "Filmy rodzinne i refleksyjne na okres wielkanocny, synchronizowane z MDBList.",
@@ -5512,6 +5513,7 @@
   "m_12a7d1abcca956": "Najpierw wybierz widza i tytuł.",
   "m_12a80efdf4f584": "Baza danych jest osiągalna i pusta.",
   "m_12a8bdbce2ca23": "jest co najmniej",
+  "m_12aa011cf34df4": "Czeka na swój sidecar",
   "m_12aa0c192d5439": "Przytnij koniec warstwy",
   "m_12abe161fa2886": "Nie udało się połączyć z kanałem RSS Plex. Ether spróbuje ponownie.",
   "m_12ac7fffa3512c": "Problem",
@@ -7302,6 +7304,7 @@
   "m_18bd55e69b5f1d": "Z wyjątkiem gdy któryś pasuje",
   "m_18bd817048dd75": "Token właściciela (X-Plex-Token)",
   "m_18be0bd9e87648": "Włącz oceny zewnętrzne i zapisz, aby sprawdzić oceny tytułu.",
+  "m_18befe6972b637": "{name} potrzebuje uruchomionego sidecara",
   "m_18c01ee79716fd": {
     "few": "{count} godziny",
     "many": "{count} godzin",

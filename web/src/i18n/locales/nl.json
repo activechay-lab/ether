@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "De hoofdfilm vooraf bufferen",
   "m_06abf945245d58": "Slagingspercentage (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Deze plugin draait als eigen programma op een andere computer. Kies hieronder Een sidecar verbinden om een koppelcode te krijgen en start het programma daarmee. Tot hij verbonden is, werkt niets wat de plugin levert.",
   "m_06ad75c747fb05": "Titels laden",
   "m_06ae57f84b5535": "Kijkstatus",
   "m_06af05c5006c47": "Familie- en reflecterende films tijdens Pasen, gesynchroniseerd vanuit MDBList.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Kies eerst een kijker en een titel.",
   "m_12a80efdf4f584": "De database is bereikbaar en leeg.",
   "m_12a8bdbce2ca23": "is minstens",
+  "m_12aa011cf34df4": "Wacht op zijn sidecar",
   "m_12aa0c192d5439": "Einde laag inkorten",
   "m_12abe161fa2886": "Plex-RSS kon niet worden bereikt. Ether probeert het opnieuw.",
   "m_12ac7fffa3512c": "Probleem",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Behalve wanneer er een overeenkomt",
   "m_18bd817048dd75": "Eigenaarstoken (X-Plex-Token)",
   "m_18be0bd9e87648": "Schakel externe beoordelingen in en sla op om de scores van een titel te controleren.",
+  "m_18befe6972b637": "{name} heeft zijn sidecar nodig",
   "m_18c01ee79716fd": {
     "one": "{count} uur",
     "other": "{count} uur"

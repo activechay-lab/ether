@@ -1959,6 +1959,7 @@
   "m_06ab5bc940f91a": "Předem načíst hlavní film do vyrovnávací paměti",
   "m_06abf945245d58": "Úspěšnost (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Tento plugin běží jako samostatný program na jiném počítači. Níže zvolte Připojit sidecar, získejte párovací kód a spusťte s ním program. Dokud se nepřipojí, nic z toho, co plugin poskytuje, nefunguje.",
   "m_06ad75c747fb05": "Načítání titulů",
   "m_06ae57f84b5535": "Stav sledování",
   "m_06af05c5006c47": "Velikonoční rodinné a reflexní filmy, synchronizované z MDBList.",
@@ -5512,6 +5513,7 @@
   "m_12a7d1abcca956": "Nejprve vyberte diváka a titul.",
   "m_12a80efdf4f584": "Databáze je dostupná a prázdná.",
   "m_12a8bdbce2ca23": "je alespoň",
+  "m_12aa011cf34df4": "Čeká na svůj sidecar",
   "m_12aa0c192d5439": "Oříznout konec vrstvy",
   "m_12abe161fa2886": "Kanál RSS Plexu se nepodařilo kontaktovat. Ether to zkusí znovu.",
   "m_12ac7fffa3512c": "Problém",
@@ -7302,6 +7304,7 @@
   "m_18bd55e69b5f1d": "Kromě případu, kdy některá odpovídá",
   "m_18bd817048dd75": "Token vlastníka (X-Plex-Token)",
   "m_18be0bd9e87648": "Zapněte externí hodnocení a uložením zkontrolujte skóre titulu.",
+  "m_18befe6972b637": "{name} potřebuje spuštěný sidecar",
   "m_18c01ee79716fd": {
     "few": "{count} hodiny",
     "many": "{count} hodiny",

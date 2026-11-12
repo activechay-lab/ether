@@ -24,13 +24,19 @@ export interface HealthSummary {
  * server's plain reason only, so a card in the Installed list and the
  * plugin's drawer always say the same thing.
  */
-export function healthHeadline(p: { health: string; healthReason?: string; enabled: boolean }): {
+export function healthHeadline(p: {
+  health: string;
+  healthReason?: string;
+  healthSidecar?: string;
+  enabled: boolean;
+}): {
   level: HealthLevel;
   word: string;
   slow: boolean;
 } {
   const level = pluginHealthLevel(p.health, p.enabled);
   const slow = level === "warn" && /slow/i.test(p.healthReason ?? "");
+  const waiting = level === "warn" && p.healthSidecar === "waiting";
   const word =
     level === "off"
       ? t("Off")
@@ -38,11 +44,13 @@ export function healthHeadline(p: { health: string; healthReason?: string; enabl
         ? t("Unknown")
         : level === "ok"
           ? t("Healthy")
-          : slow
-            ? t("Slow")
-            : level === "warn"
-              ? t("Needs attention")
-              : t("Not answering");
+          : waiting
+            ? t("Waiting for its sidecar")
+            : slow
+              ? t("Slow")
+              : level === "warn"
+                ? t("Needs attention")
+                : t("Not answering");
   return { level, word, slow };
 }
 
@@ -52,6 +60,7 @@ export function healthSummary(detail: PluginDetail): HealthSummary {
   const { level, word, slow } = healthHeadline({
     health: h.status,
     healthReason: h.reason,
+    healthSidecar: h.sidecar,
     enabled: detail.enabled,
   });
   const calls = im.calls;
@@ -68,6 +77,20 @@ export function healthSummary(detail: PluginDetail): HealthSummary {
       level,
       word,
       tile: calls ? tn(calls, "{count} recent call", "{count} recent calls") : t("Not used yet"),
+    };
+  }
+  if (level === "warn" && h.sidecar === "waiting") {
+    return {
+      level,
+      word,
+      tile: t("Not connected"),
+      card: {
+        title: t("{name} needs its sidecar running", { name: detail.name }),
+        line: t(
+          "This plugin runs as its own program on another computer. Choose Connect a sidecar below to get a pairing code, then start the program with it. Until it connects, nothing the plugin provides works.",
+        ),
+        retry: true,
+      },
     };
   }
   const skipped = h.rankingSkipped ?? 0;

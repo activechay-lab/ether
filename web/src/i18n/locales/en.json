@@ -1876,6 +1876,7 @@
   "m_06ab5bc940f91a": "Pre-buffer the feature",
   "m_06abf945245d58": "Success rate (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "This plugin runs as its own program on another computer. Choose Connect a sidecar below to get a pairing code, then start the program with it. Until it connects, nothing the plugin provides works.",
   "m_06ad75c747fb05": "Loading titles",
   "m_06ae57f84b5535": "Watch status",
   "m_06af05c5006c47": "Easter-season family and reflective films, synced from MDBList.",
@@ -5245,6 +5246,7 @@
   "m_12a7d1abcca956": "Choose a viewer and a title first.",
   "m_12a80efdf4f584": "The database is reachable and empty.",
   "m_12a8bdbce2ca23": "is at least",
+  "m_12aa011cf34df4": "Waiting for its sidecar",
   "m_12aa0c192d5439": "Trim layer end",
   "m_12abe161fa2886": "Plex RSS could not be reached. Ether will try again.",
   "m_12ac7fffa3512c": "Issue",
@@ -6944,6 +6946,7 @@
   "m_18bd55e69b5f1d": "Except when any matches",
   "m_18bd817048dd75": "Owner token (X-Plex-Token)",
   "m_18be0bd9e87648": "Turn on external ratings and save to check a title's scores.",
+  "m_18befe6972b637": "{name} needs its sidecar running",
   "m_18c01ee79716fd": {
     "one": "{count} hour",
     "other": "{count} hours"

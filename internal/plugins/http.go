@@ -87,11 +87,13 @@ type Summary struct {
 	Health        string `json:"health"`
 	// HealthReason is the plain-language reason behind a non-ok health,
 	// such as "Recent calls were slow."
-	HealthReason string   `json:"healthReason,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
-	SourceKind   string   `json:"sourceKind,omitempty"`
-	StremioOnly  bool     `json:"stremioOnly,omitempty"`
-	InstalledAt  int64    `json:"installedAt"`
+	HealthReason string `json:"healthReason,omitempty"`
+	// HealthSidecar is "waiting" while the plugin's sidecar is not connected.
+	HealthSidecar string   `json:"healthSidecar,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
+	SourceKind    string   `json:"sourceKind,omitempty"`
+	StremioOnly   bool     `json:"stremioOnly,omitempty"`
+	InstalledAt   int64    `json:"installedAt"`
 	// Roles and Host describe a Stremio add-on: what it can do, which of
 	// that is switched on, and the host it is reached at (never the link,
 	// which carries the owner's configuration).
@@ -102,7 +104,7 @@ type Summary struct {
 func (m *Manager) summary(r Record, h Health) Summary {
 	s := Summary{ID: r.ID, Name: r.Name, Version: r.Version, Kind: r.Kind, Enabled: r.Enabled,
 		Verified: r.Verified, Shadow: r.Shadow, AutoUpdate: r.AutoUpdate, UpdateVersion: r.UpdateVersion,
-		PrevVersion: r.PrevVersion, Health: h.Status, HealthReason: h.Reason, SourceKind: r.SourceKind,
+		PrevVersion: r.PrevVersion, Health: h.Status, HealthReason: h.Reason, HealthSidecar: h.Sidecar, SourceKind: r.SourceKind,
 		StremioOnly: r.Manifest.IsStremioOnly(), InstalledAt: r.InstalledAt.Unix()}
 	if r.Manifest.SpeaksStremio() {
 		// Roles and the add-on's host belong to every plugin that answers
@@ -236,7 +238,7 @@ func (m *Manager) handleList(w http.ResponseWriter, r *http.Request) {
 	out := make([]Summary, 0, len(recs))
 	for _, rec := range recs {
 		h, _ := m.store.health(r.Context(), rec.ID)
-		out = append(out, m.summary(rec, h))
+		out = append(out, m.summary(rec, m.liveHealth(rec, h)))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"plugins": out})
 }
@@ -249,6 +251,7 @@ func (m *Manager) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h, _ := m.store.health(r.Context(), id)
+	h = m.liveHealth(rec, h)
 	g, _ := m.store.grants(r.Context(), id)
 	d := Detail{Summary: m.summary(rec, h), Manifest: rec.Manifest, HealthDetail: h}
 	d.Permissions.Lines, d.Permissions.NeedsViewers, d.Permissions.NeedsFolders = PermissionSheet(rec.Manifest)

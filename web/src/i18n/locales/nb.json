@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "Forhåndsbuffre hovedfilmen",
   "m_06abf945245d58": "Suksessrate (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Denne utvidelsen kjører som et eget program på en annen datamaskin. Velg Koble til en sidecar nedenfor for å få en paringskode, og start programmet med den. Til den er tilkoblet, fungerer ingenting utvidelsen leverer.",
   "m_06ad75c747fb05": "Laster titler",
   "m_06ae57f84b5535": "Visningsstatus",
   "m_06af05c5006c47": "Familie- og reflekterende filmer fra påskesesongen, synkronisert fra MDBList.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Velg en seer og en tittel først.",
   "m_12a80efdf4f584": "Databasen er tilgjengelig og tom.",
   "m_12a8bdbce2ca23": "er minst",
+  "m_12aa011cf34df4": "Venter på sin sidecar",
   "m_12aa0c192d5439": "Beskjær lagslutt",
   "m_12abe161fa2886": "Kunne ikke nå Plex RSS. Ether prøver igjen.",
   "m_12ac7fffa3512c": "Problem",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Unntatt når ett treffer",
   "m_18bd817048dd75": "Eier-token (X-Plex-Token)",
   "m_18be0bd9e87648": "Slå på eksterne vurderinger og lagre for å sjekke en tittels vurderinger.",
+  "m_18befe6972b637": "{name} trenger at sidecaren kjører",
   "m_18c01ee79716fd": {
     "one": "{count} time",
     "other": "{count} timer"

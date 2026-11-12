@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "Esipuskuroi pääelokuva",
   "m_06abf945245d58": "Onnistumisprosentti (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Tämä lisäosa toimii omana ohjelmanaan toisella tietokoneella. Valitse alta Yhdistä sidecar saadaksesi parituskoodin ja käynnistä ohjelma sillä. Ennen kuin se yhdistää, mikään lisäosan tarjoama ei toimi.",
   "m_06ad75c747fb05": "Ladataan nimikkeitä",
   "m_06ae57f84b5535": "Katselutila",
   "m_06af05c5006c47": "Pääsiäiskauden perhe- ja heijastavat elokuvat, synkronoitu MDBLististä.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Valitse ensin katselija ja nimike.",
   "m_12a80efdf4f584": "Tietokanta on tavoitettavissa ja tyhjä.",
   "m_12a8bdbce2ca23": "on vähintään",
+  "m_12aa011cf34df4": "Odottaa sidecaria",
   "m_12aa0c192d5439": "Rajaa tason loppua",
   "m_12abe161fa2886": "Plexin RSS-syötteeseen ei saatu yhteyttä. Ether yrittää uudelleen.",
   "m_12ac7fffa3512c": "Ongelma",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Paitsi jos jokin täsmää",
   "m_18bd817048dd75": "Omistajan token (X-Plex-Token)",
   "m_18be0bd9e87648": "Ota ulkoiset arvosanat käyttöön ja tallenna tarkistaaksesi nimikkeen pisteet.",
+  "m_18befe6972b637": "{name} tarvitsee käynnissä olevan sidecarin",
   "m_18c01ee79716fd": {
     "one": "{count} tunti",
     "other": "{count} tuntia"

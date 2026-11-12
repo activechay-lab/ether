@@ -83,22 +83,23 @@ type Deps struct {
 // Manager is the plugin host. It is safe for concurrent use.
 type Manager struct {
 	// relay holds the add-on settings pages open in the console.
-	relay       *addonRelay
-	relayOnce   sync.Once
-	store       *storage
-	deps        Deps
-	log         *slog.Logger
-	now         func() time.Time
-	client      *http.Client
-	mu          sync.Mutex
-	catalogue   Catalogue
-	fatories    map[string]RuntimeFactory
-	runtimes    map[string]Runtime
-	removeHooks []func(context.Context, string)
-	syncHooks   []func(ctx context.Context, r Record)
-	eventSubs   map[string]map[string]Record
-	feedLogs    sync.Map // feed key -> *faillog.Tracker
-	notifyLocks sync.Map // plugin id -> *sync.Mutex
+	relay        *addonRelay
+	relayOnce    sync.Once
+	store        *storage
+	deps         Deps
+	log          *slog.Logger
+	now          func() time.Time
+	client       *http.Client
+	mu           sync.Mutex
+	sidecarState SidecarState
+	catalogue    Catalogue
+	fatories     map[string]RuntimeFactory
+	runtimes     map[string]Runtime
+	removeHooks  []func(context.Context, string)
+	syncHooks    []func(ctx context.Context, r Record)
+	eventSubs    map[string]map[string]Record
+	feedLogs     sync.Map // feed key -> *faillog.Tracker
+	notifyLocks  sync.Map // plugin id -> *sync.Mutex
 	// schedule bookkeeping: "plugin|call" -> next run
 	nextRun map[string]time.Time
 	// rate-limit bookkeeping for host log and notify
@@ -776,6 +777,38 @@ type RankingReport struct {
 // is being left out. It says "slow" so the console's headline reads Slow;
 // the drawer explains it from Health.RankingSkipped.
 const rankingSkippedReason = "Its ranking step was too slow, so releases were ranked without it."
+
+// sidecarWaitingReason is the health reason while a plugin that runs as its
+// own program has no sidecar connected.
+const sidecarWaitingReason = "It runs as its own program, and that program is not connected."
+
+// SidecarState reports whether an installed plugin is served by a sidecar
+// and whether one is connected now. The app wires it from the remote
+// runtime; nil means no plugin needs a sidecar.
+type SidecarState func(Record) (needsSidecar, connected bool)
+
+// SetSidecarState installs the live sidecar check used for console health.
+func (m *Manager) SetSidecarState(f SidecarState) {
+	m.mu.Lock()
+	m.sidecarState = f
+	m.mu.Unlock()
+}
+
+// liveHealth overlays the live sidecar state on a stored health record: an
+// enabled plugin whose sidecar is not connected needs attention however its
+// last check went, so the console never calls it healthy.
+func (m *Manager) liveHealth(r Record, h Health) Health {
+	m.mu.Lock()
+	f := m.sidecarState
+	m.mu.Unlock()
+	if f == nil || !r.Enabled {
+		return h
+	}
+	if needs, connected := f(r); needs && !connected {
+		h.Status, h.Reason, h.Sidecar = "attention", sidecarWaitingReason, "waiting"
+	}
+	return h
+}
 
 // RecordRanking records a resolve's hot-path outcome for one plugin. A
 // ranking step left out for running past its budget flags the plugin for

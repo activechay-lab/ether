@@ -1873,6 +1873,7 @@
   "m_06ab5bc940f91a": "Ana filmi önceden arabelleğe al",
   "m_06abf945245d58": "Başarı oranı (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Bu eklenti başka bir bilgisayarda kendi programı olarak çalışır. Eşleştirme kodu almak için aşağıdan Sidecar bağla'yı seçin, ardından programı bu kodla başlatın. Bağlanana kadar eklentinin sağladığı hiçbir şey çalışmaz.",
   "m_06ad75c747fb05": "Başlıklar yükleniyor",
   "m_06ae57f84b5535": "İzleme durumu",
   "m_06af05c5006c47": "MDBList'ten senkronize edilen Paskalya sezonu ailesi ve yansıtıcı filmler.",
@@ -5238,6 +5239,7 @@
   "m_12a7d1abcca956": "Önce bir izleyici ve içerik seçin.",
   "m_12a80efdf4f584": "Veritabanına erişilebiliyor ve boş.",
   "m_12a8bdbce2ca23": "en az",
+  "m_12aa011cf34df4": "Sidecar'ını bekliyor",
   "m_12aa0c192d5439": "Katman bitişini kırp",
   "m_12abe161fa2886": "Plex RSS'e ulaşılamadı. Ether tekrar deneyecek.",
   "m_12ac7fffa3512c": "Sorun",
@@ -6934,6 +6936,7 @@
   "m_18bd55e69b5f1d": "Herhangi biri eşleşirse hariç",
   "m_18bd817048dd75": "Sahip belirteci (X-Plex-Token)",
   "m_18be0bd9e87648": "Bir başlığın puanlarını denetlemek için harici puanları açıp kaydedin.",
+  "m_18befe6972b637": "{name} için sidecar'ın çalışıyor olması gerekiyor",
   "m_18c01ee79716fd": {
     "one": "{count} saat",
     "other": "{count} saat"

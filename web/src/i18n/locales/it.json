@@ -1916,6 +1916,7 @@
   "m_06ab5bc940f91a": "Precarica il film",
   "m_06abf945245d58": "Tasso di successo (%)",
   "m_06ac3fe17bae8a": "Stremio",
+  "m_06ad56bfd821f7": "Questo plugin funziona come un programma a sé su un altro computer. Scegli Connetti un sidecar qui sotto per ottenere un codice di abbinamento, poi avvia il programma con quel codice. Finché non si collega, nulla di ciò che il plugin offre funziona.",
   "m_06ad75c747fb05": "Caricamento dei titoli",
   "m_06ae57f84b5535": "Stato di visione",
   "m_06af05c5006c47": "Film per famiglie e riflessioni del periodo pasquale, sincronizzati da MDBList.",
@@ -5374,6 +5375,7 @@
   "m_12a7d1abcca956": "Scegli prima uno spettatore e un titolo.",
   "m_12a80efdf4f584": "Il database è raggiungibile e vuoto.",
   "m_12a8bdbce2ca23": "è almeno",
+  "m_12aa011cf34df4": "In attesa del suo sidecar",
   "m_12aa0c192d5439": "Taglia fine livello",
   "m_12abe161fa2886": "Impossibile raggiungere il feed RSS di Plex. Ether riproverà.",
   "m_12ac7fffa3512c": "Problema",
@@ -7117,6 +7119,7 @@
   "m_18bd55e69b5f1d": "Tranne quando una corrisponde",
   "m_18bd817048dd75": "Token del proprietario (X-Plex-Token)",
   "m_18be0bd9e87648": "Attiva le valutazioni esterne e salva per controllare i punteggi di un titolo.",
+  "m_18befe6972b637": "{name} ha bisogno del suo sidecar in esecuzione",
   "m_18c01ee79716fd": {
     "many": "{count} ore",
     "one": "{count} ora",
