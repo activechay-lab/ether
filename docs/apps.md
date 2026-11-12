@@ -171,7 +171,7 @@ certificate) applies to every app, not only Plex. Enabled protocols expose
 configuration tabs, with changes edited in place. Drawers are for records. There
 is no generic Settings menu. The [owner guide](user-guide.md) distinguishes native
 client targets from web shells. Emby Web is not provided; the official Jellyfin
-Web build is downloaded from `repo.jellyfin.org` on first use and served at
+Web build is downloaded from `repo.jellyfin.org` when Jellyfin is turned on and served at
 `/web` on the Jellyfin port, so the Jellyfin apps that wrap it work too.
 Conformance, native-client certification, performance comparisons and owner-device
 acceptance are pending until versioned receipts cover the exact integrated build.

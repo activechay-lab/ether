@@ -228,7 +228,7 @@ MIT License text:
 ### Jellyfin Web
 
 Ether serves the official, **unmodified** Jellyfin Web client at `/web` on the
-Jellyfin port. Nothing is bundled: on first use Ether downloads the pinned
+Jellyfin port. Nothing is bundled: when Jellyfin is turned on, Ether downloads the pinned
 release artifact from `repo.jellyfin.org`
 (`jellyfin-web_12.4+deb13_all.deb`, version 12.4, verified by SHA-256) and
 extracts it under the data directory. Source:

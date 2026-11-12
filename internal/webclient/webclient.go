@@ -1,7 +1,7 @@
 // Package webclient provides the official Jellyfin Web build that the native
 // Jellyfin apps (Android, iOS/iPadOS, Desktop, webOS, Xbox) load from
 // <server>/web/. Nothing is bundled: the pinned .deb is downloaded from
-// repo.jellyfin.org on first use and cached under the data directory.
+// repo.jellyfin.org when Jellyfin is turned on and cached under the data directory.
 package webclient
 
 import (

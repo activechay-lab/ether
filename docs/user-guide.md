@@ -46,7 +46,7 @@ Downloads: not supported.
 
 Jellyfin's own apps that wrap Jellyfin Web — Android phones, iPhone/iPad,
 Desktop, LG webOS and Xbox — now work: Ether downloads the official Jellyfin Web
-build on first use (about 32 MB, once) and serves it at
+build when you turn Jellyfin on (about 32 MB, once) and serves it at
 `http://<server>:<jellyfin port>/web/`. Opening that URL in a browser works the
 same way. Emby Web is not provided, and Emby apps that need a server-hosted Emby
 Web (Emby for Apple TV 2.x) remain unsupported.
@@ -122,7 +122,7 @@ certification and exact-build conformance remain pending.
 
 | Surface | Intended clients and connection | Limits |
 | --- | --- | --- |
-| Jellyfin | Android TV, Swiftfin, Findroid, Streamyfin, Infuse, JellyCon, Roku; also Android phones, iPhone/iPad, Desktop, LG webOS and Xbox through the Jellyfin Web build served at `/web/`; server URL and viewer sign-in | Native feature matrix above is pending; the Jellyfin Web build is downloaded on first use (~32 MB) |
+| Jellyfin | Android TV, Swiftfin, Findroid, Streamyfin, Infuse, JellyCon, Roku; also Android phones, iPhone/iPad, Desktop, LG webOS and Xbox through the Jellyfin Web build served at `/web/`; server URL and viewer sign-in | Native feature matrix above is pending; the Jellyfin Web build is downloaded when Jellyfin is turned on (~32 MB) |
 | Emby | Native clients using the server URL and Ether viewer account | No bundled Web; Apple TV Emby for TV 2.x web shell is unsupported; app licensing still applies |
 | Silo | Apple and Android native apps; server URL and viewer sign-in or pairing | Versioned device acceptance pending; see Silo limits above |
 | Stremio | Install the viewer-specific addon from the viewer portal in Stremio | Addon API only; no hosted Stremio web player |

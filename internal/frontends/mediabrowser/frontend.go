@@ -52,6 +52,11 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 	inst := &instance{host: host, info: info, router: r, protocol: protocol, life: life, cancel: cancel, extraClient: newExtraHTTPClient(host.DirectProxy)}
 	if protocol == "jellyfin" && host.ClientsDir != "" {
 		inst.webClient = webclient.New(filepath.Join(host.ClientsDir, "jellyfin-web"), host.MetadataHTTP)
+		// Turning Jellyfin on (setup, the Apps page, or a start with it
+		// enabled) fetches the official Jellyfin Web build in the background,
+		// so the first app that loads /web finds it ready. An installed
+		// build is reused with no network.
+		inst.webClient.Begin()
 	}
 	if host.PageFreshness != nil {
 		inst.pages = newBrowseCache()
