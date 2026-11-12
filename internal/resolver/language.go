@@ -137,8 +137,9 @@ func audioAcceptable(info core.ReleaseInfo, accepted []string) bool {
 // is unchanged. On a foreign-language title (e.g. a Spanish film for an
 // English viewer), releases that declare English or MULTI are ranked ahead of
 // untagged original-language or bare .DUAL releases within the same resolution
-// tier.
-func foreignTitleWantedAudio(info core.ReleaseInfo, wanted []string, t *core.Title) bool {
+// tier. A bare DUAL/MULTI from an indexer that declares the viewer's wanted
+// language (sourceLang) carries that dub, so it counts too.
+func foreignTitleWantedAudio(info core.ReleaseInfo, sourceLang string, wanted []string, t *core.Title) bool {
 	orig := titleOriginalLanguage(t)
 	if orig == "" || len(wanted) == 0 {
 		return false
@@ -148,11 +149,22 @@ func foreignTitleWantedAudio(info core.ReleaseInfo, wanted []string, t *core.Tit
 			return false
 		}
 	}
+	// The source language fills a bare DUAL/MULTI's unnamed dub.
+	sourceWanted := false
+	for _, w := range wanted {
+		if releaseparse.LanguageMatch(sourceLang, w) != releaseparse.LanguageNoMatch {
+			sourceWanted = true
+			break
+		}
+	}
 	for _, l := range info.Languages {
 		if l == releaseparse.LanguageMulti {
 			return true
 		}
 		if l == releaseparse.LanguageDual {
+			if sourceWanted {
+				return true
+			}
 			continue
 		}
 		for _, w := range wanted {

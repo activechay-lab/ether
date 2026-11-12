@@ -104,6 +104,12 @@ type Release struct {
 	// Target narrows a multi-file release (a season pack) to the wanted
 	// episode; set by the resolver on candidates before fetching.
 	Target *ReleaseTarget `json:"target,omitempty"`
+	// SourceLanguage is the release language of the indexer the result came
+	// from (a Cardigann definition's `language`, or the owner's per-indexer
+	// Release language for Newznab/Torznab/Prowlarr/Zilean), as a canonical
+	// BCP 47 tag ("pt-BR"). It is evidence for a bare DUAL/MULTI whose name
+	// names no dub; an explicit language in the name always wins (additive).
+	SourceLanguage string `json:"sourceLanguage,omitempty"`
 	// DebridCached and DebridUncached name the debrid services (config
 	// Debrid* kinds) the source reported as holding, or not holding, the
 	// torrent, such as a Stremio addon's cached marker (additive). Hints

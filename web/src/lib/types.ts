@@ -43,6 +43,13 @@ export interface Indexer {
   secretSettings?: Record<string, string> | null;
   /** Client identity preset overriding the global policy for this indexer. */
   clientIdentity?: string;
+  /**
+   * The audio language of the releases this indexer returns, as a BCP 47
+   * tag ("pt-BR"). It is evidence for a bare DUAL/MULTI whose name names no
+   * dub; an explicit language in a release name always wins. Overrides a
+   * built-in site's definition language when set.
+   */
+  language?: string;
 }
 
 /**

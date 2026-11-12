@@ -13,6 +13,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp } from "../../app-context";
 import { localized, t, tn } from "../../i18n";
+import { searchSelectLabels } from "../../i18n/appkit-labels";
+import { useLocale } from "../../i18n/react";
 import { ActionMenu } from "../../components/ActionMenu";
 import { MoreOptions } from "../../components/ConfigSection";
 import { Meter } from "../../components/charts";
@@ -35,6 +37,8 @@ import { useAsync } from "../../lib/hooks";
 import type { Indexer, IndexerProtocol, SiteDefinition, SiteTestResult } from "../../lib/types";
 import { useResolver } from "../releases/resolverDraft";
 import { searchIdentityOptions } from "../settings/schema";
+import { LANGUAGE_TAGS } from "../libraries/browser/CatalogPickers";
+import { REGIONAL_TRACK_TAGS } from "../setup/language";
 import { ClientIdentity } from "./ClientIdentity";
 import { hasUsableDebrid } from "./Debrid";
 import {
@@ -100,6 +104,64 @@ export function isStremio(ix: { kind?: string }) {
 
 export function isZilean(ix: { kind?: string }) {
   return ix.kind === "zilean";
+}
+
+/**
+ * The per-indexer release language: the audio language of the releases an
+ * indexer returns, used only to fill a bare DUAL/MULTI whose name names no
+ * dub. Empty is Automatic — the site's own declared language, when it has
+ * one.
+ */
+function ReleaseLanguageSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { locale } = useLocale();
+  const options = useMemo(() => {
+    const display = (code: string) => {
+      try {
+        return new Intl.DisplayNames([locale], { type: "language" }).of(code) ?? code;
+      } catch {
+        return code;
+      }
+    };
+    const seen = new Set<string>();
+    const out: { value: string; label: string }[] = [{ value: "", label: t("Automatic") }];
+    for (const tag of LANGUAGE_TAGS) {
+      if (seen.has(tag.toLowerCase())) continue;
+      seen.add(tag.toLowerCase());
+      out.push({ value: tag, label: `${display(tag)} (${tag})` });
+    }
+    for (const tag of REGIONAL_TRACK_TAGS) {
+      if (seen.has(tag.toLowerCase())) continue;
+      seen.add(tag.toLowerCase());
+      out.push({ value: tag, label: `${display(tag)} (${tag})` });
+    }
+    if (value && !out.some((o) => o.value === value)) {
+      out.push({ value, label: `${display(value)} (${value})` });
+    }
+    return out.sort((a, b) => {
+      if (a.value === "") return -1;
+      if (b.value === "") return 1;
+      return a.label.localeCompare(b.label, locale);
+    });
+  }, [locale, value]);
+  return (
+    <div className="w-56">
+      <SearchSelect
+        {...searchSelectLabels()}
+        value={value}
+        options={options}
+        onChange={onChange}
+        ariaLabel={t("Release language")}
+        searchable
+        noneLabel={t("Automatic")}
+      />
+    </div>
+  );
 }
 
 export { addonUrlHasDebridKey, normalizeAddonUrl } from "../../components/addons/addons";
@@ -860,6 +922,25 @@ export function IndexerList({
               <SiteSettingsFields def={draftDef} draft={draft} onChange={set} errors={errors} />
             ) : null}
             <MoreOptions label={t("More options")}>
+              {stremio ? null : (
+                <SettingsSection
+                  title={t("Release language")}
+                  description={t(
+                    "The audio language of the releases this indexer returns. It fills the dub a bare DUAL or MULTI release name leaves unnamed; a language named in a release always wins. Sites that declare their own language use it unless you set one here.",
+                  )}
+                >
+                  <SettingsRow
+                    title={t("Language")}
+                    description={t("Automatic uses the site's own language, when it declares one.")}
+                    control={
+                      <ReleaseLanguageSelect
+                        value={draft.language ?? ""}
+                        onChange={(v) => set({ language: v })}
+                      />
+                    }
+                  />
+                </SettingsSection>
+              )}
               <SettingsSection
                 title={t("Optional daily caps")}
                 description={

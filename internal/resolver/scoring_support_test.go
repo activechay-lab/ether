@@ -61,9 +61,15 @@ func (s *FormatScorer) ScoreForTitle(r core.Release, overrides map[string]int, o
 // languageScore sums the language formats a release matches for prefs at
 // the scores converted profiles give them.
 func languageScore(info core.ReleaseInfo, prefs []string) float64 {
+	return languageScoreFrom(info, "", prefs)
+}
+
+// languageScoreFrom is languageScore with an indexer source language, the
+// evidence a bare DUAL/MULTI is scored on.
+func languageScoreFrom(info core.ReleaseInfo, sourceLang string, prefs []string) float64 {
 	scores := map[string]int{core.FormatPreferredLanguage: 5, core.FormatPreferredLanguageRegion: 2, core.FormatOtherLanguage: -25, core.FormatPreferredSubtitles: 2}
 	total := 0
-	for _, id := range languageFormats(info, prefs) {
+	for _, id := range languageFormats(info, sourceLang, prefs) {
 		total += scores[id]
 	}
 	return float64(total)

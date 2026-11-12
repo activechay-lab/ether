@@ -229,6 +229,14 @@ type Indexer struct {
 	Definition string `json:"definition,omitempty"`
 	// Settings are the definition's setting values by name.
 	Settings map[string]string `json:"settings,omitempty"`
+	// Language is the owner's Release language for this indexer: the audio
+	// language of the releases it returns, as a BCP 47 tag ("pt-BR"). It is
+	// evidence for a bare DUAL/MULTI whose name names no dub; an explicit
+	// language in a release name always wins. For a built-in site it
+	// overrides the definition's own `language` when set; for
+	// Newznab/Torznab/Prowlarr/Zilean, which declare none, it is the only
+	// source. Empty leaves the definition's language in force (additive).
+	Language string `json:"language,omitempty"`
 	// SecretSettings are the definition's password-type settings. They are
 	// sealed at rest and redacted in API responses like API keys.
 	SecretSettings map[string]string `json:"secretSettings,omitempty"`

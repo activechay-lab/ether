@@ -590,7 +590,7 @@ func estimateVariantInfo(t *core.Title, rel core.Release, wanted []string) core.
 	}
 	var audioStreams []core.StreamInfo
 	if audioCodec != "" {
-		audioStreams = estimateAudioStreams(info, original, wanted)
+		audioStreams = estimateAudioStreams(info, original, rel.SourceLanguage, wanted)
 		for i := range audioStreams {
 			audioStreams[i].Codec = audioCodec
 			audioStreams[i].Channels = channels.count
@@ -648,13 +648,15 @@ func estimateVariantInfo(t *core.Title, rel core.Release, wanted []string) core.
 // expose on a detail page: one per declared language, with the title's
 // original language included when the release is DUAL or MULTI. A DUAL or
 // MULTI tag says there is more than one track without naming the dub, so
-// that track is listed unlabelled rather than guessed: Ether never claims a
-// language the release name does not state. Probing at play replaces the
-// estimate. The stream the viewer would actually hear (their wanted
-// language when the name states it, otherwise the original) is flagged
-// Default. One stream (the original) is kept when nothing is known.
-func estimateAudioStreams(info core.ReleaseInfo, original string, wanted []string) []core.StreamInfo {
-	langs := estimateAudioLanguages(info, original)
+// that track is listed unlabelled — unless the indexer the release came
+// from declares a source language (sourceLang), in which case that
+// language fills the slot rather than being guessed from the viewer. Ether
+// never claims a language the release name does not state. Probing at play
+// replaces the estimate. The stream the viewer would actually hear (their
+// wanted language when the name states it, otherwise the original) is
+// flagged Default. One stream (the original) is kept when nothing is known.
+func estimateAudioStreams(info core.ReleaseInfo, original, sourceLang string, wanted []string) []core.StreamInfo {
+	langs := estimateAudioLanguages(info, original, sourceLang)
 	if len(langs) == 0 {
 		// Nothing is known about the language; keep one unlabelled stream so
 		// the detail page still shows the audio codec, as before.
@@ -675,10 +677,13 @@ func estimateAudioStreams(info core.ReleaseInfo, original string, wanted []strin
 
 // estimateAudioLanguages lists the audio languages a release declares, in
 // display order: concrete declared languages first, then the original when
-// the release is DUAL or MULTI, plus one unlabelled ("") entry when such a
-// release names no dub. The original is the sole entry when the release
-// says nothing.
-func estimateAudioLanguages(info core.ReleaseInfo, original string) []string {
+// the release is DUAL or MULTI, plus a dub entry when such a release names
+// none. That dub is the indexer's source language (sourceLang) when it is
+// set and differs from the title's original language, otherwise unlabelled:
+// a bare DUAL from a pt-BR tracker, on an English film, shows the dub as
+// pt-BR rather than guessed from the viewer. The original is the sole entry
+// when the release says nothing.
+func estimateAudioLanguages(info core.ReleaseInfo, original, sourceLang string) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(v string) {
@@ -712,8 +717,19 @@ func estimateAudioLanguages(info core.ReleaseInfo, original string) []string {
 	if wide {
 		add(original)
 		if named == 0 {
-			// DUAL/MULTI with no named dub: one more track, language unknown.
-			out = append(out, "")
+			// DUAL/MULTI with no named dub: the source language is the
+			// evidence we have for the other track, but only when it says
+			// something new — a source matching the original adds nothing,
+			// and an unset source stays unlabelled rather than guessed.
+			src := langtag.CanonicalBCP47(sourceLang)
+			if src == "" {
+				src = strings.TrimSpace(sourceLang)
+			}
+			if src != "" && releaseparse.LanguageMatch(src, original) == releaseparse.LanguageNoMatch {
+				out = append(out, src)
+			} else {
+				out = append(out, "")
+			}
 		}
 	}
 	if len(out) == 0 {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/language"
 )
 
 // bindReleases records the client that produced these results. Feed/backend
@@ -14,8 +15,12 @@ func (c *Client) bindReleases(results []core.Release) []core.Release {
 	}
 	out := append([]core.Release(nil), results...)
 	id := c.indexerID()
+	// The owner's per-indexer Release language is evidence for a bare
+	// DUAL/MULTI whose name names no dub (core.Release.SourceLanguage).
+	srcLang := language.Canonical(c.Config().Language)
 	for i := range out {
 		out[i].IndexerID = id
+		out[i].SourceLanguage = srcLang
 	}
 	c.markOnDemand(out)
 	return out

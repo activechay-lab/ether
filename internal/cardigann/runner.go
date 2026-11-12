@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/frontend/kit/language"
 )
 
 // LoginLock serialises logins for one key across every Ether node sharing
@@ -27,6 +29,11 @@ type Runner struct {
 	lock     LoginLock
 	log      *slog.Logger
 	now      func() time.Time
+	// language is the release language stamped on this indexer's results
+	// (core.Release.SourceLanguage): the owner's per-indexer override, else
+	// the definition's `language`, canonicalised to a BCP 47 tag. Empty
+	// when neither names one.
+	language string
 
 	mu       sync.Mutex
 	loggedIn bool
@@ -44,6 +51,9 @@ type runnerOptions struct {
 	Lock       LoginLock
 	Logger     *slog.Logger
 	Now        func() time.Time
+	// Language is the owner's per-indexer Release language override; empty
+	// leaves the definition's own `language` in force (see Runner.language).
+	Language string
 }
 
 func newRunner(def *Definition, o runnerOptions) (*Runner, error) {
@@ -66,6 +76,10 @@ func newRunner(def *Definition, o runnerOptions) (*Runner, error) {
 		o.Lock = km.lock
 	}
 	r := &Runner{def: def, id: o.IndexerID, settings: o.Settings, site: site, sessions: o.Sessions, lock: o.Lock, log: o.Logger, now: o.Now}
+	r.language = canonicalLanguage(o.Language)
+	if r.language == "" {
+		r.language = canonicalLanguage(def.Language)
+	}
 	if r.id == "" {
 		r.id = def.ID
 	}
@@ -130,6 +144,12 @@ func truthy(v string) bool {
 		return true
 	}
 	return false
+}
+
+// canonicalLanguage folds a definition or owner-supplied language to its
+// canonical BCP 47 tag ("pt-BR"), or "" when it names no known language.
+func canonicalLanguage(v string) string {
+	return language.Canonical(v)
 }
 
 func (r *Runner) vars() vars { return baseVars(r.configVars(), r.now()) }

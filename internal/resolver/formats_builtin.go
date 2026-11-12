@@ -102,7 +102,7 @@ func builtinFormatMatches(rel core.Release, profile core.QualityProfile, caps co
 	if f.lowBitrate {
 		add(core.FormatLowBitrate)
 	}
-	out = append(out, languageFormats(info, profile.PreferredLanguages)...)
+	out = append(out, languageFormats(info, rel.SourceLanguage, profile.PreferredLanguages)...)
 	if f.viewerLanguage {
 		add(core.FormatViewerLanguage)
 	}
@@ -134,9 +134,12 @@ func builtinFormatMatches(rel core.Release, profile core.QualityProfile, caps co
 // other audio languages is "Not a preferred language"; the preferred
 // language, MULTI or a bare DUAL (local dub plus the original) is not, and
 // another regional variant of a preferred language (Castilian for a Latino
-// preference) is the "other region" format. Subtitle-only declarations
-// (VOSTFR) never stand in for audio; they have a format of their own.
-func languageFormats(info core.ReleaseInfo, prefs []string) []string {
+// preference) is the "other region" format. A bare DUAL or MULTI from an
+// indexer that declares the preferred language (sourceLang) counts as
+// carrying it: the tracker's language is the evidence the name omits.
+// Subtitle-only declarations (VOSTFR) never stand in for audio; they have a
+// format of their own.
+func languageFormats(info core.ReleaseInfo, sourceLang string, prefs []string) []string {
 	if len(prefs) == 0 {
 		return nil
 	}
@@ -145,7 +148,20 @@ func languageFormats(info core.ReleaseInfo, prefs []string) []string {
 		ok, exact, base := false, false, false
 		for _, l := range info.Languages {
 			if l == releaseparse.LanguageMulti || l == releaseparse.LanguageDual {
-				ok = true
+				// A bare DUAL/MULTI carries the source language when the
+				// indexer declares one that is preferred.
+				best := releaseparse.LanguageNoMatch
+				for _, pref := range prefs {
+					best = max(best, releaseparse.LanguageMatch(sourceLang, pref))
+				}
+				switch best {
+				case releaseparse.LanguageExactMatch:
+					ok, exact = true, true
+				case releaseparse.LanguageBaseMatch:
+					ok, base = true, true
+				default:
+					ok = true
+				}
 				continue
 			}
 			best := releaseparse.LanguageNoMatch

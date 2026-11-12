@@ -68,3 +68,27 @@ func TestBareDualIsNotPenalizedLikeAForeignLanguage(t *testing.T) {
 		t.Errorf("GERMAN-only scored %v, bare DUAL %v; want GERMAN lower", foreign, dual)
 	}
 }
+
+// A bare DUAL from an indexer whose language matches the profile's
+// preference is scored as if it carried that language: a pt-BR profile
+// prefers a pt-BR tracker's bare DUAL exactly like an explicit PT-BR tag.
+// The same release from a foreign (or unknown) source stays neutral, and an
+// explicit tag in the name always wins.
+func TestBareDualFromSourceLanguageScoresAsPreferred(t *testing.T) {
+	dual := releaseparse.Parse("O.Peso.da.Liberdade.2026.1080p.WEB-DL.DUAL.DDP5.1-C76")
+	prefs := []string{"pt-BR"}
+	fromPT := languageScoreFrom(dual, "pt-BR", prefs)
+	fromEN := languageScoreFrom(dual, "en", prefs)
+	fromUnknown := languageScoreFrom(dual, "", prefs)
+	explicit := languageScore(releaseparse.Parse("Movie.2026.1080p.WEB-DL.PT-BR.DDP5.1-GRP"), prefs)
+	untagged := languageScore(releaseparse.Parse("Movie.2026.1080p.WEB-DL-GRP"), prefs)
+	if fromPT != explicit {
+		t.Errorf("bare DUAL from pt-BR source scored %v, explicit PT-BR %v; want equal", fromPT, explicit)
+	}
+	if fromPT <= fromEN || fromPT <= fromUnknown {
+		t.Errorf("pt-BR source DUAL %v should beat English %v / unknown %v", fromPT, fromEN, fromUnknown)
+	}
+	if fromEN != untagged || fromUnknown != untagged {
+		t.Errorf("foreign/unknown source DUAL %v/%v should not be preferred (untagged %v)", fromEN, fromUnknown, untagged)
+	}
+}

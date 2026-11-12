@@ -230,6 +230,7 @@ func (s *Service) newRunner(cfg config.Indexer, p *parsedDef) (*Runner, error) {
 		Lock:       s.lock,
 		Logger:     s.log.With("indexer", cfg.Name),
 		Now:        s.now,
+		Language:   cfg.Language,
 	})
 }
 

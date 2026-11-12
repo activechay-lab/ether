@@ -1038,6 +1038,7 @@ func (r *Runner) toFound(d rowData) (found, error) {
 		return found{}, errors.New("row has no title")
 	}
 	rel := core.Release{Name: title, Size: d.size, PubDate: d.date, Grabs: d.grabs, Category: bestCategory(d.cats), TitleIDs: core.IDs{IMDB: d.imdb, TMDB: d.tmdb, TVDB: d.tvdb}}
+	rel.SourceLanguage = r.language
 	if r.def.Protocol == "usenet" {
 		if d.download == "" {
 			return found{}, errors.New("row has no NZB download link")

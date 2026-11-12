@@ -354,6 +354,88 @@ func TestEstimateVariantInfoListsDeclaredLanguages(t *testing.T) {
 	}
 }
 
+// The indexer a release came from carries a language (a pt-BR tracker's
+// releases are pt-BR). A bare DUAL names no dub, so that source language is
+// the evidence that fills the unlabelled slot — only when it differs from
+// the title's original language, and never a guess from the viewer. An
+// explicit language in the name always wins.
+func TestEstimateAudioLanguagesFromSourceLanguage(t *testing.T) {
+	title := &core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Language: "en", Runtime: 100 * time.Minute}
+	audio := func(info core.MediaInfo) (langs []string, def string) {
+		for _, st := range info.Streams {
+			if st.Type != "audio" {
+				continue
+			}
+			name := releaseparse.LanguageBase(releaseparse.LanguageName(st.Language))
+			if st.Language != "" && name == "" {
+				name = st.Language
+			}
+			langs = append(langs, name)
+			if st.Default {
+				def = name
+			}
+		}
+		return langs, def
+	}
+	cases := []struct {
+		name       string
+		release    string
+		sourceLang string
+		wanted     []string
+		wantLangs  []string
+		wantDef    string
+	}{
+		{
+			// A bare DUAL from a Brazilian tracker, on an English film: the
+			// dub is the tracker's pt-BR, and a pt-BR viewer hears it.
+			name:       "bare DUAL from a pt-BR source, pt-BR viewer",
+			release:    "O.Peso.da.Liberdade.2026.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.264-C76",
+			sourceLang: "pt-BR",
+			wanted:     []string{"pt-BR"},
+			wantLangs:  []string{"english", "portuguese"},
+			wantDef:    "portuguese",
+		},
+		{
+			// The same release from an English source names no useful dub:
+			// the slot stays unlabelled rather than guessed.
+			name:       "bare DUAL from an English source",
+			release:    "O.Peso.da.Liberdade.2026.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.264-C76",
+			sourceLang: "en",
+			wanted:     []string{"pt-BR"},
+			wantLangs:  []string{"english", ""},
+			wantDef:    "english",
+		},
+		{
+			// No source language at all keeps the old, unlabelled behaviour.
+			name:       "bare DUAL with no source language",
+			release:    "O.Peso.da.Liberdade.2026.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.264-C76",
+			sourceLang: "",
+			wanted:     []string{"pt-BR"},
+			wantLangs:  []string{"english", ""},
+			wantDef:    "english",
+		},
+		{
+			// An explicit language in the name beats the source language.
+			name:       "explicit ITA wins over an English source",
+			release:    "Some.Film.2026.1080p.WEB-DL.ITA.ENG.DDP5.1-GRP",
+			sourceLang: "en",
+			wanted:     []string{"en"},
+			wantLangs:  []string{"english", "italian"},
+			wantDef:    "english",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := withParsed(rel("x", tc.release, 8000))
+			r.SourceLanguage = tc.sourceLang
+			langs, def := audio(estimateVariantInfo(title, r, tc.wanted))
+			if !slices.Equal(langs, tc.wantLangs) || def != tc.wantDef {
+				t.Fatalf("langs = %v default %q, want %v default %q", langs, def, tc.wantLangs, tc.wantDef)
+			}
+		})
+	}
+}
+
 func TestVariantsDoNotWaitForInFlightPlaybackPreparation(t *testing.T) {
 	idx := &fakeIndexer{releases: movieReleases(), delay: time.Hour}
 	svc := New(idx, fakeHealth{}, nil, testCfg(), Options{})
