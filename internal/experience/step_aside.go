@@ -63,6 +63,10 @@ type StepAside struct {
 	// spaces recompiles caused only by catalogue writes.
 	refreshing  atomic.Bool
 	lastRefresh atomic.Int64
+	// compileMu makes the first, synchronous compile single-flight: every
+	// visibility check calls compiled, and without it each concurrent check
+	// ran its own full compile until one finished.
+	compileMu sync.Mutex
 }
 
 // stepAsideBucket is how often show completeness is re-judged against the
@@ -405,7 +409,19 @@ func (s *StepAside) compiled(ctx context.Context) *compiledStepAside {
 		s.refreshAsync(h, ck, cur.key.heldRev != ck.heldRev)
 		return cur
 	}
-	return s.compile(ctx, h, ck)
+	s.compileMu.Lock()
+	defer s.compileMu.Unlock()
+	s.mu.RLock()
+	cur = s.cached
+	s.mu.RUnlock()
+	if cur != nil {
+		return cur
+	}
+	// Detached from the request: a cancelled request must not leave the next
+	// one to start the compile over.
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	return s.compile(cctx, h, ck)
 }
 
 func (s *StepAside) refreshAsync(h StepAsideHeld, ck stepAsideCacheKey, heldChanged bool) {
