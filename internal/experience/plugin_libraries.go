@@ -48,6 +48,9 @@ type PluginLibraries interface {
 	Ancestors(ctx context.Context, key core.RatingKey) ([]core.Title, core.Library, error)
 	Facets(ctx context.Context, lib core.Library, facet string) ([]core.FacetValue, error)
 	Search(ctx context.Context, lib core.Library, query string, q frontend.ItemQuery, limit int) ([]core.Title, error)
+	// MemberOf reports whether key is a shared member of a collection
+	// library's collection. It is one indexed read, never a walk.
+	MemberOf(ctx context.Context, lib core.Library, key core.RatingKey) (bool, error)
 }
 
 const maxPluginCursorEntries = 512
@@ -307,7 +310,7 @@ func (s *Service) allowedFilterLibraries(ctx context.Context, v *core.User) []co
 		}
 		var out []core.Library
 		for _, lib := range all {
-			if !lib.Hidden && lib.Source == core.LibraryFilter && lib.Filter != nil && v.AllowsLibrary(lib.ID) {
+			if !lib.Hidden && (lib.Source == core.LibraryFilter && lib.Filter != nil || lib.Source == core.LibraryCollection && lib.CollectionID > 0) && v.AllowsLibrary(lib.ID) {
 				if _, _, ok := s.publishedLibrary(ctx, lib); ok {
 					out = append(out, lib)
 				}
@@ -366,6 +369,18 @@ func (s *Service) sectionOrFilterAllowed(ctx context.Context, v *core.User, titl
 	for _, lib := range filterLibs {
 		wantType := filterMediaType(lib)
 		if target.Type != wantType {
+			continue
+		}
+		if lib.Source == core.LibraryCollection {
+			// A collection's shared membership is a semi-join, one indexed
+			// read per collection library for the title's key.
+			ok, err := s.d.PluginLibraries.MemberOf(ctx, lib, target.Key)
+			if err != nil {
+				continue
+			}
+			if ok {
+				return true
+			}
 			continue
 		}
 		saved := *lib.Filter

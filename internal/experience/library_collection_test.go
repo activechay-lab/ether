@@ -131,3 +131,9 @@ func (f fakeCollectionLibraries) Facets(context.Context, core.Library, string) (
 func (f fakeCollectionLibraries) Search(context.Context, core.Library, string, frontend.ItemQuery, int) ([]core.Title, error) {
 	return nil, nil
 }
+
+func (f fakeCollectionLibraries) MemberOf(_ context.Context, lib core.Library, key core.RatingKey) (bool, error) {
+	// The fixture's collection holds every movie; the semi-join is the
+	// catalogue's business, membership is just "a collection is bound".
+	return lib.CollectionID > 0 && key.Kind() == core.KindMovie, nil
+}

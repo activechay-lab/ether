@@ -219,6 +219,23 @@ func (s *Service) CreateCollection(ctx context.Context, name string, collectionI
 	return lib, nil
 }
 
+// CollectionMember reports whether key is a shared member of the owner
+// collection collectionID: one indexed read of collections_members by
+// (spec_id, key). A deleted collection has no members and reports false,
+// never an error, so a collection library simply shows nothing.
+func (s *Service) CollectionMember(ctx context.Context, collectionID int64, key core.RatingKey) (bool, error) {
+	if collectionID <= 0 || key == 0 {
+		return false, nil
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM collections_members WHERE spec_id=? AND key=? AND shared=1 LIMIT 1`,
+		collectionID, int64(key)).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // UpsertPluginLibrary returns the library for one plugin media kind,
 // creating it on first install (§2.5). An existing library is
 // returned untouched: the stored name and presentation are
