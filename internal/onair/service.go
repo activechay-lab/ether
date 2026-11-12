@@ -54,6 +54,7 @@ type Options struct {
 	CacheBytes     int64
 	LinkCacheBytes int64
 	WorkingSize    func() (int, int)
+	EncoderOptions func(int, int) ([]string, []string)
 	Artwork        func(context.Context, string) (image.Image, error)
 	// Render is a seam for verifying that Ensure never executes work inline.
 	Render func(context.Context, scene.Document, raster.Bindings, string) error
@@ -430,6 +431,9 @@ func (s *Service) planRaw(r core.ClipRequest) (renderJob, bool) {
 	raw, _ := json.Marshal(d)
 	_ = json.Unmarshal(raw, &own)
 	d = own
+	if assetLoop(r.Moment) && r.AssetDigest == "" && (selected.Video == nil || selected.Video.Mode != "replace") {
+		d = scene.ShortLoop(d)
+	}
 	assetDigest := ""
 	if selected.Video != nil && selected.Video.Mode == "replace" {
 		assetDigest = selected.Video.AssetDigest
@@ -1154,7 +1158,7 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(parent, 15*time.Minute)
 	defer cancel()
-	started := time.Now()
+	queued := time.Now()
 	if s.o.Acquire != nil {
 		jobCtx, release, e := s.o.Acquire(ctx)
 		if e != nil {
@@ -1163,6 +1167,8 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		defer release()
 		ctx = jobCtx
 	}
+	started := time.Now()
+	queueWait := started.Sub(queued)
 	defer func() {
 		if ctx.Err() != nil {
 			err = ctx.Err()
@@ -1193,7 +1199,7 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		masters := s.vis.MastersRendered
 		s.mu.Unlock()
 		if err == nil {
-			s.o.Logger.Info("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed.Round(time.Millisecond), "render_speed_x", round2(speedX), "masters_rendered", masters)
+			s.o.Logger.Info("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed.Round(time.Millisecond), "render_speed_x", round2(speedX), "queue_wait", queueWait, "masters_rendered", masters)
 		} else {
 			s.o.Logger.Debug("onair master render ended", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", false)
 		}
@@ -1240,12 +1246,25 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		if s.o.FFmpeg == nil {
 			return fmt.Errorf("ffmpeg unavailable")
 		}
-		opts := encode.Options{Workers: 2, Audio: j.Doc.Audio, Sounds: sounds, Background: background}
+		opts := encode.Options{Workers: 1, Width: 1280, Height: 720, Audio: j.Doc.Audio, Sounds: sounds, Background: background}
 		renderFn := s.o.RenderFrame
 		if renderFn == nil {
 			renderFn = raster.Render
 		}
-		frames := func(i int) *image.RGBA { return renderFn(j.Doc, j.Bind, float64(i)/30, 1920, 1080) }
+		if s.o.EncoderOptions != nil {
+			opts.InputArgs, opts.VideoArgs = s.o.EncoderOptions(opts.Width, opts.Height)
+		}
+		seq := raster.NewSequence(j.Doc, j.Bind, opts.Width, opts.Height)
+		frames := func(i int) *image.RGBA {
+			if s.o.RenderFrame != nil {
+				return renderFn(j.Doc, j.Bind, float64(i)/30, opts.Width, opts.Height)
+			}
+			t := float64(i) / 30
+			if assetLoop(j.Doc.Moment) {
+				t = min(t, j.Doc.Duration-t)
+			}
+			return seq.Frame(t)
+		}
 		if strings.HasPrefix(j.Doc.Moment, "plugin:") {
 			opts.MaxSeconds = 600
 			// Long static data cards need one rasterization, not thousands.
@@ -1255,6 +1274,11 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 			}
 		}
 		e = encode.WithOptions(ctx, s.o.FFmpeg(), frames, int(j.Doc.Duration*30), 30, audio, out, opts)
+		if e != nil && len(opts.VideoArgs) > 0 && ctx.Err() == nil {
+			opts.InputArgs = nil
+			opts.VideoArgs = nil
+			e = encode.WithOptions(ctx, s.o.FFmpeg(), frames, int(j.Doc.Duration*30), 30, audio, out, opts)
+		}
 	}
 	if e != nil {
 		return e
@@ -1463,4 +1487,8 @@ func pickScene(l Look, r core.ClipRequest) (StyleScene, bool) {
 		}
 	}
 	return StyleScene{}, false
+}
+
+func assetLoop(moment string) bool {
+	return moment == "standby" || moment == "fallback" || moment == "offair"
 }

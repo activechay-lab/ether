@@ -70,17 +70,18 @@ type liveOutFrame struct {
 // cached base master, or rendering live while simultaneously saving the reusable
 // master to the durable content-addressed cache.
 type MomentStream struct {
-	mode       string
-	loop       bool
-	fpsNum     int
-	fpsDen     int
-	width      int
-	height     int
-	tick       int64
-	baseReader FrameReader
-	overlayDoc *scene.Document
-	overlayBnd raster.Bindings
-	renderFn   func(scene.Document, raster.Bindings, float64, int, int) *image.RGBA
+	mode            string
+	loop            bool
+	fpsNum          int
+	fpsDen          int
+	width           int
+	height          int
+	tick            int64
+	baseReader      FrameReader
+	overlayDoc      *scene.Document
+	overlaySequence *raster.Sequence
+	overlayBnd      raster.Bindings
+	renderFn        func(scene.Document, raster.Bindings, float64, int, int) *image.RGBA
 
 	outCh      <-chan liveOutFrame
 	videoPool  *sync.Pool
@@ -118,7 +119,10 @@ func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
 				t = dur - 1.0/120.0
 			}
 			started := time.Now()
-			ov := m.renderFn(*m.overlayDoc, m.overlayBnd, max(0, t), m.width, m.height)
+			if m.overlaySequence == nil {
+				m.overlaySequence = raster.NewSequence(*m.overlayDoc, m.overlayBnd, m.width, m.height)
+			}
+			ov := m.overlaySequence.Frame(max(0, t))
 			blendPremulRGBAOverI420(ov, video, m.width, m.height)
 			m.ovWallDur += time.Since(started)
 			m.ovFrames++
@@ -294,6 +298,9 @@ func (s *Service) OpenMoment(
 	if !ok {
 		return nil, "scene not configured", fmt.Errorf("onair: moment %s unavailable", r.Moment)
 	}
+	if assetLoop(r.Moment) {
+		loop = true
+	}
 	cacheJob, cacheable := s.plan(r)
 
 	hasLive := !strings.HasPrefix(r.Moment, "plugin:") && !strings.HasPrefix(r.Moment, "screen.") && rawJob.AssetDigest == "" && scene.HasLiveSlots(rawJob.Doc)
@@ -342,11 +349,40 @@ func (s *Service) OpenMoment(
 		}
 	}
 
+	// A cold scene airs immediately. The queued master becomes eligible at the
+	// next boundary; the current reader never blocks on the render slot.
+	if cacheable && rawJob.AssetDigest == "" {
+		s.enqueue(cacheJob)
+		stillJob := cacheJob
+		if err := s.loadAssets(ctx, &stillJob); err != nil {
+			return nil, "plate assets failed", err
+		}
+		seq := raster.NewSequence(stillJob.Doc, stillJob.Bind, 1280, 720)
+		plate := seq.Frame(max(1, stillJob.Doc.Poster))
+		pixels := make([]byte, width*height*3/2)
+		rgbaScaleToI420(plate, pixels, width, height)
+		reader := &plateReader{pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
+		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, overlayDoc: overlayDoc, overlayBnd: overlayBind, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
+	}
+
 	// 2. Cold cache miss or unsplittable slot scene: check >= 1.0x speed gate.
 	allowed, speedX, reason := s.LiveRenderAllowed(r)
 	if !allowed {
 		s.noteTransition("fallback", speedX)
 		s.o.Logger.Info("onair live moment fallback", "look", rawJob.Look, "moment", r.Moment, "speed_x", round2(speedX), "reason", reason)
+		// Even an unsplittable custom scene must remain visible when its
+		// animation cannot sustain real time. It is rendered per airing and
+		// never persisted with programme bindings.
+		if rawJob.AssetDigest == "" {
+			if err := s.loadAssets(ctx, &rawJob); err != nil {
+				return nil, "plate assets failed", err
+			}
+			plate := renderFn(rawJob.Doc, rawJob.Bind, max(1, rawJob.Doc.Poster), 1280, 720)
+			pixels := make([]byte, width*height*3/2)
+			rgbaScaleToI420(plate, pixels, width, height)
+			reader := &plateReader{pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
+			return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
+		}
 		return nil, reason, fmt.Errorf("%w: %s", ErrLiveBelowRealtime, reason)
 	}
 
@@ -1049,3 +1085,13 @@ func blendPremulRGBAOverI420(img *image.RGBA, dst []byte, w, h int) {
 		}
 	}
 }
+
+// plateReader holds a single decoded image, equivalent to a looped image input.
+// Audio remains silent while the reusable master is being prepared.
+type plateReader struct{ pixels, audio []byte }
+
+func (p *plateReader) ReadFrame(video []byte) ([]byte, error) {
+	copy(video, p.pixels)
+	return p.audio, nil
+}
+func (p *plateReader) Close() error { return nil }

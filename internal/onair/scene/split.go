@@ -9,7 +9,7 @@ import (
 // lineup, schedule, or viewer state that must never be baked into per-title
 // cached masters on disk.
 func IsLiveSlotKey(k string) bool {
-	return strings.HasPrefix(k, "next.") ||
+	return k == "channel.name" || strings.HasPrefix(k, "clock") || strings.HasPrefix(k, "title") || strings.HasPrefix(k, "next.") ||
 		strings.HasPrefix(k, "list[") ||
 		strings.HasPrefix(k, "now.") ||
 		strings.HasPrefix(k, "viewer.") ||
