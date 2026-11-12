@@ -569,7 +569,7 @@ func (c *Client) streamOpenAIResponses(ctx context.Context, base string, cfg con
 	calls := map[int]*acc{}
 	order := []int{}
 	anyCall := false
-	refused := false
+	var failed error
 	err = scanSSE(ctx, rc, func(data []byte) bool {
 		var ev struct {
 			Type   string `json:"type"`
@@ -664,8 +664,8 @@ func (c *Client) streamOpenAIResponses(ctx context.Context, base string, cfg con
 			} else if ev.Response.Error != nil && ev.Response.Error.Message != "" {
 				msg = []byte(ev.Response.Error.Message)
 			}
-			refused = true
-			sendEvent(ctx, out, Event{Kind: EventError, Err: toolsRefusal(400, msg)})
+			// StreamTools reports the returned error as the one EventError.
+			failed = toolsRefusal(400, msg)
 			return false
 		}
 		return true
@@ -673,8 +673,8 @@ func (c *Client) streamOpenAIResponses(ctx context.Context, base string, cfg con
 	if err != nil {
 		return "", err
 	}
-	if refused {
-		return "", nil
+	if failed != nil {
+		return "", failed
 	}
 	for _, i := range order {
 		a := calls[i]
