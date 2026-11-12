@@ -366,6 +366,7 @@ export const api = {
   testIntroDB: (apiKey: string) => post<TestResult>("/test/introdb", { apiKey }),
   testOpenSubtitles: (cfg: EtherConfig["openSubtitles"]) =>
     post<TestResult>("/test/opensubtitles", cfg),
+  testSubDL: (cfg: EtherConfig["subdl"]) => post<TestResult>("/test/subdl", cfg),
   testLLM: (cfg: EtherConfig["llm"]) => post<TestResult>("/test/llm", cfg),
   llmProviders: async () =>
     (await apiFetch<{ providers: LLMProvider[] }>("/llm/providers")).providers,

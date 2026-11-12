@@ -665,6 +665,7 @@ func (a *App) applyConfig(c config.Config) {
 	}
 	a.trakt.UpdateConfig(c.Trakt)
 	a.subtitles.UpdateConfig(c.OpenSubtitles)
+	a.subtitles.UpdateSubDL(c.SubDL)
 	a.subtitles.UpdateProviders(c.Subtitles.Providers)
 	// Re-publish section titles when Movies / TV Shows library names change.
 	a.publishLibrarySections()

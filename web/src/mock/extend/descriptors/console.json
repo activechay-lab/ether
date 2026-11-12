@@ -240,6 +240,35 @@
   },
   {
     "kind": "integration",
+    "id": "subdl",
+    "owner": "builtin",
+    "label": {
+      "source": "SubDL"
+    },
+    "hint": {
+      "source": "Fetch subtitles from SubDL when a release doesn't include them."
+    },
+    "group": "playback-extras",
+    "order": 11,
+    "meta": {
+      "category": "playback-extras",
+      "logo": "subdl",
+      "adds": [
+        {
+          "source": "Subtitles"
+        }
+      ],
+      "connect": "fields",
+      "tab": "subdl",
+      "configKey": "subdl",
+      "endpoint": "subdl",
+      "test": "subdl",
+      "flag": "enabled",
+      "readyField": "apiKey"
+    }
+  },
+  {
+    "kind": "integration",
     "id": "introdb",
     "owner": "builtin",
     "label": {
@@ -1291,6 +1320,15 @@
           "key": "opensubtitles",
           "label": {
             "source": "OpenSubtitles"
+          },
+          "keywords": {
+            "source": "subtitles"
+          }
+        },
+        {
+          "key": "subdl",
+          "label": {
+            "source": "SubDL"
           },
           "keywords": {
             "source": "subtitles"

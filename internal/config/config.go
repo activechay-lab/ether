@@ -49,6 +49,7 @@ type Config struct {
 	Simkl         Simkl         `json:"simkl"`
 	PlexServers   PlexServers   `json:"plexServers"`
 	OpenSubtitles OpenSubtitles `json:"openSubtitles"`
+	SubDL         SubDL         `json:"subdl"`
 	// Subtitles is the ordered subtitle provider list (OpenSubtitles and
 	// Stremio subtitle add-ons). Empty means OpenSubtitles alone, as before.
 	Subtitles Subtitles `json:"subtitles,omitempty"`
@@ -543,10 +544,20 @@ type OpenSubtitles struct {
 	Password           string `json:"password"`
 }
 
+// SubDL is the owner's SubDL subtitle account. Its free API key is enough
+// to search and download; the download quota is per key (paid) or per IP
+// (anonymous, 300/day).
+type SubDL struct {
+	Enabled bool   `json:"enabled"`
+	APIKey  string `json:"apiKey"`
+}
+
 // Subtitle provider kinds (SubtitleProvider.Kind). An installed add-on's
 // subtitles are kind "plugin:<id>/subtitles".
 const (
 	SubtitleProviderOpenSubtitles = "opensubtitles"
+	// SubtitleProviderSubDL is the SubDL (subdl.com) subtitle provider.
+	SubtitleProviderSubDL = "subdl"
 	// SubtitleProviderStremio is the retired kind of a subtitle add-on
 	// entered with its link (URL, sealed at rest and redacted). Such
 	// entries are migrated once into installed add-ons and never written.

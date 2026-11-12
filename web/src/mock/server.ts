@@ -480,6 +480,7 @@ function defaultConfig(): EtherConfig {
       password: "",
       automaticPreferred: false,
     },
+    subdl: { enabled: false, apiKey: "" },
     llm: { enabled: true, provider: "ollama", baseUrl: "", apiKey: "", model: "llama3" },
     updates: {
       enabled: true,

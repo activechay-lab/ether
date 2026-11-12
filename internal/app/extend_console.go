@@ -171,6 +171,7 @@ func consolePages() []consolePage {
 				section("simkl", T("Simkl"), T("simkl sync history")),
 				section("llm", T("Language model"), T("llm ollama openai recaps search")),
 				section("opensubtitles", T("OpenSubtitles"), T("subtitles")),
+				section("subdl", T("SubDL"), T("subtitles")),
 			},
 		}},
 		{id: "plugins", label: T("Plugins"), icon: "Puzzle", order: 40, meta: extend.PageMeta{
@@ -303,6 +304,14 @@ func consoleIntegrations() []extend.Descriptor {
 			meta: extend.IntegrationMeta{
 				Category: "playback-extras", Logo: "opensubtitles", Connect: "fields",
 				Tab: "opensubtitles", ConfigKey: "openSubtitles", Endpoint: "opensubtitles", Test: "opensubtitles",
+				Flag: "enabled", ReadyField: "apiKey",
+				Adds: []extend.Text{T("Subtitles")},
+			}},
+		{id: "subdl", label: T("SubDL"), order: 11,
+			hint: T("Fetch subtitles from SubDL when a release doesn't include them."),
+			meta: extend.IntegrationMeta{
+				Category: "playback-extras", Logo: "subdl", Connect: "fields",
+				Tab: "subdl", ConfigKey: "subdl", Endpoint: "subdl", Test: "subdl",
 				Flag: "enabled", ReadyField: "apiKey",
 				Adds: []extend.Text{T("Subtitles")},
 			}},

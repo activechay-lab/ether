@@ -82,6 +82,7 @@ func RedactConfig(cfg config.Config) config.Config {
 	out.Trakt.ClientSecret = redact(out.Trakt.ClientSecret)
 	out.Simkl.ClientSecret = redact(out.Simkl.ClientSecret)
 	out.OpenSubtitles = redactOpenSubtitles(out.OpenSubtitles)
+	out.SubDL.APIKey = redact(out.SubDL.APIKey)
 	if cfg.Subtitles.Providers != nil {
 		out.Subtitles.Providers = make([]config.SubtitleProvider, len(cfg.Subtitles.Providers))
 		for i, p := range cfg.Subtitles.Providers {
@@ -282,6 +283,7 @@ func UnredactConfig(next, prev config.Config) (config.Config, []FieldError) {
 	out.Trakt = errs.unredactTrakt(next.Trakt, prev.Trakt)
 	out.Simkl.ClientSecret = errs.restore("simkl.clientSecret", next.Simkl.ClientSecret, prev.Simkl.ClientSecret, strings.TrimSpace(next.Simkl.ClientID) == strings.TrimSpace(prev.Simkl.ClientID))
 	out.OpenSubtitles = errs.unredactOpenSubtitles(next.OpenSubtitles, prev.OpenSubtitles)
+	out.SubDL.APIKey = errs.restore("subdl.apiKey", next.SubDL.APIKey, prev.SubDL.APIKey, true)
 	if next.Subtitles.Providers != nil {
 		out.Subtitles.Providers = make([]config.SubtitleProvider, len(next.Subtitles.Providers))
 		for i, p := range next.Subtitles.Providers {

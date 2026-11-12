@@ -386,6 +386,12 @@ const PAGES = localized<PageDef[]>(() => [
         keywords: searchTerms(msg("subtitles")),
       },
       {
+        key: "subdl",
+        href: "/services/overview#subdl",
+        title: "SubDL",
+        keywords: searchTerms(msg("subtitles subdl")),
+      },
+      {
         key: "ratings",
         title: t("OMDb and MDBList"),
         keywords: searchTerms(msg("ratings omdb mdblist api key")),

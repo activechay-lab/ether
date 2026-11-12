@@ -421,6 +421,10 @@ export interface EtherConfig {
     password: string;
     automaticPreferred?: boolean;
   };
+  subdl: {
+    enabled: boolean;
+    apiKey: string;
+  };
   llm: {
     enabled: boolean;
     provider: string;

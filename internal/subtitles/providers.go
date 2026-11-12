@@ -64,20 +64,27 @@ func (s *Service) lookupVideoHash(title *core.Title, releaseName string) (string
 }
 
 // providerList is the effective provider order: the owner's configured
-// order, with OpenSubtitles included when enabled and not explicitly
-// listed in s.providers.
+// order, with OpenSubtitles and SubDL included when enabled and not
+// explicitly listed in s.providers.
 func (s *Service) providerList() []config.SubtitleProvider {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []config.SubtitleProvider
 	hasOpenSubtitles := false
+	hasSubDL := false
 	for _, p := range s.providers {
-		if p.Kind == config.SubtitleProviderOpenSubtitles {
+		switch p.Kind {
+		case config.SubtitleProviderOpenSubtitles:
 			hasOpenSubtitles = true
+		case config.SubtitleProviderSubDL:
+			hasSubDL = true
 		}
 		if p.Enabled {
 			out = append(out, p)
 		}
+	}
+	if !hasSubDL && s.subdl.Enabled && s.subdl.APIKey != "" {
+		out = append(out, config.SubtitleProvider{ID: "subdl", Kind: config.SubtitleProviderSubDL, Enabled: true})
 	}
 	if !hasOpenSubtitles && s.cfg.Enabled && s.cfg.APIKey != "" {
 		out = append([]config.SubtitleProvider{{ID: "opensubtitles", Kind: config.SubtitleProviderOpenSubtitles, Enabled: true}}, out...)
@@ -100,6 +107,10 @@ func (s *Service) searchEnabled() bool {
 		switch p.Kind {
 		case config.SubtitleProviderOpenSubtitles:
 			if s.openSubtitlesEnabled() {
+				return true
+			}
+		case config.SubtitleProviderSubDL:
+			if s.subdlEnabled() {
 				return true
 			}
 		}
@@ -137,6 +148,11 @@ func (s *Service) searchProviders(ctx context.Context, title *core.Title, lang, 
 					cands[j].ProviderID = "opensubtitles"
 				}
 			}
+		case config.SubtitleProviderSubDL:
+			if !s.subdlEnabled() {
+				continue
+			}
+			cands, err = s.searchSubDL(ctx, title, lang)
 		default:
 			pluginID := strings.TrimSuffix(strings.TrimPrefix(p.Kind, "plugin:"), "/subtitles")
 			s.mu.Lock()
