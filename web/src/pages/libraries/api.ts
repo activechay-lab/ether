@@ -53,11 +53,13 @@ export interface Library {
   id: number;
   key: string;
   name: string;
-  source: "builtin" | "plugin" | "filter";
+  source: "builtin" | "plugin" | "filter" | "collection";
   mediaType?: string;
   pluginId?: string;
   kindKey?: string;
   filter?: Record<string, unknown>;
+  /** Collection-source libraries: the collection whose titles it shows. */
+  collectionId?: number;
   rules?: VisibilityRule[];
   visibilityDefault?: string;
   present?: Presentations;
@@ -137,6 +139,15 @@ export interface PluginSetup {
   libraries: Library[];
 }
 
+/** One collection the "From a collection" picker can bind a library to. */
+export interface CollectionSource {
+  id: number;
+  name: string;
+  mediaType: "movie" | "show" | "mixed";
+  itemCount: number;
+  builtIn?: boolean;
+}
+
 export interface PluginLibrarySource {
   pluginId: string;
   pluginName: string;
@@ -154,6 +165,15 @@ export const librariesApi = {
       method: "POST",
       body: JSON.stringify({ name, filter, ...(present ? { present } : {}) }),
     }),
+  createCollection: (name: string, collectionId: number, mediaType: string, present?: Presentations) =>
+    apiFetch<Library>("/libraries", {
+      method: "POST",
+      body: JSON.stringify({ name, collectionId, mediaType, ...(present ? { present } : {}) }),
+    }),
+  listCollectionSources: (signal?: AbortSignal) =>
+    apiFetch<{ collections: CollectionSource[] }>("/libraries/collection-sources", { signal }).then(
+      (r) => r.collections ?? [],
+    ),
   patch: (id: number, body: Record<string, unknown>) =>
     apiFetch<Library>(`/libraries/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: (id: number) => apiFetch<void>(`/libraries/${id}`, { method: "DELETE" }),
