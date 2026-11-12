@@ -346,6 +346,7 @@ func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	s.write(w, r, &liveContainer{Size: len(out), Identifier: frontend.LiveTVProvider, Channel: out, ChannelMapping: maps})
 }
+
 // liveProgrammeThumb rewrites a raw, server-relative EPG poster/still path
 // (e.g. a bare TMDB path like "/abc123.jpg") into Ether's own artwork proxy
 // URL, the same way every other metadata builder does via thumbURL. Without
