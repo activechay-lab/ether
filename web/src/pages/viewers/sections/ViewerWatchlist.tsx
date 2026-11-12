@@ -44,13 +44,39 @@ export function ViewerWatchlist({ viewerId }: { viewerId: number }) {
   };
   const refreshWith = (action: "sync" | "check", done: string) =>
     run(action, async () => {
-      items.setData(
-        await apiFetch<Item[]>(`/discovery/users/${viewerId}/${action}`, {
-          method: "POST",
-          body: "{}",
-        }),
-      );
-      toast.success(done);
+      if (action === "sync") {
+        const result = await apiFetch<{
+          items: Item[];
+          plex: string;
+          count: number;
+          failed: boolean;
+        }>(`/discovery/users/${viewerId}/sync`, { method: "POST", body: "{}" });
+        items.setData(result.items);
+        const message =
+          result.failed && result.plex === "synced"
+            ? t("Watchlist sync incomplete")
+            : result.plex === "friend"
+              ? t(
+                  "This viewer's Plex watchlist can't be read: they're a friend you share with, not a Plex Home member. Use Friends' Watchlist RSS in Viewers › Watchlists, or have them link Trakt.",
+                )
+              : result.plex === "pin"
+                ? t("Plex asked for this Home member's PIN")
+                : result.plex === "disabled"
+                  ? t("Plex watchlists are turned off in Viewers › Watchlists")
+                  : result.plex === "synced"
+                    ? t("Synced {count} titles", { count: result.count })
+                    : t("Plex refused access to this Home member's watchlist");
+        if (result.plex === "synced" && !result.failed) toast.success(message);
+        else toast.info(message);
+      } else {
+        items.setData(
+          await apiFetch<Item[]>(`/discovery/users/${viewerId}/check`, {
+            method: "POST",
+            body: "{}",
+          }),
+        );
+        toast.success(done);
+      }
     });
   const remove = (item: Item) =>
     run(`remove-${item.title.key}`, async () => {
@@ -70,7 +96,7 @@ export function ViewerWatchlist({ viewerId }: { viewerId: number }) {
           <Button
             variant="outline"
             size="sm"
-            disabled={busy !== null || !enabled}
+            disabled={busy !== null}
             onClick={() => void refreshWith("sync", t("Watchlist synced"))}
           >
             <RefreshCw size={14} /> {t("Sync viewer")}
