@@ -16,6 +16,7 @@ export type RSSFeedStatus = {
   imported: number;
   unmatchedTitles: number;
   problem?: string;
+  error?: string;
 };
 
 /** `/discovery/settings`: watchlist alerts plus the language-model features. */
@@ -24,6 +25,7 @@ export type DiscoverySettings = {
   plex: boolean;
   plexFriendsRssUrl?: string;
   plexOwnerRssUrl?: string;
+  plexFriendsStatus?: (RSSFeedStatus & { id: string; username: string })[];
   plexFriendsRssStatus?: RSSFeedStatus;
   plexOwnerRssStatus?: RSSFeedStatus;
   trakt: boolean;
@@ -114,16 +116,17 @@ function FeedStatusLine({ status, sharedSet }: { status?: RSSFeedStatus; sharedS
     "{count} unmatched title",
     "{count} unmatched titles",
   );
-  const problem = status.problem ? (RSS_PROBLEMS[status.problem] ?? RSS_PROBLEMS.network) : "";
+  const problem = status.problem && status.problem !== "upstream" ? (RSS_PROBLEMS[status.problem] ?? RSS_PROBLEMS.network) : "";
   return (
     <span className="mt-1.5 block space-y-1 text-xs text-fg-muted">
       <span className="block">
         {t("Last read: {when}", { when })} · {imported} · {unmatched}
       </span>
-      {problem ? (
+      {problem || status.error ? (
         <span className="inline-flex items-center gap-1.5 text-warning">
           <AlertTriangle size={13} aria-hidden />
           {problem}
+          {status.error ? <span>{t("Details: {details}", { details: status.error })}</span> : null}
         </span>
       ) : null}
     </span>
@@ -222,6 +225,9 @@ export function WatchlistAlerts() {
                 "Paste the “Your Friends' Watchlist” RSS URL from plex.tv Watchlist settings. Plex doesn't say which friend added what, so it shows as a shared “Your friends want to watch” row.",
               )}
               <FeedStatusLine status={s.doc.data?.plexFriendsRssStatus} sharedSet />
+              {s.doc.data?.plexFriendsStatus?.map((friend) => (
+                <span key={friend.id} className="block">{friend.username}<FeedStatusLine status={friend} sharedSet /></span>
+              ))}
             </>
           }
           control={

@@ -44,6 +44,7 @@ type RSSFeedStatus struct {
 	Imported        int    `json:"imported"`
 	UnmatchedTitles int    `json:"unmatchedTitles"`
 	Problem         string `json:"problem,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 type rssMeta struct {
@@ -55,6 +56,7 @@ type rssMeta struct {
 	Imported        int    `json:"imported"`
 	UnmatchedTitles int    `json:"unmatchedTitles"`
 	Problem         string `json:"problem,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 type rssFeedXML struct {
@@ -193,6 +195,7 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
 	if err != nil {
 		meta.Problem = rssProblemInvalidFeed
+		meta.Error = "Invalid feed URL"
 		s.writeRSSMeta(ctx, metaKey, meta)
 		return errors.New("Plex watchlist RSS URL invalid")
 	}
@@ -219,14 +222,19 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 	resp.Body.Close()
 	if readErr != nil || len(data) > 4<<20 {
 		meta.Problem = rssProblemInvalidFeed
+		meta.Error = "Response unreadable or larger than 4 MiB"
 		s.writeRSSMeta(ctx, metaKey, meta)
 		return errors.New("Plex watchlist RSS response unreadable or too large")
 	}
 
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotModified {
+		meta.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+	}
 	switch resp.StatusCode {
 	case http.StatusNotModified:
 		meta.LastRead = s.o.Now().Unix()
 		meta.Problem = ""
+		meta.Error = ""
 		if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
 			meta.ETag = etag
 		}
@@ -255,6 +263,7 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 	items, err := parseRSSItems(data)
 	if err != nil {
 		meta.Problem = rssProblemInvalidFeed
+		meta.Error = err.Error()
 		s.writeRSSMeta(ctx, metaKey, meta)
 		return err
 	}
@@ -300,6 +309,7 @@ func (s *Service) pollRSSFeed(ctx context.Context, feedURL, metaKey, source stri
 	meta.Imported = imported
 	meta.UnmatchedTitles = unmatchedTitles
 	meta.Problem = ""
+	meta.Error = ""
 	s.writeRSSMeta(ctx, metaKey, meta)
 	return nil
 }
@@ -314,7 +324,7 @@ func parseRSSItems(data []byte) ([]rssItem, error) {
 	}
 	var doc rssFeedXML
 	if err := xml.Unmarshal(trimmed, &doc); err != nil {
-		return nil, errors.New("Plex watchlist RSS response invalid")
+		return nil, fmt.Errorf("Plex watchlist RSS XML: %w", err)
 	}
 	local := strings.ToLower(doc.XMLName.Local)
 	if local != "rss" && local != "rdf" && local != "feed" {
@@ -791,7 +801,7 @@ func (s *Service) replaceOwnerFeedSnapshot(ctx context.Context, source string, o
 		s.gen.Add(1)
 	}
 
-	if owner != nil && len(toPush) > 0 {
+	if owner != nil && source == sourcePlexOwnerRSS && len(toPush) > 0 {
 		if writer, ok := s.o.Trakt.(traktWriter); ok {
 			for _, t := range toPush {
 				if ctx.Err() != nil {
@@ -906,6 +916,7 @@ func (s *Service) feedStatus(ctx context.Context, feedURL, metaKey string) *RSSF
 		Imported:        m.Imported,
 		UnmatchedTitles: m.UnmatchedTitles,
 		Problem:         m.Problem,
+		Error:           m.Error,
 	}
 }
 
