@@ -43,7 +43,6 @@ const backoffDelay = 10 * time.Minute
 
 // webPrefix is the only tree extracted from the data archive.
 const webPrefix = "./usr/share/jellyfin/web/"
-const copyrightPath = "./usr/share/doc/jellyfin-web/copyright"
 
 // Installer fetches, verifies and caches the pinned Jellyfin Web build.
 // The zero value is unusable; construct with New.

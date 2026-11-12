@@ -302,20 +302,6 @@ function defaultConfig(): EtherConfig {
         protocol: "torrent",
         kind: "stremio",
       },
-      {
-        id: "i5",
-        name: "Zilean",
-        url: "http://zilean:8181",
-        apiKey: "",
-        dailyLimit: 0,
-        dailyGrabs: 0,
-        priority: 4,
-        enabled: true,
-        movieCategories: null,
-        tvCategories: null,
-        protocol: "torrent",
-        kind: "zilean",
-      },
     ],
     debrid: {
       providers: [

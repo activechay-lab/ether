@@ -7,12 +7,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 )
 
-// newLibraryPageExclusions captures SQL availability generations alongside the
-// viewer's policy, so the same decision is used for count and page reads.
-func newLibraryPageExclusions(a *App) func(context.Context, *core.User, core.MediaType) experience.LibraryPageExclusions {
-	return newLibraryPageExclusionsFor(a, nil)
-}
-
+// newLibraryPageExclusionsFor captures SQL availability generations alongside
+// the viewer's policy, so the same decision is used for count and page reads.
 func newLibraryPageExclusionsFor(a *App, stepAside *experience.StepAside) func(context.Context, *core.User, core.MediaType) experience.LibraryPageExclusions {
 	return func(ctx context.Context, viewer *core.User, typ core.MediaType) experience.LibraryPageExclusions {
 		var out experience.LibraryPageExclusions

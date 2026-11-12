@@ -398,7 +398,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	if playback && !versionRequested && !triedAlternatives && videoTranscode(plan) && len(variants) > 1 {
 		if release := i.avoidVideoTranscode(r.Context(), planBase, variants); release != "" {
 			if alt, p, handle, ok := i.autoSwitchPlan(r, scope, planBase, release); ok {
-				planBase, plan, err = alt, p, nil
+				planBase, plan = alt, p
 				autoSwitchedRelease, version = release, handle
 			}
 		}
