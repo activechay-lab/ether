@@ -1,6 +1,8 @@
 package mediabrowser
 
 import (
+	"context"
+	"errors"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/paging"
@@ -56,7 +58,8 @@ func (i *instance) facets(kind string) http.HandlerFunc {
 			page, total = paging.Slice(facets, offset, limit), len(facets)
 		}
 		if err != nil {
-			http.Error(w, "Unavailable", 503)
+			i.logFacetFailure(kind, err)
+			jsonReply(w, i.queryResult([]any{}, 0, offset))
 			return
 		}
 		items := make([]any, 0, len(page))
@@ -83,7 +86,9 @@ func (i *instance) searchPersons(w http.ResponseWriter, r *http.Request, v *fron
 	}
 	people, err := reader.People(r.Context(), v, device(r), frontend.PeopleQuery{Query: term, Limit: min(offset+limit, 100)})
 	if err != nil {
-		http.Error(w, "Unavailable", 503)
+		// A browse list answers empty, never an error the app shows (#421).
+		i.logFacetFailure("person", err)
+		jsonReply(w, i.queryResult([]any{}, 0, offset))
 		return
 	}
 	items := make([]any, 0, len(people))
@@ -91,6 +96,14 @@ func (i *instance) searchPersons(w http.ResponseWriter, r *http.Request, v *fron
 		items = append(items, map[string]any{"Id": person.ID, "Name": person.Name, "Type": "Person", "ServerId": i.info.ID})
 	}
 	jsonReply(w, i.queryResult(items, len(people), offset))
+}
+
+// logFacetFailure records a genre/studio/person list that could not be
+// built; the app is answered an empty list instead of an error.
+func (i *instance) logFacetFailure(kind string, err error) {
+	if i.host.Log != nil && !errors.Is(err, context.Canceled) {
+		i.host.Log.Warn("mediabrowser facet list unavailable", "frontend", i.protocol, "kind", kind, "err", err)
+	}
 }
 
 func (i *instance) resolveFilters(r *http.Request, v *frontend.Viewer, q *frontend.ItemQuery) error {
