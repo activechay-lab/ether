@@ -88,6 +88,7 @@ func Builtins() []Builtin {
 			{Title: extend.T("Versions in the app"), Description: extend.T("Extra copies of the same picture, after Auto."), Fields: []Field{
 				{Key: "sameQualityAlternatives", Label: extend.T("Same-quality versions to offer"), Kind: KindNumber, Help: extend.T("Listed after Auto in the app's version menu."), Min: F(0), Max: F(3), Step: F(1)},
 				{Key: "alternativesPerResolution", Label: extend.T("Offer alternatives at every resolution"), Kind: KindBool, Help: extend.T("Apply the alternatives count to each available resolution, up to seven versions total. Auto stays first; profile and device limits still apply.")},
+				{Key: "alternativesPerSource", Label: extend.T("Offer each source at every resolution"), Kind: KindBool, Help: extend.T("Keep one WEB-DL, Blu-ray and Remux choice at each resolution in Play Version when available. Auto still follows your profile.")},
 				{Key: "offerHigherVersions", Label: extend.T("Offer higher versions"), Kind: KindBool, Help: extend.T("Version menus can list releases taller than the profile. Off keeps the ceiling you set. HDR and file-size limits still apply.")},
 			}},
 		}}},

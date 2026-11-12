@@ -75,8 +75,9 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 		}
 	}
 	var vs []core.ReleaseVariant
-	if s.resolverCfg().AlternativesPerResolution {
-		vs = pickResolutionVariants(req.Title, profile, strict[0].rel, pool, s.sameQualityAlternatives(), max, allowTaller)
+	rcfg := s.resolverCfg()
+	if rcfg.AlternativesPerSource || rcfg.AlternativesPerResolution {
+		vs = pickResolutionVariants(req.Title, profile, strict[0].rel, pool, s.sameQualityAlternatives(), max, allowTaller, rcfg.AlternativesPerResolution, rcfg.AlternativesPerSource)
 	} else {
 		vs = pickVariants(req.Title, req.Client, profile, strict[0].rel, pool, strict, s.sameQualityAlternatives(), max, allowTaller)
 	}

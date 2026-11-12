@@ -353,6 +353,7 @@ export interface EtherConfig {
     maxCandidates: number;
     sameQualityAlternatives: number;
     alternativesPerResolution?: boolean;
+    alternativesPerSource?: boolean;
     offerHigherVersions?: boolean;
     blockedGroups: string[] | null;
     blockedTerms: string[] | null;
