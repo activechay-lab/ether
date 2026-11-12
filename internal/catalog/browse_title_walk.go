@@ -34,13 +34,18 @@ func studioExistsSQL(names string) string {
 }
 
 // studioProbe rewrites f's positive studio predicate in where, if there is
-// exactly one, from the IN-list form to the correlated probe, for a page
-// query that reads only the page's rows. The count and seek keep the
-// IN-list form, which drives from the studio index. genres are handled the
-// same way (genreProbe).
-func (c *Catalog) studioProbe(where string, f core.Filter) string {
+// exactly one and its studio is large enough, from the IN-list form to the
+// correlated probe, for a page query that reads only the page's rows. A
+// small studio keeps the IN-list form: sorting its few matching titles from
+// the studio index is cheaper than walking the library in title order
+// (studioProbeMinTitles). The count and seek keep the IN-list form, which
+// drives from the studio index. genres are handled the same way (genreProbe).
+func (c *Catalog) studioProbe(ctx context.Context, where string, f core.Filter) string {
 	names, _, ok := c.positiveStudioNames(f)
 	if !ok {
+		return where
+	}
+	if n := c.studioFilterTitles(ctx, f); n < studioProbeMinTitles {
 		return where
 	}
 	return strings.Replace(where, studioINListSQL(names), studioExistsSQL(names), 1)

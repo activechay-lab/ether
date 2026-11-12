@@ -103,3 +103,73 @@ func TestStudioFiltersMatchTheirNames(t *testing.T) {
 		}
 	}
 }
+
+// A small studio's title-sorted page is sorted from the studio index, and a
+// large one is probed in title order: below studioProbeMinTitles the page
+// keeps the IN-list form (a bounded sort), at or above it the probe (a walk
+// that stops at the page). Both answer the same page, so the switch is only
+// about cost, and neither cost follows the library.
+func TestStudioPagePicksItsStrategyBySize(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	c, err := New(db, nil, config.Catalog{}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	released := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	// "Big Studio" carries studioProbeMinTitles titles; "Small Studio" three.
+	big := int(studioProbeMinTitles)
+	for i := 0; i < big+3; i++ {
+		key := core.MovieKey(int64(i + 1))
+		exec(`INSERT INTO catalog_titles(key,type,title,sort_title,released_ts,browsable,detail) VALUES(?,?,?,?,?,1,1)`, int64(key), "movie", fmt.Sprint("t", i), fmt.Sprint("t", i), released)
+		name := "Big Studio"
+		if i >= big {
+			name = "Small Studio"
+		}
+		exec(`INSERT INTO catalog_studios(key,studio) VALUES(?,?)`, int64(key), name)
+	}
+	for _, tc := range []struct {
+		studio string
+		probe  bool
+	}{
+		{"Big Studio", true},
+		{"Small Studio", false},
+	} {
+		f := core.Filter{Type: core.TypeMovie, Studio: tc.studio}
+		if got := c.studioFilterTitles(ctx, f); (got >= studioProbeMinTitles) != tc.probe {
+			t.Fatalf("%s: studioFilterTitles=%d, want probe=%v", tc.studio, got, tc.probe)
+		}
+		where, _, err := c.browseWhere(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		probed := c.studioProbe(ctx, where, f)
+		if isProbe := probed != where; isProbe != tc.probe {
+			t.Fatalf("%s: probe=%v (where %q -> %q), want %v", tc.studio, isProbe, where, probed, tc.probe)
+		}
+		// Either form answers the same, correct title-sorted page.
+		limit := big + 3
+		want := big
+		if tc.studio == "Small Studio" {
+			want = 3
+		}
+		page, err := c.Browse(ctx, core.BrowseQuery{Filter: f, Sort: core.SortTitle, Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != want || page.Total != want {
+			t.Fatalf("%s: got %d items (total %d), want %d", tc.studio, len(page.Items), page.Total, want)
+		}
+		for i := 1; i < len(page.Items); i++ {
+			if page.Items[i-1].SortTitle > page.Items[i].SortTitle {
+				t.Fatalf("%s: page not title-sorted", tc.studio)
+			}
+		}
+	}
+}
