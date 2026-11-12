@@ -647,14 +647,14 @@ func estimateVariantInfo(t *core.Title, rel core.Release, wanted []string) core.
 // estimateAudioStreams builds the audio streams an unprobed release will
 // expose on a detail page: one per declared language, with the title's
 // original language included when the release is DUAL or MULTI. A DUAL or
-// MULTI tag names more than one track without naming the dub, so the
-// viewer's wanted languages fill the non-original slot(s); a release that
-// declares only concrete languages lists exactly those. The stream the
-// viewer would actually hear (their wanted language, otherwise the
-// original) is flagged Default so the detail page and the player agree.
-// One stream (the original) is kept when nothing is known.
+// MULTI tag says there is more than one track without naming the dub, so
+// that track is listed unlabelled rather than guessed: Ether never claims a
+// language the release name does not state. Probing at play replaces the
+// estimate. The stream the viewer would actually hear (their wanted
+// language when the name states it, otherwise the original) is flagged
+// Default. One stream (the original) is kept when nothing is known.
 func estimateAudioStreams(info core.ReleaseInfo, original string, wanted []string) []core.StreamInfo {
-	langs := estimateAudioLanguages(info, original, wanted)
+	langs := estimateAudioLanguages(info, original)
 	if len(langs) == 0 {
 		// Nothing is known about the language; keep one unlabelled stream so
 		// the detail page still shows the audio codec, as before.
@@ -674,10 +674,11 @@ func estimateAudioStreams(info core.ReleaseInfo, original string, wanted []strin
 }
 
 // estimateAudioLanguages lists the audio languages a release declares, in
-// display order: concrete declared languages first, then the original and
-// the viewer's wanted languages when the release is DUAL or MULTI. The
-// original is always kept as the sole entry when the release says nothing.
-func estimateAudioLanguages(info core.ReleaseInfo, original string, wanted []string) []string {
+// display order: concrete declared languages first, then the original when
+// the release is DUAL or MULTI, plus one unlabelled ("") entry when such a
+// release names no dub. The original is the sole entry when the release
+// says nothing.
+func estimateAudioLanguages(info core.ReleaseInfo, original string) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(v string) {
@@ -707,10 +708,12 @@ func estimateAudioLanguages(info core.ReleaseInfo, original string, wanted []str
 		}
 		add(l)
 	}
+	named := len(out)
 	if wide {
 		add(original)
-		for _, w := range wanted {
-			add(w)
+		if named == 0 {
+			// DUAL/MULTI with no named dub: one more track, language unknown.
+			out = append(out, "")
 		}
 	}
 	if len(out) == 0 {

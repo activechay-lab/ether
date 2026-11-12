@@ -316,29 +316,40 @@ func TestEstimateVariantInfo(t *testing.T) {
 // playback picks for that viewer, not the title's original language.
 func TestEstimateVariantInfoListsDeclaredLanguages(t *testing.T) {
 	title := &core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Language: "en", Runtime: 100 * time.Minute}
-	rel := withParsed(rel("x", "O.Peso.da.Liberdade.2026.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.264-BiOMA", 8000))
-	if !slices.Contains(rel.Info.Languages, releaseparse.LanguageDual) {
-		t.Fatalf("test release should parse as DUAL: %v", rel.Info.Languages)
-	}
-	info := estimateVariantInfo(title, rel, []string{"pt-BR"})
-	got := map[string]bool{}
-	for _, st := range info.Streams {
-		if st.Type != "audio" {
-			continue
+	audio := func(info core.MediaInfo) (langs []string, def string) {
+		for _, st := range info.Streams {
+			if st.Type != "audio" {
+				continue
+			}
+			name := releaseparse.LanguageBase(releaseparse.LanguageName(st.Language))
+			langs = append(langs, name)
+			if st.Default {
+				def = name
+			}
 		}
-		got[releaseparse.LanguageBase(releaseparse.LanguageName(st.Language))] = st.Default
+		return langs, def
 	}
-	if len(got) != 2 || got["english"] || !got["portuguese"] {
-		t.Fatalf("audio streams = %+v (want english+portuguese, portuguese default)", info.Streams)
+	// A bare DUAL names two tracks but not the dub: the original plus one
+	// unlabelled track, never a guessed language, whoever is watching.
+	dual := withParsed(rel("x", "O.Peso.da.Liberdade.2026.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.264-BiOMA", 8000))
+	if !slices.Contains(dual.Info.Languages, releaseparse.LanguageDual) {
+		t.Fatalf("test release should parse as DUAL: %v", dual.Info.Languages)
 	}
-	if def := estimatedDefaultAudio(estimateAudioLanguages(rel.Info, title.Language, []string{"pt-BR"}), []string{"pt-BR"}, title.Language); def < 0 {
-		t.Fatal("no default audio")
+	if langs, def := audio(estimateVariantInfo(title, dual, []string{"pt-BR"})); !slices.Equal(langs, []string{"english", ""}) || def != "english" {
+		t.Fatalf("bare DUAL = %v default %q, want [english \"\"] default english", langs, def)
 	}
-	// An English viewer watching the same release keeps the original default.
-	en := estimateVariantInfo(title, rel, []string{"en"})
-	for _, st := range en.Streams {
-		if st.Type == "audio" && st.Default && releaseparse.LanguageName(st.Language) != "english" {
-			t.Fatalf("english viewer default = %q, want english", st.Language)
+	// A name that states the dub lists it, selected for a viewer who wants it.
+	for _, name := range []string{
+		"O.Peso.da.Liberdade.2026.1080p.WEB-DL.DUAL.PT-BR.DDP5.1-C76",
+		"O.Peso.da.Liberdade.2026.1080p.WEB-DL.NACIONAL.DUAL.DDP5.1-C76",
+	} {
+		named := withParsed(rel("y", name, 8000))
+		langs, def := audio(estimateVariantInfo(title, named, []string{"pt-BR"}))
+		if !slices.Contains(langs, "portuguese") || !slices.Contains(langs, "english") || def != "portuguese" {
+			t.Fatalf("%s = %v default %q, want portuguese+english, portuguese default", name, langs, def)
+		}
+		if _, def := audio(estimateVariantInfo(title, named, []string{"en"})); def != "english" {
+			t.Fatalf("%s: english viewer default %q, want english", name, def)
 		}
 	}
 }
