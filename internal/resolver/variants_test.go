@@ -2,11 +2,13 @@ package resolver
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
 // primeSearchCache runs one resolve so the search results are cached, the
@@ -273,7 +275,7 @@ func TestResolvePreferAlternatesPreferSameEdition(t *testing.T) {
 }
 
 func TestEstimateVariantInfoDoesNotInvent1080pEAC3(t *testing.T) {
-	info := estimateVariantInfo(matrixTitle(), rel("x", "Abzurdah 2015", 8000))
+	info := estimateVariantInfo(matrixTitle(), rel("x", "Abzurdah 2015", 8000), nil)
 	if info.Video() != nil {
 		t.Fatalf("unparsed release advertised a picture: %+v", info.Video())
 	}
@@ -291,7 +293,7 @@ func TestEstimateVariantInfo(t *testing.T) {
 	r.Info.VideoCodec = "h264"
 	r.Info.AudioCodec = "eac3"
 	r.Info.Channels = "5.1"
-	info := estimateVariantInfo(title, r)
+	info := estimateVariantInfo(title, r, nil)
 	if info.Video() == nil || info.Video().Width != 1920 || info.Video().Height != 1080 {
 		t.Fatalf("video %+v", info.Video())
 	}
@@ -305,6 +307,39 @@ func TestEstimateVariantInfo(t *testing.T) {
 	audio := info.Streams[1]
 	if audio.Channels != 6 || audio.Codec != "eac3" {
 		t.Errorf("audio %+v", audio)
+	}
+}
+
+// A DUAL release of an English film, as a Brazilian viewer sees it: the
+// Play Version estimate lists both the release's languages (the original
+// English and the Brazilian Portuguese dub) and defaults to the track
+// playback picks for that viewer, not the title's original language.
+func TestEstimateVariantInfoListsDeclaredLanguages(t *testing.T) {
+	title := &core.Title{Key: core.MovieKey(1), Type: core.TypeMovie, Language: "en", Runtime: 100 * time.Minute}
+	rel := withParsed(rel("x", "O.Peso.da.Liberdade.2026.1080p.AMZN.WEB-DL.DUAL.DDP5.1.H.264-BiOMA", 8000))
+	if !slices.Contains(rel.Info.Languages, releaseparse.LanguageDual) {
+		t.Fatalf("test release should parse as DUAL: %v", rel.Info.Languages)
+	}
+	info := estimateVariantInfo(title, rel, []string{"pt-BR"})
+	got := map[string]bool{}
+	for _, st := range info.Streams {
+		if st.Type != "audio" {
+			continue
+		}
+		got[releaseparse.LanguageBase(releaseparse.LanguageName(st.Language))] = st.Default
+	}
+	if len(got) != 2 || got["english"] || !got["portuguese"] {
+		t.Fatalf("audio streams = %+v (want english+portuguese, portuguese default)", info.Streams)
+	}
+	if def := estimatedDefaultAudio(estimateAudioLanguages(rel.Info, title.Language, []string{"pt-BR"}), []string{"pt-BR"}, title.Language); def < 0 {
+		t.Fatal("no default audio")
+	}
+	// An English viewer watching the same release keeps the original default.
+	en := estimateVariantInfo(title, rel, []string{"en"})
+	for _, st := range en.Streams {
+		if st.Type == "audio" && st.Default && releaseparse.LanguageName(st.Language) != "english" {
+			t.Fatalf("english viewer default = %q, want english", st.Language)
+		}
 	}
 }
 
@@ -366,7 +401,7 @@ func TestPickVariantsSameQualityAlternatives(t *testing.T) {
 	}
 	caps := core.ClientCaps{MaxHeight: 2160}
 	profile := core.QualityProfile{MaxHeight: 2160, AllowHDR: true, AllowDolbyVision: true}
-	out := pickVariants(ep, caps, profile, pool[0].rel, pool, pool, 2, maxVariants, true)
+	out := pickVariants(ep, caps, profile, pool[0].rel, pool, pool, 2, maxVariants, true, nil)
 	var ids []string
 	for _, v := range out {
 		ids = append(ids, v.ID)
@@ -386,7 +421,7 @@ func TestPickVariantsSameQualityAlternatives(t *testing.T) {
 		t.Errorf("alternative label %q", got)
 	}
 	// A smaller cap never drops a tier to make room for an alternative.
-	small := pickVariants(ep, caps, profile, pool[0].rel, pool, pool, 2, 4, true)
+	small := pickVariants(ep, caps, profile, pool[0].rel, pool, pool, 2, 4, true, nil)
 	var got []string
 	for _, v := range small {
 		got = append(got, v.ID)
@@ -395,7 +430,7 @@ func TestPickVariantsSameQualityAlternatives(t *testing.T) {
 		t.Errorf("max=4 versions %v", got)
 	}
 	// A pool where only Auto and its copy exist yields no alternatives.
-	if out := pickVariants(ep, caps, profile, pool[0].rel, pool[:2], pool[:2], 2, maxVariants, true); len(out) != 1 {
+	if out := pickVariants(ep, caps, profile, pool[0].rel, pool[:2], pool[:2], 2, maxVariants, true, nil); len(out) != 1 {
 		t.Errorf("duplicate offered as alternative: %+v", out)
 	}
 }
@@ -584,7 +619,7 @@ func TestResolutionVariantsBalanceAndBounds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := profile
 			p.MaxHeight = tc.ceiling
-			got := pickResolutionVariants(matrixTitle(), p, pool[0].rel, pool, tc.alternatives, tc.cap, false, true, false)
+			got := pickResolutionVariants(matrixTitle(), p, pool[0].rel, pool, tc.alternatives, tc.cap, false, true, false, nil)
 			var ids []string
 			for i, v := range got {
 				if v.Auto != (i == 0) {
@@ -644,7 +679,7 @@ func TestAlternativesPerSourceOffersSourceAtEachResolution(t *testing.T) {
 		return m
 	}
 
-	on := pickResolutionVariants(matrixTitle(), profile, pool[0].rel, pool, 1, core.MaxVariants, false, false, true)
+	on := pickResolutionVariants(matrixTitle(), profile, pool[0].rel, pool, 1, core.MaxVariants, false, false, true, nil)
 	if len(on) == 0 || !on[0].Auto || on[0].Release.ID != "auto" {
 		t.Fatalf("Auto moved with per-source on: %+v", on)
 	}
@@ -663,7 +698,7 @@ func TestAlternativesPerSourceOffersSourceAtEachResolution(t *testing.T) {
 
 	// Off: the per-resolution slots fill with remuxes and no WEB-DL shows,
 	// which is exactly why the setting exists.
-	off := pickResolutionVariants(matrixTitle(), profile, pool[0].rel, pool, 1, core.MaxVariants, false, false, false)
+	off := pickResolutionVariants(matrixTitle(), profile, pool[0].rel, pool, 1, core.MaxVariants, false, false, false, nil)
 	if len(off) == 0 || !off[0].Auto || off[0].Release.ID != "auto" {
 		t.Fatalf("Auto moved with per-source off: %+v", off)
 	}

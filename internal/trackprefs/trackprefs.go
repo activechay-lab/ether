@@ -58,6 +58,11 @@ type Options struct {
 	// ServerLanguage is the catalog metadata language (config catalog.language,
 	// for example en-US). It is not the console locale.
 	ServerLanguage func() string
+	// ProfileLanguages is the owner's preferred audio languages for the
+	// title's quality profile. It fills the viewer's audio list when the
+	// viewer stored none of their own: prefs > profile preferred > file
+	// default flag > title original. Nil skips the layer.
+	ProfileLanguages func(ctx context.Context, user int64, key core.RatingKey) []string
 	// PlexLayer is the viewer's cached plex.tv account settings. It sits
 	// under the viewer's own row and user 0. A missing callback skips it.
 	PlexLayer func(context.Context, int64) (PlexLayer, bool)
@@ -112,6 +117,15 @@ func New(db *sql.DB, opts ...Options) *Service {
 func Default() Rules {
 	return Rules{AudioLanguages: []string{}, SubtitleLanguages: []string{}, SubtitleMode: "off", SubtitleStyle: "normal"}
 }
+// canonicalizeLanguages folds the viewer's stored audio and subtitle language
+// spellings onto canonical BCP 47 tags, so "Português" and "pt-BR" are the
+// same stored preference and multi-word names ("Brazilian Portuguese") pass
+// validation instead of being rejected for their length or space.
+func (r *Rules) canonicalizeLanguages() {
+	r.AudioLanguages = canonicalLanguages(r.AudioLanguages)
+	r.SubtitleLanguages = canonicalLanguages(r.SubtitleLanguages)
+}
+
 func (r Rules) Validate() error {
 	if r.MaxBitrateKbps < 0 || r.MaxHeight < 0 {
 		return errors.New("invalid bitrate preference")
@@ -146,6 +160,7 @@ func (s *Service) PutRules(ctx context.Context, user int64, r Rules) error {
 	if user < 0 {
 		return errors.New("invalid user")
 	}
+	r.canonicalizeLanguages()
 	if err := r.Validate(); err != nil {
 		return err
 	}
@@ -436,15 +451,22 @@ func rankStreamLanguage(t core.StreamInfo, want []string) int {
 	return 0
 }
 
-func pick(streams []core.StreamInfo, kind string, want []string, style string, forcedOnly bool, memory *Choice) int {
+func pick(streams []core.StreamInfo, kind string, want []string, style string, forcedOnly bool, memory *Choice, original string) int {
 	best, score := -1, -100000
 	for i, t := range streams {
 		if t.Type != kind || (forcedOnly && !t.Forced) {
 			continue
 		}
-		n := rankStreamLanguage(t, want)
+		matched := rankStreamLanguage(t, want)
+		n := matched
 		if t.Default {
 			n += 5
+		}
+		if kind == "audio" && matched == 0 && rankStreamLanguage(t, []string{original}) > 0 {
+			// No preference matched this stream: the title's original
+			// language outranks an arbitrary first stream, but not the
+			// file's default flag.
+			n += 2
 		}
 		if kind == "subtitle" {
 			if (style == "sdh") == sdh(t) {
@@ -498,13 +520,16 @@ func (s *Service) selectRules(ctx context.Context, user int64, key core.RatingKe
 		return out, err
 	}
 	r = s.sharedLanguages(ctx, user, r)
+	if len(r.AudioLanguages) == 0 && s.options.ProfileLanguages != nil {
+		r.AudioLanguages = canonicalLanguages(s.options.ProfileLanguages(ctx, user, key))
+	}
 	server := s.serverLanguage()
 	want := AudioOrder(r.AudioLanguages, server, original, r.PreferOriginal)
 	var am *Choice
 	if hasA {
 		am = &a
 	}
-	out.Audio = pick(info.Streams, "audio", want, "", false, am)
+	out.Audio = pick(info.Streams, "audio", want, "", false, am, original)
 	if hasB && b.Off {
 		return out, nil
 	}
@@ -537,7 +562,7 @@ func (s *Service) selectRules(ctx context.Context, user int64, key core.RatingKe
 	if offForeign {
 		style = "forced"
 	}
-	out.Subtitle = pick(info.Streams, "subtitle", subtitleOrder(r, server, original), style, !hasB && r.SubtitleMode == "forced-only" || offForeign, bm)
+	out.Subtitle = pick(info.Streams, "subtitle", subtitleOrder(r, server, original), style, !hasB && r.SubtitleMode == "forced-only" || offForeign, bm, original)
 	return out, nil
 }
 
@@ -591,9 +616,10 @@ func (s *Service) serverLanguage() string {
 
 // AudioOrder is the audio preference for one playback. audio is the viewer's
 // list, or user 0's list when the viewer saved none. PreferOriginal ranks the
-// title original first. Otherwise the order is that list, the catalog
-// language, then the title original. pick uses the file default flag only
-// when none of these match.
+// title original first. Otherwise the order is that list, then the catalog
+// language. The title's original language is deliberately NOT a ranked
+// preference: pick falls back to the file's default-flagged track and only
+// then to the original language.
 func AudioOrder(audio []string, server, original string, preferOriginal bool) []string {
 	var want []string
 	if preferOriginal {
@@ -603,17 +629,14 @@ func AudioOrder(audio []string, server, original string, preferOriginal bool) []
 		want = appendLanguage(want, lang)
 	}
 	want = appendLanguageFallback(want, server)
-	if !preferOriginal {
-		want = appendLanguageFallback(want, original)
-	}
 	return want
 }
 
 func subtitleOrder(r Rules, server, original string) []string {
 	if len(r.SubtitleLanguages) > 0 {
-		return AudioOrder(r.SubtitleLanguages, server, original, false)
+		return appendLanguageFallback(AudioOrder(r.SubtitleLanguages, server, original, false), original)
 	}
-	return AudioOrder(r.AudioLanguages, server, original, r.PreferOriginal)
+	return appendLanguageFallback(AudioOrder(r.AudioLanguages, server, original, r.PreferOriginal), original)
 }
 
 // viewerLanguages is the language the viewer is assumed to understand.
@@ -626,6 +649,33 @@ func viewerLanguages(audio []string, server string) []string {
 		return []string{server}
 	}
 	return nil
+}
+
+// canonicalLanguages folds every accepted spelling ("pt-BR", "pt_br",
+// "por", "Portuguese", "Português", "Brazilian Portuguese") onto one
+// canonical BCP 47 tag per language, preserving first-seen order and the
+// region when the spelling carries one. Identical canonical tags collapse;
+// a value no spelling maps to is kept trimmed and unchanged.
+func canonicalLanguages(langs []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range langs {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		c := langtag.CanonicalBCP47(l)
+		if c == "" {
+			c = l
+		}
+		key := strings.ToLower(c)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, c)
+	}
+	return out
 }
 
 func appendLanguage(have []string, lang string) []string {
@@ -778,6 +828,7 @@ func (s *Service) updateViewerRules(ctx context.Context, user int64, update func
 			return err
 		}
 		update(&rules)
+		rules.canonicalizeLanguages()
 		if err = rules.Validate(); err != nil {
 			return err
 		}

@@ -22,7 +22,7 @@ func TestConfiguredLanguageOrderBeforeTier(t *testing.T) {
 			for i, lang := range tt.tracks {
 				streams = append(streams, core.StreamInfo{Type: kind, Language: lang, Index: i, Default: i == len(tt.tracks)-1})
 			}
-			if got := pick(streams, kind, tt.want, "normal", false, nil); got != tt.selected {
+			if got := pick(streams, kind, tt.want, "normal", false, nil, ""); got != tt.selected {
 				t.Errorf("%s wants %v tracks %v selected %d want %d", kind, tt.want, tt.tracks, got, tt.selected)
 			}
 		}
@@ -35,7 +35,7 @@ func TestLanguageOrderPreservesExplicitChoice(t *testing.T) {
 		want[i] = "pt-BR"
 	}
 	streams := []core.StreamInfo{{Type: "audio", Language: "pt-BR"}, {Type: "audio", Language: "eng"}}
-	if got := pick(streams, "audio", want, "", false, &Choice{Language: "en"}); got != 1 {
+	if got := pick(streams, "audio", want, "", false, &Choice{Language: "en"}, ""); got != 1 {
 		t.Fatalf("explicit English choice lost to language score: %d", got)
 	}
 }

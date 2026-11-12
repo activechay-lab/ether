@@ -22,7 +22,7 @@ var alternativeSourceOrder = []string{"remux", "disc", "web", "other"}
 // full of remuxes. When both are on, a tier's class picks come first and the
 // alternative count adds further copies. Auto is unchanged either way: it is
 // still the strict profile pick and heads the menu.
-func pickResolutionVariants(t *core.Title, profile core.QualityProfile, auto core.Release, ranked []candidate, alternatives, limit int, allowTaller, perResolution, perSource bool) []core.ReleaseVariant {
+func pickResolutionVariants(t *core.Title, profile core.QualityProfile, auto core.Release, ranked []candidate, alternatives, limit int, allowTaller, perResolution, perSource bool, wanted []string) []core.ReleaseVariant {
 	if limit <= 0 {
 		return nil
 	}
@@ -100,7 +100,7 @@ func pickResolutionVariants(t *core.Title, profile core.QualityProfile, auto cor
 			if isAuto {
 				kind = "auto"
 			}
-			out = append(out, core.ReleaseVariant{ID: r.ID, Label: variantLabel(r, kind), Edition: r.Info.Edition, Auto: isAuto, Release: r, Info: estimateVariantInfo(t, sizedForEpisode(r))})
+			out = append(out, core.ReleaseVariant{ID: r.ID, Label: variantLabel(r, kind), Edition: r.Info.Edition, Auto: isAuto, Release: r, Info: estimateVariantInfo(t, sizedForEpisode(r), wanted)})
 		}
 	}
 	return out
