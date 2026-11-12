@@ -62,25 +62,47 @@ AND season>=0 AND episode>0 AND show_key IN (`+placeholders(len(part))+`)`, args
 		if err != nil {
 			return nil, err
 		}
-		// Seasons with no stored episodes: their summary's episode count.
-		rows, err = c.db.QueryContext(ctx, `SELECT s.show_key, s.season, s.child_count
-FROM catalog_titles s
-WHERE s.type='season' AND s.season>0 AND s.child_count>0 AND s.release_known=1 AND s.released_ts<=?
-AND s.show_key IN (`+placeholders(len(part))+`)
-AND NOT EXISTS (SELECT 1 FROM catalog_titles e WHERE e.type='episode' AND e.show_key=s.show_key AND e.season=s.season)`, args...)
+		// Seasons with no stored episodes count their summary's episode
+		// total. Two show_key-indexed reads joined here: a correlated
+		// NOT EXISTS let SQLite scan every season row (2 minutes on a
+		// 50k-title library).
+		keyArgs := args[1:]
+		stored := map[[2]int64]bool{}
+		rows, err = c.db.QueryContext(ctx, `SELECT DISTINCT show_key, season FROM catalog_titles
+WHERE type='episode' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
 		if err != nil {
 			return nil, err
 		}
 		for rows.Next() {
-			var showKey int64
-			var season, count int
-			if err := rows.Scan(&showKey, &season, &count); err != nil {
+			var sk, season int64
+			if err := rows.Scan(&sk, &season); err != nil {
 				rows.Close()
 				return nil, err
 			}
+			stored[[2]int64{sk, season}] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		rows, err = c.db.QueryContext(ctx, `SELECT show_key, season, child_count, release_known, released_ts FROM catalog_titles
+WHERE type='season' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var showKey, season, count, known, released int64
+			if err := rows.Scan(&showKey, &season, &count, &known, &released); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if season <= 0 || count <= 0 || known != 1 || released > now || stored[[2]int64{showKey, season}] {
+				continue
+			}
 			sk := core.RatingKey(showKey)
-			for ep := 1; ep <= min(count, 2000); ep++ {
-				out[sk] = append(out[sk], core.EpisodeKey(sk.TMDB(), season, ep))
+			for ep := 1; ep <= int(min(count, 2000)); ep++ {
+				out[sk] = append(out[sk], core.EpisodeKey(sk.TMDB(), int(season), ep))
 			}
 		}
 		err = rows.Err()
