@@ -8,7 +8,11 @@ import (
 
 // AiredShowEpisodes returns all aired, non-adult episode keys stored for the
 // given show keys, using the indexed show/aired columns without network calls
-// or full-library scans.
+// or full-library scans. A premiered regular season whose episodes are not
+// stored yet contributes episodes 1..its published episode count, so a show
+// is judged from its season summary before its episode list is loaded. That
+// count can include announced episodes of an airing season, which only ever
+// keeps a show visible, never hides one early.
 func (c *Catalog) AiredShowEpisodes(ctx context.Context, shows []core.RatingKey) (map[core.RatingKey][]core.RatingKey, error) {
 	out := make(map[core.RatingKey][]core.RatingKey, len(shows))
 	if c == nil || c.db == nil || len(shows) == 0 {
@@ -52,6 +56,32 @@ AND season>=0 AND episode>0 AND show_key IN (`+placeholders(len(part))+`)`, args
 			}
 			sk := core.RatingKey(showKey)
 			out[sk] = append(out[sk], core.RatingKey(epKey))
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		// Seasons with no stored episodes: their summary's episode count.
+		rows, err = c.db.QueryContext(ctx, `SELECT s.show_key, s.season, s.child_count
+FROM catalog_titles s
+WHERE s.type='season' AND s.season>0 AND s.child_count>0 AND s.release_known=1 AND s.released_ts<=?
+AND s.show_key IN (`+placeholders(len(part))+`)
+AND NOT EXISTS (SELECT 1 FROM catalog_titles e WHERE e.type='episode' AND e.show_key=s.show_key AND e.season=s.season)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var showKey int64
+			var season, count int
+			if err := rows.Scan(&showKey, &season, &count); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			sk := core.RatingKey(showKey)
+			for ep := 1; ep <= min(count, 2000); ep++ {
+				out[sk] = append(out[sk], core.EpisodeKey(sk.TMDB(), season, ep))
+			}
 		}
 		err = rows.Err()
 		rows.Close()

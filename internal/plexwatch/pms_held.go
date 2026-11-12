@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -23,8 +22,6 @@ const (
 	pmsHeldCap             = 2_000_000
 	pmsHeldItemCacheCap    = 2_000_000
 	pmsHeldUncachedLookups = 500
-	pmsHeldWarmShows       = 1000
-	pmsHeldWarmParallel    = 6
 )
 
 // HeldShow summarizes the seasons and episodes held across step-aside PMS
@@ -369,65 +366,7 @@ func (s *Servers) runHeldPass(ctx context.Context, serverID int64) (bool, error)
 	if err := s.reloadHeldSnapshot(ctx); err != nil {
 		return false, err
 	}
-	// A show is judged complete against its aired episodes in the local
-	// catalogue, so every matched show's episode list must be stored. Load
-	// what is missing now, bounded per pass; another pass follows within a
-	// minute until every show is loaded.
-	if gc, ok := s.catalog.(grandchildrenCatalog); ok && len(matchedShows) > 0 {
-		if s.warmMatchedShows(ctx, gc, matchedShows) {
-			capped = true
-		}
-	}
 	return capped, nil
-}
-
-// warmMatchedShows stores the episode lists of matched shows not yet loaded
-// this process, pmsHeldWarmShows per pass across pmsHeldWarmParallel
-// workers, and reports whether shows remain. Grandchildren reads a stored
-// list locally, so after a restart already-loaded shows cost one local read.
-func (s *Servers) warmMatchedShows(ctx context.Context, gc grandchildrenCatalog, shows map[core.RatingKey]struct{}) bool {
-	keys := make([]core.RatingKey, 0, len(shows))
-	s.warmedMu.Lock()
-	for k := range shows {
-		if _, done := s.warmedShows[k]; !done {
-			keys = append(keys, k)
-		}
-	}
-	s.warmedMu.Unlock()
-	if len(keys) == 0 {
-		return false
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	more := len(keys) > pmsHeldWarmShows
-	keys = keys[:min(len(keys), pmsHeldWarmShows)]
-	work := make(chan core.RatingKey)
-	var wg sync.WaitGroup
-	for range pmsHeldWarmParallel {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for k := range work {
-				if _, err := gc.Grandchildren(ctx, k); err != nil {
-					continue
-				}
-				s.warmedMu.Lock()
-				if len(s.warmedShows) < pmsHeldCap {
-					s.warmedShows[k] = struct{}{}
-				}
-				s.warmedMu.Unlock()
-			}
-		}()
-	}
-	for _, k := range keys {
-		if ctx.Err() != nil {
-			more = true
-			break
-		}
-		work <- k
-	}
-	close(work)
-	wg.Wait()
-	return more
 }
 
 func (s *Servers) loadCachedItems(ctx context.Context, serverID int64) (map[int64]pmsCachedItem, error) {
