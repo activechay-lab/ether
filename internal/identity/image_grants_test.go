@@ -13,6 +13,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 	"github.com/braedonsaunders/ether/internal/identity"
 	"github.com/braedonsaunders/ether/internal/store"
 )
@@ -259,5 +260,61 @@ func TestServePublicRechecksPublicArtwork(t *testing.T) {
 	experience.visible = false
 	if code := serve(core.MovieKey(42), poster); code != 404 || source.calls != 1 {
 		t.Fatalf("hidden-from-someone poster served: %d calls=%d", code, source.calls)
+	}
+}
+
+// A cached public content tag survives both page expiry and a fresh service.
+func TestPublicContentTagSurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	db := store.OpenTest(t)
+	if _, err := db.ExecContext(ctx, `INSERT INTO auth_users(id,plex_id,created_at,updated_at) VALUES(1,123,0,0)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100000, 0)
+	clock := func() time.Time { return now }
+	grants, err := identity.NewGrants(db, members{db}, time.Hour, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := grants.Issue(ctx, 1, nil, "jellyfin", core.Device{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	poster := frontend.Image{Kind: frontend.ImagePoster, Path: "/poster", Tag: "v1"}
+	exp := &publicArtworkExperience{visible: true, image: poster, Experience: frontendtest.Experience{ItemFunc: func(context.Context, frontend.ItemRequest) (frontend.ItemDetail, error) {
+		return frontend.ItemDetail{Images: []frontend.Image{poster}, ImagesAuthoritative: true}, nil
+	}}}
+	source := &imageFixture{}
+	fresh := func() *identity.ImageGrantService {
+		s, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return exp }, source, time.Minute, clock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.SetImageKey([]byte("persistent-server-key"))
+		return s
+	}
+	page, err := fresh().SignPage(ctx, frontend.ImagePageRequest{Credential: credential, Titles: []core.Title{{Key: core.MovieKey(42)}}})
+	if err != nil || len(page) != 1 || len(page[0].Images) != 1 {
+		t.Fatalf("page: %+v %v", page, err)
+	}
+	tag := page[0].Images[0].Secret
+	now = now.Add(24 * time.Hour)
+	service := fresh()
+	serve := func(secret string) int {
+		w := httptest.NewRecorder()
+		service.Serve(w, httptest.NewRequest("GET", "/Items/"+ids.RatingKeyGUID(core.MovieKey(42))+"/Images/Primary", nil), secret)
+		return w.Code
+	}
+	if code := serve(tag); code != 200 {
+		t.Fatalf("cached tag after restart: %d", code)
+	}
+	exp.image.Tag = "v2"
+	if code := serve(tag); code != 404 {
+		t.Fatalf("changed content: %d", code)
+	}
+	exp.image = poster
+	exp.visible = false
+	if code := serve(tag); code != 404 {
+		t.Fatalf("restricted content: %d", code)
 	}
 }

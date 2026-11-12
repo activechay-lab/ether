@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
@@ -207,6 +208,12 @@ func sanitizeStoredRules(rules []core.CollectionRule, warnings []string) ([]core
 }
 
 func (s *Service) loadRows(ctx context.Context) ([]*specRow, error) {
+	rows, err := reqmemo.Do(ctx, fmt.Sprintf("collections-rows:%p", s), func() ([]*specRow, error) { return s.readRows(ctx) })
+	// List sorts its result; keep the memoized order private.
+	return append([]*specRow(nil), rows...), err
+}
+
+func (s *Service) readRows(ctx context.Context) ([]*specRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+specCols+` FROM collections_specs ORDER BY builtin ASC, id ASC`)
 	if err != nil {
 		return nil, err

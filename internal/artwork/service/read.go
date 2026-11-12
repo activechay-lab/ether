@@ -15,6 +15,9 @@ import (
 
 // Read re-enumerates under current policy and descriptors before touching bytes.
 func (a Source) Read(ctx context.Context, req frontend.ArtworkRequest, img frontend.Image, transform frontend.ArtworkTransform) ([]byte, string, error) {
+	if a.LandscapeThumb {
+		req.Device.Language = ""
+	}
 	if transform.Width < 0 || transform.Width > 4000 || transform.Height < 0 || transform.Height > 4000 || (transform.Format != "" && transform.Format != "jpeg" && transform.Format != "png") {
 		return nil, "", core.ErrNotAvailable
 	}

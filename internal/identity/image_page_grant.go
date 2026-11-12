@@ -592,6 +592,26 @@ func (s *ImageGrantService) serveShortTag(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	// Tokenless cached URLs are content identities, not expiring viewer grants.
+	if (s.surface == "jellyfin" || s.surface == "emby") && authhdr.MediaBrowserToken(r) == "" {
+		key, ok := imageItemKey(r.URL.Path)
+		public, supported := s.experience().(frontend.PublicArtwork)
+		if ok && supported {
+			images, _, visible, err := public.PublicArtwork(r.Context(), core.Device{}, key)
+			if err == nil && visible {
+				master := s.pageKey()
+				for _, image := range images {
+					img := pageImage{Kind: image.Kind, Path: image.Path, Tag: image.Tag, Subject: image.Subject}
+					if shortClaimMatches(pageClaims{Kind: img.Kind, Path: img.Path}, r) && (contentImageTag(master, int64(key), img, 0) == secret || contentImageTag(master, int64(key), img, s.Generation()) == secret) {
+						s.ServePublic(w, r, core.Device{}, key, image)
+						return
+					}
+				}
+			}
+		}
+		http.NotFound(w, r)
+		return
+	}
 	now := s.now().UnixMilli()
 	claims, ok := s.loadShort(secret)
 	if ok && claims.Expires <= now {

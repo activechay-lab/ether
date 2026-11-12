@@ -344,8 +344,10 @@ func indexedBrowseQuery(library *Library, q frontend.ItemQuery) bool {
 	if q.Watched != nil && library.Type != core.TypeMovie {
 		return false
 	}
+	// A Movie+Series ask within one library still names only its root rows.
+	mixedRoots := containsMediaType(q.Types, library.Type) && (library.Type == core.TypeMovie || library.Type == core.TypeShow)
 	for _, typ := range q.Types {
-		if typ != library.Type {
+		if typ != library.Type && !(mixedRoots && (typ == core.TypeMovie || typ == core.TypeShow)) {
 			return false
 		}
 	}
