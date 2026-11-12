@@ -63,10 +63,7 @@ type StepAside struct {
 	// spaces recompiles caused only by catalogue writes.
 	refreshing  atomic.Bool
 	lastRefresh atomic.Int64
-	// compileMu makes the first, synchronous compile single-flight: every
-	// visibility check calls compiled, and without it each concurrent check
-	// ran its own full compile until one finished.
-	compileMu sync.Mutex
+	inflight    chan struct{} // closed when the running compile finishes; guarded by mu
 }
 
 // stepAsideBucket is how often show completeness is re-judged against the
@@ -406,38 +403,69 @@ func (s *StepAside) compiled(ctx context.Context) *compiledStepAside {
 		// Never recompile on a request: completeness reads every matched
 		// show's aired episodes. Serve the last answer and refresh it in the
 		// background (one at a time, spaced unless the held set changed).
-		s.refreshAsync(h, ck, cur.key.heldRev != ck.heldRev)
+		_ = s.refreshAsync(h, ck, cur.key.heldRev != ck.heldRev)
 		return cur
 	}
-	s.compileMu.Lock()
-	defer s.compileMu.Unlock()
+	// The first compile also runs in the background: until it lands, step
+	// aside judges nothing (titles stay visible) rather than holding a
+	// request behind a read of every matched show's episodes.
+	done := s.refreshAsync(h, ck, true)
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(stepAsideFirstWait):
+		case <-ctx.Done():
+		}
+	}
 	s.mu.RLock()
-	cur = s.cached
-	s.mu.RUnlock()
-	if cur != nil {
-		return cur
-	}
-	// Detached from the request: a cancelled request must not leave the next
-	// one to start the compile over.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-	defer cancel()
-	return s.compile(cctx, h, ck)
+	defer s.mu.RUnlock()
+	return s.cached
 }
 
-func (s *StepAside) refreshAsync(h StepAsideHeld, ck stepAsideCacheKey, heldChanged bool) {
-	if !heldChanged && time.Since(time.Unix(0, s.lastRefresh.Load())) < stepAsideRefreshGap {
+// stepAsideFirstWait is how long a request waits for the first compile; a
+// small held set compiles well inside it, a large one finishes behind it.
+const stepAsideFirstWait = 250 * time.Millisecond
+
+// Prime starts the first compile in the background so a held set is judged
+// before the first request needs it.
+func (s *StepAside) Prime() {
+	if s == nil || s.opts.Held == nil {
 		return
+	}
+	h := s.opts.Held()
+	if h.Rev == 0 || (len(h.Movies) == 0 && len(h.Episodes) == 0) {
+		return
+	}
+	var writeGen uint64
+	if s.opts.WriteGeneration != nil {
+		writeGen = s.opts.WriteGeneration()
+	}
+	_ = s.refreshAsync(h, stepAsideCacheKey{heldRev: h.Rev, writeGen: writeGen, minute: s.opts.Now().Unix() / stepAsideBucket}, true)
+}
+
+func (s *StepAside) refreshAsync(h StepAsideHeld, ck stepAsideCacheKey, heldChanged bool) <-chan struct{} {
+	if !heldChanged && time.Since(time.Unix(0, s.lastRefresh.Load())) < stepAsideRefreshGap {
+		return nil
 	}
 	if !s.refreshing.CompareAndSwap(false, true) {
-		return
+		s.mu.RLock()
+		done := s.inflight
+		s.mu.RUnlock()
+		return done
 	}
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.inflight = done
+	s.mu.Unlock()
 	go func() {
+		defer close(done)
 		defer s.refreshing.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		s.compile(ctx, h, ck)
 		s.lastRefresh.Store(time.Now().UnixNano())
 	}()
+	return done
 }
 
 func (s *StepAside) compile(ctx context.Context, h StepAsideHeld, ck stepAsideCacheKey) *compiledStepAside {

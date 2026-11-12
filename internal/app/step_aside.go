@@ -19,7 +19,7 @@ func (a *App) newStepAsideFor(protocol core.Protocol) *experience.StepAside {
 	var cachedRev uint64
 	var cachedHeld experience.StepAsideHeld
 
-	return experience.NewStepAside(experience.StepAsideOptions{
+	sa := experience.NewStepAside(experience.StepAsideOptions{
 		Held: func() experience.StepAsideHeld {
 			if a.plexServers == nil {
 				return experience.StepAsideHeld{}
@@ -66,4 +66,6 @@ func (a *App) newStepAsideFor(protocol core.Protocol) *experience.StepAside {
 			return a.playback.Sessions()
 		},
 	})
+	sa.Prime()
+	return sa
 }
