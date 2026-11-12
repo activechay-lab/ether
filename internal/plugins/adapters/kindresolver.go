@@ -523,10 +523,13 @@ func (r *KindResolver) resolveItemSources(ctx context.Context, rec pluginitems.K
 		r.flights[item.Ref] = fl
 		go func() {
 			defer func() {
-				close(fl.done)
+				// Leave the map before waking waiters: a request arriving
+				// after a waiter returns must start a new resolve, never
+				// join this finished flight and reuse its result.
 				r.flightMu.Lock()
 				delete(r.flights, item.Ref)
 				r.flightMu.Unlock()
+				close(fl.done)
 			}()
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			defer cancel()
