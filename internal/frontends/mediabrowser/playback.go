@@ -344,8 +344,20 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	if i.extraPlayback(w, r, v, key, playback) {
 		return
 	}
-	planRequest := frontend.PlanRequest{Viewer: v, Device: dev, Protocol: i.protocol, Item: key, Channel: channel, Version: version, ResolvedRelease: resolvedRelease, DetailSource: detailSource, ExpectedSourceETag: expectedETag, Caps: capability.Client, Intent: intent}
-	plan, err := i.host.Sessions.Plan(r.Context(), planRequest)
+	versionRequested := version != "" || detailSource != ""
+	// The ranked release variants are listed (and Auto may switch to one) only
+	// when the client did not pick a version and this is a single playable
+	// item, never a live channel or a plugin kind.
+	var variants []frontend.ReleaseVariant
+	if i.host.Editions != nil && !versionRequested && channel == "" && !key.IsPluginKey() {
+		if title, ok := i.playbackTitle(r, v, key); ok {
+			variants = i.releaseVariants(r, scope, title)
+		}
+	}
+	listVersions := len(variants) > 0
+	autoSwitchedRelease := ""
+	planBase := frontend.PlanRequest{Viewer: v, Device: dev, Protocol: i.protocol, Item: key, Channel: channel, Version: version, ResolvedRelease: resolvedRelease, DetailSource: detailSource, ExpectedSourceETag: expectedETag, Caps: capability.Client, Intent: intent}
+	plan, err := i.host.Sessions.Plan(r.Context(), planBase)
 	if err != nil {
 		if playback && noCompatibleStream(err) {
 			i.writeNoCompatibleStream(w)
@@ -358,6 +370,20 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		i.writeNoCompatibleStream(w)
 		return
 	}
+	// Auto skips a video transcode: when the automatic pick would re-encode
+	// video for this device and a ranked alternative would not, play the
+	// first alternative that avoids it (up to maxAutoTranscodeTrials).
+	if playback && !versionRequested && videoTranscode(plan) && len(variants) > 1 {
+		if release := i.avoidVideoTranscode(r.Context(), planBase, variants); release != "" {
+			planBase.Version, planBase.ResolvedRelease = release, ""
+			planBase.Intent.ExactVersion = false
+			if alt, altErr := i.host.Sessions.Plan(r.Context(), planBase); altErr == nil && !alt.Estimated {
+				plan, err = alt, nil
+				autoSwitchedRelease = release
+				version = release
+			}
+		}
+	}
 	if !allowed && plan.Decision.Kind == "transcode" {
 		http.Error(w, "Playback unavailable", 422)
 		return
@@ -365,6 +391,10 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	sourceID = ids.RatingKeyGUID(key)
 	if channel != "" {
 		sourceID = wireID
+	} else if autoSwitchedRelease != "" {
+		// Auto played a different release than it would have: identify it by
+		// its scoped handle, never the raw release id.
+		sourceID = i.issueReleaseHandle(r, scope, key, autoSwitchedRelease)
 	} else if version != "" {
 		sourceID = version
 	} else if detailSource != "" {
@@ -408,7 +438,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 
 	playID := ""
 	if !playback && channel == "" && (opts.DirectPlay || opts.DirectStream) {
-		if path := i.lazySourceURL(r, credential, planRequest); path != "" {
+		if path := i.lazySourceURL(r, credential, planBase); path != "" {
 			source["Path"] = path
 		}
 	}
@@ -519,6 +549,15 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	if (i.protocol == "emby" || i.protocol == "jellyfin") && channel == "" {
 		applyPlannedStreamIndexes(source, media, plan.Decision)
+	}
+	// With no explicit version pick, list Auto then the ranked release
+	// variants so the app's version picker offers them; a pick resolves to
+	// the exact release through the returned MediaSource Id.
+	if listVersions && !versionRequested && autoSwitchedRelease == "" {
+		if sources := i.releaseVersionSourcesFor(r, scope, key, variants, source); sources != nil {
+			jsonReply(w, map[string]any{"MediaSources": sources, "PlaySessionId": playID})
+			return
+		}
 	}
 	jsonReply(w, map[string]any{"MediaSources": []any{source}, "PlaySessionId": playID})
 }

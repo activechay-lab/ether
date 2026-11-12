@@ -526,53 +526,14 @@ func (i *instance) browseRoutes() error {
 			dto["EnableMediaSourceDisplay"] = false
 		}
 		if len(d.Versions) > 0 || d.Title.Type == "movie" || d.Title.Type == "episode" {
-			sources := make([]any, 0, len(d.Versions))
-			scope, scopeErr := i.versionScope(r, v)
-			needDefault := scopeErr != nil || len(d.Versions) == 0
-			for _, version := range d.Versions {
-				if releaseID != "" && version.ID != releaseID {
-					continue
-				}
-				if scopeErr != nil {
-					break
-				}
-				handle, e := i.host.VersionHandles.Issue(i.identityContext(r), scope, key, version.ID)
-				if e != nil || handle == "" {
-					needDefault = true
-					continue
-				}
-				source := i.detailMediaSourceDTO(handle, version.Media)
-				source["Name"] = version.Name
-				i.versionSourceFacts(source, version)
-				plan := frontend.PlanRequest{Viewer: v, Device: scope.Device, Protocol: i.protocol, Item: key, Version: handle, Caps: scope.Caps, Intent: frontend.PlayIntent{Estimate: true, ExactVersion: true, Options: frontend.DecideOptions{DirectPlay: true}}}
-				if path := i.lazySourceURL(r, token, plan); path != "" {
-					source["Path"] = path
-				}
-				if i.protocol == "jellyfin" {
-					offerJellyfinStatic(source, frontend.DecideOptions{DirectPlay: true, DirectStream: true})
-				}
-				i.mediaSourceDialect(source)
-				if i.protocol == "emby" {
-					i.embyMediaSourceDTO(source, ids.RatingKeyGUID(d.Title.Key), version.Media)
-				}
-				if i.protocol == "jellyfin" {
-					i.jellyfinMediaSourceDTO(source, version.Media, false)
-					if name, _ := source["Name"].(string); name == "" {
-						if itemName, ok := dto["Name"].(string); ok && itemName != "" {
-							source["Name"] = itemName
-						}
-					}
-				}
-				sources = append(sources, source)
-			}
-			if needDefault {
-				sources = append(sources, i.defaultMediaSource(r, v, token, key))
-			}
-			if len(sources) > 0 {
+			// No explicit release was requested: when the ranked release
+			// variants are available, list Auto then the variants. Otherwise
+			// keep the edition/default shape exactly as before.
+			if sources := i.detailSources(r, v, token, d, dto, key, releaseID); sources != nil {
 				dto["MediaSources"] = sources
-			}
-			if i.protocol == "jellyfin" {
-				dto["EnableMediaSourceDisplay"] = len(sources) > 1
+				if i.protocol == "jellyfin" {
+					dto["EnableMediaSourceDisplay"] = len(sources) > 1
+				}
 			}
 		}
 		shown := d.Versions
