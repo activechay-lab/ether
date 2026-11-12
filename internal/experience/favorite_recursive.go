@@ -8,14 +8,17 @@ import (
 )
 
 // favoriteRecursivePage answers a recursive TV listing filtered to the
-// viewer's favorites ("IsFavorite", as Jellyfin for Roku's Favorites row asks)
-// from the favorites themselves. The library walk would otherwise expand every
-// show into its seasons and episodes to find the handful the viewer starred,
-// which reads every season of the library inside one request (#421). The set
-// is the same: a favorite show, season or episode in this library that the
-// viewer may see and that matches the query. ok is false when this path does
-// not apply and the caller must list the library.
-func (s *Service) favoriteRecursivePage(ctx context.Context, v *core.User, library *Library, q frontend.ItemQuery) (core.Page, bool, error) {
+// viewer's favorites ("IsFavorite", as Jellyfin for Roku's Favorites row asks,
+// and as Moonfin's Favorites screen asks one type at a time, #405) from the
+// favorites themselves. The library walk would otherwise expand every show into
+// its seasons and episodes to find the handful the viewer starred, which reads
+// every season of the library inside one request (#421). The set is the same: a
+// favorite show, season or episode in this library that the viewer may see and
+// that matches the query. showKey, when nonzero, restricts the listing to one
+// series (ParentId): favorite episodes of that show are answered the same way,
+// without expanding the series. ok is false when this path does not apply and
+// the caller must list the library.
+func (s *Service) favoriteRecursivePage(ctx context.Context, v *core.User, library *Library, showKey core.RatingKey, q frontend.ItemQuery) (core.Page, bool, error) {
 	if library == nil || library.Type != core.TypeShow || !q.Recursive || q.Favorite == nil || !*q.Favorite ||
 		q.AdjacentTo != 0 || q.StartAt != 0 || s.d.FavoriteTitleKeys == nil || s.d.CachedGetMany == nil {
 		return core.Page{}, false, nil
@@ -29,15 +32,16 @@ func (s *Service) favoriteRecursivePage(ctx context.Context, v *core.User, libra
 	for _, k := range keys {
 		switch k.Kind() {
 		case core.KindShow:
-			if want(core.TypeShow) {
+			// A single-series listing never returns the show or its seasons.
+			if showKey == 0 && want(core.TypeShow) {
 				tree = append(tree, k)
 			}
 		case core.KindSeason:
-			if want(core.TypeSeason) {
+			if showKey == 0 && want(core.TypeSeason) {
 				tree = append(tree, k)
 			}
 		case core.KindEpisode:
-			if want(core.TypeEpisode) {
+			if want(core.TypeEpisode) && (showKey == 0 || k.TMDB() == showKey.TMDB()) {
 				tree = append(tree, k)
 			}
 		}

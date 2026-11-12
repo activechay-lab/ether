@@ -649,7 +649,9 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 	q.Recursive = queryBool(r, "Recursive", false)
 	for _, value := range route.Query(r.URL.Query(), "IncludeItemTypes") {
 		for _, typ := range strings.Split(value, ",") {
-			switch strings.ToLower(strings.TrimSpace(typ)) {
+			name := strings.ToLower(strings.TrimSpace(typ))
+			switch name {
+			case "":
 			case "movie":
 				q.Types = append(q.Types, "movie")
 			case "series":
@@ -658,6 +660,11 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 				q.Types = append(q.Types, "season")
 			case "episode":
 				q.Types = append(q.Types, "episode")
+			default:
+				// A kind the catalogue does not hold. Remember it so the
+				// listing can answer empty instead of dropping the filter and
+				// returning every type (Moonfin's Favorites screen, #405).
+				q.UnservedTypes = append(q.UnservedTypes, name)
 			}
 		}
 	}
