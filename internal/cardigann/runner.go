@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/frontend/kit/language"
+	"github.com/braedonsaunders/ether/internal/langtag"
 )
 
 // LoginLock serialises logins for one key across every Ether node sharing
@@ -149,7 +149,7 @@ func truthy(v string) bool {
 // canonicalLanguage folds a definition or owner-supplied language to its
 // canonical BCP 47 tag ("pt-BR"), or "" when it names no known language.
 func canonicalLanguage(v string) string {
-	return language.Canonical(v)
+	return langtag.CanonicalBCP47(v)
 }
 
 func (r *Runner) vars() vars { return baseVars(r.configVars(), r.now()) }
