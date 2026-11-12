@@ -146,7 +146,7 @@ export function ProgrammingEditor({
           start,
           end: Math.min(1440, start + 30),
           days: weekdays,
-          sources: [{ ...newSource(), kind: "show", strip: true }],
+          sources: [{ ...newSource(), kind: "show", strip: true, startSeason: 1, startEpisode: 1 }],
           items: [],
         },
       });
@@ -194,7 +194,7 @@ export function ProgrammingEditor({
           end: 1230,
           days: weekdays,
           date: kind === "special" ? new Date().toISOString().slice(0, 10) : undefined,
-          sources: [{ ...newSource(), kind: "show", strip: true, order: "order" }],
+          sources: [{ ...newSource(), kind: "show", strip: true, order: "order", startSeason: 1, startEpisode: 1 }],
           items: [],
         },
       });
@@ -654,6 +654,13 @@ function Sources({
                           items: [],
                           personal: kind === "personal" ? personalRecipe() : undefined,
                           filter: kind === "lineup" ? { type: "show" } : undefined,
+                          // The season/episode fields below display "1" as a
+                          // placeholder when unset; without writing it here,
+                          // that placeholder never becomes real data unless
+                          // the field is explicitly retyped, silently
+                          // defaulting to season 0 (specials/extras) instead.
+                          startSeason: kind === "show" ? 1 : undefined,
+                          startEpisode: kind === "show" ? 1 : undefined,
                         }
                       : source,
                   ),
