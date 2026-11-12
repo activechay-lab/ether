@@ -15,10 +15,61 @@ func (i *instance) gridImagesFor(r *http.Request, titles []frontend.Title) map[f
 	return i.gridImageRows(r, titles, nil, nil)
 }
 
-// gridListImages signs the poster a library row shows. Logos, backdrops and
-// thumbs stay off the page so fifty SortName rows do not carry every grant.
+// gridListImages signs the artwork a library list carries. Like Jellyfin, a
+// list carries every image type's tag unless the app narrows them with
+// EnableImageTypes (or turns images off): apps build wide rows and the
+// home-screen spotlight from BackdropImageTags and ImageTags.Thumb/Logo,
+// and request nothing for a type whose tag is missing. Page grants are
+// stateless, so the extra kinds cost response bytes, not writes.
 func (i *instance) gridListImages(r *http.Request, titles []frontend.Title) map[frontend.RatingKey]map[string]any {
-	return i.gridImageRows(r, titles, nil, []string{frontend.ImagePoster, frontend.ImageStill})
+	kinds := listImageKinds(r)
+	if kinds != nil && len(kinds) == 0 {
+		return map[frontend.RatingKey]map[string]any{}
+	}
+	return i.gridImageRows(r, titles, nil, kinds)
+}
+
+// listImageKinds maps EnableImages/EnableImageTypes to image kinds: nil is
+// every kind, an empty slice is none.
+func listImageKinds(r *http.Request) []string {
+	if v := route.Query(r.URL.Query(), "EnableImages"); len(v) == 1 && strings.EqualFold(v[0], "false") {
+		return []string{}
+	}
+	types := route.Query(r.URL.Query(), "EnableImageTypes")
+	if len(types) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var kinds []string
+	add := func(k ...string) {
+		for _, kind := range k {
+			if !seen[kind] {
+				seen[kind] = true
+				kinds = append(kinds, kind)
+			}
+		}
+	}
+	for _, value := range types {
+		for _, t := range strings.Split(value, ",") {
+			switch strings.ToLower(strings.TrimSpace(t)) {
+			case "primary":
+				add(frontend.ImagePoster, frontend.ImageStill)
+			case "backdrop":
+				add(frontend.ImageBackdrop)
+			case "thumb":
+				add(frontend.ImageThumb)
+			case "logo":
+				add(frontend.ImageLogo)
+			case "banner":
+				add(frontend.ImageBanner)
+			}
+		}
+	}
+	if len(kinds) == 0 {
+		// Only types Ether has no artwork for: keep the poster.
+		return []string{frontend.ImagePoster, frontend.ImageStill}
+	}
+	return kinds
 }
 
 func (i *instance) gridImageRows(r *http.Request, titles []frontend.Title, keys []frontend.RatingKey, kinds []string) map[frontend.RatingKey]map[string]any {
