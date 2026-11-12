@@ -49,7 +49,7 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 	r := &route.Router{}
 
 	life, cancel := context.WithCancel(ctx)
-	inst := &instance{host: host, info: info, router: r, protocol: protocol, life: life, cancel: cancel, extraClient: newExtraHTTPClient(host.DirectProxy)}
+	inst := &instance{host: host, info: info, router: r, protocol: protocol, life: life, cancel: cancel, extraClient: newExtraHTTPClient(host.DirectProxy), anon: newAnonIndex()}
 	if protocol == "jellyfin" && host.ClientsDir != "" {
 		inst.webClient = webclient.New(filepath.Join(host.ClientsDir, "jellyfin-web"), host.MetadataHTTP)
 		// Turning Jellyfin on (setup, the Apps page, or a start with it
@@ -154,6 +154,7 @@ type instance struct {
 	// webClient installs and serves the official Jellyfin Web build. Nil on
 	// Emby and when the host supplies no clients directory.
 	webClient *webclient.Installer
+	anon      *anonIndex
 }
 
 func (i *instance) Handler() http.Handler {

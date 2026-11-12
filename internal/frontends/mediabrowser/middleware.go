@@ -6,9 +6,14 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/route"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/support"
 )
+
+// anonymousStreamKey marks a request the middleware admitted without a
+// credential so the handler can serve it from a recent session.
+type anonymousStreamKey struct{}
 
 // These exact method/pattern pairs are pre-login endpoints. Jellyfin's
 // System/Endpoint requires authentication, but Emby clients use Ether's
@@ -42,6 +47,21 @@ var publicRoutesAllowlist = map[route.Route]bool{
 	{Method: "HEAD", Pattern: "/sessions/media/{path...}"}:                  true,
 }
 
+// anonymousStreamRoutes are the media stream aliases a client may request
+// without any credential. Real Jellyfin serves these anonymously
+// (VideosController.GetVideoStream has no [Authorize]); Findroid and the
+// Jellyfin Kotlin SDK build /Videos/{id}/stream URLs and hand them to
+// ExoPlayer with no token. The handler admits such a request only when it
+// matches a playback session an authenticated viewer just opened from the
+// same client IP for the same item (see anonIndex). An authenticated
+// request on these routes still flows through the normal path.
+var anonymousStreamRoutes = map[route.Route]bool{
+	{Method: "GET", Pattern: "/Videos/{id}/{name}"}:  true,
+	{Method: "HEAD", Pattern: "/Videos/{id}/{name}"}: true,
+	{Method: "GET", Pattern: "/Audio/{id}/{name}"}:   true,
+	{Method: "HEAD", Pattern: "/Audio/{id}/{name}"}:  true,
+}
+
 func (i *instance) routeMiddleware(rt route.Route, next http.Handler) http.Handler {
 	if i.pages != nil && i.host.PageFreshness != nil {
 		original := next
@@ -72,7 +92,15 @@ func (i *instance) routeMiddleware(rt route.Route, next http.Handler) http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v, token, err := i.authenticate(r)
 		if err != nil || v == nil {
-			if i.protocol == "emby" && rt.Pattern == "/Videos/{id}/{name}" && queryBool(r, "Static", false) {
+			// A stream alias with no credential at all is answered by the
+			// handler against a just-opened session; anything carrying a bad
+			// or foreign credential is still rejected here.
+			if anonymousStreamRoutes[rt] && !authhdr.MediaBrowserCredentialSupplied(r) {
+				r = r.WithContext(context.WithValue(r.Context(), anonymousStreamKey{}, true))
+				next.ServeHTTP(w, r)
+				return
+			}
+			if i.protocol == "emby" && anonymousStreamRoutes[rt] && queryBool(r, "Static", false) {
 				name := strings.ToLower(r.PathValue("name"))
 				if name == "stream" || strings.HasPrefix(name, "stream.") {
 					w = &embyStaticResponse{ResponseWriter: w}

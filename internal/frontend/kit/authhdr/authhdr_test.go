@@ -39,6 +39,31 @@ func TestHeaders(t *testing.T) {
 		t.Fatal("accepted malformed bearer")
 	}
 }
+func TestMediaBrowserCredentialSupplied(t *testing.T) {
+	cases := []struct {
+		name, url string
+		header    [2]string
+		want      bool
+	}{
+		{name: "none", url: "/video", want: false},
+		{name: "token header", url: "/video", header: [2]string{"X-Emby-Token", "t"}, want: true},
+		{name: "authorization header", url: "/video", header: [2]string{"Authorization", `MediaBrowser Token="t"`}, want: true},
+		{name: "malformed authorization", url: "/video", header: [2]string{"Authorization", "Bearer"}, want: true},
+		{name: "api key query", url: "/video?api_key=t", want: true},
+		{name: "apikey query", url: "/video?ApiKey=t", want: true},
+		{name: "unrelated query", url: "/video?static=true", want: false},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest("GET", tc.url, nil)
+		if tc.header[0] != "" {
+			r.Header.Set(tc.header[0], tc.header[1])
+		}
+		if got := MediaBrowserCredentialSupplied(r); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestEmbyAuthorization(t *testing.T) {
 	values, err := MediaBrowser(`Emby Client="Living%20Room", Token="session-token"`)
 	if err != nil || values["Client"] != "Living Room" || values["Token"] != "session-token" {
