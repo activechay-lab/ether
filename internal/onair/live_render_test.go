@@ -134,7 +134,7 @@ func TestZeroRendersOnStartupShowcaseAndLookSaveWithoutViewers(t *testing.T) {
 	}
 }
 
-func TestLiveRenderSaveWhileAiringRealFFmpegAndRestartDurability(t *testing.T) {
+func TestColdPlateRealFFmpegAndRestartDurability(t *testing.T) {
 	ffPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg not available in PATH")
@@ -222,8 +222,8 @@ func TestLiveRenderSaveWhileAiringRealFFmpegAndRestartDurability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cold OpenMoment failed: %v", err)
 	}
-	if mode != "live-save" {
-		t.Fatalf("expected cold static moment mode 'live-save', got %q", mode)
+	if mode != "static-plate" {
+		t.Fatalf("expected cold static plate, got %q", mode)
 	}
 
 	frameBuf := make([]byte, 320*180*3/2)
@@ -251,16 +251,14 @@ func TestLiveRenderSaveWhileAiringRealFFmpegAndRestartDurability(t *testing.T) {
 	_ = ms.Close()
 
 	if framesRead != 240 {
-		t.Fatalf("expected 240 animated frames for 8s@30fps moment, got %d", framesRead)
+		t.Fatalf("expected 240 plate frames for 8s@30fps moment, got %d", framesRead)
 	}
-	if bytes.Equal(snap0, snap90) {
-		t.Fatalf("expected animated frames to vary over time")
+	if !bytes.Equal(snap0, snap90) {
+		t.Fatalf("expected cold plate to remain stable until the next boundary")
 	}
-	if !ms.Saved() {
-		t.Fatalf("expected cold live moment to simultaneously save master to disk")
-	}
-	if ms.SpeedX() <= 0 {
-		t.Fatalf("expected a measured render speed, got %.2fx", ms.SpeedX())
+	waitMomentMaster(t, svc, reqCh1)
+	if speed := svc.Visibility().LastSpeedX; speed <= 0 {
+		t.Fatalf("expected measured master render speed, got %.2fx", speed)
 	}
 	if mp4s := countMP4Files(t, cacheDir); mp4s != 1 {
 		t.Fatalf("expected exactly 1 durable .mp4 master on disk, got %d", mp4s)
@@ -349,13 +347,21 @@ func TestLiveRenderSpeedGateFallbackAndVisibilityLog(t *testing.T) {
 	svc.Start()
 	defer svc.Close()
 
-	req := core.ClipRequest{ChannelID: "ch-slow", LookID: "nocturne", Moment: "ident"}
+	look := cloneSeededLook(t, svc, "slow-unsplittable", "Slow")
+	look.Scenes = []StyleScene{{ID: "slow", Name: "Slow", Role: "upnext", Enabled: true, Weight: 1, Document: scene.Document{V: 1, Moment: "upnext", Duration: 8, Layers: []scene.Layer{
+		{ID: "slot", Type: "text", Text: "{next.title}", X: 100, Y: 300, Size: 90, Fill: "#ffffff"},
+		{ID: "fx", Type: "noise", Opacity: 0.25, Blend: "multiply"},
+	}}}}
+	if _, err := svc.SaveLook(ctx, look); err != nil {
+		t.Fatal(err)
+	}
+	req := core.ClipRequest{ChannelID: "ch-slow", LookID: look.ID, Moment: "upnext", Bind: map[string]string{"next.title": "Slow"}}
 	ms, mode, err := svc.OpenMoment(ctx, req, 160, 90, 30, 1, false, nil)
 	if err != nil {
 		t.Fatalf("initial OpenMoment failed: %v", err)
 	}
-	if mode != "live-save" {
-		t.Fatalf("expected initial cold attempt mode 'live-save', got %q", mode)
+	if mode != "live-nosave" {
+		t.Fatalf("expected unsplittable live attempt, got %q", mode)
 	}
 
 	buf := make([]byte, 160*90*3/2)
@@ -385,10 +391,11 @@ func TestLiveRenderSpeedGateFallbackAndVisibilityLog(t *testing.T) {
 	}
 
 	// Next boundary immediately rejects live render and logs why.
-	_, _, err2 := svc.OpenMoment(ctx, req, 160, 90, 30, 1, false, nil)
-	if !errors.Is(err2, ErrLiveBelowRealtime) {
-		t.Fatalf("expected immediate ErrLiveBelowRealtime on subsequent boundary, got %v", err2)
+	ms2, mode2, err2 := svc.OpenMoment(ctx, req, 160, 90, 30, 1, false, nil)
+	if err2 != nil || mode2 != "static-plate" {
+		t.Fatalf("expected visible plate after speed gate, mode=%q err=%v", mode2, err2)
 	}
+	_ = ms2.Close()
 
 	vis := svc.Visibility()
 	if vis.Fallbacks < 2 {
@@ -500,16 +507,17 @@ func TestBoundedMasterCacheSplitSlotMomentsAndUnsplittableNoSave(t *testing.T) {
 				t.Fatalf("OpenMoment(%s, %s): %v", moment, ch, oErr)
 			}
 			drainStream(ms)
+			waitMomentMaster(t, svc, core.ClipRequest{LookID: boundedLook.ID, Moment: moment})
 			if moment == "ident" {
-				if idx == 0 && mode != "live-save" {
-					t.Fatalf("expected first ident mode 'live-save', got %q", mode)
+				if idx == 0 && mode != "static-plate" {
+					t.Fatalf("expected first ident mode 'static-plate', got %q", mode)
 				}
-				if idx == 1 && mode != "cached" {
-					t.Fatalf("expected second ident mode 'cached', got %q", mode)
+				if idx == 1 && mode != "split-cached" {
+					t.Fatalf("expected second ident mode 'split-cached', got %q", mode)
 				}
 			} else {
-				if idx == 0 && mode != "live-save" && mode != "split-live-save" {
-					t.Fatalf("expected first %s mode save, got %q", moment, mode)
+				if idx == 0 && mode != "static-plate" {
+					t.Fatalf("expected first %s mode static-plate, got %q", moment, mode)
 				}
 				if idx == 1 && mode != "cached" && mode != "split-cached" {
 					t.Fatalf("expected second %s mode cached, got %q", moment, mode)
@@ -545,9 +553,10 @@ func TestBoundedMasterCacheSplitSlotMomentsAndUnsplittableNoSave(t *testing.T) {
 			t.Fatalf("upnext %d failed: %v", i, oErr)
 		}
 		f := drainStream(msUp)
+		waitMomentMaster(t, svc, upReq)
 		if i == 0 {
-			if modeUp != "split-live-save" {
-				t.Fatalf("expected first upnext mode 'split-live-save', got %q", modeUp)
+			if modeUp != "static-plate" {
+				t.Fatalf("expected first upnext mode 'static-plate', got %q", modeUp)
 			}
 		} else {
 			if modeUp != "split-cached" {
@@ -580,8 +589,9 @@ func TestBoundedMasterCacheSplitSlotMomentsAndUnsplittableNoSave(t *testing.T) {
 			t.Fatalf("tonight %d failed: %v", i, oErr)
 		}
 		drainStream(msTn)
-		if i == 0 && modeTn != "split-live-save" {
-			t.Fatalf("expected first tonight mode 'split-live-save', got %q", modeTn)
+		waitMomentMaster(t, svc, tnReq)
+		if i == 0 && modeTn != "static-plate" {
+			t.Fatalf("expected first tonight mode 'static-plate', got %q", modeTn)
 		}
 		if i > 0 && modeTn != "split-cached" {
 			t.Fatalf("expected tonight %d mode 'split-cached', got %q", i, modeTn)
@@ -653,7 +663,7 @@ func TestBoundedMasterCacheSplitSlotMomentsAndUnsplittableNoSave(t *testing.T) {
 	}
 }
 
-func TestCacheEvictionBudgetRespectedByLiveSave(t *testing.T) {
+func TestCacheEvictionBudgetRespectedByQueuedMaster(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(ctx, t.TempDir())
 	if err != nil {
@@ -711,9 +721,19 @@ func TestCacheEvictionBudgetRespectedByLiveSave(t *testing.T) {
 		}
 	}
 	_ = ms1.Close()
+	waitMomentMaster(t, svc, core.ClipRequest{LookID: look.ID, Moment: "ident"})
 
-	// Advance clock past the 3-hour pin window so the first master is eligible for LRU eviction.
-	now = now.Add(4 * time.Hour)
+	// Expire the actual cache pin so the first master is eligible for LRU eviction.
+	// Cache scheduling uses wall time, independently of the branding clock.
+	svc.mu.Lock()
+	for hash, entry := range svc.cache {
+		entry.Pin = time.Now().Add(-time.Hour)
+		svc.cache[hash] = entry
+	}
+	for hash := range svc.pins {
+		svc.pins[hash] = time.Now().Add(-time.Hour)
+	}
+	svc.mu.Unlock()
 
 	ms2, _, err := svc.OpenMoment(ctx, core.ClipRequest{LookID: look.ID, Moment: "back"}, 160, 90, 1, 2, false, openClip)
 	if err != nil {
@@ -725,8 +745,22 @@ func TestCacheEvictionBudgetRespectedByLiveSave(t *testing.T) {
 		}
 	}
 	_ = ms2.Close()
+	waitMomentMaster(t, svc, core.ClipRequest{LookID: look.ID, Moment: "back"})
 
 	if got := countMP4Files(t, cacheDir); got != 1 {
 		t.Fatalf("expected CacheBytes budget eviction to keep 1 .mp4 master on disk, got %d (%s)", got, filepath.Base(cacheDir))
 	}
+}
+
+// The cold plate completes independently of its queued master.
+func waitMomentMaster(t *testing.T, svc *Service, req core.ClipRequest) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := svc.Clip(context.Background(), req); ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("queued master did not become durable")
 }

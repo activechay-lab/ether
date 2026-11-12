@@ -592,6 +592,16 @@ func (s *ImageGrantService) serveShortTag(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	// Viewer grants retain their policy and revocation checks even without a
+	// token on the image request. Public content tags are an additional path.
+	if claims, ok := s.loadShort(secret); ok && claims.Expires > s.now().UnixMilli() {
+		if !shortClaimMatches(claims, r) {
+			http.NotFound(w, r)
+			return
+		}
+		s.serveClaims(w, r, secret, claims, s.now().UnixMilli())
+		return
+	}
 	// Tokenless cached URLs are content identities, not expiring viewer grants.
 	if (s.surface == "jellyfin" || s.surface == "emby") && authhdr.MediaBrowserToken(r) == "" {
 		key, ok := imageItemKey(r.URL.Path)

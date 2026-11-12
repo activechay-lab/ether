@@ -364,7 +364,7 @@ func (s *Service) OpenMoment(
 		plate := seq.Frame(max(1, stillJob.Doc.Poster))
 		pixels := make([]byte, width*height*3/2)
 		rgbaScaleToI420(plate, pixels, width, height)
-		reader := &plateReader{pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
+		reader := &plateReader{remaining: plateFrames(rawJob.Doc.Duration, fpsNum, fpsDen, loop), pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
 		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, overlayDoc: overlayDoc, overlayBnd: overlayBind, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
 	}
 
@@ -383,7 +383,7 @@ func (s *Service) OpenMoment(
 			plate := renderFn(rawJob.Doc, rawJob.Bind, max(1, rawJob.Doc.Poster), 1280, 720)
 			pixels := make([]byte, width*height*3/2)
 			rgbaScaleToI420(plate, pixels, width, height)
-			reader := &plateReader{pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
+			reader := &plateReader{remaining: plateFrames(rawJob.Doc.Duration, fpsNum, fpsDen, loop), pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
 			return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
 		}
 		return nil, reason, fmt.Errorf("%w: %s", ErrLiveBelowRealtime, reason)
@@ -1091,9 +1091,25 @@ func blendPremulRGBAOverI420(img *image.RGBA, dst []byte, w, h int) {
 
 // plateReader holds a single decoded image, equivalent to a looped image input.
 // Audio remains silent while the reusable master is being prepared.
-type plateReader struct{ pixels, audio []byte }
+type plateReader struct {
+	pixels, audio []byte
+	remaining     int64 // -1 for looping moments
+}
+
+func plateFrames(duration float64, num, den int, loop bool) int64 {
+	if loop {
+		return -1
+	}
+	return max(1, int64(math.Ceil(duration*float64(num)/float64(den))))
+}
 
 func (p *plateReader) ReadFrame(video []byte) ([]byte, error) {
+	if p.remaining == 0 {
+		return nil, io.EOF
+	}
+	if p.remaining > 0 {
+		p.remaining--
+	}
 	copy(video, p.pixels)
 	return p.audio, nil
 }
