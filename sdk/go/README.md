@@ -77,3 +77,69 @@ the current connection for subsequent calls. `handle.Done` stays open during
 recovery; cancelling `ctx` or calling `handle.Close()` stops active I/O and any
 retry, closes the socket, and closes `Done`. `Close` is safe to call repeatedly.
 Request cancellation stops that handler without closing the shared tunnel.
+
+## Sidecars
+
+A sidecar is a remote plugin whose program runs on a machine you choose and
+dials out to Ether over the `ether-tunnel-v1` WebSocket. It needs no inbound
+port. Use one when the program must reach a local network, a USB device, or an
+installed tool that Ether's sandbox cannot.
+
+Set `ETHER_URL` and pair once:
+
+```sh
+ETHER_URL=https://ether.example.com \
+ETHER_PLUGIN_STATE_DIR=/data \
+ETHER_PAIRING_CODE=PAIR-1234 \
+./my-sidecar
+```
+
+The SDK exchanges the code once, saves the credential, and derives the tunnel
+URL from `ETHER_URL`. Create the code in Ether under Plugins › your plugin ›
+Connect a sidecar; it is valid for 5 minutes and single use. On later restarts
+the saved credential is reused, so no new code is needed.
+
+- `ETHER_URL` — the server's `http(s)` base. The pair URL and the `ws(s)` tunnel
+  URL are derived from it.
+- `ETHER_PLUGIN_CREDENTIAL` — an explicit credential; always wins.
+- `ETHER_PLUGIN_STATE_DIR` — where the credential is saved, else `/data` when it
+  exists and is writable (a Docker volume), else the OS user config directory
+  `…/ether-plugins/<plugin id>/`.
+- `ETHER_PAIRING_CODE` — a one-time code.
+
+The credential is saved at `<state dir>/credential` (mode `0600`, directory
+`0700`) as JSON with the Ether URL it belongs to. If the tunnel rejects a saved
+credential, the file is deleted and startup fails with one line instead of
+reconnecting forever.
+
+A Dockerfile that keeps the credential across restarts:
+
+```dockerfile
+FROM golang:1.27 AS build
+WORKDIR /src
+COPY . .
+RUN go build -o /out/sidecar ./cmd/sidecar
+
+FROM gcr.io/distroless/static
+COPY --from=build /out/sidecar /sidecar
+VOLUME /data
+ENV ETHER_PLUGIN_STATE_DIR=/data
+ENTRYPOINT ["/sidecar"]
+```
+
+Declare how the console runs it with an `ether.sidecar` manifest block:
+
+```json
+"ether": {
+  "runtime": { "kind": "remote" },
+  "sidecar": {
+    "docker": "ghcr.io/you/my-sidecar:1.0.0",
+    "docs": "https://example.com/my-sidecar"
+  }
+}
+```
+
+`docker` is an image reference; `download` (an https URL) with `command` (a
+single line) is the alternative; `docs` adds a setup link. With a Docker image
+the console shows a ready `docker run` command, mounting `-v ether-<id>:/data`
+so the saved credential survives a restart.

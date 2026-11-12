@@ -45,6 +45,9 @@ var (
 	toolNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
 	hostRe     = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 	bannedRe   = regexp.MustCompile(`(?i)\b(simply|easily|just)\b`)
+	// dockerImageRe accepts registry/name:tag or name@sha256:digest, with no
+	// spaces or shell metacharacters.
+	dockerImageRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$`)
 )
 
 // LintCopy checks one user-visible string against the copy rules: at most
@@ -255,6 +258,7 @@ func (m Manifest) Validate() error {
 	default:
 		add("ether.runtime.kind", "must be hosted, remote or data")
 	}
+	validateSidecar(e, add)
 	if e.Cluster != "" && e.Cluster != "leader" && e.Cluster != "every_node" {
 		add("ether.cluster", "must be leader or every_node")
 	}
@@ -299,6 +303,42 @@ func isAnyKindCap(c Capability) bool {
 
 func unsafePath(p string) bool {
 	return p != "" && (strings.HasPrefix(p, "/") || strings.Contains(p, ".."))
+}
+
+// validateSidecar checks the ether.sidecar block. It is additive and only
+// meaningful for a remote runtime: a hosted plugin cannot ship one.
+func validateSidecar(e *EtherBlock, add func(string, string)) {
+	if e.Sidecar == nil {
+		return
+	}
+	if e.Runtime.Kind != "remote" {
+		add("ether.sidecar", "only a remote plugin has a sidecar block")
+	}
+	s := e.Sidecar
+	if s.Docker != "" {
+		if len(s.Docker) > 255 || !dockerImageRe.MatchString(s.Docker) || strings.Contains(s.Docker, "..") {
+			add("ether.sidecar.docker", "must be an image reference such as registry/name:tag")
+		}
+	}
+	if s.Download != "" && !isHTTPSURL(s.Download) {
+		add("ether.sidecar.download", "must be an https URL")
+	}
+	if s.Docs != "" && !isHTTPSURL(s.Docs) {
+		add("ether.sidecar.docs", "must be an https URL")
+	}
+	if s.Command != "" {
+		if strings.ContainsAny(s.Command, "\r\n") || len(s.Command) > 200 {
+			add("ether.sidecar.command", "must be a single line of at most 200 characters")
+		}
+	}
+	// A download with no way to start it is not usable.
+	if s.Download != "" && s.Command == "" {
+		add("ether.sidecar.command", "is required when a download is given")
+	}
+}
+
+func isHTTPSURL(s string) bool {
+	return strings.HasPrefix(s, "https://") && len(s) > len("https://")
 }
 
 func validatePermissions(p Permissions, add func(string, string)) {

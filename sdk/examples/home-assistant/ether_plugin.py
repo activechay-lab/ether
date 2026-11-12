@@ -18,6 +18,7 @@ import base64
 import hashlib
 import http.server
 import json
+import logging
 import os
 import re
 import socket
@@ -410,6 +411,19 @@ class _NotifyClient:
         self._call("POST", "/ether/plugin-host/notify", {"text": str(text)})
 
 
+class _FrontendClient:
+    def __init__(self, call_json: Callable[..., Any]) -> None:
+        self._call = call_json
+
+    def stream_url(self, viewer_id: int, item_ref: str) -> str:
+        result = self._call(
+            "POST",
+            "/ether/plugin-host/frontend/stream-url",
+            {"viewerId": int(viewer_id), "itemRef": str(item_ref)},
+        )
+        return str((result or {}).get("url") or "")
+
+
 class RemoteHostClient:
     """Host client for remote/sidecar plugins talking to `/ether/plugin-host/*`."""
 
@@ -429,6 +443,29 @@ class RemoteHostClient:
         self.viewers = _ViewersClient(self._call_json)
         self.collections = _CollectionsClient(self._call_json)
         self.notify = _NotifyClient(self._call_json)
+        self.kinds = _KindsClient(self._call_json)
+        self.cache = self._Cache(self)
+        self.frontend = _FrontendClient(self._call_json)
+
+    class _Cache:
+        def __init__(self, parent: "RemoteHostClient") -> None:
+            self._p = parent
+
+        def _request(self, method: str, path: str, data: Optional[bytes] = None) -> bytes:
+            req = urllib.request.Request(
+                f"{self._p.base_url}{path}", data=data, method=method,
+                headers={"X-Ether-Plugin-Credential": self._p.credential},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+
+        def put(self, library_key: str, name: str, data: bytes) -> str:
+            q = urllib.parse.urlencode({"name": name})
+            raw = self._request("POST", f"/ether/plugin-host/cache/{urllib.parse.quote(library_key)}?{q}", data)
+            return str(json.loads(raw or b"{}").get("blob") or "")
+
+        def open(self, blob_ref: str) -> bytes:  # noqa: A002 - mirrors host naming
+            return self._request("GET", "/ether/plugin-host/cache/" + str(blob_ref).lstrip("/"))
 
     def _call_json(
         self,
@@ -467,6 +504,10 @@ class RemoteHostClient:
             raise RuntimeError(
                 msg or f"Host call {method} {path} failed with HTTP {exc.code}"
             ) from exc
+
+    def settings_get(self) -> Dict[str, Any]:
+        result = self._call_json("GET", "/ether/plugin-host/settings")
+        return result.get("settings", {})
 
     def log(
         self,
@@ -517,6 +558,21 @@ class PluginContext:
 
     def t(self, key: str, params: Optional[Dict[str, Any]] = None) -> str:
         return self.i18n.t(key, params=params, locale=self.locale)
+
+    def stream_url(self, item_ref: str) -> str:
+        """Mint a scoped Ether stream URL for one of this plugin's own kind
+        items (spec §6.5). The viewer is the one Ether authenticated on this
+        request (X-Ether-Viewer); bytes are served by Ether, not the plugin."""
+        if self.ether is None:
+            raise RuntimeError("stream url: no host service available")
+        raw = _get_header(self.headers, "X-Ether-Viewer")
+        try:
+            viewer_id = int(str(raw).strip()) if raw is not None else 0
+        except (TypeError, ValueError):
+            viewer_id = 0
+        if viewer_id <= 0:
+            raise RuntimeError("stream url: no authenticated viewer on this request")
+        return self.ether.frontend.stream_url(viewer_id, str(item_ref))
 
 
 def _get_header(headers: Optional[Dict[str, Any]], name: str) -> Optional[str]:
@@ -642,6 +698,7 @@ class PluginInstance:
         self._default_settings = dict(default_settings or {})
         self._default_locale = default_locale or "en"
         self._host = host
+        self._settings_failure_logged = False
 
         inline_strings: Dict[str, Dict[str, str]] = {}
         ether_block = manifest.get("ether")
@@ -706,9 +763,24 @@ class PluginInstance:
         pick_token = _get_header(headers, "X-Ether-Pick")
         request_id = _get_header(headers, "X-Ether-Request-ID")
         host_client = self._host if self._host is not None else create_remote_host_client()
+        settings = dict(self._current_settings)
+        getter = getattr(host_client, "settings_get", None)
+        if callable(getter) and str(req.get("path", "")) != "/ether/configure" and (not isinstance(host_client, RemoteHostClient) or host_client.credential):
+            try:
+                fresh = getter()
+                for field in collect_setting_fields(self._settings_schema):
+                    key = field.get("key")
+                    if field.get("kind") == "secret" and key in self._current_settings:
+                        fresh[key] = self._current_settings[key]
+                settings, _ = decode_settings(self._settings_schema, fresh, self._default_settings)
+            except Exception:
+                if not self._settings_failure_logged:
+                    logging.getLogger(__name__).warning("plugin settings lookup failed")
+                    self._settings_failure_logged = True
+                settings = {}
         return PluginContext(
             manifest=self.manifest,
-            settings=dict(self._current_settings),
+            settings=settings,
             locale=locale,
             pick_token=pick_token,
             request_id=request_id,
@@ -767,6 +839,18 @@ class PluginInstance:
             if fn:
                 return _ok_response(fn(ctx))
             return _ok_response({"status": "ok"})
+
+        if method == "POST" and path == "/ether/subtitles/download":
+            if not ctx.pick_token or not ctx.pick_token.strip():
+                return _error_response(403, "pick_required", "Subtitle downloads require an X-Ether-Pick token.")
+            fn = self.routes.get("subtitle_download") or self.routes.get("subtitleDownload")
+            if not fn:
+                return _error_response(404, "not_found", "Subtitle download handler is not registered.")
+            try:
+                body_obj = _parse_json_body(req.get("body"))
+            except Exception:
+                return _error_response(400, "invalid_json", "Request body must be valid JSON.")
+            return _ok_response(fn(body_obj, ctx))
 
         if method == "POST" and path == "/ether/configure":
             try:
@@ -998,12 +1082,6 @@ class PluginInstance:
             if stremio:
                 resource = stremio["resource"]
                 if resource == "subtitles":
-                    if not ctx.pick_token or not ctx.pick_token.strip():
-                        return _error_response(
-                            403,
-                            "pick_required",
-                            "Subtitles requests require an X-Ether-Pick token.",
-                        )
                     fn = self.routes.get("subtitles")
                     if not fn:
                         return _error_response(
@@ -1083,7 +1161,145 @@ class PluginInstance:
                         )
                     )
 
+        kinds_resp = self._dispatch_kinds(method, path, req, ctx)
+        if kinds_resp is not None:
+            return kinds_resp
+
         return _error_response(404, "not_found", f"No route matched {method} {path}.")
+
+    # -- Content kinds (Ether v0.3.8) -------------------------------------
+
+    def on_catalog(self, kind: str, provider: Any) -> None:
+        self._kind_catalog()[kind] = provider
+
+    def on_resolve(self, kind: str, resolver: Any) -> None:
+        self._kind_resolve()[kind] = resolver
+
+    def on_match(self, kind: str, matcher: Any) -> None:
+        self._kind_match()[kind] = matcher
+
+    def on_frontend(self, key: str, adapter: Any) -> None:
+        self._kind_frontend()[key] = adapter
+
+    def on_setup_test(self, tester: Any) -> None:
+        self._setup_tester = tester
+
+    onCatalog = on_catalog
+    onResolve = on_resolve
+    onMatch = on_match
+    onFrontend = on_frontend
+    onSetupTest = on_setup_test
+
+    def _kind_catalog(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_catalog_providers", {})
+
+    def _kind_resolve(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_kind_resolvers", {})
+
+    def _kind_match(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_kind_matchers", {})
+
+    def _kind_frontend(self) -> Dict[str, Any]:
+        return self.__dict__.setdefault("_frontend_adapters", {})
+
+    def _dispatch_kinds(
+        self, method: str, path: str, req: Dict[str, Any], ctx: PluginContext
+    ) -> Optional[Dict[str, Any]]:
+        if not path.startswith("/ether/v1/"):
+            return None
+        parts = [urllib.parse.unquote(p) for p in path[len("/ether/v1/"):].split("/")]
+        # Frontend adapters are protocol surfaces (WebDAV, Subsonic, OPDS, ...)
+        # and see every method token. The kind and setup routes stay JSON
+        # GET/POST.
+        if len(parts) >= 2 and parts[0] == "frontend":
+            adapter = self._kind_frontend().get(parts[1])
+            if adapter is None:
+                return _error_response(404, "not_found", f'No frontend adapter is registered for "{parts[1]}".')
+            sub_path = "/" + "/".join(parts[2:])
+            # Rebuild the adapter URL with the original query. The server
+            # flattens repeated keys to the first value, so a query map holds
+            # one value per key.
+            _, query = _parse_url_path_and_query(
+                str(req.get("path") or "/"), req.get("query")
+            )
+            if query:
+                sub_path += "?" + urllib.parse.urlencode(query)
+            status, headers, resp_body = adapter.handle(method, sub_path, dict(req.get("headers") or {}), req.get("body") or b"")
+            # A HEAD reply carries headers only, exactly as a real server would.
+            if method == "HEAD":
+                resp_body = b""
+            return {"status": int(status), "headers": dict(headers or {}), "body": resp_body}
+
+        if method not in ("GET", "POST"):
+            return _error_response(405, "method_not_allowed", "Kind routes use GET or POST.")
+
+        try:
+            body = _parse_json_body(req.get("body"))
+        except Exception:
+            return _error_response(400, "invalid_json", "Request body must be valid JSON.")
+
+        if len(parts) == 3 and parts[0] == "setup" and parts[2] == "test":
+            tester = getattr(self, "_setup_tester", None)
+            if tester is None:
+                return _error_response(404, "not_found", "Setup test handler is not registered.")
+            body.setdefault("step", parts[1])
+            return _ok_response(tester.test_setup(ctx, body))
+
+        if len(parts) < 3 or parts[0] != "kinds":
+            return None
+        kind, tail = parts[1], parts[2:]
+        body = dict(body)
+        body["kind"] = kind
+
+        def page(result: Any) -> Dict[str, Any]:
+            result = dict(result or {})
+            limit = int(body.get("limit") or 200)
+            items = list(result.get("items") or [])
+            if len(items) > limit:
+                items = items[:limit]
+            result["items"] = items
+            if not result.get("nextCursor"):
+                result.pop("nextCursor", None)
+            return _ok_response(result)
+
+        if tail == ["browse"] or tail == ["search"]:
+            provider = self._kind_catalog().get(kind)
+            if provider is None:
+                return _error_response(404, "not_found", f'No catalogue provider is registered for kind "{kind}".')
+            if tail == ["search"]:
+                search = getattr(provider, "search", None)
+                if not callable(search):
+                    return _error_response(501, "not_implemented", "This provider does not search.")
+                return page(search(ctx, body))
+            return page(provider.browse(ctx, body))
+        if len(tail) == 2 and tail[0] == "items":
+            provider = self._kind_catalog().get(kind)
+            if provider is None:
+                return _error_response(404, "not_found", f'No catalogue provider is registered for kind "{kind}".')
+            return _ok_response(provider.detail(ctx, kind, tail[1]))
+        if tail == ["changes"]:
+            provider = self._kind_catalog().get(kind)
+            changes = getattr(provider, "changes", None) if provider else None
+            if not callable(changes):
+                return _error_response(501, "not_implemented", "This provider has no changes feed.")
+            result = dict(changes(ctx, body) or {})
+            result.setdefault("upserts", [])
+            return _ok_response(result)
+        if tail == ["resolve"]:
+            resolver = self._kind_resolve().get(kind)
+            if resolver is None:
+                return _error_response(404, "not_found", f'No resolver is registered for kind "{kind}".')
+            result = dict(resolver.resolve(ctx, body) or {})
+            result.setdefault("sources", [])
+            return _ok_response(result)
+        if tail == ["match"]:
+            matcher = self._kind_match().get(kind)
+            if matcher is None:
+                return _error_response(404, "not_found", f'No matcher is registered for kind "{kind}".')
+            result = dict(matcher.match(ctx, body) or {})
+            result.setdefault("matches", [])
+            return _ok_response(result)
+        return _error_response(404, "not_found", "No kind route matched.")
 
 
 def plugin(
@@ -1315,11 +1531,155 @@ def _ws_recv_frame(sock: socket.socket) -> Tuple[int, bytes]:
     return opcode, bytes(payload)
 
 
+# ---------------------------------------------------------------------------
+# Sidecar pairing (SPEC: sidecars that install like an app)
+# ---------------------------------------------------------------------------
+
+PAIR_EXCHANGE_PATH = "/ether/plugins/pair"
+TUNNEL_PATH = "/ether/plugins/tunnel"
+
+
+class CredentialError(RuntimeError):
+    """Raised when no usable credential can be resolved for a sidecar."""
+
+
+def no_credential_message() -> str:
+    return (
+        "No credential: create a pairing code in Ether (Plugins > this plugin > "
+        "Connect a sidecar) and set ETHER_PAIRING_CODE."
+    )
+
+
+def _server_base(base: str) -> str:
+    base = (base or "").strip()
+    if not base:
+        raise CredentialError("ETHER_URL is not set")
+    parsed = urllib.parse.urlparse(base)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise CredentialError("ETHER_URL must use http or https and include a host")
+    return parsed.scheme + "://" + parsed.netloc
+
+
+def tunnel_url_from_base(base: str) -> str:
+    parsed = urllib.parse.urlparse(_server_base(base))
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    return f"{scheme}://{parsed.netloc}{TUNNEL_PATH}"
+
+
+def pair_url_from_base(base: str) -> str:
+    return _server_base(base) + PAIR_EXCHANGE_PATH
+
+
+def resolve_state_dir(explicit: str, plugin_id: str) -> str:
+    if (explicit or "").strip():
+        return explicit.strip()
+    data = "/data"
+    if os.path.isdir(data) and os.access(data, os.W_OK):
+        return data
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    return os.path.join(config_home, "ether-plugins", plugin_id or "plugin")
+
+
+def _credential_file(state_dir: str) -> str:
+    return os.path.join(state_dir, "credential")
+
+
+def read_saved_credential(state_dir: str) -> Optional[str]:
+    try:
+        with open(_credential_file(state_dir), "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    cred = saved.get("credential") if isinstance(saved, dict) else None
+    return str(cred) if cred else None
+
+
+def write_saved_credential(state_dir: str, credential: str, url: str) -> None:
+    os.makedirs(state_dir, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(state_dir, 0o700)
+    except OSError:
+        pass
+    path = _credential_file(state_dir)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"credential": credential, "url": url}, fh)
+    finally:
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+
+def clear_saved_credential(state_dir: str) -> None:
+    try:
+        os.remove(_credential_file(state_dir))
+    except OSError:
+        pass
+
+
+def exchange_code(base: str, code: str) -> str:
+    body = json.dumps({"code": code}).encode("utf-8")
+    request = urllib.request.Request(
+        pair_url_from_base(base),
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise CredentialError(
+            f"Pairing code was rejected (HTTP {exc.code})."
+        ) from None
+    except OSError as exc:
+        raise CredentialError(f"Pairing request failed: {exc}") from None
+    credential = payload.get("credential") if isinstance(payload, dict) else None
+    if not credential:
+        raise CredentialError("Pairing response had no credential.")
+    return str(credential)
+
+
+def resolve_credential(
+    plugin_id: str,
+    *,
+    credential: Optional[str] = None,
+    url: Optional[str] = None,
+    code: Optional[str] = None,
+    state_dir: Optional[str] = None,
+) -> Tuple[str, bool, str]:
+    """Applies the startup order: explicit credential, then the saved file, then
+    a one-time pairing code (exchanged and saved). Returns (credential,
+    from_file, state_dir). Never logs the credential or the code."""
+    resolved_dir = resolve_state_dir(state_dir or "", plugin_id)
+    explicit = credential if credential is not None else os.environ.get(
+        "ETHER_PLUGIN_CREDENTIAL", ""
+    )
+    if (explicit or "").strip():
+        return explicit.strip(), False, resolved_dir
+    saved = read_saved_credential(resolved_dir)
+    if saved:
+        return saved, True, resolved_dir
+    resolved_url = url or os.environ.get("ETHER_URL", "")
+    resolved_code = code if code is not None else os.environ.get("ETHER_PAIRING_CODE", "")
+    if (resolved_url or "").strip() and (resolved_code or "").strip():
+        cred = exchange_code(resolved_url, resolved_code.strip())
+        write_saved_credential(resolved_dir, cred, resolved_url)
+        return cred, True, resolved_dir
+    raise CredentialError(no_credential_message())
+
+
 def _serve_tunnel(
     instance: PluginInstance,
     tunnel_url: str,
     credential: str,
     background: bool,
+    from_file: bool = False,
+    saved_dir: Optional[str] = None,
 ) -> ServeHandle:
     parsed = urllib.parse.urlparse(tunnel_url)
     if parsed.scheme not in ("ws", "wss") or not parsed.hostname:
@@ -1362,6 +1722,9 @@ def _serve_tunnel(
     status_line = resp_buf.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
     if " 101 " not in status_line:
         sock.close()
+        if " 401 " in status_line and from_file:
+            clear_saved_credential(saved_dir)
+            raise CredentialError(no_credential_message())
         raise ConnectionError(f"Tunnel handshake rejected: {status_line}")
 
     expected_accept = base64.b64encode(
@@ -1475,14 +1838,34 @@ def serve(
     tunnel_url: Optional[str] = None,
     credential: Optional[str] = None,
     background: bool = True,
+    url: Optional[str] = None,
+    pairing_code: Optional[str] = None,
+    state_dir: Optional[str] = None,
 ) -> ServeHandle:
     resolved_tunnel = tunnel_url or os.environ.get("ETHER_TUNNEL_URL")
+    base = url or os.environ.get("ETHER_URL", "")
+    if not resolved_tunnel and base:
+        resolved_tunnel = tunnel_url_from_base(base)
     resolved_mode = mode or ("tunnel" if resolved_tunnel else "http")
     if resolved_mode == "tunnel":
         if not resolved_tunnel:
-            raise ValueError("Tunnel mode requires tunnel_url or ETHER_TUNNEL_URL.")
-        cred = credential if credential is not None else os.environ.get("ETHER_PLUGIN_CREDENTIAL", "")
-        return _serve_tunnel(instance, resolved_tunnel, cred, background)
+            raise ValueError("Tunnel mode requires tunnel_url, ETHER_TUNNEL_URL or ETHER_URL.")
+        try:
+            cred, from_file, saved_dir = resolve_credential(
+                instance.manifest.get("id", ""),
+                credential=credential,
+                url=base,
+                code=pairing_code or os.environ.get("ETHER_PAIRING_CODE", ""),
+                state_dir=state_dir or os.environ.get("ETHER_PLUGIN_STATE_DIR", ""),
+            )
+        except CredentialError:
+            # A low-level caller may pass only a tunnel URL for testing; the
+            # pairing flow always has ETHER_URL, so the clear line still applies
+            # to real sidecars.
+            if base:
+                raise
+            cred, from_file, saved_dir = "", False, ""
+        return _serve_tunnel(instance, resolved_tunnel, cred, background, from_file, saved_dir)
 
     resolved_host = host or os.environ.get("ETHER_PLUGIN_HOST") or "127.0.0.1"
     resolved_port = (
@@ -1512,6 +1895,7 @@ class MockHostClient:
         self.collections_list: List[Dict[str, Any]] = []
         self.notifications: List[str] = []
         self.logs: List[Dict[str, Any]] = []
+        self.last_stream_url: Optional[Tuple[int, str]] = None
         self.http_handler: Callable[[Dict[str, Any]], Dict[str, Any]] = lambda req: {
             "status": 200,
             "headers": {"Content-Type": "application/json"},
@@ -1523,8 +1907,63 @@ class MockHostClient:
         self.http = self._Http(self)
         self.catalog = self._Catalog(self)
         self.viewers = self._Viewers(self)
+        self.kind_store: Dict[str, List[Dict[str, Any]]] = {}
+        self.sources: List[Dict[str, Any]] = []
+        self.blobs: Dict[str, bytes] = {}
         self.collections = self._Collections(self)
         self.notify = self._Notify(self)
+        self.kinds = self._Kinds(self)
+        self.cache = self._Cache(self)
+        self.frontend = self._Frontend(self)
+
+    class _Frontend:
+        def __init__(self, parent: "MockHostClient") -> None:
+            self._p = parent
+
+        def stream_url(self, viewer_id: int, item_ref: str) -> str:
+            self._p.last_stream_url = (int(viewer_id), str(item_ref))
+            return f"/ether/v1/kind-media/mock-{int(viewer_id)}"
+
+    class _Kinds:
+        def __init__(self, parent: "MockHostClient") -> None:
+            self._p = parent
+
+        def upsert(self, kind: str, items: List[Dict[str, Any]]) -> int:
+            kept = {it.get("id"): it for it in self._p.kind_store.get(kind, [])}
+            for it in items:
+                kept[it.get("id")] = it
+            self._p.kind_store[kind] = list(kept.values())
+            return len(items)
+
+        def delete(self, kind: str, external_ids: List[str]) -> None:
+            drop = set(external_ids)
+            self._p.kind_store[kind] = [it for it in self._p.kind_store.get(kind, []) if it.get("id") not in drop]
+
+        def items(self, kind: str, cursor: str = "", limit: int = 200) -> Dict[str, Any]:
+            all_items = self._p.kind_store.get(kind, [])
+            start = 0
+            if cursor:
+                start = next((i + 1 for i, it in enumerate(all_items) if it.get("id") == cursor), len(all_items))
+            page = all_items[start:start + limit]
+            out: Dict[str, Any] = {"items": page}
+            if page and start + limit < len(all_items):
+                out["nextCursor"] = page[-1].get("id")
+            return out
+
+        def resolve_sources(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+            return list(self._p.sources)
+
+    class _Cache:
+        def __init__(self, parent: "MockHostClient") -> None:
+            self._p = parent
+
+        def put(self, library_key: str, name: str, data: bytes) -> str:
+            ref = "blob:" + hashlib.sha256(data).hexdigest()
+            self._p.blobs[ref] = bytes(data)
+            return ref
+
+        def open(self, blob_ref: str) -> bytes:  # noqa: A002 - mirrors host naming
+            return self._p.blobs[blob_ref]
 
     class _KV:
         def __init__(self, parent: "MockHostClient") -> None:
@@ -1893,6 +2332,186 @@ def create_test_harness(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Content kinds: base classes, host services, kit helpers (Ether v0.3.8)
+# ---------------------------------------------------------------------------
+
+
+class CatalogProvider:
+    """Serve browse/detail for one declared kind. Items are plain dicts in
+    the KindItem wire shape; requests are dicts with an extra ``kind`` key."""
+
+    def browse(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def detail(self, ctx: PluginContext, kind: str, item_id: str) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    # Optional: define `changes(ctx, req)` for delta pull sync and
+    # `search(ctx, req)` when the kind declares browse.liveSearch.
+
+
+class KindResolver:
+    """Turn a playable item into ordered playable sources."""
+
+    def resolve(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class KindMatcher:
+    """Score source candidates for one item (spec: matches, best first)."""
+
+    def match(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class FrontendAdapter:
+    """A plugin-provided protocol surface. Ether authenticates first;
+    `handle` receives X-Ether-Viewer headers and never a credential."""
+
+    def handle(
+        self, method: str, path: str, headers: Dict[str, str], body: bytes
+    ) -> Tuple[int, Dict[str, str], Union[bytes, str]]:
+        raise NotImplementedError
+
+
+class SetupTester:
+    """Answer /ether/v1/setup/{step}/test with {ok, detail, fields?}."""
+
+    def test_setup(self, ctx: PluginContext, req: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+# Spec-name aliases.
+Matcher = KindMatcher
+
+
+def candidate_ref(candidate: Dict[str, Any]) -> str:
+    """The stable ref matchers report for a source candidate."""
+    if candidate.get("infoHash"):
+        return "infohash:" + str(candidate["infoHash"]).lower()
+    if candidate.get("magnet"):
+        return "magnet:" + str(candidate["magnet"])
+    if candidate.get("nzbUrl"):
+        return "nzb:" + str(candidate["nzbUrl"])
+    return str(candidate.get("title") or "")
+
+
+def stream_url(ctx: PluginContext, item_ref: str) -> str:
+    """Mint an Ether stream URL for one of this plugin's own kind items
+    (spec §6.5). Kept as a thin wrapper over PluginContext.stream_url."""
+    return ctx.stream_url(item_ref)
+
+
+class _KindsClient:
+    def __init__(self, call_json: Callable[..., Any]) -> None:
+        self._call = call_json
+
+    def upsert(self, kind: str, items: List[Dict[str, Any]]) -> int:
+        result = self._call("POST", f"/ether/plugin-host/kinds/{urllib.parse.quote(kind)}/upsert", {"items": items})
+        return int((result or {}).get("accepted") or 0)
+
+    def delete(self, kind: str, external_ids: List[str]) -> None:
+        self._call("POST", f"/ether/plugin-host/kinds/{urllib.parse.quote(kind)}/delete", {"externalIds": external_ids})
+
+    def items(self, kind: str, cursor: str = "", limit: int = 200) -> Dict[str, Any]:
+        q = urllib.parse.urlencode({"cursor": cursor, "limit": limit})
+        return self._call("GET", f"/ether/plugin-host/kinds/{urllib.parse.quote(kind)}/items?{q}") or {"items": []}
+
+    def resolve_sources(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        result = self._call("POST", "/ether/plugin-host/sources/resolve", query)
+        return list((result or {}).get("candidates") or [])
+
+
+def archive_list(data: bytes) -> List[Dict[str, Any]]:
+    """List non-directory members of a zip/cbz/epub in archive order."""
+    import io
+    import zipfile
+
+    out: List[Dict[str, Any]] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for info in zf.infolist():
+            if not info.is_dir():
+                out.append({"index": len(out), "name": info.filename, "size": info.file_size})
+    return out
+
+
+def archive_read_member(data: bytes, name: str) -> bytes:
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return zf.read(name)
+
+
+def parse_feed(data: Union[bytes, str]) -> Dict[str, Any]:
+    """Parse RSS/Atom/JSON Feed into {title, summary, link, entries:[...]}."""
+    if isinstance(data, bytes):
+        data = data.decode("utf-8", errors="replace")
+    if data.lstrip().startswith("{"):
+        doc = json.loads(data)
+        return {
+            "title": doc.get("title", ""), "summary": doc.get("description", ""),
+            "link": doc.get("home_page_url", ""),
+            "entries": [
+                {
+                    "id": it.get("id") or it.get("url", ""), "title": it.get("title", ""),
+                    "summary": it.get("summary", ""), "link": it.get("url", ""),
+                    "audio": (it.get("attachments") or [{}])[0].get("url", ""),
+                    "date": it.get("date_published", ""),
+                }
+                for it in doc.get("items") or []
+            ],
+        }
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(data)
+
+    def local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    def child_text(el: Any, name: str) -> str:
+        for c in el:
+            if local(c.tag) == name:
+                return (c.text or "").strip()
+        return ""
+
+    if local(root.tag) == "feed":
+        entries = []
+        for e in root.iter():
+            if local(e.tag) != "entry":
+                continue
+            page = media = ""
+            for c in e:
+                if local(c.tag) == "link":
+                    if c.get("rel") == "enclosure":
+                        media = c.get("href", "")
+                    elif not page:
+                        page = c.get("href", "")
+            entries.append({"id": child_text(e, "id") or page, "title": child_text(e, "title"),
+                            "summary": child_text(e, "summary"), "link": page, "audio": media,
+                            "date": child_text(e, "updated")})
+        return {"title": child_text(root, "title"), "summary": child_text(root, "subtitle"), "link": "", "entries": entries}
+    channel = root
+    for e in root.iter():
+        if local(e.tag) == "channel":
+            channel = e
+            break
+    entries = []
+    for e in channel:
+        if local(e.tag) != "item":
+            continue
+        enc = ""
+        for c in e:
+            if local(c.tag) == "enclosure":
+                enc = c.get("url", "")
+        entries.append({"id": child_text(e, "guid") or child_text(e, "link"), "title": child_text(e, "title"),
+                        "summary": child_text(e, "description"), "link": child_text(e, "link"),
+                        "audio": enc, "date": child_text(e, "pubDate")})
+    return {"title": child_text(channel, "title"), "summary": child_text(channel, "description"),
+            "link": child_text(channel, "link"), "entries": entries}
+
+
 # Capability starter templates
 # ---------------------------------------------------------------------------
 

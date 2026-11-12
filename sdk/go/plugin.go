@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -927,6 +928,12 @@ type ServeOptions struct {
 	Port       int
 	TunnelURL  string
 	Credential string
+	// URL is the server's http(s) base (ETHER_URL). When set, the tunnel URL
+	// and pair URL are derived from it and the SDK pairs with a code.
+	URL string
+	// StateDir overrides where the pairing credential is saved
+	// (ETHER_PLUGIN_STATE_DIR).
+	StateDir string
 }
 
 // ServeHandle represents a running HTTP or tunnel sidecar session.
@@ -947,6 +954,14 @@ func (p *Plugin) Start(ctx context.Context, opts ServeOptions) (*ServeHandle, er
 	if tunnelURL == "" {
 		tunnelURL = os.Getenv("ETHER_TUNNEL_URL")
 	}
+	inputs := pairingInputsFromEnv(opts)
+	if tunnelURL == "" && inputs.URL != "" {
+		derived, err := TunnelURL(inputs.URL)
+		if err != nil {
+			return nil, err
+		}
+		tunnelURL = derived
+	}
 	mode := opts.Mode
 	if mode == "" {
 		if tunnelURL != "" {
@@ -956,11 +971,14 @@ func (p *Plugin) Start(ctx context.Context, opts ServeOptions) (*ServeHandle, er
 		}
 	}
 	if mode == "tunnel" {
-		cred := opts.Credential
-		if cred == "" {
-			cred = os.Getenv("ETHER_PLUGIN_CREDENTIAL")
+		if tunnelURL == "" {
+			return nil, fmt.Errorf("tunnel mode requires TunnelURL, ETHER_TUNNEL_URL or ETHER_URL")
 		}
-		return p.startTunnel(ctx, tunnelURL, cred)
+		credential, fromFile, err := resolveCredential(ctx, inputs, p.manifest.ID)
+		if err != nil {
+			return nil, err
+		}
+		return p.startTunnel(ctx, tunnelURL, credential, fromFile, inputs.StateDir)
 	}
 
 	host := opts.Host

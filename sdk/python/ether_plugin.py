@@ -1531,11 +1531,155 @@ def _ws_recv_frame(sock: socket.socket) -> Tuple[int, bytes]:
     return opcode, bytes(payload)
 
 
+# ---------------------------------------------------------------------------
+# Sidecar pairing (SPEC: sidecars that install like an app)
+# ---------------------------------------------------------------------------
+
+PAIR_EXCHANGE_PATH = "/ether/plugins/pair"
+TUNNEL_PATH = "/ether/plugins/tunnel"
+
+
+class CredentialError(RuntimeError):
+    """Raised when no usable credential can be resolved for a sidecar."""
+
+
+def no_credential_message() -> str:
+    return (
+        "No credential: create a pairing code in Ether (Plugins > this plugin > "
+        "Connect a sidecar) and set ETHER_PAIRING_CODE."
+    )
+
+
+def _server_base(base: str) -> str:
+    base = (base or "").strip()
+    if not base:
+        raise CredentialError("ETHER_URL is not set")
+    parsed = urllib.parse.urlparse(base)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise CredentialError("ETHER_URL must use http or https and include a host")
+    return parsed.scheme + "://" + parsed.netloc
+
+
+def tunnel_url_from_base(base: str) -> str:
+    parsed = urllib.parse.urlparse(_server_base(base))
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    return f"{scheme}://{parsed.netloc}{TUNNEL_PATH}"
+
+
+def pair_url_from_base(base: str) -> str:
+    return _server_base(base) + PAIR_EXCHANGE_PATH
+
+
+def resolve_state_dir(explicit: str, plugin_id: str) -> str:
+    if (explicit or "").strip():
+        return explicit.strip()
+    data = "/data"
+    if os.path.isdir(data) and os.access(data, os.W_OK):
+        return data
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    return os.path.join(config_home, "ether-plugins", plugin_id or "plugin")
+
+
+def _credential_file(state_dir: str) -> str:
+    return os.path.join(state_dir, "credential")
+
+
+def read_saved_credential(state_dir: str) -> Optional[str]:
+    try:
+        with open(_credential_file(state_dir), "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    cred = saved.get("credential") if isinstance(saved, dict) else None
+    return str(cred) if cred else None
+
+
+def write_saved_credential(state_dir: str, credential: str, url: str) -> None:
+    os.makedirs(state_dir, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(state_dir, 0o700)
+    except OSError:
+        pass
+    path = _credential_file(state_dir)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"credential": credential, "url": url}, fh)
+    finally:
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+
+def clear_saved_credential(state_dir: str) -> None:
+    try:
+        os.remove(_credential_file(state_dir))
+    except OSError:
+        pass
+
+
+def exchange_code(base: str, code: str) -> str:
+    body = json.dumps({"code": code}).encode("utf-8")
+    request = urllib.request.Request(
+        pair_url_from_base(base),
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise CredentialError(
+            f"Pairing code was rejected (HTTP {exc.code})."
+        ) from None
+    except OSError as exc:
+        raise CredentialError(f"Pairing request failed: {exc}") from None
+    credential = payload.get("credential") if isinstance(payload, dict) else None
+    if not credential:
+        raise CredentialError("Pairing response had no credential.")
+    return str(credential)
+
+
+def resolve_credential(
+    plugin_id: str,
+    *,
+    credential: Optional[str] = None,
+    url: Optional[str] = None,
+    code: Optional[str] = None,
+    state_dir: Optional[str] = None,
+) -> Tuple[str, bool, str]:
+    """Applies the startup order: explicit credential, then the saved file, then
+    a one-time pairing code (exchanged and saved). Returns (credential,
+    from_file, state_dir). Never logs the credential or the code."""
+    resolved_dir = resolve_state_dir(state_dir or "", plugin_id)
+    explicit = credential if credential is not None else os.environ.get(
+        "ETHER_PLUGIN_CREDENTIAL", ""
+    )
+    if (explicit or "").strip():
+        return explicit.strip(), False, resolved_dir
+    saved = read_saved_credential(resolved_dir)
+    if saved:
+        return saved, True, resolved_dir
+    resolved_url = url or os.environ.get("ETHER_URL", "")
+    resolved_code = code if code is not None else os.environ.get("ETHER_PAIRING_CODE", "")
+    if (resolved_url or "").strip() and (resolved_code or "").strip():
+        cred = exchange_code(resolved_url, resolved_code.strip())
+        write_saved_credential(resolved_dir, cred, resolved_url)
+        return cred, True, resolved_dir
+    raise CredentialError(no_credential_message())
+
+
 def _serve_tunnel(
     instance: PluginInstance,
     tunnel_url: str,
     credential: str,
     background: bool,
+    from_file: bool = False,
+    saved_dir: Optional[str] = None,
 ) -> ServeHandle:
     parsed = urllib.parse.urlparse(tunnel_url)
     if parsed.scheme not in ("ws", "wss") or not parsed.hostname:
@@ -1578,6 +1722,9 @@ def _serve_tunnel(
     status_line = resp_buf.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
     if " 101 " not in status_line:
         sock.close()
+        if " 401 " in status_line and from_file:
+            clear_saved_credential(saved_dir)
+            raise CredentialError(no_credential_message())
         raise ConnectionError(f"Tunnel handshake rejected: {status_line}")
 
     expected_accept = base64.b64encode(
@@ -1691,14 +1838,34 @@ def serve(
     tunnel_url: Optional[str] = None,
     credential: Optional[str] = None,
     background: bool = True,
+    url: Optional[str] = None,
+    pairing_code: Optional[str] = None,
+    state_dir: Optional[str] = None,
 ) -> ServeHandle:
     resolved_tunnel = tunnel_url or os.environ.get("ETHER_TUNNEL_URL")
+    base = url or os.environ.get("ETHER_URL", "")
+    if not resolved_tunnel and base:
+        resolved_tunnel = tunnel_url_from_base(base)
     resolved_mode = mode or ("tunnel" if resolved_tunnel else "http")
     if resolved_mode == "tunnel":
         if not resolved_tunnel:
-            raise ValueError("Tunnel mode requires tunnel_url or ETHER_TUNNEL_URL.")
-        cred = credential if credential is not None else os.environ.get("ETHER_PLUGIN_CREDENTIAL", "")
-        return _serve_tunnel(instance, resolved_tunnel, cred, background)
+            raise ValueError("Tunnel mode requires tunnel_url, ETHER_TUNNEL_URL or ETHER_URL.")
+        try:
+            cred, from_file, saved_dir = resolve_credential(
+                instance.manifest.get("id", ""),
+                credential=credential,
+                url=base,
+                code=pairing_code or os.environ.get("ETHER_PAIRING_CODE", ""),
+                state_dir=state_dir or os.environ.get("ETHER_PLUGIN_STATE_DIR", ""),
+            )
+        except CredentialError:
+            # A low-level caller may pass only a tunnel URL for testing; the
+            # pairing flow always has ETHER_URL, so the clear line still applies
+            # to real sidecars.
+            if base:
+                raise
+            cred, from_file, saved_dir = "", False, ""
+        return _serve_tunnel(instance, resolved_tunnel, cred, background, from_file, saved_dir)
 
     resolved_host = host or os.environ.get("ETHER_PLUGIN_HOST") or "127.0.0.1"
     resolved_port = (

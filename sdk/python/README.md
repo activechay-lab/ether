@@ -52,3 +52,59 @@ if __name__ == "__main__":
 
 Tunnel mode makes one connection and returns when it drops. Use a process
 supervisor to restart the sidecar after a disconnection.
+
+## Sidecars
+
+A sidecar is a remote plugin whose program runs on a machine you choose and
+dials out to Ether over the `ether-tunnel-v1` WebSocket, so it needs no inbound
+port. Pair once and the SDK saves the credential:
+
+```sh
+ETHER_URL=https://ether.example.com \
+ETHER_PLUGIN_STATE_DIR=/data \
+ETHER_PAIRING_CODE=PAIR-1234 \
+python3 plugin.py
+```
+
+Create the code in Ether under Plugins › your plugin › Connect a sidecar; it is
+valid for 5 minutes and single use. `serve(plugin, mode="tunnel")` resolves the
+credential in this order: an explicit credential, then the saved file, then the
+pairing code (exchanged once and saved). With none it raises `CredentialError`
+with one clear line.
+
+- `ETHER_URL` — the server's `http(s)` base; the pair and `ws(s)` tunnel URLs
+  are derived from it.
+- `ETHER_PLUGIN_CREDENTIAL` — an explicit credential; always wins.
+- `ETHER_PLUGIN_STATE_DIR` — where the credential is saved, else `/data` when it
+  exists and is writable (a Docker volume), else `~/.config/ether-plugins/<id>/`.
+- `ETHER_PAIRING_CODE` — a one-time code.
+
+The credential is saved at `<state dir>/credential` (mode `0600`, directory
+`0700`). If the tunnel rejects a saved credential, the file is deleted and
+`serve` raises `CredentialError` instead of reconnecting forever.
+
+A Dockerfile that keeps the credential across restarts:
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY plugin.py ether_plugin.py manifest.json settings.schema.json ./
+VOLUME /data
+ENV ETHER_PLUGIN_STATE_DIR=/data
+CMD ["python3", "plugin.py"]
+```
+
+Declare how the console runs it with an `ether.sidecar` manifest block:
+
+```json
+"ether": {
+  "runtime": { "kind": "remote" },
+  "sidecar": {
+    "command": "python3 plugin.py",
+    "docs": "https://example.com/my-sidecar"
+  }
+}
+```
+
+`docker` is an image reference; `download` (an https URL) with `command` (a
+single line) is the alternative; `docs` adds a setup link.

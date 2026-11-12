@@ -91,6 +91,13 @@ export interface PluginManifest {
     repo?: string;
     icon?: string;
     runtime?: { kind?: string; entry?: string; module?: string };
+    /** How to run a remote plugin's program (sidecars). */
+    sidecar?: {
+      docker?: string;
+      download?: string;
+      command?: string;
+      docs?: string;
+    };
     permissions?: DeclaredPermissions;
     contributes?: {
       mediaKinds?: { key: string; label: string; library: { name: string } }[];

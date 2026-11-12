@@ -46,6 +46,21 @@ export {
   type TunnelFrame,
 } from "./serve.ts";
 export {
+  clearSavedCredential,
+  CredentialError,
+  noCredentialMessage,
+  pairUrlFromBase,
+  readSavedCredential,
+  resolveCredential,
+  resolveStateDir,
+  serverBase,
+  tunnelUrlFromBase,
+  writeSavedCredential,
+  PAIR_EXCHANGE_PATH,
+  TUNNEL_PATH,
+  type PairingInputs,
+} from "./pairing.ts";
+export {
   createMockHostClient,
   createTestHarness,
   assertValidViewPage,

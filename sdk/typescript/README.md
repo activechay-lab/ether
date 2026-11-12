@@ -88,6 +88,62 @@ export default hello;
 Tunnel mode currently makes one connection. Use a process supervisor to
 restart the sidecar after a disconnection.
 
+## Sidecars
+
+A sidecar is a remote plugin whose program runs on a machine you choose and
+dials out to Ether over the `ether-tunnel-v1` WebSocket, so it needs no inbound
+port. Pair once and the SDK saves the credential:
+
+```sh
+ETHER_URL=https://ether.example.com \
+ETHER_PLUGIN_STATE_DIR=/data \
+ETHER_PAIRING_CODE=PAIR-1234 \
+node server.js
+```
+
+Create the code in Ether under Plugins › your plugin › Connect a sidecar; it is
+valid for 5 minutes and single use. `serve(plugin, { mode: "tunnel" })` resolves
+the credential in this order: an explicit credential, then the saved file, then
+the pairing code (exchanged once and saved). With none it throws
+`CredentialError` with one clear line.
+
+- `ETHER_URL` — the server's `http(s)` base; the pair and `ws(s)` tunnel URLs
+  are derived from it.
+- `ETHER_PLUGIN_CREDENTIAL` — an explicit credential; always wins.
+- `ETHER_PLUGIN_STATE_DIR` — where the credential is saved, else `/data` when it
+  exists and is writable (a Docker volume), else `~/.config/ether-plugins/<id>/`.
+- `ETHER_PAIRING_CODE` — a one-time code.
+
+The credential is saved at `<state dir>/credential` (mode `0600`, directory
+`0700`). If the tunnel rejects a saved credential, the file is deleted and
+`serve` throws `CredentialError` instead of reconnecting forever.
+
+A Dockerfile that keeps the credential across restarts:
+
+```dockerfile
+FROM node:22-slim
+WORKDIR /app
+COPY . .
+VOLUME /data
+ENV ETHER_PLUGIN_STATE_DIR=/data
+CMD ["node", "server.js"]
+```
+
+Declare how the console runs it with an `ether.sidecar` manifest block:
+
+```json
+"ether": {
+  "runtime": { "kind": "remote" },
+  "sidecar": {
+    "docker": "ghcr.io/you/my-sidecar:1.0.0",
+    "docs": "https://example.com/my-sidecar"
+  }
+}
+```
+
+`docker` is an image reference; `download` (an https URL) with `command` (a
+single line) is the alternative; `docs` adds a setup link.
+
 Searchable settings: a `select` field with `search: true` shows an explicit search
 control in the installed plugin's Settings drawer. Ether forwards `q` and
 `locale` to `GET /ether/options/{key}` in `request.query` (array values when hosted). Return an array of

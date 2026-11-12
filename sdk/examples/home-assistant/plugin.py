@@ -1,5 +1,4 @@
 """Home Assistant sidecar using the Ether Python SDK."""
-import getpass
 import json
 import os
 import re
@@ -12,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from ether_plugin import PluginHttpError, plugin, serve
+from ether_plugin import CredentialError, PluginHttpError, plugin, serve
 
 manifest = json.loads((HERE / 'manifest.json').read_text())
 runtime_manifest = json.loads(json.dumps(manifest))
@@ -86,24 +85,16 @@ def test(ctx):
 home_assistant = plugin(manifest=runtime_manifest, routes={'event': events, 'tool': tool, 'test': test})
 
 if __name__ == '__main__':
-    base = os.environ.get('ETHER_URL', '').rstrip('/')
-    credential = os.environ.get('ETHER_PLUGIN_CREDENTIAL', '')
-    if not base:
-        sys.exit('Set ETHER_URL to your Ether server URL.')
-    if not credential:
-        code = getpass.getpass('Pairing code: ')
-        request = urllib.request.Request(base + '/ether/plugins/pair', data=json.dumps({'code': code}).encode(), headers={'Content-Type': 'application/json'}, method='POST')
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
-            credential = json.load(response)['credential']
-    tunnel = ('wss://' + base[8:] if base.startswith('https://') else 'ws://' + base[7:] if base.startswith('http://') else '') + '/ether/plugins/tunnel'
-    if not tunnel.startswith(('ws://', 'wss://')):
-        sys.exit('ETHER_URL must use HTTP or HTTPS.')
-    # The SDK returns when a tunnel disconnects. Keep reconnecting with a
-    # bounded delay while retaining the paired credential in memory.
+    # The SDK pairs from ETHER_URL and ETHER_PAIRING_CODE on first run, saves
+    # the credential under ETHER_PLUGIN_STATE_DIR, and reuses it afterwards.
+    # It returns when the tunnel disconnects; keep reconnecting with a bounded
+    # delay. A missing or rejected credential is fatal, so it is not retried.
     delay = 1
     while True:
         try:
-            serve(home_assistant, mode='tunnel', tunnel_url=tunnel, credential=credential, background=False)
+            serve(home_assistant, mode='tunnel', background=False)
+        except CredentialError as exc:
+            sys.exit(str(exc))
         except (OSError, ConnectionError):
             pass
         time.sleep(delay)
