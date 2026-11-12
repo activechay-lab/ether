@@ -1,6 +1,13 @@
 import type { RawRequest, RawResponse } from "./types.ts";
 import type { PluginInstance } from "./router.ts";
 import { isHostedRuntime } from "./host.ts";
+import {
+  clearSavedCredential,
+  CredentialError,
+  noCredentialMessage,
+  resolveCredential,
+  tunnelUrlFromBase,
+} from "./pairing.ts";
 
 export interface ServeOptions {
   mode?: "http" | "tunnel";
@@ -9,6 +16,12 @@ export interface ServeOptions {
   tunnelUrl?: string;
   credential?: string;
   signal?: AbortSignal;
+  /** The server's http(s) base (ETHER_URL). Derives the tunnel URL and pairing. */
+  url?: string;
+  /** A one-time pairing code (ETHER_PAIRING_CODE). */
+  code?: string;
+  /** Overrides where the pairing credential is saved. */
+  stateDir?: string;
 }
 
 export interface ServeHandle {
@@ -291,14 +304,71 @@ async function serveHttp<S>(
   };
 }
 
+/**
+ * Probes a tunnel URL with a credential. Ether answers 401 before the WebSocket
+ * upgrade when the credential is rejected; any other status means the handshake
+ * was allowed to proceed. Transient failures are treated as not-rejected so the
+ * existing reconnect/backoff still applies.
+ */
+async function tunnelCredentialRejected(
+  tunnelUrl: string,
+  credential: string,
+): Promise<boolean> {
+  const httpUrl = tunnelUrl.replace(/^ws/, "http");
+  try {
+    const res = await fetch(httpUrl, {
+      method: "GET",
+      headers: { "X-Ether-Plugin-Credential": credential },
+    });
+    return res.status === 401;
+  } catch {
+    return false;
+  }
+}
+
 async function serveTunnel<S>(
   instance: PluginInstance<S>,
   options: ServeOptions,
 ): Promise<ServeHandle> {
-  const tunnelUrl = options.tunnelUrl ?? readEnv("ETHER_TUNNEL_URL");
-  const credential = options.credential ?? readEnv("ETHER_PLUGIN_CREDENTIAL") ?? "";
+  let tunnelUrl = options.tunnelUrl ?? readEnv("ETHER_TUNNEL_URL");
+  const base = options.url ?? readEnv("ETHER_URL") ?? "";
+  if (!tunnelUrl && base) {
+    tunnelUrl = tunnelUrlFromBase(base);
+  }
   if (!tunnelUrl) {
-    throw new Error("Tunnel mode requires tunnelUrl or ETHER_TUNNEL_URL.");
+    throw new Error("Tunnel mode requires tunnelUrl, ETHER_TUNNEL_URL or ETHER_URL.");
+  }
+
+  let credential = "";
+  let fromFile = false;
+  let stateDir = "";
+  try {
+    const resolved = await resolveCredential(instance.manifest.id, {
+      credential: options.credential,
+      url: base,
+      code: options.code,
+      stateDir: options.stateDir,
+    });
+    credential = resolved.credential;
+    fromFile = resolved.fromFile;
+    stateDir = resolved.stateDir;
+  } catch (err) {
+    // A low-level caller may pass only a tunnel URL for testing; the pairing
+    // flow always has ETHER_URL, so the clear line still applies to sidecars.
+    if (base) {
+      throw err;
+    }
+  }
+
+  // A saved credential the server no longer accepts is dead: clear the file and
+  // fail rather than reconnect with it forever. The tunnel returns 401 before
+  // the upgrade, so a plain request detects it.
+  if (fromFile && credential) {
+    const rejected = await tunnelCredentialRejected(tunnelUrl, credential);
+    if (rejected) {
+      await clearSavedCredential(stateDir);
+      throw new CredentialError(noCredentialMessage());
+    }
   }
 
   const WebSocketCtor = (globalThis as unknown as { WebSocket?: typeof WebSocket }).WebSocket;
@@ -423,7 +493,10 @@ export async function serve<S>(
   }
 
   const requestedMode =
-    options.mode ?? (options.tunnelUrl || readEnv("ETHER_TUNNEL_URL") ? "tunnel" : "http");
+    options.mode ??
+    (options.tunnelUrl || readEnv("ETHER_TUNNEL_URL") || readEnv("ETHER_URL")
+      ? "tunnel"
+      : "http");
   if (requestedMode === "tunnel") {
     return serveTunnel(instance, options);
   }

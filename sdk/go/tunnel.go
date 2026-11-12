@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -13,6 +14,9 @@ import (
 
 	"github.com/coder/websocket"
 )
+
+// errUnauthorized marks a tunnel handshake a server rejected with 401.
+var errUnauthorized = errors.New("etherplugin: tunnel credential rejected")
 
 const (
 	// TunnelProtocol is the WebSocket subprotocol for Ether remote plugin tunnels.
@@ -149,7 +153,7 @@ func (p *Plugin) DispatchTunnelFrame(ctx context.Context, frame TunnelFrame, max
 	}}
 }
 
-func (p *Plugin) startTunnel(ctx context.Context, tunnelURL, credential string) (*ServeHandle, error) {
+func (p *Plugin) startTunnel(ctx context.Context, tunnelURL, credential string, fromFile bool, stateDir string) (*ServeHandle, error) {
 	if tunnelURL == "" {
 		return nil, fmt.Errorf("tunnel mode requires TunnelURL or ETHER_TUNNEL_URL")
 	}
@@ -157,6 +161,10 @@ func (p *Plugin) startTunnel(ctx context.Context, tunnelURL, credential string) 
 	conn, maxChunk, err := p.dialTunnel(loopCtx, tunnelURL, credential)
 	if err != nil {
 		cancel()
+		if errors.Is(err, errUnauthorized) && fromFile {
+			clearSavedCredential(p.manifest.ID, stateDir)
+			return nil, noCredentialError()
+		}
 		return nil, err
 	}
 	done := make(chan struct{})
@@ -187,6 +195,12 @@ func (p *Plugin) startTunnel(ctx context.Context, tunnelURL, credential string) 
 				if err == nil {
 					break
 				}
+				// A saved credential the server no longer accepts is dead:
+				// clear it and stop rather than reconnect with it forever.
+				if errors.Is(err, errUnauthorized) && fromFile {
+					clearSavedCredential(p.manifest.ID, stateDir)
+					return
+				}
 			}
 		}
 	}()
@@ -216,8 +230,13 @@ func (p *Plugin) dialTunnel(ctx context.Context, tunnelURL, credential string) (
 	}
 	conn, resp, err := websocket.Dial(handshakeCtx, tunnelURL, dialOpts)
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
+		if resp != nil {
+			if resp.Body != nil {
+				resp.Body.Close()
+			}
+			if resp.StatusCode == http.StatusUnauthorized {
+				return nil, 0, fmt.Errorf("%w (HTTP %d)", errUnauthorized, resp.StatusCode)
+			}
 		}
 		return nil, 0, err
 	}
