@@ -140,6 +140,10 @@ type EtherBlock struct {
 	Repo    string      `json:"repo,omitempty"`
 	Icon    string      `json:"icon,omitempty"`
 	Runtime RuntimeDecl `json:"runtime"`
+	// Sidecar tells the console how to run a remote plugin's program: a
+	// Docker image, a download+command pair, or neither (docs only). Only
+	// meaningful when Runtime.Kind is "remote".
+	Sidecar *SidecarDecl `json:"sidecar,omitempty"`
 	// Cluster is "leader" (default) or "every_node".
 	Cluster     string      `json:"cluster,omitempty"`
 	Health      HealthDecl  `json:"health,omitempty"`
@@ -174,6 +178,21 @@ type RuntimeDecl struct {
 	Kind   string `json:"kind"` // "hosted" or "remote"
 	Entry  string `json:"entry,omitempty"`
 	Module string `json:"module,omitempty"`
+}
+
+// SidecarDecl says how a remote plugin's program comes to be: a Docker image,
+// a download with a start command, or documentation only. Every field is
+// optional; an empty block is valid but the console shows only the pairing
+// code.
+type SidecarDecl struct {
+	// Docker is an image reference (registry/name:tag or @sha256).
+	Docker string `json:"docker,omitempty"`
+	// Download is an https URL to the program.
+	Download string `json:"download,omitempty"`
+	// Command starts the program after download (single line, <= 200 chars).
+	Command string `json:"command,omitempty"`
+	// Docs is an https URL with setup instructions.
+	Docs string `json:"docs,omitempty"`
 }
 
 // HealthDecl declares the health-check interval (minimum 15s).
