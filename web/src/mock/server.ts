@@ -663,6 +663,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   const qualityMock = createQualityMock();
   const safetyPolicies = new Map<number, Record<string, unknown>>();
   const simklAccounts = new Map<number, { connected: boolean; lastSync?: string }>();
+  const mdblistAccounts = new Map<number, { connected: boolean; lastSync?: string }>();
   const traktAccounts = new Map<number, { connected: boolean; username?: string }>();
   const extendMock = createExtendMock();
   const prerolls = createPrerollsMock({
@@ -4756,6 +4757,24 @@ export function createFakeServer(opts: FakeOptions = {}) {
       }
       if (seg[2] === "disconnect" && method === "POST") {
         simklAccounts.delete(id);
+        return json({ ok: true });
+      }
+    }
+    // One viewer's MDBList account (Viewer › Limits).
+    if (seg[0] === "mdblist" && seg[1] && /^\d+$/.test(seg[1])) {
+      const id = Number(seg[1]);
+      const cur = mdblistAccounts.get(id) ?? { connected: false };
+      if (seg[2] === "status" && method === "GET") return json(cur);
+      if (seg[2] === "connect" && method === "POST") {
+        mdblistAccounts.set(id, { connected: true });
+        return json({ connected: true });
+      }
+      if (seg[2] === "sync" && method === "POST") {
+        mdblistAccounts.set(id, { ...cur, lastSync: "cursor-1" });
+        return json({ imported: 3, skipped: 0 });
+      }
+      if (seg[2] === "disconnect" && method === "POST") {
+        mdblistAccounts.delete(id);
         return json({ ok: true });
       }
     }

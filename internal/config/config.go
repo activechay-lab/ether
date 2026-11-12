@@ -47,6 +47,7 @@ type Config struct {
 	Transcode     Transcode     `json:"transcode"`
 	Trakt         Trakt         `json:"trakt"`
 	Simkl         Simkl         `json:"simkl"`
+	MDBList       MDBList       `json:"mdblist"`
 	PlexServers   PlexServers   `json:"plexServers"`
 	OpenSubtitles OpenSubtitles `json:"openSubtitles"`
 	SubDL         SubDL         `json:"subdl"`
@@ -532,6 +533,13 @@ type Simkl struct {
 	Enabled      bool   `json:"enabled"`
 	ClientID     string `json:"clientId"`
 	ClientSecret string `json:"clientSecret"`
+}
+
+// MDBList syncs watch history per viewer. Unlike Trakt/Simkl there is no app
+// registration: each viewer pastes a personal API key from MDBList
+// Preferences, so the section only carries the on/off switch.
+type MDBList struct {
+	Enabled bool `json:"enabled"`
 }
 
 type Trakt struct {

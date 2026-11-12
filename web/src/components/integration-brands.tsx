@@ -68,6 +68,23 @@ export function householdIcon(id: string): ReactNode | undefined {
 export function SimklMark() {
   return <BrandMark src={simkl} color="currentColor" />;
 }
+/** MDBList has no vendored mark; a list/clapper glyph stands in. */
+export function MDBListMark() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 32 32"
+      className="size-7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 8h24M4 14h24M4 20h16M4 26h10" />
+    </svg>
+  );
+}
 export function TmdbMark() {
   return <BrandMark src={tmdb} color="#01b4e4" />;
 }
@@ -80,6 +97,7 @@ export function IntegrationMark({ id }: { id: string }) {
   if (id === "tmdb") return <TmdbMark />;
   if (id === "trakt") return <TraktMark />;
   if (id === "simkl") return <SimklMark />;
+  if (id === "mdblist") return <MDBListMark />;
   if (id === "plexservers") return <PlexMark />;
   const posters: Record<string, string> = { postersplus, xrdb, betterposters, rpdb };
   if (posters[id])

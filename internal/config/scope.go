@@ -39,6 +39,7 @@ var sectionScopes = map[string]Scope{
 	"quality":        Shared,
 	"trakt":          Shared,
 	"simkl":          Shared,
+	"mdblist":        Shared,
 	"plexServers":    Shared,
 	"openSubtitles":  Shared,
 	"subdl":          Shared,

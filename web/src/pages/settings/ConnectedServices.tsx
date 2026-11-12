@@ -19,7 +19,7 @@ import { ErrorPanel, MutationError } from "../../components/feedback";
 import { TestButton, type TestState } from "../../components/fields";
 import { IntegrationAppCard } from "../../components/IntegrationAppCard";
 import { secretConfigured } from "../../components/IntegrationAccount";
-import { SimklMark, TraktMark, TmdbMark } from "../../components/integration-brands";
+import { MDBListMark, SimklMark, TraktMark, TmdbMark } from "../../components/integration-brands";
 import { useOwnerViewerPath } from "../../components/pickers";
 import { SaveBar } from "../../components/SaveBar";
 import { LevelBadge } from "../../components/status";
@@ -30,6 +30,7 @@ import type { EtherConfig } from "../../lib/types";
 import { PosterAccounts } from "./PosterAccounts";
 import { RatingSources, type RatingSettings } from "../metadata/Ratings";
 import { SimklSettings } from "./SimklIntegration";
+import { MDBListSettings } from "./MDBListIntegration";
 import { PlexServers, PlexServersCard } from "./PlexServers";
 import { LanguageFeatures } from "./LanguageFeatures";
 import { LanguageModelSettings } from "./LanguageModel";
@@ -48,6 +49,7 @@ export type ServiceTab =
   | "tmdb"
   | "trakt"
   | "simkl"
+  | "mdblist"
   | "plexservers"
   | "llm"
   | "opensubtitles"
@@ -65,6 +67,7 @@ const TAB_ORDER: ServiceTab[] = [
   "tmdb",
   "trakt",
   "simkl",
+  "mdblist",
   "llm",
   "opensubtitles",
   "subdl",
@@ -86,6 +89,7 @@ export function integrationTabs(
     tmdb: "TMDB",
     trakt: "Trakt",
     simkl: "Simkl",
+    mdblist: "MDBList",
     plexservers: t("Plex Media Server Sync"),
     llm: t("Language model"),
     opensubtitles: "OpenSubtitles",
@@ -103,7 +107,7 @@ export function integrationTabs(
 
 interface Service {
   tab: Exclude<ServiceTab, "overview" | "ratings">;
-  configKey: "plexServers" | "trakt" | "simkl" | "llm" | "openSubtitles" | "subdl" | "markers";
+  configKey: "plexServers" | "trakt" | "simkl" | "mdblist" | "llm" | "openSubtitles" | "subdl" | "markers";
   endpoint: string;
   /** Boolean this card's switch writes. Omitted fields stay stored. */
   flag: "enabled" | "theIntroDb";
@@ -157,6 +161,15 @@ const SERVICES: Service[] = localized(() => [
     ),
     blockEnable: (v) => (String(v.clientId ?? "").trim() ? null : t("Needs a client ID")),
     requiredField: "clientId",
+  },
+  {
+    tab: "mdblist",
+    configKey: "mdblist",
+    endpoint: "mdblist",
+    flag: "enabled",
+    label: "MDBList",
+    groups: [],
+    form: ({ footer }) => <MDBListSettings footer={footer} />,
   },
   {
     tab: "llm",
@@ -344,6 +357,11 @@ function mergeSection(
         },
       };
     }
+    case "mdblist":
+      return {
+        ...base,
+        mdblist: { enabled: boolField(section, "enabled", base.mdblist?.enabled ?? false) },
+      };
     case "llm":
       return {
         ...base,
@@ -1191,6 +1209,20 @@ function ServiceOverview({
           onToggle={(next) => onToggle(service("simkl"), next)}
           configureHref="/services/simkl"
           configureLabel={on("simkl") ? t("Manage Simkl") : t("Set up Simkl")}
+        />
+        <IntegrationAppCard
+          identity={{ id: "mdblist", name: "MDBList" }}
+          logo={<MDBListMark />}
+          description={t(
+            "Sync watch history with MDBList. Each viewer pastes their own API key.",
+          )}
+          status={switchStatus(on("mdblist"), true, "")}
+          enabled={on("mdblist")}
+          busy={locked || busyId === "mdblist"}
+          disabled={switchesHeld}
+          onToggle={(next) => onToggle(service("mdblist"), next)}
+          configureHref="/services/mdblist"
+          configureLabel={on("mdblist") ? t("Manage MDBList") : t("Set up MDBList")}
         />
         <PlexServersCard
           enabled={on("plexservers")}

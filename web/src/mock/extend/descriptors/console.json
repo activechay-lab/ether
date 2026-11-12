@@ -426,6 +426,34 @@
     }
   },
   {
+    "kind": "integration",
+    "id": "mdblist",
+    "owner": "builtin",
+    "label": {
+      "source": "MDBList"
+    },
+    "hint": {
+      "source": "Sync watch history with MDBList. Each viewer pastes their own API key."
+    },
+    "group": "watch-tracking",
+    "order": 21,
+    "meta": {
+      "category": "watch-tracking",
+      "logo": "mdblist",
+      "adds": [
+        {
+          "source": "Watch history"
+        }
+      ],
+      "connect": "custom",
+      "tab": "mdblist",
+      "configKey": "mdblist",
+      "endpoint": "mdblist",
+      "flag": "enabled",
+      "form": "mdblist"
+    }
+  },
+  {
     "kind": "navItem",
     "id": "overview",
     "owner": "builtin",
@@ -1305,6 +1333,15 @@
           },
           "keywords": {
             "source": "simkl sync history"
+          }
+        },
+        {
+          "key": "mdblist",
+          "label": {
+            "source": "MDBList"
+          },
+          "keywords": {
+            "source": "mdblist sync history"
           }
         },
         {

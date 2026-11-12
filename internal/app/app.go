@@ -39,6 +39,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/llm"
 	"github.com/braedonsaunders/ether/internal/logredact"
 	"github.com/braedonsaunders/ether/internal/markers"
+	"github.com/braedonsaunders/ether/internal/mdblist"
 	"github.com/braedonsaunders/ether/internal/migrate"
 	"github.com/braedonsaunders/ether/internal/newznab"
 	"github.com/braedonsaunders/ether/internal/notify"
@@ -196,6 +197,7 @@ type App struct {
 	state               *state.State
 	trakt               *trakt.Client
 	simklDevice         *simkl.DeviceManager
+	mdblistTokens       *mdblist.TokenStore
 	llm                 *llm.Service
 	recommend           *recommend.Recommender
 	personalize         *personalize.Engine
@@ -787,6 +789,11 @@ func (a *App) Run(ctx context.Context) error {
 	background.start(func() {
 		a.cluster.RunAsLeader(ctx, "simkl delivery", func(ctx context.Context) {
 			simkl.RunDelivery(ctx, a.simklService, func() bool { return a.cfg.Get().Simkl.Enabled }, a.log.With("component", "simkl"))
+		})
+	})
+	background.start(func() {
+		a.cluster.RunAsLeader(ctx, "mdblist delivery", func(ctx context.Context) {
+			mdblist.RunDelivery(ctx, a.mdblistService, func() bool { return a.cfg.Get().MDBList.Enabled }, a.log.With("component", "mdblist"))
 		})
 	})
 	background.start(func() { a.load.Run(ctx) })

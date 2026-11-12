@@ -23,6 +23,7 @@ import { PlexWatchSync } from "./sections/PlexWatchSync";
 import { FromPlexDefaults } from "./FromPlexDefaults";
 import { ViewerLiveTVAccess } from "./sections/ViewerLiveTV";
 import { ViewerSimkl } from "./sections/ViewerSimkl";
+import { ViewerMDBList } from "./sections/ViewerMDBList";
 import { ViewerTrakt } from "./sections/ViewerTrakt";
 import { KID_PRESETS, ListText, normalizePolicy, type SafetyPolicy } from "./shared";
 import { librariesApi } from "../libraries/api";
@@ -216,6 +217,7 @@ export function ViewerAccess({ viewer }: { viewer: Viewer }) {
   const noUser = users.data && (!user || !l);
   const trakt = config.data?.trakt;
   const simkl = config.data?.simkl;
+  const mdblist = config.data?.mdblist;
   return (
     <div className="space-y-6">
       <ViewerCatalogRules key={id} id={id} region={String(config.data?.catalog?.region || "US")} />
@@ -386,6 +388,7 @@ export function ViewerAccess({ viewer }: { viewer: Viewer }) {
         <>
           <ViewerTrakt viewerId={id} ready={Boolean(trakt?.enabled && trakt.clientId.trim())} />
           <ViewerSimkl viewerId={id} ready={Boolean(simkl?.enabled && simkl.clientId.trim())} />
+          <ViewerMDBList viewerId={id} ready={Boolean(mdblist?.enabled)} />
         </>
       ) : null}
 
