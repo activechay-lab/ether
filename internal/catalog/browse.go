@@ -47,7 +47,6 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	if q.Filter.LocalOnly && q.CursorPage {
 		return c.consoleCursorPage(ctx, q)
 	}
-
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
