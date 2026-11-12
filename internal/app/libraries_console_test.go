@@ -165,7 +165,7 @@ func TestLibrariesConsoleCollectionSource(t *testing.T) {
 	}
 	w = call("GET", "/"+id+"/items", "")
 	if w.Code != 200 || strings.Contains(w.Body.String(), "Listed Film") {
-			t.Fatalf("deleted collection browse %d %s", w.Code, w.Body)
+		t.Fatalf("deleted collection browse %d %s", w.Code, w.Body)
 	}
 	if w = call("GET", "/"+id, ""); w.Code != 200 {
 		t.Fatalf("deleted collection decorate %d %s", w.Code, w.Body)
