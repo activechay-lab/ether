@@ -569,6 +569,7 @@ func flagInt(b bool) int {
 func (c *Catalog) TitleInFilter(ctx context.Context, f core.Filter, key core.RatingKey) (bool, error) {
 	f.LocalOnly = true
 	f.IncludeKeys = []core.RatingKey{key}
+	f.CollectionMembers = 0
 	f.ExcludeKeys = nil
 	f.CatalogViewerID = 0
 	f.RuleVisibility = ""
@@ -743,6 +744,14 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		for _, key := range f.AvailabilityKeepKeys {
 			args = append(args, key)
 		}
+	}
+	if f.CollectionMembers != 0 {
+		// A collection library is a semi-join on the collection's
+		// materialised members, never a list of keys in memory. Only a
+		// shared member is shown to everyone; per-viewer rules are the
+		// collection engine's business, not this page's.
+		conds = append(conds, "EXISTS (SELECT 1 FROM collections_members cm WHERE cm.spec_id=? AND cm.key=t.key AND cm.shared=1)")
+		args = append(args, f.CollectionMembers)
 	}
 	if f.IncludeKeys != nil {
 		if len(f.IncludeKeys) == 0 {

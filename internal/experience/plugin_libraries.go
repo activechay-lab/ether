@@ -237,6 +237,8 @@ func (s *Service) publishedLibrary(ctx context.Context, lib core.Library) (core.
 		return PresentForProtocol(lib.Present, s.d.Protocol, mt)
 	case core.LibraryFilter:
 		return PresentForProtocol(lib.Present, s.d.Protocol, filterMediaType(lib))
+	case core.LibraryCollection:
+		return PresentForProtocol(lib.Present, s.d.Protocol, filterMediaType(lib))
 	case core.LibraryPlugin:
 		if s.d.PluginLibraries == nil || !s.d.PluginLibraries.IsPluginLibraryActive(ctx, lib) {
 			return "", "", false
@@ -735,7 +737,7 @@ func (s *Service) filterLibraryFacets(ctx context.Context, viewer *core.Viewer, 
 	if ex.Err != nil {
 		return nil, false, ex.Err
 	}
-	base := mergeLibraryFilter(core.Filter{Type: mt}, lib.Filter)
+	base := s.libraryBrowseFilter(ctx, v, lib, core.Filter{Type: mt})
 	filter, fits, none := viewerBrowseFilter(base, v, ex, mt)
 	if !fits {
 		return nil, false, nil

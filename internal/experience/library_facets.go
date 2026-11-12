@@ -41,7 +41,13 @@ func (s *Service) indexedFacets(ctx context.Context, viewer *core.Viewer, viewID
 		if !ex.AvailabilityInSQL {
 			return nil, false, nil
 		}
-		filter, fits, none := viewerBrowseFilter(core.Filter{Type: lib.Type}, v, ex, lib.Type)
+		base := core.Filter{Type: lib.Type}
+		if s.d.PluginLibraries != nil {
+			if stored, err := s.d.PluginLibraries.Library(ctx, core.LibraryID(lib.ID)); err == nil {
+				base = s.libraryBrowseFilter(ctx, v, stored, base)
+			}
+		}
+		filter, fits, none := viewerBrowseFilter(base, v, ex, lib.Type)
 		if !fits {
 			return nil, false, nil
 		}
@@ -166,7 +172,13 @@ func (s *Service) pagedFacets(ctx context.Context, viewer *core.Viewer, viewID, 
 	if !ex.AvailabilityInSQL {
 		return nil, 0, false, nil
 	}
-	filter, fits, none := viewerBrowseFilter(core.Filter{Type: lib.Type}, v, ex, lib.Type)
+	base := core.Filter{Type: lib.Type}
+	if s.d.PluginLibraries != nil {
+		if stored, err := s.d.PluginLibraries.Library(ctx, core.LibraryID(lib.ID)); err == nil {
+			base = s.libraryBrowseFilter(ctx, v, stored, base)
+		}
+	}
+	filter, fits, none := viewerBrowseFilter(base, v, ex, lib.Type)
 	if !fits {
 		return nil, 0, false, nil
 	}

@@ -73,6 +73,14 @@ ALTER TABLE libraries ADD COLUMN quality_profile TEXT NOT NULL DEFAULT '';
 	store.RegisterDialect("libraries", 3, store.Postgres, `
 ALTER TABLE libraries ADD COLUMN quality_profile TEXT NOT NULL DEFAULT '';
 `)
+	// A collection-source library stores the id of the owner collection
+	// whose titles it shows (an MDBList list, a Trakt list, a smart rule…).
+	store.Register("libraries", 4, `
+ALTER TABLE libraries ADD COLUMN collection_id INTEGER NOT NULL DEFAULT 0;
+`)
+	store.RegisterDialect("libraries", 4, store.Postgres, `
+ALTER TABLE libraries ADD COLUMN collection_id BIGINT NOT NULL DEFAULT 0;
+`)
 }
 
 var (

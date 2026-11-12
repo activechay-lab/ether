@@ -15,9 +15,10 @@ const (
 type LibrarySource string
 
 const (
-	LibraryBuiltin LibrarySource = "builtin" // the TMDB catalogue, split by MediaType
-	LibraryPlugin  LibrarySource = "plugin"  // items owned by one plugin MediaKind instance
-	LibraryFilter  LibrarySource = "filter"  // owner-saved Filter over the TMDB catalogue
+	LibraryBuiltin    LibrarySource = "builtin"    // the TMDB catalogue, split by MediaType
+	LibraryPlugin     LibrarySource = "plugin"     // items owned by one plugin MediaKind instance
+	LibraryFilter     LibrarySource = "filter"     // owner-saved Filter over the TMDB catalogue
+	LibraryCollection LibrarySource = "collection" // exactly the titles of one owner collection
 )
 
 // Library is the one library model for builtins, plugin kinds and
@@ -35,6 +36,11 @@ type Library struct {
 	// Filter only: the saved browse predicate, stored verbatim and fed to
 	// catalog browseWhere. Type inside Filter pins movie|show.
 	Filter *Filter `json:"filter,omitempty"`
+	// Collection only: the owner collection whose titles this library
+	// shows (an MDBList list, a Trakt list, a smart rule, a hand-made
+	// list…). MediaType pins movie|show like a filter library. A deleted
+	// collection leaves the library empty, never an error.
+	CollectionID int64 `json:"collectionId,omitempty"`
 	// Visibility rules for TMDB-sourced libraries. Built-in libraries 1 and 2
 	// govern canonical movie/show visibility across every protocol; filter
 	// libraries may carry additional rules on top of their canonical library.

@@ -75,22 +75,36 @@ func (l *libraryProfiles) resolve(ctx context.Context, t *core.Title) string {
 	if err != nil {
 		return ""
 	}
-	// Filter libraries are more specific than the built-in library. Among
-	// several matches the lowest id wins; the list is already in sort/id
-	// order, but a filter library may sort anywhere, so track the minimum.
+	// Filter and collection libraries are more specific than the built-in
+	// library. Among several matches the lowest id wins; the list is
+	// already in sort/id order, but such a library may sort anywhere, so
+	// track the minimum.
 	var winner core.Library
 	found := false
 	for _, lib := range libs {
-		if lib.Source != core.LibraryFilter || lib.Filter == nil {
+		if lib.Source != core.LibraryFilter && lib.Source != core.LibraryCollection {
 			continue
 		}
-		if lib.Filter.Type != "" && string(lib.Filter.Type) != media {
-			continue
+		var membership core.Filter
+		switch lib.Source {
+		case core.LibraryFilter:
+			if lib.Filter == nil {
+				continue
+			}
+			if lib.Filter.Type != "" && string(lib.Filter.Type) != media {
+				continue
+			}
+			membership = *lib.Filter
+		case core.LibraryCollection:
+			if lib.CollectionID <= 0 || (lib.MediaType != "" && string(lib.MediaType) != media) {
+				continue
+			}
+			membership = core.Filter{Type: lib.MediaType, CollectionMembers: lib.CollectionID}
 		}
 		if l.app.catalog == nil {
 			continue
 		}
-		ok, err := l.app.catalog.TitleInFilter(ctx, *lib.Filter, t.Key)
+		ok, err := l.app.catalog.TitleInFilter(ctx, membership, t.Key)
 		if err != nil || !ok {
 			continue
 		}
