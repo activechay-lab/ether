@@ -14,6 +14,7 @@ import (
 
 var (
 	reYear                 = regexp.MustCompile(`\b(188[89]|189\d|19\d{2}|20\d{2})\b`)
+	reTemporadaSE          = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}])T(\d{1,2})E(\d{1,3})\b`)
 	reSE                   = regexp.MustCompile(`(?i)\bS(\d{1,2})[\s\p{So}\x{FE0F}\x{200D}-]*E(\d{1,3})((?:\s*E\d{1,3})*)(?:\s*-\s*E?(\d{1,3}))?(?:v(\d))?\b`)
 	reSpanishCapUnderscore = regexp.MustCompile(`(?i)\b(Cap(?:[ií]tulo)?[.\s]*\d{1,4})_(\d{1,4})\b`)
 	reSpanishEpisode       = regexp.MustCompile(`(?i)\b(?:Cap|Cap[ií]tulo)\s*(\d{3,4})(?:\s*(?:-|al|a)\s*(?:Cap(?:[ií]tulo)?\s*)?(\d{1,4}))?\b`)
@@ -98,6 +99,9 @@ func Parse(name string) core.ReleaseInfo {
 	if raw == "" {
 		return info
 	}
+	// Spanish and Portuguese groups write "T07E09" (Temporada 7, episode 9)
+	// for "S07E09".
+	raw = reTemporadaSE.ReplaceAllString(raw, "${1}S${2}E${3}")
 	stem, group, container := parseGroup(raw)
 	info.Group = group
 	info.Container = container
