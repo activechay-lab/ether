@@ -70,7 +70,7 @@ func (s *Service) openReelClipPath(c Channel, reelID, clipID string) string {
 // cached clip from the same reel, channel/block filler, or an animated break bumper.
 func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until time.Time, check bool) []Programme {
 	c = s.graphicsChannel(c)
-	ps := Schedule(c, from, until)
+	ps := s.readyProgrammes(c, Schedule(c, from, until))
 	if s.o.Graphics == nil {
 		return ps
 	}
@@ -328,7 +328,7 @@ func (s *Service) latchReelSubstitution(key string, end time.Time, subs []Progra
 }
 
 func (s *Service) broadcastGuide(c Channel, from, until time.Time) []Programme {
-	return guideSchedule(c, from, until)
+	return s.readyProgrammes(c, guideSchedule(c, from, until))
 }
 
 // recordGraphicsSkip latches a fallback decision for the original airing. A

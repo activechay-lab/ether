@@ -154,7 +154,11 @@ func (p *scheduleBroadcastPlanner) prewarmPlans(now time.Time) []broadcastPlan {
 		if !programme.Start.After(now) {
 			continue
 		}
-		imminent := !programme.Start.After(now.Add(broadcastPrewarm))
+		lead := broadcastPrewarm
+		if programme.Item.Key != 0 {
+			lead = programmePrewarm
+		}
+		imminent := !programme.Start.After(now.Add(lead))
 		// A pod's first programme is prepared from the beginning of the pod,
 		// even when short intervening elements hide it beyond the usual lead.
 		if (imminent && len(plans) < 7) || (inPod && !programmePrepared && programme.Item.Key != 0) {
@@ -243,9 +247,18 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			candidates = []Programme{programme}
 		}
 		var last error = core.ErrNotAvailable
-		for attempt, candidate := range candidates {
-			if attempt >= virtualMaxAttempts {
+		attempts := 0
+		for _, candidate := range candidates {
+			if attempts >= virtualMaxAttempts {
 				break
+			}
+			if candidate.Item.Key != programme.Item.Key {
+				p.s.mu.Lock()
+				ready := p.s.readyTitles[candidate.Item.Key]
+				p.s.mu.Unlock()
+				if !ready {
+					continue
+				}
 			}
 			if p.s.knownUnavailable(ctx, candidate.Item.Key) {
 				continue
@@ -253,6 +266,7 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 			if !p.s.allowed(ctx, &p.user, c, &candidate) {
 				continue
 			}
+			attempts++
 			var ps *core.PlaySession
 			var err error
 			budget := virtualAttemptBudget
@@ -308,7 +322,15 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				now = p.joinAt
 			}
 			offset := time.Duration(0)
-			if candidate.ID == programme.ID {
+			if candidate.Item.Key != programme.Item.Key {
+				sub, ok := joinStandIn(programme, candidate.Item, now)
+				if !ok {
+					p.s.o.Playback.Stop(ps.ID)
+					continue
+				}
+				candidate = sub
+				offset = sub.Offset(now)
+			} else {
 				at := now
 				if at.Before(programme.Start) {
 					at = programme.Start
@@ -348,6 +370,9 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				if input.Revision != "" {
 					decoder = &breakTapDecoder{Decoder: decoder, tap: markers.NewBreakTap(ps.Info.Duration), input: input, format: p.format, at: offset, output: p.s.breakObserved}
 				}
+			}
+			if candidate.Item.Key != programme.Item.Key {
+				p.s.latchProgramme(candidate)
 			}
 			return &overlayDecoder{policy: p.s.programmePolicy(ctx, candidate), Decoder: decoder, wallStart: sourceWall, format: p.format, overlays: p.prepareProgrammeOverlays(ctx, programme, ps.Info.Chapters)}, func() { p.s.o.Playback.Stop(ps.ID) }, nil
 		}

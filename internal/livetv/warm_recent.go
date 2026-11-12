@@ -20,6 +20,7 @@ func (s *Service) noteWatchedLocked(channelID string) {
 		s.activeWatched = map[string]time.Time{}
 	}
 	_, existed := s.activeWatched[channelID]
+	s.demandReadinessLocked(channelID, 7*24*time.Hour)
 	s.watched[channelID] = now
 	s.activeWatched[channelID] = now
 	s.wakeMaintenance()

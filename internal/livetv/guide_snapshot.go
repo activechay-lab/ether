@@ -448,7 +448,13 @@ func (s *Service) virtualProgrammes(c Channel, from, until time.Time, kind strin
 	if kind == "guide" {
 		ps = entry.guide
 	}
-	return ps.slice(c.ID, from, until)
+	out := ps.slice(c.ID, from, until)
+	if kind == "guide" {
+		s.mu.Lock()
+		s.demandReadinessLocked(c.ID, 24*time.Hour)
+		s.mu.Unlock()
+	}
+	return s.readyProgrammes(c, out)
 }
 func (s *Service) allowedProgramme(ctx context.Context, u *core.User, c Channel, p *Programme) bool {
 	if p != nil && p.policyTag != nil {

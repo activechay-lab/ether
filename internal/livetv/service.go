@@ -25,6 +25,7 @@ import (
 )
 
 func init() {
+	store.Register("livetv", 18, `CREATE TABLE livetv_readiness(channel_id TEXT PRIMARY KEY, active_until INTEGER NOT NULL);`)
 	store.Register("livetv", 1, `CREATE TABLE livetv_channels(id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE livetv_sources(id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE livetv_programmes(source_id TEXT NOT NULL, channel_id TEXT NOT NULL, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(source_id,channel_id,start_ms));
@@ -33,6 +34,10 @@ CREATE TABLE livetv_policies(user_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`)
 }
 
 type Service struct {
+	readinessWake         chan struct{}
+	readiness             map[string]channelReadiness
+	readyTitles           map[core.RatingKey]bool
+	programmeSubs         map[string]Programme
 	activityWake          chan struct{}
 	noActivitySources     atomic.Bool
 	sourceWake            chan struct{}
@@ -144,6 +149,10 @@ func New(o Options) (*Service, error) {
 		kinds = NewKindRegistry()
 	}
 	s := &Service{breakObserved: make(chan breakObservation, 64), observedBreaks: map[core.RatingKey]breakObservation{}, graphicsWake: make(chan struct{}, 1), o: o, kinds: kinds, sessions: map[string]*session{}, ctx: ctx, cancel: cancel, lineupUnix: o.Now().Unix()}
+	s.readinessWake = make(chan struct{}, 1)
+	s.readiness = map[string]channelReadiness{}
+	s.wg.Add(1)
+	go s.readinessLoop()
 	s.activityWake = make(chan struct{}, 1)
 	s.sourceWake = make(chan struct{}, 1)
 	s.vodWake = make(chan struct{}, 1)

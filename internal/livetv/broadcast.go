@@ -16,6 +16,7 @@ import (
 )
 
 const broadcastPrewarm = 20 * time.Second
+const programmePrewarm = 3 * time.Minute
 const broadcastStall = 1500 * time.Millisecond
 
 // broadcastStallReport is a pipeline delay worth naming in the log: a
@@ -545,6 +546,13 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				continue
 			}
 			input := result.input
+			if input.matchesProgramme(current) {
+				input.plan = current
+				result.plan = current
+			} else if next != nil && input.matchesProgramme(*next) {
+				input.plan = *next
+				result.plan = *next
+			}
 			if b.momentInputs[result.plan.id].fallback {
 				b.closeInput(input)
 				continue
@@ -833,6 +841,12 @@ func (b *broadcast) step(now time.Time) bool {
 		b.closeInput(b.momentCard)
 		b.momentCard = nil
 	}
+	if b.current.matchesProgramme(current) {
+		b.current.plan = current
+	}
+	if next != nil && b.next.matchesProgramme(*next) {
+		b.next.plan = *next
+	}
 	b.accept(now, current, next)
 	// Keep one bounded screen input prewarmed while programmes play. A stall
 	// then cuts to its first frame at the 1.5 s deadline, without raster/decoder
@@ -914,7 +928,7 @@ func (b *broadcast) step(now time.Time) bool {
 	if b.current == nil {
 		b.open(current, now)
 	}
-	if next != nil && next.start.Sub(now) <= broadcastPrewarm && b.next == nil {
+	if next != nil && next.start.Sub(now) <= broadcastLead(*next) && b.next == nil {
 		b.open(*next, now)
 	}
 	for id, plan := range b.future {
@@ -1416,4 +1430,16 @@ func (b *broadcast) startupOutputReady(now time.Time) bool {
 // episodes beginning at offset zero still receive a fresh input.
 func resumesBroadcastInput(previous, next broadcastPlan) bool {
 	return previous.programme && next.programme && previous.mediaKey != 0 && previous.mediaKey == next.mediaKey && next.sourceOffset > 0 && !next.start.Before(previous.end) && next.sourceOffset == previous.sourceOffset+previous.end.Sub(previous.start)
+}
+
+func broadcastLead(p broadcastPlan) time.Duration {
+	if p.programme {
+		return programmePrewarm
+	}
+	return broadcastPrewarm
+}
+
+// A prepared stand-in already owns this slot; a guide update must not reopen it.
+func (in *broadcastInput) matchesProgramme(plan broadcastPlan) bool {
+	return in != nil && in.policy != nil && plan.programme && in.plan.start.Equal(plan.start) && in.plan.end.Equal(plan.end) && in.policy.programme.Item.Key == plan.mediaKey && in.policy.programme.sourceOffset == plan.sourceOffset
 }
