@@ -1057,6 +1057,7 @@
   "m_03a67ea49a76e6": "Programme",
   "m_03a78e28ac4a93": "Ajoutez une tranche horaire ou un bloc de programmes pour organiser la journée.",
   "m_03a83b35a93323": "Temps d'intro et de générique depuis IntroDB.",
+  "m_03a9d03d902695": "Réglages de la TV en direct",
   "m_03abee25fafc93": "Présentez une série en ordre DVD, absolu ou narratif. La lecture garde les numéros d’épisodes d’origine.",
   "m_03acc54b13526c": "Chaîne enregistrée",
   "m_03b06978a0c496": "Passer les rangées sélectionnées à {status}",
@@ -4719,6 +4720,7 @@
   "m_107e66090c813c": "Cette adresse correspond à un autre Plex Media Server. Ajoutez-le plutôt comme nouveau serveur.",
   "m_10815a5071e78a": "Les commandes à distance ne sont pas disponibles depuis ce serveur.",
   "m_10816f12b17447": "Listes à voir des amis",
+  "m_1081a82a29d87e": "Pas maintenant",
   "m_1082d1a6a743cc": "Compte Simkl connecté.",
   "m_1083e252cdd4f4": "Sélectionner tous les résultats",
   "m_1084ceab8e0923": {
@@ -5674,6 +5676,7 @@
     "one": "{count} série",
     "other": "{count} séries"
   },
+  "m_1399a627c83e1c": "Quatre chaînes par décennie sont incluses.",
   "m_139b8ded964f74": "Les jours et les heures utilisent le fuseau horaire de ce navigateur. Le temps de visionnage exclut les interruptions de plus de 60 secondes et les sessions simultanées qui ne peuvent pas être associées à un appareil.",
   "m_139c53184ae84d": "Exclure les résultats",
   "m_139d73afa66352": "{name} est déjà dans Télévision en direct",
@@ -7004,6 +7007,7 @@
   "m_1837d867f508a4": "Pour quels titres cette règle peut choisir un profil.",
   "m_183815c6a27403": "Ajouter une scène : {role}",
   "m_1839a1952915f3": "Échelle X",
+  "m_183ab4689851c1": "Voulez-vous la TV en direct ?",
   "m_183ae29a79ca63": "La connexion d’événements de ce nœud à la base de données est coupée ; les modifications effectuées sur d’autres nœuds peuvent donc lui parvenir en retard.",
   "m_183b86f1f56580": "Impossible de joindre Ether",
   "m_183bcb896e9d74": "titres visibles",
@@ -7779,6 +7783,7 @@
   "m_1ac92994b09ea0": "Liste des chaînes",
   "m_1ac946fceccf3d": "Stabilité du flux réglée sur {name}",
   "m_1ac96195e626ad": "Création Ether",
+  "m_1ac9fed8f36220": "Désactiver la TV en direct",
   "m_1acae0294a1669": "Glisser la règle {n}",
   "m_1acbb68bd15774": {
     "many": "{count} interruptions par heure",
@@ -9121,6 +9126,7 @@
   "m_1f6e9a6fca8bf1": "Lien d’installation",
   "m_1f6efbd7eae067": "Sauvegarde effectuée",
   "m_1f6f6d8a5a635a": "Ether construit votre bibliothèque à partir de TMDB, une clé API TMDB est donc nécessaire. Elle est gratuite : {link}, puis collez-la ici et testez-la.",
+  "m_1f7016a0ea3efe": "Ajouter une source maintenant",
   "m_1f7223c74bf3d9": "Choisir un spectateur",
   "m_1f7969b9559bf0": "Popularité minimale",
   "m_1f79b14cede513": "Supprimer la source",

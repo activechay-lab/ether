@@ -32,6 +32,8 @@ import (
 )
 
 type Options struct {
+	Enabled func() bool
+
 	// Showcase adds the decade looks and commercial reels used by the shipped showcase channels.
 	Showcase bool
 	// Changed runs after an owner style save has committed and locks are released.
@@ -157,6 +159,9 @@ type Service struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	startOnce     sync.Once
+	lifecycleMu   sync.Mutex
+	running       bool
+	initialized   bool
 }
 
 var _ core.ChannelGraphics = (*Service)(nil)
@@ -196,24 +201,43 @@ func New(o Options) (*Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{blobs: blobStore{dir: o.AssetDir}, nodeID: o.NodeID, assetPoke: make(chan struct{}, 1), upcomingWake: make(chan struct{}, 1), fetching: map[string]chan struct{}{}, reelReady: map[string]bool{}, linkCache: map[string]linkEntry{}, reelClipIndex: map[string]reelClipMeta{}, linkChannels: map[string]map[string]bool{}, linkCancels: map[string]context.CancelFunc{}, manualLink: map[string]bool{}, linkFailLog: linkFail, resources: fonts.Version(), o: o, db: o.DB, looks: map[string]Look{}, cache: map[string]entry{}, pending: map[string]bool{}, liveSaving: map[string]bool{}, liveSpeed: map[string]liveSpeedRecord{}, renderTimes: map[string]time.Duration{}, pins: map[string]time.Time{}, progress: map[string]*Progress{}, lookJobs: map[string][]string{}, importCancels: map[string]context.CancelFunc{}, liveReady: make(chan struct{}, 1), jobs: make(chan renderJob, 128), clipJobs: make(chan renderJob, 64), importJobs: make(chan renderJob, 64), ctx: ctx, cancel: cancel}
 
-	if e := s.seed(ctx); e != nil {
-		cancel()
-		return nil, e
-	}
-	if o.Showcase {
-		if e := s.seedShowcase(ctx); e != nil {
-			cancel()
-			return nil, e
+	if o.Enabled == nil || o.Enabled() {
+		if err := s.initialize(); err != nil {
+			return nil, err
 		}
 	}
-	ls, e := s.Looks(ctx)
-	if e != nil {
-		cancel()
-		return nil, e
+	// Strict demand-driven rule: zero background rendering at boot, showcase
+	// install, or look save. Looks render only when an active viewer tunes a
+	// channel using them (rendered live + saved on cold boundary or via
+	// watchUpcoming for actively watched channels).
+	return s, nil
+}
+
+func (s *Service) initialize() error {
+	if s.initialized {
+		return nil
 	}
+
+	if e := s.seed(s.ctx); e != nil {
+		s.cancel()
+		return e
+	}
+	if s.o.Showcase {
+		if e := s.seedShowcase(s.ctx); e != nil {
+			s.cancel()
+			return e
+		}
+	}
+	ls, e := s.Looks(s.ctx)
+	if e != nil {
+		s.cancel()
+		return e
+	}
+	s.mu.Lock()
 	for _, l := range ls {
 		s.looks[l.ID] = l
 	}
+	s.mu.Unlock()
 	s.loadCache()
 	s.loadLinkCache()
 	s.loadReels()
@@ -221,13 +245,12 @@ func New(o Options) (*Service, error) {
 		s.refreshLookHashes(l)
 	}
 
-	s.resumeConversions()
-	s.resumeImports()
-	// Strict demand-driven rule: zero background rendering at boot, showcase
-	// install, or look save. Looks render only when an active viewer tunes a
-	// channel using them (rendered live + saved on cold boundary or via
-	// watchUpcoming for actively watched channels).
-	return s, nil
+	if s.o.Enabled == nil || s.o.Enabled() {
+		s.resumeConversions()
+		s.resumeImports()
+	}
+	s.initialized = true
+	return nil
 }
 
 // WakeUpcoming signals watchUpcoming when viewer demand or look configuration starts.
@@ -246,6 +269,9 @@ func (s *Service) Downloader() *extras.Downloader { return s.o.Downloader }
 
 // Start begins workers after application dependencies have been constructed.
 func (s *Service) Start() {
+	if s.o.Enabled != nil && !s.o.Enabled() {
+		return
+	}
 	s.startOnce.Do(func() {
 		if s.ctx.Err() == nil {
 			s.wg.Add(4)
@@ -259,6 +285,28 @@ func (s *Service) Start() {
 			}
 		}
 	})
+}
+
+// SetEnabled starts or drains all On Air workers with the shared Live TV switch.
+func (s *Service) SetEnabled(enabled bool) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if enabled == s.running {
+		return
+	}
+	if enabled {
+		s.ctx, s.cancel = context.WithCancel(context.Background())
+		if err := s.initialize(); err != nil {
+			s.o.Logger.Error("onair initialization failed", "error", err)
+			return
+		}
+		s.startOnce = sync.Once{}
+		s.Start()
+	} else {
+		s.cancel()
+		s.wg.Wait()
+	}
+	s.running = enabled
 }
 func (s *Service) Close() { s.cancel(); s.wg.Wait() }
 func (s *Service) Duration(id, m string) (time.Duration, bool) {
@@ -319,6 +367,9 @@ func (s *Service) Duration(id, m string) (time.Duration, bool) {
 // planRaw resolves the full scene document and full caller bindings (including
 // live programme/viewer slots and overlay metadata).
 func (s *Service) planRaw(r core.ClipRequest) (renderJob, bool) {
+	if s.o.Enabled != nil && !s.o.Enabled() {
+		return renderJob{}, false
+	}
 	var plugin PluginSegment
 	isPlugin := strings.HasPrefix(r.Moment, "plugin:")
 	if isPlugin {
@@ -721,6 +772,9 @@ func (s *Service) CancelChannel(channelID string) {
 }
 
 func (s *Service) enqueue(j renderJob) bool {
+	if s.o.Enabled != nil && !s.o.Enabled() {
+		return false
+	}
 	imminent := !j.download && s.imminent(j)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1289,7 +1343,9 @@ func (s *Service) loadCache() {
 		if e != nil {
 			continue
 		}
+		s.mu.Lock()
 		s.cache[h] = entry{Ref: core.ClipRef{Hash: h, Duration: time.Duration(d * float64(time.Second)), Path: filepath.Join(s.o.Dir, v.Name())}, Size: st.Size(), Used: st.ModTime()}
+		s.mu.Unlock()
 	}
 }
 func (s *Service) evict() {

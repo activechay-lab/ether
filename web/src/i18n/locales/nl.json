@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Programma",
   "m_03a78e28ac4a93": "Voeg een dagdeel of programmablok toe om de dag in te delen.",
   "m_03a83b35a93323": "Intro- en aftitelingstijden van IntroDB.",
+  "m_03a9d03d902695": "Instellingen voor live-tv",
   "m_03abee25fafc93": "Toon een serie in dvd-, absolute of verhaalvolgorde. Afspelen houdt de oorspronkelijke afleveringsnummers.",
   "m_03acc54b13526c": "Kanaal opgeslagen",
   "m_03b06978a0c496": "Geselecteerde rijen op {status} zetten",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Dat adres hoort bij een andere Plex Media Server. Voeg hem toe als nieuwe server.",
   "m_10815a5071e78a": "Bediening op afstand is niet beschikbaar vanaf deze server.",
   "m_10816f12b17447": "Kijklijsten van vrienden",
+  "m_1081a82a29d87e": "Niet nu",
   "m_1082d1a6a743cc": "Simkl-account verbonden.",
   "m_1083e252cdd4f4": "Alle overeenkomsten selecteren",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} serie",
     "other": "{count} series"
   },
+  "m_1399a627c83e1c": "Vier kanalen voor verschillende decennia zijn inbegrepen.",
   "m_139b8ded964f74": "Dagen en uren gebruiken de tijdzone van deze browser. Kijktijd telt onderbrekingen langer dan 60 seconden en gelijktijdige sessies die niet aan een apparaat kunnen worden gekoppeld niet mee.",
   "m_139c53184ae84d": "Resultaten weglaten",
   "m_139d73afa66352": "{name} staat al in Live tv",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Voor welke titels deze regel een profiel kan kiezen.",
   "m_183815c6a27403": "Scène toevoegen: {role}",
   "m_1839a1952915f3": "Schaal X",
+  "m_183ab4689851c1": "Wil je live-tv?",
   "m_183ae29a79ca63": "De gebeurtenisverbinding van deze node met de database is uitgevallen, waardoor wijzigingen op andere nodes hem mogelijk te laat bereiken.",
   "m_183b86f1f56580": "Ether is niet bereikbaar",
   "m_183bcb896e9d74": "titels zichtbaar",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Zenderaanbod",
   "m_1ac946fceccf3d": "Streamstabiliteit ingesteld op {name}",
   "m_1ac96195e626ad": "Ether-ontwerp",
+  "m_1ac9fed8f36220": "Live-tv uitschakelen",
   "m_1acae0294a1669": "Regel {n} slepen",
   "m_1acbb68bd15774": {
     "one": "{count} onderbreking per uur",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Installatielink",
   "m_1f6efbd7eae067": "Back-up gemaakt",
   "m_1f6f6d8a5a635a": "Ether bouwt je bibliotheek op basis van TMDB, dus een TMDB API-sleutel is vereist. Die is gratis: {link}, plak hem daarna hier en test hem.",
+  "m_1f7016a0ea3efe": "Nu een bron toevoegen",
   "m_1f7223c74bf3d9": "Kies een kijker",
   "m_1f7969b9559bf0": "Minimale populariteit",
   "m_1f79b14cede513": "Bron verwijderen",

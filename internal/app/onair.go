@@ -22,7 +22,7 @@ import (
 )
 
 func (a *App) buildOnAir() error {
-	o := onair.Options{Showcase: parityShowcase(), Changed: func(ctx context.Context) error {
+	o := onair.Options{Enabled: func() bool { v := a.cfg.Read().LiveTV.Enabled; return v != nil && *v }, Showcase: parityShowcase(), Changed: func(ctx context.Context) error {
 		if a.livetv != nil {
 			return a.livetv.RefreshGuide(ctx)
 		}

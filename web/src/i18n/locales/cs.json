@@ -1081,6 +1081,7 @@
   "m_03a67ea49a76e6": "Pořad",
   "m_03a78e28ac4a93": "Přidejte část dne nebo programový blok a sestavte denní vysílání.",
   "m_03a83b35a93323": "Časy intra a titulků z IntroDB.",
+  "m_03a9d03d902695": "Nastavení živé TV",
   "m_03abee25fafc93": "Ukažte seriál v pořadí DVD, absolutním nebo dějovém. Přehrávání drží původní čísla dílů.",
   "m_03acc54b13526c": "Kanál uložen",
   "m_03b06978a0c496": "Nastavit vybrané řádky na {status}",
@@ -4837,6 +4838,7 @@
   "m_107e66090c813c": "Tato adresa patří jinému Plex Media Serveru. Přidejte ho raději jako nový server.",
   "m_10815a5071e78a": "Vzdálené ovládání není z tohoto serveru dostupné.",
   "m_10816f12b17447": "Seznamy ke zhlédnutí přátel",
+  "m_1081a82a29d87e": "Teď ne",
   "m_1082d1a6a743cc": "Účet Simkl byl připojen.",
   "m_1083e252cdd4f4": "Vybrat všechny výsledky",
   "m_1084ceab8e0923": {
@@ -5821,6 +5823,7 @@
     "one": "{count} seriál",
     "other": "{count} seriálů"
   },
+  "m_1399a627c83e1c": "Součástí jsou čtyři kanály podle desetiletí.",
   "m_139b8ded964f74": "Dny a hodiny používají časové pásmo tohoto prohlížeče. Doba sledování nezahrnuje přestávky delší než 60 sekund ani souběžné relace, které nelze přiřadit k zařízení.",
   "m_139c53184ae84d": "Vynechat nalezené",
   "m_139d73afa66352": "{name} už je v Živé TV",
@@ -7184,6 +7187,7 @@
   "m_1837d867f508a4": "Pro které tituly může toto pravidlo vybrat profil.",
   "m_183815c6a27403": "Přidat scénu: {role}",
   "m_1839a1952915f3": "Měřítko X",
+  "m_183ab4689851c1": "Chcete živou TV?",
   "m_183ae29a79ca63": "Připojení tohoto uzlu k událostem databáze nefunguje, takže změny provedené na jiných uzlech k němu mohou dorazit se zpožděním.",
   "m_183b86f1f56580": "Ether není dostupný",
   "m_183bcb896e9d74": "viditelných titulů",
@@ -7984,6 +7988,7 @@
   "m_1ac92994b09ea0": "Nabídka kanálů",
   "m_1ac946fceccf3d": "Stabilita vysílání nastavena na {name}",
   "m_1ac96195e626ad": "Návrh Ether",
+  "m_1ac9fed8f36220": "Vypnout živou TV",
   "m_1acae0294a1669": "Přetáhnout pravidlo {n}",
   "m_1acbb68bd15774": {
     "few": "{count} zaseknutí za hodinu",
@@ -9358,6 +9363,7 @@
   "m_1f6e9a6fca8bf1": "Odkaz k instalaci",
   "m_1f6efbd7eae067": "Záloha pořízena",
   "m_1f6f6d8a5a635a": "Ether sestavuje vaši knihovnu z TMDB, proto je nutný klíč API TMDB. Je zdarma: {link}, poté ho sem vložte a otestujte.",
+  "m_1f7016a0ea3efe": "Přidat zdroj nyní",
   "m_1f7223c74bf3d9": "Vyberte diváka",
   "m_1f7969b9559bf0": "Minimální popularita",
   "m_1f79b14cede513": "Odebrat zdroj",

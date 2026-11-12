@@ -45,6 +45,8 @@ import { ProwlarrImport } from "../components/ProwlarrImport";
 import { DEBRID_KINDS } from "./sources/Debrid";
 import { DEBRID_TOKEN_URL } from "./sources/cards";
 import { addonUrlHasDebridKey, isStremio, normalizeAddonUrl } from "./sources/Indexers";
+import { Drawer } from "../components/Drawer";
+import { SourceEditor } from "./livetv/SourceEditor";
 import { LanguageStep } from "./setup/LanguageStep";
 import { StarterBundlesCard } from "./setup/StarterBundlesCard";
 import { SetupReady, connectDevicePath } from "./setup/SetupReady";
@@ -59,7 +61,7 @@ import { normalizeRules, type StreamRules } from "./viewers/shared";
 import { MIN_LOCAL_PASSWORD } from "./me/SignInMethods";
 
 export type WizardStepId =
-  "language" | "apps" | "account" | "sources" | "indexers" | "cache" | "catalog";
+  "livetv" | "language" | "apps" | "account" | "sources" | "indexers" | "cache" | "catalog";
 
 /** Survives a remount after the owner account is created so the visit does not start over. */
 export const SETUP_STEP_KEY = "ether.setup.step";
@@ -112,6 +114,7 @@ export function wizardSteps(
     { id: "sources", title: STEP_COPY.sourcesTitle, heading: STEP_COPY.sourcesHeading },
     { id: "indexers", title: STEP_COPY.indexersTitle, heading: STEP_COPY.indexersHeading },
     { id: "cache", title: STEP_COPY.cacheTitle, heading: STEP_COPY.cacheHeading },
+    { id: "livetv", title: t("Live TV"), heading: t("Do you want Live TV?") },
     { id: "catalog", title: STEP_COPY.catalogTitle, heading: STEP_COPY.catalogHeading },
   ];
 }
@@ -362,6 +365,7 @@ export function canAdvance(
   },
 ): boolean {
   switch (step) {
+    case "livetv":
     case "language":
     case "apps":
     case "cache":
@@ -404,6 +408,7 @@ export function canAdvance(
 export default function Setup() {
   const navigate = useNavigate();
   const app = useAppOptional();
+  const [liveSourceOpen, setLiveSourceOpen] = useState(false);
   const [cfg, setCfg] = useState<EtherConfig | null>(null);
   const [languageChoice, setLanguageChoice] = useState<HouseholdLanguage | null>(null);
   const languageBaseline = useRef<HouseholdLanguage | null>(null);
@@ -823,7 +828,10 @@ export default function Setup() {
         const status = await api.setupStatus();
         setServerSteps(Object.fromEntries(status.steps.map((item) => [item.id, item.complete])));
       }
-      let draft = cfg;
+      let draft =
+        stepId === "livetv"
+          ? { ...cfg, liveTV: { ...cfg.liveTV, enabled: cfg.liveTV?.enabled ?? false } }
+          : cfg;
       if (stepId === "language" && languageChoice) {
         const baseline = languageBaseline.current;
         const edited = !baseline || !sameHouseholdLanguage(languageChoice, baseline);
@@ -1027,6 +1035,53 @@ export default function Setup() {
       {stepId === "language" && languageChoice ? (
         <LanguageStep choice={languageChoice} onChange={setLanguageChoice} />
       ) : null}
+      {stepId === "livetv" ? (
+        <div className="space-y-4">
+          <Button
+            aria-pressed={cfg.liveTV?.enabled === true}
+            onClick={() => setCfg({ ...cfg, liveTV: { ...cfg.liveTV, enabled: true } })}
+          >
+            {t("Yes")}
+          </Button>
+          <Button
+            aria-pressed={cfg.liveTV?.enabled === false}
+            onClick={() => setCfg({ ...cfg, liveTV: { ...cfg.liveTV, enabled: false } })}
+          >
+            {t("Not now")}
+          </Button>
+          {cfg.liveTV?.enabled ? (
+            <div>
+              <p>{t("Four decade channels are included.")}</p>
+              <Button
+                onClick={async () => {
+                  try {
+                    await api.putConfig(cfg);
+                    setLiveSourceOpen(true);
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                {t("Add a source now")}
+              </Button>
+              <Button onClick={() => next()}>{t("Later")}</Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <Drawer
+        open={liveSourceOpen}
+        onClose={() => setLiveSourceOpen(false)}
+        title={t("Add a source now")}
+        size="lg"
+      >
+        <SourceEditor
+          source={null}
+          kind="playlist"
+          onSaved={() => setLiveSourceOpen(false)}
+          onDeleted={() => setLiveSourceOpen(false)}
+        />
+      </Drawer>
       {stepId === "apps" ? (
         <div className="space-y-4">
           <p className="text-sm text-fg-muted">

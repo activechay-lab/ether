@@ -276,6 +276,9 @@ func sortedKeys(m map[string]bool) []string {
 // access. It checks existence in SQL so provider discovery never loads the
 // entire lineup.
 func (s *Service) VisibleTo(ctx context.Context, u *core.User) bool {
+	if !s.Enabled() {
+		return false
+	}
 	if u == nil {
 		return false
 	}

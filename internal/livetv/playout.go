@@ -220,6 +220,9 @@ func (s *Service) Tune(ctx context.Context, u *core.User, channelID string, caps
 // TuneWithSession preserves the client's playback-session identity independently
 // of the server's stream, subscription and activity identities.
 func (s *Service) TuneWithSession(ctx context.Context, u *core.User, channelID string, caps core.ClientCaps, clientSessionID string) (result SessionInfo, resultErr error) {
+	if !s.Enabled() {
+		return SessionInfo{}, core.ErrNotAvailable
+	}
 	started := time.Now()
 	attemptID := liveSessionID()
 	log := s.logger().With("session", attemptID, "channel", channelID, "client", caps.ClientID, "product", caps.Product)

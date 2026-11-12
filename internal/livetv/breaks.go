@@ -29,7 +29,7 @@ func (s *Service) breakLoopActive(now time.Time) bool {
 // always wins. Requests only consume the resulting immutable item metadata.
 func (s *Service) breakLoop() {
 	defer s.wg.Done()
-	timer := time.NewTimer(time.Minute)
+	timer := s.newTimer(time.Minute)
 	if !timer.Stop() {
 		select {
 		case <-timer.C:

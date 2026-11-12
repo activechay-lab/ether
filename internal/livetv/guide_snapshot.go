@@ -154,7 +154,7 @@ func (s *Service) wakeVirtualGuide() {
 
 func (s *Service) virtualGuideLoop() {
 	defer s.wg.Done()
-	timer := time.NewTimer(virtualGuideRefreshEvery)
+	timer := s.newTimer(virtualGuideRefreshEvery)
 	if !timer.Stop() {
 		select {
 		case <-timer.C:
@@ -217,7 +217,7 @@ func (s *Service) startChannelPrep(c Channel, epoch int64, revision uint64, now 
 		s.virtualGuide.mu.Unlock()
 		return f
 	}
-	if s.ctx == nil || s.ctx.Err() != nil {
+	if !s.Enabled() || s.ctx == nil || s.ctx.Err() != nil {
 		s.virtualGuide.mu.Unlock()
 		f := &virtualGuideFlight{done: make(chan struct{}), err: context.Canceled}
 		close(f.done)
@@ -485,7 +485,7 @@ func (s *Service) prepareVirtualChannels(ctx context.Context, missing []Channel,
 	}
 	s.noteVirtualGuideDemand(false)
 
-	waitTimer := time.NewTimer(virtualGuideColdWait)
+	waitTimer := s.newTimer(virtualGuideColdWait)
 	defer waitTimer.Stop()
 	for _, f := range flights {
 		select {
@@ -594,6 +594,9 @@ func (s *Service) refreshVirtualGuideIfWarm(ctx context.Context) error {
 // reads never call this method. When Live TV is cold and idle, bumping the
 // revision invalidates any stale state without materializing snapshots.
 func (s *Service) RefreshGuide(ctx context.Context) error {
+	if !s.Enabled() {
+		return nil
+	}
 	s.virtualGuide.mu.Lock()
 	s.virtualGuide.revision++
 	warm := len(s.virtualGuide.entries) > 0
@@ -616,6 +619,9 @@ const (
 )
 
 func (s *Service) ProgrammesSnapshot(ctx context.Context, u *core.User, id string, from, until time.Time, view SnapshotView) ([]Programme, error) {
+	if !s.Enabled() {
+		return nil, core.ErrNotAvailable
+	}
 	if !until.After(from) || until.Sub(from) > 8*24*time.Hour {
 		return nil, fmt.Errorf("invalid snapshot window")
 	}

@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Program",
   "m_03a78e28ac4a93": "Tilføj en døgnperiode eller programblok for at forme dagen.",
   "m_03a83b35a93323": "Intro- og rulleteksttider fra IntroDB.",
+  "m_03a9d03d902695": "Indstillinger for live-tv",
   "m_03abee25fafc93": "Vis en serie i dvd-, absolut eller historieorden. Afspilning beholder de oprindelige afsnitsnumre.",
   "m_03acc54b13526c": "Kanal gemt",
   "m_03b06978a0c496": "Sæt de valgte rækker til {status}",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Den adresse hører til en anden Plex Media Server. Tilføj den som en ny server i stedet.",
   "m_10815a5071e78a": "Fjernstyring er ikke tilgængelig fra denne server.",
   "m_10816f12b17447": "Venners overvågningslister",
+  "m_1081a82a29d87e": "Ikke nu",
   "m_1082d1a6a743cc": "Simkl-kontoen er tilsluttet.",
   "m_1083e252cdd4f4": "Vælg alle resultater",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} serie",
     "other": "{count} serier"
   },
+  "m_1399a627c83e1c": "Fire kanaler med hvert sit årti er inkluderet.",
   "m_139b8ded964f74": "Dage og timer bruger denne browsers tidszone. Setid udelader pauser på over 60 sekunder og samtidige sessioner, der ikke kan knyttes til en enhed.",
   "m_139c53184ae84d": "Udelad resultater",
   "m_139d73afa66352": "{name} er allerede i Live-tv",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Hvilke titler denne regel kan vælge en profil til.",
   "m_183815c6a27403": "Tilføj {role}-scene",
   "m_1839a1952915f3": "Skalering X",
+  "m_183ab4689851c1": "Vil du have live-tv?",
   "m_183ae29a79ca63": "Denne nodes hændelsesforbindelse til databasen er nede, så ændringer foretaget på andre noder kan nå den sent.",
   "m_183b86f1f56580": "Kan ikke nå Ether",
   "m_183bcb896e9d74": "titler synlige",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Kanaludvalg",
   "m_1ac946fceccf3d": "Streamstabilitet sat til {name}",
   "m_1ac96195e626ad": "Ether-design",
+  "m_1ac9fed8f36220": "Slå live-tv fra",
   "m_1acae0294a1669": "Træk regel {n}",
   "m_1acbb68bd15774": {
     "one": "{count} stop i timen",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Installationslink",
   "m_1f6efbd7eae067": "Backup oprettet",
   "m_1f6f6d8a5a635a": "Ether bygger dit bibliotek ud fra TMDB, så en TMDB API-nøgle er påkrævet. Den er gratis: {link}, indsæt den derefter her, og test den.",
+  "m_1f7016a0ea3efe": "Tilføj en kilde nu",
   "m_1f7223c74bf3d9": "Vælg en seer",
   "m_1f7969b9559bf0": "Mindste popularitet",
   "m_1f79b14cede513": "Fjern kilde",

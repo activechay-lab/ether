@@ -93,7 +93,7 @@ func (s *Service) healthSweepLoop() {
 		if minutes > 24*60 {
 			minutes = 24 * 60
 		}
-		timer := time.NewTimer(time.Duration(minutes) * time.Minute)
+		timer := s.newTimer(time.Duration(minutes) * time.Minute)
 		select {
 		case <-s.ctx.Done():
 			timer.Stop()

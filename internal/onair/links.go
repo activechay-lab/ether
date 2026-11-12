@@ -643,6 +643,7 @@ func (s *Service) loadLinkCache() {
 		if meta.LastAiredUnix > 0 {
 			lastAired = time.Unix(meta.LastAiredUnix, 0)
 		}
+		s.mu.Lock()
 		s.linkCache[key] = linkEntry{
 			Path:        filepath.Join(dir, v.Name()),
 			Size:        st.Size(),
@@ -651,6 +652,7 @@ func (s *Service) loadLinkCache() {
 			Title:       meta.Title,
 			Attribution: meta.Attribution,
 		}
+		s.mu.Unlock()
 	}
 	s.mu.Lock()
 	s.evictLinksLocked("")

@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Program",
   "m_03a78e28ac4a93": "Legg til en døgnperiode eller programblokk for å forme dagen.",
   "m_03a83b35a93323": "Intro- og rulleteksttider fra IntroDB.",
+  "m_03a9d03d902695": "Innstillinger for direktesendt TV",
   "m_03abee25fafc93": "Vis en serie i DVD-, absolutt eller historieorden. Avspilling beholder de opprinnelige episodenumrene.",
   "m_03acc54b13526c": "Kanalen er lagret",
   "m_03b06978a0c496": "Sett de valgte radene til {status}",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Den adressen er en annen Plex Media Server. Legg den til som en ny server i stedet.",
   "m_10815a5071e78a": "Fjernstyring er ikke tilgjengelig fra denne serveren.",
   "m_10816f12b17447": "Venners overvåkningslister",
+  "m_1081a82a29d87e": "Ikke nå",
   "m_1082d1a6a743cc": "Simkl-kontoen er koblet til.",
   "m_1083e252cdd4f4": "Velg alle treff",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} serie",
     "other": "{count} serier"
   },
+  "m_1399a627c83e1c": "Fire kanaler for ulike tiår er inkludert.",
   "m_139b8ded964f74": "Dager og timer bruker tidssonen til denne nettleseren. Seertid utelater pauser på over 60 sekunder og samtidige økter som ikke kan knyttes til en enhet.",
   "m_139c53184ae84d": "Utelat treff",
   "m_139d73afa66352": "{name} er allerede i Direkte-TV",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Hvilke titler denne regelen kan velge profil for.",
   "m_183815c6a27403": "Legg til {role}-scene",
   "m_1839a1952915f3": "Skalering X",
+  "m_183ab4689851c1": "Vil du ha direktesendt TV?",
   "m_183ae29a79ca63": "Denne nodens hendelsestilkobling til databasen er nede, så endringer gjort på andre noder kan nå den sent.",
   "m_183b86f1f56580": "Får ikke kontakt med Ether",
   "m_183bcb896e9d74": "titler synlige",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Kanaltilbud",
   "m_1ac946fceccf3d": "Strømmestabilitet satt til {name}",
   "m_1ac96195e626ad": "Ether-design",
+  "m_1ac9fed8f36220": "Slå av direktesendt TV",
   "m_1acae0294a1669": "Dra regel {n}",
   "m_1acbb68bd15774": {
     "one": "{count} stopp i timen",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Installasjonslenke",
   "m_1f6efbd7eae067": "Sikkerhetskopi tatt",
   "m_1f6f6d8a5a635a": "Ether bygger biblioteket ditt fra TMDB, så en TMDB API-nøkkel er påkrevd. Den er gratis: {link}, lim den deretter inn her og test den.",
+  "m_1f7016a0ea3efe": "Legg til en kilde nå",
   "m_1f7223c74bf3d9": "Velg en seer",
   "m_1f7969b9559bf0": "Minimum popularitet",
   "m_1f79b14cede513": "Fjern kilde",

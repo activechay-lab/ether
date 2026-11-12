@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Programme",
   "m_03a78e28ac4a93": "Add a daypart or programme block to shape the day.",
   "m_03a83b35a93323": "Intro and credit times from IntroDB.",
+  "m_03a9d03d902695": "Live TV settings",
   "m_03abee25fafc93": "Present a show in DVD, absolute or story order. Playback keeps the original episode numbers.",
   "m_03acc54b13526c": "Channel saved",
   "m_03b06978a0c496": "Set the selected rows to {status}",
@@ -4610,6 +4611,7 @@
   "m_107e66090c813c": "That address is a different Plex Media Server. Add it as a new server instead.",
   "m_10815a5071e78a": "Remote controls are not available from this server.",
   "m_10816f12b17447": "Friends' watchlists",
+  "m_1081a82a29d87e": "Not now",
   "m_1082d1a6a743cc": "Simkl account connected.",
   "m_1083e252cdd4f4": "Select all matches",
   "m_1084ceab8e0923": {
@@ -5536,6 +5538,7 @@
     "one": "{count} show",
     "other": "{count} shows"
   },
+  "m_1399a627c83e1c": "Four decade channels are included.",
   "m_139b8ded964f74": "Days and hours use this browser's time zone. Watched time leaves out gaps longer than 60 seconds and simultaneous sessions that can't be matched to a device.",
   "m_139c53184ae84d": "Leave matches out",
   "m_139d73afa66352": "{name} is already in Live TV",
@@ -6836,6 +6839,7 @@
   "m_1837d867f508a4": "Which titles this rule can choose a profile for.",
   "m_183815c6a27403": "Add {role} scene",
   "m_1839a1952915f3": "Scale X",
+  "m_183ab4689851c1": "Do you want Live TV?",
   "m_183ae29a79ca63": "This node's event connection to the database is down, so changes made on other nodes may reach it late.",
   "m_183b86f1f56580": "Can't reach Ether",
   "m_183bcb896e9d74": "titles visible",
@@ -7600,6 +7604,7 @@
   "m_1ac92994b09ea0": "Lineup",
   "m_1ac946fceccf3d": "Stream stability set to {name}",
   "m_1ac96195e626ad": "Ether design",
+  "m_1ac9fed8f36220": "Turn off Live TV",
   "m_1acae0294a1669": "Drag rule {n}",
   "m_1acbb68bd15774": {
     "one": "{count} stall per hour",
@@ -8913,6 +8918,7 @@
   "m_1f6e9a6fca8bf1": "Install link",
   "m_1f6efbd7eae067": "Backup taken",
   "m_1f6f6d8a5a635a": "Ether builds your library from TMDB, so a TMDB API key is required. It is free: {link}, then paste it here and test it.",
+  "m_1f7016a0ea3efe": "Add a source now",
   "m_1f7223c74bf3d9": "Choose a viewer",
   "m_1f7969b9559bf0": "Minimum popularity",
   "m_1f79b14cede513": "Remove source",

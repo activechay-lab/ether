@@ -166,6 +166,9 @@ func (m *MomentStream) Close() error {
 // LiveRenderAllowed reports whether live real-time rendering is permitted for r
 // based on measured render speed (>= 1.0x realtime required).
 func (s *Service) LiveRenderAllowed(r core.ClipRequest) (bool, float64, string) {
+	if s != nil && s.o.Enabled != nil && !s.o.Enabled() {
+		return false, 0, "Live TV disabled"
+	}
 	if s == nil {
 		return false, 0, "graphics unavailable"
 	}

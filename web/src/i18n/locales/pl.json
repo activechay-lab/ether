@@ -1081,6 +1081,7 @@
   "m_03a67ea49a76e6": "Program",
   "m_03a78e28ac4a93": "Dodaj porę dnia lub blok programowy, aby ułożyć ramówkę.",
   "m_03a83b35a93323": "Czasy intra i napisów końcowych z IntroDB.",
+  "m_03a9d03d902695": "Ustawienia telewizji na żywo",
   "m_03abee25fafc93": "Pokaż serial w kolejności DVD, bezwzględnej albo fabularnej. Odtwarzanie zostawia oryginalne numery odcinków.",
   "m_03acc54b13526c": "Kanał zapisany",
   "m_03b06978a0c496": "Ustaw zaznaczone wiersze na {status}",
@@ -4837,6 +4838,7 @@
   "m_107e66090c813c": "Pod tym adresem jest inny Plex Media Server. Dodaj go jako nowy serwer.",
   "m_10815a5071e78a": "Zdalne sterowanie nie jest dostępne z tego serwera.",
   "m_10816f12b17447": "Listy do obejrzenia znajomych",
+  "m_1081a82a29d87e": "Nie teraz",
   "m_1082d1a6a743cc": "Konto Simkl zostało połączone.",
   "m_1083e252cdd4f4": "Wybierz wszystkie wyniki",
   "m_1084ceab8e0923": {
@@ -5821,6 +5823,7 @@
     "one": "{count} serial",
     "other": "{count} serialu"
   },
+  "m_1399a627c83e1c": "Dostępne są cztery kanały poświęcone dekadom.",
   "m_139b8ded964f74": "Dni i godziny korzystają ze strefy czasowej tej przeglądarki. Czas oglądania nie obejmuje przerw dłuższych niż 60 sekund ani jednoczesnych sesji, których nie można przypisać do urządzenia.",
   "m_139c53184ae84d": "Pomiń wyniki",
   "m_139d73afa66352": "{name} jest już w Telewizji na żywo",
@@ -7184,6 +7187,7 @@
   "m_1837d867f508a4": "Dla jakich tytułów ta reguła może wybrać profil.",
   "m_183815c6a27403": "Dodaj scenę: {role}",
   "m_1839a1952915f3": "Skala X",
+  "m_183ab4689851c1": "Czy chcesz telewizję na żywo?",
   "m_183ae29a79ca63": "Połączenie zdarzeń tego węzła z bazą danych nie działa, więc zmiany wprowadzone na innych węzłach mogą docierać do niego z opóźnieniem.",
   "m_183b86f1f56580": "Nie można połączyć się z Ether",
   "m_183bcb896e9d74": "widocznych tytułów",
@@ -7984,6 +7988,7 @@
   "m_1ac92994b09ea0": "Lista kanałów",
   "m_1ac946fceccf3d": "Ustawiono stabilność strumienia: {name}",
   "m_1ac96195e626ad": "Projekt Ether",
+  "m_1ac9fed8f36220": "Wyłącz telewizję na żywo",
   "m_1acae0294a1669": "Przeciągnij regułę {n}",
   "m_1acbb68bd15774": {
     "few": "{count} przerwy na godzinę",
@@ -9358,6 +9363,7 @@
   "m_1f6e9a6fca8bf1": "Link instalacyjny",
   "m_1f6efbd7eae067": "Data kopii zapasowej",
   "m_1f6f6d8a5a635a": "Ether buduje Twoją bibliotekę na podstawie TMDB, więc wymagany jest klucz API TMDB. Jest bezpłatny: {link}, a następnie wklej go tutaj i przetestuj.",
+  "m_1f7016a0ea3efe": "Dodaj źródło teraz",
   "m_1f7223c74bf3d9": "Wybierz widza",
   "m_1f7969b9559bf0": "Minimalna popularność",
   "m_1f79b14cede513": "Usuń źródło",

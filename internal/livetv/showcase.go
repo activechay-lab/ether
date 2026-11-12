@@ -223,7 +223,7 @@ func decadeOnly(r *showcaseRecipe, earliest bool) {
 func (r showcaseRecipe) channel(id, number, tz string, now time.Time) Channel {
 	loc := zoneOf(tz)
 	start := dayStart(now, loc)
-	c := Channel{ID: id, Number: number, Name: r.name, Kind: "virtual", Group: "Decades", Enabled: false, Timezone: tz, Epoch: start.UTC(), Seed: r.seed, OffAir: true, Items: []Item{}, Transcode: true}
+	c := Channel{ID: id, Number: number, Name: r.name, Kind: "virtual", Group: "Decades", Enabled: true, Timezone: tz, Epoch: start.UTC(), Seed: r.seed, OffAir: true, Items: []Item{}, Transcode: true}
 	look := &ChannelLook{LookID: r.lookID, Ident: true, UpNext: true, OffAir: true, Overlays: "always", Placement: "insert"}
 	if r.reelID != "" {
 		look.Breaks = "between"
@@ -371,7 +371,7 @@ func (s *Service) seedShowcase(ctx context.Context) error {
 func (s *Service) showcaseLoop() {
 	defer s.wg.Done()
 	seeded := false
-	timer := time.NewTimer(5 * time.Minute)
+	timer := s.newTimer(5 * time.Minute)
 	if !timer.Stop() {
 		select {
 		case <-timer.C:
@@ -712,9 +712,6 @@ func (s *Service) refreshShowcaseChannel(ctx context.Context, row showcaseRow, r
 			}
 			return nil
 		}
-		if !c.Enabled && untouched {
-			c.Enabled = true
-		}
 		state = showcaseLive
 		s.o.Logger.Info("showcase channel on air", "channel", c.Name, "filledBlocks", filled, "blocks", len(c.Blocks), "enabled", c.Enabled)
 	}
@@ -817,4 +814,28 @@ func localZoneName() string {
 		}
 	}
 	return ""
+}
+
+// EnableShowcaseDefaults applies only to an explicit off-to-on choice. Later
+// per-channel edits remain authoritative, including while recipes are pending.
+func (s *Service) EnableShowcaseDefaults(ctx context.Context) error {
+	if err := s.seedShowcase(ctx); err != nil {
+		return err
+	}
+	for _, r := range showcaseRecipes() {
+		c, err := s.Channel(ctx, "showcase-"+r.id)
+		if errors.Is(err, core.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !c.Enabled {
+			c.Enabled = true
+			if _, err := s.SaveChannel(ctx, c); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

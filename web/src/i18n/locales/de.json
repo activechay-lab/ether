@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Sendung",
   "m_03a78e28ac4a93": "Füge einen Tagesabschnitt oder Programmblock hinzu, um den Tag zu gestalten.",
   "m_03a83b35a93323": "Intro- und Abspannzeiten von IntroDB.",
+  "m_03a9d03d902695": "Live-TV-Einstellungen",
   "m_03abee25fafc93": "Zeig eine Serie in DVD-, absoluter oder Handlungsreihenfolge. Die Wiedergabe behält die ursprünglichen Folgennummern.",
   "m_03acc54b13526c": "Kanal gespeichert",
   "m_03b06978a0c496": "Ausgewählte Reihen auf {status} setzen",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Diese Adresse gehört zu einem anderen Plex Media Server. Füge ihn stattdessen als neuen Server hinzu.",
   "m_10815a5071e78a": "Fernsteuerung ist von diesem Server aus nicht verfügbar.",
   "m_10816f12b17447": "Watchlists von Freunden",
+  "m_1081a82a29d87e": "Nicht jetzt",
   "m_1082d1a6a743cc": "Simkl-Konto verbunden.",
   "m_1083e252cdd4f4": "Alle Treffer auswählen",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} Serie",
     "other": "{count} Serien"
   },
+  "m_1399a627c83e1c": "Vier Sender für verschiedene Jahrzehnte sind enthalten.",
   "m_139b8ded964f74": "Tage und Stunden verwenden die Zeitzone dieses Browsers. Die Wiedergabezeit schließt Pausen über 60 Sekunden und gleichzeitige Sitzungen aus, die keinem Gerät zugeordnet werden können.",
   "m_139c53184ae84d": "Treffer auslassen",
   "m_139d73afa66352": "{name} ist bereits in Live-TV",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Für welche Titel diese Regel ein Profil auswählen kann.",
   "m_183815c6a27403": "Szene hinzufügen: {role}",
   "m_1839a1952915f3": "Skalierung X",
+  "m_183ab4689851c1": "Möchtest du Live-TV?",
   "m_183ae29a79ca63": "Die Ereignisverbindung dieses Knotens zur Datenbank ist unterbrochen, daher erreichen ihn Änderungen anderer Knoten möglicherweise verspätet.",
   "m_183b86f1f56580": "Ether nicht erreichbar",
   "m_183bcb896e9d74": "Titel sichtbar",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Senderliste",
   "m_1ac946fceccf3d": "Stream-Stabilität auf {name} gesetzt",
   "m_1ac96195e626ad": "Ether-Design",
+  "m_1ac9fed8f36220": "Live-TV ausschalten",
   "m_1acae0294a1669": "Regel {n} ziehen",
   "m_1acbb68bd15774": {
     "one": "{count} Aussetzer pro Stunde",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Installationslink",
   "m_1f6efbd7eae067": "Backup erstellt",
   "m_1f6f6d8a5a635a": "Ether baut deine Mediathek aus TMDB auf, daher wird ein TMDB-API-Schlüssel benötigt. Er ist kostenlos: {link}, dann hier einfügen und testen.",
+  "m_1f7016a0ea3efe": "Jetzt eine Quelle hinzufügen",
   "m_1f7223c74bf3d9": "Zuschauer auswählen",
   "m_1f7969b9559bf0": "Minimale Beliebtheit",
   "m_1f79b14cede513": "Quelle entfernen",

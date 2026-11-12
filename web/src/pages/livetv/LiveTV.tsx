@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   Input,
+  Switch,
   Popover,
   cn,
   confirmDialog,
@@ -119,6 +120,56 @@ function selectionFrom(params: URLSearchParams): Selection {
  * workbench, all edited in place.
  */
 export default function LiveTV() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    api
+      .getConfig()
+      .then((c) => setEnabled(c.liveTV?.enabled ?? false))
+      .catch((e) => toast.error(errorMessage(e)));
+  }, []);
+  const toggleLiveTV = async (value: boolean) => {
+    try {
+      const c = await api.getConfig();
+      await api.putConfig({ ...c, liveTV: { ...c.liveTV, enabled: value } });
+      setEnabled(value);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+  if (enabled === null) return null;
+  if (!enabled)
+    return (
+      <div className="p-6 space-y-4">
+        <h1>{t("Live TV is off")}</h1>
+        <Button onClick={() => toggleLiveTV(true)}>{t("Turn on")}</Button>
+      </div>
+    );
+  return (
+    <>
+      <div className="px-6 pt-4">
+        <Button onClick={() => setSettingsOpen(true)}>{t("Settings")}</Button>
+      </div>
+      <Drawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title={t("Live TV settings")}
+      >
+        <label className="flex items-center justify-between gap-4">
+          {t("Live TV")}
+          <Switch
+            aria-label={t("Turn off Live TV")}
+            checked={enabled}
+            onChange={(e) => toggleLiveTV(e.target.checked)}
+          />
+        </label>
+      </Drawer>
+      <LiveTVWorkspace />
+    </>
+  );
+}
+
+function LiveTVWorkspace() {
   const { tab } = useParams();
   const { looks, reels, reload: reloadLooks } = useLooks();
   const navigate = useNavigate();

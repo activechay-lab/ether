@@ -1033,6 +1033,7 @@
   "m_03a67ea49a76e6": "Program",
   "m_03a78e28ac4a93": "Lägg till en dygnsperiod eller ett programblock för att forma dagen.",
   "m_03a83b35a93323": "Intro- och eftertexttider från IntroDB.",
+  "m_03a9d03d902695": "Inställningar för live-tv",
   "m_03abee25fafc93": "Visa en serie i dvd-, absolut eller berättelseordning. Uppspelning behåller de ursprungliga avsnittsnumren.",
   "m_03acc54b13526c": "Kanalen sparades",
   "m_03b06978a0c496": "Sätt de valda raderna till {status}",
@@ -4603,6 +4604,7 @@
   "m_107e66090c813c": "Den adressen hör till en annan Plex Media Server. Lägg till den som en ny server i stället.",
   "m_10815a5071e78a": "Fjärrstyrning är inte tillgänglig från den här servern.",
   "m_10816f12b17447": "Vänners bevakningslistor",
+  "m_1081a82a29d87e": "Inte nu",
   "m_1082d1a6a743cc": "Simkl-kontot har anslutits.",
   "m_1083e252cdd4f4": "Välj alla träffar",
   "m_1084ceab8e0923": {
@@ -5529,6 +5531,7 @@
     "one": "{count} serie",
     "other": "{count} serier"
   },
+  "m_1399a627c83e1c": "Fyra kanaler för olika årtionden ingår.",
   "m_139b8ded964f74": "Dagar och timmar använder denna webbläsares tidszon. Tittartiden utesluter avbrott längre än 60 sekunder och samtidiga sessioner som inte kan kopplas till en enhet.",
   "m_139c53184ae84d": "Utelämna träffar",
   "m_139d73afa66352": "{name} finns redan i Live-TV",
@@ -6826,6 +6829,7 @@
   "m_1837d867f508a4": "Vilka titlar denna regel kan välja en profil för.",
   "m_183815c6a27403": "Lägg till scen: {role}",
   "m_1839a1952915f3": "Skala X",
+  "m_183ab4689851c1": "Vill du ha live-tv?",
   "m_183ae29a79ca63": "Den här nodens händelseanslutning till databasen ligger nere, så ändringar som görs på andra noder kan nå den sent.",
   "m_183b86f1f56580": "Kan inte nå Ether",
   "m_183bcb896e9d74": "titlar synliga",
@@ -7585,6 +7589,7 @@
   "m_1ac92994b09ea0": "Kanalutbud",
   "m_1ac946fceccf3d": "Strömstabilitet inställd på {name}",
   "m_1ac96195e626ad": "Ether-design",
+  "m_1ac9fed8f36220": "Stäng av live-tv",
   "m_1acae0294a1669": "Dra regel {n}",
   "m_1acbb68bd15774": {
     "one": "{count} avbrott per timme",
@@ -8895,6 +8900,7 @@
   "m_1f6e9a6fca8bf1": "Installationslänk",
   "m_1f6efbd7eae067": "Säkerhetskopia skapad",
   "m_1f6f6d8a5a635a": "Ether bygger ditt bibliotek från TMDB, så en TMDB API-nyckel krävs. Den är gratis: {link}, klistra sedan in den här och testa den.",
+  "m_1f7016a0ea3efe": "Lägg till en källa nu",
   "m_1f7223c74bf3d9": "Välj en tittare",
   "m_1f7969b9559bf0": "Lägsta popularitet",
   "m_1f79b14cede513": "Ta bort källa",
