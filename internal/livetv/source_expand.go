@@ -2,6 +2,7 @@ package livetv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
+
+// droppedUnavailableKey carries a running count of titles dropped as
+// known-unavailable during one expand() call. expand() copies the final
+// count onto Channel.DroppedUnavailable, which availabilityRecheckLoop uses
+// to find channels worth re-expanding later (see expand() in service.go and
+// availabilityRecheckLoop below).
+type droppedUnavailableKey struct{}
 
 // expandProgramSource runs only while saving or rebuilding background snapshots.
 // Persisted Items are the sole input to the deterministic playout engine.
@@ -146,6 +154,8 @@ func (s *Service) expandProgramSource(ctx context.Context, src *ProgramSource, d
 	for _, it := range items {
 		if !s.knownUnavailable(ctx, it.Key) {
 			kept = append(kept, it)
+		} else if counter, ok := ctx.Value(droppedUnavailableKey{}).(*int); ok {
+			*counter++
 		}
 	}
 	return kept, err
@@ -283,4 +293,69 @@ func validateProgramming(c *Channel, check func([]Item) error) error {
 		}
 	}
 	return nil
+}
+
+// availabilityRecheckLoop re-expands every ordinary (non-showcase,
+// non-personal) virtual channel that last dropped a known-unavailable
+// title, so a title that finishes caching later gets picked back up without
+// anyone having to touch the source selection just to force a re-expand.
+// Mirrors showcaseLoop's own self-healing refresh (showcase.go), extended to
+// channels built by hand through "pick a show/movie, click apply" rather
+// than a shipped recipe - those have no other timer bringing them back.
+func (s *Service) availabilityRecheckLoop() {
+	defer s.wg.Done()
+	timer := time.NewTimer(5 * time.Minute)
+	defer timer.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-timer.C:
+		}
+		s.recheckDroppedChannels(s.ctx)
+		timer.Reset(5 * time.Minute)
+	}
+}
+
+// recheckDroppedChannels is a best-effort pass: any failure (a flaky
+// catalogue, a channel mid-airing) just skips that channel for this tick -
+// there is no save to protect here, the next tick tries again.
+func (s *Service) recheckDroppedChannels(ctx context.Context) {
+	cs, err := s.Channels(ctx)
+	if err != nil {
+		return
+	}
+	showcased := map[string]bool{}
+	if rows, err := s.o.DB.QueryContext(ctx, `SELECT channel_id FROM livetv_showcase`); err == nil {
+		for rows.Next() {
+			var id string
+			if rows.Scan(&id) == nil {
+				showcased[id] = true
+			}
+		}
+		rows.Close()
+	}
+	for _, c := range cs {
+		if c.Kind != "virtual" || c.Personal != nil || c.DroppedUnavailable == 0 || showcased[c.ID] {
+			continue
+		}
+		if s.channelBusy(c.ID) {
+			continue // never move a programme under a viewer; retry next pass
+		}
+		if err := s.expand(ctx, &c); err != nil {
+			continue
+		}
+		if err := validateChannel(&c); err != nil {
+			continue
+		}
+		data, err := json.Marshal(c)
+		if err != nil {
+			continue
+		}
+		if _, err := s.o.DB.ExecContext(ctx, `UPDATE livetv_channels SET data=? WHERE id=?`, data, c.ID); err != nil {
+			continue
+		}
+		s.invalidate(c.ID, "")
+		_ = s.refreshVirtualGuideIfWarm(ctx)
+	}
 }

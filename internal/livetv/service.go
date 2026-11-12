@@ -167,6 +167,10 @@ func New(o Options) (*Service, error) {
 		s.wg.Add(1)
 		go s.showcaseLoop()
 	}
+	if o.Catalog != nil {
+		s.wg.Add(1)
+		go s.availabilityRecheckLoop()
+	}
 	s.wg.Add(4)
 	go s.vodLoop()
 	go s.maintain()
@@ -523,6 +527,8 @@ func itemFromTitle(t core.Title) Item {
 	return Item{Key: t.Key, Title: t.Title, DurationMS: t.Runtime.Milliseconds(), Summary: t.Summary, Rating: t.ContentRating, Thumb: t.PosterPath, ShowKey: t.ShowKey, Season: t.Season, Episode: t.Episode, ReleasedMS: released}
 }
 func (s *Service) expand(ctx context.Context, c *Channel) error {
+	dropped := new(int)
+	ctx = context.WithValue(ctx, droppedUnavailableKey{}, dropped)
 	var prepare func([]ProgramSource, string)
 	prepare = func(sources []ProgramSource, prefix string) {
 		for i := range sources {
@@ -590,6 +596,7 @@ func (s *Service) expand(ctx context.Context, c *Channel) error {
 			return err
 		}
 	}
+	c.DroppedUnavailable = *dropped
 	return nil
 }
 

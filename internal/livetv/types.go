@@ -183,6 +183,12 @@ type Channel struct {
 	reel                 *ReelSnapshot
 	momentHistory        *momentHistory
 	DVRMinutes           int             `json:"dvrMinutes,omitempty"`
+	// DroppedUnavailable is how many titles the last expand() dropped as
+	// known-unavailable. availabilityRecheckLoop (source_expand.go) uses a
+	// nonzero count to find channels worth a periodic re-expand, so a title
+	// that finishes caching later gets picked back up without anyone having
+	// to touch the source selection.
+	DroppedUnavailable   int             `json:"droppedUnavailable,omitempty"`
 	Personal             *PersonalRecipe `json:"personal,omitempty"`
 	personalViewer       *core.User
 	Screens              *ChannelScreens `json:"screens,omitempty"`
