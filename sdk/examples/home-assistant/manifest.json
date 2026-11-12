@@ -19,6 +19,10 @@
     "runtime": {
       "kind": "remote"
     },
+    "sidecar": {
+      "command": "python3 plugin.py",
+      "docs": "https://docs.ether.video/plugins/sidecars"
+    },
     "permissions": {
       "secrets": [
         "token"
