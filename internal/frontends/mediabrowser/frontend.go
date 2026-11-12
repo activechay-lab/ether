@@ -47,7 +47,7 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 	r := &route.Router{}
 
 	life, cancel := context.WithCancel(ctx)
-	inst := &instance{host: host, info: info, router: r, protocol: protocol, life: life, cancel: cancel, extraClient: newExtraHTTPClient(host.DirectProxy)}
+	inst := &instance{host: host, info: info, router: r, protocol: protocol, life: life, cancel: cancel, extraClient: newExtraHTTPClient(host.DirectProxy), anon: newAnonIndex()}
 	if host.PageFreshness != nil {
 		inst.pages = newBrowseCache()
 	}
@@ -141,6 +141,7 @@ type instance struct {
 	personal    personalIdentityCache
 	views       viewFactCache
 	extraClient *http.Client
+	anon        *anonIndex
 }
 
 func (i *instance) Handler() http.Handler {

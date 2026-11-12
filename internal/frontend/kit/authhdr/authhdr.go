@@ -112,6 +112,25 @@ func Plex(h http.Header) http.Header {
 	return result
 }
 
+// MediaBrowserCredentialSupplied reports whether the request carries any
+// MediaBrowser-style credential at all: a token header, an authorization
+// header, or an ApiKey query parameter. It stays true for a malformed or
+// foreign credential so callers can distinguish "no credential" (eligible
+// for anonymous handling) from "a credential that failed" (always rejected).
+func MediaBrowserCredentialSupplied(r *http.Request) bool {
+	for _, k := range []string{"X-Emby-Token", "X-MediaBrowser-Token", "Authorization", "X-Emby-Authorization"} {
+		if r.Header.Get(k) != "" {
+			return true
+		}
+	}
+	for k := range r.URL.Query() {
+		if strings.EqualFold(k, "api_key") || strings.EqualFold(k, "ApiKey") {
+			return true
+		}
+	}
+	return false
+}
+
 // MediaBrowserToken returns legacy header credentials before an ApiKey
 // query parameter. It does not interpret a query credential as Plex auth.
 func MediaBrowserToken(r *http.Request) string {

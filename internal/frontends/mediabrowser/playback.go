@@ -415,6 +415,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 				i.host.Log.Warn("jellyfin static PlaybackInfo open", "err", err)
 			}
 		} else {
+			i.rememberAnonymousSession(r, v, session.ID, key, channel, dev, version, detailSource)
 			format := frontend.StreamDirect
 			if channel != "" || (plan.Decision.Kind != "directplay" && (plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
 				format = frontend.StreamHLS
@@ -790,6 +791,9 @@ func (i *instance) playbackRoutes() error {
 		if err := i.router.Handle(method, "/Videos/{id}/{name}", http.HandlerFunc(i.streamAlias)); err != nil {
 			return err
 		}
+		if err := i.router.Handle(method, "/Audio/{id}/{name}", http.HandlerFunc(i.streamAlias)); err != nil {
+			return err
+		}
 	}
 	if err := i.router.Handle("GET", "/MediaSegments/{itemId}", http.HandlerFunc(i.mediaSegments)); err != nil {
 		return err
@@ -1017,6 +1021,12 @@ func (i *instance) streamAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	viewer, credential, err := i.viewer(r)
 	if err != nil || viewer == nil {
+		// A stream alias with no credential at all is answered from a
+		// session the viewer just opened from this peer (anonymousStreamKey
+		// is set by the middleware). Anything else stays 401.
+		if _, anonymous := r.Context().Value(anonymousStreamKey{}).(bool); anonymous && i.serveAnonymousStream(w, r, name) {
+			return
+		}
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
@@ -1063,8 +1073,8 @@ func (i *instance) streamAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	format := frontend.StreamDirect
 	switch {
-	case name == "stream", strings.HasPrefix(name, "stream."):
-	case name == "master.m3u8":
+	case name == "stream", strings.HasPrefix(name, "stream."), name == "universal":
+	case name == "master.m3u8", name == "main.m3u8":
 		format = frontend.StreamHLS
 	default:
 		http.NotFound(w, r)
@@ -1163,47 +1173,5 @@ func (i *instance) streamAlias(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if version != "" && i.host.VersionHandles.MatchSession(i.identityContext(r), versionScope, version, sessionID) != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if detailSource != "" {
-		planner, ok := i.host.Sessions.(frontend.DetailPlanner)
-		if !ok || planner.MatchDetailSession(i.identityContext(r), versionScope, detailSource, sessionID) != nil {
-			http.NotFound(w, r)
-			return
-		}
-	}
-	// PlaybackInfo already started this direct file. Serve that URL here so
-	// the client does not pay a second round trip, or a second stream start.
-	if format == frontend.StreamDirect {
-		for _, session := range sessions {
-			if session.ID != sessionID || !directFilePath(session.MediaPath) {
-				continue
-			}
-			req := r.Clone(r.Context())
-			u := *req.URL
-			u.Path = session.MediaPath
-			u.RawPath = ""
-			req.URL = &u
-			if i.protocol == "emby" {
-				i.embyMediaHeaders(w, req)
-			}
-			i.host.Sessions.ServeMedia(w, req)
-			return
-		}
-	}
-	url, err := i.host.Sessions.StartStream(r.Context(), access, sessionID, frontend.StreamRequest{Format: format})
-	if err != nil {
-		streamError(i.protocol, w, err)
-		return
-	}
-	if !strings.HasPrefix(url, "/sessions/media/") || strings.ContainsAny(url, "\r\n") {
-		http.Error(w, "Unavailable", 503)
-		return
-	}
-	if prefix, ok := r.Context().Value(prefixKey{}).(string); ok {
-		url = prefix + url
-	}
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	i.serveAliasSession(w, r, access, sessions, sessionID, versionScope, version, detailSource, format)
 }
