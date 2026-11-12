@@ -449,3 +449,159 @@ func TestAndroidTVSignInReplay(t *testing.T) {
 		t.Errorf("AuthenticateWithQuickConnect: %d %s", code, body)
 	}
 }
+
+// TestRokuPlayContract pins the JSON types and negotiation branches consumed by
+// jellyfin-roku 3.2.4 LoadVideoContentTask, including its empty-show queue call.
+func TestRokuPlayContract(t *testing.T) {
+	lib, _, listing := mountRoku(t)
+	for _, path := range []string{
+		"/UserItems/Resume", "/Shows/NextUp?seriesId=" + ids.RatingKeyGUID(lib.show.Key),
+		"/Shows/" + ids.RatingKeyGUID(lib.show.Key) + "/Episodes",
+		"/Items?parentId=" + ids.RatingKeyGUID(lib.show.Key) + "&includeitemtypes=Episode&recursive=true",
+	} {
+		code, body := rokuGet(t, listing, path)
+		if code != 200 {
+			t.Fatal(path, code, body)
+		}
+		items := itemsOf(t, body)
+		if len(items) == 0 {
+			t.Fatal(path, "missing episodes")
+		}
+		for _, item := range items {
+			for _, field := range []string{"SeriesId", "SeasonId"} {
+				if v, ok := item[field].(string); !ok || v == "" {
+					t.Fatal(path, item)
+				}
+			}
+			data, ok := item["UserData"].(map[string]any)
+			if !ok {
+				t.Fatal(path, item)
+			}
+			if _, ok := data["PlaybackPositionTicks"].(float64); !ok {
+				t.Fatal(path, data)
+			}
+		}
+	}
+	viewer := &frontend.Viewer{ID: 1}
+	media := frontend.MediaInfo{Container: "mkv", Duration: 40 * time.Minute, Streams: []frontend.StreamInfo{
+		{Type: "video", Index: 0, Codec: "h264"}, {Type: "audio", Index: 1, Codec: "aac", Channels: 2},
+		{Type: "subtitle", Index: 2, Codec: "srt", Language: "eng"},
+	}}
+	for _, mode := range []string{"directplay", "copy", "transcode"} {
+		t.Run(mode, func(t *testing.T) {
+			sessions := frontendtest.Sessions{
+				PlanFunc: func(_ context.Context, req frontend.PlanRequest) (frontend.PlayPlan, error) {
+					if !req.Intent.Estimate && !req.Intent.DeclaredCaps {
+						t.Fatal("lost Roku profile")
+					}
+					return frontend.PlayPlan{ID: "plan", Media: media, DirectPlay: mode == "directplay", DirectStream: mode != "transcode", Transcoding: true, Decision: frontend.Decision{Kind: core.DecisionKind(mode), AudioCopy: mode == "copy", VideoCopy: mode != "transcode", AudioStream: 1, SubtitleStream: -1}}, nil
+				},
+				OpenFunc: func(context.Context, frontend.OpenRequest) (frontend.Session, error) {
+					return frontend.Session{ID: "play"}, nil
+				},
+				StartStreamFunc: func(_ context.Context, _ frontend.SessionAccess, _ string, req frontend.StreamRequest) (string, error) {
+					if mode != "directplay" && req.Format != frontend.StreamHLS {
+						t.Fatal("incompatible static stream")
+					}
+					return "/sessions/media/roku/master.m3u8?x=1", nil
+				},
+			}
+			inst, err := (Jellyfin{MachineID: "roku"}).Mount(context.Background(), frontend.Host{Experience: lib, Identity: frontendtest.Identity{ResolveFunc: func(context.Context, string) (*frontend.Viewer, error) { return viewer, nil }}, Sessions: sessions, Capabilities: frontendtest.Capabilities{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, title := range []frontend.Title{lib.movie, lib.eps[0]} {
+				id := ids.RatingKeyGUID(title.Key)
+				code, body := rokuGet(t, inst, "/Items/"+id+"?fields=Chapters,Trickplay")
+				if code != 200 {
+					t.Fatal(code, body)
+				}
+				item := rokuJSON(t, body)
+				for _, field := range []string{"Id", "Name", "Type", "Overview"} {
+					if _, ok := item[field].(string); !ok {
+						t.Fatalf("%s: %v", field, item)
+					}
+				}
+				if _, ok := item["UserData"].(map[string]any); !ok {
+					t.Fatal(item)
+				}
+				if title.Type == "episode" {
+					for _, field := range []string{"SeriesId", "SeasonId"} {
+						if v, ok := item[field].(string); !ok || v == "" {
+							t.Fatal(item)
+						}
+					}
+					for _, field := range []string{"IndexNumber", "ParentIndexNumber"} {
+						if _, ok := item[field].(float64); !ok {
+							t.Fatal(item)
+						}
+					}
+				}
+				req := httptest.NewRequest("POST", "/Items/"+id+"/PlaybackInfo?IsPlayback=true&MediaSourceId="+id+"&AudioStreamIndex=1", strings.NewReader(`{"DeviceProfile":{"DirectPlayProfiles":[{"Type":"Video","Container":"mp4","VideoCodec":"h264","AudioCodec":"aac"}],"TranscodingProfiles":[{"Type":"Video","Container":"ts","Protocol":"hls","VideoCodec":"h264","AudioCodec":"aac"}]}}`))
+				req.Header.Set("X-Emby-Token", "grant")
+				w := httptest.NewRecorder()
+				inst.Handler().ServeHTTP(w, req)
+				if w.Code != 200 {
+					t.Fatal(w.Code, w.Body.String())
+				}
+				info := rokuJSON(t, w.Body.String())
+				sources, ok := info["MediaSources"].([]any)
+				if !ok || len(sources) == 0 {
+					t.Fatal(info)
+				}
+				source := sources[0].(map[string]any)
+				for _, field := range []string{"Id", "Protocol", "Container"} {
+					if v, ok := source[field].(string); !ok || v == "" {
+						t.Fatalf("%s: %v", field, source)
+					}
+				}
+				for _, field := range []string{"SupportsDirectPlay", "SupportsDirectStream", "SupportsTranscoding", "IsRemote"} {
+					if _, ok := source[field].(bool); !ok {
+						t.Fatal(source)
+					}
+				}
+				if _, ok := source["RunTimeTicks"].(float64); !ok {
+					t.Fatal(source)
+				}
+				streams, ok := source["MediaStreams"].([]any)
+				if !ok || len(streams) != 3 {
+					t.Fatal(source)
+				}
+				for _, entry := range streams {
+					stream := entry.(map[string]any)
+					for _, field := range []string{"Type", "Codec", "Language"} {
+						if _, ok := stream[field].(string); !ok {
+							t.Fatal(stream)
+						}
+					}
+					for _, field := range []string{"IsDefault", "IsForced", "IsExternal", "IsTextSubtitleStream"} {
+						if _, ok := stream[field].(bool); !ok {
+							t.Fatal(stream)
+						}
+					}
+				}
+				if source["DefaultAudioStreamIndex"] != float64(1) || source["DefaultSubtitleStreamIndex"] != float64(-1) || info["PlaySessionId"] != "play" {
+					t.Fatal(info)
+				}
+				if mode != "directplay" {
+					if source["SupportsDirectPlay"] != false || source["TranscodingSubProtocol"] != "hls" || source["TranscodingUrl"] == nil {
+						t.Fatal(source)
+					}
+				} else if source["SupportsDirectPlay"] != true || source["Protocol"] != "File" {
+					t.Fatal(source)
+				}
+				code, body = rokuGet(t, inst, "/Shows//Episodes?StartItemId="+id+"&Limit=2")
+				if code != 200 {
+					t.Fatal(code, body)
+				}
+				queue := itemsOf(t, body)
+				if title.Type == "movie" && len(queue) != 0 {
+					t.Fatal(queue)
+				}
+				if title.Type == "episode" && len(queue) == 0 {
+					t.Fatal("empty recovered episode queue")
+				}
+			}
+		})
+	}
+}

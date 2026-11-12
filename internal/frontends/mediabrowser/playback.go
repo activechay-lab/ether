@@ -420,6 +420,10 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	} else if detailSource != "" {
 		sourceID = detailSource
 	}
+	// A declared device profile is authoritative. Static-file clients without
+	// one can use the generic static endpoint; Roku must follow the broker
+	// decision instead of being told to direct-play an incompatible source.
+	staticPlayable := jellyfinStaticPlayable(i.protocol, channel, opts) && !intent.DeclaredCaps
 	media := plan.Media
 	media.Estimated = media.Estimated || plan.Estimated
 	source := i.detailMediaSourceDTO(sourceID, media)
@@ -427,7 +431,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		// These streams are produced by Ether, even when their input is remote.
 		source["IsRemote"] = false
 	}
-	if i.protocol == "jellyfin" && channel == "" && (!media.Estimated || jellyfinStaticPlayable(i.protocol, channel, opts)) {
+	if i.protocol == "jellyfin" && channel == "" && (!media.Estimated || staticPlayable) {
 		// Infuse and Swiftfin direct-play a Jellyfin file with
 		// GET /Videos/{id}/stream?Static=true. They do not open Path.
 		// IsRemote true would tell Infuse that Path is an upstream URL to
@@ -439,7 +443,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		source["ETag"] = plan.ETag
 	}
 	source["SupportsDirectPlay"], source["SupportsDirectStream"], source["SupportsTranscoding"] = plan.DirectPlay, plan.DirectStream, plan.Transcoding
-	if jellyfinStaticPlayable(i.protocol, channel, opts) {
+	if staticPlayable {
 		offerJellyfinStatic(source, opts)
 	}
 	source["IsInfiniteStream"] = channel != ""
@@ -465,7 +469,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	if playback {
 		session, err := i.host.Sessions.Open(r.Context(), frontend.OpenRequest{Protocol: i.protocol, PlanID: plan.ID, Viewer: v, Device: dev})
 		if err != nil {
-			if !jellyfinStaticFallback(err) || !jellyfinStaticPlayable(i.protocol, channel, opts) {
+			if !jellyfinStaticFallback(err) || !staticPlayable {
 				http.Error(w, "Playback unavailable", 503)
 				return
 			}
@@ -475,11 +479,11 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		} else {
 			i.rememberAnonymousSession(r, v, session.ID, key, channel, dev, version, detailSource, sourceID)
 			format := frontend.StreamDirect
-			if channel != "" || (plan.Decision.Kind != "directplay" && (plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
+			if channel != "" || (plan.Decision.Kind != "directplay" && ((i.protocol == "jellyfin" && intent.DeclaredCaps) || plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
 				format = frontend.StreamHLS
 			}
 			url, err := i.host.Sessions.StartStream(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID, frontend.StreamRequest{Format: format, Position: intent.Position})
-			if err != nil && format == frontend.StreamHLS && jellyfinStaticPlayable(i.protocol, channel, opts) {
+			if err != nil && format == frontend.StreamHLS && staticPlayable {
 				url, err = i.host.Sessions.StartStream(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID, frontend.StreamRequest{Format: frontend.StreamDirect, Position: intent.Position})
 				if err == nil {
 					format = frontend.StreamDirect
@@ -487,7 +491,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 			}
 			if err != nil {
 				_ = i.host.Sessions.Stop(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID)
-				if !jellyfinStaticFallback(err) || !jellyfinStaticPlayable(i.protocol, channel, opts) {
+				if !jellyfinStaticFallback(err) || !staticPlayable {
 					streamError(i.protocol, w, err)
 					return
 				}
@@ -540,6 +544,12 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 					if !plan.Decision.AudioCopy {
 						source["SupportsDirectPlay"] = plan.DirectPlay
 						source["SupportsDirectStream"] = plan.DirectStream
+						delete(source, "Path")
+					}
+					if i.protocol == "jellyfin" && intent.DeclaredCaps {
+						source["SupportsDirectPlay"] = false
+						source["SupportsDirectStream"] = false
+						source["Protocol"] = "Http"
 						delete(source, "Path")
 					}
 					source["TranscodingUrl"] = url
