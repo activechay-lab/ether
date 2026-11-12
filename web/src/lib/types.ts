@@ -264,7 +264,6 @@ export interface EtherConfig {
     clusterWeight?: number;
   };
   plex: {
-    fileCheckTimeout?: string;
     token: string;
     clientIdentifier: string;
     ownerPlexId: number;
