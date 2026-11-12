@@ -107,7 +107,8 @@ export function integrationTabs(
 
 interface Service {
   tab: Exclude<ServiceTab, "overview" | "ratings">;
-  configKey: "plexServers" | "trakt" | "simkl" | "mdblist" | "llm" | "openSubtitles" | "subdl" | "markers";
+  configKey:
+    "plexServers" | "trakt" | "simkl" | "mdblist" | "llm" | "openSubtitles" | "subdl" | "markers";
   endpoint: string;
   /** Boolean this card's switch writes. Omitted fields stay stored. */
   flag: "enabled" | "theIntroDb";
@@ -1213,9 +1214,7 @@ function ServiceOverview({
         <IntegrationAppCard
           identity={{ id: "mdblist", name: "MDBList" }}
           logo={<MDBListMark />}
-          description={t(
-            "Sync watch history with MDBList. Each viewer pastes their own API key.",
-          )}
+          description={t("Sync watch history with MDBList. Each viewer pastes their own API key.")}
           status={switchStatus(on("mdblist"), true, "")}
           enabled={on("mdblist")}
           busy={locked || busyId === "mdblist"}

@@ -165,7 +165,12 @@ export const librariesApi = {
       method: "POST",
       body: JSON.stringify({ name, filter, ...(present ? { present } : {}) }),
     }),
-  createCollection: (name: string, collectionId: number, mediaType: string, present?: Presentations) =>
+  createCollection: (
+    name: string,
+    collectionId: number,
+    mediaType: string,
+    present?: Presentations,
+  ) =>
     apiFetch<Library>("/libraries", {
       method: "POST",
       body: JSON.stringify({ name, collectionId, mediaType, ...(present ? { present } : {}) }),

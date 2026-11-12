@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -44,11 +45,15 @@ func TestPairingExchangeSavesCredential0600(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("credential mode %o, want 600", info.Mode().Perm())
-	}
-	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("state dir mode %v %v, want 700", info, err)
+	// Windows has no Unix permission bits; the user profile's ACLs protect
+	// the file there.
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("credential mode %o, want 600", info.Mode().Perm())
+		}
+		if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
+			t.Fatalf("state dir mode %v %v, want 700", info, err)
+		}
 	}
 }
 

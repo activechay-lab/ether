@@ -8,12 +8,7 @@ import { Segmented } from "../../components/fields";
 import { t, tn, tx } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
-import {
-  librariesApi,
-  type CollectionSource,
-  type Library,
-  type PluginLibrarySource,
-} from "./api";
+import { librariesApi, type CollectionSource, type Library, type PluginLibrarySource } from "./api";
 import { CatalogFilterBar, compileQuery, readQuery } from "./browser/CatalogFilterBar";
 import { SetupWizard } from "./SetupWizard";
 
@@ -31,9 +26,9 @@ export function NewLibraryDrawer({
   onCreated: (lib: Library) => void;
   onPluginOpened: (libId?: number) => void;
 }) {
-  const [step, setStep] = useState<"source" | "tmdb" | "collection" | { pluginId: string; libId?: number }>(
-    "source",
-  );
+  const [step, setStep] = useState<
+    "source" | "tmdb" | "collection" | { pluginId: string; libId?: number }
+  >("source");
   const [busyPlugin, setBusyPlugin] = useState<string | null>(null);
   const pluginSources = useAsync((signal) => librariesApi.listPluginSources(signal), []);
 
@@ -387,7 +382,10 @@ export function CollectionLibraryEditor({
             <Button variant="ghost" onClick={onClose}>
               {t("Cancel")}
             </Button>
-            <Button disabled={saving || collectionId === null || !name.trim()} onClick={() => void save()}>
+            <Button
+              disabled={saving || collectionId === null || !name.trim()}
+              onClick={() => void save()}
+            >
               {t("Create library")}
             </Button>
           </span>
@@ -403,7 +401,11 @@ export function CollectionLibraryEditor({
           <p className="text-sm text-fg-muted">
             {tx("No collections yet. {link} first, or use a saved filter.", {
               link: (
-                <Link to="/collections" onClick={onClose} className="font-medium text-primary underline">
+                <Link
+                  to="/collections"
+                  onClick={onClose}
+                  className="font-medium text-primary underline"
+                >
                   {t("Create a collection")}
                 </Link>
               ),

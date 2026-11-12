@@ -26,11 +26,6 @@ const (
 	stateDirMode       os.FileMode = 0o700
 )
 
-// errUnauthorizedSavedCredential marks a tunnel handshake rejected with 401
-// while the credential came from the saved file, so the caller can delete the
-// stale file and stop instead of reconnecting forever.
-var errUnauthorizedSavedCredential = errors.New("etherplugin: saved credential was rejected")
-
 // savedCredential is what the SDK writes to <state dir>/credential.
 type savedCredential struct {
 	Credential string `json:"credential"`

@@ -86,11 +86,11 @@ type encMember struct {
 func encryptedRAR5(t testing.TB, password string, members []encMember) [][]byte {
 	t.Helper()
 	type piece struct {
-		m                       encMember
-		plain                   []byte
-		part                    []byte
-		salt, iv, key           []byte
-		before, after, crcWhole bool
+		m             encMember
+		plain         []byte
+		part          []byte
+		salt, iv, key []byte
+		before, after bool
 	}
 	var pieces [][]piece
 	for i, m := range members {
