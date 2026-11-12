@@ -293,7 +293,7 @@ export function UsenetProviders({
                   problem={usenetFix(p.enabled, stat?.state, stat?.lastError)}
                   meta={
                     <>
-                      {!p.enabled ? <Badge variant="secondary">{t("Off")}</Badge> : null}
+                      {!p.enabled ? <Badge variant="secondary">{t("Disabled")}</Badge> : null}
                       {stat ? (
                         <Badge variant={stat.state === "ok" ? "success" : "warning"}>
                           {stat.state === "ok"
@@ -407,6 +407,8 @@ export function UsenetProviders({
       </RecordDrawer>
 
       <RecordDrawer
+        enabled={draft?.enabled}
+        onEnabledChange={(enabled) => set({ enabled })}
         open={editing !== null}
         onClose={close}
         title={isNew ? t("New provider") : name}

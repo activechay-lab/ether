@@ -101,7 +101,15 @@ func (m *Manager) ApplyConfig(cfg config.Config) {
 			cl.SetCacheTTL(d)
 		}
 	}
-	m.Reload(cfg.Indexers)
+	indexers := append([]config.Indexer(nil), cfg.Indexers...)
+	if cfg.Prowlarr.Disabled {
+		for i := range indexers {
+			if indexers[i].ProwlarrImport != nil {
+				indexers[i].Enabled = false
+			}
+		}
+	}
+	m.Reload(indexers)
 }
 
 // Clients returns the enabled and disabled clients in priority order.

@@ -580,7 +580,7 @@ export function IndexerList({
                       ) : (
                         <Badge variant="outline">{protocolLabel(ix)}</Badge>
                       )}
-                      {!ix.enabled ? <Badge variant="secondary">{t("Off")}</Badge> : null}
+                      {!ix.enabled ? <Badge variant="secondary">{t("Disabled")}</Badge> : null}
                       {s && Number(s.retryAt ?? 0) > Date.now() / 1000 ? (
                         <Badge variant="warning">
                           {t("Waiting for service · retries automatically")}
@@ -667,6 +667,8 @@ export function IndexerList({
       </Drawer>
 
       <RecordDrawer
+        enabled={draft?.enabled}
+        onEnabledChange={(enabled) => set({ enabled })}
         open={editing !== null}
         onClose={close}
         title={

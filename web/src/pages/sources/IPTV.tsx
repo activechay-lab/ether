@@ -97,6 +97,7 @@ export function IPTVProviders() {
                   <h3 className="font-semibold text-fg">
                     {source.kind === "plex" ? plexLineupName(source.name) : source.name}
                   </h3>
+                  {source.disabled ? <Badge>{t("Disabled")}</Badge> : null}
                   <Badge>
                     {source.kind?.startsWith("plugin:")
                       ? t("Plugin source")

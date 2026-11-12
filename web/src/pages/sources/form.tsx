@@ -309,6 +309,8 @@ export function HealthStrip({
  * draft lives in the caller; closing without saving discards it.
  */
 export function RecordDrawer({
+  enabled,
+  onEnabledChange,
   open,
   title,
   description,
@@ -324,6 +326,8 @@ export function RecordDrawer({
   error,
   children,
 }: {
+  enabled?: boolean;
+  onEnabledChange?: (enabled: boolean) => void;
   open: boolean;
   title: ReactNode;
   description?: ReactNode;
@@ -346,7 +350,18 @@ export function RecordDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      title={title}
+      title={
+        <span className="flex items-center gap-3">
+          {title}
+          {onEnabledChange ? (
+            <Switch
+              aria-label={t("Enabled")}
+              checked={enabled ?? true}
+              onChange={(e) => onEnabledChange(e.currentTarget.checked)}
+            />
+          ) : null}
+        </span>
+      }
       description={description}
       size="lg"
       footer={

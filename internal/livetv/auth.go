@@ -516,6 +516,9 @@ func (s *Service) sourceEntry(ctx context.Context, id string) (authEntry, error)
 	if err != nil {
 		return authEntry{}, err
 	}
+	if src.Disabled {
+		return authEntry{}, core.ErrNotAvailable
+	}
 	e = authEntry{auth: src.Auth, at: s.o.Now(), perHour: max(src.TunesPerHour, 0)}
 	if src.Account != nil {
 		e.limit = src.Account.MaxConnections

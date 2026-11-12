@@ -171,7 +171,7 @@ export function engineSummary(e: DebridEngineStatus | undefined): string | null 
 }
 
 function StateBadge({ p, s }: { p: DebridProvider; s?: DebridProviderStatus }) {
-  if (!p.enabled) return <Badge variant="secondary">{t("Off")}</Badge>;
+  if (!p.enabled) return <Badge variant="secondary">{t("Disabled")}</Badge>;
   if (!s) return null;
   switch (s.state) {
     case "ok":
@@ -437,6 +437,8 @@ export function DebridSources({
       <DebridSettings debrid={debrid} onSaved={reloadAll} />
 
       <RecordDrawer
+        enabled={draft?.enabled}
+        onEnabledChange={(enabled) => set({ enabled })}
         open={editing !== null}
         onClose={close}
         title={isNew ? t("New debrid provider") : name}
