@@ -35,3 +35,30 @@ func TestPluginMarkersStoredAndOrderedBySource(t *testing.T) {
 		t.Fatalf("disabled source still present: %+v", got)
 	}
 }
+
+func TestSkipDBMergedOnlyWhenEnabled(t *testing.T) {
+	ctx := context.Background()
+	enabled := true
+	svc := New(Options{DB: store.OpenTest(t), Config: func() Lookup { return Lookup{SkipDB: enabled} }})
+	key := core.MovieKey(7)
+	d := 100 * time.Second
+	if err := svc.PutPlugin(ctx, key, d, SkipDBSource, []Marker{{Type: "intro", StartMS: 2000, EndMS: 8000}}); err != nil {
+		t.Fatal(err)
+	}
+	chapters := []Marker{{Type: "credits", StartMS: 90000, EndMS: 98000, Source: "chapter"}}
+	got := svc.mergeSources(ctx, key, d, chapters, nil)
+	if len(got) != 2 {
+		t.Fatalf("skipdb not merged with empty source order: %+v", got)
+	}
+	types := map[string]bool{}
+	for _, m := range got {
+		types[m.Type] = true
+	}
+	if !types["intro"] || !types["credits"] {
+		t.Fatalf("both sources should be present: %+v", got)
+	}
+	enabled = false
+	if got = svc.mergeSources(ctx, key, d, chapters, nil); len(got) != 1 || got[0].Type != "credits" {
+		t.Fatalf("disabled skipdb still merged: %+v", got)
+	}
+}

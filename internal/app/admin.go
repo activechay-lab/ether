@@ -114,6 +114,9 @@ func (a *App) buildAdmin() http.Handler {
 		TestIntroDB: func(ctx context.Context, apiKey string) error {
 			return markers.Probe(ctx, "", apiKey)
 		},
+		TestSkipDB: func(ctx context.Context, apiKey string) error {
+			return markers.ProbeSkipDB(ctx, "", apiKey)
+		},
 		TestLLM: func(ctx context.Context, c config.LLM) error {
 			c.Enabled = true // test the settings before the owner switches them on
 			_, err := llm.NewClient(llm.ClientOptions{Config: c, Logger: a.log}).Chat(ctx,

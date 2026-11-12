@@ -127,7 +127,7 @@ func (a *App) buildPlaybackPresentation() {
 	})
 	a.markers = markers.New(markers.Options{DB: a.db, Logger: log.With("component", "markers"), Config: func() markers.Lookup {
 		c := a.cfg.Get().Markers
-		return markers.Lookup{Enabled: c.TheIntroDB, APIKey: c.APIKey, IntroOff: !c.OfferIntro(), CreditsOff: !c.OfferCredits(), SourceOrder: c.SourceOrder}
+		return markers.Lookup{Enabled: c.TheIntroDB, APIKey: c.APIKey, IntroOff: !c.OfferIntro(), CreditsOff: !c.OfferCredits(), SourceOrder: c.SourceOrder, SkipDB: c.SkipDB}
 	}, Aligner: a.subtitles.TimelineAligner(), Dialogue: a.markerDialogue})
 	a.buildAdoption()
 }

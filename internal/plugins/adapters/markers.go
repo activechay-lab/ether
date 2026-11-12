@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type MarkerBridge struct {
 	svc      *markers.Service
 	catalog  core.Catalog
 	selected func(string) bool
+	skipdb   func() (enabled bool, apiKey, baseURL string)
 	mu       sync.Mutex
 	active   map[string]bool
 	recent   map[markerJob]time.Time
@@ -34,8 +36,17 @@ type MarkerBridge struct {
 	done     chan struct{}
 }
 
-func AttachMarkers(ctx context.Context, mgr *plugins.Manager, svc *markers.Service, catalog core.Catalog, selected func(string) bool) *MarkerBridge {
-	b := &MarkerBridge{mgr: mgr, svc: svc, catalog: catalog, selected: selected, active: map[string]bool{}, recent: map[markerJob]time.Time{}, jobs: make(chan markerWork, 128), done: make(chan struct{})}
+// MarkerBridgeOptions configure the built-in marker sources the bridge
+// refreshes alongside plugin sources.
+type MarkerBridgeOptions struct {
+	// Selected reports whether a plugin source is in the owner's source order.
+	Selected func(string) bool
+	// SkipDB reports the built-in SkipDB source's live settings.
+	SkipDB func() (enabled bool, apiKey, baseURL string)
+}
+
+func AttachMarkers(ctx context.Context, mgr *plugins.Manager, svc *markers.Service, catalog core.Catalog, opts MarkerBridgeOptions) *MarkerBridge {
+	b := &MarkerBridge{mgr: mgr, svc: svc, catalog: catalog, selected: opts.Selected, skipdb: opts.SkipDB, active: map[string]bool{}, recent: map[markerJob]time.Time{}, jobs: make(chan markerWork, 128), done: make(chan struct{})}
 	mgr.OnSync(b.sync)
 	go b.run(ctx)
 	return b
@@ -172,6 +183,41 @@ func (b *MarkerBridge) refresh(ctx context.Context, j markerJob) {
 			b.mgr.RecordFailure(ctx, pluginID, "invalid marker ranges")
 		}
 	}
+	b.refreshSkipDB(ctx, j, imdbID(id))
+}
+
+// refreshSkipDB fetches the built-in SkipDB source in the background, off
+// the playback path, and caches it like a plugin source. Failures are
+// quiet: a missing range never blocks playback.
+func (b *MarkerBridge) refreshSkipDB(ctx context.Context, j markerJob, imdb string) {
+	if b.skipdb == nil || imdb == "" {
+		return
+	}
+	enabled, apiKey, baseURL := b.skipdb()
+	if !enabled {
+		return
+	}
+	season, episode := 0, 0
+	if j.key.Kind() == core.KindEpisode {
+		season, episode = j.key.Season(), j.key.Episode()
+	}
+	ranges, err := markers.FetchSkipDB(ctx, baseURL, apiKey, imdb, season, episode, j.duration)
+	if err != nil || len(ranges) == 0 {
+		return
+	}
+	_ = b.svc.PutPlugin(ctx, j.key, j.duration, markers.SkipDBSource, ranges)
+}
+
+// imdbID takes the bare IMDb id from a content id ("tt0903747" or
+// "tt0903747:1:2"), or "" when the id is not an IMDb id.
+func imdbID(id string) string {
+	if i := strings.IndexByte(id, ':'); i >= 0 {
+		id = id[:i]
+	}
+	if !strings.HasPrefix(id, "tt") {
+		return ""
+	}
+	return id
 }
 
 // Wait waits for the background worker to stop after its context is cancelled.

@@ -400,6 +400,8 @@ export interface EtherConfig {
   markers?: {
     theIntroDb: boolean;
     apiKey: string;
+    skipDb?: boolean;
+    skipDbApiKey?: string;
     skipIntro?: boolean;
     skipCredits?: boolean;
     sourceOrder?: string[];

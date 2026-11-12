@@ -179,6 +179,8 @@ func Builtins() []Builtin {
 			{Title: extend.T("Chapters and skip markers"), Fields: []Field{
 				{Key: "theIntroDb", Label: extend.T("Look up intro and credits markers"), Kind: KindBool, Help: extend.T("Use the public TheIntroDB lookup, cached per episode and runtime.")},
 				{Key: "apiKey", Label: extend.T("Optional TheIntroDB key"), Kind: KindSecret},
+				{Key: "skipDb", Label: extend.T("Also look up SkipDB"), Kind: KindBool, Help: extend.T("Add the open SkipDB lookup as a second source, cached per episode and runtime.")},
+				{Key: "skipDbApiKey", Label: extend.T("Optional SkipDB key"), Kind: KindSecret, Help: extend.T("Reading SkipDB is open; a key only raises its rate limit.")},
 			}},
 		}}},
 		// DEBRID

@@ -290,13 +290,19 @@ func (a *App) buildPlugins(ctx context.Context, cfg config.Config) (*pluginRunti
 	subtitleProbe := adapters.NewSubtitleProbe(mgr, a.catalog)
 	a.closers = append(a.closers, subtitleProbe.Close)
 	markerCtx, cancelMarkers := context.WithCancel(context.Background())
-	markerBridge := adapters.AttachMarkers(markerCtx, mgr, a.markers, a.catalog, func(id string) bool {
-		for _, source := range a.cfg.Get().Markers.SourceOrder {
-			if source == id {
-				return true
+	markerBridge := adapters.AttachMarkers(markerCtx, mgr, a.markers, a.catalog, adapters.MarkerBridgeOptions{
+		Selected: func(id string) bool {
+			for _, source := range a.cfg.Get().Markers.SourceOrder {
+				if source == id {
+					return true
+				}
 			}
-		}
-		return false
+			return false
+		},
+		SkipDB: func() (enabled bool, apiKey, baseURL string) {
+			c := a.cfg.Get().Markers
+			return c.SkipDB, c.SkipDBAPIKey, ""
+		},
 	})
 	a.closers = append(a.closers, func() { cancelMarkers(); markerBridge.Wait() })
 

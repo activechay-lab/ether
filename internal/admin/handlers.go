@@ -411,6 +411,24 @@ func (h *Handler) handleTestIntroDB(w http.ResponseWriter, r *http.Request) {
 	h.runTest(w, r, func(ctx context.Context) error { return h.deps.TestIntroDB(ctx, key) })
 }
 
+func (h *Handler) handleTestSkipDB(w http.ResponseWriter, r *http.Request) {
+	if h.deps.TestSkipDB == nil {
+		writeError(w, http.StatusNotImplemented, "not_available", "SkipDB test is not available")
+		return
+	}
+	var body struct {
+		APIKey string `json:"apiKey"`
+	}
+	if !decodeTestBody(w, r, &body) {
+		return
+	}
+	key := body.APIKey
+	if isRedacted(key) || key == "" {
+		key = h.deps.Config.Get().Markers.SkipDBAPIKey
+	}
+	h.runTest(w, r, func(ctx context.Context) error { return h.deps.TestSkipDB(ctx, key) })
+}
+
 func (h *Handler) handleTestTMDB(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Key string `json:"key"`

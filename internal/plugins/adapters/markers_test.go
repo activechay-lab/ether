@@ -19,7 +19,7 @@ func TestMarkerPluginBackgroundAndLifecycle(t *testing.T) {
 	defer cancel()
 	source := extend.PluginID("community.marker.test", "markers")
 	svc := markers.New(markers.Options{DB: h.db, Config: func() markers.Lookup { return markers.Lookup{SourceOrder: []string{source, "chapter", "theintrodb"}} }})
-	bridge := adapters.AttachMarkers(ctx, h.mgr, svc, h.cat, func(id string) bool { return id == source })
+	bridge := adapters.AttachMarkers(ctx, h.mgr, svc, h.cat, adapters.MarkerBridgeOptions{Selected: func(id string) bool { return id == source }})
 	t.Cleanup(func() { cancel(); bridge.Wait() })
 	man := map[string]any{"id": "community.marker.test", "version": "1.0.0", "name": "Test markers", "ether": map[string]any{"protocol": 1, "kind": "extension", "summary": "Marker provider for testing", "runtime": map[string]any{"kind": "hosted", "entry": "dist/plugin.js"}, "capabilities": []string{"markers"}, "contributes": map[string]any{"markers": map[string]any{"kinds": []string{"intro", "preview"}}}}}
 	raw, _ := json.Marshal(man)
