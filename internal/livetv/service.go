@@ -938,6 +938,16 @@ func validateChannel(c *Channel) error {
 	}
 	return nil
 }
+
+// DraftChannel uses the normal channel expansion and validation without saving.
+// It is demand-driven by an owner's explicit channel proposal.
+func (s *Service) DraftChannel(ctx context.Context, c Channel) (Channel, error) {
+	if err := s.expand(ctx, &c); err != nil {
+		return c, err
+	}
+	return c, validateChannel(&c)
+}
+
 func (s *Service) SaveChannel(ctx context.Context, c Channel) (Channel, error) {
 	if c.ID == "" {
 		c.ID = randomID()

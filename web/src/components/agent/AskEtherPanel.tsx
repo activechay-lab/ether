@@ -48,6 +48,7 @@ const KNOWN_TOOLS = [
 
 /** Page defaults used until WS1d serves agentSuggestion command descriptors. */
 function defaultSuggestion(route: string): string {
+  if (route === "/livetv/channel-builder") return t("Create a channel with AI");
   if (route.startsWith("/releases")) return t("Why did this title pick this release?");
   if (route.startsWith("/livetv")) return t("Which channels are failing?");
   if (route.startsWith("/sources")) return t("Add a plugin from Stremio");

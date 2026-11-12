@@ -67,6 +67,8 @@ func (a *App) registerBuiltinTools(c *tools.Catalogue) error {
 // literal extend.T("...") calls so web/scripts/i18n.mjs extracts every title.
 func builtinToolLabel(name, fallback string) extend.Text {
 	switch name {
+	case "livetv_channel_apply":
+		return extend.T("Apply channel")
 	case "look_draft", "livetv_look_draft":
 		return extend.T("Draft a look")
 	case "channel_summary":
