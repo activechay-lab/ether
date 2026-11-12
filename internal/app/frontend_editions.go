@@ -88,6 +88,7 @@ func (s surfaceEditions) Variants(ctx context.Context, req core.ResolveRequest, 
 	if s.app == nil || s.app.resolver == nil {
 		return nil, nil
 	}
+	req.User = s.app.withEffectiveAudioLanguages(ctx, req.User)
 	return s.app.resolver.Variants(ctx, req, max)
 }
 

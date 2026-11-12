@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"strings"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // syncLanguages keeps auth_users.audio_languages and subtitle_languages
@@ -37,4 +39,37 @@ func sameLanguages(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// effectiveAudioLanguages is the viewer's ordered audio languages as playback
+// resolves them: the stored trackprefs list, which layers the viewer's own
+// choice over user 0, the plex.tv account profile and the quality profile.
+// The account row is used when the viewer has no trackprefs list. The version
+// estimate on a detail page uses this so a release that declares a dub is
+// listed in the language the viewer will actually hear.
+func (a *App) effectiveAudioLanguages(ctx context.Context, v *core.Viewer) []string {
+	if v == nil || v.ID <= 0 {
+		return nil
+	}
+	if a.trackprefs != nil {
+		if rules, err := a.trackprefs.GetRules(ctx, v.ID); err == nil && len(rules.AudioLanguages) > 0 {
+			return rules.AudioLanguages
+		}
+	}
+	return v.AudioLanguages
+}
+
+// withEffectiveAudioLanguages copies the viewer with the resolved audio
+// languages so resolver calls rank and estimate against what playback picks.
+func (a *App) withEffectiveAudioLanguages(ctx context.Context, v *core.Viewer) *core.Viewer {
+	if v == nil {
+		return nil
+	}
+	langs := a.effectiveAudioLanguages(ctx, v)
+	if len(langs) == 0 || sameLanguages(langs, v.AudioLanguages) {
+		return v
+	}
+	cp := *v
+	cp.AudioLanguages = append([]string(nil), langs...)
+	return &cp
 }

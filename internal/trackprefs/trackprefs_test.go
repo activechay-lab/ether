@@ -201,7 +201,10 @@ func TestSharedViewerLanguageBeatsDefaultDub(t *testing.T) {
 	}
 }
 
-func TestCatalogThenOriginalThenDefault(t *testing.T) {
+// The audio fallback order is viewer prefs, then the catalog language, then
+// the file's default-flagged track, and only then the title's original
+// language: a Brazilian dub flagged default wins over an untagged original.
+func TestCatalogThenDefaultThenOriginal(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.OpenMemory(ctx)
 	if err != nil {
@@ -218,10 +221,21 @@ func TestCatalogThenOriginalThenDefault(t *testing.T) {
 	if err != nil || sel.Audio != 2 {
 		t.Fatalf("catalog: %+v %v", sel, err)
 	}
+	// No viewer preference and no catalog language: the default-flagged
+	// track (tur) wins over the title's original (en).
 	s.options.ServerLanguage = func() string { return "" }
 	sel, err = s.Select(ctx, 7, core.MovieKey(1), matrixAudio(), "en")
+	if err != nil || sel.Audio != 0 {
+		t.Fatalf("default before original: %+v %v", sel, err)
+	}
+	// Without a default flag, the title's original language is the last
+	// resort before the first stream.
+	sel, err = s.Select(ctx, 7, core.MovieKey(1), core.MediaInfo{Streams: []core.StreamInfo{
+		{Type: "audio", Language: "tur"},
+		{Type: "audio", Language: "eng"},
+	}}, "en")
 	if err != nil || sel.Audio != 1 {
-		t.Fatalf("original: %+v %v", sel, err)
+		t.Fatalf("original fallback: %+v %v", sel, err)
 	}
 	s.options.ServerLanguage = func() string { return "de" }
 	sel, err = s.Select(ctx, 7, core.MovieKey(1), core.MediaInfo{Streams: []core.StreamInfo{
@@ -230,6 +244,91 @@ func TestCatalogThenOriginalThenDefault(t *testing.T) {
 	}}, "de")
 	if err != nil || sel.Audio != 0 {
 		t.Fatalf("default: %+v %v", sel, err)
+	}
+}
+
+// The default-audio order for a dual-audio file (English original plus a
+// Brazilian Portuguese dub flagged default): the viewer's own preference
+// wins, then the profile's preferred languages when the viewer set none,
+// then the file's default flag, then the title's original language.
+func TestDefaultAudioOrderViewerProfileDefaultOriginal(t *testing.T) {
+	ctx := context.Background()
+	probe := core.MediaInfo{Streams: []core.StreamInfo{
+		{Type: "audio", Language: "eng", Default: false},
+		{Type: "audio", Language: "pt-BR", Default: true},
+	}}
+	newService := func(t *testing.T, profile []string) *Service {
+		t.Helper()
+		db, err := store.OpenMemory(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		return New(db, Options{
+			ServerLanguage:   func() string { return "" },
+			ProfileLanguages: func(context.Context, int64, core.RatingKey) []string { return profile },
+		})
+	}
+
+	// Viewer preference wins over the file default. "Português" is accepted
+	// and canonicalized to the same language as the file's pt-BR track.
+	s := newService(t, nil)
+	if err := s.PutRules(ctx, 7, Rules{AudioLanguages: []string{"Português"}, SubtitleMode: "off", SubtitleStyle: "normal"}); err != nil {
+		t.Fatal(err)
+	}
+	if sel, err := s.Select(ctx, 7, core.MovieKey(1), probe, "en"); err != nil || sel.Audio != 1 {
+		t.Fatalf("viewer preference: %+v %v", sel, err)
+	}
+
+	// No viewer preference: the profile's preferred languages decide.
+	s = newService(t, []string{"Portuguese"})
+	if sel, err := s.Select(ctx, 7, core.MovieKey(1), probe, "en"); err != nil || sel.Audio != 1 {
+		t.Fatalf("profile preferred: %+v %v", sel, err)
+	}
+
+	// Neither: the file's default flag beats the original language.
+	s = newService(t, nil)
+	if sel, err := s.Select(ctx, 7, core.MovieKey(1), probe, "en"); err != nil || sel.Audio != 1 {
+		t.Fatalf("file default: %+v %v", sel, err)
+	}
+
+	// A viewer who prefers English keeps the original over the default dub.
+	s = newService(t, nil)
+	if err := s.PutRules(ctx, 7, Rules{AudioLanguages: []string{"en"}, SubtitleMode: "off", SubtitleStyle: "normal"}); err != nil {
+		t.Fatal(err)
+	}
+	if sel, err := s.Select(ctx, 7, core.MovieKey(1), probe, "en"); err != nil || sel.Audio != 0 {
+		t.Fatalf("english viewer: %+v %v", sel, err)
+	}
+}
+
+// Multi-word and localized spellings of a language are accepted on input and
+// stored as one canonical tag, so "Brazilian Portuguese", "Português" and
+// "pt-BR" are the same preference.
+func TestLanguageSpellingsCanonicalizeOnInput(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.OpenMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := New(db)
+	if err := s.PutRules(ctx, 7, Rules{
+		AudioLanguages:    []string{"Brazilian Portuguese", "pt_br"},
+		SubtitleLanguages: []string{"Português", "por"},
+		SubtitleMode:      "off", SubtitleStyle: "normal",
+	}); err != nil {
+		t.Fatalf("multi-word language rejected: %v", err)
+	}
+	r, err := s.GetRules(ctx, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.AudioLanguages) != 1 || r.AudioLanguages[0] != "pt-BR" {
+		t.Fatalf("audio languages = %v, want [pt-BR]", r.AudioLanguages)
+	}
+	if len(r.SubtitleLanguages) != 1 || r.SubtitleLanguages[0] != "pt" {
+		t.Fatalf("subtitle languages = %v, want [pt]", r.SubtitleLanguages)
 	}
 }
 

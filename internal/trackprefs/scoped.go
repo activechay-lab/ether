@@ -47,6 +47,14 @@ func (s *Service) PutScoped(ctx context.Context, user int64, scope, id string, v
 	if user <= 0 || (scope != "device" && scope != "series" && scope != "library") || id == "" || len(id) > 128 || strings.ContainsAny(id, "\x00\r\n") {
 		return errors.New("invalid scoped track preference")
 	}
+	if value.AudioLanguages != nil {
+		canon := canonicalLanguages(*value.AudioLanguages)
+		value.AudioLanguages = &canon
+	}
+	if value.SubtitleLanguages != nil {
+		canon := canonicalLanguages(*value.SubtitleLanguages)
+		value.SubtitleLanguages = &canon
+	}
 	check := Default()
 	if value.AudioLanguages != nil {
 		check.AudioLanguages = *value.AudioLanguages

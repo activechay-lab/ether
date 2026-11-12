@@ -48,7 +48,7 @@ func TestEstimateVariantInfoDolbyVisionProfiles(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := withParsed(rel("id", tc.release, 18000))
-			info := estimateVariantInfo(title, r)
+			info := estimateVariantInfo(title, r, nil)
 			if len(info.Streams) == 0 || info.Streams[0].Type != "video" {
 				t.Fatalf("missing video stream: %+v", info)
 			}
