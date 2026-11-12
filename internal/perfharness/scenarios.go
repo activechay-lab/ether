@@ -118,7 +118,7 @@ const infuseFields = "DateCreated%2CEtag%2CGenres%2CMediaSources%2CAlternateMedi
 // Clients is every replayed client, in report order.
 func Clients() []Client {
 	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"), plexPlayback(),
-		infuseJellyfin(), swiftfin(), embySDK(), infuseEmby(), siloAppleTV(), stremio(), console(), xtream(), mcpClient()}
+		infuseJellyfin(), swiftfin(), embySDK(), infuseEmby(), moonfin(), siloAppleTV(), stremio(), console(), xtream(), mcpClient()}
 }
 
 func plexHeaders(product, platform, device string) func(*session) http.Header {
@@ -418,6 +418,21 @@ func embySDK() Client {
 		{Name: "season Episodes", Class: classDetail, Path: "/Shows/{seriesId}/Episodes?SeasonId={seasonId}&UserId={userId}"},
 		{Name: "search", Class: classSearch, Path: "/Users/{userId}/Items?SearchTerm=star&Recursive=true&IncludeItemTypes=Movie%2CSeries&Limit=24"},
 	}, embyLibrarySteps()...)}
+}
+
+// moonfin is the Jellyfin TV client that reported the played-episode listing
+// (#405): its home screen asks for played episodes sorted by DatePlayed, a
+// spotlight filtered on HasBackdrop, and CommunityRating/PremiereDate rows.
+// The played listing must follow the viewer's watch rows, never the library.
+func moonfin() Client {
+	f := "UserData,SeriesId"
+	return Client{Name: "moonfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Moonfin", "1.0", "Android TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
+		{Name: "/UserViews", Class: classHome, Path: "/UserViews?userId={userId}", Discover: discoverViews},
+		{Name: "played episodes", Class: classHome, Path: "/Items?IncludeItemTypes=Episode&Filters=IsPlayed&Recursive=true&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Fields=" + f + "&userId={userId}"},
+		{Name: "spotlight HasBackdrop", Class: classHome, Path: "/Items?SortBy=Random&Limit=10&HasBackdrop=true&Recursive=true&IncludeItemTypes=Movie%2CSeries&userId={userId}"},
+		{Name: "top CommunityRating", Class: classBrowse, Path: "/Items?SortBy=CommunityRating&Limit=60&Recursive=true&IncludeItemTypes=Movie%2CSeries&Fields=BackdropImageTags&userId={userId}"},
+		{Name: "recent PremiereDate", Class: classBrowse, Path: "/Items?SortBy=PremiereDate&Limit=16&Recursive=true&IncludeItemTypes=Movie%2CSeries&userId={userId}"},
+	}}
 }
 
 func infuseEmby() Client {

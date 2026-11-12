@@ -640,6 +640,10 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 	}
 	if values := route.Query(r.URL.Query(), "SortOrder"); len(values) == 1 {
 		q.Desc = strings.EqualFold(values[0], "Descending")
+	} else if q.Sort == frontend.SortPlayed {
+		// DatePlayed reads as most-recently-played first unless asked
+		// otherwise: the play history a client's "Played" row wants.
+		q.Desc = true
 	}
 
 	q.Recursive = queryBool(r, "Recursive", false)

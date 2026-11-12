@@ -18,6 +18,8 @@ func Order(value string) (core.SortOrder, bool) {
 		return core.SortReleased, true
 	case "communityrating":
 		return core.SortRating, true
+	case "dateplayed", "lastplayed":
+		return core.SortPlayed, true
 	case "popularity":
 		return core.SortPopularity, true
 	default:
