@@ -3,6 +3,7 @@ package mediabrowser
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -148,13 +149,21 @@ func TestJellyfinWebRedirectsAndRoot(t *testing.T) {
 func TestJellyfinWebPreparingPageWhileDownloading(t *testing.T) {
 	// An installer pointing at a dir that will never be populated: Begin keeps
 	// reporting downloading because the download is in flight (blocked server).
+	// The temp dir is registered first so it is removed last, after the
+	// cleanup below has unblocked the download and waited for it to finish
+	// writing into the dir.
+	dir := t.TempDir()
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		<-block
 	}))
-	t.Cleanup(func() { close(block); srv.Close() })
-	in := webclient.New(t.TempDir(), srv.Client())
+	in := webclient.New(dir, srv.Client())
 	in.URL, in.SHA256, in.Size = srv.URL, strings.Repeat("0", 64), 1
+	t.Cleanup(func() {
+		close(block)
+		_, _ = in.Ensure(context.Background())
+		srv.Close()
+	})
 
 	h := jellyfinRouter(t, in)
 	w := httptest.NewRecorder()
