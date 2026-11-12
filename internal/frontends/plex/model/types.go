@@ -66,6 +66,9 @@ type MediaContainer struct {
 	Bandwidths          []TimelineBandwidths  `plex:"Bandwidths"`
 	Profile             []ClientProfile       `plex:"Profile"`
 	Meta                *Meta                 `plex:"Meta,object"`
+	// UltraBlurColors is the palette /service(s)/ultrablur/colors answers:
+	// one object (not a list) in an otherwise empty container.
+	UltraBlurColors *UltraBlurColors `plex:"UltraBlurColors,object"`
 	Directory           []Directory           `plex:"Directory"`
 	History             []HistoryMetadata     `plex:"Metadata"`
 	Metadata            []Metadata            `plex:"Metadata"`

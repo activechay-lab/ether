@@ -63,6 +63,11 @@ func (s *Server) routes() chi.Router {
 	get("/:/websockets/notifications", s.handleWebsocket)
 	get("/:/websocket/notifications", s.handleWebsocket)
 
+	// UltraBlur colours: Plex for Apple TV asks for episode stills, which
+	// never carry inline colours. Real PMS registers both prefixes.
+	get("/service/ultrablur/colors", s.handleUltraBlurColors)
+	get("/services/ultrablur/colors", s.handleUltraBlurColors)
+
 	// Library
 	get("/library", s.handleLibraryRoot)
 	get("/library/", s.handleLibraryRoot)
