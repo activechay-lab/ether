@@ -371,12 +371,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		if guess, e := i.host.Sessions.Plan(r.Context(), estimate); e == nil && videoTranscode(guess) {
 			triedAlternatives = true
 			if release := i.avoidVideoTranscode(r.Context(), planBase, variants); release != "" {
-				alt := planBase
-				alt.Version, alt.ResolvedRelease = release, ""
-				alt.Intent.ExactVersion = false
-				if p, e := i.host.Sessions.Plan(r.Context(), alt); e == nil && !p.Estimated {
+				if alt, p, handle, ok := i.autoSwitchPlan(r, scope, planBase, release); ok {
 					planBase, plan, planned = alt, p, true
-					autoSwitchedRelease, version = release, release
+					autoSwitchedRelease, version = release, handle
 				}
 			}
 		}
@@ -400,12 +397,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	// real plan too.
 	if playback && !versionRequested && !triedAlternatives && videoTranscode(plan) && len(variants) > 1 {
 		if release := i.avoidVideoTranscode(r.Context(), planBase, variants); release != "" {
-			planBase.Version, planBase.ResolvedRelease = release, ""
-			planBase.Intent.ExactVersion = false
-			if alt, altErr := i.host.Sessions.Plan(r.Context(), planBase); altErr == nil && !alt.Estimated {
-				plan, err = alt, nil
-				autoSwitchedRelease = release
-				version = release
+			if alt, p, handle, ok := i.autoSwitchPlan(r, scope, planBase, release); ok {
+				planBase, plan, err = alt, p, nil
+				autoSwitchedRelease, version = release, handle
 			}
 		}
 	}
@@ -418,8 +412,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		sourceID = wireID
 	} else if autoSwitchedRelease != "" {
 		// Auto played a different release than it would have: identify it by
-		// its scoped handle, never the raw release id.
-		sourceID = i.issueReleaseHandle(r, scope, key, autoSwitchedRelease)
+		// its scoped handle (the session was planned through it), never the
+		// raw release id.
+		sourceID = version
 	} else if version != "" {
 		sourceID = version
 	} else if detailSource != "" {

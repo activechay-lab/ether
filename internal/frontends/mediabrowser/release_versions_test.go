@@ -211,9 +211,14 @@ func TestAutoSkipsVideoTranscodeVariant(t *testing.T) {
 	editions := &variantEditions{variants: variants}
 	handles := newVariantHandles(5, "rel-vt", "rel-dp")
 	var versions []string
+	var final frontend.PlanRequest
 	sessions := frontendtest.Sessions{PlanFunc: func(_ context.Context, req frontend.PlanRequest) (frontend.PlayPlan, error) {
 		versions = append(versions, req.Version)
-		switch req.Version {
+		version := req.Version
+		if version == handleFor("rel-dp") {
+			final, version = req, "rel-dp"
+		}
+		switch version {
 		case "rel-vt":
 			return frontend.PlayPlan{Estimated: true, Media: frontend.MediaInfo{Estimated: true, Streams: []frontend.StreamInfo{{Type: "video", Height: 2160}}}, Decision: frontend.Decision{Kind: "transcode", VideoCopy: false}}, nil
 		case "rel-dp":
@@ -234,11 +239,16 @@ func TestAutoSkipsVideoTranscodeVariant(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	// Auto planned, rel-vt and rel-dp trialled as estimates, then rel-dp
-	// planned for real (Auto skipped the video-transcode variant).
-	want := []string{"", "rel-vt", "rel-dp", "rel-dp"}
+	// Auto estimated (never opened), rel-vt and rel-dp trialled as
+	// estimates, then rel-dp planned for real through its handle, exactly
+	// like a client pick, so the stream the client opens with that
+	// MediaSource Id matches the session.
+	want := []string{"", "rel-vt", "rel-dp", handleFor("rel-dp")}
 	if strings.Join(versions, ",") != strings.Join(want, ",") {
 		t.Fatalf("trial order wrong: %v", versions)
+	}
+	if final.ResolvedRelease != "rel-dp" || !final.Intent.ExactVersion || final.Intent.Estimate {
+		t.Fatalf("switched plan not an exact handle pick: %+v", final)
 	}
 	// The switched source is identified by its scoped handle, not the raw id.
 	sources := mediaSourcesFrom(t, w.Body.Bytes())

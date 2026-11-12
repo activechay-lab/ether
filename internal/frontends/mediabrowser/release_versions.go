@@ -233,6 +233,25 @@ func (i *instance) releaseVersionSourcesFor(r *http.Request, scope frontend.Vers
 
 // issueReleaseHandle returns the scoped handle for one release, or "" when
 // this viewer cannot be issued it.
+// autoSwitchPlan plans Auto's switch to release exactly as a client pick of
+// that version is planned: through its scoped handle and exact release. The
+// session is then bound to the handle returned as the MediaSource Id, so the
+// stream the client opens with it matches the session.
+func (i *instance) autoSwitchPlan(r *http.Request, scope frontend.VersionScope, base frontend.PlanRequest, release string) (frontend.PlanRequest, frontend.PlayPlan, string, bool) {
+	handle := i.issueReleaseHandle(r, scope, base.Item, release)
+	if handle == "" {
+		return base, frontend.PlayPlan{}, "", false
+	}
+	alt := base
+	alt.Version, alt.ResolvedRelease = handle, release
+	alt.Intent.ExactVersion = true
+	plan, err := i.host.Sessions.Plan(r.Context(), alt)
+	if err != nil || plan.Estimated {
+		return base, frontend.PlayPlan{}, "", false
+	}
+	return alt, plan, handle, true
+}
+
 func (i *instance) issueReleaseHandle(r *http.Request, scope frontend.VersionScope, key frontend.RatingKey, release string) string {
 	if i.host.VersionHandles == nil || release == "" {
 		return ""
