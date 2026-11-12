@@ -35,10 +35,13 @@ type anonEntry struct {
 	channel   string
 	version   string
 	detailSrc string
-	viewer    core.Viewer
-	device    frontend.Device
-	expires   time.Time
-	seq       uint64
+	// sourceID is the MediaSource Id PlaybackInfo returned (an Auto switch
+	// returns a release handle the client then names as mediaSourceId).
+	sourceID string
+	viewer   core.Viewer
+	device   frontend.Device
+	expires  time.Time
+	seq      uint64
 }
 
 // anonIndex is a bounded, per-instance map from (peer, item) to the most
@@ -170,7 +173,7 @@ func (i *instance) peerAddr(r *http.Request) netip.Addr {
 // can be served as that viewer. Only item streams are indexed: a live
 // channel is opened and read through the LiveStreams endpoints, and a
 // credential-less channel request has no session to match against.
-func (i *instance) rememberAnonymousSession(r *http.Request, viewer *core.Viewer, sessionID string, item core.RatingKey, channel string, device frontend.Device, version, detailSrc string) {
+func (i *instance) rememberAnonymousSession(r *http.Request, viewer *core.Viewer, sessionID string, item core.RatingKey, channel string, device frontend.Device, version, detailSrc, sourceID string) {
 	if i.anon == nil || viewer == nil || sessionID == "" || item == 0 {
 		return
 	}
@@ -180,7 +183,7 @@ func (i *instance) rememberAnonymousSession(r *http.Request, viewer *core.Viewer
 	}
 	i.anon.remember(anonEntry{
 		sessionID: sessionID, peerAddr: peer, item: item, channel: channel,
-		version: version, detailSrc: detailSrc, viewer: *viewer,
+		version: version, detailSrc: detailSrc, sourceID: sourceID, viewer: *viewer,
 		device: device,
 	})
 }
@@ -215,7 +218,7 @@ func (i *instance) serveAnonymousStream(w http.ResponseWriter, r *http.Request, 
 	if sourceIDs := route.Query(r.URL.Query(), "MediaSourceId"); len(sourceIDs) > 1 {
 		return false
 	} else if len(sourceIDs) == 1 && sourceIDs[0] != "" && !sameItemID(sourceIDs[0], key) {
-		if !sameVersionHandle(sourceIDs[0], entry.version) && !sameVersionHandle(sourceIDs[0], entry.detailSrc) {
+		if sourceIDs[0] != entry.sourceID && !sameVersionHandle(sourceIDs[0], entry.version) && !sameVersionHandle(sourceIDs[0], entry.detailSrc) {
 			return false
 		}
 	}

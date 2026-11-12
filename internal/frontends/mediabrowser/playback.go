@@ -357,7 +357,33 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	listVersions := len(variants) > 0
 	autoSwitchedRelease := ""
 	planBase := frontend.PlanRequest{Viewer: v, Device: dev, Protocol: i.protocol, Item: key, Channel: channel, Version: version, ResolvedRelease: resolvedRelease, DetailSource: detailSource, ExpectedSourceETag: expectedETag, Caps: capability.Client, Intent: intent}
-	plan, err := i.host.Sessions.Plan(r.Context(), planBase)
+	// Auto skips a video transcode: when the automatic pick would re-encode
+	// video for this device and a ranked alternative would not, play the
+	// first alternative that avoids it (up to maxAutoTranscodeTrials). The
+	// choice is made from estimated plans first so the release about to be
+	// skipped is never opened and probed.
+	var plan frontend.PlayPlan
+	err = nil
+	planned, triedAlternatives := false, false
+	if playback && !versionRequested && len(variants) > 1 {
+		estimate := planBase
+		estimate.Intent.Estimate = true
+		if guess, e := i.host.Sessions.Plan(r.Context(), estimate); e == nil && videoTranscode(guess) {
+			triedAlternatives = true
+			if release := i.avoidVideoTranscode(r.Context(), planBase, variants); release != "" {
+				alt := planBase
+				alt.Version, alt.ResolvedRelease = release, ""
+				alt.Intent.ExactVersion = false
+				if p, e := i.host.Sessions.Plan(r.Context(), alt); e == nil && !p.Estimated {
+					planBase, plan, planned = alt, p, true
+					autoSwitchedRelease, version = release, release
+				}
+			}
+		}
+	}
+	if !planned {
+		plan, err = i.host.Sessions.Plan(r.Context(), planBase)
+	}
 	if err != nil {
 		if playback && noCompatibleStream(err) {
 			i.writeNoCompatibleStream(w)
@@ -370,10 +396,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		i.writeNoCompatibleStream(w)
 		return
 	}
-	// Auto skips a video transcode: when the automatic pick would re-encode
-	// video for this device and a ranked alternative would not, play the
-	// first alternative that avoids it (up to maxAutoTranscodeTrials).
-	if playback && !versionRequested && videoTranscode(plan) && len(variants) > 1 {
+	// The estimate can miss a transcode the probed media reveals: check the
+	// real plan too.
+	if playback && !versionRequested && !triedAlternatives && videoTranscode(plan) && len(variants) > 1 {
 		if release := i.avoidVideoTranscode(r.Context(), planBase, variants); release != "" {
 			planBase.Version, planBase.ResolvedRelease = release, ""
 			planBase.Intent.ExactVersion = false
@@ -453,7 +478,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 				i.host.Log.Warn("jellyfin static PlaybackInfo open", "err", err)
 			}
 		} else {
-			i.rememberAnonymousSession(r, v, session.ID, key, channel, dev, version, detailSource)
+			i.rememberAnonymousSession(r, v, session.ID, key, channel, dev, version, detailSource, sourceID)
 			format := frontend.StreamDirect
 			if channel != "" || (plan.Decision.Kind != "directplay" && (plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
 				format = frontend.StreamHLS
