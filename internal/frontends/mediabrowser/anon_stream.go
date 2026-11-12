@@ -214,7 +214,7 @@ func (i *instance) serveAnonymousStream(w http.ResponseWriter, r *http.Request, 
 	// one the session was opened for; nothing else is served.
 	if sourceIDs := route.Query(r.URL.Query(), "MediaSourceId"); len(sourceIDs) > 1 {
 		return false
-	} else if len(sourceIDs) == 1 && sourceIDs[0] != "" && !strings.EqualFold(sourceIDs[0], r.PathValue("id")) {
+	} else if len(sourceIDs) == 1 && sourceIDs[0] != "" && !sameItemID(sourceIDs[0], key) {
 		if !sameVersionHandle(sourceIDs[0], entry.version) && !sameVersionHandle(sourceIDs[0], entry.detailSrc) {
 			return false
 		}
@@ -293,4 +293,12 @@ func (i *instance) serveAliasSession(w http.ResponseWriter, r *http.Request, acc
 		url = prefix + url
 	}
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+// sameItemID reports whether a mediaSourceId names the item itself, in
+// either GUID form: the Jellyfin Kotlin SDK (Findroid) puts the dashed form
+// in the path and the bare form in mediaSourceId.
+func sameItemID(sourceID string, key frontend.RatingKey) bool {
+	parsed, err := ids.ParseRatingKeyGUID(sourceID)
+	return err == nil && parsed == key
 }
