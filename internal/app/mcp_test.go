@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -50,12 +51,12 @@ func TestMCPBuiltinToolsAndEndToEndWorkflow(t *testing.T) {
 	}
 	t.Cleanup(a.Close)
 
-	// 1. Verify all 35 built-in tools are registered in both the tool catalogue
+	// 1. Verify all 37 built-in tools are registered in both the tool catalogue
 	// and the descriptor registry (extend.KindTool). web_search and web_fetch
 	// are among them but stay invisible to MCP principals.
 	toolDescs := a.extendRT.registry.List(extend.KindTool)
-	if len(toolDescs) != 35 {
-		t.Fatalf("expected 35 extend.KindTool descriptors, got %d", len(toolDescs))
+	if len(toolDescs) != 37 {
+		t.Fatalf("expected 37 extend.KindTool descriptors, got %d", len(toolDescs))
 	}
 
 	// Route-to-tool coverage for the existing guide match endpoint. Both MCP
@@ -352,6 +353,63 @@ func TestMCPBuiltinToolsAndEndToEndWorkflow(t *testing.T) {
 	if blocked, err := a.resolver.ReleaseBlocked(ctx, "rel-heat-bad"); err != nil || !blocked {
 		t.Fatalf("release should be blocked after owner approval (blocked=%v err=%v)", blocked, err)
 	}
+	// Quality grouping is readable over MCP and changes only after owner approval.
+	beforeQuality := a.cfg.Get().Quality
+	profileRows := mcpCall("quality_profiles", map[string]any{})["profiles"].([]any)
+	if len(profileRows) != len(beforeQuality.Profiles) {
+		t.Fatalf("profile count: %v", profileRows)
+	}
+	var target int = -1
+	for i, p := range beforeQuality.Profiles {
+		if p.Name == "4K" && p.MediaType == "tv" {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		t.Fatal("missing default TV profile")
+	}
+	row := profileRows[target].(map[string]any)
+	if row["name"] != "4K" || row["media"] != "tv" || len(row["qualityOrder"].([]any)) == 0 {
+		t.Fatalf("profile read: %v", row)
+	}
+	grouped := []core.QualityItem{{Name: "HD and UHD", Qualities: []string{"webdl-2160", "webdl-1080"}}}
+	qualityProposal := mcpCall("quality_order_set", map[string]any{"profile": "4K", "media": "tv", "qualityOrder": grouped})
+	if qualityProposal["status"] != "pending_approval" || !reflect.DeepEqual(a.cfg.Get().Quality, beforeQuality) {
+		t.Fatal("quality changed before approval")
+	}
+	qualityApproval := qualityProposal["approvalId"].(string)
+	qualityReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/ether/api/agent/approvals/"+qualityApproval, strings.NewReader(`{"decision":"approved"}`))
+	qualityReq.Header.Set("Authorization", "Bearer "+ownerToken)
+	qualityReq.Header.Set("Content-Type", "application/json")
+	qualityReq.Header.Set("X-Ether-Request", "1")
+	qualityResp, err := http.DefaultClient.Do(qualityReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualityBody, _ := io.ReadAll(qualityResp.Body)
+	qualityResp.Body.Close()
+	if qualityResp.StatusCode != http.StatusOK {
+		t.Fatalf("quality approval: %d %s", qualityResp.StatusCode, qualityBody)
+	}
+	expectedQuality := beforeQuality
+	expectedQuality.Profiles = append([]core.QualityProfile(nil), beforeQuality.Profiles...)
+	expectedQuality.Profiles[target].QualityOrder = grouped
+	if !reflect.DeepEqual(a.cfg.Get().Quality, expectedQuality) {
+		t.Fatalf("approval changed settings beyond the targeted quality order")
+	}
+	if status := mcpCall("approval_status", map[string]any{"approvalId": qualityApproval}); status["status"] != "approved" {
+		t.Fatalf("quality approval status: %v", status)
+	}
+	// A fresh store proves the approved order survived persistence.
+	reopened, err := config.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reopened.Get().Quality, expectedQuality) {
+		t.Fatal("quality order was not persisted")
+	}
+
 	// MCP secret-requiring writes wait for approval and then present a secret card.
 	sourceCount := len(a.cfg.Get().Indexers)
 	secretProposal := mcpCall("source_add_stremio", map[string]any{})

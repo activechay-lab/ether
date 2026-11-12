@@ -67,10 +67,13 @@ Key ideas for answering questions:
   poor release", read playback_history to find the play, then
   resolve_trace for that title, then release_health and logs_tail if the
   trace points at a sick release or source.
-- **Ranking** follows the owner's quality profile: an ordered list of
-  what matters (language, connection, resolution, custom score, verified health and
-  more), plus rules (require, avoid, prefer). Pins beat ranking for one
-  title; the blocklist removes a release forever.
+- **Ranking** uses quality groups first, then custom format scores, after
+  language, connection and release-rule gates. Read quality_profiles to inspect
+  the quality order, scores and language settings. quality_order_set proposes
+  changing the groups; qualities in one group tie. To let a viewer-language
+  score prefer 1080p over 4K, group those qualities together, preserving other
+  groups. Raising a language score alone cannot beat a separate higher quality
+  group. Pins beat ranking for one title; the blocklist removes a release forever.
 - **Collections** are smart lists rebuilt from rules. **Live TV** mixes
   virtual channels (from collections) with playlist sources.
 - Writes from MCP never apply directly. A write tool returns

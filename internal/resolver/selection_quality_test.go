@@ -325,3 +325,35 @@ func TestForeignMoviePrefersWantedAudioOverBareDualAndUntaggedOriginal(t *testin
 		t.Fatalf("order %v, want vesp and playful (English/Multi) ahead of playweb and bioma", ids)
 	}
 }
+
+// MCP can group HD and UHD so the existing viewer-language format score
+// takes precedence over resolution, without changing the comparer or defaults.
+func TestGroupedQualitiesPreferViewerLanguageAcrossResolutions(t *testing.T) {
+	cfg := testCfg()
+	caps := appleTV4K()
+	user := &core.User{ID: 7, AudioLanguages: []string{"es"}}
+	title := signal2026()
+	releases := []core.Release{
+		withParsed(rel("english4k", "The.Signal.2026.2160p.WEB-DL.DDP5.1.HEVC-GRP", 16<<10)),
+		withParsed(rel("spanish1080", "The.Signal.2026.1080p.WEB-DL.SPANISH.DDP5.1.H264-GRP", 8<<10)),
+	}
+	svc := New(&fakeIndexer{}, fakeHealth{}, nil, cfg, Options{})
+	defer svc.Close()
+	profile := SelectProfile(cfg.Quality, caps, user)
+	for _, grouped := range []bool{false, true} {
+		if grouped {
+			profile.QualityOrder = []core.QualityItem{{Name: "HD and UHD", Qualities: []string{"webdl-2160", "webdl-1080"}}}
+		}
+		cands, _, err := svc.rankCandidates(context.Background(), core.ResolveRequest{Title: title, Client: caps, User: user}, searchRequestFor(title), profile, releases, &Trace{}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "english4k"
+		if grouped {
+			want = "spanish1080"
+		}
+		if len(cands) != 2 || cands[0].rel.ID != want {
+			t.Fatalf("grouped=%v candidates=%+v, want %s first", grouped, cands, want)
+		}
+	}
+}

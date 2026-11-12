@@ -171,14 +171,20 @@ type PluginService interface {
 	SetPluginEnabled(ctx context.Context, id string, enabled bool) error
 }
 
-// ProfileInfo is one quality profile with its custom format scores and
-// rules. A profile serves one media; a movie and a TV profile may share a
+// ProfileInfo is one quality profile with its quality order, format scores,
+// language settings, limits and rules. A profile serves one media; a movie and a TV profile may share a
 // name.
 type ProfileInfo struct {
-	Name   string
-	Media  string         // core.MediaMovie or core.MediaTV
-	Scores map[string]int // custom format id → score
-	Rules  []core.ReleaseRule
+	Name               string
+	Media              string         // core.MediaMovie or core.MediaTV
+	Scores             map[string]int // custom format id → score
+	Rules              []core.ReleaseRule
+	QualityOrder       []core.QualityItem
+	Language           string
+	PreferredLanguages []string
+	MaxHeight          int
+	MinHeight          int
+	AllowedQualities   []string
 }
 
 type ProfileService interface {
@@ -186,6 +192,8 @@ type ProfileService interface {
 	// SetFormatScores sets the given custom format scores on a profile; a
 	// score of 0 removes the format from the profile.
 	SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error
+	// SetQualityOrder replaces only the quality groups, preserving other settings.
+	SetQualityOrder(ctx context.Context, profile, media string, order []core.QualityItem) error
 	AddRule(ctx context.Context, profile, media string, rule core.ReleaseRule) error
 }
 
@@ -248,6 +256,7 @@ func All(d Deps) []tools.Tool {
 	}
 	out := []tools.Tool{}
 	out = append(out, readTools(d)...)
+	out = append(out, qualityProfilesTool(d), qualityOrderTool(d))
 	out = append(out, writeTools(d)...)
 	out = append(out, webTools()...)
 	out = append(out, onairTools(d)...)

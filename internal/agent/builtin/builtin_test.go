@@ -363,6 +363,11 @@ func (f *fakeEnv) Profiles(ctx context.Context) ([]builtin.ProfileInfo, error) {
 	}, nil
 }
 
+func (f *fakeEnv) SetQualityOrder(ctx context.Context, profile, media string, order []core.QualityItem) error {
+	f.writes++
+	return nil
+}
+
 func (f *fakeEnv) SetFormatScores(ctx context.Context, profile, media string, scores map[string]int) error {
 	f.writes++
 	for id, v := range scores {
@@ -412,12 +417,12 @@ func callTool(t *testing.T, cat *tools.Catalogue, ctx context.Context, p tools.P
 func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 	_, d := buildDeps()
 	all := builtin.All(d)
-	if len(all) != 35 {
-		t.Fatalf("expected 35 built-in tools, got %d", len(all))
+	if len(all) != 37 {
+		t.Fatalf("expected 37 built-in tools, got %d", len(all))
 	}
 
 	wantRead := []string{
-		"server_status", "health_details", "playback_history", "resolve_trace",
+		"quality_profiles", "server_status", "health_details", "playback_history", "resolve_trace",
 		"release_health", "logs_tail", "catalog_search", "title_details",
 		"collection_list", "collection_preview", "collection_draft", "livetv_channels", "sources_list",
 		"plugins_list", "plugin_health", "approval_status", "navigate",
@@ -426,7 +431,7 @@ func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 	wantWrite := []string{
 		"livetv_guide_match",
 		"collection_create_from_prompt", "release_blocklist", "release_pin",
-		"format_scores_set", "rule_add", "source_add_stremio", "source_add_m3u",
+		"quality_order_set", "format_scores_set", "rule_add", "source_add_stremio", "source_add_m3u",
 		"frontend_enable", "plugin_enable", "server_restart", "livetv_look_save", "livetv_channel_look",
 	}
 
