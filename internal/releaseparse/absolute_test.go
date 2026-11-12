@@ -3,6 +3,8 @@ package releaseparse
 import (
 	"reflect"
 	"testing"
+
+	"github.com/braedonsaunders/ether/internal/core"
 )
 
 func TestAnimeAbsoluteEpisodes(t *testing.T) {
@@ -73,6 +75,28 @@ func TestSeasonDashEpisode(t *testing.T) {
 	info = Parse("Show Seasons 1 - 5 1080p BluRay")
 	if !info.FullSeason || len(info.Episodes) != 0 {
 		t.Fatalf("range: got seasons=%v episodes=%v full=%v", info.Seasons, info.Episodes, info.FullSeason)
+	}
+}
+
+// TestAnimeSearchEpisodeArcSeason covers the search episode for a TMDB
+// story-arc season that keeps absolute numbering ("One Piece" S18E749): the
+// catalogue supplies the absolute number, and it is used as-is. A normally
+// numbered later season has no catalogue absolute number, so it is not
+// searched by one; season 1 (a short anime) searches the episode itself.
+func TestAnimeSearchEpisodeArcSeason(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  core.SearchRequest
+		want int
+	}{
+		{"arc season with catalogue absolute", core.SearchRequest{Anime: true, Type: core.TypeEpisode, Season: 18, Episode: 749, AbsoluteEpisode: 749}, 749},
+		{"normally numbered later season", core.SearchRequest{Anime: true, Type: core.TypeEpisode, Season: 2, Episode: 3}, 0},
+		{"first season falls back to episode", core.SearchRequest{Anime: true, Type: core.TypeEpisode, Season: 1, Episode: 10}, 10},
+		{"non-anime", core.SearchRequest{Type: core.TypeEpisode, Season: 18, Episode: 749}, 0},
+	} {
+		if got := AnimeSearchEpisode(tc.req); got != tc.want {
+			t.Errorf("%s: AnimeSearchEpisode=%d, want %d", tc.name, got, tc.want)
+		}
 	}
 }
 

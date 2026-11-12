@@ -42,6 +42,43 @@ func TestHydrateAbsoluteEpisodes(t *testing.T) {
 	}
 }
 
+// TestHydrateAbsoluteEpisodesInArcSeasons covers anime TMDB splits into
+// story-arc seasons that keep absolute episode numbers ("One Piece"): the
+// in-season number is already counted from the series start, so it must not
+// have the prior seasons' total added again. A normally numbered season of
+// the same show must still number additively.
+func TestHydrateAbsoluteEpisodesInArcSeasons(t *testing.T) {
+	ctx := context.Background()
+	c := newChunkTestCatalog(t)
+	aired := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+	show := core.Title{Key: core.ShowKey(37854), Type: core.TypeShow, Title: "One Piece", Released: aired}
+	season := func(n, count int) core.Title {
+		return core.Title{Key: core.SeasonKey(37854, n), Type: core.TypeSeason, ShowKey: show.Key, Season: n, ChildCount: count, Title: "Season", Released: aired}
+	}
+	titles := []core.Title{show,
+		season(1, 61), season(2, 16),
+		// Season 3 holds absolute episodes 78-82 (count 5): 78 > 5, so the
+		// number is absolute and must stay 78, not 61+16+78 = 155.
+		season(3, 5),
+	}
+	if err := c.upsertMany(ctx, titles, upsertOpts{browsable: true}); err != nil {
+		t.Fatal(err)
+	}
+	ep := func(s, e int) core.Title {
+		return core.Title{Key: core.EpisodeKey(37854, s, e), Type: core.TypeEpisode, ShowKey: show.Key, Season: s, Episode: e}
+	}
+	items := []core.Title{ep(3, 78), ep(3, 82), ep(1, 5), ep(2, 3)}
+	if err := c.hydrateSlice(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	// Arc season 3 numbers are already absolute; season 1/2 stay additive.
+	for i, want := range []int{78, 82, 5, 61 + 3} {
+		if got := items[i].AbsoluteEpisode; got != want {
+			t.Errorf("item %d S%dE%d: absolute %d, want %d", i, items[i].Season, items[i].Episode, got, want)
+		}
+	}
+}
+
 func TestHydrateSeasonParentsDoesNotReadSiblingSeasons(t *testing.T) {
 	ctx := context.Background()
 	c := newChunkTestCatalog(t)

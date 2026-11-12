@@ -749,7 +749,15 @@ SELECT 'season', show_key, CAST(season AS TEXT), CAST(child_count AS TEXT), '', 
 			}
 			total += seasons[s]
 		}
-		if total >= 0 {
+		// TMDB splits some anime into story-arc seasons that keep absolute
+		// episode numbers ("One Piece" season 18 = episodes 749-803). There
+		// the in-season number is already counted from the series start: it
+		// exceeds the season's own episode count, so adding the prior
+		// seasons' total again double-counts it (749 -> 1497). A normal
+		// per-season index never exceeds its season's count.
+		if own := seasons[t.Season]; own > 0 && t.Episode > own {
+			t.AbsoluteEpisode = t.Episode
+		} else if total >= 0 {
 			t.AbsoluteEpisode = total + t.Episode
 		}
 	}
