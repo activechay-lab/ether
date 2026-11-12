@@ -515,7 +515,11 @@ alternative, the menu can show two 4K, two 1080p and two 720p releases when
 eligible results exist. Auto counts as the first release in its resolution,
 stays first in the menu, and the total stays within seven entries. Ether gives
 each resolution a place before filling extra copies, removes duplicate files,
-and preserves profile and device limits. **Offer higher versions** remains a
+and preserves profile and device limits. Turn on **Offer each source at every
+resolution** to keep one WEB-DL, Blu-ray and Remux choice at each resolution
+that appears, so a lighter WEB-DL still shows beside a tier full of remuxes;
+Auto is unchanged and still follows your profile. **Offer higher versions**
+remains a
 separate opt-in for choices above the profile's resolution ceiling. The new
 mode is off by default.
 

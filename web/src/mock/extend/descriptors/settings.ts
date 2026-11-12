@@ -633,6 +633,15 @@ export const descriptors: Descriptor<SettingsSchemaMeta>[] = [
                 kind: "bool",
               },
               {
+                key: "alternativesPerSource",
+                label: { source: "Offer each source at every resolution" },
+                help: {
+                  source:
+                    "Keep one WEB-DL, Blu-ray and Remux choice at each resolution in Play Version when available. Auto still follows your profile.",
+                },
+                kind: "bool",
+              },
+              {
                 key: "offerHigherVersions",
                 label: {
                   source: "Offer higher versions",

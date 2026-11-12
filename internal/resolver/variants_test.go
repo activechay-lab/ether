@@ -584,7 +584,7 @@ func TestResolutionVariantsBalanceAndBounds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := profile
 			p.MaxHeight = tc.ceiling
-			got := pickResolutionVariants(matrixTitle(), p, pool[0].rel, pool, tc.alternatives, tc.cap, false)
+			got := pickResolutionVariants(matrixTitle(), p, pool[0].rel, pool, tc.alternatives, tc.cap, false, true, false)
 			var ids []string
 			for i, v := range got {
 				if v.Auto != (i == 0) {
@@ -616,5 +616,63 @@ func TestResolutionVariantsBalanceAndBounds(t *testing.T) {
 		if v.Release.Info.Height > 1080 {
 			t.Fatalf("device/profile ceiling bypass: %+v", v)
 		}
+	}
+}
+
+// TestAlternativesPerSourceOffersSourceAtEachResolution is the lasting test
+// for the AlternativesPerSource setting: cached results hold several remuxes
+// and one WEB-DL at 2160p and 1080p. With the setting on, the menu keeps Auto
+// (the 4K remux) and still shows a WEB-DL at each resolution, instead of the
+// per-resolution slots filling with more remuxes. Off, today's behaviour is
+// unchanged, and Auto is identical either way.
+func TestAlternativesPerSourceOffersSourceAtEachResolution(t *testing.T) {
+	mk := func(id, name string, size int64) candidate { return candidate{rel: withParsed(rel(id, name, size))} }
+	pool := []candidate{
+		mk("auto", "The.Signal.1999.2160p.UHD.BluRay.REMUX.HEVC.TrueHD.7.1-TOP", 50000),
+		mk("r2", "The.Signal.1999.2160p.UHD.BluRay.REMUX.HEVC.DTS-HD.5.1-ALT", 48000),
+		mk("uhdweb", "The.Signal.1999.2160p.WEB-DL.H.265-WEB", 20000),
+		mk("hd1", "The.Signal.1999.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-TOP", 30000),
+		mk("hd2", "The.Signal.1999.1080p.BluRay.x265.DTS-HD.MA.5.1-ALT", 12000),
+		mk("hdweb", "The.Signal.1999.1080p.WEB-DL.DDP5.1.H.264-WEB", 8000),
+	}
+	profile := core.QualityProfile{MaxHeight: 2160}
+	heights := func(vs []core.ReleaseVariant) map[string]int {
+		m := map[string]int{}
+		for _, v := range vs {
+			m[v.Release.ID] = v.Release.Info.Height
+		}
+		return m
+	}
+
+	on := pickResolutionVariants(matrixTitle(), profile, pool[0].rel, pool, 1, core.MaxVariants, false, false, true)
+	if len(on) == 0 || !on[0].Auto || on[0].Release.ID != "auto" {
+		t.Fatalf("Auto moved with per-source on: %+v", on)
+	}
+	byID := heights(on)
+	for _, want := range []struct {
+		id     string
+		height int
+	}{{"uhdweb", 2160}, {"hdweb", 1080}} {
+		if byID[want.id] != want.height {
+			t.Fatalf("per-source on: %s (height %d) missing from %v", want.id, want.height, byID)
+		}
+	}
+	if byID["r2"] != 0 {
+		t.Fatalf("per-source on surfaced an extra remux: %v", byID)
+	}
+
+	// Off: the per-resolution slots fill with remuxes and no WEB-DL shows,
+	// which is exactly why the setting exists.
+	off := pickResolutionVariants(matrixTitle(), profile, pool[0].rel, pool, 1, core.MaxVariants, false, false, false)
+	if len(off) == 0 || !off[0].Auto || off[0].Release.ID != "auto" {
+		t.Fatalf("Auto moved with per-source off: %+v", off)
+	}
+	if byID := heights(off); byID["uhdweb"] != 0 || byID["hdweb"] != 0 {
+		t.Fatalf("per-source off unexpectedly surfaced a WEB-DL: %v", byID)
+	}
+
+	// Auto is identical either way.
+	if on[0].Release.ID != off[0].Release.ID || on[0].Label != off[0].Label || on[0].Info.BitrateKbps != off[0].Info.BitrateKbps {
+		t.Fatalf("Auto changed with the setting: on=%+v off=%+v", on[0], off[0])
 	}
 }
