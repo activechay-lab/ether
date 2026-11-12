@@ -365,6 +365,30 @@ describe("Live TV studio", () => {
     ).toBe(6000000000000042);
   });
 
+  it("restores the default Start season on blur when the field is cleared", async () => {
+    const calls = backend();
+    renderLiveTV();
+    await newBlankChannel("Reruns");
+    fireEvent.click(screen.getAllByRole("button", { name: "Add" }).at(-1)!);
+    fireEvent.click(await screen.findByRole("button", { name: "Programme block" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Block name" }), {
+      target: { value: "Reruns" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Source type" }));
+    fireEvent.click(await screen.findByRole("option", { name: "TV show" }));
+    const seasonInput = await screen.findByRole("spinbutton", { name: "Start season" });
+    fireEvent.change(seasonInput, { target: { value: "" } });
+    expect(seasonInput).toHaveValue(null);
+    fireEvent.blur(seasonInput);
+    expect(seasonInput).toHaveValue(1);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: /Create channel/ }));
+    await waitFor(() => expect(sent(calls, "POST", /\/livetv\/channels$/)).toHaveLength(1));
+    expect(
+      body(sent(calls, "POST", /\/livetv\/channels$/)[0]).blocks[0].sources[0].startSeason,
+    ).toBe(1);
+  });
+
   it("edits a schedule block in a drawer and previews its applied programming", async () => {
     const calls = backend();
     renderLiveTV("/livetv?channel=new");
