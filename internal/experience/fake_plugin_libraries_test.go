@@ -58,3 +58,9 @@ func mediaBrowserPresentation(collection string, itemTypes map[string]string) co
 	}{CollectionType: collection, ItemTypes: itemTypes}
 	return p
 }
+
+// MemberOf reports no collection membership: these tests use no
+// collection-source libraries.
+func (f *fakePluginLibraries) MemberOf(context.Context, core.Library, core.RatingKey) (bool, error) {
+	return false, nil
+}
