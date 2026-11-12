@@ -65,6 +65,7 @@ const NowMarker = memo(function NowMarker({
 });
 export function ScheduleTimeline({
   channelId,
+  snapshot,
   range: requestedRange,
   loadMore = false,
   onSelect,
@@ -72,6 +73,7 @@ export function ScheduleTimeline({
   selectedId,
 }: {
   channelId: string;
+  snapshot?: TimelineResponse;
   range: TimelineRange;
   loadMore?: boolean;
   onSelect?: (element: TimelineElement) => void;
@@ -111,6 +113,11 @@ export function ScheduleTimeline({
     return () => ro.disconnect();
   }, []);
   useEffect(() => {
+    if (snapshot) {
+      setData(snapshot);
+      setError("");
+      return;
+    }
     let live = true;
     const append = loadMore && loaded.current > range.from;
     if (!append) setData(undefined);
@@ -165,7 +172,7 @@ export function ScheduleTimeline({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [channelId, range.from, range.to, loadMore]);
+  }, [channelId, range.from, range.to, loadMore, snapshot]);
   const scale = width / (hours * HOUR),
     total = Math.max(width, (range.to - range.from) * scale);
   const items = useMemo(

@@ -1,3 +1,4 @@
+import { ChannelAIBuilder } from "./ChannelAIBuilder";
 import { ProgrammingEditor } from "./ProgrammingEditor";
 import { programmeArtwork } from "./model";
 import { styleCopy } from "./onair/naming";
@@ -270,6 +271,7 @@ export function ChannelStudio({
 
   return (
     <div className="@container min-w-0 pb-10">
+      {virtual && <ChannelAIBuilder channel={isNew ? undefined : c} />}
       {watching && c.id ? (
         <LivePreview
           channel={c}

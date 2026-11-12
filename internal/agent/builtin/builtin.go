@@ -260,6 +260,7 @@ func All(d Deps) []tools.Tool {
 	out = append(out, writeTools(d)...)
 	out = append(out, webTools()...)
 	out = append(out, onairTools(d)...)
+	out = append(out, channelBuilderTools(d)...)
 	return out
 }
 

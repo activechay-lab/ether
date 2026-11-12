@@ -1,3 +1,4 @@
+import { ChannelAIBuilder } from "./ChannelAIBuilder";
 import Library, { LibraryAside } from "./library/Library";
 import { styleCopy } from "./onair/naming";
 import { stylesName } from "./onair/naming";
@@ -598,6 +599,14 @@ function LiveTVWorkspace() {
     }
   }, [selection.kind]);
 
+  useEffect(() => {
+    const changed = () => {
+      void reloadAll();
+    };
+    window.addEventListener("ether:channels-changed", changed);
+    return () => window.removeEventListener("ether:channels-changed", changed);
+  }, [reloadAll]);
+
   const go = useCallback(
     async (next: Selection, opts?: { force?: boolean }) => {
       if (dirty && !opts?.force) {
@@ -776,28 +785,31 @@ function LiveTVWorkspace() {
   };
 
   const actions = (
-    <AddMenu
-      onChannel={() => void go({ kind: "new" })}
-      onPersonal={() =>
-        void (async () => {
-          if (await go({ kind: "new" })) await startNew("personal");
-        })()
-      }
-      onSource={(k) => {
-        if (k === "guide") {
-          addGuideSource();
-          return;
+    <div className="flex items-center gap-2">
+      <ChannelAIBuilder />
+      <AddMenu
+        onChannel={() => void go({ kind: "new" })}
+        onPersonal={() =>
+          void (async () => {
+            if (await go({ kind: "new" })) await startNew("personal");
+          })()
         }
-        void (async () => {
-          if (await go({ kind: "guide" })) navigate("/sources/iptv?new=playlist");
-        })();
-      }}
-      onAddon={() => {
-        void (async () => {
-          if (await go({ kind: "guide" })) navigate("/sources/iptv?new=addon");
-        })();
-      }}
-    />
+        onSource={(k) => {
+          if (k === "guide") {
+            addGuideSource();
+            return;
+          }
+          void (async () => {
+            if (await go({ kind: "guide" })) navigate("/sources/iptv?new=playlist");
+          })();
+        }}
+        onAddon={() => {
+          void (async () => {
+            if (await go({ kind: "guide" })) navigate("/sources/iptv?new=addon");
+          })();
+        }}
+      />
+    </div>
   );
 
   // ---- render -----------------------------------------------------------------------------
