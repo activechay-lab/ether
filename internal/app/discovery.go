@@ -33,17 +33,24 @@ func (a *App) buildDiscovery() {
 		sourceCache = a.cache
 	}
 	a.watchlist = watchlist.New(a.db, watchlist.Options{
-		Logger:           a.log.With("component", "watchlist"),
-		Sealer:           a.cfg,
-		Catalog:          a.catalog,
-		Resolver:         sourceResolver,
-		Engine:           sourceEngine,
-		Cache:            sourceCache,
-		Trakt:            a.trakt,
-		Users:            a.users.Users,
-		Allowed:          a.safety.Allowed,
-		Notifier:         a.notifications,
-		Tokens:           a.discoveryToken,
+		Logger:     a.log.With("component", "watchlist"),
+		Sealer:     a.cfg,
+		Catalog:    a.catalog,
+		Resolver:   sourceResolver,
+		Engine:     sourceEngine,
+		Cache:      sourceCache,
+		Trakt:      a.trakt,
+		Users:      a.users.Users,
+		Allowed:    a.safety.Allowed,
+		Notifier:   a.notifications,
+		Tokens:     a.discoveryToken,
+		OwnerToken: func(context.Context) (string, error) { return a.cfg.Read().Plex.Token, nil },
+		PlexLookup: func(ctx context.Context, guid string) (core.RatingKey, error) {
+			if a.plexGUID == nil {
+				return 0, core.ErrNotFound
+			}
+			return a.plexGUID.Lookup(ctx, guid)
+		},
 		ClientIdentifier: plexguid.ClientIdentifier(a.cfg.Get().Plex.ClientIdentifier, a.cfg.Get().Server.MachineIdentifier),
 		PrewarmBytes:     a.cfg.Get().Cache.PrefetchBytes,
 		ResumeSchedule:   a.clustered(), // a new leader continues the schedule

@@ -56,7 +56,7 @@ func loadFriendsWatchlistTitles(ctx context.Context, db *sql.DB) ([]core.Title, 
 	if db == nil {
 		return nil, nil
 	}
-	rows, err := db.QueryContext(ctx, `SELECT title FROM watchlist_items WHERE user_id=0 AND source='plex-friends-rss' ORDER BY added DESC, item_key`)
+	rows, err := db.QueryContext(ctx, `SELECT title FROM watchlist_items WHERE user_id=0 AND (source='plex-friends-rss' OR source LIKE 'plex-community:%') ORDER BY added DESC, item_key`)
 	if err != nil {
 		if isMissingTableErr(err) {
 			return nil, nil
@@ -90,7 +90,7 @@ func countFriendsWatchlistItems(ctx context.Context, db *sql.DB) (int, error) {
 		return 0, nil
 	}
 	var n int
-	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM watchlist_items WHERE user_id=0 AND source='plex-friends-rss'`).Scan(&n)
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM watchlist_items WHERE user_id=0 AND (source='plex-friends-rss' OR source LIKE 'plex-community:%')`).Scan(&n)
 	if err != nil {
 		if isMissingTableErr(err) {
 			return 0, nil

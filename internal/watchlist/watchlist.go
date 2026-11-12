@@ -47,23 +47,27 @@ type Notifier interface {
 	TitleAvailable(context.Context, string) error
 }
 type Settings struct {
-	Enabled              bool           `json:"enabled"`
-	Plex                 bool           `json:"plex"`
-	PlexFriendsRSSURL    string         `json:"plexFriendsRssUrl"`
-	PlexOwnerRSSURL      string         `json:"plexOwnerRssUrl"`
-	PlexFriendsRSSStatus *RSSFeedStatus `json:"plexFriendsRssStatus,omitempty"`
-	PlexOwnerRSSStatus   *RSSFeedStatus `json:"plexOwnerRssStatus,omitempty"`
-	Trakt                bool           `json:"trakt"`
-	Notify               bool           `json:"notify"`
-	Prewarm              bool           `json:"prewarm"`
-	CheckHours           int            `json:"checkHours"`
-	NaturalSearch        bool           `json:"naturalSearch"`
-	Recaps               bool           `json:"recaps"`
-	SubtitleTranslate    bool           `json:"subtitleTranslate"`
-	SpeechToText         bool           `json:"speechToText"`
-	OverviewTranslate    bool           `json:"overviewTranslate"`
+	PlexFriendsStatus    []FriendFeedStatus `json:"plexFriendsStatus,omitempty"`
+	Enabled              bool               `json:"enabled"`
+	Plex                 bool               `json:"plex"`
+	PlexFriendsRSSURL    string             `json:"plexFriendsRssUrl"`
+	PlexOwnerRSSURL      string             `json:"plexOwnerRssUrl"`
+	PlexFriendsRSSStatus *RSSFeedStatus     `json:"plexFriendsRssStatus,omitempty"`
+	PlexOwnerRSSStatus   *RSSFeedStatus     `json:"plexOwnerRssStatus,omitempty"`
+	Trakt                bool               `json:"trakt"`
+	Notify               bool               `json:"notify"`
+	Prewarm              bool               `json:"prewarm"`
+	CheckHours           int                `json:"checkHours"`
+	NaturalSearch        bool               `json:"naturalSearch"`
+	Recaps               bool               `json:"recaps"`
+	SubtitleTranslate    bool               `json:"subtitleTranslate"`
+	SpeechToText         bool               `json:"speechToText"`
+	OverviewTranslate    bool               `json:"overviewTranslate"`
 }
 type Options struct {
+	Community        *plextv.CommunityClient
+	OwnerToken       func(context.Context) (string, error)
+	PlexLookup       func(context.Context, string) (core.RatingKey, error)
 	Logger           *slog.Logger
 	Sealer           config.FieldSealer
 	Catalog          core.Catalog
@@ -95,10 +99,11 @@ type Options struct {
 	OnFriendsRSSChanged func(context.Context)
 }
 type Service struct {
-	db  *sql.DB
-	o   Options
-	mu  sync.Mutex
-	gen atomic.Uint64
+	db          *sql.DB
+	o           Options
+	mu          sync.Mutex
+	communityMu sync.Mutex
+	gen         atomic.Uint64
 }
 
 // Generation changes when watchlist membership changes.
@@ -127,6 +132,9 @@ func New(db *sql.DB, o Options) *Service {
 	if o.Client == nil {
 		o.Client = egress.Client(egress.CapMetadata, 20*time.Second)
 		o.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	if o.Community == nil {
+		o.Community = &plextv.CommunityClient{Client: o.Client}
 	}
 	if o.PlexBaseURL == "" {
 		o.PlexBaseURL = "https://discover.provider.plex.tv"
@@ -174,6 +182,7 @@ func (s *Service) settings(ctx context.Context) (Settings, error) {
 	if v.PlexOwnerRSSURL, _, err = config.OpenWith(s.o.Sealer, v.PlexOwnerRSSURL, ownerRSSContext()...); err != nil {
 		return v, fmt.Errorf("watchlist: stored owner RSS URL: %w", err)
 	}
+	v.PlexFriendsStatus = nil
 	v.PlexFriendsRSSStatus = nil
 	v.PlexOwnerRSSStatus = nil
 	return v, nil
@@ -181,6 +190,7 @@ func (s *Service) settings(ctx context.Context) (Settings, error) {
 
 func (s *Service) encodeSettings(v Settings) (string, error) {
 	var err error
+	v.PlexFriendsStatus = nil
 	v.PlexFriendsRSSStatus = nil
 	v.PlexOwnerRSSStatus = nil
 	if v.PlexFriendsRSSURL, err = config.SealWith(s.o.Sealer, v.PlexFriendsRSSURL, friendsRSSContext()...); err != nil {
@@ -242,6 +252,7 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return v, err
 	}
+	v.PlexFriendsStatus = s.friendStatuses(ctx)
 	v.PlexFriendsRSSStatus = s.feedStatus(ctx, v.PlexFriendsRSSURL, metaKeyFriendsRSS)
 	v.PlexOwnerRSSStatus = s.feedStatus(ctx, v.PlexOwnerRSSURL, metaKeyOwnerRSS)
 	if v.PlexFriendsRSSURL != "" {
@@ -511,10 +522,16 @@ func (s *Service) syncViewer(ctx context.Context, u *core.User, result *SyncResu
 		token, e := s.o.Tokens(ctx, u.ID)
 		switch {
 		case errors.Is(e, core.ErrUnauthorized):
-			result.Plex = "friend"
-			// plex.tv issues the server no token for an account shared from
-			// outside Plex Home (#337): its watchlist can't be read, which is
-			// expected, not a failed sync. Trakt below still syncs.
+			result.Plex = "synced"
+			count, syncErr := 0, error(nil)
+			if ctx.Value(communityScheduledKey{}) != true {
+				count, syncErr = s.syncCommunityViewer(ctx, u)
+			}
+			result.Count = count
+			if syncErr != nil {
+				result.Plex = "refused"
+				errs = append(errs, syncErr)
+			}
 		case errors.Is(e, plextv.ErrHomePINRequired):
 			result.Plex = "pin"
 			errs = append(errs, e)
@@ -835,12 +852,17 @@ func (s *Service) Run(ctx context.Context) {
 			s.o.Logger.Warn("watchlist rss sync failed", "err", err)
 		}
 		feedCancel()
+		communityJob, communityCancel := context.WithTimeout(ctx, 15*time.Minute)
+		if err := s.syncCommunityFriends(communityJob, us, nil); err != nil {
+			s.o.Logger.Warn("watchlist friends sync failed", "err", err)
+		}
+		communityCancel()
 		for i := range us {
 			if ctx.Err() != nil {
 				return
 			}
 			job, cancel := context.WithTimeout(ctx, 3*time.Minute)
-			if err := s.Sync(job, &us[i]); err != nil {
+			if err := s.syncViewer(context.WithValue(job, communityScheduledKey{}, true), &us[i], &SyncResult{}); err != nil {
 				s.o.Logger.Warn("watchlist sync failed", "user", us[i].ID, "err", err)
 			}
 			if err := s.Check(job, &us[i]); err != nil {
