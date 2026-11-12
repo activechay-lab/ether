@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -24,6 +25,36 @@ import (
 // release for real only when it is played, so a long play does not
 // re-resolve. Ids are a keyed hash of (surface, title, release) and are
 // stable for the life of the release.
+
+// detailVariantBudget bounds how long an opened detail page waits for the
+// release search it started, matching the Plex frontend's render budget.
+const detailVariantBudget = 3 * time.Second
+
+// refillDetailSearch starts the title's release search when its cached
+// results are missing, as the Plex detail page does, and waits up to
+// detailVariantBudget for it so the first open can already list versions.
+// The resolver returns nil (nothing to wait for) when results are cached,
+// a search is cooling off, or both refill slots are busy.
+func (i *instance) refillDetailSearch(r *http.Request, title frontend.Title) {
+	if i.host.Editions == nil || r == nil || (title.Type != "movie" && title.Type != "episode") {
+		return
+	}
+	if !title.Released.IsZero() && title.Released.After(time.Now()) {
+		return
+	}
+	t := title
+	done := i.host.Editions.RefillSearchCache(&t)
+	if done == nil {
+		return
+	}
+	timer := time.NewTimer(detailVariantBudget)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	case <-r.Context().Done():
+	}
+}
 
 // autoVersionName is the label the app shows for the automatic pick; it
 // mirrors the Plex frontend's own "Auto" entry.
@@ -234,6 +265,7 @@ func (i *instance) detailSources(r *http.Request, v *frontend.Viewer, token stri
 	sources := make([]any, 0, len(d.Versions))
 	scope, scopeErr := i.versionScope(r, v)
 	if releaseID == "" && len(d.Versions) == 0 && scopeErr == nil {
+		i.refillDetailSearch(r, d.Title)
 		if versionSources := i.releaseVersionSources(r, scope, key, d.Title, i.defaultMediaSource(r, v, token, key)); versionSources != nil {
 			return versionSources
 		}
