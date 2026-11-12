@@ -510,6 +510,70 @@ function fixturePlugins(): Fixture[] {
     },
   };
   const text = (plugin: string, s: string) => ({ resolved: s, plugin });
+  // A remote plugin with a sidecar block: the console shows a ready command.
+  const hass: PluginDetail = {
+    id: "community.homeassistant.notify",
+    name: "Home Assistant",
+    version: "0.9.0",
+    kind: "notification_channel",
+    summary: "Sends household alerts and playback events to Home Assistant",
+    enabled: true,
+    verified: true,
+    shadow: false,
+    autoUpdate: false,
+    health: "waiting",
+    capabilities: ["notify", "events"],
+    sourceKind: "url",
+    installedAt: NOW - 86400,
+    manifest: {
+      id: "community.homeassistant.notify",
+      version: "0.9.0",
+      name: "Home Assistant",
+      ether: {
+        protocol: 1,
+        kind: "notification_channel",
+        summary: "Sends household alerts and playback events to Home Assistant",
+        capabilities: ["notify", "events"],
+        runtime: { kind: "remote" },
+        sidecar: {
+          docker: "ghcr.io/ether/home-assistant:0.9.0",
+          docs: "https://docs.ether.video/plugins/sidecars",
+        },
+        permissions: { network: ["homeassistant.local"], secrets: ["webhookToken"] },
+        contributes: {
+          notification: { sendTest: true, formats: ["text"] },
+          events: { subscribe: ["playback.started", "playback.stopped"] },
+        },
+      },
+    },
+    permissions: {
+      lines: ["Connects to homeassistant.local", "Stores an access token"],
+      declared: { network: ["homeassistant.local"], secrets: ["webhookToken"] },
+      grants: {},
+      needsViewers: false,
+      needsFolders: false,
+    },
+    healthDetail: {
+      status: "waiting",
+      restarts: 0,
+      slow: 0,
+      drops: 0,
+      observed: {},
+      egressBytes: 0,
+    },
+    privacy: { declaredHosts: ["homeassistant.local"], observedHosts: {} },
+    impact: {
+      calls: 0,
+      errors: 0,
+      p50Ms: 0,
+      p95Ms: 0,
+      egressBytes: 0,
+      kvBytes: 0,
+      slow: 0,
+      eventDrops: 0,
+      restarts: 0,
+    },
+  };
   const streamAddon: Fixture = {
     detail: addonDetail("addon.mockstreams", "Stream Addon", "addon.example", [
       { role: "stream_source", on: true },
@@ -525,6 +589,16 @@ function fixturePlugins(): Fixture[] {
   } as unknown as Fixture;
   return [
     streamAddon,
+    {
+      detail: hass,
+      settings: {},
+      schema: {},
+      descriptors: descriptorsFromManifest(hass.id, hass.name, hass.manifest),
+      journal: [],
+      shadowJournal: [],
+      logs: [],
+      calls: [],
+    },
     {
       detail: pluto,
       settings: { region: "us", token: "Saved" },

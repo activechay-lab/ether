@@ -52,7 +52,7 @@ export function PluginOverview({
   return (
     <div className="space-y-5">
       {detail.manifest.ether?.runtime?.kind === "remote" ? (
-        <SidecarPairing key={detail.id} id={detail.id} />
+        <SidecarPairing key={detail.id} id={detail.id} sidecar={detail.manifest.ether?.sidecar} />
       ) : null}
       {health.card ? (
         <ProblemCard health={health} onRetry={onRetry} onActivity={onActivity} />
