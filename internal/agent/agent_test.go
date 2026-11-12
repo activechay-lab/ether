@@ -733,3 +733,27 @@ func TestCatalogSearchSharesCollectionScopeAndCleansTranscript(t *testing.T) {
 		}
 	}
 }
+
+// namedModel is a Model with a settable provider id, for refusal-message tests.
+type namedModel struct {
+	*fakeModel
+	provider string
+}
+
+func (m namedModel) ProviderID() string { return m.provider }
+
+func TestToolsRefusalMessageKeepsProviderReason(t *testing.T) {
+	model := namedModel{fakeModel: &fakeModel{}, provider: "openai"}
+	err := fmt.Errorf("%w: %s", llm.ErrToolsUnsupported, "gpt-6-luna does not support tools on this endpoint")
+	got := toolsRefusalMessage(model, err)
+	if !strings.Contains(got, "OpenAI") || !strings.Contains(got, "gpt-6-luna does not support tools on this endpoint") ||
+		!strings.Contains(got, "Choose another model in Language model settings.") {
+		t.Fatalf("message = %q", got)
+	}
+	// A pre-flight ToolsSupported reason is already a full sentence; it must
+	// not be double-wrapped with the provider label and its own prefix.
+	pre := fmt.Errorf("%w: This model can't use tools. Choose another model.", llm.ErrToolsUnsupported)
+	if got := toolsRefusalMessage(model, pre); got != "This model can't use tools. Choose another model." {
+		t.Fatalf("pre-flight message = %q", got)
+	}
+}

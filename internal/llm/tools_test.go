@@ -198,3 +198,153 @@ func TestToolsSupported(t *testing.T) {
 		t.Error("embedding model reported tools supported")
 	}
 }
+
+// TestStreamToolsOpenAIResponses checks the Responses-API stream shape:
+// a text delta, one function call whose arguments arrive in two deltas, and
+// usage, mapping to the same Event sequence the chat/completions path emits.
+func TestStreamToolsOpenAIResponses(t *testing.T) {
+	body, err := os.ReadFile("testdata/openai_responses.sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotPath string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c := NewClient(ClientOptions{Config: config.LLM{Enabled: true, Provider: "openai", Model: "gpt-6-luna", APIKey: "k"}, HTTPClient: rewriteClient(srv)})
+	ch, err := c.StreamTools(context.Background(), toolReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, ch)
+	if gotPath != "/v1/responses" {
+		t.Errorf("path = %q, want /v1/responses", gotPath)
+	}
+	var req map[string]any
+	if err := json.Unmarshal(gotBody, &req); err != nil {
+		t.Fatal(err)
+	}
+	if req["stream"] != true || req["store"] != false {
+		t.Errorf("want stream:true store:false, got %v", req)
+	}
+	if _, ok := req["temperature"]; ok {
+		t.Errorf("Responses request must not send temperature: %v", req)
+	}
+	if req["instructions"] != "You are Ask Ether." {
+		t.Errorf("instructions = %v", req["instructions"])
+	}
+	tools, _ := req["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools = %v", req["tools"])
+	}
+	tr := tools[0].(map[string]any)
+	if tr["type"] != "function" || tr["name"] != "server_status" {
+		t.Errorf("tool = %v", tr)
+	}
+	if _, ok := tr["function"]; ok {
+		t.Errorf("Responses tools must not nest under \"function\": %v", tr)
+	}
+	assertToolStream(t, evs)
+	// The last event carries the finish reason the loop and clients rely on.
+	last := evs[len(evs)-1]
+	if last.Kind != EventDone || last.FinishReason != "tool-calls" {
+		t.Errorf("done finish reason = %q (%v)", last.FinishReason, last.Kind)
+	}
+}
+
+// TestStreamToolsOpenAIResponsesInputRoundTrip checks the request body for a
+// prior tool round-trip: assistant function_call items carry call_id/name/
+// arguments and tool results become function_call_output items.
+func TestStreamToolsOpenAIResponsesInputRoundTrip(t *testing.T) {
+	body, err := os.ReadFile("testdata/openai_responses.sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	c := NewClient(ClientOptions{Config: config.LLM{Enabled: true, Provider: "openai", Model: "gpt-6-luna", APIKey: "k"}, HTTPClient: rewriteClient(srv)})
+	req := ToolRequest{
+		System: "sys",
+		Messages: []StreamMessage{
+			{Role: "user", Content: "status?"},
+			{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "server_status", Input: json.RawMessage(`{"verbose":true}`)}}},
+			{Role: "tool", ToolResults: []ToolResult{{ToolCallID: "call_1", Name: "server_status", Content: `{"ok":true}`}}},
+		},
+		Tools:     []ToolDef{{Name: "server_status", Description: "Server status", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		MaxTokens: 4096,
+	}
+	ch, err := c.StreamTools(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, ch)
+	var got struct {
+		MaxOutputTokens int `json:"max_output_tokens"`
+		Input           []struct {
+			Type      string `json:"type"`
+			Role      string `json:"role"`
+			Content   string `json:"content"`
+			CallID    string `json:"call_id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+			Output    string `json:"output"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(gotBody, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.MaxOutputTokens != 4096 {
+		t.Errorf("max_output_tokens = %d", got.MaxOutputTokens)
+	}
+	want := []struct{ typ, role, callID, name, args, output string }{
+		{typ: "message", role: "user"},
+		{typ: "function_call", callID: "call_1", name: "server_status", args: `{"verbose":true}`},
+		{typ: "function_call_output", callID: "call_1", output: `{"ok":true}`},
+	}
+	if len(got.Input) != len(want) {
+		t.Fatalf("input items = %d, want %d: %s", len(got.Input), len(want), gotBody)
+	}
+	for i, w := range want {
+		g := got.Input[i]
+		if g.Type != w.typ || (w.role != "" && g.Role != w.role) || (w.callID != "" && g.CallID != w.callID) ||
+			(w.name != "" && g.Name != w.name) || (w.args != "" && g.Arguments != w.args) || (w.output != "" && g.Output != w.output) {
+			t.Errorf("input[%d] = %+v, want %+v", i, g, w)
+		}
+	}
+}
+
+// TestToolsRefusalMatching keeps generic 400s that merely name a tool from
+// being mislabelled as a tools-unsupported refusal.
+func TestToolsRefusalMatching(t *testing.T) {
+	unsupported := []string{
+		"tools are not supported by this model",
+		"This model does not support function calling",
+		"function calling is not available for this model",
+	}
+	for _, msg := range unsupported {
+		if !isToolRefusal(msg) {
+			t.Errorf("want refusal for %q", msg)
+		}
+	}
+	other := []string{
+		"Invalid value for 'function.arguments': expected valid JSON",
+		"Unknown tool: server_staus",
+		"max_tokens unsupported, use max_completion_tokens",
+		"temperature is not supported by this model",
+	}
+	for _, msg := range other {
+		if isToolRefusal(msg) {
+			t.Errorf("want non-refusal for %q", msg)
+		}
+	}
+}

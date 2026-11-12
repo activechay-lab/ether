@@ -401,7 +401,8 @@ func (s *Service) runAssistant(ctx context.Context, p tools.Principal, threadID 
 		}
 		msg := "The turn failed. Details are in the server log."
 		if errors.Is(runErr, llm.ErrToolsUnsupported) {
-			msg = "This model can't use tools. Choose another model in Language model settings."
+			msg = toolsRefusalMessage(s.model, runErr)
+			s.log.Warn("agent model refused tools", "thread", threadID, "provider", providerLabel(s.model), "err", runErr)
 		} else if errors.Is(runErr, llm.ErrStreamIdle) {
 			msg = "The language model stopped answering for 2 minutes, so Ether ended this turn. Send your message again to retry."
 		}
@@ -414,6 +415,53 @@ func (s *Service) runAssistant(ctx context.Context, p tools.Principal, threadID 
 		return turnID, err
 	}
 	return turnID, nil
+}
+
+// toolsRefusalMessage turns a provider's tools-unsupported error into the
+// line the owner sees, keeping the provider's own reason after the model
+// name. ErrToolsUnsupported is wrapped as "…: <message>"; the prefix is
+// dropped so only the reason is shown.
+func toolsRefusalMessage(model Model, err error) string {
+	reason := strings.TrimSpace(strings.TrimPrefix(err.Error(), llm.ErrToolsUnsupported.Error()))
+	reason = strings.TrimLeft(reason, ": ")
+	// A pre-flight ToolsSupported refusal is already a full owner sentence
+	// with no provider detail to add.
+	if strings.HasPrefix(reason, "This model can't use tools") {
+		return reason
+	}
+	label := providerLabel(model)
+	if reason == "" {
+		return fmt.Sprintf("This model can't use tools%s. Choose another model in Language model settings.",
+			parenLabel(label))
+	}
+	return fmt.Sprintf("This model can't use tools%s: %s. Choose another model in Language model settings.",
+		parenLabel(label), reason)
+}
+
+func parenLabel(label string) string {
+	if label == "" {
+		return ""
+	}
+	return " (" + label + ")"
+}
+
+func providerLabel(model Model) string {
+	if model == nil {
+		return ""
+	}
+	id := model.ProviderID()
+	switch id {
+	case "openai":
+		return "OpenAI"
+	case "anthropic":
+		return "Anthropic"
+	case "google":
+		return "Google"
+	case "":
+		return ""
+	default:
+		return id
+	}
 }
 
 func threadTitle(prompt string) string {
