@@ -1036,7 +1036,7 @@ func (s *Service) verifyItems(ctx context.Context, k core.RatingKey, kind, guid 
 		// stands in. Only a positive disagreement withholds the identity:
 		// when either side has no credits this is today's rule.
 		if !creditsAgree(kind, item, li) {
-			slog.Default().Warn("plexguid: canonical record credits disagree with catalogue; identity withheld",
+			slog.Default().Debug("plexguid: canonical record credits disagree with catalogue; identity withheld",
 				"rating_key", int64(k), "guid", guid, "kind", kind)
 			continue
 		}

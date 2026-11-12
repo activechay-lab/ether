@@ -10,7 +10,9 @@ it("keeps Plex inside the shared grid and persists only the global flag", async 
   await waitFor(() => expect(within(card).getByRole("switch")).toBeEnabled());
   const grid = card.closest("ul")!;
   expect(grid).toBeTruthy();
-  expect(within(grid).getAllByRole("article")).toHaveLength(3);
+  // The watch-sync grid: Plex Media Server Sync, Trakt, Simkl and MDBList.
+  expect(within(grid).getAllByRole("article")).toHaveLength(4);
+  expect(within(grid).getByRole("article", { name: /MDBList/ })).toBeInTheDocument();
   expect(
     within(card).getByText(
       "Keeps watch state in step with your own Plex Media Servers, per viewer.",
