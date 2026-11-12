@@ -21,10 +21,11 @@ import (
 type requestKind int
 
 const (
-	headPoll    requestKind = iota // a feed's scheduled first page
-	feedPage                       // a further page closing a gap, or catch-up
-	titleSearch                    // a targeted search for one title
-	verifyCheck                    // optional source verification
+	headPoll      requestKind = iota // a feed's scheduled first page
+	feedPage                         // a further page closing a gap, or catch-up
+	titleSearch                      // a targeted search for one title
+	verifyCheck                      // optional source verification
+	channelSearch                    // explicit active-channel demand
 )
 
 // indexerBucket is the availability_budget resource for one indexer.
@@ -41,7 +42,7 @@ func (s *Service) budgetContext(ctx context.Context, kind requestKind) context.C
 		if s.d.Active != nil && s.d.Active() && !feed {
 			return context.Canceled
 		}
-		if (feed && !live.Monitor) || (!feed && !live.Verify) {
+		if (feed && kind != channelSearch && !live.Monitor) || (!feed && !live.Verify) {
 			return context.Canceled
 		}
 		switch resource {
@@ -211,4 +212,10 @@ func (s *Service) refund(ctx context.Context, kind string, n int64) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE availability_budget SET used=CASE WHEN used>? THEN used-? ELSE 0 END WHERE day=? AND resource=?`, n, n, day, kind); err != nil {
 		s.log.Debug("availability: refund allowance", "resource", kind, "err", err)
 	}
+}
+
+// ChannelCheckContext admits demand-driven channel checks through the same
+// per-indexer allowances and reserved foreground capacity as title probes.
+func (s *Service) ChannelCheckContext(ctx context.Context) context.Context {
+	return s.budgetContext(ctx, channelSearch)
 }

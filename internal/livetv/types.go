@@ -359,6 +359,7 @@ type Programme struct {
 	naturalBreaks    bool
 	policyTag        *broadcastPolicyTag
 	sourceOffset     time.Duration
+	readinessViewer  int64
 	graphicsRequest  *core.ClipRequest
 	graphicsID       string
 	graphicsFallback bool
@@ -455,7 +456,8 @@ type Options struct {
 	Warm func(context.Context, core.RatingKey, time.Duration) error
 	// Availability is the resolver's cached playability. Known-unavailable
 	// titles are left out of the guide; unknown titles stay in place.
-	Availability core.AvailabilitySource
+	Availability      core.AvailabilitySource
+	CheckAvailability func(context.Context, core.RatingKey) (bool, bool)
 	// Sealer protects source credentials at rest (secrets.go); nil stores
 	// them as given.
 	Sealer config.FieldSealer

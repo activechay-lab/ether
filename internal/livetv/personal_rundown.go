@@ -336,7 +336,9 @@ func (s *Service) buildPersonal(ctx context.Context, c Channel, u *core.User) er
 }
 
 func (s *Service) personalProgrammes(ctx context.Context, c Channel, u *core.User, from, until time.Time) ([]Programme, error) {
-	return s.personalProgrammesLimit(ctx, c, u, from, until, 0)
+	s.demandPersonalReadiness(c, u)
+	ps, err := s.personalProgrammesLimit(ctx, c, u, from, until, 0)
+	return s.readyProgrammes(c, ps), err
 }
 func (s *Service) personalProgrammesLimit(ctx context.Context, c Channel, u *core.User, from, until time.Time, limit int) ([]Programme, error) {
 	out := []Programme{}
@@ -389,6 +391,7 @@ func (s *Service) personalProgrammesLimit(ctx context.Context, c Channel, u *cor
 			return nil, err
 		}
 		p := record.Programme
+		p.readinessViewer = u.ID
 		p.policyTag = &broadcastPolicyTag{programme: p, title: record.Title, catalog: record.Catalog}
 		p.Start = p.Start.Add(shift)
 		p.End = p.End.Add(shift)

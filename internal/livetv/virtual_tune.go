@@ -3,6 +3,7 @@ package livetv
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -75,6 +76,12 @@ func (s *Service) virtualCandidates(c Channel, current Programme) []Programme {
 	}
 	for _, item := range c.Items {
 		add(standIn(c, item, now))
+	}
+	if len(out) > 2 {
+		sort.SliceStable(out[1:], func(i, j int) bool {
+			a, b := out[i+1], out[j+1]
+			return time.Duration(a.Item.DurationMS)*time.Millisecond >= current.End.Sub(current.Start) && time.Duration(b.Item.DurationMS)*time.Millisecond < current.End.Sub(current.Start)
+		})
 	}
 	return out
 }
