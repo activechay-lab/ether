@@ -684,8 +684,10 @@ function Sources({
                 aria-label={t("Weight")}
                 type="number"
                 min={1}
-                value={s.weight || 1}
-                onChange={(e) => set(i, { weight: Number(e.currentTarget.value) })}
+                value={s.weight || ""}
+                onChange={(e) =>
+                  set(i, { weight: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })
+                }
               />
             </Field>
           )}
@@ -723,8 +725,10 @@ function Sources({
                   type="number"
                   min={1}
                   max={200}
-                  value={s.pool || 40}
-                  onChange={(e) => set(i, { pool: Number(e.currentTarget.value) })}
+                  value={s.pool || ""}
+                  onChange={(e) =>
+                    set(i, { pool: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })
+                  }
                 />
               </Field>
             </>
@@ -753,9 +757,12 @@ function Sources({
                     type="number"
                     min={1}
                     aria-label={t("Start season")}
-                    value={s.startSeason || 1}
+                    value={s.startSeason || ""}
                     onChange={(e) =>
-                      set(i, { startDate: undefined, startSeason: Number(e.currentTarget.value) })
+                      set(i, {
+                        startDate: undefined,
+                        startSeason: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
+                      })
                     }
                   />
                 </Field>
@@ -764,9 +771,12 @@ function Sources({
                     type="number"
                     min={1}
                     aria-label={t("Start episode")}
-                    value={s.startEpisode || 1}
+                    value={s.startEpisode || ""}
                     onChange={(e) =>
-                      set(i, { startDate: undefined, startEpisode: Number(e.currentTarget.value) })
+                      set(i, {
+                        startDate: undefined,
+                        startEpisode: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
+                      })
                     }
                   />
                 </Field>
