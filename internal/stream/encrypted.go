@@ -88,6 +88,11 @@ func (b *builder) encryptedPlan(ctx context.Context, kind planKind, member *arch
 		}
 		return p, nil
 	}
+	if f := archive.Detect(head); f == archive.FormatRAR4 || f == archive.FormatRAR5 {
+		// A RAR volume packed inside an encrypted archive: its signature is
+		// the check; the video inside is checked when it is read.
+		return p, nil
+	}
 	if !looksLikeVideo(head) {
 		return nil, fmt.Errorf("stream: decrypted archive member has no supported video signature (incorrect password or damaged content): %w", ErrCorrupt)
 	}

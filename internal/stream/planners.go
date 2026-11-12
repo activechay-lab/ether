@@ -176,7 +176,7 @@ func (b *builder) planRAR(ctx context.Context, vols []*postedFile) (*plan, error
 		setBytes += int64(n-2) * vols[1].Size()
 	}
 	main := pickRARFile(v0.Files, v0.Format)
-	if main == nil || main.Encrypted || !main.SplitAfter || main.SplitBefore || main.UnpackedSize <= 0 || main.UnpackedSize*2 < setBytes {
+	if main == nil || main.Encrypted || b.startsWithRAR(ctx, vols[0], main) || !main.SplitAfter || main.SplitBefore || main.UnpackedSize <= 0 || main.UnpackedSize*2 < setBytes {
 		for _, k := range []int{1, n - 1} {
 			if k <= 0 || k >= n {
 				continue
@@ -327,6 +327,11 @@ func (b *builder) rarFromVolumes(ctx context.Context, vols []*postedFile, parsed
 		return nil, fmt.Errorf("stream: rar %s: %w", vols[0].Name(), err)
 	}
 	m := b.chooseMember(members)
+	if p, err := b.tryNested(ctx, vols, members, m, false); err != nil {
+		return nil, err
+	} else if p != nil {
+		return p, nil
+	}
 	if m == nil {
 		return nil, fmt.Errorf("%w: rar %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
@@ -455,6 +460,11 @@ func (b *builder) plan7z(ctx context.Context, vols []*postedFile) (*plan, error)
 		return nil, fmt.Errorf("stream: 7z %s: %w", vols[0].Name(), err)
 	}
 	m := b.chooseMember(members)
+	if p, err := b.tryNested(ctx, vols, members, m, true); err != nil {
+		return nil, err
+	} else if p != nil {
+		return p, nil
+	}
 	if m == nil {
 		return nil, fmt.Errorf("%w: 7z %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
@@ -513,6 +523,11 @@ func (b *builder) planZIP(ctx context.Context, vols []*postedFile) (*plan, error
 		return nil, fmt.Errorf("stream: zip %s: %w", vols[0].Name(), err)
 	}
 	m := b.chooseMember(members)
+	if p, err := b.tryNested(ctx, vols, members, m, true); err != nil {
+		return nil, err
+	} else if p != nil {
+		return p, nil
+	}
 	if m == nil {
 		return nil, fmt.Errorf("%w: zip %s holds no video (%d files)", ErrNoPlayableFile, vols[0].Name(), len(members))
 	}
