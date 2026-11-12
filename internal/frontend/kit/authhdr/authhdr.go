@@ -13,7 +13,10 @@ var ErrMalformed = errors.New("malformed authorization header")
 
 // MediaBrowser parses the case-sensitive key/value parameters of a
 // MediaBrowser or Emby authorization value. Quoted values may contain commas and
-// backslash-escaped quotes. Percent escapes are decoded after parsing.
+// backslash-escaped quotes. Values are form-decoded after parsing ("+" is a
+// space, as Jellyfin's WebUtility.UrlDecode does): the Jellyfin Kotlin SDK
+// sends "+" where the web client sends "%20", and both must name the same
+// device so a token issued to one is accepted from the other.
 func MediaBrowser(value string) (map[string]string, error) {
 	scheme, rest, ok := strings.Cut(strings.TrimSpace(value), " ")
 	if !ok || (!strings.EqualFold(scheme, "MediaBrowser") && !strings.EqualFold(scheme, "Emby")) {
@@ -69,7 +72,7 @@ func MediaBrowser(value string) (map[string]string, error) {
 				rest = rest[idx:]
 			}
 		}
-		decoded, err := url.PathUnescape(raw)
+		decoded, err := url.QueryUnescape(raw)
 		if err != nil {
 			return nil, ErrMalformed
 		}

@@ -92,6 +92,13 @@ func (i *instance) authenticate(r *http.Request) (*frontend.Viewer, string, erro
 		if grants, ok := i.host.Identity.(frontend.GrantDeviceIdentity); ok {
 			claim := device(r)
 			boundViewer, stored, _, bindingErr := grants.ResolveGrantDevice(r.Context(), token, claim.ID)
+			// Device ids are form-decoded ("+" is a space, as Jellyfin does).
+			// A grant issued before that stored the literal "+" form.
+			if legacy := strings.ReplaceAll(claim.ID, " ", "+"); bindingErr != nil && legacy != claim.ID {
+				if bv, st, _, e := grants.ResolveGrantDevice(r.Context(), token, legacy); e == nil {
+					boundViewer, stored, bindingErr, claim.ID = bv, st, nil, legacy
+				}
+			}
 			if bindingErr != nil || boundViewer == nil || boundViewer.ID != v.ID || stored.ID == "" || (claim.ID != "" && claim.ID != stored.ID) {
 				return nil, "", errors.New("invalid device grant")
 			}
