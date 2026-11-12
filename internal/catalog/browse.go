@@ -177,7 +177,7 @@ func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, er
 	// A title-sorted page probes a positive studio filter per row instead of
 	// enumerating every matching title; the total (above) keeps the
 	// studio-index-driven IN-list form.
-	pageWhere = c.studioProbe(pageWhere, q.Filter)
+	pageWhere = c.studioProbe(ctx, pageWhere, q.Filter)
 	keysetHint := ""
 	if q.Sort == core.SortKey && q.AfterKey > 0 {
 		pageWhere += " AND t.key>?"
