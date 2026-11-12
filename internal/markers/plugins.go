@@ -38,8 +38,23 @@ func (s *Service) mergeSources(ctx context.Context, key core.RatingKey, d time.D
 	if s.o.Config != nil {
 		order = s.o.Config().SourceOrder
 	}
+	skipdb := s.skipDBEnabled()
 	if len(order) == 0 {
-		return merge(chapters, introdb)
+		if !skipdb {
+			return merge(chapters, introdb)
+		}
+		order = []string{"chapter", "theintrodb", SkipDBSource}
+	} else if skipdb {
+		hasSkipDB := false
+		for _, source := range order {
+			if source == SkipDBSource {
+				hasSkipDB = true
+				break
+			}
+		}
+		if !hasSkipDB {
+			order = append(order, SkipDBSource)
+		}
 	}
 	var out []Marker
 	seen := map[string]bool{}
@@ -48,6 +63,9 @@ func (s *Service) mergeSources(ctx context.Context, key core.RatingKey, d time.D
 			continue
 		}
 		seen[source] = true
+		if source == SkipDBSource && !skipdb {
+			continue
+		}
 		switch source {
 		case "chapter":
 			out = merge(out, chapters)

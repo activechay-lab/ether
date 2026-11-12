@@ -36,6 +36,9 @@ type Lookup struct {
 	IntroOff    bool
 	CreditsOff  bool
 	SourceOrder []string
+	// SkipDB turns the built-in SkipDB source on. Reads are open, so it has
+	// no key requirement; results are cached like a plugin source.
+	SkipDB bool
 }
 
 type Options struct {
@@ -92,6 +95,11 @@ func (s *Service) lookup() (enabled bool, apiKey string, intro, credits bool) {
 	}
 	cfg := s.o.Config()
 	return cfg.Enabled, cfg.APIKey, !cfg.IntroOff, !cfg.CreditsOff
+}
+
+// skipDBEnabled reports whether the built-in SkipDB source is switched on.
+func (s *Service) skipDBEnabled() bool {
+	return s.o.Config != nil && s.o.Config().SkipDB
 }
 
 func offer(in []Marker, intro, credits bool) []Marker {

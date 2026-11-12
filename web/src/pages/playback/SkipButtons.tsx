@@ -13,6 +13,7 @@ import { useAsync } from "../../lib/hooks";
 
 type Draft = {
   theIntroDb: boolean;
+  skipDb: boolean;
   skipIntro: boolean;
   skipCredits: boolean;
   sourceOrder: string[];
@@ -29,6 +30,7 @@ export function SkipButtons({ hidden = false }: { hidden?: boolean }) {
     const markers = cfg.markers;
     return {
       theIntroDb: Boolean(markers?.theIntroDb),
+      skipDb: Boolean(markers?.skipDb),
       skipIntro: markers?.skipIntro !== false,
       skipCredits: markers?.skipCredits !== false,
       sourceOrder: markers?.sourceOrder ?? ["chapter", "theintrodb"],
@@ -127,6 +129,19 @@ export function SkipButtons({ hidden = false }: { hidden?: boolean }) {
           }
         />
         <SettingsRow
+          title={t("Intro and credit times from SkipDB.")}
+          description={t(
+            "Ether asks the open SkipDB lookup once per episode and remembers the answer.",
+          )}
+          control={
+            <Switch
+              checked={draft.skipDb}
+              aria-label={t("Look up SkipDB")}
+              onChange={(e) => setDraft({ ...draft, skipDb: e.currentTarget.checked })}
+            />
+          }
+        />
+        <SettingsRow
           title={t("Chapter titles")}
           description={t(
             "A chapter named intro, opening, credits, or ending supplies the skip range.",
@@ -139,13 +154,14 @@ export function SkipButtons({ hidden = false }: { hidden?: boolean }) {
           )}
         />
       </SettingsSection>
-      {registry.descriptors.some((d) => d.owner !== "builtin") ? (
+      {registry.descriptors.some((d) => d.owner !== "builtin") || draft.skipDb ? (
         <SettingsSection
           title={t("Source order")}
           description={t("The first source with a matching range supplies the skip button.")}
         >
           {[
             ...draft.sourceOrder,
+            ...(draft.skipDb && !draft.sourceOrder.includes("skipdb") ? ["skipdb"] : []),
             ...registry.descriptors
               .filter((d) => d.owner !== "builtin" && !draft.sourceOrder.includes(d.id))
               .map((d) => d.id),
@@ -157,7 +173,9 @@ export function SkipButtons({ hidden = false }: { hidden?: boolean }) {
                 ? t("Chapter titles")
                 : id === "theintrodb"
                   ? t("IntroDB")
-                  : textOf(descriptor?.label) || id;
+                  : id === "skipdb"
+                    ? t("SkipDB")
+                    : textOf(descriptor?.label) || id;
             return (
               <SettingsRow
                 key={id}

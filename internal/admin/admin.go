@@ -191,6 +191,10 @@ type Deps struct {
 	// TestIntroDB probes TheIntroDB with the posted key, or the stored key
 	// when the post is empty or still redacted.
 	TestIntroDB func(ctx context.Context, apiKey string) error
+	// TestSkipDB probes SkipDB with the posted key, or the stored key when
+	// the post is empty or still redacted. Reading is open, so an empty key
+	// probes the public API.
+	TestSkipDB func(ctx context.Context, apiKey string) error
 
 	// Dashboard status providers. Each non-nil provider appears on the
 	// dashboard and at /ether/api/status/{name}.
@@ -449,6 +453,7 @@ func (h *Handler) routes() *http.ServeMux {
 	api("POST /api/llm/models", h.handleLLMModels)
 	api("POST /api/test/trakt", h.handleTestTrakt)
 	api("POST /api/test/introdb", h.handleTestIntroDB)
+	api("POST /api/test/skipdb", h.handleTestSkipDB)
 	api("POST /api/outbound/check", h.handleOutboundCheck)
 
 	api("GET /api/dashboard", h.handleDashboard)
