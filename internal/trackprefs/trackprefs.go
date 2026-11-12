@@ -117,6 +117,7 @@ func New(db *sql.DB, opts ...Options) *Service {
 func Default() Rules {
 	return Rules{AudioLanguages: []string{}, SubtitleLanguages: []string{}, SubtitleMode: "off", SubtitleStyle: "normal"}
 }
+
 // canonicalizeLanguages folds the viewer's stored audio and subtitle language
 // spellings onto canonical BCP 47 tags, so "Português" and "pt-BR" are the
 // same stored preference and multi-word names ("Brazilian Portuguese") pass

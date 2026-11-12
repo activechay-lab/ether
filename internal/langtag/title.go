@@ -91,7 +91,7 @@ var displayLanguageAliases = map[string]string{
 	"latin":                   "la",
 	"esperanto":               "eo",
 	"brazilian portuguese":    "pt-br",
-	"brazzillian portuguese":   "pt-br",
+	"brazzillian portuguese":  "pt-br",
 	"portuguese (brazil)":     "pt-br",
 	"portuguese-brazil":       "pt-br",
 	"português (brasil)":      "pt-br",
