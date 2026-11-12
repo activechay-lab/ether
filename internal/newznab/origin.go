@@ -75,5 +75,8 @@ func (m *Manager) releaseClient(r core.Release) (*Client, error) {
 	if found == nil {
 		return nil, fmt.Errorf("newznab: originating indexer for release %q is no longer configured", r.Name)
 	}
+	if !found.Config().Enabled {
+		return nil, fmt.Errorf("newznab: originating indexer is disabled")
+	}
 	return found, nil
 }

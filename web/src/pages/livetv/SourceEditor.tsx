@@ -185,6 +185,7 @@ export function SourceEditor({
         ? {
             ...emptySource(),
             id: source.id,
+            disabled: source.disabled,
             kind: source.kind,
             name: source.kind === "plex" ? plexLineupName(source.name) : source.name,
             lineupId: source.lineupId,
@@ -411,6 +412,14 @@ export function SourceEditor({
           {kind === "guide" ? <CalendarRange size={22} /> : <ListVideo size={22} />}
         </span>
         <div className="min-w-0 flex-1">
+          <Switch
+            aria-label={t("Enabled")}
+            checked={!draft.disabled}
+            onChange={(e) => {
+              const disabled = !e.currentTarget.checked;
+              setDraft((d) => ({ ...d, disabled }));
+            }}
+          />
           <h2 className="truncate text-xl font-semibold tracking-tight text-fg">
             {source
               ? source.kind === "plex"
@@ -439,7 +448,7 @@ export function SourceEditor({
             <Button
               variant="outline"
               size="sm"
-              disabled={Boolean(busy) || !urlBacked}
+              disabled={Boolean(busy) || !urlBacked || Boolean(draft.disabled)}
               onClick={() => void refresh()}
               title={urlBacked ? undefined : t("Uploaded files can't be refreshed; upload again")}
             >

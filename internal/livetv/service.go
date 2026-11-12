@@ -1953,6 +1953,24 @@ func (s *Service) importSourceLogged(ctx context.Context, src Source) (Source, e
 
 // importSource is ImportSource without the outcome log.
 func (s *Service) importSource(ctx context.Context, src Source) (Source, error) {
+	if old, err := s.storedSourceByID(ctx, src.ID); err == nil && (src.Disabled || old.Disabled != src.Disabled) {
+		old.Disabled = src.Disabled
+		b, err := s.encodeSource(old)
+		if err != nil {
+			return old, err
+		}
+		_, err = s.o.DB.ExecContext(ctx, `UPDATE livetv_sources SET data=? WHERE id=?`, b, old.ID)
+		s.forgetSourceAuth(old.ID)
+		s.wakeSourceRefresh()
+		s.notifySourcesChanged()
+		old.Playlist, old.Guide = "", ""
+		redactSourceAuth(&old)
+		return old, err
+	}
+	if src.Disabled {
+		return src, core.ErrNotAvailable
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, refreshBudget)
 	defer cancel()
 	if src.ID == "" {

@@ -1478,6 +1478,9 @@ func (c *Client) FetchNZB(ctx context.Context, r core.Release) ([]byte, error) {
 // the indexer: false for an NZB read from the disk cache or one taken from
 // another caller's download. Only the indexer's own downloads are grabs.
 func (c *Client) fetchNZBReporting(ctx context.Context, r core.Release) ([]byte, bool, error) {
+	if !c.Config().Enabled {
+		return nil, false, core.ErrNotAvailable
+	}
 	if r.IndexerID != "" && r.IndexerID != c.indexerID() {
 		return nil, false, fmt.Errorf("newznab: release belongs to another originating indexer")
 	}

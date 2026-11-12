@@ -73,6 +73,7 @@ export function SourceList({
               <span className="min-w-0 flex-1 space-y-1">
                 <span className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium text-fg">{s.name}</span>
+                  {s.disabled ? <Badge>{t("Disabled")}</Badge> : null}
                   {s.auth?.type ? (
                     <KeyRound
                       size={12}

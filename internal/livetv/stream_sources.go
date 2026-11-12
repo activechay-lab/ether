@@ -308,6 +308,9 @@ func (s *Service) recordSourceHealth(channelID string, src StreamSource, err err
 // URLs return directly; plugin:// inputs delegate to the installed stream
 // opener under its Open deadline.
 func (s *Service) ResolveStreamSource(ctx context.Context, c Channel, src StreamSource) (string, http.Header, error) {
+	if !s.channelSourceEnabled(ctx, c.SourceID) || !s.channelSourceEnabled(ctx, src.AuthSourceID) {
+		return "", nil, core.ErrNotAvailable
+	}
 	headers, err := s.upstreamHeaders(ctx, c, src)
 	if err != nil {
 		return "", nil, err
@@ -423,4 +426,12 @@ func (s *Service) startIPTV(ctx context.Context, ss *session) error {
 		}
 	}
 	return last
+}
+
+func (s *Service) channelSourceEnabled(ctx context.Context, id string) bool {
+	if id == "" {
+		return true
+	}
+	src, err := s.storedSourceByID(ctx, id)
+	return err == nil && !src.Disabled
 }

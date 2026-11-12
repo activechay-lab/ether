@@ -1,4 +1,5 @@
 import {
+  Switch,
   Alert,
   AlertDescription,
   AlertTitle,
@@ -39,13 +40,14 @@ type Result = {
 type Tag = { id: number; label: string };
 
 type Saved = {
-  config?: { url?: string; apiKey?: string; tags?: number[] };
+  config?: { disabled?: boolean; url?: string; apiKey?: string; tags?: number[] };
   status?: string;
   kept?: boolean;
 };
 
 /** Preview and import the Usenet and torrent indexers a Prowlarr instance already manages. */
 export function ProwlarrImport({ onImported }: { onImported?: () => void }) {
+  const [disabled, setDisabled] = useState(false);
   const [url, setURL] = useState("");
   const [key, setKey] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -76,6 +78,7 @@ export function ProwlarrImport({ onImported }: { onImported?: () => void }) {
     apiFetch<Saved>("/playback/prowlarr")
       .then(async (saved) => {
         if (!live) return;
+        setDisabled(Boolean(saved.config?.disabled));
         const nextURL = saved.config?.url ?? "";
         const nextKey = saved.config?.apiKey ?? "";
         setURL((prev) => prev || nextURL);
@@ -83,7 +86,7 @@ export function ProwlarrImport({ onImported }: { onImported?: () => void }) {
         setTags((prev) => (prev.length ? prev : (saved.config?.tags ?? []).map(String)));
         setStatus((prev) => prev || saved.status || "");
         setKept((prev) => prev || Boolean(saved.kept));
-        if (nextURL && nextKey) {
+        if (!saved.config?.disabled && nextURL && nextKey) {
           try {
             const r = await apiFetch<{ tags: Tag[] }>("/playback/prowlarr/tags", {
               method: "POST",
@@ -105,13 +108,14 @@ export function ProwlarrImport({ onImported }: { onImported?: () => void }) {
 
   function configBody() {
     const config: {
+      disabled: boolean;
       url: string;
       apiKey: string;
       dailyLimit: number;
       dailyGrabs: number;
       priority: number;
       tags?: number[];
-    } = { url, apiKey: key, dailyLimit: 0, dailyGrabs: 0, priority: 0 };
+    } = { disabled, url, apiKey: key, dailyLimit: 0, dailyGrabs: 0, priority: 0 };
     if (tags.length) config.tags = tags.map(Number);
     return config;
   }
@@ -148,6 +152,11 @@ export function ProwlarrImport({ onImported }: { onImported?: () => void }) {
           {kept ? <AlertDescription>{t("Still using the last indexers.")}</AlertDescription> : null}
         </Alert>
       ) : null}
+      <Switch
+        aria-label={t("Enabled")}
+        checked={!disabled}
+        onChange={(e) => setDisabled(!e.currentTarget.checked)}
+      />
       <SettingsSection title="Prowlarr">
         <SettingsRow
           title={t("Prowlarr URL")}

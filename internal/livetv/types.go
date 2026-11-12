@@ -255,6 +255,7 @@ type Channel struct {
 	adult bool
 }
 type Source struct {
+	Disabled bool `json:"disabled,omitempty"`
 	// LiveTV defaults to true for existing connections; VOD is opt-in.
 	LiveTV      *bool      `json:"useLiveTV,omitempty"`
 	VOD         bool       `json:"useVOD,omitempty"`

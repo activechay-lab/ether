@@ -1055,6 +1055,9 @@ func bestCandidate(c Channel, cands []*guideCandidate) *guideCandidate {
 // refreshInterval reports the longest time between automatic refreshes. Only
 // URL-backed sources refresh; inline uploads have nothing new to fetch.
 func refreshInterval(src Source) (time.Duration, bool) {
+	if src.Disabled {
+		return 0, false
+	}
 	if src.Kind != "plex" && src.PlaylistURL == "" && src.GuideURL == "" || src.RefreshHours < 0 {
 		return 0, false
 	}
@@ -1185,6 +1188,9 @@ func (s *Service) refreshSource(ctx context.Context, id, reason string) (Source,
 	if err != nil {
 		return src, err
 	}
+	if src.Disabled {
+		return src, core.ErrNotAvailable
+	}
 	// Recheck after admission: another node may have completed the refresh
 	// since this worker selected the source.
 	current := []Source{src}
@@ -1243,7 +1249,7 @@ func (s *Service) wakeSourceRefresh() {
 func (s *Service) loadScheduledSources(ctx context.Context) ([]Source, error) {
 	// Only scheduling fields are read; inline uploads can be large.
 	d := store.DialectOf(s.o.DB)
-	rows, err := s.o.DB.QueryContext(ctx, `SELECT id, `+store.JSONText(d, "data", "kind")+`, `+store.JSONText(d, "data", "playlistUrl")+`, `+store.JSONText(d, "data", "guideUrl")+`, `+store.JSONInt(d, "data", "refreshHours")+`, `+store.JSONText(d, "data", "updatedAt")+`, `+store.JSONText(d, "data", "lastErrorAt")+`, `+store.JSONInt(d, "data", "refreshFailures")+`, `+store.JSONInt(d, "data", "activityRefreshMinutes")+` FROM livetv_sources ORDER BY id`)
+	rows, err := s.o.DB.QueryContext(ctx, `SELECT id, `+store.JSONText(d, "data", "kind")+`, `+store.JSONText(d, "data", "playlistUrl")+`, `+store.JSONText(d, "data", "guideUrl")+`, `+store.JSONInt(d, "data", "refreshHours")+`, `+store.JSONText(d, "data", "updatedAt")+`, `+store.JSONText(d, "data", "lastErrorAt")+`, `+store.JSONInt(d, "data", "refreshFailures")+`, `+store.JSONInt(d, "data", "activityRefreshMinutes")+` FROM livetv_sources WHERE COALESCE(CAST(`+store.JSONText(d, "data", "disabled")+` AS TEXT), 'false') NOT IN ('true', '1') ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

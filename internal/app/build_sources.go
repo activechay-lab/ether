@@ -79,6 +79,7 @@ func (a *App) buildSources(ctx context.Context, cfg config.Config) error {
 			return a.sites.Backend(ix)
 		},
 	})
+	a.indexers.ApplyConfig(a.withAddonIndexers(cfg))
 	a.indexers.Subscribe(func(ev newznab.Event) {
 		if !ev.Success || ev.BudgetExhausted || (a.streamRT != nil && a.streamRT.Subscribers() > 0) {
 			a.publishDashboard()

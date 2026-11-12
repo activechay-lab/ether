@@ -290,7 +290,7 @@ func (s *Service) UpdateConfig(cfg config.Debrid) {
 		if pc.ID == "" {
 			pc.ID = fmt.Sprintf("%s-%d", pc.Kind, i)
 		}
-		if e, ok := old[pc.ID+"|"+pc.Kind+"|"+pc.APIKey]; ok {
+		if e, ok := old[pc.ID+"|"+pc.Kind+"|"+pc.APIKey]; ok && (!pc.Enabled || e.p != nil) {
 			e.mu.Lock()
 			e.cfg = pc
 			e.mu.Unlock()
@@ -298,7 +298,9 @@ func (s *Service) UpdateConfig(cfg config.Debrid) {
 			continue
 		}
 		e := &entry{cfg: pc, sem: newLimiter(s.slotsFor(providerParallel))}
-		e.p, e.err = s.opts.NewProvider(pc, s.opts.ProviderOptions)
+		if pc.Enabled {
+			e.p, e.err = s.opts.NewProvider(pc, s.opts.ProviderOptions)
+		}
 		next = append(next, e)
 	}
 	pluginIDs := make([]string, 0, len(s.plugins))

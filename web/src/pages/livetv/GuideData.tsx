@@ -259,6 +259,7 @@ export function GuideSourceList({
               <span className="min-w-0 flex-1 space-y-1">
                 <span className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium text-fg">{sourceTitle(s)}</span>
+                  {s.disabled ? <Badge>{t("Disabled")}</Badge> : null}
                   <Badge variant="secondary" className="shrink-0">
                     {s.kind === "plex" ? t("Plex") : s.hasPlaylist ? t("M3U guide") : t("XMLTV")}
                   </Badge>
