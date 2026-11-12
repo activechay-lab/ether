@@ -613,7 +613,7 @@ func TestRelayErrorsCarryNoUpstreamDetail(t *testing.T) {
 	}
 }
 
-func TestRelayRefusesHTTPSDowngrade(t *testing.T) {
+func TestRelayFollowsPlainHTTPHopsWithoutSourceData(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A provider may redirect to a plain-HTTP CDN edge; that hop must
 		// never carry the source's configured headers or Referer.
@@ -655,10 +655,22 @@ func TestRelayRefusesHTTPSDowngrade(t *testing.T) {
 			}
 			continue
 		}
-		if code != http.StatusBadGateway {
-			t.Fatalf("%s downgrade = %d %q", c, code, body)
+		// An https playlist naming plain-HTTP segments (#443: https origin,
+		// http://<ip>:80 segments) relays, and the segment is fetched through
+		// the relay without the source's headers.
+		if code != http.StatusOK {
+			t.Fatalf("%s playlist = %d %q", c, code, body)
 		}
 		assertNoSecrets(t, c+" response", body, hostOf(plain.URL), hostOf(secure.URL))
+		var segment string
+		for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+			if line != "" && !strings.HasPrefix(line, "#") {
+				segment = line
+			}
+		}
+		if code, _, seg := relayGet(t, segment, nil); code != http.StatusOK || string(seg) != "PLAIN" {
+			t.Fatalf("plain-HTTP segment through the relay = %d %q", code, seg)
+		}
 	}
 }
 

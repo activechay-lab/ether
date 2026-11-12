@@ -94,7 +94,7 @@ func Diagnose(stage string, err error) *TuneError {
 		if network.Timeout() {
 			e.Code = "timeout"
 		}
-	case errors.Is(err, errRelayUnsupported), errors.Is(err, errRelayDowngrade):
+	case errors.Is(err, errRelayUnsupported):
 		e.Code = "unsupported"
 	}
 	return e

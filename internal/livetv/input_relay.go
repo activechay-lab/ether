@@ -49,7 +49,6 @@ const (
 var relayIOTimeout = 30 * time.Second
 
 var (
-	errRelayDowngrade   = errors.New("livetv input relay: HTTPS downgrade")
 	errRelayUnsupported = errors.New("livetv input relay: unsupported manifest")
 	relayExt            = regexp.MustCompile(`^\.[a-z0-9]{1,8}$`)
 )
@@ -487,12 +486,13 @@ func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, raw s
 	host := s.inputRelay.host
 	s.inputRelay.mu.Unlock()
 	exact := func(raw string) (string, error) {
-		u, err := url.Parse(raw)
-		if err != nil || !validHTTP(raw) {
+		// A playlist fetched over TLS may name plain-HTTP segment hosts (an
+		// https origin serving http://<ip>:80 segments). The provider chose
+		// them, and every IPTV player fetches them, exactly as with an http
+		// redirect hop (scopeInputRedirects). The source's credentials stay
+		// on its own origin: relayFetchAs sends them only there.
+		if _, err := url.Parse(raw); err != nil || !validHTTP(raw) {
 			return "", errRelayUnsupported
-		}
-		if base.Scheme == "https" && u.Scheme != "https" {
-			return "", errRelayDowngrade
 		}
 		return g.relayURL(host, raw), nil
 	}
@@ -516,9 +516,6 @@ func (s *Service) serveRelayManifest(w http.ResponseWriter, g *inputGrant, raw s
 			u, err := url.Parse(tmpl)
 			if err != nil || !validHTTP(tmpl) {
 				return "", errRelayUnsupported
-			}
-			if base.Scheme == "https" && u.Scheme != "https" {
-				return "", errRelayDowngrade
 			}
 			return g.register(host, "t\x00"+tmpl, &relayResource{name: relayName("media", u.Path), url: tmpl, vars: vars, scope: scope}), nil
 		})
@@ -654,9 +651,6 @@ func (s *Service) relayFetchAs(ctx context.Context, cancel context.CancelFunc, g
 		}
 		if ctx.Err() != nil {
 			return nil, Diagnose("upstream_headers", ctx.Err())
-		}
-		if errors.Is(err, errRelayDowngrade) {
-			return nil, Diagnose("upstream_headers", err)
 		}
 		if err != nil {
 			last = Diagnose("upstream_headers", err)
