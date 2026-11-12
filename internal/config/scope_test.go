@@ -121,7 +121,9 @@ func TestSplitAndMergeShared(t *testing.T) {
 		t.Errorf("local server = %v", local["server"])
 	}
 	shared := SharedJSON(a)
-	if strings.Contains(string(shared), "postgres://a") || strings.Contains(string(shared), "40001") {
+	// Match the field, not the digits: a random client identifier can
+	// contain "40001".
+	if strings.Contains(string(shared), "postgres://a") || strings.Contains(string(shared), `"publicPort":40001`) {
 		t.Errorf("node-local settings leaked into the shared part: %s", shared)
 	}
 
