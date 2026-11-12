@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
@@ -354,11 +353,21 @@ func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 // for it and 404s - unlike channel logos, which already go through
 // liveGuideLogo, and unlike Plex-matched programmes, whose Thumb is already
 // an absolute plex.tv/TMDB URL (plexmeta.absURL) that clients fetch directly.
-func (s *Server) liveProgrammeThumb(key core.RatingKey, path string) string {
+func (s *Server) liveProgrammeThumb(key frontend.RatingKey, path string) string {
 	if path == "" || key == 0 || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		return path
 	}
 	return s.thumbURL(&frontend.Title{Key: key, PosterPath: path})
+}
+
+// liveProgrammeArt mirrors liveProgrammeThumb for backdrops: it rewrites a
+// relative path through artURL (the /art route), not thumbURL (/thumb),
+// since the guide's background is the title's backdrop, not its poster.
+func liveProgrammeArt(key frontend.RatingKey, path string) string {
+	if path == "" || key == 0 || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	return artURL(&frontend.Title{Key: key, BackdropPath: path})
 }
 
 func (s *Server) liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.LiveTVProgramme) model.Metadata {
@@ -384,9 +393,13 @@ func (s *Server) liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.Live
 		}
 		md.GrandparentTitle = p.Item.ShowTitle
 		md.GrandparentGUID = p.Item.ShowGUID
-		md.Art = s.liveProgrammeThumb(p.Item.Key, p.Item.Art)
-		md.GrandparentThumb = s.liveProgrammeThumb(p.Item.Key, p.Item.Thumb)
-		md.GrandparentArt = s.liveProgrammeThumb(p.Item.Key, p.Item.Art)
+		md.Art = liveProgrammeArt(p.Item.Key, p.Item.Art)
+		grandparentKey := p.Item.ShowKey
+		if grandparentKey == 0 {
+			grandparentKey = p.Item.Key
+		}
+		md.GrandparentThumb = s.liveProgrammeThumb(grandparentKey, p.Item.Thumb)
+		md.GrandparentArt = liveProgrammeArt(grandparentKey, p.Item.Art)
 		if p.Item.Season > 0 {
 			season := p.Item.Season
 			md.ParentIndex = &season

@@ -96,6 +96,7 @@ func toFrontendChannels(cs []Channel) []frontend.LiveTVChannel {
 func toFrontendItem(item Item) frontend.LiveTVItem {
 	return frontend.LiveTVItem{
 		Key:          item.Key,
+		ShowKey:      item.ShowKey,
 		Title:        item.Title,
 		EpisodeTitle: item.EpisodeTitle,
 		ShowTitle:    item.ShowTitle,
