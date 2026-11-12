@@ -99,6 +99,13 @@ func (i *instance) authenticate(r *http.Request) (*frontend.Viewer, string, erro
 					boundViewer, stored, bindingErr, claim.ID = bv, st, nil, legacy
 				}
 			}
+			// Jellyfin for Android's native player signs requests with the
+			// web layer's device id followed by the user's id as a dashed UUID.
+			if base, ok := userScopedDeviceID(claim.ID, v.ID); bindingErr != nil && ok {
+				if bv, st, _, e := grants.ResolveGrantDevice(r.Context(), token, base); e == nil {
+					boundViewer, stored, bindingErr, claim.ID = bv, st, nil, base
+				}
+			}
 			if bindingErr != nil || boundViewer == nil || boundViewer.ID != v.ID || stored.ID == "" || (claim.ID != "" && claim.ID != stored.ID) {
 				return nil, "", errors.New("invalid device grant")
 			}
@@ -117,6 +124,21 @@ func (i *instance) authenticate(r *http.Request) (*frontend.Viewer, string, erro
 	}
 	return v, token, err
 }
+
+// userScopedDeviceID strips a trailing user id from a device id when it is
+// exactly this viewer's id as a dashed UUID ("<device><uuid>").
+func userScopedDeviceID(claim string, viewerID int64) (string, bool) {
+	guid, err := ids.GUID(ids.User, viewerID)
+	if err != nil || len(guid) != 32 {
+		return "", false
+	}
+	dashed := guid[:8] + "-" + guid[8:12] + "-" + guid[12:16] + "-" + guid[16:20] + "-" + guid[20:]
+	if len(claim) <= len(dashed) || !strings.EqualFold(claim[len(claim)-len(dashed):], dashed) {
+		return "", false
+	}
+	return claim[:len(claim)-len(dashed)], true
+}
+
 func (i *instance) viewer(r *http.Request) (*frontend.Viewer, string, error) {
 	p, ok := r.Context().Value(principalKey{}).(principal)
 	if !ok || p.viewer == nil {
