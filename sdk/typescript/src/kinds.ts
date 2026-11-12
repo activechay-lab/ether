@@ -112,15 +112,65 @@ function parseBody(body: unknown): Record<string, unknown> {
   return {};
 }
 
+/**
+ * The original query for a frontend-adapter request, from the flat `query`
+ * map and the query string still attached to `path`. Repeated keys arrive
+ * flattened to the first value by the server.
+ */
+function frontendQuery(req: RawRequest): URLSearchParams {
+  const query = new URLSearchParams();
+  if (req.query) {
+    for (const [k, v] of Object.entries(req.query)) {
+      if (Array.isArray(v)) {
+        if (v.length > 0) query.set(k, String(v[0]));
+      } else if (v !== undefined && v !== null) {
+        query.set(k, String(v));
+      }
+    }
+  }
+  const qIndex = (req.path || "").indexOf("?");
+  if (qIndex >= 0) {
+    for (const [k, v] of new URLSearchParams((req.path || "").slice(qIndex + 1))) {
+      if (!query.has(k)) query.set(k, v);
+    }
+  }
+  return query;
+}
+
 /** Dispatch one /ether/v1/* request; returns null when the path is not a kind route. */
 export async function dispatchKinds<S = Record<string, unknown>>(
   handlers: KindHandlers<S>,
   req: RawRequest,
   ctx: PluginContext<S>,
 ): Promise<RawResponse | null> {
+  const method = (req.method || "GET").toUpperCase();
   const path = (req.path || "/").split("?")[0] ?? "/";
   if (!path.startsWith("/ether/v1/")) return null;
   const parts = path.slice("/ether/v1/".length).split("/").map((p) => decodeURIComponent(p));
+
+  // Frontend adapters are protocol surfaces (WebDAV, Subsonic, OPDS, …) and
+  // see every method token. The kind and setup routes stay JSON GET/POST.
+  if (parts.length >= 2 && parts[0] === "frontend") {
+    const adapter = handlers.frontend.get(parts[1] ?? "");
+    if (!adapter) return err(404, "not_found", `No frontend adapter is registered for "${parts[1]}".`);
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers ?? {})) headers[k] = Array.isArray(v) ? (v[0] ?? "") : v;
+    // Rebuild the adapter URL with the original query. The server flattens
+    // repeated keys to the first value, so the query holds one value per key.
+    let subPath = `/${parts.slice(2).join("/")}`;
+    const query = frontendQuery(req);
+    const qs = query.toString();
+    if (qs) subPath += `?${qs}`;
+    const res = await adapter.handle(method, subPath, headers, typeof req.body === "string" ? req.body : "");
+    if (res.body.length > 10 * 1024 * 1024) return err(502, "adapter_error", "Frontend adapter response is larger than 10 MiB; serve media through Ether stream URLs.");
+    // A HEAD reply carries headers only, exactly as a real server would.
+    return { status: res.status, headers: res.headers ?? {}, body: method === "HEAD" ? "" : res.body };
+  }
+
+  if (method !== "GET" && method !== "POST") {
+    return err(405, "method_not_allowed", "Kind routes use GET or POST.");
+  }
+
   let body: Record<string, unknown>;
   try {
     body = parseBody(req.body);
@@ -132,16 +182,6 @@ export async function dispatchKinds<S = Record<string, unknown>>(
     if (!handlers.setup) return err(404, "not_found", "Setup test handler is not registered.");
     const input = { step: String(body.step || parts[1]), fields: body.fields as Record<string, unknown> | undefined };
     return ok(await handlers.setup.testSetup(input, ctx));
-  }
-
-  if (parts.length >= 2 && parts[0] === "frontend") {
-    const adapter = handlers.frontend.get(parts[1] ?? "");
-    if (!adapter) return err(404, "not_found", `No frontend adapter is registered for "${parts[1]}".`);
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers ?? {})) headers[k] = Array.isArray(v) ? (v[0] ?? "") : v;
-    const res = await adapter.handle((req.method || "GET").toUpperCase(), `/${parts.slice(2).join("/")}`, headers, typeof req.body === "string" ? req.body : "");
-    if (res.body.length > 10 * 1024 * 1024) return err(502, "adapter_error", "Frontend adapter response is larger than 10 MiB; serve media through Ether stream URLs.");
-    return { status: res.status, headers: res.headers ?? {}, body: res.body };
   }
 
   if (parts.length < 3 || parts[0] !== "kinds") return null;

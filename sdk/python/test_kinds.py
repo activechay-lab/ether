@@ -4,6 +4,7 @@ import copy
 import json
 import pathlib
 import unittest
+import urllib.parse
 
 from ether_plugin import (
     CatalogProvider,
@@ -89,6 +90,52 @@ class Setup(SetupTester):
 class Feed(FrontendAdapter):
     def handle(self, method, path, headers, body):
         return 200, {"Content-Type": "application/atom+xml"}, '<?xml version="1.0"?><feed><title>Field Recordings</title></feed>'
+
+
+class Recorder(FrontendAdapter):
+    def handle(self, method, path, headers, body):
+        self.seen = (method, path)
+        return 200, {"X-Seen-Method": method, "X-Seen-Path": path}, "body:" + path
+
+
+class FrontendDispatchTest(unittest.TestCase):
+    def _plugin(self):
+        inst = plugin(
+            manifest={"id": "community.example.dav", "name": "DAV", "version": "1.0.0",
+                      "ether": {"protocol": 1, "kind": "content", "summary": "DAV",
+                                "runtime": {"kind": "remote"},
+                                "capabilities": ["catalog_provider", "frontend_adapter"]}},
+            host=create_mock_host_client(),
+        )
+        rec = Recorder()
+        inst.on_frontend("dav", rec)
+        return inst, rec
+
+    def test_frontend_accepts_any_method_and_keeps_query(self):
+        inst, rec = self._plugin()
+        resp = inst.dispatch({"method": "PROPFIND", "path": "/ether/v1/frontend/dav/library/"})
+        self.assertEqual(resp["status"], 200, resp)
+        self.assertEqual(rec.seen[0], "PROPFIND")
+        self.assertEqual(rec.seen[1], "/library/")
+
+        resp = inst.dispatch({"method": "GET", "path": "/ether/v1/frontend/dav/rest/ping.view?u=a&t=b"})
+        self.assertEqual(resp["status"], 200, resp)
+        self.assertEqual(rec.seen[0], "GET")
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(rec.seen[1]).query)
+        self.assertEqual(query.get("u"), ["a"])
+        self.assertEqual(query.get("t"), ["b"])
+        self.assertTrue(rec.seen[1].startswith("/rest/ping.view"))
+
+    def test_head_returns_no_body(self):
+        inst, _ = self._plugin()
+        resp = inst.dispatch({"method": "HEAD", "path": "/ether/v1/frontend/dav/library/"})
+        self.assertEqual(resp["status"], 200, resp)
+        self.assertEqual(resp["body"], b"")
+
+    def test_kinds_still_refuses_non_get_post(self):
+        inst, _ = self._plugin()
+        resp = inst.dispatch({"method": "PUT", "path": "/ether/v1/kinds/recordings/browse"})
+        self.assertEqual(resp["status"], 405)
 
 
 class KindsConformanceTest(unittest.TestCase):

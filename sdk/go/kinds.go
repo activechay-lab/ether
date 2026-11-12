@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -324,6 +325,15 @@ func (p *Plugin) dispatchKinds(pctx *Context, method, path string, req RawReques
 	}
 	rest := strings.TrimPrefix(path, "/ether/v1/")
 	parts := strings.Split(rest, "/")
+	// Frontend adapters are protocol surfaces (WebDAV, Subsonic, OPDS, …) and
+	// see every method token. The kind and setup routes stay JSON GET/POST.
+	if parts[0] == "frontend" {
+		if len(parts) >= 2 {
+			key, _ := url.PathUnescape(parts[1])
+			return p.dispatchFrontend(pctx, method, key, "/"+strings.Join(parts[2:], "/"), req), true
+		}
+		return RawResponse{}, false
+	}
 	if method != http.MethodPost && method != http.MethodGet {
 		return errorJSON(http.StatusMethodNotAllowed, "method_not_allowed", "Kind routes use GET or POST."), true
 	}
@@ -349,9 +359,6 @@ func (p *Plugin) dispatchKinds(pctx *Context, method, path string, req RawReques
 			return toRouteErrorResponse(err), true
 		}
 		return okJSON(res, http.StatusOK), true
-	case len(parts) >= 2 && parts[0] == "frontend":
-		key, _ := url.PathUnescape(parts[1])
-		return p.dispatchFrontend(pctx, method, key, "/"+strings.Join(parts[2:], "/"), req), true
 	}
 	return RawResponse{}, false
 }
@@ -506,7 +513,16 @@ func (p *Plugin) dispatchFrontend(pctx *Context, method, key, subPath string, re
 	if subPath == "/" || subPath == "" {
 		subPath = "/"
 	}
-	httpReq := httptest.NewRequestWithContext(pctx.Context, method, "http://ether.invalid"+subPath, bytes.NewReader(req.Body))
+	// Protocol adapters (Subsonic, OPDS, WebDAV) carry their arguments in the
+	// query string; the server relays them, so rebuild the request URL with
+	// the original query. The server flattens repeated keys to the first
+	// value, so a query map holds one value per key.
+	_, query := parsePathAndQuery(req.Path, req.Query)
+	target := "http://ether.invalid" + subPath
+	if len(query) > 0 {
+		target += "?" + encodeQuery(query)
+	}
+	httpReq := httptest.NewRequestWithContext(pctx.Context, method, target, bytes.NewReader(req.Body))
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}
@@ -525,5 +541,25 @@ func (p *Plugin) dispatchFrontend(pctx *Context, method, key, subPath string, re
 	for k := range res.Header {
 		hdrs[k] = res.Header.Get(k)
 	}
+	// A HEAD reply carries headers only, exactly as a real server would.
+	if method == http.MethodHead {
+		body = nil
+	}
 	return RawResponse{Status: res.StatusCode, Headers: hdrs, BinaryBody: body}
+}
+
+// encodeQuery renders a query map back into a raw query string, preserving
+// key order is unnecessary; values are escaped so adapters see what the
+// viewer sent.
+func encodeQuery(query map[string]string) string {
+	keys := make([]string, 0, len(query))
+	for k := range query {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, url.QueryEscape(k)+"="+url.QueryEscape(query[k]))
+	}
+	return strings.Join(parts, "&")
 }

@@ -62,7 +62,9 @@ Caps: title 500 characters, summary 20k, each field 4k, 16 art roles.
 
 ## Routes Ether calls
 
-All `POST`, JSON in and out, through the normal plugin transport:
+Kind and setup routes are `GET`/`POST` with JSON in and out, through the
+normal plugin transport. Frontend-adapter traffic keeps whatever method and
+query the client sent:
 
 | Route | When | Notes |
 |---|---|---|
@@ -73,7 +75,7 @@ All `POST`, JSON in and out, through the normal plugin transport:
 | `/ether/v1/kinds/{kind}/resolve` | A viewer presses play | `{libraryKey, item, partIndex?, client?}` → ordered `sources`. Never called during browse. |
 | `/ether/v1/kinds/{kind}/match` | Resolve-time matching, console re-match | `{item, candidates}` → `{matches:[{candidateRef, score 0..1, reasons}]}` best first. |
 | `/ether/v1/setup/{step}/test` | The setup wizard | `{step, fields}` → `{ok, detail, fields?}`. Secrets arrive via `SecretGet`, never in this body. |
-| `/ether/v1/frontend/{key}/…` | Your frontend adapter's traffic | Ether authenticated the viewer first; you get `X-Ether-Viewer` headers, never a credential. |
+| `/ether/v1/frontend/{key}/…` | Your frontend adapter's traffic | Any method, and the original query string (repeated keys flatten to the first value). Ether authenticated the viewer first; you get `X-Ether-Viewer` headers, never a credential. |
 
 Clients are **always served from Ether's store** — browse, search
 and detail never call you live, so nothing scales with your catalogue

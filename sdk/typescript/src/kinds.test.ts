@@ -116,6 +116,40 @@ test("content-kind conformance fixture replay", async () => {
   }
 });
 
+test("frontend dispatch keeps the method and query", async () => {
+  const seen: Array<{ method: string; path: string }> = [];
+  const inst = plugin({
+    manifest: { id: "community.example.dav", name: "DAV", version: "1.0.0" } as never,
+    routes: {},
+    host: createMockHostClient(),
+  });
+  inst.onFrontend("dav", {
+    handle: (method, path) => {
+      seen.push({ method, path });
+      return { status: 200, headers: {}, body: `body:${path}` };
+    },
+  });
+
+  const propfind = await inst.dispatch({ method: "PROPFIND", path: "/ether/v1/frontend/dav/library/" });
+  assert.equal(propfind.status, 200);
+  assert.deepEqual(seen[0], { method: "PROPFIND", path: "/library/" });
+
+  const ping = await inst.dispatch({ method: "GET", path: "/ether/v1/frontend/dav/rest/ping.view?u=a&t=b" });
+  assert.equal(ping.status, 200);
+  const parsed = new URL(`http://x${seen[1]!.path}`);
+  assert.equal(seen[1]!.method, "GET");
+  assert.equal(parsed.pathname, "/rest/ping.view");
+  assert.equal(parsed.searchParams.get("u"), "a");
+  assert.equal(parsed.searchParams.get("t"), "b");
+
+  const head = await inst.dispatch({ method: "HEAD", path: "/ether/v1/frontend/dav/library/" });
+  assert.equal(head.status, 200);
+  assert.equal(head.body, "");
+
+  const put = await inst.dispatch({ method: "PUT", path: "/ether/v1/kinds/recordings/browse" });
+  assert.equal(put.status, 405);
+});
+
 test("mock host kinds, cache and feed kit", async () => {
   const host = createMockHostClient();
   assert.equal(await host.kinds!.upsert("recordings", [{ id: "a", level: "track", title: "A" }]), 1);

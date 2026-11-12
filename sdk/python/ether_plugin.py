@@ -1208,6 +1208,31 @@ class PluginInstance:
         if not path.startswith("/ether/v1/"):
             return None
         parts = [urllib.parse.unquote(p) for p in path[len("/ether/v1/"):].split("/")]
+        # Frontend adapters are protocol surfaces (WebDAV, Subsonic, OPDS, ...)
+        # and see every method token. The kind and setup routes stay JSON
+        # GET/POST.
+        if len(parts) >= 2 and parts[0] == "frontend":
+            adapter = self._kind_frontend().get(parts[1])
+            if adapter is None:
+                return _error_response(404, "not_found", f'No frontend adapter is registered for "{parts[1]}".')
+            sub_path = "/" + "/".join(parts[2:])
+            # Rebuild the adapter URL with the original query. The server
+            # flattens repeated keys to the first value, so a query map holds
+            # one value per key.
+            _, query = _parse_url_path_and_query(
+                str(req.get("path") or "/"), req.get("query")
+            )
+            if query:
+                sub_path += "?" + urllib.parse.urlencode(query)
+            status, headers, resp_body = adapter.handle(method, sub_path, dict(req.get("headers") or {}), req.get("body") or b"")
+            # A HEAD reply carries headers only, exactly as a real server would.
+            if method == "HEAD":
+                resp_body = b""
+            return {"status": int(status), "headers": dict(headers or {}), "body": resp_body}
+
+        if method not in ("GET", "POST"):
+            return _error_response(405, "method_not_allowed", "Kind routes use GET or POST.")
+
         try:
             body = _parse_json_body(req.get("body"))
         except Exception:
@@ -1219,14 +1244,6 @@ class PluginInstance:
                 return _error_response(404, "not_found", "Setup test handler is not registered.")
             body.setdefault("step", parts[1])
             return _ok_response(tester.test_setup(ctx, body))
-
-        if len(parts) >= 2 and parts[0] == "frontend":
-            adapter = self._kind_frontend().get(parts[1])
-            if adapter is None:
-                return _error_response(404, "not_found", f'No frontend adapter is registered for "{parts[1]}".')
-            sub_path = "/" + "/".join(parts[2:])
-            status, headers, resp_body = adapter.handle(method, sub_path, dict(req.get("headers") or {}), req.get("body") or b"")
-            return {"status": int(status), "headers": dict(headers or {}), "body": resp_body}
 
         if len(parts) < 3 or parts[0] != "kinds":
             return None

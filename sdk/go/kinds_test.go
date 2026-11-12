@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -260,6 +261,78 @@ func TestKindsConformanceFixture(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// recordingFrontend echoes the request line it received so the test can
+// prove every method and the query survive the dispatch.
+type recordingFrontend struct{}
+
+func (recordingFrontend) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Seen-Method", r.Method)
+		w.Header().Set("X-Seen-Query", r.URL.RawQuery)
+		_, _ = w.Write([]byte(r.URL.Path))
+	})
+}
+
+func TestFrontendDispatchMethodsAndQuery(t *testing.T) {
+	plugin := etherplugin.New(etherplugin.Definition{
+		Manifest: etherplugin.Manifest{ID: "community.example.dav", Version: "1.0.0", Name: "DAV"},
+		Host:     etherplugin.NewMockHost(),
+	})
+	plugin.OnFrontend("dav", recordingFrontend{})
+
+	// A protocol method the kind routes would reject reaches the adapter.
+	propfind := plugin.Dispatch(context.Background(), etherplugin.RawRequest{
+		Method: "PROPFIND", Path: "/ether/v1/frontend/dav/library/",
+	})
+	if propfind.Status != http.StatusOK {
+		t.Fatalf("PROPFIND status %d; body %s", propfind.Status, propfind.Body)
+	}
+	if got := propfind.Headers["X-Seen-Method"]; got != "PROPFIND" {
+		t.Fatalf("adapter saw method %q, want PROPFIND", got)
+	}
+	if got := string(propfind.BinaryBody); got != "/library/" {
+		t.Fatalf("adapter saw path %q, want /library/", got)
+	}
+
+	// The original query reaches the adapter.
+	ping := plugin.Dispatch(context.Background(), etherplugin.RawRequest{
+		Method: "GET", Path: "/ether/v1/frontend/dav/rest/ping.view?u=a&t=b",
+	})
+	if ping.Status != http.StatusOK {
+		t.Fatalf("GET status %d; body %s", ping.Status, ping.Body)
+	}
+	q := ping.Headers["X-Seen-Query"]
+	vals, _ := url.ParseQuery(q)
+	if vals.Get("u") != "a" || vals.Get("t") != "b" {
+		t.Fatalf("adapter saw query %q, want u=a&t=b", q)
+	}
+	if got := string(ping.BinaryBody); got != "/rest/ping.view" {
+		t.Fatalf("adapter saw path %q, want /rest/ping.view", got)
+	}
+
+	// A HEAD reply carries headers but no body.
+	head := plugin.Dispatch(context.Background(), etherplugin.RawRequest{
+		Method: "HEAD", Path: "/ether/v1/frontend/dav/library/",
+	})
+	if head.Status != http.StatusOK {
+		t.Fatalf("HEAD status %d", head.Status)
+	}
+	if len(head.BinaryBody) != 0 {
+		t.Fatalf("HEAD body %q, want empty", head.BinaryBody)
+	}
+	if got := head.Headers["X-Seen-Method"]; got != "HEAD" {
+		t.Fatalf("adapter saw method %q, want HEAD", got)
+	}
+
+	// The kind family still refuses methods other than GET/POST.
+	put := plugin.Dispatch(context.Background(), etherplugin.RawRequest{
+		Method: "PUT", Path: "/ether/v1/kinds/recordings/browse",
+	})
+	if put.Status != http.StatusMethodNotAllowed {
+		t.Fatalf("kinds PUT status %d, want 405", put.Status)
 	}
 }
 
