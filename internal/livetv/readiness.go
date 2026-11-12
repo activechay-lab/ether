@@ -2,19 +2,21 @@ package livetv
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
 type channelReadiness struct {
-	until time.Time
-	next  time.Time
-	guide bool
+	until   time.Time
+	next    time.Time
+	guide   bool
+	viewers map[int64]*core.User
 }
 
-// Only demand wakes this worker. Availability is a cache-only lookup: no media
-// is opened, and no indexer or downloader is contacted by guide preparation.
+// Only demand wakes this worker. Cached verdicts are reused; misses use the
+// budgeted resolver check, serialized here and paced before every real check.
 func (s *Service) readinessLoop() {
 	defer s.wg.Done()
 	rows, err := s.o.DB.QueryContext(s.ctx, `SELECT channel_id,active_until FROM livetv_readiness WHERE active_until>?`, s.o.Now().UnixMilli())
@@ -77,8 +79,18 @@ func (s *Service) readinessLoop() {
 		s.mu.Unlock()
 		for _, id := range ids {
 			c, err := s.Channel(s.ctx, id)
-			if err != nil || c.Kind != "virtual" || c.Personal != nil {
+			if err != nil || c.Kind != "virtual" {
 				continue
+			}
+			if c.Personal == nil {
+				s.virtualGuide.mu.RLock()
+				missing := s.virtualGuide.entries[c.ID] == nil
+				s.virtualGuide.mu.RUnlock()
+				if missing {
+					if _, err := s.withVirtualGuide(s.ctx, []Channel{c}); err != nil {
+						continue
+					}
+				}
 			}
 			c = s.plannedChannel(c)
 			s.mu.Lock()
@@ -86,6 +98,30 @@ func (s *Service) readinessLoop() {
 			s.mu.Unlock()
 			_, _ = s.o.DB.ExecContext(s.ctx, `INSERT INTO livetv_readiness(channel_id,active_until) VALUES(?,?) ON CONFLICT(channel_id) DO UPDATE SET active_until=excluded.active_until`, id, r.until.UnixMilli())
 			ps := s.readinessSchedule(c, now, now.Add(3*time.Hour))
+			if c.Personal != nil {
+				s.mu.Lock()
+				viewers := make([]*core.User, 0, len(r.viewers))
+				for _, u := range r.viewers {
+					viewers = append(viewers, u)
+				}
+				s.mu.Unlock()
+				if len(viewers) == 0 {
+					rows, err := s.o.DB.QueryContext(s.ctx, `SELECT DISTINCT viewer_id FROM livetv_personal WHERE channel_id=? LIMIT 64`, c.ID)
+					if err == nil {
+						for rows.Next() {
+							var uid int64
+							if rows.Scan(&uid) == nil {
+								viewers = append(viewers, &core.User{ID: uid})
+							}
+						}
+						rows.Close()
+					}
+				}
+				for _, u := range viewers {
+					personal, _ := s.personalProgrammesLimit(s.ctx, c, u, now, now.Add(3*time.Hour), 0)
+					ps = append(ps, s.readyProgrammes(c, personal)...)
+				}
+			}
 			s.mu.Lock()
 			later := s.readiness[id].guide
 			rr := s.readiness[id]
@@ -146,6 +182,16 @@ func (s *Service) checkReady(ctx context.Context, key core.RatingKey) {
 		return
 	}
 	known, ready := s.o.Availability.Available(ctx, key)
+	if !known && s.o.CheckAvailability != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+		check, cancel := context.WithTimeout(ctx, 45*time.Second)
+		known, ready = s.o.CheckAvailability(check, key)
+		cancel()
+	}
 	s.mu.Lock()
 	if len(s.readyTitles) > 8192 {
 		clear(s.readyTitles)
@@ -181,6 +227,14 @@ func (s *Service) replaceUnready(c Channel, ps []Programme) {
 			continue
 		}
 		pool := c.Items
+		if c.Personal != nil {
+			pool = nil
+			for _, candidate := range ps {
+				if candidate.Rule == p.Rule && candidate.readinessViewer == p.readinessViewer {
+					pool = append(pool, candidate.Item)
+				}
+			}
+		}
 		for _, b := range c.Blocks {
 			if b.ID == p.BlockID {
 				pool = b.Items
@@ -223,7 +277,7 @@ func (s *Service) latchProgramme(p Programme) {
 	if s.programmeSubs == nil {
 		s.programmeSubs = map[string]Programme{}
 	}
-	s.programmeSubs[p.ChannelID+"/"+p.ID] = p
+	s.programmeSubs[programmeReadinessKey(p)] = p
 	s.lineupUnix = s.o.Now().Unix()
 	for k, v := range s.programmeSubs {
 		if v.End.Before(s.o.Now()) {
@@ -235,7 +289,7 @@ func (s *Service) readyProgrammes(c Channel, ps []Programme) []Programme {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, p := range ps {
-		if sub, ok := s.programmeSubs[c.ID+"/"+p.ID]; ok {
+		if sub, ok := s.programmeSubs[programmeReadinessKey(p)]; ok {
 			ps[i] = sub
 		}
 	}
@@ -267,4 +321,23 @@ func joinStandIn(slot Programme, item Item, now time.Time) (Programme, bool) {
 	p.policyTag = nil
 	p.sourceOffset = offset - elapsed
 	return p, true
+}
+
+func (s *Service) demandPersonalReadiness(c Channel, u *core.User) {
+	if u == nil || u.ID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.demandReadinessLocked(c.ID, 24*time.Hour)
+	r := s.readiness[c.ID]
+	if r.viewers == nil {
+		r.viewers = map[int64]*core.User{}
+	}
+	r.viewers[u.ID] = &core.User{ID: u.ID}
+	s.readiness[c.ID] = r
+}
+
+func programmeReadinessKey(p Programme) string {
+	return p.ChannelID + "/" + strconv.FormatInt(p.readinessViewer, 10) + "/" + p.ID
 }

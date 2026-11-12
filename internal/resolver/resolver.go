@@ -629,6 +629,9 @@ func (s *Service) Resolve(ctx context.Context, req core.ResolveRequest) (*core.R
 	req.Client, _ = applyClientRules(q, req.Client, req.User, media, libProfile)
 	profile := SelectProfileForTitle(q, req.Client, req.User, req.Title, libProfile)
 	key := flightKey(req, profile)
+	if channelAvailabilityCheck(ctx) {
+		key += "/channel-availability"
+	}
 
 	for {
 		s.flightMu.Lock()
@@ -835,6 +838,10 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	}
 
 	rcfg := s.resolverCfg()
+	if channelAvailabilityCheck(ctx) {
+		rcfg.HealthRace = 1
+		rcfg.OptimisticStart = false
+	}
 	cands, clientRejected, err := s.rankCandidates(ctx, req, sreq, profile, results, &trace, pinID)
 	if err != nil {
 		trace.Err = err.Error()

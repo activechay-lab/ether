@@ -33,4 +33,14 @@ func TestChannelReadinessInvariants(t *testing.T) {
 	if guide[0].Item.Key != item.Key || guide[0].Start != future.Start || guide[0].End != future.End {
 		t.Fatalf("guide substitution: %+v", guide)
 	}
+	firstViewer := future
+	firstViewer.readinessViewer = 1
+	firstViewer.Item = item
+	s.latchProgramme(firstViewer)
+	secondViewer := future
+	secondViewer.readinessViewer = 2
+	if got := s.readyProgrammes(c, []Programme{secondViewer}); got[0].Item.Key != future.Item.Key {
+		t.Fatal("personal replacement crossed viewer identities")
+	}
+
 }

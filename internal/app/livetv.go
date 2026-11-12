@@ -43,7 +43,19 @@ func (a *App) buildLiveTV() error {
 		return markers.BreakScanPolicy{DailyBytes: c.BreakScanDailyBytes, ReleaseBytes: c.BreakScanReleaseBytes, LargeReleaseBytes: c.BreakScanLargeReleaseBytes, AllowLarge: c.BreakScanAllowLarge}
 	}}, GuideAI: a.llm, Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.liveTVInputUser, StyleScreens: a.onair.StyleScreens, AudioTrack: a.liveTVAudioTrack, PersonalChanged: func(viewer int64) {
 		a.frontends.notifyLiveLineup(viewer)
-	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), Showcase: parityShowcase(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, Stability: func() string { return a.cfg.Read().LiveTV.Stability }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey, at time.Duration) error {
+	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), Showcase: parityShowcase(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, CheckAvailability: func(ctx context.Context, key core.RatingKey) (bool, bool) {
+		if a.resolver == nil {
+			return false, false
+		}
+		title, err := a.catalog.Get(ctx, key)
+		if err != nil {
+			return false, false
+		}
+		if a.availability != nil {
+			ctx = a.availability.ChannelCheckContext(ctx)
+		}
+		return a.resolver.CheckChannelAvailability(ctx, title)
+	}, Allowed: a.safety.Allowed, CanPlay: a.safety.CanPlay, LogoIndexURL: func() string { return a.cfg.Read().LiveTV.LogoIndexURL }, HealthSweepMinutes: func() int { return a.cfg.Read().LiveTV.HealthSweepMinutes }, Stability: func() string { return a.cfg.Read().LiveTV.Stability }, StreamLimit: func(u *core.User) int { return playback.UserStreamLimit(a.cfg.Read(), a.safety.UserPolicy(u)) }, Warm: func(ctx context.Context, key core.RatingKey, at time.Duration) error {
 		if !a.registrar.Status().PlexPass {
 			return core.ErrUnauthorized
 		}

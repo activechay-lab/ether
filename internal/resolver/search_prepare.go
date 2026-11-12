@@ -117,6 +117,9 @@ func (p *searchPreparation) startFeed() {
 // as a hedge once the first has run past healthHedgeDelay, so a healthy
 // title normally costs one grab.
 func (p *searchPreparation) pumpLocked() {
+	if channelAvailabilityCheck(p.ctx) {
+		return
+	}
 	if p.closed {
 		return
 	}
