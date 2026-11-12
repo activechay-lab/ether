@@ -281,10 +281,13 @@ func ValidateConfig(cfg config.Config) []FieldError {
 			v.add(f+".clientIdentity", "must be a client that searches or empty to inherit")
 		}
 		if ix.Kind != "" {
-			v.oneOf(f+".kind", ix.Kind, config.IndexerKindNewznab, config.IndexerKindCardigann, config.IndexerKindStremio)
+			v.oneOf(f+".kind", ix.Kind, config.IndexerKindNewznab, config.IndexerKindCardigann, config.IndexerKindStremio, config.IndexerKindZilean)
 		}
 		if ix.IsStremio() && ix.Protocol != "" && ix.Protocol != "torrent" {
 			v.add(f+".protocol", "must be torrent for a Stremio addon")
+		}
+		if ix.IsZilean() && ix.Protocol != "" && ix.Protocol != "torrent" {
+			v.add(f+".protocol", "must be torrent for a Zilean instance")
 		}
 		if ix.IsBuiltin() && strings.TrimSpace(ix.Definition) == "" {
 			v.add(f+".definition", "is required for a built-in site")

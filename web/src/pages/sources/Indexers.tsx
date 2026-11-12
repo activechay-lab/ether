@@ -8,7 +8,7 @@ import {
   confirmDialog,
   toast,
 } from "@braedonsaunders/appkit-ui";
-import { Globe, Link2, Plus, Puzzle, Search } from "lucide-react";
+import { Globe, Link2, Plus, Puzzle, Search, Server } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp } from "../../app-context";
@@ -86,8 +86,20 @@ function blankStremioIndexer(priority: number): Indexer {
   return { ...blankIndexer(priority), kind: "stremio", protocol: "torrent" };
 }
 
+/**
+ * A self-hosted Zilean instance: its Torznab endpoint is searched like any
+ * other torrent indexer, so results stream through debrid.
+ */
+function blankZileanIndexer(priority: number): Indexer {
+  return { ...blankIndexer(priority), kind: "zilean", protocol: "torrent" };
+}
+
 export function isStremio(ix: { kind?: string }) {
   return ix.kind === "stremio";
+}
+
+export function isZilean(ix: { kind?: string }) {
+  return ix.kind === "zilean";
 }
 
 export { addonUrlHasDebridKey, normalizeAddonUrl } from "../../components/addons/addons";
@@ -175,7 +187,7 @@ export function IndexerList({
   addRequest,
 }: {
   version?: number;
-  addRequest?: { nonce: number; type: "site" | "newznab" | "stremio" } | null;
+  addRequest?: { nonce: number; type: "site" | "newznab" | "stremio" | "zilean" } | null;
 }) {
   const { dashboard, refreshDashboard } = useApp();
   const config = useAsync(() => api.getConfig(), [version]);
@@ -250,7 +262,9 @@ export function IndexerList({
       indexers.length,
       addRequest.type === "stremio"
         ? blankStremioIndexer(indexers.length)
-        : blankIndexer(indexers.length),
+        : addRequest.type === "zilean"
+          ? blankZileanIndexer(indexers.length)
+          : blankIndexer(indexers.length),
     );
   }, [addRequest, cfg, indexers.length]);
 
@@ -263,7 +277,9 @@ export function IndexerList({
           url: normalizeAddonUrl(editing.draft.url),
           protocol: "torrent" as const,
         }
-      : editing.draft;
+      : isZilean(editing.draft)
+        ? { ...editing.draft, url: editing.draft.url.trim(), protocol: "torrent" as const }
+        : editing.draft;
     const list =
       index < indexers.length
         ? indexers.map((ix, j) => (j === index ? draft : ix))
@@ -343,6 +359,7 @@ export function IndexerList({
   const needsDebrid = indexers.some((ix) => isTorrent(ix) && ix.enabled) && !hasUsableDebrid(cfg);
   const builtin = draft ? isBuiltin(draft) : false;
   const stremio = draft ? isStremio(draft) : false;
+  const zilean = draft ? isZilean(draft) : false;
   const draftDef = draft && builtin ? defFor(draft) : undefined;
 
   return (
@@ -390,6 +407,12 @@ export function IndexerList({
                 icon: Puzzle,
                 onSelect: () => open(indexers.length, blankStremioIndexer(indexers.length)),
               },
+              {
+                key: "zilean",
+                label: t("Zilean instance…"),
+                icon: Server,
+                onSelect: () => open(indexers.length, blankZileanIndexer(indexers.length)),
+              },
             ]}
           >
             <Plus size={14} /> {t("Add indexer")}
@@ -402,7 +425,7 @@ export function IndexerList({
             icon={<Search />}
             title={t("No indexers")}
             description={t(
-              "Add a site, a Newznab or Torznab indexer, or a Stremio addon so Ether can find releases.",
+              "Add a site, a Newznab or Torznab indexer, a Stremio addon or a Zilean instance so Ether can find releases.",
             )}
           />
         ) : (
@@ -490,6 +513,8 @@ export function IndexerList({
                         </>
                       ) : isStremio(ix) ? (
                         <Badge variant="outline">{t("Stremio addon")}</Badge>
+                      ) : isZilean(ix) ? (
+                        <Badge variant="outline">{t("Zilean")}</Badge>
                       ) : (
                         <Badge variant="outline">{protocolLabel(ix)}</Badge>
                       )}
@@ -588,7 +613,9 @@ export function IndexerList({
               ? (draftDef?.name ?? t("New site"))
               : stremio
                 ? t("New Stremio addon")
-                : t("New indexer")
+                : zilean
+                  ? t("New Zilean instance")
+                  : t("New indexer")
             : draft && editing
               ? indexerName(draft, editing.index)
               : ""
@@ -599,9 +626,11 @@ export function IndexerList({
               ? siteKindLabel(draft.protocol)
               : stremio
                 ? t("Stremio addon · Torrent")
-                : isTorrent(draft)
-                  ? t("Torznab indexer")
-                  : t("Newznab indexer")
+                : zilean
+                  ? t("Zilean · Torrent")
+                  : isTorrent(draft)
+                    ? t("Torznab indexer")
+                    : t("Newznab indexer")
             : undefined
         }
         onSave={() => void save()}
@@ -725,6 +754,26 @@ export function IndexerList({
                     </AlertDescription>
                   </Alert>
                 ) : null}
+                <BoolRow
+                  label={t("Enabled")}
+                  value={draft.enabled}
+                  onChange={(v) => set({ enabled: v })}
+                />
+              </SettingsSection>
+            ) : zilean ? (
+              <SettingsSection title={t("Instance")}>
+                <TextRow label={t("Name")} value={draft.name} onChange={(v) => set({ name: v })} />
+                <TextRow
+                  label={t("Instance URL")}
+                  type="url"
+                  value={draft.url}
+                  placeholder="http://zilean:8181"
+                  help={t(
+                    "Paste the Zilean instance's address. Ether queries its Torznab API and streams the torrents it indexes through your debrid account.",
+                  )}
+                  error={errors.url}
+                  onChange={(v) => set({ url: v })}
+                />
                 <BoolRow
                   label={t("Enabled")}
                   value={draft.enabled}
