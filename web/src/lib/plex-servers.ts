@@ -32,6 +32,18 @@ export interface PMSMapping {
   outBackfill?: PMSBackfillStatus;
 }
 
+export interface PMSStepAsideStatus {
+  state: string;
+  movies: number;
+  showsFull: number;
+  showsPartial: number;
+  episodes: number;
+  unmatched: number;
+  lastSynced: number;
+  lastScan: number;
+  problem: string;
+}
+
 export interface PMSServer {
   id: number;
   name: string;
@@ -40,6 +52,7 @@ export interface PMSServer {
   version: string;
   owner: string;
   stepAside?: boolean;
+  stepAsideStatus?: PMSStepAsideStatus | null;
   checkedAt: number;
   problem: string;
   viewers: PMSMapping[];
@@ -175,3 +188,37 @@ export const startPlexServerBackfill = (serverId: number, accountId: number, kin
     `/plex-servers/${serverId}/accounts/${accountId}/${kind === "in" ? "backfill-in" : "backfill-out"}`,
     { method: "POST" },
   );
+
+export interface PMSStepAsideExplanation {
+  key: number;
+  kind: string;
+  title: string;
+  hidden: boolean;
+  cause: string;
+  servers: string[];
+  airedRegular: number;
+  heldEpisodes: number;
+  missing: string[];
+  missingMore: number;
+  scanState: string;
+}
+
+/** Explain why one movie or show is hidden or still showing. */
+export const explainPlexServerStepAside = (key: number, signal?: AbortSignal) =>
+  apiFetch<PMSStepAsideExplanation>(`/plex-servers/step-aside/explain?key=${key}`, { signal });
+
+/** One plain-language line for a server's step-aside scan state. */
+export function pmsStepAsideStateText(state: string): string {
+  switch (state) {
+    case "complete":
+      return t("Up to date");
+    case "matching":
+      return t("Still matching titles…");
+    case "failed":
+      return t("The last check failed. Ether will try again.");
+    case "never":
+      return t("Waiting for the first check…");
+    default:
+      return "";
+  }
+}

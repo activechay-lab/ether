@@ -74,6 +74,9 @@ func (m *mockPlexServers) SetStepAside(ctx context.Context, id int64, stepAside 
 func (m *mockPlexServers) Unmatched(ctx context.Context, id, userID int64, after string) ([]plexwatch.PMSUnmatched, error) {
 	return nil, nil
 }
+func (m *mockPlexServers) ExplainStepAside(ctx context.Context, key core.RatingKey) (plexwatch.StepAsideExplanation, error) {
+	return plexwatch.StepAsideExplanation{Key: int64(key)}, nil
+}
 
 func TestViewersPlexImportCandidatesAndFlow(t *testing.T) {
 	db := store.OpenTest(t)
