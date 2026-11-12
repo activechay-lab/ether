@@ -1042,8 +1042,42 @@ type TestResult struct {
 	Details []string `json:"details,omitempty"`
 }
 
-// Test calls the plugin's /ether/test.
+// stremioProbe checks a plain Stremio add-on the Stremio way: its manifest
+// answers 200 with a JSON object naming an id. A plain add-on has no
+// /ether/test or /ether/health (those are Ether plugin routes), so asking
+// for them reads the add-on's 404 page.
+func (m *Manager) stremioProbe(ctx context.Context, id string) error {
+	resp, err := m.Call(ctx, id, Request{Method: http.MethodGet, Path: "/manifest.json"})
+	if err != nil {
+		return err
+	}
+	if resp.Status != http.StatusOK {
+		return fmt.Errorf("plugins: add-on %s manifest answered HTTP %d", id, resp.Status)
+	}
+	var man struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(resp.Body, &man) != nil || man.ID == "" {
+		return fmt.Errorf("plugins: add-on %s manifest was not understood", id)
+	}
+	return nil
+}
+
+func (m *Manager) stremioOnly(ctx context.Context, id string) bool {
+	rec, err := m.store.record(ctx, id)
+	return err == nil && rec.Manifest.IsStremioOnly()
+}
+
+// Test calls the plugin's /ether/test; a plain Stremio add-on is tested by
+// reading its manifest.
 func (m *Manager) Test(ctx context.Context, id string) (TestResult, error) {
+	if m.stremioOnly(ctx, id) {
+		if err := m.stremioProbe(ctx, id); err != nil {
+			return TestResult{OK: false, Message: "The add-on did not answer."}, nil
+		}
+		m.recordOK(ctx, id)
+		return TestResult{OK: true, Message: "The add-on answered."}, nil
+	}
 	resp, err := m.Call(ctx, id, Request{Method: "POST", Path: "/ether/test"})
 	if err != nil {
 		return TestResult{}, err
@@ -1077,6 +1111,12 @@ func (m *Manager) Options(ctx context.Context, id, field string, query ...map[st
 // A failing call feeds the failure policy through Call already; a plugin
 // reporting attention or error is recorded without counting as a crash.
 func (m *Manager) CheckHealth(ctx context.Context, id string) (Health, error) {
+	if m.stremioOnly(ctx, id) {
+		if err := m.stremioProbe(ctx, id); err == nil {
+			m.recordOK(ctx, id)
+		}
+		return m.store.health(ctx, id)
+	}
 	resp, err := m.Call(ctx, id, Request{Method: "GET", Path: "/ether/health"})
 	if err != nil {
 		h, herr := m.store.health(ctx, id)
