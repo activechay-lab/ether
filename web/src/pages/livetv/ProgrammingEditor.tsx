@@ -700,10 +700,14 @@ function Sources({
                 aria-label={t("Weight")}
                 type="number"
                 min={1}
+                placeholder="1"
                 value={s.weight || ""}
                 onChange={(e) =>
                   set(i, { weight: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })
                 }
+                onBlur={(e) => {
+                  if (!e.currentTarget.value) set(i, { weight: 1 });
+                }}
               />
             </Field>
           )}
@@ -741,10 +745,14 @@ function Sources({
                   type="number"
                   min={1}
                   max={200}
+                  placeholder="40"
                   value={s.pool || ""}
                   onChange={(e) =>
                     set(i, { pool: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })
                   }
+                  onBlur={(e) => {
+                    if (!e.currentTarget.value) set(i, { pool: 40 });
+                  }}
                 />
               </Field>
             </>
@@ -773,6 +781,7 @@ function Sources({
                     type="number"
                     min={1}
                     aria-label={t("Start season")}
+                    placeholder="1"
                     value={s.startSeason || ""}
                     onChange={(e) =>
                       set(i, {
@@ -780,6 +789,9 @@ function Sources({
                         startSeason: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
                       })
                     }
+                    onBlur={(e) => {
+                      if (!e.currentTarget.value) set(i, { startSeason: 1 });
+                    }}
                   />
                 </Field>
                 <Field label={t("Start episode")}>
@@ -787,6 +799,7 @@ function Sources({
                     type="number"
                     min={1}
                     aria-label={t("Start episode")}
+                    placeholder="1"
                     value={s.startEpisode || ""}
                     onChange={(e) =>
                       set(i, {
@@ -794,6 +807,9 @@ function Sources({
                         startEpisode: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
                       })
                     }
+                    onBlur={(e) => {
+                      if (!e.currentTarget.value) set(i, { startEpisode: 1 });
+                    }}
                   />
                 </Field>
               </div>
