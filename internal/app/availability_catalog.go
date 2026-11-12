@@ -6,6 +6,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/availability"
 	"github.com/braedonsaunders/ether/internal/catalog"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/experience"
 )
 
 // Keep optional catalogue contracts by embedding the concrete catalogue. The
@@ -13,6 +14,9 @@ import (
 type availabilityCatalog struct {
 	*catalog.Catalog
 	availability *availability.Service
+	// stepAside is set on the Plex surface only: its section pages read this
+	// catalogue directly, so held titles are excluded here in SQL.
+	stepAside *experience.StepAside
 }
 
 func (c *availabilityCatalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
@@ -28,6 +32,14 @@ func (c *availabilityCatalog) Browse(ctx context.Context, q core.BrowseQuery) (c
 	q.Filter, err = c.availability.PagingFilter(ctx, q.Filter)
 	if err != nil {
 		return core.Page{}, err
+	}
+	if c.stepAside != nil {
+		switch q.Filter.Type {
+		case core.TypeMovie, core.TypeShow, core.TypeSeason, core.TypeEpisode:
+			if keys, active := c.stepAside.ExcludedKeys(ctx, nil, q.Filter.Type); active && len(keys) > 0 {
+				q.Filter.ExcludeKeys = append(append([]core.RatingKey(nil), q.Filter.ExcludeKeys...), keys...)
+			}
+		}
 	}
 	return c.Catalog.Browse(ctx, q)
 }

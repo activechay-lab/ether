@@ -504,7 +504,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	// bare availability filter here let held titles through every list and
 	// search on Plex apps.
 	if a.availability != nil {
-		cat = &availabilityCatalog{Catalog: a.catalog, availability: a.availability}
+		cat = &availabilityCatalog{Catalog: a.catalog, availability: a.availability, stepAside: stepAside}
 		deps.FilterAvailable = filter
 		deps.JudgedOnFacts = a.availability.JudgedOnFacts
 	} else if stepAside != nil {
