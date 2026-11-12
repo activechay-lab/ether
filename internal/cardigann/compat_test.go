@@ -102,6 +102,102 @@ search:
 	}
 }
 
+// The Prowlarr Nyaa.si definition (testdata/nyaasi.yml) parses and runs
+// through the engine: a real captured search page (testdata/nyaasi_search.html,
+// trimmed to three rows) yields torrents with magnet, info hash, size,
+// seeders and the TV/Anime category. Anime requests are also searched by
+// their absolute episode number, which Nyaa releases use. Both fixtures are
+// copied verbatim from the live site and the Prowlarr/Indexers repository.
+func TestNyaasiDefinition(t *testing.T) {
+	def := loadDef(t, "nyaasi.yml")
+	if def.ID != "nyaasi" {
+		t.Fatalf("id = %q", def.ID)
+	}
+	if !def.SupportsTV() || !def.SupportsMovies() {
+		t.Fatalf("supports TV=%v Movies=%v", def.SupportsTV(), def.SupportsMovies())
+	}
+	page := readFixture(t, "nyaasi_search.html")
+	var seen []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		mu.Lock()
+		seen = append(seen, q)
+		mu.Unlock()
+		// The SxxExx query finds nothing (as on the real site, where the
+		// anime uses absolute numbering); only the absolute form matches.
+		if strings.Contains(q, "S02E03") {
+			w.Write([]byte(`<html><body><table></table></body></html>`))
+			return
+		}
+		w.Write(page)
+	}))
+	defer srv.Close()
+	r := testRunner(t, def, srv.URL, runnerSetup{settings: map[string]string{
+		"prefer_magnet_links": "true", "cat-id": "0_0", "sort": "id", "type": "desc", "filter-id": "0",
+	}})
+	var b budget
+	rels, err := r.Search(context.Background(), core.SearchRequest{
+		Type: core.TypeEpisode, Title: "Sousou no Frieren", Anime: true, Season: 2, Episode: 3, AbsoluteEpisode: 3,
+	}, []int{5070}, []int{5070}, b.reserve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rels) != 3 {
+		t.Fatalf("results = %d, want 3", len(rels))
+	}
+	first := rels[0]
+	if first.Protocol != core.ProtocolTorrent {
+		t.Fatalf("protocol = %q", first.Protocol)
+	}
+	if first.InfoHash != "ef3e7ad1b12bdd9fc341691d8866cd1fa8374a4b" {
+		t.Fatalf("infohash = %q", first.InfoHash)
+	}
+	// With "prefer magnet links" on (Nyaa's default) the torrent file is
+	// skipped and only the magnet is kept.
+	if !strings.HasPrefix(first.MagnetURL, "magnet:") || first.NZBURL != "" {
+		t.Fatalf("magnet=%q nzb=%q", first.MagnetURL, first.NZBURL)
+	}
+	if first.Size != 7086696038 || first.Seeders != 36 || first.Peers != 41 {
+		t.Fatalf("numbers = size %d seeders %d peers %d", first.Size, first.Seeders, first.Peers)
+	}
+	if first.Category != 5070 {
+		t.Fatalf("category = %d, want TV/Anime 5070", first.Category)
+	}
+	if !strings.Contains(first.Name, "Sousou no Frieren") {
+		t.Fatalf("name = %q", first.Name)
+	}
+	if first.PubDate.IsZero() || first.PubDate.UTC().Format("2006-01-02 15:04") != "2026-09-12 15:45" {
+		t.Fatalf("date = %v", first.PubDate)
+	}
+	// The absolute-episode query ("Sousou no Frieren 03") must have been
+	// sent as a fallback form Nyaa needs, alongside the SxxExx attempt.
+	mu.Lock()
+	sawAbsolute := false
+	for _, q := range seen {
+		if strings.Contains(q, "Frieren 03") {
+			sawAbsolute = true
+		}
+	}
+	mu.Unlock()
+	if !sawAbsolute {
+		t.Fatalf("absolute-episode query not issued; queries = %v", seen)
+	}
+
+	// With "prefer magnet links" off, the .torrent download link is kept.
+	r2 := testRunner(t, def, srv.URL, runnerSetup{id: "nyaasi-file", settings: map[string]string{
+		"prefer_magnet_links": "false", "cat-id": "0_0", "sort": "id", "type": "desc", "filter-id": "0",
+	}})
+	var b2 budget
+	rels2, err := r2.Search(context.Background(), core.SearchRequest{Type: core.TypeMovie, Title: "Sousou no Frieren"}, []int{2000}, nil, b2.reserve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rels2) == 0 || !strings.HasSuffix(rels2[0].NZBURL, "/download/2160092.torrent") {
+		t.Fatalf("torrent link = %q", rels2[0].NZBURL)
+	}
+}
+
 // A templated search method: POST with keywords, GET without.
 func TestTemplatedSearchMethod(t *testing.T) {
 	var mu sync.Mutex
