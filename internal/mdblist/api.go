@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -76,7 +77,13 @@ func (c Client) request(ctx context.Context, method, path, apiKey string, query 
 	safe.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := safe.Do(req)
 	if err != nil {
-		return fmt.Errorf("mdblist: request failed: %w", err)
+		// A transport error names the request URL, and the API key travels in
+		// its query: report the endpoint without it, never the key.
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			return fmt.Errorf("mdblist: %s %s: %w", uerr.Op, req.URL.Path, uerr.Err)
+		}
+		return fmt.Errorf("mdblist: request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
