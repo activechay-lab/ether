@@ -703,7 +703,9 @@ function Sources({
                 placeholder="1"
                 value={s.weight || ""}
                 onChange={(e) =>
-                  set(i, { weight: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })
+                  set(i, {
+                    weight: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
+                  })
                 }
                 onBlur={(e) => {
                   if (!e.currentTarget.value) set(i, { weight: 1 });
@@ -748,7 +750,9 @@ function Sources({
                   placeholder="40"
                   value={s.pool || ""}
                   onChange={(e) =>
-                    set(i, { pool: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })
+                    set(i, {
+                      pool: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
+                    })
                   }
                   onBlur={(e) => {
                     if (!e.currentTarget.value) set(i, { pool: 40 });
@@ -786,7 +790,9 @@ function Sources({
                     onChange={(e) =>
                       set(i, {
                         startDate: undefined,
-                        startSeason: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
+                        startSeason: e.currentTarget.value
+                          ? Number(e.currentTarget.value)
+                          : undefined,
                       })
                     }
                     onBlur={(e) => {
@@ -804,7 +810,9 @@ function Sources({
                     onChange={(e) =>
                       set(i, {
                         startDate: undefined,
-                        startEpisode: e.currentTarget.value ? Number(e.currentTarget.value) : undefined,
+                        startEpisode: e.currentTarget.value
+                          ? Number(e.currentTarget.value)
+                          : undefined,
                       })
                     }
                     onBlur={(e) => {
