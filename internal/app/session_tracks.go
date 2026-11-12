@@ -33,18 +33,22 @@ func selectBrokerTracks(ctx context.Context, prefs experience.TrackPreferences, 
 		return -1, false
 	}
 	selection := experience.TrackSelection{Audio: -1, Subtitle: -1, AudioSet: audioSet, SubtitleSet: subtitleSet}
+	// An index that names no stream of that kind is no choice, as on real
+	// Jellyfin: Streamyfin sends AudioStreamIndex 0 (the video stream) when
+	// the item it read had no default audio index. The viewer's preferences
+	// pick the track instead of failing the plan as NoCompatibleStream.
 	if audioSet && opts.AudioStream >= 0 {
 		var ok bool
-		selection.Audio, ok = position("audio", opts.AudioStream)
-		if !ok {
-			return opts, core.ErrNotAvailable
+		if selection.Audio, ok = position("audio", opts.AudioStream); !ok {
+			selection.Audio, selection.AudioSet = -1, false
+			opts.AudioStream = -1
 		}
 	}
 	if subtitleSet && opts.SubtitleStream >= 0 {
 		var ok bool
-		selection.Subtitle, ok = position("subtitle", opts.SubtitleStream)
-		if !ok {
-			return opts, core.ErrNotAvailable
+		if selection.Subtitle, ok = position("subtitle", opts.SubtitleStream); !ok {
+			selection.Subtitle, selection.SubtitleSet = -1, false
+			opts.SubtitleStream = -1
 		}
 	}
 	selected, err := prefs.Select(ctx, viewer, title.Key, info, title.Language, selection)
