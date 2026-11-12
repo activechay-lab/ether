@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
@@ -346,7 +347,21 @@ func (s *Server) handleLiveChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	s.write(w, r, &liveContainer{Size: len(out), Identifier: frontend.LiveTVProvider, Channel: out, ChannelMapping: maps})
 }
-func liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.LiveTVProgramme) model.Metadata {
+// liveProgrammeThumb rewrites a raw, server-relative EPG poster/still path
+// (e.g. a bare TMDB path like "/abc123.jpg") into Ether's own artwork proxy
+// URL, the same way every other metadata builder does via thumbURL. Without
+// this, clients request the raw path directly from Ether, which has no route
+// for it and 404s - unlike channel logos, which already go through
+// liveGuideLogo, and unlike Plex-matched programmes, whose Thumb is already
+// an absolute plex.tv/TMDB URL (plexmeta.absURL) that clients fetch directly.
+func (s *Server) liveProgrammeThumb(key core.RatingKey, path string) string {
+	if path == "" || key == 0 || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	return s.thumbURL(&frontend.Title{Key: key, PosterPath: path})
+}
+
+func (s *Server) liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.LiveTVProgramme) model.Metadata {
 	dur := p.End.Sub(p.Start).Milliseconds()
 	rating := p.Item.Rating
 	if rating == "" {
@@ -358,7 +373,7 @@ func liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.LiveTVProgramme)
 	if mediaType != "episode" && mediaType != "movie" {
 		mediaType = "movie"
 	}
-	md := model.Metadata{RatingKey: p.ID, Key: liveProviderPath + "/metadata/" + url.PathEscape(p.ID), GUID: "ether://livetv/" + p.ID, Type: mediaType, Title: p.Item.Title, Summary: p.Item.Summary, ContentRating: rating, Thumb: p.Item.Thumb, Duration: dur, Media: []model.Media{{ID: p.Start.Unix(), Duration: dur, Protocol: "livetv", Extra: []model.Attr{model.A("beginsAt", p.Start.Unix()), model.A("endsAt", p.End.Unix()), model.A("channelIdentifier", c.ID), model.A("channelID", c.ID), model.A("channelTitle", c.Name), model.A("channelCallSign", c.Name), model.A("channelVcn", c.Number), model.A("channelThumb", liveLogo(c)), model.A("gridKey", c.ID)}}}}
+	md := model.Metadata{RatingKey: p.ID, Key: liveProviderPath + "/metadata/" + url.PathEscape(p.ID), GUID: "ether://livetv/" + p.ID, Type: mediaType, Title: p.Item.Title, Summary: p.Item.Summary, ContentRating: rating, Thumb: s.liveProgrammeThumb(p.Item.Key, p.Item.Thumb), Duration: dur, Media: []model.Media{{ID: p.Start.Unix(), Duration: dur, Protocol: "livetv", Extra: []model.Attr{model.A("beginsAt", p.Start.Unix()), model.A("endsAt", p.End.Unix()), model.A("channelIdentifier", c.ID), model.A("channelID", c.ID), model.A("channelTitle", c.Name), model.A("channelCallSign", c.Name), model.A("channelVcn", c.Number), model.A("channelThumb", liveLogo(c)), model.A("gridKey", c.ID)}}}}
 	if p.Lens != "" {
 		md.Summary = p.Lens + "\n\n" + md.Summary
 	}
@@ -369,9 +384,9 @@ func liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.LiveTVProgramme)
 		}
 		md.GrandparentTitle = p.Item.ShowTitle
 		md.GrandparentGUID = p.Item.ShowGUID
-		md.Art = p.Item.Art
-		md.GrandparentThumb = p.Item.Thumb
-		md.GrandparentArt = p.Item.Art
+		md.Art = s.liveProgrammeThumb(p.Item.Key, p.Item.Art)
+		md.GrandparentThumb = s.liveProgrammeThumb(p.Item.Key, p.Item.Thumb)
+		md.GrandparentArt = s.liveProgrammeThumb(p.Item.Key, p.Item.Art)
 		if p.Item.Season > 0 {
 			season := p.Item.Season
 			md.ParentIndex = &season
@@ -486,7 +501,7 @@ func (s *Server) liveGuideMetadataCapture(r *http.Request, captured *[]frontend.
 		if id := chi.URLParam(r, "programme"); id != "" && p.ID != id {
 			continue
 		}
-		md := liveProgrammeMetadata(byID[p.ChannelID], p)
+		md := s.liveProgrammeMetadata(byID[p.ChannelID], p)
 		if c, ok := byID[p.ChannelID]; ok && cloudGuideLogoClient(FromContext(r.Context())) {
 			// The Apple TV guide draws airings' channelThumb too: give it the
 			// same fetchable logo as the lineup.
@@ -672,7 +687,7 @@ func (s *Server) liveSessionMetadata(info frontend.LiveTVSessionInfo) model.Meta
 	if info.Programme != nil {
 		md.Title = info.Programme.Item.Title
 		md.Summary = info.Programme.Item.Summary
-		md.Thumb = info.Programme.Item.Thumb
+		md.Thumb = s.liveProgrammeThumb(info.Programme.Item.Key, info.Programme.Item.Thumb)
 	}
 	md.Media = []model.Media{{Protocol: "hls", Container: "mpegts", Extra: []model.Attr{model.A("uuid", info.ID), model.A("origin", "livetv"), model.A("beginsAt", info.StartedAt.Unix()), model.A("channelIdentifier", info.Channel.ID), model.A("channelTitle", info.Channel.Name), model.A("channelCallSign", info.Channel.Name), model.A("channelVcn", info.Channel.Number), model.A("onAir", true)}, Part: []model.Part{{Key: "/livetv/sessions/" + info.ID + "/0/index.m3u8", Container: "mpegts", Protocol: "hls", Decision: "directplay"}}}}
 	if info.MediaInfo != nil && info.MediaInfo.Video() != nil {
@@ -951,7 +966,7 @@ func (s *Server) liveSubscriptionFor(info frontend.LiveTVSessionInfo) liveSubscr
 	md := s.liveSessionMetadata(info)
 	timeline := md
 	if info.Programme != nil {
-		timeline = liveProgrammeMetadata(info.Channel, *info.Programme)
+		timeline = s.liveProgrammeMetadata(info.Channel, *info.Programme)
 		timeline.Media[0].Extra = append(timeline.Media[0].Extra, model.A("onAir", true))
 	}
 	op := liveOperation{Key: "/media/grabbers/operations/" + info.ID, ID: info.ID, Subscription: info.ID, Provider: frontend.LiveTVProvider, Status: "inprogress", Rolling: true, Metadata: md}
