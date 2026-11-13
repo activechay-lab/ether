@@ -104,7 +104,9 @@ export function CatalogBrowser({
   const viewer = params.get("viewer") || "";
   const compiledFilter = advanced ? compileQuery(readQuery(advanced), viewer) : {};
   // libraryId scopes the request on the server; only send the user's filters.
-  const filterParam = Object.keys(compiledFilter).length ? JSON.stringify(compiledFilter) : undefined;
+  const filterParam = Object.keys(compiledFilter).length
+    ? JSON.stringify(compiledFilter)
+    : undefined;
   const [lookupOpen, setLookupOpen] = useState(false);
   // Router transitions can update the URL before the previous controls commit.
   // Merge rapid interactions into the latest requested state, not a stale render.

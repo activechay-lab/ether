@@ -15,23 +15,38 @@ func (a *App) buildAvailability() error {
 			}
 			return a.indexers.Search(ctx, req)
 		}, Watchlist: func(ctx context.Context) (map[core.RatingKey]bool, error) {
-			rows, err := a.db.QueryContext(ctx, `SELECT DISTINCT item_key FROM watchlist_items UNION SELECT rating_key FROM (SELECT rating_key FROM state_watch WHERE last_viewed_at>0 AND last_viewed_at>=? ORDER BY last_viewed_at DESC LIMIT 200) recent`, time.Now().Add(-30*24*time.Hour).Unix())
-			if err != nil {
-				return nil, nil
-			}
-			defer rows.Close()
 			out := map[core.RatingKey]bool{}
-			for rows.Next() {
-				var key int64
-				if rows.Scan(&key) == nil {
-					k := core.RatingKey(key)
-					out[k] = true
-					if k.Kind() == core.KindEpisode || k.Kind() == core.KindSeason {
-						out[core.ShowKey(k.TMDB())] = true
-					}
+			follow := func(k core.RatingKey) {
+				out[k] = true
+				if k.Kind() == core.KindEpisode || k.Kind() == core.KindSeason {
+					out[core.ShowKey(k.TMDB())] = true
 				}
 			}
-			return out, rows.Err()
+			rows, err := a.db.QueryContext(ctx, `SELECT DISTINCT item_key FROM watchlist_items`)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var key int64
+				if err := rows.Scan(&key); err != nil {
+					return nil, err
+				}
+				follow(core.RatingKey(key))
+			}
+			if err := rows.Err(); err != nil {
+				return nil, err
+			}
+			if a.state != nil {
+				recent, err := a.state.RecentlyViewedKeys(ctx, time.Now().Add(-30*24*time.Hour), 200)
+				if err != nil {
+					return nil, err
+				}
+				for _, k := range recent {
+					follow(k)
+				}
+			}
+			return out, nil
 		}, Active: func() bool { return len(a.playback.Sessions()) > 0 },
 		Seal: func(raw string) (string, error) { return a.cfg.Seal("availability-release", []byte(raw)) },
 		Open: func(raw string) (string, error) {

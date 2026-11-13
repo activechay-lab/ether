@@ -991,7 +991,11 @@ func (s *Server) withLibraryTitles(secs []Section) []Section {
 	movies, shows := s.libraryTitles()
 	out := append([]Section(nil), secs...)
 	for i := range out {
-		switch out[i].LibraryID {
+		id := out[i].LibraryID
+		if id == 0 && (out[i].ID == int(frontend.LibraryMovies) || out[i].ID == int(frontend.LibraryShows)) {
+			id = frontend.LibraryID(out[i].ID)
+		}
+		switch id {
 		case frontend.LibraryMovies:
 			out[i].Title = librarySectionTitle(frontend.TypeMovie, movies, shows)
 		case frontend.LibraryShows:
