@@ -122,6 +122,9 @@ type Server struct {
 
 	activityMu       sync.Mutex
 	activities       map[string]model.Activity
+	emittedHubMu     sync.Mutex
+	emittedHubs      map[string]emittedHub
+	emittedHubBytes  int
 	shelfMu          sync.Mutex
 	shelfCuts        map[string]shelfCut
 	shelfGenerations map[string]shelfGeneration

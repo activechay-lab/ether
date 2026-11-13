@@ -470,6 +470,11 @@ var liveChannelLogoRe = regexp.MustCompile(`^/livetv/channels/([^/]+)/logo\.(?:s
 
 // isSelfHost reports whether host refers to this server.
 func (s *Server) isSelfHost(r *http.Request, host string) bool {
+	if origin := s.getHost().PublicOrigin; origin != nil {
+		if u, err := url.Parse(origin()); err == nil && u.Host != "" && strings.EqualFold(u.Host, host) {
+			return true
+		}
+	}
 	h := strings.ToLower(host)
 	if h == "" || strings.EqualFold(h, r.Host) {
 		return true

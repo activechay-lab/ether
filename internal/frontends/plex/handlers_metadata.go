@@ -435,6 +435,11 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 			return
 		}
 	}
+	// Samsung refreshes detail repeatedly while browsing. Preparation already
+	// runs in the shared flight; use cached tracks until playback admits a source.
+	if pr.detailWaitUntil.IsZero() {
+		return
+	}
 	if waiter, ok := s.playback().(frontend.WarmProbeWaiter); ok {
 		budget := detailWarmWaitBudget
 		if !pr.detailWaitUntil.IsZero() {
