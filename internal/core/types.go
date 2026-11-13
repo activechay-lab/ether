@@ -209,6 +209,9 @@ type User struct {
 // ClientCaps is what a Plex client can play, derived from X-Plex-* headers,
 // the client profile and its declared limits.
 type ClientCaps struct {
+	// AwaitAdmissionIndex briefly joins the generation-owned index before delivery selection.
+	AwaitAdmissionIndex bool `json:"awaitAdmissionIndex,omitempty"`
+
 	ClientIP string `json:"clientIp,omitempty"` // trusted-proxy-resolved address, when known
 
 	Profiles        *ClientCapabilityProfiles `json:"profiles,omitempty"`

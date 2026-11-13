@@ -19,7 +19,7 @@ func TestAdmissionIndexJoinIsBoundedAndCancellable(t *testing.T) {
 	g.indexReady = make(chan struct{})
 	defer func() { g.indexReady = ready }()
 	caps := defaultCaps("index-join")
-	caps.Protocol = "plex"
+	caps.AwaitAdmissionIndex = true
 	start := time.Now()
 	got, _, err := h.m.snapshotForAdmission(context.Background(), s, caps, start, 20*time.Millisecond)
 	if err != nil || got == nil {
@@ -44,7 +44,7 @@ func TestHLSAdmissionIncludesCompletedContainerIndex(t *testing.T) {
 	rel := &fakeRelease{ID: "K", Name: "K.mkv", Size: int64(len(b)), Duration: 10 * time.Second, Content: b}
 	h := newHarness(t, []*fakeRelease{rel}, []string{"K"})
 	caps := defaultCaps("index-ready")
-	caps.Protocol = "plex"
+	caps.AwaitAdmissionIndex = true
 	ps, err := h.m.Prepare(context.Background(), owner, movieKey, caps)
 	if err != nil {
 		t.Fatal(err)
