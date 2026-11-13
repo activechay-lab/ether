@@ -1,8 +1,8 @@
 package plex
 
-import "github.com/braedonsaunders/ether/internal/core"
+import "github.com/braedonsaunders/ether/internal/frontend"
 
 // HostPolicy keeps account, listener and capability integration with this frontend.
-func HostPolicy() core.FrontendHostPolicy {
-	return core.FrontendHostPolicy{PlaybackTelemetry: true, LegacySessionIdentity: true, ExternalIdentity: true, NativePlaybackCapabilities: true, NativeClientFamilies: true, SpikeExperience: true, MainListener: true}
+func HostPolicy() frontend.FrontendHostPolicy {
+	return frontend.FrontendHostPolicy{PlaybackTelemetry: true, LegacySessionIdentity: true, ExternalIdentity: true, NativePlaybackCapabilities: true, NativeClientFamilies: true, SpikeExperience: true, MainListener: true}
 }

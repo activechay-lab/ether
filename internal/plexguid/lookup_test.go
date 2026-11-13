@@ -38,6 +38,8 @@ func TestLookupVerifiedIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
+			seedCatalogTitle(t, db, core.MovieKey(550), "movie", "Fight Club", 1999)
+			seedCatalogTitle(t, db, core.ShowKey(1396), "show", "Boundary Bay", 2008)
 			var calls atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
@@ -73,6 +75,8 @@ func TestLookupBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	seedCatalogTitle(t, db, core.MovieKey(550), "movie", "Fight Club", 1999)
+	seedCatalogTitle(t, db, core.ShowKey(1396), "show", "Boundary Bay", 2008)
 	const guid = "plex://movie/5d7768265af944001f1f6976"
 	var calls atomic.Int32
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); io.WriteString(w, "{}") }))
@@ -122,6 +126,8 @@ func TestLookupMissingProviderIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	seedCatalogTitle(t, db, core.MovieKey(550), "movie", "Fight Club", 1999)
+	seedCatalogTitle(t, db, core.ShowKey(1396), "show", "Boundary Bay", 2008)
 	upstream := httptest.NewServer(http.NotFoundHandler())
 	defer upstream.Close()
 	pg := New(db, Options{BaseURL: upstream.URL, Token: func() string { return "fixture" }})
@@ -138,6 +144,8 @@ func TestExactKeyDoesNotDeriveEpisodeFromShow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	seedCatalogTitle(t, db, core.MovieKey(550), "movie", "Fight Club", 1999)
+	seedCatalogTitle(t, db, core.ShowKey(1396), "show", "Boundary Bay", 2008)
 	pg := New(db, Options{Token: func() string { return "" }})
 	defer pg.Close()
 	const showGUID = "plex://show/5d9c086c46115600200aa2fe"

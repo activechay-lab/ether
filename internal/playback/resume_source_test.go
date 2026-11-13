@@ -44,7 +44,7 @@ func TestSourcePreferenceInvalidatesRememberedRelease(t *testing.T) {
 }
 
 func TestAutoSourceKeepsRememberedRelease(t *testing.T) {
-	h := newHarness(t, []*fakeRelease{mkv("old", 10000, time.Minute)}, nil)
+	h := newHarness(t, []*fakeRelease{mkv("old", 10000, 136*time.Minute)}, nil)
 	ctx := context.Background()
 	caps := defaultCaps("client")
 	if err := h.m.Remember(ctx, owner, movieKey, caps, &core.Resolution{Release: core.Release{ID: "old"}, NZB: []byte("nzb-old")}); err != nil {
@@ -59,7 +59,7 @@ func TestAutoSourceKeepsRememberedRelease(t *testing.T) {
 }
 
 func TestRememberedRebootCannotBypassSeriesIdentity(t *testing.T) {
-	h := newHarness(t, []*fakeRelease{mkv("old", 10000, time.Minute), mkv("correct", 10000, time.Minute)}, []string{"correct"})
+	h := newHarness(t, []*fakeRelease{mkv("old", 10000, 58*time.Minute), mkv("correct", 10000, 58*time.Minute)}, []string{"correct"})
 	h.catalog.titles[epKey].ShowYear = 2005
 	caps := defaultCaps("series-client")
 	old := core.Release{ID: "old", Info: core.ReleaseInfo{Year: 2023}}

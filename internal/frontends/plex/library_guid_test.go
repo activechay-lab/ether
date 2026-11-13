@@ -25,6 +25,9 @@ func TestLibraryGUIDLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.Exec(`INSERT OR IGNORE INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?),(?,?,?,?,?)`, int64(fightClub.Key), "movie", 550, "Fjord Harbor", 1999, int64(breakingBad.Key), "show", 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
+	}
 	const guid = "plex://movie/5d7768265af944001f1f6976"
 	if err = storeVerifiedGUID(db, fightClub.Key, guid, 550, "Fjord Harbor", 1999); err != nil {
 		t.Fatal(err)
@@ -184,6 +187,9 @@ func TestLibraryGUIDColdLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.Exec(`INSERT OR IGNORE INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?),(?,?,?,?,?)`, int64(fightClub.Key), "movie", 550, "Fjord Harbor", 1999, int64(breakingBad.Key), "show", 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -191,7 +197,7 @@ func TestLibraryGUIDColdLookup(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"guid":%q,"type":"movie","Guid":[{"id":"tmdb://550"}]}]}}`, guid)
+		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"guid":%q,"type":"movie","title":"Fjord Harbor","year":1999,"Guid":[{"id":"tmdb://550"}]}]}}`, guid)
 	}))
 	defer upstream.Close()
 	pg := plexguid.New(db, plexguid.Options{BaseURL: upstream.URL, Token: func() string { return "fixture" }})
@@ -221,6 +227,9 @@ func TestLibraryGUIDIndexedLookupExplain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.Exec(`INSERT OR IGNORE INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?),(?,?,?,?,?)`, int64(fightClub.Key), "movie", 550, "Fjord Harbor", 1999, int64(breakingBad.Key), "show", 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
+	}
 	pg := plexguid.New(db, plexguid.Options{})
 	defer pg.Close()
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/frontends/plex/timeline"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/plextimeline"
 	"sync"
 	"testing"
 	"time"

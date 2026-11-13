@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
@@ -1065,7 +1064,7 @@ func (s *Server) handleLiveOperationStop(w http.ResponseWriter, r *http.Request)
 }
 
 func liveTuneCaps(caps frontend.ClientCaps) frontend.ClientCaps {
-	caps.ProbeLiveWithoutCodecs = caps.ProbeLiveWithoutCodecs || clientreg.HasQuirk(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: caps.Device, Version: caps.Version}, "probe-hls-without-codecs")
+	caps.ProbeLiveWithoutCodecs = caps.ProbeLiveWithoutCodecs || frontend.HasQuirk(caps.Product, caps.Platform, caps.Device, "", caps.Version, "probe-hls-without-codecs")
 	return caps
 }
 

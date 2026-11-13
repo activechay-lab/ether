@@ -20,7 +20,7 @@ import (
 // catalogue says has a namesake must not be served: the guid may name the
 // other work. The read path withholds it and enqueues it for priority repair,
 // which drops it when its canonical record turns out to be the namesake. A
-// legacy mapping on a namesake-free title keeps serving. This is the v0.3.9
+// legacy mapping on a namesake-free title is also withheld. This is the v0.3.9
 // fix for #430 on upgraded servers: the 1962 "Runner" identity is no longer
 // handed to Runner (2026) whose catalogue has a "The Runner" (2026) namesake.
 func TestLegacyNamesakeRowWithheldAndRepaired(t *testing.T) {
@@ -78,9 +78,9 @@ func TestLegacyNamesakeRowWithheldAndRepaired(t *testing.T) {
 			t.Fatalf("namesake legacy row served by VerifiedRange: %q", v.GUID)
 		}
 	}
-	// The namesake-free legacy row keeps serving.
-	if got := s.Cached(ctx, core.MovieKey(550)); got != fightGood {
-		t.Fatalf("namesake-free legacy row withheld: %q", got)
+	// Every legacy row is withheld until its identity is verified.
+	if got := s.Cached(ctx, core.MovieKey(550)); got != "" {
+		t.Fatalf("unverified legacy row served: %q", got)
 	}
 
 	// The withheld key is enqueued for priority repair.

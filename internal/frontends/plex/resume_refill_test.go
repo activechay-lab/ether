@@ -218,6 +218,16 @@ func (x *etheLab) waitWarm(t *testing.T) {
 		t.Fatal("prewarm never reached offline prefetch")
 	}
 }
+
+// A persisted probe makes detail rendering independent of source admission.
+func (x *etheLab) assertNoWarm(t *testing.T) {
+	t.Helper()
+	select {
+	case <-x.engine.finished:
+		t.Fatal("persisted probe reopened the source")
+	default:
+	}
+}
 func (x *etheLab) scheduledRefill(t *testing.T) <-chan struct{} {
 	t.Helper()
 	select {
@@ -249,7 +259,7 @@ func TestResumedDetailColdRestartRefill(t *testing.T) {
 		t.Fatal("unexpected owner pin")
 	}
 	x.detail(t, "first")
-	x.waitWarm(t)
+	x.assertNoWarm(t)
 	waitResumeRefill(t, x.scheduledRefill(t))
 	second := x.detail(t, "second")
 	if len(second) != 4 {
@@ -291,7 +301,7 @@ func TestResumedDetailRefillDoesNotWaitOrChangeSource(t *testing.T) {
 	x.idx.started = make(chan struct{}, 1)
 	x.idx.release = make(chan struct{})
 	x.detail(t, "first")
-	x.waitWarm(t) // source open/probe/prefetch finishes while search stays blocked
+	x.assertNoWarm(t) // persisted probe renders without reopening the source
 	done := x.scheduledRefill(t)
 	select {
 	case <-x.idx.started:
@@ -354,7 +364,7 @@ func TestResumedDetailAlternativeLimitsAfterRefill(t *testing.T) {
 			}
 			x := newEtheLab(t, true, "offline-4", limit)
 			x.detail(t, "first")
-			x.waitWarm(t)
+			x.assertNoWarm(t)
 			waitResumeRefill(t, x.scheduledRefill(t))
 			media := x.detail(t, "refilled")
 			if len(media) != 1+limit {
@@ -381,7 +391,7 @@ func TestResumedDetailRefillFailureKeepsMedia(t *testing.T) {
 			x.idx.failure = tc.err
 			x.idx.releases = nil
 			x.detail(t, "first")
-			x.waitWarm(t)
+			x.assertNoWarm(t)
 			waitResumeRefill(t, x.scheduledRefill(t))
 			media := x.detail(t, tc.name)
 			if len(media) != 1 || media[0]["id"] != float64(x.title.Key) {

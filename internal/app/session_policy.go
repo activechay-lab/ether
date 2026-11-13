@@ -5,7 +5,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
 	md "github.com/braedonsaunders/ether/internal/frontends/mediabrowser/deliverypolicy"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
-	pd "github.com/braedonsaunders/ether/internal/frontends/plex/deliverypolicy"
+	pd "github.com/braedonsaunders/ether/internal/frontend/kit/plexdelivery"
 )
 
 func sessionPolicy(protocol core.Protocol) core.SessionPolicy {

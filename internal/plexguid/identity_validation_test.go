@@ -62,7 +62,7 @@ func TestDirectChildMatchCannotProveParentIdentity(t *testing.T) {
 }
 
 // A child proof belongs to one specific parent mapping, including during a
-// concurrent rematch. Legacy rows without parentage remain available.
+// concurrent rematch. Legacy rows without parentage are withheld.
 func TestChildProofFollowsParentMapping(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.OpenMemory(ctx)
@@ -89,8 +89,8 @@ func TestChildProofFollowsParentMapping(t *testing.T) {
 	}
 	// A legacy child carries no parentage. When its parent changes, its
 	// identity proof is dropped with the rest of the old tree's children; it
-	// then has no identity record, so it keeps serving as legacy until the
-	// repair worker re-verifies it under the new tree.
+	// then has no identity record, so it is withheld until the repair worker
+	// re-verifies it under the new tree.
 	legacy := core.SeasonKey(1396, 2)
 	const legacyGUID = "plex://season/eeeeeeeeeeeeeeeeeeeeeeee"
 	if err = s.storeMapping(ctx, legacy, identityRecord{GUID: legacyGUID, TMDB: 1396}, now); err != nil {
@@ -105,8 +105,8 @@ func TestChildProofFollowsParentMapping(t *testing.T) {
 	if _, err = s.ExactKey(ctx, episodeGUID); err == nil {
 		t.Fatal("stale reverse mapping exposed")
 	}
-	if s.Cached(ctx, legacy) != legacyGUID {
-		t.Fatal("legacy child was withheld")
+	if s.Cached(ctx, legacy) != "" {
+		t.Fatal("legacy child was served")
 	}
 	if _, ok := s.freshCached(ctx, legacy); ok {
 		t.Fatal("legacy child still marked fresh")

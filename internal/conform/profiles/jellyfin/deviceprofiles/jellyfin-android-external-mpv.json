@@ -1,6 +1,7 @@
 {
   "client": "Jellyfin Android",
   "source": "https://github.com/jellyfin/jellyfin-android/blob/697633cdf40759deb18c25edf94ee4a2f6e45694/app/src/main/java/org/jellyfin/mobile/player/deviceprofile/DeviceProfileBuilder.kt",
+  "source_commit": "697633cdf40759deb18c25edf94ee4a2f6e45694",
   "configuration": "External player profile used for MPV; declares no codecs or range, so retains safe defaults.",
   "device_profile": {
     "DirectPlayProfiles": [

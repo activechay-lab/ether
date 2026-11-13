@@ -12,6 +12,7 @@ import (
 func deriveVideo(c *core.ClientCaps, p DeviceProfile) {
 	declared := false
 	profileDV := false
+	profileDVEnhancement := false
 	height := 0
 	for _, dp := range p.DirectPlayProfiles {
 		if !strings.EqualFold(dp.Type, "video") && dp.Type != "" {
@@ -21,7 +22,7 @@ func deriveVideo(c *core.ClientCaps, p DeviceProfile) {
 			declared = true
 			limit := 0
 			dvDeclared := false
-			ranges := map[string]bool{"SDR": true, "HDR10": true, "HDR10PLUS": true, "HLG": true, "DOVI": true, "DOVIWITHHDR10": true, "DOVIWITHHLG": true, "DOVIWITHSDR": true}
+			ranges := map[string]bool{"SDR": true, "HDR10": true, "HDR10PLUS": true, "HLG": true, "DOVI": true, "DOVIWITHHDR10": true, "DOVIWITHHLG": true, "DOVIWITHSDR": true, "DOVIWITHEL": true, "DOVIWITHELHDR10PLUS": true}
 			for _, cp := range p.CodecProfiles {
 				if !strings.EqualFold(cp.Type, "video") || len(cp.ApplyConditions) > 0 {
 					continue
@@ -106,14 +107,21 @@ func deriveVideo(c *core.ClientCaps, p DeviceProfile) {
 			if codec == "hevc" || codec == "h265" || codec == "av1" || codec == "vp9" {
 				c.HDR10 = c.HDR10 || ranges["HDR10"] || ranges["HDR10PLUS"] || ranges["HLG"] || (dvDeclared && (ranges["DOVIWITHHDR10"] || ranges["DOVIWITHHLG"]))
 				if codec == "hevc" || codec == "h265" {
-					profileDV = profileDV || (dvDeclared && (ranges["DOVI"] || ranges["DOVIWITHHDR10"] || ranges["DOVIWITHHLG"] || ranges["DOVIWITHSDR"]))
+					profileDV = profileDV || (dvDeclared && (ranges["DOVI"] || ranges["DOVIWITHHDR10"] || ranges["DOVIWITHHLG"] || ranges["DOVIWITHSDR"] || ranges["DOVIWITHEL"] || ranges["DOVIWITHELHDR10PLUS"]))
+					profileDVEnhancement = profileDVEnhancement || (dvDeclared && (ranges["DOVIWITHEL"] || ranges["DOVIWITHELHDR10PLUS"]))
 				}
 			}
 		}
 	}
 	c.DolbyVision = c.DolbyVision || profileDV
 	if profileDV && len(c.DVProfiles) == 0 {
-		c.DVProfiles = []int{5, 7, 8}
+		// Single-layer Dolby Vision evidence does not advertise Blu-ray's
+		// enhancement layer. An HDR10-capable client can instead copy its
+		// profile-7 base layer with the Dolby Vision signalling stripped.
+		c.DVProfiles = []int{5, 8}
+		if profileDVEnhancement {
+			c.DVProfiles = append(c.DVProfiles, 7)
+		}
 	}
 	if declared {
 		c.ExplicitMaxHeight = true

@@ -25,9 +25,9 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/caps"
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
-	mbplayer "github.com/braedonsaunders/ether/internal/frontends/mediabrowser/playerlab"
-	plexplayer "github.com/braedonsaunders/ether/internal/frontends/plex/playerlab"
 	"github.com/braedonsaunders/ether/internal/hlsplay"
+	mbplayer "github.com/braedonsaunders/ether/internal/hlsplay/mediabrowser"
+	plexplayer "github.com/braedonsaunders/ether/internal/hlsplay/plex"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/transcode"
 )

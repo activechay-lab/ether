@@ -2,7 +2,7 @@ package plex
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/frontends/plex/timeline"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/plextimeline"
 	"net/http"
 	"strconv"
 	"time"

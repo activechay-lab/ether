@@ -1924,6 +1924,6 @@ func storeVerifiedGUID(db *sql.DB, key core.RatingKey, guid string, tmdb int64, 
 			return err
 		}
 	}
-	_, err := db.Exec(`INSERT INTO plexguid_identity(rating_key,guid,tmdb,title,year) VALUES(?,?,?,?,?)`, int64(key), guid, tmdb, title, year)
+	_, err := db.Exec(`INSERT INTO plexguid_identity(rating_key,guid,tmdb,title,year,credits_rule) VALUES(?,?,?,?,?,2)`, int64(key), guid, tmdb, title, year)
 	return err
 }

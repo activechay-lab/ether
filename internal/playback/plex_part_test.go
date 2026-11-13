@@ -3,7 +3,7 @@ package playback
 import (
 	"bytes"
 	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/frontends/plex/parts"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/plexparts"
 	"io"
 	"net/http"
 	"net/http/httptest"

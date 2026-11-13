@@ -84,7 +84,7 @@ func TestScopedVersionDetailAndPlayback(t *testing.T) {
 		}
 	}
 	w := call("POST", "/Items/"+handle+"/PlaybackInfo", `{"IsPlayback":false}`)
-	if w.Code != 200 || plan.Item != 5 || plan.Version != handle || !plan.Intent.ExactVersion || !plan.Intent.Estimate {
+	if w.Code != 200 || plan.Item != 5 || plan.Version != handle || !plan.Intent.ExactVersion || plan.Intent.Estimate {
 		t.Fatal(w.Code, plan, w.Body.String())
 	}
 	w = call("GET", "/Videos/"+handle+"/stream?PlaySessionId=session", "")

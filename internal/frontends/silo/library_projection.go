@@ -1,24 +1,24 @@
 package silo
 
-import "github.com/braedonsaunders/ether/internal/core"
+import "github.com/braedonsaunders/ether/internal/frontend"
 
 // NativeLibraryType returns this adapter's built-in library category.
-func NativeLibraryType(mt core.MediaType) string {
-	if mt == core.TypeShow {
+func NativeLibraryType(mt frontend.MediaType) string {
+	if mt == frontend.TypeShow {
 		return "tvshows"
 	}
 	return "movies"
 }
 
 // ProjectLibrary interprets this adapter's plugin presentation declaration.
-func ProjectLibrary(p core.Presentations, fallback core.MediaType) (core.MediaType, string, bool) {
+func ProjectLibrary(p frontend.Presentations, fallback frontend.MediaType) (frontend.MediaType, string, bool) {
 	if p.Silo != nil && p.Silo.Type != "" {
 		mt := fallback
 		switch p.Silo.Type {
 		case "movies", "movie":
-			mt = core.TypeMovie
+			mt = frontend.TypeMovie
 		case "tvshows", "series", "show":
-			mt = core.TypeShow
+			mt = frontend.TypeShow
 		}
 		return mt, p.Silo.Type, true
 	}

@@ -245,7 +245,7 @@ func (f *fakePMS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // item has no viewOffset at all).
 func pmsWire(md pmsMetadata, history bool) map[string]any {
 	key := strconv.FormatInt(int64(md.RatingKey), 10)
-	out := map[string]any{"ratingKey": key, "key": "/library/metadata/" + key, "type": md.Type, "title": md.Title}
+	out := map[string]any{"ratingKey": key, "key": "/library/metadata/" + key, "type": md.Type, "title": md.Title, "year": int64(md.Year)}
 	if md.Type == "episode" {
 		out["index"], out["parentIndex"] = int64(md.Index), int64(md.ParentIndex)
 		out["grandparentTitle"] = md.GrandparentTitle
@@ -297,6 +297,10 @@ type fakeCatalog struct {
 	titles   map[core.RatingKey]core.Title
 	external map[string]core.RatingKey // "source:id:type"
 	aired    map[core.RatingKey][]core.RatingKey
+}
+
+func (c *fakeCatalog) StoredTitle(ctx context.Context, k core.RatingKey) (*core.Title, error) {
+	return c.Get(ctx, k)
 }
 
 func (c *fakeCatalog) Get(_ context.Context, k core.RatingKey) (*core.Title, error) {
@@ -368,10 +372,10 @@ func newPMSHarness(t *testing.T) *pmsHarness {
 		movieA: "plex://movie/a", movieB: "plex://movie/b", movieC: "plex://movie/c", episodeE: "plex://episode/e",
 	}, reverse: map[string]core.RatingKey{}}
 	cat := &fakeCatalog{titles: map[core.RatingKey]core.Title{
-		movieA: {Key: movieA, Type: core.TypeMovie, Title: "The 'Burbs"},
-		movieB: {Key: movieB, Type: core.TypeMovie, Title: "The Matrix"},
-		movieC: {Key: movieC, Type: core.TypeMovie, Title: "Fight Club"},
-		showS:  {Key: showS, Type: core.TypeShow, Title: "Thrones"},
+		movieA: {Key: movieA, Type: core.TypeMovie, Year: 1989, Title: "The 'Burbs"},
+		movieB: {Key: movieB, Type: core.TypeMovie, Year: 1999, Title: "The Matrix"},
+		movieC: {Key: movieC, Type: core.TypeMovie, Year: 1999, Title: "Fight Club"},
+		showS:  {Key: showS, Type: core.TypeShow, Year: 2011, Title: "Thrones"},
 	}, external: map[string]core.RatingKey{
 		"imdb:tt0133093:movie": movieB,
 		"tvdb:121361:show":     showS,
@@ -399,10 +403,10 @@ func (h *pmsHarness) server(machine string, keyBase int64, direction int) (*fake
 		}
 		return out
 	}
-	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 1), Type: "movie", Title: "The 'Burbs", GUID: "plex://movie/a", GUIDs: g("imdb://tt0096734", "tmdb://11974")})
-	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 2), Type: "movie", Title: "The Matrix", GUID: "plex://movie/b", GUIDs: g("imdb://tt0133093")})
+	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 1), Type: "movie", Year: 1989, Title: "The 'Burbs", GUID: "plex://movie/a", GUIDs: g("imdb://tt0096734", "tmdb://11974")})
+	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 2), Type: "movie", Year: 1999, Title: "The Matrix", GUID: "plex://movie/b", GUIDs: g("imdb://tt0133093")})
 	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 3), Type: "movie", Title: "Home Video", GUID: "local://3"})
-	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 10), Type: "show", Title: "Thrones", GUID: "plex://show/s", GUIDs: g("tvdb://121361")})
+	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 10), Type: "show", Year: 2011, Title: "Thrones", GUID: "plex://show/s", GUIDs: g("tvdb://121361")})
 	f.addItem(pmsMetadata{RatingKey: flexInt(keyBase + 11), Type: "episode", Title: "The Kingsroad", GUID: "plex://episode/e",
 		GUIDs: g("tmdb://63057", "tvdb://3436411"), GrandparentRatingKey: flexInt(keyBase + 10), ParentIndex: 1, Index: 2})
 	srv := httptest.NewServer(f)
@@ -851,7 +855,7 @@ func TestPMSFullHistoryBackfill(t *testing.T) {
 	// Server B: test full send of old watched and in-progress rows, preserving
 	// newer PMS state and not duplicating on repeat.
 	b, srvB := h.server("server-b", 500, 0)
-	b.addItem(pmsMetadata{RatingKey: 504, Type: "movie", Title: "Fight Club", GUID: "plex://movie/c"})
+	b.addItem(pmsMetadata{RatingKey: 504, Type: "movie", Year: 1999, Title: "Fight Club", GUID: "plex://movie/c"})
 	b.addItem(pmsMetadata{RatingKey: 505, Type: "movie", Title: "Pulp Fiction", GUID: "plex://movie/d"})
 	// On B, movieA was watched and then unscrobbled 1 hour ago (newer than
 	// Ether's imported -30d watch mark), and movieD was finished 1 hour ago

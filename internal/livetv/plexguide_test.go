@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/frontends/plex/guide"
+	"github.com/braedonsaunders/ether/internal/plexguide"
 )
 
 func TestPlexGuideMappedRefreshAndReviewedAliases(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plexguid"
-	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
+	plexmeta "github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/remote"
 	"github.com/braedonsaunders/ether/internal/updater"
 )
