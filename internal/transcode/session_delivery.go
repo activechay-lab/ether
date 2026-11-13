@@ -828,6 +828,9 @@ func (s *Session) setSegmentHeaders(w http.ResponseWriter) {
 		ct = "video/mp4"
 	case s.container == ContainerMatroska:
 		ct = "video/x-matroska"
+		if s.matroskaTitleClock {
+			ct = "video/MP2T"
+		}
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "no-cache")
@@ -853,6 +856,9 @@ func (s *Session) serveOpened(w http.ResponseWriter, r *http.Request, f *os.File
 	name := filepath.Base(f.Name())
 	if n == InitSegment {
 		name = initSegmentName(s.container)
+		if s.matroskaTitleClock && s.container == ContainerMatroska {
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
 	}
 	armSegmentDeadline(w)
 	var content io.ReadSeeker = f

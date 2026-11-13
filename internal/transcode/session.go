@@ -377,7 +377,15 @@ func (s *Session) Protocol() string { return s.proto }
 
 func (s *Session) isDASH() bool { return s.proto == core.ProtocolDASH }
 
-func (s *Session) segName(n int) string { return s.m.opts.segmentURI(n, s.container) }
+func (s *Session) segName(n int) string {
+	container := s.container
+	// PMS Android Matroska HLS still uses .ts URLs. The enhanced player
+	// chooses its HLS extractor from the transport declaration.
+	if s.matroskaTitleClock && container == ContainerMatroska {
+		container = ContainerMPEGTS
+	}
+	return s.m.opts.segmentURI(n, container)
+}
 
 // runDirLocked is where the wanted track's ffmpeg run writes segments:
 // the session dir for the primary rung, a rung subdir for other rungs

@@ -26,6 +26,14 @@ func (s *Session) ServePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := s.renderPlaylistLocked(0)
+	if s.matroskaTitleClock && s.container == ContainerMatroska {
+		// Match PMS 1.42.2's Android segmented-Matroska playlist contract
+		// (rex subtitles_s1422.json). In particular, do not claim the
+		// unindexed copy plan's empty/GOP aliases are independent segments.
+		body = bytes.ReplaceAll(body, []byte("#EXT-X-PLAYLIST-TYPE:VOD\n"), nil)
+		body = bytes.ReplaceAll(body, []byte("#EXT-X-INDEPENDENT-SEGMENTS\n"), nil)
+		body = bytes.Replace(body, []byte("#EXT-X-MEDIA-SEQUENCE:"), []byte("#EXT-X-ALLOW-CACHE:NO\n#EXT-X-MEDIA-SEQUENCE:"), 1)
+	}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
