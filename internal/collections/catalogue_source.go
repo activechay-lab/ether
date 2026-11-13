@@ -14,7 +14,10 @@ func (s *Service) GatherCatalogueSource(ctx context.Context, kind, mediaType str
 		return nil, fmt.Errorf("catalogue source unavailable")
 	}
 	src := core.CollectionSource{Kind: kind, MaxItems: 500}
-	g := &Gather{Ctx: ctx, Svc: s, Spec: &core.CollectionSpec{}, Src: src, Want: 500, Kinds: []string{mediaType}}
+	g := &Gather{Strict: true, Ctx: ctx, Svc: s, Spec: &core.CollectionSpec{}, Src: src, Want: 500, Kinds: []string{mediaType}}
 	k.Gather(g)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return g.Titles(), g.Res.err
 }

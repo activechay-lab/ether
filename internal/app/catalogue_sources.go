@@ -12,6 +12,7 @@ type catalogueSource struct {
 	Owner      string             `json:"owner"`
 	Group      string             `json:"group"`
 	MediaTypes []string           `json:"mediaTypes"`
+	ItemCount  *int               `json:"itemCount,omitempty"`
 	Health     string             `json:"health"`
 	PluginID   string             `json:"pluginId,omitempty"`
 	KindKey    string             `json:"kindKey,omitempty"`
@@ -28,6 +29,12 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 	out := []catalogueSource{
 		{ID: "tmdb-movies", Name: "TMDB Movies", Owner: "Built in", Group: "builtin", MediaTypes: []string{"movie"}, Health: "ok", Libraries: []catalogueLibrary{}},
 		{ID: "tmdb-tv", Name: "TMDB TV shows", Owner: "Built in", Group: "builtin", MediaTypes: []string{"show"}, Health: "ok", Libraries: []catalogueLibrary{}},
+	}
+	if c.app.catalog != nil {
+		if stats, err := c.app.catalog.Stats(r.Context()); err == nil {
+			out[0].ItemCount = &stats.BrowsableMovies
+			out[1].ItemCount = &stats.BrowsableShows
+		}
 	}
 	var libs []core.Library
 	if c.app.libraries != nil {
@@ -58,6 +65,17 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 					if kind.Library.Name != "" {
 						src.Name = kind.Library.Name
 					}
+					if c.app.pluginsRT.pluginitems != nil {
+						for _, lib := range libs {
+							if lib.PluginID == rec.ID && lib.KindKey == kind.Key {
+								if tally, err := c.app.pluginsRT.pluginitems.LibraryTally(r.Context(), lib.ID); err == nil && len(kind.Levels) > 0 {
+									count := tally[kind.Levels[0].Key]
+									src.ItemCount = &count
+								}
+								break
+							}
+						}
+					}
 					out = append(out, src)
 				}
 			}
@@ -80,6 +98,12 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 		}
 	}
 	for i := range out {
+		if out[i].Group == "stremio" {
+			var count int
+			if err := c.app.db.QueryRowContext(r.Context(), `SELECT item_count FROM libraries_catalogue_state WHERE source_id=?`, out[i].ID).Scan(&count); err == nil {
+				out[i].ItemCount = &count
+			}
+		}
 		for _, lib := range libs {
 			for _, id := range lib.Sources {
 				if id == out[i].ID {

@@ -302,11 +302,19 @@ func (k *listSourceKind) catalogs(kinds []string) []stremio.Catalog {
 // match are counted with the unmatched ones, never guessed by title.
 func (k *listSourceKind) Gather(g *collections.Gather) {
 	if k.mgr == nil {
+		if g.Strict {
+			g.Fail(fmt.Errorf("catalogue source unavailable"))
+			return
+		}
 		g.Warn("%s is unavailable", k.label())
 		return
 	}
 	rec, err := k.mgr.Get(g.Ctx, k.pluginID)
 	if err != nil {
+		if g.Strict {
+			g.Fail(err)
+			return
+		}
 		g.Warn("%s: %v", k.label(), err)
 		return
 	}
@@ -333,6 +341,10 @@ func (k *listSourceKind) Gather(g *collections.Gather) {
 			metas, err = addon.Catalog(g.Ctx, cat, extra, limit-total)
 		}
 		if err != nil {
+			if g.Strict {
+				g.Fail(err)
+				return
+			}
 			if preview && errors.Is(err, context.DeadlineExceeded) {
 				g.Fail(fmt.Errorf("plugin list preview timed out: %w", err))
 				return

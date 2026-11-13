@@ -27,13 +27,11 @@ import { librariesApi, publishedTo, type Library } from "./api";
 import { NewLibraryDrawer } from "./FilterLibraryEditor";
 import { LibraryPage } from "./LibraryPage";
 import "./libraries.css";
-import { CatalogueSources, libraryTabs } from "./CatalogueSources";
 
 export default function Libraries() {
   return (
     <Routes>
       <Route index element={<LibrariesList />} />
-      <Route path="sources" element={<CatalogueSources />} />
       <Route path=":id/:tab?" element={<LibraryPage />} />
       <Route path="*" element={<Navigate to="/libraries" replace />} />
     </Routes>
@@ -108,8 +106,6 @@ function LibrariesList() {
       title={t("Libraries")}
       description={t("Everything your viewers can open, in one place.")}
       base="/libraries"
-      tabs={libraryTabs()}
-      active=""
       actions={
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus size={14} /> {t("New library")}

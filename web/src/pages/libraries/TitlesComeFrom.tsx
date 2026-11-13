@@ -1,6 +1,7 @@
-import { Button, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
+import { Button, Checkbox, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { ErrorPanel } from "../../components/feedback";
 import { t } from "../../i18n";
 import { errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
@@ -19,6 +20,9 @@ export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved
   const mediaType = library.mediaType ?? library.filter?.type ?? "movie";
   return (
     <SettingsSection title={t("Titles come from")}>
+      {registry.error ? (
+        <ErrorPanel error={registry.error} onRetry={() => void registry.reload()} />
+      ) : null}
       <div className="flex flex-col gap-3">
         {registry.data
           ?.filter((source) =>
@@ -31,8 +35,7 @@ export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved
               key={source.id}
               className="flex items-center gap-3 rounded-lg border border-border p-3"
             >
-              <input
-                type="checkbox"
+              <Checkbox
                 disabled={library.source === "plugin" || library.source === "builtin" || busy}
                 checked={current.includes(source.id)}
                 onChange={(e) =>
@@ -46,6 +49,23 @@ export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved
               {source.name}
             </label>
           ))}
+        {registry.data
+          ? current
+              .filter((id) => !registry.data?.some((source) => source.id === id))
+              .map((id) => (
+                <label
+                  key={id}
+                  className="flex items-center gap-3 rounded-lg border border-border p-3"
+                >
+                  <Checkbox
+                    checked
+                    disabled={busy || library.source === "plugin" || library.source === "builtin"}
+                    onChange={() => setSelected(current.filter((value) => value !== id))}
+                  />
+                  {t("Unavailable")}
+                </label>
+              ))
+          : null}
         {selected ? (
           <Button
             disabled={busy || !selected.length}
@@ -65,7 +85,7 @@ export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved
             {t("Save")}
           </Button>
         ) : null}
-        <Link className="text-primary underline" to="/libraries/sources">
+        <Link className="text-primary underline" to="/services">
           {t("Catalogue sources")}
         </Link>
       </div>

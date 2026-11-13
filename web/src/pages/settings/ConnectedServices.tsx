@@ -1,3 +1,7 @@
+import { Plus } from "lucide-react";
+import { librariesApi } from "../libraries/api";
+import { AddCatalogueSource, SourceIcon, sourceOwner } from "../libraries/CatalogueSources";
+import { useStreamEvent } from "../../lib/stream";
 import { IntegrationSetupFooter } from "../../components/IntegrationSetupFooter";
 import { Badge, Button, SettingsSection, Spinner, toast } from "@braedonsaunders/appkit-ui";
 import {
@@ -23,7 +27,7 @@ import { MDBListMark, SimklMark, TraktMark, TmdbMark } from "../../components/in
 import { useOwnerViewerPath } from "../../components/pickers";
 import { SaveBar } from "../../components/SaveBar";
 import { LevelBadge } from "../../components/status";
-import { localized, t, tx } from "../../i18n";
+import { localized, t, tn, tx } from "../../i18n";
 import { api, apiFetch, ApiError, type TestFn } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import type { EtherConfig } from "../../lib/types";
@@ -1148,6 +1152,11 @@ function ServiceOverview({
   locked: boolean;
   onToggle: (service: Service, next: boolean) => void;
 }) {
+  const catalogue = useAsync((signal) => librariesApi.catalogueSources(signal), []);
+  const [addingSource, setAddingSource] = useState(false);
+  useStreamEvent("plugins.changed", () => {
+    void catalogue.reload();
+  });
   const { health } = useApp();
   const catalogHealth = health.find((item) => item.id === "catalog");
   const service = (tab: Service["tab"]) => SERVICES.find((s) => s.tab === tab)!;
@@ -1158,7 +1167,15 @@ function ServiceOverview({
 
   return (
     <>
-      <IntegrationGroup title={t("Required")}>
+      <IntegrationGroup
+        title={t("Catalogues")}
+        footer={
+          <Button variant="secondary" onClick={() => setAddingSource(true)}>
+            <Plus size={14} />
+            {t("Add catalogue source")}
+          </Button>
+        }
+      >
         <IntegrationAppCard
           identity={{ id: "tmdb", name: "TMDB" }}
           logo={<TmdbMark />}
@@ -1175,12 +1192,68 @@ function ServiceOverview({
             )
           }
           action={
-            <Button size="sm" variant="outline" onClick={() => onTmdbSetup(true)}>
-              {secretConfigured(tmdbKey) ? t("Manage TMDB") : t("Set up TMDB")}
-            </Button>
+            <>
+              <div className="w-full text-sm text-fg-muted">
+                {catalogue.data
+                  ?.filter((source) => source.group === "builtin")
+                  .map((source) => (
+                    <p key={source.id}>
+                      {source.name}
+                      {source.itemCount !== undefined
+                        ? ` · ${tn(source.itemCount, "{count} title", "{count} titles")}`
+                        : ""}
+                    </p>
+                  ))}
+              </div>
+              <Button size="sm" variant="outline" onClick={() => onTmdbSetup(true)}>
+                {secretConfigured(tmdbKey) ? t("Manage TMDB") : t("Set up TMDB")}
+              </Button>
+            </>
           }
         />
+        {catalogue.data
+          ?.filter((source) => source.group !== "builtin")
+          .map((source) => (
+            <IntegrationAppCard
+              key={source.id}
+              identity={{ id: source.id, name: source.name }}
+              logo={<SourceIcon source={source} />}
+              description={`${source.group === "plugin" ? source.name : source.mediaTypes.map((type) => (type === "movie" ? t("Movies") : t("TV shows"))).join(", ")}${source.itemCount !== undefined ? ` · ${tn(source.itemCount, "{count} title", "{count} titles")}` : ""}`}
+              status={
+                <LevelBadge
+                  level={source.health === "ok" ? "ok" : "warn"}
+                  label={source.health === "ok" ? t("Healthy") : t("Needs attention")}
+                />
+              }
+              configureHref={
+                source.pluginId
+                  ? `/plugins/installed?plugin=${encodeURIComponent(source.pluginId)}`
+                  : undefined
+              }
+              action={
+                <>
+                  <p className="w-full text-sm text-fg-muted">{sourceOwner(source)}</p>
+                  <p className="w-full text-sm text-fg-muted">
+                    {source.libraries.length
+                      ? t("Used by: {libraries}", {
+                          libraries: source.libraries.map((lib) => lib.name).join(", "),
+                        })
+                      : t("No libraries use this source yet.")}
+                  </p>
+                </>
+              }
+            />
+          ))}
       </IntegrationGroup>
+      {catalogue.error ? (
+        <ErrorPanel error={catalogue.error} onRetry={() => void catalogue.reload()} />
+      ) : null}
+      {addingSource ? (
+        <AddCatalogueSource
+          onClose={() => setAddingSource(false)}
+          onAdded={() => void catalogue.reload()}
+        />
+      ) : null}
       <IntegrationGroup title={t("Watch tracking")}>
         <IntegrationAppCard
           identity={{ id: "trakt", name: "Trakt" }}
@@ -1336,7 +1409,15 @@ function flattenCards(children: ReactNode): ReactNode[] {
   return out;
 }
 
-function IntegrationGroup({ title, children }: { title: string; children: ReactNode }) {
+function IntegrationGroup({
+  title,
+  children,
+  footer,
+}: {
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
   const cards = flattenCards(children).filter(isValidElement);
   return (
     <section aria-label={title} className="space-y-3 pt-6 first:pt-0">
@@ -1357,6 +1438,7 @@ function IntegrationGroup({ title, children }: { title: string; children: ReactN
           );
         })}
       </ul>
+      {footer}
     </section>
   );
 }

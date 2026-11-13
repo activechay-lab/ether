@@ -7,7 +7,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/extend"
 	"github.com/braedonsaunders/ether/internal/plugins"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -87,8 +86,10 @@ func (a *App) wireCatalogueSources() {
 	if a.catalog == nil {
 		return
 	}
-	var mu sync.Mutex
+	lock := make(chan struct{}, 1)
 	a.catalog.SetCatalogueSourceLoader(func(ctx context.Context, ids []string) error {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 		for _, id := range ids {
 			if !strings.HasPrefix(id, "stremio:") {
 				continue
@@ -103,8 +104,12 @@ func (a *App) wireCatalogueSources() {
 				continue
 			}
 			if err := func() error {
-				mu.Lock()
-				defer mu.Unlock()
+				select {
+				case lock <- struct{}{}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				defer func() { <-lock }()
 				_ = a.db.QueryRowContext(ctx, `SELECT refreshed FROM libraries_catalogue_state WHERE source_id=?`, id).Scan(&refreshed)
 				if time.Since(time.Unix(refreshed, 0)) < time.Hour {
 					return nil
@@ -132,7 +137,7 @@ func (a *App) wireCatalogueSources() {
 						return err
 					}
 				}
-				if _, err = tx.ExecContext(ctx, `INSERT INTO libraries_catalogue_state(source_id,refreshed) VALUES(?,?) ON CONFLICT(source_id) DO UPDATE SET refreshed=excluded.refreshed`, id, time.Now().Unix()); err != nil {
+				if _, err = tx.ExecContext(ctx, `INSERT INTO libraries_catalogue_state(source_id,refreshed,item_count) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET refreshed=excluded.refreshed,item_count=excluded.item_count`, id, time.Now().Unix(), len(titles)); err != nil {
 					return err
 				}
 				if err = tx.Commit(); err == nil {

@@ -13,6 +13,8 @@ CREATE TABLE libraries_catalogue_members (source_id TEXT NOT NULL, key BIGINT NO
 CREATE TABLE libraries_catalogue_state (source_id TEXT PRIMARY KEY, refreshed BIGINT NOT NULL);`
 	store.Register("libraries", 5, migration)
 	store.RegisterDialect("libraries", 5, store.Postgres, migration)
+	store.Register("libraries", 6, `ALTER TABLE libraries_catalogue_state ADD COLUMN item_count BIGINT NOT NULL DEFAULT 0;`)
+	store.RegisterDialect("libraries", 6, store.Postgres, `ALTER TABLE libraries_catalogue_state ADD COLUMN item_count BIGINT NOT NULL DEFAULT 0;`)
 }
 
 // SetSources records validated registry references. Validation against enabled

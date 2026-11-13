@@ -799,6 +799,12 @@ func (c *librariesConsole) handleSync(w http.ResponseWriter, r *http.Request) {
 	}
 	if lib.Source != core.LibraryPlugin {
 		if len(lib.Sources) > 0 && c.app.catalog != nil {
+			for _, id := range lib.Sources {
+				if _, err := c.app.db.ExecContext(r.Context(), `DELETE FROM libraries_catalogue_state WHERE source_id=?`, id); err != nil {
+					libError(w, 500, "Could not refresh source")
+					return
+				}
+			}
 			if err := c.app.catalog.BrowseSourceLibrary(r.Context(), lib.Sources); err != nil {
 				libError(w, 502, err.Error())
 				return
