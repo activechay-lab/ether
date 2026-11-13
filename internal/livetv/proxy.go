@@ -31,8 +31,24 @@ func rewriteHLS(body []byte, base *url.URL, rewrite func(string) string) ([]byte
 		return rewrite(u.String()), nil
 	}
 	lines := strings.Split(string(body), "\n")
+	// UpLynk masters put EXT-X-START before their renditions. FFmpeg
+	// versions in use treat that shared tag as a media-playlist declaration
+	// and reject the following EXT-X-MEDIA/STREAM-INF. Our live join position
+	// is controlled by the relay reserve, so omit this optional start hint
+	// on masters only; media-playlist timing and encryption stay intact.
+	master := false
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "#EXT-X-STREAM-INF:") {
+			master = true
+			break
+		}
+	}
 	for i, line := range lines {
 		trim := strings.TrimSpace(line)
+		if master && strings.HasPrefix(trim, "#EXT-X-START:") {
+			lines[i] = ""
+			continue
+		}
 		if trim == "" {
 			continue
 		}
