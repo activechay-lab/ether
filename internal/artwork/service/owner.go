@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -173,4 +174,70 @@ func (a Source) OwnerArtworkVersion(t *core.Title, kind string) string {
 	}
 	sum := sha256.Sum256([]byte(stamp))
 	return fmt.Sprintf("%x", sum[:8])
+}
+
+// OwnerStatus only runs when an owner opens the integration. Work is bounded;
+// it never walks the catalog or reads image bytes.
+func (a Source) OwnerStatus() (count int, last time.Time, limited bool, err error) {
+	if a.OwnerDir == "" {
+		return
+	}
+	f, err := os.Open(a.OwnerDir)
+	if os.IsNotExist(err) {
+		return 0, time.Time{}, false, nil
+	}
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(10001)
+	if err == io.EOF {
+		err = nil
+	}
+	limited = len(entries) > 10000
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), "-"+frontend.ImagePoster) {
+			continue
+		}
+		info, e := entry.Info()
+		if e != nil {
+			return count, last, limited, e
+		}
+		count++
+		if info.ModTime().After(last) {
+			last = info.ModTime()
+		}
+	}
+	return
+}
+
+// ClearOwner removes only upload filenames in the private owner directory.
+// A bounded batch keeps this administrative request from monopolizing I/O.
+func (a Source) ClearOwner() (bool, error) {
+	if a.OwnerDir == "" {
+		return false, nil
+	}
+	f, err := os.Open(a.OwnerDir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(256)
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	removed := 0
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || (!strings.HasSuffix(entry.Name(), "-"+frontend.ImagePoster) && !strings.HasSuffix(entry.Name(), "-"+frontend.ImageBackdrop)) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(a.OwnerDir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+		removed++
+	}
+	return len(entries) == 256 && removed > 0, nil
 }

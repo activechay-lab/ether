@@ -86,7 +86,7 @@ func (p Posters) Validate() error {
 				return err
 			}
 		}
-		if p.Source != "" && p.Source != "tmdb" {
+		if p.Source != "" && p.Source != "tmdb" && p.Source != "owner" {
 			a := p.Accounts.Entries()[p.Source]
 			if a == nil || !a.Enabled {
 				return errors.New("choose a configured poster source")

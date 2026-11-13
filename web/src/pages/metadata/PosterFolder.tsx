@@ -15,8 +15,10 @@ type Listing = {
 export function PosterFolder({
   value,
   save,
+  disabled = false,
 }: {
   value: string;
+  disabled?: boolean;
   save: (path: string) => Promise<void>;
 }) {
   const [listing, setListing] = useState<Listing | null>(null);
@@ -35,35 +37,37 @@ export function PosterFolder({
     }
   }
   return (
-    <div className="space-y-3 mt-4">
-      <h3>{t("Custom posters")}</h3>
-      <p>{t("PosterFlow uploads and posters in this folder take priority.")}</p>
+    <div className="space-y-3 text-sm">
       {value && <p className="break-all">{value}</p>}
-      <Button
-        onClick={() => {
-          setOpen(true);
-          void browse(value || "");
-        }}
-      >
-        {t("Choose folder")}
-      </Button>
-      {value && (
+      <div className="flex flex-wrap gap-2">
         <Button
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await save("");
-            } catch (e) {
-              setError(e);
-            } finally {
-              setBusy(false);
-            }
+          disabled={disabled || busy}
+          onClick={() => {
+            setOpen(true);
+            void browse(value || "");
           }}
         >
-          {t("Remove")}
+          {t("Choose folder")}
         </Button>
-      )}
+        {value && (
+          <Button
+            variant="outline"
+            disabled={disabled || busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await save("");
+              } catch (e) {
+                setError(e);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {t("Remove")}
+          </Button>
+        )}
+      </div>
       {!open && error ? <MutationError error={error} /> : null}
       <Drawer open={open} onClose={() => setOpen(false)} title={t("Choose folder")}>
         <div className="space-y-3 p-5">
@@ -72,13 +76,17 @@ export function PosterFolder({
             <>
               <nav aria-label={t("Folders")} className="flex flex-wrap gap-2">
                 {listing.breadcrumbs.map((crumb) => (
-                  <Button key={crumb.path} disabled={busy} onClick={() => void browse(crumb.path)}>
+                  <Button
+                    key={crumb.path}
+                    disabled={disabled || busy}
+                    onClick={() => void browse(crumb.path)}
+                  >
                     {crumb.name}
                   </Button>
                 ))}
               </nav>
               <Button
-                disabled={busy || listing.path === listing.parent}
+                disabled={disabled || busy || listing.path === listing.parent}
                 onClick={() => void browse(listing.parent)}
               >
                 {t("Up")}
@@ -91,7 +99,9 @@ export function PosterFolder({
                 {listing.directories.map((name) => (
                   <Button
                     key={name}
-                    disabled={busy}
+                    variant="ghost"
+                    className="justify-start text-left"
+                    disabled={disabled || busy}
                     onClick={() => void browse(listing.path.replace(/[\\/]$/, "") + "/" + name)}
                   >
                     {name}
@@ -99,7 +109,7 @@ export function PosterFolder({
                 ))}
               </div>
               <Button
-                disabled={busy || !!error}
+                disabled={disabled || busy || !!error}
                 onClick={async () => {
                   setBusy(true);
                   try {
@@ -112,7 +122,7 @@ export function PosterFolder({
                   }
                 }}
               >
-                {t("Choose")}
+                {t("Choose this folder")}
               </Button>
             </>
           )}

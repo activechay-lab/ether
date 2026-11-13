@@ -162,6 +162,7 @@ function defaultConfig(): EtherConfig {
   return {
     posters: {
       version: 1,
+      assetFolder: "/media/posters",
       enabled: false,
       source: "tmdb",
       baseUrl: "",
@@ -2765,6 +2766,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
     return err(404, "not_found", "not found");
   }
 
+  let uploadedPosters = 24;
   async function handle(method: string, url: URL, body: unknown): Promise<Response> {
     const p = url.pathname.replace(/^\/ether\/api/, "");
     if (method === "GET" && p.startsWith("/viewer-plex-defaults/")) {
@@ -2797,6 +2799,38 @@ export function createFakeServer(opts: FakeOptions = {}) {
     }
     const q = url.searchParams;
     const seg = p.split("/").filter(Boolean);
+    if (seg[0] === "posters" && seg[1] === "status")
+      return json({
+        uploaded: uploadedPosters,
+        lastUpload: uploadedPosters ? "2026-11-12T20:00:00Z" : null,
+        limited: false,
+        folder: state.config.posters?.assetFolder ?? "",
+        found: state.config.posters?.assetFolder ? 12 : 0,
+        folderLimited: false,
+      });
+    if (seg[0] === "posters" && seg[1] === "clear" && method === "POST") {
+      uploadedPosters = 0;
+      return json({ ok: true });
+    }
+    if (seg[0] === "poster-folders") {
+      const path = url.searchParams.get("path") || "/media/posters";
+      return json({
+        path,
+        parent: path === "/" ? "/" : path.slice(0, path.lastIndexOf("/")) || "/",
+        breadcrumbs: [
+          { name: "/", path: "/" },
+          ...path
+            .split("/")
+            .filter(Boolean)
+            .map((name, i, parts) => ({ name, path: "/" + parts.slice(0, i + 1).join("/") })),
+        ],
+        directories:
+          path === "/media/posters" ? ["Dune (2021)", "Arrival (2016)", "Movies", "TV"] : [],
+        posters: 12,
+        limited: false,
+      });
+    }
+
     const route = `${method} /${seg.join("/")}`;
     if (seg[0] === "libraries" || seg[0] === "plugins-setup") {
       return mockLibraries(method, seg, url, body);

@@ -358,6 +358,7 @@ const PAGES = localized<PageDef[]>(() => [
       { key: "betterposters", href: "/services/overview#betterposters", title: "BetterPosters" },
       { key: "rpdb", href: "/services/overview#rpdb", title: "RPDB" },
       { key: "custom", href: "/services/overview#custom", title: t("Custom posters") },
+      { key: "posterflow", href: "/services/overview#posterflow", title: "PosterFlow" },
       { key: "tmdb", title: "TMDB", keywords: searchTerms(msg("tmdb api key catalogue")) },
       // Tabs for these only exist once the service is on, so ⌘K lands on the
       // overview card where it can be enabled or configured.

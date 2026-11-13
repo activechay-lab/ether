@@ -1,4 +1,3 @@
-import { PosterFolder } from "./PosterFolder";
 import { Button, SearchSelect, toast } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
 import { MutationError } from "../../components/feedback";
@@ -19,6 +18,7 @@ export function PosterProviders({ onSaved }: { onSaved: () => void }) {
         ariaLabel={t("Poster source")}
         options={[
           { value: "tmdb", label: "TMDB" },
+          { value: "owner", label: t("Your posters (PosterFlow/folder), then TMDB") },
           ...POSTER_SERVICES.filter((s) => config.data?.accounts?.[s.id]?.enabled).map((s) => ({
             value: s.id,
             label: s.name,
@@ -47,22 +47,6 @@ export function PosterProviders({ onSaved }: { onSaved: () => void }) {
           }
         }}
       />
-      {config.data && (
-        <PosterFolder
-          value={config.data.assetFolder ?? ""}
-          save={async (assetFolder) => {
-            const result = await apiFetch<{ value: NonNullable<typeof config.data> }>(
-              "/config/posters",
-              {
-                method: "PUT",
-                body: JSON.stringify(posterPayload({ ...config.data!, assetFolder })),
-              },
-            );
-            config.setData(result.value);
-            onSaved();
-          }}
-        />
-      )}
       {error || config.error ? (
         <>
           <MutationError error={error || config.error} />
