@@ -181,7 +181,7 @@ func episodeTitleMatches(name, want string, requireEvidence bool) bool {
 // Normalize the suffix without dropping its number, so different parts
 // remain different episodes. Ordinary uses of the word "part" are kept.
 func normalizeEpisodeTitle(title string) string {
-	words := collapseEpisodeContractions(strings.Fields(NormalizeTitle(title)))
+	words := collapseEpisodeContractions(canonicalTokens(NormalizeTitle(title)))
 	if len(words) == 0 {
 		return ""
 	}

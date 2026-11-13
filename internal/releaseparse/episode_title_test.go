@@ -8,6 +8,8 @@ func TestEpisodeTitleIdentity(t *testing.T) {
 		ok         bool
 	}{
 		{"Space.Pilot.S02E02.Light.1080p.WEB.H264-GRP", "Stone and Sky", false},
+		{"Example.Show.S01E01.Q.R.S.T.1080p.WEB-DL", "Q.R.S.T.", true},
+		{"Example.Show.S01E01.Q.R.S.T.1080p.WEB-DL", "A Different Episode", false},
 		{"Space.Pilot.S02E02.Stone.and.Sky.1080p.WEB.H264-GRP", "Stone & Sky", true},
 		{"Space.Pilot.S02E02.1080p.WEB.H264-GRP", "Stone and Sky", true},
 		{"Space.Pilot.S02E02.REPACK.1080p.WEB.H264-GRP", "Stone and Sky", true},
