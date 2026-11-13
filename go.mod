@@ -3,6 +3,7 @@ module github.com/braedonsaunders/ether
 go 1.27.4
 
 require (
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	fyne.io/systray v1.12.2
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/SherClockHolmes/webpush-go v1.4.0

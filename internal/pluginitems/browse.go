@@ -10,11 +10,14 @@ import (
 	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/libraryfilter"
 )
 
 // BrowseQuery specifies a keyset-paged browse over a plugin library and level
 // (spec §2.3, §3.4).
 type BrowseQuery struct {
+	Policy    *libraryfilter.Filter
+	Hidden    bool
 	LibraryID core.LibraryID
 	ParentRef core.ItemRef
 	Level     string
@@ -124,7 +127,7 @@ func (s *Service) Browse(ctx context.Context, q BrowseQuery) (BrowsePage, error)
 
 	level := strings.TrimSpace(q.Level)
 	parentRef := strings.TrimSpace(string(q.ParentRef))
-	hasFacets := hasActiveFacets(q.Facets)
+	hasFacets := hasActiveFacets(q.Facets) || !q.Policy.Passive() || q.Hidden
 
 	// Base filter predicate.
 	var baseWhere strings.Builder
@@ -141,6 +144,9 @@ func (s *Service) Browse(ctx context.Context, q BrowseQuery) (BrowsePage, error)
 		baseWhere.WriteString(` AND i.parent_ref = ''`)
 	}
 	appendFacetClauses(&baseWhere, &baseArgs, q.Facets, nil)
+	if err := s.appendVisibility(ctx, &baseWhere, &baseArgs, q.LibraryID, q.Policy, q.Hidden); err != nil {
+		return BrowsePage{}, err
+	}
 
 	// Compute total count.
 	var total int
@@ -364,6 +370,17 @@ func (s *Service) Facets(ctx context.Context, libraryID core.LibraryID, level, f
 		args = []any{int64(libraryID), strings.TrimSpace(level), fieldKey, limit}
 	}
 
+	if envelopeFacet(fieldKey) {
+		query = `SELECT CAST(i.` + fieldKey + ` AS TEXT), COUNT(*) AS cnt FROM plugin_items i WHERE i.library_id = ? AND i.` + fieldKey + ` > 0`
+		args = []any{int64(libraryID)}
+		if strings.TrimSpace(level) != "" {
+			query += ` AND i.level = ?`
+			args = append(args, strings.TrimSpace(level))
+		}
+		query += ` GROUP BY i.` + fieldKey + ` ORDER BY cnt DESC, i.` + fieldKey + ` ASC LIMIT ?`
+		args = append(args, limit)
+	}
+
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -379,6 +396,10 @@ func (s *Service) Facets(ctx context.Context, libraryID core.LibraryID, level, f
 		out = append(out, fc)
 	}
 	return out, rows.Err()
+}
+
+func envelopeFacet(key string) bool {
+	return key == "year" || key == "released" || key == "rating"
 }
 
 func hasActiveFacets(facets map[string][]string) bool {
@@ -419,6 +440,31 @@ func appendFacetClauses(where *strings.Builder, args *[]any, facets map[string][
 			}
 		}
 		if len(cleanVals) == 0 {
+			continue
+		}
+
+		if envelopeFacet(key) {
+			if len(cleanVals) == 1 && strings.Contains(cleanVals[0], "..") {
+				parts := strings.SplitN(cleanVals[0], "..", 2)
+				lo, e1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+				hi, e2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+				if e1 == nil && e2 == nil {
+					where.WriteString(` AND i.` + key + ` BETWEEN ? AND ?`)
+					*args = append(*args, lo, hi)
+					continue
+				}
+			}
+			ph := make([]string, len(cleanVals))
+			for n, value := range cleanVals {
+				ph[n] = "?"
+				number, err := strconv.ParseFloat(value, 64)
+				if err != nil {
+					where.WriteString(` AND 0=1`)
+					number = 0
+				}
+				*args = append(*args, number)
+			}
+			where.WriteString(` AND i.` + key + ` IN (` + strings.Join(ph, ",") + `)`)
 			continue
 		}
 

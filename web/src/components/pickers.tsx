@@ -10,7 +10,7 @@ import {
 import { ArrowUpRight, ChevronRight, Plus, Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { localized, t, tn } from "../i18n";
-import { api, errorMessage, isAbort } from "../lib/api";
+import { api, apiFetch, errorMessage, isAbort } from "../lib/api";
 import type {
   FacetName,
   FacetValue,
@@ -29,25 +29,36 @@ import { useLocale } from "../i18n/react";
 
 const facetCache = new Map<string, Promise<FacetValue[]>>();
 
-function loadFacet(type: string, facet: FacetName): Promise<FacetValue[]> {
-  const key = `${type}:${facet}`;
+function loadFacet(
+  type: string,
+  facet: FacetName,
+  libraryId?: number,
+  field?: string,
+): Promise<FacetValue[]> {
+  const key = `${type}:${facet}:${libraryId ?? ""}:${field ?? ""}`;
   let p = facetCache.get(key);
   if (!p) {
-    p = api.facets(type, facet);
+    p = libraryId
+      ? apiFetch<{ values: { value: string; count: number }[] }>(
+          `/libraries/${libraryId}/facets/${encodeURIComponent(field ?? facet)}`,
+        ).then((r) =>
+          r.values.map((v) => ({ id: v.value, key: v.value, title: v.value, count: v.count })),
+        )
+      : api.facets(type, facet);
     facetCache.set(key, p);
     p.catch(() => facetCache.delete(key));
   }
   return p;
 }
 
-function useFacet(type: string, facet: FacetName) {
+function useFacet(type: string, facet: FacetName, libraryId?: number, field?: string) {
   const [values, setValues] = useState<FacetValue[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     let live = true;
     setValues(null);
     setError(null);
-    loadFacet(type, facet)
+    loadFacet(type, facet, libraryId, field)
       .then((v) => {
         if (live) setValues(v);
       })
@@ -57,13 +68,15 @@ function useFacet(type: string, facet: FacetName) {
     return () => {
       live = false;
     };
-  }, [type, facet]);
+  }, [type, facet, libraryId, field]);
   return { values, error };
 }
 
 /** Multi-value picker over a catalogue facet (genres, decades, ratings…). */
 export function FacetPicker({
   type,
+  libraryId,
+  field,
   facet,
   value,
   onChange,
@@ -71,13 +84,15 @@ export function FacetPicker({
   placeholder,
 }: {
   type: string;
+  libraryId?: number;
+  field?: string;
   facet: FacetName;
   value: string[];
   onChange: (v: string[]) => void;
   ariaLabel: string;
   placeholder?: string;
 }) {
-  const { values, error } = useFacet(type, facet);
+  const { values, error } = useFacet(type, facet, libraryId, field);
   const { locale } = useLocale();
   // A facet that groups labels (content-rating levels) shows a stored
   // equivalent ("TV-PG") as its group ("PG").
@@ -161,6 +176,8 @@ function TextListFallback({
 /** Single facet value as a searchable select. */
 export function FacetSelect({
   type,
+  libraryId,
+  field,
   facet,
   value,
   onChange,
@@ -168,6 +185,8 @@ export function FacetSelect({
   omit,
 }: {
   type: string;
+  libraryId?: number;
+  field?: string;
   facet: FacetName;
   value: string;
   onChange: (v: string) => void;
@@ -175,7 +194,7 @@ export function FacetSelect({
   /** Facet keys not offered (e.g. "Not rated" for an "at most" bound). */
   omit?: string[];
 }) {
-  const { values } = useFacet(type, facet);
+  const { values } = useFacet(type, facet, libraryId, field);
   const selected = value ? canonicalFacetValue(value, values) : value;
   const options = (values ?? [])
     .filter((v) => !omit?.includes(v.key))

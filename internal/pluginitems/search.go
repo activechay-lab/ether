@@ -6,11 +6,14 @@ import (
 	"unicode"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/libraryfilter"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
 // SearchQuery scopes a full-text search to a single library (spec §2.3, §3.4).
 type SearchQuery struct {
+	Policy    *libraryfilter.Filter
+	Hidden    bool
 	LibraryID core.LibraryID
 	Query     string
 	Level     string

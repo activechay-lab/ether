@@ -1,3 +1,5 @@
+import { PluginBrowse } from "../PluginBrowse";
+import type { Library as PluginLibrary } from "../api";
 import { CatalogBrowser } from "./Catalog";
 import { Button, Input, Select } from "@braedonsaunders/appkit-ui";
 import {
@@ -127,7 +129,9 @@ export function RulesPanel({
   libraryId,
   mediaType,
   libraryFilter,
+  pluginLibrary,
 }: {
+  pluginLibrary?: PluginLibrary;
   rules: VisibilityRule[];
   fallback: string;
   onRules: (rules: VisibilityRule[]) => void;
@@ -137,6 +141,35 @@ export function RulesPanel({
   mediaType?: "movie" | "show";
   libraryFilter?: Record<string, unknown>;
 }) {
+  const aliases: Record<string, string[]> = {
+    genre: ["genre", "genres", "tags", "tag"],
+    studio: ["studio", "studios"],
+    country: ["country", "countries"],
+    keyword: ["keyword", "keywords"],
+    language: ["language"],
+    runtime: ["runtime", "duration", "length"],
+    votes: ["votes"],
+    popularity: ["popularity"],
+  };
+  const pluginFields: Record<string, string> = {};
+  for (const [field, keys] of Object.entries(aliases)) {
+    const key = keys.find((k) =>
+      pluginLibrary?.kind?.fields?.some(
+        (f) =>
+          f.key === k &&
+          f.indexed &&
+          (["runtime", "votes", "popularity"].includes(field)
+            ? ["int", "float", "duration"].includes(f.type)
+            : ["string", "strings", "enum", "people"].includes(f.type)),
+      ),
+    );
+    if (key) pluginFields[field] = key;
+  }
+  const allowedFields = pluginLibrary
+    ? FIELDS.filter((f) => f === "year" || f === "rating" || !!pluginFields[f])
+    : FIELDS;
+  const newCondition = (): Rule =>
+    pluginLibrary ? { field: "year", op: "gte", value: "" } : blank();
   const [browse, setBrowse] = useState<"hidden" | "shown" | null>(null);
   const [browseParams, setBrowseParams] = useState(new URLSearchParams());
   const ruleFilter = useMemo(
@@ -205,9 +238,11 @@ export function RulesPanel({
         </div>
         <div className="ml-6 border-l-2 border-border pl-5 space-y-4">
           <ArrowDown className="text-fg-muted" size={20} aria-hidden />
-          <p className="text-sm text-fg-muted">
-            {t("First match wins. Ratings match by age level.")}
-          </p>
+          {!pluginLibrary ? (
+            <p className="text-sm text-fg-muted">
+              {t("First match wins. Ratings match by age level.")}
+            </p>
+          ) : null}
           {rules.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-fg-muted">
               {fallback === "hide"
@@ -252,7 +287,9 @@ export function RulesPanel({
                   </button>
                   {counts ? (
                     <span className="shrink-0 text-xs text-fg-muted">
-                      {mediaType === "movie" ? (
+                      {pluginLibrary ? (
+                        tn(counts.movies + counts.shows, "{count} item", "{count} items")
+                      ) : mediaType === "movie" ? (
                         tn(counts.movies, "{count} movie", "{count} movies")
                       ) : mediaType === "show" ? (
                         tn(counts.shows, "{count} show", "{count} shows")
@@ -331,7 +368,7 @@ export function RulesPanel({
                   action: "hide",
                   mediaType: mediaType ?? "mixed",
                   match: "all",
-                  rules: [blank()],
+                  rules: [newCondition()],
                 },
               ]);
               setFresh(0);
@@ -376,18 +413,24 @@ export function RulesPanel({
               </p>
               {(preview.data?.hidden ?? 0) > 0 ? (
                 <p className="mt-2 text-xs text-fg-muted">
-                  {mediaType === "movie"
-                    ? t("Hidden: {count}", {
-                        count: tn(preview.data?.movies ?? 0, "{count} movie", "{count} movies"),
-                      })
-                    : mediaType === "show"
+                  {pluginLibrary
+                    ? t("Hidden: {count}", { count: formatNumber(preview.data?.hidden ?? 0) })
+                    : mediaType === "movie"
                       ? t("Hidden: {count}", {
-                          count: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
+                          count: tn(preview.data?.movies ?? 0, "{count} movie", "{count} movies"),
                         })
-                      : t("Hidden: {movies} · {shows}", {
-                          movies: tn(preview.data?.movies ?? 0, "{count} movie", "{count} movies"),
-                          shows: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
-                        })}
+                      : mediaType === "show"
+                        ? t("Hidden: {count}", {
+                            count: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
+                          })
+                        : t("Hidden: {movies} · {shows}", {
+                            movies: tn(
+                              preview.data?.movies ?? 0,
+                              "{count} movie",
+                              "{count} movies",
+                            ),
+                            shows: tn(preview.data?.shows ?? 0, "{count} show", "{count} shows"),
+                          })}
                 </p>
               ) : null}
             </>
@@ -420,7 +463,14 @@ export function RulesPanel({
         title={browse === "hidden" ? t("Hidden by rules") : t("Shown by rules")}
         size="2xl"
       >
-        {browse ? (
+        {browse && pluginLibrary ? (
+          <PluginBrowse
+            library={pluginLibrary}
+            ruleFilter={ruleFilter}
+            controlledParams={browseParams}
+            onParams={setBrowseParams}
+          />
+        ) : browse ? (
           <CatalogBrowser
             params={browseParams}
             setParams={setBrowseParams}
@@ -460,7 +510,7 @@ export function RulesPanel({
                   { value: "hide", label: t("Hide") },
                 ]}
               />
-              {!mediaType ? (
+              {!mediaType && !pluginLibrary ? (
                 <Segmented
                   ariaLabel={t("Rule media")}
                   value={editing.mediaType}
@@ -521,7 +571,9 @@ export function RulesPanel({
                 kind="include"
                 mediaType={mediaType ?? editing.mediaType}
                 region={region}
-                allowedFields={FIELDS}
+                allowedFields={allowedFields}
+                facetLibraryId={pluginLibrary?.id}
+                facetFields={pluginFields}
                 metaFor={metaFor}
                 inline
                 openValue={fresh === j}
@@ -537,7 +589,7 @@ export function RulesPanel({
               disabled={editing.rules.length >= 20}
               onClick={() => {
                 setFresh(editing.rules.length);
-                update(open, { rules: [...editing.rules, blank()] });
+                update(open, { rules: [...editing.rules, newCondition()] });
               }}
             >
               <Plus size={14} />

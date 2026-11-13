@@ -378,6 +378,14 @@ func (c *KindCatalog) Count(ctx context.Context, lib core.Library) (int, error) 
 	if c == nil || c.items == nil {
 		return 0, nil
 	}
+	policy, err := pluginitems.LibraryPolicy(ctx, lib)
+	if err != nil {
+		return 0, err
+	}
+	if !policy.Passive() {
+		page, err := c.items.Browse(ctx, pluginitems.BrowseQuery{LibraryID: lib.ID, Policy: policy, Limit: 1})
+		return page.Total, err
+	}
 	tally, err := c.items.LibraryTally(ctx, lib.ID)
 	if err != nil {
 		return 0, err
@@ -407,7 +415,12 @@ func (c *KindCatalog) Browse(ctx context.Context, lib core.Library, q frontend.I
 	if level == "-" {
 		return experience.PluginBrowsePage{Items: []core.Title{}, Total: 0}, nil
 	}
+	policy, err := pluginitems.LibraryPolicy(ctx, lib)
+	if err != nil {
+		return experience.PluginBrowsePage{}, err
+	}
 	bq := pluginitems.BrowseQuery{
+		Policy:    policy,
 		LibraryID: lib.ID,
 		Level:     level,
 		Sort:      mapBrowseSort(q.Sort, q.Desc),
@@ -442,6 +455,10 @@ func (c *KindCatalog) Item(ctx context.Context, key core.RatingKey) (experience.
 	}
 	rec, err := c.items.GetKindByLibrary(ctx, libID)
 	if err != nil {
+		return experience.PluginItemView{}, core.ErrNotFound
+	}
+	hidden, e := c.items.ItemHidden(core.WithExplicitSearch(ctx), lib, item.Ref)
+	if e != nil || hidden {
 		return experience.PluginItemView{}, core.ErrNotFound
 	}
 	titles := c.projectItems(ctx, rec, lib, []core.KindItem{item})
@@ -488,6 +505,10 @@ func (c *KindCatalog) ItemsMany(ctx context.Context, keys []core.RatingKey) (map
 			}
 			recsByID[libID] = rec
 		}
+		hidden, e := c.items.ItemHidden(core.WithExplicitSearch(ctx), lib, item.Ref)
+		if e != nil || hidden {
+			continue
+		}
 		titles := c.projectItems(ctx, rec, lib, []core.KindItem{item})
 		out[key] = experience.PluginItemView{
 			Library:  lib,
@@ -518,7 +539,11 @@ func (c *KindCatalog) Children(ctx context.Context, parent core.RatingKey, recur
 	}
 	_, levelIdx, _ := rec.Decl.Level(parentItem.Level)
 	if !recursive || levelIdx < 0 || levelIdx >= len(rec.Decl.Levels)-2 {
-		page, err := c.items.Children(ctx, parentItem.Ref, cursor, limit)
+		policy, e := pluginitems.LibraryPolicy(ctx, lib)
+		if e != nil {
+			return experience.PluginBrowsePage{}, e
+		}
+		page, err := c.items.Browse(ctx, pluginitems.BrowseQuery{LibraryID: lib.ID, ParentRef: parentItem.Ref, Cursor: cursor, Limit: limit, Policy: policy, Sort: "index"})
 		if err != nil {
 			return experience.PluginBrowsePage{}, err
 		}
@@ -539,7 +564,11 @@ func (c *KindCatalog) Children(ctx context.Context, parent core.RatingKey, recur
 		queue = queue[1:]
 		childCursor := ""
 		for {
-			page, err := c.items.Children(ctx, cur, childCursor, 200)
+			policy, e := pluginitems.LibraryPolicy(ctx, lib)
+			if e != nil {
+				return experience.PluginBrowsePage{}, e
+			}
+			page, err := c.items.Browse(ctx, pluginitems.BrowseQuery{LibraryID: lib.ID, ParentRef: cur, Cursor: childCursor, Limit: 200, Policy: policy, Sort: "index"})
 			if err != nil {
 				return experience.PluginBrowsePage{}, err
 			}
@@ -676,7 +705,12 @@ func (c *KindCatalog) Search(ctx context.Context, lib core.Library, query string
 	if limit <= 0 {
 		limit = 50
 	}
+	policy, err := pluginitems.LibraryPolicy(core.WithExplicitSearch(ctx), lib)
+	if err != nil {
+		return nil, err
+	}
 	localPage, err := c.items.Search(ctx, pluginitems.SearchQuery{
+		Policy:    policy,
 		LibraryID: lib.ID,
 		Query:     query,
 		Facets:    mapFilterToFacets(rec.Decl, q.Filter),
@@ -706,7 +740,17 @@ func (c *KindCatalog) Search(ctx context.Context, lib core.Library, query string
 			combined = merged
 		}
 	}
-	return c.projectItems(ctx, rec, lib, combined), nil
+	allowed := combined[:0]
+	for _, it := range combined {
+		hidden, e := c.items.ItemHidden(core.WithExplicitSearch(ctx), lib, it.Ref)
+		if e != nil {
+			return nil, e
+		}
+		if !hidden {
+			allowed = append(allowed, it)
+		}
+	}
+	return c.projectItems(ctx, rec, lib, allowed), nil
 }
 
 // MemberOf implements experience.PluginLibraries for a collection
