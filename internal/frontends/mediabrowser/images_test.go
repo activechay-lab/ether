@@ -2,6 +2,7 @@ package mediabrowser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
@@ -262,5 +263,63 @@ func TestImageMetadataRequiresGrantedAndKnownDescriptor(t *testing.T) {
 	emby.addImageMetadata(dto, "Primary", "grant", frontend.Image{Width: 400, Height: 200, BlurHash: "hidden"})
 	if dto["PrimaryImageAspectRatio"] != float64(2) || dto["ImageBlurHashes"] != nil {
 		t.Fatal(dto)
+	}
+}
+
+func TestItemImagesRouteShape(t *testing.T) {
+	for _, protocol := range []string{"jellyfin", "emby"} {
+		t.Run(protocol, func(t *testing.T) {
+			ident := frontendtest.Identity{ResolveFunc: func(context.Context, string) (*frontend.Viewer, error) { return &frontend.Viewer{ID: 1}, nil }}
+			exp := frontendtest.Experience{ItemFunc: func(_ context.Context, req frontend.ItemRequest) (frontend.ItemDetail, error) {
+				if req.Key != 5 {
+					return frontend.ItemDetail{}, frontend.ErrNotFound
+				}
+				return frontend.ItemDetail{Title: frontend.Title{Key: 5}, ImagesAuthoritative: true, Images: []frontend.Image{
+					{Kind: "poster", Path: "/poster"}, {Kind: "backdrop", Path: "/backdrop"}, {Kind: "backdrop", Path: "/backdrop2"},
+					{Kind: "logo", Path: "/logo"}, {Kind: "thumb", Path: "/thumb"}, {Kind: "banner", Path: "/banner"},
+				}}, nil
+			}}
+			inst, err := mount(context.Background(), frontend.Host{Identity: ident, Experience: exp, ImageGrants: &imageGrantsFake{}}, "test", frontend.Protocol(protocol))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer inst.Close(context.Background())
+			call := func(path string) *httptest.ResponseRecorder {
+				r := httptest.NewRequest("GET", path, nil)
+				r.Header.Set("X-Emby-Token", "grant")
+				w := httptest.NewRecorder()
+				inst.Handler().ServeHTTP(w, r)
+				return w
+			}
+			w := call("/" + protocol + "/iTeMs/" + ids.RatingKeyGUID(5) + "/iMaGeS")
+			var images []struct {
+				ImageType  string
+				ImageTag   string
+				ImageIndex *int
+				Size       int64
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &images) != nil || len(images) != 6 {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
+			}
+			expected := []string{"Primary", "Logo", "Thumb", "Banner", "Backdrop", "Backdrop"}
+			for n, img := range images {
+				if img.ImageType != expected[n] || !strings.HasPrefix(img.ImageTag, "scoped-image/") {
+					t.Fatalf("%+v", img)
+				}
+				if n >= 4 && (img.ImageIndex == nil || *img.ImageIndex != n-4) {
+					t.Fatalf("%+v", img)
+				}
+			}
+			for _, path := range []string{"/Items/" + ids.RatingKeyGUID(6) + "/Images", "/Items/invalid/Images", "/Unimplemented/Endpoint"} {
+				w := call(path)
+				var problem struct {
+					Status int
+					Title  string
+				}
+				if w.Code != 404 || json.Unmarshal(w.Body.Bytes(), &problem) != nil || problem.Status != 404 || problem.Title == "" {
+					t.Fatalf("%d %s", w.Code, w.Body.String())
+				}
+			}
+		})
 	}
 }
