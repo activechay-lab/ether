@@ -43,7 +43,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	origin := frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID}
+	origin := frontend.WatchOrigin{SuppressMetadataRefresh: true, Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID}
 	origin.DeviceID = s.dashboard().SeeDevice(pr.ClientID, pr.DeviceName, pr.Platform).ID
 	ctx = frontend.WithWatchOrigin(ctx, origin)
 	unlockOwner, locked := s.lockPlaybackRequest(w, r)
@@ -318,7 +318,7 @@ func (s *Server) lastKnownOffset(ctx context.Context, userID int64, tid string, 
 func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
+	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{SuppressMetadataRefresh: true, Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	q := r.URL.Query()
 	if q.Get("key") == "" || q.Get("identifier") == "" || pr.User == nil || s.state() == nil {
 		writeHTTPError(w, 400)
@@ -390,7 +390,7 @@ func (s *Server) handleUnscrobble(w http.ResponseWriter, r *http.Request) { s.sc
 func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
+	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{SuppressMetadataRefresh: true, Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	key, ok := s.mutationKey(w, r, false)
 	if !ok {
 		return
@@ -435,7 +435,7 @@ func (s *Server) scrobble(w http.ResponseWriter, r *http.Request, watched bool) 
 func (s *Server) handleRate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
+	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{SuppressMetadataRefresh: true, Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	rating, err := strconv.ParseFloat(r.URL.Query().Get("rating"), 64)
 	if err != nil || math.IsNaN(rating) || math.IsInf(rating, 0) {
 		writeHTTPError(w, http.StatusBadRequest)
@@ -480,7 +480,7 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 	}
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
+	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{SuppressMetadataRefresh: true, Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	key, _ := frontend.ParseRatingKey(r.URL.Query().Get("ratingKey"))
 	if key == 0 || pr.User == nil || s.state() == nil {
 		writeHTTPError(w, http.StatusBadRequest)
@@ -509,7 +509,7 @@ func (s *Server) handleRemoveFromContinueWatching(w http.ResponseWriter, r *http
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pr := FromContext(ctx)
-	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
+	ctx = frontend.WithWatchOrigin(ctx, frontend.WatchOrigin{SuppressMetadataRefresh: true, Surface: "plex", SessionID: pr.SessionID, ClientID: pr.ClientID})
 	entries := s.sessionEntries(ctx)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].sessionKey < entries[j].sessionKey })
 	mc := &model.MediaContainer{}

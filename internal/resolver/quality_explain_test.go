@@ -20,11 +20,11 @@ func explainQuality() config.Quality {
 }
 
 func appleTV(remote bool) core.ClientCaps {
-	return core.ClientCaps{Protocol: "plex", Product: "Plex for Apple TV", Platform: "tvOS", MaxHeight: 2160, HDR10: true, DolbyVision: true, Remote: remote}
+	return core.ClientCaps{Protocol: "plex", PreserveEmptyVideoCodecs: true, Product: "Plex for Apple TV", Platform: "tvOS", MaxHeight: 2160, HDR10: true, DolbyVision: true, Remote: remote}
 }
 
 func androidPhone(remote bool) core.ClientCaps {
-	return core.ClientCaps{Protocol: "plex", Product: "Plex for Android (Mobile)", Platform: "Android", Device: "Pixel 8", MaxHeight: 1080, Remote: remote}
+	return core.ClientCaps{Protocol: "plex", PreserveEmptyVideoCodecs: true, Product: "Plex for Android (Mobile)", Platform: "Android", Device: "Pixel 8", MaxHeight: 1080, Remote: remote}
 }
 
 func layer(t *testing.T, a QualityAnswer, kind string) QualityLayer {

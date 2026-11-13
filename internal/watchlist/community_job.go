@@ -28,7 +28,7 @@ type CommunityJob struct {
 	StartedAt  *time.Time `json:"startedAt,omitempty"`
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 	Count      int        `json:"count"`
-	Plex       string     `json:"plex"`
+	Plex       string     `json:"plex"` // External account source identity.
 	Error      string     `json:"error,omitempty"`
 }
 

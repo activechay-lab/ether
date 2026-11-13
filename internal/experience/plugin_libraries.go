@@ -105,118 +105,6 @@ func filterMediaType(lib core.Library) core.MediaType {
 	return core.TypeMovie
 }
 
-func builtinNative(mediaType core.MediaType, protocol core.Protocol) string {
-	switch protocol {
-	case "plex":
-		if mediaType == core.TypeShow {
-			return "show"
-		}
-		return "movie"
-	case "jellyfin", "emby", "silo":
-		if mediaType == core.TypeShow {
-			return "tvshows"
-		}
-		return "movies"
-	case "stremio", "xtream":
-		if mediaType == core.TypeShow {
-			return "series"
-		}
-		return "movie"
-	default:
-		if mediaType == core.TypeShow {
-			return "show"
-		}
-		return "movie"
-	}
-}
-
-// PresentForProtocol evaluates whether p publishes a library on protocol, and
-// returns its projected root MediaType and protocol-native presentation string.
-func PresentForProtocol(p core.Presentations, protocol core.Protocol, fallback core.MediaType) (core.MediaType, string, bool) {
-	if p.AdapterOnly {
-		return "", "", false
-	}
-	if fallback == "" {
-		fallback = core.TypeMovie
-	}
-	switch protocol {
-	case "plex":
-		if p.Plex == nil || p.Plex.Base == "" {
-			return "", "", false
-		}
-		mt := fallback
-		switch p.Plex.Base {
-		case "movie":
-			mt = core.TypeMovie
-		case "show":
-			mt = core.TypeShow
-		}
-		return mt, p.Plex.Base, true
-	case "jellyfin", "emby":
-		if p.MediaBrowser == nil || p.MediaBrowser.CollectionType == "" {
-			return "", "", false
-		}
-		mt := fallback
-		switch p.MediaBrowser.CollectionType {
-		case "movies":
-			mt = core.TypeMovie
-		case "tvshows":
-			mt = core.TypeShow
-		}
-		return mt, p.MediaBrowser.CollectionType, true
-	case "silo":
-		if p.Silo != nil && p.Silo.Type != "" {
-			mt := fallback
-			switch p.Silo.Type {
-			case "movies", "movie":
-				mt = core.TypeMovie
-			case "tvshows", "series", "show":
-				mt = core.TypeShow
-			}
-			return mt, p.Silo.Type, true
-		}
-		return "", "", false
-	case "stremio":
-		if p.Stremio == nil || p.Stremio.Type == "" {
-			return "", "", false
-		}
-		mt := core.TypeMovie
-		if p.Stremio.Type == "series" {
-			mt = core.TypeShow
-		}
-		return mt, p.Stremio.Type, true
-	case "xtream":
-		if p.Xtream == nil || p.Xtream.Category == "" {
-			return "", "", false
-		}
-		mt := core.TypeMovie
-		if p.Xtream.Category == "series" {
-			mt = core.TypeShow
-		}
-		return mt, p.Xtream.Category, true
-	case "dlna", "webdav", "m3u":
-		if p.MediaBrowser != nil && p.MediaBrowser.CollectionType != "" {
-			switch p.MediaBrowser.CollectionType {
-			case "movies":
-				return core.TypeMovie, "movies", true
-			case "tvshows":
-				return core.TypeShow, "tvshows", true
-			}
-		}
-		if p.Plex != nil && p.Plex.Base != "" {
-			switch p.Plex.Base {
-			case "movie":
-				return core.TypeMovie, "movie", true
-			case "show":
-				return core.TypeShow, "show", true
-			}
-		}
-		return "", "", false
-	default:
-		return "", "", false
-	}
-}
-
 func isZeroPresentations(p core.Presentations) bool {
 	return !p.AdapterOnly && p.Plex == nil && p.MediaBrowser == nil && p.Stremio == nil && p.Xtream == nil && p.Silo == nil
 }
@@ -236,18 +124,18 @@ func (s *Service) publishedLibrary(ctx context.Context, lib core.Library) (core.
 			}
 		}
 		if isZeroPresentations(lib.Present) {
-			return mt, builtinNative(mt, s.d.Protocol), true
+			return mt, s.builtinNative(mt), true
 		}
-		return PresentForProtocol(lib.Present, s.d.Protocol, mt)
+		return s.presentLibrary(lib.Present, mt)
 	case core.LibraryFilter:
-		return PresentForProtocol(lib.Present, s.d.Protocol, filterMediaType(lib))
+		return s.presentLibrary(lib.Present, filterMediaType(lib))
 	case core.LibraryCollection:
-		return PresentForProtocol(lib.Present, s.d.Protocol, filterMediaType(lib))
+		return s.presentLibrary(lib.Present, filterMediaType(lib))
 	case core.LibraryPlugin:
 		if s.d.PluginLibraries == nil || !s.d.PluginLibraries.IsPluginLibraryActive(ctx, lib) {
 			return "", "", false
 		}
-		return PresentForProtocol(lib.Present, s.d.Protocol, s.d.PluginLibraries.RootMediaType(ctx, lib))
+		return s.presentLibrary(lib.Present, s.d.PluginLibraries.RootMediaType(ctx, lib))
 	default:
 		return "", "", false
 	}
@@ -807,4 +695,18 @@ func (s *Service) pluginSearchItems(ctx context.Context, v *core.User, query str
 		}
 	}
 	return out, nil
+}
+
+func (s *Service) builtinNative(mt core.MediaType) string {
+	if s.d.BuiltinNative != nil {
+		return s.d.BuiltinNative(mt)
+	}
+	return string(mt)
+}
+
+func (s *Service) presentLibrary(p core.Presentations, mt core.MediaType) (core.MediaType, string, bool) {
+	if s.d.LibraryPresentation == nil {
+		return "", "", false
+	}
+	return s.d.LibraryPresentation(p, mt)
 }

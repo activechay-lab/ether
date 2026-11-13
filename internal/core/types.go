@@ -216,6 +216,8 @@ type ClientCaps struct {
 	// ProbeLiveInput requests source facts before live delivery selection.
 	ProbeLiveInput bool `json:"probeLiveInput,omitempty"`
 
+	// PreserveEmptyVideoCodecs prevents registry inference when the adapter owns codec defaults.
+	PreserveEmptyVideoCodecs bool `json:"preserveEmptyVideoCodecs,omitempty"`
 	// DeferSourceCodecValidation lets delivery selection handle a source codec mismatch.
 	DeferSourceCodecValidation bool `json:"deferSourceCodecValidation,omitempty"`
 	// AwaitAdmissionIndex briefly joins the generation-owned index before delivery selection.
