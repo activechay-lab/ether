@@ -581,6 +581,10 @@ type ResolveRequest struct {
 	// Plex's "Play Version" picker). It is health-checked like any other
 	// candidate; when it is unavailable, normal ranking applies (additive).
 	Prefer string
+	// PreferredOnly asks whether this explicit pick can open, without
+	// validating an automatic fallback. Playback uses it when it already
+	// holds a policy-checked remembered source to fall back to.
+	PreferredOnly bool
 	// ExactHEVCTranscode permits the explicitly preferred HEVC source to reach
 	// playback admission for an H.264 encode. The broker must still validate
 	// the probed source and the client's complete output profile.

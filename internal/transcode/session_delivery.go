@@ -87,6 +87,7 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int)
 			continue
 		}
 		if availability == segmentReady {
+			s.log.Debug("segment ready to send", "segment", n, "track", t, "ready_after", time.Since(waitStart), "restarts", restarts)
 			// The segment is already on disk. A throttle stop still resumes
 			// here so the encoder continues ahead of this playhead.
 			s.throttleLocked()

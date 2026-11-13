@@ -43,7 +43,7 @@ func (c *Catalog) AiredShowEpisodes(ctx context.Context, shows []core.RatingKey)
 		}
 		rows, err := c.db.QueryContext(ctx, `SELECT show_key, key
 FROM catalog_titles
-WHERE type='episode' AND adult=0 AND release_known=1 AND released_ts<=?
+WHERE `+airedTypeColumn(c.db)+`='episode' AND adult=0 AND release_known=1 AND released_ts<=?
 AND season>=0 AND episode>0 AND show_key IN (`+placeholders(len(part))+`)`, args...)
 		if err != nil {
 			return nil, err
@@ -69,7 +69,7 @@ AND season>=0 AND episode>0 AND show_key IN (`+placeholders(len(part))+`)`, args
 		keyArgs := args[1:]
 		stored := map[[2]int64]bool{}
 		rows, err = c.db.QueryContext(ctx, `SELECT DISTINCT show_key, season FROM catalog_titles
-WHERE type='episode' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
+WHERE `+airedTypeColumn(c.db)+`='episode' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +87,7 @@ WHERE type='episode' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
 			return nil, err
 		}
 		rows, err = c.db.QueryContext(ctx, `SELECT show_key, season, child_count, release_known, released_ts FROM catalog_titles
-WHERE type='season' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
+WHERE `+airedTypeColumn(c.db)+`='season' AND show_key IN (`+placeholders(len(part))+`)`, keyArgs...)
 		if err != nil {
 			return nil, err
 		}

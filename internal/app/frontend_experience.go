@@ -567,7 +567,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			return experience.ReadHomeRevision(ctx, db, u)
 		}
 		deps.NoProviderWait = func(ctx context.Context) context.Context {
-			return catalog.WithReadWaitBudget(ctx, 0)
+			return core.WithLocalResponse(catalog.WithReadWaitBudget(ctx, 0))
 		}
 	}
 	service, err := experience.NewService(deps)

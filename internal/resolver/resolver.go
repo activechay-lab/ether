@@ -614,7 +614,7 @@ func flightKey(req core.ResolveRequest, profile core.QualityProfile) string {
 	if len(profile.PreferredLanguages) == 0 && req.User != nil {
 		audio = req.User.AudioLanguages
 	}
-	return fmt.Sprintf("%d|%s|%s|%s|%s|%s|%t|%s", req.Title.Key, profile.Name, strings.Join(ex, ","), capsJSON, profileJSON, req.Prefer, req.ExactHEVCTranscode, strings.Join(audio, ","))
+	return fmt.Sprintf("%d|%s|%s|%s|%s|%s|%t|%t|%s", req.Title.Key, profile.Name, strings.Join(ex, ","), capsJSON, profileJSON, req.Prefer, req.PreferredOnly, req.ExactHEVCTranscode, strings.Join(audio, ","))
 }
 
 // Resolve implements core.Resolver. Concurrent calls for the same
@@ -853,6 +853,9 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	// Speculative work (warm-ups, detail discovery) never runs a rescue: it
 	// is Play's second pass. What speculative work did not find proves
 	// nothing about the title, so it is not remembered unavailable either.
+	if req.PreferredOnly && len(cands) == 0 {
+		return nil, core.ErrNotAvailable
+	}
 	speculative := core.SpeculativeIndexerWork(ctx)
 	rescueTried, rescueSkipped := false, false
 	if len(cands) == 0 && searchErr == nil && ctx.Err() == nil && speculative {
@@ -911,6 +914,9 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 	}
 	preferred, err := s.resolvePreferred(ctx, req, pin, cands, &trace, rcfg.HealthRace)
 	if err != nil {
+		if req.PreferredOnly {
+			return nil, err
+		}
 		if res := s.lastResort(ctx, inconclusive, t.Key, preferred.candidates, &trace); res != nil {
 			return res, nil
 		}

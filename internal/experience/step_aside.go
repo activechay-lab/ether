@@ -407,9 +407,14 @@ func (s *StepAside) compiled(ctx context.Context) *compiledStepAside {
 		return cur
 	}
 	// The first compile also runs in the background: until it lands, step
-	// aside judges nothing (titles stay visible) rather than holding a
-	// request behind a read of every matched show's episodes.
+	// aside can judge direct membership immediately. Container completeness
+	// stays conservative until the catalogue read finishes.
 	done := s.refreshAsync(h, ck, true)
+	if core.LocalResponse(ctx) {
+		// Movie and episode membership is already known in this immutable
+		// snapshot; only container completeness needs the catalogue read.
+		return &compiledStepAside{key: ck, movies: h.Movies, episodes: h.Episodes}
+	}
 	if done != nil {
 		select {
 		case <-done:
@@ -422,8 +427,8 @@ func (s *StepAside) compiled(ctx context.Context) *compiledStepAside {
 	return s.cached
 }
 
-// stepAsideFirstWait is how long a request waits for the first compile; a
-// small held set compiles well inside it, a large one finishes behind it.
+// stepAsideFirstWait preserves the bounded completeness contract for callers
+// that explicitly allow a wait. Local responses use membership immediately.
 const stepAsideFirstWait = 250 * time.Millisecond
 
 // Prime starts the first compile in the background so a held set is judged

@@ -77,6 +77,25 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 		original = s.title.Language
 	}
 	res, cached, fromResume := m.preparedResolution(ctx, s, profile, original, s.prefer)
+	if res == nil && s.prefer != "" && !s.exact {
+		if auto, facts, remembered := m.preparedResolution(ctx, s, profile, original, ""); auto != nil {
+			// Resolve only the explicit pick. Resolving a fresh automatic
+			// fallback would health-check a source we then discard in favour
+			// of the already checked remembered source below.
+			pick, err := m.deps.Resolver.Resolve(core.WithIndexerPurpose(ctx, core.IndexerPurposePlayback), core.ResolveRequest{Title: s.title, Client: s.caps, User: &s.user, Prefer: s.prefer, PreferredOnly: true})
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if err == nil && pick != nil && pick.Release.ID == s.prefer {
+				res = pick
+			} else if err == nil || errors.Is(err, core.ErrNotAvailable) {
+				res, cached, fromResume = auto, facts, remembered
+				m.notePreferenceStale(s.ident.key, s.prefer, auto.Release.ID)
+			} else {
+				return nil, err
+			}
+		}
+	}
 	var (
 		tried          []string
 		alternates     []core.Release

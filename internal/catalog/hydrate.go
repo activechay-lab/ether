@@ -182,3 +182,11 @@ func (c *Catalog) BackgroundBusy() int {
 	defer c.hydrateMu.Unlock()
 	return len(c.hydrating)
 }
+
+// noReadWait reports an explicit local-response policy. Hydrations may still
+// run in the bounded detached pool, but neither remote results nor a first
+// in-memory search index build should hold the response.
+func noReadWait(ctx context.Context) bool {
+	b, ok := ctx.Value(waitBudgetKey{}).(*waitBudget)
+	return ok && b.remaining.Load() <= 0
+}
