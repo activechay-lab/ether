@@ -369,10 +369,11 @@ type StorageFact struct {
 
 // ConnectivityFact has no public host, custom URL, or certificate path.
 type ConnectivityFact struct {
-	RemoteAccess          bool   `json:"remoteAccess"`
-	SecureConnections     string `json:"secureConnections,omitempty"`
-	CertificateConfigured bool   `json:"certificateConfigured"`
-	PublicPort            int    `json:"publicPort,omitempty"`
+	PlexRegistration      map[string]any `json:"plexRegistration,omitempty"`
+	RemoteAccess          bool           `json:"remoteAccess"`
+	SecureConnections     string         `json:"secureConnections,omitempty"`
+	CertificateConfigured bool           `json:"certificateConfigured"`
+	PublicPort            int            `json:"publicPort,omitempty"`
 }
 
 type ViewerSection struct {

@@ -23,22 +23,39 @@ func (a *App) supportDeps() diagnostics.Deps {
 	started := time.Now()
 	container := containerHint()
 	return diagnostics.Deps{
-		Now:          parityClock(),
-		Version:      a.opts.Version,
-		Commit:       updater.Commit,
-		BuildDate:    updater.Date,
-		Platform:     runtime.GOOS + "/" + runtime.GOARCH,
-		Container:    container,
-		InstallType:  supportInstallType(container),
-		Uptime:       func() time.Duration { return time.Since(started) },
-		Secrets:      func() []string { return supportSecrets(a.cfg.Get()) },
-		Settings:     func() (diagnostics.Settings, error) { return a.supportSettings(a.cfg.Get()), nil },
-		Sessions:     a.supportSessions,
-		Hardware:     a.supportHardware,
-		Storage:      a.supportStorage,
-		Connectivity: func() (diagnostics.ConnectivityFact, error) { return supportConnectivity(a.cfg.Get()), nil },
-		Viewer:       a.supportViewer,
-		LogExtract:   a.supportLogs,
+		Now:         parityClock(),
+		Version:     a.opts.Version,
+		Commit:      updater.Commit,
+		BuildDate:   updater.Date,
+		Platform:    runtime.GOOS + "/" + runtime.GOARCH,
+		Container:   container,
+		InstallType: supportInstallType(container),
+		Uptime:      func() time.Duration { return time.Since(started) },
+		Secrets:     func() []string { return supportSecrets(a.cfg.Get()) },
+		Settings:    func() (diagnostics.Settings, error) { return a.supportSettings(a.cfg.Get()), nil },
+		Sessions:    a.supportSessions,
+		Hardware:    a.supportHardware,
+		Storage:     a.supportStorage,
+		Connectivity: func() (diagnostics.ConnectivityFact, error) {
+			fact := supportConnectivity(a.cfg.Get())
+			if a.registrar != nil {
+				st := a.registrar.Status()
+				if d := st.TokenDiagnostics; d != nil {
+					fact.PlexRegistration = map[string]any{
+						"serverTokenRequired": st.ServerTokenRequired, "tokenPresent": d.TokenPresent,
+						"serverResourcesStatus": d.ResourcesStatus, "ownerResourcesStatus": d.OwnerResourcesStatus,
+						"ownerCredentialAvailable": d.OwnerCredentialAvailable,
+						"matchingDevices":          d.MatchingDevices, "sameNameServers": d.SameNameServers,
+						"tokenMatchesDevice": d.TokenMatchesDevice, "owned": d.Owned,
+						"provides": d.Provides, "product": d.Product, "sourceTitlePresent": d.SourceTitlePresent,
+						"claimResponseShapes": d.ClaimResponseShapes,
+					}
+				}
+			}
+			return fact, nil
+		},
+		Viewer:     a.supportViewer,
+		LogExtract: a.supportLogs,
 	}
 }
 

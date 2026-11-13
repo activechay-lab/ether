@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
 
 	"github.com/braedonsaunders/ether/internal/config"
 )
@@ -11,22 +12,28 @@ import (
 // TokenDiagnostics deliberately excludes tokens, device names, machine
 // identifiers, addresses and connections. SourceTitle is account display metadata. Status and change-only logs are safe for support bundles.
 type TokenDiagnostics struct {
-	OwnerCredentialAvailable bool   `json:"ownerCredentialAvailable"`
-	OwnerResourcesStatus     int    `json:"ownerResourcesStatus"`
-	TokenPresent             bool   `json:"tokenPresent"`
-	ResourcesStatus          int    `json:"resourcesStatus"`
-	MatchingDevices          int    `json:"matchingDevices"`
-	SameNameServers          int    `json:"sameNameServers"`
-	TokenMatchesDevice       bool   `json:"tokenMatchesDevice"`
-	Provides                 string `json:"provides,omitempty"`
-	Owned                    bool   `json:"owned"`
-	Product                  string `json:"product,omitempty"`
-	SourceTitle              string `json:"sourceTitle,omitempty"`
-	SourceTitlePresent       bool   `json:"sourceTitlePresent"`
+	ClaimResponseShapes      []string `json:"claimResponseShapes,omitempty"`
+	OwnerCredentialAvailable bool     `json:"ownerCredentialAvailable"`
+	OwnerResourcesStatus     int      `json:"ownerResourcesStatus"`
+	TokenPresent             bool     `json:"tokenPresent"`
+	ResourcesStatus          int      `json:"resourcesStatus"`
+	MatchingDevices          int      `json:"matchingDevices"`
+	SameNameServers          int      `json:"sameNameServers"`
+	TokenMatchesDevice       bool     `json:"tokenMatchesDevice"`
+	Provides                 string   `json:"provides,omitempty"`
+	Owned                    bool     `json:"owned"`
+	Product                  string   `json:"product,omitempty"`
+	SourceTitle              string   `json:"sourceTitle,omitempty"`
+	SourceTitlePresent       bool     `json:"sourceTitlePresent"`
 }
 
 func (r *Registrar) diagnoseServerToken(ctx context.Context, cfg config.Config, ownerToken string) {
 	d := TokenDiagnostics{TokenPresent: cfg.Plex.Token != ""}
+	r.client.diagnosticShapes.Range(func(key, value any) bool {
+		d.ClaimResponseShapes = append(d.ClaimResponseShapes, key.(string))
+		return true
+	})
+	sort.Strings(d.ClaimResponseShapes)
 	// The rejected persisted credential is the only available credential on
 	// migrated installs. Do not pretend it is a separately retained owner token.
 	resources, err := r.client.Resources(ctx, cfg.Plex.Token)
