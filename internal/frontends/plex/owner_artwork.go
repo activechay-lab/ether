@@ -32,9 +32,23 @@ func (s *Server) handleOwnerArtwork(w http.ResponseWriter, r *http.Request) {
 		if kind == frontend.ImageBackdrop {
 			element = "art"
 		}
-		if r.URL.Query().Get("url") == "/library/metadata/"+key.String()+"/"+element {
-			if _, _, e := s.getHost().Artwork.List(r.Context(), req); e != nil {
+		selectedURL := r.URL.Query().Get("url")
+		base := "/library/metadata/" + key.String() + "/" + element
+		if selectedURL == base || strings.HasPrefix(selectedURL, base+"/") {
+			images, _, e := s.getHost().Artwork.List(r.Context(), req)
+			if e != nil {
 				writeHTTPError(w, 404)
+				return
+			}
+			valid := selectedURL == base
+			for _, img := range images {
+				if img.Kind == kind && selectedURL == base+"/"+img.Tag {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				writeHTTPError(w, 400)
 				return
 			}
 			s.writeEmpty(w, r)
@@ -73,10 +87,19 @@ func (s *Server) ownerArtworkCandidates(w http.ResponseWriter, r *http.Request) 
 		if img.Kind != kind {
 			continue
 		}
-		path := "/library/metadata/" + key.String() + "/" + element
+		path := "/library/metadata/" + key.String() + "/" + element + "/" + img.Tag
 		mc.Metadata = append(mc.Metadata, model.Metadata{RatingKey: img.Path, Key: path, Thumb: path, Extra: []model.Attr{model.A("selected", true)}})
 		break
 	}
 	mc.Size = len(mc.Metadata)
 	s.write(w, r, mc)
+}
+
+func (s *Server) ownerArtworkVersion(t *frontend.Title, kind string) string {
+	if s != nil {
+		if versions, ok := s.getHost().Artwork.(frontend.OwnerArtworkVersioner); ok {
+			return versions.OwnerArtworkVersion(t, kind)
+		}
+	}
+	return ""
 }

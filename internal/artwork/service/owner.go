@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"image"
@@ -159,4 +160,17 @@ func (a Source) selectedOwnerPath(ctx context.Context, key core.RatingKey, kind 
 		}
 	}
 	return ""
+}
+
+// OwnerArtworkVersion uses file metadata, never reading image bytes on a list.
+func (a Source) OwnerArtworkVersion(t *core.Title, kind string) string {
+	if t == nil {
+		return ""
+	}
+	_, stamp := a.ownerImage(frontend.WithArtworkTitle(context.Background(), t), t.Key, kind)
+	if stamp == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(stamp))
+	return fmt.Sprintf("%x", sum[:8])
 }

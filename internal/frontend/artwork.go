@@ -64,3 +64,8 @@ type ArtworkUploadHandler interface {
 type OwnerArtworkReader interface {
 	OwnerArtwork(context.Context, ArtworkRequest, string) ([]byte, string, error)
 }
+
+// OwnerArtworkVersioner exposes a cheap cache identity for metadata image URLs.
+type OwnerArtworkVersioner interface {
+	OwnerArtworkVersion(*Title, string) string
+}

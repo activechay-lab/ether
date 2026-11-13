@@ -152,6 +152,9 @@ func (s *Server) thumbURL(t *frontend.Title) string {
 }
 
 func (s *Server) stampedThumbURL(t *frontend.Title, stamp string) string {
+	if version := s.ownerArtworkVersion(t, frontend.ImagePoster); version != "" {
+		return "/library/metadata/" + t.Key.String() + "/thumb/" + version
+	}
 	if t.PosterPath == "" && t.StillPath == "" {
 		// A movie or show with no artwork gets Ether's generated poster.
 		// Its stamp names the drawn image, so the URL changes (and client
@@ -166,11 +169,14 @@ func (s *Server) stampedThumbURL(t *frontend.Title, stamp string) string {
 	return "/library/metadata/" + t.Key.String() + "/thumb/" + stamp
 }
 
-func artURL(t *frontend.Title) string {
-	return stampedArtURL(t, imageStamp(t))
+func (s *Server) artURL(t *frontend.Title) string {
+	return s.stampedArtURL(t, imageStamp(t))
 }
 
-func stampedArtURL(t *frontend.Title, stamp string) string {
+func (s *Server) stampedArtURL(t *frontend.Title, stamp string) string {
+	if version := s.ownerArtworkVersion(t, frontend.ImageBackdrop); version != "" {
+		return "/library/metadata/" + t.Key.String() + "/art/" + version
+	}
 	if t.BackdropPath == "" {
 		return ""
 	}
@@ -212,7 +218,7 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 		Year:          t.Year,
 		ContentRating: t.ContentRating,
 		Thumb:         s.stampedThumbURL(t, thumbStamp),
-		Art:           stampedArtURL(t, artStamp),
+		Art:           s.stampedArtURL(t, artStamp),
 		AddedAt:       unixOrZero(added),
 		UpdatedAt:     unixOrZero(t.UpdatedAt),
 	}
@@ -496,7 +502,7 @@ func (s *Server) imageTags(t *frontend.Title, show *frontend.Title, thumbStamp, 
 				out = append(out, img("snapshot", th))
 			}
 		}
-		if a := stampedArtURL(t, artStamp); a != "" {
+		if a := s.stampedArtURL(t, artStamp); a != "" {
 			out = append(out, img("background", a))
 		} else {
 			out = append(out, img("background", showPath+"/art/"+artStamp))
@@ -508,7 +514,7 @@ func (s *Server) imageTags(t *frontend.Title, show *frontend.Title, thumbStamp, 
 		if th := s.stampedThumbURL(t, thumbStamp); th != "" {
 			out = append(out, img("coverPoster", th))
 		}
-		if a := stampedArtURL(t, artStamp); a != "" {
+		if a := s.stampedArtURL(t, artStamp); a != "" {
 			out = append(out, img("background", a))
 		}
 		if t.LogoPath != "" {

@@ -60,7 +60,7 @@ func (s *Server) scheduledMetadata(ctx context.Context, pr *Request, t *frontend
 	// Base artwork uses the title-scoped handler, which repeats the schedule and
 	// viewer checks. Do not invoke overlays or a custom provider for placeholders.
 	md.Thumb = s.thumbURL(t)
-	md.Art = artURL(t)
+	md.Art = s.artURL(t)
 	md.Image = nil
 	return md
 }

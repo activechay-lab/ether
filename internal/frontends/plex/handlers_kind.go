@@ -177,7 +177,7 @@ func (s *Server) writeKindChildren(w http.ResponseWriter, r *http.Request, pr *R
 	mc.Key = parent.Key.String()
 	mc.Nocache = model.Ptr(true)
 	mc.Thumb = s.thumbURL(parent)
-	mc.Art = artURL(parent)
+	mc.Art = s.artURL(parent)
 	base, _ := s.kindSectionBaseForTitle(parent)
 	mc.ViewGroup = kindViewGroupForBase(base, parent.Type)
 	mc.ViewMode = viewModeList
