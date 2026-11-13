@@ -40,7 +40,7 @@ func TestSourceHistoryRealStateAdvancesOnlyOnAcceptedSamples(t *testing.T) {
 	events := NewEventBus(nil, active)
 	defer events.Close()
 	playback := &changingHistoryPlayback{fakePlayback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, codec: "h264"}
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, SourceHistory: history, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, SourceHistory: history, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}})
 	if err != nil {
@@ -150,7 +150,7 @@ func (h *cancelableSourceHistory) RecordLastSource(ctx context.Context, _ int64,
 
 func TestSourceHistoryWorkerExitsOnCancellation(t *testing.T) {
 	h := &cancelableSourceHistory{entered: make(chan struct{})}
-	b := &Broker{deps: BrokerDeps{SourceHistory: h}, historyQueue: make(chan sourceHistorySample, 1)}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, SourceHistory: h}, historyQueue: make(chan sourceHistorySample, 1)}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); b.runSourceHistory(ctx) }()
@@ -182,7 +182,7 @@ func TestSourceHistoryStalledStorageDoesNotBlockStop(t *testing.T) {
 	history := &stalledSourceHistory{entered: make(chan struct{}), release: make(chan struct{})}
 	defer close(history.release)
 	playback := guardedHistoryPlayback{&fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}}
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, SourceHistory: history, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, SourceHistory: history, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}})
 	if err != nil {
@@ -235,7 +235,7 @@ func TestSourceHistoryRecordsOnlyAcceptedSamplesAndAuthorizedStop(t *testing.T) 
 	history := &fakeSourceHistory{writes: make(chan core.PlaybackSourceObservation, 3)}
 	allowed := true
 	playback := guardedHistoryPlayback{&fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}}
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, SourceHistory: history, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, SourceHistory: history, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		if !allowed {
 			return nil, core.ErrNotFound
 		}

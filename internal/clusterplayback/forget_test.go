@@ -29,7 +29,7 @@ func TestForgetTerminalBoundsLifetimeSessions(t *testing.T) {
 	db := store.OpenTest(t)
 	ledger := retentionLedger(t, db)
 	const capacity = 16
-	r := &Runtime{o: Options{DB: db, Placement: ledger, HistoryCapacity: capacity, Self: nodewire.Identity{Cluster: "cluster-a", NodeID: "c", Boot: "cb"}},
+	r := &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, HistoryCapacity: capacity, Self: nodewire.Identity{Cluster: "cluster-a", NodeID: "c", Boot: "cb"}},
 		executions: map[string]*execution{}, sources: map[string]*ownedSource{}, preparations: map[string]*preparation{}, mediaSessions: map[string]*mediaReplica{},
 		reopens: map[string]*reopenRecord{}, reopenLives: map[string]*ReopenResponsibility{}}
 	r.remotePlayback = &RemotePlayback{r: r, observed: map[string]*observedSession{}, entries: map[string]*remotePreparation{}}

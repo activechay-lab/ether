@@ -78,7 +78,7 @@ func TestXtreamOfflineRoutesThroughRealBroker(t *testing.T) {
 		}
 		return &core.Title{Key: k, Type: typ}, nil
 	}
-	b, err := NewBroker(BrokerDeps{Playback: pb, Live: live, Events: events, Progress: &fakeProgress{}, Transcoder: fakeBrokerTranscoder{}, ActiveViewer: active, Lookup: lookup, MediaLookup: lookup, Now: time.Now, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, BitrateLimit: func(*core.Viewer) int { return 0 }})
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: pb, Live: live, Events: events, Progress: &fakeProgress{}, Transcoder: fakeBrokerTranscoder{}, ActiveViewer: active, Lookup: lookup, MediaLookup: lookup, Now: time.Now, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, BitrateLimit: func(*core.Viewer) int { return 0 }})
 	if err != nil {
 		t.Fatal(err)
 	}

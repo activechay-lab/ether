@@ -60,7 +60,7 @@ func TestPinnedLocalMediaRejectsFileReplacement(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key}, nil
 	}
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: playback, Lookup: lookup, MediaLookup: lookup, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: &fakeProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}})
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: playback, Lookup: lookup, MediaLookup: lookup, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: &fakeProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}})
 	if err != nil {
 		t.Fatal(err)
 	}

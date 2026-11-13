@@ -127,7 +127,7 @@ func TestLazyHLSUsesResolvedSourceAndRealSegments(t *testing.T) {
 	lookup := func(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return h.catalog.Get(ctx, key)
 	}
-	b, err := sessions.NewBroker(sessions.BrokerDeps{DB: h.m.resume.db, Events: events, Playback: h.m, Transcoder: counted, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: lookup, MediaLookup: lookup})
+	b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, DB: h.m.resume.db, Events: events, Playback: h.m, Transcoder: counted, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: lookup, MediaLookup: lookup})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func (r *Runtime) attachExecution(ctx context.Context, id string) error {
 	}
 	// Coordination adoption transfers the registry once. Media readers never do
 	// this, and a repeated Stop must remain valid after the registry is removed.
-	if _, err := r.o.DB.ExecContext(ctx, `UPDATE plex_sessions SET node_id=?,updated_at=? WHERE id=? AND active=1 AND protocol IN ('jellyfin','emby') AND EXISTS (SELECT 1 FROM clusterplayback_coordinators c WHERE c.session=? AND c.node=? AND c.boot=? AND c.epoch=? AND c.deadline>?)`, r.o.Self.NodeID, time.Now().UnixMilli(), id, id, r.o.Self.NodeID, r.o.Self.Boot, coordinator.Epoch, time.Now().Add(r.o.ClockSkew).UnixMilli()); err != nil {
+	if _, err := r.o.DB.ExecContext(ctx, `UPDATE plex_sessions SET node_id=?,updated_at=? WHERE id=? AND active=1 AND broker_managed=1 AND EXISTS (SELECT 1 FROM clusterplayback_coordinators c WHERE c.session=? AND c.node=? AND c.boot=? AND c.epoch=? AND c.deadline>?)`, r.o.Self.NodeID, time.Now().UnixMilli(), id, id, r.o.Self.NodeID, r.o.Self.Boot, coordinator.Epoch, time.Now().Add(r.o.ClockSkew).UnixMilli()); err != nil {
 		adapter.Close()
 		return err
 	}

@@ -38,7 +38,7 @@ func TestViewerHourOfPlaybackReusesTransferTickets(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		DB: db, Events: bus, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{},
 		ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 },
@@ -68,17 +68,17 @@ func TestViewerHourOfPlaybackReusesTransferTickets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		plexCtx := WithPlanAdmission(ctx, func(context.Context) (PlanAdmission, error) {
+		adapterCtx := WithPlanAdmission(ctx, func(context.Context) (PlanAdmission, error) {
 			return PlanAdmission{Source: ps, Media: ps.Info, Caps: core.ClientCaps{ClientID: device.ID}, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}, nil
 		})
-		plan, err := b.Plan(plexCtx, frontend.PlanRequest{
+		plan, err := b.Plan(adapterCtx, frontend.PlanRequest{
 			Viewer: viewer, Device: device, Protocol: "plex", Item: item, Caps: core.ClientCaps{ClientID: device.ID},
 			Intent: frontend.PlayIntent{ClientSessionID: sessionID, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		opened, err := b.Open(plexCtx, frontend.OpenRequest{Viewer: viewer, Device: device, Protocol: "plex", PlanID: plan.ID})
+		opened, err := b.Open(adapterCtx, frontend.OpenRequest{Viewer: viewer, Device: device, Protocol: "plex", PlanID: plan.ID})
 		if err != nil {
 			t.Fatalf("open %s: %v", sessionID, err)
 		}
@@ -122,7 +122,7 @@ func TestTransferCapRefusesOnlyDistinctLiveStreams(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		DB: db, Events: bus, Playback: playback, Progress: &fakeProgress{}, ActiveViewer: active,
 		CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 },
 		OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},

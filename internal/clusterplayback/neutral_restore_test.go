@@ -89,7 +89,7 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 				}
 				return nil
 			}
-			base := Options{MediaServers: func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{ids[2], ids[3]}, nil }, DB: db, Placement: ledger, ProtocolSealer: sealer, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
+			base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), MediaServers: func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{ids[2], ids[3]}, nil }, DB: db, Placement: ledger, ProtocolSealer: sealer, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
 				return core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts", AudioStream: -1, SubtitleStream: -1}
 			}}
 			runtimes := make([]*Runtime, len(ids))
@@ -167,7 +167,7 @@ func testNeutralControls(t *testing.T, loseOwner bool) {
 				node := hub.Node(ids[i+2].NodeID)
 				events := sessions.NewEventBus(node, active)
 				defer events.Close()
-				broker, err := sessions.NewBroker(sessions.BrokerDeps{DB: db, Cluster: node, Playback: remote, Transcoder: tc, DistributedHLS: runtime, Events: events, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: fixtureProgress{}, OnTimeline: func(_ *core.Viewer, _ core.RatingKey, p time.Duration, _ time.Duration, _ string) {
+				broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Cluster: node, Playback: remote, Transcoder: tc, DistributedHLS: runtime, Events: events, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: fixtureProgress{}, OnTimeline: func(_ *core.Viewer, _ core.RatingKey, p time.Duration, _ time.Duration, _ string) {
 					progress.Store(int64(p))
 				}, Lookup: func(c context.Context, v *core.Viewer, d core.Device, k core.RatingKey) (*core.Title, error) {
 					return fixtureCatalog{}.Get(c, k)

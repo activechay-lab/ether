@@ -98,7 +98,7 @@ func TestPruneRetainedRemovesOnlyTerminalSessions(t *testing.T) {
 	db := store.OpenTest(t)
 	ledger := retentionLedger(t, db)
 	const cluster = "cluster-a"
-	r := &Runtime{o: Options{DB: db, Placement: ledger, Self: nodewire.Identity{Cluster: cluster, NodeID: "c", Boot: "cb"}}}
+	r := &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Self: nodewire.Identity{Cluster: cluster, NodeID: "c", Boot: "cb"}}}
 
 	done := reserveFor(t, ledger, "done")
 	live := reserveFor(t, ledger, "live")

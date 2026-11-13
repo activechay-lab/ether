@@ -25,7 +25,7 @@ func TestSourceActivityNeverOverwritesNewerOrSealedState(t *testing.T) {
 	peer := nodewire.Identity{Cluster: "cluster", NodeID: "controller", Boot: "boot"}
 	prepared := PreparedSource{Owner: nodewire.Identity{Cluster: "cluster", NodeID: "source", Boot: "source-boot"}, PlayID: ps.ID, Revision: core.SourceRevision(ps)}
 	entry := &preparation{activityMu: &sync.Mutex{}, activityVersion: new(uint64), peer: peer, viewer: 9, finished: true, life: life, result: prepared}
-	r := &Runtime{preparations: map[string]*preparation{"controller/boot/op": entry}, o: Options{Playback: manager, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, ActiveViewer: func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 9}, nil }, SourcePolicy: func(context.Context, *core.Viewer, *core.PlaySession) error { return nil }}}
+	r := &Runtime{preparations: map[string]*preparation{"controller/boot/op": entry}, o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), Playback: manager, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, ActiveViewer: func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 9}, nil }, SourcePolicy: func(context.Context, *core.Viewer, *core.PlaySession) error { return nil }}}
 	activity := func(ctx context.Context, version uint64, state string) error {
 		_, err := r.sourceActivity(ctx, peer, sourceRequest{Op: "prepare-activity", Prepare: &PrepareRequest{Operation: "op"}, ActivityVersion: version, Position: time.Second, State: state})
 		return err

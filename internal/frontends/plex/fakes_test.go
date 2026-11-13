@@ -1509,7 +1509,12 @@ func (f *fixture) attachPlaybackBroker(d testServerDeps) {
 		return &core.Viewer{ID: id}, nil
 	}
 	events := sessions.NewEventBus(nil, active)
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: func(protocol core.Protocol) core.SessionPolicy {
+		if protocol == "plex" {
+			return SessionPolicy()
+		}
+		return core.SessionPolicy{}
+	},
 		DB: d.DB, Cluster: lrDeps.Cluster, SessionHeartbeat: lrDeps.SessionHeartbeat,
 		Coordination: lrDeps.Coordination, Downloads: lrDeps.Downloads, DecisionTraces: lrDeps.DecisionTraces,
 		Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
@@ -1590,7 +1595,12 @@ func mountTestBroker(s *Server, now func() time.Time) {
 	if now == nil {
 		now = time.Now
 	}
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: func(protocol core.Protocol) core.SessionPolicy {
+		if protocol == "plex" {
+			return SessionPolicy()
+		}
+		return core.SessionPolicy{}
+	},
 		Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			if s.catalog() == nil {
 				return nil, core.ErrNotFound

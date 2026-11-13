@@ -133,7 +133,7 @@ func (b *Broker) reusePlexSession(_ context.Context, v *core.Viewer, req fronten
 		b.mu.Unlock()
 		return frontend.Session{}, false, nil
 	}
-	if old.public.Protocol != "plex" || old.public.ViewerID != v.ID || old.public.Device.ID != req.Device.ID {
+	if !b.policy(old.public.Protocol).ExternalAdmission || old.public.ViewerID != v.ID || old.public.Device.ID != req.Device.ID {
 		b.mu.Unlock()
 		return frontend.Session{}, false, core.ErrUnauthorized
 	}
@@ -177,7 +177,7 @@ func (b *Broker) reusePlexSession(_ context.Context, v *core.Viewer, req fronten
 // newest match. An empty header matches only when exactly one session exists.
 func (b *Broker) PlexSessionForPlayback(ctx context.Context, a frontend.SessionAccess, item frontend.RatingKey, playbackID, transcodeID string) (string, error) {
 	viewer, err := b.viewer(ctx, a.Viewer)
-	if err != nil || a.Protocol != "plex" || a.Device.ID == "" || a.Owner || item == 0 {
+	if err != nil || !b.policy(a.Protocol).ExternalAdmission || a.Device.ID == "" || a.Owner || item == 0 {
 		return "", core.ErrUnauthorized
 	}
 	b.mu.Lock()
@@ -186,14 +186,14 @@ func (b *Broker) PlexSessionForPlayback(ctx context.Context, a frontend.SessionA
 		return "", core.ErrNotAvailable
 	}
 	if transcodeID != "" {
-		if s := b.sessions[transcodeID]; s != nil && plexViewerSession(s, viewer.ID, a.Device.ID, item) {
+		if s := b.sessions[transcodeID]; s != nil && b.viewerSession(s, viewer.ID, a.Device.ID, item) {
 			return transcodeID, nil
 		}
 	}
 	var ids []string
 	newest, newestAt := "", time.Time{}
 	for id, s := range b.sessions {
-		if !plexViewerSession(s, viewer.ID, a.Device.ID, item) {
+		if !b.viewerSession(s, viewer.ID, a.Device.ID, item) {
 			continue
 		}
 		if playbackID != "" && s.playbackID != playbackID {
@@ -217,7 +217,7 @@ func (b *Broker) PlexSessionForPlayback(ctx context.Context, a frontend.SessionA
 // this viewer and item. The newest match wins when more than one remains.
 func (b *Broker) PlexSessionForSource(ctx context.Context, a frontend.SessionAccess, item frontend.RatingKey, playID string) (string, error) {
 	viewer, err := b.viewer(ctx, a.Viewer)
-	if err != nil || a.Protocol != "plex" || a.Device.ID == "" || a.Owner || item == 0 || playID == "" {
+	if err != nil || !b.policy(a.Protocol).ExternalAdmission || a.Device.ID == "" || a.Owner || item == 0 || playID == "" {
 		return "", core.ErrUnauthorized
 	}
 	b.mu.Lock()
@@ -227,7 +227,7 @@ func (b *Broker) PlexSessionForSource(ctx context.Context, a frontend.SessionAcc
 	}
 	newest, newestAt := "", time.Time{}
 	for id, s := range b.sessions {
-		if !plexViewerSession(s, viewer.ID, a.Device.ID, item) || s.playID != playID {
+		if !b.viewerSession(s, viewer.ID, a.Device.ID, item) || s.playID != playID {
 			continue
 		}
 		if newest == "" || s.public.StartedAt.After(newestAt) {
@@ -248,14 +248,14 @@ func (b *Broker) PlexSessionSource(id string) (string, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	s := b.sessions[id]
-	if s == nil || s.public.Protocol != "plex" || s.playID == "" {
+	if s == nil || !b.policy(s.public.Protocol).ExternalAdmission || s.playID == "" {
 		return "", false
 	}
 	return s.playID, true
 }
 
-func plexViewerSession(s *brokerSession, viewer int64, device string, item core.RatingKey) bool {
-	return s != nil && s.public.Protocol == "plex" && s.public.ViewerID == viewer && s.public.Device.ID == device && s.public.Item == item
+func (b *Broker) viewerSession(s *brokerSession, viewer int64, device string, item core.RatingKey) bool {
+	return s != nil && b.policy(s.public.Protocol).ExternalAdmission && s.public.ViewerID == viewer && s.public.Device.ID == device && s.public.Item == item
 }
 
 // NotePlexEncoder records that the Plex adapter started ffmpeg under the
@@ -266,7 +266,7 @@ func (b *Broker) NotePlexEncoder(id string, format frontend.StreamFormat, decisi
 	}
 	b.mu.Lock()
 	s := b.sessions[id]
-	if s == nil || s.public.Protocol != "plex" {
+	if s == nil || !b.policy(s.public.Protocol).ExternalAdmission {
 		b.mu.Unlock()
 		return
 	}

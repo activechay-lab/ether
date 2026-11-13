@@ -17,7 +17,7 @@ func TestSampleReceiptBoundsRetainActiveAndOrphans(t *testing.T) {
 	db := store.OpenTest(t)
 	ctx := context.Background()
 	progress := state.New(db, state.Options{})
-	b := &Broker{deps: BrokerDeps{DB: db}, sampleLimit: 2}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db}, sampleLimit: 2}
 	sample := frontend.ProgressSample{InstallationID: "11111111-1111-4111-8111-111111111111", Sequence: 1, PositionSeconds: 60}
 	write := func(id string) error {
 		s := &brokerSession{public: frontend.Session{ID: id, Protocol: "silo"}}
@@ -37,7 +37,7 @@ func TestSampleReceiptBoundsRetainActiveAndOrphans(t *testing.T) {
 		t.Fatalf("active protection lost %v", err)
 	}
 	// A new broker instance cannot sweep the prior runtime's receipts.
-	restarted := &Broker{deps: BrokerDeps{DB: db}, sampleLimit: 2}
+	restarted := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db}, sampleLimit: 2}
 	if err := progress.ProgressWithReceipt(ctx, 1, core.MovieKey(1), time.Minute, 10*time.Minute, "playing", restarted.sampleReceipt(ctx, &brokerSession{public: frontend.Session{ID: "restart"}}, &sampleReport{sample: sample})); !errors.Is(err, core.ErrNotAvailable) {
 		t.Fatalf("restart bypassed cap %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSampleReceiptBoundsRetainActiveAndOrphans(t *testing.T) {
 func TestSampleReceiptCleanupRetainsUncertainClusterOwner(t *testing.T) {
 	db := store.OpenTest(t)
 	ctx := context.Background()
-	cs := clusterStore{db: db, node: "a"}
+	cs := clusterStore{policy: testSessionPolicy, db: db, node: "a"}
 	session := frontend.Session{ID: "active", Protocol: "silo", ViewerID: 1, Device: core.Device{ID: "tv"}, Item: core.MovieKey(1), StartedAt: time.Now()}
 	if err := cs.put(ctx, session, "", core.Viewer{ID: 1}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestSampleReceiptCleanupRetainsUncertainClusterOwner(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO sessions_sample_receipts VALUES('active','installation','00000000000000000001','sample')`); err != nil {
 		t.Fatal(err)
 	}
-	b := &Broker{deps: BrokerDeps{DB: db}, cluster: &brokerCluster{store: cs}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db}, cluster: &brokerCluster{store: cs}}
 	// Local removal with failed durable retirement must retain the active receipt.
 	b.cleanupSampleReceipt(ctx, &brokerSession{public: session})
 	var count int

@@ -31,7 +31,7 @@ func TestBrokerEmbyMasterUsesSessionGuarantee(t *testing.T) {
 	play := &fakePlayback{sessions: map[string]*core.PlaySession{"p": {ID: "p"}}}
 	bindings := NewBindingTable[frontend.PlayIntent]()
 	bindings.Put(&Binding[frontend.PlayIntent]{ID: "s", Decision: core.Decision{Container: "mpegts"}})
-	broker := &Broker{deps: BrokerDeps{Playback: play}, bindings: bindings}
+	broker := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: play}, bindings: bindings}
 	session := &brokerSession{public: frontend.Session{ID: "s", Protocol: "emby"}, playID: "p"}
 	for _, tc := range []struct {
 		name    string

@@ -216,7 +216,7 @@ func TestBrokerTransferSurvivesUnverifiedInputAndFailedSource(t *testing.T) {
 			active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 			bus := NewEventBus(nil, active)
 			t.Cleanup(bus.Close)
-			b, err := NewBroker(BrokerDeps{DB: db, Events: bus, Playback: playback, Transcoder: enc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+			b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Events: bus, Playback: playback, Transcoder: enc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 				return &core.Title{Key: k}, nil
 			}})
 			if err != nil {
@@ -273,7 +273,7 @@ func TestBrokerUnknownTransferCommitDoesNotStopSource(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	b, err := NewBroker(BrokerDeps{DB: db, Events: bus, Playback: playback, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Events: bus, Playback: playback, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}})
 	if err != nil {
@@ -309,7 +309,7 @@ func TestStaleBindingRetiresEncoderAndKeepsSource(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	b, err := NewBroker(BrokerDeps{Events: bus, Playback: playback, Transcoder: enc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: bus, Playback: playback, Transcoder: enc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}})
 	if err != nil {

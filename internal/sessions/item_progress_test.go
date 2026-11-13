@@ -17,7 +17,7 @@ func TestReportItemProgressWritesJellyfinWatchState(t *testing.T) {
 	defer events.Close()
 	progress := &fakeProgress{}
 	key := core.MovieKey(9)
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Progress: progress, ActiveViewer: active,
 		CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 },
 		OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},

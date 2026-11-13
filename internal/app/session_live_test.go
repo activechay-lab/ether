@@ -283,7 +283,7 @@ func TestSwiftfinLiveTVSequenceIPTVAndVirtual(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, activeViewer)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: sessionPolicy,
 		Events:     events,
 		Playback:   pb,
 		Transcoder: tc,
@@ -592,7 +592,7 @@ func TestSiloLiveTVSequenceIPTVVirtualAndReplan(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, activeViewer)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: sessionPolicy,
 		Events:     events,
 		Playback:   pb,
 		Transcoder: tc,

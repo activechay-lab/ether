@@ -19,7 +19,7 @@ func (b *Broker) StartSegmentedHLS(ctx context.Context, viewer *core.User, playI
 	}
 	b.mu.Lock()
 	entry := b.sessions[publicID]
-	if entry == nil || entry.public.Protocol != "plex" || entry.public.ViewerID != v.ID || entry.playID != playID || b.closed {
+	if entry == nil || !b.policy(entry.public.Protocol).ExternalAdmission || entry.public.ViewerID != v.ID || entry.playID != playID || b.closed {
 		b.mu.Unlock()
 		return nil, core.ErrUnauthorized
 	}

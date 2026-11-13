@@ -36,7 +36,7 @@ func TestSessionMarkersAreAuthorizedAndBoundToSourceRevision(t *testing.T) {
 		}
 		return ranges, known, nil
 	}
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: playback, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: playback, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, SourceMarkers: provider})
 	if err != nil {

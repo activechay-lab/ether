@@ -77,7 +77,7 @@ func (b *Broker) recordTrackCommand(ctx context.Context, actor *core.Viewer, own
 // automatic-work veto, NOT proof of manual intent: ordinary client progress also
 // carries indices, and choosing off when already off is unobservable.
 func (b *Broker) observeSubtitleSelection(ctx context.Context, s *brokerSession, t frontend.Timeline) error {
-	if t.State == "stopped" || (s.public.Protocol != "jellyfin" && s.public.Protocol != "emby") || (t.AudioStreamIndex == nil && t.SubtitleStreamIndex == nil) {
+	if t.State == "stopped" || !b.policy(s.public.Protocol).DistributedBindings || (t.AudioStreamIndex == nil && t.SubtitleStreamIndex == nil) {
 		return nil
 	}
 	fence, ok := b.deps.Playback.(core.PlaybackSelectionFence)

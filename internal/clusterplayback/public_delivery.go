@@ -3,8 +3,8 @@ package clusterplayback
 import (
 	"context"
 	"github.com/braedonsaunders/ether/internal/config"
+	"github.com/braedonsaunders/ether/internal/core"
 	"net/http"
-	"strings"
 )
 
 // NewPublicDelivery constructs the delivery-only public representation sender.
@@ -16,23 +16,23 @@ func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Re
 		return nil, ErrDenied
 	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
-		if q.Method != "GET" && q.Method != "HEAD" && !mediaBrowserPreflight(q) {
+		if q.Method != "GET" && q.Method != "HEAD" && !mediaBrowserPreflight(q, r.o.Delivery) {
 			http.Error(w, "method", 405)
 			return
 		}
-		if !IsPublicRepresentation(q) || q.Header.Get(deliveryHop) != "" {
+		if !IsPublicRepresentation(q, r.o.Delivery) || q.Header.Get(deliveryHop) != "" {
 			http.NotFound(w, q)
 			return
 		}
-		if _, id, protocol, ok := neutralDeliveryRoute(q.URL.Path); ok {
+		if _, id, protocol, ok := r.o.Delivery.Route(q.URL.Path); ok {
 			if !r.ForwardMedia(w, q, id, protocol) {
 				http.NotFound(w, q)
 			}
 			return
 		}
 
-		if id, ok := plexMediaSession(q.URL); ok {
-			if plexGrantEnvelope(q) {
+		if id, ok := r.o.Delivery.Session(q.URL); ok {
+			if r.o.Delivery.GrantEnvelope(q) {
 				if !r.ForwardGrantMedia(w, q, id) {
 					http.NotFound(w, q)
 				}
@@ -57,63 +57,35 @@ func (r *Runtime) NewPublicDelivery(authorizePlex func(context.Context, *http.Re
 	r.publicDelivery = true
 	return handler, nil
 }
-func neutralMediaSession(path string) (string, bool) {
-	const prefix = "/sessions/media/"
-	if len(path) > 8192 || !strings.HasPrefix(path, prefix) {
-		return "", false
-	}
-	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
-	if len(parts) < 3 || len(parts) > 8 {
-		return "", false
-	}
-	for _, part := range parts {
-		if part == "" || part == "." || part == ".." || len(part) > 512 {
-			return "", false
-		}
-		for _, c := range part {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
-				return "", false
-			}
-		}
-	}
-	return parts[0], true
-}
-
-func neutralDeliveryRoute(path string) (canonical, id, protocol string, ok bool) {
-	canonical = path
-	switch {
-	case strings.HasPrefix(path, "/jellyfin/sessions/media/"):
-		canonical = strings.TrimPrefix(path, "/jellyfin")
-		protocol = "jellyfin"
-	case strings.HasPrefix(path, "/emby/sessions/media/"):
-		canonical = strings.TrimPrefix(path, "/emby")
-		protocol = "emby"
-	}
-	id, ok = neutralMediaSession(canonical)
-	return
-}
 
 // IsPublicRepresentation reports only the supported delivery route shape. It
 // grants no access and says nothing about listener/readiness or backend support.
-func IsPublicRepresentation(q *http.Request) bool {
-	if q == nil || q.URL == nil || (q.Method != "GET" && q.Method != "HEAD" && !mediaBrowserPreflight(q)) || q.URL.RawPath != "" || q.URL.Fragment != "" || q.URL.Opaque != "" {
+func IsPublicRepresentation(q *http.Request, policies ...core.DeliveryPolicy) bool {
+	if q == nil || q.URL == nil || (q.Method != "GET" && q.Method != "HEAD" && !mediaBrowserPreflight(q, policies...)) || q.URL.RawPath != "" || q.URL.Fragment != "" || q.URL.Opaque != "" {
 		return false
 	}
-	if _, _, _, ok := neutralDeliveryRoute(q.URL.Path); ok {
-		return len(q.URL.RequestURI()) <= 8192
+	if len(policies) > 0 && policies[0].Route != nil {
+		if _, _, _, ok := policies[0].Route(q.URL.Path); ok {
+			return len(q.URL.RequestURI()) <= 8192
+		}
 	}
-	if _, ok := plexMediaSession(q.URL); ok {
-		return len(q.URL.RequestURI()) <= 16384
+	if len(policies) > 0 && policies[0].Session != nil {
+		if _, ok := policies[0].Session(q.URL); ok {
+			return len(q.URL.RequestURI()) <= 16384
+		}
 	}
 	return false
 }
 
 // MediaBrowser frontends own their ordinary OPTIONS/CORS response. Only a
 // typed alias can carry a preflight to that original public handler.
-func mediaBrowserPreflight(q *http.Request) bool {
+func mediaBrowserPreflight(q *http.Request, policies ...core.DeliveryPolicy) bool {
 	if q == nil || q.URL == nil || q.Method != "OPTIONS" {
 		return false
 	}
-	_, _, protocol, ok := neutralDeliveryRoute(q.URL.Path)
-	return ok && (protocol == "jellyfin" || protocol == "emby")
+	if len(policies) == 0 || policies[0].Route == nil {
+		return false
+	}
+	_, _, protocol, ok := policies[0].Route(q.URL.Path)
+	return ok && protocol != ""
 }

@@ -51,7 +51,7 @@ func TestM3UChannelUsesScopedBrokerAndRevalidates(t *testing.T) {
 	live := &lazyChannelBackend{}
 	live.allowed.Store(true)
 	pb := &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}
-	broker, err := NewBroker(BrokerDeps{Live: live, Events: events, Playback: pb, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(context.Context, *core.Viewer, core.Device, core.RatingKey) (*core.Title, error) {
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Live: live, Events: events, Playback: pb, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(context.Context, *core.Viewer, core.Device, core.RatingKey) (*core.Title, error) {
 		return nil, errors.New("unexpected metadata lookup")
 	}})
 	if err != nil {

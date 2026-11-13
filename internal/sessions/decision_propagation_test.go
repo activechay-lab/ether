@@ -58,7 +58,7 @@ func newDecisionBroker(t *testing.T) (*Broker, *decisionRecordingPlayback) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	broker, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: tc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
 	if err != nil {
@@ -119,15 +119,15 @@ func TestNotePlexEncoderRecordsDecisionOnPlayback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plexCtx := WithPlanAdmission(ctx, func(context.Context) (PlanAdmission, error) {
+	adapterCtx := WithPlanAdmission(ctx, func(context.Context) (PlanAdmission, error) {
 		return PlanAdmission{Source: ps, Media: ps.Info, Caps: core.ClientCaps{ClientID: "plex-tv"}, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}, nil
 	})
 	dev := core.Device{ID: "plex-tv"}
-	plan, err := broker.Plan(plexCtx, frontend.PlanRequest{Viewer: viewer, Device: dev, Protocol: "plex", Item: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "plex-tv"}, Intent: frontend.PlayIntent{ClientSessionID: "plex-1", Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}})
+	plan, err := broker.Plan(adapterCtx, frontend.PlanRequest{Viewer: viewer, Device: dev, Protocol: "plex", Item: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "plex-tv"}, Intent: frontend.PlayIntent{ClientSessionID: "plex-1", Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = broker.Open(plexCtx, frontend.OpenRequest{Viewer: viewer, Device: dev, Protocol: "plex", PlanID: plan.ID}); err != nil {
+	if _, err = broker.Open(adapterCtx, frontend.OpenRequest{Viewer: viewer, Device: dev, Protocol: "plex", PlanID: plan.ID}); err != nil {
 		t.Fatal(err)
 	}
 	want := core.Decision{Kind: core.DecisionTranscode, VideoCopy: false, AudioCopy: true, Container: "mpegts"}

@@ -689,7 +689,7 @@ func (s *lazyStreams) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *lazyStreams) sourceGone(w http.ResponseWriter, r *http.Request) {
-	serveSourceGone(s.protocol, w, r)
+	serveSourceGone(s.broker.policy(s.protocol), w, r)
 }
 
 // writePlaybackError answers a static open. A missing file is Jellyfin's
@@ -717,8 +717,8 @@ func (s *lazyStreams) writePlaybackError(w http.ResponseWriter, r *http.Request,
 	}
 	http.Error(w, "playback unavailable", http.StatusServiceUnavailable)
 }
-func serveSourceGone(protocol frontend.Protocol, w http.ResponseWriter, r *http.Request) {
-	if protocol == "jellyfin" {
+func serveSourceGone(policy core.SessionPolicy, w http.ResponseWriter, r *http.Request) {
+	if policy.PlainSourceGone {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusNotFound)
 		if r.Method != http.MethodHead {

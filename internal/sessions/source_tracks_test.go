@@ -97,7 +97,7 @@ func TestSourceTracksPinOpenedGenerationUntilStop(t *testing.T) {
 	bus := NewEventBus(nil, active)
 	defer bus.Close()
 	var selected core.DecideOptions
-	b, err := NewBroker(BrokerDeps{Events: bus, Playback: pb, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: bus, Playback: pb, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key}, nil
 	}, SelectScopedTracks: func(_ context.Context, _ *core.Viewer, _ core.Device, _ *core.Title, _ core.MediaInfo, opts core.DecideOptions, audioSet, subtitleSet bool) (core.DecideOptions, error) {
 		if !audioSet || !subtitleSet {

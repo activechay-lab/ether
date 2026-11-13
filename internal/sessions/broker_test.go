@@ -119,7 +119,7 @@ func TestBrokerAppliesTrackSelectionsBeforeDecision(t *testing.T) {
 	events := NewEventBus(nil, active)
 	defer events.Close()
 	tc := &selectionTranscoder{}
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Transcoder: tc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Transcoder: tc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, SelectTracks: func(_ context.Context, _ *core.Viewer, _ *core.Title, _ core.MediaInfo, opts core.DecideOptions, audioSet, subtitleSet bool) (core.DecideOptions, error) {
 		if !audioSet || !subtitleSet {
@@ -145,7 +145,7 @@ func TestBrokerUsesSharedPlaybackCoordination(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Coordination: coord, Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Coordination: coord, Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}})
 	if err != nil {
@@ -165,11 +165,11 @@ func TestBrokerUsesSharedPlaybackCoordination(t *testing.T) {
 		t.Fatalf("broker bypassed shared gate: %v", err)
 	}
 	unlock()
-	plexUnlock, err := coord.Gates.Acquire(ctx, fmt.Sprintf("owner/1/%s", clientKey("jellyfin", device)))
+	adapterUnlock, err := coord.Gates.Acquire(ctx, fmt.Sprintf("owner/1/%s", clientKey("jellyfin", device)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer plexUnlock()
+	defer adapterUnlock()
 	_, err = b.Plan(ctx, frontend.PlanRequest{Viewer: &core.Viewer{ID: 1}, Device: device, Protocol: "jellyfin", Item: core.MovieKey(1), Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true}}})
 	if err != nil {
 		t.Fatalf("Plex client identifier blocked another protocol: %v", err)
@@ -187,7 +187,7 @@ func TestBrokerMultiProtocolAdmissionAndMedia(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{Lookup: lookup, Playback: p, Transcoder: fakeBrokerTranscoder{}, Progress: progress, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: lookup, Playback: p, Transcoder: fakeBrokerTranscoder{}, Progress: progress, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestBrokerSegmentedMedia(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	defer bus.Close()
-	broker, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: tc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
 	if err != nil {
@@ -393,7 +393,7 @@ func TestPlanRejectsForbiddenTranscoding(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: noTranscodeFixture{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events})
 	if err != nil {
@@ -413,7 +413,7 @@ func TestBrokerSupersededReportCannotStopReplacement(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	defer bus.Close()
-	b, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: fakeBrokerTranscoder{}, Progress: progress, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
 	if err != nil {
@@ -509,7 +509,7 @@ func TestBrokerHLSLadder(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: tc, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events})
 	if err != nil {
@@ -563,7 +563,7 @@ func TestReportNotifiesTimelineOnceForPlexAndJellyfin(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(v *core.Viewer, key core.RatingKey, _ time.Duration, _ time.Duration, state string) {
 		mu.Lock()
@@ -595,15 +595,15 @@ func TestReportNotifiesTimelineOnceForPlexAndJellyfin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plexCtx := WithPlanAdmission(ctx, func(context.Context) (PlanAdmission, error) {
+	adapterCtx := WithPlanAdmission(ctx, func(context.Context) (PlanAdmission, error) {
 		return PlanAdmission{Source: ps, Media: ps.Info, Caps: core.ClientCaps{ClientID: "plex-tv"}, Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}, nil
 	})
 	dev := core.Device{ID: "plex-tv"}
-	plan, err := b.Plan(plexCtx, frontend.PlanRequest{Viewer: viewer, Device: dev, Protocol: "plex", Item: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "plex-tv"}, Intent: frontend.PlayIntent{ClientSessionID: "plex-1", Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}})
+	plan, err := b.Plan(adapterCtx, frontend.PlanRequest{Viewer: viewer, Device: dev, Protocol: "plex", Item: core.MovieKey(1), Caps: core.ClientCaps{ClientID: "plex-tv"}, Intent: frontend.PlayIntent{ClientSessionID: "plex-1", Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = b.Open(plexCtx, frontend.OpenRequest{Viewer: viewer, Device: dev, Protocol: "plex", PlanID: plan.ID}); err != nil {
+	if _, err = b.Open(adapterCtx, frontend.OpenRequest{Viewer: viewer, Device: dev, Protocol: "plex", PlanID: plan.ID}); err != nil {
 		t.Fatal(err)
 	}
 	access := frontend.SessionAccess{Viewer: viewer, Device: dev, Protocol: "plex"}
@@ -663,7 +663,7 @@ func TestBrokerReportItemProgressStoppedAndIdleSessionsVisibility(t *testing.T) 
 	}
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 			return &core.Title{Key: k}, nil
 		},

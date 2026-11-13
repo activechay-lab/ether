@@ -34,7 +34,7 @@ func TestLazyHLSAuthorizesEveryResourceAndDefersOpen(t *testing.T) {
 	}
 	bus := NewEventBus(nil, active)
 	defer bus.Close()
-	broker, err := NewBroker(BrokerDeps{Lookup: planLookup, MediaLookup: lookup, Playback: playback, Transcoder: transcoder, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: planLookup, MediaLookup: lookup, Playback: playback, Transcoder: transcoder, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: bus})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestLazyHLSAuthorizesEveryResourceAndDefersOpen(t *testing.T) {
 }
 
 func TestHLSEligibilityUsesDeclaredDeliveryAndPermissions(t *testing.T) {
-	b := &Broker{deps: BrokerDeps{Transcoder: fakeBrokerTranscoder{}}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: fakeBrokerTranscoder{}}}
 	ps := &core.PlaySession{Info: core.MediaInfo{Streams: []core.StreamInfo{{Type: "video", Codec: "hevc"}, {Type: "audio", Index: 1, Codec: "aac"}}}}
 	if !knownHLSVideo(ps.Info) || knownHLSVideo(core.MediaInfo{Estimated: true, Streams: ps.Info.Streams}) || knownHLSVideo(core.MediaInfo{Streams: []core.StreamInfo{{Type: "video"}}}) {
 		t.Fatal("HLS eligibility did not distinguish known from estimated or missing codec facts")
@@ -129,7 +129,7 @@ func TestHLSPlanContainerUsesStartDecision(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			decision := core.Decision{Kind: core.DecisionKind(tc.kind), Container: tc.container, VideoCopy: true, AudioCopy: true, VideoCodec: "h264", AudioCodec: "aac", AudioStream: 1}
-			b := &Broker{deps: BrokerDeps{Transcoder: decisionTranscoder{decision: decision}}}
+			b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: decisionTranscoder{decision: decision}}}
 			req := frontend.PlanRequest{Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true}}}
 			if tc.delivery != "" {
 				req.Caps.Profiles = &core.ClientCapabilityProfiles{Transcoding: []core.ClientTranscodeProfile{{MediaType: "video", Delivery: tc.delivery, Containers: []string{tc.want, tc.container}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}}}}

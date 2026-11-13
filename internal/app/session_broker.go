@@ -47,7 +47,7 @@ func (a *App) newSessionBroker(events *sessions.EventBus) (*sessions.Broker, err
 			tc = a.spikeLibrary.Transcoder()
 		}
 	}
-	return sessions.NewBroker(sessions.BrokerDeps{
+	return sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: sessionPolicy,
 		OnActualPlaying:     a.automaticSubtitleWork,
 		DistributedHLS:      a.distributedHLS(),
 		Trickplay:           a.trickplay.Borrow(),

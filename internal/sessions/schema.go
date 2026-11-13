@@ -4,10 +4,10 @@ package sessions
 import "github.com/braedonsaunders/ether/internal/store"
 
 func init() {
-	store.RegisterAfter("sessions", "plex")
+	store.RegisterAfter("sessions", "plex") // Historical migration identity.
 	// Keep the historical Plex migration unchanged, including play queues.
 
-	store.Register("plex", 2, `
+	store.Register("plex", 2 /* Historical migration identity. */, `
 CREATE TABLE plex_sessions (
 	id          TEXT    PRIMARY KEY,
 	node_id     TEXT    NOT NULL,
@@ -107,5 +107,9 @@ CREATE TABLE sessions_delivery_authority (
 	header_digest TEXT NOT NULL,
 	PRIMARY KEY (viewer_id, item_id, surface, device_id)
 );`)
+
+	// Historical row identity backfill; runtime ownership uses the stored capability.
+	store.Register("sessions", 10, `ALTER TABLE plex_sessions ADD COLUMN broker_managed INTEGER NOT NULL DEFAULT 0;
+ UPDATE plex_sessions SET broker_managed=1 WHERE protocol IS NOT NULL AND protocol<>'plex';`)
 
 }

@@ -50,7 +50,7 @@ func TestSourceTrackAdmissionThroughAppPreferences(t *testing.T) {
 	prefs := experience.TrackPreferences{Source: fakeSessionTrackPrefs{}}
 	var selected core.DecideOptions
 	var selectedAudio, selectedSubtitle bool
-	b, err := sessions.NewBroker(sessions.BrokerDeps{Playback: pb, Transcoder: activityTranscoder{}, Progress: activityProgress{}, Events: events, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
+	b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: sessionPolicy, Playback: pb, Transcoder: activityTranscoder{}, Progress: activityProgress{}, Events: events, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key}, nil
 	}, SelectScopedTracks: func(ctx context.Context, viewer *core.Viewer, _ core.Device, title *core.Title, info core.MediaInfo, opts core.DecideOptions, audioSet, subtitleSet bool) (core.DecideOptions, error) {
 		selectedAudio, selectedSubtitle = audioSet, subtitleSet

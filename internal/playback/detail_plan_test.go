@@ -36,7 +36,7 @@ func TestDetailPlanSingleFlightAndPlayReusesProbe(t *testing.T) {
 		}
 		return h.catalog.Get(ctx, key)
 	}
-	b, err := sessions.NewBroker(sessions.BrokerDeps{Lookup: lookup, MediaLookup: lookup, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
+	b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, Lookup: lookup, MediaLookup: lookup, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
 	if err != nil {
 		t.Fatal(err)
 	}

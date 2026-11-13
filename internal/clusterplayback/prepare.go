@@ -126,13 +126,13 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	// The native Manager can deduplicate this source identity across controllers.
 	// Operations alias that lifetime; retirement waits for every alias to seal.
 	for _, other := range r.preparations {
-		if !other.receipt && !other.retiring && samePreparationIdentity(other.request, *q) {
+		if !other.receipt && !other.retiring && r.samePreparationIdentity(other.request, *q) {
 			r.mu.Unlock()
 			return r.sharePreparation(ctx, peer, *q, key, hash, other)
 		}
 	}
 	for _, other := range r.preparations {
-		if !other.receipt && samePreparationIdentity(other.request, *q) {
+		if !other.receipt && r.samePreparationIdentity(other.request, *q) {
 			r.mu.Unlock()
 			return sourceResponse{}, ErrPending
 		}
@@ -214,9 +214,9 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	return sourceResponse{Prepared: result}, nil
 }
 
-func samePreparationIdentity(a, b PrepareRequest) bool {
+func (r *Runtime) samePreparationIdentity(a, b PrepareRequest) bool {
 	surface := func(value string) string {
-		if value == "plex" {
+		if r.policy(core.Protocol(value)).ExternalAdmission {
 			return ""
 		}
 		return value

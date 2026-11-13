@@ -94,7 +94,7 @@ func TestMediaBrowserResolvedLazyHLSBroker(t *testing.T) {
 				}
 				bus := NewEventBus(nil, active)
 				defer bus.Close()
-				b, err := NewBroker(BrokerDeps{DB: db, Events: bus, Playback: pb, Transcoder: tc, Lookup: lookup, MediaLookup: lookup, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: &fakeProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}})
+				b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Events: bus, Playback: pb, Transcoder: tc, Lookup: lookup, MediaLookup: lookup, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: &fakeProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}})
 				if err != nil {
 					t.Fatal(err)
 				}

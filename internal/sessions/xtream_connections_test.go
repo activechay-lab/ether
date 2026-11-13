@@ -18,7 +18,7 @@ func TestXtreamConnectionLimitSharedAcrossNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	b := &Broker{deps: BrokerDeps{Now: func() time.Time { return now }}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Now: func() time.Time { return now }}}
 	one := &lazyStreams{db: db, broker: b}
 	two := &lazyStreams{db: db, broker: b}
 	r := httptest.NewRequest("GET", "http://ether.test/file", nil)
@@ -64,7 +64,7 @@ func TestXtreamPrimarySwitchFencesOldSegments(t *testing.T) {
 		t.Fatal(err)
 	}
 	viewer := &core.Viewer{ID: 1}
-	b := &Broker{deps: BrokerDeps{Now: time.Now, ActiveViewer: func(context.Context, int64) (*core.Viewer, error) { return viewer, nil }}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Now: time.Now, ActiveViewer: func(context.Context, int64) (*core.Viewer, error) { return viewer, nil }}}
 	s := &lazyStreams{protocol: "xtream", db: db, broker: b, grants: xtreamGrants{}}
 	r := httptest.NewRequest("GET", "http://ether.test/live", nil)
 	r.RemoteAddr = "192.0.2.1:1234"

@@ -23,7 +23,7 @@ func TestRemoteFileCheckUsesSourceWithoutPlaybackAdmission(t *testing.T) {
 	frontID := nodewire.Identity{Cluster: "offline", NodeID: "front", Boot: "front-boot"}
 	guards := fixtureGuards(t, sourceID, frontID)
 	var denied atomic.Bool
-	source := &Runtime{o: Options{Self: sourceID, Guard: guards[0], Playback: manager, Eligible: func(_ context.Context, id nodewire.Identity, role config.NodeRole) error {
+	source := &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), Self: sourceID, Guard: guards[0], Playback: manager, Eligible: func(_ context.Context, id nodewire.Identity, role config.NodeRole) error {
 		if id == sourceID && role == config.RoleSource || id == frontID && role == config.RoleServer {
 			return nil
 		}
@@ -43,7 +43,7 @@ func TestRemoteFileCheckUsesSourceWithoutPlaybackAdmission(t *testing.T) {
 	server.TLS = guards[0].ServerTLS()
 	server.StartTLS()
 	defer server.Close()
-	front := &Runtime{o: Options{Self: frontID, Guard: guards[1], Endpoint: func(context.Context, nodewire.Identity) (string, error) { return server.URL, nil }}}
+	front := &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), Self: frontID, Guard: guards[1], Endpoint: func(context.Context, nodewire.Identity) (string, error) { return server.URL, nil }}}
 	remote := &RemotePlayback{r: front, o: RemotePlaybackOptions{SelectSource: func(context.Context) (nodewire.Identity, error) { return sourceID, nil }}}
 	live, err := remote.CheckFileAvailability(context.Background(), &core.User{ID: 9}, core.MovieKey(1), core.ClientCaps{ClientID: "file-probe", Protocol: "plex"}, "")
 	if err != nil || !live {

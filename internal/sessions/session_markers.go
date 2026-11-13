@@ -15,7 +15,7 @@ func (b *Broker) Markers(ctx context.Context, access frontend.SessionAccess, id 
 	if err != nil {
 		return frontend.SessionMarkers{}, err
 	}
-	if b.cluster != nil && s.public.Protocol != "plex" {
+	if b.cluster != nil && !b.policy(s.public.Protocol).ExternalAdmission {
 		active, err := b.cluster.store.active(ctx, s.public.ID)
 		if err != nil {
 			return frontend.SessionMarkers{}, err
@@ -61,7 +61,7 @@ func (b *Broker) Markers(ctx context.Context, access frontend.SessionAccess, id 
 	if _, _, err := b.access(ctx, access, id); err != nil {
 		return frontend.SessionMarkers{}, err
 	}
-	if b.cluster != nil && s.public.Protocol != "plex" {
+	if b.cluster != nil && !b.policy(s.public.Protocol).ExternalAdmission {
 		active, err := b.cluster.store.active(ctx, s.public.ID)
 		if err != nil {
 			return frontend.SessionMarkers{}, err

@@ -14,8 +14,9 @@ import (
 // clusterStore uses historical table names with protocol-neutral content.
 // Broker rows store protocol-neutral facts; native Plex rows are separate.
 type clusterStore struct {
-	db   *sql.DB
-	node string
+	db     *sql.DB
+	node   string
+	policy func(frontend.Protocol) core.SessionPolicy
 }
 
 // clusterEntry contains only the non-secret facts remote session readers need.
@@ -88,10 +89,12 @@ func (c clusterStore) putOnce(ctx context.Context, s frontend.Session, sourceID 
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE plex_sessions SET active=0 WHERE active=1 AND user_id=? AND surface=? AND device_id=? AND protocol IS NOT NULL AND protocol<>'plex'`, s.ViewerID, s.Protocol, d.ID); err != nil {
-		return err
+	if c.policy == nil || !c.policy(s.Protocol).ExternalAdmission {
+		if _, err = tx.ExecContext(ctx, `UPDATE plex_sessions SET active=0 WHERE active=1 AND user_id=? AND surface=? AND device_id=? AND protocol=?`, s.ViewerID, s.Protocol, d.ID, s.Protocol); err != nil {
+			return err
+		}
 	}
-	if s.Protocol == "plex" {
+	if c.policy != nil && c.policy(s.Protocol).ExternalAdmission {
 		// Decision and start may use different brokers. Adopt only the exact
 		// authenticated public identity; keep its original session key/time.
 		var oldData, oldProtocol, oldDevice, oldNode string
@@ -99,14 +102,14 @@ func (c clusterStore) putOnce(ctx context.Context, s frontend.Session, sourceID 
 		err := tx.QueryRowContext(ctx, `SELECT node_id,user_id,COALESCE(protocol,''),COALESCE(device_id,''),data FROM plex_sessions WHERE id=?`, s.ID).Scan(&oldNode, &oldViewer, &oldProtocol, &oldDevice, &oldData)
 		if err == nil {
 			var old clusterEntry
-			if oldViewer != s.ViewerID || oldProtocol != "plex" || oldDevice != d.ID || json.Unmarshal([]byte(oldData), &old) != nil || old.ID != s.ID || old.ViewerID != s.ViewerID || old.Item != s.Item {
+			if oldViewer != s.ViewerID || oldProtocol != string(s.Protocol) || oldDevice != d.ID || json.Unmarshal([]byte(oldData), &old) != nil || old.ID != s.ID || old.ViewerID != s.ViewerID || old.Item != s.Item {
 				return core.ErrUnauthorized
 			}
 			data, err = json.Marshal(clusterEntry{ID: s.ID, ViewerID: viewer.ID, Item: s.Item, StartedAt: old.StartedAt, SourceID: sourceID, Channel: s.Channel, ClientSessionID: s.ClientSessionID})
 			if err != nil {
 				return err
 			}
-			result, err := tx.ExecContext(ctx, `UPDATE plex_sessions SET node_id=?,data=?,device_data=?,updated_at=?,active=1 WHERE id=? AND node_id=? AND user_id=? AND protocol='plex' AND device_id=? AND data=?`, c.node, string(data), string(device), now.UnixMilli(), s.ID, oldNode, s.ViewerID, d.ID, oldData)
+			result, err := tx.ExecContext(ctx, `UPDATE plex_sessions SET node_id=?,data=?,device_data=?,updated_at=?,active=1 WHERE id=? AND node_id=? AND user_id=? AND protocol=? AND device_id=? AND data=?`, c.node, string(data), string(device), now.UnixMilli(), s.ID, oldNode, s.ViewerID, s.Protocol, d.ID, oldData)
 			if err != nil {
 				return err
 			}
@@ -123,7 +126,11 @@ func (c clusterStore) putOnce(ctx context.Context, s frontend.Session, sourceID 
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO plex_sessions(id,node_id,user_id,session_key,data,updated_at,protocol,surface,device_id,device_data,active) VALUES(?,?,?,?,?,?,?,?,?,?,1)`, s.ID, c.node, s.ViewerID, key, string(data), now.UnixMilli(), s.Protocol, s.Protocol, d.ID, string(device)); err != nil {
+	managed := 1
+	if c.policy != nil && c.policy(s.Protocol).ExternalAdmission {
+		managed = 0
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO plex_sessions(id,node_id,user_id,session_key,data,updated_at,protocol,surface,device_id,device_data,active,broker_managed) VALUES(?,?,?,?,?,?,?,?,?,?,1,?)`, s.ID, c.node, s.ViewerID, key, string(data), now.UnixMilli(), s.Protocol, s.Protocol, d.ID, string(device), managed); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -131,12 +138,12 @@ func (c clusterStore) putOnce(ctx context.Context, s frontend.Session, sourceID 
 
 // cleanup never removes Plex rows, including legacy rows with NULL protocol.
 func (c clusterStore) cleanup(ctx context.Context) error {
-	_, err := c.db.ExecContext(ctx, `DELETE FROM plex_sessions WHERE node_id=? AND COALESCE(protocol,'plex')<>'plex'`, c.node)
+	_, err := c.db.ExecContext(ctx, `DELETE FROM plex_sessions WHERE node_id=? AND broker_managed=1`, c.node)
 	return err
 }
 
 func (c clusterStore) expire(ctx context.Context, cutoff time.Time) error {
-	_, err := c.db.ExecContext(ctx, `DELETE FROM plex_sessions WHERE COALESCE(protocol,'plex')<>'plex' AND updated_at<?`, cutoff.UnixMilli())
+	_, err := c.db.ExecContext(ctx, `DELETE FROM plex_sessions WHERE broker_managed=1 AND updated_at<?`, cutoff.UnixMilli())
 	return err
 }
 
@@ -152,7 +159,7 @@ func (c clusterStore) touch(ctx context.Context, id string, now time.Time) error
 
 func (c clusterStore) active(ctx context.Context, id string) (bool, error) {
 	var active int
-	err := c.db.QueryRowContext(ctx, `SELECT active FROM plex_sessions WHERE id=? AND node_id=? AND COALESCE(protocol,'plex')<>'plex'`, id, c.node).Scan(&active)
+	err := c.db.QueryRowContext(ctx, `SELECT active FROM plex_sessions WHERE id=? AND node_id=? AND broker_managed=1`, id, c.node).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -160,7 +167,7 @@ func (c clusterStore) active(ctx context.Context, id string) (bool, error) {
 }
 func (c clusterStore) current(ctx context.Context, id string) (bool, error) {
 	var active int
-	err := c.db.QueryRowContext(ctx, `SELECT active FROM plex_sessions WHERE id=? AND COALESCE(protocol,'plex')<>'plex'`, id).Scan(&active)
+	err := c.db.QueryRowContext(ctx, `SELECT active FROM plex_sessions WHERE id=? AND broker_managed=1`, id).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

@@ -19,7 +19,7 @@ func TestDetailSourceConcurrentScopeAndExpiry(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key}, nil
 	}
-	b := &Broker{deps: BrokerDeps{DB: db, Now: func() time.Time { return now }, Lookup: lookup, ActiveViewer: func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Now: func() time.Time { return now }, Lookup: lookup, ActiveViewer: func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }}}
 	req := frontend.PlanRequest{Viewer: &core.Viewer{ID: 2}, Device: core.Device{ID: "tv"}, Protocol: "jellyfin", Item: core.MovieKey(1)}
 	ps := &core.PlaySession{Resolution: &core.Resolution{Release: core.Release{ID: "private-release"}}}
 	const n = 8

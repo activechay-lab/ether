@@ -188,7 +188,7 @@ func TestLazyBoundsMigrationPreservesExistingCapabilities(t *testing.T) {
 	// In-use renewal must survive an oversized upgrade without admitting more handles.
 	activeHash := fmt.Sprintf("%064x", 0)
 	now := time.Now()
-	b := &Broker{deps: BrokerDeps{Now: func() time.Time { return now }}, lazySessions: map[string]lazySession{activeHash: {id: "active", viewer: 1}}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Now: func() time.Time { return now }}, lazySessions: map[string]lazySession{activeHash: {id: "active", viewer: 1}}}
 	streams := &lazyStreams{db: db, broker: b, protocol: "stremio", grants: &fakeLazyGrants{}, ttl: time.Hour}
 	if err := streams.renewActive(context.Background(), activeHash, "grant", 1, "active"); err != nil {
 		t.Fatalf("oversized active renewal: %v", err)

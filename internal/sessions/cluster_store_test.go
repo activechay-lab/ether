@@ -27,7 +27,7 @@ func TestClusterCleanupPreservesPlexRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c := clusterStore{db: db, node: "node"}
+	c := clusterStore{policy: testSessionPolicy, db: db, node: "node"}
 	s := frontend.Session{ID: "broker", Protocol: "jellyfin", ViewerID: 1, Item: core.MovieKey(1), Device: core.Device{ID: "d", Client: "secret-token"}, MediaPath: "/grant-secret", StartedAt: time.Now()}
 	if err := c.put(ctx, s, "source", core.Viewer{ID: 1}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestClusterCleanupPreservesPlexRows(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT session_key FROM plex_sessions WHERE id=?`, s.ID).Scan(&originalKey); err != nil {
 		t.Fatal(err)
 	}
-	other := clusterStore{db: db, node: "other"}
+	other := clusterStore{policy: testSessionPolicy, db: db, node: "other"}
 	for _, mutate := range []func(*frontend.Session){
 		func(s *frontend.Session) { s.ViewerID = 2 },
 		func(s *frontend.Session) { s.Device.ID = "other-device" },
@@ -100,7 +100,7 @@ func TestClusterBrokerListsStopsAndOrdersReportsAcrossNodes(t *testing.T) {
 		busNode := hub.Node(node)
 		events := NewEventBus(busNode, active)
 		t.Cleanup(events.Close)
-		b, err := NewBroker(BrokerDeps{DB: db, Cluster: busNode, Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 5}, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
+		b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Cluster: busNode, Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 5}, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			return &core.Title{Key: key}, nil
 		}})
 		if err != nil {
@@ -252,7 +252,7 @@ func TestClusterSnapshotStartupConversionPreservesSessions(t *testing.T) {
 	db := store.OpenTest(t)
 	ctx := t.Context()
 	now := time.Now().UTC()
-	writer := clusterStore{db: db, node: "writer"}
+	writer := clusterStore{policy: testSessionPolicy, db: db, node: "writer"}
 	session := frontend.Session{ID: "old-session", ViewerID: 7, Protocol: "jellyfin", Item: core.MovieKey(42), Device: core.Device{ID: "phone"}, StartedAt: now}
 	if err := writer.put(ctx, session, "source-session", core.Viewer{ID: 7}, now); err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestClusterSnapshotStartupConversionPreservesSessions(t *testing.T) {
 	if _, err := db.Exec("UPDATE plex_sessions SET data=? WHERE id=?", string(raw), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	reader := clusterStore{db: db, node: "reader"}
+	reader := clusterStore{policy: testSessionPolicy, db: db, node: "reader"}
 	if n, err := reader.migrateEntries(ctx); err != nil || n != 1 {
 		t.Fatalf("convert: %d %v", n, err)
 	}

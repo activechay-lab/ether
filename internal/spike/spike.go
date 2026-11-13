@@ -235,7 +235,12 @@ func (l *Library) OpenPlex() (*plex.Server, func(), error) {
 		return &core.Viewer{ID: id, IsOwner: id == 1}, nil
 	}
 	events := sessions.NewEventBus(nil, active)
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: func(protocol core.Protocol) core.SessionPolicy {
+		if protocol == "plex" {
+			return plex.SessionPolicy()
+		}
+		return core.SessionPolicy{}
+	},
 		Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			return l.Catalog().Get(ctx, key)
 		},

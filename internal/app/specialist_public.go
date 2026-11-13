@@ -107,7 +107,7 @@ func (a *App) publicRoleHandler() http.Handler {
 		return a.handler
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if clusterplayback.IsPublicRepresentation(r) {
+		if clusterplayback.IsPublicRepresentation(r, deliveryPolicy()) {
 			http.NotFound(w, r)
 			return
 		}

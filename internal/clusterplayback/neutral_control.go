@@ -66,7 +66,7 @@ func (r *Runtime) ForwardNeutralControl(ctx context.Context, a frontend.SessionA
 	}
 }
 func (r *Runtime) forwardNeutralControlOnce(ctx context.Context, a frontend.SessionAccess, id, operation string, timeline frontend.Timeline, stream frontend.StreamRequest) (string, bool, error) {
-	if a.Protocol != "jellyfin" && a.Protocol != "emby" {
+	if !r.policy(a.Protocol).DistributedBindings {
 		return "", false, nil
 	}
 	if !r.Allocated(id) {
@@ -141,7 +141,7 @@ func (r *Runtime) neutralControlHTTP(w http.ResponseWriter, q *http.Request) {
 	var request neutralControlRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, q.Body, 32<<10))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF || request.ActorID <= 0 || request.ID == "" || request.Protocol != "jellyfin" && request.Protocol != "emby" {
+	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF || request.ActorID <= 0 || request.ID == "" || !r.policy(request.Protocol).DistributedBindings {
 		http.Error(w, "request", 400)
 		return
 	}

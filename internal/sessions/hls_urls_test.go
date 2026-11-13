@@ -82,7 +82,7 @@ func TestMediaBrowserAuthoredHLSURLs(t *testing.T) {
 				active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 				events := NewEventBus(nil, active)
 				defer events.Close()
-				deps := BrokerDeps{
+				deps := BrokerDeps{SurfacePolicy: testSessionPolicy,
 					Playback:   &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2},
 					Transcoder: &fakeMediaTranscoder{sessions: map[string]*fakeMediaSession{}},
 					Live:       &playlistURLLive{}, Events: events, ActiveViewer: active, Progress: &fakeProgress{},

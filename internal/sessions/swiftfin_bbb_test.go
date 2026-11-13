@@ -30,7 +30,7 @@ func TestSwiftfinBigBuckBunnyDirectPlaysBothAudio(t *testing.T) {
 	if !slices.Contains(client.AudioCodecs, "mp3") || !slices.Contains(client.AudioCodecs, "ac3") {
 		t.Fatalf("profile audio = %v", client.AudioCodecs)
 	}
-	broker := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	broker := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 	no := false
 	info := core.MediaInfo{Container: "mp4", BitrateKbps: 7980, Streams: []core.StreamInfo{
 		{Index: 0, Type: "video", Codec: "h264", Profile: "High", Level: 42, BitDepth: 8, Width: 1920, Height: 1080, PixelFormat: "yuv420p", DolbyVisionConfigurationPresent: &no, HDR10Plus: &no, Default: true},

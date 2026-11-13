@@ -69,7 +69,7 @@ func TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss(t *testing.T) 
 	}
 	endpoints := map[nodewire.Identity]string{}
 	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
-	base := Options{DB: db, Placement: ledger, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true}
+	base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true}
 	var runtimes []*Runtime
 	var senders []http.Handler
 	for n, id := range ids {
@@ -123,7 +123,7 @@ func TestMediaBrowserDeliveryReplaysOriginalFrontendAndFencesLoss(t *testing.T) 
 			events := sessions.NewEventBus(nil, auth.ActiveUser)
 			defer events.Close()
 			var hidden atomic.Bool
-			broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: manager, Transcoder: encoder, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: func(*core.User, bool, time.Time) bool { return true }, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+			broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: manager, Transcoder: encoder, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: func(*core.User, bool, time.Time) bool { return true }, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 				if hidden.Load() {
 					return nil, core.ErrUnauthorized
 				}

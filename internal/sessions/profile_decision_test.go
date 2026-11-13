@@ -75,7 +75,7 @@ func TestProfileDecisionChoosesDeclaredFallbackAndSubtitle(t *testing.T) {
 	caps := core.ClientCaps{Profiles: profiles, Containers: []string{"mp4", "mkv"}, VideoCodecs: []string{"h264", "hevc"}, AudioCodecs: []string{"aac"}, Device: "NVIDIA Shield"}
 	applySubtitleProfiles(&caps)
 	req := frontend.PlanRequest{Caps: caps, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: 2}}}
-	b := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 	d, err := b.decideProfile(&core.PlaySession{Info: info}, req)
 	if err != nil || d.Kind != core.DecisionTranscode || d.VideoCodec != "h264" || !d.BurnSubtitles {
 		t.Fatalf("decision %+v err=%v", d, err)
@@ -95,7 +95,7 @@ func TestUnknownHEVCConditionTriesDeclaredH264Transcode(t *testing.T) {
 	caps := core.ClientCaps{Profiles: profiles, Containers: []string{"mp4"}, VideoCodecs: []string{"h264", "hevc"}, AudioCodecs: []string{"aac", "ac3"}, HLSContainers: []string{"mpegts"}}
 	req := frontend.PlanRequest{Caps: caps, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: -1}}}
 	var events []ProfileDiagnostic
-	b := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}, OnProfileDiagnostic: func(event ProfileDiagnostic) { events = append(events, event) }}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}, OnProfileDiagnostic: func(event ProfileDiagnostic) { events = append(events, event) }}}
 	if profileDirectAllowed(profiles, info, core.Decision{Kind: core.DecisionDirectPlay, AudioStream: 1}) {
 		t.Fatal("unknown required HEVC predicate was accepted")
 	}
@@ -158,7 +158,7 @@ func TestProfileFallback4KRespectsH264Level(t *testing.T) {
 		Transcoding: []core.ClientTranscodeProfile{{MediaType: "video", Delivery: "hls", Containers: []string{"mpegts"}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac", "ac3"}, MaxAudioChannels: "6"}},
 	}
 	req := frontend.PlanRequest{Caps: core.ClientCaps{Profiles: profiles, Containers: []string{"mp4"}, VideoCodecs: []string{"h264", "hevc"}, AudioCodecs: []string{"aac", "ac3"}, HLSContainers: []string{"mpegts"}, VideoLevels: map[string]int{"h264": 41}}, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: -1}}}
-	b := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 	d, err := b.decideProfile(&core.PlaySession{Info: info}, req)
 	if err != nil || d.VideoCodec != "h264" || d.VideoCopy || d.MaxHeight <= 0 || d.MaxHeight > 1080 || d.H264Level == 0 || d.H264Level > 41 {
 		t.Fatalf("expected bounded 4K fallback: %+v, %v", d, err)
@@ -195,7 +195,7 @@ func TestH264OutputContractOnlyForVerifiedEncoderPaths(t *testing.T) {
 		{"hardware without h264 falls back to software", core.HWAccel{Name: "qsv"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			b := &Broker{deps: BrokerDeps{Transcoder: profileHWTranscoder{hw: tc.hw}}}
+			b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileHWTranscoder{hw: tc.hw}}}
 			if b.h264EncoderVerified() != tc.want {
 				t.Fatal("incorrect encoder qualification")
 			}
@@ -220,7 +220,7 @@ func TestH264OnlyProfileNegotiates4KEncoderContract(t *testing.T) {
 		Transcoding: []core.ClientTranscodeProfile{{MediaType: "video", Delivery: "hls", Containers: []string{"mpegts"}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"ac3"}, MaxAudioChannels: "6"}},
 	}
 	caps := core.ClientCaps{Profiles: profiles, Containers: []string{"mp4"}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"ac3"}, HLSContainers: []string{"mpegts"}}
-	b := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 	d, err := b.decideProfile(&core.PlaySession{Info: info}, frontend.PlanRequest{Caps: caps, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: -1}}})
 	if err != nil || d.VideoCopy || d.VideoCodec != "h264" || d.H264Level != 51 || d.H264FrameRate != 30 {
 		t.Fatalf("4K H.264 contract: %+v, %v", d, err)
@@ -295,7 +295,7 @@ func TestInfuseConvertSurroundAudioRuleCopiesVideoAndTranscodesAudioToAAC(t *tes
 		}
 	}
 
-	b := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 
 	// Without rule: EAC3 5.1 MKV direct-plays on Infuse-Direct.
 	qOff := config.Quality{

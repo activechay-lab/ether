@@ -129,7 +129,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
 	auth := &composedAuth{}
 	policy := &composedPolicy{}
-	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
+	base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
 		return core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts", AudioStream: -1, SubtitleStream: -1}
 	}}
 	base.MediaServers = func(context.Context) ([]nodewire.Identity, error) { return []nodewire.Identity{senderID}, nil }
@@ -202,7 +202,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 	defer events.Close()
 	hub := clusterbus.NewHub()
 	ownerNode, senderNode := hub.Node(ownerID.NodeID), hub.Node(senderID.NodeID)
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{DB: db, Cluster: ownerNode, Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Cluster: ownerNode, Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
 	}})
 	if err != nil {
@@ -453,7 +453,7 @@ func TestRealPlexRuntimeDecisionStartSeekAcrossFrontends(t *testing.T) {
 }
 
 func brokerTestDeps(remote *RemotePlayback, decision core.Transcoder, owner *Runtime, events *sessions.EventBus, auth *composedAuth, policy *composedPolicy) sessions.BrokerDeps {
-	return sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
+	return sessions.BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(*core.User, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
 	}}
 }

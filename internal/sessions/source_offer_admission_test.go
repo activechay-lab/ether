@@ -95,7 +95,7 @@ func TestSourceOfferHTTPAdmissionExpiryAndRevocationBoundaries(t *testing.T) {
 					lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 						return &core.Title{Key: key, Type: core.TypeMovie}, nil
 					}
-					broker, err := NewBroker(BrokerDeps{DB: db, Events: events, Playback: playback, Lookup: lookup, MediaLookup: lookup, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: &fakeProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Variants: func(context.Context, *core.Viewer, *core.Title, core.ClientCaps) ([]core.ReleaseVariant, error) {
+					broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, DB: db, Events: events, Playback: playback, Lookup: lookup, MediaLookup: lookup, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, Progress: &fakeProgress{}, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Variants: func(context.Context, *core.Viewer, *core.Title, core.ClientCaps) ([]core.ReleaseVariant, error) {
 						return []core.ReleaseVariant{{ID: "local:test"}}, nil
 					}})
 					if err != nil {

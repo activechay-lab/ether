@@ -38,9 +38,6 @@ type neutralBinding struct {
 	Source                                  core.PlaySession
 }
 
-func neutralProtocol(protocol frontend.Protocol) bool {
-	return protocol == "jellyfin" || protocol == "emby"
-}
 func (b *Broker) saveNeutralBinding(ctx context.Context, id string, force bool) error {
 	remote := b.deps.DistributedHLS
 	storage, ok := remote.(neutralBindingStore)
@@ -49,7 +46,7 @@ func (b *Broker) saveNeutralBinding(ctx context.Context, id string, force bool) 
 	}
 	b.mu.Lock()
 	s := b.sessions[id]
-	if s == nil || !neutralProtocol(s.public.Protocol) || s.live || s.format != frontend.StreamHLS {
+	if s == nil || !b.neutralProtocol(s.public.Protocol) || s.live || s.format != frontend.StreamHLS {
 		b.mu.Unlock()
 		return nil
 	}
@@ -122,7 +119,7 @@ func (b *Broker) restoreNeutralBindingMode(ctx context.Context, id string, acces
 		return core.ErrNotAvailable
 	}
 	p := snapshot.Public
-	if p.ID != id || !neutralProtocol(p.Protocol) || p.ViewerID <= 0 || p.Device.ID == "" || snapshot.PlayID == "" || snapshot.Grant == "" || snapshot.Format != frontend.StreamHLS || !snapshot.Binding.Started || snapshot.Binding.ID != id || snapshot.Binding.PlayID != snapshot.PlayID || snapshot.Binding.UserID != p.ViewerID || snapshot.Binding.ClientID != snapshot.ClientID || snapshot.Binding.Key != p.Item || snapshot.Source.ID != snapshot.PlayID || snapshot.Source.UserID != p.ViewerID || snapshot.Source.Key != p.Item || snapshot.ClientID != clientKey(p.Protocol, p.Device) {
+	if p.ID != id || !b.neutralProtocol(p.Protocol) || p.ViewerID <= 0 || p.Device.ID == "" || snapshot.PlayID == "" || snapshot.Grant == "" || snapshot.Format != frontend.StreamHLS || !snapshot.Binding.Started || snapshot.Binding.ID != id || snapshot.Binding.PlayID != snapshot.PlayID || snapshot.Binding.UserID != p.ViewerID || snapshot.Binding.ClientID != snapshot.ClientID || snapshot.Binding.Key != p.Item || snapshot.Source.ID != snapshot.PlayID || snapshot.Source.UserID != p.ViewerID || snapshot.Source.Key != p.Item || snapshot.ClientID != clientKey(p.Protocol, p.Device) {
 		return core.ErrUnauthorized
 	}
 	if protocol != "" && string(p.Protocol) != protocol {
@@ -197,7 +194,7 @@ func (b *Broker) restoreNeutralBindingMode(ctx context.Context, id string, acces
 }
 func (b *Broker) restoreNeutralScope(ctx context.Context, a frontend.SessionAccess) error {
 	storage, ok := b.deps.DistributedHLS.(neutralBindingStore)
-	if !ok || !neutralProtocol(a.Protocol) || a.Viewer == nil || a.Device.ID == "" {
+	if !ok || !b.neutralProtocol(a.Protocol) || a.Viewer == nil || a.Device.ID == "" {
 		return nil
 	}
 	ids, err := storage.NeutralBindingIDs(ctx, string(a.Protocol), a.Viewer.ID, a.Device.ID)

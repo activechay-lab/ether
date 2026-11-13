@@ -35,7 +35,7 @@ func TestLegacyPlexAndBrokerShareAdmission(t *testing.T) {
 			}
 			events := sessions.NewEventBus(nil, active)
 			defer events.Close()
-			b, err := sessions.NewBroker(sessions.BrokerDeps{Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+			b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 				return h.catalog.Get(ctx, k)
 			}, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
 			if err != nil {
@@ -193,7 +193,7 @@ func TestColdHandlelessBrokerPlaybackUsesOpenedSource(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, active)
 	defer events.Close()
-	b, err := sessions.NewBroker(sessions.BrokerDeps{Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return h.catalog.Get(ctx, k)
 	}, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
 	if err != nil {
