@@ -174,3 +174,15 @@ func TestStudioExamplesPackAndConform(t *testing.T) {
 func (fixtureHost) FoldersHash(context.Context, string, string) (plugins.FolderHash, error) {
 	return plugins.FolderHash{}, nil
 }
+
+func (fixtureHost) FoldersHashStart(context.Context, string, string) (plugins.FolderHashJob, error) {
+	return plugins.FolderHashJob{}, nil
+}
+
+func (fixtureHost) FoldersHashPoll(context.Context, string) (plugins.FolderHashJob, error) {
+	return plugins.FolderHashJob{}, nil
+}
+
+func (fixtureHost) FoldersHashCancel(context.Context, string) (plugins.FolderHashJob, error) {
+	return plugins.FolderHashJob{}, nil
+}

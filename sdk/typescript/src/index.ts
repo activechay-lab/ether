@@ -20,6 +20,7 @@ export {
   type EtherHost,
   type FolderEntry,
   type FolderHash,
+  type FolderHashJob,
   type HostFetchRequest,
   type HostFetchResponse,
   type RemoteHostOptions,

@@ -617,6 +617,9 @@ type Host interface {
 	FoldersList(ctx context.Context, root, path string) ([]FolderEntry, error)
 	FoldersStat(ctx context.Context, root, path string) (FolderEntry, error)
 	FoldersHash(ctx context.Context, root, path string) (FolderHash, error)
+	FoldersHashStart(ctx context.Context, root, path string) (FolderHashJob, error)
+	FoldersHashPoll(ctx context.Context, id string) (FolderHashJob, error)
+	FoldersHashCancel(ctx context.Context, id string) (FolderHashJob, error)
 
 	// Settings returns the plugin's current non-secret settings. Plugins
 	// read them per request instead of keeping them in instance memory,
@@ -643,6 +646,16 @@ type FetchResponse struct {
 	Status  int               `json:"status"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    []byte            `json:"body,omitempty"`
+}
+
+// FolderHashJob is a pollable background hash. Bytes is the progress so far.
+// Terminal states are done, canceled and error. Only done carries Result.
+type FolderHashJob struct {
+	ID     string      `json:"id"`
+	State  string      `json:"state"`
+	Bytes  int64       `json:"bytes"`
+	Result *FolderHash `json:"result,omitempty"`
+	Error  string      `json:"error,omitempty"`
 }
 
 // FolderHash contains digests, never file contents. ModTime is Unix seconds.

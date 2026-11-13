@@ -246,10 +246,28 @@ root. The service requires `folders: read` and the same live folder grant as
 It returns `{size, modTime, crc32, md5, sha1}`: Unix seconds for `modTime`,
 lowercase hexadecimal digests (CRC32 IEEE, 8 digits; MD5, 32; SHA1, 40).
 No file contents cross the plugin boundary. All three hashes are computed in
-one streaming pass with fixed memory. Files above 256 MiB are refused, including
-files that grow beyond the limit during the call. Cancellation, grant revocation
-and files that change during hashing abort the result. Calls use the runtime's
-host-call budget; there is no background hashing or digest cache.
+one streaming pass with fixed memory. `hash` stays synchronous for files up to
+256 MiB; larger files must use `hashStart(root, path)` (Go: `FoldersHashStart`).
+This explicitly starts a background job and returns `{id, state, bytes}`.
+Poll `hashPoll(id)` (`FoldersHashPoll`) for bytes processed and state: `running`,
+`done`, `canceled`, or `error`. A done job includes `result` with the hash object;
+an error includes `error`. `hashCancel(id)` (`FoldersHashCancel`) requests cancellation;
+poll until terminal to observe completion. Start and poll do not return file bytes.
+
+There is no file-size ceiling for jobs. At most one runs per plugin and two
+across the process; a busy start returns an error to retry later. Starting the
+same active root/path returns its existing job ID. Readers yield for 2 ms after
+each 1 MiB chunk. Jobs survive the initiating call, have a 24-hour deadline,
+and recheck grants and cancellation every chunk. Files changing during hashing
+abort without caching. Revocation or plugin disable stops ongoing reads.
+
+Successful digests persist in a host-owned database cache indexed by plugin,
+resolved path, size and nanosecond modification time. Unchanged files reuse the
+cached digest after permission and containment checks. Cache rows are removed
+when the plugin is uninstalled. Only explicitly requested files are hashed.
+Job status is process-local, and each plugin's terminal status is retained until
+its next start; after a restart, start again to reuse any completed cached result.
+SDK sidecars cannot use these hosted folder services.
 
 ### Item availability
 
