@@ -19,14 +19,13 @@ it("mints a viewer-scoped secret once and can reveal its QR code", async () => {
   render(<ConnectApps base="/me" token="portal" />);
   fireEvent.click(await screen.findByRole("button", { name: "Create connection" }));
   expect(
-    await screen.findByText("https://ether.example/stremio/secret/manifest.json"),
+    await screen.findByDisplayValue("https://ether.example/stremio/secret/manifest.json"),
   ).toBeInTheDocument();
   expect(screen.getByText("This secret is shown only once.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Open in Stremio" })).toHaveAttribute(
     "href",
     "stremio://ether.example/stremio/secret/manifest.json",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Show QR code" }));
   expect(screen.getByAltText("QR code for the server address")).toHaveAttribute(
     "src",
     "data:image/png;base64,AA==",
@@ -85,12 +84,12 @@ it("does not show a previous viewer's secret after changing profiles", async () 
   const view = render(<ConnectApps base="/viewers/1" token="owner" />);
   fireEvent.click(await screen.findByRole("button", { name: "Create connection" }));
   expect(
-    await screen.findByText("https://ether.example/stremio/old-secret/manifest.json"),
+    await screen.findByDisplayValue("https://ether.example/stremio/old-secret/manifest.json"),
   ).toBeInTheDocument();
   view.rerender(<ConnectApps base="/viewers/2" token="owner" />);
   await screen.findByRole("button", { name: "Create connection" });
   expect(
-    screen.queryByText("https://ether.example/stremio/old-secret/manifest.json"),
+    screen.queryByDisplayValue("https://ether.example/stremio/old-secret/manifest.json"),
   ).not.toBeInTheDocument();
 });
 

@@ -101,7 +101,7 @@ describe("Sources › Debrid", () => {
     });
     expect(await within(drawer).findByText(/OK/)).toBeInTheDocument();
 
-    fireEvent.click(within(drawer).getByRole("button", { name: "Save provider" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls(fake, "PUT", "/config/debrid")).toHaveLength(1));
     const body = calls(fake, "PUT", "/config/debrid")[0]!.body as DebridConfig;
     expect(body).toMatchObject({ cachedOnly: true, removeUncached: true });

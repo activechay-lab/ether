@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/hlsplay"
 	mbplayer "github.com/braedonsaunders/ether/internal/hlsplay/mediabrowser"
 	plexplayer "github.com/braedonsaunders/ether/internal/hlsplay/plex"
-	"github.com/braedonsaunders/ether/internal/hlsplay"
 )
 
 func main() {

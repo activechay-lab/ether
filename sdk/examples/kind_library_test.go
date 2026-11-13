@@ -25,6 +25,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/experience"
 	"github.com/braedonsaunders/ether/internal/extend"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
 	"github.com/braedonsaunders/ether/internal/kindstream"
 	"github.com/braedonsaunders/ether/internal/libraries"
 	"github.com/braedonsaunders/ether/internal/pluginitems"
@@ -457,15 +458,17 @@ func TestKindLibraryEndToEndSliceD(t *testing.T) {
 			}
 			return nil, core.ErrNotFound
 		},
-		Libraries:       builtins,
-		Visibility:      vis,
-		State:           st,
-		Rows:            &experience.RowsService{},
-		Protocol:        "jellyfin",
-		PluginLibraries: kc,
-		Get:             func(context.Context, *core.User, core.RatingKey) (*core.Title, error) { return nil, core.ErrNotFound },
-		Children:        func(context.Context, *core.User, core.RatingKey) ([]core.Title, error) { return nil, nil },
-		Browse:          func(context.Context, core.BrowseQuery) (core.Page, error) { return core.Page{}, nil },
+		Libraries:           builtins,
+		Visibility:          vis,
+		State:               st,
+		Rows:                &experience.RowsService{},
+		Protocol:            "jellyfin",
+		BuiltinNative:       mediabrowser.NativeLibraryType,
+		LibraryPresentation: mediabrowser.ProjectLibrary,
+		PluginLibraries:     kc,
+		Get:                 func(context.Context, *core.User, core.RatingKey) (*core.Title, error) { return nil, core.ErrNotFound },
+		Children:            func(context.Context, *core.User, core.RatingKey) ([]core.Title, error) { return nil, nil },
+		Browse:              func(context.Context, core.BrowseQuery) (core.Page, error) { return core.Page{}, nil },
 		Search: experience.Search{
 			Catalog: func(context.Context, string, []core.MediaType, int) ([]core.Title, error) { return nil, nil },
 		},

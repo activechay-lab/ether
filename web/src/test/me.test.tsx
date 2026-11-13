@@ -122,9 +122,9 @@ it("renders Connect apps and Sign-in methods for a Plex-signed-in viewer and cre
   expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
   const buttons = await screen.findAllByRole("button", { name: "Create connection" });
   fireEvent.click(buttons[0]!);
-  expect(await screen.findByText("https://ether.example/jellyfin")).toBeInTheDocument();
-  expect(screen.getByText("Username: alice")).toBeInTheDocument();
-  expect(screen.getByText("ethg_app_password_secret")).toBeInTheDocument();
+  expect(await screen.findByDisplayValue("https://ether.example/jellyfin")).toBeInTheDocument();
+  expect(screen.getByDisplayValue("alice")).toBeInTheDocument();
+  expect(screen.getByDisplayValue("ethg_app_password_secret")).toBeInTheDocument();
 });
 
 it("explains a code that was already used", async () => {

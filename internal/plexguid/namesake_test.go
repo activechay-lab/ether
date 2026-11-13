@@ -51,11 +51,13 @@ func TestLegacyNamesakeRowWithheldAndRepaired(t *testing.T) {
 	}
 
 	s := New(db, Options{
-		Background: true,
+		Background: false,
 		Token:      func() string { return "fixture" },
 		Namesakes:  cat.Namesakes,
 	})
 	defer s.Close()
+	// Inspect the queue and run repair manually without background consumers.
+	s.priority = make(chan core.RatingKey, priorityQueueSize)
 
 	// The namesake legacy row is withheld on every read path.
 	if got := s.Cached(ctx, core.MovieKey(770)); got != "" {

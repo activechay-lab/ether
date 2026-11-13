@@ -44,6 +44,7 @@ it("sets up RPDB and Custom from a fresh config before choosing either in Artwor
   fireEvent.click(picker);
   expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
     "TMDB",
+    "Your posters (PosterFlow/folder), then TMDB",
     "RPDB",
     "Custom posters",
   ]);

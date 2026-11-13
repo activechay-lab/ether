@@ -55,7 +55,7 @@ describe("Sources", () => {
     const { fake } = renderApp("/sources/usenet");
     fireEvent.click(await screen.findByRole("button", { name: "Edit Primary news" }, WAIT));
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "eu.news.example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save provider" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls(fake, "PUT", "/config/usenet")).toHaveLength(1), WAIT);
     const body = calls(fake, "PUT", "/config/usenet")[0]!.body as { providers: UsenetProvider[] };
     expect(body.providers[0]).toMatchObject({
@@ -70,8 +70,12 @@ describe("Sources", () => {
   it("persists provider removal from its drawer and retains remaining credentials", async () => {
     const { fake } = renderApp("/sources/usenet");
     fireEvent.click(await screen.findByRole("button", { name: "Edit Primary news" }, WAIT));
-    fireEvent.click(screen.getByRole("button", { name: "Remove provider" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "Remove provider?" })).getByRole("button", {
+        name: "Remove",
+      }),
+    );
     await waitFor(() => expect(calls(fake, "PUT", "/config/usenet")).toHaveLength(1));
     expect(calls(fake, "PUT", "/config/usenet")[0]!.body).toMatchObject({
       providers: [{ id: "p2", priority: 0, password: "••••" }],
