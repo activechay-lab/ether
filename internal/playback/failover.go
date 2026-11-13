@@ -57,7 +57,7 @@ func (m *Manager) preparedResolution(ctx context.Context, s *session, profile co
 	if res != nil && m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
 		return nil, nil, false
 	}
-	if res != nil && (!releaseMatchesTitle(res.Release, s.title) || !payloadMatchesTitle(res.NZB, s.title)) {
+	if res != nil && (!m.rememberedReleaseMatchesTitle(ctx, res.Release, s.title) || !payloadMatchesTitle(res.NZB, s.title)) {
 		// An older stored/warmed selection may predate the series identity
 		// gate. Do not reuse a same-named reboot for this show's episode.
 		if s.prefer == res.Release.ID {

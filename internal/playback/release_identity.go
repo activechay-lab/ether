@@ -2,6 +2,7 @@ package playback
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"path"
 	"strings"
@@ -113,4 +114,15 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 	// Older cached descriptors must be resolved again to acquire that target.
 	return rel.Protocol != core.ProtocolTorrent || title.ShowYear <= 0 ||
 		(rel.Target != nil && rel.Target.ShowYear == title.ShowYear && rel.Target.EpisodeTitle == title.Title)
+}
+
+// rememberedReleaseMatchesTitle delegates to current resolver identity rules
+// when supported, including its owner-pin exemption.
+func (m *Manager) rememberedReleaseMatchesTitle(ctx context.Context, rel core.Release, title *core.Title) bool {
+	if checker, ok := m.deps.Resolver.(interface {
+		RememberedReleaseAllowed(context.Context, *core.Title, core.Release) bool
+	}); ok {
+		return checker.RememberedReleaseAllowed(ctx, title, rel)
+	}
+	return releaseMatchesTitle(rel, title)
 }
