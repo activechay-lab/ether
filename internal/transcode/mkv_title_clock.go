@@ -1,8 +1,10 @@
 package transcode
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
 )
 
 // Keep the packager's positive clock private. Android's enhanced player
@@ -36,14 +38,15 @@ func matroskaTitleReader(src io.ReaderAt, size int64) (io.ReadSeeker, error) {
 			return nil, io.ErrUnexpectedEOF
 		}
 		next := end
+		var underflow uint64
 		for at := body; at < end; {
 			cid, cb, cn, err := ebmlElement(src, at, end)
-			if err != nil || cn < 0 || cb+cn > end {
-				return nil, io.ErrUnexpectedEOF
-			}
-			if cid == mkvCluster && n < 0 {
+			if err == nil && cid == mkvCluster && n < 0 {
 				next = at
 				break
+			}
+			if err != nil || cn < 0 || cb+cn > end {
+				return nil, io.ErrUnexpectedEOF
 			}
 			switch cid {
 			case mkvTimestamp:
@@ -53,15 +56,33 @@ func matroskaTitleReader(src io.ReaderAt, size int64) (io.ReadSeeker, error) {
 				}
 				origin := uint64(matroskaOrigin.Milliseconds())
 				if ms < origin {
-					return nil, fmt.Errorf("matroska: cluster precedes mux origin")
+					// Decoder/audio preroll can precede title zero. Cluster
+					// timestamps are unsigned; retain that negative time in
+					// each Block's signed relative timestamp instead.
+					underflow, ms = origin-ms, 0
+				} else {
+					ms -= origin
 				}
-				ms -= origin
 				b := make([]byte, cn)
 				for i := len(b) - 1; i >= 0; i-- {
 					b[i] = byte(ms)
 					ms >>= 8
 				}
 				r.patches = append(r.patches, mkvClockPatch{cb, b})
+			case mkvSimpleBlock, mkvBlockGroup:
+				if underflow > 0 {
+					block, ok := mkvReadBlock(src, cid, cb, cn)
+					if !ok {
+						return nil, fmt.Errorf("matroska: invalid preroll block")
+					}
+					rel := int64(block.at/time.Millisecond) - int64(underflow)
+					if rel < -32768 || rel > 32767 {
+						return nil, fmt.Errorf("matroska: preroll timestamp overflow")
+					}
+					b := make([]byte, 2)
+					binary.BigEndian.PutUint16(b, uint16(int16(rel)))
+					r.patches = append(r.patches, mkvClockPatch{block.data - 3, b})
+				}
 			case mkvCRC32:
 				// A same-sized Void replaces the optional CRC, whose protected
 				// Timestamp is now different. No encoded packet bytes change.

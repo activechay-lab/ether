@@ -135,13 +135,14 @@ type Timeline struct {
 func (tl *Timeline) Keyframed() bool { return tl != nil && tl.keyframed }
 
 type timelineOptions struct {
-	steadyMode SegMode
-	fastStart  bool
-	rampSegs   int
-	rampDur    time.Duration
-	keyframes  []core.KeyframePoint // absolute media times, sorted
-	base       time.Duration        // playlist position zero, absolute
-	snap       bool                 // snap copy boundaries to keyframes
+	steadyMode      SegMode
+	fastStart       bool
+	rampSegs        int
+	rampDur         time.Duration
+	keyframes       []core.KeyframePoint // absolute media times, sorted
+	base            time.Duration        // playlist position zero, absolute
+	snap            bool                 // snap copy boundaries to keyframes
+	strictKeyframes bool                 // indexed Android copies never advertise mid-GOP boundaries
 }
 
 // buildTimeline plans a span (0 = unknown duration) at a steady segment
@@ -172,12 +173,25 @@ func buildTimeline(span, steady time.Duration, o timelineOptions) *Timeline {
 		return tl
 	}
 	// Relative keyframe times for snapping.
+	snap := snapBoundary
+	if o.strictKeyframes {
+		snap = func(kfs []time.Duration, next, _, span time.Duration) time.Duration {
+			i := sort.Search(len(kfs), func(i int) bool { return kfs[i] >= next })
+			if i == len(kfs) {
+				return span
+			}
+			return kfs[i]
+		}
+	}
 	var kfs []time.Duration
 	if o.snap {
 		for _, k := range o.keyframes {
 			if rel := k.Time - o.base; rel > 0 && rel < span {
 				kfs = append(kfs, rel)
 			}
+		}
+		if o.strictKeyframes && len(o.keyframes) > 0 {
+			kfs = append(kfs, span)
 		}
 		sort.Slice(kfs, func(i, j int) bool { return kfs[i] < kfs[j] })
 		tl.keyframed = len(kfs) > 0
@@ -188,7 +202,7 @@ func buildTimeline(span, steady time.Duration, o timelineOptions) *Timeline {
 	rampEnd := time.Duration(-1)
 	if len(kfs) > 0 && tl.rampSegs > 0 {
 		nominal := time.Duration(tl.rampSegs) * tl.rampDur
-		if k := snapBoundary(kfs, nominal, steady, span); k > nominal && k < span {
+		if k := snap(kfs, nominal, steady, span); k > nominal && k < span {
 			n := int(k / tl.rampDur)
 			if k-time.Duration(n)*tl.rampDur >= tl.rampDur/2 {
 				n++
@@ -210,7 +224,7 @@ func buildTimeline(span, steady time.Duration, o timelineOptions) *Timeline {
 		case len(kfs) > 0 && i >= tl.rampSegs-1 && next < span:
 			// Snap boundaries a copy stream must cut at: every boundary of
 			// a pure copy timeline, and the ramp->copy switch onward.
-			next = snapBoundary(kfs, next, steady, span)
+			next = snap(kfs, next, steady, span)
 		}
 		if next >= span || span-next < steady/4 {
 			next = span

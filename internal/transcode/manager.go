@@ -849,13 +849,14 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		// copy plan from its first segment instead, like fMP4 and Matroska.
 		fastStart := !req.LiveInput && adapt.FastStart && v != nil && (!d.VideoCopy || (d.Container == ContainerMPEGTS && len(req.Info.Keyframes) > 0))
 		plan = buildTimeline(span, segDur, timelineOptions{
-			steadyMode: steadyMode,
-			fastStart:  fastStart,
-			rampSegs:   adapt.RampSegs,
-			rampDur:    adapt.RampDur,
-			keyframes:  req.Info.Keyframes,
-			base:       base,
-			snap:       d.VideoCopy && len(req.Info.Keyframes) > 0,
+			steadyMode:      steadyMode,
+			fastStart:       fastStart,
+			rampSegs:        adapt.RampSegs,
+			rampDur:         adapt.RampDur,
+			keyframes:       req.Info.Keyframes,
+			base:            base,
+			snap:            d.VideoCopy && len(req.Info.Keyframes) > 0,
+			strictKeyframes: d.MatroskaTitleClock && d.Container == ContainerMatroska,
 		})
 		total = plan.Total()
 		tracks = len(rungs) // one segment track per rung
@@ -881,7 +882,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			req.Info.Keyframes = points
 			plan = buildTimeline(plan.span, segDur, timelineOptions{steadyMode: ModeCopy,
 				fastStart: rampBoundary, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
-				keyframes: points, base: base, snap: true})
+				keyframes: points, base: base, snap: true, strictKeyframes: d.MatroskaTitleClock && d.Container == ContainerMatroska && sample.complete})
 			total = plan.Total()
 		}
 		if len(rungs) > 0 {

@@ -246,6 +246,14 @@ func TestMatroskaChunkArgsKeepPositiveTitleClock(t *testing.T) {
 // Pin the actual player-visible clock and cadence, including a resumed run.
 // Inspect packets too: every generated segment must open on a video keyframe.
 func TestIntegrationAndroidMatroskaTitleClock(t *testing.T) {
+	// Indexed long GOPs remain whole even beyond the ordinary snap limit.
+	plan := buildTimeline(40*time.Second, 4*time.Second, timelineOptions{
+		steadyMode: ModeCopy, snap: true, strictKeyframes: true,
+		keyframes: []core.KeyframePoint{{Time: 0}, {Time: 20 * time.Second}},
+	})
+	if plan.Total() != 2 || plan.Dur(0) != 20*time.Second || plan.Dur(1) != 20*time.Second {
+		t.Fatalf("long-GOP plan: %v", plan.durs)
+	}
 	e := newRealEnv(t, WithoutHWDetection())
 	e.gen(t, "android.mkv", 16, "-c:v", "libx264", "-preset", "ultrafast", "-g", "96", "-keyint_min", "96", "-sc_threshold", "0", "-c:a", "aac")
 	info, err := e.m.Probe(t.Context(), e.url("android.mkv"))
