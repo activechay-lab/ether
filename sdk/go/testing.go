@@ -635,3 +635,15 @@ func (h *TestHarness) File(path, rangeHeader string) RawResponse {
 func (*MockHost) FoldersHash(context.Context, string, string) (FolderHash, error) {
 	return FolderHash{}, fmt.Errorf("folders.hash requires the hosted runtime")
 }
+
+func (*MockHost) FoldersHashStart(context.Context, string, string) (FolderHashJob, error) {
+	return FolderHashJob{}, fmt.Errorf("folders.hash requires the hosted runtime")
+}
+
+func (*MockHost) FoldersHashPoll(context.Context, string) (FolderHashJob, error) {
+	return FolderHashJob{}, fmt.Errorf("folders.hash requires the hosted runtime")
+}
+
+func (*MockHost) FoldersHashCancel(context.Context, string) (FolderHashJob, error) {
+	return FolderHashJob{}, fmt.Errorf("folders.hash requires the hosted runtime")
+}

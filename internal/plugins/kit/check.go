@@ -576,6 +576,11 @@ func (h *recordingHost) CallHost(ctx context.Context, name string, raw json.RawM
 			return nil, wasm.Forbidden("folders: read permission not declared")
 		}
 		return json.RawMessage(`[]`), nil
+	case "folders.hashStart", "folders.hashPoll", "folders.hashCancel":
+		if h.man.Ether.Permissions.Folders != "read" {
+			return nil, wasm.Forbidden("folders: read permission not declared")
+		}
+		return json.RawMessage(`{"id":"hash-1","state":"done","bytes":1024,"result":{"size":1024,"modTime":0,"crc32":"00000000","md5":"00000000000000000000000000000000","sha1":"0000000000000000000000000000000000000000"}}`), nil
 	case "folders.hash":
 		if h.man.Ether.Permissions.Folders != "read" {
 			return nil, wasm.Forbidden("folders: read permission not declared")

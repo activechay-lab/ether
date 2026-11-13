@@ -20,6 +20,9 @@ import (
 )
 
 func init() {
+	// Host-owned digests are separate from plugin KV quotas and cannot be forged by plugins.
+	store.Register("plugins", 6, `CREATE TABLE plugins_hash_cache(plugin TEXT NOT NULL,kkey TEXT NOT NULL,value BLOB NOT NULL,PRIMARY KEY(plugin,kkey));`)
+
 	// v4: settled journal rows (undone, or shadow records that were never
 	// applied) are the only ones retention removes; this partial index
 	// finds them by age without walking the live, undoable history.
@@ -838,6 +841,7 @@ func (s *storage) purge(ctx context.Context, plugin string) error {
 		`DELETE FROM plugins_settings WHERE plugin=?`,
 		`DELETE FROM plugins_setup WHERE plugin=?`,
 		`DELETE FROM plugins_kv WHERE plugin=?`,
+		`DELETE FROM plugins_hash_cache WHERE plugin=?`,
 		`DELETE FROM plugins_health WHERE plugin=?`,
 		`DELETE FROM plugins_outbox WHERE plugin=?`,
 		`DELETE FROM plugins_proposals WHERE plugin=?`,

@@ -548,6 +548,15 @@ func (b hostBridge) CallHost(ctx context.Context, name string, raw json.RawMessa
 	case "folders.list":
 		v, err := b.h.FoldersList(ctx, str(0), str(1))
 		return result(v, err)
+	case "folders.hashStart":
+		v, err := b.h.FoldersHashStart(ctx, str(0), str(1))
+		return result(v, err)
+	case "folders.hashPoll":
+		v, err := b.h.FoldersHashPoll(ctx, str(0))
+		return result(v, err)
+	case "folders.hashCancel":
+		v, err := b.h.FoldersHashCancel(ctx, str(0))
+		return result(v, err)
 	case "folders.hash":
 		v, err := b.h.FoldersHash(ctx, str(0), str(1))
 		return result(v, err)

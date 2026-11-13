@@ -129,6 +129,9 @@ export function createMockHostClient(initial?: Partial<MockHostState>): MockHost
       },
     },
     folders: {
+      hashStart: () => { throw new Error("Set a folders.hashStart mock"); },
+      hashPoll: () => { throw new Error("Set a folders.hashPoll mock"); },
+      hashCancel: () => { throw new Error("Set a folders.hashCancel mock"); },
       hash: () => { throw new Error("Set a folders.hash mock for file identification tests"); },
       list: (root: string, path = "") => {
         const key = path ? `${root}/${path}` : root;

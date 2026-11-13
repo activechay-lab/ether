@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -665,9 +666,12 @@ func (h *host) Log(ctx context.Context, level, msg string, attrs map[string]any)
 	return nil
 }
 
-// FoldersHash streams at most 256 MiB per call with fixed memory. Grants are
-// rechecked per chunk, so cancellation and revocation stop ongoing hashing.
+// FoldersHash keeps small hashes synchronous; large files require an explicit job.
 func (h *host) FoldersHash(ctx context.Context, root, path string) (FolderHash, error) {
+	return h.hashFile(ctx, root, path, false, nil)
+}
+
+func (h *host) hashFile(ctx context.Context, root, path string, background bool, progress func(int64)) (FolderHash, error) {
 	const capBytes = 256 << 20
 	if _, err := h.folderCheck(ctx, root, path); err != nil {
 		return FolderHash{}, err
@@ -703,8 +707,23 @@ func (h *host) FoldersHash(ctx context.Context, root, path string) (FolderHash, 
 	if err != nil {
 		return FolderHash{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > capBytes {
+	if !info.Mode().IsRegular() {
+		return FolderHash{}, fmt.Errorf("folders.hash requires a regular file")
+	}
+	if !background && info.Size() > capBytes {
 		return FolderHash{}, fmt.Errorf("folders.hash requires a regular file of at most 256 MiB")
+	}
+	key := fmt.Sprintf("host.hash.%x", sha256.Sum256([]byte(fmt.Sprintf("%s/%s:%d:%d", realRoot, rel, info.Size(), info.ModTime().UnixNano()))))
+	if raw, ok, err := h.m.store.hashCacheGet(ctx, h.plugin, key); err != nil {
+		return FolderHash{}, err
+	} else if ok {
+		var cached FolderHash
+		if json.Unmarshal(raw, &cached) == nil {
+			if _, err := h.folderCheck(ctx, root, path); err != nil {
+				return FolderHash{}, err
+			}
+			return cached, nil
+		}
 	}
 	crc, md, sha := crc32.NewIEEE(), md5.New(), sha1.New()
 	w := io.MultiWriter(crc, md, sha)
@@ -719,11 +738,23 @@ func (h *host) FoldersHash(ctx context.Context, root, path string) (FolderHash, 
 		}
 		n, err := f.Read(buf)
 		total += int64(n)
-		if total > capBytes {
+		if !background && total > capBytes {
 			return FolderHash{}, fmt.Errorf("folders.hash size limit exceeded")
 		}
 		if n > 0 {
 			_, _ = w.Write(buf[:n])
+			if progress != nil {
+				progress(total)
+			}
+			if background {
+				timer := time.NewTimer(2 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return FolderHash{}, ctx.Err()
+				case <-timer.C:
+				}
+			}
 		}
 		if err == io.EOF {
 			break
@@ -739,5 +770,10 @@ func (h *host) FoldersHash(ctx context.Context, root, path string) (FolderHash, 
 	if total != info.Size() || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
 		return FolderHash{}, fmt.Errorf("folders.hash file changed while hashing")
 	}
-	return FolderHash{Size: total, ModTime: info.ModTime().Unix(), CRC32: fmt.Sprintf("%08x", crc.Sum32()), MD5: fmt.Sprintf("%x", md.Sum(nil)), SHA1: fmt.Sprintf("%x", sha.Sum(nil))}, nil
+	result := FolderHash{Size: total, ModTime: info.ModTime().Unix(), CRC32: fmt.Sprintf("%08x", crc.Sum32()), MD5: fmt.Sprintf("%x", md.Sum(nil)), SHA1: fmt.Sprintf("%x", sha.Sum(nil))}
+	raw, _ := json.Marshal(result)
+	if err := h.m.store.hashCachePut(ctx, h.plugin, key, raw); err != nil {
+		return FolderHash{}, err
+	}
+	return result, nil
 }

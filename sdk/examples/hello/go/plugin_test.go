@@ -586,3 +586,15 @@ func TestHostedTypeScriptAsyncHandler(t *testing.T) {
 func (noopHost) FoldersHash(context.Context, string, string) (plugins.FolderHash, error) {
 	return plugins.FolderHash{}, nil
 }
+
+func (noopHost) FoldersHashStart(context.Context, string, string) (plugins.FolderHashJob, error) {
+	return plugins.FolderHashJob{}, nil
+}
+
+func (noopHost) FoldersHashPoll(context.Context, string) (plugins.FolderHashJob, error) {
+	return plugins.FolderHashJob{}, nil
+}
+
+func (noopHost) FoldersHashCancel(context.Context, string) (plugins.FolderHashJob, error) {
+	return plugins.FolderHashJob{}, nil
+}
