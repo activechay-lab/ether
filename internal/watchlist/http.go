@@ -69,6 +69,7 @@ func (s *Service) Router() http.Handler {
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, u)))
 			})
 		})
+		s.communityJobRoutes(r)
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			v, e := s.Items(r.Context(), viewer(r))
 			if e != nil {

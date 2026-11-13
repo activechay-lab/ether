@@ -3002,6 +3002,9 @@ export function createFakeServer(opts: FakeOptions = {}) {
     if (p === "/discovery/settings") return json({ enabled: true });
     if (seg[0] === "discovery" && seg[1] === "users") {
       const viewer = Number(seg[2]);
+      if (seg[3] === "sync" && seg[4] === "jobs") {
+        return json({ id: 1, state: "completed", plex: "synced", count: 0 });
+      }
       if (seg[3] === "membership" && method === "POST") {
         const keys = (body as { keys?: string[] }).keys || [];
         return json(Object.fromEntries(keys.map((key) => [key, savedForViewer(viewer, key)])));
