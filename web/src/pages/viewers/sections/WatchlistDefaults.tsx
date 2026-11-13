@@ -116,7 +116,10 @@ function FeedStatusLine({ status, sharedSet }: { status?: RSSFeedStatus; sharedS
     "{count} unmatched title",
     "{count} unmatched titles",
   );
-  const problem = status.problem && status.problem !== "upstream" ? (RSS_PROBLEMS[status.problem] ?? RSS_PROBLEMS.network) : "";
+  const problem =
+    status.problem && status.problem !== "upstream"
+      ? (RSS_PROBLEMS[status.problem] ?? RSS_PROBLEMS.network)
+      : "";
   return (
     <span className="mt-1.5 block space-y-1 text-xs text-fg-muted">
       <span className="block">
@@ -226,7 +229,10 @@ export function WatchlistAlerts() {
               )}
               <FeedStatusLine status={s.doc.data?.plexFriendsRssStatus} sharedSet />
               {s.doc.data?.plexFriendsStatus?.map((friend) => (
-                <span key={friend.id} className="block">{friend.username}<FeedStatusLine status={friend} sharedSet /></span>
+                <span key={friend.id} className="block">
+                  {friend.username}
+                  <FeedStatusLine status={friend} sharedSet />
+                </span>
               ))}
             </>
           }

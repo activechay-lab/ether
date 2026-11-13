@@ -58,7 +58,6 @@ type Servers struct {
 	heldMu      sync.Mutex
 	heldRev     atomic.Uint64
 	held        atomic.Pointer[HeldSnapshot]
-	warmedMu    sync.Mutex
 	warmedShows map[core.RatingKey]struct{}
 }
 

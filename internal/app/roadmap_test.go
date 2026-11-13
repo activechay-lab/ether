@@ -19,7 +19,12 @@ func TestRoadmapOwnerAPIsAreWiredAndPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = cfg.Update(func(c *config.Config) error { c.Transcode.FFmpegPath = "/not-installed/ffmpeg"; return nil }); err != nil {
+	if err = cfg.Update(func(c *config.Config) error {
+		enabled := true
+		c.LiveTV.Enabled = &enabled
+		c.Transcode.FFmpegPath = "/not-installed/ffmpeg"
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	a, err := New(context.Background(), Options{DataDir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})

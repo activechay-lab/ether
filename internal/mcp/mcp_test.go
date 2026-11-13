@@ -315,12 +315,12 @@ func TestMCPBoundaryAuthResourcesAndScopes(t *testing.T) {
 	if !readNames["livetv_look_draft"] {
 		t.Fatal("read scope must see the public look draft")
 	}
-	for _, name := range []string{"look_draft", "channel_summary", "livetv_look_save", "livetv_channel_look", "quality_order_set"} {
+	for _, name := range []string{"look_draft", "channel_summary", "livetv_look_save", "livetv_channel_look", "livetv_channel_apply", "quality_order_set"} {
 		if readNames[name] {
 			t.Fatalf("read scope exposes console-only or write tool %s", name)
 		}
 	}
-	for _, name := range []string{"livetv_look_save", "livetv_channel_look", "quality_order_set"} {
+	for _, name := range []string{"livetv_look_save", "livetv_channel_look", "livetv_channel_apply", "quality_order_set"} {
 		_, denied := postRPC(t, h, "tok-read", "tools/call", map[string]any{"name": name, "arguments": map[string]any{}})
 		if denied["error"] == nil {
 			t.Fatalf("read scope called write proposal %s", name)
@@ -334,11 +334,19 @@ func TestMCPBoundaryAuthResourcesAndScopes(t *testing.T) {
 		t.Fatalf("expected error calling write tool with read scope, got %v", deniedCall)
 	}
 
-	// 5. Full scope sees all 33 tools; calling a write tool creates a pending approval without mutating state.
+	// 5. Full scope sees all 34 tools; calling a write tool creates a pending approval without mutating state.
 	_, listFullBody := postRPC(t, h, "tok-full", "tools/list", nil)
 	fullTools := listFullBody["result"].(map[string]any)["tools"].([]any)
-	if len(fullTools) != 33 {
-		t.Fatalf("expected 33 visible tools for full scope, got %d", len(fullTools))
+	if len(fullTools) != 34 {
+		t.Fatalf("expected 34 visible tools for full scope, got %d", len(fullTools))
+	}
+
+	fullNames := map[string]bool{}
+	for _, raw := range fullTools {
+		fullNames[raw.(map[string]any)["name"].(string)] = true
+	}
+	if !fullNames["livetv_channel_apply"] {
+		t.Fatal("full scope must expose the owner channel proposal")
 	}
 
 	_, propBody := postRPC(t, h, "tok-full", "tools/call", map[string]any{

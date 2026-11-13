@@ -43,7 +43,9 @@ func TestBroadcastAllCandidatesFailUsesLiveSignal(t *testing.T) {
 			t.Fatal(err)
 		}
 		b.start()
-		time.Sleep(18 * time.Second)
+		// Admission now retries the on-air candidate at the bounded 15s cadence.
+		// Observe two retries without requiring unready alternates to be probed.
+		time.Sleep(32 * time.Second)
 		synctest.Wait()
 		b.close()
 		frames := runner.encoders[0].snapshot()

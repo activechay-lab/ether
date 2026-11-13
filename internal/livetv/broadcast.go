@@ -120,7 +120,9 @@ func (i *broadcastInput) close() {
 		}
 	})
 }
-func (i *broadcastInput) run() {
+func (i *broadcastInput) run(plan broadcastPlan) {
+	// The airing plan may be replaced on the frame clock while this reader runs.
+	// Decoder diagnostics use the immutable plan captured before launch.
 	defer close(i.frames)
 	frameNo := int64(0)
 	ready := false
@@ -151,7 +153,7 @@ func (i *broadcastInput) run() {
 		if !ready {
 			ready = true
 			if i.logger != nil {
-				i.logger.Debug("broadcast decoder ready", "input", i.plan.id, "programme", i.plan.programme, "prepareLatency", time.Since(i.openedAt), "sinceOutputStart", time.Since(i.outputOrigin))
+				i.logger.Debug("broadcast decoder ready", "input", plan.id, "programme", plan.programme, "prepareLatency", time.Since(i.openedAt), "sinceOutputStart", time.Since(i.outputOrigin))
 			}
 		}
 		select {
@@ -596,7 +598,8 @@ func (b *broadcast) accept(now time.Time, current broadcastPlan, next *broadcast
 				continue
 			}
 			b.wg.Add(1)
-			go func() { defer b.wg.Done(); input.run() }()
+			plan := input.plan
+			go func() { defer b.wg.Done(); input.run(plan) }()
 		default:
 			return
 		}

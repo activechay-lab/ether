@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -18,22 +17,11 @@ import (
 func (a *App) buildLiveTV() error {
 	// Resolve the additive switch once from existing owner state, before workers start.
 	if a.cfg.Read().LiveTV.Enabled == nil {
-		enabled := false
-		var count int
-		if err := a.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM livetv_sources`).Scan(&count); err == nil && count > 0 {
-			enabled = true
-		}
-		rows, err := a.db.QueryContext(context.Background(), `SELECT data FROM livetv_channels`)
-		if err == nil {
-			for rows.Next() {
-				var raw string
-				var c livetv.Channel
-				if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &c) == nil && c.Enabled {
-					enabled = true
-					break
-				}
-			}
-			rows.Close()
+		// Existing setup is an opt-in, even when every saved channel is disabled.
+		// Probe only for existence and never persist OFF after a database error.
+		var enabled bool
+		if err := a.db.QueryRowContext(context.Background(), `SELECT EXISTS(SELECT 1 FROM livetv_sources) OR EXISTS(SELECT 1 FROM livetv_channels)`).Scan(&enabled); err != nil {
+			return err
 		}
 		if err := a.cfg.Update(func(c *config.Config) error { c.LiveTV.Enabled = &enabled; return nil }); err != nil {
 			return err

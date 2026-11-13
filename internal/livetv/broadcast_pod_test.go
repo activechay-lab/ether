@@ -33,6 +33,11 @@ func TestBroadcastPodPrewarmsAlternateProgrammeClock(t *testing.T) {
 		format := smallBroadcastFormat()
 		playback := &alternatePodPlayback{}
 		s := testService(t, Options{Playback: playback})
+		// The readiness worker has settled; admit the alternate locally.
+		synctest.Wait()
+		s.mu.Lock()
+		s.readyTitles = map[core.RatingKey]bool{core.MovieKey(2): true}
+		s.mu.Unlock()
 		channel := testChannel()
 		after := Programme{ID: "planned", ChannelID: channel.ID, Start: origin.Add(2 * time.Minute), End: origin.Add(3 * time.Minute), Item: channel.Items[0]}
 		runner := &broadcastFakeRunner{decoder: func(context.Context, transcode.DecoderRequest) (transcode.Decoder, error) {

@@ -195,7 +195,7 @@ var tierUntouchedTables = []string{
 	"cluster_", "clusterconfig_", "clusterplayback_coordinators", "clusterplayback_neutral_stops",
 	"placement_claims", "placement_displaced", "placement_displaced_claims", "placement_history_", "placement_policy", "placement_pools",
 	"placement_removed_targets", "placement_targets", "placement_ledger", "playback_payload_",
-	"livetv_refresh_leases", "livetv_source_refresh", "livetv_showcase",
+	"livetv_readiness", "livetv_refresh_leases", "livetv_source_refresh", "livetv_showcase",
 	// Settings, logs and plugins' own plumbing.
 	"backup_", "notify_channels", "notify_once", "notify_push_keys", "notify_settings", "overlays_settings",
 	"prerolls", "prerolls_settings", "stats_costs", "stats_device_registry", "stats_device_registry_counter", "stats_indexer_days",
