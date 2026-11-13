@@ -76,6 +76,33 @@ func (c *reviewCollections) List(ctx context.Context, u *core.User, typ core.Med
 			return nil, e
 		}
 	}
+	return c.withReviews(ctx, u, typ, out), nil
+}
+
+// ListComplete forwards the engine's complete listing (errors included, never
+// a partial result) and adds the viewer's Year in Review collections, so
+// consumers that advertise exact totals (Jellyfin BoxSets) see every
+// collection. Without it the wrapper hid ListComplete and those consumers
+// answered with an empty list (#454).
+func (c *reviewCollections) ListComplete(ctx context.Context, u *core.User, typ core.MediaType) ([]core.Collection, error) {
+	var out []core.Collection
+	if c.base != nil {
+		complete, ok := c.base.(interface {
+			ListComplete(context.Context, *core.User, core.MediaType) ([]core.Collection, error)
+		})
+		if !ok {
+			return nil, core.ErrNotAvailable
+		}
+		var e error
+		out, e = complete.ListComplete(ctx, u, typ)
+		if e != nil {
+			return nil, e
+		}
+	}
+	return c.withReviews(ctx, u, typ, out), nil
+}
+
+func (c *reviewCollections) withReviews(ctx context.Context, u *core.User, typ core.MediaType, out []core.Collection) []core.Collection {
 	year := c.d.now().Year()
 	if c.d.now().Month() < time.December {
 		year--
@@ -93,7 +120,7 @@ func (c *reviewCollections) List(ctx context.Context, u *core.User, typ core.Med
 			out = append(out, *col)
 		}
 	}
-	return out, nil
+	return out
 }
 func (c *reviewCollections) Get(ctx context.Context, u *core.User, key core.RatingKey) (*core.Collection, error) {
 	if year, typ, ok := reviewCollectionParts(key); ok {
