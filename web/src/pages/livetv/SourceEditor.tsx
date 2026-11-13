@@ -443,16 +443,7 @@ export function SourceEditor({
             </div>
           ) : null
         }
-      >
-        <Switch
-          aria-label={t("Enabled")}
-          checked={!draft.disabled}
-          onChange={(e) => {
-            const disabled = !e.currentTarget.checked;
-            setDraft((d) => ({ ...d, disabled }));
-          }}
-        />
-      </SourceEditorHeader>
+      />
 
       {source ? (
         <SourceEditorMetrics
