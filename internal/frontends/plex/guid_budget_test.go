@@ -29,10 +29,13 @@ func TestBulkMetadataUsesCachedGUIDsWithoutNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.Exec(`INSERT OR IGNORE INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?),(?,?,?,?,?)`, int64(fightClub.Key), "movie", 550, "Fjord Harbor", 1999, int64(breakingBad.Key), "show", 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"plex://movie/5d7768265af944001f1f6976","type":"movie","Guid":[{"id":"tmdb://550"}]}]}}`)
+		io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"plex://movie/5d7768265af944001f1f6976","type":"movie","title":"Fjord Harbor","year":1999,"Guid":[{"id":"tmdb://550"}]}]}}`)
 	}))
 	defer upstream.Close()
 	f := newFixture()
@@ -56,6 +59,9 @@ func TestHubsWarmPlexGUIDsInBackgroundAndEpisodesRenderHierarchy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.Exec(`INSERT OR IGNORE INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?),(?,?,?,?,?)`, int64(fightClub.Key), "movie", 550, "Fjord Harbor", 1999, int64(breakingBad.Key), "show", 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
+	}
 
 	const (
 		fcGUID     = "plex://movie/5d7768265af944001f1f6976"
@@ -69,10 +75,10 @@ func TestHubsWarmPlexGUIDsInBackgroundAndEpisodesRenderHierarchy(t *testing.T) {
 			q := r.URL.Query()
 			switch {
 			case q.Get("type") == "1" && q.Get("guid") == "tmdb://550":
-				io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+fcGUID+`","type":"movie","Guid":[{"id":"tmdb://550"}]}]}}`)
+				io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+fcGUID+`","type":"movie","title":"Fjord Harbor","year":1999,"Guid":[{"id":"tmdb://550"}]}]}}`)
 				return
 			case q.Get("type") == "2" && q.Get("guid") == "tmdb://1396":
-				io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+showGUID+`","type":"show","Guid":[{"id":"tmdb://1396"}]}]}}`)
+				io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+showGUID+`","type":"show","title":"Boundary Bay","year":2008,"Guid":[{"id":"tmdb://1396"}]}]}}`)
 				return
 			case q.Get("type") == "4" && q.Get("guid") == "tmdb://1396" && q.Get("parentIndex") == "1" && q.Get("index") == "1":
 				io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+ep1GUID+`","type":"episode","index":1,"parentIndex":1,"parentGuid":"`+seasonGUID+`","grandparentGuid":"`+showGUID+`","Guid":[{"id":"tmdb://1396/1/1"}]}]}}`)
@@ -80,9 +86,9 @@ func TestHubsWarmPlexGUIDsInBackgroundAndEpisodesRenderHierarchy(t *testing.T) {
 			}
 			io.WriteString(w, `{"MediaContainer":{"Metadata":[]}}`)
 		case "/library/metadata/5d7768265af944001f1f6976":
-			io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+fcGUID+`","type":"movie","Guid":[{"id":"tmdb://550"}]}]}}`)
+			io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+fcGUID+`","type":"movie","title":"Fjord Harbor","year":1999,"Guid":[{"id":"tmdb://550"}]}]}}`)
 		case "/library/metadata/5d9c086c46115600200aa2fe":
-			io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+showGUID+`","type":"show","Guid":[{"id":"tmdb://1396"}]}]}}`)
+			io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+showGUID+`","type":"show","title":"Boundary Bay","year":2008,"Guid":[{"id":"tmdb://1396"}]}]}}`)
 		case "/library/metadata/5d9c086c46115600200aa2fe/children":
 			io.WriteString(w, `{"MediaContainer":{"Metadata":[{"guid":"`+seasonGUID+`","type":"season","index":1}]}}`)
 		case "/library/metadata/602e5e2194f08e002d001122/children":
@@ -146,6 +152,9 @@ func TestDetailDoesNotWaitForRemotePlexIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := db.Exec(`INSERT OR IGNORE INTO catalog_titles(key,type,tmdb_id,title,year) VALUES(?,?,?,?,?),(?,?,?,?,?)`, int64(fightClub.Key), "movie", 550, "Fjord Harbor", 1999, int64(breakingBad.Key), "show", 1396, "Boundary Bay", 2008); err != nil {
+		t.Fatal(err)
+	}
 	started, release := make(chan struct{}, 1), make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {

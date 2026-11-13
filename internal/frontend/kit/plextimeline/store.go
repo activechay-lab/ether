@@ -3,7 +3,7 @@ package timeline
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/core"
+
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"sync"
 	"time"
@@ -11,18 +11,18 @@ import (
 
 // Writer binds a frontend-owned session cache to shared persistence.
 type Writer struct {
-	core.State
+	frontend.State
 	Store *Store
 	Now   func() time.Time
 }
 
-func (w Writer) TouchParents(ctx context.Context, user int64, key core.RatingKey, at time.Time, complete bool) error {
+func (w Writer) TouchParents(ctx context.Context, user int64, key frontend.RatingKey, at time.Time, complete bool) error {
 	if p, ok := w.State.(frontend.ParentToucher); ok {
 		return p.TouchParents(ctx, user, key, at, complete)
 	}
 	return nil
 }
-func (w Writer) RestoreContinue(ctx context.Context, user int64, key core.RatingKey) error {
+func (w Writer) RestoreContinue(ctx context.Context, user int64, key frontend.RatingKey) error {
 	if p, ok := w.State.(frontend.ContinueRestorer); ok {
 		return p.RestoreContinue(ctx, user, key)
 	}
@@ -35,7 +35,7 @@ type playID struct {
 	playlist        bool
 }
 type timelinePlay struct {
-	key                          core.RatingKey
+	key                          frontend.RatingKey
 	queue                        string
 	position                     time.Duration
 	progressed, complete, closed bool
@@ -49,7 +49,7 @@ type Store struct {
 // TimelineStore applies the session-local crossing and resume rules measured on PMS.
 // The media and playlist tracks are independent. The cache has a fixed bound;
 // its cost depends on active clients, never the catalogue's size.
-func (s Writer) StoreTimeline(ctx context.Context, user int64, key core.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (frontend.TimelinePersistenceResult, error) {
+func (s Writer) StoreTimeline(ctx context.Context, user int64, key frontend.RatingKey, offset, duration time.Duration, status, queue string, offline *int) (frontend.TimelinePersistenceResult, error) {
 	s.Store.Lock()
 	defer s.Store.Unlock()
 	cur, err := s.Get(ctx, user, key)
@@ -80,7 +80,7 @@ func (s Writer) StoreTimeline(ctx context.Context, user int64, key core.RatingKe
 		return out, err
 	}
 	origin := frontend.WatchOriginFrom(ctx)
-	id := playID{user, origin.ClientID, origin.SessionID, key.Kind() == core.KindPlaylist}
+	id := playID{user, origin.ClientID, origin.SessionID, key.Kind() == frontend.KindPlaylist}
 	if s.Store.plays == nil {
 		s.Store.plays = make(map[playID]timelinePlay)
 	}
@@ -153,10 +153,10 @@ func (s Writer) StoreTimeline(ctx context.Context, user int64, key core.RatingKe
 	return out, err
 }
 
-func (s Writer) apply(ctx context.Context, user int64, key core.RatingKey, offset, duration time.Duration, kind, status string) error {
+func (s Writer) apply(ctx context.Context, user int64, key frontend.RatingKey, offset, duration time.Duration, kind, status string) error {
 	writer, ok := s.State.(frontend.WatchMutationWriter)
 	if !ok {
-		return core.ErrNotAvailable
+		return frontend.ErrNotAvailable
 	}
 	return writer.ApplyWatchMutation(ctx, user, key, frontend.WatchMutation{Kind: kind, Offset: offset, Duration: duration, ReportedState: status})
 }

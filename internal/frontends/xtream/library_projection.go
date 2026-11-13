@@ -1,23 +1,23 @@
 package xtream
 
-import "github.com/braedonsaunders/ether/internal/core"
+import "github.com/braedonsaunders/ether/internal/frontend"
 
 // NativeLibraryType returns this adapter's built-in library category.
-func NativeLibraryType(mt core.MediaType) string {
-	if mt == core.TypeShow {
+func NativeLibraryType(mt frontend.MediaType) string {
+	if mt == frontend.TypeShow {
 		return "series"
 	}
 	return "movie"
 }
 
 // ProjectLibrary interprets this adapter's plugin presentation declaration.
-func ProjectLibrary(p core.Presentations, fallback core.MediaType) (core.MediaType, string, bool) {
+func ProjectLibrary(p frontend.Presentations, fallback frontend.MediaType) (frontend.MediaType, string, bool) {
 	if p.Xtream == nil || p.Xtream.Category == "" {
 		return "", "", false
 	}
-	mt := core.TypeMovie
+	mt := frontend.TypeMovie
 	if p.Xtream.Category == "series" {
-		mt = core.TypeShow
+		mt = frontend.TypeShow
 	}
 	return mt, p.Xtream.Category, true
 

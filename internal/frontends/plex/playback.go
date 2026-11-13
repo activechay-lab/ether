@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/braedonsaunders/ether/internal/frontends/plex/parts"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/plexparts"
 	"io"
 	"net/http"
 	"net/url"

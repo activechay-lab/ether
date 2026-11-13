@@ -1,8 +1,8 @@
 package deliverypolicy
 
 import (
-	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/braedonsaunders/ether/internal/streamgrant"
+	"github.com/braedonsaunders/ether/internal/frontend"
+
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,7 +48,7 @@ func GrantEnvelope(q *http.Request) bool {
 		return false
 	}
 	for name := range q.Header {
-		for _, field := range append([]string{streamgrant.StreamGrantParam, plexReadGrant}, accountCredentialFields...) {
+		for _, field := range append([]string{frontend.StreamGrantParam, plexReadGrant}, accountCredentialFields...) {
 			if strings.EqualFold(name, field) {
 				return false
 			}
@@ -66,7 +66,7 @@ func GrantEnvelope(q *http.Request) bool {
 				return false
 			}
 		}
-		for _, field := range []string{streamgrant.StreamGrantParam, plexReadGrant} {
+		for _, field := range []string{frontend.StreamGrantParam, plexReadGrant} {
 			if !strings.EqualFold(name, field) {
 				continue
 			}
@@ -79,7 +79,7 @@ func GrantEnvelope(q *http.Request) bool {
 				}
 			}
 			found = true
-			if field == streamgrant.StreamGrantParam {
+			if field == frontend.StreamGrantParam {
 				hasStream = true
 			} else {
 				hasRead = true
@@ -121,6 +121,6 @@ func boundedPlexClient(q *http.Request, values url.Values) bool {
 	return false
 }
 
-func Policy() core.DeliveryPolicy {
-	return core.DeliveryPolicy{Session: MediaSession, GrantEnvelope: GrantEnvelope, Headers: ForwardHeaders}
+func Policy() frontend.DeliveryPolicy {
+	return frontend.DeliveryPolicy{Session: MediaSession, GrantEnvelope: GrantEnvelope, Headers: ForwardHeaders}
 }

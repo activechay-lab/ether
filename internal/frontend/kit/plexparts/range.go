@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 )
 
 // Request selects the PMS byte-serving contract without changing the
 // representation semantics of other frontends or the encoder loopback.
 func Request(r *http.Request) *http.Request {
-	return r.WithContext(core.WithRangeResponse(r.Context(), core.RangeResponse{MIME: MIME, Serve: Serve}))
+	return r.WithContext(frontend.WithRangeResponse(r.Context(), frontend.RangeResponse{MIME: MIME, Serve: Serve}))
 }
 
 func MIME(name string) string {
@@ -43,7 +43,7 @@ func MIME(name string) string {
 
 // PMS accepts one range window, ignoring the unit. Failed numeric conversions
 // and list syntax have measured fallbacks rather than RFC multipart semantics.
-func Serve(w http.ResponseWriter, r *http.Request, rep core.RangeRepresentation) error {
+func Serve(w http.ResponseWriter, r *http.Request, rep frontend.RangeRepresentation) error {
 	h := w.Header()
 	h.Set("Accept-Ranges", "bytes")
 	h.Set("Content-Type", rep.ContentType)

@@ -2,7 +2,7 @@ package state
 
 import (
 	"context"
-	"github.com/braedonsaunders/ether/internal/frontends/plex/timeline"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/plextimeline"
 	"testing"
 	"time"
 

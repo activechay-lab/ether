@@ -18,8 +18,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
-	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
 	"github.com/braedonsaunders/ether/internal/langtag"
+	plexmeta "github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
 )
 

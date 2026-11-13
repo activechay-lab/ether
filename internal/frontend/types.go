@@ -112,3 +112,14 @@ func ShowKey(tmdb int64) RatingKey { return core.ShowKey(tmdb) }
 func SeasonKey(show int64, season int) RatingKey {
 	return core.SeasonKey(show, season)
 }
+
+// Protocol integration contracts remain implemented by the host.
+type Presentations = core.Presentations
+type SessionPolicy = core.SessionPolicy
+type FrontendHostPolicy = core.FrontendHostPolicy
+type DeliveryPolicy = core.DeliveryPolicy
+type RangeResponse = core.RangeResponse
+type RangeRepresentation = core.RangeRepresentation
+
+var WithRangeResponse = core.WithRangeResponse
+var IsGrantCredential = core.IsGrantCredential

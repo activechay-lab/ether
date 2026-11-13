@@ -10,7 +10,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
 	_ "github.com/braedonsaunders/ether/internal/plexguid"
-	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
+	plexmeta "github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/store"
 )
 

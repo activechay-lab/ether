@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	mbplayer "github.com/braedonsaunders/ether/internal/frontends/mediabrowser/playerlab"
-	plexplayer "github.com/braedonsaunders/ether/internal/frontends/plex/playerlab"
+	mbplayer "github.com/braedonsaunders/ether/internal/hlsplay/mediabrowser"
+	plexplayer "github.com/braedonsaunders/ether/internal/hlsplay/plex"
 	"github.com/braedonsaunders/ether/internal/hlsplay"
 )
 

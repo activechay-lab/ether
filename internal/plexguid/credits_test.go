@@ -179,9 +179,9 @@ func TestExistingIdentityRecheckedUnderCreditRule(t *testing.T) {
 	s.o.Token = func() string { return "fixture" }
 
 	// Rows verified under the old rule are enqueued for priority re-check when
-	// served, but still served until the check runs.
-	if got := s.Cached(ctx, core.MovieKey(770)); got != merged {
-		t.Fatalf("stale-rule record withheld before re-check: %q", got)
+	// read; they are withheld until the current identity rule is proven.
+	if got := s.Cached(ctx, core.MovieKey(770)); got != "" {
+		t.Fatalf("stale-rule record served before re-check: %q", got)
 	}
 	if !s.prioQueued[core.MovieKey(770)] && len(s.priority) == 0 {
 		t.Fatal("stale-rule record not enqueued for priority re-check")
@@ -200,7 +200,7 @@ func TestExistingIdentityRecheckedUnderCreditRule(t *testing.T) {
 		t.Fatalf("agreeing identity lost after repair: %q", got)
 	}
 	var n int
-	if err = db.QueryRow(`SELECT COUNT(*) FROM plexguid_identity WHERE rating_key=? AND guid=? AND credits_rule=1`, int64(core.MovieKey(551)), good).Scan(&n); err != nil || n != 1 {
+	if err = db.QueryRow(`SELECT COUNT(*) FROM plexguid_identity WHERE rating_key=? AND guid=? AND credits_rule=2`, int64(core.MovieKey(551)), good).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("agreeing record not re-marked under credit rule: n=%d err=%v", n, err)
 	}
 }
