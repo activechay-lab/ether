@@ -55,6 +55,12 @@ func (s *Service) probeDue(ctx context.Context) error {
 		return err
 	}
 
+	watch := map[core.RatingKey]bool{}
+	if s.d.Watchlist != nil {
+		if w, err := s.d.Watchlist(ctx); err == nil {
+			watch = w
+		}
+	}
 	gp := s.currentGatePolicy()
 	for _, item := range due {
 		if ctx.Err() != nil {
@@ -77,7 +83,8 @@ func (s *Service) probeDue(ctx context.Context) error {
 			_, _ = s.db.ExecContext(ctx, `UPDATE availability_title_checks SET next_check=0,priority=? WHERE rating_key=?`, basePrio, int64(item.key))
 			continue
 		}
-		if !t.IsReleased(now) {
+		followed := t.Type == core.TypeEpisode && (watch[t.Key] || watch[t.ShowKey])
+		if !t.IsReleased(now) && !(followed && nowTS >= item.anchor-int64((72*time.Hour).Seconds())) {
 			nextAt := nextRetryAfter(item.anchor, item.windowEnd, nowTS)
 			if !t.Released.IsZero() && t.Released.Unix() > nowTS && (nextAt == 0 || t.Released.Unix() < nextAt) {
 				nextAt = t.Released.Unix()
@@ -85,7 +92,7 @@ func (s *Service) probeDue(ctx context.Context) error {
 			_, _ = s.db.ExecContext(ctx, `UPDATE availability_title_checks SET next_check=? WHERE rating_key=?`, nextAt, int64(item.key))
 			continue
 		}
-		err := s.probeOneDue(ctx, *t, item.anchor, item.windowEnd, basePrio)
+		err := s.probeOneDue(ctx, *t, item.anchor, item.windowEnd, basePrio, followed)
 		if err != nil {
 			if benign(err) {
 				return err
@@ -107,7 +114,7 @@ const (
 
 // probeOneDue searches the selected sources (and search-only addons) for t one
 // at a time in priority order, stopping at the first profile-accepted release.
-func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windowEndTS int64, basePrio float64) error {
+func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windowEndTS int64, basePrio float64, followed bool) error {
 	if t.Type == core.TypeEpisode && t.ShowKey != 0 {
 		if show, err := s.d.Catalog.CachedTitle(ctx, t.ShowKey); err == nil && show != nil {
 			t.ShowIDs = show.IDs
@@ -211,7 +218,7 @@ func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windo
 			}
 			// Pre-official-date unverified match: queued in availability_releases
 			// for verification; keep bounded retry active until verified or date passes.
-			nextAt := nextEpisodeRetry(anchorTS, windowEndTS, s.now().Unix(), t.Type == core.TypeEpisode && basePrio >= 3000)
+			nextAt := nextEpisodeRetry(anchorTS, windowEndTS, s.now().Unix(), followed)
 			return s.saveTitleCheckDue(ctx, t.Key, "searching", "", nextAt, basePrio)
 		}
 	}
@@ -220,7 +227,7 @@ func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windo
 	}
 	now := s.now()
 	nowTS := now.Unix()
-	nextAt := nextEpisodeRetry(anchorTS, windowEndTS, nowTS, t.Type == core.TypeEpisode && basePrio >= 3000)
+	nextAt := nextEpisodeRetry(anchorTS, windowEndTS, nowTS, followed)
 	if failed > 0 {
 		backoff := now.Add(probeRetry).Unix()
 		if nextAt == 0 || backoff > nextAt {

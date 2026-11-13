@@ -43,6 +43,12 @@ func TestProbeBoundedRetrySchedule(t *testing.T) {
 	// TMDB anchors episodes at midnight, rather than at broadcast time.
 	anchor := int64(1794441600)
 	end := anchor + 86400
+	if got := nextEpisodeRetry(anchor, end, anchor-48*3600, true); got != anchor-42*3600 {
+		t.Fatalf("pre-air retry: %d", got)
+	}
+	if got := nextEpisodeRetry(anchor, end, anchor-48*3600, false); got != anchor {
+		t.Fatalf("unfollowed pre-air retry: %d", got)
+	}
 	for _, hour := range []int64{8, 16, 22} {
 		now := anchor + hour*3600
 		if got := nextEpisodeRetry(anchor, end, now, true); got != now+3600 {

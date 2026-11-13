@@ -1279,6 +1279,11 @@ ON CONFLICT(key) DO UPDATE SET
 			return err
 		}
 	}
+	if t.Type == core.TypeEpisode || t.Type == core.TypeSeason {
+		if err := applyEpisodeRelease(ctx, tx, t.Key); err != nil {
+			return err
+		}
+	}
 	// Replace join rows only when the incoming title carries that facet, so
 	// summary upserts don't wipe detail-fetched genres/credits. A batch
 	// writes them together after its titles (join_batch.go).

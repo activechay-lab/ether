@@ -92,6 +92,9 @@ func nextRetryAfter(anchorTS, windowEndTS, nowTS int64) int64 {
 // checks hourly within the existing evidence window and indexer budgets.
 func nextEpisodeRetry(anchorTS, windowEndTS, nowTS int64, followed bool) int64 {
 	next := nextRetryAfter(anchorTS, windowEndTS, nowTS)
+	if followed && nowTS >= anchorTS-int64((72*time.Hour).Seconds()) && nowTS < anchorTS {
+		return min(anchorTS, nowTS+int64((6*time.Hour).Seconds()))
+	}
 	if followed && nowTS >= anchorTS && nowTS < windowEndTS {
 		hourly := anchorTS + ((nowTS-anchorTS)/3600+1)*3600
 		if hourly < windowEndTS && (next == 0 || hourly < next) {
@@ -172,6 +175,9 @@ func (s *Service) openGate(ctx context.Context, policy string, key core.RatingKe
 	if !s.hasGateTable || policy == "" || key == 0 {
 		return nil
 	}
+	if err := s.recordPlayableEpisode(ctx, key, time.Unix(at, 0)); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO availability_gate(policy,rating_key,first_playable_at,source_id,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(policy,rating_key) DO NOTHING`,
 		policy, int64(key), at, sourceID, at)
 	if err != nil {
@@ -184,6 +190,17 @@ func (s *Service) openGate(ctx context.Context, policy string, key core.RatingKe
 		s.clearVisibility()
 		if c, ok := s.d.Catalog.(interface{ ConsoleGateChanged() }); ok {
 			c.ConsoleGateChanged()
+		}
+	}
+	return nil
+}
+
+func (s *Service) recordPlayableEpisode(ctx context.Context, key core.RatingKey, at time.Time) error {
+	if key.Kind() == core.KindEpisode {
+		if c, ok := s.d.Catalog.(interface {
+			RecordPlayableEpisode(context.Context, core.RatingKey, time.Time) error
+		}); ok {
+			return c.RecordPlayableEpisode(ctx, key, at)
 		}
 	}
 	return nil
@@ -297,7 +314,7 @@ func (s *Service) officialDatesPassed(ctx context.Context, titles map[core.Ratin
 // availability_gate iff it is verified or the title's official date has passed
 // (and no newer negative cooldown applies), and the quality profile accepts it.
 func (s *Service) maybeOpenGateFromRelease(ctx context.Context, f core.ReleaseFeed, t core.Title, r core.Release, now time.Time, verified bool) error {
-	if !s.hasGateTable || t.Adult || !t.IsReleased(now) {
+	if !s.hasGateTable || t.Adult || (!t.IsReleased(now) && !(verified && t.Type == core.TypeEpisode)) {
 		return nil
 	}
 	input := s.discoverySnapshot()
@@ -463,7 +480,7 @@ func (s *Service) ensureGatePolicySeeded(ctx context.Context, input discoverySna
 		var pairSources []string
 		for _, o := range all {
 			t := titleMap[o.key]
-			if t == nil || t.Adult || !t.IsReleased(input.now) {
+			if t == nil || t.Adult || (!t.IsReleased(input.now) && !(o.state == "verified" && t.Type == core.TypeEpisode)) {
 				continue
 			}
 			isVerified := o.state == "verified"
@@ -500,6 +517,11 @@ func (s *Service) ensureGatePolicySeeded(ctx context.Context, input discoverySna
 		}
 	}
 
+	for _, op := range openings {
+		if err := s.recordPlayableEpisode(ctx, op.key, input.now); err != nil {
+			return
+		}
+	}
 	nowTS := input.now.Unix()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -738,6 +760,11 @@ func (s *Service) matchRetainedAndOpenGate(ctx context.Context, titles map[core.
 		}
 	}
 
+	for _, op := range toOpen {
+		if err := s.recordPlayableEpisode(ctx, op.key, input.now); err != nil {
+			return
+		}
+	}
 	if len(toInsert) == 0 && len(toOpen) == 0 {
 		return
 	}
@@ -920,6 +947,14 @@ func (s *Service) seedDueChecks(ctx context.Context, cfg config.Availability) er
 		priority  float64
 		state     string
 	}
+	nextFollowed := map[core.RatingKey]core.RatingKey{}
+	for _, t := range candidates {
+		if t.Type == core.TypeEpisode && t.Season > 0 && t.Episode > 0 && t.Released.After(now) && (watch[t.Key] || watch[t.ShowKey]) {
+			if k := nextFollowed[t.ShowKey]; k == 0 || t.Key < k {
+				nextFollowed[t.ShowKey] = t.Key
+			}
+		}
+	}
 	var updates []upsertRow
 	for _, t := range candidates {
 		if t.Adult || t.Released.IsZero() {
@@ -969,7 +1004,9 @@ func (s *Service) seedDueChecks(ctx context.Context, cfg config.Availability) er
 				continue
 			}
 			if watch[t.Key] || (t.ShowKey != 0 && watch[t.ShowKey]) {
-				basePrio += 1000
+				if !t.Released.After(now) || nextFollowed[t.ShowKey] == t.Key {
+					basePrio += 1000
+				}
 			}
 			if !t.Released.After(now) {
 				basePrio += 2000
@@ -978,11 +1015,16 @@ func (s *Service) seedDueChecks(ctx context.Context, cfg config.Availability) er
 			continue
 		}
 
+		searchStart := t.Released.Unix()
+		followed := t.Type == core.TypeEpisode && (watch[t.Key] || watch[t.ShowKey]) && (!t.Released.After(now) || nextFollowed[t.ShowKey] == t.Key)
+		if followed {
+			searchStart -= int64((72 * time.Hour).Seconds())
+		}
 		ex, seen := existing[t.Key]
 		if !seen {
 			nextAt := nowTS
 			if !t.IsReleased(now) {
-				nextAt = max(nowTS, t.Released.Unix())
+				nextAt = max(nowTS, searchStart)
 			}
 			updates = append(updates, upsertRow{
 				key: t.Key, kind: string(t.Type), checked: 0, next: nextAt,
@@ -1003,14 +1045,14 @@ func (s *Service) seedDueChecks(ctx context.Context, cfg config.Availability) er
 			state = ""
 			nextAt = nowTS
 			if !t.IsReleased(now) {
-				nextAt = max(nowTS, t.Released.Unix())
+				nextAt = max(nowTS, searchStart)
 			}
 		} else if ex.anchor != anchorTS {
 			if ex.checked == 0 {
 				if t.IsReleased(now) {
 					nextAt = nowTS
 				} else {
-					nextAt = max(nowTS, t.Released.Unix())
+					nextAt = max(nowTS, searchStart)
 				}
 			} else if anchorTS <= nowTS && ex.checked < anchorTS {
 				nextAt = nowTS
@@ -1018,10 +1060,10 @@ func (s *Service) seedDueChecks(ctx context.Context, cfg config.Availability) er
 				nextAt = nextRetryAfter(anchorTS, windowEndTS, nowTS)
 			}
 		}
-		if t.Type == core.TypeEpisode && t.IsReleased(now) && (watch[t.Key] || watch[t.ShowKey]) && state != "found" && ex.checked != 0 {
+		if followed && nowTS >= searchStart && state != "found" {
 			// Re-arm exhausted schedules as well as newly followed shows.
 			retry := nextEpisodeRetry(anchorTS, windowEndTS, nowTS, true)
-			if retry != 0 && nextAt == 0 {
+			if retry != 0 && (nextAt == 0 || (nextAt > retry && nowTS < anchorTS)) {
 				nextAt = retry
 			}
 		}
