@@ -31,11 +31,11 @@ type raceResult struct {
 func (m *Manager) raceAlternates(ctx context.Context, s *session, tried []string, alternates []core.Release, fallback func(int64) core.MediaInfo, width int, accept func(*generation) error, prefer func(*generation) bool) (*generation, []string, error) {
 	var cands []core.Release
 	for _, alt := range alternates {
-		if alt.ID != "" && !alt.OpensOnDemand() && !slices.Contains(tried, alt.ID) && releaseMatchesTitle(alt, s.title) {
+		if alt.ID != "" && !alt.OpensOnDemand() && !slices.Contains(tried, alt.ID) && !m.titleReleaseRejected(ctx, s.ident.key, alt) && releaseMatchesTitle(alt, s.title) {
 			cands = append(cands, alt)
 		}
 	}
-	if m.deps.FetchNZB == nil || len(cands) < 2 {
+	if m.deps.FetchNZB == nil || len(cands) == 0 {
 		return nil, nil, nil
 	}
 	rctx, cancel := context.WithCancel(ctx)

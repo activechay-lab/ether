@@ -260,6 +260,14 @@ func releasesFailed(n int, lastErr error, allUncached bool) error {
 // NZBs can be fetched directly, else a fresh Resolve excluding tried ones.
 func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string, alternates []core.Release) (*core.Resolution, error) {
 	ctx = core.WithIndexerPurpose(ctx, core.IndexerPurposePlayback)
+	tried = slices.Clone(tried)
+	m.mu.Lock()
+	for id := range m.openFailures[s.ident.key] {
+		if !slices.Contains(tried, id) {
+			tried = append(tried, id)
+		}
+	}
+	m.mu.Unlock()
 	if m.deps.FetchNZB != nil {
 		// An add-on that did not answer one on-demand link may still be
 		// preparing it; opening another would make it fetch a second
@@ -340,6 +348,9 @@ func allowsH264Transcode(c core.ClientCaps) bool {
 // marked bad. When the probe fails for another reason, fallback supplies the
 // media info.
 func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Resolution, fallback func(size int64) core.MediaInfo, cached ...*probeCache) (*generation, error) {
+	if m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
+		return nil, core.ErrReleaseRejected
+	}
 	// Recheck at the shared open boundary, including failover and old
 	// cached alternates. A mismatch is request-specific, not a bad release.
 	if !releaseMatchesTitle(res.Release, s.title) || !payloadMatchesTitle(res.NZB, s.title) {
@@ -349,6 +360,7 @@ func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Reso
 	src, finish, err := m.openSource(ctx, s.sources, res)
 	m.log.Debug("playback candidate open", "session", s.id, "release", res.Release.ID, "duration", time.Since(openStarted), "ok", err == nil)
 	if err != nil {
+		m.rememberOpenFailure(s, res.Release, err)
 		if permanentSourceFailure(err) {
 			m.markBad(res.Release.ID, "invalid source on open")
 		}
@@ -358,7 +370,9 @@ func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Reso
 		finish(src.Close())
 		return nil, fmt.Errorf("open %s: empty media file", res.Release.Name)
 	}
-	return m.probeGeneration(ctx, s, res, src, finish, fallback, cached...)
+	g, err := m.probeGeneration(ctx, s, res, src, finish, fallback, cached...)
+	m.rememberOpenFailure(s, res.Release, err)
+	return g, err
 }
 
 func (m *Manager) probeGeneration(ctx context.Context, s *session, res *core.Resolution, src core.MediaSource, finish func(error), fallback func(int64) core.MediaInfo, cached ...*probeCache) (*generation, error) {
@@ -936,7 +950,7 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 				if !copyCandidate(next) {
 					return fmt.Errorf("replacement needs video encoding: %w", core.ErrNotAvailable)
 				}
-				bps := mediaBps(next.infoSnapshot(), next.src.Size())
+				bps := replacementBps(next, oldInfo.Duration)
 				if curBps > 0 && (bps <= 0 || bps >= curBps) {
 					return fmt.Errorf("down-failover candidate is not lower bitrate: %w", core.ErrNotAvailable)
 				}
@@ -1004,8 +1018,8 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 				// non-lower one instead of being dropped behind it. The
 				// existing veto below still rejects a fallback that is
 				// not lower when no lower mismatch was found.
-				bps := mediaBps(g.infoSnapshot(), g.src.Size())
-				fallbackBps := mediaBps(fallbackGen.infoSnapshot(), fallbackGen.src.Size())
+				bps := replacementBps(g, oldInfo.Duration)
+				fallbackBps := replacementBps(fallbackGen, oldInfo.Duration)
 				if curBps > 0 && bps > 0 && bps < curBps && !(fallbackBps > 0 && fallbackBps < curBps) {
 					m.dropGeneration(fallbackGen)
 					fallbackGen, keep = nil, true
@@ -1020,7 +1034,7 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 			err = fmt.Errorf("incompatible direct-play replacement: %w", core.ErrNotAvailable)
 		}
 		if err == nil && fo.down {
-			if bps := mediaBps(g.infoSnapshot(), g.src.Size()); curBps > 0 && (bps <= 0 || bps >= curBps) {
+			if bps := replacementBps(g, oldInfo.Duration); curBps > 0 && (bps <= 0 || bps >= curBps) {
 				m.dropGeneration(g)
 				g = nil
 				err = fmt.Errorf("down-failover candidate is not lower bitrate: %w", core.ErrNotAvailable)
@@ -1090,7 +1104,7 @@ func (m *Manager) failoverWith(ctx context.Context, s *session, observed *genera
 	}
 	if g == nil && fallbackGen != nil && fo.down {
 		// A down-failover only helps with a lower-bitrate fallback.
-		if bps := mediaBps(fallbackGen.infoSnapshot(), fallbackGen.src.Size()); curBps > 0 && (bps <= 0 || bps >= curBps) {
+		if bps := replacementBps(fallbackGen, oldInfo.Duration); curBps > 0 && (bps <= 0 || bps >= curBps) {
 			m.dropGeneration(fallbackGen)
 			fallbackGen = nil
 		}
@@ -1795,4 +1809,36 @@ func (m *Manager) probedAudioAcceptable(s *session, profile core.QualityProfile,
 		}
 	}
 	return audioCount == 0
+}
+
+// A size/runtime estimate is sufficient for admission; never publish that
+// estimate as a container duration or seek boundary.
+func replacementBps(g *generation, duration time.Duration) float64 {
+	if bps := mediaBps(g.infoSnapshot(), g.src.Size()); bps > 0 {
+		return bps
+	}
+	if duration > 0 {
+		return float64(g.src.Size()) / duration.Seconds()
+	}
+	return 0
+}
+
+func (m *Manager) rememberOpenFailure(s *session, r core.Release, err error) {
+	if !permanentSourceFailure(err) {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.openFailures == nil {
+		m.openFailures = make(map[core.RatingKey]map[string]bool)
+	}
+	if len(m.openFailures) >= 256 && m.openFailures[s.ident.key] == nil {
+		clear(m.openFailures)
+	}
+	if m.openFailures[s.ident.key] == nil {
+		m.openFailures[s.ident.key] = map[string]bool{}
+	}
+	if len(m.openFailures[s.ident.key]) < 256 {
+		m.openFailures[s.ident.key][r.ID] = true
+	}
 }
