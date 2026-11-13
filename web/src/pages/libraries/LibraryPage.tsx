@@ -184,14 +184,16 @@ export function LibraryPage() {
           </>
         }
       >
-        <SubtabNav
-          ariaLabel={t("Library sections")}
-          active={tab}
-          onSelect={(key) =>
-            navigate(key === "browse" ? `/libraries/${id}` : `/libraries/${id}/${key}`)
-          }
-          tabs={tabs}
-        />
+        <div className={tab === "settings" ? "[&>div]:!mb-0" : undefined}>
+          <SubtabNav
+            ariaLabel={t("Library sections")}
+            active={tab}
+            onSelect={(key) =>
+              navigate(key === "browse" ? `/libraries/${id}` : `/libraries/${id}/${key}`)
+            }
+            tabs={tabs}
+          />
+        </div>
         {tab === "browse" ? (
           lib.source === "plugin" ? (
             <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
@@ -223,7 +225,7 @@ export function LibraryPage() {
           />
         ) : (
           <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
-            <div className="space-y-5 px-5 py-5 lg:px-7">
+            <div className="space-y-5 px-3 py-4">
               <LibrarySettings library={lib} onSaved={() => void library.reload()} />
             </div>
           </div>

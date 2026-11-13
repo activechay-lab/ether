@@ -341,17 +341,6 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
                 }
               />
             ) : null}
-            <SettingsRow
-              title={t("Rules")}
-              control={
-                <Link
-                  className={buttonVariants({ variant: "outline", size: "sm" })}
-                  to={`/libraries/${library.id}/rules`}
-                >
-                  {t("Edit rules")}
-                </Link>
-              }
-            />
           </TitlesComeFrom>
           <SettingsSection title={t("Basics")}>
             <SettingsRow

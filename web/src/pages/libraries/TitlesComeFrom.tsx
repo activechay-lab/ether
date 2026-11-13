@@ -29,6 +29,23 @@ export function TitlesComeFrom({
   const [draft, setDraft] = useState<string[] | null>(null);
   const busy = false;
   const ids = sources;
+  const attached = registry.data?.filter((source) => ids.includes(source.id)) ?? [];
+  const manageHref =
+    ids.length === 1
+      ? library.source === "builtin"
+        ? "/services/tmdb"
+        : attached[0]?.pluginId
+          ? `/plugins/installed?plugin=${encodeURIComponent(attached[0].pluginId)}&tab=setup`
+          : "/services"
+      : "/services";
+  const manageLabel =
+    ids.length === 1
+      ? library.source === "builtin"
+        ? t("Manage TMDB")
+        : attached[0]
+          ? t("Manage {app}", { app: attached[0].name })
+          : t("Manage in Integrations")
+      : t("Manage in Integrations");
   const mediaType = String(library.mediaType ?? library.filter?.type ?? "movie");
   const save = () => {
     if (draft) {
@@ -41,7 +58,15 @@ export function TitlesComeFrom({
       <SettingsSection title={t("Titles come from")}>
         <SettingsRow
           title={t("Catalogue sources")}
-          description={t("Choose sources for this library.")}
+          description={
+            library.source === "builtin"
+              ? t("Always {source}.", { source: attached[0]?.name ?? "TMDB" })
+              : library.source === "plugin"
+                ? t("Comes from the {plugin} plugin.", {
+                    plugin: attached[0]?.owner ?? library.pluginName ?? t("Plugin"),
+                  })
+                : t("Choose sources for this library.")
+          }
           control={
             <div className="flex flex-wrap items-center justify-end gap-2">
               {ids.map((id) => (
@@ -54,18 +79,13 @@ export function TitlesComeFrom({
                   {t("Change")}
                 </Button>
               ) : null}
+              <Link className={buttonVariants({ variant: "outline", size: "sm" })} to={manageHref}>
+                {manageLabel}
+              </Link>
             </div>
           }
         />
         {children}
-        <SettingsRow
-          title={t("Integrations")}
-          control={
-            <Link className={buttonVariants({ variant: "outline", size: "sm" })} to="/services">
-              {t("Manage in Integrations")}
-            </Link>
-          }
-        />
       </SettingsSection>
       {draft ? (
         <Drawer

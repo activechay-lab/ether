@@ -830,29 +830,38 @@ export function ConnectedServices({
       }}
     />
   );
+  const usingBundledKey =
+    !secretConfigured(stored?.catalog?.tmdbKey) &&
+    catalogSetupStatus.data?.steps.some((step) => step.id === "catalog" && step.complete) === true;
   const tmdbForm = (
     <SettingsSection
       title={undefined}
-      description={t("Ether uses this key to name titles, fetch artwork and fill the catalogue.")}
+      description={
+        usingBundledKey
+          ? t("Ether includes a TMDB key. Add your own only if you want to use your own quota.")
+          : t("Ether uses this key to name titles, fetch artwork and fill the catalogue.")
+      }
     >
-      <p className="px-5 py-4 text-sm text-fg-muted">
-        {tx("Create a free API key in your {link} account settings, then paste it below.", {
-          link: (
-            <a
-              href="https://www.themoviedb.org/settings/api"
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-primary underline"
-            >
-              themoviedb.org
-            </a>
-          ),
-        })}
-      </p>
+      {!usingBundledKey ? (
+        <p className="px-5 py-4 text-sm text-fg-muted">
+          {tx("Create a free API key in your {link} account settings, then paste it below.", {
+            link: (
+              <a
+                href="https://www.themoviedb.org/settings/api"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-primary underline"
+              >
+                themoviedb.org
+              </a>
+            ),
+          })}
+        </p>
+      ) : null}
       <SchemaField
         def={{
           key: "tmdbKey",
-          label: t("TMDB API key"),
+          label: usingBundledKey ? t("Your own TMDB key (optional)") : t("TMDB API key"),
           kind: "secret",
           help: t("Your personal TMDB v3 API key or v4 read-access token."),
         }}
@@ -1210,6 +1219,7 @@ function ServiceOverview({
   locked: boolean;
   onToggle: (service: Service, next: boolean) => void;
 }) {
+  const navigate = useNavigate();
   const catalogue = useAsync((signal) => librariesApi.catalogueSources(signal), []);
   const [addingSource, setAddingSource] = useState(false);
   useStreamEvent("plugins.changed", () => {
@@ -1267,7 +1277,11 @@ function ServiceOverview({
                     </p>
                   ))}
               </div>
-              <Button size="sm" variant="outline" onClick={() => onTmdbSetup(true)}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => (tmdbAvailable ? navigate("/services/tmdb") : onTmdbSetup(true))}
+              >
                 {tmdbAvailable ? t("Manage TMDB") : t("Set up TMDB")}
               </Button>
             </>

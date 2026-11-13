@@ -137,7 +137,7 @@ func (a *App) wireCatalogueSources() {
 				unique := make([]core.Title, 0, len(titles))
 				seen := map[core.RatingKey]bool{}
 				for _, title := range titles {
-					if title.Type == core.MediaType(typ) && !seen[title.Key] {
+					if title.Type == core.MediaType(typ) && title.IDs.TMDB > 0 && !seen[title.Key] {
 						seen[title.Key] = true
 						unique = append(unique, title)
 					}
