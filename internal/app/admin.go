@@ -213,6 +213,12 @@ func (a *App) buildAdmin() http.Handler {
 				if err != nil {
 					return nil, err
 				}
+				if lib.Source == core.LibraryPlugin {
+					if a.pluginsRT == nil || a.pluginsRT.pluginitems == nil {
+						return nil, core.ErrNotFound
+					}
+					return a.pluginsRT.pluginitems.PreviewVisibility(ctx, lib.ID, specs, fallback)
+				}
 				sf := libraryScopeFilter(lib, core.Filter{RuleVisibility: "all"})
 				return a.catalog.PreviewVisibilityScoped(ctx, specs, fallback, &sf)
 			}

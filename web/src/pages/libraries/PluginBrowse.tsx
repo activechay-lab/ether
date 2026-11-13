@@ -24,8 +24,20 @@ const SORT_LABELS: Record<string, () => string> = {
  * search, declared sorts and facet filters, items opening the plugin
  * item drawer. State lives in the URL like the catalogue browser.
  */
-export function PluginBrowse({ library }: { library: Library }) {
-  const [params, setParams] = useSearchParams();
+export function PluginBrowse({
+  library,
+  ruleFilter,
+  controlledParams,
+  onParams,
+}: {
+  library: Library;
+  ruleFilter?: Record<string, string>;
+  controlledParams?: URLSearchParams;
+  onParams?: (p: URLSearchParams) => void;
+}) {
+  const [urlParams, setUrlParams] = useSearchParams();
+  const params = controlledParams ?? urlParams;
+  const setParams = onParams ?? setUrlParams;
   const kind = library.kind;
   const query = params.get("q") ?? "";
   const debouncedQuery = useDebouncedValue(query, 300);
@@ -45,10 +57,10 @@ export function PluginBrowse({ library }: { library: Library }) {
   });
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const requestKey = JSON.stringify([debouncedQuery, parent, sort, facetValues]);
+  const requestKey = JSON.stringify([debouncedQuery, parent, sort, facetValues, ruleFilter]);
   const page = useAsync(
     (signal) => {
-      const p: Record<string, string> = { sort, limit: "48" };
+      const p: Record<string, string> = { sort, limit: "48", ...ruleFilter };
       if (debouncedQuery) p.q = debouncedQuery;
       if (parent) p.parent = parent;
       for (const [k, v] of Object.entries(facetValues)) if (v) p[`facet.${k}`] = v;
@@ -79,8 +91,9 @@ export function PluginBrowse({ library }: { library: Library }) {
     if (!nextCursor) return;
     setLoadingMore(true);
     try {
-      const p: Record<string, string> = { sort, limit: "48", cursor: nextCursor };
+      const p: Record<string, string> = { sort, limit: "48", cursor: nextCursor, ...ruleFilter };
       if (parent) p.parent = parent;
+      if (debouncedQuery) p.q = debouncedQuery;
       for (const [k, v] of Object.entries(facetValues)) if (v) p[`facet.${k}`] = v;
       const more = await librariesApi.items(library.id, p);
       setExtraPages((prev) => ({
@@ -230,7 +243,15 @@ function FacetPicker({
     (signal) => librariesApi.facets(library.id, field, "", signal),
     [library.id, field],
   );
-  const label = library.kind?.fields?.find((f) => f.key === field)?.label ?? field;
+  const label =
+    library.kind?.fields?.find((f) => f.key === field)?.label ??
+    (field === "year"
+      ? t("Year")
+      : field === "rating"
+        ? t("Rating")
+        : field === "released"
+          ? t("Recently released")
+          : field);
   const options = [
     { value: "", label: t("Any {field}", { field: label.toLowerCase() }) },
     ...(facets.data?.values ?? []).map((v) => ({

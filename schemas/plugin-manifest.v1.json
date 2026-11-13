@@ -1,65 +1,59 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ether.dev/schemas/plugin-manifest.v1.json",
-  "title": "Ether plugin manifest (EPP/1)",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "A Stremio add-on manifest plus the ether block. This schema mirrors the rules enforced by internal/plugins Manifest.Validate; the Go validator is authoritative.",
-  "type": "object",
-  "required": ["id", "version", "name"],
   "properties": {
-    "id": {
-      "type": "string",
-      "pattern": "^[a-z0-9]+(\\.[a-z0-9][a-z0-9-]*)+$",
-      "maxLength": 120,
-      "description": "Reverse-DNS, lower case, unique, never reused."
+    "background": {
+      "type": "string"
     },
-    "version": {
-      "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.+][0-9A-Za-z.-]*)?$",
-      "description": "SemVer. Updates must increase it."
-    },
-    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
-    "description": { "type": "string", "maxLength": 300 },
-    "logo": { "type": "string" },
-    "background": { "type": "string" },
-    "types": { "type": "array", "items": { "type": "string" } },
-    "catalogs": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["type", "id"],
-        "properties": {
-          "type": { "type": "string" },
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "extra": true
-        }
-      }
-    },
-    "resources": true,
-    "idPrefixes": { "type": "array", "items": { "type": "string" } },
     "behaviorHints": true,
+    "catalogs": {
+      "items": {
+        "properties": {
+          "extra": true,
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "description": {
+      "maxLength": 300,
+      "type": "string"
+    },
     "ether": {
-      "type": "object",
-      "required": ["protocol", "kind", "runtime"],
       "properties": {
-        "protocol": { "const": 1 },
-        "kind": {
-          "enum": [
-            "source",
-            "integration",
-            "notification_channel",
-            "livetv_source",
-            "extension"
-          ]
+        "author": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "type": "object"
         },
         "capabilities": {
-          "type": "array",
-          "uniqueItems": true,
           "items": {
             "enum": [
-              "onair_content",
               "stream_source",
+              "debrid_provider",
               "list_source",
+              "metadata",
+              "plugin_directory",
               "livetv_channels",
               "subtitles",
               "markers",
@@ -68,359 +62,927 @@
               "ranking_step",
               "rule_condition",
               "tools",
-              "ui"
+              "ui",
+              "onair_content",
+              "livetv_pack",
+              "catalog_provider",
+              "kind_resolver",
+              "frontend_adapter",
+              "matcher"
             ]
-          }
+          },
+          "type": "array",
+          "uniqueItems": true
         },
-        "summary": {
-          "type": "string",
-          "maxLength": 80,
-          "description": "Plain text or a $t: key. Sentence case, no em dashes."
+        "cluster": {
+          "enum": [
+            "leader",
+            "every_node"
+          ]
         },
-        "author": {
-          "type": "object",
+        "contributes": {
+          "description": "Per-capability metadata. Mandatory metadata is enforced by the Go validator.",
           "properties": {
-            "name": { "type": "string" },
-            "url": { "type": "string" }
-          }
-        },
-        "license": { "type": "string" },
-        "repo": { "type": "string" },
-        "icon": { "type": "string", "description": "SVG path or URL." },
-        "runtime": {
-          "type": "object",
-          "required": ["kind"],
-          "properties": {
-            "kind": { "enum": ["hosted", "remote"] },
-            "entry": {
-              "type": "string",
-              "description": "Compiled JS file. Hosted only."
+            "channels": {
+              "properties": {
+                "refresh": {
+                  "type": "string"
+                },
+                "test": {
+                  "const": true
+                }
+              },
+              "required": [
+                "test"
+              ],
+              "type": "object"
             },
-            "module": {
-              "type": "string",
-              "description": "WASM file. Hosted only."
+            "commands": {
+              "items": {
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "label",
+                  "action"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "events": {
+              "properties": {
+                "subscribe": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "subscribe"
+              ],
+              "type": "object"
+            },
+            "frontendAdapters": {
+              "items": {
+                "properties": {
+                  "auth": {
+                    "type": "string"
+                  },
+                  "clients": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "defaultPort": {
+                    "type": "integer"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "libraries": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "pathPrefix": {
+                    "type": "string"
+                  },
+                  "protocolHint": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "integration": {
+              "properties": {
+                "adds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 4,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "connect": {
+                  "enum": [
+                    "fields",
+                    "device_code",
+                    "none"
+                  ]
+                },
+                "logo": {
+                  "type": "string"
+                },
+                "test": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "category",
+                "adds",
+                "connect"
+              ],
+              "type": "object"
+            },
+            "listSources": {
+              "items": {
+                "properties": {
+                  "catalog": {
+                    "type": "string"
+                  },
+                  "hint": {
+                    "maxLength": 120,
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "maxItems": {
+                    "maximum": 2000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "params": true,
+                  "refresh": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "label",
+                  "catalog"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "markers": {
+              "properties": {
+                "kinds": {
+                  "items": {
+                    "enum": [
+                      "intro",
+                      "credits",
+                      "recap",
+                      "preview"
+                    ]
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kinds"
+              ],
+              "type": "object"
+            },
+            "mediaKinds": {
+              "items": {
+                "properties": {
+                  "art": {
+                    "items": {
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "browse": {
+                    "properties": {
+                      "facets": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "liveSearch": {
+                        "type": "boolean"
+                      },
+                      "search": {
+                        "type": "boolean"
+                      },
+                      "searchFields": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "sorts": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "cache": {
+                    "properties": {
+                      "maxBytes": {
+                        "type": "integer"
+                      },
+                      "ttl": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "fields": {
+                    "items": {
+                      "properties": {
+                        "enum": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "indexed": {
+                          "type": "boolean"
+                        },
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "string",
+                            "int",
+                            "float",
+                            "bool",
+                            "date",
+                            "duration",
+                            "enum",
+                            "strings",
+                            "people"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "levels": {
+                    "items": {
+                      "properties": {
+                        "container": {
+                          "type": "boolean"
+                        },
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "playable": {
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "library": {
+                    "properties": {
+                      "icon": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "match": {
+                    "properties": {
+                      "thresholdDefault": {
+                        "type": "number"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "present": {
+                    "properties": {
+                      "adapterOnly": {
+                        "type": "boolean"
+                      },
+                      "mediaBrowser": {
+                        "properties": {
+                          "collectionType": {
+                            "type": "string"
+                          },
+                          "itemTypes": {
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "plex": {
+                        "properties": {
+                          "base": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "silo": {
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "stremio": {
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "xtream": {
+                        "properties": {
+                          "category": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "sync": {
+                    "properties": {
+                      "mode": {
+                        "type": "string"
+                      },
+                      "refresh": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "notification": {
+              "properties": {
+                "fields": true,
+                "formats": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "maxLength": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sendTest": {
+                  "const": true
+                }
+              },
+              "required": [
+                "sendTest"
+              ],
+              "type": "object"
+            },
+            "onairFeeds": {
+              "items": {
+                "properties": {
+                  "fields": {
+                    "additionalProperties": {
+                      "enum": [
+                        "text",
+                        "number",
+                        "image",
+                        "list"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "maxAge": {
+                    "type": "string"
+                  },
+                  "sample": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "id",
+                  "fields",
+                  "maxAge"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "onairSegments": {
+              "items": {
+                "properties": {
+                  "duration": {
+                    "maximum": 600,
+                    "minimum": 4,
+                    "multipleOf": 4,
+                    "type": "integer"
+                  },
+                  "feeds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "rating": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "duration",
+                  "file",
+                  "feeds"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "pages": {
+              "items": {
+                "properties": {
+                  "group": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "route": {
+                    "pattern": "^/",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "label",
+                  "route"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "rankingSteps": {
+              "items": {
+                "properties": {
+                  "budget": true,
+                  "editor": true,
+                  "hint": {
+                    "maxLength": 120,
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "label"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "ruleConditions": {
+              "items": {
+                "properties": {
+                  "editor": true,
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "operators": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "key",
+                  "label"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "slots": {
+              "items": {
+                "allOf": [
+                  {
+                    "else": {
+                      "not": {
+                        "required": [
+                          "action"
+                        ]
+                      },
+                      "required": [
+                        "route"
+                      ]
+                    },
+                    "if": {
+                      "properties": {
+                        "slot": {
+                          "pattern": "^actionMenu\\."
+                        }
+                      },
+                      "required": [
+                        "slot"
+                      ]
+                    },
+                    "then": {
+                      "not": {
+                        "required": [
+                          "route"
+                        ]
+                      },
+                      "required": [
+                        "action"
+                      ]
+                    }
+                  }
+                ],
+                "properties": {
+                  "action": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "route": {
+                    "pattern": "^/",
+                    "type": "string"
+                  },
+                  "slot": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slot",
+                  "key",
+                  "label"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "source": {
+              "properties": {
+                "abilities": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "class": {
+                  "enum": [
+                    "debrid",
+                    "usenet",
+                    "indexer",
+                    "direct"
+                  ]
+                },
+                "limits": true
+              },
+              "required": [
+                "class"
+              ],
+              "type": "object"
+            },
+            "subtitles": {
+              "properties": {
+                "formats": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "languages": true
+              },
+              "type": "object"
+            },
+            "tools": {
+              "items": {
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "destructive": {
+                    "type": "boolean"
+                  },
+                  "inputSchema": {
+                    "type": "object"
+                  },
+                  "name": {
+                    "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                    "type": "string"
+                  },
+                  "openWorld": {
+                    "type": "boolean"
+                  },
+                  "readOnly": {
+                    "type": "boolean"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "title",
+                  "description",
+                  "inputSchema"
+                ],
+                "type": "object"
+              },
+              "type": "array"
             }
-          }
+          },
+          "type": "object"
         },
-        "cluster": { "enum": ["leader", "every_node"] },
         "health": {
-          "type": "object",
           "properties": {
             "interval": {
-              "type": "string",
-              "description": "Go duration, at least 15s."
+              "description": "Go duration, at least 15s.",
+              "type": "string"
             }
-          }
+          },
+          "type": "object"
+        },
+        "icon": {
+          "description": "SVG path or URL.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source",
+            "integration",
+            "notification_channel",
+            "livetv_source",
+            "extension",
+            "content"
+          ]
+        },
+        "license": {
+          "type": "string"
         },
         "permissions": {
-          "type": "object",
           "properties": {
+            "catalog": {
+              "enum": [
+                "none",
+                "read"
+              ]
+            },
+            "collections": {
+              "enum": [
+                "none",
+                "write"
+              ]
+            },
+            "folders": {
+              "enum": [
+                "none",
+                "read"
+              ]
+            },
             "network": {
-              "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^(\\*\\.)?([a-z0-9-]+\\.)*[a-z0-9-]+$"
-              }
+                "pattern": "^(\\*\\.)?([a-z0-9-]+\\.)*[a-z0-9-]+$",
+                "type": "string"
+              },
+              "type": "array"
             },
-            "catalog": { "enum": ["none", "read"] },
+            "secrets": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "viewers": {
-              "type": "object",
               "properties": {
-                "identity": { "enum": ["none", "granted_viewers", "all"] },
-                "watch_history": { "enum": ["none", "granted_viewers", "all"] },
-                "write_watch_state": { "enum": ["none", "granted_viewers"] }
-              }
+                "identity": {
+                  "enum": [
+                    "none",
+                    "granted_viewers",
+                    "all"
+                  ]
+                },
+                "watch_history": {
+                  "enum": [
+                    "none",
+                    "granted_viewers",
+                    "all"
+                  ]
+                },
+                "write_watch_state": {
+                  "enum": [
+                    "none",
+                    "granted_viewers"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "protocol": {
+          "const": 1
+        },
+        "repo": {
+          "type": "string"
+        },
+        "runtime": {
+          "properties": {
+            "entry": {
+              "description": "Compiled JS file. Hosted only.",
+              "type": "string"
             },
-            "collections": { "enum": ["none", "write"] },
-            "folders": { "enum": ["none", "read"] },
-            "secrets": { "type": "array", "items": { "type": "string" } }
-          }
+            "kind": {
+              "enum": [
+                "hosted",
+                "remote"
+              ]
+            },
+            "module": {
+              "description": "WASM file. Hosted only.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "properties": {
+                  "call": {
+                    "pattern": "^/",
+                    "type": "string"
+                  },
+                  "every": {
+                    "description": "Go duration, at least 15m.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "every",
+                  "call"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          ]
         },
         "settings": {
           "description": "Settings schema, {} or {\"$ref\":\"file\"}."
         },
         "strings": {
-          "type": "object",
-          "description": "Locale to file path or inline key map. en is required when $t: keys are used."
+          "description": "Locale to file path or inline key map. en is required when $t: keys are used.",
+          "type": "object"
         },
-        "schedule": {
-          "anyOf": [
-            { "type": "string" },
-            {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["every", "call"],
-                "properties": {
-                  "every": {
-                    "type": "string",
-                    "description": "Go duration, at least 15m."
-                  },
-                  "call": { "type": "string", "pattern": "^/" }
-                }
-              }
-            }
-          ]
-        },
-        "contributes": {
-          "type": "object",
-          "description": "Per-capability metadata. Mandatory metadata is enforced by the Go validator.",
-          "properties": {
-            "onairFeeds": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["id", "fields", "maxAge"],
-                "properties": {
-                  "id": {
-                    "type": "string"
-                  },
-                  "fields": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "enum": ["text", "number", "image", "list"]
-                    }
-                  },
-                  "sample": {
-                    "type": "object"
-                  },
-                  "maxAge": {
-                    "type": "string"
-                  }
-                }
-              }
-            },
-            "onairSegments": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["id", "name", "duration", "file", "feeds"],
-                "properties": {
-                  "id": {
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "duration": {
-                    "type": "integer",
-                    "minimum": 4,
-                    "maximum": 600,
-                    "multipleOf": 4
-                  },
-                  "file": {
-                    "type": "string"
-                  },
-                  "feeds": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "rating": {
-                    "type": "string"
-                  }
-                }
-              }
-            },
-            "source": {
-              "type": "object",
-              "required": ["class"],
-              "properties": {
-                "class": { "enum": ["debrid", "usenet", "indexer", "direct"] },
-                "abilities": { "type": "array", "items": { "type": "string" } },
-                "limits": true
-              }
-            },
-            "channels": {
-              "type": "object",
-              "required": ["test"],
-              "properties": {
-                "refresh": { "type": "string" },
-                "test": { "const": true }
-              }
-            },
-            "subtitles": {
-              "type": "object",
-              "properties": {
-                "languages": true,
-                "formats": { "type": "array", "items": { "type": "string" } }
-              }
-            },
-            "markers": {
-              "type": "object",
-              "required": ["kinds"],
-              "properties": {
-                "kinds": {
-                  "type": "array",
-                  "items": { "enum": ["intro", "credits", "recap", "preview"] }
-                }
-              }
-            },
-            "notification": {
-              "type": "object",
-              "required": ["sendTest"],
-              "properties": {
-                "fields": true,
-                "sendTest": { "const": true },
-                "formats": { "type": "array", "items": { "type": "string" } },
-                "maxLength": { "type": "integer", "minimum": 0 }
-              }
-            },
-            "events": {
-              "type": "object",
-              "required": ["subscribe"],
-              "properties": {
-                "subscribe": { "type": "array", "items": { "type": "string" } }
-              }
-            },
-            "integration": {
-              "type": "object",
-              "required": ["category", "adds", "connect"],
-              "properties": {
-                "category": { "type": "string" },
-                "logo": { "type": "string" },
-                "adds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 4,
-                  "items": { "type": "string" }
-                },
-                "connect": { "enum": ["fields", "device_code", "none"] },
-                "test": { "type": "boolean" }
-              }
-            },
-            "listSources": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["key", "label", "catalog"],
-                "properties": {
-                  "key": { "type": "string" },
-                  "label": { "type": "string", "maxLength": 40 },
-                  "hint": { "type": "string", "maxLength": 120 },
-                  "catalog": { "type": "string" },
-                  "params": true,
-                  "maxItems": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 2000
-                  },
-                  "refresh": { "type": "string" }
-                }
-              }
-            },
-            "rankingSteps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["key", "label"],
-                "properties": {
-                  "key": { "type": "string" },
-                  "label": { "type": "string", "maxLength": 40 },
-                  "hint": { "type": "string", "maxLength": 120 },
-                  "editor": true,
-                  "budget": true
-                }
-              }
-            },
-            "ruleConditions": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["key", "label"],
-                "properties": {
-                  "key": { "type": "string" },
-                  "label": { "type": "string", "maxLength": 40 },
-                  "operators": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                  },
-                  "editor": true
-                }
-              }
-            },
-            "tools": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["name", "title", "description", "inputSchema"],
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9_]{1,63}$"
-                  },
-                  "title": { "type": "string" },
-                  "description": { "type": "string" },
-                  "inputSchema": { "type": "object" },
-                  "readOnly": { "type": "boolean" },
-                  "destructive": { "type": "boolean" },
-                  "openWorld": { "type": "boolean" }
-                }
-              }
-            },
-            "pages": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["key", "label", "route"],
-                "properties": {
-                  "key": { "type": "string" },
-                  "label": { "type": "string", "maxLength": 40 },
-                  "route": { "type": "string", "pattern": "^/" },
-                  "group": { "type": "string" },
-                  "icon": { "type": "string" }
-                }
-              }
-            },
-            "slots": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["slot", "key", "label"],
-                "properties": {
-                  "slot": { "type": "string" },
-                  "key": { "type": "string" },
-                  "label": { "type": "string", "maxLength": 40 },
-                  "route": { "type": "string", "pattern": "^/" },
-                  "action": {
-                    "type": "string",
-                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-                  }
-                },
-                "allOf": [
-                  {
-                    "if": {
-                      "properties": { "slot": { "pattern": "^actionMenu\\." } },
-                      "required": ["slot"]
-                    },
-                    "then": {
-                      "required": ["action"],
-                      "not": { "required": ["route"] }
-                    },
-                    "else": {
-                      "required": ["route"],
-                      "not": { "required": ["action"] }
-                    }
-                  }
-                ]
-              }
-            },
-            "commands": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["key", "label", "action"],
-                "properties": {
-                  "key": { "type": "string" },
-                  "label": { "type": "string", "maxLength": 40 },
-                  "action": { "type": "string" }
-                }
-              }
-            }
-          }
+        "summary": {
+          "description": "Plain text or a $t: key. Sentence case, no em dashes.",
+          "maxLength": 80,
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "protocol",
+        "kind",
+        "runtime"
+      ],
+      "type": "object"
+    },
+    "id": {
+      "description": "Reverse-DNS, lower case, unique, never reused.",
+      "maxLength": 120,
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9][a-z0-9-]*)+$",
+      "type": "string"
+    },
+    "idPrefixes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "logo": {
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 60,
+      "minLength": 1,
+      "type": "string"
+    },
+    "resources": true,
+    "types": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "version": {
+      "description": "SemVer. Updates must increase it.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.+][0-9A-Za-z.-]*)?$",
+      "type": "string"
     }
-  }
+  },
+  "required": [
+    "id",
+    "version",
+    "name"
+  ],
+  "title": "Ether plugin manifest (EPP/1)",
+  "type": "object"
 }

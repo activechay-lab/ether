@@ -348,10 +348,10 @@ func (s *Service) SetRules(ctx context.Context, id core.LibraryID, rules []core.
 	if err != nil {
 		return err
 	}
-	if lib.Source == core.LibraryPlugin {
-		return fmt.Errorf("%w: plugin libraries do not have TMDB visibility rules", ErrInvalid)
-	}
 	pinnedType := ""
+	if lib.Source == core.LibraryPlugin {
+		pinnedType = "mixed"
+	}
 	switch {
 	case lib.ID == core.LibraryMovies || lib.MediaType == core.TypeMovie || (lib.Filter != nil && lib.Filter.Type == core.TypeMovie):
 		pinnedType = string(core.TypeMovie)

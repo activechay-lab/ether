@@ -20,6 +20,9 @@ func (s *Service) searchPostgres(ctx context.Context, q SearchQuery, tokens []st
 		args = append(args, q.Level)
 	}
 	appendFacetClauses(&where, &args, q.Facets, nil)
+	if err := s.appendVisibility(ctx, &where, &args, q.LibraryID, q.Policy, q.Hidden); err != nil {
+		return BrowsePage{}, err
+	}
 
 	var total int
 	countSQL := `SELECT COUNT(*) FROM plugin_items i WHERE ` + where.String()
