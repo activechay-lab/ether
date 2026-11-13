@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/livetv"
 )
@@ -25,11 +26,11 @@ func (l sessionLive) Allowed(ctx context.Context, viewer *core.Viewer, id string
 	return l.service.AllowedChannelCached(ctx, viewer, id, l.cached)
 }
 func (l sessionLive) Tune(ctx context.Context, viewer *core.Viewer, id string, caps core.ClientCaps, clientSession string) (string, error) {
-	info, err := l.service.TuneWithSession(ctx, viewer, id, caps, clientSession)
+	info, err := l.service.TuneWithSession(ctx, viewer, id, liveTVClientCaps(caps), clientSession)
 	return info.ID, err
 }
 func (l sessionLive) TuneMedia(ctx context.Context, viewer *core.Viewer, id string, caps core.ClientCaps, clientSession string) (string, *core.MediaInfo, error) {
-	info, err := l.service.TuneWithSession(ctx, viewer, id, caps, clientSession)
+	info, err := l.service.TuneWithSession(ctx, viewer, id, liveTVClientCaps(caps), clientSession)
 	return info.ID, info.MediaInfo, err
 }
 func (l sessionLive) Stop(ctx context.Context, viewer *core.Viewer, id string) error {
@@ -183,4 +184,16 @@ func rewriteSiloLiveURI(raw, sessionPrefix, base string) string {
 
 	}
 	return strings.ReplaceAll(raw, sessionPrefix, base)
+}
+
+// liveTVClientCaps supplies frontend delivery requirements to the neutral host.
+func liveTVClientCaps(caps core.ClientCaps) core.ClientCaps {
+	if caps.Protocol == "jellyfin" || caps.Protocol == "emby" {
+		caps.ProbeLiveInput = true
+	}
+	if caps.Protocol == "silo" {
+		caps.BestEffortLiveStart = true
+	}
+	caps.ProbeLiveWithoutCodecs = caps.ProbeLiveWithoutCodecs || clientreg.HasQuirk(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: caps.Device, Version: caps.Version}, "probe-hls-without-codecs")
+	return caps
 }

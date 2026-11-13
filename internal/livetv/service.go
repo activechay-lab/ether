@@ -69,9 +69,8 @@ type Service struct {
 	broadcasts            broadcastRegistry
 	broadcastProviders    map[string]map[string]string
 	chanSnap              channelSnapshot // decoded lineup shared by request paths (channel_cache.go)
-	plexGate              plexGuideGate
-	plexPreviewMu         sync.Mutex
-	plexPreview           map[string]plexPreviewEntry
+	guidePreviewMu        sync.Mutex
+	guidePreview          map[string]guidePreviewEntry
 	authCache             authCache  // provider credentials for the stream path (auth.go)
 	inputRelay            inputRelay // loopback ffmpeg input relay (input_relay.go)
 	probeMu               sync.Mutex
@@ -1986,7 +1985,7 @@ func (s *Service) Sources(ctx context.Context) ([]Source, error) {
 			return nil, err
 		}
 		v.HasPlaylist = v.Playlist != "" || v.PlaylistURL != ""
-		v.HasGuide = v.Kind == "plex" || v.Guide != "" || v.GuideURL != ""
+		v.HasGuide = s.sourceGuideFeatures(v).Remote || v.Guide != "" || v.GuideURL != ""
 		v.Playlist = ""
 		v.Guide = ""
 		redactSourceAuth(&v)
@@ -2271,7 +2270,7 @@ func (s *Service) importSource(ctx context.Context, src Source) (Source, error) 
 	}
 	src = storedSource(src)
 	src.HasPlaylist = src.Playlist != "" || src.PlaylistURL != ""
-	src.HasGuide = src.Kind == "plex" || src.Guide != "" || src.GuideURL != ""
+	src.HasGuide = s.sourceGuideFeatures(src).Remote || src.Guide != "" || src.GuideURL != ""
 	src.Playlist = ""
 	src.Guide = ""
 	redactSourceAuth(&src)

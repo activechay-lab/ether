@@ -677,7 +677,7 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 	byFold := map[string][]*guideCandidate{}
 	byName := map[string][]*guideCandidate{}
 	byAlias := map[string][]*guideCandidate{}
-	plexSources := map[string]bool{}
+	remoteSources := map[string]bool{}
 	sourceRows, err := s.o.DB.QueryContext(ctx, `SELECT id, data FROM livetv_sources`)
 	if err != nil {
 		return res, err
@@ -689,8 +689,8 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 		if err = sourceRows.Scan(&id, &data); err != nil {
 			break
 		}
-		if json.Unmarshal(data, &source) == nil && source.Kind == "plex" {
-			plexSources[id] = true
+		if json.Unmarshal(data, &source) == nil && s.sourceGuideFeatures(source).ReviewedAliases {
+			remoteSources[id] = true
 		}
 	}
 	if err == nil {
@@ -714,7 +714,7 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 			continue
 		}
 		st, ok := stats[guideKey{src, id}]
-		if !ok && !plexSources[src] {
+		if !ok && !remoteSources[src] {
 			continue
 		}
 		cand := &guideCandidate{source: src, guide: id, name: name, window: st.window, until: st.until}
@@ -727,7 +727,7 @@ func (s *Service) MatchGuides(ctx context.Context, req GuideMatchRequest) (Guide
 		cand.region = guideCandidateRegion(id, name, all)
 		seen := map[string]bool{}
 		for _, n := range append(all, name) {
-			if plexSources[src] {
+			if remoteSources[src] {
 				if k := normalizeGuideName(n); k != "" {
 					byAlias[k] = append(byAlias[k], cand)
 				}
@@ -1058,7 +1058,7 @@ func refreshInterval(src Source) (time.Duration, bool) {
 	if src.Disabled {
 		return 0, false
 	}
-	if src.Kind != "plex" && src.PlaylistURL == "" && src.GuideURL == "" || src.RefreshHours < 0 {
+	if !defaultGuideFeatures(src).Remote && src.PlaylistURL == "" && src.GuideURL == "" || src.RefreshHours < 0 {
 		return 0, false
 	}
 	if src.RefreshHours == 0 {
@@ -1084,7 +1084,7 @@ func nextRefresh(src Source, horizon *time.Time) (time.Time, bool) {
 		return src.LastErrorAt.Add(backoff).UTC(), true
 	}
 	next := src.UpdatedAt.Add(iv)
-	if horizon != nil && (src.GuideURL != "" || src.Kind == "plex") {
+	if horizon != nil && (src.GuideURL != "" || defaultGuideFeatures(src).Remote) {
 		if h := horizon.Add(-guideHorizonMargin); h.Before(next) {
 			next = h
 		}
@@ -1154,7 +1154,7 @@ func (s *Service) planRefresh(ctx context.Context, srcs []Source) error {
 		}
 		srcs[i].NextRefresh = nil
 		if next, ok := nextRefresh(srcs[i], horizon); ok {
-			if srcs[i].Kind == "plex" && (srcs[i].LastErrorAt == nil || !srcs[i].LastErrorAt.After(srcs[i].UpdatedAt)) {
+			if s.sourceGuideFeatures(srcs[i]).Remote && (srcs[i].LastErrorAt == nil || !srcs[i].LastErrorAt.After(srcs[i].UpdatedAt)) {
 				for key := range used {
 					if key.source == srcs[i].ID && !covered[key] {
 						if earlier := srcs[i].UpdatedAt.Add(minRefreshInterval); earlier.Before(next) {

@@ -83,7 +83,7 @@ func TestProviderAuthReachesProbeKeyMediaButNotAnonymousBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	u := &core.User{ID: 1}
-	first, err := s.Tune(context.Background(), u, c.ID, core.ClientCaps{Product: "Plex for Apple TV"})
+	first, err := s.Tune(context.Background(), u, c.ID, core.ClientCaps{ProbeLiveWithoutCodecs: true})
 	if err != nil || !strings.HasPrefix(p.input, "http://127.0.0.1:") || strings.Contains(p.input, up.URL) || strings.Contains(p.input, "fixture-secret") {
 		t.Fatalf("live probe did not read through the relay: %q %v", p.input, err)
 	}
