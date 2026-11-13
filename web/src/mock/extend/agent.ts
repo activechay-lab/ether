@@ -122,6 +122,43 @@ function planTurn(prompt: string): PlannedTurn {
     output,
   });
 
+  if (lower.includes("create") && lower.includes("channel")) {
+    const approvalId = nextId("approval");
+    return {
+      text: "I've drafted a family movie channel with an evening schedule. Review it before I create it.",
+      tools: [
+        tool(
+          "channel_draft",
+          {},
+          {
+            channel: {
+              id: "draft",
+              name: "Family Movie Night",
+              number: "14",
+              enabled: true,
+              timezone: "America/Toronto",
+              kind: "virtual",
+              favorite: false,
+              epoch: new Date().toISOString(),
+              seed: 1,
+              shuffle: true,
+              items: [],
+            },
+          },
+        ),
+      ],
+      approval: {
+        approvalId,
+        categoryLabel: "Create a channel",
+        description: "Create Family Movie Night with a family film schedule.",
+        details: [
+          { label: "Channel", value: "14 · Family Movie Night" },
+          { label: "Schedule", value: "Family films every evening" },
+        ],
+      },
+    };
+  }
+
   if (lower.includes("blocklist")) {
     const approvalId = nextId("approval");
     return {
@@ -603,7 +640,7 @@ export function createAgentMock(): { handle: ExtendHandler } {
         approvals.set(plan.approval.approvalId, {
           threadId: thread.id,
           messageId: assistant.id,
-          toolName: "release_blocklist",
+          toolName: plan.tools.at(-1)?.toolName ?? "release_blocklist",
         });
       }
       if (plan.secret) {
@@ -650,9 +687,13 @@ export function createAgentMock(): { handle: ExtendHandler } {
             {
               type: "text",
               text:
-                decision === "approved"
-                  ? "Done. That release is blocklisted, so the next play uses the next best release."
-                  : "Okay, nothing changed. That release stays available.",
+                record.toolName === "channel_draft"
+                  ? decision === "approved"
+                    ? "Channel draft approved."
+                    : "Channel draft declined."
+                  : decision === "approved"
+                    ? "Done. That release is blocklisted, so the next play uses the next best release."
+                    : "Okay, nothing changed. That release stays available.",
               state: "done",
             },
           ],
