@@ -248,6 +248,12 @@ func matroskaCopyParameterSets(d core.Decision, codec string) string {
 	case "hevc":
 		return "hevc_mp4toannexb"
 	case "h264":
+		// Plex Android applies its own h264_mp4toannexb when handing
+		// Matroska samples to MediaCodec. Preserve source avcC and packet
+		// NAL layout here rather than injecting a second SPS/PPS prefix.
+		if d.AndroidMatroskaHLS {
+			return ""
+		}
 		return "h264_mp4toannexb"
 	}
 	return ""
