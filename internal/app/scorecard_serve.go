@@ -176,7 +176,7 @@ func startScorecard(ctx context.Context, dir, username, password string, items [
 		c.Plex.Token = "fixture-owner-token"
 		c.Server.MaxStreams = 100
 		c.Server.DefaultStreamLimit = 8
-		c.Frontends = map[string]config.Frontend{"plex": {Enabled: false}}
+		c.Frontends = map[string]config.Frontend{"plex": {Enabled: false}} // Wire the isolated scorecard frontend selection.
 		for i := range c.Quality.Profiles {
 			c.Quality.Profiles[i].MinSizeMBPerMin = 0
 			c.Quality.Profiles[i].MaxSizeMBPerMin = 0
@@ -373,6 +373,7 @@ func startScorecard(ctx context.Context, dir, username, password string, items [
 	// request. Later pages read the catalog cache.
 	a.warmFixtureEpisodes(ctx)
 	handlers := map[string]http.Handler{}
+	// These identities enumerate the scorecard mounts to exercise.
 	protocols := []core.Protocol{"jellyfin", "emby", "silo", "webdav", "stremio", "dlna", "m3u"}
 	if os.Getenv("SCORECARD_MOUNT_PLEX") == "1" {
 		protocols = append([]core.Protocol{"plex"}, protocols...)

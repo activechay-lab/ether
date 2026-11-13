@@ -11,7 +11,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/config"
 )
 
-// configSections maps URL section names to JSON field names on Config.
+// configSections maps URL section identities to JSON field names on Config.
+// Account section names below select persisted fields, not frontend behavior.
 var configSections = map[string]string{
 	"posters":      "posters",
 	"plexservers":  "plexServers",

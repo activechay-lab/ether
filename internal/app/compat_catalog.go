@@ -59,6 +59,7 @@ type compatCatalog struct {
 // capabilities at playback. Nothing here is inferred.
 func builtinApps() []compatApp {
 	return []compatApp{
+		// Protocol strings below identify catalogue entries; they do not select host behavior.
 		{Protocol: "plex", Name: "Plex Web", Devices: []string{"Browser"}, DirectPlay: "browser", Certification: "builtin"},
 		{Protocol: "plex", Name: "Plex for Android phones", Product: "Plex for Android (Mobile)", Devices: []string{"Android"}, DirectPlay: "reported", Certification: "builtin"},
 		{Protocol: "plex", Name: "Plex for Android TV", Product: "Plex for Android (TV)", Devices: []string{"Android TV"}, DirectPlay: "reported", Certification: "builtin"},

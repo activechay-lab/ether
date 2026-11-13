@@ -137,7 +137,8 @@ func (a *App) configuredLibraries() []experience.Library {
 // newSurfaceExperience builds an explicitly surface-bound service. A shared
 // situation is inserted by surfaceExperience.Rows before ranking and receipt issuance.
 func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.Artwork) (frontend.Experience, error) {
-	if a.spikeLibrary != nil && protocol == "plex" {
+	policy := frontendHostPolicy(protocol)
+	if a.spikeLibrary != nil && policy.SpikeExperience {
 		return a.spikeLibrary.Experience(), nil
 	}
 	if a.users == nil || a.catalog == nil || a.safety == nil || a.state == nil || a.personalize == nil || a.favorites == nil || a.playlists == nil || a.db == nil {
@@ -360,7 +361,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		)
 		if a.playback != nil {
 			caps := core.ClientCaps{Protocol: protocol, Product: device.Product, Platform: device.Platform, DeviceName: device.DeviceName, ClientID: device.ID, Version: device.Version}
-			if protocol != "plex" {
+			if !policy.NativePlaybackCapabilities {
 				caps = playbackFloor(caps, overrides)
 			}
 			if a.cfg != nil {
@@ -385,7 +386,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		}
 		if a.resolver != nil {
 			caps := core.ClientCaps{Protocol: protocol, Product: device.Product, Platform: device.Platform, DeviceName: device.DeviceName, ClientID: device.ID, Version: device.Version}
-			if protocol != "plex" {
+			if !policy.NativePlaybackCapabilities {
 				caps = playbackFloor(caps, overrides)
 			}
 			if a.cfg != nil {
@@ -527,6 +528,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	if a.hostResources != nil {
 		deps.Resources = a.hostResources
 	}
+	// Wire the account metadata provider through the shared library interfaces.
 	deps.LibraryGUIDsFunc = func() frontend.LibraryGUIDs {
 		a.plexMetaMu.Lock()
 		defer a.plexMetaMu.Unlock()

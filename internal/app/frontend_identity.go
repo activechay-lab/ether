@@ -13,6 +13,7 @@ import (
 )
 
 type surfaceIdentity struct {
+	policy      core.FrontendHostPolicy
 	settings    func() frontend.Settings
 	surface     frontend.Protocol
 	users       core.Auth
@@ -32,7 +33,7 @@ func (s surfaceIdentity) Resolve(ctx context.Context, credential string) (*core.
 }
 
 func (s surfaceIdentity) Accept(ctx context.Context, token string) (*core.Viewer, frontend.CredentialAcceptance, error) {
-	if s.surface != "plex" || core.IsGrantCredential(token) {
+	if !s.policy.ExternalIdentity || core.IsGrantCredential(token) {
 		return nil, frontend.CredentialAcceptance{}, core.ErrUnauthorized
 	}
 	if acc, ok := s.users.(frontend.CredentialAcceptor); ok {
@@ -43,7 +44,7 @@ func (s surfaceIdentity) Accept(ctx context.Context, token string) (*core.Viewer
 }
 
 func (s surfaceIdentity) ReceiptCurrent(ctx context.Context, r frontend.CredentialAcceptance) error {
-	if s.surface != "plex" {
+	if !s.policy.ExternalIdentity {
 		return core.ErrUnauthorized
 	}
 	if acc, ok := s.users.(frontend.CredentialAcceptor); ok {
@@ -53,7 +54,7 @@ func (s surfaceIdentity) ReceiptCurrent(ctx context.Context, r frontend.Credenti
 }
 
 func (s surfaceIdentity) IssueDelegation(ctx context.Context, userID int64) (string, error) {
-	if s.surface != "plex" {
+	if !s.policy.ExternalIdentity {
 		return "", core.ErrUnauthorized
 	}
 	if del, ok := s.users.(frontend.DelegationAuth); ok {
@@ -92,14 +93,14 @@ func (s surfaceIdentity) ViewerTimes(ctx context.Context, credential string, tar
 
 // ResolveDevice binds validation to the stored surface and device without writes.
 func (s surfaceIdentity) ResolveDevice(ctx context.Context, credential string, device core.Device) (*core.Viewer, time.Time, error) {
-	if s.surface == "" || s.surface == "plex" || s.grants == nil {
+	if s.surface == "" || s.policy.ExternalIdentity || s.grants == nil {
 		return nil, time.Time{}, core.ErrUnauthorized
 	}
 	return s.grants.ResolveDevice(ctx, string(s.surface), credential, device)
 }
 
 func (s surfaceIdentity) ResolveGrantDevice(ctx context.Context, credential, claim string) (*core.Viewer, core.Device, time.Time, error) {
-	if s.surface == "" || s.surface == "plex" || s.grants == nil {
+	if s.surface == "" || s.policy.ExternalIdentity || s.grants == nil {
 		return nil, core.Device{}, time.Time{}, core.ErrUnauthorized
 	}
 	return s.grants.ResolveGrantDevice(ctx, string(s.surface), credential, claim)
@@ -122,7 +123,7 @@ func (s surfaceIdentity) allow(ctx context.Context, limiter *identity.LoginLimit
 
 // PublicViewers returns only active local sign-in names when the owner enables the picker.
 func (s surfaceIdentity) PublicViewers(ctx context.Context) ([]frontend.PublicViewer, error) {
-	if s.surface == "plex" || s.settings == nil || s.local == nil {
+	if s.policy.ExternalIdentity || s.settings == nil || s.local == nil {
 		return []frontend.PublicViewer{}, nil
 	}
 	enabled, _ := s.settings()["publicViewerPicker"].(bool)
@@ -135,7 +136,7 @@ func (s surfaceIdentity) PublicViewers(ctx context.Context) ([]frontend.PublicVi
 	return s.local.PublicViewers(ctx)
 }
 func (s surfaceIdentity) SignIn(ctx context.Context, username, password string, device core.Device) (string, error) {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return "", core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.login, username); err != nil {
@@ -169,7 +170,7 @@ func (s surfaceIdentity) Refresh(ctx context.Context, token string, device core.
 	return access, refresh, err
 }
 func (s surfaceIdentity) QuickConnectInitiate(ctx context.Context, device core.Device) (string, string, error) {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return "", "", core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.login, "quickconnect-init"); err != nil {
@@ -178,7 +179,7 @@ func (s surfaceIdentity) QuickConnectInitiate(ctx context.Context, device core.D
 	return s.quick.Initiate(ctx, string(s.surface), device)
 }
 func (s surfaceIdentity) QuickConnectPoll(ctx context.Context, secret string) (string, error) {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return "", core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.poll, secret); err != nil {
@@ -193,7 +194,7 @@ func (s surfaceIdentity) QuickConnectPoll(ctx context.Context, secret string) (s
 
 // QuickConnectPollDevice redeems or replays a secret for one device.
 func (s surfaceIdentity) QuickConnectPollDevice(ctx context.Context, secret string, device core.Device) (string, error) {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return "", core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.poll, secret); err != nil {
@@ -215,7 +216,7 @@ func (s surfaceIdentity) NoteSignIn(ctx context.Context, viewerID int64) error {
 }
 
 func (s surfaceIdentity) QuickConnectStatus(ctx context.Context, secret string) (bool, error) {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return false, core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.poll, secret); err != nil {
@@ -225,7 +226,7 @@ func (s surfaceIdentity) QuickConnectStatus(ctx context.Context, secret string) 
 }
 
 func (s surfaceIdentity) QuickConnectDetails(ctx context.Context, secret string) (frontend.QuickConnectDetails, error) {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return frontend.QuickConnectDetails{}, core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.poll, secret); err != nil {
@@ -238,7 +239,7 @@ func (s surfaceIdentity) QuickConnectDetails(ctx context.Context, secret string)
 	return frontend.QuickConnectDetails{Approved: details.Approved, Code: details.Code, Secret: secret, Device: details.Device, CreatedAt: details.CreatedAt, ExpiresAt: details.ExpiresAt}, nil
 }
 func (s surfaceIdentity) QuickConnectApprove(ctx context.Context, viewer *core.Viewer, code string) error {
-	if s.surface == "plex" || viewer == nil || viewer.ID <= 0 {
+	if s.policy.ExternalIdentity || viewer == nil || viewer.ID <= 0 {
 		return core.ErrUnauthorized
 	}
 	if err := s.allow(ctx, s.login, "quickconnect-approve"); err != nil {
@@ -247,7 +248,7 @@ func (s surfaceIdentity) QuickConnectApprove(ctx context.Context, viewer *core.V
 	return s.quick.ApproveSurface(ctx, string(s.surface), code, viewer.ID)
 }
 func (s surfaceIdentity) Revoke(ctx context.Context, credential string) error {
-	if s.surface == "plex" {
+	if s.policy.ExternalIdentity {
 		return core.ErrUnauthorized
 	}
 	viewer, err := s.Resolve(ctx, credential)

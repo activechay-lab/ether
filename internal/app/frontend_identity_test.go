@@ -142,6 +142,7 @@ func TestSurfaceIdentityLoginQuickConnectAndRevoke(t *testing.T) {
 	}
 	plex := jf
 	plex.surface = "plex"
+	plex.policy = frontendHostPolicy(plex.surface)
 	if _, err := plex.SignIn(ctx, "local-owner", "correct-password", core.Device{}); !errors.Is(err, core.ErrUnauthorized) {
 		t.Fatal("Plex accepted local grant", err)
 	}
@@ -376,6 +377,7 @@ func TestDeviceIdentityBindsSurfaceAndRejectsPlex(t *testing.T) {
 		t.Fatalf("cross-surface stored binding: %v", err)
 	}
 	surface.surface = "plex"
+	surface.policy = frontendHostPolicy(surface.surface)
 	if _, _, err = surface.ResolveDevice(ctx, token, device); !errors.Is(err, core.ErrUnauthorized) {
 		t.Fatalf("Plex grant: %v", err)
 	}

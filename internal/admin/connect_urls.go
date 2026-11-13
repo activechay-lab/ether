@@ -16,12 +16,7 @@ var dockerBridge = netip.MustParsePrefix("172.16.0.0/12")
 
 // sharedPrefix is the path a protocol also serves on Ether's own port.
 func sharedPrefix(id string) string {
-	switch id {
-	case "jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "dlna":
-		return "/" + id
-	default:
-		return ""
-	}
+	return consoleFrontendPolicy(id).SharedPrefix
 }
 
 // consoleConnectURLs is what the owner console shows for an app. It prefers
@@ -52,7 +47,7 @@ func consoleConnectURLs(r *http.Request, id string, urls []string, cfg config.Co
 	// own address is not "this computer only". Plex apps at home connect
 	// straight to the server, so a reverse proxy or the public host name is
 	// never the at-home address, nor is the http:// guess for it (#381).
-	if id == "plex" && ok && !viaProxy(r) && !publicRouteHost(cfg, hostOnly(host)) {
+	if consoleFrontendPolicy(id).MainListener && ok && !viaProxy(r) && !publicRouteHost(cfg, hostOnly(host)) {
 		add(originURL(scheme, host, ""))
 	}
 	if ok && prefix != "" {
@@ -89,7 +84,7 @@ func consoleConnectURLs(r *http.Request, id string, urls []string, cfg config.Co
 // frontendPublicURL returns the app's own public address when the owner set
 // a valid one. Plex never uses it: Plex apps use Plex.CustomURLs.
 func frontendPublicURL(cfg config.Config, id string) (string, bool) {
-	if id == "plex" {
+	if !consoleFrontendPolicy(id).PublicURL {
 		return "", false
 	}
 	raw := strings.TrimSpace(cfg.Frontends[id].PublicURL)

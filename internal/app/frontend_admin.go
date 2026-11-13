@@ -57,7 +57,7 @@ func (f *frontendControl) List(ctx context.Context) ([]admin.FrontendInfo, error
 	out := make([]admin.FrontendInfo, 0)
 	for _, d := range f.registry.Descriptors() {
 		enabled := cfg.Frontends[string(d.ID)].Enabled
-		if cfg.Frontends == nil && d.ID == "plex" {
+		if cfg.Frontends == nil && frontendHostPolicy(d.ID).MainListener {
 			enabled = true
 		}
 		status := f.listeners.status(ctx, d.ID)
@@ -78,7 +78,7 @@ func (f *frontendControl) List(ctx context.Context) ([]admin.FrontendInfo, error
 	return out, nil
 }
 
-// Household order for the setup chooser and the Apps page.
+// Household order for the setup chooser and the Apps page; protocol names are UI identities.
 func frontendRank(id frontend.Protocol) int {
 	switch id {
 	case "plex":
@@ -106,7 +106,7 @@ func (f *frontendControl) Settings(_ context.Context, id frontend.Protocol) (fro
 		return nil, frontend.ErrNotRegistered
 	}
 	cfg := f.config.Read()
-	if id == "plex" {
+	if frontendHostPolicy(id).MainListener {
 		return frontend.Settings{"port": float64(cfg.Server.Port)}, nil
 	}
 	settings := frontend.Settings{}
@@ -153,7 +153,7 @@ func (f *frontendControl) PutSettings(_ context.Context, id frontend.Protocol, s
 	// does not take one (it keeps Plex.CustomURLs), so leave it in place
 	// there and let the Plex branch below reject it.
 	publicURL, hasPublicURL := "", false
-	if id != "plex" {
+	if frontendHostPolicy(id).PublicURL {
 		var err error
 		s, publicURL, hasPublicURL, err = extractPublicURL(s)
 		if err != nil {
@@ -167,7 +167,7 @@ func (f *frontendControl) PutSettings(_ context.Context, id frontend.Protocol, s
 	if err := validateFrontendSettings(s, supported); err != nil {
 		return err
 	}
-	if id == "plex" {
+	if frontendHostPolicy(id).MainListener {
 		for key := range s {
 			if key != "port" {
 				return fmt.Errorf("unsupported Plex setting %s", key)
@@ -183,7 +183,7 @@ func (f *frontendControl) PutSettings(_ context.Context, id frontend.Protocol, s
 	return f.config.Update(func(c *config.Config) error {
 		if c.Frontends == nil {
 			c.Frontends = map[string]config.Frontend{}
-			c.Frontends["plex"] = config.Frontend{Enabled: true}
+			c.Frontends["plex"] = config.Frontend{Enabled: true} // Preserve the default main-listener registration.
 		}
 		v := c.Frontends[string(id)]
 		// Only a present publicUrl changes the stored address; a settings
@@ -217,8 +217,8 @@ func (f *frontendControl) Toggle(_ context.Context, id frontend.Protocol, enable
 	return f.config.Update(func(c *config.Config) error {
 		if c.Frontends == nil {
 			c.Frontends = map[string]config.Frontend{}
-			if id != "plex" {
-				c.Frontends["plex"] = config.Frontend{Enabled: true}
+			if !frontendHostPolicy(id).MainListener {
+				c.Frontends["plex"] = config.Frontend{Enabled: true} // Preserve the default main-listener registration.
 			}
 		}
 		v := c.Frontends[string(id)]
@@ -234,7 +234,7 @@ func (f *frontendControl) Reconcile(ctx context.Context, c config.Config) {
 	defer f.mu.Unlock()
 	for _, d := range f.registry.Descriptors() {
 		desired := c.Frontends[string(d.ID)].Enabled
-		if c.Frontends == nil && d.ID == "plex" {
+		if c.Frontends == nil && frontendHostPolicy(d.ID).MainListener {
 			desired = true
 		}
 		settings := c.Frontends[string(d.ID)].Settings
