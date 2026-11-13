@@ -5,7 +5,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontend/kit/plexdelivery"
 	md "github.com/braedonsaunders/ether/internal/frontends/mediabrowser/deliverypolicy"
 	"net/http"
-	"net/url"
 )
 
 func testSessionPolicy(p core.Protocol) core.SessionPolicy {
@@ -20,8 +19,6 @@ func testSessionPolicy(p core.Protocol) core.SessionPolicy {
 	return core.SessionPolicy{}
 }
 
-func adapterMediaSession(u *url.URL) (string, bool) { return deliverypolicy.MediaSession(u) }
-func adapterGrantEnvelope(q *http.Request) bool     { return deliverypolicy.GrantEnvelope(q) }
 func testPublicRepresentation(q *http.Request) bool {
 	return IsPublicRepresentation(q, testDeliveryPolicy())
 }

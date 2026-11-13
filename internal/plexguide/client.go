@@ -29,7 +29,6 @@ type Client struct {
 }
 
 const plexGuideURL = "https://epg.provider.plex.tv"
-const plexGuideBudget = 80
 
 // A database lease coordinates nodes and survives a process restart. A dead
 // caller loses its lease after a minute; normal requests time out in 20s.

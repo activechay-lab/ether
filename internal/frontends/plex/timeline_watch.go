@@ -11,8 +11,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
 )
 
-type plexTimelineWriter = frontend.TimelineWriter
-
 func (s *Server) timelineWatch(ctx context.Context, pr *Request, key frontend.RatingKey, offset, duration time.Duration, status string, r *http.Request) (context.Context, *frontend.TimelinePersistenceResult, error) {
 	if suppressTimelineWatch(ctx) {
 		return frontend.WithTimelineStored(ctx), nil, nil

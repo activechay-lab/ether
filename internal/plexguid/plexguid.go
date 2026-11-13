@@ -61,7 +61,6 @@ const (
 	childrenPageSize  = 50
 	maxChildrenItems  = 2500
 	priorityQueueSize = 256
-	namesakeCacheMax  = 4096
 )
 
 type Options struct {
@@ -102,11 +101,6 @@ type Service struct {
 	// the request and the background scan eventually reaches the row.
 	priority   chan core.RatingKey
 	prioQueued map[core.RatingKey]bool
-	// namesakeCache remembers the (rare, indexed) namesake answer per key so
-	// the read path never repeats the lookup. It is only consulted for legacy
-	// rows, which repair converts or drops, so it stays small; namesakeCacheMax
-	// bounds it regardless.
-	namesakeCache map[core.RatingKey]bool
 }
 
 func New(db *sql.DB, o Options) *Service {
@@ -124,14 +118,13 @@ func New(db *sql.DB, o Options) *Service {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
-		db:            db,
-		o:             o,
-		ctx:           ctx,
-		cancel:        cancel,
-		pending:       map[core.RatingKey]bool{},
-		force:         map[core.RatingKey]bool{},
-		prioQueued:    map[core.RatingKey]bool{},
-		namesakeCache: map[core.RatingKey]bool{},
+		db:         db,
+		o:          o,
+		ctx:        ctx,
+		cancel:     cancel,
+		pending:    map[core.RatingKey]bool{},
+		force:      map[core.RatingKey]bool{},
+		prioQueued: map[core.RatingKey]bool{},
 	}
 	s.idle = sync.NewCond(&s.mu)
 	if o.Background {
@@ -301,33 +294,6 @@ const identityExists = `EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating
 
 // staleCreditsRule marks proofs predating mandatory year verification (rule 2).
 const staleCreditsRule = `EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid AND i.credits_rule<>2)`
-
-// hasNamesake reports whether the catalogue holds another title that shares
-// this key's name and a near year. The answer is cached per key: it is read on
-// the hot path and only ever for legacy rows. A lookup error is not cached and
-// is treated as "no namesake" so a transient catalogue error cannot withhold
-// every mapping.
-func (s *Service) hasNamesake(ctx context.Context, k core.RatingKey) bool {
-	if s == nil || s.o.Namesakes == nil {
-		return false
-	}
-	s.mu.Lock()
-	v, ok := s.namesakeCache[k]
-	s.mu.Unlock()
-	if ok {
-		return v
-	}
-	has, err := s.o.Namesakes(ctx, k)
-	if err != nil {
-		return false
-	}
-	s.mu.Lock()
-	if len(s.namesakeCache) < namesakeCacheMax {
-		s.namesakeCache[k] = has
-	}
-	s.mu.Unlock()
-	return has
-}
 
 // unprovenMapping reports whether k currently has a stored guid not proved
 // under the current rule: a legacy row (no identity record) or one whose

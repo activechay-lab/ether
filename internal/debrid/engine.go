@@ -2358,6 +2358,11 @@ func (s *httpSource) read(ctx context.Context, p []byte, off int64, mode fetchMo
 		}
 		n += copy(p[n:], data[from:])
 	}
+	// Cached deliveries must keep a degraded route exploring too: a fully
+	// buffered reader may otherwise never complete another network fetch.
+	if n > 0 && live && !core.IsSpeculative(ctx) && !isAnalysisRead(ctx) {
+		f.kickDiscovery()
+	}
 	if int64(n) < int64(len(p)) {
 		return n, io.EOF
 	}

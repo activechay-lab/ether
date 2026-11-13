@@ -619,29 +619,6 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 	return nil
 }
 
-// prewarmBrowse fills the catalog and statement caches before the first viewer
-// request. It stays on local reads: episode expansion can fetch seasons and
-// take the write lock, and a request in flight must not wait for that.
-func (a *App) prewarmBrowse(ctx context.Context) {
-	if a == nil || a.catalog == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	movies, _ := a.catalog.Browse(ctx, core.BrowseQuery{Sort: core.SortAdded, Desc: true, Limit: 16, Filter: core.Filter{Type: core.TypeMovie, KnownAddedDate: true}})
-	shows, _ := a.catalog.Browse(ctx, core.BrowseQuery{Sort: core.SortTitle, Limit: 16, Filter: core.Filter{Type: core.TypeShow}})
-	keys := make([]core.RatingKey, 0, len(movies.Items)+len(shows.Items))
-	for _, title := range movies.Items {
-		keys = append(keys, title.Key)
-	}
-	for _, title := range shows.Items {
-		keys = append(keys, title.Key)
-	}
-	if len(keys) > 0 {
-		_, _ = a.catalog.CachedGetMany(ctx, keys)
-	}
-}
-
 // applyConfig pushes an edited config into the running components.
 func (a *App) applyConfig(c config.Config) {
 	c.Cache = c.EffectiveCache()
