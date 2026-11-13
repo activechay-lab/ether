@@ -2,6 +2,8 @@ package playback
 
 import (
 	"bytes"
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontends/plex/parts"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -60,4 +62,12 @@ func TestPlexPartMIMETable(t *testing.T) {
 			t.Errorf("%s: %s != %s", ext, got, want)
 		}
 	}
+}
+
+func PlexPartRequest(r *http.Request) *http.Request { return parts.Request(r) }
+func plexPartMIME(name string) string               { return parts.MIME(name) }
+func servePlexPart(w http.ResponseWriter, r *http.Request, rep representation) error {
+	return parts.Serve(w, r, core.RangeRepresentation{Size: rep.size, ETag: rep.etag, ContentType: rep.contentType, ModTime: rep.modTime, ServeBody: func(status int, start, length int64) error {
+		return serveSingleRangeBody(w, r, status, start, length, rep.deferStatusOnZeroRead, rep.body)
+	}})
 }

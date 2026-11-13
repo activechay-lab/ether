@@ -209,6 +209,10 @@ type User struct {
 // ClientCaps is what a Plex client can play, derived from X-Plex-* headers,
 // the client profile and its declared limits.
 type ClientCaps struct {
+	// Playback telemetry is supplied by the adapter.
+	InferBuffering      bool `json:"inferBuffering,omitempty"`
+	NoPlaybackTelemetry bool `json:"noPlaybackTelemetry,omitempty"`
+
 	// BestEffortLiveStart bounds startup waits; playlist requests finish admission.
 	BestEffortLiveStart bool `json:"bestEffortLiveStart,omitempty"`
 	// ProbeLiveWithoutCodecs requires codec analysis even without declared codecs.

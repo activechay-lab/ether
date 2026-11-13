@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/frontends/plex/parts"
 	"io"
 	"net/http"
 	"net/url"
@@ -2148,7 +2149,7 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 	}
 	unlockOwner()
 	cw := s.newCountWriter(w, r)
-	s.plexSources().ServePart(cw, r, ps.ID)
+	s.plexSources().ServePart(cw, parts.Request(r), ps.ID)
 	cw.finish()
 }
 

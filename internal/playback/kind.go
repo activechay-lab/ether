@@ -35,7 +35,7 @@ func (m *Manager) PrepareKind(ctx context.Context, user *core.User, in core.Kind
 	if in.Title == nil || in.Open == nil {
 		return nil, core.ErrNotAvailable
 	}
-	id := identity{userID: user.ID, clientID: caps.ClientID, key: in.Title.Key, surface: playbackSurface(string(caps.Protocol))}
+	id := identity{userID: user.ID, clientID: caps.ClientID, key: in.Title.Key, surface: m.playbackSurface(string(caps.Protocol))}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -81,20 +81,24 @@ func (m *Manager) PrepareKind(ctx context.Context, user *core.User, in core.Kind
 
 // SessionForKind finds the live kind session for a viewer, client and item.
 func (m *Manager) SessionForKind(userID int64, clientID string, key core.RatingKey) (*core.PlaySession, bool) {
-	for _, surface := range []string{"", playbackSurface("plex"), playbackSurface("jellyfin"), playbackSurface("emby")} {
-		m.mu.Lock()
-		s := m.byIdent[identity{userID: userID, clientID: clientID, key: key, surface: surface}]
-		m.mu.Unlock()
-		if s != nil && s.kindOpen != nil {
-			return s.snapshot(m.now()), true
-		}
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// The unscoped adapter owns the default lookup; otherwise require a unique
+	// match so a kind key on another surface cannot pick an arbitrary source.
+	if s := m.byIdent[identity{userID: userID, clientID: clientID, key: key}]; s != nil && s.kindOpen != nil {
+		return s.snapshot(m.now()), true
+	}
+	var match *session
 	for _, s := range m.byIdent {
 		if s != nil && s.kindOpen != nil && s.ident.userID == userID && s.ident.clientID == clientID && s.ident.key == key {
-			return s.snapshot(m.now()), true
+			if match != nil && match != s {
+				return nil, false
+			}
+			match = s
 		}
+	}
+	if match != nil {
+		return match.snapshot(m.now()), true
 	}
 	return nil, false
 }

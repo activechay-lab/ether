@@ -191,7 +191,7 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		prefetchBytes = maxWarmPrefetchBytes
 	}
 	timeout := 45 * time.Second
-	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: playbackSurface(string(caps.Protocol))}
+	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: m.playbackSurface(string(caps.Protocol))}
 	now := m.now()
 	m.mu.Lock()
 	if m.closed || m.byIdent[id] != nil || m.hasFlightLocked(id) {
@@ -612,7 +612,7 @@ func (m *Manager) DiscardWarm(user *core.User, caps core.ClientCaps, key core.Ra
 	if user == nil || caps.ClientID == "" {
 		return
 	}
-	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: playbackSurface(string(caps.Protocol))}
+	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: m.playbackSurface(string(caps.Protocol))}
 	m.mu.Lock()
 	e := m.warm[id]
 	if e != nil {

@@ -80,7 +80,7 @@ func (a *App) buildPlayback(ctx context.Context, cfg config.Config) error {
 		Cluster:       a.clusterNode(),
 		DescribeGroup: a.describeLiveGroup,
 		Availability:  a.dbAvail,
-	}, cfg, playback.Options{Now: parityClock(), DataDir: dataDir, PayloadReplayGrace: 5 * time.Second, VerifyNativeProbe: os.Getenv("ETHER_VERIFY_NATIVE_PROBE") == "1", TracePlayback: tracePlayback})
+	}, cfg, playback.Options{SessionSurface: sessionSurface, Now: parityClock(), DataDir: dataDir, PayloadReplayGrace: 5 * time.Second, VerifyNativeProbe: os.Getenv("ETHER_VERIFY_NATIVE_PROBE") == "1", TracePlayback: tracePlayback})
 	if err != nil {
 		return fmt.Errorf("playback: %w", err)
 	}

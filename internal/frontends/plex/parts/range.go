@@ -1,4 +1,4 @@
-package playback
+package parts
 
 import (
 	"fmt"
@@ -10,13 +10,13 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// PlexPartRequest selects the PMS byte-serving contract without changing the
+// Request selects the PMS byte-serving contract without changing the
 // representation semantics of other frontends or the encoder loopback.
-func PlexPartRequest(r *http.Request) *http.Request {
-	return r.WithContext(core.WithPlexPart(r.Context()))
+func Request(r *http.Request) *http.Request {
+	return r.WithContext(core.WithRangeResponse(r.Context(), core.RangeResponse{MIME: MIME, Serve: Serve}))
 }
 
-func plexPartMIME(name string) string {
+func MIME(name string) string {
 	switch strings.ToLower(path.Ext(name)) {
 	case ".mkv":
 		return "video/x-matroska"
@@ -43,18 +43,18 @@ func plexPartMIME(name string) string {
 
 // PMS accepts one range window, ignoring the unit. Failed numeric conversions
 // and list syntax have measured fallbacks rather than RFC multipart semantics.
-func servePlexPart(w http.ResponseWriter, r *http.Request, rep representation) error {
+func Serve(w http.ResponseWriter, r *http.Request, rep core.RangeRepresentation) error {
 	h := w.Header()
 	h.Set("Accept-Ranges", "bytes")
-	h.Set("Content-Type", rep.contentType)
-	if rep.etag != "" {
-		h.Set("ETag", rep.etag)
+	h.Set("Content-Type", rep.ContentType)
+	if rep.ETag != "" {
+		h.Set("ETag", rep.ETag)
 	}
-	if !rep.modTime.IsZero() {
-		h.Set("Last-Modified", rep.modTime.UTC().Format(http.TimeFormat))
+	if !rep.ModTime.IsZero() {
+		h.Set("Last-Modified", rep.ModTime.UTC().Format(http.TimeFormat))
 	}
-	status, start, length := http.StatusOK, int64(0), rep.size
-	end := rep.size - 1
+	status, start, length := http.StatusOK, int64(0), rep.Size
+	end := rep.Size - 1
 	_, spec, hasEqual := strings.Cut(r.Header.Get("Range"), "=")
 	if hasEqual && spec != "-" {
 		status = http.StatusPartialContent
@@ -70,10 +70,10 @@ func servePlexPart(w http.ResponseWriter, r *http.Request, rep representation) e
 			if first == "" {
 				n := parse(last)
 				if n > 0 {
-					if n < rep.size {
-						start = rep.size - n
+					if n < rep.Size {
+						start = rep.Size - n
 					}
-					length = rep.size - start
+					length = rep.Size - start
 				} else {
 					end = 0
 				}
@@ -85,7 +85,7 @@ func servePlexPart(w http.ResponseWriter, r *http.Request, rep representation) e
 				length = end - start + 1
 			}
 		}
-		if start < 0 || start >= rep.size || length <= 0 {
+		if start < 0 || start >= rep.Size || length <= 0 {
 			h.Del("Accept-Ranges")
 			h.Del("Content-Range")
 			h.Del("Content-Length")
@@ -98,8 +98,8 @@ func servePlexPart(w http.ResponseWriter, r *http.Request, rep representation) e
 			}
 			return nil
 		}
-		h.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, rep.size))
+		h.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, rep.Size))
 	}
 	h.Set("Content-Length", strconv.FormatInt(length, 10))
-	return serveSingleRangeBody(w, r, status, start, length, rep.deferStatusOnZeroRead, rep.body)
+	return rep.ServeBody(status, start, length)
 }

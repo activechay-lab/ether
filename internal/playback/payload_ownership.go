@@ -306,7 +306,7 @@ func (p *payloadStore) reserve(ctx context.Context, user int64, surface, device,
 		return payloadOwner{}, core.ErrNotAvailable
 	}
 	if surface == "" {
-		surface = "plex"
+		surface = "plex" // Historical persisted identity of an unscoped source lifetime.
 	}
 	if err := p.enter(ctx); err != nil {
 		return payloadOwner{}, err

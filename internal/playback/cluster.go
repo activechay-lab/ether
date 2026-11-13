@@ -205,9 +205,9 @@ func pendingID(node string, id identity) string {
 // The prefix is forbidden in HTTP header values, so one surface cannot forge
 // another surface's cluster identity. Plex's historical representation stays
 // unchanged; session JSON retains the original client identifier.
-func playbackSurface(surface string) string {
-	if surface == "" || surface == "plex" {
-		return ""
+func (m *Manager) playbackSurface(surface string) string {
+	if m.opts.SessionSurface != nil {
+		return m.opts.SessionSurface(surface)
 	}
 	return surface
 }

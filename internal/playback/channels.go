@@ -28,7 +28,7 @@ func (m *Manager) prepareChannelRelease(ctx context.Context, u *core.User, key c
 	if len(group) < 16 || len(group) > 128 || strings.ContainsAny(group, "/\\\x00\r\n") {
 		return nil, fmt.Errorf("invalid channel session")
 	}
-	id := identity{userID: u.ID, clientID: caps.ClientID, key: key, surface: playbackSurface(string(caps.Protocol))}
+	id := identity{userID: u.ID, clientID: caps.ClientID, key: key, surface: m.playbackSurface(string(caps.Protocol))}
 	m.mu.Lock()
 	if m.channelGroups == nil {
 		m.channelGroups = map[identity]string{}
