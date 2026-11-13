@@ -66,6 +66,7 @@ export function normalizePosters(value?: Posters | null): Posters {
       ...emptyPoster,
       version: 1,
       assetFolder: p.assetFolder,
+      ownerEnabled: p.ownerEnabled,
       source: p.enabled ? p.source : "tmdb",
       accounts: p.enabled ? { [p.source]: p } : {},
     };
@@ -159,9 +160,10 @@ export function PosterAccounts({
     setSaving(true);
     setError(null);
     try {
+      const latest = normalizePosters((await api.getConfig()).posters);
       const next = {
-        ...config.data,
-        accounts: { ...config.data.accounts, [account.source]: account },
+        ...latest,
+        accounts: { ...latest.accounts, [account.source]: account },
       };
       if (!account.enabled && next.source === account.source) next.source = "tmdb";
       const result = await apiFetch<{ value: Posters }>("/config/posters", {

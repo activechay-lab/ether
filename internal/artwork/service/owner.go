@@ -42,6 +42,9 @@ func (a Source) Upload(ctx context.Context, req frontend.ArtworkRequest, kind st
 	if req.Viewer == nil || !req.Viewer.IsOwner || req.Viewer.Delegated {
 		return core.ErrUnauthorized
 	}
+	if a.OwnerEnabled != nil && !a.OwnerEnabled() {
+		return core.ErrNotAvailable
+	}
 	if kind != frontend.ImagePoster && kind != frontend.ImageBackdrop {
 		return core.ErrNotAvailable
 	}
@@ -149,6 +152,9 @@ func (a Source) OwnerArtwork(ctx context.Context, req frontend.ArtworkRequest, k
 }
 
 func (a Source) selectedOwnerPath(ctx context.Context, key core.RatingKey, kind string) string {
+	if a.OwnerEnabled != nil && !a.OwnerEnabled() {
+		return ""
+	}
 	p := a.ownerPath(key, kind)
 	if p != "" {
 		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {

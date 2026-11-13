@@ -2824,6 +2824,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
             .filter(Boolean)
             .map((name, i, parts) => ({ name, path: "/" + parts.slice(0, i + 1).join("/") })),
         ],
+        directoryPosters: { "Dune (2021)": 1, "Arrival (2016)": 1, Movies: 0, TV: 0 },
         directories:
           path === "/media/posters" ? ["Dune (2021)", "Arrival (2016)", "Movies", "TV"] : [],
         posters: 12,
