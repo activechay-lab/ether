@@ -451,6 +451,12 @@ func buildCodecArgs(s runSpec) []string {
 	if v != nil {
 		if d.VideoCopy {
 			args = append(args, "-c:v", "copy")
+			// A copied stream can carry a coarse demuxer time base. Explicitly
+			// retain its rate in Matroska DefaultDuration instead of the muxer's
+			// guessed 30fps. This does not duplicate or drop copied packets.
+			if d.MatroskaTitleClock && container == ContainerMatroska && v.FrameRate > 0 && !v.VariableFrameRate {
+				args = append(args, "-r:v", strconv.FormatFloat(v.FrameRate, 'f', 6, 64))
+			}
 			if d.StripDolbyVision {
 				filter := "dovi_rpu=strip=1"
 				if v.DolbyVisionProfile == 7 {

@@ -852,6 +852,10 @@ const (
 )
 
 type Decision struct {
+	// MatroskaTitleClock exposes title-relative cluster timestamps to Plex Android.
+	// Internal chunk grouping retains its existing positive mux origin.
+	MatroskaTitleClock bool `json:"matroskaTitleClock,omitempty"`
+
 	Enhancement VideoEnhancement `json:"enhancement,omitempty"`
 
 	Kind       DecisionKind `json:"kind"`

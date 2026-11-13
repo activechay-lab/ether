@@ -720,7 +720,15 @@ func (s *Session) serveFiles(w http.ResponseWriter, r *http.Request, paths []str
 	}
 	s.setSegmentHeaders(w)
 	armSegmentDeadline(w)
-	s.serveCounted(w, r, filepath.Base(paths[0]), mod, bytes.NewReader(buf.Bytes()), t, n)
+	content := io.ReadSeeker(bytes.NewReader(buf.Bytes()))
+	if s.container == ContainerMatroska && s.decision.MatroskaTitleClock {
+		var err error
+		content, err = matroskaTitleReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+		if err != nil {
+			return false
+		}
+	}
+	s.serveCounted(w, r, filepath.Base(paths[0]), mod, content, t, n)
 	return true
 }
 
@@ -847,7 +855,14 @@ func (s *Session) serveOpened(w http.ResponseWriter, r *http.Request, f *os.File
 		name = initSegmentName(s.container)
 	}
 	armSegmentDeadline(w)
-	s.serveCounted(w, r, name, st.ModTime(), f, t, n)
+	var content io.ReadSeeker = f
+	if n != InitSegment && s.container == ContainerMatroska && s.decision.MatroskaTitleClock {
+		content, err = matroskaTitleReader(f, st.Size())
+		if err != nil {
+			return false
+		}
+	}
+	s.serveCounted(w, r, name, st.ModTime(), content, t, n)
 	return true
 }
 
