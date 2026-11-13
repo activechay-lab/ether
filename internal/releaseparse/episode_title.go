@@ -59,13 +59,23 @@ func isGenericEpisodeLabel(word string) bool {
 // SxxExx and the technical metadata. Unnamed scene releases remain eligible.
 // A title is only extracted when a recognized metadata boundary follows it.
 func EpisodeTitleMatches(name, want string) bool {
+	return episodeTitleMatches(name, want, false)
+}
+
+// EpisodeTitleEvidence reports a positively matching episode subtitle. Unlike
+// EpisodeTitleMatches, missing or generic subtitles carry no evidence.
+func EpisodeTitleEvidence(name, want string) bool {
+	return episodeTitleMatches(name, want, true)
+}
+
+func episodeTitleMatches(name, want string, requireEvidence bool) bool {
 	if strings.TrimSpace(want) == "" {
-		return true
+		return !requireEvidence
 	}
 	generic := strings.Fields(strings.ToLower(want))
 	if len(generic) == 2 && isGenericEpisodeLabel(generic[0]) {
 		if _, err := strconv.Atoi(generic[1]); err == nil {
-			return true
+			return !requireEvidence
 		}
 	}
 	spaced := spacify(normalizeSpanishCapRange(name))
@@ -89,7 +99,7 @@ func EpisodeTitleMatches(name, want string) bool {
 		}
 	}
 	if loc == nil {
-		return true
+		return !requireEvidence
 	}
 	tail := strings.Trim(spaced[loc[1]:], " -")
 	var words []string
@@ -130,33 +140,40 @@ func EpisodeTitleMatches(name, want string) bool {
 		}
 		words = append(words, w)
 	}
-	if !boundary || len(words) == 0 {
+	if len(words) == 0 {
+		return !requireEvidence
+	}
+	if !boundary && !requireEvidence {
 		return true
 	}
 	got := normalizeEpisodeTitle(strings.Join(words, " "))
 	expected := normalizeEpisodeTitle(want)
+	if requireEvidence {
+		got = joinEpisodePossessives(got)
+		expected = joinEpisodePossessives(expected)
+	}
 	if got == "" || got == "the" || got == "a" || got == "an" {
-		return true
+		return !requireEvidence
 	}
 	// Russian and P2P releases frequently place the season/air year right
 	// after SxxExx ("Doktor.Krasnov.S01.E01.2023.WEB-DLRip", "s02.E01.(2025).WEBRip").
 	// When the wanted episode title is not itself a year, that bare year is
 	// release metadata rather than a conflicting episode title.
 	if len(words) == 1 && reYear.MatchString(got) && !reYear.MatchString(expected) {
-		return true
+		return !requireEvidence
 	}
 	if usedMiniseriesPart {
 		// When "Part N" was the episode marker itself ("Band.of.Brothers.Part.1.Currahee"),
 		// a catalogue episode titled "Part 1" / "Part One" (normalized to "1") or
 		// "Part 1: Currahee" (normalized to "1 currahee") matches the subtitle tail.
 		if _, err := strconv.Atoi(expected); err == nil {
-			return true
+			return !requireEvidence
 		}
 		if strings.HasSuffix(expected, " "+got) {
 			return true
 		}
 	}
-	return got == expected || strings.HasPrefix(expected, got+" ")
+	return got == expected || (!requireEvidence && strings.HasPrefix(expected, got+" "))
 }
 
 // Catalogue and scene names express multipart suffixes differently:
@@ -245,4 +262,19 @@ func collapseEpisodeContractions(words []string) []string {
 		out = append(out, words[i])
 	}
 	return out
+}
+
+// Scene separators sometimes replace the apostrophe in a possessive:
+// "Samantha s" and "Samanthas" carry the same subtitle evidence.
+func joinEpisodePossessives(title string) string {
+	words := strings.Fields(title)
+	out := make([]string, 0, len(words))
+	for _, word := range words {
+		if word == "s" && len(out) > 0 {
+			out[len(out)-1] += "s"
+		} else {
+			out = append(out, word)
+		}
+	}
+	return strings.Join(out, " ")
 }
