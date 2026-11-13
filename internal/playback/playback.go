@@ -905,6 +905,22 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 						return nil, nil, fmt.Errorf("%w: server is at its limit of %d streams", core.ErrStreamLimit, serverLimit)
 					}
 				}
+				if play {
+					s.mu.Lock()
+					if s.viewerState == "paused" || s.viewerState == "stopped" || !s.stopAt.IsZero() || s.stoppedBySurface {
+						// This is a new play, not another step in the old
+						// recovery chain. Proven permanent failures remain
+						// in openFailures and the resolver's bad-source store.
+						s.invalidateDirectRetryLocked()
+						s.tried = nil
+						s.viewerState = ""
+						s.failovers, s.downFailovers, s.stallContinues = 0, 0, 0
+						if s.cur != nil {
+							s.alternates = s.cur.res.Alternates
+						}
+					}
+					s.mu.Unlock()
+				}
 				s.claimed = true
 				m.mu.Unlock()
 				s.touch(now)
@@ -1701,9 +1717,16 @@ func (m *Manager) Timeline(userID int64, key core.RatingKey, state string) {
 			s.mu.Lock()
 			s.stopAt = now.Add(m.opts.StoppedGrace)
 			s.viewerState = "stopped"
+			s.invalidateDirectRetryLocked()
 			s.mu.Unlock()
 		} else if state == "playing" || state == "paused" {
 			s.touchTimeline(now)
+			s.mu.Lock()
+			s.viewerState = state
+			if state == "paused" {
+				s.invalidateDirectRetryLocked()
+			}
+			s.mu.Unlock()
 		}
 	}
 	if state == "stopped" {

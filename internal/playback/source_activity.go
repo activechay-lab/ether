@@ -40,6 +40,9 @@ func (m *Manager) SourcePlaybackProgress(ctx context.Context, id, revision strin
 	s.viewerPosition = position
 	s.viewerAt = time.Now()
 	s.viewerState = state
+	if state == "paused" || state == "stopped" {
+		s.invalidateDirectRetryLocked()
+	}
 	if !s.caps.NoPlaybackTelemetry {
 		s.exp.observe(now, !s.caps.InferBuffering, position, state)
 	}

@@ -373,6 +373,18 @@ func (s *session) isClosed() bool {
 	return s.closed
 }
 
+// invalidateDirectRetryLocked disarms a stalled range's watchdog when the
+// viewer leaves playback. A pause is not evidence of a broken source.
+// The caller holds s.mu (session locks precede generation locks).
+func (s *session) invalidateDirectRetryLocked() {
+	if s.cur != nil {
+		s.cur.mu.Lock()
+		s.cur.retryEpoch++
+		s.cur.retryPending = false
+		s.cur.mu.Unlock()
+	}
+}
+
 func (s *session) touch(now time.Time) {
 	s.mu.Lock()
 	s.lastActive = now

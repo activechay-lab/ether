@@ -248,6 +248,12 @@ func (m *Manager) limitDirectRetryAfter(s *session, g *generation, at, delay tim
 	epoch := g.retryEpoch
 	g.mu.Unlock()
 	pending := func() bool {
+		s.mu.Lock()
+		inactive := s.closed || s.viewerState == "paused" || s.viewerState == "stopped" || !s.stopAt.IsZero() || s.stoppedBySurface
+		s.mu.Unlock()
+		if inactive {
+			return false
+		}
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		return g.retryPending && g.retryEpoch == epoch && !g.retired
