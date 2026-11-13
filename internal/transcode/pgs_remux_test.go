@@ -2,8 +2,10 @@ package transcode
 
 import (
 	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +41,7 @@ func TestRealPGSRemux(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := filepath.Join(e.dir, "input.mkv")
-	args := []string{"-v", "error", "-y", "-f", "lavfi", "-i", "color=size=3840x2160:rate=2:duration=6", "-i", subPath, "-map", "0:v", "-map", "1:s", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "pools=1:frame-threads=1:log-level=error:keyint=2", "-threads", "1", "-c:s", "copy", input}
+	args := []string{"-v", "error", "-y", "-copyts", "-f", "lavfi", "-i", "color=size=3840x2160:rate=2:duration=6", "-i", subPath, "-map", "0:v", "-map", "1:s", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "pools=1:frame-threads=1:log-level=error:keyint=2", "-threads", "1", "-c:s", "copy", input}
 	if out, err := mediaproc.CommandContext(t.Context(), time.Minute, e.ffmpeg, args...).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %v: %.1500s", err, out)
 	}
@@ -93,10 +95,22 @@ func TestRealPGSRemux(t *testing.T) {
 		if !found {
 			t.Fatal("no PGS track in remux")
 		}
-		packets, err := mediaproc.CommandContext(t.Context(), 30*time.Second, e.ffprobe, "-v", "error", "-select_streams", "s:0", "-show_entries", "packet=size", "-of", "csv=p=0", path).Output()
+		packets, err := mediaproc.CommandContext(t.Context(), 30*time.Second, e.ffprobe, "-v", "error", "-select_streams", "s:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", path).Output()
 		if err != nil || strings.TrimSpace(string(packets)) == "" {
 			t.Fatalf("missing PGS packets: %v", err)
 		}
-
+		// The client consumes the same +10s title clock for bitmap cues and
+		// video, including after an input seek. Presence alone is insufficient.
+		lines := strings.Fields(strings.TrimSpace(string(packets)))
+		if len(lines) != 2 {
+			t.Fatalf("PGS presentations: %q", packets)
+		}
+		for i, line := range lines {
+			pts, err := strconv.ParseFloat(line, 64)
+			want := 2 + float64(i*2) + matroskaOrigin.Seconds()
+			if err != nil || math.Abs(pts-want) > 0.001 {
+				t.Fatalf("start %v: PGS PTS %q, want %.3f: %v", start, line, want, err)
+			}
+		}
 	}
 }

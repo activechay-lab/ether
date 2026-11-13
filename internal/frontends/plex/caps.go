@@ -319,6 +319,20 @@ func applyProfileExtra(c *frontend.ClientCaps, extra string) profileExtraEvidenc
 			}
 			c.VideoCodecs = addUnique(c.VideoCodecs, codecs...)
 			c.AudioCodecs = addUnique(c.AudioCodecs, splitList(a["audioCodec"])...)
+			// The enhanced tvOS player declares bitmap decoding for its
+			// Matroska HLS target; the general Apple TV policy is text-only.
+			if strings.EqualFold(c.Product, "Plex for Apple TV") && a["protocol"] == frontend.ProtocolHLS && slices.Contains(splitList(a["container"]), frontend.ContainerMatroska) {
+				for _, codec := range splitList(a["subtitleCodec"]) {
+					c.SubtitleCodecs = addUnique(c.SubtitleCodecs, codec)
+					switch codec {
+					case "pgs":
+						c.SubtitleCodecs = addUnique(c.SubtitleCodecs, "hdmv_pgs_subtitle")
+					case "vobsub":
+						c.SubtitleCodecs = addUnique(c.SubtitleCodecs, "dvd_subtitle")
+					}
+				}
+			}
+
 			if ct := a["container"]; ct != "" {
 				c.Containers = addUnique(c.Containers, splitList(ct)...)
 				if a["protocol"] == frontend.ProtocolHLS {
