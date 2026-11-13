@@ -20,6 +20,7 @@ export function AddCatalogueSource({
         open
         role="list_source"
         title={t("Add a Stremio add-on")}
+        submitLabel={t("Add add-on")}
         onClose={onClose}
         onAdded={() => {
           onAdded();
@@ -73,4 +74,42 @@ export function sourceOwner(source: CatalogueSource) {
   return source.group === "builtin"
     ? t("Included with Ether")
     : t("From {plugin}", { plugin: source.owner });
+}
+
+export function sourceName(source: CatalogueSource) {
+  if (source.group !== "stremio") return source.name;
+  return source.mediaTypes[0] === "show"
+    ? t("{name} TV shows", { name: source.name })
+    : t("{name} movies", { name: source.name });
+}
+export function sourceLabel(source: CatalogueSource) {
+  return source.group === "builtin"
+    ? sourceName(source)
+    : `${source.owner} · ${sourceName(source)}`;
+}
+
+export function catalogueGroups(sources: CatalogueSource[]) {
+  const groups = new Map<string, CatalogueSource[]>();
+  for (const source of sources) {
+    const key = source.pluginId ?? source.id;
+    groups.set(key, [...(groups.get(key) ?? []), source]);
+  }
+  return [...groups.values()].map((entries) => {
+    const first = entries[0]!;
+    return {
+      ...first,
+      id: first.pluginId ?? first.id,
+      name: first.owner,
+      entries,
+      health: entries.some((s) => s.health === "error" || s.health === "attention")
+        ? "error"
+        : entries.every((s) => s.health === "unknown")
+          ? "unknown"
+          : "ok",
+      lastError: entries.find((s) => s.lastError)?.lastError,
+      libraries: [
+        ...new Map(entries.flatMap((s) => s.libraries).map((lib) => [lib.id, lib])).values(),
+      ],
+    };
+  });
 }

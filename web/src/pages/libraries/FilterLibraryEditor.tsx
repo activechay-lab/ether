@@ -1,3 +1,4 @@
+import { sourceName, sourceLabel } from "./CatalogueSources";
 import { Button, Checkbox, toast } from "@braedonsaunders/appkit-ui";
 import { ArrowLeft, Check, Layers, Plus, ListFilter, LibraryBig } from "lucide-react";
 import { useState } from "react";
@@ -47,7 +48,7 @@ export function NewLibraryDrawer({
     return (
       <FilterLibraryEditor
         sources={selected}
-        sourceNames={chosen.map((source) => source.name)}
+        sourceNames={chosen.map(sourceLabel)}
         allTitles={step === "all"}
         seed={new URLSearchParams({ type: chosen[0]?.mediaTypes[0] ?? "movie" })}
         onBack={() => setStep("narrow")}
@@ -59,7 +60,7 @@ export function NewLibraryDrawer({
     return (
       <CollectionLibraryEditor
         sourceIds={selected}
-        sourceNames={chosen.map((source) => source.name)}
+        sourceNames={chosen.map(sourceLabel)}
         sourceType={chosen[0]?.mediaTypes[0]}
         onBack={() => setStep("narrow")}
         onClose={onClose}
@@ -124,7 +125,7 @@ export function NewLibraryDrawer({
       {step === "narrow" ? (
         <div className="space-y-3">
           <p className="font-medium">{t("What goes in it")}</p>
-          <p className="text-sm text-fg-muted">{chosen.map((source) => source.name).join(", ")}</p>
+          <p className="text-sm text-fg-muted">{chosen.map(sourceLabel).join(", ")}</p>
           {[
             {
               key: "all" as const,
@@ -174,59 +175,67 @@ export function NewLibraryDrawer({
           {registry.error ? (
             <ErrorPanel error={registry.error} onRetry={() => void registry.reload()} />
           ) : null}
-          {(["builtin", "plugin", "stremio"] as const)
-            .filter((group) => registry.data?.some((source) => source.group === group))
-            .map((group) => (
-              <div key={group} className="space-y-2">
-                <h3 className="text-sm text-fg-muted">
-                  {group === "builtin"
-                    ? t("Included with Ether")
-                    : group === "plugin"
-                      ? t("Plugins")
-                      : t("Stremio add-ons")}
-                </h3>
-                {registry.data
-                  ?.filter((source) => source.group === group)
-                  .map((source) => {
-                    const incompatible =
-                      chosen.length > 0 &&
-                      !selected.includes(source.id) &&
-                      (chosen[0]?.group === "plugin" ||
-                        source.group === "plugin" ||
-                        chosen[0]?.mediaTypes[0] !== source.mediaTypes[0]);
-                    return (
-                      <label
-                        key={source.id}
-                        className={`${card} ${incompatible ? "opacity-50" : "cursor-pointer"}`}
-                      >
-                        <SourceIcon source={source} />
-                        <Checkbox
-                          className={source.group === "plugin" ? "rounded-full" : ""}
-                          checked={selected.includes(source.id)}
-                          disabled={busy || incompatible}
-                          onChange={(event) =>
-                            setSelected(
-                              event.target.checked
-                                ? [...selected, source.id]
-                                : selected.filter((id) => id !== source.id),
-                            )
-                          }
-                        />
-                        <span className="flex-1">
-                          <span className="block font-medium">{source.name}</span>
-                          <span className="block text-sm text-fg-muted">
-                            {incompatible
-                              ? source.group === "plugin" || chosen[0]?.group === "plugin"
-                                ? t("Plugin sources are used on their own.")
-                                : t("Can't mix movies and TV shows.")
-                              : sourceOwner(source)}
-                          </span>
+          {[
+            ...new Set(
+              (registry.data ?? []).map((source) =>
+                source.group === "stremio" ? source.pluginId! : source.group,
+              ),
+            ),
+          ].map((group) => (
+            <div key={group} className="space-y-2">
+              <h3 className="text-sm text-fg-muted">
+                {group === "builtin"
+                  ? t("Included with Ether")
+                  : group === "plugin"
+                    ? t("Plugins")
+                    : registry.data?.find((source) => source.pluginId === group)?.owner}
+              </h3>
+              {registry.data
+                ?.filter(
+                  (source) =>
+                    source.group === group ||
+                    (source.group === "stremio" && source.pluginId === group),
+                )
+                .map((source) => {
+                  const incompatible =
+                    chosen.length > 0 &&
+                    !selected.includes(source.id) &&
+                    (chosen[0]?.group === "plugin" ||
+                      source.group === "plugin" ||
+                      chosen[0]?.mediaTypes[0] !== source.mediaTypes[0]);
+                  return (
+                    <label
+                      key={source.id}
+                      className={`${card} ${incompatible ? "opacity-50" : "cursor-pointer"}`}
+                    >
+                      <SourceIcon source={source} />
+                      <Checkbox
+                        className={source.group === "plugin" ? "rounded-full" : ""}
+                        checked={selected.includes(source.id)}
+                        disabled={busy || incompatible}
+                        onChange={(event) =>
+                          setSelected(
+                            event.target.checked
+                              ? [...selected, source.id]
+                              : selected.filter((id) => id !== source.id),
+                          )
+                        }
+                      />
+                      <span className="flex-1">
+                        <span className="block font-medium">{sourceName(source)}</span>
+                        <span className="block text-sm text-fg-muted">
+                          {incompatible
+                            ? source.group === "plugin" || chosen[0]?.group === "plugin"
+                              ? t("Plugin sources are used on their own.")
+                              : t("Can't mix movies and TV shows.")
+                            : sourceOwner(source)}
                         </span>
-                      </label>
-                    );
-                  })}
-              </div>
-            ))}
+                      </span>
+                    </label>
+                  );
+                })}
+            </div>
+          ))}
           <Button variant="secondary" onClick={() => setAdding(true)}>
             <Plus size={14} />
             {t("Add catalogue source")}

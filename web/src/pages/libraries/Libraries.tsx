@@ -1,3 +1,4 @@
+import { sourceLabel } from "./CatalogueSources";
 import { Button, EmptyState, Switch, toast } from "@braedonsaunders/appkit-ui";
 import {
   ArrowDown,
@@ -164,7 +165,7 @@ function LibrariesList() {
                             lib.sources?.includes(source.id) ||
                             source.libraries.some((item) => item.id === lib.id),
                         )
-                        .map((source) => source.name)
+                        .map(sourceLabel)
                         .join(", ") || sourceBadge(lib),
                   })}
                 </p>

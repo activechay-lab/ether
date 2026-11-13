@@ -1,6 +1,11 @@
 import { Plus } from "lucide-react";
 import { librariesApi } from "../libraries/api";
-import { AddCatalogueSource, SourceIcon, sourceOwner } from "../libraries/CatalogueSources";
+import {
+  AddCatalogueSource,
+  SourceIcon,
+  sourceName,
+  catalogueGroups,
+} from "../libraries/CatalogueSources";
 import { useStreamEvent } from "../../lib/stream";
 import { IntegrationSetupFooter } from "../../components/IntegrationSetupFooter";
 import { Badge, Button, SettingsSection, Spinner, toast } from "@braedonsaunders/appkit-ui";
@@ -1285,18 +1290,31 @@ function ServiceOverview({
             </>
           }
         />
-        {catalogue.data
-          ?.filter((source) => source.group !== "builtin")
-          .map((source) => (
+        {catalogueGroups((catalogue.data ?? []).filter((source) => source.group !== "builtin")).map(
+          (source) => (
             <IntegrationAppCard
               key={source.id}
               identity={{ id: source.id, name: source.name }}
-              logo={<SourceIcon source={source} />}
-              description={`${source.group === "plugin" ? source.name : source.mediaTypes.map((type) => (type === "movie" ? t("Movies") : t("TV shows"))).join(", ")}${source.itemCount !== undefined ? ` · ${tn(source.itemCount, "{count} title", "{count} titles")}` : ""}`}
+              logo={
+                source.logo ? (
+                  <img src={source.logo} alt="" className="h-10 w-10 object-contain" />
+                ) : (
+                  <SourceIcon source={source} />
+                )
+              }
+              description={tn(source.entries.length, "{count} catalogue", "{count} catalogues")}
               status={
                 <LevelBadge
-                  level={source.health === "ok" ? "ok" : "warn"}
-                  label={source.health === "ok" ? t("Healthy") : t("Needs attention")}
+                  level={
+                    source.health === "unknown" ? "unknown" : source.health === "ok" ? "ok" : "warn"
+                  }
+                  label={
+                    source.health === "unknown"
+                      ? t("Not loaded yet")
+                      : source.health === "ok"
+                        ? t("Healthy")
+                        : source.lastError || t("Needs attention")
+                  }
                 />
               }
               configureHref={
@@ -1307,7 +1325,7 @@ function ServiceOverview({
               details={
                 <>
                   <div className="w-full space-y-1 text-sm text-fg-muted">
-                    <p>{sourceOwner(source)}</p>
+                    <p>{source.entries.map(sourceName).join(" · ")}</p>
                     <p>
                       {source.libraries.length
                         ? t("Used by: {libraries}", {
@@ -1319,7 +1337,8 @@ function ServiceOverview({
                 </>
               }
             />
-          ))}
+          ),
+        )}
       </IntegrationGroup>
       {catalogue.error ? (
         <ErrorPanel error={catalogue.error} onRetry={() => void catalogue.reload()} />

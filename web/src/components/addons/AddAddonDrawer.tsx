@@ -28,6 +28,7 @@ export function AddAddonDrawer({
   open,
   role,
   title,
+  submitLabel,
   onClose,
   onAdded,
 }: {
@@ -35,6 +36,7 @@ export function AddAddonDrawer({
   /** The role the page is adding the add-on for; it starts switched on. */
   role?: AddonRole;
   title?: string;
+  submitLabel?: string;
   onClose: () => void;
   onAdded: (addon: AddonSummary, preview: AddonPreview) => void;
 }) {
@@ -192,7 +194,7 @@ export function AddAddonDrawer({
               </Button>
             ) : (
               <Button onClick={() => void add()} disabled={busy || nothingOn || roleMissing}>
-                {preview.alreadyInstalled ? t("Save") : t("Add plugin")}
+                {preview.alreadyInstalled ? t("Save") : (submitLabel ?? t("Add plugin"))}
               </Button>
             )}
           </div>

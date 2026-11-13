@@ -2723,17 +2723,17 @@ export function createFakeServer(opts: FakeOptions = {}) {
           },
           {
             id: "stremio:cinemeta:popular",
-            name: "Popular movies",
+            name: "Popular",
             owner: "Cinemeta",
             group: "stremio",
             mediaTypes: ["movie"],
-            health: "ok",
+            health: "unknown",
             pluginId: "cinemeta",
             libraries: [],
           },
           {
             id: "stremio:cinemeta:classics",
-            name: "Classic movies",
+            name: "Classics",
             owner: "Cinemeta",
             group: "stremio",
             mediaTypes: ["movie"],
@@ -2742,6 +2742,42 @@ export function createFakeServer(opts: FakeOptions = {}) {
             pluginId: "cinemeta",
             libraries: [{ id: 4, name: "Weekend movies" }],
           },
+          ...[
+            {
+              id: "popular-series",
+              name: "Popular",
+              type: "series",
+              extraRequired: [] as string[],
+              extra: [] as { isRequired: boolean }[],
+            },
+            {
+              id: "last-videos",
+              name: "Last videos",
+              type: "movie",
+              extraRequired: ["ids"],
+              extra: [],
+            },
+            {
+              id: "calendar-videos",
+              name: "Calendar videos",
+              type: "series",
+              extraRequired: [],
+              extra: [{ isRequired: true }],
+            },
+          ]
+            .filter(
+              (cat) => !cat.extraRequired.length && !cat.extra.some((extra) => extra.isRequired),
+            )
+            .map((cat) => ({
+              id: `stremio:cinemeta:${cat.id}`,
+              name: cat.name,
+              owner: "Cinemeta",
+              group: "stremio",
+              pluginId: "cinemeta",
+              mediaTypes: [cat.type === "series" ? "show" : "movie"],
+              health: "unknown",
+              libraries: [],
+            })),
         ].map((source) => ({
           ...source,
           libraries: mockLibs

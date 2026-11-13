@@ -1,3 +1,4 @@
+import { sourceName, sourceLabel } from "./CatalogueSources";
 import {
   Badge,
   Button,
@@ -43,7 +44,7 @@ export function TitlesComeFrom({
       ? library.source === "builtin" || attached[0]?.group === "builtin"
         ? t("Manage TMDB")
         : attached[0]
-          ? t("Manage {app}", { app: attached[0].name })
+          ? t("Manage {app}", { app: attached[0].owner })
           : t("Manage in Integrations")
       : t("Manage in Integrations");
   const mediaType = String(library.mediaType ?? library.filter?.type ?? "movie");
@@ -60,7 +61,7 @@ export function TitlesComeFrom({
           title={t("Catalogue sources")}
           description={
             library.source === "builtin"
-              ? t("Always {source}.", { source: attached[0]?.name ?? "TMDB" })
+              ? t("Always {source}.", { source: attached[0] ? sourceLabel(attached[0]) : "TMDB" })
               : library.source === "plugin"
                 ? t("Comes from the {plugin} plugin.", {
                     plugin: attached[0]?.owner ?? library.pluginName ?? t("Plugin"),
@@ -71,7 +72,10 @@ export function TitlesComeFrom({
             <div className="flex flex-wrap items-center justify-end gap-2">
               {ids.map((id) => (
                 <Badge key={id} variant="secondary">
-                  {registry.data?.find((source) => source.id === id)?.name ?? t("Unavailable")}
+                  {(() => {
+                    const source = registry.data?.find((source) => source.id === id);
+                    return source ? sourceLabel(source) : t("Unavailable");
+                  })()}
                 </Badge>
               ))}
               {library.source !== "builtin" && library.source !== "plugin" ? (
@@ -129,7 +133,7 @@ export function TitlesComeFrom({
                     }
                   />
                   <span>
-                    <span className="block font-medium">{source.name}</span>
+                    <span className="block font-medium">{sourceName(source)}</span>
                     <span className="block text-sm text-fg-muted">{sourceOwner(source)}</span>
                   </span>
                 </label>

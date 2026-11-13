@@ -388,3 +388,13 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+// Standalone reports whether a catalogue can be listed without owner input.
+func (c Catalog) Standalone() bool {
+	for _, extra := range c.Extras() {
+		if extra.IsRequired {
+			return false
+		}
+	}
+	return true
+}

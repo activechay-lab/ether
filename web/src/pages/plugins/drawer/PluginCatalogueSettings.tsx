@@ -1,3 +1,4 @@
+import { sourceName } from "../../libraries/CatalogueSources";
 import { Button, SettingsSection, toast } from "@braedonsaunders/appkit-ui";
 import { useState } from "react";
 import { SettingsRow } from "../../../components/SettingsRow";
@@ -66,8 +67,14 @@ export function PluginCatalogueSettings({
       {catalogues.map((source) => (
         <SettingsRow
           key={source.id}
-          title={source.name}
-          description={source.health === "ok" ? t("Healthy") : t("Needs attention")}
+          title={sourceName(source)}
+          description={
+            source.health === "unknown"
+              ? t("Not loaded yet")
+              : source.health === "ok"
+                ? t("Healthy")
+                : source.lastError || t("Needs attention")
+          }
           control={
             <Button
               size="sm"

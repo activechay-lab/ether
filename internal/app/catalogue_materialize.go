@@ -36,7 +36,7 @@ func (a *App) catalogueSourceType(ctx context.Context, id string) (string, error
 	}
 	if parts[0] == "stremio" && rec.Manifest.HasCapability(plugins.CapListSource) {
 		for _, cat := range rec.Manifest.Stremio().Catalogs {
-			if plugins.StremioCatalogKey(cat) == parts[2] {
+			if cat.Standalone() && plugins.StremioCatalogKey(cat) == parts[2] {
 				if cat.Type == "movie" {
 					return "movie", nil
 				}
@@ -159,7 +159,7 @@ func (a *App) wireCatalogueSources() {
 						return err
 					}
 				}
-				if _, err = tx.ExecContext(ctx, `INSERT INTO libraries_catalogue_state(source_id,refreshed,item_count) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET refreshed=excluded.refreshed,item_count=excluded.item_count`, id, time.Now().Unix(), len(titles)); err != nil {
+				if _, err = tx.ExecContext(ctx, `INSERT INTO libraries_catalogue_state(source_id,refreshed,item_count) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET refreshed=excluded.refreshed,item_count=excluded.item_count,last_error=''`, id, time.Now().Unix(), len(titles)); err != nil {
 					return err
 				}
 				if err = tx.Commit(); err == nil {
@@ -167,6 +167,7 @@ func (a *App) wireCatalogueSources() {
 				}
 				return err
 			}(); err != nil {
+				_, _ = a.db.ExecContext(ctx, `INSERT INTO libraries_catalogue_state(source_id,refreshed,item_count,last_error) VALUES(?,0,0,?) ON CONFLICT(source_id) DO UPDATE SET last_error=excluded.last_error`, id, err.Error())
 				return err
 			}
 		}

@@ -1,3 +1,4 @@
+import { sourceLabel } from "./CatalogueSources";
 import {
   Button,
   Input,
@@ -281,9 +282,7 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
   if (library.source === "plugin" && cache.loading && !cache.data) return <LoadingRows />;
   if (!draft) return <LoadingRows />;
   const sourceNames =
-    registry.data
-      ?.filter((source) => draft.sources.includes(source.id))
-      .map((source) => source.name) ?? [];
+    registry.data?.filter((source) => draft.sources.includes(source.id)).map(sourceLabel) ?? [];
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -468,16 +467,29 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
           ) : null}
           <div className="mt-3">
             <LevelBadge
+              label={
+                sourceNames.length > 0 &&
+                registry.data
+                  ?.filter((s) => draft.sources.includes(s.id))
+                  .every((s) => s.health === "unknown")
+                  ? t("Not loaded yet")
+                  : undefined
+              }
               level={
                 library.sync?.lastError
                   ? "error"
-                  : registry.data?.some(
-                        (source) =>
-                          draft.sources.includes(source.id) &&
-                          ["error", "attention"].includes(source.health),
-                      )
-                    ? "warn"
-                    : (health.find((item) => item.id === "catalog")?.level ?? "unknown")
+                  : sourceNames.length > 0 &&
+                      registry.data
+                        ?.filter((s) => draft.sources.includes(s.id))
+                        .every((s) => s.health === "unknown")
+                    ? "unknown"
+                    : registry.data?.some(
+                          (source) =>
+                            draft.sources.includes(source.id) &&
+                            ["error", "attention"].includes(source.health),
+                        )
+                      ? "warn"
+                      : (health.find((item) => item.id === "catalog")?.level ?? "unknown")
               }
             />
           </div>

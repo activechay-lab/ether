@@ -10,6 +10,8 @@ import (
 
 type catalogueSource struct {
 	ID         string             `json:"id"`
+	Logo       string             `json:"logo,omitempty"`
+	LastError  string             `json:"lastError,omitempty"`
 	Name       string             `json:"name"`
 	Owner      string             `json:"owner"`
 	Group      string             `json:"group"`
@@ -67,7 +69,18 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 					if kind.Library.Name != "" {
 						src.Name = c.catalogueLabel(r.Context(), rec.ID, kind.Library.Name, src.Name)
 					}
+					src.Logo = rec.Manifest.Logo
+					src.Health = "unknown"
 					if c.app.pluginsRT.pluginitems != nil {
+						if state, err := c.app.pluginsRT.pluginitems.SyncStateOf(r.Context(), rec.ID, kind.Key); err == nil {
+							src.LastError = state.LastError
+							if state.LastError != "" {
+								src.Health = "error"
+							} else if !state.LastOK.IsZero() {
+								src.Health = "ok"
+							}
+						}
+
 						for _, lib := range libs {
 							if lib.PluginID == rec.ID && lib.KindKey == kind.Key {
 								if tally, err := c.app.pluginsRT.pluginitems.LibraryTally(r.Context(), lib.ID); err == nil && len(kind.Levels) > 0 {
@@ -85,6 +98,9 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 				continue
 			}
 			for _, cat := range rec.Manifest.Stremio().Catalogs {
+				if !cat.Standalone() {
+					continue
+				}
 				typ := "movie"
 				if cat.Type == "series" {
 					typ = "show"
@@ -95,18 +111,29 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 				if name == "" {
 					name = cat.ID
 				}
-				out = append(out, catalogueSource{ID: "stremio:" + rec.ID + ":" + plugins.StremioCatalogKey(cat), Name: name, Owner: rec.Name, Group: "stremio", PluginID: rec.ID, MediaTypes: []string{typ}, Health: health, Libraries: []catalogueLibrary{}})
+				out = append(out, catalogueSource{ID: "stremio:" + rec.ID + ":" + plugins.StremioCatalogKey(cat), Name: name, Owner: rec.Name, Group: "stremio", PluginID: rec.ID, MediaTypes: []string{typ}, Logo: rec.Manifest.Logo, Health: "unknown", Libraries: []catalogueLibrary{}})
 			}
 		}
 	}
 	for i := range out {
 		if out[i].Group == "stremio" {
 			var count int
-			if err := c.app.db.QueryRowContext(r.Context(), `SELECT item_count FROM libraries_catalogue_state WHERE source_id=?`, out[i].ID).Scan(&count); err == nil {
-				out[i].ItemCount = &count
+			var refreshed int64
+			if err := c.app.db.QueryRowContext(r.Context(), `SELECT item_count,refreshed,last_error FROM libraries_catalogue_state WHERE source_id=?`, out[i].ID).Scan(&count, &refreshed, &out[i].LastError); err == nil {
+				if refreshed > 0 {
+					out[i].ItemCount = &count
+					out[i].Health = "ok"
+				}
+				if out[i].LastError != "" {
+					out[i].Health = "error"
+				}
 			}
 		}
 		for _, lib := range libs {
+			if out[i].Group == "plugin" && lib.PluginID == out[i].PluginID && lib.KindKey == out[i].KindKey {
+				out[i].Libraries = append(out[i].Libraries, catalogueLibrary{lib.ID, lib.Name})
+				continue
+			}
 			for _, id := range lib.Sources {
 				if id == out[i].ID {
 					out[i].Libraries = append(out[i].Libraries, catalogueLibrary{lib.ID, lib.Name})

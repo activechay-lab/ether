@@ -50,6 +50,8 @@ export interface LibrarySync {
 }
 
 export interface CatalogueSource {
+  logo?: string;
+  lastError?: string;
   id: string;
   name: string;
   owner: string;

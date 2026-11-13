@@ -8,6 +8,9 @@ import (
 )
 
 func init() {
+	store.Register("libraries", 7, `ALTER TABLE libraries_catalogue_state ADD COLUMN last_error TEXT NOT NULL DEFAULT '';`)
+	store.RegisterDialect("libraries", 7, store.Postgres, `ALTER TABLE libraries_catalogue_state ADD COLUMN last_error TEXT NOT NULL DEFAULT '';`)
+
 	const migration = `ALTER TABLE libraries ADD COLUMN sources TEXT NOT NULL DEFAULT '[]';
 CREATE TABLE libraries_catalogue_members (source_id TEXT NOT NULL, key BIGINT NOT NULL, PRIMARY KEY(source_id,key));
 CREATE TABLE libraries_catalogue_state (source_id TEXT PRIMARY KEY, refreshed BIGINT NOT NULL);`
