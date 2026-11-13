@@ -428,6 +428,7 @@ func (h *Handler) routes() *http.ServeMux {
 	api("GET /api/frontends/{id}/settings", h.frontendSettings)
 	api("PUT /api/frontends/{id}/settings", h.frontendSettings)
 	api("PUT /api/frontends/{id}/enabled", h.frontendToggle)
+	api("GET /api/poster-folders", h.posterFolders)
 	api("GET /api/config", h.handleGetConfig)
 	api("PUT /api/config", h.handlePutConfig)
 	api("GET /api/config/{section}", h.handleGetSection)

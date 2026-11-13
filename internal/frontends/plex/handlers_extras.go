@@ -219,7 +219,7 @@ func (s *Server) extraMetadata(e frontend.ExtraClip, parent *frontend.Title, wit
 	}
 	thumb := s.thumbURL(parent)
 	if parent.BackdropPath != "" {
-		thumb = artURL(parent) // 16:9 backdrop suits trailer thumbs
+		thumb = s.artURL(parent) // 16:9 backdrop suits trailer thumbs
 	}
 	md := model.Metadata{
 		RatingKey:       e.Key.String(),
@@ -232,7 +232,7 @@ func (s *Server) extraMetadata(e frontend.ExtraClip, parent *frontend.Title, wit
 		ParentKey:       "/library/metadata/" + parent.Key.String(),
 		ParentTitle:     parent.Title,
 		Thumb:           thumb,
-		Art:             artURL(parent),
+		Art:             s.artURL(parent),
 		ContentRating:   parent.ContentRating,
 		Duration:        ms(e.Duration),
 		Extra:           []model.Attr{model.A("extraType", e.ExtraType)},

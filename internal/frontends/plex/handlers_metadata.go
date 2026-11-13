@@ -498,7 +498,7 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	mc.Key = parent.Key.String()
 	mc.Nocache = model.Ptr(true)
 	mc.Thumb = s.thumbURL(parent)
-	mc.Art = artURL(parent)
+	mc.Art = s.artURL(parent)
 	var allLeaves *model.Directory
 	switch parent.Type {
 	case frontend.TypeShow:
@@ -1208,7 +1208,7 @@ func (s *Server) placeholderMetadata(ctx context.Context, pr *Request, t *fronte
 	// Future placeholders use base TMDB artwork through the collection-scoped
 	// image handler; overlays and custom poster providers require released titles.
 	md.Thumb = s.thumbURL(t)
-	md.Art = artURL(t)
+	md.Art = s.artURL(t)
 	if md.Thumb != "" {
 		md.Thumb += "?collection=" + collection.String()
 	}

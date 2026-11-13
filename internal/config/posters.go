@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -28,6 +30,7 @@ func (p *PosterAccounts) Entries() map[string]*PosterAccount {
 }
 
 type Posters struct {
+	AssetFolder string         `json:"assetFolder,omitempty"`
 	Accounts    PosterAccounts `json:"accounts"`
 	Version     int            `json:"version,omitempty"`
 	Enabled     bool           `json:"enabled"`
@@ -61,6 +64,22 @@ func (p Posters) Selected() Posters {
 	return Posters{Enabled: true, Source: p.Source, BaseURL: a.BaseURL, APIKey: a.APIKey, URLTemplate: a.URLTemplate, Profile: a.Profile}
 }
 func (p Posters) Validate() error {
+	if p.AssetFolder != "" {
+		if !filepath.IsAbs(p.AssetFolder) {
+			return errors.New("choose an absolute folder")
+		}
+		resolved, err := filepath.EvalSymlinks(p.AssetFolder)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || resolved != filepath.Clean(p.AssetFolder) {
+			return errors.New("choose a folder without symbolic links")
+		}
+	}
 	if p.Version > 0 {
 		for source, a := range p.Accounts.Entries() {
 			if err := (Posters{Enabled: a.Enabled, Source: source, BaseURL: a.BaseURL, APIKey: a.APIKey, URLTemplate: a.URLTemplate, Profile: a.Profile}).Validate(); err != nil {

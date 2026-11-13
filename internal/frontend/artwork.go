@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/braedonsaunders/ether/internal/core"
 )
@@ -50,3 +51,21 @@ func ValidArtworkPath(path string) bool { return core.ValidArtworkPath(path) }
 
 // NeedsGeneratedPoster exposes shared title fallback eligibility without I/O.
 func NeedsGeneratedPoster(title *Title) bool { return core.NeedsGeneratedPoster(title) }
+
+// ArtworkUploader accepts bounded owner artwork through protocol adapters.
+type ArtworkUploader interface {
+	Upload(context.Context, ArtworkRequest, string, []byte, string) error
+}
+
+type ArtworkUploadHandler interface {
+	UploadRequest(http.ResponseWriter, *http.Request, ArtworkRequest, string, bool) error
+}
+
+type OwnerArtworkReader interface {
+	OwnerArtwork(context.Context, ArtworkRequest, string) ([]byte, string, error)
+}
+
+// OwnerArtworkVersioner exposes a cheap cache identity for metadata image URLs.
+type OwnerArtworkVersioner interface {
+	OwnerArtworkVersion(*Title, string) string
+}

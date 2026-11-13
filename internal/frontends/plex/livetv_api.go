@@ -368,7 +368,7 @@ func liveProgrammeArt(key frontend.RatingKey, path string) string {
 	if path == "" || key == 0 || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		return path
 	}
-	return artURL(&frontend.Title{Key: key, BackdropPath: path})
+	return "/library/metadata/" + key.String() + "/art/" + imageStamp(&frontend.Title{Key: key, BackdropPath: path})
 }
 
 func (s *Server) liveProgrammeMetadata(c frontend.LiveTVChannel, p frontend.LiveTVProgramme) model.Metadata {

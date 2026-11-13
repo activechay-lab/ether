@@ -45,6 +45,10 @@ func (s *Server) handlePlaylistUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePlaylistArtworkCandidates(w http.ResponseWriter, r *http.Request) {
+	if k, err := keyParam(r); err == nil && k.Kind() != frontend.KindPlaylist {
+		s.ownerArtworkCandidates(w, r)
+		return
+	}
 	k, err := keyParam(r)
 	if err != nil || k.Kind() != frontend.KindPlaylist || s.playlists() == nil {
 		writeHTTPError(w, http.StatusNotFound)
