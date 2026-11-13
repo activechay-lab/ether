@@ -13,21 +13,22 @@ import (
 )
 
 type candidate struct {
-	fallback    bool
-	pluginKeys  map[string]int64
-	policy      releasepolicy.Result
-	rel         core.Release
-	trace       int
-	verified    bool
-	langOK      bool            // declares no audio, or an accepted audio language (acceptedAudio)
-	langWanted  bool            // explicitly declares the viewer's wanted audio or MULTI on a foreign title
-	starved     bool            // below its resolution's bitrate floor (bitrateScore) or a presumed upscale
-	bandwidth   int             // fits client cap (+1), unknown (0), or exceeds it (-1)
-	yearGuessed bool            // accepted despite a series year that differs from the show's
-	cf          int             // custom format score: every matching format, plugin points included
-	keys        rankKeys        // the Radarr/Sonarr comparer keys (ranking.go)
-	prepared    *candidateCheck // validation overlapped with descriptor discovery
-	graceStart  time.Time       // discovery start, set only when preparation overran the grace
+	fallback         bool
+	pluginKeys       map[string]int64
+	policy           releasepolicy.Result
+	rel              core.Release
+	trace            int
+	verified         bool
+	langOK           bool            // declares no audio, or an accepted audio language (acceptedAudio)
+	langWanted       bool            // explicitly declares the viewer's wanted audio or MULTI on a foreign title
+	starved          bool            // below its resolution's bitrate floor (bitrateScore) or a presumed upscale
+	bandwidth        int             // fits client cap (+1), unknown (0), or exceeds it (-1)
+	identityConflict bool            // region evidence contradicts the original language
+	yearGuessed      bool            // accepted despite a series year that differs from the show's
+	cf               int             // custom format score: every matching format, plugin points included
+	keys             rankKeys        // the Radarr/Sonarr comparer keys (ranking.go)
+	prepared         *candidateCheck // validation overlapped with descriptor discovery
+	graceStart       time.Time       // discovery start, set only when preparation overran the grace
 }
 type validation struct {
 	index                         int

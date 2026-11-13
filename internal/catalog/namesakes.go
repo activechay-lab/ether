@@ -123,3 +123,32 @@ LIMIT %d`, placeholders, namesakeMaxRows), args...)
 func init() {
 	store.Register("catalog", 59, `CREATE INDEX IF NOT EXISTS catalog_titles_type_lower_title ON catalog_titles(type, LOWER(title), year);`)
 }
+
+// SeriesNamesake checks indexed title variants for a differently dated show.
+// The resolver caches the result; no mirror scan or upstream fetch is needed.
+func (c *Catalog) SeriesNamesake(ctx context.Context, key core.RatingKey, title string, year int) (bool, error) {
+	variants := namesakeTitleVariants(title)
+	if len(variants) == 0 || year == 0 {
+		return false, nil
+	}
+	args := []any{string(core.TypeShow)}
+	for _, v := range variants {
+		args = append(args, strings.ToLower(v))
+	}
+	args = append(args, year, key)
+	rows, err := c.db.QueryContext(ctx, `SELECT title FROM catalog_titles WHERE type=? AND LOWER(title) IN (`+strings.TrimSuffix(strings.Repeat("?,", len(variants)), ",")+`) AND year>0 AND year<>? AND key<>? LIMIT 16`, args...)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var other string
+		if err := rows.Scan(&other); err != nil {
+			return false, err
+		}
+		if releaseparse.NormalizeTitle(other) == releaseparse.NormalizeTitle(title) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
