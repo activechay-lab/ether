@@ -39,7 +39,6 @@ import { debridMark } from "./marks";
 
 export { DEBRID_KINDS };
 import {
-  BoolRow,
   OrderButtons,
   RecordDrawer,
   TextRow,
@@ -525,11 +524,6 @@ export function DebridSources({
                 onChange={(v) => set({ apiKey: v })}
               />
             </SettingsRow>
-            <BoolRow
-              label={t("Enabled")}
-              value={draft.enabled}
-              onChange={(v) => set({ enabled: v })}
-            />
           </SettingsSection>
         ) : null}
       </RecordDrawer>

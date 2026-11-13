@@ -491,11 +491,6 @@ export function UsenetProviders({
               )}
               onChange={(v) => set({ backfill: v })}
             />
-            <BoolRow
-              label={t("Enabled")}
-              value={draft.enabled}
-              onChange={(v) => set({ enabled: v })}
-            />
           </SettingsSection>
         ) : null}
       </RecordDrawer>
