@@ -448,13 +448,15 @@ func enqueueWith(ctx context.Context, db interface {
 }
 
 // ObservePlayback only enqueues; network delivery runs separately in Run.
+// The playback bus also carries console-refresh kinds (update, progress,
+// surface) that are not notification events; those are skipped silently.
 func (s *Service) ObservePlayback(ev playback.Event) {
-	if ev.Kind == "update" {
-		return
-	}
 	kind := ev.Kind
 	if kind == "downfailover" {
 		kind = "failover"
+	}
+	if !known("playback." + kind) {
+		return
 	}
 	e := Event{Kind: "playback." + kind, Title: "Ether playback " + ev.Kind, At: ev.At}
 	if ev.Session != nil {
