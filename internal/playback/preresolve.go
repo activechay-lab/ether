@@ -148,7 +148,9 @@ func (m *Manager) ProbeMetadata(ctx context.Context, user *core.User, key core.R
 	if _, ok := m.WarmProbeInfo(user, caps, key); ok {
 		return nil
 	}
-	m.prewarm(ctx, user, key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}, true)
+	// Viewing the detail page admits one bounded on-demand open, just as
+	// playback intent does, while metadata mode still forbids video prefetch.
+	m.prewarm(ctx, user, key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail, PlayIntent: true}, true)
 	if _, ok := m.WaitWarmProbe(ctx, user, caps, key, 1500*time.Millisecond); ok {
 		return nil
 	}

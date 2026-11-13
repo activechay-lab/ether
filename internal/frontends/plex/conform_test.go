@@ -18,6 +18,7 @@ import (
 	pmsconform "github.com/braedonsaunders/ether/internal/conform"
 	conformplex "github.com/braedonsaunders/ether/internal/conform/plex"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/plexmeta"
 )
 
 // The reference fixtures in testdata/conform/plex were recorded from a real PMS
@@ -68,6 +69,25 @@ func pmsFixtureName(profile, path string, jsonMode bool) string {
 	return pmsconform.FixtureName(profile, path, jsonMode) + ".json"
 }
 
+// Seed provider identities and slugs from the PMS corpus. The production
+// renderer deliberately cannot derive a provider identity from a title label.
+func newConformanceFixture(t *testing.T) *fixture {
+	f, _ := plexMetaFixture(t, true, &plexMetaRoundTrip{body: `{}`})
+	for _, row := range []struct {
+		title      core.Title
+		guid, slug string
+	}{
+		{burbs, "plex://movie/5d7768374de0ee001fccc04a", "the-burbs"},
+		{nineShow, "plex://show/5d9c08e9705e7a001e6e645b", "9-1-1"},
+	} {
+		if err := storeVerifiedGUID(f.srv.runtimeDB(), row.title.Key, row.guid, int64(row.title.Key.TMDB()), row.title.Title, row.title.Year); err != nil {
+			t.Fatal(err)
+		}
+		storePlexOverlay(t, f.srv.runtimeDB(), row.title.Key, row.guid, plexmeta.Overlay{Slug: row.slug})
+	}
+	return f
+}
+
 func TestDecisionConformsToPMS(t *testing.T) {
 	type mode struct {
 		name     string
@@ -106,7 +126,7 @@ func TestDecisionConformsToPMS(t *testing.T) {
 					if err != nil {
 						t.Fatalf("fixture: %v", err)
 					}
-					f := newFixture()
+					f := newConformanceFixture(t)
 					defer f.srv.Close()
 					f.catalog.titles[burbs.Key] = burbs
 					f.playback.info = burbsInfo
@@ -179,10 +199,12 @@ func TestDetailConformsToPMS(t *testing.T) {
 				if err != nil {
 					t.Fatalf("fixture: %v", err)
 				}
-				f := newFixture()
+				f := newConformanceFixture(t)
 				defer f.srv.Close()
 				f.catalog.titles[burbs.Key] = burbs
 				f.playback.info = burbsInfo
+				// This synthetic related item occupies Hellbender's row in the recording.
+				storePlexOverlay(t, f.srv.runtimeDB(), fightClub.Key, plexMetaGUID, plexmeta.Overlay{Slug: "hellbender"})
 				related := fightClub
 				related.CollectionID, related.CollectionName = 1, "Fincher"
 				f.srv.recommender().(*fakeRecommender).related = []core.Hub{{ID: "movie.similar", Title: "More Like This", Type: core.TypeMovie, Context: "hub.movie.similar", Items: []core.Title{related}}}
@@ -262,7 +284,7 @@ func TestTVConformsToPMS(t *testing.T) {
 					if err != nil {
 						t.Fatalf("fixture: %v", err)
 					}
-					f := newFixture()
+					f := newConformanceFixture(t)
 					defer f.srv.Close()
 					for _, ti := range []core.Title{nineShow, nineS1, nineE1} {
 						f.catalog.titles[ti.Key] = ti

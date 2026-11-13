@@ -1025,7 +1025,9 @@ func (s *Server) decisionMedia(t *frontend.Title, ps *frontend.PlaySession, dec 
 		playableStreams = append(playableStreams, st)
 	}
 	streams = playableStreams
-	selectedOnly := info.Estimated || !p.listAllTracks
+	// Android builds its picker from this response even while some source
+	// facts remain estimated. Preserve every known track across quality changes.
+	selectedOnly := !p.listAllTracks
 	if dec.Kind == frontend.DecisionDirectPlay {
 		return directPlayMedia(m, streams, selectedOnly, p.subtitles)
 	}
