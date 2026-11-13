@@ -106,6 +106,16 @@ func (i *instance) authenticate(r *http.Request) (*frontend.Viewer, string, erro
 					boundViewer, stored, bindingErr, claim.ID = bv, st, nil, base
 				}
 			}
+			// Android TV hashes installation+username for sign-in, then
+			// installation+user UUID for authenticated calls (and a random
+			// UUID for Quick Connect). These hashes cannot be correlated.
+			// Treat its token as a bearer credential, as Jellyfin does, but
+			// retain the stored device for every downstream capability.
+			if bindingErr != nil && i.protocol == "jellyfin" && claim.Client == "Jellyfin for Android TV" {
+				if bv, st, _, e := grants.ResolveGrantDevice(r.Context(), token, ""); e == nil && st.Client == claim.Client {
+					boundViewer, stored, bindingErr, claim.ID = bv, st, nil, st.ID
+				}
+			}
 			if bindingErr != nil || boundViewer == nil || boundViewer.ID != v.ID || stored.ID == "" || (claim.ID != "" && claim.ID != stored.ID) {
 				return nil, "", errors.New("invalid device grant")
 			}
