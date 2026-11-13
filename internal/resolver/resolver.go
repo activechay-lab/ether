@@ -81,6 +81,8 @@ type Options struct {
 	Discovered     func(context.Context, *core.Title) []core.Release
 	Observed       func(context.Context, *core.Title, core.Release)
 	Invalidated    func(context.Context, string)
+	// SeriesNamesake reports a same-name show with a different premiere year.
+	SeriesNamesake func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
 	// SeriesYearConflict reports whether the catalogue holds a different
 	// show titled title that first aired in year (see series_year.go).
 	SeriesYearConflict func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
@@ -210,6 +212,7 @@ type inflight struct {
 // Service implements core.Resolver.
 type Service struct {
 	years                     seriesYears
+	seriesNamesake            func(context.Context, core.RatingKey, string, int) (bool, error)
 	seriesYearConflict        func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
 	animeCour                 AnimeCour
 	libProfiles               LibraryProfiles
@@ -285,7 +288,7 @@ var _ core.Resolver = (*Service)(nil)
 // (typically *newznab.Manager); health may be nil (health checks are
 // then skipped); db may be nil (state then lives in memory).
 func New(indexer core.Indexer, health core.HealthChecker, db *sql.DB, cfg config.Config, opts Options) *Service {
-	s := &Service{seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, libProfiles: opts.LibraryProfiles, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
+	s := &Service{seriesNamesake: opts.SeriesNamesake, seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, libProfiles: opts.LibraryProfiles, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
 		indexer: indexer, health: health, db: db,
 		bad: map[string]badMark{}, reps: map[string]reputation{},
 		avail: map[int64]availEntry{}, searchCache: map[string]searchCacheEntry{},
@@ -1547,11 +1550,13 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 	rc := s.rankContext(profile, t, rcfg, now)
 	var cands []candidate
 	clientRejected := false
-	// Once a result corroborates this series, name-only results are ambiguous.
+	// For a known catalogue namesake, a corroborated result makes name-only
+	// results ambiguous. Other series keep their ordinary quality fallbacks.
 	// Check the whole result set before profile/exclusion gates: a failed or
 	// lower-quality correct release must not cause failover to a namesake.
 	corroborated := false
-	if sreq.Type == core.TypeEpisode {
+	namesake := sreq.Type == core.TypeEpisode && s.hasSeriesNamesake(ctx, t, sreq)
+	if namesake {
 		for _, rel := range results {
 			if episodeIdentityEvidence(rel, sreq) && rejectIdentityYears(rel, t, sreq, env.lang, func(y int) bool { return s.seriesYearAccepted(t.ShowKey, y) }) == "" {
 				corroborated = true
@@ -1597,7 +1602,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			reason = "blocked hardcoded subtitles"
 		} else if s.rejectedFor(t.Key, rel) {
 			reason = "release rejected for this title"
-		} else if corroborated && !episodeIdentityEvidence(rel, sreq) {
+		} else if corroborated && releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year) == 0 && !episodeIdentityEvidence(rel, sreq) {
 			reason = "ambiguous series identity (name only)"
 		} else if pinned {
 			reason = s.pinRejectReason(rel, sreq, req.Client, exclude)
@@ -1712,7 +1717,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 				note("ranked after releases in an accepted audio language")
 			}
 		}
-		cands = append(cands, candidate{fallback: fallback, policy: policyResult, rel: rel, trace: tr, verified: verified, langOK: langOK, langWanted: langWanted, starved: starved, bandwidth: bandwidth, yearGuessed: yearGuessed, cf: sc.total, keys: keysFor(rel, starved, rc)})
+		cands = append(cands, candidate{identityConflict: namesake && episodeRegionConflict(rel, t), fallback: fallback, policy: policyResult, rel: rel, trace: tr, verified: verified, langOK: langOK, langWanted: langWanted, starved: starved, bandwidth: bandwidth, yearGuessed: yearGuessed, cf: sc.total, keys: keysFor(rel, starved, rc)})
 	}
 	if hot != nil && len(cands) > 0 {
 		s.addPluginScores(hot, profile, cands, trace)
@@ -2471,4 +2476,30 @@ func episodeIdentityEvidence(rel core.Release, req core.SearchRequest) bool {
 	year := releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year)
 	return matched || (year > 0 && req.Year > 0 && releaseparse.SeriesYearMatches(year, req.Year)) ||
 		releaseparse.EpisodeTitleEvidence(rel.Name, req.EpisodeTitle)
+}
+
+// Region evidence only breaks otherwise equal rankings for known namesakes.
+// A platform is evidence, not an identity veto: licensed catalogues cross borders.
+func episodeRegionConflict(rel core.Release, t *core.Title) bool {
+	if t == nil || t.Language == "" {
+		return false
+	}
+	words := strings.FieldsFunc(strings.ToUpper(rel.Name), func(r rune) bool { return r < 'A' || r > 'Z' })
+	for _, word := range words {
+		switch word {
+		case "CHINESE":
+			if t.Language != "zh" {
+				return true
+			}
+		case "KOREAN":
+			if t.Language != "ko" {
+				return true
+			}
+		case "VIKI":
+			if t.Language != "zh" && t.Language != "ko" && t.Language != "ja" {
+				return true
+			}
+		}
+	}
+	return false
 }

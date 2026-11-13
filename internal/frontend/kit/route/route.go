@@ -23,6 +23,7 @@ type Router struct {
 	routes     []registered
 	ordered    []registered
 	unmatched  func(*http.Request, int)
+	fallback   func(http.ResponseWriter, *http.Request, int)
 	middleware func(Route, http.Handler) http.Handler
 }
 
@@ -39,6 +40,13 @@ func (r *Router) SetMiddleware(m func(Route, http.Handler) http.Handler) {
 func (r *Router) SetUnmatched(observer func(*http.Request, int)) {
 	r.mu.Lock()
 	r.unmatched = observer
+	r.mu.Unlock()
+}
+
+// SetFallback customizes unmatched responses for protocols with structured errors.
+func (r *Router) SetFallback(handler func(http.ResponseWriter, *http.Request, int)) {
+	r.mu.Lock()
+	r.fallback = handler
 	r.mu.Unlock()
 }
 
@@ -110,6 +118,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mu.RLock()
 	entries := append([]registered(nil), r.ordered...)
 	unmatched := r.unmatched
+	fallback := r.fallback
 	middleware := r.middleware
 	r.mu.RUnlock()
 	served, methodMismatch := r.serve(w, req, entries, middleware)
@@ -128,11 +137,19 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if unmatched != nil {
 			unmatched(req, http.StatusMethodNotAllowed)
 		}
+		if fallback != nil {
+			fallback(w, req, http.StatusMethodNotAllowed)
+			return
+		}
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if unmatched != nil {
 		unmatched(req, http.StatusNotFound)
+	}
+	if fallback != nil {
+		fallback(w, req, http.StatusNotFound)
+		return
 	}
 	http.NotFound(w, req)
 }

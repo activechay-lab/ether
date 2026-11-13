@@ -13,7 +13,7 @@ func TestNamesakeRequiresCorroborationWhenAvailable(t *testing.T) {
 	title := &core.Title{Type: core.TypeEpisode, ShowTitle: "Who's the Boss?", ShowYear: 1984, ShowIDs: core.IDs{TMDB: 634}, Title: "Samantha's Growing Up", Season: 1, Episode: 11, Runtime: 24 * time.Minute}
 	req := searchRequestFor(title)
 	cfg := testCfg()
-	svc := New(&fakeIndexer{}, fakeHealth{}, nil, cfg, Options{})
+	svc := New(&fakeIndexer{}, fakeHealth{}, nil, cfg, Options{SeriesNamesake: func(context.Context, core.RatingKey, string, int) (bool, error) { return true, nil }})
 	profile := SelectProfileForMedia(cfg.Quality, webCaps(), nil, titleMedia(title))
 	wrong := rel("namesake", "Whos.the.Boss.S01E11.1080p.VIKI.WEB-DL.AAC2.0.H.264-FUZEER", 568)
 	wrong.Info = releaseparse.Parse(wrong.Name)
