@@ -23,7 +23,7 @@ func TestPruneExpiresBadMarksAndStaleRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.setAvailability(ctx, 1, true, time.Hour)
-	if _, err := db.ExecContext(ctx, `INSERT INTO resolver_verified VALUES('stale', ?)`, clock.now().Unix()); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO resolver_verified VALUES('stale', ?, 1)`, clock.now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 
