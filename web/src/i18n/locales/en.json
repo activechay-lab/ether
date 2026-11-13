@@ -1383,6 +1383,7 @@
   },
   "m_04d7e93418e993": "Godzilla and the Titans across Legendary's MonsterVerse.",
   "m_04d7eeedcc8aa9": "Open subtitle providers",
+  "m_04d8e95e3e8269": "Ether will retry repairing the server token automatically. If this continues, sign in again on the Plex page with the account that owns this server.",
   "m_04d93549f681a6": "Custom certificate",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Sign in with your viewer account.",
@@ -6616,6 +6617,7 @@
     "one": "{count} listing in the next day",
     "other": "{count} listings in the next day"
   },
+  "m_17453e11780c3b": "plex.tv lists duplicate servers. Remove the duplicate devices in Authorized Devices, then sign out and claim this server again.",
   "m_174778504e980d": "Restoring your backup. Ether starts again by itself; this page follows along.",
   "m_174bf71b397f00": "Remove animation",
   "m_174c9f5c0c34e0": "On an existing node, open Cluster → Create join token. Copy the token here. It includes the database connection and works once.",
@@ -6965,6 +6967,7 @@
   "m_18914da3d18b02": "Popular titles streaming on HBO Max in your region.",
   "m_1891902f870258": "Upcoming titles require the whole catalogue source and remote TMDB discovery.",
   "m_1891a2e901a886": "Your pick was cleared",
+  "m_1893139091f5d8": "Shared users can't sync: plex.tv needs this server's own token",
   "m_1894cd64b6f8df": {
     "one": "{count} open file",
     "other": "{count} open files"

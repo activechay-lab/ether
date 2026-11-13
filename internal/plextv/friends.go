@@ -626,6 +626,11 @@ func (c *Client) Friends(ctx context.Context, serverToken string) ([]Friend, err
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		// An account token cannot use this endpoint. Preserve the specific
+		// error so the registrar can repair it instead of hiding it in a fallback.
+		if serverTokenRequired(err) {
+			return nil, err
+		}
 		c.log.Warn("access_tokens.xml failed, trying shared_servers", "err", err)
 		var err2 error
 		friends, err2 = c.SharedServers(ctx, serverToken)
@@ -704,4 +709,10 @@ func (c *Client) Friends(ctx context.Context, serverToken string) ([]Friend, err
 		f.Restricted = f.Restricted || u.Restricted
 	}
 	return friends, nil
+}
+
+// serverTokenRequired distinguishes a valid account credential from a revoked token.
+func serverTokenRequired(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && api.Code == 1080
 }

@@ -1447,6 +1447,7 @@
   },
   "m_04d7e93418e993": "Godzilla i Tytani w MonsterVerse Legendary.",
   "m_04d7eeedcc8aa9": "Otwórz dostawców napisów",
+  "m_04d8e95e3e8269": "Ether automatycznie ponowi próbę naprawy tokenu serwera. Jeśli problem będzie się powtarzał, zaloguj się ponownie na stronie Plex kontem właściciela tego serwera.",
   "m_04d93549f681a6": "Własny certyfikat",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Zaloguj się na swoje konto widza.",
@@ -6952,6 +6953,7 @@
     "one": "{count} wpis programu w ciągu najbliższej doby",
     "other": "{count} wpisu programu w ciągu najbliższej doby"
   },
+  "m_17453e11780c3b": "plex.tv wyświetla zduplikowane serwery. Usuń duplikaty urządzeń w Authorized Devices, a następnie wyloguj się i ponownie przypisz ten serwer do konta.",
   "m_174778504e980d": "Przywracanie kopii zapasowej. Ether sam uruchomi się ponownie, a ta strona będzie śledzić postęp.",
   "m_174bf71b397f00": "Usuń animację",
   "m_174c9f5c0c34e0": "Na istniejącym węźle otwórz Klaster → Utwórz token dołączenia. Skopiuj token tutaj. Zawiera połączenie z bazą danych i działa jednorazowo.",
@@ -7317,6 +7319,7 @@
   "m_18914da3d18b02": "Popularne tytuły przesyłane strumieniowo w HBO Max w Twoim regionie.",
   "m_1891902f870258": "Nadchodzące tytuły wymagają źródła Cały katalog oraz zdalnego wyszukiwania TMDB.",
   "m_1891a2e901a886": "Twój wybór został wyczyszczony",
+  "m_1893139091f5d8": "Nie można zsynchronizować udostępnionych użytkowników: plex.tv wymaga własnego tokenu tego serwera",
   "m_1894cd64b6f8df": {
     "few": "{count} otwarte pliki",
     "many": "{count} otwartych plików",

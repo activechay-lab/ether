@@ -1415,6 +1415,7 @@
   },
   "m_04d7e93418e993": "Godzilla et les Titans dans le MonsterVerse de Legendary.",
   "m_04d7eeedcc8aa9": "Ouvrir les fournisseurs de sous-titres",
+  "m_04d8e95e3e8269": "Ether réessaiera automatiquement de réparer le jeton du serveur. Si le problème persiste, reconnectez-vous sur la page Plex avec le compte propriétaire de ce serveur.",
   "m_04d93549f681a6": "Certificat personnalisé",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Connectez-vous avec votre compte spectateur.",
@@ -6778,6 +6779,7 @@
     "one": "{count} programme dans les prochaines 24 heures",
     "other": "{count} programmes dans les prochaines 24 heures"
   },
+  "m_17453e11780c3b": "plex.tv répertorie des serveurs en double. Supprimez les appareils en double dans Authorized Devices, puis déconnectez-vous et revendiquez à nouveau ce serveur.",
   "m_174778504e980d": "Restauration de votre sauvegarde. Ether redémarre tout seul ; cette page suit la progression.",
   "m_174bf71b397f00": "Supprimer l’animation",
   "m_174c9f5c0c34e0": "Sur un nœud existant, ouvrez Cluster → Créer un jeton d’adhésion. Copiez le jeton ici. Il inclut la connexion à la base de données et ne fonctionne qu’une fois.",
@@ -7135,6 +7137,7 @@
   "m_18914da3d18b02": "Titres populaires diffusés sur HBO Max dans votre région.",
   "m_1891902f870258": "Les titres à venir nécessitent la source Catalogue entier et la découverte TMDB à distance.",
   "m_1891a2e901a886": "Votre choix a été effacé",
+  "m_1893139091f5d8": "Les utilisateurs partagés ne peuvent pas se synchroniser : plex.tv a besoin du jeton propre à ce serveur",
   "m_1894cd64b6f8df": {
     "many": "{count} de fichiers ouverts",
     "one": "{count} fichier ouvert",

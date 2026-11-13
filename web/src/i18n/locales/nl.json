@@ -1383,6 +1383,7 @@
   },
   "m_04d7e93418e993": "Godzilla en de Titans in Legendary's MonsterVerse.",
   "m_04d7eeedcc8aa9": "Ondertitelaanbieders openen",
+  "m_04d8e95e3e8269": "Ether probeert het servertoken automatisch opnieuw te herstellen. Als het probleem aanhoudt, meld je dan opnieuw aan op de Plex-pagina met het account dat deze server bezit.",
   "m_04d93549f681a6": "Eigen certificaat",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Meld u aan met uw kijkersaccount.",
@@ -6606,6 +6607,7 @@
     "one": "{count} programma de komende dag",
     "other": "{count} programma's de komende dag"
   },
+  "m_17453e11780c3b": "plex.tv vermeldt dubbele servers. Verwijder de dubbele apparaten onder Authorized Devices, meld je af en claim deze server opnieuw.",
   "m_174778504e980d": "Je back-up wordt hersteld. Ether start vanzelf opnieuw; deze pagina volgt de voortgang.",
   "m_174bf71b397f00": "Animatie verwijderen",
   "m_174c9f5c0c34e0": "Open op een bestaande node Cluster → Join-token maken. Kopieer het token hierheen. Het bevat de databaseverbinding en werkt één keer.",
@@ -6955,6 +6957,7 @@
   "m_18914da3d18b02": "Populaire titels die worden gestreamd op HBO Max in jouw regio.",
   "m_1891902f870258": "Aankomende titels vereisen de bron Hele catalogus en TMDB-discovery op afstand.",
   "m_1891a2e901a886": "Je keuze is gewist",
+  "m_1893139091f5d8": "Gedeelde gebruikers kunnen niet synchroniseren: plex.tv heeft het eigen token van deze server nodig",
   "m_1894cd64b6f8df": {
     "one": "{count} geopend bestand",
     "other": "{count} geopende bestanden"

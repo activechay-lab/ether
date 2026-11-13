@@ -1383,6 +1383,7 @@
   },
   "m_04d7e93418e993": "Godzilla und die Titanen im MonsterVerse von Legendary.",
   "m_04d7eeedcc8aa9": "Untertitelanbieter öffnen",
+  "m_04d8e95e3e8269": "Ether versucht automatisch erneut, das Server-Token zu reparieren. Falls das Problem anhält, melde dich auf der Plex-Seite erneut mit dem Konto an, dem dieser Server gehört.",
   "m_04d93549f681a6": "Eigenes Zertifikat",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Melden Sie sich mit Ihrem Zuschauerkonto an.",
@@ -6606,6 +6607,7 @@
     "one": "{count} Programmeintrag am nächsten Tag",
     "other": "{count} Programmeinträge am nächsten Tag"
   },
+  "m_17453e11780c3b": "plex.tv listet doppelte Server auf. Entferne die doppelten Geräte unter Authorized Devices, melde dich ab und beanspruche diesen Server erneut.",
   "m_174778504e980d": "Dein Backup wird wiederhergestellt. Ether startet von selbst neu; diese Seite verfolgt den Fortschritt.",
   "m_174bf71b397f00": "Animation entfernen",
   "m_174c9f5c0c34e0": "Öffne auf einem bestehenden Knoten „Cluster → Beitritts-Token erstellen“. Kopiere das Token hierher. Es enthält die Datenbankverbindung und funktioniert nur einmal.",
@@ -6955,6 +6957,7 @@
   "m_18914da3d18b02": "Beliebte Titel, die in Ihrer Region auf HBO Max gestreamt werden.",
   "m_1891902f870258": "Kommende Titel benötigen die Quelle „Gesamter Katalog“ und die entfernte TMDB-Discover-Abfrage.",
   "m_1891a2e901a886": "Deine Wahl wurde gelöscht",
+  "m_1893139091f5d8": "Freigegebene Benutzer können nicht synchronisiert werden: plex.tv benötigt das eigene Token dieses Servers",
   "m_1894cd64b6f8df": {
     "one": "{count} geöffnete Datei",
     "other": "{count} geöffnete Dateien"

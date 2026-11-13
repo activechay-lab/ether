@@ -561,6 +561,22 @@ export function remoteHealth(v: unknown): HealthItem {
     details.push(t("Public address {address}", { address: str(v.publicAddress) }));
   details.push(presence.connected ? t("Connected to plex.tv") : t("Not connected to plex.tv"));
   if (v.listed === false) details.push(t("Not yet published to plex.tv"));
+  if (v.serverTokenRequired === true) {
+    const diagnostic = isPlainObject(v.tokenDiagnostics) ? v.tokenDiagnostics : {};
+    const registrationDetails: string[] = [];
+    if (Number(diagnostic.sameNameServers) > 0 || Number(diagnostic.matchingDevices) > 1)
+      registrationDetails.push(t("plex.tv lists duplicate servers. Remove the duplicate devices in Authorized Devices, then sign out and claim this server again."));
+    else if (diagnostic.resourcesStatus === 401 || diagnostic.resourcesStatus === 403)
+      registrationDetails.push(t("plex.tv rejects this server's sign-in"));
+    else if (diagnostic.resourcesStatus === 200 && diagnostic.matchingDevices === 0)
+      registrationDetails.push(t("Not yet published to plex.tv"));
+    return {
+      ...base,
+      level: "warn",
+      summary: t("Shared users can't sync: plex.tv needs this server's own token"),
+      details: [...details, ...registrationDetails, t("Ether will retry repairing the server token automatically. If this continues, sign in again on the Plex page with the account that owns this server.")],
+    };
+  }
   if (v.tokenRejected === true)
     return {
       ...base,

@@ -1383,6 +1383,7 @@
   },
   "m_04d7e93418e993": "Godzilla ja titaanit Legendary's MonsterVersen yli.",
   "m_04d7eeedcc8aa9": "Avaa tekstityspalvelut",
+  "m_04d8e95e3e8269": "Ether yrittää korjata palvelimen tunnisteen automaattisesti uudelleen. Jos ongelma jatkuu, kirjaudu Plex-sivulla uudelleen tämän palvelimen omistajan tilillä.",
   "m_04d93549f681a6": "Oma varmenne",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Kirjaudu sisään katsojan tililläsi.",
@@ -6606,6 +6607,7 @@
     "one": "{count} ohjelma seuraavan vuorokauden aikana",
     "other": "{count} ohjelmaa seuraavan vuorokauden aikana"
   },
+  "m_17453e11780c3b": "plex.tv näyttää päällekkäisiä palvelimia. Poista päällekkäiset laitteet Authorized Devices -kohdasta, kirjaudu ulos ja lunasta tämä palvelin uudelleen.",
   "m_174778504e980d": "Varmuuskopiotasi palautetaan. Ether käynnistyy itse uudelleen; tämä sivu seuraa etenemistä.",
   "m_174bf71b397f00": "Poista animaatio",
   "m_174c9f5c0c34e0": "Avaa olemassa olevalla solmulla Klusteri → Luo liittymistoken. Kopioi token tähän. Se sisältää tietokantayhteyden ja toimii kerran.",
@@ -6955,6 +6957,7 @@
   "m_18914da3d18b02": "Alueesi HBO Max -palvelusta suoratoistettavat suositut elokuvat.",
   "m_1891902f870258": "Tulossa olevat nimikkeet vaativat koko katalogin lähteen ja etä-TMDB-haun.",
   "m_1891a2e901a886": "Valintasi poistettiin",
+  "m_1893139091f5d8": "Jaettuja käyttäjiä ei voi synkronoida: plex.tv tarvitsee tämän palvelimen oman tunnisteen",
   "m_1894cd64b6f8df": {
     "one": "{count} avoin tiedosto",
     "other": "{count} avointa tiedostoa"

@@ -1415,6 +1415,7 @@
   },
   "m_04d7e93418e993": "Godzilla e os Titãs no MonsterVerse da Legendary.",
   "m_04d7eeedcc8aa9": "Abrir provedores de legendas",
+  "m_04d8e95e3e8269": "O Ether tentará reparar o token do servidor novamente de forma automática. Se o problema continuar, entre novamente na página do Plex com a conta proprietária deste servidor.",
   "m_04d93549f681a6": "Certificado personalizado",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Faça login com sua conta de visualizador.",
@@ -6778,6 +6779,7 @@
     "one": "{count} programa no próximo dia",
     "other": "{count} programas no próximo dia"
   },
+  "m_17453e11780c3b": "O plex.tv lista servidores duplicados. Remova os dispositivos duplicados em Authorized Devices, saia e reivindique este servidor novamente.",
   "m_174778504e980d": "Restaurando seu backup. O Ether inicia novamente sozinho; esta página acompanha o processo.",
   "m_174bf71b397f00": "Remover animação",
   "m_174c9f5c0c34e0": "Em um nó existente, abra Cluster → Criar token de adesão. Copie o token aqui. Ele inclui a conexão com o banco de dados e funciona uma única vez.",
@@ -7135,6 +7137,7 @@
   "m_18914da3d18b02": "Títulos populares transmitidos pela HBO Max em sua região.",
   "m_1891902f870258": "Títulos futuros exigem a fonte de catálogo inteiro e a descoberta remota do TMDB.",
   "m_1891a2e901a886": "Sua escolha foi apagada",
+  "m_1893139091f5d8": "Não é possível sincronizar os usuários compartilhados: o plex.tv precisa do token próprio deste servidor",
   "m_1894cd64b6f8df": {
     "many": "{count} arquivos abertos",
     "one": "{count} arquivo aberto",

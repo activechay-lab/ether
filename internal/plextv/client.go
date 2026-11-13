@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/config"
@@ -136,13 +137,14 @@ type Options struct {
 
 // Client talks to plex.tv with one identity. It is safe for concurrent use.
 type Client struct {
-	base          *url.URL
-	authApp       string
-	hc            *http.Client
-	id            Identity
-	log           *slog.Logger
-	backoff       time.Duration
-	versionSource func() string
+	diagnosticShapes *sync.Map
+	base             *url.URL
+	authApp          string
+	hc               *http.Client
+	id               Identity
+	log              *slog.Logger
+	backoff          time.Duration
+	versionSource    func() string
 }
 
 // New returns a client.
@@ -166,7 +168,7 @@ func New(o Options) (*Client, error) {
 	if o.RetryBackoff <= 0 {
 		o.RetryBackoff = 500 * time.Millisecond
 	}
-	return &Client{base: base, authApp: o.AuthAppURL, hc: o.HTTPClient, id: o.Identity,
+	return &Client{diagnosticShapes: &sync.Map{}, base: base, authApp: o.AuthAppURL, hc: o.HTTPClient, id: o.Identity,
 		log: o.Logger.With("component", "plextv"), backoff: o.RetryBackoff, versionSource: o.VersionSource}, nil
 }
 

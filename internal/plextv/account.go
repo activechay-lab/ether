@@ -255,6 +255,13 @@ func (c *Client) ExchangeClaim(ctx context.Context, claimToken string) (string, 
 	if err != nil {
 		return "", err
 	}
+	// Record only response shape, never response values or credentials.
+	shape := fmt.Sprintf("status=%d xml=%t json=%t authenticationElement=%t authTokenField=%t authenticationTokenField=%t", resp.status,
+		bytes.HasPrefix(bytes.TrimSpace(resp.body), []byte("<")), bytes.HasPrefix(bytes.TrimSpace(resp.body), []byte("{")),
+		tokenElement.Match(resp.body), bytes.Contains(resp.body, []byte("authToken")), bytes.Contains(resp.body, []byte("authenticationToken")))
+	if _, seen := c.diagnosticShapes.LoadOrStore(shape, true); !seen {
+		c.log.Info("claim exchange response shape", "shape", shape)
+	}
 	if tok := extractAuthToken(resp.body); tok != "" {
 		return tok, nil
 	}

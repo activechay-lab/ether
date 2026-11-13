@@ -1415,6 +1415,7 @@
   },
   "m_04d7e93418e993": "Godzilla y los titanes en MonsterVerse de Legendary.",
   "m_04d7eeedcc8aa9": "Abrir proveedores de subtítulos",
+  "m_04d8e95e3e8269": "Ether volverá a intentar reparar el token del servidor automáticamente. Si el problema continúa, inicia sesión de nuevo en la página de Plex con la cuenta propietaria de este servidor.",
   "m_04d93549f681a6": "Certificado personalizado",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Inicia sesión con tu cuenta de espectador.",
@@ -6778,6 +6779,7 @@
     "one": "{count} programa en el próximo día",
     "other": "{count} programas en el próximo día"
   },
+  "m_17453e11780c3b": "plex.tv muestra servidores duplicados. Elimina los dispositivos duplicados en Authorized Devices, cierra sesión y vuelve a reclamar este servidor.",
   "m_174778504e980d": "Restaurando tu copia de seguridad. Ether vuelve a iniciarse solo; esta página sigue el progreso.",
   "m_174bf71b397f00": "Quitar animación",
   "m_174c9f5c0c34e0": "En un nodo existente, abre Clúster → Crear token de unión. Copia aquí el token. Incluye la conexión a la base de datos y funciona una sola vez.",
@@ -7135,6 +7137,7 @@
   "m_18914da3d18b02": "Títulos populares que se transmiten en HBO Max en tu región.",
   "m_1891902f870258": "Los próximos estrenos requieren la fuente de todo el catálogo y el descubrimiento remoto de TMDB.",
   "m_1891a2e901a886": "Tu elección se borró",
+  "m_1893139091f5d8": "Los usuarios compartidos no se pueden sincronizar: plex.tv necesita el token propio de este servidor",
   "m_1894cd64b6f8df": {
     "many": "{count} archivos abiertos",
     "one": "{count} archivo abierto",

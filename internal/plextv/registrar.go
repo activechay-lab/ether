@@ -83,11 +83,13 @@ type Status struct {
 	PlexReachableCheckedAt time.Time `json:"plexReachableCheckedAt,omitzero"`
 	// Recent authenticated inbound traffic is external evidence even when
 	// plex.tv's independent connectivity check fails. Never persist client IPs.
-	RemoteClientLastSeen  time.Time `json:"remoteClientLastSeen,omitzero"`
-	RemoteClientReachable bool      `json:"remoteClientReachable"`
-	Friends               int       `json:"friends"`
-	LastFriendSync        time.Time `json:"lastFriendSync,omitempty"`
-	FriendSyncError       string    `json:"friendSyncError,omitempty"`
+	RemoteClientLastSeen  time.Time         `json:"remoteClientLastSeen,omitzero"`
+	RemoteClientReachable bool              `json:"remoteClientReachable"`
+	Friends               int               `json:"friends"`
+	LastFriendSync        time.Time         `json:"lastFriendSync,omitempty"`
+	FriendSyncError       string            `json:"friendSyncError,omitempty"`
+	TokenDiagnostics      *TokenDiagnostics `json:"tokenDiagnostics,omitempty"`
+	ServerTokenRequired   bool              `json:"serverTokenRequired,omitempty"`
 	// TokenRejected reports that plex.tv answered the server token with
 	// 401/403 (publishing or friend sync): typically the device record
 	// still belongs to an account the server was claimed by before.
@@ -188,6 +190,10 @@ type Registrar struct {
 	// claimedToken is the server token while claimed; a switch to
 	// unclaimed releases it (releaseClaim).
 	claimedToken string
+	// Account credential retained only until the first post-claim sync (at most
+	// one minute of eligibility), so a 1080 can compare both resource views.
+	diagnosticOwnerToken string
+	diagnosticOwnerUntil time.Time
 
 	// reachTargets is the URI set the last self-check probed.
 	reachTargets []string
@@ -1200,7 +1206,37 @@ func (r *Registrar) SyncFriendsNow(ctx context.Context) error {
 	if cfg.Plex.Token == "" {
 		return errors.New("plextv: not claimed")
 	}
+	r.mu.Lock()
+	diagnosticOwner := r.diagnosticOwnerToken
+	if r.o.Now().After(r.diagnosticOwnerUntil) {
+		diagnosticOwner = ""
+	}
+	r.diagnosticOwnerToken = ""
+	r.mu.Unlock()
 	friends, err := r.client.Friends(ctx, cfg.Plex.Token)
+	if serverTokenRequired(err) {
+		r.diagnoseServerToken(ctx, cfg, diagnosticOwner)
+		// Old installs could persist the PIN account token. Repair once per
+		// scheduled sync, never in a loop, and serialize with claim/unclaim.
+		r.claimMu.Lock()
+		current := r.o.Config.Get()
+		if current.Plex.Token == cfg.Plex.Token && current.Plex.Claimed {
+			acct, repairErr := r.client.User(ctx, cfg.Plex.Token)
+			if repairErr == nil && acct.ID != cfg.Plex.OwnerPlexID {
+				repairErr = errors.New("plex.tv token does not belong to the saved server owner")
+			}
+			if repairErr == nil {
+				_, repairErr = r.claim(ctx, cfg.Plex.Token)
+			}
+			if repairErr != nil {
+				r.log.Warn("server token repair failed", "err", repairErr)
+			} else {
+				cfg = r.o.Config.Get()
+				friends, err = r.client.Friends(ctx, cfg.Plex.Token)
+			}
+		}
+		r.claimMu.Unlock()
+	}
 	fromUsers := false
 	if err == nil && r.o.Users != nil {
 		fromUsers = true
@@ -1210,8 +1246,15 @@ func (r *Registrar) SyncFriendsNow(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.st.LastFriendSync = r.o.Now()
+	r.st.ServerTokenRequired = serverTokenRequired(err)
 	if err != nil {
 		switch {
+		case serverTokenRequired(err):
+			r.st.ServerTokenRequired = true
+			r.st.FriendSyncError = err.Error()
+			r.friendFail = 0
+			r.friendContention = 0
+			r.next[taskFriends] = r.o.Now().Add(rejectedRetry)
 		case errors.Is(err, core.ErrUnauthorized):
 			// A rejected token stays rejected until the owner re-claims:
 			// retry rarely instead of every minute.
@@ -1250,6 +1293,7 @@ func (r *Registrar) SyncFriendsNow(ctx context.Context) error {
 	r.friendContention = 0
 	r.st.Friends = n
 	r.st.FriendSyncError = ""
+	r.st.ServerTokenRequired = false
 	if ctx.Err() == nil {
 		r.next[taskFriends] = r.o.Now().Add(r.o.FriendSyncInterval)
 	}
@@ -1492,6 +1536,11 @@ func (r *Registrar) scheduleCertCheck() {
 func (r *Registrar) Claim(ctx context.Context, userToken string) (*ClaimResult, error) {
 	r.claimMu.Lock()
 	defer r.claimMu.Unlock()
+	return r.claim(ctx, userToken)
+}
+
+// claim requires claimMu.
+func (r *Registrar) claim(ctx context.Context, userToken string) (*ClaimResult, error) {
 	// Persist before the remote operation so a crash after claim cannot lose
 	// the need to bind a managed certificate to the new device record.
 	if r.o.Certs != nil {
@@ -1519,6 +1568,9 @@ func (r *Registrar) Claim(ctx context.Context, userToken string) (*ClaimResult, 
 	}
 	r.mu.Lock()
 	r.claimedToken = res.ServerToken
+	r.diagnosticOwnerToken = userToken
+	r.diagnosticOwnerUntil = r.o.Now().Add(time.Minute)
+	r.st.ServerTokenRequired = false
 	r.st.TokenRejected = false
 	r.st.PlexPass = res.Owner.Subscription.Active
 	r.st.OwnerFeatures = ownerFeatures(nil, res.Owner.Subscription.Features)
@@ -1665,6 +1717,8 @@ func (r *Registrar) releaseClaim(ctx context.Context, token string) {
 	r.friendContention = 0
 	r.st.LastPublishError = ""
 	r.st.FriendSyncError = ""
+	r.st.ServerTokenRequired = false
+	r.diagnosticOwnerToken = ""
 	r.st.TokenRejected = false
 	r.mu.Unlock()
 	r.refreshConfigStatus(r.o.Config.Get())

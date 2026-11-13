@@ -1383,6 +1383,7 @@
   },
   "m_04d7e93418e993": "Legendary'nin MonsterVerse'ında Godzilla ve Titanlar.",
   "m_04d7eeedcc8aa9": "Altyazı sağlayıcılarını aç",
+  "m_04d8e95e3e8269": "Ether sunucu belirtecini onarmayı otomatik olarak yeniden deneyecek. Sorun devam ederse Plex sayfasında bu sunucunun sahibi olan hesapla yeniden oturum açın.",
   "m_04d93549f681a6": "Özel sertifika",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "İzleyici hesabınızla oturum açın.",
@@ -6606,6 +6607,7 @@
     "one": "Sonraki gün içinde {count} program",
     "other": "Sonraki gün içinde {count} program"
   },
+  "m_17453e11780c3b": "plex.tv yinelenen sunucular listeliyor. Authorized Devices bölümünde yinelenen cihazları kaldırın, ardından oturumu kapatıp bu sunucuyu yeniden sahiplenin.",
   "m_174778504e980d": "Yedeğiniz geri yükleniyor. Ether kendiliğinden yeniden başlar; bu sayfa süreci takip eder.",
   "m_174bf71b397f00": "Animasyonu kaldır",
   "m_174c9f5c0c34e0": "Mevcut bir düğümde Küme → Katılım belirteci oluştur'u açın. Belirteci buraya kopyalayın. Veritabanı bağlantısını içerir ve bir kez çalışır.",
@@ -6955,6 +6957,7 @@
   "m_18914da3d18b02": "Bölgenizdeki HBO Max'te yayınlanan popüler içerikler.",
   "m_1891902f870258": "Yakında gelecek başlıklar için tüm katalog kaynağı ve uzak TMDB keşfi gerekir.",
   "m_1891a2e901a886": "Seçiminiz temizlendi",
+  "m_1893139091f5d8": "Paylaşılan kullanıcılar eşitlenemiyor: plex.tv bu sunucunun kendi belirtecine ihtiyaç duyuyor",
   "m_1894cd64b6f8df": {
     "one": "{count} açık dosya",
     "other": "{count} açık dosya"

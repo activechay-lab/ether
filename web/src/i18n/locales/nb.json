@@ -1383,6 +1383,7 @@
   },
   "m_04d7e93418e993": "Godzilla og titanene over Legendarys MonsterVerse.",
   "m_04d7eeedcc8aa9": "Åpne undertekstleverandører",
+  "m_04d8e95e3e8269": "Ether vil automatisk prøve å reparere servertokenet igjen. Hvis problemet fortsetter, logg inn på nytt på Plex-siden med kontoen som eier serveren.",
   "m_04d93549f681a6": "Egendefinert sertifikat",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Logg på med seerkontoen din.",
@@ -6606,6 +6607,7 @@
     "one": "{count} programoppføring neste døgn",
     "other": "{count} programoppføringer neste døgn"
   },
+  "m_17453e11780c3b": "plex.tv viser dupliserte servere. Fjern duplikatene under Authorized Devices, logg ut og gjør krav på serveren igjen.",
   "m_174778504e980d": "Gjenoppretter sikkerhetskopien din. Ether starter igjen av seg selv; denne siden følger med.",
   "m_174bf71b397f00": "Fjern animasjon",
   "m_174c9f5c0c34e0": "Åpne Klynge → Opprett bli-med-token på en eksisterende node. Kopier tokenet hit. Det inneholder databasetilkoblingen og virker én gang.",
@@ -6955,6 +6957,7 @@
   "m_18914da3d18b02": "Populære titler som strømmes på HBO Max i din region.",
   "m_1891902f870258": "Kommende titler krever hele katalogen som kilde og ekstern TMDB-oppdagelse.",
   "m_1891a2e901a886": "Valget ditt ble fjernet",
+  "m_1893139091f5d8": "Delte brukere kan ikke synkroniseres: plex.tv trenger serverens eget token",
   "m_1894cd64b6f8df": {
     "one": "{count} åpen fil",
     "other": "{count} åpne filer"

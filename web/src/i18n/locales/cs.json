@@ -1447,6 +1447,7 @@
   },
   "m_04d7e93418e993": "Godzilla a titáni napříč Legendary's MonsterVerse.",
   "m_04d7eeedcc8aa9": "Otevřít poskytovatele titulků",
+  "m_04d8e95e3e8269": "Ether automaticky zkusí opravit token serveru. Pokud problém trvá, přihlaste se znovu na stránce Plex účtem vlastníka tohoto serveru.",
   "m_04d93549f681a6": "Vlastní certifikát",
   "m_04db9f92663e38": "—",
   "m_04dc02a162bd65": "Přihlaste se pomocí svého účtu diváka.",
@@ -6952,6 +6953,7 @@
     "one": "{count} pořad v příštích 24 hodinách",
     "other": "{count} pořadů v příštích 24 hodinách"
   },
+  "m_17453e11780c3b": "plex.tv uvádí duplicitní servery. Odstraňte duplicitní zařízení v Authorized Devices, poté se odhlaste a znovu přivlastněte tento server.",
   "m_174778504e980d": "Obnovujeme zálohu. Ether se znovu spustí sám a tato stránka bude průběh sledovat.",
   "m_174bf71b397f00": "Odstranit animaci",
   "m_174c9f5c0c34e0": "Na existujícím uzlu otevřete Cluster → Vytvořit token pro připojení. Zkopírujte token sem. Obsahuje připojení k databázi a funguje jen jednou.",
@@ -7317,6 +7319,7 @@
   "m_18914da3d18b02": "Populární tituly streamované na HBO Max ve vašem regionu.",
   "m_1891902f870258": "Připravované tituly vyžadují zdroj celého katalogu a vzdálené vyhledávání TMDB Discover.",
   "m_1891a2e901a886": "Vaše volba byla vymazána",
+  "m_1893139091f5d8": "Sdílení uživatelé se nemohou synchronizovat: plex.tv vyžaduje vlastní token tohoto serveru",
   "m_1894cd64b6f8df": {
     "few": "{count} otevřené soubory",
     "many": "{count} otevřeného souboru",
