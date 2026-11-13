@@ -84,26 +84,42 @@ type MomentStream struct {
 	overlayBnd      raster.Bindings
 	renderFn        func(scene.Document, raster.Bindings, float64, int, int) *image.RGBA
 
-	outCh                <-chan liveOutFrame
-	videoPool            *sync.Pool
-	stopLive             func(aborted bool)
-	parentCtx            context.Context
-	closeOnce            sync.Once
-	service              *Service
-	lookID               string
-	moment               string
-	ovFrames             int64
-	ovWallDur            time.Duration
-	lastSpeedX           float64
-	saved                bool
-	promote              func() FrameReader
-	animationReady       atomic.Bool
-	externalSegmentClock bool
+	outCh                      <-chan liveOutFrame
+	videoPool                  *sync.Pool
+	stopLive                   func(aborted bool)
+	parentCtx                  context.Context
+	closeOnce                  sync.Once
+	service                    *Service
+	lookID                     string
+	moment                     string
+	ovFrames                   int64
+	ovWallDur                  time.Duration
+	lastSpeedX                 float64
+	saved                      bool
+	promote                    func() FrameReader
+	animationReady             atomic.Bool
+	externalSegmentClock       bool
+	settledTitle               bool
+	skipOpening                int
+	scenePoster, sceneDuration float64
+	completeRemaining          int
+	completeLast               []byte
 }
 
 // UseExternalSegmentClock lets broadcast align the primed frame to its own
 // segment clock, which may have repeated title frames during decoder startup.
 func (m *MomentStream) UseExternalSegmentClock() { m.externalSegmentClock = true }
+
+// StartCompleteTitle keeps live title text at its authored complete layout
+// while the cached base continues animating. Unsplit masters skip their intro.
+// Call before the first ReadFrame.
+func (m *MomentStream) StartCompleteTitle() {
+	m.settledTitle = true
+	if m.overlayDoc == nil && m.baseReader != nil && m.promote == nil {
+		m.skipOpening = max(1, int(max(1, m.scenePoster)*float64(m.fpsNum)/float64(m.fpsDen)))
+		m.completeRemaining = max(1, int(max(0, m.sceneDuration-max(1, m.scenePoster)-0.5)*float64(m.fpsNum)/float64(m.fpsDen)))
+	}
+}
 
 // AnimationReady reports that the cold reader can splice its primed master.
 func (m *MomentStream) AnimationReady() bool { return m.animationReady.Load() }
@@ -122,10 +138,23 @@ func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
 			if m.overlayDoc != nil {
 				m.mode = "split-cached"
 			}
+			if m.settledTitle {
+				m.StartCompleteTitle()
+			}
 			m.service.noteTransition(m.mode, 0)
 		}
 	}
 	if m.baseReader != nil {
+		if m.settledTitle && m.overlayDoc == nil && m.completeRemaining == 0 && m.completeLast != nil {
+			copy(video, m.completeLast)
+			return nil, nil
+		}
+		for m.skipOpening > 0 {
+			if _, err := m.baseReader.ReadFrame(video); err != nil {
+				return nil, err
+			}
+			m.skipOpening--
+		}
 		audio, err := m.baseReader.ReadFrame(video)
 		if err != nil {
 			return nil, err
@@ -141,6 +170,9 @@ func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
 			} else if t >= dur {
 				t = dur - 1.0/120.0
 			}
+			if m.settledTitle {
+				t = max(1, m.overlayDoc.Poster)
+			}
 			started := time.Now()
 			if m.overlaySequence == nil {
 				m.overlaySequence = raster.NewSequence(*m.overlayDoc, m.overlayBnd, m.width, m.height)
@@ -153,6 +185,13 @@ func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
 				genSec := float64(m.ovFrames) * float64(m.fpsDen) / float64(m.fpsNum)
 				m.lastSpeedX = genSec / m.ovWallDur.Seconds()
 			}
+		}
+		if m.settledTitle && m.overlayDoc == nil && m.promote == nil {
+			if m.completeLast == nil {
+				m.completeLast = make([]byte, len(video))
+			}
+			copy(m.completeLast, video)
+			m.completeRemaining--
 		}
 		m.tick++
 		return audio, nil
@@ -357,13 +396,14 @@ func (s *Service) OpenMoment(
 				}
 				s.noteTransition(mode, 0)
 				return &MomentStream{
-					mode:       mode,
-					loop:       loop,
-					fpsNum:     fpsNum,
-					fpsDen:     fpsDen,
-					width:      width,
-					height:     height,
-					baseReader: dec,
+					mode:        mode,
+					loop:        loop,
+					fpsNum:      fpsNum,
+					fpsDen:      fpsDen,
+					width:       width,
+					height:      height,
+					baseReader:  dec,
+					scenePoster: rawJob.Doc.Poster, sceneDuration: rawJob.Doc.Duration,
 					overlayDoc: overlayDoc,
 					overlayBnd: overlayBind,
 					renderFn:   renderFn,
@@ -392,7 +432,7 @@ func (s *Service) OpenMoment(
 		// readers at a segment boundary; the plate remains available throughout.
 		promoteCtx, cancel := context.WithCancel(ctx)
 		ready := make(chan FrameReader)
-		stream := &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
+		stream := &MomentStream{scenePoster: rawJob.Doc.Poster, sceneDuration: rawJob.Doc.Duration, mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
 			overlayDoc: overlayDoc, overlayBnd: overlayBind,
 			stopLive: func(bool) { cancel() },
 			promote: func() FrameReader {

@@ -1202,7 +1202,10 @@ func (b *broadcast) step(now time.Time) bool {
 	if frame.Video == nil {
 		// Give an already cached welcome a bounded chance to decode its first
 		// picture. Its preparation never replaces the normal live signal input.
-		if b.tick == 0 && introActive && !b.introFallback && time.Since(b.origin) < 200*time.Millisecond {
+		if b.tick == 0 && introActive && !b.introFallback {
+			if time.Since(b.created) >= b.segment*3/4 {
+				b.cancel()
+			}
 			return false
 		}
 		if b.fallback == nil {

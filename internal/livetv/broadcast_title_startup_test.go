@@ -63,6 +63,10 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 			return &broadcastFakeDecoder{format: format, closed: make(chan struct{}), value: 30}, nil
 		}}
 		planner := &scheduleBroadcastPlanner{s: service, runner: runner, format: format, channel: Channel{ID: "riot", Name: "RIOT 90", Look: &ChannelLook{LookID: "showcase-90", Tonight: &enabled}}, window: []Programme{{ID: "current", Start: now.Add(-4 * time.Minute), End: now.Add(time.Hour), Item: Item{Key: 1, Title: "NewsRadio"}}}}
+		intro, duration := planner.introPlan(now)
+		if intro.id == "" || intro.fill || duration != 4*time.Second || !planner.joinAt.Equal(now.Add(duration)) {
+			t.Fatalf("warm title lacks an exclusive segment/seek: %+v %s join=%s", intro, duration, planner.joinAt)
+		}
 		plan := planner.momentScreenAt(now)
 		decoder, release, err := plan.open(t.Context())
 		if err != nil {
@@ -75,6 +79,37 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 		if graphics.request.Moment != "tonight" || graphics.request.Bind["next.title"] != "NewsRadio" {
 			t.Fatalf("wrong cold title: %+v", graphics.request)
 		}
+	})
+	t.Run("warm title owns its complete opening segment", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			f := smallBroadcastFormat()
+			p := introFillPlanner{broadcastFakePlanner: broadcastFakePlanner{plan: broadcastPlan{id: "programme", programme: true, open: coldHoldOpen(f, 90, 1100*time.Millisecond)}}, intro: broadcastPlan{id: "tonight", element: "tonight", open: coldHoldOpen(f, 30, 500*time.Millisecond)}}
+			runner := &broadcastFakeRunner{}
+			b, err := newBroadcast(t.Context(), runner, p, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer b.close()
+			if _, err = b.addRendition(t.Context(), "main", core.Decision{}); err != nil {
+				t.Fatal(err)
+			}
+			b.start()
+			time.Sleep(6 * time.Second)
+			synctest.Wait()
+			b.close()
+			frames := runner.encoders[0].snapshot()
+			if len(frames) < 150 {
+				t.Fatalf("only %d frames", len(frames))
+			}
+			for tick := 0; tick < 120; tick++ {
+				if frames[tick].Video[0] != 30 {
+					t.Fatalf("warm tick %d: got %d before title ends", tick, frames[tick].Video[0])
+				}
+			}
+			if frames[140].Video[0] != 90 {
+				t.Fatalf("programme did not follow title: %d", frames[140].Video[0])
+			}
+		})
 	})
 	synctest.Test(t, func(t *testing.T) {
 		origin := time.Now()

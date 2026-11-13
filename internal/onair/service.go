@@ -1226,9 +1226,10 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	}
 	if j.scene() && j.AssetDigest == "" {
 		// Waiting for a playback slot costs no rendering budget. Once acquired,
-		// optional procedural masters have four seconds to finish.
+		// procedural masters have a bounded render budget independent of their
+		// on-air boundary. A slower title may complete for the next tune.
 		var stopRender context.CancelFunc
-		ctx, stopRender = context.WithTimeout(ctx, 4*time.Second)
+		ctx, stopRender = context.WithTimeout(ctx, 30*time.Second)
 		defer stopRender()
 	}
 	started := time.Now()

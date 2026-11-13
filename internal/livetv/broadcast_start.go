@@ -304,7 +304,7 @@ func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
 
 // Keep the current title ready independently of provider outage screens.
 // Standby masters contain background only; they cannot air as opening cards.
-func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
+func (p *scheduleBroadcastPlanner) momentRequestAt(now time.Time) (core.ClipRequest, string) {
 	c := p.s.graphicsChannel(p.channel)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -328,8 +328,13 @@ func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
 		}
 		break
 	}
-	request := p.s.clipRequest(c, selected, p.window)
-	return broadcastPlan{id: "moment-card-" + c.ID + "-" + selected.ID + "-" + request.Moment, element: request.Moment, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+	return p.s.clipRequest(c, selected, p.window), selected.ID
+}
+
+func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
+	c := p.channel
+	request, id := p.momentRequestAt(now)
+	return broadcastPlan{id: "moment-card-" + c.ID + "-" + id + "-" + request.Moment, element: request.Moment, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
 		if p.s.o.Graphics == nil || c.Look == nil {
 			request.Bind["screen.reason"] = "moment"
 			return p.s.openSignalDecoder(ctx, request, p.format)
@@ -337,6 +342,7 @@ func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
 		decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, true)
 		if title, ok := decoder.(*momentStreamDecoder); ok {
 			title.stream.UseExternalSegmentClock()
+			title.stream.StartCompleteTitle()
 		}
 		return decoder, release, err
 	}}
@@ -560,15 +566,40 @@ func steadyRendition(f transcode.RawFormat, full int, caps core.ClientCaps) (int
 }
 
 func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time.Duration) {
+	titleDuration := segmentDuration
+	p.mu.Lock()
 	for _, programme := range p.window {
-		if !now.Before(programme.Start) && now.Before(programme.End) && interstitial(programme.Item) {
+		if now.Before(programme.Start) || !now.Before(programme.End) {
+			continue
+		}
+		if interstitial(programme.Item) {
+			p.mu.Unlock()
 			return broadcastPlan{}, 0
 		}
+		titleDuration = min(titleDuration, programme.End.Sub(now))
+		break
 	}
+	p.mu.Unlock()
 	c := p.s.personalChannel(p.s.ctx, p.channel, &p.user)
 	if welcome, ok := p.s.personalWelcome(c, now); ok {
 		p.joinAt = welcome.End
 		return p.programme(welcome), welcome.End.Sub(now)
+	}
+	if p.s.o.Graphics != nil {
+		request, _ := p.momentRequestAt(now)
+		if request.Moment == "tonight" || request.Moment == "upnext" {
+			if _, cached := p.s.o.Graphics.Clip(p.s.ctx, request); cached {
+				title := p.momentScreenAt(now)
+				title.id = "intro-" + title.id
+				// One complete segment owns the opening. Preparing a programme must
+				// not inject a frame into the title, and its seek starts after the card.
+				p.joinAt = now.Add(titleDuration)
+				return title, titleDuration
+			}
+			// A cold title uses its own complete plate; a cached station ident
+			// must not cover it while this title master is being prepared.
+			return broadcastPlan{}, 0
+		}
 	}
 	if c.Look == nil || !c.Look.Ident || p.s.o.Graphics == nil {
 		return broadcastPlan{}, 0
