@@ -520,6 +520,8 @@ type ExternalRequest struct {
 // CollectionQuery requests viewer-scoped collection pagination. A nonpositive
 // Limit defaults to 50; larger requests are capped at 500.
 type CollectionQuery struct {
+	// ExistsOnly stops after the first visible collection; Total is then 0 or 1.
+	ExistsOnly    bool
 	Query         string
 	Types         []core.MediaType
 	Offset, Limit int

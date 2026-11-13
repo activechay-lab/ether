@@ -221,6 +221,27 @@ func (m *Mirror) Franchises(ctx context.Context) ([]core.Collection, error) {
 	return out, nil
 }
 
+// NextFranchise reads one candidate for lazy collection-view discovery. Unlike
+// Franchises it does not count, rank, or materialize every franchise first.
+func (m *Mirror) NextFranchise(ctx context.Context, after int64) (*core.Collection, error) {
+	var id int64
+	var name, poster, backdrop, summary string
+	var n int
+	err := m.db.QueryRowContext(ctx, `SELECT t.collection_id,
+ COALESCE(NULLIF(MAX(t.collection_name),''),MAX(cc.name),''),COUNT(*),
+ COALESCE(MAX(cc.poster),''),COALESCE(MAX(cc.backdrop),''),COALESCE(MAX(cc.summary),'')
+ FROM catalog_titles t LEFT JOIN catalog_collections cc ON cc.tmdb_id=t.collection_id
+ WHERE t.type='movie' AND t.browsable=1 AND t.collection_id>?
+ GROUP BY t.collection_id HAVING COUNT(*)>=2 ORDER BY t.collection_id LIMIT 1`, after).Scan(&id, &name, &n, &poster, &backdrop, &summary)
+	if err != nil {
+		return nil, err
+	}
+	if name == "" {
+		name = fmt.Sprintf("Collection %d", id)
+	}
+	return &core.Collection{Key: core.CollectionKey(id), Title: name, Summary: summary, Kind: "franchise", Type: core.TypeMovie, PosterPath: poster, BackdropPath: backdrop, ChildCount: n}, nil
+}
+
 // FranchiseRatedCounts is, per franchise Franchises lists, how many of its
 // browsable movies a viewer capped at level may watch (rated, at or below
 // the cap; contentrating.Exceeds), in one grouped read over the franchises'

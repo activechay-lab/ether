@@ -12,15 +12,14 @@ import (
 const collectionsViewNumber int64 = 1<<61 + 1
 
 func (i *instance) collectionsFolder(r *http.Request, v *frontend.Viewer) (map[string]any, bool) {
-	page, err := i.host.Experience.Collections(r.Context(), v, device(r), frontend.CollectionQuery{Limit: 1})
+	page, err := i.host.Experience.Collections(r.Context(), v, device(r), frontend.CollectionQuery{ExistsOnly: true, Limit: 1})
 	if err != nil || page.Total == 0 {
 		return nil, false
 	}
 	id, _ := ids.GUID(ids.View, collectionsViewNumber)
-	item := map[string]any{"Id": id, "Name": "Collections", "Type": "CollectionFolder", "CollectionType": "boxsets", "IsFolder": true, "ServerId": i.info.ID, "ChildCount": page.Total, "DisplayPreferencesId": id, "SortName": "Collections"}
+	item := map[string]any{"Id": id, "Name": "Collections", "Type": "CollectionFolder", "CollectionType": "boxsets", "IsFolder": true, "ServerId": i.info.ID, "DisplayPreferencesId": id, "SortName": "Collections"}
 	if i.protocol == "jellyfin" {
 		i.jellyfinCollectionFolder(item, id)
-		item["ChildCount"] = page.Total
 		item["ParentId"] = jellyfinRootID()
 	}
 	if i.protocol == "emby" {
