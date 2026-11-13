@@ -73,9 +73,9 @@ func TestLibrariesConsoleCRUDAndFilterBrowse(t *testing.T) {
 		t.Fatalf("patch %d %s", w.Code, w.Body)
 	}
 
-	// A saved filter cannot be swapped under the same id yet.
-	if w := call("PATCH", "/"+id, `{"filter":{"type":"movie"}}`); w.Code != 400 {
-		t.Fatalf("filter patch %d", w.Code)
+	// The saved filter can be replaced under the same id.
+	if w := call("PATCH", "/"+id, `{"filter":{"type":"movie"}}`); w.Code != 200 {
+		t.Fatalf("filter patch %d %s", w.Code, w.Body)
 	}
 
 	// Built-ins cannot be deleted; the filter library can.

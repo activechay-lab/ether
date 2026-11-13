@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -165,10 +166,13 @@ func (t *liveTestTranscoder) HWAccel() core.HWAccel                  { return co
 type liveTestPlayback struct {
 	core.Playback
 	info     core.MediaInfo
+	mu       sync.Mutex
 	sessions []*core.PlaySession
 }
 
 func (p *liveTestPlayback) Prepare(_ context.Context, u *core.User, k core.RatingKey, c core.ClientCaps) (*core.PlaySession, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	ps := &core.PlaySession{ID: fmt.Sprintf("virtual-ps-%d", len(p.sessions)+1), UserID: u.ID, Key: k, ClientID: c.ClientID, Info: p.info}
 	p.sessions = append(p.sessions, ps)
 	return ps, nil
