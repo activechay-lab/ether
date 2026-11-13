@@ -291,14 +291,9 @@ func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
 }
 
-// Keep a style plate ready independently of provider outage screens. Once the
-// look's animated standby/break/ident master exists in cache, loop it directly
-// so holds never freeze on a still.
+// Keep a complete ident ready independently of provider outage screens.
+// Standby masters contain background only; they cannot air as opening cards.
 func (p *scheduleBroadcastPlanner) momentScreen() broadcastPlan {
-	if standby, ok := p.standbyPlan(); ok {
-		standby.id = "moment-" + standby.id
-		return standby
-	}
 	c := p.channel
 	request := p.s.clipRequest(c, Programme{Item: Item{Slate: "ident"}})
 	request.Bind["screen.reason"] = "moment"

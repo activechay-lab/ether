@@ -1255,7 +1255,7 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 		if err == nil {
 			s.o.Logger.Info("onair master rendered", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed.Round(time.Millisecond), "render_speed_x", round2(speedX), "queue_wait", queueWait, "masters_rendered", masters)
 		} else {
-			s.o.Logger.Debug("onair master render ended", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", false)
+			s.o.Logger.Debug("onair master render ended", "look", j.Look, "moment", j.Doc.Moment, "duration", elapsed, "success", false, "error", err)
 		}
 	}()
 	if e := s.loadAssets(ctx, &j); e != nil {
@@ -1318,6 +1318,13 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 				t = min(t, j.Doc.Duration-t)
 			}
 			return seq.Frame(t)
+		}
+		if j.Doc.Moment == "standby" {
+			// A hold is needed immediately. Bound its raster work to one settled
+			// background; the live Signal engine supplies motion on cold tunes.
+			// Rendering the entire procedural loop can outlive the viewer.
+			still := seq.Frame(max(1, j.Doc.Poster))
+			frames = func(int) *image.RGBA { return still }
 		}
 		if strings.HasPrefix(j.Doc.Moment, "plugin:") {
 			opts.MaxSeconds = 600

@@ -659,14 +659,14 @@ func TestNeverHoldOnStillOnceStandbyMasterExistsAndVisibilityLogs(t *testing.T) 
 	}
 
 	now := clock.Now()
-	// Both screen() and momentScreen() MUST loop the cached animated look master, never a static card!
+	// Outage screens can use cached standby; opening holds need foreground text.
 	scrPlan := planner.screen(now)
 	if scrPlan.element != "standby" || !strings.HasPrefix(scrPlan.id, "screen-standby-") {
 		t.Fatalf("expected screen() to use looping animated standby master, got id=%q element=%q", scrPlan.id, scrPlan.element)
 	}
 	momPlan := planner.momentScreen()
-	if momPlan.element != "standby" || !strings.HasPrefix(momPlan.id, "moment-standby-") {
-		t.Fatalf("expected momentScreen() to use looping animated standby master, got id=%q element=%q", momPlan.id, momPlan.element)
+	if momPlan.element != "card" || !strings.HasPrefix(momPlan.id, "moment-card-") {
+		t.Fatalf("expected momentScreen() to use complete ident card, got id=%q element=%q", momPlan.id, momPlan.element)
 	}
 
 	_, _, err = scrPlan.open(ctx)
