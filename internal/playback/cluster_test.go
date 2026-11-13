@@ -124,6 +124,8 @@ func TestClusterCollidingPlexAndBrokerScopesConsumeSeparateSlots(t *testing.T) {
 			ctx := context.Background()
 			caps := defaultCaps("8:jellyfincolliding-device")
 			caps.Protocol = "plex"
+			caps.AwaitAdmissionIndex = true
+			caps.DeferSourceCodecValidation = true
 			other := caps
 			other.Protocol = "jellyfin"
 			var first *core.PlaySession

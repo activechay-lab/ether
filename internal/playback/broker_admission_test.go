@@ -44,6 +44,8 @@ func TestLegacyPlexAndBrokerShareAdmission(t *testing.T) {
 			defer b.Close(ctx)
 			legacyCaps := defaultCaps("plex-device")
 			legacyCaps.Protocol = "plex"
+			legacyCaps.AwaitAdmissionIndex = true
+			legacyCaps.DeferSourceCodecValidation = true
 			legacy, err := h.m.Prepare(ctx, friend, movieKey, legacyCaps)
 			if err != nil {
 				t.Fatal(err)
@@ -81,6 +83,8 @@ func TestBrokerScopeCannotShareOrStopCollidingPlexSource(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10000, time.Minute)}, []string{"A"})
 	caps := defaultCaps("8:jellyfincolliding-device")
 	caps.Protocol = "plex"
+	caps.AwaitAdmissionIndex = true
+	caps.DeferSourceCodecValidation = true
 	plex, err := h.m.Prepare(ctx, friend, movieKey, caps)
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +117,8 @@ func TestCollidingScopesEachConsumeStreamLimit(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10000, time.Minute)}, []string{"A"}, func(h *harness, _ *Options) { h.cfg.Server.MaxStreams = 1 })
 	caps := defaultCaps("8:jellyfincolliding-device")
 	caps.Protocol = "plex"
+	caps.AwaitAdmissionIndex = true
+	caps.DeferSourceCodecValidation = true
 	plex, err := h.m.Prepare(ctx, friend, movieKey, caps)
 	if err != nil {
 		t.Fatal(err)
