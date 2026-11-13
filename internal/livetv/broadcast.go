@@ -183,6 +183,7 @@ type broadcast struct {
 	startupUntil         time.Time
 	startupTarget, lead  time.Duration
 	bursting, burstReady bool
+	waitingProgramme     bool
 	introShownAt         time.Time
 	introInput           *broadcastInput
 	continuation         *broadcastInput
@@ -228,6 +229,7 @@ type broadcast struct {
 	momentCardPlan       broadcastPlan
 	momentCardFrame      []byte
 	momentCardPending    transcode.RawFrame
+	introPending         transcode.RawFrame
 	screenPlan           broadcastPlan
 	retryRequests        chan struct{}
 	mode                 string
@@ -712,7 +714,11 @@ func (b *broadcast) run() {
 			continue
 		}
 		if !b.step(scheduled) {
-			timer.Reset(2 * time.Millisecond)
+			wait := 2 * time.Millisecond
+			if b.waitingProgramme {
+				wait = 20 * time.Millisecond
+			}
+			timer.Reset(wait)
 			continue
 		}
 		if late := time.Since(scheduled.Add(-b.lead)); !b.bursting && late >= broadcastStallReport && time.Since(b.clockWarned) > 10*time.Second {
@@ -756,6 +762,7 @@ func (b *broadcast) standbyContinuationPlan() (broadcastPlan, bool) {
 }
 
 func (b *broadcast) step(now time.Time) bool {
+	b.waitingProgramme = false
 	b.burstReady = false
 	fresh := false
 	previousPCM := b.lastFrame.PCM
@@ -796,9 +803,6 @@ func (b *broadcast) step(now time.Time) bool {
 	if planner, ok := b.planner.(interface{ momentScreenAt(time.Time) broadcastPlan }); ok {
 		b.momentCardPlan = planner.momentScreenAt(now)
 	}
-	if !now.Before(b.introUntil) && b.introInput != nil {
-		b.finishIntro(now)
-	}
 	introActive := b.intro.id != "" && now.Before(b.introUntil)
 	if introActive && !b.introFallback && b.introInput == nil {
 		b.open(b.intro, now)
@@ -836,7 +840,7 @@ func (b *broadcast) step(now time.Time) bool {
 	if b.fallback == nil {
 		b.open(b.screenPlan, now)
 	}
-	if b.momentCard == nil {
+	if b.momentCard == nil && (b.intro.id == "" || b.airedProgramme) {
 		b.open(b.momentCardPlan, now)
 	}
 	if b.current != nil && b.current.plan.id != current.id {
@@ -916,6 +920,27 @@ func (b *broadcast) step(now time.Time) bool {
 	for id, plan := range b.future {
 		if (b.next == nil || b.next.plan.id != id) && b.later[id] == nil && !resumesBroadcastInput(current, plan) {
 			b.open(plan, now)
+		}
+	}
+	// A first programme that is still preparing must not spend the startup
+	// lead on extra title frames. Keep accepting prepared inputs at this tick;
+	// publish the first programme frame at the original title boundary.
+	titleOpening := b.intro.element == "tonight" || b.intro.element == "upnext"
+	if titleOpening && !b.airedProgramme && current.programme && !now.Before(b.introUntil) {
+		if b.current == nil || len(b.current.frames) == 0 {
+			b.waitingProgramme = true
+			if time.Since(b.created) >= broadcastColdProgrammeWait {
+				b.cancel()
+			}
+			return false
+		}
+	}
+	if !now.Before(b.introUntil) && b.introInput != nil {
+		b.finishIntro(now)
+	}
+	if introActive && titleOpening && b.introInput != nil && now.After(time.Now()) {
+		if source, ok := b.introInput.decoder.(interface{ startupBurstReady() bool }); ok && !source.startupBurstReady() {
+			return false
 		}
 	}
 	// Graphics preparation never owns the clock. A missing first frame uses
@@ -1113,24 +1138,42 @@ func (b *broadcast) step(now time.Time) bool {
 		mode = "pod-extension"
 	}
 	if frame.Video == nil && introActive && !b.introFallback && b.introInput != nil {
-		select {
-		case f, ok := <-b.introInput.frames:
-			if ok && validRawFrame(b.format, f) {
-				frame = f
-				mode = "intro"
-				if b.introShownAt.IsZero() {
-					b.introShownAt = now
-				}
+		boundary := (b.tick*int64(b.format.FPSDen)*int64(time.Second))%int64(b.segment*time.Duration(b.format.FPSNum)) == 0
+		if b.introPending.Video != nil {
+			if boundary {
+				frame = b.introPending
+				b.introPending = transcode.RawFrame{}
 			}
-		default:
+		} else {
+			select {
+			case f, ok := <-b.introInput.frames:
+				if ok && validRawFrame(b.format, f) {
+					if f.GraphicsTransition && !boundary {
+						b.introPending = f
+					} else {
+						frame = f
+					}
+				}
+			default:
+			}
+		}
+		if frame.Video == nil && b.tick > 0 {
+			frame = transcode.RawFrame{Video: b.lastFrame.Video}
+		}
+		if frame.Video != nil {
+			mode = "intro"
+			if b.introShownAt.IsZero() {
+				b.introShownAt = now
+			}
 		}
 	}
+
 	// A cold tune-in never reaches the screen before its first programme:
 	// the styled screen card is the look's off-air scene. Hold the opening
 	// look (the live ident plate, or the last opening picture) until the
 	// programme airs or the cold bound expires. A scheduled off-air
 	// element is not a programme, so it still airs as itself.
-	if frame.Video == nil && !b.airedProgramme && current.programme && now.Before(b.coldHoldUntil) {
+	if frame.Video == nil && !introActive && !b.airedProgramme && current.programme && now.Before(b.coldHoldUntil) {
 		if b.momentCard != nil {
 			boundary := (b.tick*int64(b.format.FPSDen)*int64(time.Second))%int64(b.segment*time.Duration(b.format.FPSNum)) == 0
 			if b.momentCardPending.Video != nil {

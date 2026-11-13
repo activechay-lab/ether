@@ -22,7 +22,10 @@ func (g *titleRequestGraphics) Clip(ctx context.Context, request core.ClipReques
 
 type titleStartupPlanner struct{ coldHoldPlanner }
 
-func (titleStartupPlanner) startupLead() time.Duration { return 12 * time.Second }
+func (titleStartupPlanner) startupLead() time.Duration { return 10 * time.Second }
+func (p titleStartupPlanner) introPlan(time.Time) (broadcastPlan, time.Duration) {
+	return p.card, 4 * time.Second
+}
 
 type coldTitleDecoder struct {
 	*delayedMomentDecoder
@@ -46,8 +49,8 @@ func (d *coldTitleDecoder) Next(ctx context.Context) (transcode.RawFrame, error)
 	return f, err
 }
 
-// Reproduce lab.31: tune inside a programme, a title plate takes 1.08s,
-// its master is ready at 2.5s, and programme decoding finishes at 3.8s while the output builds 16s of lead.
+// Reproduce lab.33: plate at 1.08s, master 1.2s later, programme at 6.4s,
+// and speculative startup lead of 14s. The encoded title must still end at 4s.
 // The startup burst must not spend the title interval before the master exists.
 func TestColdTuneTitleStartupSequence(t *testing.T) {
 	t.Run("real planner binds current programme title", func(t *testing.T) {
@@ -67,6 +70,12 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 		if intro.id == "" || intro.fill || duration != 4*time.Second || !planner.joinAt.Equal(now.Add(duration)) {
 			t.Fatalf("warm title lacks an exclusive segment/seek: %+v %s join=%s", intro, duration, planner.joinAt)
 		}
+		graphics.cached = false
+		coldIntro, coldDuration := planner.introPlan(now)
+		if coldIntro.id != intro.id || coldDuration != duration {
+			t.Fatal("cold and warm opening intervals differ")
+		}
+		graphics.cached = true
 		plan := planner.momentScreenAt(now)
 		decoder, release, err := plan.open(t.Context())
 		if err != nil {
@@ -114,12 +123,12 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		origin := time.Now()
 		f := smallBroadcastFormat()
-		programme := broadcastPlan{id: "programme", programme: true, element: "programme", start: origin.Add(-4 * time.Minute), end: origin.Add(time.Hour), open: coldHoldOpen(f, 90, 3800*time.Millisecond)}
+		programme := broadcastPlan{id: "programme", programme: true, element: "programme", start: origin.Add(-4 * time.Minute), end: origin.Add(time.Hour), open: coldHoldOpen(f, 90, 6400*time.Millisecond)}
 		p := titleStartupPlanner{coldHoldPlanner{
 			elementBroadcastPlanner: elementBroadcastPlanner{programme, broadcastPlan{id: "after", start: programme.end}},
 			screenPlan:              broadcastPlan{id: "off-air", open: coldHoldOpen(f, 10, 0)},
 			card: broadcastPlan{id: "tonight-card", element: "tonight", open: func(context.Context) (transcode.Decoder, func(), error) {
-				return &coldTitleDecoder{delayedMomentDecoder: &delayedMomentDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: f, value: 30, closed: make(chan struct{})}, ready: origin.Add(1080 * time.Millisecond)}, masterAt: origin.Add(2500 * time.Millisecond)}, nil, nil
+				return &coldTitleDecoder{delayedMomentDecoder: &delayedMomentDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: f, value: 30, closed: make(chan struct{})}, ready: origin.Add(1080 * time.Millisecond)}, masterAt: origin.Add(2280 * time.Millisecond)}, nil, nil
 			}},
 		}}
 		runner := &broadcastFakeRunner{}
@@ -134,6 +143,7 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 		b.start()
 		time.Sleep(1500 * time.Millisecond)
 		synctest.Wait()
+		competingOpening := b.momentCard != nil
 		first := runner.encoders[0].snapshot()
 		if len(first) == 0 {
 			t.Fatal("no first frame within target duration")
@@ -160,16 +170,23 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 				}
 			case 30:
 			default:
-				t.Fatalf("tick %d aired black/off-air: %d", i, frame.Video[0])
+				if i < 120 || i >= 129 || frame.Video[0] < 90 || frame.Video[0] > 200 {
+					t.Fatalf("tick %d aired unexpected picture: %d", i, frame.Video[0])
+				}
 			}
 		}
-		if animatedAt != 120 {
-			t.Fatalf("animation cut at %d, want segment boundary 120", animatedAt)
-		}
+
 		t.Logf("animated at tick %d; programme at tick %d", animatedAt, programmeAt)
-		if programmeAt < 450 {
-			t.Fatalf("programme cut at %d, want roughly 16s (at least 450 ticks)", programmeAt)
+		if programmeAt < 120 || programmeAt > 130 {
+			t.Fatalf("programme cut at %d, want four-second boundary plus crossfade (120..130)", programmeAt)
 		}
+		if animatedAt != 120 {
+			t.Fatalf("animation cut at %d, want segment boundary120", animatedAt)
+		}
+		if competingOpening {
+			t.Fatal("opening title also opened a competing cold-hold reader")
+		}
+
 		if animatedAt >= programmeAt {
 			t.Fatalf("title animation %d must precede programme %d", animatedAt, programmeAt)
 		}

@@ -588,17 +588,12 @@ func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time
 	if p.s.o.Graphics != nil {
 		request, _ := p.momentRequestAt(now)
 		if request.Moment == "tonight" || request.Moment == "upnext" {
-			if _, cached := p.s.o.Graphics.Clip(p.s.ctx, request); cached {
-				title := p.momentScreenAt(now)
-				title.id = "intro-" + title.id
-				// One complete segment owns the opening. Preparing a programme must
-				// not inject a frame into the title, and its seek starts after the card.
-				p.joinAt = now.Add(titleDuration)
-				return title, titleDuration
-			}
-			// A cold title uses its own complete plate; a cached station ident
-			// must not cover it while this title master is being prepared.
-			return broadcastPlan{}, 0
+			title := p.momentScreenAt(now)
+			title.id = "intro-" + title.id
+			// Cold and cached titles own the same bounded media interval. Decoder
+			// preparation can delay publication, but cannot lengthen the card.
+			p.joinAt = now.Add(titleDuration)
+			return title, titleDuration
 		}
 	}
 	if c.Look == nil || !c.Look.Ident || p.s.o.Graphics == nil {

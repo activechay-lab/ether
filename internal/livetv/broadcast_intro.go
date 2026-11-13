@@ -15,6 +15,10 @@ func (b *broadcast) finishIntro(now time.Time) {
 		b.introFade = b.introInput
 		b.introInput = nil
 		b.introFadeFrame = b.lastFrame
+		if b.introPending.Video != nil {
+			b.introFadeFrame = b.introPending
+			b.introPending = transcode.RawFrame{}
+		}
 		b.introFadeStart = now
 	}
 }
