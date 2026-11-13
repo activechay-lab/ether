@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import { invalidateRegistry } from "../lib/extend";
 import LiveTV from "../pages/livetv/LiveTV";
 import { IPTVProviders } from "../pages/sources/IPTV";
+import { ProgrammingEditor } from "../pages/livetv/ProgrammingEditor";
+import type { Channel } from "../pages/livetv/model";
 import { ScheduleTimeline } from "../pages/livetv/ScheduleTimeline";
 import { calls as fakeCalls } from "./harness";
 import { renderAppWith } from "./routes";
@@ -387,6 +389,65 @@ describe("Live TV studio", () => {
     expect(
       body(sent(calls, "POST", /\/livetv\/channels$/)[0]).blocks[0].sources[0].startSeason,
     ).toBe(1);
+  });
+
+  it("keeps a running strip's startDate when only its start season or episode is corrected", async () => {
+    const channel: Channel = {
+      id: "c1",
+      number: "1",
+      name: "Reruns",
+      kind: "virtual",
+      enabled: true,
+      favorite: false,
+      epoch: "2026-01-01",
+      seed: 1,
+      shuffle: false,
+      items: [],
+      blocks: [
+        {
+          id: "b1",
+          start: 0,
+          end: 1440,
+          items: [],
+          shuffle: false,
+          name: "Reruns",
+          sources: [
+            {
+              kind: "show",
+              showKey: 123,
+              name: "Some Show",
+              strip: true,
+              startSeason: 3,
+              startEpisode: 2,
+              // Already airing - started a month ago, now mid-season 3.
+              startDate: "2026-10-01",
+            },
+          ],
+        },
+      ],
+    };
+    const onChange = vi.fn();
+    render(
+      <MemoryRouter>
+        <ProgrammingEditor
+          channel={channel}
+          onChange={onChange}
+          collections={[]}
+          editRequest={{ blockId: "b1" }}
+        />
+      </MemoryRouter>,
+    );
+    const episodeInput = await screen.findByRole("spinbutton", { name: "Start episode" });
+    // Correcting a typo (meant episode 5, not 2) must not restart the strip's clock.
+    fireEvent.change(episodeInput, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onChange).toHaveBeenCalledWith({
+      blocks: [
+        expect.objectContaining({
+          sources: [expect.objectContaining({ startDate: "2026-10-01", startEpisode: 5 })],
+        }),
+      ],
+    });
   });
 
   it("edits a schedule block in a drawer and previews its applied programming", async () => {
