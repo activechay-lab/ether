@@ -40,6 +40,28 @@ func (x *fixture) cycleFor(t *testing.T, d time.Duration) {
 // the bounded retry ladder [0, 30m, 1h, 90m, 2h, 150m, 3h, 4h, 8h] and then
 // once per 24h until the evidence window ends, never every minute.
 func TestProbeBoundedRetrySchedule(t *testing.T) {
+	// TMDB anchors episodes at midnight, rather than at broadcast time.
+	anchor := int64(1794441600)
+	end := anchor + 86400
+	if got := nextEpisodeRetry(anchor, end, anchor-48*3600, true); got != anchor-42*3600 {
+		t.Fatalf("pre-air retry: %d", got)
+	}
+	if got := nextEpisodeRetry(anchor, end, anchor-48*3600, false); got != anchor {
+		t.Fatalf("unfollowed pre-air retry: %d", got)
+	}
+	for _, hour := range []int64{8, 16, 22} {
+		now := anchor + hour*3600
+		if got := nextEpisodeRetry(anchor, end, now, true); got != now+3600 {
+			t.Fatalf("followed episode at hour %d: next=%d", hour, got)
+		}
+	}
+	if got := nextEpisodeRetry(anchor, end, anchor+23*3600, true); got != 0 {
+		t.Fatalf("retry beyond evidence window: %d", got)
+	}
+	if got := nextEpisodeRetry(anchor, end, anchor+8*3600, false); got != 0 {
+		t.Fatalf("unfollowed episode gained extra searches: %d", got)
+	}
+
 	x, searches, _ := probeFixture(t, 0)
 	x.cycleFor(t, 8*time.Hour+time.Minute)
 	if *searches != 9 {

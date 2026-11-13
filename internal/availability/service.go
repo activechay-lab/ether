@@ -502,7 +502,7 @@ func (s *Service) verify(parent context.Context) error {
 			continue
 		}
 		t, e := s.d.Catalog.CachedTitle(parent, q.key)
-		if e != nil || t == nil || !t.IsReleased(s.now()) {
+		if e != nil || t == nil || t.Adult || (!t.IsReleased(s.now()) && t.Type != core.TypeEpisode) {
 			_, err := s.db.ExecContext(parent, `UPDATE availability_releases SET next_check=?,policy=? WHERE id=? AND rating_key=? AND source_id=?`, now+3600, policy, q.id, q.key, q.source)
 			if err != nil {
 				return err
@@ -599,7 +599,7 @@ func (s *Service) verify(parent context.Context) error {
 			continue
 		}
 		t, e := s.d.Catalog.CachedTitle(parent, q.key)
-		if e != nil || t == nil || !t.IsReleased(s.now()) {
+		if e != nil || t == nil || t.Adult || (!t.IsReleased(s.now()) && t.Type != core.TypeEpisode) {
 			_, _ = s.db.ExecContext(parent, `UPDATE availability_releases SET next_check=?,policy=? WHERE id=? AND rating_key=? AND source_id=?`, now+3600, policy, q.id, q.key, q.source)
 			continue
 		}
@@ -666,7 +666,7 @@ func (s *Service) verify(parent context.Context) error {
 // and prepared sessions without health evidence do not call this method.
 func (s *Service) Observe(ctx context.Context, t *core.Title, r core.Release) {
 	defer s.clearVisibility()
-	if t == nil || t.Adult || !t.IsReleased(s.now()) {
+	if t == nil || t.Adult || (!t.IsReleased(s.now()) && t.Type != core.TypeEpisode) {
 		return
 	}
 	if r.Info.Title == "" && r.Name != "" {

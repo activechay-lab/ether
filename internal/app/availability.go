@@ -15,7 +15,7 @@ func (a *App) buildAvailability() error {
 			}
 			return a.indexers.Search(ctx, req)
 		}, Watchlist: func(ctx context.Context) (map[core.RatingKey]bool, error) {
-			rows, err := a.db.QueryContext(ctx, `SELECT DISTINCT item_key FROM watchlist_items`)
+			rows, err := a.db.QueryContext(ctx, `SELECT DISTINCT item_key FROM watchlist_items UNION SELECT rating_key FROM (SELECT rating_key FROM state_watch WHERE last_viewed_at>0 AND last_viewed_at>=? ORDER BY last_viewed_at DESC LIMIT 200) recent`, time.Now().Add(-30*24*time.Hour).Unix())
 			if err != nil {
 				return nil, nil
 			}
@@ -24,7 +24,11 @@ func (a *App) buildAvailability() error {
 			for rows.Next() {
 				var key int64
 				if rows.Scan(&key) == nil {
-					out[core.RatingKey(key)] = true
+					k := core.RatingKey(key)
+					out[k] = true
+					if k.Kind() == core.KindEpisode || k.Kind() == core.KindSeason {
+						out[core.ShowKey(k.TMDB())] = true
+					}
 				}
 			}
 			return out, rows.Err()
