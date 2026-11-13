@@ -3208,8 +3208,9 @@ export function createFakeServer(opts: FakeOptions = {}) {
             surface,
             url: "http://ether.local/webdav/",
             username: id,
-            password: "mock-app-password",
-            qr,
+            password: "mock-app-password-7f3a9c2e8b1d6f4a0c9e2b7d5a1f8c3e",
+            // Scannable fixture for the modal preview; encodes the mock WebDAV URL.
+            qr: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADAAQMAAABoEv5EAAAABlBMVEX///8AAABVwtN+AAABJklEQVR42uzWMa6rMBCF4R+5oPQSvBR2BsnOvJRZAiWFlfPkASV5UaorBbvgNAh9zQgP4+HKlR9FNUGSLTJ/uXUABUgwSbfR/OVMSNoSUBhkJar0A0GZdO8PFGzpCYAUVoAvZ94K9m5fp2Dz+OU3+C0AEJQd+EwrKAxbUgVIkt4+YkOAQUaUdPdnMDqAIEkFqF1fmAo9gPTwLpfN3vWyHgDmUVoJNni5b7/B70E2bJS4X2zE/DzBpgBeJn7XhvV1gm3BLxSmYMtGWCdZDyBbtkTMskE6Gr89AHiZteuJ+VQ4VrVcUt2WougCCpD2Lh/3oXnrAY69BBglvT5ieyCqpEedW9P/5TaGLJvBpyk9wHG0viLso/Q8OHa4ZzWfy10buHLlj/k3ACp8cxu0+Cr1AAAAAElFTkSuQmCC",
           });
         if (surface === "jellyfin" || surface === "emby" || surface === "silo") {
           const viewer = state.users.find((u) => String(u.id) === id) ?? state.users[0];

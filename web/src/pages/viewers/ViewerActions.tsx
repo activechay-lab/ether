@@ -23,7 +23,7 @@ import {
   Trash2,
   Tv,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ActionMenu } from "../../components/ActionMenu";
 import { Drawer } from "../../components/Drawer";
@@ -458,15 +458,32 @@ function TvCodePanel({
   open: boolean;
   onClose: () => void;
 }) {
+  return (
+    <Drawer open={open} onClose={onClose} title={t("Approve a TV code")}>
+      {open && <TvCodeForm viewer={viewer} onApproved={onClose} onCancel={onClose} />}
+    </Drawer>
+  );
+}
+
+export function TvCodeForm({
+  viewer,
+  onApproved,
+  onCancel,
+}: {
+  viewer: Viewer;
+  onApproved?: () => void;
+  onCancel?: () => void;
+}) {
+  const inputId = useId();
+  const [success, setSuccess] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) {
-      setCode("");
-      setError("");
-    }
-  }, [open]);
+    setCode("");
+    setError("");
+    setSuccess(false);
+  }, [viewer.id]);
   async function submit(e: FormEvent) {
     e.preventDefault();
     const value = code.trim().toUpperCase();
@@ -476,6 +493,7 @@ function TvCodePanel({
     }
     setBusy(true);
     setError("");
+    setSuccess(false);
     try {
       await apiFetch(`/viewers/${viewer.id}/quickconnect`, {
         method: "POST",
@@ -484,7 +502,9 @@ function TvCodePanel({
       toast.success(t("TV approved"), {
         description: t("The TV is signed in as {name}.", { name: viewerName(viewer) }),
       });
-      onClose();
+      setCode("");
+      setSuccess(true);
+      onApproved?.();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -492,39 +512,44 @@ function TvCodePanel({
     }
   }
   return (
-    <Drawer open={open} onClose={onClose} title={t("Approve a TV code")}>
-      <form className="space-y-4" onSubmit={(e) => void submit(e)}>
-        <p className="text-sm text-fg-muted">
-          {t("Enter the 6-character code shown on the TV to sign it in as {name}.", {
-            name: viewerName(viewer),
-          })}
+    <form className="space-y-4" onSubmit={(e) => void submit(e)}>
+      <p className="text-sm text-fg-muted">
+        {t("Enter the 6-character code shown on the TV to sign it in as {name}.", {
+          name: viewerName(viewer),
+        })}
+      </p>
+      <div>
+        <Label htmlFor={inputId}>{t("TV code")}</Label>
+        <Input
+          id={inputId}
+          value={code}
+          onChange={(e) => setCode(e.currentTarget.value.toUpperCase())}
+          maxLength={6}
+          autoComplete="off"
+          required
+        />
+      </div>
+      {success ? (
+        <p role="status" className="text-sm text-success">
+          {t("TV approved")}
         </p>
-        <div>
-          <Label htmlFor="tv-code">{t("TV code")}</Label>
-          <Input
-            id="tv-code"
-            value={code}
-            onChange={(e) => setCode(e.currentTarget.value.toUpperCase())}
-            maxLength={6}
-            autoComplete="off"
-            required
-          />
-        </div>
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        {onCancel && (
+          <Button type="button" variant="ghost" onClick={onCancel}>
             {t("Cancel")}
           </Button>
-          <Button type="submit" disabled={busy || code.trim().length !== 6}>
-            {t("Approve")}
-          </Button>
-        </div>
-      </form>
-    </Drawer>
+        )}
+        <Button type="submit" disabled={busy || code.trim().length !== 6}>
+          {t("Approve")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
