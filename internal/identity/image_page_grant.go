@@ -22,7 +22,6 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
-	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
 )
 
@@ -603,7 +602,7 @@ func (s *ImageGrantService) serveShortTag(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Tokenless cached URLs are content identities, not expiring viewer grants.
-	if (s.surface == "jellyfin" || s.surface == "emby") && authhdr.MediaBrowserToken(r) == "" {
+	if s.requestOptions.PublicContentTags && s.requestToken(r) == "" {
 		key, ok := imageItemKey(r.URL.Path)
 		public, supported := s.experience().(frontend.PublicArtwork)
 		if ok && supported {
@@ -657,7 +656,7 @@ func (s *ImageGrantService) resolveShortTag(r *http.Request, secret string) (pag
 	if r == nil || r.URL == nil {
 		return pageClaims{}, false
 	}
-	token := authhdr.MediaBrowserToken(r)
+	token := s.requestToken(r)
 	key, ok := imageItemKey(r.URL.Path)
 	if token == "" || !ok {
 		return pageClaims{}, false
@@ -847,4 +846,11 @@ func deviceID(raw json.RawMessage) string {
 		return ""
 	}
 	return device.ID
+}
+
+func (s *ImageGrantService) requestToken(r *http.Request) string {
+	if s.requestOptions.Token == nil {
+		return ""
+	}
+	return s.requestOptions.Token(r)
 }

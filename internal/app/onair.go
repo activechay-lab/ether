@@ -12,7 +12,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/llm"
 	"github.com/braedonsaunders/ether/internal/onair"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
+	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
 	"github.com/braedonsaunders/ether/internal/transcode"
 	"image"
 	"net/url"

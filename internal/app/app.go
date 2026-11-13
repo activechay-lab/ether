@@ -49,7 +49,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/personalize"
 	"github.com/braedonsaunders/ether/internal/playback"
 	"github.com/braedonsaunders/ether/internal/plexguid"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
+	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
 	"github.com/braedonsaunders/ether/internal/plextv"
 	"github.com/braedonsaunders/ether/internal/plexwatch"
 	"github.com/braedonsaunders/ether/internal/prefetch"

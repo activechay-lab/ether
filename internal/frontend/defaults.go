@@ -4,11 +4,11 @@ package frontend
 // Silo uses its Compose default; the reference lab's 8098 is an override.
 func DefaultPort(id Protocol) (int, bool) {
 	switch id {
-	case "plex":
+	case "plex": // Listener default wiring.
 		return 32400, true
-	case "jellyfin":
+	case "jellyfin": // Listener default wiring.
 		return 8096, true
-	case "emby":
+	case "emby": // Listener default wiring.
 		return 8097, true
 	case "silo":
 		return 8090, true

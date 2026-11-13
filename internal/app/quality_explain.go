@@ -126,7 +126,7 @@ func (a *App) handleQualityExplain(w http.ResponseWriter, r *http.Request) {
 	pr := &plex.Request{Product: client.Product, Platform: client.Platform, Device: client.Device, DeviceName: client.Device, Remote: in.Remote, User: u}
 	declared := pr.ClientCapsWith(cfg.Transcode.RemoteMaxBitrateKbps, cfg.Clients.Overrides)
 	builtin := pr.ClientCapsWith(cfg.Transcode.RemoteMaxBitrateKbps, nil)
-	if client.Protocol == "jellyfin" || client.Protocol == "emby" {
+	if frontendHostPolicy(client.Protocol).ProfileQualityEvaluation {
 		info := caps.DeviceInfo{Protocol: client.Protocol, Product: client.Product, Platform: client.Platform, Device: client.Device, Remote: in.Remote}
 		neutral, err := (caps.Builder{}).Build(r.Context(), info, caps.DeviceProfile{}, nil, "")
 		if err != nil {

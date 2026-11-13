@@ -466,7 +466,7 @@ func (s *session) snapshot(now time.Time) *core.PlaySession {
 		offset := s.viewerPosition.Milliseconds()
 		ps.ViewOffset = &offset
 	}
-	if measuredProtocol(s.caps.Protocol) {
+	if !s.caps.NoPlaybackTelemetry {
 		ps.Experience = s.exp.snapshot(now)
 	}
 	if s.user.Username == "" {

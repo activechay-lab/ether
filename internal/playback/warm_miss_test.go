@@ -28,7 +28,7 @@ func waitWarmGone(t *testing.T, h *harness, id identity) {
 func TestFailedWarmIsNotRepeatedOnEveryPageOpen(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("r1", 2<<30, 90*time.Minute)}, nil)
 	caps := defaultCaps("client")
-	id := identity{userID: owner.ID, clientID: caps.ClientID, key: movieKey, surface: playbackSurface(string(caps.Protocol))}
+	id := identity{userID: owner.ID, clientID: caps.ClientID, key: movieKey, surface: h.m.playbackSurface(string(caps.Protocol))}
 	if !h.m.Prewarm(context.Background(), owner, movieKey, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}) {
 		t.Fatal("first warm skipped")
 	}

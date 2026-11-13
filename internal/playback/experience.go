@@ -1,9 +1,8 @@
 package playback
 
 import (
-	"time"
-
 	"github.com/braedonsaunders/ether/internal/core"
+	"time"
 )
 
 // Viewer-experience accounting: how long a play took to show a picture and
@@ -45,20 +44,6 @@ type experienceState struct {
 
 	events   int
 	buffered time.Duration
-}
-
-// reportsBuffering says whether a protocol's timelines carry an explicit
-// buffering state. Others are inferred from positions.
-func reportsBuffering(p core.Protocol) bool { return p == "" || p == "plex" }
-
-// measuredProtocol reports whether a protocol sends playback timelines at
-// all; plain file and DLNA surfaces never show whether a picture appeared.
-func measuredProtocol(p core.Protocol) bool {
-	switch p {
-	case "", "plex", "jellyfin", "emby", "silo":
-		return true
-	}
-	return false
 }
 
 // noteRequest records a play request; the earliest one wins.

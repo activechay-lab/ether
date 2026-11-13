@@ -18,8 +18,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/auth"
 	"github.com/braedonsaunders/ether/internal/contentrating"
 	"github.com/braedonsaunders/ether/internal/core"
+	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
 	"github.com/braedonsaunders/ether/internal/langtag"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
 )
 
@@ -1111,28 +1111,28 @@ type SessionRuntime interface {
 // PlanAdmission is the source and the version and track selections for one
 // Plex plan. Plan makes the direct, remux, or transcode decision from them.
 // Open publishes that decision. The adapter renders it and does not decide again.
-type plexAdmissionKey struct{}
+type planAdmissionKey struct{}
 
 // WithPlanAdmission attaches the prepared source for one Plex Plan call.
 func WithPlanAdmission(ctx context.Context, admit func(context.Context) (PlanAdmission, error)) context.Context {
 	if admit == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, plexAdmissionKey{}, admit)
+	return context.WithValue(ctx, planAdmissionKey{}, admit)
 }
 
 // PlanAdmissionFrom returns the admission callback WithPlanAdmission attached.
 func PlanAdmissionFrom(ctx context.Context) (func(context.Context) (PlanAdmission, error), bool) {
-	admit, ok := ctx.Value(plexAdmissionKey{}).(func(context.Context) (PlanAdmission, error))
+	admit, ok := ctx.Value(planAdmissionKey{}).(func(context.Context) (PlanAdmission, error))
 	return admit, ok && admit != nil
 }
 
-type plexServe struct {
+type streamServe struct {
 	remote bool
 	format string
 }
 
-type plexServeKey struct{}
+type streamServeKey struct{}
 
 // WithStreamServe carries the request's remote bit and subtitle format into
 // ResolveStream and OpenSidecar without changing their signatures.
@@ -1140,7 +1140,7 @@ func WithStreamServe(ctx context.Context, remote bool, format string) context.Co
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithValue(ctx, plexServeKey{}, plexServe{remote: remote, format: format})
+	return context.WithValue(ctx, streamServeKey{}, streamServe{remote: remote, format: format})
 }
 
 // StreamServeFrom returns the remote bit and subtitle format WithStreamServe attached.
@@ -1148,7 +1148,7 @@ func StreamServeFrom(ctx context.Context) (remote bool, format string) {
 	if ctx == nil {
 		return false, ""
 	}
-	v, _ := ctx.Value(plexServeKey{}).(plexServe)
+	v, _ := ctx.Value(streamServeKey{}).(streamServe)
 	return v.remote, v.format
 }
 

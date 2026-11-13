@@ -81,6 +81,8 @@ type Deps struct {
 
 // Options tune the manager. Zero values take the defaults noted.
 type Options struct {
+	// SessionSurface maps adapter identities to their session namespace.
+	SessionSurface func(string) string
 	// DataDir is where NZBs of resumable releases are kept (DataDir/playback/nzb).
 	DataDir string
 	// IdleTimeout ends sessions without viewer activity (default 2m).
@@ -860,7 +862,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 			return nil, nil, fmt.Errorf("playback: title releases on %s: %w", title.Released.Format("2006-01-02"), core.ErrUnreleased)
 		}
 	}
-	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: playbackSurface(string(caps.Protocol))}
+	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: m.playbackSurface(string(caps.Protocol))}
 	if deferSupersession {
 		id.variant, id.exact = prefer, exact
 	}
@@ -1355,7 +1357,7 @@ func (m *Manager) PlexSessionForPart(userID int64, key core.RatingKey, release s
 }
 
 func (m *Manager) SessionForSurface(surface string, userID int64, clientID string, key core.RatingKey, release string, exact bool) (*core.PlaySession, bool) {
-	surf := playbackSurface(surface)
+	surf := m.playbackSurface(surface)
 	m.mu.Lock()
 	s := m.byIdent[identity{userID: userID, clientID: clientID, key: key, surface: surf, variant: release, exact: exact}]
 	if s == nil && release != "" {
@@ -1388,7 +1390,7 @@ func (m *Manager) SessionForSurface(surface string, userID int64, clientID strin
 func (m *Manager) SessionForSurfaceClient(surface string, userID int64, clientID string, key core.RatingKey) (*core.PlaySession, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	surf := playbackSurface(surface)
+	surf := m.playbackSurface(surface)
 	for _, s := range m.byIdent {
 		if s != nil && s.ident.userID == userID && s.ident.clientID == clientID && s.ident.key == key && s.ident.surface == surf {
 			return s.snapshot(m.now()), true

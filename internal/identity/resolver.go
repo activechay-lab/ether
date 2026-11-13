@@ -3,34 +3,40 @@ package identity
 import (
 	"context"
 	"errors"
-
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// PlexAuthenticator validates only Plex-surface credentials.
-type PlexAuthenticator interface {
+// Authenticator validates an external credential for its bound surface.
+type Authenticator interface {
 	Authenticate(context.Context, string) (*core.User, error)
 }
 
-// Resolver routes credentials to their surface-specific validator. Plex tokens
-// never fall back to grant validation and grants never reach plex.tv.
+// Resolver selects validators supplied by application wiring. External tokens
+// never fall back to grant validation; grants never reach external providers.
 type Resolver struct {
-	plex   PlexAuthenticator
-	grants *Grants
+	validators map[string]Authenticator
+	grants     *Grants
 }
 
-func NewResolver(plex PlexAuthenticator, grants *Grants) (*Resolver, error) {
-	if plex == nil || grants == nil {
-		return nil, errors.New("identity: Plex authenticator and grants required")
+func NewResolver(validators map[string]Authenticator, grants *Grants) (*Resolver, error) {
+	if grants == nil {
+		return nil, errors.New("identity: grants required")
 	}
-	return &Resolver{plex: plex, grants: grants}, nil
+	bound := make(map[string]Authenticator, len(validators))
+	for surface, validator := range validators {
+		if surface == "" || validator == nil {
+			return nil, errors.New("identity: invalid credential validator")
+		}
+		bound[surface] = validator
+	}
+	return &Resolver{validators: bound, grants: grants}, nil
 }
 func (r *Resolver) Resolve(ctx context.Context, surface, credential string) (*core.Viewer, error) {
-	if surface == "plex" {
+	if validator := r.validators[surface]; validator != nil {
 		if IsGrantCredential(credential) {
 			return nil, core.ErrUnauthorized
 		}
-		return r.plex.Authenticate(ctx, credential)
+		return validator.Authenticate(ctx, credential)
 	}
 	return r.grants.Resolve(ctx, surface, credential)
 }

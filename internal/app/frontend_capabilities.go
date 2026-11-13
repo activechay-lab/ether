@@ -52,10 +52,12 @@ func (s surfaceCapabilities) Build(ctx context.Context, req frontend.CapabilityR
 	if len(declared.DVProfiles) == 0 {
 		declared.DVProfiles = append([]int(nil), policy.DolbyVisionProfiles...)
 	}
-	declared.PreserveEmptyVideoCodecs = s.surface == "plex"
+	declared.PreserveEmptyVideoCodecs = s.policy.NativePlaybackCapabilities
 	qualityCaps := declared
 	declared = resolver.ApplyClientRules(cfg.Quality, declared, req.Viewer)
 	declared.ClientIP = ip.String()
+	declared.InferBuffering = s.policy.InferBuffering
+	declared.NoPlaybackTelemetry = !s.policy.PlaybackTelemetry
 	result := frontend.CapabilityResult{Client: declared, Quality: resolver.SelectProfile(cfg.Quality, declared, req.Viewer)}
 	if (s.surface == "jellyfin" || s.surface == "silo") && (req.Profile.MaxStreamingBitrate > 0 || len(req.Profile.DirectPlayProfiles) > 0 || len(req.Device.VideoCodecs) > 0) {
 		s.app.log.Info("playback capability selection", "product", declared.Product,

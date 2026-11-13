@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"log/slog"
 	"net"
 	"net/http"
@@ -92,7 +93,7 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		return nil, err
 	}
 	times := grants.ViewerTimes()
-	resolver, err := identity.NewResolver(a.users, grants)
+	resolver, err := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
 	if err != nil {
 		return nil, err
 	}
@@ -171,13 +172,6 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 			return nil
 		},
 		ItemID: ids.RatingKeyGUID,
-		JellyfinUser: func(id int64) string {
-			value, err := ids.GUID(ids.User, id)
-			if err != nil {
-				return ""
-			}
-			return value
-		},
 	})
 	repoFile := repoFileURL(sourceRef(updater.Version, updater.Commit, buildRevision()))
 	metadataHTTP := egress.Client(egress.CapMetadata, 20*time.Second)
@@ -297,13 +291,18 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}
 		var imageGrants frontend.ImageGrants
 		var imageRevision func() uint64
-		{
+		if !frontendHostPolicy(id).ExternalIdentity {
+			imageOptions := identity.ImageGrantOptions{}
+			if frontendHostPolicy(id).PublicContentTags {
+				imageOptions.Token = authhdr.MediaBrowserToken
+				imageOptions.PublicContentTags = true
+			}
 			var svc *identity.ImageGrantService
 			var err error
 			if artwork != nil {
-				svc, err = identity.NewArtworkImageGrantService(a.db, id, grants, func() frontend.Experience { return experience }, artwork, 10*time.Minute, nil)
+				svc, err = identity.NewArtworkImageGrantService(a.db, id, grants, func() frontend.Experience { return experience }, artwork, 10*time.Minute, nil, imageOptions)
 			} else {
-				svc, err = identity.NewImageGrantService(a.db, id, grants, func() frontend.Experience { return experience }, a.images, 10*time.Minute, nil)
+				svc, err = identity.NewImageGrantService(a.db, id, grants, func() frontend.Experience { return experience }, a.images, 10*time.Minute, nil, imageOptions)
 			}
 			if err == nil && svc != nil {
 				if a.cfg != nil {

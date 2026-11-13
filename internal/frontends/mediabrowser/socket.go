@@ -80,7 +80,7 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 	}
 	var party <-chan frontend.PartyEvent
 	if i.protocol == "jellyfin" && i.host.WatchParty != nil {
-		ch, done := i.host.WatchParty.Subscribe(frontend.PartyActor{Viewer: viewer, Device: device(r), Protocol: i.protocol})
+		ch, done := i.host.WatchParty.Subscribe(frontend.PartyActor{Viewer: viewer, Device: device(r), Protocol: i.protocol, Capabilities: frontend.PartyCapabilities{GroupEvents: true, SharedControls: true}})
 		party = ch
 		defer done()
 	}

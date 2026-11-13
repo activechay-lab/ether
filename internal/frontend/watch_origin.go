@@ -103,3 +103,25 @@ func TimelineStored(ctx context.Context) bool {
 	stored, _ := ctx.Value(timelineStoredKey{}).(bool)
 	return stored
 }
+
+type timelineStatusKey struct{}
+
+// WithTimelineStatus carries the reported status alongside an explicit watch mutation.
+func WithTimelineStatus(ctx context.Context, status string) context.Context {
+	return context.WithValue(ctx, timelineStatusKey{}, status)
+}
+func TimelineStatus(ctx context.Context) string {
+	status, _ := ctx.Value(timelineStatusKey{}).(string)
+	return status
+}
+
+// WatchMutation is a frontend's explicit persistence decision. Shared state
+// applies it without reinterpreting the client's timeline policy.
+type WatchMutation struct {
+	Kind             string
+	Offset, Duration time.Duration
+	ReportedState    string
+}
+type WatchMutationWriter interface {
+	ApplyWatchMutation(context.Context, int64, RatingKey, WatchMutation) error
+}

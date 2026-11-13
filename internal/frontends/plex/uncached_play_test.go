@@ -297,7 +297,12 @@ func newUncachedEnv(t *testing.T, kind string, cachedOnly, usenet bool) *uncache
 		NativeProbe: func(context.Context, core.MediaSource) (*core.MediaInfo, error) {
 			info := sampleInfo
 			return &info, nil
-		}}, cfg, playback.Options{DataDir: t.TempDir()})
+		}}, cfg, playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}, DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

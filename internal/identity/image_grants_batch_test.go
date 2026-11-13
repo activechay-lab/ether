@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,7 +49,7 @@ func TestImageGrantBatchUsesLightweightArtworkPolicy(t *testing.T) {
 		t.Fatal("batch ran full playback enrichment")
 		return frontend.ItemDetail{}, nil
 	}}}
-	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, &imageFixture{}, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, &imageFixture{}, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestImageGrantBatchPreservesPolicyAndOrdering(t *testing.T) {
 		}
 	}}
 	source := &imageFixture{}
-	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func TestImageGrantBatchRejectsRevokedSourceBeforeInsert(t *testing.T) {
 		}
 		return frontend.ItemDetail{ImagesAuthoritative: true, Images: []frontend.Image{{Kind: frontend.ImagePoster, Path: "ref"}}}, nil
 	}}
-	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, &imageFixture{}, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, &imageFixture{}, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestImageGrantBatchInsertsFullPage(t *testing.T) {
 	experience := frontendtest.Experience{ItemFunc: func(_ context.Context, req frontend.ItemRequest) (frontend.ItemDetail, error) {
 		return frontend.ItemDetail{ImagesAuthoritative: true, Images: []frontend.Image{{Kind: frontend.ImagePoster, Path: fmt.Sprint(req.Key)}}}, nil
 	}}
-	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, &imageFixture{}, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, &imageFixture{}, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func TestSignedPageGrantWritesNothingAndKeepsRevocation(t *testing.T) {
 	}
 	allowed := true
 	calls := 0
-	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return &pageArtwork{allow: &allowed, calls: &calls} }, &imageFixture{}, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return &pageArtwork{allow: &allowed, calls: &calls} }, &imageFixture{}, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +322,7 @@ func TestSignedPageGrantSealsOncePerTitle(t *testing.T) {
 		{Kind: frontend.ImageBackdrop, Path: "back"},
 	}}
 	source := &pathImageFixture{}
-	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return art }, source, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return art }, source, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +377,7 @@ func TestPageGrantTagStaysStableAndImageRevalidates(t *testing.T) {
 	images := &imageFixture{}
 	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience {
 		return &pageArtwork{allow: &allowed, calls: &calls}
-	}, images, 10*time.Minute, func() time.Time { return now })
+	}, images, 10*time.Minute, func() time.Time { return now }, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +451,7 @@ func TestBatchListedPageRotatesARevokedTag(t *testing.T) {
 	allowed, calls := true, 0
 	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience {
 		return pageArtworkBatch{&pageArtwork{allow: &allowed, calls: &calls}}
-	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now })
+	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now }, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +469,7 @@ func TestBatchListedPageRotatesARevokedTag(t *testing.T) {
 	// Another node knows the revocation only from the database.
 	other, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience {
 		return pageArtworkBatch{&pageArtwork{allow: &allowed, calls: &calls}}
-	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now })
+	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now }, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +505,7 @@ func TestImagePageRevokeReportsAFailedPersist(t *testing.T) {
 	allowed, calls := true, 0
 	service, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience {
 		return pageArtworkBatch{&pageArtwork{allow: &allowed, calls: &calls}}
-	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now })
+	}, &imageFixture{}, 10*time.Minute, func() time.Time { return now }, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -549,7 +550,7 @@ func TestRenewPageExtendsTagsWithoutWideningPolicy(t *testing.T) {
 	allowed, calls := true, 0
 	service, err := identity.NewImageGrantService(db, "xtream", grants, func() frontend.Experience {
 		return &pageArtwork{allow: &allowed, calls: &calls}
-	}, &imageFixture{}, 10*time.Minute, clock)
+	}, &imageFixture{}, 10*time.Minute, clock, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}

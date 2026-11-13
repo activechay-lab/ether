@@ -19,10 +19,18 @@ var (
 
 // PartyActor is one device of one viewer on one protocol. The same viewer on
 // Silo and Jellyfin is two actors, so both can sit in one party.
+// PartyCapabilities describes transport and room controls supplied by an adapter.
+type PartyCapabilities struct {
+	GroupEvents     bool
+	SharedControls  bool
+	VariableRate    bool
+	SocketSnapshots bool
+}
 type PartyActor struct {
-	Viewer   *core.Viewer
-	Device   core.Device
-	Protocol Protocol
+	Capabilities PartyCapabilities
+	Viewer       *core.Viewer
+	Device       core.Device
+	Protocol     Protocol
 }
 
 // PartyCreate opens a room. RoomID may be empty; the engine mints a UUID.
@@ -97,6 +105,7 @@ type PartyView struct {
 	ContentID, FileID, LibraryID                         string
 	Paused                                               bool
 	Position                                             time.Duration
+	AnchorPosition                                       time.Duration
 	AnchorAt                                             time.Time
 	Rate                                                 float64
 	HostConnected                                        bool
@@ -112,12 +121,12 @@ type PartyView struct {
 // PartyCommand is a scheduled transport change. Position is the playhead at
 // ExecuteAt. Clients wait until that server time, which absorbs their latency.
 type PartyCommand struct {
-	ID, Action, Jellyfin, PlaylistItemID, SessionID string
-	Position                                        time.Duration
-	ExecuteAt, IssuedAt                             time.Time
-	Playback                                        string
-	SelectionRevision                               int64
-	Rate                                            float64
+	ID, Action, PlaylistItemID, SessionID string
+	Position                              time.Duration
+	ExecuteAt, IssuedAt                   time.Time
+	Playback                              string
+	SelectionRevision                     int64
+	Rate                                  float64
 }
 
 // PartyEvent is one message for one member's socket.
@@ -126,7 +135,7 @@ type PartyEvent struct {
 	View                 PartyView
 	Command              PartyCommand
 	GroupKind            string
-	GroupData            any
+	SubjectViewerID      int64
 	Reason               string
 	ClientSent, Received time.Time
 	Sent                 time.Time

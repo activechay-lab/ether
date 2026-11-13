@@ -2,9 +2,7 @@ package identity
 
 import (
 	"context"
-	"strconv"
 
-	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // Proof carries provider-specific credentials. Providers interpret only the
@@ -37,24 +35,4 @@ func (l *Local) Verify(ctx context.Context, proof Proof) (VerifiedIdentity, erro
 	return VerifiedIdentity{ViewerID: viewer, IdentityID: id, Provider: l.Name(), Subject: proof.Username}, nil
 }
 
-// PlexProvider delegates Plex proofs to the existing Plex authenticator,
-// which validates membership against the current server.
-type PlexProvider struct{ Auth PlexAuthenticator }
-
-func (PlexProvider) Name() string { return "plex" }
-func (p PlexProvider) Verify(ctx context.Context, proof Proof) (VerifiedIdentity, error) {
-	if p.Auth == nil || core.IsGrantCredential(proof.Token) {
-		return VerifiedIdentity{}, core.ErrUnauthorized
-	}
-	user, err := p.Auth.Authenticate(ctx, proof.Token)
-	if err != nil {
-		return VerifiedIdentity{}, err
-	}
-	if user == nil || user.PlexID <= 0 {
-		return VerifiedIdentity{}, core.ErrUnauthorized
-	}
-	return VerifiedIdentity{ViewerID: user.ID, Provider: p.Name(), Subject: strconv.FormatInt(user.PlexID, 10)}, nil
-}
-
 var _ Provider = (*Local)(nil)
-var _ Provider = PlexProvider{}

@@ -56,7 +56,12 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: &fixtureEncoder{}, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{})
+	manager, err := playback.New(playback.Deps{Catalog: fixtureCatalog{}, Resolver: fixtureResolver{}, Engine: fixtureEngine{}, Transcoder: &fixtureEncoder{}, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, config.Defaults(t.TempDir()), playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

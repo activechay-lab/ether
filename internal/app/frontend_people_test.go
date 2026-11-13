@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -215,7 +216,7 @@ func TestSiloPeopleHTTPCurrentMembershipAndArtwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	images, err := identity.NewArtworkImageGrantService(db, "silo", grants, func() frontend.Experience { return exp }, artwork, time.Minute, time.Now)
+	images, err := identity.NewArtworkImageGrantService(db, "silo", grants, func() frontend.Experience { return exp }, artwork, time.Minute, time.Now, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +357,7 @@ func TestProductionPeopleIgnoresStaleMovieCreditCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	images, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, artwork, time.Minute, time.Now)
+	images, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, artwork, time.Minute, time.Now, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +434,7 @@ func TestProductionPeopleUsesFreshSafetyAndRejectsPortraitReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			images, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, artwork, time.Minute, time.Now)
+			images, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, artwork, time.Minute, time.Now, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -521,7 +522,7 @@ func TestSiloPortraitDeniesMissingReaderAndGrantChangesDuringRead(t *testing.T) 
 			}
 			var current frontend.Experience = exp
 			clock := time.Now()
-			images, err := identity.NewArtworkImageGrantService(db, "silo", grants, func() frontend.Experience { return current }, artwork, time.Minute, func() time.Time { return clock })
+			images, err := identity.NewArtworkImageGrantService(db, "silo", grants, func() frontend.Experience { return current }, artwork, time.Minute, func() time.Time { return clock }, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/frontend/frontendtest"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/frontends/m3u"
 	"net/http/httptest"
 	"strings"
@@ -142,7 +143,7 @@ func TestChannelArtworkGrantFollowsLiveTVPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := identity.NewArtworkImageGrantService(a.db, "jellyfin", grants, func() frontend.Experience { return nil }, source, time.Minute, nil)
+	service, err := identity.NewArtworkImageGrantService(a.db, "jellyfin", grants, func() frontend.Experience { return nil }, source, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}

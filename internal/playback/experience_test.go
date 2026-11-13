@@ -62,6 +62,7 @@ func TestExperienceAccountsStartAndBufferingFromTimelines(t *testing.T) {
 	// play request wins. Positions prove the picture and the stalls.
 	caps := defaultCaps("jf")
 	caps.Protocol = "jellyfin"
+	caps.InferBuffering = true
 	jf, err := h.m.Prepare(context.Background(), owner, movie2, caps)
 	if err != nil {
 		t.Fatal(err)

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -101,7 +102,7 @@ func TestArtworkGrantStopsWhenViewerLosesTitleAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := identity.NewArtworkImageGrantService(a.db, "jellyfin", grants, func() frontend.Experience { return exp }, source, time.Minute, nil)
+	service, err := identity.NewArtworkImageGrantService(a.db, "jellyfin", grants, func() frontend.Experience { return exp }, source, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +416,7 @@ func TestPersonImageBatchStopsWhenViewerLosesTitleAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, source, time.Minute, nil)
+	service, err := identity.NewArtworkImageGrantService(a.db, "silo", grants, func() frontend.Experience { return exp }, source, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestImageGrantRevalidatesSessionMembershipAndArtwork(t *testing.T) {
 	}}
 	source := &imageFixture{}
 	makeService := func(surface frontend.Protocol) *identity.ImageGrantService {
-		s, err := identity.NewImageGrantService(db, surface, grants, func() frontend.Experience { return experience }, source, time.Minute, clock)
+		s, err := identity.NewImageGrantService(db, surface, grants, func() frontend.Experience { return experience }, source, time.Minute, clock, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +178,7 @@ func TestImageGrantUsesScopedArtworkAndTransforms(t *testing.T) {
 		return frontend.ItemDetail{ImagesAuthoritative: true, Images: []frontend.Image{image}}, nil
 	}}
 	source := &scopedArtworkFixture{}
-	s, err := identity.NewArtworkImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, time.Now)
+	s, err := identity.NewArtworkImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, time.Now, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestServePublicRechecksPublicArtwork(t *testing.T) {
 	poster := frontend.Image{Kind: frontend.ImagePoster, Path: "/poster", Tag: "v1"}
 	experience := &publicArtworkExperience{visible: true, image: poster}
 	source := &imageFixture{}
-	s, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, clock)
+	s, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return experience }, source, time.Minute, clock, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +287,7 @@ func TestPublicContentTagSurvivesRestart(t *testing.T) {
 	}}}
 	source := &imageFixture{}
 	fresh := func() *identity.ImageGrantService {
-		s, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return exp }, source, time.Minute, clock)
+		s, err := identity.NewImageGrantService(db, "jellyfin", grants, func() frontend.Experience { return exp }, source, time.Minute, clock, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 		if err != nil {
 			t.Fatal(err)
 		}

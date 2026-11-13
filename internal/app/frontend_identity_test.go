@@ -53,7 +53,7 @@ func TestSurfaceIdentityLoginQuickConnectAndRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants, _ := identity.NewGrants(a.db, a.users, time.Hour, nil)
-	resolver, _ := identity.NewResolver(a.users, grants)
+	resolver, _ := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
 	login, _ := identity.NewLoginLimiter(a.db, time.Minute, 100, 10, nil)
 	poll, _ := identity.NewPollLimiter(a.db, time.Minute, 100, 20, nil)
 	quick, _ := identity.NewQuickConnect(a.db, time.Minute, time.Hour, nil)
@@ -239,7 +239,7 @@ func TestViewerTimesRequiresSurfaceCredentialAndActiveOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := identity.NewResolver(a.users, grants)
+	resolver, err := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestSurfaceRefreshObservesActivityWithoutNewLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := identity.NewResolver(a.users, grants)
+	resolver, err := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestSurfaceIdentityAppPasswordSignInOnJellyfinEmbySilo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := identity.NewResolver(a.users, grants)
+	resolver, err := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestXtreamAppPasswordRateLimitAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants, _ := identity.NewGrants(a.db, a.users, time.Hour, nil)
-	resolver, _ := identity.NewResolver(a.users, grants)
+	resolver, _ := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
 	limiter, _ := identity.NewLoginLimiter(a.db, time.Minute, 3, 3, nil)
 	surface := surfaceIdentity{surface: "xtream", resolver: resolver, grants: grants, login: limiter}
 	password, err := grants.Issue(ctx, owner.ID, nil, "xtream", core.Device{ID: "xtream-test"})

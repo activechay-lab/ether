@@ -45,7 +45,7 @@ func templateContentKind() Template {
 							{"key": "durationSec", "type": "duration", "label": "Duration"},
 						},
 						"present": map[string]any{
-							"plex":         map[string]any{"base": "show"},
+							"plex":         map[string]any{"base": "show"}, // Plugin manifest projection identity.
 							"mediaBrowser": map[string]any{"collectionType": "music", "itemTypes": map[string]string{"album": "MusicAlbum", "track": "Audio"}},
 						},
 						"browse": map[string]any{

@@ -48,7 +48,7 @@ func (i *instance) partyActor(r *http.Request) (frontend.PartyActor, int) {
 	if i.host.WatchParty == nil {
 		return frontend.PartyActor{}, http.StatusServiceUnavailable
 	}
-	return frontend.PartyActor{Viewer: v, Device: device(r), Protocol: "silo"}, 0
+	return frontend.PartyActor{Viewer: v, Device: device(r), Protocol: "silo", Capabilities: frontend.PartyCapabilities{VariableRate: true, SocketSnapshots: true}}, 0
 }
 
 func (i *instance) watchPartyCapabilities(w http.ResponseWriter, r *http.Request) {

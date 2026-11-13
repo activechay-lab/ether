@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func TestPersonImageBatchAdmission(t *testing.T) {
 		}
 		return allowed, nil
 	}
-	service, err := identity.NewImageGrantService(db, "silo", grants, func() frontend.Experience { return exp }, &imageFixture{}, time.Minute, nil)
+	service, err := identity.NewImageGrantService(db, "silo", grants, func() frontend.Experience { return exp }, &imageFixture{}, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -144,18 +144,18 @@ func (s *ViewerTimes) Observe(ctx context.Context, viewerID int64) error {
 // state, so a stale node cannot assert owner access. Plex's durable last_seen
 // records real authenticated events and can contribute to the activity time.
 func (s *ViewerTimes) Get(ctx context.Context, actorID, viewerID int64) (frontend.ViewerTimes, error) {
-	var login, activity, plexSeen int64
+	var login, activity, sourceSeen int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(t.last_login,0),COALESCE(t.last_activity,0),u.last_seen_at
  FROM auth_users u LEFT JOIN identity_viewer_times t ON t.viewer_id=u.id
- WHERE u.id=? AND u.active=1 AND EXISTS (SELECT 1 FROM auth_users a WHERE a.id=? AND a.active=1 AND (a.id=u.id OR a.is_owner=1))`, viewerID, actorID).Scan(&login, &activity, &plexSeen)
+ WHERE u.id=? AND u.active=1 AND EXISTS (SELECT 1 FROM auth_users a WHERE a.id=? AND a.active=1 AND (a.id=u.id OR a.is_owner=1))`, viewerID, actorID).Scan(&login, &activity, &sourceSeen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return frontend.ViewerTimes{}, core.ErrUnauthorized
 	}
 	if err != nil {
 		return frontend.ViewerTimes{}, err
 	}
-	if plexSeen > 0 && plexSeen <= (1<<63-1)/1000 && plexSeen*1000 > activity {
-		activity = plexSeen * 1000
+	if sourceSeen > 0 && sourceSeen <= (1<<63-1)/1000 && sourceSeen*1000 > activity {
+		activity = sourceSeen * 1000
 	}
 	var result frontend.ViewerTimes
 	if login > 0 {

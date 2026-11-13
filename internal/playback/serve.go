@@ -61,9 +61,9 @@ func (m *Manager) ServeRange(w http.ResponseWriter, r *http.Request, sessionID s
 		contentType:           s.contentType,
 		deferStatusOnZeroRead: true,
 	}
-	plexPart := core.IsPlexPart(r.Context())
-	if plexPart {
-		rep.contentType = plexPartMIME(s.name)
+	policy, customResponse := core.RangeResponseFrom(r.Context())
+	if customResponse && policy.MIME != nil {
+		rep.contentType = policy.MIME(s.name)
 	}
 	s.mu.Unlock()
 	rep.body = func(w io.Writer, start, length int64) error {
@@ -76,8 +76,12 @@ func (m *Manager) ServeRange(w http.ResponseWriter, r *http.Request, sessionID s
 		return err
 	}
 	serve := serveRepresentation
-	if plexPart {
-		serve = servePlexPart
+	if customResponse && policy.Serve != nil {
+		serve = func(w http.ResponseWriter, r *http.Request, rep representation) error {
+			return policy.Serve(w, r, core.RangeRepresentation{Size: rep.size, ETag: rep.etag, ContentType: rep.contentType, ModTime: rep.modTime, ServeBody: func(status int, start, length int64) error {
+				return serveSingleRangeBody(w, r, status, start, length, rep.deferStatusOnZeroRead, rep.body)
+			}})
+		}
 	}
 	if err := serve(w, r, rep); err != nil && r.Context().Err() == nil {
 		m.log.Debug("direct play response ended early", "session", s.id, "err", err)

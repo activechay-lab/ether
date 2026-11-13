@@ -1,8 +1,21 @@
 # Remaining Prism name matches
 
-Snapshot: `prism/combined`, production Go files under `internal`, excluding `internal/frontends` and tests. Exact expression: `"plex"|"jellyfin"|"emby"|Frontend(Plex|Jellyfin|Emby)\b|isPlex|IsPlex|plex[A-Z]`.
+Snapshot: `prism/leftovers`, rebased on final `prism/combined` (`2c319d92f`). Production Go files under `internal`, excluding `internal/frontends` and tests. Exact expression: `"plex"|"jellyfin"|"emby"|Frontend(Plex|Jellyfin|Emby)\b|isPlex|IsPlex|plex[A-Z]`.
 
-613 matching lines. This is an inventory, not a claim that all matches are justified wiring. Runtime gaps are called out below.
+544 matching lines. This inventory includes account integrations, persisted identities, owner settings, listener wiring, and reference-client performance scenarios. Names alone are not runtime dispatch.
+
+## Runtime extraction status
+
+- Shared identity routing takes explicit credential validators. Image grants take credential parsing and public-content-tag options from host wiring.
+- Shared watch-party members carry transport/control capabilities. SyncPlay command names and group payloads are encoded in the MediaBrowser adapter.
+- PMS timeline crossing/resume rules live in `internal/frontends/plex/timeline`; shared state applies explicit watch mutations and preserves pending completion chains.
+- Playback receives telemetry flags, a session-namespace resolver, and a byte-response renderer. PMS MIME/range grammar lives in `internal/frontends/plex/parts`.
+- Library projections live in the respective adapters. Live-input probing, quality-profile evaluation, and legacy session namespace choices use frontend host policies.
+- Plex metadata fetching/cache ownership moved to `internal/frontends/plex/metadata`; database migration identities and external artwork identities remain unchanged.
+
+No named-frontend runtime branches remain in the audited shared identity, playback, state, or watch-party packages. App selections below bind frontend policies/services or manage named account/listener integrations. Shared frontend metadata contracts still reference the concrete cached metadata model; this is a static dependency, not requesting-frontend dispatch.
+
+The FFmpeg vendor check identifies a patched muxer capability independently of the requesting frontend. Plugin studio projection descriptions interpret manifest vocabulary; performance-harness scenarios intentionally reproduce named client wire requests. Neither selects shared runtime behavior for a requesting frontend.
 
 ## internal/admin/admin.go
 
@@ -196,7 +209,7 @@ internal/admin/viewers_plex_import.go:490:		h.plexServerError(w, err)
 
 ## internal/app/admin.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/admin.go:74:		PlexAuth:         &plexAuth{app: a, pins: map[string]*plextv.PIN{}},
@@ -223,7 +236,7 @@ internal/app/admin.go:456:func (p *plexSignIn) PINToken(ctx context.Context, id 
 
 ## internal/app/agent_tools.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/agent_tools.go:771:	for _, id := range []string{"plex", "jellyfin", "emby", "stremio", "dlna", "webdav", "m3u"} {
@@ -232,7 +245,7 @@ internal/app/agent_tools.go:789:				c.Frontends["plex"] = config.Frontend{Enable
 
 ## internal/app/app.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/app.go:232:	plexGUID            *plexguid.Service
@@ -250,7 +263,7 @@ internal/app/app.go:787:		background.start(func() { a.cluster.RunAsLeader(ctx, "
 
 ## internal/app/build_identity.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/build_identity.go:102:	if cfg.Plex.Claimed && cfg.Plex.Token != "" && (cfg.Frontends == nil || cfg.Frontends["plex"].Enabled) {
@@ -258,7 +271,7 @@ internal/app/build_identity.go:102:	if cfg.Plex.Claimed && cfg.Plex.Token != "" 
 
 ## internal/app/build_integrations.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/build_integrations.go:107:	mux.Handle("/", a.frontends.plexHandler())
@@ -266,7 +279,7 @@ internal/app/build_integrations.go:107:	mux.Handle("/", a.frontends.plexHandler(
 
 ## internal/app/build_playback.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/build_playback.go:131:				Source:           "plex", // Account provenance identity, not a behavior switch.
@@ -274,7 +287,7 @@ internal/app/build_playback.go:131:				Source:           "plex", // Account prov
 
 ## internal/app/compat_catalog.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/compat_catalog.go:63:		{Protocol: "plex", Name: "Plex Web", Devices: []string{"Browser"}, DirectPlay: "browser", Certification: "builtin"},
@@ -302,7 +315,7 @@ internal/app/compat_catalog.go:83:		{Protocol: "emby", Name: "Emby SDK", Devices
 
 ## internal/app/discovery.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/discovery.go:49:			if a.plexGUID == nil {
@@ -311,7 +324,7 @@ internal/app/discovery.go:52:			return a.plexGUID.Lookup(ctx, guid)
 
 ## internal/app/frontend_admin.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/frontend_admin.go:84:	case "plex":
@@ -321,17 +334,9 @@ internal/app/frontend_admin.go:186:			c.Frontends["plex"] = config.Frontend{Enab
 internal/app/frontend_admin.go:221:				c.Frontends["plex"] = config.Frontend{Enabled: true} // Preserve the default main-listener registration.
 ```
 
-## internal/app/frontend_capabilities.go
-
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
-
-```text
-internal/app/frontend_capabilities.go:54:	declared.PreserveEmptyVideoCodecs = s.surface == "plex"
-```
-
 ## internal/app/frontend_experience.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/frontend_experience.go:201:		if protocol == "plex" {
@@ -347,7 +352,7 @@ internal/app/frontend_experience.go:551:		return a.plexMeta
 
 ## internal/app/frontend_host_policy.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/frontend_host_policy.go:12:	case "plex": // Wire the account-managed frontend's host options.
@@ -356,18 +361,17 @@ internal/app/frontend_host_policy.go:14:	case "jellyfin", "emby": // Wire the tw
 
 ## internal/app/frontend_library_presentation.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
-internal/app/frontend_library_presentation.go:7:	case "plex":
-internal/app/frontend_library_presentation.go:12:	case "jellyfin", "emby", "silo":
-internal/app/frontend_library_presentation.go:40:	case "plex":
-internal/app/frontend_library_presentation.go:52:	case "jellyfin", "emby":
+internal/app/frontend_library_presentation.go:19:	"plex":     {plex.NativeLibraryType, plex.ProjectLibrary},                 // Main adapter wiring.
+internal/app/frontend_library_presentation.go:20:	"jellyfin": {mediabrowser.NativeLibraryType, mediabrowser.ProjectLibrary}, // Native adapter wiring.
+internal/app/frontend_library_presentation.go:21:	"emby":     {mediabrowser.NativeLibraryType, mediabrowser.ProjectLibrary}, // Native adapter wiring.
 ```
 
 ## internal/app/frontend_listeners.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/frontend_listeners.go:84:			if id != "plex" {
@@ -379,7 +383,7 @@ internal/app/frontend_listeners.go:481:		if (id == "jellyfin" || id == "emby") &
 
 ## internal/app/frontend_portal.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/frontend_portal.go:281:	if id == "plex" {
@@ -387,42 +391,43 @@ internal/app/frontend_portal.go:281:	if id == "plex" {
 
 ## internal/app/frontend_runtime.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
-internal/app/frontend_runtime.go:41:// plexDiscovery is the injected discovery responder for the main listener.
-internal/app/frontend_runtime.go:42:type plexDiscovery interface {
-internal/app/frontend_runtime.go:68:	discovery      plexDiscovery
-internal/app/frontend_runtime.go:69:	newDiscovery   func() plexDiscovery
-internal/app/frontend_runtime.go:100:	r := &frontendRuntime{app: a, ctx: ctx, cancel: cancel, events: a.sessionEvents, discovery: a.gdm, newDiscovery: func() plexDiscovery { return a.newGDMResponder() }}
-internal/app/frontend_runtime.go:128:	for _, protocol := range []frontend.Protocol{"plex", "jellyfin", "emby", "silo"} {
-internal/app/frontend_runtime.go:233:			Platform:     plexPlatform(),
-internal/app/frontend_runtime.go:432:	if cfg.Frontends == nil || cfg.Frontends["plex"].Enabled {
-internal/app/frontend_runtime.go:433:		if err := r.control.listeners.start(ctx, "plex"); err != nil {
-internal/app/frontend_runtime.go:441:			if err := receiver.BindMediaBrowserDelivery(r.plexHandler()); err != nil {
-internal/app/frontend_runtime.go:448:			if err := receiver.BindPlexDelivery(r.plexHandler()); err != nil {
-internal/app/frontend_runtime.go:477:// plexHandler wires the main protocol mount into the public dispatcher.
-internal/app/frontend_runtime.go:478:func (r *frontendRuntime) plexHandler() http.Handler {
-internal/app/frontend_runtime.go:487:		inst, ok := r.registry.Instance("plex")
-internal/app/frontend_runtime.go:492:		r.control.listeners.observe("plex", inst.Handler()).ServeHTTP(w, req)
-internal/app/frontend_runtime.go:504:		*status = r.plexStatus(context.Background())
-internal/app/frontend_runtime.go:531:// plexStatus wires account publication and main-listener reachability into status.
-internal/app/frontend_runtime.go:532:func (r *frontendRuntime) plexStatus(ctx context.Context) frontend.Status {
-internal/app/frontend_runtime.go:571:		st.LiveStreams, st.LiveStreamsKnown = snapshot.counts["plex"], snapshot.known
-internal/app/frontend_runtime.go:573:		st.LiveStreams = countFrontendStreams((ownerPlayback{Playback: r.app.playback, app: r.app}).Sessions())["plex"]
-internal/app/frontend_runtime.go:586:			protocol = "plex"
-internal/app/frontend_runtime.go:604:		desired := cfg.Frontends == nil || cfg.Frontends["plex"].Enabled
-internal/app/frontend_runtime.go:605:		_, mounted := r.registry.Instance("plex")
-internal/app/frontend_runtime.go:607:			_ = r.control.listeners.start(r.ctx, "plex")
-internal/app/frontend_runtime.go:610:			_ = r.control.listeners.stop(r.ctx, "plex")
-internal/app/frontend_runtime.go:641:	_, enabled := r.registry.Instance("plex")
-internal/app/frontend_runtime.go:710:	inst, ok := r.registry.Instance("plex")
-internal/app/frontend_runtime.go:757:		if inst, ok := r.registry.Instance("plex"); ok {
+internal/app/frontend_runtime.go:42:// plexDiscovery is the injected discovery responder for the main listener.
+internal/app/frontend_runtime.go:43:type plexDiscovery interface {
+internal/app/frontend_runtime.go:69:	discovery      plexDiscovery
+internal/app/frontend_runtime.go:70:	newDiscovery   func() plexDiscovery
+internal/app/frontend_runtime.go:96:	resolver, err := identity.NewResolver(map[string]identity.Authenticator{"plex": a.users}, grants)
+internal/app/frontend_runtime.go:101:	r := &frontendRuntime{app: a, ctx: ctx, cancel: cancel, events: a.sessionEvents, discovery: a.gdm, newDiscovery: func() plexDiscovery { return a.newGDMResponder() }}
+internal/app/frontend_runtime.go:129:	for _, protocol := range []frontend.Protocol{"plex", "jellyfin", "emby", "silo"} {
+internal/app/frontend_runtime.go:227:			Platform:     plexPlatform(),
+internal/app/frontend_runtime.go:431:	if cfg.Frontends == nil || cfg.Frontends["plex"].Enabled {
+internal/app/frontend_runtime.go:432:		if err := r.control.listeners.start(ctx, "plex"); err != nil {
+internal/app/frontend_runtime.go:440:			if err := receiver.BindMediaBrowserDelivery(r.plexHandler()); err != nil {
+internal/app/frontend_runtime.go:447:			if err := receiver.BindPlexDelivery(r.plexHandler()); err != nil {
+internal/app/frontend_runtime.go:476:// plexHandler wires the main protocol mount into the public dispatcher.
+internal/app/frontend_runtime.go:477:func (r *frontendRuntime) plexHandler() http.Handler {
+internal/app/frontend_runtime.go:486:		inst, ok := r.registry.Instance("plex")
+internal/app/frontend_runtime.go:491:		r.control.listeners.observe("plex", inst.Handler()).ServeHTTP(w, req)
+internal/app/frontend_runtime.go:503:		*status = r.plexStatus(context.Background())
+internal/app/frontend_runtime.go:530:// plexStatus wires account publication and main-listener reachability into status.
+internal/app/frontend_runtime.go:531:func (r *frontendRuntime) plexStatus(ctx context.Context) frontend.Status {
+internal/app/frontend_runtime.go:570:		st.LiveStreams, st.LiveStreamsKnown = snapshot.counts["plex"], snapshot.known
+internal/app/frontend_runtime.go:572:		st.LiveStreams = countFrontendStreams((ownerPlayback{Playback: r.app.playback, app: r.app}).Sessions())["plex"]
+internal/app/frontend_runtime.go:585:			protocol = "plex"
+internal/app/frontend_runtime.go:603:		desired := cfg.Frontends == nil || cfg.Frontends["plex"].Enabled
+internal/app/frontend_runtime.go:604:		_, mounted := r.registry.Instance("plex")
+internal/app/frontend_runtime.go:606:			_ = r.control.listeners.start(r.ctx, "plex")
+internal/app/frontend_runtime.go:609:			_ = r.control.listeners.stop(r.ctx, "plex")
+internal/app/frontend_runtime.go:640:	_, enabled := r.registry.Instance("plex")
+internal/app/frontend_runtime.go:709:	inst, ok := r.registry.Instance("plex")
+internal/app/frontend_runtime.go:756:		if inst, ok := r.registry.Instance("plex"); ok {
 ```
 
 ## internal/app/maintenance.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/maintenance.go:49:	add("plexmeta", a.plexMeta != nil, func(ctx context.Context) (int64, error) { return a.plexMeta.Prune(ctx) })
@@ -431,7 +436,7 @@ internal/app/maintenance.go:71:	add("plex", a.frontends != nil, func(ctx context
 
 ## internal/app/nodefacts.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/nodefacts.go:53:		} `json:"plex"`
@@ -439,7 +444,7 @@ internal/app/nodefacts.go:53:		} `json:"plex"`
 
 ## internal/app/onair.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/onair.go:227:	if path != plexmeta.RemoteArt || a.plexMeta == nil || a.plexGUID == nil {
@@ -449,7 +454,7 @@ internal/app/onair.go:231:	if !ok || row.Empty() || row.GUID == "" || row.GUID !
 
 ## internal/app/personal_home_store.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/personal_home_store.go:70:	for _, id := range []frontend.Protocol{"jellyfin", "emby"} {
@@ -457,7 +462,7 @@ internal/app/personal_home_store.go:70:	for _, id := range []frontend.Protocol{"
 
 ## internal/app/plex.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/plex.go:28:	a.plexMetaMu.Lock()
@@ -484,7 +489,7 @@ internal/app/plex.go:112:func plexPlatform() string {
 
 ## internal/app/plexwatch.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/plexwatch.go:20:	if a.plexWatch != nil || a.db == nil || a.state == nil || a.plexGUID == nil || a.cfg == nil {
@@ -521,17 +526,16 @@ internal/app/plexwatch.go:204:	return a.plexServers
 
 ## internal/app/quality_explain.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/quality_explain.go:44:		{ID: "jellyfin", Name: "Jellyfin", Product: "Jellyfin", Protocol: "jellyfin"},
 internal/app/quality_explain.go:45:		{ID: "emby", Name: "Emby", Product: "Emby", Protocol: "emby"},
-internal/app/quality_explain.go:129:	if client.Protocol == "jellyfin" || client.Protocol == "emby" {
 ```
 
 ## internal/app/recovery.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/recovery.go:70:	// plexFor builds the plex.tv sign-in for the settings (a test seam).
@@ -545,7 +549,7 @@ internal/app/recovery.go:652:	rc.log.Info("recovery: owner signed in on the star
 
 ## internal/app/scorecard_serve.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/scorecard_serve.go:179:		c.Frontends = map[string]config.Frontend{"plex": {Enabled: false}} // Wire the isolated scorecard frontend selection.
@@ -555,23 +559,15 @@ internal/app/scorecard_serve.go:379:		protocols = append([]core.Protocol{"plex"}
 
 ## internal/app/session_broker.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/session_broker.go:57:		Logger:         a.log.With("component", "plex"),
 ```
 
-## internal/app/session_live.go
-
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
-
-```text
-internal/app/session_live.go:191:	if caps.Protocol == "jellyfin" || caps.Protocol == "emby" {
-```
-
 ## internal/app/session_policy.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/session_policy.go:13:	case "plex":
@@ -580,7 +576,7 @@ internal/app/session_policy.go:15:	case "jellyfin", "emby":
 
 ## internal/app/specialist_public.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/specialist_public.go:126:	if a.plexWatch != nil {
@@ -590,7 +586,7 @@ internal/app/specialist_public.go:128:		g.start(func() { a.cluster.RunAsLeader(c
 
 ## internal/app/specialist_server.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/specialist_server.go:69:	mux.Handle("/", a.frontends.plexHandler())
@@ -598,20 +594,12 @@ internal/app/specialist_server.go:69:	mux.Handle("/", a.frontends.plexHandler())
 
 ## internal/app/step_aside.go
 
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
+Application composition, adapter policy/service wiring, named account integrations, or listener management. Library projection and live/quality behavior is supplied by frontend policies.
 
 ```text
 internal/app/step_aside.go:15:	if a == nil || protocol != "plex" {
 internal/app/step_aside.go:24:			if a.plexServers == nil {
 internal/app/step_aside.go:27:			snap := a.plexServers.Held()
-```
-
-## internal/app/streams.go
-
-Application wiring, account integrations, listener management and client catalogue. Some protocol decisions remain in session_live, streams, quality_explain and frontend_library_presentation; these require further extraction.
-
-```text
-internal/app/streams.go:159:	if surface != "" && surface != "plex" {
 ```
 
 ## internal/artwork/service/palette.go
@@ -838,79 +826,12 @@ internal/core/types.go:194:	PlexID    int64  `json:"plexId"`
 
 ## internal/frontend/defaults.go
 
-Frontend registry defaults and protocol-specific admission/serve context contracts; the context contracts still need neutralization.
+Listener default wiring or shared context/identity contracts; no frontend behavior dispatch.
 
 ```text
-internal/frontend/defaults.go:7:	case "plex":
-internal/frontend/defaults.go:9:	case "jellyfin":
-internal/frontend/defaults.go:11:	case "emby":
-```
-
-## internal/frontend/host_sessions_experience.go
-
-Frontend registry defaults and protocol-specific admission/serve context contracts; the context contracts still need neutralization.
-
-```text
-internal/frontend/host_sessions_experience.go:1114:type plexAdmissionKey struct{}
-internal/frontend/host_sessions_experience.go:1121:	return context.WithValue(ctx, plexAdmissionKey{}, admit)
-internal/frontend/host_sessions_experience.go:1126:	admit, ok := ctx.Value(plexAdmissionKey{}).(func(context.Context) (PlanAdmission, error))
-internal/frontend/host_sessions_experience.go:1130:type plexServe struct {
-internal/frontend/host_sessions_experience.go:1135:type plexServeKey struct{}
-internal/frontend/host_sessions_experience.go:1143:	return context.WithValue(ctx, plexServeKey{}, plexServe{remote: remote, format: format})
-internal/frontend/host_sessions_experience.go:1151:	v, _ := ctx.Value(plexServeKey{}).(plexServe)
-```
-
-## internal/identity/image_grants.go
-
-Account identity/linking plus remaining runtime protocol decisions in resolver and image grants; extraction remains.
-
-```text
-internal/identity/image_grants.go:101:	if db == nil || surface == "" || surface == "plex" || grants == nil || experience == nil || images == nil || ttl < time.Second {
-```
-
-## internal/identity/image_page_grant.go
-
-Account identity/linking plus remaining runtime protocol decisions in resolver and image grants; extraction remains.
-
-```text
-internal/identity/image_page_grant.go:606:	if (s.surface == "jellyfin" || s.surface == "emby") && authhdr.MediaBrowserToken(r) == "" {
-```
-
-## internal/identity/management.go
-
-Account identity/linking plus remaining runtime protocol decisions in resolver and image grants; extraction remains.
-
-```text
-internal/identity/management.go:72:func (l *Local) LinkPlex(ctx context.Context, viewerID, plexID int64, display string) error {
-internal/identity/management.go:73:	if viewerID <= 0 || plexID <= 0 {
-internal/identity/management.go:76:	subject := strconv.FormatInt(plexID, 10)
-```
-
-## internal/identity/provider.go
-
-Account identity/linking plus remaining runtime protocol decisions in resolver and image grants; extraction remains.
-
-```text
-internal/identity/provider.go:44:func (PlexProvider) Name() string { return "plex" }
-```
-
-## internal/identity/resolver.go
-
-Account identity/linking plus remaining runtime protocol decisions in resolver and image grants; extraction remains.
-
-```text
-internal/identity/resolver.go:29:	if surface == "plex" {
-```
-
-## internal/identity/viewer_times.go
-
-Account identity/linking plus remaining runtime protocol decisions in resolver and image grants; extraction remains.
-
-```text
-internal/identity/viewer_times.go:147:	var login, activity, plexSeen int64
-internal/identity/viewer_times.go:150: WHERE u.id=? AND u.active=1 AND EXISTS (SELECT 1 FROM auth_users a WHERE a.id=? AND a.active=1 AND (a.id=u.id OR a.is_owner=1))`, viewerID, actorID).Scan(&login, &activity, &plexSeen)
-internal/identity/viewer_times.go:157:	if plexSeen > 0 && plexSeen <= (1<<63-1)/1000 && plexSeen*1000 > activity {
-internal/identity/viewer_times.go:158:		activity = plexSeen * 1000
+internal/frontend/defaults.go:7:	case "plex": // Listener default wiring.
+internal/frontend/defaults.go:9:	case "jellyfin": // Listener default wiring.
+internal/frontend/defaults.go:11:	case "emby": // Listener default wiring.
 ```
 
 ## internal/livetv/provider_guide.go
@@ -953,30 +874,30 @@ internal/migrate/migrate.go:93:	PlexID          int64  `json:"plexId"`
 
 ## internal/perfharness/scenarios.go
 
-Protocol-specific load scenarios and wire clients, not shared request runtime.
+Reference-client performance recipes and wire payload decoders, not shared request services.
 
 ```text
-internal/perfharness/scenarios.go:120:	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"), plexPlayback(),
-internal/perfharness/scenarios.go:124:func plexHeaders(product, platform, device string) func(*session) http.Header {
-internal/perfharness/scenarios.go:125:	return plexDeviceHeaders(product, platform, device, "")
-internal/perfharness/scenarios.go:128:// plexDeviceHeaders are plexHeaders for one more device of the same kind:
-internal/perfharness/scenarios.go:130:func plexDeviceHeaders(product, platform, device, suffix string) func(*session) http.Header {
-internal/perfharness/scenarios.go:151:// plexSecondDevice is a viewer's second Apple TV, first seen right after
-internal/perfharness/scenarios.go:154:func plexSecondDevice() Client {
-internal/perfharness/scenarios.go:155:	return Client{Name: "plex-appletv second device", Surface: "plex", Headers: plexDeviceHeaders("Plex for Apple TV", "tvOS", "Apple TV", "-second"), Steps: []Step{
-internal/perfharness/scenarios.go:163:func plexClient(name, product, platform, device string) Client {
-internal/perfharness/scenarios.go:165:	return Client{Name: name, Surface: "plex", Headers: plexHeaders(product, platform, device), Steps: append([]Step{
-internal/perfharness/scenarios.go:208:	}, plexLibrarySteps(page)...)}
-internal/perfharness/scenarios.go:364:	return Client{Name: "infuse-jellyfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Infuse-Library", "8.1", "Apple TV", false), SignIn: mediaBrowserSignIn(), Steps: append([]Step{
-internal/perfharness/scenarios.go:395:	return Client{Name: "swiftfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Swiftfin tvOS", "1.3", "Apple TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
-internal/perfharness/scenarios.go:407:	return Client{Name: "emby-sdk", Surface: "emby", Port: 2, SharedPrefix: "/emby", Headers: mediaBrowserHeaders("Emby Theater", "4.8", "etherperf", true), SignIn: mediaBrowserSignIn(), Steps: append([]Step{
-internal/perfharness/scenarios.go:435:	return Client{Name: "moonfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Moonfin", "1.0", "Android TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
-internal/perfharness/scenarios.go:455:	return Client{Name: "infuse-emby", Surface: "emby", Port: 2, SharedPrefix: "/emby", Headers: mediaBrowserHeaders("Infuse-Library", "8.1", "Apple TV", true), SignIn: mediaBrowserSignIn(), Steps: []Step{
+internal/perfharness/scenarios.go:121:	return []Client{plexClient("plex-appletv", "Plex for Apple TV", "tvOS", "Apple TV"), plexSecondDevice(), plexClient("plex-android", "Plex for Android (TV)", "Android", "BRAVIA 4K VH21"), plexClient("plex-web", "Plex Web", "Chrome", "Windows"), plexPlayback(),
+internal/perfharness/scenarios.go:125:func plexHeaders(product, platform, device string) func(*session) http.Header {
+internal/perfharness/scenarios.go:126:	return plexDeviceHeaders(product, platform, device, "")
+internal/perfharness/scenarios.go:129:// plexDeviceHeaders are plexHeaders for one more device of the same kind:
+internal/perfharness/scenarios.go:131:func plexDeviceHeaders(product, platform, device, suffix string) func(*session) http.Header {
+internal/perfharness/scenarios.go:152:// plexSecondDevice is a viewer's second Apple TV, first seen right after
+internal/perfharness/scenarios.go:155:func plexSecondDevice() Client {
+internal/perfharness/scenarios.go:156:	return Client{Name: "plex-appletv second device", Surface: "plex", Headers: plexDeviceHeaders("Plex for Apple TV", "tvOS", "Apple TV", "-second"), Steps: []Step{
+internal/perfharness/scenarios.go:164:func plexClient(name, product, platform, device string) Client {
+internal/perfharness/scenarios.go:166:	return Client{Name: name, Surface: "plex", Headers: plexHeaders(product, platform, device), Steps: append([]Step{
+internal/perfharness/scenarios.go:209:	}, plexLibrarySteps(page)...)}
+internal/perfharness/scenarios.go:365:	return Client{Name: "infuse-jellyfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Infuse-Library", "8.1", "Apple TV", false), SignIn: mediaBrowserSignIn(), Steps: append([]Step{
+internal/perfharness/scenarios.go:396:	return Client{Name: "swiftfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Swiftfin tvOS", "1.3", "Apple TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
+internal/perfharness/scenarios.go:408:	return Client{Name: "emby-sdk", Surface: "emby", Port: 2, SharedPrefix: "/emby", Headers: mediaBrowserHeaders("Emby Theater", "4.8", "etherperf", true), SignIn: mediaBrowserSignIn(), Steps: append([]Step{
+internal/perfharness/scenarios.go:436:	return Client{Name: "moonfin", Surface: "jellyfin", Port: 1, SharedPrefix: "/jellyfin", Headers: mediaBrowserHeaders("Moonfin", "1.0", "Android TV", false), SignIn: mediaBrowserSignIn(), Steps: []Step{
+internal/perfharness/scenarios.go:456:	return Client{Name: "infuse-emby", Surface: "emby", Port: 2, SharedPrefix: "/emby", Headers: mediaBrowserHeaders("Infuse-Library", "8.1", "Apple TV", true), SignIn: mediaBrowserSignIn(), Steps: []Step{
 ```
 
 ## internal/perfharness/scenarios_plex.go
 
-Protocol-specific load scenarios and wire clients, not shared request runtime.
+Reference-client performance recipes and wire payload decoders, not shared request services.
 
 ```text
 internal/perfharness/scenarios_plex.go:18:// plexLibrarySteps are the Plex paths a viewer reaches past the first page
@@ -994,28 +915,15 @@ internal/perfharness/scenarios_plex.go:143:			return plexTagJSON{}, false
 
 ## internal/personalize/owner.go
 
-Historical row provenance/group identity and row builder names; names still expose Plex vocabulary.
+Historical Home Designer provenance/group identities; no frontend behavior dispatch.
 
 ```text
 internal/personalize/owner.go:28:// marked source "plex". Rows hidden by a layout policy or absent despite an
-internal/personalize/owner.go:71:			p.Rows = append([]core.HomeRow{plexRow("home.continue", "Continue Watching", KindContinue,
-internal/personalize/owner.go:89:		head := []core.HomeRow{plexRow(prefix+".inprogress."+sid, "Continue Watching", KindContinue,
-internal/personalize/owner.go:92:		head = append(head, plexRow(prefix+".recentlyadded."+sid, "Recently Added", KindRecentlyAdded,
-internal/personalize/owner.go:463:func plexRow(hubID, title, kind, reason string, items []candItem) core.HomeRow {
-internal/personalize/owner.go:501:	r := plexRow("home.playlists", "Recent Playlists", KindPlaylists,
-```
-
-## internal/personalize/personal.go
-
-Historical row provenance/group identity and row builder names; names still expose Plex vocabulary.
-
-```text
-internal/personalize/personal.go:47:		rows = append(rows, plexRow(r.id, r.title, r.kind, r.reason, r.items))
 ```
 
 ## internal/personalize/row_behavior.go
 
-Historical row provenance/group identity and row builder names; names still expose Plex vocabulary.
+Historical Home Designer provenance/group identities; no frontend behavior dispatch.
 
 ```text
 internal/personalize/row_behavior.go:6:// a legacy row. Historical "plex" provenance is retained as an alias.
@@ -1023,62 +931,18 @@ internal/personalize/row_behavior.go:6:// a legacy row. Historical "plex" proven
 
 ## internal/personalize/surfaces.go
 
-Historical row provenance/group identity and row builder names; names still expose Plex vocabulary.
+Historical Home Designer provenance/group identities; no frontend behavior dispatch.
 
 ```text
-internal/personalize/surfaces.go:31:	groupPlex        = "plex"
-```
-
-## internal/playback/cluster.go
-
-Remaining runtime protocol decisions: buffering reports, selection/cluster surface defaults, and Plex part MIME/headers. Extraction remains.
-
-```text
-internal/playback/cluster.go:209:	if surface == "" || surface == "plex" {
-```
-
-## internal/playback/experience.go
-
-Remaining runtime protocol decisions: buffering reports, selection/cluster surface defaults, and Plex part MIME/headers. Extraction remains.
-
-```text
-internal/playback/experience.go:52:func reportsBuffering(p core.Protocol) bool { return p == "" || p == "plex" }
-internal/playback/experience.go:58:	case "", "plex", "jellyfin", "emby", "silo":
-```
-
-## internal/playback/kind.go
-
-Remaining runtime protocol decisions: buffering reports, selection/cluster surface defaults, and Plex part MIME/headers. Extraction remains.
-
-```text
-internal/playback/kind.go:84:	for _, surface := range []string{"", playbackSurface("plex"), playbackSurface("jellyfin"), playbackSurface("emby")} {
+internal/personalize/surfaces.go:31:	groupPlex        = "plex" // Persisted Home Designer group identity.
 ```
 
 ## internal/playback/payload_ownership.go
 
-Remaining runtime protocol decisions: buffering reports, selection/cluster surface defaults, and Plex part MIME/headers. Extraction remains.
+Historical persisted source-lifetime identity; no frontend dispatch.
 
 ```text
-internal/playback/payload_ownership.go:309:		surface = "plex"
-```
-
-## internal/playback/plex_part.go
-
-Remaining runtime protocol decisions: buffering reports, selection/cluster surface defaults, and Plex part MIME/headers. Extraction remains.
-
-```text
-internal/playback/plex_part.go:19:func plexPartMIME(name string) string {
-```
-
-## internal/playback/serve.go
-
-Remaining runtime protocol decisions: buffering reports, selection/cluster surface defaults, and Plex part MIME/headers. Extraction remains.
-
-```text
-internal/playback/serve.go:64:	plexPart := core.IsPlexPart(r.Context())
-internal/playback/serve.go:65:	if plexPart {
-internal/playback/serve.go:66:		rep.contentType = plexPartMIME(s.name)
-internal/playback/serve.go:79:	if plexPart {
+internal/playback/payload_ownership.go:309:		surface = "plex" // Historical persisted identity of an unscoped source lifetime.
 ```
 
 ## internal/plexguid/clientid.go
@@ -1088,14 +952,6 @@ Explicit Plex GUID integration.
 ```text
 internal/plexguid/clientid.go:13:func ClientIdentifier(plexClientID, machineID string) string {
 internal/plexguid/clientid.go:14:	if id := strings.TrimSpace(plexClientID); id != "" {
-```
-
-## internal/plexmeta/overlay.go
-
-Explicit Plex metadata integration.
-
-```text
-internal/plexmeta/overlay.go:111:const RemoteArt = "plex"
 ```
 
 ## internal/plextv/cert.go
@@ -1275,20 +1131,21 @@ internal/plexwatch/service.go:653:		Scan(&row.plexID, &row.username, &sealed, &r
 
 ## internal/plugins/studio/replay_kinds.go
 
-Plugin projection schema and owner studio presentation still include Plex-specific projection vocabulary.
+Plugin manifest projection identities and owner descriptions, not requesting-frontend dispatch.
 
 ```text
-internal/plugins/studio/replay_kinds.go:193:		summary := fmt.Sprintf("Shows as a %s library", plexBaseName(p.Plex.Base))
-internal/plugins/studio/replay_kinds.go:197:		out = append(out, KindProjection{Protocol: "plex", Summary: summary})
-internal/plugins/studio/replay_kinds.go:221:func plexBaseName(base string) string {
+internal/plugins/studio/replay_kinds.go:194:		summary := fmt.Sprintf("Shows as a %s library", plexBaseName(p.Plex.Base))
+internal/plugins/studio/replay_kinds.go:198:		out = append(out, KindProjection{Protocol: "plex", Summary: summary})
+internal/plugins/studio/replay_kinds.go:222:// plexBaseName renders the named manifest projection vocabulary for the owner.
+internal/plugins/studio/replay_kinds.go:223:func plexBaseName(base string) string {
 ```
 
 ## internal/plugins/studio/templates_kinds.go
 
-Plugin projection schema and owner studio presentation still include Plex-specific projection vocabulary.
+Plugin manifest projection identities and owner descriptions, not requesting-frontend dispatch.
 
 ```text
-internal/plugins/studio/templates_kinds.go:48:							"plex":         map[string]any{"base": "show"},
+internal/plugins/studio/templates_kinds.go:48:							"plex":         map[string]any{"base": "show"}, // Plugin manifest projection identity.
 ```
 
 ## internal/safety/confirm.go
@@ -1336,45 +1193,9 @@ internal/spike/spike.go:239:		if protocol == "plex" {
 internal/spike/spike.go:263:		Sessions:   sessions.BindSurface(broker, "plex"),
 ```
 
-## internal/state/plex_timeline.go
-
-Plex timeline state machine remains in shared state; extraction remains.
-
-```text
-internal/state/plex_timeline.go:14:type plexStatusKey struct{}
-internal/state/plex_timeline.go:21:type plexPlayID struct {
-internal/state/plex_timeline.go:26:type plexPlay struct {
-internal/state/plex_timeline.go:33:type plexTimelineStore struct {
-internal/state/plex_timeline.go:35:	plays map[plexPlayID]plexPlay
-internal/state/plex_timeline.go:42:	ctx = context.WithValue(ctx, plexStatusKey{}, status)
-internal/state/plex_timeline.go:43:	s.plexTimeline.Lock()
-internal/state/plex_timeline.go:44:	defer s.plexTimeline.Unlock()
-internal/state/plex_timeline.go:73:	id := plexPlayID{user, origin.ClientID, origin.SessionID, key.Kind() == core.KindPlaylist}
-internal/state/plex_timeline.go:74:	if s.plexTimeline.plays == nil {
-internal/state/plex_timeline.go:75:		s.plexTimeline.plays = make(map[plexPlayID]plexPlay)
-internal/state/plex_timeline.go:77:	play := s.plexTimeline.plays[id]
-internal/state/plex_timeline.go:80:		play = plexPlay{key: key, queue: queue}
-internal/state/plex_timeline.go:128:	s.plexTimeline.plays[id] = play
-internal/state/plex_timeline.go:129:	if len(s.plexTimeline.plays) > 4096 {
-internal/state/plex_timeline.go:130:		var oldest plexPlayID
-internal/state/plex_timeline.go:132:		for k, p := range s.plexTimeline.plays {
-internal/state/plex_timeline.go:137:		delete(s.plexTimeline.plays, oldest)
-internal/state/plex_timeline.go:146:func (s *State) plexProgressAt(ctx context.Context, user int64, key core.RatingKey, w progressWrite) error {
-```
-
-## internal/state/state.go
-
-Plex timeline state machine remains in shared state; extraction remains.
-
-```text
-internal/state/state.go:160:	plexTimeline plexTimelineStore
-internal/state/state.go:729:	w.timelineState, _ = ctx.Value(plexStatusKey{}).(string)
-internal/state/state.go:753:		return s.plexProgressAt(ctx, userID, key, w)
-```
-
 ## internal/transcode/manager.go
 
-Detects the installed ffmpeg build/vendor capability, not the requesting frontend.
+Installed FFmpeg vendor identity detects the patched segment muxer independently of the requesting frontend.
 
 ```text
 internal/transcode/manager.go:236:	m.feat.jellyfinSegmentClock = strings.Contains(strings.ToLower(m.version), "jellyfin")
@@ -1403,21 +1224,4 @@ internal/watchlist/watchlist.go:163:func friendsRSSContext() []string { return [
 internal/watchlist/watchlist.go:164:func ownerRSSContext() []string   { return []string{"watchlist_settings", "plexOwnerRssUrl", "1"} }
 internal/watchlist/watchlist.go:508:	Plex  string `json:"plex"`
 internal/watchlist/watchlist.go:554:				e = s.replace(ctx, u, "plex", ts)
-```
-
-## internal/watchparty/engine.go
-
-Jellyfin command selection remains in shared watch-party engine; extraction remains.
-
-```text
-internal/watchparty/engine.go:865:		if m.protocol == "jellyfin" {
-internal/watchparty/engine.go:936:		if m.protocol == "jellyfin" {
-internal/watchparty/engine.go:1012:		if m.protocol != "jellyfin" {
-internal/watchparty/engine.go:1124:		if m.protocol == "jellyfin" {
-internal/watchparty/engine.go:1148:		if m.protocol == "jellyfin" {
-internal/watchparty/engine.go:1160:	if m.protocol == "jellyfin" {
-internal/watchparty/engine.go:1182:		if o.protocol == "jellyfin" {
-internal/watchparty/engine.go:1192:		if o.protocol == "jellyfin" {
-internal/watchparty/engine.go:1208:	if m.protocol == "jellyfin" {
-internal/watchparty/engine.go:1238:		if m.protocol == "jellyfin" {
 ```

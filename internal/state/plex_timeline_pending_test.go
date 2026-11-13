@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"github.com/braedonsaunders/ether/internal/frontends/plex/timeline"
 	"testing"
 	"time"
 
@@ -17,9 +18,10 @@ func TestPendingPlexPlaysKeepCompletionsAndLaterResume(t *testing.T) {
 	defer func() { s.pending = nil }()
 	ctx := WithOrigin(context.Background(), Origin{Surface: "plex", ClientID: "one"})
 	key := core.MovieKey(88)
+	writer := timeline.Writer{State: s, Store: &timeline.Store{}, Now: func() time.Time { return *now }}
 	for _, offset := range []time.Duration{3 * time.Second, 920 * time.Second, 70 * time.Second, 950 * time.Second, 80 * time.Second} {
 		*now = now.Add(time.Second)
-		if _, err := s.StoreTimeline(ctx, 1, key, offset, 1000*time.Second, "playing", "", nil); err != nil {
+		if _, err := writer.StoreTimeline(ctx, 1, key, offset, 1000*time.Second, "playing", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

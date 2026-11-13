@@ -81,7 +81,12 @@ func fileProbeManager(t *testing.T, f *fixture, res fileProbeResolver, engine *f
 	t.Helper()
 	cfg := config.Defaults(t.TempDir())
 	cfg.Cache.DisableSpeculation = true
-	m, err := playback.New(playback.Deps{Catalog: f.catalog, Resolver: res, Engine: engine, Transcoder: f.trans, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, cfg, playback.Options{DataDir: t.TempDir()})
+	m, err := playback.New(playback.Deps{Catalog: f.catalog, Resolver: res, Engine: engine, Transcoder: f.trans, SelectProfile: func(core.ClientCaps, *core.User, string) core.QualityProfile { return core.QualityProfile{} }}, cfg, playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}, DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

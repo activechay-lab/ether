@@ -104,7 +104,7 @@ func (s PartSources) Part(viewer int64, client string, key core.RatingKey, relea
 // ServePart preserves the Plex range grammar and request cancellation. The
 // admitted source ID is retained; delivery must not open or supersede a session.
 func (s PartSources) ServePart(w http.ResponseWriter, r *http.Request, sourceID string) {
-	s.Playback.ServeRange(w, r.WithContext(core.WithPlexPart(r.Context())), sourceID)
+	s.Playback.ServeRange(w, r, sourceID)
 }
 
 type PartSource = frontend.PartSource

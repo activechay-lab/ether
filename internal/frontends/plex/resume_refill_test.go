@@ -165,7 +165,12 @@ func (x *etheLab) start(t *testing.T) {
 		info.Duration = x.title.Runtime
 		info.Size = s.Size()
 		return &info, nil
-	}}, x.cfg, playback.Options{DataDir: x.dir, Now: func() time.Time { return fixedNow }, PinInterval: time.Hour})
+	}}, x.cfg, playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}, DataDir: x.dir, Now: func() time.Time { return fixedNow }, PinInterval: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}

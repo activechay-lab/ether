@@ -41,9 +41,8 @@ type Options struct {
 	// unless the member who asked for playback is the one over the limit.
 	// Callers receive frontend.ErrPartyForbidden for that refusal.
 	Streams func(context.Context, frontend.Protocol, *core.Viewer, core.Device, core.RatingKey) error
-	// ItemID and JellyfinUser render protocol ids. Nil uses a decimal form.
-	ItemID       func(core.RatingKey) string
-	JellyfinUser func(int64) string
+	// ItemID renders a content identity. Nil uses a decimal form.
+	ItemID func(core.RatingKey) string
 }
 
 // Engine is safe for concurrent clients.
@@ -87,6 +86,7 @@ type member struct {
 	viewer                             *core.Viewer
 	device                             core.Device
 	protocol                           frontend.Protocol
+	caps                               frontend.PartyCapabilities
 	token                              string
 	host                               bool
 	connected, ready, buffering, lobby bool
@@ -142,13 +142,6 @@ func (e *Engine) itemID(k core.RatingKey) string {
 		return e.opts.ItemID(k)
 	}
 	return strconv.FormatInt(int64(k), 10)
-}
-
-func (e *Engine) jfUser(id int64) string {
-	if e.opts.JellyfinUser != nil {
-		return e.opts.JellyfinUser(id)
-	}
-	return strconv.FormatInt(id, 10)
 }
 
 func actorKey(a frontend.PartyActor) string {
@@ -416,7 +409,7 @@ func (e *Engine) Leave(_ context.Context, actor frontend.PartyActor) error {
 	defer e.mu.Unlock()
 	r, m := e.roomOfLocked(actor)
 	if r == nil || m == nil {
-		e.sendSubLocked(actor, frontend.PartyEvent{Type: "group", GroupKind: "NotInGroup", GroupData: map[string]any{}})
+		e.sendSubLocked(actor, frontend.PartyEvent{Type: "group", GroupKind: "NotInGroup"})
 		return frontend.ErrPartyNotFound
 	}
 	e.removeLocked(r, m, "left")
@@ -433,7 +426,7 @@ func (e *Engine) List(_ context.Context, actor frontend.PartyActor) []frontend.P
 		}
 		m := memberOf(r, actor)
 		if m == nil {
-			m = &member{viewer: actor.Viewer, protocol: actor.Protocol, device: actor.Device}
+			m = &member{viewer: actor.Viewer, protocol: actor.Protocol, caps: actor.Capabilities, device: actor.Device}
 		}
 		out = append(out, e.viewLocked(r, m))
 	}
@@ -654,12 +647,12 @@ func (e *Engine) OpenSocket(_ context.Context, roomID, raw string) (frontend.Par
 	if m == nil {
 		return frontend.PartySocket{}, frontend.ErrPartyForbidden
 	}
-	ch := e.bindLocked(tk.key, m.protocol == "silo")
+	ch := e.bindLocked(tk.key, m.caps.SocketSnapshots)
 	m.connected = true
 	e.catchupLocked(r, m)
 	subID := e.subs[tk.key].id
 	key := tk.key
-	return frontend.PartySocket{Actor: frontend.PartyActor{Viewer: m.viewer, Device: m.device, Protocol: m.protocol}, Events: ch, Close: func() { e.unbind(key, subID) }}, nil
+	return frontend.PartySocket{Actor: frontend.PartyActor{Viewer: m.viewer, Device: m.device, Protocol: m.protocol, Capabilities: m.caps}, Events: ch, Close: func() { e.unbind(key, subID) }}, nil
 }
 
 func (e *Engine) Subscribe(actor frontend.PartyActor) (<-chan frontend.PartyEvent, func()) {
@@ -700,7 +693,7 @@ func (e *Engine) unbind(key string, id int64) {
 	delete(e.subs, key)
 	for _, r := range e.rooms {
 		for _, m := range r.members {
-			if actorKey(frontend.PartyActor{Viewer: m.viewer, Device: m.device, Protocol: m.protocol}) == key {
+			if actorKey(frontend.PartyActor{Viewer: m.viewer, Device: m.device, Protocol: m.protocol, Capabilities: m.caps}) == key {
 				m.connected = false
 				m.ready = false
 				e.snapshotsLocked(r)
@@ -710,7 +703,7 @@ func (e *Engine) unbind(key string, id int64) {
 }
 
 func (e *Engine) newMember(actor frontend.PartyActor, host bool) *member {
-	return &member{viewer: actor.Viewer, device: actor.Device, protocol: actor.Protocol, token: secret(), host: host}
+	return &member{viewer: actor.Viewer, device: actor.Device, protocol: actor.Protocol, caps: actor.Capabilities, token: secret(), host: host}
 }
 
 func (e *Engine) membershipLocked(actor frontend.PartyActor) *room {
@@ -862,9 +855,9 @@ func (e *Engine) beginWaitLocked(r *room, pos time.Duration) {
 		m.buffering = false
 	}
 	for _, m := range r.members {
-		if m.protocol == "jellyfin" {
-			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "PlayQueue", GroupData: e.queuePayload(r, "NewPlaylist")})
-			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "StateUpdate", GroupData: map[string]any{"State": "Waiting", "Reason": "Play"}})
+		if m.caps.GroupEvents {
+			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "PlayQueue", Reason: "NewPlaylist"})
+			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "StateUpdate", Reason: "Play"})
 		} else {
 			e.emit(m, frontend.PartyEvent{Type: "snapshot", View: e.viewLocked(r, m)})
 		}
@@ -874,7 +867,6 @@ func (e *Engine) beginWaitLocked(r *room, pos time.Duration) {
 func (e *Engine) issueLocked(r *room, action string, pos time.Duration) {
 	now := e.now()
 	exec := now.Add(e.lead())
-	jf := "Unpause"
 	switch action {
 	case "pause":
 		if r.play == "playing" {
@@ -884,14 +876,12 @@ func (e *Engine) issueLocked(r *room, action string, pos time.Duration) {
 		r.anchor = pos
 		r.anchorAt = exec
 		r.paused = true
-		jf = "Pause"
 	case "play":
 		r.anchorAt = exec
 		r.paused = false
 		r.play = "playing"
 		r.phase = "playing"
 		pos = r.anchor
-		jf = "Unpause"
 	case "seek":
 		r.anchor = pos
 		r.anchorAt = exec
@@ -902,7 +892,6 @@ func (e *Engine) issueLocked(r *room, action string, pos time.Duration) {
 		} else {
 			r.play = "playing"
 		}
-		jf = "Seek"
 	case "stop":
 		r.phase = "lobby"
 		r.play = "idle"
@@ -910,7 +899,6 @@ func (e *Engine) issueLocked(r *room, action string, pos time.Duration) {
 		r.anchor = 0
 		r.anchorAt = exec
 		pos = 0
-		jf = "Stop"
 		for _, m := range r.members {
 			m.ready = false
 			m.buffering = false
@@ -920,7 +908,7 @@ func (e *Engine) issueLocked(r *room, action string, pos time.Duration) {
 	r.updated = now
 	r.lastIssued = now
 	cmd := frontend.PartyCommand{
-		ID: uuid.NewString(), Action: action, Jellyfin: jf, Position: pos,
+		ID: uuid.NewString(), Action: action, Position: pos,
 		ExecuteAt: exec, IssuedAt: now, Playback: r.play, SelectionRevision: r.revision,
 		Rate: r.rate,
 	}
@@ -933,26 +921,13 @@ func (e *Engine) issueLocked(r *room, action string, pos time.Duration) {
 		outgoing := cmd
 		outgoing.SessionID = m.session
 		view := e.viewLocked(r, m)
-		if m.protocol == "jellyfin" {
+		if m.caps.GroupEvents {
 			e.emit(m, frontend.PartyEvent{Type: "command", View: view, Command: outgoing})
-			e.emit(m, frontend.PartyEvent{Type: "group", View: view, GroupKind: "StateUpdate", GroupData: map[string]any{"State": jfState(r), "Reason": reasonFor(action)}})
+			e.emit(m, frontend.PartyEvent{Type: "group", View: view, GroupKind: "StateUpdate", Reason: action})
 		} else {
 			e.emit(m, frontend.PartyEvent{Type: "transport", View: view, Command: outgoing})
 			e.emit(m, frontend.PartyEvent{Type: "snapshot", View: view})
 		}
-	}
-}
-
-func reasonFor(action string) string {
-	switch action {
-	case "pause":
-		return "Pause"
-	case "seek":
-		return "Seek"
-	case "stop":
-		return "Stop"
-	default:
-		return "Unpause"
 	}
 }
 
@@ -982,14 +957,14 @@ func (r *room) allReady() bool {
 }
 
 func (r *room) canQueue(m *member) bool {
-	return m != nil && (m.host || r.jellyfinOnly())
+	return m != nil && (m.host || r.sharedControlsOnly())
 }
 
 func (r *room) canTransport(m *member) bool {
 	if m == nil || m.blocked {
 		return false
 	}
-	return m.host || r.policy == "guest_play_pause" || r.jellyfinOnly()
+	return m.host || r.policy == "guest_play_pause" || r.sharedControlsOnly()
 }
 
 func (r *room) allowRate(rate float64) bool {
@@ -997,19 +972,19 @@ func (r *room) allowRate(rate float64) bool {
 		return true
 	}
 	for _, m := range r.members {
-		if m.protocol != "silo" {
+		if !m.caps.VariableRate {
 			return false
 		}
 	}
 	return true
 }
 
-func (r *room) jellyfinOnly() bool {
+func (r *room) sharedControlsOnly() bool {
 	if len(r.members) == 0 {
 		return false
 	}
 	for _, m := range r.members {
-		if m.protocol != "jellyfin" {
+		if !m.caps.SharedControls {
 			return false
 		}
 	}
@@ -1121,8 +1096,8 @@ func (e *Engine) queueLocked(ctx context.Context, r *room, op frontend.PartyQueu
 	r.generation++
 	r.updated = e.now()
 	for _, m := range r.members {
-		if m.protocol == "jellyfin" {
-			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "PlayQueue", GroupData: e.queuePayload(r, reason)})
+		if m.caps.GroupEvents {
+			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "PlayQueue", Reason: reason})
 		} else {
 			e.emit(m, frontend.PartyEvent{Type: "snapshot", View: e.viewLocked(r, m)})
 		}
@@ -1130,23 +1105,10 @@ func (e *Engine) queueLocked(ctx context.Context, r *room, op frontend.PartyQueu
 	return nil
 }
 
-func (e *Engine) queuePayload(r *room, reason string) map[string]any {
-	items := make([]any, 0, len(r.queue))
-	for _, q := range r.queue {
-		items = append(items, map[string]any{"ItemId": e.itemID(q.item), "PlaylistItemId": q.id})
-	}
-	playing := r.play == "playing"
-	return map[string]any{
-		"Reason": reason, "LastUpdate": r.updated.UTC().Format(time.RFC3339Nano),
-		"Playlist": items, "PlayingItemIndex": r.index, "StartPositionTicks": r.anchor.Nanoseconds() / 100,
-		"IsPlaying": playing, "ShuffleMode": r.shuffle, "RepeatMode": r.repeat,
-	}
-}
-
 func (e *Engine) closeLocked(r *room, reason string) {
 	for _, m := range r.members {
-		if m.protocol == "jellyfin" {
-			e.emit(m, frontend.PartyEvent{Type: "group", GroupKind: "GroupLeft", GroupData: map[string]any{}, View: e.viewLocked(r, m)})
+		if m.caps.GroupEvents {
+			e.emit(m, frontend.PartyEvent{Type: "group", GroupKind: "GroupLeft", View: e.viewLocked(r, m)})
 		} else {
 			e.emit(m, frontend.PartyEvent{Type: "closed", Reason: reason, View: e.viewLocked(r, m)})
 		}
@@ -1157,8 +1119,8 @@ func (e *Engine) closeLocked(r *room, reason string) {
 }
 
 func (e *Engine) removeLocked(r *room, m *member, reason string) {
-	if m.protocol == "jellyfin" {
-		e.emit(m, frontend.PartyEvent{Type: "group", GroupKind: "GroupLeft", GroupData: map[string]any{}})
+	if m.caps.GroupEvents {
+		e.emit(m, frontend.PartyEvent{Type: "group", GroupKind: "GroupLeft"})
 	} else {
 		e.emit(m, frontend.PartyEvent{Type: "closed", Reason: reason})
 	}
@@ -1179,8 +1141,8 @@ func (e *Engine) removeLocked(r *room, m *member, reason string) {
 	r.generation++
 	r.updated = e.now()
 	for _, o := range r.members {
-		if o.protocol == "jellyfin" {
-			e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "UserLeft", GroupData: e.jfUser(m.viewer.ID)})
+		if o.caps.GroupEvents {
+			e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "UserLeft", SubjectViewerID: m.viewer.ID})
 		} else {
 			e.emit(o, frontend.PartyEvent{Type: "snapshot", View: e.viewLocked(r, o)})
 		}
@@ -1189,14 +1151,14 @@ func (e *Engine) removeLocked(r *room, m *member, reason string) {
 
 func (e *Engine) announceLocked(r *room, m *member, joined bool) {
 	for _, o := range r.members {
-		if o.protocol == "jellyfin" {
+		if o.caps.GroupEvents {
 			if o == m && joined {
-				e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "GroupJoined", GroupData: e.groupInfo(r)})
+				e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "GroupJoined"})
 				if len(r.queue) > 0 {
-					e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "PlayQueue", GroupData: e.queuePayload(r, "NewPlaylist")})
+					e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "PlayQueue", Reason: "NewPlaylist"})
 				}
 			} else if joined {
-				e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "UserJoined", GroupData: e.jfUser(m.viewer.ID)})
+				e.emit(o, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, o), GroupKind: "UserJoined", SubjectViewerID: m.viewer.ID})
 			}
 		} else {
 			e.emit(o, frontend.PartyEvent{Type: "snapshot", View: e.viewLocked(r, o)})
@@ -1205,10 +1167,10 @@ func (e *Engine) announceLocked(r *room, m *member, joined bool) {
 }
 
 func (e *Engine) catchupLocked(r *room, m *member) {
-	if m.protocol == "jellyfin" {
-		e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "GroupJoined", GroupData: e.groupInfo(r)})
+	if m.caps.GroupEvents {
+		e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "GroupJoined"})
 		if len(r.queue) > 0 {
-			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "PlayQueue", GroupData: e.queuePayload(r, "NewPlaylist")})
+			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "PlayQueue", Reason: "NewPlaylist"})
 		}
 		if r.last != nil && r.last.ExecuteAt.After(e.now()) {
 			cmd := *r.last
@@ -1227,7 +1189,7 @@ func (e *Engine) catchupLocked(r *room, m *member) {
 
 func (e *Engine) snapshotsLocked(r *room) {
 	for _, m := range r.members {
-		if m.protocol == "silo" || m.protocol == "" {
+		if m.caps.SocketSnapshots {
 			e.emit(m, frontend.PartyEvent{Type: "snapshot", View: e.viewLocked(r, m)})
 		}
 	}
@@ -1235,35 +1197,9 @@ func (e *Engine) snapshotsLocked(r *room) {
 
 func (e *Engine) stateLocked(r *room, reason string) {
 	for _, m := range r.members {
-		if m.protocol == "jellyfin" {
-			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "StateUpdate", GroupData: map[string]any{"State": jfState(r), "Reason": reason}})
+		if m.caps.GroupEvents {
+			e.emit(m, frontend.PartyEvent{Type: "group", View: e.viewLocked(r, m), GroupKind: "StateUpdate", Reason: reason})
 		}
-	}
-}
-
-func (e *Engine) groupInfo(r *room) map[string]any {
-	parts := make([]any, 0, len(r.members))
-	for _, m := range r.members {
-		if m.viewer != nil {
-			parts = append(parts, e.jfUser(m.viewer.ID))
-		}
-	}
-	return map[string]any{
-		"GroupId": r.id, "GroupName": r.name, "State": jfState(r),
-		"Participants": parts, "LastUpdatedAt": r.updated.UTC().Format(time.RFC3339Nano),
-	}
-}
-
-func jfState(r *room) string {
-	switch r.play {
-	case "waiting":
-		return "Waiting"
-	case "paused":
-		return "Paused"
-	case "playing":
-		return "Playing"
-	default:
-		return "Idle"
 	}
 }
 
@@ -1271,7 +1207,7 @@ func (e *Engine) emit(m *member, ev frontend.PartyEvent) {
 	if m == nil || m.viewer == nil {
 		return
 	}
-	e.sendSubLocked(frontend.PartyActor{Viewer: m.viewer, Device: m.device, Protocol: m.protocol}, ev)
+	e.sendSubLocked(frontend.PartyActor{Viewer: m.viewer, Device: m.device, Protocol: m.protocol, Capabilities: m.caps}, ev)
 }
 
 func (e *Engine) sendSubLocked(actor frontend.PartyActor, ev frontend.PartyEvent) {
@@ -1285,7 +1221,7 @@ func (e *Engine) sendSubLocked(actor frontend.PartyActor, ev frontend.PartyEvent
 func (e *Engine) deny(actor frontend.PartyActor, kind string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.sendSubLocked(actor, frontend.PartyEvent{Type: "group", GroupKind: kind, GroupData: map[string]any{}})
+	e.sendSubLocked(actor, frontend.PartyEvent{Type: "group", GroupKind: kind})
 }
 
 func send(ch chan frontend.PartyEvent, ev frontend.PartyEvent) {
@@ -1352,7 +1288,7 @@ func (e *Engine) viewLocked(r *room, self *member) frontend.PartyView {
 		InvitePath: "/rooms/join?token=" + url.QueryEscape(r.invite), Name: r.name,
 		Phase: r.phase, Playback: r.play, SelectionMode: r.mode, GuestPolicy: r.policy, Role: role,
 		SelectionRevision: r.revision, Generation: r.generation, Item: r.item, ContentID: e.itemID(r.item),
-		FileID: r.fileID, LibraryID: r.libraryID, Paused: r.paused, Position: r.positionAt(now),
+		FileID: r.fileID, LibraryID: r.libraryID, Paused: r.paused, Position: r.positionAt(now), AnchorPosition: r.anchor,
 		AnchorAt: r.anchorAt, Rate: r.rate, HostConnected: hostUp, CanTransport: canT, CanManage: canM,
 		IgnoreWait: ignore, AttachedSessionID: session, Members: members, Repeat: r.repeat, Shuffle: r.shuffle,
 		Queue: queue, QueueIndex: r.index, UpdatedAt: r.updated,

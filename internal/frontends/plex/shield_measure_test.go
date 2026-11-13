@@ -112,7 +112,12 @@ func newShieldMeasureRig(t *testing.T, mode string, cached bool) *shieldMeasureR
 		info := core.CloneMediaInfo(sampleInfo)
 		info.Size = src.Size()
 		return &info, nil
-	}}, cfg, playback.Options{DataDir: t.TempDir()})
+	}}, cfg, playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}, DataDir: t.TempDir()})
 	if err != nil {
 		x.Close()
 		t.Fatal(err)

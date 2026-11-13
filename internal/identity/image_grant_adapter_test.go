@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -59,7 +60,7 @@ func imageAdapterService(t *testing.T, db *sql.DB, surface frontend.Protocol, no
 	experience := frontendtest.Experience{ItemFunc: func(context.Context, frontend.ItemRequest) (frontend.ItemDetail, error) {
 		return frontend.ItemDetail{ImagesAuthoritative: true, Images: []frontend.Image{image}}, nil
 	}}
-	service, err := NewImageGrantService(db, surface, grants, func() frontend.Experience { return experience }, imageBytes{}, time.Minute, now)
+	service, err := NewImageGrantService(db, surface, grants, func() frontend.Experience { return experience }, imageBytes{}, time.Minute, now, ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 	if err != nil {
 		t.Fatal(err)
 	}

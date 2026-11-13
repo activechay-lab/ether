@@ -185,6 +185,7 @@ func (r *Runner) dryRunResolve(ctx context.Context, target *resolvedTarget, decl
 }
 
 // kindProjections turns a Presentations declaration into owner words.
+// Protocol values below describe the plugin manifest schema, never the requesting frontend.
 func kindProjections(decl plugins.MediaKindMeta, man plugins.Manifest) []KindProjection {
 	var out []KindProjection
 	levels := len(decl.Levels)
@@ -218,6 +219,7 @@ func kindProjections(decl plugins.MediaKindMeta, man plugins.Manifest) []KindPro
 	return out
 }
 
+// plexBaseName renders the named manifest projection vocabulary for the owner.
 func plexBaseName(base string) string {
 	switch strings.ToLower(base) {
 	case "movie":
