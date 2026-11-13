@@ -649,7 +649,7 @@ var (
 )
 
 func defaultCaps(client string) core.ClientCaps {
-	return core.ClientCaps{Product: "Plex Web", ClientID: client, MaxHeight: 1080,
+	return core.ClientCaps{DeferSourceCodecValidation: true, Product: "Plex Web", ClientID: client, MaxHeight: 1080,
 		VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac", "eac3"}, Containers: []string{"mkv", "mp4"}}
 }
 
