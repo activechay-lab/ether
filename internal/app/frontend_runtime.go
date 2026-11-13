@@ -127,9 +127,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 	for _, protocol := range []frontend.Protocol{"plex", "jellyfin", "emby", "silo"} {
 		surfaceArtwork := artwork
 		if source, ok := artwork.(interface {
-			ForSurface(core.Protocol) frontend.Artwork
+			WithLandscapeThumb(bool) frontend.Artwork
 		}); ok {
-			surfaceArtwork = source.ForSurface(protocol)
+			surfaceArtwork = source.WithLandscapeThumb(protocol == "jellyfin" || protocol == "emby")
 		}
 		experience, err := a.newSurfaceExperience(protocol, surfaceArtwork)
 		if err != nil {
@@ -246,9 +246,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}
 		artwork := artwork
 		if source, ok := artwork.(interface {
-			ForSurface(core.Protocol) frontend.Artwork
+			WithLandscapeThumb(bool) frontend.Artwork
 		}); ok {
-			artwork = source.ForSurface(id)
+			artwork = source.WithLandscapeThumb(id == "jellyfin" || id == "emby")
 		}
 		experience := experiences[id]
 		if experience == nil {
