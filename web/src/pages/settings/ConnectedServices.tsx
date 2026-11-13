@@ -701,7 +701,11 @@ export function ConnectedServices({
   const saveSectionSetup = () => {
     const setup = sectionSetup;
     if (!setup) return;
-    const body = { ...setup.draft, [setup.service.flag]: true };
+    // MDBList credentials belong to each viewer; owner setup only enables it.
+    const body =
+      setup.service.tab === "mdblist"
+        ? { enabled: true }
+        : { ...setup.draft, [setup.service.flag]: true };
     const blocked = setup.service.blockEnable?.(body);
     if (blocked) {
       const field = setup.service.requiredField ?? "clientId";
