@@ -25,7 +25,7 @@ import (
 // track per representation (video, audio); ffmpeg's dash muxer writes short
 // chunks that the session regroups into numbered segments by timestamp.
 type Session struct {
-	matroskaTitleClock      bool // immutable client presentation clock, retained across source swaps
+	androidMatroskaHLS      bool // immutable client HLS contract, retained across source swaps
 	healTimestamps          bool // positively sampled MPEG-TS clock discontinuity
 	qsvCodec                string
 	qsvQuality              bool
@@ -381,7 +381,7 @@ func (s *Session) segName(n int) string {
 	container := s.container
 	// PMS Android Matroska HLS still uses .ts URLs. The enhanced player
 	// chooses its HLS extractor from the transport declaration.
-	if s.matroskaTitleClock && container == ContainerMatroska {
+	if s.androidMatroskaHLS && container == ContainerMatroska {
 		container = ContainerMPEGTS
 	}
 	return s.m.opts.segmentURI(n, container)

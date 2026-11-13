@@ -563,7 +563,7 @@ func Decide(info core.MediaInfo, caps core.ClientCaps, opts core.DecideOptions, 
 	a := pickAudio(info, opts.AudioStream)
 	sub := pickSubtitle(info, opts.SubtitleStream)
 
-	d := core.Decision{AudioStream: -1, SubtitleStream: -1, MatroskaTitleClock: clientreg.HasQuirk(identityOf(caps), "plex-android-matroska-clock")}
+	d := core.Decision{AudioStream: -1, SubtitleStream: -1, AndroidMatroskaHLS: clientreg.HasQuirk(identityOf(caps), "plex-android-matroska-hls")}
 	if a != nil {
 		d.AudioStream = a.Index
 	}

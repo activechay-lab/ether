@@ -856,7 +856,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			keyframes:       req.Info.Keyframes,
 			base:            base,
 			snap:            d.VideoCopy && len(req.Info.Keyframes) > 0,
-			strictKeyframes: d.MatroskaTitleClock && d.Container == ContainerMatroska,
+			strictKeyframes: d.AndroidMatroskaHLS && d.Container == ContainerMatroska,
 		})
 		total = plan.Total()
 		tracks = len(rungs) // one segment track per rung
@@ -882,7 +882,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 			req.Info.Keyframes = points
 			plan = buildTimeline(plan.span, segDur, timelineOptions{steadyMode: ModeCopy,
 				fastStart: rampBoundary, rampSegs: adapt.RampSegs, rampDur: adapt.RampDur,
-				keyframes: points, base: base, snap: true, strictKeyframes: d.MatroskaTitleClock && d.Container == ContainerMatroska && sample.complete})
+				keyframes: points, base: base, snap: true, strictKeyframes: d.AndroidMatroskaHLS && d.Container == ContainerMatroska && sample.complete})
 			total = plan.Total()
 		}
 		if len(rungs) > 0 {
@@ -934,7 +934,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		softSubtitleStream = &index
 	}
 	s := &Session{
-		matroskaTitleClock:      d.MatroskaTitleClock,
+		androidMatroskaHLS:      d.AndroidMatroskaHLS,
 		healTimestamps:          healTimestamps,
 		encoder:                 life,
 		id:                      id,

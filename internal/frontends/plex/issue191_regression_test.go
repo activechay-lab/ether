@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,7 +200,7 @@ func TestIssue191ShieldDVHybridMultiVersionSubtitlesAndTautulli(t *testing.T) {
 		}
 		decSubs := subtitleTags(decResp.Body.String())
 		selSub := selectedTag(decSubs)
-		if streamAttr(selSub, "codec") != "srt" || streamAttr(selSub, "decision") != "copy" || streamAttr(selSub, "location") != "segments-av" {
+		if streamAttr(selSub, "codec") != "srt" || streamAttr(selSub, "decision") != "copy" || streamAttr(selSub, "location") != "sidecar" || !strings.HasPrefix(streamAttr(selSub, "key"), "/library/streams/") {
 			t.Fatalf("attempt %d decision selected subtitle=%q (all=%v)", attempt, selSub, decSubs)
 		}
 

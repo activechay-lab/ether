@@ -663,9 +663,9 @@
       }
     },
     {
-      "id": "plex-android-matroska-clock",
+      "id": "plex-android-matroska-hls",
       "role": "quirk",
-      "quirks": ["plex-android-matroska-clock"],
+      "quirks": ["plex-android-matroska-hls"],
       "match": {"field": "product", "op": "contains", "value": "plex for android"}
     },
     {

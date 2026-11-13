@@ -26,7 +26,7 @@ func (s *Session) ServePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := s.renderPlaylistLocked(0)
-	if s.matroskaTitleClock && s.container == ContainerMatroska {
+	if s.androidMatroskaHLS && s.container == ContainerMatroska {
 		// Match PMS 1.42.2's Android segmented-Matroska playlist contract
 		// (rex subtitles_s1422.json). In particular, do not claim the
 		// unindexed copy plan's empty/GOP aliases are independent segments.
