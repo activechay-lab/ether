@@ -160,6 +160,9 @@ func validateMediaKind(m Manifest, k MediaKindMeta, base string, hasProvider boo
 		seenSort[s] = true
 	}
 	for j, f := range k.Browse.Facets {
+		if f == "year" || f == "released" || f == "rating" {
+			continue
+		}
 		field, ok := fields[f]
 		if !ok {
 			add(fmt.Sprintf("%s.browse.facets[%d]", base, j), "must name a declared field")

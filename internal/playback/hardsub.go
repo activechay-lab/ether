@@ -121,6 +121,12 @@ func (m *Manager) hardSubtitleBlocked(ctx context.Context, r core.Release) bool 
 }
 
 func (m *Manager) titleReleaseRejected(ctx context.Context, key core.RatingKey, r core.Release) bool {
+	m.mu.Lock()
+	failed := m.openFailures[key][r.ID]
+	m.mu.Unlock()
+	if failed {
+		return true
+	}
 	checker, ok := m.deps.Resolver.(interface {
 		TitleReleaseRejected(context.Context, core.RatingKey, core.Release) bool
 	})

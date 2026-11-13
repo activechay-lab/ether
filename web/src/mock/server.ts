@@ -3005,6 +3005,15 @@ export function createFakeServer(opts: FakeOptions = {}) {
       if (seg[3] === "sync" && seg[4] === "jobs") {
         return json({ id: 1, state: "completed", plex: "synced", count: 0 });
       }
+      if (seg[3] === "check") {
+        return json({
+          state: "completed",
+          done: 0,
+          total: 0,
+          enabled: true,
+          nextCheck: new Date(Date.now() + 30 * 60_000).toISOString(),
+        });
+      }
       if (seg[3] === "membership" && method === "POST") {
         const keys = (body as { keys?: string[] }).keys || [];
         return json(Object.fromEntries(keys.map((key) => [key, savedForViewer(viewer, key)])));

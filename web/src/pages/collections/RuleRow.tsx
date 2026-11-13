@@ -43,7 +43,11 @@ export function RuleRow({
   metaFor,
   inline,
   openValue,
+  facetLibraryId,
+  facetFields,
 }: {
+  facetLibraryId?: number;
+  facetFields?: Record<string, string>;
   allowedFields?: RuleField[];
   /** Visibility rules add operators (is not set) and facet-backed studio/keyword. */
   metaFor?: (field: RuleField) => FieldMeta | undefined;
@@ -113,6 +117,8 @@ export function RuleRow({
         {inline && meta ? (
           <OpenOnMount active={openValue} className="min-w-40 flex-1">
             <ValueEditor
+              facetLibraryId={facetLibraryId}
+              facetFields={facetFields}
               rule={rule}
               meta={meta}
               onChange={onChange}
@@ -139,6 +145,8 @@ export function RuleRow({
         <div className="mt-2">
           {meta ? (
             <ValueEditor
+              facetLibraryId={facetLibraryId}
+              facetFields={facetFields}
               rule={rule}
               meta={meta}
               onChange={onChange}
@@ -214,6 +222,8 @@ function toPicked(rule: Rule): Picked[] {
 }
 
 function ValueEditor({
+  facetLibraryId,
+  facetFields,
   rule,
   meta,
   onChange,
@@ -221,6 +231,8 @@ function ValueEditor({
   region,
   label,
 }: {
+  facetLibraryId?: number;
+  facetFields?: Record<string, string>;
   rule: Rule;
   meta: FieldMeta;
   onChange: (r: Rule) => void;
@@ -235,6 +247,8 @@ function ValueEditor({
     case "facet":
       return multi ? (
         <FacetPicker
+          libraryId={facetLibraryId}
+          field={facetFields?.[rule.field]}
           type={facetType}
           facet={meta.facet!}
           value={(Array.isArray(rule.value) ? rule.value : []).map(String)}
@@ -243,6 +257,8 @@ function ValueEditor({
         />
       ) : (
         <FacetSelect
+          libraryId={facetLibraryId}
+          field={facetFields?.[rule.field]}
           type={facetType}
           facet={meta.facet!}
           value={String(rule.value ?? "")}

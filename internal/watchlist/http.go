@@ -70,6 +70,7 @@ func (s *Service) Router() http.Handler {
 			})
 		})
 		s.communityJobRoutes(r)
+		s.availabilityRoutes(r)
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			v, e := s.Items(r.Context(), viewer(r))
 			if e != nil {
@@ -161,22 +162,6 @@ func (s *Service) Router() http.Handler {
 				SyncResult
 				Failed bool `json:"failed"`
 			}{v, result, syncErr != nil})
-		})
-		r.Post("/check", func(w http.ResponseWriter, r *http.Request) {
-			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
-			defer cancel()
-			if e := s.Check(ctx, viewer(r)); e != nil {
-				http.Error(w, "Availability check incomplete", 502)
-				return
-			}
-			itemsCtx, itemsCancel := context.WithTimeout(r.Context(), time.Minute)
-			defer itemsCancel()
-			v, e := s.Items(itemsCtx, viewer(r))
-			if e != nil {
-				http.Error(w, "Watchlist unavailable", 500)
-				return
-			}
-			reply(w, v)
 		})
 		r.Put("/items/{key}", func(w http.ResponseWriter, r *http.Request) {
 			k, e := core.ParseRatingKey(chi.URLParam(r, "key"))

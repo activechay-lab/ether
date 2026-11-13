@@ -140,6 +140,24 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key frontend.RatingKey, element string, width int) {
+	if reader, ok := s.getHost().Artwork.(frontend.OwnerArtworkReader); ok {
+		kind := ""
+		switch element {
+		case "poster", "thumb":
+			kind = frontend.ImagePoster
+		case "art", "background":
+			kind = frontend.ImageBackdrop
+		}
+		if kind != "" {
+			if data, ct, err := reader.OwnerArtwork(r.Context(), frontend.ArtworkRequest{Viewer: FromContext(r.Context()).User, Item: key}, kind); err == nil {
+				setArtworkHeaders(w.Header(), ct)
+				w.Header().Set("Cache-Control", "private, no-cache")
+				w.Write(data)
+				return
+			}
+		}
+	}
+
 	if key.IsPreroll() && s.prerollThumb(w, r, key) {
 		return
 	}

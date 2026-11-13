@@ -81,6 +81,15 @@ function discoveryRoutes(
     if (method === "POST" && rest === "sync/jobs") {
       return { id: 1, state: "completed", plex: "synced", count: items.length };
     }
+    if (rest === "check") {
+      return {
+        state: "completed",
+        done: items.length,
+        total: items.length,
+        enabled: settings.enabled,
+        nextCheck: new Date(Date.now() + 30 * 60_000).toISOString(),
+      };
+    }
     return items;
   };
 }
@@ -224,7 +233,9 @@ describe("A viewer's watchlist (viewer profile › Watchlist)", () => {
     expect(await screen.findByText("Adventure", { selector: "p" }, WAIT)).toBeInTheDocument();
     expect(screen.queryByText(/Add a reminder/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Sync viewer/ }));
-    await waitFor(() => expect(calls(fake, "POST", "/discovery/users/2/sync/jobs")).toHaveLength(1));
+    await waitFor(() =>
+      expect(calls(fake, "POST", "/discovery/users/2/sync/jobs")).toHaveLength(1),
+    );
     fireEvent.click(await screen.findByRole("button", { name: /Check availability/ }));
     await waitFor(() => expect(calls(fake, "POST", "/discovery/users/2/check")).toHaveLength(1));
     fireEvent.click(await screen.findByRole("button", { name: "Remove Adventure" }));

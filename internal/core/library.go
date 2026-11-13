@@ -41,7 +41,7 @@ type Library struct {
 	// list…). MediaType pins movie|show like a filter library. A deleted
 	// collection leaves the library empty, never an error.
 	CollectionID int64 `json:"collectionId,omitempty"`
-	// Visibility rules for TMDB-sourced libraries. Built-in libraries 1 and 2
+	// Visibility rules for this library. Built-in libraries 1 and 2
 	// govern canonical movie/show visibility across every protocol; filter
 	// libraries may carry additional rules on top of their canonical library.
 	Rules             []LibraryExclusion `json:"rules,omitempty"`

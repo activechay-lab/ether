@@ -215,12 +215,13 @@ type ProviderStats struct {
 // API resolution (add/select/poll), link generation, CDN connect (TCP+TLS)
 // and time to first byte of a range request, plus read throughput.
 type Latency struct {
-	ResolveMs     float64 `json:"resolveMs"`
-	LinkMs        float64 `json:"linkMs"`
-	ConnectMs     float64 `json:"connectMs"`
-	TTFBMs        float64 `json:"ttfbMs"`
-	ThroughputBps float64 `json:"throughputBps"`
-	Samples       int64   `json:"samples"`
+	ResolveMs     float64   `json:"resolveMs"`
+	LinkMs        float64   `json:"linkMs"`
+	ConnectMs     float64   `json:"connectMs"`
+	TTFBMs        float64   `json:"ttfbMs"`
+	ThroughputBps float64   `json:"throughputBps"`
+	ThroughputAt  time.Time `json:"-"`
+	Samples       int64     `json:"samples"`
 }
 
 const ewmaAlpha = 0.3
@@ -506,6 +507,7 @@ func (s *Service) RecordStream(providerID string, connect, ttfb time.Duration, b
 		}
 		if bytes >= 256<<10 && elapsed > 0 {
 			l.ThroughputBps = ewma(l.ThroughputBps, float64(bytes)/elapsed.Seconds(), first)
+			l.ThroughputAt = s.now()
 		}
 		l.Samples++
 	})

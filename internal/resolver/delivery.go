@@ -61,6 +61,16 @@ func (s *Service) deliveryFit(r core.Release, caps core.ClientCaps, title *core.
 	if r.Size <= 0 || title == nil || title.Runtime <= 0 {
 		return fit
 	}
+	if source, ok := s.indexer.(interface{ RecentSourceThroughput(core.Release) float64 }); ok {
+		if rate := source.RecentSourceThroughput(r); rate > 0 {
+			if float64(r.Size)/title.Runtime.Seconds() > rate*.75 {
+				return -1
+			}
+			if fit >= 0 {
+				return 1
+			}
+		}
+	}
 	s.delivery.mu.Lock()
 	e := s.delivery.samples[deliveryKey(r)]
 	s.delivery.mu.Unlock()

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,6 +109,7 @@ type Service struct {
 	o           Options
 	mu          sync.Mutex
 	communityMu sync.Mutex
+	nextCheck   time.Time
 	gen         atomic.Uint64
 }
 
@@ -672,7 +674,12 @@ func (s *Service) CheckHousehold(ctx context.Context) error {
 	return s.checkSet(ctx, cfg, householdUserID, nil, s.ownerOrNil(ctx), items)
 }
 
+func orderChecks(items []Item) {
+	sort.SliceStable(items, func(i, j int) bool { return items[i].CheckedAt.Before(items[j].CheckedAt) })
+}
+
 func (s *Service) checkSet(ctx context.Context, cfg Settings, userID int64, policyUser, resolveUser *core.User, items []Item) error {
+	orderChecks(items)
 	if cfg.Notify {
 		if err := s.retryAlerts(ctx); err != nil {
 			return err
@@ -715,6 +722,16 @@ func (s *Service) checkSet(ctx context.Context, cfg Settings, userID int64, poli
 		if !it.CheckedAt.IsZero() && s.o.Now().Sub(it.CheckedAt) < interval {
 			continue
 		}
+		// Share the scheduled pass budget with owner jobs; concurrency stays one.
+		timer := time.NewTimer(max(time.Until(s.nextCheck), 0))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		timer.Stop()
+		s.nextCheck = time.Now().Add(3 * time.Second)
 		checked++
 		if pending {
 			if err := s.newEpisodeForSet(ctx, cfg, userID, resolveUser, &t, newest); err != nil {
@@ -725,10 +742,17 @@ func (s *Service) checkSet(ctx context.Context, cfg Settings, userID int64, poli
 		wasAvailable := !it.AvailableAt.IsZero()
 		res, e := s.resolve(ctx, resolveUser, resolveTitle)
 		now := s.o.Now().Unix()
+		// Transient resolver failures do not establish that a stream is absent.
+		if e != nil && !errors.Is(e, core.ErrNotAvailable) {
+			if cfg.CheckHours == 0 {
+				return e
+			}
+			continue
+		}
 		if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET checked=? WHERE user_id=? AND item_key=?`, now, userID, t.Key); err != nil {
 			return err
 		}
-		if errors.Is(e, core.ErrNotAvailable) {
+		if errors.Is(e, core.ErrNotAvailable) || (e == nil && res == nil) {
 			if _, err := s.db.ExecContext(ctx, `UPDATE watchlist_items SET available=0,notified=0,warmed=0 WHERE user_id=? AND item_key=?`, userID, t.Key); err != nil {
 				return err
 			}

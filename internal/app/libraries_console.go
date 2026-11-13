@@ -358,10 +358,6 @@ func (c *librariesConsole) handler() http.Handler {
 			}
 		}
 		if body.Rules != nil || body.VisibilityDefault != nil {
-			if lib.Source == core.LibraryPlugin {
-				libError(w, http.StatusBadRequest, "Plugin libraries do not use TMDB visibility rules")
-				return
-			}
 			rules := lib.Rules
 			if body.Rules != nil {
 				rules = *body.Rules
@@ -455,10 +451,32 @@ func (c *librariesConsole) handleItems(w http.ResponseWriter, r *http.Request) {
 			libError(w, http.StatusServiceUnavailable, "Plugin items are unavailable")
 			return
 		}
+		policy, err := pluginitems.LibraryPolicy(r.Context(), lib)
+		if err != nil {
+			libError(w, 400, "Invalid filter")
+			return
+		}
+		hidden := false
+		if mode := p.Get("ruleVisibility"); mode != "" {
+			var specs []core.LibraryExclusion
+			if (mode != "hidden" && mode != "shown") || json.Unmarshal([]byte(p.Get("rules")), &specs) != nil {
+				libError(w, 400, "Invalid filter")
+				return
+			}
+			policy, err = libraryfilter.CompilePolicy(specs, p.Get("ruleFallback"))
+			if err != nil {
+				libError(w, 400, "Invalid filter")
+				return
+			}
+			hidden = mode == "hidden"
+		}
 		facets := parseFacets(r)
 		if q := strings.TrimSpace(p.Get("q")); q != "" {
+			if p.Get("ruleVisibility") == "" {
+				policy = policy.ForSearch()
+			}
 			page, err := items.Search(r.Context(), pluginitems.SearchQuery{
-				LibraryID: lib.ID, Query: q, Level: p.Get("level"), Facets: facets, Limit: limit,
+				Policy: policy, Hidden: hidden, LibraryID: lib.ID, Query: q, Level: p.Get("level"), Facets: facets, Limit: limit,
 			})
 			if err != nil {
 				libError(w, http.StatusInternalServerError, "Search failed")
@@ -470,6 +488,7 @@ func (c *librariesConsole) handleItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		page, err := items.Browse(r.Context(), pluginitems.BrowseQuery{
+			Policy: policy, Hidden: hidden,
 			LibraryID: lib.ID,
 			ParentRef: core.ItemRef(p.Get("parent")),
 			Level:     p.Get("level"),

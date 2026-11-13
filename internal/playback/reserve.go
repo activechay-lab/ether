@@ -250,36 +250,32 @@ func (m *Manager) prepareSpeedAlternate(g *generation) {
 		s.mu.Unlock()
 		alts = orderLowerBitrateFirst(alts, g.res.Release)
 		started := time.Now()
-		var prepared *generation
-		for attempt := 0; attempt < min(m.opts.MaxAttempts, 3) && ctx.Err() == nil; attempt++ {
-			res, err := m.nextResolution(ctx, s, tried, alts)
-			if err != nil {
-				break
-			}
-			tried = append(tried, res.Release.ID)
-			next, err := m.openGeneration(ctx, s, res, func(size int64) core.MediaInfo { return core.MediaInfo{Size: size, Estimated: true} })
-			if err != nil {
-				continue
-			}
-			bps := mediaBps(next.infoSnapshot(), next.src.Size())
-			if bps <= 0 || bps >= mediaBps(g.infoSnapshot(), g.src.Size()) || m.preflightSwap(ctx, s, next) != nil {
-				m.dropGeneration(next)
-				continue
-			}
-			// Read real upcoming bytes before calling an alternate ready. A
-			// successful header probe does not establish that its first articles
-			// or seek target exist (the Friends failure was at byte 1,433,600).
-			if err := m.warmAlternateWindow(ctx, g, next); err != nil {
-				m.log.Debug("alternate preparation failed", "session", s.id, "release", next.releaseID(), "err", err)
-				if permanentSourceFailure(err) {
-					m.markBad(next.releaseID(), "missing media while preparing alternate")
+		currentBps := mediaBps(g.infoSnapshot(), g.src.Size())
+		// Keep the resolver's quality order among candidates that can help.
+		alts = slices.DeleteFunc(alts, func(r core.Release) bool {
+			return r.Size > 0 && g.infoSnapshot().Duration > 0 && float64(r.Size)/g.infoSnapshot().Duration.Seconds() >= currentBps
+		})
+		prepared, failed, _ := m.raceAlternates(ctx, s, tried, alts,
+			func(size int64) core.MediaInfo { return core.MediaInfo{Size: size, Estimated: true} }, 3,
+			func(next *generation) error {
+				if hls, ok := m.deps.HLSLookup(s.id); ok {
+					if p, ok := hls.(interface{ SwapWouldCopyVideo(core.MediaInfo) bool }); ok && !p.SwapWouldCopyVideo(next.infoSnapshot()) {
+						return core.ErrNotAvailable
+					}
 				}
-				m.dropGeneration(next)
-				continue
-			}
-			prepared = next
-			break
-		}
+				bps := replacementBps(next, g.infoSnapshot().Duration)
+				if bps <= 0 || bps >= currentBps {
+					return core.ErrNotAvailable
+				}
+				if err := m.warmAlternateWindow(ctx, g, next); err != nil {
+					m.rememberOpenFailure(s, next.res.Release, err)
+					return err
+				}
+				return nil
+			}, nil)
+		s.mu.Lock()
+		s.tried = append(s.tried, failed...)
+		s.mu.Unlock()
 		if prepared == nil {
 			return
 		}
