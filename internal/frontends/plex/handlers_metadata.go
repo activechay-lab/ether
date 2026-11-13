@@ -126,6 +126,8 @@ func (s *Server) handleMetadataGUIDPath(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
+	// Serve stored catalogue details while bounded enrichment fills the mirror.
+	r = r.WithContext(s.exp().NoProviderWait(r.Context()))
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	startDetailPageWait(pr)
@@ -383,7 +385,7 @@ func (s *Server) showOnDeck(ctx context.Context, pr *Request, show frontend.Rati
 	return s.exp().ShowOnDeck(eps, st, func(t *frontend.Title) bool { return s.sameDayUnavailable(ctx, pr, t) }), st
 }
 
-const detailWarmWaitBudget = 4 * time.Second
+const detailWarmWaitBudget = 1500 * time.Millisecond
 
 // Apple TV can refresh detail metadata and obtains the admitted source's
 // tracks again on Play. Keep speculative preparation behind its browse
@@ -406,9 +408,14 @@ func (s *Server) warmDetail(ctx context.Context, pr *Request, t *frontend.Title)
 	if t == nil || !isPlayable(t.Type) || s.playback() == nil {
 		return
 	}
+	// A persisted probe describes the exact resume release already selected
+	// for this viewer and profile. Rendering it needs no source admission.
+	if _, _, ok := s.resumedTracks(ctx, pr, t); ok {
+		return
+	}
 	if plexMobileOrTVBedrockClient(pr) {
 		if _, ok := s.playback().(frontend.MetadataProber); ok {
-			// A single wait: do not add speculative warmDetail's four seconds
+			// A single wait: do not add speculative warmDetail's allowance
 			// after the metadata probe's own bounded wait. Errors/timeouts
 			// preserve the normal detail response and background preparation.
 			_ = s.probeDetailTracks(ctx, pr, t)

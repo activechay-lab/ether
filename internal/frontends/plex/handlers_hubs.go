@@ -383,6 +383,7 @@ func (s *Server) hubInSections(h frontend.Hub, ids []int) bool {
 }
 
 func (s *Server) homeHubs(w http.ResponseWriter, r *http.Request, promotedOnly bool) {
+	r = r.WithContext(s.exp().NoProviderWait(r.Context()))
 	route := "hubs"
 	if promotedOnly {
 		route = "hubs/promoted"
@@ -1859,6 +1860,7 @@ func searchLimit(w http.ResponseWriter, r *http.Request, fallback, ceiling int) 
 }
 
 func (s *Server) handleHubSearch(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(s.exp().NoProviderWait(r.Context()))
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	q := r.URL.Query()
@@ -2061,6 +2063,7 @@ func searchScore(i, n int) float64 {
 
 // handleSearch is the legacy flat /search?query=.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(s.exp().NoProviderWait(r.Context()))
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	q := r.URL.Query()
@@ -2082,6 +2085,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 // handleLibrarySearch is /library/search, used by the newer apps: results
 // wrapped in SearchResult with a score.
 func (s *Server) handleLibrarySearch(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(s.exp().NoProviderWait(r.Context()))
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	q := r.URL.Query()

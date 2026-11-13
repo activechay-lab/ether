@@ -142,11 +142,14 @@ func (m *Manager) ProbeMetadata(ctx context.Context, user *core.User, key core.R
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if _, _, ok := m.ResumedTracks(ctx, user, key, caps); ok {
+		return nil
+	}
 	if _, ok := m.WarmProbeInfo(user, caps, key); ok {
 		return nil
 	}
 	m.prewarm(ctx, user, key, caps, core.PrewarmOptions{Reason: core.PrewarmDetail}, true)
-	if _, ok := m.WaitWarmProbe(ctx, user, caps, key, 4*time.Second); ok {
+	if _, ok := m.WaitWarmProbe(ctx, user, caps, key, 1500*time.Millisecond); ok {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {

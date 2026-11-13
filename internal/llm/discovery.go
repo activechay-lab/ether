@@ -37,9 +37,11 @@ func (s *Service) NaturalSearch(ctx context.Context, u *core.User, query string,
 		}
 		return nil, s.resolve(ctx, ParseTitles(content), nil, limit), nil
 	}
-	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	titles, e := s.wait(bounded, key, "", compute, func(v *cacheEntry) []core.Title { return v.titles })
+	// Use cached suggestions immediately; a miss starts the existing bounded,
+	// deduplicated refresh and this request falls back to local search.
+	ready, cancel := context.WithCancel(ctx)
+	cancel()
+	titles, e := s.wait(ready, key, "", compute, func(v *cacheEntry) []core.Title { return v.titles })
 	if e != nil || len(titles) == 0 {
 		return s.catalog.Search(ctx, query, nil, limit)
 	}

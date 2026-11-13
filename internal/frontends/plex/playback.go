@@ -1330,6 +1330,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusBadRequest)
 		return
 	}
+	s.logPlaybackStart(r, p)
 	if !s.decisionArmed(pr, p.key) {
 		writePlaybackStatus(w, http.StatusBadRequest)
 		return
@@ -2396,4 +2397,30 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", ct)
 	_, _ = io.Copy(w, io.LimitReader(reader, 32<<20))
+}
+
+// logPlaybackStart records only parsed playback controls, never URL queries,
+// headers, paths, or capabilities that may carry credentials.
+func (s *Server) logPlaybackStart(r *http.Request, p playRequest) {
+	endpoint := "start.m3u8"
+	if strings.HasSuffix(r.URL.Path, "/start.mpd") {
+		endpoint = "start.mpd"
+	}
+	part, _ := strconv.Atoi(r.URL.Query().Get("partIndex"))
+	protocol := p.protocol
+	switch protocol {
+	case "hls", "dash", "http":
+	default:
+		protocol = "unknown"
+	}
+	subtitles := r.URL.Query().Get("subtitles")
+	switch subtitles {
+	case "auto", "burn", "none":
+	default:
+		subtitles = ""
+	}
+	s.log.Debug("playback start controls", "endpoint", endpoint,
+		"offset", p.offset, "offsetPresent", r.URL.Query().Has("offset"), "directPlay", p.opts.DirectPlay, "directStream", p.opts.DirectStream,
+		"mediaIndex", p.mediaIndex, "partIndex", part, "protocol", protocol,
+		"subtitles", subtitles, "subtitleStream", p.subSel, "session", p.sessionID)
 }

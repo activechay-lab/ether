@@ -66,6 +66,9 @@ func (s *Service) resolvePreferred(ctx context.Context, req core.ResolveRequest,
 		}
 	}
 	if index < 0 {
+		if req.PreferredOnly {
+			return out, core.ErrNotAvailable
+		}
 		reason := candidateReason(trace, pinID)
 		note(PinRejected, reason, "rejected: "+reason)
 		s.log.Info("preferred release not among candidates; using normal ranking", "title", req.Title.Key, "prefer", prefer)
@@ -88,6 +91,9 @@ func (s *Service) resolvePreferred(ctx context.Context, req core.ResolveRequest,
 	default:
 		reason := candidateReason(trace, pinID)
 		note(PinUnhealthy, reason, "unhealthy: "+reason)
+	}
+	if req.PreferredOnly {
+		return out, core.ErrNotAvailable
 	}
 	s.log.Info("preferred release unavailable; falling back to normal ranking", "title", req.Title.Key, "prefer", prefer, "err", err)
 	out.candidates = append(candidates[:index], candidates[index+1:]...)

@@ -395,7 +395,7 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 	// in-memory title index (search_titles.go); seasons and episodes, and
 	// every type until the index's first build, from the literal match.
 	var localErr error
-	ix := c.searchIndex(ctx, true)
+	ix := c.searchIndex(ctx, !noReadWait(ctx))
 	deferredLocal = year == 0 && !wantSeason && !wantEpisode && (unfiltered || (c.visibilityFor(ctx).Passive() && c.config().ReleaseMode != config.ModeDigital))
 	if ix != nil && (wantMovie || wantTV) {
 		keys, scores := c.searchKeys(ix, sq, wantMovie, wantTV, max(limit*3, 30))
@@ -576,6 +576,9 @@ func (c *Catalog) searchTitlesOpts(ctx context.Context, query string, types []co
 		// The mirror already answers the search; take TMDB's results only if
 		// they are immediate.
 		wait = searchRemoteGrace
+	}
+	if noReadWait(ctx) {
+		wait = 0
 	}
 	// A detached search that finished answers the next one: its hits are
 	// summaries in memory, never stored, so the mirror cannot.

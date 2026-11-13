@@ -53,6 +53,7 @@ func (s *Server) handleStartDASH(w http.ResponseWriter, r *http.Request) {
 		writePlaybackStatus(w, http.StatusBadRequest)
 		return
 	}
+	s.logPlaybackStart(r, p)
 	if !s.decisionArmed(pr, p.key) {
 		writePlaybackStatus(w, http.StatusBadRequest)
 		return
