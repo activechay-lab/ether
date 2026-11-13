@@ -350,18 +350,7 @@ export function RecordDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      title={
-        <span className="flex items-center gap-3">
-          {title}
-          {onEnabledChange ? (
-            <Switch
-              aria-label={t("Enabled")}
-              checked={enabled ?? true}
-              onChange={(e) => onEnabledChange(e.currentTarget.checked)}
-            />
-          ) : null}
-        </span>
-      }
+      title={title}
       description={description}
       size="lg"
       footer={
@@ -390,6 +379,16 @@ export function RecordDrawer({
     >
       <div className="space-y-4">
         {error ? <MutationError error={error} /> : null}
+        {onEnabledChange ? (
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+            <span className="font-medium">{t("Enabled")}</span>
+            <Switch
+              aria-label={t("Enabled")}
+              checked={enabled ?? true}
+              onChange={(e) => onEnabledChange(e.currentTarget.checked)}
+            />
+          </label>
+        ) : null}
         {children}
       </div>
     </Drawer>
