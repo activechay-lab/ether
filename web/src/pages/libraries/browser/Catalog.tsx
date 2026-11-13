@@ -39,21 +39,6 @@ const SORTS = localized(() => [
   { value: "duration", label: t("Runtime") },
 ]);
 
-/** AND a saved library filter into a compiled browse filter (spec §11). */
-export function mergeLibraryFilter(
-  compiled: Record<string, unknown>,
-  saved?: Record<string, unknown>,
-): Record<string, unknown> {
-  if (!saved || !Object.keys(saved).length) return compiled;
-  const leaf = { operator: "and", filter: saved };
-  const group = (compiled as { group?: unknown }).group;
-  const { group: _group, ...rest } = compiled as { group?: unknown };
-  return {
-    ...rest,
-    group: { operator: "and", children: [...(group ? [group] : []), leaf] },
-  };
-}
-
 export function CatalogBrowser({
   params,
   setParams,
@@ -118,11 +103,8 @@ export function CatalogBrowser({
   const advanced = useDebouncedValue(advancedRaw, 250);
   const viewer = params.get("viewer") || "";
   const compiledFilter = advanced ? compileQuery(readQuery(advanced), viewer) : {};
-  const mergedFilter = mergeLibraryFilter(
-    compiledFilter as Record<string, unknown>,
-    libraryScope?.filter,
-  );
-  const filterParam = Object.keys(mergedFilter).length ? JSON.stringify(mergedFilter) : undefined;
+  // libraryId scopes the request on the server; only send the user's filters.
+  const filterParam = Object.keys(compiledFilter).length ? JSON.stringify(compiledFilter) : undefined;
   const [lookupOpen, setLookupOpen] = useState(false);
   // Router transitions can update the URL before the previous controls commit.
   // Merge rapid interactions into the latest requested state, not a stale render.

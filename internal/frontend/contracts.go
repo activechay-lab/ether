@@ -597,6 +597,9 @@ type Experience interface {
 	LibraryGUIDs() LibraryGUIDs
 	LibraryMetadata() LibraryMetadata
 	MarkerRanges
+	// PublishedViews lists protocol-published libraries without viewer policy.
+	// Callers must apply the real viewer's restrictions before serving them.
+	PublishedViews(context.Context) ([]View, error)
 	Views(context.Context, *core.Viewer) ([]View, error)
 	Collections(context.Context, *core.Viewer, core.Device, CollectionQuery) (CollectionPage, error)
 	NotInterested(context.Context, *core.Viewer, core.Device, PageQuery) (NotInterestedPage, error)

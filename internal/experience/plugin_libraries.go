@@ -141,6 +141,14 @@ func (s *Service) publishedLibrary(ctx context.Context, lib core.Library) (core.
 	}
 }
 
+// PublishedViews enumerates published libraries directly, without inventing a viewer.
+func (s *Service) PublishedViews(ctx context.Context) ([]frontend.View, error) {
+	if s.d.PluginLibraries == nil {
+		return nil, nil
+	}
+	return s.storedViews(ctx, nil)
+}
+
 func (s *Service) storedViews(ctx context.Context, v *core.User) ([]frontend.View, error) {
 	libs, err := s.d.PluginLibraries.Libraries(ctx)
 	if err != nil {
@@ -148,7 +156,7 @@ func (s *Service) storedViews(ctx context.Context, v *core.User) ([]frontend.Vie
 	}
 	out := make([]frontend.View, 0, len(libs))
 	for _, lib := range libs {
-		if !v.AllowsLibrary(lib.ID) {
+		if v != nil && !v.AllowsLibrary(lib.ID) {
 			continue
 		}
 		mt, native, ok := s.publishedLibrary(ctx, lib)

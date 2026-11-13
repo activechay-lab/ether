@@ -39,7 +39,7 @@ func (l *libraryProfiles) QualityProfileForTitle(ctx context.Context, t *core.Ti
 	if l == nil || l.app == nil || l.app.libraries == nil || t == nil {
 		return ""
 	}
-	key := t.Key
+	key := libraryProfileKey(t)
 	if name, ok := l.cached(key); ok {
 		return name
 	}
@@ -104,7 +104,7 @@ func (l *libraryProfiles) resolve(ctx context.Context, t *core.Title) string {
 		if l.app.catalog == nil {
 			continue
 		}
-		ok, err := l.app.catalog.TitleInFilter(ctx, membership, t.Key)
+		ok, err := l.app.catalog.TitleInFilter(ctx, membership, libraryProfileKey(t))
 		if err != nil || !ok {
 			continue
 		}
@@ -130,13 +130,21 @@ func titleMedia(t *core.Title) string {
 	case core.TypeMovie:
 		return core.MediaMovie
 	case core.TypeShow, core.TypeSeason, core.TypeEpisode:
-		return core.MediaTV
+		return string(core.TypeShow)
 	}
 	switch t.Key.Kind() {
 	case core.KindMovie:
 		return core.MediaMovie
 	case core.KindEpisode:
-		return core.MediaTV
+		return string(core.TypeShow)
 	}
 	return core.MediaAny
+}
+
+// Seasons and episodes inherit membership and the cached profile of their show.
+func libraryProfileKey(t *core.Title) core.RatingKey {
+	if (t.Type == core.TypeSeason || t.Type == core.TypeEpisode) && t.ShowKey != 0 {
+		return t.ShowKey
+	}
+	return t.Key
 }

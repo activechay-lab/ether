@@ -37,6 +37,7 @@ type Experience struct {
 	SetRatingFunc            func(context.Context, *core.Viewer, core.RatingKey, float64) error
 	RemoveFromContinueFunc   func(context.Context, *core.Viewer, core.RatingKey) error
 	ReportRowInteractionFunc func(context.Context, frontend.RowInteraction) error
+	PublishedViewsFunc       func(context.Context) ([]frontend.View, error)
 	ViewsFunc                func(context.Context, *core.Viewer) ([]frontend.View, error)
 	RowsFunc                 func(context.Context, frontend.RowRequest) ([]frontend.Row, error)
 	ItemFunc                 func(context.Context, frontend.ItemRequest) (frontend.ItemDetail, error)
@@ -69,6 +70,12 @@ func (f Experience) NotInterestedItem(c context.Context, v *core.Viewer, d core.
 		return f.NotInterestedItemFunc(c, v, d, k)
 	}
 	return frontend.NotInterestedEntry{}, core.ErrNotFound
+}
+func (f Experience) PublishedViews(c context.Context) ([]frontend.View, error) {
+	if f.PublishedViewsFunc != nil {
+		return f.PublishedViewsFunc(c)
+	}
+	return nil, nil
 }
 func (f Experience) Views(c context.Context, v *core.Viewer) ([]frontend.View, error) {
 	if f.ViewsFunc != nil {

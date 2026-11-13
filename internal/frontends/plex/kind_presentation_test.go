@@ -31,7 +31,7 @@ func newKindExperience() *kindExperience {
 	return &kindExperience{Experience: frontend.NoopExperience()}
 }
 
-func (e *kindExperience) Views(context.Context, *frontend.Viewer) ([]frontend.View, error) {
+func (e *kindExperience) PublishedViews(context.Context) ([]frontend.View, error) {
 	return []frontend.View{
 		{ID: "7", LibraryID: 7, Name: "Field Recordings", Type: core.TypeShow, Virtual: true, KindKey: "recordings", PluginID: "fieldrec", Native: plexBaseArtist},
 		{ID: "8", LibraryID: 8, Name: "Snapshots", Type: core.TypeShow, Virtual: true, KindKey: "snapshots", PluginID: "fieldrec", Native: plexBasePhoto},
