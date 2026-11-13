@@ -789,7 +789,6 @@ function Sources({
                     value={s.startSeason || ""}
                     onChange={(e) =>
                       set(i, {
-                        startDate: undefined,
                         startSeason: e.currentTarget.value
                           ? Number(e.currentTarget.value)
                           : undefined,
@@ -809,7 +808,6 @@ function Sources({
                     value={s.startEpisode || ""}
                     onChange={(e) =>
                       set(i, {
-                        startDate: undefined,
                         startEpisode: e.currentTarget.value
                           ? Number(e.currentTarget.value)
                           : undefined,
