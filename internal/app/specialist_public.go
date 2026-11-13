@@ -33,9 +33,6 @@ func (a *App) runPublicRole(ctx context.Context) error {
 	if a.certs != nil {
 		background.start(func() { a.certs.RunSharedSync(ctx, plextv.DefaultCertSyncInterval) })
 	}
-	if a.cfg.Get().Server.NodeRoles.Has(config.RoleServer) {
-		a.startServerWorkers(ctx, &background)
-	}
 	cfg := a.cfg.Get()
 	if cfg.Plex.SecureConnections == "required" && a.certs != nil {
 		info := a.certs.Info()
@@ -67,6 +64,10 @@ func (a *App) runPublicRole(ctx context.Context) error {
 	}
 	front.gate.Open(a.publicRoleHandler())
 	a.markPublicReady()
+	if a.cfg.Get().Server.NodeRoles.Has(config.RoleServer) {
+		a.startServerWorkers(ctx, &background)
+	}
+
 	if a.cfg.Get().Server.NodeRoles.Has(config.RoleServer) {
 		background.start(func() { a.runRegistrarAsLeader(ctx) })
 		background.start(func() { a.registrar.RunPortMapping(ctx) })
@@ -115,6 +116,7 @@ func (a *App) publicRoleHandler() http.Handler {
 	})
 }
 func (a *App) startServerWorkers(ctx context.Context, g *backgroundGroup) {
+	g.start(func() { a.catalog.FinishStartup(ctx) })
 	a.catalog.WarmSearch(ctx)
 	// Every node that serves search keeps its own long-tail index.
 	g.start(func() { a.catalog.RunTail(ctx) })

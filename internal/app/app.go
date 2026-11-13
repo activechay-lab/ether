@@ -453,6 +453,11 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		a.Close() // libera o instance lock (o db não foi aberto)
 		return nil, startFail(openFailure(err, dbCfg.IsPostgres()), fmt.Errorf("database: %w", err))
 	}
+	phaseStart := time.Now()
+	phase := func(name string) {
+		a.log.Info("startup phase", "phase", name, "duration", time.Since(phaseStart))
+		phaseStart = time.Now()
+	}
 	// The rest of construction writes through the gate in startup steps
 	// (restored-dump import, credential sealing, seeding). Hold the gate
 	// in maintenance mode until New returns so anything already writing
@@ -521,6 +526,7 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 	if err := a.validateRuntimeSettings(cfg.Server, dbCfg); err != nil {
 		return nil, startFail(startup.FailConfig, fmt.Errorf("node settings: %w", err))
 	}
+	phase("database setup and credential blobs")
 	a.tracker.Set(startup.PhaseStartingServices)
 	if a.deployment != nil && !cfg.Server.NodeRoles.FullServer() {
 		if cfg.Server.NodeRoles.Has(config.RoleServer) {
@@ -559,15 +565,18 @@ func New(ctx context.Context, opts Options) (_ *App, err error) {
 		started = true
 		return a, nil
 	}
+	phase("role selection")
 	cfg = a.adoptMountedCache(cfg)
 	if err := a.build(ctx, cfg); err != nil {
 		a.Close()
 		return nil, err
 	}
+	phase("service construction")
 	a.connectClusterHooks()
 	a.initUpdates()
 	// Keep the owner's recovery sign-in in step with the database.
 	a.syncOwnerRecovery(ctx)
+	phase("hooks and recovery")
 	started = true
 	return a, nil
 }
@@ -597,24 +606,20 @@ func (a *App) build(ctx context.Context, cfg config.Config) error {
 	// Identity precedes model construction: background builders receive a fully
 	// initialized auth service. Scorer consumers are built inside the model's
 	// dependency phase before its workers start.
-	for _, build := range []func(context.Context, config.Config) error{
+	for phase, build := range []func(context.Context, config.Config) error{
 		a.buildCatalogue, func(context.Context, config.Config) error {
 			a.safety.SetCatalogPolicy(a.catalog.VisibleForViewer, a.catalog.DiscoveryVisibleForViewer)
 			return a.rebuildPolicyInputs(ctx)
 		}, a.buildIdentity, a.buildSessionEvents, a.buildPersonalization,
 		a.buildSources, a.buildPlayback, a.buildClusterPlayback, a.buildPrefetch, a.buildIntegrations,
 	} {
+		phaseStart := time.Now()
 		if err := build(ctx, cfg); err != nil {
 			return err
 		}
+		a.log.Info("startup phase", "phase", []string{"catalogue", "policy", "identity", "session events", "personalization", "sources", "playback", "cluster playback", "prefetch", "integrations"}[phase], "duration", time.Since(phaseStart))
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	a.stopPrewarm = cancel
-	a.prewarmDone = make(chan struct{})
-	go func() {
-		defer close(a.prewarmDone)
-		a.prewarmBrowse(ctx)
-	}()
+
 	return nil
 }
 
@@ -690,9 +695,8 @@ func (a *App) protectedReleases() map[string]bool {
 // Handler is the combined Plex + owner UI handler (tests).
 func (a *App) Handler() http.Handler { return a.handler }
 
-// settleBeforeListen finishes startup database work that would otherwise
-// hold the write lock across the first play. The listener is not open yet.
-func (a *App) settleBeforeListen(ctx context.Context) {
+// warmPlaybackPolicy initializes optional confirmation state after listening.
+func (a *App) warmPlaybackPolicy(ctx context.Context) {
 	if a.safety != nil && a.users != nil {
 		owner, err := a.users.Owner(ctx)
 		if err == nil && owner != nil {
@@ -701,12 +705,7 @@ func (a *App) settleBeforeListen(ctx context.Context) {
 			}
 		}
 	}
-	if a.db != nil && store.DialectOf(a.db) == store.SQLite {
-		a.upgradeProgress("checkpoint", 0, 0)
-		if _, err := a.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-			a.log.Warn("startup checkpoint", "err", err)
-		}
-	}
+
 }
 
 // Config is the settings store.
@@ -714,6 +713,7 @@ func (a *App) Config() *config.Store { return a.cfg }
 
 // Run serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	runStart := time.Now()
 	ctx = store.WithWorkProgress(ctx, a.upgradeProgress)
 	if a.deployment != nil && !a.cfg.Get().Server.NodeRoles.FullServer() {
 		if roles := a.cfg.Get().Server.NodeRoles; roles.Has(config.RoleServer) || roles.Has(config.RoleDelivery) {
@@ -740,11 +740,9 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	defer stopPrivate()
-	// Credential sealing and the startup WAL checkpoint finish before
-	// background workers or the listener start, so neither waits on or
-	// contends with that write. The maintenance hold also queues the
-	// writers cluster/private startup already launched, for as long as
-	// the checkpoint takes, instead of failing them at 10 s (#407).
+	a.log.Info("startup phase", "phase", "cluster and private listener", "duration", time.Since(runStart))
+	runStart = time.Now()
+	// Seal credentials before consumers begin serving requests.
 	endHold, holdErr := store.MaintenanceHold(ctx, a.db)
 	if holdErr != nil {
 		a.log.Warn("startup maintenance hold", "err", holdErr)
@@ -754,11 +752,51 @@ func (a *App) Run(ctx context.Context) error {
 		endHold()
 		return fmt.Errorf("convert stored credentials: %w", err)
 	}
-	a.settleBeforeListen(ctx)
 	endHold()
+	a.log.Info("startup phase", "phase", "stored credentials", "duration", time.Since(runStart))
+	runStart = time.Now()
 	var background backgroundGroup
 	defer background.Wait()
 	defer cancel()
+
+	front := a.opts.front
+	if front == nil {
+		ln, err := a.listen(cfg)
+		if err != nil {
+			return err
+		}
+		front = newFrontDoor(a.tracker, a.log)
+		front.serve(ln)
+		defer front.close()
+	}
+	addr := front.ln.Addr()
+	a.frontends.start(ctx, addr)
+	defer a.frontends.stop()
+	cfg = a.cfg.Get() // the port may have moved off a busy default
+	// Publish the actual listener, including automatic port fallback, without
+	// exposing the service's protected configuration to the desktop user.
+	if err := service.PublishLocalURL(a.opts.DataDir, strings.TrimSuffix(probeURL(addr), "/identity")); err != nil {
+		a.log.Warn("publish local tray endpoint", "err", err)
+	}
+	front.setTLS(a.certs.TLSConfig)
+	front.setProxies(a.cfg.TrustedProxyCIDRs)
+	front.setRemote(a.cfg.AllowRemoteConsole)
+	// A restore applied at this start counts from here: the server is
+	// about to serve on it. If it cannot be recorded, nothing is served
+	// and Serve puts the original data back.
+	if err := a.confirmRestore(); err != nil {
+		return err
+	}
+	front.gate.Open(a.handler)
+	a.markPublicReady()
+	a.log.Info("startup phase", "phase", "public listener", "duration", time.Since(runStart))
+	uiURL := fmt.Sprintf("http://localhost:%d/ether/", cfg.Server.Port)
+	a.log.Info("Ether listening", "addr", addr.String(), "ui", uiURL,
+		"version", a.opts.Version, "spike", cfg.Spike.Enabled)
+	background.start(func() { a.warmPlaybackPolicy(ctx) })
+	background.start(func() { a.catalog.FinishStartup(ctx) })
+	background.start(func() { a.playback.FinishStartup(ctx) })
+
 	background.start(func() { a.runNodeControl(ctx) })
 	background.start(func() { a.watchConsoleSessions(ctx) })
 
@@ -838,39 +876,6 @@ func (a *App) Run(ctx context.Context) error {
 	background.start(func() { a.cluster.RunAsLeader(ctx, "prowlarr indexer sync", a.runProwlarrSync) })
 	background.start(func() { a.runEgress(ctx) })
 
-	front := a.opts.front
-	if front == nil {
-		ln, err := a.listen(cfg)
-		if err != nil {
-			return err
-		}
-		front = newFrontDoor(a.tracker, a.log)
-		front.serve(ln)
-		defer front.close()
-	}
-	addr := front.ln.Addr()
-	a.frontends.start(ctx, addr)
-	defer a.frontends.stop()
-	cfg = a.cfg.Get() // the port may have moved off a busy default
-	// Publish the actual listener, including automatic port fallback, without
-	// exposing the service's protected configuration to the desktop user.
-	if err := service.PublishLocalURL(a.opts.DataDir, strings.TrimSuffix(probeURL(addr), "/identity")); err != nil {
-		a.log.Warn("publish local tray endpoint", "err", err)
-	}
-	front.setTLS(a.certs.TLSConfig)
-	front.setProxies(a.cfg.TrustedProxyCIDRs)
-	front.setRemote(a.cfg.AllowRemoteConsole)
-	// A restore applied at this start counts from here: the server is
-	// about to serve on it. If it cannot be recorded, nothing is served
-	// and Serve puts the original data back.
-	if err := a.confirmRestore(); err != nil {
-		return err
-	}
-	front.gate.Open(a.handler)
-	a.markPublicReady()
-	uiURL := fmt.Sprintf("http://localhost:%d/ether/", cfg.Server.Port)
-	a.log.Info("Ether listening", "addr", addr.String(), "ui", uiURL,
-		"version", a.opts.Version, "spike", cfg.Spike.Enabled)
 	if next := startupNextStep(cfg, uiURL); next != "" {
 		a.log.Info(next)
 	}

@@ -233,6 +233,9 @@ func (c *Cache) Sweep() {
 
 // Run expires idle bytes even when no new streams arrive.
 func (c *Cache) Run(ctx context.Context) {
+	if c.shared == nil {
+		c.indexDisk(ctx)
+	}
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	for {

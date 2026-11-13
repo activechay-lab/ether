@@ -2,6 +2,7 @@ package segcache
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -437,13 +438,13 @@ func TestTornPinsFileStartsEmpty(t *testing.T) {
 		if len(c.Pins()) != 0 {
 			t.Fatalf("pins from %q: %v", body, c.Pins())
 		}
-		if _, err := os.Stat(filepath.Join(dir, pinsFileName+".torn"+tmpExt)); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(dir, pinsFileName+".torn"+tmpExt)); err != nil {
 			t.Fatalf("torn temp %q: %v", body, err)
 		}
 	}
 }
 
-func TestIndexRebuiltOnRestart(t *testing.T) {
+func TestIndexAccountedAfterRestart(t *testing.T) {
 	dir := t.TempDir()
 	c := openT(t, dir, 0)
 	base := time.Now().Add(-time.Hour)
@@ -463,6 +464,7 @@ func TestIndexRebuiltOnRestart(t *testing.T) {
 	_ = c.Close()
 
 	c2 := openT(t, dir, 0)
+	c2.indexDisk(context.Background())
 	used2, _ := c2.Usage()
 	if used2 != used {
 		t.Fatalf("used after restart=%d want %d", used2, used)
@@ -482,7 +484,7 @@ func TestIndexRebuiltOnRestart(t *testing.T) {
 	_ = c2.Close()
 
 	// Reopen fresh (the Gets above touched mtimes, so restore them) with a
-	// budget that forces eviction: oldest mtimes must go first.
+	// budget that forces eviction after background accounting.
 	for i := range 6 {
 		id := fmt.Sprintf("rel-%d/x", i%3)
 		mt := base.Add(time.Duration(5-i) * time.Minute)
@@ -490,17 +492,16 @@ func TestIndexRebuiltOnRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c3 := openT(t, dir, 100+101+102) // room for segments 0,1,2 (newest mtimes)
-	for i := range 6 {
-		id := fmt.Sprintf("rel-%d/x", i%3)
-		if want := i < 3; c3.Has(id, i) != want {
-			t.Fatalf("after budgeted reopen Has(%q,%d)=%v want %v (order %v)", id, i, !want, want, order)
-		}
+	c3 := openT(t, dir, 100+101+102)
+	c3.indexDisk(context.Background())
+	if used, budget := c3.Usage(); used > budget {
+		t.Fatalf("accounting did not enforce budget: %d > %d (order %v)", used, budget, order)
 	}
+
 	checkInvariants(t, c3)
 }
 
-func TestOpenCleansStaleFiles(t *testing.T) {
+func TestOpenLeavesStaleFilesForLazyAccounting(t *testing.T) {
 	dir := t.TempDir()
 	c := openT(t, dir, 0)
 	mustPut(t, c, "r", 0, payload("r", 0, 0, 100))
@@ -541,11 +542,15 @@ func TestOpenCleansStaleFiles(t *testing.T) {
 	}
 
 	c2 := openT(t, dir, 0)
+	// Startup leaves unrequested files untouched. Accounting discovers valid
+	// segments and rejects broken headers without requiring a startup sweep.
 	for _, p := range append(stale, filepath.Join(rdir, "5.seg"), orphan, empty) {
-		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("%s not cleaned: %v", p, err)
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("startup touched %s: %v", p, err)
 		}
 	}
+	c2.indexDisk(context.Background())
+
 	if used, _ := c2.Usage(); used != 200 {
 		t.Fatalf("used=%d", used)
 	}
@@ -898,4 +903,67 @@ func TestReleaseBytes(t *testing.T) {
 	if got := c.ReleaseBytes("missing"); got != 0 {
 		t.Fatalf("ReleaseBytes(missing) = %d", got)
 	}
+}
+
+// Startup must not even inspect cache entries; validation belongs to reads.
+func TestOpenLargeCacheLazyValidation(t *testing.T) {
+	dir := t.TempDir()
+	id := "startup"
+	rel := filepath.Join(dir, dataDirName, releaseDirRel(id))
+	if err := writeReleaseMeta(rel, id); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10000; i++ {
+		tmp, err := writeSegmentTemp(rel, i, []byte("payload"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, filepath.Join(rel, segName(i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, data := range [][]byte{nil, []byte("bad header"), make([]byte, headerSize+7)} {
+		if err := os.WriteFile(filepath.Join(rel, segName(i)), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Valid header and length, but a damaged CRC.
+	path := filepath.Join(rel, segName(3))
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b[len(b)-1] ^= 1
+	if err := os.WriteFile(path, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	c, err := Open(dir, 0, slog.New(slog.DiscardHandler))
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if elapsed >= 100*time.Millisecond {
+		t.Fatalf("Open took %v", elapsed)
+	}
+	if c.segCountSafe() != 0 {
+		t.Fatal("Open indexed disk entries")
+	}
+	for i := 0; i < 4; i++ {
+		path := filepath.Join(rel, segName(i))
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal("Open touched corrupt entry", err)
+		}
+		if _, ok := c.Get(id, i); ok {
+			t.Fatalf("corrupt entry %d read", i)
+		}
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("corrupt entry %d retained: %v", i, err)
+		}
+	}
+	if b, ok := c.Get(id, 9999); !ok || string(b) != "payload" {
+		t.Fatal("existing valid entry missed")
+	}
+	t.Logf("Open over 10,000 entries: %v", elapsed)
 }

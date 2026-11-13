@@ -309,7 +309,6 @@ func newResumeStore(db *sql.DB, dataDir string) (*resumeStore, error) {
 		return nil, err
 	}
 	s := &resumeStore{db: db, dir: dir, payload: payload}
-	s.sweep(ctx)
 	return s, nil
 }
 
@@ -319,31 +318,45 @@ const sweepMinAge = time.Hour
 
 // sweep removes temp files left by a crash mid-write and NZB files no
 // resume record references (e.g. the process died between writing the
-// file and inserting its row). It runs once at startup.
+// file and inserting its row). It runs after listening.
 func (s *resumeStore) sweep(ctx context.Context) {
-	entries, err := os.ReadDir(s.dir)
+	f, err := os.Open(s.dir)
 	if err != nil {
 		return
 	}
+	defer f.Close()
 	cutoff := time.Now().Add(-sweepMinAge)
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() {
-			continue
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		entries, err := f.ReadDir(32)
+		if len(entries) == 0 && err != nil {
+			return
 		}
-		info, err := e.Info()
-		if err != nil || info.ModTime().After(cutoff) {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(name, "nzb-") && strings.HasSuffix(name, ".tmp"):
-			var owners int
-			if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playback_payload_owners WHERE domain=?`, s.payload.domain).Scan(&owners); err == nil && owners == 0 {
-				_ = os.Remove(filepath.Join(s.dir, name))
+		for _, e := range entries {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
 			}
-		case strings.HasSuffix(name, ".nzb"):
-			hash := strings.TrimSuffix(name, ".nzb")
-			s.gcNZB(ctx, hash)
+			name := e.Name()
+			if e.IsDir() {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil || info.ModTime().After(cutoff) {
+				continue
+			}
+			switch {
+			case strings.HasPrefix(name, "nzb-") && strings.HasSuffix(name, ".tmp"):
+				var owners int
+				if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playback_payload_owners WHERE domain=?`, s.payload.domain).Scan(&owners); err == nil && owners == 0 {
+					_ = os.Remove(filepath.Join(s.dir, name))
+				}
+			case strings.HasSuffix(name, ".nzb"):
+				hash := strings.TrimSuffix(name, ".nzb")
+				s.gcNZB(ctx, hash)
+			}
 		}
 	}
 }
@@ -1023,4 +1036,11 @@ func (s *resumeStore) loadIndex(ctx context.Context, userID int64, key core.Rati
 		points = points[:maxResumeKeyframes]
 	}
 	return points, nil
+}
+
+// FinishStartup performs optional orphan housekeeping after listening.
+func (m *Manager) FinishStartup(ctx context.Context) {
+	if m.resume != nil {
+		m.resume.sweep(ctx)
+	}
 }

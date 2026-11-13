@@ -27,6 +27,7 @@ func init() {
   upgraded_at INTEGER NOT NULL,
   key_fingerprint TEXT NOT NULL DEFAULT ''
 );`)
+	store.Register("credentials", 2, `CREATE TABLE credentials_upgrades (name TEXT PRIMARY KEY);`)
 }
 
 // sealedTables are the database columns that hold sealed values.
@@ -181,6 +182,15 @@ func (a *App) migrateStoredSecrets(ctx context.Context) (int, error) {
 // bounded transactions before consumers read them. Completed batches are skipped
 // on restart. Updates use primary keys to avoid a table scan for every payload.
 func (a *App) migrateCredentialBlobs(ctx context.Context) error {
+	var marker string
+	err := a.db.QueryRowContext(ctx, `SELECT name FROM credentials_upgrades WHERE name='sealed-blobs-v2'`).Scan(&marker)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
 	changed := 0
 	for _, spec := range []struct{ table, column, name, keys string }{
 		{"clusterconfig_secrets", "value", "", "name"},
@@ -259,5 +269,6 @@ func (a *App) migrateCredentialBlobs(ctx context.Context) error {
 	if changed > 0 {
 		a.log.Info("credentials: converted stored blobs to v2", "rows", changed)
 	}
-	return nil
+	_, err = a.db.ExecContext(ctx, `INSERT INTO credentials_upgrades(name) VALUES('sealed-blobs-v2') ON CONFLICT(name) DO NOTHING`)
+	return err
 }
