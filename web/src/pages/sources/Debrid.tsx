@@ -1,3 +1,4 @@
+import { SourceEditorHeader, SourceEditorMetrics } from "../../components/SourceEditorSummary";
 import { formatThroughput } from "../../lib/format";
 import { t, tn, tx } from "../../i18n";
 import {
@@ -320,6 +321,7 @@ export function DebridSources({
   if (!cfg || !debrid) return <LoadingRows rows={3} />;
 
   const draft = editing?.draft;
+  const selectedStatus = live.find((p) => p.id === draft?.id);
   const set = (patch: Partial<DebridProvider>) =>
     setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...patch } } : e));
   const isNew = editing ? editing.index >= providers.length : false;
@@ -436,6 +438,49 @@ export function DebridSources({
       <DebridSettings debrid={debrid} onSaved={reloadAll} />
 
       <RecordDrawer
+        summary={
+          draft ? (
+            <div className="space-y-5">
+              <SourceEditorHeader
+                icon={<Cloud size={22} />}
+                title={isNew ? t("New debrid provider") : name}
+                description={
+                  <>
+                    {debridKindLabel(draft.kind)} · <StateBadge p={draft} s={selectedStatus} />
+                  </>
+                }
+              />
+              <SourceEditorMetrics
+                items={[
+                  {
+                    key: "requests",
+                    label: t("Requests"),
+                    value: selectedStatus ? formatNumber(selectedStatus.requests ?? 0) : "—",
+                  },
+                  {
+                    key: "cached",
+                    label: t("Cached"),
+                    value: selectedStatus ? formatNumber(selectedStatus.cached ?? 0) : "—",
+                  },
+                  {
+                    key: "latency",
+                    label: t("Response time"),
+                    value: selectedStatus?.latency?.samples
+                      ? ms(selectedStatus.latency.resolveMs ?? 0)
+                      : "—",
+                  },
+                  {
+                    key: "speed",
+                    label: t("Throughput"),
+                    value: selectedStatus?.latency?.throughputBps
+                      ? formatThroughput(selectedStatus.latency.throughputBps)
+                      : "—",
+                  },
+                ]}
+              />
+            </div>
+          ) : null
+        }
         enabled={draft?.enabled}
         onEnabledChange={(enabled) => set({ enabled })}
         open={editing !== null}
@@ -444,9 +489,9 @@ export function DebridSources({
         description={editing && !isNew ? role(editing.index) : t("Debrid account")}
         onSave={() => void save()}
         saving={saving}
-        saveLabel={t("Save provider")}
+        saveLabel={t("Save")}
         onRemove={isNew ? undefined : () => void remove()}
-        removeLabel={t("Remove provider")}
+        removeLabel={t("Remove")}
         error={error}
         tools={
           draft ? (
