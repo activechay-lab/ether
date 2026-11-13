@@ -297,6 +297,30 @@ func withHead(refs []slotRef, files []*postedFile, k int) []slotRef {
 	return refs
 }
 
+// withVolumeSamples keeps small volumes from disappearing between the global
+// spread samples. Two pipelined STATs per volume bound the extra traffic;
+// the existing BODY probes still validate the global sample against takedowns.
+func withVolumeSamples(refs []slotRef, files []*postedFile) []slotRef {
+	seen := make(map[slotRef]bool, len(refs))
+	for _, ref := range refs {
+		seen[ref] = true
+	}
+	for _, pf := range files {
+		n := pf.numSlots()
+		if n == 0 {
+			continue
+		}
+		for _, slot := range []int{0, n - 1} {
+			ref := slotRef{pf, slot}
+			if !seen[ref] {
+				refs = append(refs, ref)
+				seen[ref] = true
+			}
+		}
+	}
+	return refs
+}
+
 type slotRef struct {
 	pf   *postedFile
 	slot int
@@ -367,6 +391,7 @@ func (e *Engine) statSample(parent context.Context, files []*postedFile, repairs
 	refs := healthSample(files, e.opts.HealthSamples)
 	// BODY probes stay on the spread sample; the head is STAT-only.
 	probes := bodyProbeSlots(len(refs))
+	refs = withVolumeSamples(refs, files)
 	refs = withHead(refs, files, healthHeadSlots)
 	out.total = len(refs)
 	if len(refs) == 0 {

@@ -53,7 +53,8 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 	if rr, ok := playback.(core.RemuxRequirer); ok && rr.RequiresRemux(ps.ID) {
 		requiresRemux = true
 	}
-	preferRemux := r.PreferRemux && onDemand && ps.Resolution.Release.Protocol != core.ProtocolTorrent &&
+	healthSafety := onDemand && !ps.Resolution.HealthVerified
+	preferRemux := (r.PreferRemux || healthSafety) && onDemand && ps.Resolution.Release.Protocol != core.ProtocolTorrent &&
 		ps.Resolution.Release.Protocol != core.ProtocolHTTP
 	// Keep native Dolby Vision file playback on Android when the decision
 	// accepted the container, tracks and DV profile. Optional source-change
@@ -73,6 +74,10 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 		len(r.Caps.TranscodeVideoCodecs) > 0 && !slices.Contains(r.Caps.TranscodeVideoCodecs, v.Codec) {
 		preferRemux = false
 	}
+	if healthSafety && !r.PreferRemux && r.Caps.Profiles != nil && len(r.Caps.Profiles.DirectPlay) > 0 && len(r.Caps.Profiles.Transcoding) == 0 {
+		preferRemux = false
+	}
+	original := dec
 	if (preferRemux || requiresRemux) && r.Options.DirectStream && onDemand && dec.Kind == core.DecisionDirectPlay && transcoder != nil {
 		dec.Kind = core.DecisionRemux
 		dec.VideoCopy, dec.AudioCopy = true, true
@@ -92,6 +97,9 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 			dec.Container = transcode.HLSContainer(r.Caps, videoCodec, audioCodec)
 		}
 		dec.Reason = "Direct stream preserves playback across source changes."
+		if healthSafety {
+			dec.Reason = "remux for failover safety: health unverified"
+		}
 		videoCopyOK := videoCodec == "" || transcode.SegmentedVideoCopyOK(r.Caps, videoCodec)
 		audioCopyOK := audioCodec == "" || transcode.SegmentedAudioCopyOK(r.Caps, audioCodec)
 		if !videoCopyOK || !audioCopyOK {
@@ -102,6 +110,12 @@ func Decide(playback core.Playback, transcoder core.Transcoder, r DecisionReques
 			}
 			dec = transcoder.Decide(ps.Info, r.Caps, opts)
 		}
+	}
+	// Optional health safety must never force quality loss or an encoder on a
+	// client that can only play the original representation.
+	if healthSafety && !r.PreferRemux && !requiresRemux && original.Kind == core.DecisionDirectPlay &&
+		(!dec.VideoCopy || !dec.AudioCopy) {
+		dec = original
 	}
 	return dec, nil
 }
