@@ -251,7 +251,12 @@ func anyTitleFixture(t *testing.T, opts ...func(*testServerDeps)) (*fixture, *pl
 			info.Streams = append([]core.StreamInfo(nil), sampleInfo.Streams...)
 			return &info, nil
 		},
-	}, cfg, playback.Options{DataDir: t.TempDir()})
+	}, cfg, playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}, DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

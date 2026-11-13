@@ -83,7 +83,12 @@ func issue94Fixture(t *testing.T, with720 bool, profile string, opts ...func(*te
 			info.BitrateKbps = 1800
 		}
 		return &info, nil
-	}}, cfg, playback.Options{DataDir: t.TempDir()})
+	}}, cfg, playback.Options{SessionSurface: func(surface string) string {
+		if surface == "plex" {
+			return ""
+		}
+		return surface
+	}, DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
