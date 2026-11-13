@@ -200,7 +200,10 @@
   "m_00ba2990005a61": "Limiet bereikt",
   "m_00bb6cd9596e43": "server onderhoud",
   "m_00bbc90a578050": "Aan Live tv toevoegen",
-  "m_00bc914bd1b046": "Alles uit deze bronnen",
+  "m_00bc914bd1b046": {
+    "one": "Alles uit deze bron",
+    "other": "Alles uit deze bronnen"
+  },
   "m_00bcc1f24cfc24": "Tv-filter",
   "m_00bcdb5c15020b": "{count} titels gesynchroniseerd",
   "m_00bd34dcf42363": "Verzenden naar Plex staat uit voor deze persoon.",
@@ -593,6 +596,7 @@
   "m_021838b76c4ffe": "Op volgorde",
   "m_0219d74b52e206": "Selecteren",
   "m_021a60272b2db8": "Nu geen catalogi",
+  "m_021b8b6f16ca68": "Kies hierboven filters. Passende titels komen in deze bibliotheek en blijven in Films en Series. Verwijder deze bibliotheek en maak een nieuwe om het filter later te wijzigen.",
   "m_021d7efc432814": "Kijkers",
   "m_021dc0756d87b1": "De productnaam van de app.",
   "m_021e31189b8c13": "Clip van {name}",
@@ -1793,7 +1797,6 @@
   "m_0643a12e17aa72": "Niet gerapporteerd door deze hardware",
   "m_0643a740c5f9c9": "De volgende aflevering start snel in een gewoon huishouden.",
   "m_064453b3cc3482": "Instantie",
-  "m_06446531438cf8": "Kies hierboven filters; elke passende titel komt in de bibliotheek en blijft ook in Films of Series. De naam kan later veranderen, het filter nog niet — dan zou je de bibliotheek verwijderen en opnieuw maken.",
   "m_0645266cccce67": "Gesplitste tunnel werkt",
   "m_06468b3cdf3d10": "Pin van eigenaar",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3368,7 +3371,10 @@
   "m_0c00eba063ae02": "Vandaag op tv",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten badges labels",
   "m_0c01b885a4b465": "Kies welke leden van je huishouden hun activiteit delen met deze plugin.",
-  "m_0c022d91ab3641": "Neem alle titels uit deze bronnen op.",
+  "m_0c022d91ab3641": {
+    "one": "Neem alle titels uit deze bron op.",
+    "other": "Neem alle titels uit deze bronnen op."
+  },
   "m_0c02f383c64fc7": "Voer een naam en geldige begin- en eindtijden in.",
   "m_0c03b744339177": "Nog niet opgeslagen",
   "m_0c03d0164a1646": "Een vooraf ingesteld kwaliteitsprofiel importeren",
@@ -4068,6 +4074,7 @@
   "m_0e80a79eaf6a4b": "Weergaven per bron",
   "m_0e80c756268b19": "Een bestand op de server gebruiken",
   "m_0e82ddc29a6faf": "Deze server vinden",
+  "m_0e83ba617e159d": "Kies bronnen voor deze bibliotheek.",
   "m_0e83d79b0da2f2": "Hoeklogo aanpassen",
   "m_0e854931080c4a": "De instellingen, opslag en logboeken worden verwijderd.",
   "m_0e859db0db399f": "Import en export",
@@ -8302,6 +8309,7 @@
     "other": "{count} rijen op de pagina"
   },
   "m_1d31e5ac3adcb1": "Anders",
+  "m_1d33e2f99fb9be": "Beheren in Integraties",
   "m_1d349253ea37ef": "Ontwerpvoorinstellingen",
   "m_1d3588ee53d7a2": {
     "one": "{count} actieve stream",

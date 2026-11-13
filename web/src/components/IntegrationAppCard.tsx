@@ -21,6 +21,7 @@ import { t } from "../i18n";
  *   identity: IntegrationAppIdentity;
  *   logo?: ReactNode;
  *   description: string;
+  details?: ReactNode;
  *   status?: ReactNode;
  *   enabled?: boolean;
  *   onToggle?: (enabled: boolean) => void;
@@ -50,6 +51,7 @@ interface IntegrationAppCardProps {
    */
   logo?: ReactNode;
   description: string;
+  details?: ReactNode;
   /** Caller-owned live status (a Badge, health, or text). Not interpreted. */
   status?: ReactNode;
   /**
@@ -98,6 +100,7 @@ export function IntegrationAppCard({
   identity,
   logo,
   description,
+  details,
   status,
   enabled,
   onToggle,
@@ -138,7 +141,10 @@ export function IntegrationAppCard({
           />
         ) : null}
       </div>
-      <p className="mt-3 flex-1 text-sm text-fg-muted">{description}</p>
+      <div className="mt-3 flex-1 space-y-1 text-sm text-fg-muted">
+        <p>{description}</p>
+        {details}
+      </div>
       {configureHref || action ? (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {action}

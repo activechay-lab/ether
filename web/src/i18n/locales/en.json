@@ -200,7 +200,10 @@
   "m_00ba2990005a61": "Limit reached",
   "m_00bb6cd9596e43": "server maintenance",
   "m_00bbc90a578050": "Add to Live TV",
-  "m_00bc914bd1b046": "Everything from these sources",
+  "m_00bc914bd1b046": {
+    "one": "Everything from this source",
+    "other": "Everything from these sources"
+  },
   "m_00bcc1f24cfc24": "TV filter",
   "m_00bcdb5c15020b": "Synced {count} titles",
   "m_00bd34dcf42363": "Sending to Plex is turned off for this person.",
@@ -593,6 +596,7 @@
   "m_021838b76c4ffe": "In order",
   "m_0219d74b52e206": "Select",
   "m_021a60272b2db8": "No catalogues right now",
+  "m_021b8b6f16ca68": "Pick filters above. Matching titles join this library and stay in Movies and TV Shows. To change the filter later, delete this library and make a new one.",
   "m_021d7efc432814": "Viewers",
   "m_021dc0756d87b1": "The app’s product name.",
   "m_021e31189b8c13": "{name} clip",
@@ -1796,7 +1800,6 @@
   "m_0643a12e17aa72": "Not reported by this hardware",
   "m_0643a740c5f9c9": "The next episode starts quickly for a normal household.",
   "m_064453b3cc3482": "Instance",
-  "m_06446531438cf8": "Pick filters above; every matching title joins the library and keeps its place in Movies or TV Shows too. The name can change later, but the filter itself cannot yet — you would delete and recreate the library.",
   "m_0645266cccce67": "Split tunnel working",
   "m_06468b3cdf3d10": "Owner pin",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3372,7 +3375,10 @@
   "m_0c00eba063ae02": "Airing today",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten badges",
   "m_0c01b885a4b465": "Choose which household members share their activity with this plugin.",
-  "m_0c022d91ab3641": "Include every title these sources provide.",
+  "m_0c022d91ab3641": {
+    "one": "Include every title this source provides.",
+    "other": "Include every title these sources provide."
+  },
   "m_0c02f383c64fc7": "Enter a name and valid start and end times.",
   "m_0c03b744339177": "Not saved yet",
   "m_0c03d0164a1646": "Import a preset quality profile",
@@ -4075,6 +4081,7 @@
   "m_0e80a79eaf6a4b": "Plays by source",
   "m_0e80c756268b19": "Use a file on the server",
   "m_0e82ddc29a6faf": "Find this server",
+  "m_0e83ba617e159d": "Choose sources for this library.",
   "m_0e83d79b0da2f2": "Customize corner logo",
   "m_0e854931080c4a": "Its settings, storage and logs are deleted.",
   "m_0e859db0db399f": "Import & export",
@@ -8320,6 +8327,7 @@
     "other": "{count} rows on the page"
   },
   "m_1d31e5ac3adcb1": "Other",
+  "m_1d33e2f99fb9be": "Manage in Integrations",
   "m_1d349253ea37ef": "Design presets",
   "m_1d3588ee53d7a2": {
     "one": "{count} active stream",

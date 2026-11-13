@@ -200,7 +200,10 @@
   "m_00ba2990005a61": "Grensen nådd",
   "m_00bb6cd9596e43": "server vedlikehold",
   "m_00bbc90a578050": "Legg til i Direkte-TV",
-  "m_00bc914bd1b046": "Alt fra disse kildene",
+  "m_00bc914bd1b046": {
+    "one": "Alt fra denne kilden",
+    "other": "Alt fra disse kildene"
+  },
   "m_00bcc1f24cfc24": "TV-filter",
   "m_00bcdb5c15020b": "Synkroniserte {count} titler",
   "m_00bd34dcf42363": "Sending til Plex er slått av for denne personen.",
@@ -593,6 +596,7 @@
   "m_021838b76c4ffe": "I rekkefølge",
   "m_0219d74b52e206": "Velg",
   "m_021a60272b2db8": "Ingen kataloger akkurat nå",
+  "m_021b8b6f16ca68": "Velg filtre ovenfor. Samsvarende titler legges til i dette biblioteket og blir i Filmer og TV-serier. Slett biblioteket og lag et nytt for å endre filteret senere.",
   "m_021d7efc432814": "Seere",
   "m_021dc0756d87b1": "Appens produktnavn.",
   "m_021e31189b8c13": "{name}-klipp",
@@ -1793,7 +1797,6 @@
   "m_0643a12e17aa72": "Rapporteres ikke av denne maskinvaren",
   "m_0643a740c5f9c9": "Neste episode starter raskt i en vanlig husholdning.",
   "m_064453b3cc3482": "Forekomst",
-  "m_06446531438cf8": "Velg filtre ovenfor; hver passende tittel blir med i biblioteket og beholder plassen i Filmer eller Serier. Navnet kan endres senere, men filteret ikke ennå — da må du slette og gjenskape biblioteket.",
   "m_0645266cccce67": "Delt tunnel virker",
   "m_06468b3cdf3d10": "Eierfesting",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3368,7 +3371,10 @@
   "m_0c00eba063ae02": "Sendes i dag",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten merker",
   "m_0c01b885a4b465": "Velg hvilke medlemmer av husstanden som deler aktiviteten sin med denne utvidelsen.",
-  "m_0c022d91ab3641": "Ta med alle titlene fra disse kildene.",
+  "m_0c022d91ab3641": {
+    "one": "Ta med alle titler fra denne kilden.",
+    "other": "Ta med alle titler fra disse kildene."
+  },
   "m_0c02f383c64fc7": "Skriv inn et navn og gyldige start- og sluttider.",
   "m_0c03b744339177": "Ikke lagret ennå",
   "m_0c03d0164a1646": "Importer en forhåndsdefinert kvalitetsprofil",
@@ -4068,6 +4074,7 @@
   "m_0e80a79eaf6a4b": "Avspillinger per kilde",
   "m_0e80c756268b19": "Bruk en fil på serveren",
   "m_0e82ddc29a6faf": "Finn denne serveren",
+  "m_0e83ba617e159d": "Velg kilder til dette biblioteket.",
   "m_0e83d79b0da2f2": "Tilpass hjørnelogo",
   "m_0e854931080c4a": "Innstillingene, lagringen og loggene slettes.",
   "m_0e859db0db399f": "Import og eksport",
@@ -8302,6 +8309,7 @@
     "other": "{count} rader på siden"
   },
   "m_1d31e5ac3adcb1": "Annet",
+  "m_1d33e2f99fb9be": "Administrer i Integrasjoner",
   "m_1d349253ea37ef": "Designforhåndsvalg",
   "m_1d3588ee53d7a2": {
     "one": "{count} aktiv strøm",

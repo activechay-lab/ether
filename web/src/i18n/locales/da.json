@@ -200,7 +200,10 @@
   "m_00ba2990005a61": "Grænse nået",
   "m_00bb6cd9596e43": "server vedligeholdelse",
   "m_00bbc90a578050": "Føj til Live-tv",
-  "m_00bc914bd1b046": "Alt fra disse kilder",
+  "m_00bc914bd1b046": {
+    "one": "Alt fra denne kilde",
+    "other": "Alt fra disse kilder"
+  },
   "m_00bcc1f24cfc24": "TV-filter",
   "m_00bcdb5c15020b": "Synkroniserede {count} titler",
   "m_00bd34dcf42363": "Afsendelse til Plex er slået fra for denne person.",
@@ -593,6 +596,7 @@
   "m_021838b76c4ffe": "I rækkefølge",
   "m_0219d74b52e206": "Vælg",
   "m_021a60272b2db8": "Ingen kataloger lige nu",
+  "m_021b8b6f16ca68": "Vælg filtre ovenfor. Matchende titler føjes til dette bibliotek og bliver i Film og Tv-serier. Slet biblioteket og opret et nyt for at ændre filteret senere.",
   "m_021d7efc432814": "Seere",
   "m_021dc0756d87b1": "Appens produktnavn.",
   "m_021e31189b8c13": "{name}-klip",
@@ -1793,7 +1797,6 @@
   "m_0643a12e17aa72": "Ikke rapporteret af denne hardware",
   "m_0643a740c5f9c9": "Næste afsnit starter hurtigt i et almindeligt hjem.",
   "m_064453b3cc3482": "Instans",
-  "m_06446531438cf8": "Vælg filtre ovenfor; hver matchende titel kommer i biblioteket og beholder sin plads i Film eller Serier. Navnet kan ændres senere, men filteret ikke endnu — så må du slette og genskabe biblioteket.",
   "m_0645266cccce67": "Delt tunnel virker",
   "m_06468b3cdf3d10": "Ejerfastgørelse",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3368,7 +3371,10 @@
   "m_0c00eba063ae02": "Sendes i dag",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten badges mærker",
   "m_0c01b885a4b465": "Vælg, hvilke medlemmer af husstanden der deler deres aktivitet med dette plugin.",
-  "m_0c022d91ab3641": "Medtag alle titler fra disse kilder.",
+  "m_0c022d91ab3641": {
+    "one": "Medtag alle titler fra denne kilde.",
+    "other": "Medtag alle titler fra disse kilder."
+  },
   "m_0c02f383c64fc7": "Indtast et navn og gyldige start- og sluttider.",
   "m_0c03b744339177": "Ikke gemt endnu",
   "m_0c03d0164a1646": "Importér en forudindstillet kvalitetsprofil",
@@ -4068,6 +4074,7 @@
   "m_0e80a79eaf6a4b": "Afspilninger pr. kilde",
   "m_0e80c756268b19": "Brug en fil på serveren",
   "m_0e82ddc29a6faf": "Find denne server",
+  "m_0e83ba617e159d": "Vælg kilder til dette bibliotek.",
   "m_0e83d79b0da2f2": "Tilpas hjørnelogo",
   "m_0e854931080c4a": "Dets indstillinger, lager og logs slettes.",
   "m_0e859db0db399f": "Import og eksport",
@@ -8302,6 +8309,7 @@
     "other": "{count} rækker på siden"
   },
   "m_1d31e5ac3adcb1": "Andet",
+  "m_1d33e2f99fb9be": "Administrer i Integrationer",
   "m_1d349253ea37ef": "Designforudindstillinger",
   "m_1d3588ee53d7a2": {
     "one": "{count} aktiv stream",

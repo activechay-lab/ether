@@ -848,7 +848,8 @@ type upsertOpts struct {
 }
 
 // UpsertCollectionTitles mirrors one source refresh in a single transaction.
-// Call only from the collection build worker, never a serving path.
+// Call for bounded source refreshes (collection workers or an opened
+// catalogue-source library), never a library-wide sweep on a serving path.
 func (c *Catalog) UpsertCollectionTitles(ctx context.Context, titles []core.Title) error {
 	if len(titles) == 0 {
 		return nil

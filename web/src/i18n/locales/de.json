@@ -200,7 +200,10 @@
   "m_00ba2990005a61": "Limit erreicht",
   "m_00bb6cd9596e43": "Server Wartung",
   "m_00bbc90a578050": "Zu Live-TV hinzufügen",
-  "m_00bc914bd1b046": "Alles aus diesen Quellen",
+  "m_00bc914bd1b046": {
+    "one": "Alles aus dieser Quelle",
+    "other": "Alles aus diesen Quellen"
+  },
   "m_00bcc1f24cfc24": "Serienfilter",
   "m_00bcdb5c15020b": "{count} Titel synchronisiert",
   "m_00bd34dcf42363": "Das Senden an Plex ist für diese Person deaktiviert.",
@@ -593,6 +596,7 @@
   "m_021838b76c4ffe": "Der Reihe nach",
   "m_0219d74b52e206": "Auswählen",
   "m_021a60272b2db8": "Derzeit keine Kataloge",
+  "m_021b8b6f16ca68": "Wähle oben Filter. Passende Titel erscheinen in dieser Bibliothek und bleiben in Filme und Serien. Um den Filter später zu ändern, lösche diese Bibliothek und erstelle eine neue.",
   "m_021d7efc432814": "Zuschauer",
   "m_021dc0756d87b1": "Der Produktname der App.",
   "m_021e31189b8c13": "{name}-Clip",
@@ -1793,7 +1797,6 @@
   "m_0643a12e17aa72": "Von dieser Hardware nicht gemeldet",
   "m_0643a740c5f9c9": "Die nächste Folge startet in einem normalen Haushalt schnell.",
   "m_064453b3cc3482": "Instanz",
-  "m_06446531438cf8": "Wähle oben Filter; jeder passende Titel kommt in die Bibliothek und bleibt auch in Filme oder Serien. Der Name kann später geändert werden, der Filter noch nicht — dazu müsstest du die Bibliothek löschen und neu erstellen.",
   "m_0645266cccce67": "Geteilter Tunnel funktioniert",
   "m_06468b3cdf3d10": "Anheftung durch Besitzer",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3368,7 +3371,10 @@
   "m_0c00eba063ae02": "Heute im Fernsehen",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten Abzeichen",
   "m_0c01b885a4b465": "Wähle, welche Haushaltsmitglieder ihre Aktivitäten mit diesem Plugin teilen.",
-  "m_0c022d91ab3641": "Alle Titel aus diesen Quellen einbeziehen.",
+  "m_0c022d91ab3641": {
+    "one": "Alle Titel aus dieser Quelle einbeziehen.",
+    "other": "Alle Titel aus diesen Quellen einbeziehen."
+  },
   "m_0c02f383c64fc7": "Gib einen Namen sowie gültige Start- und Endzeiten ein.",
   "m_0c03b744339177": "Noch nicht gespeichert",
   "m_0c03d0164a1646": "Vorgefertigtes Qualitätsprofil importieren",
@@ -4068,6 +4074,7 @@
   "m_0e80a79eaf6a4b": "Wiedergaben nach Quelle",
   "m_0e80c756268b19": "Datei auf dem Server verwenden",
   "m_0e82ddc29a6faf": "Diesen Server finden",
+  "m_0e83ba617e159d": "Wähle Quellen für diese Bibliothek.",
   "m_0e83d79b0da2f2": "Ecklogo anpassen",
   "m_0e854931080c4a": "Einstellungen, Speicher und Protokolle werden gelöscht.",
   "m_0e859db0db399f": "Import und Export",
@@ -8302,6 +8309,7 @@
     "other": "{count} Reihen auf der Seite"
   },
   "m_1d31e5ac3adcb1": "Andere",
+  "m_1d33e2f99fb9be": "In Integrationen verwalten",
   "m_1d349253ea37ef": "Design-Voreinstellungen",
   "m_1d3588ee53d7a2": {
     "one": "{count} aktiver Stream",

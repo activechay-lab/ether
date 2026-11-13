@@ -200,7 +200,10 @@
   "m_00ba2990005a61": "Gräns nådd",
   "m_00bb6cd9596e43": "server underhåll",
   "m_00bbc90a578050": "Lägg till i Live-TV",
-  "m_00bc914bd1b046": "Allt från dessa källor",
+  "m_00bc914bd1b046": {
+    "one": "Allt från denna källa",
+    "other": "Allt från dessa källor"
+  },
   "m_00bcc1f24cfc24": "TV-filter",
   "m_00bcdb5c15020b": "Synkroniserade {count} titlar",
   "m_00bd34dcf42363": "Sändning till Plex är avstängd för den här personen.",
@@ -593,6 +596,7 @@
   "m_021838b76c4ffe": "I ordning",
   "m_0219d74b52e206": "Välj",
   "m_021a60272b2db8": "Inga kataloger just nu",
+  "m_021b8b6f16ca68": "Välj filter ovan. Matchande titlar läggs till i detta bibliotek och finns kvar i Filmer och TV-serier. Ta bort biblioteket och skapa ett nytt för att ändra filtret senare.",
   "m_021d7efc432814": "Tittare",
   "m_021dc0756d87b1": "Appens produktnamn.",
   "m_021e31189b8c13": "Klipp från {name}",
@@ -1793,7 +1797,6 @@
   "m_0643a12e17aa72": "Rapporteras inte av den här hårdvaran",
   "m_0643a740c5f9c9": "Nästa avsnitt startar snabbt i ett vanligt hushåll.",
   "m_064453b3cc3482": "Instans",
-  "m_06446531438cf8": "Välj filter ovan; varje matchande titel går med i biblioteket och behåller sin plats i Filmer eller TV-serier. Namnet går att ändra senare, men filtret inte ännu — då får du ta bort och skapa biblioteket igen.",
   "m_0645266cccce67": "Delad tunnel fungerar",
   "m_06468b3cdf3d10": "Ägarfästning",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3368,7 +3371,10 @@
   "m_0c00eba063ae02": "Sänds i dag",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten märken betyg",
   "m_0c01b885a4b465": "Välj vilka hushållsmedlemmar som delar sin aktivitet med detta plugin.",
-  "m_0c022d91ab3641": "Ta med alla titlar från dessa källor.",
+  "m_0c022d91ab3641": {
+    "one": "Ta med alla titlar från denna källa.",
+    "other": "Ta med alla titlar från dessa källor."
+  },
   "m_0c02f383c64fc7": "Ange ett namn och giltiga start- och sluttider.",
   "m_0c03b744339177": "Inte sparad ännu",
   "m_0c03d0164a1646": "Importera en förinställd kvalitetsprofil",
@@ -4068,6 +4074,7 @@
   "m_0e80a79eaf6a4b": "Uppspelningar per källa",
   "m_0e80c756268b19": "Använd en fil på servern",
   "m_0e82ddc29a6faf": "Hitta den här servern",
+  "m_0e83ba617e159d": "Välj källor för detta bibliotek.",
   "m_0e83d79b0da2f2": "Anpassa hörnlogotyp",
   "m_0e854931080c4a": "Dess inställningar, lagring och loggar raderas.",
   "m_0e859db0db399f": "Import och export",
@@ -8302,6 +8309,7 @@
     "other": "{count} rader på sidan"
   },
   "m_1d31e5ac3adcb1": "Annat",
+  "m_1d33e2f99fb9be": "Hantera i Integrationer",
   "m_1d349253ea37ef": "Designförinställningar",
   "m_1d3588ee53d7a2": {
     "one": "{count} aktiv ström",

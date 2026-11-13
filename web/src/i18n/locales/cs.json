@@ -208,7 +208,12 @@
   "m_00ba2990005a61": "Limit dosažen",
   "m_00bb6cd9596e43": "server údržba",
   "m_00bbc90a578050": "Přidat do Živé TV",
-  "m_00bc914bd1b046": "Vše z těchto zdrojů",
+  "m_00bc914bd1b046": {
+    "one": "Vše z tohoto zdroje",
+    "other": "Vše z těchto zdrojů",
+    "few": "Vše z těchto zdrojů",
+    "many": "Vše z těchto zdrojů"
+  },
   "m_00bcc1f24cfc24": "Filtr seriálů",
   "m_00bcdb5c15020b": "Synchronizováno {count} titulů",
   "m_00bd34dcf42363": "Odesílání do Plex je pro tuto osobu vypnuté.",
@@ -615,6 +620,7 @@
   "m_021838b76c4ffe": "V pořadí",
   "m_0219d74b52e206": "Vybrat",
   "m_021a60272b2db8": "Teď žádné katalogy",
+  "m_021b8b6f16ca68": "Vyberte filtry výše. Odpovídající tituly se přidají do této knihovny a zůstanou ve Filmech a Seriálech. Chcete-li filtr později změnit, smažte tuto knihovnu a vytvořte novou.",
   "m_021d7efc432814": "Diváci",
   "m_021dc0756d87b1": "Název produktu aplikace.",
   "m_021e31189b8c13": "Klip {name}",
@@ -1875,7 +1881,6 @@
   "m_0643a12e17aa72": "Tento hardware to nehlásí",
   "m_0643a740c5f9c9": "Další díl začne rychle v běžné domácnosti.",
   "m_064453b3cc3482": "Instance",
-  "m_06446531438cf8": "Vyberte výše filtry; každý odpovídající titul se přidá do knihovny a zároveň zůstane ve Filmech nebo Seriálech. Název lze později změnit, filtr zatím ne — knihovnu byste museli smazat a vytvořit znovu.",
   "m_0645266cccce67": "Dělený tunel funguje",
   "m_06468b3cdf3d10": "Připnutí vlastníkem",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3532,7 +3537,12 @@
   "m_0c00eba063ae02": "Dnes vysílané",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten odznaky",
   "m_0c01b885a4b465": "Vyberte členy domácnosti, kteří s tímto pluginem sdílejí svou aktivitu.",
-  "m_0c022d91ab3641": "Zahrnout všechny tituly z těchto zdrojů.",
+  "m_0c022d91ab3641": {
+    "one": "Zahrnout všechny tituly z tohoto zdroje.",
+    "other": "Zahrnout všechny tituly z těchto zdrojů.",
+    "few": "Zahrnout všechny tituly z těchto zdrojů.",
+    "many": "Zahrnout všechny tituly z těchto zdrojů."
+  },
   "m_0c02f383c64fc7": "Zadejte název a platné časy začátku a konce.",
   "m_0c03b744339177": "Zatím neuloženo",
   "m_0c03d0164a1646": "Importovat přednastavený profil kvality",
@@ -4264,6 +4274,7 @@
   "m_0e80a79eaf6a4b": "Přehrání podle zdroje",
   "m_0e80c756268b19": "Použít soubor na serveru",
   "m_0e82ddc29a6faf": "Najít tento server",
+  "m_0e83ba617e159d": "Vyberte zdroje pro tuto knihovnu.",
   "m_0e83d79b0da2f2": "Přizpůsobit rohové logo",
   "m_0e854931080c4a": "Jeho nastavení, úložiště a protokoly se smažou.",
   "m_0e859db0db399f": "Import a export",
@@ -8729,6 +8740,7 @@
     "other": "{count} řádků na stránce"
   },
   "m_1d31e5ac3adcb1": "Jiné",
+  "m_1d33e2f99fb9be": "Spravovat v Integracích",
   "m_1d349253ea37ef": "Předvolby návrhu",
   "m_1d3588ee53d7a2": {
     "few": "{count} aktivní streamy",

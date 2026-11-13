@@ -208,7 +208,12 @@
   "m_00ba2990005a61": "Osiągnięto limit",
   "m_00bb6cd9596e43": "server maintenance serwer konserwacja",
   "m_00bbc90a578050": "Dodaj do telewizji na żywo",
-  "m_00bc914bd1b046": "Wszystko z tych źródeł",
+  "m_00bc914bd1b046": {
+    "one": "Wszystko z tego źródła",
+    "other": "Wszystko z tych źródeł",
+    "few": "Wszystko z tych źródeł",
+    "many": "Wszystko z tych źródeł"
+  },
   "m_00bcc1f24cfc24": "Filtr seriali",
   "m_00bcdb5c15020b": "Zsynchronizowano {count} tytułów",
   "m_00bd34dcf42363": "Wysyłanie do Plex jest wyłączone dla tej osoby.",
@@ -615,6 +620,7 @@
   "m_021838b76c4ffe": "Po kolei",
   "m_0219d74b52e206": "Wybierz",
   "m_021a60272b2db8": "Na razie brak katalogów",
+  "m_021b8b6f16ca68": "Wybierz filtry powyżej. Pasujące tytuły trafią do tej biblioteki i pozostaną w Filmach i Serialach. Aby później zmienić filtr, usuń tę bibliotekę i utwórz nową.",
   "m_021d7efc432814": "Widzowie",
   "m_021dc0756d87b1": "Nazwa produktu aplikacji.",
   "m_021e31189b8c13": "Klip {name}",
@@ -1875,7 +1881,6 @@
   "m_0643a12e17aa72": "Nie jest raportowane przez ten sprzęt",
   "m_0643a740c5f9c9": "Następny odcinek zaczyna się szybko w zwykłym domu.",
   "m_064453b3cc3482": "Instancja",
-  "m_06446531438cf8": "Wybierz filtry powyżej; każdy pasujący tytuł trafia do biblioteki i zachowuje miejsce w Filmach lub Serialach. Nazwę można później zmienić, filtra jeszcze nie — trzeba by usunąć i utworzyć bibliotekę od nowa.",
   "m_0645266cccce67": "Tunel dzielony działa",
   "m_06468b3cdf3d10": "Przypięcie właściciela",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3532,7 +3537,12 @@
   "m_0c00eba063ae02": "Emitowane dzisiaj",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten badges odznaki oceny",
   "m_0c01b885a4b465": "Wybierz domowników, którzy udostępnią tej wtyczce swoją aktywność.",
-  "m_0c022d91ab3641": "Uwzględnij wszystkie tytuły z tych źródeł.",
+  "m_0c022d91ab3641": {
+    "one": "Uwzględnij wszystkie tytuły z tego źródła.",
+    "other": "Uwzględnij wszystkie tytuły z tych źródeł.",
+    "few": "Uwzględnij wszystkie tytuły z tych źródeł.",
+    "many": "Uwzględnij wszystkie tytuły z tych źródeł."
+  },
   "m_0c02f383c64fc7": "Wpisz nazwę i prawidłowe godziny rozpoczęcia i zakończenia.",
   "m_0c03b744339177": "Jeszcze niezapisana",
   "m_0c03d0164a1646": "Importuj gotowy profil jakości",
@@ -4264,6 +4274,7 @@
   "m_0e80a79eaf6a4b": "Odtworzenia według źródła",
   "m_0e80c756268b19": "Użyj pliku z serwera",
   "m_0e82ddc29a6faf": "Znajdź ten serwer",
+  "m_0e83ba617e159d": "Wybierz źródła tej biblioteki.",
   "m_0e83d79b0da2f2": "Dostosuj logo w rogu",
   "m_0e854931080c4a": "Jego ustawienia, dane i dzienniki zostaną usunięte.",
   "m_0e859db0db399f": "Import i eksport",
@@ -8729,6 +8740,7 @@
     "other": "{count} wiersza na stronie"
   },
   "m_1d31e5ac3adcb1": "Inne",
+  "m_1d33e2f99fb9be": "Zarządzaj w Integracjach",
   "m_1d349253ea37ef": "Gotowe projekty",
   "m_1d3588ee53d7a2": {
     "few": "{count} aktywne strumienie",

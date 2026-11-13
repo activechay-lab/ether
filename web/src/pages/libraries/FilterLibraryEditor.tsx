@@ -47,6 +47,7 @@ export function NewLibraryDrawer({
     return (
       <FilterLibraryEditor
         sources={selected}
+        sourceNames={chosen.map((source) => source.name)}
         allTitles={step === "all"}
         seed={new URLSearchParams({ type: chosen[0]?.mediaTypes[0] ?? "movie" })}
         onBack={() => setStep("narrow")}
@@ -58,6 +59,7 @@ export function NewLibraryDrawer({
     return (
       <CollectionLibraryEditor
         sourceIds={selected}
+        sourceNames={chosen.map((source) => source.name)}
         sourceType={chosen[0]?.mediaTypes[0]}
         onBack={() => setStep("narrow")}
         onClose={onClose}
@@ -126,8 +128,16 @@ export function NewLibraryDrawer({
           {[
             {
               key: "all" as const,
-              label: t("Everything from these sources"),
-              description: t("Include every title these sources provide."),
+              label: tn(
+                chosen.length,
+                "Everything from this source",
+                "Everything from these sources",
+              ),
+              description: tn(
+                chosen.length,
+                "Include every title this source provides.",
+                "Include every title these sources provide.",
+              ),
               icon: <LibraryBig size={20} />,
             },
             {
@@ -238,12 +248,14 @@ export function NewLibraryDrawer({
  */
 export function FilterLibraryEditor({
   allTitles,
+  sourceNames,
   sources,
   seed,
   onBack,
   onClose,
   onCreated,
 }: {
+  sourceNames?: string[];
   allTitles?: boolean;
   sources?: string[];
   seed?: URLSearchParams;
@@ -328,28 +340,44 @@ export function FilterLibraryEditor({
             aria-label={t("Library name")}
           />
         </label>
+        {allTitles && sourceNames?.length ? (
+          <p className="text-sm text-fg-muted">
+            {t("Titles from: {sources}", { sources: sourceNames.join(", ") })}
+          </p>
+        ) : null}
         {!allTitles ? (
           <>
-            <div className="library-field">
-              <span>{t("What goes in it")}</span>
-              <Segmented
-                ariaLabel={t("What goes in it")}
-                value={type}
-                onChange={sources?.length ? () => {} : setType}
-                options={[
-                  { value: "movie", label: t("Movies") },
-                  { value: "show", label: t("TV shows") },
-                ]}
+            {sourceNames?.length ? (
+              <p className="text-sm text-fg-muted">
+                {t("Titles from: {sources}", { sources: sourceNames.join(", ") })}
+              </p>
+            ) : (
+              <>
+                {" "}
+                <div className="library-field">
+                  <span>{t("What goes in it")}</span>
+                  <Segmented
+                    ariaLabel={t("What goes in it")}
+                    value={type}
+                    onChange={sources?.length ? () => {} : setType}
+                    options={[
+                      { value: "movie", label: t("Movies") },
+                      { value: "show", label: t("TV shows") },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
+            <div className="[&_.catalog-query]:!px-0">
+              <CatalogFilterBar
+                params={params}
+                viewers={viewers.data || []}
+                onChange={(next) => setParams(new URLSearchParams(next.toString()))}
               />
             </div>
-            <CatalogFilterBar
-              params={params}
-              viewers={viewers.data || []}
-              onChange={(next) => setParams(new URLSearchParams(next.toString()))}
-            />
             <p className="text-sm text-fg-muted">
               {t(
-                "Pick filters above; every matching title joins the library and keeps its place in Movies or TV Shows too. The name can change later, but the filter itself cannot yet — you would delete and recreate the library.",
+                "Pick filters above. Matching titles join this library and stay in Movies and TV Shows. To change the filter later, delete this library and make a new one.",
               )}
             </p>
           </>
@@ -369,6 +397,7 @@ export function FilterLibraryEditor({
  */
 export function CollectionLibraryEditor({
   sourceIds,
+  sourceNames,
   sourceType,
   collectionId: initialCollectionId,
   onBack,
@@ -376,6 +405,7 @@ export function CollectionLibraryEditor({
   onCreated,
 }: {
   sourceIds?: string[];
+  sourceNames?: string[];
   sourceType?: string;
   collectionId?: number;
   onBack?: () => void;
@@ -519,18 +549,27 @@ export function CollectionLibraryEditor({
             aria-label={t("Library name")}
           />
         </label>
-        <div className="library-field">
-          <span>{t("What goes in it")}</span>
-          <Segmented
-            ariaLabel={t("What goes in it")}
-            value={type}
-            onChange={sourceType ? () => {} : setType}
-            options={[
-              { value: "movie", label: t("Movies") },
-              { value: "show", label: t("TV shows") },
-            ]}
-          />
-        </div>
+        {sourceNames?.length ? (
+          <p className="text-sm text-fg-muted">
+            {t("Titles from: {sources}", { sources: sourceNames.join(", ") })}
+          </p>
+        ) : (
+          <>
+            {" "}
+            <div className="library-field">
+              <span>{t("What goes in it")}</span>
+              <Segmented
+                ariaLabel={t("What goes in it")}
+                value={type}
+                onChange={sourceType ? () => {} : setType}
+                options={[
+                  { value: "movie", label: t("Movies") },
+                  { value: "show", label: t("TV shows") },
+                ]}
+              />
+            </div>
+          </>
+        )}
         <p className="text-sm text-fg-muted">
           {t(
             "The library shows exactly this collection's titles and follows it as it changes. If the collection is deleted, the library simply shows nothing.",

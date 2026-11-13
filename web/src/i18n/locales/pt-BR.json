@@ -204,7 +204,11 @@
   "m_00ba2990005a61": "Limite atingido",
   "m_00bb6cd9596e43": "manutenção do servidor",
   "m_00bbc90a578050": "Adicionar à TV ao vivo",
-  "m_00bc914bd1b046": "Tudo destas fontes",
+  "m_00bc914bd1b046": {
+    "one": "Tudo desta fonte",
+    "other": "Tudo destas fontes",
+    "many": "Tudo destas fontes"
+  },
   "m_00bcc1f24cfc24": "Filtro de séries",
   "m_00bcdb5c15020b": "{count} títulos sincronizados",
   "m_00bd34dcf42363": "O envio ao Plex está desativado para esta pessoa.",
@@ -604,6 +608,7 @@
   "m_021838b76c4ffe": "Em ordem",
   "m_0219d74b52e206": "Selecionar",
   "m_021a60272b2db8": "Nenhum catálogo no momento",
+  "m_021b8b6f16ca68": "Escolha os filtros acima. Os títulos correspondentes entram nesta biblioteca e continuam em Filmes e Séries. Para alterar o filtro depois, exclua esta biblioteca e crie uma nova.",
   "m_021d7efc432814": "Espectadores",
   "m_021dc0756d87b1": "O nome do produto do aplicativo.",
   "m_021e31189b8c13": "Clipe de {name}",
@@ -1834,7 +1839,6 @@
   "m_0643a12e17aa72": "Não informado por este hardware",
   "m_0643a740c5f9c9": "O próximo episódio começa rápido numa casa comum.",
   "m_064453b3cc3482": "Instância",
-  "m_06446531438cf8": "Escolha os filtros acima; cada título correspondente entra na biblioteca e mantém seu lugar em Filmes ou Séries. O nome pode mudar depois, mas o filtro ainda não — seria preciso excluir e recriar a biblioteca.",
   "m_0645266cccce67": "Túnel dividido a funcionar",
   "m_06468b3cdf3d10": "Fixado pelo proprietário",
   "m_06475ac8d34b84": "Ether {version}",
@@ -3449,7 +3453,11 @@
   "m_0c00eba063ae02": "No ar hoje",
   "m_0c01416b79ed6e": "omdb mdblist imdb rotten selos",
   "m_0c01b885a4b465": "Escolha quais membros da casa compartilham suas atividades com este plugin.",
-  "m_0c022d91ab3641": "Incluir todos os títulos fornecidos por estas fontes.",
+  "m_0c022d91ab3641": {
+    "one": "Incluir todos os títulos desta fonte.",
+    "other": "Incluir todos os títulos destas fontes.",
+    "many": "Incluir todos os títulos destas fontes."
+  },
   "m_0c02f383c64fc7": "Insira um nome e horários de início e término válidos.",
   "m_0c03b744339177": "Ainda não salva",
   "m_0c03d0164a1646": "Importar um perfil de qualidade predefinido",
@@ -4165,6 +4173,7 @@
   "m_0e80a79eaf6a4b": "Reproduções por fonte",
   "m_0e80c756268b19": "Usar um arquivo do servidor",
   "m_0e82ddc29a6faf": "Encontrar este servidor",
+  "m_0e83ba617e159d": "Escolha as fontes desta biblioteca.",
   "m_0e83d79b0da2f2": "Personalizar logo de canto",
   "m_0e854931080c4a": "As configurações, o armazenamento e os logs dele serão excluídos.",
   "m_0e859db0db399f": "Importar e exportar",
@@ -8514,6 +8523,7 @@
     "other": "{count} linhas na página"
   },
   "m_1d31e5ac3adcb1": "Outro",
+  "m_1d33e2f99fb9be": "Gerenciar em Integrações",
   "m_1d349253ea37ef": "Predefinições de design",
   "m_1d3588ee53d7a2": {
     "many": "{count} streams ativos",

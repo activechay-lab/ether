@@ -341,16 +341,16 @@ func (k *listSourceKind) Gather(g *collections.Gather) {
 			metas, err = addon.Catalog(g.Ctx, cat, extra, limit-total)
 		}
 		if err != nil {
-			if g.Strict {
-				g.Fail(err)
-				return
-			}
 			if preview && errors.Is(err, context.DeadlineExceeded) {
 				g.Fail(fmt.Errorf("plugin list preview timed out: %w", err))
 				return
 			}
 			if !fetcher.recorded {
 				k.mgr.RecordFailure(g.Ctx, rec.ID, fmt.Sprintf("catalog %s/%s: %v", cat.Type, cat.ID, err))
+			}
+			if g.Strict {
+				g.Fail(err)
+				return
 			}
 			g.Warn("%s: %v", k.label(), err)
 		}

@@ -87,6 +87,11 @@ func (a *App) wireCatalogueSources() {
 		return
 	}
 	lock := make(chan struct{}, 1)
+	type sourceFailure struct {
+		at  time.Time
+		err error
+	}
+	failures := map[string]sourceFailure{}
 	a.catalog.SetCatalogueSourceLoader(func(ctx context.Context, ids []string) error {
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
@@ -110,6 +115,9 @@ func (a *App) wireCatalogueSources() {
 					return ctx.Err()
 				}
 				defer func() { <-lock }()
+				if failed, ok := failures[id]; ok && time.Since(failed.at) < time.Minute {
+					return failed.err
+				}
 				_ = a.db.QueryRowContext(ctx, `SELECT refreshed FROM libraries_catalogue_state WHERE source_id=?`, id).Scan(&refreshed)
 				if time.Since(time.Unix(refreshed, 0)) < time.Hour {
 					return nil
@@ -122,6 +130,20 @@ func (a *App) wireCatalogueSources() {
 				defer cancel()
 				titles, err := a.collections.GatherCatalogueSource(bounded, extend.PluginID(parts[1], parts[2]), typ)
 				if err != nil {
+					failures[id] = sourceFailure{at: time.Now(), err: err}
+					return err
+				}
+				delete(failures, id)
+				unique := make([]core.Title, 0, len(titles))
+				seen := map[core.RatingKey]bool{}
+				for _, title := range titles {
+					if title.Type == core.MediaType(typ) && !seen[title.Key] {
+						seen[title.Key] = true
+						unique = append(unique, title)
+					}
+				}
+				titles = unique
+				if err := a.catalog.UpsertCollectionTitles(bounded, titles); err != nil {
 					return err
 				}
 				tx, err := a.db.BeginTx(ctx, nil)

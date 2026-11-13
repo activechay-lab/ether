@@ -3631,7 +3631,14 @@ export function createFakeServer(opts: FakeOptions = {}) {
         return json({
           setupComplete: state.config.setupComplete,
           requiredComplete: true,
-          steps: [],
+          steps: [
+            {
+              id: "catalog",
+              title: "TMDB API key",
+              complete: !new URL(window.location.href).searchParams.has("catalogKey"),
+              required: true,
+            },
+          ],
         });
       case "POST /setup/complete":
         state.config.setupComplete = true;

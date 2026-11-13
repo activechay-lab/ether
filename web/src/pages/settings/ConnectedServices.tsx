@@ -1164,6 +1164,10 @@ function ServiceOverview({
   const on = (tab: Service["tab"]) => flagOf(saved(tab), service(tab).flag);
   const switchesHeld = locked || busyId !== null;
   const tmdbKey = stored?.catalog?.tmdbKey;
+  const setup = useAsync(() => api.setupStatus(), []);
+  const tmdbAvailable =
+    secretConfigured(tmdbKey) ||
+    setup.data?.steps.some((step) => step.id === "catalog" && step.complete);
 
   return (
     <>
@@ -1181,7 +1185,7 @@ function ServiceOverview({
           logo={<TmdbMark />}
           description={t("Names titles, fetches artwork and fills the catalogue.")}
           status={
-            secretConfigured(tmdbKey) ? (
+            tmdbAvailable ? (
               catalogHealth ? (
                 <LevelBadge level={catalogHealth.level} />
               ) : (
@@ -1206,7 +1210,7 @@ function ServiceOverview({
                   ))}
               </div>
               <Button size="sm" variant="outline" onClick={() => onTmdbSetup(true)}>
-                {secretConfigured(tmdbKey) ? t("Manage TMDB") : t("Set up TMDB")}
+                {tmdbAvailable ? t("Manage TMDB") : t("Set up TMDB")}
               </Button>
             </>
           }
@@ -1230,16 +1234,18 @@ function ServiceOverview({
                   ? `/plugins/installed?plugin=${encodeURIComponent(source.pluginId)}`
                   : undefined
               }
-              action={
+              details={
                 <>
-                  <p className="w-full text-sm text-fg-muted">{sourceOwner(source)}</p>
-                  <p className="w-full text-sm text-fg-muted">
-                    {source.libraries.length
-                      ? t("Used by: {libraries}", {
-                          libraries: source.libraries.map((lib) => lib.name).join(", "),
-                        })
-                      : t("No libraries use this source yet.")}
-                  </p>
+                  <div className="w-full space-y-1 text-sm text-fg-muted">
+                    <p>{sourceOwner(source)}</p>
+                    <p>
+                      {source.libraries.length
+                        ? t("Used by: {libraries}", {
+                            libraries: source.libraries.map((lib) => lib.name).join(", "),
+                          })
+                        : t("No libraries use this source yet.")}
+                    </p>
+                  </div>
                 </>
               }
             />
