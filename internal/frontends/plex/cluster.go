@@ -417,13 +417,41 @@ func (s *Server) endLocalSession(tid string, offset time.Duration) {
 	s.endEntryPlayback(e, offset)
 }
 
+// expirePlaybackActivities retains silent timeline entries while their owned
+// media session is serving requests. Work is bounded by active sessions.
+func (s *Server) expirePlaybackActivities(now time.Time, ttl time.Duration) []playEntry {
+	expired := s.sessions.expire(now, ttl)
+	out := expired[:0]
+	for _, e := range expired {
+		last := e.updatedAt
+		for _, id := range s.transcodes.forClient(e.user.ID, e.client.ClientID, e.key) {
+			binding, ok := s.transcodes.get(id)
+			if !ok || (e.client.SessionID != "" && binding.playbackID != "" && binding.playbackID != e.client.SessionID) {
+				continue
+			}
+			if hls, ok := s.plexHLSSession(id); ok && hls.LastAccess().After(last) {
+				last = hls.LastAccess()
+			}
+		}
+		if e.state != "stopped" && now.Sub(last) <= ttl {
+			s.sessions.update(e.id, func(current *playEntry) {
+				if current.updatedAt.After(e.updatedAt) {
+					return
+				}
+				*current = e
+				current.updatedAt = last
+			})
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // endExpiredEntry ends playback for a now-playing entry the janitor expired
-// after timeline silence. Expiry used to only drop the entry (which is all
-// Tautulli/Plex saw as "stopped"), leaving the broker, source and encoder
-// sessions alive for as long as the silent player kept fetching segments
-// (#410). Paused entries are not ended here: their retention and idle
-// clocks govern them. The caller already removed the entry and sent the
-// stopped notification.
+// after both timeline and media activity cease. Paused entries are left to
+// their retention and idle clocks. The caller already removed the entry
+// and sent the stopped notification.
 func (s *Server) endExpiredEntry(e playEntry) {
 	if e.state == "paused" {
 		return

@@ -1394,6 +1394,8 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 		}
 		e = append(e, "-preset", xPreset, "-crf", "23", "-maxrate", peak, "-bufsize", buf, "-x265-params", params)
 	case "h264_videotoolbox", "hevc_videotoolbox":
+		// Disable open GOPs so forced keyframes are independent HLS cuts.
+		e = append(e, "-flags", "+cgop")
 		if s.Rate.Quality {
 			e = append(e, "-q:v", "65", "-maxrate", maxr, "-bufsize", buf, "-allow_sw", "0")
 		} else {
@@ -1428,6 +1430,10 @@ func planEncodeArgs(s runSpec, pic picturePlan, enc, codec string, hwFrames bool
 			e = append(e, "-profile:v", "main10")
 		}
 	case "h264_qsv", "hevc_qsv", "av1_qsv":
+		// HLS cuts require IDR pictures, rather than ordinary forced I frames.
+		if enc != "av1_qsv" {
+			e = append(e, "-forced_idr", "1")
+		}
 		e = append(e, qsvRateArgs(qsvMode(s, enc), b, maxr, buf)...)
 		if enc == "h264_qsv" {
 			e = append(e, "-profile:v", "high")

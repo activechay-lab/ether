@@ -655,3 +655,23 @@ func TestNVENCFramePlanClock(t *testing.T) {
 		}
 	}
 }
+
+// TestHardwareForcedIDR keeps IDR options specific to the encoder syntax.
+func TestHardwareForcedIDR(t *testing.T) {
+	for _, enc := range []string{"h264_qsv", "hevc_qsv", "av1_qsv", "h264_nvenc", "hevc_nvenc", "h264_vaapi", "hevc_vaapi", "h264_videotoolbox", "hevc_videotoolbox"} {
+		t.Run(enc, func(t *testing.T) {
+			args := planEncodeArgs(runSpec{}, picturePlan{w: 1920, h: 1080}, enc, strings.Split(enc, "_")[0], false)
+			switch enc {
+			case "h264_qsv", "hevc_qsv":
+				mustContain(t, args, "-forced_idr 1")
+			case "h264_nvenc", "hevc_nvenc":
+				mustContain(t, args, "-forced-idr 1")
+			case "h264_videotoolbox", "hevc_videotoolbox":
+				mustContain(t, args, "-flags +cgop")
+				mustNotContain(t, args, "-forced_idr", "-forced-idr")
+			default:
+				mustNotContain(t, args, "-forced_idr", "-forced-idr")
+			}
+		})
+	}
+}

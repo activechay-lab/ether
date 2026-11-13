@@ -346,6 +346,7 @@ func (s *Session) rungPeakKbpsLocked(t int) int {
 
 // ServeRungPlaylist implements core.HLSLadderSession.
 func (s *Session) ServeRungPlaylist(w http.ResponseWriter, r *http.Request, rungID string) {
+	s.Touch()
 	if s.isDASH() {
 		s.ServeManifest(w, r)
 		return

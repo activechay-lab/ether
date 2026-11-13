@@ -86,6 +86,29 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, http.StatusBadRequest)
 		return
 	}
+	// Pre-rolls and trailers are synthetic extras, not catalog titles.
+	// Acknowledge their timelines without writing feature watch progress.
+	if key.Kind() == frontend.KindExtra {
+		if key.IsPreroll() {
+			if _, _, ok := s.prerollExtra(ctx, key); !ok {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
+		} else {
+			e, ok := s.extrasLookup(key)
+			if !ok {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
+			title, err := s.catalog().Get(ctx, e.ParentKey)
+			if err != nil || !s.visibleTitle(ctx, pr.User, title) {
+				writeHTTPError(w, http.StatusNotFound)
+				return
+			}
+		}
+		s.writeEmpty(w, r)
+		return
+	}
 	if key.Kind() == frontend.KindPlaylist {
 		if _, err := s.playlist(ctx, pr.User, key); err != nil {
 			s.writeErr(w, r, err)
