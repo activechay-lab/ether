@@ -15,7 +15,6 @@ import (
 // ServePlaylist implements core.HLSSession: the full-length VOD playlist
 // (the MPD for DASH sessions).
 func (s *Session) ServePlaylist(w http.ResponseWriter, r *http.Request) {
-	s.Touch()
 	if s.isDASH() {
 		s.ServeManifest(w, r)
 		return

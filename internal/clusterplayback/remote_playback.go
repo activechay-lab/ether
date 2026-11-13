@@ -151,7 +151,7 @@ func (p *RemotePlayback) PrepareSurfaceSource(c context.Context, v *core.User, k
 		entry.activity = p.o.Now()
 		entry.mode++
 		entry.prepared = prepared
-		entry.snapshot = &core.PlaySession{ID: id, UserID: v.ID, ClientID: caps.ClientID, Key: k, Client: caps, Info: prepared.Info, StartedAt: entry.activity, PreparedOnly: true, Resolution: &core.Resolution{Title: k, Release: core.Release{ID: prepared.ReleaseID}}, Source: remoteSource{revision: prepared.Revision, release: prepared.ReleaseID, size: prepared.Info.Size}}
+		entry.snapshot = &core.PlaySession{ID: id, UserID: v.ID, ClientID: caps.ClientID, Key: k, Client: caps, Info: prepared.Info, StartedAt: entry.activity, PreparedOnly: true, RequiresRemux: prepared.RequiresRemux, Resolution: &core.Resolution{Title: k, HealthVerified: prepared.HealthVerified, Release: core.Release{ID: prepared.ReleaseID, Protocol: prepared.ReleaseProtocol}}, Source: remoteSource{revision: prepared.Revision, release: prepared.ReleaseID, size: prepared.Info.Size}}
 	} else {
 		entry.retiring = true
 		if err == nil {

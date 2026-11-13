@@ -40,7 +40,9 @@ func (fixtureCatalog) Get(_ context.Context, k core.RatingKey) (*core.Title, err
 type fixtureResolver struct{ core.Resolver }
 
 func (fixtureResolver) Resolve(_ context.Context, q core.ResolveRequest) (*core.Resolution, error) {
-	return &core.Resolution{Title: q.Title.Key, Release: core.Release{ID: "fixture", Name: "fixture.mkv"}, NZB: []byte("offline")}, nil
+	// This fixture tests direct delivery of a known healthy source. Unknown
+	// health intentionally selects failover-safe remux in the shared policy.
+	return &core.Resolution{HealthVerified: true, Title: q.Title.Key, Release: core.Release{ID: "fixture", Name: "fixture.mkv"}, NZB: []byte("offline")}, nil
 }
 
 type fixtureEngine struct {

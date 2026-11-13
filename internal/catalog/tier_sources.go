@@ -203,7 +203,7 @@ var tierUntouchedTables = []string{
 	"prerolls", "prerolls_settings", "stats_costs", "stats_device_registry", "stats_device_registry_counter", "stats_indexer_days",
 	"stats_debrid_days", "stats_stream_days",
 	"stats_newsletter_", "stats_provider_days", "plugins_artifacts", "plugins_calls", "plugins_catalogue_",
-	"plugins_event_log", "plugins_grants", "plugins_health", "plugins_installed", "plugins_logs",
+	"plugins_hash_cache", "plugins_event_log", "plugins_grants", "plugins_health", "plugins_installed", "plugins_logs",
 	"plugins_proposals", "plugins_settings", "agent_approvals", "agent_audit", "agent_secret_requests",
 	"agent_threads", "schema_migrations", "sqlite_",
 }

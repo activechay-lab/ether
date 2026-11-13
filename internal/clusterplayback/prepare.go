@@ -27,6 +27,9 @@ type PreparedSource struct {
 	Owner                       nodewire.Identity
 	PlayID, Revision, ReleaseID string
 	Info                        core.MediaInfo
+	HealthVerified              bool
+	ReleaseProtocol             string
+	RequiresRemux               bool
 }
 type preparation struct {
 	operations       int
@@ -158,6 +161,7 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 	var capturedSize int64
 	if ps != nil {
 		captured = PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: core.SourceRevision(ps), ReleaseID: ps.SourceReleaseID(), Info: core.CloneMediaInfo(ps.Info)}
+		captured.captureDecisionInputs(ps)
 		if ps.Source != nil {
 			capturedSize = ps.Source.Size()
 		}
@@ -199,6 +203,7 @@ func (r *Runtime) prepare(ctx context.Context, peer nodewire.Identity, q *Prepar
 		return sourceResponse{}, e
 	}
 	result := PreparedSource{Owner: r.o.Self, PlayID: ps.ID, Revision: revision, ReleaseID: ps.SourceReleaseID(), Info: core.CloneMediaInfo(ps.Info)}
+	result.captureDecisionInputs(ps)
 	encoded, e := json.Marshal(sourceResponse{Prepared: result})
 	if e != nil || len(encoded) > remotetranscode.MaxMessage {
 		return sourceResponse{}, ErrDenied
@@ -360,4 +365,13 @@ func (r *Runtime) preparationStatus(ctx context.Context, peer nodewire.Identity,
 		return sourceResponse{Phase: "owned-error"}, nil
 	}
 	return sourceResponse{Phase: "ready", Prepared: result}, nil
+}
+
+// Preserve the source facts used by the shared playback decision policy.
+func (p *PreparedSource) captureDecisionInputs(ps *core.PlaySession) {
+	p.RequiresRemux = ps.RequiresRemux
+	if ps.Resolution != nil {
+		p.HealthVerified = ps.Resolution.HealthVerified
+		p.ReleaseProtocol = ps.Resolution.Release.Protocol
+	}
 }
