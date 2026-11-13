@@ -563,7 +563,7 @@ func TestPhotoTranscode(t *testing.T) {
 		t.Fatalf("still: %q", rec.Body.String())
 	}
 	rec = f.get(t, "/library/metadata/"+bbE2.Key.String()+"/art/1")
-	if rec.Body.String() != "IMG:/t/p/w1280/bbart.jpg" {
+	if rec.Body.String() != "IMG:/t/p/original/bbart.jpg" { // no width: full-resolution art (4K TVs)
 		t.Fatalf("episode art falls back to show: %q", rec.Body.String())
 	}
 	rec = f.get(t, "/library/collections/5000000000008091/thumb/1")
