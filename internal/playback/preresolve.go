@@ -364,12 +364,13 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		if facts.info.Estimated {
 			facts = nil
 		}
-		if automaticReserve && !metadata {
+		if !metadata && (automaticReserve || reason == core.PrewarmDetail || reason == core.PrewarmNextEpisode) {
 			info := generation.infoSnapshot()
 			if info.Duration > 0 {
-				prefetchBytes = min(int64(256<<20), max(int64(8<<20), int64(float64(src.Size())*(40*time.Second).Seconds()/info.Duration.Seconds())))
+				prefetchBytes = min(int64(256<<20), max(int64(8<<20), int64(float64(src.Size())*25/info.Duration.Seconds())))
 			}
 		}
+
 		// Publish before prefetch so a play request need not wait for
 		// background IO on debrid/HTTP. Usenet still has to prove the
 		// opening articles exist; takeWarm will not consume it until then.
@@ -385,12 +386,21 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 			e.markOpeningReady()
 			return
 		}
+		resumeOffset := opts.StartOffset
+		if reason == core.PrewarmDetail && resumeOffset <= 0 && m.deps.State != nil {
+			if status, err := m.deps.State.Get(ctx, u.ID, key); err == nil {
+				resumeOffset = status.ViewOffset
+			}
+		}
 		warmOffset := int64(0)
-		if opts.StartOffset > 0 && facts != nil {
+		if resumeOffset > 0 && facts != nil {
 			tm := TimeMap{Size: src.Size(), Duration: facts.info.Duration, Points: facts.points}
-			lo, hi := warmSpanFor(tm, opts.StartOffset, opts.StartOffset+45*time.Second)
+			lo, hi := warmSpanFor(tm, resumeOffset, resumeOffset+25*time.Second)
 			warmOffset = lo
-			prefetchBytes = min(hi-lo, int64(32<<20))
+			prefetchBytes = min(hi-lo, int64(256<<20))
+		}
+		if cfg.BudgetBytes > 0 {
+			prefetchBytes = min(prefetchBytes, cfg.BudgetBytes/10)
 		}
 		if err := m.deps.Engine.Prefetch(ctx, res.Release.ID, res.NZB, warmOffset, prefetchBytes); err != nil {
 			if permanentSourceFailure(err) {

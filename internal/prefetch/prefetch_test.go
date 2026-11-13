@@ -430,7 +430,7 @@ func TestKeepWarm(t *testing.T) {
 		}
 		f.hints.live[ep1] = true // being watched right now
 		f.state.byUser[user.ID] = []core.WatchStatus{
-			{Key: movie, ViewOffset: 50 * time.Minute},
+			{Key: movie, ViewOffset: 50 * time.Minute, LastViewedAt: time.Now()},
 			{Key: ep1, ViewOffset: 10 * time.Minute},
 			{Key: ep2},                                        // on deck, not started
 			{Key: core.MovieKey(43), ViewOffset: time.Minute}, // no stored release
@@ -443,7 +443,7 @@ func TestKeepWarm(t *testing.T) {
 	}
 	f.wait(t)
 	calls := f.engine.got()
-	want := call{"m", "nzb-m", 500<<20 - 1<<20, 1<<20 + 64<<20}
+	want := call{"m", "nzb-m", 500<<20 - 1<<20, 1<<20 + ((1000<<20)*25+3000)/6000}
 	if len(calls) != 1 || calls[0] != want {
 		t.Fatalf("warm calls = %+v, want %+v", calls, want)
 	}
@@ -461,6 +461,56 @@ func TestKeepWarm(t *testing.T) {
 	f.wait(t)
 	if n := len(f.engine.got()); n != 1 {
 		t.Fatalf("WarmNow repeated: %d", n)
+	}
+}
+
+// The keep-warm boundary is deliberately independent of the resolver: neither
+// periodic on-deck entries nor timeline hints may search for an absent source.
+func TestKeepWarmNeverSearches(t *testing.T) {
+	movie := core.MovieKey(42)
+	f := newFixture(t, Options{}, func(f *fixture) {
+		f.auth.users = []core.User{*user}
+		f.state.byUser[user.ID] = []core.WatchStatus{
+			{Key: movie, ViewOffset: time.Minute, LastViewedAt: time.Now()},
+			{Key: ep2}, // never started
+		}
+	})
+	if err := f.p.warmPass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.p.OnTimeline(user, movie, 2*time.Minute, time.Hour, "paused")
+	f.wait(t)
+	if n := f.resolver.count(); n != 0 {
+		t.Fatalf("keep-warm searched %d times", n)
+	}
+	if n := len(f.engine.got()); n != 0 {
+		t.Fatalf("warmed %d missing sources", n)
+	}
+}
+
+func TestKeepWarmTimelineUsesNewPosition(t *testing.T) {
+	movie := core.MovieKey(42)
+	f := newFixture(t, Options{WarmBehind: 1}, func(f *fixture) {
+		f.hints.points[[2]int64{user.ID, int64(movie)}] = &playback.ResumePoint{
+			Release: core.Release{ID: "resume"}, NZB: []byte("nzb"), Size: 600000, Duration: 600 * time.Second,
+			Keyframes: []core.KeyframePoint{{Time: 100 * time.Second, Offset: 100000}, {Time: 200 * time.Second, Offset: 200000}},
+		}
+	})
+	for _, state := range []string{"playing", "paused", "stopped"} {
+		f.p.OnTimeline(user, movie, 210*time.Second, 600*time.Second, state)
+		f.wait(t)
+	}
+	calls := f.engine.got()
+	if len(calls) != 3 {
+		t.Fatalf("timeline warm calls = %v", calls)
+	}
+	for _, c := range calls {
+		if c != (call{"resume", "nzb", 199999, 35001}) {
+			t.Fatalf("resume keyframe window = %+v", c)
+		}
+	}
+	if f.resolver.count() != 0 {
+		t.Fatal("resume triggered a search")
 	}
 }
 
