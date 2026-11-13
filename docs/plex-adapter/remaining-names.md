@@ -17,6 +17,19 @@ No named-frontend runtime branches remain in the audited shared identity, playba
 
 The FFmpeg vendor check identifies a patched muxer capability independently of the requesting frontend. Plugin studio projection descriptions interpret manifest vocabulary; performance-harness scenarios intentionally reproduce named client wire requests. Neither selects shared runtime behavior for a requesting frontend.
 
+## Verification
+
+`CGO_ENABLED=0 go build -p 2 ./...` and `go vet -p 2 ./...` passed. The coordinator's full requested package gate passed every package except `internal/transcode`, including all frontend/Plex guards, conformance, app, sessions, cluster playback, playback, Live TV, experience, identity, state, watch-party, personalization, and plugins.
+
+The final run used `-timeout 1800s` after the initial package hit Go's default 10-minute suite timeout. Transcode completed in 470.871 seconds with two failures:
+
+- `TestIntegrationMatroskaContractPillarboxesTenBitSDR`: white YCbCr 936/509/509 versus 940/512/512; grey 500/509/509 versus 504/512/512.
+- `TestIntegrationBurnedTextSubtitleRenders`: no cue detected at 2 seconds (band difference 1.3).
+
+There is no `internal/transcode` source diff against final combined. These results are reported rather than hidden by changing pixel expectations, tolerances, or golden fixtures. No golden or testdata files were edited.
+
+Real-device checks for the release coordinator: Plex part ranges after failover and paused retention; timeline resume/completion and playlist updates; SyncPlay join/rejoin and queue/transport events; tokenless native-client artwork tags. This slice did not access the lab or production.
+
 ## internal/admin/admin.go
 
 Owner administration of named protocol settings and account integrations; identity and API vocabulary.
