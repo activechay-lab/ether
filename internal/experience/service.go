@@ -1590,6 +1590,10 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	if err != nil {
 		return frontend.SearchPage{}, err
 	}
+	if !s.requestedTypesServable(ctx, v, q) {
+		return frontend.SearchPage{}, nil
+	}
+
 	var types []core.MediaType
 	show := false
 	seenType := make(map[core.MediaType]bool)
@@ -1627,10 +1631,10 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	// Apply the requested media types before the catalogue chooses and
 	// hydrates its candidate window. Filtering only afterwards wastes that
 	// window on other libraries and can crowd out valid results.
-	if len(q.Types) > 0 {
+	if len(q.Types) > 0 || len(q.UnservedTypes) > 0 || len(q.ExcludedTypes) > 0 {
 		filtered := types[:0]
 		for _, typ := range types {
-			if containsMediaType(q.Types, typ) {
+			if (len(q.Types) == 0 && len(q.UnservedTypes) == 0 || containsMediaType(q.Types, typ)) && !containsMediaType(q.ExcludedTypes, typ) {
 				filtered = append(filtered, typ)
 			}
 		}
@@ -1655,7 +1659,7 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 		findCtx = core.WithSearchCandidates(ctx, cand)
 	}
 	var items []core.Title
-	if s.d.PluginLibraries == nil || len(types) > 0 {
+	if len(types) > 0 {
 		candidates, err := s.d.Search.Find(findCtx, v, query, types, window)
 		if err != nil {
 			return frontend.SearchPage{}, err
@@ -1678,7 +1682,7 @@ func (s *Service) Search(ctx context.Context, viewer *core.Viewer, device core.D
 	if err != nil {
 		return frontend.SearchPage{}, err
 	}
-	if len(items) == 0 && len(pluginHits) == 0 && (s.d.PluginLibraries == nil || len(types) > 0) {
+	if len(items) == 0 && len(pluginHits) == 0 && len(types) > 0 {
 		items, err = s.vibeMembers(ctx, v, query, q)
 		if err != nil {
 			return frontend.SearchPage{}, err
@@ -2576,24 +2580,27 @@ func containsMediaType(types []core.MediaType, want core.MediaType) bool {
 }
 
 func (s *Service) matchesUserQuery(ctx context.Context, v *core.User, t core.Title, q frontend.ItemQuery) (bool, error) {
-	if !matchesFilter(t, q.Filter) {
+	if containsMediaType(q.ExcludedTypes, t.Type) {
 		return false, nil
 	}
-	if q.Season != nil && t.Season != *q.Season {
-		return false, nil
-	}
-	if len(q.Types) > 0 {
-		found := false
-		for _, typ := range q.Types {
-			if t.Type == typ {
+	if len(q.Types) > 0 || len(q.UnservedTypes) > 0 {
+		found := containsMediaType(q.Types, t.Type)
+		for _, kind := range q.UnservedTypes {
+			if strings.EqualFold(kind, string(t.Type)) {
 				found = true
-				break
 			}
 		}
 		if !found {
 			return false, nil
 		}
 	}
+	if !matchesFilter(t, q.Filter) {
+		return false, nil
+	}
+	if q.Season != nil && t.Season != *q.Season {
+		return false, nil
+	}
+
 	if q.Watched != nil {
 		st, err := s.d.State.Get(ctx, v.ID, t.Key)
 		if err != nil {

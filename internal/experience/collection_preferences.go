@@ -2,6 +2,9 @@ package experience
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -50,21 +53,55 @@ func (s *Service) Collections(ctx context.Context, viewer *core.Viewer, _ core.D
 	if !ok {
 		return frontend.CollectionPage{}, core.ErrNotAvailable
 	}
+	published := map[core.MediaType]bool{}
+	if s.d.PluginLibraries != nil {
+		views, e := s.storedViews(ctx, v)
+		if e != nil {
+			return frontend.CollectionPage{}, e
+		}
+		for _, view := range views {
+			if view.KindKey == "" {
+				published[view.Type] = true
+			}
+		}
+	}
+
 	seenTypes := map[core.MediaType]bool{}
 	seenKeys := map[core.RatingKey]bool{}
 	var visible []core.Collection
 	for _, lib := range s.libraries() {
 		typ := lib.Type
-		if (typ != core.TypeMovie && typ != core.TypeShow) || !SectionAllowed(v, lib.ID) || (len(requested) > 0 && !requested[typ]) || seenTypes[typ] {
+		if (s.d.PluginLibraries != nil && !published[typ]) || (typ != core.TypeMovie && typ != core.TypeShow) || !SectionAllowed(v, lib.ID) || (len(requested) > 0 && !requested[typ]) || seenTypes[typ] {
 			continue
 		}
 		seenTypes[typ] = true
+		if q.ExistsOnly {
+			finder, ok := s.d.Collections.(interface {
+				FindVisible(context.Context, *core.User, core.MediaType, func(core.Collection) (bool, error)) (bool, error)
+			})
+			if !ok {
+				return frontend.CollectionPage{}, core.ErrNotAvailable
+			}
+			found, e := finder.FindVisible(ctx, v, typ, func(c core.Collection) (bool, error) {
+				if c.Type != typ || !s.d.Visibility.CollectionAllowed(v, &c) || (c.OwnerUserID != 0 && c.OwnerUserID != v.ID) {
+					return false, nil
+				}
+				return s.collectionHasVisibleMember(ctx, v, c)
+			})
+			if e != nil {
+				return frontend.CollectionPage{}, e
+			}
+			if found {
+				return frontend.CollectionPage{Total: 1}, nil
+			}
+			continue
+		}
 		collections, e := complete.ListComplete(ctx, v, typ)
 		if e != nil {
 			return frontend.CollectionPage{}, e
 		}
 		for _, c := range collections {
-			if c.Type != typ || seenKeys[c.Key] || !s.d.Visibility.CollectionAllowed(v, &c) || (c.OwnerUserID != 0 && c.OwnerUserID != v.ID) {
+			if (q.Query != "" && !strings.Contains(strings.ToLower(c.Title), strings.ToLower(q.Query))) || c.Type != typ || seenKeys[c.Key] || !s.d.Visibility.CollectionAllowed(v, &c) || (c.OwnerUserID != 0 && c.OwnerUserID != v.ID) {
 				continue
 			}
 			members, e := s.collectionItems(ctx, v, c.Key)
@@ -81,6 +118,39 @@ func (s *Service) Collections(ctx context.Context, viewer *core.Viewer, _ core.D
 	}
 	start, end := sliceBounds(len(visible), q.Offset, q.Limit)
 	return frontend.CollectionPage{Items: visible[start:end], Total: len(visible)}, nil
+}
+
+// collectionHasVisibleMember reads bounded pages and stops at the first member
+// the viewer can see, without calculating a child count.
+func (s *Service) collectionHasVisibleMember(ctx context.Context, v *core.User, c core.Collection) (bool, error) {
+	for offset := 0; ; {
+		page, err := s.d.Collections.Items(ctx, v, c.Key, offset, 32)
+		if err != nil {
+			return false, err
+		}
+		var batch []core.Title
+		if c.Upcoming {
+			batch = s.d.Visibility.UpcomingItems(ctx, v, page.Items, time.Now)
+		} else {
+			batch, err = s.allowTitles(ctx, v, page.Items)
+			if err != nil {
+				return false, err
+			}
+		}
+		if len(batch) > 0 {
+			return true, nil
+		}
+		offset += len(page.Items)
+		if offset >= page.Total {
+			return false, nil
+		}
+		if len(page.Items) == 0 {
+			return false, errors.New("experience: incomplete collection page")
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+	}
 }
 
 func (s *Service) notInterested(ctx context.Context, v *core.User) ([]frontend.NotInterestedEntry, error) {

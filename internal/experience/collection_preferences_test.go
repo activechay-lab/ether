@@ -123,3 +123,45 @@ func TestListingPageBoundsPreserveAuthorizedTotals(t *testing.T) {
 		}
 	}
 }
+
+// existenceCollections deliberately rejects full listings and a second member
+// page, proving home/view discovery does neither after finding one member.
+type existenceCollections struct {
+	core.Collections
+	visits, reads *int
+}
+
+func (f existenceCollections) ListComplete(context.Context, *core.User, core.MediaType) ([]core.Collection, error) {
+	return nil, errors.New("existence must not list complete collections")
+}
+func (f existenceCollections) FindVisible(_ context.Context, _ *core.User, typ core.MediaType, accept func(core.Collection) (bool, error)) (bool, error) {
+	for n := int64(1); n <= 1371; n++ {
+		*f.visits++
+		ok, err := accept(core.Collection{Key: core.CollectionKey(n), Type: typ})
+		if ok || err != nil {
+			return ok, err
+		}
+	}
+	return false, nil
+}
+func (f existenceCollections) Items(_ context.Context, _ *core.User, _ core.RatingKey, offset, limit int) (core.Page, error) {
+	*f.reads++
+	if offset != 0 || limit > 32 {
+		return core.Page{}, errors.New("unbounded existence read")
+	}
+	return core.Page{Items: []core.Title{{Key: core.MovieKey(1), Type: core.TypeMovie}}, Total: 10000}, nil
+}
+func TestCollectionsExistenceStopsEarly(t *testing.T) {
+	v := &core.User{ID: 1, IsOwner: true}
+	visits, reads := 0, 0
+	s := &Service{d: ServiceDeps{
+		Active:      func(context.Context, int64) (*core.User, error) { return v, nil },
+		Libraries:   []Library{{ID: 1, Type: core.TypeMovie}},
+		Visibility:  Visibility{SectionFor: func(core.MediaType) (int, bool) { return 1, true }},
+		Collections: existenceCollections{visits: &visits, reads: &reads},
+	}}
+	page, err := s.Collections(t.Context(), v, core.Device{}, frontend.CollectionQuery{ExistsOnly: true, Limit: 1})
+	if err != nil || page.Total != 1 || visits != 1 || reads != 1 || len(page.Items) != 0 {
+		t.Fatalf("page %+v err %v visits %d reads %d", page, err, visits, reads)
+	}
+}
