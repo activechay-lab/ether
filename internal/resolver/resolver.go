@@ -1547,6 +1547,18 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 	rc := s.rankContext(profile, t, rcfg, now)
 	var cands []candidate
 	clientRejected := false
+	// Once a result corroborates this series, name-only results are ambiguous.
+	// Check the whole result set before profile/exclusion gates: a failed or
+	// lower-quality correct release must not cause failover to a namesake.
+	corroborated := false
+	if sreq.Type == core.TypeEpisode {
+		for _, rel := range results {
+			if episodeIdentityEvidence(rel, sreq) && rejectIdentityYears(rel, t, sreq, env.lang, func(y int) bool { return s.seriesYearAccepted(t.ShowKey, y) }) == "" {
+				corroborated = true
+				break
+			}
+		}
+	}
 	for ri, rel := range results {
 		rel = withTarget(rel, sreq)
 		ct := CandidateTrace{ReleaseID: rel.ID, Name: rel.Name, Indexer: rel.Indexer, Size: rel.Size, Height: rel.Info.Height}
@@ -1585,6 +1597,8 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			reason = "blocked hardcoded subtitles"
 		} else if s.rejectedFor(t.Key, rel) {
 			reason = "release rejected for this title"
+		} else if corroborated && !episodeIdentityEvidence(rel, sreq) {
+			reason = "ambiguous series identity (name only)"
 		} else if pinned {
 			reason = s.pinRejectReason(rel, sreq, req.Client, exclude)
 		} else if !preferred && policyResult.Rejected {
@@ -1971,7 +1985,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		if !releaseparse.SeriesYearMatches(releaseYear, sreq.Year) && (acceptYear == nil || !acceptYear(releaseYear)) {
 			return "series year mismatch"
 		}
-		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !episodeTitleMatchesRelease(rel, sreq.EpisodeTitle) {
+		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !episodeTitleMatchesRelease(rel, sreq.EpisodeTitle) && !releaseparse.EpisodeTitleEvidence(rel.Name, sreq.EpisodeTitle) {
 			return "episode title mismatch"
 		}
 		if rel.Info.FullSeason {
@@ -2446,3 +2460,15 @@ func fallbackHeight(info core.ReleaseInfo) int {
 
 // SourcesChanged invalidates remembered results when a database-backed source changes.
 func (s *Service) SourcesChanged(ctx context.Context) { s.forgetSourceResults(ctx) }
+
+// episodeIdentityEvidence distinguishes corroboration from absence of a
+// contradiction. Query IDs and a generic/missing episode subtitle prove nothing.
+func episodeIdentityEvidence(rel core.Release, req core.SearchRequest) bool {
+	matched, conflict := releaseparse.CompareTitleIDs(rel.TitleIDs, req.IDs)
+	if conflict {
+		return false
+	}
+	year := releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year)
+	return matched || (year > 0 && req.Year > 0 && releaseparse.SeriesYearMatches(year, req.Year)) ||
+		releaseparse.EpisodeTitleEvidence(rel.Name, req.EpisodeTitle)
+}
