@@ -227,6 +227,7 @@ type broadcast struct {
 	momentCard           *broadcastInput
 	momentCardPlan       broadcastPlan
 	momentCardFrame      []byte
+	momentCardPending    transcode.RawFrame
 	screenPlan           broadcastPlan
 	retryRequests        chan struct{}
 	mode                 string
@@ -820,6 +821,7 @@ func (b *broadcast) step(now time.Time) bool {
 		b.closeInput(b.momentCard)
 		b.momentCard = nil
 		b.momentCardFrame = nil
+		b.momentCardPending = transcode.RawFrame{}
 	}
 	if b.current.matchesProgramme(current) {
 		b.current.plan = current
@@ -927,6 +929,19 @@ func (b *broadcast) step(now time.Time) bool {
 	}
 	if !introActive {
 		b.latchMomentInput(current, now)
+	}
+	// A cold title must not be spent sixteen seconds ahead of the wall clock
+	// while its master is still rendering. Published output keeps flowing;
+	// only speculative startup lead waits for animation preparation.
+	if !b.airedProgramme && current.programme && b.momentCard != nil && now.After(time.Now()) {
+		if source, ok := b.momentCard.decoder.(interface{ startupBurstReady() bool }); ok && !source.startupBurstReady() {
+			return false
+		}
+	}
+	if current.liveMoment && b.current != nil && now.After(time.Now()) {
+		if source, ok := b.current.decoder.(interface{ startupBurstReady() bool }); ok && !source.startupBurstReady() {
+			return false
+		}
 	}
 	momentFallback := b.momentInputs[current.id].fallback
 	samples := tickSamples(b.format, b.tick)
@@ -1117,13 +1132,26 @@ func (b *broadcast) step(now time.Time) bool {
 	// element is not a programme, so it still airs as itself.
 	if frame.Video == nil && !b.airedProgramme && current.programme && now.Before(b.coldHoldUntil) {
 		if b.momentCard != nil {
-			select {
-			case f, ok := <-b.momentCard.frames:
-				if ok && validRawFrame(b.format, f) {
-					frame = f
-					b.momentCardFrame = f.Video
+			boundary := (b.tick*int64(b.format.FPSDen)*int64(time.Second))%int64(b.segment*time.Duration(b.format.FPSNum)) == 0
+			if b.momentCardPending.Video != nil {
+				if boundary {
+					frame = b.momentCardPending
+					b.momentCardPending = transcode.RawFrame{}
+					b.momentCardFrame = frame.Video
 				}
-			default:
+			} else {
+				select {
+				case f, ok := <-b.momentCard.frames:
+					if ok && validRawFrame(b.format, f) {
+						if f.GraphicsTransition && !boundary {
+							b.momentCardPending = f
+						} else {
+							frame = f
+							b.momentCardFrame = f.Video
+						}
+					}
+				default:
+				}
 			}
 		}
 		if frame.Video == nil && b.coldHoldFrame != nil {
@@ -1131,6 +1159,14 @@ func (b *broadcast) step(now time.Time) bool {
 		}
 		if frame.Video == nil && b.momentCardFrame != nil {
 			frame = transcode.RawFrame{Video: b.momentCardFrame}
+		}
+		if frame.Video == nil && b.tick == 0 {
+			// No generic screen or black tick may precede the prepared title.
+			// Reserve the last quarter of TARGETDURATION for encoding/playlist.
+			if time.Since(b.created) >= b.segment*3/4 {
+				b.cancel()
+			}
+			return false
 		}
 		if frame.Video != nil {
 			mode = "cold-hold"
@@ -1153,7 +1189,10 @@ func (b *broadcast) step(now time.Time) bool {
 			}
 		}
 		if frame.Video == nil {
-			if b.tick == 0 && time.Since(b.origin) < time.Second {
+			if b.tick == 0 {
+				if time.Since(b.created) >= b.segment*3/4 {
+					b.cancel()
+				}
 				return false
 			}
 			frame.Video = b.black

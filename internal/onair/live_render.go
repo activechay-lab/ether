@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -83,27 +84,36 @@ type MomentStream struct {
 	overlayBnd      raster.Bindings
 	renderFn        func(scene.Document, raster.Bindings, float64, int, int) *image.RGBA
 
-	outCh      <-chan liveOutFrame
-	videoPool  *sync.Pool
-	stopLive   func(aborted bool)
-	parentCtx  context.Context
-	closeOnce  sync.Once
-	service    *Service
-	lookID     string
-	moment     string
-	ovFrames   int64
-	ovWallDur  time.Duration
-	lastSpeedX float64
-	saved      bool
-	promote    func() FrameReader
+	outCh                <-chan liveOutFrame
+	videoPool            *sync.Pool
+	stopLive             func(aborted bool)
+	parentCtx            context.Context
+	closeOnce            sync.Once
+	service              *Service
+	lookID               string
+	moment               string
+	ovFrames             int64
+	ovWallDur            time.Duration
+	lastSpeedX           float64
+	saved                bool
+	promote              func() FrameReader
+	animationReady       atomic.Bool
+	externalSegmentClock bool
 }
+
+// UseExternalSegmentClock lets broadcast align the primed frame to its own
+// segment clock, which may have repeated title frames during decoder startup.
+func (m *MomentStream) UseExternalSegmentClock() { m.externalSegmentClock = true }
+
+// AnimationReady reports that the cold reader can splice its primed master.
+func (m *MomentStream) AnimationReady() bool { return m.animationReady.Load() }
 
 func (m *MomentStream) Mode() string    { return m.mode }
 func (m *MomentStream) Saved() bool     { return m.saved }
 func (m *MomentStream) SpeedX() float64 { return m.lastSpeedX }
 
 func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
-	if m.promote != nil && (m.tick*int64(m.fpsDen))%int64(4*m.fpsNum) == 0 {
+	if m.promote != nil && (m.externalSegmentClock || (m.tick*int64(m.fpsDen))%int64(4*m.fpsNum) == 0) {
 		if reader := m.promote(); reader != nil {
 			m.baseReader.Close()
 			m.baseReader = reader
@@ -382,6 +392,18 @@ func (s *Service) OpenMoment(
 		// readers at a segment boundary; the plate remains available throughout.
 		promoteCtx, cancel := context.WithCancel(ctx)
 		ready := make(chan FrameReader)
+		stream := &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
+			overlayDoc: overlayDoc, overlayBnd: overlayBind,
+			stopLive: func(bool) { cancel() },
+			promote: func() FrameReader {
+				select {
+				case dec := <-ready:
+					return dec
+				default:
+					return nil
+				}
+			},
+		}
 		go func() {
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
@@ -393,6 +415,7 @@ func (s *Service) OpenMoment(
 						audio, err := dec.ReadFrame(pixels)
 						if err == nil {
 							primed := &primedReader{FrameReader: dec, video: pixels, audio: audio}
+							stream.animationReady.Store(true)
 							select {
 							case ready <- primed:
 								return
@@ -409,18 +432,7 @@ func (s *Service) OpenMoment(
 				}
 			}
 		}()
-		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
-			overlayDoc: overlayDoc, overlayBnd: overlayBind,
-			stopLive: func(bool) { cancel() },
-			promote: func() FrameReader {
-				select {
-				case dec := <-ready:
-					return dec
-				default:
-					return nil
-				}
-			},
-		}, "static-plate", nil
+		return stream, "static-plate", nil
 	}
 
 	// 2. Cold cache miss or unsplittable slot scene: check >= 1.0x speed gate.

@@ -60,9 +60,14 @@ type momentStreamDecoder struct {
 	channelID  string
 	moment     string
 	mode       string
+	coldPlate  bool
 	stream     *onair.MomentStream
 	baseReader *decoderFrameReader
 	format     transcode.RawFormat
+}
+
+func (d *momentStreamDecoder) startupBurstReady() bool {
+	return !d.coldPlate || d.stream.AnimationReady()
 }
 
 func (d *momentStreamDecoder) Next(ctx context.Context) (transcode.RawFrame, error) {
@@ -80,13 +85,15 @@ func (d *momentStreamDecoder) Next(ctx context.Context) (transcode.RawFrame, err
 		}
 		return transcode.RawFrame{}, err
 	}
+	transition := false
 	if mode := d.stream.Mode(); mode != d.mode {
+		transition = mode == "cached" || mode == "split-cached"
 		d.mode = mode
 		if d.s != nil {
 			d.s.noteMomentPlayout(d.channelID, d.moment, mode, d.stream.SpeedX(), "")
 		}
 	}
-	return transcode.RawFrame{Video: video, PCM: audio}, nil
+	return transcode.RawFrame{Video: video, PCM: audio, GraphicsTransition: transition}, nil
 }
 
 func (d *momentStreamDecoder) Close() error {
@@ -294,24 +301,43 @@ func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
 	return p.s.screenPlan(p.channel, p.runner, p.format)
 }
 
-// Keep a complete ident ready independently of provider outage screens.
+// Keep the current title ready independently of provider outage screens.
 // Standby masters contain background only; they cannot air as opening cards.
 func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
-	c := p.channel
-	request := p.s.clipRequest(c, Programme{Item: Item{Slate: "ident"}})
+	c := p.s.graphicsChannel(p.channel)
 	p.mu.Lock()
-	id := "moment-card-" + c.ID
+	defer p.mu.Unlock()
+	selected := Programme{Item: Item{Slate: "ident"}}
 	for _, programme := range p.window {
-		if !now.Before(programme.Start) && now.Before(programme.End) && interstitial(programme.Item) {
-			request = p.s.clipRequest(c, programme, p.window)
-			id += "-" + programme.ID
-			break
+		if now.Before(programme.Start) || !now.Before(programme.End) {
+			continue
 		}
+		selected = programme
+		if programme.Item.Key != 0 {
+			// Joining mid-programme needs a title for that programme, rather than
+			// a station ident or the title of an unrelated future airing.
+			selected.Item = Item{Slate: "ident"}
+			if tonightEnabledAt(c, now) {
+				selected.Item.Slate = "tonight"
+			} else if c.Look != nil && c.Look.UpNext {
+				selected.Item.Slate = "upnext"
+			}
+			selected.Start = now
+			selected.End = programme.Start // include the current title in clip bindings
+		}
+		break
 	}
-	p.mu.Unlock()
-	request.Bind["screen.reason"] = "moment"
-	return broadcastPlan{id: id, element: "card", open: func(ctx context.Context) (transcode.Decoder, func(), error) {
-		return p.s.openSignalDecoder(ctx, request, p.format)
+	request := p.s.clipRequest(c, selected, p.window)
+	return broadcastPlan{id: "moment-card-" + c.ID + "-" + selected.ID + "-" + request.Moment, element: request.Moment, open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+		if p.s.o.Graphics == nil || c.Look == nil {
+			request.Bind["screen.reason"] = "moment"
+			return p.s.openSignalDecoder(ctx, request, p.format)
+		}
+		decoder, release, err := p.s.openGraphicsDecoder(ctx, p.runner, request, p.format, true)
+		if title, ok := decoder.(*momentStreamDecoder); ok {
+			title.stream.UseExternalSegmentClock()
+		}
+		return decoder, release, err
 	}}
 }
 func (p *providerBroadcastPlanner) screen(time.Time) broadcastPlan {
