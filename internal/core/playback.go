@@ -69,6 +69,8 @@ type HLSRequest struct {
 	Info        MediaInfo
 	Decision    Decision
 	StartOffset time.Duration
+	// ResumeHint warms one speculative Matroska copy seek without moving the playlist origin.
+	ResumeHint time.Duration `json:",omitempty"`
 	// SegmentDuration defaults to 4s when zero (5s for DASH).
 	SegmentDuration time.Duration
 	// Protocol is ProtocolHLS (default when empty), ProtocolDASH, or
