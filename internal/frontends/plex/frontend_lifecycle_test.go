@@ -33,7 +33,7 @@ func TestFrontendWatchSubscriptionFollowsMount(t *testing.T) {
 	defer f.srv.notifier.unsubscribe(sub)
 	change := func(surface core.Protocol, want bool) {
 		t.Helper()
-		if err := watch.Scrobble(state.WithOrigin(ctx, state.Origin{Surface: surface}), ownerUser.ID, core.MovieKey(5)); err != nil {
+		if err := watch.Scrobble(state.WithOrigin(ctx, state.Origin{Surface: surface, SuppressMetadataRefresh: surface == "plex"}), ownerUser.ID, core.MovieKey(5)); err != nil {
 			t.Fatal(err)
 		}
 		select {
