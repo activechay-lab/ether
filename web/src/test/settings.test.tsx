@@ -138,7 +138,8 @@ describe("Settings", () => {
     const required = await screen.findByRole("region", { name: "Catalogues" }, WAIT);
     expect(screen.queryByRole("region", { name: "Essentials" })).toBeNull();
     expect(within(required).getByRole("listitem", { name: "TMDB" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage TMDB" })).toBeEnabled();
+    // The label follows the setup status, which loads after the page.
+    expect(await screen.findByRole("button", { name: "Manage TMDB" }, WAIT)).toBeEnabled();
     const artwork = screen.getByRole("region", { name: "Artwork and ratings" });
     const posters = await within(artwork).findByRole("listitem", { name: "PostersPlus" }, WAIT);
     const ratings = within(artwork).getByRole("listitem", { name: "OMDb and MDBList" });

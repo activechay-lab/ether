@@ -338,13 +338,25 @@ func TestLinkClipMissingResolverAndThrottledFailureLog(t *testing.T) {
 			ReelClipID: clip.ID,
 			Boundary:   now.Add(time.Minute),
 		})
-		// Generous bound: only a hang should hit it, not a slow CI runner.
-		deadline := time.Now().Add(30 * time.Second)
-		for time.Now().Before(deadline) {
+		status := func() string {
 			r, _ := s.Reel(ctx, reel.ID)
-			if len(r.Clips) == 1 && r.Clips[0].Status == "error" {
-				break
+			if len(r.Clips) != 1 {
+				return ""
 			}
+			return r.Clips[0].Status
+		}
+		// Generous bounds: only a hang should hit them, not a slow CI runner.
+		if attempt > 0 {
+			// The clip still shows the first attempt's error until the retry
+			// picks it up; wait for the retry to start before waiting for it
+			// to fail, or the loop below accepts the stale error.
+			deadline := time.Now().Add(30 * time.Second)
+			for time.Now().Before(deadline) && status() == "error" {
+				time.Sleep(time.Millisecond)
+			}
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) && status() != "error" {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
