@@ -11,6 +11,7 @@ import (
 
 // LogEntry is one captured log record.
 type LogEntry struct {
+	ID      uint64            `json:"id"`
 	Time    time.Time         `json:"time"`
 	Level   string            `json:"level"`
 	Message string            `json:"message"`
@@ -21,11 +22,13 @@ type LogEntry struct {
 // Logs page; install its Handler (usually teed with the console handler
 // via TeeHandler) as the server logger.
 type LogBuffer struct {
-	mu      sync.Mutex
-	entries []LogEntry
-	next    int
-	full    bool
-	cap     int
+	mu       sync.Mutex
+	entries  []LogEntry
+	next     int
+	full     bool
+	cap      int
+	sequence uint64
+	subs     map[chan LogEntry]struct{}
 }
 
 // NewLogBuffer creates a ring holding at most capacity entries
@@ -40,7 +43,17 @@ func NewLogBuffer(capacity int) *LogBuffer {
 // Add appends an entry, evicting the oldest when full.
 func (b *LogBuffer) Add(e LogEntry) {
 	b.mu.Lock()
+	b.sequence++
+	e.ID = b.sequence
 	b.entries[b.next] = e
+	for ch := range b.subs {
+		select {
+		case ch <- e:
+		default:
+			close(ch)
+			delete(b.subs, ch)
+		}
+	}
 	b.next++
 	if b.next >= b.cap {
 		b.next = 0
@@ -63,6 +76,14 @@ func (b *LogBuffer) Len() int {
 func (b *LogBuffer) Clear() {
 	b.mu.Lock()
 	b.next, b.full = 0, false
+	for ch := range b.subs {
+		select {
+		case ch <- LogEntry{}:
+		default:
+			close(ch)
+			delete(b.subs, ch)
+		}
+	}
 	for i := range b.entries {
 		b.entries[i] = LogEntry{}
 	}

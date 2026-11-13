@@ -89,5 +89,5 @@ func scriptPolicy(index []byte) string {
 		sum := sha256.Sum256(m[2])
 		src += " 'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 	}
-	return "script-src " + src + "; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+	return "script-src " + src + "; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; connect-src 'self'; form-action 'self'"
 }

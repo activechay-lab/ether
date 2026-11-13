@@ -1,5 +1,5 @@
 import { sceneDisplayName } from "./editor/scene-names";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useReducer, type SetStateAction } from "react";
 import {
   Tooltip,
   Select,
@@ -50,6 +50,47 @@ import { RemixPanel, StyleThumbnail } from "./editor/RemixPanel";
 import { SequencePreview } from "./editor/SequencePreview";
 import { CreateTab } from "./editor/CreateTab";
 
+type LookState = {
+  draft: Style;
+  saved: Style;
+  tab: string;
+  mobilePanel: string;
+  rail: number;
+  timelineHeight: number;
+  previewOpen: boolean;
+  scenePicker: boolean;
+  sceneId: string;
+  selected: string[];
+  channels: ChannelSummary[];
+  channel: string;
+  viewers: EtherUser[];
+  viewer: string;
+  at: string;
+  bound: Bindings;
+  pen: boolean;
+  safe: boolean;
+  zoom: number;
+  saving: boolean;
+  menu: boolean;
+  useOpen: boolean;
+  useChannels: string[];
+  sequence: boolean;
+  muted: boolean;
+  mix: { muted: string[]; solo: string };
+};
+type LookAction = {
+  [K in keyof LookState]: { type: K; value: SetStateAction<LookState[K]> };
+}[keyof LookState];
+function lookReducer(state: LookState, action: LookAction): LookState {
+  const value =
+    typeof action.value === "function"
+      ? (
+          action.value as (previous: LookState[typeof action.type]) => LookState[typeof action.type]
+        )(state[action.type])
+      : action.value;
+  return { ...state, [action.type]: value };
+}
+
 export function LookDrawer({
   look,
   onClose,
@@ -63,36 +104,106 @@ export function LookDrawer({
   initialTab?: string;
   stacked?: boolean;
 }) {
-  const [draft, setDraft] = useState(look),
-    [saved, setSaved] = useState(look),
-    [tab, setTab] = useState(initialTab),
-    [mobilePanel, setMobilePanel] = useState("stage"),
-    [rail, setRail] = useState(264),
-    [timelineHeight, setTimelineHeight] = useState(212),
-    [previewOpen, setPreviewOpen] = useState(false),
-    [scenePicker, setScenePicker] = useState(false),
-    [sceneId, setSceneId] = useState(
-      look.scenes.find((s) => s.role === "ident")?.id ?? look.scenes[0]?.id ?? "",
-    ),
-    [selected, setSelected] = useState<string[]>([]),
-    [channels, setChannels] = useState<ChannelSummary[]>([]),
-    [channel, setChannel] = useState(look.channelIds[0] ?? ""),
-    [viewers, setViewers] = useState<EtherUser[]>([]),
-    [viewer, setViewer] = useState(""),
-    [at, setAt] = useState(() =>
-      new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
-    ),
-    [bound, setBound] = useState<Bindings>({}),
-    [pen, setPen] = useState(false),
-    [safe, setSafe] = useState(false),
-    [zoom, setZoom] = useState(1),
-    [saving, setSaving] = useState(false),
-    [menu, setMenu] = useState(false),
-    [useOpen, setUseOpen] = useState(false),
-    [useChannels, setUseChannels] = useState(look.channelIds),
-    [sequence, setSequence] = useState(false),
-    [muted, setMuted] = useState(true),
-    [mix, setMix] = useState<{ muted: string[]; solo: string }>({ muted: [], solo: "" });
+  const [state, dispatch] = useReducer(lookReducer, undefined, (): LookState => ({
+    draft: look,
+    saved: look,
+    tab: initialTab,
+    mobilePanel: "stage",
+    rail: 264,
+    timelineHeight: 212,
+    previewOpen: false,
+    scenePicker: false,
+    sceneId: look.scenes.find((s) => s.role === "ident")?.id ?? look.scenes[0]?.id ?? "",
+    selected: [],
+    channels: [],
+    channel: look.channelIds[0] ?? "",
+    viewers: [],
+    viewer: "",
+    at: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+    bound: {},
+    pen: false,
+    safe: false,
+    zoom: 1,
+    saving: false,
+    menu: false,
+    useOpen: false,
+    useChannels: look.channelIds,
+    sequence: false,
+    muted: true,
+    mix: { muted: [], solo: "" },
+  }));
+  const {
+    draft,
+    saved,
+    tab,
+    mobilePanel,
+    rail,
+    timelineHeight,
+    previewOpen,
+    scenePicker,
+    sceneId,
+    selected,
+    channels,
+    channel,
+    viewers,
+    viewer,
+    at,
+    bound,
+    pen,
+    safe,
+    zoom,
+    saving,
+    menu,
+    useOpen,
+    useChannels,
+    sequence,
+    muted,
+    mix,
+  } = state;
+  const setDraft = (value: SetStateAction<LookState["draft"]>) =>
+    dispatch({ type: "draft", value });
+  const setSaved = (value: SetStateAction<LookState["saved"]>) =>
+    dispatch({ type: "saved", value });
+  const setTab = (value: SetStateAction<LookState["tab"]>) => dispatch({ type: "tab", value });
+  const setMobilePanel = (value: SetStateAction<LookState["mobilePanel"]>) =>
+    dispatch({ type: "mobilePanel", value });
+  const setRail = (value: SetStateAction<LookState["rail"]>) => dispatch({ type: "rail", value });
+  const setTimelineHeight = (value: SetStateAction<LookState["timelineHeight"]>) =>
+    dispatch({ type: "timelineHeight", value });
+  const setPreviewOpen = (value: SetStateAction<LookState["previewOpen"]>) =>
+    dispatch({ type: "previewOpen", value });
+  const setScenePicker = (value: SetStateAction<LookState["scenePicker"]>) =>
+    dispatch({ type: "scenePicker", value });
+  const setSceneId = (value: SetStateAction<LookState["sceneId"]>) =>
+    dispatch({ type: "sceneId", value });
+  const setSelected = (value: SetStateAction<LookState["selected"]>) =>
+    dispatch({ type: "selected", value });
+  const setChannels = (value: SetStateAction<LookState["channels"]>) =>
+    dispatch({ type: "channels", value });
+  const setChannel = (value: SetStateAction<LookState["channel"]>) =>
+    dispatch({ type: "channel", value });
+  const setViewers = (value: SetStateAction<LookState["viewers"]>) =>
+    dispatch({ type: "viewers", value });
+  const setViewer = (value: SetStateAction<LookState["viewer"]>) =>
+    dispatch({ type: "viewer", value });
+  const setAt = (value: SetStateAction<LookState["at"]>) => dispatch({ type: "at", value });
+  const setBound = (value: SetStateAction<LookState["bound"]>) =>
+    dispatch({ type: "bound", value });
+  const setPen = (value: SetStateAction<LookState["pen"]>) => dispatch({ type: "pen", value });
+  const setSafe = (value: SetStateAction<LookState["safe"]>) => dispatch({ type: "safe", value });
+  const setZoom = (value: SetStateAction<LookState["zoom"]>) => dispatch({ type: "zoom", value });
+  const setSaving = (value: SetStateAction<LookState["saving"]>) =>
+    dispatch({ type: "saving", value });
+  const setMenu = (value: SetStateAction<LookState["menu"]>) => dispatch({ type: "menu", value });
+  const setUseOpen = (value: SetStateAction<LookState["useOpen"]>) =>
+    dispatch({ type: "useOpen", value });
+  const setUseChannels = (value: SetStateAction<LookState["useChannels"]>) =>
+    dispatch({ type: "useChannels", value });
+  const setSequence = (value: SetStateAction<LookState["sequence"]>) =>
+    dispatch({ type: "sequence", value });
+  const setMuted = (value: SetStateAction<LookState["muted"]>) =>
+    dispatch({ type: "muted", value });
+  const setMix = (value: SetStateAction<LookState["mix"]>) => dispatch({ type: "mix", value });
   const resizeRail = useRef({ x: 0, width: 264 });
   const resizeTimeline = useRef({ y: 0, height: 212 });
   const roleNames = {

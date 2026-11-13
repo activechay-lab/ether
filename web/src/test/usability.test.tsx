@@ -81,9 +81,9 @@ describe("Owner usability", () => {
   it("shows newest logs first, including entries sharing a timestamp", async () => {
     const { fake } = renderApp("/maintenance/logs", {}, (f) => {
       f.state.logs = [
-        { time: "2026-10-19T09:00:00Z", level: "info", message: "oldest" },
-        { time: "2026-10-19T10:00:00Z", level: "info", message: "first at ten" },
-        { time: "2026-10-19T10:00:00Z", level: "warn", message: "last at ten" },
+        { id: 1, time: "2026-10-19T09:00:00Z", level: "info", message: "oldest" },
+        { id: 2, time: "2026-10-19T10:00:00Z", level: "info", message: "first at ten" },
+        { id: 3, time: "2026-10-19T10:00:00Z", level: "warn", message: "last at ten" },
       ];
     });
     const log = await screen.findByRole("log", { name: "Server logs" }, WAIT);
@@ -95,7 +95,12 @@ describe("Owner usability", () => {
       expect.stringContaining("first at ten"),
       expect.stringContaining("oldest"),
     ]);
-    fake.state.logs.push({ time: "2026-10-19T11:00:00Z", level: "info", message: "new arrival" });
+    fake.state.logs.push({
+      id: 4,
+      time: "2026-10-19T11:00:00Z",
+      level: "info",
+      message: "new arrival",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
     await within(log).findByText("new arrival");
     expect(log.querySelector("time")!.parentElement).toHaveTextContent("new arrival");

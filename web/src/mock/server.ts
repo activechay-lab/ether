@@ -857,6 +857,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
   for (let i = 0; i < 80; i++) {
     const lvl = levels[i % levels.length] as string;
     state.logs.push({
+      id: i + 1,
       time: new Date(Date.now() - (80 - i) * 45000).toISOString(),
       level: lvl.toUpperCase(),
       message:

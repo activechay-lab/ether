@@ -27,16 +27,32 @@ export function useDraft<T>(saved: T | null | undefined) {
   // Adopt a new saved value in the render that delivers it. An effect would
   // run after that render is shown and could discard an edit made meanwhile.
   const [adopted, setAdopted] = useState(savedKey);
+  // Compare only after edits settle, keeping the bar active while pending.
+  const [comparison, setComparison] = useState({ draft, savedKey, dirty: false });
   if (adopted !== savedKey) {
+    const next = saved == null ? null : structuredClone(saved);
     setAdopted(savedKey);
-    setDraft(saved == null ? null : structuredClone(saved));
+    setDraft(next);
+    setComparison({ draft: next, savedKey, dirty: false });
   }
-  const dirty = draft !== null && JSON.stringify(draft) !== savedKey;
-  const reset = useCallback(
-    () => setDraft(saved == null ? null : structuredClone(saved)),
-
-    [savedKey],
-  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setComparison({
+        draft,
+        savedKey,
+        dirty: draft !== null && JSON.stringify(draft) !== savedKey,
+      });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [draft, savedKey]);
+  const dirty =
+    draft !== null &&
+    (comparison.draft !== draft || comparison.savedKey !== savedKey || comparison.dirty);
+  const reset = useCallback(() => {
+    const next = saved == null ? null : structuredClone(saved);
+    setDraft(next);
+    setComparison({ draft: next, savedKey, dirty: false });
+  }, [savedKey]);
   return { draft, setDraft, dirty, reset };
 }
 

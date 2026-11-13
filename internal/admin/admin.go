@@ -486,6 +486,7 @@ func (h *Handler) routes() *http.ServeMux {
 	api("PATCH /api/users/{id}", h.handleUpdateUser)
 
 	api("GET /api/logs", h.handleLogs)
+	api("GET /api/logs/stream", h.handleLogsStream)
 	api("GET /api/logs/download", h.handleLogsDownload)
 	api("DELETE /api/logs", h.handleClearLogs)
 

@@ -9,14 +9,23 @@ import {
   cn,
 } from "@braedonsaunders/appkit-ui";
 import { CircleDot, Download, RefreshCw, ScrollText, Search, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useSearchParams } from "react-router-dom";
 import { ErrorPanel, LoadingRows } from "../components/feedback";
 import { Segmented } from "../components/fields";
 import { getLocale, localized, t, tn } from "../i18n";
-import { api, apiBlob, API_BASE, errorMessage } from "../lib/api";
+import { api, apiBlob, API_BASE, errorMessage, getToken, SESSION_HEADER } from "../lib/api";
 import { useDebouncedValue } from "../lib/hooks";
 import type { LogEntry } from "../lib/types";
+import { createStreamParser } from "../lib/stream";
 import { RecordProblem } from "./RecordProblem";
 
 const LEVELS = localized(() => [
@@ -67,9 +76,81 @@ export default function Logs() {
   }, [load]);
   useEffect(() => {
     if (!follow) return;
-    const timer = window.setInterval(() => void load(), 2000);
-    return () => window.clearInterval(timer);
-  }, [follow, load]);
+    const ctl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const connect = async () => {
+      try {
+        const response = await fetch(
+          API_BASE + "/logs/stream?" + new URLSearchParams({ level, q: query }),
+          {
+            headers: { Accept: "text/event-stream", [SESSION_HEADER]: getToken() ?? "" },
+            signal: ctl.signal,
+          },
+        );
+        if (response.status === 401 || response.status === 403) return;
+        if (!response.ok || !response.body) throw new Error(response.statusText);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let lastID = 0;
+        const parser = createStreamParser((event) => {
+          if (ctl.signal.aborted) return;
+          if (event.type === "snapshot") {
+            const snapshot = JSON.parse(event.data) as {
+              entries: LogEntry[] | null;
+              total: number;
+            };
+            lastID = Math.max(0, ...(snapshot.entries ?? []).map((e) => e.id));
+            setEntries([...(snapshot.entries ?? [])].reverse());
+            setTotal(snapshot.total);
+          } else if (event.type === "entry") {
+            const update = JSON.parse(event.data) as { entry: LogEntry; total: number };
+            const entry = update.entry;
+            if (entry.id <= lastID) return;
+            lastID = entry.id;
+            setTotal(update.total);
+            setEntries((old) => {
+              if (old?.some((e) => e.id === entry.id)) return old;
+              return [entry, ...(old ?? [])].slice(0, 1000);
+            });
+          }
+          setError(null);
+        });
+        try {
+          while (!ctl.signal.aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            parser.push(decoder.decode(value, { stream: true }));
+          }
+        } finally {
+          await reader.cancel();
+        }
+      } catch (e) {
+        if (!ctl.signal.aborted) setError(e);
+      }
+      if (!ctl.signal.aborted) timer = setTimeout(() => void connect(), 2000);
+    };
+    void connect();
+    return () => {
+      ctl.abort();
+      clearTimeout(timer);
+    };
+  }, [follow, level, query]);
+
+  const visible = useMemo(() => {
+    const ranks: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+    const needle = query.trim().toLowerCase();
+    return (
+      entries?.filter(
+        (entry) =>
+          (!level || (ranks[entry.level.toLowerCase()] ?? 1) >= (ranks[level] ?? 1)) &&
+          (!needle ||
+            entry.message.toLowerCase().includes(needle) ||
+            Object.entries(entry.attrs ?? {}).some(([k, v]) =>
+              (k + "=" + v).toLowerCase().includes(needle),
+            )),
+      ) ?? []
+    );
+  }, [entries, level, query]);
 
   const clear = async () => {
     if (
@@ -173,7 +254,7 @@ export default function Logs() {
         <ErrorPanel error={error} onRetry={() => void load()} />
       ) : !entries ? (
         <LoadingRows rows={6} />
-      ) : entries.length === 0 ? (
+      ) : visible.length === 0 ? (
         <EmptyState
           icon={<ScrollText />}
           title={t("No log entries match")}
@@ -189,12 +270,12 @@ export default function Logs() {
           role="log"
           aria-label={t("Server logs")}
         >
-          <div className="max-h-[calc(100vh-15rem)] overflow-auto font-mono text-xs">
-            {entries.map((e, i) => (
+          <VirtualLogs entries={visible}>
+            {(e) => (
               <div
-                key={i}
+                key={e.id}
                 className={cn(
-                  "flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle px-3 py-1.5 last:border-b-0",
+                  "flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-subtle px-3 py-1.5 ",
                   e.level.toLowerCase().startsWith("err") && "bg-danger-subtle/40",
                 )}
               >
@@ -223,11 +304,82 @@ export default function Logs() {
                   </span>
                 ) : null}
               </div>
-            ))}
-          </div>
+            )}
+          </VirtualLogs>
         </div>
       )}
       <RecordProblem open={record} onClose={() => setRecord(false)} />
     </section>
+  );
+}
+
+// Same viewport windowing approach as the guide/catalogue; measured heights
+// preserve wrapped messages and attributes without mounting the entire buffer.
+function VirtualLogs({
+  entries,
+  children,
+}: {
+  entries: LogEntry[];
+  children: (entry: LogEntry) => ReactNode;
+}) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const heights = useRef(new Map<number, number>());
+  const [view, setView] = useState({ top: 0, height: 640, revision: 0 });
+  const offsets = [0];
+  for (const entry of entries)
+    offsets.push(offsets[offsets.length - 1]! + (heights.current.get(entry.id) ?? 48));
+  const start = offsets.findIndex((offset) => offset >= view.top);
+  const first = Math.max(0, (start < 0 ? entries.length : start) - 5);
+  const edge = offsets.findIndex((offset) => offset > view.top + view.height);
+  const end = edge < 0 ? entries.length : Math.min(entries.length, edge + 5);
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const measure = () =>
+      setView((v) => ({ ...v, top: el.scrollTop, height: el.clientHeight || 640 }));
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const live = new Set(entries.map((entry) => entry.id));
+    for (const id of heights.current.keys()) if (!live.has(id)) heights.current.delete(id);
+    const measure = () => {
+      let changed = false;
+      for (const row of el.querySelectorAll<HTMLElement>("[data-log-id]")) {
+        const id = Number(row.dataset.logId);
+        const height = row.getBoundingClientRect().height;
+        if (height > 0 && heights.current.get(id) !== height) {
+          heights.current.set(id, height);
+          changed = true;
+        }
+      }
+      if (changed) setView((v) => ({ ...v, revision: v.revision + 1 }));
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    el.querySelectorAll("[data-log-id]").forEach((row) => observer?.observe(row));
+    return () => observer?.disconnect();
+  }, [entries, first, end, view.revision]);
+  return (
+    <div
+      ref={viewport}
+      className="max-h-[calc(100vh-15rem)] overflow-auto font-mono text-xs"
+      onScroll={(event) => {
+        const top = event.currentTarget.scrollTop;
+        setView((v) => ({ ...v, top }));
+      }}
+    >
+      <div style={{ height: offsets[first] }} />
+      {entries.slice(first, end).map((entry) => (
+        <div key={entry.id} data-log-id={entry.id}>
+          {children(entry)}
+        </div>
+      ))}
+      <div style={{ height: offsets[entries.length]! - offsets[end]! }} />
+    </div>
   );
 }
