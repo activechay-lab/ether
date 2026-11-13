@@ -135,6 +135,9 @@ type Release struct {
 // Resolution is the resolver's answer for a title and client: the winning
 // release, already health-checked, plus fallbacks for mid-stream failover.
 type Resolution struct {
+	// HealthVerified means the complete volume sample passed, rather than an
+	// optimistic start or an inconclusive health check.
+	HealthVerified  bool      `json:"healthVerified,omitempty"`
 	QualityFallback string    `json:"qualityFallback,omitempty"`
 	Title           RatingKey `json:"title"`
 	Release         Release   `json:"release"`

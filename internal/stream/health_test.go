@@ -77,9 +77,9 @@ func TestHealthSampleSpread(t *testing.T) {
 		unique[ref] = true
 	}
 	for _, pf := range files {
-		for _, slot := range []int{0, pf.numSlots() / 2, pf.numSlots() - 1} {
+		for _, slot := range []int{0, pf.numSlots() - 1} {
 			if !unique[slotRef{pf, slot}] {
-				t.Fatal("volume boundary or midpoint omitted")
+				t.Fatal("volume boundary omitted")
 			}
 		}
 	}

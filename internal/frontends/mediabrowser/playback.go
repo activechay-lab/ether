@@ -296,9 +296,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allowed := queryBool(r, "EnableTranscoding", boolValue(body.EnableTranscoding, true))
-	// Prefer the shared failover-capable remux for changing Usenet sources.
-	// The broker keeps stable local, HTTP and torrent files on direct play.
-	intent := frontend.PlayIntent{PreferRemux: true, Estimate: !playback, Options: opts, Position: time.Duration(body.StartTimeTicks) * 100 * time.Nanosecond, AllowTranscoding: &allowed, AudioSet: audioSet, SubtitleSet: subtitleSet}
+	intent := frontend.PlayIntent{Estimate: !playback, Options: opts, Position: time.Duration(body.StartTimeTicks) * 100 * time.Nanosecond, AllowTranscoding: &allowed, AudioSet: audioSet, SubtitleSet: subtitleSet}
 	// A posted DeviceProfile is this device's real declaration; detail pages
 	// warm with it later (frontend.DetailWarmer).
 	intent.DeclaredCaps = channel == "" && (len(body.DeviceProfile.DirectPlayProfiles) > 0 || len(body.DeviceProfile.TranscodingProfiles) > 0)
@@ -429,8 +427,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 	// A declared device profile is authoritative. Static-file clients without
 	// one can use the generic static endpoint; Roku must follow the broker
 	// decision instead of being told to direct-play an incompatible source.
-	failoverRemux := intent.PreferRemux && plan.Decision.Kind == "copy"
-	staticPlayable := jellyfinStaticPlayable(i.protocol, channel, opts) && !intent.DeclaredCaps && !failoverRemux
+	staticPlayable := jellyfinStaticPlayable(i.protocol, channel, opts) && !intent.DeclaredCaps
 	media := plan.Media
 	media.Estimated = media.Estimated || plan.Estimated
 	source := i.detailMediaSourceDTO(sourceID, media)
@@ -486,7 +483,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		} else {
 			i.rememberAnonymousSession(r, v, session.ID, key, channel, dev, version, detailSource, sourceID)
 			format := frontend.StreamDirect
-			if channel != "" || (plan.Decision.Kind != "directplay" && (intent.PreferRemux || plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
+			if channel != "" || (plan.Decision.Kind != "directplay" && ((i.protocol == "jellyfin" && intent.DeclaredCaps) || plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
 				format = frontend.StreamHLS
 			}
 			url, err := i.host.Sessions.StartStream(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID, frontend.StreamRequest{Format: format, Position: intent.Position})
@@ -553,12 +550,9 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 						source["SupportsDirectStream"] = plan.DirectStream
 						delete(source, "Path")
 					}
-					if failoverRemux || (i.protocol == "jellyfin" && intent.DeclaredCaps) {
+					if i.protocol == "jellyfin" && intent.DeclaredCaps {
 						source["SupportsDirectPlay"] = false
 						source["SupportsDirectStream"] = false
-						// MediaBrowser calls HLS remux delivery transcoding, even
-						// when both tracks are copied without an encoder.
-						source["SupportsTranscoding"] = true
 						source["Protocol"] = "Http"
 						delete(source, "Path")
 					}

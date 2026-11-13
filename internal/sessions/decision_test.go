@@ -204,3 +204,33 @@ func TestAndroidDVDirectPlaySurvivesOptionalRemux(t *testing.T) {
 		})
 	}
 }
+
+// The same source health rule applies independently of the client protocol;
+// explicit static-only capabilities and stable HTTP files retain direct play.
+func TestDecisionHealthFailoverSafety(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		verified   bool
+		protocol   string
+		directOnly bool
+		want       core.DecisionKind
+	}{
+		{name: "partial Usenet", want: core.DecisionRemux},
+		{name: "sampled Usenet", verified: true, want: core.DecisionDirectPlay},
+		{name: "stable HTTP", protocol: core.ProtocolHTTP, want: core.DecisionDirectPlay},
+		{name: "stable debrid", protocol: core.ProtocolTorrent, want: core.DecisionDirectPlay},
+		{name: "static only", directOnly: true, want: core.DecisionDirectPlay},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ps := &core.PlaySession{Resolution: &core.Resolution{HealthVerified: tt.verified, Release: core.Release{ID: "test", Protocol: tt.protocol}}, Info: core.MediaInfo{Container: "mkv"}}
+			tr := decisionTranscoder{decision: core.Decision{Kind: core.DecisionDirectPlay, VideoCopy: true, AudioCopy: true}}
+			got, err := Decide(nil, tr, DecisionRequest{Session: ps, Options: core.DecideOptions{DirectPlay: true, DirectStream: !tt.directOnly}})
+			if err != nil || got.Kind != tt.want {
+				t.Fatalf("decision=%+v err=%v want=%s", got, err, tt.want)
+			}
+			if got.Kind == core.DecisionRemux && (!got.VideoCopy || !got.AudioCopy || got.Reason != "remux for failover safety: health unverified") {
+				t.Fatalf("unsafe remux: %+v", got)
+			}
+		})
+	}
+}

@@ -298,7 +298,7 @@ func withHead(refs []slotRef, files []*postedFile, k int) []slotRef {
 }
 
 // withVolumeSamples keeps small volumes from disappearing between the global
-// spread samples. Three pipelined STATs per volume bound the extra traffic;
+// spread samples. Two pipelined STATs per volume bound the extra traffic;
 // the existing BODY probes still validate the global sample against takedowns.
 func withVolumeSamples(refs []slotRef, files []*postedFile) []slotRef {
 	seen := make(map[slotRef]bool, len(refs))
@@ -310,7 +310,7 @@ func withVolumeSamples(refs []slotRef, files []*postedFile) []slotRef {
 		if n == 0 {
 			continue
 		}
-		for _, slot := range []int{0, n / 2, n - 1} {
+		for _, slot := range []int{0, n - 1} {
 			ref := slotRef{pf, slot}
 			if !seen[ref] {
 				refs = append(refs, ref)

@@ -88,6 +88,8 @@ func (s *Service) optimisticCheck(r core.Release, nzb []byte) {
 
 func (s *Service) resolution(key core.RatingKey, cands []candidate, winner int, nzb []byte, tr *Trace) *core.Resolution {
 	res := s.resolutionSkipping(key, cands, winner, nzb, func(c candidate) bool { return tr.Candidates[c.trace].Rejected })
+	ct := tr.Candidates[cands[winner].trace]
+	res.HealthVerified = ct.HealthChecked && ct.Healthy && !tr.Unverified
 	if cands[winner].fallback {
 		res.QualityFallback = qualityFallbackReason(cands[winner].rel, tr)
 		tr.Downgrade = res.QualityFallback

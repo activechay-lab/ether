@@ -52,6 +52,9 @@ CREATE TABLE resolver_verified (
   release_id TEXT PRIMARY KEY,
   checked_at INTEGER NOT NULL
 );`)
+	// Version 0 records predate per-volume sampling. Leave them in place and
+	// recheck lazily when requested.
+	store.Register("resolver", 6, `ALTER TABLE resolver_verified ADD COLUMN sample_version INTEGER NOT NULL DEFAULT 0;`)
 }
 
 // checkHealth runs the health checker unless the release passed a check
@@ -91,8 +94,8 @@ func (s *Service) markVerified(ctx context.Context, releaseID string) {
 	delete(s.verifiedMiss, releaseID)
 	s.mu.Unlock()
 	if s.db != nil {
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO resolver_verified(release_id, checked_at) VALUES (?, ?)
-			ON CONFLICT(release_id) DO UPDATE SET checked_at=excluded.checked_at`, releaseID, now.Unix())
+		_, _ = s.db.ExecContext(ctx, `INSERT INTO resolver_verified(release_id, checked_at, sample_version) VALUES (?, ?, 1)
+			ON CONFLICT(release_id) DO UPDATE SET checked_at=excluded.checked_at, sample_version=excluded.sample_version`, releaseID, now.Unix())
 	}
 }
 
@@ -110,7 +113,7 @@ func (s *Service) recentlyVerified(ctx context.Context, releaseID string) bool {
 	}
 	if !ok && s.db != nil {
 		var unix int64
-		err := s.db.QueryRowContext(ctx, `SELECT checked_at FROM resolver_verified WHERE release_id=?`, releaseID).Scan(&unix)
+		err := s.db.QueryRowContext(ctx, `SELECT checked_at FROM resolver_verified WHERE release_id=? AND sample_version=1`, releaseID).Scan(&unix)
 		switch {
 		case err == nil && now.Sub(time.Unix(unix, 0)) < s.healthTTL:
 			at, ok = time.Unix(unix, 0), true
