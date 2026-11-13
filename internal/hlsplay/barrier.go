@@ -41,7 +41,7 @@ func (p *player) waitForSegment(ctx context.Context, b *Buffer, r *Report, index
 	if err := os.Mkdir(p.c.SegmentBarrierDir, 0700); err != nil {
 		return fmt.Errorf("fresh barrier directory required: %w", err)
 	}
-	session := p.playSession
+	session := p.control.Session()
 	if session == "" {
 		session = r.Session
 	}

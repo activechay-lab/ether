@@ -20,7 +20,25 @@ import (
 	"github.com/braedonsaunders/ether/internal/splicecheck"
 )
 
+// Control owns the frontend HTTP contract for one measurement session.
+type Control interface {
+	Open(context.Context) (string, []byte, error)
+	Progress(context.Context, string, float64, bool) error
+	Finish(context.Context, float64)
+	Session() string
+	Headers(*http.Request)
+}
+
+// Transport supplies bounded, measured HTTP requests and credential-free events.
+type Transport struct {
+	Request func(context.Context, string, string, int, bool, string, []byte) ([]byte, error)
+	Event   func(any)
+}
 type Config struct {
+	// NewControl is supplied by frontend wiring and must return a non-nil control.
+	NewControl                                                      func(Config, Transport) Control
+	PinControlOrigins                                               bool
+	ReportStarted                                                   bool
 	SegmentBarrierDir                                               string
 	PauseBeforeIndex                                                int
 	ReencodedAudio                                                  bool
@@ -89,13 +107,13 @@ type Report struct {
 	Continuity                                   Continuity
 }
 type player struct {
-	playSession, itemID, mediaSource string
-	c                                Config
-	client                           *http.Client
-	start                            time.Time
-	mu                               sync.Mutex
-	attempts                         []Attempt
-	events                           *os.File
+	control  Control
+	c        Config
+	client   *http.Client
+	start    time.Time
+	mu       sync.Mutex
+	attempts []Attempt
+	events   *os.File
 }
 
 func (p *player) elapsed() float64 { return time.Since(p.start).Seconds() }
@@ -112,7 +130,7 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 	if e != nil {
 		return nil, e
 	}
-	if p.c.Protocol == "plex" {
+	if p.c.PinControlOrigins {
 		pin := ""
 		switch kind {
 		case "decision":
@@ -143,21 +161,7 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 			return nil, fmt.Errorf("request construction failed")
 		}
 		a.Origin = req.URL.Scheme + "://" + req.URL.Host
-		if p.isMediaBrowser() {
-			req.Header.Set("X-Emby-Token", p.c.Token)
-			req.Header.Set("X-Emby-Device-Id", p.c.DeviceID)
-			scheme := "MediaBrowser"
-			if p.c.Protocol == "emby" {
-				scheme = "Emby"
-			}
-			req.Header.Set("Authorization", scheme+` Client="`+p.mediaBrowserProduct()+`", Device="Ether lab", DeviceId="`+p.c.DeviceID+`", Version="10.10.0"`)
-		} else {
-			req.Header.Set("X-Plex-Token", p.c.Token)
-			req.Header.Set("X-Plex-Client-Identifier", p.c.Session)
-			req.Header.Set("X-Plex-Session-Identifier", p.c.Session)
-			req.Header.Set("X-Plex-Product", "Plex Web")
-			req.Header.Set("X-Plex-Platform", "Chrome")
-		}
+		p.control.Headers(req)
 		if method == "POST" {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -219,6 +223,7 @@ func (p *player) request(ctx context.Context, raw, kind string, index int, retry
 func (p *player) savePrivateHTTP(ordinal int, a Attempt, req *http.Request, resp *http.Response, body []byte) error {
 	redacted := func(h http.Header) http.Header {
 		copy := h.Clone()
+		// Header identities are redacted regardless of the selected frontend.
 		for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Plex-Token", "X-Emby-Token", "X-Emby-Authorization"} {
 			if _, ok := copy[http.CanonicalHeaderKey(name)]; ok {
 				copy.Set(name, "[redacted]")
@@ -283,15 +288,10 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			return r, fmt.Errorf("invalid pinned control origin")
 		}
 	}
-	if c.Protocol == "" {
-		c.Protocol = "plex"
+	if c.NewControl == nil {
+		return r, fmt.Errorf("frontend control factory required")
 	}
-	if c.Protocol != "plex" && c.Protocol != "jellyfin" && c.Protocol != "emby" {
-		return r, fmt.Errorf("protocol must be plex, jellyfin or emby")
-	}
-	if c.Prefix == "" {
-		c.Prefix = "/" + c.Protocol
-	}
+
 	if c.Session == "" {
 		var nonce [12]byte
 		if _, e = rand.Read(nonce[:]); e != nil {
@@ -311,11 +311,12 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	}
 	defer events.Close()
 	p := &player{c: c, start: time.Now(), events: events, client: &http.Client{Timeout: c.RequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	p.control = c.NewControl(c, Transport{Request: p.request, Event: p.event})
 	r = Report{ReencodedAudio: c.ReencodedAudio, ControlOriginsPinned: c.DecisionOrigin != "" || c.StartOrigin != "" || c.StopOrigin != "", Protocol: c.Protocol, Session: c.Session, StartedAt: p.start.UTC(), DecisionSkipped: c.SkipDecision, IndicesExact: true, Outcome: "failed"}
 	b := Buffer{}
 	defer func() {
-		if p.playSession != "" {
-			r.Session = p.playSession
+		if p.control.Session() != "" {
+			r.Session = p.control.Session()
 		}
 		b.Advance(min(p.elapsed(), c.Window.Seconds()))
 		r.Stalls = b.Stalls
@@ -403,9 +404,9 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		p.finish(cleanup, b.Played)
+		p.control.Finish(cleanup, b.Played)
 	}()
-	absolute, data, openErr := p.open(runCtx)
+	absolute, data, openErr := p.control.Open(runCtx)
 	if openErr != nil {
 		err = openErr
 		return
@@ -443,7 +444,7 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			if b.Level == 0 {
 				state = "buffering"
 			}
-			_ = p.progress(runCtx, state, b.Played, false)
+			_ = p.control.Progress(runCtx, state, b.Played, false)
 
 		}
 		if b.Started && b.Level >= c.ForwardBuffer.Seconds() {
@@ -518,11 +519,11 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			progressed = true
 			if !b.Started && b.Level >= c.ForwardBuffer.Seconds() {
 				b.Started = true
-				if c.Protocol != "plex" {
-					_ = p.progress(runCtx, "playing", b.Played, true)
+				if c.ReportStarted {
+					_ = p.control.Progress(runCtx, "playing", b.Played, true)
 				}
 				r.StartupSeconds = p.elapsed()
-				p.event(map[string]any{"kind": "playing", "elapsedSeconds": r.StartupSeconds, "wallTime": time.Now().UTC(), "session": p.playSession})
+				p.event(map[string]any{"kind": "playing", "elapsedSeconds": r.StartupSeconds, "wallTime": time.Now().UTC(), "session": p.control.Session()})
 			}
 		}
 		if err != nil {
@@ -539,8 +540,8 @@ func Run(ctx context.Context, c Config) (r Report, err error) {
 			ended = true
 			if !b.Started {
 				b.Started = true
-				if c.Protocol != "plex" {
-					_ = p.progress(runCtx, "playing", b.Played, true)
+				if c.ReportStarted {
+					_ = p.control.Progress(runCtx, "playing", b.Played, true)
 				}
 				r.StartupSeconds = p.elapsed()
 			}
@@ -630,7 +631,7 @@ func (p *player) captureInitial(r *Report, pl playlist, data []byte) error {
 		Session        string          `json:"session"`
 		PlaylistSHA256 string          `json:"playlistSHA256"`
 		Timeline       []time.Duration `json:"timelineNS"`
-	}{p.playSession, r.InitialPlaylistSHA256, timeline})
+	}{p.control.Session(), r.InitialPlaylistSHA256, timeline})
 	if e := os.WriteFile(filepath.Join(p.c.Output, "initial-timeline.json"), append(metadata, '\n'), 0600); e != nil {
 		return e
 	}

@@ -63,13 +63,14 @@ type Options struct {
 	// viewer stored none of their own: prefs > profile preferred > file
 	// default flag > title original. Nil skips the layer.
 	ProfileLanguages func(ctx context.Context, user int64, key core.RatingKey) []string
-	// PlexLayer is the viewer's cached plex.tv account settings. It sits
+	// AccountLayer supplies cached account defaults from the frontend. It sits
 	// under the viewer's own row and user 0. A missing callback skips it.
-	PlexLayer func(context.Context, int64) (PlexLayer, bool)
+	AccountLayer func(context.Context, int64) (AccountLayer, bool)
 }
 
-// PlexLayer is the default language layer from a plex.tv account.
-type PlexLayer struct {
+// AccountLayer is a frontend-provided default language layer.
+type AccountLayer struct {
+	Source           string // Identity label for preference provenance, supplied by the frontend.
 	AudioLanguage    string
 	AutoSelectAudio  bool
 	SubtitleLanguage string
@@ -223,7 +224,7 @@ func (s *Service) storedRules(ctx context.Context, user int64) (Rules, bool, err
 
 func (s *Service) GetRules(ctx context.Context, user int64) (Rules, error) {
 	r := Default()
-	r = s.fillPlexLayer(ctx, user, r)
+	r = s.fillAccountLayer(ctx, user, r)
 	if user > 0 {
 		if shared, ok, err := s.storedRules(ctx, 0); err != nil {
 			return r, err
@@ -588,11 +589,11 @@ func (s *Service) sharedLanguages(ctx context.Context, user int64, r Rules) Rule
 	return r
 }
 
-func (s *Service) fillPlexLayer(ctx context.Context, user int64, r Rules) Rules {
-	if s == nil || s.options.PlexLayer == nil || user <= 0 {
+func (s *Service) fillAccountLayer(ctx context.Context, user int64, r Rules) Rules {
+	if s == nil || s.options.AccountLayer == nil || user <= 0 {
 		return r
 	}
-	layer, ok := s.options.PlexLayer(ctx, user)
+	layer, ok := s.options.AccountLayer(ctx, user)
 	if !ok {
 		return r
 	}
