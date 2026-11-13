@@ -33,14 +33,21 @@ func (a *App) buildDiscovery() {
 		sourceCache = a.cache
 	}
 	a.watchlist = watchlist.New(a.db, watchlist.Options{
-		Logger:           a.log.With("component", "watchlist"),
-		Sealer:           a.cfg,
-		Catalog:          a.catalog,
-		Resolver:         sourceResolver,
-		Engine:           sourceEngine,
-		Cache:            sourceCache,
-		Trakt:            a.trakt,
-		Users:            a.users.Users,
+		Logger:   a.log.With("component", "watchlist"),
+		Sealer:   a.cfg,
+		Catalog:  a.catalog,
+		Resolver: sourceResolver,
+		Engine:   sourceEngine,
+		Cache:    sourceCache,
+		Trakt:    a.trakt,
+		Users:    a.users.Users,
+		CommunityEligible: func(u *core.User) bool {
+			if u == nil || u.IsOwner {
+				return false
+			}
+			users, err := a.users.AllUsers(context.Background())
+			return err == nil && communityUserEligible(u, users)
+		},
 		Allowed:          a.safety.Allowed,
 		Notifier:         a.notifications,
 		Tokens:           a.discoveryToken,
@@ -189,7 +196,7 @@ func (a *App) discoveryToken(ctx context.Context, id int64) (string, error) {
 		return "", err
 	}
 	for _, record := range users {
-		if record.ID == id && record.Active && record.Home && record.Restricted {
+		if record.ID == id && record.Active && ((record.Home && record.Restricted) || (record.PlexID > 0 && record.Username == "" && !record.IsOwner)) {
 			return a.plextv.HomeUserToken(ctx, a.cfg.Read().Plex.Token, u.PlexID, "")
 		}
 	}

@@ -3009,6 +3009,20 @@ export function createFakeServer(opts: FakeOptions = {}) {
         watchlistChanges.set(`${viewer}:${decodeURIComponent(seg[4])}`, method === "PUT");
         return json({ traktFailed: false });
       }
+      if (seg[3] === "community") {
+        if (seg[4] === "sync" && method === "POST") {
+          return json({ id: 1, state: "completed", count: 0 }, 202);
+        }
+        if (seg[4] === "jobs" && seg[5]) {
+          return json({ id: Number(seg[5]) || 1, state: "completed", count: 0 });
+        }
+        if (method === "PUT") {
+          const syncCommunity = Boolean((body as { syncCommunity?: boolean })?.syncCommunity);
+          watchlistChanges.set(`community:${viewer}`, syncCommunity);
+          return json({ syncCommunity });
+        }
+        return json({ syncCommunity: watchlistChanges.get(`community:${viewer}`) ?? false });
+      }
       return json([]);
     }
     if (seg[0] === "viewers" && seg[2] === "favorite-episode-alert") return json({ enabled: true });

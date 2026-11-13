@@ -1,6 +1,6 @@
 import { Badge, Button, EmptyState, Spinner, toast } from "@braedonsaunders/appkit-ui";
 import { BellRing, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Artwork } from "../../../components/Artwork";
 import { ErrorPanel } from "../../../components/feedback";
@@ -17,6 +17,162 @@ type Item = {
   availableAt?: string;
   checkedAt?: string;
 };
+
+type CommunityPreference = { syncCommunity: boolean };
+type CommunityJob = { id: number; state: string; count: number; error?: string };
+
+function CommunityOptIn({
+  viewerId,
+  enabled,
+  onCompleted,
+}: {
+  viewerId: number;
+  enabled: boolean;
+  onCompleted: () => void;
+}) {
+  const preference = useAsync(
+    (signal) => apiFetch<CommunityPreference>(`/discovery/users/${viewerId}/community`, { signal }),
+    [viewerId],
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [job, setJob] = useState<CommunityJob | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+    setJob(null);
+    setSyncing(false);
+    setSyncError(null);
+  }, [viewerId]);
+
+  const change = async (syncCommunity: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await apiFetch<CommunityPreference>(`/discovery/users/${viewerId}/community`, {
+        method: "PUT",
+        body: JSON.stringify({ syncCommunity }),
+      });
+      preference.setData(saved);
+      if (saved.syncCommunity) {
+        void startSync();
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startSync = async () => {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const next = await apiFetch<CommunityJob>(`/discovery/users/${viewerId}/community/sync`, {
+        method: "POST",
+        body: "{}",
+      });
+      setJob(next);
+      if (!["queued", "running"].includes(next.state)) {
+        setSyncing(false);
+        if (next.state === "completed") onCompleted();
+      }
+    } catch (e) {
+      setSyncing(false);
+      setSyncError(errorMessage(e));
+    }
+  };
+
+  useEffect(() => {
+    if (!job || !["queued", "running"].includes(job.state)) return;
+    const timer = window.setInterval(() => {
+      void apiFetch<CommunityJob>(`/discovery/users/${viewerId}/community/jobs/${job.id}`)
+        .then((next) => {
+          setJob(next);
+          if (!["queued", "running"].includes(next.state)) {
+            setSyncing(false);
+            window.clearInterval(timer);
+            if (next.state === "completed") onCompleted();
+          }
+        })
+        .catch((e) => {
+          setSyncError(errorMessage(e));
+          setSyncing(false);
+          window.clearInterval(timer);
+        });
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [viewerId, job?.id, job?.state, onCompleted]);
+
+  const optedIn = preference.data?.syncCommunity ?? false;
+
+  return (
+    <div className="rounded-lg border border-border p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <input
+          id={`community-opt-in-${viewerId}`}
+          type="checkbox"
+          className="mt-1"
+          checked={optedIn}
+          disabled={!preference.data || saving || Boolean(preference.error)}
+          onChange={(event) => void change(event.currentTarget.checked)}
+        />
+        <div className="min-w-0">
+          <label htmlFor={`community-opt-in-${viewerId}`} className="text-sm font-medium text-fg">
+            {t("Sync this viewer's Plex Community watchlist")}
+          </label>
+          <p className="mt-1 text-sm text-fg-muted">
+            {t(
+              "When enabled, Ether includes this friend’s watchlist in scheduled syncs using the owner’s Plex account. Private watchlists may appear empty. Use “Sync Community now” to fetch it immediately.",
+            )}
+          </p>
+          {!preference.data && !preference.error ? (
+            <p className="mt-2 text-xs text-fg-muted">{t("Loading Community preference…")}</p>
+          ) : null}
+          {saving ? (
+            <p role="status" className="mt-2 text-xs text-fg-muted">
+              {t("Saving…")}
+            </p>
+          ) : null}
+          {preference.error ? (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {errorMessage(preference.error)}
+            </p>
+          ) : null}
+          {error ? (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={syncing || saving || !enabled || !optedIn}
+          onClick={() => void startSync()}
+        >
+          <RefreshCw size={14} /> {syncing ? t("Syncing Community…") : t("Sync Community now")}
+        </Button>
+        {job ? (
+          <span className="text-sm text-fg-muted" role="status">
+            {job.state === "completed"
+              ? t("Community sync complete ({count} titles)", { count: job.count })
+              : job.error || t(`Community sync ${job.state}`)}
+          </span>
+        ) : null}
+        {syncError ? (
+          <span role="alert" className="text-sm text-danger">
+            {syncError}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 const known = (value?: string) => Boolean(value && !value.startsWith("0001"));
 const day = (value?: string) =>
@@ -86,6 +242,11 @@ export function ViewerWatchlist({ viewerId }: { viewerId: number }) {
         </>
       }
     >
+      <CommunityOptIn
+        viewerId={viewerId}
+        enabled={enabled}
+        onCompleted={items.reload}
+      />
       {settings.data && !enabled ? (
         <p className="text-sm text-fg-muted">
           {tx("Watchlist monitoring is off. {link} to sync and check this viewer's watchlist.", {

@@ -103,7 +103,7 @@ func TestViewerMergeAndPurgeAcrossComponents(t *testing.T) {
 	left := map[string]string{
 		"state_watch": "user_id", "state_history": "user_id", "state_playlists": "user_id",
 		"stats_plays": "user_id", "personalize_plays": "user_id", "playback_resume": "user_id",
-		"watchlist_items": "user_id", "favorites_items": "viewer_id", "trackprefs_rules": "user_id",
+		"watchlist_items": "user_id", "watchlist_community_jobs": "user_id", "watchlist_community_locks": "user_id", "favorites_items": "viewer_id", "trackprefs_rules": "user_id",
 		"identity_links": "viewer_id", "identity_grants": "viewer_id", "collections_specs": "owner_user_id",
 	}
 	for table, col := range left {

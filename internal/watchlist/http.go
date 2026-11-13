@@ -3,11 +3,13 @@ package watchlist
 import (
 	"context"
 	"encoding/json"
-	"github.com/braedonsaunders/ether/internal/core"
-	"github.com/go-chi/chi/v5"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/go-chi/chi/v5"
 )
 
 // Router must be mounted behind Ether's owner authentication middleware.
@@ -69,6 +71,28 @@ func (s *Service) Router() http.Handler {
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, u)))
 			})
 		})
+		r.Get("/community", func(w http.ResponseWriter, r *http.Request) {
+			enabled, err := s.CommunitySyncEnabled(r.Context(), viewer(r).ID)
+			if err != nil {
+				http.Error(w, "Settings unavailable", 500)
+				return
+			}
+			reply(w, map[string]bool{"syncCommunity": enabled})
+		})
+		r.Put("/community", func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				SyncCommunity bool `json:"syncCommunity"`
+			}
+			if d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)); d.Decode(&body) != nil || d.Decode(new(any)) != io.EOF {
+				http.Error(w, "Invalid settings", 400)
+				return
+			}
+			if err := s.SetCommunitySyncEnabled(r.Context(), viewer(r).ID, body.SyncCommunity); err != nil {
+				http.Error(w, "Settings unavailable", 500)
+				return
+			}
+			reply(w, body)
+		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			v, e := s.Items(r.Context(), viewer(r))
 			if e != nil {
@@ -77,6 +101,7 @@ func (s *Service) Router() http.Handler {
 			}
 			reply(w, v)
 		})
+		s.communityJobRoutes(r)
 		// Page-sized membership reads avoid loading a viewer's entire watchlist.
 		r.Post("/membership", func(w http.ResponseWriter, r *http.Request) {
 			var body struct {

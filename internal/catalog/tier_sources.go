@@ -189,7 +189,7 @@ var tierUntouchedTables = []string{
 	"plexwatch_account", "plexwatch_fence", "plexwatch_pin", "plexwatch_pms", "plexwatch_pms_held", "plexwatch_pms_unmatched",
 	"plexwatch_pms_viewer", "plex_counters", "personalize_overrides", "personalize_ranker",
 	"personalize_row_impressions", "personalize_serves", "personalize_home_layout", "trackprefs_rules",
-	"episodeorder_groups", "watchlist_meta", "watchlist_settings", "migrate_plans",
+	"episodeorder_groups", "watchlist_meta", "watchlist_settings", "watchlist_community_users", "watchlist_community_jobs", "watchlist_community_locks", "migrate_plans",
 	// Cluster, placement, playback plumbing (titles only through the
 	// scanned sources above).
 	"cluster_", "clusterconfig_", "clusterplayback_coordinators", "clusterplayback_neutral_stops",

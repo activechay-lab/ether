@@ -163,10 +163,9 @@ export function settingsIndex(): SettingHit[] {
     ...rows("/viewers", viewers, [
       ["watchlist-monitoring", t("Watchlist monitoring")],
       ["plex-watchlists", t("Plex watchlists")],
+      ["plex-community-watchlists", t("Plex Community watchlists")],
       ["trakt-watchlists", t("Trakt watchlists")],
       ["tell-me-too", t("Tell me too")],
-      ["plex-friends-watchlist-rss", t("Friends' Watchlist RSS")],
-      ["plex-your-watchlist-rss", t("Your Watchlist RSS")],
       ["check-every", t("Check every")],
     ]),
     // Sources

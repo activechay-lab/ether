@@ -37,6 +37,9 @@ CREATE INDEX watchlist_viewer ON watchlist_items(user_id,available,added);
 	// Cluster-wide record of the last scheduled pass, so a new leader
 	// continues the schedule rather than re-running at once.
 	store.Register("watchlist", 2, `CREATE TABLE watchlist_meta(k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '');`)
+	store.Register("watchlist", 4, `CREATE TABLE watchlist_community_users(user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0);`)
+	store.Register("watchlist", 5, `CREATE TABLE watchlist_community_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,state TEXT NOT NULL,created_at INTEGER NOT NULL,started_at INTEGER NOT NULL DEFAULT 0,finished_at INTEGER NOT NULL DEFAULT 0,count INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT ''); CREATE UNIQUE INDEX watchlist_community_active ON watchlist_community_jobs(user_id) WHERE state IN ('queued','running');`)
+	store.Register("watchlist", 6, `CREATE TABLE watchlist_community_locks(user_id INTEGER PRIMARY KEY,touched INTEGER NOT NULL);`)
 }
 
 type Source interface {
@@ -48,6 +51,7 @@ type Notifier interface {
 type Settings struct {
 	Enabled              bool           `json:"enabled"`
 	Plex                 bool           `json:"plex"`
+	Community            bool           `json:"community"`
 	PlexFriendsRSSURL    string         `json:"plexFriendsRssUrl"`
 	PlexOwnerRSSURL      string         `json:"plexOwnerRssUrl"`
 	PlexFriendsRSSStatus *RSSFeedStatus `json:"plexFriendsRssStatus,omitempty"`
@@ -63,21 +67,23 @@ type Settings struct {
 	OverviewTranslate    bool           `json:"overviewTranslate"`
 }
 type Options struct {
-	Logger           *slog.Logger
-	Sealer           config.FieldSealer
-	Catalog          core.Catalog
-	Resolver         core.Resolver
-	Engine           core.Engine
-	Trakt            Source
-	Tokens           func(context.Context, int64) (string, error)
-	Users            func(context.Context) ([]core.User, error)
-	Allowed          func(*core.User, *core.Title) bool
-	Notifier         Notifier
-	Client           *http.Client
-	PlexBaseURL      string
-	ClientIdentifier string
-	Now              func() time.Time
-	PrewarmBytes     int64
+	Logger            *slog.Logger
+	Sealer            config.FieldSealer
+	Catalog           core.Catalog
+	Resolver          core.Resolver
+	Engine            core.Engine
+	Trakt             Source
+	Tokens            func(context.Context, int64) (string, error)
+	Users             func(context.Context) ([]core.User, error)
+	Allowed           func(*core.User, *core.Title) bool
+	Notifier          Notifier
+	Client            *http.Client
+	PlexBaseURL       string
+	ClientIdentifier  string
+	CommunityBaseURL  string
+	CommunityEligible func(*core.User) bool
+	Now               func() time.Time
+	PrewarmBytes      int64
 	// Cache records why an arrival was warmed when it supports provenance.
 	Cache core.CacheProvenanceRecorder
 	// SyncInterval is how often Run passes over every viewer (30m).
@@ -94,10 +100,11 @@ type Options struct {
 	OnFriendsRSSChanged func(context.Context)
 }
 type Service struct {
-	db  *sql.DB
-	o   Options
-	mu  sync.Mutex
-	gen atomic.Uint64
+	db                   *sql.DB
+	o                    Options
+	mu                   sync.Mutex
+	gen                  atomic.Uint64
+	communityJobRecovery sync.Once
 }
 
 // Generation changes when watchlist membership changes.
@@ -139,10 +146,37 @@ func New(db *sql.DB, o Options) *Service {
 	if o.SyncInterval <= 0 {
 		o.SyncInterval = 30 * time.Minute
 	}
-	return &Service{db: db, o: o}
+	s := &Service{db: db, o: o}
+	if db != nil {
+		_ = s.initCommunityJobs()
+	}
+	return s
 }
 
 func (s *Service) memoKey() string { return fmt.Sprintf("watchlist:settings:%p", s) }
+
+// CommunitySyncEnabled is per-viewer when explicitly set, falling back to the global Community setting.
+func (s *Service) CommunitySyncEnabled(ctx context.Context, userID int64) (bool, error) {
+	var enabled bool
+	err := s.db.QueryRowContext(ctx, `SELECT enabled FROM watchlist_community_users WHERE user_id=?`, userID).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		cfg, cfgErr := s.settings(ctx)
+		if cfgErr != nil {
+			return false, cfgErr
+		}
+		return cfg.Community, nil
+	}
+	return enabled, err
+}
+
+func (s *Service) SetCommunitySyncEnabled(ctx context.Context, userID int64, enabled bool) error {
+	value := 0
+	if enabled {
+		value = 1
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO watchlist_community_users(user_id,enabled) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled`, userID, value)
+	return err
+}
 
 func friendsRSSContext() []string { return []string{"watchlist_settings", "plexFriendsRssUrl", "1"} }
 func ownerRSSContext() []string   { return []string{"watchlist_settings", "plexOwnerRssUrl", "1"} }
@@ -309,6 +343,13 @@ func (s *Service) SaveSettings(ctx context.Context, v Settings) error {
 			s.resetFeedMeta(ctx, metaKeyOwnerRSS)
 		}
 	}
+	if v.Community != old.Community {
+		if v.Community {
+			s.enableAllCommunityUsers(ctx)
+		} else {
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM watchlist_community_users`)
+		}
+	}
 	return nil
 }
 
@@ -436,6 +477,9 @@ func (s *Service) replace(ctx context.Context, u *core.User, source string, ts [
 	defer tx.Rollback()
 	keys := map[core.RatingKey]bool{}
 	for _, t := range ts {
+		if t.Key == 0 || (t.Type != core.TypeMovie && t.Type != core.TypeShow) {
+			return errors.New("watchlist snapshot contains invalid title")
+		}
 		if !s.allowed(u, &t) {
 			continue
 		}
@@ -495,6 +539,56 @@ func (s *Service) Sync(ctx context.Context, u *core.User) error {
 	var errs []error
 	if !cfg.Enabled {
 		return nil
+	}
+	if (cfg.Plex || cfg.Community) && s.o.Tokens != nil {
+		// Ordinary shared friends have no account-token endpoint; their community
+		// watchlist is readable only with the configured owner's account token.
+		communityOptIn, prefErr := s.CommunitySyncEnabled(ctx, u.ID)
+		if prefErr != nil {
+			errs = append(errs, prefErr)
+		}
+		if communityOptIn && s.o.CommunityEligible != nil && s.o.CommunityEligible(u) && !u.IsOwner && u.UUID != "" {
+			ownerID := int64(0)
+			if s.o.Users != nil {
+				users, listErr := s.o.Users(ctx)
+				if listErr != nil {
+					errs = append(errs, listErr)
+				} else {
+					for _, candidate := range users {
+						if candidate.IsOwner {
+							ownerID = candidate.ID
+							break
+						}
+					}
+				}
+			}
+			ownerToken, e := "", error(nil)
+			if ownerID == 0 {
+				e = core.ErrUnauthorized
+			} else {
+				ownerToken, e = s.o.Tokens(ctx, ownerID)
+			}
+			if e != nil {
+				errs = append(errs, errors.New("Plex Community watchlist requires the owner's account token"))
+			} else {
+				ts, fetchErr := s.communityWatchlist(ctx, ownerToken, u)
+				if fetchErr == nil {
+					fetchErr = s.withCommunityWriterLock(ctx, u.ID, func() error {
+						stillEnabled, err := s.CommunitySyncEnabled(ctx, u.ID)
+						if err != nil {
+							return err
+						}
+						if !stillEnabled || s.o.CommunityEligible == nil || !s.o.CommunityEligible(u) {
+							return errors.New("Community sync no longer eligible")
+						}
+						return s.replace(ctx, u, communitySource, ts)
+					})
+				}
+				if !errors.Is(fetchErr, core.ErrUnauthorized) || u.Username != "" {
+					errs = append(errs, fetchErr)
+				}
+			}
+		}
 	}
 	if cfg.Plex && s.o.Tokens != nil {
 		token, e := s.o.Tokens(ctx, u.ID)

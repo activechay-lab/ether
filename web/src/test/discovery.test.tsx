@@ -24,6 +24,8 @@ function discoveryRoutes(
     ...opts.extra,
   };
   let items = opts.items ?? [];
+  let syncCommunity = false;
+  let jobPolls = 0;
   return (method: string, path: string, body: unknown) => {
     if (path === "/discovery/settings") {
       if (method === "PUT") {
@@ -72,6 +74,34 @@ function discoveryRoutes(
     const m = /^\/discovery\/users\/\d+\/(.*)$/.exec(path);
     if (!m) return undefined;
     const rest = m[1]!;
+    if (rest === "community") {
+      if (method === "PUT") {
+        syncCommunity = Boolean((body as { syncCommunity?: boolean })?.syncCommunity);
+      }
+      return { syncCommunity };
+    }
+    if (method === "POST" && rest === "community/sync") {
+      jobPolls = 0;
+      return { id: 7, state: "running", count: 0 };
+    }
+    if (method === "GET" && rest === "community/jobs/7") {
+      jobPolls += 1;
+      if (jobPolls >= 1) {
+        items = [
+          ...items,
+          {
+            title: {
+              key: 1000000000000008,
+              title: "Community Pick",
+              released: "2026-11-02T00:00:00Z",
+            },
+            sources: ["plex-community"],
+          },
+        ];
+        return { id: 7, state: "completed", count: 1 };
+      }
+      return { id: 7, state: "running", count: 0 };
+    }
     if (method === "DELETE" && rest.startsWith("items/")) {
       items = items.filter(
         (i) => String((i as { title: { key: unknown } }).title.key) !== rest.slice(6),
@@ -135,14 +165,19 @@ describe("Watchlists (Viewers)", () => {
     expect(enabled).not.toBeChecked();
     expect(screen.getByLabelText("Tell me too")).not.toBeChecked();
     expect(screen.queryByLabelText("Warm up new arrivals")).toBeNull();
+    expect(screen.queryByLabelText("Friends' Watchlist RSS")).toBeNull();
+    expect(screen.queryByLabelText("Your Watchlist RSS")).toBeNull();
+    expect(screen.getByLabelText("Plex Community watchlists")).not.toBeChecked();
     expect(screen.queryByRole("button", { name: /Edit monitoring/ })).toBeNull();
     expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull();
     fireEvent.click(enabled);
+    fireEvent.click(screen.getByLabelText("Plex Community watchlists"));
     fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(puts(fake, "/discovery/settings")).toContainEqual(
         expect.objectContaining({
           enabled: true,
+          community: true,
           notify: false,
           prewarm: false,
           naturalSearch: false,
@@ -152,45 +187,6 @@ describe("Watchlists (Viewers)", () => {
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
     );
-  });
-
-  it("saves Plex Friends' Watchlist RSS URLs, redacts them on reload, and shows shared-row status", async () => {
-    const { fake } = renderAppWith("/viewers", discoveryRoutes({ enabled: true }));
-    const friendsRss = await screen.findByLabelText("Friends' Watchlist RSS", {}, WAIT);
-    expect(
-      screen.getByText(
-        /Plex doesn't say which friend added what, so it shows as a shared “Your friends want to watch” row\./,
-      ),
-    ).toBeInTheDocument();
-    fireEvent.change(friendsRss, {
-      target: { value: "https://rss.plex.tv/11111111-2222-3333-4444-555555555555" },
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
-    await waitFor(() =>
-      expect(puts(fake, "/discovery/settings")).toContainEqual(
-        expect.objectContaining({
-          enabled: true,
-          plexFriendsRssUrl: "https://rss.plex.tv/11111111-2222-3333-4444-555555555555",
-        }),
-      ),
-    );
-    await waitFor(() =>
-      expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
-    );
-    expect(screen.getByLabelText("Friends' Watchlist RSS")).toHaveValue("••••");
-    expect(
-      screen.getByText("Saved. Leave as is to keep it, or type a new value to replace it."),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/3 titles in set/)).toBeInTheDocument();
-    expect(screen.getByText(/1 unmatched title/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Read RSS feeds now/ }));
-    await waitFor(() => expect(calls(fake, "POST", "/discovery/rss/sync")).toHaveLength(1));
-    expect(await screen.findByText(/4 titles in set/)).toBeInTheDocument();
-    expect(screen.getByText(/0 unmatched titles/)).toBeInTheDocument();
-    expect(
-      screen.getByText("Plex asked Ether to slow down. Ether will try again."),
-    ).toBeInTheDocument();
   });
 });
 
@@ -229,6 +225,36 @@ describe("A viewer's watchlist (viewer profile › Watchlist)", () => {
       expect(screen.queryByRole("list", { name: "Watched-for titles" })).toBeNull(),
     );
     expect(calls(fake, "DELETE", "/discovery/users/2/items/1000000000000007")).toHaveLength(1);
+  });
+
+  it("opts in a viewer to Plex Community watchlist sync and polls background sync to completion", async () => {
+    const { fake } = renderAppWith(
+      "/viewers/2/lists",
+      discoveryRoutes({
+        enabled: true,
+        items: [],
+      }),
+    );
+    const optIn = await screen.findByLabelText(
+      "Sync this viewer's Plex Community watchlist",
+      {},
+      WAIT,
+    );
+    const syncBtn = screen.getByRole("button", { name: /Sync Community now/ });
+    expect(optIn).not.toBeChecked();
+    expect(syncBtn).toBeDisabled();
+
+    fireEvent.click(optIn);
+    await waitFor(() =>
+      expect(puts(fake, "/discovery/users/2/community")).toContainEqual({ syncCommunity: true }),
+    );
+    await waitFor(() =>
+      expect(calls(fake, "POST", "/discovery/users/2/community/sync")).toHaveLength(1),
+    );
+    expect(
+      await screen.findByText("Community sync complete (1 titles)", {}, WAIT),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Community Pick", { selector: "p" }, WAIT)).toBeInTheDocument();
   });
 });
 
