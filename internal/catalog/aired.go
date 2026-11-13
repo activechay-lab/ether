@@ -3,7 +3,10 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"github.com/braedonsaunders/ether/internal/reqmemo"
 	"github.com/braedonsaunders/ether/internal/store"
+	"sort"
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
@@ -38,7 +41,7 @@ func (s seasonAired) count() int {
 // read rather than stored, so an episode moves into the counts the moment
 // its air date passes, without waiting for a refresh. A show the mirror
 // holds no seasons for keeps its stored counts.
-func applyAiredCounts(ctx context.Context, db *sql.DB, now time.Time, items []*core.Title) error {
+func applyAiredCounts(ctx context.Context, db *sql.DB, now time.Time, items []*core.Title, generation ...uint64) error {
 	var showArgs []any
 	seen := map[core.RatingKey]bool{}
 	for _, t := range items {
@@ -59,101 +62,116 @@ func applyAiredCounts(ctx context.Context, db *sql.DB, now time.Time, items []*c
 	if len(showArgs) == 0 {
 		return nil
 	}
+	sort.Slice(showArgs, func(i, j int) bool { return showArgs[i].(int64) < showArgs[j].(int64) })
 	type seasonID struct {
 		show   core.RatingKey
 		season int
 	}
-	seasons := map[seasonID]*seasonAired{}
-	hasSeasonRows := map[core.RatingKey]bool{}
-	var order []seasonID
-	nowTS := now.Unix()
-	// Chunk the deduplicated showArgs (same 200 as hydrateSlice): a single
-	// IN (...) over a large slice overflows SQLite's bound-variable limit.
-	// Each show lands in exactly one chunk, so seasons/order and the
-	// per-season GROUP BY aggregates accumulate exactly as unchunked.
-	const batch = 200
-	for chunk := range store.Chunks(showArgs, batch) {
-		part := chunk
-		rows, err := db.QueryContext(ctx, `SELECT show_key,season,released_ts,child_count FROM catalog_titles WHERE type='season' AND show_key IN (`+placeholders(len(part))+`)`, part...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var show, released int64
-			var season, child int
-			if err := rows.Scan(&show, &season, &released, &child); err != nil {
-				rows.Close()
-				return err
-			}
-			hasSeasonRows[core.RatingKey(show)] = true
-			if !episodeKeyFits(season, 0) {
-				continue
-			}
-			id := seasonID{core.RatingKey(show), season}
-			// Negative Unix timestamps are valid pre-1970 air dates; only zero is unknown.
-			seasons[id] = &seasonAired{date: released, released: released != 0 && released <= nowTS, stored: child}
-			order = append(order, id)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
+	type showAired struct{ seasons, episodes int }
+	type airedResult struct {
+		seasons map[seasonID]*seasonAired
+		shows   map[core.RatingKey]*showAired
 	}
-	for chunk := range store.Chunks(showArgs, batch) {
-		part := chunk
-		// COUNT(CASE ...) rather than SUM so both SQLite and PostgreSQL return
-		// an integer.
-		rows, err := db.QueryContext(ctx, `SELECT show_key,season,COUNT(*),COUNT(CASE WHEN release_known=1 AND released_ts<=? AND adult=0 THEN 1 END),
-			COALESCE(MIN(CASE WHEN release_known=1 AND released_ts<=? AND adult=0 THEN released_ts END),0)
-			FROM catalog_titles WHERE type='episode' AND show_key IN (`+placeholders(len(part))+`) GROUP BY show_key,season`, append([]any{nowTS, nowTS}, part...)...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var show int64
-			var earliest int64
-			var season, total, aired int
-			if err := rows.Scan(&show, &season, &total, &aired, &earliest); err != nil {
-				rows.Close()
-				return err
+	// The same show is hydrated through several rows on queue and postplay
+	// requests. Share the tallies for this short-lived request read.
+	result, err := reqmemo.Do(ctx, fmt.Sprintf("catalog:aired:%p:%v:%d:%v", db, generation, now.Unix(), showArgs), func() (airedResult, error) {
+		seasons := map[seasonID]*seasonAired{}
+		hasSeasonRows := map[core.RatingKey]bool{}
+		var order []seasonID
+		nowTS := now.Unix()
+		// Chunk the deduplicated showArgs (same 200 as hydrateSlice): a single
+		// IN (...) over a large slice overflows SQLite's bound-variable limit.
+		// Each show lands in exactly one chunk, so seasons/order and the
+		// per-season GROUP BY aggregates accumulate exactly as unchunked.
+		const batch = 200
+		for chunk := range store.Chunks(showArgs, batch) {
+			part := chunk
+			rows, err := db.QueryContext(ctx, `SELECT show_key,season,released_ts,child_count FROM catalog_titles WHERE `+airedTypeColumn(db)+`='season' AND show_key IN (`+placeholders(len(part))+`)`, part...)
+			if err != nil {
+				return airedResult{}, err
 			}
-			id := seasonID{core.RatingKey(show), season}
-			s := seasons[id]
-			if s == nil && !hasSeasonRows[core.RatingKey(show)] && aired > 0 && episodeKeyFits(season, 0) {
-				s = &seasonAired{date: earliest, released: earliest != 0 && earliest <= nowTS}
-				seasons[id] = s
+			for rows.Next() {
+				var show, released int64
+				var season, child int
+				if err := rows.Scan(&show, &season, &released, &child); err != nil {
+					rows.Close()
+					return airedResult{}, err
+				}
+				hasSeasonRows[core.RatingKey(show)] = true
+				if !episodeKeyFits(season, 0) {
+					continue
+				}
+				id := seasonID{core.RatingKey(show), season}
+				// Negative Unix timestamps are valid pre-1970 air dates; only zero is unknown.
+				seasons[id] = &seasonAired{date: released, released: released != 0 && released <= nowTS, stored: child}
 				order = append(order, id)
 			}
-			if s != nil && total > 0 {
-				s.mirrored, s.airedCount = true, aired
-				// Specials often have no season premiere. A dated aired child is
-				// sufficient to open this container, but never overrides a future date.
-				if season == 0 && s.date == 0 && earliest != 0 {
-					s.date, s.released = earliest, true
-				}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return airedResult{}, err
 			}
 		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
+		for chunk := range store.Chunks(showArgs, batch) {
+			part := chunk
+			// COUNT(CASE ...) rather than SUM so both SQLite and PostgreSQL return
+			// an integer.
+			rows, err := db.QueryContext(ctx, `SELECT show_key,season,COUNT(*),COUNT(CASE WHEN release_known=1 AND released_ts<=? AND adult=0 THEN 1 END),
+			COALESCE(MIN(CASE WHEN release_known=1 AND released_ts<=? AND adult=0 THEN released_ts END),0)
+			FROM catalog_titles WHERE `+airedTypeColumn(db)+`='episode' AND show_key IN (`+placeholders(len(part))+`) GROUP BY show_key,season`, append([]any{nowTS, nowTS}, part...)...)
+			if err != nil {
+				return airedResult{}, err
+			}
+			for rows.Next() {
+				var show int64
+				var earliest int64
+				var season, total, aired int
+				if err := rows.Scan(&show, &season, &total, &aired, &earliest); err != nil {
+					rows.Close()
+					return airedResult{}, err
+				}
+				id := seasonID{core.RatingKey(show), season}
+				s := seasons[id]
+				if s == nil && !hasSeasonRows[core.RatingKey(show)] && aired > 0 && episodeKeyFits(season, 0) {
+					s = &seasonAired{date: earliest, released: earliest != 0 && earliest <= nowTS}
+					seasons[id] = s
+					order = append(order, id)
+				}
+				if s != nil && total > 0 {
+					s.mirrored, s.airedCount = true, aired
+					// Specials often have no season premiere. A dated aired child is
+					// sufficient to open this container, but never overrides a future date.
+					if season == 0 && s.date == 0 && earliest != 0 {
+						s.date, s.released = earliest, true
+					}
+				}
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return airedResult{}, err
+			}
 		}
+		shows := map[core.RatingKey]*showAired{}
+		for _, id := range order {
+			sh := shows[id.show]
+			if sh == nil {
+				sh = &showAired{}
+				shows[id.show] = sh
+			}
+			// Show totals keep TMDB's meaning (number_of_seasons/episodes):
+			// regular seasons only. Specials are listed, but "3 seasons" and
+			// a limited series' single season must not count them.
+			if n := seasons[id].count(); n > 0 && id.season > 0 {
+				sh.seasons++
+				sh.episodes += n
+			}
+		}
+
+		return airedResult{seasons: seasons, shows: shows}, nil
+	})
+	if err != nil {
+		return err
 	}
-	type showAired struct{ seasons, episodes int }
-	shows := map[core.RatingKey]*showAired{}
-	for _, id := range order {
-		sh := shows[id.show]
-		if sh == nil {
-			sh = &showAired{}
-			shows[id.show] = sh
-		}
-		// Show totals keep TMDB's meaning (number_of_seasons/episodes):
-		// regular seasons only. Specials are listed, but "3 seasons" and
-		// a limited series' single season must not count them.
-		if n := seasons[id].count(); n > 0 && id.season > 0 {
-			sh.seasons++
-			sh.episodes += n
-		}
-	}
+	seasons, shows := result.seasons, result.shows
 	for _, t := range items {
 		switch t.Type {
 		case core.TypeShow:
@@ -183,7 +201,7 @@ func (c *Catalog) airedCounts(ctx context.Context, items []core.Title) error {
 	if len(ptrs) == 0 {
 		return nil
 	}
-	return applyAiredCounts(ctx, c.db, c.now(), ptrs)
+	return applyAiredCounts(ctx, c.db, c.now(), ptrs, c.WriteGeneration())
 }
 
 // listableSeason reports whether a season belongs in listings and navigation:
@@ -191,4 +209,14 @@ func (c *Catalog) airedCounts(ctx context.Context, items []core.Title) error {
 // t must carry aired counts (applyAiredCounts).
 func listableSeason(t *core.Title, now time.Time) bool {
 	return t.IsReleased(now) && t.ChildCount > 0
+}
+
+// SQLite's type-leading indexes can walk every episode in the library to
+// tally one show. Disqualify that leading term so the show/season index
+// supplies the bounded lookup. PostgreSQL retains its ordinary predicate.
+func airedTypeColumn(db *sql.DB) string {
+	if store.DialectOf(db) == store.Postgres {
+		return "type"
+	}
+	return "+type"
 }

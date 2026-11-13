@@ -620,9 +620,9 @@ func (c *Catalog) seasonEpisodeQuery(ctx context.Context, showID int64, season, 
 // seasonMirrored reports whether any of a season's episodes, aired or not,
 // are in the mirror.
 func (c *Catalog) seasonMirrored(ctx context.Context, showID int64, season int) (bool, error) {
-	var n int
-	err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM catalog_titles WHERE type='episode' AND show_key=? AND season=?`, int64(core.ShowKey(showID)), season).Scan(&n)
-	return n > 0, err
+	var exists bool
+	err := c.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM catalog_titles`+c.indexedBy("catalog_titles_show")+` WHERE type='episode' AND show_key=? AND season=?)`, int64(core.ShowKey(showID)), season).Scan(&exists)
+	return exists, err
 }
 
 // Children: seasons of a show, episodes of a season.

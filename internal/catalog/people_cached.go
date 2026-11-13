@@ -48,7 +48,7 @@ func (c *Catalog) CachedCreditTitles(ctx context.Context, keys []core.RatingKey,
 		title := titles[key]
 		counts = append(counts, &title)
 	}
-	if err := applyAiredCounts(ctx, c.db, now, counts); err != nil {
+	if err := applyAiredCounts(ctx, c.db, now, counts, c.WriteGeneration()); err != nil {
 		return nil, err
 	}
 	for _, title := range counts {

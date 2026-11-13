@@ -173,7 +173,7 @@ func (c *Catalog) CachedVisibleTitles(ctx context.Context, keys []core.RatingKey
 			}
 		}
 		if len(seasons) > 0 {
-			if err := applyAiredCounts(ctx, c.db, now, seasons); err != nil {
+			if err := applyAiredCounts(ctx, c.db, now, seasons, c.WriteGeneration()); err != nil {
 				return nil, err
 			}
 		}

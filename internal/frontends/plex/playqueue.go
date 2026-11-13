@@ -34,6 +34,8 @@ func queueFlag(q url.Values, name string) (bool, bool) {
 }
 
 func (s *Server) handlePlayQueueCreate(w http.ResponseWriter, r *http.Request) {
+	// URI expansion and visibility reads also repeat viewer and show facts.
+	r = r.WithContext(reqmemo.With(r.Context()))
 	ctx := r.Context()
 	pr := FromContext(ctx)
 	if pr.User == nil {
