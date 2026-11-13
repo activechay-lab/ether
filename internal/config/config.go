@@ -101,6 +101,8 @@ type Server struct {
 	// outside the home network (through a domain or reverse proxy). Off by
 	// default; sign-in still admits only the owner's Plex account.
 	AllowRemoteConsole bool `json:"allowRemoteConsole,omitempty"`
+	// PortExplicit preserves an owner-selected 32400 when PMS is installed.
+	PortExplicit bool `json:"portExplicit,omitempty"`
 	// Port for the Plex API and web UI. PMS uses 32400.
 	Port         int    `json:"port"`
 	BindAddress  string `json:"bindAddress"`

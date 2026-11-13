@@ -150,17 +150,24 @@ func (f *frontDoor) retryNow() {
 var fallbackPorts = []int{32450, 32451, 32452, 32453, 32454, 32455, 32456, 32457, 32458, 32459}
 
 // bindPort binds the configured port. When that is the default 32400 and it
-// is in use, Ether moves to the first free fallback port (moved), so it
+// is reserved for an installed PMS or in use, Ether moves to the first free fallback port (moved), so it
 // runs next to Plex out of the box; plex.tv publishes the port, so Plex
 // apps follow. A port the owner chose (or ETHER_PORT, envPort) is never
 // moved.
 func bindPort(server config.Server, envPort bool) (net.Listener, bool, error) {
 	addr := net.JoinHostPort(server.BindAddress, strconv.Itoa(server.Port))
-	ln, err := net.Listen("tcp", addr)
+	var ln net.Listener
+	var err error
+	reserved := reservePMSPort(server.Port, server.PortExplicit, envPort, installedPMS)
+	if reserved {
+		err = fmt.Errorf("Plex Media Server is installed; reserving port 32400")
+	} else {
+		ln, err = net.Listen("tcp", addr)
+	}
 	if err == nil {
 		return ln, false, nil
 	}
-	if server.Port != config.DefaultPort || !sockerr.IsAddrInUse(err) || envPort {
+	if server.Port != config.DefaultPort || (!reserved && !sockerr.IsAddrInUse(err)) || envPort || server.PortExplicit {
 		return nil, false, fmt.Errorf("listen %s: %w", addr, err)
 	}
 	for _, port := range fallbackPorts {
@@ -193,7 +200,7 @@ func (a *App) saveMovedPort(port int) error {
 	if err := a.cfg.Update(func(c *config.Config) error { c.Server.Port = port; return nil }); err != nil {
 		return fmt.Errorf("save port %d: %w", port, err)
 	}
-	a.log.Warn("port 32400 is in use (usually by Plex Media Server); Ether moved to another port and saved it",
+	a.log.Warn("port 32400 is reserved for Plex Media Server or already in use; Ether moved to another port and saved it",
 		"port", port, "ui", fmt.Sprintf("http://localhost:%d/ether/", port))
 	return nil
 }

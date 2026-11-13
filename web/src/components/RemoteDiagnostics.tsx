@@ -7,6 +7,25 @@ import { apiFetch, errorMessage } from "../lib/api";
 import { LoadingRows } from "./feedback";
 import { SettingsRow } from "./SettingsRow";
 
+function diagnosticText(value: string) {
+  switch (value) {
+    case "Plex Media Server and Ether both want port 32400":
+      return t("Plex Media Server and Ether both want port 32400");
+    case "UPnP mapped the old port":
+      return t("UPnP mapped the old port");
+    case "Choose another listening port in Apps › Plex.":
+      return t("Choose another listening port in Apps › Plex.");
+    case "Turn automatic port mapping off and on, or update the router forward to Ether's current listening port.":
+      return t(
+        "Turn automatic port mapping off and on, or update the router forward to Ether's current listening port.",
+      );
+    case "Listening port":
+      return t("Listening port");
+    default:
+      return value;
+  }
+}
+
 type Data = {
   steps: { name: string; state: string; detail: string; action: string }[];
   compatibilityVersion: string;
@@ -83,12 +102,12 @@ export function RemoteDiagnostics() {
         data.steps.map((step) => (
           <SettingsRow
             key={step.name}
-            title={step.name}
+            title={diagnosticText(step.name)}
             description={
               <>
-                {step.detail}
+                {diagnosticText(step.detail)}
                 {step.state !== "ok" && step.action ? (
-                  <span className="mt-1 block text-fg">{step.action}</span>
+                  <span className="mt-1 block text-fg">{diagnosticText(step.action)}</span>
                 ) : null}
               </>
             }

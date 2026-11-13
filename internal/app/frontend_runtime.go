@@ -382,6 +382,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}, AudioOrder: trackprefs.AudioOrder, PickAudio: experiencepkg.PickAudio, PersonalHomes: a.personalHomeDisk(), CacheDir: a.frontendCacheDir(id), ClientsDir: a.frontendClientsDir()}
 	})
 	r.control = newFrontendControl(r.registry, a.cfg)
+	r.control.portChanged = func() {
+		time.AfterFunc(time.Second, func() { a.requestRestart("listening port changed") })
+	}
 	r.control.listeners.log = a.log
 	r.control.listeners.perf = a.perf
 	r.control.listeners.discovery = newSharedDiscovery(r.ctx)

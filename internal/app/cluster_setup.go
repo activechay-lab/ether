@@ -71,7 +71,7 @@ func serveWithConstructor(ctx context.Context, opts Options, construct func(cont
 	defer lock.Release()
 	opts.lock = lock
 	front := newFrontDoor(startup.NewTracker(opts.Version, time.Now), log)
-	defer front.close()
+	defer func() { front.close() }()
 	opts.front = front
 	rc := newRecovery(opts.DataDir, front, log)
 	front.recovery.Store(ptr(rc.handler()))
@@ -119,7 +119,16 @@ func serveWithConstructor(ctx context.Context, opts Options, construct func(cont
 		// A cluster transition deliberately replaces this App within the same
 		// process. Close its watcher cleanly before starting the replacement.
 		_ = finish(err == nil || errors.Is(err, errClusterSetup) || errors.Is(err, service.ErrRestartRequested))
+		portChanged := errors.Is(err, service.ErrRestartRequested) && a.cfg.Get().Server.Port != front.port
 		a.Close()
+		if portChanged && ctx.Err() == nil {
+			front.close()
+			front = newFrontDoor(startup.NewTracker(opts.Version, time.Now), log)
+			opts.front = front
+			rc = newRecovery(opts.DataDir, front, log)
+			front.recovery.Store(ptr(rc.handler()))
+			continue
+		}
 		// A restore this start applied but never confirmed (Run stopped
 		// before serving) puts the original data back.
 		if a.rollbackUnconfirmed(err) && ctx.Err() == nil {
