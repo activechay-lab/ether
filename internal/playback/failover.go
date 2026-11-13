@@ -457,14 +457,16 @@ func (m *Manager) probeGeneration(ctx context.Context, s *session, res *core.Res
 	default:
 		mi = core.CloneMediaInfo(*info)
 	}
-	// A probed duration that contradicts the catalogue runtime of a namesake
-	// request means the indexer served the other film. Reject it and fail
-	// over like any other bad release. Only an exact (non-estimated) probe
-	// is evidence, and only ambiguous (namesake) titles are gated.
-	if !mi.Estimated && s.title != nil && mi.Duration > 0 && m.namesakeRequest(ctx, s.title) &&
-		namesakeDurationMismatch(s.title.Runtime, mi.Duration) {
+	// Reused persisted probes pass through here too, including a remembered
+	// playback_resume release played from zero with no requested offset.
+	if !mi.Estimated && s.title != nil &&
+		(releaseRuntimeMismatch(s.title, res.Release, mi.Duration) ||
+			(m.namesakeRequest(ctx, s.title) && s.title.Type != core.TypeEpisode &&
+				namesakeDurationMismatch(s.title.Runtime, mi.Duration))) {
 		m.dropGeneration(g)
-		m.markBad(res.Release.ID, "runtime doesn't match this title")
+		if err := m.RejectRelease(ctx, s.title.Key, res.Release); err != nil {
+			return nil, fmt.Errorf("remember runtime rejection: %w", err)
+		}
 		m.log.Info("trying next candidate", "release", res.Release.Name, "reason", "runtime doesn't match this title",
 			"probed", mi.Duration, "catalogue", s.title.Runtime)
 		return nil, fmt.Errorf("probe %s: %w: runtime doesn't match this title", res.Release.Name, core.ErrReleaseRejected)
