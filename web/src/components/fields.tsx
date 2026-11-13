@@ -36,7 +36,7 @@ export function Field({
   );
 }
 
-/** Numeric input that never emits NaN. */
+/** Numeric input that never emits NaN, and can be cleared with backspace while editing. */
 export function NumberInput({
   value,
   onChange,
@@ -56,19 +56,34 @@ export function NumberInput({
   React.InputHTMLAttributes<HTMLInputElement>,
   "value" | "onChange" | "type" | "min" | "max" | "step"
 >) {
+  const committed = Number.isFinite(value) ? value : 0;
+  const [text, setText] = useState(String(committed));
+
+  useEffect(() => {
+    setText(String(committed));
+    // Only resync from the outside value - an in-progress edit (including an
+    // emptied field) is tracked by `text` alone until it commits or blurs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committed]);
+
   return (
     <Input
       {...rest}
       type="number"
       inputMode="decimal"
       className={cn("tabular-nums", className)}
-      value={Number.isFinite(value) ? value : 0}
+      value={text}
       min={min}
       max={max}
       step={step}
       onChange={(e) => {
+        setText(e.currentTarget.value);
         const n = e.currentTarget.valueAsNumber;
-        onChange(Number.isFinite(n) ? n : 0);
+        if (Number.isFinite(n)) onChange(n);
+      }}
+      onBlur={(e) => {
+        const n = e.currentTarget.valueAsNumber;
+        if (!Number.isFinite(n)) setText(String(committed));
       }}
     />
   );
