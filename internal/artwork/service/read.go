@@ -167,12 +167,18 @@ func (a Source) readEntry(ctx context.Context, req frontend.ArtworkRequest, entr
 		if err != nil {
 			return nil, "", err
 		}
-		// The overlay renderer's legacy backdrop path fetches w1280.
-		// Explicit larger hero requests must read the selected source at the
-		// requested resolution; the same undersizing affects any such client.
-		if entry.discoveryKind == "backdrop" && width > 1280 {
+		// Backdrops and logos bypass fixed-size renderers; cache the selected
+		// source variant and preserve its bytes until a transform is needed.
+		if entry.discoveryKind == "backdrop" {
 			_, path := a.Discovery.Overlays.Paths(ctx, req.Viewer, t, req.Device.Language)
 			return a.remote(ctx, path, width)
+		}
+		if entry.image.Kind == frontend.ImageThumb {
+			path, _ := a.Discovery.Overlays.Paths(ctx, req.Viewer, t, req.Device.Language)
+			return a.remote(ctx, path, width)
+		}
+		if entry.discoveryKind == "logo" {
+			return a.remote(ctx, t.LogoPath, width)
 		}
 		data, ct, err := a.Discovery.RenderArtwork(ctx, req.Viewer, t, entry.discoveryKind, req.Device.Language)
 		if err == nil && a.Discovery.Overlays.CustomPostersEnabled() && width > 0 && (entry.discoveryKind == "" || entry.discoveryKind == "poster") {
@@ -228,7 +234,7 @@ func (a Source) readEntry(ctx context.Context, req frontend.ArtworkRequest, entr
 		if err != nil || path == "" {
 			return nil, "", core.ErrNotFound
 		}
-		if width <= 0 {
+		if width <= 0 && entry.image.Kind != frontend.ImageBackdrop && entry.image.Kind != frontend.ImageThumb && entry.image.Kind != frontend.ImageLogo {
 			width = defaultWidth
 		}
 		return a.remote(ctx, path, width)

@@ -28,6 +28,8 @@ type ArtworkRequest struct {
 // the source's normal dimensions; Format is empty, "jpeg", or "png".
 type ArtworkTransform struct {
 	Width, Height int
+	Quality       int  // JPEG quality when encoding; zero uses the default.
+	Fit           bool // Fit within dimensions, preserving aspect ratio without upscaling.
 	Format        string
 	Blur          bool
 }

@@ -191,7 +191,7 @@ func TestImageGrantUsesScopedArtworkAndTransforms(t *testing.T) {
 	if w.Code != 200 || w.Body.String() != "scoped" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("response: %d %q", w.Code, w.Body.String())
 	}
-	if source.calls != 1 || source.request.Viewer.ID != 1 || source.request.Device != device || source.request.Item != core.MovieKey(42) || source.image != image || source.transform != (frontend.ArtworkTransform{Width: 300, Height: 200, Format: "png", Blur: true}) {
+	if source.calls != 1 || source.request.Viewer.ID != 1 || source.request.Device != device || source.request.Item != core.MovieKey(42) || source.image != image || source.transform != (frontend.ArtworkTransform{Width: 300, Height: 200, Format: "png", Blur: true, Fit: true}) {
 		t.Fatalf("bad source request: %+v", source)
 	}
 	w = httptest.NewRecorder()
