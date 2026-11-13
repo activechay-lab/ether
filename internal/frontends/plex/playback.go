@@ -756,7 +756,26 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 		s.write(w, r, s.decisionError(ctx, pr, t, err, p))
 		return
 	}
-	s.write(w, r, s.decisionContainer(ctx, pr, t, ps, dec, p))
+	mc := s.decisionContainer(ctx, pr, t, ps, dec, p)
+	audio, subtitles, selectedSubtitle := 0, 0, int64(0)
+	for _, st := range mc.Metadata[0].Media[0].Part[0].Stream {
+		switch st.StreamType {
+		case 2:
+			audio++
+		case 3:
+			subtitles++
+			if st.Selected != nil && *st.Selected {
+				selectedSubtitle = st.ID
+			}
+		}
+	}
+	s.log.Debug("playback decision tracks", "key", p.key, "client", pr.ClientID,
+		"session", p.sessionID, "mediaIndex", p.mediaIndex, "mediaID", p.mediaID,
+		"directPlay", p.opts.DirectPlay, "directStream", p.opts.DirectStream,
+		"maxBitrate", p.opts.MaxBitrateKbps, "maxHeight", p.opts.MaxHeight,
+		"subtitles", p.subtitles, "subtitleStream", p.subSel,
+		"audioTracks", audio, "subtitleTracks", subtitles, "selectedSubtitle", selectedSubtitle)
+	s.write(w, r, mc)
 }
 
 // decisionSourceWait bounds how long a decision waits for a source search
