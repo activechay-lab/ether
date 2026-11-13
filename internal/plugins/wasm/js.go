@@ -92,6 +92,7 @@ globalThis.ether = (() => {
              open: (blobRef) => call("cache.open", [blobRef]) },
     frontend: { streamURL: (itemRef) => call("frontend.streamURL", [itemRef]) },
     folders: { list: (root, path) => call("folders.list", [root, path == null ? "" : path]),
+               hash: (root, path) => call("folders.hash", [root, path]),
                stat: (root, path) => call("folders.stat", [root, path]) },
     notify: { owner: (text) => call("notify.owner", [text]) },
   };

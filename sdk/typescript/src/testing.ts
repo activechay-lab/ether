@@ -129,6 +129,7 @@ export function createMockHostClient(initial?: Partial<MockHostState>): MockHost
       },
     },
     folders: {
+      hash: () => { throw new Error("Set a folders.hash mock for file identification tests"); },
       list: (root: string, path = "") => {
         const key = path ? `${root}/${path}` : root;
         return state.folders.get(key) ?? [];

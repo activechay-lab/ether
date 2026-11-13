@@ -98,7 +98,7 @@ var DefaultCosts = map[string]int64{
 	"viewers.history": 50, "viewers.setWatchState": 50, "collections.upsert": 50,
 	"kinds.upsert": 50, "kinds.delete": 50, "kinds.items": 20,
 	"sources.resolve": 100, "cache.put": 50, "cache.open": 20, "frontend.streamURL": 5,
-	"folders.list": 20, "folders.stat": 20, "notify.owner": 20, "settings.get": 5,
+	"folders.hash": 20, "folders.list": 20, "folders.stat": 20, "notify.owner": 20, "settings.get": 5,
 }
 
 const (

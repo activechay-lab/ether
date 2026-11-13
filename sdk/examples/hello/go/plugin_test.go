@@ -582,3 +582,7 @@ func TestHostedTypeScriptAsyncHandler(t *testing.T) {
 		t.Fatalf("async hosted response: %d %s %v", resp.Status, resp.Body, err)
 	}
 }
+
+func (noopHost) FoldersHash(context.Context, string, string) (plugins.FolderHash, error) {
+	return plugins.FolderHash{}, nil
+}

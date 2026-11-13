@@ -76,6 +76,7 @@ export interface Library {
 }
 
 export interface KindItem {
+  unavailable?: { code: string; detail?: string };
   ref: string;
   key: number;
   id: string;

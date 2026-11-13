@@ -363,6 +363,7 @@ export interface SetupMeta {
 
 /** The standardised plugin item envelope. */
 export interface KindItem {
+  unavailable?: { code: string; detail?: string };
   id: string;
   level: string;
   parentId?: string;
@@ -440,9 +441,10 @@ export interface KindMatchScore {
 }
 
 export interface PlayableSource {
+  path?: string;
   id: string;
   label?: string;
-  pattern: "range" | "download" | "direct" | "container" | "release";
+  pattern: "range" | "download" | "direct" | "container" | "release" | "file";
   mime: string;
   size?: number;
   durationSec?: number;

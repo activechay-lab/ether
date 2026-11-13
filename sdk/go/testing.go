@@ -631,3 +631,7 @@ func (h *TestHarness) File(path, rangeHeader string) RawResponse {
 		Headers: hdrs,
 	})
 }
+
+func (*MockHost) FoldersHash(context.Context, string, string) (FolderHash, error) {
+	return FolderHash{}, fmt.Errorf("folders.hash requires the hosted runtime")
+}

@@ -19,26 +19,33 @@ import (
 // mirror the host's wire shapes exactly; the shared fixtures under
 // sdk/conformance/kinds pin all three SDKs to the same JSON.
 
+// ItemUnavailable explains why an item cannot currently be played.
+type ItemUnavailable struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // KindItem is the standardised plugin item envelope. Ether assigns the
 // stored identity; the plugin only ever sees its own external ID.
 type KindItem struct {
-	ID         string                     `json:"id"`
-	Level      string                     `json:"level"`
-	ParentID   string                     `json:"parentId,omitempty"`
-	Index      int                        `json:"index,omitempty"`
-	Title      string                     `json:"title"`
-	SortTitle  string                     `json:"sortTitle,omitempty"`
-	Summary    string                     `json:"summary,omitempty"`
-	Year       int                        `json:"year,omitempty"`
-	Released   int64                      `json:"released,omitempty"` // unix seconds
-	Rating     float64                    `json:"rating,omitempty"`
-	Playable   bool                       `json:"playable,omitempty"`
-	ChildCount int                        `json:"childCount,omitempty"`
-	LeafCount  int                        `json:"leafCount,omitempty"`
-	Art        []KindArtRef               `json:"art,omitempty"`
-	Fields     map[string]json.RawMessage `json:"fields,omitempty"`
-	Hints      json.RawMessage            `json:"hints,omitempty"` // opaque JSON object, echoed to the resolver
-	ETag       string                     `json:"etag,omitempty"`
+	Unavailable *ItemUnavailable           `json:"unavailable,omitempty"`
+	ID          string                     `json:"id"`
+	Level       string                     `json:"level"`
+	ParentID    string                     `json:"parentId,omitempty"`
+	Index       int                        `json:"index,omitempty"`
+	Title       string                     `json:"title"`
+	SortTitle   string                     `json:"sortTitle,omitempty"`
+	Summary     string                     `json:"summary,omitempty"`
+	Year        int                        `json:"year,omitempty"`
+	Released    int64                      `json:"released,omitempty"` // unix seconds
+	Rating      float64                    `json:"rating,omitempty"`
+	Playable    bool                       `json:"playable,omitempty"`
+	ChildCount  int                        `json:"childCount,omitempty"`
+	LeafCount   int                        `json:"leafCount,omitempty"`
+	Art         []KindArtRef               `json:"art,omitempty"`
+	Fields      map[string]json.RawMessage `json:"fields,omitempty"`
+	Hints       json.RawMessage            `json:"hints,omitempty"` // opaque JSON object, echoed to the resolver
+	ETag        string                     `json:"etag,omitempty"`
 }
 
 // KindArtRef is one artwork reference on a KindItem.
@@ -149,9 +156,10 @@ type KindMatchResponse struct {
 // carry {itemIndex}, {pageNumber}, {byteStart}, {byteEnd} and {byteRange}
 // placeholders that Ether substitutes.
 type PlayableSource struct {
+	Path        string            `json:"path,omitempty"`
 	ID          string            `json:"id"`
 	Label       string            `json:"label,omitempty"`
-	Pattern     string            `json:"pattern"` // range|download|direct|container|release
+	Pattern     string            `json:"pattern"` // range|download|direct|container|release|file
 	MIME        string            `json:"mime"`
 	Size        int64             `json:"size,omitempty"`
 	DurationSec float64           `json:"durationSec,omitempty"`

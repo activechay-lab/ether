@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,6 +108,9 @@ func (r *KindResolver) OpenKind(ctx context.Context, viewer *core.Viewer, key co
 	item, lib, rec, err := r.loadAuthorized(ctx, viewer, key)
 	if err != nil {
 		return nil, err
+	}
+	if item.Unavailable != nil {
+		return nil, core.ErrNotAvailable
 	}
 	lv, _, ok := rec.Decl.Level(item.Level)
 	if !ok {
@@ -386,6 +391,9 @@ func (r *KindResolver) loadAuthorized(ctx context.Context, viewer *core.Viewer, 
 }
 
 func (r *KindResolver) collectPlayableLeaves(ctx context.Context, rec pluginitems.KindRecord, parent core.KindItem) ([]core.KindItem, error) {
+	if parent.Unavailable != nil {
+		return nil, core.ErrNotAvailable
+	}
 	lv, _, ok := rec.Decl.Level(parent.Level)
 	if ok && lv.Playable && parent.Playable {
 		return []core.KindItem{parent}, nil
@@ -403,6 +411,9 @@ func (r *KindResolver) collectPlayableLeaves(ctx context.Context, rec pluginitem
 				return nil, err
 			}
 			for _, child := range page.Items {
+				if child.Unavailable != nil {
+					continue
+				}
 				clv, _, cok := rec.Decl.Level(child.Level)
 				if cok && clv.Playable && child.Playable {
 					leaves = append(leaves, child)
@@ -449,6 +460,27 @@ func (r *KindResolver) kindstreamDeps(ctx context.Context, rec pluginitems.KindR
 		}
 	}
 	return kindstream.Deps{
+		OpenFile: func(ctx context.Context, src core.PlayableSource) (kindstream.ByteSource, error) {
+			s := &StreamSources{mgr: r.mgr}
+			resolved, _, err := s.validateLocalFile(ctx, rec.PluginID, src.Path)
+			if err != nil {
+				return nil, err
+			}
+			f, err := s.openGrantedLocalFile(ctx, rec.PluginID, resolved)
+			if err != nil {
+				return nil, err
+			}
+			info, err := f.Stat()
+			if err != nil {
+				f.Close()
+				return nil, err
+			}
+			if !info.Mode().IsRegular() {
+				f.Close()
+				return nil, core.ErrSourceUnavailable
+			}
+			return &kindLocalFile{File: f, size: info.Size(), mime: src.MIME}, nil
+		},
 		HTTP:             r.http,
 		Cache:            ns,
 		OpenRelease:      r.openRelease,
@@ -461,6 +493,9 @@ func (r *KindResolver) kindstreamDeps(ctx context.Context, rec pluginitems.KindR
 }
 
 func (r *KindResolver) openItemByteSource(ctx context.Context, rec pluginitems.KindRecord, lib core.Library, item core.KindItem, partIdx *int, accept []string) (kindstream.ByteSource, error) {
+	if item.Unavailable != nil {
+		return nil, core.ErrNotAvailable
+	}
 	ksDeps := r.kindstreamDeps(ctx, rec, lib, item)
 
 	// 1. Check persisted positive/negative resolution cache first so repeat
@@ -509,6 +544,9 @@ func (r *KindResolver) openItemByteSource(ctx context.Context, rec pluginitems.K
 }
 
 func (r *KindResolver) resolveItemSources(ctx context.Context, rec pluginitems.KindRecord, lib core.Library, item core.KindItem, partIdx *int, accept []string) ([]core.PlayableSource, error) {
+	if item.Unavailable != nil {
+		return nil, core.ErrNotAvailable
+	}
 	if r.mgr == nil {
 		return nil, core.ErrSourceUnavailable
 	}
@@ -584,6 +622,14 @@ func (r *KindResolver) callPluginResolve(ctx context.Context, rec pluginitems.Ki
 	var resolved core.KindResolveResponse
 	if err := json.Unmarshal(resp.Body, &resolved); err != nil {
 		return nil, fmt.Errorf("%w: invalid resolver payload: %v", core.ErrSourceUnavailable, err)
+	}
+	for _, src := range resolved.Sources {
+		if strings.EqualFold(strings.TrimSpace(src.Pattern), "file") {
+			s := &StreamSources{mgr: r.mgr}
+			if _, _, err := s.validateLocalFile(ctx, rec.PluginID, src.Path); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if len(resolved.Sources) == 0 {
 		if partIdx == nil {
@@ -780,3 +826,13 @@ func extractItemSizeAndMIME(item core.KindItem, decl plugins.MediaKindMeta) (int
 	}
 	return size, mime
 }
+
+type kindLocalFile struct {
+	*os.File
+	size int64
+	mime string
+}
+
+func (f *kindLocalFile) Size() int64  { return f.size }
+func (f *kindLocalFile) Name() string { return filepath.Base(f.File.Name()) }
+func (f *kindLocalFile) MIME() string { return f.mime }

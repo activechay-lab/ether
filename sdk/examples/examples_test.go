@@ -170,3 +170,7 @@ func TestStudioExamplesPackAndConform(t *testing.T) {
 		})
 	}
 }
+
+func (fixtureHost) FoldersHash(context.Context, string, string) (plugins.FolderHash, error) {
+	return plugins.FolderHash{}, nil
+}

@@ -124,6 +124,7 @@ declare const ether: {
   };
   collections: { upsert(collection: Record<string, unknown>): void };
   folders: {
+    hash(root: string, path: string): { size: number; modTime: number; crc32: string; md5: string; sha1: string };
     list(root: string, path?: string): { name: string; path: string; dir: boolean; size?: number }[];
     stat(root: string, path: string): { name: string; path: string; dir: boolean; size?: number };
   };

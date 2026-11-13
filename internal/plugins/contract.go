@@ -616,6 +616,7 @@ type Host interface {
 	// root. They never return file contents.
 	FoldersList(ctx context.Context, root, path string) ([]FolderEntry, error)
 	FoldersStat(ctx context.Context, root, path string) (FolderEntry, error)
+	FoldersHash(ctx context.Context, root, path string) (FolderHash, error)
 
 	// Settings returns the plugin's current non-secret settings. Plugins
 	// read them per request instead of keeping them in instance memory,
@@ -642,6 +643,15 @@ type FetchResponse struct {
 	Status  int               `json:"status"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    []byte            `json:"body,omitempty"`
+}
+
+// FolderHash contains digests, never file contents. ModTime is Unix seconds.
+type FolderHash struct {
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"`
+	CRC32   string `json:"crc32"`
+	MD5     string `json:"md5"`
+	SHA1    string `json:"sha1"`
 }
 
 // FolderEntry is one entry from FoldersList or FoldersStat.

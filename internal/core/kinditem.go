@@ -105,27 +105,34 @@ func (r ItemRef) External() string {
 
 func (r ItemRef) String() string { return string(r) }
 
+// ItemUnavailable explains why an item cannot currently be played.
+type ItemUnavailable struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // KindItem is the standardised plugin item envelope (spec §3.2).
 type KindItem struct {
-	Ref        ItemRef                    `json:"-"`  // assigned by Ether, never sent to the plugin
-	Key        RatingKey                  `json:"-"`  // allocated PluginKey(seq), populated on store reads
-	ID         string                     `json:"id"` // externalID
-	Level      string                     `json:"level"`
-	ParentID   string                     `json:"parentId,omitempty"`
-	Index      int                        `json:"index,omitempty"` // position within parent / container leaf index
-	Title      string                     `json:"title"`
-	SortTitle  string                     `json:"sortTitle,omitempty"` // Ether derives it when empty
-	Summary    string                     `json:"summary,omitempty"`
-	Year       int                        `json:"year,omitempty"`
-	Released   int64                      `json:"released,omitempty"` // unix seconds
-	Rating     float64                    `json:"rating,omitempty"`
-	Playable   bool                       `json:"playable,omitempty"`
-	ChildCount int                        `json:"childCount,omitempty"`
-	LeafCount  int                        `json:"leafCount,omitempty"`
-	Art        []KindArtRef               `json:"art,omitempty"`
-	Fields     map[string]json.RawMessage `json:"fields,omitempty"` // validated against the kind declaration
-	Hints      json.RawMessage            `json:"hints,omitempty"`  // opaque; stored and echoed to the resolver verbatim
-	ETag       string                     `json:"etag,omitempty"`
+	Unavailable *ItemUnavailable           `json:"unavailable,omitempty"`
+	Ref         ItemRef                    `json:"-"`  // assigned by Ether, never sent to the plugin
+	Key         RatingKey                  `json:"-"`  // allocated PluginKey(seq), populated on store reads
+	ID          string                     `json:"id"` // externalID
+	Level       string                     `json:"level"`
+	ParentID    string                     `json:"parentId,omitempty"`
+	Index       int                        `json:"index,omitempty"` // position within parent / container leaf index
+	Title       string                     `json:"title"`
+	SortTitle   string                     `json:"sortTitle,omitempty"` // Ether derives it when empty
+	Summary     string                     `json:"summary,omitempty"`
+	Year        int                        `json:"year,omitempty"`
+	Released    int64                      `json:"released,omitempty"` // unix seconds
+	Rating      float64                    `json:"rating,omitempty"`
+	Playable    bool                       `json:"playable,omitempty"`
+	ChildCount  int                        `json:"childCount,omitempty"`
+	LeafCount   int                        `json:"leafCount,omitempty"`
+	Art         []KindArtRef               `json:"art,omitempty"`
+	Fields      map[string]json.RawMessage `json:"fields,omitempty"` // validated against the kind declaration
+	Hints       json.RawMessage            `json:"hints,omitempty"`  // opaque; stored and echoed to the resolver verbatim
+	ETag        string                     `json:"etag,omitempty"`
 }
 
 // KindArtRef is one artwork reference on a KindItem.
@@ -237,9 +244,10 @@ func libraryKeySlug(s string) string {
 // PlayableSource is one candidate way to acquire bytes for a KindItem or one of
 // its parts (spec §4.1). Multiple sources are tried in order.
 type PlayableSource struct {
+	Path        string            `json:"path,omitempty"`
 	ID          string            `json:"id"`
 	Label       string            `json:"label,omitempty"`
-	Pattern     string            `json:"pattern"` // "range" | "download" | "direct" | "container" | "release"
+	Pattern     string            `json:"pattern"` // "range" | "download" | "direct" | "container" | "release" | "file"
 	MIME        string            `json:"mime"`
 	Size        int64             `json:"size,omitempty"`
 	DurationSec float64           `json:"durationSec,omitempty"`

@@ -105,6 +105,8 @@ results stay findable locally.
 `resolve` returns ordered `PlayableSource`s; Ether tries them in
 order. Patterns:
 
+- **file** — a hosted resolver path inside an owner-picked folder; requires
+  `folders: read` and live containment checks when resolving and opening.
 - **range** — a URL Ether reads with HTTP Range (demoted to download
   when the host cannot range and the size fits the cache).
 - **download** — fetched whole into the per-library blob cache
@@ -223,3 +225,41 @@ the Studio template are hosted. In hosted JS, read settings with
 - Start from the Studio "A new library" template or copy
   `sdk/examples/kind-library`; its test is the executable version of
   this page.
+
+
+### Granted local files (hosted runtime)
+
+A resolver can return a source such as
+`{"id":"local","pattern":"file","path":"/picked/library/Game.nds","mime":"application/octet-stream"}`.
+This requires `folders: read` and an owner-picked, non-revoked folder grant.
+Ether uses the same `validateLocalFile` and `openGrantedLocalFile` path as
+Stremio `ether.file`: it rejects `..`, resolves symlinks, checks containment at
+resolve time and again at open time, and opens through `os.OpenRoot`.
+Remote/sidecar resolvers cannot serve host files with this pattern.
+
+### File identification without file contents
+
+Hosted plugins can call `ether.folders.hash(root, path)` (TypeScript SDK:
+`host.folders.hash`; Go SDK: `FoldersHash`). `path` is relative to the picked
+root. The service requires `folders: read` and the same live folder grant as
+`folders.stat`. It refuses traversal, symlink escapes and non-regular files.
+It returns `{size, modTime, crc32, md5, sha1}`: Unix seconds for `modTime`,
+lowercase hexadecimal digests (CRC32 IEEE, 8 digits; MD5, 32; SHA1, 40).
+No file contents cross the plugin boundary. All three hashes are computed in
+one streaming pass with fixed memory. Files above 256 MiB are refused, including
+files that grow beyond the limit during the call. Cancellation, grant revocation
+and files that change during hashing abort the result. Calls use the runtime's
+host-call budget; there is no background hashing or digest cache.
+
+### Item availability
+
+An upsert can carry
+`"unavailable":{"code":"no_verified_source","detail":"No source matched the DAT record"}`.
+The code must be nonempty and at most 128 bytes; detail is optional and at most
+2000 bytes. The item remains visible in browse/counts so owners can inspect the
+coverage gap. Ether exposes the reason in the item drawer, marks the item
+nonplayable, and never calls its resolver or opens a cached resolution while
+this declaration is present. The declaration also travels in frontend item
+details. The next upsert without `unavailable` clears it, even with the same
+etag. This is independent of the level's `playable` capability; clearing the
+reason does not grant playback to a nonplayable level.

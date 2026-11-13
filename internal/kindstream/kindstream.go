@@ -26,6 +26,7 @@ import (
 
 // Retrieval pattern constants (spec §4.1, §4.3).
 const (
+	PatternFile      = "file"
 	PatternRange     = "range"
 	PatternDownload  = "download"
 	PatternDirect    = "direct"
@@ -65,6 +66,7 @@ type ByteSource interface {
 // Deps supplies the runtime dependencies needed by Open and OpenSources
 // (spec §5.1).
 type Deps struct {
+	OpenFile         func(context.Context, core.PlayableSource) (ByteSource, error)
 	HTTP             *http.Client
 	Cache            *blobcache.Namespace
 	OpenRelease      func(ctx context.Context, r core.ReleaseHint) (core.MediaSource, error)
@@ -94,7 +96,7 @@ func Open(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, 
 
 	// Fast path: if BlobRef is already populated on a non-container source, open
 	// directly from the library's blobcache namespace.
-	if strings.TrimSpace(src.BlobRef) != "" && pattern != PatternContainer {
+	if strings.TrimSpace(src.BlobRef) != "" && pattern != PatternContainer && pattern != PatternFile {
 		if deps.Cache == nil {
 			return nil, errors.New("kindstream: source specifies blobRef but Cache is nil")
 		}
@@ -110,6 +112,11 @@ func Open(ctx context.Context, src core.PlayableSource, deps Deps) (ByteSource, 
 	}
 
 	switch pattern {
+	case PatternFile:
+		if deps.OpenFile == nil {
+			return nil, core.ErrSourceUnavailable
+		}
+		return deps.OpenFile(ctx, src)
 	case PatternRange:
 		return openRangeSource(ctx, src, deps)
 	case PatternDownload:

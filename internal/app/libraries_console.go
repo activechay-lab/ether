@@ -643,7 +643,7 @@ func (c *librariesConsole) handleItem(w http.ResponseWriter, r *http.Request) {
 	if rec, err := items.GetKindByLibrary(ctx, lib.ID); err == nil {
 		out["kind"] = rec.Decl
 	}
-	if src, found, err := items.GetResolution(ctx, ref); err == nil && found {
+	if src, found, err := items.GetResolution(ctx, ref); item.Unavailable == nil && err == nil && found {
 		out["resolution"] = src
 	}
 	libJSON(w, http.StatusOK, out)

@@ -3,9 +3,12 @@ package plugins
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"net/url"
@@ -660,4 +663,81 @@ func (h *host) Log(ctx context.Context, level, msg string, attrs map[string]any)
 	}
 	h.m.store.addLog(ctx, h.plugin, line)
 	return nil
+}
+
+// FoldersHash streams at most 256 MiB per call with fixed memory. Grants are
+// rechecked per chunk, so cancellation and revocation stop ongoing hashing.
+func (h *host) FoldersHash(ctx context.Context, root, path string) (FolderHash, error) {
+	const capBytes = 256 << 20
+	if _, err := h.folderCheck(ctx, root, path); err != nil {
+		return FolderHash{}, err
+	}
+	for _, seg := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return FolderHash{}, ErrPermissionDenied
+		}
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return FolderHash{}, err
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(realRoot, path))
+	if err != nil {
+		return FolderHash{}, err
+	}
+	rel, err := filepath.Rel(realRoot, target)
+	if err != nil || filepath.IsAbs(path) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return FolderHash{}, ErrPermissionDenied
+	}
+	fs, err := os.OpenRoot(root)
+	if err != nil {
+		return FolderHash{}, err
+	}
+	defer fs.Close()
+	f, err := fs.Open(path)
+	if err != nil {
+		return FolderHash{}, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return FolderHash{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > capBytes {
+		return FolderHash{}, fmt.Errorf("folders.hash requires a regular file of at most 256 MiB")
+	}
+	crc, md, sha := crc32.NewIEEE(), md5.New(), sha1.New()
+	w := io.MultiWriter(crc, md, sha)
+	buf := make([]byte, 1<<20)
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return FolderHash{}, err
+		}
+		if _, err := h.folderCheck(ctx, root, path); err != nil {
+			return FolderHash{}, err
+		}
+		n, err := f.Read(buf)
+		total += int64(n)
+		if total > capBytes {
+			return FolderHash{}, fmt.Errorf("folders.hash size limit exceeded")
+		}
+		if n > 0 {
+			_, _ = w.Write(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return FolderHash{}, err
+		}
+	}
+	after, err := f.Stat()
+	if err != nil {
+		return FolderHash{}, err
+	}
+	if total != info.Size() || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
+		return FolderHash{}, fmt.Errorf("folders.hash file changed while hashing")
+	}
+	return FolderHash{Size: total, ModTime: info.ModTime().Unix(), CRC32: fmt.Sprintf("%08x", crc.Sum32()), MD5: fmt.Sprintf("%x", md.Sum(nil)), SHA1: fmt.Sprintf("%x", sha.Sum(nil))}, nil
 }

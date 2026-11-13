@@ -26,10 +26,11 @@ type PluginBrowsePage struct {
 // PluginItemView is a projected plugin item with its owning library, raw art
 // references and playability flag.
 type PluginItemView struct {
-	Library  core.Library
-	Title    core.Title
-	Images   []frontend.Image
-	Playable bool
+	Library     core.Library
+	Title       core.Title
+	Images      []frontend.Image
+	Playable    bool
+	Unavailable *core.ItemUnavailable
 }
 
 // PluginLibraries supplies unified library metadata (builtin, filter, and
