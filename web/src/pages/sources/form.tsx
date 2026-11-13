@@ -309,6 +309,7 @@ export function HealthStrip({
  * draft lives in the caller; closing without saving discards it.
  */
 export function RecordDrawer({
+  summary,
   enabled,
   onEnabledChange,
   open,
@@ -326,6 +327,7 @@ export function RecordDrawer({
   error,
   children,
 }: {
+  summary?: ReactNode;
   enabled?: boolean;
   onEnabledChange?: (enabled: boolean) => void;
   open: boolean;
@@ -378,6 +380,7 @@ export function RecordDrawer({
       }
     >
       <div className="space-y-4">
+        {summary}
         {error ? <MutationError error={error} /> : null}
         {onEnabledChange ? (
           <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">

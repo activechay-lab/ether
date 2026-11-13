@@ -1,3 +1,4 @@
+import { SourceEditorHeader, SourceEditorMetrics } from "../../components/SourceEditorSummary";
 import { t, tn } from "../../i18n";
 import {
   Badge,
@@ -17,7 +18,7 @@ import { Section } from "../../components/layout";
 import { SortableList } from "../../components/Sortable";
 import { SettingsRow } from "../../components/SettingsRow";
 import { api, newId } from "../../lib/api";
-import { formatBytes, isPlainObject } from "../../lib/format";
+import { formatBytes, formatThroughput, isPlainObject } from "../../lib/format";
 import { useAsync } from "../../lib/hooks";
 import type { EtherConfig, UsenetProvider } from "../../lib/types";
 import { PluginSourceCards, SourceCard, usenetFix } from "./cards";
@@ -138,6 +139,34 @@ export function UsenetProviders({
   const providers = cfg?.usenet.providers ?? [];
   const status = dashboard?.sections?.providers;
   const live = Array.isArray(status) ? status.filter(isPlainObject) : [];
+  // Reuse dashboard samples while this drawer is open; no extra polling or requests.
+  const speedSample = useRef<{ id: string; bytes: number; at: number } | null>(null);
+  const [speed, setSpeed] = useState<number | null>(null);
+  useEffect(() => {
+    const id = editing?.draft.id;
+    if (!id) {
+      speedSample.current = null;
+      setSpeed(null);
+      return;
+    }
+    const stat = Array.isArray(status)
+      ? status.filter(isPlainObject).find((p) => p.id === id)
+      : undefined;
+    const bytes = typeof stat?.bytes === "number" ? stat.bytes : null;
+    const previous = speedSample.current;
+    const at = Date.now();
+    if (bytes === null) {
+      speedSample.current = null;
+      setSpeed(null);
+      return;
+    }
+    if (previous?.id === id && bytes >= previous.bytes && at > previous.at) {
+      setSpeed((bytes - previous.bytes) / ((at - previous.at) / 1000));
+    } else {
+      setSpeed(null);
+    }
+    speedSample.current = { id, bytes, at };
+  }, [status, editing?.draft.id]);
 
   async function commit(list: UsenetProvider[], message: string) {
     if (!cfg) return;
@@ -241,6 +270,7 @@ export function UsenetProviders({
   if (!cfg) return <LoadingRows rows={3} />;
 
   const draft = editing?.draft;
+  const selectedStatus = live.find((p) => p.id === draft?.id);
   const set = (patch: Partial<UsenetProvider>) =>
     setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...patch } } : e));
   const isNew = editing ? editing.index >= providers.length : false;
@@ -407,6 +437,42 @@ export function UsenetProviders({
       </RecordDrawer>
 
       <RecordDrawer
+        summary={
+          draft ? (
+            <div className="space-y-5">
+              <SourceEditorHeader
+                icon={<Network size={22} />}
+                title={isNew ? t("New provider") : name}
+                description={draft.host ? `${draft.host}:${draft.port}` : t("No host")}
+              />
+              <SourceEditorMetrics
+                items={[
+                  {
+                    key: "connections",
+                    label: t("Connections"),
+                    value: `${Number(selectedStatus?.activeConnections ?? 0)} / ${Number(selectedStatus?.nodeShare || selectedStatus?.configuredConnections || draft.connections)}`,
+                  },
+                  {
+                    key: "health",
+                    label: t("Health"),
+                    value: !draft.enabled
+                      ? t("Disabled")
+                      : selectedStatus?.state === "ok"
+                        ? t("Connected")
+                        : selectedStatus?.state
+                          ? t("Needs attention")
+                          : t("Unknown"),
+                  },
+                  {
+                    key: "speed",
+                    label: t("Speed"),
+                    value: speed === null ? "—" : formatThroughput(speed),
+                  },
+                ]}
+              />
+            </div>
+          ) : null
+        }
         enabled={draft?.enabled}
         onEnabledChange={(enabled) => set({ enabled })}
         open={editing !== null}
@@ -415,9 +481,9 @@ export function UsenetProviders({
         description={editing && !isNew ? role(editing.draft, editing.index) : undefined}
         onSave={() => void save()}
         saving={saving}
-        saveLabel={t("Save provider")}
+        saveLabel={t("Save")}
         onRemove={isNew ? undefined : () => void remove()}
-        removeLabel={t("Remove provider")}
+        removeLabel={t("Remove")}
         error={error}
         tools={
           draft ? (
@@ -490,11 +556,6 @@ export function UsenetProviders({
                 "Use for block accounts: only consulted when an article is missing elsewhere.",
               )}
               onChange={(v) => set({ backfill: v })}
-            />
-            <BoolRow
-              label={t("Enabled")}
-              value={draft.enabled}
-              onChange={(v) => set({ enabled: v })}
             />
           </SettingsSection>
         ) : null}
