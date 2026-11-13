@@ -211,8 +211,8 @@ func TestTransientPlaybackErrorMapping(t *testing.T) {
 	}
 }
 
-// failureBudgetPlayback exercises the production bounded-prepare interface.
-// A failed bounded prepare must never fall through to unbounded Prepare.
+// failureBudgetPlayback exercises the production prepare interface.
+// A failed shared prepare must never fall through to a second Prepare.
 type failureBudgetPlayback struct {
 	*fakePlayback
 	err   error
@@ -220,8 +220,8 @@ type failureBudgetPlayback struct {
 }
 
 func (p *failureBudgetPlayback) PrepareWithin(_ context.Context, budget time.Duration, _ *core.User, _ core.RatingKey, _ core.ClientCaps, _ string, _ bool) (*core.PlaySession, error) {
-	if budget <= 0 || budget > decisionSourceWait {
-		panic("unbounded client acquisition")
+	if budget != decisionSourceWait {
+		panic("unexpected adapter preparation deadline")
 	}
 	p.calls++
 	return nil, p.err
@@ -320,8 +320,8 @@ func TestPlaybackFailureClientContract(t *testing.T) {
 						}
 						checkTimeline()
 					}
-					if time.Since(started) >= decisionSourceWait {
-						t.Fatal("client failure exceeded decision budget")
+					if time.Since(started) >= 12*time.Second {
+						t.Fatal("immediate failure unexpectedly blocked")
 					}
 				})
 			}

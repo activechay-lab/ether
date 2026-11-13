@@ -839,20 +839,22 @@ func (m *Manager) prepareEntry(ctx context.Context, user *core.User, key core.Ra
 }
 
 func (m *Manager) prepareOwnedEntry(ctx context.Context, user *core.User, key core.RatingKey, caps core.ClientCaps, prefer string, exact, deferSupersession bool) (*core.PlaySession, core.SourceRetirement, error) {
-	return m.prepareOwnedWithin(ctx, 0, user, key, caps, prefer, exact, deferSupersession)
+	return m.prepareOwnedWithin(ctx, 0, user, key, caps, prefer, exact, deferSupersession, false)
 }
 
 // PrepareWithin leaves a timed-out flight running for a subsequent retry.
+// A non-positive wait joins until completion or client cancellation; the shared
+// flight remains bounded by PrepareTimeout. This is still an explicit Play.
 // The prepared source does not supersede the client's current session.
 func (m *Manager) PrepareWithin(ctx context.Context, wait time.Duration, user *core.User, key core.RatingKey, caps core.ClientCaps, release string, exact bool) (*core.PlaySession, error) {
 	if exact && release == "" {
 		return nil, core.ErrNotAvailable
 	}
-	ps, _, err := m.prepareOwnedWithin(ctx, wait, user, key, caps, release, exact, true)
+	ps, _, err := m.prepareOwnedWithin(ctx, wait, user, key, caps, release, exact, true, true)
 	return ps, err
 }
 
-func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, user *core.User, key core.RatingKey, caps core.ClientCaps, prefer string, exact, deferSupersession bool) (*core.PlaySession, core.SourceRetirement, error) {
+func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, user *core.User, key core.RatingKey, caps core.ClientCaps, prefer string, exact, deferSupersession, playRequested bool) (*core.PlaySession, core.SourceRetirement, error) {
 	prepareStarted := time.Now()
 	if user == nil {
 		return nil, nil, core.ErrUnauthorized
@@ -870,7 +872,7 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 		id.variant, id.exact = prefer, exact
 	}
 	picked := prefer
-	arrived, play := m.now(), !deferSupersession || wait > 0
+	arrived, play := m.now(), !deferSupersession || playRequested
 	for {
 		m.mu.Lock()
 		if m.closed {

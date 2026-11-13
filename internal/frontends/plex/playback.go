@@ -779,16 +779,16 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	s.write(w, r, mc)
 }
 
-// decisionSourceWait bounds how long a decision waits for a source search
-// before answering; Plex apps give up on a decision after about 30 s.
-const decisionSourceWait = 12 * time.Second
+// decisionSourceWait delegates the deadline to the shared playback service
+// (PrepareTimeout) and the HTTP request context. A short adapter timer turned
+// an in-flight source into a terminal decision error, which native clients do
+// not automatically retry. No recorded PMS pending-decision response or exact
+// native client timeout is established by our conformance fixtures.
+const decisionSourceWait time.Duration = 0
 
-// awaitSource waits, outside the owner gates, for the source an automatic
-// decision will use. The search is the playback manager's shared flight:
-// the gated admission that follows finds the prepared session at once.
-// When the search outlasts decisionSourceWait it keeps running for the
-// client's retry and the decision answers frontend.ErrPrepareSlow. Explicit
-// version picks and requests this cannot pre-check go straight on.
+// awaitSource joins the shared source flight outside the owner gates. Explicit
+// version picks and requests this cannot pre-check go straight on. A dropped
+// request stops waiting; the manager owns cancellation and continuation grace.
 func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) (*frontend.Title, error) {
 	pw, ok := s.playback().(frontend.PlaybackPrepareWithin)
 	if !ok || pr == nil || pr.User == nil || s.catalog() == nil {
@@ -816,9 +816,8 @@ func (s *Server) awaitSource(ctx context.Context, r *http.Request, pr *Request) 
 	if p.caps.ClientID == "" {
 		p.caps.ClientID = pr.ClientID
 	}
-	// A slow search answers "still finding a source" and keeps running; any
-	// other failure is answered now, so the gated path does not repeat the
-	// whole search (the flight does not remember failures).
+	// Wait for the result instead of converting slow preparation to an error.
+	// A genuine failure is answered now so admission does not repeat the search.
 	if _, err := pw.PrepareWithin(ctx, decisionSourceWait, pr.User, p.key, p.caps, "", false); err != nil {
 		return t, err
 	}

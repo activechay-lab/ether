@@ -34,7 +34,7 @@ func TestAbandonedPlayPreparationIsJoinedOrReleased(t *testing.T) {
 			decision, dropDecision := context.WithCancel(context.Background())
 			first := make(chan error, 1)
 			go func() {
-				_, err := h.m.PrepareWithin(decision, time.Minute, owner, movieKey, caps, "", false)
+				_, err := h.m.PrepareWithin(decision, 0, owner, movieKey, caps, "", false)
 				first <- err
 			}()
 			waitRetirementTest(t, e.openEntered, "source open")

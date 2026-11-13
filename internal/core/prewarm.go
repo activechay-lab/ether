@@ -9,6 +9,9 @@ import (
 // ErrPrepareSlow indicates that preparation continues after the caller's wait.
 var ErrPrepareSlow = errors.New("playback preparation is still running")
 
+// PlaybackPrepareWithin joins a shared source preparation. A positive wait
+// permits ErrPrepareSlow while preparation continues; a non-positive wait
+// waits for completion or context cancellation under the service deadline.
 type PlaybackPrepareWithin interface {
 	PrepareWithin(context.Context, time.Duration, *User, RatingKey, ClientCaps, string, bool) (*PlaySession, error)
 }
