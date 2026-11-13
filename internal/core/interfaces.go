@@ -124,7 +124,8 @@ type Filter struct {
 	// counting and pagination. It is a SQL semi-join on collections_members,
 	// so a collection library pages in one statement whatever its size. A
 	// deleted collection (no members) matches nothing.
-	CollectionMembers int64 `json:"-"`
+	CollectionMembers int64    `json:"-"`
+	CatalogueSources  []string `json:"catalogueSources,omitempty"`
 	// ExcludeGenres and ExcludeKeywords remove viewer-blocked facts before
 	// counting and pagination. Matching is case-insensitive.
 	ExcludeGenres         []string        `json:"-"`

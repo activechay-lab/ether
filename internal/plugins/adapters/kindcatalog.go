@@ -759,7 +759,17 @@ func (c *KindCatalog) Search(ctx context.Context, lib core.Library, query string
 // library: it reports whether key is a shared member of the collection,
 // one indexed read on collections_members, never a walk.
 func (c *KindCatalog) MemberOf(ctx context.Context, lib core.Library, key core.RatingKey) (bool, error) {
-	if c == nil || c.libs == nil || lib.Source != core.LibraryCollection || lib.CollectionID <= 0 || key == 0 {
+	if c == nil || c.libs == nil || key == 0 {
+		return false, nil
+	}
+	ok, err := c.libs.SourceMember(ctx, lib, key)
+	if err != nil || !ok {
+		return ok, err
+	}
+	if lib.Source == core.LibraryFilter {
+		return true, nil
+	}
+	if lib.Source != core.LibraryCollection || lib.CollectionID <= 0 {
 		return false, nil
 	}
 	return c.libs.CollectionMember(ctx, lib.CollectionID, key)

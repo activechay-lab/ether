@@ -561,7 +561,7 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
           </Button>
         </p>
       ) : null}
-      <TitlesComeFrom library={library} />
+      <TitlesComeFrom library={library} onSaved={onSaved} />
       <SettingsSection title={t("Basics")}>
         <SettingsRow
           title={t("Name")}

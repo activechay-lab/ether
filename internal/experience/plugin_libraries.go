@@ -272,6 +272,18 @@ func (s *Service) sectionOrFilterAllowed(ctx context.Context, v *core.User, titl
 			}
 			continue
 		}
+		restricted := len(lib.Sources) > 0
+		for _, id := range lib.Sources {
+			if id == "tmdb-movies" || id == "tmdb-tv" {
+				restricted = false
+			}
+		}
+		if restricted {
+			member, err := s.d.PluginLibraries.MemberOf(ctx, lib, target.Key)
+			if err != nil || !member {
+				continue
+			}
+		}
 		saved := *lib.Filter
 		saved.Type = wantType
 		if matchesFilter(*target, saved) {

@@ -38,20 +38,6 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 			return
 		}
 	}
-	for _, lib := range libs {
-		if lib.Source == core.LibraryPlugin {
-			continue
-		}
-		typ := lib.MediaType
-		if lib.Filter != nil {
-			typ = lib.Filter.Type
-		}
-		index := 0
-		if typ == core.TypeShow {
-			index = 1
-		}
-		out[index].Libraries = append(out[index].Libraries, catalogueLibrary{lib.ID, lib.Name})
-	}
 	if c.app.pluginsRT != nil && c.app.pluginsRT.mgr != nil {
 		recs, err := c.app.pluginsRT.mgr.List(r.Context())
 		if err != nil {
@@ -59,22 +45,24 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 			return
 		}
 		for _, rec := range recs {
+			health := "unknown"
+			if h, err := c.app.pluginsRT.mgr.HealthOf(r.Context(), rec.ID); err == nil && h.Status != "" {
+				health = h.Status
+			}
 			if !rec.Enabled {
 				continue
 			}
 			if e := rec.Manifest.EffectiveEther(); e != nil {
 				for _, kind := range e.Contributes.MediaKinds {
-					src := catalogueSource{ID: "plugin:" + rec.ID + ":" + kind.Key, Name: kind.Label, Owner: rec.Name, Group: "plugin", PluginID: rec.ID, KindKey: kind.Key, MediaTypes: []string{kind.Key}, Health: "ok", Libraries: []catalogueLibrary{}}
+					src := catalogueSource{ID: "plugin:" + rec.ID + ":" + kind.Key, Name: kind.Label, Owner: rec.Name, Group: "plugin", PluginID: rec.ID, KindKey: kind.Key, MediaTypes: []string{kind.Key}, Health: health, Libraries: []catalogueLibrary{}}
 					if kind.Library.Name != "" {
 						src.Name = kind.Library.Name
 					}
-					for _, lib := range libs {
-						if lib.PluginID == rec.ID && lib.KindKey == kind.Key {
-							src.Libraries = append(src.Libraries, catalogueLibrary{lib.ID, lib.Name})
-						}
-					}
 					out = append(out, src)
 				}
+			}
+			if !rec.Manifest.HasCapability(plugins.CapListSource) {
+				continue
 			}
 			for _, cat := range rec.Manifest.Stremio().Catalogs {
 				typ := "movie"
@@ -87,7 +75,17 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 				if name == "" {
 					name = cat.ID
 				}
-				out = append(out, catalogueSource{ID: "stremio:" + rec.ID + ":" + plugins.StremioCatalogKey(cat), Name: name, Owner: rec.Name, Group: "stremio", PluginID: rec.ID, MediaTypes: []string{typ}, Health: "ok", Libraries: []catalogueLibrary{}})
+				out = append(out, catalogueSource{ID: "stremio:" + rec.ID + ":" + plugins.StremioCatalogKey(cat), Name: name, Owner: rec.Name, Group: "stremio", PluginID: rec.ID, MediaTypes: []string{typ}, Health: health, Libraries: []catalogueLibrary{}})
+			}
+		}
+	}
+	for i := range out {
+		for _, lib := range libs {
+			for _, id := range lib.Sources {
+				if id == out[i].ID {
+					out[i].Libraries = append(out[i].Libraries, catalogueLibrary{lib.ID, lib.Name})
+					break
+				}
 			}
 		}
 	}

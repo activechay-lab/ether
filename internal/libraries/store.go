@@ -11,7 +11,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-const libraryCols = `id, key, name, source, media_type, plugin_id, kind_key, filter, collection_id, rules, visibility_default, quality_profile, present, sort, hidden, created_at, updated_at`
+const libraryCols = `sources, id, key, name, source, media_type, plugin_id, kind_key, filter, collection_id, rules, visibility_default, quality_profile, present, sort, hidden, created_at, updated_at`
 
 type scanner interface{ Scan(...any) error }
 
@@ -20,7 +20,8 @@ func scanLibrary(sc scanner) (core.Library, error) {
 	var id, sort, created, updated int64
 	var source, mediaType, filterJSON, rulesJSON, visDefault, presentJSON string
 	var hidden int
-	if err := sc.Scan(&id, &lib.Key, &lib.Name, &source, &mediaType, &lib.PluginID, &lib.KindKey,
+	var sourcesJSON string
+	if err := sc.Scan(&sourcesJSON, &id, &lib.Key, &lib.Name, &source, &mediaType, &lib.PluginID, &lib.KindKey,
 		&filterJSON, &lib.CollectionID, &rulesJSON, &visDefault, &lib.QualityProfile, &presentJSON, &sort, &hidden, &created, &updated); err != nil {
 		return core.Library{}, err
 	}
@@ -57,6 +58,27 @@ func scanLibrary(sc scanner) (core.Library, error) {
 			return core.Library{}, err
 		}
 	}
+	if err := json.Unmarshal([]byte(sourcesJSON), &lib.Sources); err != nil {
+		return core.Library{}, err
+	}
+	if len(lib.Sources) == 0 {
+		if lib.Source == core.LibraryPlugin {
+			lib.Sources = []string{"plugin:" + lib.PluginID + ":" + lib.KindKey}
+		} else {
+			typ := lib.MediaType
+			if lib.Filter != nil {
+				typ = lib.Filter.Type
+			}
+			id := "tmdb-movies"
+			if typ == core.TypeShow {
+				id = "tmdb-tv"
+			}
+			lib.Sources = []string{id}
+		}
+	}
+	if lib.Source == core.LibraryFilter && lib.Filter != nil {
+		lib.Filter.CatalogueSources = append([]string(nil), lib.Sources...)
+	}
 	return lib, nil
 }
 
@@ -89,8 +111,10 @@ func (s *Service) insert(ctx context.Context, tx *sql.Tx, lib core.Library) (cor
 	if lib.Hidden {
 		hidden = 1
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO libraries(`+libraryCols+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		int64(lib.ID), lib.Key, lib.Name, string(lib.Source), string(lib.MediaType), lib.PluginID, lib.KindKey,
+	sourceData, _ := json.Marshal(defaultSources(lib))
+	lib.Sources = defaultSources(lib)
+	_, err = tx.ExecContext(ctx, `INSERT INTO libraries(`+libraryCols+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		string(sourceData), int64(lib.ID), lib.Key, lib.Name, string(lib.Source), string(lib.MediaType), lib.PluginID, lib.KindKey,
 		filterJSON, lib.CollectionID, rulesJSON, lib.VisibilityDefault, lib.QualityProfile, string(presentJSON), lib.Sort, hidden, lib.CreatedAt.Unix(), lib.UpdatedAt.Unix())
 	if err != nil {
 		return core.Library{}, err

@@ -223,6 +223,7 @@ type tmdbRef struct{ client TMDB }
 
 // Catalog implements core.Catalog.
 type Catalog struct {
+	catalogueSourceLoader func(context.Context, []string) error
 	consoleEvidencePolicy atomic.Pointer[func() string]
 	consoleGatePolicies   atomic.Pointer[func() (string, string)]
 	consoleGateFilter     atomic.Pointer[func() core.Filter]

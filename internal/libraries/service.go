@@ -101,6 +101,7 @@ func cloneRule(r core.LibraryExclusion) core.LibraryExclusion {
 }
 
 func cloneLibrary(lib core.Library) core.Library {
+	lib.Sources = append([]string(nil), lib.Sources...)
 	if lib.Filter != nil {
 		f := *lib.Filter
 		lib.Filter = &f

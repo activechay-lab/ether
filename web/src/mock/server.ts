@@ -2583,8 +2583,28 @@ export function createFakeServer(opts: FakeOptions = {}) {
       sync: { pluginId: "demo", kindKey: "book", generation: 1, items: 2 },
     },
   ];
+  mockLibs.push({
+    id: 4,
+    key: "weekend",
+    name: "Weekend movies",
+    source: "filter",
+    sources: ["stremio:cinemeta:popular", "stremio:cinemeta:classics"],
+    filter: { type: "movie" },
+    sort: 4,
+    hidden: true,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  });
   const mockMatches: Record<string, unknown>[] = [];
   function hydrateLib(lib: Record<string, unknown>) {
+    if (!lib.sources)
+      lib.sources = [
+        lib.source === "plugin"
+          ? `plugin:${lib.pluginId}:${lib.kindKey}`
+          : lib.mediaType === "show"
+            ? "tmdb-tv"
+            : "tmdb-movies",
+      ];
     if (lib.source !== "plugin" && lib.rules === undefined) {
       const cat = state.config.catalog as { exclusions?: unknown[]; visibilityDefault?: string };
       lib.rules = structuredClone(cat.exclusions ?? []);
@@ -2642,12 +2662,68 @@ export function createFakeServer(opts: FakeOptions = {}) {
           })),
       });
     }
-    if (seg[1] === "catalogue-sources") return json({sources: [
-      {id: "tmdb-movies", name: "TMDB Movies", owner: "Built in", group: "builtin", mediaTypes: ["movie"], health: "ok", itemCount: 48260, libraries: [{id: 1, name: "Movies"}]},
-      {id: "tmdb-tv", name: "TMDB TV shows", owner: "Built in", group: "builtin", mediaTypes: ["show"], health: "ok", itemCount: 12480, libraries: [{id: 2, name: "TV Shows"}]},
-      {id: "plugin:books:book", name: "Books", owner: "Open Library", group: "plugin", mediaTypes: ["book"], health: "ok", pluginId: "books", kindKey: "book", libraries: []},
-      {id: "stremio:cinemeta:popular", name: "Popular movies", owner: "Cinemeta", group: "stremio", mediaTypes: ["movie"], health: "ok", pluginId: "cinemeta", libraries: []},
-    ]});
+    if (seg[1] === "catalogue-sources")
+      return json({
+        sources: [
+          {
+            id: "tmdb-movies",
+            name: "TMDB Movies",
+            owner: "Built in",
+            group: "builtin",
+            mediaTypes: ["movie"],
+            health: "ok",
+            itemCount: 48260,
+            libraries: [{ id: 1, name: "Movies" }],
+          },
+          {
+            id: "tmdb-tv",
+            name: "TMDB TV shows",
+            owner: "Built in",
+            group: "builtin",
+            mediaTypes: ["show"],
+            health: "ok",
+            itemCount: 12480,
+            libraries: [{ id: 2, name: "TV Shows" }],
+          },
+          {
+            id: "plugin:demo:book",
+            name: "Books",
+            owner: "Open Library",
+            group: "plugin",
+            mediaTypes: ["book"],
+            health: "ok",
+            pluginId: "demo",
+            kindKey: "book",
+            libraries: [],
+          },
+          {
+            id: "stremio:cinemeta:popular",
+            name: "Popular movies",
+            owner: "Cinemeta",
+            group: "stremio",
+            mediaTypes: ["movie"],
+            health: "ok",
+            pluginId: "cinemeta",
+            libraries: [],
+          },
+          {
+            id: "stremio:cinemeta:classics",
+            name: "Classic movies",
+            owner: "Cinemeta",
+            group: "stremio",
+            mediaTypes: ["movie"],
+            health: "error",
+            itemCount: 0,
+            pluginId: "cinemeta",
+            libraries: [{ id: 4, name: "Weekend movies" }],
+          },
+        ].map((source) => ({
+          ...source,
+          libraries: mockLibs
+            .filter((lib) => ((hydrateLib(lib).sources ?? []) as string[]).includes(source.id))
+            .map((lib) => ({ id: lib.id, name: lib.name })),
+        })),
+      });
     if (!seg[1]) {
       if (method === "POST") {
         const id = Math.max(0, ...mockLibs.map((l) => Number(l.id))) + 1;
@@ -2655,6 +2731,7 @@ export function createFakeServer(opts: FakeOptions = {}) {
           id,
           key: `lib-${id}`,
           name: String(b.name ?? "Library"),
+          sources: b.sources,
           source: b.collectionId ? "collection" : "filter",
           collectionId: b.collectionId,
           mediaType: b.mediaType,
