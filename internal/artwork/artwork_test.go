@@ -297,7 +297,7 @@ func TestImagesProxyValidatesCachesAndCoalesces(t *testing.T) {
 }
 
 func TestSizeAndDiskTrim(t *testing.T) {
-	for w, want := range map[int]string{0: "original", 1: "w92", 300: "w300", 301: "w342", 780: "w780", 1000: "w1280", 5000: "w1280"} {
+	for w, want := range map[int]string{0: "original", 1: "w92", 300: "w300", 301: "w342", 780: "w780", 1000: "w1280", 1281: "original", 1920: "original", 3840: "original", 5000: "original"} {
 		if got := Size(w); got != want {
 			t.Errorf("Size(%d) = %s, want %s", w, got, want)
 		}

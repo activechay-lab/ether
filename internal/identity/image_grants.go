@@ -380,7 +380,26 @@ func imageETag(img frontend.Image, width, height int, format string, blur bool) 
 
 func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Request, viewer *core.Viewer, device core.Device, item core.RatingKey, channel string, img frontend.Image, hash, sourceHash, deviceJSON string) {
 	width := grantedImageWidth(r, s.surface)
+	mediaBrowser := s.surface == "jellyfin" || s.surface == "emby"
+	quality := 0
+	if mediaBrowser {
+		quality, _ = strconv.Atoi(r.URL.Query().Get("quality"))
+		if quality < 0 || quality > 100 {
+			quality = 0
+		}
+	}
 	height, _ := strconv.Atoi(r.URL.Query().Get("h"))
+	if mediaBrowser && height == 0 {
+		for _, name := range []string{"fillHeight", "maxHeight"} {
+			if n, _ := strconv.Atoi(r.URL.Query().Get(name)); n > 0 {
+				height = n
+				break
+			}
+		}
+	}
+	if mediaBrowser && width == 0 && height == 0 && img.Kind != frontend.ImageBackdrop && img.Kind != frontend.ImageThumb && img.Kind != frontend.ImageLogo {
+		width = 500
+	}
 	format := r.URL.Query().Get("format")
 	blur := r.URL.Query().Get("blur") == "1"
 	if s.artwork != nil {
@@ -397,7 +416,7 @@ func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	if etag := imageETag(img, width, height, format, blur); etag != "" {
+	if etag := imageETag(img, width, height, format+strconv.Itoa(quality), blur); etag != "" {
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Cache-Control", "private, max-age=86400")
 		if r.Header.Get("If-None-Match") == etag {
@@ -409,7 +428,7 @@ func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Req
 	var contentType string
 	var err error
 	if s.artwork != nil {
-		data, contentType, err = s.artwork.Read(r.Context(), frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: item, Channel: channel}, img, frontend.ArtworkTransform{Width: width, Height: height, Format: format, Blur: blur})
+		data, contentType, err = s.artwork.Read(r.Context(), frontend.ArtworkRequest{Viewer: viewer, Device: device, Item: item, Channel: channel}, img, frontend.ArtworkTransform{Width: width, Height: height, Format: format, Blur: blur, Quality: quality, Fit: mediaBrowser})
 	} else {
 		data, contentType, err = s.images.Get(r.Context(), img.Path, width)
 	}
@@ -443,12 +462,14 @@ var _ frontend.PublicImageServer = (*ImageGrantService)(nil)
 
 func grantedImageWidth(r *http.Request, surface frontend.Protocol) int {
 	width, _ := strconv.Atoi(r.URL.Query().Get("w"))
-	// Accept Silo image sizing parameters within its advertised budget.
-	// Other protocols retain their existing parameter and default behavior.
-	if surface == "silo" && width == 0 {
+	// MediaBrowser and Silo name their width constraints maxWidth/fillWidth.
+	if (surface == "silo" || surface == "jellyfin" || surface == "emby") && width == 0 {
 		for _, name := range []string{"maxWidth", "fillWidth"} {
 			if n, err := strconv.Atoi(r.URL.Query().Get(name)); err == nil && n > 0 {
-				width = min(n, 3840)
+				width = min(n, 4000)
+				if surface == "silo" {
+					width = min(width, 3840)
+				}
 				break
 			}
 		}
@@ -456,7 +477,7 @@ func grantedImageWidth(r *http.Request, surface frontend.Protocol) int {
 	if width < 0 || width > 4000 {
 		width = 500
 	}
-	if width == 0 && r.URL.Query().Get("h") == "" {
+	if width == 0 && r.URL.Query().Get("h") == "" && surface != "jellyfin" && surface != "emby" {
 		width = 500
 	}
 	return width

@@ -46,7 +46,7 @@ func ValidPath(p string) bool { return core.ValidArtworkPath(p) }
 var tmdbWidths = []int{92, 154, 185, 300, 342, 500, 780, 1280}
 
 // Size picks the smallest TMDB size at least w wide ("original" for 0,
-// capped at w1280 otherwise).
+// or a width above the largest variant).
 func Size(w int) string {
 	if w <= 0 {
 		return "original"
@@ -56,7 +56,7 @@ func Size(w int) string {
 			return "w" + strconv.Itoa(s)
 		}
 	}
-	return "w1280"
+	return "original"
 }
 
 // ImagesOptions configure an image store.

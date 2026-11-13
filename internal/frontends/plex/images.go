@@ -36,7 +36,7 @@ var tmdbSizeRe = regexp.MustCompile(`/t/p/(w\d+|h\d+|original)/`)
 
 // resizeTMDBURL rewrites the size segment of a TMDB image URL.
 func resizeTMDBURL(u string, width int) string {
-	if width <= 0 || !tmdbSizeRe.MatchString(u) {
+	if !tmdbSizeRe.MatchString(u) {
 		return u
 	}
 	return tmdbSizeRe.ReplaceAllString(u, "/t/p/"+tmdbSize(width)+"/")
@@ -200,7 +200,7 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key fron
 		}
 		if width <= 0 {
 			if element == "art" || element == "background" {
-				width = 1280
+				width = 0
 			} else {
 				width = 500
 			}
@@ -208,7 +208,7 @@ func (s *Server) serveItemImage(w http.ResponseWriter, r *http.Request, key fron
 		s.serveRemoteImage(w, r, s.svc().imageURL(path, tmdbSize(width)))
 		return
 	}
-	if width <= 0 {
+	if width <= 0 && element != "art" && element != "background" {
 		width = defWidth
 	}
 	s.serveRemoteImage(w, r, s.svc().imageURL(path, tmdbSize(width)))
