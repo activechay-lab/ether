@@ -157,10 +157,9 @@ type Options struct {
 
 // State implements core.State and core.Playlists.
 type State struct {
-	plexTimeline plexTimelineStore
-	db           *sql.DB
-	log          *slog.Logger
-	now          func() time.Time
+	db  *sql.DB
+	log *slog.Logger
+	now func() time.Time
 
 	// wmu serialises this process's read-modify-write updates of watch rows
 	// so they do not retry against each other. Correctness across processes
@@ -266,14 +265,14 @@ type progressWrite struct {
 }
 
 func (w progressWrite) completes() bool {
-	if len(w.state) > 5 && w.state[:5] == "plex-" {
-		return w.state == "plex-complete"
+	if strings.HasPrefix(w.state, "explicit-") {
+		return w.state == "explicit-complete"
 	}
 	return w.state != "progress" && w.duration > 0 && float64(w.offset) >= WatchedThreshold*float64(w.duration)
 }
 
 func mergeProgress(old, w progressWrite) progressWrite {
-	if len(w.state) > 5 && w.state[:5] == "plex-" && len(old.state) > 5 && old.state[:5] == "plex-" {
+	if strings.HasPrefix(w.state, "explicit-") && strings.HasPrefix(old.state, "explicit-") {
 		carry := old.before
 		if old.completes() {
 			copy := old
@@ -726,7 +725,7 @@ func (s *State) Progress(ctx context.Context, userID int64, key core.RatingKey, 
 		offset = 0
 	}
 	w := progressWrite{offset: offset, duration: duration, state: state, origin: originFrom(ctx)}
-	w.timelineState, _ = ctx.Value(plexStatusKey{}).(string)
+	w.timelineState = frontend.TimelineStatus(ctx)
 	if s.pending != nil {
 		w.at = s.now().UTC()
 		return s.pending.put(progressKey{userID, key}, pendingWrite{kind: "progress", progress: w})
@@ -749,8 +748,8 @@ func (s *State) LegacyProgress(ctx context.Context, userID int64, key core.Ratin
 // progressAt applies one timeline update (at zero: now).
 func (s *State) progressAt(ctx context.Context, userID int64, key core.RatingKey, w progressWrite) error {
 	ctx = WithOrigin(ctx, w.origin)
-	if len(w.state) > 5 && w.state[:5] == "plex-" {
-		return s.plexProgressAt(ctx, userID, key, w)
+	if strings.HasPrefix(w.state, "explicit-") {
+		return s.explicitProgressAt(ctx, userID, key, w)
 	}
 	reported, duration, state := w.offset, w.duration, w.state
 	return s.updateAt(ctx, userID, []core.RatingKey{key}, w.at, func(cur *row, now time.Time) (bool, bool, []Event) {

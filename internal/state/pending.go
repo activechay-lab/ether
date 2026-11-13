@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,7 +55,7 @@ func (p *pendingWrites) put(k progressKey, w pendingWrite) error {
 		if old.kind != "progress" {
 			return nil
 		}
-		if len(w.progress.state) > 5 && w.progress.state[:5] == "plex-" && len(old.progress.state) > 5 && old.progress.state[:5] == "plex-" {
+		if strings.HasPrefix(w.progress.state, "explicit-") && strings.HasPrefix(old.progress.state, "explicit-") {
 			// Preserve committed intentions when a new play starts before the
 			// held completion reaches SQLite. Ordinary progress still coalesces.
 			w.progress = mergeProgress(old.progress, w.progress)
@@ -224,21 +225,21 @@ func overlayPending(ws core.WatchStatus, w pendingWrite, counted bool, watchAt t
 		ws.ViewCount = 0
 		ws.ViewOffset = 0
 	default:
-		if len(w.progress.state) > 5 && w.progress.state[:5] == "plex-" {
+		if strings.HasPrefix(w.progress.state, "explicit-") {
 			if w.progress.duration > 0 {
 				ws.Duration = w.progress.duration
 			}
 			switch w.progress.state {
-			case "plex-resume":
+			case "explicit-resume":
 				ws.ViewOffset = w.progress.offset
 				ws.LastViewedAt = w.progress.at
-			case "plex-complete":
+			case "explicit-complete":
 				ws.ViewOffset = 0
 				ws.ViewCount++
 				ws.LastViewedAt = w.progress.at
-			case "plex-clear":
+			case "explicit-clear":
 				ws.ViewOffset = 0
-			case "plex-offline-clear":
+			case "explicit-offline-clear":
 				ws.ViewOffset = 0
 				ws.ViewCount = 0
 			}

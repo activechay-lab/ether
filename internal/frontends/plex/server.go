@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"github.com/braedonsaunders/ether/internal/frontends/plex/timeline"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -111,14 +112,15 @@ type hostServices struct {
 // Server is the PMS API handler. It is an http.Handler; call Close on
 // shutdown to stop background work and notification streams.
 type Server struct {
-	bindMu      sync.Mutex
-	rtState     atomic.Pointer[runtimeState]
-	hostPtr     atomic.Pointer[frontend.Host]
-	svcPtr      atomic.Pointer[hostServices]
-	expState    atomic.Pointer[expHolder]
-	sectionsPtr atomic.Pointer[[]Section]
-	titlesPtr   atomic.Pointer[titleCache]
-	homePtr     atomic.Pointer[homeCache]
+	timelineStore timeline.Store
+	bindMu        sync.Mutex
+	rtState       atomic.Pointer[runtimeState]
+	hostPtr       atomic.Pointer[frontend.Host]
+	svcPtr        atomic.Pointer[hostServices]
+	expState      atomic.Pointer[expHolder]
+	sectionsPtr   atomic.Pointer[[]Section]
+	titlesPtr     atomic.Pointer[titleCache]
+	homePtr       atomic.Pointer[homeCache]
 
 	activityMu       sync.Mutex
 	activities       map[string]model.Activity
