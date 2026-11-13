@@ -66,6 +66,7 @@ var mixedSections = map[string]map[string]Scope{
 	"server": {
 		"trustedProxyCIDRs":  Local,
 		"port":               Local,
+		"portExplicit":       Local,
 		"bindAddress":        Local,
 		"logLevel":           Local,
 		"friendlyName":       Shared,

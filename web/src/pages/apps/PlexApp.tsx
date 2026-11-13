@@ -17,7 +17,7 @@ import { ErrorPanel } from "../../components/feedback";
 import { SaveBar, useDraft } from "../../components/SaveBar";
 import { SettingsRow } from "../../components/SettingsRow";
 import { t, tx } from "../../i18n";
-import { ApiError, api, errorMessage } from "../../lib/api";
+import { ApiError, api, apiFetch, errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import type { EtherConfig } from "../../lib/types";
 import { SchemaField, type FieldDef } from "../settings/SchemaForm";
@@ -427,6 +427,7 @@ export function PlexApp({
       ) : null}
       {active === "remote" ? (
         <>
+          <ListeningPort port={config.data.server.port} />
           <PlexStatus remote={dashboard?.sections?.remote} />
           <SettingsSection title={t("Network")}>
             <SettingsRow
@@ -533,6 +534,75 @@ function PlexMetadata({ claimed }: { claimed: boolean }) {
             }}
           />
         }
+      />
+    </SettingsSection>
+  );
+}
+
+function ListeningPort({ port }: { port: number }) {
+  const [next, setNext] = useState(port);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>();
+  useEffect(() => setNext(port), [port]);
+  async function save() {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await apiFetch("/frontends/plex/settings", {
+        method: "PUT",
+        body: JSON.stringify({ port: next }),
+      });
+      const target = new URL(window.location.href);
+      // A proxy address keeps its public port.
+      if (Number(target.port || (target.protocol === "https:" ? 443 : 80)) === port) {
+        target.port = String(next);
+      }
+      // Wait for the new listener rather than racing shutdown and startup.
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      const probe = new URL("/identity", target);
+      for (let attempt = 0; attempt < 60; attempt++) {
+        try {
+          await fetch(probe, {
+            mode: "no-cors",
+            credentials: "omit",
+            cache: "no-store",
+            signal: AbortSignal.timeout(1500),
+          });
+          window.location.assign(target.href);
+          return;
+        } catch (err) {
+          if (attempt === 59) throw err;
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        }
+      }
+    } catch (err) {
+      setError(err);
+      setSaving(false);
+    }
+  }
+  return (
+    <SettingsSection
+      title={t("Listening port")}
+      description={t("Ether's port on this computer — Plex Media Server uses 32400")}
+    >
+      <SchemaField
+        def={{ key: "port", label: t("Port"), kind: "number", min: 1, max: 65535, step: 1 }}
+        value={next}
+        path="server.port"
+        errors={{}}
+        onChange={(value) => setNext(Number(value))}
+      />
+      <p className="px-5 py-3 text-sm text-fg-muted">
+        {t(
+          "The public port belongs to your router; saving this port restarts Ether and reconnects this page.",
+        )}
+      </p>
+      <SaveBar
+        dirty={next !== port}
+        saving={saving}
+        error={error}
+        onSave={save}
+        onDiscard={() => setNext(port)}
       />
     </SettingsSection>
   );

@@ -66,6 +66,7 @@ func (h *Handler) saveConfig(next, prev config.Config, plexFields map[string]jso
 		// The database is node-local and chosen at startup (config file or
 		// ETHER_DATABASE_URL); the admin API shows it redacted, never edits it.
 		keepDatabase := c.Database
+		next.Server.PortExplicit = c.Server.PortExplicit || next.Server.Port != c.Server.Port
 		// Setup completion gates tokenless local-network access
 		// (requireAuth) and changes only through /api/setup/complete: a
 		// config document loaded before setup finished must not clear it.

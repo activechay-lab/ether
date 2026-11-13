@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -32,6 +35,7 @@ type frontendControl struct {
 	clientCount  func(context.Context, frontend.Protocol) (int, bool)
 	streamCounts func(context.Context) (map[frontend.Protocol]int, bool)
 	sharedStatus func(frontend.Protocol, *frontend.Status)
+	portChanged  func()
 }
 type listenerSettings struct{ Port, Discovery any }
 
@@ -173,12 +177,28 @@ func (f *frontendControl) PutSettings(_ context.Context, id frontend.Protocol, s
 				return fmt.Errorf("unsupported Plex setting %s", key)
 			}
 		}
-		return f.config.Update(func(c *config.Config) error {
+		if os.Getenv("ETHER_PORT") != "" {
+			return errors.New("ETHER_PORT controls the listening port")
+		}
+		oldPort := f.config.Get().Server.Port
+		if port, ok := s["port"].(float64); ok && int(port) != oldPort {
+			ln, err := net.Listen("tcp", net.JoinHostPort(f.config.Get().Server.BindAddress, strconv.Itoa(int(port))))
+			if err != nil {
+				return fmt.Errorf("listening port is unavailable: %w", err)
+			}
+			ln.Close()
+		}
+		err := f.config.Update(func(c *config.Config) error {
 			if port, ok := s["port"].(float64); ok {
 				c.Server.Port = int(port)
+				c.Server.PortExplicit = true
 			}
 			return nil
 		})
+		if err == nil && oldPort != f.config.Get().Server.Port && f.portChanged != nil {
+			f.portChanged()
+		}
+		return err
 	}
 	return f.config.Update(func(c *config.Config) error {
 		if c.Frontends == nil {
