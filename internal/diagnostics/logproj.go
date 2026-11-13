@@ -223,11 +223,11 @@ func projectLogs(records []LogRecord, q LogQuery, flags [3]bool, uses []secretUs
 			break
 		}
 		// Uncorrelated warnings have no device identity. Retain only a known
-		// performance phrase and safe numeric fields, never their free text.
+		// performance or playback phrase and safe numeric fields, never their free text.
 		onlyCorrelated := q
 		onlyCorrelated.IncludeWarnings = false
 		if !LogCorrelated(rec, onlyCorrelated) {
-			row := exportLog{At: rec.Time.UTC(), Level: boundToken(rec.Level), Msg: "server warning or error (details omitted)"}
+			row := exportLog{At: rec.Time.UTC(), Level: boundToken(rec.Level), Msg: playbackWarningPhrase(rec.Message)}
 			if rec.Message == "request over performance budget" {
 				row.Msg = "request over performance budget"
 				row.Route = redactNetworkText(requestRoute(attrFold(rec.Attrs, "route")))
@@ -307,6 +307,32 @@ func projectLogs(records []LogRecord, q LogQuery, flags [3]bool, uses []secretUs
 		gaps = append(gaps, Gap{Collector: "logs", Status: "truncated", Detail: "The log extract was shortened to the line limit. No line was cut in the middle."})
 	}
 	return []byte(b.String()), ident, truncated, gaps
+}
+
+// playbackWarningPhrase deliberately accepts only exact, code-owned messages.
+// Uncorrelated warnings may belong to another viewer: never export their
+// attributes, stderr, paths, or dynamically constructed error text.
+func playbackWarningPhrase(message string) string {
+	switch message {
+	case "ffmpeg failed",
+		"unreadable DASH init segment",
+		"assemble DASH segment",
+		"DASH run output unusable",
+		"HLS run output unusable",
+		"using growing DASH manifest",
+		"hardware encoder failed; falling back to CPU",
+		"live hardware encoder failed; falling back to CPU",
+		"copy packet conversion failed; encoding video",
+		"transcode graph rejected",
+		"stalled encoder; restarting",
+		"timed out waiting for segment",
+		"segment unavailable after empty restarts",
+		"segment unavailable after restarts",
+		"start DASH playback failed":
+		return message
+	default:
+		return "server warning or error (details omitted)"
+	}
 }
 
 // plainMessage keeps a log message that reads as a fixed phrase: no paths,
