@@ -921,6 +921,7 @@ func (p *fakePlayback) Touch(id string) {
 // Transcoder
 
 type fakeHLS struct {
+	lastAccess    time.Time
 	playbackState string
 	id            string
 	req           core.HLSRequest
@@ -959,8 +960,13 @@ func (h *fakeHLS) ServeRungSegment(w http.ResponseWriter, r *http.Request, rung 
 	fmt.Fprintf(w, "segment-%s-%d", rung, n)
 }
 func (h *fakeHLS) SwapInput(context.Context, string, core.MediaInfo, time.Duration) error { return nil }
-func (h *fakeHLS) LastAccess() time.Time                                                  { return fixedNow }
-func (h *fakeHLS) Close() error                                                           { return nil }
+func (h *fakeHLS) LastAccess() time.Time {
+	if !h.lastAccess.IsZero() {
+		return h.lastAccess
+	}
+	return fixedNow
+}
+func (h *fakeHLS) Close() error { return nil }
 func (h *fakeHLS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "video/x-matroska")
 	w.Header().Set("Accept-Ranges", "none")

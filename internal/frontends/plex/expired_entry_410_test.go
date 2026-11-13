@@ -1,6 +1,10 @@
 package plex
 
-import "testing"
+import (
+	"net/http/httptest"
+	"testing"
+	"time"
+)
 
 // Issue #410: a Plex client that went silent (app backgrounded) kept its
 // encoder and source sessions because now-playing expiry only dropped the
@@ -42,5 +46,36 @@ func TestExpiredPlayingEntryEndsPlayback(t *testing.T) {
 				t.Fatal("expired playing entry left the source session running")
 			}
 		})
+	}
+}
+
+// TestSegmentFetchRetainsSilentTimeline also proves expiry after fetching stops.
+func TestSegmentFetchRetainsSilentTimeline(t *testing.T) {
+	f, _ := issue94Fixture(t, true, "open")
+	h := []string{"X-Plex-Client-Identifier", "phone", "X-Plex-Session-Identifier", "play-456"}
+	for _, path := range []string{"decision?", "start.m3u8?"} {
+		if r := f.get(t, "/video/:/transcode/universal/"+path+issue94Query("trans-456", 3000), h...); r.Code != 200 {
+			t.Fatalf("%s %d", path, r.Code)
+		}
+	}
+	if r := f.get(t, "/:/timeline?ratingKey=1000000000000550&state=playing&time=1000", h...); r.Code != 200 {
+		t.Fatal(r.Code)
+	}
+	encoder, ok := f.srv.plexHLSSession("trans-456")
+	if !ok {
+		t.Fatal("missing encoder")
+	}
+	fake := encoder.(*fakeHLS)
+	for i := 1; i <= 6; i++ {
+		now := fixedNow.Add(time.Duration(i) * time.Minute)
+		fake.ServeSegment(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), i)
+		fake.lastAccess = now
+		if expired := f.srv.expirePlaybackActivities(now, 3*time.Minute); len(expired) != 0 {
+			t.Fatal("active media fetch expired silent timeline")
+		}
+	}
+	expired := f.srv.expirePlaybackActivities(fake.lastAccess.Add(3*time.Minute+time.Second), 3*time.Minute)
+	if len(expired) != 1 {
+		t.Fatalf("idle entries = %d", len(expired))
 	}
 }

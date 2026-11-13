@@ -1086,11 +1086,10 @@ func (s *Server) janitor() {
 			s.expireTerminations(now, terminationTTL)
 			s.refreshDecisionArms(now)
 			s.starts.Expire(now)
-			expired := s.sessions.expire(now, 3*time.Minute)
+			expired := s.expirePlaybackActivities(now, 3*time.Minute)
 			for _, e := range expired {
 				s.notifyPlaying(e, "stopped")
-				// Timeline silence is a stop, not just a display expiry:
-				// end the playback and encoder sessions too (#410).
+				// No timelines or media fetches remain: release playback.
 				s.endExpiredEntry(e)
 			}
 			if len(expired) > 0 {

@@ -396,7 +396,13 @@ func (s *Server) serveExtraPlayback(w http.ResponseWriter, r *http.Request, pr *
 		}
 	}
 	// The trailer masks the feature's startup cost: warm it now.
-	s.prewarmFeature(ctx, pr, s.featureForExtra(pr, e), p.caps)
+	feature := s.featureForExtra(pr, e)
+	// iOS can transition directly from a pre-roll decision to the feature's
+	// start URL without requesting another decision.
+	if feature != 0 {
+		s.armDecision(pr, feature)
+	}
+	s.prewarmFeature(ctx, pr, feature, p.caps)
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/decision"):
 		s.extraDecision(w, r, pr, p, e, parent)
