@@ -164,6 +164,8 @@ var tierTouchSources = []touchSource{
 var tierUntouchedTables = []string{
 	// The catalogue (the job's own tables, and its caches).
 	"catalog_",
+	// Startup upgrade markers (credential conversion progress).
+	"credentials_upgrades",
 	// Tier C: caches and derived state, rebuilt on demand.
 	"markers_cache", "markers_plugin_cache", "markers_breaks_", "ratings_cache", "ratings_settings",
 	"plexmeta_titles", "plexguid_", "resolver_availability", "resolver_hardsub", "resolver_reputation",

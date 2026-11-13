@@ -278,6 +278,7 @@ func TestFirstCharacterJumpbarOffsetsMatchTitleSortEveryLetter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cReopened.FinishStartup(ctx) // the fold backfill runs after the server listens
 	if got := cReopened.getMeta(ctx, sortTitleFoldedKey); got != sortTitleFoldedVersion {
 		t.Fatalf("expected %s=%s, got %q", sortTitleFoldedKey, sortTitleFoldedVersion, got)
 	}
