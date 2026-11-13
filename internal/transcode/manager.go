@@ -594,7 +594,7 @@ func (m *Manager) StartHLS(ctx context.Context, req core.HLSRequest) (core.HLSSe
 	return m.startHLS(ctx, req, life)
 }
 
-func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encoderLifetime) (result core.HLSSession, resultErr error) {
+func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encoderLifetime, warmAt ...int) (result core.HLSSession, resultErr error) {
 	defer life.finishWork()
 	defer func() {
 		if result == nil {
@@ -1019,6 +1019,11 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	s.log.Info("transcode session starting", "protocol", proto, "kind", d.Kind, "container", d.Container,
 		"offset", offset, "segment", startSeg, "segments", s.total, "reason", d.Reason)
 
+	if len(warmAt) > 0 {
+		startSeg = warmAt[0]
+		s.lastReq = startSeg
+		s.speculative = true
+	}
 	s.mu.Lock()
 	err := s.startRunForLocked(startSeg, false, "session start")
 	s.mu.Unlock()
@@ -1036,6 +1041,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 	m.sessions[id] = s
 	m.mu.Unlock()
 	life.mu.Unlock()
+	s.startResumeWarm(ctx, req)
 	return s, nil
 }
 

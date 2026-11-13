@@ -24,6 +24,10 @@ func (s *Session) ServeSegment(w http.ResponseWriter, r *http.Request, n int) {
 // restarting it when n is behind or far ahead of the encoder.
 func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request, t, n int) {
 	s.Touch()
+	if warm := s.resumeSession(n); warm != nil {
+		warm.serveSegment(w, r, t, n)
+		return
+	}
 	if t < 0 || t >= len(s.done) || n < 0 || (s.total > 0 && n >= s.total) {
 		http.NotFound(w, r)
 		return

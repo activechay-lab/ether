@@ -16,7 +16,7 @@ import (
 // suspended (Windows) it stops ffmpeg instead and restarts it at the next
 // missing segment in time.
 func (s *Session) throttleLocked() {
-	if s.m.opts.maxAhead <= 0 || s.info.Duration <= 0 {
+	if (s.m.opts.maxAhead <= 0 && !s.speculative) || s.info.Duration <= 0 {
 		return
 	}
 	limit := s.aheadLimit()
@@ -94,6 +94,9 @@ func (s *Session) leadOverLocked(r *run) bool {
 
 // aheadLimit is how many segments ffmpeg may run ahead of the player.
 func (s *Session) aheadLimit() int {
+	if s.speculative {
+		return 2
+	}
 	// Encoders compete at normal priority while playback needs media. Once
 	// four segments are ready the reversible pause/resume throttle yields
 	// the CPU until only two remain. Renicing a running child back from 5
