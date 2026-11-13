@@ -1608,8 +1608,6 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			reason = "blocked hardcoded subtitles"
 		} else if s.rejectedFor(t.Key, rel) {
 			reason = "release rejected for this title"
-		} else if !pinned && regionalPlatformContradiction(rel, t) {
-			reason = "regional platform contradicts title identity"
 		} else if !pinned && namesake && episodeNamesakeConflict(rel, t, sreq) {
 			reason = "conflicting namesake identity"
 		} else if !pinned && corroborated && releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year) == 0 && !episodeIdentityEvidence(rel, sreq) {
@@ -2488,28 +2486,31 @@ func episodeIdentityEvidence(rel core.Release, req core.SearchRequest) bool {
 		releaseparse.EpisodeTitleEvidence(rel.Name, req.EpisodeTitle)
 }
 
-// Region evidence only breaks otherwise equal rankings for known namesakes.
-// A platform is evidence, not an identity veto: licensed catalogues cross borders.
-func episodeRegionConflict(rel core.Release, t *core.Title) bool {
+// languageConflict reports that a release names its audio languages and
+// none of them is the title's original language (a dub or a different show).
+// It uses the shared release-language parser, so no platform or language is
+// special-cased. Multi-language releases never conflict.
+func languageConflict(rel core.Release, t *core.Title) bool {
 	if t == nil || t.Language == "" {
 		return false
 	}
-	words := strings.FieldsFunc(strings.ToUpper(rel.Name), func(r rune) bool { return r < 'A' || r > 'Z' })
-	for _, word := range words {
-		switch word {
-		case "CHINESE":
-			if t.Language != "zh" {
-				return true
-			}
-		case "KOREAN":
-			if t.Language != "ko" {
-				return true
-			}
-		case "VIKI":
-			if t.Language != "zh" && t.Language != "ko" && t.Language != "ja" {
-				return true
-			}
+	info := rel.Info
+	if info.Title == "" {
+		info = releaseparse.Parse(rel.Name)
+	}
+	named := false
+	for _, l := range info.Languages {
+		if l == releaseparse.LanguageMulti {
+			return false
+		}
+		named = true
+		if releaseparse.LanguageMatch(l, t.Language) != releaseparse.LanguageNoMatch {
+			return false
 		}
 	}
-	return false
+	return named
 }
+
+// episodeRegionConflict is language evidence used to break otherwise equal
+// rankings for known namesakes.
+func episodeRegionConflict(rel core.Release, t *core.Title) bool { return languageConflict(rel, t) }
