@@ -338,6 +338,10 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 			detailSource, expectedETag, version = version, tag, ""
 		} else {
 			intent.ExactVersion = true
+			// Selecting a version is foreground playback preparation, even
+			// when a client omits IsPlayback on its PlaybackInfo request.
+			// Probe this release so its own embedded tracks reach the picker.
+			intent.Estimate = false
 			resolvedRelease = tag
 		}
 	}

@@ -147,12 +147,16 @@ func TestOrphanSweepKeepsNamedAndLiveRows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if wantN := int64(2 * (len(all) - len(want))); sweep == 1 && n != wantN || sweep != 1 && n != 0 {
+		if wantN := int64(2*(len(all)-len(want)) - 1); sweep == 1 && n != wantN || sweep != 1 && n != 0 {
 			t.Fatalf("sweep %d deleted %d rows", sweep+1, n)
 		}
 		for _, table := range orphanTables {
-			if got := left(table); !maps.Equal(got, want) {
-				t.Fatalf("sweep %d: %s = %v, want %v", sweep+1, table, got, want)
+			wantTable := maps.Clone(want)
+			if table == "playback_probe" {
+				wantTable[row{1, 10, "b"}] = true
+			}
+			if got := left(table); !maps.Equal(got, wantTable) {
+				t.Fatalf("sweep %d: %s = %v, want %v", sweep+1, table, got, wantTable)
 			}
 		}
 	}

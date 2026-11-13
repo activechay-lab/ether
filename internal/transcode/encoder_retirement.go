@@ -169,6 +169,9 @@ func (l *encoderLifetime) advance() {
 		if s != nil {
 			s.mu.Lock()
 			s.closed = true
+			if s.resumeWarm != nil {
+				s.resumeWarm.encoder.seal()
+			}
 			s.stopRunForLocked("session close")
 			s.broadcastLocked()
 			s.mu.Unlock()

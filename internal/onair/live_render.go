@@ -356,7 +356,7 @@ func (s *Service) OpenMoment(
 	// next boundary; the current reader never blocks on the render slot.
 	if cacheable && rawJob.AssetDigest == "" {
 		s.enqueue(cacheJob)
-		stillJob := cacheJob
+		stillJob := rawJob
 		if err := s.loadAssets(ctx, &stillJob); err != nil {
 			return nil, "plate assets failed", err
 		}
@@ -365,7 +365,7 @@ func (s *Service) OpenMoment(
 		pixels := make([]byte, width*height*3/2)
 		rgbaScaleToI420(plate, pixels, width, height)
 		reader := &plateReader{remaining: plateFrames(rawJob.Doc.Duration, fpsNum, fpsDen, loop), pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
-		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, overlayDoc: overlayDoc, overlayBnd: overlayBind, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
+		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
 	}
 
 	// 2. Cold cache miss or unsplittable slot scene: check >= 1.0x speed gate.

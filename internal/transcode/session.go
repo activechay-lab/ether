@@ -25,6 +25,10 @@ import (
 // track per representation (video, audio); ffmpeg's dash muxer writes short
 // chunks that the session regroups into numbered segments by timestamp.
 type Session struct {
+	resumeWarm              *Session
+	resumeWarmAt            int
+	resumeWarmUsed          bool
+	speculative             bool
 	androidMatroskaHLS      bool // immutable client HLS contract, retained across source swaps
 	healTimestamps          bool // positively sampled MPEG-TS clock discontinuity
 	qsvCodec                string

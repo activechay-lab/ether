@@ -48,8 +48,8 @@ func TestNamesakeRuntimeRejectsWrongFilm(t *testing.T) {
 	if got := ps.Info.Duration; got != catalogue {
 		t.Fatalf("played duration = %v, want %v (namesake with the wrong film played)", got, catalogue)
 	}
-	if reason, ok := h.resolver.bad["wrong"]; !ok || reason != "runtime doesn't match this title" {
-		t.Fatalf("bad reason = %q, want runtime mismatch", reason)
+	if h.resolver.isBad("wrong") {
+		t.Fatal("title mismatch must not globally blacklist the release")
 	}
 	if h.resolver.isBad("right") {
 		t.Fatal("correct release was blocked")

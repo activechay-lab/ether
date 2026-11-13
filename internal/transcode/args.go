@@ -341,6 +341,11 @@ func buildCodecArgs(s runSpec) []string {
 	}
 	if s.BigProbe {
 		args = append(args, "-probesize", "50000000", "-analyzeduration", "10000000")
+	} else if !transcodeVideo && !s.LiveInput && s.Decision.Container == ContainerMatroska && s.Info.Video() != nil && s.Info.Video().Width > 0 && s.Info.Video().Height > 0 && s.Info.Video().Codec != "" {
+		// Container headers carry codec extradata. Keep packet analysis short
+		// for a probed copy, retaining the existing large-probe retry. Do not
+		// use nobuffer: it discards packets needed at the seek keyframe.
+		args = append(args, "-probesize", "262144", "-analyzeduration", "100000")
 	} else {
 		args = append(args, "-probesize", "5000000", "-analyzeduration", "2000000")
 	}

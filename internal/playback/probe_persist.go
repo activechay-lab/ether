@@ -93,6 +93,14 @@ func saveProbeWith(ctx context.Context, exec resumeExecer, userID int64, key cor
 	_, err = exec.ExecContext(ctx, `INSERT INTO playback_probe(user_id,rating_key,release_id,nzb_hash,size,info_json,updated_at) VALUES(?,?,?,?,?,?,?)
 ON CONFLICT(user_id,rating_key,release_id) DO UPDATE SET nzb_hash=excluded.nzb_hash, size=excluded.size, info_json=excluded.info_json, updated_at=excluded.updated_at`,
 		userID, int64(key), releaseID, nzbHash(nzb), facts.Size, string(b), at.UnixMilli())
+	if err != nil {
+		return err
+	}
+	// Keep a small per-title cache across Play Version switches. A resume
+	// still owns the title's lifetime; these facts own no source or payload.
+	_, err = exec.ExecContext(ctx, `DELETE FROM playback_probe WHERE user_id=? AND rating_key=? AND release_id NOT IN
+ (SELECT release_id FROM playback_probe WHERE user_id=? AND rating_key=? ORDER BY updated_at DESC, release_id DESC LIMIT 4)`,
+		userID, int64(key), userID, int64(key))
 	return err
 }
 
@@ -165,4 +173,39 @@ func (m *Manager) persistedProbeHash(ctx context.Context, userID int64, key core
 		m.log.Debug("reusing persisted probe", "key", key, "release", releaseID, "keyframes", len(facts.points))
 	}
 	return facts
+}
+
+// CachedVariantInfo reads only local probe facts for a release already offered
+// to this viewer. It never resolves or opens media. Opening still validates the
+// payload hash and size before reusing a persisted probe.
+func (m *Manager) CachedVariantInfo(ctx context.Context, userID int64, key core.RatingKey, releaseID string) (core.MediaInfo, bool) {
+	if m.resume == nil || userID <= 0 || releaseID == "" {
+		return core.MediaInfo{}, false
+	}
+	if live := m.resume.liveProbeHash(userID, key, releaseID, ""); live != nil {
+		return core.CloneMediaInfo(live.info), true
+	}
+	var raw string
+	if err := m.resume.db.QueryRowContext(ctx, "SELECT info_json FROM playback_probe WHERE user_id=? AND rating_key=? AND release_id=?", userID, int64(key), releaseID).Scan(&raw); err != nil || len(raw) > maxPersistedProbeBytes {
+		return core.MediaInfo{}, false
+	}
+	info, ok := decodePersistedProbe(raw)
+	if !ok {
+		return core.MediaInfo{}, false
+	}
+	return persistedProbeFacts(info)
+}
+
+// WithCachedVariantInfo enriches only the bounded list of offered versions.
+func (m *Manager) WithCachedVariantInfo(ctx context.Context, user *core.User, title *core.Title, variants []core.ReleaseVariant) []core.ReleaseVariant {
+	if user == nil || title == nil {
+		return variants
+	}
+	out := append([]core.ReleaseVariant(nil), variants...)
+	for i := range out {
+		if info, ok := m.CachedVariantInfo(ctx, user.ID, title.Key, out[i].ID); ok {
+			out[i].Info = info
+		}
+	}
+	return out
 }

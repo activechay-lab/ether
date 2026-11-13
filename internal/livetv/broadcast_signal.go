@@ -143,7 +143,18 @@ func (s *Service) openSignalDecoder(ctx context.Context, request core.ClipReques
 		text.Post = nil
 		overlay = compactOverlay(raster.Render(text, bindings, doc.Poster, f.Width, f.Height), f)
 	} else {
-		plate := raster.Render(doc, bindings, doc.Poster, f.Width, f.Height)
+		// Rasterize typography separately at the authored settled layout. The
+		// first output tick must already carry the complete channel identity.
+		at := max(1, doc.Poster)
+		background := doc
+		if request.Bind["screen.reason"] == "moment" {
+			background.Layers = signalBackgroundLayers(doc.Layers)
+			text := doc
+			text.Layers = signalTextLayers(doc.Layers)
+			text.Post = nil
+			overlay = compactOverlay(raster.Render(text, bindings, at, f.Width, f.Height), f)
+		}
+		plate := raster.Render(background, bindings, at, f.Width, f.Height)
 		style = normalizePlateStyle(style)
 		engine = signal.NewPlate(f.Width, f.Height, style, plate, image.Image(nil), seed)
 	}
@@ -183,4 +194,19 @@ func (s *Service) screenRequestWithBack(c Channel, reason, back string) core.Cli
 	request := s.screenRequest(c, reason)
 	request.Bind["screen.back"] = back
 	return request
+}
+
+// Preserve group transforms and painter order while extracting the background.
+func signalBackgroundLayers(layers []scene.Layer) []scene.Layer {
+	var out []scene.Layer
+	for _, layer := range layers {
+		if layer.Type == "text" {
+			continue
+		}
+		if len(layer.Layers) > 0 {
+			layer.Layers = signalBackgroundLayers(layer.Layers)
+		}
+		out = append(out, layer)
+	}
+	return out
 }

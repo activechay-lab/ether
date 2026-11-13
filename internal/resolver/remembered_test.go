@@ -13,7 +13,7 @@ func TestRememberedNamesakeRechecked(t *testing.T) {
 	ctx := context.Background()
 	title := &core.Title{Key: core.EpisodeKey(634, 1, 11), Type: core.TypeEpisode, ShowTitle: "Who's the Boss?", ShowYear: 1984, ShowIDs: core.IDs{TMDB: 634, TVDB: 76587}, Title: "Samantha's Growing Up", Season: 1, Episode: 11, Language: "en", Runtime: 24 * time.Minute}
 	cfg := testCfg()
-	svc := New(&fakeIndexer{}, fakeHealth{}, nil, cfg, Options{SeriesNamesake: func(context.Context, core.RatingKey, string, int) (bool, error) { return true, nil }})
+	svc := New(&fakeIndexer{}, fakeHealth{}, nil, cfg, Options{SeriesNamesake: func(context.Context, core.RatingKey, string, int) (bool, error) { return false, nil }})
 	wrong := rel("remembered", "Whos.the.Boss.S01E11.1080p.VIKI.WEB-DL.AAC2.0.H.264-FUZEER", 568)
 	wrong.Info = releaseparse.Parse(wrong.Name)
 	wrong.TitleIDs = core.IDs{TVDB: 76587} // the stale lab record reports the requested ID

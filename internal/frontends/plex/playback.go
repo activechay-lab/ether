@@ -1423,6 +1423,12 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		}
 		s.stopPlexHLS(p.sessionID)
 	}
+	var resumeHint time.Duration
+	if !r.URL.Query().Has("offset") && p.offset == 0 && dec.VideoCopy {
+		if st, err := s.state().Get(ctx, pr.User.ID, p.key); err == nil {
+			resumeHint = st.ViewOffset
+		}
+	}
 	hs, err := s.startPlexHLS(context.WithoutCancel(ctx), pr.User, ps.ID, p.sessionID, frontend.HLSRequest{
 		SoftSubtitleStream: sessionSoftSubtitle(entry, pr, dec),
 		SessionID:          p.sessionID,
@@ -1431,6 +1437,7 @@ func (s *Server) handleStartHLS(w http.ResponseWriter, r *http.Request) {
 		Info:               ps.Info,
 		Decision:           dec,
 		StartOffset:        p.offset,
+		ResumeHint:         resumeHint,
 	})
 	if err != nil {
 		s.writeStartErr(w, r, pr, err)

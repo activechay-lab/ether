@@ -9,14 +9,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/releaseparse"
 )
 
-// Namesake runtime gate. Two catalogue movies can share a normalized title
-// and a near year ("Runner" and "The Runner", both 2026); release names then
-// cannot tell them apart, so an indexer may serve the other film's file.
-// When the catalogue holds a namesake the request is ambiguous, and a probed
-// duration that contradicts the catalogue runtime rejects the candidate like
-// any other bad release, failing over to the next. Unambiguous titles keep
-// the old behaviour, so extended cuts of an only-title are unaffected.
-
 // namesakeRuntimeTolerance is the allowed difference between a probed file
 // and the catalogue runtime: the larger of these two bounds.
 const (
@@ -102,4 +94,22 @@ func (m *Manager) releaseNamesakeRejected(ctx context.Context, s *session, r cor
 		return false
 	}
 	return namesakeTitleConflict(s.title, r)
+}
+
+// releaseRuntimeMismatch checks actual container facts independently of catalogue
+// namesake coverage. Only explicit multi-episode filenames scale the runtime;
+// a season pack's selected file is normally a single episode.
+func releaseRuntimeMismatch(t *core.Title, r core.Release, probed time.Duration) bool {
+	if t == nil || t.KindLevel != "" || t.Runtime <= 0 || probed <= 0 {
+		return false
+	}
+	expected := t.Runtime
+	if t.Type == core.TypeEpisode {
+		info := releaseparse.Parse(r.Name)
+		if len(info.Episodes) > 1 {
+			expected *= time.Duration(len(info.Episodes))
+		}
+	}
+	slack := math.Max((8 * time.Minute).Seconds(), 0.35*expected.Seconds())
+	return math.Abs(probed.Seconds()-expected.Seconds()) > slack
 }

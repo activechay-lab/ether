@@ -134,6 +134,10 @@ func (s *Session) swapInput(ctx context.Context, inputURL string, info core.Medi
 		}
 	}
 	s.inputCrop = crop
+	if s.resumeWarm != nil {
+		s.resumeWarm.encoder.seal()
+		s.resumeWarm = nil
+	}
 	s.input = inputURL
 	s.info = info
 	s.decision = next
