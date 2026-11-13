@@ -288,13 +288,17 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 	if ok, load, budget := s.steadyCapacity(smallest); !ok && !rockSolid {
 		return nil, steadyRefusedCapacity, "encode capacity in use (" + formatCores(load) + " of " + formatCores(budget) + " cores)"
 	}
+	// Keep time for encoder startup and the reconnecting screen even when
+	// every candidate probe stalls. Per-input limits alone exhaust the tune.
+	probeCtx, stopProbes := context.WithTimeout(ctx, 3*time.Second)
+	defer stopProbes()
 	var probed *steadyAdmission
 	candidates := s.orderedSourceCandidates(c)
 	for i, src := range candidates {
-		if ctx.Err() != nil {
+		if probeCtx.Err() != nil {
 			break
 		}
-		link, err := s.linkSteadySource(ctx, c, src, "broadcast-"+c.ID, steadyStartLead)
+		link, err := s.linkSteadySource(probeCtx, c, src, "broadcast-"+c.ID, steadyStartLead)
 		if errors.Is(err, ErrProviderBusy) || errors.Is(err, ErrProviderPaced) {
 			continue
 		}
@@ -307,7 +311,7 @@ func (s *Service) admitSteady(ctx context.Context, c Channel) (*steadyAdmission,
 		if i < len(candidates)-1 {
 			probeBudget = 3 * time.Second
 		}
-		attempt, cancel := context.WithTimeout(ctx, probeBudget)
+		attempt, cancel := context.WithTimeout(probeCtx, probeBudget)
 		info, err := s.probeSteadyLink(attempt, c, link)
 		cancel()
 		if err == nil && info != nil && info.Video() == nil && len(info.Streams) > 0 {
