@@ -298,8 +298,7 @@ func (p *Prefetcher) OnTimeline(user *core.User, key core.RatingKey, offset, dur
 	if cfg := p.config(); cfg.DisableSpeculation || cfg.Mode == "off" {
 		return
 	}
-	// Resume warming never resolves: only bytes from the source that served
-	// this viewer may enter the keep-warm pool.
+	// Resume warming reuses the played source; permanent failure may replace it.
 	if user != nil && offset > 0 && p.deps.Hints != nil && p.config().KeepInProgressWarm && (key.Kind() == core.KindMovie || key.Kind() == core.KindEpisode) {
 		u := *user
 		p.enqueue(job{
@@ -481,7 +480,11 @@ func (p *Prefetcher) nextEpisode(ctx context.Context, user *core.User, key core.
 		if rp != nil {
 			log.Debug("warming stored release of next episode", "release", rp.Release.Name)
 			p.noteCause(rp.ReleaseID(), core.CacheCauseNextEpisode, episodeLabel(next))
-			return p.deps.Engine.Prefetch(ctx, rp.ReleaseID(), rp.NZB, 0, clampLen(0, length, rp.Size))
+			err := p.deps.Engine.Prefetch(ctx, rp.ReleaseID(), rp.NZB, 0, clampLen(0, length, rp.Size))
+			if err != nil {
+				return p.replaceWarmSource(ctx, user.ID, next.Key, rp.Release, 0, next.Runtime, err)
+			}
+			return nil
 		}
 	}
 
@@ -501,7 +504,11 @@ func (p *Prefetcher) nextEpisode(ctx context.Context, user *core.User, key core.
 	}
 	log.Info("prefetching next episode", "release", res.Release.Name, "bytes", length)
 	p.noteCause(res.Release.ID, core.CacheCauseNextEpisode, episodeLabel(next))
-	return p.deps.Engine.Prefetch(ctx, res.Release.ID, res.NZB, 0, clampLen(0, length, res.Release.Size))
+	err = p.deps.Engine.Prefetch(ctx, res.Release.ID, res.NZB, 0, clampLen(0, length, res.Release.Size))
+	if err != nil {
+		return p.replaceWarmSource(ctx, user.ID, next.Key, res.Release, 0, next.Runtime, err)
+	}
+	return nil
 }
 
 // clampLen keeps [off, off+length) inside a file of size bytes (when known).
@@ -600,8 +607,8 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
-// warmResume deliberately has no resolver/prewarmer fallback: an unstarted
-// title, or a missing stored source, must never spend an indexer request.
+// warmResume only resolves after a stored source proves permanently broken.
+// An unstarted title or missing source never spends an indexer request.
 func (p *Prefetcher) warmResume(ctx context.Context, userID int64, key core.RatingKey, offset, duration time.Duration) error {
 	rp, err := p.deps.Hints.ResumePoint(ctx, userID, key)
 	if err != nil || rp == nil || rp.Size <= 0 || len(rp.NZB) == 0 {
@@ -626,7 +633,11 @@ func (p *Prefetcher) warmResume(ctx context.Context, userID int64, key core.Rati
 	}
 	p.setCurrent(rp.Release.Name, core.CacheCauseResumeWarm)
 	p.noteCause(rp.ReleaseID(), core.CacheCauseResumeWarm, rp.Release.Name)
-	return p.deps.Engine.Prefetch(ctx, rp.ReleaseID(), rp.NZB, start, length)
+	err = p.deps.Engine.Prefetch(ctx, rp.ReleaseID(), rp.NZB, start, length)
+	if err == nil {
+		return nil
+	}
+	return p.replaceWarmSource(ctx, userID, key, rp.Release, offset, duration, err)
 }
 
 func WarmWindowFor(viewOffset time.Duration, tm playback.TimeMap, behind, ahead int64) (start, length int64) {
@@ -666,3 +677,26 @@ func (p *Prefetcher) prune() {
 }
 
 var _ Hints = (*playback.Manager)(nil)
+
+func (p *Prefetcher) replaceWarmSource(ctx context.Context, userID int64, key core.RatingKey, old core.Release, offset, duration time.Duration, failure error) error {
+	if !(errors.Is(failure, core.ErrArticleMissing) || errors.Is(failure, core.ErrArticleCorrupt) || errors.Is(failure, core.ErrReleaseRejected)) || ctx.Err() != nil {
+		return failure
+	}
+	replacer, ok := p.deps.Hints.(interface {
+		ReplaceWarmSource(context.Context, *core.User, core.RatingKey, core.ClientCaps, core.Release, time.Duration, time.Duration, error) error
+	})
+	if !ok || p.deps.Auth == nil {
+		return failure
+	}
+	users, err := p.deps.Auth.Users(ctx)
+	if err != nil {
+		return err
+	}
+	for _, user := range users {
+		if user.ID == userID {
+			caps, _, _ := p.deps.Hints.ClientCaps(userID, key)
+			return replacer.ReplaceWarmSource(ctx, &user, key, caps, old, offset, duration, failure)
+		}
+	}
+	return failure
+}

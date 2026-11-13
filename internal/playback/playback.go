@@ -862,6 +862,9 @@ func (m *Manager) prepareOwnedWithin(ctx context.Context, wait time.Duration, us
 			return nil, nil, fmt.Errorf("playback: title releases on %s: %w", title.Released.Format("2006-01-02"), core.ErrUnreleased)
 		}
 	}
+	if prefer != "" && !exact && m.titleReleaseRejected(ctx, key, core.Release{ID: prefer}) {
+		prefer = ""
+	}
 	id := identity{userID: user.ID, clientID: caps.ClientID, key: key, surface: m.playbackSurface(string(caps.Protocol))}
 	if deferSupersession {
 		id.variant, id.exact = prefer, exact

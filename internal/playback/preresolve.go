@@ -348,6 +348,9 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 		defer session.sources.seal()
 		src, finish, err := m.openSource(ctx, session.sources, res)
 		if err != nil {
+			if reason == core.PrewarmNextEpisode {
+				_ = m.ReplaceWarmSource(ctx, &u, key, caps, res.Release, opts.StartOffset, title.Runtime, err)
+			}
 			return
 		}
 		m.noteWarmCause(res, src, reason, cacheTitle(*title))
@@ -357,6 +360,9 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 			return info
 		}, m.persistedProbe(ctx, u.ID, key, res.Release.ID, res.NZB))
 		if err != nil {
+			if reason == core.PrewarmNextEpisode {
+				_ = m.ReplaceWarmSource(ctx, &u, key, caps, res.Release, opts.StartOffset, title.Runtime, err)
+			}
 			return
 		}
 		defer m.dropGeneration(generation)
@@ -411,7 +417,12 @@ func (m *Manager) prewarm(_ context.Context, user *core.User, key core.RatingKey
 					delete(m.warm, id)
 				}
 				m.mu.Unlock()
-				m.markBad(res.Release.ID, "opening prefetch: "+err.Error())
+				m.rememberOpenFailure(session, res.Release, err)
+				if reason == core.PrewarmNextEpisode {
+					_ = m.ReplaceWarmSource(ctx, &u, key, caps, res.Release, resumeOffset, title.Runtime, err)
+				} else {
+					m.markBad(res.Release.ID, "opening prefetch: "+err.Error())
+				}
 				m.log.Warn("prepared opening rejected", "key", key, "release", res.Release.ID, "err", err)
 			} else if ctx.Err() == nil {
 				m.log.Debug("opening prefetch incomplete", "key", key, "err", err)
