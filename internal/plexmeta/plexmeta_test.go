@@ -63,7 +63,7 @@ func TestBackgroundFetchAndApply(t *testing.T) {
 		}
 		w.Write([]byte(`{"MediaContainer":{"Metadata":[{
 			"guid":"` + movieGUID + `","type":"movie",
-			"summary":"Plex summary","tagline":"Plex tagline","year":1999,
+			"slug":"fight-club","summary":"Plex summary","tagline":"Plex tagline","year":1999,
 			"originallyAvailableAt":"1999-10-15","contentRating":"R",
 			"studio":"Plex Studio","thumb":"https://metadata-static.plex.tv/p.jpg",
 			"art":"/library/metadata/x/art","audienceRating":9.1,"rating":8.8,
@@ -74,7 +74,7 @@ func TestBackgroundFetchAndApply(t *testing.T) {
 	s.Schedule(core.MovieKey(550))
 	s.Wait()
 	got, ok := s.Cached(context.Background(), core.MovieKey(550))
-	if !ok || got.Summary != "Plex summary" || got.Studio != "Plex Studio" || got.ThumbURL == "" {
+	if !ok || got.Slug != "fight-club" || got.Summary != "Plex summary" || got.Studio != "Plex Studio" || got.ThumbURL == "" {
 		t.Fatalf("cached %+v ok=%v", got, ok)
 	}
 	title := core.Title{Title: "TMDB", Summary: "TMDB summary", ContentRating: "PG-13", Released: time.Date(1998, 1, 1, 0, 0, 0, 0, time.UTC), Year: 1998}

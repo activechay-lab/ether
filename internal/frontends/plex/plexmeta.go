@@ -173,3 +173,13 @@ func applyPlexMetaDates(t *frontend.Title, m *model.Metadata, o frontend.Metadat
 		m.Year = o.AvailableAt.Year()
 	}
 }
+
+// Slugs are Plex catalogue identities, not a formatting of a title. Only use
+// the provider's slug when its cached overlay still matches the verified GUID.
+func (s *Server) verifiedPlexSlug(ctx context.Context, key frontend.RatingKey) string {
+	row, ok := s.plexMetaCached(ctx, key)
+	if !ok {
+		return ""
+	}
+	return row.Slug
+}

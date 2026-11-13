@@ -23,7 +23,6 @@
             "guid": "com.plexapp.agents.themoviedb://1396/1/1?lang=en",
             "parentGuid": "com.plexapp.agents.themoviedb://1396/1?lang=en",
             "grandparentGuid": "com.plexapp.agents.themoviedb://1396?lang=en",
-            "grandparentSlug": "boundary-bay",
             "type": "episode",
             "title": "Pilot",
             "grandparentKey": "/library/metadata/2000000000001396",

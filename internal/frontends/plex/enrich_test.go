@@ -42,25 +42,6 @@ func TestPlaylistsHomeHub(t *testing.T) {
 	}
 }
 
-func TestSlugify(t *testing.T) {
-	for in, want := range map[string]string{
-		"The 'Burbs":             "the-burbs",
-		"Coyote vs. Acme":        "coyote-vs-acme",
-		"9-1-1":                  "9-1-1",
-		"2 Fast 2 Furious":       "2-fast-2-furious",
-		"Fast & Furious":         "fast-and-furious",
-		"Amélie":                 "amelie",
-		"Léon: The Professional": "leon-the-professional",
-		"  Spaced  Out!! ":       "spaced-out",
-		"ドラゴンボール":                "",
-		"WALL·E":                 "wall-e",
-	} {
-		if got := slugify(in); got != want {
-			t.Errorf("slugify(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestBGQueueDedupesAndDrops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -363,7 +344,7 @@ func TestEpisodeImagesUseShowArtwork(t *testing.T) {
 		`<Image alt="Pilot" type="snapshot" url="/library/metadata/4000013960010001/thumb/`,
 		`<Image alt="Pilot" type="background" url="/library/metadata/2000000000001396/art/`,
 		`<Image alt="Pilot" type="clearLogo" url="/library/metadata/2000000000001396/clearLogo/`,
-		`grandparentSlug="boundary-bay"`, `contentRating="TV-MA"`,
+		`contentRating="TV-MA"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("season children lack %s:\n%s", want, body)
@@ -375,7 +356,7 @@ func TestEpisodeImagesUseShowArtwork(t *testing.T) {
 		}
 	}
 	seasons := f.getWarm(t, "/library/metadata/"+show.Key.String()+"/children").Body.String()
-	for _, want := range []string{`parentSlug="boundary-bay"`, `parentStudio="Sony Pictures Television"`, `parentYear="2008"`, `type="clearLogo"`} {
+	for _, want := range []string{`parentStudio="Sony Pictures Television"`, `parentYear="2008"`, `type="clearLogo"`} {
 		if !strings.Contains(seasons, want) {
 			t.Errorf("seasons lack %s:\n%s", want, seasons)
 		}

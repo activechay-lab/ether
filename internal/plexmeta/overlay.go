@@ -15,6 +15,7 @@ import (
 
 // Overlay is one title's cached Plex metadata. Empty fields mean "keep TMDB".
 type Overlay struct {
+	Slug                string    `json:"slug,omitempty"`
 	ContentRating       string    `json:"contentRating,omitempty"`
 	Year                int       `json:"year,omitempty"`
 	AvailableAt         time.Time `json:"availableAt,omitempty"`
@@ -49,7 +50,7 @@ type Cached struct {
 
 // Empty reports a cache hit that carries no display fields (a recorded miss).
 func (o Overlay) Empty() bool {
-	return o.ContentRating == "" && o.Year == 0 && o.AvailableAt.IsZero() &&
+	return o.Slug == "" && o.ContentRating == "" && o.Year == 0 && o.AvailableAt.IsZero() &&
 		o.Summary == "" && o.Tagline == "" && o.Studio == "" &&
 		o.ThumbURL == "" && o.ArtURL == "" && o.Rating == 0 && o.AudienceRating == 0 &&
 		o.RatingImage == "" && o.AudienceRatingImage == "" &&

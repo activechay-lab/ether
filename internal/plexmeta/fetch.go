@@ -16,6 +16,7 @@ import (
 )
 
 type providerItem struct {
+	Slug                  string  `json:"slug"`
 	GUID                  string  `json:"guid"`
 	Type                  string  `json:"type"`
 	Title                 string  `json:"title"`
@@ -86,6 +87,7 @@ func (s *Service) refresh(ctx context.Context, k core.RatingKey) error {
 
 func overlayFrom(item providerItem, base string) Overlay {
 	o := Overlay{
+		Slug:                strings.TrimSpace(item.Slug),
 		ContentRating:       strings.TrimSpace(item.ContentRating),
 		Year:                item.Year,
 		Summary:             strings.TrimSpace(item.Summary),

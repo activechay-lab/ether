@@ -259,9 +259,9 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 
 	switch t.Type {
 	case frontend.TypeMovie:
-		m.Slug = slugify(t.Title)
+		m.Slug = ov.Slug
 	case frontend.TypeShow:
-		m.Slug = slugify(t.Title)
+		m.Slug = ov.Slug
 		m.Index = model.Ptr(1)
 		if t.ChildCount > 0 {
 			m.ChildCount = model.Ptr(t.ChildCount)
@@ -283,7 +283,7 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 		m.ParentGUID = showGUID(showKey)
 		m.ParentKey = "/library/metadata/" + showKey.String()
 		m.ParentTitle = t.ShowTitle
-		m.ParentSlug = slugify(t.ShowTitle)
+		m.ParentSlug = s.verifiedPlexSlug(ctx, showKey)
 		m.ParentIndex = model.Ptr(1)
 		m.ParentThumb = "/library/metadata/" + showKey.String() + "/thumb/" + imageStamp(t)
 		if m.Art == "" {
@@ -299,7 +299,6 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 			m.ParentYear = show.Year
 			if m.ParentTitle == "" {
 				m.ParentTitle = show.Title
-				m.ParentSlug = slugify(show.Title)
 			}
 		}
 		if m.ParentYear == 0 && t.ShowYear > 0 {
@@ -342,7 +341,7 @@ func (s *Server) metadata(ctx context.Context, pr *Request, t *frontend.Title, o
 				m.ContentRating = show.ContentRating
 			}
 		}
-		m.GrandparentSlug = slugify(m.GrandparentTitle)
+		m.GrandparentSlug = s.verifiedPlexSlug(ctx, showKey)
 		m.Year, m.TitleSort, m.Studio = 0, "", ""
 	}
 	if hasPlex {
