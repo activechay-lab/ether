@@ -31,6 +31,9 @@ import { localized, t, tn, tx } from "../../i18n";
 import { api, apiFetch, ApiError, type TestFn } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import type { EtherConfig } from "../../lib/types";
+import { TmdbCatalogueSettings } from "./TmdbCatalogueSettings";
+import { NewReleasesSettings } from "../libraries/browser/NewReleasesSettings";
+import type { AvailabilityConfig } from "../../lib/types";
 import { OwnerPosters } from "./OwnerPosters";
 import { PosterAccounts } from "./PosterAccounts";
 import { RatingSources, type RatingSettings } from "../metadata/Ratings";
@@ -330,7 +333,7 @@ function boolField(section: Obj, key: string, fallback: boolean): boolean {
 /** Overlay a saved section onto the loaded config. Missing fields keep the loaded values. */
 function mergeSection(
   base: EtherConfig,
-  key: Service["configKey"] | "catalog",
+  key: Service["configKey"] | "catalog" | "availability",
   section: Obj,
 ): EtherConfig {
   switch (key) {
@@ -416,11 +419,17 @@ function mergeSection(
         },
       };
     }
+    case "availability":
+      return {
+        ...base,
+        availability: { ...base.availability, ...section } as unknown as AvailabilityConfig,
+      };
     case "catalog":
       return {
         ...base,
         catalog: {
           ...base.catalog,
+          ...section,
           tmdbKey: textField(section, "tmdbKey", base.catalog.tmdbKey),
         },
       };
@@ -458,13 +467,15 @@ export function ConnectedServices({
   const config = useAsync(() => api.getConfig(), []);
   const ratings = useAsync(() => apiFetch<RatingSettings>("/discovery/ratings/settings"), []);
   const cfg = config.data;
+  const catalogSetupStatus = useAsync(() => api.setupStatus(), []);
   // i18n: memo holds no copy — only stable config keys and stored values.
   const stored = useMemo(() => {
     if (!cfg) return null;
     const raw = cfg as unknown as Obj;
     return {
       ...Object.fromEntries(SERVICES.map((s) => [s.configKey, asObj(raw[s.configKey])])),
-      catalog: { tmdbKey: cfg.catalog?.tmdbKey ?? "" },
+      catalog: asObj(cfg.catalog),
+      availability: asObj(cfg.availability),
     } as Record<string, Obj>;
   }, [cfg]);
   const { draft, setDraft, dirty, reset } = useSectionDrafts(stored);
@@ -560,7 +571,7 @@ export function ConnectedServices({
   }, []);
 
   const applySection = (
-    key: Service["configKey"] | "catalog",
+    key: Service["configKey"] | "catalog" | "availability",
     section: Obj,
     draftNext: Record<string, Obj>,
   ) => {
@@ -591,7 +602,9 @@ export function ConnectedServices({
         (s) => JSON.stringify(draftNow[s.configKey]) !== JSON.stringify(storedNow[s.configKey]),
       );
       const catalogChanged = JSON.stringify(draftNow.catalog) !== JSON.stringify(storedNow.catalog);
-      if (!changed.length && !catalogChanged) return;
+      const availabilityChanged =
+        JSON.stringify(draftNow.availability) !== JSON.stringify(storedNow.availability);
+      if (!changed.length && !catalogChanged && !availabilityChanged) return;
       setSaving(true);
       setError(null);
       setErrors({});
@@ -602,12 +615,27 @@ export function ConnectedServices({
           const res = await api.putSection("catalog", { ...config.data.catalog, ...sent });
           const latest = model.current.draft ?? draftNow;
           const section = {
+            ...sent,
+            ...asObj(res.value),
             tmdbKey: textField(asObj(res.value), "tmdbKey", String(sent.tmdbKey ?? "")),
           };
           const editedSinceSend = JSON.stringify(latest.catalog) !== JSON.stringify(sent);
           const draftNext = editedSinceSend ? latest : { ...latest, catalog: section };
           applySection("catalog", section, draftNext);
           savedLabels.push("TMDB");
+        }
+        if (availabilityChanged) {
+          const sent = draftNow.availability ?? {};
+          const res = await api.putSection("availability", sent);
+          const section = { ...sent, ...asObj(res.value) };
+          const latest = model.current.draft ?? draftNow;
+          applySection(
+            "availability",
+            section,
+            JSON.stringify(latest.availability) !== JSON.stringify(sent)
+              ? latest
+              : { ...latest, availability: section },
+          );
         }
         for (const s of changed) {
           const sent = draftNow[s.configKey]!;
@@ -934,11 +962,41 @@ export function ConnectedServices({
             test={tmdbTest}
             name="TMDB"
             enabled
-            ready={secretConfigured(stored?.catalog?.tmdbKey)}
+            ready={
+              secretConfigured(stored?.catalog?.tmdbKey) ||
+              catalogSetupStatus.data?.steps.some(
+                (step) => step.id === "catalog" && step.complete,
+              ) === true
+            }
             href="/libraries"
             usage={t("Names titles and supplies artwork throughout the catalog.")}
           >
             {tmdbForm}
+            <TmdbCatalogueSettings
+              draft={draft.catalog ?? {}}
+              onChange={(catalog) => setDraft({ ...draft, catalog })}
+              errors={errors}
+            />
+            <div className="space-y-3">
+              <h3 className="font-semibold">{t("Movies")}</h3>
+              <NewReleasesSettings
+                availability={draft.availability as unknown as AvailabilityConfig}
+                onAvailability={(availability) =>
+                  setDraft({ ...draft, availability: asObj(availability) })
+                }
+                mediaType="movie"
+              />
+            </div>
+            <div className="space-y-3">
+              <h3 className="font-semibold">{t("TV shows")}</h3>
+              <NewReleasesSettings
+                availability={draft.availability as unknown as AvailabilityConfig}
+                onAvailability={(availability) =>
+                  setDraft({ ...draft, availability: asObj(availability) })
+                }
+                mediaType="show"
+              />
+            </div>
           </IntegrationTab>
         </div>
       ) : null}
@@ -1231,7 +1289,7 @@ function ServiceOverview({
               }
               configureHref={
                 source.pluginId
-                  ? `/plugins/installed?plugin=${encodeURIComponent(source.pluginId)}`
+                  ? `/plugins/installed?plugin=${encodeURIComponent(source.pluginId)}&tab=setup`
                   : undefined
               }
               details={

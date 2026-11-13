@@ -172,6 +172,10 @@ export interface PluginLibrarySource {
 }
 
 export const librariesApi = {
+  syncCatalogueSource: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/libraries/catalogue-sources/${encodeURIComponent(id)}/sync`, {
+      method: "POST",
+    }),
   catalogueSources: (signal?: AbortSignal) =>
     apiFetch<{ sources: CatalogueSource[] }>("/libraries/catalogue-sources", { signal }).then(
       (r) => r.sources,

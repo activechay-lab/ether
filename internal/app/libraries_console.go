@@ -320,6 +320,7 @@ func (c *librariesConsole) handler() http.Handler {
 			return
 		}
 		var body struct {
+			CollectionID      *int64                   `json:"collectionId"`
 			Sources           *[]string                `json:"sources"`
 			Name              *string                  `json:"name"`
 			Hidden            *bool                    `json:"hidden"`
@@ -333,15 +334,20 @@ func (c *librariesConsole) handler() http.Handler {
 		if !decodeLibBody(w, r, &body) {
 			return
 		}
-		if body.Filter != nil {
-			// libraries.Service has no SetFilter yet (slice A gap):
-			// a saved filter is immutable in v0.3.8 rather than
-			// silently replaced under a stable library id.
-			libError(w, http.StatusBadRequest, "A saved filter cannot be changed yet; delete and recreate the library")
-			return
-		}
 		ctx := r.Context()
 		svc := c.app.libraries
+		if body.Filter != nil {
+			if err := svc.SetFilter(ctx, lib.ID, *body.Filter); err != nil {
+				libError(w, libErrStatus(err), "Could not update filter")
+				return
+			}
+		}
+		if body.CollectionID != nil {
+			if err := svc.SetCollection(ctx, lib.ID, *body.CollectionID); err != nil {
+				libError(w, libErrStatus(err), "Could not update collection")
+				return
+			}
+		}
 		if body.Sources != nil {
 			if err := c.app.validateCatalogueSources(ctx, lib, *body.Sources); err != nil {
 				libError(w, 400, err.Error())
@@ -431,6 +437,7 @@ func (c *librariesConsole) handler() http.Handler {
 	mux.HandleFunc("GET /{id}/items", c.handleItems)
 	mux.HandleFunc("GET /collection-sources", c.handleCollectionSources)
 	mux.HandleFunc("GET /catalogue-sources", c.handleCatalogueSources)
+	mux.HandleFunc("POST /catalogue-sources/{source}/sync", c.handleCatalogueSourceSync)
 	mux.HandleFunc("GET /{id}/facets/{field...}", c.handleFacets)
 	mux.HandleFunc("GET /{id}/item/{ref}/match", c.handleMatchGet)
 	mux.HandleFunc("PUT /{id}/item/{ref}/match", c.handleMatchPin)

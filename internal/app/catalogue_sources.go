@@ -4,6 +4,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins"
 	"net/http"
+	"strings"
 )
 
 type catalogueSource struct {
@@ -114,4 +115,29 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 		}
 	}
 	libJSON(w, http.StatusOK, map[string]any{"sources": out})
+}
+
+func (c *librariesConsole) handleCatalogueSourceSync(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("source")
+	if !strings.HasPrefix(id, "stremio:") {
+		libError(w, 400, "Only Stremio catalogues use this refresh")
+		return
+	}
+	if _, err := c.app.catalogueSourceType(r.Context(), id); err != nil {
+		libError(w, 400, err.Error())
+		return
+	}
+	if c.app.catalog == nil {
+		libError(w, 503, "Catalogue unavailable")
+		return
+	}
+	if _, err := c.app.db.ExecContext(r.Context(), `DELETE FROM libraries_catalogue_state WHERE source_id=?`, id); err != nil {
+		libError(w, 500, "Could not refresh source")
+		return
+	}
+	if err := c.app.catalog.BrowseSourceLibrary(r.Context(), []string{id}); err != nil {
+		libError(w, 502, err.Error())
+		return
+	}
+	libJSON(w, 200, map[string]bool{"ok": true})
 }

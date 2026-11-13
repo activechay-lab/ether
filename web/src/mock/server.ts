@@ -2595,6 +2595,31 @@ export function createFakeServer(opts: FakeOptions = {}) {
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   });
+  mockLibs.push({
+    id: 5,
+    key: "weekend-collection",
+    name: "Weekend collection",
+    source: "collection",
+    sources: ["tmdb-movies"],
+    collectionId: 31,
+    mediaType: "movie",
+    sort: 5,
+    hidden: true,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  });
+  mockLibs.push({
+    id: 6,
+    key: "family-films",
+    name: "Family films",
+    source: "filter",
+    sources: ["tmdb-movies"],
+    filter: { type: "movie", genres: ["Family"] },
+    sort: 6,
+    hidden: true,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  });
   const mockMatches: Record<string, unknown>[] = [];
   function hydrateLib(lib: Record<string, unknown>) {
     if (!lib.sources)

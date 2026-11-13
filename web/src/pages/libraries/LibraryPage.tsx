@@ -223,7 +223,7 @@ export function LibraryPage() {
           />
         ) : (
           <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-5xl space-y-5 px-5 py-5 lg:px-7">
+            <div className="space-y-5 px-5 py-5 lg:px-7">
               <LibrarySettings library={lib} onSaved={() => void library.reload()} />
             </div>
           </div>

@@ -242,9 +242,7 @@ export function NewLibraryDrawer({
  * built with the same CatalogFilterBar the browser uses, seeded from
  * the current browse state when the owner asks from a library page.
  * New libraries are console-only until "Show in apps" is turned on
- * (§15.3). A saved filter cannot be edited after creation yet — the
- * libraries service has no SetFilter — so this drawer is create-only
- * and says so before saving.
+ * (§15.3). This drawer creates the saved filter; Library Settings can replace it later.
  */
 export function FilterLibraryEditor({
   allTitles,
@@ -377,7 +375,7 @@ export function FilterLibraryEditor({
             </div>
             <p className="text-sm text-fg-muted">
               {t(
-                "Pick filters above. Matching titles join this library and stay in Movies and TV Shows. To change the filter later, delete this library and make a new one.",
+                "Pick filters above. Matching titles join this library and stay in Movies and TV Shows.",
               )}
             </p>
           </>

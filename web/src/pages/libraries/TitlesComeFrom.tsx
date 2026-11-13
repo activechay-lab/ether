@@ -4,42 +4,36 @@ import {
   Checkbox,
   SettingsSection,
   buttonVariants,
-  toast,
 } from "@braedonsaunders/appkit-ui";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { SettingsRow } from "../../components/SettingsRow";
 import { ErrorPanel } from "../../components/feedback";
 import { t } from "../../i18n";
-import { errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import { librariesApi, type Library } from "./api";
 import { SourceIcon, sourceOwner } from "./CatalogueSources";
-export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved: () => void }) {
+export function TitlesComeFrom({
+  library,
+  sources,
+  onChange,
+  children,
+}: {
+  library: Library;
+  sources: string[];
+  onChange: (sources: string[]) => void;
+  children?: ReactNode;
+}) {
   const registry = useAsync((signal) => librariesApi.catalogueSources(signal), []);
   const [draft, setDraft] = useState<string[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const ids =
-    library.sources ??
-    registry.data
-      ?.filter((source) => source.libraries.some((lib) => lib.id === library.id))
-      .map((source) => source.id) ??
-    [];
+  const busy = false;
+  const ids = sources;
   const mediaType = String(library.mediaType ?? library.filter?.type ?? "movie");
-  const save = async () => {
-    if (!draft) return;
-    setBusy(true);
-    try {
-      await librariesApi.patch(library.id, { sources: draft });
+  const save = () => {
+    if (draft) {
+      onChange(draft);
       setDraft(null);
-      onSaved();
-      void registry.reload();
-      toast.success(t("Saved"));
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
     }
   };
   return (
@@ -63,6 +57,7 @@ export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved
             </div>
           }
         />
+        {children}
         <SettingsRow
           title={t("Integrations")}
           control={
@@ -83,7 +78,7 @@ export function TitlesComeFrom({ library, onSaved }: { library: Library; onSaved
                 {t("Cancel")}
               </Button>
               <Button disabled={busy || !draft.length} onClick={() => void save()}>
-                {t("Save")}
+                {t("Apply")}
               </Button>
             </div>
           }

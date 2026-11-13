@@ -69,3 +69,29 @@ func (s *Service) SourceMember(ctx context.Context, lib core.Library, key core.R
 	}
 	return len(lib.Sources) == 0, nil
 }
+
+func (s *Service) SetFilter(ctx context.Context, id core.LibraryID, filter core.Filter) error {
+	lib, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if lib.Source != core.LibraryFilter || lib.Filter == nil || filter.Type != lib.Filter.Type {
+		return ErrInvalid
+	}
+	filter.CatalogueSources = nil
+	data, err := json.Marshal(filter)
+	if err != nil {
+		return err
+	}
+	return s.setColumn(ctx, id, "filter", string(data))
+}
+func (s *Service) SetCollection(ctx context.Context, id core.LibraryID, collectionID int64) error {
+	lib, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if lib.Source != core.LibraryCollection || collectionID <= 0 {
+		return ErrInvalid
+	}
+	return s.setColumn(ctx, id, "collection_id", collectionID)
+}
