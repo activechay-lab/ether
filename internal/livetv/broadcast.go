@@ -792,8 +792,8 @@ func (b *broadcast) step(now time.Time) bool {
 	if planner, ok := b.planner.(interface{ screen(time.Time) broadcastPlan }); ok {
 		b.screenPlan = planner.screen(now)
 	}
-	if planner, ok := b.planner.(interface{ momentScreen() broadcastPlan }); ok {
-		b.momentCardPlan = planner.momentScreen()
+	if planner, ok := b.planner.(interface{ momentScreenAt(time.Time) broadcastPlan }); ok {
+		b.momentCardPlan = planner.momentScreenAt(now)
 	}
 	if !now.Before(b.introUntil) && b.introInput != nil {
 		b.finishIntro(now)
@@ -819,6 +819,7 @@ func (b *broadcast) step(now time.Time) bool {
 	if b.momentCard != nil && b.momentCard.plan.id != b.momentCardPlan.id {
 		b.closeInput(b.momentCard)
 		b.momentCard = nil
+		b.momentCardFrame = nil
 	}
 	if b.current.matchesProgramme(current) {
 		b.current.plan = current
@@ -919,9 +920,8 @@ func (b *broadcast) step(now time.Time) bool {
 	// the plate at this boundary; even the startup burst must advance through
 	// a whole pod without waiting for its masters.
 	frameDuration := time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum)
-	// The last tick before a moment selects its input once. Decoders that
-	// become ready after that deadline must not replace a live fallback in
-	// the middle of the interval.
+	// Non-live interstitials retain a single input decision. Live moments
+	// keep their decoder: its plate can become animation at a segment cut.
 	if next != nil && !next.start.After(now.Add(frameDuration)) {
 		b.latchMomentInput(*next, now)
 	}
@@ -932,7 +932,9 @@ func (b *broadcast) step(now time.Time) bool {
 	samples := tickSamples(b.format, b.tick)
 	frame := transcode.RawFrame{}
 	mode := "screen"
-	if b.current != nil && !momentFallback && (!introActive || b.intro.fill) {
+	momentBoundary := !current.liveMoment || b.current == nil || !b.current.lastFrameAt.IsZero() ||
+		(b.tick*int64(b.format.FPSDen)*int64(time.Second))%int64(b.segment*time.Duration(b.format.FPSNum)) == 0
+	if b.current != nil && momentBoundary && !momentFallback && (!introActive || b.intro.fill) {
 		select {
 		case f, ok := <-b.current.frames:
 			if ok && validRawFrame(b.format, f) {
@@ -1135,7 +1137,7 @@ func (b *broadcast) step(now time.Time) bool {
 			b.burstReady = true
 		}
 	}
-	if momentFallback && !introActive && b.momentCardPlan.id != "" {
+	if (momentFallback || (current.liveMoment && frame.Video == nil)) && !introActive && b.momentCardPlan.id != "" {
 		// A cold tune may land inside a missing moment. Wait for its own
 		// prewarmed plate before the first picture instead of briefly airing
 		// a faster generic source-error screen.
@@ -1328,7 +1330,7 @@ func (b *broadcast) requestRetry() {
 }
 
 func (b *broadcast) latchMomentInput(plan broadcastPlan, now time.Time) {
-	if !plan.interstitial {
+	if !plan.interstitial || plan.liveMoment {
 		return
 	}
 	if _, decided := b.momentInputs[plan.id]; decided {

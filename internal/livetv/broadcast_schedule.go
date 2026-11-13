@@ -147,9 +147,9 @@ func (s *Service) broadcastSchedule(ctx context.Context, c Channel, from, until 
 			if lm, ok := s.o.Graphics.(liveMomentSource); ok {
 				allowed, speedX, reason := lm.LiveRenderAllowed(request)
 				if allowed {
-					// Pre-render distant moments via the bounded queue; imminent or
-					// active moments render live and save directly in OpenMoment.
-					if !masterRequested && orig.Start.After(from.Add(broadcastPrewarm)) {
+					// Pre-render one upcoming moment for this watched output.
+					// Active moments enqueue their own master in OpenMoment.
+					if !masterRequested && orig.Start.After(from) {
 						masterRequested = true
 						req := request
 						req.Boundary = orig.Start

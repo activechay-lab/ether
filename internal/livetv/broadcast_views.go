@@ -68,6 +68,42 @@ func (s *Service) broadcastSegments(ctx context.Context, ss *session) (transcode
 	if lease == nil {
 		return nil, core.ErrNotAvailable
 	}
+	index, err := lease.output()
+	if err == nil {
+		return index, nil
+	}
+	// A retained session URL can outlive its output (for example after a
+	// lineup invalidation). Rejoin a running output or acquire a fresh one,
+	// serialized against another playlist request doing the same recovery.
+	ss.prepareMu.Lock()
+	defer ss.prepareMu.Unlock()
+	ss.mu.Lock()
+	if ss.closed {
+		ss.mu.Unlock()
+		return nil, core.ErrNotFound
+	}
+	lease = ss.broadcast
+	ss.mu.Unlock()
+	if lease == nil {
+		return nil, core.ErrNotAvailable
+	}
+	if index, err = lease.output(); err == nil {
+		return index, nil
+	}
+	lease.close()
+	// Recovery shares the playlist's bounded first-response budget.
+	recoverCtx, cancel := context.WithTimeout(ctx, broadcastSegment(lease)/4)
+	defer cancel()
+	if err := s.startBroadcast(recoverCtx, ss); err != nil {
+		return nil, err
+	}
+	ss.mu.Lock()
+	lease = ss.broadcast
+	ss.mu.Unlock()
+	if lease == nil {
+		return nil, core.ErrNotAvailable
+	}
+	s.sessionLog(ss).Info("live retained session rejoined broadcast")
 	return lease.output()
 }
 func (s *Service) broadcastWindow(ctx context.Context, ss *session, r *http.Request) (transcode.SegmentIndex, []transcode.Segment, error) {

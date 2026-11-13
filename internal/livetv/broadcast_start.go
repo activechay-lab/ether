@@ -80,6 +80,12 @@ func (d *momentStreamDecoder) Next(ctx context.Context) (transcode.RawFrame, err
 		}
 		return transcode.RawFrame{}, err
 	}
+	if mode := d.stream.Mode(); mode != d.mode {
+		d.mode = mode
+		if d.s != nil {
+			d.s.noteMomentPlayout(d.channelID, d.moment, mode, d.stream.SpeedX(), "")
+		}
+	}
 	return transcode.RawFrame{Video: video, PCM: audio}, nil
 }
 
@@ -190,7 +196,6 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 		}
 	}
 	if lm, ok := s.o.Graphics.(liveMomentSource); ok {
-		var attached *decoderFrameReader
 		stream, mode, err := lm.OpenMoment(ctx, request, format.Width, format.Height, format.FPSNum, format.FPSDen, loop, func(cctx context.Context, path string, clipLoop bool) (onair.FrameReader, error) {
 			dec, dErr := runner.StartDecoder(cctx, transcode.DecoderRequest{
 				SessionID: "graphics-" + filepath.Base(path),
@@ -201,8 +206,7 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 			if dErr != nil {
 				return nil, dErr
 			}
-			attached = &decoderFrameReader{callCtx: cctx, dec: dec}
-			return attached, nil
+			return &decoderFrameReader{callCtx: cctx, dec: dec}, nil
 		})
 		if err != nil {
 			if errors.Is(err, onair.ErrLiveBelowRealtime) {
@@ -212,13 +216,12 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 		}
 		s.noteMomentPlayout(request.ChannelID, request.Moment, mode, stream.SpeedX(), "")
 		return &momentStreamDecoder{
-			s:          s,
-			channelID:  request.ChannelID,
-			moment:     request.Moment,
-			mode:       mode,
-			stream:     stream,
-			baseReader: attached,
-			format:     format,
+			s:         s,
+			channelID: request.ChannelID,
+			moment:    request.Moment,
+			mode:      mode,
+			stream:    stream,
+			format:    format,
 		}, nil, nil
 	}
 	clip, ok := s.o.Graphics.Clip(ctx, request)
@@ -293,11 +296,21 @@ func (p *scheduleBroadcastPlanner) screen(time.Time) broadcastPlan {
 
 // Keep a complete ident ready independently of provider outage screens.
 // Standby masters contain background only; they cannot air as opening cards.
-func (p *scheduleBroadcastPlanner) momentScreen() broadcastPlan {
+func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
 	c := p.channel
 	request := p.s.clipRequest(c, Programme{Item: Item{Slate: "ident"}})
+	p.mu.Lock()
+	id := "moment-card-" + c.ID
+	for _, programme := range p.window {
+		if !now.Before(programme.Start) && now.Before(programme.End) && interstitial(programme.Item) {
+			request = p.s.clipRequest(c, programme, p.window)
+			id += "-" + programme.ID
+			break
+		}
+	}
+	p.mu.Unlock()
 	request.Bind["screen.reason"] = "moment"
-	return broadcastPlan{id: "moment-card-" + c.ID, element: "card", open: func(ctx context.Context) (transcode.Decoder, func(), error) {
+	return broadcastPlan{id: id, element: "card", open: func(ctx context.Context) (transcode.Decoder, func(), error) {
 		return p.s.openSignalDecoder(ctx, request, p.format)
 	}}
 }
@@ -520,6 +533,11 @@ func steadyRendition(f transcode.RawFormat, full int, caps core.ClientCaps) (int
 }
 
 func (p *scheduleBroadcastPlanner) introPlan(now time.Time) (broadcastPlan, time.Duration) {
+	for _, programme := range p.window {
+		if !now.Before(programme.Start) && now.Before(programme.End) && interstitial(programme.Item) {
+			return broadcastPlan{}, 0
+		}
+	}
 	c := p.s.personalChannel(p.s.ctx, p.channel, &p.user)
 	if welcome, ok := p.s.personalWelcome(c, now); ok {
 		p.joinAt = welcome.End

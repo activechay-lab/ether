@@ -664,7 +664,7 @@ func TestNeverHoldOnStillOnceStandbyMasterExistsAndVisibilityLogs(t *testing.T) 
 	if scrPlan.element != "standby" || !strings.HasPrefix(scrPlan.id, "screen-standby-") {
 		t.Fatalf("expected screen() to use looping animated standby master, got id=%q element=%q", scrPlan.id, scrPlan.element)
 	}
-	momPlan := planner.momentScreen()
+	momPlan := planner.momentScreenAt(now)
 	if momPlan.element != "card" || !strings.HasPrefix(momPlan.id, "moment-card-") {
 		t.Fatalf("expected momentScreen() to use complete ident card, got id=%q element=%q", momPlan.id, momPlan.element)
 	}

@@ -295,7 +295,11 @@ func (m *Manager) Run(ctx context.Context) {
 		m.mu.Unlock()
 		if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
 			m.state("waiting", err.Error())
-			m.deps.Logger.Warn("cache preload pass", "err", err)
+			if errors.Is(err, errPlaybackActive) {
+				m.deps.Logger.Debug("cache preload pass", "err", err)
+			} else {
+				m.deps.Logger.Warn("cache preload pass", "err", err)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -308,6 +312,9 @@ func (m *Manager) Run(ctx context.Context) {
 func enabled(c config.Cache) bool {
 	return c.PreloadEnabled && c.Mode != "off" && c.PreloadBudgetBytes > 0
 }
+
+var errPlaybackActive = errors.New("Waiting for live playback to finish")
+
 func (m *Manager) allowed() error {
 	c := m.deps.Config()
 	m.mu.Lock()
@@ -329,7 +336,7 @@ func (m *Manager) allowed() error {
 		return errors.New("Managed preloading is disabled")
 	}
 	if !c.PreloadDuringPlayback && m.deps.Active != nil && m.deps.Active() {
-		return errors.New("Waiting for live playback to finish")
+		return errPlaybackActive
 	}
 	free, err := m.deps.FreeBytes()
 	if err != nil {

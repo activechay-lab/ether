@@ -23,8 +23,8 @@ func (p momentDeadlinePlanner) plans(now time.Time) (broadcastPlan, *broadcastPl
 	}
 	return p.after, nil
 }
-func (p momentDeadlinePlanner) screen(time.Time) broadcastPlan { return p.fallback }
-func (p momentDeadlinePlanner) momentScreen() broadcastPlan    { return p.card }
+func (p momentDeadlinePlanner) screen(time.Time) broadcastPlan         { return p.fallback }
+func (p momentDeadlinePlanner) momentScreenAt(time.Time) broadcastPlan { return p.card }
 
 type delayedMomentDecoder struct {
 	*broadcastFakeDecoder
@@ -42,9 +42,9 @@ func (d *delayedMomentDecoder) Next(ctx context.Context) (transcode.RawFrame, er
 	return d.broadcastFakeDecoder.Next(ctx)
 }
 
-// A late rendered master cannot move a boundary or replace its live fallback
-// mid-moment. The following programme cuts on its original frame as well.
-func TestBroadcastMomentDeadlineKeepsWholeFallbackInterval(t *testing.T) {
+// The first segment shows the title plate. A late decoder replaces it at a
+// segment boundary, and the following programme retains its scheduled cut.
+func TestBroadcastMomentStartupSequence(t *testing.T) {
 	for _, moment := range []string{"ident", "plugin:weather/forecast"} {
 		for _, lead := range []time.Duration{0, 8 * time.Second} {
 			t.Run(moment+"/"+lead.String(), func(t *testing.T) {
@@ -58,13 +58,13 @@ func TestBroadcastMomentDeadlineKeepsWholeFallbackInterval(t *testing.T) {
 					}
 					p := momentDeadlinePlanner{
 						programme: broadcastPlan{id: "before", end: origin.Add(lead), open: open(80)},
-						moment:    broadcastPlan{id: moment, element: moment, interstitial: true, liveMoment: true, start: origin.Add(lead), end: origin.Add(lead + 4*time.Second)},
-						after:     broadcastPlan{id: "after", start: origin.Add(lead + 4*time.Second), open: open(90)},
+						moment:    broadcastPlan{id: moment, element: moment, interstitial: true, liveMoment: true, start: origin.Add(lead), end: origin.Add(lead + 8*time.Second)},
+						after:     broadcastPlan{id: "after", start: origin.Add(lead + 8*time.Second), open: open(90)},
 						fallback:  broadcastPlan{id: "reconnecting", open: open(10)},
 						card:      broadcastPlan{id: "style-card", open: open(30)},
 					}
 					p.moment.open = func(context.Context) (transcode.Decoder, func(), error) {
-						return &delayedMomentDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: format, value: 200, closed: make(chan struct{})}, ready: origin.Add(lead + 60*time.Second)}, nil, nil
+						return &delayedMomentDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: format, value: 200, closed: make(chan struct{})}, ready: origin.Add(lead + time.Second)}, nil, nil
 					}
 					if lead == 0 {
 						p.card.open = func(context.Context) (transcode.Decoder, func(), error) {
@@ -94,10 +94,13 @@ func TestBroadcastMomentDeadlineKeepsWholeFallbackInterval(t *testing.T) {
 					}
 					for tick := first; tick < 420; tick++ {
 						want := byte(80)
-						if tick >= int((lead+4*time.Second)*30/time.Second) {
+						if tick >= int((lead+8*time.Second)*30/time.Second) {
 							want = 90
 						} else if tick >= int(lead*30/time.Second) {
 							want = 30
+							if tick >= int((lead+4*time.Second)*30/time.Second) {
+								want = 200
+							}
 						}
 						if frames[tick].Video[0] != want {
 							t.Fatalf("tick %d: picture %d, want %d", tick, frames[tick].Video[0], want)

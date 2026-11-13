@@ -95,6 +95,7 @@ type MomentStream struct {
 	ovWallDur  time.Duration
 	lastSpeedX float64
 	saved      bool
+	promote    func() FrameReader
 }
 
 func (m *MomentStream) Mode() string    { return m.mode }
@@ -102,12 +103,24 @@ func (m *MomentStream) Saved() bool     { return m.saved }
 func (m *MomentStream) SpeedX() float64 { return m.lastSpeedX }
 
 func (m *MomentStream) ReadFrame(video []byte) ([]byte, error) {
+	if m.promote != nil && (m.tick*int64(m.fpsDen))%int64(4*m.fpsNum) == 0 {
+		if reader := m.promote(); reader != nil {
+			m.baseReader.Close()
+			m.baseReader = reader
+			m.promote = nil
+			m.mode = "cached"
+			if m.overlayDoc != nil {
+				m.mode = "split-cached"
+			}
+			m.service.noteTransition(m.mode, 0)
+		}
+	}
 	if m.baseReader != nil {
 		audio, err := m.baseReader.ReadFrame(video)
 		if err != nil {
 			return nil, err
 		}
-		if m.overlayDoc != nil {
+		if m.overlayDoc != nil && m.promote == nil {
 			dur := m.overlayDoc.Duration
 			if dur <= 0 {
 				dur = 8
@@ -353,7 +366,7 @@ func (s *Service) OpenMoment(
 	}
 
 	// A cold scene airs immediately. The queued master becomes eligible at the
-	// next boundary; the current reader never blocks on the render slot.
+	// next segment boundary; the reader never blocks on the render slot.
 	if cacheable && rawJob.AssetDigest == "" {
 		s.enqueue(cacheJob)
 		stillJob := rawJob
@@ -365,7 +378,49 @@ func (s *Service) OpenMoment(
 		pixels := make([]byte, width*height*3/2)
 		rgbaScaleToI420(plate, pixels, width, height)
 		reader := &plateReader{remaining: plateFrames(rawJob.Doc.Duration, fpsNum, fpsDen, loop), pixels: pixels, audio: make([]byte, (48000*fpsDen/fpsNum)*4)}
-		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment}, "static-plate", nil
+		// Prepare and prime the cached decoder off the frame clock. Only exchange
+		// readers at a segment boundary; the plate remains available throughout.
+		promoteCtx, cancel := context.WithCancel(ctx)
+		ready := make(chan FrameReader)
+		go func() {
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				if ref, hit := s.Clip(promoteCtx, r); hit && openClip != nil {
+					dec, err := openClip(promoteCtx, ref.Path, loop)
+					if err == nil {
+						pixels := make([]byte, width*height*3/2)
+						audio, err := dec.ReadFrame(pixels)
+						if err == nil {
+							primed := &primedReader{FrameReader: dec, video: pixels, audio: audio}
+							select {
+							case ready <- primed:
+								return
+							case <-promoteCtx.Done():
+							}
+						}
+						dec.Close()
+					}
+				}
+				select {
+				case <-promoteCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+		return &MomentStream{mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
+			overlayDoc: overlayDoc, overlayBnd: overlayBind,
+			stopLive: func(bool) { cancel() },
+			promote: func() FrameReader {
+				select {
+				case dec := <-ready:
+					return dec
+				default:
+					return nil
+				}
+			},
+		}, "static-plate", nil
 	}
 
 	// 2. Cold cache miss or unsplittable slot scene: check >= 1.0x speed gate.
@@ -1114,3 +1169,18 @@ func (p *plateReader) ReadFrame(video []byte) ([]byte, error) {
 	return p.audio, nil
 }
 func (p *plateReader) Close() error { return nil }
+
+// primedReader transfers the first decoded frame without blocking the splice.
+type primedReader struct {
+	FrameReader
+	video, audio []byte
+}
+
+func (p *primedReader) ReadFrame(video []byte) ([]byte, error) {
+	if p.video != nil {
+		copy(video, p.video)
+		p.video = nil
+		return p.audio, nil
+	}
+	return p.FrameReader.ReadFrame(video)
+}

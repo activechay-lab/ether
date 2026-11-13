@@ -16,8 +16,8 @@ type coldHoldPlanner struct {
 	card       broadcastPlan
 }
 
-func (p coldHoldPlanner) screen(time.Time) broadcastPlan { return p.screenPlan }
-func (p coldHoldPlanner) momentScreen() broadcastPlan    { return p.card }
+func (p coldHoldPlanner) screen(time.Time) broadcastPlan         { return p.screenPlan }
+func (p coldHoldPlanner) momentScreenAt(time.Time) broadcastPlan { return p.card }
 
 func coldHoldOpen(f transcode.RawFormat, value byte, delay time.Duration) func(context.Context) (transcode.Decoder, func(), error) {
 	return func(context.Context) (transcode.Decoder, func(), error) {
