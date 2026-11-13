@@ -159,7 +159,9 @@ func TestExistingIdentityRecheckedUnderCreditRule(t *testing.T) {
 	if _, err = db.Exec(`INSERT INTO catalog_credits(key,person_tmdb,name,kind,ord) VALUES(?,?,?, 'director', 0)`, int64(core.MovieKey(551)), 2, "Someone Else"); err != nil {
 		t.Fatal(err)
 	}
-	s := New(db, Options{Background: true})
+	s := New(db, Options{})
+	// Inspect the queue and run repair manually without background consumers.
+	s.priority = make(chan core.RatingKey, priorityQueueSize)
 	defer s.Close()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

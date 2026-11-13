@@ -2,10 +2,10 @@ package app
 
 import (
 	"github.com/braedonsaunders/ether/internal/core"
+	pd "github.com/braedonsaunders/ether/internal/frontend/kit/plexdelivery"
 	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
 	md "github.com/braedonsaunders/ether/internal/frontends/mediabrowser/deliverypolicy"
 	"github.com/braedonsaunders/ether/internal/frontends/plex"
-	pd "github.com/braedonsaunders/ether/internal/frontend/kit/plexdelivery"
 )
 
 func sessionPolicy(protocol core.Protocol) core.SessionPolicy {

@@ -229,16 +229,27 @@ export default function Cache() {
     }
   }
   async function clearAll() {
-    if (!window.confirm(t("Clear cache? Stop playback first. Protected files stay until background work finishes."))) return;
+    if (
+      !window.confirm(
+        t("Clear cache? Stop playback first. Protected files stay until background work finishes."),
+      )
+    )
+      return;
     setBusy("clear-all");
     setError(null);
     try {
-      const result = await apiFetch<{ freedBytes: number; complete: boolean }>("/cache/clear-all", { method: "POST" });
+      const result = await apiFetch<{ freedBytes: number; complete: boolean }>("/cache/clear-all", {
+        method: "POST",
+      });
       toast.success(t("Freed {size}", { size: formatBytes(result.freedBytes) }));
-      if (!result.complete) setError(new Error(t("Protected files remain. Try again after background work finishes.")));
+      if (!result.complete)
+        setError(new Error(t("Protected files remain. Try again after background work finishes.")));
       await live.reload();
-    } catch (e) { setError(e); }
-    finally { setBusy(null); }
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(null);
+    }
   }
   async function clearRelease(releaseId: string, title: string, block: boolean) {
     const question = block
@@ -297,7 +308,9 @@ export default function Cache() {
       title={t("Cache")}
       actions={
         <>
-          <Button size="sm" disabled={busy !== null} onClick={() => void clearAll()}>{t("Clear cache")}</Button>
+          <Button size="sm" disabled={busy !== null} onClick={() => void clearAll()}>
+            {t("Clear cache")}
+          </Button>
           {dirty && <Badge variant="warning">{t("Unsaved policy")}</Badge>}
           <Badge variant="secondary">
             {snap?.shared

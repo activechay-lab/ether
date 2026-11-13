@@ -72,4 +72,3 @@ func excludedKey(f core.Filter) string {
 	}
 	return ""
 }
-
