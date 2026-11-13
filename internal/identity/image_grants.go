@@ -401,6 +401,18 @@ func (s *ImageGrantService) writeGrantedImage(w http.ResponseWriter, r *http.Req
 		width = 500
 	}
 	format := r.URL.Query().Get("format")
+	if mediaBrowser {
+		// The shared renderer encodes JPEG and PNG. Other Jellyfin formats
+		// (Webp, Gif, Bmp, Svg), and unknown values, use the source format.
+		switch strings.ToLower(format) {
+		case "jpg", "jpeg":
+			format = "jpeg"
+		case "png":
+			format = "png"
+		default:
+			format = ""
+		}
+	}
 	blur := r.URL.Query().Get("blur") == "1"
 	if s.artwork != nil {
 		if height < 0 || height > 4000 {

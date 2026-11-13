@@ -69,6 +69,15 @@ func RenderUltraBlur(colors Palette, transform frontend.ArtworkTransform) ([]byt
 }
 
 func Transform(data []byte, contentType string, transform frontend.ArtworkTransform) ([]byte, string, error) {
+	// Preserve the source encoding on format fallback, including PNG alpha.
+	// Sources without an encoder stay untouched rather than becoming JPEG.
+	if transform.Fit && transform.Format == "" {
+		switch contentType {
+		case "image/png", "image/jpeg":
+		default:
+			return data, contentType, nil
+		}
+	}
 	// Width alone is handled by the existing image sources, including TMDB's
 	// width buckets and the poster provider's resize path.
 	if !transform.Fit && transform.Height == 0 && transform.Format == "" && !transform.Blur {
@@ -121,6 +130,9 @@ func Transform(data []byte, contentType string, transform frontend.ArtworkTransf
 		if err != nil {
 			return nil, "", err
 		}
+	}
+	if transform.Fit && transform.Format == "" && contentType == "image/png" {
+		transform.Format = "png"
 	}
 	var out bytes.Buffer
 	switch transform.Format {
