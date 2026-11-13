@@ -108,3 +108,10 @@ Declare how the console runs it with an `ether.sidecar` manifest block:
 
 `docker` is an image reference; `download` (an https URL) with `command` (a
 single line) is the alternative; `docs` adds a setup link.
+
+
+Content-kind item dictionaries may include `unavailable: {"code": "no_verified_source",
+"detail": "No verified source"}`. Ether keeps these items visible with the reason
+and refuses resolution until a later upsert omits the field. `pattern: "file"`
+with a `path` is reserved for hosted resolvers with `folders: read`; Python
+sidecars cannot access host files or call `folders.hash`. See `docs/plugin-kinds.md`.

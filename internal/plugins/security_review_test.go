@@ -77,6 +77,11 @@ func TestFolderHostRejectsSymlinkEscape(t *testing.T) {
 	if _, err := h.FoldersList(ctx, root, "escape"); err == nil {
 		t.Error("listed outside root through symlink")
 	}
+	for _, path := range []string{"escape/private", "../private", "inside/../private"} {
+		if _, err := h.FoldersHash(ctx, root, path); err == nil {
+			t.Errorf("hashed escaping path %q", path)
+		}
+	}
 	if _, err := h.FoldersStat(ctx, root, "escape/private"); err == nil {
 		t.Error("stat outside root through symlink")
 	}

@@ -28,6 +28,15 @@ type HostFetchResponse struct {
 	Body    string            `json:"body"`
 }
 
+// FolderHash contains digests, never file contents. ModTime is Unix seconds.
+type FolderHash struct {
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"`
+	CRC32   string `json:"crc32"`
+	MD5     string `json:"md5"`
+	SHA1    string `json:"sha1"`
+}
+
 // FolderEntry describes one entry returned by Host.FoldersList or Host.FoldersStat.
 type FolderEntry struct {
 	Name  string `json:"name"`
@@ -71,6 +80,7 @@ type Host interface {
 	UpsertCollection(ctx context.Context, collection map[string]any) error
 	FoldersList(ctx context.Context, root, path string) ([]FolderEntry, error)
 	FoldersStat(ctx context.Context, root, path string) (FolderEntry, error)
+	FoldersHash(ctx context.Context, root, path string) (FolderHash, error)
 	NotifyOwner(ctx context.Context, text string) error
 	Log(ctx context.Context, level, message string, attrs map[string]any) error
 	// Content-kind host services. KindUpsert/KindDelete need a push-mode
@@ -504,4 +514,8 @@ func (c *RemoteHostClient) StreamURL(ctx context.Context, viewerID int64, itemRe
 		return "", err
 	}
 	return out.URL, nil
+}
+
+func (*RemoteHostClient) FoldersHash(context.Context, string, string) (FolderHash, error) {
+	return FolderHash{}, fmt.Errorf("folders.hash requires the hosted runtime")
 }

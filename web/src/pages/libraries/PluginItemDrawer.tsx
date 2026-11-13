@@ -85,6 +85,12 @@ export function PluginItemDrawer({
                 {item.year ? ` · ${item.year}` : ""}
                 {item.playable ? ` · ${t("Playable")}` : ""}
               </p>
+              {item.unavailable ? (
+                <section aria-label={t("Not playable yet")} className="mt-3 rounded-lg border border-border p-3">
+                  <h3>{t("Not playable yet")}</h3>
+                  <p className="text-sm text-fg-muted">{item.unavailable.detail || item.unavailable.code}</p>
+                </section>
+              ) : null}
               {item.summary ? <p className="mt-1 text-sm">{item.summary}</p> : null}
             </div>
           </div>

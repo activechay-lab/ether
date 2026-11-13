@@ -902,6 +902,7 @@ func (s *Service) StoredItem(ctx context.Context, req frontend.ItemRequest) (fro
 			Images:              piv.Images,
 			ImagesAuthoritative: len(piv.Images) > 0,
 			CanPlay:             &playable,
+			Unavailable:         piv.Unavailable,
 		}, nil
 	}
 	if s.d.CachedGet == nil {
@@ -951,6 +952,7 @@ func (s *Service) Item(ctx context.Context, req frontend.ItemRequest) (frontend.
 			Images:              piv.Images,
 			ImagesAuthoritative: len(piv.Images) > 0,
 			CanPlay:             &playable,
+			Unavailable:         piv.Unavailable,
 		}
 		d.UserData, err = s.d.State.Get(ctx, v.ID, piv.Title.Key)
 		if err != nil {

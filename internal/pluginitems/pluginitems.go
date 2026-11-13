@@ -23,6 +23,7 @@ import (
 )
 
 func init() {
+	store.Register("pluginitems", 2, `ALTER TABLE plugin_items ADD COLUMN unavailable TEXT NOT NULL DEFAULT '';`)
 	store.Register("pluginitems", 1, `
 CREATE TABLE plugin_kinds (
 	plugin_id      TEXT    NOT NULL,

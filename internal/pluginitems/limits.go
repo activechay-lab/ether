@@ -66,6 +66,11 @@ func ValidateItem(decl plugins.MediaKindMeta, it core.KindItem, parentLevel stri
 	if msg := plugins.CheckKindItem(decl, it); msg != "" {
 		return ValidatedItem{}, fmt.Errorf("%w: item %q: %s", ErrInvalidItem, it.ID, msg)
 	}
+	if it.Unavailable != nil {
+		if strings.TrimSpace(it.Unavailable.Code) == "" || len(it.Unavailable.Code) > 128 || len(it.Unavailable.Detail) > 2000 {
+			return ValidatedItem{}, fmt.Errorf("%w: invalid unavailable reason", ErrInvalidItem)
+		}
+	}
 	lv, at, ok := decl.Level(it.Level)
 	if !ok {
 		return ValidatedItem{}, fmt.Errorf("%w: item %q: undeclared level %q", ErrInvalidItem, it.ID, it.Level)

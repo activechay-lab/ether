@@ -19,6 +19,7 @@ export {
   type CatalogTitleSummary,
   type EtherHost,
   type FolderEntry,
+  type FolderHash,
   type HostFetchRequest,
   type HostFetchResponse,
   type RemoteHostOptions,

@@ -36,7 +36,7 @@ type SyncState struct {
 	Items       int64     `json:"items"`
 }
 
-const itemCols = `item_ref, seq, plugin_id, kind_key, library_id, external_id, parent_ref, level, idx, title, sort_title, summary, year, released, rating, playable, child_count, leaf_count, hints, fields, etag`
+const itemCols = `item_ref, seq, plugin_id, kind_key, library_id, external_id, parent_ref, level, idx, title, sort_title, summary, year, released, rating, playable, child_count, leaf_count, hints, fields, etag, unavailable`
 
 func prefixedItemCols(prefix string) string {
 	parts := strings.Split(itemCols, ", ")
@@ -52,25 +52,26 @@ type rowScanner interface {
 
 func scanItemRow(sc rowScanner) (core.KindItem, core.LibraryID, int64, error) {
 	var (
-		it         core.KindItem
-		refStr     string
-		seq        int64
-		pluginID   string
-		kindKey    string
-		libID      int64
-		parentRef  string
-		idx        int64
-		year       int64
-		playable   int
-		childCount int64
-		leafCount  int64
-		hintsRaw   string
-		fieldsRaw  string
+		it             core.KindItem
+		refStr         string
+		seq            int64
+		pluginID       string
+		kindKey        string
+		libID          int64
+		parentRef      string
+		idx            int64
+		year           int64
+		playable       int
+		childCount     int64
+		leafCount      int64
+		hintsRaw       string
+		fieldsRaw      string
+		unavailableRaw string
 	)
 	if err := sc.Scan(
 		&refStr, &seq, &pluginID, &kindKey, &libID, &it.ID, &parentRef, &it.Level, &idx,
 		&it.Title, &it.SortTitle, &it.Summary, &year, &it.Released, &it.Rating,
-		&playable, &childCount, &leafCount, &hintsRaw, &fieldsRaw, &it.ETag,
+		&playable, &childCount, &leafCount, &hintsRaw, &fieldsRaw, &it.ETag, &unavailableRaw,
 	); err != nil {
 		return core.KindItem{}, 0, 0, err
 	}
@@ -81,7 +82,12 @@ func scanItemRow(sc rowScanner) (core.KindItem, core.LibraryID, int64, error) {
 	}
 	it.Index = int(idx)
 	it.Year = int(year)
-	it.Playable = playable != 0
+	if unavailableRaw != "" {
+		if err := json.Unmarshal([]byte(unavailableRaw), &it.Unavailable); err != nil {
+			return core.KindItem{}, 0, 0, err
+		}
+	}
+	it.Playable = playable != 0 && it.Unavailable == nil
 	it.ChildCount = int(childCount)
 	it.LeafCount = int(leafCount)
 	if hintsRaw != "" && hintsRaw != "{}" {
@@ -467,6 +473,14 @@ func (s *Service) upsertItemsLocked(ctx context.Context, pluginID, kindKey strin
 				fieldsStr = string(b)
 			}
 		}
+		unavailableStr := ""
+		if it.Unavailable != nil {
+			b, err := json.Marshal(it.Unavailable)
+			if err != nil {
+				return 0, err
+			}
+			unavailableStr = string(b)
+		}
 		playableInt := 0
 		if it.Playable {
 			playableInt = 1
@@ -483,11 +497,11 @@ func (s *Service) upsertItemsLocked(ctx context.Context, pluginID, kindKey strin
 INSERT INTO plugin_items(
 	item_ref, seq, plugin_id, kind_key, library_id, external_id, parent_ref, level, idx,
 	title, sort_title, summary, year, released, rating, playable, child_count, leaf_count,
-	hints, fields, etag, added_at, updated_at, seen_at, missed_walks, search_tsv
+	unavailable, hints, fields, etag, added_at, updated_at, seen_at, missed_walks, search_tsv
 ) VALUES(
 	?, ?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?, ?,
-	?, ?, ?, ?, ?, ?, 0,
+	?, ?, ?, ?, ?, ?, ?, 0,
 	setweight(to_tsvector('simple', ?), 'A') || setweight(to_tsvector('simple', ?), 'B')
 ) ON CONFLICT(item_ref) DO UPDATE SET
 	parent_ref   = excluded.parent_ref,
@@ -502,6 +516,7 @@ INSERT INTO plugin_items(
 	playable     = excluded.playable,
 	child_count  = excluded.child_count,
 	leaf_count   = excluded.leaf_count,
+	unavailable = excluded.unavailable,
 	hints        = excluded.hints,
 	fields       = excluded.fields,
 	etag         = excluded.etag,
@@ -511,7 +526,7 @@ INSERT INTO plugin_items(
 	search_tsv   = excluded.search_tsv`,
 				string(it.Ref), seq, pluginID, kindKey, int64(kind.LibraryID), it.ID, parentRef, it.Level, it.Index,
 				it.Title, it.SortTitle, it.Summary, it.Year, it.Released, it.Rating, playableInt, it.ChildCount, it.LeafCount,
-				hintsStr, fieldsStr, it.ETag, addedAt, nowUnix, seenAt,
+				unavailableStr, hintsStr, fieldsStr, it.ETag, addedAt, nowUnix, seenAt,
 				searchTitle, searchFields,
 			); err != nil {
 				return 0, err
@@ -521,11 +536,11 @@ INSERT INTO plugin_items(
 INSERT INTO plugin_items(
 	item_ref, seq, plugin_id, kind_key, library_id, external_id, parent_ref, level, idx,
 	title, sort_title, summary, year, released, rating, playable, child_count, leaf_count,
-	hints, fields, etag, added_at, updated_at, seen_at, missed_walks
+	unavailable, hints, fields, etag, added_at, updated_at, seen_at, missed_walks
 ) VALUES(
 	?, ?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?, ?,
-	?, ?, ?, ?, ?, ?, 0
+	?, ?, ?, ?, ?, ?, ?, 0
 ) ON CONFLICT(item_ref) DO UPDATE SET
 	parent_ref   = excluded.parent_ref,
 	level        = excluded.level,
@@ -539,6 +554,7 @@ INSERT INTO plugin_items(
 	playable     = excluded.playable,
 	child_count  = excluded.child_count,
 	leaf_count   = excluded.leaf_count,
+	unavailable = excluded.unavailable,
 	hints        = excluded.hints,
 	fields       = excluded.fields,
 	etag         = excluded.etag,
@@ -547,7 +563,7 @@ INSERT INTO plugin_items(
 	missed_walks = 0`,
 				string(it.Ref), seq, pluginID, kindKey, int64(kind.LibraryID), it.ID, parentRef, it.Level, it.Index,
 				it.Title, it.SortTitle, it.Summary, it.Year, it.Released, it.Rating, playableInt, it.ChildCount, it.LeafCount,
-				hintsStr, fieldsStr, it.ETag, addedAt, nowUnix, seenAt,
+				unavailableStr, hintsStr, fieldsStr, it.ETag, addedAt, nowUnix, seenAt,
 			); err != nil {
 				return 0, err
 			}

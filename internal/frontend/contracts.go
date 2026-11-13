@@ -478,6 +478,8 @@ type ItemDetail struct {
 	Playlist   *core.Playlist
 	Title      core.Title
 	UserData   core.WatchStatus
+	// Unavailable is the plugin-declared reason playback is blocked.
+	Unavailable *core.ItemUnavailable
 	// CanPlay reflects current playback authorization when known. Nil means the
 	// verified peer or policy result is unavailable. It does not guarantee a
 	// source, codec, stream slot or transcode capacity will be available.

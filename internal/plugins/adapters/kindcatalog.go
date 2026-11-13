@@ -446,10 +446,11 @@ func (c *KindCatalog) Item(ctx context.Context, key core.RatingKey) (experience.
 	}
 	titles := c.projectItems(ctx, rec, lib, []core.KindItem{item})
 	return experience.PluginItemView{
-		Library:  lib,
-		Title:    titles[0],
-		Images:   projectImages(item.Art),
-		Playable: item.Playable && levelIsPlayable(rec.Decl, item.Level),
+		Library:     lib,
+		Title:       titles[0],
+		Images:      projectImages(item.Art),
+		Unavailable: item.Unavailable,
+		Playable:    item.Unavailable == nil && item.Playable && levelIsPlayable(rec.Decl, item.Level),
 	}, nil
 }
 
@@ -490,10 +491,11 @@ func (c *KindCatalog) ItemsMany(ctx context.Context, keys []core.RatingKey) (map
 		}
 		titles := c.projectItems(ctx, rec, lib, []core.KindItem{item})
 		out[key] = experience.PluginItemView{
-			Library:  lib,
-			Title:    titles[0],
-			Images:   projectImages(item.Art),
-			Playable: item.Playable && levelIsPlayable(rec.Decl, item.Level),
+			Library:     lib,
+			Title:       titles[0],
+			Images:      projectImages(item.Art),
+			Unavailable: item.Unavailable,
+			Playable:    item.Unavailable == nil && item.Playable && levelIsPlayable(rec.Decl, item.Level),
 		}
 	}
 	return out, nil

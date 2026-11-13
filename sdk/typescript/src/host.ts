@@ -24,6 +24,8 @@ export interface HostFetchResponse {
   bodyBase64?: string;
 }
 
+export interface FolderHash { size: number; modTime: number; crc32: string; md5: string; sha1: string }
+
 export interface FolderEntry {
   name: string;
   path: string;
@@ -94,6 +96,7 @@ export interface EtherHost {
   folders: {
     list(root: string, path?: string): MaybePromise<FolderEntry[]>;
     stat(root: string, path: string): MaybePromise<FolderEntry>;
+    hash(root: string, path: string): MaybePromise<FolderHash>;
   };
   notify: {
     owner(text: string): MaybePromise<void>;
@@ -157,6 +160,7 @@ interface GlobalEtherBindings {
     folders: {
       list: (root: string, path?: string) => FolderEntry[];
       stat: (root: string, path: string) => FolderEntry;
+      hash: (root: string, path: string) => FolderHash;
     };
     notify: {
       owner: (text: string) => void;
@@ -284,6 +288,10 @@ export function createHostedClient(): EtherHost {
       list(root: string, path = ""): FolderEntry[] {
         if (g.ether?.folders) return g.ether.folders.list(root, path) ?? [];
         return callHost<FolderEntry[]>("folders.list", [root, path]) ?? [];
+      },
+      hash(root: string, path: string): FolderHash {
+        if (g.ether?.folders) return g.ether.folders.hash(root, path);
+        return callHost<FolderHash>("folders.hash", [root, path]);
       },
       stat(root: string, path: string): FolderEntry {
         if (g.ether?.folders) return g.ether.folders.stat(root, path);
@@ -513,6 +521,7 @@ export function createRemoteHostClient(opts: RemoteHostOptions = {}): EtherHost 
           ),
         );
       },
+      hash(): Promise<FolderHash> { return Promise.reject(new Error("folders.hash requires the hosted runtime")); },
       stat(): Promise<FolderEntry> {
         return Promise.reject(
           new Error(
